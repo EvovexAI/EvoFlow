@@ -331,7 +331,7 @@ def _collab_hint_text(
             + "`monitor_execution_step` / `get_status` (average, **main cap 99%**). Subtasks may still reach 100% + "
             + "`completed` via worker tools. **Main-task `completed` + 100% are lead-only** — after Plan validation call "
             + "`update_progress(..., progress=100, status=completed)` or `set_task_state(status=completed)`.\n"
-            + "- **Subtask progress:** workers must call `subtask_progress_report` (and/or `subtask_work_checklist`) "
+            + "- **Subtask progress:** workers must call `progress` (and/or `checklist`) "
             + "during execution; if subtasks sit at 0% while running, use `continue_subtask_session` with a nudge.\n"
             + "- Each assistant turn should include the necessary `supervisor` tool call(s) to make progress "
             + "(start/monitor/get_status/update_progress/etc). Prose-only turns are allowed only for final results.\n"

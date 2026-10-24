@@ -1,12 +1,11 @@
-"""Short canonical names for collab worker tools (less tokens to emit / read).
+"""Short registered names for collab worker tools (what the model sees).
 
-Legacy long names remain registered as aliases so mid-flight workers and old
-prompts keep working; allowlists / mandates use the short names.
+Legacy long names in agent YAML / allowlists are rewritten via
+``canonical_tool_name`` / ``canonicalize_tool_names``.
 """
 
 from __future__ import annotations
 
-# Canonical (short)
 DONE = "done"
 PROGRESS = "progress"
 CHECKLIST = "checklist"
@@ -14,7 +13,7 @@ PEER_SEND = "peer_send"
 PEER_READ = "peer_read"
 PEER_REPLY = "peer_reply"
 
-# Legacy → canonical
+# Old spellings → short registered names (tools are only registered under short names).
 LEGACY_TO_CANONICAL: dict[str, str] = {
     "subtask_outcome_report": DONE,
     "subtask_progress_report": PROGRESS,
@@ -23,8 +22,6 @@ LEGACY_TO_CANONICAL: dict[str, str] = {
     "collab_peer_read": PEER_READ,
     "collab_peer_reply": PEER_REPLY,
 }
-
-CANONICAL_TO_LEGACY: dict[str, str] = {v: k for k, v in LEGACY_TO_CANONICAL.items()}
 
 MANDATORY_FULL: tuple[str, ...] = (
     CHECKLIST,
@@ -36,40 +33,40 @@ MANDATORY_FULL: tuple[str, ...] = (
 )
 MANDATORY_LIGHT: tuple[str, ...] = (DONE,)
 
-# All names that refer to the same surfaces (canonical + legacy)
-ALL_COLLAB_REPORT_NAMES: frozenset[str] = frozenset(
-    {
-        DONE,
-        PROGRESS,
-        CHECKLIST,
-        PEER_SEND,
-        PEER_READ,
-        PEER_REPLY,
-        *LEGACY_TO_CANONICAL.keys(),
-    }
-)
-
 
 def canonical_tool_name(name: str) -> str:
     raw = str(name or "").strip()
     return LEGACY_TO_CANONICAL.get(raw, raw)
 
 
+def canonicalize_tool_names(names: list[str] | tuple[str, ...] | None) -> list[str]:
+    """Map legacy spellings → short names; drop dupes; preserve order."""
+    if not names:
+        return []
+    out: list[str] = []
+    seen: set[str] = set()
+    for raw in names:
+        canon = canonical_tool_name(str(raw or "").strip())
+        if not canon or canon in seen:
+            continue
+        seen.add(canon)
+        out.append(canon)
+    return out
+
+
 def expand_tool_name_aliases(name: str) -> frozenset[str]:
-    """Return canonical + legacy spellings for allowlist / ban stripping."""
+    """Canonical + legacy spellings (for stripping bans that still use old names)."""
     canon = canonical_tool_name(name)
     out = {canon}
-    leg = CANONICAL_TO_LEGACY.get(canon)
-    if leg:
-        out.add(leg)
+    for leg, c in LEGACY_TO_CANONICAL.items():
+        if c == canon:
+            out.add(leg)
     if name:
         out.add(str(name).strip())
     return frozenset(x for x in out if x)
 
 
 __all__ = [
-    "ALL_COLLAB_REPORT_NAMES",
-    "CANONICAL_TO_LEGACY",
     "CHECKLIST",
     "DONE",
     "LEGACY_TO_CANONICAL",
@@ -80,5 +77,6 @@ __all__ = [
     "PEER_SEND",
     "PROGRESS",
     "canonical_tool_name",
+    "canonicalize_tool_names",
     "expand_tool_name_aliases",
 ]

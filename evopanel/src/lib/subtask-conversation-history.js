@@ -61,7 +61,7 @@ function filterRealChatMessages(messages) {
   return messages.filter((m) => {
     if (!m || typeof m !== 'object') return false
     const src = String(m.source || '').trim()
-    if (src === 'subtask_outcome_report') return false
+    if (src === 'done') return false
     const id = String(m.id || '').trim()
     if (id.endsWith(':outcome-report')) return false
     return true
@@ -123,6 +123,50 @@ async function fetchViaTaskConversationHistory(mainTaskId, subtaskId, limit) {
 }
 
 /**
+ * Meta only for V4 pane: resolve executor ``thread_id`` + outcome.
+ * Does not build modal rows (old SubtaskModalMessageRow stack is retired).
+ *
+ * @param {{
+ *   leadThreadId?: string,
+ *   subtaskId: string,
+ *   mainTaskId?: string,
+ *   storedSubtaskThreadId?: string,
+ *   subtaskSnapshot?: Record<string, unknown> | null,
+ * }} params
+ */
+export async function fetchSubtaskTranscriptMeta(params) {
+  const subtaskId = String(params?.subtaskId || '').trim()
+  const mainTaskId = String(params?.mainTaskId || '').trim()
+  let threadId = String(params?.storedSubtaskThreadId || '').trim()
+  let outcome = outcomeFromSubtaskSnapshot(params?.subtaskSnapshot)
+  let status = String(params?.subtaskSnapshot?.status || '').trim() || undefined
+
+  if (mainTaskId && subtaskId) {
+    try {
+      const data = await fetchViaTaskConversationHistory(mainTaskId, subtaskId, 1)
+      const resolved = String(data?.thread_id || '').trim()
+      if (resolved) threadId = resolved
+      outcome = outcomeFromApi(data?.outcome, params?.subtaskSnapshot)
+      const st = String(outcome?.status || data?.status || '').trim()
+      if (st) status = st
+    } catch {
+      /* keep stored / snapshot */
+    }
+  }
+
+  return {
+    task_id: mainTaskId,
+    subtask_id: subtaskId,
+    thread_id: threadId || undefined,
+    status,
+    outcome,
+  }
+}
+
+/**
+ * @deprecated Prefer ``fetchSubtaskTranscriptMeta`` + V4SessionPaneBridge.
+ * Still returns ``rows`` for legacy drawer hosts being migrated off.
+ *
  * @param {{
  *   leadThreadId?: string,
  *   subtaskId: string,

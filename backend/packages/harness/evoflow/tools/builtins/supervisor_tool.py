@@ -369,7 +369,7 @@ async def supervisor_tool(
     **Typical plan execution loop (after UI start)**
     1. Confirm workers are running (`get_status` / `monitor_execution_step`).
     2. On failure: `continue_subtask_session` / `retry_subtask` / `start_execution` as needed.
-    3. Workers report via `subtask_progress_report` / `subtask_outcome_report`.
+    3. Workers report via `progress` / `done`.
     4. After all subtasks done: run Plan `validation`, then close main with
        `update_progress(100, completed)` or `set_task_state(completed)`.
     Backend auto-syncs main progress from subtask averages (cap 99%) — you still
@@ -429,7 +429,7 @@ async def supervisor_tool(
         keep_session_open: For continue_subtask_session only. When true (default), do not close the worker session
             and keep the subtask in_progress for further follow-ups; when false, close the session and mark terminal.
         work_checklist: Optional. For ``set_subtask_work_checklist`` only (Lead override / rare); workers normally
-            use ``subtask_work_checklist``. May also be set on ``subtasks[]`` at create time if pre-seeded.
+            use ``checklist``. May also be set on ``subtasks[]`` at create time if pre-seeded.
     """
     # Delay import to avoid circular imports when subagent_runner loads executor
 
@@ -1836,7 +1836,7 @@ async def supervisor_tool(
                     continue
                 st["updated_at"] = now_done
                 if rec.get("ok"):
-                    # Terminal status only via subtask_outcome_report (or worker finalize).
+                    # Terminal status only via done (or worker finalize).
                     cur = str(st.get("status") or "").strip().lower()
                     if cur not in _TERMINAL_SUBTASK:
                         st["status"] = "in_progress"
@@ -2386,7 +2386,7 @@ async def supervisor_tool(
             ensure_ascii=False,
         )
 
-    # ── Action: set_subtask_work_checklist (optional Lead override; workers normally use subtask_work_checklist) ──
+    # ── Action: set_subtask_work_checklist (optional Lead override; workers normally use checklist) ──
     elif action == "set_subtask_work_checklist":
         if not task_id or not subtask_id:
             return json.dumps(

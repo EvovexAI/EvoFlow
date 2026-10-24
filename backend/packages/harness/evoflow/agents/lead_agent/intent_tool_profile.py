@@ -151,9 +151,9 @@ PLAN_SCENARIO_EAGER_TOOL_NAMES: tuple[str, ...] = (
     "subagent",
     "read",
     "list_agents",
-    "collab_peer_send",
-    "collab_peer_read",
-    "collab_peer_reply",
+    "peer_send",
+    "peer_read",
+    "peer_reply",
     "search_code_index",
 )
 
@@ -466,9 +466,9 @@ TASK_SCENARIO_PROFILES: dict[str, TaskScenarioProfile] = {
         extra_tool_names=(
             "read",
             "list_agents",
-            "collab_peer_send",
-            "collab_peer_read",
-            "collab_peer_reply",
+            "peer_send",
+            "peer_read",
+            "peer_reply",
         ),
         signals="先规划后执行、多子任务编排与监督推进。",
         boundaries=("plan 独占（激活会清 agent）。全流程 done 后系统自动切 agent。卡壳或用户要换模式：须先 supervisor 取消/失败主任务，勿半途 bypass。Gateway 定时 automation 不是 plan，用 tool_search 后直接调，勿 activate plan。"),

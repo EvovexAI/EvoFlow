@@ -38,7 +38,7 @@ def collab_subtask_lease_seconds(
     # Full Lead collab: Subagents often run several minutes; short leases caused
     # false watchdog timeouts. Minimum 300s (5 min) because tool calls can take
     # 30-60s each; a worker doing 5 consecutive reads without calling
-    # subtask_progress_report should not be killed.
+    # progress should not be killed.
     lease = max(300.0, min(900.0, t * 0.5))
     _lease_metrics["full"] = int(_lease_metrics.get("full") or 0) + 1
     return lease

@@ -40,7 +40,7 @@ describe('resolveSubtaskLivePreview', () => {
           liveOutput: '',
         },
       },
-      statusHint: 'Subagent executing (await subtask_outcome_report)',
+      statusHint: 'Subagent executing (await done)',
     })
     assert.equal(r.previewText, '运行中…')
     assert.equal(r.streamMatched, true)

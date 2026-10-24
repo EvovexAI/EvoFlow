@@ -449,7 +449,7 @@ async def _delegate_via_acp_tool(
                                     # ACP 无 LangGraph 工具链：勿以 send 返回当作 completed
                                     st["status"] = "in_progress"
                                     st["progress"] = max(10, min(90, int(st.get("progress") or 0) or 50))
-                                    st["current_step"] = "ACP 回合已返回正文，待 Lead 验收或 subtask_outcome_report"
+                                    st["current_step"] = "ACP 回合已返回正文，待 Lead 验收或 done"
                                 else:
                                     st["status"] = "failed"
                                     st["error"] = str(res.get("error") or "acp send failed")

@@ -188,8 +188,12 @@ export const TOOL_NAME_ZH = {
   list_skills_catalog: '技能目录 (CLI)',
   propose_goal: '目标方案',
   goal_report: '目标汇报',
-  subtask_work_checklist: '执行步骤',
-  subtask_outcome_report: '完成汇报',
+  checklist: '执行步骤',
+  progress: '进度上报',
+  done: '完成汇报',
+  peer_send: '同伴提问',
+  peer_read: '同伴消息',
+  peer_reply: '同伴回复',
   // 常见 MCP / 别名
   mcp: '扩展工具',
   // Entity Asset Hub
@@ -291,8 +295,12 @@ export const TOOL_SHORT_LABEL_ZH = {
   experience_mark_used: '用经验',
   list_assignable_tools: '工具表',
   list_skills_catalog: '技能表',
-  subtask_work_checklist: '步骤',
-  subtask_outcome_report: '汇报',
+  checklist: '步骤',
+  progress: '进度',
+  done: '汇报',
+  peer_send: '提问',
+  peer_read: '读信',
+  peer_reply: '回复',
   // Entity Asset Hub
   assets: '资产',
 }
@@ -1244,10 +1252,10 @@ export function formatToolDisplayTitle(tool) {
 
   const key = resolveToolKey(name) || String(name || 'tool').trim() || 'tool'
 
-  if (name === 'subtask_work_checklist' || key === 'subtask_work_checklist') {
+  if (name === 'checklist' || key === 'checklist') {
     return formatSubtaskWorkChecklistTitle(args)
   }
-  if (name === 'subtask_outcome_report' || key === 'subtask_outcome_report') {
+  if (name === 'done' || key === 'done') {
     return formatSubtaskOutcomeReportTitle(args)
   }
 

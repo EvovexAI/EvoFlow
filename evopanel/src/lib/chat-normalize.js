@@ -2892,11 +2892,11 @@ export function formatToolOutputForUserDisplay(value, toolName) {
   const raw =
     name === 'rg' || name === 'grep' ? stripToolOutputForDisplay(raw0) : raw0
 
-  if (name === 'subtask_work_checklist') {
+  if (name === 'checklist') {
     const mapped = formatSubtaskWorkChecklistOutput(value)
     if (mapped) return mapped
   }
-  if (name === 'subtask_outcome_report') {
+  if (name === 'done') {
     const mapped = formatSubtaskOutcomeReportOutput(value)
     if (mapped) return mapped
   }

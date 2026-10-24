@@ -16,7 +16,7 @@ export function isGenericSubtaskWaitHint(text: string): boolean {
   const t = String(text || '').trim()
   if (!t) return false
   if (GENERIC_WAIT_RE.test(t)) return true
-  if (/await subtask_outcome_report/i.test(t)) return true
+  if (/await done/i.test(t)) return true
   return false
 }
 

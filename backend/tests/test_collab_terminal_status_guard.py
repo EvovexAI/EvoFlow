@@ -158,7 +158,7 @@ def test_rollup_prompt_bans_peer_to_completed_upstream():
     spec = build_rollup_subtask_spec({"steps": [{"ref": "a"}, {"ref": "b"}]}, goal="g")
     text = str(spec.get("instruction") or "")
     assert "禁止" in text
-    assert "collab_peer_send" in text
+    assert "peer_send" in text
     assert "Upstream dependency" in text
 
 

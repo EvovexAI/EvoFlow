@@ -53,23 +53,23 @@ describe('getToolIcon', () => {
 
 describe('formatToolDisplayTitle', () => {
   it('formats collab subtask tools with English short labels', () => {
-    expect(toolShortLabel('subtask_work_checklist')).toBe('Subtask_work_checklist')
-    expect(toolShortLabel('subtask_outcome_report')).toBe('Subtask_outcome_report')
+    expect(toolShortLabel('checklist')).toBe('Subtask_work_checklist')
+    expect(toolShortLabel('done')).toBe('Subtask_outcome_report')
     expect(
       formatToolDisplayTitle({
-        name: 'subtask_work_checklist',
+        name: 'checklist',
         input: { action: 'set', items: [{ content: 'a' }, { content: 'b' }] },
       }),
     ).toContain('set (2)')
     expect(
       formatToolDisplayTitle({
-        name: 'subtask_outcome_report',
+        name: 'done',
         input: { outcome: 'completed', summary: '接口已联调通过' },
       }),
     ).toMatch(/completed|已完成/)
     expect(
       formatToolDisplayTitle({
-        name: 'subtask_outcome_report',
+        name: 'done',
         input: { outcome: 'completed', summary: '接口已联调通过' },
       }),
     ).toContain('接口已联调')
@@ -479,7 +479,7 @@ describe('collab subtask tool output', () => {
     expect(out).toContain('全部测试通过')
     expect(formatToolOutputForUserDisplay(
       JSON.stringify({ ok: true, status: 'completed', message: 'ok' }),
-      'subtask_outcome_report',
+      'done',
     )).toContain('已完成')
   })
 

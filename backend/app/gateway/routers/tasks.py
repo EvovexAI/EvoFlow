@@ -330,7 +330,7 @@ class SubtaskConversationHistoryResponse(BaseModel):
     )
     outcome: dict[str, Any] = Field(
         default_factory=dict,
-        description="Canonical handoff from subtask_outcome_report (task_report/summary); not a chat message.",
+        description="Canonical handoff from done (task_report/summary); not a chat message.",
     )
 
 

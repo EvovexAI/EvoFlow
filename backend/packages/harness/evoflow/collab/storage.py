@@ -720,7 +720,7 @@ def persist_subtask_runtime_snapshot(
 
     Source of truth policy:
     - **Collab completion report**: ``task_report`` (+ ``result`` mirror) — only from
-      ``subtask_outcome_report`` / system outcome; shown in sidebar as 完成汇报.
+      ``done`` / system outcome; shown in sidebar as 完成汇报.
     - **Running text**: ``execution_conversation`` on the main task (tagged by
       ``collab_subtask_id``); do not duplicate long stream drafts on the subtask row.
     - **Agent memory**: ``task_memory.output_summary`` / ``current_step`` — worker run

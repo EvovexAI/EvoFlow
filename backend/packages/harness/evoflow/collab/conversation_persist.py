@@ -724,8 +724,8 @@ def flush_collab_subtask_stream_messages(
         if not isinstance(message, dict):
             continue
         tool_name = str(message.get("name") or message.get("tool_name") or "").strip().lower()
-        # Canonical outcome row is written synchronously by subtask_outcome_report.
-        if tool_name == "subtask_outcome_report":
+        # Canonical outcome row is written synchronously by done.
+        if tool_name == "done":
             continue
         # Reuse append_collab_subtask_stream_message so row_id alignment is
         # guaranteed identical (no duplicate writes from divergent id schemes).
@@ -829,7 +829,7 @@ def append_subtask_outcome_record(
     run_id: str | None = None,
     tool_call_id: str | None = None,
 ) -> bool:
-    """Persist one canonical outcome row (from ``subtask_outcome_report``) into chat transcript."""
+    """Persist one canonical outcome row (from ``done``) into chat transcript."""
     report = str(task_report or "").strip()
     if not report:
         return False
@@ -843,8 +843,8 @@ def append_subtask_outcome_record(
         "id": row_id,
         "role": "tool",
         "type": "tool",
-        "name": "subtask_outcome_report",
-        "tool_name": "subtask_outcome_report",
+        "name": "done",
+        "tool_name": "done",
         "timestamp": at,
         "content": report,
         "collab_subtask_id": sid,

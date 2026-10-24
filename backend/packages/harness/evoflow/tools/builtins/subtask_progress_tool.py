@@ -1,4 +1,4 @@
-"""Worker tool: progress — short name ``progress`` (legacy ``subtask_progress_report``)."""
+"""Worker tool: progress bar — registered name ``progress``."""
 
 from __future__ import annotations
 
@@ -11,38 +11,6 @@ from langgraph.typing import ContextT
 from evoflow.collab.collab_tool_names import PROGRESS
 from evoflow.collab.task_progress import apply_subtask_progress_report
 from evoflow.tools.builtins.subtask_work_checklist_tool import _resolve_collab_ids
-
-
-async def _apply_progress(
-    runtime: ToolRuntime[ContextT, dict],
-    progress: int,
-    tool_call_id: str,
-    main_task_id: str | None,
-    subtask_id: str | None,
-    current_step: str | None,
-    status: str | None,
-) -> str:
-    ctx_main, ctx_sub = _resolve_collab_ids(runtime)
-    mid = str(main_task_id or ctx_main or "").strip()
-    sid = str(subtask_id or ctx_sub or "").strip()
-    if not mid or not sid:
-        return json.dumps(
-            {
-                "ok": False,
-                "error": "main_task_id and subtask_id are required (or collab_task_id/collab_subtask_id in runtime)",
-            },
-            ensure_ascii=False,
-        )
-
-    res = await apply_subtask_progress_report(
-        main_task_id=mid,
-        subtask_id=sid,
-        progress=progress,
-        current_step=current_step,
-        status=status,
-        reported_by="worker",
-    )
-    return json.dumps(res, ensure_ascii=False)
 
 
 @tool(PROGRESS, parse_docstring=True)
@@ -64,21 +32,24 @@ async def progress_tool(
         current_step: Short what-you-are-doing now.
         status: Optional ``in_progress``; finish with ``done``.
     """
-    return await _apply_progress(
-        runtime, progress, tool_call_id, main_task_id, subtask_id, current_step, status
-    )
+    ctx_main, ctx_sub = _resolve_collab_ids(runtime)
+    mid = str(main_task_id or ctx_main or "").strip()
+    sid = str(subtask_id or ctx_sub or "").strip()
+    if not mid or not sid:
+        return json.dumps(
+            {
+                "ok": False,
+                "error": "main_task_id and subtask_id are required (or collab_task_id/collab_subtask_id in runtime)",
+            },
+            ensure_ascii=False,
+        )
 
-
-@tool("subtask_progress_report", description="Alias of progress (legacy). Prefer progress.")
-async def subtask_progress_report_tool(
-    runtime: ToolRuntime[ContextT, dict],
-    progress: int,
-    tool_call_id: Annotated[str, InjectedToolCallId],
-    main_task_id: str | None = None,
-    subtask_id: str | None = None,
-    current_step: str | None = None,
-    status: str | None = None,
-) -> str:
-    return await _apply_progress(
-        runtime, progress, tool_call_id, main_task_id, subtask_id, current_step, status
+    res = await apply_subtask_progress_report(
+        main_task_id=mid,
+        subtask_id=sid,
+        progress=progress,
+        current_step=current_step,
+        status=status,
+        reported_by="worker",
     )
+    return json.dumps(res, ensure_ascii=False)

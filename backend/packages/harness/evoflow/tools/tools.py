@@ -174,9 +174,6 @@ def get_builtin_tools() -> tuple[BaseTool, ...]:
     # from evoflow.tools.builtins.browser_tool import browser_tool  # unregistered — use the agent-browser skill (CLI/MCP)
     from evoflow.tools.builtins.clarification_tool import ask_clarification_tool
     from evoflow.tools.builtins.collab_peer_tools import (
-        collab_peer_read_tool,
-        collab_peer_reply_tool,
-        collab_peer_send_tool,
         peer_read_tool,
         peer_reply_tool,
         peer_send_tool,
@@ -187,9 +184,9 @@ def get_builtin_tools() -> tuple[BaseTool, ...]:
     from evoflow.tools.builtins.propose_goal_tool import propose_goal_tool
     # from evoflow.tools.builtins.read_lints_tool import read_lints_tool  # retired — 诊断走 Bash（pyright/ruff），对齐 ZCode
     # panel_set / stage_set retired as standalone tool — use platform ui.show / ui.hide
-    from evoflow.tools.builtins.subtask_outcome_report_tool import done_tool, subtask_outcome_report_tool
-    from evoflow.tools.builtins.subtask_progress_tool import progress_tool, subtask_progress_report_tool
-    from evoflow.tools.builtins.subtask_work_checklist_tool import checklist_tool, subtask_work_checklist_tool
+    from evoflow.tools.builtins.subtask_outcome_report_tool import done_tool
+    from evoflow.tools.builtins.subtask_progress_tool import progress_tool
+    from evoflow.tools.builtins.subtask_work_checklist_tool import checklist_tool
     from evoflow.tools.builtins.supervisor_tool import supervisor_tool
     from evoflow.tools.builtins.tasks_tool import tasks_tool
     # from evoflow.tools.builtins.todo_tool import todo_tool  # retired — 会话内清单由 TodoMiddleware 的 todo_write 提供（zcode TodoWrite 对齐）
@@ -201,21 +198,14 @@ def get_builtin_tools() -> tuple[BaseTool, ...]:
         ask_clarification_tool,
         propose_goal_tool,
         supervisor_tool,
-        # Short canonical names first; legacy aliases kept for mid-flight / old prompts.
         done_tool,
         progress_tool,
         checklist_tool,
         peer_send_tool,
         peer_read_tool,
         peer_reply_tool,
-        subtask_outcome_report_tool,
-        subtask_progress_report_tool,
-        subtask_work_checklist_tool,
         tasks_tool,
         platform_tool,
-        collab_peer_send_tool,
-        collab_peer_read_tool,
-        collab_peer_reply_tool,
         # todo_tool,  # retired — todo_write (TodoMiddleware) 替代，对齐 zcode
         # stage_set_tool / panel_set — retired; right panel via platform ui.show|hide|update
         fetch_url_tool,

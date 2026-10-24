@@ -562,7 +562,7 @@ export function buildCollabSidebarFromTools(tools) {
           ...prev,
           subtaskId: sid,
           ...(tid ? { parentTaskId: tid } : {}),
-          // 委派成功仅表示 worker 已启动；终态以 subtask_outcome_report / API 快照为准。
+          // 委派成功仅表示 worker 已启动；终态以 done / API 快照为准。
           status: ok || detached ? 'executing' : 'failed',
           progress:
             ok || detached

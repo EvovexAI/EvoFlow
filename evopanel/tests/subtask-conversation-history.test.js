@@ -71,7 +71,7 @@ describe('fetchSubtaskConversationHistory', () => {
                 id: 's1:outcome-report',
                 role: 'assistant',
                 content: 'final',
-                source: 'subtask_outcome_report',
+                source: 'done',
               },
             ],
             thread_id: null,

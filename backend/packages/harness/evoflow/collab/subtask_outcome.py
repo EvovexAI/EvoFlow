@@ -1,4 +1,4 @@
-"""Collaboration subtask terminal outcome — worker must call ``subtask_outcome_report``."""
+"""Collaboration subtask terminal outcome — worker must call ``done``."""
 
 from __future__ import annotations
 
@@ -39,7 +39,7 @@ def is_subtask_outcome_reported(row: dict[str, Any] | None) -> bool:
 
 
 def is_upstream_subtask_dependency_met(row: dict[str, Any] | None) -> bool:
-    """True when an upstream subtask is done for DAG purposes (``subtask_outcome_report`` + completed)."""
+    """True when an upstream subtask is done for DAG purposes (``done`` + completed)."""
     if not row or not isinstance(row, dict):
         return False
     if not is_subtask_outcome_reported(row):
@@ -48,7 +48,7 @@ def is_upstream_subtask_dependency_met(row: dict[str, Any] | None) -> bool:
 
 
 def get_subtask_task_report(row: dict[str, Any] | None) -> str:
-    """Official subtask completion report for collab UI / downstream (``subtask_outcome_report`` only)."""
+    """Official subtask completion report for collab UI / downstream (``done`` only)."""
     if not row or not isinstance(row, dict):
         return ""
     if not is_subtask_outcome_reported(row):
@@ -60,7 +60,7 @@ def get_subtask_task_report(row: dict[str, Any] | None) -> str:
 
 
 def build_subtask_outcome_snapshot(row: dict[str, Any] | None) -> dict[str, Any]:
-    """Canonical handoff payload from ``subtask_outcome_report`` (not task memory / conversation)."""
+    """Canonical handoff payload from ``done`` (not task memory / conversation)."""
     if not row or not isinstance(row, dict):
         return {
             "reported": False,
@@ -454,7 +454,7 @@ async def apply_subtask_outcome_report(
             from evoflow.tools.builtins.collab_bridge import schedule_followup_wave_needed
 
             # Resolve lead runtime inside follow-up handler; do not pass worker runtime
-            # (subtask_outcome_report runs off-graph and lacks session model metadata).
+            # (done runs off-graph and lacks session model metadata).
             schedule_followup_wave_needed(None, mid)
         except Exception:
             logger.debug("schedule follow-up wave failed main=%s", mid, exc_info=True)

@@ -1477,9 +1477,9 @@ function ToolCallListInner({
             : t.output
           : t.output
         const outputJson =
-          toolKind === 'subtask_outcome_report'
+          toolKind === 'done'
             ? formatSubtaskOutcomeReportOutput(t.output, inputObj)
-            : toolKind === 'subtask_work_checklist'
+            : toolKind === 'checklist'
               ? formatSubtaskWorkChecklistOutput(t.output)
               : formatToolOutputForUserDisplay(displayOutput, toolName)
         const toolFailed = isTerminalToolFailed({

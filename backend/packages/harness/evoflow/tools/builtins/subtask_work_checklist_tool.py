@@ -161,21 +161,3 @@ async def checklist_tool(
     return await _apply_checklist(
         runtime, action, main_task_id, subtask_id, item_id, status, result, content, items
     )
-
-
-@tool("subtask_work_checklist", description="Alias of checklist (legacy). Prefer checklist.")
-async def subtask_work_checklist_tool(
-    runtime: ToolRuntime[ContextT, dict],
-    action: str,
-    tool_call_id: Annotated[str, InjectedToolCallId],
-    main_task_id: str | None = None,
-    subtask_id: str | None = None,
-    item_id: str | None = None,
-    status: str | None = None,
-    result: str | None = None,
-    content: str | None = None,
-    items: Any = None,
-) -> str:
-    return await _apply_checklist(
-        runtime, action, main_task_id, subtask_id, item_id, status, result, content, items
-    )

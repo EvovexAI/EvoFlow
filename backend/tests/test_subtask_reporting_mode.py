@@ -97,11 +97,8 @@ def test_merge_allowlist_light_does_not_force_peer_or_checklist():
         "progress",
         "checklist",
         "peer_send",
-        # legacy still in catalog
-        "subtask_outcome_report",
-        "subtask_progress_report",
-        "subtask_work_checklist",
-        "collab_peer_send",
+        "peer_read",
+        "peer_reply",
     }
     merged = _merge_collab_subtask_tool_allowlist(
         overrides_tools=["bash", "read_file"],

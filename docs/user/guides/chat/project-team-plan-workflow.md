@@ -135,7 +135,7 @@ flowchart LR
 派发后主控职责：
 
 - `monitor_execution_step` / `get_status` / `get_subtask_conversation` 看各 Step 状态与对话
-- **`project-*` 子任务卡住**：`steer_subtask(task_id, subtask_id, agent_message=…)` — 中断当前 background run 并异步续跑同一 Step（`subtask_id` 不变，下游仍等 `subtask_outcome_report`）
+- **`project-*` 子任务卡住**：`steer_subtask(task_id, subtask_id, agent_message=…)` — 中断当前 background run 并异步续跑同一 Step（`subtask_id` 不变，下游仍等 `done`）
 - 仅需停止、暂不续跑：`interrupt_subtask`
 - Claude/ACP 路径仍用 `continue_subtask_session`（本文档暂不展开）
 - 需从零重来：`retry_subtask`（会重置 progress）
@@ -191,7 +191,7 @@ sequenceDiagram
   U->>M: 开始执行
   M->>S: start_execution(task_id)
   S->>W: 委派 Step N（assigned_agent）
-  W-->>S: 产出 + subtask_outcome_report
+  W-->>S: 产出 + done
   S-->>M: monitor / 下一波 auto follow-up
   M->>M: validation 总验收
   M-->>U: 交付

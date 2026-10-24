@@ -52,7 +52,7 @@ export type ToolCardBriefContext = {
   url?: string | null
   /** 进程类：活动会话 id（process 工具的 session_id） */
   processSessionId?: string | null
-  /** 卡片短标签（subtask_outcome_report 用于去重判断） */
+  /** 卡片短标签（done 用于去重判断） */
   shortLabel?: string
   /** supervisor 监控分支：当前时间戳（组件节流态） */
   nowTs?: number
@@ -246,11 +246,11 @@ function viewImageBrief(ctx: ToolCardBriefContext): string | null {
 /** 协作子任务族：步骤清单标题 / 完成汇报（输出优先，入参兜底）。 */
 function subtaskBrief(ctx: ToolCardBriefContext): string | null {
   const { toolKind, inputObj, output, shortLabel } = ctx
-  if (toolKind === 'subtask_work_checklist') {
+  if (toolKind === 'checklist') {
     const title = formatSubtaskWorkChecklistTitle(inputObj || {})
     return title.replace(/^执行步骤 · /, '').trim() || '更新步骤'
   }
-  if (toolKind === 'subtask_outcome_report') {
+  if (toolKind === 'done') {
     let outPreview = formatSubtaskOutcomeReportOutput(output, inputObj)
     if (!String(outPreview || '').trim()) {
       const rawOut = typeof output === 'string' ? String(output).trim() : ''
@@ -818,7 +818,7 @@ const REGISTRY: ReadonlyArray<ToolCardBriefEntry> = [
     build: networkMediaBrief,
   },
   { kinds: new Set(['view_image']), build: viewImageBrief },
-  { kinds: new Set(['subtask_work_checklist', 'subtask_outcome_report']), build: subtaskBrief },
+  { kinds: new Set(['checklist', 'done']), build: subtaskBrief },
   { kinds: new Set(['plan']), build: planBrief },
   { kinds: new Set(['mode_set', 'scenario', 'scenario_activation']), build: scenarioBrief },
   {

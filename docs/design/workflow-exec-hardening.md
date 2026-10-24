@@ -113,5 +113,5 @@ Re-run a 2-step chain app (no custom rollup instruction):
 
 - No `PeerWake_*` against completed steps
 - No LLM `__rollup__` worker (answer_node_only copy)
-- Light workers: essentially work → one `done` (legacy alias `subtask_outcome_report` still registered)
+- Light workers: essentially work → one `done` (legacy alias `done` still registered)
 - Run reaches `completed` / 100% without GET-only heal

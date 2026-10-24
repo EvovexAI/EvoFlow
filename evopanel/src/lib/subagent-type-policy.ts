@@ -1,7 +1,7 @@
 /**
  * 子智能体类型策略（与后端 evoflow.claude_subagent_type 对齐）。
  *
- * - Claude Code 族：专用流式拼接；协作子任务必须 subtask_outcome_report。
+ * - Claude Code 族：专用流式拼接；协作子任务必须 done。
  * - 其余全部（内置 + agents 目录自定义 config 名）：delta 流式拼接；executor 成功可系统收口。
  */
 

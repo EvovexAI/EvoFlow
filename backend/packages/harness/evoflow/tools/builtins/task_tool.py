@@ -121,7 +121,7 @@ def _strip_collab_tool_disallow(config_overrides: dict, *, reporting_mode: str =
     """Collab subtask workers MUST be able to report lifecycle state.
 
     A role whose ``disallowed_tools`` bans any mandatory collab tool (e.g.
-    ``done`` / legacy ``subtask_outcome_report``) would make task_tool inject the
+    ``done`` / legacy ``done``) would make task_tool inject the
     "you must call done" mandate while the tool itself is filtered out. Strip
     such bans here (canonical + legacy spellings).
     """
@@ -498,7 +498,7 @@ async def _finalize_collab_subtask_terminal(
                         }
                     )
                 )
-            # Follow-up already scheduled when subtask_outcome_report succeeded; do not wait for post-report chat.
+            # Follow-up already scheduled when done succeeded; do not wait for post-report chat.
             return "completed", f"Task Succeeded (done). Result: {body[:4000]}"
         if status == "timed_out":
             if writer:

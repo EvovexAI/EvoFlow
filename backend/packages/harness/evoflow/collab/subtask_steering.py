@@ -154,8 +154,8 @@ def build_steer_prompt_block(
         f"## Lead 纠偏指令（第 {steer_count} 轮）",
         msg,
         "",
-        "请在本轮继续完成本子任务目标；**未完成前不要**调用 `subtask_outcome_report`。",
-        "若需汇报进度，使用 `subtask_progress_report` / `subtask_work_checklist`。",
+        "请在本轮继续完成本子任务目标；**未完成前不要**调用 `done`。",
+        "若需汇报进度，使用 `progress` / `checklist`。",
     ]
 
     mode = str(steer_context_mode or "truncated").strip().lower()
@@ -310,7 +310,7 @@ async def steer_ephemeral_subtask(
         "terminal": False,
         "mustContinueMonitoring": True,
         "nextMonitorInSeconds": 2,
-        "downstreamBlockedUntil": "subtask_outcome_report",
+        "downstreamBlockedUntil": "done",
     }
 
 

@@ -66,16 +66,16 @@ export function formatSubtaskWorkChecklistTitle(args) {
   if (act === 'update') {
     const itemId = String(args?.item_id || args?.itemId || '').trim()
     const st = String(args?.status || '').trim().toLowerCase()
-    if (itemId && st) return `subtask_work_checklist · ${act} #${itemId} → ${st}`
-    if (itemId) return `subtask_work_checklist · ${act} #${itemId}`
-    return `subtask_work_checklist · ${act}`
+    if (itemId && st) return `checklist · ${act} #${itemId} → ${st}`
+    if (itemId) return `checklist · ${act} #${itemId}`
+    return `checklist · ${act}`
   }
   if (act === 'set') {
     const items = args?.items
     const n = Array.isArray(items) ? items.length : 0
-    return n > 0 ? `subtask_work_checklist · ${act} (${n})` : `subtask_work_checklist · ${act}`
+    return n > 0 ? `checklist · ${act} (${n})` : `checklist · ${act}`
   }
-  return `subtask_work_checklist · ${act}`
+  return `checklist · ${act}`
 }
 
 /**
@@ -84,9 +84,9 @@ export function formatSubtaskWorkChecklistTitle(args) {
 export function formatSubtaskOutcomeReportTitle(args) {
   const out = String(args?.outcome || '').trim().toLowerCase() || 'report'
   const summ = trunc(args?.summary, 56)
-  if (summ) return `subtask_outcome_report · ${out} · ${summ}`
-  if (args?.error) return `subtask_outcome_report · ${out} · ${trunc(args.error, 40)}`
-  return `subtask_outcome_report · ${out}`
+  if (summ) return `done · ${out} · ${summ}`
+  if (args?.error) return `done · ${out} · ${trunc(args.error, 40)}`
+  return `done · ${out}`
 }
 
 /**

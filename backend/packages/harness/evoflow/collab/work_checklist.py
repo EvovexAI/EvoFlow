@@ -148,9 +148,9 @@ def format_checklist_markdown_table(items: list[dict[str, Any]]) -> str:
 def format_worker_checklist_bootstrap_block() -> str:
     """Prompt block when worker has not initialized checklist yet (tool-driven, no Lead duty)."""
     return """<work_checklist>
-你是本子任务的执行者。理解任务目标与 Plan 片段后，**先**用 `subtask_work_checklist`（action=`set`）写入你本领域的执行步骤（每项含 content；完成后用 action=`update` 写 status 与 result）。
+你是本子任务的执行者。理解任务目标与 Plan 片段后，**先**用 `checklist`（action=`set`）写入你本领域的执行步骤（每项含 content；完成后用 action=`update` 写 status 与 result）。
 Lead 负责下发与验收，不代你维护此列表。动手改代码/跑命令前完成 `set`。
-**进度**：checklist 更新会自动折算子任务 `progress`（%）；阶段边界请再调 `subtask_progress_report(progress=…, current_step=…)` 同步 UI。
+**进度**：checklist 更新会自动折算子任务 `progress`（%）；阶段边界请再调 `progress(progress=…, current_step=…)` 同步 UI。
 </work_checklist>"""
 
 
@@ -158,13 +158,13 @@ def format_checklist_system_block(items: list[dict[str, Any]]) -> str:
     """Inject persisted checklist snapshot; worker keeps it current via tool."""
     snapshot = format_checklist_markdown_table(items)
     return f"""<work_checklist>
-当前子任务进度（由 `subtask_work_checklist` 持久化，请保持同步）：
+当前子任务进度（由 `checklist` 持久化，请保持同步）：
 
 {snapshot}
 
-执行中：用 `subtask_work_checklist` action=`update` 更新 status；完成项填写 result。
-`item_id` 可用表格「#」列序号（如 `"1"`、`"2"`）或 `list` 返回的 `items[].id`。每完成一项或进入新阶段，调用 `subtask_progress_report` 上报 0–100 进度与 `current_step`。
-全部完成后在回复中说明验收证据，并调用 `subtask_outcome_report`。
+执行中：用 `checklist` action=`update` 更新 status；完成项填写 result。
+`item_id` 可用表格「#」列序号（如 `"1"`、`"2"`）或 `list` 返回的 `items[].id`。每完成一项或进入新阶段，调用 `progress` 上报 0–100 进度与 `current_step`。
+全部完成后在回复中说明验收证据，并调用 `done`。
 </work_checklist>"""
 
 

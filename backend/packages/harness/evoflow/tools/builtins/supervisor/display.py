@@ -136,7 +136,7 @@ def _build_monitor_subtask_rows(
                 if planned:
                     item["plannedTools"] = planned
 
-        # Attach subtask official outcome (subtask_outcome_report), not task memory.
+        # Attach subtask official outcome (done), not task memory.
         tr = get_subtask_task_report(st if isinstance(st, dict) else {})
         if tr:
             item["task_report"] = tr

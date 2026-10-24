@@ -55,12 +55,12 @@ _DUTY_BLOCK_ORCH_TOOLS = frozenset(
         "supervisor",
         "propose_goal",
         "ask_clarification",
-        "subtask_outcome_report",
-        "subtask_progress_report",
-        "subtask_work_checklist",
-        "collab_peer_send",
-        "collab_peer_read",
-        "collab_peer_reply",
+        "done",
+        "progress",
+        "checklist",
+        "peer_send",
+        "peer_read",
+        "peer_reply",
         "list_agents",
     }
 )

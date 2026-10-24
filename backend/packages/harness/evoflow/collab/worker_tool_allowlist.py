@@ -86,8 +86,11 @@ def _session_agent_mode_catalog(session_key: str, session_mode: str | None) -> l
 
 
 def _intersect_catalog(names: list[str], catalog_names: set[str]) -> list[str]:
+    from evoflow.collab.collab_tool_names import canonicalize_tool_names
     from evoflow.tools.tool_aliases import augment_worker_tool_allowlist, resolve_tools_against_catalog
 
+    # Old agent YAML may still list subtask_outcome_report / collab_peer_* — rewrite first.
+    names = canonicalize_tool_names(names)
     matched, unknown = resolve_tools_against_catalog(names, catalog_names)
     if unknown:
         logger.warning("worker tool allowlist names not in catalog (dropped): %s", unknown)

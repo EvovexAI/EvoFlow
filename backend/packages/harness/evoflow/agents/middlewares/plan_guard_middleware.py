@@ -173,9 +173,9 @@ PLANNING_ALLOWED_TOOL_NAMES = frozenset(
         # Planning-like：主会话只做调度；大范围只读调研可委派子代理（软约束见 prompt）。
         "subagent",
         "task",  # legacy tool name
-        "collab_peer_send",
-        "collab_peer_read",
-        "collab_peer_reply",
+        "peer_send",
+        "peer_read",
+        "peer_reply",
         # ``write_todos`` intentionally omitted: plan 场景用 supervisor 子任务表，勿与会话内 todo 双轨（见 agent._create_todo_list_middleware）。
     }
 )
@@ -216,9 +216,9 @@ VERIFYING_ALLOWED_TOOL_NAMES = frozenset(
         "mode_set",
         "list_agents",
         "subagent",
-        "collab_peer_send",
-        "collab_peer_read",
-        "collab_peer_reply",
+        "peer_send",
+        "peer_read",
+        "peer_reply",
     }
 )
 
@@ -255,9 +255,9 @@ STRICT_PLAN_LEAD_TOOL_NAMES: frozenset[str] = frozenset(
         "read",
         "search_code_index",
         "list_agents",
-        "collab_peer_send",
-        "collab_peer_read",
-        "collab_peer_reply",
+        "peer_send",
+        "peer_read",
+        "peer_reply",
     }
 )
 

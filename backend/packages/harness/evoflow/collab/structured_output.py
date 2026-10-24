@@ -8,7 +8,7 @@ When a step declares ``output_schema`` (JSON Schema), the workflow engine:
 4. Makes it available for downstream ``input_bindings`` resolution
 
 Extraction strategy (in priority order):
-    a. ``structured_output`` parameter on ``subtask_outcome_report`` (explicit)
+    a. ``structured_output`` parameter on ``done`` (explicit)
     b. JSON code block in ``task_report`` / ``summary`` (`` ```json ... ``` ``)
     c. Trailing JSON object after the summary text
     d. None (no structured output; step only has text summary)
