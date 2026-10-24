@@ -14,6 +14,10 @@ export function publishArtifacts(
   const items = ctx.turnRunArtifactsRef.current
   if (!items.length) return
   ctx.setTurnArtifacts([...items])
+  // V4 对话正文不进旧 rows 时，也要让状态卡有资格显示
+  if (typeof ctx.setSessionHadContent === 'function') {
+    ctx.setSessionHadContent(true)
+  }
   const autoPreview = ctx.isAutoWorkPreviewEnabled(ctx.writeStreamModeRef.current)
   if (!autoPreview && !opts?.force) return
   if (ctx.rightStageHintTimerRef.current) {

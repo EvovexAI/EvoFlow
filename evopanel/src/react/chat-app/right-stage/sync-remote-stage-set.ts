@@ -5,7 +5,9 @@
 import type { Dispatch, MutableRefObject, SetStateAction } from 'react'
 import { hideRightStageIfKind } from '../../../lib/right-stage/right-stage-store.js'
 import type { StageSetPayload } from '../../../lib/right-stage/right-stage-agui.js'
-import type { RightStageKind } from '../../../lib/right-stage/right-stage-types.js'
+import type { RightStageKind, RightStageLayout } from '../../../lib/right-stage/right-stage-types.js'
+import { showRightStageFilePreview } from '../../../lib/right-stage/open-right-stage-file.js'
+import { getCurrentRightStageSessionKey } from '../../../lib/right-stage/right-stage-scope.js'
 import {
   clearAllRightStageOverlayDefer,
   resumeStreamBumpIfIdle,
@@ -35,6 +37,33 @@ export type SyncRemoteStageSetCtx = {
   setKnowledgeMapRefreshKey: Dispatch<SetStateAction<number>>
 }
 
+function coerceFileLayout(raw: unknown): RightStageLayout | undefined {
+  const v = String(raw || '').trim()
+  if (v === 'half' || v === 'wide' || v === 'narrow' || v === 'workspace-write') return v
+  return undefined
+}
+
+function pickFocusArtifact(
+  incoming: ChatArtifact[],
+  data: Record<string, unknown>,
+): ChatArtifact | null {
+  const withPath = incoming.filter(
+    (it) => it.type !== 'platform' && String(it.path || '').trim(),
+  )
+  if (!withPath.length) return null
+  const focusId = String(data.focusId || '').trim()
+  const focusPath = String(data.focusPath || '').trim().replace(/\\/g, '/')
+  if (focusId) {
+    const byId = withPath.find((it) => it.id === focusId)
+    if (byId) return byId
+  }
+  if (focusPath) {
+    const byPath = withPath.find((it) => String(it.path || '').replace(/\\/g, '/') === focusPath)
+    if (byPath) return byPath
+  }
+  return withPath[withPath.length - 1] || null
+}
+
 export function syncRemoteStageSet(ctx: SyncRemoteStageSetCtx, detail: StageSetPayload): void {
   const kind = String(detail.surface?.kind || '').trim()
   if (detail.action === 'hide' || !kind) {
@@ -44,7 +73,8 @@ export function syncRemoteStageSet(ctx: SyncRemoteStageSetCtx, detail: StageSetP
     resumeStreamBumpIfIdle(() => ctx.scheduleBumpRef.current?.({ immediate: true }))
     return
   }
-  // 产物改由状态卡 Info Rail 呈报，不走 Right Stage；panel_set 显式 show 必须 force 打开
+  // 产物列表仍进状态卡数据；显式 panel_set 若带本地 path，再打开右侧「文件」预览看内容。
+  // （Right Stage 不再挂 artifacts 标签——store.show 会拒收。）
   if (kind === 'artifacts') {
     hideRightStageIfKind('artifacts')
     const data = (detail.surface?.data || {}) as Record<string, unknown>
@@ -52,11 +82,33 @@ export function syncRemoteStageSet(ctx: SyncRemoteStageSetCtx, detail: StageSetP
     if (incoming.length) {
       ctx.turnRunArtifactsRef.current = mergeChatArtifacts(ctx.turnRunArtifactsRef.current, incoming)
       ctx.setSessionArtifactsRef.current((prev) => mergeChatArtifacts(prev, incoming))
-      ctx.publishArtifactsRef.current({
-        focusId: String(data.focusId || incoming[incoming.length - 1]?.id || ''),
-        force: true,
-        hint: String(detail.surface?.title || '').trim() || undefined,
-      })
+      const focusId = String(data.focusId || incoming[incoming.length - 1]?.id || '')
+      const focusFile = pickFocusArtifact(incoming, data)
+      const titleHint = String(detail.surface?.title || '').trim() || undefined
+      if (focusFile?.path) {
+        // 先落列表（不 force 开状态卡，避免 collapseRightStage 打掉刚开的文件签）
+        ctx.publishArtifactsRef.current({
+          focusId,
+          force: false,
+        })
+        showRightStageFilePreview(String(focusFile.path).trim(), {
+          name: String(focusFile.name || focusFile.label || '').trim() || undefined,
+          sessionKey:
+            String(detail.surface?.sessionKey || '').trim() ||
+            getCurrentRightStageSessionKey() ||
+            undefined,
+          layout: coerceFileLayout(detail.surface?.layout) || 'half',
+        })
+        ctx.rightStageUserPinnedRef.current = 'file'
+        ctx.scheduleBumpRef.current?.({ immediate: true })
+      } else {
+        // 无本地 path（纯 url/文案）：仍 force 打开状态卡产物 tab
+        ctx.publishArtifactsRef.current({
+          focusId,
+          force: true,
+          hint: titleHint,
+        })
+      }
     }
     return
   }

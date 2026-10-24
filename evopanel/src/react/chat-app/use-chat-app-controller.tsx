@@ -2499,6 +2499,7 @@ export function useChatAppController() {
         {
           turnRunArtifactsRef,
           setTurnArtifacts,
+          setSessionHadContent,
           isAutoWorkPreviewEnabled,
           writeStreamModeRef,
           rightStageHintTimerRef,
@@ -5043,8 +5044,9 @@ export function useChatAppController() {
    * 右侧空白里的悬浮状态卡；专用侧栏打开时让位，互斥不叠放。
    * 新对话空态不显示：问候居中时「智能体 / 模型」卡太抢眼，有消息或回合进行中再出现。
    */
+  // V4 正文在 Timeline，旧 rows 可能仍空；sessionHadContent 由产物/消息侧置位
   const conversationHasContent =
-    (Array.isArray(rows) && rows.length > 0) || selectedTurnBusy
+    (Array.isArray(rows) && rows.length > 0) || selectedTurnBusy || sessionHadContent
   const showChatSummaryFloat =
     chatPanelMode !== 'hidden' &&
     !rightStageOpen &&
