@@ -51,7 +51,8 @@ export function formatTrailRowClock(ts?: number | string | null): string {
 export type SubtaskExecutionDrawerProps = {
   open: boolean
   subtaskId: string
-  mode?: 'modal' | 'drawer'
+  /** modal=居中弹层；drawer=侧滑/嵌入槽；panel=右栏 tab 内铺满（任务中心员工过程） */
+  mode?: 'modal' | 'drawer' | 'panel'
   /** drawer 模式下挂到指定容器（如应用调试坞） */
   portalTarget?: HTMLElement | null
   /** 用于工具详情懒加载 /tool-results（如 proactive:{code}） */
@@ -360,6 +361,8 @@ export function SubtaskExecutionDrawer(props: SubtaskExecutionDrawerProps) {
 
   if (!open) return null
 
+  const hideClose = mode === 'panel' || (mode === 'drawer' && !!portalTarget)
+
   const header = (
     <div className="react-chat-modal-header react-chat-subtask-modal-header">
       <div className="react-chat-subtask-modal-header-main">
@@ -401,7 +404,7 @@ export function SubtaskExecutionDrawer(props: SubtaskExecutionDrawerProps) {
           <button type="button" className="react-chat-modal-close" onClick={onClose}>
             ×
           </button>
-        ) : portalTarget ? null : (
+        ) : hideClose ? null : (
           <button type="button" className="react-chat-modal-btn react-chat-modal-btn--ghost" onClick={onClose}>
             关闭
           </button>
@@ -426,6 +429,21 @@ export function SubtaskExecutionDrawer(props: SubtaskExecutionDrawerProps) {
       onOpenMessageFile={onOpenMessageFile}
     />
   )
+
+  if (mode === 'panel') {
+    return (
+      <div
+        className="v4-employee-process-panel subtask-execution-drawer--embedded"
+        role="region"
+        aria-label="执行过程"
+      >
+        <div className="subtask-execution-drawer-card react-chat-subtask-modal-card">
+          {header}
+          {body}
+        </div>
+      </div>
+    )
+  }
 
   if (mode === 'drawer') {
     const drawer = (

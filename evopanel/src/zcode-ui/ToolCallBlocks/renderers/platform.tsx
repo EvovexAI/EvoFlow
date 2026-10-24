@@ -1,6 +1,7 @@
 /**
  * platform(action=domain.op) 工具卡：用注册表中文枚举，避免 Fallback 显示
  * 「Platform / 工具调用 / 已执行」。
+ * 绑渠道扫码不塞进本卡：由轮尾 BindChannelTurnCards 单独挂出，工具行留在原位。
  */
 import { Building2 } from "lucide-react";
 import { useCallback, useMemo } from "react";
@@ -8,8 +9,10 @@ import {
   platformActionShortLabelZh,
   platformDomainLabelZh,
 } from "../../../lib/platform-action-labels.js";
+import type { PlatformUiFeedback } from "../../../lib/right-stage/platform-feedback.js";
 import { ToolCallBody } from "@/ToolCallBlocks/ToolCallBody.js";
 import { ToolSnapshotFieldNotice } from "@/ToolCallBlocks/ToolSnapshotFieldNotice.js";
+import { readToolResultDisplay } from "@/ToolCallBlocks/toolResultDisplay.js";
 import { ToolLayout } from "../ToolLayout.js";
 import type { ToolCallBlockRenderContext } from "../shared.js";
 
@@ -79,6 +82,36 @@ export function isPlatformToolCall(toolCall: {
   const name = String(toolCall.toolName || "").trim().toLowerCase();
   const kind = String(toolCall.kind || "").trim().toLowerCase();
   return name === "platform" || kind === "platform";
+}
+
+/**
+ * V4 ``output.display.kind:"platform_ui"`` → 绑渠道扫码反馈。
+ * 供轮尾挂码；工具卡本身不渲染二维码。
+ */
+export function readPlatformBindChannelFeedback(
+  raw: unknown,
+): PlatformUiFeedback | null {
+  const display = readToolResultDisplay(raw);
+  if (!display || display.kind !== "platform_ui") return null;
+  const qrUrl = String(display.qrUrl || "").trim();
+  const sessionId = String(display.sessionId || "").trim();
+  if (!qrUrl && !sessionId) return null;
+  const action = String(display.action || "").trim();
+  if (action && action !== "employees.bind_channel_begin" && !display.bindStatus) {
+    return null;
+  }
+  return {
+    kind: "success",
+    action: action || "employees.bind_channel_begin",
+    title: String(display.title || "扫码绑定本岗 AI 员工").trim(),
+    qrUrl: qrUrl || undefined,
+    sessionId: sessionId || undefined,
+    channel: String(display.channel || "feishu").trim() || "feishu",
+    agentCode: String(display.agentCode || "").trim() || undefined,
+    entityLabel: String(display.entityLabel || "").trim() || undefined,
+    entityId: String(display.agentCode || "").trim() || undefined,
+    bindStatus: display.bindStatus || "pending",
+  };
 }
 
 export function PlatformToolCallBlock(context: ToolCallBlockRenderContext) {

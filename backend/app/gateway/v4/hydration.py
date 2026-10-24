@@ -111,6 +111,7 @@ def _build_hydrated_tool_output(
         _cua_display_block,
         _extract_diff_texts_from_args_dict,
         _media_image_cua_display,
+        _platform_ui_display_block,
         _split_evoflow_cua_display,
         build_file_diff_display,
     )
@@ -118,6 +119,21 @@ def _build_hydrated_tool_output(
     text = out_text or ""
     name_l = str(tool_name or "").strip().lower()
     output: dict[str, Any] = {"text": text}
+
+    # platform 绑渠道：冷恢复也要出码（与 live agui_mirror 同形）。
+    if name_l == "platform":
+        wire_ui: dict[str, Any] | None = None
+        for bag in (msg, payload):
+            if not isinstance(bag, dict):
+                continue
+            raw_ui = bag.get("platform_ui")
+            if isinstance(raw_ui, dict):
+                wire_ui = raw_ui
+                break
+        platform_block = _platform_ui_display_block(wire_ui, text)
+        if platform_block is not None:
+            output["display"] = platform_block
+            return output
 
     cua_display: dict[str, Any] | None = None
     for bag in (msg, payload):

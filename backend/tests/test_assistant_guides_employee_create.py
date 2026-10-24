@@ -114,3 +114,37 @@ def test_sse_extract_platform_ui_from_bind_result():
         slimmed,
     )
     assert frame["platform_ui"]["qrUrl"] == "https://example.com/qr"
+
+
+def test_v4_platform_ui_display_block_from_wire_and_content():
+    from app.gateway.v4.agui_mirror import _platform_ui_display_block
+
+    wire = {
+        "action": "employees.bind_channel_begin",
+        "title": "扫码绑定",
+        "qrUrl": "https://example.com/qr",
+        "sessionId": "s1",
+        "channel": "feishu",
+        "agentCode": "duty-ops",
+        "bindStatus": "pending",
+    }
+    block = _platform_ui_display_block(wire, "")
+    assert block is not None
+    assert block["kind"] == "platform_ui"
+    assert block["schemaVersion"] == 1
+    assert block["qrUrl"] == "https://example.com/qr"
+    assert block["sessionId"] == "s1"
+    assert block["agentCode"] == "duty-ops"
+
+    content = (
+        '{"ok":true,"action":"employees.bind_channel_begin",'
+        '"qr_url":"https://example.com/from-json","session_id":"s2",'
+        '"channel":"wecom","agent_code":"ops"}'
+    )
+    from_json = _platform_ui_display_block(None, content)
+    assert from_json is not None
+    assert from_json["qrUrl"] == "https://example.com/from-json"
+    assert from_json["sessionId"] == "s2"
+    assert from_json["channel"] == "wecom"
+
+    assert _platform_ui_display_block({"title": "noop"}, "") is None

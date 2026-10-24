@@ -36,6 +36,7 @@ const SESSION_SCOPED_KINDS = new Set<string>([
   'summary',
   'subagentTranscript',
   'collabSubtaskTranscript',
+  'employeeProcess',
   'artifacts',
 ])
 

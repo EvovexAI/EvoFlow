@@ -65,6 +65,7 @@ const FORCE_MOUNT_KINDS = new Set([
   'codeViewer',
   'subagentTranscript',
   'collabSubtaskTranscript',
+  'employeeProcess',
 ])
 
 export type RightStageLauncherItemId =

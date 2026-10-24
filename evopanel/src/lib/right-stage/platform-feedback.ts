@@ -285,7 +285,7 @@ function inferPlatformUiFeedbackFallback(
   const title = override ? override(label) : `${DOMAIN_ENTITY_ZH[domain] || domain}操作成功`
   const destructive = verb === 'delete' || verb === 'archive' || verb === 'clear' || verb === 'note_delete'
 
-  return {
+  const out: PlatformUiFeedback = {
     kind: destructive ? 'warning' : 'success',
     verb,
     domain,
@@ -303,6 +303,18 @@ function inferPlatformUiFeedbackFallback(
     actions: buildActions(action, domain, entityId),
     action,
   }
+  // 绑渠道：无 ui 块时仍从顶层 qr_url 恢复，保证工具下方能出码
+  if (action === 'employees.bind_channel_begin') {
+    const qrUrl = asString(obj.qr_url || obj.qrUrl)
+    const sessionId = asString(obj.session_id || obj.sessionId)
+    const channel = asString(obj.channel || args.channel).toLowerCase()
+    if (qrUrl) out.qrUrl = qrUrl
+    if (sessionId) out.sessionId = sessionId
+    if (channel) out.channel = channel
+    if (entityId) out.agentCode = entityId
+    if (qrUrl || sessionId) out.bindStatus = 'pending'
+  }
+  return out
 }
 
 function uiFromBackend(obj: Record<string, unknown>): PlatformUiFeedback | null {

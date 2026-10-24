@@ -13,8 +13,8 @@ export type ProactiveLiveProcessHostProps = {
   roundId?: string
   taskId?: string
   pollMs?: number
-  /** 与主对话子任务同款：默认居中弹窗；任务中心节点用侧栏 drawer */
-  mode?: 'modal' | 'drawer'
+  /** modal=居中；drawer=侧滑/嵌入槽；panel=任务中心右栏 tab 内铺满 */
+  mode?: 'modal' | 'drawer' | 'panel'
   /** drawer 模式下挂到指定容器（任务详情右侧槽） */
   portalTarget?: HTMLElement | null
   onClose: () => void
@@ -166,7 +166,7 @@ export function ProactiveLiveProcessHost({
     : displayRows.length
       ? 'react-chat-subtask-status-light--ok'
       : 'react-chat-subtask-status-light--muted'
-  const drawerMode = mode === 'drawer' ? 'drawer' : 'modal'
+  const drawerMode = mode === 'panel' ? 'panel' : mode === 'drawer' ? 'drawer' : 'modal'
 
   if (!open || !code) return null
 

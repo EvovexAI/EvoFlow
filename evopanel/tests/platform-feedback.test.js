@@ -137,6 +137,23 @@ describe('parsePlatformUiFeedback', () => {
     expect(collectPlatformResultTools([tool])).toHaveLength(1)
   })
 
+  it('infers bind QR from top-level qr_url when ui block is missing', () => {
+    const raw = JSON.stringify({
+      ok: true,
+      action: 'employees.bind_channel_begin',
+      agent_code: 'tutor',
+      role_name: '智能辅导',
+      channel: 'feishu',
+      session_id: 'sess_top',
+      qr_url: 'https://open.feishu.cn/page/launcher?user_code=TOP',
+    })
+    const ui = parsePlatformUiFeedback(raw)
+    expect(ui?.action).toBe('employees.bind_channel_begin')
+    expect(ui?.qrUrl).toContain('user_code=TOP')
+    expect(ui?.sessionId).toBe('sess_top')
+    expect(ui?.bindStatus).toBe('pending')
+  })
+
   it('reads preserved platform_ui after output slimming', () => {
     const raw = JSON.stringify({
       ok: true,

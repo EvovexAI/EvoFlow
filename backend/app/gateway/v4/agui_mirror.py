@@ -266,6 +266,81 @@ def _split_evoflow_cua_display(content: str) -> tuple[str, dict[str, Any] | None
     return content, None
 
 
+def _platform_ui_display_block(
+    payload: dict[str, Any] | None,
+    content: str,
+) -> dict[str, Any] | None:
+    """Build ``kind:"platform_ui"`` for bind-channel QR under the V4 platform tool card.
+
+    Prefers the AG-UI wire ``platform_ui`` sibling (same idea as ``cua_display``);
+    falls back to parsing tool JSON ``ui`` / top-level ``qr_url``.
+    """
+    ui: dict[str, Any] | None = None
+    if isinstance(payload, dict) and payload:
+        ui = payload
+    elif content.lstrip().startswith("{"):
+        try:
+            blob = json.loads(content)
+        except (TypeError, ValueError):
+            blob = None
+        if isinstance(blob, dict) and blob.get("ok") is not False and not blob.get("pending_confirm"):
+            nested = blob.get("ui")
+            if isinstance(nested, dict) and nested:
+                ui = nested
+            elif str(blob.get("action") or "").strip() == "employees.bind_channel_begin":
+                ui = {
+                    "action": "employees.bind_channel_begin",
+                    "title": "扫码绑定本岗 AI 员工",
+                    "qrUrl": blob.get("qr_url") or blob.get("qrUrl"),
+                    "sessionId": blob.get("session_id") or blob.get("sessionId"),
+                    "channel": blob.get("channel") or "feishu",
+                    "agentCode": blob.get("agent_code") or blob.get("agentCode"),
+                    "entityLabel": blob.get("role_name") or blob.get("roleName"),
+                    "bindStatus": "pending",
+                }
+    if not isinstance(ui, dict):
+        return None
+    qr = str(ui.get("qrUrl") or ui.get("qr_url") or "").strip()
+    session_id = str(ui.get("sessionId") or ui.get("session_id") or "").strip()
+    action = str(ui.get("action") or "").strip()
+    if not qr and not session_id and action != "employees.bind_channel_begin":
+        # Non-bind platform cards don't need a special display block.
+        return None
+    if not qr and not session_id:
+        return None
+    bind_raw = str(ui.get("bindStatus") or ui.get("bind_status") or "").strip().lower()
+    bind_status = (
+        bind_raw
+        if bind_raw in {"pending", "scanning", "bound", "failed", "expired"}
+        else ("pending" if (qr or session_id) else None)
+    )
+    block: dict[str, Any] = {
+        "kind": "platform_ui",
+        "schemaVersion": 1,
+    }
+    if action:
+        block["action"] = action[:128]
+    title = str(ui.get("title") or "").strip()
+    if title:
+        block["title"] = title[:512]
+    if qr:
+        block["qrUrl"] = qr[:4096]
+    if session_id:
+        block["sessionId"] = session_id[:256]
+    channel = str(ui.get("channel") or "").strip().lower()
+    if channel:
+        block["channel"] = channel[:64]
+    agent = str(ui.get("agentCode") or ui.get("agent_code") or ui.get("entityId") or "").strip()
+    if agent:
+        block["agentCode"] = agent[:128]
+    label = str(ui.get("entityLabel") or ui.get("entity_label") or "").strip()
+    if label:
+        block["entityLabel"] = label[:256]
+    if bind_status:
+        block["bindStatus"] = bind_status
+    return block
+
+
 def _cua_display_block(payload: dict[str, Any], body_text: str) -> dict[str, Any] | None:
     """Build a panel-compatible ``kind:"cua"`` tool result display block."""
     status = "failed" if payload.get("status") == "failed" else "success"
@@ -710,7 +785,17 @@ class V4Mirror:
                 if wechat_brief:
                     content = wechat_brief
             tool_output: dict[str, Any] = {"text": content}
-            if cua_display is not None:
+            # platform_ui（绑渠道二维码等）：与 cua_display 同级上浮，供 V4 PlatformToolCallBlock 出码。
+            platform_ui_block: dict[str, Any] | None = None
+            raw_platform_ui = ev.get("platform_ui")
+            if isinstance(raw_platform_ui, dict) or tool_name_l.lower() == "platform":
+                platform_ui_block = _platform_ui_display_block(
+                    raw_platform_ui if isinstance(raw_platform_ui, dict) else None,
+                    content,
+                )
+            if platform_ui_block is not None:
+                tool_output["display"] = platform_ui_block
+            elif cua_display is not None:
                 block = _cua_display_block(cua_display, content)
                 if block is not None:
                     tool_output["display"] = block
@@ -874,6 +959,7 @@ __all__ = [
     "mirror_feed_agui_wire",
     "_split_evoflow_cua_display",
     "_cua_display_block",
+    "_platform_ui_display_block",
     "_media_image_cua_display",
     "build_file_diff_display",
 ]

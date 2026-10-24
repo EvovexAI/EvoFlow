@@ -11,12 +11,16 @@ import { WorkspaceFilePreviewPanel } from './WorkspaceFilePreviewPanel.js'
 import { useRightStageStore } from '../../lib/right-stage/use-right-stage.js'
 import { rightStageStore } from '../../lib/right-stage/right-stage-store.js'
 import { taskCenterStageSessionKey } from '../../lib/right-stage/task-center-stage-key.js'
-import { openCollabSubtaskInRightStage } from '../../lib/right-stage/open-collab-subtask-stage.js'
+import {
+  openCollabSubtaskInRightStage,
+  type CollabSubtaskStageOutcome,
+} from '../../lib/right-stage/open-collab-subtask-stage.js'
 import { showRightStageCodeViewer } from '../../lib/right-stage/open-right-stage-file.js'
 import { normalizeRightStageKind, type RightStageSurface } from '../../lib/right-stage/right-stage-types.js'
 import { useCollabSubtasksFromApi } from '../hooks/useCollabSubtasksFromApi.js'
 import { V4CollabSubtaskTranscriptPane } from '../chat-app/right-stage/v4-collab-subtask-transcript-pane.js'
 import { V4PreviewPane } from '../chat-app/right-stage/v4-preview-pane.js'
+import { ProactiveLiveProcessHost } from './ProactiveLiveProcessHost.js'
 import type { CodeViewerSource } from '@zcode/ui/lib/codeViewer.js'
 import type { AgentInfo } from '../chat-types.js'
 
@@ -112,6 +116,13 @@ export function TaskDetailRightStageHost({
                   leadThreadId: String(payload?.leadThreadId || lead),
                   title: String(payload?.title || ''),
                   status: String(payload?.status || ''),
+                  assignedAgent: String(payload?.assignedAgent || ''),
+                  description: String(payload?.description || ''),
+                  subtaskThreadId: String(payload?.subtaskThreadId || ''),
+                  rows: Array.isArray(payload?.rows) ? payload.rows : undefined,
+                  emptyConversation: payload?.emptyConversation,
+                  initialText: payload?.initialText,
+                  outcome: payload?.outcome,
                 },
                 { sessionKey: stageSk },
               )
@@ -119,6 +130,24 @@ export function TaskDetailRightStageHost({
             hideHeaderStatus
             hidePanelHeader
             canvasFillContainer
+          />
+        )
+      }
+      if (kind === 'employeeProcess') {
+        const agentCode = String(data.agentCode || '').trim()
+        if (!agentCode) return <SidePanelBootShell title="执行过程" />
+        return (
+          <ProactiveLiveProcessHost
+            open
+            mode="panel"
+            agentCode={agentCode}
+            roleName={String(data.roleName || '').trim()}
+            busy={!!data.busy}
+            title={String(surface.title || data.title || '执行过程')}
+            roundId={String(data.roundId || '').trim()}
+            taskId={String(data.taskId || tid).trim()}
+            pollMs={data.busy ? 1000 : 4000}
+            onClose={() => rightStageStore.closeTab(tabKeyOf(surface))}
           />
         )
       }
@@ -137,6 +166,12 @@ export function TaskDetailRightStageHost({
             description={String(data.description || '').trim()}
             subtaskThreadId={String(data.subtaskThreadId || '').trim()}
             sessionKey={stageSk}
+            initialRows={Array.isArray(data.rows) ? data.rows : undefined}
+            initialOutcome={
+              data.outcome && typeof data.outcome === 'object'
+                ? (data.outcome as CollabSubtaskStageOutcome)
+                : null
+            }
             onClose={() => rightStageStore.closeTab(tabKeyOf(surface))}
           />
         )

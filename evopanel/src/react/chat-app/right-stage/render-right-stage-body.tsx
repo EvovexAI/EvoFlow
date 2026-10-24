@@ -10,7 +10,10 @@ import { V4PreviewPane } from './v4-preview-pane.js'
 import { V4SubagentTranscriptPane } from './v4-subagent-transcript-pane.js'
 import { V4CollabSubtaskTranscriptPane } from './v4-collab-subtask-transcript-pane.js'
 import { V4SessionPaneBridge } from '../../v4/V4SessionPaneBridge.js'
-import { openCollabSubtaskInRightStage } from '../../../lib/right-stage/open-collab-subtask-stage.js'
+import {
+  openCollabSubtaskInRightStage,
+  type CollabSubtaskStageOutcome,
+} from '../../../lib/right-stage/open-collab-subtask-stage.js'
 import { setWorkspaceIndexWatchEnabled } from '../../../lib/workspace-index-watch.js'
 import { TerminalStagePanel } from '../../components/TerminalStagePanel.js'
 import { WorkspaceFilePreviewPanel } from '../../components/WorkspaceFilePreviewPanel.js'
@@ -168,6 +171,12 @@ export function renderRightStageBody(
         description={String(data.description || '').trim()}
         subtaskThreadId={String(data.subtaskThreadId || '').trim()}
         sessionKey={String(data.sessionKey || selectedSessionKey || '')}
+        initialRows={Array.isArray(data.rows) ? data.rows : undefined}
+        initialOutcome={
+          data.outcome && typeof data.outcome === 'object'
+            ? (data.outcome as CollabSubtaskStageOutcome)
+            : null
+        }
         onClose={() => rightStageStore.closeTab(surface.id)}
       />
     ) : (
@@ -272,6 +281,7 @@ export function renderRightStageBody(
           onClose={closeCollabExecPanel}
           onSubtaskTranscriptOpen={(payload) => {
             // 点工作流节点 → 右侧再开一张独立进度 tab（不盖住工作流 tab、不用居中弹窗）
+            // 必须带上预取的 rows/outcome，否则 tab 会空（历史链路断在 open 处）
             openCollabSubtaskInRightStage(
               {
                 subtaskId: String(payload?.subtaskId || ''),
@@ -279,6 +289,13 @@ export function renderRightStageBody(
                 leadThreadId: String(payload?.leadThreadId || chatThreadIdForSidebar || ''),
                 title: String(payload?.title || ''),
                 status: String(payload?.status || ''),
+                assignedAgent: String(payload?.assignedAgent || ''),
+                description: String(payload?.description || ''),
+                subtaskThreadId: String(payload?.subtaskThreadId || ''),
+                rows: Array.isArray(payload?.rows) ? payload.rows : undefined,
+                emptyConversation: payload?.emptyConversation,
+                initialText: payload?.initialText,
+                outcome: payload?.outcome,
               },
               { sessionKey: selectedSessionKey },
             )

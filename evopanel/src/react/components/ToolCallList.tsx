@@ -1218,14 +1218,18 @@ function ToolCallListInner({
     list.length > 0 &&
     !list.some((t) => toolBreaksExploringGroup(t, interactiveToolApproval))
 
-  /** 平台 Action Result 提到折叠外，始终可见（Exploring 外层 fold 在 PlatformResultCards 渲染） */
-  const hoistPlatformResults = useActivityFold
+  /**
+   * 平台 Action Result（含绑渠道二维码）提到 `.msg-tool` 外、紧挨工具下方。
+   * Exploring 嵌套时改由 ExploringActivityChunk 以 data-piece-role=latest 提卡
+   * （history piece 折叠后整段 display:none，嵌套 hoist 也会一起消失）。
+   */
   const platformResultTools = list.filter((tool) => {
     const row = tool as Record<string, unknown>
     if (resolveToolKey(row) !== 'platform') return false
     if (isToolPendingApproval(row) || isToolRunning(tool)) return false
     return Boolean(parsePlatformUiFeedbackFromTool(row))
   })
+  const hoistPlatformResults = !nestedInExploring && platformResultTools.length > 0
 
   const toolListBody = (
     <div
@@ -2236,7 +2240,11 @@ function ToolCallListInner({
         toolListBody
       )}
       {hoistPlatformResults && platformResultTools.length > 0 ? (
-        <div className="msg-platform-results">
+        <div
+          className="msg-platform-results msg-platform-results-hoist"
+          data-piece-role="latest"
+          data-testid="platform-results-under-tools"
+        >
           {platformResultTools.map((tool, i) => {
             const row = tool as Record<string, unknown>
             const id =

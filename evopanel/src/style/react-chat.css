@@ -19413,6 +19413,14 @@ html.dark .msg-tool-activity-fold-steps {
   display: none;
 }
 
+/* 绑渠道二维码 / 平台结果卡挂在 .msg-tool 外：折叠「已工作」时仍要可见 */
+.msg-turn-history-fold[data-history-open="false"] .msg-platform-results-hoist,
+.msg-turn-history-fold[data-history-open="false"] .msg-platform-results,
+.msg-turn-history-fold[data-history-open="false"] .msg-bind-employee-qr {
+  display: flex;
+  flex-direction: column;
+}
+
 .msg-tool--in-activity-fold {
   margin-bottom: 0;
   gap: 0;
@@ -33709,7 +33717,9 @@ html.dark .react-chat-stage-popover {
 .react-chat-right-stage-body > .react-chat-workspace-panel,
 .react-chat-right-stage-body > .react-chat-collab-exec-panel,
 .react-chat-right-stage-body > .react-chat-knowledge-map-panel,
-.react-chat-right-stage-body > .react-chat-terminal-stage {
+.react-chat-right-stage-body > .react-chat-terminal-stage,
+.react-chat-right-stage-body > .v4-collab-subtask-transcript,
+.react-chat-right-stage-body > .v4-employee-process-panel {
   height: 100%;
   min-height: 0;
 }

@@ -1,16 +1,23 @@
 /**
  * V4 右侧：协作工作流「单个节点」进度（独立 tab）。
- * 数据：轮询 fetchSubtaskConversationHistory；行渲染与子代理 pane 同款。
+ * 数据：tab.data 种子 rows/outcome + 轮询 fetchSubtaskConversationHistory。
  * 点文件 → 再开 file/codeViewer tab（同侧栏，不跳页）。
  */
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { SubtaskModalMessageRow } from '../../components/SubtaskModalMessageRow.js'
-import { fetchSubtaskConversationHistory } from '../../../lib/subtask-conversation-history.js'
+import {
+  fetchSubtaskConversationHistory,
+  outcomeFromSubtaskSnapshot,
+} from '../../../lib/subtask-conversation-history.js'
+import {
+  coalesceSubtaskTranscriptRows,
+} from '../../../lib/subtask-transcript-seed.js'
 import {
   showRightStageCodeViewer,
   showRightStageFilePreview,
 } from '../../../lib/right-stage/open-right-stage-file.js'
 import { isTaskRunningStatus, isTaskPlanningStatus } from '../../../lib/task-status-label.js'
+import type { CollabSubtaskStageOutcome } from '../../../lib/right-stage/open-collab-subtask-stage.js'
 
 const POLL_MS = 2000
 
@@ -24,6 +31,9 @@ export type V4CollabSubtaskTranscriptPaneProps = {
   description?: string
   subtaskThreadId?: string
   sessionKey?: string
+  /** 打开 tab 时节点已预取的行，避免空白闪一下再等二次请求 */
+  initialRows?: unknown[]
+  initialOutcome?: CollabSubtaskStageOutcome | null
   onClose?: () => void
 }
 
@@ -38,15 +48,25 @@ export function V4CollabSubtaskTranscriptPane(props: V4CollabSubtaskTranscriptPa
     description = '',
     subtaskThreadId = '',
     sessionKey = '',
+    initialRows,
+    initialOutcome = null,
     onClose,
   } = props
 
-  const [rows, setRows] = useState<unknown[]>([])
+  const seeded = useMemo(
+    () => coalesceSubtaskTranscriptRows(initialRows, initialOutcome as Record<string, unknown> | null),
+    // 只在挂载/切换节点时吃种子；后续以轮询为准
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [mainTaskId, subtaskId],
+  )
+
+  const [rows, setRows] = useState<unknown[]>(() => seeded)
   const [status, setStatus] = useState(String(statusProp || ''))
-  const [loaded, setLoaded] = useState(false)
+  const [loaded, setLoaded] = useState(() => seeded.length > 0)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const lastRowCountRef = useRef(0)
+  const outcomeRef = useRef<CollabSubtaskStageOutcome | null | undefined>(initialOutcome)
 
   const running = isTaskRunningStatus(status) || isTaskPlanningStatus(status)
 
@@ -58,15 +78,22 @@ export function V4CollabSubtaskTranscriptPane(props: V4CollabSubtaskTranscriptPa
       return
     }
     try {
+      const prior = outcomeRef.current
       const snapshot = {
         subtaskId: sid,
         name: String(title || sid),
         description: String(description || ''),
-        status: String(status || statusProp || 'pending'),
+        status: String(statusProp || 'pending'),
         assignedAgent: String(assignedAgent || ''),
         parentTaskId: mid,
         subtask_thread_id: String(subtaskThreadId || ''),
         subtaskThreadId: String(subtaskThreadId || ''),
+        taskReport:
+          prior && typeof prior === 'object' ? String(prior.task_report || prior.summary || '') : '',
+        result:
+          prior && typeof prior === 'object' ? String(prior.task_report || prior.summary || '') : '',
+        outputs: prior && typeof prior === 'object' ? prior.outputs : undefined,
+        evidence_paths: prior && typeof prior === 'object' ? prior.evidence_paths : undefined,
       }
       const resp = await fetchSubtaskConversationHistory({
         mainTaskId: mid,
@@ -75,11 +102,29 @@ export function V4CollabSubtaskTranscriptPane(props: V4CollabSubtaskTranscriptPa
         storedSubtaskThreadId: String(subtaskThreadId || '').trim(),
         subtaskSnapshot: snapshot,
       })
-      const nextRows = Array.isArray(resp?.rows) ? resp.rows : []
-      setRows(nextRows)
+      const nextOutcome =
+        (resp?.outcome && typeof resp.outcome === 'object'
+          ? (resp.outcome as CollabSubtaskStageOutcome)
+          : null) ||
+        outcomeFromSubtaskSnapshot(snapshot) ||
+        prior ||
+        null
+      outcomeRef.current = nextOutcome
+      setRows(
+        coalesceSubtaskTranscriptRows(
+          Array.isArray(resp?.rows) ? resp.rows : [],
+          nextOutcome as Record<string, unknown> | null,
+        ),
+      )
       if (statusProp) setStatus(String(statusProp))
       setLoaded(true)
     } catch {
+      // 请求失败时保留种子行，避免已有内容被清空
+      setRows((prev) =>
+        prev.length
+          ? prev
+          : coalesceSubtaskTranscriptRows([], outcomeRef.current as Record<string, unknown> | null),
+      )
       setLoaded(true)
     }
   }, [
@@ -88,7 +133,6 @@ export function V4CollabSubtaskTranscriptPane(props: V4CollabSubtaskTranscriptPa
     leadThreadId,
     title,
     description,
-    status,
     statusProp,
     assignedAgent,
     subtaskThreadId,
@@ -147,7 +191,7 @@ export function V4CollabSubtaskTranscriptPane(props: V4CollabSubtaskTranscriptPa
   )
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-card">
+    <div className="v4-collab-subtask-transcript flex h-full min-h-0 flex-col bg-card">
       <div className="flex h-10 shrink-0 items-center gap-2 border-b border-border px-3">
         <span className="min-w-0 truncate text-ui-sm font-medium text-foreground">
           {title || '节点进度'}

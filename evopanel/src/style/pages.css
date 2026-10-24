@@ -3967,6 +3967,41 @@ html.dark .config-section-title {
   flex: 1;
 }
 
+/* 节点进度 / 员工过程 / 文件预览等非 collab-exec 根节点也要吃满高度 */
+.task-detail-page .td-right-stage .react-chat-right-stage-body > * {
+  height: 100%;
+  min-height: 0;
+}
+
+.task-detail-page .td-right-stage .v4-employee-process-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--bg-primary, var(--td-card, #fff));
+}
+
+.task-detail-page .td-right-stage .v4-employee-process-panel > .subtask-execution-drawer-card,
+.task-detail-page .td-right-stage .v4-employee-process-panel .react-chat-subtask-modal-card {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  max-width: none;
+  background: var(--bg-primary, var(--td-card, #fff));
+}
+
+.task-detail-page .td-right-stage .v4-employee-process-panel .react-chat-subtask-modal-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+
 @media (max-width: 960px) {
   .task-detail-page.td-with-right-stage .td-split {
     flex-direction: column;

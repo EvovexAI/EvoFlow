@@ -267,8 +267,6 @@ export function createTaskDetailView(taskId, opts = {}) {
     embedMode: isEmbed,
     conversationExpanded: false,
     detailTab: 'overview',
-    /** @type {ReturnType<typeof import('../components/proactive-live-process.js').mountProactiveLiveProcess> | null} */
-    workProcessLive: null,
     /** @type {ReturnType<typeof import('../components/task-detail-right-stage.js').mountTaskDetailRightStage> | null} */
     rightStageHost: null,
   }
@@ -297,7 +295,7 @@ export function createTaskDetailView(taskId, opts = {}) {
     }
     const roleNode = e.target.closest('[data-act="open-task-process"]')
     if (roleNode) {
-      void openTaskWorkProcessPopup(page, state)
+      void openTaskCenterEmployeeProcessStage(page, state)
       return
     }
   }
@@ -462,14 +460,6 @@ export function createTaskDetailView(taskId, opts = {}) {
       state.eventSubscription = null
     }
     unmountTaskPlanModalBridge()
-    if (state.workProcessLive) {
-      try {
-        state.workProcessLive.destroy()
-      } catch {
-        /* ignore */
-      }
-      state.workProcessLive = null
-    }
     if (state.rightStageHost) {
       try {
         state.rightStageHost.destroy()
@@ -1642,18 +1632,27 @@ function setupOutputPolling(page, state) {
         agents: state.agentCatalog || state.agents || [],
         bump: true,
       })
-      if (state.workProcessLive?.isOpen?.()) {
-        const busy = toTaskStatusGroup(t.status) === 'executing'
-        try {
-          state.workProcessLive.setBusy?.(busy)
-          state.workProcessLive.update?.({
-            busy,
-            roundId: String(t?.round_id || t?.source_ref || '').trim() || null,
-            taskId: state.taskId,
+      // 员工执行过程若已在右栏打开：同步 busy / roundId，避免轮询后状态发呆
+      try {
+        const { rightStageStore } = await import('../lib/right-stage/right-stage-store.js')
+        const { employeeProcessStageTabKey } = await import(
+          '../lib/right-stage/open-employee-process-stage.js'
+        )
+        const procKey = employeeProcessStageTabKey(state.taskId)
+        const tab = procKey ? rightStageStore.findTab?.(procKey) : null
+        if (tab) {
+          const busy = toTaskStatusGroup(t.status) === 'executing'
+          rightStageStore.patchTab(procKey, {
+            data: {
+              ...tab.data,
+              busy,
+              roundId: String(t?.round_id || t?.source_ref || '').trim(),
+              taskId: state.taskId,
+            },
           })
-        } catch {
-          /* ignore */
         }
+      } catch {
+        /* ignore */
       }
       if (shouldLoadConversation(state)) {
         await loadTaskConversation(page, state)
@@ -2561,34 +2560,51 @@ function renderTaskObservabilityMeta(el, obs) {
 }
 
 /**
- * 员工整单节点：打开与主对话同款历史面板（居中浮层，不嵌在详情页里）。
- * 有子节点时走工作流页右侧独立区域，不走这里。
+ * 员工整单：打开任务中心右侧栏「执行过程」tab（与工作流同构，单节点，不弹层）。
  */
-async function openTaskWorkProcessPopup(page, state) {
+async function openTaskCenterEmployeeProcessStage(page, state) {
   const task = state.task
+  const tid = String(state.taskId || '').trim()
   const agentCode = String(task?.assigned_to || '').trim()
   if (!agentCode) {
     toast('该任务没有关联员工，无法查看进度', 'warning')
     return false
   }
-  if (!state.workProcessLive) {
-    const { mountProactiveLiveProcess } = await import('../components/proactive-live-process.js')
-    state.workProcessLive = mountProactiveLiveProcess(page)
+  if (!tid) return false
+  try {
+    const { taskCenterStageSessionKey } = await import('../lib/right-stage/task-center-stage-key.js')
+    const { openEmployeeProcessInRightStage } = await import(
+      '../lib/right-stage/open-employee-process-stage.js'
+    )
+    const stageSk = taskCenterStageSessionKey(tid)
+    const threadId = String(task?.thread_id || state.currentThreadId || '').trim()
+    state.rightStageHost?.update?.({
+      taskId: tid,
+      threadId,
+      agents: state.agentCatalog || state.agents || [],
+    })
+    const busy = toTaskStatusGroup(task?.status) === 'executing'
+    const roundId = String(task?.round_id || task?.source_ref || '').trim()
+    const taskName = String(task?.name || task?.title || '').trim()
+    openEmployeeProcessInRightStage(
+      {
+        taskId: tid,
+        agentCode,
+        roleName: resolveDetailRoleLabel(task, state),
+        title: taskName || '执行过程',
+        roundId,
+        busy,
+      },
+      { sessionKey: stageSk },
+    )
+    page.classList.add('td-with-right-stage')
+    page.querySelector('#td-right-stage-slot')?.removeAttribute('hidden')
+    return true
+  } catch (e) {
+    console.warn('[task-detail] open employee process stage failed', e)
+    toast('无法打开执行过程面板', 'error')
+    return false
   }
-  const busy = toTaskStatusGroup(task?.status) === 'executing'
-  const roundId = String(task?.round_id || task?.source_ref || '').trim()
-  const taskName = String(task?.name || task?.title || '').trim()
-  state.workProcessLive.open({
-    agentCode,
-    roleName: resolveDetailRoleLabel(task, state),
-    busy,
-    title: taskName || '任务进度',
-    roundId,
-    taskId: state.taskId,
-    pollMs: busy ? 1000 : 4000,
-    mode: 'modal',
-  })
-  return true
 }
 
 function renderTaskLogsFallback(page, state) {
@@ -2614,7 +2630,7 @@ function renderTaskLogsFallback(page, state) {
     </div>`
 }
 
-/** 主入口卡：员工 → 执行过程；工作流 → 右侧 V4 侧栏（再点节点看输出）。 */
+/** 主入口卡：员工 / 工作流均打开右侧 V4 侧栏（员工=单过程 tab；工作流=图+节点）。 */
 function renderTaskObsSubtasks(page, state) {
   const panel = page.querySelector('#task-obs-panel')
   const strip = page.querySelector('#task-obs-strip')
@@ -2631,17 +2647,18 @@ function renderTaskObsSubtasks(page, state) {
 
   if (countEl) countEl.textContent = ''
 
-  // 员工任务：执行过程弹层（无多节点图时）
+  // 员工任务：右侧栏执行过程（与工作流同构，单节点，不弹层）
   if (isRole && !subtasks.length) {
     if (titleEl) titleEl.textContent = '执行过程'
-    if (descEl) descEl.textContent = '查看员工本轮怎么推进、产出了什么。'
+    if (descEl) descEl.textContent = '在右侧栏查看员工本轮怎么推进、产出了什么。'
     if (panel) panel.hidden = false
     strip.innerHTML = `
-      <button type="button" class="td-stage-entry" data-act="open-task-process">
+      <button type="button" class="td-stage-entry" data-act="open-task-process"
+        title="在右侧打开执行过程">
         <span class="td-stage-entry-icon" aria-hidden="true">◎</span>
         <span class="td-stage-entry-copy">
-          <span class="td-stage-entry-label">查看执行详情</span>
-          <span class="td-stage-entry-hint">打开员工本轮过程</span>
+          <span class="td-stage-entry-label">查看执行过程</span>
+          <span class="td-stage-entry-hint">右侧栏 · 本轮过程与产出</span>
         </span>
         <span class="td-stage-entry-go" aria-hidden="true">›</span>
       </button>`
@@ -3188,14 +3205,42 @@ async function showSubtaskDetail(page, state, subtaskId) {
     const stageSk = taskCenterStageSessionKey(tid)
 
     await openTaskCenterWorkflowStage(page, state)
+    const subThread = String(
+      sub?.subtask_thread_id || sub?.subtaskThreadId || sub?.external_session_id || '',
+    ).trim()
+    let seedRows
+    let seedOutcome
+    let emptyConversation
+    try {
+      const { fetchSubtaskConversationHistory } = await import(
+        '../lib/subtask-conversation-history.js'
+      )
+      const resp = await fetchSubtaskConversationHistory({
+        mainTaskId: tid,
+        subtaskId: sid,
+        leadThreadId: threadId,
+        storedSubtaskThreadId: subThread,
+        subtaskSnapshot: sub,
+      })
+      seedRows = resp?.rows
+      seedOutcome = resp?.outcome
+      emptyConversation = resp?.emptyConversation
+    } catch (e) {
+      console.warn('[task-detail] prefetch subtask history failed', e)
+    }
     openCollabSubtaskInRightStage(
       {
         subtaskId: sid,
         mainTaskId: tid,
         leadThreadId: threadId,
+        subtaskThreadId: subThread,
         title,
         status,
         assignedAgent,
+        description: String(sub?.description || '').trim(),
+        rows: seedRows,
+        outcome: seedOutcome,
+        emptyConversation,
       },
       { sessionKey: stageSk },
     )

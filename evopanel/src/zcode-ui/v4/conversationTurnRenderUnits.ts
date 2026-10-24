@@ -180,6 +180,7 @@ function isBrowserTurnEndRow(row: AssistantWorkRow): boolean {
   }
   // EvoFlow CUA：带 media 的截图卡若留在「已工作」里，回合结束后折叠就看不见。
   // 提到轮尾（最终答复之后、操作栏之前），与 browser_turn_end 同理。
+  // 绑渠道扫码不整卡上提：工具行留原位，仅由轮尾 BindChannelTurnCards 挂码。
   return (
     display?.kind === "cua" &&
     Array.isArray(display.media) &&
