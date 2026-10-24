@@ -80,3 +80,21 @@ def test_employees_create_without_task_has_no_progress_cta():
     ui = build_platform_ui_feedback(entry, {"agent_code": "duty-ops"}, result)
     assert ui is not None
     assert not any(a.get("label") == "查看进度" for a in ui["actions"])
+
+
+def test_employees_delete_notifies_without_view_employee_cta():
+    """删除后实体已不存在：仍有平台通知，但不挂「查看员工」。"""
+    entry = _entry("employees.delete", "employees", risk="destructive")
+    result = {
+        "ok": True,
+        "action": "employees.delete",
+        "agent_code": "duty-ops",
+        "role_name": "值班",
+        "deleted": True,
+    }
+    ui = build_platform_ui_feedback(entry, {"agent_code": "duty-ops"}, result)
+    assert ui is not None
+    assert ui["kind"] == "warning"
+    assert "删除" in ui["title"] or "已删除" in ui["title"]
+    assert ui["actions"] == []
+    assert not any(a.get("label") == "查看员工" for a in ui["actions"])

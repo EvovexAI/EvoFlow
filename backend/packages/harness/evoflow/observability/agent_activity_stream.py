@@ -43,6 +43,10 @@ def _payload(
     detail: str,
     tool_name: str | None = None,
     tool_calls: list[dict[str, Any]] | None = None,
+    attempt: int | None = None,
+    max_attempts: int | None = None,
+    wait_s: float | None = None,
+    reason: str | None = None,
 ) -> dict[str, Any]:
     out: dict[str, Any] = {
         "type": "agent_activity",
@@ -53,6 +57,24 @@ def _payload(
         out["tool_name"] = str(tool_name).strip()
     if tool_calls:
         out["tool_calls"] = [c for c in tool_calls if isinstance(c, dict)]
+    # Structured retry fields for V4 control.apiRetry (no detail scraping).
+    if attempt is not None:
+        try:
+            out["attempt"] = int(attempt)
+        except (TypeError, ValueError):
+            pass
+    if max_attempts is not None:
+        try:
+            out["max_attempts"] = int(max_attempts)
+        except (TypeError, ValueError):
+            pass
+    if wait_s is not None:
+        try:
+            out["wait_s"] = float(wait_s)
+        except (TypeError, ValueError):
+            pass
+    if reason is not None and str(reason).strip():
+        out["reason"] = str(reason).strip()
     return out
 
 
@@ -190,6 +212,10 @@ def emit_agent_activity(
     tool_name: str | None = None,
     tool_calls: list[dict[str, Any]] | None = None,
     force: bool = False,
+    attempt: int | None = None,
+    max_attempts: int | None = None,
+    wait_s: float | None = None,
+    reason: str | None = None,
 ) -> None:
     """Emit a phase hint (model prep / model call / tool execution) into the live SSE stream."""
     tid = str(thread_id or "").strip()
@@ -198,7 +224,16 @@ def emit_agent_activity(
         return
     if not force and not _detail_changed(tid, d):
         return
-    payload = _payload(kind=kind, detail=d, tool_name=tool_name, tool_calls=tool_calls)
+    payload = _payload(
+        kind=kind,
+        detail=d,
+        tool_name=tool_name,
+        tool_calls=tool_calls,
+        attempt=attempt,
+        max_attempts=max_attempts,
+        wait_s=wait_s,
+        reason=reason,
+    )
     if _try_stream_writer(payload):
         return
     inject: dict[str, Any] = {
@@ -210,6 +245,9 @@ def emit_agent_activity(
         inject["tool_name"] = tool_name
     if tool_calls:
         inject["tool_calls"] = [c for c in tool_calls if isinstance(c, dict)]
+    for key in ("attempt", "max_attempts", "wait_s", "reason"):
+        if key in payload:
+            inject[key] = payload[key]
     try:
         from evoflow.runtime.ports import (
             asgi_stream_active,

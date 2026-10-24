@@ -108,6 +108,9 @@ export const PlatformActionResultCard = memo(function PlatformActionResultCard({
     )
   }
 
+  // 删除类等无 CTA 的反馈：只展示通知文案，不挂「查看员工」等死链按钮
+  const showLink = Boolean(primaryAction)
+
   return (
     <div className={`msg-action-result${className ? ` ${className}` : ''}`}>
       <StatusIcon kind={ui.kind} />
@@ -115,9 +118,11 @@ export const PlatformActionResultCard = memo(function PlatformActionResultCard({
         <div className="msg-action-result-title">{title}</div>
         <div className="msg-action-result-meta">{meta}</div>
       </div>
-      <button type="button" className="msg-action-result-link" onClick={onOpen}>
-        {actionLabel === '查看事项' || actionLabel === '查看任务' ? '查看详情' : actionLabel}
-      </button>
+      {showLink ? (
+        <button type="button" className="msg-action-result-link" onClick={onOpen}>
+          {actionLabel === '查看事项' || actionLabel === '查看任务' ? '查看详情' : actionLabel}
+        </button>
+      ) : null}
     </div>
   )
 })

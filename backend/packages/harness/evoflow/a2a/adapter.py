@@ -49,18 +49,11 @@ def _meeting_speak_backoff_seconds(attempt: int, error: Exception) -> float:
 
 
 def _meeting_speak_user_error(exc: BaseException) -> str:
-    """Short UI-facing line for meeting bubble failures (no raw provider dump)."""
-    classification = classify(exc)
-    if classification.reason == FailoverReason.RATE_LIMIT:
-        return "模型限流（多人发言过快），请稍候再试或换模型"
-    if classification.reason == FailoverReason.BILLING:
-        return "模型额度已用尽，请换模型或稍后再试"
-    if classification.reason == FailoverReason.OVERLOADED:
-        return "模型服务过载，请稍候再试"
+    """Pass vendor error through as-is (no local rate/billing/overload rewrite)."""
     msg = str(exc).strip()
     if len(msg) > 160:
         msg = msg[:159] + "…"
-    return msg or "发言失败"
+    return msg or type(exc).__name__
 
 
 # ── A2A Task DB helpers ─────────────────────────────────────

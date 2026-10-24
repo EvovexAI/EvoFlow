@@ -769,16 +769,21 @@ def evf_payload_to_agui_events(
                     mark_thread_tool_approval_pause(tid)
                 except Exception:
                     pass
+        content: dict[str, Any] = {
+            "kind": kind,
+            "detail": detail,
+            "tool_name": payload.get("tool_name"),
+        }
+        # Structured retry fields → V4 mirror control.apiRetry
+        for key in ("attempt", "max_attempts", "wait_s", "reason"):
+            if key in payload and payload.get(key) is not None:
+                content[key] = payload.get(key)
         out.append(
             {
                 "type": ACTIVITY_SNAPSHOT,
                 "messageId": state.activity_message_id,
                 "activityType": "system",
-                "content": {
-                    "kind": kind,
-                    "detail": detail,
-                    "tool_name": payload.get("tool_name"),
-                },
+                "content": content,
             }
         )
         return out

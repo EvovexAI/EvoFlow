@@ -233,22 +233,44 @@ def _load_raw_messages_by_thread(thread_id: str) -> list[dict[str, Any]]:
 
 
 def _load_messages(thread_id: str) -> list[dict[str, Any]]:
-    """display 仓优先；为空时按 thread 直读 transcript 原始行。"""
+    """display 仓优先；为空时按 thread 直读 transcript 原始行。
+
+    协作节点 executor thread（``{lead}__sub__{sid}`` / ``SubThread_*``）必须只按
+    ``thread_id`` 取行。``find_session_key_by_thread_id`` 在无专用会话时会回退到
+    **lead 主会话**；若再 ``list_messages_for_display_all``，会把主对话整段 hydrate
+    进节点面板（侧栏点节点「串台」）。
+    """
+    from evoflow.collab.thread_ids import is_collab_executor_thread
     from evoflow.persistence import chat_message_repositories as msg_repo
     from evoflow.persistence import session_repositories as sess_repo
 
-    sk = str(sess_repo.find_session_key_by_thread_id(thread_id) or "").strip()
+    tid = str(thread_id or "").strip()
+    if is_collab_executor_thread(tid):
+        scoped = list(
+            msg_repo.list_messages_for_thread_id(tid, limit=_HYDRATION_MAX_MESSAGES) or []
+        )
+        if scoped:
+            return scoped
+        archived = list(
+            msg_repo.conversation_archive_from_thread_id(tid, limit=_HYDRATION_MAX_MESSAGES)
+            or []
+        )
+        if archived:
+            return archived
+        return _load_raw_messages_by_thread(tid)
+
+    sk = str(sess_repo.find_session_key_by_thread_id(tid) or "").strip()
     if sk and not sess_repo.is_session_deleted(sk):
         page = msg_repo.list_messages_for_display_all(sk, max_rows=_HYDRATION_MAX_MESSAGES)
         messages = list(page.get("messages") or [])
         if messages:
             return messages
     archived = list(
-        msg_repo.conversation_archive_from_thread_id(thread_id, limit=_HYDRATION_MAX_MESSAGES) or []
+        msg_repo.conversation_archive_from_thread_id(tid, limit=_HYDRATION_MAX_MESSAGES) or []
     )
     if archived:
         return archived
-    return _load_raw_messages_by_thread(thread_id)
+    return _load_raw_messages_by_thread(tid)
 
 
 def hydrate_session_from_transcript(hub: Any, thread_id: str) -> int:

@@ -2212,6 +2212,10 @@ class UiStreamNormalizer:
                 raw_calls = chunk.get("tool_calls")
                 if isinstance(raw_calls, list) and raw_calls:
                     act["tool_calls"] = [c for c in raw_calls if isinstance(c, dict)]
+                # Pass structured retry fields through for V4 apiRetry (verbatim detail).
+                for key in ("attempt", "max_attempts", "wait_s", "reason"):
+                    if key in chunk and chunk.get(key) is not None:
+                        act[key] = chunk.get(key)
                 out.append(act)
             return out
         if t == "context_compaction_start":
@@ -2258,14 +2262,16 @@ class UiStreamNormalizer:
                 )
                 self.block_ledger._close_open_text()
                 self._extend_block_close_frames(out)
-                out.append(
-                    {
-                        "type": "activity",
-                        "kind": "model_error",
-                        "detail": piece,
-                        "ts": int(time.time() * 1000),
-                    }
-                )
+                act_err: dict[str, Any] = {
+                    "type": "activity",
+                    "kind": "model_error",
+                    "detail": piece,
+                    "ts": int(time.time() * 1000),
+                }
+                reason = str(chunk.get("reason") or "").strip()
+                if reason:
+                    act_err["reason"] = reason
+                out.append(act_err)
             return out
         if t == "model_fallback_switch":
             model_name = str(chunk.get("model_name") or "").strip()

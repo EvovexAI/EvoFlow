@@ -845,7 +845,9 @@ async def delete_role(request: Request, agent_code: str) -> dict[str, Any]:
     except Exception:
         logger.debug("xiaomi protect check skipped", exc_info=True)
     runner = _get_proactive_runner()
-    await runner.cancel_role(agent_code)
+    # Idle roles skip LangGraph cancel; never drain the wake queue into a new
+    # dispatch right before the row is deleted.
+    await runner.cancel_role(agent_code, drain_queue=False)
     try:
         from evoflow.proactive.feishu_binding import remove_role_account_from_channel
 

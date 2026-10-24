@@ -414,6 +414,30 @@ class _MirrorState:
     user_text: str = ""
 
 
+def _running_control(
+    *,
+    now_ms: int,
+    api_retry: dict[str, Any] | None = None,
+    last_error: dict[str, Any] | None = None,
+    can_stop: bool = True,
+) -> dict[str, Any]:
+    """Full control object (key-level replace). Always include apiRetry/lastError/stopTargetKind."""
+    from app.gateway.v4.conversation import _minimal_control
+
+    ctrl = _minimal_control("running")
+    ctrl["canStop"] = bool(can_stop)
+    ctrl["stopState"] = "stoppable" if can_stop else "idle"
+    ctrl["activeWorks"] = [{"kind": "primaryTurn", "startedAt": now_ms}] if can_stop else []
+    ctrl["apiRetry"] = api_retry
+    ctrl["lastError"] = last_error
+    return ctrl
+
+
+def _activity_content(ev: dict[str, Any]) -> dict[str, Any]:
+    raw = ev.get("content")
+    return raw if isinstance(raw, dict) else {}
+
+
 class V4Mirror:
     """进程内单例：thread_id → 镜像状态，AG-UI 事件流 → hub authoring。"""
 
@@ -427,6 +451,98 @@ class V4Mirror:
             st = _MirrorState()
             self._states[thread_id] = st
         return st
+
+    def _patch_control(self, tid: str, control: dict[str, Any]) -> None:
+        self._hub.author_state_patch(tid, {"control": control})
+
+    def _clear_api_retry(self, tid: str, st: _MirrorState, *, now_ms: int) -> None:
+        """Drop retry banner while keeping the turn running (e.g. model resumed)."""
+        if not st.run_started:
+            return
+        self._patch_control(tid, _running_control(now_ms=now_ms, api_retry=None, last_error=None))
+
+    def _upsert_error_assistant_text(self, tid: str, st: _MirrorState, text: str, *, now_ms: int) -> None:
+        """Ensure vendor error is visible as assistantText when no body was streamed yet."""
+        body = str(text or "").strip()
+        if not body or not st.run_started:
+            return
+        # Prefer existing streaming text rows (model_error TEXT_MESSAGE path already filled them).
+        if st.text_row_ids:
+            return
+        mid = f"model-error-{st.turn_id or now_ms}"
+        rid = self._next_row_id(tid)
+        st.text_row_ids[mid] = rid
+        st.text_acc[mid] = body
+        self._hub.author_append_row(
+            tid,
+            {
+                "rowId": rid,
+                "turnId": st.turn_id,
+                "kind": "assistantText",
+                "text": body,
+                "state": "complete",
+                "createdAt": now_ms,
+                "createdAtSeq": self._seq_now(tid),
+                "entityId": mid,
+            },
+        )
+
+    def _on_activity_snapshot(self, tid: str, st: _MirrorState, ev: dict[str, Any], *, now_ms: int) -> None:
+        """Project ACTIVITY_SNAPSHOT retrying/model_error into V4 control + optional text."""
+        if not st.run_started:
+            return
+        content = _activity_content(ev)
+        kind = str(content.get("kind") or "").strip()
+        detail = str(content.get("detail") or "").strip()
+        if kind == "retrying":
+            try:
+                attempt = int(content.get("attempt") or 1)
+            except (TypeError, ValueError):
+                attempt = 1
+            try:
+                max_attempts = int(content.get("max_attempts") or attempt)
+            except (TypeError, ValueError):
+                max_attempts = attempt
+            try:
+                wait_s = float(content.get("wait_s") or 0.0)
+            except (TypeError, ValueError):
+                wait_s = 0.0
+            reason_code = str(content.get("reason") or "").strip() or "rate_limit"
+            # reasonCode carries vendor detail so the dock/title can show the real error.
+            # Schema is a string; keep it informative (truncate for wire size).
+            display_reason = detail[:500] if detail else reason_code
+            next_retry_at = now_ms + int(max(0.0, wait_s) * 1000)
+            api_retry = {
+                "attempt": max(1, attempt),
+                # V4 schema: maxAttempts includes the first try; our middleware counts retries only.
+                "maxAttempts": max(1, max_attempts) + 1,
+                "nextRetryAt": next_retry_at,
+                "reasonCode": display_reason,
+            }
+            self._patch_control(
+                tid,
+                _running_control(now_ms=st.turn_started_at_ms or now_ms, api_retry=api_retry),
+            )
+            return
+        if kind == "model_error":
+            last_error = {
+                "code": str(content.get("reason") or "model_error").strip() or "model_error",
+                "message": detail[:2000] if detail else "model_error",
+                "recoverable": False,
+                "at": now_ms,
+                "source": "provider",
+            }
+            self._patch_control(
+                tid,
+                _running_control(
+                    now_ms=st.turn_started_at_ms or now_ms,
+                    api_retry=None,
+                    last_error=last_error,
+                    can_stop=True,
+                ),
+            )
+            self._upsert_error_assistant_text(tid, st, detail, now_ms=now_ms)
+            return
 
     # -- 入口 ---------------------------------------------------------------
 
@@ -570,25 +686,19 @@ class V4Mirror:
                         "createdAtSeq": self._seq_now(tid),
                     },
                 )
-            self._hub.author_state_patch(
-                tid,
-                {
-                    "control": {
-                        "phase": "running",
-                        "sessionEnded": False,
-                        "canStop": True,
-                        "stopState": "stoppable",
-                        "activeWorks": [{"kind": "primaryTurn", "startedAt": now_ms}],
-                        "lastError": None,
-                    }
-                },
-            )
+            self._patch_control(tid, _running_control(now_ms=now_ms))
+            return
+
+        if et == "ACTIVITY_SNAPSHOT":
+            self._on_activity_snapshot(tid, st, ev, now_ms=now_ms)
             return
 
         if et == "TEXT_MESSAGE_START":
             mid = str(ev.get("messageId") or "").strip()
             if not mid or mid in st.text_row_ids:
                 return
+            # Successful model output starting → clear retry banner.
+            self._clear_api_retry(tid, st, now_ms=now_ms)
             rid = self._next_row_id(tid)
             st.text_row_ids[mid] = rid
             st.text_acc[mid] = ""
@@ -900,24 +1010,21 @@ class V4Mirror:
                 if et == "RUN_ERROR"
                 else None
             )
-            self._hub.author_state_patch(
-                tid,
-                {
-                    "control": {
-                        "phase": "completedSuccess" if et == "RUN_FINISHED" else "error",
-                        "sessionEnded": True,
-                        "canStop": False,
-                        "stopState": "idle",
-                        "activeWorks": [],
-                        "lastError": last_error,
-                    }
-                },
-            )
+            from app.gateway.v4.conversation import _minimal_control
+
+            ctrl = _minimal_control("completedSuccess" if et == "RUN_FINISHED" else "error")
+            ctrl["sessionEnded"] = True
+            ctrl["canStop"] = False
+            ctrl["stopState"] = "idle"
+            ctrl["activeWorks"] = []
+            ctrl["lastError"] = last_error
+            ctrl["apiRetry"] = None
+            self._patch_control(tid, ctrl)
             # 关键：允许下一轮 RUN_STARTED 再开 running turnHeader。
             self._reset_turn_ephemeral(st)
             return
 
-        # 其余事件（CUSTOM/ACTIVITY_*/...）v1 不投影——协议面只收对话事实。
+        # 其余事件（CUSTOM 等）不投影——ACTIVITY_SNAPSHOT 已在上方处理。
 
 
 def _get_mirror() -> V4Mirror:

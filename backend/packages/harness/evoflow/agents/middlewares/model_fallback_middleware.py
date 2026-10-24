@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import random
-import re
 import time
 from typing import Any
 
@@ -43,47 +42,32 @@ _RETRYABLE_TRANSIENT_REASONS = frozenset(
     }
 )
 
-_AUTH_FAILURE_MESSAGE = "模型 API 认证失败，已尝试轮换所有可用凭证。请检查 API Key 配置或切换到其他模型。"
+def _vendor_error_text(exc: Exception | None, *, limit: int = 800) -> str:
+    """Extract the provider's own error text — no local rewrite for any reason.
 
-_USER_FRIENDLY_MESSAGE = "模型请求失败：上游模型 API 返回错误。已记录调试信息，你可以重试或切换模型。"
-_CONNECTION_ERROR_MESSAGE = "模型网络连接异常，无法连接到上游 API 服务。请检查网络状况或稍后重试。"
-_RATE_LIMIT_USER_MESSAGE = "模型 API 限流（请求过于频繁），已自动重试 3 次仍未成功。请稍等片刻后再发一条消息重试。"
-_OVERLOADED_USER_MESSAGE = "模型服务当前过载，已自动重试但仍未成功。请稍等片刻后重试，或切换到其他模型。"
-_CONTEXT_OVERFLOW_USER_MESSAGE = "当前对话上下文已超出模型窗口上限，自动压缩后仍无法继续。请新开会话、手动压缩上下文，或切换更大窗口的模型后再试。"
-_BILLING_USER_MESSAGE = "当前模型 API 额度已用尽，无法继续生成回复。请稍后再试、切换其他模型，或升级 API 套餐。"
-_QUOTA_RESET_AT_RE = re.compile(r"reset at ([^'\"}\]]+)", re.IGNORECASE)
-_QUOTA_N_HOUR_RE = re.compile(r"(\d+)\s*-\s*hour", re.IGNORECASE)
-
-
-def _quota_scope_label(exc: Exception) -> str:
-    """e.g. '5小时额度' / '月度额度' / '额度'."""
-    text = str(exc or "")
-    hm = _QUOTA_N_HOUR_RE.search(text)
-    if hm:
-        return f"{hm.group(1)}小时额度"
-    lower = text.lower()
-    if "hourly" in lower and "quota" in lower:
-        return "小时额度"
-    if "daily" in lower and "quota" in lower:
-        return "日额度"
-    if "weekly" in lower and "quota" in lower:
-        return "周额度"
-    if "monthly" in lower and "quota" in lower:
-        return "月度额度"
-    if "accountquotaexceeded" in lower:
-        return "额度"
-    return "额度"
-
-
-def _billing_user_message(exc: Exception) -> str:
-    scope = _quota_scope_label(exc)
-    match = _QUOTA_RESET_AT_RE.search(str(exc))
-    if match:
-        reset_at = match.group(1).strip().rstrip(".")
-        return f"当前模型 API {scope}已用尽，无法继续生成回复。额度将在 {reset_at} 重置；您也可以切换其他模型或升级 API 套餐后重试。"
-    if scope != "额度":
-        return f"当前模型 API {scope}已用尽，无法继续生成回复。请稍后再试、切换其他模型，或升级 API 套餐。"
-    return _BILLING_USER_MESSAGE
+    Prefer nested OpenAI-style ``body.error.message`` / ``body.message`` when
+    present; otherwise ``str(exc)``. Never map to canned 限流/鉴权/额度文案.
+    """
+    if exc is None:
+        return ""
+    body = getattr(exc, "body", None)
+    if isinstance(body, dict):
+        err = body.get("error")
+        if isinstance(err, dict):
+            nested = err.get("message")
+            if nested is not None and str(nested).strip():
+                return str(nested).strip()[:limit]
+        top = body.get("message")
+        if top is not None and str(top).strip():
+            return str(top).strip()[:limit]
+    msg_attr = getattr(exc, "message", None)
+    if isinstance(msg_attr, str) and msg_attr.strip():
+        # openai.APIError.message is often the short vendor string
+        return msg_attr.strip()[:limit]
+    text = str(exc).strip()
+    if text:
+        return text[:limit]
+    return type(exc).__name__
 
 
 def _calc_backoff_seconds(attempt: int, error: Exception) -> float:
@@ -108,21 +92,9 @@ def _calc_backoff_seconds(attempt: int, error: Exception) -> float:
     return min(backoff_s + jitter_s, _MAX_BACKOFF_SECONDS)
 
 
-def _user_friendly_message_for_error(exc: Exception) -> str:
-    classification = classify(exc)
-    if classification.reason == FailoverReason.BILLING:
-        return _billing_user_message(exc)
-    if classification.reason == FailoverReason.RATE_LIMIT:
-        return _RATE_LIMIT_USER_MESSAGE
-    if classification.reason == FailoverReason.OVERLOADED:
-        return _OVERLOADED_USER_MESSAGE
-    if classification.reason in (FailoverReason.CONTEXT_OVERFLOW, FailoverReason.PAYLOAD_TOO_LARGE):
-        return _CONTEXT_OVERFLOW_USER_MESSAGE
-    if classification.reason == FailoverReason.AUTH:
-        return _AUTH_FAILURE_MESSAGE
-    if classification.reason == FailoverReason.CONNECTION_ERROR:
-        return _CONNECTION_ERROR_MESSAGE
-    return _USER_FRIENDLY_MESSAGE
+def _user_facing_error_message(exc: Exception) -> str:
+    """Pass-through vendor error for every FailoverReason — no local interception."""
+    return _vendor_error_text(exc)
 
 
 def _retry_reason_label(reason: FailoverReason) -> str:
@@ -384,21 +356,31 @@ def _emit_model_retry_activity(
     reason: FailoverReason,
     wait_s: float = 0.0,
     note: str = "",
+    exc: Exception | None = None,
 ) -> None:
-    """Push retry progress into the live SSE activity lane for the frontend dock."""
+    """Push retry progress into the live SSE activity lane for the frontend dock.
+
+    Detail is the vendor error verbatim for every reason. Structured attempt/wait
+    fields ride alongside for V4 ``control.apiRetry`` (no local label rewrite).
+    """
     tid = _runtime_thread_id(runtime)
     if not tid:
         return
-    label = _retry_reason_label(reason)
-    detail = f"系统重试中（{attempt}/{max_attempts}）：{label}"
-    if note:
-        detail = f"{detail}，{note}"
-    elif wait_s > 0:
-        detail = f"{detail}，约 {wait_s:.0f}s 后继续"
+    _ = note  # call-site compatibility; do not mix into user-facing detail
+    detail = _vendor_error_text(exc) or reason.value
     try:
         from evoflow.observability.agent_activity_stream import emit_agent_activity
 
-        emit_agent_activity(tid, kind="retrying", detail=detail, force=True)
+        emit_agent_activity(
+            tid,
+            kind="retrying",
+            detail=detail,
+            force=True,
+            attempt=int(attempt),
+            max_attempts=int(max_attempts),
+            wait_s=float(wait_s or 0.0),
+            reason=reason.value,
+        )
     except Exception:
         logger.debug("model retry activity emit failed thread=%s", tid, exc_info=True)
 
@@ -1078,26 +1060,15 @@ class ModelFallbackMiddleware(AgentMiddleware[AgentState]):
             )
         failed_name = _resolve_failed_model_name(exc, runtime)
         _mark_model_unavailable_for_error(failed_name, exc)
-        message = _user_friendly_message_for_error(exc)
-        if failed_name:
-            reason = _retry_reason_label(classification.reason)
-            message = f"{message}（当前模型：{_model_display_name(failed_name)}，原因：{reason}）"
-        if classification.reason == FailoverReason.RATE_LIMIT:
-            try:
-                from evoflow.observability.agent_activity_stream import emit_agent_activity
-
-                tid = _runtime_thread_id(runtime)
-                if tid:
-                    emit_agent_activity(tid, kind="retrying", detail=message, force=True)
-            except Exception:
-                logger.debug("rate-limit final activity emit failed", exc_info=True)
+        # Pass vendor error through as-is for every reason — no local rewrite.
+        message = _user_facing_error_message(exc)
         # 回合级失败登记：middle layer 在 run 收尾时取出 → 终态落 fail
         register_model_error_turn(
             _runtime_thread_id(runtime),
             reason=classification.reason.value,
             message=message,
         )
-        # 实时注入 delta → V4 assistantText；checkpoint 里也落 AIMessage
+        # 实时注入 delta → V4 assistantText + activity kind=model_error
         _emit_model_error_notice_stream(message, runtime, reason=classification.reason.value)
         return AIMessage(
             content=message,
@@ -1138,6 +1109,7 @@ class ModelFallbackMiddleware(AgentMiddleware[AgentState]):
             max_attempts=_MAX_RATE_LIMIT_RETRIES,
             reason=FailoverReason.RATE_LIMIT,
             wait_s=wait_s,
+            exc=exc,
         )
         time.sleep(wait_s)
         return self.wrap_model_call(
@@ -1175,6 +1147,7 @@ class ModelFallbackMiddleware(AgentMiddleware[AgentState]):
             max_attempts=_MAX_RATE_LIMIT_RETRIES,
             reason=FailoverReason.RATE_LIMIT,
             wait_s=wait_s,
+            exc=exc,
         )
         await asyncio.sleep(wait_s)
         return await self.awrap_model_call(
@@ -1215,6 +1188,7 @@ class ModelFallbackMiddleware(AgentMiddleware[AgentState]):
             max_attempts=_MAX_SERVER_ERROR_RETRIES,
             reason=reason,
             wait_s=wait_s,
+            exc=exc,
         )
         time.sleep(wait_s)
         return self.wrap_model_call(
@@ -1256,6 +1230,7 @@ class ModelFallbackMiddleware(AgentMiddleware[AgentState]):
             max_attempts=_MAX_SERVER_ERROR_RETRIES,
             reason=reason,
             wait_s=wait_s,
+            exc=exc,
         )
         await asyncio.sleep(wait_s)
         return await self.awrap_model_call(
@@ -1285,6 +1260,7 @@ class ModelFallbackMiddleware(AgentMiddleware[AgentState]):
         *,
         compression_attempt: int,
         sync: bool,
+        exc: Exception | None = None,
     ):
         next_attempt = compression_attempt + 1
         logger.info(
@@ -1296,7 +1272,7 @@ class ModelFallbackMiddleware(AgentMiddleware[AgentState]):
             attempt=next_attempt,
             max_attempts=2,
             reason=FailoverReason.CONTEXT_OVERFLOW,
-            note="已紧急压缩上下文",
+            exc=exc,
         )
         try:
             from evoflow.observability.compaction_file_log import log_compaction_trace
@@ -1386,6 +1362,7 @@ class ModelFallbackMiddleware(AgentMiddleware[AgentState]):
             compressed,
             compression_attempt=compression_attempt,
             sync=True,
+            exc=exc,
         )
 
     async def _try_overflow_compress_and_retry_async(
@@ -1447,6 +1424,7 @@ class ModelFallbackMiddleware(AgentMiddleware[AgentState]):
             compressed,
             compression_attempt=compression_attempt,
             sync=False,
+            exc=exc,
         )
 
     def _try_credential_rotation_or_fallback(

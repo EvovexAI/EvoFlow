@@ -3,7 +3,21 @@
  * Publish platform-run entries into turn/session state and open info rail.
  * Extracted from ChatApp.tsx (P131).
  */
+import { isProgressStageKind } from '../../../lib/right-stage/open-progress-from-panel-set.js'
+
 export type PublishPlatformEntriesCtx = Record<string, any>
+
+/** 平台条目进 Info Rail 时，这些右栏不应被 hide 掉。 */
+function shouldKeepRightStageOnPlatformPublish(kind: string | null | undefined): boolean {
+  const k = String(kind || '').trim()
+  if (!k) return false
+  // 浏览器：agent 持续控制面（画布/点击）
+  if (k === 'browser') return true
+  // 工作流 / 节点 / 员工过程：常由平台 CTA（查看进度）刚打开，回合结束再 hide
+  // 会表现为「对话一结束侧栏自己没了」。
+  if (isProgressStageKind(k)) return true
+  return false
+}
 
 export function publishPlatformEntries(
   ctx: PublishPlatformEntriesCtx,
@@ -19,14 +33,19 @@ export function publishPlatformEntries(
     return Array.from(map.values()).sort((a, b) => b.appliedAt - a.appliedAt)
   })
   if (!entries.length) return
-  // 浏览器面板由 agent 实时驱动（画布/点击/滚轮穿透）。平台条目改走状态面板
-  // 呈报，不抢占 Right Stage——否则平台工具一发布条目，浏览器面板就被折叠。
-  const browserStageLive = ctx.rightStageStore.getSnapshot().surface?.kind === 'browser'
+  // 平台条目改走状态面板呈报；默认收掉无关右栏，但勿动浏览器 / 进度类面板。
+  const snap = ctx.rightStageStore.getSnapshot()
+  const activeKind = snap?.surface?.kind
+  const keepActive = shouldKeepRightStageOnPlatformPublish(activeKind)
+  // 进度 tab 可能在后台（例如刚切到别的签）：只要还开着就整栏保留。
+  const hasProgressTab = Array.isArray(snap?.tabs)
+    ? snap.tabs.some((t) => shouldKeepRightStageOnPlatformPublish(t?.kind))
+    : false
   if (ctx.rightStageHintTimerRef.current) {
     clearTimeout(ctx.rightStageHintTimerRef.current)
     ctx.rightStageHintTimerRef.current = 0
   }
-  if (!browserStageLive) {
+  if (!keepActive && !hasProgressTab) {
     ctx.rightStageStore.hide()
   }
   // 强制展开右上角状态卡并切到「平台」（ChatSummaryPanel 靠 focus id 跳 tab）

@@ -79,7 +79,8 @@ def test_handle_model_error_returns_aimessage_even_for_supervisor():
     ):
         out = mw._handle_model_error(AuthenticationError(), runtime=None)
     assert isinstance(out, AIMessage)
-    assert "认证" in str(out.content) or "失败" in str(out.content)
+    # Vendor text passes through as-is (no local 「认证失败」 rewrite).
+    assert "Invalid API key" in str(out.content)
     assert out.response_metadata.get("evoflow_error", {}).get("reason") == FailoverReason.AUTH.value
     emit.assert_called_once()
 

@@ -1325,35 +1325,67 @@ class ProactiveRunner:
         except Exception:
             logger.exception("proactive.wake_queue.drain failed role=%s", code)
 
-    async def _cancel_langgraph_for_role(self, agent_code: str) -> int:
-        """Best-effort cancel of pending/running LangGraph runs on employee sessions."""
+    def _role_has_active_run_sessions(self, agent_code: str) -> bool:
+        """True when any employee conversation still shows sticky running/pending."""
+        code = str(agent_code or "").strip()
+        if not code:
+            return False
+        try:
+            from evoflow.proactive.chat_session import list_employee_conversation_sessions
+
+            for row in list_employee_conversation_sessions(code, limit=40):
+                st = str(row.get("run_status") or "").strip().lower()
+                if st in {"running", "pending"}:
+                    return True
+        except Exception:
+            logger.debug(
+                "proactive.runner: active-session check failed role=%s",
+                code,
+                exc_info=True,
+            )
+        return False
+
+    async def _cancel_langgraph_for_role(
+        self,
+        agent_code: str,
+        *,
+        only_active: bool = True,
+    ) -> int:
+        """Best-effort cancel of pending/running LangGraph runs on employee sessions.
+
+        ``only_active=True`` (default): only touch conversations whose sticky
+        ``run_status`` is pending/running — avoids N× LangGraph list calls over
+        idle history (delete/pause of idle employees was timing out on this).
+        Pass ``only_active=False`` when the role is in-flight and sticky status
+        may lag behind the real LangGraph run.
+        """
         code = str(agent_code or "").strip()
         if not code:
             return 0
         try:
-            from evoflow.persistence import session_repositories as sess_repo
-            from evoflow.proactive.chat_session import (
-                list_employee_conversation_sessions,
-                proactive_session_key,
-            )
+            from evoflow.proactive.chat_session import list_employee_conversation_sessions
 
-            keys: list[str] = []
-            legacy = proactive_session_key(code)
-            if legacy:
-                keys.append(legacy)
+            # Prefer thread_id from chat_sessions — do not N× load_session_map().
+            targets: list[tuple[str, str]] = []
+            seen_tid: set[str] = set()
             for row in list_employee_conversation_sessions(code, limit=30):
+                st = str(row.get("run_status") or "").strip().lower()
+                if only_active and st not in {"pending", "running"}:
+                    continue
                 sk = str(row.get("session_key") or "").strip()
-                if sk and sk not in keys:
-                    keys.append(sk)
+                tid = str(row.get("thread_id") or "").strip()
+                if not tid or tid in seen_tid:
+                    continue
+                seen_tid.add(tid)
+                targets.append((sk, tid))
+
+            if not targets:
+                return 0
 
             client = _get_langgraph_client()
             cancelled = 0
             _lg_op_timeout = 3.0
-            for sk in keys:
-                row = (sess_repo.load_session_map().get(sk) or {}) if sk else {}
-                tid = str(row.get("threadId") or row.get("thread_id") or "").strip()
-                if not tid:
-                    continue
+            for sk, tid in targets:
                 try:
                     runs = await asyncio.wait_for(
                         client.runs.list(thread_id=tid, limit=20),
@@ -1452,10 +1484,37 @@ class ProactiveRunner:
 
         ``drain_queue=False`` is used by interrupt wakes so we do not immediately
         start a previously queued goal before the forced new dispatch.
+
+        Idle fast-path: if the role has no inflight asyncio task and no sticky
+        running/pending conversations, skip LangGraph list/cancel entirely.
+        Delete/pause of idle employees used to wait on N× runs.list timeouts.
         """
         code = str(agent_code or "").strip()
         was_busy = self.is_role_busy(code)
-        lg_cancelled = await self._cancel_langgraph_for_role(code)
+        has_active_sessions = self._role_has_active_run_sessions(code)
+
+        if not was_busy and not has_active_sessions:
+            await self._end_role(code, drain=drain_queue)
+            logger.info(
+                "proactive.runner: cancel_role=%s skipped_idle drain=%s",
+                code,
+                drain_queue,
+            )
+            return {
+                "ok": True,
+                "agent_code": code,
+                "was_busy": False,
+                "task_cancelled": False,
+                "langgraph_runs_cancelled": 0,
+                "finalized_sessions": 0,
+                "skipped_idle": True,
+            }
+
+        # When busy, sticky run_status may lag — scan all recent threads.
+        lg_cancelled = await self._cancel_langgraph_for_role(
+            code,
+            only_active=not was_busy,
+        )
 
         task: asyncio.Task | None = None
         async with self._inflight_guard:

@@ -300,6 +300,8 @@ class ProactiveRepository:
             raise ValueError(f"无法删除岗位：请先处理下级岗位的汇报关系。该岗位仍有 {len(subs)} 个下级岗位：{names}{more}。")
 
         # 2. Best-effort cancel any in-flight patrol (idempotent, non-fatal).
+        # drain_queue=False: do not start a queued wake right before the row dies.
+        # Idle roles short-circuit inside cancel_role (no LangGraph list/cancel).
         try:
             from evoflow.proactive.runner import get_proactive_runner
 
@@ -309,12 +311,13 @@ class ProactiveRepository:
             try:
                 asyncio.get_running_loop()
                 # We're inside an async context (API/router) — can await.
-                asyncio.ensure_future(runner.cancel_role(code))
+                # Router already awaited cancel; this is a sync-path safety net.
+                asyncio.ensure_future(runner.cancel_role(code, drain_queue=False))
             except RuntimeError:
                 # Sync context: run cancellation synchronously if not running,
                 # otherwise best-effort skip.
                 try:
-                    asyncio.run(runner.cancel_role(code))
+                    asyncio.run(runner.cancel_role(code, drain_queue=False))
                 except Exception:
                     logger.debug(
                         "proactive.role.delete cancel_role sync failed code=%s",

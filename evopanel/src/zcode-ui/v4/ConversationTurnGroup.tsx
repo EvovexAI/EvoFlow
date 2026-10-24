@@ -138,7 +138,7 @@ const BIND_CHANNEL_LABELS: Record<string, string> = {
   weixin: "微信",
 };
 
-const MIN_VISIBLE_API_RETRY_ATTEMPT = 3;
+const MIN_VISIBLE_API_RETRY_ATTEMPT = 1;
 
 function toRetryStatus(apiRetry: ApiRetryState): ZCodeApiRetryStatus {
   const attempt = Math.max(1, Math.floor(apiRetry.attempt));
@@ -164,9 +164,7 @@ function TurnChatLoadingSlot({
 }) {
   const { intl, locale } = useZCodeIntl();
   const retryStatus = useMemo(() => (apiRetry ? toRetryStatus(apiRetry) : null), [apiRetry]);
-  // 前两次短暂恢复对用户等价于普通加载；保留 apiRetry 运行态，但只在
-  // 第三次重试开始后显示计数。必须在 retry/loading 分支前收敛，否则会留下空 slot，
-  // 而不是回退到 ChatLoading。
+  // Show vendor error + retry count from the first retry so V4 matches AG-UI SSE.
   const visibleRetryStatus =
     retryStatus && retryStatus.attempt >= MIN_VISIBLE_API_RETRY_ATTEMPT ? retryStatus : null;
   if (!visibleRetryStatus && !eligible) return null;

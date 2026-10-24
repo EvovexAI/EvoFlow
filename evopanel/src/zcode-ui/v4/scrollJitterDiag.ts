@@ -1,6 +1,6 @@
 // 滚动抖动诊断（v4 时间线上滚抖动定位用）。
 //
-// 默认开启（localStorage.evoflow_v4_scroll_diag = "0" 关闭）。工作方式：
+// 默认关闭（需 console 里 `localStorage.evoflow_v4_scroll_diag = "1"` 后刷新才开启；调完记得清掉）。工作方式：
 // 1. 滚动层向上 wheel 停止 250ms 后开 1.5s 采样窗，记录每次 scrollTop / scrollHeight 变化；
 // 2. 采样结束：只要窗内有位移就 console 打归因报告（稳定用 info，抖动用 warn）；
 // 3. 每条样本带 source（写入方挂名）；未挂名归因为 "browser/native"（滚动锚点/浏览器折算）；
@@ -42,9 +42,9 @@ let lastReportAt = 0;
 function isEnabled(): boolean {
   if (diagEnabled === null) {
     try {
-      diagEnabled = globalThis.localStorage?.getItem("evoflow_v4_scroll_diag") !== "0";
+      diagEnabled = globalThis.localStorage?.getItem("evoflow_v4_scroll_diag") === "1";
     } catch {
-      diagEnabled = true;
+      diagEnabled = false;
     }
   }
   return diagEnabled;
@@ -190,7 +190,7 @@ export function attachScrollJitterDiag(el: HTMLDivElement): void {
   lastObservedScrollHeight = el.scrollHeight;
   el.addEventListener("wheel", onWheel, { passive: true });
   el.addEventListener("scroll", onScroll, { passive: true });
-  console.info("[v4-scroll-diag] 已挂载（上滚停住后会采样 scrollTop；localStorage.evoflow_v4_scroll_diag=0 关闭）");
+  console.info("[v4-scroll-diag] 已挂载（上滚停住后会采样 scrollTop；localStorage.evoflow_v4_scroll_diag=1 才启用）");
 }
 
 export function detachScrollJitterDiag(el: HTMLDivElement): void {

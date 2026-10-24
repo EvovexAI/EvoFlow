@@ -266,7 +266,15 @@ function pickEntityId(obj: Record<string, unknown>, args: Record<string, unknown
   )
 }
 
+/** Delete/archive/clear: entity is gone — notify only, no 「查看xxx」 CTA. */
+function entityRemovedByAction(action: string): boolean {
+  const verb = String(action || '').split('.')[1] || ''
+  return verb === 'delete' || verb === 'archive' || verb === 'clear' || verb === 'note_delete'
+}
+
 function buildActions(action: string, domain: string, entityId: string): PlatformFeedbackAction[] {
+  if (entityRemovedByAction(action)) return []
+
   if (domain === 'items' && entityId) {
     return [{ label: '查看事项', route: `/tasks?tab=items&focus=${entityId}` }]
   }

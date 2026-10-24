@@ -116,18 +116,24 @@ export function ChatApiRetryStatus({
     return null;
   }
 
-  const retryTitle =
-    apiRetry.errorStatus == null ? retryLabel : `${retryLabel} · HTTP ${apiRetry.errorStatus}`;
+  const vendorError = String(apiRetry.error || "").trim();
+  const httpBit =
+    apiRetry.errorStatus == null ? "" : ` · HTTP ${apiRetry.errorStatus}`;
+  // Prefer vendor error text (passthrough) over generic reconnect label when present.
+  const retryTitle = vendorError
+    ? `${retryLabel}${httpBit} — ${vendorError}`
+    : `${retryLabel}${httpBit}`;
+  const visibleLabel = vendorError || retryLabel;
 
   return (
     <span
-      className="inline-flex h-7 items-center whitespace-nowrap px-1 text-ui-base"
+      className="inline-flex min-h-7 max-w-full items-center px-1 text-ui-base"
       title={retryTitle}
     >
       {/* Retry 需要保留 ToolCall/Thinking 的字号、扫光节奏和低透明度移动低谷，
       但作为次级运行状态不应使用同等的纯黑/纯白峰值；这里只将峰值降到 secondary 文本色。 */}
-      <span className="animated-gradient-text animated-gradient-text-subtle font-medium">
-        {retryLabel}
+      <span className="animated-gradient-text animated-gradient-text-subtle line-clamp-2 font-medium break-words">
+        {visibleLabel}
       </span>
     </span>
   );
