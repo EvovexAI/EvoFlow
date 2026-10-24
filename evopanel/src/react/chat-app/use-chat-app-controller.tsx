@@ -1832,7 +1832,22 @@ export function useChatAppController() {
   useEffect(() => {
     const onStageSet = (ev: Event) => {
       const detail = (ev as CustomEvent<StageSetPayload>).detail
-      if (!detail) return
+      if (!detail) {
+        try {
+          console.log('[右栏·panel_set]', '② 窗口事件 STAGE_SET_APPLIED 但 detail 为空')
+        } catch {
+          /* ignore */
+        }
+        return
+      }
+      try {
+        console.log('[右栏·panel_set]', '② 窗口事件 STAGE_SET_APPLIED → syncRemoteStageSet', {
+          action: detail.action,
+          kind: detail.surface?.kind,
+        })
+      } catch {
+        /* ignore */
+      }
       syncRemoteStageSet(detail)
     }
     window.addEventListener(STAGE_SET_APPLIED_EVENT, onStageSet)

@@ -9,6 +9,7 @@ import {
 } from './right-stage-types.js'
 import { getCurrentRightStageSessionKey, resolveTabSessionKey, scopeOfKind } from './right-stage-scope.js'
 import { isTaskCenterStageSessionKey } from './task-center-stage-key.js'
+import { logPanelSet } from './panel-set-debug-log.js'
 
 export type RecentClosedRightStageTab = {
   /** 关闭前的 tab key（`${kind}:${id}`），用于 reopen。 */
@@ -265,9 +266,13 @@ export class RightStageStore {
     sessionKey?: string
   }) {
     const kind = normalizeRightStageKind(String(input.kind || '').trim())
-    if (!kind) return
+    if (!kind) {
+      logPanelSet('④ store.show：kind 为空，忽略')
+      return
+    }
     // 产物改由侧栏 Info Rail 呈报，禁止占用 Right Stage
     if (kind === 'artifacts') {
+      logPanelSet('④ store.show：拒绝挂 artifacts 标签（设计如此，应走文件预览/状态卡）')
       const existingArtifacts = this.tabs.find((t) => t.kind === 'artifacts')
       if (existingArtifacts) {
         this.tabs = this.tabs.filter((t) => t !== existingArtifacts)
@@ -319,6 +324,14 @@ export class RightStageStore {
     this.activeKey = key
     // 打开/激活任一标签时必须展开侧栏，否则用户看不到新页
     this.collapsed = false
+    logPanelSet('④ store.show 已展开', {
+      key,
+      kind,
+      title: next.title,
+      sessionKey: next.sessionKey || '(空)',
+      tabCount: this.tabs.length,
+      collapsed: this.collapsed,
+    })
     this.bump()
   }
 

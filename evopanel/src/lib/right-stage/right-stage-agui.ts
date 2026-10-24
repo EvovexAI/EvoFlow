@@ -6,6 +6,7 @@ import { getCurrentRightStageSessionKey, scopeOfKind } from './right-stage-scope
 import { upsertTabInSessionMemory } from './right-stage-session-memory.js'
 import { getPanelSetting } from '../panel-settings.js'
 import { isAutoWorkPreviewEnabled, normalizeWriteStreamMode } from './write-stream-mode.js'
+import { logPanelSet } from './panel-set-debug-log.js'
 
 /** 写入面板是否允许被远端 / panel_set 自动拉开（跟随「自动打开工作预览」设置）。 */
 function mayAutoShowWritePanel(): boolean {
@@ -113,18 +114,38 @@ export function applyStageSetPayload(
   payload: StageSetPayload | null,
   options?: { sessionKey?: string | null },
 ): boolean {
-  if (!payload) return false
+  if (!payload) {
+    logPanelSet('① applyStageSetPayload：payload 为空，直接返回')
+    return false
+  }
   const action = String(payload.action || 'show').trim().toLowerCase()
   const ownerSessionKey = String(options?.sessionKey || '').trim()
+  logPanelSet('① applyStageSetPayload 入口', {
+    action,
+    kind: payload.surface?.kind,
+    title: payload.surface?.title,
+    layout: payload.surface?.layout,
+    ownerSessionKey: ownerSessionKey || '(空)',
+    dataKeys: payload.surface?.data ? Object.keys(payload.surface.data) : [],
+  })
   if (action === 'hide' || payload.surface === null) {
+    logPanelSet('① 动作=hide，收起右栏')
     rightStageStore.applyRemote({ action: 'hide', surface: null })
     dispatchStageSetApplied({ action: 'hide', surface: null })
     return true
   }
-  if (!payload.surface?.kind) return false
+  if (!payload.surface?.kind) {
+    logPanelSet('① 失败：surface.kind 缺失')
+    return false
+  }
   const kind = normalizeRightStageKind(String(payload.surface.kind || ''))
-  // 产物改由侧栏 Info Rail 呈报，不占用 Right Stage
+  // 产物改由侧栏 Info Rail 呈报，不占用 Right Stage；真正开文件在 syncRemoteStageSet
   if (kind === 'artifacts') {
+    logPanelSet('① kind=artifacts → 不直接挂右栏标签，派发 STAGE_SET_APPLIED 给 sync', {
+      itemCount: Array.isArray((payload.surface.data as { items?: unknown })?.items)
+        ? ((payload.surface.data as { items: unknown[] }).items || []).length
+        : 0,
+    })
     if (action === 'hide' || payload.surface === null) {
       rightStageStore.applyRemote({ action: 'hide', surface: null })
     } else {
@@ -140,6 +161,7 @@ export function applyStageSetPayload(
     !mayAutoShowWritePanel() &&
     rightStageStore.currentKind !== 'write'
   ) {
+    logPanelSet('① 拦截：write 面板被「自动打开工作预览」设置挡住')
     return false
   }
   const uiSessionKey = getCurrentRightStageSessionKey()
@@ -148,6 +170,11 @@ export function applyStageSetPayload(
   )
   if (isBackgroundOwner && scopeOfKind(kind) === 'session') {
     // 后台会话：只更新它自己的冻结记忆，绝不写当前 UI 的右栏。
+    logPanelSet('① 后台会话：只写冻结记忆，不抢当前右栏', {
+      ownerSessionKey,
+      uiSessionKey,
+      kind,
+    })
     upsertTabInSessionMemory({
       sessionKey: ownerSessionKey,
       tab: {
@@ -162,6 +189,7 @@ export function applyStageSetPayload(
     dispatchStageSetApplied(payload)
     return true
   }
+  logPanelSet('① 前台：applyRemote 写右栏', { kind, action })
   rightStageStore.applyRemote({
     action,
     surface: ownerSessionKey
@@ -177,7 +205,18 @@ export function applyStageSetFromToolCall(
   result?: string | null,
   options?: { sessionKey?: string | null },
 ): boolean {
-  return applyStageSetPayload(buildStageSetPayload(argsText, result), options)
+  const built = buildStageSetPayload(argsText, result)
+  logPanelSet('⓪ 从工具调用解析 payload', {
+    hasArgs: Boolean(String(argsText || '').trim()),
+    hasResult: Boolean(String(result || '').trim()),
+    parsed: Boolean(built),
+    action: built?.action,
+    kind: built?.surface?.kind,
+    sessionKey: String(options?.sessionKey || '').trim() || '(空)',
+    argsPreview: String(argsText || '').slice(0, 180),
+    resultPreview: String(result || '').slice(0, 180),
+  })
+  return applyStageSetPayload(built, options)
 }
 
 export function applyRightStageAgUiCustom(

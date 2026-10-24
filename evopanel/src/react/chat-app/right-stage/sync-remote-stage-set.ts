@@ -18,6 +18,7 @@ import {
   normalizeChatArtifacts,
   type ChatArtifact,
 } from '../../lib/chat-artifact.js'
+import { logPanelSet } from '../../../lib/right-stage/panel-set-debug-log.js'
 
 export type SyncRemoteStageSetCtx = {
   rightStageUserPinnedRef: { current: RightStageKind | null }
@@ -66,7 +67,14 @@ function pickFocusArtifact(
 
 export function syncRemoteStageSet(ctx: SyncRemoteStageSetCtx, detail: StageSetPayload): void {
   const kind = String(detail.surface?.kind || '').trim()
+  logPanelSet('② syncRemoteStageSet 收到 STAGE_SET_APPLIED', {
+    action: detail.action,
+    kind: kind || '(空)',
+    title: detail.surface?.title,
+    layout: detail.surface?.layout,
+  })
   if (detail.action === 'hide' || !kind) {
+    logPanelSet('② 动作=hide 或 kind 空，收起侧栏相关状态')
     ctx.rightStageUserPinnedRef.current = null
     clearAllRightStageOverlayDefer()
     ctx.syncShellAsideForWorkspacePanel(false)
@@ -79,6 +87,11 @@ export function syncRemoteStageSet(ctx: SyncRemoteStageSetCtx, detail: StageSetP
     hideRightStageIfKind('artifacts')
     const data = (detail.surface?.data || {}) as Record<string, unknown>
     const incoming = normalizeChatArtifacts(data.items)
+    logPanelSet('② artifacts 分支：规范化 items', {
+      rawItemsType: Array.isArray(data.items) ? 'array' : typeof data.items,
+      incomingCount: incoming.length,
+      paths: incoming.map((it) => it.path || it.url || '(无路径)'),
+    })
     if (incoming.length) {
       ctx.turnRunArtifactsRef.current = mergeChatArtifacts(ctx.turnRunArtifactsRef.current, incoming)
       ctx.setSessionArtifactsRef.current((prev) => mergeChatArtifacts(prev, incoming))
@@ -86,22 +99,32 @@ export function syncRemoteStageSet(ctx: SyncRemoteStageSetCtx, detail: StageSetP
       const focusFile = pickFocusArtifact(incoming, data)
       const titleHint = String(detail.surface?.title || '').trim() || undefined
       if (focusFile?.path) {
+        const sk =
+          String(detail.surface?.sessionKey || '').trim() ||
+          getCurrentRightStageSessionKey() ||
+          undefined
+        const layout = coerceFileLayout(detail.surface?.layout) || 'half'
+        logPanelSet('② 有本地 path → 调用 showRightStageFilePreview', {
+          path: focusFile.path,
+          name: focusFile.name || focusFile.label,
+          sessionKey: sk || '(空)',
+          layout,
+        })
         // 先落列表（不 force 开状态卡，避免 collapseRightStage 打掉刚开的文件签）
         ctx.publishArtifactsRef.current({
           focusId,
           force: false,
         })
-        showRightStageFilePreview(String(focusFile.path).trim(), {
+        const tabKey = showRightStageFilePreview(String(focusFile.path).trim(), {
           name: String(focusFile.name || focusFile.label || '').trim() || undefined,
-          sessionKey:
-            String(detail.surface?.sessionKey || '').trim() ||
-            getCurrentRightStageSessionKey() ||
-            undefined,
-          layout: coerceFileLayout(detail.surface?.layout) || 'half',
+          sessionKey: sk,
+          layout,
         })
+        logPanelSet('② showRightStageFilePreview 已返回', { tabKey })
         ctx.rightStageUserPinnedRef.current = 'file'
         ctx.scheduleBumpRef.current?.({ immediate: true })
       } else {
+        logPanelSet('② 无本地 path → force 打开状态卡产物 tab', { focusId, titleHint })
         // 无本地 path（纯 url/文案）：仍 force 打开状态卡产物 tab
         ctx.publishArtifactsRef.current({
           focusId,
@@ -109,9 +132,12 @@ export function syncRemoteStageSet(ctx: SyncRemoteStageSetCtx, detail: StageSetP
           hint: titleHint,
         })
       }
+    } else {
+      logPanelSet('② artifacts items 为空，什么都没打开')
     }
     return
   }
+  logPanelSet('② 非 artifacts：钉住 kind 并 bump', { kind })
   ctx.cancelPendingStreamUiBumpsRef.current()
   ctx.rightStageUserPinnedRef.current = kind as RightStageKind
   clearAllRightStageOverlayDefer()

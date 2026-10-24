@@ -9,6 +9,9 @@
  * - patch / diff / pptx / pdf / 多媒体 → `codeViewer`（PreviewPane）
  */
 import { rightStageStore } from './right-stage-store.js'
+import { logPanelSet } from './panel-set-debug-log.js'
+import { getCurrentRightStageSessionKey } from './right-stage-scope.js'
+import { isRightStageTabVisibleForSession } from './right-stage-session-visibility.js'
 
 /**
  * 接受 ZCode CodeViewerSource（联合类型）及任意带 path/title 的预览源。
@@ -131,12 +134,21 @@ export function showRightStageFilePreview(
   const id = normalizePathId(path)
   const name = String(opts?.name || '').trim() || basename(id)
   const key = `file:${id}`
+  const sessionKey = String(opts?.sessionKey || '').trim() || undefined
+  const layout = opts?.layout || 'half'
+  logPanelSet('③ showRightStageFilePreview → store.show', {
+    path: id,
+    name,
+    key,
+    sessionKey: sessionKey || '(空)',
+    layout,
+  })
   rightStageStore.show({
     kind: 'file',
     id,
     title: name,
-    layout: opts?.layout || 'half',
-    sessionKey: String(opts?.sessionKey || '').trim() || undefined,
+    layout,
+    sessionKey,
     data: {
       path: id,
       name,
@@ -146,6 +158,26 @@ export function showRightStageFilePreview(
       focusAnnotation: opts?.focusAnnotation || null,
     },
   })
+  const snap = rightStageStore.getSnapshot()
+  const uiSk = getCurrentRightStageSessionKey()
+  const opened = snap.tabs.find((t) => `${t.kind}:${t.id}` === key)
+  const visible =
+    opened && isRightStageTabVisibleForSession(opened, uiSk)
+  logPanelSet('③ store.show 之后快照', {
+    collapsed: snap.collapsed,
+    activeKey: snap.activeKey,
+    tabCount: snap.tabs.length,
+    tabs: snap.tabs.map((t) => `${t.kind}:${t.id}(sk=${t.sessionKey || '无'})`),
+    surfaceKind: snap.surface?.kind,
+    当前UI会话: uiSk || '(空)',
+    标签对当前会话可见: visible,
+  })
+  if (opened && !visible) {
+    logPanelSet('③ 警告：标签已写入但当前会话过滤后不可见（sessionKey 不一致）', {
+      tabSessionKey: opened.sessionKey,
+      uiSessionKey: uiSk,
+    })
+  }
   return key
 }
 

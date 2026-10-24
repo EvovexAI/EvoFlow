@@ -1108,6 +1108,15 @@ export function createChatWsOnEventHandler(ctx: ChatWsOnEventCtx) {
 
       if (state === 'chat_artifacts') {
         const incoming = normalizeChatArtifacts((payload as { items?: unknown }).items)
+        try {
+          console.log('[右栏·panel_set]', '⓪ SSE chat_artifacts', {
+            isBackground: !!isBackground,
+            count: incoming.length,
+            paths: incoming.map((it) => it.path || it.url || '(无)'),
+          })
+        } catch {
+          /* ignore */
+        }
         if (incoming.length && !isBackground) {
           const platformItems = incoming.filter((it) => it.type === 'platform')
           const fileItems = incoming.filter((it) => it.type !== 'platform')
@@ -1808,6 +1817,19 @@ export function createChatWsOnEventHandler(ctx: ChatWsOnEventCtx) {
                 : typeof (aguiEvent as { content?: string }).content === 'string'
                   ? (aguiEvent as { content?: string }).content
                   : undefined
+            try {
+              console.log('[右栏·panel_set]', '⓪ WS 收到 TOOL_CALL_RESULT', {
+                toolName: bgToolName,
+                toolCallId: bgToolCallId || '(空)',
+                sessionKey: targetSk || '(空)',
+                isBackground: !!isBackground,
+                hasArgsText: typeof bgToolCall?.argsText === 'string',
+                hasResult: Boolean(bgResultContent),
+                knownInAguiTurn: Boolean(bgToolCall),
+              })
+            } catch {
+              /* ignore */
+            }
             if (
               applyStageSetFromToolCall(
                 typeof bgToolCall?.argsText === 'string' ? bgToolCall.argsText : undefined,
@@ -1816,6 +1838,22 @@ export function createChatWsOnEventHandler(ctx: ChatWsOnEventCtx) {
               )
             ) {
               changed = true
+            } else {
+              try {
+                console.log('[右栏·panel_set]', '⓪ applyStageSetFromToolCall 返回 false（未应用）')
+              } catch {
+                /* ignore */
+              }
+            }
+          } else if (!bgToolName && bgToolCallId) {
+            // 常见断点：V4 闸门/aguiTurn 未登记工具名 → panel_set 结果被当成普通工具跳过
+            try {
+              console.log('[右栏·panel_set]', '⓪ TOOL_CALL_RESULT 但工具名为空（可能未登记）', {
+                toolCallId: bgToolCallId,
+                sessionKey: targetSk || '(空)',
+              })
+            } catch {
+              /* ignore */
             }
           }
         }
