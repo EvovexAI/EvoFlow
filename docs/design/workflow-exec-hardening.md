@@ -1,6 +1,6 @@
 # Workflow execution hardening
 
-Status: Phase A + B + C0–C3 done (Scheduler + Runtime boundary + AppRun events). Optional polish remains.
+Status: Phase A + B + C0–C4 done. Hardening track complete for the stuck-run class of bugs.
 
 ## Diagnosis
 
@@ -60,10 +60,27 @@ App workflow has no dedicated runtime. It reuses Lead-oriented collab
 - `collab/app_run_events.py` — write-path SSOT (`emit_app_run_from_main_task`); GET heal is safety net only
 - Lead collab still uses supervisor; both share claim + delegate (Step Runner)
 
-## Still open (optional)
+### Phase C4 — Step Runner extract + handoff/lease polish (done)
 
-1. Further extract Step Runner module from `supervisor/execution.py` (shared import only)
-2. File-path-only huge artifacts; lease metrics
+- `collab/step_runner.py` — claim/revert SSOT + `run_steps` entry (Workflow + Lead)
+- Outcome summary capped to `SUMMARY_MAX` (2400); path-first handoff already in sanitize
+- Lease metrics: `lease_metrics_snapshot()` counts light vs full issuances
+
+## Architecture (current)
+
+```
+App dispatch ──► workflow_runtime.start ──► workflow_scheduler.advance_dag
+                                              │
+followup/retry ───────────────────────────────┤
+                                              ▼
+                                    step_runner.run_steps
+                                              │
+                         claim (state machine) + delegate (task_tool)
+                                              ▼
+                                    app_run_events.emit ──► evoflow_app_runs
+
+Lead chat ──► supervisor_tool(start_execution) ──► same step_runner
+```
 
 ## Acceptance (regression)
 

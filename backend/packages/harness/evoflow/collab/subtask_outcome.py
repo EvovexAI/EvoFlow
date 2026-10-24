@@ -185,12 +185,14 @@ async def apply_subtask_outcome_report(
         return {"ok": False, "error": "summary is required (task report for lead agent)"}
 
     from evoflow.collab.workflow_handoff_sanitize import (
+        SUMMARY_MAX,
         sanitize_output_item,
         sanitize_string_for_handoff,
         sanitize_value_for_handoff,
     )
 
-    summ = sanitize_string_for_handoff(summ, 8000)
+    # Path-first handoff: keep summary within workflow SSOT (not 8k inline dumps).
+    summ = sanitize_string_for_handoff(summ, SUMMARY_MAX)
 
     store = storage if storage is not None else get_project_storage()
     st = find_subtask_by_ids(store, mid, sid)

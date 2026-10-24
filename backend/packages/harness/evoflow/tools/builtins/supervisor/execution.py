@@ -18,6 +18,11 @@ from langgraph.config import get_stream_writer
 from langgraph.typing import ContextT
 
 from evoflow.collab.id_format import make_formatted_id
+from evoflow.collab.step_runner import (
+    CLAIMABLE_SUBTASK_STATUSES as _CLAIMABLE_SUBTASK_STATUSES,
+    claim_subtasks_for_delegation as _claim_subtasks_for_delegation,
+    revert_claimed_subtasks_to_pending as _revert_claimed_subtasks_to_pending,
+)
 from evoflow.timeutil import utc_now_iso_z
 
 logger = logging.getLogger(__name__)
@@ -28,7 +33,6 @@ _followup_wave_locks: dict[str, asyncio.Lock] = {}
 _collab_lead_runtime_by_task: dict[str, weakref.ReferenceType[ToolRuntime[ContextT, dict]]] = {}
 # Strong refs: weakref alone is often collected before wave-2 follow-up runs.
 _collab_lead_runtime_strong: dict[str, ToolRuntime[ContextT, dict]] = {}
-_CLAIMABLE_SUBTASK_STATUSES = frozenset({"pending", "planned", "waiting_dispatch"})
 
 
 def _runtime_is_subtask_worker(runtime: ToolRuntime[ContextT, dict] | None) -> bool:
@@ -143,127 +147,6 @@ def _followup_lock_for_task(main_task_id: str) -> asyncio.Lock:
         lock = asyncio.Lock()
         _followup_wave_locks[tid] = lock
     return lock
-
-
-def _claim_subtasks_for_delegation(
-    storage: Any,
-    main_task_id: str,
-    subtask_ids: list[str],
-) -> list[str]:
-    """Atomically mark pending subtasks as in-flight before parallel delegate (TOCTOU guard)."""
-    from evoflow.collab.dag_trace import dag_info
-    from evoflow.collab.storage import find_main_task, main_task_mutation_lock
-    from evoflow.tools.builtins.supervisor.dependency import _IN_FLIGHT_SUBTASK, _TERMINAL_SUBTASK
-
-    mid = str(main_task_id or "").strip()
-    if not mid:
-        return []
-    claimed: list[str] = []
-    skipped: list[dict[str, str]] = []
-    want: set[str] = set()
-    with main_task_mutation_lock(mid):
-        row = find_main_task(storage, mid, bypass_cache=True)
-        if not row:
-            dag_info("claim_skip main=%s reason=task_not_found want=%s", main_task_id, subtask_ids)
-            return []
-        project, task = row
-        want = {str(s).strip() for s in subtask_ids if str(s).strip()}
-        if not want:
-            return []
-
-        now = utc_now_iso_z()
-        for st in task.get("subtasks") or []:
-            if not isinstance(st, dict):
-                continue
-            sid = str(st.get("id") or "").strip()
-            if sid not in want:
-                continue
-            status = str(st.get("status") or "pending").strip().lower()
-            if status in _TERMINAL_SUBTASK:
-                skipped.append({"subtaskId": sid, "status": status, "reason": "terminal"})
-                continue
-            if status in _IN_FLIGHT_SUBTASK:
-                skipped.append({"subtaskId": sid, "status": status, "reason": "in_flight"})
-                continue
-            from evoflow.subagents.runtime_guard import is_subtask_background_executor_active
-
-            if is_subtask_background_executor_active(st):
-                skipped.append({"subtaskId": sid, "status": status, "reason": "background_active"})
-                dag_info("claim_skip main=%s sub=%s reason=background_active bg=%s", main_task_id, sid, st.get("background_task_id"))
-                continue
-            if status not in _CLAIMABLE_SUBTASK_STATUSES:
-                skipped.append({"subtaskId": sid, "status": status, "reason": "not_claimable"})
-                continue
-            from evoflow.collab.subtask_state_machine import advance_subtask_row_status
-
-            ok_adv, adv_reason = advance_subtask_row_status(st, "executing")
-            if not ok_adv:
-                skipped.append({"subtaskId": sid, "status": status, "reason": adv_reason})
-                continue
-            st["started_at"] = st.get("started_at") or now
-            st["updated_at"] = now
-            claimed.append(sid)
-
-        if claimed:
-            task["updated_at"] = now
-            storage.save_project(project)
-    dag_info(
-        "claim main=%s requested=%s claimed=%s skipped=%s",
-        main_task_id,
-        sorted(want),
-        claimed,
-        skipped[:12],
-    )
-    return claimed
-
-
-def _revert_claimed_subtasks_to_pending(
-    storage: Any,
-    main_task_id: str,
-    subtask_ids: list[str],
-    *,
-    reason: str,
-) -> None:
-    """Undo executing claim when delegation cannot start (prevents infinite spinner)."""
-    from evoflow.collab.dag_trace import dag_warning
-    from evoflow.collab.storage import find_main_task, main_task_mutation_lock
-
-    want = {str(s).strip() for s in subtask_ids if str(s).strip()}
-    if not want:
-        return
-    mid = str(main_task_id or "").strip()
-    if not mid:
-        return
-    reverted: list[str] = []
-    with main_task_mutation_lock(mid):
-        row = find_main_task(storage, mid, bypass_cache=True)
-        if not row:
-            return
-        project, task = row
-        now = utc_now_iso_z()
-        for st in task.get("subtasks") or []:
-            if not isinstance(st, dict):
-                continue
-            sid = str(st.get("id") or "").strip()
-            if sid not in want:
-                continue
-            status = str(st.get("status") or "").strip().lower()
-            if status not in {"executing", "running", "in_progress"}:
-                continue
-            st["status"] = "pending"
-            st["error"] = str(reason or "delegation not started")[:500]
-            st["updated_at"] = now
-            reverted.append(sid)
-        if reverted:
-            task["updated_at"] = now
-            storage.save_project(project)
-    if reverted:
-        dag_warning(
-            "revert_claimed main=%s subs=%s reason=%s",
-            main_task_id,
-            reverted,
-            reason[:300],
-        )
 
 
 def _is_acp_worker(subagent_type: str) -> bool:
@@ -1101,7 +984,9 @@ async def auto_delegate_collab_followup_wave(
             logger.exception("auto_delegate_collab_followup_wave: advance_collab_phase failed task_id=%s", tid)
 
         try:
-            delegated = await delegate_collab_subtasks_for_start_execution(
+            from evoflow.collab.step_runner import run_steps
+
+            delegated = await run_steps(
                 runtime,
                 storage,
                 tid,

@@ -184,10 +184,7 @@ async def _requeue_and_redispatch_timed_out_subtasks_once(
         skip_subtasks_blocked_by_exhausted_upstream_failure,
         subtask_auto_retry_max,
     )
-    from evoflow.tools.builtins.supervisor.execution import (
-        _resolve_collab_followup_runtime,
-        delegate_collab_subtasks_for_start_execution,
-    )
+    from evoflow.tools.builtins.supervisor.execution import _resolve_collab_followup_runtime
 
     key = str(main_task_id or "").strip()
     if not key:
@@ -223,7 +220,9 @@ async def _requeue_and_redispatch_timed_out_subtasks_once(
         else:
             to_run, _blocked = _resolve_subtasks_for_start_execution(storage, key, None)
             if to_run:
-                delegated = await delegate_collab_subtasks_for_start_execution(
+                from evoflow.collab.step_runner import run_steps
+
+                delegated = await run_steps(
                     resolved_runtime,
                     storage,
                     key,

@@ -4,7 +4,7 @@ Architecture
 ------------
 - **This module**: App / workflow-bound DAG lifecycle (start, continue, retry).
 - **Lead collab**: ``supervisor_tool(start_execution)`` + registered follow-up handler.
-- **Shared**: claim + ``delegate_collab_subtasks_for_start_execution`` (Step Runner).
+- **Shared Step Runner**: ``collab.step_runner`` (claim + ``run_steps``).
 
 Callers (``app_runner.dispatch_workflow_task_*``, platform actions, automation)
 should enter here rather than supervisor tools directly.

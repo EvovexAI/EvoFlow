@@ -22,6 +22,7 @@ _DEFAULT_MAX_STR = 2000
 # Workflow dependency context: enough room for short step reports so rollup /
 # downstream workers need not peer-ask for "verbatim" text that was truncated.
 _DEFAULT_SUMMARY_MAX = 2400
+SUMMARY_MAX = _DEFAULT_SUMMARY_MAX
 _DEFAULT_MAX_LIST = 32
 _DEFAULT_MAX_DEPTH = 14
 RESOLVED_BINDING_STR_MAX = 3000
