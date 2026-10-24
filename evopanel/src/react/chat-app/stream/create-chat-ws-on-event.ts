@@ -9,6 +9,11 @@ import {
   isV4DisplayAuthoritative,
   isV4GatedAgUiEvent,
 } from '../../v4/v4Gate.js'
+import { publishPlatformFromAgUiResult } from './publish-platform-from-agui-result.js'
+import {
+  platformRunEntriesFromChatArtifacts,
+  latestPlatformRunEntryId,
+} from '../../../lib/right-stage/platform-feedback.js'
 
 export type ChatWsOnEventCtx = Record<string, any>
 
@@ -1104,13 +1109,37 @@ export function createChatWsOnEventHandler(ctx: ChatWsOnEventCtx) {
       if (state === 'chat_artifacts') {
         const incoming = normalizeChatArtifacts((payload as { items?: unknown }).items)
         if (incoming.length && !isBackground) {
-          setSessionArtifacts((prev) => mergeChatArtifacts(prev, incoming))
-          turnRunArtifactsRef.current = mergeChatArtifacts(turnRunArtifactsRef.current, incoming)
-          const newCount = incoming.filter((x) => x.status !== 'updated').length || incoming.length
-          publishArtifacts({
-            focusId: incoming[incoming.length - 1]?.id || '',
-            hint: `本轮新增 ${newCount} 个产物`,
-          })
+          const platformItems = incoming.filter((it) => it.type === 'platform')
+          const fileItems = incoming.filter((it) => it.type !== 'platform')
+          // 平台工具落库后的直播：走「平台」tab，不要塞进产物
+          if (platformItems.length) {
+            const fromArtifacts = platformRunEntriesFromChatArtifacts(platformItems)
+            if (fromArtifacts.length) {
+              const merged = [...turnPlatformEntriesRef.current]
+              for (const row of fromArtifacts) {
+                const i = merged.findIndex((x) => x.id === row.id)
+                if (i >= 0) merged[i] = row
+                else merged.push(row)
+              }
+              merged.sort((a, b) => b.appliedAt - a.appliedAt)
+              for (const row of fromArtifacts) {
+                platformFeedbackSeenRef.current.add(String(row.toolCallId || row.id))
+              }
+              publishPlatformEntriesRef.current(
+                merged,
+                latestPlatformRunEntryId(fromArtifacts) || latestPlatformRunEntryId(merged),
+              )
+            }
+          }
+          if (fileItems.length) {
+            setSessionArtifacts((prev) => mergeChatArtifacts(prev, fileItems))
+            turnRunArtifactsRef.current = mergeChatArtifacts(turnRunArtifactsRef.current, fileItems)
+            const newCount = fileItems.filter((x) => x.status !== 'updated').length || fileItems.length
+            publishArtifacts({
+              focusId: fileItems[fileItems.length - 1]?.id || '',
+              hint: `本轮新增 ${newCount} 个产物`,
+            })
+          }
         }
         return
       }
@@ -1567,6 +1596,40 @@ export function createChatWsOnEventHandler(ctx: ChatWsOnEventCtx) {
               ),
             )
           }
+        }
+
+        // 平台通知：必须在 shouldApplyChatEvent 之前。V4 双 runId / sealing 时 gate
+        // 常整段丢掉 TOOL_CALL_RESULT，流式右上角「平台」就会空白，刷新才从 DB 出现。
+        {
+          const earlyToolCallId = String(
+            (aguiEvent as { toolCallId?: string }).toolCallId || '',
+          ).trim()
+          const earlyTc = earlyToolCallId
+            ? S.aguiTurn?.toolCalls?.get(earlyToolCallId)
+            : undefined
+          publishPlatformFromAgUiResult({
+            isBackground,
+            aguiEvent,
+            toolCallNameFromTurn: earlyTc?.toolCallName,
+            platformUiFromTurn: earlyTc?.platformUi || null,
+            platformMetaFromTurn: earlyTc
+              ? {
+                  platformOk: earlyTc.platformOk,
+                  platformAction: earlyTc.platformAction,
+                  platformItem: earlyTc.platformItem,
+                  platformAgent: earlyTc.platformAgent,
+                  platformRole: earlyTc.platformRole,
+                  platformSettings: earlyTc.platformSettings,
+                  platformClientEffect: earlyTc.platformClientEffect,
+                }
+              : null,
+            argsText: typeof earlyTc?.argsText === 'string' ? earlyTc.argsText : undefined,
+            platformFeedbackSeenRef,
+            turnPlatformEntriesRef,
+            publishPlatformEntries: (entries, focusId) =>
+              publishPlatformEntriesRef.current(entries, focusId),
+            toast,
+          })
         }
 
         if (
