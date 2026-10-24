@@ -37,7 +37,7 @@ _PLAN_TOOL_GUIDE_ZH = """
 
 **任务分析图（必含）**：填写 ``flowchart_mermaid``，用 mermaid 画出你对**任务对象本身**的分析结果（勿包 ``` 围栏），供后续步骤执行时对照。应是**分析图**，不是「Step1→Step2」的执行顺序图。例如：代码**调用链/模块依赖**、接口与数据流、目录与关键文件关系、业务流程中涉及的系统组件。可选用 ``flowchart`` / ``graph`` / ``sequenceDiagram`` 等；节点写清类名、函数、模块或文件路径。
 
-**落库后流程（概要，详见系统提示 `<plan_workflow>`）**：`plan` 成功 → **立刻停止工具调用**，向用户说明计划已就绪并请其点「开始执行」→ **禁止** `supervisor(start_execution)` / `ask_clarification` 催开始 → 用户点按钮后网关授权并**自动派发首波** → 你用 `monitor_execution_step` 监工 → validation → 关闭主任务。`supervisor(start_execution)` 仅作补派/重试。
+**落库后流程**：`plan` 成功 → **立刻停止工具调用**，向用户说明计划已就绪并请其点「开始执行」→ **禁止** `supervisor(start_execution)` / `ask_clarification` 催开始 → 用户点按钮后网关授权并**自动派发首波** → 你用 `monitor_execution_step` 监工 → validation → 关闭主任务。`supervisor(start_execution)` 仅作补派/重试。
 
 各字段怎么填、示例值见下方参数的 examples。须提交 ``steps[]``（JSON）。
 """.strip()

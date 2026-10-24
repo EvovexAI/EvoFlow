@@ -26,15 +26,18 @@ def resolve_app_server_listen_port() -> int:
 
 
 def resolve_gateway_base_url_for_embed() -> str:
-    explicit = (os.environ.get("EVOFLOW_GATEWAY_URL") or "").strip().rstrip("/")
-    if explicit:
-        return explicit
-    for key in ("EVOFLOW_GATEWAY_PORT", "EVOFLOW_GATEWAY_BIND_PORT"):
-        gw = (os.environ.get(key) or "").strip()
-        if gw.isdigit():
-            return f"http://127.0.0.1:{int(gw)}"
-    # Common isolated-stack default when env is unset.
-    return "http://127.0.0.1:8070"
+    """Same resolution chain as browser bridge / proactive (no hard :8070 first)."""
+    from evoflow.gateway_http import resolve_gateway_base_url
+
+    # BIND_PORT is a spawn hint some packs set before listen; prefer it only when
+    # the shared resolver has nothing better than the legacy default.
+    bind = (os.environ.get("EVOFLOW_GATEWAY_BIND_PORT") or "").strip()
+    base = resolve_gateway_base_url(allow_legacy_default=False)
+    if base:
+        return base
+    if bind.isdigit():
+        return f"http://127.0.0.1:{int(bind)}"
+    return resolve_gateway_base_url(allow_legacy_default=True) or "http://127.0.0.1:8070"
 
 
 async def start_embedded_app_server(app: Any) -> None:

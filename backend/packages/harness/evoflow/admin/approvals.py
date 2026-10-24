@@ -18,13 +18,9 @@ from evoflow.proactive.repositories import ProactiveRepository
 
 
 def _proactive_api_base() -> str:
-    env = (os.getenv("EVOFLOW_PROACTIVE_URL") or "").strip()
-    if env:
-        return env.rstrip("/")
-    lg = (os.getenv("EVOFLOW_LANGGRAPH_URL") or "http://127.0.0.1:8070/api/langgraph").rstrip("/")
-    if lg.endswith("/api/langgraph"):
-        return lg[: -len("/api/langgraph")] + "/api/proactive"
-    return "http://127.0.0.1:8070/api/proactive"
+    from evoflow.admin.proactive_http import resolve_proactive_api_base
+
+    return resolve_proactive_api_base()
 
 
 def _resolve_role_for_task(task: dict[str, Any]):

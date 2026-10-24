@@ -1,6 +1,9 @@
 /**
  * 单一版本源：evopanel/VERSION（一行 x.y.z）
- * 同步到 package.json、Cargo.toml、tauri.conf.json、scripts/maintainer/update/latest.json。
+ * 同步到面板 + 后端同一版本号：
+ *   package.json / package-lock.json / Cargo.toml / Cargo.lock(evopanel) /
+ *   tauri.conf.json / scripts/maintainer/update/latest.json /
+ *   backend/pyproject.toml / backend/packages/harness/pyproject.toml
  *
  * 用法：
  *   npm run version:sync              # 读 VERSION → 写各处
@@ -93,10 +96,40 @@ if (!/^version = "[^"]+"/m.test(cargo)) {
 cargo = cargo.replace(/^version = "[^"]+"/m, `version = "${v}"`);
 fs.writeFileSync(cargoPath, cargo);
 
+const cargoLockPath = path.join(root, "src-tauri", "Cargo.lock");
+if (fs.existsSync(cargoLockPath)) {
+  let cargoLock = fs.readFileSync(cargoLockPath, "utf8");
+  cargoLock = cargoLock.replace(
+    /(name = "evopanel"\nversion = )"[^"]+"/,
+    `$1"${v}"`,
+  );
+  fs.writeFileSync(cargoLockPath, cargoLock);
+}
+
 const tauriPath = path.join(root, "src-tauri", "tauri.conf.json");
 const tauri = JSON.parse(fs.readFileSync(tauriPath, "utf8"));
 tauri.version = v;
 fs.writeFileSync(tauriPath, JSON.stringify(tauri, null, 2) + "\n");
+
+function bumpPyproject(pyPath) {
+  if (!fs.existsSync(pyPath)) return false;
+  let text = fs.readFileSync(pyPath, "utf8");
+  if (!/^version = "[^"]+"/m.test(text)) return false;
+  text = text.replace(/^version = "[^"]+"/m, `version = "${v}"`);
+  fs.writeFileSync(pyPath, text);
+  return true;
+}
+
+const backendPy = path.join(repoRoot, "backend", "pyproject.toml");
+const harnessPy = path.join(
+  repoRoot,
+  "backend",
+  "packages",
+  "harness",
+  "pyproject.toml",
+);
+bumpPyproject(backendPy);
+bumpPyproject(harnessPy);
 
 function bumpLatestManifest(latestPath) {
   if (!fs.existsSync(latestPath)) return false;
@@ -131,5 +164,5 @@ if (!bumpLatestManifest(maintainerLatest)) {
 }
 
 console.log(
-  `Synced version ${v} ← evopanel/VERSION → package.json, Cargo.toml, tauri.conf.json, scripts/maintainer/update/latest.json`,
+  `Synced version ${v} ← evopanel/VERSION → package.json, Cargo.toml, Cargo.lock, tauri.conf.json, backend pyprojects, scripts/maintainer/update/latest.json`,
 );

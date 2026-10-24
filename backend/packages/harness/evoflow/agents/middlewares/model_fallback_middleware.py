@@ -47,7 +47,7 @@ _AUTH_FAILURE_MESSAGE = "模型 API 认证失败，已尝试轮换所有可用�
 
 _USER_FRIENDLY_MESSAGE = "模型请求失败：上游模型 API 返回错误。已记录调试信息，你可以重试或切换模型。"
 _CONNECTION_ERROR_MESSAGE = "模型网络连接异常，无法连接到上游 API 服务。请检查网络状况或稍后重试。"
-_RATE_LIMIT_USER_MESSAGE = "模型 API 限流（请求过于频繁），已自动重试但仍未成功。请稍等片刻后重试，或切换到其他模型。"
+_RATE_LIMIT_USER_MESSAGE = "模型 API 限流（请求过于频繁），已自动重试 3 次仍未成功。请稍等片刻后再发一条消息重试。"
 _OVERLOADED_USER_MESSAGE = "模型服务当前过载，已自动重试但仍未成功。请稍等片刻后重试，或切换到其他模型。"
 _CONTEXT_OVERFLOW_USER_MESSAGE = "当前对话上下文已超出模型窗口上限，自动压缩后仍无法继续。请新开会话、手动压缩上下文，或切换更大窗口的模型后再试。"
 _BILLING_USER_MESSAGE = "当前模型 API 额度已用尽，无法继续生成回复。请稍后再试、切换其他模型，或升级 API 套餐。"
@@ -87,21 +87,25 @@ def _billing_user_message(exc: Exception) -> str:
 
 
 def _calc_backoff_seconds(attempt: int, error: Exception) -> float:
-    """Exponential backoff with jitter; honors Retry-After when present. *attempt* is 1-based."""
-    backoff_s = 2.0 * (2 ** (attempt - 1))
-    jitter_s = random.uniform(0, backoff_s * 0.2)
-    total_s = backoff_s + jitter_s
+    """Exponential backoff with jitter; honors Retry-After when present. *attempt* is 1-based.
 
+    对齐 zcode：provider 返回的 Retry-After 优先于本地退避曲线，上限 5 分钟
+    （旧版 60s 上限会把合法限流等待退化为本地短退避，导致重试风暴）。
+    """
     resp = getattr(error, "response", None)
     if resp is not None and hasattr(resp, "headers"):
         retry_after = resp.headers.get("Retry-After")
         if retry_after:
             try:
-                total_s = max(total_s, float(retry_after))
+                retry_after_s = float(retry_after)
+                if retry_after_s >= 0:
+                    return min(retry_after_s, 300.0)
             except (ValueError, TypeError):
                 pass
 
-    return min(total_s, _MAX_BACKOFF_SECONDS)
+    backoff_s = 2.0 * (2 ** (attempt - 1))
+    jitter_s = random.uniform(0, backoff_s * 0.2)
+    return min(backoff_s + jitter_s, _MAX_BACKOFF_SECONDS)
 
 
 def _user_friendly_message_for_error(exc: Exception) -> str:
@@ -139,18 +143,67 @@ def _retry_reason_label(reason: FailoverReason) -> str:
     }.get(reason, "上游异常")
 
 
+# ── 回合级模型失败登记（对齐 zcode：失败回合的终态必须是 fail，而不是 done）──────
+# 中间件吞掉模型异常并返回友好 AIMessage（保持 SSE 不断流）后，gateway 的
+# stream_middle_layer 在 run 结束时无从得知本回合失败过 → 终态一律写成 done。
+# 这里登记 thread 级失败事实，middle layer 在 _finish_layer 时取出并落 fail 终态。
+_MODEL_ERROR_TURN_TTL_S = 900.0
+_MODEL_ERROR_TURNS: dict[str, dict[str, Any]] = {}
+
+
+def register_model_error_turn(thread_id: str | None, *, reason: str = "", message: str = "") -> None:
+    tid = str(thread_id or "").strip()
+    if not tid:
+        return
+    _MODEL_ERROR_TURNS[tid] = {
+        "reason": str(reason or "").strip(),
+        "message": str(message or "").strip()[:500],
+        "at": time.monotonic(),
+    }
+    # 顺手清理过期项，防长驻进程累积
+    now = time.monotonic()
+    stale = [k for k, v in _MODEL_ERROR_TURNS.items() if now - float(v.get("at") or 0) > _MODEL_ERROR_TURN_TTL_S]
+    for k in stale:
+        _MODEL_ERROR_TURNS.pop(k, None)
+
+
+def pop_model_error_turn(thread_id: str | None) -> dict[str, Any] | None:
+    """取出并清除该 thread 的回合级失败登记；无登记或已过期返回 None。"""
+    tid = str(thread_id or "").strip()
+    if not tid:
+        return None
+    entry = _MODEL_ERROR_TURNS.pop(tid, None)
+    if not entry:
+        return None
+    if time.monotonic() - float(entry.get("at") or 0) > _MODEL_ERROR_TURN_TTL_S:
+        return None
+    return entry
+
+
+def peek_model_error_turn(thread_id: str | None) -> dict[str, Any] | None:
+    """只读检查回合级失败登记（不清除）；清除统一交给回合收尾方（middle layer pop）。"""
+    tid = str(thread_id or "").strip()
+    if not tid:
+        return None
+    entry = _MODEL_ERROR_TURNS.get(tid)
+    if not entry:
+        return None
+    if time.monotonic() - float(entry.get("at") or 0) > _MODEL_ERROR_TURN_TTL_S:
+        _MODEL_ERROR_TURNS.pop(tid, None)
+        return None
+    return entry
+
+
+# 对齐 zcode 语义：只有**永久性/业务性**失败才把模型标记为不可用；
+# 瞬态失败（限流/过载/超时/网络/未知 5xx）一律走退避重试预算，绝不落库污染模型注册表。
+# 旧版把瞬态原因也标记 unavailable，一次上游抖动重试耗尽后默认模型被拉黑，
+# 表现为「整个平台莫名其妙停掉」。
 _MARK_UNAVAILABLE_REASONS = frozenset(
     {
         FailoverReason.AUTH,
         FailoverReason.AUTH_PERMANENT,
         FailoverReason.BILLING,
         FailoverReason.MODEL_NOT_FOUND,
-        FailoverReason.SERVER_ERROR,
-        FailoverReason.CONNECTION_ERROR,
-        FailoverReason.OVERLOADED,
-        FailoverReason.RATE_LIMIT,
-        FailoverReason.TIMEOUT,
-        FailoverReason.UNKNOWN,
         FailoverReason.FORMAT_ERROR,
     }
 )
@@ -754,13 +807,27 @@ def _schedule_http_inject_evf(thread_id: str, payload: dict[str, Any]) -> None:
 
 
 def _inject_user_notice_evf(thread_id: str, body: str) -> bool:
-    """Inject delta + error EVF frames into the live gateway SSE (middle layer / HTTP fallback)."""
+    """Inject assistant delta EVF so the notice shows as AI 回复正文（V4 assistantText）。
+
+    不发 ``type:"error"``：AG-UI 会映射成 RUN_ERROR，把回合掐成硬失败。
+    """
     tid = str(thread_id or "").strip()
     if not tid:
         return False
+    block_id = f"user-notice-{tid[-8:]}-{int(time.time() * 1000) % 1_000_000}"
     payloads = [
-        {"type": "delta", "text": body, "delta_kind": "append"},
-        {"type": "error", "error": body},
+        {
+            "type": "delta",
+            "text": body,
+            "delta_kind": "append",
+            "block_id": block_id,
+            "block_kind": "body_text",
+        },
+        {
+            "type": "block_close",
+            "block_id": block_id,
+            "block_kind": "body_text",
+        },
     ]
     injected = False
     try:
@@ -777,6 +844,101 @@ def _inject_user_notice_evf(thread_id: str, body: str) -> bool:
             _schedule_http_inject_evf(tid, payload)
         injected = True
     return injected
+
+
+def _inject_model_error_evf(thread_id: str, body: str, reason: str = "") -> bool:
+    """Inject model-failure text as assistant **delta** so V4 AI 回复正文能显示。
+
+    重要：不要发 ``type:"error"`` EVF——AG-UI 会把它映射成 ``RUN_ERROR``，
+    回合被当成硬失败掐断，用户看不到报错正文。应走 delta → TEXT_MESSAGE →
+    V4 ``assistantText``。``reason`` 仅写入 block 元数据便于排查。
+    """
+    tid = str(thread_id or "").strip()
+    if not tid:
+        return False
+    block_id = f"model-error-{tid[-8:]}-{int(time.time() * 1000) % 1_000_000}"
+    payloads: list[dict[str, Any]] = [
+        {
+            "type": "delta",
+            "text": body,
+            "delta_kind": "append",
+            "block_id": block_id,
+            "block_kind": "body_text",
+            "model_error_reason": str(reason or "").strip(),
+        },
+        {
+            "type": "block_close",
+            "block_id": block_id,
+            "block_kind": "body_text",
+        },
+    ]
+    injected = False
+    try:
+        from evoflow.runtime.ports import middle_layer_covers_thread, schedule_inject_evf_frame
+
+        if middle_layer_covers_thread(tid):
+            for payload in payloads:
+                schedule_inject_evf_frame(tid, payload)
+            injected = True
+    except Exception:
+        logger.debug("model error direct inject failed thread=%s", tid, exc_info=True)
+    if not injected:
+        for payload in payloads:
+            _schedule_http_inject_evf(tid, payload)
+        injected = True
+    return injected
+
+
+def _emit_model_error_notice_stream(text: str, runtime: Runtime | None = None, *, reason: str = "") -> bool:
+    """把模型失败文案推到前端：V4 AI 回复正文（delta）+ 活动条提示。
+
+    必须优先走 ``get_stream_writer``（与 ``emit_agent_activity`` 同路）。
+    wrap_model_call 里 inject 队列的 ``schedule_inject_evf_frame`` 常因无
+    running loop 被静默跳过，却仍被当成成功，导致 SSE 只有 model_error 活动条、
+    没有 TEXT_MESSAGE → AG-UI / V4 面板都看不到报错正文。
+    """
+    body = str(text or "").strip()
+    if not body:
+        return False
+    tid = _runtime_thread_id(runtime)
+    emitted = False
+    via_writer = False
+    # 1) stream writer 优先：custom model_error → sse_ui_normalize → delta + activity
+    try:
+        from langgraph.config import get_stream_writer
+
+        writer = get_stream_writer()
+        if writer:
+            writer(
+                {
+                    "type": "model_error",
+                    "text": body,
+                    "error": body,
+                    "reason": str(reason or "").strip(),
+                }
+            )
+            emitted = True
+            via_writer = True
+    except Exception:
+        logger.debug("model error stream_writer failed", exc_info=True)
+    # 2) inject 仅作无 writer 时的兜底（勿在 writer 已成功时再抢成功标记）
+    if tid and not emitted:
+        emitted = _inject_model_error_evf(tid, body, reason=reason)
+    # writer 的 model_error 已带 activity；inject-only 路径再补活动条
+    if tid and not via_writer:
+        try:
+            from evoflow.observability.agent_activity_stream import emit_agent_activity
+
+            emit_agent_activity(tid, kind="model_error", detail=body, force=True)
+        except Exception:
+            logger.debug("model_error activity emit failed thread=%s", tid, exc_info=True)
+    if not emitted:
+        logger.warning(
+            "model error notice not streamed (no inject/writer) thread=%s reason=%s",
+            tid,
+            reason,
+        )
+    return emitted
 
 
 def _emit_user_notice_stream(text: str, runtime: Runtime | None = None) -> bool:
@@ -900,18 +1062,53 @@ class ModelFallbackMiddleware(AgentMiddleware[AgentState]):
     state_schema = AgentState
 
     def _handle_model_error(self, exc: Exception, runtime: Runtime | None) -> AIMessage:
+        """任何模型 API 失败都回传可见 AIMessage，并注入 V4 AI 回复正文。
+
+        不再 ``raise`` 静默掐断：用户必须在对话里看到具体报错（限流/鉴权/过载等）。
+        supervisor 编排同样走可见失败文案，避免「莫名其妙停了」。
+        """
         _log_model_error(exc, runtime)
+        classification = classify(exc)
         if _should_reraise_for_supervisor(runtime):
-            logger.error("Model API failed during supervisor orchestration; re-raising (thread=%s)", _runtime_thread_id(runtime))
-            raise exc
+            logger.warning(
+                "Model API failed during supervisor orchestration; "
+                "returning visible error instead of re-raising (thread=%s reason=%s)",
+                _runtime_thread_id(runtime),
+                classification.reason.value,
+            )
         failed_name = _resolve_failed_model_name(exc, runtime)
         _mark_model_unavailable_for_error(failed_name, exc)
         message = _user_friendly_message_for_error(exc)
         if failed_name:
-            reason = _retry_reason_label(classify(exc).reason)
+            reason = _retry_reason_label(classification.reason)
             message = f"{message}（当前模型：{_model_display_name(failed_name)}，原因：{reason}）"
-        _emit_user_notice_stream(message, runtime)
-        return AIMessage(content=message)
+        if classification.reason == FailoverReason.RATE_LIMIT:
+            try:
+                from evoflow.observability.agent_activity_stream import emit_agent_activity
+
+                tid = _runtime_thread_id(runtime)
+                if tid:
+                    emit_agent_activity(tid, kind="retrying", detail=message, force=True)
+            except Exception:
+                logger.debug("rate-limit final activity emit failed", exc_info=True)
+        # 回合级失败登记：middle layer 在 run 收尾时取出 → 终态落 fail
+        register_model_error_turn(
+            _runtime_thread_id(runtime),
+            reason=classification.reason.value,
+            message=message,
+        )
+        # 实时注入 delta → V4 assistantText；checkpoint 里也落 AIMessage
+        _emit_model_error_notice_stream(message, runtime, reason=classification.reason.value)
+        return AIMessage(
+            content=message,
+            response_metadata={
+                "evoflow_error": {
+                    "reason": classification.reason.value,
+                    "retryable": False,
+                    "model": str(failed_name or ""),
+                }
+            },
+        )
 
     def _try_rate_limit_retry(
         self,
@@ -1484,6 +1681,11 @@ class ModelFallbackMiddleware(AgentMiddleware[AgentState]):
             )
             if retry_result is not None:
                 return retry_result
+            # 限流：同模型最多重试 3 次；耗尽后直接回传错误，不轮换密钥/切模型。
+            # 额度用尽：立刻回传，禁止轮换/切模（否则「生成中」空转几十秒，面板停不了）。
+            fail_reason = classify(exc).reason
+            if fail_reason in (FailoverReason.RATE_LIMIT, FailoverReason.BILLING):
+                return self._handle_model_error(exc, request.runtime)
             retry_result = self._try_server_error_retry(
                 request,
                 handler,
@@ -1564,6 +1766,11 @@ class ModelFallbackMiddleware(AgentMiddleware[AgentState]):
             )
             if retry_result is not None:
                 return retry_result
+            # 限流：同模型最多重试 3 次；耗尽后直接回传错误，不轮换密钥/切模型。
+            # 额度用尽：立刻回传，禁止轮换/切模（否则「生成中」空转几十秒，面板停不了）。
+            fail_reason = classify(exc).reason
+            if fail_reason in (FailoverReason.RATE_LIMIT, FailoverReason.BILLING):
+                return self._handle_model_error(exc, request.runtime)
             retry_result = await self._try_server_error_retry_async(
                 request,
                 handler,

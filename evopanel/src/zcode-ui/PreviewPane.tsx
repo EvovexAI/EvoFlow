@@ -51,7 +51,7 @@ import { useWorkspaceOpenInEditorTarget } from "@/hooks/useWorkspaceOpenInEditor
 import { logger } from "@/logger.js";
 import { useZCodeStore } from "@/store/StoreProvider.js";
 import { useCodeCommentPreviewStore } from "@/store/codeCommentPreviewStore.js";
-import { resolveTheme } from "@/useTheme.js";
+import { resolveTheme, useHostResolvedTheme } from "@/useTheme.js";
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -560,7 +560,10 @@ export function PreviewPane({
     scrollTop: 0,
   });
   const previousRenderHeavyContentRef = useRef(renderHeavyContent);
-  const resolvedTheme = resolveTheme(theme);
+  // 桥接宿主（EvoFlow）下跟随宿主 data-theme 并订阅其变化；
+  // 独立 zcode 页仍用 store 主题。两者都落到 resolveTheme 里。
+  const hostTheme = useHostResolvedTheme();
+  const resolvedTheme = resolveTheme(theme, hostTheme);
   const codeTheme =
     resolvedTheme === "dark" ? codePreviewSettings.darkTheme : codePreviewSettings.lightTheme;
   const imageSource = useMemo(() => resolvePreviewPaneImageSource(source), [source]);

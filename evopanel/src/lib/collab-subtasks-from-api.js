@@ -85,6 +85,10 @@ export function mapApiSubtaskRow(row, parentTaskId) {
         }
       : {}),
   }
+  const subThread = String(
+    r.subtaskThreadId || r.subtask_thread_id || r.external_session_id || r.externalSessionId || '',
+  ).trim()
+  if (subThread) out.subtaskThreadId = subThread
   return out
 }
 

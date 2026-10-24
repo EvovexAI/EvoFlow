@@ -171,7 +171,9 @@ SCENARIO_EAGER_TOOL_NAMES: dict[str, tuple[str, ...]] = {
         "taskstop",
         "replace",
         "write",
-        "delete",
+        # "delete",  # retired — 删除走 Bash rm（审批兜底），对齐 ZCode
+        "glob",
+        "grep",
         "search_code_index",
     ),
     "plan": PLAN_SCENARIO_EAGER_TOOL_NAMES,
@@ -214,10 +216,10 @@ def _agent_mode_deferred_tool_names() -> tuple[str, ...]:
             "web_search",
             "fetch_url",
             "subagent",
-            "todo",
+            # "todo",  # retired — 会话内清单由 TodoMiddleware 的 todo_write 恒挂载，非注册表工具
             # "find",  # retired — embedded search via Bash
-            "view_image",
-            "read_lints",
+            # "view_image",  # merged into ``read`` (image refs dispatch inside read)
+            # "read_lints",  # retired — 诊断走 Bash（pyright/ruff），对齐 ZCode
             # assets is CORE (memory-gated); not deferred
             # 不再默认绑定 — 由 agent 角色白名单决定是否挂载
             "tasks",
@@ -241,7 +243,7 @@ SESSION_MODE_DEFERRED_CATALOG: dict[str, tuple[str, ...]] = {
             "taskoutput",
             "taskstop",
             # "worker",  # temporarily unregistered (code retained)
-            "todo",
+            # "todo",  # retired — todo_write 由 TodoMiddleware 恒挂载（zcode 对齐）
             "knowledge",
         ),
         DEFERRED_SYSTEM_TOOL_NAMES,
@@ -370,14 +372,14 @@ def build_scenario_tools_payload(
 # 说明：这里只放"除基础能力之外"的工具。
 NON_CORE_TOOL_GROUPS: dict[str, dict[str, tuple[str, ...] | str]] = {
     "workspace_baseline": {
-        "zh_description": "工作区基础：read/Bash/todo/subagent/tasks（须 activate workspace）",
+        "zh_description": "工作区基础：read/Bash/todo_write/subagent/tasks（须 activate workspace）",
         "tools": (
             "read",
             "bash",
             "taskoutput",
             "taskstop",
             # "worker",  # temporarily unregistered (code retained)
-            "todo",
+            "todo_write",
             "subagent",
         ),
     },
@@ -386,26 +388,25 @@ NON_CORE_TOOL_GROUPS: dict[str, dict[str, tuple[str, ...] | str]] = {
         "tools": ("plan", "supervisor", "subagent"),
     },
     "file_ops": {
-        "zh_description": "工作区写删与进程：read+replace/write/delete；多文件改写委派 subagent；search_code_index、read_lints、process",
+        "zh_description": "工作区写改：read+replace/write；删除与诊断走 Bash（rm / pyright），对齐 ZCode；多文件改写委派 subagent",
         "tools": (
             "write",
             "replace",
-            "delete",
+            # "delete",  # retired — 删除走 Bash rm
             "search_code_index",
-            "read_lints",
+            # "read_lints",  # retired — 诊断走 Bash
         ),
     },
     "file_ops_read_present": {
-        "zh_description": "规划阶段只读检索：索引 search_code_index（大结果路径用 read；rg 在 workspace_baseline）",
-        "tools": ("search_code_index",),
+        "zh_description": "规划阶段只读检索：索引 search_code_index（大结果路径用 read；glob/grep 已注册为专用工具；rg 在 workspace_baseline）",
+        "tools": ("search_code_index", "glob", "grep"),
     },
     "web_research": {
-        "zh_description": "联网检索（agent 场景）：搜索、网页拉取、交互式浏览器走 agent-browser 技能（CLI/MCP）；截图理解用 view_image",
+        "zh_description": "联网检索（agent 场景）：搜索、网页拉取、交互式浏览器走 agent-browser 技能（CLI/MCP）；截图/图片理解用 read",
         "tools": (
             "web_search",
             "fetch_url",
             # "browser",  # unregistered — use the agent-browser skill (CLI/MCP) instead
-            "view_image",
         ),
     },
     "orchestration": {
@@ -425,16 +426,16 @@ NON_CORE_TOOL_GROUPS: dict[str, dict[str, tuple[str, ...] | str]] = {
         "tools": (),
     },
     "visual": {
-        "zh_description": "视觉理解：本地路径或 http/https 图片 URL 均用 view_image（可一次传多张）",
-        "tools": ("view_image",),
+        "zh_description": "视觉理解：本地路径或 http/https 图片 URL 均用 read（可一次传多张）",
+        "tools": ("read",),
     },
     "messaging": {
         "zh_description": "跨平台消息发送：Telegram、Discord、Slack",
         "tools": ("send_message",),
     },
     "external_agent": {
-        "zh_description": "外部 ACP 智能体调用",
-        "tools": ("invoke_acp_agent",),
+        "zh_description": "外部 ACP 智能体调用（invoke_acp_agent 已退役停用）",
+        "tools": (),
     },
     "hosted_panel": {
         "zh_description": "EvoPanel 目标方案卡片（无服务端副作用，用户在客户端确认后启动目标）",

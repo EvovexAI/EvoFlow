@@ -64,12 +64,27 @@ interface CuaToolResultDisplay {
   };
 }
 
+/** employees.bind_channel_begin — 工具卡下方扫码绑定本岗 AI 员工 */
+export interface PlatformUiToolResultDisplay {
+  kind: "platform_ui";
+  schemaVersion: 1;
+  action?: string;
+  title?: string;
+  qrUrl?: string;
+  sessionId?: string;
+  channel?: string;
+  agentCode?: string;
+  entityLabel?: string;
+  bindStatus?: "pending" | "scanning" | "bound" | "failed" | "expired";
+}
+
 export type ToolResultDisplay =
   | LocalAgentMessageToolResultDisplay
   | TaskStopToolResultDisplay
   | TaskOutputToolResultDisplay
   | RespondToCoordinatorToolResultDisplay
   | CuaToolResultDisplay
+  | PlatformUiToolResultDisplay
   | ToolCallGetWorkflowRunDisplay
   | ToolCallListWorkflowRunsDisplay
   | ToolCallEvalWorkflowSnippetDisplay
@@ -197,6 +212,56 @@ function parseDisplay(value: unknown): ToolResultDisplay | undefined {
     return {
       kind: "respond_to_coordinator",
       status: value.status,
+    };
+  }
+
+  if (value.kind === "platform_ui") {
+    if (value.schemaVersion !== 1) return undefined;
+    const action = readOptionalString(value, "action");
+    const title = readOptionalString(value, "title");
+    const qrUrl = readOptionalString(value, "qrUrl");
+    const sessionId = readOptionalString(value, "sessionId");
+    const channel = readOptionalString(value, "channel");
+    const agentCode = readOptionalString(value, "agentCode");
+    const entityLabel = readOptionalString(value, "entityLabel");
+    const bindRaw = readOptionalString(value, "bindStatus");
+    if (
+      action === null ||
+      title === null ||
+      qrUrl === null ||
+      sessionId === null ||
+      channel === null ||
+      agentCode === null ||
+      entityLabel === null ||
+      bindRaw === null
+    ) {
+      return undefined;
+    }
+    const bindStatus =
+      bindRaw === "pending" ||
+      bindRaw === "scanning" ||
+      bindRaw === "bound" ||
+      bindRaw === "failed" ||
+      bindRaw === "expired"
+        ? bindRaw
+        : undefined;
+    // 至少要有二维码链接或 session，否则卡片无意义
+    if (!qrUrl && !sessionId) return undefined;
+    return {
+      kind: "platform_ui",
+      schemaVersion: 1,
+      ...(action !== undefined ? { action } : {}),
+      ...(title !== undefined ? { title } : {}),
+      ...(qrUrl !== undefined ? { qrUrl } : {}),
+      ...(sessionId !== undefined ? { sessionId } : {}),
+      ...(channel !== undefined ? { channel } : {}),
+      ...(agentCode !== undefined ? { agentCode } : {}),
+      ...(entityLabel !== undefined ? { entityLabel } : {}),
+      ...(bindStatus !== undefined
+        ? { bindStatus }
+        : qrUrl || sessionId
+          ? { bindStatus: "pending" as const }
+          : {}),
     };
   }
 

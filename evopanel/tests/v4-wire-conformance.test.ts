@@ -11,6 +11,7 @@ import {
   conversationTopicFrameSchema,
   conversationRowSchema,
 } from "@zcode/shared/zcode-protocol-v4";
+import { parseV4WireSseBlocks } from "../src/react/v4/v4-wire-sse-parse.js";
 
 type Json = Record<string, unknown>;
 type ZodIssue = {
@@ -203,3 +204,48 @@ function buildMinimalWithSeed(
   }
   return { candidate, valid: false };
 }
+
+describe("parseV4WireSseBlocks", () => {
+  it("extracts v4.wire data and ignores heartbeats", () => {
+    const frames: string[] = [];
+    const rest = parseV4WireSseBlocks(
+      ': heartbeat\n\nevent: v4.wire\ndata: {"topic":"conversation/t1","subscriptionId":"s1","frame":{"toSeq":1}}\n\n',
+      (d) => frames.push(d),
+    );
+    expect(frames).toEqual([
+      '{"topic":"conversation/t1","subscriptionId":"s1","frame":{"toSeq":1}}',
+    ]);
+    expect(rest).toBe("");
+  });
+
+  it("keeps incomplete trailing block and joins multi-line data", () => {
+    const frames: string[] = [];
+    const rest = parseV4WireSseBlocks(
+      'event: v4.wire\ndata: {"a":1\ndata: ,"b":2}\n\nevent: v4.wire\ndata: {"partial',
+      (d) => frames.push(d),
+    );
+    expect(frames).toEqual(['{"a":1\n,"b":2}']);
+    expect(rest).toBe('event: v4.wire\ndata: {"partial');
+  });
+
+  it("ignores non-v4.wire events", () => {
+    const frames: string[] = [];
+    parseV4WireSseBlocks('event: other\ndata: {"x":1}\n\n', (d) => frames.push(d));
+    expect(frames).toEqual([]);
+  });
+
+  it("does not truncate an in-flight large v4.wire frame above 512KiB", () => {
+    // 回归：旧 512KiB 截断会毁掉跨 chunk 的大会话 snapshot，导致 ACK 后无首帧。
+    const frames: string[] = [];
+    const bigJson = `{"topic":"conversation/t1","subscriptionId":"s1","rows":"${"x".repeat(700_000)}"}`;
+    const header = "event: v4.wire\ndata: ";
+    const chunk1 = header + bigJson.slice(0, 600_000);
+    const chunk2 = bigJson.slice(600_000) + "\n\n";
+    let rest = parseV4WireSseBlocks(chunk1, (d) => frames.push(d));
+    expect(frames).toEqual([]);
+    expect(rest.length).toBeGreaterThan(512 * 1024);
+    rest = parseV4WireSseBlocks(rest + chunk2, (d) => frames.push(d));
+    expect(frames).toEqual([bigJson]);
+    expect(rest).toBe("");
+  });
+});

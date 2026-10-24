@@ -7,6 +7,8 @@ import { buildZCodeStreamingToolInputPreview } from "@zcode/shared";
 import type { ToolCallRow } from "@zcode/shared/zcode-protocol-v4";
 import type { TaskChatToolCallTreeNode } from "@/lib/toolCallTree.js";
 import { normalizeWrappedErrorText } from "@/lib/toolError.js";
+import { platformActionShortLabelZh } from "../../lib/platform-action-labels.js";
+import { readPlatformToolAction } from "@/ToolCallBlocks/renderers/platform.js";
 
 // v4 status → 旧 ChatToolCall.status（mapToolStatus 的输入词表：
 // pending/in_progress/completed/failed/stopped）。
@@ -91,12 +93,22 @@ export function toolCallRowToLegacyNode(row: ToolCallRow): TaskChatToolCallTreeN
   // CUA v1 历史 display 会重复保存 input；工具调用行已经持有唯一输入，桥接时丢弃旧副本。
   const legacyDisplay =
     display?.kind === "cua" ? (({ input: _legacyInput, ...rest }) => rest)(display) : display;
+  const platformAction =
+    String(row.toolName || "")
+      .trim()
+      .toLowerCase() === "platform"
+      ? readPlatformToolAction(inputPreview.input)
+      : "";
+  const platformTitle = platformAction
+    ? platformActionShortLabelZh(platformAction, { max: 24 }) || undefined
+    : undefined;
   return {
     toolCall: {
       toolId: row.toolCallId,
       toolName: row.toolName,
       // kind 兼容旧聚合分类：v4 下没有旧 ZCode Agent 快照形态，直接用固定工具名。
       kind: row.toolName,
+      ...(platformTitle ? { title: platformTitle } : {}),
       input: inputPreview.input,
       status: legacyStatus,
       output: row.output?.text,
@@ -111,6 +123,9 @@ export function toolCallRowToLegacyNode(row: ToolCallRow): TaskChatToolCallTreeN
       error: errorText,
       raw: {
         error: row.error,
+        // fileSummaries 的 readRawToolCallInput 优先读 rawInput——缺了它
+        // Write/Edit 会退化成整段 JSON 展示而不是文件 diff（fileSummaryTypes.ts 注释）。
+        ...(inputPreview.input !== undefined ? { rawInput: inputPreview.input } : {}),
         rawOutput: row.output?.text,
         outputPreview: row.outputPreview,
         outputTruncated: row.output?.truncated,

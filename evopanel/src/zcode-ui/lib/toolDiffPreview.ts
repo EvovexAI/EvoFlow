@@ -414,3 +414,114 @@ export function buildUnifiedDiff(
 
   return patch;
 }
+
+/** 审核侧栏默认补的前后原文行数（对齐 git diff -U3 观感）。 */
+export const REVIEW_DIFF_CONTEXT_LINES = 3;
+
+/**
+ * 从单文件 unified patch 的 hunk 正文还原 before/after 文本。
+ * 工具卡传来的 patch 往往只有 ± 行（old_string/new_string 无公共区），
+ * 需再配合 {@link expandReplaceWithFileContext} 从磁盘文件补上下文。
+ */
+export function extractBeforeAfterFromPatch(
+  patch: string,
+): { before: string; after: string } | null {
+  const lines = patch.split(/\r?\n/);
+  const beforeLines: string[] = [];
+  const afterLines: string[] = [];
+  let inHunk = false;
+
+  for (const line of lines) {
+    if (line === "@@" || line.startsWith("@@ ")) {
+      inHunk = true;
+      continue;
+    }
+    if (!inHunk) continue;
+    if (line.startsWith("\\")) continue;
+    if (line.startsWith("diff --git ") || line.startsWith("--- ") || line.startsWith("+++ ")) {
+      break;
+    }
+    if (line.startsWith(" ")) {
+      const body = line.slice(1);
+      beforeLines.push(body);
+      afterLines.push(body);
+    } else if (line.startsWith("-")) {
+      beforeLines.push(line.slice(1));
+    } else if (line.startsWith("+")) {
+      afterLines.push(line.slice(1));
+    }
+  }
+
+  if (beforeLines.length === 0 && afterLines.length === 0) return null;
+  return { before: beforeLines.join("\n"), after: afterLines.join("\n") };
+}
+
+/**
+ * 在整文件里定位替换片段，前后各夹 contextLines 行原文，供审核 diff 显示。
+ * 先找 oldText（改前文件），找不到再找 newText（改后文件）。
+ */
+export function expandReplaceWithFileContext(
+  fileContent: string,
+  oldText: string,
+  newText: string,
+  contextLines: number = REVIEW_DIFF_CONTEXT_LINES,
+): { before: string; after: string } | null {
+  const needle = oldText || newText;
+  if (!needle) return null;
+
+  let matchIndex = oldText ? fileContent.indexOf(oldText) : -1;
+  let matched = oldText;
+  if (matchIndex < 0 && newText) {
+    matchIndex = fileContent.indexOf(newText);
+    matched = newText;
+  }
+  if (matchIndex < 0 || !matched) return null;
+
+  const lines = splitLines(fileContent);
+  const startLine = fileContent.slice(0, matchIndex).split("\n").length - 1;
+  const matchedLineCount = splitLines(matched).length;
+  const ctx = Math.max(0, Math.floor(contextLines));
+  const ctxStart = Math.max(0, startLine - ctx);
+  const ctxEnd = Math.min(lines.length, startLine + matchedLineCount + ctx);
+
+  const prefix = lines.slice(ctxStart, startLine).join("\n");
+  const suffix = lines.slice(startLine + matchedLineCount, ctxEnd).join("\n");
+  const joinWindow = (mid: string) => {
+    const parts: string[] = [];
+    if (prefix) parts.push(prefix);
+    parts.push(mid);
+    if (suffix) parts.push(suffix);
+    return parts.join("\n");
+  };
+
+  return {
+    before: joinWindow(oldText),
+    after: joinWindow(newText),
+  };
+}
+
+/**
+ * 用磁盘文件正文给工具 patch 补前后原文行；失败则原样返回。
+ */
+export function enrichPatchWithFileContext(
+  patch: string,
+  fileContent: string,
+  fileLabel: string,
+  contextLines: number = REVIEW_DIFF_CONTEXT_LINES,
+): string {
+  const extracted = extractBeforeAfterFromPatch(patch);
+  if (!extracted) return patch;
+  const expanded = expandReplaceWithFileContext(
+    fileContent,
+    extracted.before,
+    extracted.after,
+    contextLines,
+  );
+  if (!expanded) return patch;
+  // 强制带 context 上限，避免误把整文件 shared prefix 塞进审核窗。
+  return (
+    buildUnifiedDiff(expanded.before, expanded.after, fileLabel, {
+      contextLines,
+    }) ?? patch
+  );
+}

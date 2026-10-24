@@ -134,11 +134,46 @@ export default defineConfig(({ mode }) => {
     })
   }
 
+  /** 把 Excel WASM 同步到 public/office，供 PreviewPane 用稳定 URL 拉取（避免 /node_modules 404）。 */
+  function copyOfficeXlsxWasmPlugin() {
+    const src = path.resolve(
+      __dirname,
+      'node_modules/@extend-ai/react-xlsx/dist/duke_sheets_wasm_bg.wasm',
+    )
+    const destDir = path.resolve(__dirname, 'public/office')
+    const dest = path.join(destDir, 'duke_sheets_wasm_bg.wasm')
+    const sync = () => {
+      if (!fs.existsSync(src)) {
+        console.warn(`[vite] Excel WASM missing: ${src}`)
+        return
+      }
+      fs.mkdirSync(destDir, { recursive: true })
+      // 内容未变就跳过，避免反复写 public/ 触发 Vite 全量 reload。
+      if (fs.existsSync(dest)) {
+        try {
+          if (fs.statSync(src).size === fs.statSync(dest).size) return
+        } catch {
+          /* fall through and copy */
+        }
+      }
+      fs.copyFileSync(src, dest)
+    }
+    return {
+      name: 'copy-office-xlsx-wasm',
+      buildStart() {
+        sync()
+      },
+      configureServer() {
+        sync()
+      },
+    }
+  }
+
   return {
     // Keep Vite cache outside node_modules: on Windows, concurrent Tauri cargo build +
     // beforeDevCommand can lock node_modules/.vite/deps_temp_* (Access denied on *.map).
     cacheDir: path.resolve(__dirname, '.vite-cache'),
-    plugins: [react(), tailwindcss(), devApiPlugin()],
+    plugins: [react(), tailwindcss(), devApiPlugin(), copyOfficeXlsxWasmPlugin()],
     worker: {
       format: 'es',
     },
@@ -190,6 +225,8 @@ export default defineConfig(({ mode }) => {
         { find: /^dayjs\/plugin\/(.+?)(?:\.js)?$/, replacement: `${dayjsEsmDir}/plugin/$1/index.js` },
       ],
     },
+    // Office Excel WASM（@extend-ai/react-xlsx / @dukelib/sheets-wasm）需按静态资源处理。
+    assetsInclude: ['**/*.wasm'],
     optimizeDeps: {
       include: [
         'react',
@@ -200,11 +237,29 @@ export default defineConfig(({ mode }) => {
         'dayjs',
         // Include mermaid in pre-bundle so alias rewrites for fastdom-promised take effect
         'mermaid',
+        // Excel 预览：react-xlsx 本体 exclude（保 wasm URL），但其嵌套依赖必须预打包，
+        // 否则首次点开 xlsx 时 Vite 才发现它们 → 「new dependencies … reloading」整页刷新。
+        'fflate',
+        'regl',
+        'd3-geo',
+        'd3-hierarchy',
+        'd3-scale',
+        'd3-shape',
+        'topojson-client',
+        // 注意：us-atlas / world-atlas 是纯 JSON 数据包（无 main/module/exports 入口），
+        // 不能进 optimizeDeps（否则预打包报 "Failed to resolve entry"）。
+        // react-xlsx 的 dist 构建时已内联其 JSON，运行时不会裸引用这两个包。
       ],
       // Mermaid brings ESM-only deps (e.g. @mermaid-js/parser) that can break esbuild pre-bundle
       // in some environments (Tauri beforeDevCommand on Windows). Now we pre-bundle mermaid itself
       // and exclude only its parser dep.
-      exclude: ['@mermaid-js/parser', 'dompurify'],
+      // Excel WASM：预打包会弄坏 worker/wasm URL（import.meta.url），交给 Vite 原生 ESM。
+      exclude: [
+        '@mermaid-js/parser',
+        'dompurify',
+        '@extend-ai/react-xlsx',
+        '@dukelib/sheets-wasm',
+      ],
       esbuildOptions: {
         // esbuild scans Mermaid's static import before Vite's resolve.alias plugins run.
         // Redirect the UMD-only fastdom extension to our ESM-compatible stub during pre-bundling.
@@ -229,8 +284,16 @@ export default defineConfig(({ mode }) => {
       allowedHosts: true,
       // Tauri runs `cargo build` into src-tauri/target while beforeDevCommand starts Vite.
       // On Windows, watching evopanel_lib.dll during link throws EBUSY and kills dev.
+      // Installer/build scripts also write under .build-temp (temp dirs rename/delete while
+      // chokidar watches → EBUSY / UVException and beforeDevCommand exits non-zero).
       watch: {
-        ignored: ['**/src-tauri/**', '**/target/**'],
+        // public/office WASM 由插件写入；监听它会在启动/同步时触发整页 reload。
+        ignored: [
+          '**/src-tauri/**',
+          '**/target/**',
+          '**/.build-temp/**',
+          '**/public/office/**',
+        ],
       },
       proxy: {
         // v4 conversation wire 帧流：长连 SSE，必须零超时（否则 15s 断连会触发
@@ -287,7 +350,12 @@ export default defineConfig(({ mode }) => {
         },
       },
       warmup: {
-        clientFiles: ['./src/react/ChatApp.tsx', './src/react/obs/ObsDashboardApp.tsx'],
+        clientFiles: [
+          './src/react/ChatApp.tsx',
+          './src/react/obs/ObsDashboardApp.tsx',
+          // 启动期暖 Excel 预览 chunk，避免首次点击才触发依赖发现 → 整页 reload。
+          './src/zcode-ui/previewPaneOfficeXlsxContent.tsx',
+        ],
       },
     },
     envPrefix: ['VITE_', 'TAURI_'],

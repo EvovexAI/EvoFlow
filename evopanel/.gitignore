@@ -52,6 +52,9 @@ docs/promo-video.mp4
 # 液态玻璃演示视频（体积大，仅本地可选）
 public/assets/liquid-glass/*.mp4
 
+# Excel 预览 WASM（vite copy-office-xlsx-wasm 插件从 node_modules 同步）
+public/office/duke_sheets_wasm_bg.wasm
+
 # IDE / 编辑器
 .idea/
 *.iml

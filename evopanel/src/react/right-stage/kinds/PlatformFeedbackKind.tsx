@@ -22,10 +22,15 @@ function domainLabel(domain?: string): string {
     memory: '记忆',
     experience: '经验',
     verification: '验证',
+    channels: 'IM 渠道',
   }
   return map[String(domain || '').trim()] || '平台'
 }
 
+/**
+ * 右侧平台反馈：纯文字摘要。
+ * 扫码绑本岗 AI 员工的二维码只在对话流工具下方展示，不在右侧重复出码。
+ */
 function PlatformFeedbackKindInner({
   surface,
   onClose,
@@ -38,6 +43,8 @@ function PlatformFeedbackKindInner({
   const domain = domainLabel(data.domain)
   const actions = Array.isArray(data.actions) ? data.actions : []
   const details = Array.isArray(data.details) ? data.details : []
+  const isBindBegin = String(data.action || '') === 'employees.bind_channel_begin'
+  const qrUrl = String(data.qrUrl || '').trim()
 
   return (
     <>
@@ -65,7 +72,9 @@ function PlatformFeedbackKindInner({
             <p className="react-chat-platform-feedback-subtitle">{data.subtitle}</p>
           ) : null}
           <p className="react-chat-platform-feedback-hint">
-            关闭后可在上方 Exploring 中点击 platform 工具行重新打开；事项本身在任务中心。
+            {isBindBegin
+              ? "扫码绑定本岗 AI 员工。"
+              : "关闭后可在上方 Exploring 中点击 platform 工具行重新打开；事项本身在任务中心。"}
           </p>
           {details.length ? (
             <ul className="react-chat-platform-feedback-details">
@@ -77,32 +86,37 @@ function PlatformFeedbackKindInner({
               ))}
             </ul>
           ) : null}
-          {actions.length ? (
-            <div className="react-chat-platform-feedback-actions">
-              {actions.map((action) => (
-                <button
-                  key={`${action.label}:${action.route || ''}`}
-                  type="button"
-                  className="react-chat-platform-feedback-action"
-                  onClick={() => {
-                    if (action.route) navigatePlatformFeedbackRoute(action.route)
-                    else onClose?.()
-                  }}
-                >
-                  {action.label}
-                </button>
-              ))}
-              <button type="button" className="react-chat-platform-feedback-action react-chat-platform-feedback-action--muted" onClick={() => onClose?.()}>
-                知道了
+          <div className="react-chat-platform-feedback-actions">
+            {isBindBegin && qrUrl ? (
+              <button
+                type="button"
+                className="react-chat-platform-feedback-action"
+                onClick={() => window.open(qrUrl, '_blank', 'noopener,noreferrer')}
+              >
+                打开扫码页
               </button>
-            </div>
-          ) : (
-            <div className="react-chat-platform-feedback-actions">
-              <button type="button" className="react-chat-platform-feedback-action" onClick={() => onClose?.()}>
-                知道了
+            ) : null}
+            {actions.map((action) => (
+              <button
+                key={`${action.label}:${action.route || ''}`}
+                type="button"
+                className="react-chat-platform-feedback-action"
+                onClick={() => {
+                  if (action.route) navigatePlatformFeedbackRoute(action.route)
+                  else onClose?.()
+                }}
+              >
+                {action.label}
               </button>
-            </div>
-          )}
+            ))}
+            <button
+              type="button"
+              className="react-chat-platform-feedback-action react-chat-platform-feedback-action--muted"
+              onClick={() => onClose?.()}
+            >
+              知道了
+            </button>
+          </div>
         </div>
       </div>
     </>

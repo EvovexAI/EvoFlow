@@ -1,6 +1,7 @@
 import { FileTextIcon, GlobeIcon } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import type { MessageFileLinkTarget } from "@/components/ai-elements/message.js";
+import { useOptionalServices } from "@/hooks/useServices.js";
 import { useWorkspaceServices } from "@/hooks/useWorkspaceServices.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import {
@@ -104,6 +105,7 @@ function useAssistantPreviewCardValidation(
     workspaceRemoteSessionId?: string;
   } = {},
 ): AssistantPreviewCardValidationResult {
+  // 仅在已确认有 ServiceProvider 的子树里调用（见 AssistantPreviewCardsMounted）。
   const { fileService } = useWorkspaceServices(
     scope.workspacePath,
     scope.workspaceRemoteSessionId,
@@ -132,7 +134,8 @@ function useAssistantPreviewCardValidation(
   }));
 
   useEffect(() => {
-    if (statFreeVisibleCards) {
+    // fileService 缺席（独立挂载无 ServiceProvider 的 stub 访问器）时跳过 stat 校验。
+    if (statFreeVisibleCards || !fileService) {
       return;
     }
 
@@ -164,9 +167,9 @@ function useAssistantPreviewCardValidation(
     };
   }, [cardsSignature, fileService, statFreeVisibleCards, validationCards]);
 
-  if (statFreeVisibleCards) {
+  if (statFreeVisibleCards || !fileService) {
     return {
-      visibleCards: statFreeVisibleCards,
+      visibleCards: statFreeVisibleCards ?? [],
       settled: true,
     };
   }
@@ -180,7 +183,55 @@ function useAssistantPreviewCardValidation(
   };
 }
 
-export function AssistantPreviewCards({
+/**
+ * EvoFlow V4 宿主可能只有 Intl（无 ServiceProvider）或只有部分 ServiceProvider
+ * （无 TabStore）。无 Provider 时走 stat-free；有 Provider 时 Mounted 路径依赖
+ * useWorkspaceServices 内的 useOptionalTabStore，勿再硬依赖 TabStore。
+ */
+export function AssistantPreviewCards(props: AssistantPreviewCardsProps) {
+  const services = useOptionalServices();
+  if (services === null) {
+    return <AssistantPreviewCardsStatFreeOnly {...props} />;
+  }
+  return <AssistantPreviewCardsMounted {...props} />;
+}
+
+function AssistantPreviewCardsStatFreeOnly({
+  cards,
+  workspacePath,
+  workspaceIdentity,
+  workspaceRemoteSessionId,
+  onOpenBrowserUrl,
+  onOpenFileLink,
+  onOpenCodeViewer,
+}: AssistantPreviewCardsProps) {
+  const { intl } = useZCodeIntl();
+  const visibleCards = useMemo(
+    () => resolveAssistantPreviewCardsWithoutFileStat(cards) ?? [],
+    [cards],
+  );
+  if (visibleCards.length === 0) return null;
+  return (
+    <div className="flex w-full flex-col gap-3">
+      {visibleCards.map((card, index) => (
+        <AssistantPreviewCardRow
+          key={card.id}
+          card={card}
+          animationDelayMs={Math.min(index * 36, 240)}
+          subtitle={intl.formatMessage({ id: card.subtitleId })}
+          workspacePath={workspacePath}
+          workspaceIdentity={workspaceIdentity}
+          workspaceRemoteSessionId={workspaceRemoteSessionId}
+          onOpenBrowserUrl={onOpenBrowserUrl}
+          onOpenFileLink={onOpenFileLink}
+          onOpenCodeViewer={onOpenCodeViewer}
+        />
+      ))}
+    </div>
+  );
+}
+
+function AssistantPreviewCardsMounted({
   cards,
   workspacePath,
   workspaceIdentity,

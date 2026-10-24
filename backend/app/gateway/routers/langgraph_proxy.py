@@ -496,7 +496,16 @@ async def attach_run_stream(
             from app.gateway.agui_stream_normalizer import convert_evf_frames_to_agui
 
             out_bytes = convert_evf_frames_to_agui([frame.encode("utf-8")], state=agui_attach_state)
-            return [b.decode("utf-8") for b in out_bytes] if out_bytes else []
+            out = [b.decode("utf-8") for b in out_bytes] if out_bytes else []
+            if out:
+                # v4 镜像：attach 续流同样喂 v4 投影，刷新恢复后会话不缺行。
+                try:
+                    from app.gateway.v4.agui_mirror import mirror_feed_agui_wire
+
+                    mirror_feed_agui_wire(thread_id, out)
+                except Exception:
+                    pass
+            return out
 
         from evoflow.observability.poll_loop_log import log_poll_loop_end, log_poll_loop_start, log_poll_tick
 
@@ -823,20 +832,27 @@ def _resolve_stream_cleanup_run_id(thread_id: str | None) -> str | None:
 async def get_active_sessions(
     session_keys: str | None = Query(default=None, description="Comma-separated session_key whitelist"),
 ) -> JSONResponse:
-    """Return sessions marked running/pending in ``evoflow_chat_sessions`` (no LangGraph scan)."""
-    keys = _parse_active_session_keys(session_keys)
-    if not keys:
-        return _empty_active_sessions_response(langgraph_ready=True)
+    """Return sessions marked running/pending in ``evoflow_chat_sessions`` (no LangGraph scan).
 
-    cache_key = ",".join(keys)
+    Without ``session_keys``, returns all active sessions (capped) for workbench
+    「正在处理」. With keys, filters to the whitelist (sidebar busy probe).
+    """
+    keys = _parse_active_session_keys(session_keys)
+    cache_key = ",".join(keys) if keys else "__all__"
     cached = _active_sessions_cache_get(cache_key)
     if cached is not None:
         return JSONResponse(content=cached)
 
     try:
-        from evoflow.persistence.session_run_state import list_active_sessions_for_keys
+        from evoflow.persistence.session_run_state import (
+            list_active_sessions_for_keys,
+            list_all_active_sessions,
+        )
 
-        active_sessions = list_active_sessions_for_keys(keys)
+        if keys:
+            active_sessions = list_active_sessions_for_keys(keys)
+        else:
+            active_sessions = list_all_active_sessions(limit=50)
         body = {
             "active_sessions": active_sessions,
             "count": len(active_sessions),

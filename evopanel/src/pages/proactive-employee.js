@@ -26,6 +26,7 @@ import {
 } from '../lib/proactive-role-tasks.js'
 import { formatTaskStatusZh, normalizeTaskStatusKey, toTaskStatusGroup } from '../lib/task-status-label.js'
 import { formatTaskSourceZh } from '../lib/task-source.js'
+import { durationLabel, fmtDuration, isExecutingStatus } from '../lib/task-duration.js'
 import { formatRaisedByLabel } from '../lib/task-raised-by.js'
 import {
   mountEmployeeNavToChrome,
@@ -198,6 +199,40 @@ function tasksAsWorklogItems(tasks) {
       updated_at: updated,
       progress: Number(t.progress) || 0,
       _is_task: true,
+    })
+  }
+  return out
+}
+
+/** Duty-run / synth rounds from work-board → worklog journal cards (trigger trail). */
+function roundsAsWorklogItems(rounds) {
+  const out = []
+  for (const r of Array.isArray(rounds) ? rounds : []) {
+    if (!r || typeof r !== 'object') continue
+    const rid = String(r.round_id || '').trim()
+    if (!rid) continue
+    const plan =
+      r.action_plan && typeof r.action_plan === 'object'
+        ? { ...r.action_plan, kind: 'round_log' }
+        : { kind: 'round_log', phase: 'wrap_up', source: 'duty_run' }
+    out.push({
+      id: String(r.id || `duty-round:${rid}`),
+      title: String(r.title || '值班轮次').trim() || '值班轮次',
+      description: String(r.description || '').trim(),
+      rationale: String(r.rationale || '').trim(),
+      action_type: 'report',
+      risk_level: 'low',
+      action_plan: plan,
+      status: String(r.status || 'completed').trim() || 'completed',
+      result: r.result == null ? null : r.result,
+      round_id: rid,
+      goal: String(r.goal || r.title || '').trim(),
+      outcome: String(r.outcome || '').trim(),
+      execution_result: '',
+      created_at: String(r.created_at || '').trim(),
+      updated_at: String(r.updated_at || r.created_at || '').trim(),
+      session_key: String(r.session_key || plan.session_key || '').trim(),
+      _is_duty_run: true,
     })
   }
   return out
@@ -1084,7 +1119,11 @@ async function renderEmployeePage(code, { autoPatrol = false, autoLive = false, 
     let initiatives = []
     if (boardRes && (boardRes.rounds || boardRes.tasks || boardRes.initiatives)) {
       tasks = normalizeWorkBoardTasks(boardRes.tasks || [], role.role_name)
-      initiatives = tasksAsWorklogItems(tasks)
+      // 上班记录 = duty_runs（定时/心跳触发）+ 板任务；缺 rounds 时至少仍有 tasks
+      initiatives = [
+        ...roundsAsWorklogItems(boardRes.rounds || []),
+        ...tasksAsWorklogItems(tasks),
+      ]
     } else {
       // Fallback for older gateways
       const tasksRes = await api.listAllTasks().catch(() => null)
@@ -1151,6 +1190,10 @@ async function renderEmployeePage(code, { autoPatrol = false, autoLive = false, 
     bindEmployeePage(page, role, initiatives)
     // 将操作栏搬进 Tauri 标题栏（与窗口控制按钮同一行）
     mountEmployeeNavToChrome(page)
+    // 任务可能从任务中心 / IM / 工作流派发，本页不会收到任何事件。
+    // 只要还有执行中的工作，就低频自动刷新，让「完成」「产出」自己浮现，
+    // 用户不必手动刷新才看到状态变化。
+    startEmployeeAutoRefresh(page, role, initiatives)
     if (autoPatrol) {
       clearAutoPatrolQuery()
       void runPatrol(page, role)
@@ -1173,6 +1216,43 @@ async function renderEmployeePage(code, { autoPatrol = false, autoLive = false, 
     page.querySelector('[data-act="back"]')?.addEventListener('click', () => navigate('/proactive'))
   }
   return page
+}
+
+/**
+ * 员工页低频自动刷新：仅在存在「执行中」工作时轮询。
+ * 全部结束（或页面卸载）即停，避免空转。
+ */
+const EMPLOYEE_AUTOREFRESH_MS = 5000
+
+function hasRunningWork(initiatives) {
+  return (Array.isArray(initiatives) ? initiatives : []).some((i) => isExecutingStatus(i?.status))
+}
+
+function startEmployeeAutoRefresh(page, role, initiatives) {
+  stopEmployeeAutoRefresh(page)
+  if (!hasRunningWork(initiatives)) return
+  page._autoRefreshTimer = window.setInterval(async () => {
+    if (!page.isConnected) {
+      stopEmployeeAutoRefresh(page)
+      return
+    }
+    // 用户正在工作过程抽屉里看实时轨迹时，抽屉自己会刷新，别叠加。
+    if (page._liveProcess?.isOpen?.()) return
+    try {
+      const { initiatives: next, busy } = await refreshEmployeeWorkLog(page, role)
+      // busy 或仍有执行中工作 → 继续轮询；否则收尾
+      if (!busy && !hasRunningWork(next)) stopEmployeeAutoRefresh(page)
+    } catch {
+      /* 单次失败忽略，下一拍再试 */
+    }
+  }, EMPLOYEE_AUTOREFRESH_MS)
+}
+
+function stopEmployeeAutoRefresh(page) {
+  if (page?._autoRefreshTimer) {
+    window.clearInterval(page._autoRefreshTimer)
+    page._autoRefreshTimer = null
+  }
 }
 
 function workStats(initiatives) {
@@ -2423,6 +2503,20 @@ function enrichRound(round) {
     }
   }
 
+  // 耗时：本轮起止取自轮次自身的 started/latest；执行中则持续增长。
+  const running = verdict === 'in_progress' || executing > 0
+  const starts = items
+    .map((i) => String(i.started_at || i.created_at || '').trim())
+    .filter(Boolean)
+    .sort()
+  const durFrom = starts[0] || String(round.at || '').trim()
+  const ends = items
+    .map((i) => String(i.completed_at || (isExecutingStatus(i.status) ? '' : i.updated_at) || '').trim())
+    .filter(Boolean)
+    .sort()
+  const durTo = running ? '' : ends[ends.length - 1] || ''
+  const durLabel = durFrom ? (running ? `已运行 ${fmtDuration(durFrom)}` : `耗时 ${fmtDuration(durFrom, durTo)}`) : ''
+
   return {
     ...round,
     journal: wrap,
@@ -2439,6 +2533,9 @@ function enrichRound(round) {
     verdict,
     verdict_label,
     verdict_cls,
+    running,
+    durFrom,
+    durLabel,
   }
 }
 
@@ -2501,7 +2598,11 @@ function renderRoundSection(code, round, { dayRoundIdx, dayRoundTotal, highlight
       <header class="pro-worklog-round-head">
         <div>
           <h3 class="pro-worklog-round-title">${esc(label)}${isNew ? ' <span class="pro-worklog-new-tag">本轮</span>' : ''}</h3>
-          <p class="pro-worklog-round-time">${fmtTime(round.at)}</p>
+          <p class="pro-worklog-round-time">${fmtTime(round.at)}${
+            round.durLabel
+              ? ` · <span class="pro-worklog-round-dur${round.running ? ' is-running' : ''}" data-dur-from="${esc(round.durFrom || '')}">${esc(round.durLabel)}</span>`
+              : ''
+          }</p>
         </div>
         <div class="pro-worklog-round-actions">
           ${
@@ -2652,12 +2753,15 @@ function renderWorklogListTable(code, initiatives, listStatus = 'all') {
       const title = esc(init._display_title || init.title || init.id)
       const when = esc(fmtTime(init.updated_at || init.created_at))
       const src = esc(formatTaskSourceZh(init.source) || '')
+      const dur = esc(durationLabel(init))
+      const running = isExecutingStatus(init.status)
       return `
-        <button type="button" class="pro-worklog-listrow" data-open-work="${esc(init.id)}" data-code="${esc(code)}">
+        <button type="button" class="pro-worklog-listrow${running ? ' is-running' : ''}" data-open-work="${esc(init.id)}" data-code="${esc(code)}">
           <span class="pro-worklog-listrow-title">${title}</span>
           <span class="pro-worklog-listrow-meta">
-            <span class="pro-meta-chip">${esc(st)}</span>
+            <span class="pro-meta-chip${running ? ' pro-meta-chip--run' : ''}">${esc(st)}</span>
             ${src ? `<span class="pro-meta-chip">${src}</span>` : ''}
+            ${dur ? `<span class="pro-meta-chip pro-meta-chip--dur" data-dur-from="${esc(init.started_at || init.created_at || '')}">${dur}</span>` : ''}
             <span class="pro-worklog-listrow-time">${when}</span>
           </span>
         </button>`
@@ -3294,8 +3398,10 @@ function renderItemCard(code, init, { highlight = false, legacy = false } = {}) 
     isTask && Number(init.progress) > 0
       ? `<span class="pro-meta-chip" title="进度">${esc(String(init.progress))}%</span>`
       : ''
+  const running = isExecutingStatus(init.status)
+  const dur = durationLabel(init)
   return `
-    <button type="button" class="pro-item-card${result === 'failure' || isIncompleteJournal(init) ? ' pro-item-card--fail' : ''}${roundLog ? ' pro-item-card--journal' : ''}${highlight ? ' pro-item-card--new' : ''}" ${openAttr} data-code="${esc(code)}">
+    <button type="button" class="pro-item-card${result === 'failure' || isIncompleteJournal(init) ? ' pro-item-card--fail' : ''}${roundLog ? ' pro-item-card--journal' : ''}${highlight ? ' pro-item-card--new' : ''}${running ? ' pro-item-card--run' : ''}" ${openAttr} data-code="${esc(code)}">
       <div class="pro-item-card-top">
         <span class="pro-item-card-title">${esc(titlePrefix + title)}</span>
         <span class="pro-badge ${badge.cls}">${esc(badge.label)}</span>
@@ -3305,6 +3411,7 @@ function renderItemCard(code, init, { highlight = false, legacy = false } = {}) 
         ${typeLabel ? `<span class="pro-meta-chip">${esc(typeLabel)}</span>` : ''}
         ${prog}
         ${trailCount ? `<span class="pro-meta-chip pro-meta-chip--progress">${trailCount} 次进度</span>` : ''}
+        ${dur ? `<span class="pro-meta-chip pro-meta-chip--dur" data-dur-from="${esc(init.started_at || init.created_at || '')}">${esc(dur)}</span>` : ''}
         ${roundLog ? '' : `<span class="pro-risk ${risk.cls}">${risk.label}</span>`}
         <span>${fmtTime(init.updated_at || init.created_at)}</span>
         <span class="pro-item-card-more">${moreLabel}</span>
@@ -3367,7 +3474,10 @@ async function refreshEmployeeWorkLog(page, role, highlightRoundId = '') {
   let initiatives
   if (boardRes && (boardRes.rounds || boardRes.tasks || boardRes.initiatives)) {
     tasks = normalizeWorkBoardTasks(boardRes.tasks || [], role.role_name)
-    initiatives = tasksAsWorklogItems(tasks)
+    initiatives = [
+      ...roundsAsWorklogItems(boardRes.rounds || []),
+      ...tasksAsWorklogItems(tasks),
+    ]
   } else {
     const tasksRes = await api.listAllTasks().catch(() => null)
     tasks = tasksFromListResponse(tasksRes)
@@ -3647,7 +3757,10 @@ async function runPatrol(page, role, { focus = '' } = {}) {
     let initiatives = []
     if (boardRes && (boardRes.rounds || boardRes.tasks || boardRes.initiatives)) {
       tasks = normalizeWorkBoardTasks(boardRes.tasks || [], role.role_name)
-      initiatives = tasksAsWorklogItems(tasks)
+      initiatives = [
+        ...roundsAsWorklogItems(boardRes.rounds || []),
+        ...tasksAsWorklogItems(tasks),
+      ]
     } else {
       const tasksRes = await api.listAllTasks().catch(() => null)
       tasks = tasksFromListResponse(tasksRes)
@@ -4229,6 +4342,25 @@ async function renderWorkItemPage(code, taskId, opts = {}) {
   return page
 }
 
+/**
+ * 主任务没写回 result_json 时，用子任务的产出兜底。
+ * 典型场景：工作流每步都有结果，但「结果汇总」步骤卡住 / 未执行，
+ * 主任务却是 completed —— 用户只看到「已完成」而看不到任何内容。
+ */
+function taskChildResultLines(task) {
+  const subs = Array.isArray(task?.subtasks) ? task.subtasks : []
+  if (!subs.length) return []
+  const done = subs.filter((s) => {
+    const st = String(s?.status || '').toLowerCase()
+    return st === 'completed' || st === 'done' || st === 'reviewed'
+  })
+  if (!done.length) return []
+  const pendingN = subs.length - done.length
+  return [
+    pendingN ? `已产出 ${done.length}/${subs.length} 步（含未完成的汇总步骤）` : `已产出 ${done.length} 步结果`,
+  ]
+}
+
 function renderWorkItemOutcomeCards(task, statusGroup, role = null) {
   const result = taskSummaryText(task)
   const error = String(task.error || task.error_text || '').trim()
@@ -4238,15 +4370,25 @@ function renderWorkItemOutcomeCards(task, statusGroup, role = null) {
   const cards = []
 
   if (statusGroup === 'completed') {
-    const headline =
-      sections.conclusion ||
-      '工作项已完成。'
+    // 主任务没写回 result_json 时（工作流 / 汇总步骤中断常见），不能让用户只看到
+    // 一句「已完成」而没有任何产出线索 —— 明确区分「无产出」和「有产出但未汇总」。
+    const hasSummary = Boolean(sections.conclusion)
+    const hasOutputs = outputs.length > 0
+    const hasChildResults = Boolean(taskSummaryText(task) || String(task.result || '').trim())
+    let headline = sections.conclusion
+    if (!headline) {
+      headline = hasOutputs ? '工作项已完成，产出见下方。' : '工作项已完成，但本轮没有写回产出内容。'
+    }
+    if (!hasSummary && !hasOutputs && !hasChildResults) {
+      headline = '工作项已完成，但执行结果为空：没有返回文字总结，也没有产出文件。请打开「工作过程」查看每一步的实际情况。'
+    }
     const bits = []
-    if (outputs.length) bits.push(`共 ${outputs.length} 项产出`)
+    if (hasOutputs) bits.push(`共 ${outputs.length} 项产出`)
     if (inputRefs.length) bits.push(`${inputRefs.length} 项上游参考`)
     if (sections.findings.length) bits.push(`${sections.findings.length} 项发现`)
+    for (const sub of taskChildResultLines(task)) bits.push(sub)
     cards.push(`
-      <section class="td-card td-card--result">
+      <section class="td-card td-card--result${!hasSummary && !hasOutputs ? ' td-card--result-empty' : ''}">
         <h2 class="td-card-title">完成结果</h2>
         <p class="td-card-lead">${esc(headline)}</p>
         ${bits.length ? `<p class="td-card-sub">${esc(bits.join(' · '))}</p>` : ''}
@@ -4651,10 +4793,18 @@ function renderWorkItemDetail(role, task, { pendingApproval = null, roster = [],
                         const st = String(s?.status || '').trim()
                         const pct = Math.max(0, Math.min(100, Number(s?.progress) || 0))
                         const nm = String(s?.name || s?.id || '子任务').trim()
+                        // 子任务的 result_json 往往才是真产出（主任务汇总步骤可能没跑完）
+                        const subResult = String(
+                          s?.summary || s?.result || s?.result_text || s?.outcome || '',
+                        ).trim()
+                        const dur = String(s?.started_at || '').trim()
+                          ? fmtDuration(s.started_at, s.completed_at || (isExecutingStatus(st) ? '' : s.updated_at))
+                          : ''
                         return `<li>
                           <span class="pro-item-subtask-name">${esc(nm)}</span>
                           <span class="pro-badge ${workItemStatusBadge(st).cls}">${esc(workItemStatusBadge(st).label)}</span>
-                          <span class="pro-item-muted">${pct > 0 ? `${pct}%` : '—'}</span>
+                          <span class="pro-item-muted">${pct > 0 ? `${pct}%` : '—'}${dur ? ` · ${esc(dur)}` : ''}</span>
+                          ${subResult ? `<p class="pro-item-subtask-result">${esc(previewLine(subResult, 180))}</p>` : ''}
                         </li>`
                       })
                       .join('')}
@@ -5369,6 +5519,7 @@ export function cleanup() {
       /* ignore */
     }
     stopPageWatch(_currentPage)
+    stopEmployeeAutoRefresh(_currentPage)
     destroyEmployeeLiveMount(_currentPage)
     _currentPage = null
   }

@@ -9,6 +9,8 @@ export type ShellSidebarSyncRow = {
   canDelete: boolean
   executing: boolean
   runningPreviewLine: string
+  /** 本轮开始时刻（epoch ms）；executing 为 true 时用于显示「已运行时长」 */
+  runningStartedAtMs?: number
   hasUnseenRunningUpdate: boolean
   isPinned: boolean
   pinOrder: number

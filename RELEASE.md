@@ -21,11 +21,13 @@ npm run version:set -- 1.1.0
 | `evopanel/VERSION` | **唯一版本源**（构建前 `sync-version` 以此为准） |
 | `evopanel/package.json` | Node / CI 读版本 |
 | `evopanel/package-lock.json` | 根包版本字段 |
-| `evopanel/src-tauri/Cargo.toml` | Rust / 安装包版本 |
+| `evopanel/src-tauri/Cargo.toml` / `Cargo.lock` | Rust / 安装包版本 |
 | `evopanel/src-tauri/tauri.conf.json` | Tauri 应用版本 |
+| `backend/pyproject.toml` | Gateway 包版本（与面板同一号） |
+| `backend/packages/harness/pyproject.toml` | harness 包版本（与面板同一号） |
 | `scripts/maintainer/update/latest.json` | 升级通道草稿的 `version` / `url`（**不会**重写 `changelog` 正文） |
 
-核对：`cat evopanel/VERSION` 与上面几处版本字符串一致。
+前后端共用同一个 `x.y.z`，不要单独再升一号。核对：`cat evopanel/VERSION` 与上面几处版本字符串一致。
 
 ---
 

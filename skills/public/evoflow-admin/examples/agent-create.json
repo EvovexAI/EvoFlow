@@ -2,6 +2,7 @@
   "agent_code": "code-reviewer",
   "agent_name": "代码审查",
   "description": "Review PRs",
+  "capability_pack": "coding",
   "skills": ["deep-research"],
   "tags": ["项目", "代码"],
   "soul": "You are a strict but helpful reviewer."

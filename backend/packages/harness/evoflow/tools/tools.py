@@ -111,7 +111,11 @@ REMOVED_LEGACY_TOOL_NAMES: frozenset[str] = frozenset(
 )
 
 # Sandbox builtins superseded by host-direct equivalents (avoid duplicate ``read_file`` / ``bash``).
-_HOST_DIRECT_SUPERSEDED_SANDBOX_NAMES: frozenset[str] = frozenset({"read_file", "read", "bash"})
+# ``view_image`` merged into host-direct ``read`` (image refs dispatch inside read);
+# sandbox mode keeps the standalone tool.
+_HOST_DIRECT_SUPERSEDED_SANDBOX_NAMES: frozenset[str] = frozenset(
+    {"read_file", "read", "bash", "view_image"}
+)
 
 
 def _tool_name(tool: BaseTool | object) -> str:
@@ -175,14 +179,14 @@ def get_builtin_tools() -> tuple[BaseTool, ...]:
     from evoflow.tools.builtins.platform_tool import platform_tool
     # from evoflow.tools.builtins.process_tool import process_tool  # retired — Bash background tasks
     from evoflow.tools.builtins.propose_goal_tool import propose_goal_tool
-    from evoflow.tools.builtins.read_lints_tool import read_lints_tool
+    # from evoflow.tools.builtins.read_lints_tool import read_lints_tool  # retired — 诊断走 Bash（pyright/ruff），对齐 ZCode
     from evoflow.tools.builtins.stage_tool import stage_set_tool
     from evoflow.tools.builtins.subtask_outcome_report_tool import subtask_outcome_report_tool
     from evoflow.tools.builtins.subtask_progress_tool import subtask_progress_report_tool
     from evoflow.tools.builtins.subtask_work_checklist_tool import subtask_work_checklist_tool
     from evoflow.tools.builtins.supervisor_tool import supervisor_tool
     from evoflow.tools.builtins.tasks_tool import tasks_tool
-    from evoflow.tools.builtins.todo_tool import todo_tool
+    # from evoflow.tools.builtins.todo_tool import todo_tool  # retired — 会话内清单由 TodoMiddleware 的 todo_write 提供（zcode TodoWrite 对齐）
     from evoflow.tools.builtins.view_image_tool import view_image_tool
 
     tools = [
@@ -199,13 +203,13 @@ def get_builtin_tools() -> tuple[BaseTool, ...]:
         collab_peer_send_tool,
         collab_peer_read_tool,
         collab_peer_reply_tool,
-        todo_tool,
+        # todo_tool,  # retired — todo_write (TodoMiddleware) 替代，对齐 zcode
         stage_set_tool,
         fetch_url_tool,
         view_image_tool,
         # process_tool,  # retired — ZCode Bash run_in_background + TaskOutput/TaskStop
         # browser_tool,  # unregistered — use the agent-browser skill (CLI/MCP) instead
-        read_lints_tool,
+        # read_lints_tool,  # retired — 诊断走 Bash（pyright/ruff/tsc），对齐 ZCode
         bash_tool,
         read_file_tool,
     ]
@@ -398,13 +402,9 @@ def _cached_resolve_tools(
         if not any(getattr(t, "name", "") == "tool_search" for t in tools):
             tools.append(tool_search_tool)
 
-    acp_tools: list[BaseTool] = []
-    try:
-        from evoflow.tools.builtins.invoke_acp_agent_tool import build_invoke_acp_agent_tool
-
-        acp_tools.append(build_invoke_acp_agent_tool())
-    except Exception as e:
-        logger.warning("Failed to load ACP tool: %s", e)
+    # ACP retired: invoke_acp_agent tool is no longer registered.
+    # Legacy modules (invoke_acp_agent_tool / config.acp_config) are kept but inactive;
+    # acp_agents entries in config.yaml are ignored.
 
     plug_memory_tools: list[BaseTool] = []
     try:
@@ -414,7 +414,7 @@ def _cached_resolve_tools(
     except Exception as e:
         logger.warning("Hermes external memory plugin tools not loaded: %s", e)
 
-    combined = _without_trae_agent_tools(tools + mcp_tools + acp_tools + plug_memory_tools)
+    combined = _without_trae_agent_tools(tools + mcp_tools + plug_memory_tools)
     return tuple(_finalize_tool_catalog(_apply_media_runtime_tool_schemas(combined), tools_mode=tools_mode))
 
 
@@ -561,14 +561,7 @@ def _load_host_direct_tools(
         if not any(getattr(t, "name", "") == "tool_search" for t in tools):
             tools.append(tool_search_tool)
 
-    # ACP tools
-    try:
-        from evoflow.tools.builtins.invoke_acp_agent_tool import build_invoke_acp_agent_tool
-
-        tools.append(build_invoke_acp_agent_tool())
-        logger.debug("HostDirect mode: Including invoke_acp_agent tool")
-    except Exception as e:
-        logger.warning(f"Failed to load ACP tool in HostDirect mode: {e}")
+    # ACP retired in HostDirect mode too: invoke_acp_agent is no longer registered.
 
     plug_memory_tools: list[BaseTool] = []
     try:

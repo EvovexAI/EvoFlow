@@ -159,17 +159,9 @@ _UPDATE_KEYS = frozenset(_HIRE_KEYS - {"agent_code"}) | frozenset({"dnd_enabled"
 
 
 def _proactive_api_base() -> str:
-    env = (os.getenv("EVOFLOW_PROACTIVE_URL") or "").strip()
-    if env:
-        return env.rstrip("/")
-    lg = (os.getenv("EVOFLOW_LANGGRAPH_URL") or "http://127.0.0.1:8070/api/langgraph").rstrip("/")
-    if lg.endswith("/api/langgraph"):
-        return lg[: -len("/api/langgraph")] + "/api/proactive"
-    if lg.endswith("/api/proactive"):
-        return lg  # 已经是 proactive URL，直接返回
-    # Derive /api/proactive from the custom base URL instead of falling back to
-    # 127.0.0.1:8070 which silently breaks dispatch/pause/archive on non-default hosts.
-    return lg.rstrip("/") + "/api/proactive"
+    from evoflow.admin.proactive_http import resolve_proactive_api_base
+
+    return resolve_proactive_api_base()
 
 
 _GW_STATUS_CACHE: dict[str, Any] = {"at": 0.0, "data": None, "ok": False}
@@ -621,7 +613,21 @@ def create_employee(data: dict[str, Any]) -> dict[str, Any]:
             agent_payload["knowledge_vault_ids"] = data.get("knowledge_vault_ids")
         if data.get("tags") is not None:
             agent_payload["tags"] = data.get("tags")
-        agent_row = create_agent(agent_payload)
+        # Capability pack + create-time guards (consumed by create_agent).
+        for key in (
+            "capability_pack",
+            "capabilityPack",
+            "tools_extra",
+            "toolsExtra",
+            "confirm_inherit_all",
+            "confirmInheritAll",
+            "confirm_wide_tools",
+            "confirmWideTools",
+        ):
+            if key in data:
+                agent_payload[key] = data.get(key)
+        # Employee path: forbid tools:null unless confirm_inherit_all=true.
+        agent_row = create_agent(agent_payload, forbid_inherit_all=True)
         created_agent = True
         agent_code = str(agent_row.get("agent_code") or agent_code).strip()
     else:
@@ -634,10 +640,24 @@ def create_employee(data: dict[str, Any]) -> dict[str, Any]:
     hire_payload = dict(data)
     hire_payload["agent_code"] = agent_code
     hire_payload["role_name"] = role_name
+    # Create-time-only keys (pack / confirm) must not leak into hire config.
+    for key in (
+        "capability_pack",
+        "capabilityPack",
+        "tools_extra",
+        "toolsExtra",
+        "confirm_inherit_all",
+        "confirmInheritAll",
+        "confirm_wide_tools",
+        "confirmWideTools",
+    ):
+        hire_payload.pop(key, None)
     detail = _hire_existing_agent(agent_code, agent_row, hire_payload)
     detail["agent_created"] = created_agent
     if isinstance(agent_row, dict) and agent_row.get("bindings_applied"):
         detail["bindings_applied"] = agent_row.get("bindings_applied")
+    if isinstance(agent_row, dict) and agent_row.get("capability_pack"):
+        detail["capability_pack"] = agent_row.get("capability_pack")
     if isinstance(agent_row, dict) and agent_row.get("hint"):
         detail["hint"] = agent_row.get("hint")
     if isinstance(agent_row, dict) and agent_row.get("warning"):
@@ -645,7 +665,7 @@ def create_employee(data: dict[str, Any]) -> dict[str, Any]:
     elif created_agent:
         detail["hint"] = (
             (detail.get("hint") or "")
-            + " 能力清单：platform agents.bindings（工具/技能/MCP 含说明）。"
+            + " 能力包：platform agents.bindings → packs（research|writer|duty|coding|none）。"
         ).strip()
     return detail
 
@@ -872,6 +892,15 @@ def _hire_existing_agent(
         role.next_heartbeat_at = compute_next_duty_iso(role)
     ProactiveRepository.save_role(role)
 
+    # Read-after-write: never report create/hire success if the roster row is missing.
+    # (Observed: agents.create-looking success with empty 花名册 until a later hire.)
+    verified = ProactiveRepository.get_role(agent_code)
+    if not verified:
+        raise ValidationError(
+            f"员工岗位「{agent_code}」写入后花名册读回失败；请重试 employees.hire "
+            f"（confirm=true）或检查 evoflow.db / 进程是否指向同一数据库。"
+        )
+
     # Best-effort: keep department catalog membership in sync.
     dept_name = str(data.get("department") or "").strip()
     if dept_name:
@@ -904,7 +933,7 @@ def _hire_existing_agent(
     except Exception:
         pass
 
-    return _role_detail(role)
+    return _role_detail(verified)
 
 
 def update_role(agent_code: str, data: dict[str, Any]) -> dict[str, Any]:
@@ -1606,16 +1635,49 @@ def round_trail(
                 break
 
     from evoflow.persistence.chat_message_repositories import list_messages_for_display_all
+    from evoflow.proactive.chat_session import resolve_work_session_key
+    from evoflow.proactive.duty_runs import get_duty_run_by_round, list_duty_runs
 
+    # Prefer duty_runs index (session_key + round) over legacy proactive:{code}.
     session_key = f"proactive:{code}"
+    duty_row = None
+    if rid:
+        duty_row = get_duty_run_by_round(code, rid)
+    if not duty_row:
+        recent_runs = list_duty_runs(code, limit=1)
+        duty_row = recent_runs[0] if recent_runs else None
+        if duty_row and not rid:
+            rid = str(duty_row.get("round_id") or "").strip() or None
+    if duty_row and str(duty_row.get("session_key") or "").strip():
+        session_key = str(duty_row["session_key"]).strip()
+    elif rid:
+        session_key = resolve_work_session_key(
+            agent_code=code,
+            kind="duty",
+            round_id=rid,
+        )
+
     result = list_messages_for_display_all(session_key, max_rows=200, round_id=rid)
     messages = list(result.get("messages") or [])
+    # Legacy contact session fallback when duty key is empty.
+    if not messages and session_key != f"proactive:{code}":
+        legacy = list_messages_for_display_all(f"proactive:{code}", max_rows=200, round_id=rid)
+        messages = list(legacy.get("messages") or [])
+        if messages:
+            session_key = f"proactive:{code}"
     steps = _extract_tool_steps(messages, max_steps=ms)
     tool_counts = Counter(s["tool"] for s in steps)
 
-    # Round scorecard from initiatives
+    # Round scorecard: duty_run outcome first, then initiatives.
     scorecard: dict[str, Any] = {}
-    if rid:
+    if duty_row:
+        scorecard = {
+            "goal": "定时上班" if duty_row.get("scheduled") else "值班轮次",
+            "outcome": str(duty_row.get("trigger_reason") or duty_row.get("skip_reason") or "").strip() or None,
+            "verdict": str(duty_row.get("status") or "").strip() or None,
+            "item_count": int(duty_row.get("tool_count") or 0),
+        }
+    if rid and not scorecard.get("outcome"):
         inits = [i for i in ProactiveRepository.list_initiatives(role_agent_code=code, limit=80) if str(i.round_id or "") == rid]
         rounds = _group_rounds(inits)
         if rounds:
@@ -1631,6 +1693,7 @@ def round_trail(
         "role_name": role.role_name,
         "session_key": session_key,
         "round_id": rid,
+        "duty_run_id": str((duty_row or {}).get("run_id") or "") or None,
         "message_count": len(messages),
         "tool_step_count": len(steps),
         "tool_counts": dict(tool_counts.most_common(20)),
@@ -1789,7 +1852,10 @@ def dispatch(
         with httpx.Client(timeout=15.0) as client:
             r = client.post(url, json=payload)
     except httpx.TimeoutException as e:
-        raise ValidationError(f"Gateway timeout calling {url}. Is Gateway running on EVOFLOW_LANGGRAPH_URL host?") from e
+        raise ValidationError(
+            f"Gateway timeout calling {url}. "
+            "Is Gateway running? Check EVOFLOW_GATEWAY_URL / EVOFLOW_PROACTIVE_URL."
+        ) from e
     except httpx.HTTPError as e:
         raise ValidationError(f"Gateway unreachable at {url}: {e}") from e
 

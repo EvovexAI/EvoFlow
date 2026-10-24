@@ -28,6 +28,12 @@ export type PlatformUiFeedback = {
   details?: PlatformFeedbackDetail[]
   actions?: PlatformFeedbackAction[]
   action?: string
+  /** employees.bind_channel_begin — raw QR payload (URL or text for local encoder) */
+  qrUrl?: string
+  sessionId?: string
+  channel?: string
+  agentCode?: string
+  bindStatus?: 'pending' | 'scanning' | 'bound' | 'failed' | 'expired'
 }
 
 export type PlatformRunEntry = PlatformUiFeedback & {
@@ -96,6 +102,9 @@ const CARD_TITLE_OVERRIDES: Record<string, string> = {
   'tasks.set_state': '已更新任务',
   'tasks.delete': '已删除任务',
   'employees.hire': '已添加员工',
+  'employees.create': '已创建员工',
+  'employees.bind_channel_begin': '扫码绑定本岗 AI 员工',
+  'employees.bind_channel_apply': '已绑定本岗 AI 员工',
   'settings.set_default_model': '已更新默认模型',
   'appearance.patch': '已更新外观',
   'skills.install': '已安装技能',
@@ -130,6 +139,9 @@ const TITLE_OVERRIDES: Record<string, (label: string) => string> = {
   'tasks.set_state': (label) => `协作任务「${label}」状态已更新`,
   'tasks.delete': (label) => `已删除协作任务「${label}」`,
   'employees.hire': (label) => `已添加智能体员工「${label}」`,
+  'employees.create': (label) => `已创建智能体员工「${label}」`,
+  'employees.bind_channel_begin': (label) => `已为「${label}」生成绑定二维码`,
+  'employees.bind_channel_apply': (label) => `已绑定本岗 AI 员工「${label}」`,
   'settings.set_default_model': (label) => `默认模型已改为「${label}」`,
   'appearance.patch': () => '界面外观已更新',
   'skills.install': (label) => `已安装技能「${label}」`,
@@ -273,7 +285,7 @@ function inferPlatformUiFeedbackFallback(
   const title = override ? override(label) : `${DOMAIN_ENTITY_ZH[domain] || domain}操作成功`
   const destructive = verb === 'delete' || verb === 'archive' || verb === 'clear' || verb === 'note_delete'
 
-  return {
+  const out: PlatformUiFeedback = {
     kind: destructive ? 'warning' : 'success',
     verb,
     domain,
@@ -291,6 +303,18 @@ function inferPlatformUiFeedbackFallback(
     actions: buildActions(action, domain, entityId),
     action,
   }
+  // 绑渠道：无 ui 块时仍从顶层 qr_url 恢复，保证工具下方能出码
+  if (action === 'employees.bind_channel_begin') {
+    const qrUrl = asString(obj.qr_url || obj.qrUrl)
+    const sessionId = asString(obj.session_id || obj.sessionId)
+    const channel = asString(obj.channel || args.channel).toLowerCase()
+    if (qrUrl) out.qrUrl = qrUrl
+    if (sessionId) out.sessionId = sessionId
+    if (channel) out.channel = channel
+    if (entityId) out.agentCode = entityId
+    if (qrUrl || sessionId) out.bindStatus = 'pending'
+  }
+  return out
 }
 
 function uiFromBackend(obj: Record<string, unknown>): PlatformUiFeedback | null {
@@ -302,7 +326,7 @@ function uiFromBackend(obj: Record<string, unknown>): PlatformUiFeedback | null 
   const kindRaw = asString(ui.kind).toLowerCase()
   const kind: PlatformUiFeedback['kind'] =
     kindRaw === 'warning' || kindRaw === 'error' ? kindRaw : 'success'
-  return {
+  const out: PlatformUiFeedback = {
     kind,
     verb: asString(ui.verb) || undefined,
     domain: asString(ui.domain) || undefined,
@@ -316,6 +340,27 @@ function uiFromBackend(obj: Record<string, unknown>): PlatformUiFeedback | null 
     actions: asActions(ui.actions),
     action: asString(ui.action || obj.action) || undefined,
   }
+  const qrUrl = asString(ui.qrUrl || ui.qr_url || obj.qr_url || obj.qrUrl)
+  const sessionId = asString(ui.sessionId || ui.session_id || obj.session_id || obj.sessionId)
+  const channel = asString(ui.channel || obj.channel).toLowerCase()
+  const agentCode = asString(ui.agentCode || ui.agent_code || obj.agent_code || obj.agentCode || ui.entityId)
+  const bindRaw = asString(ui.bindStatus || ui.bind_status).toLowerCase()
+  if (qrUrl) out.qrUrl = qrUrl
+  if (sessionId) out.sessionId = sessionId
+  if (channel) out.channel = channel
+  if (agentCode) out.agentCode = agentCode
+  if (
+    bindRaw === 'pending' ||
+    bindRaw === 'scanning' ||
+    bindRaw === 'bound' ||
+    bindRaw === 'failed' ||
+    bindRaw === 'expired'
+  ) {
+    out.bindStatus = bindRaw
+  } else if (qrUrl && sessionId) {
+    out.bindStatus = 'pending'
+  }
+  return out
 }
 
 export function parsePlatformUiFeedback(raw: unknown, argsText?: string): PlatformUiFeedback | null {
@@ -606,15 +651,30 @@ function toolPlatformName(tool: Record<string, unknown>): string {
 }
 
 function toolPlatformOutput(tool: Record<string, unknown>): string {
-  const preservedUi = tool.platform_ui
-  if (preservedUi && typeof preservedUi === 'object' && !Array.isArray(preservedUi)) {
+  const preservedUi =
+    (tool.platform_ui && typeof tool.platform_ui === 'object' && !Array.isArray(tool.platform_ui)
+      ? tool.platform_ui
+      : null) ||
+    (tool.platformUi && typeof tool.platformUi === 'object' && !Array.isArray(tool.platformUi)
+      ? tool.platformUi
+      : null)
+  if (preservedUi) {
     const payload: Record<string, unknown> = {
-      ok: tool.platform_ok !== false,
-      action: tool.platform_action,
-      item: tool.platform_item,
-      agent: tool.platform_agent,
-      role: tool.platform_role,
+      ok: tool.platform_ok !== false && tool.platformOk !== false,
+      action: tool.platform_action || tool.platformAction,
+      item: tool.platform_item || tool.platformItem,
+      agent: tool.platform_agent || tool.platformAgent,
+      role: tool.platform_role || tool.platformRole,
       ui: preservedUi,
+      // Bind QR may also sit on the tool row after slimming.
+      qr_url: (preservedUi as Record<string, unknown>).qrUrl || (preservedUi as Record<string, unknown>).qr_url,
+      session_id:
+        (preservedUi as Record<string, unknown>).sessionId ||
+        (preservedUi as Record<string, unknown>).session_id,
+      channel: (preservedUi as Record<string, unknown>).channel,
+      agent_code:
+        (preservedUi as Record<string, unknown>).agentCode ||
+        (preservedUi as Record<string, unknown>).agent_code,
     }
     const preservedSettings = tool.platform_settings
     if (

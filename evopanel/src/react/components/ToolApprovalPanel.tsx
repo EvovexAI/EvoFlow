@@ -42,7 +42,7 @@ const CHOICES: Array<{
   { id: 'allow_once', title: '允许', desc: '仅允许这一次' },
   {
     id: 'always_project',
-    title: '始终允许本项目',
+    title: '本会话内不再询问',
     desc: '本会话内同名工具不再询问（如全部 bash）',
   },
   {

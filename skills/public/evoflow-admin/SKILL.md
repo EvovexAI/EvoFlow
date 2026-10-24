@@ -458,17 +458,21 @@ evoflow assets import ./pack.evoflow-pack
 
 完整治理清单（含 SOUL / 最小权限 / 用户确认）见 [`references/preset-role.md`](references/preset-role.md)。精简版：
 
-1. `evoflow agents check my-role`
-2. `evoflow skills list --enabled-only`
-3. 写入 JSON（可选 `tags`，如 `["项目", "代码"]`）→ `evoflow agents create --file outputs/agent.json`
-4. `evoflow agents get my-role` 验证
+1. `platform agents.bindings`（或 `evoflow agents …`）→ **先选 `packs`**，勿灌全表 tools
+2. `evoflow agents check my-role`
+3. `evoflow skills list --enabled-only`
+4. 写入 JSON：`capability_pack`（如 `writer`/`duty`/`coding`）+ 可选 `tools_extra` / `tags` → `evoflow agents create --file outputs/agent.json`
+5. `evoflow agents get my-role` 验证
 
 ### Hire agent as duty employee（安排岗位）
 
-1. 确认智能体存在：`evoflow agents get <code>`（没有则先 `agents create`）
-2. 参考 [`examples/employees-hire.json`](examples/employees-hire.json) 写职责/KPI/工作区
-3. `evoflow employees hire --file outputs/hire.json`
-4. `evoflow employees get <code>` 验证；需要改岗用 `employees update`
+1. 一次创建：`platform employees.create` + `capability_pack=duty`（或 research/writer/coding/none）
+2. 或分步：确认智能体存在 → [`examples/employees-hire.json`](examples/employees-hire.json) → `evoflow employees hire --file outputs/hire.json`
+3. **创建/雇佣成功后**：复述 `assistant_guide.say_to_user`
+4. 用户要绑渠道：`employees.bind_channel_begin`（`agent_code` + `channel=feishu|wecom`，`confirm=true`），再复述返回的 `say_to_user`
+5. `evoflow employees get <code>` 验证；需要改岗用 `employees update`
+
+知识库 `knowledge.create` 同理：复述 `assistant_guide.say_to_user`，再按用户意图 `ingest` / 绑到员工。
 
 ### Enable a skill
 

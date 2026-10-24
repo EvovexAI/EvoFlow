@@ -274,7 +274,8 @@ export function WorkspaceFilePreviewPanel({
   const pane = (
     <WorkspaceFilePreviewPane
       preview={preview}
-      onClose={embedded ? undefined : onClose}
+      // 右栏 embedded 也保留 ×：标签条悬停才出现，用户常找不到关法
+      onClose={onClose}
       embedded={embedded}
       contentZoom={contentZoom}
       workspaceRoot={root}

@@ -15,9 +15,11 @@ import {
   abortSessionTurnEnded,
 } from '../src/react/lib/session-execution/index.ts'
 import {
+  clearSessionRuntime,
   dispatchSessionTurnEvent,
   getSessionRuntime,
   markSessionSending,
+  markSessionStreamWireSource,
   rtAddStoppedRun,
 } from '../src/react/lib/session-runtime-store.ts'
 
@@ -54,6 +56,7 @@ describe('session-execution', () => {
 
   it('isSessionExecuting ignores stale DB/probe after local uiTurnSettled', () => {
     const sk = 'agent:main:test-exec-settled'
+    clearSessionRuntime(sk)
     dispatchSessionTurnEvent(sk, { type: 'SEND_STARTED' })
     dispatchSessionTurnEvent(sk, { type: 'RUN_LIVE', runId: 'run-settled' })
     dispatchSessionTurnEvent(sk, { type: 'TURN_IDLE' })
@@ -66,6 +69,28 @@ describe('session-execution', () => {
         sessionRow: { runStatus: 'running', currentRunId: 'run-settled' },
       }),
     ).toBe(false)
+    clearSessionRuntime(sk)
+  })
+
+  it('isSessionExecuting stays true while live POST wire open after idle', () => {
+    const sk = 'agent:main:test-exec-live-wire'
+    clearSessionRuntime(sk)
+    dispatchSessionTurnEvent(sk, {
+      type: 'RUN_LIVE',
+      runId: 'run-wire',
+      wireSource: 'run',
+    })
+    dispatchSessionTurnEvent(sk, { type: 'ACTIVITY', kind: 'tools', detail: '绘画' })
+    dispatchSessionTurnEvent(sk, { type: 'TURN_IDLE' })
+    expect(isSessionTurnPhaseBusy(sk)).toBe(false)
+    expect(isSessionExecuting(sk)).toBe(true)
+    expect(isSessionWireActive(sk)).toBe(true)
+    expect(getSessionRuntime(sk).activity.detail).toBe('绘画')
+    markSessionStreamWireSource(sk, null)
+    dispatchSessionTurnEvent(sk, { type: 'TURN_IDLE' })
+    expect(isSessionExecuting(sk)).toBe(false)
+    expect(isSessionWireActive(sk)).toBe(false)
+    clearSessionRuntime(sk)
   })
 
   it('collectExecutingSessionKeys scans session list rows', () => {

@@ -145,7 +145,47 @@ pub fn append_frontend_log(level: String, message: String) -> Result<(), String>
     super::log_files::append_daily_log_line(&dir, "frontend", &line)
 }
 
-/// 流式对比日志：``{sessionKey}/{YYYYMMDDHHmmss}_{runId}/sse-recv.log`` + ``ui-display*.log``
+/// Append one line to the unified browser/plugin control log
+/// (`logs/plugin-control.log`). Used by the webview so FE lines land even when
+/// Gateway is on the wrong port / unreachable (HTTP `/api/browser/log` alone
+/// used to silently drop the whole FE timeline).
+#[tauri::command]
+pub fn append_plugin_control_log(
+    source: String,
+    level: String,
+    message: String,
+) -> Result<(), String> {
+    let src = {
+        let s = source.trim();
+        if s.is_empty() {
+            "web"
+        } else {
+            s
+        }
+    };
+    let lvl = level.trim().to_lowercase();
+    let msg = message
+        .replace('\r', " ")
+        .replace('\n', " ")
+        .chars()
+        .take(2_000)
+        .collect::<String>();
+    let ts = Local::now().format("%Y-%m-%dT%H:%M:%S%.3f");
+    let body = if lvl.is_empty() || lvl == "info" {
+        msg
+    } else {
+        format!("{lvl}:{msg}")
+    };
+    let line = format!("{ts} [{src}] {body}\n");
+    let path = log_dir().join("plugin-control.log");
+    if let Some(parent) = path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    super::log_files::append_log_file_line(&path, &line)
+}
+
+/// 流式对比日志：``{sessionKey}/{YYYYMMDDHHmmss}_{runId}/sse-recv.log`` + ``v4-recv.log``
+/// + ``ui-display*.log`` + ``v4-ui-display.log``（ZCode ConversationTimeline 面板所见）。
 /// （时间前缀由前端在首次落盘时生成，便于按目录名排序定位某轮对话。）
 #[tauri::command]
 pub fn append_stream_compare_log(
@@ -156,8 +196,10 @@ pub fn append_stream_compare_log(
 ) -> Result<(), String> {
     let suffix = match channel.trim() {
         "sse-recv" => "sse-recv.log",
+        "v4-recv" => "v4-recv.log",
         "ui-display" => "ui-display.log",
         "ui-display-visual" => "ui-display-visual.log",
+        "v4-ui-display" => "v4-ui-display.log",
         other => return Err(format!("unknown stream compare channel: {other}")),
     };
     fn sanitize_id(s: &str) -> String {
@@ -179,7 +221,8 @@ pub fn append_stream_compare_log(
     };
     let path = dir.join(suffix);
     let msg = String::from_utf8_lossy(message.as_bytes()).into_owned();
-    let line = if channel.trim() == "sse-recv" {
+    // wire 通道（AG-UI / V4）保持原文一行一条；UI 通道加时间戳便于扫帧。
+    let line = if matches!(channel.trim(), "sse-recv" | "v4-recv") {
         format!("{msg}\n")
     } else {
         let ts = Local::now().format("%Y-%m-%d %H:%M:%S%.3f");

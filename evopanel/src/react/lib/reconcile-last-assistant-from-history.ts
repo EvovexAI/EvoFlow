@@ -111,6 +111,17 @@ function mergeDbAssistantOverLocal(localRow: DisplayRow, dbRow: DisplayRow, runI
   }
 }
 
+/**
+ * 流式 final 已在本地：DB 落库常有时差。
+ * 本地正文更长（或 DB 尚空）时绝不以 DB 覆盖 —— 否则壳层 refresh / bypassCache
+ * 会把刚结束的完整回复刷成半截或空。
+ */
+function preferLocalAssistantBody(localBody: string, dbBody: string): boolean {
+  if (!localBody) return false
+  if (!dbBody) return true
+  return localBody.length > dbBody.length
+}
+
 /** 用 DB 最后一轮 assistant 替换本地对应行（不整页 reload，避免 loading 闪烁）。 */
 export function reconcileLastAssistantInRows(
   localRows: DisplayRow[],
@@ -130,10 +141,11 @@ export function reconcileLastAssistantInRows(
   }
   const localRow = localRows[localIdx]
   const merged = mergeDbAssistantOverLocal(localRow, dbRow, runId)
+  const localBody = assistantPlainForTurnStrip(localRow).trim()
+  const mergedBody = assistantPlainForTurnStrip(merged).trim()
   if (assistantRowsNeedDbMerge(localRow, merged)) {
-    const localBody = assistantPlainForTurnStrip(localRow).trim()
-    const mergedBody = assistantPlainForTurnStrip(merged).trim()
-    if (localBody.length > mergedBody.length + 32 && mergedBody) {
+    // 工具态/工具后总结：仅当 DB 不比本地更短时才覆盖
+    if (preferLocalAssistantBody(localBody, mergedBody)) {
       return { status: 'synced' }
     }
     const out = [...localRows]
@@ -143,15 +155,13 @@ export function reconcileLastAssistantInRows(
     }
     return { status: 'applied', rows: out }
   }
-  const localBody = assistantPlainForTurnStrip(localRow).trim()
-  const mergedBody = assistantPlainForTurnStrip(merged).trim()
   if (localBody && mergedBody && localBody === mergedBody) {
     return { status: 'synced' }
   }
   if (comparableAssistantSignature(localRow) === comparableAssistantSignature(merged)) {
     return { status: 'synced' }
   }
-  if (localBody.length > mergedBody.length + 32 && mergedBody) {
+  if (preferLocalAssistantBody(localBody, mergedBody)) {
     return { status: 'synced' }
   }
   const out = [...localRows]
@@ -163,23 +173,26 @@ export function reconcileLastAssistantInRows(
 }
 
 /**
- * dbOnly 历史刷新：DB 未落库时保留本地 incomplete assistant，避免目标判断期间正文闪没。
+ * dbOnly 历史刷新：流式结果已在本地时，DB 滞后不得整页盖掉。
+ * ``forceDb``（bypassCache）只表示「愿意采信更完整的 DB」，不是「无条件用 DB」。
  */
 export function mergeDbOnlyHistoryRows(
   localRows: DisplayRow[],
   dbRows: DisplayRow[],
   runId?: string | null,
-  forceDb?: boolean,
+  _forceDb?: boolean,
 ): DisplayRow[] {
   if (!localRows.length) return dbRows
   if (!dbRows.length) return localRows
   const outcome = reconcileLastAssistantInRows(localRows, dbRows, runId)
   if (outcome.status === 'applied') return outcome.rows
-  if (outcome.status === 'synced') return forceDb ? dbRows : localRows
+  // synced = 本地已足够（含本地正文更长）：始终保留本地，避免 forceDb 用滞后 DB 刷掉
+  if (outcome.status === 'synced') return localRows
   const localIdx = findAssistantIndexAfterLastUser(localRows, runId)
   if (localIdx < 0) return dbRows
   const localRow = localRows[localIdx]
-  if (localRow.incompleteStream === true && assistantRowHasPersistedContent(localRow)) {
+  // retry/skip（DB 尚未写出本轮）：本地只要有可见内容就保住
+  if (assistantRowHasPersistedContent(localRow)) {
     return localRows
   }
   return dbRows

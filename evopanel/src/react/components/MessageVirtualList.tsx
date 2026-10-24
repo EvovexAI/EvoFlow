@@ -338,6 +338,8 @@ const VirtualHistoryBody = memo(function VirtualHistoryBody(
       ((index: number, align: 'start' | 'end') => void) | null
     >
     virtualScrollToOffsetRef: MutableRefObject<((offset: number) => void) | null>
+    /** 从 display:none 路由回来时由父级调用，强制重测行高 */
+    virtualMeasureRef?: MutableRefObject<(() => void) | null>
     /** RUN_FINISHED 后的贴底跟随窗口（47986170）：由 MessageVirtualList 声明并下传 */
     postStreamFollowUntilRef?: MutableRefObject<number>
     /** 流式活跃状态 ref：流式中 autoFollow=true 时禁用校正，避免 reasoning 折叠/工具出现
@@ -356,6 +358,7 @@ const VirtualHistoryBody = memo(function VirtualHistoryBody(
     virtualBootScrollRef,
     virtualScrollToIndexRef,
     virtualScrollToOffsetRef,
+    virtualMeasureRef,
     postStreamFollowUntilRef,
     streamActiveRef,
     ...rowProps
@@ -453,10 +456,20 @@ const VirtualHistoryBody = memo(function VirtualHistoryBody(
     virtualScrollToOffsetRef.current = (offset: number) => {
       virtualizer.scrollToOffset(Math.max(0, offset), { align: 'start' })
     }
+    if (virtualMeasureRef) {
+      virtualMeasureRef.current = () => {
+        try {
+          virtualizer.measure()
+        } catch {
+          /* ignore */
+        }
+      }
+    }
     return () => {
       virtualBootScrollRef.current = null
       virtualScrollToIndexRef.current = null
       virtualScrollToOffsetRef.current = null
+      if (virtualMeasureRef) virtualMeasureRef.current = null
     }
   })
 
@@ -550,6 +563,7 @@ const HistoryBody = memo(function HistoryBody(
       ((index: number, align: 'start' | 'end') => void) | null
     >
     virtualScrollToOffsetRef: MutableRefObject<((offset: number) => void) | null>
+    virtualMeasureRef?: MutableRefObject<(() => void) | null>
     showApprovalPauseHint: boolean
     /** RUN_FINISHED 后的贴底跟随窗口，透传给 VirtualHistoryBody */
     postStreamFollowUntilRef?: MutableRefObject<number>
@@ -568,6 +582,7 @@ const HistoryBody = memo(function HistoryBody(
     virtualBootScrollRef,
     virtualScrollToIndexRef,
     virtualScrollToOffsetRef,
+    virtualMeasureRef,
     showApprovalPauseHint,
     postStreamFollowUntilRef,
     streamActiveRef,
@@ -596,6 +611,7 @@ const HistoryBody = memo(function HistoryBody(
           virtualBootScrollRef={virtualBootScrollRef}
           virtualScrollToIndexRef={virtualScrollToIndexRef}
           virtualScrollToOffsetRef={virtualScrollToOffsetRef}
+          virtualMeasureRef={virtualMeasureRef}
           postStreamFollowUntilRef={postStreamFollowUntilRef}
           streamActiveRef={streamActiveRef}
           {...rowProps}
@@ -853,6 +869,7 @@ export const MessageVirtualList = memo(function MessageVirtualList({
   const readingHistoryRef = useRef(false)
   const prevLastHistoryTailKeyRef = useRef('')
   const virtualBootScrollRef = useRef<(() => void) | null>(null)
+  const virtualMeasureRef = useRef<(() => void) | null>(null)
   const virtualScrollToIndexRef = useRef<
     ((index: number, align: 'start' | 'end') => void) | null
   >(null)
@@ -1132,8 +1149,14 @@ export const MessageVirtualList = memo(function MessageVirtualList({
     // built==null 且仍在 streamActive：优先复用上一帧 row 保持 isStreaming 稳定，
     // 避免气泡反复闪烁；仅 executing（isSending）时才展示「运行中」占位骨架。
     if ((streamActive || holdStreamResidue) && lastStreamRowRef.current) {
-      // 新一轮 user 发送后 stream 已清空：勿复用上一轮 AI 正文（半旧半新）
-      if (lastHistoryRole === 'user' && !streamRefHasVisibleContent(streamRef.current)) {
+      // 新一轮 user 发送后 stream 已清空：勿复用上一轮 AI 正文（半旧半新）。
+      // 但 final 封存瞬间 setRows 尚未提交、last role 仍是 user、stream 已 reset —
+      // 若这里清掉 residue，会空闪「生成中」一帧。仅在仍 busy（真的在发下一轮）时丢弃。
+      if (
+        lastHistoryRole === 'user' &&
+        !streamRefHasVisibleContent(streamRef.current) &&
+        (streamActive || isSending)
+      ) {
         lastStreamRowRef.current = null
       } else {
         const cached = lastStreamRowRef.current
@@ -1394,9 +1417,10 @@ export const MessageVirtualList = memo(function MessageVirtualList({
   const forceFollowBottomRef = useRef(forceFollowBottom)
   forceFollowBottomRef.current = forceFollowBottom
 
-  /** 右侧面板开/关：同步 UI 状态（贴底跟随已在 render 阶段解除） */
+  /** 右侧面板开/关 / 从其它路由 wake：重测虚拟列表（display:none 期间高度为 0） */
   useLayoutEffect(() => {
     setShowNewMsgBtn(false)
+    virtualMeasureRef.current?.()
   }, [layoutKey])
 
   const syncScrollJumpButtons = useCallback(() => {
@@ -2385,6 +2409,14 @@ export const MessageVirtualList = memo(function MessageVirtualList({
   }, [hasContent, historyLoading, viewReady])
 
   if (!hasContent) {
+    // 工作台意图优先于 historyLoading skeleton，否则「打开工作台」会先闪空白/骨架再出仪表盘
+    if (showHomeDashboard) {
+      return (
+        <div className="react-vlist-scroller chat-messages-inner chat-messages-inner--home">
+          <EvoFlowHomeDashboard onPrompt={onQuickPrompt} workspaceLabel={homeWorkspaceLabel} workspacePath={homeWorkspacePath} />
+        </div>
+      )
+    }
     if (historyLoading) {
       return (
         <div className="react-vlist-scroller chat-messages-inner react-chat-history-inner-quiet">
@@ -2396,18 +2428,11 @@ export const MessageVirtualList = memo(function MessageVirtualList({
         </div>
       )
     }
-    if (!showHomeDashboard) {
-      return (
-        <div className="react-vlist-scroller chat-messages-inner react-chat-history-inner-quiet">
-          <div className="react-chat-empty-thread" role="status">
-            暂无消息，可在下方继续输入
-          </div>
-        </div>
-      )
-    }
     return (
-      <div className="react-vlist-scroller chat-messages-inner chat-messages-inner--home">
-        <EvoFlowHomeDashboard onPrompt={onQuickPrompt} workspaceLabel={homeWorkspaceLabel} workspacePath={homeWorkspacePath} />
+      <div className="react-vlist-scroller chat-messages-inner react-chat-history-inner-quiet">
+        <div className="react-chat-empty-thread" role="status">
+          暂无消息，可在下方继续输入
+        </div>
       </div>
     )
   }
@@ -2425,6 +2450,12 @@ export const MessageVirtualList = memo(function MessageVirtualList({
       className="react-vlist-scroll-wrap"
       data-turn-nav={turnNavTurns.length >= 2 ? 'on' : undefined}
     >
+      {awaitingBoot ? (
+        <div className="react-chat-vlist-boot-overlay" aria-busy="true" aria-live="polite">
+          <div className="page-loader-spinner" aria-hidden />
+          <div className="page-loader-text">加载中...</div>
+        </div>
+      ) : null}
       <TurnNavigatorRail
         turns={turnNavTurns}
         activeIndex={activeNavIndex}
@@ -2487,6 +2518,7 @@ export const MessageVirtualList = memo(function MessageVirtualList({
           virtualBootScrollRef={virtualBootScrollRef}
           virtualScrollToIndexRef={virtualScrollToIndexRef}
           virtualScrollToOffsetRef={virtualScrollToOffsetRef}
+          virtualMeasureRef={virtualMeasureRef}
           postStreamFollowUntilRef={postStreamFollowUntilRef}
           streamActiveRef={streamActiveRef}
           sessionKey={sessionKey}

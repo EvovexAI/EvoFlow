@@ -46,6 +46,8 @@ def parse_skill_file(skill_file: Path, category: str, relative_path: Path | None
             return None
 
         license_text = metadata.get("license")
+        # zcode Skill alignment: optional when-to-use hint (accept both spellings).
+        when_to_use = str(metadata.get("when_to_use") or metadata.get("whenToUse") or "").strip()
 
         return Skill(
             name=name,
@@ -56,6 +58,7 @@ def parse_skill_file(skill_file: Path, category: str, relative_path: Path | None
             relative_path=relative_path or Path(skill_file.parent.name),
             category=category,
             enabled=True,  # Default to enabled, actual state comes from config file
+            when_to_use=when_to_use,
         )
 
     except Exception as e:

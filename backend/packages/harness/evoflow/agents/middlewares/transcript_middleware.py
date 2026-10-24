@@ -332,7 +332,28 @@ def _persist_platform_artifact_from_tool(
             action=str(payload.get("action") or ""),
         )
         if item:
-            upsert_artifacts(session_key, thread_id, [item])
+            saved = upsert_artifacts(session_key, thread_id, [item])
+            # 直播推到面板「平台」tab：勿只落库等刷新；前端 chat_artifacts 会分流 type=platform
+            try:
+                from langgraph.config import get_stream_writer
+
+                writer = get_stream_writer()
+                if callable(writer):
+                    writer(
+                        {
+                            "type": "chat_artifacts",
+                            "action": "upsert",
+                            "sessionKey": session_key,
+                            "threadId": thread_id,
+                            "items": saved or [item],
+                        }
+                    )
+            except Exception:
+                logger.debug(
+                    "platform artifact stream emit failed thread=%s",
+                    thread_id,
+                    exc_info=True,
+                )
     except Exception:
         logger.debug(
             "transcript persist platform artifact failed thread=%s tool_call_id=%s",

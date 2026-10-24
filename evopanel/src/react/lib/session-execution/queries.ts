@@ -4,6 +4,7 @@
 
 import {
   getSessionRuntime,
+  isLivePostStreamOpen,
   isSessionRuntimeLive,
   isTurnBusy,
   rtIsStoppedRun,
@@ -29,7 +30,8 @@ export function isSessionWireActive(sessionKey: string | null | undefined): bool
   const sk = String(sessionKey || '').trim()
   if (!sk) return false
   const rt = getSessionRuntime(sk)
-  return isTurnBusy(rt) || isSessionRuntimeLive(rt)
+  // live POST open counts even if turnPhase was incorrectly idled mid-loop
+  return isTurnBusy(rt) || isSessionRuntimeLive(rt) || isLivePostStreamOpen(rt)
 }
 
 export function isSessionExecuting(
@@ -40,6 +42,10 @@ export function isSessionExecuting(
   if (!sk) return false
   const rt = getSessionRuntime(sk)
   if (isTurnBusy(rt)) return true
+
+  // Browser-owned POST /runs/stream still open: keep stop / list spinner /
+  // 「绘画」preview even if a mid-turn RUN_FINISHED left turnPhase idle.
+  if (isLivePostStreamOpen(rt)) return true
 
   // Local turn already settled (early RUN_FINISHED / abort). Stream buffer may
   // still hold visible text until SSE `final`, and DB/probe may stay `running`

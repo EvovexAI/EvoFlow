@@ -114,6 +114,7 @@ def knowledge_search(args: dict[str, Any]) -> dict[str, Any]:
 
 def knowledge_create(args: dict[str, Any]) -> dict[str, Any]:
     from evoflow.admin import knowledge as kn
+    from evoflow.admin.assistant_guides import build_knowledge_create_assistant_guide
 
     name = _arg_str(args, "name", "title")
     if not name:
@@ -125,11 +126,13 @@ def knowledge_create(args: dict[str, Any]) -> dict[str, Any]:
         description=_arg_str(args, "description", "desc"),
         embedding_model_ref=_arg_str(args, "embeddingModelRef", "embedding_model_ref") or None,
     )
-    return {
+    out = {
         "ok": True,
         **data,
         "hint": "已创建平台自有知识库；写入内容用 knowledge.ingest（vaultId/kbId 均可）。",
     }
+    out["assistant_guide"] = build_knowledge_create_assistant_guide(out)
+    return out
 
 
 def knowledge_enable(args: dict[str, Any]) -> dict[str, Any]:
@@ -881,15 +884,21 @@ def employees_get(args: dict[str, Any]) -> dict[str, Any]:
 
 def employees_hire(args: dict[str, Any]) -> dict[str, Any]:
     from evoflow.admin import employees as emp
+    from evoflow.admin.assistant_guides import build_employee_create_assistant_guide
 
-    return {"ok": True, **emp.hire(args)}
+    out = {"ok": True, **emp.hire(args)}
+    out["assistant_guide"] = build_employee_create_assistant_guide(out)
+    return out
 
 
 def employees_create(args: dict[str, Any]) -> dict[str, Any]:
     """One-step employee create (capability pack + duty contract)."""
     from evoflow.admin import employees as emp
+    from evoflow.admin.assistant_guides import build_employee_create_assistant_guide
 
-    return {"ok": True, **emp.create_employee(args)}
+    out = {"ok": True, **emp.create_employee(args)}
+    out["assistant_guide"] = build_employee_create_assistant_guide(out)
+    return out
 
 
 def employees_update(args: dict[str, Any]) -> dict[str, Any]:
@@ -1023,6 +1032,222 @@ def employees_migrate(args: dict[str, Any]) -> dict[str, Any]:
         "dry_run": dry,
         "name": code or "all",
     }
+
+
+_EMPLOYEE_BIND_CHANNELS = frozenset({"feishu", "wecom"})
+
+
+def _normalize_employee_bind_channel(raw: str) -> str:
+    ch = str(raw or "").strip().lower()
+    if ch in {"dingding"}:
+        ch = "dingtalk"
+    if ch in {"wechat"}:
+        ch = "weixin"
+    if ch not in _EMPLOYEE_BIND_CHANNELS:
+        raise ValidationError(
+            "channel must be feishu|wecom（绑定本岗 AI 员工；钉钉/微信请用员工页绑定，"
+            "全局主机器人用 channels.registration_*）"
+        )
+    return ch
+
+
+def _employee_bind_role(agent_code: str) -> Any:
+    from evoflow.proactive.repositories import ProactiveRepository
+
+    code = str(agent_code or "").strip()
+    if not code:
+        raise ValidationError("agent_code is required")
+    role = ProactiveRepository.get_role(code)
+    if role is None:
+        raise ValidationError(f"员工「{code}」不存在；请先 employees.create / hire")
+    return role
+
+
+def employees_bind_channel_begin(args: dict[str, Any]) -> dict[str, Any]:
+    """Start per-employee IM QR binding (Feishu / WeCom PersonalAgent bot)."""
+    from evoflow.admin.assistant_guides import build_bind_channel_begin_assistant_guide
+
+    code = _arg_str(args, "agent_code", "agentCode", "code")
+    channel = _normalize_employee_bind_channel(_arg_str(args, "channel", "name", "platform") or "feishu")
+    role = _employee_bind_role(code)
+    role_name = str(getattr(role, "role_name", None) or code).strip() or code
+
+    session = _registration_begin(channel)
+
+    session_id = str(getattr(session, "session_id", None) or "").strip()
+    qr_url = str(getattr(session, "qr_url", None) or "").strip()
+    status = getattr(session, "status", None)
+    if not session_id:
+        raise ValidationError(f"{channel} registration begin returned empty session_id")
+
+    out: dict[str, Any] = {
+        "ok": True,
+        "agent_code": code,
+        "role_name": role_name,
+        "channel": channel,
+        "session_id": session_id,
+        "qr_url": qr_url,
+        "status": status,
+        "hint": "扫码完成后自动绑定本岗 AI 员工。",
+    }
+    out["assistant_guide"] = build_bind_channel_begin_assistant_guide(
+        agent_code=code,
+        role_name=role_name,
+        channel=channel,
+        qr_url=qr_url,
+        session_id=session_id,
+    )
+    return out
+
+
+def employees_bind_channel_poll(args: dict[str, Any]) -> dict[str, Any]:
+    """Poll per-employee IM QR binding session."""
+    code = _arg_str(args, "agent_code", "agentCode", "code")
+    channel = _normalize_employee_bind_channel(_arg_str(args, "channel", "name", "platform") or "feishu")
+    session_id = _arg_str(args, "session_id", "sessionId")
+    if not session_id:
+        raise ValidationError("session_id is required")
+    if code:
+        _employee_bind_role(code)
+
+    session = _registration_poll(channel, session_id)
+
+    status = getattr(session, "status", None)
+    out: dict[str, Any] = {
+        "ok": True,
+        "agent_code": code or None,
+        "channel": channel,
+        "session_id": session_id,
+        "status": status,
+        "qr_url": str(getattr(session, "qr_url", None) or "").strip() or None,
+    }
+    if status == "completed":
+        out["hint"] = "扫码已完成；请 employees.bind_channel_apply（confirm=true）绑到该员工"
+        if channel == "feishu":
+            for key in ("app_id", "open_id"):
+                val = getattr(session, key, None)
+                if val:
+                    out[key] = val
+        elif channel == "wecom":
+            for key in ("bot_id",):
+                val = getattr(session, key, None)
+                if val:
+                    out[key] = val
+    if status in {"failed", "expired"}:
+        out["error"] = getattr(session, "error", None) or status
+        out["ok"] = False
+    return out
+
+
+def _employee_bind_apply_via_gateway(agent_code: str, channel: str, session_id: str) -> dict[str, Any]:
+    """Apply bind via Gateway proactive HTTP (LangGraph off-process path)."""
+    import httpx
+
+    from evoflow.admin.proactive_http import resolve_proactive_api_base
+
+    ch = channel.strip().lower()
+    if ch not in {"feishu", "wecom"}:
+        raise ValidationError(f"unsupported employee bind channel via Gateway: {channel}")
+    base = resolve_proactive_api_base().rstrip("/")
+    url = f"{base}/roles/{agent_code}/{ch}/registration/{session_id}/apply"
+    try:
+        with httpx.Client(timeout=45.0) as client:
+            r = client.post(url)
+    except Exception as exc:
+        raise ValidationError(
+            f"{ch} bind apply failed: Gateway 不可达（{exc}）。"
+            "确认 Gateway 已启动且 EVOFLOW_GATEWAY_URL 正确。"
+        ) from exc
+    if r.status_code >= 400:
+        detail = ""
+        try:
+            body = r.json()
+            detail = str(body.get("detail") or body.get("error") or body)[:240]
+        except Exception:
+            detail = (r.text or "")[:240]
+        raise ValidationError(
+            f"{ch} bind apply failed: HTTP {r.status_code}"
+            + (f" — {detail}" if detail else "")
+        )
+    data = r.json() if r.content else {}
+    return data if isinstance(data, dict) else {"ok": True, "result": data}
+
+
+def employees_bind_channel_apply(args: dict[str, Any]) -> dict[str, Any]:
+    """Apply completed QR registration onto this employee's dedicated bot."""
+    code = _arg_str(args, "agent_code", "agentCode", "code")
+    channel = _normalize_employee_bind_channel(_arg_str(args, "channel", "name", "platform") or "feishu")
+    session_id = _arg_str(args, "session_id", "sessionId")
+    if not code:
+        raise ValidationError("agent_code is required")
+    if not session_id:
+        raise ValidationError("session_id is required")
+    role = _employee_bind_role(code)
+    role_name = str(getattr(role, "role_name", None) or code).strip() or code
+
+    # Prefer Gateway proactive apply so off-process agents share the Gateway
+    # registration singleton (sessions are in-memory on that process).
+    client, _ch = _registration_client(channel)
+    if client is None:
+        data = _employee_bind_apply_via_gateway(code, channel, session_id)
+    else:
+        session = client.get_session(session_id)
+        if session is None:
+            raise ValidationError("Registration session not found")
+        status = getattr(session, "status", None)
+        if status != "completed":
+            raise ValidationError(f"Registration is not complete (status={status})")
+
+        if channel == "feishu":
+            app_id = str(getattr(session, "app_id", None) or "").strip()
+            app_secret = str(getattr(session, "app_secret", None) or "").strip()
+            open_id = str(getattr(session, "open_id", None) or "").strip()
+            if not app_id or not app_secret:
+                raise ValidationError("Registration completed but Feishu credentials are missing")
+            from evoflow.proactive.feishu_binding import apply_registration_to_role
+
+            data = _run_coro_sync(
+                apply_registration_to_role(
+                    code,
+                    app_id=app_id,
+                    app_secret=app_secret,
+                    open_id=open_id,
+                )
+            )
+        else:
+            bot_id = str(getattr(session, "bot_id", None) or "").strip()
+            secret = str(getattr(session, "secret", None) or "").strip()
+            if not bot_id or not secret:
+                raise ValidationError("Registration completed but WeCom credentials are missing")
+            from evoflow.proactive.wecom_binding import apply_registration_to_role
+
+            data = _run_coro_sync(
+                apply_registration_to_role(
+                    code,
+                    bot_id=bot_id,
+                    secret=secret,
+                )
+            )
+
+    out = {
+        "ok": True,
+        **(data if isinstance(data, dict) else {"result": data}),
+        "agent_code": code,
+        "role_name": role_name,
+        "channel": channel,
+        "session_id": session_id,
+        "hint": f"已绑定本岗 AI 员工到{('飞书' if channel == 'feishu' else '企微')}；拉进群即可 @{role_name}",
+        "assistant_guide": {
+            "status": "bind_applied",
+            "say_to_user": (
+                f"「{role_name}」本岗 AI 员工已绑定{('飞书' if channel == 'feishu' else '企微')}。"
+                f"把他拉进同事所在群，@{role_name} 即可协作。"
+            ),
+            "next_steps": ["把 say_to_user 告诉用户", "可选：employees.get 确认 binding 状态"],
+            "instruction": "向用户复述 say_to_user。",
+        },
+    }
+    return out
 
 
 # ── tasks ──────────────────────────────────────────────────────────────────
@@ -2880,6 +3105,12 @@ def channels_push_targets(args: dict[str, Any]) -> dict[str, Any]:
 
 
 def _registration_client(channel: str):
+    """Return ``(client|None, normalized_channel)``.
+
+    Client is None when runtime adapters are not registered (external LangGraph
+    process). Callers must use ``_registration_begin`` / ``_registration_poll``
+    which fall back to Gateway HTTP so sessions live on the Gateway singleton.
+    """
     ch = channel.strip().lower()
     if ch == "feishu":
         from evoflow.runtime.ports import get_feishu_registration_client
@@ -2900,13 +3131,146 @@ def _registration_client(channel: str):
     raise ValidationError("name must be feishu|weixin|wecom|dingtalk")
 
 
+def _channels_api_base() -> str:
+    from evoflow.gateway_http import resolve_gateway_base_url
+
+    base = resolve_gateway_base_url(allow_legacy_default=True) or "http://127.0.0.1:8070"
+    return f"{base.rstrip('/')}/api/channels"
+
+
+def _registration_http_paths(channel: str) -> tuple[str, str, str]:
+    """Return ``(begin_path, poll_path_tmpl, apply_path_tmpl)`` under ``/api/channels``."""
+    ch = channel.strip().lower()
+    if ch not in {"feishu", "weixin", "wecom", "dingtalk"}:
+        raise ValidationError(f"unsupported registration channel: {channel}")
+    return (
+        f"/{ch}/registration/begin",
+        f"/{ch}/registration/{{session_id}}/poll",
+        f"/{ch}/registration/{{session_id}}/apply",
+    )
+
+
+def _session_from_http_payload(data: dict[str, Any], *, session_id: str = "") -> Any:
+    """Build a duck-typed session object from Gateway registration JSON."""
+    from types import SimpleNamespace
+
+    sid = str(data.get("session_id") or session_id or "").strip()
+    return SimpleNamespace(
+        session_id=sid,
+        qr_url=str(data.get("qr_url") or data.get("qrUrl") or "") or None,
+        fallback_url=data.get("fallback_url") or data.get("fallbackUrl"),
+        status=str(data.get("status") or "pending").strip() or "pending",
+        error=data.get("error"),
+        app_id=data.get("app_id") or data.get("appId"),
+        app_secret=data.get("app_secret") or data.get("appSecret"),
+        open_id=data.get("open_id") or data.get("openId"),
+        account_id=data.get("account_id") or data.get("accountId"),
+        token=data.get("token"),
+        bot_id=data.get("bot_id") or data.get("botId"),
+        secret=data.get("secret"),
+        user_id=data.get("user_id") or data.get("userId"),
+        base_url=data.get("base_url") or data.get("baseUrl"),
+    )
+
+
+def _registration_http_begin(channel: str) -> Any:
+    import httpx
+
+    begin_path, _poll, _apply = _registration_http_paths(channel)
+    url = f"{_channels_api_base()}{begin_path}"
+    try:
+        with httpx.Client(timeout=45.0) as client:
+            r = client.post(url)
+    except Exception as exc:
+        raise ValidationError(
+            f"{channel} registration begin failed: Gateway 不可达（{exc}）。"
+            "确认 Gateway 已启动且 EVOFLOW_GATEWAY_URL 指向正确端口。"
+        ) from exc
+    if r.status_code >= 400:
+        detail = ""
+        try:
+            body = r.json()
+            detail = str(body.get("detail") or body.get("error") or body)[:240]
+        except Exception:
+            detail = (r.text or "")[:240]
+        raise ValidationError(
+            f"{channel} registration begin failed: HTTP {r.status_code}"
+            + (f" — {detail}" if detail else "")
+        )
+    data = r.json() if r.content else {}
+    if not isinstance(data, dict):
+        raise ValidationError(f"{channel} registration begin failed: invalid Gateway response")
+    session = _session_from_http_payload(data)
+    if not session.session_id:
+        raise ValidationError(f"{channel} registration begin returned empty session_id")
+    return session
+
+
+def _registration_http_poll(channel: str, session_id: str) -> Any:
+    import httpx
+
+    _begin, poll_tmpl, _apply = _registration_http_paths(channel)
+    url = f"{_channels_api_base()}{poll_tmpl.format(session_id=session_id)}"
+    try:
+        with httpx.Client(timeout=30.0) as client:
+            r = client.get(url)
+    except Exception as exc:
+        raise ValidationError(f"{channel} registration poll failed: Gateway 不可达（{exc}）") from exc
+    if r.status_code >= 400:
+        detail = ""
+        try:
+            body = r.json()
+            detail = str(body.get("detail") or body.get("error") or body)[:240]
+        except Exception:
+            detail = (r.text or "")[:240]
+        raise ValidationError(
+            f"{channel} registration poll failed: HTTP {r.status_code}"
+            + (f" — {detail}" if detail else "")
+        )
+    data = r.json() if r.content else {}
+    if not isinstance(data, dict):
+        raise ValidationError(f"{channel} registration poll failed: invalid Gateway response")
+    return _session_from_http_payload(data, session_id=session_id)
+
+
+def _registration_begin(channel: str) -> Any:
+    """Start QR registration via in-process port or Gateway HTTP fallback."""
+    client, ch = _registration_client(channel)
+    if client is None:
+        return _registration_http_begin(ch)
+    try:
+        return _run_coro_sync(client.begin())
+    except Exception as exc:
+        raise ValidationError(f"{ch} registration begin failed: {exc}") from exc
+
+
+def _registration_poll(channel: str, session_id: str) -> Any:
+    client, ch = _registration_client(channel)
+    if client is None:
+        return _registration_http_poll(ch, session_id)
+    try:
+        return _run_coro_sync(client.poll(session_id))
+    except Exception as exc:
+        raise ValidationError(f"{ch} registration poll failed: {exc}") from exc
+
+
+def _registration_require_session(channel: str, session_id: str) -> tuple[Any, str]:
+    """Resolve a completed-capable session; prefer in-process, else HTTP poll snapshot."""
+    client, ch = _registration_client(channel)
+    if client is not None:
+        session = client.get_session(session_id)
+        if session is None:
+            raise ValidationError("Registration session not found")
+        return session, ch
+    # Off-process: poll Gateway so we see the same in-memory session as /begin.
+    session = _registration_http_poll(ch, session_id)
+    return session, ch
+
+
 def channels_registration_begin(args: dict[str, Any]) -> dict[str, Any]:
     name = _arg_str(args, "name", "channel", "platform") or "feishu"
-    client, channel = _registration_client(name)
-    try:
-        session = _run_coro_sync(client.begin())
-    except Exception as exc:
-        raise ValidationError(f"{channel} registration begin failed: {exc}") from exc
+    _client, channel = _registration_client(name)
+    session = _registration_begin(channel)
     return {
         "ok": True,
         "name": channel,
@@ -2922,11 +3286,8 @@ def channels_registration_poll(args: dict[str, Any]) -> dict[str, Any]:
     session_id = _arg_str(args, "session_id", "sessionId")
     if not session_id:
         raise ValidationError("session_id is required")
-    client, channel = _registration_client(name)
-    try:
-        session = _run_coro_sync(client.poll(session_id))
-    except Exception as exc:
-        raise ValidationError(f"{channel} registration poll failed: {exc}") from exc
+    _client, channel = _registration_client(name)
+    session = _registration_poll(channel, session_id)
     status = getattr(session, "status", None)
     out: dict[str, Any] = {
         "ok": True,
@@ -2951,10 +3312,7 @@ def channels_registration_apply(args: dict[str, Any]) -> dict[str, Any]:
     if not session_id:
         raise ValidationError("session_id is required")
     enabled = _arg_bool(args, "enabled", True)
-    client, channel = _registration_client(name)
-    session = client.get_session(session_id)
-    if session is None:
-        raise ValidationError("Registration session not found")
+    session, channel = _registration_require_session(name, session_id)
     if getattr(session, "status", None) != "completed":
         raise ValidationError(
             f"Registration is not complete (status={getattr(session, 'status', None)})"

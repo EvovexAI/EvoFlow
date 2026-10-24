@@ -1,4 +1,4 @@
-import { useMemo, useRef, useEffect } from 'react'
+import { useMemo, useRef, useEffect, useState, useCallback, useSyncExternalStore } from 'react'
 import type { ChatSessionRow } from '../chat-types.js'
 import { buildShellSidebarGroups } from '../lib/session-list/build-shell-rows.js'
 import { GLOBAL_RECENT_PAGINATION_KEY } from '../lib/session-list/constants.js'
@@ -6,10 +6,26 @@ import {
   normalizeWorkspacePathKey,
   stabilizeShellWorkspaceGroupOrder,
 } from '../lib/session-list/workspace-groups.js'
+import {
+  loadWorkspaceGroupOrder,
+  saveWorkspaceGroupOrder,
+} from '../lib/session-list/workspace-order-storage.js'
 import type { ShellSessionListProps } from '../components/ShellSessionList.js'
 import type { ResolvedLiveStreamActivity } from '../lib/resolve-live-stream-activity.js'
 import type { RunningSessionSummary } from './useRunningSessionSummaries.js'
 import type { ShellWorkspaceGroup, WorkspaceGroupSummary } from '../lib/session-list/types.js'
+import {
+  getExecutingListRuntimeEpoch,
+  subscribeExecutingListRuntime,
+} from '../lib/session-runtime-store.js'
+import {
+  getSessionExecutionProbeEpoch,
+  subscribeSessionExecutionProbes,
+} from '../lib/session-execution/probe-cache.js'
+import {
+  getSessionGoalStateEpoch,
+  subscribeSessionGoalState,
+} from '../lib/session-execution/goal-mode-state.js'
 
 export type UseShellSessionListBridgeOptions = {
   filteredSessions: ChatSessionRow[]
@@ -60,6 +76,8 @@ export type UseShellSessionListBridgeOptions = {
   onDeleteWorkspace?: (group: ShellWorkspaceGroup) => void | Promise<void>
   onWorkspaceFocus?: (workspacePath: string | null) => void
   onOpenWorkspaceFolder?: (group: ShellWorkspaceGroup) => void | Promise<void>
+  /** 拖拽工作区分组头后按目标组换序（任务 Tab） */
+  onReorderWorkspaceGroups?: (fromWorkspaceKey: string, toWorkspaceKey: string) => void
 }
 
 export function useShellSessionListBridge(opts: UseShellSessionListBridgeOptions) {
@@ -112,7 +130,35 @@ export function useShellSessionListBridge(opts: UseShellSessionListBridgeOptions
   const ensureWorkspaceExpandedRef = useRef(ensureWorkspaceExpanded)
   const loadMoreWorkspaceSessionsRef = useRef(loadMoreWorkspaceSessions)
   const loadMoreGlobalRecentSessionsRef = useRef(loadMoreGlobalRecentSessions)
-  const folderOrderWrapper = useMemo(() => ({ current: [] as string[] }), [])
+  // 工作区手动排序：创建时同步从 localStorage 恢复（不能用 effect 恢复——
+  // effect 晚于首帧渲染，stabilize 会先用默认顺序填充 wrapper，随后 memo 的
+  // 持久化把这份默认顺序写回 localStorage，覆盖用户拖拽保存的顺序）。
+  const folderOrderWrapper = useMemo(
+    () => ({ current: loadWorkspaceGroupOrder() }),
+    [],
+  )
+
+  // reorder 后 bump 触发 shellListProps 重算（顺序已同步可用，无需异步 seed）
+  const [workspaceOrderTick, bumpWorkspaceOrderTick] = useState(0)
+
+  const reorderWorkspaceGroups = useCallback(
+    (fromKey: string, toKey: string) => {
+      const from = normalizeWorkspacePathKey(fromKey)
+      const to = normalizeWorkspacePathKey(toKey)
+      if (!from || !to || from === to) return
+      const cur = folderOrderWrapper.current
+      const fi = cur.findIndex((k) => normalizeWorkspacePathKey(k) === from)
+      const ti = cur.findIndex((k) => normalizeWorkspacePathKey(k) === to)
+      if (fi < 0 || ti < 0) return
+      const next = [...cur]
+      const [item] = next.splice(fi, 1)
+      next.splice(ti, 0, item)
+      folderOrderWrapper.current = next
+      saveWorkspaceGroupOrder(next)
+      bumpWorkspaceOrderTick((v) => v + 1)
+    },
+    [folderOrderWrapper],
+  )
 
   // Sync callback refs in a single effect to avoid react-hooks/refs violations
   useEffect(() => {
@@ -144,7 +190,24 @@ export function useShellSessionListBridge(opts: UseShellSessionListBridgeOptions
     return () => window.removeEventListener('evopanel:shell-workspace-removed', onWorkspaceRemoved)
   }, [folderOrderWrapper])
 
+  // 与 Composer 停止按钮 / selectedTurnBusy 同源：isSessionExecuting 依赖这些 epoch。
+  // ShellSessionListHost 被 memo，父级 epoch 变化若未进 props 不会重绘；必须在此订阅，
+  // 否则右下角已停、左侧齿轮仍转。
+  const executingListEpoch = useSyncExternalStore(
+    subscribeExecutingListRuntime,
+    getExecutingListRuntimeEpoch,
+  )
+  const executionProbeEpoch = useSyncExternalStore(
+    subscribeSessionExecutionProbes,
+    getSessionExecutionProbeEpoch,
+  )
+  const goalStateEpoch = useSyncExternalStore(subscribeSessionGoalState, getSessionGoalStateEpoch)
+
   const shellListProps = useMemo((): ShellSessionListProps => {
+    void executingListEpoch
+    void executionProbeEpoch
+    void goalStateEpoch
+    void workspaceOrderTick
     const sel = String(selectedSessionKey || '').trim()
     const built = buildShellSidebarGroups({
       filteredSessions,
@@ -159,6 +222,11 @@ export function useShellSessionListBridge(opts: UseShellSessionListBridgeOptions
       workspaceSummaries.length > 0 || !listLoading
         ? stabilizeShellWorkspaceGroupOrder(built, folderOrderWrapper)
         : built
+    // 新注册工作区已被 stabilize 追加进顺序，同步持久化（幂等写；
+    // wrapper 在创建时已同步恢复，此处写入的始终是用户意图的顺序）
+    if (folderOrderWrapper.current.length > 0) {
+      saveWorkspaceGroupOrder(folderOrderWrapper.current)
+    }
     const rows = groups.flatMap((g) => g.sessions)
     const globalPag = workspacePagination[GLOBAL_RECENT_PAGINATION_KEY]
     return {
@@ -197,6 +265,7 @@ export function useShellSessionListBridge(opts: UseShellSessionListBridgeOptions
       onDeleteWorkspace: (group) => void onDeleteWorkspaceRef.current?.(group),
       onWorkspaceFocus: (path) => void onWorkspaceFocusRef.current?.(path),
       onOpenWorkspaceFolder: (group) => void onOpenWorkspaceFolderRef.current?.(group),
+      onReorderWorkspaceGroups: reorderWorkspaceGroups,
       registeredWorkspacePaths,
       employeeRoles,
       onRefreshEmployeeRoles,
@@ -232,6 +301,11 @@ export function useShellSessionListBridge(opts: UseShellSessionListBridgeOptions
     onWorkspaceFocus,
     onOpenWorkspaceFolder,
     folderOrderWrapper,
+    reorderWorkspaceGroups,
+    workspaceOrderTick,
+    executingListEpoch,
+    executionProbeEpoch,
+    goalStateEpoch,
   ])
 
   return { shellListProps }

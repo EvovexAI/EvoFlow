@@ -4,6 +4,10 @@ import {
   formatSubtaskWorkChecklistTitle,
 } from './collab-tool-display.js'
 import { looksLikePlanToolArgs } from './plan-tool-shape.js'
+import {
+  platformActionLabelZh,
+  platformActionShortLabelZh,
+} from './platform-action-labels.js'
 
 /** 终端/命令类工具行内摘要字符上限（ToolCallList 主路径交给 CSS ellipsis，此处供标题/兜底文案） */
 export const SHELL_CMD_BRIEF_MAX = 200
@@ -116,6 +120,7 @@ export const TOOL_NAME_ZH = {
   subagent: '子智能体',
   task: '子智能体',
   ask_clarification: '等待确认',
+  todo_write: '会话 checklist',
   write_todos: '会话 checklist',
   todo: '会话 checklist',
   worker: '并行任务',
@@ -213,6 +218,7 @@ export const TOOL_SHORT_LABEL_ZH = {
   remember: '记忆',
   recall: '回忆',
   todo: '待办',
+  todo_write: '待办',
   worker: '并行',
   automation: '定时',
   propose_goal: '目标',
@@ -322,6 +328,7 @@ export const TOOL_ICON = {
   subagent: '🤖',
   task: '🤖',
   ask_clarification: '❔',
+  todo_write: '📋',
   write_todos: '📋',
   todo: '📋',
   worker: '⚡',
@@ -1067,13 +1074,21 @@ function pushBriefBit(bits, v, max = 64) {
  * Never surface task_id / docId / agent_code / uuid-like ids in the chip.
  * @param {'tasks'|'knowledge'|'platform'} toolKey
  * @param {Record<string, unknown> | null | undefined} args
+ * @param {{ omitAction?: boolean }} [opts] platform 标题已含 action 文案时省略重复位
  * @returns {string[]}
  */
-export function formatActionRouterBriefBits(toolKey, args) {
+export function formatActionRouterBriefBits(toolKey, args, opts) {
   const a = args && typeof args === 'object' && !Array.isArray(args) ? args : {}
   const bits = []
   const action = String(a.action || '').trim()
-  if (action) bits.push(action)
+  if (action && !opts?.omitAction) {
+    if (toolKey === 'platform') {
+      // 用注册表中文 summary，避免折叠条/活动行一律显示「Platform」
+      bits.push(platformActionShortLabelZh(action, { max: 24 }) || action)
+    } else {
+      bits.push(action)
+    }
+  }
 
   if (toolKey === 'tasks') {
     const act = action.toLowerCase()
@@ -1228,7 +1243,6 @@ export function formatToolDisplayTitle(tool) {
   }
 
   const key = resolveToolKey(name) || String(name || 'tool').trim() || 'tool'
-  const label = capitalizeToolName(key)
 
   if (name === 'subtask_work_checklist' || key === 'subtask_work_checklist') {
     return formatSubtaskWorkChecklistTitle(args)
@@ -1236,6 +1250,20 @@ export function formatToolDisplayTitle(tool) {
   if (name === 'subtask_outcome_report' || key === 'subtask_outcome_report') {
     return formatSubtaskOutcomeReportTitle(args)
   }
+
+  // platform：主标签用 action 中文枚举（「列出智能体角色」），不再一律 Platform / 平台管理
+  if (key === 'platform') {
+    const act = String(args?.action || '').trim()
+    const head =
+      platformActionShortLabelZh(act, { max: 24 }) ||
+      platformActionLabelZh(act) ||
+      TOOL_NAME_ZH.platform ||
+      '平台管理'
+    const bits = formatActionRouterBriefBits('platform', args, { omitAction: true })
+    return bits.length ? `${head} · ${bits.join(' · ')}` : head
+  }
+
+  const label = capitalizeToolName(key)
 
   const bits = []
   const push = (v, max = 64) => pushBriefBit(bits, v, max)
@@ -1247,7 +1275,7 @@ export function formatToolDisplayTitle(tool) {
     push(args?.action)
     // Prefer human labels; never fall back to task_id / subtask_id on the chip.
     push(args?.task_name || args?.subtask_name || args?.agent_message)
-  } else if (key === 'tasks' || key === 'knowledge' || key === 'platform') {
+  } else if (key === 'tasks' || key === 'knowledge') {
     bits.push(...formatActionRouterBriefBits(key, args))
   } else if (key === 'assets') {
     bits.push(...formatAssetsBriefBits(args))
@@ -1449,6 +1477,12 @@ export function formatActivityLabelsFromToolCalls(toolCalls) {
       continue
     }
     if (ACTIVITY_HIDDEN_TOOL_KEYS.has(key)) continue
+    // platform：按 action 枚举显示，避免活动行一律「Platform / 工具调用」
+    if (key === 'platform') {
+      const act = String(toolInputArgs(tc)?.action || tc.platformAction || '').trim()
+      push(platformActionShortLabelZh(act, { max: 18 }) || TOOL_NAME_ZH.platform || '平台管理')
+      continue
+    }
     push(toolShortLabel(key || name))
   }
   return labels

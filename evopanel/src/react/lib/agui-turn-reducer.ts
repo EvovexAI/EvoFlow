@@ -32,7 +32,7 @@ const STREAM_TOOL_ARGS_CAP = 262_144
  * ``old_string`` / ``new_string`` / ``content`` bodies (common for replace)
  * cannot steal or blank the real path.
  */
-function extractPartialJsonStringField(argsText: string, key: string): string {
+export function extractPartialJsonStringField(argsText: string, key: string): string {
   const text = String(argsText || '')
   if (!text) return ''
   const keyPat = `"${key}"`
@@ -1168,6 +1168,7 @@ export function applyAgUiEvent(state: AgUiTurnState, event: AGUIEvent): AgUiTurn
       content_bytes?: number
       output_bytes?: number
       cua_display?: Record<string, unknown>
+      platform_ui?: Record<string, unknown>
     }
     const truncated = e.truncated === true || e.output_truncated === true
     const contentBytes = e.content_bytes ?? e.output_bytes
@@ -1183,6 +1184,11 @@ export function applyAgUiEvent(state: AgUiTurnState, event: AGUIEvent): AgUiTurn
           : resolveEvoflowCuaDisplay(tc.result)
       if (wireCua && typeof wireCua === 'object') {
         tc.cuaDisplay = wireCua as Record<string, unknown>
+      }
+      // Gateway 上浮的 platform_ui（绑渠道二维码等）优先于正文解析——truncated 时空 content 仍可用。
+      if (e.platform_ui && typeof e.platform_ui === 'object') {
+        tc.platformUi = { ...e.platform_ui }
+        tc.platformOk = true
       }
       const wireStatus = String(e.status || '').trim().toLowerCase()
       if (wireStatus === 'pending_approval' || wireStatus === 'blocked' || wireStatus === 'error') {
@@ -1201,18 +1207,19 @@ export function applyAgUiEvent(state: AgUiTurnState, event: AGUIEvent): AgUiTurn
       tc.phase = 'done'
       // UI 侧计时终点（RESULT 到达即视为执行完成）
       if (tc._uiEndedAtMs == null) tc._uiEndedAtMs = Date.now()
-      if (truncated) {
-        tc.resultTruncated = true
-        if (contentBytes != null) tc.resultContentBytes = Number(contentBytes)
-      } else {
+      // 无论 wire 是否 truncated，都从正文再抽一次 platform ui（补齐 action/item 等旁路字段）
+      {
         const slimProbe: Record<string, unknown> = {
           output: tc.result,
-          name: tc.toolCallName,
+          name: tc.toolCallName || 'platform',
           status: 'ok',
         }
         maybeSlimToolOutputForUi(slimProbe)
         if (slimProbe.platform_ui && typeof slimProbe.platform_ui === 'object') {
-          tc.platformUi = slimProbe.platform_ui as Record<string, unknown>
+          tc.platformUi = {
+            ...(tc.platformUi || {}),
+            ...(slimProbe.platform_ui as Record<string, unknown>),
+          }
           if (slimProbe.platform_action) tc.platformAction = String(slimProbe.platform_action)
           if (slimProbe.platform_item && typeof slimProbe.platform_item === 'object') {
             tc.platformItem = slimProbe.platform_item as Record<string, unknown>
@@ -1231,7 +1238,15 @@ export function applyAgUiEvent(state: AgUiTurnState, event: AGUIEvent): AgUiTurn
           }
           tc.platformOk = true
         }
-        if (slimProbe.output_truncated === true) {
+        const isPlatform =
+          String(tc.toolCallName || '')
+            .trim()
+            .toLowerCase() === 'platform' || Boolean(tc.platformUi)
+        if (truncated) {
+          tc.resultTruncated = true
+          if (contentBytes != null) tc.resultContentBytes = Number(contentBytes)
+          // 平台工具：保留带 ui 的正文，勿清空
+        } else if (slimProbe.output_truncated === true && !isPlatform) {
           tc.result = String(slimProbe.output || '')
           tc.resultTruncated = true
           tc.resultContentBytes =

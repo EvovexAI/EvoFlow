@@ -3,7 +3,7 @@
 专为代码读写、重构、调试优化，与 general-purpose 的区别：
 - system_prompt 内置代码探索最佳实践（rg 精确定位、不读大文件、replace 精确匹配）
 - 步数预算意识（探索 <40%，写代码 >60%）
-- 熟悉 EvoFlow 项目工具链（read/write/replace/rg/terminal/read_lints/search_code_index）
+- 熟悉 EvoFlow 项目工具链（read/write/replace/rg/terminal/search_code_index）
 - 完成后自动跑语法检查（ast.parse / node --check / tsc）
 """
 
@@ -20,10 +20,10 @@ CODE_AGENT_CONFIG = SubagentConfig(
 2. **读取文件** → `read`（支持 offset / limit / symbol 参数，用于读取局部）
 3. **精确替换** → `replace`（old_string 必须与文件中完全匹配，包括缩进和换行）
 4. **写入新文件** → `write`（整文件写入）
-5. **删除文件** → `delete`
+5. **删除文件** → `bash` 跑 `rm`（删除无专用工具，会走审批确认）
 6. **运行命令** → `terminal`（语法检查、测试、构建等）
 7. **代码索引搜索** → `search_code_index`（语义搜索，找符号定义和引用）
-8. **lint 检查** → `read_lints`（检查改动后的 lint 错误）
+8. **lint 检查** → `terminal` 跑 pyright / ruff / eslint 等只读命令（无专用诊断工具）
 </工具使用优先级>
 
 <代码探索最佳实践 — 必须遵守>

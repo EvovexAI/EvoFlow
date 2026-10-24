@@ -212,17 +212,37 @@ function primaryProviderKeyFromPrimary(config, primaryRef) {
   return null
 }
 
-function resolveModelDisplayLabel(config, configName) {
+function resolveModelDisplayLabel(config, configName, { includeModelId = true } = {}) {
   for (const pv of Object.values(config?.models?.providers || {})) {
     for (const m of pv.models || []) {
       if (modelConfigName(m) !== configName) continue
       const display = resolveModelDisplayName(typeof m === 'object' ? m.name : m, modelProviderId(m))
       const pid = modelProviderId(m)
-      if (display && pid && display !== pid) return `${display} · ${pid}`
+      if (includeModelId && display && pid && display !== pid) return `${display} · ${pid}`
       return display || configName
     }
   }
   return configName
+}
+
+/** 主模型状态栏：只显示一个名称，避免「显示名 · API ID」被误读成双主模型 */
+function resolvePrimaryBarLabel(config, configName) {
+  return resolveModelDisplayLabel(config, configName, { includeModelId: false })
+}
+
+function resolvePrimaryBarTitle(config, configName) {
+  for (const pv of Object.values(config?.models?.providers || {})) {
+    for (const m of pv.models || []) {
+      if (modelConfigName(m) !== configName) continue
+      const display = resolveModelDisplayName(typeof m === 'object' ? m.name : m, modelProviderId(m))
+      const pid = modelProviderId(m)
+      const parts = [`配置名 ${configName}`]
+      if (pid && pid !== configName) parts.push(`API ID ${pid}`)
+      if (display && display !== configName && display !== pid) parts.push(`显示名 ${display}`)
+      return parts.join(' · ')
+    }
+  }
+  return configName ? `配置名 ${configName}` : ''
 }
 
 /** 旧版 primary 为 provider/modelId 时，解析为 config name */
@@ -1747,21 +1767,55 @@ function apiKeySummaryHtml(apiKey, apiKeyConfigured = false, { optional = false 
   return '<span class="models-apikey-empty">未填写</span><span class="models-apikey-hint">（无需鉴权时可留空）</span>'
 }
 
+/** 点击主模型栏：跳到主模型所属厂商/连接 */
+function focusPrimaryHostVendor(page, state) {
+  const primary = resolvePrimaryConfigName(state.config, getCurrentPrimary(state.config))
+  if (!primary) return
+  const pk = primaryProviderKeyFromPrimary(state.config, primary)
+  if (!pk) {
+    toast('主模型不在当前已配置的连接中', 'warning')
+    return
+  }
+  const preset = findVendorPresetForProviderKey(pk)
+  if (!preset) {
+    toast('无法定位主模型所属厂商', 'warning')
+    return
+  }
+  state.selectedVendorPreset = preset.key
+  state.selectedProviderKey = pk
+  state.activeTab = 'chat'
+  state.activeSection = 'models'
+  renderProviders(page, state)
+  renderDefaultBar(page, state)
+}
+
 // 渲染当前主模型状态栏（紧凑单行）
 function renderDefaultBar(page, state) {
   const bar = page.querySelector('#default-model-bar')
-  const primary = getCurrentPrimary(state.config)
+  if (!bar) return
+  const primary = resolvePrimaryConfigName(state.config, getCurrentPrimary(state.config))
   const allModels = collectAllModels(state.config)
-  const fallbacks = allModels.filter(m => m.full !== primary).map(m => m.full)
+  const fallbacks = allModels.filter((m) => m.full !== primary).map((m) => m.full)
 
-  const primaryLabel = primary ? resolveModelDisplayLabel(state.config, primary) : ''
+  const primaryLabel = primary ? resolvePrimaryBarLabel(state.config, primary) : ''
+  const primaryTitleBase = primary ? resolvePrimaryBarTitle(state.config, primary) : ''
+  const canJump = !!(primary && primaryProviderKeyFromPrimary(state.config, primary))
+  const primaryTitle = primaryTitleBase
+    ? `${primaryTitleBase}${canJump ? '（点击跳到所属连接）' : ''}`
+    : ''
   bar.innerHTML = `
     <div class="models-primary-inner">
       <span class="models-primary-label">\u4e3b\u6a21\u578b</span>
-      <code class="models-primary-id">${escHtml(primaryLabel || primary || '\u672a\u914d\u7f6e')}</code>
-      ${fallbacks.length ? `<span class="models-primary-meta">\u5907\u9009 ${fallbacks.length} \u4e2a</span>` : ''}
+      <button type="button" class="models-primary-id-btn${canJump ? '' : ' is-static'}" data-action="focus-primary-host"${primaryTitle ? ` title="${escAttr(primaryTitle)}"` : ''}${canJump ? '' : ' disabled'}>
+        <code class="models-primary-id">${escHtml(primaryLabel || primary || '\u672a\u914d\u7f6e')}</code>
+      </button>
+      ${fallbacks.length ? `<span class="models-primary-meta" title="主模型不可用时按顺序尝试其余已配置模型">其余 ${fallbacks.length} 个作备选</span>` : ''}
     </div>
   `
+  const jumpBtn = bar.querySelector('[data-action="focus-primary-host"]')
+  if (jumpBtn && canJump) {
+    jumpBtn.onclick = () => focusPrimaryHostVendor(page, state)
+  }
 }
 
 /** 右侧详情区：当前连接下的模型列表 */
@@ -1992,7 +2046,7 @@ function renderModelCards(providerKey, models, primary) {
         <div class="model-actions">
           <button type="button" class="btn btn-xs btn-secondary" data-action="test-model">\uD83D\uDCE1</button>
           ${runtimeUnavailable ? '<button type="button" class="btn btn-xs btn-outline" data-action="clear-unavailable" title="清除不可用标记">恢复</button>' : ''}
-          ${!isPrimary ? '<button type="button" class="btn btn-xs btn-outline" data-action="set-primary">\u4e3b\u6a21</button>' : ''}
+          ${!isPrimary ? '<button type="button" class="btn btn-xs btn-primary" data-action="set-primary" title="设为全局主模型（对话与任务默认使用）">\u4e3b\u6a21</button>' : ''}
           <button type="button" class="btn btn-xs btn-ghost" data-action="edit-model">\u270E</button>
           <button type="button" class="btn btn-xs btn-danger" data-action="delete-model">\u2715</button>
         </div>
@@ -2034,9 +2088,11 @@ async function undo(page, state) {
   toast('已撤销', 'info')
 }
 
-// 自动保存（防抖 300ms）
+// 自动保存（防抖 300ms）+ 串行化，避免并发 sync 把主模型打回列表第一项
 let _saveTimer = null
 let _pendingSaveState = null
+let _saveInFlight = null
+let _saveQueuedState = null
 let _batchTestAbort = null // 批量测试终止控制器
 
 function notifyModelsUpdated() {
@@ -2097,6 +2153,24 @@ function autoSave(state) {
     _saveTimer = null
     void doAutoSave(state)
   }, 300)
+}
+
+/** 合并并发保存：只保留最新 state，避免先后 sync 把主模型互相覆盖 */
+async function runExclusiveSave(state, saveFn) {
+  _saveQueuedState = state
+  if (_saveInFlight) return _saveInFlight
+  _saveInFlight = (async () => {
+    try {
+      while (_saveQueuedState) {
+        const next = _saveQueuedState
+        _saveQueuedState = null
+        await saveFn(next)
+      }
+    } finally {
+      _saveInFlight = null
+    }
+  })()
+  return _saveInFlight
 }
 
 /** 保存前规范化所有服务商的 baseUrl，确保 Gateway 能正确调用 */
@@ -2408,32 +2482,37 @@ async function syncModelsToGateway(state) {
     }
   }
 
-  // 写入 evoflow_models 主模型
+  // 写入主模型：优先尊重 Panel 当前 primary；仅当其不在可同步集合时才回落
   const primaryConfigName = resolvePrimaryConfigName(state?.config, getCurrentPrimary(state?.config))
   if (primaryConfigName && desiredNames.has(primaryConfigName)) {
     await api.setPrimaryModel(primaryConfigName)
-  } else if (desiredNames.size > 0) {
-    const first = desiredReqByName.values().next().value
-    if (first?.name) {
-      try {
-        await api.setPrimaryModel(first.name)
-      } catch {
-        /* ignore */
-      }
-    }
+    return
   }
+  if (!desiredNames.size) return
+  const first = desiredReqByName.values().next().value
+  if (!first?.name) return
+  try {
+    await api.setPrimaryModel(first.name)
+    if (primaryConfigName !== first.name) setPrimary(state, first.name)
+  } catch {
+    /* ignore */
+  }
+}
+
+async function persistModelsConfig(state) {
+  const primary = getCurrentPrimary(state.config)
+  if (primary) applyDefaultModel(state)
+  normalizeProviderUrls(state.config)
+  persistProviderDisplayNames(state.config?.models?.providers || {})
+  await syncConnectionsToGateway(state)
+  await syncModelsToGateway(state)
+  notifyModelsUpdated()
 }
 
 // 仅保存配置，不重启 Gateway（用于测试结果等元数据持久化）
 async function saveConfigOnly(state) {
   try {
-    const primary = getCurrentPrimary(state.config)
-    if (primary) applyDefaultModel(state)
-    normalizeProviderUrls(state.config)
-    persistProviderDisplayNames(state.config?.models?.providers || {})
-    await syncConnectionsToGateway(state)
-    await syncModelsToGateway(state)
-    notifyModelsUpdated()
+    await runExclusiveSave(state, persistModelsConfig)
   } catch (e) {
     toast('保存失败: ' + e, 'error')
   }
@@ -2441,13 +2520,7 @@ async function saveConfigOnly(state) {
 
 async function doAutoSave(state) {
   try {
-    const primary = getCurrentPrimary(state.config)
-    if (primary) applyDefaultModel(state)
-    normalizeProviderUrls(state.config)
-    persistProviderDisplayNames(state.config?.models?.providers || {})
-    await syncConnectionsToGateway(state)
-    await syncModelsToGateway(state)
-    notifyModelsUpdated()
+    await runExclusiveSave(state, persistModelsConfig)
   } catch (e) {
     toast('自动保存失败: ' + e, 'error')
   }
@@ -2760,7 +2833,8 @@ function setPrimary(state, full) {
 // 确保 primary 指向的模型仍然存在，不存在则自动切到第一个可用模型
 function ensureValidPrimary(state) {
   const primary = resolvePrimaryConfigName(state.config, getCurrentPrimary(state.config))
-  const allModels = collectAllModels(state.config)
+  // 仅考虑带 API model id 的条目（与 syncModelsToGateway 可写入集合一致）
+  const allModels = collectAllModels(state.config).filter((m) => m.modelId)
   if (allModels.length === 0) {
     if (state.config.agents?.defaults?.model) {
       state.config.agents.defaults.model.primary = ''
@@ -2771,7 +2845,7 @@ function ensureValidPrimary(state) {
   if (!exists) {
     const newPrimary = allModels[0].full
     setPrimary(state, newPrimary)
-    toast(`主模型已自动切换为 ${resolveModelDisplayLabel(state.config, newPrimary)}`, 'info')
+    toast(`主模型已自动切换为 ${resolvePrimaryBarLabel(state.config, newPrimary)}`, 'info')
   } else if (primary !== getCurrentPrimary(state.config)) {
     setPrimary(state, primary)
   }

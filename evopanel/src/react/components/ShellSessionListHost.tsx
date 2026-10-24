@@ -12,5 +12,8 @@ function ShellSessionListHostInner(props: ShellSessionListHostProps) {
   return <ShellSessionListPortal {...shellListProps} />
 }
 
-/** ChatApp 流式重绘时：props 未变则侧栏不进 reconcile，hover / 转圈不跟气泡抢主线程。 */
+/**
+ * ChatApp 流式重绘时：props 未变则侧栏不进 reconcile，hover / 转圈不跟气泡抢主线程。
+ * 齿轮起停由 bridge 内订阅 executingListEpoch（与 Composer 停止同源），不依赖本 memo 的 props。
+ */
 export const ShellSessionListHost = memo(ShellSessionListHostInner)

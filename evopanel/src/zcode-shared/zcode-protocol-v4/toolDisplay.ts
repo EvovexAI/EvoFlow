@@ -63,6 +63,19 @@ const toolResultDisplaySchema = z.discriminatedUnion("kind", [
     kind: z.literal("respond_to_coordinator"),
     status: z.enum(["success", "failed"]),
   }),
+  // employees.bind_channel_begin：飞书/企微扫码绑定本岗 AI 员工（对话工具卡下方出码）
+  z.object({
+    kind: z.literal("platform_ui"),
+    schemaVersion: z.literal(1),
+    action: z.string().min(1).max(128).optional(),
+    title: z.string().min(1).max(512).optional(),
+    qrUrl: z.string().min(1).max(4_096).optional(),
+    sessionId: z.string().min(1).max(256).optional(),
+    channel: z.string().min(1).max(64).optional(),
+    agentCode: z.string().min(1).max(128).optional(),
+    entityLabel: z.string().min(1).max(256).optional(),
+    bindStatus: z.enum(["pending", "scanning", "bound", "failed", "expired"]).optional(),
+  }),
   z.object({
     kind: z.literal("cua"),
     schemaVersion: z.literal(1),

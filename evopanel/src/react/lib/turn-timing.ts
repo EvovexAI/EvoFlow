@@ -155,15 +155,27 @@ export function formatWorkedHeadLabel(
   return step ? `${base} · ${step}` : base
 }
 
-/** 直播兜底文案（「运行中」等）。只在回合忙时展示，不能留在封存折叠头上。 */
+/**
+ * 直播忙闲兜底文案（「运行中 / 准备中 / 生成中」等）。
+ * 与右下停止按钮、齿轮同源：只在 threadBusy 时有意义；
+ * 停止已灭后不得留在「已工作 · …」封存折叠头上。
+ */
 export function isGenericRunningStatusLabel(label: string | null | undefined): boolean {
-  const core = stripTurnDurationSuffix(label || '').trim()
+  // 先剥耗时后缀，再剥末尾 …（dock 与 SSE 可能分别是「准备中」/「准备中…」）
+  const core = stripTurnDurationSuffix(label || '')
+    .replace(/(\.\.\.|…|\.\.)$/, '')
+    .trim()
   return (
     core === '运行中' ||
     core === '工作中' ||
+    core === '准备中' ||
     core === '生成中' ||
     core === '思考中' ||
-    core === '正在思考'
+    core === '正在思考' ||
+    core === '正在处理' ||
+    core === '正在压缩上下文' ||
+    core === '系统重试中' ||
+    core === '等待工具授权'
   )
 }
 

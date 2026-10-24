@@ -135,6 +135,57 @@ describe('reconcile-last-assistant-from-history', () => {
     expect(merged[1].incompleteStream).toBeUndefined()
   })
 
+  it('mergeDbOnlyHistoryRows keeps richer local even when forceDb (DB 落库滞后)', () => {
+    const local = [
+      { role: 'user', text: 'q' },
+      {
+        role: 'assistant',
+        text: '完整流式回复：冒烟验证全部通过，已写入报告。',
+        runId: 'r1',
+        segments: [{ kind: 'text', text: '完整流式回复：冒烟验证全部通过，已写入报告。' }],
+      },
+    ]
+    const db = [
+      { role: 'user', text: 'q' },
+      {
+        role: 'assistant',
+        text: '完整流式回复',
+        runId: 'r1',
+        segments: [{ kind: 'text', text: '完整流式回复' }],
+      },
+    ]
+    const merged = mergeDbOnlyHistoryRows(local, db, 'r1', true)
+    expect(merged).toBe(local)
+    expect(String(merged[1].text)).toContain('冒烟验证')
+  })
+
+  it('mergeDbOnlyHistoryRows keeps sealed local when DB 尚未写出本轮 (forceDb)', () => {
+    const local = [
+      { role: 'user', text: 'q' },
+      {
+        role: 'assistant',
+        text: '流已结束的完整正文',
+        runId: 'r1',
+        segments: [{ kind: 'text', text: '流已结束的完整正文' }],
+      },
+    ]
+    const db = [{ role: 'user', text: 'q' }]
+    const merged = mergeDbOnlyHistoryRows(local, db, 'r1', true)
+    expect(merged).toBe(local)
+  })
+
+  it('reconcile keeps local when DB body shorter (落库半截)', () => {
+    const local = [
+      { role: 'user', text: 'q' },
+      { role: 'assistant', text: 'abcdefghi longer local body here', runId: 'r1' },
+    ]
+    const db = [
+      { role: 'user', text: 'q' },
+      { role: 'assistant', text: 'short', runId: 'r1' },
+    ]
+    expect(reconcileLastAssistantInRows(local, db, 'r1')).toEqual({ status: 'synced' })
+  })
+
   it('reconcile applies db when local misses post-tool wrap-up body', () => {
     const local = [
       { role: 'user', text: '值班' },

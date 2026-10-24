@@ -216,6 +216,34 @@ def _cua_display_from_tool_result(payload: dict[str, Any], tool_obj: dict[str, A
     return None
 
 
+def _platform_ui_from_tool_result(payload: dict[str, Any], tool_obj: dict[str, Any]) -> dict[str, Any] | None:
+    """Pick structured platform_ui (bind QR etc.) attached by sse_ui_normalize."""
+    for bag in (tool_obj, payload):
+        if not isinstance(bag, dict):
+            continue
+        ui = bag.get("platform_ui")
+        if isinstance(ui, dict) and ui:
+            return ui
+    content = payload.get("content") if isinstance(payload, dict) else None
+    if content is None and isinstance(tool_obj, dict):
+        content = tool_obj.get("content")
+    if not isinstance(content, str):
+        return None
+    raw = content.strip()
+    if not raw or raw[0] != "{":
+        return None
+    try:
+        import json as _json
+
+        obj = _json.loads(raw)
+    except ValueError:
+        return None
+    if not isinstance(obj, dict) or obj.get("ok") is False or obj.get("pending_confirm") is True:
+        return None
+    ui = obj.get("ui")
+    return ui if isinstance(ui, dict) and ui else None
+
+
 def _emit_tool_args_if_needed(
     state: AgUiEncoderState,
     tid: str,
@@ -612,7 +640,11 @@ def evf_payload_to_agui_events(
                 if not tid or tid in state.subagent_nested_tool_call_ids:
                     continue
                 if tid in state.tool_started:
-                    _ingest_tool_call_args(state, tc, out)
+                    # Write sanitize emits growing *complete* JSON snapshots
+                    # ({"path":"D"} → {"path":"D:/…/file.ts"}). Without
+                    # snapshot=True, merges concatenate blobs and the UI
+                    # partial-JSON parser freezes on the first path="D".
+                    _ingest_tool_call_args(state, tc, out, snapshot=True)
                     continue
                 name = _tool_name_from_tc(tc)
                 state.tool_started.add(tid)
@@ -623,7 +655,7 @@ def evf_payload_to_agui_events(
                         payload,
                     )
                 )
-                _ingest_tool_call_args(state, tc, out)
+                _ingest_tool_call_args(state, tc, out, snapshot=True)
         return out
 
     if t == "tool_call_chunk":
@@ -689,6 +721,7 @@ def evf_payload_to_agui_events(
         truncated = bool(payload.get("truncated") or tool_obj.get("truncated"))
         content_bytes = payload.get("content_bytes") or tool_obj.get("content_bytes")
         cua_display = _cua_display_from_tool_result(payload, tool_obj)
+        platform_ui = _platform_ui_from_tool_result(payload, tool_obj)
         if tid:
             state.tool_results[tid] = content
             if cua_display is not None:
@@ -715,6 +748,9 @@ def evf_payload_to_agui_events(
             # 正文里的 {evoflow-cua-display:...} 已被 sse_ui_normalize 剥掉。
             if cua_display is not None:
                 result_evt["cua_display"] = cua_display
+            # 绑本岗 AI 员工二维码等：与 cua_display 同级上浮，避免 truncated 时前端丢 ui。
+            if platform_ui is not None:
+                result_evt["platform_ui"] = platform_ui
             out.append(result_evt)
         return out
 
@@ -849,9 +885,15 @@ def evf_payload_to_agui_events(
         )
         return out
 
-    if t in {"error", "aborted"}:
+    if t == "aborted":
+        # Keep interrupt semantics discoverable on the wire: frontend maps
+        # USER_INTERRUPT / user_interrupt → chat ``aborted``, not a hard error.
+        msg = str(payload.get("reason") or payload.get("error") or "user_interrupt").strip() or "user_interrupt"
+        out.append({"type": RUN_ERROR, "message": msg, "code": "USER_INTERRUPT"})
+        return out
+    if t == "error":
         msg = str(payload.get("error") or payload.get("reason") or t)
-        out.append({"type": RUN_ERROR, "message": msg, "code": t.upper()})
+        out.append({"type": RUN_ERROR, "message": msg, "code": "ERROR"})
         return out
 
     if t == "run_end":
@@ -888,6 +930,11 @@ def evf_payload_to_agui_events(
     # other wire frames, instead of losing it to the silent fall-through.
     if t == "kb_citations":
         out.append({"type": CUSTOM, "name": "kb_citations", "value": payload})
+        return out
+
+    # panel_set / platform 落库直播：升成具名 CUSTOM，避免落进 silent fall-through
+    if t == "chat_artifacts":
+        out.append({"type": CUSTOM, "name": "chat_artifacts", "value": payload})
         return out
 
     return out
@@ -963,6 +1010,8 @@ class AgUiStreamNormalizer:
         )
         if run_end:
             self._run_end_emitted = True
+        if out:
+            self._mirror_feed(out)
         return out
 
     def finish(self) -> list[bytes]:
@@ -974,7 +1023,18 @@ class AgUiStreamNormalizer:
         )
         if run_end:
             self._run_end_emitted = True
+        if out:
+            self._mirror_feed(out)
         return out
+
+    def _mirror_feed(self, wire: list[bytes]) -> None:
+        """v4 镜像：AG-UI wire → ZCode v4 协议 delta（失败静默，不碰生产链路）。"""
+        try:
+            from app.gateway.v4.agui_mirror import mirror_feed_agui_wire
+
+            mirror_feed_agui_wire(self._state.thread_id, wire)
+        except Exception:
+            pass
 
     def bootstrap_wire_bytes(self) -> list[bytes]:
         """Immediate RUN_STARTED + activity frame — sent on SSE headers before upstream tokens."""
@@ -993,4 +1053,5 @@ class AgUiStreamNormalizer:
                 }
             )
         )
+        self._mirror_feed(out)
         return out

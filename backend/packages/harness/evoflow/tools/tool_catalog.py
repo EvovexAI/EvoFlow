@@ -108,6 +108,11 @@ _OPTIONAL_TOOL_NAMES: frozenset[str] = frozenset(
 # 角色不可通过白名单摘掉，仍可经 disallowed_tools 显式禁用）。
 AGENT_MODE_SYSTEM_TOOL_NAMES: frozenset[str] = frozenset({"platform", "panel_set"})
 
+# 中间件注入工具：不在原生工具注册表（get_available_tools）里，由 agent 中间件在
+# 建图时挂载。按角色白名单按需注入：勾选才挂（未配置白名单 = 全量继承时默认挂），
+# 子智能体按白名单勾选后由 SubagentExecutor 挂载。归 workspace tier 以进入角色编辑器清单。
+MIDDLEWARE_TOOL_NAMES: frozenset[str] = frozenset({"todo_write"})
+
 AGENT_OPTIONAL_DEFERRED_TOOL_NAMES: tuple[str, ...] = tuple(sorted(_OPTIONAL_TOOL_NAMES))
 
 
@@ -214,6 +219,10 @@ def resolve_tool_tier(name: str | None) -> ToolTier:
     if n in AGENT_MODE_SYSTEM_TOOL_NAMES:
         # Agent-mode required tools (platform / panel_set): workspace tier for catalog
         # labels, but mode-managed so they stay out of the role editor checklist.
+        return "workspace"
+    if n in MIDDLEWARE_TOOL_NAMES:
+        # Middleware-injected (todo_write): workspace tier so it shows in the role
+        # editor "Agent" group; actual mounting is middleware-driven.
         return "workspace"
     if n in _OPTIONAL_TOOL_NAMES:
         return "optional"

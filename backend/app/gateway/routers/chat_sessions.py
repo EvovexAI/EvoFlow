@@ -426,7 +426,7 @@ async def list_chat_sessions(
     request: Request,
     limit: int = Query(default=20, ge=1, le=200),
     offset: int = Query(default=0, ge=0, le=10000),
-    search: str = Query(default="", description="Search sessions by title and message content across all sessions"),
+    search: str = Query(default="", description="Search sessions by title (LIKE match)"),
     workspace_key: str | None = Query(
         default=None,
         description="Filter by workspace folder: __unbound__, __virtual__, or bound local path",

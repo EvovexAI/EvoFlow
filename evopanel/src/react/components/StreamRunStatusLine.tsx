@@ -23,7 +23,7 @@ function StreamRunStatusLineInner({ label }: Props) {
     '生成中'
   return (
     <div className="msg-stream-run-status" aria-live="polite" role="status" aria-label={status}>
-      <Loader size={14} strokeWidth={1.5} className="msg-stream-run-spinner animate-spin" aria-hidden />
+      <Loader size={14} strokeWidth={1.5} className="msg-stream-run-spinner" aria-hidden />
     </div>
   )
 }

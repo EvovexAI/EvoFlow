@@ -121,6 +121,26 @@ class McpMarketInstallResponse(BaseModel):
     config: McpServerConfigResponse
 
 
+class McpProjectServerInfo(BaseModel):
+    """Workspace（项目）级 MCP server 及其信任门状态。"""
+
+    name: str
+    status: Literal["trusted", "changed", "untrusted"] = "untrusted"
+    source: str = ""
+    enabled: bool = True
+    config: dict = Field(default_factory=dict, description="Raw server config from the project mcp.json")
+
+
+class McpProjectScopeResponse(BaseModel):
+    project_root: str
+    servers: list[McpProjectServerInfo] = Field(default_factory=list)
+
+
+class McpProjectTrustRequest(BaseModel):
+    name: str = Field(..., description="Workspace MCP server name")
+    trusted: bool = Field(..., description="True to trust (fingerprint-bound), False to revoke")
+
+
 @router.get(
     "/mcp/config",
     response_model=McpConfigResponse,
@@ -240,6 +260,80 @@ async def update_mcp_configuration(http_request: Request, request: McpConfigUpda
     except Exception as e:
         logger.error(f"Failed to update MCP configuration: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to update MCP configuration: {str(e)}")
+
+
+@router.get(
+    "/mcp/project",
+    response_model=McpProjectScopeResponse,
+    summary="List workspace (project) MCP servers with trust status",
+    description=(
+        "Project-scope servers come from <project>/.evoflow/mcp.json or .mcp.json and are "
+        "untrusted by default — they never connect until explicitly trusted (fingerprint-bound; "
+        "editing the config invalidates the trust)."
+    ),
+)
+async def get_mcp_project_scope(request: Request) -> McpProjectScopeResponse:
+    require_org_admin(request)
+    from evoflow.mcp import workspace_scope
+
+    servers = await asyncio.to_thread(workspace_scope.project_servers_with_status)
+    return McpProjectScopeResponse(
+        project_root=str(workspace_scope.resolve_project_root()),
+        servers=[
+            McpProjectServerInfo(
+                name=name,
+                status=info.get("status") or "untrusted",
+                source=str(info.get("source") or ""),
+                enabled=bool(info.get("enabled", True)),
+                config=info.get("config") or {},
+            )
+            for name, info in servers.items()
+        ],
+    )
+
+
+@router.post(
+    "/mcp/project/trust",
+    response_model=McpProjectScopeResponse,
+    summary="Trust or revoke a workspace MCP server",
+    description=(
+        "Trust binds the current config fingerprint — a later config change downgrades the "
+        "server back to 'changed' (untrusted). Resetting the MCP cache triggers reconnection."
+    ),
+)
+async def trust_mcp_project_server(http_request: Request, request: McpProjectTrustRequest) -> McpProjectScopeResponse:
+    require_org_admin(http_request)
+    from evoflow.mcp import workspace_scope
+
+    try:
+        await asyncio.to_thread(workspace_scope.set_project_server_trust, request.name, request.trusted)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as e:
+        logger.error("Failed to update workspace MCP trust for %r: %s", request.name, e, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to update trust: {e}") from e
+
+    try:
+        from evoflow.mcp.cache import reset_mcp_tools_cache
+
+        reset_mcp_tools_cache()
+    except Exception:
+        logger.debug("MCP cache reset after workspace trust change skipped", exc_info=True)
+
+    servers = await asyncio.to_thread(workspace_scope.project_servers_with_status)
+    return McpProjectScopeResponse(
+        project_root=str(workspace_scope.resolve_project_root()),
+        servers=[
+            McpProjectServerInfo(
+                name=name,
+                status=info.get("status") or "untrusted",
+                source=str(info.get("source") or ""),
+                enabled=bool(info.get("enabled", True)),
+                config=info.get("config") or {},
+            )
+            for name, info in servers.items()
+        ],
+    )
 
 
 @router.get(

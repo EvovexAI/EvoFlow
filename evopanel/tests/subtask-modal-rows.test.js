@@ -146,3 +146,18 @@ describe('expandRowsToTrailTurns', () => {
     expect(textTurns.length).toBeGreaterThanOrEqual(1)
   })
 })
+
+describe('subtask transcript seed / outcome fallback', () => {
+  it('coalesce prefers fetched rows over outcome', async () => {
+    const { coalesceSubtaskTranscriptRows, displayRowsFromOutcome } = await import(
+      '../src/lib/subtask-transcript-seed.js'
+    )
+    const fetched = [{ role: 'assistant', text: 'from chat' }]
+    expect(coalesceSubtaskTranscriptRows(fetched, { task_report: 'from outcome' })).toEqual(fetched)
+    const fromOutcome = displayRowsFromOutcome({ task_report: '节点已完成' })
+    expect(fromOutcome[0].text).toContain('节点已完成')
+    expect(coalesceSubtaskTranscriptRows([], { outputs: [{ value: 'a.md', label: '报告' }] })[0].text).toContain(
+      '产出文件',
+    )
+  })
+})

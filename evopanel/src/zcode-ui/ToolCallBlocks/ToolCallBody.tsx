@@ -1,13 +1,14 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode , useMemo} from "react";
 import type { FileMediaPreview } from "@zcode/shared";
 import { CodeBlock } from "@/components/ai-elements/code-block.js";
 import { MessageResponse, type MessageFileLinkTarget } from "@/components/ai-elements/message.js";
 import { ToolInput, ToolOutput } from "@/components/ai-elements/tool.js";
-import { useServices } from "@/hooks/useServices.js";
+import { useOptionalServices } from "@/hooks/useServices.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import type {
   CodeViewerSource,
   ImageCodeViewerSource,
+  MediaCodeViewerSource,
   TextCodeViewerSource,
 } from "@/lib/codeViewer.js";
 import type { CodePreviewSettings } from "@/lib/codePreviewSettings.js";
@@ -59,6 +60,12 @@ export function ToolCallBody({
           ) : null}
           {inlinePreview.type === "image" ? (
             <InlineImageContent preview={inlinePreview.source} />
+          ) : null}
+          {inlinePreview.type === "media" ? (
+            <InlineMediaContent
+              preview={inlinePreview.source}
+              workspacePath={workspacePath}
+            />
           ) : null}
           {displayModel.planResult ? (
             <InlinePlanResult
@@ -132,12 +139,50 @@ function InlineCodeContent({
   );
 }
 
+function InlineMediaContent({
+  preview,
+  workspacePath,
+}: {
+  preview: MediaCodeViewerSource;
+  workspacePath: string;
+}) {
+  // serve-file 流式直出（video 支持Range），不走 base64——大视频会撑爆内存。
+  const mediaUrl = useMemo(() => {
+    if (!workspacePath || !preview.path) return "";
+    const q = new URLSearchParams({
+      root: workspacePath,
+      path: preview.path,
+    });
+    return `/api/workspaces/serve-file?${q.toString()}`;
+  }, [preview.path, workspacePath]);
+
+  if (!mediaUrl) {
+    return null;
+  }
+  return preview.kind === "audio" ? (
+    <audio controls src={mediaUrl} className="w-full max-w-xl" preload="metadata" />
+  ) : (
+    <video
+      controls
+      src={mediaUrl}
+      preload="metadata"
+      className="max-h-96 w-full max-w-xl rounded-lg border border-border bg-black"
+    />
+  );
+}
+
 function InlineImageContent({ preview }: { preview: ImageCodeViewerSource }) {
-  const { fileService } = useServices();
+  // EvoFlow V4 宿主无 ServiceProvider：不能 useServices()，否则展开图片工具卡会拖垮 timeline。
+  const services = useOptionalServices();
+  const fileService = services?.fileService ?? null;
   const { intl } = useZCodeIntl();
   const [imagePreview, setImagePreview] = useState<FileMediaPreview | null>(null);
 
   useEffect(() => {
+    if (!fileService) {
+      setImagePreview(null);
+      return;
+    }
     let cancelled = false;
     void fileService.readMediaPreview({ path: preview.path }).then((mediaPreview) => {
       if (!cancelled) {
@@ -150,6 +195,9 @@ function InlineImageContent({ preview }: { preview: ImageCodeViewerSource }) {
     };
   }, [fileService, preview.path]);
 
+  if (!fileService) {
+    return <p>{intl.formatMessage({ id: "chat.toolCall.loading" })}</p>;
+  }
   if (!imagePreview) {
     return <p>{intl.formatMessage({ id: "chat.toolCall.loading" })}</p>;
   }

@@ -987,6 +987,19 @@ body {
   will-change: opacity;
 }
 
+/* 对话轮尾齿轮：比默认 animate-spin(1s) 更快、匀速，避免「要停了」的沉感。 */
+@keyframes zcode-chat-loading-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.zcode-chat-loading-spin {
+  animation: zcode-chat-loading-spin 0.7s linear infinite;
+  transform-origin: 50% 50%;
+  backface-visibility: hidden;
+}
+
 /*  Radix Collapsible 在测量 closed 高度时会写入 inline animation-name:none。
    assistant 历史区自动结束收起需要在延迟卸载期间继续播放高度动画，
    所以这里用 !important 覆盖 Radix 的 inline style，只作用于显式标记的收起窗口。 */
@@ -1023,6 +1036,7 @@ body {
   [data-zcode-stream-marker-animate="true"]::marker,
   [data-zcode-tool-stream-animate="true"],
   [data-zcode-chat-loading-animate="true"],
+  .zcode-chat-loading-spin,
   [data-zcode-collapsible-animate-close="true"][data-state="closed"],
   [data-zcode-collapsible-animate-close="true"][data-state="closed"] > * {
     animation: none;

@@ -132,9 +132,18 @@ function dispatchAgUiWireFrame(self, key, runId, data, lane) {
   } else if (t === 'RUN_ERROR') {
     lane.evfRunEndSeen = true
     const errMsg = String(data.message || data.code || 'RUN_ERROR').trim()
+    const errCode = String(data.code || '').trim()
+    const chatRunId = String(lane.aguiChatRunId || runId || '').trim() || runId
+    // EVF ``aborted`` / LangGraph UserInterrupt is encoded as RUN_ERROR
+    // (code=USER_INTERRUPT|ABORTED, message=user_interrupt). Treat as abort —
+    // never surface raw 「生成中断：user_interrupt」.
+    if (isUserInterruptStreamError(errCode, errMsg) || _userStopSessionKeys.has(key)) {
+      emitStreamUserInterruptAbort(self, key, chatRunId, lane)
+      return
+    }
     self._emitEvent('chat', {
       sessionKey: key,
-      runId: String(lane.aguiChatRunId || runId || ''),
+      runId: chatRunId,
       state: 'error',
       errorMessage: errMsg,
       error: { message: errMsg },
@@ -232,7 +241,21 @@ function dispatchAgUiWireFrame(self, key, runId, data, lane) {
       }
     } else if (name === 'right_stage' || name === 'right_stage_stream') {
       try {
-        applyRightStageAgUiCustom(name, value)
+        console.log('[右栏·panel_set]', '⓪ AG-UI CUSTOM 收到', {
+          name,
+          action: value && typeof value === 'object' ? value.action : undefined,
+          kind:
+            value && typeof value === 'object' && value.surface
+              ? value.surface.kind
+              : undefined,
+          sessionKey: key || '(空)',
+        })
+      } catch {
+        /* ignore */
+      }
+      try {
+        // key 是事件所属会话：后台会话的面板写入只能落到它自己的冻结记忆。
+        applyRightStageAgUiCustom(name, value, { sessionKey: key })
       } catch (err) {
         console.warn('[evoflow] right_stage custom failed', err)
       }
@@ -1976,7 +1999,8 @@ function notifySessionThreadRebound(sessionKey, oldThreadId, threadId) {
   const sk = String(sessionKey || '').trim()
   const tid = String(threadId || '').trim()
   const old = String(oldThreadId || '').trim()
-  if (!sk || !tid || !old || old === tid) return
+  // 允许 old 为空：首条消息首次绑定 thread 时小V / 侧栏也要立刻拿到 sessionId 挂 V4
+  if (!sk || !tid || old === tid) return
   if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
     window.dispatchEvent(
       new CustomEvent('evopanel:session-thread-rebound', {
@@ -4009,9 +4033,13 @@ function parseEvfStreamError(data) {
 }
 
 function isUserInterruptStreamError(code, message) {
-  const c = String(code || '').toLowerCase()
+  const c = String(code || '').toLowerCase().replace(/[\s-]+/g, '_')
   const m = String(message || '').toLowerCase()
-  return c === 'userinterrupt' || c.includes('user_interrupt') || /\buser\s*interrupt\b/.test(m)
+  // AG-UI maps EVF ``aborted`` → RUN_ERROR with code ABORTED / message user_interrupt
+  if (c === 'aborted' || c === 'user_interrupt' || c === 'userinterrupt') return true
+  if (c.includes('user_interrupt') || c.includes('userinterrupt')) return true
+  // Match user_interrupt / user interrupt / UserInterrupt / "User interrupted…"
+  return /user[_\s-]*interrupt/.test(m)
 }
 
 function emitStreamUserInterruptAbort(self, key, runId, lane, { finalText = '' } = {}) {
@@ -4378,12 +4406,23 @@ function emitAgentActivityChat(self, key, runId, { kind, detail, toolName, toolC
     'retrying',
     'compacting',
     'pre_model',
+    'model',
     'tool_approval',
     'model_fallback',
     'system',
   ])
+  // 限流重试等系统态优先；勿因附带 toolName 被打成 tools 而盖住「系统重试中」。
+  const stickySystemKinds = new Set([
+    'retrying',
+    'compacting',
+    'model_fallback',
+    'model_error',
+    'pre_model',
+    'model',
+  ])
   let actKind = 'thinking'
-  if (actKindRaw === 'tools' || tool) actKind = 'tools'
+  if (stickySystemKinds.has(actKindRaw)) actKind = actKindRaw
+  else if (actKindRaw === 'tools' || tool) actKind = 'tools'
   else if (preservedKinds.has(actKindRaw)) actKind = actKindRaw
   self._emitEvent('thread_state', {
     sessionKey: key,
@@ -4933,6 +4972,56 @@ function dispatchLangGraphCustomStreamChunk(self, key, runId, chunk) {
   const t = String(chunk.type || '').trim()
   if (t === 'pending_inject_consumed') {
     emitPendingInjectConsumedEvent(self, key, runId, chunk)
+    return
+  }
+  // stream_writer({ type: 'chat_artifacts', items }) — 平台/产物直播
+  if (t === 'chat_artifacts') {
+    self._emitEvent('chat', {
+      sessionKey: key,
+      runId: String(runId || '').trim() || null,
+      state: 'chat_artifacts',
+      action: String(chunk.action || 'upsert'),
+      items: Array.isArray(chunk.items) ? chunk.items : [],
+      threadId: String(chunk.threadId || chunk.thread_id || '').trim(),
+    })
+    return
+  }
+  // panel_set(web-embed/write/…) 走 stream_writer({ type: 'right_stage' })。
+  // 以前只在 AG-UI CUSTOM(name=right_stage) 分支处理；custom 流原样落下时被静默丢掉，
+  // 表现为「产物能开、开百度没反应」。与 chat_artifacts 同层补齐。
+  if (t === 'right_stage' || t === 'right_stage_stream') {
+    try {
+      console.log('[右栏·panel_set]', '⓪ LangGraph custom 流收到', {
+        type: t,
+        action: chunk.action,
+        kind: chunk.surface?.kind || (chunk.path ? 'stream' : undefined),
+        title: chunk.surface?.title || chunk.title,
+        url: chunk.surface?.data?.url,
+        sessionKey: key || '(空)',
+      })
+    } catch {
+      /* ignore */
+    }
+    try {
+      applyRightStageAgUiCustom(
+        t,
+        t === 'right_stage'
+          ? { action: chunk.action, surface: chunk.surface }
+          : {
+              action: chunk.action,
+              streamId: chunk.streamId || chunk.stream_id,
+              text: chunk.text,
+              newline: chunk.newline,
+              level: chunk.level,
+              format: chunk.format,
+              path: chunk.path,
+              title: chunk.title,
+            },
+        { sessionKey: key },
+      )
+    } catch (err) {
+      console.warn('[evoflow] right_stage custom-stream failed', err)
+    }
     return
   }
   if (t === 'trae_stream_error') {

@@ -42,15 +42,35 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_notification::init())
         .on_window_event(|window, event| {
-            // 仅给还没嵌成子窗口的弹窗兜底。WS_CHILD 跟随父窗口，
-            // 在 Moved 里 SetWindowPos 会重入拖动循环，把整个客户端卡死。
-            if let WindowEvent::Moved(_) | WindowEvent::Resized(_) = event {
-                if window.label() == "main" {
-                    let resized = matches!(event, WindowEvent::Resized(_));
-                    commands::browser_embed::on_main_window_geometry(
-                        &window.app_handle(),
-                        resized,
-                    );
+            // Moved：只打拖动标记，绝不贴位（WS_CHILD 跟父走；Moved 里
+            // SetWindowPos 会重入拖动消息泵卡死整窗）。Resized：延迟兜底弹窗。
+            // ScaleFactorChanged / Focused：DPI 切换、跨屏、从托盘/最小化恢复后重贴。
+            if window.label() == "main" {
+                match event {
+                    WindowEvent::Moved(_) => {
+                        commands::browser_embed::on_main_window_geometry(
+                            &window.app_handle(),
+                            false,
+                        );
+                    }
+                    WindowEvent::Resized(_) => {
+                        commands::browser_embed::on_main_window_geometry(
+                            &window.app_handle(),
+                            true,
+                        );
+                    }
+                    WindowEvent::ScaleFactorChanged { .. } => {
+                        commands::browser_embed::on_main_window_geometry(
+                            &window.app_handle(),
+                            true,
+                        );
+                    }
+                    WindowEvent::Focused(true) => {
+                        commands::browser_embed::on_main_window_focus_gained(
+                            &window.app_handle(),
+                        );
+                    }
+                    _ => {}
                 }
             }
             if let WindowEvent::CloseRequested { api, .. } = event {
@@ -146,8 +166,28 @@ pub fn run() {
             std::thread::Builder::new()
                 .name("backend-sidecar-boot".into())
                 .spawn(move || {
-                    if let Err(e) = backend::ensure_backend_sidecar(&sidecar_boot_handle) {
-                        eprintln!("[boot] 启动内置后端失败: {e}");
+                    // Lock contention (stale install / another window) must not
+                    // permanently strand the UI without a Gateway — retry until
+                    // the profile lock is free or a non-lock error persists.
+                    let mut attempt: u32 = 0;
+                    loop {
+                        match backend::ensure_backend_sidecar(&sidecar_boot_handle) {
+                            Ok(()) => break,
+                            Err(e) => {
+                                attempt = attempt.saturating_add(1);
+                                eprintln!("[boot] 启动内置后端失败 (attempt {attempt}): {e}");
+                                let lock_busy = e.contains("已被另一") || e.contains("sidecar.lock");
+                                if !lock_busy && attempt >= 5 {
+                                    break;
+                                }
+                                let wait_secs = if lock_busy {
+                                    3u64
+                                } else {
+                                    2u64.saturating_mul(attempt.min(5) as u64)
+                                };
+                                std::thread::sleep(std::time::Duration::from_secs(wait_secs));
+                            }
+                        }
                     }
                     commands::boot_cycle::mark("desktop", "sidecar.ensure.returned", None);
                 })
@@ -300,6 +340,7 @@ pub fn run() {
             logs::read_log_tail,
             logs::search_log,
             logs::append_frontend_log,
+            logs::append_plugin_control_log,
             logs::append_stream_compare_log,
             boot_cycle::boot_cycle_mark,
             boot_cycle::boot_cycle_info,
@@ -364,8 +405,10 @@ pub fn run() {
             voice_overlay::voice_overlay_hide,
             voice_overlay::voice_overlay_set_complete,
             browser_embed::browser_embed_supported,
+            browser_embed::browser_embed_exists,
             browser_embed::browser_embed_upsert,
             browser_embed::browser_embed_set_bounds,
+            browser_embed::browser_embed_probe_coords,
             browser_embed::browser_embed_set_zoom,
             browser_embed::browser_embed_park,
             browser_embed::browser_embed_close,

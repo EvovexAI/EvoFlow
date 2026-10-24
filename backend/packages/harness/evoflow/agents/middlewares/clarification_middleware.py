@@ -104,19 +104,26 @@ class ClarificationMiddleware(AgentMiddleware[ClarificationMiddlewareState]):
         """
         return any("\u4e00" <= char <= "\u9fff" for char in text)
 
-    def _normalize_option_labels(self, options: object, question: str) -> list[str]:
-        labels: list[str] = []
+    def _normalize_option_labels(self, options: object, question: str) -> list[dict[str, str]]:
+        """Normalize model-provided options into ``{label, description}`` dicts.
+
+        zcode AskUserQuestion alignment: options may be plain strings or
+        ``{label, description}`` objects; ``description`` (optional, one sentence)
+        is rendered as secondary text under the label in the panel. No automatic
+        "Other" option is appended — the panel provides a free-text field.
+        """
+        entries: list[dict[str, str]] = []
         if isinstance(options, list):
-            labels = []
             for opt in options:
                 if isinstance(opt, dict):
                     lb = str(opt.get("label") or opt.get("text") or "").strip()
+                    desc = str(opt.get("description") or "").strip()
                     if lb:
-                        labels.append(lb)
+                        entries.append({"label": lb, "description": desc})
                 else:
                     s = str(opt).strip()
                     if s:
-                        labels.append(s)
+                        entries.append({"label": s, "description": ""})
         elif isinstance(options, str):
             raw = options.strip()
             if raw:
@@ -126,31 +133,59 @@ class ClarificationMiddleware(AgentMiddleware[ClarificationMiddlewareState]):
                 except Exception:
                     parsed = None
                 if isinstance(parsed, list):
-                    labels = [str(opt).strip() for opt in parsed if str(opt).strip()]
+                    for opt in parsed:
+                        if isinstance(opt, dict):
+                            lb = str(opt.get("label") or opt.get("text") or "").strip()
+                            desc = str(opt.get("description") or "").strip()
+                            if lb:
+                                entries.append({"label": lb, "description": desc})
+                        else:
+                            s = str(opt).strip()
+                            if s:
+                                entries.append({"label": s, "description": ""})
                 else:
                     # fallback: split by common delimiters
                     parts = [x.strip() for x in re.split(r"[,\n;；]+", raw) if x.strip()]
-                    labels = parts
+                    entries = [{"label": s, "description": ""} for s in parts]
 
         # If tool passed one giant string item like '["a","b"]', parse that item again.
-        if len(labels) == 1 and labels[0].startswith("[") and labels[0].endswith("]"):
+        if len(entries) == 1 and entries[0]["label"].startswith("[") and entries[0]["label"].endswith("]"):
             try:
-                parsed2 = json.loads(labels[0])
+                parsed2 = json.loads(entries[0]["label"])
                 if isinstance(parsed2, list):
-                    labels = [str(opt).strip() for opt in parsed2 if str(opt).strip()]
+                    entries = []
+                    for opt in parsed2:
+                        if isinstance(opt, dict):
+                            lb = str(opt.get("label") or opt.get("text") or "").strip()
+                            desc = str(opt.get("description") or "").strip()
+                            if lb:
+                                entries.append({"label": lb, "description": desc})
+                        else:
+                            s = str(opt).strip()
+                            if s:
+                                entries.append({"label": s, "description": ""})
             except Exception:
                 pass
 
         # Middleware should not invent semantic options; this is model responsibility.
         # We only keep transport compatibility and a minimal UI fallback.
-        if not labels:
-            labels = ["请补充必要信息", "其他（请补充）"]
+        if not entries:
+            entries = [
+                {"label": "请补充必要信息", "description": ""},
+                {"label": "其他（请补充）", "description": ""},
+            ]
 
-        normalized = [str(lb).strip() for lb in labels if str(lb).strip()]
+        normalized: list[dict[str, str]] = []
+        for e in entries:
+            lb = str(e.get("label") or "").strip()
+            if not lb:
+                continue
+            normalized.append({"label": lb, "description": str(e.get("description") or "").strip()})
         if not normalized:
-            normalized = ["请补充必要信息", "其他（请补充）"]
-        if not any("其他" in lb for lb in normalized):
-            normalized.append("其他（请补充）")
+            normalized = [
+                {"label": "请补充必要信息", "description": ""},
+                {"label": "其他（请补充）", "description": ""},
+            ]
         return normalized
 
     @staticmethod
@@ -182,6 +217,20 @@ class ClarificationMiddleware(AgentMiddleware[ClarificationMiddlewareState]):
             return None
         items: list[dict[str, Any]] = [it for it in raw if isinstance(it, dict)]
         return items if items else None
+
+    def _build_option_items(self, options: object, question: str) -> list[dict[str, str]]:
+        """Normalize options and letter-prefix labels; keep optional description."""
+        entries = self._normalize_option_labels(options, question)
+        option_items: list[dict[str, str]] = []
+        for idx, entry in enumerate(entries):
+            body = self._strip_existing_choice_prefix(entry["label"])
+            letter = self._choice_letter(idx)
+            display = f"{letter}. {body}" if body else letter
+            item = {"id": f"opt_{idx + 1}", "label": display}
+            if entry.get("description"):
+                item["description"] = entry["description"]
+            option_items.append(item)
+        return option_items
 
     def _format_multi_questions_payload(self, args: dict, items: list[dict[str, Any]]) -> str | None:
         """Build native ``{ title, questions[] }`` payload; return None if nothing valid."""
@@ -216,22 +265,19 @@ class ClarificationMiddleware(AgentMiddleware[ClarificationMiddlewareState]):
             if not full_prompt:
                 full_prompt = "请从下列选项中选择"
 
-            option_labels = self._normalize_option_labels(q.get("options", []), full_prompt)
-            option_items: list[dict[str, str]] = []
-            for idx, raw_label in enumerate(option_labels):
-                body = self._strip_existing_choice_prefix(raw_label)
-                letter = self._choice_letter(idx)
-                display = f"{letter}. {body}" if body else letter
-                option_items.append({"id": f"opt_{idx + 1}", "label": display})
+            option_items = self._build_option_items(q.get("options", []), full_prompt)
 
-            questions_out.append(
-                {
-                    "id": qid,
-                    "prompt": full_prompt,
-                    "options": option_items,
-                    "allow_multiple": bool(q.get("allow_multiple")),
-                }
-            )
+            q_out: dict[str, Any] = {
+                "id": qid,
+                "prompt": full_prompt,
+                "options": option_items,
+                "allow_multiple": bool(q.get("allow_multiple")),
+            }
+            # zcode AskUserQuestion alignment: optional per-question short header chip.
+            q_header = str(q.get("header") or "").strip()
+            if q_header:
+                q_out["header"] = q_header[:24]
+            questions_out.append(q_out)
 
         if not questions_out:
             return None
@@ -280,26 +326,22 @@ class ClarificationMiddleware(AgentMiddleware[ClarificationMiddlewareState]):
         title = user_title or title_map.get(str(clarification_type or "").strip(), "请确认")
         prompt = question or "请补充必要信息。"
 
-        option_labels = self._normalize_option_labels(options, question)
+        option_items = self._build_option_items(options, question)
 
         question_id = "q1"
-        option_items = []
-        for idx, raw_label in enumerate(option_labels):
-            body = self._strip_existing_choice_prefix(raw_label)
-            letter = self._choice_letter(idx)
-            display = f"{letter}. {body}" if body else letter
-            # id 保持 opt_1/opt_2… 以便前端与历史载荷兼容；字母仅体现在 label 展示上。
-            option_items.append({"id": f"opt_{idx + 1}", "label": display})
+        q_out: dict[str, Any] = {
+            "id": question_id,
+            "prompt": prompt if not context else f"{context}\n{prompt}",
+            "options": option_items,
+            "allow_multiple": False,
+        }
+        # zcode AskUserQuestion alignment: optional per-question short header chip.
+        q_header = str(args.get("header") or "").strip()
+        if q_header:
+            q_out["header"] = q_header[:24]
         payload = {
             "title": title,
-            "questions": [
-                {
-                    "id": question_id,
-                    "prompt": prompt if not context else f"{context}\n{prompt}",
-                    "options": option_items,
-                    "allow_multiple": False,
-                }
-            ],
+            "questions": [q_out],
         }
         return json.dumps(payload, ensure_ascii=False)
 

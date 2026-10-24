@@ -175,7 +175,7 @@ export function toUserFacingError(raw, fallback = DEFAULT_FALLBACK) {
   else if (/get live-run failed|live-run/.test(lower)) facing = '暂时无法加载对话，请刷新后重试'
   else if (/origin not allowed|not_paired|pairing_required|auth/.test(lower)) {
     facing = '连接未授权，请检查配对或登录状态'
-  } else if (/userinterrupt|user interrupt/.test(lower)) facing = ''
+  } else if (/user[_\s-]*interrupt/.test(lower)) facing = ''
   else if (/^[A-Z][a-zA-Z0-9_]*(?:Error|Exception):/.test(msg)) facing = fallback
   else if (DEV_JARGON.test(msg)) {
     facing = isDev ? `${fallback}（${msg.replace(/\s+/g, ' ').slice(0, 140)}）` : fallback

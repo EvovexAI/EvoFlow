@@ -446,10 +446,10 @@ def _persist_agent_knowledge_vault_ids(agent_code: str, vault_ids: list[str]) ->
 
 
 def list_bindings_catalog(*, include_disabled_skills: bool = False) -> dict[str, Any]:
-    """Assignable tools / skills / MCP / knowledge bases for agent & employee create.
+    """Assignable packs / tools / skills / MCP / knowledge for agent & employee create.
 
-    Call this before ``agents.create`` / ``employees.create`` — do not omit ``tools``
-    expecting "everything"; omit now means an empty tools allowlist.
+    Prefer ``packs`` + ``capability_pack`` on create. Do not dump ``tools`` wholesale;
+    omit ``tools`` means an empty allowlist (not inherit-all).
     """
     tools_rows: list[dict[str, str]] = []
     try:
@@ -522,7 +522,15 @@ def list_bindings_catalog(*, include_disabled_skills: bool = False) -> dict[str,
     except Exception as exc:
         logger.warning("list_bindings_catalog knowledge failed: %s", exc)
 
+    from evoflow.config.capability_packs import (
+        MAX_ALLOWLIST_TOOLS,
+        list_capability_packs,
+        pack_hint_for_bindings,
+    )
+
+    packs = list_capability_packs()
     return {
+        "packs": packs,
         "tools": tools_rows,
         "skills": skills_rows,
         "mcp_servers": mcp_rows,
@@ -532,24 +540,28 @@ def list_bindings_catalog(*, include_disabled_skills: bool = False) -> dict[str,
             "items": [],
         },
         "defaults_on_create": {
+            "capability_pack": "none",
             "tools": [],
             "skills": [],
             "mcp_servers": [],
             "knowledge_vault_ids": [],
-            "tools_inherit_all": "仅当显式传入 tools: null 时继承全部可配置工具（不推荐）",
+            "max_allowlist_tools": MAX_ALLOWLIST_TOOLS,
+            "tools_inherit_all": (
+                "仅当显式 tools:null 且 confirm_inherit_all=true 时继承全部可配置工具（不推荐；员工创建默认禁止）"
+            ),
         },
-        "hint": (
-            "创建前先看本目录再填白名单。"
-            "agents.create：省略 tools → []；skills 省略 → []；"
-            "mcp_servers / knowledge_vault_ids 省略 → []。"
-            "也可 skills.list / mcp.get / knowledge.list。"
-        ),
+        "hint": pack_hint_for_bindings(),
     }
 
 
-def _bindings_applied_summary(row: dict[str, Any], *, tools_mode: str) -> dict[str, Any]:
+def _bindings_applied_summary(
+    row: dict[str, Any],
+    *,
+    tools_mode: str,
+    capability_pack: str | None = None,
+) -> dict[str, Any]:
     tools = row.get("tools")
-    return {
+    summary: dict[str, Any] = {
         "tools_mode": tools_mode,
         "tools": tools,
         "skills": row.get("skills"),
@@ -557,26 +569,46 @@ def _bindings_applied_summary(row: dict[str, Any], *, tools_mode: str) -> dict[s
         "tool_groups": row.get("tool_groups"),
         "knowledge_vault_ids": row.get("knowledge_vault_ids") or [],
         "semantics": {
-            "tools_null": "继承全部可配置工具（危险，仅显式 tools:null）",
+            "tools_null": "继承全部可配置工具（危险；须 confirm_inherit_all=true）",
             "tools_empty": "无业务工具白名单（运行时仍可能有模式注入的系统工具）",
             "skills_empty": "不注入技能目录",
             "mcp_empty": "不挂载 MCP",
             "knowledge_empty": "未绑定知识库（检索不会注入该角色）",
+            "capability_pack": "优先用 packs；tools_extra 少量追加；勿灌全表",
         },
-        "hint": "完整可选清单：platform action=agents.bindings（含 knowledge_bases；或 knowledge.list）",
+        "hint": "优先 packs：platform action=agents.bindings；完整工具名见同响应 tools[]",
     }
+    if capability_pack:
+        summary["capability_pack"] = capability_pack
+    return summary
 
 
-def create_agent(data: dict[str, Any]) -> dict[str, Any]:
+def create_agent(data: dict[str, Any], *, forbid_inherit_all: bool = False) -> dict[str, Any]:
     """Create a custom agent.
 
     When ``skills`` is omitted, the allowlist is empty ``[]`` (no skills injected).
 
     When ``tools`` is omitted, the allowlist is empty ``[]`` (not inherit-all).
-    Pass ``tools: null`` only when you intentionally want every configurable tool.
+    Prefer ``capability_pack`` (see ``agents.bindings`` packs). Pass ``tools: null`` only
+    with ``confirm_inherit_all=true`` when you intentionally want every configurable tool.
+
+    ``forbid_inherit_all``: employee create path rejects inherit-all unless confirmed.
     """
     if not isinstance(data, dict):
         raise ValidationError("Agent payload must be a JSON object")
+
+    from evoflow.config.capability_packs import apply_capability_pack_to_create_payload
+
+    try:
+        data = apply_capability_pack_to_create_payload(
+            data,
+            forbid_inherit_all=forbid_inherit_all,
+        )
+    except ValueError as exc:
+        raise ValidationError(str(exc)) from exc
+
+    pack_applied = data.pop("_capability_pack_applied", None)
+
     raw_code = _require_agent_code(data)
     _validate_agent_name(raw_code)
     normalized = _normalize_agent_name(raw_code)
@@ -662,17 +694,23 @@ def create_agent(data: dict[str, Any]) -> dict[str, Any]:
     _persist_agent_knowledge_vault_ids(normalized, vault_ids)
 
     row = _agent_row(load_agent_config(normalized), include_soul=True)
-    row["bindings_applied"] = _bindings_applied_summary(row, tools_mode=tools_mode)
+    row["bindings_applied"] = _bindings_applied_summary(
+        row,
+        tools_mode=tools_mode,
+        capability_pack=str(pack_applied) if pack_applied else None,
+    )
+    if pack_applied:
+        row["capability_pack"] = pack_applied
     if tools_mode == "inherit_all":
         row["warning"] = (
             "tools:null → 继承全部可配置工具；如需收紧请 agents.update 传入 tools 白名单，"
-            "或先 agents.bindings 查看清单。"
+            "或选 capability_pack（agents.bindings → packs）。"
         )
     elif tools_mode == "empty":
         row["hint"] = (
-            "未指定 tools，已设为空白名单。请先 agents.bindings 选工具/知识库后再 agents.update，"
-            "或创建时传入 tools:[...] / knowledge_vault_ids:[...]。"
-            "skills 已按精选默认注入（可用 skills:[] 清空）。"
+            "未指定 tools / capability_pack，已设为空白名单。"
+            "请 agents.bindings 选 packs（research|writer|duty|coding）或短 tools 白名单后再 update，"
+            "或创建时传入 capability_pack / tools:[...] / knowledge_vault_ids:[...]。"
         )
     return row
 

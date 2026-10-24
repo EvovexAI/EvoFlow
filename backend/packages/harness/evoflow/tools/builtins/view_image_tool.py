@@ -472,14 +472,17 @@ def _view_images_batch(
     )
 
 
-@tool("view_image", description=VIEW_IMAGE_DESCRIPTION, parse_docstring=False)
-def view_image_tool(
+def run_view_image_refs(
+    *,
     runtime: ToolRuntime[ContextT, ThreadState],
-    image_path: str | list[str],
-    tool_call_id: Annotated[str, InjectedToolCallId],
+    tool_call_id: str,
+    refs: list[str],
 ) -> Command | str:
-    """Load or analyze one or more images for the main model."""
-    refs = normalize_image_path_args(image_path)
+    """Shared image-viewing pipeline (native staging or vision-model text analysis).
+
+    Used by the ``view_image`` tool and delegated to by the host-direct ``read``
+    tool for image refs (jpg/jpeg/png/webp, http(s) URLs, browser-snapshot refs).
+    """
     if not refs:
         return "Error: image_path is required (string path/URL or list of paths/URLs)"
     if len(refs) > VIEW_IMAGE_MAX_REFS:
@@ -513,3 +516,21 @@ def view_image_tool(
         )
 
     return _view_images_batch(runtime=runtime, tool_call_id=tool_call_id, refs=refs)
+
+
+@tool("view_image", description=VIEW_IMAGE_DESCRIPTION, parse_docstring=False)
+def view_image_tool(
+    runtime: ToolRuntime[ContextT, ThreadState],
+    image_path: str | list[str],
+    tool_call_id: Annotated[str, InjectedToolCallId],
+) -> Command | str:
+    """Load or analyze one or more images for the main model.
+
+    Deprecated in the host-direct catalog: use ``read`` instead, which dispatches
+    image refs (paths / URLs / browser-snapshots) to the same pipeline. This
+    wrapper remains registered in sandbox mode and for backward-compatible tests.
+    """
+    refs = normalize_image_path_args(image_path)
+    if not refs:
+        return "Error: image_path is required (string path/URL or list of paths/URLs)"
+    return run_view_image_refs(runtime=runtime, tool_call_id=tool_call_id, refs=refs)

@@ -24,6 +24,27 @@ from evoflow.tools.builtins.vision_analysis_core import (
 
 logger = logging.getLogger(__name__)
 
+# Tools whose calls stage images into ``viewed_images``: the dedicated
+# ``view_image`` tool, and ``read`` when its args reference image refs
+# (paths/URLs/snapshots) — ``read`` dispatches images to the same pipeline.
+_IMAGE_READ_EXTENSIONS = (".jpg", ".jpeg", ".png", ".webp")
+
+
+def _read_args_reference_image(args: object) -> bool:
+    if not isinstance(args, dict):
+        return False
+    raw = args.get("path")
+    refs = raw if isinstance(raw, list) else [raw]
+    for ref in refs:
+        s = str(ref or "").strip().lower().replace("\\", "/")
+        if not s:
+            continue
+        if s.startswith(("http://", "https://")) or "/browser-snapshots/" in s:
+            return True
+        if s.split("?", 1)[0].split("#", 1)[0].endswith(_IMAGE_READ_EXTENSIONS):
+            return True
+    return False
+
 
 class ViewImageMiddlewareState(AgentState):
     """Compatible with the `ThreadState` schema."""
@@ -52,7 +73,11 @@ class ViewImageMiddleware(AgentMiddleware[ViewImageMiddlewareState]):
     def _has_view_image_tool(self, message: AIMessage) -> bool:
         if not hasattr(message, "tool_calls") or not message.tool_calls:
             return False
-        return any(tool_call.get("name") == "view_image" for tool_call in message.tool_calls)
+        return any(
+            tool_call.get("name") == "view_image"
+            or (str(tool_call.get("name") or "") == "read" and _read_args_reference_image(tool_call.get("args")))
+            for tool_call in message.tool_calls
+        )
 
     def _all_tools_completed(self, messages: list, assistant_msg: AIMessage) -> bool:
         if not hasattr(assistant_msg, "tool_calls") or not assistant_msg.tool_calls:

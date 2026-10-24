@@ -25,6 +25,7 @@ _PERSISTED_MARKERS = (
     _SUMMARY_PREFIX,
     "Full output:",
     "Persisted output:",
+    "<persisted-output>",  # zcode 对齐的落盘信封（large_result_store）
 )
 
 _READ_TOOLS = frozenset(

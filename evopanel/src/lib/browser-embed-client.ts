@@ -44,6 +44,17 @@ export async function browserEmbedSupported(): Promise<boolean> {
   }
 }
 
+/** Shared HWND already created (agent CDP path) — panel should place-only. */
+export async function browserEmbedExists(threadId: string): Promise<boolean> {
+  const tid = String(threadId || '').trim()
+  if (!isDesktopTauri() || !tid) return false
+  try {
+    return await invokeTauri<boolean>('browser_embed_exists', { threadId: tid })
+  } catch {
+    return false
+  }
+}
+
 export async function browserEmbedUpsert(opts: {
   threadId: string
   url?: string
@@ -113,7 +124,36 @@ export async function browserEmbedSetBounds(opts: {
     })
   } catch (err) {
     console.warn('[browser-embed] setBounds failed', err)
+    blog('warn', `[client] setBounds failed tid=${opts.threadId} err=${err}`)
     return false
+  }
+}
+
+export type BrowserEmbedCoordsProbe = {
+  label: string
+  kind: string
+  visible: boolean
+  parked: boolean
+  webviewScreen: { x: number; y: number; w: number; h: number }
+  webviewClient: { x: number; y: number; w: number; h: number }
+  mainClient: { w: number; h: number }
+  originScreen: { x: number; y: number }
+  lastSlot?: { x: number; y: number; w: number; h: number } | null
+}
+
+/** 读原生 WebView 当前矩形，和 HTML 槽位对照用。 */
+export async function browserEmbedProbeCoords(
+  threadId: string,
+): Promise<BrowserEmbedCoordsProbe | null> {
+  const tid = String(threadId || '').trim()
+  if (!isDesktopTauri() || !tid) return null
+  try {
+    return await invokeTauri<BrowserEmbedCoordsProbe | null>('browser_embed_probe_coords', {
+      threadId: tid,
+    })
+  } catch (err) {
+    console.warn('[browser-embed] probeCoords failed', err)
+    return null
   }
 }
 

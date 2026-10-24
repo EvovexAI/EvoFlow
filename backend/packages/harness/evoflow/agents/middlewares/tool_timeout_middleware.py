@@ -29,7 +29,9 @@ _TOOL_TIMEOUTS: dict[str, int] = {
     "web_fetch": 60,
     "web_extract": 60,
     "web_search": 30,
-    "read_lints": 90,
+    # "read_lints": 90,  # retired — 诊断走 Bash（pyright/ruff）
+    "glob": 30,
+    "grep": 60,
     "view_image": 120,
 }
 

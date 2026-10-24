@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 
 from langchain.tools import ToolRuntime, tool
+from langgraph.types import Command
 
 from evoflow.tools.host_direct.read_logic import read_file_content
 from evoflow.tools.host_direct.workspace_context import resolve_tool_workspace_root
@@ -14,6 +15,10 @@ from evoflow.tools.host_direct.workspace_path_guard import (
 )
 from evoflow.tools.minimal_schema import READ_TOOL_DESCRIPTION
 from evoflow.utils.workspace_browse import flatten_bound_workspace_absolute
+
+# Image refs (local paths / http(s) URLs / browser-snapshot refs) dispatch to the
+# shared view_image pipeline instead of returning text (ZCode-style Read dispatch).
+_IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".webp")
 
 _SYMBOL_MAX_LINES = 200
 
@@ -190,28 +195,101 @@ def _resolve_read_target(path: str, *, runtime: ToolRuntime) -> Path | str:
     return target
 
 
-def _note_model_read(path: Path) -> None:
+def _note_model_read(path: Path, *, full_read: bool = True, content_hash: str | None = None) -> None:
     try:
         from evoflow.tools.zcode_port.read_file_state import note_read
 
-        note_read(str(path))
+        note_read(str(path), full_read=full_read, content_hash=content_hash)
     except Exception:
         return
 
 
+def _is_image_ref(ref: str) -> bool:
+    """True for refs the view_image pipeline can handle: image path / http(s) URL / browser-snapshot."""
+    s = str(ref or "").strip().replace("\\", "/")
+    if not s:
+        return False
+    lower = s.lower()
+    if lower.startswith(("http://", "https://")) or "/browser-snapshots/" in lower:
+        return True
+    # Strip URL query/fragment before the extension check.
+    return os.path.splitext(lower.split("?", 1)[0].split("#", 1)[0])[1] in _IMAGE_EXTENSIONS
+
+
+def _resolve_image_ref(ref: str, *, runtime: ToolRuntime) -> str:
+    """Resolve a local image ref to an absolute path; URL / snapshot refs pass through.
+
+    Reuses the read tool's own path resolution (workspace-relative paths,
+    ``skill:`` paths, env expansion) so image reads behave like text reads.
+    """
+    lowered = ref.lower()
+    if lowered.startswith(("http://", "https://")) or "/browser-snapshots/" in lowered:
+        return ref
+    resolved = _resolve_read_target(ref, runtime=runtime)
+    if isinstance(resolved, str):
+        return resolved  # read-style error string, returned verbatim
+    return str(resolved)
+
+
 @tool("read", description=READ_TOOL_DESCRIPTION, parse_docstring=False)
 def read_file_hd(
-    path: str,
+    path: str | list[str],
     *,
     offset: int | None = None,
     limit: int | None = None,
     symbol: str | None = None,
+    pages: str | None = None,
     runtime: ToolRuntime,
-) -> str:
-    """Read one file from the local filesystem."""
+) -> str | Command:
+    """Read one file (text) or load/analyze image(s) from the local filesystem or URLs."""
+    from evoflow.tools.builtins.view_image_tool import (
+        normalize_image_path_args,
+        run_view_image_refs,
+    )
+
+    # Staged-image Commands must carry the originating tool call id; the real
+    # graph always provides it via ToolRuntime (node_repl_tool uses the same
+    # pattern — no InjectedToolCallId param, so direct ``.invoke()`` keeps working).
+    tool_call_id = str(getattr(runtime, "tool_call_id", "") or "").strip()
+
+    # ── Image dispatch ──
+    # ``path`` may be a single ref or a list of image refs (batch, view_image semantics).
+    # A JSON-array string is accepted and expanded for older callers.
+    image_refs = normalize_image_path_args(path)
+    if len(image_refs) > 1:
+        if not all(_is_image_ref(ref) for ref in image_refs):
+            return (
+                "Error: read accepts a list only for image paths/URLs "
+                "(jpg/jpeg/png/webp, http(s) URLs, browser-snapshot refs); "
+                "read text files one at a time."
+            )
+        resolved_refs: list[str] = []
+        for ref in image_refs:
+            resolved_ref = _resolve_image_ref(ref, runtime=runtime)
+            if resolved_ref.startswith("Error"):
+                return resolved_ref
+            resolved_refs.append(resolved_ref)
+        return run_view_image_refs(runtime=runtime, tool_call_id=tool_call_id, refs=resolved_refs)
+    if image_refs and _is_image_ref(image_refs[0]):
+        resolved_ref = _resolve_image_ref(image_refs[0], runtime=runtime)
+        if resolved_ref.startswith("Error"):
+            return resolved_ref
+        return run_view_image_refs(runtime=runtime, tool_call_id=tool_call_id, refs=[resolved_ref])
+
+    # ── Text path ──
     resolved = _resolve_read_target(path, runtime=runtime)
     if isinstance(resolved, str):
         return resolved
+    # ── PDF path (zcode Read PDF alignment) ──
+    # Dispatched before symbol/offset/limit: those are line-oriented and
+    # meaningless for PDFs; ``pages`` is the PDF-native page range parameter.
+    if resolved.suffix.lower() == ".pdf":
+        from evoflow.tools.host_direct.read_pdf import read_pdf_file
+
+        text = read_pdf_file(resolved, pages=pages)
+        if not str(text).startswith("Error:"):
+            _note_model_read(resolved, full_read=False)
+        return text
     if symbol:
         content = resolved.read_text(encoding="utf-8", errors="replace")
         language = _detect_language(resolved)
@@ -233,9 +311,30 @@ def read_file_hd(
             text += f"\n\n… [symbol '{symbol}' body is {total} lines; showing first {_SYMBOL_MAX_LINES}. Read the rest with offset={start + _SYMBOL_MAX_LINES}, limit={min(_SYMBOL_MAX_LINES, remaining)}]"
             return text
         text = "\n".join(f"{start + i}: {line}" for i, line in enumerate(body_lines))
-        _note_model_read(resolved)
+        _note_model_read(resolved, full_read=False)
         return text
+    # ZCode-style file_unchanged short-circuit: a full-text re-read of an
+    # unchanged file returns a one-line marker instead of resending content.
+    if offset is None and limit is None:
+        try:
+            from evoflow.tools.zcode_port.read_file_state import unchanged_since_last_read
+
+            if unchanged_since_last_read(resolved):
+                return (
+                    "Wasted call — file unchanged since your last Read. "
+                    "Refer to that earlier tool_result instead. "
+                    "If you intentionally want the content again, use offset=1."
+                )
+        except Exception:
+            pass
     text = read_file_content(str(resolved), offset=offset, limit=limit, use_cache=True)
     if not str(text).startswith("Error:"):
-        _note_model_read(resolved)
+        full_read = offset is None and limit is None
+        # Hash only meaningful for full views; partial views never qualify for edit.
+        content_hash = None
+        if full_read:
+            import hashlib
+
+            content_hash = hashlib.md5(str(text).encode("utf-8", errors="replace")).hexdigest()
+        _note_model_read(resolved, full_read=full_read, content_hash=content_hash)
     return text

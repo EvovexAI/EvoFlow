@@ -83,10 +83,9 @@ describe('buildNodeReplDisplayModel evoflow cua display', () => {
       },
     })
     expect(model.userTitle).toBe('截取微信窗口画面')
-    expect(model.app).toEqual({
-      appKey: 'windows-exe:d:\\app\\Tencent\\WeChat\\Weixin.exe',
-      displayName: '微信',
-    })
+    // 有截图时按轮尾画廊渲染，不挂 app（避免再画一整张工具卡）
+    expect(model.app).toBeUndefined()
+    expect(model.displaySource).toBe('browser_turn_end')
     expect(model.images).toEqual([
       {
         mimeType: 'image/png',

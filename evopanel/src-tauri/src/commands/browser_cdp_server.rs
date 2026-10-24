@@ -109,15 +109,9 @@ fn plugin_control_log_path() -> std::path::PathBuf {
 
 fn write_log_line(f: &mut std::fs::File, s: &str) {
     use std::io::Write as _;
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default();
-    let _ = writeln!(
-        f,
-        "ts:{}.{:03} [rust] {s}",
-        now.as_secs(),
-        now.subsec_millis()
-    );
+    // ISO local time — same shape as Python/web writers so three-way greps line up.
+    let ts = chrono::Local::now().format("%Y-%m-%dT%H:%M:%S%.3f");
+    let _ = writeln!(f, "{ts} [rust] {s}");
 }
 
 /// Write a transport marker so Python knows which backend is active.
@@ -127,6 +121,21 @@ fn write_transport(marker: &str) {
     let path = evoflow_dir().join(TRANSPORT_FILE);
     let _ = std::fs::write(&path, marker);
     log_line(&format!("[browser-cdp] transport marker = {marker}"));
+}
+
+/// Non-blocking peek: port if the HTTP bridge is already up (0 = not started).
+pub fn http_server_port_if_running() -> Option<u16> {
+    let port = SERVER_PORT.load(Ordering::SeqCst);
+    if port != 0 {
+        return Some(port);
+    }
+    // Fall back to well-known file (another thread may have written it).
+    let path = evoflow_dir().join(PORT_FILE);
+    let Ok(s) = std::fs::read_to_string(&path) else {
+        return None;
+    };
+    let p: u16 = s.trim().parse().ok()?;
+    (p != 0).then_some(p)
 }
 
 /// Start the HTTP server (idempotent). Returns the port.
@@ -407,13 +416,38 @@ fn handle_connection(mut socket: TcpStream, app: tauri::AppHandle) {
         ("GET", path) if path.starts_with("/browser-cdp/guest-ping") => {
             let label = percent_decode(&query_param(path, "label").unwrap_or_default());
             let msg = percent_decode(&query_param(path, "msg").unwrap_or_default());
-            log_line(&format!("[browser-cdp] guest-ping label={label} msg={msg}"));
+            let href = percent_decode(&query_param(path, "url").unwrap_or_default());
+            let placeholder = href.is_empty()
+                || href.starts_with("about:")
+                || href.contains("/browser-embed/blank")
+                || href.contains("://example.com");
+            if !label.is_empty() && !href.is_empty() && !placeholder {
+                if let Some(bridge) = app.try_state::<crate::commands::browser_embed_bridge::EmbedBridge>()
+                {
+                    bridge.note_url(&label, &href);
+                }
+            }
+            // SPA iframes spam about:blank — skip those from the timeline log.
+            if !placeholder {
+                log_line(&format!(
+                    "[browser-cdp] guest-ping label={label} msg={msg} url={href}"
+                ));
+            }
             "HTTP/1.1 204 No Content\r\nAccess-Control-Allow-Origin: *\r\nContent-Length: 0\r\n\r\n"
                 .to_string()
         }
         ("OPTIONS", path) if path.starts_with("/browser-cdp/") => {
             "HTTP/1.1 204 No Content\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET, POST, OPTIONS\r\nAccess-Control-Allow-Headers: Content-Type\r\nContent-Length: 0\r\n\r\n"
                 .to_string()
+        }
+        // Blank boot page for embed create (about:blank / example.com are unusable).
+        ("GET", path) if path.starts_with("/browser-embed/blank") => {
+            let body = "<!DOCTYPE html><html><head><meta charset=utf-8><title></title></head><body></body></html>";
+            format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nAccess-Control-Allow-Origin: *\r\nCache-Control: no-store\r\nContent-Length: {}\r\n\r\n{}",
+                body.len(),
+                body
+            )
         }
         _ => "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n".to_string(),
     };

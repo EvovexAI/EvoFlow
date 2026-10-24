@@ -98,12 +98,28 @@ def _active_scenario_keys(scenario: str) -> set[str]:
     return {s.strip() for s in (scenario or "").split(",") if s.strip()} or {"ask"}
 
 
+# 协作进行中才往系统提示塞 plan/runtime；终态 done 留在磁盘也不算「进行中」
+# （否则切回普通 agent 后仍会挂 <plan_runtime_stage> / 任务绑定噪音）。
+_PLAN_COLLAB_PROMPT_ACTIVE_PHASES = frozenset(
+    {
+        "req_confirm",
+        "planning",
+        "plan_ready",
+        "awaiting_exec",
+        "executing",
+        "verifying",
+        "reflecting",
+        "paused",
+    }
+)
+
+
 def _plan_collab_prompt_active(*, scenario: str, collab_phase: str | None) -> bool:
-    """True when plan scenario is active or collab state is in the plan pipeline (not idle)."""
+    """True only while Plan collab is in-flight — not idle/done leftovers on disk."""
     if "plan" in _active_scenario_keys(scenario):
         return True
     phase = str(collab_phase or "").strip().lower()
-    return bool(phase) and phase not in {"idle", "(unset)"}
+    return phase in _PLAN_COLLAB_PROMPT_ACTIVE_PHASES
 
 
 def _is_pure_chat_modules(modules: list[str]) -> bool:
@@ -361,18 +377,13 @@ def _build_plan_workflow_section(
     collab_phase: str | None,
     prompt_language: str | None = None,
 ) -> str:
-    """Full ``<plan_workflow>`` process block — required so the model knows the end-to-end loop."""
-    if not _plan_collab_prompt_active(scenario=scenario, collab_phase=collab_phase):
-        return ""
-    from evoflow.agents.lead_agent.plan_prompt_blocks import format_plan_workflow_system_block
+    """Intentionally empty: do **not** inject ``<plan_workflow>`` into the system prompt.
 
-    modules = _enabled_modules_for_scenario(scenario)
-    include_clarification = "planning" in modules or "plan" in _active_scenario_keys(scenario)
-    return format_plan_workflow_system_block(
-        agent_name,
-        include_clarification=include_clarification,
-        prompt_language=prompt_language,
-    )
+    Plan end-to-end loop lives on the ``plan`` tool description + ``<phase_execution_guard>`` /
+    ``<plan_runtime_stage>`` when collab is active — keep the static system prefix lean.
+    """
+    _ = (agent_name, scenario, collab_phase, prompt_language)
+    return ""
 
 
 def _build_plan_runtime_stage_section(
@@ -826,6 +837,9 @@ def _assemble_system_prompt(
     # 产物展示协议（@@ 文件交付 + ::code-comment 行内评论）：任何场景都可能引用工作区
     # 文件或评审代码（agent/code 场景的模块映射也落在 chat），无条件注入。
     blocks.append(static.ARTIFACT_DISPLAY_BLOCK.strip())
+    # 平台行政：主智能体与小V同源职责；标签 ``<platform_tool>``（勿用 ``<platform>``）。
+    if getattr(static, "PLATFORM_TOOL_BLOCK", "").strip():
+        blocks.append(static.PLATFORM_TOOL_BLOCK.strip())
     # TOOL_CALLING_BLOCK：不再注入；工具 schema / 模型能力已够用。
 
     if thinking_enabled:
@@ -1661,10 +1675,17 @@ def _build_skills_prompt_section(
 
     def _skills_list(*, with_descriptions: bool, capped: bool) -> str:
         if with_descriptions:
+            # zcode Skill alignment: when_to_use helps the model decide when to
+            # read the full SKILL.md; omitted on capped/compact degradation tiers.
             items = "\n".join(
                 f"    <skill>\n        <name>{skill.name}</name>\n"
                 f"        <description>{_skill_description(skill, capped=capped)}</description>\n"
-                f"        <location>{_skill_location(skill)}</location>\n    </skill>"
+                + (
+                    f"        <when_to_use>{skill.when_to_use}</when_to_use>\n"
+                    if (not capped and not compact and getattr(skill, "when_to_use", ""))
+                    else ""
+                )
+                + f"        <location>{_skill_location(skill)}</location>\n    </skill>"
                 for skill in skills
             )
         else:

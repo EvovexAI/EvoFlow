@@ -41,6 +41,9 @@ import {
   readOffPeakCreateTaskSummary,
   type OffPeakCreateTaskSummary,
 } from "@/ToolCallBlocks/renderers/offpeak-create.js";
+import { readPlatformBindChannelFeedback } from "@/ToolCallBlocks/renderers/platform.js";
+import { EmployeeBindChannelQr } from "../../react/components/EmployeeBindChannelQr.js";
+import type { PlatformUiFeedback } from "../../lib/right-stage/platform-feedback.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import type { AssistantPreviewCard } from "@/lib/assistantPreviewCards.js";
 import { useAssistantCodeCommentFeatureEnabled } from "@/AssistantCodeCommentFeatureProvider.js";
@@ -121,6 +124,19 @@ interface OffPeakTurnCard {
   toolCallId: string;
   task: OffPeakCreateTaskSummary;
 }
+
+interface BindChannelTurnCard {
+  rowId: number;
+  toolCallId: string;
+  feedback: PlatformUiFeedback;
+}
+
+const BIND_CHANNEL_LABELS: Record<string, string> = {
+  feishu: "飞书",
+  wecom: "企业微信",
+  dingtalk: "钉钉",
+  weixin: "微信",
+};
 
 const MIN_VISIBLE_API_RETRY_ATTEMPT = 3;
 
@@ -257,6 +273,9 @@ function ConversationToolGroupRow({
         renderCuaAssistantMessage={item.kind === "cuaGroup" ? renderAssistantMessage : undefined}
         renderCuaReasoning={item.kind === "cuaGroup" ? renderReasoning : undefined}
       />
+      {item.rows.map((child) => (
+        <div key={child.toolCallId}>{context.renderToolCallApproval?.(child.toolCallId)}</div>
+      ))}
     </div>
   );
 }
@@ -487,6 +506,34 @@ function resolveOffPeakTurnCards(rows: readonly AssistantWorkRow[]): OffPeakTurn
   return cards;
 }
 
+/** 工具行留在「已工作」原位；只把扫码挂到对话轮尾（与 Cron/OffPeak 成功卡同级）。 */
+function resolveBindChannelTurnCards(rows: readonly AssistantWorkRow[]): BindChannelTurnCard[] {
+  const cards: BindChannelTurnCard[] = [];
+  const seenSessions = new Set<string>();
+
+  for (const row of rows) {
+    if (row.kind !== "toolCall") continue;
+    if (String(row.toolName || "").trim().toLowerCase() !== "platform") continue;
+    if (row.status === "inputStreaming" || row.status === "running") continue;
+
+    const node = toolCallRowToLegacyNode(row);
+    const feedback = readPlatformBindChannelFeedback(node.toolCall.raw);
+    if (!feedback) continue;
+
+    const dedupeKey = String(feedback.sessionId || feedback.qrUrl || row.toolCallId).trim();
+    if (dedupeKey && seenSessions.has(dedupeKey)) continue;
+    if (dedupeKey) seenSessions.add(dedupeKey);
+
+    cards.push({
+      rowId: row.rowId,
+      toolCallId: row.toolCallId,
+      feedback,
+    });
+  }
+
+  return cards;
+}
+
 function parseJsonRecord(value: unknown): Record<string, unknown> | null {
   let candidate = value;
   if (typeof candidate === "string") {
@@ -558,6 +605,32 @@ function OffPeakTurnCards({
           onOpenAutomationsMain={context.onOpenAutomationsMain}
         />
       ))}
+    </div>
+  );
+}
+
+function BindChannelTurnCards({ cards }: { cards: readonly BindChannelTurnCard[] }) {
+  if (cards.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="msg-platform-results-hoist flex flex-col gap-3">
+      {cards.map((card) => {
+        const channelLabel =
+          BIND_CHANNEL_LABELS[String(card.feedback.channel || "").toLowerCase()] || "渠道";
+        const employeeName = String(
+          card.feedback.entityLabel || card.feedback.agentCode || "本岗 AI 员工",
+        ).trim();
+        return (
+          <div key={`${card.rowId}:${card.toolCallId}`} className="msg-bind-employee-qr">
+            <div className="msg-bind-employee-qr-caption">
+              扫码绑定本岗 AI 员工「{employeeName}」· {channelLabel}
+            </div>
+            <EmployeeBindChannelQr data={card.feedback} />
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -810,9 +883,13 @@ function ConversationTurnFlow({
     latestAssistantTextRow: unit.latestAssistantTextRow,
     workspacePath: context.workspacePath,
     workspaceHomePath: context.workspaceHomePath,
-    fileChangesTarget: unit.header?.entityId
-      ? { rowId: unit.header.rowId, entityId: unit.header.entityId }
-      : null,
+    fileChangesTarget:
+      unit.header && (unit.header.entityId || unit.header.turnId)
+        ? {
+            rowId: unit.header.rowId,
+            entityId: String(unit.header.entityId || unit.header.turnId),
+          }
+        : null,
     fileChangesState: unit.header?.fileChanges?.state,
     fetchFileChanges: context.fetchFileChanges,
   });
@@ -979,9 +1056,13 @@ function ConversationBackgroundResultWork({
     latestAssistantTextRow,
     workspacePath: context.workspacePath,
     workspaceHomePath: context.workspaceHomePath,
-    fileChangesTarget: unit.header?.entityId
-      ? { rowId: unit.header.rowId, entityId: unit.header.entityId }
-      : null,
+    fileChangesTarget:
+      unit.header && (unit.header.entityId || unit.header.turnId)
+        ? {
+            rowId: unit.header.rowId,
+            entityId: String(unit.header.entityId || unit.header.turnId),
+          }
+        : null,
     fileChangesState: unit.header?.fileChanges?.state,
     fetchFileChanges: context.fetchFileChanges,
   });
@@ -1197,6 +1278,11 @@ function ConversationTurnGroupImpl({
     () => (unit.isRunning ? [] : resolveOffPeakTurnCards(unit.assistantWorkRows)),
     [unit.assistantWorkRows, unit.isRunning],
   );
+  // 绑渠道扫码：工具一出结果就挂轮尾，不必等整轮结束（扫码要趁热）。
+  const bindChannelTurnCards = useMemo(
+    () => resolveBindChannelTurnCards(unit.assistantWorkRows),
+    [unit.assistantWorkRows],
+  );
   const canRenderAssistantActions =
     !unit.timelineOnly &&
     latestAssistantTextRow?.state === "complete" &&
@@ -1304,7 +1390,9 @@ function ConversationTurnGroupImpl({
       data-turn-id={unit.turnId}
       data-turn-key={unit.key}
       className={cn(
-        "relative mx-auto flex w-full flex-col gap-5 px-4 @md/conversation:px-6 pb-5",
+        // 与 composer dock（ConversationTimeline `px-4`）左右对齐；
+        // 以前 @md 升到 px-6 会让 AI 正文比输入框多缩进 8px。
+        "relative mx-auto flex w-full flex-col gap-5 px-4 pb-5",
         startsWithWorkflowNotificationCard ? "pt-0" : "pt-14",
       )}
     >
@@ -1399,6 +1487,7 @@ function ConversationTurnGroupImpl({
               完成后的结果摘要，必须等回复结束再跟随最终 assistant 正文收尾。 */}
           <CronAutomationTurnCards cards={cronAutomationTurnCards} context={context} />
           <OffPeakTurnCards cards={offPeakTurnCards} context={context} />
+          <BindChannelTurnCards cards={bindChannelTurnCards} />
           {!isOfficeMode && unit.header?.fileChanges ? (
             <ConversationFileSummaryPanel header={unit.header} context={context} />
           ) : null}

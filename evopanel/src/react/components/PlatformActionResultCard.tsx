@@ -7,6 +7,7 @@ import {
   type PlatformUiFeedback,
 } from '../../lib/right-stage/platform-feedback.js'
 import { requestOpenPlatformFeedbackFromTool } from '../../lib/right-stage/platform-feedback-bridge.js'
+import { EmployeeBindChannelQr } from './EmployeeBindChannelQr.js'
 
 type Props = {
   tool: Record<string, unknown>
@@ -51,6 +52,20 @@ function StatusIcon({ kind }: { kind: PlatformUiFeedback['kind'] }) {
   )
 }
 
+function hasBindQr(ui: PlatformUiFeedback): boolean {
+  return Boolean(
+    (ui.qrUrl || ui.sessionId) &&
+      (String(ui.action || '') === 'employees.bind_channel_begin' || Boolean(ui.bindStatus)),
+  )
+}
+
+const CHANNEL_LABELS: Record<string, string> = {
+  feishu: '飞书',
+  wecom: '企业微信',
+  dingtalk: '钉钉',
+  weixin: '微信',
+}
+
 /** 平台工具完成后的结构化 Action Result（消息流内） */
 export const PlatformActionResultCard = memo(function PlatformActionResultCard({
   tool,
@@ -61,15 +76,39 @@ export const PlatformActionResultCard = memo(function PlatformActionResultCard({
 
   const title = platformActionCardTitle(ui)
   const meta = platformActionCardMeta(ui)
+  const showQr = hasBindQr(ui)
   const primaryAction = Array.isArray(ui.actions) && ui.actions.length > 0 ? ui.actions[0] : null
   const actionLabel = primaryAction?.label || '查看详情'
+  const channelLabel = CHANNEL_LABELS[String(ui.channel || '').toLowerCase()] || '渠道'
+  const employeeName = String(ui.entityLabel || ui.agentCode || '本岗 AI 员工').trim()
 
   const onOpen = () => {
+    if (ui.qrUrl) {
+      window.open(String(ui.qrUrl), '_blank', 'noopener,noreferrer')
+      return
+    }
     if (primaryAction?.route) {
       navigatePlatformFeedbackRoute(primaryAction.route)
       return
     }
     requestOpenPlatformFeedbackFromTool(tool)
+  }
+
+  // 绑渠道：像微信/钉钉发图一样，直接在对话下方出大图二维码扫码绑定本岗 AI 员工
+  if (showQr) {
+    return (
+      <div className={`msg-bind-employee-qr${className ? ` ${className}` : ''}`}>
+        <div className="msg-bind-employee-qr-caption">
+          扫码绑定本岗 AI 员工「{employeeName}」· {channelLabel}
+        </div>
+        <EmployeeBindChannelQr data={ui} />
+        {ui.qrUrl ? (
+          <button type="button" className="msg-bind-employee-qr-open-link" onClick={onOpen}>
+            打不开码？点此打开{channelLabel}扫码页
+          </button>
+        ) : null}
+      </div>
+    )
   }
 
   return (

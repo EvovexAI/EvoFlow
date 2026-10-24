@@ -179,6 +179,75 @@ from evoflow.proactive.schedule import (  # noqa: E402
 )
 
 
+def _record_duty_trigger(
+    role: ProactiveRole,
+    *,
+    trigger_source: str = "",
+    trigger_reason: str = "",
+    scheduled: bool = False,
+    status: str = "started",
+    skip_reason: str = "",
+    round_id: str = "",
+    session_key: str = "",
+) -> dict[str, Any]:
+    """Best-effort insert into evoflow_duty_runs (trigger → trail index)."""
+    try:
+        from evoflow.proactive.duty_runs import start_duty_run
+
+        return start_duty_run(
+            agent_code=str(getattr(role, "agent_code", "") or ""),
+            round_id=round_id,
+            session_key=session_key,
+            trigger_source=trigger_source,
+            trigger_reason=trigger_reason,
+            scheduled=scheduled,
+            status=status,
+            skip_reason=skip_reason,
+        ) or {}
+    except Exception:
+        logger.debug(
+            "proactive.runner: duty_run record failed code=%s",
+            getattr(role, "agent_code", ""),
+            exc_info=True,
+        )
+        return {}
+
+
+def _finish_duty_run(
+    run_id: str,
+    *,
+    status: str,
+    skip_reason: str = "",
+    session_key: str = "",
+    round_id: str = "",
+    error: str = "",
+    primary_task_id: str = "",
+) -> None:
+    if not str(run_id or "").strip():
+        return
+    try:
+        from evoflow.proactive.duty_runs import count_messages_for_session, update_duty_run
+
+        msg_n, tool_n = (0, 0)
+        sk = str(session_key or "").strip()
+        if sk:
+            msg_n, tool_n = count_messages_for_session(sk, round_id=round_id or None)
+        update_duty_run(
+            run_id,
+            status=status,
+            skip_reason=skip_reason or None,
+            session_key=sk or None,
+            round_id=str(round_id or "").strip() or None,
+            msg_count=msg_n,
+            tool_count=tool_n,
+            primary_task_id=primary_task_id or None,
+            error=error or None,
+            ended=True,
+        )
+    except Exception:
+        logger.debug("proactive.runner: duty_run finish failed run_id=%s", run_id, exc_info=True)
+
+
 def _should_skip_xiaomi_idle_heartbeat(role: ProactiveRole) -> bool:
     """Scheduled 小V only: skip LLM patrol when there is no board work."""
     try:
@@ -905,6 +974,14 @@ class ProactiveRunner:
                     tip,
                     role.next_heartbeat_at or "—",
                 )
+                _record_duty_trigger(
+                    role,
+                    trigger_source="scheduler.tick",
+                    trigger_reason=f"定时心跳到期但忙碌中（next_heartbeat_at={role.next_heartbeat_at or '已到期'}）",
+                    scheduled=True,
+                    status="busy",
+                    skip_reason="role_busy",
+                )
                 continue
             if _should_skip_xiaomi_idle_heartbeat(role):
                 idle_skipped.append(code)
@@ -914,6 +991,14 @@ class ProactiveRunner:
                     str(role.role_name or "").strip() or code,
                     code,
                     next_duty or "—",
+                )
+                _record_duty_trigger(
+                    role,
+                    trigger_source="scheduler.tick",
+                    trigger_reason=f"定时心跳到期 · 空板未开工（改约 {next_duty or '—'}）",
+                    scheduled=True,
+                    status="skipped",
+                    skip_reason="xiaomi_idle_board",
                 )
                 try:
                     ProactiveRepository.update_heartbeat(
@@ -1455,8 +1540,22 @@ class ProactiveRunner:
 
         ``scheduled=True`` is the heartbeat tick: 小V with an empty board skips
         the LLM round (no duty session). Manual heartbeat / dispatch keep running.
+
+        Every fire (including skip / busy) writes ``evoflow_duty_runs`` so the
+        employee worklog shows when automation triggered.
         """
         code = str(role.agent_code or "").strip()
+        src = str(trigger_source or "").strip() or ("scheduler.tick" if scheduled else "manual")
+        reason = str(trigger_reason or "").strip() or (
+            "定时心跳到期（自动上班）" if scheduled else "手动/派发触发上班"
+        )
+        duty_run_id = ""
+        duty_round_id = str(round_id or "").strip()
+        if not duty_round_id and str(round_id_prefix or "").strip() not in ("", "round"):
+            duty_round_id = f"{str(round_id_prefix).strip()}:{utc_now_iso_z()}"
+        if not duty_round_id:
+            duty_round_id = f"round:{utc_now_iso_z()}"
+
         if role_lock_held:
             await self._bind_role_task(code)
         elif not await self._try_begin_role(code):
@@ -1468,15 +1567,36 @@ class ProactiveRunner:
                 badge,
                 tip,
             )
+            _record_duty_trigger(
+                role,
+                trigger_source=src,
+                trigger_reason=reason,
+                scheduled=scheduled,
+                status="busy",
+                skip_reason="role_busy",
+                round_id=duty_round_id,
+            )
             return self._busy_payload(code)
+
+        started = _record_duty_trigger(
+            role,
+            trigger_source=src,
+            trigger_reason=reason,
+            scheduled=scheduled,
+            status="started",
+            round_id=duty_round_id,
+        )
+        duty_run_id = str(started.get("run_id") or "")
+        if started.get("round_id"):
+            duty_round_id = str(started["round_id"])
 
         _log_duty_run_about_to_start(
             role=role,
-            trigger_reason=trigger_reason or ("定时心跳到期（自动上班）" if scheduled else "手动/派发触发上班"),
-            trigger_source=trigger_source or ("scheduler" if scheduled else "manual"),
+            trigger_reason=reason,
+            trigger_source=src,
             scheduled=scheduled,
             busy_now=True,
-            extra=f"round_id={round_id or '（本轮将新建）'}",
+            extra=f"round_id={duty_round_id} duty_run={duty_run_id or '—'}",
         )
 
         # ── Budget circuit-breaker (O2.3) ──────────────────────
@@ -1516,6 +1636,12 @@ class ProactiveRunner:
                                     "proactive.runner: pause_role after budget failed",
                                     exc_info=True,
                                 )
+                        _finish_duty_run(
+                            duty_run_id,
+                            status="skipped",
+                            skip_reason="daily_budget_exceeded",
+                            round_id=duty_round_id,
+                        )
                         await self._end_role(code, only_if_task=asyncio.current_task())
                         return {
                             "ok": False,
@@ -1526,6 +1652,8 @@ class ProactiveRunner:
                             "budget_usd": daily_budget,
                             "budget_exceed_policy": budget_policy,
                             "status": role.status,
+                            "round_id": duty_round_id,
+                            "duty_run_id": duty_run_id,
                         }
             except Exception:
                 logger.debug("proactive.runner: budget check failed (non-fatal)", exc_info=True)
@@ -1546,6 +1674,12 @@ class ProactiveRunner:
                     code,
                     exc_info=True,
                 )
+            _finish_duty_run(
+                duty_run_id,
+                status="skipped",
+                skip_reason="xiaomi_idle_board",
+                round_id=duty_round_id,
+            )
             await self._end_role(code, only_if_task=asyncio.current_task())
             return {
                 "ok": True,
@@ -1553,8 +1687,11 @@ class ProactiveRunner:
                 "agent_code": code,
                 "reason": "xiaomi_idle_board",
                 "next_heartbeat_at": next_hb,
+                "round_id": duty_round_id,
+                "duty_run_id": duty_run_id,
             }
 
+        duty_session_key = ""
         try:
             async with self._semaphore:
                 now = utc_now_iso_z()
@@ -1576,10 +1713,23 @@ class ProactiveRunner:
                     # Soft focus (立即开工事项): keep patrol context, lead with note.
                     env_context = f"{prepend_env_context.rstrip()}\n\n{env_context}" if env_context else prepend_env_context.rstrip()
 
-                pinned_round = str(round_id or "").strip() or None
-                if pinned_round is None and str(round_id_prefix or "").strip() not in ("", "round"):
-                    # Legacy callers passed prefix only; keep stamp family aligned.
-                    pinned_round = f"{str(round_id_prefix).strip()}:{utc_now_iso_z()}"
+                pinned_round = duty_round_id
+
+                from evoflow.proactive.chat_session import resolve_work_session_key
+                from evoflow.proactive.duty_runs import update_duty_run
+
+                duty_session_key = resolve_work_session_key(
+                    agent_code=code,
+                    kind="duty",
+                    round_id=pinned_round,
+                )
+                if duty_run_id:
+                    update_duty_run(
+                        duty_run_id,
+                        status="running",
+                        session_key=duty_session_key,
+                        round_id=pinned_round,
+                    )
 
                 result = await self._engine.think(
                     role,
@@ -1614,12 +1764,45 @@ class ProactiveRunner:
                         exc_info=True,
                     )
 
+                result_round = str(getattr(result, "round_id", "") or "").strip() or pinned_round
+                primary_tid = ""
+                created_tids = list(getattr(result, "created_task_ids", None) or [])
+                if created_tids:
+                    primary_tid = str(created_tids[0] or "").strip()
+                # Engine may bind a task session when env pins related_task_id.
+                related_tid = ""
+                for line in str(env_context or "").splitlines():
+                    s = line.strip()
+                    low = s.lower()
+                    if low.startswith("related_task_id:") or low.startswith("task_id:"):
+                        related_tid = s.split(":", 1)[-1].strip().strip("`")
+                        break
+                if related_tid.startswith("task:"):
+                    related_tid = related_tid[len("task:") :].strip()
+                if not related_tid and primary_tid:
+                    related_tid = primary_tid
+                final_session_key = resolve_work_session_key(
+                    agent_code=code,
+                    kind="task" if related_tid else "duty",
+                    round_id=result_round,
+                    task_id=related_tid or None,
+                )
+                _finish_duty_run(
+                    duty_run_id,
+                    status="completed",
+                    session_key=final_session_key or duty_session_key,
+                    round_id=result_round,
+                    primary_task_id=primary_tid or related_tid,
+                )
+
                 report = self._build_heartbeat_report(
                     role,
                     result,
                     last_heartbeat_at=now,
                     next_heartbeat_at=next_hb,
                 )
+                if duty_run_id:
+                    report = {**report, "duty_run_id": duty_run_id}
                 # Budget check BEFORE Feishu notification — if the role gets
                 # paused due to budget overrun, the user should not receive a
                 # "一切正常" card (Bug M5).
@@ -1674,6 +1857,13 @@ class ProactiveRunner:
                 return report
         except asyncio.CancelledError:
             logger.info("proactive.runner: role=%s patrol cancelled (pause/stop)", code)
+            _finish_duty_run(
+                duty_run_id,
+                status="failed",
+                round_id=duty_round_id,
+                error="cancelled",
+                session_key=duty_session_key,
+            )
             raise
         except Exception as exc:
             try:
@@ -1686,15 +1876,32 @@ class ProactiveRunner:
                         code,
                         retry_at,
                     )
+                    _finish_duty_run(
+                        duty_run_id,
+                        status="skipped",
+                        skip_reason="langgraph_unreachable",
+                        round_id=duty_round_id,
+                        error=str(exc)[:500],
+                        session_key=duty_session_key,
+                    )
                     return {
                         "ok": False,
                         "skipped": True,
                         "agent_code": code,
                         "reason": "langgraph_unreachable",
                         "next_heartbeat_at": retry_at,
+                        "round_id": duty_round_id,
+                        "duty_run_id": duty_run_id,
                     }
             except Exception:
                 pass
+            _finish_duty_run(
+                duty_run_id,
+                status="failed",
+                round_id=duty_round_id,
+                error=str(exc)[:500],
+                session_key=duty_session_key,
+            )
             raise
         finally:
             await self._end_role(code, only_if_task=asyncio.current_task())
@@ -2066,6 +2273,7 @@ class ProactiveRunner:
                     dry_run=False,
                     stuck_days=3,
                     awaiting_close_days=3,
+                    dead_days=1,
                 )
             )
             n = len(out.get("reclaimed") or [])

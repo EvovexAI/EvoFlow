@@ -5,19 +5,24 @@ from __future__ import annotations
 # Plan and legacy agent configs often use retired sandbox names; map to current catalog.
 _TOOL_NAME_ALIASES: dict[str, str] = {
     "read_file": "read",
+    # view_image merged into host-direct ``read``; old plan/agent configs keep resolving.
+    "view_image": "read",
     "write_file": "write",
     "write_to_file": "write",
     "str_replace": "replace",
     "replace_in_file": "replace",
-    "delete_file": "delete",
-    "find_file": "bash",
-    "find": "bash",
+    # delete 工具已撤除（对齐 ZCode）：删除走 Bash rm，旧配置名映射到 bash（审批兜底）。
+    "delete_file": "bash",
+    "delete": "bash",
+    # glob/grep 已注册为专用工具（对齐 ZCode）；旧配置的搜索类名字映射到新工具。
+    "find": "glob",
+    "find_file": "glob",
+    "ripgrep": "grep",
+    "grep": "grep",
+    "rg": "grep",
     "list_dir": "bash",
     "ls": "bash",
     "search_content": "search_code_index",
-    "ripgrep": "bash",
-    "grep": "bash",
-    "rg": "bash",
     "terminal": "bash",
     "process": "bash",
     "process_start": "bash",

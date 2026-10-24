@@ -387,17 +387,33 @@ class CollabPhaseMiddleware(AgentMiddleware[AgentState]):
             return None
 
         messages = state.get("messages") or []
+        phase_l = str(phase).strip().lower()
 
         # planning-like：主系统提示已有 ``<phase_execution_guard>``（见 ``prompt._build_collab_phase_guard_section``），
         # 再注入 ``<collab_phase_context>`` 与其中条大量重复；跳过（方案 A）。
-        if str(phase).strip().lower() in _planning_like_phases_covered_by_main_prompt_guard():
+        if phase_l in _planning_like_phases_covered_by_main_prompt_guard():
             return None
+
+        # 终态 done：Plan 已结束并切回普通 agent 后不应再挂交付总结/绑定任务噪音。
+        # 仅当本回合仍激活 plan 场景时才注入（极少见）；否则跳过。
+        if phase_l == CollabPhase.DONE.value:
+            try:
+                from evoflow.tools.builtins.scenario_activation import get_activated_scenarios
+
+                active = {
+                    str(s or "").strip().lower()
+                    for s in (get_activated_scenarios() or [])
+                    if str(s or "").strip()
+                }
+            except Exception:
+                active = set()
+            if "plan" not in active:
+                return None
 
         if not messages:
             return None
 
         last = messages[-1]
-        phase_l = str(phase).strip().lower()
         # Human turn: always eligible (dedup below).
         # Tool turn (e.g. right after ``monitor_execution_step`` / ``get_status``): in executing/paused
         # we must re-inject phase + live snapshot; otherwise the model only sees tool JSON and may

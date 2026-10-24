@@ -187,6 +187,14 @@ def _enqueue_mirror_wire_frames(
         agui_state = state
     else:
         wires = [str(f) for f in frames if str(f or "").strip()]
+    if wires:
+        # v4 镜像：断连尾流同样喂 v4 投影（失败静默）。
+        try:
+            from app.gateway.v4.agui_mirror import mirror_feed_agui_wire
+
+            mirror_feed_agui_wire(thread_id, wires)
+        except Exception:
+            pass
     for wire in wires:
         w = wire if wire.endswith("\n\n") else wire + "\n\n"
         if w.strip():

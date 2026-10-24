@@ -1,4 +1,4 @@
-"""Enhanced Web Fetch tool — Hybrid HTTP + Jina fallback strategy.
+"""Enhanced Web Fetch tool — Hybrid HTTP + Jina fallback strategy (zcode WebFetch aligned).
 
 Strategy C (Hybrid):
 1. Primary: Built-in HTTP fetcher with HTML→Markdown conversion (zero external deps)
@@ -6,6 +6,11 @@ Strategy C (Hybrid):
 3. Fallback: If Jina fails, falls back to pure HTTP
 
 Features:
+- Prompt-driven processing (zcode alignment): optional ``prompt`` param answers the
+  question against the fetched page via a small fast model — the main conversation
+  receives the answer instead of the full page.
+- 15-minute per-URL content cache (zcode alignment).
+- Cross-host redirects are returned to the model instead of followed (zcode alignment).
 - 50KB content limit (vs jina_ai's 4KB limit)
 - Three extract modes: full / main-content / text
 - Security: blocks internal networks, enforces http/https only
@@ -15,6 +20,9 @@ Features:
 import logging
 import re
 import ssl
+import threading
+import time
+import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from html.parser import HTMLParser
 from ipaddress import ip_address as _ip_addr
@@ -22,10 +30,11 @@ from ipaddress import ip_network as _ip_net
 from typing import Literal
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
-from urllib.request import Request, urlopen
+from urllib.request import Request
 
 from langchain.tools import tool
 
+from evoflow.community.web_fetch.prompt_processing import process_fetched_content_with_prompt
 from evoflow.community.web_fetch_errors import format_web_fetch_http_error, format_web_fetch_url_error
 from evoflow.tools.minimal_schema import FETCH_URL_DESCRIPTION
 
@@ -51,6 +60,69 @@ _PORTAL_HOSTS = {
     "google.com": ("/search",),
     "baidu.com": ("/s",),
 }
+
+# ── Content Cache (zcode alignment: 15 min per URL) ──────────
+
+_CONTENT_CACHE_TTL_S = 900
+_CONTENT_CACHE_MAX_ENTRIES = 128
+_content_cache: dict[str, tuple[float, str]] = {}
+_content_cache_lock = threading.Lock()
+
+
+def get_webfetch_cache(url: str) -> str | None:
+    """Return cached markdown for *url* if fresh (15-min TTL), else None."""
+    now = time.monotonic()
+    with _content_cache_lock:
+        entry = _content_cache.get(url)
+        if entry is None:
+            return None
+        fetched_at, md = entry
+        if now - fetched_at > _CONTENT_CACHE_TTL_S:
+            _content_cache.pop(url, None)
+            return None
+        return md
+
+
+def put_webfetch_cache(url: str, md: str) -> None:
+    """Store fetched markdown for *url*; evicts the oldest entry when full."""
+    with _content_cache_lock:
+        if len(_content_cache) >= _CONTENT_CACHE_MAX_ENTRIES and url not in _content_cache:
+            oldest = min(_content_cache, key=lambda k: _content_cache[k][0])
+            _content_cache.pop(oldest, None)
+        _content_cache[url] = (time.monotonic(), md)
+
+
+def clear_webfetch_cache_for_tests() -> None:
+    with _content_cache_lock:
+        _content_cache.clear()
+
+
+# ── Cross-host Redirect Guard (zcode alignment) ──────────────
+
+
+class _CrossHostRedirectError(Exception):
+    """Raised when a redirect points to a different host than the original URL."""
+
+    def __init__(self, redirect_url: str, status: int):
+        self.redirect_url = redirect_url
+        self.status = status
+        super().__init__(f"cross-host redirect to {redirect_url}")
+
+
+class _SameHostRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Follow same-host redirects; raise on cross-host so the model can re-call explicitly.
+
+    Mirrors zcode WebFetch: "Cross-host redirects are returned to you rather than
+    followed; call again with the redirect URL." The redirect target returned to
+    the model goes through the normal security checks on the next call.
+    """
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ANN001
+        orig_host = (urlparse(req.full_url).hostname or "").lower()
+        new_host = (urlparse(newurl).hostname or "").lower()
+        if new_host != orig_host:
+            raise _CrossHostRedirectError(newurl, code)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
 # ── HTML → Markdown Converter ────────────────────────────────
@@ -355,7 +427,9 @@ def _http_fetch(url: str, timeout: int, max_length: int) -> tuple[str, str]:
         },
     )
 
-    with urlopen(req, timeout=timeout, context=_SSL_CONTEXT) as resp:
+    # Same-host redirects follow silently; cross-host raises _CrossHostRedirectError.
+    opener = urllib.request.build_opener(_SameHostRedirectHandler)
+    with opener.open(req, timeout=timeout) as resp:
         raw_bytes = resp.read(max_length * 2)
         encoding = resp.headers.get_content_charset() or "utf-8"
         html_str = raw_bytes.decode(encoding, errors="replace")[:max_length]
@@ -366,9 +440,117 @@ def _http_fetch(url: str, timeout: int, max_length: int) -> tuple[str, str]:
 # ── Public Tool ───────────────────────────────────────────────
 
 
+def _resolve_session_model_name() -> str | None:
+    """Resolve the session's model name from langgraph config (same pattern as vision_analysis_core)."""
+    try:
+        from langgraph.config import get_config
+
+        cfg = get_config()
+        c = cfg.get("configurable") if isinstance(cfg, dict) else {}
+        if isinstance(c, dict):
+            name = c.get("model_name")
+            if name:
+                return str(name).strip() or None
+    except Exception:
+        pass
+    return None
+
+
+def fetch_page_markdown(
+    url: str,
+    *,
+    extract: Literal["full", "main-content", "text"] = "main-content",
+    max_length: int = 50000,
+    timeout: int = 15,
+    use_jina: bool = False,
+) -> tuple[str | None, str | None, bool]:
+    """Shared fetch core used by both ``fetch_url`` and the HostDirect ``web_fetch``.
+
+    Security checks → 15-min cache → (Jina | HTTP) → HTML→Markdown/text →
+    main-content extraction → cache store.
+
+    Returns:
+        ``(markdown_or_text, error_message, cache_hit)`` — exactly one of the
+        first two is non-None. ``error_message`` covers security blocks, the
+        REDIRECT DETECTED notice, and HTTP/network errors.
+    """
+    parsed_url = urlparse(url)
+    block_err = _is_blocked_url(parsed_url)
+    if block_err:
+        return None, block_err, False
+
+    cached_md = get_webfetch_cache(url)
+    if cached_md:
+        return cached_md, None, True
+
+    fetched_md = None
+    if use_jina:
+        fetched_md = _try_jina_fetch(url, timeout)
+        if not fetched_md:
+            logger.info("Jina failed, falling back to HTTP for %s", url)
+
+    if not fetched_md:
+        try:
+            html_str, encoding = _http_fetch(url, timeout, max_length)
+
+            if extract == "text":
+                # Plain text mode: strip all tags
+                text = re.sub(r"<[^>]+>", " ", html_str)
+                text = re.sub(r"\s+", " ", text).strip()
+                fetched_md = text[:max_length]
+            else:
+                # Convert to Markdown
+                parser = _HTMLToMarkdown()
+                parser.feed(html_str)
+                fetched_md = parser.get_markdown()
+
+        except _CrossHostRedirectError as e:
+            # zcode alignment: return cross-host redirects to the model instead of following.
+            return (
+                None,
+                (
+                    "REDIRECT DETECTED: The URL redirects to a different host.\n\n"
+                    f"Original URL: {url}\n"
+                    f"Redirect URL: {e.redirect_url}\n"
+                    f"Status: {e.status}\n\n"
+                    f'To complete your request, call fetch_url again with url: "{e.redirect_url}".'
+                ),
+                False,
+            )
+        except HTTPError as e:
+            return None, format_web_fetch_http_error(url, int(e.code), str(e.reason or "")), False
+        except URLError as e:
+            # If HTTP fails, try Jina as fallback only when enabled
+            if not use_jina:
+                fetched_md = _try_jina_fetch(url, timeout)
+            if not fetched_md:
+                return None, format_web_fetch_url_error(url, str(e.reason or e)), False
+        except ssl.SSLError:
+            return None, f"Error: SSL certificate error for {url}", False
+        except Exception as e:
+            return None, f"Error: Fetching {url} failed: {e}", False
+
+    if not fetched_md:
+        return None, f"Error: No content extracted from {url}", False
+
+    # Main content extraction
+    if extract == "main-content":
+        extracted = _extract_main_content(fetched_md, max_len=max_length)
+        if extracted:
+            fetched_md = extracted
+
+    if not fetched_md.strip():
+        return None, "(page appears empty or had no extractable content)", False
+
+    out_md = fetched_md[:max_length]
+    put_webfetch_cache(url, out_md)
+    return out_md, None, False
+
+
 @tool("fetch_url", description=FETCH_URL_DESCRIPTION, parse_docstring=False)
 def web_fetch_tool(
     url: str,
+    prompt: str = "",
     *,
     extract: Literal["full", "main-content", "text"] = "main-content",
     max_length: int = 50000,
@@ -380,17 +562,9 @@ def web_fetch_tool(
     follow_timeout: int | None = None,
 ) -> str:
     """Fetch content from a URL."""
-    # Validate URL
-    parsed_url = urlparse(url)
-    block_err = _is_blocked_url(parsed_url)
-    if block_err:
-        return block_err
-
     # Detect search portals
     if _is_portal_search_page(url):
         return "Error: This looks like a search/portal page. Use the `web_search` tool instead, then call `web_fetch_tool` on specific result URLs."
-
-    fetched_md = None
 
     # Only hit Jina when JINA_API_KEY is set; otherwise HTTP-only (no r.jina.ai timeout).
     use_jina = bool(prefer_jina)
@@ -402,53 +576,29 @@ def web_fetch_tool(
         except Exception:
             use_jina = False
 
-    if use_jina:
-        fetched_md = _try_jina_fetch(url, timeout)
-        if not fetched_md:
-            logger.info("Jina failed, falling back to HTTP for %s", url)
+    out_md, err, cache_hit = fetch_page_markdown(
+        url,
+        extract=extract,
+        max_length=max_length,
+        timeout=timeout,
+        use_jina=use_jina,
+    )
+    if out_md is None:
+        return err or f"Error: Fetching {url} failed"
 
-    if not fetched_md:
-        # Primary: built-in HTTP fetcher
-        try:
-            html_str, encoding = _http_fetch(url, timeout, max_length)
-
-            if extract == "text":
-                # Plain text mode: strip all tags
-                text = re.sub(r"<[^>]+>", " ", html_str)
-                text = re.sub(r"\s+", " ", text).strip()
-                return text[:max_length]
-
-            # Convert to Markdown
-            parser = _HTMLToMarkdown()
-            parser.feed(html_str)
-            fetched_md = parser.get_markdown()
-
-        except HTTPError as e:
-            return format_web_fetch_http_error(url, int(e.code), str(e.reason or ""))
-        except URLError as e:
-            # If HTTP fails, try Jina as fallback only when enabled
-            if not use_jina:
-                fetched_md = _try_jina_fetch(url, timeout)
-            if not fetched_md:
-                return format_web_fetch_url_error(url, str(e.reason or e))
-        except ssl.SSLError:
-            return f"Error: SSL certificate error for {url}"
-        except Exception as e:
-            return f"Error: Fetching {url} failed: {e}"
-
-    if not fetched_md:
-        return f"Error: No content extracted from {url}"
-
-    # Main content extraction
-    if extract == "main-content":
-        extracted = _extract_main_content(fetched_md, max_len=max_length)
-        if extracted:
-            fetched_md = extracted
-
-    if not fetched_md.strip():
-        return "(page appears empty or had no extractable content)"
-
-    out_md = fetched_md[:max_length]
+    # zcode alignment: prompt-driven processing — the small model answers the
+    # question against the page, so the main conversation gets the answer
+    # instead of the full page.
+    if prompt and prompt.strip():
+        model_name = _resolve_session_model_name()
+        answer = process_fetched_content_with_prompt(
+            out_md, prompt, model_name=model_name
+        )
+        if answer:
+            meta = f"[WebFetch] url={url} | cached={str(cache_hit).lower()}"
+            return f"{meta}\n\n{answer}"
+        # Fall through to raw markdown when the auxiliary model is unavailable.
+        return f"{out_md}\n\n(note: prompt processing unavailable — full page content returned instead)"
 
     try:
         follow_links_n = max(0, int(follow_links))

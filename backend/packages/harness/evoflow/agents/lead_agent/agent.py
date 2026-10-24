@@ -535,31 +535,30 @@ def _create_context_compaction_middleware():
     return ContextCompactionMiddleware()
 
 
-def _create_todo_list_middleware(is_plan_mode: bool) -> TodoMiddleware | None:
-    """Create and configure LangChain ``write_todos`` middleware.
+def _create_todo_list_middleware() -> TodoMiddleware:
+    """Create and configure the LangChain ``todo_write`` middleware.
 
-    Args:
-        is_plan_mode: Whether to inject TodoList middleware (product flag + no active ``plan`` scenario).
-
-    Returns:
-        TodoMiddleware instance when enabled, otherwise None.
+    Mounted on demand — same semantics as ordinary configurable tools: the role
+    whitelist decides (gating in ``_build_middlewares``). When mounted, the
+    ``<todo_list_system>`` prompt section is injected together with the tool;
+    when not checked, nothing is injected. Misuse is governed by prompt rules:
+    - simple tasks (< 3 steps) → work directly, skip the tool;
+    - ``plan`` scenario → supervisor subtasks instead of in-session todos.
     """
-    if not is_plan_mode:
-        return None
 
     # Custom prompts matching EvoFlow's style
     system_prompt = """
 <todo_list_system>
-You have access to the `write_todos` tool to help you manage and track complex multi-step objectives.
+You have access to the `todo_write` tool to help you manage and track complex multi-step objectives.
 
 **CRITICAL RULES:**
-- For non-trivial work, use `write_todos` to track steps (each item: content, status; optional `result` when done).
+- For non-trivial work, use `todo_write` to track steps (each item: content, status; optional `result` when done).
 - Fill `result` when marking `completed` (evidence: paths, command output, conclusion).
 - Mark todos as completed IMMEDIATELY after finishing each step - do NOT batch completions
 - Keep EXACTLY ONE task as `in_progress` at any time (unless tasks can run in parallel)
 - Update the todo list in REAL-TIME as you work - this gives users visibility into your progress
 - DO NOT use this tool for simple tasks (< 3 steps) - just complete them directly
-- Do NOT use `write_todos` when the active scenario is `plan` (use supervisor subtasks instead).
+- Do NOT use `todo_write` when the active scenario is `plan` (use supervisor subtasks instead).
 
 **When to Use:**
 This tool is designed for complex objectives that require systematic tracking:
@@ -735,24 +734,40 @@ def _build_middlewares(config: RunnableConfig, model_name: str | None, agent_nam
     middlewares.append(GoalAutoContinueMiddleware())
     middlewares.append(GoalContinuationAssemblerMiddleware())
 
-    # Add TodoList middleware if plan mode is enabled。
-    # - 缺省与 make_lead_agent 一致为 True（Gateway 可显式传 false）。
-    # - ``plan`` 场景走 supervisor，不写会话内 write_todos。
-    # - 无激活非 chat 场景（纯对话回退）时不挂载，避免切回聊天仍带 <todo_list_system>。
-    is_plan_mode = bool(config.get("configurable", {}).get("is_plan_mode", True))
+    # TodoList middleware（todo_write）：按角色白名单按需注入，与普通工具同语义。
+    # - agent_config.tools 为 None（未配置 = 全量继承）→ 挂载（默认主智能体语义）；
+    # - 显式白名单：勾选 todo_write 才挂载，不勾选完全不注入（无工具、无
+    #   <todo_list_system> 提示词段）；disallowed_tools 可显式禁掉。
+    # - load_agent_config 带 10s TTL 缓存，这里多读一次无额外开销。
     try:
-        from evoflow.tools.builtins.scenario_activation import get_activated_scenarios
+        from evoflow.config.agents_config import load_agent_config
+        from evoflow.tools.tool_aliases import canonical_tool_name
+        from evoflow.tools.tool_catalog import MIDDLEWARE_TOOL_NAMES
 
-        acts = [str(s).strip().lower() for s in (get_activated_scenarios() or []) if str(s).strip()]
-        if not acts:
-            is_plan_mode = False
-        elif any(s == "plan" for s in acts):
-            is_plan_mode = False
+        _todo_cfg = load_agent_config(agent_name) if agent_name else None
+        _todo_cfg_tools = _todo_cfg.tools if _todo_cfg else None
+        if _todo_cfg_tools is None:
+            _mount_todo = True
+        else:
+            _todo_whitelist = {
+                canonical_tool_name(str(x).strip().lower()) for x in _todo_cfg_tools if str(x or "").strip()
+            }
+            _todo_whitelist.discard("")
+            _mount_todo = bool(MIDDLEWARE_TOOL_NAMES & _todo_whitelist)
+        if _todo_cfg and _todo_cfg.disallowed_tools:
+            _todo_blocked = {
+                canonical_tool_name(str(x).strip().lower()) for x in _todo_cfg.disallowed_tools if str(x or "").strip()
+            }
+            if MIDDLEWARE_TOOL_NAMES & _todo_blocked:
+                _mount_todo = False
     except Exception:
-        pass
-    todo_list_middleware = _create_todo_list_middleware(is_plan_mode)
-    if todo_list_middleware is not None:
-        middlewares.append(todo_list_middleware)
+        logger.debug("todo_write mount gating skipped, defaulting to mounted", exc_info=True)
+        _mount_todo = True
+    if _mount_todo:
+        middlewares.append(_create_todo_list_middleware())
+        logger.debug("[Tools] todo_write middleware mounted (agent=%s)", agent_name)
+    else:
+        logger.debug("[Tools] todo_write middleware skipped — not in role whitelist (agent=%s)", agent_name)
 
     # Add TokenUsageMiddleware when token_usage tracking is enabled
     if get_app_config().token_usage.enabled:

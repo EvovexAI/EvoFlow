@@ -1,5 +1,7 @@
 /**
  * 聊天 / 工具行共用的产出文件操作：预览 · 复制路径 · 打开位置
+ *
+ * 预览默认走右栏 Side Pane，不再弹近全屏 WorkspaceFilePreviewModal。
  */
 import { memo, useCallback, type MouseEvent } from 'react'
 import { toast } from '../../components/toast.js'
@@ -8,7 +10,8 @@ import {
   resolveTaskOutputAbsolutePath,
   revealTaskOutputInFileManager,
 } from '../../lib/task-output-preview.js'
-import { openWorkspaceFilePreviewModal } from '../../lib/mount-workspace-file-preview.js'
+import { showRightStageFilePreview } from '../../lib/right-stage/open-right-stage-file.js'
+import { getCurrentRightStageSessionKey } from '../../lib/right-stage/right-stage-scope.js'
 
 function basename(path: string): string {
   const parts = String(path || '')
@@ -27,7 +30,7 @@ function shortenPath(path: string, max = 64): string {
 export type WorkspaceDeliverableCardProps = {
   path: string
   name?: string
-  /** 优先用聊天侧已有预览；不传则走共享 modal */
+  /** 优先用聊天侧已有预览；不传则走右栏 file 标签 */
   onPreview?: (path: string, name?: string) => void
   /** compact：工具行旁按钮；card：消息底部文件卡 */
   variant?: 'card' | 'compact'
@@ -66,17 +69,10 @@ export const WorkspaceDeliverableCard = memo(function WorkspaceDeliverableCard({
         onPreview(rawPath, title)
         return
       }
-      try {
-        const root = await resolveWorkspaceHint()
-        openWorkspaceFilePreviewModal({
-          workspaceRoot: root || rawPath.replace(/[\\/][^\\/]+$/, '') || '',
-          path: rawPath,
-          name: title,
-          workspaceScopeOpts: root ? { configuredRoot: root } : undefined,
-        })
-      } catch (err) {
-        toast(`无法预览：${String((err as Error)?.message || err)}`, 'error')
-      }
+      showRightStageFilePreview(rawPath, {
+        name: title,
+        sessionKey: getCurrentRightStageSessionKey(),
+      })
     },
     [isUrl, onPreview, rawPath, title],
   )

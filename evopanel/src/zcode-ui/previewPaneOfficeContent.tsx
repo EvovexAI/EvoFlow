@@ -22,15 +22,18 @@ const LazyLegacyDocContent = lazy(async () => {
 class OfficePreviewErrorBoundary extends Component<
   {
     children: ReactNode;
-    fallback: ReactNode;
+    fallbackMessage: string;
     resetKey: string;
   },
-  { hasError: boolean }
+  { detail: string | null; hasError: boolean }
 > {
-  state = { hasError: false };
+  state = { detail: null as string | null, hasError: false };
 
-  static getDerivedStateFromError() {
-    return { hasError: true };
+  static getDerivedStateFromError(error: Error) {
+    return {
+      hasError: true,
+      detail: error instanceof Error ? error.message : String(error),
+    };
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
@@ -42,12 +45,22 @@ class OfficePreviewErrorBoundary extends Component<
 
   componentDidUpdate(previousProps: Readonly<{ resetKey: string }>) {
     if (this.state.hasError && previousProps.resetKey !== this.props.resetKey) {
-      this.setState({ hasError: false });
+      this.setState({ hasError: false, detail: null });
     }
   }
 
   render() {
-    return this.state.hasError ? this.props.fallback : this.props.children;
+    if (!this.state.hasError) {
+      return this.props.children;
+    }
+    return (
+      <OfficePreviewErrorMessage>
+        <div>{this.props.fallbackMessage}</div>
+        {this.state.detail ? (
+          <div className="mt-1 text-ui-sm text-foreground-subtle break-all">{this.state.detail}</div>
+        ) : null}
+      </OfficePreviewErrorMessage>
+    );
   }
 }
 
@@ -102,11 +115,9 @@ export function PreviewPaneOfficeContent({
     return <OfficePreviewErrorMessage>{error ?? errorMessage}</OfficePreviewErrorMessage>;
   }
 
-  const fallback = <OfficePreviewErrorMessage>{errorMessage}</OfficePreviewErrorMessage>;
-
   return (
     <OfficePreviewErrorBoundary
-      fallback={fallback}
+      fallbackMessage={errorMessage}
       resetKey={`${kind}:${sourcePath}:${preview?.totalBytes ?? 0}`}
     >
       <Suspense fallback={<OfficePreviewLoading />}>

@@ -1,4 +1,4 @@
-import { useTabStore } from "@/store/TabStoreProvider.js";
+import { useOptionalTabStore } from "@/store/TabStoreProvider.js";
 import { isWorkspaceTab, type WorkspaceTabState } from "@/store/tabStore.js";
 import { useRemoteWorkspaceSessionStore } from "@/store/remoteWorkspaceSessionStore.js";
 import {
@@ -56,7 +56,9 @@ export function useResolvedRemoteWorkspaceSessionId(
   workspaceIdentity?: string | null,
   remoteTarget?: unknown,
 ): string | null {
-  const activeWorkspaceTab = useTabStore((state) => {
+  // EvoFlow V4 只挂 ServiceProvider、无 TabStoreProvider：用 optional 回退空 tab，
+  // 勿抛「必须在 TabStoreProvider 内」炸掉 ConversationTimeline。
+  const activeWorkspaceTab = useOptionalTabStore((state) => {
     if (!workspacePath || !state.activeTabId) {
       return null;
     }

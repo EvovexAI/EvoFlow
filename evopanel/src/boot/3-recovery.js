@@ -48,6 +48,11 @@ const DYNAMIC_IMPORT_RECOVERY_KEY = 'evopanel_dynamic_import_recovered'
 window.addEventListener('unhandledrejection', (ev) => {
   const msg = String((ev && ev.reason && (ev.reason.message || ev.reason)) || '')
   if (!/Failed to fetch dynamically imported module/i.test(msg)) return
+  // Office Excel 懒加载 chunk 失败只影响预览；整页 reload 会表现为「回主页再回来」。
+  if (/previewPaneOffice|react-xlsx|duke_sheets/i.test(msg)) {
+    console.warn('[boot] office preview chunk failed (skip reload):', msg)
+    return
+  }
   const recovered = sessionStorage.getItem(DYNAMIC_IMPORT_RECOVERY_KEY) === '1'
   if (recovered) return
   try {

@@ -1477,11 +1477,11 @@ async def get_role_work_board(
     agent_code: str,
     limit: int = Query(100, ge=1, le=500),
 ) -> dict[str, Any]:
-    """Employee page aggregate: 岗位工作项 Tasks + chat duty-round meta.
+    """Employee page aggregate: duty-run trail index + 岗位工作项 Tasks.
 
-    「工作记录」SSOT is the Task board. Initiative journals / legacy rows are no
-    longer returned for the Panel work log (approvals still use the initiatives
-    table for ``task:`` bridge rows elsewhere).
+    「上班记录」SSOT is ``evoflow_duty_runs`` (every heartbeat / dispatch fire).
+    Tasks remain the actionable work items nested under rounds. Initiative
+    journals are not returned for the Panel work log.
     """
     _require_role_agent(request, agent_code)
     code = str(agent_code or "").strip()
@@ -1556,8 +1556,15 @@ async def get_role_work_board(
         except Exception:
             tasks = []
 
-    # Chat-only round meta for grouping / trail links (not initiative journals).
-    rounds = _synthesize_round_journals_from_chat(code, limit=min(limit, 40))
+    # Duty-run index (trigger → trail). Fall back to chat synth for pre-index history.
+    try:
+        from evoflow.proactive.duty_runs import list_duty_rounds_for_board
+
+        rounds = list_duty_rounds_for_board(code, limit=min(limit, 80))
+    except Exception:
+        rounds = []
+    if not rounds:
+        rounds = _synthesize_round_journals_from_chat(code, limit=min(limit, 40))
 
     pending_approvals = [_approval_to_dict(a, enrich=True) for a in ProactiveRepository.list_pending_approvals() if a.role_agent_code == code]
 
@@ -1566,7 +1573,7 @@ async def get_role_work_board(
         "role_name": role.role_name,
         "rounds": rounds,
         "tasks": tasks,
-        # Panel work log is Task-only; keep empty for older clients.
+        # Panel merges rounds + tasks into worklog; keep initiatives empty.
         "legacy_initiatives": [],
         "initiatives": [],
         "pending_approvals": pending_approvals,
@@ -2589,11 +2596,13 @@ def _synthesize_round_journals_from_chat(
     *,
     limit: int = 40,
 ) -> list[dict[str, Any]]:
-    """Build synthetic round_log rows from proactive chat rounds (Task-only path)."""
+    """Build synthetic round_log rows from duty/task/legacy chat sessions (fallback)."""
     code = str(agent_code or "").strip()
     if not code:
         return []
-    sk = f"proactive:{code}"
+    legacy = f"proactive:{code}"
+    duty_prefix = f"proactive:{code}:duty:"
+    task_prefix = f"proactive:{code}:task:"
     try:
         from evoflow.persistence.db import get_db
 
@@ -2607,14 +2616,23 @@ def _synthesize_round_journals_from_chat(
                        COUNT(*) AS msg_n,
                        SUM(CASE WHEN role = 'tool' THEN 1 ELSE 0 END) AS tool_n
                 FROM evoflow_chat_messages
-                WHERE session_key = ?
+                WHERE (
+                        session_key = ?
+                     OR session_key LIKE ?
+                     OR session_key LIKE ?
+                      )
                   AND round_id IS NOT NULL
                   AND TRIM(round_id) != ''
                 GROUP BY round_id
                 ORDER BY last_at DESC
                 LIMIT ?
                 """,
-                (sk, max(1, min(int(limit), 80))),
+                (
+                    legacy,
+                    f"{duty_prefix}%",
+                    f"{task_prefix}%",
+                    max(1, min(int(limit), 80)),
+                ),
             )
             .fetchall()
         )

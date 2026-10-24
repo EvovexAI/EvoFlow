@@ -1512,6 +1512,10 @@ const AssistantTextRowView = memo(function AssistantTextRowView({
         : row.text,
     [projectsCodeComments, row.text, streaming],
   );
+  // 与 ReasoningRowView 一致：START 后、首 token 前不占位，避免工具卡连环中间夹空缝。
+  if (streaming && visibleText.length === 0) {
+    return null;
+  }
   const visiblePreviewCards = previewCards && previewCards.length > 0 ? previewCards : null;
   return (
     <RowShell rowId={row.rowId} className="group/assistant-row">
@@ -2066,6 +2070,7 @@ const ToolCallRowView = memo(function ToolCallRowView({
           workflowRun={workflowRun}
           workflowDraft={context.workflowDraftByToolCallId?.get(row.toolCallId)}
         />
+        {context.renderToolCallApproval?.(row.toolCallId)}
       </div>
     </RowShell>
   );
@@ -2111,7 +2116,18 @@ function ConversationRowViewImpl({
   userInputStatus,
 }: ConversationRowViewProps) {
   switch (row.kind) {
-    case "userInput":
+    case "userInput": {
+      // EvoFlow 工具审批内部标记（__evf_tool_approval_v1__ / replay / 中文授权回执）
+      // 旧 MessageRow 不渲染；已镜像进 V4 的也要隐藏，避免右侧再冒一串审批字符串。
+      const userText = String(row.text || "").trim();
+      const lower = userText.toLowerCase();
+      if (
+        lower.startsWith("__evf_tool_approval_v1__:") ||
+        lower.startsWith("__evf_tool_approval_replay_v1__:") ||
+        userText.startsWith("用户工具授权操作：")
+      ) {
+        return null;
+      }
       return (
         <UserInputRowView
           row={row}
@@ -2121,6 +2137,7 @@ function ConversationRowViewImpl({
           status={userInputStatus}
         />
       );
+    }
     case "assistantText":
       return (
         <AssistantTextRowView

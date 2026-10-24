@@ -1,4 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { PointerEvent as ReactPointerEvent } from 'react'
+import { Folder as FolderIcon, FolderOpen as FolderOpenIcon, Ellipsis, Plus } from 'lucide-react'
 import { getCurrentRoute, navigate } from '../../router.js'
 import {
   mutateSessionPinned,
@@ -34,6 +36,7 @@ import {
   resolveShellGroupWorkspacePath,
   splitVisibleAndFoldedDutySessions,
 } from '../lib/session-list/workspace-groups.js'
+import { buildWorkspaceRecentSections } from '../lib/session-list/recent-sections.js'
 import {
   isGenericEmployeeLabel,
   isCollapsedJobTitle,
@@ -55,6 +58,9 @@ import {
   WorkspaceFolderContextMenuPortal,
   type WorkspaceFolderContextMenuState,
 } from './WorkspaceFolderContextMenuPortal.js'
+
+/** 置顶区折叠阈值（对齐 zcode WorkspacePinnedTasksSection collapsedLimit=20） */
+const PINNED_COLLAPSED_LIMIT = 20
 
 export type ShellSessionListProps = {
   listLoading: boolean
@@ -98,6 +104,8 @@ export type ShellSessionListProps = {
   /** 用户点选工作空间时，供全局「新对话」继承该目录 */
   onWorkspaceFocus?: (workspacePath: string | null) => void
   onOpenWorkspaceFolder?: (group: ShellWorkspaceGroup) => void | Promise<void>
+  /** 拖拽工作区分组头换序（对齐 zcode 侧栏工作区拖拽；顺序持久化在 bridge） */
+  onReorderWorkspaceGroups?: (fromWorkspaceKey: string, toWorkspaceKey: string) => void
   registeredWorkspacePaths?: string[]
   /** 已雇佣员工花名册；员工 Tab 展示全员，即使尚无会话 */
   employeeRoles?: Array<{
@@ -270,6 +278,7 @@ export function ShellSessionList({
   onDeleteWorkspace,
   onWorkspaceFocus,
   onOpenWorkspaceFolder,
+  onReorderWorkspaceGroups,
   registeredWorkspacePaths = [],
   onRefreshEmployeeRoles,
 }: ShellSessionListProps) {
@@ -301,6 +310,8 @@ export function ShellSessionList({
   const [pinnedWorkspaceKeys, setPinnedWorkspaceKeys] = useState<string[]>(() =>
     loadPinnedWorkspaceKeys(),
   )
+  /** 置顶区折叠：超过 PINNED_COLLAPSED_LIMIT 条时默认收起（对齐 zcode pinned section） */
+  const [pinnedExpanded, setPinnedExpanded] = useState(false)
   const [contextMenu, setContextMenu] = useState<{
     sessionKey: string
     x: number
@@ -940,6 +951,60 @@ export function ShellSessionList({
   const foldedDutyRows = employeeDutySplit.folded
   const showDutyFold = isEmployeesTab && !isSearching && foldedDutyRows.length > 0
 
+  // 工作区分组树（对齐 ZCode WorkspaceSidebar）：多工作区时 recent 列表按组折叠显示，
+  // 组头 = 图标 + 组名（员工 tab 用头像 + 员工名）+ 会话数；单组/聚焦组不折叠（保持原行为）。
+  const [collapsedGroupKeys, setCollapsedGroupKeys] = useState<Set<string>>(() => new Set())
+  const groupedRecentSections = useMemo(() => {
+    if (isEmployeesTab && focusedEmployeeCode) return null
+    if (isEmployeesTab) {
+      // 员工 tab：按 agent_code 分组，组头 = 员工头像 + 员工名
+      const byCode = new Map<string, { label: string; rows: ShellSidebarSyncRow[] }>()
+      for (const row of recentVisibleRows) {
+        const code =
+          proactiveAgentCodeFromSessionKey(row.sessionKey) ||
+          String(row.workspaceKey || '').toLowerCase()
+        if (!code) continue
+        const entry = byCode.get(code) || { label: '', rows: [] }
+        if (!entry.label) {
+          entry.label = resolveEmployeeGroupLabel(code, effectiveEmployeeRoles, agents)
+        }
+        entry.rows.push(row)
+        byCode.set(code, entry)
+      }
+      if (byCode.size <= 1) return null
+      return Array.from(byCode.entries()).map(([key, value]) => ({
+        key,
+        label: value.label || key,
+        rows: value.rows,
+        avatarAgentCode: key,
+      }))
+    }
+    if (focusedWorkspaceKey) return null
+    // 已注册但暂无会话的工作区也要成组展示，避免新建工作空间后左侧看不到
+    return buildWorkspaceRecentSections(recentVisibleRows, groups, { searching: isSearching })
+  }, [
+    recentVisibleRows,
+    isEmployeesTab,
+    focusedEmployeeCode,
+    focusedWorkspaceKey,
+    groups,
+    effectiveEmployeeRoles,
+    agents,
+    isSearching,
+  ])
+
+  /** 只有「空工作区分组」需要展示（尚无任何会话）——此时不能走「暂无会话」空态 */
+  const showEmptyWorkspaceSections = !!groupedRecentSections && recentVisibleRows.length === 0
+
+  const toggleGroupCollapsed = useCallback((key: string) => {
+    setCollapsedGroupKeys((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }, [])
+
   const renderSessionRow = (row: ShellSidebarSyncRow) => {
     const sk = String(row.sessionKey || '')
     const active = onChatRoute && sk === displaySelectedKey
@@ -988,6 +1053,66 @@ export function ShellSessionList({
     : focusedWorkspaceKey
       ? !!focusedGroup?.loadingSessions
       : globalLoading
+
+  /** 工作区分组头拖拽换序（对齐 zcode 侧栏工作区拖拽；仅任务 Tab、非特殊组）。
+   *  与置顶行拖拽同款 pointer 拖拽：按下移动 >5px 视为拖拽，落到目标组头换序，
+   *  顺序由 bridge 持久化（localStorage），下次启动还原。 */
+  const wsGroupDragRef = useRef<{ key: string; dragging: boolean; startY: number } | null>(null)
+
+  const handleWorkspaceGroupHeadPointerDown = useCallback(
+    (sectionKey: string, e: ReactPointerEvent<HTMLDivElement>) => {
+      if (e.button !== 0 || isEmployeesTab) return
+      if (isSpecialWorkspaceGroupKey(sectionKey)) return
+      if (typeof onReorderWorkspaceGroups !== 'function') return
+      const target = e.target as HTMLElement
+      if (target.closest('button, input, a')) return
+      const host = e.currentTarget
+      wsGroupDragRef.current = { key: sectionKey, dragging: false, startY: e.clientY }
+      host.classList.add('react-chat-session-ws-head--dragging')
+      document.body.classList.add('react-chat-session-row-dragging')
+
+      const clearDragOver = () => {
+        document.querySelectorAll('.react-chat-session-ws-head--drag-over').forEach((n) => {
+          n.classList.remove('react-chat-session-ws-head--drag-over')
+        })
+      }
+
+      const onMove = (ev: PointerEvent) => {
+        const drag = wsGroupDragRef.current
+        if (!drag) return
+        if (Math.abs(ev.clientY - drag.startY) > 5) drag.dragging = true
+        clearDragOver()
+        if (!drag.dragging) return
+        const under = document.elementFromPoint(ev.clientX, ev.clientY)
+        const drop = under?.closest?.('[data-ws-group-head]') as HTMLElement | null
+        const dropKey = String(drop?.dataset?.wsGroupHead || '').trim()
+        if (drop && drop !== host && dropKey && !isSpecialWorkspaceGroupKey(dropKey)) {
+          drop.classList.add('react-chat-session-ws-head--drag-over')
+        }
+      }
+
+      const onUp = (ev: PointerEvent) => {
+        document.removeEventListener('pointermove', onMove)
+        document.removeEventListener('pointerup', onUp)
+        document.body.classList.remove('react-chat-session-row-dragging')
+        host.classList.remove('react-chat-session-ws-head--dragging')
+        clearDragOver()
+        const drag = wsGroupDragRef.current
+        wsGroupDragRef.current = null
+        if (!drag?.dragging) return
+        const under = document.elementFromPoint(ev.clientX, ev.clientY)
+        const drop = under?.closest?.('[data-ws-group-head]') as HTMLElement | null
+        const dropKey = String(drop?.dataset?.wsGroupHead || '').trim()
+        if (dropKey && dropKey !== sectionKey && !isSpecialWorkspaceGroupKey(dropKey)) {
+          onReorderWorkspaceGroups(sectionKey, dropKey)
+        }
+      }
+
+      document.addEventListener('pointermove', onMove)
+      document.addEventListener('pointerup', onUp)
+    },
+    [isEmployeesTab, onReorderWorkspaceGroups],
+  )
 
   const handleNewSessionClick = useCallback(() => {
     setFilterOpen(false)
@@ -1325,84 +1450,207 @@ export function ShellSessionList({
             </li>
           ) : null}
 
-          {!listLoading && pinnedRows.length === 0 && recentVisibleRows.length === 0 && !showDutyFold ? (
-            <li className="react-chat-muted" style={{ padding: '10px 12px' }}>
-              {isEmployeesTab
-                ? isSearching
-                  ? '无匹配会话'
-                  : focusedEmployeeCode
-                    ? '该员工暂无会话，点右上角 + 新开对话'
-                    : (effectiveEmployeeRoles || []).length > 0
-                      ? '暂无员工对话'
-                      : '暂无已雇佣员工'
-                : focusedWorkspaceKey
-                  ? '此工作空间暂无会话'
-                  : isSearching
+          {!listLoading &&
+          pinnedRows.length === 0 &&
+          recentVisibleRows.length === 0 &&
+          !showDutyFold &&
+          !showEmptyWorkspaceSections ? (
+            <li className="react-chat-muted react-chat-session-empty-state" style={{ padding: '10px 12px' }}>
+              <span>
+                {isEmployeesTab
+                  ? isSearching
                     ? '无匹配会话'
-                    : '暂无会话'}
+                    : focusedEmployeeCode
+                      ? '该员工暂无会话'
+                      : (effectiveEmployeeRoles || []).length > 0
+                        ? '暂无员工对话'
+                        : '暂无已雇佣员工'
+                  : focusedWorkspaceKey
+                    ? '此工作空间暂无会话'
+                    : isSearching
+                      ? '无匹配会话'
+                      : '暂无会话'}
+              </span>
+              {/* 空态 CTA：搜索中不引导新建（避免误导为"新建能找到"） */}
+              {!isSearching ? (
+                <button
+                  type="button"
+                  className="react-chat-session-empty-cta"
+                  onClick={handleNewSessionClick}
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  <span>新建对话</span>
+                </button>
+              ) : null}
             </li>
           ) : null}
 
           {!listLoading && pinnedRows.length > 0 ? (
             <li className="react-chat-session-pinned-block" aria-label="固定会话">
               <ul className="react-chat-session-pinned-list">
-                {pinnedRows.map((row) => renderSessionRow(row))}
+                {(pinnedExpanded
+                  ? pinnedRows
+                  : pinnedRows.slice(0, PINNED_COLLAPSED_LIMIT)
+                ).map((row) => renderSessionRow(row))}
               </ul>
+              {pinnedRows.length > PINNED_COLLAPSED_LIMIT ? (
+                <button
+                  type="button"
+                  className="react-chat-session-pinned-toggle"
+                  onClick={() => setPinnedExpanded((prev) => !prev)}
+                >
+                  {pinnedExpanded
+                    ? '收起置顶会话'
+                    : `展开全部置顶会话（共 ${pinnedRows.length} 条）`}
+                </button>
+              ) : null}
             </li>
           ) : null}
 
-          {!listLoading && (recentVisibleRows.length > 0 || showDutyFold || flatHasMore || flatLoading) ? (
+          {!listLoading &&
+          (recentVisibleRows.length > 0 ||
+            showDutyFold ||
+            flatHasMore ||
+            flatLoading ||
+            showEmptyWorkspaceSections) ? (
             <li
               className="react-chat-session-recent-block"
               aria-label={isEmployeesTab ? '员工' : '任务'}
             >
               <ul className="react-chat-session-recent-list">
-                {recentVisibleRows.map((row) => renderSessionRow(row))}
-                {showDutyFold ? (
-                  <li className="react-chat-session-duty-fold">
-                    <button
-                      type="button"
-                      className={`react-chat-session-duty-fold-btn${dutyFoldOpen ? ' is-open' : ''}`}
-                      aria-expanded={dutyFoldOpen}
-                      onClick={() => setDutyFoldOpen((v) => !v)}
-                    >
-                      <ShellChevronIcon
-                        size={12}
-                        className={`react-chat-session-duty-fold-chevron${dutyFoldOpen ? ' is-open' : ''}`}
-                      />
-                      <span>
-                        {dutyFoldOpen
-                          ? '收起更早的值班记录'
-                          : `值班记录 · 还有 ${foldedDutyRows.length} 条`}
-                      </span>
-                    </button>
-                  </li>
-                ) : null}
-                {showDutyFold && dutyFoldOpen
-                  ? foldedDutyRows.map((row) => renderSessionRow(row))
-                  : null}
-                {flatLoading && !flatHasMore ? (
-                  <li className="react-chat-muted react-chat-session-workspace-loading">
-                    加载中…
-                  </li>
-                ) : null}
-                {flatHasMore ? (
-                  <li
-                    className="react-chat-session-workspace-load-more-sentinel"
-                    data-load-more-sentinel=""
-                    data-workspace-key={
-                      isEmployeesTab
-                        ? WORKSPACE_GROUP_PROACTIVE
-                        : focusedWorkspaceKey
-                          ? focusedGroup?.workspaceKey || focusedWorkspaceKey
-                          : '__global__'
-                    }
-                  >
-                    {flatLoading ? (
-                      <span className="react-chat-session-workspace-load-spinner" />
-                    ) : null}
-                  </li>
-                ) : null}
+                {groupedRecentSections
+                  ? groupedRecentSections.map((section) => {
+                      const collapsed = collapsedGroupKeys.has(section.key)
+                      return (
+                        <li key={`ws-${section.key}`} className="react-chat-session-ws-group">
+                          <div
+                            className="group/ws flex h-8 min-w-0 cursor-pointer items-center gap-2 rounded-lg pl-2.5 pr-1 transition-colors hover:bg-surface-hover"
+                            data-ws-group-head={section.key}
+                            onClick={() => toggleGroupCollapsed(section.key)}
+                            onPointerDown={(e) => handleWorkspaceGroupHeadPointerDown(section.key, e)}
+                          >
+                            <span className="relative flex size-4 shrink-0 items-center justify-center">
+                              {isEmployeesTab && section.avatarAgentCode ? (
+                                <AssignedAgentAvatar
+                                  agentCode={section.avatarAgentCode}
+                                  agents={agents}
+                                  size={14}
+                                />
+                              ) : collapsed ? (
+                                <FolderIcon className='size-4 text-foreground-subtle' />
+                              ) : (
+                                <FolderOpenIcon className='size-4 text-foreground-subtle' />
+                              )}
+                            </span>
+                            <span className='min-w-0 flex-1 truncate text-[13px] text-foreground-subtle'>
+                              {section.label}
+                            </span>
+                            <span className='hidden shrink-0 items-center gap-1 group-hover/ws:flex'>
+                              <button
+                                type='button'
+                                className='flex h-6 w-6 shrink-0 items-center justify-center rounded-md border-transparent bg-transparent text-foreground-subtle transition-colors hover:bg-surface-hover hover:text-foreground'
+                                title='新建任务'
+                                onMouseDown={(e) => e.stopPropagation()}
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  const grp = groups.find((g) => g.workspaceKey === section.key)
+                                  const wsPath = grp && grp.workspaceKey !== '__unbound__'
+                                    ? grp.path || null
+                                    : null
+                                  onNewSessionInWorkspace?.(wsPath)
+                                }}
+                              >
+                                <Plus className='h-3.5 w-3.5' />
+                              </button>
+                              <button
+                                type='button'
+                                className='flex h-6 w-6 shrink-0 items-center justify-center rounded-md border-transparent bg-transparent text-foreground-subtle transition-colors hover:bg-surface-hover hover:text-foreground'
+                                title='更多'
+                                onMouseDown={(e) => e.stopPropagation()}
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  const grp = groups.find((g) => g.workspaceKey === section.key)
+                                  if (!grp) return
+                                  // 对齐 zcode 工作区「…」菜单：打开文件夹 / 收藏 / 只看 / 删除
+                                  const r = e.currentTarget.getBoundingClientRect()
+                                  setWorkspaceContextMenu({
+                                    workspaceKey: section.key,
+                                    x: r.left + r.width / 2,
+                                    y: r.bottom,
+                                  })
+                                }}
+                              >
+                                <Ellipsis className='h-3.5 w-3.5' />
+                              </button>
+                            </span>
+                          </div>
+                          {!collapsed ? (
+                              <ul className='react-chat-session-ws-group-list'>
+                                {section.rows.length > 0 ? (
+                                  section.rows.map((row) => renderSessionRow(row))
+                                ) : (
+                                  <li className='react-chat-muted react-chat-session-ws-group-empty'>
+                                    暂无会话
+                                  </li>
+                                )}
+                              </ul>
+                            ) : null}
+                        </li>
+                      )
+                    })
+                  : [
+                        recentVisibleRows.map((row) => renderSessionRow(row)),
+                        showDutyFold ? (
+                          <li className="react-chat-session-duty-fold" key="duty-fold">
+                            <button
+                              type="button"
+                              className={`react-chat-session-duty-fold-btn${dutyFoldOpen ? ' is-open' : ''}`}
+                              aria-expanded={dutyFoldOpen}
+                              onClick={() => setDutyFoldOpen((v) => !v)}
+                            >
+                              <ShellChevronIcon
+                                size={12}
+                                className={`react-chat-session-duty-fold-chevron${dutyFoldOpen ? ' is-open' : ''}`}
+                              />
+                              <span>
+                                {dutyFoldOpen
+                                  ? '收起更早的值班记录'
+                                  : `值班记录 · 还有 ${foldedDutyRows.length} 条`}
+                              </span>
+                            </button>
+                          </li>
+                        ) : null,
+                        showDutyFold && dutyFoldOpen
+                          ? foldedDutyRows.map((row) => (
+                              <Fragment key={`duty-${row.sessionKey}`}>
+                                {renderSessionRow(row)}
+                              </Fragment>
+                            ))
+                          : null,
+                        flatLoading && !flatHasMore ? (
+                          <li className="react-chat-muted react-chat-session-workspace-loading" key="loading">
+                            加载中…
+                          </li>
+                        ) : null,
+                        flatHasMore ? (
+                          <li
+                            className="react-chat-session-workspace-load-more-sentinel"
+                            key="load-more"
+                            data-load-more-sentinel=""
+                            data-workspace-key={
+                              isEmployeesTab
+                                ? WORKSPACE_GROUP_PROACTIVE
+                                : focusedWorkspaceKey
+                                  ? focusedGroup?.workspaceKey || focusedWorkspaceKey
+                                  : '__global__'
+                            }
+                          >
+                            {flatLoading ? (
+                              <span className="react-chat-session-workspace-load-spinner" />
+                            ) : null}
+                          </li>
+                        ) : null,
+                      ]}
               </ul>
             </li>
           ) : null}

@@ -142,7 +142,7 @@ MAIN_SUMMARY_PREFIX = (
     "## Verification rule for completed actions\n"
     "Claims in this summary that files were modified, logs were removed, or code was "
     "cleaned up are **unverified assertions by the previous context window**. Before "
-    "treating any such claim as fact, re-verify with tools (rg, read_lints, read_file) "
+    "treating any such claim as fact, re-verify with tools (rg, terminal, read_file) "
     "rather than trusting the summary. Do NOT skip verification because the summary says "
     "something is already done.\n"
     "\n"
@@ -875,7 +875,7 @@ def _prune_old_tool_results(
             tool_name = str(getattr(msg, "name", None) or "").strip().lower()
             content = message_content_str(msg)
             # Always preserve: archived summaries, user-configured preserve list, clarification tools
-            if "[tool:history]" in content or "[tool:summary]" in content or "[ToolResult summary" in content or "[ToolResult persisted" in content or "Full output:" in content:
+            if "[tool:history]" in content or "[tool:summary]" in content or "[ToolResult summary" in content or "[ToolResult persisted" in content or "Full output:" in content or "<persisted-output>" in content:
                 result.append(msg)
                 continue
             if tool_name in preserve_tools:

@@ -741,6 +741,77 @@ def absolutize_task_outputs_ex(
     return out
 
 
+def missing_file_output_paths(
+    raw: Any,
+    workspace_root: str | None = None,
+    *,
+    agent_code: str | None = None,
+) -> list[str]:
+    """Return display paths for ``type=file`` outputs that do not exist on disk.
+
+    Empty / url / text outputs are ignored. Used to reject saving fake paths
+    that would break preview / open-in-folder in the panel.
+    """
+    items = absolutize_task_outputs_ex(
+        raw,
+        workspace_root,
+        types=frozenset({"file"}),
+        agent_code=agent_code,
+    )
+    missing: list[str] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        if normalize_output_type(item.get("type")) != "file":
+            continue
+        meta = item.get("_resolve_meta") if isinstance(item.get("_resolve_meta"), dict) else {}
+        if meta.get("found") is True:
+            continue
+        value = str(item.get("value") or "").strip()
+        if not value:
+            missing.append("(空路径)")
+            continue
+        missing.append(value)
+    return missing
+
+
+def require_file_outputs_exist(
+    raw: Any,
+    workspace_root: str | None = None,
+    *,
+    agent_code: str | None = None,
+    field_label: str = "产出文件",
+) -> list[dict[str, str]]:
+    """Absolutize file outputs and raise ``ValueError`` if any path is missing.
+
+    Returns the absolutized list (with ``_resolve_meta``) on success.
+    """
+    items = absolutize_task_outputs_ex(
+        raw,
+        workspace_root,
+        agent_code=agent_code,
+    )
+    missing: list[str] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        if normalize_output_type(item.get("type")) != "file":
+            continue
+        meta = item.get("_resolve_meta") if isinstance(item.get("_resolve_meta"), dict) else {}
+        if meta.get("found") is True:
+            continue
+        value = str(item.get("value") or "").strip()
+        missing.append(value or "(空路径)")
+    if missing:
+        shown = "；".join(missing[:5])
+        more = f" 等 {len(missing)} 个" if len(missing) > 5 else ""
+        raise ValueError(
+            f"{field_label}路径不存在或无法访问，保存失败：{shown}{more}。"
+            "请先写入真实文件，再填绝对路径或工作区内相对路径。"
+        )
+    return items
+
+
 def absolutize_handlers_paths(
     handlers: list[dict[str, Any]] | None,
     workspace_root: str | None,
@@ -1014,6 +1085,8 @@ __all__ = [
     "absolutize_task_outputs",
     "absolutize_task_outputs_ex",
     "absolutize_handlers_paths",
+    "missing_file_output_paths",
+    "require_file_outputs_exist",
     "PathResolution",
     "resolve_output_path_ex",
     "workspace_root_for_agent",

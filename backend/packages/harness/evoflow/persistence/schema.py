@@ -1241,6 +1241,26 @@ CREATE TABLE IF NOT EXISTS evoflow_proactive_roles (
     updated_at TEXT NOT NULL
 , reports_to TEXT NOT NULL DEFAULT '', position_code TEXT NOT NULL DEFAULT '', heartbeat_schedule TEXT NOT NULL DEFAULT '');
 
+CREATE TABLE IF NOT EXISTS evoflow_duty_runs (
+    run_id TEXT PRIMARY KEY,
+    agent_code TEXT NOT NULL,
+    round_id TEXT NOT NULL DEFAULT '',
+    session_key TEXT NOT NULL DEFAULT '',
+    trigger_source TEXT NOT NULL DEFAULT '',
+    trigger_reason TEXT NOT NULL DEFAULT '',
+    scheduled INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'started',
+    skip_reason TEXT NOT NULL DEFAULT '',
+    msg_count INTEGER NOT NULL DEFAULT 0,
+    tool_count INTEGER NOT NULL DEFAULT 0,
+    primary_task_id TEXT NOT NULL DEFAULT '',
+    error TEXT NOT NULL DEFAULT '',
+    started_at TEXT NOT NULL,
+    ended_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS evoflow_role_push_bindings (
     agent_code TEXT PRIMARY KEY,
     push_enabled INTEGER NOT NULL DEFAULT 1,
@@ -1849,6 +1869,12 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_evo_principals_email
 CREATE INDEX IF NOT EXISTS idx_evo_principals_org
             ON evoflow_principals(org_id, status);
 
+CREATE INDEX IF NOT EXISTS idx_evo_duty_runs_agent_started
+    ON evoflow_duty_runs(agent_code, started_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_evo_duty_runs_round
+    ON evoflow_duty_runs(agent_code, round_id);
+
 CREATE INDEX IF NOT EXISTS idx_evo_proactive_cost_principal
                 ON evoflow_proactive_cost_log(principal_id);
 
@@ -2203,6 +2229,41 @@ def _snap_legacy_user_version(conn: sqlite3.Connection, version: int) -> int:
     return APP_SCHEMA_VERSION
 
 
+def _ensure_duty_runs_table(conn: sqlite3.Connection) -> None:
+    """Idempotent: post-baseline table for employee heartbeat / duty trail index."""
+    if _table_exists(conn, "evoflow_duty_runs"):
+        return
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS evoflow_duty_runs (
+            run_id TEXT PRIMARY KEY,
+            agent_code TEXT NOT NULL,
+            round_id TEXT NOT NULL DEFAULT '',
+            session_key TEXT NOT NULL DEFAULT '',
+            trigger_source TEXT NOT NULL DEFAULT '',
+            trigger_reason TEXT NOT NULL DEFAULT '',
+            scheduled INTEGER NOT NULL DEFAULT 0,
+            status TEXT NOT NULL DEFAULT 'started',
+            skip_reason TEXT NOT NULL DEFAULT '',
+            msg_count INTEGER NOT NULL DEFAULT 0,
+            tool_count INTEGER NOT NULL DEFAULT 0,
+            primary_task_id TEXT NOT NULL DEFAULT '',
+            error TEXT NOT NULL DEFAULT '',
+            started_at TEXT NOT NULL,
+            ended_at TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_evo_duty_runs_agent_started
+            ON evoflow_duty_runs(agent_code, started_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_evo_duty_runs_round
+            ON evoflow_duty_runs(agent_code, round_id);
+        """
+    )
+    conn.commit()
+    logger.info("schema: created evoflow_duty_runs (duty trail index)")
+
+
 def ensure_app_schema(conn: sqlite3.Connection) -> None:
     """Ensure ``evoflow.db`` matches the public baseline schema."""
     version = int(conn.execute("PRAGMA user_version").fetchone()[0] or 0)
@@ -2214,10 +2275,13 @@ def ensure_app_schema(conn: sqlite3.Connection) -> None:
         # After snap, physical schema should already match; avoid re-executing
         # the full baseline on every connection open.
         if int(conn.execute("PRAGMA user_version").fetchone()[0] or 0) == APP_SCHEMA_VERSION:
+            _ensure_duty_runs_table(conn)
             return
         _apply_baseline(conn)
+        _ensure_duty_runs_table(conn)
         return
-    # version == APP_SCHEMA_VERSION: already current.
+    # version == APP_SCHEMA_VERSION: already current — still ensure post-baseline tables.
+    _ensure_duty_runs_table(conn)
     _ensure_automation_slot_claims(conn)
     return
 

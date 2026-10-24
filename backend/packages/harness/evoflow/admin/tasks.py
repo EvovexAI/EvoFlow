@@ -39,6 +39,7 @@ from evoflow.collab.task_outputs import (
     agent_code_for_task_row,
     evidence_paths_from_outputs,
     normalize_task_outputs,
+    require_file_outputs_exist,
     task_input_refs_of,
     task_outputs_of,
     workspace_root_for_task_row,
@@ -115,11 +116,29 @@ def _outcome_patch(
 
     File-typed output values are stored as absolute paths when ``workspace_root``
     is known, so UIs can open them without joining a guessed root.
+
+    ``type=file`` paths must exist on disk — otherwise raise
+    :class:`ValidationError` so agents cannot save fake paths that break preview.
     """
     text = normalize_task_summary(summary)
     items = normalize_task_outputs(outputs) if outputs is not None else None
-    if items is not None and workspace_root:
-        items = absolutize_task_outputs(items, workspace_root, agent_code=agent_code)
+    if items is not None:
+        try:
+            items = require_file_outputs_exist(
+                items,
+                workspace_root,
+                agent_code=agent_code,
+                field_label="产出文件",
+            )
+        except ValueError as exc:
+            raise ValidationError(str(exc)) from exc
+        # Strip resolve meta before persist (UI can re-resolve on read).
+        cleaned: list[dict[str, Any]] = []
+        for row in items:
+            if not isinstance(row, dict):
+                continue
+            cleaned.append({k: v for k, v in row.items() if k != "_resolve_meta"})
+        items = cleaned
     if not text and not items:
         return {}
     patch: dict[str, Any] = {}
@@ -570,6 +589,15 @@ def get_task(task_id: str, *, subtask_id: str | None = None) -> dict[str, Any]:
             "status_zh": _status_zh(st.get("status")),
             "progress": int(st.get("progress") or 0),
             "assigned_to": str(st.get("assigned_to") or "").strip() or None,
+            # Per-step output + timing: when the main task's rollup step never ran
+            # (workflow aborted at 汇总), the completed steps are the only real
+            # deliverable the operator can read. Without these the detail page
+            # showed "已完成" with nothing underneath.
+            "summary": str(st.get("summary") or "").strip() or None,
+            "result": st.get("result"),
+            "error": st.get("error") or st.get("error_text"),
+            "started_at": st.get("started_at"),
+            "completed_at": st.get("completed_at"),
             **_task_role_fields(st),
             **_task_raiser_fields(st),
             **_task_parent_fields(st),

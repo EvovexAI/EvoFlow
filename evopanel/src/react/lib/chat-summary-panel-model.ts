@@ -211,3 +211,94 @@ export const PROCESS_STATE_LABEL: Record<ProcessState, string> = {
 export function workflowStatusLabel(status: string | undefined): string {
   return formatTaskStatusZh(status, { fallback: '待处理' })
 }
+
+/** 状态面板可自动跳转的「活动」类 tab（不含智能体身份卡） */
+export type SummaryActivityTab = 'process' | 'artifacts' | 'platform'
+
+/**
+ * 可见 tab：智能体/员工 + 进程 / 产物 / 平台始终挂着（计数为 0 时不显示「0」）；
+ * 任务 / 调试按会话与观测开关出现。切会话隔离靠清空 focus + 重置到智能体，不靠藏 tab。
+ */
+export function buildVisibleSummaryPanelTabs(input: {
+  isEmployeeSession?: boolean
+  processCount: number
+  artifactCount: number
+  platformCount: number
+  showTask?: boolean
+  showDebug?: boolean
+  withCount?: (n: number, label: string) => string
+}): Array<{ id: string; label: string }> {
+  const withCount = input.withCount || ((n, label) => (n > 0 ? `${label} ${n}` : label))
+  const list: Array<{ id: string; label: string }> = [
+    { id: 'agent', label: input.isEmployeeSession ? '员工' : '智能体' },
+    { id: 'process', label: withCount(input.processCount, '进程') },
+    { id: 'artifacts', label: withCount(input.artifactCount, '产物') },
+    { id: 'platform', label: withCount(input.platformCount, '平台') },
+  ]
+  if (input.isEmployeeSession && input.showTask) {
+    list.push({ id: 'task', label: '任务' })
+  }
+  if (input.showDebug) {
+    list.push({ id: 'debug', label: '调试' })
+  }
+  return list
+}
+
+/** 当前 tab 若不在可见列表（切会话清空 / 观测关闭等），回落到智能体。 */
+export function resolveEffectiveSummaryPanelTab(
+  panelTab: string,
+  visibleTabIds: ReadonlySet<string> | readonly string[],
+  opts?: { obsEnabled?: boolean; isEmployeeSession?: boolean },
+): string {
+  const visible = visibleTabIds instanceof Set ? visibleTabIds : new Set(visibleTabIds)
+  if (panelTab === 'debug' && !opts?.obsEnabled) return 'agent'
+  if (panelTab === 'employee') return 'agent'
+  if (panelTab === 'task' && !opts?.isEmployeeSession) return 'agent'
+  if (!visible.has(panelTab)) return 'agent'
+  return panelTab
+}
+
+export type SummaryActivityPrev = {
+  platformFocus: string
+  artifactFocus: string
+  processRunning: number
+}
+
+/**
+ * 探测本轮应跳转的活动 tab：平台 / 产物 / 进程，谁是新信号就跟谁。
+ * 空 focus 会写入 nextPrev（清掉旧 id），避免跨会话同 id 无法再跳转。
+ * 同帧多信号时按「最新优先」：进程 > 产物 > 平台。
+ */
+export function detectSummaryActivityJump(input: {
+  prev: SummaryActivityPrev
+  platformFocusId: string
+  artifactFocusId: string
+  processRunning: number
+}): { tab: SummaryActivityTab | null; nextPrev: SummaryActivityPrev } {
+  const platformFocus = String(input.platformFocusId || '').trim()
+  const artifactFocus = String(input.artifactFocusId || '').trim()
+  const processRunning = Math.max(0, Number(input.processRunning) || 0)
+
+  const nextPrev: SummaryActivityPrev = {
+    platformFocus,
+    artifactFocus,
+    processRunning,
+  }
+
+  type Cand = { tab: SummaryActivityTab; rank: number }
+  const cands: Cand[] = []
+
+  if (platformFocus && platformFocus !== input.prev.platformFocus) {
+    cands.push({ tab: 'platform', rank: 1 })
+  }
+  if (artifactFocus && artifactFocus !== input.prev.artifactFocus) {
+    cands.push({ tab: 'artifacts', rank: 2 })
+  }
+  if (processRunning > 0 && input.prev.processRunning === 0) {
+    cands.push({ tab: 'process', rank: 3 })
+  }
+
+  if (!cands.length) return { tab: null, nextPrev }
+  cands.sort((a, b) => b.rank - a.rank)
+  return { tab: cands[0].tab, nextPrev }
+}

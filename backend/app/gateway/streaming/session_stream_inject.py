@@ -168,8 +168,23 @@ def begin_thread_inject(thread_id: str) -> None:
     if not tid:
         return
     _refcounts[tid] = _refcounts.get(tid, 0) + 1
-    if tid not in _inject_queues:
+    created = tid not in _inject_queues
+    if created:
         _inject_queues[tid] = asyncio.Queue(maxsize=512)
+    live = len(_inject_queues)
+    if created or live >= 2:
+        try:
+            from evoflow.collab.subtask_stream_trace import multi_session_info
+
+            multi_session_info(
+                "live_stream open thread=%s live=%s created=%s",
+                tid,
+                live,
+                int(created),
+                mirror=live >= 2,
+            )
+        except Exception:
+            pass
 
 
 def end_thread_inject(thread_id: str) -> None:
@@ -180,6 +195,13 @@ def end_thread_inject(thread_id: str) -> None:
     if n <= 0:
         _refcounts.pop(tid, None)
         _inject_queues.pop(tid, None)
+        live = len(_inject_queues)
+        try:
+            from evoflow.collab.subtask_stream_trace import multi_session_info
+
+            multi_session_info("live_stream close thread=%s live=%s", tid, live)
+        except Exception:
+            pass
     else:
         _refcounts[tid] = n
 
@@ -280,6 +302,17 @@ async def inject_langgraph_custom(thread_id: str, data: dict[str, Any]) -> bool:
         return False
     q = _inject_queues.get(tid)
     if q is None:
+        try:
+            from evoflow.collab.subtask_stream_trace import multi_session_warn
+
+            multi_session_warn(
+                "session_inject no_queue thread=%s type=%s live=%s",
+                tid,
+                str(data.get("type") or "").strip() or "-",
+                len(_inject_queues),
+            )
+        except Exception:
+            pass
         return False
     payload = dict(data)
     try:
@@ -293,6 +326,17 @@ async def inject_langgraph_custom(thread_id: str, data: dict[str, Any]) -> bool:
                 tid,
                 payload.get("type"),
             )
+            try:
+                from evoflow.collab.subtask_stream_trace import multi_session_warn
+
+                multi_session_warn(
+                    "session_inject queue_full thread=%s type=%s live=%s",
+                    tid,
+                    str(payload.get("type") or "").strip() or "-",
+                    len(_inject_queues),
+                )
+            except Exception:
+                pass
             return False
     _invalidate_collab_pending_cache(tid)
     try:
@@ -340,14 +384,42 @@ async def inject_evf_frame(thread_id: str, payload: dict[str, Any]) -> bool:
 
 
 def schedule_inject_evf_frame(thread_id: str, payload: dict[str, Any]) -> None:
+    """Queue an EVF payload for the live stream.
+
+    Prefer ``create_task`` when a loop is running (broadcast + wake). If called
+    from a LangGraph worker thread with **no** running loop (common in
+    ``wrap_model_call``), still ``put_nowait`` into the inject queue so deltas
+    are not silently dropped — middle layer drain will pick them up.
+    """
+
     async def _go() -> None:
         await inject_evf_frame(thread_id, payload)
 
     try:
         loop = asyncio.get_running_loop()
         loop.create_task(_go(), name="inject_evf_frame")
+        return
     except RuntimeError:
-        logger.debug("schedule_inject_evf_frame skipped (no loop) thread=%s", thread_id)
+        pass
+
+    tid = str(thread_id or "").strip()
+    if not tid or not isinstance(payload, dict):
+        return
+    q = _inject_queues.get(tid)
+    if q is None:
+        logger.debug("schedule_inject_evf_frame skipped (no queue/loop) thread=%s", tid)
+        return
+    frame = {"__evf__": dict(payload)}
+    try:
+        q.put_nowait(frame)
+    except asyncio.QueueFull:
+        try:
+            _compact_inject_queue(q, frame)
+        except asyncio.QueueFull:
+            logger.warning("schedule_inject_evf_frame queue full (sync) thread=%s", tid)
+            return
+    _invalidate_collab_pending_cache(tid)
+    _notify_middle_layer_inject(tid)
 
 
 async def merge_normalized_with_inject(

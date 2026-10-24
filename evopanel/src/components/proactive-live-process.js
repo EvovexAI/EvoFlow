@@ -1,5 +1,5 @@
 /**
- * 智能体员工「工作过程」：挂载与主对话工作流/子任务同款居中历史弹窗。
+ * 智能体员工「工作过程」：挂载与主对话工作流/子任务同款历史面板（modal 或侧栏 drawer）。
  */
 import { createElement } from 'react'
 import { createRoot } from 'react-dom/client'
@@ -24,6 +24,8 @@ export function mountProactiveLiveProcess(container) {
    *   roundId?: string
    *   taskId?: string
    *   pollMs?: number
+   *   mode?: 'modal' | 'drawer'
+   *   portalTarget?: HTMLElement | null
    * } | null} */
   let state = null
   /** @type {(() => void) | null} */
@@ -44,6 +46,8 @@ export function mountProactiveLiveProcess(container) {
         roundId: state.roundId || '',
         taskId: state.taskId || '',
         pollMs: state.pollMs,
+        mode: state.mode === 'drawer' ? 'drawer' : 'modal',
+        portalTarget: state.mode === 'drawer' ? state.portalTarget || null : null,
         onClose: () => {
           state = state ? { ...state, open: false } : null
           render()
@@ -68,6 +72,8 @@ export function mountProactiveLiveProcess(container) {
      *   roundId?: string
      *   taskId?: string
      *   pollMs?: number
+     *   mode?: 'modal' | 'drawer'
+     *   portalTarget?: HTMLElement | null
      *   onClosed?: () => void
      * }} next
      */
@@ -84,6 +90,8 @@ export function mountProactiveLiveProcess(container) {
         roundId: String(next.roundId || '').trim() || undefined,
         taskId: String(next.taskId || '').trim() || undefined,
         pollMs: next.pollMs,
+        mode: next.mode === 'drawer' ? 'drawer' : 'modal',
+        portalTarget: next.portalTarget || null,
       }
       render()
     },
@@ -117,9 +125,15 @@ export function mountProactiveLiveProcess(container) {
       return state?.open ? String(state.roundId || '').trim() : ''
     },
     close() {
-      if (!state) return
+      if (!state?.open) return
       state = { ...state, open: false }
       render()
+      try {
+        onClosed?.()
+      } catch {
+        /* ignore */
+      }
+      host.dispatchEvent(new CustomEvent('pro-live-close', { bubbles: true }))
     },
     isOpen() {
       return !!(state?.open && state.agentCode)

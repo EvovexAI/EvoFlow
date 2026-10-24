@@ -279,6 +279,13 @@ def reset_mcp_tools_cache() -> None:
         reset_mcp_connection_pool()
     except Exception:
         logger.debug("MCP connection pool reset skipped", exc_info=True)
+    # annotations 登记随缓存失效：重建 warmup 时重新登记。
+    try:
+        from evoflow.mcp.annotations import reset_tool_annotations
+
+        reset_tool_annotations()
+    except Exception:
+        logger.debug("MCP annotations reset skipped", exc_info=True)
     # Do not unconditionally null ``_async_init_lock``: concurrent
     # ``initialize_mcp_tools`` on the same loop must keep sharing one lock.
     # Cross-loop staleness is handled lazily in ``_get_async_init_lock``.

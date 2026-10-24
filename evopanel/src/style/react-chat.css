@@ -2371,20 +2371,6 @@ html.dark .shell-account-menu {
   color: var(--shell-text, #202124);
 }
 
-.react-chat-history-item::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 7px;
-  bottom: 7px;
-  width: 2px;
-  border-radius: 1px;
-  background: var(--shell-brand, var(--accent));
-  opacity: 0;
-  transition: opacity 120ms ease;
-  pointer-events: none;
-}
-
 .react-chat-session-type-ic {
   flex-shrink: 0;
   display: inline-flex;
@@ -2450,10 +2436,6 @@ html.dark .shell-account-menu {
   box-shadow: none;
   transform: none;
   z-index: 3;
-}
-
-.react-chat-history-item.active::before {
-  opacity: 1;
 }
 
 .react-chat-history-item.session-menu-open {
@@ -2741,6 +2723,77 @@ html[data-theme='dark'] .react-chat-history-item.active {
 .react-chat-history-item--drag-over {
   outline: 2px dashed color-mix(in srgb, var(--accent, #2563eb) 55%, transparent);
   outline-offset: -2px;
+}
+
+/* 整行拖拽期间禁止文本选择（对齐 zcode dnd 体验） */
+body.react-chat-session-row-dragging {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+body.react-chat-session-row-dragging .react-chat-history-item {
+  cursor: grabbing;
+}
+
+/* 工作区分组头拖拽（对齐 zcode 侧栏工作区拖拽换序） */
+.react-chat-session-ws-head--dragging {
+  opacity: 0.55;
+  cursor: grabbing !important;
+}
+
+.react-chat-session-ws-head--drag-over {
+  outline: 2px dashed color-mix(in srgb, var(--accent, #2563eb) 55%, transparent);
+  outline-offset: -2px;
+}
+
+/* 置顶区折叠切换（对齐 zcode taskList.showMore/showLess） */
+.react-chat-session-pinned-toggle {
+  display: block;
+  width: 100%;
+  margin-top: 2px;
+  padding: 4px 12px;
+  border: none;
+  background: transparent;
+  color: var(--foreground-subtle, #8a8f9e);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 6px;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.react-chat-session-pinned-toggle:hover {
+  background: var(--surface-hover, rgba(0, 0, 0, 0.05));
+  color: var(--foreground, #1f2328);
+}
+
+/* 会话列表空态 CTA（新建对话按钮） */
+.react-chat-session-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 18px 12px !important;
+  text-align: center;
+}
+
+.react-chat-session-empty-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 12px;
+  border: 1px solid var(--border, rgba(0, 0, 0, 0.12));
+  border-radius: 8px;
+  background: transparent;
+  color: var(--foreground, #1f2328);
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.react-chat-session-empty-cta:hover {
+  background: var(--surface-hover, rgba(0, 0, 0, 0.05));
+  border-color: var(--accent, #2563eb);
 }
 
 .react-chat-session-pin-badge {
@@ -5847,6 +5900,20 @@ html.dark .react-chat-context-ring.is-clickable:hover .react-chat-context-ring-p
   pointer-events: none;
 }
 
+/* 从知识库/任务中心切回时 --booting 白屏：给转圈，避免「无内容也无加载」 */
+.react-chat-vlist-boot-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  pointer-events: none;
+  background: color-mix(in srgb, var(--bg-primary, #ffffff) 86%, transparent);
+}
+
 /*
  * Tauri 桌面：主会话区正文字号（chat.css 默认 14px；分两档收小以适配高 DPI / 系统缩放）
  */
@@ -6191,6 +6258,82 @@ html.dark .react-chat-conversation-col {
   position: relative;
   z-index: 2;
   background: var(--bg-primary, #fff);
+}
+
+/*
+ * V4 ConversationTimeline 挂进 EvoFlow 后：正文列默认吃 zcode 的 max-w-4xl/6xl，
+ * 与底部 composer-shell 外层（dock gutter 内、--chat-composer-max）错位。
+ * 这里强制同一中轴、同宽：滚动层 gutter = dock gutter；正文列与 composer-stack
+ * 都限宽 --chat-composer-max 并水平居中。
+ */
+.react-chat-conversation-col [data-v4-timeline-scroll="true"] {
+  padding-left: var(--chat-column-gutter, 24px);
+  padding-right: var(--chat-column-gutter, 24px);
+  box-sizing: border-box;
+}
+
+.react-chat-conversation-col [data-v4-timeline-content-column="true"] {
+  width: 100% !important;
+  max-width: var(--chat-composer-max, 840px) !important;
+  margin-left: auto !important;
+  margin-right: auto !important;
+  /* 取消 zcode 状态面板让位位移，避免相对输入框偏轴 */
+  transform: none !important;
+}
+
+.react-chat-conversation-col .react-chat-composer-stack {
+  width: 100%;
+  max-width: var(--chat-composer-max, 840px);
+  margin-left: auto;
+  margin-right: auto;
+  box-sizing: border-box;
+}
+
+/*
+ * V4 统一滚动：输入区 sticky 在 ConversationTimeline 视口底（portal 进 bottomDock）。
+ * messages-wrap 占满会话列；dock 不再是下方兄弟，避免「滚到底还有一块留给输入框的空白」。
+ */
+.react-chat-conversation-col.is-v4-unified-scroll > .react-chat-messages-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.react-chat-conversation-col.is-v4-unified-scroll > .react-chat-messages-wrap > .react-chat-messages-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* portal 进 sticky dock 后：去掉会话列兄弟 dock 的 gutter/底色，由 timeline 内容列承宽 */
+.react-chat-conversation-col [data-v4-evoflow-composer-host] .react-chat-bottom-dock {
+  width: 100% !important;
+  max-width: none !important;
+  margin: 0 !important;
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+  padding-top: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+/* sticky dock 内容列：与正文 [data-v4-timeline-content-column] 同宽同轴 */
+.react-chat-conversation-col [data-v4-composer-dock-content="true"] {
+  width: 100% !important;
+  max-width: var(--chat-composer-max, 840px) !important;
+  margin-left: auto !important;
+  margin-right: auto !important;
+  transform: none !important;
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+  padding-bottom: 12px !important;
+  box-sizing: border-box;
+}
+
+.react-chat-conversation-col [data-v4-composer-dock-content="true"] .react-chat-composer-stack {
+  max-width: none;
+  margin-left: 0;
+  margin-right: 0;
 }
 
 .react-chat-conversation-col .react-vlist-item,
@@ -13859,6 +14002,59 @@ html[data-app-occluded='1'] * {
   overflow: hidden;
 }
 
+/* zcode AskUserQuestion 对齐：label + description 两行式选项文本容器 */
+.react-chat-thread-clarify-option-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.react-chat-thread-clarify-option-text .react-chat-thread-clarify-option-label {
+  flex: 0 0 auto;
+}
+
+.react-chat-thread-clarify-option-desc {
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.4;
+  color: var(--text-secondary, #6b7280);
+  white-space: pre-wrap;
+  word-break: break-word;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+}
+
+/* zcode AskUserQuestion 对齐：题目短标签 chip（header） */
+.react-chat-thread-clarify-question-head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.react-chat-thread-clarify-question-header {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1.4;
+  color: var(--accent, #2563eb);
+  background: var(--accent-muted, rgba(37, 99, 235, 0.1));
+  border: 1px solid color-mix(in srgb, var(--accent, #2563eb) 30%, transparent);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 @media (max-width: 640px) {
   .react-chat-thread-clarify-questions-grid {
     grid-template-columns: 1fr;
@@ -19217,6 +19413,14 @@ html.dark .msg-tool-activity-fold-steps {
   display: none;
 }
 
+/* 绑渠道二维码 / 平台结果卡挂在 .msg-tool 外：折叠「已工作」时仍要可见 */
+.msg-turn-history-fold[data-history-open="false"] .msg-platform-results-hoist,
+.msg-turn-history-fold[data-history-open="false"] .msg-platform-results,
+.msg-turn-history-fold[data-history-open="false"] .msg-bind-employee-qr {
+  display: flex;
+  flex-direction: column;
+}
+
 .msg-tool--in-activity-fold {
   margin-bottom: 0;
   gap: 0;
@@ -22348,6 +22552,63 @@ html[data-custom-bg='1'] .react-chat-main-col--home {
   color: var(--text-primary);
 }
 
+.evo-home-card--live {
+  margin-bottom: 16px;
+}
+
+.evo-home-live__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.evo-home-live__count {
+  font-size: var(--ef-text-sm);
+  color: var(--text-secondary);
+}
+
+.evo-home-list--live {
+  max-height: 280px;
+  overflow: auto;
+}
+
+.evo-home-live__item .evo-home-list__icon {
+  flex-shrink: 0;
+}
+
+.evo-home-live__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--accent, #5b5fef) 12%, transparent);
+  color: var(--accent, #5b5fef);
+}
+
+.evo-home-live__icon--employee {
+  background: color-mix(in srgb, #10b981 14%, transparent);
+  color: #059669;
+}
+
+.evo-home-live__icon--automation {
+  background: color-mix(in srgb, #f59e0b 14%, transparent);
+  color: #d97706;
+}
+
+.evo-home-live__icon--workflow {
+  background: color-mix(in srgb, #8b5cf6 14%, transparent);
+  color: #7c3aed;
+}
+
+.evo-home-empty--live {
+  padding: 18px 8px;
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: var(--ef-text-sm);
+}
+
 .evo-home-list {
   display: flex;
   flex-direction: column;
@@ -24069,6 +24330,82 @@ html.dark .react-chat-workspace-preview-stage {
   background: var(--bg-hover, rgba(127, 127, 127, 0.1));
   color: var(--text-primary, inherit);
 }
+/* CSV / TSV 表格预览 */
+.react-chat-workspace-preview-table-wrap {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.react-chat-workspace-preview-table-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 4px 12px 12px;
+}
+.react-chat-workspace-preview-table {
+  border-collapse: collapse;
+  font-size: var(--ef-text-sm);
+  width: max-content;
+  min-width: 100%;
+}
+.react-chat-workspace-preview-table th,
+.react-chat-workspace-preview-table td {
+  border: 1px solid var(--border, #e5e7eb);
+  padding: 5px 8px;
+  text-align: left;
+  vertical-align: top;
+  white-space: pre-wrap;
+  max-width: 32rem;
+}
+.react-chat-workspace-preview-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--bg-secondary, #f8fafc);
+  color: var(--text-primary, #111827);
+  font-weight: 600;
+}
+.react-chat-workspace-preview-table tbody tr:nth-child(even) td {
+  background: var(--bg-subtle, rgba(127, 127, 127, 0.04));
+}
+
+/* 预览 / 源码 分段切换（按文件格式自动出现） */
+.react-chat-workspace-preview-view-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  margin-right: 4px;
+  border-radius: 8px;
+  background: var(--bg-subtle, rgba(127, 127, 127, 0.08));
+  flex-shrink: 0;
+}
+.react-chat-workspace-preview-view-btn {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary, #6b7280);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.react-chat-workspace-preview-view-btn:hover {
+  color: var(--text-primary, inherit);
+  background: var(--bg-hover, rgba(127, 127, 127, 0.12));
+}
+.react-chat-workspace-preview-view-btn.is-active {
+  background: var(--bg-elevated, #fff);
+  color: var(--text-primary, inherit);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
 .react-chat-workspace-preview-menu-label {
   padding: 4px 8px 2px;
   font-size: 11px;
@@ -32392,7 +32729,8 @@ html[data-theme='dark'] .react-chat-browser-panel .browser-panel-viewport-dim:fo
   cursor: default;
 }
 
-/* 气泡主体（ZCode ConversationUserInputBubble 同款）：内容自适应宽度 */
+/* 气泡主体（ZCode ConversationUserInputBubble 同款）：内容自适应宽度。
+ * 字号跟桥接根 --ui-font-size（与助手正文同一档），勿写死 14px。 */
 .group\/user-row [data-v4-user-input-bubble] {
   display: flex;
   flex-direction: column;
@@ -32406,7 +32744,7 @@ html[data-theme='dark'] .react-chat-browser-panel .browser-panel-viewport-dim:fo
   border: 1px solid var(--color-border, #e5e7eb);
   background: var(--color-surface, #ffffff);
   color: var(--color-foreground, #111827);
-  font-size: 14px;
+  font-size: var(--ui-font-size, 14px);
   line-height: 1.55;
   box-sizing: border-box;
   word-wrap: break-word;
@@ -33120,8 +33458,10 @@ html[data-theme='dark'] .react-chat-browser-panel .browser-panel-nav-error {
 
 .msg-stream-run-spinner {
   color: var(--accent, #635bff);
-  animation: react-chat-spinner-rotate 0.8s linear infinite;
+  /* 与 V4 ChatLoading 同速：匀速 0.7s，比默认 1s 更顺、不显拖沓 */
+  animation: react-chat-spinner-rotate 0.7s linear infinite;
   transform-origin: 50% 50%;
+  backface-visibility: hidden;
 }
 
 /* flat 时间线：思考标识与下方工具行贴近（去掉思考块自身下边距 + 收紧行距） */
@@ -33377,7 +33717,9 @@ html.dark .react-chat-stage-popover {
 .react-chat-right-stage-body > .react-chat-workspace-panel,
 .react-chat-right-stage-body > .react-chat-collab-exec-panel,
 .react-chat-right-stage-body > .react-chat-knowledge-map-panel,
-.react-chat-right-stage-body > .react-chat-terminal-stage {
+.react-chat-right-stage-body > .react-chat-terminal-stage,
+.react-chat-right-stage-body > .v4-collab-subtask-transcript,
+.react-chat-right-stage-body > .v4-employee-process-panel {
   height: 100%;
   min-height: 0;
 }
@@ -33848,4 +34190,76 @@ html[data-theme='dark'] .react-chat-stage-tab.is-active {
   gap: 2px;
   height: 100%;
   margin-left: 4px;
+}
+
+/* ── V4 侧栏工作区分组树（对齐 ZCode WorkspaceSidebar ghost-button 头 + 折叠列表）── */
+.react-chat-session-ws-group {
+  list-style: none;
+  margin: 4px 0 2px;
+  padding: 0;
+}
+
+.react-chat-session-ws-group-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 5px 8px 5px 6px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--shell-text-muted, #6b7280);
+  font-size: 12px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  outline: none;
+  transition: background-color 120ms ease-out, color 120ms ease-out;
+}
+
+.react-chat-session-ws-group-header:hover {
+  background: var(--shell-hover, rgba(0, 0, 0, 0.04));
+  color: var(--shell-text, #171a2b);
+}
+
+.react-chat-session-ws-group-header:focus-visible {
+  outline: 2px solid var(--shell-focus, rgba(59, 130, 246, 0.5));
+  outline-offset: -1px;
+}
+
+
+
+.react-chat-session-ws-group-list {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 2px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.react-chat-session-ws-group-list .react-chat-session-row {
+  padding-left: 10px;
+}
+
+/* 已注册但还没有会话的工作区：组头下给个占位，避免空白条目 */
+.react-chat-session-ws-group-empty {
+  padding: 4px 10px 6px;
+  font-size: var(--ef-text-sm);
+}
+
+.react-chat-session-duty-fold-chevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--shell-text-muted, #6b7280);
+  transition: transform 150ms ease-out;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.react-chat-session-duty-fold-chevron.is-open {
+  transform: rotate(90deg);
 }

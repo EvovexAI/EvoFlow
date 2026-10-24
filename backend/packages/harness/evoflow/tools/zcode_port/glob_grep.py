@@ -51,7 +51,7 @@ def _skip_dir(name: str) -> bool:
     return name in {".git", "node_modules", "__pycache__", ".venv", "venv", "dist", "build"}
 
 
-@tool("Glob", description=GLOB_DESCRIPTION, parse_docstring=False)
+@tool("glob", description=GLOB_DESCRIPTION, parse_docstring=False)
 def glob_tool(pattern: str, path: str | None = None, runtime: ToolRuntime = None) -> str:
     """Fast file pattern matching. pattern is required; path defaults to the working directory."""
     started = time.time()
@@ -64,12 +64,18 @@ def glob_tool(pattern: str, path: str | None = None, runtime: ToolRuntime = None
     if not root.is_dir():
         return f"Error: Glob search path must be a directory: {root}"
     matches: list[tuple[float, Path]] = []
+    # fnmatch's ``*`` crosses separators, so ``**/*.py`` demands a literal slash
+    # and misses root-level files (real glob treats ``**/`` as optional). Match
+    # against the pattern and its ``**/``-stripped variant.
+    patterns = {pattern}
+    if pattern.startswith("**/"):
+        patterns.add(pattern[3:])
     for dirpath, dirnames, filenames in os.walk(root):
         dirnames[:] = [d for d in dirnames if not _skip_dir(d)]
         for name in filenames:
             file_path = Path(dirpath) / name
             rel = _display(file_path, root)
-            if fnmatch.fnmatch(rel, pattern) or fnmatch.fnmatch(name, pattern):
+            if any(fnmatch.fnmatch(rel, p) or fnmatch.fnmatch(name, p) for p in patterns):
                 try:
                     mtime = file_path.stat().st_mtime
                 except OSError:
@@ -93,7 +99,7 @@ def _rg_binary() -> str | None:
     return _find_rg_binary()
 
 
-@tool("Grep", description=GREP_DESCRIPTION, parse_docstring=False)
+@tool("grep", description=GREP_DESCRIPTION, parse_docstring=False)
 def grep_tool(
     pattern: str,
     path: str | None = None,

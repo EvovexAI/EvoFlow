@@ -104,6 +104,10 @@ evp_unlock_ok_${EVP_UNLOCK_UID}:
 !macro NSIS_HOOK_PREINSTALL
   ; Overwrite / upgrade: light stop + probe before copying binaries.
   !insertmacro EvpEnsureInstallDirUnlocked
+  ; taskkill /F skips graceful Drop → sidecar.lock can keep a dead PID and the
+  ; next launch refuses to spawn Gateway (blank UI). Clear per-profile locks.
+  nsExec::Exec 'powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "$$root=Join-Path $$env:USERPROFILE ''.evoflow\profiles''; if (Test-Path -LiteralPath $$root) { Get-ChildItem -LiteralPath $$root -Filter ''sidecar.lock'' -Recurse -Force -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue }"'
+  Pop $0
 !macroend
 
 !macro NSIS_HOOK_POSTINSTALL

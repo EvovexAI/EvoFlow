@@ -40,4 +40,11 @@ describe('toUserFacingError', () => {
   it('returns fallback for stack traces', () => {
     expect(toUserFacingError('Error\n  File "foo.py", line 1')).toBe('操作失败，请稍后重试')
   })
+
+  it('suppresses user_interrupt variants (underscore/space/camel)', () => {
+    expect(toUserFacingError('user_interrupt')).toBe('')
+    expect(toUserFacingError('user interrupt')).toBe('')
+    expect(toUserFacingError('UserInterrupt')).toBe('')
+    expect(toUserFacingError('User interrupted the run')).toBe('')
+  })
 })

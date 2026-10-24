@@ -37,7 +37,21 @@ import {
 } from './rightStageTabLayout.js'
 import { useGlobalOverlayWhen } from '../hooks/useGlobalOverlayWhen.js'
 
-/** 失活仍挂载：切签像浏览器标签一样保活（含工作流/导图）。 */
+/**
+ * 失活仍挂载：切签像浏览器标签一样保活。
+ *
+ * 入列标准是「**重建成本高或会丢状态**」，不是「是右栏面板」：
+ * - browser / web-embed：原生 WebView2 宿主与页面现场，卸载即丢；
+ * - terminal / write：流式内容只在挂载期接收，卸载会漏 chunk；
+ * - file / codeViewer / subagentTranscript / workspace-browse：滚动位置、树展开态、已加载内容；
+ * - collab-workflow / mind-map / summary：异步数据与画布状态，重建会闪一下。
+ *
+ * 刻意不包含的 kind：
+ * - `news-dashboard`：挂载即 fetch 并起 30 分钟定时器，失活常驻会持续联网，而它的数据
+ *   本来就是低频刷新，切回来重新拉一次即可；
+ * - `platform-feedback`：纯展示（无副作用、无异步），重建零成本。
+ *   两者都靠 RightStageTabIcon + title 维持标签条外观，切回时按需挂载。
+ */
 const FORCE_MOUNT_KINDS = new Set([
   'browser',
   'file',
@@ -48,8 +62,10 @@ const FORCE_MOUNT_KINDS = new Set([
   'collab-workflow',
   'mind-map',
   'web-embed',
-  'platform-feedback',
-  'news-dashboard',
+  'codeViewer',
+  'subagentTranscript',
+  'collabSubtaskTranscript',
+  'employeeProcess',
 ])
 
 export type RightStageLauncherItemId =

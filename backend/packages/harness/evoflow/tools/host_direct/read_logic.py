@@ -11,12 +11,23 @@ _IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
 _SINGLE_LINE_PAGE_CHARS = 8000
 
 
+def _is_binary_content(raw: bytes) -> bool:
+    """zcode ``looksLikeBinary`` alignment: NUL byte anywhere => binary.
+
+    zcode rejects such files with "Unsupported or binary text encoding"
+    instead of force-decoding to U+FFFD noise; we return a structured error
+    the same way (image/pdf/office branches are dispatched before this).
+    """
+    return b"\x00" in raw
+
+
 def read_file_content(
     path: str,
     *,
     offset: int | None = None,
     limit: int | None = None,
     use_cache: bool = True,
+    pages: str | None = None,
 ) -> str:
     """Read file content; returns error string on failure."""
     try:
@@ -41,6 +52,20 @@ def read_file_content(
                 b64 = base64.b64encode(f.read()).decode("ascii")
             return f"data:{mime_type};base64,{b64}"
 
+        # zcode Read PDF alignment: never force-decode PDF binaries as text
+        # (previously produced U+FFFD noise); extract per-page text instead.
+        if p.suffix.lower() == ".pdf":
+            from evoflow.tools.host_direct.read_pdf import read_pdf_file
+
+            return read_pdf_file(p, pages=pages)
+
+        # Office documents: convert to markdown via markitdown (+ fallback
+        # extractors). offset/limit paginate the converted markdown.
+        from evoflow.tools.host_direct.read_office import OFFICE_EXTENSIONS, read_office_file
+
+        if p.suffix.lower() in OFFICE_EXTENSIONS:
+            return read_office_file(p, offset=offset, limit=limit)
+
         if use_cache and offset is None and limit is None:
             from evoflow.context.file_read_cache import get_cached_text, store_cached_text
 
@@ -48,7 +73,14 @@ def read_file_content(
             if cached is not None:
                 return cached
 
-        content = p.read_text(encoding="utf-8", errors="replace")
+        raw = p.read_bytes()
+        if _is_binary_content(raw):
+            return (
+                f"Error: Unsupported or binary file: {path}. "
+                "The file contains binary data and cannot be shown as text. "
+                "Use an appropriate tool (Python in the sandbox) to inspect or convert it."
+            )
+        content = raw.decode("utf-8", errors="replace")
         lines = content.splitlines()
 
         if offset is not None or limit is not None:

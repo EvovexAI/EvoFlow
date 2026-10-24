@@ -7,6 +7,7 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useRef,
   useSyncExternalStore,
   type ReactNode,
@@ -14,6 +15,7 @@ import {
 import { useStore } from "zustand";
 import type { IBroadcastService } from "@zcode/services";
 import { createZCodeStore, type ZCodeStore, type ZCodeState } from "./index.js";
+import { replayThemeIntoBridgeRoots } from "../useTheme.js";
 
 // 导出 Context 供测试直接注入已构造的 store 实例（如跨窗口广播抑制用例）。
 const StoreContext = createContext<ZCodeStore | null>(null);
@@ -34,6 +36,13 @@ export function StoreProvider({
       initialIsRestoringOAuthSession,
     });
   }
+
+  // 桥接场景：store 模块加载时容器可能还没挂载，主题类没处写。
+  // 这里在挂载后补写一次，避免右侧面板 token 缺暗/亮态（整块发黑）。
+  const theme = storeRef.current.getState().theme;
+  useEffect(() => {
+    replayThemeIntoBridgeRoots(theme);
+  }, [theme]);
 
   return <StoreContext.Provider value={storeRef.current}>{children}</StoreContext.Provider>;
 }

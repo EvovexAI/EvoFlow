@@ -16,6 +16,9 @@ import { version as APP_VERSION } from '../../package.json'
  */
 const ICONS = {
   plus: '<path d="M5 12h14"/><path d="M12 5v14"/>',
+  // lucide house — 工作台入口
+  house:
+    '<path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"/><path d="M3 10a2 2 0 0 1 .709-1.528l7-5.999a2 2 0 0 1 2.582 0l7 5.999A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
   listTodo: '<path d="M13 5h8"/><path d="M13 12h8"/><path d="M13 19h8"/><path d="m3 17 2 2 4-4"/><rect width="6" height="6" x="3" y="4" rx="1"/>',
   layoutGrid: '<rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/>',
   users: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.128a4 4 0 0 1 0 7.744"/>',
@@ -371,7 +374,7 @@ function _bindShell(el) {
     const navBtn = e.target.closest('[data-shell-nav]')
     if (navBtn) {
       const path = navBtn.dataset.shellNav
-      // 首页 / 工作台：回到空会话仪表盘（已在工作台则不重复新建）
+      // 工作台：打开空会话仪表盘（EvoFlowHomeDashboard）；会话列表「新对话」才是空白草稿
       if (path === '/chat' && navBtn.dataset.shellHome) {
         if (_isChatHashRoute()) {
           window.dispatchEvent(new CustomEvent('evopanel:shell-open-home'))
@@ -455,9 +458,9 @@ export function initShellAside(el) {
       </button>
     </div>
     <nav class="react-chat-aside-primary" aria-label="产品导航">
-      <button type="button" class="react-chat-aside-nav-item" data-shell-nav="/chat" data-shell-home="1" id="shell-btn-new-task" title="新建对话" aria-label="新建对话">
-        <span class="react-chat-aside-nav-ic" aria-hidden>${_lucide('plus')}</span>
-        <span class="react-chat-aside-nav-label">新建对话</span>
+      <button type="button" class="react-chat-aside-nav-item" data-shell-nav="/chat" data-shell-home="1" id="shell-btn-new-task" title="工作台" aria-label="工作台">
+        <span class="react-chat-aside-nav-ic" aria-hidden>${_lucide('house')}</span>
+        <span class="react-chat-aside-nav-label">工作台</span>
       </button>
       <button type="button" class="react-chat-aside-nav-item" data-shell-nav="/tasks" data-premium-nav="tasks" title="任务中心">
         <span class="react-chat-aside-nav-ic" aria-hidden>${_lucide('listTodo')}</span>

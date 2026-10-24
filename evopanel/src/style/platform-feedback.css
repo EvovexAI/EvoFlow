@@ -93,6 +93,12 @@
   color: var(--text-secondary);
 }
 
+/* Bind QR styles live on .emp-bind-channel-qr* (enterprise-workspace.css);
+   right-stage panel reuses the same component. */
+.react-chat-platform-feedback-card .emp-bind-channel-qr {
+  margin-top: 12px;
+}
+
 .react-chat-platform-feedback-details {
   list-style: none;
   margin: 10px 0 0;

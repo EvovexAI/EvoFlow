@@ -51,6 +51,28 @@ def call_timeout_sec() -> float:
     except ValueError:
         return _CALL_TIMEOUT_DEFAULT_SEC
 
+
+def server_timeout_sec_from_config(raw_cfg: dict[str, Any] | None) -> float | None:
+    """从 server 原始配置读取 per-server 超时（对齐 Zcode ``timeoutMs``）。
+
+    同时接受 Zcode 风格 ``timeoutMs``（毫秒）与 EvoFlow 旧字段 ``timeout``
+    （秒）；两者并存时 ``timeoutMs`` 优先（与 Zcode 的 descriptor 覆盖语义
+    一致）。未配置或值不可用时返回 ``None``，由调用方回退到各自的全局默认。
+    """
+    if not isinstance(raw_cfg, dict):
+        return None
+    for key, scale in (("timeoutMs", 1000.0), ("timeout", 1.0)):
+        value_raw = raw_cfg.get(key)
+        if value_raw is None:
+            continue
+        try:
+            value = float(value_raw)
+        except (TypeError, ValueError):
+            continue
+        if value > 0:
+            return value / scale
+    return None
+
 # 连接级错误特征：按异常类名识别（不 import anyio，避免版本耦合）。
 _CONNECTION_ERROR_TYPE_NAMES = frozenset(
     {
@@ -108,11 +130,13 @@ class _ServerEntry:
         "error",
         "stale",
         "tools",
+        "call_timeout_sec",
     )
 
-    def __init__(self, name: str, config: dict[str, Any]) -> None:
+    def __init__(self, name: str, config: dict[str, Any], call_timeout_sec: float | None = None) -> None:
         self.name = name
         self.config = config
+        self.call_timeout_sec = call_timeout_sec
         self.client: MultiServerMCPClient | None = None
         self.session: Any = None
         self.host_task: asyncio.Task | None = None
@@ -252,7 +276,13 @@ class McpConnectionPool:
         with contextlib.suppress(KeyError):
             del self._entries[entry.name]
 
-    async def _ensure_entry_locked(self, name: str, config: dict[str, Any], timeout_sec: float) -> _ServerEntry:
+    async def _ensure_entry_locked(
+        self,
+        name: str,
+        config: dict[str, Any],
+        timeout_sec: float,
+        call_timeout_sec: float | None = None,
+    ) -> _ServerEntry:
         from langchain_mcp_adapters.tools import load_mcp_tools
 
         entry = self._entries.get(name)
@@ -265,7 +295,7 @@ class McpConnectionPool:
                 await self._teardown_entry(entry)
                 entry = None
         if entry is None:
-            entry = _ServerEntry(name, config)
+            entry = _ServerEntry(name, config, call_timeout_sec=call_timeout_sec)
             await self._connect_entry(entry, timeout_sec)
             self._entries[name] = entry
             try:
@@ -286,13 +316,18 @@ class McpConnectionPool:
 
     async def _invoke_tool(self, name: str, original: StructuredTool, kwargs: dict[str, Any]) -> Any:
         entry = self._entries.get(name)
+        # 调用超时优先级（对齐 Zcode）：per-server 配置（timeoutMs/timeout）覆盖
+        # 全局默认（descriptor.timeoutMs 覆盖默认值）；全局默认可用 env 调整。
         timeout = call_timeout_sec()
+        if entry is not None and entry.call_timeout_sec is not None:
+            timeout = entry.call_timeout_sec
         try:
             coro = original.coroutine(**kwargs)
             if timeout > 0:
                 # 超时在池侧计时：调用方取消不会让挂死调用泄漏在池 loop 上。
-                return await asyncio.wait_for(coro, timeout=timeout)
-            return await coro
+                raw = await asyncio.wait_for(coro, timeout=timeout)
+            else:
+                raw = await coro
         except TimeoutError:
             # 挂死的调用占用常驻 session；按连接级故障处理，下次调用重建会话。
             if entry is not None:
@@ -305,7 +340,8 @@ class McpConnectionPool:
                     await self._teardown_entry(entry)
             raise RuntimeError(
                 f"MCP tool call timed out after {timeout:.0f}s "
-                f"(server may be hung; tune {_CALL_TIMEOUT_ENV})"
+                f"(server may be hung; tune the server's timeoutMs in mcp.json "
+                f"or {_CALL_TIMEOUT_ENV})"
             ) from None
         except Exception as exc:  # noqa: BLE001
             if looks_like_connection_error(exc) and entry is not None:
@@ -317,14 +353,30 @@ class McpConnectionPool:
                 with contextlib.suppress(Exception):
                     await self._teardown_entry(entry)
             raise
+        # 结果预算归一化（对齐 Zcode）：大图落盘换占位引用、超预算文本截断，
+        # 防止 MCP 返回的大 base64 图片 / 超长输出打爆 provider 请求体。
+        from evoflow.mcp.result_budget import normalize_mcp_tool_result
+
+        return normalize_mcp_tool_result(str(getattr(original, "name", "") or name), raw)
 
     # ── 对外 API ────────────────────────────────────────────────
 
     async def ensure_server_tools(
-        self, name: str, config: dict[str, Any], *, timeout_sec: float = 45.0
+        self,
+        name: str,
+        config: dict[str, Any],
+        *,
+        timeout_sec: float = 45.0,
+        call_timeout_sec: float | None = None,
     ) -> list[BaseTool]:
-        """确保 server 的常驻会话可用，返回池绑定（任意 loop 可调）的工具列表。"""
-        await self.run_on_pool_loop(self._ensure_entry_locked(name, config, timeout_sec))
+        """确保 server 的常驻会话可用，返回池绑定（任意 loop 可调）的工具列表。
+
+        ``timeout_sec`` 为建连超时；``call_timeout_sec`` 为该 server 的调用
+        超时覆盖（``None`` 表示用池全局默认，见 ``call_timeout_sec()``）。
+        """
+        await self.run_on_pool_loop(
+            self._ensure_entry_locked(name, config, timeout_sec, call_timeout_sec)
+        )
         with self._registry_lock:
             entry = self._entries.get(name)
             originals = list(entry.tools) if entry else []

@@ -31,7 +31,7 @@ export function ChatLoading({ loading, size = "default", className, ...props }: 
       <div className="flex size-4 items-center justify-center">
         <LoaderIcon
           aria-hidden="true"
-          className={cn("animate-spin text-foreground-subtle", sizeClasses)}
+          className={cn("zcode-chat-loading-spin text-foreground-subtle", sizeClasses)}
         />
       </div>
     </div>

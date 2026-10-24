@@ -3,6 +3,7 @@ import type { ResolvedLiveStreamActivity } from '../resolve-live-stream-activity
 import type { RunningSessionSummary } from '../../hooks/useRunningSessionSummaries.js'
 import { formatRunningPreviewLine, formatSessionListTime, getDisplayLabel } from './display.js'
 import { isSessionExecuting, isSessionGoalActive } from '../session-execution/index.js'
+import { parseTurnTimestampMs } from '../turn-timing.js'
 import type { ShellSidebarSyncRow, ShellWorkspaceGroup, WorkspaceGroupSummary } from './types.js'
 import {
   buildShellGroupsFromSummaries,
@@ -86,6 +87,9 @@ export function buildShellSidebarRows(input: BuildShellSidebarRowsInput): ShellS
       canDelete: true,
       executing,
       runningPreviewLine,
+      runningStartedAtMs: executing
+        ? (parseTurnTimestampMs(s.currentTurnStartedAt) ?? undefined)
+        : undefined,
       hasUnseenRunningUpdate: !!summary?.hasUnseenUpdate,
       isPinned: !!s.isPinned,
       pinOrder: Number(s.pinOrder ?? 0),

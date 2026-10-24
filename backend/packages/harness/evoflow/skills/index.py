@@ -193,6 +193,7 @@ def discover_skills_from_roots(roots: list[SkillRootSpec]) -> list[Skill]:
                     enabled=parsed.enabled,
                     scope=scope,
                     source_root=spec.path,
+                    when_to_use=getattr(parsed, "when_to_use", ""),
                 )
             )
 

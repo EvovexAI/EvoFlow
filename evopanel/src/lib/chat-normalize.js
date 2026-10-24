@@ -2306,7 +2306,13 @@ function _buildReadToolUiPreview(text) {
   return preview
 }
 
-const _TOOL_OUTPUT_SLIM_EXEMPT_NAMES = new Set(['ask_clarification', 'mind_map', 'session_mind_map'])
+const _TOOL_OUTPUT_SLIM_EXEMPT_NAMES = new Set([
+  'ask_clarification',
+  'mind_map',
+  'session_mind_map',
+  // 平台通知依赖 RESULT 里的 ui JSON；slim 清空后右上角状态卡实时不亮
+  'platform',
+])
 
 function _isBrowserToolName(name) {
   const n = String(name || '').trim().toLowerCase()
@@ -2378,6 +2384,46 @@ function _preservePlatformUiMeta(target, raw) {
   if (!obj || typeof obj !== 'object' || obj.ok === false || obj.pending_confirm === true) return
   if (obj.ui && typeof obj.ui === 'object' && !Array.isArray(obj.ui)) {
     target.platform_ui = obj.ui
+  }
+  // employees.bind_channel_begin：即使缺 ui 块，也用顶层 qr_url 合成，避免对话丢码
+  const action = String(obj.action || '').trim()
+  const qr =
+    String(obj.qr_url || obj.qrUrl || (obj.ui && (obj.ui.qrUrl || obj.ui.qr_url)) || '').trim()
+  const sessionId = String(
+    obj.session_id || obj.sessionId || (obj.ui && (obj.ui.sessionId || obj.ui.session_id)) || '',
+  ).trim()
+  if (
+    (!target.platform_ui || typeof target.platform_ui !== 'object') &&
+    action === 'employees.bind_channel_begin' &&
+    (qr || sessionId)
+  ) {
+    target.platform_ui = {
+      kind: 'success',
+      title: '扫码绑定本岗 AI 员工',
+      domain: 'employees',
+      action,
+      qrUrl: qr || undefined,
+      sessionId: sessionId || undefined,
+      channel: String(obj.channel || 'feishu').trim().toLowerCase() || 'feishu',
+      agentCode: String(obj.agent_code || obj.agentCode || '').trim() || undefined,
+      entityLabel: String(obj.role_name || obj.roleName || '').trim() || undefined,
+      entityId: String(obj.agent_code || obj.agentCode || '').trim() || undefined,
+      bindStatus: 'pending',
+    }
+  } else if (
+    target.platform_ui &&
+    typeof target.platform_ui === 'object' &&
+    action === 'employees.bind_channel_begin'
+  ) {
+    const ui = target.platform_ui
+    if (!ui.qrUrl && !ui.qr_url && qr) ui.qrUrl = qr
+    if (!ui.sessionId && !ui.session_id && sessionId) ui.sessionId = sessionId
+    if (!ui.bindStatus) ui.bindStatus = 'pending'
+    if (!ui.action) ui.action = action
+    if (!ui.channel && obj.channel) ui.channel = String(obj.channel).trim().toLowerCase()
+    if (!ui.agentCode && (obj.agent_code || obj.agentCode)) {
+      ui.agentCode = String(obj.agent_code || obj.agentCode).trim()
+    }
   }
   if (obj.action) target.platform_action = obj.action
   if (obj.item && typeof obj.item === 'object') target.platform_item = obj.item

@@ -70,13 +70,18 @@ DOMAIN_GUIDES: dict[str, dict[str, str]] = {
     },
     "agents": {
         "title": "智能体角色",
-        "when": "CRUD 智能体角色（soul/skills/tools）；绑能力前先 agents.bindings",
-        "not": "雇成值班岗用 employees；勿省略 tools 指望拿到全部工具",
+        "when": "CRUD 智能体角色（soul/skills/capability_pack）；绑能力前先 agents.bindings → packs",
+        "not": "雇成值班岗用 employees；勿把 bindings.tools 全表灌入；勿省略 tools 指望拿到全部工具",
     },
     "employees": {
         "title": "智能体员工岗位",
-        "when": "雇佣/暂停/恢复/唤醒/删除员工、改心跳、看工作日志、迁移旧事项到 Task 时",
-        "not": "改角色模板用 agents；开可执行工单用 tasks / items.dispatch",
+        "when": (
+            "雇佣/暂停/恢复/唤醒/删除员工、改心跳、看工作日志、迁移旧事项到 Task、"
+            "为岗位扫码绑飞书/企微（绑定本岗 AI 员工）时；新建优先 capability_pack=duty。"
+            "create/hire 后读 assistant_guide.say_to_user 告诉用户怎么用；"
+            "绑渠道用 employees.bind_channel_*（不是 channels.registration_*）"
+        ),
+        "not": "改角色模板用 agents；开可执行工单用 tasks / items.dispatch；禁止 tools:null 灌全表；全局主机器人用 channels",
     },
     "tasks": {
         "title": "协作任务台账（行政视角）",
@@ -400,20 +405,20 @@ def _build_registry() -> dict[str, PlatformAction]:
         _A(
             "agents.bindings",
             "agents",
-            "可绑定工具/技能/MCP/知识库目录（创建前先查；含简短说明）",
+            "可绑定能力包 packs + 工具/技能/MCP/知识库（创建前先查；优先选 pack）",
             "read",
             "include_disabled_skills?",
             H.agents_bindings,
-            "建角色前有哪些工具、技能和知识库可绑",
+            "建角色前有哪些能力包和工具可绑",
         ),
         _A(
             "agents.create",
             "agents",
-            "创建智能体（省略 tools/knowledge_vault_ids→空；skills 省略→精选默认；先 agents.bindings）",
+            "创建智能体（优先 capability_pack；省略 tools→空；tools:null 须 confirm_inherit_all）",
             "write",
-            "agent_code, agent_name?, soul?, skills?, tools?, mcp_servers?, knowledge_vault_ids?, model?…",
+            "agent_code, capability_pack?, tools_extra?, tools?, confirm_inherit_all?, confirm_wide_tools?, skills?, mcp_servers?, knowledge_vault_ids?, model?…",
             H.agents_create,
-            "建个文案助手",
+            "建个文案助手用 capability_pack=writer",
         ),
         _A("agents.update", "agents", "更新智能体配置", "write", "name + 要改的字段", H.agents_update, "给文案助手换模型"),
         _A(
@@ -432,11 +437,11 @@ def _build_registry() -> dict[str, PlatformAction]:
         _A(
             "employees.create",
             "employees",
-            "一次创建员工（能力+岗位；工具/技能/知识库同 agents.create，先 agents.bindings）",
+            "一次创建员工（优先 capability_pack=duty|research|writer|coding|none；禁止灌全表 tools）",
             "write",
-            "role_name, agent_code?, skills?, tools?, mcp_servers?, knowledge_vault_ids?, department?, responsibilities?…",
+            "role_name, capability_pack?, tools_extra?, tools?, confirm_inherit_all?, agent_code?, skills?, mcp_servers?, knowledge_vault_ids?, department?, responsibilities?…",
             H.employees_create,
-            "直接加人不用先建智能体",
+            "直接加值班员工 capability_pack=duty",
         ),
         _A("employees.update", "employees", "更新员工岗位配置", "write", "agent_code + 字段", H.employees_update, "改拆解岗心跳"),
         _A("employees.pause", "employees", "暂停员工值班", "write", "agent_code", H.employees_pause, "让拆解岗先休息"),
@@ -487,6 +492,33 @@ def _build_registry() -> dict[str, PlatformAction]:
             "agent_code?, dry_run?",
             H.employees_migrate,
             "把旧事项迁成任务台账",
+        ),
+        _A(
+            "employees.bind_channel_begin",
+            "employees",
+            "为指定员工发起飞书/企微扫码，绑定本岗 AI 员工",
+            "write",
+            "agent_code, channel?=feishu|wecom",
+            H.employees_bind_channel_begin,
+            "给拆解岗出飞书二维码绑定",
+        ),
+        _A(
+            "employees.bind_channel_poll",
+            "employees",
+            "轮询员工渠道扫码状态（对话卡通常会自动轮询；仅兜底）",
+            "read",
+            "session_id, channel?, agent_code?",
+            H.employees_bind_channel_poll,
+            "飞书扫码好了没",
+        ),
+        _A(
+            "employees.bind_channel_apply",
+            "employees",
+            "把扫码凭证绑到本岗 AI 员工（勿用 channels.registration_apply）",
+            "write",
+            "agent_code, session_id, channel?=feishu|wecom",
+            H.employees_bind_channel_apply,
+            "扫码完成，绑到拆解岗",
         ),
         # tasks（行政台账；值班推进优先专用工具 tasks）
         _A(

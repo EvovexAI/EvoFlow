@@ -7,6 +7,9 @@ import {
   type RightStageStreamSession,
   type RightStageSurface,
 } from './right-stage-types.js'
+import { getCurrentRightStageSessionKey, resolveTabSessionKey, scopeOfKind } from './right-stage-scope.js'
+import { isTaskCenterStageSessionKey } from './task-center-stage-key.js'
+import { logPanelSet } from './panel-set-debug-log.js'
 
 export type RecentClosedRightStageTab = {
   /** 关闭前的 tab key（`${kind}:${id}`），用于 reopen。 */
@@ -152,33 +155,85 @@ export class RightStageStore {
   /** 导出当前会话可冻结的侧栏状态（不含 streams）。 */
   exportSessionMemory(): RightStageSessionMemory {
     return {
-      tabs: this.tabs.map((t) => ({ ...t, data: { ...t.data } })),
+      // workspace 级标签不参与会话冻结：它们由切会话时的 carry-over 传递，
+      // 否则每个会话都存一份相同副本，40 条 LRU 很快被吃满。
+      // task-center:* 归属任务详情宿主，也不写入对话会话记忆，避免串台。
+      tabs: this.tabs
+        .filter((t) => scopeOfKind(t.kind) !== 'workspace')
+        .filter((t) => !isTaskCenterStageSessionKey(t.sessionKey))
+        .map((t) => ({ ...t, data: { ...t.data } })),
       activeKey: this.activeKey,
       collapsed: this.collapsed,
-      recentClosed: this.recentClosed.map((e) => ({
-        ...e,
-        tab: { ...e.tab, data: { ...e.tab.data } },
-      })),
+      recentClosed: this.recentClosed
+        .filter((e) => !isTaskCenterStageSessionKey(e.tab?.sessionKey))
+        .map((e) => ({
+          ...e,
+          tab: { ...e.tab, data: { ...e.tab.data } },
+        })),
     }
   }
 
-  /** 切会话时整表换入；streams 按会话清空以免串台。 */
-  importSessionMemory(memory: RightStageSessionMemory | null | undefined) {
+  /**
+   * 切会话时整表换入；streams 按会话清空以免串台。
+   *
+   * `options.carryTabs` 用于把 workspace 级标签（文件树 / 写入 / 思维导图 / 工作流）
+   * 带到新会话：它们不属于任何一条会话，切过去仍该看得见。
+   * 这些标签不会出现在被换出的会话记忆里（见 exportSessionMemory），
+   * 所以不会随会话数量线性膨胀。
+   *
+   * `options.collapsedWhenNoMemory` 决定"目标会话从未打开过右栏"时的折叠态，
+   * 对齐 ZCode：有可见的 workspace 级标签就展开，否则保持收起。
+   */
+  importSessionMemory(
+    memory: RightStageSessionMemory | null | undefined,
+    options?: { carryTabs?: readonly RightStageSurface[]; collapsedWhenNoMemory?: boolean },
+  ) {
+    const carried = (options?.carryTabs ?? []).map((t) => ({
+      ...t,
+      data: { ...(t.data || {}) },
+    }))
     if (!memory) {
-      this.tabs = []
-      this.activeKey = null
-      this.collapsed = true
+      this.tabs = carried
+      this.activeKey = carried.length ? this.tabKeyOf(carried[carried.length - 1]!) : null
+      this.collapsed =
+        typeof options?.collapsedWhenNoMemory === 'boolean'
+          ? options.collapsedWhenNoMemory
+          : carried.length === 0
       this.recentClosed = []
       this.streams.clear()
       this.bump()
       return
     }
-    this.tabs = memory.tabs.map((t) => ({
-      ...t,
-      kind: normalizeRightStageKind(t.kind),
-      data: { ...(t.data || {}) },
-    }))
-    this.activeKey = memory.activeKey
+    // 边界 normalize：旧版本/异常写入的脏数据在这里统一收敛，
+    // 否则切回该会话会渲染出空壳或重复标签（ZCode 同样在状态边界做这一步）。
+    const restored: RightStageSurface[] = []
+    const seenKeys = new Set<string>()
+    for (const raw of memory.tabs) {
+      const kind = normalizeRightStageKind(raw?.kind)
+      // 未注册/空 kind 直接丢弃：渲染只会得到 UnknownStageKind。
+      if (!kind || kind === 'artifacts') continue
+      const tab: RightStageSurface = {
+        id: String(raw.id || 'primary').trim() || 'primary',
+        kind,
+        ...(raw.title ? { title: raw.title } : {}),
+        layout: raw.layout || defaultLayoutForKind(kind),
+        data: { ...(raw.data || {}) },
+        ...(raw.sessionKey ? { sessionKey: raw.sessionKey } : {}),
+      }
+      const key = this.tabKeyOf(tab)
+      if (seenKeys.has(key)) continue
+      seenKeys.add(key)
+      restored.push(tab)
+    }
+    // 会话记忆里理论上不含 workspace 级标签；万一旧数据带了也不重复插入。
+    const merged = [...restored, ...carried.filter((t) => !seenKeys.has(this.tabKeyOf(t)))]
+    this.tabs = merged
+    // activeKey 可能指向已被 normalize 掉的标签，回退到末尾。
+    const restoredActive =
+      memory.activeKey && merged.some((t) => this.tabKeyOf(t) === memory.activeKey)
+        ? memory.activeKey
+        : null
+    this.activeKey = restoredActive ?? (merged.length ? this.tabKeyOf(merged[merged.length - 1]!) : null)
     this.collapsed =
       typeof memory.collapsed === 'boolean' ? memory.collapsed : this.tabs.length === 0
     this.recentClosed = Array.isArray(memory.recentClosed) ? memory.recentClosed : []
@@ -211,9 +266,13 @@ export class RightStageStore {
     sessionKey?: string
   }) {
     const kind = normalizeRightStageKind(String(input.kind || '').trim())
-    if (!kind) return
+    if (!kind) {
+      logPanelSet('④ store.show：kind 为空，忽略')
+      return
+    }
     // 产物改由侧栏 Info Rail 呈报，禁止占用 Right Stage
     if (kind === 'artifacts') {
+      logPanelSet('④ store.show：拒绝挂 artifacts 标签（设计如此，应走文件预览/状态卡）')
       const existingArtifacts = this.tabs.find((t) => t.kind === 'artifacts')
       if (existingArtifacts) {
         this.tabs = this.tabs.filter((t) => t !== existingArtifacts)
@@ -222,7 +281,14 @@ export class RightStageStore {
       }
       return
     }
-    const sessionKey = String(input.sessionKey || '').trim() || undefined
+    // 归属在创建时定死（对齐 ZCode stampSidePaneTabsOwnership）：
+    // 显式传入优先；否则 workspace 级 kind 不写归属（各会话共享），
+    // 会话级 kind 冻结当前 UI 会话，避免"忘了传 → 对所有会话可见 → 串台"。
+    const sessionKey = resolveTabSessionKey(
+      kind,
+      input.sessionKey,
+      getCurrentRightStageSessionKey(),
+    )
     const next: RightStageSurface = {
       id: String(input.id || 'primary').trim() || 'primary',
       kind,
@@ -258,6 +324,14 @@ export class RightStageStore {
     this.activeKey = key
     // 打开/激活任一标签时必须展开侧栏，否则用户看不到新页
     this.collapsed = false
+    logPanelSet('④ store.show 已展开', {
+      key,
+      kind,
+      title: next.title,
+      sessionKey: next.sessionKey || '(空)',
+      tabCount: this.tabs.length,
+      collapsed: this.collapsed,
+    })
     this.bump()
   }
 

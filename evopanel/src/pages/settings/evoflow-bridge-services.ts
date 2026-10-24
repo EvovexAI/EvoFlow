@@ -189,4 +189,9 @@ export const evoflowStubPlatform: IPlatformService = {
   onRemoteSessionClosed: () => () => {},
   onBotRemoteWorkspaceReconnected: () => () => {},
   connectRemote: async () => ({ success: false, error: "stub" }),
+  // V4 MessageFileLink / useFileContextActions：无桌面宿主时降级，勿抛缺方法
+  getInstalledEditors: async () => [],
+  openInEditor: async () => ({ success: false, error: "stub" }),
+  openInFileManager: async () => ({ success: false, error: "stub" }),
+  openExternal: async () => {},
 } as unknown as IPlatformService;

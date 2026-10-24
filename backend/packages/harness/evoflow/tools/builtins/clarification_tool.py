@@ -3,9 +3,17 @@ from typing import Any, Literal
 from langchain.tools import tool
 
 _ASK_CLARIFICATION_DESCRIPTION = """\
-Structured clarification for EvoPanel sidebar (do not list options only in chat).
-Use when blocked on missing info / ambiguity / approach / risk; max 3 questions.
-Single: question + options[]. Multi: questions[{prompt,options,id?,context?,allow_multiple?}] + title.
+Use this tool when you need to ask the user structured clarification questions \
+(zcode AskUserQuestion alignment). Use when blocked on missing info / ambiguity / \
+approach choice / risk confirmation. Up to 3 questions per call.
+Single question: use `question` + `options` (+ optional `header`). \
+Multiple questions: use `questions` (each item: `prompt`, `options`, optional \
+`header`, `allow_multiple`, `context`) + `title`.
+Each option: a 1-5 word `label`, or an object `{label, description}` where \
+`description` is a one-sentence explanation shown under the label in the panel. \
+Provide 2-4 mutually exclusive options per question; do NOT add an "Other" option — \
+the panel provides a free-text field automatically. \
+When one option is clearly the best choice, append "(Recommended)" to its label. \
 Types: missing_info | ambiguous_requirement | approach_choice | risk_confirmation | suggestion.
 Execution pauses until the user answers in the panel.
 """
@@ -27,9 +35,10 @@ def ask_clarification_tool(
         "suggestion",
     ] = "missing_info",
     context: str | None = None,
-    options: list[str] | None = None,
+    options: list[Any] | None = None,
     questions: list[dict[str, Any]] | None = None,
     title: str | None = None,
+    header: str | None = None,
     category: str | None = None,
 ) -> str:
     """Ask the user structured clarification (policy in tool description)."""

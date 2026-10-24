@@ -1,5 +1,11 @@
 """Lightweight todo tool for task tracking within a single conversation.
 
+RETIRED (zcode 对齐): no longer registered in tools.py. The session checklist is
+now provided by TodoMiddleware's `todo_write` tool (see
+agents/middlewares/todo_middleware.py). This file is kept for reference; the
+in-memory store below was thread-unscoped ("__default__") and leaked across
+conversations — do not re-enable without fixing scoping.
+
 This is a conversation-scoped checklist — not the Task Center ledger.
 Todos are stored in memory and do NOT persist across conversations, and never
 appear in 任务中心. For user memos / assignable work use Task Center inbox

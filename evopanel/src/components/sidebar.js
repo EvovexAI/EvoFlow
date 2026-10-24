@@ -112,6 +112,18 @@ function _setDesktopSidebarCollapsed(collapsed) {
   }
   const btn = document.getElementById('btn-sidebar-collapse')
   if (btn) btn.textContent = collapsed ? '»' : '«'
+  // 侧栏折叠改主栏宽度 → 浏览器槽位四角变了，原生 HWND 必须重贴。
+  try {
+    import('../lib/layout-chrome.js')
+      .then(({ notifyLayoutChromeChanged }) => {
+        notifyLayoutChromeChanged(collapsed ? 'sidebar-collapse' : 'sidebar-expand')
+        window.setTimeout(() => notifyLayoutChromeChanged('sidebar-settle'), 120)
+        window.setTimeout(() => notifyLayoutChromeChanged('sidebar-settle-late'), 320)
+      })
+      .catch(() => {})
+  } catch {
+    /* ignore */
+  }
 }
 
 export function renderSidebar(el) {

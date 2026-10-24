@@ -1,7 +1,7 @@
 import { useCallback } from "react";
 import type { OpenInEditorRemoteTarget } from "@zcode/shared";
 import { toast } from "@/components/ui/toast.js";
-import { usePlatform } from "@/hooks/usePlatform.js";
+import { useOptionalPlatform } from "@/hooks/usePlatform.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { getContainingDirectoryPath } from "@/lib/path.js";
 import { logger } from "@/logger.js";
@@ -32,9 +32,10 @@ function resolveFileManagerOpenPath(target: FileContextActionTarget): string {
 }
 
 export function useFileContextActions(options: FileContextActionOptions = {}) {
-  const platform = usePlatform();
+  // EvoFlow / Share 等无 Desktop PlatformProvider 的宿主：降级为仅剪贴板，勿抛错。
+  const platform = useOptionalPlatform();
   const { intl } = useZCodeIntl();
-  const canOpenLocalFileManager = Boolean(options.canOpenLocalFileManager);
+  const canOpenLocalFileManager = Boolean(options.canOpenLocalFileManager) && Boolean(platform);
   const isRemoteWorkspace = Boolean(options.isRemoteWorkspace);
   const remoteTarget = options.remoteTarget;
   const workspaceIdentity = options.workspaceIdentity;
@@ -43,10 +44,11 @@ export function useFileContextActions(options: FileContextActionOptions = {}) {
 
   const canRevealInFileManager = useCallback(
     (target: FileContextActionTarget) =>
+      Boolean(platform) &&
       canOpenLocalFileManager &&
       !target.deleted &&
       (!isRemoteWorkspace || remoteTarget?.kind === "wsl"),
-    [canOpenLocalFileManager, isRemoteWorkspace, remoteTarget?.kind],
+    [canOpenLocalFileManager, isRemoteWorkspace, platform, remoteTarget?.kind],
   );
 
   const copyPathText = useCallback(async (path: string) => {
@@ -79,7 +81,7 @@ export function useFileContextActions(options: FileContextActionOptions = {}) {
 
   const revealInFileManager = useCallback(
     async (target: FileContextActionTarget) => {
-      if (!canRevealInFileManager(target)) {
+      if (!platform || !canRevealInFileManager(target)) {
         return;
       }
 

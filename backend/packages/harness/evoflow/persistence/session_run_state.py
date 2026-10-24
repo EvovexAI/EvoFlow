@@ -356,13 +356,14 @@ def add_session_token_usage(
 
 
 def list_all_active_sessions(*, limit: int = 500) -> list[dict[str, Any]]:
-    """All sessions marked running/pending in SQLite (for startup reconciliation)."""
+    """All sessions marked running/pending in SQLite (for startup reconciliation / home live strip)."""
     lim = max(1, min(int(limit or 500), 2000))
     rows = (
         get_db()
         .execute(
             """
-        SELECT session_key, thread_id, current_run_id, run_status
+        SELECT session_key, thread_id, current_run_id, run_status,
+               title, agent_id, updated_at, collab_task_id
         FROM evoflow_chat_sessions
         WHERE is_deleted = 0
           AND run_status IN ('running', 'pending')
@@ -381,12 +382,20 @@ def list_all_active_sessions(*, limit: int = 500) -> list[dict[str, Any]]:
         tid = str(row[1] or "").strip() or None
         rid = str(row[2] or "").strip() or None
         st = str(row[3] or RUN_STATUS_RUNNING).strip().lower() or RUN_STATUS_RUNNING
+        title = str(row[4] or "").strip() or None
+        agent_id = str(row[5] or "").strip() or None
+        updated_at = str(row[6] or "").strip() or None
+        collab_task_id = str(row[7] or "").strip() or None
         out.append(
             {
                 "session_key": sk,
                 "thread_id": tid,
                 "run_id": rid,
                 "status": st,
+                "title": title,
+                "agent_id": agent_id,
+                "updated_at": updated_at,
+                "collab_task_id": collab_task_id,
             }
         )
     return out

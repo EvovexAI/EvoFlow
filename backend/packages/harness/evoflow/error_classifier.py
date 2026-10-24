@@ -60,12 +60,22 @@ _BILLING_PATTERNS = [
     "accountquotaexceeded",
     "monthly usage quota",
     "402",
+    # 国产/中文网关：月度/额度用尽（勿误判为可重试限流）
+    "额度已用尽",
+    "额度用尽",
+    "月度额度",
+    "quota.*reset",
+    "upgrading your plan for more quota",
 ]
 
 # Account-level monthly quota — rotating API keys on the same account cannot help.
 _ACCOUNT_QUOTA_PATTERNS = [
     "accountquotaexceeded",
     "monthly usage quota",
+    "额度已用尽",
+    "额度用尽",
+    "月度额度",
+    "upgrading your plan for more quota",
 ]
 
 _RATE_LIMIT_PATTERNS = [
@@ -209,22 +219,25 @@ def classify(exception: Exception, context: dict | None = None) -> Classificatio
     logger.debug("Classifying error: status=%s, msg=%.200s", status_code, error_msg)
 
     # ── Billing / Quota ──────────────────────────────────────────────
+    # 额度用尽：不重试、不轮换密钥、不切模型（同账号换 key/模型通常仍额度不足，
+    # 只会拖长「生成中」转圈，前端停不下来）。
     if status_code == 402 or _matches(error_lower, _BILLING_PATTERNS):
-        account_quota = _matches(error_lower, _ACCOUNT_QUOTA_PATTERNS)
         return Classification(
             reason=FailoverReason.BILLING,
             retryable=False,
-            should_rotate_credential=not account_quota,
-            should_fallback_provider=True,
+            should_rotate_credential=False,
+            should_fallback_provider=False,
             message=f"Billing/quota error: {error_msg[:200]}",
         )
 
     # ── Rate limit ───────────────────────────────────────────────────
+    # 限流只退避重试，不轮换凭证、不切模型（同账号换 key 通常仍 429）。
     if status_code == 429 or _matches(error_lower, _RATE_LIMIT_PATTERNS):
         return Classification(
             reason=FailoverReason.RATE_LIMIT,
             retryable=True,
-            should_rotate_credential=True,
+            should_rotate_credential=False,
+            should_fallback_provider=False,
             message=f"Rate limited: {error_msg[:200]}",
         )
 

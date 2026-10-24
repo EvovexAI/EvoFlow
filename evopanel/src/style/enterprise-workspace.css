@@ -512,6 +512,151 @@ html.dark .msg-action-result-link {
   color: #a8adb5;
 }
 
+/* Exploring 折叠外：平台结果（含绑员工二维码）始终可见 */
+.msg-platform-results-hoist {
+  width: 100%;
+  max-width: var(--chat-content-max, 800px);
+  margin: 6px 0 10px;
+}
+
+.msg-platform-results-hoist .msg-platform-results {
+  margin: 0;
+}
+
+/* 对话流底部：绑本岗 AI 员工二维码（像微信发图） */
+.msg-bind-employee-qr {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  max-width: 320px;
+  margin: 8px 0 12px;
+  padding: 14px 16px 16px;
+  background: #fafafb;
+  border: 1px solid #e7e8ec;
+  border-radius: 12px;
+  box-sizing: border-box;
+}
+
+.msg-bind-employee-qr-caption {
+  width: 100%;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--text-primary, #202124);
+  text-align: center;
+}
+
+.msg-bind-employee-qr-open-link {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--accent-hover, #4f53dd);
+  font-size: 12px;
+  line-height: 1.4;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  padding: 0;
+}
+
+.msg-bind-employee-qr-open-link:hover {
+  color: var(--text-primary, #202124);
+}
+
+html[data-theme='dark'] .msg-bind-employee-qr,
+html.dark .msg-bind-employee-qr {
+  background: #2d2d2d;
+  border-color: #3a3a3a;
+}
+
+.emp-bind-channel-qr {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.emp-bind-channel-qr-frame {
+  border: 1px solid var(--border-default, #e6e8ec);
+  border-radius: 10px;
+  background: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.emp-bind-channel-qr-img {
+  display: block;
+}
+
+.emp-bind-channel-qr-placeholder {
+  padding: 12px;
+  font-size: 12px;
+  color: var(--text-secondary, #656b73);
+  text-align: center;
+}
+
+.emp-bind-channel-qr-link {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.4;
+  text-align: center;
+}
+
+.emp-bind-channel-qr-link a {
+  color: var(--accent-hover, #4f53dd);
+  text-decoration: none;
+}
+
+.emp-bind-channel-qr-link a:hover {
+  text-decoration: underline;
+}
+
+.emp-bind-channel-qr-status {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-secondary, #656b73);
+  text-align: center;
+}
+
+.emp-bind-channel-qr-status--bound {
+  color: var(--success, #26875a);
+  font-weight: 600;
+}
+
+.emp-bind-channel-qr-status--failed,
+.emp-bind-channel-qr-status--expired {
+  color: var(--danger, #c94a4a);
+}
+
+.emp-bind-channel-qr-open-role {
+  appearance: none;
+  border: 1px solid var(--border-default, #e6e8ec);
+  background: var(--bg-surface, #fff);
+  color: var(--text-secondary, #656b73);
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.emp-bind-channel-qr-open-role:hover {
+  background: var(--bg-hover, #f4f5f7);
+  color: var(--text-primary, #202124);
+}
+
+html[data-theme='dark'] .emp-bind-channel-qr-frame,
+html.dark .emp-bind-channel-qr-frame {
+  border-color: #3a3a3a;
+  background: #1f1f1f;
+}
+
 /* ---- Composer（与消息列同宽同轴、左右留白） ---- */
 .react-chat-conversation-col > .react-chat-bottom-dock {
   background: var(--chat-canvas, #ffffff);

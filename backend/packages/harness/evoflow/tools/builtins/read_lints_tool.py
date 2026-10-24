@@ -1,4 +1,9 @@
-"""Read linter/diagnostic output for Python, JavaScript, TypeScript, and Java."""
+"""Retired as a model-facing tool — diagnostics now go through Bash (pyright / ruff / eslint), ZCode-style.
+
+Kept for import/reference only; not registered in the LLM tool catalog.
+The shared lint engine lives in ``evoflow.tools.code_lint`` (still used by
+worker post-batch lint and the dormant post-edit scheduler).
+"""
 
 from __future__ import annotations
 

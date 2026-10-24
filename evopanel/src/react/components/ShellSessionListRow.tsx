@@ -10,12 +10,12 @@ import {
   type RefObject,
 } from 'react'
 import { createPortal } from 'react-dom'
-import { formatRunningPreviewLine } from '../lib/session-list/build-shell-rows.js'
 import { positionMenuAboveAnchor, positionMenuAbovePoint } from '../lib/session-list/menu-position.js'
 import type { ShellSidebarSyncRow } from '../lib/session-list/types.js'
 import type { ResolvedLiveStreamActivity } from '../lib/resolve-live-stream-activity.js'
 import type { RunningSessionSummary } from '../hooks/useRunningSessionSummaries.js'
 import { useShellSessionRunningPreview } from '../hooks/useShellSessionRunningPreview.js'
+import { useRunningElapsedLabel } from '../hooks/useRunningElapsedLabel.js'
 import { isProactiveSessionKey, proactiveAgentCodeFromSessionKey } from '../lib/session-list/workspace-groups.js'
 import { AssignedAgentAvatar } from './AssignedAgentAvatar.js'
 import {
@@ -270,7 +270,9 @@ function ShellSessionListRowInner({
   const resolveActivity =
     resolveLiveStreamActivity ||
     ((_sk: string, _sel: boolean) => null as ResolvedLiveStreamActivity | null)
-  const livePreview = useShellSessionRunningPreview({
+  // 运行中只显示齿轮 + 已运行时长；不展示工具/活动文案。
+  // 仍保留 hook 调用以维持 1Hz tick（驱动时长刷新），但不再读取其文案输出。
+  useShellSessionRunningPreview({
     sessionKey,
     executing: !!row.executing,
     isSelectedRow: active,
@@ -278,7 +280,7 @@ function ShellSessionListRowInner({
     runningSummary,
     resolveLiveStreamActivity: resolveActivity,
   })
-  const preview = formatRunningPreviewLine({ ...row, runningPreviewLine: livePreview })
+  const runningElapsed = useRunningElapsedLabel(row.executing ? row.runningStartedAtMs : undefined)
   const isPinned = !!row.isPinned
   const unseen = !!row.hasUnseenRunningUpdate && !active
 
@@ -298,13 +300,23 @@ function ShellSessionListRowInner({
     }
   }
 
-  const handlePinnedPointerDown = (e: ReactPointerEvent<HTMLSpanElement>) => {
+  /** 置顶行整行拖拽把手（对齐 zcode 整行可拖；仍限置顶区内换序）。
+   *  行内交互元素（按钮/菜单/标题编辑/输入框）优先，不启动拖拽。 */
+  const handlePinnedRowPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return
-    e.stopPropagation()
+    const target = e.target as HTMLElement
+    if (
+      target.closest(
+        '[data-shell-more-btn], .react-chat-session-more-menu, .react-chat-history-item-title-edit, .react-chat-session-refresh-btn, button, input, a',
+      )
+    ) {
+      return
+    }
     const host = e.currentTarget.closest('[data-shell-session]') as HTMLDivElement | null
     if (!host) return
     dragRef.current = { key: sessionKey, dragging: false, startY: e.clientY }
     host.classList.add('react-chat-history-item--dragging')
+    document.body.classList.add('react-chat-session-row-dragging')
 
     const onMove = (ev: PointerEvent) => {
       const drag = dragRef.current
@@ -321,6 +333,7 @@ function ShellSessionListRowInner({
     const onUp = (ev: PointerEvent) => {
       document.removeEventListener('pointermove', onMove)
       document.removeEventListener('pointerup', onUp)
+      document.body.classList.remove('react-chat-session-row-dragging')
       host.classList.remove('react-chat-history-item--dragging')
       document.querySelectorAll('.react-chat-history-item--drag-over').forEach((n) => {
         n.classList.remove('react-chat-history-item--drag-over')
@@ -393,14 +406,15 @@ function ShellSessionListRowInner({
         onPointerDown={(e) => {
           // Start warm before click selection / history effect — covers fast clicks with no hover dwell.
           if (e.button === 0 && !active) onPrefetch?.()
+          // 置顶行整行可拖（对齐 zcode）；未置顶行只 prefetch。
+          if (isPinned) handlePinnedRowPointerDown(e)
         }}
       >
         {isPinned ? (
           <span
             className="react-chat-session-pin-badge"
-            title="已置顶，按住拖动调整顺序"
+            title="已置顶，按住行拖动可调整顺序"
             aria-hidden="true"
-            onPointerDown={handlePinnedPointerDown}
           >
             <ShellPinIcon size={12} />
           </span>
@@ -479,12 +493,17 @@ function ShellSessionListRowInner({
         <div
           className={`react-chat-history-item-trailing${useEmployeeTitle ? ' react-chat-history-item-trailing--employee' : ''}`}
         >
-          {!editingTitle && (preview || row.time) ? (
+          {!editingTitle && row.executing && runningElapsed ? (
+            // 运行中：只显示已运行时长（左侧齿轮由标题区的 spinner 承担）
             <span
-              className={`react-chat-history-item-meta${preview ? ' is-live' : ''}`}
-              title={preview ? `${preview} · ${row.time || ''}` : row.time}
+              className="react-chat-history-item-meta is-live"
+              title={`已运行 ${runningElapsed}`}
             >
-              {preview || row.time}
+              {runningElapsed}
+            </span>
+          ) : !editingTitle && row.time ? (
+            <span className="react-chat-history-item-meta" title={row.time}>
+              {row.time}
             </span>
           ) : null}
           <div className="react-chat-session-more-wrap" data-session-more-root>

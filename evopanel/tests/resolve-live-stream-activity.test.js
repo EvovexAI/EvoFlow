@@ -79,6 +79,52 @@ describe('resolveLiveStreamActivity', () => {
     expect(r.cursorLabel).toBe('整理中')
   })
 
+  it('shows rate-limit retry even when panel still stuck on tools', () => {
+    const r = resolveLiveStreamActivity({
+      activityKind: 'tools',
+      activityDetail: '调用：bash',
+      streamSystemActivity: '系统重试中（2/3）：限流，约 5s 后继续',
+      streamSystemActivityKind: 'retrying',
+      activeTurn: true,
+    })
+    expect(r.kind).toBe('retrying')
+    expect(r.dockLabel).toBe('系统重试中（2/3）：限流，约 5s 后继续')
+    expect(r.cursorLabel).toBe('系统重试中（2/3）：限流，约 5s 后继续')
+  })
+
+  it('uses default retrying label when stream kind is retrying but detail empty', () => {
+    const r = resolveLiveStreamActivity({
+      activityKind: 'tools',
+      activityDetail: '调用：bash',
+      streamSystemActivity: '',
+      streamSystemActivityKind: 'retrying',
+      activeTurn: true,
+    })
+    expect(r.kind).toBe('retrying')
+    expect(r.dockLabel).toBe('系统重试中')
+  })
+
+  it('shows rate-limit retry copy on dock (not swallowed as idle/tools)', () => {
+    const r = resolveLiveStreamActivity({
+      activityKind: 'retrying',
+      activityDetail: '系统重试中（2/3）：限流，约 5s 后继续',
+      streamSystemActivity: '调用：bash',
+      activeTurn: true,
+    })
+    expect(r.kind).toBe('retrying')
+    expect(r.dockLabel).toContain('系统重试中（2/3）')
+    expect(r.cursorLabel).toContain('系统重试中（2/3）')
+  })
+
+  it('falls back to 系统重试中 when retrying detail empty', () => {
+    const r = resolveLiveStreamActivity({
+      activityKind: 'retrying',
+      activityDetail: '',
+    })
+    expect(r.dockLabel).toBe('系统重试中')
+    expect(r.cursorLabel).toBe('系统重试中')
+  })
+
   it('falls back to default compacting label when detail empty', () => {
     const r = resolveLiveStreamActivity({
       activityKind: 'compacting',

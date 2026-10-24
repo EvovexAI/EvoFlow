@@ -353,7 +353,7 @@ title:
 # Persist oversized tool outputs to disk; prompt keeps summary + path (DCD via read_file).
 
 tool_results:
-  enabled: false   # TEMPORARY: full inline tool bodies for debugging (code also hard-disables merge)
+  enabled: true   # persist oversized tool outputs to disk (<persisted-output> envelope)
   use_token_tiers: true
   tier_small_tokens: 800
   tier_medium_tokens: 1500

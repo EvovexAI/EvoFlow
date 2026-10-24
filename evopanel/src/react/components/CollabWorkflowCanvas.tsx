@@ -133,23 +133,31 @@ function WorkflowNode({
     const mid = String(mainTaskId || s.parentTaskId || '').trim()
     const sid = String(s.subtaskId || '').trim()
     const lead = String(leadThreadId || '').trim()
+    const subThread = String(s.subtaskThreadId || '').trim()
+    const base = {
+      subtaskId: sid,
+      mainTaskId: mid,
+      leadThreadId: lead,
+      subtaskThreadId: subThread || undefined,
+      assignedAgent: code || undefined,
+      description: String(s.description || '').trim() || undefined,
+      title: fullTitle,
+      status: displayStatus,
+    }
     if (!mid || !sid) {
-      onOpen({ subtaskId: sid, mainTaskId: mid, leadThreadId: lead, title: fullTitle, status: displayStatus, rows: [] })
+      onOpen({ ...base, rows: [] })
       return
     }
     void fetchSubtaskConversationHistory({
       mainTaskId: mid,
       subtaskId: sid,
       leadThreadId: lead,
+      storedSubtaskThreadId: subThread,
       subtaskSnapshot: s as unknown as Record<string, unknown>,
     })
       .then((resp) => {
         onOpen({
-          subtaskId: sid,
-          mainTaskId: mid,
-          leadThreadId: lead,
-          title: fullTitle,
-          status: displayStatus,
+          ...base,
           initialText: '',
           rows: resp.rows,
           emptyConversation: resp.emptyConversation,
@@ -157,14 +165,7 @@ function WorkflowNode({
         })
       })
       .catch(() => {
-        onOpen({
-          subtaskId: sid,
-          mainTaskId: mid,
-          leadThreadId: lead,
-          title: fullTitle,
-          status: displayStatus,
-          rows: [],
-        })
+        onOpen({ ...base, rows: [] })
       })
   }
 

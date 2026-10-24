@@ -39,6 +39,7 @@ import {
 import type { MessageSegment, SubagentStreamTask, TerminalStreamTask } from '../chat-types.js'
 import { ReasoningInlineBlock } from './ReasoningInlineBlock.js'
 import { ToolCallList } from './ToolCallList.js'
+import { PlatformResultCards } from './PlatformResultCards.js'
 import { MarkdownHtml } from './MarkdownHtml.js'
 
 /**
@@ -301,11 +302,27 @@ function ExploringActivityChunkInner({
 
   // v5.4：所有 piece 平铺到外层 TurnHistoryFold body；按 piece.kind 标 data-piece-role
   //       （text=latest, tools/reasoning=history）。折叠由外层 + CSS 共同控制。
+  // 绑渠道二维码等平台卡：紧挨工具列表下方，且标 latest——折叠「已工作」后仍可见。
+  const platformFilterIds = activityPieces
+    .filter((p): p is Extract<ActivityPiece, { kind: 'tools' }> => p.kind === 'tools')
+    .flatMap((p) => (Array.isArray(p.ids) ? p.ids : []))
+    .map((id) => String(id || '').trim())
+    .filter(Boolean)
+
   return (
     <Fragment key={`exploring-${chunkIndex}-${chunkStartIndex}`}>
       <div className={`msg-flat-activity-chunk${variant === 'fold' ? ' is-legacy-fold' : ''}`}>
         {renderActivityInner(activityPieces)}
       </div>
+      {platformFilterIds.length ? (
+        <div
+          className="msg-platform-results-hoist"
+          data-piece-role="latest"
+          data-testid="exploring-platform-results"
+        >
+          <PlatformResultCards tools={tools} filterIds={platformFilterIds} />
+        </div>
+      ) : null}
       {afterChunk}
     </Fragment>
   )

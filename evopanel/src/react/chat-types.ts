@@ -364,6 +364,8 @@ export interface CollabSubtaskSnapshot {
   observedToolCalls?: unknown[]
   /** 子任务 worker 通过 subtask_work_checklist 工具维护的执行步骤 */
   workChecklist?: WorkChecklistItem[]
+  /** 落库 worker thread_id（查 conversation-history 用） */
+  subtaskThreadId?: string
 }
 
 /** 子任务对话弹窗/抽屉载荷（主聊天侧栏、工作流页、RunManager 共用） */
@@ -372,6 +374,10 @@ export interface SubtaskTranscriptModalPayload {
   mainTaskId?: string
   /** LangGraph lead thread uuid — scopes subtask history via `{lead}__sub__{subtaskId}` */
   leadThreadId?: string
+  /** 落库的 worker 执行 thread（优先于 lead 合成） */
+  subtaskThreadId?: string
+  assignedAgent?: string
+  description?: string
   title: string
   status: string
   progress?: number | null

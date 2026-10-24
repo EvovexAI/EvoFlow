@@ -43,6 +43,10 @@ export const RIGHT_STAGE_KIND_LABELS: Record<string, string> = {
   'workspace-browse': '工作区文件',
   write: '写入内容',
   file: '文件预览',
+  codeViewer: '代码对比',
+  subagentTranscript: '子代理输出',
+  collabSubtaskTranscript: '节点进度',
+  employeeProcess: '执行过程',
   summary: '摘要',
   terminal: '终端',
   artifacts: '本轮产物',
@@ -86,11 +90,14 @@ export function defaultLayoutForKind(kind: string): RightStageLayout {
     case 'write':
     case 'artifacts':
       return 'workspace-write'
-    case 'file':
     case 'browser':
     case 'news-dashboard':
     case 'web-embed':
       return 'wide'
+    // 文件 / 代码预览默认半宽：侧栏可读，不把主对话挤成窄条
+    case 'file':
+    case 'codeViewer':
+      return 'half'
     default:
       return 'half'
   }

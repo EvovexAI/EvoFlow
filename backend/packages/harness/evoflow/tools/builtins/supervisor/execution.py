@@ -262,14 +262,10 @@ def _revert_claimed_subtasks_to_pending(
 
 
 def _is_acp_worker(subagent_type: str) -> bool:
-    n = str(subagent_type or "").strip().lower().replace("_", "-")
-    try:
-        from evoflow.config.acp_config import get_acp_agents
-
-        agents = get_acp_agents()
-        return n in {str(k).strip().lower().replace("_", "-") for k in agents.keys()}
-    except Exception:
-        return False
+    # ACP retired: delegation via invoke_acp_agent is disabled.
+    # Always returns False so supervisor never routes subtasks to ACP workers;
+    # acp_config / acp_session_registry / acp_event_bus modules are kept but inert.
+    return False
 
 
 def _worker_delegation_error(subagent_type: str) -> str | None:

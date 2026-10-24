@@ -3,9 +3,21 @@
 from __future__ import annotations
 
 # One-line purpose only — routing policy stays in the system prompt.
-READ_TOOL_DESCRIPTION = "Read a file (workspace path or skill:<name>/relative/path); optional offset, limit, or symbol."
-WRITE_TOOL_DESCRIPTION = "Write or append file content. Put path before content in tool arguments. Split very large files across calls with append=True."
-REPLACE_TOOL_DESCRIPTION = "Replace text in a file. Put path before old_string/new_string in tool arguments; old_string must be unique unless regex=True (dry_run to preview)."
+READ_TOOL_DESCRIPTION = (
+    "Read a file (workspace path or skill:<name>/relative/path); optional offset, limit, or symbol.\n"
+    "Format handling:\n"
+    "- Images (jpg/jpeg/png/webp local paths, http(s) image URLs, browser-snapshot refs): "
+    "loaded visually, not as text; a single ref or a list of up to 8 in one call.\n"
+    "- PDF: text extracted per page (scanned/image-only pages yield no text); "
+    'use `pages` (e.g. "1-5", "3", "10-"; max 20 pages/request; required for PDFs over 10 pages).\n'
+    "- Office (doc/docx/ppt/pptx/xls/xlsx): converted to markdown automatically "
+    "(xlsx → per-sheet tables; docx → paragraphs; pptx → per-slide text); "
+    "offset/limit paginate the converted text.\n"
+    "- Everything else: read as UTF-8 text by line. Binary files (zip, exe, …) "
+    "are rejected with an error instead of garbage."
+)
+WRITE_TOOL_DESCRIPTION = "Write or append file content. Put path before content in tool arguments. Split very large files across calls with append=True. Overwriting an existing file requires Read first, or the call fails; re-Read if it changed since your last Read."
+REPLACE_TOOL_DESCRIPTION = "Replace text in a file. Put path before old_string/new_string in tool arguments; old_string must be unique unless regex=True (dry_run to preview). You must Read the file in this conversation before editing, or the call will fail; re-Read if it changed since your last Read."
 DELETE_TOOL_DESCRIPTION = "Delete a single file (not directories; system paths blocked)."
 
 RG_TOOL_DESCRIPTION = "Search file contents with ripgrep in the bound workspace. Uses native rg only (no FTS/index redirect); pipe in pattern is not search_code_index synonyms."
@@ -20,12 +32,21 @@ VIEW_IMAGE_DESCRIPTION = (
 )
 PROCESS_TOOL_DESCRIPTION = "Background shell start|log|wait|kill; start supports workdir skill:<name>."
 
-FETCH_URL_DESCRIPTION = "Fetch a URL and return readable markdown/text (http/https only)."
+FETCH_URL_DESCRIPTION = (
+    "Fetches a URL, converts the page to markdown, and — when `prompt` is given — "
+    "answers the prompt against the page using a small fast model.\n"
+    "- Public http/https URLs only; private/internal network URLs are blocked.\n"
+    "- Cross-host redirects are returned to you rather than followed; call again with the redirect URL.\n"
+    "- Responses are cached for 15 minutes per URL.\n"
+    "- Prefer passing `prompt` so the conversation receives a distilled answer instead of the full page."
+)
 WEB_SEARCH_DESCRIPTION = (
     "Search the web. Use ai_daily or news_53ai for AI-news feeds; otherwise generic API search. "
     "If the result has needs_configuration=true: tell the user assistant_guide.say_to_user, "
     "then help configure via platform settings.get_web_search / settings.patch_web_search / "
-    "settings.test_web_search (do not keep retrying web_search or send users into Settings UI)."
+    "settings.test_web_search (do not keep retrying web_search or send users into Settings UI). "
+    "`allowed_domains` / `blocked_domains` filter results by domain suffix (subdomains included); "
+    "specify at most one of the two, never both."
 )
 
 # Back-compat alias (prefer the named constants above).

@@ -69,7 +69,8 @@ export interface WorkspaceConnectionLease {
 
 interface RegistryEntry {
   key: string;
-  agentService: WorkspaceConnectionAgentService;
+  /** 覆盖注册表条目无 agentService（独立宿主），为 null。 */
+  agentService: WorkspaceConnectionAgentService | null;
   agentServiceGeneration: number;
   transport: ConversationTransport;
   replaceableTransport: ReplaceableConversationTransport | null;
@@ -156,12 +157,82 @@ function releaseEntry(entry: RegistryEntry): void {
  * 调用方只在 local-ready / remote-ready 时进入本层。remote-waiting 不会拿断连代理
  * 创建 registry entry，同时仍禁止回落 base services 或为 pane 另起独立 runtime。
  */
+/**
+ * EvoFlow V4 宿主的 transport 覆盖注册表：独立宿主（无 ZCode agentService RPC）
+ * 按 workspace scope 注册自己的 SSE transport，ZCode 全部侧栏框架
+ * （SubagentSessionSidePane / 文件查看器 / 审查卡……）即可直接消费。
+ * 注册一次、全局生效；acquire 命中覆盖时完全不触碰 agentService。
+ */
+const transportOverrides = new Map<string, ConversationTransport>();
+
+export function registerV4TransportOverride(
+  scope: Pick<WorkspaceConnectionScope, "workspacePath">,
+  transport: ConversationTransport,
+): void {
+  transportOverrides.set(buildWorkspaceConnectionKey(scope), transport);
+}
+
+export function clearV4TransportOverride(
+  scope: Pick<WorkspaceConnectionScope, "workspacePath">,
+): void {
+  transportOverrides.delete(buildWorkspaceConnectionKey(scope));
+}
+
 export function acquireWorkspaceConnection(
   scope: WorkspaceConnectionScope,
   agentService: WorkspaceConnectionAgentService,
   createLocalMediaPreviewUrl?: (path: string) => string,
 ): WorkspaceConnectionLease {
   const key = buildWorkspaceConnectionKey(scope);
+
+  // 覆盖命中：用注册的 transport 建/复用连接条目，agentService 全程不触碰。
+  const overrideTransport = transportOverrides.get(key);
+  if (overrideTransport) {
+    const existingOverride = registry.get(key);
+    if (existingOverride && existingOverride.transport === overrideTransport) {
+      existingOverride.refCount += 1;
+      if (existingOverride.keepWarmTimer !== null) {
+        clearTimeout(existingOverride.keepWarmTimer);
+        existingOverride.keepWarmTimer = null;
+      }
+    } else {
+      if (existingOverride) {
+        registry.delete(key);
+        existingOverride.stale = true;
+        if (existingOverride.refCount <= 0) {
+          disposeEntry(existingOverride);
+        }
+      }
+      registry.set(key, {
+        key,
+        agentService: null,
+        agentServiceGeneration: 0,
+        transport: overrideTransport,
+        replaceableTransport: null,
+        layer: new SessionDataLayer({ transport: overrideTransport }),
+        refCount: 1,
+        keepWarmTimer: null,
+        stale: false,
+      });
+    }
+    let overrideReleased = false;
+    return {
+      layer: registry.get(key)!.layer,
+      transport: overrideTransport,
+      activateRemoteService: () => {},
+      release: () => {
+        if (overrideReleased) return;
+        overrideReleased = true;
+        const entry = registry.get(key);
+        if (!entry) return;
+        entry.refCount -= 1;
+        if (entry.refCount <= 0) {
+          registry.delete(key);
+          disposeEntry(entry);
+        }
+      },
+    };
+  }
   const existing = registry.get(key);
   const incomingServiceGeneration = remoteAgentServiceGeneration(agentService);
   const isRemote =

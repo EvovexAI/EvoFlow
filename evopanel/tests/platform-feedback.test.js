@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+import { EventType } from '@ag-ui/core'
 import {
   parsePlatformUiFeedback,
   syncPlatformFeedbackFromTools,
@@ -7,6 +8,7 @@ import {
   platformRunEntriesFromChatArtifacts,
   platformUiToRunEntry,
 } from '../src/lib/right-stage/platform-feedback.ts'
+import { publishPlatformFromAgUiResult } from '../src/react/chat-app/stream/publish-platform-from-agui-result.ts'
 
 describe('parsePlatformUiFeedback', () => {
   it('uses backend ui payload when present', () => {
@@ -75,6 +77,81 @@ describe('parsePlatformUiFeedback', () => {
     }
     const { shown } = syncPlatformFeedbackFromTools([tool], new Set())
     expect(shown[0]?.title).toBe('界面外观已更新')
+  })
+
+  it('parses bind-channel QR fields from ui payload', () => {
+    const raw = JSON.stringify({
+      ok: true,
+      action: 'employees.bind_channel_begin',
+      agent_code: 'duty-ops',
+      qr_url: 'https://example.com/qr',
+      session_id: 'sess_1',
+      channel: 'feishu',
+      ui: {
+        kind: 'success',
+        title: '已为「运维值班」生成渠道绑定二维码',
+        domain: 'employees',
+        qrUrl: 'https://example.com/qr',
+        sessionId: 'sess_1',
+        channel: 'feishu',
+        agentCode: 'duty-ops',
+        bindStatus: 'pending',
+        action: 'employees.bind_channel_begin',
+      },
+    })
+    const ui = parsePlatformUiFeedback(raw)
+    expect(ui?.qrUrl).toBe('https://example.com/qr')
+    expect(ui?.sessionId).toBe('sess_1')
+    expect(ui?.channel).toBe('feishu')
+    expect(ui?.agentCode).toBe('duty-ops')
+    expect(ui?.bindStatus).toBe('pending')
+  })
+
+  it('collects bind QR card from preserved platform_ui when output is empty', async () => {
+    const { collectPlatformResultTools, parsePlatformUiFeedbackFromTool } = await import(
+      '../src/lib/right-stage/platform-feedback.js'
+    )
+    const tool = {
+      id: 'call_bind',
+      name: 'platform',
+      output: '',
+      truncated: true,
+      platform_ui: {
+        kind: 'success',
+        title: '扫码绑定本岗 AI 员工',
+        domain: 'employees',
+        action: 'employees.bind_channel_begin',
+        qrUrl: 'https://open.feishu.cn/page/launcher?user_code=TEST',
+        sessionId: 'sess_bind',
+        channel: 'feishu',
+        agentCode: 'emp-test',
+        bindStatus: 'pending',
+        entityLabel: '智能辅导员',
+      },
+      platform_ok: true,
+      platform_action: 'employees.bind_channel_begin',
+    }
+    const ui = parsePlatformUiFeedbackFromTool(tool)
+    expect(ui?.qrUrl).toContain('open.feishu.cn')
+    expect(ui?.bindStatus).toBe('pending')
+    expect(collectPlatformResultTools([tool])).toHaveLength(1)
+  })
+
+  it('infers bind QR from top-level qr_url when ui block is missing', () => {
+    const raw = JSON.stringify({
+      ok: true,
+      action: 'employees.bind_channel_begin',
+      agent_code: 'tutor',
+      role_name: '智能辅导',
+      channel: 'feishu',
+      session_id: 'sess_top',
+      qr_url: 'https://open.feishu.cn/page/launcher?user_code=TOP',
+    })
+    const ui = parsePlatformUiFeedback(raw)
+    expect(ui?.action).toBe('employees.bind_channel_begin')
+    expect(ui?.qrUrl).toContain('user_code=TOP')
+    expect(ui?.sessionId).toBe('sess_top')
+    expect(ui?.bindStatus).toBe('pending')
   })
 
   it('reads preserved platform_ui after output slimming', () => {
@@ -178,5 +255,147 @@ describe('parsePlatformUiFeedback', () => {
     expect(entries[0]?.title).toBe('修改 B')
     expect(entries[0]?.actions?.[0]?.label).toBe('查看事项')
     expect(entries[1]?.title).toBe('创建 A')
+  })
+})
+
+describe('publishArtifacts — panel_set artifacts 必须能强制打开状态卡', () => {
+  it('force=true 时展开 panel + 切到产物 tab（不跟自动预览设置）', async () => {
+    const { publishArtifacts } = await import('../src/react/chat-app/right-stage/publish-artifacts.ts')
+    const { vi } = await import('vitest')
+    const ctx = {
+      turnRunArtifactsRef: {
+        current: [
+          {
+            id: 'path:outputs/tutor-feishu-bind-qr.png',
+            type: 'image',
+            name: 'tutor-feishu-bind-qr.png',
+            path: 'outputs/tutor-feishu-bind-qr.png',
+          },
+        ],
+      },
+      setTurnArtifacts: vi.fn(),
+      isAutoWorkPreviewEnabled: () => false,
+      writeStreamModeRef: { current: 'off' },
+      rightStageHintTimerRef: { current: 0 },
+      hideRightStageIfKind: vi.fn(),
+      setChatPanelDisplayMode: vi.fn(),
+      setInfoRailOpen: vi.fn(),
+      setInfoRailTab: vi.fn(),
+      setArtifactFocusId: vi.fn(),
+      toast: vi.fn(),
+    }
+    publishArtifacts(ctx)
+    expect(ctx.setChatPanelDisplayMode).not.toHaveBeenCalled()
+
+    publishArtifacts(ctx, {
+      force: true,
+      focusId: 'path:outputs/tutor-feishu-bind-qr.png',
+    })
+    expect(ctx.setChatPanelDisplayMode).toHaveBeenCalledWith('panel')
+    expect(ctx.setInfoRailOpen).toHaveBeenCalledWith(true)
+    expect(ctx.setInfoRailTab).toHaveBeenCalledWith('artifacts')
+    expect(ctx.setArtifactFocusId).toHaveBeenCalledWith('path:outputs/tutor-feishu-bind-qr.png')
+  })
+})
+
+describe('publishPlatformFromAgUiResult — 流式右上角平台通知', () => {
+  it('平台 TOOL_CALL_RESULT 立刻 publish', () => {
+    const publish = vi.fn()
+    const toast = vi.fn()
+    const seen = new Set()
+    const ok = publishPlatformFromAgUiResult({
+      isBackground: false,
+      aguiEvent: {
+        type: EventType.TOOL_CALL_RESULT,
+        toolCallId: 'tc-hire-1',
+        toolCallName: 'platform',
+        content: JSON.stringify({
+          ok: true,
+          action: 'employees.hire',
+          ui: {
+            kind: 'success',
+            title: '已添加智能体员工「小助手」',
+            domain: 'employees',
+            action: 'employees.hire',
+          },
+        }),
+      },
+      platformFeedbackSeenRef: { current: seen },
+      turnPlatformEntriesRef: { current: [] },
+      publishPlatformEntries: publish,
+      toast,
+    })
+    expect(ok).toBe(true)
+    expect(seen.has('tc-hire-1')).toBe(true)
+    expect(publish).toHaveBeenCalledTimes(1)
+    expect(toast).toHaveBeenCalledWith('已添加智能体员工「小助手」', 'success')
+  })
+
+  it('wire platform_ui + 空 content 也能发布（truncated 场景）', () => {
+    const publish = vi.fn()
+    const toast = vi.fn()
+    const ok = publishPlatformFromAgUiResult({
+      isBackground: false,
+      aguiEvent: {
+        type: EventType.TOOL_CALL_RESULT,
+        toolCallId: 'tc-bind-wire',
+        toolCallName: 'platform',
+        content: '',
+        truncated: true,
+        platform_ui: {
+          kind: 'success',
+          title: '扫码绑定本岗 AI 员工',
+          domain: 'employees',
+          action: 'employees.bind_channel_begin',
+          qrUrl: 'https://open.feishu.cn/page/launcher?user_code=WIRE',
+          sessionId: 'sess_w',
+          channel: 'feishu',
+          bindStatus: 'pending',
+        },
+      },
+      platformFeedbackSeenRef: { current: new Set() },
+      turnPlatformEntriesRef: { current: [] },
+      publishPlatformEntries: publish,
+      toast,
+    })
+    expect(ok).toBe(true)
+    expect(publish).toHaveBeenCalledTimes(1)
+    expect(toast).toHaveBeenCalledWith('扫码绑定本岗 AI 员工', 'success')
+  })
+
+  it('后台会话不发布；同 id 不重复', () => {
+    expect(
+      publishPlatformFromAgUiResult({
+        isBackground: true,
+        aguiEvent: {
+          type: EventType.TOOL_CALL_RESULT,
+          toolCallId: 'tc1',
+          toolCallName: 'platform',
+          content: JSON.stringify({ ok: true, ui: { kind: 'success', title: 'x' } }),
+        },
+        platformFeedbackSeenRef: { current: new Set() },
+        turnPlatformEntriesRef: { current: [] },
+        publishPlatformEntries: vi.fn(),
+        toast: vi.fn(),
+      }),
+    ).toBe(false)
+
+    const publish = vi.fn()
+    expect(
+      publishPlatformFromAgUiResult({
+        isBackground: false,
+        aguiEvent: {
+          type: EventType.TOOL_CALL_RESULT,
+          toolCallId: 'tc3',
+          toolCallName: 'platform',
+          content: JSON.stringify({ ok: true, ui: { kind: 'success', title: '重复' } }),
+        },
+        platformFeedbackSeenRef: { current: new Set(['tc3']) },
+        turnPlatformEntriesRef: { current: [] },
+        publishPlatformEntries: publish,
+        toast: vi.fn(),
+      }),
+    ).toBe(true)
+    expect(publish).not.toHaveBeenCalled()
   })
 })

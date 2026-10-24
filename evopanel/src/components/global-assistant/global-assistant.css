@@ -3204,16 +3204,68 @@ html.is-xm-docked {
   padding: 8px 2px;
 }
 
-/* 复用主对话 MessageRow：在窄侧栏内收紧间距，挂上 conversation-col 以吃到 react-chat.css */
+/* V4 timeline 自带内边距；外层清零，由 ConversationTimeline 自己滚 */
 .xm-chat-scroll--react {
   gap: 0;
-  padding: 8px 10px 12px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
 }
 
-.xm-react-thread-host,
+/* 窄栏 V4：正文吃满宽度，取消主对话 840px 居中柱（否则侧栏更挤） */
+.xm-react-thread--v4 .zcode-bridge-root {
+  --chat-composer-max: 100%;
+  --chat-column-gutter: 12px;
+}
+
+.xm-react-thread--v4 [data-v4-timeline-scroll='true'] {
+  padding-left: var(--chat-column-gutter, 12px);
+  padding-right: var(--chat-column-gutter, 12px);
+  box-sizing: border-box;
+}
+
+.xm-react-thread--v4 [data-v4-timeline-content-column='true'] {
+  width: 100% !important;
+  max-width: 100% !important;
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+  transform: none !important;
+}
+
+.xm-react-thread-host {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  width: 100%;
+  height: 100%;
+}
+
+/* React 根下 MessageRow 列表吃满 host */
+.xm-react-thread-host > [data-xm-chat-panel] {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  width: 100%;
+  height: 100%;
+}
+
 .xm-react-thread {
   min-height: 0;
   width: 100%;
+}
+
+/* V4：吃满 scroll 槽，高度约束传给 ConversationTimeline */
+.xm-react-thread--v4 {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .xm-react-thread.react-chat-conversation-col {
@@ -3229,6 +3281,13 @@ html.is-xm-docked {
   flex-direction: column;
   gap: 12px;
   padding: 0;
+}
+
+/* 流式齿轮 absolute 伸出回合底边：spacer 进滚动高度，避免被 .xm-chat-scroll 裁切 */
+.xm-react-stream-follow-spacer {
+  flex: 0 0 auto;
+  width: 100%;
+  pointer-events: none;
 }
 
 .xm-react-thread .msg-turn--assistant .msg-bubble {

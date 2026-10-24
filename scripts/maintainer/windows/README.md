@@ -18,6 +18,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\maintainer\windows
   -PushGitTag
 ```
 
+**双击只打安装包（不上传）**：[`build-desktop-installer.bat`](./build-desktop-installer.bat)  
+（等价于下面的 `-BuildDesktopInstaller`；可选参数 `-InstallNpmDeps`。）  
+默认 `EVOFLOW_SKIP_UPDATER_SIGN=1`，避免本机 `updater-signing.key` 弹出 Password 卡住；正式发版仍走 CI 签名。
+
 Or piece-wise via `local-publish.ps1`:
 
 ```powershell

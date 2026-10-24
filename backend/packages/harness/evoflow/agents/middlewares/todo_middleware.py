@@ -1,15 +1,24 @@
 """Middleware that extends TodoListMiddleware with context-loss detection.
 
 When the message history is truncated (e.g., by SummarizationMiddleware), the
-original `write_todos` tool call and its ToolMessage can be scrolled out of the
+original `todo_write` tool call and its ToolMessage can be scrolled out of the
 active context window. This middleware detects that situation and injects a
 reminder message so the model still knows about the outstanding todo list.
+
+zcode 对齐（TodoWrite/TodoRead）：
+- 工具名 todo_write（evopanel 的 isTodoPlanToolName 识别该名字，V4 时间线
+  todo.tsx 渲染器可直接渲染清单卡片）。
+- ToolMessage 输出结构化 {oldTodos, todos, summary}（zcode TodoWriteOutput 同款），
+  替代 langchain 默认的纯文本 "Updated todo list to [...]"。
+- 并行调用防护在本地实现（langchain 父类 after_model 硬编码检查 write_todos，
+  改名后由本中间件接手）。
 """
 
 from __future__ import annotations
 
+import json
 import logging
-from typing import Any
+from typing import Annotated, Any
 
 try:
     from typing import override
@@ -18,10 +27,98 @@ except ImportError:
 
 from langchain.agents.middleware import TodoListMiddleware
 from langchain.agents.middleware.todo import PlanningState, Todo
-from langchain_core.messages import AIMessage, HumanMessage
+from langchain.tools import tool as langchain_tool
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+from langchain_core.tools import InjectedToolCallId
+from langgraph.prebuilt import InjectedState
 from langgraph.runtime import Runtime
+from langgraph.types import Command
 
 logger = logging.getLogger(__name__)
+
+# 现役工具名（zcode TodoWrite 的小写对齐名）。
+TODO_WRITE_TOOL_NAME = "todo_write"
+# 历史会话 checkpoint 里可能残留旧名 write_todos，检测/防护时一并识别。
+TODO_WRITE_TOOL_NAMES = frozenset({"todo_write", "write_todos"})
+
+# 未显式传入描述时的兜底（子智能体执行器复用 TodoMiddleware 时不带 lead agent 长文）。
+TODO_WRITE_DEFAULT_TOOL_DESCRIPTION = (
+    "Create and manage a structured todo list for complex multi-step work. "
+    'Each item: {"content": "...", "status": "pending|in_progress|completed", '
+    '"result": "optional outcome summary"}. Replaces the whole list on every call; '
+    "keep exactly one item in_progress and mark items completed immediately when done. "
+    "Skip the tool for simple tasks (< 3 steps)."
+)
+
+
+def _summarize_todos(todos: list[Todo]) -> dict[str, int]:
+    return {
+        "total": len(todos),
+        "pending": sum(1 for t in todos if t.get("status") == "pending"),
+        "inProgress": sum(1 for t in todos if t.get("status") == "in_progress"),
+        "completed": sum(1 for t in todos if t.get("status") == "completed"),
+    }
+
+
+def _build_todo_write_tool(description: str) -> Any:
+    """构建 zcode TodoWrite 对齐的 todo_write 工具。
+
+    - 全量替换语义与 langchain write_todos 一致（Command 更新 PlanningState）。
+    - ToolMessage 输出结构化 {oldTodos, todos, summary}，供 evopanel todo.tsx
+      渲染器（readPlanCollection 识别 todos 集合）与模型后续轮次解析。
+    - old_todos 通过 InjectedState 注入当前 PlanningState.todos，不出现在
+      模型可见的参数 schema 里（已验证 tool_call_schema 仅暴露 todos）。
+    """
+
+    @langchain_tool(description=description)
+    def todo_write(
+        todos: list[Todo],
+        old_todos: Annotated[list[Todo] | None, InjectedState("todos")],
+        tool_call_id: Annotated[str, InjectedToolCallId],
+    ) -> Command:
+        """Replace the session todo list with a new one (full-list replace semantics)."""
+        old = [dict(t) for t in (old_todos or [])]
+        new = [dict(t) for t in todos]
+        payload = {
+            "oldTodos": old,
+            "todos": new,
+            "summary": _summarize_todos(new),
+        }
+        return Command(
+            update={
+                "todos": new,
+                "messages": [
+                    ToolMessage(json.dumps(payload, ensure_ascii=False), tool_call_id=tool_call_id)
+                ],
+            }
+        )
+
+    return todo_write
+
+
+def _parallel_todo_write_errors(messages: list[Any]) -> list[ToolMessage] | None:
+    """Reject parallel todo_write calls (langchain 父类只认 write_todos，这里接管)."""
+    last_ai_msg = next(
+        (msg for msg in reversed(messages) if isinstance(msg, AIMessage) and msg.tool_calls),
+        None,
+    )
+    if not last_ai_msg:
+        return None
+    calls = [tc for tc in last_ai_msg.tool_calls if tc.get("name") in TODO_WRITE_TOOL_NAMES]
+    if len(calls) <= 1:
+        return None
+    return [
+        ToolMessage(
+            content=(
+                "Error: The `todo_write` tool should never be called multiple times "
+                "in parallel. Please call it only once per model invocation to update "
+                "the todo list."
+            ),
+            tool_call_id=tc["id"],
+            status="error",
+        )
+        for tc in calls
+    ]
 
 
 def _thread_id_from_runtime(runtime: Runtime) -> str:
@@ -53,11 +150,11 @@ def _session_key_for_thread(thread_id: str) -> str:
 
 
 def _todos_in_messages(messages: list[Any]) -> bool:
-    """Return True if any AIMessage in *messages* contains a write_todos tool call."""
+    """Return True if any AIMessage in *messages* contains a todo_write tool call."""
     for msg in messages:
         if isinstance(msg, AIMessage) and msg.tool_calls:
             for tc in msg.tool_calls:
-                if tc.get("name") == "write_todos":
+                if tc.get("name") in TODO_WRITE_TOOL_NAMES:
                     return True
     return False
 
@@ -96,14 +193,25 @@ def _format_todos(todos: list[Todo]) -> str:
 
 
 class TodoMiddleware(TodoListMiddleware):
-    """Extends TodoListMiddleware with `write_todos` context-loss detection
+    """Extends TodoListMiddleware with `todo_write` context-loss detection
     and independent persistence to ``evoflow_todos`` table.
 
-    When the original `write_todos` tool call has been truncated from the message
+    When the original `todo_write` tool call has been truncated from the message
     history (e.g., after summarization), the model loses awareness of the current
     todo list. This middleware detects that gap in `before_model` / `abefore_model`
     and injects a reminder message so the model can continue tracking progress.
     """
+
+    def __init__(
+        self,
+        *,
+        system_prompt: str = "",
+        tool_description: str = "",
+    ) -> None:
+        tool_description = tool_description or TODO_WRITE_DEFAULT_TOOL_DESCRIPTION
+        super().__init__(system_prompt=system_prompt, tool_description=tool_description)
+        # zcode 对齐：用结构化输出的 todo_write 替换 langchain 默认 write_todos。
+        self.tools = [_build_todo_write_tool(tool_description)]
 
     def _persist_todos(self, state: PlanningState, runtime: Runtime) -> None:
         """Write current todos to the independent table (fire-and-forget)."""
@@ -163,7 +271,7 @@ class TodoMiddleware(TodoListMiddleware):
                 "but it is still active. Here is the current state:\n\n"
                 f"{formatted}\n\n"
                 "Continue tracking and updating this todo list as you work. "
-                "Call `write_todos` whenever the status of any item changes.\n"
+                "Call `todo_write` whenever the status of any item changes.\n"
                 "</system_reminder>"
             ),
         )
@@ -184,7 +292,11 @@ class TodoMiddleware(TodoListMiddleware):
         state: PlanningState,
         runtime: Runtime,
     ) -> dict[str, Any] | None:
-        """Persist updated todos to independent table after model run."""
+        """Reject parallel todo_write calls, then persist todos after model run."""
+        messages = state.get("messages") or []
+        errors = _parallel_todo_write_errors(messages)
+        if errors:
+            return {"messages": errors}
         result = super().after_model(state, runtime)
         try:
             self._persist_todos(state, runtime)
@@ -199,6 +311,10 @@ class TodoMiddleware(TodoListMiddleware):
         runtime: Runtime,
     ) -> dict[str, Any] | None:
         """Async version of after_model."""
+        messages = state.get("messages") or []
+        errors = _parallel_todo_write_errors(messages)
+        if errors:
+            return {"messages": errors}
         result = await super().aafter_model(state, runtime)
         try:
             self._persist_todos(state, runtime)

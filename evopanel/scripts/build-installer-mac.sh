@@ -116,6 +116,11 @@ if [[ -n "${TAURI_BUILD_TARGET:-}" ]]; then
   TAURI_BUILD_ARGS+=(--target "${TAURI_BUILD_TARGET}")
 fi
 
+# macOS CI runners: vite build OOMs at Node's ~2GB default heap during transforming.
+# Tauri beforeBuildCommand runs `npm run build`; raise heap for this process tree.
+export NODE_OPTIONS="--max-old-space-size=8192"
+echo "[build-installer-mac] NODE_OPTIONS=${NODE_OPTIONS}"
+
 echo "[build-installer-mac] building .app (no dmg yet)..."
 npm run tauri -- "${TAURI_BUILD_ARGS[@]}" --bundles app
 

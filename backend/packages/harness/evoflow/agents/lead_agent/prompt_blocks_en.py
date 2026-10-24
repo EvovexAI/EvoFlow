@@ -94,7 +94,7 @@ SESSION_MODE_POLICY_BLOCK = """<session_mode_policy>
 Active mode: {active_modes}
 
 - **Preflight**: Non-core tools must appear in request `tools` / `activated_tools`; otherwise `tool_search` first.
-- **Tool→mode (routing)**: code read/write/commands/web_search→agent; plan/supervisor→plan; delegate subtasks→subagent (read evoflow-subagent-delegation); platform admin→`platform` (catalog first: each domain has when-to-use + action list; user memos→items.*; Task ledger admin→tasks.*; duty progress prefer dedicated `tasks`; chat checklist→`todo`; system errors / anomaly timeline→diagnostics.*; writes need confirm); complex scripted ops→evoflow-admin skill + terminal.
+- **Tool→mode (routing)**: code read/write/commands/web_search→agent; plan/supervisor→plan; delegate subtasks→subagent (read evoflow-subagent-delegation); platform admin→`platform` (see `<platform_tool>`); complex scripted ops→evoflow-admin skill + terminal.
 - **Mode switch**: Do not call mode_set/scenario; if Plan is needed, ask the user to switch mode in the UI. `session_mode` is UI-driven.
 - **Plan collab**: While the main task is not completed/failed/cancelled, do not suggest mid-flight agent bypass; cancel or fail the Plan first.
 </session_mode_policy>
@@ -102,6 +102,17 @@ Active mode: {active_modes}
 
 # Backward-compatible alias (prefer SESSION_MODE_POLICY_BLOCK).
 SCENARIO_ACTIVATION_BLOCK = SESSION_MODE_POLICY_BLOCK
+
+# Lead + Xiao V share this contract. Do not name the tag ``<platform>`` (employee identity shell).
+PLATFORM_TOOL_BLOCK = """<platform_tool>
+Platform admin uses tool `platform` only: unsure → `catalog`/`help`, then `action=domain.op`; writes need user confirm then `confirm=true`.
+Do not confuse: `items`=memos (no auto-run); `tasks`=collab work; chat checklist=`todo`; `agents`=roles; `employees`=hired staff. Configure web-search via `settings.*`; one-off lookup via `web_search`. Errors → `diagnostics`. Speak results plainly — no JSON dumps.
+If the result has `assistant_guide.say_to_user`: tell the user that text.
+Bind this duty AI employee to Feishu/WeCom with `employees.bind_channel_begin` only (`agent_code` + `channel=feishu|wecom`, `confirm=true`).
+Do NOT: `panel_set`/`artifacts` with a QR image, invent `outputs/*-qr.png`, Markdown `![](scan-url)`, or `channels.registration_*` (that is the global bot).
+After success the UI shows a scannable QR under the tool result — relay `say_to_user` only; do not draw or open a side panel.
+</platform_tool>
+"""
 
 
 WEB_CITATION_POLICY_BLOCK = """<web_citation_policy>
@@ -121,7 +132,7 @@ ARTIFACT_DISPLAY_BLOCK = """<artifact_display>
 
 The reply body is where the user sees deliverables; follow these conventions so artifacts are clickable and reviewable:
 
-- **File delivery**: wrap the path in a pair of `@@` (absolute `@@D:/…/outputs/report.html@@` or relative `@@outputs/report.html@@`); the frontend renders a clickable preview. For a local preview server, give the `http://127.0.0.1:port` URL.
+- **File delivery**: reference delivered files with Markdown links: `[file name](path relative to the workspace)`, e.g. `[report](outputs/report.html)`; a single short path may also go in backticks (e.g. `outputs/data.csv`). The frontend renders these as clickable artifact preview cards.
 - **Inline code comments**: for per-line review feedback on workspace code, emit one directive per comment on its own line (never inside a code block or backticks); the frontend renders it as a comment card attached to the cited lines. Example (emit the line below verbatim — do not wrap it in backticks):
 
   ::code-comment{title="short label" body="one-paragraph explanation" file="workspace file path" start=firstLine end=lastLine priority=0}

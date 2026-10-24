@@ -34,13 +34,14 @@
    - `evoflow skills list` / `evoflow skills list --enabled-only`  
    只从返回的 `name` 里勾选技能。
 
-4. **盘点可分配工具**  
-   - 若 Gateway 可达：`GET /api/tools/metadata`（中文 label 仅供展示）  
-   - 或读运行时工具目录 / 现有角色的 `tools` 字段作对照  
-   **写配置仍以真实 `name` 为准**；**最小权限**：能只读就不给写盘，能不用终端就不给。
+4. **选能力包（优先于逐个勾工具）**  
+   - `platform action=agents.bindings` → 看 **`packs`**（`research` / `writer` / `duty` / `coding` / `none`）  
+   - 需要少量追加时用 `tools_extra`；仅 `capability_pack=custom` 时再手填短 `tools` 白名单  
+   - **禁止**把 bindings 的 `tools` 全表灌进角色；`tools:null` 须 `confirm_inherit_all=true`（员工创建默认禁止）  
+   - **最小权限**：能只读就不给写盘，能不用终端就不给 `coding`
 
 5. **起草并让用户确认**  
-   用表格或结构化 Markdown 展示拟定的：`agent_code`、`agent_name`、`description`、`system_prompt` 摘要、`soul` 摘要、`tools[]`、`mcp_servers[]`、`skills[]`、`agent_type`。  
+   用表格或结构化 Markdown 展示拟定的：`agent_code`、`agent_name`、`description`、`system_prompt` 摘要、`soul` 摘要、`capability_pack`、`tools[]`（若有）、`mcp_servers[]`、`skills[]`、`agent_type`。  
    **未经用户明确同意不得落盘。**
 
 6. **落盘（用户确认后）**  
@@ -56,7 +57,7 @@
 
    ```text
    platform action=agents.create confirm=true
-     args_json={...同一套字段...}
+     args_json={..., "capability_pack": "writer"}
    ```
 
    字段名必须与目录一致。若返回 `unknown_tools` / `unknown_skills`，回到步骤 3–4 修正，禁止猜名字重试超过两轮不问用户。
@@ -67,7 +68,7 @@
 
 ## JSON 示例
 
-见 [`../examples/agent-create.json`](../examples/agent-create.json)。可扩展字段：`system_prompt`、`tools`、`mcp_servers`、`agent_type`、`tags`。
+见 [`../examples/agent-create.json`](../examples/agent-create.json)。可扩展字段：`capability_pack`、`tools_extra`、`system_prompt`、`tools`、`mcp_servers`、`agent_type`、`tags`。
 
 ## 写作提示
 

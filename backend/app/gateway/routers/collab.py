@@ -358,6 +358,10 @@ class ToolApprovalActionBody(BaseModel):
     tool_name: str | None = None
     args: dict[str, Any] | None = None
     summary: str | None = None
+    # zcode allow_session alignment: "approve this tool for the rest of the
+    # session". Without this field pydantic silently dropped the frontend's
+    # remember:true and always-allow degraded to a plain one-shot approve.
+    remember: bool = False
 
 
 class ToolApprovalActionResponse(BaseModel):
@@ -423,6 +427,8 @@ async def post_thread_tool_approval(request: Request, thread_id: str, body: Tool
     if action not in {"approve", "approve_all", "deny", "grant_all"}:
         raise HTTPException(status_code=422, detail="action must be approve, approve_all, deny, or grant_all")
     data: dict[str, Any] = {"action": action}
+    if body.remember:
+        data["remember"] = True
     if body.tool_call_id:
         data["tool_call_id"] = tc_id
     if body.tool_name:

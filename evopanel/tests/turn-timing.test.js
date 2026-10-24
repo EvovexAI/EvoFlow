@@ -168,11 +168,14 @@ describe('resolveStreamTailLabel（流式尾部 spinner 文案）', () => {
 })
 
 describe('isGenericRunningStatusLabel（忙闲兜底，不进封存头）', () => {
-  it('识别运行中/工作中等通用忙文案', () => {
+  it('识别运行中/工作中/准备中等通用忙文案', () => {
     expect(isGenericRunningStatusLabel('运行中')).toBe(true)
     expect(isGenericRunningStatusLabel('运行中 · 1s')).toBe(true)
     expect(isGenericRunningStatusLabel('工作中')).toBe(true)
     expect(isGenericRunningStatusLabel('生成中')).toBe(true)
+    expect(isGenericRunningStatusLabel('准备中')).toBe(true)
+    expect(isGenericRunningStatusLabel('准备中…')).toBe(true)
+    expect(isGenericRunningStatusLabel('准备中 · 2s')).toBe(true)
   })
 
   it('具体工具活动不算通用忙文案', () => {

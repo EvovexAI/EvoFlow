@@ -1,13 +1,17 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode, type RefObject } from 'react'
 import {
   browserEmbedClose,
+  browserEmbedExists,
+  browserEmbedProbeCoords,
   browserEmbedSetZoom,
   browserEmbedSupported,
   browserEmbedSupportedSync,
   clearBrowserEmbedCdp,
   registerBrowserEmbedCdp,
 } from '../../lib/browser-embed-client.js'
-import { ensureNativeEmbed, reportEmbedSlot } from '../../lib/browser-embed-surface.js'
+import { ensureNativeEmbed, NATIVE_EMBED_THREAD_ID, reportEmbedSlot } from '../../lib/browser-embed-surface.js'
+import { blogTimeline } from '../../lib/browser-unified-log.js'
+import { getUiZoom } from '../../lib/ui-zoom.js'
 import { useGlobalOverlayWhen } from '../hooks/useGlobalOverlayWhen.js'
 import { DropdownSelect } from './DropdownSelect.js'
 import {
@@ -28,6 +32,8 @@ import {
 import {
   getBrowserRuntimeSnapshot,
   applyBrowserCommandResponse,
+  isUserNavigateIntent,
+  markUserNavigateIntent,
   pushBrowserTabHistory,
   setBrowserTabs,
   stepBrowserTabHistory,
@@ -36,6 +42,7 @@ import {
 import {
   isBrowserInternalErrorUrl,
   isNavigableBrowserUrl,
+  isSameBrowserLoad,
   sanitizeBrowserPageUrl,
 } from '../../lib/browser-page-url.js'
 import {
@@ -527,6 +534,32 @@ let lastRegionKey = ''
 let lastCoordsConsoleAt = 0
 let lastCoordsPhase = ''
 
+/** 小V dock 面板左缘（CSS）。HWND 右缘必须 < 此值，否则会盖住小V。 */
+function xmDockClipRightCss(): number {
+  try {
+    if (!document.documentElement.classList.contains('is-xm-docked')) {
+      return window.innerWidth || 0
+    }
+    // 实测面板：dock 是 `right:10px`，不能只用 --xm-dock-width（那是按 right:0 算的，会偏进小V）。
+    // 让出量要覆盖：resize 条(left:-4/宽8)、阴影、dpr 取整误差。
+    const dockGap = 18
+    const panel = document.querySelector('.xm-panel.xm-panel--dock')
+    if (panel instanceof HTMLElement) {
+      const left = panel.getBoundingClientRect().left
+      if (left >= 80) {
+        return Math.max(120, Math.floor(left) - dockGap)
+      }
+    }
+    const raw = getComputedStyle(document.documentElement).getPropertyValue('--xm-dock-width').trim()
+    const dockW = Number.parseFloat(raw)
+    const w = Number.isFinite(dockW) && dockW >= 200 ? dockW : 400
+    // margin-right = dock+20，面板 right:10 → 内容区右缘约 vw-dock-20
+    return Math.max(120, Math.floor((window.innerWidth || 0) - w - 20) - dockGap)
+  } catch {
+    return window.innerWidth || 0
+  }
+}
+
 /** 主窗标题拖拽区底边。子 HWND 的 y 绝不能小于它，否则双击还原被原生窗吞掉。 */
 function chromeFloorY(): number {
   try {
@@ -551,42 +584,115 @@ function readEmbedBounds(el: HTMLElement | null, opts?: { forceRegionLog?: boole
   // 不要再乘 devicePixelRatio。实测 dpr=1.75 时 CSS 槽位已是 (894,97 532x706)，
   // 乘完变成 (1565,169 932x1236)，主客户区只有约 1440x810，窗口被推到主窗口外面。
   const dpr = window.devicePixelRatio || 1
+  // 主窗 set_webview_zoom（界面缩放）是 WebView2 ZoomFactor：嵌套 HWND 不在缩放树里。
+  // DOM 矩形常仍是未缩放 CSS；把四角乘上界面缩放，to_client_px 再用未缩放 viewport → 物理≈css·z·dpr。
+  const uiZoom = getUiZoom() || 1
+  const vw = Math.max(8, window.innerWidth || rect.width)
+  const vh = Math.max(8, window.innerHeight || rect.height)
+  // 小V dock：按面板真实 left 裁右缘。槽位 DOM 有时仍伸进 dock，HWND 又在最上，会盖住小V。
+  const maxRight = Math.max(120, Math.min(vw, xmDockClipRightCss()) * uiZoom)
+  let zx = Math.max(0, Math.min(rect.left * uiZoom, maxRight - 120))
+  let zy = Math.max(0, Math.min(rect.top * uiZoom, vh - 80))
+  let zw = Math.min(rect.width * uiZoom, maxRight - zx)
+  let zh = Math.min(rect.height * uiZoom, vh - zy)
   // 右栏外壳有 1px 左边线，拖拽条还用负边距压进面板约 3px。
   // 原生 HWND 在所有 HTML 之上，贴齐槽位左缘就会盖住这条分隔线。
   // 左侧让出 4px，窗口才和「框定区域」重合，分隔线留在外面。
   const insetLeft = 4
-  const floor = chromeFloorY()
-  let y = Math.round(rect.top)
-  let height = Math.round(rect.height)
+  // 有小V 时右侧再收 2px，避免 round/dpr 把右缘顶进 dock
+  const insetRight = maxRight < vw - 1 ? 2 : 0
+  const floor = Math.ceil(chromeFloorY() * uiZoom)
+  let y = Math.round(zy)
+  let height = Math.round(zh)
   // 顶栏地板：最大化后槽位若顶到标题条，把 y 压下来并缩短高度，保住双击还原。
   if (y < floor) {
     height = Math.max(80, height - (floor - y))
     y = floor
   }
+  const x = Math.round(zx) + insetLeft
+  // dock 场景用 floor，防止 width 四舍五入多 1px × dpr 盖住小V
+  const widthRaw = (insetRight ? Math.floor(zw) : Math.round(zw)) - insetLeft - insetRight
   const bounds = {
-    x: Math.round(rect.left) + insetLeft,
+    x,
     y,
-    width: Math.max(120, Math.round(rect.width) - insetLeft),
-    height,
+    width: Math.max(120, Math.min(widthRaw, Math.floor(maxRight) - x)),
+    height: Math.max(80, height),
     // Rust 用主窗口客户区像素 / 这个视口，把 CSS 槽位换成 SetWindowPos 坐标。
-    viewportWidth: Math.round(window.innerWidth || rect.width),
-    viewportHeight: Math.round(window.innerHeight || rect.height),
+    // 视口故意不乘 uiZoom：坐标已乘过，scale = iw/viewport 只承担 dpr。
+    viewportWidth: Math.round(vw),
+    viewportHeight: Math.round(vh),
   }
   const key = `${bounds.x},${bounds.y},${bounds.width},${bounds.height}`
   const now = Date.now()
-  if (opts?.forceRegionLog || key !== lastRegionKey || now - lastRegionLogAt > 500) {
+  // 区域日志默认很安静；只有 force 或坐标变了且间隔够长才打。
+  if (opts?.forceRegionLog || (key !== lastRegionKey && now - lastRegionLogAt > 1200)) {
     lastRegionKey = key
     lastRegionLogAt = now
-    const screenLeft = Math.round((window.screenX || 0) + rect.left)
-    const screenTop = Math.round((window.screenY || 0) + rect.top)
     const msg =
       `[右侧区域] css=(${bounds.x},${bounds.y} ${bounds.width}x${bounds.height}) ` +
-      `screen≈=(${screenLeft},${screenTop} ${bounds.width}x${bounds.height}) ` +
-      `dpr=${dpr} viewport=(${bounds.viewportWidth}x${bounds.viewportHeight})`
+      `dpr=${dpr} uiZoom=${uiZoom} viewport=(${bounds.viewportWidth}x${bounds.viewportHeight})`
     dbgLog(`[browser-embed] ${msg}`)
-    console.log(msg)
   }
   return bounds
+}
+
+/** 控制台对照：① HTML→物理 vs ② WebView 客户区（同一套物理像素）。过滤 `[embed对比]`。 */
+async function logEmbedCompare(
+  reason: string,
+  slotEl: HTMLElement | null,
+  bounds: {
+    x: number
+    y: number
+    width: number
+    height: number
+    viewportWidth?: number
+    viewportHeight?: number
+  } | null,
+) {
+  const raw = slotEl?.getBoundingClientRect()
+  const probe = await browserEmbedProbeCoords(NATIVE_EMBED_THREAD_ID)
+  if (!probe) {
+    console.log(`%c[embed对比] ${reason}`, 'color:#38bdf8;font-weight:bold')
+    console.log('  ②WebView(原生) (读不到 — 窗口可能未创建)')
+    return
+  }
+  const wc = probe.webviewClient
+  const mw = probe.mainClient?.w || 0
+  const mh = probe.mainClient?.h || 0
+  const vw = Math.max(8, bounds?.viewportWidth || window.innerWidth || 1)
+  const vh = Math.max(8, bounds?.viewportHeight || window.innerHeight || 1)
+  // 与 Rust to_client_px 同一口径：physical = css * (mainInner / viewport)
+  const sx = mw > 8 ? mw / vw : window.devicePixelRatio || 1
+  const sy = mh > 8 ? mh / vh : sx
+  const htmlPhys = bounds
+    ? {
+        x: bounds.x * sx,
+        y: bounds.y * sy,
+        w: bounds.width * sx,
+        h: bounds.height * sy,
+      }
+    : null
+  const dx = htmlPhys ? Math.round(wc.x - htmlPhys.x) : 0
+  const dy = htmlPhys ? Math.round(wc.y - htmlPhys.y) : 0
+  const dw = htmlPhys ? Math.round(wc.w - htmlPhys.w) : 0
+  const dh = htmlPhys ? Math.round(wc.h - htmlPhys.h) : 0
+  const ok =
+    !!htmlPhys &&
+    Math.abs(dx) <= 20 &&
+    Math.abs(dy) <= 20 &&
+    Math.abs(dw) <= 36 &&
+    Math.abs(dh) <= 36
+  const cssStr = raw
+    ? `(${Math.round(raw.left)},${Math.round(raw.top)} ${Math.round(raw.width)}x${Math.round(raw.height)})`
+    : '(无)'
+  console.log(`%c[embed对比] ${reason} → ${ok ? '对齐' : '错位!!!'}`, 'color:#38bdf8;font-weight:bold')
+  console.log(
+    `  ①HTML css=${cssStr} → 物理≈(${htmlPhys ? `${Math.round(htmlPhys.x)},${Math.round(htmlPhys.y)} ${Math.round(htmlPhys.w)}x${Math.round(htmlPhys.h)}` : '无'}) scale=(${sx.toFixed(3)},${sy.toFixed(3)})`,
+  )
+  console.log(
+    `  ②WebView 物理 client=(${Math.round(wc.x)},${Math.round(wc.y)} ${Math.round(wc.w)}x${Math.round(wc.h)}) screen=(${Math.round(probe.webviewScreen.x)},${Math.round(probe.webviewScreen.y)})`,
+  )
+  console.log(`  Δ(②−①) = (${dx},${dy}) sizeΔ=(${dw},${dh})`)
 }
 
 async function waitForEmbedBounds(el: HTMLElement | null, timeoutMs = 2400) {
@@ -646,7 +752,8 @@ function BrowserEmbedHost({
     const bounds = readEmbedBounds(slotRef.current)
     if (!bounds) return
     const started = performance.now()
-    reportEmbedSlot(stageIdRef.current, bounds, { url: pageUrlRef.current, force })
+    // Soft-decouple: bounds sync never re-navigates — agent/CDP owns the URL.
+    reportEmbedSlot(stageIdRef.current, bounds, { force })
     const elapsed = Math.round(performance.now() - started)
     if (elapsed >= 200) {
       console.warn(
@@ -655,6 +762,9 @@ function BrowserEmbedHost({
     }
   }, [isOpen])
   syncBoundsRef.current = () => syncBounds(true)
+
+  // Shared with mount + navigate effects: avoid remount→navigate double ensure.
+  const lastNavigatedRef = useRef('')
 
   useLayoutEffect(() => {
     let cancelled = false
@@ -690,6 +800,10 @@ function BrowserEmbedHost({
     const failMount = (message: string, userError: string) => {
       if (mountedThreadRef.current === tid) mountedThreadRef.current = ''
       if (cancelled) return
+      blogTimeline(
+        '失败',
+        `窗口贴位失败 线程=${tid} 原因=${message} 界面提示=${userError}`,
+      )
       setError(userError)
       onFailedRef.current?.(message)
     }
@@ -702,6 +816,10 @@ function BrowserEmbedHost({
       setError('')
       setReady(true)
       readyRef.current = true
+      blogTimeline(
+        '窗口贴位',
+        `面板挂载完成 线程=${tid} 地址栏=${pageUrlRef.current || '(无)'}（槽位已显示；真正出字看「页面内容就绪」）`,
+      )
       onReadyRef.current?.()
       void syncBoundsRef.current()
       for (const delay of [300, 1000, 3000]) {
@@ -744,21 +862,46 @@ function BrowserEmbedHost({
         return
       }
       const boundsLogged = readEmbedBounds(slotRef.current, { forceRegionLog: true }) || bounds
+      // Soft-decouple: mount never navigates. Agent CDP owns Page.navigate;
+      // passing url here (when exists-check flaked false) rebuilt HWND mid-settle
+      // → guest-poll timeout (~8–17s). Place/create blank only; chrome URL is sync.
+      const hwndReady = await browserEmbedExists(tid)
       dbgLog(
-        `[browser-embed] upsert thread=${tid} bounds=${JSON.stringify(boundsLogged)} url=${pageUrlNow || '(none — boot blank, navigate on result)'}`,
+        `[browser-embed] upsert thread=${tid} bounds=${JSON.stringify(boundsLogged)} ` +
+          `hwndReady=${hwndReady} placeOnly=true url=${pageUrlNow || '(none)'}`,
       )
-      const info = await ensureNativeEmbed({
-        url: pageUrlNow,
-        slot: bounds,
-        stageId: stageIdRef.current,
-        reason: 'panel-mount',
-      })
-      dbgLog(`[browser-embed] upsert done cdpUrl=${info?.cdpUrl ? 'OK' : 'MISSING'} label=${info?.webviewLabel || '-'}`)
+      // HMR / 冷启动时 create 常超时一次，但 HWND 晚几百 ms 才就绪；一次失败就
+      // embedFailed 会逼用户关再开。对齐 Rust late-ok：多试几次再认输。
+      let info: Awaited<ReturnType<typeof ensureNativeEmbed>> = null
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        if (cancelled && !readyRef.current) return
+        if (!surfaceActiveRef.current) return
+        info = await ensureNativeEmbed({
+          placeOnly: true,
+          slot: bounds,
+          stageId: stageIdRef.current,
+          reason: attempt === 1 ? 'panel-mount' : `panel-mount-retry-${attempt}`,
+        })
+        dbgLog(
+          `[browser-embed] upsert done attempt=${attempt} cdpUrl=${info?.cdpUrl ? 'OK' : 'MISSING'} label=${info?.webviewLabel || '-'}`,
+        )
+        if (info?.cdpUrl) break
+        // 超时后窗口可能刚建好：先问 exists，再等一把再 ensure。
+        const late = await browserEmbedExists(tid)
+        dbgWarn(
+          `[browser-embed] upsert miss attempt=${attempt} lateExists=${late} thread=${tid}`,
+        )
+        if (attempt < 3) {
+          await new Promise<void>((r) => window.setTimeout(r, 400 * attempt))
+        }
+      }
       if (!info?.cdpUrl) {
         dbgWarn(`[browser-embed] upsert returned no cdpUrl thread=${tid} info=${JSON.stringify(info)}`)
         failMount('embed upsert failed', '内嵌浏览器启动失败')
         return
       }
+      // Mark current URL so the navigate effect does not immediately re-ensure.
+      if (pageUrlNow) lastNavigatedRef.current = pageUrlNow
       dbgLog(`[browser-embed] cdp ready thread=${tid} label=${info.webviewLabel}`)
       const ok = await registerBrowserEmbedCdp(tid, info.cdpUrl)
       dbgLog(`[browser-embed] cdp register ok=${ok} url=${info.cdpUrl.slice(0, 60)}`)
@@ -785,43 +928,31 @@ function BrowserEmbedHost({
     // surfaceActive：后台 force-mount 时跳过抢 HWND；切到前台后再真正 upsert。
   }, [isOpen, threadId, surfaceActive])
 
-  // Once the webview exists, agent navigations only need to re-point the existing
-  // window — `browser_embed_upsert` detects the live label and navigates in place.
-  // A full remount here would destroy and recreate the browser (and lose scroll
-  // position / form state) on every link the agent clicks.
-  const lastNavigatedRef = useRef('')
+  // Soft-decouple: pageUrl from agent/getState is chrome-only. HWND navigation
+  // is owned by CDP (agent) or explicit user actions (address bar → engine
+  // navigate, back/forward / tab switch → ensureNativeEmbed). Never upsert-
+  // navigate here — that double-loaded every agent goto.
   useEffect(() => {
     if (!ready) return
-    const tid = String(threadId || '').trim()
     const next = String(pageUrl || '').trim()
-    if (!tid || !next || next === lastNavigatedRef.current) return
-    if (!surfaceActiveRef.current) return
-    // chrome-error:// 是导航失败后的内部页，再 navigate 只会死循环刷错页。
-    if (!isNavigableBrowserUrl(next)) {
-      dbgWarn(`[browser-embed] navigate skipped internal/error url=${next}`)
+    if (!next) return
+    if (next === lastNavigatedRef.current || isSameBrowserLoad(next, lastNavigatedRef.current)) {
       lastNavigatedRef.current = next
       return
     }
-    // Re-measure before re-pointing the window. Falling back to a hardcoded
-    // origin here used to fling the embedded browser into the top-left corner
-    // of the screen whenever the slot had not been laid out yet.
-    const bounds = readEmbedBounds(slotRef.current)
-    if (!bounds) {
-      // Deliberately do not record the url yet: a later re-render must be able to
-      // retry once layout settles.
-      dbgWarn(`[browser-embed] navigate deferred, slot has no layout box thread=${tid} url=${next}`)
+    if (!isNavigableBrowserUrl(next)) {
+      lastNavigatedRef.current = next
+      return
+    }
+    if (isUserNavigateIntent(next)) {
+      // User already drove HWND via sendBrowserCommand / ensureNativeEmbed;
+      // only sync the latch so we do not treat the next agent sync as new.
+      lastNavigatedRef.current = next
+      dbgLog(`[browser-embed] pageUrl follow (user intent) url=${next}`)
       return
     }
     lastNavigatedRef.current = next
-    dbgLog(`[browser-embed] navigate thread=${tid} url=${next} bounds=${JSON.stringify(bounds)}`)
-    void ensureNativeEmbed({
-      url: next,
-      slot: bounds,
-      stageId: stageIdRef.current,
-      reason: 'navigate',
-    }).then((info) => {
-      if (info?.cdpUrl) void registerBrowserEmbedCdp(tid, info.cdpUrl)
-    })
+    dbgLog(`[browser-embed] pageUrl follow (agent/chrome-only) url=${next}`)
   }, [ready, threadId, pageUrl])
 
   useEffect(() => {
@@ -856,33 +987,191 @@ function BrowserEmbedHost({
 
   useEffect(() => {
     if (!isOpen || !ready || !surfaceActive) return
-    // 拖动/缩放/最大化：节流贴位；force 绕过相同槽位去重，避免最大化后旧 bounds
-    // 仍盖住标题条导致双击还原失效。
-    let timer = 0
-    const schedule = () => {
-      window.clearTimeout(timer)
-      timer = window.setTimeout(() => {
-        void syncBounds(true)
-      }, 120)
+    // 四角绑定：槽位 getBoundingClientRect 一变就 force 贴 HWND。
+    // ResizeObserver 只在尺寸变时响，最大化/侧栏/界面缩放常是「晚一拍」或只平移，
+    // 所以前台时用 rAF 持续对四角；事件只负责立刻唤醒，不替代轮询。
+    let lastKey = ''
+    let raf = 0
+    let settleTimers: number[] = []
+    let lastIpcAt = 0
+    /** set_bounds 因主窗拖动/最大化被 defer 时退避，避免每帧打 IPC。 */
+    let backoffUntil = 0
+    let lastCompareAt = 0
+    let compareInflight = false
+
+    const clearSettles = () => {
+      for (const t of settleTimers) window.clearTimeout(t)
+      settleTimers = []
     }
-    window.addEventListener('resize', schedule)
+
+    const dumpCompare = (reason: string, bounds: ReturnType<typeof readEmbedBounds>) => {
+      const now = performance.now()
+      // 对照日志：≥2s 一条；settle/+Nms 静默（只贴位不打 log）。
+      if (compareInflight || now - lastCompareAt < 2000) return
+      if (/^(raf|resize-observer|tick)/.test(reason)) return
+      if (/\+\d+ms$/.test(reason) || /settle/i.test(reason)) return
+      lastCompareAt = now
+      compareInflight = true
+      void logEmbedCompare(reason, slotRef.current, bounds).finally(() => {
+        compareInflight = false
+      })
+    }
+
+    const applyCorners = (force = false, reason = 'tick', withCompare = false) => {
+      if (!surfaceActiveRef.current) return
+      const bounds = readEmbedBounds(slotRef.current)
+      if (!bounds) return
+      const key =
+        `${bounds.x},${bounds.y},${bounds.width}x${bounds.height}:` +
+        `${bounds.viewportWidth}x${bounds.viewportHeight}`
+      if (!force && key === lastKey) return
+      const now = performance.now()
+      if (!force && now < backoffUntil) return
+      if (!force && now - lastIpcAt < 32) return
+      lastIpcAt = now
+      if (withCompare) dumpCompare(reason, bounds)
+      // 只有贴位成功才锁 lastKey。最大化时 Moved 会 defer set_bounds 并返回 false，
+      // 若此处先锁 key，HWND 停在旧左侧而右侧槽位已就位。
+      void reportEmbedSlot(stageIdRef.current, bounds, { force: true }).then((ok) => {
+        if (ok) {
+          lastKey = key
+          backoffUntil = 0
+        } else {
+          lastKey = ''
+          backoffUntil = performance.now() + 220
+          dumpCompare(`${reason}:defer`, bounds)
+        }
+      })
+    }
+
+    const wake = (reason = 'wake') => {
+      lastKey = ''
+      backoffUntil = 0
+      clearSettles()
+      const isDock = /dock|xm-dock/i.test(reason)
+      // dock 开合：等 margin/--xm-dock-width 生效后再量，避免量到开合前的旧 x（693→473）。
+      const start = () => {
+        applyCorners(true, reason, true)
+        const settles = isDock ? [160, 360, 640] : [80, 250, 700, 1400]
+        for (const ms of settles) {
+          settleTimers.push(
+            window.setTimeout(() => applyCorners(true, `${reason}+${ms}ms`, false), ms),
+          )
+        }
+      }
+      if (isDock) {
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            settleTimers.push(window.setTimeout(start, 40))
+          })
+        })
+      } else {
+        start()
+      }
+    }
+
+    const loop = () => {
+      applyCorners(false, 'raf')
+      raf = window.requestAnimationFrame(loop)
+    }
+    raf = window.requestAnimationFrame(loop)
+    wake('mount')
+
+    const onResize = () => wake('window-resize')
+    const onUiZoom = () => wake('ui-zoom')
+    const onLayoutChrome = (ev: Event) => {
+      const reason = String((ev as CustomEvent<{ reason?: string }>).detail?.reason || 'layout-chrome')
+      wake(reason)
+    }
+    const onVis = () => {
+      if (document.visibilityState === 'visible') wake('visibility')
+    }
+    window.addEventListener('resize', onResize)
+    window.addEventListener('ui-zoom-change', onUiZoom)
+    // 小V / 侧栏 / 右栏拖宽统一走 layout-chrome（不再双听 xm-dock）。
+    window.addEventListener('evopanel:layout-chrome', onLayoutChrome)
+    document.addEventListener('visibilitychange', onVis)
+    window.addEventListener('pageshow', onResize)
+    const vv = window.visualViewport
+    vv?.addEventListener('resize', onResize)
+    vv?.addEventListener('scroll', onResize)
+
+    // DPR / 系统缩放变化（跨显示器常见）
+    let dprMql: MediaQueryList | null = null
+    const bindDpr = () => {
+      dprMql?.removeEventListener('change', onDpr)
+      dprMql = window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`)
+      dprMql.addEventListener('change', onDpr)
+    }
+    const onDpr = () => {
+      bindDpr()
+      wake('dpr')
+    }
+    bindDpr()
+
     const ro =
-      typeof ResizeObserver !== 'undefined' && slotRef.current
+      typeof ResizeObserver !== 'undefined'
         ? new ResizeObserver(() => {
-            schedule()
+            lastKey = ''
+            applyCorners(true, 'resize-observer', false)
           })
         : null
     if (slotRef.current) ro?.observe(slotRef.current)
-    // 最大化切换后布局晚一拍，连贴两次确保顶栏地板生效。
-    schedule()
-    const t2 = window.setTimeout(schedule, 280)
-    return () => {
-      window.clearTimeout(timer)
-      window.clearTimeout(t2)
-      window.removeEventListener('resize', schedule)
-      ro?.disconnect()
+    const host = slotRef.current?.parentElement
+    if (host) ro?.observe(host)
+    const panelRoot = host?.closest('.browser-panel')
+    if (panelRoot instanceof HTMLElement) ro?.observe(panelRoot)
+    // 侧栏 / 主列 / 右栏：尺寸变了但槽位元素自身可能只平移
+    for (const sel of ['#sidebar', '#main-col', '.react-chat-main-col', '.react-chat-right-stage-panel', '.chat-main']) {
+      const el = document.querySelector(sel)
+      if (el instanceof HTMLElement) ro?.observe(el)
     }
-  }, [isOpen, ready, surfaceActive, syncBounds])
+
+    // html / sidebar class（is-xm-docked、sidebar-collapsed）。不观察 style：
+    // --xm-dock-width 拖宽时每帧变，会把 wake 打爆；拖宽已有 layout-chrome / RO。
+    let moTimer = 0
+    const mo =
+      typeof MutationObserver !== 'undefined'
+        ? new MutationObserver(() => {
+            window.clearTimeout(moTimer)
+            moTimer = window.setTimeout(() => wake('dom-class'), 40)
+          })
+        : null
+    mo?.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['class'],
+    })
+    const sidebarEl = document.getElementById('sidebar')
+    if (sidebarEl) {
+      mo?.observe(sidebarEl, { attributes: true, attributeFilter: ['class'] })
+    }
+
+    let unlistenResync: (() => void) | undefined
+    void import('@tauri-apps/api/event').then(async ({ listen }) => {
+      unlistenResync = await listen<{ reason?: string }>('browser-embed-resync', (ev) => {
+        const reason = String(ev.payload?.reason || 'native-resync')
+        dbgLog(`[browser-embed] resync from native reason=${reason} → rebind corners`)
+        wake(`native:${reason}`)
+      })
+    })
+
+    return () => {
+      window.cancelAnimationFrame(raf)
+      clearSettles()
+      window.removeEventListener('resize', onResize)
+      window.removeEventListener('ui-zoom-change', onUiZoom)
+      window.removeEventListener('evopanel:layout-chrome', onLayoutChrome)
+      document.removeEventListener('visibilitychange', onVis)
+      window.removeEventListener('pageshow', onResize)
+      vv?.removeEventListener('resize', onResize)
+      vv?.removeEventListener('scroll', onResize)
+      dprMql?.removeEventListener('change', onDpr)
+      window.clearTimeout(moTimer)
+      ro?.disconnect()
+      mo?.disconnect()
+      unlistenResync?.()
+    }
+  }, [isOpen, ready, surfaceActive])
 
   // Rust 回传 WebView 实际屏幕矩形 → 控制台对照右侧区域
   useEffect(() => {
@@ -911,39 +1200,38 @@ function BrowserEmbedHost({
           const p = ev.payload || {}
           const phase = String(p.phase || '')
           const now = Date.now()
-          // 拖动主窗口时 follow 很密，控制台节流；贴位/创建立刻打
-          if (
-            phase.startsWith('follow') &&
-            now - lastCoordsConsoleAt < 200 &&
-            lastCoordsPhase === phase
-          ) {
+          // probe / set-bounds / follow 都很密：合并到 ≥1s，且对齐时只 dbg 不刷 console。
+          if (now - lastCoordsConsoleAt < 1000 && lastCoordsPhase === phase) {
             return
           }
           lastCoordsConsoleAt = now
           lastCoordsPhase = phase
           const slot = p.slotClient
           const wv = p.webviewScreen
-          const exp = p.expectScreen
-          const slotMsg = slot
-            ? `[右侧区域→传给WebView] client=(${Math.round(slot.x)},${Math.round(slot.y)} ${Math.round(slot.w)}x${Math.round(slot.h)})`
-            : '[右侧区域→传给WebView] (无)'
-          const wvMsg = wv
-            ? `[WebView实际] screen=(${Math.round(wv.x)},${Math.round(wv.y)} ${Math.round(wv.w)}x${Math.round(wv.h)}) kind=${p.kind || '?'} phase=${phase || '?'}`
-            : '[WebView实际] (读不到)'
-          const align =
-            exp && wv
-              ? ` delta=(${Math.round(p.delta?.x || 0)},${Math.round(p.delta?.y || 0)}) matches=${p.matchesSlot} fits=${p.fitsClient}`
-              : ''
-          console.log(slotMsg)
-          console.log(wvMsg + align)
-          dbgLog(`[browser-embed] ${slotMsg} | ${wvMsg}${align}`)
+          const aligned = p.matchesSlot === true
+          const line =
+            `[embed对比] native:${phase || '?'} ` +
+            (slot
+              ? `槽位=(${Math.round(slot.x)},${Math.round(slot.y)} ${Math.round(slot.w)}x${Math.round(slot.h)}) `
+              : '') +
+            (wv
+              ? `WebView=(${Math.round(wv.x)},${Math.round(wv.y)} ${Math.round(wv.w)}x${Math.round(wv.h)}) `
+              : '') +
+            (p.delta
+              ? `Δ=(${Math.round(p.delta.x || 0)},${Math.round(p.delta.y || 0)}) ${aligned ? '对齐' : '错位!!!'}`
+              : '')
+          if (aligned) {
+            dbgLog(line)
+          } else {
+            console.warn(line)
+          }
         })
         unlisten = () => {
           unlistenStall()
           unlistenCoords()
         }
       } catch (err) {
-        console.warn('[browser-embed] coords listen failed', err)
+        dbgWarn(`[browser-embed] coords listen failed ${String(err)}`)
       }
     })()
     return () => {
@@ -1442,6 +1730,7 @@ export const BrowserPanel = memo(function BrowserPanel({
           pageTitle: '',
           streamWs: '',
           pushHistory: true,
+          navigateIntent: true,
         })
         return
       }
@@ -1449,13 +1738,14 @@ export const BrowserPanel = memo(function BrowserPanel({
       setNavBusy(true)
       setNavError('')
       try {
-        // 先压逻辑栈并 seed URL，再让引擎/ HWND 导航。
+        // 先压逻辑栈并 seed URL，再让引擎 CDP 导航（面板不再二次 upsert）。
         applyBrowserCommandResponse({
           threadId: tid,
           pageUrl: normalized,
           pageTitle: '',
           streamWs: '',
           pushHistory: true,
+          navigateIntent: true,
         })
         const result = await sendBrowserCommand(tid, 'navigate', normalized)
         if (result) {
@@ -1491,6 +1781,7 @@ export const BrowserPanel = memo(function BrowserPanel({
     setNavBusy(true)
     setNavError('')
     try {
+      markUserNavigateIntent(target)
       // 单 HWND：用 replace 跳到逻辑栈目标，不碰 window.history.back()。
       await ensureNativeEmbed({
         url: target,
@@ -1514,6 +1805,7 @@ export const BrowserPanel = memo(function BrowserPanel({
     setNavBusy(true)
     setNavError('')
     try {
+      markUserNavigateIntent(target)
       await ensureNativeEmbed({
         url: target,
         stageId,
@@ -1728,6 +2020,8 @@ export const BrowserPanel = memo(function BrowserPanel({
       timer = window.setTimeout(apply, 120)
     }
     window.addEventListener('resize', schedule)
+    window.addEventListener('evopanel:xm-dock-layout', schedule)
+    window.addEventListener('ui-zoom-change', schedule)
     const ro =
       typeof ResizeObserver !== 'undefined' && panelRootRef.current
         ? new ResizeObserver(schedule)
@@ -1736,6 +2030,8 @@ export const BrowserPanel = memo(function BrowserPanel({
     return () => {
       window.clearTimeout(timer)
       window.removeEventListener('resize', schedule)
+      window.removeEventListener('evopanel:xm-dock-layout', schedule)
+      window.removeEventListener('ui-zoom-change', schedule)
       ro?.disconnect()
     }
   }, [preferEmbeddedBrowser, embedReady, surfaceActive, embedThreadId, effectiveThreadId, zoom])
