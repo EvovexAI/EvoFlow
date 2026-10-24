@@ -1463,12 +1463,25 @@ def _build_subtask_enriched_prompt(
     except Exception:
         logger.debug("workspace env context scan failed for subtask=%s", subtask_id, exc_info=True)
 
+    reporting_mode = "full"
     try:
-        from evoflow.collab.subtask_outcome import format_subtask_outcome_mandate_block
-        from evoflow.collab.task_progress import format_subtask_progress_mandate_block
+        from evoflow.collab.storage import find_main_task
+        from evoflow.collab.subtask_reporting import (
+            format_subtask_outcome_mandate_block,
+            format_subtask_progress_mandate_block,
+            resolve_subtask_reporting_mode,
+        )
 
-        extra_blocks.insert(0, format_subtask_progress_mandate_block())
-        extra_blocks.insert(1, format_subtask_outcome_mandate_block())
+        main_row = None
+        found = find_main_task(storage, main_task_id) if storage is not None else None
+        if found:
+            _proj, main_row = found
+        reporting_mode = resolve_subtask_reporting_mode(
+            subtask_row=subtask_row if isinstance(subtask_row, dict) else None,
+            main_task=main_row if isinstance(main_row, dict) else None,
+        )
+        extra_blocks.insert(0, format_subtask_progress_mandate_block(mode=reporting_mode))
+        extra_blocks.insert(1, format_subtask_outcome_mandate_block(mode=reporting_mode))
     except Exception:
         logger.debug("collab mandate prompt blocks failed subtask=%s", subtask_id, exc_info=True)
 
@@ -1482,8 +1495,10 @@ def _build_subtask_enriched_prompt(
 
         checklist = get_subtask_work_checklist(subtask_row)
         if checklist_is_ready(checklist):
+            # Already set (Lead or prior turn) — keep snapshot even in light mode.
             extra_blocks.insert(0, format_checklist_system_block(checklist))
-        else:
+        elif reporting_mode != "light":
+            # Full Lead collab: bootstrap requires set before heavy work.
             extra_blocks.insert(0, format_worker_checklist_bootstrap_block())
     except Exception:
         logger.debug("work_checklist prompt block failed subtask=%s", subtask_id, exc_info=True)

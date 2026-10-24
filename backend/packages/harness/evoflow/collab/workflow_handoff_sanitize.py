@@ -19,9 +19,12 @@ _LONG_BASE64_RE = re.compile(r"base64,[A-Za-z0-9+/=\s]{500,}", re.IGNORECASE)
 _FILE_EXT_RE = re.compile(r"\.(md|html?|pdf|json|ya?ml|tsx?|jsx?|py|css|txt|csv|mp4|mov|png|jpg|jpeg|webp)$", re.I)
 
 _DEFAULT_MAX_STR = 2000
-_DEFAULT_SUMMARY_MAX = 800
+# Workflow dependency context: enough room for short step reports so rollup /
+# downstream workers need not peer-ask for "verbatim" text that was truncated.
+_DEFAULT_SUMMARY_MAX = 2400
 _DEFAULT_MAX_LIST = 32
 _DEFAULT_MAX_DEPTH = 14
+RESOLVED_BINDING_STR_MAX = 3000
 
 _OMITTED_BINARY = "[binary/image data omitted — use file path or URL from outputs]"
 _TRUNCATED_SUFFIX = "…(truncated — read full content from output paths)"
@@ -220,6 +223,7 @@ def json_for_handoff_prompt(value: Any, max_chars: int = 4000) -> str:
 
 
 __all__ = [
+    "RESOLVED_BINDING_STR_MAX",
     "format_upstream_subtask_handoff",
     "is_path_or_url",
     "json_for_handoff_prompt",

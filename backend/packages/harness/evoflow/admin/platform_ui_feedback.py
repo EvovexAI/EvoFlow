@@ -405,6 +405,7 @@ def _progress_open_stage_action(
         args.get("round_id"),
     )
 
+    # 叫醒/恢复值班：有 taskId+agentCode → 员工执行过程
     if domain == "employees" and action in {
         "employees.wake",
         "employees.resume",
@@ -419,6 +420,7 @@ def _progress_open_stage_action(
         return None
 
     if domain == "tasks" and tid:
+        # 岗位/值班派发 → 员工过程；其余协作任务 → 工作流图
         if source == "role" and assigned:
             data = {"taskId": tid, "agentCode": assigned, "busy": True}
             if round_id:

@@ -112,37 +112,14 @@ def get_subtask_execution_preview(
     return hint if len(hint) <= 160 else ""
 
 
-def format_subtask_outcome_mandate_block() -> str:
-    """Inject into collab subtask worker system prompt."""
-    return """## 子任务终态上报（强制，最后一环）
+def format_subtask_outcome_mandate_block(mode: str = "full") -> str:
+    """Inject into collab subtask worker system prompt.
 
-你的 LangGraph 回合**结束不等于子任务完成**。必须在收尾前调用工具 **`subtask_outcome_report`** 一次，写入协作侧栏的真实状态与任务汇报。
+    ``mode="light"`` keeps outcome mandatory but drops checklist/progress ceremony.
+    """
+    from evoflow.collab.subtask_reporting import format_subtask_outcome_mandate_block as _fmt
 
-**何时调用（结束前必做）**
-- 目标达成、验收通过 → `outcome="completed"`，`summary` 写清产出路径、验收证据、结论
-- 无法完成、验收失败、缺权限/缺信息 → `outcome="failed"`，`summary` + `error` 说明原因与已尝试步骤
-- 被阻塞需 Lead 决策 → `outcome="blocked"`
-- 主动放弃/范围取消 → `outcome="cancelled"`
-
-**禁止**
-- 只在对话里写「已完成 / 失败」而不调工具
-- 未调用本工具就结束回合（系统会把子任务标为失败：`未调用 subtask_outcome_report`）
-
-**参数**
-- `summary`（必填）：**子任务完成汇报**（给 Lead / 协作侧栏），写清做了什么与验收结论
-- `error`（`failed`/`blocked` 时建议填写）
-- `outputs`（推荐）：结构化产出 `[{type,key,value,label?}]`，type=`file|url|text|other`
-- `evidence_paths`（兼容旧参）：文件路径列表，等价于 `type=file` 的 outputs
-
-**与智能体记忆区分**
-- 本工具的 `summary` / `outputs` 写入协作子任务交工字段，是侧栏与验收的唯一依据
-- 执行过程中的 `task_memory.output_summary` 仅为**智能体工作记忆**，不能代替本工具
-
-**与 DAG / 下游子任务**
-- 本工具返回成功后，协作状态即视为**已完成**，下游依赖子任务可以立即并行启动
-- 你在此之后输出的简短收尾文字仅用于会话展示，**不会**阻塞下游；请勿在调用本工具后再做新的实质性工作
-
-可先使用 `subtask_work_checklist` 记录步骤，并用 `subtask_progress_report` 在阶段边界上报 0–100 进度；**终态以 `subtask_outcome_report` 为准**。"""
+    return _fmt(mode="light" if str(mode).strip().lower() == "light" else "full")
 
 
 def _normalize_outcome(raw: str) -> TerminalOutcome | None:

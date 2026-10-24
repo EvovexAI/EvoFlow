@@ -281,6 +281,16 @@ def _sync_main_task_from_subtasks_locked(storage: Any, main_task_id: str) -> dic
         effective_progress = 100
         if int(task.get("progress") or 0) != 100:
             task["progress"] = 100
+
+    # Write-path: keep evoflow_app_runs aligned without waiting for GET run status.
+    if app_sourced:
+        try:
+            from evoflow.collab.app_runner import push_app_run_from_main_task
+
+            push_app_run_from_main_task(task)
+        except Exception:
+            logger.debug("push_app_run_from_main_task failed task_id=%s", mid, exc_info=True)
+
     _schedule_main_task_broadcast(
         mid,
         "task:progress",
@@ -424,30 +434,14 @@ async def apply_subtask_progress_report(
     }
 
 
-def format_subtask_progress_mandate_block() -> str:
-    """Inject into collab subtask worker system prompt."""
-    return """## 子任务进度上报（强制，执行过程中）
+def format_subtask_progress_mandate_block(mode: str = "full") -> str:
+    """Inject into collab subtask worker system prompt.
 
-协作侧栏与工作流 DAG 的**进度条与状态灯**只认存储里的 `progress`（0–100）与 `status`。聊天文字**不会**更新 UI。
+    ``mode="light"`` for App workflow / rollup (optional mid-progress); ``full`` for Lead collab.
+    """
+    from evoflow.collab.subtask_reporting import format_subtask_progress_mandate_block as _fmt
 
-**你必须主动上报（按完成度估算百分比）**
-- 开始实质性工作前：`subtask_progress_report(progress=5~15, current_step="…")`，并确保 checklist 已 `set`
-- 每完成一个关键里程碑（或 checklist 一项 `completed` 后）：再次调用，进度单调递增（建议 20→50→80…）
-- 若在用 `subtask_work_checklist`：每次 `update` 完成项后 checklist 会自动折算进度；**仍建议在阶段边界再调一次** `subtask_progress_report` 写清 `current_step`
-- 收尾前：`subtask_outcome_report` 会把终态设为 100%（completed）或保留末次进度（failed/blocked）
-
-**参数**
-- `progress`（必填）：0–100 整数，反映**本子任务**整体完成度（不是主任务）
-- `current_step`（强烈建议）：正在做什么（一句话，供 Lead / UI）
-- `status`（可选）：`in_progress`；终态请用 `subtask_outcome_report`
-
-**禁止**
-- 全程 0% 或只在最后一步才上报
-- 用主会话 prose 代替工具调用
-
-**与主任务区分**
-- **本子任务**：你可上报到 100%，并用 `subtask_outcome_report` 设为 `completed`（或 failed/blocked）。
-- **主任务（整体）**：执行期进度由后端从子任务汇总（主任务自动上限 99%）；主任务 `completed` + 100% **仅 Lead** 在 Plan 验收后写入。"""
+    return _fmt(mode="light" if str(mode).strip().lower() == "light" else "full")
 
 
 def format_lead_main_progress_mandate_block() -> str:

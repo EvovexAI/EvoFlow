@@ -6,13 +6,18 @@ the user always sees a concrete result in the task center.
 
 Behavior (``final_rollup`` field):
 
-- ``auto`` (default for all apps) — append a virtual ``__rollup__`` subtask
-  that runs after all leaf steps, synthesizes a final report from every step,
-  validates against validation_template, and writes the result to the main task
+- ``auto`` — append a virtual ``__rollup__`` LLM subtask only when synthesis is
+  needed (multiple DAG leaves and no ``answer_from_ref``). Prefer copy otherwise.
 - ``answer_node_only`` — once all subtasks terminal, copy the answer-node step's
-  task_report + merged outputs onto the main task
-- ``off`` — legacy value kept for back-compat with stored data; it is NOT a
-  "no rollup" escape hatch. Multi-step workflows still roll up (auto behavior).
+  task_report + merged outputs onto the main task (no LLM rollup worker)
+- ``off`` — legacy value; treated like ``auto`` for mode resolution
+
+Effective mode at run start (see ``prefer_answer_node_rollup``):
+
+- Explicit ``answer_node_only``, or a set ``answer_from_ref``, or a single DAG
+  leaf (linear chain) → ``answer_node_only`` (skip LLM ``__rollup__``)
+- Custom ``final_rollup_instruction`` without answer ref → keep LLM ``auto``
+- Multiple leaves without answer ref → LLM ``auto``
 
 This module is the single write-path for rollup logic.  It reuses existing
 subtask outcome / task_outputs machinery and does not introduce new tables.
@@ -127,6 +132,13 @@ def apply_answer_node_rollup(
 
     ref = str(answer_from_ref or task.get("answer_from_ref") or "").strip()
     if not ref:
+        # Infer single non-rollup completed leaf from plan refs on the task.
+        plan_steps = [s for s in (task.get("plan_steps") or []) if isinstance(s, dict)]
+        if plan_steps:
+            leaves = _find_leaf_step_refs(plan_steps)
+            if len(leaves) == 1:
+                ref = leaves[0]
+    if not ref:
         return None
 
     answer_step = _find_subtask_by_ref(subtasks, ref)
@@ -194,19 +206,60 @@ def _find_leaf_step_refs(steps: list[dict[str, Any]]) -> list[str]:
     return sorted(refs - has_downstream)
 
 
-def needs_auto_rollup(app: dict[str, Any]) -> bool:
-    """Whether an App definition requires rollup.
+def prefer_answer_node_rollup(app: dict[str, Any]) -> tuple[bool, str]:
+    """Decide whether to skip the LLM ``__rollup__`` worker.
 
-    Rollup is mandatory for every multi-step workflow (it is the default, not
-    an option): any workflow with more than one user-defined step gets a final
-    rollup regardless of the stored ``final_rollup`` value (incl. legacy
-    ``off``). Only single-step workflows skip it — there is nothing to aggregate.
+    Returns ``(use_answer_node_only, answer_from_ref)``.
+
+    Prefer deterministic copy when the product already has a clear answer step
+    (explicit ref or a single DAG leaf). Keep LLM rollup when the app asks for
+    custom synthesis across multiple leaves.
+    """
+    if not isinstance(app, dict):
+        return False, ""
+    steps = [s for s in (app.get("steps") or []) if isinstance(s, dict)]
+    if len(steps) <= 1:
+        return False, ""
+
+    explicit_mode = str(app.get("final_rollup") or "auto").strip().lower()
+    answer_ref = str(app.get("answer_from_ref") or "").strip()
+    custom_instr = str(app.get("final_rollup_instruction") or "").strip()
+
+    if explicit_mode == "answer_node_only":
+        if not answer_ref:
+            leaves = _find_leaf_step_refs(steps)
+            if len(leaves) == 1:
+                answer_ref = leaves[0]
+        return True, answer_ref
+
+    # Custom synthesize instruction → LLM unless an answer node is already named.
+    if custom_instr and not answer_ref:
+        return False, ""
+
+    if answer_ref:
+        return True, answer_ref
+
+    leaves = _find_leaf_step_refs(steps)
+    if len(leaves) == 1:
+        return True, leaves[0]
+
+    return False, ""
+
+
+def needs_auto_rollup(app: dict[str, Any]) -> bool:
+    """Whether an App run should append an LLM ``__rollup__`` subtask.
+
+    Single-step apps skip rollup. Multi-step apps that resolve to
+    ``answer_node_only`` (answer ref / single leaf) also skip the LLM worker —
+    :func:`maybe_rollup_main_task` copies the answer step instead.
     """
     if not isinstance(app, dict):
         return False
     steps = app.get("steps") or []
-    # Skip trivial single-step workflows (nothing to aggregate)
     if len(steps) <= 1:
+        return False
+    prefer, _ref = prefer_answer_node_rollup(app)
+    if prefer:
         return False
     return True
 
@@ -478,4 +531,5 @@ __all__ = [
     "is_rollup_subtask",
     "maybe_rollup_main_task",
     "needs_auto_rollup",
+    "prefer_answer_node_rollup",
 ]

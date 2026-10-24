@@ -535,6 +535,40 @@ def _sync_run_from_task(run: dict[str, Any], *, task_status: str, progress: int)
     return effective
 
 
+def push_app_run_from_main_task(task: dict[str, Any] | None) -> str | None:
+    """Write-path sync: push main-task status/progress onto ``evoflow_app_runs``.
+
+    Called when subtask rollup changes the main task (not only on GET run status).
+    Returns the effective run status, or ``None`` when not app-sourced / no run.
+    """
+    if not isinstance(task, dict):
+        return None
+    if not str(task.get("source_app_id") or "").strip():
+        return None
+    run_id = str(task.get("source_run_id") or "").strip()
+    task_id = str(task.get("id") or "").strip()
+    run: dict[str, Any] | None = None
+    try:
+        if run_id:
+            run = app_repositories.load_run(run_id)
+        if run is None and task_id:
+            run = app_repositories.load_run_by_task_id(task_id)
+    except Exception:
+        logger.debug("push_app_run_from_main_task: load run failed", exc_info=True)
+        return None
+    if not isinstance(run, dict):
+        return None
+    try:
+        progress = int(task.get("progress") or 0)
+    except (TypeError, ValueError):
+        progress = 0
+    return _sync_run_from_task(
+        run,
+        task_status=str(task.get("status") or ""),
+        progress=progress,
+    )
+
+
 _RUN_TERMINAL = frozenset({"completed", "failed", "cancelled", "canceled"})
 
 
@@ -778,15 +812,25 @@ def run_app_workflow(
     }
 
     # Stamp rollup mode onto the task so downstream rollup logic can read it
-    # without joining the apps table. Rollup is mandatory for multi-step
-    # workflows: legacy 'off' (and any unknown value) resolves to 'auto' — there
-    # is no "disable rollup" state.
-    rollup_mode = str(app.get("final_rollup") or "auto").strip().lower()
-    if rollup_mode == "answer_node_only":
+    # without joining the apps table. Prefer answer_node_only (no LLM __rollup__)
+    # when answer_from_ref is set or the DAG has a single leaf; otherwise auto.
+    from evoflow.collab.app_rollup import prefer_answer_node_rollup
+
+    prefer_copy, inferred_answer_ref = prefer_answer_node_rollup(app)
+    explicit_mode = str(app.get("final_rollup") or "auto").strip().lower()
+    if prefer_copy:
+        rollup_mode = "answer_node_only"
+        task_data["final_rollup"] = "answer_node_only"
+        task_data["answer_from_ref"] = (
+            inferred_answer_ref or str(app.get("answer_from_ref") or "").strip()
+        )
+    elif explicit_mode == "answer_node_only":
+        rollup_mode = "answer_node_only"
         task_data["final_rollup"] = "answer_node_only"
         task_data["answer_from_ref"] = str(app.get("answer_from_ref") or "").strip()
     else:
-        # 'off' and unknown values are NOT a "no rollup" escape hatch.
+        # 'off' and unknown values are NOT a "no rollup" escape hatch when
+        # synthesis across multiple leaves is required.
         rollup_mode = "auto"
         task_data["final_rollup"] = "auto"
         task_data["answer_from_ref"] = str(app.get("answer_from_ref") or "").strip()

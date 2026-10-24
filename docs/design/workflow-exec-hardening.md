@@ -1,6 +1,6 @@
 # Workflow execution hardening
 
-Status: Phase A landed (止血). Phase B/C are follow-ups.
+Status: Phase A + B done. Phase C0 (write-path sync + light lease) done. Full Runtime split still open.
 
 ## Diagnosis
 
@@ -11,29 +11,54 @@ App workflow has no dedicated runtime. It reuses Lead-oriented collab
 2. Multi-writer state (`app_runs` / main task / subtasks) with read-time sync.
 3. `__rollup__` as another LLM worker even when handoff already has reports.
 
-## Phase A (done) — stop the bleeding
+## Done
+
+### Phase A — stop the bleeding
 
 | Gate | Change |
 |------|--------|
 | Terminal one-way | `task_tool` skips `status=executing` on terminal; `patch_collab_subtask` refuses terminal→active |
-| PeerWake claim | `wake.py` + `delegate_collab_subtask_peer_wake` skip terminal redispatch; completed targets auto-reply `task_report` |
-| AppRun write-path | `_requeue` / fail / complete / retries-exhausted sync `evoflow_app_runs`; `pending`→`running` on GET sync; conservative `_heal_run_invariant` |
+| PeerWake claim | `wake.py` + `delegate_…_peer_wake` skip terminal redispatch; completed targets auto-reply `task_report` |
+| AppRun write-path (pipeline) | `_requeue` / fail / complete / retries-exhausted sync `evoflow_app_runs`; GET heal |
 | Rollup prompt | Hard ban on peer-asking completed upstream for verbatim content |
 
-Acceptance: re-run a 2-step + rollup app → `completed` / 100% without Step stuck in `executing`; no `PeerWake_*` against completed steps.
+### Phase B — shrink workflow contract
 
-## Phase B — shrink workflow contract
+| Item | Change |
+|------|--------|
+| B1 ceremony | App/workflow/rollup → **light** reporting (outcome-only mandatory) |
+| B2 rollup | `prefer_answer_node_rollup`: skip LLM `__rollup__` for answer_ref / single leaf |
+| B2 handoff | Summary 2400 / binding str 3000 |
+| B2 poll | Adaptive 0.5s → 1s → 3s + wall-clock deadline |
 
-- Workflow workers: no peer tools; short steps optional checklist / mid progress.
-- Prefer `answer_node_only` when `answer_from_ref` is set (skip LLM rollup).
-- Richer handoff limits or file-path handoff so rollup need not chase verbatim.
+### Phase C0 — partial write-path (done)
 
-## Phase C — split runtime
+| Item | Change |
+|------|--------|
+| Event-ish sync | `push_app_run_from_main_task` on `sync_main_task_from_subtasks` when app-sourced |
+| Light lease | workflow light lease 120–300s (full stays 300–900s) |
 
-- `WorkflowScheduler` + `StepStateMachine` (terminal one-way, idempotent claim).
-- Collab keeps peer / steering; share only the step runner.
-- AppRun becomes external SSOT; event-driven progress (not GET-only sync).
+## Still open (Phase C — larger)
 
-## Out of scope for Phase A
+Do **not** mix into hotfix PRs; plan as a dedicated milestone:
 
-Adaptive poll intervals and ceremony-tool grading (behavior churn; separate PR).
+1. **`WorkflowScheduler` + `StepStateMachine`**  
+   Single advance API; illegal transitions raise; retry is the only downgrade path.
+
+2. **True Runtime split**  
+   Workflow vs Collab share Step Runner only; workflow has no peer/checklist surface by construction.
+
+3. **AppRun as external SSOT**  
+   Event bus on every step terminal → run update (replace remaining GET heal reliance).
+
+4. **Optional later**  
+   File-path-only handoff for huge artifacts; further lease/watchdog tuning with metrics.
+
+## Acceptance (regression)
+
+Re-run a 2-step chain app (no custom rollup instruction):
+
+- No `PeerWake_*` against completed steps
+- No LLM `__rollup__` worker (answer_node_only copy)
+- Light workers: essentially work → one `subtask_outcome_report`
+- Run reaches `completed` / 100% without GET-only heal

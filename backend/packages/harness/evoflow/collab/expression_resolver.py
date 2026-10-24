@@ -376,6 +376,7 @@ def format_resolved_inputs_for_prompt(resolved: dict[str, Any]) -> str:
     if not resolved:
         return ""
     from evoflow.collab.workflow_handoff_sanitize import (
+        RESOLVED_BINDING_STR_MAX,
         json_for_handoff_prompt,
         sanitize_resolved_bindings,
         sanitize_string_for_handoff,
@@ -391,7 +392,9 @@ def format_resolved_inputs_for_prompt(resolved: dict[str, Any]) -> str:
         elif value is None:
             lines.append(f"- **{key}**: (未解析)")
         else:
-            lines.append(f"- **{key}**: {sanitize_string_for_handoff(str(value), 1500)}")
+            lines.append(
+                f"- **{key}**: {sanitize_string_for_handoff(str(value), RESOLVED_BINDING_STR_MAX)}"
+            )
     return "\n".join(lines)
 
 

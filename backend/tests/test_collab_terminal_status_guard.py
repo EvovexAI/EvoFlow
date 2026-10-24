@@ -182,3 +182,42 @@ def test_heal_run_invariant_empty_subs_resets_progress(monkeypatch: pytest.Monke
     assert out == "running"
     assert run["progress"] == 0
     assert updates and updates[0][1] == "running"
+
+
+def test_push_app_run_from_main_task_write_path(monkeypatch: pytest.MonkeyPatch):
+    from evoflow.collab import app_runner
+
+    updates: list[tuple] = []
+
+    def _upd(run_id, status, **fields):
+        updates.append((run_id, status, fields))
+
+    monkeypatch.setattr(app_runner.app_repositories, "update_run_status", _upd)
+    monkeypatch.setattr(
+        app_runner.app_repositories,
+        "load_run",
+        lambda rid: {"id": rid, "status": "executing", "progress": 50},
+    )
+
+    out = app_runner.push_app_run_from_main_task(
+        {
+            "id": "mt1",
+            "source_app_id": "App_x",
+            "source_run_id": "run1",
+            "status": "completed",
+            "progress": 100,
+        }
+    )
+    assert out == "completed"
+    assert updates and updates[0][:2] == ("run1", "completed")
+
+
+def test_light_lease_shorter_than_full():
+    from evoflow.subagents.runtime_guard import collab_subtask_lease_seconds
+
+    full = collab_subtask_lease_seconds(600)
+    light = collab_subtask_lease_seconds(600, reporting_mode="light")
+    assert full >= 300
+    assert light <= 300
+    assert light < full
+    assert light >= 120

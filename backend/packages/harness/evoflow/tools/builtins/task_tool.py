@@ -60,10 +60,13 @@ def _trim_subagent_prompt(prompt: str) -> str:
 # 子智能体不得切换父会话场景/协作（会误激活 plan 并进入 planning）
 _SUBAGENT_FORBIDDEN_TOOLS = frozenset({"scenario", "plan", "supervisor", "ask_clarification"})
 
-# Subtask lifecycle tools always merged onto an explicit worker tool allowlist.
+# Subtask lifecycle tools merged onto an explicit worker tool allowlist.
 # When worker_profile.tools is unset, resolve via assignee AgentConfig / parent session agent
 # (see ``evoflow.collab.worker_tool_allowlist``) — never the raw global catalog.
-_COLLAB_SUBTASK_MANDATORY_TOOLS = (
+#
+# ``full`` = Lead collab (checklist + progress + peer + outcome).
+# ``light`` = App workflow / rollup — only outcome is mandatory (ceremony slim-down).
+_COLLAB_SUBTASK_MANDATORY_TOOLS_FULL = (
     "subtask_work_checklist",
     "subtask_progress_report",
     "subtask_outcome_report",
@@ -71,6 +74,17 @@ _COLLAB_SUBTASK_MANDATORY_TOOLS = (
     "collab_peer_read",
     "collab_peer_reply",
 )
+_COLLAB_SUBTASK_MANDATORY_TOOLS_LIGHT = ("subtask_outcome_report",)
+# Back-compat alias (tests / callers that still import the full set name).
+_COLLAB_SUBTASK_MANDATORY_TOOLS = _COLLAB_SUBTASK_MANDATORY_TOOLS_FULL
+
+
+def _collab_mandatory_tools_for_mode(mode: str) -> tuple[str, ...]:
+    return (
+        _COLLAB_SUBTASK_MANDATORY_TOOLS_LIGHT
+        if str(mode or "").strip().lower() == "light"
+        else _COLLAB_SUBTASK_MANDATORY_TOOLS_FULL
+    )
 
 
 def _merge_collab_subtask_tool_allowlist(
@@ -78,6 +92,7 @@ def _merge_collab_subtask_tool_allowlist(
     overrides_tools: list[str] | None,
     final_tools: list[str] | None,
     allowed_tool_names: set[str],
+    reporting_mode: str = "full",
 ) -> list[str] | None:
     """Append mandatory collab tools to an explicit allowlist.
 
@@ -88,13 +103,13 @@ def _merge_collab_subtask_tool_allowlist(
     if base is None:
         return None
     merged = list(base)
-    for tool_name in _COLLAB_SUBTASK_MANDATORY_TOOLS:
+    for tool_name in _collab_mandatory_tools_for_mode(reporting_mode):
         if tool_name in allowed_tool_names and tool_name not in merged:
             merged.append(tool_name)
     return merged
 
 
-def _strip_collab_tool_disallow(config_overrides: dict) -> dict:
+def _strip_collab_tool_disallow(config_overrides: dict, *, reporting_mode: str = "full") -> dict:
     """Collab subtask workers MUST be able to report lifecycle state.
 
     A role whose ``disallowed_tools`` bans any mandatory collab tool (e.g.
@@ -108,10 +123,11 @@ def _strip_collab_tool_disallow(config_overrides: dict) -> dict:
     disallowed = config_overrides.get("disallowed_tools")
     if not disallowed:
         return config_overrides
-    banned_mandatory = [t for t in disallowed if t in _COLLAB_SUBTASK_MANDATORY_TOOLS]
+    mandatory = _collab_mandatory_tools_for_mode(reporting_mode)
+    banned_mandatory = [t for t in disallowed if t in mandatory]
     if not banned_mandatory:
         return config_overrides
-    config_overrides["disallowed_tools"] = [t for t in disallowed if t not in _COLLAB_SUBTASK_MANDATORY_TOOLS]
+    config_overrides["disallowed_tools"] = [t for t in disallowed if t not in mandatory]
     logger.warning(
         "task_tool: stripped banned mandatory collab tools from subtask disallowed_tools: %s",
         banned_mandatory,
@@ -999,15 +1015,32 @@ async def task_tool(
     if not final_skills:
         logger.info("Subagent '%s' using no skills (default)", effective_subagent_type)
 
+    reporting_mode = "full"
     if resolved_collab and resolved_subtask:
+        try:
+            from evoflow.collab.subtask_reporting import resolve_subtask_reporting_mode
+
+            reporting_mode = resolve_subtask_reporting_mode(
+                subtask_row=collab_sub_row if isinstance(collab_sub_row, dict) else None,
+                main_task=collab_main_task_row if isinstance(collab_main_task_row, dict) else None,
+            )
+        except Exception:
+            reporting_mode = "full"
         merged = _merge_collab_subtask_tool_allowlist(
             overrides_tools=overrides.get("tools"),
             final_tools=final_tools,
             allowed_tool_names=allowed_tool_names,
+            reporting_mode=reporting_mode,
         )
         if merged is not None:
             overrides["tools"] = merged
-        _strip_collab_tool_disallow(overrides)
+        _strip_collab_tool_disallow(overrides, reporting_mode=reporting_mode)
+        if reporting_mode == "light":
+            logger.info(
+                "task_tool: light reporting mode main=%s sub=%s (outcome-only ceremony)",
+                resolved_collab,
+                resolved_subtask,
+            )
     if max_turns is not None:
         try:
             mt = int(max_turns)
@@ -1195,18 +1228,33 @@ async def task_tool(
     if resolved_collab and resolved_subtask:
         from evoflow.subagents.runtime_guard import collab_subtask_lease_seconds
 
-        collab_lease_seconds = collab_subtask_lease_seconds(config.timeout_seconds)
+        collab_lease_seconds = collab_subtask_lease_seconds(
+            config.timeout_seconds,
+            reporting_mode=reporting_mode,
+        )
 
     # Poll for task completion in backend (removes need for LLM to poll)
     poll_count = 0
     last_status = None
     last_message_count = 0  # Track how many AI messages we've already sent
     stream_summary_buf = ""
-    # Polling cap: (execution timeout + 60s buffer) of wall-clock at _TASK_TOOL_POLL_INTERVAL_SEC steps.
-    _TASK_TOOL_POLL_INTERVAL_SEC = 5
-    max_poll_count = max(1, (int(config.timeout_seconds) + 60) // _TASK_TOOL_POLL_INTERVAL_SEC)
+    # Adaptive poll: fast at first (catch short steps), then back off.
+    # Cap by wall-clock (timeout + 60s), not a fixed 5s tick count.
+    def _task_tool_poll_interval_sec(n: int) -> float:
+        if n < 10:
+            return 0.5
+        if n < 30:
+            return 1.0
+        return 3.0
 
-    logger.info(f"[trace={trace_id}] Started background task {task_id} (subagent={effective_subagent_type}, timeout={config.timeout_seconds}s, polling_limit={max_poll_count} polls)")
+    _poll_deadline = float(time.time()) + float(int(config.timeout_seconds) + 60)
+    max_poll_count = max(1, (int(config.timeout_seconds) + 60) * 2)  # safety only; deadline is SSOT
+
+    logger.info(
+        f"[trace={trace_id}] Started background task {task_id} "
+        f"(subagent={effective_subagent_type}, timeout={config.timeout_seconds}s, "
+        f"poll=adaptive, deadline=+{int(config.timeout_seconds) + 60}s)"
+    )
 
     # Same writer as passed into SubagentExecutor for claude-code stream bridging
     original_writer = parent_chat_writer
@@ -1545,22 +1593,22 @@ async def task_tool(
                 # Still running, wait before next poll
                 # Heartbeat: refresh lease so backend watchdog won't expire active work.
                 _patch_collab_subtask_heartbeat()
-                await asyncio.sleep(_TASK_TOOL_POLL_INTERVAL_SEC)
+                interval = _task_tool_poll_interval_sec(poll_count)
+                await asyncio.sleep(interval)
                 poll_count += 1
-                if poll_count >= max_poll_count:
+                if poll_count >= max_poll_count or float(time.time()) >= _poll_deadline:
                     # Subagent may still be RUNNING; do not cleanup_background_task (race with executor).
                     err_msg = "Polling safety limit exceeded (subagent still running)."
                     logger.warning(
-                        "[trace=%s] %s task_id=%s polls=%s/%s",
+                        "[trace=%s] %s task_id=%s polls=%s deadline=%s",
                         trace_id,
                         err_msg,
                         task_id,
                         poll_count,
-                        max_poll_count,
+                        _poll_deadline,
                     )
                     writer(_ws({"type": "task_timed_out", "task_id": task_id, "error": err_msg}))
-                    wall_secs = poll_count * _TASK_TOOL_POLL_INTERVAL_SEC
-                    minutes = wall_secs // 60
+                    minutes = max(1, int(config.timeout_seconds + 60) // 60)
                     return f"Task polling timed out after {minutes} minutes"
         except asyncio.CancelledError:
 
