@@ -35,16 +35,31 @@ logger = logging.getLogger(__name__)
 _STREAM_STATE_TTL_SECONDS = 3600.0
 _STREAM_STATE_MAX_ENTRIES = 10_000
 _FINAL_FINGERPRINT_TTL_SECONDS = 8.0
-_INBOUND_DEDUP_TTL_SECONDS = 120.0
+# Feishu WS reconnects redeliver old events (same message_id) minutes–hours later.
+# 120s was too short: logs showed om_… replayed at +5m / +1h → ghost second replies.
+_INBOUND_DEDUP_TTL_SECONDS = 86_400.0  # 24h in-process
+_INBOUND_DEDUP_MAX_ENTRIES = 50_000
 _INBOUND_CONTENT_DEDUP_TTL_SECONDS = 20.0
 
 
 class _FeishuInboundDeduper:
-    """Drop Feishu WS redeliveries / reconnect replays of the same inbound."""
+    """Drop Feishu WS redeliveries / reconnect replays of the same inbound.
 
-    def __init__(self, *, id_ttl: float = _INBOUND_DEDUP_TTL_SECONDS, content_ttl: float = _INBOUND_CONTENT_DEDUP_TTL_SECONDS):
+    Layer 1 (memory): same process, fast path.
+    Layer 2 (DB): ``evoflow_channel_push_log`` by external_message_id — survives
+    TTL expiry, process restart, and multi-instance WS reconnect replay.
+    """
+
+    def __init__(
+        self,
+        *,
+        id_ttl: float = _INBOUND_DEDUP_TTL_SECONDS,
+        content_ttl: float = _INBOUND_CONTENT_DEDUP_TTL_SECONDS,
+        max_entries: int = _INBOUND_DEDUP_MAX_ENTRIES,
+    ):
         self._id_ttl = id_ttl
         self._content_ttl = content_ttl
+        self._max_entries = max(1_000, int(max_entries or _INBOUND_DEDUP_MAX_ENTRIES))
         self._by_msg_id: dict[str, float] = {}
         self._by_content: dict[str, float] = {}
 
@@ -52,6 +67,32 @@ class _FeishuInboundDeduper:
         cutoff = now - ttl
         for key in [k for k, ts in store.items() if ts < cutoff]:
             store.pop(key, None)
+        if len(store) > self._max_entries:
+            # Drop oldest overflow (dict preserves insertion order on 3.7+).
+            overflow = len(store) - self._max_entries
+            for key in list(store.keys())[:overflow]:
+                store.pop(key, None)
+
+    @staticmethod
+    def _durable_seen(*, msg_id: str, chat_id: str) -> bool:
+        mid = str(msg_id or "").strip()
+        cid = str(chat_id or "").strip()
+        if not mid or not cid:
+            return False
+        try:
+            from evoflow.persistence.channel_push_repositories import push_dedup_exists
+
+            return bool(
+                push_dedup_exists(
+                    channel="feishu",
+                    direction="inbound",
+                    external_message_id=mid,
+                    receive_id=cid,
+                )
+            )
+        except Exception:
+            logger.debug("[Feishu] durable inbound dedup probe failed", exc_info=True)
+            return False
 
     def is_duplicate(self, *, account_id: str, msg_id: str, chat_id: str, text: str) -> bool:
         now = time.time()
@@ -62,6 +103,10 @@ class _FeishuInboundDeduper:
         if mid:
             id_key = f"{aid}:{mid}"
             if id_key in self._by_msg_id:
+                return True
+            if self._durable_seen(msg_id=mid, chat_id=chat_id):
+                # Remember in memory so reconnect storms don't hit SQLite every time.
+                self._by_msg_id[id_key] = now
                 return True
             self._by_msg_id[id_key] = now
         # Same bot + chat + normalized body within a short window — covers rare
