@@ -176,10 +176,24 @@ class SessionRunLifecycleMiddleware(AgentMiddleware[AgentState]):
         sk = _session_key_from_runtime(runtime, tid)
         if not tid and not sk:
             return None
+        # 回合内模型失败登记（model_fallback_middleware 吞异常保流时写入）：
+        # 有登记则本回合终态必须落 fail，而不是 agent_completed → done（对齐 zcode）
+        turn_failed = False
+        turn_failed_reason = ""
+        if tid:
+            try:
+                from evoflow.agents.middlewares.model_fallback_middleware import peek_model_error_turn
+
+                entry = peek_model_error_turn(tid)
+                if entry:
+                    turn_failed = True
+                    turn_failed_reason = str(entry.get("reason") or "")
+            except Exception:
+                logger.debug("peek model error turn failed thread=%s", tid, exc_info=True)
         marked = mark_session_ended_from_agent(
             session_key=sk or None,
             thread_id=tid or None,
-            reason="agent_completed",
+            reason="error" if turn_failed else "agent_completed",
             source="agent_after_agent",
         )
         if marked and tid:
@@ -194,7 +208,17 @@ class SessionRunLifecycleMiddleware(AgentMiddleware[AgentState]):
             if not run_id:
                 # 降级：从 state 或其他地方获取（如果可用）
                 pass
-            mark_run_completed(thread_id=tid, run_id=run_id or None, status="success")
+            mark_run_completed(
+                thread_id=tid,
+                run_id=run_id or None,
+                status="error" if turn_failed else "success",
+            )
+            if turn_failed and turn_failed_reason:
+                logger.warning(
+                    "Session run ended with model error (terminal=fail) thread=%s reason=%s",
+                    tid,
+                    turn_failed_reason,
+                )
         except Exception:
             logger.debug("mark_run_completed failed", exc_info=True)
 

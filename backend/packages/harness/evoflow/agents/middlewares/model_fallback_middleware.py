@@ -176,6 +176,20 @@ def pop_model_error_turn(thread_id: str | None) -> dict[str, Any] | None:
     return entry
 
 
+def peek_model_error_turn(thread_id: str | None) -> dict[str, Any] | None:
+    """只读检查回合级失败登记（不清除）；清除统一交给回合收尾方（middle layer pop）。"""
+    tid = str(thread_id or "").strip()
+    if not tid:
+        return None
+    entry = _MODEL_ERROR_TURNS.get(tid)
+    if not entry:
+        return None
+    if time.monotonic() - float(entry.get("at") or 0) > _MODEL_ERROR_TURN_TTL_S:
+        _MODEL_ERROR_TURNS.pop(tid, None)
+        return None
+    return entry
+
+
 # 对齐 zcode 语义：只有**永久性/业务性**失败才把模型标记为不可用；
 # 瞬态失败（限流/过载/超时/网络/未知 5xx）一律走退避重试预算，绝不落库污染模型注册表。
 # 旧版把瞬态原因也标记 unavailable，一次上游抖动重试耗尽后默认模型被拉黑，

@@ -1577,21 +1577,6 @@ export function useChatAppController() {
     mainBodyStageClasses,
     isOpen: rightStageShellOpen,
   } = useRightStageChatBridge()
-  const visibleRightStageTabs = useMemo(
-    () => filterRightStageTabsForSession(rightStageTabs, selectedSessionKey),
-    [rightStageTabs, selectedSessionKey],
-  )
-  /**
-   * 对话布局占宽：任务中心独占 tab 撑开 store 时，对话侧不占宽、不渲染空壳。
-   * 仍允许本会话无可见 tab 时的「打开标签」首页（无 task-center 独占时）。
-   */
-  const rightStageOpen = useMemo(() => {
-    if (!rightStageShellOpen) return false
-    if (visibleRightStageTabs.length > 0) return true
-    const live = rightStageTabs || []
-    if (!live.length) return true
-    return !live.every((t) => isTaskCenterStageSessionKey(t.sessionKey))
-  }, [rightStageShellOpen, visibleRightStageTabs, rightStageTabs])
   const rightStageSessionKeyRef = useRef(String(selectedSessionKey || '').trim())
   // 切会话时冻结 / 恢复右栏 tabs（浏览器标签式缓存）
   useEffect(() => {
@@ -4982,6 +4967,19 @@ export function useChatAppController() {
   
 
   // 浏览器面板头部开关：存在则激活，再点一次关掉这一页（不关整栏其它标签）
+  const visibleRightStageTabs = useMemo(
+    () => filterRightStageTabsForSession(rightStageTabs, selectedSessionKey),
+    [rightStageTabs, selectedSessionKey],
+  )
+  /**
+   * 对话布局占宽：任务中心独占 tab 撑开 store 时，对话侧不占宽、不渲染空壳。
+   * 仍允许本会话无可见 tab 时的「打开标签」首页（无 task-center 独占时）。
+   */
+  const rightStageOpen =
+    !!rightStageShellOpen &&
+    (visibleRightStageTabs.length > 0 ||
+      !(rightStageTabs || []).length ||
+      !(rightStageTabs || []).every((t) => isTaskCenterStageSessionKey(t.sessionKey)))
   const browserStageOpen = visibleRightStageTabs.some(
     (t) => normalizeRightStageKind(t.kind) === 'browser',
   )
