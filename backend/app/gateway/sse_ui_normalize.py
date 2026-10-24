@@ -595,6 +595,40 @@ def _extract_cua_display(content: Any) -> tuple[Any, dict[str, Any] | None]:
     return cleaned, payload
 
 
+def _extract_platform_ui(content: Any) -> dict[str, Any] | None:
+    """Lift ``platform`` tool ``ui`` (bind QR etc.) before content slim/truncate."""
+    obj: Any = content
+    if isinstance(content, str):
+        raw = content.strip()
+        if not raw or raw[0] != "{":
+            return None
+        try:
+            obj = json.loads(raw)
+        except ValueError:
+            return None
+    if not isinstance(obj, dict) or obj.get("ok") is False or obj.get("pending_confirm") is True:
+        return None
+    ui = obj.get("ui")
+    if not isinstance(ui, dict) or not ui:
+        return None
+    return ui
+
+
+def _attach_platform_ui_to_tool_result_frame(
+    frame: dict[str, Any],
+    tool_payload: dict[str, Any],
+) -> dict[str, Any]:
+    """Copy platform_ui onto the wire tool_result (sibling of content / truncated)."""
+    ui = tool_payload.get("platform_ui")
+    if isinstance(ui, dict) and ui:
+        frame["platform_ui"] = ui
+        # Keep tool bag in sync for AG-UI encoder which reads tool.* first.
+        tool_bag = frame.get("tool")
+        if isinstance(tool_bag, dict) and "platform_ui" not in tool_bag:
+            frame["tool"] = {**tool_bag, "platform_ui": ui}
+    return frame
+
+
 def _slim_tool_result_message(msg: dict[str, Any]) -> dict[str, Any]:
     """Keep fields ToolCallList / chat-normalize need for special tool UI (media, approval, paths)."""
     out: dict[str, Any] = {}
@@ -615,6 +649,14 @@ def _slim_tool_result_message(msg: dict[str, Any]) -> dict[str, Any]:
         if cua_display is not None:
             out["content"] = cleaned
             out["cua_display"] = cua_display
+    # platform 绑渠道二维码等同理：ui 独立上浮，不依赖正文是否被 slim。
+    platform_body = out.get("content")
+    if isinstance(out.get("content_json"), dict) and out["content_json"].get("content") is not None:
+        platform_body = out["content_json"].get("content")
+    if str(tool_name or "").strip().lower() == "platform":
+        platform_ui = _extract_platform_ui(platform_body)
+        if platform_ui is not None:
+            out["platform_ui"] = platform_ui
     payload = out.get("content_json") if isinstance(out.get("content_json"), dict) else None
     body = out.get("content") if payload is None else payload.get("content")
     if tcid and body is not None:
@@ -2035,17 +2077,18 @@ class UiStreamNormalizer:
                 return out
             if not tcid or tcid not in self.emitted_tool_call_ids:
                 return out
-            out.append(
-                {
-                    "type": "tool_result",
-                    "tool": tool_payload,
-                    "tool_call_id": tcid,
-                    "name": tool_payload.get("name") or tool_payload.get("tool_name") or "tool",
-                    "content": tool_payload.get("content"),
-                    "status": tool_payload.get("status") or "ok",
-                    **({"truncated": True, "content_bytes": tool_payload.get("content_bytes")} if tool_payload.get("truncated") else {}),
-                }
-            )
+            result_frame: dict[str, Any] = {
+                "type": "tool_result",
+                "tool": tool_payload,
+                "tool_call_id": tcid,
+                "name": tool_payload.get("name") or tool_payload.get("tool_name") or "tool",
+                "content": tool_payload.get("content"),
+                "status": tool_payload.get("status") or "ok",
+            }
+            if tool_payload.get("truncated"):
+                result_frame["truncated"] = True
+                result_frame["content_bytes"] = tool_payload.get("content_bytes")
+            out.append(_attach_platform_ui_to_tool_result_frame(result_frame, tool_payload))
         return out
 
     def _on_values(self, data: Any) -> EvfPayloadList:
@@ -2366,14 +2409,17 @@ class UiStreamNormalizer:
                 }
             )
             out.append(
-                {
-                    "type": "tool_result",
-                    "tool": tool_payload,
-                    "tool_call_id": tcid,
-                    "name": tool_name,
-                    "content": tool_payload.get("content"),
-                    "status": wire_status,
-                }
+                _attach_platform_ui_to_tool_result_frame(
+                    {
+                        "type": "tool_result",
+                        "tool": tool_payload,
+                        "tool_call_id": tcid,
+                        "name": tool_name,
+                        "content": tool_payload.get("content"),
+                        "status": wire_status,
+                    },
+                    tool_payload,
+                )
             )
             out.append(
                 {

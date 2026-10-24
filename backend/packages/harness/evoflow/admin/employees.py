@@ -892,6 +892,15 @@ def _hire_existing_agent(
         role.next_heartbeat_at = compute_next_duty_iso(role)
     ProactiveRepository.save_role(role)
 
+    # Read-after-write: never report create/hire success if the roster row is missing.
+    # (Observed: agents.create-looking success with empty 花名册 until a later hire.)
+    verified = ProactiveRepository.get_role(agent_code)
+    if not verified:
+        raise ValidationError(
+            f"员工岗位「{agent_code}」写入后花名册读回失败；请重试 employees.hire "
+            f"（confirm=true）或检查 evoflow.db / 进程是否指向同一数据库。"
+        )
+
     # Best-effort: keep department catalog membership in sync.
     dept_name = str(data.get("department") or "").strip()
     if dept_name:
@@ -924,7 +933,7 @@ def _hire_existing_agent(
     except Exception:
         pass
 
-    return _role_detail(role)
+    return _role_detail(verified)
 
 
 def update_role(agent_code: str, data: dict[str, Any]) -> dict[str, Any]:

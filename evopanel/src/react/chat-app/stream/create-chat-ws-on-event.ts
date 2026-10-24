@@ -1830,80 +1830,47 @@ export function createChatWsOnEventHandler(ctx: ChatWsOnEventCtx) {
             changed = true
           }
         }
-        if (!isBackground && aguiEvent.type === EventType.TOOL_CALL_RESULT) {
-          const toolCallId = String((aguiEvent as { toolCallId?: string }).toolCallId || '').trim()
-          const tc = toolCallId ? S.aguiTurn?.toolCalls?.get(toolCallId) : undefined
-          // RESULT 事件偶发不带 toolCallName；优先 map，再回落 event 字段
-          const toolName = String(
-            tc?.toolCallName ||
-              (aguiEvent as { toolCallName?: string }).toolCallName ||
-              '',
-          )
-            .trim()
-            .toLowerCase()
-          // panel_set / stage_set 已在上方统一处理（含后台会话），这里只剩 platform。
-          if (toolName === 'platform') {
-            const evContent = (aguiEvent as { content?: unknown }).content
-            let resultContent: unknown =
-              typeof evContent === 'string'
-                ? evContent
-                : typeof tc?.result === 'string'
-                  ? tc.result
-                  : evContent
-            // slim 后正文可能丢 ui；用 reducer 保留的 platformUi 重建，否则右上角通知不亮
-            if (
-              (resultContent == null || resultContent === '') &&
-              tc?.platformUi &&
-              typeof tc.platformUi === 'object'
-            ) {
-              resultContent = {
-                ok: tc.platformOk !== false,
-                action: tc.platformAction,
-                item: tc.platformItem,
-                agent: tc.platformAgent,
-                role: tc.platformRole,
-                settings: tc.platformSettings,
-                ui: tc.platformUi,
-                client_effect: tc.platformClientEffect,
+        // gate 之后再发一次：applyAgUiWireEvent 已抽出 platformUi，补齐 gate 前缺工具名/ui 的情况
+        if (
+          publishPlatformFromAgUiResult({
+            isBackground,
+            aguiEvent,
+            toolCallNameFromTurn: (() => {
+              const id = String((aguiEvent as { toolCallId?: string }).toolCallId || '').trim()
+              return id ? S.aguiTurn?.toolCalls?.get(id)?.toolCallName : undefined
+            })(),
+            platformUiFromTurn: (() => {
+              const id = String((aguiEvent as { toolCallId?: string }).toolCallId || '').trim()
+              const tc = id ? S.aguiTurn?.toolCalls?.get(id) : undefined
+              return tc?.platformUi || null
+            })(),
+            platformMetaFromTurn: (() => {
+              const id = String((aguiEvent as { toolCallId?: string }).toolCallId || '').trim()
+              const tc = id ? S.aguiTurn?.toolCalls?.get(id) : undefined
+              if (!tc) return null
+              return {
+                platformOk: tc.platformOk,
+                platformAction: tc.platformAction,
+                platformItem: tc.platformItem,
+                platformAgent: tc.platformAgent,
+                platformRole: tc.platformRole,
+                platformSettings: tc.platformSettings,
+                platformClientEffect: tc.platformClientEffect,
               }
-            } else if (
-              typeof resultContent === 'string' &&
-              tc?.platformUi &&
-              typeof tc.platformUi === 'object'
-            ) {
-              // 字符串结果解析不出 ui 时，下面 apply 会失败；先尝试 merge 保留字段
-              try {
-                const parsed = JSON.parse(resultContent)
-                if (parsed && typeof parsed === 'object' && !parsed.ui) {
-                  resultContent = { ...parsed, ui: tc.platformUi }
-                }
-              } catch {
-                /* keep string */
-              }
-            }
-            const argsText = typeof tc?.argsText === 'string' ? tc.argsText : undefined
-            if (toolCallId && !platformFeedbackSeenRef.current.has(toolCallId)) {
-              // Roster notify runs on every TOOL_CALL_RESULT (incl. background); skip here.
-              const feedback = applyPlatformFeedbackFromToolResult(resultContent, {
-                argsText,
-                toolCallId,
-                existingEntries: turnPlatformEntriesRef.current,
-                notifyEmployeesRoster: false,
-              })
-              if (feedback) {
-                platformFeedbackSeenRef.current.add(toolCallId)
-                publishPlatformEntriesRef.current(
-                  feedback.entries,
-                  latestPlatformRunEntryId(feedback.entries),
-                )
-                toast(
-                  feedback.ui.title,
-                  feedback.ui.kind === 'warning' ? 'warning' : feedback.ui.kind === 'error' ? 'error' : 'success',
-                )
-                changed = true
-              }
-            }
-          }
+            })(),
+            argsText: (() => {
+              const id = String((aguiEvent as { toolCallId?: string }).toolCallId || '').trim()
+              const tc = id ? S.aguiTurn?.toolCalls?.get(id) : undefined
+              return typeof tc?.argsText === 'string' ? tc.argsText : undefined
+            })(),
+            platformFeedbackSeenRef,
+            turnPlatformEntriesRef,
+            publishPlatformEntries: (entries, focusId) =>
+              publishPlatformEntriesRef.current(entries, focusId),
+            toast,
+          })
+        ) {
+          changed = true
         }
         if (aguiEvent.type === EventType.TOOL_CALL_RESULT) {
           const toolCallId = String((aguiEvent as { toolCallId?: string }).toolCallId || '').trim()

@@ -216,6 +216,34 @@ def _cua_display_from_tool_result(payload: dict[str, Any], tool_obj: dict[str, A
     return None
 
 
+def _platform_ui_from_tool_result(payload: dict[str, Any], tool_obj: dict[str, Any]) -> dict[str, Any] | None:
+    """Pick structured platform_ui (bind QR etc.) attached by sse_ui_normalize."""
+    for bag in (tool_obj, payload):
+        if not isinstance(bag, dict):
+            continue
+        ui = bag.get("platform_ui")
+        if isinstance(ui, dict) and ui:
+            return ui
+    content = payload.get("content") if isinstance(payload, dict) else None
+    if content is None and isinstance(tool_obj, dict):
+        content = tool_obj.get("content")
+    if not isinstance(content, str):
+        return None
+    raw = content.strip()
+    if not raw or raw[0] != "{":
+        return None
+    try:
+        import json as _json
+
+        obj = _json.loads(raw)
+    except ValueError:
+        return None
+    if not isinstance(obj, dict) or obj.get("ok") is False or obj.get("pending_confirm") is True:
+        return None
+    ui = obj.get("ui")
+    return ui if isinstance(ui, dict) and ui else None
+
+
 def _emit_tool_args_if_needed(
     state: AgUiEncoderState,
     tid: str,
@@ -693,6 +721,7 @@ def evf_payload_to_agui_events(
         truncated = bool(payload.get("truncated") or tool_obj.get("truncated"))
         content_bytes = payload.get("content_bytes") or tool_obj.get("content_bytes")
         cua_display = _cua_display_from_tool_result(payload, tool_obj)
+        platform_ui = _platform_ui_from_tool_result(payload, tool_obj)
         if tid:
             state.tool_results[tid] = content
             if cua_display is not None:
@@ -719,6 +748,9 @@ def evf_payload_to_agui_events(
             # 正文里的 {evoflow-cua-display:...} 已被 sse_ui_normalize 剥掉。
             if cua_display is not None:
                 result_evt["cua_display"] = cua_display
+            # 绑本岗 AI 员工二维码等：与 cua_display 同级上浮，避免 truncated 时前端丢 ui。
+            if platform_ui is not None:
+                result_evt["platform_ui"] = platform_ui
             out.append(result_evt)
         return out
 
@@ -898,6 +930,11 @@ def evf_payload_to_agui_events(
     # other wire frames, instead of losing it to the silent fall-through.
     if t == "kb_citations":
         out.append({"type": CUSTOM, "name": "kb_citations", "value": payload})
+        return out
+
+    # panel_set / platform 落库直播：升成具名 CUSTOM，避免落进 silent fall-through
+    if t == "chat_artifacts":
+        out.append({"type": CUSTOM, "name": "chat_artifacts", "value": payload})
         return out
 
     return out

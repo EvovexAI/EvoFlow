@@ -2491,6 +2491,8 @@ export function useChatAppController() {
       focusEntryId,
     )
   }, [setChatPanelDisplayMode])
+  // 同步挂 ref：流式首帧若等 useEffect，publish 仍是 noop，平台通知会丢
+  publishPlatformEntriesRef.current = publishPlatformEntries
   const publishArtifacts = useCallback(
     (opts?: { focusId?: string; hint?: string; force?: boolean }) => {
       publishArtifactsImpl(

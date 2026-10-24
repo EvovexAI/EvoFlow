@@ -4961,6 +4961,18 @@ function dispatchLangGraphCustomStreamChunk(self, key, runId, chunk) {
     emitPendingInjectConsumedEvent(self, key, runId, chunk)
     return
   }
+  // stream_writer({ type: 'chat_artifacts', items }) — 平台/产物直播
+  if (t === 'chat_artifacts') {
+    self._emitEvent('chat', {
+      sessionKey: key,
+      runId: String(runId || '').trim() || null,
+      state: 'chat_artifacts',
+      action: String(chunk.action || 'upsert'),
+      items: Array.isArray(chunk.items) ? chunk.items : [],
+      threadId: String(chunk.threadId || chunk.thread_id || '').trim(),
+    })
+    return
+  }
   if (t === 'trae_stream_error') {
     self._emitEvent('chat', {
       sessionKey: key,

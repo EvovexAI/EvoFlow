@@ -13,7 +13,13 @@ import {
 
 export type PublishPlatformFromAgUiResultCtx = {
   isBackground: boolean
-  aguiEvent: { type?: unknown; toolCallId?: unknown; toolCallName?: unknown; content?: unknown }
+  aguiEvent: {
+    type?: unknown
+    toolCallId?: unknown
+    toolCallName?: unknown
+    content?: unknown
+    platform_ui?: unknown
+  }
   /** 当前会话 aguiTurn（可为空：工具名可从 event / content 兜底） */
   toolCallNameFromTurn?: string
   platformUiFromTurn?: Record<string, unknown> | null
@@ -60,7 +66,14 @@ function resolveResultContent(
         ? evContent
         : undefined
 
-  const platformUi = ctx.platformUiFromTurn
+  const wireUi =
+    ctx.aguiEvent.platform_ui && typeof ctx.aguiEvent.platform_ui === 'object'
+      ? (ctx.aguiEvent.platform_ui as Record<string, unknown>)
+      : null
+  const platformUi =
+    (ctx.platformUiFromTurn && typeof ctx.platformUiFromTurn === 'object'
+      ? ctx.platformUiFromTurn
+      : null) || wireUi
   if (platformUi && typeof platformUi === 'object') {
     if (resultContent == null || resultContent === '') {
       return rebuildContentFromPlatformUi(ctx.platformMetaFromTurn, platformUi)

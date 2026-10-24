@@ -72,3 +72,45 @@ def test_bind_channel_begin_ui_includes_qr_fields():
     assert ui.get("channel") == "feishu"
     assert ui.get("agentCode") == "duty-ops"
     assert ui.get("bindStatus") == "pending"
+
+
+def test_sse_extract_platform_ui_from_bind_result():
+    from app.gateway.sse_ui_normalize import (
+        _attach_platform_ui_to_tool_result_frame,
+        _extract_platform_ui,
+        _slim_tool_result_message,
+    )
+
+    content = (
+        '{"ok":true,"action":"employees.bind_channel_begin",'
+        '"ui":{"kind":"success","title":"扫码绑定","qrUrl":"https://example.com/qr",'
+        '"sessionId":"s1","channel":"feishu","bindStatus":"pending"}}'
+    )
+    ui = _extract_platform_ui(content)
+    assert ui is not None
+    assert ui.get("qrUrl") == "https://example.com/qr"
+
+    slimmed = _slim_tool_result_message(
+        {
+            "type": "tool",
+            "role": "tool",
+            "tool_call_id": "tc1",
+            "name": "platform",
+            "content": content,
+            "status": "ok",
+        }
+    )
+    assert isinstance(slimmed.get("platform_ui"), dict)
+    assert slimmed["platform_ui"].get("qrUrl") == "https://example.com/qr"
+
+    frame = _attach_platform_ui_to_tool_result_frame(
+        {
+            "type": "tool_result",
+            "tool": slimmed,
+            "tool_call_id": "tc1",
+            "content": "",
+            "status": "ok",
+        },
+        slimmed,
+    )
+    assert frame["platform_ui"]["qrUrl"] == "https://example.com/qr"
