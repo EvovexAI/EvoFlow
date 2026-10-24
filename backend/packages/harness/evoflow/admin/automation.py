@@ -35,6 +35,7 @@ _UPDATE_KEYS = frozenset(
         "push_channel",
         "push_target_id",
         "schedule_type",
+        "output_path",
     }
 )
 
