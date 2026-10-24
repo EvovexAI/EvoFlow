@@ -1641,6 +1641,35 @@ export function createChatWsOnEventHandler(ctx: ChatWsOnEventCtx) {
           }
           changed = true
         }
+        // panel_set 前后台统一走同一条路径：applyStageSetPayload 按归属路由——
+        // 前台写 live 右栏；后台只写该会话的冻结记忆（ZCode「后台挂载不抢焦点」），
+        // 切过去才看见，绝不污染当前正在看的会话。
+        if (aguiEvent.type === EventType.TOOL_CALL_RESULT) {
+          const bgToolCallId = String(
+            (aguiEvent as { toolCallId?: string }).toolCallId || '',
+          ).trim()
+          const bgToolCall = bgToolCallId ? S.aguiTurn?.toolCalls?.get(bgToolCallId) : undefined
+          const bgToolName = String(bgToolCall?.toolCallName || '')
+            .trim()
+            .toLowerCase()
+          if (bgToolName === 'panel_set' || bgToolName === 'stage_set') {
+            const bgResultContent =
+              typeof bgToolCall?.result === 'string'
+                ? bgToolCall.result
+                : typeof (aguiEvent as { content?: string }).content === 'string'
+                  ? (aguiEvent as { content?: string }).content
+                  : undefined
+            if (
+              applyStageSetFromToolCall(
+                typeof bgToolCall?.argsText === 'string' ? bgToolCall.argsText : undefined,
+                bgResultContent,
+                { sessionKey: targetSk },
+              )
+            ) {
+              changed = true
+            }
+          }
+        }
         if (!isBackground && aguiEvent.type === EventType.CUSTOM) {
           const customName = String((aguiEvent as { name?: string }).name || '')
           const customValue = (aguiEvent as { value?: unknown }).value
@@ -1648,7 +1677,7 @@ export function createChatWsOnEventHandler(ctx: ChatWsOnEventCtx) {
             // content_len / body ticks must force a React bump even when tools[].length is unchanged.
             changed = true
           }
-          if (applyRightStageAgUiCustom(customName, customValue)) {
+          if (applyRightStageAgUiCustom(customName, customValue, { sessionKey: targetSk })) {
             changed = true
           }
         }
@@ -1658,22 +1687,8 @@ export function createChatWsOnEventHandler(ctx: ChatWsOnEventCtx) {
           const toolName = String(tc?.toolCallName || '')
             .trim()
             .toLowerCase()
-          if (toolName === 'panel_set' || toolName === 'stage_set') {
-            const resultContent =
-              typeof tc?.result === 'string'
-                ? tc.result
-                : typeof (aguiEvent as { content?: string }).content === 'string'
-                  ? (aguiEvent as { content?: string }).content
-                  : undefined
-            if (
-              applyStageSetFromToolCall(
-                typeof tc?.argsText === 'string' ? tc.argsText : undefined,
-                resultContent,
-              )
-            ) {
-              changed = true
-            }
-          } else if (toolName === 'platform') {
+          // panel_set / stage_set 已在上方统一处理（含后台会话），这里只剩 platform。
+          if (toolName === 'platform') {
             const resultContent =
               typeof (aguiEvent as { content?: string }).content === 'string'
                 ? (aguiEvent as { content?: string }).content

@@ -875,7 +875,7 @@ def _prune_old_tool_results(
             tool_name = str(getattr(msg, "name", None) or "").strip().lower()
             content = message_content_str(msg)
             # Always preserve: archived summaries, user-configured preserve list, clarification tools
-            if "[tool:history]" in content or "[tool:summary]" in content or "[ToolResult summary" in content or "[ToolResult persisted" in content or "Full output:" in content:
+            if "[tool:history]" in content or "[tool:summary]" in content or "[ToolResult summary" in content or "[ToolResult persisted" in content or "Full output:" in content or "<persisted-output>" in content:
                 result.append(msg)
                 continue
             if tool_name in preserve_tools:

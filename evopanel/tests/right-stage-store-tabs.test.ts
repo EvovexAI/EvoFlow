@@ -1,6 +1,7 @@
 import { describe, expect, it, beforeEach } from 'vitest'
 import { RightStageStore, hideRightStageIfKind, rightStageStore } from '../src/lib/right-stage/right-stage-store.js'
 import { switchRightStageSession } from '../src/lib/right-stage/right-stage-session-memory.js'
+import { setCurrentRightStageSessionKey } from '../src/lib/right-stage/right-stage-scope.js'
 
 describe('RightStageStore multi-tab', () => {
   beforeEach(() => {
@@ -51,12 +52,51 @@ describe('RightStageStore multi-tab', () => {
 
   it('session switch restores tabs cache', () => {
     rightStageStore.show({ kind: 'browser', id: 'primary' })
-    switchRightStageSession('sess-a', 'sess-b')
+    switchRightStageSession('cache-a', 'cache-b')
     expect(rightStageStore.getSnapshot().tabs).toEqual([])
-    rightStageStore.show({ kind: 'workspace-browse', id: 'primary' })
-    switchRightStageSession('sess-b', 'sess-a')
+    rightStageStore.show({ kind: 'browser', id: 'secondary' })
+    switchRightStageSession('cache-b', 'cache-a')
     const snap = rightStageStore.getSnapshot()
-    expect(snap.tabs.map((t) => t.kind)).toEqual(['browser'])
+    expect(snap.tabs.map((t) => `${t.kind}:${t.id}`)).toEqual(['browser:primary'])
     expect(snap.collapsed).toBe(false)
+  })
+
+  it('workspace-scoped tabs follow across sessions and are not frozen per session', () => {
+    rightStageStore.show({ kind: 'workspace-browse', id: 'primary' })
+    rightStageStore.show({ kind: 'mind-map', id: 'primary' })
+    rightStageStore.show({ kind: 'browser', id: 'primary' })
+    // 切到没打开过右栏的会话：workspace 级标签延续，会话级浏览器不跟随。
+    switchRightStageSession('ws-a', 'ws-b')
+    const afterSwitch = rightStageStore.getSnapshot()
+    expect(afterSwitch.tabs.map((t) => t.kind).sort()).toEqual(['mind-map', 'workspace-browse'])
+    expect(afterSwitch.collapsed).toBe(false)
+    // 切回：浏览器回来，workspace 级不重复插入。
+    switchRightStageSession('ws-b', 'ws-a')
+    const back = rightStageStore.getSnapshot()
+    expect(back.tabs.map((t) => t.kind).sort()).toEqual([
+      'browser',
+      'mind-map',
+      'workspace-browse',
+    ])
+  })
+
+  it('session-scoped tabs freeze current session when caller omits sessionKey', () => {
+    setCurrentRightStageSessionKey('sess-owner')
+    rightStageStore.show({ kind: 'file', id: 'a.ts' })
+    rightStageStore.show({ kind: 'news-dashboard', id: 'primary' })
+    const tabs = rightStageStore.getSnapshot().tabs
+    expect(tabs.every((t) => t.sessionKey === 'sess-owner')).toBe(true)
+    // workspace 级 kind 不写归属（对所有会话可见）
+    rightStageStore.show({ kind: 'workspace-browse', id: 'primary' })
+    const workspaceTab = rightStageStore
+      .getSnapshot()
+      .tabs.find((t) => t.kind === 'workspace-browse')
+    expect(workspaceTab?.sessionKey).toBeUndefined()
+  })
+
+  it('explicit sessionKey wins over the current UI session', () => {
+    setCurrentRightStageSessionKey('sess-owner')
+    rightStageStore.show({ kind: 'browser', id: 'primary', sessionKey: 'sess-other' })
+    expect(rightStageStore.getSnapshot().tabs[0]?.sessionKey).toBe('sess-other')
   })
 })

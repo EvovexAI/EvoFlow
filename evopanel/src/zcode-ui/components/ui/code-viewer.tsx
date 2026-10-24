@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button.js";
 import { Textarea } from "@/components/ui/textarea.js";
 import type { CodeCommentPreview, CodeCommentRange } from "@/lib/codeCommentContext.js";
 import { isDarkCodePreviewTheme } from "@/lib/codePreviewPreferences.js";
+import { isBridgeDark } from "@/lib/bridgeTheme.js";
 import { DIFFS_PREFERRED_HIGHLIGHTER } from "@/lib/diffsHighlighterEngine.js";
 import {
   formatCommandShortcutLabel,
@@ -75,10 +76,8 @@ export interface CodeViewerProps extends HTMLAttributes<HTMLDivElement> {
 
 export function resolveCodeViewerColorScheme(theme?: BundledTheme): "light" | "dark" {
   if (!theme) {
-    if (typeof document !== "undefined" && document.documentElement.classList.contains("dark")) {
-      return "dark";
-    }
-    return "light";
+    // 桥接宿主里 dark 类挂在 .zcode-bridge-root 上，不是 <html>
+    return isBridgeDark() ? "dark" : "light";
   }
 
   return isDarkCodePreviewTheme(theme) ? "dark" : "light";

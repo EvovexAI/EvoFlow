@@ -4,7 +4,7 @@
  */
 import { hideRightStageIfKind, rightStageStore } from '../../../lib/right-stage/right-stage-store.js'
 import { normalizeRightStageKind, type RightStageKind } from '../../../lib/right-stage/right-stage-types.js'
-import { isChatOverlayDeferActive, setChatOverlayDefer } from '../../../lib/chat-overlay-defer.js'
+import { commitRightStageClose } from '../../../lib/right-stage/right-stage-overlay-commit.js'
 
 export type CloseWorkspacePanelCtx = {
   dismissedRightStageKindsRef: { current: Set<string> }
@@ -24,15 +24,18 @@ export function closeWorkspacePanel(ctx: CloseWorkspacePanelCtx): void {
     ctx.dismissedRightStageKindsRef.current.add(kind)
     if (kind === 'write') ctx.writeStreamDismissedRef.current = true
   }
-  ctx.setStreamingWritePreview(null)
-  ctx.lastStreamWritePathRef.current = null
-  ctx.lastWriteStreamLenRef.current = 0
-  setChatOverlayDefer('workspace', false)
-  ctx.rightStageUserPinnedRef.current = null
-  hideRightStageIfKind('workspace-browse', 'write')
-  ctx.setWorkspaceTreePinned(false)
-  ctx.syncShellAsideForWorkspacePanel(false)
-  if (!isChatOverlayDeferActive()) {
-    ctx.scheduleBumpRef.current?.({ immediate: true })
-  }
+  commitRightStageClose({
+    clearDefer: 'workspace',
+    flush: false,
+    mutate: () => {
+      ctx.setStreamingWritePreview(null)
+      ctx.lastStreamWritePathRef.current = null
+      ctx.lastWriteStreamLenRef.current = 0
+      ctx.rightStageUserPinnedRef.current = null
+      hideRightStageIfKind('workspace-browse', 'write')
+      ctx.setWorkspaceTreePinned(false)
+      ctx.syncShellAsideForWorkspacePanel(false)
+    },
+    resumeBump: () => ctx.scheduleBumpRef.current?.({ immediate: true }),
+  })
 }

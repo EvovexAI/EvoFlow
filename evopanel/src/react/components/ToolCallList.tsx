@@ -361,6 +361,10 @@ function buildToolDetailMetaBlocks(
       title: '文件路径',
       value: path || String(inputObj?.path || inputObj?.file_path || inputJson || ''),
     })
+    const pagesParam = typeof inputObj?.pages === 'string' ? inputObj.pages.trim() : ''
+    if (pagesParam) {
+      blocks.push({ title: '页范围', value: pagesParam })
+    }
     const hasRange =
       inputObj?.offset != null ||
       inputObj?.limit != null ||
@@ -377,6 +381,14 @@ function buildToolDetailMetaBlocks(
   }
   if (toolKind === 'web_search') {
     blocks.push({ title: '查询', value: query || inputJson || '' })
+    const asDomainList = (raw: unknown): string[] =>
+      Array.isArray(raw)
+        ? (raw as unknown[]).map((x) => String(x).trim()).filter(Boolean)
+        : []
+    const allowed = asDomainList(inputObj?.allowed_domains)
+    if (allowed.length) blocks.push({ title: '限定域名', value: allowed.join(' · ') })
+    const blocked = asDomainList(inputObj?.blocked_domains)
+    if (blocked.length) blocks.push({ title: '排除域名', value: blocked.join(' · ') })
     return blocks
   }
   if (toolKind === 'web_fetch' || toolKind === 'preview_url' || toolKind === 'fetch_url' || toolKind === 'fetch_url_tool') {

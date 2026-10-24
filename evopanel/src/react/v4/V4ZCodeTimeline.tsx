@@ -634,18 +634,27 @@ export function V4ZCodeTimeline(props: {
           // 小V 窄栏：隐藏左侧轮次导航，把宽度留给正文（主对话不变）
           hideTurnNavigator={embedded}
           // 嵌入态 composer 在面板外：空态不要跟不存在的 dock 居中，否则发消息瞬间整栏跳布局。
-          // 草稿态（新对话、尚无 threadId）必须同样居中：点击「+」后会话创建 + ensure-thread
-          // 要 2~3s，期间若退回老面板的底部 dock，用户会看到输入框先在底部、随后跳到中间。
-          // 居中条件只认「当前没有可显示的行」：connecting / 等首帧快照期间也必须居中。
-          // 若把 connecting 排除在外，新对话会经历 居中 → 贴底 → 再居中 的三段跳。
-          centerEmptyStateWithDock={embedded ? false : rows.length === 0}
+          // 仅真正的草稿空态（draftEmpty）才居中——对齐 ZCode SessionPane 的 isDraft。
+          // 切勿用 rows.length===0：打开有历史会话时 connecting/hydration 期间也会 0 行，
+          // 会把输入框误抬到中间，看起来像「空会话」。
+          centerEmptyStateWithDock={embedded ? false : draftEmpty}
           emptyState={
             draftEmpty ? (
               <div data-testid="v4-draft-empty" className="w-full">
                 <V4DraftEmptyState />
               </div>
-            ) : // connecting 阶段不渲染任何提示，避免闪「V4 连接中…」
-            connecting ? null : (
+            ) : connecting ? (
+              // 有历史会话也会先 connecting：用安静加载态占位，避免整片空白，
+              // 也不要居中草稿问候（draftEmpty 已排除 connecting）。
+              <div
+                data-testid="v4-connecting"
+                className="flex h-full items-center justify-center text-ui-base text-foreground-subtlest"
+                aria-busy="true"
+                aria-live="polite"
+              >
+                加载中…
+              </div>
+            ) : (
               <div className="flex h-full items-center justify-center text-ui-base text-foreground-subtlest">
                 开始新的对话
               </div>

@@ -10,7 +10,11 @@ import {
   type UserStageExtensionKind,
 } from '../../../lib/right-stage/right-stage-extensions.js'
 import type { RightStageKind } from '../../../lib/right-stage/right-stage-types.js'
-import { isChatOverlayDeferActive, setChatOverlayDefer } from '../../../lib/chat-overlay-defer.js'
+import {
+  RIGHT_STAGE_OVERLAY_DEFER_KEYS,
+  resumeStreamBumpIfIdle,
+  setRightStageOverlayDefer,
+} from '../../../lib/right-stage/right-stage-overlay-commit.js'
 
 export type OpenStageExtensionCtx = {
   rightStageSurfaceKind: string | null | undefined
@@ -42,15 +46,12 @@ export function openStageExtension(
     if (isUserStageExtensionKind(kind)) {
       ctx.syncShellAsideForWorkspacePanel(false)
     }
-    if (!isChatOverlayDeferActive()) {
-      ctx.scheduleBumpRef.current?.({ immediate: true })
-    }
+    resumeStreamBumpIfIdle(() => ctx.scheduleBumpRef.current?.({ immediate: true }))
     return
   }
   ctx.cancelPendingStreamUiBumpsRef.current()
-  setChatOverlayDefer('workspace', false)
-  setChatOverlayDefer('workflow', false)
-  setChatOverlayDefer('knowledge-map', false)
+  // 扩展面板本身不占 overlay defer；先清掉其它侧栏 defer，再同帧切布局。
+  setRightStageOverlayDefer(RIGHT_STAGE_OVERLAY_DEFER_KEYS, false)
   ctx.syncShellAsideForWorkspacePanel(true)
   flushSync(() => {
     ctx.setWorkspacePanelOpen(false)

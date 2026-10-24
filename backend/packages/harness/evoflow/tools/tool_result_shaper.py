@@ -200,10 +200,14 @@ def shape_tool_result(
 
     shaped_body = _shape_working_body(working_content, tool_name=name)
 
-    # Optional disk offload for extreme payloads (off by default; separate from inline shaping).
+    # Optional disk offload for extreme payloads (zcode resultBudget artifact 策略).
     if cfg.enabled and len(shaped_body) > cfg.threshold_chars and len(working_content) > cfg.threshold_chars:
         shaped_body = maybe_persist(working_content, tool_name, tool_call_id, thread_id=thread_id)
-        if count_tool_tokens(shaped_body) > cfg.tier_medium_tokens:
+        # <persisted-output> 信封自带 2K head preview 预算，不走 inline cap——
+        # 二次截断会把路径/闭合标签截掉，模型就找不回全量输出了。
+        from evoflow.tools.large_result_store import is_persisted_output_content
+
+        if not is_persisted_output_content(shaped_body) and count_tool_tokens(shaped_body) > cfg.tier_medium_tokens:
             shaped_body = _apply_inline_token_cap(shaped_body, cfg.tier_medium_tokens)
 
     out = _attach_preserved_read_blocks(shaped_body, post_reads)

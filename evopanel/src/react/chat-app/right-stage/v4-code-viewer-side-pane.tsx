@@ -11,6 +11,7 @@ import { getPathLeaf } from "@zcode/ui/lib/path.js";
 import { DEFAULT_CODE_PREVIEW_SETTINGS } from "@zcode/ui/lib/codePreviewSettings.js";
 import { ZCodeIntlProvider } from "@zcode/ui/i18n/IntlProvider.js";
 import { enrichPatchWithFileContext } from "@zcode/ui/lib/toolDiffPreview.js";
+import { hostResolvedTheme } from "@zcode/ui/lib/bridgeTheme.js";
 
 const EXT_LANGUAGE: Record<string, string> = {
   ts: "typescript", tsx: "tsx", js: "javascript", jsx: "jsx", mjs: "javascript",
@@ -119,12 +120,11 @@ export function V4CodeViewerSidePane(props: {
     };
   }, [source.type, source.path, rawPatch, threadId]);
 
-  const highlightTheme = useMemo(() => {
-    if (typeof window === "undefined") return DEFAULT_CODE_PREVIEW_SETTINGS.lightTheme;
-    return window.matchMedia("(prefers-color-scheme: dark)").matches
-      ? DEFAULT_CODE_PREVIEW_SETTINGS.darkTheme
-      : DEFAULT_CODE_PREVIEW_SETTINGS.lightTheme;
-  }, []);
+  // 高亮主题必须跟「应用主题」走，不能跟 OS 偏好走：
+  // 系统暗色 + 应用浅色时，用 dark theme 会让代码区在浅色面板里糊成黑块。
+  const highlightTheme = hostResolvedTheme() === "dark"
+    ? DEFAULT_CODE_PREVIEW_SETTINGS.darkTheme
+    : DEFAULT_CODE_PREVIEW_SETTINGS.lightTheme;
 
   const patchForPreview = enrichedPatch ?? rawPatch;
   const patchLines = useMemo(
@@ -136,7 +136,9 @@ export function V4CodeViewerSidePane(props: {
   // 用 useZCodeIntl 渲染截断文案，必须在此自挂 Provider，否则点开 diff 直接炸。
   return (
     <ZCodeIntlProvider initialLocale="zh-CN">
-      <div className="flex h-full min-h-0 flex-col bg-card">
+      {/* zcode-bridge-root：zcode token（bg-card / text-foreground / border）只在桥接作用域内解析，
+          缺了它会整块发黑，并且 applyTheme 会误改 <html> 把整站切暗。 */}
+      <div className="zcode-bridge-root flex h-full min-h-0 flex-col bg-card">
         <div className="flex h-10 shrink-0 items-center gap-2 border-b border-border px-3">
           <span className="min-w-0 truncate text-ui-sm font-medium text-foreground">{title}</span>
           {path ? (

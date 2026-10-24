@@ -119,9 +119,9 @@ export function XiaomiChatThread({ sessionKey = '' }: { sessionKey?: string }) {
       <V4StreamRowsBridge enabled={v4Enabled} sessionId={sessionId}>
         {(v4Payload, v4Phase) => {
           const v4RowCount = v4Payload?.snapshot?.rows.totalCount ?? 0
-          // 有本地历史或 V4 行时不要闪草稿问候（对齐主对话 draftEmpty 守卫）
+          // 仅 V4 ready 且确认无行才草稿问候；connecting 不算（对齐主对话）
           const draftEmpty =
-            localMsgCount === 0 && v4RowCount === 0 && (v4Phase !== 'ready' || !sessionId)
+            localMsgCount === 0 && v4Phase === 'ready' && !!sessionId && v4RowCount === 0
           return (
             <V4ZCodeTimeline
               payload={v4Payload}

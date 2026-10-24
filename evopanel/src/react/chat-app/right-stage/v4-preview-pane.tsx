@@ -54,12 +54,17 @@ export function V4PreviewPane(props: {
       <StoreProvider broadcastService={NOOP_BROADCAST}>
         <PlatformProvider platform={evoflowStubPlatform}>
           <ServiceProvider services={partialServices}>
-            <PreviewPane
-              source={source}
-              onClose={onClose}
-              workspacePath={workspacePath}
-              onOpenCodeViewer={onOpenCodeViewer}
-            />
+            {/* zcode-bridge-root：styles-bridge 的 token / 暗色主题 / 滚动条作用域都收窄在此容器，
+                缺了它 @theme 变量解析不出来（面包屑、代码块、diff 背景会整块发黑），
+                同时 applyTheme 也靠它定位挂载目标，避免把整站切成暗色。 */}
+            <div className="zcode-bridge-root flex h-full min-h-0 flex-col">
+              <PreviewPane
+                source={source}
+                onClose={onClose}
+                workspacePath={workspacePath}
+                onOpenCodeViewer={onOpenCodeViewer}
+              />
+            </div>
           </ServiceProvider>
         </PlatformProvider>
       </StoreProvider>

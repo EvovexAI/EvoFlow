@@ -35,6 +35,7 @@ import {
   resolveShellGroupWorkspacePath,
   splitVisibleAndFoldedDutySessions,
 } from '../lib/session-list/workspace-groups.js'
+import { buildWorkspaceRecentSections } from '../lib/session-list/recent-sections.js'
 import {
   isGenericEmployeeLabel,
   isCollapsedJobTitle,
@@ -970,26 +971,21 @@ export function ShellSessionList({
       }))
     }
     if (focusedWorkspaceKey) return null
-    if (groups.length <= 1) return null
-    const byKey = new Map<string, { label: string; rows: ShellSidebarSyncRow[] }>()
-    for (const row of recentVisibleRows) {
-      const key = String(row.workspaceKey || '').trim() || '__unbound__'
-      const label =
-        groups.find((g) => g.workspaceKey === key)?.label ||
-        String(row.workspaceLabel || '').trim() ||
-        key
-      const entry = byKey.get(key) || { label, rows: [] }
-      entry.rows.push(row)
-      byKey.set(key, entry)
-    }
-    if (byKey.size <= 1) return null
-    return Array.from(byKey.entries()).map(([key, value]) => ({
-      key,
-      label: value.label,
-      rows: value.rows,
-      avatarAgentCode: null,
-    }))
-  }, [recentVisibleRows, isEmployeesTab, focusedEmployeeCode, focusedWorkspaceKey, groups, effectiveEmployeeRoles, agents])
+    // 已注册但暂无会话的工作区也要成组展示，避免新建工作空间后左侧看不到
+    return buildWorkspaceRecentSections(recentVisibleRows, groups, { searching: isSearching })
+  }, [
+    recentVisibleRows,
+    isEmployeesTab,
+    focusedEmployeeCode,
+    focusedWorkspaceKey,
+    groups,
+    effectiveEmployeeRoles,
+    agents,
+    isSearching,
+  ])
+
+  /** 只有「空工作区分组」需要展示（尚无任何会话）——此时不能走「暂无会话」空态 */
+  const showEmptyWorkspaceSections = !!groupedRecentSections && recentVisibleRows.length === 0
 
   const toggleGroupCollapsed = useCallback((key: string) => {
     setCollapsedGroupKeys((prev) => {
@@ -1385,7 +1381,11 @@ export function ShellSessionList({
             </li>
           ) : null}
 
-          {!listLoading && pinnedRows.length === 0 && recentVisibleRows.length === 0 && !showDutyFold ? (
+          {!listLoading &&
+          pinnedRows.length === 0 &&
+          recentVisibleRows.length === 0 &&
+          !showDutyFold &&
+          !showEmptyWorkspaceSections ? (
             <li className="react-chat-muted" style={{ padding: '10px 12px' }}>
               {isEmployeesTab
                 ? isSearching
@@ -1411,7 +1411,12 @@ export function ShellSessionList({
             </li>
           ) : null}
 
-          {!listLoading && (recentVisibleRows.length > 0 || showDutyFold || flatHasMore || flatLoading) ? (
+          {!listLoading &&
+          (recentVisibleRows.length > 0 ||
+            showDutyFold ||
+            flatHasMore ||
+            flatLoading ||
+            showEmptyWorkspaceSections) ? (
             <li
               className="react-chat-session-recent-block"
               aria-label={isEmployeesTab ? '员工' : '任务'}
@@ -1476,7 +1481,13 @@ export function ShellSessionList({
                           </div>
                           {!collapsed ? (
                               <ul className='react-chat-session-ws-group-list'>
-                                {section.rows.map((row) => renderSessionRow(row))}
+                                {section.rows.length > 0 ? (
+                                  section.rows.map((row) => renderSessionRow(row))
+                                ) : (
+                                  <li className='react-chat-muted react-chat-session-ws-group-empty'>
+                                    暂无会话
+                                  </li>
+                                )}
                               </ul>
                             ) : null}
                         </li>

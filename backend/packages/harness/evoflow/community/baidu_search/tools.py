@@ -13,6 +13,7 @@ import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from typing import Literal
+from urllib.parse import urlparse
 
 from langchain_core.tools import tool
 
@@ -121,6 +122,71 @@ def _dedupe_results_by_url(rows: list[dict]) -> list[dict]:
         seen.add(key)
         out.append(r)
     return out
+
+
+def _normalize_domain_entry(raw: object) -> str:
+    """Normalize a domain filter entry to a bare suffix (zcode WebSearch alignment).
+
+    Accepts ``example.com``, ``https://example.com/x``, ``WWW.Example.COM``;
+    returns lowercase host without leading ``www.`` and without scheme/path/port.
+    """
+    s = str(raw or "").strip().lower()
+    if not s:
+        return ""
+    if "://" in s:
+        s = urlparse(s).hostname or ""
+    s = s.split("/", 1)[0].split(":", 1)[0].strip().strip(".")
+    if s.startswith("www."):
+        s = s[4:]
+    return s.strip(".")
+
+
+def _result_host(url: str) -> str:
+    host = (urlparse(url).hostname or "").strip().lower()
+    if host.startswith("www."):
+        host = host[4:]
+    return host
+
+
+def _domain_matches(host: str, domain: str) -> bool:
+    """Suffix match including subdomains (Anthropic web_search semantics)."""
+    if not host or not domain:
+        return False
+    return host == domain or host.endswith("." + domain)
+
+
+def filter_results_by_domains(
+    rows: list[dict],
+    allowed_domains: list[str] | None,
+    blocked_domains: list[str] | None,
+) -> tuple[list[dict], dict]:
+    """Local domain filter for web_search results (zcode WebSearch alignment).
+
+    zcode delegates domain filtering to the Anthropic server-side ``web_search``
+    tool; EvoFlow's provider registry contract has no domain parameter, so the
+    equivalent semantics (suffix match incl. subdomains) are applied locally
+    after the provider search returns.
+
+    Returns ``(kept_rows, stats)`` where stats carries the normalized lists and
+    the number of removed rows for logging / payload metadata.
+    """
+    allowed = [d for d in (_normalize_domain_entry(x) for x in (allowed_domains or [])) if d]
+    blocked = [d for d in (_normalize_domain_entry(x) for x in (blocked_domains or [])) if d]
+    if not allowed and not blocked:
+        return list(rows or []), {"allowed": [], "blocked": [], "removed": 0}
+    kept: list[dict] = []
+    removed = 0
+    for r in rows or []:
+        url = str(r.get("href") or r.get("link") or r.get("url") or "").strip()
+        host = _result_host(url)
+        if allowed and not any(_domain_matches(host, d) for d in allowed):
+            removed += 1
+            continue
+        if any(_domain_matches(host, d) for d in blocked):
+            removed += 1
+            continue
+        kept.append(r)
+    return kept, {"allowed": allowed, "blocked": blocked, "removed": removed}
 
 
 def _ensure_non_empty_content(query: str, title: str, url: str, content: str) -> str:
@@ -357,8 +423,26 @@ def web_search_tool(
     *,
     ai_daily: WebAiDailyMode = "off",
     news_53ai: WebNews53aiMode = "off",
+    allowed_domains: list[str] | None = None,
+    blocked_domains: list[str] | None = None,
 ) -> str:
     """Search the web."""
+    # zcode WebSearch alignment: allowed_domains / blocked_domains are mutually
+    # exclusive (zcode enforces this at schema level; here at runtime).
+    _has_allowed = bool(allowed_domains and any(str(x).strip() for x in allowed_domains))
+    _has_blocked = bool(blocked_domains and any(str(x).strip() for x in blocked_domains))
+    if _has_allowed and _has_blocked:
+        return json.dumps(
+            {
+                "query": query,
+                "total_results": 0,
+                "engines": [],
+                "results": [],
+                "error": "allowed_domains and blocked_domains cannot both be specified; pass only one of them.",
+            },
+            ensure_ascii=False,
+        )
+
     # Page-fetch knobs are config-only (YAML default_fetch_pages); not model-facing — model often
     # sets fetch_pages>0 and burns 10–30s fetching URLs after search already succeeded.
     fetch_pages = 0
@@ -470,6 +554,35 @@ def web_search_tool(
                 query_used, max_results, preferred=preferred_providers
             )
 
+    # zcode WebSearch alignment: local domain filter (suffix match incl. subdomains)
+    # applied post-search, before rebalance / slicing so filtered rows don't waste slots.
+    domain_filter_stats: dict | None = None
+    if merged_fast and (_has_allowed or _has_blocked):
+        merged_fast, domain_filter_stats = filter_results_by_domains(
+            merged_fast, allowed_domains, blocked_domains
+        )
+        if domain_filter_stats.get("removed"):
+            logger.info(
+                "[联网搜索] 域过滤 removed=%s allowed=%s blocked=%s",
+                domain_filter_stats.get("removed"),
+                domain_filter_stats.get("allowed"),
+                domain_filter_stats.get("blocked"),
+            )
+        if not merged_fast:
+            return json.dumps(
+                {
+                    "query": query,
+                    "total_results": 0,
+                    "engines": [],
+                    "results": [],
+                    "_note": "搜索结果全部被域名过滤排除（allowed_domains/blocked_domains）；请放宽过滤条件后重试。",
+                    "_domain_filter": domain_filter_stats,
+                    "ai_daily": ai_daily_effective,
+                    "news_53ai": news_53ai_effective,
+                },
+                ensure_ascii=False,
+            )
+
     if merged_fast and ai_daily_effective == "auto" and news_53ai_effective != "latest":
         merged_fast = rebalance_ai_daily_rows(merged_fast, max_results=max_results, max_per_topic=2)
 
@@ -574,6 +687,8 @@ def web_search_tool(
         }
         if ai_daily_effective == "auto":
             out_payload["_official_news_index"] = authoritative_official_news_index()
+        if domain_filter_stats and (domain_filter_stats.get("allowed") or domain_filter_stats.get("blocked")):
+            out_payload["_domain_filter"] = domain_filter_stats
         if news_53ai_effective == "latest":
             out_payload["_list_level_only"] = True
             out_payload["_body_fetch_hint"] = "仅列表级摘要；若需某条全文请根据标题与任务判断是否必要，再对该条 url 单独调用 web_fetch。"

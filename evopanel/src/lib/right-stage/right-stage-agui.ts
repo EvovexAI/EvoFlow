@@ -2,6 +2,8 @@
 import type { RightStageSurface } from './right-stage-types.js'
 import { normalizeRightStageKind } from './right-stage-types.js'
 import { rightStageStore, hideRightStageIfKind } from './right-stage-store.js'
+import { getCurrentRightStageSessionKey, scopeOfKind } from './right-stage-scope.js'
+import { upsertTabInSessionMemory } from './right-stage-session-memory.js'
 import { getPanelSetting } from '../panel-settings.js'
 import { isAutoWorkPreviewEnabled, normalizeWriteStreamMode } from './write-stream-mode.js'
 
@@ -98,9 +100,22 @@ export function buildStageSetPayload(argsText?: string, result?: string | null):
   return { action: argsAction || 'show', surface }
 }
 
-export function applyStageSetPayload(payload: StageSetPayload | null): boolean {
+/**
+ * 把 panel_set 落到右栏。
+ *
+ * `options.sessionKey` 是事件所属会话（后端 panel_set / custom 事件都带得到）。
+ * 它决定"写到哪"：
+ * - 与当前 UI 会话一致（或缺省）：写 live 右栏；
+ * - 属于后台会话：只写该会话的冻结记忆，不抢当前 UI（对齐 ZCode「后台挂载不抢焦点」，
+ *   也与 browser-panel-store 的 ensureBrowserStage 后台分支保持同一语义）。
+ */
+export function applyStageSetPayload(
+  payload: StageSetPayload | null,
+  options?: { sessionKey?: string | null },
+): boolean {
   if (!payload) return false
   const action = String(payload.action || 'show').trim().toLowerCase()
+  const ownerSessionKey = String(options?.sessionKey || '').trim()
   if (action === 'hide' || payload.surface === null) {
     rightStageStore.applyRemote({ action: 'hide', surface: null })
     dispatchStageSetApplied({ action: 'hide', surface: null })
@@ -127,16 +142,49 @@ export function applyStageSetPayload(payload: StageSetPayload | null): boolean {
   ) {
     return false
   }
-  rightStageStore.applyRemote({ action, surface: payload.surface })
+  const uiSessionKey = getCurrentRightStageSessionKey()
+  const isBackgroundOwner = Boolean(
+    ownerSessionKey && uiSessionKey && ownerSessionKey !== uiSessionKey,
+  )
+  if (isBackgroundOwner && scopeOfKind(kind) === 'session') {
+    // 后台会话：只更新它自己的冻结记忆，绝不写当前 UI 的右栏。
+    upsertTabInSessionMemory({
+      sessionKey: ownerSessionKey,
+      tab: {
+        id: String(payload.surface.id || 'primary').trim() || 'primary',
+        kind,
+        title: payload.surface.title,
+        layout: payload.surface.layout,
+        data: { ...(payload.surface.data || {}) },
+        sessionKey: ownerSessionKey,
+      },
+    })
+    dispatchStageSetApplied(payload)
+    return true
+  }
+  rightStageStore.applyRemote({
+    action,
+    surface: ownerSessionKey
+      ? { ...payload.surface, sessionKey: ownerSessionKey }
+      : payload.surface,
+  })
   dispatchStageSetApplied(payload)
   return true
 }
 
-export function applyStageSetFromToolCall(argsText?: string, result?: string | null): boolean {
-  return applyStageSetPayload(buildStageSetPayload(argsText, result))
+export function applyStageSetFromToolCall(
+  argsText?: string,
+  result?: string | null,
+  options?: { sessionKey?: string | null },
+): boolean {
+  return applyStageSetPayload(buildStageSetPayload(argsText, result), options)
 }
 
-export function applyRightStageAgUiCustom(name: string, value: unknown): boolean {
+export function applyRightStageAgUiCustom(
+  name: string,
+  value: unknown,
+  options?: { sessionKey?: string | null },
+): boolean {
   const n = String(name || '').trim()
   if (n !== 'right_stage' && n !== 'right_stage_stream') return false
   if (!value || typeof value !== 'object') return false
@@ -169,7 +217,7 @@ export function applyRightStageAgUiCustom(name: string, value: unknown): boolean
     action: String(payload.action || 'show'),
     surface: payload.surface as Partial<RightStageSurface> | null | undefined,
   }
-  applyStageSetPayload(stagePayload)
+  applyStageSetPayload(stagePayload, options)
   return true
 }
 

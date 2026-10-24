@@ -13931,6 +13931,59 @@ html[data-app-occluded='1'] * {
   overflow: hidden;
 }
 
+/* zcode AskUserQuestion 对齐：label + description 两行式选项文本容器 */
+.react-chat-thread-clarify-option-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.react-chat-thread-clarify-option-text .react-chat-thread-clarify-option-label {
+  flex: 0 0 auto;
+}
+
+.react-chat-thread-clarify-option-desc {
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.4;
+  color: var(--text-secondary, #6b7280);
+  white-space: pre-wrap;
+  word-break: break-word;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+}
+
+/* zcode AskUserQuestion 对齐：题目短标签 chip（header） */
+.react-chat-thread-clarify-question-head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.react-chat-thread-clarify-question-header {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1.4;
+  color: var(--accent, #2563eb);
+  background: var(--accent-muted, rgba(37, 99, 235, 0.1));
+  border: 1px solid color-mix(in srgb, var(--accent, #2563eb) 30%, transparent);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 @media (max-width: 640px) {
   .react-chat-thread-clarify-questions-grid {
     grid-template-columns: 1fr;
@@ -34049,6 +34102,12 @@ html[data-theme='dark'] .react-chat-stage-tab.is-active {
 
 .react-chat-session-ws-group-list .react-chat-session-row {
   padding-left: 10px;
+}
+
+/* 已注册但还没有会话的工作区：组头下给个占位，避免空白条目 */
+.react-chat-session-ws-group-empty {
+  padding: 4px 10px 6px;
+  font-size: var(--ef-text-sm);
 }
 
 .react-chat-session-duty-fold-chevron {

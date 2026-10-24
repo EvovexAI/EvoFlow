@@ -12,6 +12,7 @@ import { V4StreamRowsBridge } from '../../v4/V4StreamRowsBridge.js'
 import { V4ZCodeTimeline } from '../../v4/V4ZCodeTimeline.js'
 import { rightStageStore } from '../../../lib/right-stage/right-stage-store.js'
 import { isEvoflowChatV4Enabled } from '../../v4/v4Gate.js'
+import { resolveChatPaneMode } from '../../lib/chat-pane-mode.js'
 import { HistoryFetchSpinner } from '../../components/HistoryFetchSpinner.js'
 import { ChatComposer, type WorkspaceMentionConfig, type MentionEmployeeOption } from '../../components/ChatComposer.js'
 import { PendingSteersStrip } from '../../components/PendingSteersStrip.js'
@@ -593,13 +594,19 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
                     (v4Phase === 'ready'
                       ? v4SessionMatched
                       : v4Phase === 'connecting' || v4Phase === 'no-thread')
-                  const useLegacyPane =
-                    v4Phase === 'disabled' || isHomeSurface || localOptimisticHold
-                  /* connecting 等首帧：有本地历史时不要闪草稿问候语，空白等 V4 即可。 */
-                  const draftEmpty =
-                    !localOptimisticHold &&
-                    !(Array.isArray(rows) && rows.length > 0) &&
-                    (v4Phase !== 'ready' || !v4RowCount)
+                  const localHasRows = Array.isArray(rows) && rows.length > 0
+                  const v4HasRows = v4SessionMatched && v4RowCount > 0
+                  /* 面板选择 + 草稿态判定（见 react/lib/chat-pane-mode.ts）：
+                     V4 开启时有历史也不回落老面板；connecting 用加载态，
+                     不能因为「当前窗口 0 行」就降级成居中草稿。 */
+                  const { useLegacyPane, draftEmpty } = resolveChatPaneMode({
+                    v4Phase,
+                    localHasRows,
+                    historyLoading,
+                    v4HasRows,
+                    isHomeSurface,
+                    localOptimisticHold,
+                  })
                   return useLegacyPane ? (
               <ChatMessageStreamPane
                 rows={renderRows}

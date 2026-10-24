@@ -342,7 +342,10 @@
   --color-plugin-paid-plan-badge-foreground: #4b280f;
 }
 
-.dark {
+/* EvoFlow 桥接：dark 类挂在 .zcode-bridge-root 容器上（不写 html，避免激活宿主
+   html.dark 规则把整站切暗）。这里让两套作用域共用同一组暗色 token。 */
+.dark,
+.zcode-bridge-root.dark {
   --animated-gradient-text-strong: rgba(255, 255, 255, 1);
   --animated-gradient-text-soft: rgba(255, 255, 255, 0.2);
   --color-background: var(--color-neutral-900);

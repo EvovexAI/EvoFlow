@@ -5,7 +5,7 @@
 import { hideRightStageIfKind, rightStageStore } from '../../../lib/right-stage/right-stage-store.js'
 import { normalizeRightStageKind, type RightStageKind } from '../../../lib/right-stage/right-stage-types.js'
 import { isUserStageExtensionKind } from '../../../lib/right-stage/right-stage-extensions.js'
-import { isChatOverlayDeferActive } from '../../../lib/chat-overlay-defer.js'
+import { resumeStreamBumpIfIdle } from '../../../lib/right-stage/right-stage-overlay-commit.js'
 
 export type CloseRightStageCtx = {
   dismissedRightStageKindsRef: { current: Set<string> }
@@ -40,26 +40,21 @@ export function closeRightStage(ctx: CloseRightStageCtx): void {
     ctx.lastWriteStreamLenRef.current = 0
     ctx.clearRightStageStream('write_file')
   }
+  const resume = () => ctx.scheduleBumpRef.current?.({ immediate: true })
   if (kind === 'artifacts') {
     hideRightStageIfKind('artifacts')
     ctx.rightStageUserPinnedRef.current = null
-    if (!isChatOverlayDeferActive()) {
-      ctx.scheduleBumpRef.current?.({ immediate: true })
-    }
+    resumeStreamBumpIfIdle(resume)
     return
   }
   if (isUserStageExtensionKind(kind)) {
     ctx.rightStageUserPinnedRef.current = null
     hideRightStageIfKind(kind)
     ctx.syncShellAsideForWorkspacePanel(false)
-    if (!isChatOverlayDeferActive()) {
-      ctx.scheduleBumpRef.current?.({ immediate: true })
-    }
+    resumeStreamBumpIfIdle(resume)
     return
   }
   ctx.rightStageUserPinnedRef.current = null
   rightStageStore.hide()
-  if (!isChatOverlayDeferActive()) {
-    ctx.scheduleBumpRef.current?.({ immediate: true })
-  }
+  resumeStreamBumpIfIdle(resume)
 }

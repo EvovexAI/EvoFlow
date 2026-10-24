@@ -1,4 +1,5 @@
 import type { BundledLanguage, BundledTheme, HighlighterGeneric, ThemedToken } from "shiki";
+import { isBridgeDark } from "@/lib/bridgeTheme.js";
 import { bundledLanguages, bundledLanguagesInfo, createHighlighter } from "shiki";
 import { logger } from "@/logger.js";
 import { uiMemoryDiagnosticsRegistry } from "@/lib/memoryDiagnostics.js";
@@ -71,7 +72,8 @@ const getResolvedCodeTheme = (theme?: BundledTheme): BundledTheme => {
     return theme;
   }
 
-  if (typeof document !== "undefined" && document.documentElement.classList.contains("dark")) {
+  // 桥接宿主里 dark 类挂在 .zcode-bridge-root 上，不是 <html>
+  if (isBridgeDark()) {
     return "github-dark";
   }
 

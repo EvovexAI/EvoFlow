@@ -6,7 +6,11 @@ import type { Dispatch, MutableRefObject, SetStateAction } from 'react'
 import { hideRightStageIfKind } from '../../../lib/right-stage/right-stage-store.js'
 import type { StageSetPayload } from '../../../lib/right-stage/right-stage-agui.js'
 import type { RightStageKind } from '../../../lib/right-stage/right-stage-types.js'
-import { isChatOverlayDeferActive, setChatOverlayDefer } from '../../../lib/chat-overlay-defer.js'
+import {
+  clearAllRightStageOverlayDefer,
+  resumeStreamBumpIfIdle,
+  setRightStageOverlayDefer,
+} from '../../../lib/right-stage/right-stage-overlay-commit.js'
 import {
   mergeChatArtifacts,
   normalizeChatArtifacts,
@@ -35,13 +39,9 @@ export function syncRemoteStageSet(ctx: SyncRemoteStageSetCtx, detail: StageSetP
   const kind = String(detail.surface?.kind || '').trim()
   if (detail.action === 'hide' || !kind) {
     ctx.rightStageUserPinnedRef.current = null
-    setChatOverlayDefer('workspace', false)
-    setChatOverlayDefer('knowledge-map', false)
-    setChatOverlayDefer('workflow', false)
+    clearAllRightStageOverlayDefer()
     ctx.syncShellAsideForWorkspacePanel(false)
-    if (!isChatOverlayDeferActive()) {
-      ctx.scheduleBumpRef.current?.({ immediate: true })
-    }
+    resumeStreamBumpIfIdle(() => ctx.scheduleBumpRef.current?.({ immediate: true }))
     return
   }
   // 产物改由侧栏 Info Rail 呈报，不走 Right Stage
@@ -60,9 +60,9 @@ export function syncRemoteStageSet(ctx: SyncRemoteStageSetCtx, detail: StageSetP
   }
   ctx.cancelPendingStreamUiBumpsRef.current()
   ctx.rightStageUserPinnedRef.current = kind as RightStageKind
-  setChatOverlayDefer('workspace', kind === 'workspace-browse' || kind === 'write')
-  setChatOverlayDefer('workflow', false)
-  setChatOverlayDefer('knowledge-map', kind === 'mind-map')
+  clearAllRightStageOverlayDefer()
+  setRightStageOverlayDefer('workspace', kind === 'workspace-browse' || kind === 'write')
+  setRightStageOverlayDefer('knowledge-map', kind === 'mind-map')
   if (kind !== 'write') {
     ctx.setStreamingWritePreview(null)
     ctx.lastStreamWritePathRef.current = null

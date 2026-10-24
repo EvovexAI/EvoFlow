@@ -5,6 +5,10 @@ from __future__ import annotations
 # One-line purpose only — routing policy stays in the system prompt.
 READ_TOOL_DESCRIPTION = (
     "Read a file (workspace path or skill:<name>/relative/path); optional offset, limit, or symbol. "
+    "Reads PDFs via the `pages` parameter (e.g. \"1-5\", \"3\", \"10-\"; max 20 pages/request; "
+    "required for PDFs over 10 pages). "
+    "Office documents (doc/docx/ppt/pptx/xls/xlsx) are converted to markdown automatically "
+    "(offset/limit paginate the converted text); binary files are rejected with an error. "
     "Image refs (jpg/jpeg/png/webp local paths, http(s) image URLs, browser-snapshot refs) are loaded "
     "visually instead; accepts a single ref or a list of image refs (up to 8) in one call."
 )
@@ -36,7 +40,9 @@ WEB_SEARCH_DESCRIPTION = (
     "Search the web. Use ai_daily or news_53ai for AI-news feeds; otherwise generic API search. "
     "If the result has needs_configuration=true: tell the user assistant_guide.say_to_user, "
     "then help configure via platform settings.get_web_search / settings.patch_web_search / "
-    "settings.test_web_search (do not keep retrying web_search or send users into Settings UI)."
+    "settings.test_web_search (do not keep retrying web_search or send users into Settings UI). "
+    "`allowed_domains` / `blocked_domains` filter results by domain suffix (subdomains included); "
+    "specify at most one of the two, never both."
 )
 
 # Back-compat alias (prefer the named constants above).

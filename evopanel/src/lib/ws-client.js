@@ -241,7 +241,8 @@ function dispatchAgUiWireFrame(self, key, runId, data, lane) {
       }
     } else if (name === 'right_stage' || name === 'right_stage_stream') {
       try {
-        applyRightStageAgUiCustom(name, value)
+        // key 是事件所属会话：后台会话的面板写入只能落到它自己的冻结记忆。
+        applyRightStageAgUiCustom(name, value, { sessionKey: key })
       } catch (err) {
         console.warn('[evoflow] right_stage custom failed', err)
       }

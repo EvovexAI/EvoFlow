@@ -238,6 +238,7 @@ def read_file_hd(
     offset: int | None = None,
     limit: int | None = None,
     symbol: str | None = None,
+    pages: str | None = None,
     runtime: ToolRuntime,
 ) -> str | Command:
     """Read one file (text) or load/analyze image(s) from the local filesystem or URLs."""
@@ -279,6 +280,16 @@ def read_file_hd(
     resolved = _resolve_read_target(path, runtime=runtime)
     if isinstance(resolved, str):
         return resolved
+    # ── PDF path (zcode Read PDF alignment) ──
+    # Dispatched before symbol/offset/limit: those are line-oriented and
+    # meaningless for PDFs; ``pages`` is the PDF-native page range parameter.
+    if resolved.suffix.lower() == ".pdf":
+        from evoflow.tools.host_direct.read_pdf import read_pdf_file
+
+        text = read_pdf_file(resolved, pages=pages)
+        if not str(text).startswith("Error:"):
+            _note_model_read(resolved, full_read=False)
+        return text
     if symbol:
         content = resolved.read_text(encoding="utf-8", errors="replace")
         language = _detect_language(resolved)

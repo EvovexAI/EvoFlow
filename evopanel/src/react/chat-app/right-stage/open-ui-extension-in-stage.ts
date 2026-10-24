@@ -4,7 +4,11 @@
  */
 import { flushSync } from 'react-dom'
 import { hideRightStageIfKind, rightStageStore } from '../../../lib/right-stage/right-stage-store.js'
-import { isChatOverlayDeferActive, setChatOverlayDefer } from '../../../lib/chat-overlay-defer.js'
+import {
+  RIGHT_STAGE_OVERLAY_DEFER_KEYS,
+  resumeStreamBumpIfIdle,
+  setRightStageOverlayDefer,
+} from '../../../lib/right-stage/right-stage-overlay-commit.js'
 import { toast } from '../../../components/toast.js'
 import { toUserFacingError } from '../../../lib/user-facing-error.js'
 import type { RightStageKind } from '../../../lib/right-stage/right-stage-types.js'
@@ -40,9 +44,7 @@ export function openUiExtensionInStage(ctx: OpenUiExtensionInStageCtx, extension
     ctx.rightStageUserPinnedRef.current = null
     hideRightStageIfKind('web-embed')
     ctx.syncShellAsideForWorkspacePanel(false)
-    if (!isChatOverlayDeferActive()) {
-      ctx.scheduleBumpRef.current?.({ immediate: true })
-    }
+    resumeStreamBumpIfIdle(() => ctx.scheduleBumpRef.current?.({ immediate: true }))
     return
   }
 
@@ -86,9 +88,7 @@ export function openUiExtensionInStage(ctx: OpenUiExtensionInStageCtx, extension
         ? (ui.sandbox as unknown[]).map((s) => String(s || '').trim()).filter(Boolean)
         : ['allow-scripts', 'allow-same-origin', 'allow-forms', 'allow-popups']
       ctx.cancelPendingStreamUiBumpsRef.current()
-      setChatOverlayDefer('workspace', false)
-      setChatOverlayDefer('workflow', false)
-      setChatOverlayDefer('knowledge-map', false)
+      setRightStageOverlayDefer(RIGHT_STAGE_OVERLAY_DEFER_KEYS, false)
       ctx.syncShellAsideForWorkspacePanel(true)
       flushSync(() => {
         ctx.setWorkspacePanelOpen(false)

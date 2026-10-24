@@ -3,7 +3,10 @@
  * Extracted from ChatApp.tsx (P28).
  */
 import type { RightStageKind } from '../../../lib/right-stage/right-stage-types.js'
-import { isChatOverlayDeferActive, setChatOverlayDefer } from '../../../lib/chat-overlay-defer.js'
+import {
+  clearAllRightStageOverlayDefer,
+  resumeStreamBumpIfIdle,
+} from '../../../lib/right-stage/right-stage-overlay-commit.js'
 import {
   saveChatSummaryDisplayMode,
   type ChatSummaryDisplayMode,
@@ -27,13 +30,9 @@ export type ExpandRightStageCtx = {
 export function collapseRightStageShell(ctx: CollapseRightStageCtx): void {
   ctx.rightStageUserPinnedRef.current = null
   ctx.collapseRightStage()
-  setChatOverlayDefer('workspace', false)
-  setChatOverlayDefer('workflow', false)
-  setChatOverlayDefer('knowledge-map', false)
+  clearAllRightStageOverlayDefer()
   ctx.syncShellAsideForWorkspacePanel(false)
-  if (!isChatOverlayDeferActive()) {
-    ctx.scheduleBumpRef.current?.({ immediate: true })
-  }
+  resumeStreamBumpIfIdle(() => ctx.scheduleBumpRef.current?.({ immediate: true }))
 }
 
 export function expandRightStageShell(ctx: ExpandRightStageCtx): void {
@@ -44,7 +43,5 @@ export function expandRightStageShell(ctx: ExpandRightStageCtx): void {
   }
   ctx.expandRightStage()
   ctx.setInfoRailOpen(false)
-  if (!isChatOverlayDeferActive()) {
-    ctx.scheduleBumpRef.current?.({ immediate: true })
-  }
+  resumeStreamBumpIfIdle(() => ctx.scheduleBumpRef.current?.({ immediate: true }))
 }

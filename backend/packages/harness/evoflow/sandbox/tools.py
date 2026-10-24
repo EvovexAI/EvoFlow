@@ -1342,6 +1342,23 @@ def read_file_tool(
             thread_data = get_thread_data(runtime) if is_local_sandbox(runtime) else None
         else:
             path, thread_data = _resolve_sandbox_path(path, runtime, read_only=True)
+        # PDF is binary: reading it through the text channel yields garbage;
+        # steer the model to parse it with code inside the sandbox instead.
+        if str(path).lower().endswith(".pdf"):
+            return (
+                "Error: PDF is a binary format and cannot be read as text. "
+                "Write and run Python code in the sandbox to extract it "
+                "(e.g. pdfminer.six / pypdf), or convert it to markdown first."
+            )
+        # Office documents are OOXML/OLE zip binaries: same steer-to-code
+        # guidance as PDF (openpyxl / python-pptx / mammoth inside sandbox).
+        if str(path).lower().endswith((".doc", ".docx", ".ppt", ".pptx", ".xls", ".xlsx")):
+            return (
+                "Error: Office documents (doc/docx/ppt/pptx/xls/xlsx) are binary "
+                "and cannot be read as text. Write and run Python code in the "
+                "sandbox to extract them (e.g. openpyxl / python-pptx / python-docx / "
+                "mammoth / markitdown)."
+            )
         content = sandbox.read_file(path)
         if not content:
             return "(empty)"

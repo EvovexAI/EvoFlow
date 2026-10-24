@@ -14,13 +14,15 @@ import { coerceClarifyOptionsList, isStaleClarificationPreview } from '../lib/cl
 
 // === Types ===
 
-type ClarifyOption = { id: string; label: string }
+type ClarifyOption = { id: string; label: string; description?: string }
 
 type ClarifyQuestion = {
   id: string
   prompt: string
   options: ClarifyOption[]
   allow_multiple?: boolean
+  /** zcode AskUserQuestion 对齐：短标签 chip（≤12 字建议） */
+  header?: string
 }
 
 type ClarifyPayload = { title?: string; description?: string; questions: ClarifyQuestion[] }
@@ -211,13 +213,9 @@ function maybeSplitBulkyQuestions(payload: ClarifyPayload): ClarifyPayload {
 }
 
 function normalizeOptions(raw: unknown): ClarifyOption[] {
-  const labels = coerceClarifyOptionsList(raw)
-  const optionsRaw =
-    labels.length > 0
-      ? labels
-      : Array.isArray(raw)
-        ? raw
-        : []
+  // Prefer the raw array when present so {label, description} objects survive
+  // (zcode AskUserQuestion alignment); fall back to coerce for JSON strings etc.
+  const optionsRaw: unknown[] = Array.isArray(raw) ? raw : coerceClarifyOptionsList(raw)
   const options: ClarifyOption[] = optionsRaw
     .map((o: unknown, idx: number): ClarifyOption | null => {
       if (typeof o === 'string') {
@@ -227,9 +225,12 @@ function normalizeOptions(raw: unknown): ClarifyOption[] {
       }
       const rec = (o && typeof o === 'object' ? o : {}) as Record<string, unknown>
       const oid = String(rec.id || '').trim() || `opt_${idx + 1}`
-      const label = String(rec.label || '').trim()
+      const label = String(rec.label || rec.text || '').trim()
       if (!label) return null
-      return { id: oid, label }
+      const description = String(rec.description || '').trim()
+      const opt: ClarifyOption = { id: oid, label }
+      if (description) opt.description = description
+      return opt
     })
     .filter((opt): opt is ClarifyOption => Boolean(opt))
   return options
@@ -302,12 +303,15 @@ function tryParseClarifyPayload(raw: string): ClarifyPayload | null {
             .trim()
         const options = normalizeOptions(q?.options)
         if (!prompt || options.length < 2) return null
-        return {
+        const header = String(q?.header || '').trim()
+        const out: ClarifyQuestion = {
           id,
           prompt,
           options,
           allow_multiple: !!q?.allow_multiple,
         }
+        if (header) out.header = header
+        return out
       })
       .filter(Boolean) as ClarifyQuestion[]
     if (!normalized.length) return null
@@ -435,6 +439,8 @@ export function ClarificationConfirmDock({
         .map((opt) => opt.label)
       return {
         question_id: q.id,
+        // zcode AskUserQuestion 对齐：答案携带问题原文，模型无需回查历史
+        question_text: q.prompt,
         selected_option_ids: selectedOptionIds,
         selected_option_labels: selectedLabels,
       }
@@ -479,7 +485,12 @@ export function ClarificationConfirmDock({
                       structured.questions.length >= 2 ? ' react-chat-thread-clarify-question--tile' : ''
                     }`}
                   >
-                    <div className="react-chat-thread-clarify-question-prompt">{q.prompt}</div>
+                    <div className="react-chat-thread-clarify-question-head">
+                      {q.header ? (
+                        <span className="react-chat-thread-clarify-question-header">{q.header}</span>
+                      ) : null}
+                      <div className="react-chat-thread-clarify-question-prompt">{q.prompt}</div>
+                    </div>
                     <div
                       className={`react-chat-thread-clarify-options${
                         manyOptionsLayout && q.options.length >= CLARIFY_MANY_OPTIONS_THRESHOLD
@@ -494,7 +505,7 @@ export function ClarificationConfirmDock({
                           <label
                             key={opt.id}
                             className={`react-chat-thread-clarify-option${picked ? ' is-selected' : ''}`}
-                            title={opt.label}
+                            title={opt.description || opt.label}
                           >
                             <input
                               type={q.allow_multiple ? 'checkbox' : 'radio'}
@@ -504,7 +515,12 @@ export function ClarificationConfirmDock({
                             />
                             <span className="react-chat-thread-clarify-option-indicator" aria-hidden />
                             <span className="react-chat-thread-clarify-option-prefix">{badge}</span>
-                            <span className="react-chat-thread-clarify-option-label">{opt.label}</span>
+                            <span className="react-chat-thread-clarify-option-text">
+                              <span className="react-chat-thread-clarify-option-label">{opt.label}</span>
+                              {opt.description ? (
+                                <span className="react-chat-thread-clarify-option-desc">{opt.description}</span>
+                              ) : null}
+                            </span>
                           </label>
                         )
                       })}

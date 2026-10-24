@@ -37,7 +37,7 @@ import {
   persistTaskNotificationSoundEnabled,
 } from "@/lib/taskNotificationPreferences.js";
 import type { Theme } from "../useTheme.js";
-import { applyTheme, normalizeThemePreference, resolveTheme } from "../useTheme.js";
+import { applyTheme, normalizeThemePreference } from "../useTheme.js";
 
 import {
   INTERFACE_MODE_STORAGE_KEY,
@@ -489,12 +489,10 @@ export function createZCodeStore(
   });
 
   syncSystemThemeListener(useStore.getState().theme);
+  // applyTheme 内部已按宿主决定挂载目标（桥接容器 / 独立页文档根），
+  // 不要再单独 toggle 一次 html.dark，否则桥接场景仍会把整站切暗。
   applyTheme(useStore.getState().theme);
   applyUiFontSizePx(useStore.getState().uiFontSizePx);
-  document.documentElement.classList.toggle(
-    "dark",
-    resolveTheme(useStore.getState().theme) === "dark",
-  );
 
   return useStore;
 }

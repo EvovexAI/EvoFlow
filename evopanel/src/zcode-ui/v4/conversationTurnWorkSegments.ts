@@ -164,10 +164,17 @@ export function buildConversationTurnWorkSegments(options: {
     const visibleAssistantIndex = visibleAssistantTextRow
       ? segmentFlowRows.findIndex((row) => row.rowId === visibleAssistantTextRow.rowId)
       : -1;
+    // 运行中且尚未选出「最终正文」时：不要把 assistantText 塞进 history 工具链。
+    // 否则 TEXT_MESSAGE_START 的空行不占位，界面先连环铺工具，等 CONTENT 晚到才
+    // 在工具中间「突然冒出」正文。把正文提成独立 flow 项后，流式字一到就落在工具之间。
+    const runningInterleaveAssistantText =
+      options.isRunning && !options.timelineOnly && visibleAssistantIndex < 0;
     const segmentHistoryRows = options.timelineOnly
       ? []
       : visibleAssistantIndex < 0
-        ? segmentFlowRows
+        ? runningInterleaveAssistantText
+          ? segmentFlowRows.filter((row) => !isAssistantTextRow(row))
+          : segmentFlowRows
         : segmentFlowRows.slice(0, visibleAssistantIndex);
     const segmentFollowingRows =
       visibleAssistantIndex < 0 ? [] : segmentFlowRows.slice(visibleAssistantIndex + 1);

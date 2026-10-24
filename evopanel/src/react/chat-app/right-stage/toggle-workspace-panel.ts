@@ -2,10 +2,12 @@
  * Toggle workspace-browse / write tab in the right stage.
  * Extracted from ChatApp.tsx (P27).
  */
-import { flushSync } from 'react-dom'
 import { hideRightStageIfKind, rightStageStore } from '../../../lib/right-stage/right-stage-store.js'
 import { normalizeRightStageKind, type RightStageKind } from '../../../lib/right-stage/right-stage-types.js'
-import { isChatOverlayDeferActive, setChatOverlayDefer } from '../../../lib/chat-overlay-defer.js'
+import {
+  commitRightStageClose,
+  commitRightStageOpen,
+} from '../../../lib/right-stage/right-stage-overlay-commit.js'
 
 export type ToggleWorkspacePanelCtx = {
   rightStageUserPinnedRef: { current: RightStageKind | null }
@@ -28,26 +30,25 @@ export function toggleWorkspacePanel(ctx: ToggleWorkspacePanelCtx): void {
   if (existing) {
     const key = `${normalizeRightStageKind(existing.kind)}:${existing.id}`
     if (snap.activeKey === key) {
-      setChatOverlayDefer('workspace', false)
-      flushSync(() => {
-        ctx.rightStageUserPinnedRef.current = null
-        hideRightStageIfKind('workspace-browse', 'write')
-        ctx.setStreamingWritePreview(null)
-        ctx.lastStreamWritePathRef.current = null
-        ctx.setWorkspaceTreePinned(false)
-        ctx.syncShellAsideForWorkspacePanel(false)
+      commitRightStageClose({
+        clearDefer: 'workspace',
+        mutate: () => {
+          ctx.rightStageUserPinnedRef.current = null
+          hideRightStageIfKind('workspace-browse', 'write')
+          ctx.setStreamingWritePreview(null)
+          ctx.lastStreamWritePathRef.current = null
+          ctx.setWorkspaceTreePinned(false)
+          ctx.syncShellAsideForWorkspacePanel(false)
+        },
+        resumeBump: () => ctx.scheduleBumpRef.current?.({ immediate: true }),
       })
-      if (!isChatOverlayDeferActive()) {
-        ctx.scheduleBumpRef.current?.({ immediate: true })
-      }
       return
     }
     rightStageStore.activateTab(key)
     return
   }
   ctx.cancelPendingStreamUiBumpsRef.current()
-  setChatOverlayDefer('workspace', true)
-  flushSync(() => {
+  commitRightStageOpen('workspace', () => {
     ctx.syncShellAsideForWorkspacePanel(true)
     ctx.rightStageUserPinnedRef.current = 'workspace-browse'
     ctx.setWorkspacePanelOpen(true)
