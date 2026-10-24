@@ -44,7 +44,7 @@ export function syncRemoteStageSet(ctx: SyncRemoteStageSetCtx, detail: StageSetP
     resumeStreamBumpIfIdle(() => ctx.scheduleBumpRef.current?.({ immediate: true }))
     return
   }
-  // 产物改由侧栏 Info Rail 呈报，不走 Right Stage
+  // 产物改由状态卡 Info Rail 呈报，不走 Right Stage；panel_set 显式 show 必须 force 打开
   if (kind === 'artifacts') {
     hideRightStageIfKind('artifacts')
     const data = (detail.surface?.data || {}) as Record<string, unknown>
@@ -54,6 +54,8 @@ export function syncRemoteStageSet(ctx: SyncRemoteStageSetCtx, detail: StageSetP
       ctx.setSessionArtifactsRef.current((prev) => mergeChatArtifacts(prev, incoming))
       ctx.publishArtifactsRef.current({
         focusId: String(data.focusId || incoming[incoming.length - 1]?.id || ''),
+        force: true,
+        hint: String(detail.surface?.title || '').trim() || undefined,
       })
     }
     return

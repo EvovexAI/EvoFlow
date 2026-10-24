@@ -2,6 +2,8 @@
 /**
  * Publish turn-run artifacts into UI / info rail (respects auto-preview setting).
  * Extracted from ChatApp.tsx (P132).
+ *
+ * ``force``：显式 panel_set(kind=artifacts) 必须打开状态卡，不跟「自动打开工作预览」走。
  */
 export type PublishArtifactsCtx = Record<string, any>
 
@@ -19,6 +21,10 @@ export function publishArtifacts(
     ctx.rightStageHintTimerRef.current = 0
   }
   ctx.hideRightStageIfKind('artifacts')
+  // 与平台通知同路径：展开对话右上角状态卡并切到「产物」
+  if (typeof ctx.setChatPanelDisplayMode === 'function') {
+    ctx.setChatPanelDisplayMode('panel')
+  }
   ctx.setInfoRailOpen(true)
   ctx.setInfoRailTab('artifacts')
   const focus = String(opts?.focusId || items[items.length - 1]?.id || '').trim()

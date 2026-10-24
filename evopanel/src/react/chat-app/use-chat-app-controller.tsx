@@ -2503,6 +2503,7 @@ export function useChatAppController() {
           writeStreamModeRef,
           rightStageHintTimerRef,
           hideRightStageIfKind,
+          setChatPanelDisplayMode,
           setInfoRailOpen,
           setInfoRailTab,
           setArtifactFocusId,
@@ -2511,7 +2512,7 @@ export function useChatAppController() {
         opts,
       )
     },
-    [],
+    [setChatPanelDisplayMode],
   )
   useEffect(() => {
     publishPlatformEntriesRef.current = publishPlatformEntries

@@ -3,7 +3,7 @@
  * 与对话 RightStage 共用 rightStageStore，但用 task-center:{taskId} 归属过滤，
  * 留在任务中心打开工作流 / 节点进度 / 文件预览，不跳会话。
  */
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { RightStagePanel } from './RightStagePanel.js'
 import { CollabExecutionPanel } from './CollabExecutionPanel.js'
 import { SidePanelBootShell } from './SidePanelBootShell.js'
@@ -62,16 +62,22 @@ export function TaskDetailRightStageHost({
   )
 
   const open = visibleTabs.length > 0 && !collapsed
+  const prevTabCountRef = useRef(0)
 
-  // 有本任务标签时自动展开；同步「详情 | 侧栏」双区壳（与对话 main-body 对切同构）
+  // 同步「详情 | 侧栏」双区壳。仅在「从无标签 → 有标签」时自动展开，
+  // 勿在用户点折叠后立刻 expand（否则收起按钮看起来无效）。
   useEffect(() => {
-    if (visibleTabs.length > 0 && collapsed) expand()
+    const count = visibleTabs.length
+    const arrived = count > 0 && prevTabCountRef.current === 0
+    prevTabCountRef.current = count
+    if (arrived && collapsed) expand()
+
     const page = document.querySelector('.task-detail-page')
     const stagePane = document.getElementById('td-right-stage-slot')
-    const open = visibleTabs.length > 0 && !collapsed
-    if (page) page.classList.toggle('td-with-right-stage', open)
+    const paneOpen = count > 0 && !collapsed
+    if (page) page.classList.toggle('td-with-right-stage', paneOpen)
     if (stagePane) {
-      if (open) stagePane.removeAttribute('hidden')
+      if (paneOpen) stagePane.removeAttribute('hidden')
       else stagePane.setAttribute('hidden', '')
     }
   }, [visibleTabs.length, collapsed, expand])

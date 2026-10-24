@@ -36,7 +36,7 @@ catalog: pass domain via tool arg ``domain`` or args_json {\"domain\":\"mcp\"}; 
 items.* = user notes; tasks.* = collab ledger (prefer tasks tool on duty); todo = chat checklist only.
 Reusable craft/experience → assets tool (not platform experience.*).
 When result has assistant_guide.say_to_user: tell the user that text.
-employees.create/hire → relay say_to_user; bind channel with employees.bind_channel_begin (prefer over channels.registration_*).
+employees.create/hire → relay say_to_user; bind channel with employees.bind_channel_begin (not channels.registration_*; not panel_set/artifacts QR png; not Markdown ![](url)). UI renders QR under the tool result.
 settings.* also covers web-search setup (Agent Plan Doubao Harness key / Tavily / Bocha…): prefer settings.get_web_search → follow assistant_guide → patch/test; do not push users into the complex Settings UI.
 """
 

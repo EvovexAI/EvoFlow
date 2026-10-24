@@ -241,6 +241,46 @@ describe('parsePlatformUiFeedback', () => {
   })
 })
 
+describe('publishArtifacts — panel_set artifacts 必须能强制打开状态卡', () => {
+  it('force=true 时展开 panel + 切到产物 tab（不跟自动预览设置）', async () => {
+    const { publishArtifacts } = await import('../src/react/chat-app/right-stage/publish-artifacts.ts')
+    const { vi } = await import('vitest')
+    const ctx = {
+      turnRunArtifactsRef: {
+        current: [
+          {
+            id: 'path:outputs/tutor-feishu-bind-qr.png',
+            type: 'image',
+            name: 'tutor-feishu-bind-qr.png',
+            path: 'outputs/tutor-feishu-bind-qr.png',
+          },
+        ],
+      },
+      setTurnArtifacts: vi.fn(),
+      isAutoWorkPreviewEnabled: () => false,
+      writeStreamModeRef: { current: 'off' },
+      rightStageHintTimerRef: { current: 0 },
+      hideRightStageIfKind: vi.fn(),
+      setChatPanelDisplayMode: vi.fn(),
+      setInfoRailOpen: vi.fn(),
+      setInfoRailTab: vi.fn(),
+      setArtifactFocusId: vi.fn(),
+      toast: vi.fn(),
+    }
+    publishArtifacts(ctx)
+    expect(ctx.setChatPanelDisplayMode).not.toHaveBeenCalled()
+
+    publishArtifacts(ctx, {
+      force: true,
+      focusId: 'path:outputs/tutor-feishu-bind-qr.png',
+    })
+    expect(ctx.setChatPanelDisplayMode).toHaveBeenCalledWith('panel')
+    expect(ctx.setInfoRailOpen).toHaveBeenCalledWith(true)
+    expect(ctx.setInfoRailTab).toHaveBeenCalledWith('artifacts')
+    expect(ctx.setArtifactFocusId).toHaveBeenCalledWith('path:outputs/tutor-feishu-bind-qr.png')
+  })
+})
+
 describe('publishPlatformFromAgUiResult — 流式右上角平台通知', () => {
   it('平台 TOOL_CALL_RESULT 立刻 publish', () => {
     const publish = vi.fn()
