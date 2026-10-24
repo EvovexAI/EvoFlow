@@ -730,7 +730,7 @@ def rrule_to_cron(rrule_str: str) -> str:
         # the runner silently skipped the automation ("rrule dead config").
         if minute:
             return f"{minute} */{interval} * * *" if interval > 1 else f"{minute} * * * *"
-        return f"*/{interval} * * *" if interval > 1 else "* * * * *"
+        return f"*/{interval} * * * *" if interval > 1 else "* * * * *"
     if freq == "DAILY":
         if byday:
             nums = ",".join(dow_map.get(d.strip(), "?") for d in byday.split(",") if d.strip())
