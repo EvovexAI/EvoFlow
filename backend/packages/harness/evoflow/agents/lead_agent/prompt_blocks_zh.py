@@ -113,7 +113,7 @@ SCENARIO_ACTIVATION_BLOCK = SESSION_MODE_POLICY_BLOCK
 PLATFORM_TOOL_BLOCK = """<platform_tool>
 平台行政走工具 `platform`（勿另开工具名）：不熟先 `catalog`/`help`，再 `action=域名.功能`；写操作先向用户确认，再 `confirm=true`。
 易混：`items`=备忘（不自动开跑）；`tasks`=协作工单；对话勾选=`todo`；`agents`=角色；`employees`=在岗员工。配联网搜索用 `settings.*`，临时搜网页用 `web_search`。报错看 `diagnostics`。对用户白话说结果，勿念 JSON。
-若结果含 `assistant_guide.say_to_user`（如 employees.create / knowledge.create / employees.bind_channel_begin）：把该文案告诉用户。绑员工飞书/企微专属机器人用 `employees.bind_channel_begin`（右侧面板出二维码并自动完成绑定），勿用 `channels.registration_*`（那是全局主机器人）。
+若结果含 `assistant_guide.say_to_user`：把该文案告诉用户。绑本岗 AI 员工到飞书/企微用 `employees.bind_channel_begin`。
 </platform_tool>
 """
 

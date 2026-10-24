@@ -228,17 +228,17 @@ describe('进程聚合', () => {
 })
 
 describe('状态面板可见 tab / 活动跳转', () => {
-  it('空会话只挂智能体，不挂空的进程/产物/平台', () => {
-    expect(
-      buildVisibleSummaryPanelTabs({
-        processCount: 0,
-        artifactCount: 0,
-        platformCount: 0,
-      }).map((t) => t.id),
-    ).toEqual(['agent'])
+  it('空会话仍挂进程/产物/平台（不藏 tab），计数为 0 时无数字', () => {
+    const tabs = buildVisibleSummaryPanelTabs({
+      processCount: 0,
+      artifactCount: 0,
+      platformCount: 0,
+    })
+    expect(tabs.map((t) => t.id)).toEqual(['agent', 'process', 'artifacts', 'platform'])
+    expect(tabs.find((t) => t.id === 'platform')?.label).toBe('平台')
   })
 
-  it('有内容才出现对应 tab，并带计数', () => {
+  it('有内容时带计数', () => {
     const tabs = buildVisibleSummaryPanelTabs({
       processCount: 2,
       artifactCount: 1,
@@ -249,9 +249,15 @@ describe('状态面板可见 tab / 活动跳转', () => {
     expect(tabs.find((t) => t.id === 'platform')?.label).toBe('平台 3')
   })
 
-  it('不可见 tab 回落到智能体', () => {
-    expect(resolveEffectiveSummaryPanelTab('platform', ['agent', 'process'])).toBe('agent')
-    expect(resolveEffectiveSummaryPanelTab('process', ['agent', 'process'])).toBe('process')
+  it('调试关闭 / 非员工任务 tab 回落到智能体', () => {
+    expect(
+      resolveEffectiveSummaryPanelTab('debug', ['agent', 'process', 'artifacts', 'platform', 'debug'], {
+        obsEnabled: false,
+      }),
+    ).toBe('agent')
+    expect(
+      resolveEffectiveSummaryPanelTab('process', ['agent', 'process', 'artifacts', 'platform']),
+    ).toBe('process')
   })
 
   it('新平台 focus 跳到平台；随后产物 focus 抢最新', () => {

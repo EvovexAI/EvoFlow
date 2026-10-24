@@ -40,15 +40,14 @@ def build_employee_create_assistant_guide(result: dict[str, Any] | None = None) 
     say = (
         f"「{name}」{code_part}已上岗。你可以用这些方式使唤他：\n"
         f"1. 在面板里打开该员工对话，直接下达需求；\n"
-        f"2. 扫码绑定飞书/企微专属机器人后，在群里或私聊发消息；\n"
+        f"2. 扫码绑定本岗 AI 员工到飞书/企微后，在群里或私聊发消息；\n"
         f"3. 让其他员工或主助手派发任务给他；\n"
         f"4. 按心跳/上班时间自动值班，或点「现在开始工作」。\n"
-        f"若要立刻在飞书或企业微信里用，告诉我绑哪个渠道，我给你出二维码。"
+        f"若要立刻在飞书或企业微信里用，告诉我绑哪个渠道。"
     )
     next_steps = [
-        "把 assistant_guide.say_to_user 原话告诉用户（可略作口语润色，勿省略四种用法）",
-        "用户若要绑渠道：platform employees.bind_channel_begin（agent_code + channel=feishu|wecom，confirm=true）",
-        "绑定开始后回复面板会显示二维码；扫码完成后由面板自动完成绑定，无需再让用户去员工页",
+        "把 assistant_guide.say_to_user 告诉用户",
+        "用户要绑渠道：employees.bind_channel_begin（agent_code + channel=feishu|wecom，confirm=true）",
     ]
     if code:
         next_steps.append(f"查看岗位：employees.get agent_code={code}")
@@ -61,10 +60,7 @@ def build_employee_create_assistant_guide(result: dict[str, Any] | None = None) 
         "agent_code": code or None,
         "role_name": name,
         "bind_channels": ["feishu", "wecom"],
-        "instruction": (
-            "务必向用户复述 say_to_user；用户确认要绑渠道后再调 employees.bind_channel_begin，"
-            "不要改用 channels.registration_*（那是全局主机器人，不是本岗专属机器人）。"
-        ),
+        "instruction": "向用户复述 say_to_user；用户确认渠道后调 employees.bind_channel_begin。",
     }
 
 
@@ -98,7 +94,7 @@ def build_knowledge_create_assistant_guide(result: dict[str, Any] | None = None)
         f"直接说要写入什么内容，或要绑给哪位员工即可。"
     )
     next_steps = [
-        "把 assistant_guide.say_to_user 原话告诉用户",
+        "把 assistant_guide.say_to_user 告诉用户",
         "写入：knowledge.ingest（vaultId/kbId 均可）",
         "检索：knowledge.search / knowledge.recall",
         "绑到员工：employees.update（knowledge_vault_ids）或创建员工时带上该 id",
@@ -110,7 +106,7 @@ def build_knowledge_create_assistant_guide(result: dict[str, Any] | None = None)
         "next_steps": next_steps,
         "vault_id": vid or None,
         "name": name,
-        "instruction": "务必向用户复述 say_to_user，再按用户意图 ingest / 绑定员工。",
+        "instruction": "向用户复述 say_to_user，再按用户意图 ingest / 绑定员工。",
     }
 
 
@@ -122,40 +118,37 @@ def build_bind_channel_begin_assistant_guide(
     qr_url: str,
     session_id: str,
 ) -> dict[str, Any]:
-    """Guide after ``employees.bind_channel_begin``."""
+    """Guide after ``employees.bind_channel_begin``.
+
+    QR image is rendered by the frontend under the tool result; say_to_user stays
+    short and does not narrate UI chrome.
+    """
     ch = str(channel or "").strip().lower()
     labels = {"feishu": "飞书", "wecom": "企业微信", "dingtalk": "钉钉", "weixin": "微信"}
     label = labels.get(ch, ch or "IM")
     name = str(role_name or agent_code or "该员工").strip() or "该员工"
-    has_qr = bool(str(qr_url or "").strip())
+    qr = str(qr_url or "").strip()
+    has_qr = bool(qr)
 
     if has_qr:
         say = (
-            f"已为「{name}」生成{label}专属机器人二维码，请看右侧平台操作面板扫码。"
-            f"用{label} App 扫完后会自动绑到本岗；绑好后把机器人拉进群，@{name} 即可协作。"
+            f"已为「{name}」发起{label}绑定。"
+            f"扫完后把他拉进群，@{name} 即可协作。"
         )
     else:
-        say = (
-            f"已开始为「{name}」绑定{label}，但未拿到二维码链接。"
-            f"请稍后再试，或到员工页「扫码绑定 IM」完成。"
-        )
+        say = f"已开始为「{name}」绑定{label}，但未拿到二维码，请稍后再试。"
 
     return {
         "status": "bind_qr_ready" if has_qr else "bind_qr_missing",
-        "summary": f"为「{name}」发起{label}扫码绑定",
+        "summary": f"为「{name}」发起{label}扫码，绑定本岗 AI 员工",
         "say_to_user": say,
         "next_steps": [
-            "把 say_to_user 告诉用户，并提醒看右侧平台操作面板中的二维码",
-            "面板会自动 poll + apply；一般无需再调 bind_channel_poll/apply",
-            "若面板未自动完成：employees.bind_channel_poll → 完成后 employees.bind_channel_apply",
+            "把 assistant_guide.say_to_user 告诉用户",
         ],
         "agent_code": agent_code,
         "role_name": name,
         "channel": ch,
         "session_id": session_id,
-        "qr_url": str(qr_url or "").strip() or None,
-        "instruction": (
-            "务必告诉用户去右侧面板扫码；不要把 qr_url 念成一长串字符。"
-            "不要用 channels.registration_apply（全局渠道），必须用 employees.bind_channel_apply。"
-        ),
+        "qr_url": qr or None,
+        "instruction": "向用户复述 say_to_user。",
     }

@@ -2481,6 +2481,7 @@ export function useChatAppController() {
         setSessionPlatformEntries,
         rightStageStore,
         rightStageHintTimerRef,
+        setChatPanelDisplayMode,
         setInfoRailOpen,
         setInfoRailTab,
         latestPlatformRunEntryId,
@@ -2489,7 +2490,7 @@ export function useChatAppController() {
       entries,
       focusEntryId,
     )
-  }, [])
+  }, [setChatPanelDisplayMode])
   const publishArtifacts = useCallback(
     (opts?: { focusId?: string; hint?: string; force?: boolean }) => {
       publishArtifactsImpl(

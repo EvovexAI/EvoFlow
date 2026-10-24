@@ -216,8 +216,8 @@ export function workflowStatusLabel(status: string | undefined): string {
 export type SummaryActivityTab = 'process' | 'artifacts' | 'platform'
 
 /**
- * 可见 tab：智能体/员工始终在；进程 / 产物 / 平台仅在当前会话有内容时出现。
- * 避免切到空会话仍挂着空「平台」「产物」造成错乱感。
+ * 可见 tab：智能体/员工 + 进程 / 产物 / 平台始终挂着（计数为 0 时不显示「0」）；
+ * 任务 / 调试按会话与观测开关出现。切会话隔离靠清空 focus + 重置到智能体，不靠藏 tab。
  */
 export function buildVisibleSummaryPanelTabs(input: {
   isEmployeeSession?: boolean
@@ -231,16 +231,10 @@ export function buildVisibleSummaryPanelTabs(input: {
   const withCount = input.withCount || ((n, label) => (n > 0 ? `${label} ${n}` : label))
   const list: Array<{ id: string; label: string }> = [
     { id: 'agent', label: input.isEmployeeSession ? '员工' : '智能体' },
+    { id: 'process', label: withCount(input.processCount, '进程') },
+    { id: 'artifacts', label: withCount(input.artifactCount, '产物') },
+    { id: 'platform', label: withCount(input.platformCount, '平台') },
   ]
-  if (input.processCount > 0) {
-    list.push({ id: 'process', label: withCount(input.processCount, '进程') })
-  }
-  if (input.artifactCount > 0) {
-    list.push({ id: 'artifacts', label: withCount(input.artifactCount, '产物') })
-  }
-  if (input.platformCount > 0) {
-    list.push({ id: 'platform', label: withCount(input.platformCount, '平台') })
-  }
   if (input.isEmployeeSession && input.showTask) {
     list.push({ id: 'task', label: '任务' })
   }

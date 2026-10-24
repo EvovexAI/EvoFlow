@@ -33,7 +33,7 @@ def test_knowledge_create_guide_has_say_to_user():
     assert "ingest" in " ".join(guide["next_steps"])
 
 
-def test_bind_channel_begin_guide_points_to_panel_qr():
+def test_bind_channel_begin_guide_is_short():
     guide = build_bind_channel_begin_assistant_guide(
         agent_code="duty-ops",
         role_name="运维值班",
@@ -42,9 +42,15 @@ def test_bind_channel_begin_guide_points_to_panel_qr():
         session_id="sess_1",
     )
     assert guide["status"] == "bind_qr_ready"
-    assert "二维码" in guide["say_to_user"]
+    say = guide["say_to_user"]
+    assert "运维值班" in say
+    assert "飞书" in say
+    assert "二维码" not in say
+    assert "右侧" not in say
+    assert "![](" not in say
+    assert "http" not in say
     assert guide["qr_url"] == "https://example.com/qr"
-    assert "channels.registration" in guide["instruction"]
+    assert guide["instruction"] == "向用户复述 say_to_user。"
 
 
 def test_bind_channel_begin_ui_includes_qr_fields():

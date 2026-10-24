@@ -498,15 +498,15 @@ function ChatSummaryPanelInner({
   }, [sessionKey])
 
   // 实时跳转：平台 / 产物 / 进程谁最新跟谁；空 focus 也会刷新 prev，避免跨会话同 id 卡死。
+  // 首挂若 focus 已在（平台工具先于面板挂载写完），也要从空基线跳一次，不能吞掉。
   useEffect(() => {
     if (!activityArmedRef.current) {
       activityArmedRef.current = true
       activityPrevRef.current = {
-        platformFocus: String(platformFocusEntryId || '').trim(),
-        artifactFocus: String(artifactFocusId || '').trim(),
-        processRunning: summary.running,
+        platformFocus: '',
+        artifactFocus: '',
+        processRunning: 0,
       }
-      return
     }
     const { tab, nextPrev } = detectSummaryActivityJump({
       prev: activityPrevRef.current,
@@ -520,8 +520,9 @@ function ChatSummaryPanelInner({
     if (processStarted) setUserCollapsed(false)
     if (!tab) return
     setPanelTab(tab)
-    if (displayMode === 'capsule') goPanel()
-  }, [platformFocusEntryId, artifactFocusId, summary.running, displayMode, goPanel])
+    // 平台/产物/进程通知到了就撑开悬浮卡，胶囊态也要立刻可见
+    goPanel()
+  }, [platformFocusEntryId, artifactFocusId, summary.running, goPanel])
 
   // 展开策略：胶囊态 + 有进程在跑时自动撑成面板（用户手动收起后尊重选择）。
   // 仅会话 isRunning、尚无进程项时不撑开，避免「还没开终端」就弹出状态卡暗示终端调用。
@@ -540,8 +541,7 @@ function ChatSummaryPanelInner({
     onDisplayModeChange('panel')
   }, [displayMode, effectiveMode, onDisplayModeChange])
 
-  // 面板 tab：智能体/员工固定；进程 / 产物 / 平台仅当前会话有内容时出现。
-  // 计数为 0 时不显示「0」：有内容才挂 tab，空会话不会残留空通知页。
+  // 面板 tab：智能体/员工固定；进程 / 产物 / 平台始终挂着（有计数才显示数字）。
   const withCount = useCallback(
     (n: number, label: string) => (n > 0 ? `${label} ${n}` : label),
     [],

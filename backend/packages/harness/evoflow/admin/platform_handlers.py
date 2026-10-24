@@ -1045,7 +1045,7 @@ def _normalize_employee_bind_channel(raw: str) -> str:
         ch = "weixin"
     if ch not in _EMPLOYEE_BIND_CHANNELS:
         raise ValidationError(
-            "channel must be feishu|wecom（岗位专属机器人扫码；钉钉/微信请用员工页绑定，"
+            "channel must be feishu|wecom（绑定本岗 AI 员工；钉钉/微信请用员工页绑定，"
             "全局主机器人用 channels.registration_*）"
         )
     return ch
@@ -1092,10 +1092,7 @@ def employees_bind_channel_begin(args: dict[str, Any]) -> dict[str, Any]:
         "session_id": session_id,
         "qr_url": qr_url,
         "status": status,
-        "hint": (
-            f"右侧平台面板会显示{('飞书' if channel == 'feishu' else '企微')}二维码；"
-            "用户扫码后由面板自动完成绑定。勿用 channels.registration_apply。"
-        ),
+        "hint": "扫码完成后自动绑定本岗 AI 员工。",
     }
     out["assistant_guide"] = build_bind_channel_begin_assistant_guide(
         agent_code=code,
@@ -1208,12 +1205,12 @@ def employees_bind_channel_apply(args: dict[str, Any]) -> dict[str, Any]:
         "role_name": role_name,
         "channel": channel,
         "session_id": session_id,
-        "hint": f"已绑定{('飞书' if channel == 'feishu' else '企微')}专属机器人；把机器人拉进群即可 @{role_name}",
+        "hint": f"已绑定本岗 AI 员工到{('飞书' if channel == 'feishu' else '企微')}；拉进群即可 @{role_name}",
         "assistant_guide": {
             "status": "bind_applied",
             "say_to_user": (
-                f"「{role_name}」的{('飞书' if channel == 'feishu' else '企微')}专属机器人已绑好。"
-                f"把该机器人拉进同事所在群，@{role_name} 即可协作。"
+                f"「{role_name}」本岗 AI 员工已绑定{('飞书' if channel == 'feishu' else '企微')}。"
+                f"把他拉进同事所在群，@{role_name} 即可协作。"
             ),
             "next_steps": ["把 say_to_user 告诉用户", "可选：employees.get 确认 binding 状态"],
             "instruction": "向用户复述 say_to_user。",

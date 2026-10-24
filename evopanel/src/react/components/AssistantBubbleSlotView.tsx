@@ -27,6 +27,7 @@ import { ReasoningInlineBlock } from './ReasoningInlineBlock.js'
 import { StreamRunStatusLine } from './StreamRunStatusLine.js'
 import { ToolCallList } from './ToolCallList.js'
 import { TurnHistoryFold } from './TurnHistoryFold.js'
+import { PlatformResultCards } from './PlatformResultCards.js'
 import { shouldDefaultOpenTurnHistory } from '../lib/turn-history-fold-policy.js'
 import { isToolRunning } from '../../lib/chat-normalize.js'
 
@@ -508,6 +509,10 @@ function AssistantBubbleSlotViewInner({
           {gear}
         </>
       )}
+      {/* 平台结果（含绑本岗 AI 员工二维码）挂在整轮折叠外、对话最下方，类似截图预览 */}
+      <div className="msg-platform-results-hoist" data-piece-role="latest">
+        <PlatformResultCards tools={tools} />
+      </div>
       {!isStreaming && !compareSessionKey && sessionKey && changedFiles.length > 0 ? (
         <ChangedFilesSummaryRow
           files={changedFiles}

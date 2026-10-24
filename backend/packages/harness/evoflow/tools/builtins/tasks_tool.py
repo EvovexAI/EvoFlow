@@ -23,7 +23,7 @@ action: create | progress | state | delete | list | get。
 - progress: task_id + progress 0–100
 - state: task_id + status (completed/failed/cancelled) + summary；有下游 completed 时填 handlers
 - delete: task_id + confirm=true
-outputs: 文档路径 [{type,key,value}]；handlers: [{agent_code,content,read_outputs[]}]
+outputs: 文档路径 [{type,key,value}]（type=file 时路径必须已存在，否则保存失败）；handlers: [{agent_code,content,read_outputs[]}]
 
 写权限：progress / state / delete 仅本岗（assigned_to=当前员工）；禁止改他人/上级状态。
 小V（系统前台）代用户可更新任意单。身份由运行时绑定，勿自报 agent_code。
@@ -101,7 +101,13 @@ class TaskOutputItem(BaseModel):
 
     type: str = Field("file", description="file|url|text|other")
     key: str = Field(..., description="Stable key")
-    value: str = Field(..., description="Path, URL, or short text")
+    value: str = Field(
+        ...,
+        description=(
+            "Path, URL, or short text. For type=file the path must already exist "
+            "on disk (absolute or under the role workspace); missing paths reject the save."
+        ),
+    )
     label: str = Field("", description="Display label")
 
 

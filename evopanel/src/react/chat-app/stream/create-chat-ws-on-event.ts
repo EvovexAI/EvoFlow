@@ -1770,19 +1770,55 @@ export function createChatWsOnEventHandler(ctx: ChatWsOnEventCtx) {
         if (!isBackground && aguiEvent.type === EventType.TOOL_CALL_RESULT) {
           const toolCallId = String((aguiEvent as { toolCallId?: string }).toolCallId || '').trim()
           const tc = toolCallId ? S.aguiTurn?.toolCalls?.get(toolCallId) : undefined
-          const toolName = String(tc?.toolCallName || '')
+          // RESULT 事件偶发不带 toolCallName；优先 map，再回落 event 字段
+          const toolName = String(
+            tc?.toolCallName ||
+              (aguiEvent as { toolCallName?: string }).toolCallName ||
+              '',
+          )
             .trim()
             .toLowerCase()
           // panel_set / stage_set 已在上方统一处理（含后台会话），这里只剩 platform。
           if (toolName === 'platform') {
-            const resultContent =
-              typeof (aguiEvent as { content?: string }).content === 'string'
-                ? (aguiEvent as { content?: string }).content
+            const evContent = (aguiEvent as { content?: unknown }).content
+            let resultContent: unknown =
+              typeof evContent === 'string'
+                ? evContent
                 : typeof tc?.result === 'string'
                   ? tc.result
-                  : undefined
+                  : evContent
+            // slim 后正文可能丢 ui；用 reducer 保留的 platformUi 重建，否则右上角通知不亮
+            if (
+              (resultContent == null || resultContent === '') &&
+              tc?.platformUi &&
+              typeof tc.platformUi === 'object'
+            ) {
+              resultContent = {
+                ok: tc.platformOk !== false,
+                action: tc.platformAction,
+                item: tc.platformItem,
+                agent: tc.platformAgent,
+                role: tc.platformRole,
+                settings: tc.platformSettings,
+                ui: tc.platformUi,
+                client_effect: tc.platformClientEffect,
+              }
+            } else if (
+              typeof resultContent === 'string' &&
+              tc?.platformUi &&
+              typeof tc.platformUi === 'object'
+            ) {
+              // 字符串结果解析不出 ui 时，下面 apply 会失败；先尝试 merge 保留字段
+              try {
+                const parsed = JSON.parse(resultContent)
+                if (parsed && typeof parsed === 'object' && !parsed.ui) {
+                  resultContent = { ...parsed, ui: tc.platformUi }
+                }
+              } catch {
+                /* keep string */
+              }
+            }
             const argsText = typeof tc?.argsText === 'string' ? tc.argsText : undefined
-            const toolCallId = String((aguiEvent as { toolCallId?: string }).toolCallId || '').trim()
             if (toolCallId && !platformFeedbackSeenRef.current.has(toolCallId)) {
               // Roster notify runs on every TOOL_CALL_RESULT (incl. background); skip here.
               const feedback = applyPlatformFeedbackFromToolResult(resultContent, {

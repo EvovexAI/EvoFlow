@@ -196,8 +196,8 @@ def _build_title(action: str, domain: str, verb: str, label: str, args: dict[str
         "employees.pause": f"已暂停员工「{name}」值班",
         "employees.resume": f"已恢复员工「{name}」值班",
         "employees.stop": f"已停止员工「{name}」当前轮次",
-        "employees.bind_channel_begin": f"已为「{name}」生成渠道绑定二维码",
-        "employees.bind_channel_apply": f"已绑定「{name}」的渠道机器人",
+        "employees.bind_channel_begin": f"已为「{name}」生成绑定二维码",
+        "employees.bind_channel_apply": f"已绑定本岗 AI 员工「{name}」",
         "agents.create": f"已创建智能体「{name}」",
         "agents.update": f"已更新智能体「{name}」配置",
         "agents.delete": f"已删除智能体「{name}」",
@@ -316,12 +316,12 @@ def _build_subtitle(domain: str, action: str, result: dict[str, Any]) -> str:
         ch = _first_str(result.get("channel")).lower()
         label = {"feishu": "飞书", "wecom": "企微"}.get(ch, "IM")
         if _first_str(result.get("qr_url"), result.get("qrUrl")):
-            return f"请用{label} App 扫描下方二维码；扫完自动绑定本岗机器人"
+            return f"{label}扫码绑定本岗 AI 员工"
         return f"正在获取{label}二维码…"
     if action == "employees.bind_channel_apply":
-        return "专属机器人已绑定；拉进群后即可 @ 该岗位"
+        return "本岗 AI 员工已绑定渠道"
     if action in {"employees.create", "employees.hire"}:
-        return "可在对话里使唤他，或扫码绑定飞书/企微渠道"
+        return "可对话、派发或扫码绑定渠道"
     if action.startswith("employees."):
         return "可在智能体员工页查看"
     if action.startswith("workflow."):

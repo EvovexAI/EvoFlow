@@ -39,6 +39,7 @@ from evoflow.collab.task_outputs import (
     agent_code_for_task_row,
     evidence_paths_from_outputs,
     normalize_task_outputs,
+    require_file_outputs_exist,
     task_input_refs_of,
     task_outputs_of,
     workspace_root_for_task_row,
@@ -115,11 +116,29 @@ def _outcome_patch(
 
     File-typed output values are stored as absolute paths when ``workspace_root``
     is known, so UIs can open them without joining a guessed root.
+
+    ``type=file`` paths must exist on disk — otherwise raise
+    :class:`ValidationError` so agents cannot save fake paths that break preview.
     """
     text = normalize_task_summary(summary)
     items = normalize_task_outputs(outputs) if outputs is not None else None
-    if items is not None and workspace_root:
-        items = absolutize_task_outputs(items, workspace_root, agent_code=agent_code)
+    if items is not None:
+        try:
+            items = require_file_outputs_exist(
+                items,
+                workspace_root,
+                agent_code=agent_code,
+                field_label="产出文件",
+            )
+        except ValueError as exc:
+            raise ValidationError(str(exc)) from exc
+        # Strip resolve meta before persist (UI can re-resolve on read).
+        cleaned: list[dict[str, Any]] = []
+        for row in items:
+            if not isinstance(row, dict):
+                continue
+            cleaned.append({k: v for k, v in row.items() if k != "_resolve_meta"})
+        items = cleaned
     if not text and not items:
         return {}
     patch: dict[str, Any] = {}

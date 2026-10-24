@@ -77,7 +77,7 @@ DOMAIN_GUIDES: dict[str, dict[str, str]] = {
         "title": "智能体员工岗位",
         "when": (
             "雇佣/暂停/恢复/唤醒/删除员工、改心跳、看工作日志、迁移旧事项到 Task、"
-            "为岗位扫码绑飞书/企微专属机器人时；新建优先 capability_pack=duty。"
+            "为岗位扫码绑飞书/企微（绑定本岗 AI 员工）时；新建优先 capability_pack=duty。"
             "create/hire 后读 assistant_guide.say_to_user 告诉用户怎么用；"
             "绑渠道用 employees.bind_channel_*（不是 channels.registration_*）"
         ),
@@ -496,7 +496,7 @@ def _build_registry() -> dict[str, PlatformAction]:
         _A(
             "employees.bind_channel_begin",
             "employees",
-            "为指定员工发起飞书/企微专属机器人扫码绑定（返回 qr_url；面板出码后自动 poll/apply）",
+            "为指定员工发起飞书/企微扫码，绑定本岗 AI 员工",
             "write",
             "agent_code, channel?=feishu|wecom",
             H.employees_bind_channel_begin,
@@ -505,7 +505,7 @@ def _build_registry() -> dict[str, PlatformAction]:
         _A(
             "employees.bind_channel_poll",
             "employees",
-            "轮询员工渠道扫码状态（面板通常会自动轮询；仅兜底）",
+            "轮询员工渠道扫码状态（对话卡通常会自动轮询；仅兜底）",
             "read",
             "session_id, channel?, agent_code?",
             H.employees_bind_channel_poll,
@@ -514,7 +514,7 @@ def _build_registry() -> dict[str, PlatformAction]:
         _A(
             "employees.bind_channel_apply",
             "employees",
-            "把扫码凭证绑到该员工专属机器人（勿用 channels.registration_apply）",
+            "把扫码凭证绑到本岗 AI 员工（勿用 channels.registration_apply）",
             "write",
             "agent_code, session_id, channel?=feishu|wecom",
             H.employees_bind_channel_apply,
