@@ -19,6 +19,9 @@ const WORKSPACE_SCOPED_KINDS = new Set<string>([
   'write',
   'mind-map',
   'collab-workflow',
+  // 进度类：任意对话可盯同一工作流/节点/员工过程（panel_set 跨会话）
+  'collabSubtaskTranscript',
+  'employeeProcess',
 ])
 
 /**
@@ -35,8 +38,6 @@ const SESSION_SCOPED_KINDS = new Set<string>([
   'terminal',
   'summary',
   'subagentTranscript',
-  'collabSubtaskTranscript',
-  'employeeProcess',
   'artifacts',
 ])
 

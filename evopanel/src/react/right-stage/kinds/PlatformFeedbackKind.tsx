@@ -1,7 +1,7 @@
 import { memo } from 'react'
 import type { RightStageSurface } from '../../../lib/right-stage/right-stage-types.js'
 import {
-  navigatePlatformFeedbackRoute,
+  activatePlatformFeedbackAction,
   type PlatformFeedbackSurfaceData,
   type PlatformUiFeedback,
 } from '../../../lib/right-stage/platform-feedback.js'
@@ -98,12 +98,11 @@ function PlatformFeedbackKindInner({
             ) : null}
             {actions.map((action) => (
               <button
-                key={`${action.label}:${action.route || ''}`}
+                key={`${action.label}:${action.route || action.openStage?.kind || ''}`}
                 type="button"
                 className="react-chat-platform-feedback-action"
                 onClick={() => {
-                  if (action.route) navigatePlatformFeedbackRoute(action.route)
-                  else onClose?.()
+                  if (!activatePlatformFeedbackAction(action)) onClose?.()
                 }}
               >
                 {action.label}

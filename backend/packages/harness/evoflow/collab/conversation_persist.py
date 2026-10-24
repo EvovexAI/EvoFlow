@@ -318,28 +318,92 @@ def list_subtask_conversation_ui_messages(
     except Exception:
         logger.debug("list_subtask_conversation_ui_messages failed", exc_info=True)
 
-    # Historical workflow runs may have outcome on the subtask row but no chat rows
-    # (writes used to require a lead session). Surface the report so the UI is not blank.
-    if not rows and isinstance(row, dict):
-        try:
-            from evoflow.collab.subtask_outcome import build_subtask_outcome_snapshot
-
-            snap = build_subtask_outcome_snapshot(row)
-            report = str((snap or {}).get("task_report") or (snap or {}).get("summary") or "").strip()
-            if report:
-                rows.append(
-                    {
-                        "id": f"{sid}:outcome-report",
-                        "role": "assistant",
-                        "content": report,
-                        "collab_subtask_id": sid,
-                        "source": "subtask_outcome_report",
-                    }
-                )
-        except Exception:
-            logger.debug("outcome fallback for empty subtask transcript failed", exc_info=True)
-
+    # Do not inject outcome/task_report into messages — same store as main chat.
+    # Callers that need a handoff summary use ``build_subtask_outcome_snapshot`` separately.
     return rows[-cap:]
+
+
+def resolve_subtask_conversation_threads(
+    task: dict[str, Any],
+    subtask_id: str,
+    *,
+    subtask_row: dict[str, Any] | None = None,
+) -> list[str]:
+    """Stable executor thread candidates for a subtask (same lookup as message load)."""
+    sid = str(subtask_id or "").strip()
+    if not sid or not isinstance(task, dict):
+        return []
+    lead_thread = str(task.get("thread_id") or "").strip() or None
+    row = subtask_row if isinstance(subtask_row, dict) else None
+    if row is None:
+        for st in task.get("subtasks") or []:
+            if isinstance(st, dict) and str(st.get("id") or "").strip() == sid:
+                row = st
+                break
+    return _legacy_executor_threads_for_subtask(
+        lead_thread=lead_thread,
+        subtask_id=sid,
+        subtask_row=row,
+    )
+
+
+def resolve_subtask_transcript_thread(
+    task: dict[str, Any],
+    subtask_id: str,
+    *,
+    subtask_row: dict[str, Any] | None = None,
+) -> str | None:
+    """Primary executor ``thread_id`` for by-thread message reads (same store as main chat)."""
+    threads = resolve_subtask_conversation_threads(task, subtask_id, subtask_row=subtask_row)
+    return threads[0] if threads else None
+
+
+def _lookup_stored_subtask_thread_id(subtask_id: str, *, main_task_id: str | None = None) -> str | None:
+    """Best-effort ``subtask_thread_id`` from project storage (survives lead UUID recreate)."""
+    sid = str(subtask_id or "").strip()
+    mid = str(main_task_id or "").strip()
+    if not sid or not mid:
+        return None
+    try:
+        found = find_main_task(get_project_storage(), mid)
+        if not found:
+            return None
+        _proj, task = found
+        for st in task.get("subtasks") or []:
+            if isinstance(st, dict) and str(st.get("id") or "").strip() == sid:
+                stored = str(st.get("subtask_thread_id") or st.get("external_session_id") or "").strip()
+                return stored or None
+    except Exception:
+        logger.debug("_lookup_stored_subtask_thread_id failed", exc_info=True)
+    return None
+
+
+def _executor_thread_for_persist(
+    *,
+    lead_thread: str | None,
+    subtask_id: str,
+    main_task_id: str | None = None,
+    stored_subtask_thread_id: str | None = None,
+) -> str:
+    """Same resolve as reads: prefer persisted worker thread over derived-from-current-lead."""
+    from evoflow.collab.thread_ids import (
+        collab_subtask_executor_thread_id,
+        resolve_subtask_executor_thread_id,
+    )
+
+    sid = str(subtask_id or "").strip()
+    lead = str(lead_thread or "").strip() or None
+    stored = str(stored_subtask_thread_id or "").strip() or None
+    if not stored:
+        stored = _lookup_stored_subtask_thread_id(sid, main_task_id=main_task_id)
+    resolved = resolve_subtask_executor_thread_id(
+        lead,
+        sid,
+        stored_subtask_thread_id=stored,
+    )
+    if resolved:
+        return resolved
+    return collab_subtask_executor_thread_id(lead or "", sid)
 
 
 def _persist_subtask_message_to_chat(
@@ -350,6 +414,7 @@ def _persist_subtask_message_to_chat(
     message: dict[str, Any],
     run_id: str | None = None,
     default_model_name: str | None = None,
+    main_task_id: str | None = None,
 ) -> bool:
     """Write one subtask stream row into ``evoflow_chat_messages`` (executor thread scope).
 
@@ -358,7 +423,6 @@ def _persist_subtask_message_to_chat(
     consistent with all other write paths. Works without a lead thread (workflow apps).
     """
     try:
-        from evoflow.collab.thread_ids import collab_subtask_executor_thread_id
         from evoflow.persistence.chat_session_service import (
             append_message_and_touch_session,
             ensure_executor_transcript_session,
@@ -368,7 +432,11 @@ def _persist_subtask_message_to_chat(
         if not chat_role:
             return False
         lead = str(lead_thread or "").strip() or None
-        executor_thread = collab_subtask_executor_thread_id(lead or "", subtask_id)
+        executor_thread = _executor_thread_for_persist(
+            lead_thread=lead,
+            subtask_id=subtask_id,
+            main_task_id=main_task_id,
+        )
         session_key = ensure_executor_transcript_session(
             executor_thread,
             lead_thread_id=lead,
@@ -412,18 +480,20 @@ def _persist_subtask_entries_to_chat(
     entries: list[dict[str, Any]],
     mirror_source_message: dict[str, Any] | None = None,
     default_model_name: str | None = None,
+    main_task_id: str | None = None,
 ) -> int:
     """Persist multiple subtask entries in a single batch transaction.
 
     Collects all entries into one ``append_messages_batch_and_touch_session``
     call (1 transaction) instead of N separate ``append_message_and_touch_session``
     calls (N transactions). Supports no-lead workflow executors.
+    Uses the same ``resolve_subtask_executor_thread_id`` as the read path so
+    lead UUID recreate does not fork writes onto a new empty thread.
     """
     sid = str(subtask_id or "").strip()
     if not entries or not sid:
         return 0
     try:
-        from evoflow.collab.thread_ids import collab_subtask_executor_thread_id
         from evoflow.persistence.chat_message_repositories import pack_row_from_message
         from evoflow.persistence.chat_session_service import (
             append_messages_batch_and_touch_session,
@@ -431,7 +501,11 @@ def _persist_subtask_entries_to_chat(
         )
 
         lead = str(lead_thread or "").strip() or None
-        executor_thread = collab_subtask_executor_thread_id(lead or "", sid)
+        executor_thread = _executor_thread_for_persist(
+            lead_thread=lead,
+            subtask_id=sid,
+            main_task_id=main_task_id,
+        )
         session_key = ensure_executor_transcript_session(
             executor_thread,
             lead_thread_id=lead,
@@ -520,7 +594,12 @@ def append_subtask_conversation_messages(
         if msg.get("source"):
             entry["source"] = msg.get("source")
         entries.append(entry)
-    added = _persist_subtask_entries_to_chat(lead_thread=lead_thread, subtask_id=sid, entries=entries)
+    added = _persist_subtask_entries_to_chat(
+        lead_thread=lead_thread,
+        subtask_id=sid,
+        entries=entries,
+        main_task_id=str(main_task_id or "").strip() or None,
+    )
     return added > 0
 
 
@@ -619,6 +698,7 @@ def append_collab_subtask_stream_message(
         entries=[row],
         mirror_source_message=message if isinstance(message, dict) else row,
         default_model_name=default_model_name,
+        main_task_id=mid,
     )
     return added > 0
 
@@ -803,6 +883,7 @@ __all__ = [
     "latest_subtask_conversation_text",
     "resolve_subtask_persist_run_id",
     "list_subtask_conversation_ui_messages",
+    "resolve_subtask_transcript_thread",
     "mirror_lead_chat_message_to_task",
     "reconcile_lead_conversation_from_chat",
 ]

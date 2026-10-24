@@ -1638,7 +1638,13 @@ function setupOutputPolling(page, state) {
         const { employeeProcessStageTabKey } = await import(
           '../lib/right-stage/open-employee-process-stage.js'
         )
-        const procKey = employeeProcessStageTabKey(state.taskId)
+        const { taskCenterStageSessionKey } = await import(
+          '../lib/right-stage/task-center-stage-key.js'
+        )
+        const procKey = employeeProcessStageTabKey(
+          state.taskId,
+          taskCenterStageSessionKey(state.taskId),
+        )
         const tab = procKey ? rightStageStore.findTab?.(procKey) : null
         if (tab) {
           const busy = toTaskStatusGroup(t.status) === 'executing'
@@ -3156,21 +3162,19 @@ async function openTaskCenterWorkflowStage(page, state) {
   const threadId = String(task.thread_id || state.currentThreadId || '').trim()
   try {
     const { taskCenterStageSessionKey } = await import('../lib/right-stage/task-center-stage-key.js')
-    const { rightStageStore } = await import('../lib/right-stage/right-stage-store.js')
+    const { openCollabWorkflowInRightStage } = await import(
+      '../lib/right-stage/open-collab-workflow-stage.js'
+    )
     const stageSk = taskCenterStageSessionKey(tid)
     state.rightStageHost?.update?.({
       taskId: tid,
       threadId,
       agents: state.agentCatalog || state.agents || [],
     })
-    rightStageStore.show({
-      kind: 'collab-workflow',
-      id: `workflow:${tid}`,
-      title: '工作流',
-      layout: 'half',
-      sessionKey: stageSk,
-      data: { mainTaskId: tid, leadThreadId: threadId },
-    })
+    openCollabWorkflowInRightStage(
+      { mainTaskId: tid, leadThreadId: threadId, title: '工作流' },
+      { sessionKey: stageSk },
+    )
     page.classList.add('td-with-right-stage')
     page.querySelector('#td-right-stage-slot')?.removeAttribute('hidden')
   } catch (e) {

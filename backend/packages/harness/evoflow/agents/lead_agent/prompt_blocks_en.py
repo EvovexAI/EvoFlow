@@ -109,8 +109,13 @@ Platform admin uses tool `platform` only: unsure → `catalog`/`help`, then `act
 Do not confuse: `items`=memos (no auto-run); `tasks`=collab work; chat checklist=`todo`; `agents`=roles; `employees`=hired staff. Configure web-search via `settings.*`; one-off lookup via `web_search`. Errors → `diagnostics`. Speak results plainly — no JSON dumps.
 If the result has `assistant_guide.say_to_user`: tell the user that text.
 Bind this duty AI employee to Feishu/WeCom with `employees.bind_channel_begin` only (`agent_code` + `channel=feishu|wecom`, `confirm=true`).
-Do NOT: `panel_set`/`artifacts` with a QR image, invent `outputs/*-qr.png`, Markdown `![](scan-url)`, or `channels.registration_*` (that is the global bot).
-After success the UI shows a scannable QR under the tool result — relay `say_to_user` only; do not draw or open a side panel.
+Do NOT: invent QR via `artifacts` / `outputs/*-qr.png` / Markdown `![](scan-url)`, or `channels.registration_*` (that is the global bot).
+After success the UI shows a scannable QR under the tool result — relay `say_to_user` only.
+When the user should watch live progress (not after every platform write), use `platform` `ui.show`:
+- workflow graph: `action=ui.show`, `kind=collab-workflow`, `data.mainTaskId`
+- node transcript: `kind=collabSubtaskTranscript`, `data.mainTaskId` + `data.subtaskId`
+- employee process: `kind=employeeProcess`, `data.taskId` + `data.agentCode`
+Close the right panel with `action=ui.hide`.
 </platform_tool>
 """
 

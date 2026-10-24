@@ -2419,6 +2419,62 @@ def appearance_patch(args: dict[str, Any]) -> dict[str, Any]:
     return patch_appearance(args)
 
 
+# ── ui（右侧面板；原 panel_set）─────────────────────────────────────────────
+
+
+def _ui_panel_args(args: dict[str, Any]) -> dict[str, Any]:
+    kind = _arg_str(args, "kind", "panel_kind", "surface_kind")
+    title = _arg_str(args, "title") or None
+    layout = _arg_str(args, "layout") or None
+    data = args.get("data")
+    if data is None:
+        # Allow flat progress fields at top level for convenience.
+        data = {
+            k: v
+            for k, v in args.items()
+            if k
+            not in {
+                "kind",
+                "panel_kind",
+                "surface_kind",
+                "title",
+                "layout",
+                "action",
+                "confirm",
+            }
+        }
+    if not isinstance(data, dict):
+        data = {}
+    return {"kind": kind or None, "title": title, "layout": layout, "data": data}
+
+
+def ui_show(args: dict[str, Any]) -> dict[str, Any]:
+    from evoflow.tools.builtins.stage_tool import apply_right_panel
+
+    panel = _ui_panel_args(args)
+    if not panel.get("kind"):
+        raise ValidationError(
+            "ui.show requires kind "
+            "(collab-workflow | collabSubtaskTranscript | employeeProcess | web-embed | artifacts | …)"
+        )
+    return apply_right_panel(action="show", **panel)
+
+
+def ui_update(args: dict[str, Any]) -> dict[str, Any]:
+    from evoflow.tools.builtins.stage_tool import apply_right_panel
+
+    panel = _ui_panel_args(args)
+    if not panel.get("kind"):
+        raise ValidationError("ui.update requires kind")
+    return apply_right_panel(action="update", **panel)
+
+
+def ui_hide(_args: dict[str, Any]) -> dict[str, Any]:
+    from evoflow.tools.builtins.stage_tool import apply_right_panel
+
+    return apply_right_panel(action="hide")
+
+
 # ── extensions（Agent应用 / UI 扩展；侧栏 #/extensions）─────────────────────
 
 

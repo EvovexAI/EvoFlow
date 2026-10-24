@@ -242,6 +242,7 @@ export function SubtaskCard({
           mainTaskId: mid,
           subtaskId: sid,
           leadThreadId: lead,
+          storedSubtaskThreadId: String(s.subtaskThreadId || '').trim() || undefined,
           subtaskSnapshot: s,
         })
           .then((resp) => {

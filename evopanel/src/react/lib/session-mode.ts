@@ -1,5 +1,5 @@
 /**
- * Ask / Agent / Plan 会话模式：与后端 intent_tool_profile、Gateway session-modes 对齐。
+ * Agent / Plan 会话模式（Ask 已下线）：与后端 intent_tool_profile、Gateway session-modes 对齐。
  */
 
 import {
@@ -34,7 +34,7 @@ export const MODE_TO_SCENARIO: Record<SessionMode, string | null> = {
 
 export const DEFAULT_SESSION_MODES: SessionModeDefinition[] = [
   { value: 'auto', label: 'Auto', visible: false, scenario: null },
-  { value: 'ask', label: 'Ask', visible: true, scenario: 'ask' },
+  { value: 'ask', label: 'Ask', visible: false, scenario: 'ask' },
   { value: 'agent', label: 'Agent', visible: true, scenario: 'agent' },
   { value: 'plan', label: 'Plan', visible: true, scenario: 'plan' },
   { value: 'flash', label: '闪速', visible: false, scenario: null },
@@ -65,8 +65,8 @@ const STORAGE_SESSION_META_KEY = 'evopanel-chat-session-meta'
 
 const LEGACY_SPEED_SESSION_MODES: SessionMode[] = ['flash', 'thinking', 'pro', 'ultra']
 
-/** 已下线的 UI 模式，展示与选择器统一回落到 Agent */
-const LEGACY_DEPRECATED_SESSION_MODES: SessionMode[] = ['auto', ...LEGACY_SPEED_SESSION_MODES]
+/** 已下线的 UI 模式（含 Ask），展示与选择器统一回落到 Agent */
+const LEGACY_DEPRECATED_SESSION_MODES: SessionMode[] = ['auto', 'ask', ...LEGACY_SPEED_SESSION_MODES]
 
 function safeReadSessionMetaMap(): Record<string, unknown> {
   try {
@@ -93,8 +93,9 @@ export function normalizeSessionModeForUi(mode: SessionMode): SessionMode {
 
 export function resolveChatSceneId(raw: string | null | undefined): ChatSceneId {
   const v = normalizeScenarioKeyForUi(String(raw || ''))
-  if (v === 'ask' || v === 'agent' || v === 'plan') return v
-  return 'ask'
+  if (v === 'agent' || v === 'plan') return v
+  // Ask 已下线：遗留 ask / 空值统一按 Agent
+  return 'agent'
 }
 
 export function chatSceneToSessionMode(scene: string | null | undefined): SessionMode | null {

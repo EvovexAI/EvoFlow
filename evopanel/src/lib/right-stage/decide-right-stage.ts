@@ -132,25 +132,35 @@ export function decideRightStage(input: RightStageDecideInput): RightStageDecide
     }
   }
 
-  // 协作
-  if (intent === 'collab-workflow' || target === 'collab-workflow') {
+  // 协作 / 节点进度 / 员工过程（同优先级，低于 write）
+  const isProgressTarget =
+    target === 'collab-workflow' ||
+    target === 'collabSubtaskTranscript' ||
+    target === 'employeeProcess'
+  if (intent === 'collab-workflow' || isProgressTarget) {
     if (current === 'write') {
-      return { action: 'noop', kind: 'collab-workflow', reason: 'write-has-priority' }
+      return { action: 'noop', kind: target || 'collab-workflow', reason: 'write-has-priority' }
     }
-    if (current === 'collab-workflow') {
-      return { action: 'show', kind: 'collab-workflow', reason: 'collab-update' }
+    if (current === target) {
+      return { action: 'show', kind: target!, reason: 'progress-update' }
     }
     return {
       action: 'hint',
-      kind: 'collab-workflow',
+      kind: target!,
       delayMs: RIGHT_STAGE_HINT_DELAY_MS,
-      reason: 'collab-hint-then-show',
+      reason: 'progress-hint-then-show',
     }
   }
 
   // platform 行政写操作反馈：低于 write/artifacts/collab，高于展示型 panel_set
   if (intent === 'platform-feedback' || target === 'platform-feedback') {
-    if (current === 'write' || current === 'artifacts' || current === 'collab-workflow') {
+    if (
+      current === 'write' ||
+      current === 'artifacts' ||
+      current === 'collab-workflow' ||
+      current === 'collabSubtaskTranscript' ||
+      current === 'employeeProcess'
+    ) {
       return { action: 'noop', kind: 'platform-feedback', reason: 'higher-priority-open' }
     }
     if (pinned && pinned !== target) {

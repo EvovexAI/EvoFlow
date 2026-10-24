@@ -44,6 +44,43 @@ DEFAULT_LANGGRAPH_URL = "http://127.0.0.1:8070/api/langgraph"
 DEFAULT_ASSISTANT_ID = "lead_agent"
 
 
+def _sync_linked_app_run(
+    task: dict[str, Any],
+    *,
+    status: str,
+    progress: int | None = None,
+    error: str | None = ...,
+) -> None:
+    """Keep evoflow_app_runs aligned when the unattended pipeline mutates main-task status.
+
+    ``source_run_id`` lives on the main task (extra_json / top-level). Without this,
+    ``_requeue`` can reset the task to pending/0% while the run row stays executing/98%.
+    """
+    try:
+        from evoflow.persistence import app_repositories
+
+        run_id = str(task.get("source_run_id") or "").strip()
+        task_id = str(task.get("id") or "").strip()
+        if not run_id and task_id:
+            run = app_repositories.load_run_by_task_id(task_id)
+            run_id = str((run or {}).get("id") or "").strip()
+        if not run_id:
+            return
+        fields: dict[str, Any] = {}
+        if progress is not None:
+            fields["progress"] = int(progress)
+        if error is not ...:
+            fields["error"] = error
+        app_repositories.update_run_status(run_id, status, **fields)
+    except Exception:
+        logger.debug(
+            "unattended_pipeline: sync linked app_run failed task_id=%s status=%s",
+            task.get("id"),
+            status,
+            exc_info=True,
+        )
+
+
 def task_queue_max_retries() -> int:
     raw = (os.getenv("EVOFLOW_TASK_QUEUE_RETRY_MAX") or "3").strip()
     try:
@@ -525,6 +562,7 @@ def _finalize_executing_task(task_id: str) -> dict[str, Any] | None:
             return t
 
         _patch_task(task_id, _complete)
+        _sync_linked_app_run(task, status="completed", progress=100, error=None)
         return {"task_id": task_id, "ok": True, "action": "completed", "status": "completed"}
 
     final_status = str(task.get("status") or "executing").strip().lower()
@@ -542,6 +580,11 @@ def _finalize_executing_task(task_id: str) -> dict[str, Any] | None:
         return t
 
     _patch_task(task_id, _fail)
+    _sync_linked_app_run(
+        task,
+        status="failed",
+        error="One or more subtasks failed",
+    )
     logger.warning(
         "unattended_pipeline: main task marked failed - subtasks terminal but not all success task_id=%s",
         task_id,
@@ -645,7 +688,23 @@ async def _advance_unattended_task_impl(task_id: str) -> dict[str, Any]:
                     return t
 
                 _patch_task(task_id, _requeue)
+                # Reset linked app_run so UI does not keep showing executing/98% after
+                # subtasks were cleared. source_run_id is preserved on the main task.
+                _sync_linked_app_run(
+                    task,
+                    status="running",
+                    progress=0,
+                    error=None,
+                )
                 return {"task_id": task_id, "ok": True, "action": "requeued_for_retry", "attempt": attempts + 1}
+            # Retries exhausted — keep task failed and force app_run to match.
+            _sync_linked_app_run(
+                task,
+                status="failed",
+                error=str(task.get("error") or "unattended retries exhausted"),
+            )
+        elif status in {"failed", "cancelled"}:
+            _sync_linked_app_run(task, status=status)
         return {"task_id": task_id, "ok": True, "action": "terminal", "status": status}
 
     needs_heal = status == "executing" and not (task.get("subtasks") or []) and not is_task_execution_authorized(storage, task_id)

@@ -183,6 +183,8 @@ export default defineConfig({
       'tests/ui-extension-manifest.test.js',
       'tests/markdown-document-view.test.js',
       'tests/decide-right-stage.test.js',
+      'tests/open-progress-from-panel-set.test.js',
+      'tests/subtask-conversation-history.test.js',
       'tests/right-stage-tab-layout.test.ts',
       'tests/right-stage-store-tabs.test.ts',
       'tests/right-stage-scope.test.ts',

@@ -3,13 +3,14 @@
  * 与 collab-workflow 画布 tab 并存：先看图，再点节点看输出。
  *
  * 关联链路：
- *   节点 click → fetchSubtaskConversationHistory(mainTaskId, subtaskId)
- *     → GET /api/tasks/{mid}/subtasks/{sid}/conversation-history
- *     → evoflow_chat_messages（subtask_thread_id / SubThread_{sid} / {lead}__sub__{sid}）
+ *   节点 click → fetchSubtaskConversationHistory(mainTaskId, subtaskId, storedSubtaskThreadId?)
+ *     → 优先 GET by-thread/{thread_id}/messages（与主聊同一表）
+ *     → conversation-history 仅作 task/subtask → thread + outcome 解析
  *   → 本函数把 rows/outcome 写入 tab.data（勿丢弃，否则侧栏会空）
  *   → V4CollabSubtaskTranscriptPane 种子渲染 + 轮询刷新
  */
 import { rightStageStore } from './right-stage-store.js'
+import { isTaskCenterStageSessionKey } from './task-center-stage-key.js'
 
 export type CollabSubtaskStageOutcome = {
   reported?: boolean
@@ -48,8 +49,11 @@ export type OpenCollabSubtaskStageOpts = {
   layout?: 'half' | 'wide' | 'narrow' | 'workspace-write'
 }
 
-export function collabSubtaskStageTabId(subtaskId: string): string {
-  return `collabSubtaskTranscript:${String(subtaskId || '').trim()}`
+export function collabSubtaskStageTabId(subtaskId: string, sessionKey?: string | null): string {
+  const sid = String(subtaskId || '').trim()
+  if (!sid) return ''
+  const base = `collabSubtaskTranscript:${sid}`
+  return isTaskCenterStageSessionKey(sessionKey) ? `tc:${base}` : base
 }
 
 /** 打开（或激活）某协作节点的进度 tab。 */
@@ -59,15 +63,16 @@ export function openCollabSubtaskInRightStage(
 ): string {
   const sid = String(payload?.subtaskId || '').trim()
   if (!sid) return ''
+  const sk = String(opts?.sessionKey || '').trim() || undefined
   const title = String(payload.title || sid).trim() || '节点进度'
-  const id = collabSubtaskStageTabId(sid)
+  const id = collabSubtaskStageTabId(sid, sk)
   const rows = Array.isArray(payload.rows) ? payload.rows : undefined
   rightStageStore.show({
     kind: 'collabSubtaskTranscript',
     id,
     title,
     layout: opts?.layout || 'wide',
-    sessionKey: String(opts?.sessionKey || '').trim() || undefined,
+    sessionKey: sk,
     data: {
       subtaskId: sid,
       mainTaskId: String(payload.mainTaskId || '').trim(),
@@ -77,7 +82,6 @@ export function openCollabSubtaskInRightStage(
       assignedAgent: String(payload.assignedAgent || '').trim(),
       description: String(payload.description || '').trim(),
       subtaskThreadId: String(payload.subtaskThreadId || '').trim(),
-      sessionKey: String(opts?.sessionKey || '').trim(),
       ...(rows ? { rows } : {}),
       ...(payload.emptyConversation != null ? { emptyConversation: !!payload.emptyConversation } : {}),
       ...(payload.initialText != null ? { initialText: String(payload.initialText || '') } : {}),

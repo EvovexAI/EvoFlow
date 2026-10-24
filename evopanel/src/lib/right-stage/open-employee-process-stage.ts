@@ -1,8 +1,9 @@
 /**
- * 员工任务「执行过程」→ 任务中心右侧栏独立 tab（与工作流同构，单节点）。
- * 不再居中弹层。
+ * 员工任务「执行过程」→ 右侧栏独立 tab（与工作流同构）。
+ * 对话 panel_set：workspace 无 sessionKey；任务中心：task-center:* + tc: id。
  */
 import { rightStageStore } from './right-stage-store.js'
+import { isTaskCenterStageSessionKey } from './task-center-stage-key.js'
 
 export type EmployeeProcessStagePayload = {
   taskId: string
@@ -19,13 +20,15 @@ export type OpenEmployeeProcessStageOpts = {
 }
 
 /** store tabKey = `employeeProcess:${id}` */
-export function employeeProcessStageTabId(taskId: string): string {
+export function employeeProcessStageTabId(taskId: string, sessionKey?: string | null): string {
   const tid = String(taskId || '').trim()
-  return tid ? `process:${tid}` : ''
+  if (!tid) return ''
+  const base = `process:${tid}`
+  return isTaskCenterStageSessionKey(sessionKey) ? `tc:${base}` : base
 }
 
-export function employeeProcessStageTabKey(taskId: string): string {
-  const id = employeeProcessStageTabId(taskId)
+export function employeeProcessStageTabKey(taskId: string, sessionKey?: string | null): string {
+  const id = employeeProcessStageTabId(taskId, sessionKey)
   return id ? `employeeProcess:${id}` : ''
 }
 
@@ -37,14 +40,15 @@ export function openEmployeeProcessInRightStage(
   const tid = String(payload?.taskId || '').trim()
   const code = String(payload?.agentCode || '').trim()
   if (!tid || !code) return ''
+  const sk = String(opts?.sessionKey || '').trim() || undefined
   const title = String(payload.title || '执行过程').trim() || '执行过程'
-  const id = employeeProcessStageTabId(tid)
+  const id = employeeProcessStageTabId(tid, sk)
   rightStageStore.show({
     kind: 'employeeProcess',
     id,
     title,
     layout: opts?.layout || 'wide',
-    sessionKey: String(opts?.sessionKey || '').trim() || undefined,
+    sessionKey: sk,
     data: {
       taskId: tid,
       agentCode: code,
@@ -52,7 +56,6 @@ export function openEmployeeProcessInRightStage(
       title,
       roundId: String(payload.roundId || '').trim(),
       busy: !!payload.busy,
-      sessionKey: String(opts?.sessionKey || '').trim(),
     },
   })
   return id

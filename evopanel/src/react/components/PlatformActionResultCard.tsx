@@ -1,6 +1,6 @@
 import { memo, useMemo } from 'react'
 import {
-  navigatePlatformFeedbackRoute,
+  activatePlatformFeedbackAction,
   parsePlatformUiFeedbackFromTool,
   platformActionCardMeta,
   platformActionCardTitle,
@@ -87,10 +87,7 @@ export const PlatformActionResultCard = memo(function PlatformActionResultCard({
       window.open(String(ui.qrUrl), '_blank', 'noopener,noreferrer')
       return
     }
-    if (primaryAction?.route) {
-      navigatePlatformFeedbackRoute(primaryAction.route)
-      return
-    }
+    if (primaryAction && activatePlatformFeedbackAction(primaryAction)) return
     requestOpenPlatformFeedbackFromTool(tool)
   }
 

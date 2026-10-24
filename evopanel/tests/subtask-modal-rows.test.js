@@ -148,16 +148,16 @@ describe('expandRowsToTrailTurns', () => {
 })
 
 describe('subtask transcript seed / outcome fallback', () => {
-  it('coalesce prefers fetched rows over outcome', async () => {
-    const { coalesceSubtaskTranscriptRows, displayRowsFromOutcome } = await import(
+  it('coalesce keeps conversation rows and does not fake turns from outcome', async () => {
+    const { coalesceSubtaskTranscriptRows, displayRowsFromOutcome, summarizeOutcome } = await import(
       '../src/lib/subtask-transcript-seed.js'
     )
     const fetched = [{ role: 'assistant', text: 'from chat' }]
     expect(coalesceSubtaskTranscriptRows(fetched, { task_report: 'from outcome' })).toEqual(fetched)
+    expect(coalesceSubtaskTranscriptRows([], { task_report: '节点已完成' })).toEqual([])
     const fromOutcome = displayRowsFromOutcome({ task_report: '节点已完成' })
     expect(fromOutcome[0].text).toContain('节点已完成')
-    expect(coalesceSubtaskTranscriptRows([], { outputs: [{ value: 'a.md', label: '报告' }] })[0].text).toContain(
-      '产出文件',
-    )
+    const summary = summarizeOutcome({ outputs: [{ value: 'a.md', label: '报告' }] })
+    expect(summary.pathLines[0]).toContain('a.md')
   })
 })

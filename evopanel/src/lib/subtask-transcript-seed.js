@@ -1,27 +1,19 @@
 /**
- * Seed / fallback rows for collab subtask transcript pane when chat history is empty.
+ * Seed / fallback for collab subtask transcript pane.
+ * Conversation rows stay conversational; outcome (结案摘要) is separate — never
+ * fake a single "assistant" bubble from the final task_report.
  */
 
 /**
  * @param {Record<string, unknown> | null | undefined} outcome
- * @returns {unknown[]}
+ * @returns {{ report: string, pathLines: string[] }}
  */
-export function displayRowsFromOutcome(outcome) {
-  if (!outcome || typeof outcome !== 'object') return []
+export function summarizeOutcome(outcome) {
+  if (!outcome || typeof outcome !== 'object') return { report: '', pathLines: [] }
   const report = String(outcome.task_report || outcome.summary || '').trim()
-  /** @type {unknown[]} */
-  const out = []
-  if (report) {
-    out.push({
-      role: 'assistant',
-      text: report,
-      timestamp: Date.now(),
-    })
-  }
-  const outputs = Array.isArray(outcome.outputs) ? outcome.outputs : []
-  const evidence = Array.isArray(outcome.evidence_paths) ? outcome.evidence_paths : []
   /** @type {string[]} */
   const pathLines = []
+  const outputs = Array.isArray(outcome.outputs) ? outcome.outputs : []
   for (const item of outputs) {
     if (!item || typeof item !== 'object') continue
     const row = /** @type {Record<string, unknown>} */ (item)
@@ -30,26 +22,50 @@ export function displayRowsFromOutcome(outcome) {
     if (!value) continue
     pathLines.push(label ? `${label}: ${value}` : value)
   }
+  const evidence = Array.isArray(outcome.evidence_paths) ? outcome.evidence_paths : []
   for (const p of evidence) {
     const s = String(p || '').trim()
     if (s && !pathLines.includes(s)) pathLines.push(s)
+  }
+  return { report, pathLines }
+}
+
+/**
+ * @deprecated Prefer summarizeOutcome + separate UI. Kept for tests that still assert
+ * legacy shape; do not feed these into the conversation timeline as fake turns.
+ * @param {Record<string, unknown> | null | undefined} outcome
+ * @returns {unknown[]}
+ */
+export function displayRowsFromOutcome(outcome) {
+  const { report, pathLines } = summarizeOutcome(outcome)
+  /** @type {unknown[]} */
+  const out = []
+  if (report) {
+    out.push({
+      role: 'assistant',
+      text: report,
+      timestamp: Date.now(),
+      _source: 'outcome-summary',
+    })
   }
   if (pathLines.length) {
     out.push({
       role: 'assistant',
       text: `产出文件\n${pathLines.map((l) => `- ${l}`).join('\n')}`,
       timestamp: Date.now(),
+      _source: 'outcome-summary',
     })
   }
   return out
 }
 
 /**
+ * Only real conversation rows. Empty history → [] (caller may show outcome aside).
  * @param {unknown[] | null | undefined} fetched
- * @param {Record<string, unknown> | null | undefined} outcome
+ * @param {Record<string, unknown> | null | undefined} _outcome unused (kept for call-site compat)
  * @returns {unknown[]}
  */
-export function coalesceSubtaskTranscriptRows(fetched, outcome) {
+export function coalesceSubtaskTranscriptRows(fetched, _outcome) {
   if (Array.isArray(fetched) && fetched.length > 0) return fetched
-  return displayRowsFromOutcome(outcome)
+  return []
 }

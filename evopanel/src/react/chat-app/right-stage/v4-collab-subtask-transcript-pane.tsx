@@ -11,6 +11,7 @@ import {
 } from '../../../lib/subtask-conversation-history.js'
 import {
   coalesceSubtaskTranscriptRows,
+  summarizeOutcome,
 } from '../../../lib/subtask-transcript-seed.js'
 import {
   openRightStageForCodeViewerSource,
@@ -61,8 +62,11 @@ export function V4CollabSubtaskTranscriptPane(props: V4CollabSubtaskTranscriptPa
   )
 
   const [rows, setRows] = useState<unknown[]>(() => seeded)
+  const [outcome, setOutcome] = useState<CollabSubtaskStageOutcome | null | undefined>(
+    () => initialOutcome,
+  )
   const [status, setStatus] = useState(String(statusProp || ''))
-  const [loaded, setLoaded] = useState(() => seeded.length > 0)
+  const [loaded, setLoaded] = useState(() => seeded.length > 0 || !!initialOutcome)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const lastRowCountRef = useRef(0)
@@ -110,21 +114,18 @@ export function V4CollabSubtaskTranscriptPane(props: V4CollabSubtaskTranscriptPa
         prior ||
         null
       outcomeRef.current = nextOutcome
-      setRows(
-        coalesceSubtaskTranscriptRows(
-          Array.isArray(resp?.rows) ? resp.rows : [],
-          nextOutcome as Record<string, unknown> | null,
-        ),
-      )
-      if (statusProp) setStatus(String(statusProp))
+      setOutcome(nextOutcome)
+      // 只展示真实对话行；结案摘要单独一块，避免「最终结果」冒充过程
+      setRows(coalesceSubtaskTranscriptRows(Array.isArray(resp?.rows) ? resp.rows : [], null))
+      if (resp?.status) setStatus(String(resp.status))
+      else if (statusProp) setStatus(String(statusProp))
+      else if (nextOutcome && typeof nextOutcome === 'object' && nextOutcome.status) {
+        setStatus(String(nextOutcome.status))
+      }
       setLoaded(true)
     } catch {
       // 请求失败时保留种子行，避免已有内容被清空
-      setRows((prev) =>
-        prev.length
-          ? prev
-          : coalesceSubtaskTranscriptRows([], outcomeRef.current as Record<string, unknown> | null),
-      )
+      setRows((prev) => prev)
       setLoaded(true)
     }
   }, [
@@ -167,6 +168,12 @@ export function V4CollabSubtaskTranscriptPane(props: V4CollabSubtaskTranscriptPa
     const el = scrollRef.current
     if (el) el.scrollTop = el.scrollHeight
   }, [rows])
+
+  const outcomeSummary = useMemo(
+    () => summarizeOutcome(outcome as Record<string, unknown> | null),
+    [outcome],
+  )
+  const hasOutcomeAside = Boolean(outcomeSummary.report || outcomeSummary.pathLines.length)
 
   const onOpenFile = useCallback(
     (rawPath: string, displayName?: string) => {
@@ -231,15 +238,45 @@ export function V4CollabSubtaskTranscriptPane(props: V4CollabSubtaskTranscriptPa
               />
             ))}
           </div>
-        ) : loaded ? (
+        ) : loaded && !hasOutcomeAside ? (
           <div className="flex h-full items-center justify-center text-ui-sm text-foreground-subtlest">
-            （暂无输出内容）
+            {running ? '节点执行中，等待对话过程…' : '（暂无对话过程记录）'}
           </div>
-        ) : (
+        ) : !loaded ? (
           <div className="flex h-full items-center justify-center text-ui-sm text-foreground-subtlest">
             正在加载节点进度…
           </div>
-        )}
+        ) : null}
+        {hasOutcomeAside ? (
+          <aside
+            className={
+              'mt-4 rounded-md border border-border bg-muted/40 px-3 py-2 text-ui-sm text-foreground ' +
+              (rows.length ? '' : 'mt-0')
+            }
+            aria-label="结案摘要"
+          >
+            <div className="mb-1 text-[11px] font-medium uppercase tracking-wide text-foreground-subtlest">
+              结案摘要
+            </div>
+            {outcomeSummary.report ? (
+              <pre className="whitespace-pre-wrap break-words font-sans text-ui-sm leading-relaxed">
+                {outcomeSummary.report}
+              </pre>
+            ) : null}
+            {outcomeSummary.pathLines.length ? (
+              <ul className="mt-2 list-disc space-y-0.5 pl-4 text-foreground-subtle">
+                {outcomeSummary.pathLines.map((line) => (
+                  <li key={line}>{line}</li>
+                ))}
+              </ul>
+            ) : null}
+            {!rows.length ? (
+              <p className="mt-2 text-[11px] text-foreground-subtlest">
+                未找到该节点的过程对话；上面仅为任务最终结果，不是逐步执行记录。
+              </p>
+            ) : null}
+          </aside>
+        ) : null}
       </div>
     </div>
   )

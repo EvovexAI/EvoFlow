@@ -1450,7 +1450,7 @@ def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None
     )
     _setup_phase("resolve_available_tools_ms", _t_tools)
 
-    # ``platform`` / ``panel_set`` are agent-mode system tools (right-side panel +
+    # ``platform`` is an agent-mode system tool (admin + right-side panel ui.* +
     # platform admin): main lead and channel/custom employees keep them (通道员工的
     # 平台操作与产物面板依赖)，只有纯 subagent 默认不带 — opt-in 仍走
     # ``kb_injection.mount_platform_tools=true``。

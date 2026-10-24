@@ -277,7 +277,8 @@ _SESSION_MODE_DEFINITIONS: list[dict[str, Any]] = [
     {
         "value": "ask",
         "label": "Ask",
-        "visible": True,
+        # Ask 已下线：对话默认 Agent；保留枚举兼容旧会话数据
+        "visible": False,
         "scenario": "ask",
     },
     {

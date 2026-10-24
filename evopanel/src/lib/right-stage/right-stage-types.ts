@@ -68,6 +68,19 @@ export function normalizeRightStageKind(kind: string | null | undefined): string
     case 'workspace-write':
     case 'workspace_write':
       return 'write'
+    case 'workflow':
+    case 'collab_workflow':
+      return 'collab-workflow'
+    case 'collab-subtask':
+    case 'collab_subtask':
+    case 'subtask-transcript':
+    case 'subtask_transcript':
+      return 'collabSubtaskTranscript'
+    case 'employee-process':
+    case 'employee_process':
+    case 'employee':
+    case 'employee-progress':
+      return 'employeeProcess'
     default:
       return k
   }

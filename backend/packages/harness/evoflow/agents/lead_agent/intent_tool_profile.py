@@ -21,10 +21,10 @@ ScenarioKey = str
 def normalize_scenario_key(value: str | None) -> ScenarioKey:
     """Normalize any legacy intent/scenario hint into current mode key (ask / agent / plan).
 
-    Mode keys (canonical, match UI Ask / Agent / Plan):
-      - ask: 默认对话
+    Mode keys (canonical, match UI Agent / Plan; Ask is legacy-hidden):
+      - agent: 默认对话与落地执行（本地代码检索、读写改删、命令执行、联网检索）
       - plan: 规划与调度执行（`plan` 提交正文 + `supervisor` 编排）
-      - agent: Agent 模式（本地代码检索、读写改删、命令执行、联网检索）
+      - ask: 遗留纯问答键（UI 已隐藏；显式 ask 仍可识别，未知/空别名落到 agent）
 
       Legacy aliases ``chat`` / ``workspace`` / ``web`` are still accepted.
 
@@ -32,9 +32,9 @@ def normalize_scenario_key(value: str | None) -> ScenarioKey:
     """
     raw = (value or "").strip().lower()
     if raw in {"trae", "trae_window", "trae-runtime", "trae_runtime"}:
-        return "ask"
+        return "agent"
     if raw in {"evolve", "evolution", "self_evolve", "self-improve", "self_improve", "improve", "optimize"}:
-        return "ask"
+        return "agent"
     if raw in {"work", "do", "task", "execute", "plan"}:
         return "plan"
     if raw in {"agent", "workspace", "workspaces", "file", "files", "file_ops", "filesystem", "edit_file"}:
@@ -42,14 +42,15 @@ def normalize_scenario_key(value: str | None) -> ScenarioKey:
     if raw in {"web", "search", "research", "browse"}:
         return "agent"
     if raw in {"manage", "admin", "govern"}:
-        return "ask"
+        return "agent"
     if raw in {"ask", "chat", "qa", "question"}:
+        # 显式 ask 仍保留语义（activate ask 清空模式）；UI 不再展示。
         return "ask"
     if raw in {"creative", "media", "video", "image", "art", "design", "short_video", "short-video"}:
-        return "ask"
+        return "agent"
     if raw in {"planning", "debug", "debugging", "troubleshoot", "implement", "coding", "code", "edit", "review", "audit", "general"}:
         return "plan"
-    return "ask"
+    return "agent"
 
 
 # UI session modes → mode keys (see gateway chat_sessions _SESSION_MODE_DEFINITIONS)
@@ -70,14 +71,14 @@ SCENARIO_KEY_MODE_LABEL: dict[str, str] = {
 def scenario_key_to_mode_label(key: str | None) -> str:
     """Map mode key (ask/agent/plan) to UI label."""
     k = normalize_scenario_key(str(key or "").strip())
-    return SCENARIO_KEY_MODE_LABEL.get(k, k or "Ask")
+    return SCENARIO_KEY_MODE_LABEL.get(k, k or "Agent")
 
 
 def format_active_modes_for_display(active_keys: Iterable[str]) -> str:
-    """Comma-separated Ask / Agent / Plan line for ``<session_mode_policy>``."""
+    """Comma-separated Agent / Plan line for ``<session_mode_policy>``."""
     ordered = ordered_scenario_keys_for_display(active_keys)
     if not ordered:
-        return "Ask (baseline)"
+        return "Agent (baseline)"
     return ", ".join(scenario_key_to_mode_label(k) for k in ordered)
 
 
@@ -158,11 +159,11 @@ PLAN_SCENARIO_EAGER_TOOL_NAMES: tuple[str, ...] = (
 
 # P1 渐进加载：scenario 激活后仅 eager 工具立即绑定 schema；其余进 deferred（tool_search 按需加载）。
 # 全量并集仍见 ``resolve_tools_for_scenarios`` / ``NON_CORE_TOOL_GROUPS``。
-# Agent 模式系统必带：``platform``（平台行政）+ ``panel_set``（右侧面板）— 不可 deferred / 不可被角色白名单摘掉。
+# Agent 模式系统必带：``platform``（平台行政 + 右侧面板 ui.*）— 不可 deferred / 不可被角色白名单摘掉。
 # Agent 模式 eager 工具：纯工作区基础能力（读 / 改 / 删 / 搜 / 终端 / 代码索引）。
-# tasks / platform / panel_set 是平台行政与跨平台消息工具，不再强制绑定：
+# tasks / platform 是平台行政工具，不再强制绑定到白名单外：
 # - 它们仍在 agent 模式 deferred catalog 里，由 ``agent_config.tools`` 白名单决定是否挂载。
-# - 角色编辑器的工具勾选列表是单一事实源；不再由 catalog 暗中追加。
+# - 原 ``panel_set`` 已并入 ``platform ui.show|hide|update``，不再单独挂载。
 SCENARIO_EAGER_TOOL_NAMES: dict[str, tuple[str, ...]] = {
     "agent": (
         "read",
@@ -181,7 +182,7 @@ SCENARIO_EAGER_TOOL_NAMES: dict[str, tuple[str, ...]] = {
 
 # UI session_mode → bound / deferred tool enums (binding table + runtime; no tool_groups indirection).
 SESSION_MODE_CATALOG: tuple[str, ...] = ("ask", "agent", "plan")
-DEFAULT_SESSION_MODE = "ask"
+DEFAULT_SESSION_MODE = "agent"
 
 
 def _dedupe_tool_names(*groups: Iterable[str]) -> tuple[str, ...]:
@@ -224,7 +225,6 @@ def _agent_mode_deferred_tool_names() -> tuple[str, ...]:
             # 不再默认绑定 — 由 agent 角色白名单决定是否挂载
             "tasks",
             "platform",
-            "panel_set",
         ),
         AGENT_OPTIONAL_DEFERRED_TOOL_NAMES,
     )
@@ -454,10 +454,10 @@ NON_CORE_TOOL_GROUPS: dict[str, dict[str, tuple[str, ...] | str]] = {
 TASK_SCENARIO_PROFILES: dict[str, TaskScenarioProfile] = {
     "ask": TaskScenarioProfile(
         key="ask",
-        zh_description="**Ask**（默认）：问答与轻量对话；仅核心工具。",
+        zh_description="**Ask**（已下线，遗留）：问答与轻量对话；仅核心工具。新会话默认 Agent。",
         tool_groups=("entity_assets",),
-        signals="概念解释、普通问答、非执行型交流。",
-        boundaries="用户要求落地执行时须 activate agent 或 plan，勿停留 ask。",
+        signals="概念解释、普通问答、非执行型交流（勿主动切换到此模式）。",
+        boundaries="Ask 已从 UI 移除；需要落地执行用 agent，需要规划用 plan。",
     ),
     "plan": TaskScenarioProfile(
         key="plan",
@@ -477,7 +477,7 @@ TASK_SCENARIO_PROFILES: dict[str, TaskScenarioProfile] = {
         key="agent",
         zh_description="**Agent**：项目代码/仓库的检索、读写、命令与联网（含 web_search/web_fetch）。",
         tool_groups=("workspace_baseline", "file_ops", "web_research", "entity_assets"),
-        extra_tool_names=("tasks", "platform", "panel_set"),
+        extra_tool_names=("tasks", "platform"),
         signals="改文件、跑命令、查代码、联网调研或任何项目仓库落地操作。",
         boundaries="任务编排优先 plan；无 agent 时禁止代码操作与 web_search/web_fetch。",
     ),
@@ -509,7 +509,7 @@ def format_scenario_key_enum_description() -> str:
 def format_scenario_tool_description() -> str:
     """Short ``mode_set`` tool description; details live in ``mode`` enum."""
     return (
-        "激活或停用 Ask / Agent / Plan 对话模式（非 panel_set 右侧面板）。"
+        "激活或停用 Ask / Agent / Plan 对话模式（非 platform ui.* 右侧面板）。"
         "未激活时非核心工具返回 ScenarioNotActivated，须先 activate 再重试。"
         "activate ask 清空其它模式；plan 独占。返回 JSON：all_active_scenarios、activated_tools（已绑 schema）、"
         "deferred_tools、all_granted_tools（模式授权全量）。"

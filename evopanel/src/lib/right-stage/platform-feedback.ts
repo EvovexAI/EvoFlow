@@ -9,10 +9,19 @@ export type PlatformFeedbackDetail = {
   value: string
 }
 
+export type PlatformFeedbackOpenStage = {
+  kind?: string
+  title?: string
+  layout?: string
+  data?: Record<string, unknown> | null
+}
+
 export type PlatformFeedbackAction = {
   label: string
   route?: string
   external?: boolean
+  /** 打开右栏进度面板（工作流 / 节点 / 员工），不跳路由 */
+  openStage?: PlatformFeedbackOpenStage
 }
 
 export type PlatformUiFeedback = {
@@ -184,6 +193,23 @@ function asDetails(raw: unknown): PlatformFeedbackDetail[] {
   return out
 }
 
+function asOpenStage(raw: unknown): PlatformFeedbackOpenStage | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined
+  const row = raw as Record<string, unknown>
+  const kind = asString(row.kind)
+  const data =
+    row.data && typeof row.data === 'object' && !Array.isArray(row.data)
+      ? (row.data as Record<string, unknown>)
+      : null
+  if (!kind && !data) return undefined
+  return {
+    kind: kind || undefined,
+    title: asString(row.title) || undefined,
+    layout: asString(row.layout) || undefined,
+    data,
+  }
+}
+
 function asActions(raw: unknown): PlatformFeedbackAction[] {
   if (!Array.isArray(raw)) return []
   const out: PlatformFeedbackAction[] = []
@@ -192,10 +218,12 @@ function asActions(raw: unknown): PlatformFeedbackAction[] {
     const label = asString((row as Record<string, unknown>).label)
     if (!label) continue
     const route = asString((row as Record<string, unknown>).route)
+    const openStage = asOpenStage((row as Record<string, unknown>).openStage)
     out.push({
       label,
       route: route || undefined,
       external: (row as Record<string, unknown>).external === true,
+      openStage,
     })
   }
   return out
@@ -378,6 +406,22 @@ export function navigatePlatformFeedbackRoute(route: string): void {
   if (!next || typeof window === 'undefined') return
   const hash = next.startsWith('#') ? next.slice(1) : next.startsWith('/') ? next : `/${next}`
   window.location.hash = hash
+}
+
+/** 平台反馈 CTA：优先 openStage（右栏进度），否则跳 route。 */
+export function activatePlatformFeedbackAction(action: PlatformFeedbackAction | null | undefined): boolean {
+  if (!action) return false
+  if (action.openStage) {
+    void import('./open-progress-from-panel-set.js').then(({ openProgressFromPanelSet }) => {
+      openProgressFromPanelSet(action.openStage)
+    })
+    return true
+  }
+  if (action.route) {
+    navigatePlatformFeedbackRoute(action.route)
+    return true
+  }
+  return false
 }
 
 export function platformDomainLabel(domain?: string): string {

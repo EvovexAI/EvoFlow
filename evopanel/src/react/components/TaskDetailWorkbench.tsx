@@ -237,6 +237,7 @@ export function TaskDetailWorkbench({
       mainTaskId: tid,
       subtaskId: sid,
       leadThreadId: threadId || '',
+      storedSubtaskThreadId: String(hit.subtaskThreadId || '').trim() || undefined,
       subtaskSnapshot: hit,
     })
       .then((resp) => {

@@ -10,7 +10,7 @@ from typing import Any
 from evoflow.collab.peer.thread_key import LEAD_PARTY, build_thread_key, resolve_subtask_ref
 from evoflow.collab.sse_notify import broadcast_collab_peer_event
 from evoflow.collab.storage import find_subtask_by_ids, get_project_storage, patch_collab_subtask_in_project_storage
-from evoflow.collab.subtask_outcome import is_subtask_outcome_reported
+from evoflow.collab.subtask_outcome import get_subtask_task_report, is_subtask_outcome_reported
 from evoflow.persistence import peer_repositories as peer_repo
 from evoflow.timeutil import utc_now_iso_z
 
@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 _MAX_BODY = 4000
 _MAX_PENDING_OUTBOUND = 3
 _TERMINAL_SENDER = frozenset({"cancelled"})
+_AUTO_REPLY_REPORT_MAX = 3500
 
 
 def _visibility(from_party: str, to_subtask_id: str) -> list[str]:
@@ -109,7 +110,8 @@ async def _send_message(
     if from_party == to_sid:
         return {"ok": False, "error": "cannot send peer message to yourself"}
 
-    ok_recv, err_recv = _receiver_may_answer(_subtask_row(storage, mid, to_sid))
+    recv_st = _subtask_row(storage, mid, to_sid)
+    ok_recv, err_recv = _receiver_may_answer(recv_st)
     if not ok_recv:
         return {"ok": False, "error": err_recv}
 
@@ -117,6 +119,20 @@ async def _send_message(
         pending = peer_repo.count_pending_questions(mid, from_party)
         if pending >= _MAX_PENDING_OUTBOUND:
             return {"ok": False, "error": f"too many pending outbound peer questions (max {_MAX_PENDING_OUTBOUND})"}
+
+    recv_status = str((recv_st or {}).get("status") or "").strip().lower()
+    # Completed + outcome: never schedule PeerWake on the target. Prefer auto-reply
+    # from stored task_report; otherwise refuse (report already belongs in handoff).
+    if expect_reply and recv_status == "completed" and is_subtask_outcome_reported(recv_st):
+        report = str(get_subtask_task_report(recv_st) or "").strip()
+        if not report:
+            return {
+                "ok": False,
+                "error": (
+                    "target subtask already completed; its outputs belong in Upstream "
+                    "dependency context — do not peer-ask completed steps for verbatim content"
+                ),
+            }
 
     thread_key = build_thread_key(from_party, to_sid)
     now = utc_now_iso_z()
@@ -150,6 +166,62 @@ async def _send_message(
             "to_subtask_id": to_sid,
         },
     )
+
+    if expect_reply and recv_status == "completed" and is_subtask_outcome_reported(recv_st):
+        report = str(get_subtask_task_report(recv_st) or "").strip()
+        reply_body = (
+            f"[auto-reply from completed subtask task_report]\n{report[:_AUTO_REPLY_REPORT_MAX]}"
+        )
+        reply_id = peer_repo.insert_peer_message(
+            {
+                "main_task_id": mid,
+                "thread_key": thread_key,
+                "from_party": to_sid,
+                "to_subtask_id": from_party if from_party != LEAD_PARTY else to_sid,
+                "direction": "reply",
+                "body": reply_body,
+                "in_reply_to": message_id,
+                "status": "answered",
+                "visibility_json": _visibility(
+                    from_party if from_party != LEAD_PARTY else to_sid, to_sid
+                ),
+                "created_at": now,
+                "answered_at": now,
+            }
+        )
+        peer_repo.update_peer_message(message_id, {"status": "answered", "answered_at": now})
+        _bump_peer_state(storage, mid, to_sid, inbound=-1)
+        await broadcast_collab_peer_event(
+            mid,
+            "collab:peer_reply",
+            {
+                "message_id": reply_id,
+                "in_reply_to": message_id,
+                "thread_key": thread_key,
+                "from_party": to_sid,
+                "to_subtask_id": to_sid,
+                "autoReplied": True,
+            },
+        )
+        # Wake the asker (still in-flight) so they can consume the reply — not the completed target.
+        if from_party != LEAD_PARTY:
+            from evoflow.collab.peer.scheduler import schedule_peer_wake
+
+            schedule_peer_wake(
+                main_task_id=mid,
+                to_subtask_id=from_party,
+                thread_key=thread_key,
+                trigger_message_id=reply_id,
+                reason="peer_reply",
+            )
+        return {
+            "ok": True,
+            "messageId": message_id,
+            "threadKey": thread_key,
+            "toSubtaskId": to_sid,
+            "autoReplied": True,
+            "replyMessageId": reply_id,
+        }
 
     if expect_reply:
         from evoflow.collab.peer.scheduler import schedule_peer_wake

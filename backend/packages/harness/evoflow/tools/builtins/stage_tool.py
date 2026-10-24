@@ -54,11 +54,9 @@ panel_set_ui_metadata = {
     "icon": "📺",
     "group": "hosted_panel",
     "description": (
-        "打开/关闭 EvoPanel 右侧面板（产物、资讯、网页内嵌、写入内容、工作区等）。"
-        "交付物用 kind=artifacts。"
-        "给用户看网页用 kind=web-embed + data.url，不要只在聊天里贴链接。"
-        "与 mode_set 工具（激活 plan/agent 对话模式）无关；"
-        "Agent 模式系统必带，无需 tool_search 加载"
+        "已并入 platform：ui.show / ui.hide / ui.update。"
+        "打开/关闭 EvoPanel 右侧面板（产物、资讯、网页内嵌、进度等）。"
+        "用户要盯进度：collab-workflow / collabSubtaskTranscript / employeeProcess。"
     ),
 }
 
@@ -70,7 +68,17 @@ Control EvoPanel right-side panels (NOT mode_set). action show|hide|update|strea
 Deliverables: kind=artifacts, data.items[{type,path|url|content}].
 Web for the user: kind=web-embed, data.url — do not only paste a bare link in chat.
 Do not auto-open write preview after write/replace — only when user asks.
+Progress (any chat): collab-workflow data.mainTaskId; collabSubtaskTranscript data.mainTaskId+subtaskId;
+employeeProcess data.taskId+agentCode — only when user should watch live progress (not after every platform call).
 """
+
+
+def _first_str(*values: Any) -> str:
+    for value in values:
+        text = str(value or "").strip()
+        if text:
+            return text
+    return ""
 
 
 def _normalize_panel_kind(kind: str) -> str:
@@ -88,8 +96,108 @@ def _normalize_panel_kind(kind: str) -> str:
         "web": "web-embed",
         "web_embed": "web-embed",
         "embed": "web-embed",
+        "workflow": "collab-workflow",
+        "collab_workflow": "collab-workflow",
+        "collab-subtask": "collabSubtaskTranscript",
+        "collab_subtask": "collabSubtaskTranscript",
+        "subtask-transcript": "collabSubtaskTranscript",
+        "subtask_transcript": "collabSubtaskTranscript",
+        "employee-process": "employeeProcess",
+        "employee_process": "employeeProcess",
+        "employee": "employeeProcess",
+        "employee-progress": "employeeProcess",
     }
     return aliases.get(k, k)
+
+
+def _build_progress_surface(
+    *,
+    kind: str,
+    payload_data: dict[str, Any],
+    title: str | None,
+    layout: str | None,
+) -> tuple[dict[str, Any] | None, str | None]:
+    """Validate progress kinds and return (surface, error)."""
+    data = dict(payload_data)
+
+    if kind == "collab-workflow":
+        main_id = _first_str(
+            data.get("mainTaskId"), data.get("main_task_id"), data.get("taskId"), data.get("task_id")
+        )
+        if not main_id:
+            return None, "collab-workflow requires data.mainTaskId (or taskId)"
+        data["mainTaskId"] = main_id
+        lead = _first_str(
+            data.get("leadThreadId"),
+            data.get("lead_thread_id"),
+            data.get("threadId"),
+            data.get("thread_id"),
+        )
+        if lead:
+            data["leadThreadId"] = lead
+        surface: dict[str, Any] = {
+            "id": f"workflow:{main_id}",
+            "kind": kind,
+            "title": str(title or "").strip() or "工作流",
+            "layout": layout or "half",
+            "data": data,
+        }
+        return surface, None
+
+    if kind == "collabSubtaskTranscript":
+        main_id = _first_str(
+            data.get("mainTaskId"), data.get("main_task_id"), data.get("taskId"), data.get("task_id")
+        )
+        sid = _first_str(data.get("subtaskId"), data.get("subtask_id"))
+        if not main_id or not sid:
+            return None, "collabSubtaskTranscript requires data.mainTaskId and data.subtaskId"
+        data["mainTaskId"] = main_id
+        data["subtaskId"] = sid
+        lead = _first_str(
+            data.get("leadThreadId"),
+            data.get("lead_thread_id"),
+            data.get("threadId"),
+            data.get("thread_id"),
+        )
+        if lead:
+            data["leadThreadId"] = lead
+        label = str(title or "").strip() or _first_str(data.get("title")) or "节点进度"
+        data["title"] = label
+        surface = {
+            "id": f"collabSubtaskTranscript:{sid}",
+            "kind": kind,
+            "title": label,
+            "layout": layout or "wide",
+            "data": data,
+        }
+        return surface, None
+
+    if kind == "employeeProcess":
+        task_id = _first_str(
+            data.get("taskId"), data.get("task_id"), data.get("mainTaskId"), data.get("main_task_id")
+        )
+        code = _first_str(data.get("agentCode"), data.get("agent_code"), data.get("assigned_to"))
+        if not task_id or not code:
+            return None, "employeeProcess requires data.taskId and data.agentCode"
+        data["taskId"] = task_id
+        data["agentCode"] = code
+        round_id = _first_str(data.get("roundId"), data.get("round_id"), data.get("source_ref"))
+        if round_id:
+            data["roundId"] = round_id
+        if "busy" in data:
+            data["busy"] = bool(data.get("busy"))
+        label = str(title or "").strip() or _first_str(data.get("title")) or "执行过程"
+        data["title"] = label
+        surface = {
+            "id": f"process:{task_id}",
+            "kind": kind,
+            "title": label,
+            "layout": layout or "wide",
+            "data": data,
+        }
+        return surface, None
+
+    return None, None
 
 
 def _normalize_embed_url(raw: str) -> str:
@@ -173,16 +281,155 @@ def _emit_stream(
     _emit(payload)
 
 
-def _handle_artifacts_panel(
+def _resolve_thread_id_loose() -> str:
+    try:
+        from langgraph.config import get_config
+
+        return str(get_config().get("configurable", {}).get("thread_id") or "").strip()
+    except Exception:
+        return ""
+
+
+def _resolve_session_key_loose(thread_id: str = "") -> str:
+    tid = str(thread_id or "").strip() or _resolve_thread_id_loose()
+    if not tid:
+        return ""
+    try:
+        from evoflow.persistence.session_repositories import find_session_key_by_thread_id
+
+        return str(find_session_key_by_thread_id(tid) or "").strip()
+    except Exception:
+        return ""
+
+
+def apply_right_panel(
+    *,
+    action: str = "show",
+    kind: str | None = None,
+    data: dict[str, Any] | None = None,
+    title: str | None = None,
+    layout: str | None = None,
+    stream_id: str | None = None,
+    text: str | None = None,
+    thread_id: str | None = None,
+    session_key: str | None = None,
+) -> dict[str, Any]:
+    """Core right-panel driver used by ``platform ui.*`` (and legacy ``panel_set`` wrapper).
+
+    Emits ``right_stage`` / ``right_stage_stream`` / ``chat_artifacts`` SSE; returns a
+    plain result dict (no LangChain Command).
+    """
+    act = str(action or "show").strip().lower() or "show"
+    tid = str(thread_id or "").strip() or _resolve_thread_id_loose()
+    sk = str(session_key or "").strip() or _resolve_session_key_loose(tid)
+
+    if act == "hide":
+        if tid:
+            clear_thread_stage(tid)
+        _emit_surface("hide", None)
+        return {"ok": True, "action": "hide", "surface": None}
+
+    if act == "stream":
+        sid = str(stream_id or "write_file").strip() or "write_file"
+        chunk = str(text or "")
+        path = (data or {}).get("path") if isinstance(data, dict) else None
+        fmt = (data or {}).get("format") if isinstance(data, dict) else None
+        _emit_stream(
+            action="write",
+            stream_id=sid,
+            text=chunk,
+            path=str(path or "") or None,
+            fmt=str(fmt or "") or None,
+        )
+        if tid:
+            set_thread_stage(tid, kind="write", data={"streamId": sid, "path": path, "format": fmt})
+        return {"ok": True, "action": "stream", "streamId": sid, "chars": len(chunk)}
+
+    k = _normalize_panel_kind(kind or "")
+    if k in ("browser-live", "browser_live"):
+        return {"ok": False, "error": "browser-live is no longer supported"}
+    if not k:
+        return {"ok": False, "error": "kind is required for show/update"}
+
+    payload_data = dict(data or {})
+    if k == "artifacts":
+        return _apply_artifacts_panel(
+            act=act,
+            payload_data=payload_data,
+            title=title,
+            layout=layout,
+            thread_id=tid,
+            session_key=sk,
+        )
+
+    panel_title = title
+    if k == "web-embed":
+        page_url = _normalize_embed_url(
+            str(payload_data.get("url") or payload_data.get("href") or payload_data.get("link") or "")
+        )
+        if act in ("show", "update") and not page_url:
+            return {"ok": False, "error": "web-embed requires data.url (or href/link)"}
+        if page_url:
+            payload_data["url"] = page_url
+            payload_data["editable"] = True
+            if not panel_title:
+                panel_title = "浏览器"
+
+    if k in ("collab-workflow", "collabSubtaskTranscript", "employeeProcess"):
+        progress_surface, err = _build_progress_surface(
+            kind=k,
+            payload_data=payload_data,
+            title=panel_title,
+            layout=layout,
+        )
+        if err or not progress_surface:
+            return {"ok": False, "error": err or "invalid progress panel"}
+        surface = progress_surface
+        if act == "update":
+            _emit_surface("update", surface)
+        else:
+            _emit_surface("show", surface)
+        if tid:
+            set_thread_stage(tid, kind=k, data=surface.get("data"))
+        return {"ok": True, "action": act, "kind": k, "surface": surface}
+
+    surface = {
+        "id": "primary",
+        "kind": k,
+        "data": payload_data,
+    }
+    if layout:
+        surface["layout"] = layout
+    elif k == "write":
+        surface["layout"] = "workspace-write"
+    if panel_title:
+        surface["title"] = panel_title
+
+    if act == "update":
+        _emit_surface("update", surface)
+    else:
+        _emit_surface("show", surface)
+        if k == "write":
+            sid = str((data or {}).get("streamId") or "write_file")
+            fmt = str((data or {}).get("format") or "plain")
+            path = str((data or {}).get("path") or "")
+            _emit_stream(action="open", stream_id=sid, path=path or None, fmt=fmt or None)
+
+    if tid:
+        set_thread_stage(tid, kind=k, data=surface.get("data"))
+
+    return {"ok": True, "action": act, "kind": k, "surface": surface}
+
+
+def _apply_artifacts_panel(
     *,
     act: str,
     payload_data: dict[str, Any],
     title: str | None,
     layout: str | None,
-    runtime: ToolRuntime[ContextT, Any],
-    tool_call_id: str,
-) -> Command | str:
-    """kind=artifacts: persist session deliverables (append) + open/update panel."""
+    thread_id: str,
+    session_key: str,
+) -> dict[str, Any]:
     from evoflow.artifacts.chat_artifact import artifact_state_key, normalize_chat_artifacts
 
     raw_items = payload_data.get("items")
@@ -190,16 +437,13 @@ def _handle_artifacts_panel(
         raw_items = [payload_data]
     normalized = normalize_chat_artifacts(raw_items)
     if act in ("show", "update") and not normalized:
-        return json.dumps(
-            {
-                "ok": False,
-                "error": "artifacts requires data.items[{type, path|url|content, name?}]",
-            },
-            ensure_ascii=False,
-        )
+        return {
+            "ok": False,
+            "error": "artifacts requires data.items[{type, path|url|content, name?}]",
+        }
 
-    tid = _resolve_thread_id(runtime)
-    sk = _resolve_session_key(runtime)
+    tid = str(thread_id or "").strip()
+    sk = str(session_key or "").strip()
     saved: list[dict[str, Any]] = []
     if sk and normalized:
         try:
@@ -207,10 +451,7 @@ def _handle_artifacts_panel(
 
             saved = upsert_artifacts(sk, tid or sk, normalized)
         except Exception as exc:
-            return json.dumps(
-                {"ok": False, "error": f"persist failed: {exc}"},
-                ensure_ascii=False,
-            )
+            return {"ok": False, "error": f"persist failed: {exc}"}
     else:
         saved = [{**it, "status": it.get("status") or "new"} for it in normalized]
 
@@ -230,8 +471,10 @@ def _handle_artifacts_panel(
     ]
     data_out = {
         "items": panel_items,
-        "focusPath": str(payload_data.get("focusPath") or "").strip() or next((str(x.get("path") or "") for x in panel_items if x.get("path")), ""),
-        "focusId": str(payload_data.get("focusId") or "").strip() or (str(panel_items[0].get("id") or "") if panel_items else ""),
+        "focusPath": str(payload_data.get("focusPath") or "").strip()
+        or next((str(x.get("path") or "") for x in panel_items if x.get("path")), ""),
+        "focusId": str(payload_data.get("focusId") or "").strip()
+        or (str(panel_items[0].get("id") or "") if panel_items else ""),
     }
     surface: dict[str, Any] = {
         "id": "primary",
@@ -256,14 +499,18 @@ def _handle_artifacts_panel(
                 "items": panel_items,
             }
         )
-
     state_keys = [k for k in (artifact_state_key(it) for it in saved) if k]
-    payload = {"ok": True, "action": act, "kind": "artifacts", "count": len(panel_items), "items": panel_items}
-    message = ToolMessage(content=json.dumps(payload, ensure_ascii=False), tool_call_id=tool_call_id)
-    update: dict[str, Any] = {"messages": [message]}
+    out: dict[str, Any] = {
+        "ok": True,
+        "action": act,
+        "kind": "artifacts",
+        "count": len(panel_items),
+        "items": panel_items,
+        "surface": surface,
+    }
     if state_keys:
-        update["artifacts"] = state_keys
-    return Command(update=update)
+        out["artifact_state_keys"] = state_keys
+    return out
 
 
 @tool("panel_set", description=_PANEL_SET_TOOL_DESCRIPTION, parse_docstring=False)
@@ -276,16 +523,16 @@ def panel_set_tool(
         str | None,
         Field(
             default=None,
-            description=("artifacts | web-embed | news-dashboard | workspace-browse | write | mind-map | collab-workflow. Deliverables: artifacts + data.items[{type,path|url|content}]. Web: web-embed + data.url."),
+            description=(
+                "DEPRECATED: use platform action=ui.show. "
+                "artifacts | web-embed | … | collab-workflow | collabSubtaskTranscript | employeeProcess."
+            ),
         ),
     ] = None,
     data: Annotated[
         dict[str, Any] | None,
         BeforeValidator(_coerce_to_dict_or_none),
-        Field(
-            default=None,
-            description="Panel payload. artifacts: {items:[…]}; web-embed: {url}.",
-        ),
+        Field(default=None, description="Panel payload (deprecated tool)."),
     ] = None,
     layout: Annotated[str | None, Field(default=None, description="half|wide|narrow|workspace-write")] = None,
     title: Annotated[str | None, Field(default=None, description="Panel title")] = None,
@@ -295,87 +542,31 @@ def panel_set_tool(
     runtime: ToolRuntime[ContextT, Any],
     tool_call_id: Annotated[str, InjectedToolCallId],
 ) -> Command | str:
-    """Open/update/hide EvoPanel right-side UI panels."""
-    act = str(action or "show").strip().lower()
+    """Deprecated standalone tool — prefer ``platform`` ``ui.show`` / ``ui.hide``."""
     tid = _resolve_thread_id(runtime)
-
-    if act == "hide":
-        if tid:
-            clear_thread_stage(tid)
-        _emit_surface("hide", None)
-        return json.dumps({"ok": True, "action": "hide", "surface": None}, ensure_ascii=False)
-
-    if act == "stream":
-        sid = str(stream_id or "write_file").strip() or "write_file"
-        chunk = str(text or "")
-        path = (data or {}).get("path") if isinstance(data, dict) else None
-        fmt = (data or {}).get("format") if isinstance(data, dict) else None
-        _emit_stream(action="write", stream_id=sid, text=chunk, path=str(path or "") or None, fmt=str(fmt or "") or None)
-        if tid:
-            set_thread_stage(tid, kind="write", data={"streamId": sid, "path": path, "format": fmt})
-        return json.dumps({"ok": True, "action": "stream", "streamId": sid, "chars": len(chunk)}, ensure_ascii=False)
-
-    k = _normalize_panel_kind(kind or "")
-    if k in ("browser-live", "browser_live"):
-        return json.dumps({"ok": False, "error": "browser-live is no longer supported"}, ensure_ascii=False)
-    if not k:
-        return json.dumps({"ok": False, "error": "kind is required for show/update"}, ensure_ascii=False)
-
-    payload_data = dict(data or {})
-    if k == "artifacts":
-        return _handle_artifacts_panel(
-            act=act,
-            payload_data=payload_data,
-            title=title,
-            layout=layout,
-            runtime=runtime,
-            tool_call_id=tool_call_id,
-        )
-
-    if k == "web-embed":
-        page_url = _normalize_embed_url(str(payload_data.get("url") or payload_data.get("href") or payload_data.get("link") or ""))
-        if act in ("show", "update") and not page_url:
-            return json.dumps(
-                {"ok": False, "error": "web-embed requires data.url (or href/link)"},
-                ensure_ascii=False,
-            )
-        if page_url:
-            payload_data["url"] = page_url
-            # Keep address bar editable so users can fix / re-navigate when iframe is blocked.
-            payload_data["editable"] = True
-            if not title:
-                title = "浏览器"
-
-    surface: dict[str, Any] = {
-        "id": "primary",
-        "kind": k,
-        "data": payload_data,
-    }
-    if layout:
-        surface["layout"] = layout
-    elif k == "write":
-        surface["layout"] = "workspace-write"
-    if title:
-        surface["title"] = title
-
-    if act == "update":
-        _emit_surface("update", surface)
-    else:
-        _emit_surface("show", surface)
-        if k == "write":
-            sid = str((data or {}).get("streamId") or "write_file")
-            fmt = str((data or {}).get("format") or "plain")
-            path = str((data or {}).get("path") or "")
-            _emit_stream(action="open", stream_id=sid, path=path or None, fmt=fmt or None)
-
-    if tid:
-        set_thread_stage(tid, kind=k, data=surface.get("data"))
-
-    return json.dumps(
-        {"ok": True, "action": act, "kind": k, "surface": surface},
-        ensure_ascii=False,
+    sk = _resolve_session_key(runtime)
+    result = apply_right_panel(
+        action=action,
+        kind=kind,
+        data=data,
+        title=title,
+        layout=layout,
+        stream_id=stream_id,
+        text=text,
+        thread_id=tid,
+        session_key=sk,
     )
+    # Preserve artifacts state update for any residual callers still binding this tool.
+    if result.get("ok") and result.get("kind") == "artifacts" and tool_call_id:
+        state_keys = result.get("artifact_state_keys") or []
+        payload = {k: v for k, v in result.items() if k != "artifact_state_keys"}
+        message = ToolMessage(content=json.dumps(payload, ensure_ascii=False), tool_call_id=tool_call_id)
+        update: dict[str, Any] = {"messages": [message]}
+        if state_keys:
+            update["artifacts"] = state_keys
+        return Command(update=update)
+    return json.dumps(result, ensure_ascii=False)
 
 
-# Legacy export name (tool wire name is panel_set)
+# Legacy export name (tool wire name is panel_set). Not registered in get_available_tools.
 stage_set_tool = panel_set_tool

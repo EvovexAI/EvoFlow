@@ -101,12 +101,9 @@ _OPTIONAL_TOOL_NAMES: frozenset[str] = frozenset(
     }
 )
 
-# Agent 模式系统必带：``platform``（平台行政：知识库/员工/设置等写操作）+
-# ``panel_set``（右侧面板驱动：产物面板 / 写入流 / 实时跳转）。
-# 1.0.7 曾改为角色白名单选挂，但存量角色没有任何勾选记录 → 平台/产物两个面板
-# 全线失效（evoflow_artifacts 近乎停止写入）。这里恢复为系统必带（eager 语义；
-# 角色不可通过白名单摘掉，仍可经 disallowed_tools 显式禁用）。
-AGENT_MODE_SYSTEM_TOOL_NAMES: frozenset[str] = frozenset({"platform", "panel_set"})
+# Agent 模式系统必带：``platform``（平台行政 + 右侧面板 ui.show/hide）。
+# 原独立 ``panel_set`` 已并入 platform ``ui.*``，不再单独挂载。
+AGENT_MODE_SYSTEM_TOOL_NAMES: frozenset[str] = frozenset({"platform"})
 
 # 中间件注入工具：不在原生工具注册表（get_available_tools）里，由 agent 中间件在
 # 建图时挂载。按角色白名单按需注入：勾选才挂（未配置白名单 = 全量继承时默认挂），
@@ -164,7 +161,7 @@ def is_goal_mode_system_tool(name: str | None) -> bool:
 
 
 def is_agent_mode_system_tool(name: str | None) -> bool:
-    """True for agent-mode required tools (``platform`` / ``panel_set``)."""
+    """True for agent-mode required tools (``platform``, includes ui.* panels)."""
     return normalize_tool_name(name) in AGENT_MODE_SYSTEM_TOOL_NAMES
 
 
@@ -217,7 +214,7 @@ def resolve_tool_tier(name: str | None) -> ToolTier:
     if n in GOAL_MODE_SYSTEM_TOOL_NAMES:
         return "goal"
     if n in AGENT_MODE_SYSTEM_TOOL_NAMES:
-        # Agent-mode required tools (platform / panel_set): workspace tier for catalog
+        # Agent-mode required tools (platform): workspace tier for catalog
         # labels, but mode-managed so they stay out of the role editor checklist.
         return "workspace"
     if n in MIDDLEWARE_TOOL_NAMES:

@@ -1314,30 +1314,44 @@ async def task_tool(
             pst = get_project_storage()
             st0 = find_subtask_by_ids(pst, resolved_collab, resolved_subtask)
             prev_p = 0
+            st0_status = ""
             if isinstance(st0, dict):
                 try:
                     prev_p = max(0, min(100, int(st0.get("progress") or 0)))
                 except (TypeError, ValueError):
                     prev_p = 0
-                # If a subtask is already terminal (e.g., manually completed via supervisor),
-                # never downgrade it back to executing due to late task start / retry races.
                 st0_status = str(st0.get("status") or "").strip().lower()
-                if st0_status in {"completed", "failed", "cancelled", "timed_out"}:
-                    st0 = None
-            patch_collab_subtask_in_project_storage(
-                pst,
-                resolved_collab,
-                resolved_subtask,
-                {
-                    "status": "executing",
-                    "progress": prev_p,
-                    "background_task_id": task_id,
-                    # Heartbeat lease: backend watchdog will mark timed_out if this stops updating.
-                    "last_heartbeat_ts": float(time.time()),
-                    "lease_until_ts": float(time.time()) + collab_lease_seconds,
-                },
-            )
-            rollup_root_task_progress_from_subtasks(pst, resolved_collab)
+            # If already terminal (peer consultation wake / late start / race), never
+            # downgrade status back to executing — that left subtasks permanently stuck.
+            # Still bind background_task_id so finalize is not treated as superseded.
+            if st0_status in {"completed", "failed", "cancelled", "timed_out"}:
+                patch_collab_subtask_in_project_storage(
+                    pst,
+                    resolved_collab,
+                    resolved_subtask,
+                    {"background_task_id": task_id},
+                )
+                logger.info(
+                    "task_tool: skip status=executing for terminal subtask main=%s sub=%s status=%s",
+                    resolved_collab,
+                    resolved_subtask,
+                    st0_status,
+                )
+            else:
+                patch_collab_subtask_in_project_storage(
+                    pst,
+                    resolved_collab,
+                    resolved_subtask,
+                    {
+                        "status": "executing",
+                        "progress": prev_p,
+                        "background_task_id": task_id,
+                        # Heartbeat lease: backend watchdog will mark timed_out if this stops updating.
+                        "last_heartbeat_ts": float(time.time()),
+                        "lease_until_ts": float(time.time()) + collab_lease_seconds,
+                    },
+                )
+                rollup_root_task_progress_from_subtasks(pst, resolved_collab)
         except Exception:
             logger.exception(
                 "mark collab subtask executing failed main=%s sub=%s",

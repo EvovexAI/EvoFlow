@@ -148,6 +148,41 @@ describe('decideRightStage', () => {
     expect(r.reason).toBe('write-has-priority')
   })
 
+  it('panel_set progress kinds hint then show', () => {
+    for (const kind of ['collab-workflow', 'collabSubtaskTranscript', 'employeeProcess']) {
+      const r = decideRightStage({
+        ...base,
+        intent: 'panel-set',
+        kind,
+      })
+      expect(r.action).toBe('hint')
+      expect(r.kind).toBe(kind)
+      expect(r.reason).toBe('progress-hint-then-show')
+    }
+  })
+
+  it('employeeProcess yields to active write', () => {
+    const r = decideRightStage({
+      ...base,
+      intent: 'panel-set',
+      kind: 'employeeProcess',
+      currentKind: 'write',
+    })
+    expect(r.action).toBe('noop')
+    expect(r.reason).toBe('write-has-priority')
+  })
+
+  it('platform-feedback yields to progress panels', () => {
+    const r = decideRightStage({
+      ...base,
+      intent: 'platform-feedback',
+      kind: 'platform-feedback',
+      currentKind: 'employeeProcess',
+    })
+    expect(r.action).toBe('noop')
+    expect(r.reason).toBe('higher-priority-open')
+  })
+
   it('platform-feedback hints when panel is free', () => {
     const r = decideRightStage({
       ...base,

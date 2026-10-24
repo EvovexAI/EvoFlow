@@ -781,13 +781,15 @@ class ProactiveEngine:
                 finalize_reason = "proactive_error"
                 # Soft-fail: return an error code so think/dispatch can mark the
                 # related Task failed instead of leaving it hung at executing.
-                status_code = getattr(getattr(e, "response", None), "status_code", None)
-                if status_code == 422:
-                    err_code = "graph_build_error"
-                elif status_code is not None:
-                    err_code = f"http_{status_code}"
-                else:
-                    err_code = "run_error"
+                # Keep the original exception message alongside the code — a bare
+                # "run_error" lands on the Task as 「员工执行失败：run_error」 and
+                # tells nobody what actually broke.
+                from evoflow.proactive.run_errors import (
+                    classify_run_exception,
+                    format_run_error_detail,
+                )
+
+                err_code, detail = classify_run_exception(e)
                 logger.error(
                     "proactive.think: agent run failed role=%s round=%s err=%s: %s",
                     role.agent_code,
@@ -796,7 +798,7 @@ class ProactiveEngine:
                     msg[:240],
                     exc_info=True,
                 )
-                return err_code, None
+                return format_run_error_detail(err_code, detail), None
         finally:
             finalize_proactive_chat_session(
                 session_key=session_key,

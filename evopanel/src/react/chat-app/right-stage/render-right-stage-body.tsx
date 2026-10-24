@@ -28,6 +28,87 @@ import { SidePanelBootShell } from '../../components/SidePanelBootShell.js'
 import { WorkspaceFileTree } from '../../components/WorkspaceFileTree.js'
 import { KnowledgeMapPanel } from '../../components/KnowledgeMapPanel.js'
 import { CollabExecutionPanel } from '../../components/CollabExecutionPanel.js'
+import { ProactiveLiveProcessHost } from '../../components/ProactiveLiveProcessHost.js'
+import { useCollabSubtasksFromApi } from '../../hooks/useCollabSubtasksFromApi.js'
+
+/** panel_set / 任务中心同构：按 surface.data.mainTaskId 自拉工作流，不绑当前会话 task。 */
+function CollabWorkflowStageBody({
+  surface,
+  agents,
+  fallbackMainTaskId,
+  fallbackLeadThreadId,
+  sharedMainTask,
+  sharedSubtasks,
+  liveSubtasks,
+  subagentTasks,
+  collabTask,
+  collabPhase,
+  onClose,
+}: {
+  surface: RightStageSurface
+  agents: unknown
+  fallbackMainTaskId?: string
+  fallbackLeadThreadId?: string
+  sharedMainTask?: unknown
+  sharedSubtasks?: unknown
+  liveSubtasks?: unknown
+  subagentTasks?: unknown
+  collabTask?: unknown
+  collabPhase?: unknown
+  onClose: () => void
+}) {
+  const data = surface.data || {}
+  const mainTaskId = String(data.mainTaskId || fallbackMainTaskId || '').trim()
+  const leadThreadId = String(data.leadThreadId || fallbackLeadThreadId || '').trim()
+  const useShared =
+    !!mainTaskId && mainTaskId === String(fallbackMainTaskId || '').trim() && sharedMainTask != null
+  const { subtasks: fetchedSubs, mainTask: fetchedMain } = useCollabSubtasksFromApi({
+    taskId: mainTaskId || null,
+    threadId: leadThreadId || null,
+    enabled: !!mainTaskId && !useShared,
+  })
+  if (!mainTaskId) {
+    return (
+      <aside className="react-chat-collab-exec-panel react-chat-right-stage-panel" role="region" aria-label="工作流">
+        <div className="react-chat-collab-exec-panel-body collab-wf-panel-body">
+          <div className="collab-exec-dag-empty">当前会话暂无工作流</div>
+        </div>
+      </aside>
+    )
+  }
+  return (
+    <CollabExecutionPanel
+      isOpen
+      mainTaskId={mainTaskId}
+      collabTask={useShared ? collabTask : fetchedMain}
+      collabPhase={collabPhase}
+      chatThreadId={leadThreadId || null}
+      apiMainTask={useShared ? sharedMainTask : fetchedMain}
+      apiSubtasks={useShared ? sharedSubtasks : fetchedSubs}
+      liveSubtasks={useShared ? liveSubtasks || [] : []}
+      subagentTasks={useShared ? subagentTasks : undefined}
+      agents={agents}
+      onClose={onClose}
+      onSubtaskTranscriptOpen={(payload) => {
+        openCollabSubtaskInRightStage({
+          subtaskId: String(payload?.subtaskId || ''),
+          mainTaskId: String(payload?.mainTaskId || mainTaskId),
+          leadThreadId: String(payload?.leadThreadId || leadThreadId),
+          title: String(payload?.title || ''),
+          status: String(payload?.status || ''),
+          assignedAgent: String(payload?.assignedAgent || ''),
+          description: String(payload?.description || ''),
+          subtaskThreadId: String(payload?.subtaskThreadId || ''),
+          rows: Array.isArray(payload?.rows) ? payload.rows : undefined,
+          emptyConversation: payload?.emptyConversation,
+          initialText: payload?.initialText,
+          outcome: payload?.outcome,
+        })
+      }}
+      canvasFillContainer
+    />
+  )
+}
 
 export type RenderRightStageBodyCtx = Record<string, any>
 
@@ -41,9 +122,7 @@ export function renderRightStageBody(
     closeCollabExecPanel,
     closeKnowledgeMapPanel,
     closeWorkspacePanel,
-    collabExecPanelOpen,
     collabSubtasksTaskId,
-    collabWorkflowApiReady,
     contextFiles,
     effectiveWorkspaceRoot,
     knowledgeMapEnabled,
@@ -273,51 +352,42 @@ export function renderRightStageBody(
   }
   if (kind === 'collab-workflow') {
     return sidePanelHeavyMount ? (
-      collabWorkflowApiReady ? (
-        <CollabExecutionPanel
-          isOpen={collabExecPanelOpen}
-          mainTaskId={collabSubtasksTaskId || sidebarActiveTaskId}
-          collabTask={sidebarActiveView?.task ?? threadPanelState.collabTask}
-          collabPhase={threadPanelState.collabPhase ?? undefined}
-          chatThreadId={chatThreadIdForSidebar}
-          apiMainTask={sharedCollabMainTask}
-          apiSubtasks={sharedCollabSubtasks}
-          liveSubtasks={threadPanelState.collabSubtasks || []}
-          subagentTasks={threadPanelState.subagentTasks}
-          agents={agents}
-          onClose={closeCollabExecPanel}
-          onSubtaskTranscriptOpen={(payload) => {
-            // 点工作流节点 → 右侧再开一张独立进度 tab（不盖住工作流 tab、不用居中弹窗）
-            // 必须带上预取的 rows/outcome，否则 tab 会空（历史链路断在 open 处）
-            openCollabSubtaskInRightStage(
-              {
-                subtaskId: String(payload?.subtaskId || ''),
-                mainTaskId: String(payload?.mainTaskId || collabSubtasksTaskId || sidebarActiveTaskId || ''),
-                leadThreadId: String(payload?.leadThreadId || chatThreadIdForSidebar || ''),
-                title: String(payload?.title || ''),
-                status: String(payload?.status || ''),
-                assignedAgent: String(payload?.assignedAgent || ''),
-                description: String(payload?.description || ''),
-                subtaskThreadId: String(payload?.subtaskThreadId || ''),
-                rows: Array.isArray(payload?.rows) ? payload.rows : undefined,
-                emptyConversation: payload?.emptyConversation,
-                initialText: payload?.initialText,
-                outcome: payload?.outcome,
-              },
-              { sessionKey: selectedSessionKey },
-            )
-          }}
-          canvasFillContainer
-        />
-      ) : (
-        <aside className="react-chat-collab-exec-panel react-chat-right-stage-panel" role="region" aria-label="工作流">
-          <div className="react-chat-collab-exec-panel-body collab-wf-panel-body">
-            <div className="collab-exec-dag-empty">当前会话暂无工作流</div>
-          </div>
-        </aside>
-      )
+      <CollabWorkflowStageBody
+        surface={surface}
+        agents={agents}
+        fallbackMainTaskId={String(collabSubtasksTaskId || sidebarActiveTaskId || '').trim()}
+        fallbackLeadThreadId={String(chatThreadIdForSidebar || '').trim()}
+        sharedMainTask={sharedCollabMainTask}
+        sharedSubtasks={sharedCollabSubtasks}
+        liveSubtasks={threadPanelState.collabSubtasks || []}
+        subagentTasks={threadPanelState.subagentTasks}
+        collabTask={sidebarActiveView?.task ?? threadPanelState.collabTask}
+        collabPhase={threadPanelState.collabPhase ?? undefined}
+        onClose={closeCollabExecPanel}
+      />
     ) : (
       <SidePanelBootShell title="工作流" className="react-chat-right-stage-panel" />
+    )
+  }
+  if (kind === 'employeeProcess') {
+    const data = surface.data || {}
+    const agentCode = String(data.agentCode || '').trim()
+    if (!agentCode) return null
+    return sidePanelHeavyMount ? (
+      <ProactiveLiveProcessHost
+        open
+        mode="panel"
+        agentCode={agentCode}
+        roleName={String(data.roleName || '').trim()}
+        busy={!!data.busy}
+        title={String(surface.title || data.title || '执行过程')}
+        roundId={String(data.roundId || '').trim()}
+        taskId={String(data.taskId || '').trim()}
+        pollMs={data.busy ? 1000 : 4000}
+        onClose={() => rightStageStore.closeTab(tabKeyOf(surface))}
+      />
+    ) : (
+      <SidePanelBootShell title={surface.title || '执行过程'} />
     )
   }
   return null

@@ -969,6 +969,17 @@ async def delegate_collab_subtask_peer_wake(
     if not st:
         return {"ok": False, "error": "subtask not found"}
 
+    # Belt-and-suspenders with wake.py: never re-claim a terminal step via peer.
+    _PEER_WAKE_TERMINAL = frozenset({"completed", "failed", "cancelled", "canceled", "timed_out"})
+    cur = str(st.get("status") or "").strip().lower()
+    if cur in _PEER_WAKE_TERMINAL:
+        return {
+            "ok": True,
+            "skipped": True,
+            "reason": "terminal_no_redispatch",
+            "status": cur,
+        }
+
     runtime = _resolve_collab_followup_runtime(None, mid)
     if runtime is None:
         return {"ok": False, "error": "no lead runtime for peer wake"}

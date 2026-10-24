@@ -77,6 +77,9 @@ REMOVED_LEGACY_TOOL_NAMES: frozenset[str] = frozenset(
         "find",
         "terminal",
         "process",
+        # Right panel folded into platform ui.show|hide|update
+        "panel_set",
+        "stage_set",
         # Unified ``browser`` tool unregistered — use the agent-browser skill (CLI/MCP) instead.
         "browser",
         # Legacy browser_* tools — use the agent-browser skill (CLI/MCP) instead.
@@ -180,7 +183,7 @@ def get_builtin_tools() -> tuple[BaseTool, ...]:
     # from evoflow.tools.builtins.process_tool import process_tool  # retired — Bash background tasks
     from evoflow.tools.builtins.propose_goal_tool import propose_goal_tool
     # from evoflow.tools.builtins.read_lints_tool import read_lints_tool  # retired — 诊断走 Bash（pyright/ruff），对齐 ZCode
-    from evoflow.tools.builtins.stage_tool import stage_set_tool
+    # panel_set / stage_set retired as standalone tool — use platform ui.show / ui.hide
     from evoflow.tools.builtins.subtask_outcome_report_tool import subtask_outcome_report_tool
     from evoflow.tools.builtins.subtask_progress_tool import subtask_progress_report_tool
     from evoflow.tools.builtins.subtask_work_checklist_tool import subtask_work_checklist_tool
@@ -204,7 +207,7 @@ def get_builtin_tools() -> tuple[BaseTool, ...]:
         collab_peer_read_tool,
         collab_peer_reply_tool,
         # todo_tool,  # retired — todo_write (TodoMiddleware) 替代，对齐 zcode
-        stage_set_tool,
+        # stage_set_tool / panel_set — retired; right panel via platform ui.show|hide|update
         fetch_url_tool,
         view_image_tool,
         # process_tool,  # retired — ZCode Bash run_in_background + TaskOutput/TaskStop

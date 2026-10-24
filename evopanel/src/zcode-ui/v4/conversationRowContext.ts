@@ -87,6 +87,13 @@ export interface ConversationRowRenderContext {
   /** Assistant markdown 本地文件链接入口：由 shell 统一 stat 后分流到预览或文件树。 */
   onOpenFileLink?: (target: MessageFileLinkTarget) => void;
   onOpenSubagentSession?: (request: OpenSubagentSideTabRequest) => void;
+  /**
+   * EvoFlow：Agent/Task 工具卡 → 右侧「子代理实时输出」面板。
+   * zcode 原生靠 subagentRow（镜像事件配对）拿到 childSessionId 才有下钻；
+   * EvoFlow 的 AG-UI wire 不产镜像事件，宿主按 toolCallId 联接 subagentTasks
+   * 后打开 transcript 面板。缺席即卡片无「在右侧打开」入口（对齐 zcode 语义）。
+   */
+  onOpenSubagentToolCall?: (toolCallId: string) => void;
   onOpenPlanDetail?: (request: OpenPlanDetailSideTabRequest) => void;
   onOpenWorkflowRun?: (request: OpenWorkflowRunSideTabRequest) => void;
   /**

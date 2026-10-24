@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import concurrent.futures
 import json
+import logging
 import re
 import uuid
 from typing import Any
@@ -22,6 +23,8 @@ from evoflow.collab.thread_collab import advance_collab_phase_to_plan_ready_for_
 from evoflow.persistence import app_repositories
 from evoflow.persistence.task_repositories import save_task_bundle
 from evoflow.timeutil import utc_now_iso_z
+
+logger = logging.getLogger(__name__)
 
 _STEP_NAME_REF_RE = re.compile(r"(?i)^\s*step\s+(\d+)\s*[:：]")
 
@@ -495,6 +498,10 @@ _TASK_STATUS_TO_RUN = {
     "plan_ready": "plan_ready",
     "waiting_dispatch": "planned",
     "planning": "plan_ready",
+    # After unattended _requeue the main task is pending/progress=0; map so GET
+    # sync does not leave evoflow_app_runs stuck at executing/98%.
+    "pending": "running",
+    "queued": "running",
 }
 
 
@@ -526,6 +533,57 @@ def _sync_run_from_task(run: dict[str, Any], *, task_status: str, progress: int)
         app_repositories.update_run_status(run_id, current or "running", **fields)
         run["progress"] = prog
     return effective
+
+
+_RUN_TERMINAL = frozenset({"completed", "failed", "cancelled", "canceled"})
+
+
+def _heal_run_invariant(
+    run: dict[str, Any],
+    *,
+    task_status: str,
+    progress: int,
+    subtasks: list[Any] | None,
+) -> str:
+    """Conservative heal when app_run drifts from main-task / subtask reality.
+
+    Logs ``run.invariant_violation`` and only forces obvious cases:
+    - task terminal but run still active → re-sync from task
+    - empty subtasks + task pending/queued but run still shows high progress → reset to running/0
+    """
+    run_id = str(run.get("id") or "").strip()
+    if not run_id:
+        return str(run.get("status") or "")
+    run_st = str(run.get("status") or "").strip().lower()
+    task_st = str(task_status or "").strip().lower()
+    violations: list[str] = []
+    if task_st in _RUN_TERMINAL and run_st not in _RUN_TERMINAL:
+        violations.append("task_terminal_run_active")
+    subs = [s for s in (subtasks or []) if isinstance(s, dict)]
+    if (
+        not subs
+        and task_st in {"pending", "queued"}
+        and run_st in {"executing", "running"}
+        and int(run.get("progress") or 0) > 0
+    ):
+        violations.append("empty_subs_stale_progress")
+    if not violations:
+        return run_st
+    logger.warning(
+        "run.invariant_violation run_id=%s task_status=%s run_status=%s violations=%s",
+        run_id,
+        task_st,
+        run_st,
+        violations,
+    )
+    if "empty_subs_stale_progress" in violations:
+        app_repositories.update_run_status(run_id, "running", progress=0, error=None)
+        run["status"] = "running"
+        run["progress"] = 0
+        return "running"
+    if "task_terminal_run_active" in violations:
+        return _sync_run_from_task(run, task_status=task_st, progress=int(progress or 0))
+    return run_st
 
 
 # ────────────────────────────────── Lead Supervised Mode ─────────────────────────────────
@@ -952,6 +1010,7 @@ def get_run_status(run_id: str) -> dict[str, Any] | None:
     subtask_status: dict[str, Any] = {}
     step_ref_to_subtask_id: dict[str, str] = {}
     steps_detail: list[dict[str, Any]] = []
+    main_subtasks: list[Any] = []
     result_summary = run.get("result_summary", "")
     main_outputs: list[Any] = []
     main_evidence: list[str] = []
@@ -1005,6 +1064,7 @@ def get_run_status(run_id: str) -> dict[str, Any] | None:
                 main_evidence = evidence_paths_from_outputs(main_outputs)
                 plan_steps = [s for s in (main_task.get("plan_steps") or []) if isinstance(s, dict)]
                 subtasks = [s for s in (main_task.get("subtasks") or []) if isinstance(s, dict)]
+                main_subtasks = subtasks
                 for idx, st in enumerate(subtasks):
                     ref = _resolve_subtask_ref(st, index=idx, plan_steps=plan_steps)
                     sid = str(st.get("id") or st.get("subtask_id") or "").strip()
@@ -1067,6 +1127,15 @@ def get_run_status(run_id: str) -> dict[str, Any] | None:
             pass
 
     status = _sync_run_from_task(run, task_status=str(task_status), progress=int(progress or 0))
+    try:
+        status = _heal_run_invariant(
+            run,
+            task_status=str(task_status),
+            progress=int(progress or 0),
+            subtasks=main_subtasks,
+        ) or status
+    except Exception:
+        logger.debug("run invariant heal skipped run_id=%s", run.get("id"), exc_info=True)
     # App runs: completed → always expose 100 to UI
     if status == "completed":
         progress = 100

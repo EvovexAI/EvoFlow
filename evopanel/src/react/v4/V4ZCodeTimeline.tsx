@@ -615,6 +615,46 @@ export function V4ZCodeTimeline(props: {
   const onApprovalChoiceRef = useRef(onApprovalChoice);
   onApprovalChoiceRef.current = onApprovalChoice;
 
+  // Agent/Task 工具卡「在右侧打开」：toolCallId → subagentTasks 联出任务身份后
+  // 打开右侧 transcript 面板（transcript API 轮询 + liveOutput 兜底）。
+  // 与 subagentEntries 同一套解析键（taskId/taskExecId/collabSubtaskId/toolCallId）。
+  const onOpenSubagentToolCall = useCallback(
+    (toolCallId: string) => {
+      const open = onOpenSubagentTranscriptRef.current;
+      if (!open) return
+      const tasks = subagentTasksRef.current
+      let entry: Record<string, unknown> | undefined
+      if (tasks && Object.keys(tasks).length > 0) {
+        entry = (tasks as Record<string, Record<string, unknown>>)[toolCallId]
+        if (!entry) {
+          entry = Object.values(tasks as Record<string, Record<string, unknown>>).find(
+            (t) =>
+              String(t?.taskId || '') === toolCallId ||
+              String(t?.taskExecId || '') === toolCallId ||
+              String(t?.collabSubtaskId || '') === toolCallId,
+          )
+        }
+      }
+      // 无流事件命中（刷新后/跨进程）时用 toolCallId 本身查 transcript API：
+      // 普通子代理的 task_id 就是 tool_call_id，终态快照通常仍可取到。
+      const taskId = String(
+        entry?.taskExecId || entry?.taskId || toolCallId,
+      ).trim()
+      const label = String(
+        entry?.subagentType || entry?.description || '子代理',
+      ).trim()
+      open(
+        taskId,
+        label,
+        String(entry?.liveOutput || entry?.progressHint || ''),
+        String(entry?.phase || 'running'),
+      )
+    },
+    [],
+  );
+  const onOpenSubagentToolCallRef = useRef(onOpenSubagentToolCall);
+  onOpenSubagentToolCallRef.current = onOpenSubagentToolCall;
+
   const renderToolCallApproval = useCallback((toolCallId: string) => {
     const item = pendingByIdRef.current.get(toolCallId);
     if (!item) return null;
@@ -663,6 +703,13 @@ export function V4ZCodeTimeline(props: {
       fetchFileChanges: sessionId ? fetchFileChanges : undefined,
       // 贴在对应 bash/工具卡下方，不用底部浮层
       renderToolCallApproval,
+      // Agent/Task 工具卡摘要行「在右侧打开」入口 → 右侧子代理实时输出面板。
+      // 经 ref 读最新 prop，保持回调身份稳定（rowContext memo 依赖整树闪烁）。
+      onOpenSubagentToolCall: (toolCallId: string) => {
+        if (onOpenSubagentTranscriptRef.current) {
+          onOpenSubagentToolCallRef.current(toolCallId)
+        }
+      },
       // 对话中自动触发：预览卡终态批量打开（pptx 等）+ gate target 下发
       onAutoOpenAssistantPptx: onAutoOpenCodeViewers ? handleAutoOpenAssistantPptx : undefined,
       assistantPreviewPptxAutoOpenTarget,

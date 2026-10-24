@@ -42,6 +42,7 @@ PLATFORM_DOMAINS = (
     "diagnostics",
     "verification",
     "appearance",
+    "ui",
     "eval",
 )
 
@@ -152,6 +153,14 @@ DOMAIN_GUIDES: dict[str, dict[str, str]] = {
         "title": "界面外观",
         "when": "改 EvoPanel 主题明暗、强调色色卡、自定义背景图/视频路径、液态玻璃开关与预设时",
         "not": "不是模型配置（用 settings.*）；改完后客户端会自动刷新界面",
+    },
+    "ui": {
+        "title": "右侧面板",
+        "when": (
+            "要在右侧打开/关闭面板时：工作流图、节点进度、员工执行过程、网页内嵌、产物等。"
+            "用户要盯进度时用 ui.show（勿对每次写操作都开）"
+        ),
+        "not": "不是改主题/液态玻璃（用 appearance）；不是跳页面路由（用反馈卡 CTA）",
     },
     "eval": {
         "title": "评测中心",
@@ -398,6 +407,36 @@ def _build_registry() -> dict[str, PlatformAction]:
             H.appearance_patch,
             "改成深色+极光液态玻璃",
             "把背景换成本地视频路径",
+        ),
+        # ui（右侧面板；原独立 panel_set 工具已并入）
+        _A(
+            "ui.show",
+            "ui",
+            "打开右侧面板（进度/网页/产物等；读操作无需 confirm）",
+            "read",
+            "kind, data?, title?, layout?",
+            H.ui_show,
+            "打开任务工作流图 kind=collab-workflow data.mainTaskId",
+            "打开员工执行过程 kind=employeeProcess data.taskId+agentCode",
+            "打开节点进度 kind=collabSubtaskTranscript",
+        ),
+        _A(
+            "ui.hide",
+            "ui",
+            "关闭右侧面板",
+            "read",
+            "无",
+            H.ui_hide,
+            "把右侧面板收起来",
+        ),
+        _A(
+            "ui.update",
+            "ui",
+            "更新已打开的右侧面板内容",
+            "read",
+            "kind, data?, title?, layout?",
+            H.ui_update,
+            "刷新节点进度面板数据",
         ),
         # agents
         _A("agents.list", "agents", "列出智能体角色", "read", "tag?, agent_name?, limit?, offset?, include_soul?", H.agents_list, "有哪些智能体"),

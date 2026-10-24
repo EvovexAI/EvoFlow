@@ -7,6 +7,7 @@ import { upsertTabInSessionMemory } from './right-stage-session-memory.js'
 import { getPanelSetting } from '../panel-settings.js'
 import { isAutoWorkPreviewEnabled, normalizeWriteStreamMode } from './write-stream-mode.js'
 import { logPanelSet } from './panel-set-debug-log.js'
+import { isProgressStageKind, openProgressFromPanelSet } from './open-progress-from-panel-set.js'
 
 /** 写入面板是否允许被远端 / panel_set 自动拉开（跟随「自动打开工作预览」设置）。 */
 function mayAutoShowWritePanel(): boolean {
@@ -139,6 +140,20 @@ export function applyStageSetPayload(
     return false
   }
   const kind = normalizeRightStageKind(String(payload.surface.kind || ''))
+  // 进度类（工作流/节点/员工）：workspace 归属，走统一 helper，不绑触发会话
+  if (isProgressStageKind(kind) && action !== 'hide') {
+    logPanelSet('① 进度面板：openProgressFromPanelSet（不写 chat sessionKey）', { kind })
+    const opened = openProgressFromPanelSet({
+      ...payload.surface,
+      kind,
+    })
+    if (!opened) {
+      logPanelSet('① 进度面板打开失败：缺必填 data')
+      return false
+    }
+    dispatchStageSetApplied(payload)
+    return true
+  }
   // 产物改由侧栏 Info Rail 呈报，不占用 Right Stage；真正开文件在 syncRemoteStageSet
   if (kind === 'artifacts') {
     logPanelSet('① kind=artifacts → 不直接挂右栏标签，派发 STAGE_SET_APPLIED 给 sync', {

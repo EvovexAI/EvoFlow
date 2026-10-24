@@ -1,6 +1,8 @@
 /**
- * Subtask node transcript — from ``evoflow_chat_messages``, resolved by
- * stable ``task_id`` + ``subtask_id`` (not the volatile lead LangGraph UUID).
+ * Subtask / node transcript — same store as main chat (`evoflow_chat_messages`).
+ *
+ * Prefer resolved executor ``thread_id`` → GET by-thread messages.
+ * ``conversation-history`` is a thin resolver (taskId+subtaskId → thread + outcome).
  */
 
 import { messagesToSubtaskModalRows } from './subtask-modal-rows.js'
@@ -53,10 +55,57 @@ function outcomeFromApi(raw, fallbackSnapshot) {
   return outcomeFromSubtaskSnapshot(fallbackSnapshot)
 }
 
+/** Drop legacy fake turns that injected outcome into messages. */
+function filterRealChatMessages(messages) {
+  if (!Array.isArray(messages)) return []
+  return messages.filter((m) => {
+    if (!m || typeof m !== 'object') return false
+    const src = String(m.source || '').trim()
+    if (src === 'subtask_outcome_report') return false
+    const id = String(m.id || '').trim()
+    if (id.endsWith(':outcome-report')) return false
+    return true
+  })
+}
+
 /**
- * Canonical API: GET /api/tasks/{taskId}/subtasks/{subtaskId}/conversation-history
- * Backend resolves chat rows via persisted subtask_thread_id / SubThread_{sid} /
- * `%__sub__{sid}` — survives lead thread_id recreation on service restart.
+ * Same path as main chat: GET /api/chat/sessions/by-thread/{threadId}/messages
+ */
+export async function fetchTranscriptMessagesByThread(threadId, limit = 2000) {
+  const tid = String(threadId || '').trim()
+  if (!tid) return { messages: [], threadId: '', sessionKey: '' }
+  try {
+    const { getWsClient } = await import('./ws-client.js')
+    const client = typeof getWsClient === 'function' ? getWsClient() : null
+    if (client?.chatMessagesByThread) {
+      const data = await client.chatMessagesByThread(tid, { all: true, limit })
+      return {
+        messages: filterRealChatMessages(data?.messages),
+        threadId: tid,
+        sessionKey: String(data?.sessionKey || ''),
+      }
+    }
+  } catch {
+    /* fall through to fetch */
+  }
+  const qs = new URLSearchParams()
+  qs.set('all', '1')
+  const path = `/api/chat/sessions/by-thread/${encodeURIComponent(tid)}/messages?${qs}`
+  const res = await fetch(path, { credentials: 'same-origin' })
+  if (!res.ok) {
+    if (res.status === 404) return { messages: [], threadId: tid, sessionKey: '' }
+    throw new Error(`GET by-thread messages failed: ${res.status}`)
+  }
+  const data = await res.json().catch(() => ({}))
+  return {
+    messages: filterRealChatMessages(data?.messages),
+    threadId: tid,
+    sessionKey: String(data?.sessionKey || ''),
+  }
+}
+
+/**
+ * Resolver: taskId+subtaskId → messages + thread_id + outcome (not a second chat protocol).
  */
 async function fetchViaTaskConversationHistory(mainTaskId, subtaskId, limit) {
   const mid = String(mainTaskId || '').trim()
@@ -67,7 +116,7 @@ async function fetchViaTaskConversationHistory(mainTaskId, subtaskId, limit) {
   const path = `/api/tasks/${encodeURIComponent(mid)}/subtasks/${encodeURIComponent(sid)}/conversation-history?${qs}`
   const res = await fetch(path, { credentials: 'same-origin' })
   if (!res.ok) {
-    if (res.status === 404) return { messages: [], count: 0, outcome: {} }
+    if (res.status === 404) return { messages: [], count: 0, outcome: {}, thread_id: null }
     throw new Error(`GET subtask conversation-history failed: ${res.status}`)
   }
   return await res.json().catch(() => ({}))
@@ -86,6 +135,7 @@ async function fetchViaTaskConversationHistory(mainTaskId, subtaskId, limit) {
 export async function fetchSubtaskConversationHistory(params) {
   const subtaskId = String(params?.subtaskId || '').trim()
   const mainTaskId = String(params?.mainTaskId || '').trim()
+  const storedThread = String(params?.storedSubtaskThreadId || '').trim()
 
   if (!subtaskId) {
     return {
@@ -95,17 +145,49 @@ export async function fetchSubtaskConversationHistory(params) {
       messages: [],
       rows: [],
       emptyConversation: true,
+      thread_id: storedThread || undefined,
+      status: String(params?.subtaskSnapshot?.status || '').trim() || undefined,
       outcome: outcomeFromSubtaskSnapshot(params?.subtaskSnapshot),
     }
   }
 
-  // Prefer task-scoped API (stable ids). Do not invent lead__sub__ from current lead UUID.
   let messages = []
+  let threadId = storedThread
   let outcome = outcomeFromSubtaskSnapshot(params?.subtaskSnapshot)
-  if (mainTaskId) {
+
+  // 1) Known executor thread → same API as main chat
+  if (storedThread) {
+    try {
+      const byThread = await fetchTranscriptMessagesByThread(storedThread, params?.limit)
+      if (byThread.messages.length > 0) {
+        messages = byThread.messages
+      }
+    } catch {
+      /* resolve via history below */
+    }
+  }
+
+  // 2) Resolver: stable task/subtask → thread + messages + outcome
+  if (mainTaskId && messages.length === 0) {
     const data = await fetchViaTaskConversationHistory(mainTaskId, subtaskId, params?.limit)
-    messages = Array.isArray(data?.messages) ? data.messages : []
+    const resolved = String(data?.thread_id || '').trim()
+    if (resolved) threadId = resolved
     outcome = outcomeFromApi(data?.outcome, params?.subtaskSnapshot)
+
+    // Prefer by-thread when resolver gave us a thread (canonical store path)
+    if (resolved) {
+      try {
+        const byThread = await fetchTranscriptMessagesByThread(resolved, params?.limit)
+        if (byThread.messages.length > 0) {
+          messages = byThread.messages
+        }
+      } catch {
+        /* use history messages */
+      }
+    }
+    if (messages.length === 0) {
+      messages = filterRealChatMessages(data?.messages)
+    }
   }
 
   const rows = messagesToSubtaskModalRows(messages)
@@ -116,6 +198,11 @@ export async function fetchSubtaskConversationHistory(params) {
     messages,
     rows,
     emptyConversation: messages.length === 0,
+    thread_id: threadId || undefined,
+    status:
+      String(outcome?.status || '').trim() ||
+      String(params?.subtaskSnapshot?.status || '').trim() ||
+      undefined,
     outcome,
   }
 }

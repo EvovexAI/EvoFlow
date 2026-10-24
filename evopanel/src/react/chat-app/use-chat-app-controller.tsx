@@ -2719,16 +2719,6 @@ export function useChatAppController() {
   )
 
   const [roleSwitchBusy, setRoleSwitchBusy] = useState(false)
-  const scenarioSessionHandlers = useMemo(
-    () =>
-      buildScenarioSessionHandlers({
-        selectedSessionKey,
-        setSessionMode,
-        wsClient,
-        setSessions,
-      }),
-    [selectedSessionKey, sessions],
-  )
 
   const collabVerifyingBadge =
     SHOW_SESSION_MODE_COLLAB_UI &&
@@ -3746,6 +3736,17 @@ export function useChatAppController() {
     selectedSessionKey,
     sessionRef,
   })
+
+  const scenarioSessionHandlers = useMemo(
+    () =>
+      buildScenarioSessionHandlers({
+        selectedSessionKey,
+        setSessionMode,
+        wsClient,
+        setSessions,
+      }),
+    [selectedSessionKey, sessions],
+  )
 
   // toggleCollab removed (unused)
 

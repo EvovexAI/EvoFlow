@@ -273,6 +273,28 @@ CREATE TABLE IF NOT EXISTS "evoflow_automation_runs" (
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 , updated_at TEXT NOT NULL DEFAULT '');
 
+CREATE TABLE IF NOT EXISTS "evoflow_automation_slot_claims" (
+    task_id TEXT NOT NULL,
+    slot TEXT NOT NULL,
+    state TEXT NOT NULL DEFAULT 'claimed',
+    run_id TEXT,
+    trigger_type TEXT,
+    owner TEXT,
+    attempts INTEGER NOT NULL DEFAULT 1,
+    claimed_at TEXT NOT NULL DEFAULT '',
+    claimed_at_ms INTEGER NOT NULL DEFAULT 0,
+    completed_at TEXT NOT NULL DEFAULT '',
+    updated_at TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY (task_id, slot)
+);
+
+CREATE TABLE IF NOT EXISTS "evoflow_automation_scheduler_state" (
+    k TEXT PRIMARY KEY,
+    v TEXT NOT NULL DEFAULT '',
+    updated_at TEXT NOT NULL DEFAULT '',
+    updated_at_ms INTEGER NOT NULL DEFAULT 0
+);
+
 CREATE TABLE IF NOT EXISTS "evoflow_automations" (
     task_id TEXT PRIMARY KEY,
     name TEXT NOT NULL DEFAULT '',
@@ -2260,7 +2282,57 @@ def ensure_app_schema(conn: sqlite3.Connection) -> None:
         return
     # version == APP_SCHEMA_VERSION: already current — still ensure post-baseline tables.
     _ensure_duty_runs_table(conn)
+    _ensure_automation_slot_claims(conn)
     return
+
+
+_AUTOMATION_SCHEDULER_TABLES_DDL = """
+CREATE TABLE IF NOT EXISTS "evoflow_automation_slot_claims" (
+    task_id TEXT NOT NULL,
+    slot TEXT NOT NULL,
+    state TEXT NOT NULL DEFAULT 'claimed',
+    run_id TEXT,
+    trigger_type TEXT,
+    owner TEXT,
+    attempts INTEGER NOT NULL DEFAULT 1,
+    claimed_at TEXT NOT NULL DEFAULT '',
+    claimed_at_ms INTEGER NOT NULL DEFAULT 0,
+    completed_at TEXT NOT NULL DEFAULT '',
+    updated_at TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY (task_id, slot)
+);
+
+CREATE TABLE IF NOT EXISTS "evoflow_automation_scheduler_state" (
+    k TEXT PRIMARY KEY,
+    v TEXT NOT NULL DEFAULT '',
+    updated_at TEXT NOT NULL DEFAULT '',
+    updated_at_ms INTEGER NOT NULL DEFAULT 0
+);
+"""
+
+
+def ensure_automation_scheduler_tables(conn: sqlite3.Connection) -> None:
+    """Create the automation scheduler helper tables if missing (idempotent).
+
+    Both tables are also part of the baseline DDL, but existing installs
+    already sit at ``APP_SCHEMA_VERSION`` and therefore never re-run the
+    baseline. This helper is called on every schema ensure so upgraded
+    installs get the tables without a manual migration.
+    """
+    try:
+        conn.executescript(_AUTOMATION_SCHEDULER_TABLES_DDL)
+        conn.commit()
+    except sqlite3.DatabaseError:
+        logger.debug("schema: ensure automation scheduler tables failed", exc_info=True)
+
+
+def _ensure_automation_slot_claims(conn: sqlite3.Connection) -> None:
+    """Idempotently ensure the scheduler helper tables exist (used by ensure_app_schema)."""
+    if _table_exists(conn, "evoflow_automation_slot_claims") and _table_exists(
+        conn, "evoflow_automation_scheduler_state"
+    ):
+        return
+    ensure_automation_scheduler_tables(conn)
 
 
 def ensure_chat_messages_thread_index(conn: sqlite3.Connection) -> None:

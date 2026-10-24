@@ -14,8 +14,11 @@ export function buildScenarioSessionHandlers(ctx: BuildScenarioSessionHandlersCt
       // sessionMode is the source of truth after v75; keep it in sync with
       // the new scenario selection so resolveSessionModeForOpenSession stays
       // consistent without waiting for the next API refresh.
-      const derivedMode =
-        scenarios.includes('plan') ? 'plan' : scenarios.includes('agent') ? 'agent' : 'ask'
+      const derivedMode = scenarios.includes('plan')
+        ? 'plan'
+        : scenarios.includes('agent')
+          ? 'agent'
+          : 'agent'
       ctx.setSessions((prev) =>
         prev.map((s) =>
           String(s.sessionKey || '') === sk

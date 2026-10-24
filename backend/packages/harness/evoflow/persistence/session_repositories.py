@@ -361,7 +361,7 @@ def _session_row_to_api(d: dict[str, Any]) -> dict[str, Any]:
     try:
         from evoflow.persistence.session_tool_binding_repositories import _derive_tool_fields_for_mode
 
-        mode = str(d.get("session_mode") or "ask").strip().lower() or "ask"
+        mode = str(d.get("session_mode") or "agent").strip().lower() or "agent"
         derived = _derive_tool_fields_for_mode(sk, mode) if sk else {}
         if derived:
             # Do not use ``or`` — empty pending [] is valid for narrow allowlists.

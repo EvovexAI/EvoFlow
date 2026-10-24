@@ -363,8 +363,86 @@ def _build_details(args: dict[str, Any], result: dict[str, Any]) -> list[dict[st
     return details[:4]
 
 
-def _build_actions(action: str, domain: str, entity_id: str, result: dict[str, Any]) -> list[dict[str, str]]:
-    actions: list[dict[str, str]] = []
+def _progress_open_stage_action(
+    action: str,
+    domain: str,
+    entity_id: str,
+    args: dict[str, Any],
+    result: dict[str, Any],
+) -> dict[str, Any] | None:
+    """CTA that opens right-stage progress (does not navigate away).
+
+    Prefer when the user may want to watch live execution after create/wake.
+    Agent may still call ``platform ui.show``; this is a one-click fallback on the
+    platform feedback card — never auto-opens the stage by itself.
+    """
+    task = _as_dict(result.get("task"))
+    tid = _first_str(
+        task.get("id"),
+        result.get("task_id"),
+        result.get("taskId"),
+        args.get("task_id"),
+        args.get("taskId"),
+        entity_id if domain == "tasks" else "",
+    )
+    assigned = _first_str(
+        task.get("assigned_to"),
+        result.get("assigned_to"),
+        result.get("agent_code"),
+        result.get("agentCode"),
+        args.get("assignee"),
+        args.get("assigned_to"),
+        args.get("agent_code"),
+        args.get("agentCode"),
+        entity_id if domain == "employees" else "",
+    )
+    source = _first_str(task.get("source"), result.get("source"), args.get("source")).lower()
+    round_id = _first_str(
+        result.get("round_id"),
+        result.get("roundId"),
+        task.get("round_id"),
+        task.get("source_ref"),
+        args.get("round_id"),
+    )
+
+    if domain == "employees" and action in {
+        "employees.wake",
+        "employees.resume",
+        "employees.create",
+        "employees.hire",
+    }:
+        if assigned and tid:
+            data: dict[str, Any] = {"taskId": tid, "agentCode": assigned, "busy": True}
+            if round_id:
+                data["roundId"] = round_id
+            return {"label": "查看进度", "openStage": {"kind": "employeeProcess", "data": data}}
+        return None
+
+    if domain == "tasks" and tid:
+        if source == "role" and assigned:
+            data = {"taskId": tid, "agentCode": assigned, "busy": True}
+            if round_id:
+                data["roundId"] = round_id
+            return {"label": "查看进度", "openStage": {"kind": "employeeProcess", "data": data}}
+        return {
+            "label": "查看进度",
+            "openStage": {"kind": "collab-workflow", "data": {"mainTaskId": tid}},
+        }
+    return None
+
+
+def _build_actions(
+    action: str,
+    domain: str,
+    entity_id: str,
+    args: dict[str, Any],
+    result: dict[str, Any],
+) -> list[dict[str, Any]]:
+    actions: list[dict[str, Any]] = []
+    progress = _progress_open_stage_action(action, domain, entity_id, args, result)
+    if progress:
+        actions.append(progress)
+
     app_id = _first_str(result.get("appId"), result.get("app_id"))
     run_id = _first_str(result.get("runId"), result.get("run_id"))
 
@@ -439,7 +517,7 @@ def build_platform_ui_feedback(
     title = _build_title(action, domain, verb, label, args, result)
     subtitle = _build_subtitle(domain, action, result)
     details = _build_details(args, result)
-    actions = _build_actions(action, domain, entity_id, result)
+    actions = _build_actions(action, domain, entity_id, args, result)
 
     kind = "warning" if entry.risk == "destructive" else "success"
     ui: dict[str, Any] = {

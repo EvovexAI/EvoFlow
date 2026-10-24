@@ -245,6 +245,11 @@ def build_rollup_subtask_spec(
 ## 验收标准
 {validation_text}
 
+## 硬约束（必须遵守）
+- 上游步骤的 task_report / outputs **已经**在上下文的 "Upstream dependency output" / 输入绑定中提供。
+- **禁止**对已完成的上游步骤使用 `collab_peer_send` / peer 提问去「要逐字原文」或补材料；peer 不会重跑已完成步骤，缺细节时只基于已注入摘要与 outputs 路径（可 `read` 文件）工作。
+- 不要因为摘要被截断就去追问上游——按已有材料给出结论即可。
+
 ## 你的任务（结果导向，不是再写一份报告）
 1. 通读所有上游步骤的任务汇报（已在上下文的 "Upstream dependency output" 部分提供）
 2. 识别用户的最终交付物：把对用户最有用的结果放在最前面（通常上游最后一步的成品就是答案）

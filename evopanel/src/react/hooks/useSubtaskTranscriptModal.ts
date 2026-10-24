@@ -63,6 +63,11 @@ export function useSubtaskTranscriptModal(options: {
       mainTaskId: modalMainTaskId,
       subtaskId: payload.subtaskId,
       leadThreadId: effectiveLeadThreadId,
+      storedSubtaskThreadId: String(
+        (modalSubtask as { subtaskThreadId?: string } | null)?.subtaskThreadId ||
+          (payload as { subtaskThreadId?: string }).subtaskThreadId ||
+          '',
+      ).trim() || undefined,
       subtaskSnapshot: modalSubtask,
     })
     const msgArr = Array.isArray(resp?.messages) ? resp.messages : []

@@ -115,7 +115,11 @@ export function toolCallRowToLegacyNode(row: ToolCallRow): TaskChatToolCallTreeN
       // V4 ToolCallRow 没有 legacy taskNotification raw；background Agent
       // 的终态摘要只落在 output。Agent renderer 读取 content 展示活动结果，因此在
       // Agent/Task 行显式桥接，避免失败详情虽已投影却仍只显示一张空卡。
-      ...((row.toolName === "Agent" || row.toolName === "Task") && row.output?.text
+      ...((row.toolName === "Agent" ||
+        row.toolName === "Task" ||
+        // EvoFlow 引擎的子代理工具名（大小写不敏感地讲就是 subagent 这一族）。
+        String(row.toolName || "").trim().toLowerCase() === "subagent") &&
+      row.output?.text
         ? { content: row.output.text }
         : {}),
       // v4 row 是自包含投影，部分 provider 只把工具失败正文塞进 output，

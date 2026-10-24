@@ -321,10 +321,17 @@ class SubtaskConversationHistoryResponse(BaseModel):
     task_id: str
     subtask_id: str
     count: int
-    messages: list[dict[str, Any]] = Field(default_factory=list)
+    messages: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="Rows from evoflow_chat_messages only (same store as main chat). Never includes outcome summary.",
+    )
+    thread_id: str | None = Field(
+        default=None,
+        description="Resolved executor thread_id — prefer GET /api/chat/sessions/by-thread/{thread_id}/messages.",
+    )
     outcome: dict[str, Any] = Field(
         default_factory=dict,
-        description="Canonical handoff from subtask_outcome_report (task_report/summary), not task memory.",
+        description="Canonical handoff from subtask_outcome_report (task_report/summary); not a chat message.",
     )
 
 
@@ -2078,23 +2085,30 @@ async def get_subtask_conversation_history(http_request: Request, task_id: str, 
             f"子任务 '{subtask_id}' 在任务 '{task_id}' 中不存在",
         )
 
-    from evoflow.collab.conversation_persist import list_subtask_conversation_ui_messages
+    from evoflow.collab.conversation_persist import (
+        list_subtask_conversation_ui_messages,
+        resolve_subtask_transcript_thread,
+    )
 
+    sid = str(subtask_id or "").strip()
+    sub_row = target_subtask if isinstance(target_subtask, dict) else None
     cap = max(1, min(int(limit or 500), 5000))
     rows = list_subtask_conversation_ui_messages(
         task,
-        str(subtask_id or "").strip(),
-        subtask_row=target_subtask if isinstance(target_subtask, dict) else None,
+        sid,
+        subtask_row=sub_row,
         limit=cap,
     )
+    thread_id = resolve_subtask_transcript_thread(task, sid, subtask_row=sub_row)
     from evoflow.collab.subtask_outcome import build_subtask_outcome_snapshot
 
-    outcome = build_subtask_outcome_snapshot(target_subtask if isinstance(target_subtask, dict) else {})
+    outcome = build_subtask_outcome_snapshot(sub_row or {})
     return SubtaskConversationHistoryResponse(
         task_id=task_id,
-        subtask_id=subtask_id,
+        subtask_id=sid,
         count=len(rows),
         messages=rows,
+        thread_id=thread_id,
         outcome=outcome,
     )
 
@@ -2779,11 +2793,42 @@ async def get_subagent_task_transcript(http_request: Request, task_id: str) -> d
         except Exception:
             pass
 
+    # Prefer same store as main chat when memory snapshot is gone (collab worker rows).
+    chat_messages: list = []
+    thread_id: str | None = None
+    try:
+        from evoflow.collab.conversation_persist import (
+            list_subtask_conversation_ui_messages,
+            resolve_subtask_transcript_thread,
+        )
+        from evoflow.collab.storage import find_subtask_row_by_id, get_project_storage
+
+        found = find_subtask_row_by_id(get_project_storage(), str(task_id or "").strip())
+        if found is not None:
+            _project, task, st = found
+            sid = str(st.get("id") or "").strip()
+            if sid:
+                thread_id = resolve_subtask_transcript_thread(task, sid, subtask_row=st)
+                chat_messages = list_subtask_conversation_ui_messages(
+                    task, sid, subtask_row=st, limit=2000
+                )
+    except Exception:
+        pass
+
     if result is None:
+        if chat_messages:
+            return {
+                "task_id": task_id,
+                "status": "unknown",
+                "messages": chat_messages,
+                "thread_id": thread_id,
+                "empty": False,
+            }
         return {
             "task_id": task_id,
             "status": "unknown",
             "messages": [],
+            "thread_id": thread_id,
             "empty": True,
         }
 
@@ -2791,16 +2836,19 @@ async def get_subagent_task_transcript(http_request: Request, task_id: str) -> d
     # Claude Code 等工作常把正文写在 result 字段，stream_messages 仅有薄包装 tool 行；
     # 弹窗若只吃 messages 会空白，这里用 result/error 合成一条可展示 AI 消息。
     if not messages:
-        body = str(result.result or "").strip()
-        err = str(result.error or "").strip()
-        if body or err:
-            messages = [
-                {
-                    "type": "ai",
-                    "role": "assistant",
-                    "content": body or err,
-                }
-            ]
+        if chat_messages:
+            messages = chat_messages
+        else:
+            body = str(result.result or "").strip()
+            err = str(result.error or "").strip()
+            if body or err:
+                messages = [
+                    {
+                        "type": "ai",
+                        "role": "assistant",
+                        "content": body or err,
+                    }
+                ]
 
     return {
         "task_id": lookup_id,
@@ -2811,6 +2859,7 @@ async def get_subagent_task_transcript(http_request: Request, task_id: str) -> d
         "completed_at": result.completed_at.isoformat() if result.completed_at else None,
         "messages": messages,
         "ai_messages": result.ai_messages or [],
+        "thread_id": thread_id,
         "empty": not bool(messages),
     }
 

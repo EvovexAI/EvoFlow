@@ -35,7 +35,31 @@ async def wake_collab_subtask_for_peer(
     if not st:
         return {"ok": False, "error": "subtask not found"}
 
-    mode: str = "consultation" if is_subtask_outcome_reported(st) and str(st.get("status") or "").lower() == "completed" else "collaboration"
+    status = str(st.get("status") or "").strip().lower()
+    # Terminal steps must not be re-dispatched via PeerWake (bypasses claim and
+    # used to roll completed → executing). Completed targets are answered via
+    # task_report auto-reply / upstream handoff — not a new runner.
+    _TERMINAL = frozenset({"completed", "failed", "cancelled", "canceled", "timed_out"})
+    if status in _TERMINAL:
+        logger.info(
+            "peer wake skipped (terminal) main=%s sub=%s status=%s reason=%s",
+            mid,
+            sid,
+            status,
+            reason,
+        )
+        return {
+            "ok": True,
+            "skipped": True,
+            "reason": "terminal_no_redispatch",
+            "status": status,
+            "message": (
+                "target subtask is terminal; use its task_report / Upstream dependency "
+                "context instead of peer-waking a new runner"
+            ),
+        }
+
+    mode: str = "consultation" if is_subtask_outcome_reported(st) and status == "completed" else "collaboration"
 
     if enqueue_peer_wake_if_busy(
         storage,

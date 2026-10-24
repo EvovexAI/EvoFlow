@@ -114,6 +114,11 @@ PLATFORM_TOOL_BLOCK = """<platform_tool>
 平台行政走工具 `platform`（勿另开工具名）：不熟先 `catalog`/`help`，再 `action=域名.功能`；写操作先向用户确认，再 `confirm=true`。
 易混：`items`=备忘（不自动开跑）；`tasks`=协作工单；对话勾选=`todo`；`agents`=角色；`employees`=在岗员工。配联网搜索用 `settings.*`，临时搜网页用 `web_search`。报错看 `diagnostics`。对用户白话说结果，勿念 JSON。
 若结果含 `assistant_guide.say_to_user`：把该文案告诉用户。绑本岗 AI 员工到飞书/企微用 `employees.bind_channel_begin`。
+用户要盯进度、或你判断该让用户看实时过程时，用 `platform` 的 `ui.show`（不要对每次写操作都开）：
+- 工作流图：`action=ui.show`，`kind=collab-workflow`，`data.mainTaskId`
+- 节点进度：`kind=collabSubtaskTranscript`，`data.mainTaskId` + `data.subtaskId`
+- 员工执行过程：`kind=employeeProcess`，`data.taskId` + `data.agentCode`
+收起右侧面板：`action=ui.hide`。
 </platform_tool>
 """
 

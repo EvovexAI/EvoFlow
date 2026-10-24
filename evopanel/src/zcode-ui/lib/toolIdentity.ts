@@ -134,6 +134,12 @@ function isLegacyAgentTool(
     rawZCode === "agent" ||
     rawDirect === "agent" ||
     kind === "agent" ||
+    // EvoFlow 引擎的子代理工具名是 `subagent`（zcode 原生是 Agent/Task）。
+    // 不认领它会掉进 unknown → 通用 JSON 折叠兜底卡，Agent 专用展示
+    // （摘要行 + 「Open on the right」）全部失效。
+    rawZCode === "subagent" ||
+    rawDirect === "subagent" ||
+    kind === "subagent" ||
     (kind === "think" && (title === "agent" || title === "task")) ||
     (kind === "think" &&
       isRecord(toolCall.input) &&

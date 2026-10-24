@@ -1988,11 +1988,29 @@ const ToolCallRowView = memo(function ToolCallRowView({
   }
   // 工具行去掉纵向内边距（对齐 z-code-2 无 per-tool padding）；连续工具间距由
   // ConversationAssistantWorkItems 的 gap-4 组容器统一给。
+  // zcode 的 Agent/Task 卡摘要行带「Open on the right」入口（agentSummaryAction）。
+  // EvoFlow 没有镜像事件产出的 subagentRow，宿主经 onOpenSubagentToolCall
+  // 按 toolCallId 联接 subagentTasks 后打开右侧实时输出面板。
+  const agentSummaryAction = useMemo(() => {
+    const open = context.onOpenSubagentToolCall;
+    if (!open) return undefined;
+    const normalized = String(row.toolName || "")
+      .trim()
+      .toLowerCase()
+      .replace(/[\s-]+/g, "_");
+    if (normalized !== "agent" && normalized !== "task" && normalized !== "subagent")
+      return undefined;
+    return {
+      onActivate: () => open(row.toolCallId),
+      testId: `agent-summary-action-${row.toolCallId}`,
+    };
+  }, [context.onOpenSubagentToolCall, row.toolName, row.toolCallId]);
   return (
     <RowShell rowId={row.rowId} className="py-0">
       <div data-conversation-selectable="true">
         <ToolCallBlock
           toolCallNode={toolCallNode}
+          agentSummaryAction={agentSummaryAction}
           workspacePath={context.workspacePath}
           theme={context.theme}
           codePreviewSettings={context.codePreviewSettings}
