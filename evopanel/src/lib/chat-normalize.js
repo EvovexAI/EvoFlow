@@ -2306,7 +2306,13 @@ function _buildReadToolUiPreview(text) {
   return preview
 }
 
-const _TOOL_OUTPUT_SLIM_EXEMPT_NAMES = new Set(['ask_clarification', 'mind_map', 'session_mind_map'])
+const _TOOL_OUTPUT_SLIM_EXEMPT_NAMES = new Set([
+  'ask_clarification',
+  'mind_map',
+  'session_mind_map',
+  // 平台通知依赖 RESULT 里的 ui JSON；slim 清空后右上角状态卡实时不亮
+  'platform',
+])
 
 function _isBrowserToolName(name) {
   const n = String(name || '').trim().toLowerCase()
