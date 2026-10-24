@@ -66,10 +66,58 @@ async def retry_wave(
     )
 
 
+def _load_main_task(task_id: str) -> dict[str, Any] | None:
+    from evoflow.collab.storage import find_main_task, get_project_storage
+
+    row = find_main_task(get_project_storage(), str(task_id or "").strip())
+    if not row:
+        return None
+    _proj, task = row
+    return task if isinstance(task, dict) else None
+
+
+async def dispatch_for_task(
+    task_id: str,
+    *,
+    authorized_by: str = "api",
+    thread_id: str | None = None,
+) -> dict[str, Any]:
+    """Unified wave-1 entry: App → ``start``; Lead → ``dispatch_authorized``.
+
+    Returns a supervisor-shaped dict (``success`` / ``delegatedSubtasks`` / ``error``)
+    so gateway / unattended callers stay unchanged.
+    """
+    tid = str(task_id or "").strip()
+    if not tid:
+        return {"success": False, "error": "task_id is required"}
+
+    task = _load_main_task(tid)
+    if is_workflow_scheduler_task(task):
+        scheduled = await start(tid, authorized_by=authorized_by, thread_id=thread_id)
+        parsed = scheduled.get("dispatch") if isinstance(scheduled, dict) else None
+        if isinstance(parsed, dict):
+            return parsed
+        return {
+            "success": bool(scheduled.get("ok")) if isinstance(scheduled, dict) else False,
+            "taskId": tid,
+            "error": (scheduled or {}).get("error") if isinstance(scheduled, dict) else "dispatch_failed",
+            "action": "start_execution",
+        }
+
+    from evoflow.collab.dispatch_authorized_execution import dispatch_authorized_main_task_execution
+
+    return await dispatch_authorized_main_task_execution(
+        tid,
+        thread_id=thread_id,
+        authorized_by=str(authorized_by or "api").strip() or "api",
+    )
+
+
 __all__ = [
     "AdvanceReason",
     "advance_followup_if_workflow",
     "continue_after_step",
+    "dispatch_for_task",
     "is_workflow_scheduler_task",
     "retry_wave",
     "start",

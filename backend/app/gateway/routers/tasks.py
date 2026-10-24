@@ -19,7 +19,6 @@ from app.gateway.routers.errors import (
 from app.gateway.routers.events import emit_task_completed, emit_task_progress
 from evoflow.authz.http_guard import require_task_visible, resolve_authz_from_request
 from evoflow.collab.authorize_execution import authorize_main_task_execution, revoke_main_task_execution_authorization
-from evoflow.collab.dispatch_authorized_execution import dispatch_authorized_main_task_execution
 from evoflow.collab.id_format import make_subtask_id
 from evoflow.collab.models import WorkerProfile
 from evoflow.collab.storage import (
@@ -1173,8 +1172,8 @@ async def authorize_task_execution(
 ) -> dict:
     """User「开始执行」: authorize + auto-dispatch first wave."""
     require_task_visible(http_request, task_id)
-    from evoflow.collab.dispatch_authorized_execution import dispatch_authorized_main_task_execution
     from evoflow.collab.thread_collab import advance_collab_phase_to_executing_for_task
+    from evoflow.collab.workflow_runtime import dispatch_for_task
 
     storage = get_project_storage()
     body = request if request is not None else AuthorizeExecutionRequest()
@@ -1198,7 +1197,7 @@ async def authorize_task_execution(
     dispatch_result: dict[str, Any] | None = None
     dispatch_ok = False
     try:
-        dispatch_result = await dispatch_authorized_main_task_execution(
+        dispatch_result = await dispatch_for_task(
             task_id,
             thread_id=body.thread_id,
             authorized_by=body.authorized_by or "user",
@@ -1293,7 +1292,9 @@ async def dispatch_task_execution(
 
     dispatch_result: dict[str, Any] | None = None
     try:
-        dispatch_result = await dispatch_authorized_main_task_execution(
+        from evoflow.collab.workflow_runtime import dispatch_for_task
+
+        dispatch_result = await dispatch_for_task(
             tid,
             thread_id=body.thread_id,
             authorized_by=body.authorized_by or "user",

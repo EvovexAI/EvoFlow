@@ -10,7 +10,6 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from evoflow.collab.authorize_execution import authorize_main_task_execution, is_task_execution_authorized
-from evoflow.collab.dispatch_authorized_execution import dispatch_authorized_main_task_execution
 from evoflow.collab.plan_task_storage import task_has_bound_plan
 from evoflow.collab.storage import find_main_task, get_project_storage, rollup_root_task_progress_from_subtasks
 from evoflow.collab.thread_collab import (
@@ -868,7 +867,9 @@ async def _advance_unattended_task_impl(task_id: str) -> dict[str, Any]:
 
         _patch_task(task_id, _mark_auth)
 
-    dispatch_result = await dispatch_authorized_main_task_execution(
+    from evoflow.collab.workflow_runtime import dispatch_for_task
+
+    dispatch_result = await dispatch_for_task(
         task_id,
         thread_id=thread_id,
         authorized_by="system",

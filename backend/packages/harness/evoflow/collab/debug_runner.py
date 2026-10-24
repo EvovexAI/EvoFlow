@@ -403,28 +403,24 @@ def debug_run_from_step(
     # 6. Authorize + dispatch from target step
     try:
         from evoflow.collab.authorize_execution import authorize_main_task_execution
-        from evoflow.collab.dispatch_authorized_execution import (
-            dispatch_authorized_main_task_execution,
-        )
         from evoflow.collab.storage import get_project_storage
+        from evoflow.collab.workflow_runtime import dispatch_for_task
 
         storage = get_project_storage()
         authorize_main_task_execution(storage, new_task_id, "debug")
 
-        # Dispatch in background (non-blocking)
-        import threading
-
-        def _dispatch() -> None:
-            loop = asyncio.new_event_loop()
+        async def _dispatch() -> None:
             try:
-                loop.run_until_complete(dispatch_authorized_main_task_execution(new_task_id, thread_id=None, authorized_by="debug"))
+                await dispatch_for_task(new_task_id, thread_id=None, authorized_by="debug")
             except Exception:
                 logger.exception("debug run-from dispatch failed task=%s", new_task_id)
-            finally:
-                loop.close()
 
-        t = threading.Thread(target=_dispatch, daemon=True)
-        t.start()
+        try:
+            from evoflow.subagents.detached_poll_scheduler import schedule_detached_poll
+
+            schedule_detached_poll(_dispatch(), name=f"debug-dispatch-{str(new_task_id)[:12]}")
+        except Exception:
+            logger.exception("debug run-from schedule dispatch failed task=%s", new_task_id)
     except Exception:
         logger.exception("debug run-from authorize/dispatch failed task=%s", new_task_id)
 

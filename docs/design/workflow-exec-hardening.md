@@ -1,6 +1,6 @@
 # Workflow execution hardening
 
-Status: Phase A + B + C0–C6 done. App re-entry + write-path SSOT aligned.
+Status: Phase A + B + C0–C7 done. Ready for 2-step chain regression.
 
 ## Diagnosis
 
@@ -81,18 +81,30 @@ App workflow has no dedicated runtime. It reuses Lead-oriented collab
 - `retry_task` (app-sourced) emit + `retry_wave`
 - Scheduler followup/retry → `advance_runnable_wave` (no Lead `auto_delegate` import)
 
+### Phase C7 — Unified dispatch entry (done)
+
+- `workflow_runtime.dispatch_for_task`: App → `start`, Lead → `dispatch_authorized`
+- Wired: unattended pipeline, authorize/dispatch API, debug run-from
+- Peer reply: skip `schedule_peer_wake` when asker is already terminal
+
 ## Architecture (current)
 
 ```
-App dispatch/resume/retry ──► workflow_runtime ──► workflow_scheduler.advance_dag
-                                                         │
-                              initial → authorized start_execution → run_steps
-                              followup/retry → advance_runnable_wave → run_steps
-                                                         ▼
-                                              app_run_events.emit ──► evoflow_app_runs
+App / unattended / authorize API / resume / retry
+        │
+        ▼
+workflow_runtime.dispatch_for_task / start / retry_wave
+        │
+        ▼
+workflow_scheduler.advance_dag
+        ├── initial → authorized start_execution → step_runner.run_steps
+        └── followup/retry → advance_runnable_wave → run_steps
+        │
+        ▼
+app_run_events.emit ──► evoflow_app_runs
 
-Lead chat ──► supervisor_tool(start_execution) ──► same step_runner
-              auto_delegate ──► advance_runnable_wave
+Lead chat ──► supervisor_tool → same step_runner
+              auto_delegate → advance_runnable_wave
 ```
 
 ## Acceptance (regression)

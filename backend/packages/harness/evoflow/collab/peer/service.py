@@ -205,15 +205,20 @@ async def _send_message(
         )
         # Wake the asker (still in-flight) so they can consume the reply — not the completed target.
         if from_party != LEAD_PARTY:
-            from evoflow.collab.peer.scheduler import schedule_peer_wake
+            from evoflow.collab.subtask_state_machine import is_terminal_subtask_status
 
-            schedule_peer_wake(
-                main_task_id=mid,
-                to_subtask_id=from_party,
-                thread_key=thread_key,
-                trigger_message_id=reply_id,
-                reason="peer_reply",
-            )
+            asker_st = _subtask_row(storage, mid, from_party)
+            asker_status = str((asker_st or {}).get("status") or "").strip().lower()
+            if not is_terminal_subtask_status(asker_status):
+                from evoflow.collab.peer.scheduler import schedule_peer_wake
+
+                schedule_peer_wake(
+                    main_task_id=mid,
+                    to_subtask_id=from_party,
+                    thread_key=thread_key,
+                    trigger_message_id=reply_id,
+                    reason="peer_reply",
+                )
         return {
             "ok": True,
             "messageId": message_id,
@@ -349,15 +354,20 @@ async def peer_reply(
     )
 
     if from_party != LEAD_PARTY:
-        from evoflow.collab.peer.scheduler import schedule_peer_wake
+        from evoflow.collab.subtask_state_machine import is_terminal_subtask_status
 
-        schedule_peer_wake(
-            main_task_id=mid,
-            to_subtask_id=from_party,
-            thread_key=thread_key,
-            trigger_message_id=reply_id,
-            reason="peer_reply",
-        )
+        asker_st = _subtask_row(storage, mid, from_party)
+        asker_status = str((asker_st or {}).get("status") or "").strip().lower()
+        if not is_terminal_subtask_status(asker_status):
+            from evoflow.collab.peer.scheduler import schedule_peer_wake
+
+            schedule_peer_wake(
+                main_task_id=mid,
+                to_subtask_id=from_party,
+                thread_key=thread_key,
+                trigger_message_id=reply_id,
+                reason="peer_reply",
+            )
 
     return {"ok": True, "messageId": reply_id, "threadKey": thread_key, "inReplyTo": qid}
 
