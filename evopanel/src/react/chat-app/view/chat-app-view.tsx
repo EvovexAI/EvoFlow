@@ -2,7 +2,7 @@
 /**
  * ChatApp main JSX tree. Extracted from ChatApp.tsx (P89).
  */
-import type { ReactNode, MouseEvent as ReactMouseEvent } from 'react'
+import { useState, useEffect, type ReactNode, type MouseEvent as ReactMouseEvent } from 'react'
 import type { DisplayRow } from '../../chat-types.js'
 import type { SessionMode } from '../../lib/session-mode.js'
 import { ModelCatalogMenu } from '../../components/ModelCatalogMenu.js'
@@ -10,6 +10,8 @@ import { ShellSessionListHost } from '../../components/ShellSessionListHost.js'
 import { ChatMessageStreamPane } from '../../components/ChatMessageStreamPane.js'
 import { V4StreamRowsBridge } from '../../v4/V4StreamRowsBridge.js'
 import { V4ZCodeTimeline } from '../../v4/V4ZCodeTimeline.js'
+import { XiaomiVoiceStage } from '../../right-stage/kinds/XiaomiVoiceStage.js'
+import { isXwVoiceMode, subscribeXwVoiceMode } from '../../../lib/xw-voice-mode.js'
 import { rightStageStore } from '../../../lib/right-stage/right-stage-store.js'
 import {
   openRightStageForCodeViewerSource,
@@ -46,6 +48,9 @@ import { HoverBubble, HoverBubbleProvider } from '../../components/HoverBubble.j
 export type ChatAppViewCtx = Record<string, any>
 
 export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
+  /* 语音全屏模式：html[data-xw-voice='1'] 时由 CSS 接管整窗（左语音域/右标签区） */
+  const [xwVoiceOn, setXwVoiceOn] = useState(() => isXwVoiceMode())
+  useEffect(() => subscribeXwVoiceMode(setXwVoiceOn), [])
   const {
     activateRightStageTab,
     agents,
@@ -495,6 +500,7 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
                 : ''
             }`}
           >
+            {xwVoiceOn ? <XiaomiVoiceStage /> : null}
             <div
               className={`react-chat-conversation-col${
                 isEvoflowChatV4Enabled() ? ' is-v4-unified-scroll' : ''

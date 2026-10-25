@@ -123,7 +123,7 @@ html.evopanel-macos-titlebar .tauri-main-chrome {
 
 html[data-theme='dark'] .tauri-main-chrome,
 html.dark .tauri-main-chrome {
-  background: var(--chrome-bg, #141414);
+  background: var(--chrome-bg, #05070c);
   border-bottom: none;
 }
 
@@ -161,12 +161,12 @@ html.dark[data-custom-bg='1'] .tauri-main-chrome {
 
 html[data-theme='dark'] #main-col:has(#content > .task-detail-page) > .tauri-main-chrome:not(.tauri-main-chrome--hidden),
 html.dark #main-col:has(#content > .task-detail-page) > .tauri-main-chrome:not(.tauri-main-chrome--hidden) {
-  background: var(--chrome-bg, #141414);
+  background: var(--chrome-bg, #05070c);
 }
 
 html[data-theme='dark'] #content:has(> .task-detail-page),
 html.dark #content:has(> .task-detail-page) {
-  background: var(--bg-secondary, #1e1e1e);
+  background: var(--bg-secondary, #0a0e15);
 }
 
 /* 自定义壁纸时仍透出 */

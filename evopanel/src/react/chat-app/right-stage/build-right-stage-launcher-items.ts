@@ -6,6 +6,12 @@ export type BuildRightStageLauncherItemsCtx = Record<string, any>
 
 export function buildChatRightStageLauncherItems(ctx: BuildRightStageLauncherItemsCtx) {
   return ctx.buildDefaultRightStageLauncherItems({
+    onOpenXiaomi: () => {
+      ctx.rightStageUserPinnedRef.current = 'xiaomi'
+      void import('../../../lib/right-stage/open-right-stage-xiaomi.js').then((m) =>
+        m.openXiaomiRightStage({ navigateToChat: false }),
+      )
+    },
     onOpenBrowser: () => {
       const manualTid = String(
         ctx.wsClient.getSessionThreadId(ctx.selectedSessionKey || '') || '',

@@ -1,0 +1,508 @@
+/* 小V 语音舞台（纯黑点阵 · 左语音/右内容） —— xws- 作用域 */
+
+.xws-root {
+  --xws-state: #9fb2c8;
+  --xws-txt: #e8eef8;
+  --xws-sub: #7d8aa0;
+  --xws-line: rgba(255, 255, 255, 0.12);
+  --xws-glass: rgba(255, 255, 255, 0.035);
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: #02040a;
+  color: var(--xws-txt);
+  font-size: 13px;
+  overflow: hidden;
+  z-index: 1;
+}
+
+/* ───────── 顶栏（冷峻） ───────── */
+.xws-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px 8px;
+  flex: none;
+}
+.xws-modeswitch {
+  display: inline-flex;
+  padding: 2px;
+  border: 1px solid var(--xws-line);
+  border-radius: 999px;
+  background: var(--xws-glass);
+  backdrop-filter: blur(8px);
+}
+.xws-mode-btn {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--xws-sub);
+  font: inherit;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  padding: 4px 14px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: color 0.18s ease, background 0.18s ease;
+}
+.xws-mode-btn:hover {
+  color: var(--xws-txt);
+}
+.xws-mode-btn.is-active {
+  color: #03060c;
+  background: #e8eef8;
+}
+.xws-topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.xws-topbtn {
+  appearance: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 1px solid var(--xws-line);
+  background: var(--xws-glass);
+  color: var(--xws-sub);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.18s ease, border-color 0.18s ease;
+}
+.xws-topbtn:hover {
+  color: var(--xws-txt);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+/* 历史下拉 */
+.xws-hist {
+  position: relative;
+}
+.xws-hist-menu {
+  position: absolute;
+  top: 34px;
+  right: 0;
+  width: 230px;
+  max-height: 300px;
+  overflow: auto;
+  background: rgba(6, 10, 18, 0.96);
+  border: 1px solid var(--xws-line);
+  border-radius: 12px;
+  padding: 6px;
+  z-index: 30;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+}
+.xws-hist-head {
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  color: var(--xws-sub);
+  padding: 6px 8px 4px;
+}
+.xws-hist-empty {
+  padding: 10px 8px;
+  color: var(--xws-sub);
+  font-size: 12px;
+}
+.xws-hist-item {
+  appearance: none;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border: 0;
+  background: transparent;
+  color: var(--xws-txt);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  padding: 7px 8px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.xws-hist-item:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+.xws-hist-item.is-active {
+  background: rgba(255, 255, 255, 0.1);
+}
+.xws-hist-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.xws-hist-meta {
+  flex: none;
+  font-size: 11px;
+  color: var(--xws-sub);
+}
+
+/* ───────── 语音域主体 ───────── */
+.xws-stage {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 140px;
+  border-radius: 16px;
+  overflow: hidden;
+  background:
+    radial-gradient(120% 90% at 50% 42%, rgba(10, 16, 28, 0.75), rgba(1, 2, 6, 0.92) 70%),
+    #010207;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+.xws-canvas {
+  position: absolute;
+  inset: 0;
+  display: block;
+  /* 装饰层：不抢点击，点阵区拖窗才能落到父级 data-tauri-drag-region */
+  pointer-events: none;
+}
+.xws-statepill {
+  position: absolute;
+  top: 10px;
+  left: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(2, 4, 10, 0.55);
+  backdrop-filter: blur(6px);
+}
+.xws-state-word {
+  font-size: 10px;
+  letter-spacing: 0.22em;
+  color: var(--xws-state);
+  transition: color 0.3s ease;
+}
+.xws-state-timer {
+  font-size: 10px;
+  color: var(--xws-sub);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 左下状态大字（「小V 正在说话」式） */
+.xws-caption {
+  flex: none;
+  padding: 12px 2px 8px;
+}
+.xws-caption-title {
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  transition: color 0.3s ease;
+}
+.xws-caption-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 6px;
+}
+.xws-wave {
+  width: 88px;
+  height: 18px;
+  flex: none;
+  display: block;
+}
+.xws-caption-sub {
+  font-size: 12px;
+  color: var(--xws-sub);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 消息条目 */
+.xws-msgs {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 118px;
+  overflow: hidden;
+  margin-top: 2px;
+}
+.xws-msg {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  background: rgba(255, 255, 255, 0.03);
+}
+.xws-msg-role {
+  flex: none;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  color: var(--xws-sub);
+  border: 1px solid var(--xws-line);
+  border-radius: 4px;
+  padding: 1px 5px;
+  margin-top: 1px;
+}
+.xws-msg.a .xws-msg-role {
+  color: var(--xws-state);
+  border-color: color-mix(in srgb, var(--xws-state) 45%, transparent);
+}
+.xws-msg-text {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: #c9d5e6;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.xws-msg-empty {
+  font-size: 12px;
+  color: #4a5568;
+  padding: 6px 2px;
+}
+
+/* 底部操作排 */
+.xws-deck {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 22px;
+  padding: 12px 0 4px;
+}
+.xws-ptt {
+  appearance: none;
+  position: relative;
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: radial-gradient(circle at 50% 35%, rgba(30, 40, 58, 0.9), rgba(4, 7, 13, 0.95));
+  color: #eaf2ff;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  touch-action: none;
+  user-select: none;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.15s ease;
+}
+.xws-ptt:hover {
+  border-color: rgba(255, 255, 255, 0.45);
+}
+.xws-ptt:active {
+  transform: scale(0.96);
+  border-color: var(--xws-state);
+  box-shadow: 0 0 24px color-mix(in srgb, var(--xws-state) 35%, transparent);
+}
+.xws-ptt-ring {
+  position: absolute;
+  inset: -7px;
+  border-radius: 50%;
+  border: 1px solid color-mix(in srgb, var(--xws-state) 35%, transparent);
+  opacity: 0.55;
+  pointer-events: none;
+  animation: xws-ring 2.6s ease-out infinite;
+}
+@keyframes xws-ring {
+  0% {
+    transform: scale(0.92);
+    opacity: 0.55;
+  }
+  70% {
+    transform: scale(1.12);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1.12);
+    opacity: 0;
+  }
+}
+.xws-listen .xws-ptt-ring {
+  border-color: color-mix(in srgb, var(--xws-state) 70%, transparent);
+}
+.xws-speak .xws-ptt-ring {
+  animation-duration: 1.6s;
+}
+.xws-sidebtn {
+  appearance: none;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  border: 1px solid var(--xws-line);
+  background: var(--xws-glass);
+  color: var(--xws-sub);
+  font-size: 15px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+}
+.xws-sidebtn:hover {
+  color: var(--xws-txt);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+.xws-sidebtn.is-on {
+  color: var(--xws-state);
+  border-color: color-mix(in srgb, var(--xws-state) 55%, transparent);
+  box-shadow: 0 0 14px color-mix(in srgb, var(--xws-state) 22%, transparent);
+}
+.xws-hint {
+  flex: none;
+  text-align: center;
+  font-size: 11px;
+  color: #4a5568;
+  padding-top: 2px;
+}
+.xws-hint b {
+  color: #93a3ba;
+  font-weight: 600;
+}
+
+/* 文字形态输入框内的「语音模式」麦克风格 */
+.xws-composer-mic {
+  appearance: none;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 1px solid var(--xws-line);
+  background: var(--xws-glass);
+  color: var(--xws-sub);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  transition: color 0.18s ease, border-color 0.18s ease;
+}
+.xws-composer-mic:hover {
+  color: #22d3ee;
+  border-color: rgba(34, 211, 238, 0.45);
+}
+
+
+
+/* ───────── 状态点缀 ───────── */
+.xws-listen .xws-stage {
+  border-color: color-mix(in srgb, #22d3ee 24%, transparent);
+}
+.xws-think .xws-stage {
+  border-color: color-mix(in srgb, #a78bfa 22%, transparent);
+}
+.xws-speak .xws-stage {
+  border-color: color-mix(in srgb, #34d399 24%, transparent);
+}
+
+/* 舞台内「内容区提示 + 快捷开标签」浮层（内容真实打开处在右侧标签页） */
+.xws-openhint {
+  position: absolute;
+  left: 50%;
+  bottom: 12px;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(2, 4, 10, 0.55);
+  backdrop-filter: blur(6px);
+  max-width: calc(100% - 24px);
+}
+.xws-openhint-title {
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  color: #56627a;
+}
+.xws-openhint-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.xws-content-chip {
+  appearance: none;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.04);
+  color: #93a3ba;
+  font: inherit;
+  font-size: 11.5px;
+  padding: 5px 12px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+.xws-content-chip:hover {
+  color: #dce8f8;
+  border-color: rgba(255, 255, 255, 0.32);
+}
+
+/* 小V标签页「语音模式」入口 chip */
+.xm-stage-chip.is-voice-enter {
+  color: #22d3ee;
+  border-color: rgba(34, 211, 238, 0.35);
+}
+.xm-stage-chip.is-voice-enter:hover {
+  background: rgba(34, 211, 238, 0.1);
+}
+
+/* ═══════════════════════════════════════════════════════
+ * 语音全屏模式（html[data-xw-voice='1']）：
+ * 左 = 小V语音域（.xw-voice-host），右 = right-stage 标签区升为主体，
+ * 正常聊天 chrome（会话列表/顶栏/对话列/拖宽手柄）全部隐藏，退出即还原。
+ * ═══════════════════════════════════════════════════════ */
+html[data-xw-voice='1'] #app-shell-aside,
+html[data-xw-voice='1'] .react-chat-header,
+html[data-xw-voice='1'] .react-chat-conversation-col,
+html[data-xw-voice='1'] .react-chat-panel-resize-handle {
+  display: none !important;
+}
+
+/* 右栏标签区：由固定宽侧栏变为铺满剩余宽度的主体 */
+html[data-xw-voice='1'] .react-chat-main-body.is-layout-custom-width.is-right-stage-open > .react-chat-right-stage-panel,
+html[data-xw-voice='1'] .react-chat-main-body > .react-chat-right-stage-panel {
+  flex: 1 1 auto !important;
+  width: auto !important;
+  max-width: none !important;
+  min-width: 0 !important;
+}
+
+/* 小V语音域左栏（固定宽，窄窗口收缩） */
+html[data-xw-voice='1'] .xw-voice-host {
+  flex: 0 0 440px !important;
+  width: 440px !important;
+  max-width: 46vw !important;
+  min-height: 0;
+}
+@media (max-width: 900px) {
+  html[data-xw-voice='1'] .xw-voice-host {
+    flex: 0 0 360px !important;
+    width: 360px !important;
+  }
+}
+
+/* 沉浸全屏：去掉对话框圆角/描边，解除 48px 顶栏高度预留 */
+html[data-xw-voice='1'] .react-chat-conversation-frame {
+  border: none !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+html[data-xw-voice='1'] .react-chat-main-body {
+  max-height: 100% !important;
+}
+
+/* ───────── 降级 ───────── */
+@media (prefers-reduced-motion: reduce) {
+  .xws-ptt-ring,
+  .xws-content-glyph {
+    animation: none;
+  }
+}

@@ -280,7 +280,7 @@ html[data-translucent-ui='1'] .react-chat-agent-pane {
 /* 暗色：保留外层输入框，文字区无内框 */
 html[data-theme='dark']:not([data-translucent-ui='1']) .react-chat-bottom-dock .react-chat-bottom-area {
   padding: 10px 12px 8px !important;
-  background: var(--chat-canvas, #212121) !important;
+  background: var(--chat-canvas, #070a11) !important;
   border: 1px solid rgba(255, 255, 255, 0.12) !important;
   border-radius: 16px !important;
   box-shadow: none !important;
@@ -856,7 +856,7 @@ html:not([data-translucent-ui='1']) body .shell-aside-host {
 html[data-theme='dark']:not([data-translucent-ui='1']) body .react-chat-session-aside,
 html[data-theme='dark']:not([data-translucent-ui='1']) body #app-shell-aside.shell-aside-host,
 html[data-theme='dark']:not([data-translucent-ui='1']) body .shell-aside-host {
-  background: var(--chrome-bg, #141414) !important;
+  background: var(--chrome-bg, #05070c) !important;
 }
 
 /* 顶栏固定在窗口最上（含 - □ ×）；白浮层只在顶栏下方 */
@@ -877,7 +877,7 @@ html:not([data-translucent-ui='1']) body #content:has(.chat-react-outlet) {
 
 html[data-theme='dark']:not([data-translucent-ui='1']) body #chat-persistent-host:has(.chat-react-full),
 html[data-theme='dark']:not([data-translucent-ui='1']) body #content:has(.chat-react-outlet) {
-  background: var(--chrome-bg, #141414) !important;
+  background: var(--chrome-bg, #05070c) !important;
   box-shadow: none;
 }
 
@@ -897,7 +897,7 @@ html:not([data-translucent-ui='1']) body .react-chat-header.react-chat-header--t
 html[data-theme='dark']:not([data-translucent-ui='1']) body .react-chat-main-col,
 html[data-theme='dark']:not([data-translucent-ui='1']) body .react-chat-header,
 html[data-theme='dark']:not([data-translucent-ui='1']) body .react-chat-header.react-chat-header--tauri-chrome {
-  background: var(--chrome-bg, #141414) !important;
+  background: var(--chrome-bg, #05070c) !important;
 }
 
 html:not([data-translucent-ui='1']) body .react-chat-main-body {
@@ -915,12 +915,12 @@ html:not([data-translucent-ui='1']) body .react-chat-info-rail {
 }
 
 html[data-theme='dark']:not([data-translucent-ui='1']) body .react-chat-main-body {
-  background: var(--chat-canvas, #212121) !important;
+  background: var(--chat-canvas, #070a11) !important;
   box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.06);
 }
 
 html[data-theme='dark']:not([data-translucent-ui='1']) body .react-chat-info-rail {
-  background: var(--chat-canvas, #212121) !important;
+  background: var(--chat-canvas, #070a11) !important;
 }
 
 @media (max-width: 768px) {
@@ -991,7 +991,7 @@ html:not([data-translucent-ui='1']) body .react-chat-history-item.active {
 }
 
 html[data-theme='dark']:not([data-translucent-ui='1']) body .react-chat-history-item {
-  --history-fade-bg: var(--chrome-bg, #141414);
+  --history-fade-bg: var(--chrome-bg, #05070c);
 }
 
 /* 会话行：ZCode 侧栏行高 32px（h-8），配合 13px 标题不挤。
@@ -1077,7 +1077,7 @@ html[data-theme='dark']:not([data-translucent-ui='1']) body .react-chat-conversa
 html[data-theme='dark']:not([data-translucent-ui='1']) body .react-chat-surface,
 html[data-theme='dark']:not([data-translucent-ui='1']) body .react-chat-messages-wrap,
 html[data-theme='dark']:not([data-translucent-ui='1']) body .react-chat-messages {
-  background: var(--chat-canvas, #212121) !important;
+  background: var(--chat-canvas, #070a11) !important;
 }
 
 html:not([data-translucent-ui='1']) body .react-chat-conversation-col > .react-chat-bottom-dock {
@@ -1088,7 +1088,7 @@ html:not([data-translucent-ui='1']) body .react-chat-conversation-col > .react-c
 }
 
 html[data-theme='dark']:not([data-translucent-ui='1']) body .react-chat-conversation-col > .react-chat-bottom-dock {
-  background: var(--chat-canvas, #212121) !important;
+  background: var(--chat-canvas, #070a11) !important;
 }
 
 /* 侧栏滚动条接近透明 */
@@ -1187,7 +1187,7 @@ html:not([data-translucent-ui='1']) body .react-chat-bottom-dock .react-chat-inp
 
 html[data-theme='dark']:not([data-translucent-ui='1']) body .react-chat-bottom-dock .react-chat-bottom-area,
 html[data-theme='dark']:not([data-translucent-ui='1']) body .react-chat-composer-stack .react-chat-bottom-area {
-  background: var(--chat-canvas, #212121) !important;
+  background: var(--chat-canvas, #070a11) !important;
   border: 1px solid rgba(255, 255, 255, 0.12) !important;
 }
 
@@ -1254,7 +1254,7 @@ html:not([data-translucent-ui='1']) body #tauri-main-chrome {
 
 html[data-theme='dark']:not([data-translucent-ui='1']) body .tauri-main-chrome,
 html[data-theme='dark']:not([data-translucent-ui='1']) body #tauri-main-chrome {
-  background: var(--chrome-bg, #141414) !important;
+  background: var(--chrome-bg, #05070c) !important;
 }
 
 html:not([data-translucent-ui='1']) body .ep-window-controls-btn {
@@ -1322,7 +1322,7 @@ html:not([data-translucent-ui='1']) body #app:not(.evopanel-auth-mode) #content 
 
 html[data-theme='dark']:not([data-translucent-ui='1']) body #app:not(.evopanel-auth-mode) #main-col,
 html[data-theme='dark']:not([data-translucent-ui='1']) body #app:not(.evopanel-auth-mode) #content {
-  background: var(--chrome-bg, #141414) !important;
+  background: var(--chrome-bg, #05070c) !important;
 }
 
 html[data-theme='dark']:not([data-translucent-ui='1']) body #app:not(.evopanel-auth-mode) #content > .page,
@@ -1330,7 +1330,7 @@ html[data-theme='dark']:not([data-translucent-ui='1']) body #app:not(.evopanel-a
 html[data-theme='dark']:not([data-translucent-ui='1']) body #app:not(.evopanel-auth-mode) #content > .pro-wp-page-root,
 html[data-theme='dark']:not([data-translucent-ui='1']) body #app:not(.evopanel-auth-mode) #content > [class*='-outlet'],
 html[data-theme='dark']:not([data-translucent-ui='1']) body #app:not(.evopanel-auth-mode) #content > [class$='-page'] {
-  background: var(--page-canvas, var(--chat-canvas, #212121)) !important;
+  background: var(--page-canvas, var(--chat-canvas, #070a11)) !important;
   box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.06);
 }
 

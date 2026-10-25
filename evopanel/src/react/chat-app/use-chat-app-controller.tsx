@@ -1623,6 +1623,15 @@ export function useChatAppController() {
   })
   /** 用户手动打开/固定某一右侧场景时，写入流不得抢焦点 */
   const rightStageUserPinnedRef = useRef<RightStageKind | null>(null)
+  useEffect(() => {
+    const onPin = (ev: Event) => {
+      const kind = String((ev as CustomEvent<{ kind?: string }>)?.detail?.kind || '').trim()
+      if (!kind) return
+      rightStageUserPinnedRef.current = kind as RightStageKind
+    }
+    window.addEventListener('evopanel:right-stage-user-pin', onPin)
+    return () => window.removeEventListener('evopanel:right-stage-user-pin', onPin)
+  }, [])
   /** 本 run 内关掉过的 Right Stage kind（关闭冷却） */
   const dismissedRightStageKindsRef = useRef<Set<string>>(new Set())
   /** 当前对话轮次 id（发送时刷新） */

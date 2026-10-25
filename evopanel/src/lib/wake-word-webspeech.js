@@ -250,7 +250,7 @@ export function listenOnceForCommand(opts = {}) {
       // Commit shortly after speech pauses (Web Speech often ends the session itself).
       silenceTimer = setTimeout(() => {
         if (best.trim()) finish(best)
-      }, 1600)
+      }, 900)
     }
 
     rec.onresult = (event) => {
@@ -270,7 +270,7 @@ export function listenOnceForCommand(opts = {}) {
       if (chunk) onPartial?.(stripWakePrefix(chunk))
       // If we already have a solid non-wake command, don't wait forever.
       const cleaned = stripWakePrefix(best)
-      if (cleaned.length >= 2 && Date.now() - startedAt > 2500) {
+      if (cleaned.length >= 2 && Date.now() - startedAt > 1200) {
         scheduleSilenceCommit()
       }
     }

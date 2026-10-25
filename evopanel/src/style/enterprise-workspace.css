@@ -278,8 +278,8 @@ html[data-theme='dark'] .msg-action-result,
 html.dark .msg-action-result,
 html[data-theme='dark'] .msg-deliverable-card,
 html.dark .msg-deliverable-card {
-  background: #2d2d2d !important;
-  border-color: #3a3a3a !important;
+  background: #0b101a !important;
+  border-color: rgba(255, 255, 255, 0.1) !important;
 }
 
 html[data-theme='dark'] .react-chat-conversation-col .msg-bubble code:not(pre code),
@@ -501,14 +501,14 @@ html[data-theme='dark'] body .msg.msg-turn.msg-turn--user.msg-user .msg-bubble.m
 
 html[data-theme='dark'] .msg-action-result,
 html.dark .msg-action-result {
-  background: #2d2d2d;
-  border-color: #3a3a3a;
+  background: #0b101a;
+  border-color: rgba(255, 255, 255, 0.1);
 }
 
 html[data-theme='dark'] .msg-action-result-link,
 html.dark .msg-action-result-link {
-  background: #2a2a2a;
-  border-color: #3a3a3a;
+  background: #0a0e15;
+  border-color: rgba(255, 255, 255, 0.1);
   color: #a8adb5;
 }
 
@@ -567,8 +567,8 @@ html.dark .msg-action-result-link {
 
 html[data-theme='dark'] .msg-bind-employee-qr,
 html.dark .msg-bind-employee-qr {
-  background: #2d2d2d;
-  border-color: #3a3a3a;
+  background: #0b101a;
+  border-color: rgba(255, 255, 255, 0.1);
 }
 
 .emp-bind-channel-qr {
@@ -653,8 +653,8 @@ html.dark .msg-bind-employee-qr {
 
 html[data-theme='dark'] .emp-bind-channel-qr-frame,
 html.dark .emp-bind-channel-qr-frame {
-  border-color: #3a3a3a;
-  background: #1f1f1f;
+  border-color: rgba(255, 255, 255, 0.1);
+  background: #070a11;
 }
 
 /* ---- Composer（与消息列同宽同轴、左右留白） ---- */
@@ -748,16 +748,16 @@ html.dark .emp-bind-channel-qr-frame {
 /* Dark: composer dock charcoal, not pure black */
 html[data-theme='dark'] .react-chat-conversation-col > .react-chat-bottom-dock,
 html.dark .react-chat-conversation-col > .react-chat-bottom-dock {
-  background: #252526;
-  border-top-color: #3a3a3a;
+  background: #0a0e15;
+  border-top-color: rgba(255, 255, 255, 0.1);
 }
 
 html[data-theme='dark'] .react-chat-composer-stack .react-chat-bottom-area,
 html[data-theme='dark'] .react-chat-bottom-dock .react-chat-bottom-area,
 html.dark .react-chat-composer-stack .react-chat-bottom-area,
 html.dark .react-chat-bottom-dock .react-chat-bottom-area {
-  background: #2a2a2a;
-  border-color: #3a3a3a;
+  background: #0a0e15;
+  border-color: rgba(255, 255, 255, 0.1);
 }
 
 /* ---- Info rail / Agent panel ---- */

@@ -801,8 +801,7 @@ def _assemble_system_prompt(
     blocks: list[str] = []
 
     if xiaomi_mode:
-        # Platform steward: dedicated lean prompt — do not stack engineer lead blocks.
-        # No tool_catalog / tool_search / deferred loading — fixed xiaomi_* tool surface only.
+        # Platform steward lean prompt + skills (browser/computer-use) when present.
         # Page snapshot is NOT in system (cache bust); XiaomiUiContextLiveFooterMiddleware
         # appends it as ephemeral HumanMessage name=xiaomi_ui_context when the panel sends it.
         from evoflow.agents.xiaomi.prompt import policy_block, role_block
@@ -816,6 +815,8 @@ def _assemble_system_prompt(
             custom_system_prompt=custom_system_prompt,
             dyn=dyn,
         )
+        if skills_section.strip():
+            blocks.append(skills_section.strip())
         if memory_context.strip():
             safe_mem = scan_content(memory_context.strip(), source="memory_context").strip()
             if safe_mem:
@@ -1265,11 +1266,14 @@ def build_memory_injection_sections(
     # inject_user_profile: None=注入, False=禁用
     # Employees: profile/identity already lives in employee <session> — skip here so
     # MemoryLiveFooter standing does not duplicate <user_identity> under <memory_assets>.
+    # 小V 虽有 proactive 岗，但对用户仍是全局助手 —— 与 main 一样注入用户画像。
     _skip_profile_for_employee = False
     try:
+        from evoflow.agents.xiaomi.identity import is_xiaomi_agent
         from evoflow.assets.guidance import is_employee_agent_name
 
-        _skip_profile_for_employee = is_employee_agent_name(agent_name)
+        if not is_xiaomi_agent(agent_name):
+            _skip_profile_for_employee = is_employee_agent_name(agent_name)
     except Exception:
         _skip_profile_for_employee = False
     if inject_user_profile is not False and not _skip_profile_for_employee:
@@ -1354,7 +1358,13 @@ def build_memory_injection_sections(
     from evoflow.assets.memory_assets_prompt import build_memory_assets_block
 
     compact = str(injection_profile or "").strip().lower() == "chat_compact"
-    employee = is_employee_agent_name(agent_name)
+    try:
+        from evoflow.agents.xiaomi.identity import is_xiaomi_agent
+
+        _is_xiaomi = bool(is_xiaomi_agent(agent_name))
+    except Exception:
+        _is_xiaomi = False
+    employee = bool(is_employee_agent_name(agent_name)) and not _is_xiaomi
     scope = "employee" if employee else ("compact" if compact else "main")
     code = str(agent_name or "").strip() if employee else ""
     return build_memory_assets_block(

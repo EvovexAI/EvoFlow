@@ -19,6 +19,8 @@ const WORKSPACE_SCOPED_KINDS = new Set<string>([
   'write',
   'mind-map',
   'collab-workflow',
+  // 小V：全局前台，切会话仍保留
+  'xiaomi',
   // 进度类：任意对话可盯同一工作流/节点/员工过程（panel_set 跨会话）
   'collabSubtaskTranscript',
   'employeeProcess',

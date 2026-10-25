@@ -11,6 +11,7 @@ import {
 import { horizontalListSortingStrategy, SortableContext, useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import {
+  BotIcon,
   ChevronsDownIcon,
   FolderIcon,
   GlobeIcon,
@@ -35,6 +36,7 @@ import type { RecentClosedRightStageTab } from '../../lib/right-stage/right-stag
 import { getRightStageKind, UnknownStageKind } from '../../lib/right-stage/right-stage-registry.js'
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover.js'
 import { KindTabIcon } from './RightStageTabIcon.js'
+import { XiaomiStageAvatar } from './XiaomiStageAvatar.js'
 import { RightStageTabOverview } from './RightStageTabOverview.js'
 import {
   resolveStageTabsOverflow,
@@ -71,9 +73,11 @@ const FORCE_MOUNT_KINDS = new Set([
   'subagentTranscript',
   'collabSubtaskTranscript',
   'employeeProcess',
+  'xiaomi',
 ])
 
 export type RightStageLauncherItemId =
+  | 'xiaomi'
   | 'browser'
   | 'workspace'
   | 'workflow'
@@ -85,6 +89,8 @@ export type RightStageLauncherItem = {
   label: string
   description?: string
   icon: LucideIcon
+  /** 有则优先于 Lucide icon（如小V 用角色头像）。 */
+  iconNode?: ReactNode
   onOpen: () => void
 }
 
@@ -450,7 +456,13 @@ export const RightStagePanel = memo(function RightStagePanel({
                   item.onOpen()
                 }}
               >
-                <Icon className="size-4 shrink-0 opacity-70" aria-hidden />
+                {item.iconNode ? (
+                  <span className="react-chat-stage-launcher-avatar shrink-0" aria-hidden>
+                    {item.iconNode}
+                  </span>
+                ) : (
+                  <Icon className="size-4 shrink-0 opacity-70" aria-hidden />
+                )}
                 <span className="min-w-0 flex-1 truncate text-left">{item.label}</span>
               </button>
             )
@@ -480,7 +492,13 @@ export const RightStagePanel = memo(function RightStagePanel({
                   className="react-chat-stage-open-tab-button"
                   onClick={item.onOpen}
                 >
-                  <Icon className="size-4 shrink-0 opacity-70" aria-hidden />
+                  {item.iconNode ? (
+                    <span className="react-chat-stage-launcher-avatar shrink-0" aria-hidden>
+                      {item.iconNode}
+                    </span>
+                  ) : (
+                    <Icon className="size-4 shrink-0 opacity-70" aria-hidden />
+                  )}
                   <span className="min-w-0 flex-1 truncate text-left">{item.label}</span>
                 </button>
               )
@@ -501,10 +519,16 @@ export const RightStagePanel = memo(function RightStagePanel({
 
   return (
     <aside className="react-chat-right-stage-panel react-chat-right-stage-shell" role="region" aria-label="右侧面板">
-      {/* 顶部悬停才展开标签条：平时不占摘要等内容的视觉空间 */}
+      {/* 标签条兼窗口拖拽区：空白处拖窗；tab/按钮各自 data-tauri-no-drag */}
       <div
         className={`react-chat-stage-chrome${chromeForcedOpen ? ' is-open' : ''}`}
-        data-tauri-no-drag
+        data-tauri-drag-region=""
+        onDoubleClick={(e) => {
+          if ((e.target as HTMLElement).closest('[data-tauri-no-drag],button,a,[role="tab"]')) return
+          void import('@tauri-apps/api/window').then(({ getCurrentWindow }) =>
+            void getCurrentWindow().toggleMaximize(),
+          )
+        }}
       >
         <div className="react-chat-stage-tabs" role="tablist" aria-label="右侧标签">
           <Popover open={overviewOpen} onOpenChange={setOverviewOpen}>
@@ -668,6 +692,7 @@ export const RightStagePanel = memo(function RightStagePanel({
 
 /** 默认启动项工厂：ChatApp 注入真实 open 回调。 */
 export function buildDefaultRightStageLauncherItems(handlers: {
+  onOpenXiaomi?: () => void
   onOpenBrowser: () => void
   onOpenWorkspace: () => void
   onOpenWorkflow: () => void
@@ -675,7 +700,18 @@ export function buildDefaultRightStageLauncherItems(handlers: {
   mindMapEnabled?: boolean
   onOpenSummary?: () => void
 }): RightStageLauncherItem[] {
-  const items: RightStageLauncherItem[] = [
+  const items: RightStageLauncherItem[] = []
+  if (handlers.onOpenXiaomi) {
+    items.push({
+      id: 'xiaomi',
+      label: '小V',
+      description: '全局助手',
+      icon: BotIcon,
+      iconNode: <XiaomiStageAvatar size={16} />,
+      onOpen: handlers.onOpenXiaomi,
+    })
+  }
+  items.push(
     {
       id: 'browser',
       label: '浏览器',
@@ -694,7 +730,7 @@ export function buildDefaultRightStageLauncherItems(handlers: {
       icon: WorkflowIcon,
       onOpen: handlers.onOpenWorkflow,
     },
-  ]
+  )
   if (handlers.onOpenSummary) {
     items.push({
       id: 'summary',

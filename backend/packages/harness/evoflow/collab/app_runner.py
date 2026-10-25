@@ -1007,16 +1007,6 @@ def run_app_workflow(
     # not a potentially-mutated live copy. The snapshot is a compact copy
     # containing only the fields needed for execution (steps, parameters,
     # canvas, rollup config, schema_enforcement).
-    # DIAG: prove the workflow task leaves task creation without a thread.
-    if str(task_data.get("thread_id") or "").strip():
-        logger.warning(
-            "DIAG workflow task still has thread_id after creation task_id=%s thread_id=%s",
-            task_data.get("id"),
-            task_data.get("thread_id"),
-        )
-    else:
-        logger.info("DIAG workflow task created without thread_id task_id=%s", task_data.get("id"))
-
     task_data["app_definition_snapshot"] = {
         "app_id": app_id,
         "version": app_version,
@@ -1082,8 +1072,10 @@ def run_app_workflow(
     # observability aggregated the entire chat into its own totals.
     for _k in ("thread_id", "current_execution_thread_id"):
         if str(task_data.get(_k) or "").strip():
-            logger.warning(
-                "DIAG dropping %s from workflow task before persist task_id=%s value=%s",
+            # A helper upstream re-stamped a chat thread; drop it silently here
+            # (task_repositories.save_task_bundle warns if one still leaks).
+            logger.debug(
+                "workflow task dropped %s before persist task_id=%s value=%s",
                 _k,
                 task_id,
                 task_data.get(_k),

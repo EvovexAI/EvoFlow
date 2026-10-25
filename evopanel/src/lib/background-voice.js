@@ -483,6 +483,14 @@ export function isWakeWordActive() {
 
 async function openXiaomiForWake() {
   setPreferXiaomiVoice(true)
+  // 唤醒直落语音全屏主场（左语音域 + 右标签区）；失败回退打开小V面板。
+  try {
+    const { enterXwVoiceMode } = await import('./xw-voice-mode.js')
+    enterXwVoiceMode()
+    return
+  } catch (e) {
+    console.warn('[background-voice] enter voice stage failed:', e?.message || e)
+  }
   try {
     const { openGlobalAssistant } = await import('../components/global-assistant/index.js')
     openGlobalAssistant()
@@ -515,44 +523,61 @@ async function onWakeWordHit() {
       /* ignore */
     }
     await pauseWakeEarForContinuous()
-    // Genie-style: chime + 「在呢」 before opening the command mic.
-    await acknowledgeWakeHit()
 
-    // Web Speech wake path: keep using Web Speech for the command.
-    // Switching to Volcengine streaming right after SpeechRecognition held the mic
-    // causes silent/stalled ASR (watchdog reconnect loop).
-    if (wakeWordBackend === 'webspeech') {
-      await runWebSpeechCommandTurn()
+    // 是否能走常开连续模式（火山流式 ASR 已配置）
+    let volcReady = false
+    try {
+      const { fetchSpeechConfigured, speechStreamingAsrCached } = await import('./speech-client.js')
+      volcReady = (await fetchSpeechConfigured()) === true || speechStreamingAsrCached() === true
+    } catch {
+      volcReady = false
+    }
+
+    if (volcReady && !continuousModeEnabled) {
+      // 连续模式路径：只播短 chime（非语音、280ms），省掉「在呢」播报 → 唤醒到开麦 <700ms。
+      // 连续模式里 TTS 期间 ASR 本就挂起 + 回声地板，无自听问题。
+      await acknowledgeWakeHit({ spoken: false })
+      await new Promise((r) => setTimeout(r, 350))
+      const ok = await toggleContinuousMode({ onTrayState: (s) => setVoiceTrayState(s) })
+      if (ok) return
+      // 开启失败（未配置/未就绪）→ 回退单轮命令；runWebSpeechCommandTurn 的 finally 会恢复唤醒耳。
+      console.warn('[background-voice] continuous start failed — fallback to one-shot command')
+    } else if (!volcReady) {
+      await acknowledgeWakeHit({ spoken: true })
+    } else {
+      // 已在连续模式：再喊一次只做轻提示，不打断既有会话状态机。
+      await acknowledgeWakeHit({ spoken: false })
       return
     }
 
-    // Local KWS wake → prefer continuous Volcengine when enabled; else one-shot Web Speech.
-    if (!continuousModeEnabled) {
-      const { isVolcengineAsrEnabled } = await import('./voice-asr-policy.js')
-      if (!isVolcengineAsrEnabled()) {
-        await runWebSpeechCommandTurn()
-        return
-      }
-      await new Promise((r) => setTimeout(r, 350))
-      await toggleContinuousMode({ onTrayState: (s) => setVoiceTrayState(s) })
-    }
+    // 单轮命令路径（Web Speech；连续模式开启失败或火山不可用时）。
+    await runWebSpeechCommandTurn()
   } finally {
     onWakeWordHit._busy = false
   }
 }
 
-/** Toast + earcon + short spoken ack; waits until speech ends so ASR won't hear itself. */
-async function acknowledgeWakeHit() {
+/**
+ * Toast + earcon + short spoken ack; waits until speech ends so ASR won't hear itself.
+ * @param {{ spoken?: boolean }} [opts] spoken=false 时只播 chime（连续模式路径，快）
+ */
+async function acknowledgeWakeHit(opts = {}) {
+  const spoken = opts.spoken !== false
   try {
     const { toast } = await import('../components/toast.js')
-    toast('小V在听，请说…', 'info')
+    toast(spoken ? '小V在听，请说…' : '小V在听', 'info')
   } catch {
     /* ignore */
   }
   void setVoiceTrayState('speaking')
   try {
-    const { playWakeListeningAck } = await import('./wake-ack.js')
-    await playWakeListeningAck()
+    if (spoken) {
+      const { playWakeListeningAck } = await import('./wake-ack.js')
+      await playWakeListeningAck()
+    } else {
+      const { playWakeChime } = await import('./wake-ack.js')
+      await playWakeChime()
+    }
   } catch (e) {
     console.warn('[background-voice] wake ack failed:', e?.message || e)
   }
@@ -767,7 +792,10 @@ export async function toggleContinuousMode(opts = {}) {
         void setVoiceTrayState('recording')
       },
       onFinal: () => {
+        // 先刷转写计时（若 final 带来新文本则回静默计时），再挂快发：
+        // 火山 final 是强"说完了"信号 → 400ms 宽限后发（期间来新转写会被取消）。
         continuousPolicy?.onTranscript()
+        continuousPolicy?.onFinal()
       },
       onFrame: (vol) => {
         // Feed mic volume to policy for barge-in detection
@@ -980,4 +1008,15 @@ export function teardownBackgroundVoiceCapture() {
     continuousPolicy = null
     void stopContinuousCapture()
   }
+}
+
+/**
+ * 小V 语音舞台 PTT 入口：按下=开麦（播报中按下自动打断），松手=识别并发送。
+ */
+export async function startVoicePtt() {
+  await onVoicePushDown()
+}
+
+export function stopVoicePtt() {
+  queueVoicePushUp()
 }

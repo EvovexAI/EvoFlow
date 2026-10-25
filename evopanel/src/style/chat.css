@@ -3017,8 +3017,8 @@ button.msg-file-card.msg-file-card--button:focus-visible {
 
 /* IDE-style inline file diff (VS Code / Cursor inspired) */
 .react-msg-tool .file-diff-card--ide {
-  --fd-bg: #1e1e1e;
-  --fd-head-bg: #252526;
+  --fd-bg: #090d14;
+  --fd-head-bg: #0f141d;
   --fd-border: rgba(255, 255, 255, 0.08);
   --fd-text: #fafafa;
   --fd-muted: #c4c4c4;

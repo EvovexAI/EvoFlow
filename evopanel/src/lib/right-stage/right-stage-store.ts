@@ -15,7 +15,7 @@ import { logPanelSet, logRightStage } from './panel-set-debug-log.js'
 /** RUN_FINISHED / 平台 toast 收栏时不得拆掉的 kind（用户还要盯进度 / 浏览器）。 */
 function isProtectedIdleHideKind(kind: string | null | undefined): boolean {
   const k = normalizeRightStageKind(kind)
-  return k === 'browser' || isProgressStageKind(k)
+  return k === 'browser' || k === 'xiaomi' || isProgressStageKind(k)
 }
 
 export type RecentClosedRightStageTab = {

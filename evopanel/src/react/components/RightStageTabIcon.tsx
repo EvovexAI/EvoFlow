@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { normalizeRightStageKind } from '../../lib/right-stage/right-stage-types.js'
+import { XiaomiStageAvatar } from './XiaomiStageAvatar.js'
 
 /** kind → 16px 线性图标（lucide 风格，stroke 用 currentColor）。 */
 const KIND_TAB_ICONS: Record<string, ReactNode> = {
@@ -78,6 +79,13 @@ const KIND_TAB_ICONS: Record<string, ReactNode> = {
       <path d="M18 14h-8M15 18h-5M10 6h8v4h-8z" />
     </>
   ),
+  xiaomi: (
+    <>
+      <path d="M12 8V4H8" />
+      <rect width="16" height="12" x="4" y="8" rx="2" />
+      <path d="M2 14h2M20 14h2M15 13v2M9 13v2" />
+    </>
+  ),
 }
 
 export function KindTabIcon({ kind, faviconUrl }: { kind: string; faviconUrl?: string | null }) {
@@ -87,6 +95,13 @@ export function KindTabIcon({ kind, faviconUrl }: { kind: string; faviconUrl?: s
   useEffect(() => {
     setFailed(false)
   }, [src])
+  if (k === 'xiaomi') {
+    return (
+      <span className="react-chat-stage-tab-icon react-chat-stage-tab-icon--avatar" aria-hidden="true">
+        <XiaomiStageAvatar size={14} />
+      </span>
+    )
+  }
   if (k === 'browser' && src && !failed) {
     return (
       <span className="react-chat-stage-tab-icon" aria-hidden="true">

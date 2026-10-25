@@ -30,6 +30,18 @@ describe('speech-client queue chunking', () => {
     const text = '短文本'
     expect(advanceSpeechChunk(text, 0)).toBe(0)
   })
+
+  it('first-chunk mode splits early at the first comma', () => {
+    const text = '好的，我看一下您现在的任务进度情况，然后给您汇报'
+    const end = advanceSpeechChunk(text, 0, { first: true })
+    expect(end).toBe(text.indexOf('，') + 1)
+    expect(end).toBeLessThanOrEqual(14)
+  })
+
+  it('first-chunk mode still waits when too short', () => {
+    const text = '好的呀'
+    expect(advanceSpeechChunk(text, 0, { first: true })).toBe(0)
+  })
 })
 
 describe('speech-client queue dedup', () => {

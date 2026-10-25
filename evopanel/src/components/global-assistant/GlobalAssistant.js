@@ -806,11 +806,27 @@ function closeMeetingRoom() {
   patchState({ meetingRoomOpen: false, meetingActiveSpeaker: '' })
 }
 
+function collapseXiaomiStage() {
+  void import('../../lib/right-stage/open-right-stage-xiaomi.js')
+    .then(async (m) => {
+      if (!m.isXiaomiRightStageVisible?.()) return
+      const { rightStageStore } = await import('../../lib/right-stage/right-stage-store.js')
+      rightStageStore.collapse()
+      try {
+        delete document.documentElement.dataset.xmStage
+      } catch {
+        /* ignore */
+      }
+    })
+    .catch(() => {})
+  syncShellXiaomiActive(false)
+}
+
 function closePanel() {
   // 关面板时一并收起会议室，避免 meetingRoomOpen 卡住导致悬浮球不出现
   patchState({ isOpen: false, meetingRoomOpen: false, meetingActiveSpeaker: '' }, { persistUi: true })
   syncDockChrome(getState())
-  syncShellXiaomiActive(false)
+  collapseXiaomiStage()
   schedulePoll()
 }
 
@@ -820,7 +836,7 @@ function minimizePanel() {
     { persistUi: true },
   )
   syncDockChrome(getState())
-  syncShellXiaomiActive(false)
+  collapseXiaomiStage()
   schedulePoll()
 }
 
@@ -1349,17 +1365,20 @@ function schedulePoll() {
   }, open ? 20_000 : 60_000)
 }
 
+/**
+ * 打开小V：走 right-stage 常驻页，不再展开 body 外挂 dock（避免双右栏）。
+ * GlobalAssistant 宿主仍保留：会议室 / 语音桥 / store。
+ */
 function openPanel() {
   cancelFabOpenTimer()
   const patch = {
-    isOpen: true,
+    isOpen: false,
     isMinimized: false,
     contextPinned: true,
     activeView: 'chat',
     selectedContact: 'xiaomi',
   }
   if (getState().fabUserHidden) patch.fabUserHidden = false
-  // 侧栏工作栏：收起联系人轨，直接对话
   if (isWorkbenchDock()) {
     patch.sidebarCollapsed = true
   }
@@ -1368,12 +1387,14 @@ function openPanel() {
   schedulePoll()
   void refreshDashboard()
   void refreshXiaomiObsEnabled()
-  void ensureXiaomiSession().then(() => bindXiaomiStreamListener()).catch((e) => {
-    toast(String(e?.message || e || '小V会话不可用'), 'warning')
-  })
+  void import('../../lib/right-stage/open-right-stage-xiaomi.js')
+    .then((m) => m.openXiaomiRightStage())
+    .catch((e) => {
+      toast(String(e?.message || e || '打开小V失败'), 'warning')
+    })
 }
 
-/** 唤醒词 / 外部入口：打开全局小V面板 */
+/** 唤醒词 / 外部入口：打开小V（right-stage） */
 export function openGlobalAssistant() {
   if (shouldHideAssistant()) return
   if (!_root || !document.body.contains(_root)) {
@@ -1382,13 +1403,11 @@ export function openGlobalAssistant() {
   if (getState().fabUserHidden) {
     patchState({ fabUserHidden: false }, { persistUi: true })
   }
-  // 壳层 / 边缘条：优先右侧工作栏
   if (getState().panelLayoutPref === 'float') {
     patchState({ panelLayoutPref: 'auto' }, { persistUi: true, silent: true })
   }
   openPanel()
   patchState({ activeView: 'chat', selectedContact: 'xiaomi' }, { persistUi: true })
-  syncShellXiaomiActive(true)
 }
 
 function syncShellXiaomiActive(forceOpen) {
@@ -2688,43 +2707,33 @@ function render() {
     return
   }
 
-  // 默认右侧边缘条；仅用户主动切回 float 时才用悬浮球
-  const preferFloat = resolvePanelLayout(st) === 'float'
-  const showFab = !st.isOpen && !st.meetingRoomOpen && !st.fabUserHidden && preferFloat
-  const showEdgeTab = !st.isOpen && !st.meetingRoomOpen && !st.fabUserHidden && !preferFloat
-  let fab = _root.querySelector('.xm-fab')
-  let edgeTab = _root.querySelector('.xm-edge-tab')
-  let edgeWrap = _root.querySelector('.xm-edge-wrap')
-  let panel = _root.querySelector('.xm-panel')
-
-  if (st.fabUserHidden && !st.isOpen && !st.meetingRoomOpen) {
-    if (fab) fab.remove()
-    if (edgeWrap) edgeWrap.remove()
-    else if (edgeTab) edgeTab.remove()
-    if (panel) panel.remove()
-    closeFabContextMenu()
+  // 小V 对话在 right-stage 标签条内；此处只保留：边缘入口条 + 会议室浮层。
+  // 不再渲染外挂 xm-panel dock（避免双右栏）。
+  const stageOpen = document.documentElement.dataset.xmStage === '1'
+  const fab = _root.querySelector('.xm-fab')
+  const edgeTab = _root.querySelector('.xm-edge-tab')
+  const edgeWrap = _root.querySelector('.xm-edge-wrap')
+  const panel = _root.querySelector('.xm-panel')
+  if (fab) fab.remove()
+  if (panel) {
+    panel.remove()
     unmountXiaomiPanelReactHosts()
-    syncDockChrome(st)
-    syncMeetingRoom(st)
-    return
   }
+  closeFabContextMenu()
+  syncDockChrome({ ...st, isOpen: false })
 
-  if (showEdgeTab) {
-    if (panel) panel.remove()
-    if (fab) fab.remove()
-    unmountXiaomiPanelReactHosts()
-    syncDockChrome(st)
-    const staleRoom = _root.querySelector('.xm-mroom')
-    if (staleRoom) staleRoom.remove()
+  // 未开 stage 时显示右侧边缘「小V」条，点击 → openPanel → right-stage tab
+  if (!stageOpen && !st.meetingRoomOpen && !st.fabUserHidden) {
     const html = renderEdgeTabHtml(st)
     if (edgeWrap) {
       edgeWrap.outerHTML = html
     } else if (edgeTab && !edgeTab.closest('.xm-edge-wrap')) {
       edgeTab.outerHTML = html
     } else if (!edgeWrap) {
+      // 清掉残留再插入
+      edgeTab?.remove()
       _root.insertAdjacentHTML('afterbegin', html)
     }
-    // 记录展示，便于「知道了」后短冷却
     const coach = resolveEdgeCoach(st)
     if (coach) {
       const last = Number(st.coachShownAt || 0)
@@ -2732,217 +2741,14 @@ function render() {
         patchState({ coachShownAt: Date.now() }, { silent: true })
       }
     }
-    syncMeetingRoom(st)
-    return
-  }
-
-  if (edgeWrap) edgeWrap.remove()
-  else if (edgeTab) edgeTab.remove()
-
-  if (showFab) {
-    if (panel) panel.remove()
-    unmountXiaomiPanelReactHosts()
-    syncDockChrome(st)
-    // 残留会议室 DOM 时清掉，避免挡住操作且状态已关
-    const staleRoom = _root.querySelector('.xm-mroom')
-    if (staleRoom) staleRoom.remove()
-    if (!fab) {
-      _root.insertAdjacentHTML('afterbegin', renderFabHtml(st))
-      fab = _root.querySelector('.xm-fab')
-    } else {
-      const badge = Number(st.badgeCount || 0)
-      const existing = fab.querySelector('.xm-fab-badge')
-      if (badge > 0) {
-        const label = badge > 99 ? '99+' : String(badge)
-        if (existing) {
-          existing.textContent = label
-          existing.setAttribute('aria-label', `${badge} 项待处理`)
-        } else {
-          fab.insertAdjacentHTML(
-            'beforeend',
-            `<span class="xm-fab-badge" aria-label="${badge} 项待处理">${label}</span>`,
-          )
-        }
-      } else if (existing) {
-        existing.remove()
-      }
-    }
-    applyFabPosition(fab, st)
-    ensureFabVisible(fab)
-    syncMeetingRoom(st)
-    mountRailAvatars()
-    return
-  }
-
-  if (fab) fab.remove()
-  {
-    const wrap = _root.querySelector('.xm-edge-wrap')
-    if (wrap) wrap.remove()
-    else _root.querySelector('.xm-edge-tab')?.remove()
-  }
-
-  // 仅会议室全屏时：可不显示侧栏，只保留圆桌
-  if (st.meetingRoomOpen && !st.isOpen) {
-    if (panel) panel.remove()
-    unmountXiaomiPanelReactHosts()
-    syncMeetingRoom(st)
-    mountRailAvatars()
-    return
-  }
-
-  const needsShellRemount = panel && !panel.querySelector('[data-xm-shell]')
-  if (needsShellRemount) {
-    panel.remove()
-    panel = null
-  }
-
-  if (!panel) {
-    _root.insertAdjacentHTML(
-      'beforeend',
-      `<aside class="xm-panel xm-panel--enter${st.isExpanded ? ' xm-panel--expanded' : ''}${resolvePanelLayout(st) === 'dock' ? ' xm-panel--dock' : ''}" role="dialog" aria-label="小V全局助手">
-        <div data-xm-chrome>${renderHeader(st)}</div>
-        ${renderBanner(st)}
-        <div class="xm-shell" data-xm-shell>${renderShellInner(st)}</div>
-      </aside>`,
-    )
-    panel = _root.querySelector('.xm-panel')
-    panel?.addEventListener(
-      'animationend',
-      () => {
-        panel?.classList.remove('xm-panel--enter')
-      },
-      { once: true },
-    )
   } else {
-    panel.classList.toggle('xm-panel--expanded', !!st.isExpanded && resolvePanelLayout(st) !== 'dock')
-    panel.classList.toggle('xm-panel--dock', resolvePanelLayout(st) === 'dock')
-    initXmDockResize(panel)
-    const chrome = panel.querySelector('[data-xm-chrome]')
-    if (chrome) chrome.innerHTML = renderHeader(st)
-    const bannerHost = panel.querySelector('[data-xm-banner]')
-    const nextBanner = renderBanner(st)
-    if (bannerHost) {
-      const wrap = document.createElement('div')
-      wrap.innerHTML = nextBanner
-      const next = wrap.firstElementChild
-      if (next) bannerHost.replaceWith(next)
-    } else {
-      panel.querySelector('[data-xm-chrome]')?.insertAdjacentHTML('afterend', nextBanner)
-    }
-    const shell = panel.querySelector('[data-xm-shell]')
-    const rail = shell?.querySelector('[data-xm-rail]')
-    const bodySlot = shell?.querySelector('[data-xm-body-slot]')
-    const composerSlot = shell?.querySelector('[data-xm-composer-slot]')
-    const guideDock = isWorkbenchDock(st)
-    const keepXmSessionDebugShell =
-      st.activeView === 'debug' && !!bodySlot?.querySelector?.('[data-xm-session-debug]')
-    // dock 工作栏无联系人轨：结构变了就整段重挂（调试视图除外，避免冲掉详情弹窗）
-    if (guideDock && rail && !keepXmSessionDebugShell) {
-      shell.innerHTML = renderShellInner(st)
-    } else if (!guideDock && shell && !rail && !keepXmSessionDebugShell) {
-      shell.innerHTML = renderShellInner(st)
-    } else if (shell && bodySlot && composerSlot && (rail || guideDock || keepXmSessionDebugShell)) {
-      if (rail) rail.outerHTML = renderContactRail(st)
-      const contactNow = resolveSelectedContact(st)
-      const keepXmReactThread =
-        st.activeView === 'chat' &&
-        contactNow === 'xiaomi' &&
-        !!bodySlot.querySelector('[data-xm-react-thread]')
-      // 流式/消息更新时勿销毁 React 根，否则 MessageRow 会整树重挂
-      // 调试详情弹窗挂在 SessionDebugPane 状态上：body 整段重绘会 remount 并关掉弹窗
-      const keepXmSessionDebug =
-        st.activeView === 'debug' && !!bodySlot.querySelector('[data-xm-session-debug]')
-      if (keepXmSessionDebug) {
-        patchDebugPageContextTable(bodySlot, st)
-      } else if (!keepXmReactThread) {
-        bodySlot.innerHTML = renderBody(st)
-      }
-      // React 对话挂着时，流式每帧整段替换 composer 会撑布局抖动；只原地切换发送/停止钮。
-      if (keepXmReactThread && contactNow === 'xiaomi') {
-        patchXiaomiComposerSendButton(composerSlot, st)
-      } else {
-        const ta = composerSlot.querySelector('[data-draft]')
-        const prevDraft = ta instanceof HTMLTextAreaElement ? ta.value : null
-        const prevSelStart = ta instanceof HTMLTextAreaElement ? ta.selectionStart : null
-        const prevSelEnd = ta instanceof HTMLTextAreaElement ? ta.selectionEnd : null
-        const focused = ta instanceof HTMLTextAreaElement && document.activeElement === ta
-        const draftUnchanged = String(prevDraft ?? '') === String(contactDraft(st) ?? '')
-        const mt = composerSlot.querySelector('[data-meeting-topic]')
-        const mtPrev = mt instanceof HTMLTextAreaElement ? mt.value : null
-        const mtFocused = mt instanceof HTMLTextAreaElement && document.activeElement === mt
-        const mtSelStart = mt instanceof HTMLTextAreaElement ? mt.selectionStart : null
-        const mtSelEnd = mt instanceof HTMLTextAreaElement ? mt.selectionEnd : null
-        composerSlot.innerHTML = renderComposer(st)
-        if (focused) {
-          const nextTa = composerSlot.querySelector('[data-draft]')
-          if (nextTa instanceof HTMLTextAreaElement) {
-            nextTa.focus()
-            if (draftUnchanged && prevSelStart != null && prevSelEnd != null) {
-              try {
-                nextTa.setSelectionRange(prevSelStart, prevSelEnd)
-              } catch {
-                /* ignore */
-              }
-            } else {
-              const n = nextTa.value.length
-              try {
-                nextTa.setSelectionRange(n, n)
-              } catch {
-                /* ignore */
-              }
-            }
-          }
-        }
-        if (mtFocused) {
-          const nextMt = composerSlot.querySelector('[data-meeting-topic]')
-          if (nextMt instanceof HTMLTextAreaElement) {
-            nextMt.value = String(st.meetingTopic ?? mtPrev ?? '')
-            nextMt.focus()
-            if (mtSelStart != null && mtSelEnd != null) {
-              try {
-                nextMt.setSelectionRange(mtSelStart, mtSelEnd)
-              } catch {
-                /* ignore */
-              }
-            }
-          }
-        }
-      }
-    } else if (shell) {
-      shell.innerHTML = renderShellInner(st)
-    }
+    if (edgeWrap) edgeWrap.remove()
+    else if (edgeTab) edgeTab.remove()
   }
 
-  const contact = resolveSelectedContact(st)
-  const scroll = _root.querySelector('[data-chat-scroll]')
-  // V4 时间线自管贴底；外层再强行 scrollTop=scrollHeight 会和内部滚动抢权，发消息时整栏抖。
-  const v4ThreadMounted = !!scroll?.querySelector?.('[data-xm-chat-panel="v4"]')
-  if (scroll && st.activeView === 'chat' && contact === 'xiaomi' && !v4ThreadMounted) {
-    scroll.scrollTop = scroll.scrollHeight
-  }
-  const empScroll = _root.querySelector('[data-emp-scroll]')
-  if (empScroll && st.activeView === 'chat' && contact !== 'xiaomi') {
-    // keep user scroll position unless near bottom
-    const nearBottom = empScroll.scrollHeight - empScroll.scrollTop - empScroll.clientHeight < 48
-    if (nearBottom) empScroll.scrollTop = empScroll.scrollHeight
-  }
-  const meetingScroll = _root.querySelector('[data-meeting-scroll]')
-  if (meetingScroll && st.activeView === 'meeting') {
-    meetingScroll.scrollTop = meetingScroll.scrollHeight
-  }
-  syncDockChrome(st)
   syncMeetingRoom(st)
   mountRailAvatars()
-  if (st.isOpen && st.activeView === 'chat' && contact === 'xiaomi') {
-    syncXiaomiReactThreadMount()
-  } else {
-    unmountXiaomiChatThread()
-  }
-  if (st.isOpen && st.activeView === 'debug') {
-    syncXiaomiSessionDebugMount()
-  } else {
-    unmountXiaomiSessionDebug()
-  }
+  return
 }
 
 let _streamRenderFrame = 0
@@ -3615,9 +3421,9 @@ function onGlobalKeydown(e) {
   const binding = getShortcutBinding('toggleXiaomiAssistant')
   if (shortcutMatchesEvent(binding, e)) {
     e.preventDefault()
-    const st = getState()
-    if (st.isOpen && !st.fabUserHidden) minimizePanel()
-    else openPanel()
+    void import('../../lib/right-stage/open-right-stage-xiaomi.js')
+      .then((m) => m.toggleXiaomiRightStage())
+      .catch(() => openPanel())
     return
   }
   if (e.key === 'Escape') {
@@ -3626,14 +3432,36 @@ function onGlobalKeydown(e) {
     if (st.meetingRoomOpen) {
       e.preventDefault()
       closeMeetingRoom()
-      patchState({ activeView: 'meeting', isOpen: true, isMinimized: false }, { persistUi: true })
+      patchState({ activeView: 'meeting', isOpen: false, isMinimized: false }, { persistUi: true })
       return
     }
-    if (st.isOpen) {
-      const tag = (e.target && e.target.tagName) || ''
-      if (tag === 'TEXTAREA' || tag === 'INPUT') return
-      minimizePanel()
-    }
+    const tag = (e.target && e.target.tagName) || ''
+    if (tag === 'TEXTAREA' || tag === 'INPUT') return
+    // 语音全屏优先：Esc = 退出语音并收起（与快捷键 toggle 一致）
+    void import('../../lib/xw-voice-mode.js')
+      .then((vm) => {
+        if (vm.isXwVoiceMode?.()) {
+          e.preventDefault()
+          return import('../../lib/right-stage/open-right-stage-xiaomi.js').then((m) =>
+            m.toggleXiaomiRightStage(),
+          )
+        }
+        return import('../../lib/right-stage/open-right-stage-xiaomi.js').then((m) => {
+          if (m.isXiaomiRightStageActive?.()) {
+            e.preventDefault()
+            minimizePanel()
+          } else if (st.isOpen) {
+            e.preventDefault()
+            minimizePanel()
+          }
+        })
+      })
+      .catch(() => {
+        if (st.isOpen) {
+          e.preventDefault()
+          minimizePanel()
+        }
+      })
   }
 }
 
@@ -3871,17 +3699,23 @@ export function mountGlobalAssistant() {
     if (getState().fabUserHidden) {
       patchState({ fabUserHidden: false }, { persistUi: true })
     }
-    if (!getState().isOpen) openPanel()
+    // 打开 right-stage 小V；草稿同步到 store（stage composer 订阅）
+    if (document.documentElement.dataset.xmStage !== '1') openPanel()
     setContactDraft('xiaomi', String(partial || ''), { silent: true })
     patchState({ activeView: 'chat', selectedContact: 'xiaomi', draft: String(partial || '') }, { persistUi: true, silent: true })
-    const ta = _root?.querySelector('[data-draft]')
-    if (ta instanceof HTMLTextAreaElement) ta.value = String(partial || '')
   })
 
   if (!_routeBound) {
     window.addEventListener('hashchange', onHashChange)
     window.addEventListener('keydown', onGlobalKeydown)
     window.addEventListener('resize', onFabWindowResize)
+    window.addEventListener('evopanel:xiaomi-stage-changed', () => {
+      try {
+        render()
+      } catch {
+        /* ignore */
+      }
+    })
     document.addEventListener('visibilitychange', () => {
       if (!document.hidden && !shouldHideAssistant()) {
         void refreshDashboard()

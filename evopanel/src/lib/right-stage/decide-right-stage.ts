@@ -87,6 +87,10 @@ export function decideRightStage(input: RightStageDecideInput): RightStageDecide
     if (current === 'browser') {
       return { action: 'noop', reason: 'browser-keep-on-finish' }
     }
+    // 小V 是常驻前台页，RUN_FINISHED（主对话结束）绝不能收走
+    if (current === 'xiaomi') {
+      return { action: 'noop', reason: 'xiaomi-keep-on-finish' }
+    }
     // 工作流 / 节点 / 员工过程：用户（或 platform ui.show）主动盯进度，
     // 跑完还要复盘图/节点；RUN_FINISHED 收栏会表现为「过一会儿自己没了」。
     // hasProgressTab：覆盖「ui.show 刚打开 / 尚未成为 active」与 RUN_FINISHED 的竞态。

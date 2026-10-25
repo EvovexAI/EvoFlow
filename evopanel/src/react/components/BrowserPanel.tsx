@@ -569,9 +569,15 @@ function chromeFloorY(): number {
   try {
     const nodes = document.querySelectorAll<HTMLElement>('[data-tauri-drag-region]')
     let floor = 0
+    // 只认「顶栏」高度的拖拽区。小V 语音域曾把整栏挂 drag-region，bottom≈整窗，
+    // 会被当成地板 → y 压到底、height 塌成 80，右侧浏览器错位成一条缝。
+    const maxChromeH = 120
     nodes.forEach((el) => {
-      const b = el.getBoundingClientRect().bottom
-      if (b > floor) floor = b
+      const b = el.getBoundingClientRect()
+      if (b.width < 8 || b.height < 8) return
+      if (b.height > maxChromeH) return
+      if (b.top > maxChromeH) return
+      if (b.bottom > floor) floor = b.bottom
     })
     if (floor >= 24) return Math.ceil(floor)
   } catch {
@@ -1151,7 +1157,8 @@ function BrowserEmbedHost({
         : null
     mo?.observe(document.documentElement, {
       attributes: true,
-      attributeFilter: ['class'],
+      // data-xw-voice：小V 语音全屏切布局时不是 class，也要立刻重贴 HWND
+      attributeFilter: ['class', 'data-xw-voice'],
     })
     const sidebarEl = document.getElementById('sidebar')
     if (sidebarEl) {

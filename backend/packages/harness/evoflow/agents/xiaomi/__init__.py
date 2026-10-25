@@ -20,7 +20,11 @@ from evoflow.agents.xiaomi.prompt import (
     role_block,
     strip_xiaomi_ui_context_from_system_prompt,
 )
-from evoflow.agents.xiaomi.tool_policy import filter_xiaomi_tools
+from evoflow.agents.xiaomi.tool_policy import (
+    filter_xiaomi_tools,
+    merge_xiaomi_system_tools,
+    xiaomi_bound_tool_name_set,
+)
 from evoflow.agents.xiaomi.tools import get_xiaomi_tools
 
 __all__ = [
@@ -33,6 +37,8 @@ __all__ = [
     "format_page_context_block",
     "strip_xiaomi_ui_context_from_system_prompt",
     "filter_xiaomi_tools",
+    "merge_xiaomi_system_tools",
+    "xiaomi_bound_tool_name_set",
     "get_xiaomi_tools",
     "ensure_xiaomi_proactive_role",
     "format_global_boards_for_duty",

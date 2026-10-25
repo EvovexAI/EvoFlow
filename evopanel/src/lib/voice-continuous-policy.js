@@ -11,10 +11,13 @@
  */
 
 // ─── 自动发送参数 ───
+// 豆包式接话手感：说完 ~0.9s 即发（文本仍在增长时会被 onTranscript 刷新，不会截断长句）。
 const SILENCE_SEND_MS = (() => {
   const v = parseInt(localStorage.getItem('evoflow-voice-silence-ms') || '', 10)
-  return Number.isFinite(v) && v >= 800 ? v : 2000
+  return Number.isFinite(v) && v >= 500 ? v : 900
 })()
+/** ASR final 后的快发宽限：火山 final 常在句中停顿就出，宽限内来新转写则取消。 */
+const FAST_SEND_AFTER_FINAL_MS = 400
 
 // ─── 打断检测参数 ───
 const BARGEIN_THRESHOLD = 0.09
@@ -49,6 +52,8 @@ export function createContinuousPolicy(opts) {
   let autoSendTimer = null
   let lastTranscriptActivityTs = 0
   let lastObservedText = ''
+  /** ASR final 后的快速发送计时（final 是比静默更强的"说完了"信号） */
+  let fastSendTimer = null
 
   // ─── 打断检测状态 ───
   let bargeinFrames = 0
@@ -65,6 +70,22 @@ export function createContinuousPolicy(opts) {
 
   function cancelAutoSend() {
     if (autoSendTimer) { clearTimeout(autoSendTimer); autoSendTimer = null }
+  }
+
+  function cancelFastSend() {
+    if (fastSendTimer) { clearTimeout(fastSendTimer); fastSendTimer = null }
+  }
+
+  function fireSend() {
+    cancelAutoSend()
+    cancelFastSend()
+    autoSendTimer = null
+    lastObservedText = ''
+    const text = (getText?.() || '').trim()
+    if (text) {
+      onProcessing?.()
+      sendText(text)
+    }
   }
 
   function clearNoSpeechTimer() {
@@ -182,6 +203,7 @@ export function createContinuousPolicy(opts) {
 
   /**
    * 收到一条 transcript 后的策略：刷新自动发送计时。
+   * 新转写（说明用户还在说）会取消 final 快发。
    */
   function onTranscript() {
     // 收到真实语音 → 取消误触发恢复
@@ -190,7 +212,23 @@ export function createContinuousPolicy(opts) {
     const currentText = (getText?.() || '').trim()
     if (!currentText || currentText === lastObservedText) return
     lastObservedText = currentText
+    // 用户还在说 → final 快发作废，回到静默计时
+    cancelFastSend()
     scheduleAutoSend()
+  }
+
+  /**
+   * ASR 给出 final（火山按语素断句，比前端静默判定更早、更准）。
+   * 宽限 FAST_SEND_AFTER_FINAL_MS：期间若又来新转写（语素续说）则取消快发。
+   */
+  function onFinal() {
+    clearNoSpeechTimer()
+    cancelFastSend()
+    fastSendTimer = setTimeout(() => {
+      fastSendTimer = null
+      if (isPttHolding && isPttHolding()) return
+      fireSend()
+    }, FAST_SEND_AFTER_FINAL_MS)
   }
 
   /**
@@ -206,12 +244,7 @@ export function createContinuousPolicy(opts) {
       const idle = Date.now() - lastTranscriptActivityTs
       if (idle >= SILENCE_SEND_MS) {
         autoSendTimer = null
-        lastObservedText = ''
-        const text = (getText?.() || '').trim()
-        if (text) {
-          onProcessing?.()
-          sendText(text)
-        }
+        fireSend()
       } else {
         autoSendTimer = setTimeout(tick, SILENCE_SEND_MS - idle)
       }
@@ -224,6 +257,7 @@ export function createContinuousPolicy(opts) {
    */
   function reset() {
     cancelAutoSend()
+    cancelFastSend()
     clearNoSpeechTimer()
     bargeinFrames = 0
     duckActive = false
@@ -238,9 +272,11 @@ export function createContinuousPolicy(opts) {
   return {
     onFrame,
     onTranscript,
+    onFinal,
     onTTSStart,
     onTTSStop,
     cancelAutoSend,
+    cancelFastSend,
     reset,
     get isDucking() { return duckActive },
     get ttsActive() { return ttsActive },

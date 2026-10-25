@@ -177,14 +177,31 @@ export function isAssistantSpeaking() {
   return _speaking
 }
 
-/** 从 pos 起切下一段可播报文本；无完整句时积累够长也会在停顿符/硬切点断开 */
-export function advanceSpeechChunk(clean, pos) {
+/**
+ * 从 pos 起切下一段可播报文本；无完整句时积累够长也会在停顿符/硬切点断开。
+ * @param {string} clean
+ * @param {number} pos
+ * @param {{ first?: boolean }} [opts] first=true 时首句用更短的最小长度（快速开口）
+ */
+export function advanceSpeechChunk(clean, pos, opts = {}) {
   if (!clean || pos >= clean.length) return pos
   for (let i = pos; i < clean.length; i++) {
     const ch = clean[i]
     if (ch === '。' || ch === '！' || ch === '？' || ch === '!' || ch === '?' || ch === '\n') {
       return i + 1
     }
+  }
+  // 首句快速开口：回答开头常是「好的，我看一下…」，第一个停顿符（≥2 字）就切，
+  // 让 TTS 提前 300-800ms 起播；20 字仍无停顿则硬切开口；后续句保持长阈值避免碎句感。
+  if (opts.first) {
+    const limit = Math.min(clean.length, pos + 20)
+    for (let i = pos + 2; i < limit; i++) {
+      const ch = clean[i]
+      if (ch === '，' || ch === ',' || ch === '；' || ch === ';' || ch === '、') {
+        return i + 1
+      }
+    }
+    return clean.length - pos >= 20 ? pos + 20 : pos
   }
   const MIN_PHRASE = 48
   if (clean.length - pos < MIN_PHRASE) return pos
@@ -206,6 +223,9 @@ let _queueSpeaker = ''
  */
 export function setStreamingSpeechSpeaker(speaker) {
   _queueSpeaker = String(speaker || '').trim()
+  void import('./speech-session-client.js')
+    .then(({ setSpeechSessionSpeaker }) => setSpeechSessionSpeaker(_queueSpeaker))
+    .catch(() => {})
 }
 
 export function getStreamingSpeechSpeaker() {
@@ -221,6 +241,16 @@ async function _fetchSentenceAudio(text, opts = {}) {
   const plain = plainTextForSpeech(text)
   if (!plain) return null
   const speaker = String(opts.speaker || _queueSpeaker || '').trim()
+  // P1 会话 WS 流式通道：默认启用；未连接/超时/MSE 不可用 → 逐句自动回退 HTTP
+  if (localStorage.getItem('evoflow-voice-session') !== '0') {
+    try {
+      const { fetchSpeechSessionAudio } = await import('./speech-session-client.js')
+      const pack = await fetchSpeechSessionAudio(plain, { speaker })
+      if (pack) return pack
+    } catch {
+      /* fallthrough → HTTP */
+    }
+  }
   // Non-stream /tts returns a complete mp3; HTMLAudioElement handles it more reliably
   // than a blob assembled from /tts/stream (truncated streams can hang without onended).
   const url = import.meta.env?.DEV ? '/api/speech/tts' : apiUrl('/speech/tts')
@@ -538,7 +568,9 @@ const _speechQueue = {
 
     let pos = this.lastProcessedLength
     while (pos < clean.length) {
-      const end = advanceSpeechChunk(clean, pos)
+      const end = advanceSpeechChunk(clean, pos, {
+        first: this.sentences.length === 0 && this.lastPlayedIndex < 0,
+      })
       if (end <= pos) break
 
       const chunk = clean.slice(pos, end).trim()
@@ -785,6 +817,10 @@ export function stopAllAssistantSpeech() {
   stopAssistantSpeech()
   _speechQueue.reset()
   clearAssistantSpeechPrefetch()
+  // 会话 WS 通道：取消后端所有进行中的合成（barge-in / 停止播报）
+  void import('./speech-session-client.js')
+    .then(({ notifySpeechSessionBargeIn }) => notifySpeechSessionBargeIn())
+    .catch(() => {})
   // Ensure continuous-mode / follow-up idle hooks run on barge-in / UI stop.
   _notifySpeechQueueIdle()
   _ttsLog('[speech-client] 已停止所有语音播放，队列已清空')

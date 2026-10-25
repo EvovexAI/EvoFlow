@@ -246,6 +246,18 @@ async def speech_tts_stream(body: SpeechTtsRequest) -> StreamingResponse:
         raise HTTPException(status_code=502, detail=str(e)) from e
 
 
+@router.websocket("/session")
+async def speech_session(ws: WebSocket) -> None:
+    """P1 单 WS 会话（首片：流式 TTS 通道；音频上行/ASR/agent 内化为后续增量）。
+
+    协议见 app/gateway/speech/session_manager.py 模块注释与
+    docs/design/xiaowei-voice-experience-upgrade.md §6。
+    """
+    from app.gateway.speech.session_manager import SpeechSession
+
+    await SpeechSession(ws).run()
+
+
 async def _run_local_asr_proxy(client_ws: WebSocket) -> None:
     """Proxy WebSocket between frontend and local whisper_server."""
     import json

@@ -935,7 +935,7 @@ html[data-theme='dark'] .react-chat-aside-brand-logo {
 
 html[data-theme='dark'] .shell-view-header,
 .shell-view-header {
-  background: var(--shell-bg, #252526);
+  background: var(--shell-bg, #0a0e15);
 }
 
 /* 视图切换 Tabs */
@@ -1073,7 +1073,7 @@ html[data-theme='dark'] .shell-view-action-btn:hover {
 html[data-theme='dark'] .react-chat-aside-history-head,
 html.dark .react-chat-aside-history-head {
   /* 侧栏分区线：用背景微差，不用发白描边 */
-  border-top-color: color-mix(in srgb, #fff 4%, var(--shell-bg, #252526));
+  border-top-color: color-mix(in srgb, #fff 4%, var(--shell-bg, #0a0e15));
 }
 
 .react-chat-aside-history {
@@ -1148,7 +1148,7 @@ html.dark .react-chat-aside-history-head {
 
 html[data-theme='dark'] .react-chat-aside-segment-btn.is-active,
 html.dark .react-chat-aside-segment-btn.is-active {
-  background: color-mix(in srgb, var(--accent) 18%, var(--shell-bg, #252526));
+  background: color-mix(in srgb, var(--accent) 18%, var(--shell-bg, #0a0e15));
   box-shadow: none;
 }
 
@@ -1245,7 +1245,7 @@ html.dark .react-chat-aside-segment-btn.is-active {
 
 html[data-theme='dark'] .react-chat-aside-ws-menu-search,
 html.dark .react-chat-aside-ws-menu-search {
-  background: color-mix(in srgb, #fff 6%, var(--shell-bg, #252526));
+  background: color-mix(in srgb, #fff 6%, var(--shell-bg, #0a0e15));
 }
 
 .react-chat-aside-ws-menu-search-input {
@@ -1278,7 +1278,7 @@ html.dark .react-chat-aside-ws-menu-search {
 
 html[data-theme='dark'] .react-chat-aside-ws-menu,
 html.dark .react-chat-aside-ws-menu {
-  background: color-mix(in srgb, #fff 6%, var(--shell-bg, #252526));
+  background: color-mix(in srgb, #fff 6%, var(--shell-bg, #0a0e15));
   box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
 }
 
@@ -1650,7 +1650,7 @@ html.dark .react-chat-aside-ws-menu {
 
 html[data-theme='dark'] .react-chat-aside-footer,
 html.dark .react-chat-aside-footer {
-  border-top-color: color-mix(in srgb, #fff 4%, var(--shell-bg, #252526));
+  border-top-color: color-mix(in srgb, #fff 4%, var(--shell-bg, #0a0e15));
 }
 
 .react-chat-aside-footer-btn {
@@ -1841,7 +1841,7 @@ html.dark .react-chat-aside-footer {
 
 html[data-theme='dark'] .shell-account-menu,
 html.dark .shell-account-menu {
-  background: var(--bg-secondary, #1e1e1e);
+  background: var(--bg-secondary, #05070c);
   border-color: color-mix(in srgb, #fff 8%, transparent);
   box-shadow: 0 10px 32px rgba(0, 0, 0, 0.45);
 }
@@ -2648,15 +2648,15 @@ html.dark .shell-account-menu {
 }
 
 html[data-theme='dark'] .react-chat-history-item {
-  --history-fade-bg: var(--chrome-bg, #141414);
+  --history-fade-bg: var(--chrome-bg, #05070c);
 }
 
 html[data-theme='dark'] .react-chat-history-item:hover {
-  --history-fade-bg: color-mix(in srgb, rgba(255, 255, 255, 0.06) 100%, var(--chrome-bg, #141414));
+  --history-fade-bg: color-mix(in srgb, rgba(255, 255, 255, 0.06) 100%, var(--chrome-bg, #05070c));
 }
 
 html[data-theme='dark'] .react-chat-history-item.active {
-  --history-fade-bg: color-mix(in srgb, rgba(255, 255, 255, 0.1) 100%, var(--chrome-bg, #141414));
+  --history-fade-bg: color-mix(in srgb, rgba(255, 255, 255, 0.1) 100%, var(--chrome-bg, #05070c));
 }
 
 .react-chat-history-item-text--chat {
@@ -3433,7 +3433,7 @@ body.react-chat-session-row-dragging .react-chat-history-item {
 
 html[data-theme='dark'] .react-chat-main-body.is-chat-summary-split,
 html.dark .react-chat-main-body.is-chat-summary-split {
-  background: var(--bg-surface, #2a2a2a);
+  background: var(--bg-surface, #0a0e15);
 }
 
 .react-chat-main-body.is-chat-summary-split .react-chat-conversation-col {
@@ -5250,7 +5250,7 @@ html.evopanel-macos-titlebar .react-chat-header {
 
 html[data-theme='dark'] .react-chat-header--tauri-chrome,
 html.dark .react-chat-header--tauri-chrome {
-  background: var(--bg-primary, #1e1e1e);
+  background: var(--bg-primary, #05070c);
 }
 
 html[data-custom-bg='1'] .react-chat-header--tauri-chrome {
@@ -5443,7 +5443,7 @@ html.evopanel-tauri-frameless .react-chat-header-title-drag:hover {
 
 html[data-theme='dark'] .react-chat-header-metrics,
 html.dark .react-chat-header-metrics {
-  border-color: color-mix(in srgb, #fff 5%, var(--bg-primary, #1e1e1e));
+  border-color: color-mix(in srgb, #fff 5%, var(--bg-primary, #05070c));
   background: color-mix(in srgb, #fff 3%, transparent);
 }
 
@@ -6355,7 +6355,7 @@ html.evopanel-tauri .react-chat-main-col .msg-tool-markdown-content code {
 
 html[data-theme='dark'] .react-chat-conversation-col,
 html.dark .react-chat-conversation-col {
-  background: var(--bg-surface, #2a2a2a);
+  background: var(--bg-surface, #0a0e15);
 }
 
 .react-chat-conversation-col .react-vlist-scroll-wrap,
@@ -25260,7 +25260,7 @@ html.dark .react-chat-workspace-panel {
 }
 
 .react-chat-write-stream-kind {
-  --wd-bg: var(--fd-bg, #1e1e1e);
+  --wd-bg: var(--fd-bg, #05070c);
   --wd-add-bg: var(--fd-add-bg, rgba(63, 185, 80, 0.32));
   --wd-add-bar: var(--fd-add-bar, #3fb950);
   --wd-remove-bg: var(--fd-remove-bg, rgba(248, 81, 73, 0.30));
@@ -25297,7 +25297,7 @@ html.dark .react-chat-workspace-panel {
 
 /* ---- 写入流 diff 渲染（复用 file-diff 配色体系） ---- */
 .react-chat-write-stream-kind {
-  --wd-bg: var(--fd-bg, #1e1e1e);
+  --wd-bg: var(--fd-bg, #05070c);
   --wd-add-bg: var(--fd-add-bg, rgba(63, 185, 80, 0.32));
   --wd-add-bar: var(--fd-add-bar, #3fb950);
   --wd-remove-bg: var(--fd-remove-bg, rgba(248, 81, 73, 0.30));
@@ -31271,7 +31271,7 @@ html.dark .react-chat-main-col--home .react-chat-header-toolbar > .react-chat-to
 
 html[data-theme='dark'] .react-chat-header,
 html.dark .react-chat-header {
-  background: var(--bg-primary, #1e1e1e);
+  background: var(--bg-primary, #05070c);
   border-bottom: none;
 }
 
@@ -31316,7 +31316,7 @@ html[data-scifi-ui='1'] .react-chat-header::after {
 
 html[data-theme='dark'] .react-chat-header.react-chat-header--tauri-chrome,
 html.dark .react-chat-header.react-chat-header--tauri-chrome {
-  background: var(--bg-primary, #1e1e1e);
+  background: var(--bg-primary, #05070c);
   border-bottom: none;
 }
 
@@ -34158,6 +34158,23 @@ html[data-theme='dark'] .react-chat-stage-tab.is-active {
   flex-shrink: 0;
   align-items: center;
   justify-content: center;
+}
+.react-chat-stage-tab-icon--avatar .agent-avatar {
+  width: 14px !important;
+  height: 14px !important;
+  border-radius: 4px !important;
+}
+.react-chat-stage-launcher-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+}
+.react-chat-stage-launcher-avatar .agent-avatar {
+  width: 16px !important;
+  height: 16px !important;
+  border-radius: 4px !important;
 }
 .react-chat-stage-tab-favicon {
   width: 14px;

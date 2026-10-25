@@ -1508,11 +1508,30 @@ def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None
         logger.debug("agent-mode system tool filter skipped", exc_info=True)
 
     # Apply tool whitelist filter: configurable tools only; session spine always kept.
+    # 小V：白名单是 bash 等显式项，但 mcp_servers=None 时仍保留全部 MCP 工具。
     if _tool_whitelist is not None:
         from evoflow.tools.tool_aliases import canonical_tool_name
         from evoflow.tools.tool_catalog import is_role_editor_configurable_tool
 
-        tools = [t for t in tools if not is_role_editor_configurable_tool(getattr(t, "name", "")) or canonical_tool_name(str(getattr(t, "name", "") or "").strip().lower()) in _tool_whitelist]
+        _keep_all_mcp = False
+        try:
+            from evoflow.agents.xiaomi.identity import is_xiaomi_agent
+            from evoflow.mcp.binding import is_mcp_tool_name
+
+            _keep_all_mcp = bool(is_xiaomi_agent(agent_name) and _cfg_mcp is None)
+        except Exception:
+            _keep_all_mcp = False
+
+        def _whitelist_keep(t) -> bool:
+            raw = str(getattr(t, "name", "") or "")
+            name = canonical_tool_name(raw.strip().lower())
+            if _keep_all_mcp and is_mcp_tool_name(raw):
+                return True
+            if not is_role_editor_configurable_tool(raw):
+                return True
+            return name in _tool_whitelist
+
+        tools = [t for t in tools if _whitelist_keep(t)]
     # Subagent templates persist disallowed_tools; honor them for lead runs too.
     if agent_config and agent_config.disallowed_tools:
         from evoflow.tools.tool_aliases import canonical_tool_name
@@ -1644,16 +1663,16 @@ def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None
     tools = _strip_mind_map_tools(tools)
     all_tools = _strip_mind_map_tools(all_tools)
 
-    # 小V（xiaomi）：平台管家工具白名单 + 传讯三件套（与 main / 员工工具面分离）。
+    # 小V（xiaomi）：前台系统工具 + bash + MCP（过滤掉写仓/澄清等工程师面）。
     try:
         from evoflow.agents.xiaomi.identity import is_xiaomi_agent
+        from evoflow.agents.xiaomi.tool_policy import filter_xiaomi_tools, merge_xiaomi_system_tools
         from evoflow.agents.xiaomi.tools import get_xiaomi_tools
 
         if is_xiaomi_agent(agent_name):
-            xiaomi_tools = get_xiaomi_tools()
-            # Fixed surface only: no deferred catalog / tool_search spillover from lead tools.
-            tools = list(xiaomi_tools)
-            all_tools = list(xiaomi_tools)
+            system = get_xiaomi_tools()
+            tools = merge_xiaomi_system_tools(filter_xiaomi_tools(tools), system)
+            all_tools = merge_xiaomi_system_tools(filter_xiaomi_tools(all_tools), system)
     except Exception:
         logger.debug("xiaomi tool mount failed", exc_info=True)
 

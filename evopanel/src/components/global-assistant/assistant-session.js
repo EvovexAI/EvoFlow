@@ -236,8 +236,9 @@ export function stripInjectedPageContext(text) {
  * 解析 session→thread 并预热 V4 帧订阅（对齐主对话 warmEvoflowV4Session）。
  * @param {string} sessionKey
  * @param {{ hintThreadId?: string }} [opts]
+ * @returns {Promise<string>} threadId
  */
-async function bindXiaomiV4Thread(sessionKey, opts = {}) {
+export async function bindXiaomiV4Thread(sessionKey, opts = {}) {
   const key = String(sessionKey || '').trim()
   if (!key) return ''
   let tid = ''
@@ -333,9 +334,16 @@ export async function ensureXiaomiSession(opts = {}) {
     const hist = await api.chatHistory(key, 80).catch(() => ({ messages: [] }))
     const messages = historyToUiMessages(hist?.messages || [])
     patchState({ messages })
-    // 有历史则立刻绑 thread + 预热 V4，避免打开侧栏空白/闪草稿问候
-    if (messages.length || hintThreadId) {
-      void bindXiaomiV4Thread(key, { hintThreadId })
+    // V4 只认 thread：无论有无本地镜像消息，都必须 resolve/ensure thread 再预热，
+    // 否则右栏重开时会一直 connecting、历史空白。
+    let tid = await bindXiaomiV4Thread(key, { hintThreadId })
+    if (!tid) {
+      try {
+        tid = String((await wsClient.ensureChatThread(key)) || '').trim()
+      } catch {
+        tid = ''
+      }
+      if (tid) await bindXiaomiV4Thread(key, { hintThreadId: tid })
     }
   }
   return key
