@@ -19,7 +19,9 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import os
 from collections.abc import AsyncIterator
+from typing import Any
 
 from langgraph.types import Checkpointer
 
@@ -32,6 +34,33 @@ from evoflow.agents.checkpointer.provider import (
 from evoflow.config.app_config import get_app_config
 
 logger = logging.getLogger(__name__)
+
+
+def _sqlite_busy_timeout_ms() -> int:
+    """How long a SQLite write waits for a competing writer before giving up.
+
+    The **sync** provider sets ``PRAGMA busy_timeout=5000``; the async one used
+    by the in-process LangGraph server did not set it at all, so a contended
+    write failed fast with ``database is locked`` — which turned an 85-minute
+    run into a failed run (see Task 2610241133_c9f4). Defaults to 15s.
+    """
+    raw = (os.getenv("EVOFLOW_SQLITE_BUSY_TIMEOUT_MS") or "").strip()
+    if raw.isdigit():
+        return max(1000, int(raw))
+    return 15000
+
+
+async def _apply_sqlite_busy_timeout(saver: Any) -> None:
+    """Raise the busy timeout on an open AsyncSqliteSaver connection."""
+    timeout_ms = _sqlite_busy_timeout_ms()
+    conn = getattr(saver, "conn", None)
+    if conn is None:
+        return
+    try:
+        await conn.execute(f"PRAGMA busy_timeout={int(timeout_ms)}")
+        logger.info("Checkpointer: sqlite busy_timeout=%dms", timeout_ms)
+    except Exception:
+        logger.debug("Checkpointer: failed to set sqlite busy_timeout", exc_info=True)
 
 
 def _wrap_omit_transcript(saver: Checkpointer) -> Checkpointer:
@@ -74,6 +103,7 @@ async def _async_checkpointer(config) -> AsyncIterator[Checkpointer]:
             pathlib.Path(conn_str).parent.mkdir(parents=True, exist_ok=True)
         async with AsyncSqliteSaver.from_conn_string(conn_str) as saver:
             await saver.setup()
+            await _apply_sqlite_busy_timeout(saver)
             yield _wrap_omit_transcript(saver)
         return
 

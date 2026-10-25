@@ -11,6 +11,7 @@ pending AIMessage tool_calls shape LangGraph expects.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from typing import Any
@@ -18,6 +19,98 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 _TRANSCRIPT_CHANNELS = ("messages", "ui_messages")
+
+# SQLite reports a contended writer as "database is locked" / "database is busy".
+# Two gateways share one checkpoints.db, so a checkpoint write can lose the race
+# against the other gateway's writer (Task 2610241133_c9f4).
+_LOCK_ERROR_HINTS = (
+    "database is locked",
+    "database is busy",
+    "database table is locked",
+)
+
+
+def _is_sqlite_lock_error(exc: BaseException) -> bool:
+    text = str(exc).lower()
+    return any(hint in text for hint in _LOCK_ERROR_HINTS)
+
+
+def _lock_retry_attempts() -> int:
+    raw = (os.getenv("EVOFLOW_CHECKPOINT_LOCK_RETRY_ATTEMPTS") or "4").strip()
+    try:
+        return max(1, min(10, int(raw)))
+    except ValueError:
+        return 4
+
+
+def _lock_retry_base_delay_s() -> float:
+    raw = (os.getenv("EVOFLOW_CHECKPOINT_LOCK_RETRY_BASE_MS") or "250").strip()
+    try:
+        return max(10, min(5000, int(raw))) / 1000.0
+    except ValueError:
+        return 0.25
+
+
+async def _aput_with_lock_retry(
+    inner: Any,
+    config: Any,
+    checkpoint: Any,
+    metadata: Any,
+    new_versions: Any,
+) -> Any:
+    """``aput`` with bounded retry + exponential backoff on SQLite lock errors.
+
+    A checkpoint write is bookkeeping, not the run's product: the transcript of
+    the round is already persisted in ``evoflow_chat_messages``. Losing the
+    whole round to a contended write is what turned an 85-minute run into a
+    failed run, so the write retries instead of killing the run.
+    """
+    attempts = _lock_retry_attempts()
+    base_delay = _lock_retry_base_delay_s()
+    for attempt in range(1, attempts + 1):
+        try:
+            return await inner.aput(config, checkpoint, metadata, new_versions)
+        except Exception as exc:
+            if attempt >= attempts or not _is_sqlite_lock_error(exc):
+                raise
+            wait_s = base_delay * (2 ** (attempt - 1))
+            logger.warning(
+                "checkpointer: aput hit sqlite lock (attempt %d/%d), retrying in %dms: %s",
+                attempt,
+                attempts,
+                int(wait_s * 1000),
+                exc,
+            )
+            await asyncio.sleep(wait_s)
+    return None  # pragma: no cover — loop always returns or raises
+
+
+async def _aput_writes_with_lock_retry(
+    inner: Any,
+    config: Any,
+    writes: Any,
+    task_id: str,
+    task_path: str = "",
+) -> Any:
+    """``aput_writes`` with bounded retry + exponential backoff on SQLite locks."""
+    attempts = _lock_retry_attempts()
+    base_delay = _lock_retry_base_delay_s()
+    for attempt in range(1, attempts + 1):
+        try:
+            return await inner.aput_writes(config, writes, task_id, task_path)
+        except Exception as exc:
+            if attempt >= attempts or not _is_sqlite_lock_error(exc):
+                raise
+            wait_s = base_delay * (2 ** (attempt - 1))
+            logger.warning(
+                "checkpointer: aput_writes hit sqlite lock (attempt %d/%d), retrying in %dms: %s",
+                attempt,
+                attempts,
+                int(wait_s * 1000),
+                exc,
+            )
+            await asyncio.sleep(wait_s)
+    return None  # pragma: no cover — loop always returns or raises
 
 
 def omit_transcript_on_checkpoint_put_enabled() -> bool:
@@ -214,7 +307,7 @@ class OmitTranscriptCheckpointer:
     ) -> Any:
         if omit_transcript_on_checkpoint_put_enabled() and isinstance(checkpoint, dict):
             checkpoint = omit_transcript_channels(checkpoint)
-        return await self._inner.aput(config, checkpoint, metadata, new_versions)
+        return await _aput_with_lock_retry(self._inner, config, checkpoint, metadata, new_versions)
 
     # ------------------------------------------------------------------
     # Pass-through methods — explicitly declared so the LangGraph API
@@ -232,7 +325,7 @@ class OmitTranscriptCheckpointer:
         task_id: str,
         task_path: str = "",
     ) -> Any:
-        return await self._inner.aput_writes(config, writes, task_id, task_path)
+        return await _aput_writes_with_lock_retry(self._inner, config, writes, task_id, task_path)
 
     async def alist(
         self,

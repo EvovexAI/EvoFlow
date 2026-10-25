@@ -1261,6 +1261,20 @@ CREATE TABLE IF NOT EXISTS evoflow_duty_runs (
     updated_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS evoflow_proactive_duty_claims (
+    agent_code TEXT NOT NULL,
+    slot TEXT NOT NULL,
+    state TEXT NOT NULL DEFAULT 'claimed',
+    owner TEXT NOT NULL DEFAULT '',
+    round_id TEXT NOT NULL DEFAULT '',
+    attempts INTEGER NOT NULL DEFAULT 1,
+    claimed_at TEXT NOT NULL DEFAULT '',
+    claimed_at_ms INTEGER NOT NULL DEFAULT 0,
+    completed_at TEXT NOT NULL DEFAULT '',
+    updated_at TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY (agent_code, slot)
+);
+
 CREATE TABLE IF NOT EXISTS evoflow_role_push_bindings (
     agent_code TEXT PRIMARY KEY,
     push_enabled INTEGER NOT NULL DEFAULT 1,
@@ -2283,6 +2297,7 @@ def ensure_app_schema(conn: sqlite3.Connection) -> None:
     # version == APP_SCHEMA_VERSION: already current — still ensure post-baseline tables.
     _ensure_duty_runs_table(conn)
     _ensure_automation_slot_claims(conn)
+    _ensure_proactive_duty_claims(conn)
     return
 
 
@@ -2333,6 +2348,39 @@ def _ensure_automation_slot_claims(conn: sqlite3.Connection) -> None:
     ):
         return
     ensure_automation_scheduler_tables(conn)
+
+
+_PROACTIVE_DUTY_CLAIMS_DDL = """
+CREATE TABLE IF NOT EXISTS evoflow_proactive_duty_claims (
+    agent_code TEXT NOT NULL,
+    slot TEXT NOT NULL,
+    state TEXT NOT NULL DEFAULT 'claimed',
+    owner TEXT NOT NULL DEFAULT '',
+    round_id TEXT NOT NULL DEFAULT '',
+    attempts INTEGER NOT NULL DEFAULT 1,
+    claimed_at TEXT NOT NULL DEFAULT '',
+    claimed_at_ms INTEGER NOT NULL DEFAULT 0,
+    completed_at TEXT NOT NULL DEFAULT '',
+    updated_at TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY (agent_code, slot)
+);
+"""
+
+
+def ensure_proactive_duty_claims_table(conn: sqlite3.Connection) -> None:
+    """Create the cross-process duty-slot claim table if missing (idempotent)."""
+    try:
+        conn.executescript(_PROACTIVE_DUTY_CLAIMS_DDL)
+        conn.commit()
+    except sqlite3.DatabaseError:
+        logger.debug("schema: ensure proactive duty claims table failed", exc_info=True)
+
+
+def _ensure_proactive_duty_claims(conn: sqlite3.Connection) -> None:
+    """Idempotently ensure the duty-slot claim table exists (used by ensure_app_schema)."""
+    if _table_exists(conn, "evoflow_proactive_duty_claims"):
+        return
+    ensure_proactive_duty_claims_table(conn)
 
 
 def ensure_chat_messages_thread_index(conn: sqlite3.Connection) -> None:

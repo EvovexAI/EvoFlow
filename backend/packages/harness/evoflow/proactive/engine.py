@@ -32,6 +32,22 @@ from evoflow.timeutil import utc_now_iso_z
 
 logger = logging.getLogger(__name__)
 
+# A checkpoint write that lost the race against another gateway's writer.
+# The run's product (the transcript) is already persisted in
+# ``evoflow_chat_messages``, so this is a bookkeeping failure, not a lost run.
+_CHECKPOINT_STORAGE_ERROR_HINTS = (
+    "database is locked",
+    "database is busy",
+    "database table is locked",
+    "disk i/o error",
+)
+
+
+def _is_checkpoint_storage_error(message: str) -> bool:
+    """True when an error is a storage contention failure, not a run failure."""
+    low = str(message or "").lower()
+    return any(hint in low for hint in _CHECKPOINT_STORAGE_ERROR_HINTS)
+
 # Default model for think cycles; override via env.
 _DEFAULT_THINK_MODEL = os.getenv("EVOFLOW_PROACTIVE_MODEL", "")
 _DEFAULT_THINK_TEMPERATURE = 0.7
@@ -790,6 +806,12 @@ class ProactiveEngine:
                 )
 
                 err_code, detail = classify_run_exception(e)
+                if err_code == "run_error" and _is_checkpoint_storage_error(msg):
+                    # The run itself worked; only the *last* checkpoint write
+                    # lost the race against the other gateway's writer. The
+                    # transcript is already persisted in ``evoflow_chat_messages``,
+                    # so the caller can keep the round instead of discarding it.
+                    err_code = "checkpoint_write_failed"
                 logger.error(
                     "proactive.think: agent run failed role=%s round=%s err=%s: %s",
                     role.agent_code,

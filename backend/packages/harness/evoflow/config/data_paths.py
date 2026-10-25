@@ -141,6 +141,39 @@ def resolve_observability_db_config_path(raw: str | None, *, base_dir: Path | No
     return resolved
 
 
+def _checkpoints_isolation_suffix() -> str:
+    """Optional per-gateway suffix for the checkpoints DB file name.
+
+    Two EvoFlow gateways on one machine share ``~/.evoflow`` by default, so
+    they share one ``checkpoints.db`` — two writers on one SQLite file, which
+    is what produced ``database is locked`` (Task 2610241133_c9f4). Setting
+    ``EVOFLOW_CHECKPOINTS_ISOLATE=port`` gives each gateway its own file
+    (``checkpoints-gw8012.db``), removing the write contention at the cost of
+    two separate graph-state stores.
+
+    Value semantics: empty = shared (current behaviour); ``port`` = suffix by
+    gateway port; any other non-empty string = used verbatim as the suffix.
+    """
+    raw = (os.getenv("EVOFLOW_CHECKPOINTS_ISOLATE") or "").strip()
+    if not raw:
+        return ""
+    if raw.lower() in ("1", "true", "yes", "on", "port"):
+        port = (os.getenv("EVOFLOW_GATEWAY_PORT") or os.getenv("PORT") or "").strip()
+        if not port.isdigit():
+            import sys
+
+            argv = sys.argv[1:]
+            for i, a in enumerate(argv):
+                if a == "--port" and i + 1 < len(argv):
+                    port = argv[i + 1]
+                    break
+                if a.startswith("--port="):
+                    port = a.split("=", 1)[1]
+                    break
+        return f"-gw{port}" if port.isdigit() else f"-gw{os.getpid()}"
+    return f"-{raw}"
+
+
 def resolve_checkpoints_config_path(raw: str | None, *, base_dir: Path | None = None) -> Path:
     if raw == ":memory:" or (raw or "").startswith("file:"):
         return Path(str(raw))
@@ -155,3 +188,22 @@ def resolve_checkpoints_config_path(raw: str | None, *, base_dir: Path | None = 
         if canonical.exists() or not resolved.exists():
             return canonical
     return resolved
+
+
+def resolve_checkpoints_config_path_isolated(raw: str | None, *, base_dir: Path | None = None) -> Path:
+    """``resolve_checkpoints_config_path`` + optional per-gateway file isolation.
+
+    With ``EVOFLOW_CHECKPOINTS_ISOLATE=port`` each gateway gets its own
+    checkpoints file (``checkpoints-gw8012.db``), so two gateways on one machine
+    stop writing the same SQLite file — the direct cause of the
+    ``database is locked`` failures (Task 2610241133_c9f4).
+    """
+    resolved = resolve_checkpoints_config_path(raw, base_dir=base_dir)
+    suffix = _checkpoints_isolation_suffix()
+    if not suffix:
+        return resolved
+    if resolved.name.startswith("checkpoints"):
+        isolated = resolved.with_name(f"checkpoints{suffix}{resolved.suffix}")
+    else:
+        isolated = resolved.with_name(f"{resolved.stem}{suffix}{resolved.suffix}")
+    return isolated

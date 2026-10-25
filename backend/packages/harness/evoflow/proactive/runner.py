@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import socket
 from typing import Any
 
 from evoflow.proactive.decision_gate import DecisionGate
@@ -44,6 +45,15 @@ def _default_proactive_tick_seconds() -> int:
 
 DEFAULT_TICK_INTERVAL = _default_proactive_tick_seconds()  # seconds between heartbeat checks
 _MAX_CONCURRENT_THINK = 2  # max simultaneous think cycles
+
+
+def _duty_owner_id() -> str:
+    """Stable identity of this gateway process (host:pid) for duty slot claims."""
+    try:
+        host = socket.gethostname()
+    except Exception:
+        host = "unknown-host"
+    return f"{host}:{os.getpid()}"
 
 
 def _engine_pref_enabled_for_log() -> bool:
@@ -1013,6 +1023,29 @@ class ProactiveRunner:
                         exc_info=True,
                     )
                 continue
+            # Cross-process duty slot claim. Two gateways share evoflow.db but
+            # each run their own proactive loop, so both would dispatch the same
+            # role in the same cron slot (observed 2026-10-24 19:00: d81feec2 on
+            # 8013 and c64b252f on 8012 for one employee/slot). The claim row is
+            # the arbiter; the loser skips the round.
+            slot = str(role.next_heartbeat_at or "").strip()
+            claim = ProactiveRepository.claim_duty_slot(
+                code,
+                slot=slot,
+                owner=_duty_owner_id(),
+                round_id=f"round:{now}",
+                next_heartbeat_at=compute_next_duty_iso(role),
+                last_heartbeat_at=role.last_heartbeat_at or now,
+            )
+            if not claim.get("claimed"):
+                logger.info(
+                    "【值班跳过】原因=该槽位已被另一网关认领(跨进程去重) | 谁=%s(%s) | 槽位=%s | 认领方=%s",
+                    str(role.role_name or "").strip() or code,
+                    code,
+                    slot or "—",
+                    claim.get("owner") or claim.get("reason") or "unknown",
+                )
+                continue
             queued.append(role)
             task = asyncio.create_task(
                 self._process_role(
@@ -1020,6 +1053,7 @@ class ProactiveRunner:
                     scheduled=True,
                     trigger_reason=(f"定时心跳到期（next_heartbeat_at={role.next_heartbeat_at or '已到期'}）"),
                     trigger_source="scheduler.tick",
+                    duty_slot=slot,
                 )
             )
             task.add_done_callback(self._on_scheduled_role_done)
@@ -1580,6 +1614,7 @@ class ProactiveRunner:
         scheduled: bool = False,
         trigger_reason: str = "",
         trigger_source: str = "",
+        duty_slot: str = "",
     ) -> dict[str, Any]:
         """Think + act for a single role (within concurrency semaphore).
 
@@ -1963,6 +1998,11 @@ class ProactiveRunner:
             )
             raise
         finally:
+            if duty_slot:
+                try:
+                    ProactiveRepository.complete_duty_slot(code, slot=duty_slot, status="done")
+                except Exception:
+                    logger.debug("proactive.runner: complete duty slot failed code=%s", code, exc_info=True)
             await self._end_role(code, only_if_task=asyncio.current_task())
 
     async def _enforce_per_run_budget(self, role: ProactiveRole, result: Any) -> None:

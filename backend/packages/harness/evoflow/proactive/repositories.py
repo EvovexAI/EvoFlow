@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 import uuid
 from typing import Any
 
@@ -637,6 +638,139 @@ class ProactiveRepository:
         next_heartbeat_at: str | None,
     ) -> None:
         run_db_transaction(lambda db: ProactiveRepository.update_heartbeat_in_txn(db, agent_code, last_heartbeat_at=last_heartbeat_at, next_heartbeat_at=next_heartbeat_at))
+
+    # ── Cross-process duty slot claims ─────────────────────────
+    #
+    # Two gateways on one machine share ``evoflow.db`` but each run their own
+    # proactive loop, so both would dispatch the same role in the same cron slot
+    # (observed 2026-10-24 19:00: ``d81feec2`` on 8013 and ``c64b252f`` on 8012
+    # for the very same employee/slot). The claim row is the arbiter.
+
+    @staticmethod
+    def claim_duty_slot(
+        agent_code: str,
+        *,
+        slot: str,
+        owner: str,
+        round_id: str = "",
+        next_heartbeat_at: str = "",
+        last_heartbeat_at: str = "",
+    ) -> dict[str, Any]:
+        """Atomically claim one duty slot for a role (cross-process safe).
+
+        The claim row and the heartbeat push happen in **one** transaction, so
+        the loser of the race never sees the slot as due again. No stale
+        takeover: a duty round's side effect is "one extra patrol", far cheaper
+        than a duplicate push — so a claim that never completes simply
+        consumes that slot.
+
+        Returns ``{"claimed": bool, "reason": str, "owner": str}``.
+        """
+        code = str(agent_code or "").strip()
+        sl = str(slot or "").strip()
+        if not code or not sl:
+            return {"claimed": False, "reason": "empty", "owner": ""}
+
+        now_iso = utc_now_iso_z()
+        now_ms = int(time.time() * 1000)
+        own = str(owner or "").strip()
+
+        def _do(db: Any) -> dict[str, Any]:
+            cur = db.execute(
+                """
+                INSERT INTO evoflow_proactive_duty_claims (
+                    agent_code, slot, state, owner, round_id, attempts,
+                    claimed_at, claimed_at_ms, completed_at, updated_at
+                ) VALUES (?, ?, 'claimed', ?, ?, 1, ?, ?, '', ?)
+                ON CONFLICT(agent_code, slot) DO NOTHING
+                """,
+                (code, sl, own, str(round_id or ""), now_iso, now_ms, now_iso),
+            )
+            if int(cur.rowcount or 0) <= 0:
+                row = db.execute(
+                    "SELECT owner, state FROM evoflow_proactive_duty_claims "
+                    "WHERE agent_code = ? AND slot = ?",
+                    (code, sl),
+                ).fetchone()
+                return {
+                    "claimed": False,
+                    "reason": "duplicate",
+                    "owner": str(row["owner"] if row and row["owner"] else ""),
+                }
+
+            # Winner: push the next heartbeat out in the same transaction so the
+            # other gateway stops seeing this slot as due.
+            if next_heartbeat_at:
+                db.execute(
+                    "UPDATE evoflow_proactive_roles "
+                    "SET last_heartbeat_at = ?, next_heartbeat_at = ?, updated_at = ? "
+                    "WHERE agent_code = ?",
+                    (last_heartbeat_at or now_iso, next_heartbeat_at, now_iso, code),
+                )
+            # Only the newest slot per role stays 'claimed'; older ones are done.
+            db.execute(
+                "UPDATE evoflow_proactive_duty_claims "
+                "SET state = 'superseded', completed_at = ?, updated_at = ? "
+                "WHERE agent_code = ? AND slot <> ? AND state = 'claimed'",
+                (now_iso, now_iso, code, sl),
+            )
+            return {"claimed": True, "reason": "claimed", "owner": own}
+
+        try:
+            return run_db_transaction(_do)
+        except Exception:
+            # Fail closed: a dedupe failure must never cause a double dispatch.
+            logger.exception("proactive.claim_duty_slot failed agent_code=%s slot=%s", code, sl)
+            return {"claimed": False, "reason": "error", "owner": ""}
+
+    @staticmethod
+    def complete_duty_slot(
+        agent_code: str,
+        *,
+        slot: str,
+        status: str = "done",
+    ) -> None:
+        """Mark a claimed duty slot as finished."""
+        code = str(agent_code or "").strip()
+        sl = str(slot or "").strip()
+        if not code or not sl:
+            return
+        now_iso = utc_now_iso_z()
+
+        def _do(db: Any) -> None:
+            db.execute(
+                "UPDATE evoflow_proactive_duty_claims "
+                "SET state = ?, completed_at = ?, updated_at = ? "
+                "WHERE agent_code = ? AND slot = ?",
+                (status, now_iso, now_iso, code, sl),
+            )
+
+        try:
+            run_db_transaction(_do)
+        except Exception:
+            logger.debug("proactive.complete_duty_slot failed code=%s slot=%s", code, sl, exc_info=True)
+
+    @staticmethod
+    def list_duty_claims(agent_code: str = "", *, limit: int = 100) -> list[dict[str, Any]]:
+        """Recent duty slot claims (newest first) — for diagnostics."""
+        rows = (
+            get_db()
+            .execute(
+                "SELECT agent_code, slot, state, owner, round_id, attempts, "
+                "claimed_at, completed_at, updated_at FROM evoflow_proactive_duty_claims "
+                + ("WHERE agent_code = ? " if agent_code else "")
+                + "ORDER BY claimed_at_ms DESC LIMIT ?",
+                ((agent_code,) if agent_code else ()) + (int(limit),),
+            )
+            .fetchall()
+        )
+        out: list[dict[str, Any]] = []
+        for r in rows:
+            d = _row_dict(r)
+            out.append({k: d.get(k) for k in
+                        ("agent_code", "slot", "state", "owner", "round_id", "attempts",
+                         "claimed_at", "completed_at", "updated_at")})
+        return out
 
     # ── Initiatives ────────────────────────────────────────────
 

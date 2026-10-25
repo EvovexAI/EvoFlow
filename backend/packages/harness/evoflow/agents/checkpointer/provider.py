@@ -29,7 +29,6 @@ from langgraph.types import Checkpointer
 
 from evoflow.config.app_config import get_app_config
 from evoflow.config.checkpointer_config import CheckpointerConfig
-from evoflow.config.data_paths import resolve_checkpoints_config_path
 from evoflow.persistence.data_layout import ensure_data_layout
 
 logger = logging.getLogger(__name__)
@@ -69,11 +68,14 @@ def _resolve_sqlite_conn_str(raw: str) -> str:
 
     if raw == ":memory:" or raw.startswith("file:"):
         return raw
-    from evoflow.config.data_paths import resolve_data_base_dir
+    from evoflow.config.data_paths import (
+        resolve_checkpoints_config_path_isolated,
+        resolve_data_base_dir,
+    )
 
     base = resolve_data_base_dir()
     ensure_data_layout(base)
-    return str(resolve_checkpoints_config_path(raw, base_dir=base))
+    return str(resolve_checkpoints_config_path_isolated(raw, base_dir=base))
 
 
 def _create_sqlite_saver(config: CheckpointerConfig) -> Checkpointer:
