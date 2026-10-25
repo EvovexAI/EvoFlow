@@ -1,7 +1,17 @@
 /**
  * Workbench「正在处理」— runtime liveness rows (chat / employee / automation / workflow).
  * Orthogonal to Task Center lifecycle status.
+ *
+ * Only surfaces work that is actually live right now. Lifecycle「执行中」without a
+ * matching active session (or with a stale heartbeat) is excluded — those belong
+ * in Task Center as interrupted zombies, not on the home strip.
  */
+
+import {
+  STALE_IN_FLIGHT_MS,
+  buildActiveSessionIndex,
+  resolveTaskRuntimeHealth,
+} from '../../lib/task-runtime-health.js'
 
 export type HomeLiveKind = 'chat' | 'employee' | 'automation' | 'workflow'
 
@@ -51,9 +61,31 @@ function parseTime(raw: unknown): Date | null {
   return Number.isNaN(d.getTime()) ? null : d
 }
 
+function activityMsFromRaw(raw: unknown): number {
+  if (raw == null || raw === '') return 0
+  if (typeof raw === 'number' && Number.isFinite(raw)) {
+    return raw < 1e12 ? raw * 1000 : raw
+  }
+  const t = Date.parse(String(raw))
+  return Number.isFinite(t) ? t : 0
+}
+
+/** Heartbeat older than this → not 「正在处理」(aligns with Task Center interrupted). */
+export const HOME_LIVE_STALE_MS = STALE_IN_FLIGHT_MS
+
+function isFreshActivity(activityMs: number, nowMs: number): boolean {
+  // Missing timestamp: keep (mid-create / probe lag); age filter only when we have evidence.
+  if (activityMs <= 0) return true
+  // Epoch / nonsense clocks (UI would show 00:00 / 1970) → not live.
+  if (activityMs < 946684800000) return false // before 2000-01-01
+  return nowMs - activityMs < HOME_LIVE_STALE_MS
+}
+
 function formatShortTime(raw: unknown): string {
   const d = parseTime(raw)
   if (!d) return ''
+  const ms = d.getTime()
+  if (ms < 946684800000) return ''
   const now = new Date()
   const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate())
   if (d >= startToday) {
@@ -103,17 +135,28 @@ export type BuildHomeLiveInput = {
   taskTitle: (t: any) => string
   taskHref: (t: any) => string
   formatTaskSourceZh: (src: unknown) => string
+  /** Clock override for tests */
+  nowMs?: number
 }
 
 /**
  * Merge live signals into a deduped list for the home strip.
- * Prefer true runtime (sessions / busy) over lifecycle-only task rows.
+ * Prefer true runtime (fresh sessions / busy / live workflow join) over lifecycle-only rows.
  */
 export function buildHomeLiveItems(input: BuildHomeLiveInput): HomeLiveItem[] {
   const items: HomeLiveItem[] = []
   const seenSession = new Set<string>()
   const seenEmployee = new Set<string>()
   const seenTask = new Set<string>()
+  const nowMs = Number(input.nowMs) || Date.now()
+
+  const sessionRowsRaw = asArray(input.activeSessions)
+  // Index only fresh sessions so lifecycle「执行中」can't join a zombie run_status row.
+  const freshSessionRows = sessionRowsRaw.filter((row) => {
+    const activity = activityMsFromRaw(row?.updated_at || row?.updatedAt)
+    return isFreshActivity(activity, nowMs)
+  })
+  const sessionIndex = buildActiveSessionIndex(freshSessionRows)
 
   const autoNameById = new Map<string, string>()
   for (const a of input.automations || []) {
@@ -130,10 +173,12 @@ export function buildHomeLiveItems(input: BuildHomeLiveInput): HomeLiveItem[] {
     roleNameByCode.set(code, name)
   }
 
-  for (const row of asArray(input.activeSessions)) {
+  for (const row of freshSessionRows) {
     const sessionKey = String(row?.session_key || row?.sessionKey || '').trim()
     if (!sessionKey || seenSession.has(sessionKey)) continue
     seenSession.add(sessionKey)
+
+    const updatedRaw = row?.updated_at || row?.updatedAt
 
     const kind = classifySessionKey(sessionKey)
     const titleFromApi = String(row?.title || '').trim()
@@ -171,7 +216,7 @@ export function buildHomeLiveItems(input: BuildHomeLiveInput): HomeLiveItem[] {
       statusLabel: '在跑',
       href,
       sessionKey: openSession,
-      time: formatShortTime(row?.updated_at || row?.updatedAt),
+      time: formatShortTime(updatedRaw),
     })
   }
 
@@ -205,6 +250,11 @@ export function buildHomeLiveItems(input: BuildHomeLiveInput): HomeLiveItem[] {
     if (src !== 'workflow') continue
     const id = String(t?.id || t?.task_id || '').trim()
     if (!id || seenTask.has(id)) continue
+
+    // Lifecycle「执行中」alone is not enough — require a fresh active-session join.
+    const health = resolveTaskRuntimeHealth(t, sessionIndex, { nowMs })
+    if (health !== 'live') continue
+
     seenTask.add(id)
 
     const agent = String(t?.assigned_agent_name || t?.agent_name || t?.role_name || '').trim()

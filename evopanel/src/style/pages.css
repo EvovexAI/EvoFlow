@@ -17417,6 +17417,11 @@ html[data-custom-bg='1'] .task-detail-page .task-obs-panel {
   flex-wrap: wrap;
 }
 
+.tasks-page .tasks-upcoming .tasks-panel-foot {
+  justify-content: flex-start;
+  gap: 16px;
+}
+
 .tasks-page .tasks-list-pager {
   display: flex;
   align-items: center;

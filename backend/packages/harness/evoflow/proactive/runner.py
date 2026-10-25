@@ -943,8 +943,15 @@ class ProactiveRunner:
 
         now = utc_now_iso_z()
 
-        # 1. Find due roles
-        due_roles = ProactiveRepository.list_due_roles(now)
+        # 1. Find due roles — unless automation owns employee cron (default).
+        # When shadow emp:{code} rules fire via automation_runner, this loop must
+        # NOT also fire on next_heartbeat_at (that caused mid-interval / double runs).
+        from evoflow.proactive.employee_automation import employee_via_automation_enabled
+
+        if employee_via_automation_enabled():
+            due_roles: list[ProactiveRole] = []
+        else:
+            due_roles = ProactiveRepository.list_due_roles(now)
 
         overloaded, lag = self._gateway_dispatch_overloaded()
         if overloaded:
@@ -1567,6 +1574,26 @@ class ProactiveRunner:
         }
 
     # ── Per-role processing ───────────────────────────────────
+
+    async def run_scheduled_heartbeat(
+        self,
+        role: ProactiveRole,
+        *,
+        trigger_source: str = "automation.schedule",
+        trigger_reason: str = "",
+    ) -> dict[str, Any]:
+        """Public entry for automation_runner exact-slot employee fires.
+
+        Awaits the full duty cycle (unlike the internal tick's fire-and-forget)
+        so the automation run record can capture status / round_id.
+        """
+        reason = str(trigger_reason or "").strip() or "自动化准点触发（员工上班）"
+        return await self._process_role(
+            role,
+            scheduled=True,
+            trigger_source=str(trigger_source or "automation.schedule").strip() or "automation.schedule",
+            trigger_reason=reason,
+        )
 
     async def _process_role(
         self,

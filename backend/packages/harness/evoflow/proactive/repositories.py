@@ -115,7 +115,7 @@ def _row_to_role(row: dict[str, Any]) -> ProactiveRole:
         position_code=_sanitize_role_text(row.get("position_code")),
         department=_sanitize_role_text(row.get("department")),
         config=cfg,
-        heartbeat_rrule=str(row["heartbeat_rrule"] or "FREQ=HOURLY;INTERVAL=2"),
+        heartbeat_rrule=str(row["heartbeat_rrule"] or ""),
         heartbeat_schedule=str(row.get("heartbeat_schedule") or ""),
         status=str(row["status"] or "active"),
         last_heartbeat_at=str(row["last_heartbeat_at"]) if row["last_heartbeat_at"] else None,
@@ -272,6 +272,17 @@ class ProactiveRepository:
             ),
         )
         get_db().commit()
+        # Keep shadow evoflow_automations row in sync (schedule / pause / resume).
+        try:
+            from evoflow.proactive.employee_automation import upsert_employee_automation
+
+            upsert_employee_automation(role)
+        except Exception:
+            logger.debug(
+                "proactive.save_role: employee automation sync failed code=%s",
+                agent_code,
+                exc_info=True,
+            )
 
     @staticmethod
     def delete_role(agent_code: str) -> bool:
@@ -430,6 +441,16 @@ class ProactiveRepository:
                 "proactive.role.deleted code=%s (cascade clean done)",
                 code,
             )
+            try:
+                from evoflow.proactive.employee_automation import delete_employee_automation
+
+                delete_employee_automation(code)
+            except Exception:
+                logger.debug(
+                    "proactive.role.delete: employee automation cleanup failed code=%s",
+                    code,
+                    exc_info=True,
+                )
         return deleted
 
     @staticmethod

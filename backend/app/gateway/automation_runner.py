@@ -23,9 +23,14 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from evoflow.timeutil import BEIJING_TZ
+
 logger = logging.getLogger(__name__)
 
 DEFAULT_INTERVAL_SECONDS = 60
+# Wake this many seconds after each Beijing minute boundary so cron matches
+# the wall-clock slot (e.g. 10:00) instead of drifting to :17 / :43.
+_MINUTE_ALIGN_OFFSET_SECONDS = 2
 # Legacy TOML directory (optional one-time import when SQLite table is empty).
 AUTOMATIONS_DIR = Path(os.getenv("EVOFLOW_AUTOMATIONS_DIR", "")).expanduser() if os.getenv("EVOFLOW_AUTOMATIONS_DIR") else Path(os.getenv("EVOFLOW_HOME", str(Path.home() / ".evoflow"))) / "tasks" / "automations"
 
@@ -522,7 +527,7 @@ def _cron_field_matches_dow(js_dow: int, field: str) -> bool:
 def cron_matches_now(expr: str) -> bool:
     from evoflow.admin.automation_schedule import cron_matches_at
 
-    return cron_matches_at(expr)
+    return cron_matches_at(expr, _scheduler_now())
 
 
 def _effective_cron(task: dict[str, Any]) -> str | None:
@@ -583,8 +588,17 @@ def load_automation_toml(task_id: str) -> dict[str, Any] | None:
     return auto_repo.load_automation(task_id)
 
 
+def _scheduler_now() -> datetime:
+    """Naive Asia/Shanghai wall clock — SSOT for cron match + slot keys.
+
+    Using machine-local ``datetime.now()`` previously drifted vs employee
+    schedules stamped in Beijing and vs user expectation of 准点.
+    """
+    return datetime.now(BEIJING_TZ).replace(tzinfo=None)
+
+
 def _slot_key() -> str:
-    d = datetime.now()
+    d = _scheduler_now()
     return f"{d.year}-{d.month}-{d.day}_{d.hour}_{d.minute}"
 
 
@@ -593,7 +607,36 @@ def _slot_key_for(when: datetime) -> str:
 
     Used by catch-up to check whether a missed cron slot was already claimed.
     """
+    # Normalize aware datetimes into Beijing naive so keys stay consistent.
+    if when.tzinfo is not None:
+        when = when.astimezone(BEIJING_TZ).replace(tzinfo=None)
     return f"{when.year}-{when.month}-{when.day}_{when.hour}_{when.minute}"
+
+
+async def _wait_until_next_minute_tick(stop: asyncio.Event) -> bool:
+    """Sleep until next Beijing minute boundary + offset. False if stop set.
+
+    Aligns the scheduler so ticks land early in the matching minute (e.g.
+    10:00:02) rather than every 60s from an arbitrary start offset.
+    """
+    offset = _MINUTE_ALIGN_OFFSET_SECONDS
+    try:
+        offset = max(0, int(os.getenv("EVOFLOW_AUTOMATION_MINUTE_ALIGN_SECONDS", str(offset))))
+    except (TypeError, ValueError):
+        offset = _MINUTE_ALIGN_OFFSET_SECONDS
+    now = datetime.now(BEIJING_TZ)
+    next_min = now.replace(second=0, microsecond=0) + timedelta(minutes=1)
+    target = next_min + timedelta(seconds=offset)
+    delay = (target - datetime.now(BEIJING_TZ)).total_seconds()
+    if delay < 0.2:
+        delay = 0.2
+    # Cap so a stuck clock cannot sleep forever; still prefer align over fixed 60s.
+    delay = min(delay, 70.0)
+    try:
+        await asyncio.wait_for(stop.wait(), timeout=delay)
+        return False
+    except TimeoutError:
+        return True
 
 
 def _claim_slot_for_task(task_id: str, slot: str, *, trigger_type: str) -> dict[str, Any]:
@@ -633,7 +676,12 @@ def _complete_slot_for_task(task_id: str, slot: str, *, status: str = "done") ->
 # start. Tunables (env) so operators can widen/narrow the window.
 _CATCHUP_LOOKBACK_MINUTES = 1440  # 24h — how far back a missed run may be compensated
 _CATCHUP_MAX_RUNS_PER_TICK = 1  # newest missed slot first; backlog drains over ticks
-_CATCHUP_MIN_GAP_MINUTES = 3  # ignore slots closer than this to "now" (tick jitter)
+# Was 3 — that left a dead zone: wake at :01 after missing :00 with gap=1–2 →
+# no catch-up and the slot was lost forever. 1 lets near-miss recovery work.
+_CATCHUP_MIN_GAP_MINUTES = 1
+# Always scan the previous N minutes for missed exact cron slots (independent
+# of long-downtime catch-up). Covers minute-align jitter / brief lag.
+_NEAR_MISS_LOOKBACK_MINUTES = 2
 
 
 def _catchup_enabled() -> bool:
@@ -669,7 +717,7 @@ def _last_scheduler_tick_at() -> datetime | None:
     except ValueError:
         return None
     if dt.tzinfo:
-        dt = dt.astimezone().replace(tzinfo=None)
+        dt = dt.astimezone(BEIJING_TZ).replace(tzinfo=None)
     return dt
 
 
@@ -691,7 +739,7 @@ def _within_valid_window(task: dict[str, Any], when: datetime) -> bool:
         try:
             d = datetime.fromisoformat(vf.replace("Z", "+00:00"))
             if d.tzinfo:
-                d = d.astimezone().replace(tzinfo=None)
+                d = d.astimezone(BEIJING_TZ).replace(tzinfo=None)
             if when < d:
                 return False
         except ValueError:
@@ -700,7 +748,7 @@ def _within_valid_window(task: dict[str, Any], when: datetime) -> bool:
         try:
             d = datetime.fromisoformat(vu.replace("Z", "+00:00"))
             if d.tzinfo:
-                d = d.astimezone().replace(tzinfo=None)
+                d = d.astimezone(BEIJING_TZ).replace(tzinfo=None)
             if when > d:
                 return False
         except ValueError:
@@ -857,6 +905,72 @@ async def _run_catchup_missed_runs(
             fired.append(task_id)
             break  # one catch-up run per task per tick
 
+    return fired, reasons
+
+
+async def _run_near_miss_catchup(
+    active_pairs: list[tuple[str, dict[str, Any]]],
+    service: Any,
+    *,
+    now: datetime,
+) -> tuple[list[str], list[str]]:
+    """Fire cron slots from the previous 1–2 minutes that were missed.
+
+    Independent of long-downtime catch-up. Fixes the common case: tick woke at
+    10:01 after the 10:00 exact slot was skipped (align jitter / brief lag).
+    Still gated by slot claims — never double-fires.
+    """
+    fired: list[str] = []
+    reasons: list[str] = []
+    lookback = _NEAR_MISS_LOOKBACK_MINUTES
+    try:
+        lookback = max(0, int(os.getenv("EVOFLOW_AUTOMATION_NEAR_MISS_MINUTES", str(lookback))))
+    except (TypeError, ValueError):
+        lookback = _NEAR_MISS_LOOKBACK_MINUTES
+    if lookback <= 0:
+        return fired, reasons
+
+    floor = now.replace(second=0, microsecond=0) - timedelta(minutes=lookback)
+    for task_id, task in active_pairs:
+        if str(task.get("schedule_type") or "").lower() == "once":
+            continue
+        cron_expr = _effective_cron(task)
+        if not cron_expr:
+            continue
+        already = _recorded_run_slots(task_id, since=floor)
+        if already is None:
+            reasons.append(f"{task_id}:near_miss_history_unavailable")
+            continue
+        missed = _missed_cron_slots(cron_expr, since=floor, now=now, limit=1)
+        for when in missed:
+            if not _within_valid_window(task, when):
+                continue
+            slot = _slot_key_for(when)
+            if slot in already:
+                continue
+            claim = _claim_slot_for_task(task_id, slot, trigger_type="near_miss")
+            if not claim.get("claimed"):
+                reasons.append(
+                    f"{task_id}:near_miss_slot_taken slot={slot} reason={claim.get('reason') or 'duplicate'}"
+                )
+                continue
+            logger.info(
+                "automation_runner: near-miss firing task_id=%s name=%r slot=%s cron=%r",
+                task_id,
+                task.get("name", ""),
+                slot,
+                cron_expr,
+            )
+            try:
+                await _run_one_task(task_id, task, service, trigger_type="near_miss")
+            except Exception:
+                logger.exception("automation_runner: near-miss run failed task_id=%s slot=%s", task_id, slot)
+                _complete_slot_for_task(task_id, slot, status="failed")
+                reasons.append(f"{task_id}:near_miss_run_failed slot={slot}")
+                continue
+            _complete_slot_for_task(task_id, slot, status="done")
+            fired.append(task_id)
+            break
     return fired, reasons
 
 
@@ -1116,6 +1230,157 @@ def _run_bound_app_for_automation(
     }
 
 
+async def _run_employee_heartbeat(
+    task_id: str,
+    task: dict[str, Any],
+    *,
+    trigger_type: str = "schedule",
+) -> None:
+    """Dispatch a smart-employee patrol for a shadow ``emp:{code}`` automation.
+
+    Slot claim already held by the caller — this only runs the duty path and
+    appends ``evoflow_automation_runs``. Busy at the exact slot → record skip
+    and wait for the *next* cron point (no mid-interval retry).
+    """
+    from evoflow.proactive.employee_automation import (
+        agent_code_from_employee_task,
+        is_employee_automation,
+    )
+    from evoflow.proactive.repositories import ProactiveRepository
+    from evoflow.proactive.runner import get_proactive_runner
+    from evoflow.proactive.schedule import compute_next_duty_iso
+    from evoflow.persistence import automation_repositories as auto_repo
+    from evoflow.timeutil import utc_now_iso_z
+
+    if not is_employee_automation(task, task_id=task_id):
+        return
+
+    code = agent_code_from_employee_task(task_id, task)
+    record_started = _scheduler_now().isoformat(timespec="seconds")
+    run_t0 = time.monotonic()
+    run_id = secrets.token_hex(6)
+    lines: list[str] = []
+    err: str | None = None
+    status = "success"
+    extra: dict[str, Any] = {
+        "kind": "employee_heartbeat",
+        "agent_code": code,
+        "trigger_reason": f"自动化准点触发（{trigger_type}）",
+    }
+
+    if not code:
+        err = "missing agent_code"
+        status = "fail"
+        lines.append(f"employee: {err}")
+    else:
+        role = ProactiveRepository.get_role(code)
+        if role is None:
+            err = f"role not found: {code}"
+            status = "fail"
+            lines.append(f"employee: {err}")
+        else:
+            runner = get_proactive_runner()
+            if runner.is_role_busy(code):
+                status = "busy"
+                lines.append("employee: busy at exact slot — skip this slot, wait for next cron point")
+                extra["skip_reason"] = "role_busy"
+                extra["trigger_reason"] = "到点触发，但员工忙碌中（本轮未开跑）"
+                # Advance next_heartbeat for UI; do not leave due timestamp sticky.
+                try:
+                    next_hb = compute_next_duty_iso(role)
+                    ProactiveRepository.update_heartbeat(
+                        code,
+                        last_heartbeat_at=utc_now_iso_z(),
+                        next_heartbeat_at=next_hb,
+                    )
+                    extra["next_heartbeat_at"] = next_hb
+                except Exception:
+                    logger.debug(
+                        "automation_runner: employee busy reschedule failed code=%s",
+                        code,
+                        exc_info=True,
+                    )
+                try:
+                    from evoflow.proactive.runner import _record_duty_trigger
+
+                    _record_duty_trigger(
+                        role,
+                        trigger_source="automation.schedule",
+                        trigger_reason=extra["trigger_reason"],
+                        scheduled=True,
+                        status="busy",
+                        skip_reason="role_busy",
+                    )
+                except Exception:
+                    logger.debug("automation_runner: duty busy record failed", exc_info=True)
+            else:
+                try:
+                    result = await runner.run_scheduled_heartbeat(
+                        role,
+                        trigger_source="automation.schedule",
+                        trigger_reason=f"自动化准点触发（{trigger_type}）",
+                    )
+                    if not isinstance(result, dict):
+                        result = {}
+                    if result.get("skipped"):
+                        status = "skipped"
+                        extra["skip_reason"] = str(result.get("reason") or "skipped")
+                        lines.append(f"employee: skipped reason={extra['skip_reason']}")
+                    elif result.get("ok") is False:
+                        status = "fail"
+                        err = str(result.get("error") or result.get("reason") or "duty failed")
+                        lines.append(f"employee: fail ({err[:240]})")
+                    else:
+                        lines.append("employee: ok")
+                    for k in ("round_id", "duty_run_id", "session_key", "next_heartbeat_at"):
+                        if result.get(k) not in (None, ""):
+                            extra[k] = result.get(k)
+                    if result.get("msg_count") is not None:
+                        extra["msg_count"] = int(result.get("msg_count") or 0)
+                    if result.get("tool_count") is not None:
+                        extra["tool_count"] = int(result.get("tool_count") or 0)
+                except Exception as e:
+                    err = str(e)
+                    status = "fail"
+                    logger.exception("automation_runner: employee heartbeat failed task_id=%s", task_id)
+                    lines.append(f"employee: exception ({err[:240]})")
+
+    duration_seconds = max(0, int(round(time.monotonic() - run_t0)))
+    try:
+        rec: dict[str, Any] = {
+            "run_id": run_id,
+            "started_at": record_started,
+            "trigger_type": trigger_type,
+            "status": status,
+            "output": "\n".join(lines) or f"employee heartbeat {status}",
+            "error": err or "",
+            "duration_seconds": duration_seconds,
+            "execution_mode": "employee_heartbeat",
+            "langgraph_run": False,
+            **extra,
+        }
+        auto_repo.append_automation_run(task_id, rec)
+        # Mirror last_run on the shadow rule for /cron UI.
+        try:
+            fresh = dict(task)
+            fresh["last_run"] = record_started
+            fresh["last_status"] = status
+            fresh["run_count"] = int(fresh.get("run_count") or 0) + 1
+            auto_repo.save_automation(task_id, fresh)
+        except Exception:
+            logger.debug("automation_runner: employee last_run update failed", exc_info=True)
+    except Exception:
+        logger.debug("automation_runner: append employee history failed", exc_info=True)
+
+    logger.info(
+        "automation_runner: run end (employee) task_id=%s agent=%s status=%s err=%r",
+        task_id,
+        code,
+        status,
+        err or "",
+    )
+
+
 async def _run_one_task(
     task_id: str,
     task: dict[str, Any],
@@ -1131,7 +1396,14 @@ async def _run_one_task(
         if fresh.get("schedule_type") == "once" and fresh.get("once_fired"):
             return
 
-    record_started = datetime.now().isoformat()
+    # ── Smart-employee heartbeat (shadow emp:{code} rule) ──
+    from evoflow.proactive.employee_automation import is_employee_automation
+
+    if is_employee_automation(fresh, task_id=task_id):
+        await _run_employee_heartbeat(task_id, fresh, trigger_type=trigger_type)
+        return
+
+    record_started = _scheduler_now().isoformat(timespec="seconds")
     run_t0 = time.monotonic()
     lines: list[str] = []
     err: str | None = None
@@ -1557,9 +1829,22 @@ async def automation_tick() -> None:
     global _last_tick_info
     from app.channels.service import get_channel_service
 
+    # Keep employee shadow rules in sync before due checks (schedule/status).
+    try:
+        from evoflow.proactive.employee_automation import (
+            employee_via_automation_enabled,
+            sync_all_employee_automations,
+        )
+
+        if employee_via_automation_enabled():
+            sync_stats = await asyncio.to_thread(sync_all_employee_automations)
+            logger.debug("automation_tick: employee shadow sync %s", sync_stats)
+    except Exception:
+        logger.debug("automation_tick: employee shadow sync failed", exc_info=True)
+
     slot = _slot_key()
-    tick_iso = datetime.now().isoformat(timespec="seconds")
-    now = datetime.now()
+    now = _scheduler_now()
+    tick_iso = now.isoformat(timespec="seconds")
     all_loaded = await asyncio.to_thread(_load_automation_tomls)
     loaded_ids = [tid for tid, _ in all_loaded]
     active_pairs = [(tid, t) for tid, t in all_loaded if str(t.get("status") or "").lower() == "active"]
@@ -1621,13 +1906,13 @@ async def automation_tick() -> None:
         vf = str(task.get("valid_from") or "").strip()
         vu = str(task.get("valid_until") or "").strip()
         if vf or vu:
-            _now = datetime.now()
+            _now = now
             _skip_valid = False
             if vf:
                 try:
                     _vf = datetime.fromisoformat(vf.replace("Z", "+00:00"))
                     if _vf.tzinfo:
-                        _vf = _vf.astimezone().replace(tzinfo=None)
+                        _vf = _vf.astimezone(BEIJING_TZ).replace(tzinfo=None)
                     if _now < _vf:
                         skipped_reasons.append(f"{task_id}:before_valid_from")
                         _skip_valid = True
@@ -1637,7 +1922,7 @@ async def automation_tick() -> None:
                 try:
                     _vu = datetime.fromisoformat(vu.replace("Z", "+00:00"))
                     if _vu.tzinfo:
-                        _vu = _vu.astimezone().replace(tzinfo=None)
+                        _vu = _vu.astimezone(BEIJING_TZ).replace(tzinfo=None)
                     if _now > _vu:
                         skipped_reasons.append(f"{task_id}:after_valid_until")
                         _skip_valid = True
@@ -1652,8 +1937,8 @@ async def automation_tick() -> None:
             try:
                 t = datetime.fromisoformat(str(task["scheduled_at"]).replace("Z", "+00:00"))
                 if t.tzinfo:
-                    t = t.astimezone().replace(tzinfo=None)
-                should = abs((datetime.now() - t).total_seconds()) < 120
+                    t = t.astimezone(BEIJING_TZ).replace(tzinfo=None)
+                should = abs((now - t).total_seconds()) < 120
             except Exception:
                 should = False
             if not should:
@@ -1733,6 +2018,26 @@ async def automation_tick() -> None:
         fired_ids.append(task_id)
         logger.info("automation_runner: fired done task_id=%s name=%r", task_id, task.get("name", ""))
 
+    # Near-miss: previous 1–2 minutes' exact cron slots (align / brief lag).
+    near_miss_fired: list[str] = []
+    near_miss_reasons: list[str] = []
+    if active_pairs:
+        try:
+            near_miss_fired, near_miss_reasons = await _run_near_miss_catchup(
+                active_pairs, service, now=now
+            )
+        except Exception:
+            logger.exception("automation_tick: near-miss check failed")
+            near_miss_reasons = ["near_miss:error"]
+        if near_miss_fired:
+            fired_ids.extend(near_miss_fired)
+            logger.info(
+                "automation_runner: near-miss compensated %d run(s): %s",
+                len(near_miss_fired),
+                ", ".join(near_miss_fired),
+            )
+    skipped_reasons.extend(near_miss_reasons)
+
     # D3: compensate runs missed while the Gateway was down. The gap is
     # measured against the persisted last-tick stamp, so closing the desktop
     # app no longer silently drops scheduled runs.
@@ -1763,7 +2068,9 @@ async def automation_tick() -> None:
         "skipped_reasons_sample": skipped_reasons[:12],
         "skipped_reasons_total": len(skipped_reasons),
         "catchup_fired_task_ids": catchup_fired,
+        "near_miss_fired_task_ids": near_miss_fired,
         "schedule_conflicts": schedule_conflicts,
+        "clock": "Asia/Shanghai",
     }
     # Persist the tick stamp so the next process start can detect the gap.
     _record_scheduler_tick(now)
@@ -1795,22 +2102,30 @@ async def automation_tick() -> None:
             tail,
         )
     if active_pairs and not fired_ids and channel_ok:
-        logger.debug("automation_tick: no task fired this minute — cron matches local machine clock; check expr vs now, dedupe_same_minute, or once window. Full skipped list above; also last_tick in GET /api/automation/scheduler/status")
+        logger.debug(
+            "automation_tick: no task fired this minute — cron matches Asia/Shanghai wall clock; "
+            "check expr vs now, dedupe_same_minute, or once window. Full skipped list above; "
+            "also last_tick in GET /api/automation/scheduler/status"
+        )
     elif active_pairs and not fired_ids and not channel_ok:
         logger.warning("automation_tick: no task fired — channel service down; fix IM channel startup/config then restart Gateway (see channel snapshot log lines above)")
 
 
 async def run_automation_scheduler(stop: asyncio.Event) -> None:
     global _scheduler_loop_running
+    # Legacy fixed interval still honored when minute-align is disabled.
+    align = os.getenv("EVOFLOW_AUTOMATION_MINUTE_ALIGN", "").strip().lower()
+    use_minute_align = align not in ("0", "false", "no", "off", "disabled")
     interval = max(5, int(os.getenv("EVOFLOW_AUTOMATION_TICK_SECONDS", str(DEFAULT_INTERVAL_SECONDS))))
-    _env_dir = os.getenv("EVOFLOW_AUTOMATIONS_DIR", "").strip()
     _scheduler_loop_running = True
     logger.info(
-        "automation_runner: loop started storage=sqlite tick_interval_s=%s env EVOFLOW_AUTOMATION_TICK_SECONDS=%r diagnostics=GET /api/automation/scheduler/status",
+        "automation_runner: loop started storage=sqlite minute_align=%s tick_interval_s=%s "
+        "clock=Asia/Shanghai diagnostics=GET /api/automation/scheduler/status",
+        use_minute_align,
         interval,
-        os.getenv("EVOFLOW_AUTOMATION_TICK_SECONDS", ""),
     )
     try:
+        # Immediate first tick so startup does not wait a full minute.
         while not stop.is_set():
             from evoflow.observability.poll_loop_log import log_poll_tick
 
@@ -1818,11 +2133,18 @@ async def run_automation_scheduler(stop: asyncio.Event) -> None:
             try:
                 await automation_tick()
             except Exception:
-                logger.exception("automation_runner: tick failed (next tick after interval sleep)")
-            try:
-                await asyncio.wait_for(stop.wait(), timeout=interval)
-            except TimeoutError:
-                pass
+                logger.exception("automation_runner: tick failed (next tick after align/interval sleep)")
+            if stop.is_set():
+                break
+            if use_minute_align:
+                cont = await _wait_until_next_minute_tick(stop)
+                if not cont:
+                    break
+            else:
+                try:
+                    await asyncio.wait_for(stop.wait(), timeout=interval)
+                except TimeoutError:
+                    pass
     finally:
         _scheduler_loop_running = False
         reason = "stop_event" if stop.is_set() else "loop_exit"

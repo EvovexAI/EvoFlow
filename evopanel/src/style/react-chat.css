@@ -22769,8 +22769,39 @@ html[data-custom-bg='1'] .react-chat-main-col--home {
 }
 
 .evo-home-list--live {
-  max-height: 280px;
+  max-height: 200px;
   overflow: auto;
+  gap: 0;
+}
+
+.evo-home-list--live .evo-home-list__item {
+  padding: 4px 6px;
+  gap: 8px;
+  border-radius: 8px;
+  min-height: 0;
+}
+
+.evo-home-list--live .evo-home-list__title {
+  font-size: 12.5px;
+  font-weight: 500;
+  line-height: 1.25;
+}
+
+.evo-home-list--live .evo-home-list__meta {
+  margin-top: 0;
+  font-size: 11px;
+  line-height: 1.2;
+}
+
+.evo-home-list--live .evo-home-list__time {
+  width: 36px;
+  font-size: 11px;
+}
+
+.evo-home-list--live .evo-home-badge {
+  padding: 1px 6px;
+  font-size: 11px;
+  border-radius: 999px;
 }
 
 .evo-home-live__item .evo-home-list__icon {
@@ -22781,11 +22812,16 @@ html[data-custom-bg='1'] .react-chat-main-col--home {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
-  border-radius: 10px;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
   background: color-mix(in srgb, var(--accent, #5b5fef) 12%, transparent);
   color: var(--accent, #5b5fef);
+}
+
+.evo-home-live__icon .evo-home-ic {
+  width: 12px;
+  height: 12px;
 }
 
 .evo-home-live__icon--employee {
@@ -22804,7 +22840,7 @@ html[data-custom-bg='1'] .react-chat-main-col--home {
 }
 
 .evo-home-empty--live {
-  padding: 18px 8px;
+  padding: 10px 8px;
   text-align: center;
   color: var(--text-secondary);
   font-size: var(--ef-text-sm);

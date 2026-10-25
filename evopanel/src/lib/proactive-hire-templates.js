@@ -26,7 +26,7 @@ export const HIRE_TEMPLATES = [
       '下班前写简短工作汇报：扫了哪、发现什么、建议人处理什么',
     ],
     autonomy_level: 'approval_for_all',
-    heartbeat_schedule: '0 9-19/2 * * *',
+    heartbeat_schedule: '0 9,15 * * *',
   },
   {
     id: 'ops-oncall',

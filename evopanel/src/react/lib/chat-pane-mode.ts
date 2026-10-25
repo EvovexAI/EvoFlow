@@ -1,13 +1,12 @@
 /**
  * 主对话「用哪套面板 / 是否算空草稿」的判定。
  *
- * 产品约束：V4 开启时**对话区不回落老面板**（含发送乐观气泡、store failed）。
+ * 产品约束：对话区**永不**回落旧 AG-UI 面板（ToolCallList / ChatMessageStreamPane 对话流）。
  * 打开有历史的会话就留在 V4，等首帧 hydration；connecting 用加载态，
  * 绝不能判成居中草稿。
  *
- * 老面板仅保留：
- * - 显式关闭 V4（?chatV4=0 / localStorage）
- * - 工作台首页（EvoFlowHomeDashboard，不是对话流）
+ * `useLegacyPane` 仅剩工作台首页（EvoFlowHomeDashboard 壳，不是对话流）。
+ * `?chatV4=0` 已退役，不再切回旧对话显示。
  *
  * 背景（真实缺陷）：旧实现把「当前 V4 窗口没有行」直接当成空会话，于是
  * connecting 期间 draftEmpty=true → 输入框+问候语居中，有历史的会话被误呈现成新对话。
@@ -34,7 +33,10 @@ export interface ChatPaneModeInput {
 }
 
 export interface ChatPaneMode {
-  /** true = 老面板；false = V4 ConversationTimeline。 */
+  /**
+   * true = 仅工作台首页壳（ChatMessageStreamPane + HomeDashboard）。
+   * 对话会话永远 false → V4 ConversationTimeline。
+   */
   useLegacyPane: boolean
   /** true = 可显示居中问候语的真正空草稿。 */
   draftEmpty: boolean
@@ -50,8 +52,9 @@ export function resolveChatPaneMode(input: ChatPaneModeInput): ChatPaneMode {
     localOptimisticHold,
   } = input
 
-  // V4 开启时对话永不回落。仅 kill-switch / 工作台首页走老面板壳。
-  const useLegacyPane = v4Phase === 'disabled' || isHomeSurface
+  // 对话永不回落旧 ToolCallList 面板；homepage 仍用旧壳挂工作台。
+  // v4Phase === 'disabled' 也不再切老对话（开关已退役）。
+  const useLegacyPane = isHomeSurface
 
   // 只有「确认无本地行 + 历史已加载完 + V4 已给出结论（ready/no-thread）」才是真草稿。
   // connecting / historyLoading / failed / 乐观发送中 一律不算。
@@ -60,7 +63,7 @@ export function resolveChatPaneMode(input: ChatPaneModeInput): ChatPaneMode {
     !localHasRows &&
     !historyLoading &&
     !v4HasRows &&
-    (v4Phase === 'ready' || v4Phase === 'no-thread')
+    (v4Phase === 'ready' || v4Phase === 'no-thread' || v4Phase === 'disabled')
 
   return { useLegacyPane, draftEmpty }
 }

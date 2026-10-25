@@ -16,12 +16,12 @@ from evoflow.admin.automation_schedule import (
 from evoflow.proactive.models import ProactiveRole, ProactiveRoleConfig
 from evoflow.timeutil import BEIJING_TZ
 
-# Default: every 2 hours during 09:00–19:59 (legacy HOURLY/2 + 9–20 window).
-DEFAULT_HEARTBEAT_CRON = "0 9-19/2 * * *"
+# Default: twice a day (09:00 & 15:00). Every-2h was too frequent for new hires.
+DEFAULT_HEARTBEAT_CRON = "0 9,15 * * *"
 
 # Common legacy → cron examples (with default work window 09–20):
 #   FREQ=HOURLY;INTERVAL=1  →  0 9-19 * * *
-#   FREQ=HOURLY;INTERVAL=2  →  0 9-19/2 * * *
+#   FREQ=HOURLY;INTERVAL=2  →  0 9-19/2 * * *  (legacy; new default is twice daily)
 #   FREQ=MINUTELY;INTERVAL=30 → */30 9-19 * * *
 # Without work window: INTERVAL=1 → 0 * * * * ; INTERVAL=2 → 0 */2 * * *
 
@@ -123,7 +123,9 @@ def resolve_role_cron(role: ProactiveRole) -> str:
     rrule = str(role.heartbeat_rrule or "").strip()
     if is_five_field_cron_or_keyword(rrule):
         return rrule
-    return legacy_rrule_to_cron(rrule, role.config)
+    if looks_like_legacy_rrule(rrule):
+        return legacy_rrule_to_cron(rrule, role.config)
+    return DEFAULT_HEARTBEAT_CRON
 
 
 def sync_role_schedule_fields(role: ProactiveRole, cron_expr: str) -> None:

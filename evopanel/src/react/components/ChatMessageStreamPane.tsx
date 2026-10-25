@@ -76,6 +76,9 @@ export type ChatMessageStreamPaneProps = {
 }
 
 /**
+ * 【LEGACY 壳】主对话已改走 V4ZCodeTimeline；本组件仅工作台首页（HomeDashboard）。
+ * 会话消息列表请勿再往这里加渲染逻辑。
+ *
  * useStreamChromeTick 订阅 session-runtime 通知（writeProgress / subagentTasks / 计数等），
  * 用于驱动流式气泡外壳（计时、活动标签等）的更新。
  *

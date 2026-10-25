@@ -1384,7 +1384,7 @@ export function EvoFlowHomeDashboard({ onPrompt, workspaceLabel = '', workspaceP
           >
             {(data.liveNow || []).length > 0 ? (
               <div className="evo-home-list evo-home-list--live">
-                {(data.liveNow || []).slice(0, Math.max(prefs.listLimit, 8)).map((item) => {
+                {(data.liveNow || []).slice(0, Math.min(Math.max(prefs.listLimit, 6), 10)).map((item) => {
                   const Icon = LIVE_KIND_ICON[item.kind] || PlayCircle
                   return (
                     <button
@@ -1410,7 +1410,7 @@ export function EvoFlowHomeDashboard({ onPrompt, workspaceLabel = '', workspaceP
               </div>
             ) : (
               <div className="evo-home-empty evo-home-empty--live">
-                {data.loading ? '加载中…' : '当前没有进行中的执行'}
+                {data.loading ? '加载中…' : '当前没有真正在跑的任务'}
               </div>
             )}
           </SectionCard>

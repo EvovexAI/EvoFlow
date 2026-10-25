@@ -1,5 +1,6 @@
 /**
- * 智能体员工「工作过程」：挂载与主对话工作流/子任务同款历史面板（modal 或侧栏 drawer）。
+ * 智能体员工「工作过程」：仅 modal / drawer（员工页弹窗）。
+ * 右栏 employeeProcess 禁止走这里 —— 用 V4EmployeeProcessPane。
  */
 import { createElement } from 'react'
 import { createRoot } from 'react-dom/client'

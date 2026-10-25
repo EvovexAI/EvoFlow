@@ -19,8 +19,8 @@ import { openRightStageForCodeViewerSource } from '../../lib/right-stage/open-ri
 import { normalizeRightStageKind, type RightStageSurface } from '../../lib/right-stage/right-stage-types.js'
 import { useCollabSubtasksFromApi } from '../hooks/useCollabSubtasksFromApi.js'
 import { V4CollabSubtaskTranscriptPane } from '../chat-app/right-stage/v4-collab-subtask-transcript-pane.js'
+import { V4EmployeeProcessPane } from '../chat-app/right-stage/v4-employee-process-pane.js'
 import { V4PreviewPane } from '../chat-app/right-stage/v4-preview-pane.js'
-import { ProactiveLiveProcessHost } from './ProactiveLiveProcessHost.js'
 import type { CodeViewerSource } from '@zcode/ui/lib/codeViewer.js'
 import type { AgentInfo } from '../chat-types.js'
 
@@ -130,20 +130,19 @@ export function TaskDetailRightStageHost({
           />
         )
       }
+      // 【V4 权威】禁止 ProactiveLiveProcessHost mode=panel
       if (kind === 'employeeProcess') {
         const agentCode = String(data.agentCode || '').trim()
         if (!agentCode) return <SidePanelBootShell title="执行过程" />
         return (
-          <ProactiveLiveProcessHost
-            open
-            mode="panel"
+          <V4EmployeeProcessPane
             agentCode={agentCode}
             roleName={String(data.roleName || '').trim()}
             busy={!!data.busy}
             title={String(surface.title || data.title || '执行过程')}
             roundId={String(data.roundId || '').trim()}
             taskId={String(data.taskId || tid).trim()}
-            pollMs={data.busy ? 1000 : 4000}
+            sessionKey={stageSk}
             onClose={() => rightStageStore.closeTab(tabKeyOf(surface))}
           />
         )

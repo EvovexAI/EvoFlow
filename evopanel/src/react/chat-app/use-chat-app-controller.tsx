@@ -497,7 +497,6 @@ import {
 import {
   handleNewSession as handleNewSessionImpl,
   handleNewSessionInWorkspace as handleNewSessionInWorkspaceImpl,
-  handleOpenHome as handleOpenHomeImpl,
   pruneDeletedSessionCaches,
 } from './session/new-session-actions.js'
 import { reloadHistoryFromDb as reloadHistoryFromDbImpl } from './session/reload-history-from-db.js'
@@ -951,6 +950,8 @@ export function useChatAppController() {
     (sessionKey: string, updater: (prev: ThreadPanelState) => ThreadPanelState) => void
   >(() => {})
   const pendingNewSessionRef = useRef(false)
+  /** 与 preferHomeDashboard 同步；列表 refresh 时禁止空选中被 first-selectable 抢走 */
+  const preferHomeDashboardRef = useRef(false)
   const hydrateContextUsageFromSessionsRef = useRef<(rows: ChatSessionRow[]) => void>(() => {})
   const [sessionNamesTick, setSessionNamesTick] = useState(0)
   const {
@@ -981,6 +982,7 @@ export function useChatAppController() {
     selectedSessionKey,
     sessionRef,
     pendingNewSessionRef,
+    preferHomeDashboardRef,
     setSelectedSessionKey,
     hydrateContextUsageFromSessionsRef,
     sessionNamesTick,
@@ -1162,8 +1164,12 @@ export function useChatAppController() {
   /**
    * 显式打开工作台仪表盘（侧栏「工作台」/ shell-open-home）。
    * V4 下「新对话」空草稿不再自动进首页；只有 preferHomeDashboard 才挂 EvoFlowHomeDashboard。
+   * 点工作台只切首页、不 createSession；发消息时才 ensureChatSessionKey。
    */
   const [preferHomeDashboard, setPreferHomeDashboard] = useState(false)
+  useLayoutEffect(() => {
+    preferHomeDashboardRef.current = preferHomeDashboard
+  }, [preferHomeDashboard])
   useLayoutEffect(() => {
     rowsRef.current = rows
   }, [rows])
@@ -5714,27 +5720,59 @@ export function useChatAppController() {
     })
   }
 
-  /** 侧栏「工作台」：已在仪表盘则滚顶；否则新开空会话并挂 EvoFlowHomeDashboard */
+  /** 侧栏「工作台」：跳转仪表盘首页；不新建会话（发消息时才 ensureChatSessionKey） */
   function handleOpenHome() {
     // 必须在清行之前判断「是否已在工作台」——清行后再 shouldStay 会把带消息的会话误判成空首页并 return。
     const alreadyOnHome =
       preferHomeDashboard &&
+      !String(selectedSessionKey || sessionRef.current || '').trim() &&
       !sessionHadContent &&
       Array.isArray(rowsRef.current) &&
       rowsRef.current.length === 0 &&
       !selectedTurnBusy
-    // 同帧拉起 home：清掉当前行，避免 prefer=true 时仍带着旧 messages → isHomeSurface 算不成。
-    flushSync(() => {
-      setPreferHomeDashboard(true)
-      setSessionHadContent(false)
-      setRows([])
-      rowsRef.current = []
-    })
     if (alreadyOnHome) {
       scrollHomeMessagesToTop()
       return
     }
-    startNewSessionWithWorkspace(resolveWorkspaceForNewSession())
+
+    const oldSk = String(selectedSessionKey || sessionRef.current || '').trim()
+    if (oldSk) {
+      const prevRt = getSessionRuntime(oldSk)
+      commitActiveSessionRuntime(oldSk, {
+        rows: rowsRef.current,
+        stream:
+          streamRef.current === prevRt.stream ||
+          String(sessionRef.current || '').trim() === oldSk
+            ? streamRef.current
+            : prevRt.stream,
+        seenRunIds: seenRunIdsRef.current,
+        activeChatRunId: activeChatRunIdRef.current,
+      })
+    }
+
+    // 同帧拉起 home：清空选中 + 行，V4 要求无 sessionKey 才挂 EvoFlowHomeDashboard。
+    // 同步写 ref，避免 refresh 抢在 layout effect 前把 first-selectable 填回来。
+    preferHomeDashboardRef.current = true
+    sessionRef.current = ''
+    flushSync(() => {
+      setPreferHomeDashboard(true)
+      setSessionHadContent(false)
+      setSelectedSessionKey('')
+      setNewChatButtonActive(true)
+      setRows([])
+      rowsRef.current = []
+    })
+    resetChatSurfaceForNewDraft()
+    queueMicrotask(() => {
+      try {
+        const el = document.querySelector(
+          '.evo-home-composer__input, .react-chat-composer-input, textarea.react-chat-input',
+        ) as HTMLTextAreaElement | HTMLInputElement | null
+        el?.focus?.()
+      } catch {
+        /* ignore */
+      }
+    })
   }
 
   function handleNewSessionInWorkspace(workspacePath: string | null) {

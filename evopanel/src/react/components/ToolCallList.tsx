@@ -38,10 +38,15 @@ import {
   isGoalProposalToolName,
 } from '../../lib/chat-normalize.js'
 /**
- * LEGACY / 旧版工具卡列表 —— 不是默认产品聊天渲染面。
- * 用户默认看见的是 V4：`zcode-ui/v4/ConversationTurnGroup` + ToolCallBlocks。
- * 仅当 ?chatV4=0 或旧壳仍挂载本组件时，改这里才影响可见对话。
- * 电脑控制（CUA）可见问题：V4 走 gateway v4 display.kind=cua；旧壳才用下面两个组件。
+ * 【LEGACY · 主对话已停用 · 勿改可见聊天】
+ *
+ * 用户看见的主对话 / 工具卡 = V4：
+ *   `zcode-ui/v4/ConversationTurnGroup` + ToolCallBlocks / resolveRenderer
+ * `?chatV4=0` 已退役，本组件不再作为主对话渲染面。
+ *
+ * 仍可能被工作台首页壳、ExploringActivityChunk 等旁路引用；
+ * **改对话里长什么样 → 改 zcode-ui/v4/**，不要改本文件。**
+ * 电脑控制（CUA）：V4 走 gateway display.kind=cua + zcode-ui renderers/cua。
  */
 import { CuaToolPreview } from './CuaToolPreview.js'
 import { CuaSummaryLeadingIcon } from './CuaSummaryLeadingIcon.js'

@@ -96,8 +96,8 @@ describe('resolveChatPaneMode — V4 开启时对话不回落老面板', () => {
     expect(mode.draftEmpty).toBe(false)
   })
 
-  it('仅开关关闭 / 工作台首页走老面板', () => {
-    expect(resolveChatPaneMode({ ...base, v4Phase: 'disabled' }).useLegacyPane).toBe(true)
+  it('工作台首页走旧壳；v4Phase=disabled 也不再回落主对话老面板', () => {
+    expect(resolveChatPaneMode({ ...base, v4Phase: 'disabled' }).useLegacyPane).toBe(false)
     expect(resolveChatPaneMode({ ...base, isHomeSurface: true }).useLegacyPane).toBe(true)
   })
 

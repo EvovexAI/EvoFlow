@@ -381,6 +381,7 @@ export async function render() {
         </header>
         <div class="tasks-panel-body" id="tasks-upcoming-list"></div>
         <footer class="tasks-panel-foot">
+          <button type="button" class="tasks-panel-link" id="btn-upcoming-view-more" hidden>查看更多</button>
           <button type="button" class="tasks-panel-link" id="btn-upcoming-open-cron">打开自动化 ›</button>
         </footer>
       </section>
@@ -444,6 +445,7 @@ export async function render() {
     unattendedMode: readStoredUnattendedMode(),
     showPatrol: readStoredShowPatrol(),
     attentionExpanded: false, // 「需要你处理」是否展开全部
+    upcomingExpanded: false, // 「即将运行的自动化」是否展开全部
     upcomingAutomations: [], // 启用中的自动化（下次预计运行）
     expandedTaskIds: new Set(), // 协作树：展开的父任务 id
     priorityFilter: null, // P0|P1|P2|P3
@@ -633,6 +635,11 @@ export async function render() {
     const search = page.querySelector('#tasks-search')
     if (search) search.value = ''
     commitTaskFilters(page, state, { scrollList: true })
+  })
+
+  page.querySelector('#btn-upcoming-view-more')?.addEventListener('click', () => {
+    state.upcomingExpanded = !state.upcomingExpanded
+    renderUpcomingAutomations(page, state)
   })
 
   page.querySelector('#btn-upcoming-open-cron')?.addEventListener('click', () => {
@@ -1446,6 +1453,8 @@ function updatePageView(page, state) {
 }
 
 const ATTENTION_PREVIEW_LIMIT = 3
+/** 「即将运行的自动化」默认预览条数；其余点「查看更多」展开 */
+const UPCOMING_PREVIEW_LIMIT = 3
 
 /** 今日摘要用根单：不受列表状态/来源筛选影响，避免与顶部提示冲突 */
 function getTodayAttentionRoots(state) {
@@ -1657,7 +1666,7 @@ async function loadUpcomingAutomations(page, state) {
       }))
       .filter((a) => Number.isFinite(a._nextTs))
       .sort((a, b) => a._nextTs - b._nextTs)
-      .slice(0, 8)
+      .slice(0, 24)
     state.upcomingAutomations = upcoming
   } catch (_) {
     state.upcomingAutomations = []
@@ -1669,16 +1678,31 @@ function renderUpcomingAutomations(page, state) {
   const wrap = page.querySelector('#tasks-upcoming')
   const listEl = page.querySelector('#tasks-upcoming-list')
   const countEl = page.querySelector('#tasks-upcoming-count')
+  const moreBtn = page.querySelector('#btn-upcoming-view-more')
   if (!wrap || !listEl) return
-  const rows = Array.isArray(state.upcomingAutomations) ? state.upcomingAutomations : []
-  if (!rows.length) {
+  const allRows = Array.isArray(state.upcomingAutomations) ? state.upcomingAutomations : []
+  if (!allRows.length) {
     wrap.hidden = true
     listEl.innerHTML = ''
     if (countEl) countEl.textContent = ''
+    if (moreBtn) moreBtn.hidden = true
     return
   }
   wrap.hidden = false
-  if (countEl) countEl.textContent = `${rows.length} 条`
+  const total = allRows.length
+  const rows = state.upcomingExpanded ? allRows : allRows.slice(0, UPCOMING_PREVIEW_LIMIT)
+  if (countEl) {
+    countEl.textContent =
+      total > UPCOMING_PREVIEW_LIMIT && !state.upcomingExpanded
+        ? `显示 ${rows.length}/${total}`
+        : `${total} 条`
+  }
+  if (moreBtn) {
+    moreBtn.hidden = total <= UPCOMING_PREVIEW_LIMIT && !state.upcomingExpanded
+    moreBtn.textContent = state.upcomingExpanded
+      ? '收起'
+      : `查看更多 (${total - UPCOMING_PREVIEW_LIMIT})`
+  }
   listEl.innerHTML = `
     <div class="tl-table-scroll">
       <table class="tl-table tl-table--upcoming">

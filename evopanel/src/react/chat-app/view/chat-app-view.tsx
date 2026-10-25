@@ -534,7 +534,7 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
               </div>
             ) : null}
             <div className="react-chat-messages-body">
-              {/* V4：对话恒用 ConversationTimeline。老面板仅工作台首页 / ?chatV4=0。 */}
+              {/* V4：对话恒用 ConversationTimeline。ChatMessageStreamPane 仅工作台首页壳。 */}
               <V4StreamRowsBridge
                 enabled={isEvoflowChatV4Enabled() && !isHomeSurface}
                 sessionId={
@@ -584,7 +584,7 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
                   const localHasRows = Array.isArray(rows) && rows.length > 0
                   const v4HasRows = v4SessionMatched && v4RowCount > 0
                   const optimisticUserText = localOptimisticHold ? lastLocalUserText : null
-                  /* 面板选择 + 草稿态判定（见 react/lib/chat-pane-mode.ts）。 */
+                  /* 面板选择：对话永不回落 ToolCallList；useLegacyPane 仅首页。 */
                   const { useLegacyPane, draftEmpty } = resolveChatPaneMode({
                     v4Phase,
                     localHasRows,
@@ -594,6 +594,7 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
                     localOptimisticHold,
                   })
                   return useLegacyPane ? (
+              /* LEGACY：仅 isHomeSurface — 勿在此恢复主对话 ToolCallList */
               <ChatMessageStreamPane
                 rows={renderRows}
                 streamRef={streamRef}

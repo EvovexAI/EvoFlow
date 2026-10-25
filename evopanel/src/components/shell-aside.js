@@ -425,7 +425,7 @@ function _bindShell(el) {
     const navBtn = e.target.closest('[data-shell-nav]')
     if (navBtn) {
       const path = navBtn.dataset.shellNav
-      // 工作台：打开空会话仪表盘（EvoFlowHomeDashboard）；会话列表「新对话」才是空白草稿
+      // 工作台：跳转仪表盘首页（不新建会话；发消息才 create）；会话列表「新对话」才是空白草稿
       if (path === '/chat' && navBtn.dataset.shellHome) {
         if (_isChatHashRoute()) {
           window.dispatchEvent(new CustomEvent('evopanel:shell-open-home'))

@@ -843,7 +843,16 @@ async function refresh() {
       api.proactiveListRoles().catch(() => null),
     ])
     if (_loadSeq !== seq) return
-    _tasks = res.automations || []
+    // Shadow emp:{code} rules are managed by the employee page — show them via
+    // kind=agent rows only, not twice in the task list.
+    _tasks = (res.automations || []).filter((t) => {
+      const kind = String(t?.kind || '').trim().toLowerCase()
+      if (kind === 'employee_heartbeat') return false
+      if (String(t?.managed_by || '').trim() === 'proactive_role') return false
+      const id = String(t?.task_id || t?.id || '').trim()
+      if (id.startsWith('emp:')) return false
+      return true
+    })
     _agents = normalizeAgentSchedules(agentRes)
     _pushTargetsCache = Array.isArray(pushMeta?.targets) ? pushMeta.targets : []
     applySchedulerStatus(schedStatus)

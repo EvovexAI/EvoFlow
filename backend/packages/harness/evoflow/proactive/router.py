@@ -108,8 +108,8 @@ class CreateRoleRequest(BaseModel):
         description="Legacy RRULE; prefer heartbeat_schedule (5-field cron)",
     )
     heartbeat_schedule: str = Field(
-        "0 9-19/2 * * *",
-        description="5-field cron — same semantics as automation tasks",
+        "0 9,15 * * *",
+        description="5-field cron — default twice daily (09:00 & 15:00)",
     )
     soul_md: str = Field("")
     think_mode: str = Field("agent_loop", description="agent_loop|prompt_only")
@@ -486,7 +486,7 @@ class CreateEmployeeRequest(BaseModel):
     workspace_path: str = Field("")
     knowledge_vault_ids: list[str] = Field(default_factory=list)
     autonomy_level: str = Field("approval_for_all")
-    heartbeat_schedule: str = Field("0 9-19/2 * * *")
+    heartbeat_schedule: str = Field("0 9,15 * * *")
     think_mode: str = Field("agent_loop")
     model_name: str = Field("")
     reports_to: str = Field("")

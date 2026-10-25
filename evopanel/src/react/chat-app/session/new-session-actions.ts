@@ -8,6 +8,7 @@ export function handleNewSession(ctx: NewSessionActionsCtx): void {
   ctx.startNewSessionWithWorkspace(ctx.resolveWorkspaceForNewSession())
 }
 
+/** @deprecated 逻辑已内联到 use-chat-app-controller.handleOpenHome（只切仪表盘，不 createSession） */
 export function handleOpenHome(ctx: NewSessionActionsCtx): void {
   if (
     ctx.shouldStayOnHomeDashboard({
@@ -21,7 +22,13 @@ export function handleOpenHome(ctx: NewSessionActionsCtx): void {
     ctx.scrollHomeMessagesToTop()
     return
   }
-  ctx.startNewSessionWithWorkspace(ctx.resolveWorkspaceForNewSession())
+  // 兼容旧调用：仅切首页意图，不再新建会话（发消息时才 create）。
+  ctx.setPreferHomeDashboard?.(true)
+  ctx.setSessionHadContent?.(false)
+  ctx.setSelectedSessionKey?.('')
+  ctx.sessionRef && (ctx.sessionRef.current = '')
+  ctx.setNewChatButtonActive?.(true)
+  ctx.resetChatSurfaceForNewDraft?.()
 }
 
 export function handleNewSessionInWorkspace(

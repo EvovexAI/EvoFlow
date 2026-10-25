@@ -2,22 +2,34 @@
 // 协议语义是 ZCode v4 的（wire/seq/apply），协议客户端（无 UI 的 store 数据层）
 // 复用 vendor 树的 ConversationProjectionStore —— 它不是 UI 组件框架的一部分。
 //
-// 产品默认：V4 开。用户看见的对话 = V4ZCodeTimeline / zcode-ui/v4/**。
-// 旧 ToolCallList / create-chat-ws-on-event 的 TEXT_* 显示会被闸掉；业务副作用仍放行。
+// 产品默认：V4 开且**不可退回**旧主对话显示。
+// 用户看见的对话 = V4ZCodeTimeline / zcode-ui/v4/**。
+// 旧 ToolCallList / ChatMessageStreamPane 对话流已停用（仅工作台首页壳还挂旧组件）。
+// create-chat-ws-on-event 的 TEXT_* 显示会被闸掉；业务副作用仍放行。
 
-/** 双轨开关：**默认开启**。URL `?chatV4=0` 或 localStorage.evoflow_chat_v4=0 显式退回老链路；
-`?chatV4=1` 强制开（调参调试用）。 */
+/**
+ * 主对话 V4：**恒为 true**。
+ * 历史 `?chatV4=0` / `localStorage.evoflow_chat_v4=0` 已退役（读到也会忽略），
+ * 避免再把可见对话切回 ToolCallList。调试请改 V4 组件，不要开旧面板。
+ */
 export function isEvoflowChatV4Enabled(): boolean {
   try {
     const url = new URL(globalThis.location.href);
     const q = url.searchParams.get("chatV4");
-    if (q === "1") return true;
-    if (q === "0") return false;
     const stored = globalThis.localStorage?.getItem("evoflow_chat_v4");
-    if (stored === "0") return false;
-    if (stored === "1") return true;
+    if (q === "0" || stored === "0") {
+      // 一次性提示，避免 silent 误以为还能退回旧对话
+      const g = globalThis as { __efChatV4KillSwitchWarned?: boolean };
+      if (!g.__efChatV4KillSwitchWarned) {
+        g.__efChatV4KillSwitchWarned = true;
+        console.warn(
+          "[EvoFlow] chatV4=0 / evoflow_chat_v4=0 已退役：主对话固定 V4（V4ZCodeTimeline）。" +
+            "旧 ToolCallList 对话面板不再挂载。请改 zcode-ui/v4/**。",
+        );
+      }
+    }
   } catch {
-    // ignore — 默认开启
+    // ignore
   }
   return true;
 }

@@ -1,6 +1,8 @@
 /**
  * 员工任务「执行过程」→ 右侧栏独立 tab（与工作流同构）。
  * 对话 panel_set：workspace 无 sessionKey；任务中心：task-center:* + tc: id。
+ *
+ * 渲染权威：V4EmployeeProcessPane（勿再接 ProactiveLiveProcessHost / mode=panel）。
  */
 import { rightStageStore } from './right-stage-store.js'
 import { isTaskCenterStageSessionKey } from './task-center-stage-key.js'

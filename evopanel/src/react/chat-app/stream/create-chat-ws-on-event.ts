@@ -2,11 +2,10 @@
 /**
  * Chat WS onEvent handler. Extracted from ChatApp.tsx (P81).
  *
- * LEGACY / 双轨残留热路径（AG-UI → 旧 streamRef / 审批 / 平台 toast / 右栏副作用）。
- * 用户默认看见的消息列表与工具卡由 V4 时间线渲染（V4ZCodeTimeline / ConversationTurnGroup），
- * 不是本文件里的 applyStreamTurnEvent 行投影。
- * V4 开启且 display 权威时，TEXT_* 会被闸掉；TOOL_CALL_* / RUN_* / 平台仍走这里做副作用。
- * 修「对话里长什么样」→ 改 zcode-ui/v4/**，不要先在这里堆 UI。
+ * LEGACY 副作用热路径（AG-UI → 审批 / 平台 toast / 右栏）——**不是**消息列表渲染面。
+ * 可见对话 = V4ZCodeTimeline / ConversationTurnGroup；主对话旧 ToolCallList 已停用。
+ * TEXT_* 在 V4 权威时闸掉；TOOL_CALL_* / RUN_* / 平台仍走这里做副作用。
+ * 修「对话里长什么样」→ 改 zcode-ui/v4/**，不要在这里堆 UI。
  */
 import { EventType } from '@ag-ui/core'
 import type { ChatWsPayload } from '../../chat-types.js'

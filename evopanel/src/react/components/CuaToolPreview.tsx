@@ -1,5 +1,5 @@
 /**
- * LEGACY：旧版 ToolCallList 的 Computer Use 预览卡（展开态截图/图标）。
+ * LEGACY · 主对话已停用：旧版 ToolCallList CUA 预览。可见聊天改 zcode-ui renderers/cua。
  * 默认产品聊天是 V4（output.display.kind=cua）；修可见 CUA 勿只改本文件。
  *
  * 旧壳数据来自 `{evoflow-cua-display:...}` 标记（chat-normalize parseEvoflowCuaDisplay）。

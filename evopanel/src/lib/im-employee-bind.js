@@ -24,6 +24,7 @@ import { api } from './tauri-api.js'
 import { toast } from '../components/toast.js'
 import { showConfirm } from '../components/modal.js'
 import { ensureQrImgFallbackHandler, qrImageHtml } from './qr-image.js'
+import { DEFAULT_DUTY_CRON } from './schedule-panel.js'
 
 const KNOWN_CHANNELS = /** @type {const} */ (['feishu', 'wecom', 'dingtalk', 'weixin'])
 
@@ -263,7 +264,7 @@ export async function hireAndBindIMChannel({
       role_name: name,
       responsibilities: [`在 ${CHANNEL_LABELS[channel.toLowerCase()]} 中与同事协作`],
       autonomy_level: 'approval_for_risky',
-      heartbeat_schedule: '0 9-19/2 * * *',
+      heartbeat_schedule: DEFAULT_DUTY_CRON,
       approval_channels: ['desktop', channel.toLowerCase()],
       think_mode: 'agent_loop',
       status: 'active',

@@ -375,6 +375,8 @@ export function resolveSessionReselectAfterRefresh(opts: {
   pendingNewAtStart: boolean
   /** Re-check at decision time — create may have started mid-refresh. */
   pendingNewNow?: boolean
+  /** 工作台仪表盘空草稿（无 sessionKey）：禁止 first-selectable 抢走首页。 */
+  preferHomeDraft?: boolean
   skipAutoReselect?: boolean
   refreshId: string
 }): SessionReselectAction {
@@ -385,6 +387,7 @@ export function resolveSessionReselectAfterRefresh(opts: {
     selectedAfterAwait,
     pendingNewAtStart,
     pendingNewNow,
+    preferHomeDraft,
     skipAutoReselect,
     refreshId,
   } = opts
@@ -408,6 +411,15 @@ export function resolveSessionReselectAfterRefresh(opts: {
       cur: skTail(curSelectable),
     })
     return { type: 'none', reason: 'pending-new-session' }
+  }
+
+  // 工作台首页：有意空选中，刷新时不要回填历史会话。
+  if (preferHomeDraft && !selectedAfter && !curSelectable) {
+    ssLog('refresh.skip', {
+      refreshId,
+      reason: 'home-draft',
+    })
+    return { type: 'none', reason: 'home-draft' }
   }
 
   if (selectedAfter && keys.has(selectedAfter)) {

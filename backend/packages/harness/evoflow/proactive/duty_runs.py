@@ -334,8 +334,55 @@ def duty_run_to_round_journal(row: dict[str, Any]) -> dict[str, Any]:
 
 
 def list_duty_rounds_for_board(agent_code: str, *, limit: int = 40) -> list[dict[str, Any]]:
-    """Board ``rounds[]`` from duty_runs (preferred SSOT)."""
-    return [duty_run_to_round_journal(r) for r in list_duty_runs(agent_code, limit=limit)]
+    """Board ``rounds[]``: prefer automation_runs for scheduled fires, merge duty_runs.
+
+    When employee cron is owned by ``evoflow_automations`` / ``evoflow_automation_runs``,
+    scheduled ticks appear there. Manual / dispatch / legacy rows still live in
+    ``evoflow_duty_runs``. Merge by started_at desc and de-dupe on round_id / run_id.
+    """
+    lim = max(1, min(int(limit or 40), 200))
+    duty = [duty_run_to_round_journal(r) for r in list_duty_runs(agent_code, limit=lim)]
+    auto: list[dict[str, Any]] = []
+    try:
+        from evoflow.proactive.employee_automation import list_employee_automation_rounds
+
+        auto = list_employee_automation_rounds(agent_code, limit=lim)
+    except Exception:
+        logger.debug(
+            "duty_runs: automation rounds merge failed agent=%s",
+            agent_code,
+            exc_info=True,
+        )
+    if not auto:
+        return duty
+
+    seen: set[str] = set()
+    merged: list[dict[str, Any]] = []
+
+    def _key(row: dict[str, Any]) -> str:
+        rid = str(row.get("round_id") or "").strip()
+        if rid:
+            return f"round:{rid}"
+        plan = row.get("action_plan") if isinstance(row.get("action_plan"), dict) else {}
+        run_id = str(plan.get("run_id") or "").strip()
+        if run_id:
+            return f"run:{run_id}"
+        return str(row.get("id") or "")
+
+    # Automation scheduled rows first in the pool; duty fills gaps (manual/dispatch).
+    for row in auto + duty:
+        k = _key(row)
+        if k and k in seen:
+            continue
+        if k:
+            seen.add(k)
+        merged.append(row)
+
+    def _ts(row: dict[str, Any]) -> str:
+        return str(row.get("created_at") or row.get("updated_at") or "")
+
+    merged.sort(key=_ts, reverse=True)
+    return merged[:lim]
 
 
 def count_messages_for_session(

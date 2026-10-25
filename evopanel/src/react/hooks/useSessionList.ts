@@ -174,6 +174,8 @@ export type UseSessionListOptions = {
   sessionRef: MutableRefObject<string>
   /** 新建会话进行中标记 */
   pendingNewSessionRef: MutableRefObject<boolean>
+  /** 工作台仪表盘意图（空选中时禁止 refresh first-selectable） */
+  preferHomeDashboardRef?: MutableRefObject<boolean>
   setSelectedSessionKey: Dispatch<SetStateAction<string>>
   hydrateContextUsageFromSessionsRef: MutableRefObject<(rows: ChatSessionRow[]) => void>
   /** 侧栏标题 localStorage 更新时递增，触发 sortedSessions 重算 */
@@ -224,6 +226,7 @@ export function useSessionList(opts: UseSessionListOptions) {
     selectedSessionKey,
     sessionRef,
     pendingNewSessionRef,
+    preferHomeDashboardRef,
     setSelectedSessionKey,
     hydrateContextUsageFromSessionsRef,
     sessionNamesTick = 0,
@@ -824,6 +827,7 @@ export function useSessionList(opts: UseSessionListOptions) {
               selectedAfterAwait: String(selectedSessionKeyRef.current || '').trim(),
               pendingNewAtStart,
               pendingNewNow,
+              preferHomeDraft: !!preferHomeDashboardRef?.current,
               skipAutoReselect: currentOpt?.skipAutoReselect,
               refreshId,
             })

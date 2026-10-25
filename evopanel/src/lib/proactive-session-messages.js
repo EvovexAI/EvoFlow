@@ -168,3 +168,78 @@ export async function fetchProactiveTranscript(opts = {}) {
 
   return last
 }
+
+/**
+ * 解析员工执行过程对应的 LangGraph thread（供右栏 V4 时间线订阅）。
+ * 优先 conversations 列表里的 thread_id；必要时再 ensure-thread。
+ *
+ * @param {{
+ *   agentCode: string,
+ *   taskId?: string,
+ *   roundId?: string,
+ *   sessionKey?: string,
+ *   ensureThread?: (sessionKey: string) => Promise<string>,
+ * }} opts
+ * @returns {Promise<{
+ *   session_key: string,
+ *   thread_id: string,
+ *   run_status: string,
+ *   role_name?: string,
+ * }>}
+ */
+export async function resolveProactiveProcessMeta(opts = {}) {
+  const code = String(opts.agentCode || '').trim()
+  if (!code) {
+    return { session_key: '', thread_id: '', run_status: '' }
+  }
+  const taskId = String(opts.taskId || '').trim()
+  const roundId = String(opts.roundId || '').trim()
+  const explicitSk = String(opts.sessionKey || '').trim()
+
+  /** @type {any[]} */
+  let convs = []
+  let roleName = ''
+  try {
+    const convRes = await api.proactiveListConversations(code, { limit: 80 }).catch(() => null)
+    convs = Array.isArray(convRes?.conversations) ? convRes.conversations : []
+    roleName = String(convRes?.role_name || '').trim()
+  } catch {
+    convs = []
+  }
+
+  let sk =
+    explicitSk ||
+    pickProactiveConversationSessionKey(convs, { taskId, roundId }) ||
+    (taskId ? buildProactiveTaskSessionKey(code, taskId) : '') ||
+    (roundId ? buildProactiveDutySessionKey(code, roundId) : '') ||
+    buildProactiveLegacySessionKey(code)
+
+  const hit =
+    (sk && convs.find((c) => String(c?.session_key || '').trim() === sk)) ||
+    (taskId &&
+      convs.find((c) => {
+        const ctid = sanitizeProactiveSessionSuffix(c?.task_id || '')
+        const want = sanitizeProactiveSessionSuffix(taskId)
+        return String(c?.kind || '').toLowerCase() === 'task' && ctid === want
+      })) ||
+    null
+
+  if (hit?.session_key) sk = String(hit.session_key).trim()
+  let threadId = String(hit?.thread_id || hit?.threadId || '').trim()
+  const runStatus = String(hit?.run_status || hit?.runStatus || '').trim()
+
+  if (!threadId && sk && typeof opts.ensureThread === 'function') {
+    try {
+      threadId = String((await opts.ensureThread(sk)) || '').trim()
+    } catch {
+      /* optional */
+    }
+  }
+
+  return {
+    session_key: sk,
+    thread_id: threadId,
+    run_status: runStatus,
+    role_name: roleName || undefined,
+  }
+}

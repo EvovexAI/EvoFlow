@@ -280,6 +280,13 @@ def cron_human_summary(expr: str) -> str:
         if dow_label:
             return f"每周 ({dow_label}) {time_label}"
     if star(dom_f) and star(mon_f) and star(dow_f):
+        # 「0 9,15 * * *」→ 每天 2 次（09:00、15:00）
+        hour_list = re.fullmatch(r"\d+(,\d+)+", hour_f)
+        if hour_list and re.fullmatch(r"0|00", min_f):
+            n = len(hour_f.split(","))
+            if n == 2:
+                return f"每天 2 次（{time_label}）"
+            return f"每天 {n} 次（{time_label}）"
         return f"每天 {time_label}"
     return f"{time_label} · 自定义计划"
 

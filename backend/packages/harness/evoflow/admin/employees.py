@@ -788,7 +788,11 @@ def _hire_existing_agent(
 
     role_name = str(data.get("role_name") or "").strip() or str(agent_row.get("agent_name") or agent_code)
     position_code = str(data.get("position_code") or "").strip()
-    heartbeat = str(data.get("heartbeat_rrule") or "FREQ=HOURLY;INTERVAL=2").strip()
+    from evoflow.proactive.schedule import DEFAULT_HEARTBEAT_CRON
+
+    heartbeat = str(
+        data.get("heartbeat_schedule") or data.get("heartbeat_rrule") or DEFAULT_HEARTBEAT_CRON
+    ).strip()
     from evoflow.proactive.prompt import validate_agent_knowledge_ids
 
     try:

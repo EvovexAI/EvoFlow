@@ -1,8 +1,14 @@
-import { useEffect, useMemo, useState } from 'react'
-import { api } from '../../lib/tauri-api.js'
-import { messagesToSubtaskModalRows } from '../../lib/subtask-modal-rows.js'
-import { fetchProactiveTranscript } from '../../lib/proactive-session-messages.js'
-import { SubtaskExecutionDrawer } from './SubtaskExecutionDrawer.js'
+/**
+ * 员工「执行过程」入口（员工页弹窗 / proactive-run）。
+ *
+ * **对话体只走 V4**：V4EmployeeProcessPane → V4SessionPaneBridge → V4ZCodeTimeline。
+ * 旧 SubtaskExecutionDrawer 行列表已整段挪到
+ *   `ProactiveLiveProcessHost.legacy.DISABLED.tsx`（勿 import、勿改对话观感）。
+ *
+ * 右栏 tab（kind=employeeProcess）请直接挂 V4EmployeeProcessPane，不要绕本文件。
+ */
+import { createPortal } from 'react-dom'
+import { V4EmployeeProcessPane } from '../chat-app/right-stage/v4-employee-process-pane.js'
 
 export type ProactiveLiveProcessHostProps = {
   open: boolean
@@ -12,38 +18,14 @@ export type ProactiveLiveProcessHostProps = {
   title?: string
   roundId?: string
   taskId?: string
+  /** @deprecated 轮询已由 V4EmployeeProcessPane 内部处理，保留以免调用方改签名 */
   pollMs?: number
-  /** modal=居中；drawer=侧滑/嵌入槽；panel=任务中心右栏 tab 内铺满 */
+  /** modal=居中遮罩；drawer=挂到 portalTarget；panel=铺满父容器 */
   mode?: 'modal' | 'drawer' | 'panel'
-  /** drawer 模式下挂到指定容器（任务详情右侧槽） */
   portalTarget?: HTMLElement | null
   onClose: () => void
 }
 
-function rowsToPlainText(rows: any[]): string {
-  return (Array.isArray(rows) ? rows : [])
-    .map((r) => {
-      const role = String(r?.role || '').trim()
-      const text = String(r?.text || r?.reasoningPreview || '').trim()
-      const tools = Array.isArray(r?.tools) ? r.tools : []
-      const toolLine = tools
-        .map((t: any) => {
-          const name = String(t?.name || t?.tool || '工具').trim()
-          const out = String(t?.output || t?.result || '').trim()
-          return out ? `[工具 ${name}]\n${out}` : `[工具 ${name}]`
-        })
-        .join('\n')
-      const parts = [role ? `[${role}]` : '', text, toolLine].filter(Boolean)
-      return parts.join('\n')
-    })
-    .filter(Boolean)
-    .join('\n\n')
-}
-
-/**
- * 智能体员工执行过程（proactive session_key，暂未统一到 V4 thread subscribe）。
- * 协作节点进度请走 openCollabSubtaskInRightStage → V4SessionPaneBridge。
- */
 export function ProactiveLiveProcessHost({
   open,
   agentCode,
@@ -52,146 +34,56 @@ export function ProactiveLiveProcessHost({
   title,
   roundId,
   taskId = '',
-  pollMs = 1400,
   mode = 'modal',
   portalTarget = null,
   onClose,
 }: ProactiveLiveProcessHostProps) {
-  const [rows, setRows] = useState<any[]>([])
-  const [loading, setLoading] = useState(false)
-  const [fetchError, setFetchError] = useState('')
-  const [resolvedRoleName, setResolvedRoleName] = useState(roleName)
-  const [sessionKey, setSessionKey] = useState('')
-
   const code = String(agentCode || '').trim()
-  const rid = String(roundId || '').trim()
-  const tid = String(taskId || '').trim()
-
-  useEffect(() => {
-    setResolvedRoleName(roleName)
-  }, [roleName])
-
-  useEffect(() => {
-    if (!open || !code) return
-    let cancelled = false
-    void (async () => {
-      try {
-        const role = await api.proactiveGetRole(code).catch(() => null)
-        if (cancelled) return
-        const name = String(role?.role_name || role?.name || roleName || '').trim()
-        if (name) setResolvedRoleName(name)
-      } catch {
-        /* optional */
-      }
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [open, code, roleName])
-
-  useEffect(() => {
-    if (!open || !code) {
-      queueMicrotask(() => {
-        setRows([])
-        setFetchError('')
-        setLoading(false)
-        setSessionKey('')
-      })
-      return
-    }
-
-    let cancelled = false
-    let first = true
-
-    const load = async () => {
-      if (first) setLoading(true)
-      try {
-        const res = await fetchProactiveTranscript({
-          agentCode: code,
-          taskId: tid,
-          roundId: rid,
-        })
-        if (cancelled) return
-        const msgs = Array.isArray(res?.messages) ? res.messages : []
-        setRows(messagesToSubtaskModalRows(msgs))
-        setSessionKey(String(res?.session_key || '').trim())
-        setFetchError(String(res?.error || '').trim())
-      } catch (e: any) {
-        if (!cancelled) setFetchError(String(e?.message || e || '加载失败'))
-      } finally {
-        if (!cancelled) {
-          setLoading(false)
-          first = false
-        }
-      }
-    }
-
-    void load()
-    const timer = window.setInterval(() => {
-      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
-      void load()
-    }, Math.max(800, Number(pollMs) || 1400))
-    return () => {
-      cancelled = true
-      window.clearInterval(timer)
-    }
-  }, [open, code, rid, tid, pollMs])
-
-  const displayRows = useMemo(() => {
-    if (rows.length || loading) return rows
-    if (fetchError) {
-      return [
-        {
-          role: 'assistant',
-          text: `无法加载会话：${fetchError}`,
-          tools: [],
-          segments: [{ kind: 'text', text: `无法加载会话：${fetchError}` }],
-        },
-      ]
-    }
-    return []
-  }, [rows, loading, fetchError])
-
-  const summaryAgent = String(resolvedRoleName || roleName || code).trim()
-  const shortTitle = String(title || '').trim() || (busy ? '任务进度 · 进行中' : '任务进度')
-  const statusLabel = busy
-    ? '执行中'
-    : loading
-      ? '加载中'
-      : displayRows.length
-        ? '已完成'
-        : '暂无记录'
-  const statusClass = busy
-    ? 'react-chat-subtask-status-light--run'
-    : displayRows.length
-      ? 'react-chat-subtask-status-light--ok'
-      : 'react-chat-subtask-status-light--muted'
-  const drawerMode = mode === 'panel' ? 'panel' : mode === 'drawer' ? 'drawer' : 'modal'
-
   if (!open || !code) return null
 
-  return (
-    <SubtaskExecutionDrawer
-      open
-      mode={drawerMode}
-      portalTarget={drawerMode === 'drawer' ? portalTarget : null}
-      subtaskId={String(tid || rid || code)}
-      sessionKey={sessionKey}
-      statusClass={statusClass}
-      statusLabel={statusLabel}
-      summaryAgent={summaryAgent}
-      shortTitle={shortTitle}
-      rows={displayRows}
-      streamActive={busy}
-      sending={false}
-      canCompose={false}
-      composeText=""
-      composeError=""
-      copyPlainText={rowsToPlainText(displayRows) || '暂无记录'}
-      showDetailButton={false}
+  const pane = (
+    <V4EmployeeProcessPane
+      agentCode={code}
+      roleName={roleName}
+      busy={busy}
+      title={title}
+      roundId={roundId}
+      taskId={taskId}
       onClose={onClose}
-      onComposeTextChange={() => {}}
-      onSend={() => {}}
     />
+  )
+
+  if (mode === 'panel') {
+    return <div className="flex h-full min-h-0 w-full flex-col">{pane}</div>
+  }
+
+  if (mode === 'drawer') {
+    const target = portalTarget || (typeof document !== 'undefined' ? document.body : null)
+    if (!target) return null
+    return createPortal(
+      <div className="react-chat-subtask-drawer-host flex h-full min-h-0 w-full flex-col bg-card">
+        {pane}
+      </div>,
+      target,
+    )
+  }
+
+  // modal
+  if (typeof document === 'undefined') return null
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[80] flex items-center justify-center bg-black/40 p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-label={String(title || '执行过程')}
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose()
+      }}
+    >
+      <div className="flex h-[min(86vh,720px)] w-full max-w-3xl min-h-0 flex-col overflow-hidden rounded-lg border border-border bg-card shadow-xl">
+        {pane}
+      </div>
+    </div>,
+    document.body,
   )
 }

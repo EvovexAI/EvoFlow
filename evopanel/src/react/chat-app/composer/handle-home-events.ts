@@ -131,10 +131,10 @@ export function handleHomeSelectModelEvent(ctx: HandleHomeEventsCtx, event: Even
   ).trim()
   if (!modelName) return
   ctx.setModelName(modelName)
+  // 仅当已有会话时写回 context；工作台空草稿不 createSession（发消息时再建）。
   void (async () => {
     try {
-      const sk =
-        (ctx.sessionRef.current || '').trim() || (await ctx.ensureChatSessionKey()) || ''
+      const sk = (ctx.sessionRef.current || '').trim()
       if (sk) await ctx.updateSessionContext(sk, { model_name: modelName })
     } catch {
       /* ignore */

@@ -151,11 +151,20 @@ export function cronToPlainZh(expr) {
   if (/^\d+$/.test(minF) && /^\d+$/.test(hourF) && star(domF) && star(monF) && star(dowF)) {
     return `每天 ${hourF.padStart(2, '0')}:${minF.padStart(2, '0')}`
   }
+  if (/^\d+$/.test(minF) && /^\d+(,\d+)+$/.test(hourF) && star(domF) && star(monF) && star(dowF)) {
+    const hours = hourF.split(',')
+    const times = hours.map((h) => `${h.padStart(2, '0')}:${minF.padStart(2, '0')}`)
+    if (hours.length === 2) return `每天 2 次（${times.join('、')}）`
+    return `每天 ${hours.length} 次（${times.join('、')}）`
+  }
   if (/^\d+$/.test(minF) && /^\d+$/.test(hourF) && star(domF) && star(monF) && dowF === '1-5') {
     return `工作日 ${hourF.padStart(2, '0')}:${minF.padStart(2, '0')}`
   }
   return '按计划自动上班'
 }
+
+/** 新建员工默认上班节奏：每天 2 次（09:00、15:00）。过频的「每 2 小时」改为用户主动选。 */
+export const DEFAULT_DUTY_CRON = '0 9,15 * * *'
 
 /**
  * @param {{ schedule?: string, scheduledAt?: string, idPrefix?: string, compact?: boolean, tone?: 'duty'|'task' }} initial
@@ -168,12 +177,12 @@ export function createSchedulePanel(initial = {}) {
   let lastPreview = null
   const initSchedule = String(initial.schedule || '').trim()
   const initOnce = String(initial.scheduledAt || '').trim()
-  const initExpr = initOnce || initSchedule || '0 9-19/2 * * *'
+  const initExpr = initOnce || initSchedule || DEFAULT_DUTY_CRON
   const isTask = initial.tone === 'task'
   const copy = isTask
     ? {
         aiLabel: '用自然语言描述何时执行',
-        aiPlaceholder: '例：工作日每天上午 9 点 / 每 2 小时 / 每小时',
+        aiPlaceholder: '例：工作日每天上午 9 点 / 每天 2 次 / 每 2 小时',
         aiHint: '说人话即可，我们会自动安排执行节奏',
         aiEmpty: '请先输入想何时执行的描述',
         aiOkToast: '已生成执行安排',
@@ -183,7 +192,7 @@ export function createSchedulePanel(initial = {}) {
       }
     : {
         aiLabel: '用自然语言描述何时上班',
-        aiPlaceholder: '例：工作日每 2 小时 / 每天上午 9 点 / 每小时',
+        aiPlaceholder: '例：每天 2 次 / 每天上午 9 点 / 每 2 小时',
         aiHint: '说人话即可，我们会自动安排上班节奏',
         aiEmpty: '请先输入想何时上班的描述',
         aiOkToast: '已生成上班安排',
@@ -193,12 +202,12 @@ export function createSchedulePanel(initial = {}) {
       }
 
   const PRESETS = [
-    { label: '每小时', cron: '0 9-19 * * *' },
-    { label: '每 2 小时', cron: '0 9-19/2 * * *' },
-    { label: '每 3 小时', cron: '0 9-19/3 * * *' },
-    { label: '每 30 分钟', cron: '*/30 9-19 * * *' },
+    { label: '每天 2 次', cron: DEFAULT_DUTY_CRON },
     { label: '每天 9:00', cron: '0 9 * * *' },
     { label: '工作日 9:00', cron: '0 9 * * 1-5' },
+    { label: '每 2 小时', cron: '0 9-19/2 * * *' },
+    { label: '每小时', cron: '0 9-19 * * *' },
+    { label: '每 3 小时', cron: '0 9-19/3 * * *' },
   ]
 
   function plainSummary(text, fallbackExpr) {
@@ -467,7 +476,7 @@ export function roleScheduleExpr(role) {
       return '0 9-19/2 * * *'
     }
   }
-  return sched || rr || '0 9-19/2 * * *'
+  return sched || rr || DEFAULT_DUTY_CRON
 }
 
 export function roleScheduleSummary(role) {

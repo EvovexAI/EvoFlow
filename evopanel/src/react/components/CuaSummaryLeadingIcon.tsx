@@ -1,5 +1,5 @@
 /**
- * LEGACY：旧版 ToolCallList 摘要行左侧 CUA 应用图标。
+ * LEGACY · 主对话已停用：旧版 ToolCallList CUA 摘要图标。可见聊天改 zcode-ui renderers/cua。
  * 默认产品聊天是 V4（display.kind=cua），修可见电脑控制图标勿只改这里。
  * 取不到图标时回退 ToolCardIcon。
  */

@@ -4,6 +4,7 @@ import {
   buildProactiveDutySessionKey,
   buildProactiveTaskSessionKey,
   pickProactiveConversationSessionKey,
+  resolveProactiveProcessMeta,
   sanitizeProactiveSessionSuffix,
 } from '../src/lib/proactive-session-messages.js'
 
@@ -46,5 +47,31 @@ describe('proactive session message keys', () => {
       {},
     )
     assert.equal(sk, 'proactive:ops-bot:chat:live')
+  })
+
+  it('resolveProactiveProcessMeta picks thread_id from conversations', async () => {
+    const { api } = await import('../src/lib/tauri-api.js')
+    const orig = api.proactiveListConversations
+    api.proactiveListConversations = async () => ({
+      role_name: '运营',
+      conversations: [
+        {
+          kind: 'task',
+          session_key: 'proactive:ops-bot:task:t1',
+          task_id: 't1',
+          thread_id: 'thread-abc',
+          run_status: 'running',
+        },
+      ],
+    })
+    try {
+      const meta = await resolveProactiveProcessMeta({ agentCode: 'ops-bot', taskId: 't1' })
+      assert.equal(meta.session_key, 'proactive:ops-bot:task:t1')
+      assert.equal(meta.thread_id, 'thread-abc')
+      assert.equal(meta.run_status, 'running')
+      assert.equal(meta.role_name, '运营')
+    } finally {
+      api.proactiveListConversations = orig
+    }
   })
 })
