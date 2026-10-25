@@ -1514,16 +1514,29 @@ def create_task(
     # is how one unowned pending task appeared per automation round.  Resolve
     # to a real agent_code here so every creation path (tool / CLI / handlers /
     # platform) lands on an owned row.
-    from evoflow.collab.task_assignee import resolve_task_assignee
+    from evoflow.collab.task_assignee import SOURCE_SESSION_KEY, resolve_task_assignee
 
     assignee_res = resolve_task_assignee(assignee)
     assignee_norm = assignee_res.code
     role_norm = str(assigned_role or "").strip() or assignee_res.role_name or None
     if assignee_res.is_fallback:
-        # The caller asked for an owner we could not honour.  The row now
-        # belongs to the system front desk; do not wake it for a shell task
-        # nobody actually asked for.
-        start = False
+        # The caller asked for an owner we could not honour ("me", ...).
+        # If the ambient actor is itself a writer -- an automation run key --
+        # let the run own the row: it is the actor that created it and the
+        # only one that can also close it (measured 2026-10-25: the run
+        # closed its own report row 5.8 s after creating it).  Handing it to
+        # the front desk instead would strand the run's own deliverable.
+        from evoflow.authz.agent_actor import get_current_agent_actor
+
+        actor_res = resolve_task_assignee(get_current_agent_actor())
+        if actor_res.source == SOURCE_SESSION_KEY and not actor_res.is_fallback:
+            assignee_norm = actor_res.code
+            role_norm = str(assigned_role or "").strip() or actor_res.role_name or None
+        else:
+            # Nobody we can honour owns it: hand the row to the system front
+            # desk so it is owned by somebody who can act on it -- and do not
+            # wake it for a shell task nobody asked for.
+            start = False
     raised_norm = stamp_raised_by(raised_by_arg=raised_by) or None
     risk_norm = str(risk_level or "").strip() or None
     action_norm = str(action_type or "").strip() or None

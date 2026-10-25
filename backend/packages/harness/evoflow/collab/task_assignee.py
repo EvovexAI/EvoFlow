@@ -37,6 +37,15 @@ HUMAN_ASSIGNEE_LITERALS = frozenset(
 #: stamping its own session key as the owner).
 SESSION_KEY_PREFIXES = ("automation:", "proactive:")
 
+#: An automation run key (``automation:<automation_id>:run-<uuid>``) is the
+#: run's OWN identity.  The run creates the row and the run can close it again
+#: -- measured 2026-10-25: the run closed its own row 5.8 s after creating it
+#: (``2610250102_7486``).  So such a key IS a legitimate, writable owner:
+#: it is the "explicit system-writable ownership" the task brief allows.
+#: What must never be stored is a *human word* (``me`` / ``user`` / ``owner``),
+#: which matches no actor at all and therefore strands the row.
+WRITABLE_SESSION_PREFIX = "automation:"
+
 #: System front-desk fallback.  ``xiaomi`` is a real agent_code (it has a row
 #: in ``evoflow_proactive_roles``) and a privileged Task actor, so the row it
 #: owns is one that somebody can actually progress and close.  It is also the
@@ -100,18 +109,33 @@ def employee_code_from_session_key(value: str | None) -> str:
     return code
 
 
+def is_writable_session_key(value: str | None) -> bool:
+    """True for a session key that identifies a writer, not a human.
+
+    An automation run key qualifies: the run is the actor that created the
+    row, so it is the one actor that can also close it.
+    """
+    text = str(value or "").strip()
+    return text.startswith(WRITABLE_SESSION_PREFIX)
+
+
 def is_assignee_usable(value: str | None) -> bool:
     """True when the value could stand on its own as an assignee.
 
     "Usable" means: not a human first-person word, and not a session key
-    that has no employee embedded in it.
+    that has no employee embedded in it -- unless it is an automation run
+    key, which names its own writer.
     """
     text = str(value or "").strip()
     if not text:
         return False
     if is_human_assignee_literal(text):
         return False
-    if is_session_key(text) and not employee_code_from_session_key(text):
+    if (
+        is_session_key(text)
+        and not employee_code_from_session_key(text)
+        and not is_writable_session_key(text)
+    ):
         return False
     return True
 
@@ -185,6 +209,10 @@ def resolve_task_assignee(
                 role_name=_role_name_for(code),
                 source=SOURCE_SESSION_KEY,
             )
+        if is_writable_session_key(text):
+            # The run owns the rows it creates -- keep the key verbatim so the
+            # run can still close its own row.
+            return AssigneeResolution(code=text, source=SOURCE_SESSION_KEY)
         return _unusable(text, allow_fallback=allow_fallback)
 
     return AssigneeResolution(code=text, source=SOURCE_EXPLICIT)

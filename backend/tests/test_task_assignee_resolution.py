@@ -95,13 +95,18 @@ def test_proactive_session_key_yields_the_employee() -> None:
     assert res.is_fallback is False
 
 
-def test_automation_session_key_has_no_employee_inside() -> None:
-    # normalize_employee_agent_code returns automation keys unchanged, so
-    # this value would otherwise be stored as the assignee.
+def test_automation_session_key_keeps_its_own_identity() -> None:
+    # normalize_employee_agent_code returns automation keys unchanged, so this
+    # value carries no employee code.  It is still a legitimate owner: the run
+    # that created the row is the one actor that can also close it (measured
+    # 2026-10-25: the run closed its own row 5.8 s after creating it).
     assert employee_code_from_session_key("automation:90390552:run-abc") == ""
     res = resolve_task_assignee("automation:90390552:run-abc")
-    assert res.code == FALLBACK_ASSIGNEE
-    assert res.is_fallback is True
+    assert res.code == "automation:90390552:run-abc"
+    assert res.source == "session_key"
+    assert res.is_fallback is False
+    # ... and it is a usable owner, unlike a human word.
+    assert is_assignee_usable("automation:90390552:run-abc")
 
 
 # --- ordinary values ----------------------------------------------------------
@@ -161,8 +166,12 @@ def test_tool_layer_accepts_a_real_employee_code() -> None:
     assert is_fallback is False
 
 
-def test_tool_layer_rejects_a_bare_session_key_as_owner() -> None:
-    """An automation session key must not become the assignee."""
+def test_tool_layer_keeps_a_bare_automation_session_key_as_owner() -> None:
+    """An automation run key must not be replaced -- the run owns its rows.
+
+    It is also the only actor that can close them again, so replacing it with
+    the front desk would strand the run's own report row.
+    """
     from evoflow.tools.builtins.tasks_tool import _infer_duty_create_defaults
 
     assignee, _role, _src, _raised, is_fallback = _infer_duty_create_defaults(
@@ -174,9 +183,8 @@ def test_tool_layer_rejects_a_bare_session_key_as_owner() -> None:
         round_id=None,
         runtime=None,
     )
-    assert assignee != "automation:90390552:run-abc"
-    assert assignee == FALLBACK_ASSIGNEE
-    assert is_fallback is True
+    assert assignee == "automation:90390552:run-abc"
+    assert is_fallback is False
 
 
 def test_tool_layer_keeps_a_proactive_session_key_employee() -> None:
