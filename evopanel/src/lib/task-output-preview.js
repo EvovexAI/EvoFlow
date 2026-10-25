@@ -266,6 +266,7 @@ function fileBasename(path) {
 export async function showTaskOutputPreview(opts = {}) {
   const title = String(opts.title || '').trim()
   const hintRoot = String(opts.workspaceRoot || '').trim()
+  const sessionKey = String(opts.sessionKey || '').trim() || undefined
   // Backend-resolved metadata wins — skip the entire multi-root probe path.
   // This is the new contract: ``apply_subtask_outcome_report`` stamps
   // ``_resolve_meta`` on each file output at write time so the panel can
@@ -304,6 +305,7 @@ export async function showTaskOutputPreview(opts = {}) {
         path: openable.path || resolvedAbs,
         name: openable.name || fileBasename(openable.path || resolvedAbs) || title || undefined,
         workspaceScopeOpts: { configuredRoot: workspaceRoot },
+        sessionKey,
       })
       return
     } catch (err) {
@@ -378,6 +380,7 @@ export async function showTaskOutputPreview(opts = {}) {
       path: openable.path || path,
       name: openable.name || fileBasename(openable.path || path) || title || undefined,
       workspaceScopeOpts: { configuredRoot: workspaceRoot },
+      sessionKey,
     })
   } catch (err) {
     toast(formatPreviewErrorMessage(err, path), 'error')
@@ -456,7 +459,11 @@ export async function revealTaskOutputInFileManager(opts = {}) {
 /**
  * Bind click handlers for output cards inside a page root.
  * @param {ParentNode} root
- * @param {{ workspaceRoot?: string | (() => string), agentCode?: string | (() => string) }} [opts]
+ * @param {{
+ *   workspaceRoot?: string | (() => string),
+ *   agentCode?: string | (() => string),
+ *   sessionKey?: string | (() => string),
+ * }} [opts]
  */
 export function bindTaskOutputCardActions(root, opts = {}) {
   if (!root || root.__tdOutputCardsBound) return
@@ -473,10 +480,13 @@ export function bindTaskOutputCardActions(root, opts = {}) {
       typeof opts.workspaceRoot === 'function' ? opts.workspaceRoot() : opts.workspaceRoot
     const fromOptsCode =
       typeof opts.agentCode === 'function' ? opts.agentCode() : opts.agentCode
+    const fromOptsSk =
+      typeof opts.sessionKey === 'function' ? opts.sessionKey() : opts.sessionKey
     const fromDatasetWs = root instanceof HTMLElement ? root.dataset.workspaceRoot || '' : ''
     const fromDatasetCode = root instanceof HTMLElement ? root.dataset.agentCode || '' : ''
     const workspaceRoot = String(fromOptsWs || fromDatasetWs || '').trim()
     const agentCodeBase = String(fromOptsCode || fromDatasetCode || '').trim()
+    const sessionKey = String(fromOptsSk || '').trim() || undefined
 
     const revealBtn = e.target.closest?.('[data-act="reveal-path"]')
     if (revealBtn && root.contains(revealBtn)) {
@@ -526,6 +536,7 @@ export function bindTaskOutputCardActions(root, opts = {}) {
           title: label,
           workspaceRoot,
           agentCode: String(fromCardCode || agentCodeBase || '').trim(),
+          sessionKey,
         })
       }
       return
@@ -566,6 +577,7 @@ export function bindTaskOutputCardActions(root, opts = {}) {
       content: content != null && content !== '' ? content : undefined,
       workspaceRoot,
       agentCode: String(fromCardCode || agentCodeBase || '').trim(),
+      sessionKey,
       _resolveMeta: resolveMeta,
     })
   })

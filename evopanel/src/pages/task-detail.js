@@ -44,6 +44,7 @@ import {
   bindHandlersEditor,
 } from '../lib/task-handlers.js'
 import { bindTaskOutputCardActions } from '../lib/task-output-preview.js'
+import { taskCenterStageSessionKey } from '../lib/right-stage/task-center-stage-key.js'
 import { normalizeTaskSource, formatTaskSourceZh } from '../lib/task-source.js'
 import { formatRaisedByLabel } from '../lib/task-raised-by.js'
 
@@ -387,6 +388,8 @@ export function createTaskDetailView(taskId, opts = {}) {
     },
     agentCode: () =>
       String(page.dataset.agentCode || state.task?.assigned_to || '').trim(),
+    // 必须与 TaskDetailRightStageHost 过滤键一致，否则预览标签写了但侧栏看不见
+    sessionKey: () => taskCenterStageSessionKey(taskId),
   })
 
   // Resolve employee workspace for role-sourced tasks (authoritative for preview).

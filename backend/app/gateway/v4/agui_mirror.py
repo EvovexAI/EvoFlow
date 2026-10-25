@@ -448,6 +448,19 @@ class _MirrorState:
     """本轮文件变更聚合 path → {additions, deletions}（写类工具 RESULT 时累计，
     RUN_FINISHED 时写入 turnHeader.fileChanges——ZCode 轮尾「N 个文件已更改」卡片）。"""
     user_text: str = ""
+    last_turn_id: str = ""
+    """最近一个开过的 turnId（RUN_STARTED 时记录，轮尾不清）。task_* 事件晚到时
+    subagent 行仍能挂回宿主轮，配对（parentToolCallId + turnId）不因轮已结算而断。"""
+    subagent_rows: dict[str, int] = field(default_factory=dict)
+    """task_id → subagent rowId（task_started 分配；终态 upsert 后保留，
+    防乱序迟到帧重建出重复行）。跨轮保留——task 终态可能晚于 RUN_FINISHED。"""
+    subagent_turn: dict[str, str] = field(default_factory=dict)
+    """task_id → 分配行时的 turnId（跨轮终态 upsert 时保持与宿主 toolCall 行同轮）。"""
+    subagent_meta: dict[str, dict[str, str]] = field(default_factory=dict)
+    """task_id → {subagentType, description}（task_started 记账）。
+
+    终态帧通常不带这些字段，而 v4 upsert 是整行替换——不记账会把 Agent 卡上的
+    类型徽标清成 general、摘要清空。"""
 
 
 def _running_control(
@@ -688,6 +701,7 @@ class V4Mirror:
                 self._reset_turn_ephemeral(st)
             st.run_started = True
             st.turn_id = new_turn_id
+            st.last_turn_id = new_turn_id
             st.turn_started_at_ms = now_ms
             st.turn_file_changes = {}
             rid = self._next_row_id(tid)
@@ -1060,7 +1074,110 @@ class V4Mirror:
             self._reset_turn_ephemeral(st)
             return
 
-        # 其余事件（CUSTOM 等）不投影——ACTIVITY_SNAPSHOT 已在上方处理。
+        if et == "CUSTOM":
+            self._on_custom(tid, st, ev, now_ms=now_ms)
+            return
+
+        # 其余事件不投影——ACTIVITY_SNAPSHOT / CUSTOM 已在上方处理。
+
+    # -- task_*（subagent）事件 → subagent 行 ---------------------------------
+    #
+    # ZCode 契约：subagent 镜像事件必须进事件日志——task_tool 的 task_started /
+    # task_completed / task_failed / task_timed_out / task_cancelled（CUSTOM
+    # name="custom" 捎带）在这里镜像成 kind:"subagent" 行。task_id ≡ tool_call_id
+    # （task_tool.py execute_async(task_id=tool_call_id)），即 subagentRow 的
+    # parentToolCallId；前端 pairSubagentRows 据此把行配进 Agent 工具卡。
+
+    _TASK_TERMINAL_STATUS: dict[str, str] = {
+        "task_completed": "success",
+        "task_failed": "failed",
+        "task_timed_out": "failed",
+        "task_cancelled": "cancelled",
+    }
+
+    def _on_custom(self, tid: str, st: _MirrorState, ev: dict[str, Any], *, now_ms: int) -> None:
+        name = str(ev.get("name") or "").strip()
+        value = ev.get("value")
+        if name != "custom" or not isinstance(value, dict):
+            return
+        chunk = value.get("chunk") if isinstance(value.get("chunk"), dict) else value
+        chunk_type = str(chunk.get("type") or "").strip()
+        if chunk_type == "task_started":
+            self._on_task_started(tid, st, chunk, now_ms=now_ms)
+        elif chunk_type in self._TASK_TERMINAL_STATUS:
+            self._on_task_terminal(tid, st, chunk_type, chunk, now_ms=now_ms)
+        # task_running：右栏实时输出由既有旁路（subagentTasks 注册表）承载，
+        # 摘要行不随每条心跳重绘——保持 running 状态即可。
+
+    def _on_task_started(self, tid: str, st: _MirrorState, chunk: dict[str, Any], *, now_ms: int) -> None:
+        task_id = str(chunk.get("task_id") or "").strip()
+        if not task_id:
+            return
+        rid = self._next_row_id(tid)
+        turn_id = st.turn_id or st.last_turn_id
+        subagent_type = str(chunk.get("subagent_type") or "").strip() or "general"
+        summary = str(chunk.get("description") or "").strip() or "子任务运行中"
+        st.subagent_rows[task_id] = rid
+        st.subagent_turn[task_id] = turn_id
+        st.subagent_meta[task_id] = {"subagentType": subagent_type, "description": summary[:512]}
+        self._hub.author_append_row(
+            tid,
+            {
+                "rowId": rid,
+                "turnId": turn_id,
+                "kind": "subagent",
+                "parentToolCallId": task_id,
+                "subagentType": subagent_type,
+                "status": "running",
+                "summaryText": summary[:512],
+                "createdAt": now_ms,
+                "createdAtSeq": self._seq_now(tid),
+                "startedAt": now_ms,
+            },
+        )
+
+    def _on_task_terminal(
+        self,
+        tid: str,
+        st: _MirrorState,
+        chunk_type: str,
+        chunk: dict[str, Any],
+        *,
+        now_ms: int,
+    ) -> None:
+        task_id = str(chunk.get("task_id") or "").strip()
+        if not task_id:
+            return
+        rid = st.subagent_rows.get(task_id)
+        if rid is None:
+            # task_started 漏收（进程重启/乱序丢帧）：终态直接落行，宁可状态跳变
+            # 也不让 Agent 工具卡永远停在 running。
+            rid = self._next_row_id(tid)
+            turn_id = st.turn_id or st.last_turn_id
+            st.subagent_rows[task_id] = rid
+            st.subagent_turn[task_id] = turn_id
+        else:
+            turn_id = st.subagent_turn.get(task_id) or st.turn_id or st.last_turn_id
+        status = self._TASK_TERMINAL_STATUS[chunk_type]
+        if status == "success":
+            summary = str(chunk.get("result") or "").strip()
+        else:
+            summary = str(chunk.get("error") or "").strip()
+        self._hub.author_upsert_row(
+            tid,
+            {
+                "rowId": rid,
+                "turnId": turn_id,
+                "kind": "subagent",
+                "parentToolCallId": task_id,
+                "subagentType": str(chunk.get("subagent_type") or "").strip() or "general",
+                "status": status,
+                "summaryText": (summary[:512] if summary else ""),
+                "createdAt": now_ms,
+                "createdAtSeq": self._seq_now(tid),
+                "endedAt": now_ms,
+            },
+        )
 
 
 def _get_mirror() -> V4Mirror:

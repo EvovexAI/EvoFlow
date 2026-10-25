@@ -12,6 +12,10 @@ import { useRightStageStore } from '../../lib/right-stage/use-right-stage.js'
 import { rightStageStore } from '../../lib/right-stage/right-stage-store.js'
 import { taskCenterStageSessionKey } from '../../lib/right-stage/task-center-stage-key.js'
 import {
+  getCurrentRightStageSessionKey,
+  setCurrentRightStageSessionKey,
+} from '../../lib/right-stage/right-stage-scope.js'
+import {
   openCollabSubtaskInRightStage,
   type CollabSubtaskStageOutcome,
 } from '../../lib/right-stage/open-collab-subtask-stage.js'
@@ -67,6 +71,18 @@ export function TaskDetailRightStageHost({
 
   const open = visibleTabs.length > 0 && !collapsed
   const prevTabCountRef = useRef(0)
+
+  // 任务详情页期间把「当前右栏会话」钉到 task-center:*，
+  // 这样未显式传 sessionKey 的预览入口也不会落到对话会话上。
+  useEffect(() => {
+    if (!stageSk) return
+    setCurrentRightStageSessionKey(stageSk)
+    return () => {
+      if (getCurrentRightStageSessionKey() === stageSk) {
+        setCurrentRightStageSessionKey('')
+      }
+    }
+  }, [stageSk])
 
   // 同步「详情 | 侧栏」双区壳。仅在「从无标签 → 有标签」时自动展开，
   // 勿在用户点折叠后立刻 expand（否则收起按钮看起来无效）。
@@ -174,13 +190,17 @@ export function TaskDetailRightStageHost({
       if (kind === 'file') {
         const path = String(data.path || surface.id || '').trim()
         if (!path) return null
+        const workspaceRoot = String(data.workspaceRoot || '').trim()
         return (
           <WorkspaceFilePreviewPanel
             embedded
-            workspaceRoot=""
+            workspaceRoot={workspaceRoot}
             path={path}
             name={String(data.name || surface.title || '')}
             threadId={lead || undefined}
+            workspaceScopeOpts={
+              workspaceRoot ? { configuredRoot: workspaceRoot } : undefined
+            }
             poll={!!data.poll}
             onClose={() => rightStageStore.closeTab(`file:${path.replace(/\\/g, '/')}`)}
           />

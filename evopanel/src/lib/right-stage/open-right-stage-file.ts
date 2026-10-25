@@ -119,6 +119,8 @@ export function showRightStageCodeViewers(
 export type OpenRightStageFilePreviewOpts = {
   sessionKey?: string | null
   name?: string
+  /** 任务中心 / 员工页预览时带上，避免宿主读文件时 workspaceRoot 为空。 */
+  workspaceRoot?: string | null
   poll?: boolean
   focusLine?: number
   focusEndLine?: number
@@ -135,12 +137,14 @@ export function showRightStageFilePreview(
   const name = String(opts?.name || '').trim() || basename(id)
   const key = `file:${id}`
   const sessionKey = String(opts?.sessionKey || '').trim() || undefined
+  const workspaceRoot = String(opts?.workspaceRoot || '').trim() || undefined
   const layout = opts?.layout || 'half'
   logPanelSet('③ showRightStageFilePreview → store.show', {
     path: id,
     name,
     key,
     sessionKey: sessionKey || '(空)',
+    workspaceRoot: workspaceRoot || '(空)',
     layout,
   })
   rightStageStore.show({
@@ -152,6 +156,7 @@ export function showRightStageFilePreview(
     data: {
       path: id,
       name,
+      ...(workspaceRoot ? { workspaceRoot } : {}),
       poll: !!opts?.poll,
       focusLine: opts?.focusLine,
       focusEndLine: opts?.focusEndLine,

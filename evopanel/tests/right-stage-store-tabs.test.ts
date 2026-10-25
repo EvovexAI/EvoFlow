@@ -152,6 +152,22 @@ describe('open-right-stage-file (side pane, not fullscreen modal)', () => {
     expect(snap.tabs[0]?.layout).toBe('half')
   })
 
+  it('task-center file preview keeps task-center sessionKey and workspaceRoot', () => {
+    const key = showRightStageFilePreview(
+      'D:/dev/github/EvoFlow/backend/outputs/report.md',
+      {
+        name: 'report.md',
+        sessionKey: 'task-center:task-1',
+        workspaceRoot: 'D:/dev/github/EvoFlow/backend/outputs',
+      },
+    )
+    const snap = rightStageStore.getSnapshot()
+    expect(key).toBe('file:D:/dev/github/EvoFlow/backend/outputs/report.md')
+    expect(snap.tabs[0]?.sessionKey).toBe('task-center:task-1')
+    expect(snap.tabs[0]?.data?.workspaceRoot).toBe('D:/dev/github/EvoFlow/backend/outputs')
+    expect(snap.collapsed).toBe(false)
+  })
+
   it('markdown file link maps to codeViewer source', () => {
     showRightStageFromFileLink(
       { path: 'D:/proj/readme.md', label: 'readme.md', workspacePath: 'D:/proj' },

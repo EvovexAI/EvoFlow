@@ -45,12 +45,11 @@ const SOURCE_TABS = [
   { key: 'workflow', label: '工作流', hint: '工作流调试/正式/定时触发的运行（一次运行一条）' },
 ]
 
-/** 来源筛选器（含自动化＝定时工作流） */
+/** 来源/类型筛选器（与 task-source 三档一致；自动化是触发渠道，不是类型） */
 const SOURCE_FILTER_OPTIONS = [
   { key: 'chat', label: '对话' },
   { key: 'role', label: '智能体员工' },
   { key: 'workflow', label: '工作流' },
-  { key: 'automation', label: '自动化' },
 ]
 
 /** 顶部主标签：状态概览（与首页 KPI URL 对齐） */
@@ -164,7 +163,8 @@ function readTasksQueryFromHash() {
     const dateRaw = String(sp.get('date') || '').trim()
     const newRaw = String(sp.get('new') || '').trim().toLowerCase()
     const out = {}
-    if (source === 'chat' || source === 'role' || source === 'workflow' || source === 'automation') out.source = source
+    // 旧 URL ?source=automation 已废弃（自动化不是类型），忽略
+    if (source === 'chat' || source === 'role' || source === 'workflow') out.source = source
     if (agent.startsWith('role:') || agent.startsWith('agent:')) out.agent = agent
     const statusKeys = new Set(STATUS_GROUPS.map((g) => g.key))
     const mapped = STATUS_QUERY_ALIASES[statusRaw] || statusRaw
@@ -204,7 +204,7 @@ function writeTasksQueryToHash(state) {
     } else if (state.dateFilter && /^\d{4}-\d{2}-\d{2}$/.test(state.dateFilter)) {
       qs.set('date', state.dateFilter)
     }
-    if (state.sourceFilter === 'chat' || state.sourceFilter === 'role' || state.sourceFilter === 'workflow' || state.sourceFilter === 'automation') {
+    if (state.sourceFilter === 'chat' || state.sourceFilter === 'role' || state.sourceFilter === 'workflow') {
       qs.set('source', state.sourceFilter)
     }
     if (state.agentFilter) qs.set('agent', state.agentFilter)
@@ -245,7 +245,9 @@ function applyTasksQueryToState(state, query) {
 
   state.statusFilter = query.status || null
   state._statusQueryAlias = query.statusQuery || null
-  state.sourceFilter = query.source || null
+  // 旧书签 ?source=automation 已废弃
+  const src = query.source || null
+  state.sourceFilter = src === 'automation' ? null : src
 
   if (query.agent) {
     state.agentFilter = query.agent
@@ -320,7 +322,6 @@ export async function render() {
             <option value="chat">对话</option>
             <option value="role">智能体员工</option>
             <option value="workflow">工作流</option>
-            <option value="automation">自动化</option>
           </select>
         </label>
         <label class="tasks-filter-field tasks-filter-field--checkbox" title="默认隐藏员工心跳产生的【巡检】记录">
@@ -1155,11 +1156,30 @@ function resolveTaskInvokerLabel(task, state) {
   return ''
 }
 
+/** 自动化规则显示名（定时触发的任务，责任人=自动化本身） */
+function resolveAutomationLabel(task, state) {
+  const name = String(task?.automation_name || task?.automationName || '').trim()
+  if (name) return name
+  const id = String(task?.automation_id || task?.automationId || '').trim()
+  if (id) {
+    const hit = (state?.upcomingAutomations || []).find((a) => String(a?.id || '') === id)
+    const fromList = String(hit?.name || '').trim()
+    if (fromList) return fromList
+  }
+  return id ? `自动化 · ${id}` : '自动化'
+}
+
 /**
- * 责任人：工作流优先显示调用人；其它任务优先派发执行人 / 岗位。
+ * 责任人：
+ * - 自动化触发（含员工/工作流）→ 自动化名称
+ * - 工作流 → 调用人
+ * - 其它 → 派发执行人 / 岗位
  */
 function resolveTaskOwnerLabel(task, state) {
-  if (isWorkflowTask(task) || isAutomationTask(task)) {
+  if (isAutomationTask(task)) {
+    return resolveAutomationLabel(task, state)
+  }
+  if (isWorkflowTask(task)) {
     return resolveTaskInvokerLabel(task, state)
       || resolveTaskAgentLabel(task, state)
       || resolveTaskRoleLabel(task, state)
@@ -1870,7 +1890,7 @@ function renderActiveFilterBar(page, state) {
   chipsEl.innerHTML = chips.map((c) => `<span class="tasks-active-chip">${escapeHtml(c)}</span>`).join('')
 }
 
-/** 来源筛选键：自动化＝定时触发 / 带 automation 溯源 */
+/** 是否由自动化触发（渠道标记；类型仍归对话/员工/工作流） */
 function isAutomationTask(task) {
   if (!task || typeof task !== 'object') return false
   if (resolveTaskRunKind(task) === 'scheduled') return true
@@ -1883,8 +1903,8 @@ function isAutomationTask(task) {
   return raw === 'automation' || raw === 'evoflow_automation'
 }
 
+/** 来源/类型筛选键：仅 chat / role / workflow（自动化触发的任务按底层类型归类） */
 function resolveSourceFilterKey(task) {
-  if (isAutomationTask(task)) return 'automation'
   return resolveTaskSourceKey(task)
 }
 
@@ -1963,10 +1983,6 @@ function taskDisplayName(task) {
 }
 
 function taskTypeLabel(taskOrSource) {
-  if (taskOrSource && typeof taskOrSource === 'object' && isAutomationTask(taskOrSource)) {
-    const app = taskAppId(taskOrSource)
-    return app ? '自动化 · 工作流' : '自动化 · 提示词'
-  }
   if (taskOrSource && typeof taskOrSource === 'object' && isWorkflowTask(taskOrSource)) {
     // 任务中心类型列不展示「调试/正式」——那是内部 run_kind，不是用户面类型
     return '工作流'
@@ -1981,17 +1997,13 @@ function taskTypeLabel(taskOrSource) {
     || '—'
 }
 
-/** 类型列：对话 / 员工 / 工作流 / 自动化（不展示调试标签） */
+/** 类型列：对话 / 智能体员工 / 工作流（自动化是触发渠道，写在责任人） */
 function renderTypeCell(task) {
-  if (isAutomationTask(task)) {
-    const sub = taskAppId(task) ? '工作流' : '提示词'
-    return `<span class="tl-type-tags" title="自动化 · ${escapeHtml(sub)}"><span class="tl-tag tl-tag--automation">自动化</span><span class="tl-tag tl-tag--${taskAppId(task) ? 'scheduled' : 'prompt'}">${escapeHtml(sub)}</span></span>`
-  }
-  if (!isWorkflowTask(task)) {
-    const label = taskTypeLabel(task)
-    return `<span class="tl-type" title="${escapeHtml(label)}">${escapeHtml(label)}</span>`
-  }
-  return `<span class="tl-type" title="工作流">工作流</span>`
+  const label = taskTypeLabel(task)
+  const title = isAutomationTask(task)
+    ? `${label}（由自动化触发）`
+    : label
+  return `<span class="tl-type" title="${escapeHtml(title)}">${escapeHtml(label)}</span>`
 }
 
 /** 名称下方辅行：触发方式 / 当前节点 / 失败节点 / 参数数量 */
@@ -2797,7 +2809,8 @@ function attachTaskEvents(page, state) {
       e.preventDefault()
       e.stopPropagation()
       const auto = (state.upcomingAutomations || []).find((a) => String(a.id) === String(id))
-      state.sourceFilter = 'automation'
+      // 按自动化名称搜相关任务；类型仍是对话/员工/工作流，不再筛「自动化」
+      state.sourceFilter = null
       state.page = 1
       state.filter = String(auto?.name || id || '').trim()
       const search = page.querySelector('#tasks-search')
