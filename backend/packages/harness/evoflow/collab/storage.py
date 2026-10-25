@@ -193,8 +193,11 @@ class ProjectStorage:
 
         with self._lock:
             try:
+                # E-1: remember the loaded updated_at so save_task_bundle can
+                # detect cross-process stale-write overwrites before rewriting.
+                loaded_updated_at = str(project_data.get("updated_at") or "").strip() or None
                 project_data["updated_at"] = utc_now_iso_z()
-                repo.save_task_bundle(str(project_id), project_data)
+                repo.save_task_bundle(str(project_id), project_data, loaded_updated_at=loaded_updated_at)
                 self._project_cache[str(project_id)] = project_data
                 import time
 
@@ -450,6 +453,77 @@ def find_subtask_by_ids(
     return None
 
 
+def _try_hot_patch_subtask(
+    storage: ProjectStorage,
+    mid: str,
+    sid: str,
+    updates: dict[str, Any],
+    *,
+    allow_terminal_status_downgrade: bool,
+) -> bool:
+    """E-1 fast path: hot-field-only patches as a single-row SQL UPDATE.
+
+    Progress/status/error ticks are the most frequent subtask writes; running
+    them through the whole-bundle delete+reinsert is what cross-process lost
+    updates feed on. Keeps the state-machine guard and the lifecycle trace;
+    patches the in-process bundle cache in place so readers stay coherent.
+    Returns False when the patch is not hot-field-only (caller falls back to
+    the bundle save).
+    """
+    from evoflow.collab.subtask_state_machine import filter_status_from_updates
+    from evoflow.persistence import task_repositories as task_repo
+
+    if not mid or not sid or not updates:
+        return False
+    if not set(updates).issubset({"status", "progress", "error_text", "error", "updated_at"}):
+        return False
+
+    old_status = task_repo.get_subtask_row_status(mid, sid)
+    if old_status is None:
+        return False
+    applied = filter_status_from_updates(
+        old_status,
+        updates,
+        allow_terminal_downgrade=allow_terminal_status_downgrade,
+        log_context=f"main={mid} sub={sid} (hot)",
+    )
+    if not applied:
+        return True  # no-op — same semantics as the bundle path
+    if not task_repo.patch_subtask_hot_fields(mid, sid, applied):
+        return False
+
+    with storage._lock:
+        cached = storage._project_cache.get(mid)
+        if isinstance(cached, dict) and cached.get("tasks"):
+            for st in cached["tasks"][0].get("subtasks") or []:
+                if isinstance(st, dict) and str(st.get("id") or "").strip() == sid:
+                    for key, value in applied.items():
+                        st[key] = value
+                    st["updated_at"] = applied.get("updated_at") or utc_now_iso_z()
+                    break
+
+    new_status = str(applied.get("status") or old_status).strip().lower()
+    if old_status != new_status:
+        try:
+            from evoflow.debug.task_lifecycle_trace import write_task_lifecycle_trace
+
+            write_task_lifecycle_trace(
+                thread_id=task_repo.get_main_thread_id(mid),
+                event="subtask_status_changed",
+                main_task_id=mid,
+                subtask_id=sid,
+                status=new_status or None,
+                detail={
+                    "from": old_status or None,
+                    "to": new_status or None,
+                    "source": "patch_collab_subtask_hot",
+                },
+            )
+        except Exception:
+            logger.debug("hot patch lifecycle trace failed main=%s sub=%s", mid, sid, exc_info=True)
+    return True
+
+
 def patch_collab_subtask_in_project_storage(
     storage: ProjectStorage,
     main_task_id: str,
@@ -463,11 +537,25 @@ def patch_collab_subtask_in_project_storage(
     By default refuses to move a terminal subtask back to an active status (the
     classic peer-wake / late task_start bug). Explicit retries should mutate via
     ``save_project`` or pass ``allow_terminal_status_downgrade=True``.
+
+    Hot-field-only patches (status/progress/error/updated_at) take the row-level
+    fast path (E-1); everything else rewrites the bundle as before.
     """
     from evoflow.collab.subtask_state_machine import filter_status_from_updates
 
     mid = str(main_task_id or "").strip()
     with main_task_mutation_lock(mid):
+        try:
+            if _try_hot_patch_subtask(
+                storage,
+                mid,
+                str(subtask_id or "").strip(),
+                updates,
+                allow_terminal_status_downgrade=allow_terminal_status_downgrade,
+            ):
+                return True
+        except Exception:
+            logger.debug("hot patch path failed; falling back to bundle save main=%s", mid, exc_info=True)
         found = find_main_task(storage, mid, bypass_cache=True)
         if not found:
             return False

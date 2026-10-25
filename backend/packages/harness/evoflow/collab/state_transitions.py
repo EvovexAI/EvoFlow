@@ -221,7 +221,11 @@ def execute_transition_hooks(from_status: TaskStatus, to_status: TaskStatus, con
                 hook(context)
             except Exception as e:
                 # Log error but don't fail the transition
-                print(f"Hook error for transition {from_status} -> {to_status}: {e}")
+                import logging
+
+                logging.getLogger(__name__).warning(
+                    "transition hook failed %s -> %s: %s", from_status, to_status, e
+                )
 
 
 # ============================================================================

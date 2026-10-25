@@ -11,7 +11,6 @@ from pydantic import BaseModel, Field
 
 from app.gateway.deps.license import require_premium
 from evoflow.collab.app_runner import (
-    cancel_run,
     get_run_status,
     pause_run,
     resume_run,
@@ -514,8 +513,10 @@ async def run_app_endpoint(http_request: Request, app_id: str, request: RunAppRe
         except Exception:
             set_current_principal_id("")
         invoker = resolve_invoker_stamp()
-        # run_app() dispatches workflow tasks synchronously (apply_workflow_dispatch).
-        return await asyncio.to_thread(
+        # E-5: setup (bundle create + subtask sync + authorize) runs in a worker
+        # thread; the wave-1 DAG dispatch is awaited on the gateway event loop
+        # instead of spinning a throwaway asyncio.run loop inside the thread.
+        result = await asyncio.to_thread(
             run_app,
             app_id=app_id,
             parameters=request.parameters,
@@ -527,7 +528,13 @@ async def run_app_endpoint(http_request: Request, app_id: str, request: RunAppRe
             created_by=invoker.get("created_by"),
             principal_id=invoker.get("principal_id"),
             operator_label=invoker.get("operator_label"),
+            defer_dispatch=True,
         )
+        if isinstance(result, dict) and str(result.get("execution_mode") or "") == "workflow":
+            from evoflow.collab.app_runner import apply_workflow_dispatch_async
+
+            result = await apply_workflow_dispatch_async(result)
+        return result
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
@@ -609,9 +616,16 @@ def get_run_status_endpoint(run_id: str) -> dict[str, Any]:
 
 
 @router.post("/runs/{run_id}/cancel")
-def cancel_run_endpoint(run_id: str, reason: str = "User cancelled") -> dict[str, bool]:
-    """Cancel a running application instance (cancels its bound task too)."""
-    success = cancel_run(run_id, reason)
+async def cancel_run_endpoint(run_id: str, reason: str = "User cancelled") -> dict[str, bool]:
+    """Cancel a running application instance (deep cancel, E-2).
+
+    Same depth as Task Center cancel: status flip + authorization revoke +
+    cooperative flags + stream worker / LangGraph run / supervisor monitor
+    interrupts — not just the status-field flip of the old ``cancel_run``.
+    """
+    from app.gateway.task_cancel_support import cancel_app_run_deep
+
+    success = await cancel_app_run_deep(run_id, reason)
     if not success:
         raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
     return {"success": success}

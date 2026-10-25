@@ -173,6 +173,46 @@ def apply_workflow_dispatch(
     return merged
 
 
+async def apply_workflow_dispatch_async(
+    result: dict[str, Any],
+    *,
+    authorized_by: str | None = None,
+) -> dict[str, Any]:
+    """Async twin of :func:`apply_workflow_dispatch` — dispatch on the caller's loop.
+
+    E-5 (workflow-audit-roadmap): the HTTP run path calls ``run_app`` with
+    ``defer_dispatch=True`` inside ``asyncio.to_thread`` (setup only), then
+    awaits this coroutine on the gateway event loop. Wave-1 dispatch no longer
+    spins a throwaway ``asyncio.run`` loop per request; the sync twin remains
+    for CLI / platform-tool callers that have no loop.
+    """
+    if str(result.get("execution_mode") or "") != "workflow":
+        return result
+    task_id = str(result.get("task_id") or "").strip()
+    if not task_id:
+        return result
+
+    auth = str(authorized_by or result.get("deferred_dispatch_authorized_by") or "api").strip() or "api"
+
+    existing = result.get("dispatch")
+    if isinstance(existing, dict) and _dispatch_result_ok(existing):
+        merged = dict(result)
+        if str(result.get("status") or "").strip().lower() == "planned":
+            merged["status"] = "executing"
+        merged.pop("deferred_dispatch_authorized_by", None)
+        return merged
+
+    dispatch = await dispatch_workflow_task_now(task_id, authorized_by=auth)
+    merged = {**result, "dispatch": dispatch}
+    merged.pop("deferred_dispatch_authorized_by", None)
+    if _dispatch_result_ok(dispatch):
+        merged["status"] = "executing"
+    else:
+        run_id = str(result.get("run_id") or "").strip()
+        _schedule_workflow_dispatch(task_id, run_id)
+    return merged
+
+
 def _persist_workflow_dispatch_outcome(
     task_id: str,
     parsed: dict[str, Any] | None,
@@ -671,6 +711,48 @@ def _heal_run_invariant(
     return run_st
 
 
+def _project_run_status_readonly(
+    run: dict[str, Any],
+    *,
+    task_status: str,
+    progress: int,
+    subtasks: list[Any] | None,
+) -> str:
+    """Read-only projection of run status from main-task reality (no DB writes).
+
+    Mirrors the decisions of ``_sync_run_from_task`` + ``_heal_run_invariant``
+    for display only: invariant violations are logged (observability), actual
+    healing belongs to the write path (``app_run_events``) and the reconciler.
+    """
+    run_id = str(run.get("id") or "").strip()
+    run_st = str(run.get("status") or "").strip().lower()
+    task_st = str(task_status or "").strip().lower()
+    subs = [s for s in (subtasks or []) if isinstance(s, dict)]
+    violations: list[str] = []
+    if task_st in _RUN_TERMINAL and run_st not in _RUN_TERMINAL:
+        violations.append("task_terminal_run_active")
+    if (
+        not subs
+        and task_st in {"pending", "queued"}
+        and run_st in {"executing", "running"}
+        and int(run.get("progress") or 0) > 0
+    ):
+        violations.append("empty_subs_stale_progress")
+    if violations:
+        logger.warning(
+            "run.invariant_violation run_id=%s task_status=%s run_status=%s violations=%s "
+            "(read-only projection; reconciler owns healing)",
+            run_id,
+            task_st,
+            run_st,
+            violations,
+        )
+    if "empty_subs_stale_progress" in violations:
+        return "running"
+    mapped = _TASK_STATUS_TO_RUN.get(task_st)
+    return mapped or run_st or "running"
+
+
 # ────────────────────────────────── Lead Supervised Mode ─────────────────────────────────
 
 
@@ -1008,6 +1090,7 @@ def run_app(
     created_by: str | None = None,
     principal_id: str | None = None,
     operator_label: str | None = None,
+    defer_dispatch: bool = False,
 ) -> dict[str, Any]:
     """Unified entry point for running an application.
 
@@ -1021,6 +1104,9 @@ def run_app(
         run_kind: ``debug`` | ``production`` | ``scheduled`` (defaults by channel)
         trigger_kind: ``manual`` | ``api`` | ``schedule`` …
         raised_by / created_by / principal_id / operator_label: invoker for「责任人」.
+        defer_dispatch: workflow mode only — skip wave-1 dispatch here and stash
+            ``deferred_dispatch_authorized_by`` on the result; the async caller
+            then awaits :func:`apply_workflow_dispatch_async` on its own loop (E-5).
 
     Returns:
         Run result dict with run_id, task_id, status, etc.
@@ -1076,6 +1162,11 @@ def run_app(
         auth = str(trigger or "manual").strip().lower() or "api"
         if auth in {"manual", "schedule", "scheduled", "cron"}:
             auth = "api"
+        if defer_dispatch:
+            # E-5: async caller dispatches on its own event loop; stash the
+            # resolved authorizer so it doesn't have to re-derive it.
+            result["deferred_dispatch_authorized_by"] = auth
+            return result
         return apply_workflow_dispatch(result, authorized_by=auth)
     else:
         raise ValueError(f"Unknown execution_mode: {mode} (expected 'workflow' or 'lead_supervised')")
@@ -1165,9 +1256,15 @@ def get_run_status(run_id: str) -> dict[str, Any] | None:
                     from evoflow.collab.storage import get_project_storage
                     from evoflow.collab.task_progress import sync_main_task_from_subtasks
 
-                    sync_main_task_from_subtasks(get_project_storage(), str(task_id))
+                    # Read-path projection (D-3): in-memory rollup only — write path
+                    # (app_run_events) + 45s reconciler own run-state persistence.
+                    sync_main_task_from_subtasks(get_project_storage(), str(task_id), persist=False)
                 except Exception:
-                    pass
+                    logger.warning(
+                        "get_run_status: in-memory rollup failed task_id=%s",
+                        task_id,
+                        exc_info=True,
+                    )
 
             bundle = load_task_bundle(task_id)
             if bundle and bundle.get("tasks"):
@@ -1203,10 +1300,13 @@ def get_run_status(run_id: str) -> dict[str, Any] | None:
                         if sid:
                             step_ref_to_subtask_id[ref] = sid
                     result_text = _subtask_result_text(st)
-                    # Soft dependency waits use auto_blocked:/dispatch_block_reason — not real
-                    # step failures. Hide them from the workflow "错误" panel.
+                    # E-4: classify by error_kind (prefix sniffing as fallback) — soft
+                    # dependency waits and reconciler bookkeeping are not step failures.
+                    from evoflow.collab.error_kinds import NON_USER_FACING_KINDS, resolve_error_kind
+
+                    error_kind = resolve_error_kind(st)
                     raw_err = str(st.get("error_text") or st.get("error") or "").strip()
-                    error_text = "" if raw_err.startswith("auto_blocked:") else raw_err
+                    error_text = "" if error_kind in NON_USER_FACING_KINDS else raw_err
                     wp = st.get("worker_profile") if isinstance(st.get("worker_profile"), dict) else {}
                     assigned_agent = str(st.get("assigned_agent") or st.get("assigned_to") or wp.get("base_subagent") or st.get("agent_id") or "")
                     step_outputs = task_outputs_of(st)
@@ -1224,6 +1324,7 @@ def get_run_status(run_id: str) -> dict[str, Any] | None:
                             "progress": int(st.get("progress") or 0),
                             "result_summary": result_text[:4000],
                             "error_text": error_text[:2000],
+                            "error_kind": error_kind,
                             "started_at": st.get("started_at"),
                             "completed_at": st.get("completed_at"),
                             "subtask_thread_id": str(st.get("subtask_thread_id") or st.get("thread_id") or "").strip(),
@@ -1253,18 +1354,19 @@ def get_run_status(run_id: str) -> dict[str, Any] | None:
                     main_outputs = list(preferred["outputs"])
                     main_evidence = evidence_paths_from_outputs(main_outputs)
         except Exception:
-            pass
+            logger.warning(
+                "get_run_status: task bundle projection failed task_id=%s",
+                task_id,
+                exc_info=True,
+            )
 
-    status = _sync_run_from_task(run, task_status=str(task_status), progress=int(progress or 0))
-    try:
-        status = _heal_run_invariant(
-            run,
-            task_status=str(task_status),
-            progress=int(progress or 0),
-            subtasks=main_subtasks,
-        ) or status
-    except Exception:
-        logger.debug("run invariant heal skipped run_id=%s", run.get("id"), exc_info=True)
+    # D-3: pure read — status projection only, healing belongs to write path / reconciler.
+    status = _project_run_status_readonly(
+        run,
+        task_status=str(task_status),
+        progress=int(progress or 0),
+        subtasks=main_subtasks,
+    )
     # App runs: completed → always expose 100 to UI
     if status == "completed":
         progress = 100
@@ -1283,7 +1385,7 @@ def get_run_status(run_id: str) -> dict[str, Any] | None:
                     app_row = load_app_for_run(str(run.get("app_id")), pinned_version=int(pin))
                 answer_from_ref = str(app_row.get("answer_from_ref") or "").strip()
         except Exception:
-            pass
+            logger.debug("get_run_status: answer_from_ref fallback lookup failed run_id=%s", run_id, exc_info=True)
 
     # OpenAPI / 面板统一答案：有 answer 节点则优先；否则终态补写最后成功步
     terminal = {"completed", "failed", "error", "cancelled", "canceled"}
@@ -1303,11 +1405,8 @@ def get_run_status(run_id: str) -> dict[str, Any] | None:
             if answer_from_ref or not str(result_summary or "").strip():
                 result_summary = synthesized
 
-    if result_summary and result_summary != run.get("result_summary"):
-        try:
-            app_repositories.update_run_status(run_id, status, progress=int(progress or 0), result_summary=result_summary)
-        except Exception:
-            pass
+    # D-3: synthesized summary stays in this response only; persisting it is the
+    # write path's job (write-path sync / reconciler), not a GET poll's.
 
     return {
         "run_id": run_id,
@@ -1363,6 +1462,7 @@ def cancel_run(run_id: str, reason: str = "User cancelled") -> bool:
             if st_status not in _terminal:
                 st["status"] = "cancelled"
                 st["error_text"] = "Parent task cancelled"
+                st["error_kind"] = "cancelled"
 
     task_id = run.get("task_id")
     if task_id:
@@ -1375,7 +1475,7 @@ def cancel_run(run_id: str, reason: str = "User cancelled") -> bool:
                 _cancel_open_subtasks(main_task.get("subtasks") or [])
                 save_task_bundle(task_id, bundle)
         except Exception:
-            pass
+            logger.warning("cancel_run: task bundle update failed task_id=%s", task_id, exc_info=True)
         # Project storage is the workflow SSOT for Panel / DAG / eval reads
         try:
             from evoflow.collab.storage import find_main_task, get_project_storage
@@ -1389,7 +1489,7 @@ def cancel_run(run_id: str, reason: str = "User cancelled") -> bool:
                 _cancel_open_subtasks(main_task.get("subtasks") or [])
                 storage.save_project(project)
         except Exception:
-            pass
+            logger.warning("cancel_run: project storage update failed task_id=%s", task_id, exc_info=True)
 
     # Update run record — cancel reason belongs in result_summary, not error (CORE-WF-07).
     app_repositories.update_run_status(
@@ -1427,7 +1527,7 @@ def pause_run(run_id: str, reason: str = "User paused") -> bool:
                             st["status"] = "paused"
                 save_task_bundle(task_id, bundle)
         except Exception:
-            pass
+            logger.warning("pause_run: task bundle update failed task_id=%s", task_id, exc_info=True)
 
     app_repositories.update_run_status(run_id, "paused")
     return True
@@ -1464,12 +1564,18 @@ def resume_run(run_id: str) -> bool:
                         continue
                     from evoflow.collab.subtask_state_machine import advance_subtask_row_status
 
-                    ok_adv, _ = advance_subtask_row_status(
+                    ok_adv, why_bypassed = advance_subtask_row_status(
                         row,
                         "pending",
                         allow_terminal_downgrade=False,
                     )
                     if not ok_adv:
+                        # P1-5: forced bypass of the state machine — logged, not silent.
+                        logger.warning(
+                            "resume_run: subtask status advance rejected (%s); forcing pending subtask=%s",
+                            why_bypassed,
+                            row.get("id"),
+                        )
                         row["status"] = "pending"
                 save_task_bundle(task_id, bundle)
                 try:
@@ -1479,7 +1585,7 @@ def resume_run(run_id: str) -> bool:
                 except Exception:
                     logger.debug("resume_run: emit_app_run failed run_id=%s", run_id, exc_info=True)
         except Exception:
-            pass
+            logger.warning("resume_run: task bundle update failed task_id=%s", task_id, exc_info=True)
 
     app_repositories.update_run_status(run_id, "running")
 

@@ -461,104 +461,15 @@ def _message_dedupe_key(msg: dict[str, Any]) -> str:
     return f"fp:{role}|{content}|{tool_calls_norm}"
 
 
-def _publish_task_cancel_event(
-    task_id: str,
-    project_id: str,
-    subtask_ids: list[str],
-    reason: str,
-    cancelled_by: str = "user",
-) -> None:
-    """Publish cooperative-cancellation event for running subtasks."""
-    if not subtask_ids:
-        return
-    event = TaskCancelEvent(
-        task_id=task_id,
-        project_id=project_id,
-        subtask_ids=subtask_ids,
-        cancelled_by=cancelled_by,
-        reason=reason,
-        timestamp=datetime.now(UTC),
-    )
-    event_queue.publish("task_cancelled", event)
-
-
-def _collect_running_subtask_ids(task: dict[str, Any]) -> list[str]:
-    running_subtask_ids: list[str] = []
-    for subtask in task.get("subtasks") or []:
-        sid = str(subtask.get("id") or "").strip()
-        sst = str(subtask.get("status") or "").strip().lower()
-        if sid and sst in ("executing", "planning", "pending", "running", "in_progress", "active"):
-            running_subtask_ids.append(sid)
-    return running_subtask_ids
-
-
-async def _cancel_plan_worker(thread_id: str | None) -> None:
-    """Cancel background stream worker AND LangGraph server-side runs for a thread.
-
-    Previously this only cancelled the local asyncio stream reader, leaving the
-    LangGraph server-side run alive. The Lead Agent continued executing and could
-    overwrite task status, causing the "cancel doesn't work" bug.
-    """
-    tid = str(thread_id or "").strip()
-    if not tid:
-        return
-    # 1. Cancel local StreamBackgroundWorker (stops reading the stream).
-    try:
-        from app.gateway.streaming.background_worker import StreamBackgroundWorker
-
-        worker = StreamBackgroundWorker._workers.get(tid)
-        if worker and worker.is_running():
-            await worker.cancel()
-    except Exception as e:
-        logger.warning("Failed to cancel background worker for thread %s: %s", tid, e)
-    # 2. Cancel LangGraph server-side runs (stop the actual Lead Agent execution).
-    try:
-        from langgraph_sdk import get_client
-
-        langgraph_url = os.getenv("EVOFLOW_LANGGRAPH_URL", "http://127.0.0.1:8070/api/langgraph").strip()
-        client = get_client(url=langgraph_url)
-        runs = await client.runs.list(thread_id=tid, limit=20)
-        for run in runs:
-            run_id = str(run.get("run_id") or run.get("id") or "").strip()
-            status = str(run.get("status") or "").strip().lower()
-            if run_id and status in ("pending", "running"):
-                try:
-                    await client.runs.cancel(thread_id=tid, run_id=run_id)
-                    logger.info("Cancelled LangGraph run %s on thread %s", run_id, tid)
-                except Exception as e:
-                    logger.debug("Failed to cancel run %s on thread %s: %s", run_id, tid, e)
-    except Exception as e:
-        logger.warning("Failed to cancel LangGraph runs for thread %s: %s", tid, e)
-
-
-async def _cancel_supervisor_monitor(task_id: str) -> None:
-    """Cancel the supervisor background monitor asyncio task for a task.
-
-    The background monitor (_ensure_background_task_monitor) runs a 3-second poll
-    loop that triggers _trigger_lead_follow_run -> new LangGraph runs. If not
-    cancelled here, the monitor keeps spawning Lead Agent runs even after the user
-    cancelled the task, causing the "supervisor keeps calling monitor" death loop.
-    """
-    tid = str(task_id or "").strip()
-    if not tid:
-        return
-    try:
-        from evoflow.tools.builtins.supervisor.monitor import (
-            _bg_task_monitors,
-            _cleanup_monitor_state_for_task,
-        )
-
-        monitor_task = _bg_task_monitors.pop(tid, None)
-        if monitor_task and not monitor_task.done():
-            monitor_task.cancel()
-            try:
-                await monitor_task
-            except BaseException:
-                pass
-            logger.info("Cancelled supervisor background monitor for task %s", tid)
-        _cleanup_monitor_state_for_task(tid)
-    except Exception as e:
-        logger.debug("Failed to cancel supervisor monitor for task %s: %s", tid, e)
+# Cancel helpers moved to the shared module (E-2) so App-run cancel reaches the
+# same depth as Task Center cancel. Names are re-exported for local callers.
+from app.gateway.task_cancel_support import (  # noqa: E402
+    _cancel_plan_worker,
+    _cancel_supervisor_monitor,
+    _collect_running_subtask_ids,
+    _publish_task_cancel_event,
+    cancel_app_run_deep,
+)
 
 
 async def _pause_task_row(project: dict[str, Any], task: dict[str, Any], task_index: int) -> tuple[bool, str | None]:

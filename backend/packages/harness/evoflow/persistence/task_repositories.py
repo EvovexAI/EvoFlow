@@ -46,14 +46,44 @@ def _ensure_plan_columns_compat(conn: Any) -> None:
     return
 
 
-def save_task_bundle(main_task_id: str, document: dict[str, Any]) -> None:
+def save_task_bundle(main_task_id: str, document: dict[str, Any], *, loaded_updated_at: str | None = None) -> None:
+    """Persist a whole task bundle (delete children + reinsert).
+
+    E-1 (workflow-audit-roadmap): ``loaded_updated_at`` is the bundle's
+    ``updated_at`` as the caller saw it at load time. When the root row has
+    moved on since then, another process wrote in between and this rewrite
+    will clobber it — detected conflicts are logged
+    (``task_bundle.stale_write_overwrite``), not rejected; hard CAS is the
+    follow-up once hot writers are on the row-level patch path.
+    """
+    import logging
+
     from evoflow.persistence.db import run_db_with_retry
+
+    logger = logging.getLogger(__name__)
 
     def _do_save() -> None:
         conn = get_db()
         _ensure_plan_columns_compat(conn)
         now = utc_now_iso_z()
         mid = str(main_task_id or "").strip()
+        try:
+            row_ts = conn.execute(
+                "SELECT updated_at FROM evoflow_collab_tasks WHERE main_task_id = ? AND task_id = main_task_id LIMIT 1",
+                (mid,),
+            ).fetchone()
+            db_ts = str(row_ts[0] or "").strip() if row_ts else ""
+            seen_ts = str(loaded_updated_at or "").strip()
+            if db_ts and seen_ts and db_ts != seen_ts:
+                logger.warning(
+                    "task_bundle.stale_write_overwrite main=%s db_updated_at=%s loaded_updated_at=%s "
+                    "(another writer persisted between load and save; this rewrite may drop its changes)",
+                    mid,
+                    db_ts,
+                    seen_ts,
+                )
+        except Exception:
+            pass
         # Preserve ACL across REPLACE (delete+insert clears columns).
         prev_owner: tuple[str | None, str | None, str | None] = (None, None, None)
         try:
@@ -266,6 +296,89 @@ def save_task_bundle(main_task_id: str, document: dict[str, Any]) -> None:
         conn.commit()
 
     run_db_with_retry(_do_save)
+
+
+_HOT_PATCH_COLUMNS = frozenset({"status", "progress", "error_text", "error", "updated_at"})
+
+
+def get_subtask_row_status(main_task_id: str, subtask_id: str) -> str | None:
+    """Cheap current-status read for one subtask row (state-machine guard)."""
+    conn = get_db()
+    row = conn.execute(
+        "SELECT status FROM evoflow_collab_subtasks WHERE main_task_id = ? AND subtask_id = ? LIMIT 1",
+        (str(main_task_id or "").strip(), str(subtask_id or "").strip()),
+    ).fetchone()
+    if row is None:
+        return None
+    return str(row[0] or "").strip()
+
+
+def get_main_thread_id(main_task_id: str) -> str | None:
+    """Cheap thread_id read for the root row (lifecycle trace context)."""
+    conn = get_db()
+    row = conn.execute(
+        "SELECT thread_id FROM evoflow_collab_tasks WHERE main_task_id = ? AND task_id = main_task_id LIMIT 1",
+        (str(main_task_id or "").strip(),),
+    ).fetchone()
+    return str(row[0]).strip() if row and row[0] else None
+
+
+def patch_subtask_hot_fields(main_task_id: str, subtask_id: str, updates: dict[str, Any]) -> bool:
+    """Row-level UPDATE for high-frequency subtask patches (E-1).
+
+    Progress/status/error ticks are the most frequent bundle writers and the
+    main feeder of cross-process lost updates (whole-bundle delete+reinsert).
+    When the patch touches ONLY hot columns this updates the single subtask row
+    instead. Returns True when a row was updated; False means "not a hot patch
+    or row missing — caller must fall back to the full bundle save".
+    """
+    import logging
+
+    from evoflow.persistence.db import run_db_with_retry
+
+    logger = logging.getLogger(__name__)
+
+    if not updates or not set(updates).issubset(_HOT_PATCH_COLUMNS):
+        return False
+    mid = str(main_task_id or "").strip()
+    sid = str(subtask_id or "").strip()
+    if not mid or not sid:
+        return False
+
+    status = str(updates.get("status") or "").strip()
+    err_raw = updates.get("error_text", updates.get("error"))
+    err = None if err_raw is None else str(err_raw)
+    now = str(updates.get("updated_at") or "").strip() or utc_now_iso_z()
+
+    def _do() -> int:
+        conn = get_db()
+        prog = updates.get("progress")
+        prog_i: int | None = None
+        if prog is not None:
+            try:
+                prog_i = max(0, min(100, int(prog)))
+            except (TypeError, ValueError):
+                prog_i = None
+        cur = conn.execute(
+            """
+            UPDATE evoflow_collab_subtasks
+            SET status = COALESCE(?, status),
+                progress = COALESCE(?, progress),
+                error_text = COALESCE(?, error_text),
+                updated_at = ?
+            WHERE main_task_id = ? AND subtask_id = ?
+            """,
+            (status or None, prog_i, err, now, mid, sid),
+        )
+        conn.commit()
+        return int(cur.rowcount or 0)
+
+    try:
+        rows = run_db_with_retry(_do)
+    except Exception:
+        logger.warning("patch_subtask_hot_fields failed main=%s sub=%s", mid, sid, exc_info=True)
+        return False
+    return bool(rows)
 
 
 def load_task_bundle(main_task_id: str) -> dict[str, Any] | None:

@@ -127,6 +127,7 @@ def _heal_subtasks(
                 st["status"] = "pending"
                 why = why or "forced_pending"
             st["error"] = f"reconcile:{reason}:zombie_executing"
+            st["error_kind"] = "reconcile"
             st["updated_at"] = now_iso
             # A healed row's elapsed span is bookkeeping residue, not work time —
             # keep it out of duration aggregates.
@@ -169,6 +170,7 @@ def _heal_subtasks(
             st["auto_retry_count"] = auto_n + 1
             st["retry_count"] = int(st.get("retry_count") or 0) + 1
             st["error"] = f"reconcile:{reason}:retry_failed"
+            st["error_kind"] = "reconcile"
             st["updated_at"] = now_iso
             st.pop("lease_until_ts", None)
             healed.append(

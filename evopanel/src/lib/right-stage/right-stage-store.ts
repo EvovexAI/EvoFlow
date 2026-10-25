@@ -311,8 +311,13 @@ export class RightStageStore {
     const existingIdx = this.tabs.findIndex((t) => this.tabKeyOf(t) === key)
     if (existingIdx >= 0) {
       const prev = this.tabs[existingIdx]
-      // 更新时保留已有 sessionKey（除非显式传入新的）
-      if (!next.sessionKey && prev.sessionKey) next.sessionKey = prev.sessionKey
+      // 更新时：只有调用方显式传入非空 sessionKey 才改归属。
+      // 否则保留原签归属——resolveTabSessionKey(当前 UI 会话) 会在 current 抖动时
+      // 把 browser:primary 改成别的 key，过滤后表现为「第一签突然消失」。
+      const explicitSk = String(input.sessionKey || '').trim()
+      if (explicitSk) next.sessionKey = explicitSk
+      else if (prev.sessionKey) next.sessionKey = prev.sessionKey
+      else delete next.sessionKey
       const same =
         prev.title === next.title &&
         prev.layout === next.layout &&

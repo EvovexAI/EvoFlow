@@ -575,6 +575,8 @@ def _clear_auto_blocked_diagnostics(st: dict[str, Any]) -> bool:
         cleared = True
     if st.pop("dispatch_block_reason", None) is not None:
         cleared = True
+    if st.pop("error_kind", None) == "dependency_blocked":
+        cleared = True
     return cleared
 
 
@@ -650,6 +652,8 @@ def _auto_finalize_unrunnable_pending_subtasks(storage: Any, main_task_id: str) 
         st["status"] = "waiting_dispatch"
         st["progress"] = int(st.get("progress") or 0)
         st["dispatch_block_reason"] = reason[:500]
+        # E-4: structured kind so the UI can filter without prefix sniffing.
+        st["error_kind"] = "dependency_blocked"
         if _is_auto_blocked_reason(st.get("error")):
             st.pop("error", None)
         if _is_auto_blocked_reason(st.get("error_text")):

@@ -1790,6 +1790,7 @@ export const BrowserPanel = memo(function BrowserPanel({
       setNavError('')
       try {
         // 先压逻辑栈 + 解 park/贴 HWND（空白新标签），再补 CDP 对齐引擎态。
+        // stageId 钉死本签：settle 时用户若已切走，禁止把 URL 写进另一签。
         applyBrowserCommandResponse({
           threadId: tid,
           pageUrl: normalized,
@@ -1797,6 +1798,7 @@ export const BrowserPanel = memo(function BrowserPanel({
           streamWs: '',
           pushHistory: true,
           navigateIntent: true,
+          stageId,
         })
         const result = await sendBrowserCommand(tid, 'navigate', normalized)
         if (result) {
@@ -1805,7 +1807,7 @@ export const BrowserPanel = memo(function BrowserPanel({
             setNavError('页面加载失败，请检查网址或网络后重试')
           } else if (settled !== normalized) {
             // 重定向：用最终 URL 更新栈顶（再 push 一次会去重同 URL）。
-            pushBrowserTabHistory(settled, result.pageTitle || '')
+            pushBrowserTabHistory(settled, result.pageTitle || '', stageId)
             void ensureNativeEmbed({
               url: settled,
               stageId,
@@ -1818,6 +1820,7 @@ export const BrowserPanel = memo(function BrowserPanel({
             pageUrl: settled,
             pageTitle: result.pageTitle,
             streamWs: result.streamWs,
+            stageId,
           })
         } else {
           // CDP 失败时 upsert 已在 applyBrowserCommandResponse 里发起；再补一枪贴位。
@@ -1895,8 +1898,8 @@ export const BrowserPanel = memo(function BrowserPanel({
   // once per tick.
   useEffect(() => {
     const tid = effectiveThreadId
-    if (!isOpen || !tid) {
-      setBrowserTabs([])
+    // 仅前台签轮询：FORCE_MOUNT 下后台实例一起 setBrowserTabs 会把 HWND 残留 URL 写串。
+    if (!isOpen || !tid || !surfaceActive) {
       return
     }
     let cancelled = false
@@ -1939,7 +1942,7 @@ export const BrowserPanel = memo(function BrowserPanel({
       cancelled = true
       window.clearTimeout(timer)
     }
-  }, [isOpen, effectiveThreadId, refreshNonce])
+  }, [isOpen, effectiveThreadId, refreshNonce, surfaceActive])
 
   const [streamError, setStreamError] = useState('')
   const handleStreamError = useCallback((message: string) => {

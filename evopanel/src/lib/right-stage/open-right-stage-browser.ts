@@ -8,6 +8,7 @@
  */
 import {
   ensureBrowserStage,
+  markUserNavigateIntent,
   NODE_REPL_BRIDGE_THREAD_ID,
   setBrowserPanelThreadId,
 } from '../browser-panel-store.js'
@@ -42,8 +43,10 @@ export function showRightStageBrowserUrl(
     '侧栏打开',
     `来源=预览卡 会话=${sessionKey || '(无)'} 线程=${threadId} 链接=${pageUrl}`,
   )
+  markUserNavigateIntent(pageUrl)
   ensureBrowserStage({
     sessionKey,
     pageUrl,
+    replacePageUrl: true,
   })
 }

@@ -123,8 +123,13 @@ def _start_published_app(
     *,
     token_data: dict[str, Any],
     body: ChatCompletionsRequest,
+    defer_dispatch: bool = False,
 ) -> tuple[str, dict[str, Any], int]:
     """Validate + start workflow run (does not wait).
+
+    Args:
+        defer_dispatch: skip wave-1 dispatch here; the async caller awaits
+            ``apply_workflow_dispatch_async`` on the gateway loop (E-5).
 
     Returns:
         (app_id, started_run_meta, app_version_used)
@@ -184,6 +189,7 @@ def _start_published_app(
             app=app,
             run_kind="production",
             trigger_kind="api",
+            defer_dispatch=defer_dispatch,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
@@ -277,7 +283,12 @@ async def chat_completions(
         )
 
     if body.async_:
-        app_id, started, app_version = await asyncio.to_thread(_start_published_app, token_data=token_data, body=body)
+        app_id, started, app_version = await asyncio.to_thread(
+            _start_published_app, token_data=token_data, body=body, defer_dispatch=True
+        )
+        from evoflow.collab.app_runner import apply_workflow_dispatch_async
+
+        started = await apply_workflow_dispatch_async(started)
         run_id = str(started.get("run_id") or "")
         return JSONResponse(
             content=_async_acceptance_response(

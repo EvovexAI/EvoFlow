@@ -162,10 +162,10 @@ async def run_steps(
     *,
     wait_for_completion: bool = False,
 ) -> list[dict[str, Any]]:
-    """Canonical Step Runner entry: claim (here) + delegate (execution helper)."""
-    from evoflow.tools.builtins.supervisor.execution import delegate_collab_subtasks_for_start_execution
+    """Canonical Step Runner entry: claim (here) + delegate (execution kernel)."""
+    from evoflow.collab.execution_kernel import delegate_claimed_subtasks
 
-    return await delegate_collab_subtasks_for_start_execution(
+    return await delegate_claimed_subtasks(
         runtime,
         storage,
         main_task_id,
@@ -185,12 +185,12 @@ async def advance_runnable_wave(
 
     Shared by WorkflowScheduler followup/retry and Lead ``auto_delegate`` body.
     """
-    from evoflow.tools.builtins.supervisor.dependency import _resolve_subtasks_for_start_execution
+    from evoflow.collab.execution_kernel import resolve_runnable_subtasks
 
     tid = str(main_task_id or "").strip()
     if not tid:
         return []
-    to_run, _blocked = _resolve_subtasks_for_start_execution(storage, tid, None)
+    to_run, _blocked = resolve_runnable_subtasks(storage, tid)
     if not to_run:
         return []
     return await run_steps(
