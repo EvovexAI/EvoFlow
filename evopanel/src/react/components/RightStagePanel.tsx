@@ -11,16 +11,21 @@ import {
 import { horizontalListSortingStrategy, SortableContext, useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import {
+  ChevronsDownIcon,
   FolderIcon,
   GlobeIcon,
   NetworkIcon,
+  PanelRightCloseIcon,
   PanelRightIcon,
   PlusIcon,
   WorkflowIcon,
+  XIcon,
   type LucideIcon,
 } from 'lucide-react'
+import { cn } from '@zcode/ui/components/lib/utils.js'
+import { Button } from '@zcode/ui/components/ui/button.js'
 import { createPortal } from 'react-dom'
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import {
   defaultTitleForKind,
   normalizeRightStageKind,
@@ -97,6 +102,16 @@ function tabTitleOf(tab: RightStageSurface): string {
   return tab.title?.trim() || defaultTitleForKind(tab.kind)
 }
 
+/**
+ * StageTabChip — ZCode SidePaneTabTrigger 同款视觉配方（换装 2026-10-25）：
+ * class 逐条对齐 vendored zcode-ui/app-shell/SidePaneTabTrigger.tsx 的 chip 层
+ * （156px 等宽收缩 / text-ui-base / bg-hover / data-active:bg-selected / mask 渐隐 /
+ * hover 亮出的右上角关闭钮 / 中键关闭）。未直接复用该组件的原因：它强类型绑定
+ * WorkspaceSidePaneTab 19 成员判别联合（code-viewer 等成员要求 source 等必填字段），
+ * EvoFlow 的 RightStageSurface 适配不过去；数据管道（dnd 排序 / 右键菜单）保持 EvoFlow 自有。
+ * 注意根节点用 div：关闭钮是真实 button，root 若是 button 会形成嵌套 button，
+ * 生产包里浏览器会修 DOM 导致 tab/close/drag 事件错位（ZCode 上游同款注释）。
+ */
 function StageTabChip({
   tab,
   active,
@@ -114,60 +129,124 @@ function StageTabChip({
   const title = tabTitleOf(tab)
   const kind = normalizeRightStageKind(tab.kind)
   const faviconUrl = kind === 'browser' ? String(tab.data?.faviconUrl || '') : ''
+  const wasDraggingRef = useRef(false)
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: key,
   })
-  const style = {
-    transform: CSS.Transform.toString(transform),
+  // 横向 tabs 固定高度：钳回 dnd-kit 携带的 scale，避免拖拽时被临时压缩/拉伸（ZCode 同款）。
+  const normalizedTransform = transform
+    ? { ...transform, scaleX: 1, scaleY: 1 }
+    : null
+  const style: CSSProperties = {
+    transform: CSS.Transform.toString(normalizedTransform),
     transition,
+    zIndex: isDragging ? 10 : undefined,
+    opacity: isDragging ? 0.85 : 1,
   }
+  if (isDragging) wasDraggingRef.current = true
 
   return (
-    <button
+    <div
       ref={setNodeRef}
-      type="button"
       data-tauri-no-drag
-      aria-selected={active}
+      data-side-pane-tab-id={key}
+      data-active={active ? '' : undefined}
+      data-state={active ? 'active' : 'inactive'}
       title={title}
-      className={`react-chat-stage-tab${active ? ' is-active' : ''}${isDragging ? ' is-dragging' : ''}`}
       style={style}
-      onClick={() => {
-        if (!active) onActivate(key)
+      {...attributes}
+      {...listeners}
+      // dnd-kit 的 attributes 带 role="button"/tabIndex，必须放在展开后覆盖为 tab 语义。
+      role="tab"
+      aria-selected={active}
+      tabIndex={0}
+      onPointerDown={(event) => {
+        listeners?.onPointerDown?.(event)
+        event.preventDefault()
+      }}
+      onClick={(event) => {
+        // 中键先在 click 阶段拦截，避免关闭前把 inactive tab 激活（ZCode 同款）。
+        if (event.button === 1) {
+          event.preventDefault()
+          event.stopPropagation()
+          return
+        }
+        if (wasDraggingRef.current) {
+          wasDraggingRef.current = false
+          event.preventDefault()
+          return
+        }
+        onActivate(key)
+      }}
+      onAuxClick={(event) => {
+        // 中键 = 关闭该签，active tab 保持不变（ZCode 同款）。
+        if (event.button !== 1) return
+        event.preventDefault()
+        event.stopPropagation()
+        onClose(key)
+      }}
+      onKeyDown={(event) => {
+        if (event.key !== 'Enter' && event.key !== ' ') return
+        event.preventDefault()
+        onActivate(key)
       }}
       onContextMenu={(e) => {
         e.preventDefault()
         e.stopPropagation()
         onContextMenu(key, e.clientX, e.clientY)
       }}
-      {...attributes}
-      {...listeners}
-      role="tab"
+      className={cn(
+        'group relative inline-flex items-center gap-1',
+        'flex-[1_1_9.75rem] !h-7 min-w-15 max-w-39 justify-start overflow-hidden rounded-md border px-1.5 pr-2 text-ui-base font-medium whitespace-nowrap transition-all focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-1 focus-visible:outline-ring',
+        '!border-transparent !bg-transparent text-foreground-subtle !rounded-lg',
+        'hover:text-foreground',
+        !active && 'hover:!bg-hover',
+        // 受控 isActive 补齐 data-active，保证 Tailwind 的 active variant 命中（ZCode 同款）。
+        'data-active:!bg-selected data-active:text-foreground',
+        'cursor-default outline-none',
+        isDragging && 'cursor-grabbing shadow-md',
+      )}
     >
-      <KindTabIcon kind={kind} faviconUrl={faviconUrl} />
-      <span className="react-chat-stage-tab-content">
-        <span className="react-chat-stage-tab-title">{title}</span>
-      </span>
       <span
-        role="button"
-        tabIndex={-1}
+        data-side-pane-tab-content=""
+        className={cn(
+          'flex min-w-0 flex-1 items-center gap-1 overflow-hidden whitespace-nowrap [mask-image:linear-gradient(to_right,black_calc(100%-var(--tab-fade-offset)-0.5rem),transparent_calc(100%-var(--tab-fade-offset)))]',
+          active ? '[--tab-fade-offset:1.25rem]' : '[--tab-fade-offset:0px]',
+          'group-hover:[--tab-fade-offset:1.25rem] group-focus-within:[--tab-fade-offset:1.25rem]',
+        )}
+      >
+        <span className="flex size-4 shrink-0 items-center justify-center">
+          <KindTabIcon kind={kind} faviconUrl={faviconUrl} />
+        </span>
+        <span data-side-pane-tab-title="" className="shrink-0 whitespace-nowrap">
+          {title}
+        </span>
+      </span>
+      <button
+        type="button"
         aria-label={`关闭 ${title}`}
-        className="react-chat-stage-tab-close"
-        onPointerDown={(e) => {
-          e.preventDefault()
-          e.stopPropagation()
+        className={cn(
+          'absolute right-1 top-1/2 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded-md text-foreground-subtle hover:bg-hover hover:text-foreground',
+          !active &&
+            'pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100',
+        )}
+        onPointerDown={(event) => {
+          event.stopPropagation()
         }}
-        onClick={(e) => {
-          e.preventDefault()
-          e.stopPropagation()
+        onClick={(event) => {
+          event.preventDefault()
+          event.stopPropagation()
           onClose(key)
         }}
+        onContextMenu={(e) => {
+          e.preventDefault()
+          e.stopPropagation()
+          onContextMenu(key, e.clientX, e.clientY)
+        }}
       >
-        <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden>
-          <path d="M18 6 6 18" />
-          <path d="m6 6 12 12" />
-        </svg>
-      </span>
-    </button>
+        <XIcon className="size-3" />
+      </button>
+    </div>
   )
 }
 
@@ -316,27 +395,31 @@ export const RightStagePanel = memo(function RightStagePanel({
     [onCloseTab, renderContent, visibleActiveKey],
   )
 
+  // 换装 ZCode：尾部收起钮 = WorkspaceSidePaneToggleButton 同款（ghost icon-md + PanelRightClose）。
   const collapseButton = (
-    <button
+    <Button
       type="button"
-      className="react-chat-stage-tab-collapse"
+      variant="ghost"
+      size="icon-md"
+      className="text-foreground hover:bg-hover hover:text-foreground"
       data-tauri-no-drag
       title="收起侧栏面板"
       aria-label="收起侧栏面板"
       onClick={onCollapse}
     >
-      <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-        <path d="M15 18l-6-6 6-6" />
-      </svg>
-    </button>
+      <PanelRightCloseIcon className="size-4" />
+    </Button>
   )
 
   const addTabMenu = (
     <Popover open={addMenuOpen} onOpenChange={setAddMenuOpen}>
       <PopoverTrigger asChild>
-        <button
+        {/* 换装 ZCode：同 SidePaneTabOverview 触发器（ghost icon-md）。 */}
+        <Button
           type="button"
-          className={`react-chat-stage-tab-new${addMenuOpen ? ' is-pressed' : ''}`}
+          variant="ghost"
+          size="icon-md"
+          className={`shrink-0 text-foreground-subtle hover:bg-hover hover:text-foreground${addMenuOpen ? ' bg-hover text-foreground' : ''}`}
           data-tauri-no-drag
           data-side-pane-add-tab=""
           title="打开新标签"
@@ -345,7 +428,7 @@ export const RightStagePanel = memo(function RightStagePanel({
           aria-expanded={addMenuOpen}
         >
           <PlusIcon className="size-4" aria-hidden />
-        </button>
+        </Button>
       </PopoverTrigger>
       <PopoverContent
         align="start"
@@ -426,20 +509,20 @@ export const RightStagePanel = memo(function RightStagePanel({
         <div className="react-chat-stage-tabs" role="tablist" aria-label="右侧标签">
           <Popover open={overviewOpen} onOpenChange={setOverviewOpen}>
             <PopoverTrigger asChild>
-              <button
+              {/* 换装 ZCode：同 SidePaneTabOverview 触发器（ghost icon-md + ChevronsDown）。 */}
+              <Button
                 type="button"
-                className={`react-chat-stage-tab-new${overviewOpen ? ' is-pressed' : ''}`}
+                variant="ghost"
+                size="icon-md"
+                className={`shrink-0 text-foreground-subtle hover:bg-hover hover:text-foreground${overviewOpen ? ' bg-hover text-foreground' : ''}`}
                 data-tauri-no-drag
                 title="搜索标签页"
                 aria-label="搜索标签页"
                 aria-haspopup="dialog"
                 aria-expanded={overviewOpen}
               >
-                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                  <path d="m7 6 5 5 5-5" />
-                  <path d="m7 13 5 5 5-5" />
-                </svg>
-              </button>
+                <ChevronsDownIcon className="size-4" />
+              </Button>
             </PopoverTrigger>
             <PopoverContent
               align="start"
@@ -492,23 +575,31 @@ export const RightStagePanel = memo(function RightStagePanel({
               {!isOverflowing ? addTabMenu : null}
               <DragOverlay dropAnimation={null}>
                 {draggingTab ? (
-                  <button
-                    type="button"
-                    className="react-chat-stage-tab is-active is-dragging-overlay"
+                  <div
+                    className={cn(
+                      'relative inline-flex items-center gap-1',
+                      '!h-7 min-w-15 max-w-39 justify-start overflow-hidden rounded-md px-1.5 pr-2 text-ui-base font-medium whitespace-nowrap',
+                      '!rounded-lg bg-selected text-foreground cursor-grabbing shadow-md',
+                    )}
                     data-tauri-no-drag
                   >
-                    <KindTabIcon
-                      kind={normalizeRightStageKind(draggingTab.kind)}
-                      faviconUrl={
-                        normalizeRightStageKind(draggingTab.kind) === 'browser'
-                          ? String(draggingTab.data?.faviconUrl || '')
-                          : ''
-                      }
-                    />
-                    <span className="react-chat-stage-tab-content">
-                      <span className="react-chat-stage-tab-title">{tabTitleOf(draggingTab)}</span>
+                    <span className="flex size-4 shrink-0 items-center justify-center">
+                      <KindTabIcon
+                        kind={normalizeRightStageKind(draggingTab.kind)}
+                        faviconUrl={
+                          normalizeRightStageKind(draggingTab.kind) === 'browser'
+                            ? String(draggingTab.data?.faviconUrl || '')
+                            : ''
+                        }
+                      />
                     </span>
-                  </button>
+                    <span
+                      data-side-pane-tab-title=""
+                      className="shrink-0 whitespace-nowrap"
+                    >
+                      {tabTitleOf(draggingTab)}
+                    </span>
+                  </div>
                 ) : null}
               </DragOverlay>
             </DndContext>

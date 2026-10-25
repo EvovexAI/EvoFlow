@@ -39,6 +39,10 @@
  * 这里显式补一条 @source，让 Tailwind 始终扫描 UI 包源码，避免下拉框、菜单这类组件渲染成半残状态。
  */
 @source "./**/*.{ts,tsx}";
+/* 右栏 chrome 换装：RightStagePanel / V4 挂载件用 ZCode token 工具类
+ * （text-ui-base / bg-selected / bg-hover 等），必须把 EvoFlow react 树纳入扫描，
+ * 否则这些 utility 不会产出、类名在效果不在。 */
+@source "../react/**/*.{ts,tsx}";
 /* 云端模板常用样式的构建保障，不是运行时 class 白名单。 */
 @source inline("text-center text-ui-base/relaxed text-foreground-subtle font-semibold font-normal text-foreground whitespace-nowrap underline decoration-foreground-subtle decoration-dashed underline-offset-4");
 
