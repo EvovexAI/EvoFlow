@@ -11,6 +11,7 @@ description: EvoFlow 产品自介绍 + 系统治理 + 资产库契约 + 对话�
 |----------|------|
 | 「是什么 / 能做什么 / 怎么用 / 介绍一下自己」 | 按 description + [`references/product-intro.md`](references/product-intro.md) 白话回答；**勿**向用户念 CLI |
 | 长期记忆 / 经验 / 偏好 / craft / 资产审计 | 内置 **`assets`**；细则 [`references/assets-contract.md`](references/assets-contract.md)、布局 [`assets-layout.md`](references/assets-layout.md) |
+| **挂载 Agent 应用**（侧栏应用 / 应用中心 / 网页入口） | 内置 **`platform`** → `extensions.*`；manifest 与 `service.mode` 选型见 [`references/agent-app-extension.md`](references/agent-app-extension.md)。**勿**用 `ui.show` 交差（那只是临时预览，应用中心看不到） |
 | 日常平台行政（改模型、雇员工、事项…） | 内置 **`platform`**（先 `catalog`，写操作 `confirm=true`） |
 | 脚本化 / 批处理 / CLI 独有参数 | **`terminal` + `evoflow`**（下文命令参考） |
 
@@ -33,7 +34,7 @@ description: EvoFlow 产品自介绍 + 系统治理 + 资产库契约 + 对话�
 | `tasks.*` | `evoflow tasks …` | 含 progress / cleanup_noise / reclaim_zombies |
 | `items.*` | `evoflow items …` | **个人事项 ≠ tasks** |
 | `skills.*` / `mcp.*` / `automation.*` / `approvals.*` / `sessions.*` | 同名 CLI | MCP：platform 已有 list/add/remove/test/login/logout/get/set；旧 `memory.*` / `experience.*` 已退役，记忆与 craft 走 `assets` 工具 |
-| `extensions.*` | （暂无 CLI；`/api/ui-extensions`） | **Agent应用**（侧栏网页）：list/get/install/enable/uninstall；远程 `id+url` 或本地 `path` |
+| `extensions.*` | （暂无 CLI；`/api/ui-extensions`） | **Agent应用**（侧栏网页）：list/get/install/enable/uninstall；远程 `id+url` 或本地 `path`。manifest/`service.mode` 见 [`references/agent-app-extension.md`](references/agent-app-extension.md)。**≠ `ui.show`（临时预览）≠ `workflow`（工作流 App）** |
 | `plugins.*` | （暂无 CLI；`/api/plugins`） | 插件市场：overview/list/describe/install/enable/update/restore/uninstall + marketplace_* |
 | `org.*` | `evoflow org …` | 资源包：preflight / install / list / get / uninstall / export / market_* |
 | `channels.*` | （暂无 CLI；`/api/channels`） | IM 渠道：list/get/set_config/enable/restart/push_targets + 扫码 registration_* |
@@ -536,5 +537,7 @@ evoflow eval show <run_id>
 - 用户说「审批 / 批一下」→ `approvals list|approve|reject`。
 - 用户说「装资源包 / 导出组织」→ `platform` `org.*`（或 `evoflow org …`）。
 - 用户说「跑工作流 / App」→ 运行用 `workflow`；创建/发布用 platform `workflow.*` 或 `/api/apps`。
+- 用户说「挂载应用 / 加到侧栏 / 应用中心里加一个 / 把网页装进去」→ `extensions.install`（**不是** `ui.show`）；先按 [`references/agent-app-extension.md`](references/agent-app-extension.md) 定 `service.mode`，装完带用户去 `#/extensions` 验收。
+- 用户说「在右边打开这个网页我看一下」→ `ui.show` kind=`web-embed`（临时预览，不落盘）。
 - 用户说「评测 / 回归 / 发版前验证」→ `evoflow eval run --mode smoke` 或打开面板评测中心。
 - 对用户描述时用「系统设置 / 角色管理 / 专项能力包 / 智能体员工」，少提 CLI 与 JSON。
