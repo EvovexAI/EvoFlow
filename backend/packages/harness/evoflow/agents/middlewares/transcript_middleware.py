@@ -778,6 +778,14 @@ class TranscriptMiddleware(AgentMiddleware[AgentState]):
                         thread_id,
                         mid_s,
                     )
+                    # The message never reaches evoflow_chat_messages, so record its
+                    # token usage straight into the ledger or it would be lost.
+                    self._record_usage_for_skipped_ai_message(
+                        msg,
+                        session_key=session_key,
+                        thread_id=thread_id,
+                        principal_id=_principal_id_from_runtime(runtime),
+                    )
                     if mid_s:
                         _register_written_id(thread_id, mid_s)
                     continue
@@ -796,6 +804,41 @@ class TranscriptMiddleware(AgentMiddleware[AgentState]):
             round_id=_round_id_from_runtime(runtime),
             principal_id=_principal_id_from_runtime(runtime),
         )
+
+    @staticmethod
+    def _record_usage_for_skipped_ai_message(
+        msg: AIMessage,
+        *,
+        session_key: str,
+        thread_id: str,
+        principal_id: str | None = None,
+    ) -> None:
+        """Ledger the usage of an AI message that is skipped from transcript persist.
+
+        Idempotent on ``llm:msg:{message_id}`` like every other write path, so a
+        later rebuild or re-persist of the same message cannot double count.
+        """
+        try:
+            from evoflow.agents.middlewares.message_usage_helpers import infer_usage_metadata_for_ai_message
+            from evoflow.persistence.usage_ledger import record_llm_chat_usage_in_txn
+
+            usage = infer_usage_metadata_for_ai_message(msg)
+            if not usage:
+                return
+            rid = _run_id_for_transcript(thread_id, session_key)
+            record_llm_chat_usage_in_txn(
+                session_key=session_key,
+                run_id=rid,
+                thread_id=thread_id,
+                message_id=str(getattr(msg, "id", "") or "") or None,
+                model_name=str(getattr(msg, "response_metadata", {}) or {}).get("model_name") or getattr(msg, "model", "") or None,
+                input_tokens=int(usage.get("input_tokens") or 0),
+                output_tokens=int(usage.get("output_tokens") or 0),
+                total_tokens=int(usage.get("total_tokens") or 0),
+                principal_id=str(principal_id or "").strip() or None,
+            )
+        except Exception:
+            logger.debug("usage ledger write for skipped AI message failed thread=%s", thread_id, exc_info=True)
 
     # ------------------------------------------------------------------
     # Artifacts

@@ -8,6 +8,7 @@ import json
 from typing import Any
 
 from evoflow.admin.errors import ValidationError
+from evoflow.models.credential_sanitize import is_masked_api_key
 
 
 def _run_coro_sync(coro: Any) -> Any:
@@ -627,7 +628,7 @@ def settings_update_model(args: dict[str, Any]) -> dict[str, Any]:
     skip = {"model", "name", "modelName", "model_name", "confirm", "principal_id"}
     payload = {k: v for k, v in args.items() if k not in skip and v is not None}
     api_key = payload.get("api_key")
-    if isinstance(api_key, str) and api_key.startswith("****"):
+    if is_masked_api_key(api_key):
         payload.pop("api_key", None)
     if not payload:
         raise ValidationError("至少提供一个要更新的字段（如 base_url / api_key / temperature）")

@@ -314,7 +314,7 @@ function renderBody(container, data) {
         </div>
         <div class="settings-usage-kpi">
           <div class="settings-usage-kpi-label">${esc(t('usage.requestCount'))}</div>
-          <div class="settings-usage-kpi-value">${Number(summary.event_count) || 0}</div>
+          <div class="settings-usage-kpi-value">${Number(summary.llm_event_count ?? summary.event_count) || 0}</div>
         </div>
         <div class="settings-usage-kpi">
           <div class="settings-usage-kpi-label">峰值日 Token</div>

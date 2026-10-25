@@ -3221,6 +3221,35 @@ fn client_origin_physical(parent: &WebviewWindow) -> Result<(i32, i32), String> 
     Ok((ip.x, ip.y))
 }
 
+/// 工具栏刷新：对已存在的嵌入 WebView2 执行 `location.reload()`。
+///
+/// 预览卡直开时 HWND 已由 upsert 导航，但 Gateway CDP 可能尚未绑定会话 thread；
+/// 走 Tauri 原生 eval 可绕过 `/browser-command` 鉴权空操作。
+#[tauri::command]
+pub async fn browser_embed_reload(app: tauri::AppHandle, thread_id: String) -> Result<bool, String> {
+    let label = webview_label_for_thread(&thread_id);
+    let Some(window) = app.get_webview_window(&label) else {
+        browser_cdp_server::log_line(&format!(
+            "[browser-embed] reload SKIP no window label={label}"
+        ));
+        return Ok(false);
+    };
+    match window.eval("try{location.reload()}catch(e){}") {
+        Ok(()) => {
+            browser_cdp_server::log_line(&format!(
+                "[browser-embed] reload ok label={label}"
+            ));
+            Ok(true)
+        }
+        Err(e) => {
+            browser_cdp_server::log_line(&format!(
+                "[browser-embed] reload FAILED label={label}: {e}"
+            ));
+            Err(e.to_string())
+        }
+    }
+}
+
 /// 关闭右侧标签 / 切换会话时停靠原生窗。
 ///
 /// 从客户区挪到屏外并保持可见（不用 SW_HIDE），避免 HWND 丢失；

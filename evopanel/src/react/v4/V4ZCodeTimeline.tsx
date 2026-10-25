@@ -504,6 +504,11 @@ export function V4ZCodeTimeline(props: {
    * 保证正文里的路径 pill 与工具卡走同一右栏，而不是全屏 modal。
    */
   onOpenFileLink?: (target: MessageFileLinkTarget) => void;
+  /**
+   * 助手预览卡「网站」主按钮 → 右侧内置浏览器。
+   * 未传时 OpenSplitButton 会禁用「打开」（仍可用下拉「系统浏览器」）。
+   */
+  onOpenBrowserUrl?: (url: string) => void;
   /** 复用老授权模块：onToolApprovalStable（approve/deny → wsClient.postToolApproval，
    * 批准后的执行结果经镜像回流成 V4 行）。 */
   onToolApproval?: (
@@ -544,6 +549,7 @@ export function V4ZCodeTimeline(props: {
     optimisticUserText = null,
     onOpenCodeViewer,
     onOpenFileLink: onOpenFileLinkProp,
+    onOpenBrowserUrl,
     onToolApproval,
     toolApprovalUiDisabled = false,
     workspacePath,
@@ -979,6 +985,8 @@ export function V4ZCodeTimeline(props: {
       onOpenCodeViewer,
       // 与 onOpenCodeViewer 一并注入：正文 Markdown 路径 pill / Preview Card 共用右栏。
       onOpenFileLink: onOpenCodeViewer || onOpenFileLinkProp ? onOpenFileLink : undefined,
+      // 网站预览卡「打开」→ 右侧内置浏览器（宿主未传则按钮保持 disabled）。
+      onOpenBrowserUrl,
       fetchFileChanges: sessionId ? fetchFileChanges : undefined,
       // 贴在对应 bash/工具卡下方，不用底部浮层
       renderToolCallApproval,
@@ -996,7 +1004,7 @@ export function V4ZCodeTimeline(props: {
     // approvalRenderKey：仅在待审批集合变化时换 context，让工具行挂上/摘掉面板；
     // 不跟每帧 rows/snapshot 绑定，避免展开「文件已更改」时整区闪。
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: approvalRenderKey gates refresh
-    [sessionId, onOpenCodeViewer, onOpenFileLink, onOpenFileLinkProp, fetchFileChanges, renderToolCallApproval, workspacePath, approvalRenderKey, onAutoOpenCodeViewers, handleAutoOpenAssistantPptx, assistantPreviewPptxAutoOpenTarget],
+    [sessionId, onOpenCodeViewer, onOpenFileLink, onOpenFileLinkProp, onOpenBrowserUrl, fetchFileChanges, renderToolCallApproval, workspacePath, approvalRenderKey, onAutoOpenCodeViewers, handleAutoOpenAssistantPptx, assistantPreviewPptxAutoOpenTarget],
   );
 
   // stream-compare：页面画什么 → 同轮目录 v4-ui-display.log（排查发送后白屏/无回复）。

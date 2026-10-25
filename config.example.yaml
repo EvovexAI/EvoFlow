@@ -28,6 +28,11 @@ log_level: info
 # EvoPanel 历史/累计用量依赖 ui_messages 中的 usage_metadata；关闭后若模型仍上报用量，界面也可能显示。
 token_usage:
   enabled: true
+  # 模型单价(USD / 百万 token),用于使用统计页的费用估算;key 支持通配符,最长匹配优先。
+  # 未配置的模型费用记为 0(显示为 —)。
+  # pricing:
+  #   "glm-*": { input_per_mtok: 0.6, output_per_mtok: 2.2 }
+  #   "claude-sonnet-4*": { input_per_mtok: 3, output_per_mtok: 15 }
 
 # ============================================================================
 # Models (chat LLMs) — SQLite only, not in config.yaml
@@ -40,20 +45,10 @@ token_usage:
 # models:  # removed — do not add models here
 
 # ============================================================================
-# Tool Groups Configuration
-# ============================================================================
-# Define groups of tools for organization and access control
-
-tool_groups:
-  - name: web
-  - name: file:read
-  - name: file:write
-  - name: bash
-
-# ============================================================================
 # Tools Configuration
 # ============================================================================
-# Configure available tools for the agent to use
+# Configure available tools for the agent to use.
+# Agent ACL uses capability_pack / tools allowlist (not legacy tool_groups).
 
 # Default web search: preference is set in EvoPanel Settings → 联网搜索
 # (SQLite evoflow_app_settings key web.search). config.yaml web.backend is ignored for search.
@@ -64,7 +59,6 @@ web:
 tools:
   # Web search tool (Hermes providers + AI-daily RSS / 53AI list)
   - name: web_search
-    group: web
     use: evoflow.community.baidu_search.tools:web_search_tool
     max_results: 30
     # Preferred engine: Settings → 联网搜索 (SQLite web.search), not provider here.
@@ -72,27 +66,23 @@ tools:
 
   # Standalone Tavily-only tool (alternative; do not enable alongside the entry above)
   # - name: web_search
-  #   group: web
   #   use: evoflow.community.tavily.tools:web_search_tool
   #   max_results: 30
   #   # api_key: $TAVILY_API_KEY  # Set if needed
 
   # Web search tool (uses InfoQuest, requires InfoQuest API key)
   # - name: web_search
-  #   group: web
   #   use: evoflow.community.infoquest.tools:web_search_tool
   #   # Used to limit the scope of search results, only returns content within the specified time range. Set to -1 to disable time filtering
   #   search_time_range: 10
 
   # Web fetch tool (uses Jina AI reader)
   - name: web_fetch
-    group: web
     use: evoflow.community.jina_ai.tools:web_fetch_tool
     timeout: 10
 
   # Web fetch tool (uses InfoQuest)
   # - name: web_fetch
-  #   group: web
   #   use: evoflow.community.infoquest.tools:web_fetch_tool
   #   # Overall timeout for the entire crawling process (in seconds). Set to positive value to enable, -1 to disable
   #   timeout: 10
@@ -104,13 +94,11 @@ tools:
   # File operations tools
   
   - name: read_file
-    group: file:read
     use: evoflow.sandbox.tools:read_file_tool
 
     # Active only when using an isolated shell sandbox or when
   # (LocalSandbox / allow_host_bash removed — use terminal or AIO.)
   - name: bash
-    group: bash
     use: evoflow.sandbox.tools:bash_tool
 
 # ============================================================================

@@ -180,6 +180,20 @@ export async function browserEmbedSetZoom(threadId: string, factor: number): Pro
 }
 
 /** 非当前标签：把原生窗口挪出屏幕，不销毁（CDP 仍可用）。 */
+/** 原生 WebView2 刷新（不经 Gateway CDP）。预览卡直开后工具栏刷新的兜底。 */
+export async function browserEmbedReload(threadId: string): Promise<boolean> {
+  if (!isDesktopTauri()) return false
+  const tid = String(threadId || '').trim()
+  if (!tid) return false
+  try {
+    return await invokeTauri<boolean>('browser_embed_reload', { threadId: tid })
+  } catch (err) {
+    console.warn('[browser-embed] reload failed', err)
+    blog('warn', `[client] reload failed tid=${tid} err=${err}`)
+    return false
+  }
+}
+
 export async function browserEmbedPark(threadId: string): Promise<void> {
   const tid = String(threadId || '').trim()
   if (!isDesktopTauri() || !tid) return

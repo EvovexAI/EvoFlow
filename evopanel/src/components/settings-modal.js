@@ -4,7 +4,7 @@
 import { navigate } from '../router.js'
 import { beginGlobalOverlay, endGlobalOverlay } from '../lib/browser-embed-overlay.js'
 import { setChatOverlayDefer } from '../lib/chat-overlay-defer.js'
-import { applyModalTauriDragChrome, listenModalEscape } from '../lib/modal-chrome.js'
+import { applyFullscreenModalTauriDragChrome, listenModalEscape } from '../lib/modal-chrome.js'
 
 /** @type {{ overlay: HTMLElement, unlistenEscape: () => void, restoreHash: string, onThemePref?: () => void, routeEntry?: boolean } | null} */
 let _instance = null
@@ -77,8 +77,9 @@ function buildOverlayShell() {
 
   overlay.innerHTML = `
     <div class="react-chat-modal-card react-chat-modal-card--settings">
+      <div class="settings-modal-tauri-drag" data-fullscreen-modal-drag data-tauri-drag-region title="拖动窗口 · 双击最大化" aria-hidden="true"></div>
       <span id="evopanel-settings-modal-title" class="evopanel-sr-only">设置</span>
-      <button type="button" class="react-chat-modal-close react-chat-modal-close--settings-corner" data-settings-modal-close aria-label="关闭">×</button>
+      <button type="button" class="react-chat-modal-close react-chat-modal-close--settings-corner" data-settings-modal-close data-tauri-no-drag aria-label="关闭">×</button>
       <div class="react-chat-modal-body react-chat-modal-body--settings">
         <div class="settings-modal-root settings-modal-root--boot" id="settings-modal-root">
           <div class="settings-modal-boot-loader" role="status" aria-live="polite">
@@ -88,8 +89,8 @@ function buildOverlayShell() {
         </div>
       </div>
       <div class="react-chat-modal-actions react-chat-modal-actions--settings-compact">
-        <button type="button" class="react-chat-modal-btn react-chat-modal-btn--ghost" data-settings-modal-cancel hidden>取消</button>
-        <button type="button" class="react-chat-modal-btn react-chat-modal-btn--primary" data-settings-modal-done>完成</button>
+        <button type="button" class="react-chat-modal-btn react-chat-modal-btn--ghost" data-settings-modal-cancel data-tauri-no-drag hidden>取消</button>
+        <button type="button" class="react-chat-modal-btn react-chat-modal-btn--primary" data-settings-modal-done data-tauri-no-drag>完成</button>
       </div>
     </div>
   `
@@ -198,7 +199,7 @@ export async function openSettingsModal(opts = {}) {
   const { unlistenEscape, onThemePref } = bindOverlayHandlers(overlay)
 
   document.body.appendChild(overlay)
-  applyModalTauriDragChrome(overlay)
+  applyFullscreenModalTauriDragChrome(overlay)
   window.addEventListener(THEME_PREF_EVENT, onThemePref)
   _instance = { overlay, unlistenEscape, restoreHash, onThemePref, routeEntry }
 

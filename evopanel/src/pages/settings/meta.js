@@ -70,7 +70,7 @@ export const TAB_META = {
   usage: { title: '使用统计', desc: 'Token 与费用账本：按日趋势、类型与模型拆分。' },
   resources: {
     title: '资源中心',
-    desc: '本机清单、已装资源包与资源市场。',
+    desc: '获取资源(市场 / 本地导入)→ 管理已装 → 打包分享,三步管好资源包。',
   },
   'code-index': { title: '代码索引图谱', desc: '工作空间导入关系、引用链与类型继承图谱。' },
   license: { title: '授权', desc: '粘贴激活码解锁任务中心、工作流、智能体员工。' },

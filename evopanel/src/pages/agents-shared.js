@@ -270,7 +270,6 @@ export function filterAgentsList(agents, state, ctx = {}) {
       a.agent_code,
       a.agent_name,
       a.description,
-      a.tool_groups?.join(','),
       a.tools?.join(','),
       a.mcp_servers?.join(','),
       a.skills?.join(','),

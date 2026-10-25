@@ -481,8 +481,12 @@ def agent_parts_to_doc(row: dict[str, Any], lists: list[tuple[str, str, int]], e
         out["command"] = row["command"]
     if row.get("auto_approve_permissions"):
         out["auto_approve_permissions"] = True
+    known_list_kinds = frozenset(_AGENT_LIST_KINDS)
     by_kind: dict[str, list[tuple[int, str]]] = {}
     for kind, val, sort_order in lists:
+        # Skip retired kinds (e.g. legacy tool_groups rows) so they never re-enter AgentConfig.
+        if kind not in known_list_kinds:
+            continue
         by_kind.setdefault(kind, []).append((sort_order, val))
     for kind, pairs in by_kind.items():
         vals = [v for _, v in sorted(pairs, key=lambda x: x[0])]

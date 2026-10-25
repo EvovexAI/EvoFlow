@@ -270,7 +270,7 @@
 - **SOUL**：长期人格、价值观；**system_prompt**：子 Agent 的执行步骤与边界
 
 **怎么用（用户）**：
-- **EvoFlow → Agent 管理**：编辑 SOUL/IDENTITY、模型、工具组、MCP、技能白名单
+- **EvoFlow → Agent 管理**：编辑 SOUL/IDENTITY、模型、工具、MCP、技能白名单
 - 对话中说「帮我创建一个××角色」→ 按 [`preset-role.md`](preset-role.md) 盘点后，用本技能 CLI（`terminal` + `evoflow agents …`）或 **`platform`** 落盘
 - 首次个性化可用 **`bootstrap`** 技能生成 SOUL
 

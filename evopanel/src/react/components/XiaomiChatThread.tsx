@@ -8,6 +8,7 @@ import {
   openRightStageForCodeViewerSource,
   showRightStageFromFileLink,
 } from '../../lib/right-stage/open-right-stage-file.js'
+import { showRightStageBrowserUrl } from '../../lib/right-stage/open-right-stage-browser.js'
 import { toast } from '../../components/toast.js'
 
 function readThreadId(sessionKey: string): string {
@@ -118,6 +119,16 @@ export function XiaomiChatThread({ sessionKey = '' }: { sessionKey?: string }) {
     [sk],
   )
 
+  const onOpenBrowserUrl = useCallback(
+    (url: string) => {
+      showRightStageBrowserUrl(url, {
+        sessionKey: sk,
+        threadId: readThreadId(sk),
+      })
+    },
+    [sk],
+  )
+
   const v4Enabled = isEvoflowChatV4Enabled()
   const sessionId = threadId || null
 
@@ -144,6 +155,7 @@ export function XiaomiChatThread({ sessionKey = '' }: { sessionKey?: string }) {
               workspacePath={workspacePath || undefined}
               onOpenFileLink={onOpenFileLink}
               onOpenCodeViewer={onOpenCodeViewer}
+              onOpenBrowserUrl={onOpenBrowserUrl}
             />
           )
         }}

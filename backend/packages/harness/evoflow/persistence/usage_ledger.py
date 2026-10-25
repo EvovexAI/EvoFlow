@@ -240,14 +240,17 @@ def record_llm_chat_usage_in_txn(
     occurred_at: str | None = None,
     meta: dict[str, Any] | None = None,
 ) -> bool:
-    """Record one LLM chat turn. Idempotent key: llm:{run_id}:{message_id} or fallback."""
+    """Record one LLM chat turn.
+
+    Idempotency is keyed on the real message id (``llm:msg:{message_id}``) so the
+    same assistant message is never double-counted regardless of which write path
+    (single append / batch append / rebuild) recorded it.
+    """
     sk = _s(session_key)
     rid = _s(run_id)
     mid = _s(message_id)
-    if mid and rid:
-        event_id = f"llm:{rid}:{mid}"
-    elif mid and sk:
-        event_id = f"llm:{sk}:{mid}"
+    if mid:
+        event_id = f"llm:msg:{mid}"
     elif rid:
         event_id = f"llm:{rid}:turn"
     elif sk:
@@ -271,6 +274,9 @@ def record_llm_chat_usage_in_txn(
         thread_id=thread_id,
     )
 
+    price = _resolve_llm_price(sku)
+    amt = (inp / 1_000_000.0) * price.get("input", 0.0) + (out / 1_000_000.0) * price.get("output", 0.0)
+
     return record_usage_event_in_txn(
         db,
         event_id=event_id,
@@ -291,8 +297,62 @@ def record_llm_chat_usage_in_txn(
         workspace_id=_s(workspace_id) or None,
         principal_id=_s(principal_id) or None,
         occurred_at=occurred_at,
+        amount=amt,
+        pricing_source="config:token_usage.pricing" if amt > 0 else "",
         meta=meta,
     )
+
+
+_PRICE_CACHE: dict[str, Any] = {"stamp": None, "map": None}
+
+
+def _resolve_llm_price(sku: str | None) -> dict[str, float]:
+    """Resolve {input, output} USD-per-token price for a model sku from app config.
+
+    Returns {} entries as 0.0 when unpriced. Cached per config object identity.
+    """
+    try:
+        from evoflow.config.app_config import get_app_config
+
+        cfg = get_app_config()
+        tu = getattr(cfg, "token_usage", None)
+        pricing = getattr(tu, "pricing", None) if tu else None
+    except Exception:
+        return {"input": 0.0, "output": 0.0}
+    if not pricing:
+        return {"input": 0.0, "output": 0.0}
+    key = str(id(pricing))
+    if _PRICE_CACHE["stamp"] != key:
+        # snapshot to plain globs → (in, out) per MTok
+        snap: list[tuple[str, float, float]] = []
+        try:
+            for pattern, p in dict(pricing).items():
+                snap.append(
+                    (
+                        str(pattern),
+                        float(getattr(p, "input_per_mtok", 0.0) or 0.0),
+                        float(getattr(p, "output_per_mtok", 0.0) or 0.0),
+                    )
+                )
+        except Exception:
+            snap = []
+        _PRICE_CACHE["stamp"] = key
+        _PRICE_CACHE["map"] = snap
+    name = _s(sku)
+    best_len = -1
+    in_mtok = out_mtok = 0.0
+    for pattern, pin, pout in _PRICE_CACHE["map"] or []:
+        try:
+            import fnmatch
+
+            if not pattern or not (pattern == name or fnmatch.fnmatch(name.lower(), pattern.lower())):
+                continue
+        except Exception:
+            continue
+        if len(pattern) >= best_len:
+            best_len = len(pattern)
+            in_mtok, out_mtok = pin, pout
+    return {"input": in_mtok / 1_000_000.0, "output": out_mtok / 1_000_000.0}
 
 
 def _parse_range(from_day: str | None, to_day: str | None, *, default_days: int = 30) -> tuple[str, str]:
@@ -331,6 +391,7 @@ def fetch_usage_summary(
     start, end = _parse_range(from_day, to_day)
     cat = _s(category)
     uid = _s(principal_id)
+    ensure_llm_ledger_rebuilt()
     db = get_db()
     where = "day >= ? AND day <= ?"
     params: list[Any] = [start, end]
@@ -360,18 +421,6 @@ def fetch_usage_summary(
         params,
     ).fetchone()
 
-    peak = db.execute(
-        f"""
-        SELECT day, SUM(quantity_sum) AS q
-        FROM evoflow_usage_daily
-        WHERE {where}
-        GROUP BY day
-        ORDER BY q DESC
-        LIMIT 1
-        """,
-        params,
-    ).fetchone()
-
     llm_where = "day >= ? AND day <= ? AND category = ?"
     llm_params: list[Any] = [start, end, CATEGORY_LLM]
     if uid:
@@ -379,6 +428,21 @@ def fetch_usage_summary(
         llm_params.append(uid)
     elif not include_orphan:
         llm_where += " AND principal_id IS NOT NULL AND principal_id != ''"
+
+    # Peak day tracks the "Token 总量" metric (llm only) — mixing tool/media
+    # request counts into a token figure is meaningless.
+    peak = db.execute(
+        f"""
+        SELECT day, SUM(quantity_sum) AS q
+        FROM evoflow_usage_daily
+        WHERE {llm_where}
+        GROUP BY day
+        ORDER BY q DESC
+        LIMIT 1
+        """,
+        llm_params,
+    ).fetchone()
+
     llm_row = db.execute(
         f"""
         SELECT COALESCE(SUM(quantity_sum), 0), COALESCE(SUM(event_count), 0)
@@ -402,6 +466,177 @@ def fetch_usage_summary(
         "peak_day": str(peak[0]) if peak and peak[0] else None,
         "peak_quantity": _f(peak[1] if peak else 0),
     }
+
+
+_LLM_LEDGER_REBUILD_MARKER = "llm_ledger_rebuild_v2_msgkey"
+_rebuild_checked = False
+
+
+def ensure_llm_ledger_rebuilt() -> None:
+    """One-time (per install) rebuild of the llm ledger from chat messages.
+
+    The legacy write path keyed batch rollups on ``llm:{run_id}:batch:{count}``,
+    which collided across model steps in one run and silently dropped usage.
+    Events are now keyed ``llm:msg:{message_id}``; this backfills history from
+    ``evoflow_chat_messages`` (the source of truth) exactly once, guarded by a
+    marker row so it never re-runs or double-counts.
+    """
+    global _rebuild_checked
+    if _rebuild_checked:
+        return
+    _rebuild_checked = True
+
+    def _check(db: Any) -> None:
+        db.execute(
+            "CREATE TABLE IF NOT EXISTS evoflow_usage_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)"
+        )
+        row = db.execute(
+            "SELECT value FROM evoflow_usage_meta WHERE key = ?",
+            (_LLM_LEDGER_REBUILD_MARKER,),
+        ).fetchone()
+        if row:
+            return
+        result = rebuild_llm_usage_ledger(db)
+        db.execute(
+            "INSERT OR REPLACE INTO evoflow_usage_meta (key, value) VALUES (?, ?)",
+            (_LLM_LEDGER_REBUILD_MARKER, utc_now_iso_z()),
+        )
+        logger.info("usage ledger rebuilt from chat messages: %s", result)
+
+    try:
+        run_db_transaction(_check)
+    except Exception:
+        logger.exception("ensure_llm_ledger_rebuilt failed")
+
+
+def rebuild_llm_usage_ledger(db: Any | None = None) -> dict[str, Any]:
+    """Rebuild all llm usage events + daily rollup from ``evoflow_chat_messages``.
+
+    One event per assistant message that carries tokens, keyed ``llm:msg:{message_id}``
+    (or ``llm:row:{session_key}:{seq}`` when the message id is missing). Amount is
+    priced from ``token_usage.pricing`` config.
+    """
+
+    def _rebuild(conn: Any) -> dict[str, Any]:
+        if not conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='evoflow_usage_events'"
+        ).fetchone():
+            return {"ok": False, "reason": "no_table"}
+
+        events_before = conn.execute(
+            "SELECT COUNT(*) FROM evoflow_usage_events WHERE category = ?", (CATEGORY_LLM,)
+        ).fetchone()
+        conn.execute("DELETE FROM evoflow_usage_events WHERE category = ?", (CATEGORY_LLM,))
+        conn.execute("DELETE FROM evoflow_usage_daily WHERE category = ?", (CATEGORY_LLM,))
+
+        has_created_by = bool(
+            conn.execute(
+                "SELECT 1 FROM pragma_table_info('evoflow_chat_sessions') WHERE name='created_by'"
+            ).fetchone()
+        )
+        owner_select = "s.created_by" if has_created_by else "NULL"
+        rows = conn.execute(
+            f"""
+            SELECT m.session_key, m.seq, m.message_id, m.run_id, m.thread_id,
+                   m.model_name, m.input_tokens, m.output_tokens, m.total_tokens,
+                   m.created_at, {owner_select}
+            FROM evoflow_chat_messages m
+            LEFT JOIN evoflow_chat_sessions s ON s.session_key = m.session_key
+            WHERE m.role = 'assistant'
+              AND COALESCE(m.total_tokens, 0) > 0
+            """
+        ).fetchall()
+
+        price_cache: dict[str, tuple[float, float]] = {}
+        now = utc_now_iso_z()
+        batch: list[tuple[Any, ...]] = []
+        for r in rows:
+            sk, seq, mid, rid, tid, model, inp, outp, tot, created, owner = r
+            inp = _f(inp)
+            outp = _f(outp)
+            tot = _f(tot) or (inp + outp)
+            if tot <= 0:
+                continue
+            sku = _s(model)
+            if not sku:
+                sku = _resolve_model_sku(conn, session_key=sk, thread_id=tid)
+            if sku not in price_cache:
+                price = _resolve_llm_price(sku)
+                price_cache[sku] = (price.get("input", 0.0), price.get("output", 0.0))
+            pin, pout = price_cache[sku]
+            amt = (inp / 1_000_000.0) * pin + (outp / 1_000_000.0) * pout
+            eid = f"llm:msg:{_s(mid)}" if _s(mid) else f"llm:row:{sk}:{int(seq or 0)}"
+            batch.append(
+                (
+                    eid,
+                    _s(created) or now,
+                    CATEGORY_LLM,
+                    SUBCATEGORY_CHAT,
+                    UNIT_TOKEN,
+                    tot,
+                    inp,
+                    outp,
+                    "USD",
+                    amt,
+                    "config:token_usage.pricing" if amt > 0 else "",
+                    "",
+                    sku,
+                    sk,
+                    tid,
+                    rid,
+                    mid,
+                    None,
+                    None,
+                    None,
+                    "install",
+                    "",
+                    _s(owner) or None,
+                    "{}",
+                    now,
+                )
+            )
+
+        conn.executemany(
+            """
+            INSERT OR IGNORE INTO evoflow_usage_events (
+                event_id, occurred_at, category, subcategory, unit,
+                quantity, quantity_in, quantity_out,
+                currency, amount, pricing_source, provider, sku,
+                session_key, thread_id, run_id, message_id, app_id, agent_code, workspace_id,
+                subject_type, subject_id, principal_id, meta_json, created_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            batch,
+        )
+
+        conn.execute(
+            """
+            INSERT INTO evoflow_usage_daily (
+                day, category, subcategory, sku, subject_type, subject_id, principal_id,
+                quantity_sum, quantity_in_sum, quantity_out_sum, amount_sum, event_count
+            )
+            SELECT
+                substr(occurred_at, 1, 10) AS day,
+                category,
+                COALESCE(subcategory, ''),
+                COALESCE(sku, ''),
+                'install',
+                '',
+                COALESCE(principal_id, ''),
+                SUM(quantity), SUM(quantity_in), SUM(quantity_out), SUM(amount), COUNT(*)
+            FROM evoflow_usage_events
+            WHERE category = ?
+            GROUP BY day, category, COALESCE(subcategory, ''), COALESCE(sku, ''),
+                     principal_id
+            """,
+            (CATEGORY_LLM,),
+        )
+
+        return {"ok": True, "events": len(batch), "events_before": int(events_before[0] or 0)}
+
+    if db is not None:
+        return _rebuild(db)
+    return run_db_transaction(_rebuild)
 
 
 def _usage_where(

@@ -1,6 +1,6 @@
 /**
- * 设置 → 资源 → 我的
- * 左：本机资源可搜可选；右：资源包草稿（导出）
+ * 设置 → 资源中心 → 打包分享
+ * 左：本机资源可搜可选；右：三步打包台(选资源 → 包信息 → 导出)
  */
 import '../../style/settings-resources.css'
 import { api } from '../../lib/tauri-api.js'
@@ -21,23 +21,36 @@ let _filterKind = 'all'
 /** @type {string} */
 let _query = ''
 
-const KIND_LABEL = {
-  employee: '员工',
-  agent: 'Agent',
-  app: '工作流',
-  skill: '技能',
-  knowledge: '知识库',
-  extension: '扩展',
+const ICONS = {
+  employee: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>',
+  agent: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M12 8V4m-5 8h.01M17 12h.01M9 16h6"/></svg>',
+  app: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/><path d="M10 6.5h7a1 1 0 0 1 1 1V14M14 17.5H7a1 1 0 0 1-1-1V10"/></svg>',
+  skill: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 4.5 13.5H11l-1 8.5L18.5 10.5H12z"/></svg>',
+  knowledge: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/></svg>',
+  extension: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v3m0 12v3M3 12h3m12 0h3M7 7l2 2m6 6 2 2m0-10-2 2m-6 6-2 2"/><circle cx="12" cy="12" r="3"/></svg>',
+}
+
+const KIND_META = {
+  employee: { label: '员工', tone: 'violet' },
+  agent: { label: 'Agent', tone: 'sky' },
+  app: { label: '工作流', tone: 'amber' },
+  skill: { label: '技能', tone: 'emerald' },
+  knowledge: { label: '知识库', tone: 'rose' },
+  extension: { label: '扩展', tone: 'slate' },
+}
+
+function kindLabel(kind) {
+  return KIND_META[kind]?.label || kind
 }
 
 const FILTERS = [
-  { id: 'all', label: '全部', nav: '' },
-  { id: 'employee', label: '员工', nav: '/proactive' },
-  { id: 'agent', label: 'Agent', nav: '/agents' },
-  { id: 'app', label: '工作流', nav: '/apps' },
-  { id: 'skill', label: '技能', nav: '/skills' },
-  { id: 'knowledge', label: '知识库', nav: '/knowledge' },
-  { id: 'extension', label: '扩展', nav: '/extensions' },
+  { id: 'all', label: '全部' },
+  { id: 'employee', label: '员工' },
+  { id: 'agent', label: 'Agent' },
+  { id: 'app', label: '工作流' },
+  { id: 'skill', label: '技能' },
+  { id: 'knowledge', label: '知识库' },
+  { id: 'extension', label: '扩展' },
 ]
 
 function esc(s) {
@@ -52,6 +65,10 @@ function isTauriDesktop() {
   return !!(window.__TAURI_INTERNALS__ || window.__TAURI__)
 }
 
+function reportCount(n) {
+  _root?.dispatchEvent(new CustomEvent('sr-count', { detail: { panel: 'mine', count: n }, bubbles: true }))
+}
+
 function shellHtml() {
   const chips = FILTERS.map(
     (f) =>
@@ -61,9 +78,15 @@ function shellHtml() {
     <div class="sr-root sr-root--workbench">
       <div class="sr-workbench">
         <aside class="sr-wb-left">
+          <div class="sr-wb-head">
+            <div class="min-w-0">
+              <h3>本机资源</h3>
+              <p class="sr-muted">勾选要打包的员工、工作流、技能等</p>
+            </div>
+            <button type="button" class="sr-btn" data-sr-act="refresh" title="刷新清单">刷新</button>
+          </div>
           <div class="sr-wb-toolbar">
             <input class="sr-search" type="search" data-sr-q placeholder="搜索名称、code、id…" autocomplete="off" />
-            <button type="button" class="sr-btn" data-sr-act="refresh" title="刷新">刷新</button>
           </div>
           <div class="sr-chips" role="tablist" aria-label="资源类型">${chips}</div>
           <div class="sr-wb-bulk">
@@ -78,21 +101,37 @@ function shellHtml() {
         </aside>
         <section class="sr-wb-right">
           <div class="sr-draft-head">
-            <h3 class="sr-draft-title">资源包草稿</h3>
-            <p class="sr-muted">勾选左侧资源后在此打包导出；别处可用「市场 → 导入本地」安装。</p>
+            <h3 class="sr-draft-title">打包分享</h3>
+            <p class="sr-muted">把勾选的资源打包成资源包,导出后发给同事,或在另一台设备「获取资源 → 导入本地资源包」安装。</p>
           </div>
-          <div class="sr-draft-fields">
-            <div class="sr-import-row">
-              <input class="sr-input" type="text" data-ex-id placeholder="包 id（kebab-case）" value="my-export" />
-              <input class="sr-input" type="text" data-ex-name placeholder="显示名" value="我的资源包" />
-              <input class="sr-input sr-input--sm" type="text" data-ex-ver placeholder="版本" value="1.0.0" />
+
+          <div class="sr-draft-block">
+            <div class="sr-draft-block-head">
+              <span class="sr-step-no">1</span><b>已选资源</b>
+              <span class="sr-muted" data-sr-draft-summary></span>
             </div>
-            <textarea class="sr-textarea sr-textarea--sm" data-ex-desc placeholder="简介（可选）"></textarea>
+            <div class="sr-draft-basket" data-sr-basket></div>
+            <div class="sr-draft-deps sr-muted" data-sr-deps></div>
           </div>
-          <div class="sr-draft-summary" data-sr-draft-summary></div>
-          <div class="sr-draft-basket" data-sr-basket></div>
-          <div class="sr-draft-deps sr-muted" data-sr-deps></div>
-          <div class="sr-draft-export">
+
+          <div class="sr-draft-block">
+            <div class="sr-draft-block-head">
+              <span class="sr-step-no">2</span><b>包信息</b>
+            </div>
+            <div class="sr-draft-fields">
+              <div class="sr-import-row">
+                <input class="sr-input" type="text" data-ex-id placeholder="包 id(kebab-case)" value="my-export" />
+                <input class="sr-input" type="text" data-ex-name placeholder="显示名" value="我的资源包" />
+                <input class="sr-input sr-input--sm" type="text" data-ex-ver placeholder="版本" value="1.0.0" />
+              </div>
+              <textarea class="sr-textarea sr-textarea--sm" data-ex-desc placeholder="简介(可选)"></textarea>
+            </div>
+          </div>
+
+          <div class="sr-draft-block">
+            <div class="sr-draft-block-head">
+              <span class="sr-step-no">3</span><b>导出</b>
+            </div>
             <div class="sr-import-row">
               <input class="sr-input" type="text" data-ex-dir placeholder="导出目录" />
               <button type="button" class="sr-btn" data-sr-act="pick-dir">选目录</button>
@@ -100,10 +139,10 @@ function shellHtml() {
             </div>
             <label class="sr-check sr-check--block">
               <input type="checkbox" data-ex-vault-data />
-              打包知识库正文（默认否，仅写入 vault id 引用）
+              打包知识库正文(默认否,仅写入 vault id 引用)
             </label>
-            <div class="sr-import-actions">
-              <button type="button" class="sr-btn" data-sr-act="goto-assets">资产中心</button>
+            <div class="sr-draft-actions">
+              <button type="button" class="sr-btn" data-sr-act="goto-assets">打开资产中心</button>
               <button type="button" class="sr-btn sr-btn--primary" data-sr-act="export">导出资源包</button>
             </div>
             <pre class="sr-log" data-ex-log hidden></pre>
@@ -136,7 +175,11 @@ function renderList() {
     meta.textContent = `显示 ${rows.length} / 共 ${_items.length} · 已选 ${_selected.size}`
   }
   if (!_items.length) {
-    list.innerHTML = `<div class="sr-empty">本机还没有可列出的资源。</div>`
+    list.innerHTML = `
+      <div class="sr-empty">
+        <b>本机还没有可列出的资源</b>
+        <p>先到「工作台 / 员工 / 工作流」里创建内容,再回来打包分享。</p>
+      </div>`
     return
   }
   if (!rows.length) {
@@ -146,16 +189,19 @@ function renderList() {
   list.innerHTML = rows
     .map((it) => {
       const on = _selected.has(it.key)
+      const tone = KIND_META[it.kind]?.tone || 'slate'
+      const badges = (Array.isArray(it.badges) ? it.badges : it.badge ? [it.badge] : [])
+        .map((b) => `<span class="sr-badge sr-badge--muted">${esc(b)}</span>`)
+        .join('')
       return `
       <label class="sr-pick${on ? ' is-selected' : ''}" data-sr-key="${esc(it.key)}">
         <input type="checkbox" data-sr-check value="${esc(it.key)}" ${on ? 'checked' : ''} />
+        <span class="sr-type-icon sr-type-icon--${tone}">${ICONS[it.kind] || ICONS.extension}</span>
         <div class="sr-pick-body">
           <div class="sr-pick-title">
             <span>${esc(it.title)}</span>
-            <span class="sr-badge">${esc(KIND_LABEL[it.kind] || it.kind)}</span>
-            ${(Array.isArray(it.badges) ? it.badges : it.badge ? [it.badge] : [])
-              .map((b) => `<span class="sr-badge sr-badge--muted">${esc(b)}</span>`)
-              .join('')}
+            <span class="sr-badge">${esc(kindLabel(it.kind))}</span>
+            ${badges}
           </div>
           ${it.meta ? `<div class="sr-pick-meta">${esc(it.meta)}</div>` : ''}
         </div>
@@ -174,12 +220,12 @@ function renderBasket() {
   for (const it of picked) {
     counts[it.kind] = (counts[it.kind] || 0) + 1
   }
-  const parts = Object.keys(KIND_LABEL)
+  const parts = Object.keys(KIND_META)
     .filter((k) => counts[k])
-    .map((k) => `${KIND_LABEL[k]} ${counts[k]}`)
-  summary.textContent = parts.length ? `已选：${parts.join(' · ')}` : '尚未勾选资源'
+    .map((k) => `${KIND_META[k].label} ${counts[k]}`)
+  summary.textContent = parts.length ? parts.join(' · ') : '尚未勾选'
   if (!picked.length) {
-    basket.innerHTML = `<div class="sr-inv-empty">在左侧勾选员工、工作流等，将出现在这里。</div>`
+    basket.innerHTML = `<div class="sr-inv-empty">在左侧勾选员工、工作流等,将出现在这里。</div>`
   } else {
     basket.innerHTML = `
       <ul class="sr-basket-list">
@@ -187,7 +233,7 @@ function renderBasket() {
           .map(
             (it) => `
           <li class="sr-basket-row">
-            <span class="sr-badge sr-badge--muted">${esc(KIND_LABEL[it.kind] || it.kind)}</span>
+            <span class="sr-type-icon sr-type-icon--${KIND_META[it.kind]?.tone || 'slate'} sr-type-icon--xs">${ICONS[it.kind] || ICONS.extension}</span>
             <span class="sr-basket-title">${esc(it.title)}</span>
             <button type="button" class="sr-btn sr-btn--ghost sr-btn--tiny" data-sr-act="unpick" data-sr-key="${esc(it.key)}">移除</button>
           </li>`,
@@ -200,8 +246,8 @@ function renderBasket() {
     if (counts.employee) tips.push('员工会自动带上对应 Agent')
     if (counts.app) tips.push('工作流步骤里的 assigned_agent 会自动补入')
     if (counts.skill) tips.push('技能目录会复制进包')
-    if (counts.extension) tips.push('扩展仅写入 id 引用（Gateway 无法拷贝扩展文件）')
-    if (counts.knowledge) tips.push('知识库默认只写 vault id，不打包正文')
+    if (counts.extension) tips.push('扩展仅写入 id 引用(Gateway 无法拷贝扩展文件)')
+    if (counts.knowledge) tips.push('知识库默认只写 vault id,不打包正文')
     deps.textContent = tips.length ? `将自动处理：${tips.join('；')}` : ''
   }
 }
@@ -213,8 +259,15 @@ function syncFilterChips() {
   })
   const manage = _root?.querySelector('[data-sr-manage]')
   if (manage instanceof HTMLElement) {
-    const f = FILTERS.find((x) => x.id === _filterKind)
-    const nav = f?.nav || ''
+    const navByKind = {
+      employee: '/proactive',
+      agent: '/agents',
+      app: '/apps',
+      skill: '/skills',
+      knowledge: '/knowledge',
+      extension: '/extensions',
+    }
+    const nav = navByKind[_filterKind] || ''
     manage.hidden = !nav
     if (nav) manage.setAttribute('data-nav', nav)
   }
@@ -393,6 +446,7 @@ async function refresh() {
   if (list) list.innerHTML = `<div class="sr-empty">加载中…</div>`
   try {
     _items = await loadAllItems()
+    reportCount(_items.length)
     // drop selections that no longer exist
     const keys = new Set(_items.map((i) => i.key))
     for (const k of [..._selected]) {
@@ -415,7 +469,7 @@ async function pickDir() {
       const picked = await dlg.open({
         directory: true,
         multiple: false,
-        title: '选择导出父目录（将在其下创建包文件夹）',
+        title: '选择导出父目录(将在其下创建包文件夹)',
       })
       const p = Array.isArray(picked) ? picked[0] : picked
       if (!p) return
@@ -441,7 +495,7 @@ async function pickDir() {
 async function runExport() {
   const include = buildIncludeFromSelection()
   if (!include.employee_codes.length && !include.app_ids.length) {
-    toast.error('请至少勾选 1 个员工或 1 个工作流（资源包 kind 需要其一）')
+    toast.error('请至少勾选 1 个员工或 1 个工作流(资源包 kind 需要其一)')
     return
   }
   const idEl = _root?.querySelector('[data-ex-id]')
@@ -480,7 +534,7 @@ async function runExport() {
       logEl.hidden = false
       logEl.textContent = JSON.stringify(res, null, 2)
     }
-    const warn = Array.isArray(res?.warnings) && res.warnings.length ? `（${res.warnings.length} 条警告）` : ''
+    const warn = Array.isArray(res?.warnings) && res.warnings.length ? `(${res.warnings.length} 条警告)` : ''
     toast.success(`已导出到 ${res?.output_dir || dir}${warn}`)
   } catch (e) {
     const detail = e?.detail

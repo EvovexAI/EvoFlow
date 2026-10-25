@@ -57,7 +57,13 @@ function browserStageIdFromSnapshot(): string {
   const tab =
     snap.tabs.find((item) => `${item.kind}:${item.id}` === snap.activeKey) || snap.surface
   if (!tab) return ''
-  if (tab.kind === 'browser') return String(tab.id || 'primary')
+  if (tab.kind === 'browser') {
+    // 空白新标签：不要露出 HWND。单窗还停在上一标签的页，露出会「空白地址栏底下是旧网页」；
+    // 切回有 URL 的标签时再 show。navigate about:blank 会毁掉上一页，切回去常贴不回来。
+    const pageUrl = String(tab.data?.pageUrl || '').trim()
+    if (!pageUrl || pageUrl === 'about:blank') return ''
+    return String(tab.id || 'primary')
+  }
   if (tab.kind === 'web-embed') {
     const data = tab.data || {}
     const ext = String(data.extensionId || data.extension_id || '').trim()

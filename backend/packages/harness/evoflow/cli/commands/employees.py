@@ -41,7 +41,7 @@ def register(subparsers: argparse._SubParsersAction) -> None:
             "  risk_threshold                low|medium|high|critical\n"
             "  heartbeat_rrule               e.g. FREQ=HOURLY;INTERVAL=2\n"
             "  status                        active|paused|draft (default active)\n"
-            "  max_turns, timeout_seconds, model_name, skills, tool_groups\n"
+            "  max_turns, timeout_seconds, model_name, skills\n"
             "  work_schedule_enabled, work_start_hour, work_end_hour\n"
             "  daily_budget_usd, approval_timeout_minutes, …\n"
             "See examples/employees-hire.json"

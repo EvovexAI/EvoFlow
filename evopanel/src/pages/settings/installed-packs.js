@@ -1,6 +1,6 @@
 /**
- * 设置 → 资源 → 已装（资源包实例）
- * 列表 / 详情 / 卸载；导出请到「我的」勾选打包
+ * 设置 → 资源中心 → 已装资源
+ * 已装资源包实例:列表 / 详情 / 卸载;导出请到「打包分享」勾选打包
  */
 import '../../style/settings-resources.css'
 import { api } from '../../lib/tauri-api.js'
@@ -19,6 +19,20 @@ function esc(s) {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
+}
+
+function reportCount(n) {
+  _root?.dispatchEvent(new CustomEvent('sr-count', { detail: { panel: 'installed', count: n }, bubbles: true }))
+}
+
+const ICONS = {
+  team: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>',
+  pipeline: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/><path d="M10 6.5h7a1 1 0 0 1 1 1V14M14 17.5H7a1 1 0 0 1-1-1V10"/></svg>',
+  full: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>',
+}
+
+function kindIcon(kind) {
+  return ICONS[String(kind || '').toLowerCase()] || ICONS.full
 }
 
 function kindLabel(kind) {
@@ -69,26 +83,22 @@ function shellHtml(embedded) {
     : `
       <header class="sr-header">
         <div>
-          <h2 class="sr-title">已装资源包</h2>
-          <p class="sr-desc">从市场或本地安装的整包场景实例。点击卡片查看详情。</p>
+          <h2 class="sr-title">已装资源</h2>
+          <p class="sr-desc">从市场或本地安装的资源包实例。点击卡片查看装了哪些产物。</p>
         </div>
         <div class="sr-header-actions">
           <button type="button" class="sr-btn" data-ip-act="refresh">刷新</button>
         </div>
       </header>`
-  const listHead = embedded
-    ? `<div class="sr-section-head">
-        <h3>已装资源包</h3>
-        <div class="sr-inline-actions">
-          <span class="sr-muted" data-ip-count></span>
-          <button type="button" class="sr-btn" data-ip-act="refresh">刷新</button>
-          <button type="button" class="sr-btn" data-ip-act="goto-mine">去「我的」打包</button>
-        </div>
-      </div>`
-    : `<div class="sr-section-head">
-        <h3>已装资源包</h3>
+  const listHead = `
+    <div class="sr-section-head">
+      <h3>已装资源包</h3>
+      <div class="sr-inline-actions">
         <span class="sr-muted" data-ip-count></span>
-      </div>`
+        ${embedded ? `<button type="button" class="sr-btn" data-ip-act="refresh">刷新</button>
+        <button type="button" class="sr-btn" data-ip-act="goto-mine">去打包分享</button>` : ''}
+      </div>
+    </div>`
   return `
     <div class="sr-root sr-root--fill${embedded ? ' sr-root--embedded' : ''}">
       ${header}
@@ -172,44 +182,22 @@ function renderArtifactBlocks(arts, details) {
   return blocks.join('')
 }
 
-function renderManifestSummary(manifest) {
-  const m = manifest && typeof manifest === 'object' ? manifest : {}
-  const prim = m.primitives && typeof m.primitives === 'object' ? m.primitives : {}
-  const team = m.team && typeof m.team === 'object' ? m.team : {}
-  const ws = m.workspace && typeof m.workspace === 'object' ? m.workspace : {}
-  const rows = [
-    ['清单 id', m.id],
-    ['版本', m.version],
-    ['类型', kindLabel(m.kind)],
-    ['工作区名', ws.name],
-    ['知识库声明', Array.isArray(prim.knowledge) ? `${prim.knowledge.length} 项` : '—'],
-    ['技能声明', Array.isArray(prim.skills) ? `${prim.skills.length} 项` : '—'],
-    ['智能体声明', Array.isArray(prim.agents) ? `${prim.agents.length} 项` : '—'],
-    ['扩展声明', Array.isArray(prim.extensions) ? `${prim.extensions.length} 项` : '—'],
-    ['员工声明', Array.isArray(team.employees) ? `${team.employees.length} 项` : '—'],
-  ]
-  return `
-    <dl class="sr-kv">
-      ${rows
-        .map(
-          ([k, v]) =>
-            `<div><dt>${esc(k)}</dt><dd>${esc(v == null || v === '' ? '—' : v)}</dd></div>`,
-        )
-        .join('')}
-    </dl>`
-}
-
 function renderList(items) {
   const list = _root?.querySelector('[data-ip-list]')
   const countEl = _root?.querySelector('[data-ip-count]')
   if (!list) return
   _items = Array.isArray(items) ? items : []
+  reportCount(_items.length)
   if (countEl) countEl.textContent = _items.length ? `${_items.length} 个` : ''
   if (!_items.length) {
     list.innerHTML = `
       <div class="sr-empty">
-        还没有安装资源包。
-        <button type="button" class="sr-btn sr-btn--primary" data-ip-act="goto-market" style="margin-top:12px">去市场安装</button>
+        <b>还没有安装资源包</b>
+        <p>资源包会一次性装好员工、工作流与技能编排。去市场逛逛,或导入本地包。</p>
+        <div class="sr-empty-actions">
+          <button type="button" class="sr-btn sr-btn--primary" data-ip-act="goto-market">去获取资源</button>
+          <button type="button" class="sr-btn" data-ip-act="goto-mine">打包分享本机资源</button>
+        </div>
       </div>`
     return
   }
@@ -221,6 +209,7 @@ function renderList(items) {
       const showId = it.pack_id && it.pack_id !== title
       return `
       <article class="sr-card sr-card--clickable" data-org-id="${id}" data-ip-act="open-detail" tabindex="0" role="button" aria-label="查看 ${esc(title)} 详情">
+        <span class="sr-type-icon" title="${esc(kindLabel(it.kind))}">${kindIcon(it.kind)}</span>
         <div class="sr-card-main">
           <div class="sr-card-title">
             <span>${esc(title)}</span>
@@ -252,7 +241,7 @@ function renderDetail(it) {
   if (titleEl) titleEl.textContent = title
   const ws = String(it.workspace_path || '').trim()
   const wsWarn = ws.includes('${')
-    ? `<p class="sr-warn">工作区路径仍含占位符，可能是安装时未展开。重新安装或在安装时选择工作区可修复。</p>`
+    ? `<p class="sr-warn">工作区路径仍含占位符,可能是安装时未展开。重新安装或在安装时选择工作区可修复。</p>`
     : ''
   host.innerHTML = `
     <div class="sr-detail-hero">
@@ -266,26 +255,20 @@ function renderDetail(it) {
         <p class="sr-card-meta" style="margin:0">${esc(it.description || '无描述')}</p>
       </div>
     </div>
-    <div class="sr-detail-grid">
-      <div class="sr-detail-block">
-        <h4>实例信息</h4>
-        <dl class="sr-kv">
-          <div><dt>显示名</dt><dd>${esc(title)}</dd></div>
-          <div><dt>包 id</dt><dd><code>${esc(it.pack_id || '—')}</code></dd></div>
-          <div><dt>实例 id</dt><dd><code>${esc(it.org_instance_id || '—')}</code></dd></div>
-          <div><dt>安装时间</dt><dd>${esc(fmtTime(it.installed_at))}</dd></div>
-          <div><dt>工作区</dt><dd>${ws ? `<code>${esc(ws)}</code>` : '—'}</dd></div>
-        </dl>
-        ${wsWarn}
-      </div>
-      <div class="sr-detail-block">
-        <h4>清单摘要</h4>
-        ${renderManifestSummary(it.manifest)}
-      </div>
+    <div class="sr-detail-block">
+      <h4>实例信息</h4>
+      <dl class="sr-kv">
+        <div><dt>显示名</dt><dd>${esc(title)}</dd></div>
+        <div><dt>包 id</dt><dd><code>${esc(it.pack_id || '—')}</code></dd></div>
+        <div><dt>实例 id</dt><dd><code>${esc(it.org_instance_id || '—')}</code></dd></div>
+        <div><dt>安装时间</dt><dd>${esc(fmtTime(it.installed_at))}</dd></div>
+        <div><dt>工作区</dt><dd>${ws ? `<code>${esc(ws)}</code>` : '—'}</dd></div>
+      </dl>
+      ${wsWarn}
     </div>
     <div class="sr-detail-block">
       <h4>已装产物</h4>
-      <p class="sr-muted" style="margin:0 0 10px">安装时写入系统的员工 / 智能体 / 技能 / 扩展等；主文案为中文显示名，编码可悬停查看。</p>
+      <p class="sr-muted" style="margin:0 0 10px">安装时写入系统的员工 / 智能体 / 技能 / 扩展等;主文案为中文显示名,编码可悬停查看。</p>
       ${renderArtifactBlocks(it.artifacts, it.artifact_details)}
     </div>
   `

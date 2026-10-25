@@ -10354,9 +10354,9 @@ html[data-theme='dark'] .models-sort-dropdown-panel {
   overflow-y: auto;
 }
 
-/* macOS åçæ é¢æ ï¼è®¾ç½®é¡µä¾§æ æ´ä½ä¸ç§»ï¼é¿åãè¿åå·¥ä½åºãè¢«äº¤éç¯é®æ¡ */
+/* macOS 原生标题栏：侧栏整体下移，避开交通灯；高度与 react-chat 顶栏拖拽带对齐 */
 html.evopanel-macos-titlebar .settings-modal-root .settings-layout--hub .settings-nav {
-  padding-top: 30px;
+  padding-top: 52px;
 }
 
 .settings-nav-back {
@@ -10409,9 +10409,9 @@ html.dark .settings-modal-root .settings-layout--hub .settings-nav {
   box-sizing: border-box;
 }
 
-/* macOS åçæ é¢æ ï¼æ é¢ä¸ä¾§æ ãè¿åå·¥ä½åºãæé®ä¿æåä¸åºçº¿ */
+/* macOS 原生标题栏：主区与侧栏「返回工作区」保持同一基线（含顶栏拖拽带） */
 html.evopanel-macos-titlebar .settings-modal-root .settings-layout--hub .settings-hub-main {
-  padding-top: 30px;
+  padding-top: 52px;
 }
 
 html[data-theme='dark'] .settings-modal-root .settings-layout--hub .settings-hub-main,
@@ -13672,6 +13672,11 @@ html[data-theme='dark'] .memory-agent-dropdown-panel {
   white-space: nowrap;
 }
 
+/* 数值列表头与右对齐的 .su-num 数据保持一致 */
+.su-user-table th:nth-child(n + 2) {
+  text-align: right;
+}
+
 .su-user-table .su-num {
   text-align: right;
   font-variant-numeric: tabular-nums;
@@ -13703,7 +13708,7 @@ html[data-theme='dark'] .memory-agent-dropdown-panel {
 
 .su-dash-row {
   display: grid;
-  grid-template-columns: minmax(0, 1.55fr) minmax(280px, 0.9fr);
+  grid-template-columns: minmax(0, 1.15fr) minmax(340px, 1fr);
   gap: 16px;
   align-items: stretch;
 }
@@ -13786,8 +13791,8 @@ html[data-theme='dark'] .memory-agent-dropdown-panel {
 }
 
 .su-donut {
-  width: 168px;
-  height: 168px;
+  width: 148px;
+  height: 148px;
   border-radius: 50%;
   flex-shrink: 0;
   position: relative;

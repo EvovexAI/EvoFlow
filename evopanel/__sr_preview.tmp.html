@@ -1,0 +1,34 @@
+<!doctype html>
+<!-- 临时预览页:验证已装资源详情(不属于应用入口,测完即删) -->
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SR Preview</title>
+    <style>
+      body { margin: 0; background: #f6f7f9; }
+      #preview-root { max-width: 1180px; margin: 0 auto; padding: 20px 24px; height: 100vh; box-sizing: border-box; }
+    </style>
+  </head>
+  <body>
+    <div id="preview-root"></div>
+    <script type="module">
+      try {
+        const m = await import("/src/pages/settings/resources.js");
+        const root = document.getElementById("preview-root");
+        root.classList.add("settings-modal-pane", "settings-modal-pane--resources");
+        await m.mountResourcesInto(root, { initialPanel: "installed" });
+        // 打开第一个包的详情
+        setTimeout(() => {
+          document.querySelector('.sr-card--clickable[data-ip-act="open-detail"]')?.click();
+        }, 800);
+        document.title = "SR Preview Ready";
+        window.__srReady = true;
+      } catch (e) {
+        document.title = "SR Preview Error";
+        document.getElementById("preview-root").textContent = "MOUNT FAIL: " + String(e?.stack || e);
+        window.__srError = String(e?.stack || e);
+      }
+    </script>
+  </body>
+</html>

@@ -182,7 +182,6 @@ class TestEmployeeModelNotSynced:
             role_cfg = SimpleNamespace()
             role_cfg.skills = []
             role_cfg.soul_md = ""
-            role_cfg.tool_groups = []
             role_cfg.extra_context = {}
             role_cfg.model_name = None  # pre-existing; must stay None
             get_role.return_value = SimpleNamespace(

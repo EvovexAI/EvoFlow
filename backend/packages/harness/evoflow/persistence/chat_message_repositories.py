@@ -806,13 +806,14 @@ def append_messages_batch(
     def _batch(db: Any) -> dict[str, Any]:
         appended = 0
         skipped = 0
-        token_totals = {
+        token_totals: dict[str, Any] = {
             "input_tokens": 0,
             "output_tokens": 0,
             "total_tokens": 0,
             "cache_read_tokens": 0,
             "cache_creation_tokens": 0,
             "cache_miss_tokens": 0,
+            "rows": [],
         }
         for item in items:
             if not isinstance(item, dict):
@@ -857,7 +858,10 @@ def append_messages_batch(
             )
             if res:
                 appended += 1
+                token_totals["rows"].append(res)
                 for key in token_totals:
+                    if key == "rows":
+                        continue
                     token_totals[key] += int(res.get(key) or 0)
             else:
                 skipped += 1

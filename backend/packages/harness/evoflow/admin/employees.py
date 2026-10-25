@@ -853,6 +853,7 @@ def _hire_existing_agent(
     # skills: prefer payload, fallback to agent's skills (never invent defaults here)
     explicit_skills = "skills" in data and data.get("skills") is not None
     skills_value = list(data.get("skills") or []) if explicit_skills else list(agent_skills)
+    agent_tools = list(agent_row.get("tools") or [])
 
     model_name_value = str(data.get("model_name") or "").strip() or agent_model
 

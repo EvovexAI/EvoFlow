@@ -9,7 +9,8 @@ import {
   getBridgeOwnerSessionKey,
   setBridgeOwnerSessionKey,
 } from './browser-bridge-owner.js'
-import { ensureNativeEmbed } from './browser-embed-surface.js'
+import { browserEmbedPark } from './browser-embed-client.js'
+import { ensureNativeEmbed, NATIVE_EMBED_THREAD_ID, syncNativeEmbed } from './browser-embed-surface.js'
 import { parseBrowserLiveToolOutput } from './chat-normalize.js'
 import { isSameBrowserLoad, sanitizeBrowserPageUrl } from './browser-page-url.js'
 import {
@@ -189,7 +190,8 @@ function displayTitle(pageUrl: string, pageTitle: string): string {
   const raw = pageUrl.trim()
   if (!raw) return '浏览器'
   try {
-    return new URL(raw).hostname || '浏览器'
+    // host 含非默认端口（如 127.0.0.1:8769）；hostname 会丢掉端口。
+    return new URL(raw).host || '浏览器'
   } catch {
     return raw.slice(0, 40) || '浏览器'
   }
@@ -294,15 +296,26 @@ export function stepBrowserTabHistory(delta: -1 | 1): string | null {
 /** 把当前网页标题/图标写到右侧前台浏览器标签上（单 HWND，每标签各自记 URL）。 */
 function syncBrowserStageChrome(pageUrl: string, pageTitle: string) {
   const snap = rightStageStore.getSnapshot()
-  const browsers = snap.tabs.filter((t) => normalizeRightStageKind(t.kind) === 'browser')
-  if (!browsers.length) return
-  const active =
-    browsers.find((t) => `browser:${t.id}` === snap.activeKey) || browsers[0]
+  const activeKey = String(snap.activeKey || '')
+  // 只写当前激活的浏览器标签。禁止 || browsers[0]——新标签导航时会把 URL 写进 primary，
+  // 表现为「输入新地址后，之前那个标签也变成新地址」。
+  if (!activeKey.startsWith('browser:')) return
+  const active = snap.tabs.find((t) => `browser:${t.id}` === activeKey)
+  if (!active) return
   // 错误页 URL 不写进标签，保留该标签已有地址。
   const prevUrl = String(active.data?.pageUrl || '').trim()
   const url = sanitizeBrowserPageUrl(pageUrl, prevUrl)
   if (!url && String(pageUrl || '').trim()) return
   const isBlank = !url || url === 'about:blank'
+  const prevBlank = !prevUrl || prevUrl === 'about:blank'
+  // 新标签仍是 blank：HWND 常还停在上一标签页。禁止把残留页写进本标签，
+  // 否则第二个标签地址栏会显示第一个的 URL，切回去两边状态都乱。
+  if (prevBlank && !isBlank && !isUserNavigateIntent(url)) {
+    dbgLog(
+      `[browser-panel-store] skip chrome sync onto blank tab id=${active.id} url=${url}`,
+    )
+    return
+  }
   // 只改 title/pageUrl/favicon，保留 historyStack / historyIndex。
   rightStageStore.patchTab(`browser:${active.id}`, {
     title: isBlank ? '新标签页' : displayTitle(url, pageTitle),
@@ -345,7 +358,18 @@ function applyStageBrowserSurface(tabId: string, pageUrl: string, pageTitle: str
     )
     return
   }
+  // 空白标签：只 park，绝不 navigate about:blank。
+  // 共享 HWND 里上一标签的文档还在；毁掉后再切回去经常贴不回槽位。
+  if (!url || url === 'about:blank') {
+    markUserNavigateIntent('about:blank')
+    syncNativeEmbed(`${reason}:blank-park`)
+    void browserEmbedPark(NATIVE_EMBED_THREAD_ID)
+    dbgLog(`[browser-panel-store] blank tab park id=${tabId} reason=${reason}`)
+    return
+  }
   markUserNavigateIntent(url)
+  // 先刷新显隐门闩（desiredStageId），再 upsert——否则 present=false 会把刚导航的窗又 park 掉。
+  syncNativeEmbed(`${reason}:show`)
   void ensureNativeEmbed({
     url,
     stageId: tabId,
@@ -405,9 +429,11 @@ export function ensureBrowserStage(opts?: {
   skipHwndNav?: boolean
 }) {
   const sessionKey = String(opts?.sessionKey || '').trim() || undefined
+  // 未指定 id 时跟当前激活浏览器标签，不要写死 primary——否则在第二个标签里
+  // 打开/导航会把 pageUrl 盖到第一个标签上。
   const id = opts?.forceNew
     ? newBrowserStageId()
-    : String(opts?.id || 'primary').trim() || 'primary'
+    : String(opts?.id || activeBrowserTabId() || 'primary').trim() || 'primary'
   const pageUrl = sanitizeBrowserPageUrl(String(opts?.pageUrl || state.pageUrl || '').trim(), 'about:blank')
   const skipHwndNav = opts?.skipHwndNav === true
   const currentSk = getCurrentRightStageSessionKey()
@@ -450,8 +476,14 @@ export function ensureBrowserStage(opts?: {
   const existing = rightStageStore.findTab(`browser:${id}`)
 
   if (opts?.forceNew) {
-    // 新标签：空白页。单 HWND 必须立刻 navigate，否则仍显示上一标签的页面。
+    // 新标签：空白页。只建 chrome + park HWND，不 navigate about:blank（会毁上一标签文档）。
     lastActiveBrowserKey = `browser:${id}`
+    patch({
+      pageUrl: '',
+      pageTitle: '',
+      canGoBack: false,
+      canGoForward: false,
+    })
     rightStageStore.show({
       kind: 'browser',
       id,
@@ -637,6 +669,27 @@ export function applyBrowserCommandResponse(input: {
     pushBrowserTabHistory(pageUrl, state.pageTitle)
   } else if (pageUrlChanged || next.pageTitle !== undefined) {
     syncBrowserStageChrome(state.pageUrl, state.pageTitle)
+  }
+  // 地址栏回车（navigateIntent + pushHistory）：空白新标签 HWND 处于 park，
+  // 仅靠 CDP soft-decouple 不会 upsert/贴位 → 用户感觉「按了回车没反应」。
+  // 先开门闩再导航共享窗；CDP navigate 仍由 BrowserPanel 随后补一枪对齐引擎态。
+  if (
+    input.navigateIntent &&
+    input.pushHistory &&
+    pageUrl &&
+    pageUrl !== 'about:blank' &&
+    !isBackground
+  ) {
+    const tabId = activeBrowserTabId()
+    syncNativeEmbed('address-bar')
+    if (tabId) {
+      void ensureNativeEmbed({
+        url: pageUrl,
+        stageId: tabId,
+        reason: 'address-bar',
+        replace: true,
+      })
+    }
   }
   // Soft-decouple: agent/pageUrl sync must still *raise* the right stage (expand +
   // activate browser tab). Previously we skipped ensure when a browser tab

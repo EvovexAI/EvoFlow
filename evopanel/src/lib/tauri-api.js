@@ -1151,7 +1151,6 @@ function normalizeAgentToWebShape(agent) {
     name,
     description,
     model: model || null,
-    tool_groups: Array.isArray(agent?.tool_groups) ? agent.tool_groups : null,
     soul: typeof agent?.soul === 'string' ? agent.soul : null,
     isDefault: !!agent?.isDefault || name === 'main',
   }
@@ -2363,16 +2362,17 @@ export const api = {
     if (!found) throw new Error(`Agent '${name}' not found`)
     return found
   },
-  agentsCreate: async ({ name, description = '', model = null, tool_groups = null, soul = '' }) => {
-    const res = await invoke('agents_create', { name, description, model, tool_groups, soul })
+  agentsCreate: async ({ name, description = '', model = null, soul = '' }) => {
+    const res = await invoke('agents_create', { name, description, model, soul })
     invalidate('agents_list')
     return normalizeAgentToWebShape(res)
   },
-  agentsUpdate: async (name, { description = null, model = null, tool_groups = null, soul = null }) => {
-    const res = await invoke('agents_update', { name, description, model, tool_groups, soul })
+  agentsUpdate: async (name, { description = null, model = null, soul = null }) => {
+    const res = await invoke('agents_update', { name, description, model, soul })
     invalidate('agents_list')
     return normalizeAgentToWebShape(res)
   },
+
   agentsDelete: async (name) => {
     await invoke('agents_delete', { name })
     invalidate('agents_list')

@@ -1454,25 +1454,28 @@ def append_messages_batch_and_touch_session(
         try:
             from evoflow.persistence.usage_ledger import record_llm_chat_usage_in_txn
 
-            # Batch rollup: one ledger row per run when tokens present (idempotent on run).
-            if int(batch.get("total_tokens") or 0) or int(batch.get("input_tokens") or 0):
-                batch_model = ""
-                for m in messages or []:
-                    if not isinstance(m, dict):
-                        continue
-                    batch_model = str(m.get("model_name") or m.get("modelName") or m.get("model") or "").strip()
-                    if batch_model:
-                        break
+            # One ledger event per appended assistant message, keyed on the real
+            # message id (llm:msg:{mid}) — never a batch rollup, which collided
+            # across model steps of the same run and dropped usage.
+            for row in batch.get("rows") or []:
+                tot = int(row.get("total_tokens") or 0)
+                inp = int(row.get("input_tokens") or 0)
+                outp = int(row.get("output_tokens") or 0)
+                role_norm_row = str(row.get("role") or "").strip().lower()
+                if tot <= 0 and inp <= 0 and outp <= 0:
+                    continue
+                if role_norm_row not in ("assistant", "ai", "model"):
+                    continue
                 record_llm_chat_usage_in_txn(
                     conn,
                     session_key=sk,
-                    run_id=run_id,
+                    run_id=str(row.get("run_id") or "") or run_id,
                     thread_id=thread_id,
-                    message_id=f"batch:{int(batch.get('appended') or 0)}",
-                    model_name=batch_model or None,
-                    input_tokens=int(batch.get("input_tokens") or 0),
-                    output_tokens=int(batch.get("output_tokens") or 0),
-                    total_tokens=int(batch.get("total_tokens") or 0),
+                    message_id=str(row.get("message_id") or row.get("id") or "") or None,
+                    model_name=str(row.get("model_name") or "") or None,
+                    input_tokens=inp,
+                    output_tokens=outp,
+                    total_tokens=tot,
                     principal_id=principal_id or None,
                 )
         except Exception:

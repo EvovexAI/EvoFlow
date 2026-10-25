@@ -607,7 +607,6 @@ const handlers = {
       name: args?.name,
       description: args?.description || '',
       model: args?.model ?? null,
-      tool_groups: args?.tool_groups ?? null,
       soul: args?.soul || '',
     }
     return callGateway('/api/agents', {
@@ -623,7 +622,6 @@ const handlers = {
     const body = {
       description: args?.description ?? null,
       model: args?.model ?? null,
-      tool_groups: args?.tool_groups ?? null,
       soul: args?.soul ?? null,
     }
     return callGateway(`/api/agents/${encodeURIComponent(name)}`, {
@@ -651,7 +649,6 @@ const handlers = {
         identityEmoji: '',
         model: agent.model,
         workspace: null,
-        tool_groups: agent.tool_groups,
         soul: agent.soul
       }))
     } catch (e) {

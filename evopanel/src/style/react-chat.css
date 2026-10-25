@@ -17887,6 +17887,51 @@ html.evopanel-tauri .react-chat-subtask-modal-body .msg-ai .msg-bubble {
   z-index: 3;
 }
 
+/*
+ * 全屏设置：卡片贴满视口，遮罩拖拽区不可用。
+ * Tauri 无边框下在顶部分出一条专用拖拽带（双击最大化）；非桌面壳隐藏。
+ */
+.settings-modal-tauri-drag {
+  display: none;
+}
+
+html.evopanel-tauri-frameless .settings-modal-tauri-drag {
+  display: block;
+  position: absolute;
+  top: 0;
+  left: 0;
+  /* 右侧留给关闭钮，避免把 × 点成拖窗 */
+  right: 44px;
+  height: 40px;
+  z-index: 2;
+  cursor: default;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+html.evopanel-tauri-frameless .react-chat-modal-close--settings-corner {
+  z-index: 4;
+}
+
+/* 顶栏拖拽带占位：侧栏 / 主区内容下移，避免「返回工作区」落在拖拽层下点不到 */
+html.evopanel-tauri-frameless .settings-modal-root .settings-layout--hub .settings-nav {
+  padding-top: 44px;
+}
+
+html.evopanel-tauri-frameless .settings-modal-root .settings-layout--hub .settings-hub-main {
+  padding-top: 44px;
+}
+
+/* macOS Overlay 交通灯：再抬一点，与侧栏「返回」同基线 */
+html.evopanel-macos-titlebar .settings-modal-tauri-drag {
+  height: 52px;
+}
+
+html.evopanel-macos-titlebar .settings-modal-root .settings-layout--hub .settings-nav,
+html.evopanel-macos-titlebar .settings-modal-root .settings-layout--hub .settings-hub-main {
+  padding-top: 52px;
+}
+
 .evopanel-sr-only {
   position: absolute;
   width: 1px;

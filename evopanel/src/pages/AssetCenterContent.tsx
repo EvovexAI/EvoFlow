@@ -1,30 +1,38 @@
-﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Search,
   UserRound,
   BrainCircuit,
   Sparkles,
   MessageCircleMore,
-  FileOutput,
-  Folder,
-  FileText,
   Plus,
   RefreshCw,
   Save,
   MoreVertical,
   BarChart3,
-  ChevronRight,
   ArrowUp,
   Copy,
   Maximize2,
-  Archive,
   ArrowRightLeft,
-  IdCard,
   Activity,
   Inbox,
   Clock,
   ScanSearch,
   Quote,
+  Folder,
+  FileText,
+  LayoutDashboard,
+  Settings2,
+  Download,
+  Upload,
+  PackageOpen,
+  PenLine,
+  CheckCircle2,
+  X,
+  FileArchive,
+  DatabaseBackup,
+  ChevronRight,
+  CornerDownLeft,
 } from "lucide-react";
 import { api } from "../lib/tauri-api.js";
 import { toast } from "../components/toast.js";
@@ -39,7 +47,7 @@ import {
 
 /* ── Types ───────────────────────────────────────────────────────── */
 
-type AssetTab = "profile" | "memory" | "experience" | "journal" | "stats" | "export";
+type AssetTab = "overview" | "profile" | "memory" | "experience" | "journal" | "manage";
 
 type TreeTab = "memory" | "experience" | "journal";
 
@@ -51,6 +59,14 @@ type TreeEntry = { name: string; path: string; kind: string };
 
 type FileItem = { id: string; name: string; type: "folder" | "file"; path: string; count?: number };
 
+type SearchHit = {
+  path: string;
+  matchLine: number;
+  lineStart: number;
+  lineEnd: number;
+  snippet: string;
+  matchedQueries?: string[];
+};
 
 const PROFILE_LABELS: Record<string, string> = {
   "basic-info.md": "基本信息",
@@ -92,23 +108,22 @@ type UsageStatsPayload = {
 };
 
 const ASSET_TABS: { id: AssetTab; label: string; icon: React.ReactNode }[] = [
+  { id: "overview", label: "总览", icon: <LayoutDashboard size={16} strokeWidth={1.6} /> },
   { id: "profile", label: "画像", icon: <UserRound size={16} strokeWidth={1.6} /> },
   { id: "memory", label: "记忆", icon: <BrainCircuit size={16} strokeWidth={1.6} /> },
   { id: "experience", label: "经验", icon: <Sparkles size={16} strokeWidth={1.6} /> },
   { id: "journal", label: "反思", icon: <MessageCircleMore size={16} strokeWidth={1.6} /> },
-  { id: "stats", label: "统计", icon: <BarChart3 size={16} strokeWidth={1.6} /> },
-  { id: "export", label: "导出", icon: <FileOutput size={16} strokeWidth={1.6} /> },
+  { id: "manage", label: "管理", icon: <Settings2 size={16} strokeWidth={1.6} /> },
 ];
 
 const MEMORY_KINDS: { id: MemoryKind; label: string; hint: string }[] = [
-  { id: "standing", label: "站立摘要", hint: "memory/standing.md" },
-  { id: "facts", label: "事实", hint: "memory/facts/" },
-  { id: "episodic", label: "过程记录", hint: "memory/episodic/" },
+  { id: "facts", label: "事实", hint: "memory/facts/ · Agent 可检索的短事实" },
+  { id: "episodic", label: "过程记录", hint: "memory/episodic/ · 对话过程回顾" },
+  { id: "standing", label: "站立摘要", hint: "memory/standing.md · 自动生成的长期摘要" },
 ];
 
 const ENTITY_GROUPS: { key: string; label: string; types: string[] }[] = [
   { key: "user", label: "我", types: ["user"] },
-  { key: "workspace", label: "工作区", types: ["workspace"] },
   { key: "employee", label: "员工", types: ["employee"] },
 ];
 
@@ -116,11 +131,11 @@ const ENTITY_GROUPS: { key: string; label: string; types: string[] }[] = [
 function assetTabsForEntity(entityType: string): typeof ASSET_TABS {
   const et = String(entityType || "").trim().toLowerCase();
   if (et === "agent") {
-    return ASSET_TABS.filter((t) => t.id === "profile" || t.id === "export" || t.id === "stats");
+    return ASSET_TABS.filter((t) => t.id === "overview" || t.id === "profile" || t.id === "manage");
   }
-  // Workspaces are memory vaults — memory only.
+  // Workspaces are memory vaults.
   if (et === "workspace") {
-    return ASSET_TABS.filter((t) => t.id === "memory");
+    return ASSET_TABS.filter((t) => t.id === "overview" || t.id === "memory" || t.id === "manage");
   }
   // Profile (画像) is user-only; employees don't need it.
   if (et !== "user") {
@@ -128,7 +143,6 @@ function assetTabsForEntity(entityType: string): typeof ASSET_TABS {
   }
   return ASSET_TABS;
 }
-
 
 /* ── Helpers ─────────────────────────────────────────────────────── */
 
@@ -243,7 +257,6 @@ function todayJournalPath(): string {
   return `memory/journal/${y}-${m}-${day}.md`;
 }
 
-
 function assetsHrefForPath(
   path: string,
   opts?: { entityType?: string; entityId?: string },
@@ -291,17 +304,21 @@ function initialTab(): AssetTab {
   if (routePath === "/skills") return "experience";
   const q = parseHashQuery();
   const t = String(q.tab || "");
+  // Legacy ids → new IA (统计/导出合并进「管理」)
+  if (t === "stats" || t === "export") return "manage";
   if (t === "experience" || t === "exp") return "experience";
   if (t === "journal" || t === "reflect" || t === "reflection") return "journal";
   if (t === "skill" || t === "skills") return "experience";
-  if (t === "image" || t === "profile") return "profile";
+  if (t === "profile") return "profile";
+  if (t === "overview" || t === "home") return "overview";
   if (ASSET_TABS.some((x) => x.id === t)) return t as AssetTab;
   const path = String(q.path || "").replace(/\\/g, "/");
   if (path.startsWith("craft/")) return "experience";
   if (path.startsWith("memory/journal/")) return "journal";
   if (path.startsWith("profile/")) return "profile";
   if (path.startsWith("memory/")) return "memory";
-  return "memory";
+  // 无深链参数时落在总览,给新用户一条清晰的动线
+  return "overview";
 }
 
 function initialEntity(): { entityType: string; entityId: string } {
@@ -332,14 +349,22 @@ function initialOpenPath(): string {
   return String(q.path || "").replace(/\\/g, "/").replace(/^\//, "").trim();
 }
 
+function isTauriDesktop(): boolean {
+  const w = window as { __TAURI_INTERNALS__?: unknown; __TAURI__?: unknown };
+  return Boolean(w.__TAURI_INTERNALS__ || w.__TAURI__);
+}
+
+function fileBaseName(p: string): string {
+  const norm = String(p || "").replace(/\\/g, "/");
+  return norm.split("/").filter(Boolean).pop() || norm;
+}
+
 /* ── Main ────────────────────────────────────────────────────────── */
 
 export default function AssetCenterContent() {
   const initEnt = initialEntity();
   const [activeTab, setActiveTab] = useState<AssetTab>(initialTab);
-  const [globalSearch, setGlobalSearch] = useState("");
   const [fileSearch, setFileSearch] = useState("");
-
 
   const [entities, setEntities] = useState<Entity[]>([]);
   const [entityType, setEntityType] = useState(initEnt.entityType);
@@ -361,7 +386,6 @@ export default function AssetCenterContent() {
   const [fileLoading, setFileLoading] = useState(false);
   const fileLoadSeq = useRef(0);
 
-
   const [applyTarget, setApplyTarget] = useState("");
   const [applyScopes, setApplyScopes] = useState({
     profile: true,
@@ -381,6 +405,17 @@ export default function AssetCenterContent() {
   const [tabLoading, setTabLoading] = useState(false);
   const initRanRef = useRef(false);
 
+  // 弹层:快速记事实 / 导入资产包
+  const [factOpen, setFactOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
+
+  // 全文搜索(⌘K)
+  const [globalSearch, setGlobalSearch] = useState("");
+  const [searchHits, setSearchHits] = useState<SearchHit[] | null>(null);
+  const [searchBusy, setSearchBusy] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const searchSeq = useRef(0);
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   const loadTree = useCallback(
     async (path = "") => {
@@ -515,23 +550,9 @@ export default function AssetCenterContent() {
           setSelectedFile("");
           setEditorContent("");
           setFileLoading(false);
-        } else if (tab === "stats") {
-          await loadUsageStats();
         } else if (tab === "memory") {
           await applyMemoryKind(memoryKind);
-        } else if (tab === "experience") {
-          const root = treeRootForTab(tab);
-          if (root) {
-            const seqAtStart = fileLoadSeq.current;
-            await loadTree(root);
-            if (fileLoadSeq.current !== seqAtStart) return;
-            fileLoadSeq.current += 1;
-            setSelectedFile("");
-            setEditorContent("");
-            setFileDirty(false);
-            setFileLoading(false);
-          }
-        } else if (tab === "journal") {
+        } else if (tab === "experience" || tab === "journal") {
           const root = treeRootForTab(tab);
           if (root) {
             const seqAtStart = fileLoadSeq.current;
@@ -544,7 +565,7 @@ export default function AssetCenterContent() {
             setFileLoading(false);
           }
         }
-        /* export tab 无数据预加载 */
+        /* overview / 其余 tab 无数据预加载(overview 统计单独拉) */
       } catch (e: unknown) {
         const msg = String((e as { message?: string })?.message || e);
         setError(msg);
@@ -553,7 +574,7 @@ export default function AssetCenterContent() {
         setTabLoading(false);
       }
     },
-    [loadProfile, loadUsageStats, loadTree, applyMemoryKind, memoryKind],
+    [loadProfile, loadTree, applyMemoryKind, memoryKind],
   );
 
   const refreshTab = useCallback(() => loadTabData(activeTab), [loadTabData, activeTab]);
@@ -641,7 +662,7 @@ export default function AssetCenterContent() {
   useEffect(() => {
     const allowed = assetTabsForEntity(entityType).map((t) => t.id);
     if (!allowed.includes(activeTab)) {
-      setActiveTab(allowed[0] || "profile");
+      setActiveTab(allowed[0] || "overview");
     }
     const currentEntityRec = entities.find((e) => e.entityType === entityType && e.entityId === entityId);
     if (!currentEntityRec && entities.length > 0) {
@@ -661,9 +682,16 @@ export default function AssetCenterContent() {
     void loadTabData(activeTab);
   }, [entityType, entityId, activeTab, loadTabData, loading]);
 
+  // 总览页拉一次用量统计
+  useEffect(() => {
+    if (loading || (activeTab !== "overview" && activeTab !== "manage")) return;
+    void loadUsageStats();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, activeTab, entityType, entityId]);
+
   // 目录树加载完成后，自动选中第一个文件；并预取首屏若干文档（悬停点击可秒开）
   useEffect(() => {
-    if (tabLoading || activeTab === "profile" || activeTab === "export" || activeTab === "stats") return;
+    if (tabLoading || activeTab === "profile" || activeTab === "overview" || activeTab === "manage") return;
     const pending = pendingOpenPath.current;
     if (pending) {
       pendingOpenPath.current = "";
@@ -688,6 +716,50 @@ export default function AssetCenterContent() {
     };
   }, [currentEntity]);
 
+  // ⌘K / Ctrl+K 聚焦搜索
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && String(e.key).toLowerCase() === "k") {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+        searchInputRef.current?.select();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  // 全文搜索(防抖)
+  useEffect(() => {
+    const q = globalSearch.trim();
+    if (q.length < 2) {
+      searchSeq.current += 1;
+      setSearchHits(null);
+      setSearchBusy(false);
+      return;
+    }
+    const seq = ++searchSeq.current;
+    setSearchBusy(true);
+    const timer = setTimeout(async () => {
+      try {
+        const data = (await api.assetsSearch({
+          ...currentEntity,
+          q,
+          maxResults: 8,
+          contextLines: 1,
+        })) as { matches?: SearchHit[] };
+        if (seq !== searchSeq.current) return;
+        setSearchHits(Array.isArray(data?.matches) ? data.matches : []);
+        setSearchOpen(true);
+      } catch {
+        if (seq !== searchSeq.current) return;
+        setSearchHits([]);
+      } finally {
+        if (seq === searchSeq.current) setSearchBusy(false);
+      }
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [globalSearch, currentEntity]);
 
   const profileFiles = useMemo<FileItem[]>(() => {
     const kw = fileSearch.trim().toLowerCase();
@@ -707,10 +779,10 @@ export default function AssetCenterContent() {
 
   const treeFiles = useMemo(() => {
     const items = treeToFileItems(treeEntries);
-    const kw = (globalSearch || fileSearch).trim().toLowerCase();
+    const kw = fileSearch.trim().toLowerCase();
     if (!kw) return items;
     return items.filter((f) => f.name.toLowerCase().includes(kw) || f.path.toLowerCase().includes(kw));
-  }, [treeEntries, fileSearch, globalSearch]);
+  }, [treeEntries, fileSearch]);
 
   const groupedEntities = useMemo(
     () =>
@@ -721,13 +793,74 @@ export default function AssetCenterContent() {
     [entities],
   );
 
-
   function changeTab(tab: AssetTab) {
     setActiveTab(tab);
     setFileSearch("");
-
     if (tab === "memory") setMemoryKind("facts");
   }
+
+  const openPath = useCallback(
+    (relPath: string) => {
+      const rel = String(relPath || "").replace(/\\/g, "/").replace(/^\//, "");
+      if (!rel) return;
+      let tab: AssetTab = "memory";
+      if (rel.startsWith("craft/")) tab = "experience";
+      else if (rel.startsWith("memory/journal/")) tab = "journal";
+      else if (rel.startsWith("profile/")) tab = "profile";
+      else if (rel.startsWith("memory/")) {
+        tab = "memory";
+        if (rel.startsWith("memory/episodic/")) setMemoryKind("episodic");
+        else if (rel.includes("standing")) setMemoryKind("standing");
+        else setMemoryKind("facts");
+      } else return;
+      if (tab === activeTab) {
+        if (tab === "memory") void applyMemoryKind(memoryKind).then(() => loadFile(rel));
+        else {
+          pendingOpenPath.current = rel;
+          void loadTabData(tab);
+        }
+      } else {
+        pendingOpenPath.current = rel;
+        changeTab(tab);
+      }
+    },
+    [activeTab, memoryKind, applyMemoryKind, loadFile, loadTabData],
+  );
+
+  const createTodayJournal = useCallback(async () => {
+    const path = todayJournalPath();
+    const stamp = fileBaseName(path).replace(".md", "");
+    const stub = `# 反思 ${stamp}\n\n## 今日做了什么\n\n\n## 学到什么\n\n\n## 下次注意\n\n`;
+    try {
+      await api.assetsPutFile({ ...currentEntity, path, content: stub });
+      toast.success("已创建今日反思");
+      if (activeTab === "journal") {
+        await loadTree("memory/journal");
+        await loadFile(path);
+      } else {
+        pendingOpenPath.current = path;
+        changeTab("journal");
+      }
+    } catch (e: unknown) {
+      toast.error(String((e as { message?: string })?.message || e));
+    }
+  }, [activeTab, currentEntity, loadTree, loadFile]);
+
+  const afterFactSaved = useCallback(() => {
+    if (activeTab === "memory" && memoryKind === "facts") {
+      void loadTree("memory/facts");
+    }
+    if (activeTab === "overview" || activeTab === "manage") {
+      void loadUsageStats();
+    }
+  }, [activeTab, memoryKind, loadTree, loadUsageStats]);
+
+  const afterPackImported = useCallback(() => {
+    if (activeTab === "memory" || activeTab === "experience" || activeTab === "journal") {
+      void refreshTab();
+    }
+    void loadUsageStats();
+  }, [activeTab, refreshTab, loadUsageStats]);
 
   if (loading) {
     return (
@@ -737,69 +870,32 @@ export default function AssetCenterContent() {
           <header className="ac-header">
             <div className="ac-header-row">
               <div className="ac-header-left min-w-0">
-                <div className="ac-skeleton ac-skeleton--title" style={{ width: 80, height: 22 }} />
-                <div className="mt-2 flex items-center gap-3">
-                  <div className="ac-skeleton" style={{ width: 60, height: 20, borderRadius: 6 }} />
-                  <div className="ac-skeleton" style={{ width: 60, height: 20, borderRadius: 6 }} />
-                  <div className="ac-skeleton" style={{ width: 60, height: 20, borderRadius: 6 }} />
-                </div>
-                <div className="ac-skeleton mt-2" style={{ width: 140, height: 28, borderRadius: 6 }} />
+                <div className="ac-skeleton ac-skeleton--title" style={{ width: 140, height: 24 }} />
+                <div className="ac-skeleton mt-2" style={{ width: 200, height: 14, borderRadius: 6 }} />
               </div>
               <div className="ac-skeleton" style={{ width: 220, height: 32, borderRadius: 8 }} />
+            </div>
+            <div className="mt-3 flex gap-1">
+              {[0, 1, 2, 3, 4, 5].map((i) => (
+                <div key={i} className="ac-skeleton" style={{ width: 56, height: 30, borderRadius: 8 }} />
+              ))}
             </div>
           </header>
 
           {/* 内容骨架 */}
           <section className="ac-shell">
-            <div className="flex gap-1 mb-2 px-1">
-              {[0, 1, 2, 3, 4].map((i) => (
-                <div key={i} className="ac-skeleton" style={{ width: 56, height: 32, borderRadius: 6 }} />
-              ))}
-            </div>
             <div className="ac-content">
-              <div className="ac-split">
-                {/* 左侧栏骨架 */}
-                <aside className="ac-explorer ac-rail">
-                  <div className="ac-rail-header">
-                    <div className="ac-skeleton" style={{ width: 80, height: 16 }} />
-                    <div className="ac-skeleton mt-1" style={{ width: 100, height: 12 }} />
-                  </div>
-                  <div className="ac-rail-search">
-                    <div className="ac-skeleton" style={{ width: "100%", height: 30, borderRadius: 6 }} />
-                  </div>
-                  <div className="ac-rail-list space-y-1.5 px-2 pt-2">
-                    {[0, 1, 2, 3, 4, 5, 6].map((i) => (
-                      <div
-                        key={i}
-                        className="ac-skeleton"
-                        style={{ width: "100%", height: 30, borderRadius: 4 }}
-                      />
-                    ))}
-                  </div>
-                </aside>
-                <div className="ac-split-line" aria-hidden />
-                {/* 右侧编辑区骨架 */}
-                <section className="ac-main">
-                  <div className="ac-editor-toolbar">
-                    <div>
-                      <div className="ac-skeleton" style={{ width: 120, height: 16 }} />
-                      <div className="ac-skeleton mt-1" style={{ width: 160, height: 12 }} />
-                    </div>
-                  </div>
-                  <div className="ac-editor-body p-4">
-                    {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map((i) => (
-                      <div
-                        key={i}
-                        className="ac-skeleton mb-2"
-                        style={{
-                          width: `${60 + Math.random() * 35}%`,
-                          height: 12,
-                          borderRadius: 3,
-                        }}
-                      />
-                    ))}
-                  </div>
-                </section>
+              <div className="p-6">
+                <div className="ac-skeleton" style={{ width: "100%", height: 132, borderRadius: 14 }} />
+                <div className="mt-4 grid grid-cols-3 gap-3">
+                  {[0, 1, 2, 3, 4, 5].map((i) => (
+                    <div key={i} className="ac-skeleton" style={{ width: "100%", height: 64, borderRadius: 12 }} />
+                  ))}
+                </div>
+                <div className="mt-4 grid grid-cols-2 gap-3">
+                  <div className="ac-skeleton" style={{ width: "100%", height: 180, borderRadius: 12 }} />
+                  <div className="ac-skeleton" style={{ width: "100%", height: 180, borderRadius: 12 }} />
+                </div>
               </div>
             </div>
           </section>
@@ -822,6 +918,7 @@ export default function AssetCenterContent() {
     (activeTab === "profile" ? profileContent : editorContent).split("\n").length,
     1,
   );
+  const canJournal = entityType === "user" || entityType === "employee";
 
   return (
     <main className="assets-center-root relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
@@ -836,36 +933,37 @@ export default function AssetCenterContent() {
             setEntityType(et);
             setEntityId(eid);
           }}
+          activeTab={activeTab}
+          onTabChange={changeTab}
           search={globalSearch}
           setSearch={setGlobalSearch}
+          searchOpen={searchOpen}
+          setSearchOpen={setSearchOpen}
+          searchHits={searchHits}
+          searchBusy={searchBusy}
+          searchInputRef={searchInputRef}
+          onOpenHit={openPath}
         />
 
         <section className="ac-shell">
-          <AssetTabs activeTab={activeTab} onChange={changeTab} entityType={entityType} />
-          {activeTab === "memory" ? (
-            <MemoryKindTabs
-              active={memoryKind}
-              onChange={(k) => {
-                setMemoryKind(k);
-                void applyMemoryKind(k);
-              }}
-            />
-          ) : null}
-
           <div className="ac-content">
-            {tabLoading && activeTab !== "export" ? (
+            {tabLoading && activeTab !== "overview" ? (
               <div className="ac-tab-loading">
                 <div className="ac-tab-loading-spinner" />
                 <span>加载中…</span>
               </div>
-
-            ) : activeTab === "stats" ? (
-              <AssetStatsPanel
-                busy={statsBusy}
-                stats={usageStats}
+            ) : activeTab === "overview" ? (
+              <OverviewPanel
                 entityType={entityType}
                 entityId={entityId}
-                onRefresh={() => void loadUsageStats()}
+                stats={usageStats}
+                busy={statsBusy}
+                canJournal={canJournal}
+                onQuickFact={() => setFactOpen(true)}
+                onImport={() => setImportOpen(true)}
+                onNewJournal={() => void createTodayJournal()}
+                onOpenTab={changeTab}
+                onOpenPath={openPath}
                 onConsolidate={async () => {
                   try {
                     setStatsBusy(true);
@@ -873,6 +971,48 @@ export default function AssetCenterContent() {
                     const skipped = out?.skipped;
                     if (skipped) toast.info(`Phase2 跳过：${skipped}`);
                     else toast.success("Phase2 整合完成");
+                    await loadUsageStats();
+                  } catch (e: unknown) {
+                    toast.error(String((e as { message?: string })?.message || e));
+                  } finally {
+                    setStatsBusy(false);
+                  }
+                }}
+              />
+            ) : activeTab === "manage" ? (
+              <ManageWorkspace
+                vaultRoot={vaultRoot}
+                entityType={entityType}
+                entityId={entityId}
+                entities={entities}
+                applyTarget={applyTarget}
+                setApplyTarget={setApplyTarget}
+                applyScopes={applyScopes}
+                setApplyScopes={setApplyScopes}
+                exportHint={exportHint}
+                busy={statsBusy}
+                stats={usageStats}
+                onRefreshStats={() => void loadUsageStats()}
+                onQuickFact={() => setFactOpen(true)}
+                onImportPack={() => setImportOpen(true)}
+                onPack={async () => {
+                  try {
+                    const res = await api.assetsPackExport(currentEntity);
+                    setExportHint(`已导出：${res?.path || res?.filename || ""}`);
+                    toast.success(`Pack 已导出（${res?.fileCount ?? 0} 个文件）`);
+                  } catch (e: unknown) {
+                    toast.error(String((e as { message?: string })?.message || e));
+                  }
+                }}
+                onMigrate={async (scope: string) => {
+                  try {
+                    setStatsBusy(true);
+                    const res = await api.assetsMigrate({ scope });
+                    if (scope === "slim") toast.success(`索引瘦身完成：${res?.slimmed ?? 0} 条`);
+                    else
+                      toast.success(
+                        `迁移完成：经验 ${res?.experiences?.migrated ?? 0}，记忆 ${res?.memory?.mirrored ?? 0}`,
+                      );
                     await loadUsageStats();
                   } catch (e: unknown) {
                     toast.error(String((e as { message?: string })?.message || e));
@@ -899,43 +1039,24 @@ export default function AssetCenterContent() {
                     setStatsBusy(false);
                   }
                 }}
-              />
-            ) : activeTab === "export" ? (
-              <ExportWorkspace
-                vaultRoot={vaultRoot}
-                entityType={entityType}
-                entityId={entityId}
-                entities={entities}
-                applyTarget={applyTarget}
-                setApplyTarget={setApplyTarget}
-                applyScopes={applyScopes}
-                setApplyScopes={setApplyScopes}
-                exportHint={exportHint}
-                onPack={async () => {
+                onConsolidate={async () => {
                   try {
-                    const res = await api.assetsPackExport(currentEntity);
-                    setExportHint(`已导出：${res?.path || res?.filename || ""}`);
-                    toast.success(`Pack 已导出（${res?.fileCount ?? 0} 个文件）`);
+                    setStatsBusy(true);
+                    const out = await api.assetsPhase2Consolidate(currentEntity);
+                    const skipped = out?.skipped;
+                    if (skipped) toast.info(`Phase2 跳过：${skipped}`);
+                    else toast.success("Phase2 整合完成");
+                    await loadUsageStats();
                   } catch (e: unknown) {
                     toast.error(String((e as { message?: string })?.message || e));
-                  }
-                }}
-                onMigrate={async (scope: string) => {
-                  try {
-                    const res = await api.assetsMigrate({ scope });
-                    if (scope === "slim") toast.success(`索引瘦身完成：${res?.slimmed ?? 0} 条`);
-                    else
-                      toast.success(
-                        `迁移完成：经验 ${res?.experiences?.migrated ?? 0}，记忆 ${res?.memory?.mirrored ?? 0}`,
-                      );
-                  } catch (e: unknown) {
-                    toast.error(String((e as { message?: string })?.message || e));
+                  } finally {
+                    setStatsBusy(false);
                   }
                 }}
                 onApply={async () => {
                   const [targetType, targetId] = String(applyTarget || "").split(":");
                   if (!targetType || !targetId) {
-                    toast.error("请先选择目标员工或 Agent");
+                    toast.error("请先选择目标员工");
                     return;
                   }
                   const scopes = Object.entries(applyScopes)
@@ -946,7 +1067,7 @@ export default function AssetCenterContent() {
                     return;
                   }
                   if (entityType === targetType && entityId === targetId) {
-                    toast.error("目标不能与当前实体相同");
+                    toast.error("目标不能与当前对象相同");
                     return;
                   }
                   const targetEnt = entities.find(
@@ -1036,6 +1157,13 @@ export default function AssetCenterContent() {
                 fileLoading={fileLoading}
                 lineCount={lineCount}
                 canGoUp={!!treePath && treePath !== treeRoot}
+                memoryKind={memoryKind}
+                onMemoryKindChange={(k) => {
+                  setMemoryKind(k);
+                  void applyMemoryKind(k);
+                }}
+                onQuickFact={() => setFactOpen(true)}
+                onNewJournal={() => void createTodayJournal()}
                 onUp={async () => {
                   const root = treeRoot || "";
                   const parts = treePath.split("/").filter(Boolean);
@@ -1067,27 +1195,29 @@ export default function AssetCenterContent() {
                     toast.error(String((e as { message?: string })?.message || e));
                   }
                 }}
-                onNewJournal={
-                  activeTab === "journal"
-                    ? async () => {
-                        const path = todayJournalPath();
-                        const stub = `# 反思 ${path.split("/").pop()?.replace(".md", "") || ""}\n\n## 今日做了什么\n\n\n## 学到什么\n\n\n## 下次注意\n\n`;
-                        try {
-                          await api.assetsPutFile({ ...currentEntity, path, content: stub });
-                          await loadTree("memory/journal");
-                          await loadFile(path);
-                          toast.success("已创建今日反思");
-                        } catch (e: unknown) {
-                          toast.error(String((e as { message?: string })?.message || e));
-                        }
-                      }
-                    : undefined
-                }
               />
             )}
           </div>
         </section>
       </div>
+
+      {factOpen ? (
+        <QuickFactModal
+          entityType={entityType}
+          entityId={entityId}
+          entityName={entityLabel(entities.find((e) => e.entityType === entityType && e.entityId === entityId))}
+          onClose={() => setFactOpen(false)}
+          onSaved={afterFactSaved}
+        />
+      ) : null}
+      {importOpen ? (
+        <ImportPackModal
+          entities={entities}
+          defaultEntity={currentEntity}
+          onClose={() => setImportOpen(false)}
+          onImported={afterPackImported}
+        />
+      ) : null}
     </main>
   );
 }
@@ -1098,156 +1228,666 @@ function BackgroundEffects() {
   return <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden />;
 }
 
-/* ── Header / Tabs ───────────────────────────────────────────────── */
+/* ── Header / Tabs / Search ─────────────────────────────────────── */
 
 function AssetHeader({
   entityType,
   entityId,
   groupedEntities,
   onSelectEntity,
+  activeTab,
+  onTabChange,
   search,
   setSearch,
+  searchOpen,
+  setSearchOpen,
+  searchHits,
+  searchBusy,
+  searchInputRef,
+  onOpenHit,
 }: {
   entityType: string;
   entityId: string;
   groupedEntities: Array<{ key: string; label: string; items: Entity[] }>;
   onSelectEntity: (entityType: string, entityId: string) => void;
+  activeTab: AssetTab;
+  onTabChange: (tab: AssetTab) => void;
   search: string;
   setSearch: React.Dispatch<React.SetStateAction<string>>;
+  searchOpen: boolean;
+  setSearchOpen: React.Dispatch<React.SetStateAction<boolean>>;
+  searchHits: SearchHit[] | null;
+  searchBusy: boolean;
+  searchInputRef: React.RefObject<HTMLInputElement | null>;
+  onOpenHit: (path: string) => void;
 }) {
-  // 实体类型 Tab 始终展示（我/工作区/员工），仅隐藏无实体的类型；
-  // 内容隔离由下拉框过滤 + 实体作用域数据加载负责，Tab 只负责导航。
-  const isUserEntity = entityType === "user";
-  const typeTabs = useMemo(() => {
-    return ENTITY_GROUPS
-      .filter((g) => g.key !== "workspace") // 资产中心不需要工作区 Tab
-      .map((g) => ({
-        key: g.key,
-        label: g.label,
-        count: groupedEntities.find((x) => x.key === g.key)?.items.length ?? 0,
-      }))
-      .filter((t) => t.count > 0);
-  }, [groupedEntities]);
-
-  const typeItems = useMemo(() => {
-    return groupedEntities.find((g) => g.key === entityType)?.items ?? [];
-  }, [groupedEntities, entityType]);
-
-  // 实体隔离：员工/工作区页面只显示对应类型的实体
-  const filteredTypeItems = useMemo(() => {
-    if (isUserEntity) return typeItems;
-    // 员工/工作区只显示同类型的实体
-    return typeItems.filter((e) => e.entityType === entityType);
-  }, [typeItems, entityType, isUserEntity]);
-
-  const q = search.trim().toLowerCase();
-
-  const selectOptions = useMemo(() => {
-    if (!q) return filteredTypeItems;
-    const matched = filteredTypeItems.filter((e) => {
-      const label = entityLabel(e).toLowerCase();
-      const id = String(e.entityId || "").toLowerCase();
-      return label.includes(q) || id.includes(q);
-    });
-    // Keep current selection visible so the controlled <select> stays valid.
-    const cur = filteredTypeItems.find((e) => e.entityType === entityType && e.entityId === entityId);
-    if (cur && !matched.some((e) => e.entityId === cur.entityId)) {
-      return [cur, ...matched];
-    }
-    return matched;
-  }, [filteredTypeItems, q, entityType, entityId]);
-
-  function pickType(key: string) {
-    const items = groupedEntities.find((g) => g.key === key)?.items ?? [];
-    if (!items.length) return;
-    // 实体隔离：员工/工作区页面只能选择同类型实体
-    const filtered = isUserEntity ? items : items.filter((e) => e.entityType === key);
-    const keep = filtered.find((e) => e.entityType === entityType && e.entityId === entityId);
-    const next = keep || filtered[0];
-    if (next) onSelectEntity(next.entityType, next.entityId);
-  }
+  const tabs = useMemo(() => assetTabsForEntity(entityType), [entityType]);
+  const userItem = groupedEntities.find((g) => g.key === "user")?.items?.[0];
+  const employees = groupedEntities.find((g) => g.key === "employee")?.items ?? [];
+  const hasEntity = groupedEntities.some((g) =>
+    g.items.some((e) => e.entityType === entityType && e.entityId === entityId),
+  );
+  const showHits = searchOpen && search.trim().length >= 2;
 
   return (
     <header className="ac-header">
       <div className="ac-header-row">
-        <div className="ac-header-left min-w-0">
-          <h1 className="ac-title">资产中心</h1>
-          <div className="ac-entity-type-tabs" role="tablist" aria-label="实体类型">
-            {typeTabs.map((t) => (
-              <button
-                key={t.key}
-                type="button"
-                role="tab"
-                aria-selected={entityType === t.key}
-                className={["ac-entity-type-tab", entityType === t.key ? "is-active" : ""].join(" ")}
-                onClick={() => pickType(t.key)}
-              >
-                {t.label}
-                <span className="ac-entity-type-count">{t.count}</span>
-              </button>
-            ))}
+        <div className="ac-brand">
+          <span className="ac-brand-icon" aria-hidden>
+            <PackageOpen size={18} strokeWidth={1.7} />
+          </span>
+          <div className="ac-brand-text">
+            <h1 className="ac-title">资产中心</h1>
+            <p className="ac-brand-sub">AI 的笔记本 · 画像 / 记忆 / 经验 / 反思</p>
           </div>
-          <label className="ac-entity-select-wrap">
-            <select
-              className="ac-entity-select"
-              value={`${entityType}:${entityId}`}
-              onChange={(e) => {
-                const [et, ...rest] = e.target.value.split(":");
-                if (et && rest.length) onSelectEntity(et, rest.join(":"));
-              }}
-              aria-label="当前实体"
-            >
-              {selectOptions.map((e) => (
-                <option
-                  key={`${e.entityType}:${e.entityId}`}
-                  value={`${e.entityType}:${e.entityId}`}
-                  title={
-                    e.entityType === "workspace" && e.workspacePath
-                      ? e.workspacePath
-                      : e.entityType !== "user"
-                        ? e.entityId
-                        : undefined
-                  }
-                >
-                  {entityLabel(e)}
-                </option>
-              ))}
-            </select>
-          </label>
         </div>
 
-        <div className="ac-search shrink-0">
-          <Search size={14} strokeWidth={1.6} className="shrink-0 text-[var(--ac-text-faint)]" />
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="搜索实体、资产、技能…"
-            className="min-w-0 flex-1 bg-transparent text-[13px] leading-[18px] text-[var(--ac-text)] outline-none placeholder:text-[var(--ac-text-faint)]"
-          />
-          <kbd className="ac-kbd">⌘ K</kbd>
+        <div className="ac-header-actions">
+          {hasEntity || userItem ? (
+            <label className="ac-entity-picker" title="选择资产归属对象">
+              <UserRound size={13} strokeWidth={1.7} className="shrink-0 text-[var(--ac-primary)]" />
+              <select
+                className="ac-entity-select"
+                value={`${entityType}:${entityId}`}
+                onChange={(e) => {
+                  const [et, ...rest] = e.target.value.split(":");
+                  if (et && rest.length) onSelectEntity(et, rest.join(":"));
+                }}
+                aria-label="当前对象"
+              >
+                {userItem ? (
+                  <optgroup label="我">
+                    <option value={`${userItem.entityType}:${userItem.entityId}`}>
+                      {entityLabel(userItem)}
+                    </option>
+                  </optgroup>
+                ) : null}
+                {employees.length ? (
+                  <optgroup label="员工">
+                    {employees.map((e) => (
+                      <option key={`${e.entityType}:${e.entityId}`} value={`${e.entityType}:${e.entityId}`}>
+                        {entityLabel(e)}
+                      </option>
+                    ))}
+                  </optgroup>
+                ) : null}
+              </select>
+            </label>
+          ) : null}
+
+          <div className="ac-search">
+            <Search size={14} strokeWidth={1.6} className="shrink-0 text-[var(--ac-text-faint)]" />
+            <input
+              ref={searchInputRef}
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              onFocus={() => setSearchOpen(true)}
+              onBlur={() => {
+                window.setTimeout(() => setSearchOpen(false), 150);
+              }}
+              placeholder="搜索记忆、经验、反思全文…"
+              className="min-w-0 flex-1 bg-transparent text-[13px] leading-[18px] text-[var(--ac-text)] outline-none placeholder:text-[var(--ac-text-faint)]"
+            />
+            {searchBusy ? <span className="ac-spinner ac-spinner--inline" aria-hidden /> : null}
+            {search ? (
+              <button
+                type="button"
+                className="ac-search-clear"
+                aria-label="清空搜索"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => {
+                  setSearch("");
+                  setSearchOpen(false);
+                }}
+              >
+                <X size={12} strokeWidth={2} />
+              </button>
+            ) : (
+              <kbd className="ac-kbd">⌘ K</kbd>
+            )}
+            {showHits ? (
+              <div className="ac-search-pop" role="listbox" aria-label="全文搜索结果">
+                {searchHits && searchHits.length === 0 && !searchBusy ? (
+                  <p className="ac-search-empty">没有匹配「{search.trim()}」的内容</p>
+                ) : null}
+                {(searchHits || []).map((hit) => (
+                  <button
+                    key={`${hit.path}:${hit.matchLine}`}
+                    type="button"
+                    className="ac-search-hit"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => {
+                      setSearchOpen(false);
+                      onOpenHit(hit.path);
+                    }}
+                  >
+                    <FileText size={13} strokeWidth={1.6} className="ac-search-hit__icon" />
+                    <span className="ac-search-hit__body">
+                      <span className="ac-search-hit__name">{fileBaseName(hit.path)}</span>
+                      <span className="ac-search-hit__path">{hit.path}</span>
+                      {hit.snippet ? <span className="ac-search-hit__snippet">{hit.snippet}</span> : null}
+                    </span>
+                    <CornerDownLeft size={12} strokeWidth={1.6} className="ac-search-hit__go" />
+                  </button>
+                ))}
+                {searchHits && searchHits.length > 0 ? (
+                  <p className="ac-search-foot">回车或点击结果打开对应文件</p>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
         </div>
       </div>
-      <p className="ac-header-desc">画像、记忆、经验、反思与技能 — 统一在此浏览与编辑</p>
+
+      <nav className="ac-tabs" role="tablist" aria-label="资产分区">
+        {tabs.map((tab) => {
+          const active = activeTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              role="tab"
+              aria-selected={active}
+              onClick={() => onTabChange(tab.id)}
+              className={["ac-tab-btn", active ? "is-active" : ""].join(" ")}
+            >
+              <span className="ac-tab-icon">{tab.icon}</span>
+              <span>{tab.label}</span>
+            </button>
+          );
+        })}
+      </nav>
     </header>
   );
 }
 
-function AssetStatsPanel({
+/* ── Overview ───────────────────────────────────────────────────── */
+
+function OverviewPanel({
+  entityType,
+  entityId,
+  stats,
+  busy,
+  canJournal,
+  onQuickFact,
+  onImport,
+  onNewJournal,
+  onOpenTab,
+  onOpenPath,
+  onConsolidate,
+}: {
+  entityType: string;
+  entityId: string;
+  stats: UsageStatsPayload | null;
+  busy: boolean;
+  canJournal: boolean;
+  onQuickFact: () => void;
+  onImport: () => void;
+  onNewJournal: () => void;
+  onOpenTab: (tab: AssetTab) => void;
+  onOpenPath: (path: string) => void;
+  onConsolidate: () => void | Promise<void>;
+}) {
+  const totals = stats?.totals || {};
+  const maxDays = stats?.maxUnusedDays ?? 90;
+  const hot = Array.isArray(stats?.hot) ? stats!.hot! : [];
+  const staleRows = Array.isArray(stats?.stale) ? stats!.stale! : [];
+  const inbox = Number(totals.inboxPending || 0);
+  const stale = Number(totals.stale || 0);
+
+  const tiles: {
+    key: string;
+    label: string;
+    value: number;
+    icon: React.ReactNode;
+    tab: AssetTab;
+    accent: string;
+  }[] = [
+    { key: "memory", label: "记忆文件", value: Number(totals.memoryFiles ?? 0), icon: <BrainCircuit size={16} />, tab: "memory", accent: "violet" },
+    { key: "craft", label: "经验 / 技能", value: Number(totals.craftFiles ?? 0), icon: <Sparkles size={16} />, tab: "experience", accent: "amber" },
+    { key: "uses", label: "工具引用", value: Number(totals.totalUses ?? 0), icon: <Activity size={16} />, tab: "manage", accent: "sky" },
+    { key: "cites", label: "回复引用", value: Number(totals.totalCites ?? 0), icon: <Quote size={16} />, tab: "manage", accent: "emerald" },
+    { key: "inbox", label: "待整合", value: inbox, icon: <Inbox size={16} />, tab: "manage", accent: "orange" },
+    { key: "stale", label: "冷资产", value: stale, icon: <Clock size={16} />, tab: "manage", accent: "slate" },
+  ];
+
+  const steps: { title: string; desc: string; action?: { label: string; run: () => void } }[] = [
+    {
+      title: "对话中自动沉淀",
+      desc: "在聊天里说「记住…」「沉淀成经验」「记一下反思」，Agent 会自动写进资产库，无需手动整理。",
+    },
+    {
+      title: "来这里翻看与修改",
+      desc: "画像、记忆、经验分门别类；像编辑文档一样直接改正错漏，保存即生效。",
+      action: { label: "打开记忆库", run: () => onOpenTab("memory") },
+    },
+    {
+      title: "导入与分享",
+      desc: "从 .evoflow-pack 资产包一键导入他人的画像与经验；也能把自己的资产导出备份或分享给同事。",
+      action: { label: "导入资产包", run: onImport },
+    },
+  ];
+
+  return (
+    <section className="ac-overview" data-testid="asset-overview">
+      {/* Hero */}
+      <div className="ac-hero">
+        <div className="ac-hero-glow" aria-hidden />
+        <div className="ac-hero-body">
+          <span className="ac-hero-kicker">资产中心</span>
+          <h2 className="ac-hero-title">让 AI 越用越懂你</h2>
+          <p className="ac-hero-desc">
+            画像、记忆、经验与反思都保存在本机资产库，Agent 对话时自动取用。
+            这里负责翻看、修改、导入与备份。
+          </p>
+          <div className="ac-hero-actions">
+            <button type="button" className="ac-cta" onClick={onQuickFact}>
+              <Plus size={15} strokeWidth={2} />
+              记住一条事实
+            </button>
+            <button type="button" className="ac-hero-btn" onClick={onImport}>
+              <Download size={15} strokeWidth={1.8} />
+              导入资产包
+            </button>
+            {canJournal ? (
+              <button type="button" className="ac-hero-btn" onClick={onNewJournal}>
+                <PenLine size={15} strokeWidth={1.8} />
+                写今日反思
+              </button>
+            ) : null}
+          </div>
+        </div>
+        <div className="ac-hero-art" aria-hidden>
+          <span className="ac-hero-orb ac-hero-orb--1" />
+          <span className="ac-hero-orb ac-hero-orb--2" />
+          <span className="ac-hero-orb ac-hero-orb--3" />
+        </div>
+      </div>
+
+      {/* Stat tiles */}
+      <div className="ac-stat-tiles">
+        {tiles.map((t) => (
+          <button
+            key={t.key}
+            type="button"
+            className={`ac-tile ac-tile--${t.accent}`}
+            onClick={() => onOpenTab(t.tab)}
+          >
+            <span className="ac-tile__icon">{t.icon}</span>
+            <span className="ac-tile__value">{busy ? "—" : t.value}</span>
+            <span className="ac-tile__label">{t.label}</span>
+          </button>
+        ))}
+      </div>
+
+      {/* Hot / attention */}
+      <div className="ac-ov-columns">
+        <div className="ac-panel">
+          <div className="ac-panel-head">
+            <h3>高频引用</h3>
+            <span className="ac-panel-hint">Agent 最近最常使用的资产</span>
+          </div>
+          {hot.length ? (
+            <ul className="ac-hot-list">
+              {hot.slice(0, 6).map((row) => (
+                <li key={row.path}>
+                  <button
+                    type="button"
+                    className="ac-hot-row"
+                    title={row.path}
+                    onClick={() => onOpenPath(row.path)}
+                  >
+                    <FileText size={13} strokeWidth={1.6} className="ac-hot-row__icon" />
+                    <span className="ac-hot-row__name">{row.title || fileBaseName(row.path)}</span>
+                    <span className="ac-hot-row__meta">
+                      {row.useCount ? `工具×${row.useCount}` : null}
+                      {row.useCount && row.citeCount ? " · " : null}
+                      {row.citeCount ? `引用×${row.citeCount}` : null}
+                      {(row.useCount || row.citeCount) && (row.lastUsedAt || row.lastCitedAt) ? " · " : null}
+                      {formatRelativeTime(row.lastUsedAt || row.lastCitedAt || "")}
+                    </span>
+                    <ChevronRight size={14} strokeWidth={1.6} className="ac-hot-row__go" />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <div className="ac-panel-empty">
+              <p>暂无引用记录。</p>
+              <p className="ac-panel-empty__sub">
+                Agent 通过 assets(search / read) 或回复引用资产后，这里会展示使用热度。
+              </p>
+            </div>
+          )}
+        </div>
+
+        <div className="ac-panel">
+          <div className="ac-panel-head">
+            <h3>需要关注</h3>
+            <span className="ac-panel-hint">遗忘窗口 {maxDays} 天</span>
+          </div>
+          {inbox > 0 ? (
+            <div className="ac-attention">
+              <div className="ac-attention__row">
+                <Inbox size={15} strokeWidth={1.7} className="ac-attention__icon" />
+                <div className="min-w-0 flex-1">
+                  <b>{inbox} 条待整合</b>
+                  <p>_inbox 草稿 / 笔记等待 Phase2 整合进正式记忆</p>
+                </div>
+                <button type="button" className="ac-btn-secondary" disabled={busy} onClick={() => void onConsolidate()}>
+                  立即整合
+                </button>
+              </div>
+            </div>
+          ) : null}
+          {staleRows.length ? (
+            <ul className="ac-hot-list">
+              {staleRows.slice(0, inbox > 0 ? 3 : 6).map((row) => (
+                <li key={`stale-${row.path}`}>
+                  <button
+                    type="button"
+                    className="ac-hot-row is-stale"
+                    title={row.path}
+                    onClick={() => onOpenPath(row.path)}
+                  >
+                    <Clock size={13} strokeWidth={1.6} className="ac-hot-row__icon" />
+                    <span className="ac-hot-row__name">{row.title || fileBaseName(row.path)}</span>
+                    <span className="ac-hot-row__meta">{formatRelativeTime(row.lastUsedAt)}</span>
+                    <ChevronRight size={14} strokeWidth={1.6} className="ac-hot-row__go" />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : inbox > 0 ? null : (
+            <div className="ac-panel-empty">
+              <CheckCircle2 size={18} strokeWidth={1.6} className="ac-panel-empty__ok" />
+              <p>一切正常</p>
+              <p className="ac-panel-empty__sub">没有待整合的草稿，也没有超过 {maxDays} 天未使用的冷资产。</p>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Steps */}
+      <div className="ac-steps">
+        <h3 className="ac-section-title">三步上手</h3>
+        <div className="ac-steps-grid">
+          {steps.map((s, i) => (
+            <div className="ac-step" key={s.title}>
+              <span className="ac-step__no">{i + 1}</span>
+              <div className="ac-step__body">
+                <b>{s.title}</b>
+                <p>{s.desc}</p>
+                {s.action ? (
+                  <button type="button" className="ac-step__link" onClick={s.action.run}>
+                    {s.action.label}
+                    <ChevronRight size={13} strokeWidth={1.8} />
+                  </button>
+                ) : null}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* ── Manage（统计 + 导入 + 导出 + 应用）──────────────────────────── */
+
+function ManageWorkspace({
+  vaultRoot,
+  entityType,
+  entityId,
+  entities,
+  applyTarget,
+  setApplyTarget,
+  applyScopes,
+  setApplyScopes,
+  exportHint,
+  busy,
+  stats,
+  onRefreshStats,
+  onQuickFact,
+  onImportPack,
+  onPack,
+  onMigrate,
+  onScanAll,
+  onConsolidate,
+  onApply,
+}: {
+  vaultRoot: string;
+  entityType: string;
+  entityId: string;
+  entities: Entity[];
+  applyTarget: string;
+  setApplyTarget: (v: string) => void;
+  applyScopes: { profile: boolean; experience: boolean; memory: boolean; journal: boolean };
+  setApplyScopes: React.Dispatch<
+    React.SetStateAction<{ profile: boolean; experience: boolean; memory: boolean; journal: boolean }>
+  >;
+  exportHint: string;
+  busy: boolean;
+  stats: UsageStatsPayload | null;
+  onRefreshStats: () => void;
+  onQuickFact: () => void;
+  onImportPack: () => void;
+  onPack: () => void | Promise<void>;
+  onMigrate: (scope: string) => void | Promise<void>;
+  onScanAll: () => void | Promise<void>;
+  onConsolidate: () => void | Promise<void>;
+  onApply: () => void | Promise<void>;
+}) {
+  const root = vaultRoot || "~/.evoflow/assets/";
+  const rel =
+    entityType === "user"
+      ? "user"
+      : entityType === "workspace"
+        ? `workspaces/${entityId}`
+        : `${entityType === "employee" ? "employees" : "agents"}/${entityId}`;
+  const employees = entities.filter((e) => e.entityType === "employee");
+  const canApply = !!applyTarget && Object.values(applyScopes).some(Boolean);
+  const [applying, setApplying] = useState(false);
+  const [migrating, setMigrating] = useState(false);
+
+  const copyPath = (text: string) => {
+    void navigator.clipboard.writeText(text);
+    toast.success("已复制路径");
+  };
+  const entityPath = `${root}${root.endsWith("/") || root.endsWith("\\") ? "" : "/"}${rel}`;
+
+  const handleApply = async () => {
+    if (!canApply || applying) return;
+    setApplying(true);
+    try {
+      await onApply();
+    } finally {
+      setApplying(false);
+    }
+  };
+
+  const handleMigrate = async () => {
+    if (migrating) return;
+    setMigrating(true);
+    try {
+      await onMigrate("all");
+    } finally {
+      setMigrating(false);
+    }
+  };
+
+  return (
+    <section className="ac-manage" data-testid="asset-manage">
+      {/* 用量统计 */}
+      <div className="ac-manage-section">
+        <ManageSectionHead
+          icon={<BarChart3 size={15} strokeWidth={1.7} />}
+          title="用量统计"
+          desc="search / read 记入 use_count；回复引用记入 cite_count。"
+        >
+          <button type="button" className="ac-btn-secondary" disabled={busy} onClick={onRefreshStats}>
+            <RefreshCw size={14} strokeWidth={1.6} />
+            刷新
+          </button>
+          <button type="button" className="ac-btn-secondary" disabled={busy} onClick={() => void onScanAll()}>
+            <ScanSearch size={14} strokeWidth={1.6} />
+            全库扫描
+          </button>
+        </ManageSectionHead>
+        <StatsBody stats={stats} busy={busy} entityType={entityType} entityId={entityId} onConsolidate={onConsolidate} />
+      </div>
+
+      {/* 导入 */}
+      <div className="ac-manage-section">
+        <ManageSectionHead
+          icon={<Upload size={15} strokeWidth={1.7} />}
+          title="导入"
+          desc="把外部资产装进当前资产库。"
+        />
+        <div className="ac-io-grid">
+          <div className="ac-io-card">
+            <span className="ac-io-card__icon"><FileArchive size={17} strokeWidth={1.6} /></span>
+            <div className="ac-io-card__body">
+              <b>导入资产包</b>
+              <p>选择 .evoflow-pack 文件（他人分享或旧设备备份），一键导入画像 / 记忆 / 经验。</p>
+            </div>
+            <button type="button" className="ac-cta" onClick={onImportPack}>
+              选择文件
+            </button>
+          </div>
+          <div className="ac-io-card">
+            <span className="ac-io-card__icon"><DatabaseBackup size={17} strokeWidth={1.6} /></span>
+            <div className="ac-io-card__body">
+              <b>迁移旧数据库</b>
+              <p>把旧版本数据库中的经验与记忆正文一次性迁移为本机 Markdown 资产。</p>
+            </div>
+            <button type="button" className="ac-btn-secondary" disabled={migrating || busy} onClick={() => void handleMigrate()}>
+              {migrating ? <span className="ac-spinner" aria-hidden /> : null}
+              {migrating ? "迁移中…" : "开始迁移"}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* 导出 */}
+      <div className="ac-manage-section">
+        <ManageSectionHead
+          icon={<Download size={15} strokeWidth={1.7} />}
+          title="导出与备份"
+          desc="本机 Vault 路径可直接在编辑器中打开；Pack 可在别处导入。"
+        />
+        <div className="ac-io-card ac-io-card--wide">
+          <div className="ac-kv-list">
+            <KvRow label="Vault 根目录" value={root} onCopy={() => copyPath(root)} />
+            <KvRow label="当前对象" value={entityPath} onCopy={() => copyPath(entityPath)} />
+            <KvRow
+              label="运行技能"
+              value="~/.evoflow/skills/custom/"
+              onCopy={() => copyPath("~/.evoflow/skills/custom/")}
+            />
+          </div>
+          <div className="ac-io-card__foot">
+            <button type="button" className="ac-btn-secondary" onClick={() => void onPack()}>
+              <PackageOpen size={14} strokeWidth={1.6} />
+              导出当前对象 Pack
+            </button>
+            {exportHint ? <span className="ac-io-card__hint">{exportHint}</span> : null}
+          </div>
+        </div>
+      </div>
+
+      {/* 应用到员工 */}
+      <div className="ac-manage-section">
+        <ManageSectionHead
+          icon={<ArrowRightLeft size={15} strokeWidth={1.7} />}
+          title="应用到员工"
+          desc="把当前对象的资产共享给其他员工，让新员工快速继承经验。"
+        />
+        <div className="ac-io-card ac-io-card--wide">
+          <div className="ac-check-group">
+            {(
+              [
+                ["profile", "用户画像"],
+                ["experience", "经验"],
+                ["journal", "反思"],
+                ["memory", "记忆"],
+              ] as const
+            ).map(([key, label]) => (
+              <label key={key} className="ac-check-label">
+                <input
+                  type="checkbox"
+                  className="ac-check"
+                  checked={applyScopes[key]}
+                  onChange={(e) => setApplyScopes((prev) => ({ ...prev, [key]: e.target.checked }))}
+                />
+                {label}
+              </label>
+            ))}
+          </div>
+          <div className="ac-io-card__foot">
+            <select
+              value={applyTarget}
+              onChange={(e) => setApplyTarget(e.target.value)}
+              className="ac-select"
+            >
+              <option value="">选择目标员工…</option>
+              {employees.map((e) => (
+                <option key={e.entityId} value={`employee:${e.entityId}`}>
+                  {e.label || e.entityId}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={() => void handleApply()}
+              disabled={!canApply || applying}
+              className="ac-cta"
+            >
+              {applying ? <span className="ac-spinner" aria-hidden /> : null}
+              {applying ? "应用中…" : "应用到目标"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function ManageSectionHead({
+  icon,
+  title,
+  desc,
+  children,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  desc: string;
+  children?: React.ReactNode;
+}) {
+  return (
+    <div className="ac-manage-head">
+      <span className="ac-manage-head__icon">{icon}</span>
+      <div className="ac-manage-head__text">
+        <h2>{title}</h2>
+        <p>{desc}</p>
+      </div>
+      <div className="ac-manage-head__actions">{children}</div>
+    </div>
+  );
+}
+
+function StatsBody({
   busy,
   stats,
   entityType,
   entityId,
-  onRefresh,
   onConsolidate,
-  onScanAll,
 }: {
   busy: boolean;
   stats: UsageStatsPayload | null;
   entityType: string;
   entityId: string;
-  onRefresh: () => void;
   onConsolidate: () => void | Promise<void>;
-  onScanAll: () => void | Promise<void>;
 }) {
   const totals = stats?.totals || {};
   const maxDays = stats?.maxUnusedDays ?? 90;
@@ -1258,32 +1898,7 @@ function AssetStatsPanel({
   const totalCites = Number(totals.totalCites ?? 0);
 
   return (
-    <section className="ac-stats-panel" data-testid="asset-stats-panel">
-      <div className="ac-stats-head">
-        <div>
-          <h2 className="ac-stats-title">资产用量统计</h2>
-          <p className="ac-stats-desc">
-            search/read → <code>use_count</code>；回复引用 → <code>cite_count</code>；遗忘窗口 {maxDays} 天
-          </p>
-        </div>
-        <div className="ac-stats-actions">
-          <button type="button" className="ac-btn-secondary" disabled={busy} onClick={onRefresh}>
-            <RefreshCw size={14} strokeWidth={1.6} />
-            刷新
-          </button>
-          <button type="button" className="ac-btn-secondary" disabled={busy} onClick={() => void onScanAll()}>
-            <ScanSearch size={14} strokeWidth={1.6} />
-            全库扫描
-          </button>
-          {inbox > 0 ? (
-            <button type="button" className="ac-btn-primary" disabled={busy} onClick={() => void onConsolidate()}>
-              <Inbox size={14} strokeWidth={1.6} />
-              整合 inbox（{inbox}）
-            </button>
-          ) : null}
-        </div>
-      </div>
-
+    <div className="ac-stats-wrap">
       <div className="ac-stats-grid">
         <div className="ac-stat-card">
           <span className="ac-stat-card__icon"><FileText size={18} /></span>
@@ -1339,7 +1954,7 @@ function AssetStatsPanel({
                     href={assetsHrefForPath(row.path, { entityType, entityId })}
                     title={row.path}
                   >
-                    <span className="ac-stats-list__name">{row.title || row.path.split("/").pop()}</span>
+                    <span className="ac-stats-list__name">{row.title || fileBaseName(row.path)}</span>
                     <span className="ac-stats-list__meta">
                       {row.useCount ? `工具×${row.useCount}` : null}
                       {row.useCount && row.citeCount ? " · " : null}
@@ -1367,7 +1982,7 @@ function AssetStatsPanel({
                     href={assetsHrefForPath(row.path, { entityType, entityId })}
                     title={row.path}
                   >
-                    <span className="ac-stats-list__name">{row.title || row.path.split("/").pop()}</span>
+                    <span className="ac-stats-list__name">{row.title || fileBaseName(row.path)}</span>
                     <span className="ac-stats-list__meta">{formatRelativeTime(row.lastUsedAt)}</span>
                   </a>
                 </li>
@@ -1378,80 +1993,18 @@ function AssetStatsPanel({
           )}
         </div>
       </div>
-    </section>
-  );
-}
 
-function AssetTabs({
-  activeTab,
-  onChange,
-  entityType,
-}: {
-  activeTab: AssetTab;
-  onChange: (tab: AssetTab) => void;
-  entityType: string;
-}) {
-  const tabs = assetTabsForEntity(entityType);
-  return (
-    <div className="ac-tabs" role="tablist">
-      {tabs.map((tab) => {
-        const active = activeTab === tab.id;
-        return (
-          <button
-            key={tab.id}
-            type="button"
-            role="tab"
-            aria-selected={active}
-            onClick={() => onChange(tab.id)}
-            className={["ac-tab-btn", active ? "is-active" : ""].join(" ")}
-          >
-            <span className="ac-tab-icon">{tab.icon}</span>
-            <span>{tab.label}</span>
-            {active && <span className="ac-tab-underline" />}
+      {inbox > 0 ? (
+        <div className="ac-consolidate-bar">
+          <Inbox size={15} strokeWidth={1.7} />
+          <span>
+            有 <b>{inbox}</b> 条待整合的草稿 / 笔记
+          </span>
+          <button type="button" className="ac-btn-primary" disabled={busy} onClick={() => void onConsolidate()}>
+            立即整合
           </button>
-        );
-      })}
-    </div>
-  );
-}
-
-function MemoryKindTabs({
-  active,
-  onChange,
-}: {
-  active: MemoryKind;
-  onChange: (kind: MemoryKind) => void;
-}) {
-  return (
-    <div className="ac-subtabs" role="tablist" aria-label="记忆类型" data-testid="memory-kind-tabs">
-      <span className="ac-subtabs-label">类型</span>
-      {MEMORY_KINDS.map((k) => {
-        const isActive = active === k.id;
-        return (
-          <button
-            key={k.id}
-            type="button"
-            role="tab"
-            aria-selected={isActive}
-            title={k.hint}
-            onClick={() => onChange(k.id)}
-            className={["ac-subtab-btn", isActive ? "is-active" : ""].join(" ")}
-          >
-            {k.label}
-            {isActive ? <span className="ac-subtab-underline" aria-hidden /> : null}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
-function SplitShell({ left, right }: { left: React.ReactNode; right: React.ReactNode }) {
-  return (
-    <div className="ac-split">
-      {left}
-      <div className="ac-split-line" aria-hidden />
-      {right}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -1459,7 +2012,7 @@ function SplitShell({ left, right }: { left: React.ReactNode; right: React.React
 /* ── File workspace ──────────────────────────────────────────────── */
 
 function TreeWorkspace({
-
+  tab,
   title,
   pathHint,
   files,
@@ -1471,6 +2024,10 @@ function TreeWorkspace({
   fileLoading,
   lineCount,
   canGoUp,
+  memoryKind,
+  onMemoryKindChange,
+  onQuickFact,
+  onNewJournal,
   onUp,
   onRefresh,
   onOpenDir,
@@ -1478,8 +2035,6 @@ function TreeWorkspace({
   onPrefetchFile,
   onChangeContent,
   onSave,
-  onNewJournal,
-  onReveal,
 }: {
   tab: TreeTab;
   title: string;
@@ -1493,6 +2048,10 @@ function TreeWorkspace({
   fileLoading?: boolean;
   lineCount: number;
   canGoUp: boolean;
+  memoryKind: MemoryKind;
+  onMemoryKindChange: (k: MemoryKind) => void;
+  onQuickFact: () => void;
+  onNewJournal: () => void;
   onUp: () => void;
   onRefresh: () => void;
   onOpenDir: (path: string) => void;
@@ -1500,64 +2059,130 @@ function TreeWorkspace({
   onPrefetchFile?: (path: string) => void;
   onChangeContent: (v: string) => void;
   onSave: () => void;
-  onNewJournal?: () => void;
-  onReveal?: (id: string) => void;
 }) {
-  return (
-    <SplitShell
-      left={
-        <FileSidebar
-          title={title}
-          pathHint={pathHint}
-          files={files}
-          fileSearch={fileSearch}
-          setFileSearch={setFileSearch}
-          selectedId={selectedFile}
-          onSelectFile={(id) => onOpenFile(id)}
-          onSelectFolder={(id) => onOpenDir(id)}
-          onPrefetchFile={onPrefetchFile}
-          onRefresh={onRefresh}
-          onReveal={onReveal}
-          headerExtra={
-            canGoUp ? (
-              <IconButton title="上级" onClick={onUp}>
-                <ArrowUp size={13} strokeWidth={1.7} />
-              </IconButton>
-            ) : null
-          }
-          footer={
-            <>
+  const emptyCopy: Record<TreeTab, { title: string; desc: string }> = {
+    memory: {
+      title: "还没有记忆",
+      desc: "在聊天里说「记住…」即可自动沉淀；也可以手动记一条事实，Agent 检索时会直接引用。",
+    },
+    experience: {
+      title: "还没有经验",
+      desc: "经验（craft）来自对话中的沉淀与 Skills 市场安装，安装后可在此查看与修改。",
+    },
+    journal: {
+      title: "还没有反思",
+      desc: "每天一篇反思日志，记录「做了什么 / 学到什么 / 下次注意」。",
+    },
+  };
+  const isEmpty = files.length === 0 && !fileSearch.trim();
 
-              {onNewJournal && (
-                <div className="px-2 pt-2">
-                  <button
-                    type="button"
-                    onClick={onNewJournal}
-                    className="flex h-[34px] w-full items-center justify-center gap-1.5 rounded-[6px] text-[12px] text-[#475569] hover:bg-[#F8FAFC] hover:text-[#0F172A]"
-                  >
-                    <Plus size={13} strokeWidth={1.7} />
+  const toolbarRight =
+    tab === "memory" ? (
+      <button type="button" className="ac-btn-ghost" onClick={onQuickFact}>
+        <Plus size={13} strokeWidth={1.8} />
+        记住事实
+      </button>
+    ) : tab === "journal" ? (
+      <button type="button" className="ac-btn-ghost" onClick={onNewJournal}>
+        <PenLine size={13} strokeWidth={1.8} />
+        新建今日反思
+      </button>
+    ) : (
+      <a className="ac-btn-ghost" href="#/skills/market">
+        <Sparkles size={13} strokeWidth={1.8} />
+        Skills 市场
+      </a>
+    );
+
+  return (
+    <>
+      {tab === "memory" ? (
+        <div className="ac-toolbar">
+          <div className="ac-seg" role="tablist" aria-label="记忆类型" data-testid="memory-kind-tabs">
+            {MEMORY_KINDS.map((k) => {
+              const isActive = memoryKind === k.id;
+              return (
+                <button
+                  key={k.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={isActive}
+                  title={k.hint}
+                  onClick={() => onMemoryKindChange(k.id)}
+                  className={["ac-seg-btn", isActive ? "is-active" : ""].join(" ")}
+                >
+                  {k.label}
+                </button>
+              );
+            })}
+          </div>
+          <div className="ac-toolbar-right">{toolbarRight}</div>
+        </div>
+      ) : null}
+
+      <SplitShell
+        left={
+          <FileSidebar
+            title={title}
+            pathHint={pathHint}
+            files={files}
+            fileSearch={fileSearch}
+            setFileSearch={setFileSearch}
+            selectedId={selectedFile}
+            onSelectFile={(id) => onOpenFile(id)}
+            onSelectFolder={(id) => onOpenDir(id)}
+            onPrefetchFile={onPrefetchFile}
+            onRefresh={onRefresh}
+            headerExtra={
+              canGoUp ? (
+                <IconButton title="上级" onClick={onUp}>
+                  <ArrowUp size={13} strokeWidth={1.7} />
+                </IconButton>
+              ) : null
+            }
+            footer={<VaultInfo />}
+          />
+        }
+        right={
+          isEmpty ? (
+            <EmptyState
+              icon={<FolderOpenArt />}
+              title={emptyCopy[tab].title}
+              desc={emptyCopy[tab].desc}
+              action={
+                tab === "memory" ? (
+                  <button type="button" className="ac-cta" onClick={onQuickFact}>
+                    <Plus size={15} strokeWidth={2} />
+                    记住一条事实
+                  </button>
+                ) : tab === "journal" ? (
+                  <button type="button" className="ac-cta" onClick={onNewJournal}>
+                    <PenLine size={15} strokeWidth={1.8} />
                     新建今日反思
                   </button>
-                </div>
-              )}
-              <VaultInfo />
-            </>
-          }
-        />
-      }
-      right={
-        <EditorPanel
-          pathLabel={selectedFile || "选择文件编辑"}
-          content={editorContent}
-          readonly={!selectedFile}
-          loading={!!fileLoading}
-          saved={!fileDirty}
-          lineCount={lineCount}
-          onChange={onChangeContent}
-          onSave={onSave}
-        />
-      }
-    />
+                ) : (
+                  <a className="ac-cta" href="#/skills/market">
+                    <Sparkles size={15} strokeWidth={1.8} />
+                    去 Skills 市场
+                  </a>
+                )
+              }
+            />
+          ) : (
+            <EditorPanel
+              pathLabel={selectedFile || "选择文件编辑"}
+              content={editorContent}
+              readonly={!selectedFile}
+              loading={!!fileLoading}
+              saved={!fileDirty}
+              lineCount={lineCount}
+              onChange={onChangeContent}
+              onSave={onSave}
+            />
+          )
+        }
+      />
+    </>
   );
 }
 
@@ -1800,16 +2425,14 @@ function EditorPanel({
       <div className="ac-editor-footer">
         <div className="flex items-center gap-3 text-[11px] leading-3">
           <span>Ln {lineCount}</span>
-          <span>Col 1</span>
           <span>Spaces: 2</span>
           <span>UTF-8</span>
-          <span>LF</span>
           <span>Markdown</span>
         </div>
         <div className="flex items-center gap-0.5">
           <button
             type="button"
-            title="复制"
+            title="复制全文"
             onClick={() => {
               void navigator.clipboard.writeText(content);
               toast.success("已复制");
@@ -1827,249 +2450,339 @@ function EditorPanel({
   );
 }
 
+function SplitShell({ left, right }: { left: React.ReactNode; right: React.ReactNode }) {
+  return (
+    <div className="ac-split">
+      {left}
+      <div className="ac-split-line" aria-hidden />
+      {right}
+    </div>
+  );
+}
+
+function EmptyState({
+  icon,
+  title,
+  desc,
+  action,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  desc: string;
+  action?: React.ReactNode;
+}) {
+  return (
+    <section className="ac-empty" data-testid="asset-empty-state">
+      <div className="ac-empty__art">{icon}</div>
+      <h3>{title}</h3>
+      <p>{desc}</p>
+      {action ? <div className="ac-empty__action">{action}</div> : null}
+    </section>
+  );
+}
+
+function FolderOpenArt() {
+  return (
+    <svg width="88" height="72" viewBox="0 0 88 72" fill="none" aria-hidden>
+      <path
+        d="M8 20c0-3.3 2.7-6 6-6h18l6 7h30c3.3 0 6 2.7 6 6v3H14l-6 26V20Z"
+        fill="var(--ac-primary-soft)"
+      />
+      <path
+        d="M14 30h60.5c3.9 0 6.7 3.7 5.7 7.4l-5.6 21A6 6 0 0 1 68.8 63H12.5a6 6 0 0 1-5.9-7.1l5.7-21A6 6 0 0 1 14 30Z"
+        fill="var(--ac-primary)"
+        fillOpacity="0.16"
+        stroke="var(--ac-primary)"
+        strokeOpacity="0.35"
+        strokeWidth="1.5"
+      />
+      <circle cx="70" cy="16" r="3" fill="var(--ac-primary)" fillOpacity="0.35" />
+      <circle cx="20" cy="9" r="2" fill="var(--ac-primary)" fillOpacity="0.22" />
+    </svg>
+  );
+}
+
 function VaultInfo() {
   return (
     <div className="ac-vault" title="Markdown 资产可参与 Agent 长期上下文">
       <div className="ac-vault-title">
         <span className="h-1.5 w-1.5 rounded-full bg-[var(--ac-primary)]" />
-        资产库
+        本机资产库
       </div>
       <p className="ac-vault-desc">Markdown · Agent 上下文</p>
     </div>
   );
 }
 
+/* ── Modals ──────────────────────────────────────────────────────── */
 
-/* ── Export ──────────────────────────────────────────────────────── */
+function ModalShell({
+  title,
+  desc,
+  onClose,
+  children,
+  footer,
+  width = 520,
+}: {
+  title: string;
+  desc: string;
+  onClose: () => void;
+  children: React.ReactNode;
+  footer?: React.ReactNode;
+  width?: number;
+}) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
 
-type ExportNavId = "entity" | "apply" | "tools";
+  return (
+    <div className="ac-modal-overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="ac-modal" style={{ maxWidth: width }} role="dialog" aria-modal="true" aria-label={title}>
+        <div className="ac-modal-head">
+          <div>
+            <h3>{title}</h3>
+            <p>{desc}</p>
+          </div>
+          <button type="button" className="ac-icon-btn" onClick={onClose} aria-label="关闭">
+            <X size={15} strokeWidth={1.8} />
+          </button>
+        </div>
+        <div className="ac-modal-body">{children}</div>
+        {footer ? <div className="ac-modal-foot">{footer}</div> : null}
+      </div>
+    </div>
+  );
+}
 
-function ExportWorkspace({
-  vaultRoot,
+function QuickFactModal({
   entityType,
   entityId,
-  entities,
-  applyTarget,
-  setApplyTarget,
-  applyScopes,
-  setApplyScopes,
-  exportHint,
-  onPack,
-  onMigrate,
-  onApply,
+  entityName,
+  onClose,
+  onSaved,
 }: {
-  vaultRoot: string;
   entityType: string;
   entityId: string;
-  entities: Entity[];
-  applyTarget: string;
-  setApplyTarget: (v: string) => void;
-  applyScopes: { profile: boolean; experience: boolean; memory: boolean; journal: boolean };
-  setApplyScopes: React.Dispatch<
-    React.SetStateAction<{ profile: boolean; experience: boolean; memory: boolean; journal: boolean }>
-  >;
-  exportHint: string;
-  onPack: () => void | Promise<void>;
-  onMigrate: (scope: string) => void | Promise<void>;
-  onApply: () => void | Promise<void>;
+  entityName: string;
+  onClose: () => void;
+  onSaved: () => void;
 }) {
-  const [nav, setNav] = useState<ExportNavId>("entity");
-  const [applying, setApplying] = useState(false);
-  const root = vaultRoot || "~/.evoflow/assets/";
-  const rel =
-    entityType === "user"
-      ? "user"
-      : entityType === "workspace"
-        ? `workspaces/${entityId}`
-        : `${entityType === "employee" ? "employees" : "agents"}/${entityId}`;
-  const employees = entities.filter((e) => e.entityType === "employee");
-  const canApply = !!applyTarget && Object.values(applyScopes).some(Boolean);
+  const [content, setContent] = useState("");
+  const [title, setTitle] = useState("");
+  const [saving, setSaving] = useState(false);
+  const areaRef = useRef<HTMLTextAreaElement>(null);
 
-  const scrollTo = (id: ExportNavId) => {
-    setNav(id);
-    document.getElementById(`ac-export-${id}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
-  };
+  useEffect(() => {
+    areaRef.current?.focus();
+  }, []);
 
-  const copyPath = (text: string) => {
-    void navigator.clipboard.writeText(text);
-    toast.success("已复制路径");
-  };
-
-  const entityPath = `${root}${root.endsWith("/") || root.endsWith("\\") ? "" : "/"}${rel}`;
-
-  const handleApply = async () => {
-    if (!canApply || applying) return;
-    setApplying(true);
+  const submit = async () => {
+    const text = content.trim();
+    if (!text) {
+      toast.error("请输入要记住的内容");
+      return;
+    }
+    setSaving(true);
     try {
-      await onApply();
+      await api.assetsRecord({
+        entityType,
+        entityId,
+        content: text,
+        title: title.trim(),
+        summary: "",
+      });
+      toast.success("已记入事实记忆");
+      onSaved();
+      onClose();
+    } catch (e: unknown) {
+      toast.error(String((e as { message?: string })?.message || e));
     } finally {
-      setApplying(false);
+      setSaving(false);
     }
   };
 
   return (
-    <SplitShell
-      left={
-        <aside className="ac-explorer ac-rail">
-          <div className="ac-rail-header">
-            <h3 className="text-[13px] font-semibold leading-[18px] text-[var(--ac-text)]">导出</h3>
-            <p className="mt-0.5 text-[11px] leading-4 text-[var(--ac-text-faint)]">迁移与应用</p>
-          </div>
-          <div className="ac-rail-list space-y-0.5">
-            {(
-              [
-                ["entity", "当前实体", <IdCard size={14} strokeWidth={1.6} key="e" />],
-                ["apply", "应用到员工", <ArrowRightLeft size={14} strokeWidth={1.6} key="a" />],
-                ["tools", "数据工具", <Archive size={14} strokeWidth={1.6} key="t" />],
-              ] as const
-            ).map(([id, label, icon]) => (
-              <button
-                key={id}
-                type="button"
-                onClick={() => scrollTo(id)}
-                className={["ac-nav-item", nav === id ? "is-active" : ""].join(" ")}
-              >
-                <span className={nav === id ? "text-[var(--ac-primary)]" : "text-[var(--ac-text-faint)]"}>
-                  {icon}
-                </span>
-                {label}
-              </button>
-            ))}
-            <a href="#/skills/market" className="ac-nav-item">
-              <span className="text-[var(--ac-text-faint)]">
-                <Sparkles size={14} strokeWidth={1.6} />
-              </span>
-              Skills 市场
-            </a>
-          </div>
-          <div className="ac-rail-footer">
-            <VaultInfo />
-          </div>
-        </aside>
+    <ModalShell
+      title="记住一条事实"
+      desc={`将写入 ${entityName} 的事实记忆（memory/facts/），Agent 检索时会直接引用。`}
+      onClose={onClose}
+      footer={
+        <>
+          <button type="button" className="ac-btn-secondary" onClick={onClose}>
+            取消
+          </button>
+          <button type="button" className="ac-cta" disabled={saving || !content.trim()} onClick={() => void submit()}>
+            {saving ? <span className="ac-spinner" aria-hidden /> : null}
+            {saving ? "保存中…" : "记住"}
+          </button>
+        </>
       }
-      right={
-        <section className="ac-main">
-          <div className="ac-export-main min-h-0 flex-1">
-            <div className="mb-8">
-              <h2 className="text-[16px] font-semibold leading-6 text-[var(--ac-text)]">导出与迁移</h2>
-              <p className="mt-1 text-[13px] leading-5 text-[var(--ac-text-faint)]">
-                将当前资产导出、迁移或应用到其他 Agent。
-              </p>
-            </div>
-
-            <div id="ac-export-entity" className="ac-export-section">
-              <h3 className="text-[13px] font-semibold leading-[18px] text-[var(--ac-text)]">存储位置</h3>
-              <p className="mt-1 text-[12px] text-[var(--ac-text-faint)]">
-                本机 Vault 路径，可直接在编辑器中打开
-              </p>
-              <div className="mt-3 space-y-0.5">
-                <KvRow label="Vault 根目录" value={root} onCopy={() => copyPath(root)} />
-                <KvRow label="当前实体" value={entityPath} onCopy={() => copyPath(entityPath)} />
-                <KvRow
-                  label="运行技能"
-                  value="~/.evoflow/skills/custom/"
-                  onCopy={() => copyPath("~/.evoflow/skills/custom/")}
-                />
-              </div>
-              <div className="mt-4">
-                <button type="button" onClick={() => void onPack()} className="ac-btn-secondary">
-                  <Archive size={14} strokeWidth={1.6} />
-                  导出当前实体 Pack
-                </button>
-                {exportHint ? (
-                  <p className="mt-2 text-[12px] text-[var(--ac-text-muted)]">{exportHint}</p>
-                ) : null}
-              </div>
-            </div>
-
-            <div id="ac-export-apply" className="ac-export-section">
-              <h3 className="text-[13px] font-semibold leading-[18px] text-[var(--ac-text)]">
-                应用到员工
-              </h3>
-              <p className="mt-1 text-[12px] text-[var(--ac-text-faint)]">选择需要共享的资产范围</p>
-              <div className="ac-check-group mt-4">
-                {(
-                  [
-                    ["profile", "用户画像"],
-                    ["experience", "经验"],
-                    ["journal", "反思"],
-                    ["memory", "记忆"],
-                  ] as const
-                ).map(([key, label]) => (
-                  <label key={key} className="ac-check-label">
-                    <input
-                      type="checkbox"
-                      className="ac-check"
-                      checked={applyScopes[key]}
-                      onChange={(e) =>
-                        setApplyScopes((prev) => ({ ...prev, [key]: e.target.checked }))
-                      }
-                    />
-                    {label}
-                  </label>
-                ))}
-              </div>
-              <div className="mt-5 flex flex-wrap items-center gap-2">
-                <select
-                  value={applyTarget}
-                  onChange={(e) => setApplyTarget(e.target.value)}
-                  className="ac-select"
-                >
-                  <option value="">选择目标员工…</option>
-                  {employees.map((e) => (
-                    <option key={e.entityId} value={`employee:${e.entityId}`}>
-                      {e.label || e.entityId}
-                    </option>
-                  ))}
-                </select>
-                <button
-                  type="button"
-                  onClick={() => void handleApply()}
-                  disabled={!canApply || applying}
-                  className="ac-cta"
-                >
-                  {applying ? <span className="ac-spinner" aria-hidden /> : null}
-                  {applying ? "应用中…" : "应用到目标"}
-                </button>
-              </div>
-            </div>
-
-            <div id="ac-export-tools" className="ac-export-section">
-              <h3 className="text-[13px] font-semibold leading-[18px] text-[var(--ac-text)]">数据工具</h3>
-              <p className="mt-1 text-[12px] text-[var(--ac-text-faint)]">一次性从旧数据库导入到 assets 文件</p>
-              <div className="mt-3">
-                <button
-                  type="button"
-                  onClick={() => void onMigrate("all")}
-                  className="ac-action-row"
-                >
-                  <span className="ac-action-icon">
-                    <ArrowRightLeft size={15} strokeWidth={1.6} />
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <div className="text-[13px] font-medium text-[var(--ac-text)]">导入旧库到 assets</div>
-                    <div className="text-[12px] text-[var(--ac-text-faint)]">经验 + 记忆正文迁移为 Markdown</div>
-                  </div>
-                  <ChevronRight size={16} strokeWidth={1.5} className="shrink-0 text-[var(--ac-text-disabled)]" />
-                </button>
-                <a href="#/skills/market" className="ac-action-row">
-                  <span className="ac-action-icon">
-                    <Sparkles size={15} strokeWidth={1.6} />
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <div className="text-[13px] font-medium text-[var(--ac-text)]">Skills 市场</div>
-                    <div className="text-[12px] text-[var(--ac-text-faint)]">浏览与安装技能</div>
-                  </div>
-                  <ChevronRight size={16} strokeWidth={1.5} className="shrink-0 text-[var(--ac-text-disabled)]" />
-                </a>
-              </div>
-            </div>
-          </div>
-        </section>
-      }
-    />
+    >
+      <label className="ac-field">
+        <span className="ac-field__label">内容 *</span>
+        <textarea
+          ref={areaRef}
+          value={content}
+          onChange={(e) => setContent(e.target.value)}
+          rows={4}
+          placeholder="例如：我习惯用 Python 写脚本，包管理用 uv。"
+          className="ac-field__input"
+        />
+      </label>
+      <label className="ac-field">
+        <span className="ac-field__label">标题（可选）</span>
+        <input
+          type="text"
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          placeholder="例如：开发环境偏好"
+          className="ac-field__input"
+        />
+      </label>
+    </ModalShell>
   );
 }
+
+function ImportPackModal({
+  entities,
+  defaultEntity,
+  onClose,
+  onImported,
+}: {
+  entities: Entity[];
+  defaultEntity: { entityType: string; entityId: string };
+  onClose: () => void;
+  onImported: () => void;
+}) {
+  const [packPath, setPackPath] = useState("");
+  const employees = entities.filter((e) => e.entityType === "employee");
+  const defKey = `${defaultEntity.entityType}:${defaultEntity.entityId}`;
+  const [target, setTarget] = useState(
+    defKey === "user:user" || defKey.startsWith("employee:") ? defKey : "user:user",
+  );
+  const [conflict, setConflict] = useState<"skip" | "overwrite">("skip");
+  const [importing, setImporting] = useState(false);
+
+  const pickFile = async () => {
+    if (isTauriDesktop()) {
+      try {
+        const dlg = await import("@tauri-apps/plugin-dialog");
+        const picked = await dlg.open({
+          multiple: false,
+          title: "选择 .evoflow-pack 资产包",
+          filters: [
+            { name: "Evoflow Pack", extensions: ["evoflow-pack", "zip"] },
+            { name: "所有文件", extensions: ["*"] },
+          ],
+        });
+        const p = Array.isArray(picked) ? picked[0] : picked;
+        if (p) setPackPath(String(p));
+        return;
+      } catch {
+        /* fall through to prompt */
+      }
+    }
+    const next = window.prompt("资产包绝对路径（.evoflow-pack）", packPath);
+    if (next != null) setPackPath(String(next).trim());
+  };
+
+  const submit = async () => {
+    const pack = packPath.trim();
+    if (!pack) {
+      toast.error("请先选择或填写资产包路径");
+      return;
+    }
+    const [targetType, targetId] = target.split(":");
+    if (!targetType || !targetId) {
+      toast.error("请选择导入目标");
+      return;
+    }
+    setImporting(true);
+    try {
+      const res = await api.assetsPackImport({
+        entityType: targetType,
+        entityId: targetId,
+        packPath: pack,
+        conflict,
+      });
+      toast.success(
+        `导入完成：复制 ${res?.copied ?? 0}，跳过 ${res?.skipped ?? 0}`,
+      );
+      onImported();
+      onClose();
+    } catch (e: unknown) {
+      toast.error(String((e as { message?: string })?.message || e));
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  return (
+    <ModalShell
+      title="导入资产包"
+      desc="从 .evoflow-pack 文件导入画像 / 记忆 / 经验到指定对象。"
+      onClose={onClose}
+      footer={
+        <>
+          <button type="button" className="ac-btn-secondary" onClick={onClose}>
+            取消
+          </button>
+          <button type="button" className="ac-cta" disabled={importing || !packPath.trim()} onClick={() => void submit()}>
+            {importing ? <span className="ac-spinner" aria-hidden /> : null}
+            {importing ? "导入中…" : "开始导入"}
+          </button>
+        </>
+      }
+    >
+      <label className="ac-field">
+        <span className="ac-field__label">资产包文件 *</span>
+        <div className="ac-field-row">
+          <input
+            type="text"
+            value={packPath}
+            onChange={(e) => setPackPath(e.target.value)}
+            placeholder="…/my-pack.evoflow-pack"
+            className="ac-field__input ac-mono"
+          />
+          <button type="button" className="ac-btn-secondary" onClick={() => void pickFile()}>
+            浏览…
+          </button>
+        </div>
+      </label>
+      <label className="ac-field">
+        <span className="ac-field__label">导入到</span>
+        <select value={target} onChange={(e) => setTarget(e.target.value)} className="ac-field__input">
+          <option value="user:user">我（user）</option>
+          {employees.map((e) => (
+            <option key={e.entityId} value={`employee:${e.entityId}`}>
+              {e.label || e.entityId}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="ac-field">
+        <span className="ac-field__label">同名文件处理</span>
+        <select
+          value={conflict}
+          onChange={(e) => setConflict(e.target.value === "overwrite" ? "overwrite" : "skip")}
+          className="ac-field__input"
+        >
+          <option value="skip">跳过已存在的文件（推荐）</option>
+          <option value="overwrite">覆盖已存在的文件</option>
+        </select>
+      </label>
+      <p className="ac-field-hint">
+        还没有资产包？在「管理 → 导出与备份」先把当前对象导出为 Pack 试试。
+      </p>
+    </ModalShell>
+  );
+}
+
+/* ── Common ──────────────────────────────────────────────────────── */
 
 function KvRow({
   label,
@@ -2097,9 +2810,6 @@ function KvRow({
     </div>
   );
 }
-
-/* ── Common ──────────────────────────────────────────────────────── */
-
 
 function IconButton({
   children,

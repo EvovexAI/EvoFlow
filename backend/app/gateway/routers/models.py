@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 from evoflow.authz.http_guard import require_org_admin
 from evoflow.config import get_app_config
 from evoflow.config.model_config import DEFAULT_MODEL_MAX_RETRIES, DEFAULT_MODEL_REQUEST_TIMEOUT
+from evoflow.models.credential_sanitize import is_masked_api_key
 from evoflow.utils.model_context_length import context_length_from_model_config
 
 logger = logging.getLogger(__name__)
@@ -369,12 +370,12 @@ async def invoke_configured_model(request: ModelInvokeRequest) -> ModelInvokeRes
 
 
 def _mask_api_key(api_key: str | None) -> str | None:
-    """Always mask API keys in Panel list/get responses (never echo secrets)."""
+    """Mask API keys in Panel list/get responses, keeping first/last 4 chars for identification."""
     if not api_key:
         return None
-    if len(api_key) <= 4:
-        return "****"
-    return f"****{api_key[-4:]}"
+    if len(api_key) <= 8:
+        return f"****{api_key[-4:]}" if len(api_key) > 4 else "****"
+    return f"{api_key[:4]}****{api_key[-4:]}"
 
 
 @router.get(
@@ -566,7 +567,7 @@ async def update_model(http_request: Request, model_name: str, request: ModelCre
         request_data = request.model_dump(exclude_unset=True)
         # Skip masked API key to prevent overwriting the real key with a masked value
         _api_key_val = request_data.get("api_key")
-        if _api_key_val is not None and str(_api_key_val).startswith("****"):
+        if _api_key_val is not None and is_masked_api_key(_api_key_val):
             request_data.pop("api_key", None)
         # Availability is owned by mark/clear APIs — never accept from Panel sync.
         for _ak in (

@@ -16,6 +16,7 @@ import {
   showRightStageCodeViewers,
   showRightStageFromFileLink,
 } from '../../../lib/right-stage/open-right-stage-file.js'
+import { showRightStageBrowserUrl } from '../../../lib/right-stage/open-right-stage-browser.js'
 import { isEvoflowChatV4Enabled } from '../../v4/v4Gate.js'
 import { v4WindowHasUserText } from '../../v4/optimisticUserInput.js'
 import { resolveChatPaneMode } from '../../lib/chat-pane-mode.js'
@@ -667,6 +668,13 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
                       onOpenCodeViewer={(source) => {
                         // type:file → 文件区；patch/pptx/pdf 等 → PreviewPane
                         openRightStageForCodeViewerSource(source, {
+                          sessionKey: selectedSessionKey,
+                          threadId: wsClient?.getSessionThreadId?.(selectedSessionKey || '') || '',
+                        })
+                      }}
+                      onOpenBrowserUrl={(url) => {
+                        // 助手预览卡「网站」→ 右侧内置浏览器（localhost / HTML）
+                        showRightStageBrowserUrl(url, {
                           sessionKey: selectedSessionKey,
                           threadId: wsClient?.getSessionThreadId?.(selectedSessionKey || '') || '',
                         })

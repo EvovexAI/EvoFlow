@@ -3,6 +3,7 @@ import {
   browserEmbedClose,
   browserEmbedExists,
   browserEmbedProbeCoords,
+  browserEmbedReload,
   browserEmbedSetZoom,
   browserEmbedSupported,
   browserEmbedSupportedSync,
@@ -110,7 +111,8 @@ function formatDisplayUrl(raw: string): string {
   try {
     const u = new URL(url)
     const path = u.pathname === '/' ? '' : u.pathname.replace(/\/$/, '')
-    return `${u.hostname}${path}${u.search || ''}`
+    // 用 host（含非默认端口），不要只用 hostname——否则 127.0.0.1:8769 会显示成 127.0.0.1。
+    return `${u.host}${path}${u.search || ''}`
   } catch {
     return url
   }
@@ -318,7 +320,9 @@ function BrowserChromeBar({
   const submitUrl = () => {
     const next = urlDraft.trim()
     if (!next) return
-    if (next === (pageUrl || '').trim()) {
+    // 地址栏展示态常省略协议；与完整 pageUrl / 展示态相等时视为刷新，避免把
+    // http://127.0.0.1:8769 误导航成 https://127.0.0.1:8769。
+    if (next === (pageUrl || '').trim() || next === displayUrl) {
       onRefresh?.()
       return
     }
@@ -785,8 +789,16 @@ function BrowserEmbedHost({
       return
     }
     // Already successfully mounted for this thread — do not recreate.
+    // 切签回来 surfaceActive 变 true 时仍要贴位：否则 HWND 停在 park，页面「看不见」。
     if (mountedThreadRef.current === tid && readyRef.current) {
-      dbgLog(`[browser-embed] effect skip (already ready) tid=${tid}`)
+      dbgLog(
+        `[browser-embed] effect skip (already ready) tid=${tid} surfaceActive=${surfaceActive}`,
+      )
+      if (surfaceActive) {
+        void syncBoundsRef.current()
+        window.setTimeout(() => void syncBoundsRef.current(), 80)
+        window.setTimeout(() => void syncBoundsRef.current(), 250)
+      }
       return
     }
     // In-flight for this thread (Strict Mode / short re-entry): let it finish.
@@ -1536,15 +1548,18 @@ export const BrowserPanel = memo(function BrowserPanel({
   stageId = 'primary',
 }: BrowserPanelProps) {
   const runtime = useSyncExternalStore(subscribeBrowserRuntime, getBrowserRuntimeSnapshot)
-  // 多标签：每个 BrowserPanel 只展示本标签的 pageUrl（props）。
-  // 前台标签在导航瞬间用 runtime 跟 HWND 对齐；后台标签绝不能读 runtime，否则会串成同一网址。
+  // 多标签：标签自己的 pageUrl 是权威；单 HWND 的 runtime.pageUrl 是「当前窗正在看的页」。
+  // 新标签 about:blank 时绝不能 live||tab —— 会把上一标签地址串进本标签地址栏。
+  // 前台有真实 URL 时，仅在 live 与本标签同趟加载时用 live（导航瞬时对齐）。
   const tabPageUrl = String(pageUrl || '').trim()
   const livePageUrl = String(runtime.pageUrl || '').trim()
-  const effectivePageUrl = (
-    surfaceActive
-      ? livePageUrl || tabPageUrl
-      : tabPageUrl || ''
-  ).trim() || undefined
+  const tabIsBlank = !tabPageUrl || tabPageUrl === 'about:blank'
+  const effectivePageUrl = (() => {
+    if (!surfaceActive) return tabPageUrl || undefined
+    if (tabIsBlank) return undefined
+    if (livePageUrl && isSameBrowserLoad(livePageUrl, tabPageUrl)) return livePageUrl
+    return tabPageUrl
+  })()
   const effectiveThreadId = String(streamThreadId || runtime.streamThreadId || '').trim()
   const effectiveMode = browserMode || runtime.browserMode
   const effectiveShared = sharedBrowser || runtime.sharedBrowser
@@ -1631,10 +1646,12 @@ export const BrowserPanel = memo(function BrowserPanel({
     dbgLog(`[browser-panel] refresh thread=${tid || '(none)'} embed=${preferEmbeddedBrowser}`)
     setRefreshBusy(true)
     try {
+      let reloaded = false
       if (preferEmbeddedBrowser && tid) {
         // Embed path: reload the live WebView2 page (not the old screencast).
         const result = await sendBrowserCommand(tid, 'reload')
         if (result) {
+          reloaded = true
           applyBrowserCommandResponse({
             threadId: result.threadId || tid,
             pageUrl: result.pageUrl,
@@ -1648,8 +1665,40 @@ export const BrowserPanel = memo(function BrowserPanel({
         setStreamStatus((prev) => (prev === 'live' ? 'reconnecting' : prev))
         try {
           await restartBrowserStream(tid)
+          reloaded = true
         } catch (err) {
           dbgWarn(`[browser-panel] refresh restart failed ${String(err)}`)
+        }
+      }
+      // Gateway CDP 失败 / Tauri 未重编缺少 browser_embed_reload：再试 navigate 同 URL，
+      // 最后 upsert 强制贴页（避免刷新按钮可点但页面不动）。
+      if (!reloaded && tid && effectivePageUrl && !effectivePageUrl.startsWith('about:')) {
+        const nav = await sendBrowserCommand(tid, 'navigate', effectivePageUrl)
+        if (nav) {
+          reloaded = true
+          applyBrowserCommandResponse({
+            threadId: nav.threadId || tid,
+            pageUrl: nav.pageUrl || effectivePageUrl,
+            pageTitle: nav.pageTitle,
+            streamWs: nav.streamWs,
+            pushHistory: false,
+            navigateIntent: true,
+          })
+        }
+      }
+      if (!reloaded && embedSupported) {
+        const ok = await browserEmbedReload(NATIVE_EMBED_THREAD_ID)
+        if (!ok && effectivePageUrl && !effectivePageUrl.startsWith('about:')) {
+          dbgWarn('[browser-panel] native embed reload missing; upsert re-nav fallback')
+          markUserNavigateIntent(effectivePageUrl)
+          await ensureNativeEmbed({
+            url: effectivePageUrl,
+            stageId,
+            reason: 'toolbar-refresh-fallback',
+            replace: true,
+          })
+        } else if (!ok) {
+          dbgWarn('[browser-panel] native embed reload failed')
         }
       }
       setRefreshNonce((n) => n + 1)
@@ -1660,9 +1709,11 @@ export const BrowserPanel = memo(function BrowserPanel({
     refreshBusy,
     streamPath,
     effectiveThreadId,
+    effectivePageUrl,
     iframeFallback,
     embedSupported,
     preferEmbeddedBrowser,
+    stageId,
   ])
 
   // Frame metadata keeps the click overlay mapped to current viewport CSS px.
@@ -1738,7 +1789,7 @@ export const BrowserPanel = memo(function BrowserPanel({
       setNavBusy(true)
       setNavError('')
       try {
-        // 先压逻辑栈并 seed URL，再让引擎 CDP 导航（面板不再二次 upsert）。
+        // 先压逻辑栈 + 解 park/贴 HWND（空白新标签），再补 CDP 对齐引擎态。
         applyBrowserCommandResponse({
           threadId: tid,
           pageUrl: normalized,
@@ -1755,6 +1806,12 @@ export const BrowserPanel = memo(function BrowserPanel({
           } else if (settled !== normalized) {
             // 重定向：用最终 URL 更新栈顶（再 push 一次会去重同 URL）。
             pushBrowserTabHistory(settled, result.pageTitle || '')
+            void ensureNativeEmbed({
+              url: settled,
+              stageId,
+              reason: 'address-bar-redirect',
+              replace: true,
+            })
           }
           applyBrowserCommandResponse({
             threadId: result.threadId || tid,
@@ -1762,13 +1819,22 @@ export const BrowserPanel = memo(function BrowserPanel({
             pageTitle: result.pageTitle,
             streamWs: result.streamWs,
           })
+        } else {
+          // CDP 失败时 upsert 已在 applyBrowserCommandResponse 里发起；再补一枪贴位。
+          dbgWarn(`[browser-panel] CDP navigate failed; HWND upsert already seeded url=${normalized}`)
+          void ensureNativeEmbed({
+            url: normalized,
+            stageId,
+            reason: 'address-bar-cdp-miss',
+            replace: true,
+          })
         }
         setRefreshNonce((n) => n + 1)
       } finally {
         setNavBusy(false)
       }
     },
-    [effectiveThreadId, navBusy, iframeFallback, embedSupported],
+    [effectiveThreadId, navBusy, iframeFallback, embedSupported, stageId],
   )
   const handleBack = useCallback(async () => {
     if (iframeFallback || !embedSupported) {

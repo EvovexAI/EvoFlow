@@ -79,10 +79,13 @@ def resolve_and_sanitize_api_key(value: Any) -> str | None:
     return sanitize_api_key(resolve_credential_reference(value))
 
 
+_MASKED_API_KEY_RE = re.compile(r"\*{4}")
+
+
 def is_masked_api_key(value: Any) -> bool:
-    """True for Gateway/UI masked secrets like ``****abcd`` (must not be persisted)."""
+    """True for Gateway/UI masked secrets like ``****abcd`` / ``sk-a****abcd`` (must not be persisted)."""
     text = str(value or "").strip()
-    return bool(text) and text.startswith("****")
+    return bool(text) and bool(_MASKED_API_KEY_RE.search(text))
 
 
 def sanitize_base_url(value: str | None) -> str | None:

@@ -100,7 +100,10 @@ class AppConfig(BaseModel):
     primary_model: str | None = Field(default=None, description="Name of the primary (default) model to use")
     sandbox: SandboxConfig = Field(description="Sandbox configuration")
     tools: list[ToolConfig] = Field(default_factory=list, description="Available tools")
-    tool_groups: list[ToolGroupConfig] = Field(default_factory=list, description="Available tool groups")
+    tool_groups: list[ToolGroupConfig] = Field(
+        default_factory=list,
+        description="Deprecated unused ACL groups; prefer capability_pack / tools allowlist",
+    )
     web: WebConfig = Field(
         default_factory=WebConfig,
         description="Hermes-style web search/extract backends (web.backend / search_backend)",

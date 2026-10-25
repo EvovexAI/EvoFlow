@@ -274,12 +274,11 @@ function normalizeBaseUrlCompare(u) {
 
 function isMaskedGatewayApiKey(key) {
   const s = String(key ?? '').trim()
-  return !!s && /^\*+/.test(s)
+  return !!s && /\*{4}/.test(s)
 }
 
-/** Gateway list/get 返回脱敏密钥时不在 Panel 状态里保留假值，避免 sync 覆盖真实 key */
+/** Gateway 返回脱敏摘要（如 sk-a1****wxyz）：保留用于展示/识别，落库与同步时会被过滤 */
 function apiKeyFromGatewayRow(raw) {
-  if (isMaskedGatewayApiKey(raw)) return ''
   return String(raw ?? '').trim()
 }
 
@@ -334,22 +333,30 @@ function apiKeyFieldGroupHtml({
   }
   const inputId = id ? ` id="${escAttr(id)}"` : ''
   const hintHtml = hint ? `<div class="form-hint">${escHtml(hint)}</div>` : ''
+  const masked = isMaskedGatewayApiKey(value)
+  const inputType = masked ? 'text' : 'password'
+  const shownValue = masked ? '' : escAttr(value)
+  const maskBadge = masked
+    ? `<div class="form-hint" style="margin:4px 0 0;color:var(--text-secondary)">已保存：${escHtml(value)}（脱敏摘要；留空表示不修改，输入新值可替换）</div>`
+    : ''
   return `
     <div class="form-group">
       <label class="form-label"${id ? ` for="${escAttr(id)}"` : ''}>${escHtml(label)}</label>
-      <input${inputId} class="form-input" ${fieldAttr} type="password" autocomplete="off" value="${escAttr(value)}" placeholder="${escAttr(placeholder)}">
+      <input${inputId} class="form-input" ${fieldAttr} type="${inputType}" autocomplete="off" value="${shownValue}" placeholder="${escAttr(masked ? value : placeholder)}">
+      ${maskBadge}
       ${hintHtml}
     </div>`
 }
 
-/** 编辑连接时写入 Panel 状态；留空且 apiKeyConfigured 表示不修改 DB 中已存密钥 */
+/** 编辑连接时写入 Panel 状态；留空或保持脱敏摘要均表示不修改 DB 中已存密钥 */
 function applyProviderApiKeyEdit(provider, apiKeyInput) {
   const input = String(apiKeyInput ?? '').trim()
-  if (input) {
+  if (input && !isMaskedGatewayApiKey(input)) {
     provider.apiKey = input
     provider.apiKeyConfigured = true
     return
   }
+  if (input) return
   provider.apiKey = ''
   if (!provider.apiKeyConfigured) {
     provider.apiKeyConfigured = false
@@ -617,7 +624,7 @@ function connectionPayloadFromProvider(key, provider) {
   const displayName = String(provider.displayName || '').trim()
   if (displayName) payload.display_name = displayName
   const keyPlain = String(provider.apiKey || '').trim()
-  if (keyPlain) {
+  if (keyPlain && !isMaskedGatewayApiKey(keyPlain)) {
     payload.api_key = keyPlain
   } else if (!provider.apiKeyConfigured) {
     payload.api_key = ''
@@ -1755,6 +1762,9 @@ function collectAllModels(config) {
 /** 右侧摘要区：不暴露完整密钥 */
 function apiKeySummaryHtml(apiKey, apiKeyConfigured = false, { optional = false } = {}) {
   const s = (apiKey && String(apiKey).trim()) || ''
+  if (isMaskedGatewayApiKey(s)) {
+    return `<span class="models-apikey-saved">已配置</span><span class="models-apikey-meta"> · ${escHtml(s)}（脱敏摘要，点击「编辑连接信息」可查看或修改）</span>`
+  }
   if (s) {
     return `<span class="models-apikey-saved">已配置</span><span class="models-apikey-meta"> · ${s.length} 字符，点击「编辑连接信息」可查看或修改</span>`
   }
@@ -3293,7 +3303,9 @@ function editProvider(page, state, providerKey) {
   const keyOptional = providerApiKeyOptional(providerKey, p)
   const keyHint = p.apiKeyConfigured && !String(p.apiKey || '').trim()
     ? '密钥已保存在服务端（脱敏不可见）；留空表示不修改，输入新值可替换'
-    : '修改后保存生效；留空并保存将不使用密钥'
+    : isMaskedGatewayApiKey(p.apiKey)
+      ? '已保存密钥（脱敏摘要）；留空或保持不变表示不修改，输入新值可替换'
+      : '修改后保存生效；留空并保存将不使用密钥'
   if (preset && PROVIDER_URL_MODE_KEYS.includes(preset.key)) {
     const mode = inferProviderBaseUrlMode(preset, p.baseUrl)
     const block = urlModeRadioBlockHtml(preset, 'edit-provider-url-mode', mode)

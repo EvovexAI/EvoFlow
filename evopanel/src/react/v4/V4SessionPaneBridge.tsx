@@ -8,6 +8,7 @@ import {
   openRightStageForCodeViewerSource,
   showRightStageFromFileLink,
 } from "../../lib/right-stage/open-right-stage-file.js";
+import { showRightStageBrowserUrl } from "../../lib/right-stage/open-right-stage-browser.js";
 import type { MessageFileLinkTarget } from "@zcode/ui/components/ai-elements/message.js";
 import type { CodeViewerSource } from "@zcode/ui/lib/codeViewer.js";
 
@@ -35,6 +36,13 @@ export function V4SessionPaneBridge(props: {
     [sk, sessionId],
   );
 
+  const onOpenBrowserUrl = useCallback(
+    (url: string) => {
+      showRightStageBrowserUrl(url, { sessionKey: sk, threadId: sessionId });
+    },
+    [sk, sessionId],
+  );
+
   return (
     <V4StreamRowsBridge enabled={enabled} sessionId={sessionId}>
       {(payload: V4TimelinePayload | null) => (
@@ -44,6 +52,7 @@ export function V4SessionPaneBridge(props: {
           evoflowSessionKey={sk}
           onOpenFileLink={onOpenFileLink}
           onOpenCodeViewer={onOpenCodeViewer}
+          onOpenBrowserUrl={onOpenBrowserUrl}
         />
       )}
     </V4StreamRowsBridge>
