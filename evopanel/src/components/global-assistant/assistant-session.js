@@ -23,6 +23,12 @@ import { normalizeAssistantSegmentTimelineOrder } from '../../lib/chat-normalize
 
 const LS_SESSION = 'evopanel_xiaomi_assistant_session_key'
 export const XIAOMI_AGENT = 'xiaomi'
+/** 小V 会话固定关闭思考（前端 context + 后端 hard guard）。 */
+const XIAOMI_THINKING_OFF = Object.freeze({
+  thinking_enabled: false,
+  thinking_type: 'disabled',
+  reasoning_effort: 'minimum',
+})
 export const XIAOMI_SESSION_TITLE = '小V · 全局助手'
 
 let _unsubEvent = null
@@ -295,6 +301,7 @@ export async function ensureXiaomiSession(opts = {}) {
           agent_id: XIAOMI_AGENT,
           use_claude_code_chat: false,
           xiaomi_global_assistant: true,
+          ...XIAOMI_THINKING_OFF,
         }).catch(() => {})
       }
     } catch {
@@ -311,6 +318,7 @@ export async function ensureXiaomiSession(opts = {}) {
         agent_id: XIAOMI_AGENT,
         xiaomi_global_assistant: true,
         memory_enabled: true,
+        ...XIAOMI_THINKING_OFF,
       },
     })
     key = String(row?.sessionKey || row?.key || '').trim()
@@ -933,6 +941,7 @@ export async function sendXiaomiChat(text, ctx = {}) {
       agent_name: XIAOMI_AGENT,
       agent_id: XIAOMI_AGENT,
       xiaomi_global_assistant: true,
+      ...XIAOMI_THINKING_OFF,
       // 变化才带快照；未变则清空，避免 runContext 重复注入砸缓存
       xiaomi_page_context: pageChanged ? pageSnap : null,
       xiaomi_page_context_fp: fp || null,
@@ -1040,6 +1049,7 @@ export async function startXiaomiNewRound() {
       agent_name: XIAOMI_AGENT,
       agent_id: XIAOMI_AGENT,
       xiaomi_global_assistant: true,
+      ...XIAOMI_THINKING_OFF,
       xiaomi_page_context: null,
       xiaomi_page_context_fp: null,
     })
@@ -1153,6 +1163,7 @@ export async function switchXiaomiSession(sessionKey) {
         agent_id: XIAOMI_AGENT,
         use_claude_code_chat: false,
         xiaomi_global_assistant: true,
+        ...XIAOMI_THINKING_OFF,
       })
       .catch(() => {})
     const hist = await api.chatHistory(key, 80).catch(() => ({ messages: [] }))
@@ -1187,6 +1198,7 @@ export async function startXiaomiNewChat() {
       agent_id: XIAOMI_AGENT,
       xiaomi_global_assistant: true,
       memory_enabled: true,
+      ...XIAOMI_THINKING_OFF,
     },
   })
   const key = String(row?.sessionKey || row?.key || '').trim()

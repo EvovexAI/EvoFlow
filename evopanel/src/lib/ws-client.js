@@ -6437,7 +6437,25 @@ export class WsClient {
       typeof opts === 'object' &&
       (opts.voiceInitiated || opts.voiceReply)
     )
-    if (mode === 'flash' || voiceTurn) {
+    const agentIdLc = String(
+      runContext.agent_id || runContext.agent_name || sessionContext.agent_id || sessionContext.agent_name || '',
+    )
+      .trim()
+      .toLowerCase()
+    const xiaomiTurn =
+      agentIdLc === 'xiaomi' ||
+      agentIdLc === '小v' ||
+      agentIdLc === '小蜜' ||
+      agentIdLc === 'xiaov' ||
+      runContext.xiaomi_global_assistant === true ||
+      sessionContext.xiaomi_global_assistant === true ||
+      sessionContext.xiaomi_global_assistant === 'true'
+    if (xiaomiTurn) {
+      // 小V 前台：永不开思考（与后端 agent.py hard guard 对齐）
+      runContext.thinking_enabled = false
+      runContext.thinking_type = 'disabled'
+      runContext.reasoning_effort = 'minimum'
+    } else if (mode === 'flash' || voiceTurn) {
       runContext.thinking_enabled = false
       runContext.reasoning_effort = 'minimum'
       if (voiceTurn) {

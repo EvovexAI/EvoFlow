@@ -1062,6 +1062,15 @@ def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None
     thread_id = cfg.get("thread_id")
     collab_phase = cfg.get("collab_phase")
     voice_mode = bool(cfg.get("channel") == "voice" or cfg.get("is_voice_channel"))
+    try:
+        from evoflow.agents.xiaomi.identity import is_xiaomi_agent
+
+        _xm_flag = cfg.get("xiaomi_global_assistant")
+        xiaomi_front_desk = bool(is_xiaomi_agent(agent_name)) or _xm_flag is True or str(
+            _xm_flag or ""
+        ).strip().lower() in {"1", "true", "yes"}
+    except Exception:
+        xiaomi_front_desk = False
 
     # Voice mode: lower temperature for more concise, deterministic output
     _voice_temp = 0.35 if voice_mode else None
@@ -1093,14 +1102,28 @@ def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None
         if _voice_phase in ("", "idle", "done"):
             is_plan_mode = False
             cfg["is_plan_mode"] = False
-    auto_thinking_active = session_mode != "flash" and not voice_mode and (session_mode == "auto" or thinking_type == "auto") and thinking_type != "manual"
+    # 小V 前台：接待/分诊要快回，永不开思考（含模型 default_mode=enabled）。
+    if xiaomi_front_desk:
+        thinking_enabled = False
+        reasoning_effort = "minimum"
+        thinking_type = "disabled"
+        cfg["thinking_enabled"] = False
+        cfg["thinking_type"] = "disabled"
+        cfg["reasoning_effort"] = "minimum"
+    auto_thinking_active = (
+        session_mode != "flash"
+        and not voice_mode
+        and not xiaomi_front_desk
+        and (session_mode == "auto" or thinking_type == "auto")
+        and thinking_type != "manual"
+    )
 
     # Settings → Models ``thinking.default_mode``:
     # - disabled: force off
     # - enabled: force on (model fixed policy, overrides Auto)
     # - auto: leave session Auto as omit (do not classifier / force on)
-    # Voice mode already forced off above — do not let model defaults re-enable thinking.
-    if session_mode != "flash" and not voice_mode and thinking_type != "manual":
+    # Voice / 小V already forced off above — do not let model defaults re-enable thinking.
+    if session_mode != "flash" and not voice_mode and not xiaomi_front_desk and thinking_type != "manual":
         _model_name_early = (requested_model_name or "").strip()
         if _model_name_early:
             _mc_early = get_app_config().get_model_config(_model_name_early)
