@@ -1,6 +1,12 @@
 // @ts-nocheck — mechanical P81 extract; host bag is untyped Record.
 /**
  * Chat WS onEvent handler. Extracted from ChatApp.tsx (P81).
+ *
+ * LEGACY / 双轨残留热路径（AG-UI → 旧 streamRef / 审批 / 平台 toast / 右栏副作用）。
+ * 用户默认看见的消息列表与工具卡由 V4 时间线渲染（V4ZCodeTimeline / ConversationTurnGroup），
+ * 不是本文件里的 applyStreamTurnEvent 行投影。
+ * V4 开启且 display 权威时，TEXT_* 会被闸掉；TOOL_CALL_* / RUN_* / 平台仍走这里做副作用。
+ * 修「对话里长什么样」→ 改 zcode-ui/v4/**，不要先在这里堆 UI。
  */
 import { EventType } from '@ag-ui/core'
 import type { ChatWsPayload } from '../../chat-types.js'
@@ -16,7 +22,7 @@ import {
 } from '../../../lib/right-stage/platform-feedback.js'
 import { showRightStageFilePreview } from '../../../lib/right-stage/open-right-stage-file.js'
 import { isProgressStageKind } from '../../../lib/right-stage/open-progress-from-panel-set.js'
-import { logPanelSet } from '../../../lib/right-stage/panel-set-debug-log.js'
+import { logPanelSet, logRightStage } from '../../../lib/right-stage/panel-set-debug-log.js'
 import { rightStageStore } from '../../../lib/right-stage/right-stage-store.js'
 
 export type ChatWsOnEventCtx = Record<string, any>
@@ -2123,16 +2129,31 @@ export function createChatWsOnEventHandler(ctx: ChatWsOnEventCtx) {
           }
           const hasArtifacts = turnRunArtifactsRef.current.length > 0
           const platformEntries = turnPlatformEntriesRef.current
+          logRightStage('RUN_FINISHED right-stage branch', {
+            hasArtifacts,
+            platformEntryCount: platformEntries.length,
+            currentKind: rightStageStore.currentKind,
+          }, { store: rightStageStore })
           if (platformEntries.length > 0 && !hasArtifacts) {
+            logRightStage('RUN_FINISHED → publishPlatformEntries')
             publishPlatformEntriesRef.current(
               platformEntries,
               latestPlatformRunEntryId(platformEntries),
             )
           } else if (hasArtifacts) {
+            logRightStage('RUN_FINISHED → publishArtifacts')
             publishArtifacts({
               focusId: turnRunArtifactsRef.current[turnRunArtifactsRef.current.length - 1]?.id || '',
             })
           } else {
+            const stageSnap = rightStageStore.getSnapshot()
+            const hasProgressTab = (stageSnap.tabs || []).some((t) =>
+              isProgressStageKind(t?.kind),
+            )
+            logRightStage('RUN_FINISHED → applyDecideRightStage(run-finished)', {
+              hasProgressTab,
+              currentKind: rightStageStore.currentKind,
+            }, { store: rightStageStore })
             applyDecideRightStage(
               {
                 intent: 'run-finished',
@@ -2141,6 +2162,7 @@ export function createChatWsOnEventHandler(ctx: ChatWsOnEventCtx) {
                 dismissedKindsThisRun: dismissedRightStageKindsRef.current,
                 autoPreviewEnabled: isAutoWorkPreviewEnabled(writeStreamModeRef.current),
                 currentKind: rightStageStore.currentKind,
+                hasProgressTab,
                 hasArtifacts: false,
               },
               {
@@ -2148,6 +2170,20 @@ export function createChatWsOnEventHandler(ctx: ChatWsOnEventCtx) {
                   if (rightStageHintTimerRef.current) clearTimeout(rightStageHintTimerRef.current)
                   rightStageHintTimerRef.current = window.setTimeout(() => {
                     rightStageHintTimerRef.current = 0
+                    // 延迟 hide 再确认：V4 autoOpen 工作流可能在 RUN_FINISHED 之后才落到 tabs，
+                    // 否则会表现为「侧边展开了一下、对话结束又自己关了」。
+                    const late = rightStageStore.getSnapshot()
+                    const keep = (late.tabs || []).some(
+                      (t) => isProgressStageKind(t?.kind) || String(t?.kind || '') === 'browser',
+                    )
+                    logRightStage(
+                      keep
+                        ? 'RUN_FINISHED delayed-hide:ABORT (progress/browser now open)'
+                        : 'RUN_FINISHED delayed-hide:EXECUTE',
+                      { delayMs },
+                      { stack: !keep, store: rightStageStore },
+                    )
+                    if (keep) return
                     run()
                   }, delayMs)
                 },

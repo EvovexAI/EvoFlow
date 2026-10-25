@@ -37,8 +37,12 @@ import {
   toolOmitFromStreamingChatPanel,
   isGoalProposalToolName,
 } from '../../lib/chat-normalize.js'
-// 当前产品对话的工具卡（含流式）。电脑控制图标/截图改这里和
-// CuaSummaryLeadingIcon / CuaToolPreview。zcode-ui v4 尚未接入，不要改那边来修可见问题。
+/**
+ * LEGACY / 旧版工具卡列表 —— 不是默认产品聊天渲染面。
+ * 用户默认看见的是 V4：`zcode-ui/v4/ConversationTurnGroup` + ToolCallBlocks。
+ * 仅当 ?chatV4=0 或旧壳仍挂载本组件时，改这里才影响可见对话。
+ * 电脑控制（CUA）可见问题：V4 走 gateway v4 display.kind=cua；旧壳才用下面两个组件。
+ */
 import { CuaToolPreview } from './CuaToolPreview.js'
 import { CuaSummaryLeadingIcon } from './CuaSummaryLeadingIcon.js'
 import {

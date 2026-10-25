@@ -1,10 +1,8 @@
 /**
- * CuaToolPreview —— 老对话流式路径（ToolCallList）的 Computer Use 工具预览卡。
+ * LEGACY：旧版 ToolCallList 的 Computer Use 预览卡（展开态截图/图标）。
+ * 默认产品聊天是 V4（output.display.kind=cua）；修可见 CUA 勿只改本文件。
  *
- * 数据来自 node_repl js 工具结果尾部的 `{evoflow-cua-display:...}` 标记
- * （chat-normalize.js 的 parseEvoflowCuaDisplay），对应 ZCode 面板
- * kind:"cua" 工具结果卡的平台等价实现：目标应用徽标（网关 /api/cua/app-icon
- * 按 locator 提取）+ 窗口截图（browser-snapshots 存储通道，点击放大）。
+ * 旧壳数据来自 `{evoflow-cua-display:...}` 标记（chat-normalize parseEvoflowCuaDisplay）。
  */
 import { useEffect, useState } from 'react'
 import { showChatLightbox } from '../../lib/chat-lightbox.js'

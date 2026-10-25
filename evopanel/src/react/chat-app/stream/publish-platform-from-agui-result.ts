@@ -1,12 +1,19 @@
 /**
- * 从 AG-UI TOOL_CALL_RESULT 即时发布右上角「平台」通知。
- * 必须在 shouldApplyChatEvent gate 之前调用：V4 双 runId / sealing 期间
- * gate 常把 RESULT 整段丢掉，导致流式过程中平台通知不亮、刷新后才从 artifacts 出现。
+ * LEGACY / AG-UI 热路径：从 TOOL_CALL_RESULT 发右上角「平台」toast +（可选）autoOpen。
+ *
+ * ⚠️ 默认产品聊天是 V4 时间线。工作流侧栏 autoOpen 的权威入口在：
+ *   `zcode-ui/v4/ConversationTurnGroup.tsx` → `applyV4PlatformProgressAutoOpen`
+ * 修「workflow.run 侧栏没开」请先改 V4 + `agui_mirror._platform_ui_display_block`，
+ * 不要只改本文件以为就够了。
+ *
+ * 本文件仍保留：V4 闸门下 TOOL_CALL_RESULT 仍放行，双轨要同步 toast / seen；
+ * 必须在 shouldApplyChatEvent gate 之前调用，否则 sealing 期间 RESULT 被丢掉。
  */
 import { EventType } from '@ag-ui/core'
 import {
   applyPlatformFeedbackFromToolResult,
   latestPlatformRunEntryId,
+  maybeAutoOpenPlatformProgress,
   parsePlatformUiFeedback,
   type PlatformRunEntry,
 } from '../../../lib/right-stage/platform-feedback.js'
@@ -100,7 +107,6 @@ export function publishPlatformFromAgUiResult(ctx: PublishPlatformFromAgUiResult
 
   const toolCallId = String(ctx.aguiEvent.toolCallId || '').trim()
   if (!toolCallId) return false
-  if (ctx.platformFeedbackSeenRef.current.has(toolCallId)) return true
 
   const toolName = String(
     ctx.toolCallNameFromTurn || ctx.aguiEvent.toolCallName || '',
@@ -113,6 +119,20 @@ export function publishPlatformFromAgUiResult(ctx: PublishPlatformFromAgUiResult
   if (toolName && toolName !== 'platform') return false
   if (!toolName) {
     if (!parsePlatformUiFeedback(resultContent, ctx.argsText)) return false
+  }
+
+  // 已见过（常见：tools-scan 先标 seen）：仍尝试 autoOpen，避免侧栏永远不开
+  if (ctx.platformFeedbackSeenRef.current.has(toolCallId)) {
+    const ui =
+      parsePlatformUiFeedback(resultContent, ctx.argsText) ||
+      (ctx.platformUiFromTurn && typeof ctx.platformUiFromTurn === 'object'
+        ? parsePlatformUiFeedback(
+            rebuildContentFromPlatformUi(ctx.platformMetaFromTurn, ctx.platformUiFromTurn),
+            ctx.argsText,
+          )
+        : null)
+    maybeAutoOpenPlatformProgress(ui)
+    return true
   }
 
   const feedback = applyPlatformFeedbackFromToolResult(resultContent, {
@@ -129,5 +149,7 @@ export function publishPlatformFromAgUiResult(ctx: PublishPlatformFromAgUiResult
     feedback.ui.title,
     feedback.ui.kind === 'warning' ? 'warning' : feedback.ui.kind === 'error' ? 'error' : 'success',
   )
+  // workflow.run / resume / recover：结果一到就拉开右栏工作流，不必再调 ui.show
+  maybeAutoOpenPlatformProgress(feedback.ui)
   return true
 }

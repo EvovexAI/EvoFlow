@@ -2,7 +2,6 @@ import { memo, useCallback, useMemo } from 'react'
 import type { AgentInfo, CollabSubtaskSnapshot, CollabTaskSnapshot, SubagentStreamTaskMap, SubtaskTranscriptModalPayload } from '../chat-types.js'
 import { formatPlanTaskStatusLabel } from '../../lib/plan-task-status.js'
 import { taskStatusBadgeClass } from '../../lib/task-status-label.js'
-import { promptSaveTaskAsApp } from '../../lib/save-task-as-app.js'
 import { CollabWorkflowCanvas } from './CollabWorkflowCanvas.js'
 
 export interface CollabExecutionPanelProps {
@@ -160,23 +159,6 @@ function CollabExecutionPanelInner({
 
   const isBuffering = isRunning && panelProgress != null && panelProgress < 100
 
-  const canSaveAsApp = useMemo(() => {
-    if (!tid) return false
-    if (subtasks.length > 0) return true
-    if (persistedMainTask?.boundPlanReady) return true
-    if (String(persistedMainTask?.planGoal || '').trim()) return true
-    return false
-  }, [tid, subtasks.length, persistedMainTask?.boundPlanReady, persistedMainTask?.planGoal])
-
-  const handleSaveAsApp = useCallback(() => {
-    if (!tid) return
-    promptSaveTaskAsApp({
-      taskId: tid,
-      defaultName: taskTitle !== '任务执行' ? taskTitle : '',
-      defaultDescription: String(persistedMainTask?.planGoal || '').trim(),
-    })
-  }, [tid, taskTitle, persistedMainTask?.planGoal])
-
   if (!isOpen) return null
 
   const statusLabel = formatPlanTaskStatusLabel(persistedMainTask)
@@ -222,18 +204,6 @@ function CollabExecutionPanelInner({
               </div>
             ) : null}
           </div>
-          {canSaveAsApp ? (
-            <div className="react-chat-collab-exec-panel-actions">
-              <button
-                type="button"
-                className="btn btn-ghost sm react-chat-collab-save-app-btn"
-                title="将当前计划沉淀为可填参复用的工作流"
-                onClick={handleSaveAsApp}
-              >
-                另存为工作流
-              </button>
-            </div>
-          ) : null}
         </header>
       ) : null}
       <div className="react-chat-collab-exec-panel-body collab-wf-panel-body">

@@ -8,7 +8,11 @@ import {
   outcomeFromSubtaskSnapshot,
 } from '../../../lib/subtask-conversation-history.js'
 import { summarizeOutcome } from '../../../lib/subtask-transcript-seed.js'
-import { isTaskRunningStatus, isTaskPlanningStatus } from '../../../lib/task-status-label.js'
+import {
+  isTaskRunningStatus,
+  isTaskPlanningStatus,
+  isTaskCancellableStatus,
+} from '../../../lib/task-status-label.js'
 import type { CollabSubtaskStageOutcome } from '../../../lib/right-stage/open-collab-subtask-stage.js'
 import { V4SessionPaneBridge } from '../../v4/V4SessionPaneBridge.js'
 
@@ -53,6 +57,8 @@ export function V4CollabSubtaskTranscriptPane(props: V4CollabSubtaskTranscriptPa
   const outcomeRef = useRef<CollabSubtaskStageOutcome | null | undefined>(initialOutcome)
 
   const running = isTaskRunningStatus(status) || isTaskPlanningStatus(status)
+  // pending/queued 也要继续心跳，否则等依赖放行时永远拿不到 thread_id / 状态跳变
+  const keepMetaPoll = !loaded || isTaskCancellableStatus(status) || running
 
   const fetchMeta = useCallback(async () => {
     const mid = String(mainTaskId || '').trim()
@@ -127,13 +133,13 @@ export function V4CollabSubtaskTranscriptPane(props: V4CollabSubtaskTranscriptPa
   useEffect(() => {
     let disposed = false
     void fetchMeta()
+    if (!keepMetaPoll) {
+      return () => {
+        disposed = true
+      }
+    }
     pollRef.current = setInterval(() => {
       if (disposed) return
-      if (!running && loaded) {
-        if (pollRef.current) clearInterval(pollRef.current)
-        pollRef.current = null
-        return
-      }
       void fetchMeta()
     }, POLL_MS)
     return () => {
@@ -141,7 +147,7 @@ export function V4CollabSubtaskTranscriptPane(props: V4CollabSubtaskTranscriptPa
       if (pollRef.current) clearInterval(pollRef.current)
       pollRef.current = null
     }
-  }, [fetchMeta, running, loaded])
+  }, [fetchMeta, keepMetaPoll])
 
   useEffect(() => {
     setStatus(String(statusProp || ''))
@@ -151,7 +157,28 @@ export function V4CollabSubtaskTranscriptPane(props: V4CollabSubtaskTranscriptPa
     () => summarizeOutcome(outcome as Record<string, unknown> | null),
     [outcome],
   )
-  const hasOutcomeAside = Boolean(outcomeSummary.report || outcomeSummary.pathLines.length)
+  const hasReport = Boolean(outcomeSummary.report)
+  const hasPaths = outcomeSummary.pathLines.length > 0
+  const hasOutcomeAside = hasReport || hasPaths
+  const [outcomeTab, setOutcomeTab] = useState<'report' | 'paths'>(() =>
+    hasReport ? 'report' : 'paths',
+  )
+
+  useEffect(() => {
+    // Prefer 结案摘要 when both exist; otherwise land on whichever is available.
+    if (hasReport && hasPaths) return
+    if (hasReport) setOutcomeTab('report')
+    else if (hasPaths) setOutcomeTab('paths')
+  }, [hasReport, hasPaths])
+
+  const activeTab: 'report' | 'paths' =
+    outcomeTab === 'paths' && hasPaths
+      ? 'paths'
+      : outcomeTab === 'report' && hasReport
+        ? 'report'
+        : hasReport
+          ? 'report'
+          : 'paths'
 
   return (
     <div className="v4-collab-subtask-transcript flex h-full min-h-0 flex-col bg-card">
@@ -203,20 +230,60 @@ export function V4CollabSubtaskTranscriptPane(props: V4CollabSubtaskTranscriptPa
       {hasOutcomeAside ? (
         <aside
           className="shrink-0 border-t border-border bg-muted/40 px-3 py-2 text-ui-sm text-foreground"
-          aria-label="结案摘要"
+          aria-label="节点产出"
         >
-          <div className="mb-1 text-[11px] font-medium uppercase tracking-wide text-foreground-subtlest">
-            结案摘要
+          <div className="mb-1.5 flex items-center gap-0.5" role="tablist" aria-label="结案与产出">
+            {hasReport ? (
+              <button
+                type="button"
+                role="tab"
+                aria-selected={activeTab === 'report'}
+                className={
+                  'rounded px-1.5 py-0.5 text-[11px] font-medium transition-colors ' +
+                  (activeTab === 'report'
+                    ? 'bg-background text-foreground shadow-sm'
+                    : 'text-foreground-subtlest hover:bg-hover hover:text-foreground-subtle')
+                }
+                onClick={() => setOutcomeTab('report')}
+              >
+                结案摘要
+              </button>
+            ) : null}
+            {hasPaths ? (
+              <button
+                type="button"
+                role="tab"
+                aria-selected={activeTab === 'paths'}
+                className={
+                  'rounded px-1.5 py-0.5 text-[11px] font-medium transition-colors ' +
+                  (activeTab === 'paths'
+                    ? 'bg-background text-foreground shadow-sm'
+                    : 'text-foreground-subtlest hover:bg-hover hover:text-foreground-subtle')
+                }
+                onClick={() => setOutcomeTab('paths')}
+              >
+                产出路径
+                <span className="ml-0.5 opacity-60">{outcomeSummary.pathLines.length}</span>
+              </button>
+            ) : null}
           </div>
-          {outcomeSummary.report ? (
-            <pre className="max-h-40 overflow-y-auto whitespace-pre-wrap break-words font-sans text-ui-sm leading-relaxed">
+          {activeTab === 'report' && hasReport ? (
+            <pre
+              role="tabpanel"
+              className="max-h-40 overflow-y-auto whitespace-pre-wrap break-words font-sans text-ui-sm leading-relaxed"
+            >
               {outcomeSummary.report}
             </pre>
           ) : null}
-          {outcomeSummary.pathLines.length ? (
-            <ul className="mt-2 list-disc space-y-0.5 pl-4 text-foreground-subtle">
+          {activeTab === 'paths' && hasPaths ? (
+            <ul
+              role="tabpanel"
+              className="max-h-40 list-disc space-y-0.5 overflow-y-auto pl-4 text-foreground-subtle"
+            >
               {outcomeSummary.pathLines.map((line) => (
-                <li key={line}>{line}</li>
+                <li key={line} className="break-all font-mono text-[12px]">
+                  {line}
+                </li>
               ))}
             </ul>
           ) : null}

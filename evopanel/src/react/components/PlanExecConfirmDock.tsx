@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { loadBoundPlanFromApi } from '../../lib/plan-from-api.js'
 import { planViewFromStructuredInput } from '../../lib/plan-from-task.js'
-import { promptSaveTaskAsApp } from '../../lib/save-task-as-app.js'
 import { PlanDetailModal } from './PlanDetailModal.js'
 import type { StructuredPlanInput } from './PlanDetailView.js'
 import type { CollabSubtaskSnapshot } from '../chat-types.js'
@@ -66,7 +65,6 @@ export function PlanExecConfirm({
   const [planModalLoading, setPlanModalLoading] = useState(false)
   const [planModalError, setPlanModalError] = useState('')
   const [resolvedTaskId, setResolvedTaskId] = useState('')
-  const [savingAsApp, setSavingAsApp] = useState(false)
   const lastFetchKeyRef = useRef('')
   const planStructuredFallbackRef = useRef(planStructuredFallback)
 
@@ -220,21 +218,6 @@ export function PlanExecConfirm({
       .finally(() => setPlanModalLoading(false))
   }
 
-  const canSaveAsApp = !!(effectiveTaskId && (hasInlineBody || stepCount > 0 || subtaskCount > 0))
-
-  function handleSaveAsApp() {
-    const tid = String(effectiveTaskId || taskId || '').trim()
-    if (!tid || savingAsApp) return
-    setSavingAsApp(true)
-    promptSaveTaskAsApp({
-      taskId: tid,
-      defaultName: String(taskName || planTitle || displayPlan?.goal || '').trim(),
-      defaultDescription: String(displayPlan?.goal || '').trim(),
-    })
-    // Modal is fire-and-forget; clear busy after open so button stays usable if cancelled.
-    window.setTimeout(() => setSavingAsApp(false), 400)
-  }
-
   const planModalNode = (
     <PlanDetailModal
       open={planModalOpen}
@@ -297,17 +280,6 @@ export function PlanExecConfirm({
                 title="关闭并本任务不再提示"
               >
                 不再提示
-              </button>
-            ) : null}
-            {canSaveAsApp ? (
-              <button
-                type="button"
-                className="btn btn-ghost sm react-chat-plan-save-app-btn"
-                disabled={savingAsApp}
-                title="将当前计划沉淀为可填参复用的工作流"
-                onClick={() => handleSaveAsApp()}
-              >
-                另存为工作流
               </button>
             ) : null}
             <button

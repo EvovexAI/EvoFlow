@@ -2,12 +2,13 @@
  * Open / close collab-workflow right-stage panel.
  * Extracted from ChatApp.tsx (P31).
  */
-import { hideRightStageIfKind } from '../../../lib/right-stage/right-stage-store.js'
+import { hideRightStageIfKind, rightStageStore } from '../../../lib/right-stage/right-stage-store.js'
 import type { RightStageKind } from '../../../lib/right-stage/right-stage-types.js'
 import {
   commitRightStageClose,
   commitRightStageOpen,
 } from '../../../lib/right-stage/right-stage-overlay-commit.js'
+import { logRightStage } from '../../../lib/right-stage/panel-set-debug-log.js'
 
 export type OpenCollabExecPanelCtx = {
   cancelPendingStreamUiBumpsRef: { current: () => void }
@@ -43,6 +44,7 @@ export function openCollabExecPanel(
 
 export function closeCollabExecPanel(ctx: CloseCollabExecPanelCtx): void {
   const key = ctx.collabExecPanelDismissKey()
+  logRightStage('closeCollabExecPanel', { dismissKey: key }, { stack: true, store: rightStageStore })
   if (key) ctx.collabExecDismissedKeysRef.current.add(key)
   commitRightStageClose({
     clearDefer: 'workflow',

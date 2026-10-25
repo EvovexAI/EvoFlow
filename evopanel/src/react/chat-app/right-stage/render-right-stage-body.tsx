@@ -67,6 +67,8 @@ function CollabWorkflowStageBody({
     taskId: mainTaskId || null,
     threadId: leadThreadId || null,
     enabled: !!mainTaskId && !useShared,
+    // ui.show 打开的工作流不绑当前会话 poll bump，这里自带 3s 心跳
+    pollMs: 3000,
   })
   if (!mainTaskId) {
     return (

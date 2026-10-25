@@ -4,6 +4,7 @@
  * Extracted from ChatApp.tsx (P131).
  */
 import { isProgressStageKind } from '../../../lib/right-stage/open-progress-from-panel-set.js'
+import { logRightStage } from '../../../lib/right-stage/panel-set-debug-log.js'
 
 export type PublishPlatformEntriesCtx = Record<string, any>
 
@@ -45,10 +46,26 @@ export function publishPlatformEntries(
     clearTimeout(ctx.rightStageHintTimerRef.current)
     ctx.rightStageHintTimerRef.current = 0
   }
+  // hideUnlessProgressOpen：即使竞态下 tabs 快照滞后，也不会拆掉已打开的工作流签
+  logRightStage('publishPlatformEntries', {
+    keepActive,
+    hasProgressTab,
+    activeKind,
+    entryCount: entries.length,
+    willHide: !keepActive && !hasProgressTab,
+  }, { store: ctx.rightStageStore })
   if (!keepActive && !hasProgressTab) {
-    ctx.rightStageStore.hide()
+    if (typeof ctx.rightStageStore.hideUnlessProgressOpen === 'function') {
+      ctx.rightStageStore.hideUnlessProgressOpen()
+    } else {
+      ctx.rightStageStore.hide()
+    }
+  } else if (typeof ctx.rightStageStore.expand === 'function') {
+    // 工作流签还在但可能已被 setChatPanelDisplayMode 误 collapse：强制展开
+    ctx.rightStageStore.expand()
   }
   // 强制展开右上角状态卡并切到「平台」（ChatSummaryPanel 靠 focus id 跳 tab）
+  // 有进度签时 setChatPanelDisplayMode 不会再 collapse 侧栏（见该函数）。
   if (typeof ctx.setChatPanelDisplayMode === 'function') {
     ctx.setChatPanelDisplayMode('panel')
   }

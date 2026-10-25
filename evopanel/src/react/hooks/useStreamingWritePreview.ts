@@ -1,6 +1,11 @@
 /**
  * Streaming write-file preview + tool→right-stage sync.
  * Extracted from ChatApp.tsx (P5).
+ *
+ * LEGACY 双轨：仍对旧 tools[] 做写入预览 / platform toast 扫描。
+ * 默认聊天工具行来自 V4 快照，不经过本 hook 的「可见列表」。
+ * platform 进度侧栏 autoOpen：V4 权威在 ConversationTurnGroup；这里的
+ * syncPlatformFeedbackFromTools 只是旧 tools-scan 旁路，改 UI 别只动这里。
  */
 import { useCallback, useEffect, useRef, useState, type MutableRefObject } from 'react'
 import { getPanelSetting } from '../../lib/panel-settings.js'

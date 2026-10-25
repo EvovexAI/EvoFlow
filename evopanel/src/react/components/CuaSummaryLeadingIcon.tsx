@@ -1,7 +1,7 @@
 /**
- * 老路径 ToolCallList 摘要行左侧：CUA 目标应用真实图标。
- * ZCode 把微信等图标画在 summary 上；我们以前只在展开后的 CuaToolPreview 里画，
- * 折叠态永远是扳手。取不到图标时回退 ToolCardIcon。
+ * LEGACY：旧版 ToolCallList 摘要行左侧 CUA 应用图标。
+ * 默认产品聊天是 V4（display.kind=cua），修可见电脑控制图标勿只改这里。
+ * 取不到图标时回退 ToolCardIcon。
  */
 import { useEffect, useState } from 'react'
 import { apiUrlAsync } from '../../lib/api-client.js'

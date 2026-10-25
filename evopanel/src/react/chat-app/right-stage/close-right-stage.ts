@@ -6,6 +6,7 @@ import { hideRightStageIfKind, rightStageStore } from '../../../lib/right-stage/
 import { normalizeRightStageKind, type RightStageKind } from '../../../lib/right-stage/right-stage-types.js'
 import { isUserStageExtensionKind } from '../../../lib/right-stage/right-stage-extensions.js'
 import { resumeStreamBumpIfIdle } from '../../../lib/right-stage/right-stage-overlay-commit.js'
+import { logRightStage } from '../../../lib/right-stage/panel-set-debug-log.js'
 
 export type CloseRightStageCtx = {
   dismissedRightStageKindsRef: { current: Set<string> }
@@ -22,6 +23,7 @@ export type CloseRightStageCtx = {
 
 export function closeRightStage(ctx: CloseRightStageCtx): void {
   const kind = normalizeRightStageKind(rightStageStore.getSnapshot().surface?.kind || '')
+  logRightStage('closeRightStage', { kind }, { stack: true, store: rightStageStore })
   if (kind) ctx.dismissedRightStageKindsRef.current.add(kind)
   if (kind === 'workspace-browse' || kind === 'write') {
     ctx.closeWorkspacePanel()
