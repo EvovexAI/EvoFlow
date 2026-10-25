@@ -181,7 +181,9 @@ function _applyCollapsed(collapsed) {
   if (!_shellEl) _shellEl = el
   void patchPanelSettings({ shellAsideCollapsed: !!collapsed }, { silent: true })
   el.classList.toggle('collapsed', !!collapsed)
-  if (!collapsed) _clearHoverExpand(el)
+  // 折叠/展开都清掉悬停 peek：在侧栏内点折叠时鼠标仍在上面，残留
+  // is-hover-expanded 会立刻拉回宽度；展开也不该带着 peek 类。
+  _clearHoverExpand(el)
   const btn = el.querySelector('#shell-aside-collapse')
   if (btn) {
     btn.title = collapsed ? '展开侧栏' : '折叠侧栏'
@@ -218,7 +220,7 @@ function _bindHoverExpand(el) {
     if (!mq.matches || !el.classList.contains('collapsed')) return
     clearTimers()
     el.classList.add('is-hover-expanded')
-    // 等宽度动画走一段，再挂会话列表
+    // 等宽度动画走一段，再挂会话列表（与顶栏/导航同步靠 is-hover-expanded，勿用纯 CSS :hover）
     readyTimer = window.setTimeout(() => {
       readyTimer = 0
       if (el.classList.contains('is-hover-expanded') && el.classList.contains('collapsed')) {

@@ -64,3 +64,22 @@ describe('file preview loads once per path', () => {
     expect(PREVIEW_PANE).not.toMatch(/\[fileService,\s*fileSource,\s*intl\]/)
   })
 })
+
+describe('shell aside collapse peek', () => {
+  it('desktop peek uses JS class only, not bare :hover', () => {
+    const css = readFileSync(resolve(__dirname, '../src/style/react-chat.css'), 'utf8')
+    const start = css.indexOf('桌面：折叠态悬停临时展开')
+    const end = css.indexOf('移动端抽屉：折叠不走 icon rail', start)
+    expect(start).toBeGreaterThan(0)
+    const block = css.slice(start, end)
+    expect(block).toContain('is-hover-expanded')
+    expect(block).not.toMatch(/collapsed:hover/)
+  })
+
+  it('applyCollapsed clears hover expand classes when collapsing', () => {
+    const src = readFileSync(resolve(__dirname, '../src/components/shell-aside.js'), 'utf8')
+    const fn = src.slice(src.indexOf('function _applyCollapsed'), src.indexOf('function _bindHoverExpand'))
+    expect(fn).toContain('_clearHoverExpand(el)')
+    expect(fn).not.toMatch(/if\s*\(\s*!collapsed\s*\)\s*_clearHoverExpand/)
+  })
+})
