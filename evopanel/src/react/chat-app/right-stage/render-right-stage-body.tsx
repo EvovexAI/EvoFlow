@@ -188,7 +188,9 @@ export function renderRightStageBody(
         ? (data.focusAnnotation as { title?: string; body?: string; priority?: number })
         : undefined
     const scope = workspaceOpenScopeRef.current
-    const root = String(scope.root || effectiveWorkspaceRoot || '').trim()
+    const root = String(
+      data.workspaceRoot || scope.root || effectiveWorkspaceRoot || '',
+    ).trim()
     const threadId = wsClient.getSessionThreadId(selectedSessionKey || '') || undefined
     // file kind ZCode 化：顶部文件路径面包屑用 ZCode PreviewPane（CodeViewer 全家桶）；
     // 无 root/threadId 或带行级 focus 诉求（poll/focusAnnotation，当前无生产方）时回落 kv 面板。

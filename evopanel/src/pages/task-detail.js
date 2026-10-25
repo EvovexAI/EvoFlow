@@ -1359,38 +1359,6 @@ async function handleEditTaskFromDetail(page, state) {
   })
 }
 
-async function handleCopyRecreateFromDetail(page, state) {
-  const task = state.task
-  if (!task) return
-  const baseName = String(task.name || '未命名任务').trim()
-  const name = baseName.endsWith('（副本）') ? baseName : `${baseName}（副本）`
-  const desc = String(task.description || task.goal || '').trim()
-  const runMode = String(task.run_mode || task.runMode || 'manual') === 'unattended' ? 'unattended' : 'manual'
-  showModal({
-    title: '复制并重新创建',
-    fields: [
-      { name: 'name', label: '任务名称', value: name, placeholder: '任务名称' },
-      { name: 'description', label: '任务描述', type: 'textarea', value: desc, rows: 4 },
-    ],
-    onConfirm: async (result) => {
-      const nextName = String(result.name || '').trim()
-      if (!nextName) {
-        toast('请输入任务名称', 'error')
-        return
-      }
-      try {
-        const created = await api.createTask(nextName, String(result.description || '').trim(), runMode)
-        const newId = String(created?.id || created?.data?.id || created?.task_id || '').trim()
-        toast('已创建新任务', 'success')
-        if (newId) window.location.hash = `#/task/${encodeURIComponent(newId)}`
-        else window.location.hash = '#/tasks'
-      } catch (e) {
-        toast('创建失败：' + e, 'error')
-      }
-    },
-  })
-}
-
 async function handleRetryFailedTask(page, state) {
   const yes = await showConfirm('将仅重试失败的子任务，已完成的子任务保留不动。确定继续？')
   if (!yes) return

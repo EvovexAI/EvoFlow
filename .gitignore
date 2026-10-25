@@ -553,3 +553,17 @@ evopanel/src-tauri/gen/
 # One-off root-level test scripts
 /test_dataset_diag.py
 /test_dataset_inline.js
+
+# ============================================================
+# 方案 / 设计 / 日志文档（本地保留，不纳入版本控制）
+# 与根级 one-off 文档同理：开发过程草稿不进公开仓库。
+# ============================================================
+/docs/design/
+/docs/contribute/browser-hard-decouple-backlog.md
+/docs/contribute/chatapp-refactor-and-render-analysis-2026-10-22.md
+/docs/contribute/rfc.md
+/docs/contribute/right-stage-side-pane.md
+/docs/contribute/v3.15.1-port-plan.md
+/docs/contribute/v4-streaming-alignment-logbook.md
+/backend/tests/FINAL_SUMMARY_*.md
+/backend/tests/IMPROVEMENTS_*.md

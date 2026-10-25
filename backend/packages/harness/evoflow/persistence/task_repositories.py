@@ -136,8 +136,9 @@ def save_task_bundle(main_task_id: str, document: dict[str, Any]) -> None:
                     execution_authorized, thread_id, authorized_at, authorized_by, project_path,
                     claude_session_id, external_session_id, updated_at, result_json, extra_json,
                     worker_base_subagent, worker_model, worker_instruction, worker_validation,
-                    worker_max_retries, sort_order
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    worker_max_retries, sort_order,
+                    wait_duration_ms, exec_duration_ms, timing_state
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     sr["main_task_id"],
@@ -169,6 +170,9 @@ def save_task_bundle(main_task_id: str, document: dict[str, Any]) -> None:
                     sr.get("worker_validation"),
                     sr.get("worker_max_retries"),
                     sr["sort_order"],
+                    sr.get("wait_duration_ms"),
+                    sr.get("exec_duration_ms"),
+                    sr.get("timing_state"),
                 ),
             )
         for d in parts["subtask_deps"]:

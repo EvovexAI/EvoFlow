@@ -78,6 +78,9 @@ _SUBTASK_KNOWN = frozenset(
         "updated_at",
         "execution_history",
         "execution_conversation",
+        "wait_duration_ms",
+        "exec_duration_ms",
+        "timing_state",
     }
 )
 
@@ -374,6 +377,43 @@ def collab_subtask_row_to_summary(sr: dict[str, Any]) -> dict[str, Any]:
     return st
 
 
+def _timing_state(row: dict[str, Any], exec_ms: int | None) -> str | None:
+    """Derive timing_state at the write chokepoint (never trust callers)."""
+    from evoflow.collab import timing
+
+    if not str(row.get("status") or "").strip():
+        return None
+    return timing._resolve_state(
+        str(row.get("status") or ""),
+        exec_ms=exec_ms,
+        stale_min_ms=timing._long_run_guard_ms(),
+    )
+
+
+def _timing_value(row: dict[str, Any], key: str) -> int | None:
+    """Read a precomputed duration column, or derive it from the row timestamps.
+
+    The mapper is the last write chokepoint, so it never trusts a stale duration:
+    if ``started_at``/``completed_at`` are present it recomputes, which keeps the
+    column consistent with the SSOT timestamps.
+    """
+    from evoflow.collab import timing
+
+    if key == "wait_duration_ms":
+        derived = timing._delta_ms(row.get("created_at"), row.get("started_at"))
+    elif key == "exec_duration_ms":
+        derived = timing._delta_ms(row.get("started_at"), row.get("completed_at"))
+    else:
+        derived = None
+    if derived is not None:
+        return derived
+    raw = row.get(key)
+    try:
+        return int(raw) if raw is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
 def bundle_to_rows(document: dict[str, Any]) -> dict[str, Any]:
     """Split a project bundle dict into rows for v14 tables."""
     doc = dict(document)
@@ -511,6 +551,7 @@ def bundle_to_rows(document: dict[str, Any]) -> dict[str, Any]:
                 extra["ref"] = ref_val
             st_extra = _json_dumps(extra)
 
+            _exec_ms = _timing_value(st_known, "exec_duration_ms")
             subtasks_out.append(
                 {
                     "main_task_id": main_task_id,
@@ -542,6 +583,9 @@ def bundle_to_rows(document: dict[str, Any]) -> dict[str, Any]:
                     "worker_validation": wp_known.get("validation"),
                     "worker_max_retries": int(wp_known.get("max_retries") or 3),
                     "sort_order": s_idx,
+                    "wait_duration_ms": _timing_value(st_known, "wait_duration_ms"),
+                    "exec_duration_ms": _exec_ms,
+                    "timing_state": _timing_state(st_known, _exec_ms),
                 }
             )
             for d_idx, dep in enumerate(st_known.get("dependencies") or []):

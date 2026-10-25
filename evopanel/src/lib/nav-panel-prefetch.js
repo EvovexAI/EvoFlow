@@ -127,7 +127,7 @@ async function warmAppsData() {
 
 async function warmTasksData() {
   const { api } = await import('./tauri-api.js')
-  warmKey('tasks:list', () => api.listAllTasks({ hide_noise: 'true' }))
+  warmKey('tasks:list', () => api.listAllTasks())
   warmKey('tasks:agents', () => api.listAgents().catch(() => []))
   warmKey('tasks:roles', () => api.proactiveListRoles().catch(() => ({})))
 }

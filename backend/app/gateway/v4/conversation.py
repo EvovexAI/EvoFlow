@@ -463,11 +463,21 @@ class V4ConversationHub:
             else:
                 # 冷会话先 hydrate 历史（旧 transcript → v4 行），快照才不是空面板。
                 # 失败静默：缺历史只影响显示，不阻断订阅。
-                if not sess.rows and not sess.delta_log:
+                #
+                # 空会话必须允许「再次订阅时重试」：协作子任务面板常在步骤还在跑时
+                # 就订阅（transcript 尚未落库 → hydrate 拿到 0 行），若此后不再尝试，
+                # 面板会永久空白。hydrate 内部按 rows 判重，这里只需在仍为空时重试。
+                if not sess.rows:
                     try:
                         from app.gateway.v4.hydration import hydrate_session_from_transcript
 
-                        hydrate_session_from_transcript(self, sess.session_id)
+                        loaded = hydrate_session_from_transcript(self, sess.session_id)
+                        if loaded:
+                            logger.info(
+                                "[v4.hydration] resubscribe recovered history session=%s rows=%s",
+                                sess.session_id,
+                                loaded,
+                            )
                     except Exception:
                         logger.exception(
                             "[v4.hydration] subscribe hydration failed session=%s",

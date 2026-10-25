@@ -115,7 +115,7 @@ REMOVED_LEGACY_TOOL_NAMES: frozenset[str] = frozenset(
 
 # Sandbox builtins superseded by host-direct equivalents (avoid duplicate ``read_file`` / ``bash``).
 # ``view_image`` merged into host-direct ``read`` (image refs dispatch inside read);
-# sandbox mode keeps the standalone tool.
+# standalone ``view_image`` 已从 builtin 挂载摘除（read 内分发 + tool_aliases 兼容旧配置名）。
 _HOST_DIRECT_SUPERSEDED_SANDBOX_NAMES: frozenset[str] = frozenset(
     {"read_file", "read", "bash", "view_image"}
 )
@@ -190,7 +190,7 @@ def get_builtin_tools() -> tuple[BaseTool, ...]:
     from evoflow.tools.builtins.supervisor_tool import supervisor_tool
     from evoflow.tools.builtins.tasks_tool import tasks_tool
     # from evoflow.tools.builtins.todo_tool import todo_tool  # retired — 会话内清单由 TodoMiddleware 的 todo_write 提供（zcode TodoWrite 对齐）
-    from evoflow.tools.builtins.view_image_tool import view_image_tool
+    # from evoflow.tools.builtins.view_image_tool import view_image_tool  # retired — 查图已并入 read（图片引用在 read 内分发），旧配置名经 tool_aliases 映射到 read
 
     tools = [
         assets_tool,
@@ -209,7 +209,7 @@ def get_builtin_tools() -> tuple[BaseTool, ...]:
         # todo_tool,  # retired — todo_write (TodoMiddleware) 替代，对齐 zcode
         # stage_set_tool / panel_set — retired; right panel via platform ui.show|hide|update
         fetch_url_tool,
-        view_image_tool,
+        # view_image_tool,  # retired — 查图已并入 read（图片引用在 read 内分发）
         # process_tool,  # retired — ZCode Bash run_in_background + TaskOutput/TaskStop
         # browser_tool,  # unregistered — use the agent-browser skill (CLI/MCP) instead
         # read_lints_tool,  # retired — 诊断走 Bash（pyright/ruff/tsc），对齐 ZCode

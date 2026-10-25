@@ -284,7 +284,13 @@ def hydrate_session_from_transcript(hub: Any, thread_id: str) -> int:
         return 0
     # 全新会话可能尚未在 hub 建 session（独立调用/subscribe 前置）；get_or_create。
     sess = hub._get_or_create_session(tid)  # noqa: SLF001 — 同包协作单例
-    if sess.rows or sess.seq:
+    # Only skip when the session already carries *content*. A session that was
+    # created by a bare subscribe (rows=0, seq=0) but whose transcript landed
+    # afterwards must still be hydratable — otherwise the panel stays empty
+    # forever. This is the common collab-subtask ordering: the right-stage pane
+    # opens while the step is still running, subscribes an empty session, and
+    # the worker's messages are persisted seconds later.
+    if sess.rows:
         return 0
     try:
         from evoflow.persistence import session_repositories as sess_repo

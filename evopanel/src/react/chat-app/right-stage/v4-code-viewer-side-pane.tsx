@@ -24,21 +24,37 @@ function inferLanguage(path: string): string {
   return EXT_LANGUAGE[ext] ?? "";
 }
 
-async function fetchWorkspaceFileText(path: string, threadId?: string): Promise<string> {
+async function fetchWorkspaceFileText(
+  path: string,
+  threadId?: string,
+  workspaceRoot?: string,
+): Promise<string> {
+  const { apiUrlAsync } = await import("../../../lib/api-client.js");
   const q = new URLSearchParams({ path });
   if (threadId) q.set("thread_id", threadId);
-  const resp = await fetch(`/api/workspaces/serve-file?${q.toString()}`);
+  const root = String(workspaceRoot || "").trim();
+  if (root) q.set("root", root);
+  const resp = await fetch(await apiUrlAsync(`/workspaces/serve-file?${q.toString()}`));
   if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-  return resp.text();
+  const text = await resp.text();
+  // 相对 /api 打到 SPA 壳时会 200 返回 index.html；.md/.py 等不应当文件内容。
+  if (
+    !/\.html?$/i.test(path) &&
+    /^\s*<!DOCTYPE html/i.test(text)
+  ) {
+    throw new Error(`文件预览打到了页面壳而不是网关：${path}`);
+  }
+  return text;
 }
 
 export function V4CodeViewerSidePane(props: {
   source: CodeViewerSource;
   /** LangGraph thread id：serve-file 按会话沙箱解析相对路径。 */
   threadId?: string;
+  workspacePath?: string;
   onClose?: () => void;
 }): React.JSX.Element {
-  const { source, onClose, threadId } = props;
+  const { source, onClose, threadId, workspacePath } = props;
 
   const { language, title, path } = useMemo(() => {
     if (source.type === "patch") {
@@ -77,7 +93,7 @@ export function V4CodeViewerSidePane(props: {
     setFileError(null);
     void (async () => {
       try {
-        const text = await fetchWorkspaceFileText(source.path, threadId);
+        const text = await fetchWorkspaceFileText(source.path, threadId, workspacePath);
         if (!cancelled) setFileContent(text);
       } catch (error) {
         if (!cancelled) {
@@ -90,7 +106,7 @@ export function V4CodeViewerSidePane(props: {
     return () => {
       cancelled = true;
     };
-  }, [source.type, source.path, threadId]);
+  }, [source.type, source.path, threadId, workspacePath]);
 
   useEffect(() => {
     if (source.type !== "patch" || !rawPatch) {

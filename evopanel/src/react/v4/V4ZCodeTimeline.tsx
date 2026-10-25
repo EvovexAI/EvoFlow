@@ -85,14 +85,53 @@ const EVO_BINARY_PREVIEW_MAX_BYTES = 25 * 1024 * 1024;
 /** EvoFlow Web 无本机 fs.watch：轮询间隔（目录签名 / 文件 stat）。 */
 const EVO_WATCH_POLL_INTERVAL_MS = 4000;
 
-export function createEvoflowPartialServices(sessionId: string): IServiceAccessor {
+/** 误打到 SPA / Vite 壳时常见开头；.html 真文件预览不拦截。 */
+function looksLikeSpaHtmlShell(buf: ArrayBuffer): boolean {
+  const head = new TextDecoder("utf-8", { fatal: false })
+    .decode(buf.byteLength > 96 ? buf.slice(0, 96) : buf)
+    .trimStart()
+    .toLowerCase();
+  return head.startsWith("<!doctype html") || head.startsWith("<html");
+}
+
+function shouldRejectHtmlShell(path: string, buf: ArrayBuffer, contentType: string): boolean {
+  if (/\.html?$/i.test(path)) return false;
+  const ct = contentType.toLowerCase();
+  if (ct.includes("text/html")) return true;
+  return looksLikeSpaHtmlShell(buf);
+}
+
+export function createEvoflowPartialServices(
+  sessionId: string,
+  workspaceRoot?: string,
+): IServiceAccessor {
   // 打包版 webview 页面源是 tauri.localhost（Tauri 协议只服务静态资源，不代理 /api），
   // 裸相对 fetch 永远到不了网关。必须走 apiUrlAsync 解析真实网关 base
   // （Tauri=8382 等配置端口；web dev 返回相对路径，走 vite 代理）。
+  const boundRoot = String(workspaceRoot || "").trim();
   const serveFileUrl = async (path: string): Promise<string> => {
     const q = new URLSearchParams({ path });
     if (sessionId) q.set("thread_id", sessionId);
+    // 有绑定工作区时带 root，避免相对路径只靠 thread 沙箱解析到空目录 / 错文件
+    if (boundRoot) q.set("root", boundRoot);
     return apiUrlAsync(`/workspaces/serve-file?${q.toString()}`);
+  };
+  const readServeFileBuffer = async (
+    path: string,
+    init?: RequestInit,
+  ): Promise<{ resp: Response; buf: ArrayBuffer }> => {
+    const resp = await fetch(await serveFileUrl(path), init);
+    if (resp.status === 404) throw new Error(`file not found: ${path}`);
+    if (resp.status === 416) return { resp, buf: new ArrayBuffer(0) };
+    if (!resp.ok) throw new Error(`read failed: HTTP ${resp.status}`);
+    const buf = await resp.arrayBuffer();
+    const ct = resp.headers.get("content-type") || "";
+    if (shouldRejectHtmlShell(path, buf, ct)) {
+      throw new Error(
+        `文件预览打到了页面壳（<!DOCTYPE html>）而不是网关文件内容：${path}。请确认 Gateway 已就绪。`,
+      );
+    }
+    return { resp, buf };
   };
   // IFileService.stat({ path }) —— PreviewPane 传对象；兼容误传裸字符串。
   // Range 探测：从 Content-Range 取总大小；服务端不支持 Range 时退 blob.size。
@@ -108,27 +147,23 @@ export function createEvoflowPartialServices(sessionId: string): IServiceAccesso
   ): Promise<{ path: string; type: "file" | "directory"; size?: number }> => {
     const path = resolveStatPath(input);
     if (!path) throw new Error("file not found: (empty path)");
-    const resp = await fetch(await serveFileUrl(path), { headers: { Range: "bytes=0-0" } });
-    if (resp.status === 404) throw new Error(`file not found: ${path}`);
-    if (!resp.ok) throw new Error(`stat failed: HTTP ${resp.status}`);
+    const { resp, buf } = await readServeFileBuffer(path, { headers: { Range: "bytes=0-0" } });
     const contentRange = resp.headers.get("content-range");
     if (resp.status === 206 && contentRange) {
       const total = Number.parseInt(contentRange.split("/")[1] ?? "", 10);
       if (Number.isFinite(total)) return { path, type: "file", size: total };
     }
-    const blob = await resp.blob();
-    return { path, type: "file", size: blob.size };
+    return { path, type: "file", size: buf.byteLength };
   };
   // Range 读块；200（无 Range 支持）时整档读回后切片。
   const readFileRange = async (params: { path: string; offset: number; length: number }): Promise<Uint8Array> => {
     const { path, offset, length } = params;
     const end = Math.max(offset, offset + Math.max(length, 1) - 1);
-    const resp = await fetch(await serveFileUrl(path), { headers: { Range: `bytes=${offset}-${end}` } });
-    if (resp.status === 404) throw new Error(`file not found: ${path}`);
+    const { resp, buf } = await readServeFileBuffer(path, {
+      headers: { Range: `bytes=${offset}-${end}` },
+    });
     // 416：offset 已越界（文件被截断/竞态），按空块返回交给上层判完整性。
     if (resp.status === 416) return new Uint8Array(0);
-    if (!resp.ok) throw new Error(`read failed: HTTP ${resp.status}`);
-    const buf = await resp.arrayBuffer();
     if (resp.status === 206) return new Uint8Array(buf);
     const whole = new Uint8Array(buf);
     return whole.slice(offset, offset + length);
@@ -143,10 +178,10 @@ export function createEvoflowPartialServices(sessionId: string): IServiceAccesso
     return dataUrl.split(",")[1] ?? "";
   };
   const readMediaPreview = async (params: { path: string; maxBytes?: number }) => {
-    const resp = await fetch(await serveFileUrl(params.path));
-    if (resp.status === 404) throw new Error(`file not found: ${params.path}`);
-    if (!resp.ok) throw new Error(`media preview failed: HTTP ${resp.status}`);
-    const blob = await resp.blob();
+    const { resp, buf } = await readServeFileBuffer(params.path);
+    const blob = new Blob([buf], {
+      type: resp.headers.get("content-type") || "application/octet-stream",
+    });
     return {
       path: params.path,
       mediaType: blob.type || "application/octet-stream",
@@ -166,13 +201,11 @@ export function createEvoflowPartialServices(sessionId: string): IServiceAccesso
     if (size != null && size > maxBytes) {
       throw new Error(`File is too large to preview: ${path}`);
     }
-    const resp = await fetch(await serveFileUrl(path));
-    if (resp.status === 404) throw new Error(`file not found: ${path}`);
-    if (!resp.ok) throw new Error(`binary preview failed: HTTP ${resp.status}`);
-    const blob = await resp.blob();
-    if (blob.size > maxBytes) {
+    const { buf } = await readServeFileBuffer(path);
+    if (buf.byteLength > maxBytes) {
       throw new Error(`File is too large to preview: ${path}`);
     }
+    const blob = new Blob([buf]);
     return {
       path,
       dataBase64: await blobToBase64(blob),
@@ -191,6 +224,7 @@ export function createEvoflowPartialServices(sessionId: string): IServiceAccesso
       include_hidden: String(params?.includeHidden !== false),
     });
     if (sessionId) q.set("thread_id", sessionId);
+    if (boundRoot) q.set("root", boundRoot);
     const resp = await fetch(await apiUrlAsync(`/workspaces/listdir?${q.toString()}`));
     if (resp.status === 404) throw new Error(`directory not found: ${dir}`);
     if (!resp.ok) throw new Error(`readdir failed: HTTP ${resp.status}`);
@@ -252,7 +286,10 @@ export function createEvoflowPartialServices(sessionId: string): IServiceAccesso
     if (searchIndexCache.key === rootPath && now - searchIndexCache.fetchedAt < 15000) {
       return searchIndexCache.packed;
     }
-    const tq = sessionId ? `?thread_id=${encodeURIComponent(sessionId)}` : "";
+    const lq = new URLSearchParams();
+    if (sessionId) lq.set("thread_id", sessionId);
+    if (boundRoot) lq.set("root", boundRoot);
+    const tq = lq.toString() ? `?${lq.toString()}` : "";
     const resp = await fetch(await apiUrlAsync(`/workspaces/list_files${tq}`));
     if (!resp.ok) throw new Error(`list_files failed: HTTP ${resp.status}`);
     const data = (await resp.json()) as { paths?: string[] };
@@ -279,6 +316,7 @@ export function createEvoflowPartialServices(sessionId: string): IServiceAccesso
             try {
               const q = new URLSearchParams({ path: p });
               if (sessionId) q.set("thread_id", sessionId);
+              if (boundRoot) q.set("root", boundRoot);
               const resp = await fetch(await apiUrlAsync(`/workspaces/resolve-target?${q.toString()}`));
               if (!resp.ok) return { path: p, exists: false };
               const data = (await resp.json()) as { exists?: boolean; is_dir?: boolean };
@@ -337,7 +375,7 @@ export function createEvoflowPartialServices(sessionId: string): IServiceAccesso
     mediaPreviewService: {
       // 直接给 serve-file 原始 URL：video/audio 走流式播放（FileResponse 支持 Range）。
       async prepare(params: { path: string; expectedKind?: string }) {
-        return { url: serveFileUrl(params.path) };
+        return { url: await serveFileUrl(params.path) };
       },
       async release() {},
     },
@@ -400,6 +438,7 @@ export function createEvoflowPartialServices(sessionId: string): IServiceAccesso
       async refresh(params: { workspacePath: string }) {
         const q = new URLSearchParams();
         if (sessionId) q.set("thread_id", sessionId);
+        if (boundRoot) q.set("root", boundRoot);
         const resp = await fetch(await apiUrlAsync(`/workspaces/git_status?${q.toString()}`));
         if (!resp.ok) throw new Error(`git_status failed: HTTP ${resp.status}`);
         return (await resp.json()) as {
@@ -411,6 +450,7 @@ export function createEvoflowPartialServices(sessionId: string): IServiceAccesso
       async getIgnoredPaths(params: { workspacePath: string; paths: string[] }) {
         const q = new URLSearchParams();
         if (sessionId) q.set("thread_id", sessionId);
+        if (boundRoot) q.set("root", boundRoot);
         const resp = await fetch(await apiUrlAsync(`/workspaces/git_ignored_paths?${q.toString()}`), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -574,10 +614,10 @@ export function V4ZCodeTimeline(props: {
   const snapshotRef = useRef(snapshot);
   snapshotRef.current = snapshot;
 
-  // 访问器按 session 建（thread_id 沙箱解析），会话切换即重建。
+  // 访问器按 session + 工作区根建；预览/stat 带 root，避免相对路径落到空沙箱。
   const partialServices = useMemo(
-    () => createEvoflowPartialServices(sessionId),
-    [sessionId],
+    () => createEvoflowPartialServices(sessionId, workspacePath),
+    [sessionId, workspacePath],
   );
 
   // connecting / 无快照时必须用稳定空数组，否则每 render 新 [] 会让

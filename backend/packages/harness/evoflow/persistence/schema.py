@@ -213,6 +213,9 @@ CREATE TABLE IF NOT EXISTS evoflow_app_runs (
     started_at TEXT,
     completed_at TEXT,
     error TEXT,
+    queue_ms INTEGER,
+    duration_ms INTEGER,
+    timing_state TEXT,
     FOREIGN KEY (app_id) REFERENCES evoflow_apps(id)
 );
 
@@ -577,6 +580,9 @@ CREATE TABLE IF NOT EXISTS evoflow_collab_subtasks (
     worker_validation TEXT,
     worker_max_retries INTEGER NOT NULL DEFAULT 3,
     sort_order INTEGER NOT NULL DEFAULT 0,
+    wait_duration_ms INTEGER,
+    exec_duration_ms INTEGER,
+    timing_state TEXT,
     PRIMARY KEY (main_task_id, parent_task_id, subtask_id)
 );
 
@@ -2079,6 +2085,16 @@ _LEGACY_COLUMN_BACKFILL: dict[str, tuple[tuple[str, str], ...]] = {
         ("turn_duration_ms", "INTEGER"),
         ("turn_state", "TEXT"),
     ),
+    "evoflow_app_runs": (
+        ("queue_ms", "INTEGER"),
+        ("duration_ms", "INTEGER"),
+        ("timing_state", "TEXT"),
+    ),
+    "evoflow_collab_subtasks": (
+        ("wait_duration_ms", "INTEGER"),
+        ("exec_duration_ms", "INTEGER"),
+        ("timing_state", "TEXT"),
+    ),
 }
 
 
@@ -2098,10 +2114,143 @@ def _backfill_legacy_columns(conn: sqlite3.Connection) -> None:
             len(added),
             ", ".join(f"{t}.{c}" for t, c in added),
         )
+    # Timing indexes depend on columns added by the backfill above, so they
+    # cannot live in the baseline DDL (legacy tables would fail with
+    # "no such column: duration_ms" before the ALTER TABLE runs).
+    _ensure_timing_indexes(conn)
     try:
         _backfill_turn_durations(conn)
     except Exception:
         logger.debug("schema: turn duration backfill failed", exc_info=True)
+    try:
+        _backfill_task_durations(conn)
+    except Exception:
+        logger.debug("schema: task duration backfill failed", exc_info=True)
+
+
+def _ensure_timing_schema(conn: sqlite3.Connection) -> None:
+    """Add timing columns + indexes + backfill on an already-current DB.
+
+    The duration columns post-date the baseline schema epoch, so databases that
+    already carry ``APP_SCHEMA_VERSION`` never run the legacy column backfill.
+    This covers them without bumping the schema version.
+    """
+    specs: dict[str, tuple[tuple[str, str], ...]] = {
+        "evoflow_app_runs": (
+            ("queue_ms", "INTEGER"),
+            ("duration_ms", "INTEGER"),
+            ("timing_state", "TEXT"),
+        ),
+        "evoflow_collab_subtasks": (
+            ("wait_duration_ms", "INTEGER"),
+            ("exec_duration_ms", "INTEGER"),
+            ("timing_state", "TEXT"),
+        ),
+    }
+    added = []
+    for table, columns in specs.items():
+        if not _table_exists(conn, table):
+            continue
+        existing = _existing_columns(conn, table)
+        for col_name, col_def in columns:
+            if col_name in existing:
+                continue
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {col_name} {col_def}")
+            added.append((table, col_name))
+    if added:
+        conn.commit()
+        logger.info(
+            "schema: added %d timing column(s): %s",
+            len(added),
+            ", ".join(f"{t}.{c}" for t, c in added),
+        )
+        try:
+            _backfill_task_durations(conn)
+            conn.commit()
+        except Exception:
+            logger.debug("schema: task duration backfill failed", exc_info=True)
+    _ensure_timing_indexes(conn)
+    conn.commit()
+
+
+def _ensure_timing_indexes(conn: sqlite3.Connection) -> None:
+    """Create duration indexes once their columns exist (legacy-safe)."""
+    specs = (
+        ("evoflow_app_runs", "duration_ms", "idx_evo_app_runs_duration",
+         "evoflow_app_runs(app_id, status, duration_ms)"),
+        ("evoflow_collab_subtasks", "exec_duration_ms", "idx_evo_collab_subtasks_duration",
+         "evoflow_collab_subtasks(main_task_id, exec_duration_ms)"),
+    )
+    for table, col, name, target in specs:
+        if col not in _existing_columns(conn, table):
+            continue
+        try:
+            conn.execute(f"CREATE INDEX IF NOT EXISTS {name} ON {target}")
+        except Exception:
+            logger.debug("schema: create index %s failed", name, exc_info=True)
+
+
+def _backfill_task_durations(conn: sqlite3.Connection) -> None:
+    """One-time backfill of workflow run / subtask durations from timestamps.
+
+    Idempotent: only touches rows whose ``*_duration_ms``/``timing_state`` are
+    still NULL. Durations are always recomputed from ``started_at`` /
+    ``completed_at`` — never guessed — and rows whose terminal state makes the
+    elapsed span unreliable (cancelled / interrupted) are marked so aggregates
+    can exclude them.
+    """
+    from evoflow.collab import timing
+
+    if _table_exists(conn, "evoflow_app_runs"):
+        cols = _existing_columns(conn, "evoflow_app_runs")
+        if {"duration_ms", "timing_state"} <= cols:
+            rows = conn.execute(
+                "SELECT id, status, created_at, started_at, completed_at FROM evoflow_app_runs "
+                "WHERE duration_ms IS NULL OR timing_state IS NULL"
+            ).fetchall()
+            for rid, status, created, started, completed in rows:
+                fields = timing.run_timing_fields(
+                    {
+                        "created_at": created,
+                        "started_at": started,
+                        "completed_at": completed,
+                        "status": status,
+                    }
+                )
+                conn.execute(
+                    "UPDATE evoflow_app_runs SET queue_ms = ?, duration_ms = ?, timing_state = ? WHERE id = ?",
+                    (fields.get("queue_ms"), fields.get("duration_ms"), fields.get("timing_state"), rid),
+                )
+
+    if _table_exists(conn, "evoflow_collab_subtasks"):
+        cols = _existing_columns(conn, "evoflow_collab_subtasks")
+        if {"exec_duration_ms", "timing_state"} <= cols:
+            rows = conn.execute(
+                "SELECT main_task_id, parent_task_id, subtask_id, status, created_at, started_at, completed_at "
+                "FROM evoflow_collab_subtasks "
+                "WHERE exec_duration_ms IS NULL OR timing_state IS NULL"
+            ).fetchall()
+            for mid, pid, sid, status, created, started, completed in rows:
+                fields = timing.subtask_timing_fields(
+                    {
+                        "status": status,
+                        "created_at": created,
+                        "started_at": started,
+                        "completed_at": completed,
+                    }
+                )
+                conn.execute(
+                    "UPDATE evoflow_collab_subtasks SET wait_duration_ms = ?, exec_duration_ms = ?, timing_state = ? "
+                    "WHERE main_task_id = ? AND parent_task_id = ? AND subtask_id = ?",
+                    (
+                        fields.get("wait_duration_ms"),
+                        fields.get("exec_duration_ms"),
+                        fields.get("timing_state"),
+                        mid,
+                        pid,
+                        sid,
+                    ),
+                )
 
 
 def _backfill_turn_durations(conn: sqlite3.Connection) -> None:
@@ -2269,6 +2418,7 @@ def ensure_app_schema(conn: sqlite3.Connection) -> None:
     version = int(conn.execute("PRAGMA user_version").fetchone()[0] or 0)
     if version == 0:
         _apply_baseline(conn)
+        _ensure_timing_schema(conn)
         return
     if version > APP_SCHEMA_VERSION:
         _snap_legacy_user_version(conn, version)
@@ -2276,13 +2426,19 @@ def ensure_app_schema(conn: sqlite3.Connection) -> None:
         # the full baseline on every connection open.
         if int(conn.execute("PRAGMA user_version").fetchone()[0] or 0) == APP_SCHEMA_VERSION:
             _ensure_duty_runs_table(conn)
+            _ensure_timing_schema(conn)
             return
         _apply_baseline(conn)
         _ensure_duty_runs_table(conn)
+        _ensure_timing_schema(conn)
         return
     # version == APP_SCHEMA_VERSION: already current — still ensure post-baseline tables.
     _ensure_duty_runs_table(conn)
     _ensure_automation_slot_claims(conn)
+    # Timing columns shipped after the baseline epoch, so a DB already stamped
+    # with APP_SCHEMA_VERSION still needs them. Idempotent and cheap (a
+    # PRAGMA table_info per table).
+    _ensure_timing_schema(conn)
     return
 
 

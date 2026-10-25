@@ -205,5 +205,7 @@ export function showRightStageFromFileLink(
     name: String(target.label || '').trim() || basename(path),
     sessionKey: opts?.sessionKey,
     layout: opts?.layout,
+    // 对话 Markdown 路径 pill 带上 workspace，预览读文件才能带 root=…
+    workspaceRoot: String(target.workspacePath || '').trim() || undefined,
   })
 }

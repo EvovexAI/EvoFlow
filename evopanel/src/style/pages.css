@@ -18358,34 +18358,6 @@ html[data-custom-bg='1'] .task-detail-page .task-obs-panel {
   text-align: left;
 }
 
-.tasks-page .tasks-empty-templates-label {
-  font-size: 13px;
-  color: var(--t-muted);
-  margin-bottom: 12px;
-}
-
-.tasks-page .tasks-empty-templates-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 10px;
-}
-
-.tasks-page .tasks-empty-tpl {
-  text-align: left;
-  padding: 10px 12px;
-  height: auto;
-  white-space: normal;
-  line-height: 1.4;
-}
-
-.tasks-page .tasks-empty-tpl span {
-  display: block;
-  margin-top: 4px;
-  font-size: 11px;
-  color: var(--t-muted);
-  font-weight: 400;
-}
-
 .tasks-page .tasks-card {
   display: flex;
   flex-direction: column;

@@ -607,15 +607,26 @@ def save_run(run_id: str, document: dict[str, Any]) -> None:
     """Save or update a run instance (execution tracker)."""
 
     def _do_save() -> None:
+        from evoflow.collab.timing import run_timing_fields
+
         conn = get_db()
         now = utc_now_iso_z()
+        _run_timing = run_timing_fields(
+            {
+                "created_at": document.get("created_at") or now,
+                "started_at": document.get("started_at"),
+                "completed_at": document.get("completed_at"),
+                "status": document.get("status", "running"),
+            }
+        )
         # Use INSERT OR REPLACE for atomic upsert (avoids DELETE+INSERT race)
         conn.execute(
             """
 INSERT OR REPLACE INTO evoflow_app_runs (
     id, app_id, app_version, parameters_json, execution_mode, task_id, thread_id,
-    status, progress, result_summary, created_at, started_at, completed_at, error
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    status, progress, result_summary, created_at, started_at, completed_at, error,
+    queue_ms, duration_ms, timing_state
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 """,
             (
                 run_id,
@@ -632,6 +643,11 @@ INSERT OR REPLACE INTO evoflow_app_runs (
                 document.get("started_at"),
                 document.get("completed_at"),
                 document.get("error"),
+                # Timings are derived here so every (re)write stays consistent with
+                # the timestamps — INSERT OR REPLACE would otherwise null them out.
+                _run_timing.get("queue_ms"),
+                _run_timing.get("duration_ms"),
+                _run_timing.get("timing_state"),
             ),
         )
         conn.commit()
@@ -666,7 +682,15 @@ def load_run_by_task_id(task_id: str) -> dict[str, Any] | None:
 
 
 def update_run_status(run_id: str, status: str, **fields: Any) -> None:
-    """Update run status (running -> completed / failed / cancelled / paused)."""
+    """Update run status (running -> completed / failed / cancelled / paused).
+
+    Also (re)computes ``queue_ms`` / ``duration_ms`` / ``timing_state`` from the
+    row timestamps. This is the single write chokepoint for run status, so the
+    timing columns stay consistent no matter which path reaches a terminal state
+    (real completion, failure, cancellation, or reconcile heal).
+    """
+    from evoflow.collab.timing import run_timing_fields
+
     now = utc_now_iso_z()
     conn = get_db()
     params: list[Any] = []
@@ -679,7 +703,41 @@ def update_run_status(run_id: str, status: str, **fields: Any) -> None:
             params.append(value)
     # Always touch completed_at for terminal statuses (completed/failed/cancelled)
     set_clauses.append("completed_at = COALESCE(?, completed_at)")
-    params.append(fields.get("completed_at") or (now if status in ("completed", "failed", "cancelled") else None))
+    completed_at = fields.get("completed_at") or (
+        now if status in ("completed", "failed", "cancelled") else None
+    )
+    params.append(completed_at)
+    # First transition into an active status marks the real start; without this
+    # ``queue_ms`` can never be computed (historically every run had started_at
+    # NULL, leaving queue_ms empty for the whole dataset).
+    if str(status or "").strip().lower() in ("running", "executing", "in_progress", "active"):
+        set_clauses.append("started_at = COALESCE(started_at, ?)")
+        params.append(fields.get("started_at") or now)
+
+    # Read-back the effective timestamps so the derived durations match the row.
+    try:
+        cur = conn.execute(
+            "SELECT created_at, started_at, completed_at FROM evoflow_app_runs WHERE id = ?",
+            (run_id,),
+        )
+        existing = cur.fetchone()
+    except Exception:
+        existing = None
+    created_at = existing[0] if existing else None
+    started_at = fields.get("started_at") or (existing[1] if existing else None)
+    effective_completed = completed_at or (existing[2] if existing else None)
+    timing = run_timing_fields(
+        {
+            "created_at": created_at,
+            "started_at": started_at,
+            "completed_at": effective_completed,
+            "status": status,
+        }
+    )
+    for col in ("queue_ms", "duration_ms", "timing_state"):
+        set_clauses.append(f"{col} = ?")
+        params.append(timing.get(col))
+
     params.append(run_id)
     conn.execute(f"UPDATE evoflow_app_runs SET {', '.join(set_clauses)} WHERE id = ?", params)
     conn.commit()

@@ -66,27 +66,35 @@ def is_zombie_executing_subtask(
     if status not in _IN_FLIGHT:
         return False
 
+    from evoflow.collab.runner_epoch import runner_epoch_is_shared
     from evoflow.subagents.runtime_guard import is_subtask_background_executor_active
 
     if is_subtask_background_executor_active(st):
         return False
 
     now = float(now_ts if now_ts is not None else time.time())
-    epoch = current_runner_epoch()
     row_epoch = str(st.get("runner_epoch") or "").strip()
-    if row_epoch and row_epoch != epoch:
+    # Epoch compare is only meaningful when the epoch names a *boot* shared by every
+    # runner process (desktop split model: Gateway runs this tick, LangGraph stamps
+    # the claim). With a per-process epoch the Gateway could never match a row and
+    # would "heal" a live worker on every tick.
+    if row_epoch and runner_epoch_is_shared() and row_epoch != current_runner_epoch():
+        return True
+
+    # Boot means "the previous runner process is gone", so a lease it left in the
+    # future is meaningless — check this before trusting any lease.
+    if reason == "boot" and (not row_epoch or not runner_epoch_is_shared()):
         return True
 
     try:
         lease_until = float(st.get("lease_until_ts") or 0.0)
     except (TypeError, ValueError):
         lease_until = 0.0
-    if lease_until > 0 and now > lease_until:
-        return True
+    if lease_until > 0:
+        # The lease is the explicit liveness signal — a live lease wins over a
+        # stale ``updated_at`` (heartbeat and updated_at can drift apart).
+        return now > lease_until
 
-    # Pre-epoch rows / missing lease: on boot treat as zombie; on tick use updated_at stale.
-    if reason == "boot" and not row_epoch:
-        return True
     updated = _parse_iso_ts(st.get("updated_at") or st.get("started_at"))
     if updated is not None and (now - updated) >= _stale_updated_seconds():
         return True
@@ -120,8 +128,22 @@ def _heal_subtasks(
                 why = why or "forced_pending"
             st["error"] = f"reconcile:{reason}:zombie_executing"
             st["updated_at"] = now_iso
+            # A healed row's elapsed span is bookkeeping residue, not work time —
+            # keep it out of duration aggregates.
+            st["timing_state"] = "unreliable"
             st.pop("lease_until_ts", None)
             st.pop("background_task_id", None)
+            logger.info(
+                "workflow_reconciler: healed zombie subtask main=%s sub=%s from=%s reason=%s "
+                "row_epoch=%r local_epoch=%r bg_task=%r",
+                st.get("main_task_id") or st.get("parent_task_id") or "",
+                sid,
+                prev,
+                reason,
+                st.get("runner_epoch") or "",
+                current_runner_epoch(),
+                st.get("background_task_id") or "",
+            )
             healed.append({"subtaskId": sid, "from": prev, "to": "pending", "why": "zombie_executing"})
             continue
 

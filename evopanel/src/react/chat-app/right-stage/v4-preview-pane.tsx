@@ -59,10 +59,10 @@ export function V4PreviewPane(props: {
   // 同 path/内容只保留上一份 source 引用，父级重渲染不再触发 PreviewPane 重拉。
   // eslint-disable-next-line react-hooks/exhaustive-deps -- 故意用语义 key，不用对象引用
   const stableSource = useMemo(() => source, [sourceKey]);
-  // 访问器按 thread 建（thread_id 沙箱解析），会话切换即重建。
+  // 访问器按 thread + workspace root 建；带 root 避免相对路径落到空沙箱 / SPA 壳。
   const partialServices = useMemo(
-    () => createEvoflowPartialServices(threadId ?? ""),
-    [threadId],
+    () => createEvoflowPartialServices(threadId ?? "", workspacePath),
+    [threadId, workspacePath],
   );
   return (
     <ZCodeIntlProvider initialLocale="zh-CN">

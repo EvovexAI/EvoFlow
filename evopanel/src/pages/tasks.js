@@ -29,7 +29,6 @@ import {
 import { normalizeTaskSource, formatTaskSourceZh } from '../lib/task-source.js'
 import { resolveAssignedAgentDisplayName } from '../lib/tool-display.js'
 import { taskSummaryPreview } from '../lib/task-summary.js'
-import { getPanelSetting } from '../lib/panel-settings.js'
 import {
   buildTaskForest,
   flattenTaskRows,
@@ -90,42 +89,9 @@ const PAGE_SIZE_OPTIONS = [
   { key: '50', label: '50 条/页' },
 ]
 
-/** 新手模板：点击即预填新建任务表单，降低首次使用门槛 */
-const TASK_TEMPLATES = [
-  {
-    key: 'competitor-analysis',
-    name: '竞品分析报告',
-    description: '分析指定竞品的产品功能、定价策略与市场定位，对比三家头部竞品，输出对比表格与关键结论，并给出对自身的启示建议。',
-    runMode: 'manual',
-    scenario: '调研 · 对比 · 出文档',
-  },
-  {
-    key: 'code-refactor',
-    name: '代码重构与测试',
-    description: '改造指定模块代码：AI 自动拆成小步骤、边改边测，改完后告诉你改了哪、影响什么',
-    runMode: 'manual',
-    scenario: '多步骤工程改造',
-  },
-  {
-    key: 'weekly-report',
-    name: '本周工作周报',
-    description: '汇总本周完成的工作、遇到的问题与下周计划，按固定模板格式输出周报文档。',
-    runMode: 'unattended',
-    scenario: '周期性文档生成',
-  },
-  {
-    key: 'batch-data',
-    name: '批量数据整理',
-    description: '从多个地方收集数据，自动清洗、整理成表格，完成后给你 CSV 文件和摘要——你只管下指令，AI 自己干完',
-    runMode: 'unattended',
-    scenario: '适合无人值守的重复工作',
-  },
-]
-
 const TASKS_TIME_RANGE_STORAGE_KEY = 'evopanel_tasks_time_range'
 const TASKS_PAGE_SIZE_STORAGE_KEY = 'evopanel_tasks_page_size'
 const TASKS_UNATTENDED_STORAGE_KEY = 'evopanel_tasks_unattended_mode'
-const TASKS_SHOW_PATROL_STORAGE_KEY = 'evopanel_tasks_show_patrol'
 
 /** 从 `#/tasks?source=role&agent=role:岗位名&status=pending&date=2026-05-29` 读入初始筛选 */
 /** URL status 别名 → STATUS_GROUPS.key（首页 KPI 用 running/exception） */
@@ -287,7 +253,6 @@ export async function render() {
         </div>
         <div class="page-actions">
           <button type="button" class="btn btn-secondary" id="btn-batch-select" title="勾选任务后可批量删除 / 启动 / 暂停" data-ledger-show="tasks">批量删除</button>
-          <button class="btn btn-primary" id="btn-new-task" data-ledger-show="tasks">+ 协作任务</button>
           <button type="button" class="btn btn-primary btn-sm" id="btn-new-item" data-ledger-show="items">+ 新建事项</button>
         </div>
       </div>
@@ -323,10 +288,6 @@ export async function render() {
             <option value="role">智能体员工</option>
             <option value="workflow">工作流</option>
           </select>
-        </label>
-        <label class="tasks-filter-field tasks-filter-field--checkbox" title="默认隐藏员工心跳产生的【巡检】记录">
-          <input type="checkbox" id="tasks-show-patrol" />
-          <span class="tasks-time-filter-label">显示值班巡检</span>
         </label>
       </div>
 
@@ -444,7 +405,6 @@ export async function render() {
     page: 1,
     pageSize: readStoredPageSize(),
     unattendedMode: readStoredUnattendedMode(),
-    showPatrol: readStoredShowPatrol(),
     attentionExpanded: false, // 「需要你处理」是否展开全部
     upcomingExpanded: false, // 「即将运行的自动化」是否展开全部
     upcomingAutomations: [], // 启用中的自动化（下次预计运行）
@@ -540,12 +500,6 @@ export async function render() {
 
   // 状态分组卡片（隐藏面板，保留兼容）
   page.querySelector('#tasks-stat-cards')?.addEventListener('click', (e) => {
-    const templateCard = e.target.closest('[data-template]')
-    if (templateCard) {
-      const tpl = TASK_TEMPLATES.find(t => t.key === templateCard.dataset.template)
-      if (tpl) showCreateTaskDialog(page, state, () => loadTasks(page, state), tpl)
-      return
-    }
     const card = e.target.closest('[data-status-group]')
     if (!card) return
     const group = card.dataset.statusGroup
@@ -659,15 +613,6 @@ export async function render() {
     state.sourceFilter = v || null
     commitTaskFilters(page, state)
   })
-  const showPatrolEl = page.querySelector('#tasks-show-patrol')
-  if (showPatrolEl) {
-    showPatrolEl.checked = !!state.showPatrol
-    showPatrolEl.addEventListener('change', (e) => {
-      state.showPatrol = !!e.target.checked
-      try { localStorage.setItem(TASKS_SHOW_PATROL_STORAGE_KEY, state.showPatrol ? '1' : '0') } catch (_) {}
-      void loadTasks(page, state)
-    })
-  }
   page.querySelector('#tasks-app-select')?.addEventListener('change', (e) => {
     const v = String(e.target.value || '').trim()
     state.appFilter = v || null
@@ -786,10 +731,6 @@ export async function render() {
     syncBatchSelectButtons(page, state)
     renderTasks(page, state)
     updateBatchToolbar(page, state)
-  })
-
-  page.querySelector('#btn-new-task').addEventListener('click', () => {
-    showCreateTaskDialog(page, state, () => loadTasks(page, state))
   })
 
   page.querySelector('#btn-refresh')?.addEventListener('click', async () => {
@@ -914,13 +855,6 @@ function readStoredPageSize() {
 function readStoredUnattendedMode() {
   try {
     return localStorage.getItem(TASKS_UNATTENDED_STORAGE_KEY) === '1'
-  } catch (_) {}
-  return false
-}
-
-function readStoredShowPatrol() {
-  try {
-    return localStorage.getItem(TASKS_SHOW_PATROL_STORAGE_KEY) === '1'
   } catch (_) {}
   return false
 }
@@ -1817,13 +1751,7 @@ function renderStatusCards(page, state) {
   const cardsEl = page.querySelector('#tasks-stat-cards')
   if (!cardsEl) return
   const visibleTasks = getVisibleRootTasks(state)
-  const total = visibleTasks.length
 
-  // 零任务：渲染新手引导卡片
-  if (total === 0 && state.timeRange === 'all') {
-    cardsEl.innerHTML = renderOnboardingGuide()
-    return
-  }
   cardsEl.innerHTML = STATUS_GROUPS.map(g => {
     const count = countTasksInGroup(visibleTasks, g)
     const active = state.statusFilter === g.key ? ' is-active' : ''
@@ -2191,33 +2119,6 @@ function openApprovalItem(a) {
   toast('该审批未关联任务，无法在任务中心打开', 'warning')
 }
 
-/** 零任务时的新手引导卡片：说清 WHY/WHEN，并给出可点击的模板 */
-function renderOnboardingGuide() {
-  const templateCards = TASK_TEMPLATES.map(t => `
-    <button type="button" class="stat-card stat-card-clickable tasks-template-card" data-template="${t.key}" style="cursor:pointer;text-align:left">
-      <div class="stat-card-label">${t.name}</div>
-      <div class="stat-card-meta" style="margin-top:6px;font-size:12px;color:var(--text-secondary);line-height:1.5">${escapeHtml(t.description)}</div>
-      <div class="stat-card-meta" style="margin-top:8px;font-size:11px;color:var(--text-tertiary)">适用：${escapeHtml(t.scenario)}${t.runMode === 'unattended' ? ' · 无人值守' : ''}</div>
-    </button>
-  `).join('')
-
-  return `
-    <div class="tasks-onboarding-guide" style="grid-column:1 / -1;padding:24px;background:var(--bg-card);border:1px solid var(--border-primary);border-radius:var(--radius-md);">
-      <div style="margin-bottom:16px">
-        <h3 style="margin:0 0 8px;font-size:16px;color:var(--text-primary)">什么时候用任务中心?</h3>
-        <p style="margin:0;font-size:13px;color:var(--text-secondary);line-height:1.7">
-          适合<b>长周期、多步骤、需要过程跟踪</b>的复杂目标——AI 会自动拆解成子任务并调度执行，你随时查看进度与验收。
-          即时问答、单轮可完成的小事,请在对话中直接进行。
-        </p>
-      </div>
-      <div style="margin-bottom:12px;font-size:13px;color:var(--text-tertiary)">下面是几个典型场景,点击即可快速创建:</div>
-      <div class="task-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px">
-        ${templateCards}
-      </div>
-    </div>
-  `
-}
-
 function countTasksForStopScope(tasks, scope) {
   return countPausableByScope(tasks, scope === 'running' ? 'running' : 'active')
 }
@@ -2357,10 +2258,7 @@ async function loadTasks(page, state, opts = {}) {
     const { takeNavWarm } = await import('../lib/nav-panel-prefetch.js')
     const warmList = takeNavWarm('tasks:list')
     const [resp, sessionsRes] = await Promise.all([
-      warmList ||
-        api.listAllTasks({
-          hide_noise: state.showPatrol ? 'false' : 'true',
-        }),
+      warmList || api.listAllTasks(),
       // null = probe failed → keep prior index (avoid marking everything 已中断)
       api.getActiveSessions({}).catch(() => null),
     ])
@@ -2430,16 +2328,8 @@ function renderTasks(page, state) {
         ? `当前没有「${MAIN_STATUS_TABS.find(t => t.status === state.statusFilter)?.label || getStatusFilterLabel(state.statusFilter, null)}」状态的任务`
         : (state.timeRange !== 'all'
           ? `「${getTimeRangeLabel(state.timeRange)}」范围内暂无任务`
-          : '还没有任务，从下方场景快速开始吧'))
-    const showTemplates = !state.statusFilter && !state.sourceFilter && state.timeRange === 'all'
+          : '还没有协作任务'))
     const showInboxCta = state.statusFilter === 'inbox'
-    const templateHtml = showTemplates ? `
-      <div class="tasks-empty-templates">
-        <div class="tasks-empty-templates-label">从场景快速创建</div>
-        <div class="tasks-empty-templates-grid">
-          ${TASK_TEMPLATES.map(t => `<button type="button" class="btn btn-secondary btn-sm tasks-empty-tpl" data-template="${t.key}">${escapeHtml(t.name)}<span>${escapeHtml(t.scenario)}${t.runMode === 'unattended' ? ' · 无人值守' : ''}</span></button>`).join('')}
-        </div>
-      </div>` : ''
     const inboxCtaHtml = showInboxCta
       ? `<div class="tasks-empty-templates" style="margin-top:12px">
           <button type="button" class="btn btn-primary btn-sm" id="btn-empty-new-inbox">记一条事项</button>
@@ -2449,11 +2339,12 @@ function renderTasks(page, state) {
       ? '个人日常待办在上方「我的事项」；这里专注可执行协作任务'
       : (state.statusFilter || state.sourceFilter
         ? '可点「清除」或切换顶部状态标签'
-        : (state.timeRange !== 'all' ? '试试「筛选」里的时间范围' : '或点右上角「新建任务」 / 切到「我的事项」'))
+        : (state.timeRange !== 'all'
+          ? '试试「筛选」里的时间范围'
+          : '协作任务由对话里的 AI 规划、员工值班/派发、工作流与自动化触发产生；随手要记的事请走「我的事项」'))
     container.innerHTML = `<div class="tasks-empty">
       <p>${emptyHint}</p>
       <p class="tasks-empty-hint">${subHint}</p>
-      ${templateHtml}
       ${inboxCtaHtml}
     </div>`
     container.querySelector('#btn-empty-new-inbox')?.addEventListener('click', () => {
@@ -2771,12 +2662,6 @@ function attachTaskEvents(page, state) {
   })
   containers.forEach((container) => {
     container.addEventListener('click', async (e) => {
-    const tplBtn = e.target.closest('[data-template]')
-    if (tplBtn) {
-      const tpl = TASK_TEMPLATES.find(t => t.key === tplBtn.dataset.template)
-      if (tpl) showCreateTaskDialog(page, state, () => loadTasks(page, state), tpl)
-      return
-    }
     // 整行可点（需要你处理）
     const rowAct = e.target.closest('tr[data-action], article[data-action]')
     if (rowAct && !e.target.closest('button, a, input, label')) {
@@ -3166,91 +3051,6 @@ async function completeInboxTask(page, state, taskId) {
   }
 }
 
-function showCreateTaskDialog(page, state, onSuccess, template = null) {
-  const RUN_MODE_OPTIONS = [
-    { value: 'manual', label: '手动确认（规划后需你再启动）' },
-    { value: 'unattended', label: '自动执行（创建后自动规划并跑完）' },
-  ]
-  // 模板预填优先，其次沿用上次新建时的执行模式
-  const defaultRunMode = template?.runMode || (state.unattendedMode ? 'unattended' : 'manual')
-
-  showModal({
-    title: template ? `新建任务 · ${template.name}` : '新建任务',
-    fields: [
-      { name: 'name', label: '任务名称', value: template?.name || '', placeholder: '例如：竞品分析与报告、重构认证模块、撰写本周周报' },
-      {
-        name: 'description',
-        label: '任务描述',
-        type: 'textarea',
-        value: template?.description || '',
-        placeholder: '详细描述任务目标、约束与期望产物。描述越具体，AI 规划越精准。例如：分析三家头部竞品的定价策略，输出对比表格与结论。',
-        rows: 4,
-      },
-      {
-        name: 'run_mode',
-        label: '执行模式',
-        type: 'select',
-        value: defaultRunMode,
-        options: RUN_MODE_OPTIONS,
-        hint: '正式协作任务适合长周期、多步骤工作；随手备忘请用「+ 待办」。即时问答请在对话中直接进行。',
-      },
-      {
-        name: 'workspace_root',
-        label: '工作目录（可选）',
-        type: 'folder',
-        value: String(getPanelSetting('defaultProjectWorkspaceRoot', '') || '').trim(),
-        placeholder: '留空则用默认数据目录 / 当前工作空间',
-        hint: 'AI 将在此文件夹读写文件；选已有项目即可继续做，不会重置模型配置。',
-      },
-    ],
-    onConfirm: async (result) => {
-      const name = (result.name || '').trim()
-      if (!name) {
-        toast('请输入任务名称', 'error')
-        return
-      }
-
-      const desc = (result.description || '').trim()
-      if (!desc) {
-        toast('请输入任务描述，以便 AI 精准规划', 'error')
-        return
-      }
-
-      const runMode = result.run_mode === 'unattended' ? 'unattended' : 'manual'
-
-      // 记住上次选择的执行模式，下次新建默认沿用
-      const wantsUnattended = runMode === 'unattended'
-      if (state.unattendedMode !== wantsUnattended) {
-        state.unattendedMode = wantsUnattended
-        try { localStorage.setItem(TASKS_UNATTENDED_STORAGE_KEY, wantsUnattended ? '1' : '0') } catch (_) {}
-      }
-
-      try {
-        const wsRoot = String(result.workspace_root || '').trim()
-        await api.createTask(name, desc, runMode, wsRoot ? { workspace_root: wsRoot } : null)
-        if (wsRoot) {
-          try {
-            const { wsClient } = await import('../lib/ws-client.js')
-            await wsClient.registerGlobalWorkspacePath(wsRoot)
-          } catch {
-            /* ignore */
-          }
-        }
-        toast(
-          runMode === 'unattended'
-            ? '任务已提交，系统将自动规划并执行'
-            : '任务已创建，可用批量启动或在行内启动',
-          'success',
-        )
-        await loadTasks(page, state)
-        if (typeof onSuccess === 'function') onSuccess()
-      } catch (e) {
-        toast('创建失败：' + e, 'error')
-      }
-    }
-  })
-}
-
 /** 关闭列表里所有 ⋯ 菜单 */
 function closeAllTaskMenus(root) {
   root?.querySelectorAll('.tasks-more.is-open').forEach((wrap) => {
@@ -3424,42 +3224,6 @@ async function editTask(page, state, taskId) {
         await loadTasks(page, state)
       } catch (e) {
         toast('保存失败：' + e, 'error')
-      }
-    },
-  })
-}
-
-async function copyAndRecreateTask(page, state, taskId) {
-  const task = (state.tasks || []).find((t) => String(t.id) === String(taskId))
-  if (!task) {
-    toast('任务不存在或已刷新，请重试', 'warning')
-    return
-  }
-  const baseName = String(task.name || '未命名任务').trim()
-  const name = baseName.endsWith('（副本）') ? baseName : `${baseName}（副本）`
-  const desc = String(task.description || task.goal || '').trim()
-  const runMode = String(task.run_mode || task.runMode || 'manual') === 'unattended' ? 'unattended' : 'manual'
-  showModal({
-    title: '复制并重新创建',
-    fields: [
-      { name: 'name', label: '任务名称', value: name, placeholder: '任务名称' },
-      { name: 'description', label: '任务描述', type: 'textarea', value: desc, placeholder: '任务目标、约束与期望产物', rows: 4 },
-    ],
-    onConfirm: async (result) => {
-      const nextName = String(result.name || '').trim()
-      if (!nextName) {
-        toast('请输入任务名称', 'error')
-        return
-      }
-      try {
-        const created = await api.createTask(nextName, String(result.description || '').trim(), runMode)
-        const newId = String(created?.id || created?.data?.id || created?.task_id || '').trim()
-        toast('已创建新任务', 'success')
-        invalidate('tasks_list')
-        await loadTasks(page, state)
-        if (newId) openTaskDetail(newId, state, page)
-      } catch (e) {
-        toast('创建失败：' + e, 'error')
       }
     },
   })

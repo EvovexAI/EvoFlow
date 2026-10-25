@@ -1,0 +1,24 @@
+{
+  "schema": 1,
+  "id": "demo-hello",
+  "name": "挂载测试",
+  "version": "1.0.0",
+  "description": "验证 Agent 应用挂载链路的最小示例页面",
+  "icon": "🧪",
+  "nav": {
+    "title": "挂载测试",
+    "group": "extensions",
+    "order": 10
+  },
+  "ui": {
+    "kind": "webview",
+    "entry": "http://127.0.0.1:8899/index.html",
+    "path_prefix": "/",
+    "sandbox": ["allow-scripts", "allow-same-origin", "allow-forms", "allow-popups"]
+  },
+  "permissions": ["embed"],
+  "service": {
+    "mode": "external",
+    "hint": "静态页面由本地 8899 端口提供"
+  }
+}

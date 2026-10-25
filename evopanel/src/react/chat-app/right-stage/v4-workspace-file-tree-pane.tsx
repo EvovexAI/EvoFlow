@@ -43,10 +43,10 @@ export function V4WorkspaceFileTreePane(props: {
   onOpenCodeViewer?: (source: CodeViewerSource) => void;
 }): React.JSX.Element {
   const { workspacePath, threadId, activePreviewPath, onClose, onOpenCodeViewer } = props;
-  // 访问器按 thread 建（thread_id 沙箱解析），会话切换即重建。
+  // 访问器按 thread + workspace root 建，相对路径带 root 解析。
   const partialServices = useMemo(
-    () => createEvoflowPartialServices(threadId ?? ""),
-    [threadId],
+    () => createEvoflowPartialServices(threadId ?? "", workspacePath),
+    [threadId, workspacePath],
   );
   return (
     <ZCodeIntlProvider initialLocale="zh-CN">
