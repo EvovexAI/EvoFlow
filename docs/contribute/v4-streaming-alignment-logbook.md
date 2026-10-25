@@ -406,3 +406,21 @@ EOF
 
 三处挂钩全部 try/except 静默 + 镜像总闸 `EVOFLOW_V4_MIRROR=0`、路由闸
 `EVOFLOW_V4_ROUTES=0`、前端 `?chatV4=0` 即完全回到旧链路。老链路代码零改动。
+
+## 八、批次记录：v3.15.1 命令层移植（2026-10-24）
+
+上游 ZCode 同步到 v3.15.1（3c5b2276）后，将其 v4 原生命令层移植到 EvoFlow。
+计划清单与逐项执行记录见 **[v3.15.1-port-plan.md](./v3.15.1-port-plan.md)**，此处只记要点：
+
+- 服务端 `command_inbox.py`（新）+ `conversation.py` 重写 send_command：
+  stop/abort、sendText requestedDelivery（queue/guide 入队）、queue CRUD、
+  setAutoDrain、setFollowupMode、setAssistantFeedback；CommandInbox 语义
+  （三态事实/FIFO admission/CAS/幂等 duplicate/stale）对齐上游 command-inbox.ts。
+- 新路由 `POST /api/v4/conversation/command/query`（简项 4 收口）。
+- 客户端 `V4QueuePanelBridge`（新）挂 V4ZCodeTimeline bottomDock：
+  vendored ConversationQueuePanel + createHostCommandEnvelope CAS 信封。
+- snapshot/state patch 携带真实 queue（queueStateSchema 形状）；stop →
+  autoDrain=false + pauseReason=stopped + turnHeader completedInterrupted。
+- 测试：`tests/test_v4_command_queue.py` 11 例 + stop 5 例全绿。
+- 仍遗留（批次二）：生产链路 composer 排队路由、retry/editUserQuery/compact、
+  pendingInteractions、Gen UI、stream-idle-timeout。
