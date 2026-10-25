@@ -12,7 +12,8 @@ class ToolConfig(BaseModel):
     """Config section for a tool"""
 
     name: str = Field(..., description="Unique name for the tool")
-    group: str = Field(..., description="Group name for the tool")
+    # Legacy ACL bucket; unused after capability_pack / tools allowlist. Kept optional for old yaml.
+    group: str = Field(default="", description="Deprecated tool group name (ignored)")
     use: str = Field(
         ...,
         description="Variable name of the tool provider(e.g. evoflow.sandbox.tools:bash_tool)",
