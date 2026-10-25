@@ -465,7 +465,7 @@ def _stamp_task_app_source(
     app_version: int,
     app_name: str = "",
     channel: str = "app_runner",
-    run_kind: str = "debug",
+    run_kind: str = "production",  # F-4: manual/default runs are production
     trigger_kind: str = "manual",
     parameters: dict[str, str] | None = None,
     raised_by: str | None = None,
@@ -765,7 +765,7 @@ def run_app_lead_supervised(
     parameters: dict[str, str],
     thread_id: str,
     *,
-    run_kind: str = "debug",
+    run_kind: str = "production",  # F-4: manual/default runs are production
     trigger_kind: str = "manual",
     raised_by: str | None = None,
     created_by: str | None = None,
