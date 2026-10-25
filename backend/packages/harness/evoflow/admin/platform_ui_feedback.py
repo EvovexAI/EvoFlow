@@ -306,6 +306,11 @@ def _arg_enabled(args: dict[str, Any], result: dict[str, Any]) -> bool:
 def _build_subtitle(domain: str, action: str, result: dict[str, Any]) -> str:
     guide = domain_guide(domain)
     base = str(guide.get("title") or DOMAIN_ENTITY_ZH.get(domain) or domain)
+    # Create/hire: prefer bindings checklist so users can verify what landed.
+    if action in {"employees.create", "employees.hire", "agents.create"}:
+        bind_sub = _bindings_subtitle(result)
+        if bind_sub:
+            return bind_sub
     hint = _first_str(result.get("hint"))
     if hint and len(hint) <= 120:
         return hint
@@ -321,7 +326,9 @@ def _build_subtitle(domain: str, action: str, result: dict[str, Any]) -> str:
         return f"正在获取{label}二维码…"
     if action == "employees.bind_channel_apply":
         return "本岗 AI 员工已绑定渠道"
-    if action in {"employees.create", "employees.hire"}:
+    if action in {"employees.create", "employees.hire", "agents.create"}:
+        if action == "agents.create":
+            return "可在智能体页查看绑定"
         return "可对话、派发或扫码绑定渠道"
     if action.startswith("employees."):
         return "可在智能体员工页查看"
@@ -343,6 +350,27 @@ def _build_subtitle(domain: str, action: str, result: dict[str, Any]) -> str:
     return base
 
 
+def _bindings_subtitle(result: dict[str, Any]) -> str:
+    """Compact one-line binding summary for create/hire success cards."""
+    try:
+        from evoflow.admin.assistant_guides import collect_bindings_snapshot, format_bindings_checklist
+    except Exception:
+        return ""
+    lines = format_bindings_checklist(collect_bindings_snapshot(result))
+    if not lines:
+        return ""
+    # Prefer short values after the Chinese colon.
+    bits: list[str] = []
+    for line in lines:
+        if "：" in line:
+            label, _, value = line.partition("：")
+            bits.append(f"{label} {value}")
+        else:
+            bits.append(line)
+    text = " · ".join(bits)
+    return text if len(text) <= 120 else text[:117] + "…"
+
+
 def _build_details(args: dict[str, Any], result: dict[str, Any]) -> list[dict[str, str]]:
     details: list[dict[str, str]] = []
     item = _as_dict(result.get("item"))
@@ -361,7 +389,22 @@ def _build_details(args: dict[str, Any], result: dict[str, Any]) -> list[dict[st
     assignee = _first_str(args.get("agent_code"), args.get("assignee"), result.get("agent_code"))
     if assignee and "dispatch" in str(result.get("action") or ""):
         details.append({"label": "派给", "value": assignee})
-    return details[:4]
+
+    # Always surface bindings when present (action may be filled later by the caller).
+    if result.get("bindings_applied") or _as_dict(result.get("agent")).get("bindings_applied") or _first_str(
+        result.get("action")
+    ) in {"employees.create", "employees.hire", "agents.create"}:
+        try:
+            from evoflow.admin.assistant_guides import collect_bindings_snapshot, format_bindings_checklist
+
+            for line in format_bindings_checklist(collect_bindings_snapshot(result)):
+                if "：" not in line:
+                    continue
+                label, _, value = line.partition("：")
+                details.append({"label": label.strip(), "value": value.strip()})
+        except Exception:
+            pass
+    return details[:6]
 
 
 def _employee_process_cta(

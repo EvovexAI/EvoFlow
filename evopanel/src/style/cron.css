@@ -377,10 +377,13 @@ html[data-custom-bg='1'] .page.cron-page {
 .cron-cell--last { color: var(--text-tertiary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cron-last-never { color: var(--text-tertiary); }
 .cron-last-status { font-weight: 600; }
-.cron-last-status--success { color: var(--success); }
+.cron-last-status--success,
+.cron-last-status--dispatched { color: var(--success); }
 .cron-last-status--failed { color: var(--error); }
 .cron-last-status--running { color: var(--accent); }
 .cron-last-status--queued { color: var(--warning); }
+.cron-last-status--busy,
+.cron-last-status--skipped { color: var(--warning); }
 .cron-last-status--idle { color: var(--text-tertiary); }
 
 .cron-row-ops {
@@ -713,10 +716,12 @@ html[data-custom-bg='1'] .page.cron-page {
   font-size: var(--ef-text-sm);
   font-weight: 600;
 }
-.cron-run-status--success { color: var(--success); }
+.cron-run-status--success,
+.cron-run-status--dispatched { color: var(--success); }
 .cron-run-status--failed { color: var(--error); }
 .cron-run-status--running { color: var(--accent); }
 .cron-run-status--queued { color: var(--warning); }
+.cron-run-status--busy { color: var(--warning); }
 .cron-run-status--cancelled,
 .cron-run-status--skipped { color: var(--text-tertiary); }
 

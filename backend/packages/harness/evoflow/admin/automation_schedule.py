@@ -831,6 +831,8 @@ def enrich_automation_for_api(task: dict[str, Any], *, latest_run: dict[str, Any
         except (TypeError, ValueError):
             row["last_run_duration_seconds"] = 0
         row["last_run_error"] = str(last.get("error") or "")
-        row["has_active_run"] = st in ("running", "queued", "pending", "in_progress")
+        # Only true in-flight statuses. ``dispatched`` / legacy hand-off ``queued``
+        # are terminal for automation history (downstream tracked in Task Center).
+        row["has_active_run"] = st in ("running", "pending", "in_progress")
 
     return row

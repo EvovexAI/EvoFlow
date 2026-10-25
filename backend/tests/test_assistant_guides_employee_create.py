@@ -1,6 +1,7 @@
 """assistant_guide payloads for employee / knowledge create and bind-channel begin."""
 
 from evoflow.admin.assistant_guides import (
+    build_agent_create_assistant_guide,
     build_bind_channel_begin_assistant_guide,
     build_employee_create_assistant_guide,
     build_knowledge_create_assistant_guide,
@@ -21,7 +22,60 @@ def test_employee_create_guide_has_say_to_user_and_bind_hint():
     assert "飞书" in say or "企微" in say
     assert "派发" in say or "派" in say
     assert "上班" in say or "值班" in say
+    # No bindings payload → do not invent inherit-all.
+    assert "已绑定" not in say
     assert any("bind_channel_begin" in s for s in guide["next_steps"])
+
+
+def test_employee_create_guide_lists_bindings():
+    guide = build_employee_create_assistant_guide(
+        {
+            "agent_code": "writer-1",
+            "role_name": "文案",
+            "bindings_applied": {
+                "tools_mode": "allowlist",
+                "tools": ["web_search", "write_file"],
+                "skills": ["blog-writer"],
+                "mcp_servers": [],
+                "knowledge_vault_ids": ["kb_docs"],
+                "capability_pack": "writer",
+            },
+        }
+    )
+    say = guide["say_to_user"]
+    assert "已绑定" in say
+    assert "writer" in say
+    assert "web_search" in say
+    assert "blog-writer" in say
+    assert "kb_docs" in say
+    assert guide["bindings"]["tools_mode"] == "allowlist"
+
+
+def test_agent_create_guide_lists_bindings():
+    guide = build_agent_create_assistant_guide(
+        {
+            "ok": True,
+            "agent": {
+                "agent_code": "research-bot",
+                "agent_name": "调研助手",
+                "bindings_applied": {
+                    "tools_mode": "allowlist",
+                    "tools": ["web_search"],
+                    "skills": [],
+                    "mcp_servers": ["browser"],
+                    "knowledge_vault_ids": [],
+                    "capability_pack": "research",
+                },
+            },
+        }
+    )
+    assert guide["status"] == "agent_created"
+    say = guide["say_to_user"]
+    assert "调研助手" in say
+    assert "已绑定" in say
+    assert "web_search" in say
+    assert "browser" in say
+    assert "research" in say
 
 
 def test_knowledge_create_guide_has_say_to_user():
@@ -72,6 +126,32 @@ def test_bind_channel_begin_ui_includes_qr_fields():
     assert ui.get("channel") == "feishu"
     assert ui.get("agentCode") == "duty-ops"
     assert ui.get("bindStatus") == "pending"
+
+
+def test_employee_create_ui_includes_binding_details():
+    entry = get_registry().get("employees.create")
+    assert entry is not None
+    result = {
+        "ok": True,
+        "action": "employees.create",
+        "agent_code": "writer-1",
+        "role_name": "文案",
+        "bindings_applied": {
+            "tools_mode": "allowlist",
+            "tools": ["web_search", "write_file"],
+            "skills": ["blog-writer"],
+            "mcp_servers": [],
+            "knowledge_vault_ids": ["kb_docs"],
+            "capability_pack": "writer",
+        },
+    }
+    ui = build_platform_ui_feedback(entry, {"role_name": "文案"}, result)
+    assert ui is not None
+    assert "web_search" in (ui.get("subtitle") or "")
+    labels = {d.get("label") for d in (ui.get("details") or []) if isinstance(d, dict)}
+    assert "工具" in labels
+    assert "技能" in labels
+    assert "知识库" in labels
 
 
 def test_sse_extract_platform_ui_from_bind_result():

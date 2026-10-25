@@ -414,6 +414,7 @@ function filterRunsRows(all, f) {
       const t = String(r.triggerType || '').toLowerCase()
       if (trigger === 'manual' && t !== 'manual') return false
       if (trigger === 'schedule' && !(t === 'schedule' || t === 'cron')) return false
+      if (trigger === 'catchup' && t !== 'catchup' && t !== 'near_miss') return false
     }
     if (taskId && String(r.taskId) !== taskId) return false
     if (q) {
@@ -439,10 +440,11 @@ function runsFilterBarHtml(f) {
         key: 'status',
         items: [
           ['', '全部'],
+          ['dispatched', '已派发'],
           ['success', '成功'],
           ['failed', '失败'],
-          ['running', '运行中'],
-          ['queued', '排队中'],
+          ['skipped', '已跳过'],
+          ['busy', '忙碌跳过'],
         ],
       })}
       ${sel('触发', f.trigger, {
@@ -451,6 +453,7 @@ function runsFilterBarHtml(f) {
           ['', '全部'],
           ['schedule', '定时'],
           ['manual', '手动'],
+          ['catchup', '补跑'],
         ],
       })}
       <label class="cron-runs-filter-field">
@@ -614,18 +617,22 @@ function formatTriggerZh(raw) {
   const s = String(raw || '').toLowerCase()
   if (s === 'manual') return '手动'
   if (s === 'schedule' || s === 'cron') return '定时'
+  if (s === 'catchup') return '补跑'
+  if (s === 'near_miss') return '临近补跑'
   return s || '—'
 }
 
 function cronRunStatusHtml(raw) {
   const st = normalizeRunStatus(raw)
   const tone = {
-    queued: 'pending',
+    dispatched: 'completed',
+    queued: 'completed', // legacy hand-off → 已派发
     running: 'executing',
     success: 'completed',
     failed: 'failed',
     cancelled: 'cancelled',
     skipped: 'cancelled',
+    busy: 'paused',
   }[st] || 'pending'
   return `<span class="tl-status tl-status--${tone}"><span class="tl-dot"></span>${esc(formatRunStatusZh(raw))}</span>`
 }
@@ -1016,25 +1023,31 @@ function formatRuleStatusZh(t) {
   return { enabled: '已启用', paused: '已暂停', config_error: '配置异常' }[k] || '已启用'
 }
 
+/**
+ * Automation history statuses (append-only terminal outcomes).
+ * Legacy ``queued`` = successful hand-off to workflow / Task Center → treat as dispatched.
+ */
 function normalizeRunStatus(raw) {
   const s = String(raw || '').toLowerCase()
-  if (['queued', 'pending', 'waiting'].includes(s)) return 'queued'
+  if (['dispatched', 'started', 'queued', 'pending', 'waiting'].includes(s)) return 'dispatched'
   if (['running', 'in_progress', 'active'].includes(s)) return 'running'
   if (['success', 'ok', 'completed', 'done'].includes(s)) return 'success'
   if (['fail', 'failed', 'error', 'timeout'].includes(s)) return 'failed'
   if (['cancelled', 'canceled'].includes(s)) return 'cancelled'
   if (['skipped', 'skip'].includes(s)) return 'skipped'
+  if (s === 'busy') return 'busy'
   return s || 'unknown'
 }
 
 function formatRunStatusZh(raw) {
   return {
-    queued: '排队中',
+    dispatched: '已派发',
     running: '运行中',
     success: '成功',
     failed: '失败',
     cancelled: '已取消',
     skipped: '已跳过',
+    busy: '忙碌跳过',
   }[normalizeRunStatus(raw)] || String(raw || '—')
 }
 
@@ -2027,7 +2040,7 @@ function openRunDetail(runId) {
       </div>
       <div class="cron-history-list">
         <div class="cron-history-item">
-          <span class="cron-history-status ${st === 'success' ? 'ok' : st === 'running' || st === 'queued' ? 'timeout' : 'fail'}"></span>
+          <span class="cron-history-status ${st === 'success' || st === 'dispatched' ? 'ok' : st === 'running' ? 'timeout' : st === 'busy' || st === 'skipped' ? 'timeout' : 'fail'}"></span>
           <div class="cron-history-body">
             <div class="cron-history-item__head">
               <span class="cron-run-status cron-run-status--${esc(st)}">${esc(formatRunStatusZh(run.status))}</span>

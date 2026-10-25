@@ -314,10 +314,10 @@ export async function render() {
         <button type="button" class="tasks-filter-clear" id="btn-clear-active-filters">清除</button>
       </div>
 
-      <div class="tasks-filter-bar tasks-filter-bar--compact" id="tasks-dim-filters" aria-label="来源筛选" data-ledger-show="tasks">
+      <div class="tasks-filter-bar tasks-filter-bar--compact" id="tasks-dim-filters" aria-label="类型筛选" data-ledger-show="tasks">
         <label class="tasks-filter-field">
-          <span class="tasks-time-filter-label">来源</span>
-          <select class="tasks-filter-select" id="tasks-type-select" aria-label="按任务来源筛选">
+          <span class="tasks-time-filter-label">类型</span>
+          <select class="tasks-filter-select" id="tasks-type-select" aria-label="按任务类型筛选">
             <option value="">全部</option>
             <option value="chat">对话</option>
             <option value="role">智能体员工</option>

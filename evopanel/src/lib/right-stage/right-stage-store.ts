@@ -89,6 +89,8 @@ export class RightStageStore {
   private recentClosed: RecentClosedRightStageTab[] = []
   private listeners = new Set<Listener>()
   private cachedSnapshot: RightStageSnapshot = emptySnapshot()
+  /** appendStream 合并到下一帧再通知订阅者，避免每 token 重绘整栏（文件预览跟着抖）。 */
+  private streamNotifyRaf = 0
 
   subscribe(fn: Listener): () => void {
     this.listeners.add(fn)
@@ -596,7 +598,12 @@ export class RightStageStore {
     if (!existing) return
     existing.chunks = [...existing.chunks, { ...chunk }]
     trimStreamSession(existing)
-    this.bump()
+    // 内容已写入 session；快照延到 rAF 合并，减少对话流式时侧栏抖动
+    if (this.streamNotifyRaf) return
+    this.streamNotifyRaf = requestAnimationFrame(() => {
+      this.streamNotifyRaf = 0
+      this.bump()
+    })
   }
 
   closeStream(streamId: string) {

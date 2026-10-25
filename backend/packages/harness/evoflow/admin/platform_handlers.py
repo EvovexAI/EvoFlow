@@ -846,8 +846,22 @@ def agents_bindings(args: dict[str, Any]) -> dict[str, Any]:
 
 def agents_create(args: dict[str, Any]) -> dict[str, Any]:
     from evoflow.admin import agents as agents_admin
+    from evoflow.admin.assistant_guides import build_agent_create_assistant_guide
 
-    return {"ok": True, "agent": agents_admin.create_agent(args)}
+    agent = agents_admin.create_agent(args)
+    out: dict[str, Any] = {"ok": True, "agent": agent}
+    # Flatten bindings for easy verification (also nested under agent).
+    if isinstance(agent, dict):
+        if agent.get("bindings_applied"):
+            out["bindings_applied"] = agent.get("bindings_applied")
+        if agent.get("capability_pack"):
+            out["capability_pack"] = agent.get("capability_pack")
+        if agent.get("hint"):
+            out["hint"] = agent.get("hint")
+        if agent.get("warning"):
+            out["warning"] = agent.get("warning")
+    out["assistant_guide"] = build_agent_create_assistant_guide(out)
+    return out
 
 
 def agents_update(args: dict[str, Any]) -> dict[str, Any]:

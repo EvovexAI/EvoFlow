@@ -17,7 +17,7 @@ from app.gateway.routers.errors import (
     raise_task_error,
 )
 from app.gateway.routers.events import emit_task_completed, emit_task_progress
-from evoflow.authz.http_guard import require_task_visible, resolve_authz_from_request
+from evoflow.authz.http_guard import require_task_visible, require_thread_visible, resolve_authz_from_request
 from evoflow.collab.authorize_execution import authorize_main_task_execution, revoke_main_task_execution_authorization
 from evoflow.collab.id_format import make_subtask_id
 from evoflow.collab.models import WorkerProfile
@@ -2810,7 +2810,6 @@ async def get_task_runtime(http_request: Request, task_id: str) -> dict:
 
 @router.get("/subagent/{task_id}/transcript", summary="Subagent Task Transcript")
 async def get_subagent_task_transcript(http_request: Request, task_id: str) -> dict:
-    require_task_visible(http_request, task_id)
     """Return subagent execution transcript (AI messages) by background task ID.
 
     Reads from the in-memory ``_background_tasks`` store maintained by
@@ -2823,7 +2822,15 @@ async def get_subagent_task_transcript(http_request: Request, task_id: str) -> d
 
     lookup_id = str(task_id or "").strip()
     result = get_background_task_result_or_snapshot(lookup_id) if lookup_id else None
-    if result is None and lookup_id:
+    if result is not None:
+        # 子代理 task_id ≡ tool_call_id（不在 tasks 表，task owner 链查不到 →
+        # require_task_visible 会误 404，前端面板因此永远拿不到 transcript）。
+        # 改按父线程鉴权：与主对话同一权限域（本地无凭据请求放行，同主聊天）。
+        parent_thread = str(getattr(result, "thread_id", None) or "").strip()
+        if parent_thread:
+            require_thread_visible(http_request, parent_thread)
+    else:
+        require_task_visible(http_request, task_id)
         try:
             from evoflow.collab.storage import find_subtask_row_by_id, get_project_storage
 

@@ -32,7 +32,9 @@ export function runSidePanelHeavyMountEffect(
     queueMicrotask(() => ctx.setSidePanelHeavyMount(false))
     return
   }
-  queueMicrotask(() => ctx.setSidePanelHeavyMount(false))
+  // 冷开：首帧保持 boot shell，下一帧再挂重面板。
+  // 已开着时切 write / workflow 等依赖 → 禁止再 false→true，否则 file/Python
+  // 预览会整页卸载重挂（侧栏闪烁、像在频繁刷新）。
   const id = requestAnimationFrame(() => ctx.setSidePanelHeavyMount(true))
   return () => cancelAnimationFrame(id)
 }

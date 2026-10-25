@@ -60,16 +60,35 @@ export function ConversationAgentToolCallRow({
       failureStage: "subagent_open",
     });
   }, [childSessionId, context, subagentType, title]);
-  const agentSummaryAction = useMemo(
-    () =>
-      canOpenChildSession && childSessionId
-        ? {
-            onActivate: handleOpenChildSession,
-            testId: testId(TID_V4_SUBAGENT_OPEN_SIDE_PANE, childSessionId),
-          }
-        : undefined,
-    [canOpenChildSession, childSessionId, handleOpenChildSession],
-  );
+  // EvoFlow：子代理是 executor task 而非独立会话线程，没有 childSessionId。
+  // 摘要行点击经宿主 onOpenSubagentToolCall 按 toolCallId 联接 subagentTasks
+  // 打开右侧实时 transcript——与未配对路径（ConversationRowView）同一入口。
+  const openSubagentTranscript = context.onOpenSubagentToolCall;
+  const handleOpenSubagentTranscript = useCallback(() => {
+    openSubagentTranscript?.(item.row.toolCallId);
+  }, [openSubagentTranscript, item.row.toolCallId]);
+  const agentSummaryAction = useMemo(() => {
+    if (canOpenChildSession && childSessionId) {
+      return {
+        onActivate: handleOpenChildSession,
+        testId: testId(TID_V4_SUBAGENT_OPEN_SIDE_PANE, childSessionId),
+      };
+    }
+    if (openSubagentTranscript) {
+      return {
+        onActivate: handleOpenSubagentTranscript,
+        testId: `agent-summary-action-${item.row.toolCallId}`,
+      };
+    }
+    return undefined;
+  }, [
+    canOpenChildSession,
+    childSessionId,
+    handleOpenChildSession,
+    openSubagentTranscript,
+    handleOpenSubagentTranscript,
+    item.row.toolCallId,
+  ]);
 
   // Agent 工具行和普通工具行同属工作流，不能在配对壳上额外加 px-4，
   // 否则会和未配对 toolCall 行产生左右缩进差异。

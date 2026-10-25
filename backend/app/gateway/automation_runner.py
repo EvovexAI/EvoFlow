@@ -1489,11 +1489,13 @@ async def _run_one_task(
         try:
             from evoflow.persistence import automation_repositories as auto_repo
 
+            # Hand-off is terminal for this history row (append-only; downstream
+            # lives in Task Center). Use ``dispatched``, not ``queued``.
             rec: dict[str, Any] = {
                 "run_id": run_id,
                 "started_at": record_started,
                 "trigger_type": trigger_type,
-                "status": "fail" if err else "queued",
+                "status": "fail" if err else "dispatched",
                 "output": "\n".join(lines),
                 "error": err or "",
                 "duration_seconds": duration_seconds,
@@ -1577,11 +1579,12 @@ async def _run_one_task(
         try:
             from evoflow.persistence import automation_repositories as auto_repo
 
+            # Same as workflow: enqueue success is a terminal dispatch outcome.
             rec: dict[str, Any] = {
                 "run_id": run_id,
                 "started_at": record_started,
                 "trigger_type": trigger_type,
-                "status": "fail" if err else "queued",
+                "status": "fail" if err else "dispatched",
                 "output": "\n".join(lines),
                 "error": err or "",
                 "duration_seconds": duration_seconds,

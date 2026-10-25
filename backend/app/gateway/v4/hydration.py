@@ -358,6 +358,10 @@ def hydrate_session_from_transcript(hub: Any, thread_id: str) -> int:
         header_row_id = next_row_id()
         rows: list[dict[str, Any]] = []
         tool_row_by_call_id: dict[str, dict[str, Any]] = {}
+        # subagent 工具（task_id ≡ tool_call_id）→ 从 args 解析出的元数据。
+        # tool 结果到达时据此合成 kind:"subagent" 行（ZCode 契约：subagent 镜像
+        # 事件进事件日志；冷恢复没有镜像事件，用 transcript 工具行重建）。
+        subagent_meta_by_call_id: dict[str, dict[str, str]] = {}
         for msg in turn["messages"]:
             role = str(msg.get("role") or "")
             msg_id = str(msg.get("id") or msg.get("message_id") or "")
@@ -424,6 +428,20 @@ def hydrate_session_from_transcript(hub: Any, thread_id: str) -> int:
                     rows.append(row)
                     if tcid:
                         tool_row_by_call_id[tcid] = row
+                        if str(tc.get("name") or "").strip().lower() == "subagent":
+                            try:
+                                args_obj = json.loads(args_text) if args_text else None
+                            except ValueError:
+                                args_obj = None
+                            desc = ""
+                            sa_type = ""
+                            if isinstance(args_obj, dict):
+                                desc = str(args_obj.get("description") or "").strip()
+                                sa_type = str(args_obj.get("subagent_type") or "").strip()
+                            subagent_meta_by_call_id[tcid] = {
+                                "subagentType": sa_type or "general",
+                                "summary": desc or "子任务",
+                            }
                 text = _text_from_message_content(payload.get("content") if isinstance(payload, dict) else None)
                 if text:
                     row = {
@@ -459,6 +477,29 @@ def hydrate_session_from_transcript(hub: Any, thread_id: str) -> int:
                     if status == "error":
                         err_text = str((target["output"] or {}).get("text") or out_text)
                         target["error"] = {"code": "tool_error", "message": err_text[:2000]}
+                    # subagent 工具行 → 合成 kind:"subagent" 镜像行（状态映射对齐
+                    # live 镜像：completed→success，error→failed）。summaryText 优先
+                    # 用任务描述，缺失时回退结果正文前 160 字。
+                    meta = subagent_meta_by_call_id.pop(tcid, None)
+                    if meta is not None:
+                        fallback_summary = out_text.strip()[:160]
+                        rows.append(
+                            {
+                                "rowId": next_row_id(),
+                                "turnId": turn_id,
+                                "kind": "subagent",
+                                "parentToolCallId": tcid,
+                                "subagentType": meta["subagentType"],
+                                "status": "failed" if status == "error" else "success",
+                                "summaryText": meta["summary"]
+                                if meta["summary"] != "子任务"
+                                else (fallback_summary or "子任务"),
+                                "createdAt": created_at,
+                                "createdAtSeq": 0,
+                                "startedAt": created_at,
+                                "endedAt": created_at,
+                            }
+                        )
                     continue
                 # 孤儿 tool 行（call 不在本轮 assistant 里）：独立成行。
                 tname = str(msg.get("tool_name") or msg.get("name") or "tool").strip() or "tool"

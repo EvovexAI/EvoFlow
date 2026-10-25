@@ -137,7 +137,8 @@ describe('open-right-stage-file (side pane, not fullscreen modal)', () => {
     )
     const snap = rightStageStore.getSnapshot()
     expect(snap.tabs).toHaveLength(2)
-    expect(snap.activeKey).toBe('codeViewer:codeViewer:a.md')
+    // type:file 走 file 标签，不再占 codeViewer
+    expect(snap.activeKey).toBe('file:a.md')
   })
 
   it('file preview opens file kind in right stage', () => {
@@ -168,15 +169,15 @@ describe('open-right-stage-file (side pane, not fullscreen modal)', () => {
     expect(snap.collapsed).toBe(false)
   })
 
-  it('markdown file link maps to codeViewer source', () => {
+  it('markdown file link maps to file preview tab', () => {
     showRightStageFromFileLink(
       { path: 'D:/proj/readme.md', label: 'readme.md', workspacePath: 'D:/proj' },
       { sessionKey: 'sess-3' },
     )
     const snap = rightStageStore.getSnapshot()
-    const source = snap.tabs[0]?.data?.source as { type?: string; path?: string }
-    expect(source?.type).toBe('file')
-    expect(source?.path).toBe('D:/proj/readme.md')
+    expect(snap.tabs[0]?.kind).toBe('file')
+    expect(snap.tabs[0]?.data?.path).toBe('D:/proj/readme.md')
+    expect(snap.tabs[0]?.data?.name).toBe('readme.md')
   })
 
   it('hide() default primary must not close active collab-workflow (RUN_FINISHED bug)', () => {

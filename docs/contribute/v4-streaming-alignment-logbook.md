@@ -424,3 +424,56 @@ EOF
 - 测试：`tests/test_v4_command_queue.py` 11 例 + stop 5 例全绿。
 - 仍遗留（批次二）：生产链路 composer 排队路由、retry/editUserQuery/compact、
   pendingInteractions、Gen UI、stream-idle-timeout。
+
+## 九、批次记录：右侧 workspace-browse 挂 ZCode 原生 WorkspaceFileTree（2026-10-25）
+
+分析 ZCode 的 workspace-file-tree 全套（22 文件，vendored 早已在 `zcode-ui/workspace-file-tree/`）
+并接入 EvoFlow 右侧面板。此前 workspace-browse 用的是 kv 树（`react/components/WorkspaceFileTree.tsx`），
+ZCode 原生树的虚拟化行 / 吸顶文件夹 / 搜索 / 只看已更改 / Git 着色 / 空目录自动合并 / watcher 刷新全部缺失。
+
+- **后端**（`workspaces.py` 新四端点，全部实测）：`GET /listdir`（绝对路径 + 越界校验，
+  返回 ZCode FileEntry 形状）、`GET /git_status`（`git status --porcelain=v1 -z --branch` 解析成
+  GitRefreshResult，非 git 目录 200+isRepository:false）、`POST /git_ignored_paths`
+  （`git check-ignore -z --stdin` 批量）、`GET /list_files`（有界 os.walk 2 万条，跳 _DEFAULT_IGNORE）。
+- **服务层**：`createEvoflowPartialServices` 扩容——fileService.readdir、
+  listWorkspaceFilesLength/Range（list_files → 前端 packWorkspaceFileEntries 打包 + 15s 缓存）、
+  gitService（refresh/getIgnoredPaths）、fileWatcherService 从 no-op 升级为**轮询实现**
+  （目录比 readdir 签名、文件比 Range 探测 size，4s，状态翻转才发事件）。
+- **挂载**：`V4WorkspaceFileTreePane`（新，宿主装配 Intl+Store+Platform+ServiceProvider，
+  同 V4PreviewPane 模式）→ `render-right-stage-body` 的 workspace-browse 分支：
+  有 `effectiveWorkspaceRoot` 时挂 ZCode 树；`'write'` 写入预览与无根（thread 沙箱）会话回落 kv 树。
+- 提交 `eae8ab0f`（临时索引方式——当时共享仓库正被队友批量 stage，CAS update-ref 只带本批 4 文件；
+  V4ZCodeTimeline/render-right-stage-body 内队友已完成的同工作树内容一并入库，内容与工作树一致）。
+- 注意：后端改动需重启 gateway；新建了前端文件需重启 vite dev。
+
+## 十、file 标签 ZCode 化——顶部文件路径面包屑（2026-10-25，提交 b2f0e16e）
+
+用户指认"顶部显示文件路径的 UI"未复用 ZCode：`file` kind 一直渲染 kv `WorkspaceFilePreviewPanel`
+（自家路径条样式）。本次在 `render-right-stage-body` 的 file 分支接入 ZCode 正式件：
+
+- 有 `root || threadId` 且无 `data.poll`/`focusAnnotation` 时渲染 `V4PreviewPane`
+  （source type:"file"）——顶部路径条 = PreviewPane 的 CodeViewerBreadcrumb（mask 滚动/
+  相对化/token 主题），与工具卡 diff 视图同一套。
+- 沙箱（仅 threadId）也走 V4PreviewPane：serve-file 按 thread_id 解析相对路径。
+- poll/focusAnnotation 场景回落 kv 面板——全仓无生产方（纯保险分支），后续如接
+  行级聚焦再评估 ZCode 侧等价物。
+
+## 十一、关闭工作流标签清场 bug + outputs/b.txt 404 诊断（2026-10-25，提交 30b62a9a）
+
+**① 顶部标签条**：仍是 EvoFlow RightStagePanel 自有样式（tab 条 chrome 换 ZCode
+AnimatedSidePanePanel 属最后一个遗留大项，未做）。标签条本身照常工作，未受 file 树/预览切换影响。
+
+**② 关一个工作流签全没了（已修）**：三条关闭路径（标签条 X / 关闭其他 / 面板体内关闭钮）
+最终都进 `closeCollabExecPanel → hideRightStageIfKind('collab-workflow')` ——整 kind 清场。
+修复：`closeRightStageTabByKey` 的 collab-workflow 分支改为「dismiss 该签自己的任务
+（`{sessionKey}:{mainTaskId}`，防当前任务 bump 重新拉起）+ 单签 closeTab」；新增
+`closeCollabWorkflowSurface` 供面板体内关闭钮同语义。workspace-browse / mind-map 仍走
+kind 级关闭（单例语义，未动）。
+
+**③ outputs/b.txt "文件不存在"（404 是真的）**：磁盘上 `D:/dev/github/EvoFlow/outputs/b.txt`
+从未存在；文件实际落在 **幽灵树 `D:\d\dev\github\EvoFlow\outputs\b.txt`** ——子代理写链路把
+`D:/dev/...` 搞成了 `D:/d/dev/...`（盘符剥了又按 git-bash 风格 `d/...` 段接回，证据：
+stream-compare 日志里 bash `cd "D:/d/dev/github/EvoFlow/outputs"` 成功建目录写文件；
+`resolve_tool_path` 本身对三种形态实测都解析正确，mangling 发生在更上游的子代理执行环境）。
+已把幽灵树里的 b.txt（"this is file B"）复制回真实路径恢复用户预期；**上游写链路的盘符
+mangling 是独立 bug 待查**（与 PreviewPane 切换无关，旧 kv 面板同样会 404）。

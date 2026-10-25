@@ -169,14 +169,43 @@ async def create_agent_tool(
             cfg_repo.save_agent_soul(agent_code, str(soul))
         logger.info(f"Created agent '{agent_code}' successfully")
 
-        # Read back the persisted config so tags (possibly inferred) are accurate.
+        # Read back the persisted config so tags/bindings (possibly inferred) are accurate.
+        created_tags = list(agent_config.get("tags") or [])
+        created_tools = list(agent_config.get("tools") or []) if agent_config.get("tools") is not None else None
+        created_skills = list(agent_config.get("skills") or []) if agent_config.get("skills") is not None else []
+        created_mcp = list(agent_config.get("mcp_servers") or []) if agent_config.get("mcp_servers") is not None else []
         try:
             from evoflow.config.agents_config import load_agent_config as _load_created
 
             created_cfg = _load_created(agent_code)
-            created_tags = list(getattr(created_cfg, "tags", []) or []) if created_cfg else list(agent_config.get("tags") or [])
+            if created_cfg:
+                created_tags = list(getattr(created_cfg, "tags", []) or []) or created_tags
+                if getattr(created_cfg, "tools", None) is not None:
+                    created_tools = list(created_cfg.tools or [])
+                else:
+                    created_tools = None
+                created_skills = list(getattr(created_cfg, "skills", None) or [])
+                created_mcp = list(getattr(created_cfg, "mcp_servers", None) or [])
         except Exception:
-            created_tags = list(agent_config.get("tags") or [])
+            pass
+
+        if created_tools is None:
+            tools_mode = "inherit_all"
+            tools_desc = "inherit-all"
+        elif created_tools:
+            tools_mode = "allowlist"
+            tools_desc = ",".join(created_tools[:8]) + ("…" if len(created_tools) > 8 else "")
+        else:
+            tools_mode = "empty"
+            tools_desc = "none"
+        skills_desc = ",".join(created_skills[:8]) + ("…" if len(created_skills) > 8 else "") if created_skills else "none"
+        mcp_desc = ",".join(created_mcp[:8]) + ("…" if len(created_mcp) > 8 else "") if created_mcp else "none"
+        bindings = {
+            "tools_mode": tools_mode,
+            "tools": created_tools,
+            "skills": created_skills,
+            "mcp_servers": created_mcp,
+        }
 
         return json.dumps(
             {
@@ -186,7 +215,15 @@ async def create_agent_tool(
                 "agent_type": agent_type,
                 "tags": created_tags,
                 "description": description,
-                "message": f"Agent '{agent_code}' created successfully (tags={created_tags}). You can now use it by specifying assigned_agent='{agent_code}' when creating subtasks.",
+                "bindings_applied": bindings,
+                "tools": created_tools,
+                "skills": created_skills,
+                "mcp_servers": created_mcp,
+                "message": (
+                    f"Agent '{agent_code}' created successfully "
+                    f"(tags={created_tags}; tools={tools_desc}; skills={skills_desc}; mcp={mcp_desc}). "
+                    f"You can now use it by specifying assigned_agent='{agent_code}' when creating subtasks."
+                ),
             },
             ensure_ascii=False,
         )

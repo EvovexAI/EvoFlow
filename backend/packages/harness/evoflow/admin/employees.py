@@ -485,6 +485,60 @@ def get_role(agent_code: str, *, recent_limit: int = 10) -> dict[str, Any]:
     return result
 
 
+def _effective_bindings_applied(
+    agent_row: dict[str, Any] | None,
+    role_detail: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Effective tools/skills/MCP/knowledge after create or hire (for verification)."""
+    agent = agent_row if isinstance(agent_row, dict) else {}
+    detail = role_detail if isinstance(role_detail, dict) else {}
+    cfg = detail.get("config") if isinstance(detail.get("config"), dict) else {}
+
+    # Prefer create_agent's summary when present; overlay role-effective fields.
+    applied = dict(agent.get("bindings_applied") or {}) if isinstance(agent.get("bindings_applied"), dict) else {}
+
+    tools = cfg.get("tools")
+    if tools is None:
+        tools = applied.get("tools", agent.get("tools"))
+    tool_groups = cfg.get("tool_groups")
+    if tool_groups is None:
+        tool_groups = applied.get("tool_groups", agent.get("tool_groups"))
+    skills = cfg.get("skills")
+    if skills is None:
+        skills = applied.get("skills", agent.get("skills"))
+    mcp = applied.get("mcp_servers", agent.get("mcp_servers"))
+    knowledge = cfg.get("knowledge_vault_ids")
+    if knowledge is None:
+        knowledge = applied.get("knowledge_vault_ids", agent.get("knowledge_vault_ids"))
+
+    if "tools_mode" in applied:
+        tools_mode = str(applied.get("tools_mode") or "empty")
+    elif tools is None:
+        tools_mode = "inherit_all"
+    elif list(tools or []):
+        tools_mode = "allowlist"
+    else:
+        tools_mode = "empty"
+
+    pack = applied.get("capability_pack") or agent.get("capability_pack") or detail.get("capability_pack")
+    summary: dict[str, Any] = {
+        "tools_mode": tools_mode,
+        "tools": tools,
+        "skills": list(skills or []) if skills is not None else [],
+        "mcp_servers": list(mcp or []) if mcp is not None else [],
+        "tool_groups": list(tool_groups or []) if tool_groups is not None else [],
+        "knowledge_vault_ids": list(knowledge or []),
+    }
+    if pack:
+        summary["capability_pack"] = pack
+    # Keep semantics/hint from create when available.
+    if applied.get("semantics"):
+        summary["semantics"] = applied.get("semantics")
+    if applied.get("hint"):
+        summary["hint"] = applied.get("hint")
+    return summary
+
+
 def hire(data: dict[str, Any]) -> dict[str, Any]:
     """Hire an existing Agent as a duty employee (岗位). Does not create the Agent."""
     if not isinstance(data, dict):
@@ -505,7 +559,9 @@ def hire(data: dict[str, Any]) -> dict[str, Any]:
     except NotFoundError as e:
         raise ValidationError(f"Agent '{agent_code}' not found; create it with agents.create before hiring") from e
 
-    return _hire_existing_agent(agent_code, agent_row, data)
+    detail = _hire_existing_agent(agent_code, agent_row, data)
+    detail["bindings_applied"] = _effective_bindings_applied(agent_row, detail)
+    return detail
 
 
 def _coerce_responsibilities(value: Any) -> list[str]:
@@ -654,8 +710,6 @@ def create_employee(data: dict[str, Any]) -> dict[str, Any]:
         hire_payload.pop(key, None)
     detail = _hire_existing_agent(agent_code, agent_row, hire_payload)
     detail["agent_created"] = created_agent
-    if isinstance(agent_row, dict) and agent_row.get("bindings_applied"):
-        detail["bindings_applied"] = agent_row.get("bindings_applied")
     if isinstance(agent_row, dict) and agent_row.get("capability_pack"):
         detail["capability_pack"] = agent_row.get("capability_pack")
     if isinstance(agent_row, dict) and agent_row.get("hint"):
@@ -667,6 +721,8 @@ def create_employee(data: dict[str, Any]) -> dict[str, Any]:
             (detail.get("hint") or "")
             + " 能力包：platform agents.bindings → packs（research|writer|duty|coding|none）。"
         ).strip()
+    # Always attach an effective bindings snapshot so callers can verify what landed.
+    detail["bindings_applied"] = _effective_bindings_applied(agent_row, detail)
     return detail
 
 

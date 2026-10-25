@@ -249,3 +249,61 @@ describe("parseV4WireSseBlocks", () => {
     expect(rest).toBe("");
   });
 });
+
+describe("evoflow mirror subagent rows", () => {
+  // agui_mirror task_* → kind:"subagent" 行与 hydration 合成行的 wire 形状。
+  // 后端改字段时这里必须跟着改——schema 拒收会让整行被丢（旧端兼容闭集）。
+  const now = Date.now();
+
+  const mirrorRunning = {
+    rowId: 41,
+    turnId: "run-s1",
+    kind: "subagent",
+    parentToolCallId: "tc-sub",
+    subagentType: "code-agent",
+    status: "running",
+    summaryText: "读取项目概览",
+    createdAt: now,
+    createdAtSeq: 7,
+    startedAt: now,
+  };
+
+  it("running subagent row from task_started parses", () => {
+    expect(conversationRowSchema.safeParse(mirrorRunning).success).toBe(true);
+  });
+
+  it("terminal subagent rows parse for all statuses", () => {
+    for (const status of ["success", "failed", "cancelled"] as const) {
+      const row = {
+        ...mirrorRunning,
+        status,
+        summaryText: "仓库形态：前后端分离。",
+        endedAt: now,
+      };
+      const result = conversationRowSchema.safeParse(row);
+      expect(result.success).toBe(true);
+    }
+  });
+
+  it("hydration subagent row parses", () => {
+    const row = {
+      rowId: 12,
+      turnId: "run-h1",
+      kind: "subagent",
+      parentToolCallId: "tc-h1",
+      subagentType: "code-agent",
+      status: "success",
+      summaryText: "读取项目概览",
+      createdAt: now,
+      createdAtSeq: 0,
+      startedAt: now,
+      endedAt: now,
+    };
+    expect(conversationRowSchema.safeParse(row).success).toBe(true);
+  });
+
+  it("status vocabulary is closed — timed_out must be mapped before sending", () => {
+    const row = { ...mirrorRunning, status: "timed_out" };
+    expect(conversationRowSchema.safeParse(row).success).toBe(false);
+  });
+});

@@ -1148,6 +1148,7 @@ class V4Mirror:
         task_id = str(chunk.get("task_id") or "").strip()
         if not task_id:
             return
+        meta = st.subagent_meta.get(task_id, {})
         rid = st.subagent_rows.get(task_id)
         if rid is None:
             # task_started 漏收（进程重启/乱序丢帧）：终态直接落行，宁可状态跳变
@@ -1170,9 +1171,11 @@ class V4Mirror:
                 "turnId": turn_id,
                 "kind": "subagent",
                 "parentToolCallId": task_id,
-                "subagentType": str(chunk.get("subagent_type") or "").strip() or "general",
+                "subagentType": str(chunk.get("subagent_type") or "").strip()
+                or meta.get("subagentType")
+                or "general",
                 "status": status,
-                "summaryText": (summary[:512] if summary else ""),
+                "summaryText": (summary[:512] if summary else meta.get("description", "")),
                 "createdAt": now_ms,
                 "createdAtSeq": self._seq_now(tid),
                 "endedAt": now_ms,
