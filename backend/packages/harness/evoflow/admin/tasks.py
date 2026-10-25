@@ -1508,8 +1508,22 @@ def create_task(
         raise ValidationError("name is required")
     status_norm = _normalize_status(initial_status) or "pending"
     now = utc_now_iso_z()
-    assignee_norm = str(assignee or "").strip() or None
-    role_norm = str(assigned_role or "").strip() or None
+    # Last line of defence for task ownership.  ``assert_can_mutate_assigned_task``
+    # compares the actor against ``assigned_to`` literally, so a row owned by
+    # "me" or by a session key can only be closed by a privileged actor — that
+    # is how one unowned pending task appeared per automation round.  Resolve
+    # to a real agent_code here so every creation path (tool / CLI / handlers /
+    # platform) lands on an owned row.
+    from evoflow.collab.task_assignee import resolve_task_assignee
+
+    assignee_res = resolve_task_assignee(assignee)
+    assignee_norm = assignee_res.code
+    role_norm = str(assigned_role or "").strip() or assignee_res.role_name or None
+    if assignee_res.is_fallback:
+        # The caller asked for an owner we could not honour.  The row now
+        # belongs to the system front desk; do not wake it for a shell task
+        # nobody actually asked for.
+        start = False
     raised_norm = stamp_raised_by(raised_by_arg=raised_by) or None
     risk_norm = str(risk_level or "").strip() or None
     action_norm = str(action_type or "").strip() or None
