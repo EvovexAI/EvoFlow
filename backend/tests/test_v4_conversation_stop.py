@@ -65,7 +65,8 @@ async def test_stop_cancels_running_turn_and_writes_terminating_frames():
     # echo 模式不依赖 LLM env；sleep 路径能让 cancel 命中 await 点
     os.environ.pop("EVOFLOW_V4_LLM", None)
     sess = _make_echo_sess("test-stop-A")
-    V4_CONVERSATION_HUB._start_turn(sess, "请给我讲个长故事，长到停不下来那种")  # type: ignore[attr-defined]
+    # 长文本（echo 20ms/64 字符块）保证 50ms 断言时 turn 仍在流式
+    V4_CONVERSATION_HUB._start_turn(sess, "请给我讲个长故事，" * 80)  # type: ignore[attr-defined]
     # 等 turn 真正开始（_run_turn 头部 _patch_phase 已发出 + assistant row 已 append）
     await asyncio.sleep(0.05)
     assert sess.turn_task is not None
@@ -111,7 +112,7 @@ async def test_abort_alias_works_same_as_stop():
     """type='abort' 与 type='stop' 等价（旧命名兼容）。"""
     os.environ.pop("EVOFLOW_V4_LLM", None)
     sess = _make_echo_sess("test-abort-1")
-    V4_CONVERSATION_HUB._start_turn(sess, "再来一个超长输入")  # type: ignore[attr-defined]
+    V4_CONVERSATION_HUB._start_turn(sess, "再来一个超长输入" * 60)  # type: ignore[attr-defined]
     await asyncio.sleep(0.05)
 
     ack = await V4_CONVERSATION_HUB.send_command({
@@ -134,7 +135,8 @@ async def test_stop_on_unknown_session_rejected():
         "payload": {},
     })
     assert ack["status"] == "rejected", ack
-    assert ack["reasonCode"] == "sessionNotFound"
+    # reasonCode 对齐上游 CommandInbox 命名（proto.* 前缀）
+    assert ack["reasonCode"] == "proto.sessionNotFound"
 
 
 @pytest.mark.asyncio

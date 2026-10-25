@@ -270,7 +270,10 @@ def _platform_ui_display_block(
     payload: dict[str, Any] | None,
     content: str,
 ) -> dict[str, Any] | None:
-    """Build ``kind:"platform_ui"`` for bind-channel QR under the V4 platform tool card.
+    """Build V4 ``output.display.kind:"platform_ui"`` for the product chat timeline.
+
+    【产品默认 · V4】绑渠道二维码 + workflow.run 等进度 CTA（actions/autoOpen/openStage）。
+    ConversationTurnGroup 读此 display 拉开右栏；旧 AG-UI publish-platform-* 是旁路。
 
     Prefers the AG-UI wire ``platform_ui`` sibling (same idea as ``cua_display``);
     falls back to parsing tool JSON ``ui`` / top-level ``qr_url``.
@@ -303,10 +306,41 @@ def _platform_ui_display_block(
     qr = str(ui.get("qrUrl") or ui.get("qr_url") or "").strip()
     session_id = str(ui.get("sessionId") or ui.get("session_id") or "").strip()
     action = str(ui.get("action") or "").strip()
-    if not qr and not session_id and action != "employees.bind_channel_begin":
-        # Non-bind platform cards don't need a special display block.
+    # 进度侧栏 CTA（workflow.run autoOpen 等）：与绑渠道二维码并列，供 V4 时间线打开右栏
+    progress_actions: list[dict[str, Any]] = []
+    raw_actions = ui.get("actions")
+    if isinstance(raw_actions, list):
+        for row in raw_actions:
+            if not isinstance(row, dict):
+                continue
+            label = str(row.get("label") or "").strip()
+            open_stage = row.get("openStage") if isinstance(row.get("openStage"), dict) else None
+            if not label or not open_stage:
+                continue
+            kind = str(open_stage.get("kind") or "").strip()
+            if not kind:
+                continue
+            entry: dict[str, Any] = {
+                "label": label[:64],
+                "openStage": {
+                    "kind": kind[:64],
+                    "data": open_stage.get("data")
+                    if isinstance(open_stage.get("data"), dict)
+                    else {},
+                },
+            }
+            if row.get("autoOpen") is True:
+                entry["autoOpen"] = True
+            route = str(row.get("route") or "").strip()
+            if route:
+                entry["route"] = route[:256]
+            progress_actions.append(entry)
+            if len(progress_actions) >= 4:
+                break
+    if not qr and not session_id and not progress_actions and action != "employees.bind_channel_begin":
+        # 既无绑码也无进度 CTA → 不需要特殊 display
         return None
-    if not qr and not session_id:
+    if not qr and not session_id and not progress_actions:
         return None
     bind_raw = str(ui.get("bindStatus") or ui.get("bind_status") or "").strip().lower()
     bind_status = (
@@ -338,6 +372,8 @@ def _platform_ui_display_block(
         block["entityLabel"] = label[:256]
     if bind_status:
         block["bindStatus"] = bind_status
+    if progress_actions:
+        block["actions"] = progress_actions
     return block
 
 

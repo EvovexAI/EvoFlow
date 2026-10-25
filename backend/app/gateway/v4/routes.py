@@ -232,6 +232,26 @@ async def v4_conversation_command(body: dict[str, Any]) -> JSONResponse:
     return JSONResponse(ack)
 
 
+@conversation_router.post("/command/query", summary="v4 command idempotency query (batch)")
+async def v4_conversation_command_query(body: dict[str, Any]) -> JSONResponse:
+    """对齐 zcode ``commandQueryV4``：批量幂等查询（1..64 keys）。
+
+    result ∈ CommandAck | "unknown"；unknown = 无事实（重试安全）。
+    """
+    keys = body.get("keys")
+    if not isinstance(keys, list) or not (1 <= len(keys) <= 64):
+        raise HTTPException(status_code=422, detail="keys must be an array of 1..64")
+    normalized = []
+    for key in keys:
+        if not isinstance(key, dict) or not key.get("commandId"):
+            raise HTTPException(status_code=422, detail="each key needs commandId")
+        normalized.append(
+            {"sessionId": key.get("sessionId"), "commandId": str(key["commandId"])}
+        )
+    results = await V4_CONVERSATION_HUB._inbox.query(normalized)  # type: ignore[attr-defined]
+    return JSONResponse({"results": results})
+
+
 @conversation_router.post("/resync", summary="v4 conversation resync (same-sub recovery)")
 async def v4_conversation_resync(body: dict[str, Any]) -> JSONResponse:
     """对齐 zcode ``resyncConversationV4``：重投完整 snapshot（recovery deliveryKind）。"""

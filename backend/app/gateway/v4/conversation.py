@@ -41,6 +41,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from app.gateway.v4.coalesce import coalesce_conversation_deltas
+from app.gateway.v4.command_inbox import CommandInbox
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +51,7 @@ _PHASE_DRAFT = "draft"
 _PHASE_RUNNING = "running"
 _PHASE_COMPLETED = "completedSuccess"
 _PHASE_ERROR = "error"
+_PHASE_INTERRUPTED = "completedInterrupted"
 
 # ZCode PROTOCOL_V4_LIMITS（shared/zcode-protocol-v4/core.ts）对齐项。
 _DELTA_RETENTION_MAX = 2000
@@ -109,16 +111,12 @@ def _minimal_usage() -> dict[str, Any]:
     }
 
 
-def _minimal_queue() -> dict[str, Any]:
-    return {"items": [], "autoDrain": True}
-
-
-def _minimal_config() -> dict[str, Any]:
+def _minimal_config(followup_mode: str = "queue") -> dict[str, Any]:
     return {
         "provider": "evoflow",
         "model": os.getenv("EVOFLOW_LLM_MODEL", "evoflow-default"),
         "thought": "",
-        "followupMode": "queue",
+        "followupMode": followup_mode,
     }
 
 
@@ -140,9 +138,44 @@ class _SessionState:
     # 权威 delta 日志：(seq, delta) 升序；保留窗淘汰后 floor = 淘汰段的最大 seq。
     delta_log: list[tuple[int, dict[str, Any]]] = field(default_factory=list)
     delta_log_floor: int = 0
+    # ── queue / 输入路由（对齐 ZCode v3.15.1 queue 命令组语义）────────────────
+    queue_items: list[dict[str, Any]] = field(default_factory=list)
+    """QueueItem intent 列表（vendored queueItemSchema 形状；FIFO 序即列表序）。"""
+    auto_drain: bool = True
+    """stop 后 = False（暂停队列）；setAutoDrain 恢复（对齐 queueStateSchema 注释）。"""
+    pause_reason: str | None = None
+    """stopped / manual / error；None = 未暂停。"""
+    followup_mode: str = "queue"
+    """turn running 时新输入的默认路由（queue=入队；guide 同入队但标记 guide）。"""
+    feedbacks: dict[str, str] = field(default_factory=dict)
+    """assistant 反馈（rowId/messageId → like|dislike）；v1 shell 只记录不持久化。"""
+    _queue_admission_seq: int = 0
+    """queue 项 admissionSeq 计数（与 command inbox 的 admission 序独立递增）。"""
 
     def control(self) -> dict[str, Any]:
         return _minimal_control(self.phase)
+
+    def turn_running(self) -> bool:
+        return self.turn_task is not None and not self.turn_task.done()
+
+    def queue_state(self) -> dict[str, Any]:
+        """协议形状 = vendored ``queueStateSchema``（items/autoDrain/pauseReason）。"""
+        items: list[dict[str, Any]] = []
+        for pos, item in enumerate(self.queue_items):
+            entry = dict(item)
+            entry["order"] = {**entry.get("order", {}), "queuePosition": pos}
+            entry["dispatch"] = {"state": "queued"}
+            items.append(entry)
+        state: dict[str, Any] = {"items": items, "autoDrain": self.auto_drain}
+        if self.pause_reason is not None:
+            state["pauseReason"] = self.pause_reason
+        return state
+
+    def input_routing(self) -> dict[str, Any]:
+        """对齐 ``inputRoutingSchema``：running 且 followup=queue → enqueue；其余 startNow。"""
+        if self.turn_running() and self.followup_mode == "queue":
+            return {"mode": "enqueue"}
+        return {"mode": "startNow"}
 
 
 @dataclass
@@ -185,6 +218,7 @@ class V4ConversationHub:
     def __init__(self) -> None:
         self._sessions: dict[str, _SessionState] = {}
         self._subscriptions: dict[str, _Subscription] = {}
+        self._inbox = CommandInbox(host=self)  # type: ignore[arg-type]
         self._lock = asyncio.Lock()
         self._write_lock = threading.RLock()
         self._loop: asyncio.AbstractEventLoop | None = None
@@ -627,15 +661,15 @@ class V4ConversationHub:
             "revision": sess.revision,
             "control": sess.control(),
             "availability": _minimal_availability(),
-            "inputRouting": {"mode": "startNow"},
+            "inputRouting": sess.input_routing(),
             "meta": {
                 "title": sess.title,
                 "titleSource": "generated" if sess.title else "default",
             },
-            "config": _minimal_config(),
+            "config": _minimal_config(sess.followup_mode),
             "modelTransition": None,
             "usage": _minimal_usage(),
-            "queue": _minimal_queue(),
+            "queue": sess.queue_state(),
             "pendingInteractions": [],
             "pendingCommands": [],
             "backgroundWorks": [],
@@ -712,38 +746,353 @@ class V4ConversationHub:
         }
 
     # -- 命令 -----------------------------------------------------------------
+    # 对齐 ZCode v3.15.1 原生命令层（bootstrap/zcode-protocol-v4/command-inbox.ts +
+    # commands/）：admission（幂等/CAS/串行）在 CommandInbox，决策在 handler 直驱
+    # 会话态。语义基准见 docs/contribute/v3.15.1-port-plan.md §1。
 
     async def send_command(self, envelope: dict[str, Any]) -> dict[str, Any]:
-        command_type = str(envelope.get("type", ""))
-        command_id = str(envelope.get("commandId", ""))
-        payload = envelope.get("payload") or {}
+        """``CommandEnvelope`` -> ``CommandAck``（含幂等重放/stale/noop 裁决）。"""
+        self._capture_loop()
+        outcome = await self._inbox.handle(envelope)
+        if outcome.kind == "ack":
+            assert outcome.ack is not None
+            return outcome.ack
+        env = outcome.envelope or {}
+        ack = await self._execute_command(env, outcome)
+        outcome.settle(ack)
+        return ack
+
+    async def _execute_command(
+        self,
+        env: dict[str, Any],
+        outcome: Any,
+    ) -> dict[str, Any]:
+        # 让刚 create_task 的 turn task 先跑完 prologue（patch running + rows）：
+        # 否则紧随其后的 stop 会取消一个从未启动的 task——协程体不执行，
+        # interrupted 终态帧永远不会写（cancel-before-start 竞态）。
+        await asyncio.sleep(0)
+        command_id = str(env.get("commandId") or "")
+        command_type = str(env.get("type") or "")
+        session_id = str(env.get("sessionId") or "")
+        payload = env.get("payload") or {}
 
         if command_type == "createSession":
             return self._handle_create_session(command_id, payload)
 
-        if command_type == "sendText":
-            session_id = str(envelope.get("sessionId") or "")
-            sess = self._sessions.get(session_id)
-            if sess is None:
-                return self._reject(command_id, "sessionNotFound", f"unknown session {session_id}")
-            text = str(payload.get("text", ""))
-            if not text.strip():
-                return self._reject(command_id, "emptyInput", "text is empty")
-            if sess.turn_task is not None and not sess.turn_task.done():
-                return self._reject(command_id, "busy", "a turn is already running")
-            if not sess.title:
-                sess.title = text[:24]
-            sess.revision += 1
-            revision = sess.revision
-            self._start_turn(sess, text)
-            return {
-                "commandId": command_id,
-                "status": "accepted",
-                "revisionAtDecision": revision,
-            }
+        sess = self._sessions.get(session_id)
+        if sess is None:
+            return self._reject(command_id, "sessionNotFound", f"unknown session {session_id}")
 
-        # 其余命令（abort/fork/steer/...）H3-C 逐步补齐；先显式拒绝。
+        if command_type in ("sendText",):
+            return self._handle_send_text(sess, command_id, payload)
+        if command_type in ("stop", "abort"):
+            return self._handle_stop(sess, command_id)
+        if command_type == "sendQueuedNow":
+            return self._handle_send_queued_now(sess, command_id, payload)
+        if command_type == "deleteQueueItem":
+            return self._handle_delete_queue_item(sess, command_id, payload)
+        if command_type == "editQueueItem":
+            return self._handle_edit_queue_item(sess, command_id, payload)
+        if command_type == "reorderQueueItem":
+            return self._handle_reorder_queue_item(sess, command_id, payload)
+        if command_type == "setAutoDrain":
+            return self._handle_set_auto_drain(sess, command_id, payload)
+        if command_type == "setFollowupMode":
+            return self._handle_set_followup_mode(sess, command_id, payload)
+        if command_type == "setAssistantFeedback":
+            return self._handle_set_assistant_feedback(sess, command_id, payload)
+
+        # 其余命令（fork/editUserQuery/retryTurn/compact/...）需 transcript 权威与
+        # workspace rewind，单独批次实施；先显式拒绝（计划文档 §6）。
         return self._reject(command_id, "unsupportedCommand", f"{command_type} not implemented yet")
+
+    # -- inbox host 面（CommandInboxHost）--------------------------------------
+
+    def get_revision(self, session_id: str) -> int | None:
+        sess = self._sessions.get(session_id)
+        return None if sess is None else sess.revision
+
+    def get_log_epoch(self, session_id: str) -> str | None:
+        sess = self._sessions.get(session_id)
+        return None if sess is None else sess.log_epoch
+
+    # -- ack 工具 --------------------------------------------------------------
+
+    def _accept(
+        self,
+        command_id: str,
+        revision: int,
+        result: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        ack: dict[str, Any] = {
+            "commandId": command_id,
+            "status": "accepted",
+            "revisionAtDecision": revision,
+        }
+        if result is not None:
+            ack["result"] = result
+        return ack
+
+    def _noop(self, command_id: str, reason: str) -> dict[str, Any]:
+        return {
+            "commandId": command_id,
+            "status": "noop",
+            "reasonCode": reason,
+            "revisionAtDecision": 0,
+        }
+
+    def _reject(self, command_id: str, reason_code: str, message: str) -> dict[str, Any]:
+        return {
+            "commandId": command_id,
+            "status": "rejected",
+            "reasonCode": reason_code,
+            "message": message,
+            "revisionAtDecision": 0,
+        }
+
+    # -- sendText（requestedDelivery 路由：startNow / queue / guide）-----------
+
+    def _handle_send_text(
+        self,
+        sess: _SessionState,
+        command_id: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        text = str(payload.get("text") or "")
+        if not text.strip():
+            return self._reject(command_id, "emptyInput", "text is empty")
+        requested = str(payload.get("requestedDelivery") or "").strip()
+
+        if sess.turn_running():
+            # running：requested 缺省按 followupMode 路由（queue=入队）；startNow 不抢占。
+            route = requested or ("queue" if sess.followup_mode == "queue" else "startNow")
+            if route == "startNow":
+                return self._reject(command_id, "busy", "a turn is already running")
+            item = self._build_queue_item(sess, command_id, text, route)
+            sess.queue_items.append(item)
+            sess.revision += 1
+            ack = self._accept(
+                command_id,
+                sess.revision,
+                result={
+                    "type": "sendText",
+                    "input": {"delivery": "queue", "inputId": item["queueItemId"]},
+                },
+            )
+            self._inbox.pin_live_input(sess.session_id, command_id, ack)
+            self._emit_queue_patch(sess)
+            return ack
+
+        # 空闲：queue/guide 空队列无入队意义，直接开 turn（对齐 CLI：空队列提升为立即执行）。
+        if not sess.title:
+            sess.title = text[:24]
+        sess.revision += 1
+        self._start_turn(sess, text)
+        return self._accept(
+            command_id,
+            sess.revision,
+            result={"type": "sendText", "input": {"delivery": "startNow", "inputId": command_id}},
+        )
+
+    def _build_queue_item(
+        self,
+        sess: _SessionState,
+        command_id: str,
+        text: str,
+        requested: str,
+    ) -> dict[str, Any]:
+        """QueueItem intent（形状 = vendored ``queueItemSchema``，strict）。"""
+        sess._queue_admission_seq += 1
+        return {
+            "sourceCommandId": command_id,
+            "queueItemId": f"queue_{command_id}",
+            "clientId": "evoflow-shell",
+            "kind": "sendText",
+            "text": text,
+            "attachments": [],
+            "delivery": {"requested": requested, "admitted": "queue"},
+            "order": {
+                "admissionSeq": sess._queue_admission_seq,
+                "queuePosition": len(sess.queue_items),
+            },
+            "steer": {"state": "notRequested"},
+            "dispatch": {"state": "queued"},
+            "admittedAt": int(time.time() * 1000),
+        }
+
+    def _emit_queue_patch(self, sess: _SessionState) -> None:
+        self.author_state_patch(sess.session_id, {"queue": sess.queue_state()})
+
+    # -- stop / abort ----------------------------------------------------------
+
+    def _handle_stop(self, sess: _SessionState, command_id: str) -> dict[str, Any]:
+        if not sess.turn_running():
+            return self._noop(command_id, "noRunningTurn")
+        # 对齐 queueStateSchema 注释：stop 后 autoDrain=False（暂停队列），setAutoDrain 恢复。
+        sess.auto_drain = False
+        sess.pause_reason = "stopped"
+        task = sess.turn_task
+        assert task is not None
+        task.cancel()
+        sess.revision += 1
+        return self._accept(command_id, sess.revision)
+
+    # -- queue 命令组（对齐 commands/handlers/queue.ts 语义）--------------------
+
+    def _find_queue_item(self, sess: _SessionState, queue_item_id: str) -> dict[str, Any] | None:
+        return next(
+            (i for i in sess.queue_items if i["queueItemId"] == queue_item_id), None
+        )
+
+    def _handle_send_queued_now(
+        self,
+        sess: _SessionState,
+        command_id: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        # idle 才提升（对齐 guard.queuePromotionBusy：running 时拒绝，避免抢占竞态）。
+        if sess.turn_running():
+            return self._reject(
+                command_id, "guard.queuePromotionBusy", "a turn is already running"
+            )
+        queue_item_id = str(payload.get("queueItemId") or "")
+        item = self._find_queue_item(sess, queue_item_id)
+        if item is None:
+            return self._reject(command_id, "queue.itemMissing", f"unknown queue item {queue_item_id}")
+        if item.get("kind") == "compact":
+            return self._reject(command_id, "guard.queueItemNotEditable", "compact item not supported yet")
+        sess.queue_items.remove(item)
+        sess.revision += 1
+        self._inbox.release_live_input(sess.session_id, str(item["sourceCommandId"]))
+        if not sess.title:
+            sess.title = item["text"][:24]
+        self._start_turn(sess, str(item["text"]))
+        self._emit_queue_patch(sess)
+        return self._accept(command_id, sess.revision)
+
+    def _handle_delete_queue_item(
+        self,
+        sess: _SessionState,
+        command_id: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        queue_item_id = str(payload.get("queueItemId") or "")
+        item = self._find_queue_item(sess, queue_item_id)
+        if item is None:
+            # 未命中（并发 drain/重复删除竞态）= noop，不算失败（对齐 V4CommandNoopError）。
+            return self._noop(command_id, "queue.itemMissing")
+        sess.queue_items.remove(item)
+        sess.revision += 1
+        self._inbox.release_live_input(sess.session_id, str(item["sourceCommandId"]))
+        self._emit_queue_patch(sess)
+        return self._accept(command_id, sess.revision)
+
+    def _handle_edit_queue_item(
+        self,
+        sess: _SessionState,
+        command_id: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        queue_item_id = str(payload.get("queueItemId") or "")
+        item = self._find_queue_item(sess, queue_item_id)
+        if item is None:
+            return self._noop(command_id, "queue.itemMissing")
+        if item.get("kind") == "compact":
+            # compact 是 typed maintenance intent；允许改文本会把它伪装成普通输入。
+            return self._reject(
+                command_id, "guard.queueItemNotEditable", f"queue item not editable: {queue_item_id}"
+            )
+        new_text = str(payload.get("newText") or "")
+        if not new_text.strip():
+            return self._reject(command_id, "emptyInput", "newText is empty")
+        item["text"] = new_text
+        sess.revision += 1
+        self._emit_queue_patch(sess)
+        return self._accept(command_id, sess.revision)
+
+    def _handle_reorder_queue_item(
+        self,
+        sess: _SessionState,
+        command_id: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        queue_item_id = str(payload.get("queueItemId") or "")
+        before_id = payload.get("beforeQueueItemId")
+        item = self._find_queue_item(sess, queue_item_id)
+        if item is None:
+            return self._noop(command_id, "queue.itemMissing")
+        sess.queue_items.remove(item)
+        if before_id is None:
+            sess.queue_items.append(item)  # null → 移到队尾（协议与上游同形）
+        else:
+            before = self._find_queue_item(sess, str(before_id))
+            index = sess.queue_items.index(before) if before is not None else len(sess.queue_items)
+            sess.queue_items.insert(index, item)
+        sess.revision += 1
+        self._emit_queue_patch(sess)
+        return self._accept(command_id, sess.revision)
+
+    def _handle_set_auto_drain(
+        self,
+        sess: _SessionState,
+        command_id: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        sess.auto_drain = bool(payload.get("autoDrain"))
+        sess.pause_reason = None if sess.auto_drain else sess.pause_reason or "manual"
+        sess.revision += 1
+        self._emit_queue_patch(sess)
+        # 不能只翻授权位：idle 暂停队列没有 active turn 可替它启动队首（对齐上游注释）。
+        self._maybe_auto_drain(sess, force=True)
+        return self._accept(command_id, sess.revision)
+
+    def _handle_set_followup_mode(
+        self,
+        sess: _SessionState,
+        command_id: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        mode = str(payload.get("mode") or "").strip()
+        if mode:
+            sess.followup_mode = mode
+            sess.revision += 1
+            self.author_state_patch(sess.session_id, {"config": _minimal_config(mode)})
+        return self._accept(command_id, sess.revision)
+
+    def _handle_set_assistant_feedback(
+        self,
+        sess: _SessionState,
+        command_id: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        target = payload.get("target") if isinstance(payload.get("target"), dict) else {}
+        entity_id = str(target.get("rowId") or target.get("messageId") or "")
+        feedback = payload.get("feedback")
+        if feedback is None:
+            sess.feedbacks.pop(entity_id, None)
+        else:
+            sess.feedbacks[entity_id] = str(feedback)
+        sess.revision += 1
+        # 持久化 transcript metadata 属批次二（计划文档 §1）；v1 shell 内存记录。
+        return self._accept(command_id, sess.revision)
+
+    # -- 自动 drain（对齐 queue-auto-drain：idle 且授权时提升队首）--------------
+
+    def _maybe_auto_drain(self, sess: _SessionState, *, force: bool = False) -> None:
+        if not sess.auto_drain or not sess.queue_items:
+            return
+        if sess.turn_running():
+            return
+        # 失败/interrupted 后不自动续跑：避免错误循环；用户 setAutoDrain/发送恢复。
+        # force=True（显式 setAutoDrain）绕过该防护——用户主动恢复即意图明确。
+        if not force and sess.phase in (_PHASE_ERROR, _PHASE_INTERRUPTED):
+            return
+        item = sess.queue_items.pop(0)
+        self._inbox.release_live_input(sess.session_id, str(item["sourceCommandId"]))
+        if not sess.title:
+            sess.title = str(item["text"])[:24]
+        self._emit_queue_patch(sess)
+        self._start_turn(sess, str(item["text"]))
 
     def _handle_create_session(self, command_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         sess = self._get_or_create_session()
@@ -793,6 +1142,15 @@ class V4ConversationHub:
         self.author_append_row(sess.session_id, row)
 
     def _append_text_delta(self, sess: _SessionState, row_id: int, path: str, chunk: str) -> None:
+        if not chunk:
+            return
+        # 权威行文本同步维护：快照/interrupted 终态帧携带完整已流式文本，
+        # 否则 row.upserted（整行替换）会用过期 text 抹掉投影里的流式内容。
+        if path == "text":
+            with self._write_lock:
+                row = sess.rows.get(int(row_id))
+                if row is not None:
+                    row["text"] = str(row.get("text") or "") + chunk
         self.author_row_delta(sess.session_id, row_id, path, chunk)
 
     def _upsert_row(self, sess: _SessionState, row: dict[str, Any]) -> None:
@@ -881,7 +1239,38 @@ class V4ConversationHub:
             )
             self._patch_phase(sess, _PHASE_COMPLETED)
         except asyncio.CancelledError:
-            raise
+            # stop/abort：收敛为 interrupted 终态帧（对齐 T2 契约：turnHeader
+            # completedInterrupted + assistantText interrupted + phase 同步）。
+            # 吞掉取消让 task 正常收尾；auto-drain 由 finally 按 auto_drain=False 跳过。
+            ended_ms = int(time.time() * 1000)
+            streamed_text = str(sess.rows.get(assistant_rid, {}).get("text") or "")
+            self._upsert_row(
+                sess,
+                {
+                    "kind": "assistantText",
+                    "rowId": assistant_rid,
+                    "turnId": turn_id,
+                    "createdAt": now_ms,
+                    "createdAtSeq": sess.seq,
+                    "text": streamed_text,
+                    "state": "interrupted",
+                },
+            )
+            self._upsert_row(
+                sess,
+                {
+                    "kind": "turnHeader",
+                    "rowId": header_rid,
+                    "turnId": turn_id,
+                    "createdAt": now_ms,
+                    "createdAtSeq": sess.seq,
+                    "origin": "userInput",
+                    "state": _PHASE_INTERRUPTED,
+                    "startedAt": now_ms,
+                    "endedAt": ended_ms,
+                },
+            )
+            self._patch_phase(sess, _PHASE_INTERRUPTED)
         except Exception as exc:  # noqa: BLE001 — 回合失败必须收敛为终态帧
             logger.exception("[v4-conversation] turn failed session=%s", sess.session_id)
             self._patch_phase(sess, _PHASE_ERROR)
@@ -897,6 +1286,14 @@ class V4ConversationHub:
                     "state": "interrupted",
                 },
             )
+        finally:
+            # 归还 turn 所有权：finally 执行时 task 尚未标记 done，turn_running()
+            # 会把自己误判为运行中，导致 auto-drain 永远不触发。
+            if sess.turn_task is asyncio.current_task():
+                sess.turn_task = None
+            # 自然完成且 auto_drain 授权时提升队首（对齐 queue-auto-drain 语义；
+            # stop/失败/interrupted 路径由各自的状态守卫跳过）。
+            self._maybe_auto_drain(sess)
 
     async def _generate(self, sess: _SessionState, text: str, assistant_rid: int) -> str:
         """echo 或真实 LLM（``EVOFLOW_V4_LLM=1`` + ``EVOFLOW_LLM_BASE_URL``）。"""
@@ -908,7 +1305,7 @@ class V4ConversationHub:
             # chunk 64 字符 / 8ms = ~8KB/s，肉眼跟得上但不耗 CPU。
             for i in range(0, len(target), 64):
                 self._append_text_delta(sess, assistant_rid, "text", target[i : i + 64])
-                await asyncio.sleep(0.008)
+                await asyncio.sleep(0.02)
             return target
 
         import httpx  # 局部 import 避免硬依赖
