@@ -14,8 +14,10 @@ function tabKeyOf(surface: RightStageSurface): string {
   return `${normalizeRightStageKind(surface.kind)}:${surface.id}`
 }
 import { V4PreviewPane } from './v4-preview-pane.js'
+import { V4WorkspaceFileTreePane } from './v4-workspace-file-tree-pane.js'
 import { V4SubagentTranscriptPane } from './v4-subagent-transcript-pane.js'
 import { V4CollabSubtaskTranscriptPane } from './v4-collab-subtask-transcript-pane.js'
+import { V4EmployeeProcessPane } from './v4-employee-process-pane.js'
 import { V4SessionPaneBridge } from '../../v4/V4SessionPaneBridge.js'
 import {
   openCollabSubtaskInRightStage,
@@ -29,7 +31,6 @@ import { SidePanelBootShell } from '../../components/SidePanelBootShell.js'
 import { WorkspaceFileTree } from '../../components/WorkspaceFileTree.js'
 import { KnowledgeMapPanel } from '../../components/KnowledgeMapPanel.js'
 import { CollabExecutionPanel } from '../../components/CollabExecutionPanel.js'
-import { ProactiveLiveProcessHost } from '../../components/ProactiveLiveProcessHost.js'
 import { useCollabSubtasksFromApi } from '../../hooks/useCollabSubtasksFromApi.js'
 
 /** panel_set / 任务中心同构：按 surface.data.mainTaskId 自拉工作流，不绑当前会话 task。 */
@@ -295,6 +296,35 @@ export function renderRightStageBody(
   }
   if (kind === 'workspace-browse' || kind === 'write') {
     const writePreviewMode = kind === 'write'
+    // workspace-browse（纯浏览）在 V4 主链路下挂 ZCode 原生 WorkspaceFileTree
+    // （虚拟化/吸顶/搜索/只看已更改/Git 着色/watcher）；'write' 写入预览与
+    // 无本地工作区根（thread 沙箱树）的会话仍走 kv 树。
+    if (!writePreviewMode && String(effectiveWorkspaceRoot || '').trim()) {
+      return sidePanelHeavyMount ? (
+        <aside
+          className="react-chat-workspace-panel react-chat-right-stage-panel is-tree-browse-mode"
+          role="region"
+          aria-label="工作区文件"
+        >
+          <V4WorkspaceFileTreePane
+            workspacePath={effectiveWorkspaceRoot}
+            threadId={wsClient.getSessionThreadId(selectedSessionKey || '') || undefined}
+            onClose={() => closeWorkspacePanel()}
+            onOpenCodeViewer={(nextSource) => {
+              openRightStageForCodeViewerSource(nextSource, {
+                sessionKey: surface.sessionKey,
+                threadId: String(wsClient.getSessionThreadId(selectedSessionKey || '') || ''),
+              })
+            }}
+          />
+        </aside>
+      ) : (
+        <SidePanelBootShell
+          title="工作区文件"
+          className="react-chat-workspace-panel react-chat-right-stage-panel is-tree-browse-mode"
+        />
+      )
+    }
     return sidePanelHeavyMount ? (
       <aside
         className={`react-chat-workspace-panel react-chat-right-stage-panel${
@@ -370,21 +400,20 @@ export function renderRightStageBody(
       <SidePanelBootShell title="工作流" className="react-chat-right-stage-panel" />
     )
   }
+  // 【V4 权威】employeeProcess → V4EmployeeProcessPane。禁止再挂 ProactiveLiveProcessHost。
   if (kind === 'employeeProcess') {
     const data = surface.data || {}
     const agentCode = String(data.agentCode || '').trim()
     if (!agentCode) return null
     return sidePanelHeavyMount ? (
-      <ProactiveLiveProcessHost
-        open
-        mode="panel"
+      <V4EmployeeProcessPane
         agentCode={agentCode}
         roleName={String(data.roleName || '').trim()}
         busy={!!data.busy}
         title={String(surface.title || data.title || '执行过程')}
         roundId={String(data.roundId || '').trim()}
         taskId={String(data.taskId || '').trim()}
-        pollMs={data.busy ? 1000 : 4000}
+        sessionKey={String(surface.sessionKey || selectedSessionKey || '').trim() || undefined}
         onClose={() => rightStageStore.closeTab(tabKeyOf(surface))}
       />
     ) : (

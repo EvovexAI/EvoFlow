@@ -9,7 +9,15 @@
 // - 布局：`@container/conversation` + sticky bottomDock；
 // - 分页：canLoadOlder/onLoadOlder。
 // connecting 时空态不回落老链路。编辑/重试/fork/反馈 v1 只读投影。
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import "@/styles-bridge.css";
 import { ZCodeIntlProvider } from "@zcode/ui/i18n/IntlProvider.js";
 import { ServiceProvider } from "@zcode/ui/hooks/useServices.js";
@@ -33,6 +41,7 @@ import { getPathLeaf } from "@zcode/ui/lib/path.js";
 import { logStreamCompareV4PanelDisplay } from "../lib/stream-compare-file-log.js";
 import type { IServiceAccessor } from "@zcode/services";
 import type { ConversationSnapshot } from "@zcode/shared/zcode-protocol-v4";
+import { packWorkspaceFileEntries } from "@zcode/shared/workspaceFileEntriesCodec";
 import type { V4TimelinePayload } from "./V4StreamRowsBridge.js";
 import type { ConversationRowRenderContext } from "@zcode/ui/v4/conversationRowContext.js";
 import { getEvoflowV4Transport } from "./evoflowV4Transport.js";
@@ -71,6 +80,9 @@ const EMPTY_V4_ROWS: NonNullable<ConversationSnapshot["rows"]["window"]> = [];
  */
 /** 对齐 ZCode fileService：Office 预览硬上限 25MB（ZIP/OLE 需整档）。 */
 const EVO_BINARY_PREVIEW_MAX_BYTES = 25 * 1024 * 1024;
+
+/** EvoFlow Web 无本机 fs.watch：轮询间隔（目录签名 / 文件 stat）。 */
+const EVO_WATCH_POLL_INTERVAL_MS = 4000;
 
 export function createEvoflowPartialServices(sessionId: string): IServiceAccessor {
   const serveFileUrl = (path: string): string => {
@@ -163,6 +175,98 @@ export function createEvoflowPartialServices(sessionId: string): IServiceAccesso
       totalBytes: blob.size,
     };
   };
+  // ── ZCode WorkspaceFileTree 数据通道（readdir / git / 轮询 watcher / 文件索引） ──
+  const readdirEntries = async (params: {
+    path: string;
+    includeHidden?: boolean;
+  }): Promise<Array<{ name: string; path: string; type: "file" | "directory"; isSymbolicLink?: boolean }>> => {
+    const dir = String(params?.path || "").trim();
+    if (!dir) throw new Error("readdir: empty path");
+    const q = new URLSearchParams({
+      dir,
+      include_hidden: String(params?.includeHidden !== false),
+    });
+    if (sessionId) q.set("thread_id", sessionId);
+    const resp = await fetch(`/api/workspaces/listdir?${q.toString()}`);
+    if (resp.status === 404) throw new Error(`directory not found: ${dir}`);
+    if (!resp.ok) throw new Error(`readdir failed: HTTP ${resp.status}`);
+    const data = (await resp.json()) as {
+      entries: Array<{ name: string; path: string; type: "file" | "directory"; isSymbolicLink?: boolean }>;
+    };
+    return data.entries ?? [];
+  };
+  // 轮询 watcher：目录比 readdir 签名，文件比 Range 探测的 size。
+  const watcherPaths = new Map<string, string>();
+  const watcherIsDir = new Map<string, boolean>();
+  const watcherSignatures = new Map<string, string>();
+  const watcherListeners = new Map<string, Set<(event: unknown) => void>>();
+  const watcherTimers = new Map<string, ReturnType<typeof setInterval>>();
+  let watcherSeq = 0;
+  const emitWatcherChange = (id: string) => {
+    const listeners = watcherListeners.get(id);
+    const dirPath = watcherPaths.get(id);
+    if (!listeners || !dirPath) return;
+    for (const listener of listeners) {
+      try {
+        listener({ dirPath });
+      } catch (error) {
+        console.warn("[evoflow-file-watcher] listener failed", error);
+      }
+    }
+  };
+  const pollWatcher = async (id: string) => {
+    const path = watcherPaths.get(id);
+    if (!path) return;
+    try {
+      let signature: string;
+      if (watcherIsDir.get(id)) {
+        const entries = await readdirEntries({ path, includeHidden: true });
+        signature = entries.map((e) => `${e.name}:${e.type}`).join("|");
+      } else {
+        const st = await statFile({ path });
+        signature = `file:${st.size ?? ""}`;
+      }
+      if (watcherSignatures.has(id) && watcherSignatures.get(id) !== signature) {
+        emitWatcherChange(id);
+      }
+      watcherSignatures.set(id, signature);
+    } catch {
+      // 目标被删除/重命名：只在状态翻转时发一次事件，钩子层会裁剪 subtree。
+      if (watcherSignatures.get(id) !== "<missing>") {
+        if (watcherSignatures.has(id)) emitWatcherChange(id);
+        watcherSignatures.set(id, "<missing>");
+      }
+    }
+  };
+  const searchIndexCache: { key: string; packed: string; fetchedAt: number } = {
+    key: "",
+    packed: "",
+    fetchedAt: 0,
+  };
+  const loadSearchIndexPacked = async (rootPath: string): Promise<string> => {
+    const now = Date.now();
+    if (searchIndexCache.key === rootPath && now - searchIndexCache.fetchedAt < 15000) {
+      return searchIndexCache.packed;
+    }
+    const tq = sessionId ? `?thread_id=${encodeURIComponent(sessionId)}` : "";
+    const resp = await fetch(`/api/workspaces/list_files${tq}`);
+    if (!resp.ok) throw new Error(`list_files failed: HTTP ${resp.status}`);
+    const data = (await resp.json()) as { paths?: string[] };
+    const rootPosix = String(rootPath || "").replace(/\/+$/, "");
+    const entries = (data.paths ?? []).map((rel) => {
+      const leaf = rel.split("/").pop() ?? rel;
+      return {
+        name: leaf,
+        path: rootPosix ? `${rootPosix}/${rel}` : rel,
+        relativePath: rel,
+        type: "file" as const,
+      };
+    });
+    searchIndexCache.key = rootPath;
+    searchIndexCache.packed = packWorkspaceFileEntries(entries);
+    searchIndexCache.fetchedAt = now;
+    return searchIndexCache.packed;
+  };
   return {
     fileService: {
       async checkFilesExist(params: { paths: string[] }) {
@@ -185,6 +289,19 @@ export function createEvoflowPartialServices(sessionId: string): IServiceAccesso
       // PreviewPane 调 fileService.stat({ path })，必须吃对象形参。
       async stat(params: { path: string }) {
         return statFile(params);
+      },
+      // ZCode WorkspaceFileTree：目录懒加载（绝对 posix 路径，后端校验越界）。
+      async readdir(params: { path: string; includeHidden?: boolean }) {
+        return readdirEntries(params);
+      },
+      // 文件搜索索引：list_files（有界 os.walk）→ 前端打包列式 codec → 分块拉取。
+      async listWorkspaceFilesLength(params: { rootPath: string }) {
+        const packed = await loadSearchIndexPacked(params.rootPath);
+        return packed.length;
+      },
+      async listWorkspaceFilesRange(params: { rootPath: string; offset: number; length: number }) {
+        const packed = await loadSearchIndexPacked(params.rootPath);
+        return packed.slice(params.offset, params.offset + params.length);
       },
       readFileRange,
       readMediaPreview,
@@ -220,16 +337,84 @@ export function createEvoflowPartialServices(sessionId: string): IServiceAccesso
       },
       async release() {},
     },
-    // Web/EvoFlow 无本机 fs.watch：no-op。
+    // Web/EvoFlow 无本机 fs.watch：按目录/文件粒度轮询（readdir 签名 / Range 探测 size），
     // onDynamicChange(id) 返回「订阅函数」，订阅后再返回 disposable（ZCode Event 形态）。
     fileWatcherService: {
-      async watch() {
-        return { id: `evo-noop-${Date.now()}` };
+      async watch(params: { path: string }) {
+        const path = String(params?.path || "").trim();
+        const id = `evo-watch-${Date.now()}-${watcherSeq++}`;
+        watcherPaths.set(id, path);
+        try {
+          await readdirEntries({ path });
+          watcherIsDir.set(id, true);
+        } catch {
+          watcherIsDir.set(id, false);
+        }
+        const timer = setInterval(() => {
+          void pollWatcher(id);
+        }, EVO_WATCH_POLL_INTERVAL_MS);
+        watcherTimers.set(id, timer);
+        return { id };
       },
-      async unwatch() {},
-      disposeAll() {},
-      onDynamicChange(_id: string) {
-        return (_listener: (event: unknown) => void) => ({ dispose() {} });
+      async unwatch(params: { id: string }) {
+        const id = String(params?.id || "");
+        const timer = watcherTimers.get(id);
+        if (timer) clearInterval(timer);
+        watcherTimers.delete(id);
+        watcherPaths.delete(id);
+        watcherIsDir.delete(id);
+        watcherSignatures.delete(id);
+        watcherListeners.delete(id);
+      },
+      disposeAll() {
+        for (const timer of watcherTimers.values()) clearInterval(timer);
+        watcherTimers.clear();
+        watcherPaths.clear();
+        watcherIsDir.clear();
+        watcherSignatures.clear();
+        watcherListeners.clear();
+      },
+      onDynamicChange(id: string) {
+        return (listener: (event: unknown) => void) => {
+          let listeners = watcherListeners.get(id);
+          if (!listeners) {
+            listeners = new Set();
+            watcherListeners.set(id, listeners);
+          }
+          listeners.add(listener);
+          return {
+            dispose() {
+              listeners.delete(listener);
+              if (listeners && listeners.size === 0) watcherListeners.delete(id);
+            },
+          };
+        };
+      },
+    },
+    gitService: {
+      // ZCode 文件树「只看已更改」过滤：git status --porcelain（后端 subprocess 解析）。
+      async refresh(params: { workspacePath: string }) {
+        const q = new URLSearchParams();
+        if (sessionId) q.set("thread_id", sessionId);
+        const resp = await fetch(`/api/workspaces/git_status?${q.toString()}`);
+        if (!resp.ok) throw new Error(`git_status failed: HTTP ${resp.status}`);
+        return (await resp.json()) as {
+          summary: { isGitAvailable: boolean; isRepository: boolean };
+          unstagedChanges: Array<{ path: string; isUntracked: boolean; kind: string; section: string }>;
+          stagedChanges: Array<{ path: string; isUntracked: boolean; kind: string; section: string }>;
+        };
+      },
+      async getIgnoredPaths(params: { workspacePath: string; paths: string[] }) {
+        const q = new URLSearchParams();
+        if (sessionId) q.set("thread_id", sessionId);
+        const resp = await fetch(`/api/workspaces/git_ignored_paths?${q.toString()}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ paths: params?.paths ?? [] }),
+        });
+        if (!resp.ok) return [] as string[];
+        const data = (await resp.json()) as { ignored?: string[] };
+        return data.ignored ?? [];
       },
     },
     async readMediaPreview(params: { path: string; maxBytes?: number }) {
@@ -347,6 +532,38 @@ export function V4ZCodeTimeline(props: {
   );
   const sessionId = payload?.sessionId ?? "";
   const snapshot: ConversationSnapshot | null = payload?.snapshot ?? null;
+
+  // 切会话时 ConversationTimeline 会清测高缓存再 measure：首帧行高估偏小，
+  // 历史会先挤成「字墙」再撑开。遮一罩等两帧 layout，避免闪一下。
+  const timelineSessionKey = embedded
+    ? String(evoflowSessionKey || sessionId || "draft")
+    : sessionId || "draft";
+  const [sessionSwitchHold, setSessionSwitchHold] = useState(false);
+  const timelineKeyRef = useRef(timelineSessionKey);
+  useLayoutEffect(() => {
+    if (timelineKeyRef.current === timelineSessionKey) return;
+    timelineKeyRef.current = timelineSessionKey;
+    if (!timelineSessionKey || timelineSessionKey === "draft") {
+      setSessionSwitchHold(false);
+      return;
+    }
+    setSessionSwitchHold(true);
+  }, [timelineSessionKey]);
+  useLayoutEffect(() => {
+    if (!sessionSwitchHold) return;
+    // 仍在等租约：底下本就是「加载中…」，遮罩可与之一致；有行后多留两帧给测高。
+    if (connecting && !(snapshot?.rows.window?.length)) return;
+    let raf2 = 0;
+    const raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(() => {
+        setSessionSwitchHold(false);
+      });
+    });
+    return () => {
+      cancelAnimationFrame(raf1);
+      if (raf2) cancelAnimationFrame(raf2);
+    };
+  }, [sessionSwitchHold, connecting, snapshot?.seq, snapshot?.rows.totalCount]);
 
   // 宿主保证引用稳定（ConversationRowView/MessageResponse 的 memo 依赖 context 引用）。
   // fetchFileChanges 闭包经 ref 读最新快照水位；待授权列表变时才允许 rowContext 换引用。
@@ -794,59 +1011,76 @@ export function V4ZCodeTimeline(props: {
         data-v4-embedded={embedded ? "true" : undefined}
       >
         <ServiceProvider services={partialServices}>
-        <ConversationTimeline
-          rows={rows}
-          totalCount={displayTotalCount}
-          // 嵌入态用 evoflowSessionKey，避免 threadId 晚到时 sessionKey 从 draft→uuid 整树 remount
-          sessionKey={
-            embedded
-              ? String(evoflowSessionKey || sessionId || "draft")
-              : sessionId || "draft"
-          }
-          rowContext={rowContext}
-          canLoadOlder={snapshot ? hasOlderRows(snapshot) : false}
-          loadingOlder={payload?.loadingOlder ?? false}
-          onLoadOlder={payload?.onLoadOlder}
-          bottomDock={dockWithQueue}
-          // 小V 窄栏：隐藏左侧轮次导航，把宽度留给正文（主对话不变）
-          hideTurnNavigator={embedded}
-          // 嵌入态 composer 在面板外：空态不要跟不存在的 dock 居中，否则发消息瞬间整栏跳布局。
-          // 仅真正的草稿空态（draftEmpty）才居中——对齐 ZCode SessionPane 的 isDraft。
-          // 切勿用 rows.length===0：打开有历史会话时 connecting/hydration 期间也会 0 行，
-          // 会把输入框误抬到中间，看起来像「空会话」。
-          centerEmptyStateWithDock={embedded ? false : draftEmpty}
-          emptyState={
-            draftEmpty ? (
-              <div data-testid="v4-draft-empty" className="w-full">
-                <V4DraftEmptyState />
-              </div>
-            ) : connectionFailed ? (
-              <div
-                data-testid="v4-connection-failed"
-                className="flex h-full flex-col items-center justify-center gap-1 px-4 text-center text-ui-base text-foreground-subtlest"
-                role="alert"
-              >
-                <span>对话连接失败</span>
-                <span className="text-ui-sm">正在自动重试，也可切换会话后重开</span>
-              </div>
-            ) : connecting ? (
-              // 有历史会话也会先 connecting：用安静加载态占位，避免整片空白，
-              // 也不要居中草稿问候（draftEmpty 已排除 connecting）。
-              <div
-                data-testid="v4-connecting"
-                className="flex h-full items-center justify-center text-ui-base text-foreground-subtlest"
-                aria-busy="true"
-                aria-live="polite"
-              >
-                加载中…
-              </div>
-            ) : (
-              <div className="flex h-full items-center justify-center text-ui-base text-foreground-subtlest">
-                开始新的对话
-              </div>
-            )
-          }
-        />
+        <div className="relative flex min-h-0 flex-1 flex-col">
+          <div
+            className={
+              sessionSwitchHold
+                ? "invisible flex min-h-0 flex-1 flex-col"
+                : "flex min-h-0 flex-1 flex-col"
+            }
+            aria-hidden={sessionSwitchHold || undefined}
+          >
+            <ConversationTimeline
+              rows={rows}
+              totalCount={displayTotalCount}
+              // 嵌入态用 evoflowSessionKey，避免 threadId 晚到时 sessionKey 从 draft→uuid 整树 remount
+              sessionKey={timelineSessionKey}
+              rowContext={rowContext}
+              canLoadOlder={snapshot ? hasOlderRows(snapshot) : false}
+              loadingOlder={payload?.loadingOlder ?? false}
+              onLoadOlder={payload?.onLoadOlder}
+              bottomDock={dockWithQueue}
+              // 小V 窄栏：隐藏左侧轮次导航，把宽度留给正文（主对话不变）
+              hideTurnNavigator={embedded}
+              // 嵌入态 composer 在面板外：空态不要跟不存在的 dock 居中，否则发消息瞬间整栏跳布局。
+              // 仅真正的草稿空态（draftEmpty）才居中——对齐 ZCode SessionPane 的 isDraft。
+              // 切勿用 rows.length===0：打开有历史会话时 connecting/hydration 期间也会 0 行，
+              // 会把输入框误抬到中间，看起来像「空会话」。
+              centerEmptyStateWithDock={embedded ? false : draftEmpty}
+              emptyState={
+                draftEmpty ? (
+                  <div data-testid="v4-draft-empty" className="w-full">
+                    <V4DraftEmptyState />
+                  </div>
+                ) : connectionFailed ? (
+                  <div
+                    data-testid="v4-connection-failed"
+                    className="flex h-full flex-col items-center justify-center gap-1 px-4 text-center text-ui-base text-foreground-subtlest"
+                    role="alert"
+                  >
+                    <span>对话连接失败</span>
+                    <span className="text-ui-sm">正在自动重试，也可切换会话后重开</span>
+                  </div>
+                ) : connecting ? (
+                  // 有历史会话也会先 connecting：用安静加载态占位，避免整片空白，
+                  // 也不要居中草稿问候（draftEmpty 已排除 connecting）。
+                  <div
+                    data-testid="v4-connecting"
+                    className="flex h-full items-center justify-center text-ui-base text-foreground-subtlest"
+                    aria-busy="true"
+                    aria-live="polite"
+                  >
+                    加载中…
+                  </div>
+                ) : (
+                  <div className="flex h-full items-center justify-center text-ui-base text-foreground-subtlest">
+                    开始新的对话
+                  </div>
+                )
+              }
+            />
+          </div>
+          {sessionSwitchHold ? (
+            <div
+              data-testid="v4-session-switch-hold"
+              className="absolute inset-0 z-[1] flex items-center justify-center bg-card text-ui-base text-foreground-subtlest"
+              aria-busy="true"
+              aria-live="polite"
+            >
+              加载中…
+            </div>
+          ) : null}
+        </div>
         </ServiceProvider>
         {subagentEntriesRef.current.length > 0 ? (
           <div className="pointer-events-none absolute inset-x-0 bottom-2 z-10 flex flex-col items-center gap-1.5 px-4">
