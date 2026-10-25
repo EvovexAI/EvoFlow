@@ -22,11 +22,49 @@ def _json(data: Any) -> str:
 def _principal_from_runtime(runtime: ToolRuntime[ContextT, dict] | None) -> str:
     """Current principal id from run context (multi-user asset bucketing)."""
     try:
-        from evoflow.authz.runtime_identity import principal_id_from_runtime
+        from evoflow.authz.runtime_identity import principal_id_from_runtime, set_current_principal_id
 
-        return str(principal_id_from_runtime(runtime) or "").strip()
+        pid = str(principal_id_from_runtime(runtime) or "").strip()
+        # Keep ambient in sync so handlers can resolve invoker without threaded args.
+        set_current_principal_id(pid)
+        return pid
     except Exception:
         return ""
+
+
+def _bind_runtime_identity(runtime: ToolRuntime[ContextT, dict] | None) -> None:
+    """Refresh ambient identity from **runtime-injected** fields for this turn.
+
+    - Human: ``principal_id`` / ``created_by`` on ``runtime.context`` (panel injects
+      these from the logged-in user — not from session_key).
+    - Employee: ``proactive_agent_code`` only.
+
+    Do **not** bind ambient actor from ``agent_id`` / session channel ids
+    (``agent:main:new-…``) — those are lead channel labels, not invoker identity.
+    """
+    _principal_from_runtime(runtime)
+    try:
+        from evoflow.authz.agent_actor import (
+            is_privileged_task_actor,
+            normalize_agent_actor,
+            set_current_agent_actor,
+        )
+
+        ctx = getattr(runtime, "context", None) if runtime is not None else None
+        emp = ""
+        if ctx is not None:
+            get = getattr(ctx, "get", None)
+            raw = get("proactive_agent_code") if callable(get) else getattr(ctx, "proactive_agent_code", None)
+            emp = normalize_agent_actor(raw)
+            if (
+                not emp
+                or emp.lower() in {"main", "lead_agent", "auto", "user"}
+                or is_privileged_task_actor(emp)
+            ):
+                emp = ""
+        set_current_agent_actor(emp)
+    except Exception:
+        pass
 
 
 _PLATFORM_TOOL_DESCRIPTION = """\
@@ -55,6 +93,7 @@ def platform_tool(
     from evoflow.admin.platform_actions import dispatch_platform_action
 
     try:
+        _bind_runtime_identity(runtime)
         data = dispatch_platform_action(
             action,
             args_json=args_json,

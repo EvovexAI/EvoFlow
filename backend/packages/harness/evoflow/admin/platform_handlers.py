@@ -286,18 +286,34 @@ def workflow_get(args: dict[str, Any]) -> dict[str, Any]:
 
 def workflow_run(args: dict[str, Any]) -> dict[str, Any]:
     from evoflow.admin import apps as apps_admin
+    from evoflow.authz.agent_actor import resolve_invoker_stamp
 
     app_id = _arg_str(args, "appId", "app_id", "id")
     if not app_id:
         raise ValidationError("appId is required")
     parameters = args.get("parameters") if isinstance(args.get("parameters"), dict) else {}
-    data = apps_admin.run_app(app_id, parameters=parameters)
+    # 责任人 = 运行时注入的 principal_id / proactive_agent_code（platform_tool 已绑 ambient）
+    # 不是 session agent_id（agent:main:…）——那是频道标识，不是调用人身份
+    invoker = resolve_invoker_stamp()
+    data = apps_admin.run_app(
+        app_id,
+        parameters=parameters,
+        raised_by=invoker.get("raised_by"),
+        created_by=invoker.get("created_by"),
+        principal_id=invoker.get("principal_id"),
+        operator_label=invoker.get("operator_label"),
+    )
     run = data.get("run") if isinstance(data.get("run"), dict) else {}
     run_id = str(run.get("run_id") or data.get("run_id") or data.get("runId") or "")
+    task_id = str(run.get("task_id") or data.get("task_id") or data.get("taskId") or "").strip()
     out = {"ok": True, **data}
     if run_id:
         out["runId"] = run_id
         out["run_id"] = run_id
+    # Hoist for platform_ui openStage (右栏工作流需要 mainTaskId)
+    if task_id:
+        out["task_id"] = task_id
+        out["taskId"] = task_id
     return out
 
 

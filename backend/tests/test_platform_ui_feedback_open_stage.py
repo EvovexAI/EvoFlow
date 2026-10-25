@@ -46,6 +46,7 @@ def test_tasks_create_employee_open_stage():
     ui = build_platform_ui_feedback(entry, {}, result)
     assert ui is not None
     progress = next(a for a in ui["actions"] if a.get("label") == "查看进度")
+    assert progress["autoOpen"] is True
     assert progress["openStage"]["kind"] == "employeeProcess"
     assert progress["openStage"]["data"]["taskId"] == "mt-emp"
     assert progress["openStage"]["data"]["agentCode"] == "duty-ops"
@@ -63,10 +64,33 @@ def test_employees_wake_open_stage_when_task_present():
     ui = build_platform_ui_feedback(entry, {"agent_code": "duty-ops"}, result)
     assert ui is not None
     progress = next(a for a in ui["actions"] if a.get("label") == "查看进度")
+    assert progress["autoOpen"] is True
     assert progress["openStage"]["kind"] == "employeeProcess"
     assert progress["openStage"]["data"]["taskId"] == "mt-wake"
     assert progress["openStage"]["data"]["agentCode"] == "duty-ops"
     assert progress["openStage"]["data"]["roundId"] == "r1"
+
+
+def test_items_dispatch_open_stage_auto_open():
+    entry = _entry("items.dispatch", "items")
+    result = {
+        "ok": True,
+        "action": "items.dispatch",
+        "task_id": "mt-item",
+        "agent_code": "frontend-ops",
+        "dispatched": True,
+    }
+    ui = build_platform_ui_feedback(
+        entry,
+        {"item_id": "it-1", "agent_code": "frontend-ops"},
+        result,
+    )
+    assert ui is not None
+    progress = next(a for a in ui["actions"] if a.get("label") == "查看进度")
+    assert progress["autoOpen"] is True
+    assert progress["openStage"]["kind"] == "employeeProcess"
+    assert progress["openStage"]["data"]["taskId"] == "mt-item"
+    assert progress["openStage"]["data"]["agentCode"] == "frontend-ops"
 
 
 def test_employees_create_without_task_has_no_progress_cta():
@@ -98,3 +122,33 @@ def test_employees_delete_notifies_without_view_employee_cta():
     assert "删除" in ui["title"] or "已删除" in ui["title"]
     assert ui["actions"] == []
     assert not any(a.get("label") == "查看员工" for a in ui["actions"])
+
+
+def test_workflow_run_open_stage_auto_open():
+    entry = _entry("workflow.run", "workflow")
+    result = {
+        "ok": True,
+        "action": "workflow.run",
+        "runId": "run-1",
+        "task_id": "mt-app-run",
+        "run": {"run_id": "run-1", "task_id": "mt-app-run"},
+    }
+    ui = build_platform_ui_feedback(entry, {"appId": "App_x"}, result)
+    assert ui is not None
+    progress = next(a for a in ui["actions"] if a.get("label") == "查看进度")
+    assert progress["autoOpen"] is True
+    assert progress["openStage"]["kind"] == "collab-workflow"
+    assert progress["openStage"]["data"]["mainTaskId"] == "mt-app-run"
+
+
+def test_workflow_create_without_task_has_no_progress_cta():
+    entry = _entry("workflow.create", "workflow")
+    result = {
+        "ok": True,
+        "action": "workflow.create",
+        "appId": "App_new",
+        "name": "日报",
+    }
+    ui = build_platform_ui_feedback(entry, {"name": "日报"}, result)
+    assert ui is not None
+    assert not any(a.get("openStage") for a in ui["actions"])

@@ -145,6 +145,10 @@ def run_app(
     parameters: dict[str, Any] | None = None,
     execution_mode: str | None = None,
     thread_id: str | None = None,
+    raised_by: str | None = None,
+    created_by: str | None = None,
+    principal_id: str | None = None,
+    operator_label: str | None = None,
 ) -> dict[str, Any]:
     aid = str(app_id or "").strip()
     if not aid:
@@ -161,6 +165,10 @@ def run_app(
             thread_id=thread_id,
             run_kind="debug",
             trigger_kind="manual",
+            raised_by=raised_by,
+            created_by=created_by,
+            principal_id=principal_id,
+            operator_label=operator_label,
         )
     except ValueError as exc:
         raise ValidationError(str(exc)) from exc
@@ -474,7 +482,12 @@ def resume_run(run_id: str) -> dict[str, Any]:
         raise ValidationError(
             f"Run '{rid}' is not resumable (status={st}); only paused/interrupted runs can resume"
         )
-    return {"resumed": True, "runId": rid, "run_id": rid}
+    task_id = str(existing.get("task_id") or "").strip()
+    out: dict[str, Any] = {"resumed": True, "runId": rid, "run_id": rid}
+    if task_id:
+        out["task_id"] = task_id
+        out["taskId"] = task_id
+    return out
 
 
 def _await_coro(coro: Any) -> Any:

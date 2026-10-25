@@ -364,6 +364,25 @@ def _build_details(args: dict[str, Any], result: dict[str, Any]) -> list[dict[st
     return details[:4]
 
 
+def _employee_process_cta(
+    *,
+    task_id: str,
+    agent_code: str,
+    round_id: str = "",
+    auto_open: bool = False,
+) -> dict[str, Any]:
+    data: dict[str, Any] = {"taskId": task_id, "agentCode": agent_code, "busy": True}
+    if round_id:
+        data["roundId"] = round_id
+    out: dict[str, Any] = {
+        "label": "查看进度",
+        "openStage": {"kind": "employeeProcess", "data": data},
+    }
+    if auto_open:
+        out["autoOpen"] = True
+    return out
+
+
 def _progress_open_stage_action(
     action: str,
     domain: str,
@@ -373,15 +392,18 @@ def _progress_open_stage_action(
 ) -> dict[str, Any] | None:
     """CTA that opens right-stage progress (does not navigate away).
 
-    Prefer when the user may want to watch live execution after create/wake.
-    Agent may still call ``platform ui.show``; this is a one-click fallback on the
-    platform feedback card — never auto-opens the stage by itself.
+    ``autoOpen: true`` expands the panel as soon as the tool result lands
+    (workflow run / employee dispatch·wake). Create-definition-only actions stay
+    click-to-open unless the agent also calls ``ui.show``.
     """
     task = _as_dict(result.get("task"))
+    run = _as_dict(result.get("run"))
     tid = _first_str(
         task.get("id"),
         result.get("task_id"),
         result.get("taskId"),
+        run.get("task_id"),
+        run.get("taskId"),
         args.get("task_id"),
         args.get("taskId"),
         entity_id if domain == "tasks" else "",
@@ -406,7 +428,7 @@ def _progress_open_stage_action(
         args.get("round_id"),
     )
 
-    # 叫醒/恢复值班：有 taskId+agentCode → 员工执行过程
+    # 叫醒/恢复值班：有 taskId+agentCode → 员工执行过程（派活后立刻开侧栏）
     if domain == "employees" and action in {
         "employees.wake",
         "employees.resume",
@@ -414,23 +436,56 @@ def _progress_open_stage_action(
         "employees.hire",
     }:
         if assigned and tid:
-            data: dict[str, Any] = {"taskId": tid, "agentCode": assigned, "busy": True}
-            if round_id:
-                data["roundId"] = round_id
-            return {"label": "查看进度", "openStage": {"kind": "employeeProcess", "data": data}}
+            # wake/resume 即开始执行；create/hire 仅在已带 task 时同样 autoOpen
+            auto = action in {"employees.wake", "employees.resume"} or bool(tid)
+            return _employee_process_cta(
+                task_id=tid,
+                agent_code=assigned,
+                round_id=round_id,
+                auto_open=auto,
+            )
+        return None
+
+    # 事项派发给员工并派生 Task → 员工过程（默认 wake_now，可立刻看执行）
+    if domain == "items" and action == "items.dispatch":
+        if tid and assigned:
+            return _employee_process_cta(
+                task_id=tid,
+                agent_code=assigned,
+                round_id=round_id,
+                auto_open=True,
+            )
         return None
 
     if domain == "tasks" and tid:
         # 岗位/值班派发 → 员工过程；其余协作任务 → 工作流图
         if source == "role" and assigned:
-            data = {"taskId": tid, "agentCode": assigned, "busy": True}
-            if round_id:
-                data["roundId"] = round_id
-            return {"label": "查看进度", "openStage": {"kind": "employeeProcess", "data": data}}
+            return _employee_process_cta(
+                task_id=tid,
+                agent_code=assigned,
+                round_id=round_id,
+                auto_open=True,
+            )
         return {
             "label": "查看进度",
             "openStage": {"kind": "collab-workflow", "data": {"mainTaskId": tid}},
         }
+
+    # 平台操作工作流运行：跑 / 恢复 / 续跑 → 右栏工作流图（并 autoOpen）
+    if domain == "workflow" and action in {
+        "workflow.run",
+        "workflow.resume",
+        "workflow.recover",
+        "workflow.run_status",
+    }:
+        if tid:
+            return {
+                "label": "查看进度",
+                "autoOpen": True,
+                "openStage": {"kind": "collab-workflow", "data": {"mainTaskId": tid}},
+            }
+        return None
+
     return None
 
 

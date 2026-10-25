@@ -1358,8 +1358,9 @@ def dispatch_platform_action(
     if entry.handler is None:
         return {"ok": False, "error": "handler_missing", "action": entry.name}
 
-    # Thread caller identity into handlers that bucket per-user assets.
-    # Extra key is inert for handlers that ignore it.
+    # Thread principal into handlers that bucket per-user assets (extra key
+    # is inert for handlers that ignore it). Task「责任人」uses ambient
+    # ContextVar (set at session / platform_tool entry), not args.
     pid = str(principal_id or "").strip()
     if pid:
         args = dict(args or {})

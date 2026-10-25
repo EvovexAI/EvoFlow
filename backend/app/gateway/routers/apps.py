@@ -503,6 +503,17 @@ async def run_app_endpoint(http_request: Request, app_id: str, request: RunAppRe
 
     require_app_visible(http_request, app_id)
     try:
+        from evoflow.authz.agent_actor import resolve_invoker_stamp
+        from evoflow.authz.context import resolve_request_principal
+        from evoflow.authz.runtime_identity import set_current_principal_id
+
+        # Bind request user into ambient identity, then stamp from runtime (not hard-coded).
+        try:
+            principal = resolve_request_principal(http_request)
+            set_current_principal_id(str((principal or {}).get("principal_id") or "").strip())
+        except Exception:
+            set_current_principal_id("")
+        invoker = resolve_invoker_stamp()
         # run_app() dispatches workflow tasks synchronously (apply_workflow_dispatch).
         return await asyncio.to_thread(
             run_app,
@@ -512,6 +523,10 @@ async def run_app_endpoint(http_request: Request, app_id: str, request: RunAppRe
             thread_id=request.thread_id,
             run_kind=request.run_kind or "debug",
             trigger_kind=request.trigger_kind or "manual",
+            raised_by=invoker.get("raised_by"),
+            created_by=invoker.get("created_by"),
+            principal_id=invoker.get("principal_id"),
+            operator_label=invoker.get("operator_label"),
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
