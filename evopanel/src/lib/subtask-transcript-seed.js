@@ -2,7 +2,38 @@
  * Seed / fallback for collab subtask transcript pane.
  * Conversation rows stay conversational; outcome (结案摘要) is separate — never
  * fake a single "assistant" bubble from the final task_report.
+ *
+ * Backend keeps Lead-facing ``task_report`` self-contained by appending
+ * 「产出路径：」 into the same text field, while also storing structured
+ * ``outputs`` / ``evidence_paths``. UI must split them for tabs.
  */
+
+const _OUTPUT_PATHS_MARKER = /(?:^|\n)\s*产出路径：\s*\n/
+
+/**
+ * Split Lead-facing report text into summary vs embedded path bullets.
+ * @param {string} raw
+ * @returns {{ report: string, embeddedPaths: string[] }}
+ */
+export function splitEmbeddedOutputPaths(raw) {
+  const text = String(raw || '').trim()
+  if (!text) return { report: '', embeddedPaths: [] }
+  const match = _OUTPUT_PATHS_MARKER.exec(text)
+  if (!match || match.index == null) return { report: text, embeddedPaths: [] }
+  const report = text.slice(0, match.index).trim()
+  const tail = text.slice(match.index + match[0].length)
+  /** @type {string[]} */
+  const embeddedPaths = []
+  for (const line of tail.split(/\r?\n/)) {
+    const s = String(line || '')
+      .trim()
+      .replace(/^[-*]\s+/, '')
+      .replace(/^`(.+)`$/, '$1')
+      .trim()
+    if (s && !embeddedPaths.includes(s)) embeddedPaths.push(s)
+  }
+  return { report, embeddedPaths }
+}
 
 /**
  * @param {Record<string, unknown> | null | undefined} outcome
@@ -10,7 +41,9 @@
  */
 export function summarizeOutcome(outcome) {
   if (!outcome || typeof outcome !== 'object') return { report: '', pathLines: [] }
-  const report = String(outcome.task_report || outcome.summary || '').trim()
+  const { report, embeddedPaths } = splitEmbeddedOutputPaths(
+    String(outcome.task_report || outcome.summary || ''),
+  )
   /** @type {string[]} */
   const pathLines = []
   const outputs = Array.isArray(outcome.outputs) ? outcome.outputs : []
@@ -27,9 +60,11 @@ export function summarizeOutcome(outcome) {
     const s = String(p || '').trim()
     if (s && !pathLines.includes(s)) pathLines.push(s)
   }
+  for (const p of embeddedPaths) {
+    if (p && !pathLines.includes(p)) pathLines.push(p)
+  }
   return { report, pathLines }
 }
-
 /**
  * @deprecated Prefer summarizeOutcome + separate UI. Kept for tests that still assert
  * legacy shape; do not feed these into the conversation timeline as fake turns.

@@ -5,7 +5,7 @@
  * 关联链路：
  *   节点 click → 解析 subtaskThreadId / outcome，写入 tab.data
  *   → V4CollabSubtaskTranscriptPane：对话体 = V4SessionPaneBridge
- *     （与主聊同一套 V4ZCodeTimeline）；结案摘要单独 aside
+ *     （与主聊同一套 V4ZCodeTimeline）；底部 aside 用「结案摘要 / 产出路径」双 tab
  *   旧 modal-rows / SubtaskModalMessageRow 已退役，不再预取 rows。
  */
 import { rightStageStore } from './right-stage-store.js'

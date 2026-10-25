@@ -35,6 +35,12 @@ export type RightStageDecideInput = {
   autoPreviewEnabled: boolean
   /** 当前已打开的 kind */
   currentKind: string | null
+  /**
+   * 任一打开标签是否为进度类（工作流/节点/员工）。
+   * `platform ui.show` 与 RUN_FINISHED 可能竞态：active kind 尚未切到 progress，
+   * 但 tabs 里已有（或即将有）进度标签——此时绝不能按 idle 收栏。
+   */
+  hasProgressTab?: boolean
   /** run-finished：本轮是否有产物 */
   hasArtifacts?: boolean
 }
@@ -83,7 +89,9 @@ export function decideRightStage(input: RightStageDecideInput): RightStageDecide
     }
     // 工作流 / 节点 / 员工过程：用户（或 platform ui.show）主动盯进度，
     // 跑完还要复盘图/节点；RUN_FINISHED 收栏会表现为「过一会儿自己没了」。
+    // hasProgressTab：覆盖「ui.show 刚打开 / 尚未成为 active」与 RUN_FINISHED 的竞态。
     if (
+      input.hasProgressTab ||
       current === 'collab-workflow' ||
       current === 'collabSubtaskTranscript' ||
       current === 'employeeProcess'

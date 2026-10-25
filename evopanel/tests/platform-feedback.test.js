@@ -298,6 +298,107 @@ describe('publishArtifacts — panel_set artifacts 必须能强制打开状态�
   })
 })
 
+describe('V4 platform_ui progress display', () => {
+  it('readToolResultDisplay 接受无二维码的 openStage actions', async () => {
+    const { readToolResultDisplay } = await import(
+      '../src/zcode-ui/ToolCallBlocks/toolResultDisplay.ts'
+    )
+    const { readPlatformProgressFeedback } = await import(
+      '../src/zcode-ui/ToolCallBlocks/renderers/platform.tsx'
+    )
+    const display = {
+      kind: 'platform_ui',
+      schemaVersion: 1,
+      action: 'workflow.run',
+      title: '已启动工作流',
+      actions: [
+        {
+          label: '查看进度',
+          autoOpen: true,
+          openStage: { kind: 'collab-workflow', data: { mainTaskId: 'mt-v4-1' } },
+        },
+      ],
+    }
+    expect(readToolResultDisplay({ display })?.kind).toBe('platform_ui')
+    const feedback = readPlatformProgressFeedback({ display })
+    expect(feedback?.actions?.[0]?.autoOpen).toBe(true)
+    expect(feedback?.actions?.[0]?.openStage?.data?.mainTaskId).toBe('mt-v4-1')
+  })
+})
+
+describe('workflow.run autoOpen 右栏', () => {
+  it('tools-scan 首见也拉开 collab-workflow（不依赖 AG-UI RESULT）', async () => {
+    const { rightStageStore } = await import('../src/lib/right-stage/right-stage-store.ts')
+    rightStageStore.hideAll()
+    const tool = {
+      id: 'tc-wf-scan',
+      name: 'platform',
+      output: JSON.stringify({
+        ok: true,
+        action: 'workflow.run',
+        task_id: 'mt-auto-1',
+        ui: {
+          kind: 'success',
+          title: '已启动工作流',
+          domain: 'workflow',
+          action: 'workflow.run',
+          actions: [
+            {
+              label: '查看进度',
+              autoOpen: true,
+              openStage: { kind: 'collab-workflow', data: { mainTaskId: 'mt-auto-1' } },
+            },
+          ],
+        },
+      }),
+    }
+    syncPlatformFeedbackFromTools([tool], new Set())
+    const snap = rightStageStore.getSnapshot()
+    expect(snap.collapsed).toBe(false)
+    expect(snap.tabs.some((t) => t.kind === 'collab-workflow')).toBe(true)
+    expect(String(snap.surface?.data?.mainTaskId || '')).toBe('mt-auto-1')
+  })
+
+  it('seen 已标时 RESULT 仍会补开侧栏', async () => {
+    const { rightStageStore } = await import('../src/lib/right-stage/right-stage-store.ts')
+    // 清掉上一用例留下的 tab，模拟「只标 seen、没开栏」
+    rightStageStore.hideAll()
+    const seen = new Set(['tc-wf-seen'])
+    publishPlatformFromAgUiResult({
+      isBackground: false,
+      aguiEvent: {
+        type: EventType.TOOL_CALL_RESULT,
+        toolCallId: 'tc-wf-seen',
+        toolCallName: 'platform',
+        content: JSON.stringify({
+          ok: true,
+          action: 'workflow.run',
+          ui: {
+            kind: 'success',
+            title: '已启动',
+            domain: 'workflow',
+            actions: [
+              {
+                label: '查看进度',
+                autoOpen: true,
+                openStage: { kind: 'collab-workflow', data: { mainTaskId: 'mt-seen-1' } },
+              },
+            ],
+          },
+        }),
+      },
+      platformFeedbackSeenRef: { current: seen },
+      turnPlatformEntriesRef: { current: [] },
+      publishPlatformEntries: vi.fn(),
+      toast: vi.fn(),
+    })
+    const snap = rightStageStore.getSnapshot()
+    expect(snap.collapsed).toBe(false)
+    expect(snap.tabs.some((t) => t.kind === 'collab-workflow')).toBe(true)
+    expect(String(snap.surface?.data?.mainTaskId || '')).toBe('mt-seen-1')
+  })
+})
+
 describe('publishPlatformFromAgUiResult — 流式右上角平台通知', () => {
   it('平台 TOOL_CALL_RESULT 立刻 publish', () => {
     const publish = vi.fn()

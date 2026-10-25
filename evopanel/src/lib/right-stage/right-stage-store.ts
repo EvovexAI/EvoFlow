@@ -9,7 +9,14 @@ import {
 } from './right-stage-types.js'
 import { getCurrentRightStageSessionKey, resolveTabSessionKey, scopeOfKind } from './right-stage-scope.js'
 import { isTaskCenterStageSessionKey } from './task-center-stage-key.js'
-import { logPanelSet } from './panel-set-debug-log.js'
+import { isProgressStageKind } from './open-progress-from-panel-set.js'
+import { logPanelSet, logRightStage } from './panel-set-debug-log.js'
+
+/** RUN_FINISHED / 平台 toast 收栏时不得拆掉的 kind（用户还要盯进度 / 浏览器）。 */
+function isProtectedIdleHideKind(kind: string | null | undefined): boolean {
+  const k = normalizeRightStageKind(kind)
+  return k === 'browser' || isProgressStageKind(k)
+}
 
 export type RecentClosedRightStageTab = {
   /** 关闭前的 tab key（`${kind}:${id}`），用于 reopen。 */
@@ -145,6 +152,7 @@ export class RightStageStore {
   }
 
   collapse() {
+    logRightStage('store.collapse', { from: this.collapsed }, { stack: true, store: this })
     this.setCollapsed(true)
   }
 
@@ -392,6 +400,11 @@ export class RightStageStore {
     const target = this.tabs.find((t) => this.tabKeyOf(t) === key)
     const idx = this.tabs.findIndex((t) => this.tabKeyOf(t) === key)
     if (idx < 0) return
+    logRightStage(
+      'store.closeTab',
+      { key, kind: target?.kind, id: target?.id },
+      { stack: true, store: this },
+    )
     if (target) this.recordClosed(key, target)
     const wasActive = this.activeKey === key
     this.tabs = this.tabs.filter((t) => this.tabKeyOf(t) !== key)
@@ -455,13 +468,33 @@ export class RightStageStore {
 
   /** 关闭激活标签（或指定 surface.id 的标签）；剩余标签自动补位激活。 */
   hide(id = 'primary') {
+    logRightStage(
+      'store.hide:enter',
+      { requestedId: id },
+      { stack: true, store: this },
+    )
     const matches = this.tabs.filter((t) => t.id === id)
     if (!matches.length) {
       // 兼容旧调用：id 默认 'primary' 但激活标签可能用了其他 id——
       // 关闭激活者（而不是要求 active.id === id，避免 id 不一致导致静默不关）。
+      // 工作流 id 是 workflow:{taskId} 不是 primary：RUN_FINISHED 的 hide() 会走到这里，
+      // 若误关 collab-workflow，表现为「对话一结束侧栏自己没了」。
       if (this.activeKey) {
         const active = this.tabs.find((t) => this.tabKeyOf(t) === this.activeKey)
         if (active) {
+          if (isProtectedIdleHideKind(active.kind)) {
+            logRightStage('store.hide:KEEP protected active (no id match)', {
+              kind: active.kind,
+              id: active.id,
+              requestedId: id,
+            }, { store: this })
+            return
+          }
+          logRightStage('store.hide:REMOVE active (fallback, no id match)', {
+            kind: active.kind,
+            id: active.id,
+            requestedId: id,
+          }, { stack: true, store: this })
           this.recordClosed(this.tabKeyOf(active), active)
           this.tabs = this.tabs.filter((t) => t !== active)
           this.activeKey = this.tabs.length ? this.tabKeyOf(this.tabs[this.tabs.length - 1]) : null
@@ -470,6 +503,20 @@ export class RightStageStore {
       }
       return
     }
+    // 显式 id 命中进度签时也拒绝（idle hide 不该拆工作流；用户关签走 closeTab）
+    if (matches.some((t) => isProtectedIdleHideKind(t.kind))) {
+      logRightStage('store.hide:KEEP protected matched ids', {
+        ids: matches.map((t) => t.id),
+        kinds: matches.map((t) => t.kind),
+        requestedId: id,
+      }, { store: this })
+      return
+    }
+    logRightStage('store.hide:REMOVE matched', {
+      ids: matches.map((t) => t.id),
+      kinds: matches.map((t) => t.kind),
+      requestedId: id,
+    }, { stack: true, store: this })
     const wasActive = matches.some((t) => this.tabKeyOf(t) === this.activeKey)
     const removedKeys = new Set(matches.map((t) => this.tabKeyOf(t)))
     for (const t of matches) {
@@ -480,6 +527,21 @@ export class RightStageStore {
       this.activeKey = this.tabs.length ? this.tabKeyOf(this.tabs[this.tabs.length - 1]) : null
     }
     this.bump()
+  }
+
+  /**
+   * 回合结束收栏：有进度/浏览器签则整栏保留；否则才 hide。
+   * 供 RUN_FINISHED / 平台条目发布使用，避免误拆工作流。
+   */
+  hideUnlessProgressOpen(): boolean {
+    const protectedOpen = this.tabs.some((t) => isProtectedIdleHideKind(t.kind))
+    if (protectedOpen) {
+      logRightStage('store.hideUnlessProgressOpen:KEEP', {}, { store: this })
+      return false
+    }
+    logRightStage('store.hideUnlessProgressOpen:HIDE', {}, { stack: true, store: this })
+    this.hide()
+    return true
   }
 
   clearStreams() {
@@ -494,6 +556,7 @@ export class RightStageStore {
    */
   hideAll() {
     if (this.tabs.length === 0 && this.activeKey === null && this.collapsed) return
+    logRightStage('store.hideAll', {}, { stack: true, store: this })
     for (const tab of this.tabs) {
       this.recordClosed(this.tabKeyOf(tab), tab)
     }
@@ -566,6 +629,10 @@ export class RightStageStore {
   }) {
     const action = String(payload.action || '').trim().toLowerCase()
     if (action === 'hide' || payload.surface === null) {
+      logRightStage('store.applyRemote:hide', { action, surfaceNull: payload.surface === null }, {
+        stack: true,
+        store: this,
+      })
       this.hide()
       return
     }
@@ -642,6 +709,14 @@ export function hideRightStageIfKind(...kinds: string[]) {
   const matching = rightStageStore
     .getSnapshot()
     .tabs.filter((t) => kindsNorm.includes(normalizeRightStageKind(String(t.kind))))
+  logRightStage(
+    'hideRightStageIfKind',
+    {
+      kinds: kindsNorm,
+      matching: matching.map((t) => ({ id: t.id, kind: t.kind })),
+    },
+    { stack: true, store: rightStageStore },
+  )
   for (const t of matching) {
     rightStageStore.closeTab(`${normalizeRightStageKind(t.kind)}:${t.id}`)
   }

@@ -6,6 +6,8 @@ import { normalizeRightStageKind } from './right-stage-types.js'
 import { openCollabWorkflowInRightStage } from './open-collab-workflow-stage.js'
 import { openCollabSubtaskInRightStage } from './open-collab-subtask-stage.js'
 import { openEmployeeProcessInRightStage } from './open-employee-process-stage.js'
+import { logRightStage } from './panel-set-debug-log.js'
+import { rightStageStore } from './right-stage-store.js'
 
 export type ProgressStageSurface = {
   kind?: string
@@ -31,7 +33,10 @@ export function openProgressFromPanelSet(
   surface: ProgressStageSurface | null | undefined,
   opts?: { sessionKey?: string | null },
 ): string {
-  if (!surface || typeof surface !== 'object') return ''
+  if (!surface || typeof surface !== 'object') {
+    logRightStage('openProgress:skip empty surface')
+    return ''
+  }
   const kind = normalizeRightStageKind(String(surface.kind || ''))
   const data = surface.data && typeof surface.data === 'object' ? surface.data : {}
   const title = firstStr(surface.title, data.title)
@@ -39,8 +44,11 @@ export function openProgressFromPanelSet(
 
   if (kind === 'collab-workflow') {
     const mainTaskId = firstStr(data.mainTaskId, data.main_task_id, data.taskId, data.task_id)
-    if (!mainTaskId) return ''
-    return openCollabWorkflowInRightStage(
+    if (!mainTaskId) {
+      logRightStage('openProgress:collab-workflow missing mainTaskId', { dataKeys: Object.keys(data) })
+      return ''
+    }
+    const tabId = openCollabWorkflowInRightStage(
       {
         mainTaskId,
         leadThreadId: firstStr(data.leadThreadId, data.lead_thread_id, data.threadId, data.thread_id),
@@ -48,6 +56,8 @@ export function openProgressFromPanelSet(
       },
       { sessionKey: sk, layout: (surface.layout as 'half') || 'half' },
     )
+    logRightStage('openProgress:collab-workflow', { tabId, mainTaskId, title }, { store: rightStageStore })
+    return tabId
   }
 
   if (kind === 'collabSubtaskTranscript') {

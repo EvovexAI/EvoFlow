@@ -6,6 +6,7 @@ import {
   type RightStageDecideInput,
   type RightStageDecideResult,
 } from './decide-right-stage.js'
+import { logRightStage } from './panel-set-debug-log.js'
 import { defaultTitleForKind } from './right-stage-types.js'
 import { rightStageStore } from './right-stage-store.js'
 
@@ -25,16 +26,35 @@ export function applyDecideRightStage(
   const result = decideRightStage(input)
   const kind = result.kind || input.kind || ''
 
+  logRightStage('decide', {
+    intent: input.intent,
+    action: result.action,
+    reason: result.reason,
+    delayMs: result.delayMs ?? 0,
+    currentKind: input.currentKind ?? null,
+    hasProgressTab: input.hasProgressTab ?? null,
+    hasArtifacts: input.hasArtifacts ?? null,
+    targetKind: kind || null,
+  }, { store: rightStageStore })
+
   if (result.action === 'noop' || result.action === 'stream-only') {
     return result
   }
 
   if (result.action === 'hide') {
+    // 回合结束收栏：不得拆掉工作流/节点/员工/浏览器（V4 autoOpen 的进度签 id≠primary）
+    const safeHide = () => {
+      logRightStage('decide.hide:run', { reason: result.reason }, { stack: true, store: rightStageStore })
+      rightStageStore.hideUnlessProgressOpen()
+    }
     const delay = result.delayMs || 0
     if (delay > 0 && opts?.scheduleShow) {
-      opts.scheduleShow(delay, () => rightStageStore.hide())
+      logRightStage('decide.hide:schedule', { delayMs: delay, reason: result.reason }, {
+        store: rightStageStore,
+      })
+      opts.scheduleShow(delay, safeHide)
     } else {
-      rightStageStore.hide()
+      safeHide()
     }
     return result
   }

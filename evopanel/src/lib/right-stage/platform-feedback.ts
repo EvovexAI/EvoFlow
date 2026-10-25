@@ -2,6 +2,8 @@
 
 import { syncEmployeesRosterFromToolResult } from '../employees-roster-sync.js'
 import { syncPanelAppearanceFromToolResult } from '../panel-appearance-sync.js'
+import { openProgressFromPanelSet } from './open-progress-from-panel-set.js'
+import { logRightStage } from './panel-set-debug-log.js'
 import type { RightStageSurface } from './right-stage-types.js'
 
 export type PlatformFeedbackDetail = {
@@ -22,6 +24,8 @@ export type PlatformFeedbackAction = {
   external?: boolean
   /** 打开右栏进度面板（工作流 / 节点 / 员工），不跳路由 */
   openStage?: PlatformFeedbackOpenStage
+  /** 工具结果到达时立刻展开右栏（如 workflow.run），无需再点 CTA */
+  autoOpen?: boolean
 }
 
 export type PlatformUiFeedback = {
@@ -224,9 +228,29 @@ function asActions(raw: unknown): PlatformFeedbackAction[] {
       route: route || undefined,
       external: (row as Record<string, unknown>).external === true,
       openStage,
+      autoOpen: (row as Record<string, unknown>).autoOpen === true,
     })
   }
   return out
+}
+
+/**
+ * 若 CTA 带 autoOpen+openStage，立刻拉开右栏进度（不跳路由）。
+ * 共享工具：V4（ConversationTurnGroup）与旧 AG-UI 热路径都会调用。
+ * 默认产品聊天以 V4 调用为准；只改调用方不够时再改本函数。
+ */
+export function maybeAutoOpenPlatformProgress(ui: PlatformUiFeedback | null | undefined): boolean {
+  if (!ui || !Array.isArray(ui.actions)) return false
+  const hit = ui.actions.find((a) => a && a.autoOpen && a.openStage)
+  if (!hit?.openStage) return false
+  // 同步打开：避免 dynamic import 晚于 RUN_FINISHED / tools-scan 标 seen，导致侧栏永远不展开
+  logRightStage('maybeAutoOpenPlatformProgress', {
+    kind: hit.openStage?.kind,
+    label: hit.label,
+    openStage: hit.openStage,
+  })
+  openProgressFromPanelSet(hit.openStage)
+  return true
 }
 
 function pickLabel(obj: Record<string, unknown>, args: Record<string, unknown>): string {
@@ -420,9 +444,7 @@ export function navigatePlatformFeedbackRoute(route: string): void {
 export function activatePlatformFeedbackAction(action: PlatformFeedbackAction | null | undefined): boolean {
   if (!action) return false
   if (action.openStage) {
-    void import('./open-progress-from-panel-set.js').then(({ openProgressFromPanelSet }) => {
-      openProgressFromPanelSet(action.openStage)
-    })
+    openProgressFromPanelSet(action.openStage)
     return true
   }
   if (action.route) {
@@ -798,6 +820,9 @@ export function syncPlatformFeedbackFromTools(
     seen.add(toolCallId)
     shown.push(result.ui)
     entries = result.entries
+    // tools 列表扫描也可能是首个见到结果的路径（早于 AG-UI RESULT 发布）；
+    // 必须在此 autoOpen，否则 seen 标过后 RESULT 路径会跳过打开。
+    maybeAutoOpenPlatformProgress(result.ui)
   }
   return { shown, entries }
 }

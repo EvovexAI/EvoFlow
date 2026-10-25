@@ -140,6 +140,20 @@ describe('decideRightStage', () => {
     }
   })
 
+  it('run-finished keeps progress when hasProgressTab even if currentKind lags', () => {
+    // Race: platform ui.show opened a workflow tab but active kind not yet switched
+    // when the lead turn's RUN_FINISHED fires.
+    const r = decideRightStage({
+      ...base,
+      intent: 'run-finished',
+      hasArtifacts: false,
+      currentKind: null,
+      hasProgressTab: true,
+    })
+    expect(r.action).toBe('noop')
+    expect(r.reason).toBe('progress-keep-on-finish')
+  })
+
   it('run-finished with browser current still hides other kinds', () => {
     const r = decideRightStage({
       ...base,
