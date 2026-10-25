@@ -48,6 +48,7 @@ import { getEvoflowV4Transport } from "./evoflowV4Transport.js";
 import { mergeOptimisticUserInputRow } from "./optimisticUserInput.js";
 import { V4QueuePanelBridge } from "./V4QueuePanelBridge.js";
 import { evoflowStubPlatform } from "../../pages/settings/evoflow-bridge-services.js";
+import { apiUrlAsync } from "../../lib/api-client.js";
 import {
   ToolApprovalPanel,
   type ToolApprovalChoice,
@@ -85,10 +86,13 @@ const EVO_BINARY_PREVIEW_MAX_BYTES = 25 * 1024 * 1024;
 const EVO_WATCH_POLL_INTERVAL_MS = 4000;
 
 export function createEvoflowPartialServices(sessionId: string): IServiceAccessor {
-  const serveFileUrl = (path: string): string => {
+  // 打包版 webview 页面源是 tauri.localhost（Tauri 协议只服务静态资源，不代理 /api），
+  // 裸相对 fetch 永远到不了网关。必须走 apiUrlAsync 解析真实网关 base
+  // （Tauri=8382 等配置端口；web dev 返回相对路径，走 vite 代理）。
+  const serveFileUrl = async (path: string): Promise<string> => {
     const q = new URLSearchParams({ path });
     if (sessionId) q.set("thread_id", sessionId);
-    return `/api/workspaces/serve-file?${q.toString()}`;
+    return apiUrlAsync(`/workspaces/serve-file?${q.toString()}`);
   };
   // IFileService.stat({ path }) —— PreviewPane 传对象；兼容误传裸字符串。
   // Range 探测：从 Content-Range 取总大小；服务端不支持 Range 时退 blob.size。
@@ -104,7 +108,7 @@ export function createEvoflowPartialServices(sessionId: string): IServiceAccesso
   ): Promise<{ path: string; type: "file" | "directory"; size?: number }> => {
     const path = resolveStatPath(input);
     if (!path) throw new Error("file not found: (empty path)");
-    const resp = await fetch(serveFileUrl(path), { headers: { Range: "bytes=0-0" } });
+    const resp = await fetch(await serveFileUrl(path), { headers: { Range: "bytes=0-0" } });
     if (resp.status === 404) throw new Error(`file not found: ${path}`);
     if (!resp.ok) throw new Error(`stat failed: HTTP ${resp.status}`);
     const contentRange = resp.headers.get("content-range");
@@ -119,7 +123,7 @@ export function createEvoflowPartialServices(sessionId: string): IServiceAccesso
   const readFileRange = async (params: { path: string; offset: number; length: number }): Promise<Uint8Array> => {
     const { path, offset, length } = params;
     const end = Math.max(offset, offset + Math.max(length, 1) - 1);
-    const resp = await fetch(serveFileUrl(path), { headers: { Range: `bytes=${offset}-${end}` } });
+    const resp = await fetch(await serveFileUrl(path), { headers: { Range: `bytes=${offset}-${end}` } });
     if (resp.status === 404) throw new Error(`file not found: ${path}`);
     // 416：offset 已越界（文件被截断/竞态），按空块返回交给上层判完整性。
     if (resp.status === 416) return new Uint8Array(0);
@@ -139,7 +143,7 @@ export function createEvoflowPartialServices(sessionId: string): IServiceAccesso
     return dataUrl.split(",")[1] ?? "";
   };
   const readMediaPreview = async (params: { path: string; maxBytes?: number }) => {
-    const resp = await fetch(serveFileUrl(params.path));
+    const resp = await fetch(await serveFileUrl(params.path));
     if (resp.status === 404) throw new Error(`file not found: ${params.path}`);
     if (!resp.ok) throw new Error(`media preview failed: HTTP ${resp.status}`);
     const blob = await resp.blob();
@@ -162,7 +166,7 @@ export function createEvoflowPartialServices(sessionId: string): IServiceAccesso
     if (size != null && size > maxBytes) {
       throw new Error(`File is too large to preview: ${path}`);
     }
-    const resp = await fetch(serveFileUrl(path));
+    const resp = await fetch(await serveFileUrl(path));
     if (resp.status === 404) throw new Error(`file not found: ${path}`);
     if (!resp.ok) throw new Error(`binary preview failed: HTTP ${resp.status}`);
     const blob = await resp.blob();
@@ -187,7 +191,7 @@ export function createEvoflowPartialServices(sessionId: string): IServiceAccesso
       include_hidden: String(params?.includeHidden !== false),
     });
     if (sessionId) q.set("thread_id", sessionId);
-    const resp = await fetch(`/api/workspaces/listdir?${q.toString()}`);
+    const resp = await fetch(await apiUrlAsync(`/workspaces/listdir?${q.toString()}`));
     if (resp.status === 404) throw new Error(`directory not found: ${dir}`);
     if (!resp.ok) throw new Error(`readdir failed: HTTP ${resp.status}`);
     const data = (await resp.json()) as {
@@ -249,7 +253,7 @@ export function createEvoflowPartialServices(sessionId: string): IServiceAccesso
       return searchIndexCache.packed;
     }
     const tq = sessionId ? `?thread_id=${encodeURIComponent(sessionId)}` : "";
-    const resp = await fetch(`/api/workspaces/list_files${tq}`);
+    const resp = await fetch(await apiUrlAsync(`/workspaces/list_files${tq}`));
     if (!resp.ok) throw new Error(`list_files failed: HTTP ${resp.status}`);
     const data = (await resp.json()) as { paths?: string[] };
     const rootPosix = String(rootPath || "").replace(/\/+$/, "");
@@ -275,7 +279,7 @@ export function createEvoflowPartialServices(sessionId: string): IServiceAccesso
             try {
               const q = new URLSearchParams({ path: p });
               if (sessionId) q.set("thread_id", sessionId);
-              const resp = await fetch(`/api/workspaces/resolve-target?${q.toString()}`);
+              const resp = await fetch(await apiUrlAsync(`/workspaces/resolve-target?${q.toString()}`));
               if (!resp.ok) return { path: p, exists: false };
               const data = (await resp.json()) as { exists?: boolean; is_dir?: boolean };
               return { path: p, exists: Boolean(data.exists) && !data.is_dir };
@@ -396,7 +400,7 @@ export function createEvoflowPartialServices(sessionId: string): IServiceAccesso
       async refresh(params: { workspacePath: string }) {
         const q = new URLSearchParams();
         if (sessionId) q.set("thread_id", sessionId);
-        const resp = await fetch(`/api/workspaces/git_status?${q.toString()}`);
+        const resp = await fetch(await apiUrlAsync(`/workspaces/git_status?${q.toString()}`));
         if (!resp.ok) throw new Error(`git_status failed: HTTP ${resp.status}`);
         return (await resp.json()) as {
           summary: { isGitAvailable: boolean; isRepository: boolean };
@@ -407,7 +411,7 @@ export function createEvoflowPartialServices(sessionId: string): IServiceAccesso
       async getIgnoredPaths(params: { workspacePath: string; paths: string[] }) {
         const q = new URLSearchParams();
         if (sessionId) q.set("thread_id", sessionId);
-        const resp = await fetch(`/api/workspaces/git_ignored_paths?${q.toString()}`, {
+        const resp = await fetch(await apiUrlAsync(`/workspaces/git_ignored_paths?${q.toString()}`), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ paths: params?.paths ?? [] }),

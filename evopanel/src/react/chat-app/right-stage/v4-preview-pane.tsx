@@ -9,6 +9,7 @@ import { ZCodeIntlProvider } from "@zcode/ui/i18n/IntlProvider.js";
 import { StoreProvider } from "@zcode/ui/store/StoreProvider.js";
 import { PlatformProvider } from "@zcode/ui/hooks/usePlatform.js";
 import { ServiceProvider } from "@zcode/ui/hooks/useServices.js";
+import { TooltipProvider } from "@zcode/ui/components/ui/tooltip.js";
 import type { IBroadcastService, BroadcastMessage } from "@zcode/services";
 import type { CodeViewerSource } from "@zcode/ui/lib/codeViewer.js";
 import { evoflowStubPlatform } from "../../../pages/settings/evoflow-bridge-services.js";
@@ -72,12 +73,16 @@ export function V4PreviewPane(props: {
                 缺了它 @theme 变量解析不出来（面包屑、代码块、diff 背景会整块发黑），
                 同时 applyTheme 也靠它定位挂载目标，避免把整站切成暗色。 */}
             <div className="zcode-bridge-root flex h-full min-h-0 flex-col">
+            {/* TooltipProvider：PreviewPane/CodeViewer 头部按钮用 ControlHintTooltip，
+                缺 Provider 时渲染即抛错把整块预览打崩（14:04:05 前端日志实锤）。 */}
+            <TooltipProvider>
               <PreviewPane
                 source={stableSource}
                 onClose={onClose}
                 workspacePath={workspacePath}
                 onOpenCodeViewer={onOpenCodeViewer}
               />
+            </TooltipProvider>
             </div>
           </ServiceProvider>
         </PlatformProvider>
