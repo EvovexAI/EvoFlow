@@ -673,7 +673,7 @@ def _build_registry() -> dict[str, PlatformAction]:
         _A("skills.list", "skills", "列出技能", "read", "enabled_only?", H.skills_list, "装了哪些技能"),
         _A("skills.get", "skills", "查看技能详情", "read", "name", H.skills_get, "evoflow-admin 技能说啥"),
         _A("skills.enable", "skills", "启用/停用技能", "write", "name, enabled", H.skills_enable, "关掉某技能"),
-        _A("skills.install", "skills", "安装技能（path 或市场 slug）", "write", "path 或 slug, owner?", H.skills_install, "装这个技能包"),
+        _A("skills.install", "skills", "安装技能（path 或市场 slug；本地 path 可 link=true 挂载）", "write", "path 或 slug, owner?, link?", H.skills_install, "装这个技能包"),
         _A(
             "skills.import_orphans",
             "skills",

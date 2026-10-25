@@ -1651,13 +1651,32 @@ def skills_enable(args: dict[str, Any]) -> dict[str, Any]:
 
 
 def skills_install(args: dict[str, Any]) -> dict[str, Any]:
+    from pathlib import Path
+
     from evoflow.admin import skills as skills_admin
+    from evoflow.skills.installer import SkillAlreadyExistsError, install_skill_from_directory
+    from evoflow.skills.loader import clear_skills_cache
 
     path = _arg_str(args, "path")
     slug = _arg_str(args, "slug")
+    link = _arg_bool(args, "link", False)
     if path:
+        p = Path(path)
+        if p.is_dir():
+            try:
+                result = install_skill_from_directory(p, link=link)
+            except SkillAlreadyExistsError as e:
+                from evoflow.admin.errors import ConflictError
+
+                raise ConflictError(str(e)) from e
+            clear_skills_cache()
+            return {"ok": True, **result}
+        if link:
+            raise ValidationError("link=true only applies to a skill directory path, not a zip archive")
         return {"ok": True, **skills_admin.install_skill(path)}
     if slug:
+        if link:
+            raise ValidationError("link=true is not supported for market slug installs")
         return {
             "ok": True,
             **skills_admin.install_skill_from_market(

@@ -192,7 +192,9 @@ async function onInstall() {
       options: { conflict_policy: 'fail' },
     })
     setLog(res)
-    toast.success(`已安装 ${res?.pack_id || ''}（${res?.org_instance_id || ''}）`)
+    toast.success(
+      `已安装 ${res?.pack_name || res?.name || res?.pack_id || ''}（${res?.org_instance_id || ''}）`,
+    )
     try {
       const { switchResourcesPanel } = await import('./resources.js')
       switchResourcesPanel('installed')
@@ -281,7 +283,7 @@ async function onInstallMarket(packPath) {
       options: { conflict_policy: 'fail' },
     })
     setLog(res)
-    toast.success(`已安装 ${res?.pack_id || path}`)
+    toast.success(`已安装 ${res?.pack_name || res?.name || res?.pack_id || path}`)
     try {
       const { switchResourcesPanel } = await import('./resources.js')
       switchResourcesPanel('installed')

@@ -240,7 +240,6 @@ class AgentConfig(BaseModel):
         agent_name: Chinese display name for UI (e.g. "在线搜索天才").
         description: What the agent does.
         model: Model to use (optional).
-        tool_groups: Optional tool group whitelist.
         tools: Optional tool whitelist (builtin tool names).
             Semantics differ by truthiness source: ``None`` = mount ALL configurable
             tools (inherit), ``[]`` = mount NONE, ``["a","b"]`` = only listed.
@@ -264,7 +263,6 @@ class AgentConfig(BaseModel):
     agent_name: str | None = None
     description: str = ""
     model: str | None = None
-    tool_groups: list[str] | None = None
 
     # Tool / MCP / Skills / Knowledge configuration
     # ``tools`` tri-state: None = all configurable tools (inherit), [] = none,

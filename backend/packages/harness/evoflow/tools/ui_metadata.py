@@ -85,7 +85,6 @@ def collect_native_tool_specs_for_role_ui(*, model_name: str | None = None) -> l
     for mode in modes:
         try:
             tools = get_available_tools(
-                groups=None,
                 include_mcp=False,
                 model_name=model_name,
                 subagent_enabled=True,

@@ -492,6 +492,125 @@
   background: var(--surface, #fff);
 }
 
+.sr-card--clickable {
+  cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.sr-card--clickable:hover,
+.sr-card--clickable:focus-visible {
+  border-color: color-mix(in srgb, var(--primary, #4f46e5) 45%, var(--border, #e7eaf0));
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.06);
+  outline: none;
+}
+
+.sr-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.sr-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.sr-detail-hero {
+  padding: 16px;
+  border: 1px solid var(--border, #e7eaf0);
+  border-radius: 12px;
+  background: linear-gradient(135deg, #f8fafc, #eef2ff);
+}
+
+.sr-detail-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+@media (max-width: 900px) {
+  .sr-detail-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.sr-detail-block {
+  padding: 14px;
+  border: 1px solid var(--border, #e7eaf0);
+  border-radius: 10px;
+  background: var(--surface, #fff);
+}
+
+.sr-detail-block h4 {
+  margin: 0 0 10px;
+  font-size: 13px;
+}
+
+.sr-kv {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sr-kv > div {
+  display: grid;
+  grid-template-columns: 96px 1fr;
+  gap: 8px;
+  align-items: start;
+  font-size: 12px;
+}
+
+.sr-kv dt {
+  margin: 0;
+  color: var(--text-muted, #64748b);
+}
+
+.sr-kv dd {
+  margin: 0;
+  word-break: break-all;
+}
+
+.sr-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.sr-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 9px;
+  border-radius: 6px;
+  background: #f1f5f9;
+  font-size: 12px;
+}
+
+.sr-chip--named b {
+  font-weight: 650;
+  color: var(--text, #0f172a);
+}
+
+.sr-chip--named code {
+  font-size: 10px;
+  color: var(--text-muted, #64748b);
+  background: transparent;
+  padding: 0;
+}
+
+.sr-warn {
+  margin: 10px 0 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #fff7ed;
+  color: #9a3412;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .sr-card-title {
   display: flex;
   flex-wrap: wrap;

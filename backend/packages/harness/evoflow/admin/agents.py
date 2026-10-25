@@ -234,7 +234,6 @@ def _agent_row(agent_cfg: AgentConfig, *, include_soul: bool = False) -> dict[st
         "agent_name": agent_cfg.agent_name,
         "description": agent_cfg.description or "",
         "model": agent_cfg.model,
-        "tool_groups": _dedupe_list_inplace(list(agent_cfg.tool_groups) if agent_cfg.tool_groups is not None else None),
         "tools": tools,
         "mcp_servers": _dedupe_list_inplace(list(agent_cfg.mcp_servers) if agent_cfg.mcp_servers is not None else None),
         "skills": _dedupe_list_inplace(list(agent_cfg.skills) if agent_cfg.skills is not None else None),
@@ -279,7 +278,6 @@ def _main_agent_row(*, include_soul: bool = False) -> dict[str, Any]:
             "agent_name": "EvoFlow",
             "description": "",
             "model": None,
-            "tool_groups": None,
             "tools": ["platform"],
             "mcp_servers": None,
             "skills": None,
@@ -566,7 +564,6 @@ def _bindings_applied_summary(
         "tools": tools,
         "skills": row.get("skills"),
         "mcp_servers": row.get("mcp_servers"),
-        "tool_groups": row.get("tool_groups"),
         "knowledge_vault_ids": row.get("knowledge_vault_ids") or [],
         "semantics": {
             "tools_null": "继承全部可配置工具（危险；须 confirm_inherit_all=true）",
@@ -639,8 +636,6 @@ def create_agent(data: dict[str, Any], *, forbid_inherit_all: bool = False) -> d
             config_data["system_prompt"] = text
     if data.get("model") is not None:
         config_data["model"] = _validate_model_name(data["model"])
-    if data.get("tool_groups") is not None:
-        config_data["tool_groups"] = _dedupe_str_list(data["tool_groups"], field="tool_groups")
     if "tools" in data:
         if data["tools"] is None:
             # Explicit null → inherit all configurable tools (opt-in, not default).
@@ -760,8 +755,6 @@ def update_agent(name: str, data: dict[str, Any]) -> dict[str, Any]:
             config_data["model"] = None
         else:
             config_data["model"] = _validate_model_name(data["model"])
-    if "tool_groups" in data and data["tool_groups"] is not None:
-        config_data["tool_groups"] = _dedupe_str_list(data["tool_groups"], field="tool_groups")
     if "tools" in data and data["tools"] is not None:
         config_data["tools"] = _validate_tools_list(data["tools"])
     if "mcp_servers" in data and data["mcp_servers"] is not None:
@@ -865,16 +858,14 @@ def _update_main_agent(data: dict[str, Any]) -> dict[str, Any]:
             del existing["model"]
         elif data["model"] is not None:
             existing["model"] = _validate_model_name(data["model"])
-    for key in ("tool_groups", "tools", "mcp_servers", "system_prompt"):
+    for key in ("tools", "mcp_servers", "system_prompt"):
         if key not in data:
             continue
         val = data[key]
         if val is None and key in existing:
             del existing[key]
         elif val is not None:
-            if key == "tool_groups":
-                existing[key] = _dedupe_str_list(val, field="tool_groups")
-            elif key == "tools":
+            if key == "tools":
                 existing[key] = _validate_tools_list(val)
             elif key == "mcp_servers":
                 existing[key] = _validate_mcp_servers_list(val)

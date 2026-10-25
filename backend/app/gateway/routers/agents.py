@@ -136,11 +136,6 @@ def _save_main_agent_config(updates: dict) -> None:
             existing["model"] = updates["model"]
         elif "model" in existing:
             del existing["model"]
-    if "tool_groups" in updates:
-        if updates["tool_groups"] is not None:
-            existing["tool_groups"] = updates["tool_groups"]
-        elif "tool_groups" in existing:
-            del existing["tool_groups"]
     if "tools" in updates:
         if updates["tools"] is not None:
             existing["tools"] = updates["tools"]
@@ -188,7 +183,6 @@ def _main_agent_to_response(include_soul: bool = False) -> AgentResponse:
         agent_name=_main_display or "EvoFlow",
         description=agent_cfg.description if agent_cfg else "",
         model=model,
-        tool_groups=agent_cfg.tool_groups if agent_cfg else None,
         tools=_normalize_agent_tools_for_api(agent_cfg.tools if agent_cfg else None),
         mcp_servers=agent_cfg.mcp_servers if agent_cfg else None,
         skills=agent_cfg.skills if agent_cfg else None,
@@ -215,7 +209,6 @@ class AgentResponse(BaseModel):
     agent_name: str | None = Field(default=None, description="Optional Chinese display name for UI")
     description: str = Field(default="", description="Agent description")
     model: str | None = Field(default=None, description="Optional model override")
-    tool_groups: list[str] | None = Field(default=None, description="Optional tool group whitelist")
     tools: list[str] | None = Field(default=None, description="Optional builtin tool whitelist")
     mcp_servers: list[str] | None = Field(default=None, description="Optional MCP server names")
     skills: list[str] | None = Field(default=None, description="Optional skill names")
@@ -281,7 +274,6 @@ class AgentCreateRequest(BaseModel):
     agent_name: str | None = Field(default=None, description="Optional Chinese display name for UI")
     description: str = Field(default="", description="Agent description")
     model: str | None = Field(default=None, description="Optional model override")
-    tool_groups: list[str] | None = Field(default=None, description="Optional tool group whitelist")
     tools: list[str] | None = Field(default=None, description="Optional builtin tool whitelist")
     mcp_servers: list[str] | None = Field(default=None, description="Optional MCP server names")
     skills: list[str] | None = Field(default=None, description="Optional skill names")
@@ -351,7 +343,6 @@ class AgentUpdateRequest(BaseModel):
     agent_name: str | None = Field(default=None, description="Updated Chinese display name for UI")
     description: str | None = Field(default=None, description="Updated description")
     model: str | None = Field(default=None, description="Updated model override")
-    tool_groups: list[str] | None = Field(default=None, description="Updated tool group whitelist")
     tools: list[str] | None = Field(default=None, description="Updated builtin tool whitelist")
     mcp_servers: list[str] | None = Field(default=None, description="Updated MCP server names")
     skills: list[str] | None = Field(default=None, description="Updated skill names")
@@ -449,7 +440,6 @@ def _agent_config_to_response(agent_cfg: AgentConfig, include_soul: bool = False
         agent_name=agent_cfg.agent_name,
         description=desc,
         model=agent_cfg.model,
-        tool_groups=agent_cfg.tool_groups,
         tools=tools,
         mcp_servers=mcp_servers,
         skills=skills,
@@ -733,8 +723,6 @@ async def create_agent_endpoint(http_request: Request, request: AgentCreateReque
             config_data["description"] = request.description
         if request.model is not None:
             config_data["model"] = request.model
-        if request.tool_groups is not None:
-            config_data["tool_groups"] = request.tool_groups
         if request.tools is not None:
             config_data["tools"] = _normalize_agent_tools_for_api(request.tools)
         else:
@@ -891,7 +879,6 @@ async def update_agent(http_request: Request, name: str, request: AgentUpdateReq
             "agent_name",
             "description",
             "model",
-            "tool_groups",
             "tools",
             "mcp_servers",
             "skills",
@@ -934,23 +921,18 @@ async def update_agent(http_request: Request, name: str, request: AgentUpdateReq
 
             if _is_xiaomi:
                 caps = xiaomi_front_desk_capability_defaults()
-                new_tool_groups = None
                 new_tools = list(caps["tools"])
                 new_mcp = list(caps["mcp_servers"])
                 new_skills = list(caps["skills"])
             elif _agent_requires_external_cli(agent_cfg):
-                new_tool_groups = agent_cfg.tool_groups
                 new_tools = agent_cfg.tools
                 new_mcp = agent_cfg.mcp_servers
                 new_skills = agent_cfg.skills
             else:
-                new_tool_groups = request.tool_groups if request.tool_groups is not None else agent_cfg.tool_groups
                 new_tools = _normalize_agent_tools_for_api(request.tools if request.tools is not None else agent_cfg.tools)
                 new_mcp = request.mcp_servers if request.mcp_servers is not None else agent_cfg.mcp_servers
                 new_skills = request.skills if request.skills is not None else agent_cfg.skills
 
-            if new_tool_groups is not None:
-                updated["tool_groups"] = new_tool_groups
             if new_tools is not None:
                 updated["tools"] = new_tools
             if new_mcp is not None:

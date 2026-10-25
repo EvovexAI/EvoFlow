@@ -14,6 +14,7 @@ from evoflow.organizations import registry as org_registry
 from evoflow.organizations.manifest import (
     LoadedPack,
     PackManifestError,
+    apply_placeholders,
     deep_apply_placeholders,
     load_agent_definition,
     load_json_ref,
@@ -381,6 +382,10 @@ def install_organization(
     ws_cfg = pack.manifest.get("workspace") if isinstance(pack.manifest.get("workspace"), dict) else {}
     if not org_ws:
         org_ws = str(ws_cfg.get("path") or "").strip()
+    # Expand ${ORG_ROOT} / ${ORG_WORKSPACE} before mkdir + registry write
+    if org_ws:
+        org_ws = apply_placeholders(org_ws, org_workspace="", org_root=org_root)
+        org_ws = apply_placeholders(org_ws, org_workspace=org_ws, org_root=org_root)
     if org_ws and bool(ws_cfg.get("create_if_missing", True)):
         Path(org_ws).mkdir(parents=True, exist_ok=True)
         tpl = str(ws_cfg.get("template") or "").strip()
@@ -465,10 +470,17 @@ def install_organization(
                 if not rel:
                     continue
                 skill_dir = resolve_pack_rel(pack, rel)
+                # link=true: mount source dir (local/monorepo). Default false for portable zips.
+                skill_link = bool(ref.get("link"))
                 try:
-                    result = install_skill_from_directory(skill_dir)
+                    result = install_skill_from_directory(skill_dir, link=skill_link)
                     sname = str(result.get("skill_name") or skill_dir.name)
                     artifacts["skills"].append(sname)
+                    if skill_link:
+                        warnings.append(
+                            f"skill '{sname}' installed as folder-link "
+                            f"(non-portable; source={skill_dir})"
+                        )
 
                     def _undo_skill(name: str = sname) -> None:
                         try:
@@ -480,12 +492,31 @@ def install_organization(
 
                     undo.append(("skill", _undo_skill))
                 except Exception as e:
-                    if "already" in str(e).lower() or "exist" in str(e).lower():
-                        if policy == "fail":
-                            raise OrganizationInstallError(f"skill conflict: {e}") from e
-                        warnings.append(f"skill skipped: {e}")
-                    else:
+                    msg = str(e)
+                    already = "already" in msg.lower() or "exist" in msg.lower()
+                    if not already:
                         raise
+                    # Skills are shared across packs (e.g. evoflow-onboarding in 1004+1008).
+                    # Idempotent: reuse existing skill; do not fail the whole pack.
+                    m = re.search(r"Skill '([^']+)'", msg)
+                    sname = (m.group(1) if m else "") or skill_dir.name
+                    if policy == "replace":
+                        try:
+                            from evoflow.admin import skills as skills_admin
+
+                            try:
+                                skills_admin.delete_skill(sname)
+                            except Exception:
+                                logger.debug("delete existing skill before replace failed name=%s", sname, exc_info=True)
+                            result = install_skill_from_directory(skill_dir, link=skill_link)
+                            sname = str(result.get("skill_name") or sname)
+                            warnings.append(f"skill replaced: {sname}")
+                        except Exception as re_e:
+                            warnings.append(f"skill exists, replace failed (kept existing): {re_e}")
+                    else:
+                        warnings.append(f"skill exists, reused: {sname}")
+                    if sname not in artifacts["skills"]:
+                        artifacts["skills"].append(sname)
 
             clear_skills_cache()
 
@@ -508,7 +539,6 @@ def install_organization(
                     "agent_type": str(agent_def.get("agent_type") or "custom"),
                     "skills": list(agent_def.get("skills") or []),
                     "tools": list(agent_def.get("tools") or []),
-                    "tool_groups": list(agent_def.get("tool_groups") or []),
                     "mcp_servers": list(agent_def.get("mcp_servers") or []),
                     "tags": list(agent_def.get("tags") or []),
                     "soul": str(agent_def.get("soul") or agent_def.get("system_prompt") or ""),
@@ -572,7 +602,6 @@ def install_organization(
                     "kpis",
                     "max_turns",
                     "timeout_seconds",
-                    "tool_groups",
                     "daily_budget_usd",
                 ):
                     if k in cfg:

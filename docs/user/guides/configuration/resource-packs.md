@@ -60,10 +60,17 @@
 ### skills（技能）
 
 ```json
-[{ "path": "./skills/my-skill" }]
+[
+  { "path": "./skills/my-skill" },
+  { "path": "./skills/my-skill", "link": true }
+]
 ```
 
-`slug` 形态（从技能市场装）暂未支持（Phase 2）。
+- 默认（或不写 `link` / `"link": false`）：**复制**到生效根的 `skills/custom/<name>/`（zip 分发、便携安装用这个）。
+- `"link": true`：在 `skills/custom/<name>` 建**目录挂载**（symlink / Windows junction）指向包内源目录，**不拷贝内容**；改源码即生效。适合本机 monorepo / 演示仓。卸载只摘挂载，不删源目录。非便携（换机器路径会断）。
+- 也可用 HTTP：`POST /api/skills/install-from-path`，body `{ "path": "...", "link": true }`。
+
+`slug` 形态（从技能市场装）暂未支持（Phase 2）；市场安装始终为 copy。
 
 ### agents / 员工 / 应用
 

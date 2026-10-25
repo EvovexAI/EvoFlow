@@ -44,7 +44,6 @@ class LeadAgentGraphCacheKey:
     include_search: bool
     use_virtual_paths: bool
     tools_mode: str | None
-    tool_groups: tuple[str, ...]
     tool_whitelist: tuple[str, ...]
     mcp_servers_unrestricted: bool
     mcp_servers: tuple[str, ...]
@@ -61,7 +60,7 @@ class LeadAgentGraphCacheKey:
     # Invalidate when api_key / base_url change without restarting the worker.
     credentials_fp: str = ""
     # Bump when compile-time prompt binding changes (invalidates graphs built with placeholders).
-    schema_version: int = 14
+    schema_version: int = 15
 
     def as_tuple(self) -> tuple[Any, ...]:
         """All fields in definition order — new fields auto-included via dataclasses.astuple."""

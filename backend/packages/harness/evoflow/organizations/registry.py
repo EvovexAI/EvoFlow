@@ -12,11 +12,36 @@ from evoflow.timeutil import utc_now_iso_z
 logger = logging.getLogger(__name__)
 
 
-def _row_to_instance(row: Any, *, artifacts: dict[str, list[str]] | None = None) -> dict[str, Any]:
+def _manifest_from_row(d: dict[str, Any]) -> dict[str, Any]:
+    raw = d.get("manifest_json")
+    if isinstance(raw, dict):
+        return raw
+    if isinstance(raw, str) and raw.strip():
+        try:
+            parsed = json.loads(raw)
+            return parsed if isinstance(parsed, dict) else {}
+        except Exception:
+            return {}
+    return {}
+
+
+def _row_to_instance(
+    row: Any,
+    *,
+    artifacts: dict[str, list[str]] | None = None,
+    include_manifest: bool = True,
+) -> dict[str, Any]:
     d = dict(row) if not isinstance(row, dict) else row
-    return {
+    pack_id = str(d.get("pack_id") or "")
+    manifest = _manifest_from_row(d)
+    pack_name = str(manifest.get("name") or "").strip() or pack_id
+    description = str(manifest.get("description") or "").strip()
+    out: dict[str, Any] = {
         "org_instance_id": str(d.get("id") or ""),
-        "pack_id": str(d.get("pack_id") or ""),
+        "pack_id": pack_id,
+        "pack_name": pack_name,
+        "name": pack_name,
+        "description": description,
         "pack_version": str(d.get("pack_version") or ""),
         "kind": str(d.get("kind") or ""),
         "workspace_path": d.get("workspace_path"),
@@ -25,6 +50,9 @@ def _row_to_instance(row: Any, *, artifacts: dict[str, list[str]] | None = None)
         "artifacts": artifacts if artifacts is not None else {},
         "warnings": [],
     }
+    if include_manifest:
+        out["manifest"] = manifest
+    return out
 
 
 def list_artifacts(org_instance_id: str) -> dict[str, list[str]]:
@@ -74,7 +102,16 @@ def get_org_instance(org_instance_id: str) -> dict[str, Any] | None:
     if not row:
         return None
     raw = dict(row)
-    return _row_to_instance(raw, artifacts=list_artifacts(oid))
+    arts = list_artifacts(oid)
+    inst = _row_to_instance(raw, artifacts=arts)
+    try:
+        from evoflow.organizations.labels import resolve_artifact_details
+
+        inst["artifact_details"] = resolve_artifact_details(arts)
+    except Exception:
+        logger.debug("resolve_artifact_details failed oid=%s", oid, exc_info=True)
+        inst["artifact_details"] = {}
+    return inst
 
 
 def insert_org_instance(

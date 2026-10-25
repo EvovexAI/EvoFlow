@@ -4,10 +4,14 @@ Pure business logic — no FastAPI/HTTP dependencies.
 Both Gateway and Client delegate to these functions.
 """
 
+from __future__ import annotations
+
 import logging
+import os
 import posixpath
 import shutil
 import stat
+import subprocess
 import tempfile
 import zipfile
 from pathlib import Path, PurePosixPath, PureWindowsPath
@@ -25,6 +29,64 @@ MAX_ZIP_FILES = 2048
 
 class SkillAlreadyExistsError(ValueError):
     """Raised when a skill with the same name is already installed."""
+
+
+def is_link_or_junction(path: Path) -> bool:
+    """True if path is a symlink or Windows junction/reparse point (does not follow)."""
+    try:
+        st = os.lstat(path)
+    except OSError:
+        return False
+    if stat.S_ISLNK(st.st_mode):
+        return True
+    if os.name == "nt" and hasattr(st, "st_file_attributes"):
+        return bool(st.st_file_attributes & stat.FILE_ATTRIBUTE_REPARSE_POINT)
+    return False
+
+
+def path_occupied(path: Path) -> bool:
+    """True if a name is already taken under custom/ (file, dir, symlink, or junction)."""
+    return path.exists() or path.is_symlink() or is_link_or_junction(path)
+
+
+def remove_link_or_junction(path: Path) -> None:
+    """Remove a symlink/junction without deleting the link target."""
+    if not path.exists() and not path.is_symlink() and not is_link_or_junction(path):
+        return
+    if path.is_dir() and not path.is_symlink():
+        if is_link_or_junction(path):
+            path.rmdir()
+            return
+        raise RuntimeError(f"Refusing to remove non-link directory: {path}")
+    path.unlink()
+
+
+def link_skill_directory(src: Path, target: Path) -> None:
+    """Create custom/<name> as a directory symlink (or Windows junction) to src."""
+    src_resolved = src.resolve()
+    if not src_resolved.is_dir():
+        raise ValueError(f"Skill source is not a directory: {src}")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if path_occupied(target):
+        raise SkillAlreadyExistsError(f"Skill path already occupied: {target}")
+
+    try:
+        os.symlink(str(src_resolved), str(target), target_is_directory=True)
+        return
+    except OSError as exc:
+        if os.name != "nt":
+            raise RuntimeError(f"Failed to create skill symlink: {exc}") from exc
+
+    # Windows: directory symlink often needs Developer Mode; junction does not.
+    completed = subprocess.run(
+        ["cmd", "/c", "mklink", "/J", str(target), str(src_resolved)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if completed.returncode != 0 or not path_occupied(target):
+        detail = (completed.stderr or completed.stdout or "").strip() or "mklink failed"
+        raise RuntimeError(f"Failed to create skill junction: {detail}")
 
 
 def is_unsafe_zip_member(info: zipfile.ZipInfo) -> bool:
@@ -199,7 +261,7 @@ def install_skill_from_archive(
             raise ValueError(f"Invalid skill name: {skill_name}")
 
         target = custom_dir / skill_name
-        if target.exists():
+        if path_occupied(target):
             raise SkillAlreadyExistsError(f"Skill '{skill_name}' already exists")
 
         shutil.copytree(skill_dir, target)
@@ -209,6 +271,8 @@ def install_skill_from_archive(
         "success": True,
         "skill_name": skill_name,
         "message": f"Skill '{skill_name}' installed successfully",
+        "install_mode": "copy",
+        "linked_path": None,
     }
 
 
@@ -216,6 +280,7 @@ def install_skill_from_directory(
     source_dir: str | Path,
     *,
     skills_root: Path | None = None,
+    link: bool = False,
 ) -> dict:
     """Install a skill from a local directory (no archive needed).
 
@@ -223,16 +288,20 @@ def install_skill_from_directory(
         source_dir: Path to the skill directory (must contain SKILL.md).
         skills_root: Override the skills root directory. If None, uses
             the default from config.
+        link: When True, create ``custom/<name>`` as a directory symlink /
+            Windows junction pointing at ``source_dir`` instead of copying.
+            Prefer for local monorepo / demo packs so edits stay in-source.
+            Zip/market installs should keep ``link=False`` (portable copy).
 
     Returns:
-        Dict with success, skill_name, message.
+        Dict with success, skill_name, message, install_mode, linked_path.
 
     Raises:
         FileNotFoundError: If the directory does not exist.
         ValueError: If the directory is invalid (no SKILL.md, invalid
             frontmatter, duplicate name).
     """
-    logger.info("Installing skill from directory %s", source_dir)
+    logger.info("Installing skill from directory %s (link=%s)", source_dir, link)
     src = Path(source_dir)
     if not src.is_dir():
         if not src.exists():
@@ -263,14 +332,28 @@ def install_skill_from_directory(
     custom_dir.mkdir(parents=True, exist_ok=True)
 
     target = custom_dir / skill_name
-    if target.exists():
+    if path_occupied(target):
         raise SkillAlreadyExistsError(f"Skill '{skill_name}' already exists")
 
-    shutil.copytree(src, target)
+    src_resolved = src.resolve()
+    if link:
+        link_skill_directory(src_resolved, target)
+        logger.info("Skill %r linked from %s -> %s", skill_name, src_resolved, target)
+        return {
+            "success": True,
+            "skill_name": skill_name,
+            "message": f"Skill '{skill_name}' linked successfully",
+            "install_mode": "link",
+            "linked_path": str(src_resolved),
+        }
+
+    shutil.copytree(src_resolved, target)
     logger.info("Skill %r installed from directory to %s", skill_name, target)
 
     return {
         "success": True,
         "skill_name": skill_name,
         "message": f"Skill '{skill_name}' installed successfully",
+        "install_mode": "copy",
+        "linked_path": None,
     }

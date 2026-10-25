@@ -393,7 +393,6 @@ _AGENT_SCALAR_KEYS = frozenset(
         "timeout_seconds",
         "command",
         "auto_approve_permissions",
-        "tool_groups",
         "tools",
         "mcp_servers",
         "skills",
@@ -406,7 +405,6 @@ _AGENT_SCALAR_KEYS = frozenset(
 )
 
 _AGENT_LIST_KINDS = (
-    "tool_groups",
     "tools",
     "mcp_servers",
     "skills",

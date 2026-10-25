@@ -234,7 +234,7 @@ def _lint_js_ts(target: Path, *, post_edit: bool = False) -> str:
             if code == 0:
                 return "javascript (node --check): No issues found."
             return f"javascript (node --check):\n{out or 'syntax error'}"
-        return f"{lang}: post-edit lint skipped project-wide tsc (too slow). Call read_lints on this file if you need full typecheck."
+        return f"{lang}: post-edit lint skipped project-wide tsc (too slow). Run full typecheck via Bash (npx tsc --noEmit) if needed."
 
     if lang == "typescript" and root:
         tsconfig = root / "tsconfig.json"

@@ -126,7 +126,6 @@ class ProactiveRoleConfig:
     max_turns: int = 10
     # 0 / 未配置 = 不设 wall-clock 上限（无限等待，受 recursion_limit 保护）；显式配置则限制。
     timeout_seconds: int = 0
-    tool_groups: list[str] = field(default_factory=list)
     skills: list[str] = field(default_factory=list)
     # KB injection config (overrides defaults from ``AgentConfig.kb_injection``).
     # Stored as a dict to mirror ``KbInjectionConfig.to_dict()`` shape; validated on load.
@@ -224,6 +223,7 @@ class ProactiveRoleConfig:
         d = raw if isinstance(raw, dict) else json.loads(raw)
         # Drop retired fields without warning (legacy config_json may still carry them).
         d.pop("domain_scope", None)
+        d.pop("tool_groups", None)
         # Normalize enums
         al = d.get("autonomy_level")
         if isinstance(al, str):

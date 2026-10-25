@@ -151,18 +151,23 @@ def delete_skill(name: str) -> dict[str, Any]:
     if skill.category != "custom":
         raise ForbiddenError("Built-in public skills cannot be deleted; only custom skills under skills/custom/")
 
+    from evoflow.skills.installer import is_link_or_junction, remove_link_or_junction
+
     skills_root = _resolve_skills_base_path().resolve()
     custom_root = (skills_root / "custom").resolve()
-    skill_dir = skill.skill_dir.resolve()
-
-    try:
-        skill_dir.relative_to(custom_root)
-    except ValueError as e:
-        raise ValidationError("Skill directory is not under skills/custom; refusing to delete") from e
-
-    if skill_dir.exists():
-        shutil.rmtree(skill_dir)
-        _prune_empty_parents_under_custom(skill_dir, custom_root)
+    # Prefer custom/<name> so folder-links are removed without deleting the source tree.
+    slot = custom_root / name
+    if slot.is_symlink() or is_link_or_junction(slot):
+        remove_link_or_junction(slot)
+    else:
+        skill_dir = slot.resolve() if slot.exists() else skill.skill_dir.resolve()
+        try:
+            skill_dir.relative_to(custom_root)
+        except ValueError as e:
+            raise ValidationError("Skill directory is not under skills/custom; refusing to delete") from e
+        if skill_dir.exists():
+            shutil.rmtree(skill_dir)
+            _prune_empty_parents_under_custom(skill_dir, custom_root)
 
     cfg_repo.delete_skill_registry(name)
     extensions_config = get_extensions_config()

@@ -303,7 +303,6 @@ def _load_supplemental_config_tools(config, existing_names: set[str]) -> list[Ba
 
 @lru_cache(maxsize=32)
 def _cached_resolve_tools(
-    groups_key: tuple[str, ...] | None,
     include_mcp: bool,
     model_name: str | None,
     subagent_enabled: bool,
@@ -434,7 +433,6 @@ def _knowledge_vault_tools_for_catalog() -> list[BaseTool]:
 
 
 def get_available_tools(
-    groups: list[str] | None = None,
     include_mcp: bool = True,
     model_name: str | None = None,
     subagent_enabled: bool = False,
@@ -443,12 +441,11 @@ def get_available_tools(
 ) -> list[BaseTool]:
     """Get all available tools — all built-in, no config.yaml required.
 
-    Results are LRU-cached keyed by (groups, include_mcp, model_name,
+    Results are LRU-cached keyed by (include_mcp, model_name,
     subagent_enabled, include_search, tools_mode, tool_search_enabled).  Subsequent calls with
     the same parameters return a fresh list copy in O(tool_count) time.
 
     Args:
-        groups: Optional list of tool groups to filter by (legacy, kept for compat).
         include_mcp: Whether to include tools from MCP servers (default: True).
         model_name: Optional model name (legacy compat; vision tools are always included).
         subagent_enabled: Whether to include subagent tools (task, task_status).
@@ -459,7 +456,6 @@ def get_available_tools(
     Returns:
         List of available tools.
     """
-    groups_key = tuple(sorted(groups)) if groups else None
     try:
         from evoflow.config.tool_search_config import is_tool_search_enabled
 
@@ -468,7 +464,6 @@ def get_available_tools(
         tool_search_enabled = False
     return list(
         _cached_resolve_tools(
-            groups_key,
             include_mcp,
             model_name,
             subagent_enabled,

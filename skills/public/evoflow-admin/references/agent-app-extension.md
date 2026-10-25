@@ -64,13 +64,19 @@
 "service": {
   "mode": "managed",
   "cwd": ".",
-  "start": { "windows": ["python", "-m", "http.server", "8899"], "default": ["python3", "-m", "http.server", "8899"] },
+  "start": {
+    "windows": ["python", "-m", "http.server", "8899"],
+    "default": ["python3", "-m", "http.server", "8899"]
+  },
   "healthcheck": { "url": "http://127.0.0.1:8899/index.html", "timeout_ms": 60000 },
+  "stop": "port",
   "ports": [8899]
 }
 ```
 
-`mode: none` 也要求 `ui.entry` 可访问；否则如果rame 白屏。
+`stop` 缺省 `process`；按端口收尾可用 `port`。
+
+**任何 mode 下 `ui.entry` 都必须可访问**——`none` / `external` 时 EvoFlow 不替你起服务，地址打不开就是白屏。
 
 ### 步骤三：安装
 
@@ -109,7 +115,7 @@ cat ~/.evoflow/ui-extensions/registry.json                       # 真的落盘�
 | `version` | 非空（如 `1.0.0`） |
 | `ui.kind` | 只能 `webview` |
 | `ui.entry` | 非空；http(s)/file URL 或相对路径 |
-| `permissions` | 缺省 `["embed"]`；未知值直接报错 |
+| `permissions` | 缺省 `["embed"]`；白名单只有 `embed` / `context.read` / `tasks.dispatch` / `tasks.open`，未知值报错 |
 | `service.mode` | `none` / `managed` / `external` |
 
 常用可选：`nav.title`、`nav.order`（同组内排序）、`icon`（emoji 或图片）、
@@ -131,7 +137,20 @@ cat ~/.evoflow/ui-extensions/registry.json                       # 真的落盘�
 
 ---
 
-## 4. 操作纪律
+## 4. 平台工具的边界（重要）
+
+`extensions.*` 只负责**登记**：写 manifest、落注册表、开关。
+
+**它不负责启动服务**。`managed` 模式的进程启停由**面板（Tauri）**执行
+（`ui_extension_service_start` / `ui_extension_service_stop`），`platform` 工具调不到。
+
+因此：
+
+- 用 `platform` 装了 `managed` 应用后，**服务不会自动起来**——需要用户在应用中心点开一次（或重启面板）触发；
+- 想让「装完立刻能看到效果」，要么让用户去点，要么临时手工起服务（但那是 `external` 的语义，别混）；
+- 验收时要区分「登记成功」和「页面能打开」：前者 `extensions.list` 可见，后者要 curl / 打开面板才知道。
+
+## 5. 操作纪律
 
 1. **先探活再用 URL**。填 manifest 前 `curl -o /dev/null -w "%{http_code}"`；
    连不上的域名（如不存在的官网）白耗多轮，还给用户留个转圈的 iframe。
@@ -141,4 +160,5 @@ cat ~/.evoflow/ui-extensions/registry.json                       # 真的落盘�
    别提交进 git；`link=true` 指向仓库内目录时尤其注意 `.gitignore`。
 4. **卸载要干净**：`extensions.uninstall`（`folder-link` 只摘登记、不删源目录）+ 停掉手工起的服务。
 5. **给用户验收要点**：装完告诉用户「去哪看」（侧栏 `#/extensions` / 应用中心），
-   并说明页面依赖什么（`managed` 由系统托管、`external` 依赖外部进程）。
+   并说明页面依赖什么。**`managed` 的服务要用户点开应用才启动**（见 §4），别向用户承诺「装完就能看到」。
+6. **别谎报验收结果**：`extensions.list` 有返回 ≠ 页面能打开。确认页面 200 再告诉用户「可以看了」。

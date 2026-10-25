@@ -142,7 +142,7 @@ def follow_lint_after_edit(
 
     hybrid = get_agent_orchestration_config().hybrid
     if not getattr(hybrid, "post_edit_parallel_lint_enabled", True):
-        return "<post_edit_lints>\nScheduler batch lint is off. Call read_lints(paths) on edited code files.\n</post_edit_lints>"
+        return "<post_edit_lints>\nScheduler batch lint is off. Run diagnostics via Bash (pyright / ruff / tsc) on edited code files.\n</post_edit_lints>"
 
     if not _auto_lint_enabled():
         return ""

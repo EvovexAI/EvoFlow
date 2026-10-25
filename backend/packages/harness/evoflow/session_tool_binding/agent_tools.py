@@ -106,7 +106,6 @@ def _cached_agent_tool_names(
     subagent_enabled: bool,
     include_search: bool,
     model_name: str | None,
-    tool_groups_key: tuple[str, ...] | None,
     tools_whitelist_key: tuple[str, ...] | None,
     disallowed_key: tuple[str, ...] | None,
     mcp_skill_mode: bool,
@@ -114,16 +113,14 @@ def _cached_agent_tool_names(
     del model_name  # get_available_tools caches by model; keep signature for cache key stability
     del mcp_skill_mode  # native-style: MCP always native in tool catalog
     try:
-        agent_config = load_agent_config(agent_id)
+        load_agent_config(agent_id)
     except Exception:
-        agent_config = None
+        pass
 
     from evoflow.tools import get_available_tools
 
-    groups = list(tool_groups_key) if tool_groups_key else (agent_config.tool_groups if agent_config else None)
     try:
         tools = get_available_tools(
-            groups=groups,
             subagent_enabled=subagent_enabled,
             include_search=include_search,
             include_mcp=True,
@@ -194,7 +191,6 @@ def resolve_agent_tool_names_for_agent(
         agent_config = None
 
     mcp_skill_mode = _agent_mcp_skill_mode_enabled(agent_config)
-    groups_key = tuple(sorted(agent_config.tool_groups)) if agent_config and agent_config.tool_groups else None
     whitelist_key = tuple(sorted(str(t).strip() for t in agent_config.tools if str(t or "").strip())) if agent_config and agent_config.tools is not None else None
     disallowed_key = tuple(sorted(str(t).strip() for t in agent_config.disallowed_tools if str(t or "").strip())) if agent_config and agent_config.disallowed_tools else None
     return _cached_agent_tool_names(
@@ -202,7 +198,6 @@ def resolve_agent_tool_names_for_agent(
         subagent_enabled,
         include_search,
         model_name,
-        groups_key,
         whitelist_key,
         disallowed_key,
         mcp_skill_mode,

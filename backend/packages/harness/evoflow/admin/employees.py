@@ -130,7 +130,6 @@ _HIRE_KEYS = frozenset(
         "model_name",
         "max_turns",
         "timeout_seconds",
-        "tool_groups",
         "skills",
         "work_schedule_enabled",
         "work_start_hour",
@@ -313,11 +312,6 @@ def sync_employee_from_agent(agent_code: str) -> dict[str, Any]:
     cfg = role.config
     cfg.skills = list(agent_row.get("skills") or [])
     cfg.soul_md = str(agent_row.get("soul") or "")
-    # Prefer explicit tool_groups; fall back to tools list as group-like binding.
-    tool_groups = list(agent_row.get("tool_groups") or [])
-    if not tool_groups and agent_row.get("tools"):
-        tool_groups = list(agent_row.get("tools") or [])
-    cfg.tool_groups = tool_groups
     # Keep a description mirror for observability (not a native role field).
     extra = dict(cfg.extra_context or {}) if isinstance(cfg.extra_context, dict) else {}
     extra["agent_description"] = str(agent_row.get("description") or "")
@@ -347,7 +341,6 @@ def _role_detail(role: ProactiveRole) -> dict[str, Any]:
     reports_to = str(getattr(cfg, "reports_to", "") or "").strip()
     skills = list(cfg.skills or [])
     soul_md = (cfg.soul_md or "")[:500]
-    tool_groups = list(cfg.tool_groups or [])
     model_name = cfg.model_name or ""
     extra_ctx = cfg.extra_context if isinstance(cfg.extra_context, dict) else {}
     agent_description = str(extra_ctx.get("agent_description") or "")
@@ -366,9 +359,7 @@ def _role_detail(role: ProactiveRole) -> dict[str, Any]:
             soul_full = str(agent_row.get("soul") or "")
             if soul_full:
                 soul_md = soul_full[:500]
-            tg = list(agent_row.get("tool_groups") or [])
             tools = list(agent_row.get("tools") or [])
-            tool_groups = tg or tools or tool_groups
             if agent_row.get("model"):
                 model_name = str(agent_row.get("model") or model_name)
             agent_description = str(agent_row.get("description") or "")
@@ -415,7 +406,6 @@ def _role_detail(role: ProactiveRole) -> dict[str, Any]:
             "model_name": model_name,
             "max_turns": cfg.max_turns,
             "timeout_seconds": cfg.timeout_seconds,
-            "tool_groups": tool_groups,
             "tools": agent_tools,
             "skills": skills,
             "work_schedule_enabled": cfg.work_schedule_enabled,
@@ -500,9 +490,6 @@ def _effective_bindings_applied(
     tools = cfg.get("tools")
     if tools is None:
         tools = applied.get("tools", agent.get("tools"))
-    tool_groups = cfg.get("tool_groups")
-    if tool_groups is None:
-        tool_groups = applied.get("tool_groups", agent.get("tool_groups"))
     skills = cfg.get("skills")
     if skills is None:
         skills = applied.get("skills", agent.get("skills"))
@@ -526,7 +513,6 @@ def _effective_bindings_applied(
         "tools": tools,
         "skills": list(skills or []) if skills is not None else [],
         "mcp_servers": list(mcp or []) if mcp is not None else [],
-        "tool_groups": list(tool_groups or []) if tool_groups is not None else [],
         "knowledge_vault_ids": list(knowledge or []),
     }
     if pack:
@@ -659,8 +645,6 @@ def create_employee(data: dict[str, Any]) -> dict[str, Any]:
         # can distinguish omit vs tools:null (inherit-all).
         if "skills" in data:
             agent_payload["skills"] = data.get("skills")
-        if "tool_groups" in data:
-            agent_payload["tool_groups"] = data.get("tool_groups")
         if "tools" in data:
             agent_payload["tools"] = data.get("tools")
         if "mcp_servers" in data:
@@ -859,8 +843,6 @@ def _hire_existing_agent(
     # Auto-populate from Agent config if not provided in hire payload
     agent_soul = str(agent_row.get("soul") or "").strip()
     agent_skills = list(agent_row.get("skills") or [])
-    agent_tool_groups = list(agent_row.get("tool_groups") or [])
-    agent_tools = list(agent_row.get("tools") or [])
     agent_model = str(agent_row.get("model") or "").strip()
 
     # soul_md: prefer payload, fallback to agent's soul
@@ -872,13 +854,10 @@ def _hire_existing_agent(
     explicit_skills = "skills" in data and data.get("skills") is not None
     skills_value = list(data.get("skills") or []) if explicit_skills else list(agent_skills)
 
-    explicit_tool_groups = "tool_groups" in data and data.get("tool_groups") is not None
-    tool_groups_value = list(data.get("tool_groups") or []) if explicit_tool_groups else (agent_tool_groups or agent_tools)
-
     model_name_value = str(data.get("model_name") or "").strip() or agent_model
 
     # Inherit from Agent unless hire payload explicitly set capability fields.
-    inherit = not (explicit_skills or explicit_tool_groups or bool(str(data.get("soul_md") or "").strip()))
+    inherit = not (explicit_skills or bool(str(data.get("soul_md") or "").strip()))
 
     # 0 = no wall-clock cap (engine treats falsy as unlimited). Never use ``or 300``:
     # that forced a 5min kill and also turned an explicit 0 into 300.
@@ -903,7 +882,6 @@ def _hire_existing_agent(
         model_name=model_name_value,
         max_turns=int(data.get("max_turns") or 10),
         timeout_seconds=timeout_seconds_value,
-        tool_groups=tool_groups_value,
         skills=skills_value,
         kb_injection=_safe_kb_injection(data.get("kb_injection")),
         work_schedule_enabled=bool(data.get("work_schedule_enabled", True)),
@@ -1098,9 +1076,6 @@ def update_role(agent_code: str, data: dict[str, Any]) -> dict[str, Any]:
         cfg.max_turns = int(data["max_turns"])
     if data.get("timeout_seconds") is not None:
         cfg.timeout_seconds = int(data["timeout_seconds"])
-    if data.get("tool_groups") is not None:
-        cfg.tool_groups = list(data.get("tool_groups") or [])
-        _mark_employee_override(cfg, override=True)
     if data.get("skills") is not None:
         cfg.skills = list(data.get("skills") or [])
         _mark_employee_override(cfg, override=True)
@@ -1167,6 +1142,17 @@ def update_role(agent_code: str, data: dict[str, Any]) -> dict[str, Any]:
     # Mirror knowledge_vault_ids so the live middleware sees the role's bound vaults.
     if data.get("knowledge_vault_ids") is not None:
         _persist_agent_kb_vault_ids(role.agent_code, list(cfg.knowledge_vault_ids or []))
+    # Mirror skills onto AgentConfig — skill allowlist reads Agent, not only ProactiveRoleConfig.
+    if data.get("skills") is not None:
+        try:
+            from evoflow.admin import agents as agents_admin
+
+            agents_admin.update_agent(role.agent_code, {"skills": list(cfg.skills or [])})
+        except Exception:
+            logger.exception(
+                "Failed to mirror employee skills onto agent code=%s",
+                role.agent_code,
+            )
     try:
         from evoflow.config.agents_config import invalidate_agent_config_cache
 

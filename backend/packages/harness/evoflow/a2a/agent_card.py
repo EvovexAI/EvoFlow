@@ -38,6 +38,21 @@ def _lookup_skill_metadata(skill_name: str) -> dict[str, Any]:
     }
 
 
+def _role_tool_names(agent_code: str) -> list[str]:
+    """Builtin tool whitelist from the linked AgentConfig (empty if unset/unavailable)."""
+    code = str(agent_code or "").strip()
+    if not code:
+        return []
+    try:
+        from evoflow.config.agents_config import load_agent_config
+
+        cfg = load_agent_config(code)
+        return list(cfg.tools or []) if cfg.tools is not None else []
+    except Exception:
+        logger.debug("a2a agent_card: tools lookup failed for %s", code, exc_info=True)
+        return []
+
+
 def role_to_agent_card(role: ProactiveRole) -> dict[str, Any]:
     """Convert a ProactiveRole to an A2A Agent Card dict."""
     cfg: ProactiveRoleConfig = role.config
@@ -75,7 +90,7 @@ def role_to_agent_card(role: ProactiveRole) -> dict[str, Any]:
         "department": role.department,
         "workspace": cfg.workspace_path,
         "model": cfg.model_name or "",
-        "tools": cfg.tool_groups or [],
+        "tools": _role_tool_names(role.agent_code),
     }
 
 

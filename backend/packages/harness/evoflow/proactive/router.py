@@ -116,7 +116,6 @@ class CreateRoleRequest(BaseModel):
     model_name: str = Field("", description="Override model for this role; empty uses agent/app default")
     max_turns: int = Field(10, description="Agent loop max turns")
     timeout_seconds: int = Field(0, description="Single think timeout (s); 0/empty = unlimited")
-    tool_groups: list[str] = Field(default_factory=list)
     skills: list[str] = Field(default_factory=list)
     # 上班时间 — 默认 09:00~20:00，该时段外不自动上班
     work_schedule_enabled: bool = Field(True, description="是否启用上班时间限制")
@@ -162,7 +161,6 @@ class UpdateRoleRequest(BaseModel):
     model_name: str | None = None
     max_turns: int | None = None
     timeout_seconds: int | None = None
-    tool_groups: list[str] | None = None
     skills: list[str] | None = None
     status: str | None = None
     dnd_enabled: bool | None = None
@@ -581,7 +579,6 @@ async def create_role(request: Request, req: CreateRoleRequest) -> dict[str, Any
         model_name=str(req.model_name or "").strip(),
         max_turns=req.max_turns,
         timeout_seconds=req.timeout_seconds,
-        tool_groups=req.tool_groups,
         skills=req.skills,
         work_schedule_enabled=req.work_schedule_enabled,
         work_start_hour=req.work_start_hour,
@@ -742,8 +739,6 @@ async def update_role(request: Request, agent_code: str, req: UpdateRoleRequest)
         cfg.max_turns = req.max_turns
     if req.timeout_seconds is not None:
         cfg.timeout_seconds = req.timeout_seconds
-    if req.tool_groups is not None:
-        cfg.tool_groups = req.tool_groups
     if req.skills is not None:
         cfg.skills = req.skills
     if req.work_schedule_enabled is not None:
@@ -2511,7 +2506,6 @@ def _role_to_dict(role: ProactiveRole) -> dict[str, Any]:
             "model_name": role.config.model_name or "",
             "max_turns": role.config.max_turns,
             "timeout_seconds": role.config.timeout_seconds,
-            "tool_groups": role.config.tool_groups,
             "skills": role.config.skills,
             "work_schedule_enabled": role.config.work_schedule_enabled,
             "work_start_hour": role.config.work_start_hour,

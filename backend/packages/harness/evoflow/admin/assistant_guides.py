@@ -56,7 +56,6 @@ _BINDING_KEYS = (
     "knowledge_vault_ids",
     "capability_pack",
     "tools_mode",
-    "tool_groups",
 )
 
 
@@ -88,8 +87,6 @@ def collect_bindings_snapshot(result: dict[str, Any] | None = None) -> dict[str,
             tools = cfg.get("tools")
         elif "tools" in agent:
             tools = agent.get("tools")
-        elif "tool_groups" in cfg:
-            tools = cfg.get("tool_groups")
 
     skills = applied.get("skills") if "skills" in applied else None
     if "skills" not in applied:
@@ -145,12 +142,6 @@ def collect_bindings_snapshot(result: dict[str, Any] | None = None) -> dict[str,
         "mcp_servers": None if mcp is None else _as_str_list(mcp),
         "knowledge_vault_ids": knowledge if knowledge is not None else [],
         "capability_pack": pack or None,
-        "tool_groups": _as_str_list(
-            applied.get("tool_groups")
-            if "tool_groups" in applied
-            else (cfg.get("tool_groups") if "tool_groups" in cfg else agent.get("tool_groups"))
-        )
-        or [],
     }
 
 

@@ -57,6 +57,14 @@ class SkillInstallResponse(BaseModel):
     success: bool = Field(..., description="Whether the installation was successful")
     skill_name: str = Field(..., description="Name of the installed skill")
     message: str = Field(..., description="Installation result message")
+    install_mode: str | None = Field(
+        default=None,
+        description="copy = files under skills/custom; link = custom/<name> points at source dir",
+    )
+    linked_path: str | None = Field(
+        default=None,
+        description="Absolute source directory when install_mode=link",
+    )
 
 
 class SkillMarketInstallRequest(BaseModel):
@@ -389,25 +397,37 @@ class SkillInstallFromPathRequest(BaseModel):
     """Install a skill from a local directory path on the server."""
 
     path: str = Field(..., description="Absolute path to the skill directory on the server")
+    link: bool = Field(
+        default=False,
+        description=(
+            "When true, mount the skill via symlink/junction under skills/custom "
+            "(edits stay in the source directory). When false, copy into custom/."
+        ),
+    )
 
 
 @router.post(
     "/skills/install-from-path",
     response_model=SkillInstallResponse,
     summary="Install Skill from Local Path",
-    description="Install a skill from a local directory path on the server (must contain SKILL.md). No upload needed.",
+    description=(
+        "Install a skill from a local directory path on the server (must contain SKILL.md). "
+        "Set link=true to folder-link the source directory instead of copying."
+    ),
 )
 async def install_skill_from_path(http_request: Request, request: SkillInstallFromPathRequest) -> SkillInstallResponse:
     """Install a skill from a local directory path.
 
     This endpoint accepts a local filesystem path pointing to a skill directory
-    (containing SKILL.md) and copies it into the custom skills directory.
+    (containing SKILL.md). By default it copies into skills/custom; with link=true
+    it creates a directory symlink/junction so the live source stays authoritative.
     Useful for Tauri clients that can select folders via native dialog.
     """
     try:
         result = install_skill_from_directory(
             request.path,
             skills_root=_install_skills_root_for_request(http_request),
+            link=bool(request.link),
         )
         clear_skills_cache()
         return SkillInstallResponse(**result)
