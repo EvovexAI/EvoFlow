@@ -202,9 +202,9 @@ def main() -> int:
             drop_ids = [
                 str(r[0])
                 for r in cur.execute(
-                    "SELECT checkpoint_id FROM checkpoints WHERE thread_id = ? "
-                    "AND checkpoint_id NOT IN (?)",
-                    (tid, ",".join(keep_ids)),
+                    f"SELECT checkpoint_id FROM checkpoints WHERE thread_id = ? "
+                    f"AND checkpoint_id NOT IN ({ph})",
+                    [tid, *keep_ids],
                 ).fetchall()
             ]
             for i in range(0, len(drop_ids), args.batch):
