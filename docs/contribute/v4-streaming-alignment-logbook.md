@@ -477,3 +477,21 @@ stream-compare 日志里 bash `cd "D:/d/dev/github/EvoFlow/outputs"` 成功建�
 `resolve_tool_path` 本身对三种形态实测都解析正确，mangling 发生在更上游的子代理执行环境）。
 已把幽灵树里的 b.txt（"this is file B"）复制回真实路径恢复用户预期；**上游写链路的盘符
 mangling 是独立 bug 待查**（与 PreviewPane 切换无关，旧 kv 面板同样会 404）。
+
+## 十二、右栏标签条 chrome 换装 ZCode（2026-10-25，提交 b4ff6350）
+
+至此"file 树 / file 预览 / 标签条 chrome"三项全部收口。标签条换装要点：
+
+- **chip 层**逐条对齐 vendored `SidePaneTabTrigger.tsx`：156px 等宽收缩（min 60px）、
+  `text-ui-base`、hover `bg-hover`、`data-active:bg-selected`、内容层 mask 渐隐
+  （`--tab-fade-offset` 随 active/hover 抬到 1.25rem 给关闭钮让位）、关闭钮 hover 亮出、
+  **中键关签**、拖拽 scale 钳制 + wasDragging 防拖后误激活。根节点用 div（ZCode 同款注释：
+  root 是 button 会嵌套 button，生产包浏览器修 DOM 导致事件错位）。
+- **未直接复用 SortableSidePaneTabTrigger**：它强类型绑定 `WorkspaceSidePaneTab` 19 成员
+  判别联合（code-viewer 等成员要求 `source` 必填），EvoFlow 的 RightStageSurface 适配不过去；
+  dnd-kit 排序与右键菜单管道保持 EvoFlow 自有。
+- overview / 加签 / 收起钮 → vendored Button ghost icon-md（ChevronsDown / Plus / PanelRightClose）。
+- **Tailwind 扫描坑**：styles-bridge.css 的 `@source` 原来只扫 zcode-ui 树——RightStagePanel
+  在 EvoFlow react 树里用的 ZCode 工具类不会产出。补 `@source "../react/**"` 后全局生效；
+  token（--color-hover/--color-selected 等）在 styles-bridge `@theme` 定义于 `:root`/`.dark`，
+  桥外全局可用（dark 类两套作用域共用）。

@@ -33,6 +33,16 @@ const NOOP_BROADCAST: IBroadcastService = {
   })) as IBroadcastService["onMessage"],
 };
 
+/** 宿主常写 source={{ type:'file', path }}，每帧新对象；按语义字段稳住引用，避免 PreviewPane 反复读盘。 */
+function codeViewerSourceKey(source: CodeViewerSource): string {
+  try {
+    return JSON.stringify(source);
+  } catch {
+    const s = source as { type?: string; path?: string; title?: string };
+    return `${s.type || ""}:${s.path || ""}:${s.title || ""}`;
+  }
+}
+
 export function V4PreviewPane(props: {
   source: CodeViewerSource;
   /** LangGraph thread id：serve-file 按会话沙箱解析相对路径。 */
@@ -44,6 +54,10 @@ export function V4PreviewPane(props: {
   onOpenCodeViewer?: (source: CodeViewerSource) => void;
 }): React.JSX.Element {
   const { source, threadId, workspacePath, onClose, onOpenCodeViewer } = props;
+  const sourceKey = codeViewerSourceKey(source);
+  // 同 path/内容只保留上一份 source 引用，父级重渲染不再触发 PreviewPane 重拉。
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- 故意用语义 key，不用对象引用
+  const stableSource = useMemo(() => source, [sourceKey]);
   // 访问器按 thread 建（thread_id 沙箱解析），会话切换即重建。
   const partialServices = useMemo(
     () => createEvoflowPartialServices(threadId ?? ""),
@@ -59,7 +73,7 @@ export function V4PreviewPane(props: {
                 同时 applyTheme 也靠它定位挂载目标，避免把整站切成暗色。 */}
             <div className="zcode-bridge-root flex h-full min-h-0 flex-col">
               <PreviewPane
-                source={source}
+                source={stableSource}
                 onClose={onClose}
                 workspacePath={workspacePath}
                 onOpenCodeViewer={onOpenCodeViewer}

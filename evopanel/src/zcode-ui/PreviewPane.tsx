@@ -873,6 +873,11 @@ export function PreviewPane({
     };
   }, [breadcrumb]);
 
+  // 只跟 path/type 走，不跟 source 对象引用——宿主常每帧 new source={{type,path}}，
+  // 旧依赖 fileSource 会清空+loading+重读，侧栏像在频繁刷新。
+  const fileSourcePath = fileSource?.path ?? null;
+  const fileSourceKind = fileSource?.type ?? null;
+
   useEffect(() => {
     let disposed = false;
 
@@ -883,23 +888,25 @@ export function PreviewPane({
     setFilePreview(null);
     setFileTooLarge(false);
     setError(null);
-    setLoadingInitial(Boolean(fileSource));
+    setLoadingInitial(Boolean(fileSourcePath));
     if (scrollContainerRef.current) {
       scrollContainerRef.current.scrollTop = 0;
     }
 
-    if (!fileSource) {
+    if (!fileSourcePath) {
       return () => {
         disposed = true;
       };
     }
+
+    const path = fileSourcePath;
 
     // 把传输分块直接当成多个文档解码和渲染，会在 UTF-8 字符中间产生乱码，
     // 同时让每块行号从 1 重置。文本预览现在只读取 service 允许的完整上限；
     // 非二进制结果返回 truncated 时丢弃局部文本并提示文件过大，不再拼接分块。
     void fileService
       .readTextFile({
-        path: fileSource.path,
+        path,
         offset: 0,
         length: FILE_VIEWER_MAX_TEXT_BYTES,
       })
@@ -917,7 +924,7 @@ export function PreviewPane({
           return;
         }
 
-        logger.error(`[PreviewPane] 读取文件失败 path=${fileSource.path}:`, readError);
+        logger.error(`[PreviewPane] 读取文件失败 path=${path}:`, readError);
         setError(
           isPreviewPaneMissingFileError(readError)
             ? intl.formatMessage({ id: "codeViewer.fileMissing" })
@@ -935,12 +942,14 @@ export function PreviewPane({
     return () => {
       disposed = true;
     };
-  }, [fileService, fileSource, intl]);
+  }, [fileService, fileSourcePath, fileSourceKind, intl]);
+
+  const imageSourcePath = imageSource?.path ?? null;
 
   useEffect(() => {
     let disposed = false;
 
-    if (!imageSource) {
+    if (!imageSourcePath) {
       setImagePreview(null);
       setLoadingImagePreview(false);
       return () => {
@@ -948,12 +957,14 @@ export function PreviewPane({
       };
     }
 
+    const path = imageSourcePath;
+
     setLoadingImagePreview(true);
     setImagePreview(null);
     setError(null);
 
     void fileService
-      .readMediaPreview({ path: imageSource.path })
+      .readMediaPreview({ path })
       .then((result) => {
         if (disposed) {
           return;
@@ -966,7 +977,7 @@ export function PreviewPane({
           return;
         }
 
-        logger.error(`[PreviewPane] 读取图片预览失败 path=${imageSource.path}:`, previewError);
+        logger.error(`[PreviewPane] 读取图片预览失败 path=${path}:`, previewError);
         setError(
           isPreviewPaneMissingFileError(previewError)
             ? intl.formatMessage({ id: "codeViewer.fileMissing" })
@@ -984,7 +995,7 @@ export function PreviewPane({
     return () => {
       disposed = true;
     };
-  }, [fileService, imageSource, intl]);
+  }, [fileService, imageSourcePath, intl]);
 
   useEffect(() => {
     let disposed = false;

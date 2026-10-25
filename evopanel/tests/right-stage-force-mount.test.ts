@@ -2,6 +2,15 @@ import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
+const PREVIEW_PANE = readFileSync(
+  resolve(__dirname, '../src/zcode-ui/PreviewPane.tsx'),
+  'utf8',
+)
+const V4_PREVIEW = readFileSync(
+  resolve(__dirname, '../src/react/chat-app/right-stage/v4-preview-pane.tsx'),
+  'utf8',
+)
+
 /**
  * 常驻挂载白名单的语义守卫。
  *
@@ -38,6 +47,20 @@ describe('right stage force-mount whitelist', () => {
 
   it('stays within a sane size budget', () => {
     // 白名单越长，"常驻挂载"越接近"全部挂载"，也就失去收敛意义。
-    expect(forcedKinds().length).toBeLessThanOrEqual(12)
+    // 含 employeeProcess / collabSubtaskTranscript 等进度常驻项
+    expect(forcedKinds().length).toBeLessThanOrEqual(14)
+  })
+})
+
+describe('file preview loads once per path', () => {
+  it('V4PreviewPane stabilizes inline source objects', () => {
+    expect(V4_PREVIEW).toContain('codeViewerSourceKey')
+    expect(V4_PREVIEW).toContain('stableSource')
+  })
+
+  it('PreviewPane text load depends on path string not source object ref', () => {
+    expect(PREVIEW_PANE).toContain('fileSourcePath')
+    expect(PREVIEW_PANE).toMatch(/\[fileService,\s*fileSourcePath,\s*fileSourceKind,\s*intl\]/)
+    expect(PREVIEW_PANE).not.toMatch(/\[fileService,\s*fileSource,\s*intl\]/)
   })
 })
