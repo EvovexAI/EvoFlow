@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from evoflow.tools.host_direct.workspace_context import resolve_tool_workspace_root
+from evoflow.utils.bundled_tools import from_bash_posix_path
 from evoflow.utils.workspace_browse import (
     flatten_bound_workspace_absolute,
     resolve_bound_workspace_file,
@@ -154,8 +155,10 @@ def resolve_tool_path(
     if norm.startswith("skill:"):
         return f"Error: Invalid skill path: {path}"
 
-    expanded = os.path.expanduser(os.path.expandvars(raw))
-    if _is_absolute_path(raw, expanded):
+    # Git Bash /d/... and WSL /mnt/d/... must become D:/... before Path.resolve()
+    # on Windows; otherwise write/read land under a ghost D:\\d\\... tree.
+    expanded = from_bash_posix_path(os.path.expanduser(os.path.expandvars(raw)))
+    if _is_absolute_path(expanded, expanded):
         target = Path(expanded).resolve()
         root_s, _tid = resolve_tool_workspace_root(runtime=runtime)
         if root_s:
@@ -215,8 +218,8 @@ def resolve_tool_workdir(
             return f"Error: invalid skill workdir (unknown, disabled, or not a directory): {workdir!r}"
         return r.resolve()
 
-    expanded = os.path.expanduser(os.path.expandvars(wd))
-    if _is_absolute_path(wd, expanded):
+    expanded = from_bash_posix_path(os.path.expanduser(os.path.expandvars(wd)))
+    if _is_absolute_path(expanded, expanded):
         target = Path(expanded).resolve()
         if not target.is_dir():
             return f"Error: Path is not a directory: {workdir}"

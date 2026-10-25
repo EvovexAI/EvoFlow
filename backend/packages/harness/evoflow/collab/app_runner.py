@@ -424,10 +424,15 @@ def _stamp_task_app_source(
     run_kind: str = "debug",
     trigger_kind: str = "manual",
     parameters: dict[str, str] | None = None,
+    raised_by: str | None = None,
+    created_by: str | None = None,
+    principal_id: str | None = None,
+    operator_label: str | None = None,
 ) -> None:
     """Mark task as originating from an App run (lands in collab_tasks.extra_json).
 
     Also sets canonical ``source=workflow`` so Task Center type column / filters work.
+    Invoker stamp (raised_by / created_by / operator_label) feeds Task Center「责任人」.
     """
     from evoflow.collab.task_source import TASK_SOURCE_WORKFLOW, resolve_write_source
 
@@ -450,6 +455,18 @@ def _stamp_task_app_source(
             task_data["run_parameter_count"] = len(parameters)
         except Exception:
             task_data["run_parameter_count"] = 0
+    rb = str(raised_by or "").strip()
+    if rb:
+        task_data["raised_by"] = rb
+    cb = str(created_by or "").strip()
+    if cb:
+        task_data["created_by"] = cb
+    pid = str(principal_id or "").strip()
+    if pid:
+        task_data["principal_id"] = pid
+    ol = str(operator_label or "").strip()
+    if ol:
+        task_data["operator_label"] = ol
 
 
 def _persist_task_app_source(task_id: str, **fields: Any) -> None:
@@ -664,6 +681,10 @@ def run_app_lead_supervised(
     *,
     run_kind: str = "debug",
     trigger_kind: str = "manual",
+    raised_by: str | None = None,
+    created_by: str | None = None,
+    principal_id: str | None = None,
+    operator_label: str | None = None,
 ) -> dict[str, Any]:
     """Run an application in lead-supervised mode (reuses plan session infrastructure).
 
@@ -729,6 +750,10 @@ def run_app_lead_supervised(
         trigger_kind=str(trigger_kind or "manual").strip().lower() or "manual",
         run_parameters=dict(parameters or {}),
         run_parameter_count=len(parameters or {}),
+        raised_by=str(raised_by or "").strip() or None,
+        created_by=str(created_by or "").strip() or None,
+        principal_id=str(principal_id or "").strip() or None,
+        operator_label=str(operator_label or "").strip() or None,
         # Prefer short app name in Task Center when placeholder still holds goal text.
         **({"name": app_name[:120]} if app_name else {}),
     )
@@ -759,6 +784,10 @@ def run_app_workflow(
     app_version: int | None = None,
     run_kind: str = "debug",
     trigger_kind: str = "manual",
+    raised_by: str | None = None,
+    created_by: str | None = None,
+    principal_id: str | None = None,
+    operator_label: str | None = None,
 ) -> dict[str, Any]:
     """Run an application in pure workflow mode (no lead agent, DAG auto-execution).
 
@@ -774,6 +803,7 @@ def run_app_workflow(
         app_version: Optional pin; used with :func:`load_app_for_run` when ``app`` omitted.
         run_kind: ``debug`` | ``production`` | ``scheduled`` (Task Center标签).
         trigger_kind: How the run was started (``manual`` | ``api`` | ``schedule`` …).
+        raised_by / created_by / principal_id / operator_label: invoker stamp for「责任人」.
 
     Returns:
         Run metadata + task center bindings
@@ -817,6 +847,10 @@ def run_app_workflow(
         run_kind=run_kind,
         trigger_kind=trigger_kind,
         parameters=parameters,
+        raised_by=raised_by,
+        created_by=created_by,
+        principal_id=principal_id,
+        operator_label=operator_label,
     )
 
     # Mark as unattended so the task_queue_runner auto-advances through
@@ -970,6 +1004,10 @@ def run_app(
     app: dict[str, Any] | None = None,
     run_kind: str | None = None,
     trigger_kind: str | None = None,
+    raised_by: str | None = None,
+    created_by: str | None = None,
+    principal_id: str | None = None,
+    operator_label: str | None = None,
 ) -> dict[str, Any]:
     """Unified entry point for running an application.
 
@@ -982,6 +1020,7 @@ def run_app(
         app: Optional preloaded definition (wins over app_version load)
         run_kind: ``debug`` | ``production`` | ``scheduled`` (defaults by channel)
         trigger_kind: ``manual`` | ``api`` | ``schedule`` …
+        raised_by / created_by / principal_id / operator_label: invoker for「责任人」.
 
     Returns:
         Run result dict with run_id, task_id, status, etc.
@@ -1011,6 +1050,10 @@ def run_app(
             tid,
             run_kind=kind or "debug",
             trigger_kind=trigger or "manual",
+            raised_by=raised_by,
+            created_by=created_by,
+            principal_id=principal_id,
+            operator_label=operator_label,
         )
     elif mode == "workflow":
         # Explicit run() always authorizes + dispatches. App.auto_run remains a
@@ -1025,6 +1068,10 @@ def run_app(
             app_version=app_version if app is None else None,
             run_kind=kind or "debug",
             trigger_kind=trigger or "manual",
+            raised_by=raised_by,
+            created_by=created_by,
+            principal_id=principal_id,
+            operator_label=operator_label,
         )
         auth = str(trigger or "manual").strip().lower() or "api"
         if auth in {"manual", "schedule", "scheduled", "cron"}:

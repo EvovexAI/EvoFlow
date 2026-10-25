@@ -36,11 +36,15 @@ def get_current_agent_actor() -> str:
 
 
 def normalize_agent_actor(raw: str | None) -> str:
-    """Strip session suffixes (``proactive:`` / ``:task:`` / …) to a bare agent_code."""
+    """Strip session suffixes (``proactive:`` / ``:task:`` / …) to a bare agent_code.
+
+    Main-chat lead session ids like ``agent:main:new-4dc…`` collapse to ``main``
+    (lead channel id — not an employee code, not a human principal).
+    """
     try:
         from evoflow.proactive.employee_prompting.identity import normalize_employee_agent_code
 
-        return str(normalize_employee_agent_code(raw) or "").strip()
+        code = str(normalize_employee_agent_code(raw) or "").strip()
     except Exception:
         code = str(raw or "").strip()
         if code.startswith("proactive:"):
@@ -48,42 +52,78 @@ def normalize_agent_actor(raw: str | None) -> str:
         for kind in ("task", "duty", "chat"):
             marker = f":{kind}:"
             if marker in code:
-                return code.split(marker, 1)[0].strip()
-        return code
+                code = code.split(marker, 1)[0].strip()
+                break
+    if not code:
+        return ""
+    low = code.lower()
+    # Gateway main-chat agent_id / session_key embedding: agent:main:<suffix>
+    if low == "agent:main" or low.startswith("agent:main:"):
+        return "main"
+    if low.startswith("main:") and low.split(":", 1)[0] == "main":
+        # main:new-xxx / main:task-restart-… → lead, not an employee code
+        return "main"
+    return code
+
+
+def _ctx_get(ctx: Any | None, key: str) -> Any:
+    if ctx is None or not key:
+        return None
+    get = getattr(ctx, "get", None)
+    if callable(get):
+        try:
+            return get(key)
+        except Exception:
+            return None
+    return getattr(ctx, key, None)
+
+
+def _runtime_context(runtime: Any = None, context: Any = None) -> Any | None:
+    if context is not None:
+        return context
+    if runtime is not None:
+        return getattr(runtime, "context", None)
+    return None
 
 
 def resolve_agent_actor_from_mapping(ctx: Any | None) -> str:
-    """Resolve actor from a mapping / dataclass-like context.
+    """Resolve ACL actor from a mapping / dataclass-like context.
 
-    Prefer a real employee / 小V code over ``main``/``lead_agent``/``auto``, then
-    fall back to ``session_key`` (``proactive:{code}``), then privileged lead codes.
+    Employee identity comes from ``proactive_agent_code`` (runtime-injected), then
+    ``session_key`` shaped as ``proactive:{code}`` for duty/task runs.
+
+    ``agent_id`` / ``agent_name`` are channel / lead labels (e.g. ``agent:main:new-…``)
+    — never treated as the human or employee invoker; only as lead fallback.
     """
     if ctx is None:
         return ""
 
-    def _get(key: str) -> Any:
-        get = getattr(ctx, "get", None)
-        if callable(get):
-            try:
-                return get(key)
-            except Exception:
-                return None
-        return getattr(ctx, key, None)
+    code = normalize_agent_actor(_ctx_get(ctx, "proactive_agent_code"))
+    if code and code.lower() not in {"main", "lead_agent", "auto"}:
+        return code
+
+    sk = str(_ctx_get(ctx, "session_key") or "").strip()
+    if sk:
+        sk_low = sk.lower()
+        if sk_low.startswith("proactive:") or any(f":{k}:" in sk_low for k in ("task", "duty", "chat")):
+            from_sk = normalize_agent_actor(sk)
+            if from_sk and from_sk.lower() not in {"main", "lead_agent", "auto"}:
+                return from_sk
 
     lead_fallback = ""
-    for key in ("proactive_agent_code", "agent_id", "agent_name"):
-        code = normalize_agent_actor(_get(key))
+    for key in ("agent_id", "agent_name"):
+        raw = _ctx_get(ctx, key)
+        code = normalize_agent_actor(raw)
         if not code:
             continue
         if code.lower() in {"main", "lead_agent", "auto"}:
             lead_fallback = lead_fallback or code
             continue
+        # Bare custom agent codes (no session punctuation) may still be ACL actors.
+        raw_s = str(raw or "")
+        if ":" in raw_s or raw_s.lower().startswith("agent:"):
+            continue
         return code
-    sk = str(_get("session_key") or "").strip()
-    if sk:
-        from_sk = normalize_agent_actor(sk)
-        if from_sk:
-            return from_sk
     return lead_fallback
 
 def agent_actor_from_runtime(runtime: Any = None, context: Any = None) -> str:
@@ -151,6 +191,100 @@ def stamp_raised_by(
     return str(raised_by_arg or "").strip() or "user"
 
 
+def resolve_invoker_stamp(
+    *,
+    actor: str | None = None,
+    principal_id: str | None = None,
+    context: Any = None,
+    runtime: Any = None,
+) -> dict[str, str]:
+    """Who invoked a platform/admin write — for Task Center「责任人」.
+
+    Reads **runtime-injected identity fields**, not session / channel ids:
+
+    - Employee: ``proactive_agent_code`` (or explicit ``actor=`` for tests/API).
+    - Human (main chat): ``principal_id`` / ``created_by`` on run context / ambient.
+
+    ``agent_id`` / ``session_key`` like ``agent:main:new-…`` are **not** invoker
+    identity — they name the lead channel, not the logged-in user or employee.
+    """
+    ctx = _runtime_context(runtime, context)
+    out: dict[str, str] = {}
+
+    # --- Employee path: proactive_agent_code only (not agent_id / session_key) ---
+    if actor is not None:
+        who = normalize_agent_actor(actor)
+    else:
+        who = normalize_agent_actor(_ctx_get(ctx, "proactive_agent_code") or "")
+        if not who:
+            # Ambient set by platform_tool from proactive_agent_code only.
+            who = normalize_agent_actor(get_current_agent_actor())
+
+    if (
+        who
+        and who.lower() not in {"main", "lead_agent", "auto", "user"}
+        and not is_privileged_task_actor(who)
+    ):
+        out["raised_by"] = who
+        label = who
+        try:
+            from evoflow.proactive.repositories import ProactiveRepository
+
+            for role in ProactiveRepository.list_roles() or []:
+                if str(getattr(role, "agent_code", "") or "").strip().lower() == who.lower():
+                    label = str(getattr(role, "role_name", "") or "").strip() or who
+                    break
+        except Exception:
+            pass
+        out["operator_label"] = label
+        return out
+
+    # --- Human path: principal_id / created_by (runtime-injected) ---
+    pid = str(principal_id or "").strip()
+    if not pid and ctx is not None:
+        pid = str(_ctx_get(ctx, "principal_id") or _ctx_get(ctx, "created_by") or "").strip()
+    if not pid:
+        try:
+            from evoflow.authz.runtime_identity import get_current_principal_id
+
+            pid = str(get_current_principal_id() or "").strip()
+        except Exception:
+            pid = ""
+    if not pid:
+        try:
+            from langgraph.config import get_config
+
+            conf = get_config()
+            cfg = conf.get("configurable") if isinstance(conf, dict) else None
+            if isinstance(cfg, dict):
+                pid = str(cfg.get("principal_id") or cfg.get("created_by") or "").strip()
+        except Exception:
+            pass
+
+    out["raised_by"] = "user"
+    if pid:
+        out["created_by"] = pid
+        out["principal_id"] = pid
+        label = pid
+        try:
+            from evoflow.authz.principals import get_principal
+
+            p = get_principal(pid)
+            if p is not None:
+                dn = str(
+                    (p.get("display_name") if isinstance(p, dict) else getattr(p, "display_name", None))
+                    or ""
+                ).strip()
+                if dn:
+                    label = dn
+        except Exception:
+            pass
+        out["operator_label"] = label
+    else:
+        out["operator_label"] = "用户"
+    return out
+
+
 def assert_can_mutate_assigned_task(
     *,
     actor: str | None = None,
@@ -201,6 +335,7 @@ __all__ = [
     "is_privileged_task_actor",
     "normalize_agent_actor",
     "resolve_agent_actor_from_mapping",
+    "resolve_invoker_stamp",
     "set_current_agent_actor",
     "stamp_raised_by",
 ]

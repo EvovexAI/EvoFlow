@@ -112,6 +112,33 @@ def to_bash_posix_path(path: str) -> str:
     return posix
 
 
+def from_bash_posix_path(path: str) -> str:
+    """Convert Git Bash ``/d/foo`` or WSL ``/mnt/d/foo`` to ``D:/foo`` on Windows.
+
+    Leaves non-Windows paths, virtual mounts (``/mnt/user-data``, ``/mnt/skills``, …),
+    and ordinary POSIX paths (``/dev/...``, ``/usr/...``) unchanged.
+
+    Without this, ``Path("/d/dev/...").resolve()`` on win32 becomes ``D:\\d\\dev\\...``
+    (ghost tree) and file tools report OK while writing outside the real workspace.
+    """
+    raw = str(path or "")
+    if sys.platform != "win32" or not raw:
+        return raw
+    norm = raw.replace("\\", "/")
+    # WSL: /mnt/<drive>/...  (single-letter drive only; not /mnt/user-data)
+    if len(norm) >= 6 and norm.startswith("/mnt/"):
+        drive = norm[5]
+        if drive.isalpha() and (len(norm) == 6 or norm[6] == "/"):
+            rest = norm[6:] or "/"
+            return f"{drive.upper()}:{rest}"
+    # Git Bash: /<drive>/...  (single-letter drive; /dev/... must not match)
+    if len(norm) >= 2 and norm[0] == "/" and norm[1].isalpha() and (len(norm) == 2 or norm[2] == "/"):
+        drive = norm[1]
+        rest = norm[2:] or "/"
+        return f"{drive.upper()}:{rest}"
+    return raw
+
+
 def _evoflow_cli_script_names() -> tuple[str, ...]:
     if sys.platform == "win32":
         return ("evoflow.cmd", "evoflow.exe", "evoflow")

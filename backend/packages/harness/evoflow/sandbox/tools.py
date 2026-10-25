@@ -745,7 +745,9 @@ def _resolve_sandbox_path(
 
         # Local-host mode + explicit host path (opt-in)
         if (not _use_virtual_paths(runtime)) or (_local_host_reads_enabled() and _is_explicit_host_filesystem_path(path)):
-            return str(Path(path).resolve()), thread_data
+            from evoflow.utils.bundled_tools import from_bash_posix_path
+
+            return str(Path(from_bash_posix_path(path)).resolve()), thread_data
 
     # --- Default: resolve through /mnt/user-data virtual mapping -------------
     resolved = _resolve_and_validate_user_data_path(path, thread_data)

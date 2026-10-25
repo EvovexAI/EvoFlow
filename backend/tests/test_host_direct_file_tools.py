@@ -12,16 +12,20 @@ Runtime fixture follows the in-repo scheduler pattern
 Run: cd backend && python -m pytest tests/test_host_direct_file_tools.py -v
 """
 
+import sys
 import uuid
 from pathlib import Path
+
+import pytest
 
 from evoflow.tools.host_direct.delete_file import delete_file_hd
 from evoflow.tools.host_direct.find_file import find_file_hd
 from evoflow.tools.host_direct.list_dir import list_dir_hd
 from evoflow.tools.host_direct.read_file import read_file_hd
 from evoflow.tools.host_direct.str_replace import str_replace_hd
-from evoflow.tools.host_direct.workspace_path_guard import runtime_with_workspace
+from evoflow.tools.host_direct.workspace_path_guard import resolve_tool_path, runtime_with_workspace
 from evoflow.tools.host_direct.write_file import write_file_hd
+from evoflow.utils.bundled_tools import from_bash_posix_path, to_bash_posix_path
 
 
 def _rt(root: Path):
@@ -194,3 +198,47 @@ def test_find_files_by_glob_pattern(tmp_path):
 
     miss = find_file_hd.invoke({"pattern": "*.rs", "root": ".", "runtime": rt})
     assert miss.startswith("No files matching"), miss
+
+
+# ────────────────────────────── Windows Git Bash / WSL paths ──────────────────────────────
+
+
+def test_from_bash_posix_path_drive_forms():
+    """Git Bash /d/... and WSL /mnt/d/... → D:/... on Windows; virtual mounts untouched."""
+    if sys.platform != "win32":
+        assert from_bash_posix_path("/d/dev/github/EvoFlow") == "/d/dev/github/EvoFlow"
+        assert from_bash_posix_path("/mnt/d/dev/github/EvoFlow") == "/mnt/d/dev/github/EvoFlow"
+        return
+
+    assert from_bash_posix_path("/d/dev/github/EvoFlow/outputs/a.txt") == "D:/dev/github/EvoFlow/outputs/a.txt"
+    assert from_bash_posix_path("/mnt/c/Users/admin/file.txt") == "C:/Users/admin/file.txt"
+    # Must not rewrite virtual mounts or multi-letter POSIX roots
+    assert from_bash_posix_path("/mnt/user-data/outputs/a.txt") == "/mnt/user-data/outputs/a.txt"
+    assert from_bash_posix_path("/mnt/skills/public/x/SKILL.md") == "/mnt/skills/public/x/SKILL.md"
+    assert from_bash_posix_path("/dev/null") == "/dev/null"
+    # Round-trip with to_bash_posix_path preserves path component case
+    win = r"D:\dev\github\EvoFlow\outputs\a.txt"
+    assert from_bash_posix_path(to_bash_posix_path(win)).replace("\\", "/") == "D:/dev/github/EvoFlow/outputs/a.txt"
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Git Bash drive translation is Windows-only")
+def test_write_git_bash_path_does_not_create_ghost_d_tree(tmp_path):
+    """write(/d/.../file) must land in the real workspace, not D:\\d\\... ghost tree."""
+    rt = _rt(tmp_path)
+    target = tmp_path / "outputs" / "a.txt"
+    posix = to_bash_posix_path(str(target))
+    assert posix.startswith("/"), posix
+
+    out = _invoke_injected(write_file_hd, path=posix, content="this is file A", runtime=rt)
+    assert out.startswith("OK:"), out
+    assert target.exists()
+    assert target.read_text(encoding="utf-8") == "this is file A\n"
+
+    # Ghost path that the old Path("/d/...").resolve() would have used
+    drive_letter = tmp_path.drive[:1].lower()
+    ghost = Path(f"{tmp_path.drive}\\{drive_letter}") / Path(*tmp_path.parts[1:]) / "outputs" / "a.txt"
+    assert not ghost.exists(), f"ghost write still happened at {ghost}"
+
+    resolved = resolve_tool_path(posix, runtime=rt)
+    assert isinstance(resolved, Path)
+    assert resolved.resolve() == target.resolve()
