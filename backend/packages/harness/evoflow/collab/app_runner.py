@@ -12,8 +12,11 @@ import asyncio
 import concurrent.futures
 import json
 import logging
+import os
 import re
 import uuid
+
+from pathlib import Path
 from typing import Any
 
 from evoflow.collab.app_engine import render_plan, validate_parameters
@@ -858,6 +861,46 @@ def run_app_lead_supervised(
 # ─────────────────────────────────── Pure Workflow Mode ──────────────────────────────────
 
 
+def _resolve_workflow_project_path() -> str:
+    """Working directory shared by every step of one workflow run.
+
+    Resolution order:
+    1. ``EVOFLOW_WORKFLOW_PROJECT_PATH`` -- explicit operator override.
+    2. The launched repo root (``/<repo>``), i.e. the parent of ``backend/``.
+       Workflow runs write artifacts next to the code they operate on, and a
+       stable root keeps every step on the same base even when a worker
+       subprocess happens to have ``backend/`` as its cwd.
+
+    Returns ``""`` when nothing usable resolves; callers then leave
+    ``project_path`` unset rather than stamping a bogus path.
+    """
+    override = (os.getenv("EVOFLOW_WORKFLOW_PROJECT_PATH") or "").strip()
+    if override:
+        return override
+
+    try:
+        from evoflow.config.paths import get_paths
+
+        base = Path(get_paths().base_dir).resolve()
+    except Exception:
+        logger.debug("workflow project path: base_dir unavailable", exc_info=True)
+        return ""
+
+    # Dev layout: <repo>/.evoflow-dev -> repo root is the base dir's parent.
+    # Only accept a candidate that really contains ``backend/``; otherwise fall
+    # back to the process cwd (an App run is always launched from the repo) and
+    # finally to "" so the caller leaves project_path unset.
+    for candidate in (base.parent, base):
+        if (candidate / "backend").is_dir():
+            return str(candidate)
+
+    cwd = Path.cwd().resolve()
+    for candidate in (cwd, cwd.parent):
+        if (candidate / "backend").is_dir():
+            return str(candidate)
+    return ""
+
+
 def run_app_workflow(
     app_id: str,
     parameters: dict[str, str],
@@ -917,7 +960,14 @@ def run_app_workflow(
     name = app_name[:120]
     description = goal_text[:4000] if goal_text else f"工作流运行：{app_name}"
 
+    # Workflow runs are NOT thread-bound. Callers (UI "run" button, API) often
+    # forward the invoking chat's thread_id, and if that leaks onto the task the
+    # run shares its observability bucket with the whole conversation: every
+    # earlier chat turn gets counted as part of this run (observed 144 reported
+    # vs 21 actual model calls). Force it off at the source.
     project_data, task_data = new_project_bundle_root_task(name, description, thread_id=None)
+    task_data.pop("thread_id", None)
+    task_data.pop("current_execution_thread_id", None)
     task_id = str(task_data.get("id") or "")
     run_id = _make_run_id()
     app_version = int(app.get("version") or 1)
@@ -940,11 +990,33 @@ def run_app_workflow(
     # authorize -> dispatch -> follow-up waves without a lead agent.
     task_data["run_mode"] = "unattended"
 
+    # One working directory shared by every step of this run. Without it a
+    # subtask has no cwd anchor and each worker picks its own base -- observed:
+    # step 1 wrote <repo>/outputs/task1.md while steps 2-4 wrote under
+    # <repo>/backend/outputs/, then reported "upstream artifact missing" and
+    # burned tool calls re-verifying a file that did exist. A non-empty
+    # project_path is also what lets upstream artifact verification run at all
+    # (verification short-circuits to a warning when it is blank).
+    run_project_path = _resolve_workflow_project_path()
+    if run_project_path:
+        task_data["project_path"] = run_project_path
+        project_data["project_path"] = run_project_path
+
     # P0.5-6: Snapshot the app definition into the task row so that
     # debug_run_from_step / re-runs use the exact definition at run time,
     # not a potentially-mutated live copy. The snapshot is a compact copy
     # containing only the fields needed for execution (steps, parameters,
     # canvas, rollup config, schema_enforcement).
+    # DIAG: prove the workflow task leaves task creation without a thread.
+    if str(task_data.get("thread_id") or "").strip():
+        logger.warning(
+            "DIAG workflow task still has thread_id after creation task_id=%s thread_id=%s",
+            task_data.get("id"),
+            task_data.get("thread_id"),
+        )
+    else:
+        logger.info("DIAG workflow task created without thread_id task_id=%s", task_data.get("id"))
+
     task_data["app_definition_snapshot"] = {
         "app_id": app_id,
         "version": app_version,
@@ -1004,6 +1076,22 @@ def run_app_workflow(
     # 6. Persist task bundle to DB (planned + plan_bound)
     task_data["status"] = "planned"
     task_data["plan_bound_at"] = utc_now_iso_z()
+    # Final guard: a workflow bundle must never persist a chat thread id, no
+    # matter which helper above put it back. Observed regression: the task row
+    # ended up with the invoking conversation's thread_id, so the run's
+    # observability aggregated the entire chat into its own totals.
+    for _k in ("thread_id", "current_execution_thread_id"):
+        if str(task_data.get(_k) or "").strip():
+            logger.warning(
+                "DIAG dropping %s from workflow task before persist task_id=%s value=%s",
+                _k,
+                task_id,
+                task_data.get(_k),
+            )
+        task_data.pop(_k, None)
+        for _t in project_data.get("tasks") or []:
+            if isinstance(_t, dict):
+                _t.pop(_k, None)
     # Root task is project_data["tasks"][0] — keep stamp on shared dict
     save_task_bundle(task_id, project_data)
 

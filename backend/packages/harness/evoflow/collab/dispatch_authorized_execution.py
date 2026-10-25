@@ -106,6 +106,14 @@ async def dispatch_authorized_main_task_execution(
             }
 
     run_tid = str(thread_id or task.get("thread_id") or "").strip() or None
+    logger.info(
+        "DIAG dispatch run_tid task_id=%s explicit_thread=%r task_thread=%r resolved=%r workflow_bound=%s",
+        tid,
+        thread_id,
+        task.get("thread_id"),
+        run_tid,
+        bool(task.get("app_definition_snapshot") or str(task.get("source_app_id") or "").strip()),
+    )
     runtime = gateway_tool_runtime(run_tid, main_task_id=tid)
 
     from evoflow.tools.builtins.supervisor.dependency import requeue_failed_subtasks_ready_for_retry

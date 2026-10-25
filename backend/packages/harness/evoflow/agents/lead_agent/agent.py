@@ -92,6 +92,7 @@ from evoflow.config.agents_config import (
     ensure_builtin_agents_materialized,
     load_agent_config,
     merge_skill_allowlist_with_preferred,
+    plugin_skills_for_main_agent,
     resolve_skill_allowlist_for_lead_prompt,
 )
 from evoflow.config.app_config import get_app_config
@@ -1410,6 +1411,15 @@ def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None
 
     # Default lead agent — skills are opt-in (missing / null / [] => no skill block in prompt)
     _available_skills = resolve_skill_allowlist_for_lead_prompt(agent_config)
+    # Main agent only: enabled plugins' skills are always discoverable (ZCode
+    # parity — bundled browser-use / computer-use); employee agents stay opt-in.
+    _plugin_skills = plugin_skills_for_main_agent(agent_name)
+    if _plugin_skills:
+        _available_skills = set(_available_skills) | _plugin_skills
+        logger.info(
+            "[Agent Config] main-agent plugin skills auto-included: %s",
+            sorted(_plugin_skills),
+        )
     from evoflow.agents.lead_agent.runtime_context import resolve_preferred_skills_for_turn
 
     _preferred_skills = resolve_preferred_skills_for_turn(cfg)

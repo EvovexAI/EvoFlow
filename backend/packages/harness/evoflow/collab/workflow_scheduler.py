@@ -166,9 +166,10 @@ async def advance_dag(
 
     from evoflow.collab.dispatch_authorized_execution import dispatch_authorized_main_task_execution
 
+    # Workflow waves never run under a chat thread; see dispatch_for_task.
     parsed = await dispatch_authorized_main_task_execution(
         tid,
-        thread_id=thread_id,
+        thread_id=None,
         authorized_by=str(authorized_by or "api").strip() or "api",
     )
     _push_app_run(tid, reason=f"dag_{reason}")

@@ -1775,8 +1775,18 @@ def fetch_observability_breakdown_by_thread(
     thread_ids: list[str],
     *,
     since_hours: float | None = None,
+    window_start: str | None = None,
+    window_end: str | None = None,
 ) -> dict[str, dict[str, Any]]:
-    """Per-thread model/tool/token metrics keyed by ``thread_id``."""
+    """Per-thread model/tool/token metrics keyed by ``thread_id``.
+
+    ``window_start`` / ``window_end`` (ISO timestamps) bound the aggregation to
+    one execution. This matters for tasks that did NOT get a dedicated thread:
+    an App/workflow run that inherits the invoking conversation's ``thread_id``
+    shares that thread with every earlier chat turn, so filtering by thread
+    alone attributes the whole conversation's cost to the run. Bounding by the
+    run's own start/end keeps the numbers honest.
+    """
     ids = [str(t).strip() for t in (thread_ids or []) if str(t).strip()]
     out: dict[str, dict[str, Any]] = {tid: empty_thread_observability_metrics() for tid in ids}
     if not ids:
@@ -1790,11 +1800,37 @@ def fetch_observability_breakdown_by_thread(
     conn.row_factory = sqlite3.Row
     T = ObservabilityTable
     since = _since_iso(since_hours)
+    # The run window can only narrow the range, never widen it.
+    lower = since
+    if window_start and (lower is None or window_start > lower):
+        lower = window_start
+    upper = window_end or None
     placeholders = ",".join("?" * len(ids))
-    model_time_clause = " AND requested_at >= ?" if since else ""
-    tool_time_clause = tool_invocation_and_suffix("ended_at >= ?" if since else None)
-    run_time_clause = " AND started_at >= ?" if since else ""
-    time_params: tuple[Any, ...] = (since,) if since else ()
+
+    model_clauses: list[str] = []
+    tool_clauses: list[str] = []
+    run_clauses: list[str] = []
+    model_params: list[Any] = []
+    tool_params: list[Any] = []
+    run_params: list[Any] = []
+    if lower:
+        model_clauses.append("requested_at >= ?")
+        model_params.append(lower)
+        tool_clauses.append("ended_at >= ?")
+        tool_params.append(lower)
+        run_clauses.append("started_at >= ?")
+        run_params.append(lower)
+    if upper:
+        model_clauses.append("requested_at <= ?")
+        model_params.append(upper)
+        tool_clauses.append("ended_at <= ?")
+        tool_params.append(upper)
+        run_clauses.append("started_at <= ?")
+        run_params.append(upper)
+
+    model_time_clause = "".join(f" AND {c}" for c in model_clauses)
+    tool_time_clause = tool_invocation_and_suffix(" AND ".join(tool_clauses) if tool_clauses else None)
+    run_time_clause = "".join(f" AND {c}" for c in run_clauses)
 
     for row in conn.execute(
         f"""
@@ -1803,7 +1839,7 @@ def fetch_observability_breakdown_by_thread(
         WHERE thread_id IN ({placeholders}){model_time_clause}
         GROUP BY thread_id
         """,
-        (*ids, *time_params),
+        (*ids, *model_params),
     ).fetchall():
         tid = str(row["thread_id"] or "").strip()
         if tid not in out:
@@ -1822,7 +1858,7 @@ def fetch_observability_breakdown_by_thread(
         WHERE thread_id IN ({placeholders}){tool_time_clause}
         GROUP BY thread_id
         """,
-        (*ids, *time_params),
+        (*ids, *tool_params),
     ).fetchall():
         tid = str(row["thread_id"] or "").strip()
         if tid not in out:
@@ -1839,7 +1875,7 @@ def fetch_observability_breakdown_by_thread(
         WHERE thread_id IN ({placeholders}){run_time_clause}
         GROUP BY thread_id
         """,
-        (*ids, *time_params),
+        (*ids, *run_params),
     ).fetchall():
         tid = str(row["thread_id"] or "").strip()
         if tid in out:
@@ -1852,7 +1888,7 @@ def fetch_observability_breakdown_by_thread(
         WHERE thread_id IN ({placeholders})
           AND usage_json IS NOT NULL AND usage_json != ''{model_time_clause}
         """,
-        (*ids, *time_params),
+        (*ids, *model_params),
     ).fetchall()
 
     per_thread_models: dict[str, dict[str, dict[str, Any]]] = {tid: {} for tid in ids}
@@ -1907,8 +1943,15 @@ def fetch_task_observability_metrics(
     main_task_id: str | None = None,
     since_hours: float | None = None,
     by_thread: dict[str, dict[str, Any]] | None = None,
+    window_start: str | None = None,
+    window_end: str | None = None,
 ) -> dict[str, Any]:
-    """Aggregate model/tool/run/lifecycle metrics for a set of collab thread ids."""
+    """Aggregate model/tool/run/lifecycle metrics for a set of collab thread ids.
+
+    ``window_start`` / ``window_end`` bound the totals to one execution; pass the
+    task's own started_at/completed_at when the run may share a thread with an
+    originating conversation.
+    """
     st = _store()
     if st is None:
         return {"enabled": False, "error": "observability_unavailable"}
@@ -1936,7 +1979,16 @@ def fetch_task_observability_metrics(
             "lifecycle_by_event": [],
         }
 
-    breakdown = by_thread if by_thread is not None else fetch_observability_breakdown_by_thread(ids, since_hours=since_hours)
+    breakdown = (
+        by_thread
+        if by_thread is not None
+        else fetch_observability_breakdown_by_thread(
+            ids,
+            since_hours=since_hours,
+            window_start=window_start,
+            window_end=window_end,
+        )
+    )
 
     total_tokens = {"input": 0, "output": 0, "total": 0}
     model_stats: dict[str, dict[str, Any]] = {}

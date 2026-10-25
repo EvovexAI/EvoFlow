@@ -93,7 +93,10 @@ async def dispatch_for_task(
 
     task = _load_main_task(tid)
     if is_workflow_scheduler_task(task):
-        scheduled = await start(tid, authorized_by=authorized_by, thread_id=thread_id)
+        # A workflow DAG needs no LangGraph thread. Passing an inherited chat
+        # thread here would make the run share its observability bucket with the
+        # conversation that launched it, inflating its model/tool/token totals.
+        scheduled = await start(tid, authorized_by=authorized_by, thread_id=None)
         parsed = scheduled.get("dispatch") if isinstance(scheduled, dict) else None
         if isinstance(parsed, dict):
             return parsed

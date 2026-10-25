@@ -275,6 +275,27 @@ async def _advance_lock_for(task_id: str) -> asyncio.Lock:
         return _advance_locks[task_id]
 
 
+def _is_workflow_bound(task: dict[str, Any] | None) -> bool:
+    """App/DAG runs own their plan — they must not enter the Lead planning path.
+
+    Workflow-bound tasks carry ``app_definition_snapshot`` / ``source_app_id``;
+    their steps come from a published App, so nothing needs a Lead Agent to
+    (re-)plan. Keeping them out of ``_ensure_langgraph_thread`` /
+    ``_prepare_unattended_plan_context`` avoids creating a LangGraph thread and
+    hydrating the ``plan`` scenario (extra tools + system prompt) for a pure DAG
+    run whose only job is dispatch -> collect -> finalize.
+    """
+    if not isinstance(task, dict):
+        return False
+    try:
+        from evoflow.collab.app_runner import is_workflow_bound_task
+
+        return bool(is_workflow_bound_task(task))
+    except Exception:
+        logger.debug("unattended_pipeline: is_workflow_bound_task unavailable", exc_info=True)
+        return bool(task.get("app_definition_snapshot") or str(task.get("source_app_id") or "").strip())
+
+
 def _prepare_unattended_plan_context(task_id: str, thread_id: str, *, enter_planning: bool = True) -> None:
     """Bind task to thread; optionally enter plan collaboration phase (only before first plan)."""
     from evoflow.collab.plan_session_task import _bind_thread_to_task
@@ -649,6 +670,12 @@ async def _notify_lead_agent_task_failed(task_id: str, task: dict[str, Any]) -> 
         logger.debug("cancel supervisor monitor for failed task failed task_id=%s", task_id, exc_info=True)
 
     # 3. Trigger a Lead Agent follow-up run so it can report the failure to the user.
+    #    Workflow-bound (App/DAG) runs have no Lead Agent in the loop at all — the
+    #    failure is already surfaced via the SSE event + task status, so skip the
+    #    extra model round-trip entirely.
+    if _is_workflow_bound(task):
+        logger.info("unattended_pipeline: skip lead follow-up for workflow-bound task_id=%s", task_id)
+        return
     thread_id = str(task.get("thread_id") or "").strip()
     if thread_id:
         try:
@@ -779,9 +806,9 @@ async def _advance_unattended_task_impl(task_id: str) -> dict[str, Any]:
     elif status in {"planned", "awaiting_exec", "waiting_dispatch", "running", "in_progress"} and not redispatch:
         return {"task_id": task_id, "ok": True, "action": "already_active", "status": status}
 
-    from evoflow.collab.app_runner import _dispatch_result_ok, dispatch_workflow_task_now, is_workflow_bound_task
+    from evoflow.collab.app_runner import _dispatch_result_ok, dispatch_workflow_task_now
 
-    if is_workflow_bound_task(task) and task_has_bound_plan(task):
+    if _is_workflow_bound(task) and task_has_bound_plan(task):
         if status == "pending":
 
             def _promote_pending(t: dict[str, Any]) -> dict[str, Any]:
@@ -793,16 +820,12 @@ async def _advance_unattended_task_impl(task_id: str) -> dict[str, Any]:
         if _dispatch_result_ok(parsed):
             return {"task_id": task_id, "ok": True, "action": "dispatched", "dispatch": parsed}
         err = str((parsed or {}).get("error") or (parsed or {}).get("message") or "dispatch_failed")
+        # Terminal for this tick: a workflow run never falls through to the Lead
+        # planning path (no LangGraph thread, no plan scenario hydration).
         return {"task_id": task_id, "ok": False, "error": err, "dispatch": parsed}
 
     thread_id = await _ensure_langgraph_thread(task_id, task)
     if not thread_id:
-        if is_workflow_bound_task(task) and task_has_bound_plan(task):
-            parsed = await dispatch_workflow_task_now(task_id, authorized_by="system")
-            if _dispatch_result_ok(parsed):
-                return {"task_id": task_id, "ok": True, "action": "dispatched", "dispatch": parsed}
-            err = str((parsed or {}).get("error") or (parsed or {}).get("message") or "dispatch_failed")
-            return {"task_id": task_id, "ok": False, "error": err, "dispatch": parsed}
         return {"task_id": task_id, "ok": False, "error": "thread_create_failed"}
 
     row = find_main_task(storage, task_id)

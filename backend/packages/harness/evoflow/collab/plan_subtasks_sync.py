@@ -724,6 +724,10 @@ def sync_subtasks_from_plan_steps(
         result["success"] = True
         return result
 
+    run_project_path = str(
+        task.get("project_path") or project.get("project_path") or ""
+    ).strip()
+
     goal_text = str(goal or "").strip()
     if goal_text:
         from evoflow.collab.plan_task_storage import sync_main_task_identity_from_plan_goal
@@ -755,7 +759,11 @@ def sync_subtasks_from_plan_steps(
             from evoflow.collab.work_checklist import normalize_checklist_items
 
             work_checklist = normalize_checklist_items(wc_raw)
-        project_path = str(step.get("project_path") or "").strip()
+        # Step-level override wins; otherwise inherit the run's working directory.
+        # Without the fallback a workflow step row gets project_path=NULL, so each
+        # worker picks its own base (some wrote <repo>/outputs, others
+        # <repo>/backend/outputs) and downstream nodes chase phantom paths.
+        project_path = str(step.get("project_path") or "").strip() or run_project_path
         for w in assign_warns:
             if w and w not in result["warnings"]:
                 result["warnings"].append(w)

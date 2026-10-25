@@ -336,6 +336,25 @@ def resolve_skill_allowlist_for_lead_prompt(agent_config: AgentConfig | None) ->
     return {str(s).strip() for s in agent_config.skills if str(s).strip()}
 
 
+def plugin_skills_for_main_agent(agent_name: str | None) -> set[str]:
+    """Enabled plugins' skill names, auto-included for the **main agent only**.
+
+    ZCode parity: bundled browser-use / computer-use skills must stay
+    discoverable in the main agent's ``<available_skills>`` without per-agent
+    opt-in — the plugin enable switch is their sole authority. Employee
+    agents keep the pure opt-in ``skills`` allowlist above.
+    """
+    if agent_name is not None and str(agent_name).strip().lower() != "main":
+        return set()
+    try:
+        from evoflow.skills.loader import enabled_plugin_skill_names
+
+        return enabled_plugin_skill_names()
+    except Exception:
+        logger.warning("Plugin skill auto-include failed", exc_info=True)
+        return set()
+
+
 def parse_preferred_skills_from_context(cfg: dict[str, Any] | None) -> list[str]:
     """User-selected skills from chat composer (per-turn run context)."""
     if not isinstance(cfg, dict):

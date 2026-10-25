@@ -320,6 +320,30 @@ def _dedupe_skills_by_name(skills: list[Skill]) -> list[Skill]:
     return out
 
 
+def enabled_plugin_skill_names() -> set[str]:
+    """Names of skills contributed by installed + enabled plugins.
+
+    Mirrors the ``from_plugin`` classification in :func:`load_skills`: the
+    plugin enable switch is the sole authority for these skills, so they
+    bypass the per-agent ``skills`` allowlist and are always offered in
+    ``<available_skills>`` (ZCode parity — bundled browser-use /
+    computer-use skills stay discoverable without per-agent opt-in).
+    """
+    try:
+        from evoflow.plugins.runtime import plugin_skill_roots
+
+        plugin_roots = {str(p.resolve()) for p in plugin_skill_roots()}
+    except Exception:
+        return set()
+    if not plugin_roots:
+        return set()
+    return {
+        s.name
+        for s in load_skills(enabled_only=True)
+        if s.source_root is not None and str(Path(s.source_root).resolve()) in plugin_roots
+    }
+
+
 def load_skills(
     skills_path: Path | None = None,
     use_config: bool = True,

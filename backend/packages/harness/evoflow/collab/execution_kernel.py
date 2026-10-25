@@ -157,10 +157,18 @@ def verify_upstream_artifacts_before_followup(storage: Any, main_task_id: str) -
     if not project_path:
         project_path = str(project.get("project_path") or "").strip()
     if not project_path:
-        logger.warning(
-            "artifact verification skipped for task %s: project_path is empty",
-            main_task_id,
+        # Only warn when a subtask actually declared expected outputs. A task
+        # that produces no artifacts has nothing to verify, so a missing
+        # project_path is harmless there — warning on it spams every wave.
+        declares_outputs = any(
+            isinstance(st.get("worker_profile"), dict) and st["worker_profile"].get("expected_outputs")
+            for st in subtasks
         )
+        if declares_outputs:
+            logger.warning(
+                "artifact verification skipped for task %s: project_path is empty",
+                main_task_id,
+            )
         return
 
     now = utc_now_iso_z()
