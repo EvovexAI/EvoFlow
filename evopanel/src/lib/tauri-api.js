@@ -3502,6 +3502,10 @@ export const api = {
     gatewayProxy('POST', `/apps/runs/${encodeURIComponent(String(runId || ''))}/pause`, null, { reason }),
   resumeAppRun: async (runId) =>
     gatewayProxy('POST', `/apps/runs/${encodeURIComponent(String(runId || ''))}/resume`),
+  recoverAppRun: async (runId, reason = 'api') =>
+    gatewayProxy('POST', `/apps/runs/${encodeURIComponent(String(runId || ''))}/recover`, null, { reason }),
+  dryRunApp: async (appId, payload) =>
+    gatewayProxy('POST', `/apps/${encodeURIComponent(String(appId || ''))}/dry-run`, payload),
   saveTaskAsApp: async (taskId, payload = {}) =>
     gatewayProxy('POST', `/tasks/${encodeURIComponent(String(taskId || ''))}/save-as-app`, payload),
   generateApp: async (payload) => gatewayProxy('POST', '/apps/generate', payload),

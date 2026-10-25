@@ -46,15 +46,99 @@ def _ensure_plan_columns_compat(conn: Any) -> None:
     return
 
 
+_TERMINAL_PROTECT_STATUSES = frozenset(
+    {"completed", "failed", "cancelled", "canceled", "timed_out", "done", "success"}
+)
+
+
+def _parse_iso_ms(raw: Any) -> float | None:
+    s = str(raw or "").strip()
+    if not s:
+        return None
+    try:
+        from datetime import datetime
+
+        if s.endswith("Z"):
+            s = s[:-1] + "+00:00"
+        return datetime.fromisoformat(s).timestamp()
+    except Exception:
+        return None
+
+
+def _protect_terminal_subtask_rows(conn: Any, mid: str, parts: dict[str, Any]) -> None:
+    """E-1 hard layer: a stale whole-bundle rewrite must not resurrect terminal subtasks.
+
+    When the DB already holds a terminal row and the incoming copy proposes a
+    non-terminal status with an older-or-equal ``updated_at`` (the classic
+    "worker completed, stale gateway rewrite flips it back to executing"
+    race), keep the DB row verbatim — outputs / task_report included.
+    Writes that legitimately reopen a row (reconciler retry, cancel) carry a
+    newer ``updated_at`` or a terminal status of their own, so they pass.
+    """
+    import logging
+
+    logger = logging.getLogger(__name__)
+
+    subtask_rows = parts.get("subtasks") or []
+    if not subtask_rows:
+        return
+    try:
+        cur = {
+            str(r["subtask_id"]): r
+            for r in conn.execute(
+                "SELECT subtask_id, status, updated_at FROM evoflow_collab_subtasks WHERE main_task_id = ?",
+                (mid,),
+            ).fetchall()
+        }
+    except Exception:
+        logger.debug("terminal protection: current-row scan failed main=%s", mid, exc_info=True)
+        return
+    if not cur:
+        return
+    for idx, sr in enumerate(subtask_rows):
+        sid = str(sr.get("subtask_id") or "")
+        db = cur.get(sid)
+        if db is None:
+            continue
+        db_st = str(db["status"] or "").strip().lower()
+        in_st = str(sr.get("status") or "").strip().lower()
+        if db_st not in _TERMINAL_PROTECT_STATUSES or in_st in _TERMINAL_PROTECT_STATUSES:
+            continue
+        db_ts = _parse_iso_ms(db["updated_at"])
+        in_ts = _parse_iso_ms(sr.get("updated_at"))
+        if db_ts is not None and in_ts is not None and in_ts > db_ts:
+            continue  # genuinely newer write — allowed to reopen
+        full = conn.execute(
+            "SELECT * FROM evoflow_collab_subtasks WHERE main_task_id = ? AND subtask_id = ? LIMIT 1",
+            (mid, sid),
+        ).fetchone()
+        if full is None:
+            continue
+        subtask_rows[idx] = {k: full[k] for k in full.keys()}
+        logger.warning(
+            "task_bundle.terminal_preserved main=%s sub=%s db_status=%s incoming=%s "
+            "(stale rewrite attempted to reopen a terminal row; DB row kept)",
+            mid,
+            sid,
+            db_st,
+            in_st or "unknown",
+        )
+
+
 def save_task_bundle(main_task_id: str, document: dict[str, Any], *, loaded_updated_at: str | None = None) -> None:
     """Persist a whole task bundle (delete children + reinsert).
 
-    E-1 (workflow-audit-roadmap): ``loaded_updated_at`` is the bundle's
-    ``updated_at`` as the caller saw it at load time. When the root row has
-    moved on since then, another process wrote in between and this rewrite
-    will clobber it — detected conflicts are logged
-    (``task_bundle.stale_write_overwrite``), not rejected; hard CAS is the
-    follow-up once hot writers are on the row-level patch path.
+    E-1 (workflow-audit-roadmap), two layers:
+    - ``loaded_updated_at`` enables stale-write detection: when the root row
+      moved on since the caller's load, another process wrote in between —
+      logged as ``task_bundle.stale_write_overwrite``.
+    - **Terminal-row protection (hard layer)**: a whole-bundle rewrite can
+      never resurrect a subtask that already reached a terminal state in the
+      DB with a newer-or-equal timestamp than the incoming copy proposes.
+      The DB row (including its outputs / task_report in extra columns) is
+      preserved verbatim; the event is logged as ``task_bundle.terminal_preserved``.
+      Legitimate requeues (reconciler retry / cancel) write a *newer*
+      ``updated_at`` or a terminal status themselves, so they pass through.
     """
     import logging
 
@@ -105,6 +189,7 @@ def save_task_bundle(main_task_id: str, document: dict[str, Any], *, loaded_upda
         bundle = parts["bundle"]
         bundle["updated_at"] = now
         parts["tasks"] = m.apply_bundle_header_to_task_rows(main_task_id, bundle, parts["tasks"])
+        _protect_terminal_subtask_rows(conn, mid, parts)
         delete_task_bundle_children(conn, main_task_id)
         for tr in parts["tasks"]:
             conn.execute(

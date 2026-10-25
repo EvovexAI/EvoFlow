@@ -450,7 +450,8 @@ def _normalize_run_kind(value: str | None) -> str:
         return "scheduled"
     if raw in {"production", "formal", "正式", "prod", "live"}:
         return "production"
-    return "production" if raw else "debug"
+    # F-4: empty run_kind means a manual/default run → production semantics.
+    return "production"
 
 
 def _stamp_task_app_source(
@@ -1134,7 +1135,7 @@ def run_app(
             app_id,
             parameters,
             tid,
-            run_kind=kind or "debug",
+            run_kind=kind or "production",
             trigger_kind=trigger or "manual",
             raised_by=raised_by,
             created_by=created_by,
@@ -1152,7 +1153,7 @@ def run_app(
             auto_authorize=True,
             app=app,
             app_version=app_version if app is None else None,
-            run_kind=kind or "debug",
+            run_kind=kind or "production",
             trigger_kind=trigger or "manual",
             raised_by=raised_by,
             created_by=created_by,

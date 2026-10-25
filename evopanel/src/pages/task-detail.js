@@ -2,6 +2,7 @@
  * 任务详情页 — 按「员工 / 工作流」两套模式展示；过程与节点输出在本页右侧 V4 侧栏。
  */
 import { api } from '../lib/tauri-api.js'
+import { displayErrorText, errorKindLabel } from '../lib/error-kinds.js'
 import { toast } from '../components/toast.js'
 import { renderMarkdown } from '../lib/markdown.js'
 import {
@@ -569,7 +570,7 @@ function renderTaskOutcomePanel(page, state) {
   }
 
   const result = taskSummaryText(task)
-  const error = String(task.error || task.error_text || '').trim()
+  const error = displayErrorText(task)
   const sections = parseTaskResultSections(group === 'failed' ? (error || result) : result)
   const outputs = resolveTaskOutputItems(task)
   const inputRefs = taskInputRefsOf(task)
@@ -586,7 +587,11 @@ function renderTaskOutcomePanel(page, state) {
   const { subtaskCount, completedCount } = taskProgressMeta(task, state.subtasks)
   const failedNodes = (state.subtasks || [])
     .filter((s) => toTaskStatusGroup(s?.status) === 'failed')
-    .map((s) => String(s?.name || '').trim())
+    .map((s) => {
+      const name = String(s?.name || '').trim()
+      const label = errorKindLabel(s)
+      return label && label !== '业务失败' ? `${name}（${label}）` : name
+    })
     .filter(Boolean)
 
   if (group === 'completed' || group === 'reviewed') {

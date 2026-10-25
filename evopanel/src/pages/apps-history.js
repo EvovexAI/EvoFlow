@@ -293,6 +293,11 @@ export async function render() {
                           ? `<button type="button" class="btn btn-xs btn-ghost" data-role="cancel" data-run-id="${escHtml(runId)}">取消</button>`
                           : ''
                       }
+                      ${
+                        flags.canRestore
+                          ? `<button type="button" class="btn btn-xs btn-ghost" data-role="restore" data-run-id="${escHtml(runId)}" data-status="${escHtml(String(run.status || '').toLowerCase())}" title="暂停→继续执行；失败/崩溃→从断点恢复">恢复</button>`
+                          : ''
+                      }
                     </td>
                   </tr>`
               })
@@ -302,7 +307,7 @@ export async function render() {
 
       listEl.querySelectorAll('.apps-history-row').forEach((row) => {
         row.addEventListener('click', (e) => {
-          if (e.target.closest('[data-role="cancel"]')) return
+          if (e.target.closest('[data-role="cancel"], [data-role="restore"]')) return
           const rid = row.dataset.runId
           if (rid) void openRunDetail(rid)
         })
@@ -313,6 +318,30 @@ export async function render() {
           const row = btn.closest('.apps-history-row')
           const rid = row?.dataset.runId
           if (rid) void openRunDetail(rid)
+        })
+      })
+      // F-4 统一恢复：paused → /resume（继续），failed/崩溃 → /recover（断点恢复重派）
+      listEl.querySelectorAll('[data-role="restore"]').forEach((btn) => {
+        btn.addEventListener('click', async (e) => {
+          e.stopPropagation()
+          const rid = btn.dataset.runId
+          const st = String(btn.dataset.status || '').toLowerCase()
+          if (!rid) return
+          const isPaused = st === 'paused' || st === 'pausing' || st === 'interrupted'
+          const ok = await showConfirm(isPaused ? '继续执行该次运行？' : '该运行已失败/中断，从断点恢复并重派失败节点？')
+          if (!ok) return
+          try {
+            if (isPaused) {
+              await api.resumeAppRun(rid)
+              toast.success('已继续执行')
+            } else {
+              await api.recoverAppRun(rid)
+              toast.success('恢复任务已派发')
+            }
+            await loadPage(currentPage)
+          } catch (err) {
+            toast.error('恢复失败: ' + (err?.message || err))
+          }
         })
       })
       listEl.querySelectorAll('[data-role="cancel"]').forEach((btn) => {

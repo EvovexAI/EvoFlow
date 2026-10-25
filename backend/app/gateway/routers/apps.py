@@ -92,13 +92,19 @@ class RunAppRequest(BaseModel):
     execution_mode: str | None = None  # override app default
     thread_id: str | None = None  # required for lead_supervised
     run_kind: str | None = Field(
-        default="debug",
-        description="debug | production | scheduled — Task Center run-mode tag",
+        default="production",
+        description="debug | production | scheduled — Task Center run-mode tag (F-4: manual runs default to production)",
     )
     trigger_kind: str | None = Field(
         default="manual",
         description="manual | api | schedule — how the run was started",
     )
+
+
+class DryRunAppRequest(BaseModel):
+    """Render a run preview without creating anything (F-4 dry-run)."""
+
+    parameters: dict[str, str] = Field(default_factory=dict)
 
 
 class CreateAppKeyRequest(BaseModel):
@@ -537,6 +543,68 @@ async def run_app_endpoint(http_request: Request, app_id: str, request: RunAppRe
         return result
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@router.post("/{app_id}/dry-run")
+def dry_run_app_endpoint(request: Request, app_id: str, body: DryRunAppRequest) -> dict[str, Any]:
+    """Preview a run: render the parameterized plan without creating anything (F-4).
+
+    No task, no run row, no dispatch — returns the rendered goal + steps,
+    template-node previews (params resolved, upstream refs verbatim), missing
+    parameters, and publish-validation summary so the user sees the final
+    shape before clicking「运行」.
+    """
+    from evoflow.authz.http_guard import require_app_visible
+
+    require_app_visible(request, app_id)
+    app = app_repositories.load_app(app_id)
+    if app is None:
+        raise HTTPException(status_code=404, detail=f"Application not found: {app_id}")
+
+    from evoflow.collab.app_engine import render_plan, validate_parameters
+    from evoflow.collab.workflow_validator import validate_app_definition
+
+    params_valid, missing, undefined = validate_parameters(app, body.parameters)
+    plan = render_plan(app, body.parameters)
+
+    steps_preview: list[dict[str, Any]] = []
+    for idx, step in enumerate(plan.get("steps") or []):
+        row: dict[str, Any] = {
+            "ref": step.get("ref"),
+            "name": step.get("name"),
+            "executor": str(step.get("executor") or "llm"),
+            "depends_on": step.get("depends_on") or [],
+        }
+        if row["executor"] == "template":
+            try:
+                from evoflow.collab.template_node import render_template
+
+                rendered, unresolved = render_template(
+                    str(step.get("template") or ""),
+                    params=body.parameters,
+                    subtasks=[],
+                )
+                row["template_preview"] = rendered[:2000]
+                if unresolved:
+                    row["template_unresolved"] = unresolved[:20]
+            except Exception as exc:
+                row["template_preview"] = f"（渲染失败：{exc}）"
+        steps_preview.append(row)
+
+    validation = validate_app_definition(app)
+    return {
+        "app_id": app_id,
+        "parameters_valid": params_valid,
+        "missing_parameters": missing,
+        "undefined_parameters": undefined,
+        "goal": plan.get("goal") or "",
+        "steps": steps_preview,
+        "validation": {
+            "valid": validation.get("valid"),
+            "errors": validation.get("errors") or [],
+            "warnings": (validation.get("warnings") or [])[:10],
+        },
+    }
 
 
 @router.get("/{app_id}/revisions")
