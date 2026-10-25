@@ -39,7 +39,6 @@ from evoflow.collab.task_outputs import (
     agent_code_for_task_row,
     evidence_paths_from_outputs,
     normalize_task_outputs,
-    require_file_outputs_exist,
     task_input_refs_of,
     task_outputs_of,
     workspace_root_for_task_row,
@@ -116,29 +115,11 @@ def _outcome_patch(
 
     File-typed output values are stored as absolute paths when ``workspace_root``
     is known, so UIs can open them without joining a guessed root.
-
-    ``type=file`` paths must exist on disk — otherwise raise
-    :class:`ValidationError` so agents cannot save fake paths that break preview.
     """
     text = normalize_task_summary(summary)
     items = normalize_task_outputs(outputs) if outputs is not None else None
-    if items is not None:
-        try:
-            items = require_file_outputs_exist(
-                items,
-                workspace_root,
-                agent_code=agent_code,
-                field_label="产出文件",
-            )
-        except ValueError as exc:
-            raise ValidationError(str(exc)) from exc
-        # Strip resolve meta before persist (UI can re-resolve on read).
-        cleaned: list[dict[str, Any]] = []
-        for row in items:
-            if not isinstance(row, dict):
-                continue
-            cleaned.append({k: v for k, v in row.items() if k != "_resolve_meta"})
-        items = cleaned
+    if items is not None and workspace_root:
+        items = absolutize_task_outputs(items, workspace_root, agent_code=agent_code)
     if not text and not items:
         return {}
     patch: dict[str, Any] = {}
@@ -589,15 +570,6 @@ def get_task(task_id: str, *, subtask_id: str | None = None) -> dict[str, Any]:
             "status_zh": _status_zh(st.get("status")),
             "progress": int(st.get("progress") or 0),
             "assigned_to": str(st.get("assigned_to") or "").strip() or None,
-            # Per-step output + timing: when the main task's rollup step never ran
-            # (workflow aborted at 汇总), the completed steps are the only real
-            # deliverable the operator can read. Without these the detail page
-            # showed "已完成" with nothing underneath.
-            "summary": str(st.get("summary") or "").strip() or None,
-            "result": st.get("result"),
-            "error": st.get("error") or st.get("error_text"),
-            "started_at": st.get("started_at"),
-            "completed_at": st.get("completed_at"),
             **_task_role_fields(st),
             **_task_raiser_fields(st),
             **_task_parent_fields(st),
@@ -1508,8 +1480,22 @@ def create_task(
         raise ValidationError("name is required")
     status_norm = _normalize_status(initial_status) or "pending"
     now = utc_now_iso_z()
-    assignee_norm = str(assignee or "").strip() or None
-    role_norm = str(assigned_role or "").strip() or None
+    # Last line of defence for task ownership.  ``assert_can_mutate_assigned_task``
+    # compares the actor against ``assigned_to`` literally, so a row owned by
+    # "me" or by a session key can only be closed by a privileged actor — that
+    # is how one unowned pending task appeared per automation round.  Resolve
+    # to a real agent_code here so every creation path (tool / CLI / handlers /
+    # platform) lands on an owned row.
+    from evoflow.collab.task_assignee import resolve_task_assignee
+
+    assignee_res = resolve_task_assignee(assignee)
+    assignee_norm = assignee_res.code
+    role_norm = str(assigned_role or "").strip() or assignee_res.role_name or None
+    if assignee_res.is_fallback:
+        # The caller asked for an owner we could not honour.  The row now
+        # belongs to the system front desk; do not wake it for a shell task
+        # nobody actually asked for.
+        start = False
     raised_norm = stamp_raised_by(raised_by_arg=raised_by) or None
     risk_norm = str(risk_level or "").strip() or None
     action_norm = str(action_type or "").strip() or None
