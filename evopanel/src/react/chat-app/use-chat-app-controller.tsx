@@ -4891,6 +4891,22 @@ export function useChatAppController() {
       mode,
     )
 
+  /** 关单个工作流签（面板体内关闭钮）：dismiss 该签任务防自动重开，只 closeTab 该 surface。 */
+  const closeCollabWorkflowSurface = useCallback(
+    (surface?: { id?: string | number; sessionKey?: string | null; data?: unknown } | null) => {
+      if (!surface || surface.id == null) return
+      const data = (surface.data ?? {}) as { mainTaskId?: unknown }
+      const taskId = String(data.mainTaskId || '').trim()
+      const sk = String(surface.sessionKey || selectedSessionKey || '').trim()
+      if (sk && taskId) collabExecDismissedKeysRef.current.add(`${sk}:${taskId}`)
+      if (rightStageUserPinnedRef.current === 'collab-workflow') {
+        rightStageUserPinnedRef.current = null
+      }
+      closeRightStageTab(`collab-workflow:${surface.id}`)
+    },
+    [selectedSessionKey, closeRightStageTab],
+  )
+
   const renderRightStageBody = useCallback(
     (surface: RightStageSurface): ReactNode => {
       return renderRightStageBodyImpl(
@@ -4898,6 +4914,7 @@ export function useChatAppController() {
           agents,
           chatThreadIdForSidebar,
           closeCollabExecPanel,
+          closeCollabWorkflowSurface,
           closeKnowledgeMapPanel,
           closeWorkspacePanel,
           collabExecPanelOpen,
@@ -4992,6 +5009,7 @@ export function useChatAppController() {
       sharedCollabMainTask,
       agents,
       closeCollabExecPanel,
+      closeCollabWorkflowSurface,
       openWorkspaceFilePreview,
       workspaceBrowseFocusPath,
     ],
@@ -5126,6 +5144,7 @@ export function useChatAppController() {
           dismissedRightStageKindsRef,
           rightStageUserPinnedRef,
           userClosedInfoRailRef,
+          collabExecDismissedKeysRef,
           closeWorkspacePanel,
           closeCollabExecPanel,
           closeKnowledgeMapPanel,

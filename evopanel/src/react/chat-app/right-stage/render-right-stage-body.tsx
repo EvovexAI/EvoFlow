@@ -121,6 +121,7 @@ export function renderRightStageBody(
     agents,
     chatThreadIdForSidebar,
     closeCollabExecPanel,
+    closeCollabWorkflowSurface,
     closeKnowledgeMapPanel,
     closeWorkspacePanel,
     collabSubtasksTaskId,
@@ -246,6 +247,21 @@ export function renderRightStageBody(
     const data = surface.data || {}
     const taskId = String(data.taskId || '').trim()
     if (!taskId) return null
+    // 实时流：threadPanelState.subagentTasks（keyed by tool_call_id/task_id，
+    // 兼容 taskExecId / collabSubtaskId 多键回退），点击前就在积累的 liveOutput。
+    const tasks = (threadPanelState?.subagentTasks || {}) as Record<string, Record<string, unknown>>
+    let liveTask: Record<string, unknown> | undefined = tasks[taskId]
+    if (!liveTask) {
+      liveTask = Object.values(tasks).find(
+        (t) =>
+          String(t?.taskId || '') === taskId ||
+          String(t?.taskExecId || '') === taskId ||
+          String(t?.collabSubtaskId || '') === taskId,
+      )
+    }
+    const parentThreadId = String(
+      wsClient?.getSessionThreadId?.(selectedSessionKey || '') || '',
+    )
     return sidePanelHeavyMount ? (
       <V4SubagentTranscriptPane
         taskId={taskId}
@@ -253,6 +269,8 @@ export function renderRightStageBody(
         sessionKey={String(data.sessionKey || selectedSessionKey || '')}
         fallbackText={typeof data.fallbackText === 'string' ? data.fallbackText : undefined}
         fallbackStatus={typeof data.fallbackStatus === 'string' ? data.fallbackStatus : undefined}
+        parentThreadId={parentThreadId || undefined}
+        liveTask={liveTask as { phase?: string; liveOutput?: string; progressHint?: string; error?: string } | undefined}
         onClose={() => rightStageStore.closeTab(tabKeyOf(surface))}
       />
     ) : (
@@ -409,7 +427,12 @@ export function renderRightStageBody(
         subagentTasks={threadPanelState.subagentTasks}
         collabTask={sidebarActiveView?.task ?? threadPanelState.collabTask}
         collabPhase={threadPanelState.collabPhase ?? undefined}
-        onClose={closeCollabExecPanel}
+        // 关闭钮只关当前签（含该签任务 dismiss）；整 kind 清场会把并开的其它工作流签一起关掉。
+        onClose={
+          closeCollabWorkflowSurface
+            ? () => closeCollabWorkflowSurface(surface)
+            : closeCollabExecPanel
+        }
       />
     ) : (
       <SidePanelBootShell title="工作流" className="react-chat-right-stage-panel" />
