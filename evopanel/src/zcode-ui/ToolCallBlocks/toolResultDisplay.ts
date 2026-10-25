@@ -64,7 +64,7 @@ interface CuaToolResultDisplay {
   };
 }
 
-/** employees.bind_channel_begin — 工具卡下方扫码绑定本岗 AI 员工 */
+/** platform 工具结构化展示：绑渠道扫码 和/或 进度侧栏 CTA（workflow.run autoOpen） */
 export interface PlatformUiToolResultDisplay {
   kind: "platform_ui";
   schemaVersion: 1;
@@ -76,6 +76,17 @@ export interface PlatformUiToolResultDisplay {
   agentCode?: string;
   entityLabel?: string;
   bindStatus?: "pending" | "scanning" | "bound" | "failed" | "expired";
+  actions?: Array<{
+    label: string;
+    autoOpen?: boolean;
+    route?: string;
+    openStage?: {
+      kind: string;
+      title?: string;
+      layout?: string;
+      data?: Record<string, unknown>;
+    };
+  }>;
 }
 
 export type ToolResultDisplay =
@@ -245,8 +256,38 @@ function parseDisplay(value: unknown): ToolResultDisplay | undefined {
       bindRaw === "expired"
         ? bindRaw
         : undefined;
-    // 至少要有二维码链接或 session，否则卡片无意义
-    if (!qrUrl && !sessionId) return undefined;
+    const actionsRaw = Array.isArray(value.actions) ? value.actions : [];
+    const actions: NonNullable<PlatformUiToolResultDisplay["actions"]> = [];
+    for (const row of actionsRaw) {
+      if (!isRecord(row)) continue;
+      const label = readOptionalString(row, "label");
+      if (!label) continue;
+      const openRaw = isRecord(row.openStage) ? row.openStage : null;
+      const openKind = openRaw ? readOptionalString(openRaw, "kind") : undefined;
+      const openStage =
+        openRaw && openKind
+          ? {
+              kind: openKind,
+              ...(readOptionalString(openRaw, "title")
+                ? { title: readOptionalString(openRaw, "title")! }
+                : {}),
+              ...(readOptionalString(openRaw, "layout")
+                ? { layout: readOptionalString(openRaw, "layout")! }
+                : {}),
+              ...(isRecord(openRaw.data) ? { data: openRaw.data as Record<string, unknown> } : {}),
+            }
+          : undefined;
+      const route = readOptionalString(row, "route");
+      actions.push({
+        label,
+        ...(row.autoOpen === true ? { autoOpen: true } : {}),
+        ...(route ? { route } : {}),
+        ...(openStage ? { openStage } : {}),
+      });
+      if (actions.length >= 4) break;
+    }
+    // 绑渠道：要有码；进度 CTA：要有 openStage。二者至少命中一类。
+    if (!qrUrl && !sessionId && !actions.some((a) => a.openStage)) return undefined;
     return {
       kind: "platform_ui",
       schemaVersion: 1,
@@ -262,6 +303,7 @@ function parseDisplay(value: unknown): ToolResultDisplay | undefined {
         : qrUrl || sessionId
           ? { bindStatus: "pending" as const }
           : {}),
+      ...(actions.length ? { actions } : {}),
     };
   }
 

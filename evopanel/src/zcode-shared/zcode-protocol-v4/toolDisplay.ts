@@ -63,7 +63,7 @@ const toolResultDisplaySchema = z.discriminatedUnion("kind", [
     kind: z.literal("respond_to_coordinator"),
     status: z.enum(["success", "failed"]),
   }),
-  // employees.bind_channel_begin：飞书/企微扫码绑定本岗 AI 员工（对话工具卡下方出码）
+  // platform ui：绑渠道扫码 和/或 进度侧栏 CTA（workflow.run autoOpen 等）
   z.object({
     kind: z.literal("platform_ui"),
     schemaVersion: z.literal(1),
@@ -75,6 +75,24 @@ const toolResultDisplaySchema = z.discriminatedUnion("kind", [
     agentCode: z.string().min(1).max(128).optional(),
     entityLabel: z.string().min(1).max(256).optional(),
     bindStatus: z.enum(["pending", "scanning", "bound", "failed", "expired"]).optional(),
+    actions: z
+      .array(
+        z.object({
+          label: z.string().min(1).max(64),
+          autoOpen: z.boolean().optional(),
+          route: z.string().min(1).max(256).optional(),
+          openStage: z
+            .object({
+              kind: z.string().min(1).max(64),
+              title: z.string().min(1).max(256).optional(),
+              layout: z.string().min(1).max(64).optional(),
+              data: z.record(z.string(), z.unknown()).optional(),
+            })
+            .optional(),
+        }),
+      )
+      .max(4)
+      .optional(),
   }),
   z.object({
     kind: z.literal("cua"),

@@ -170,12 +170,18 @@ function _syncExpandBtn(_collapsed = getShellAsideCollapsed()) {
   btn.classList.remove('is-visible')
 }
 
+function _clearHoverExpand(el = _resolveShellEl()) {
+  if (!el) return
+  el.classList.remove('is-hover-expanded', 'is-hover-expanded-ready')
+}
+
 function _applyCollapsed(collapsed) {
   const el = _resolveShellEl()
   if (!el) return
   if (!_shellEl) _shellEl = el
   void patchPanelSettings({ shellAsideCollapsed: !!collapsed }, { silent: true })
   el.classList.toggle('collapsed', !!collapsed)
+  if (!collapsed) _clearHoverExpand(el)
   const btn = el.querySelector('#shell-aside-collapse')
   if (btn) {
     btn.title = collapsed ? '展开侧栏' : '折叠侧栏'
@@ -183,6 +189,51 @@ function _applyCollapsed(collapsed) {
     btn.classList.toggle('is-collapsed', !!collapsed)
   }
   _syncExpandBtn(collapsed)
+}
+
+/** 桌面折叠态悬停：先变宽再挂会话列表，避免主栏回流 + 首帧大列表 layout */
+function _bindHoverExpand(el) {
+  if (!el || el.dataset.shellHoverExpandBound === '1') return
+  el.dataset.shellHoverExpandBound = '1'
+
+  const mq =
+    typeof window.matchMedia === 'function'
+      ? window.matchMedia('(hover: hover) and (pointer: fine) and (min-width: 769px)')
+      : { matches: false }
+  let leaveTimer = 0
+  let readyTimer = 0
+
+  const clearTimers = () => {
+    if (leaveTimer) {
+      window.clearTimeout(leaveTimer)
+      leaveTimer = 0
+    }
+    if (readyTimer) {
+      window.clearTimeout(readyTimer)
+      readyTimer = 0
+    }
+  }
+
+  el.addEventListener('pointerenter', () => {
+    if (!mq.matches || !el.classList.contains('collapsed')) return
+    clearTimers()
+    el.classList.add('is-hover-expanded')
+    // 等宽度动画走一段，再挂会话列表
+    readyTimer = window.setTimeout(() => {
+      readyTimer = 0
+      if (el.classList.contains('is-hover-expanded') && el.classList.contains('collapsed')) {
+        el.classList.add('is-hover-expanded-ready')
+      }
+    }, 260)
+  })
+
+  el.addEventListener('pointerleave', () => {
+    clearTimers()
+    leaveTimer = window.setTimeout(() => {
+      leaveTimer = 0
+      _clearHoverExpand(el)
+    }, 100)
+  })
 }
 
 function _isMoreNavRoute(routePath) {
@@ -526,6 +577,7 @@ export function initShellAside(el) {
   else _applyCollapsed(false)
 
   _bindShell(el)
+  _bindHoverExpand(el)
   _scheduleSettingsPrefetch()
   _bindSettingsPrefetchTrigger(el)
   _bindNavPanelPrefetch(el)

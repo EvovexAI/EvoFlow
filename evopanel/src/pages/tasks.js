@@ -1112,6 +1112,58 @@ function resolveTaskAgentLabel(task, state) {
   return `${names.slice(0, 2).join('、')} 等${names.length}人`
 }
 
+/** 主对话 lead 会话 id（agent:main:new-xxx），不是员工编码，不能当责任人展示 */
+function isMainLeadSessionActor(raw) {
+  const s = String(raw || '').trim().toLowerCase()
+  if (!s) return false
+  if (['user', 'main', 'lead_agent', 'auto', 'automation'].includes(s)) return true
+  if (s === 'agent:main' || s.startsWith('agent:main:')) return true
+  if (s.startsWith('main:')) return true
+  return false
+}
+
+/** 调用人：platform 盖章的 operator_label / raised_by / created_by（非节点执行人） */
+function resolveTaskInvokerLabel(task, state) {
+  const ol = String(task?.operator_label || task?.operatorLabel || '').trim()
+  // 历史脏数据：曾把 agent:main:new-xxx 盖进 operator_label，跳过改走 principal
+  if (ol && !isMainLeadSessionActor(ol)) return ol
+  const raised = String(task?.raised_by || task?.raisedBy || '').trim()
+  const raisedLow = raised.toLowerCase()
+  if (raised && !isMainLeadSessionActor(raised)) {
+    const agents = state?.agents || []
+    const byAgent = resolveAssignedAgentDisplayName(raised, agents)
+    if (byAgent) return byAgent
+    const role = state?.rolesByCode?.[raisedLow]
+    const roleName = String(role?.role_name || '').trim()
+    if (roleName) return roleName
+    return raised
+  }
+  const pid = String(
+    task?.created_by || task?.createdBy || task?.principal_id || task?.principalId || '',
+  ).trim()
+  if (pid && !isMainLeadSessionActor(pid)) return pid
+  if (raisedLow === 'user' || isMainLeadSessionActor(raised) || isMainLeadSessionActor(ol)) {
+    return '用户'
+  }
+  return ''
+}
+
+/**
+ * 责任人：工作流优先显示调用人；其它任务优先派发执行人 / 岗位。
+ */
+function resolveTaskOwnerLabel(task, state) {
+  if (isWorkflowTask(task) || isAutomationTask(task)) {
+    return resolveTaskInvokerLabel(task, state)
+      || resolveTaskAgentLabel(task, state)
+      || resolveTaskRoleLabel(task, state)
+      || ''
+  }
+  return resolveTaskAgentLabel(task, state)
+    || resolveTaskRoleLabel(task, state)
+    || resolveTaskInvokerLabel(task, state)
+    || ''
+}
+
 function progressMeta(task) {
   const list = Array.isArray(task?.subtasks) ? task.subtasks : []
   const exec = computeTaskExecutionProgress(task, list)
@@ -1250,10 +1302,12 @@ function taskMatchesAgentFilter(t, filter) {
 function taskMatchesTextQuery(t, q, state) {
   const role = resolveTaskRoleLabel(t, state)
   const agent = resolveTaskAgentLabel(t, state)
+  const owner = resolveTaskOwnerLabel(t, state)
   const app = taskAppLabel(t)
   const text = [
     t.name, t.description, t.status, t.source, t.assigned_to, t.assigned_role,
-    role, agent, app, t.summary, t.result,
+    t.raised_by, t.raisedBy, t.operator_label, t.operatorLabel, t.created_by, t.createdBy,
+    role, agent, owner, app, t.summary, t.result,
     t.automation_id, t.automationId, t.automation_name, t.automationName,
   ]
     .map(v => String(v || '').toLowerCase())
@@ -1890,9 +1944,8 @@ function taskTypeLabel(taskOrSource) {
     return app ? '自动化 · 工作流' : '自动化 · 提示词'
   }
   if (taskOrSource && typeof taskOrSource === 'object' && isWorkflowTask(taskOrSource)) {
-    const kind = resolveTaskRunKind(taskOrSource)
-    const kindZh = runKindLabel(kind)
-    return kindZh ? `工作流 · ${kindZh}` : '工作流'
+    // 任务中心类型列不展示「调试/正式」——那是内部 run_kind，不是用户面类型
+    return '工作流'
   }
   const key =
     taskOrSource && typeof taskOrSource === 'object'
@@ -1904,19 +1957,17 @@ function taskTypeLabel(taskOrSource) {
     || '—'
 }
 
-/** 类型列：对话 / 员工 / 工作流 / 自动化 */
+/** 类型列：对话 / 员工 / 工作流 / 自动化（不展示调试标签） */
 function renderTypeCell(task) {
   if (isAutomationTask(task)) {
     const sub = taskAppId(task) ? '工作流' : '提示词'
-    return `<span class="tl-type-tags" title="自动化 · ${escapeHtml(sub)}"><span class="tl-tag tl-tag--automation">自动化</span><span class="tl-tag tl-tag--${taskAppId(task) ? 'scheduled' : 'debug'}">${escapeHtml(sub)}</span></span>`
+    return `<span class="tl-type-tags" title="自动化 · ${escapeHtml(sub)}"><span class="tl-tag tl-tag--automation">自动化</span><span class="tl-tag tl-tag--${taskAppId(task) ? 'scheduled' : 'prompt'}">${escapeHtml(sub)}</span></span>`
   }
   if (!isWorkflowTask(task)) {
     const label = taskTypeLabel(task)
     return `<span class="tl-type" title="${escapeHtml(label)}">${escapeHtml(label)}</span>`
   }
-  const kind = resolveTaskRunKind(task)
-  const kindZh = runKindLabel(kind) || '运行'
-  return `<span class="tl-type-tags" title="工作流 · ${escapeHtml(kindZh)}"><span class="tl-tag">工作流</span><span class="tl-tag tl-tag--${escapeHtml(kind || 'debug')}">${escapeHtml(kindZh)}</span></span>`
+  return `<span class="tl-type" title="工作流">工作流</span>`
 }
 
 /** 名称下方辅行：触发方式 / 当前节点 / 失败节点 / 参数数量 */
@@ -1940,13 +1991,13 @@ function taskSecondaryLine(task) {
         ? `正在并行执行：${names}${more}`
         : `正在执行：${names}`
     }
-    return `${runKindLabel(resolveTaskRunKind(task)) || '工作流'} · ${triggerKindLabel(task)}`
+    return triggerKindLabel(task) || '工作流'
   }
   if (group === 'failed' && failedNames.length) {
     return `失败节点：${failedNames.slice(0, 2).join('、')}`
   }
   const bits = [
-    runKindLabel(resolveTaskRunKind(task)) ? `${runKindLabel(resolveTaskRunKind(task))}运行` : '工作流运行',
+    '工作流运行',
     triggerKindLabel(task),
   ]
   if (nParams > 0) bits.push(`${nParams} 个运行参数`)
@@ -2564,7 +2615,7 @@ function renderTaskCard(t, state, rowMeta = null) {
   const group = toTaskStatusGroup(t.status)
   const isFailed = group === 'failed'
   const isSelected = state.selectedTasks.has(t.id)
-  const agentLabel = resolveTaskAgentLabel(t, state) || resolveTaskRoleLabel(t, state)
+  const agentLabel = resolveTaskOwnerLabel(t, state)
   const displayName = taskDisplayName(t)
   const progressNl = progressNarrativeText(t)
   const timeLabel = formatAbsoluteClock(parseTimeFlexible(t?.updated_at || t?.updatedAt) || parseTaskTimestamp(t)) || formatRelativeTime(t)
@@ -2608,7 +2659,7 @@ function renderTaskRow(t, state, rowMeta = null) {
   const group = toTaskStatusGroup(t.status)
   const isFailed = group === 'failed'
   const workflow = isWorkflowTask(t)
-  const agentLabel = resolveTaskAgentLabel(t, state) || resolveTaskRoleLabel(t, state) || '未指定'
+  const agentLabel = resolveTaskOwnerLabel(t, state) || '未指定'
   const displayName = taskDisplayName(t)
   const desc = String(t.description || '').trim()
   const nameTitle = [displayName, desc && desc !== displayName ? desc : '', isFailed ? getErrorFirstLine(t) : '']

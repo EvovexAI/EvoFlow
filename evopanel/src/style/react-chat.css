@@ -67,7 +67,12 @@
   height: 100%;
   min-height: 0;
   z-index: 2;
-  transition: width 0.2s ease, min-width 0.2s ease, border-right 0.2s ease;
+  transition:
+    width 0.38s cubic-bezier(0.22, 1, 0.36, 1),
+    min-width 0.38s cubic-bezier(0.22, 1, 0.36, 1),
+    max-width 0.38s cubic-bezier(0.22, 1, 0.36, 1),
+    border-right 0.38s ease,
+    padding 0.38s ease;
 }
 
 #app-shell-aside.shell-aside-host #shell-chat-panel,
@@ -126,7 +131,11 @@
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  transition: width 0.2s ease, min-width 0.2s ease, max-width 0.2s ease, padding 0.2s ease;
+  transition:
+    width 0.38s cubic-bezier(0.22, 1, 0.36, 1),
+    min-width 0.38s cubic-bezier(0.22, 1, 0.36, 1),
+    max-width 0.38s cubic-bezier(0.22, 1, 0.36, 1),
+    padding 0.38s ease;
 }
 
 .react-chat-session-aside.collapsed {
@@ -228,6 +237,192 @@
   width: 32px;
   height: 32px;
   min-width: 32px;
+}
+
+/* 桌面：折叠态悬停临时展开（推开主栏；偏好仍是 collapsed）
+   会话列表延后淡入，减轻宽度动画首帧大列表 layout */
+@media (hover: hover) and (pointer: fine) and (min-width: 769px) {
+  @keyframes shell-aside-peek-fade {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+
+  .react-chat-session-aside.collapsed:hover,
+  .react-chat-session-aside.collapsed.is-hover-expanded {
+    width: var(--shell-aside-width);
+    min-width: var(--shell-aside-width);
+    max-width: var(--shell-aside-width);
+    margin-right: 0;
+    padding: 0 8px;
+    overflow: hidden;
+    z-index: 30;
+    box-shadow: none;
+  }
+
+  .react-chat-session-aside.collapsed:hover .react-chat-aside-toolbar-title,
+  .react-chat-session-aside.collapsed:hover .react-chat-aside-version,
+  .react-chat-session-aside.collapsed:hover .shell-aside-new-chat-label,
+  .react-chat-session-aside.collapsed:hover .react-chat-aside-nav-label,
+  .react-chat-session-aside.collapsed:hover .shell-aside-nav-divider,
+  .react-chat-session-aside.collapsed.is-hover-expanded .react-chat-aside-toolbar-title,
+  .react-chat-session-aside.collapsed.is-hover-expanded .react-chat-aside-version,
+  .react-chat-session-aside.collapsed.is-hover-expanded .shell-aside-new-chat-label,
+  .react-chat-session-aside.collapsed.is-hover-expanded .react-chat-aside-nav-label,
+  .react-chat-session-aside.collapsed.is-hover-expanded .shell-aside-nav-divider {
+    display: revert !important;
+    animation: shell-aside-peek-fade 0.22s ease both;
+  }
+
+  /* 默认悬停先不挂会话列表；JS 加 is-hover-expanded-ready 后再显示 */
+  .react-chat-session-aside.collapsed.is-hover-expanded-ready #shell-chat-panel,
+  .react-chat-session-aside.collapsed.is-hover-expanded-ready .shell-aside-recent {
+    display: flex !important;
+    animation: shell-aside-peek-fade 0.24s ease both;
+  }
+
+  .react-chat-session-aside.collapsed:hover .react-chat-aside-brand,
+  .react-chat-session-aside.collapsed.is-hover-expanded .react-chat-aside-brand {
+    justify-content: flex-start;
+    width: auto;
+  }
+
+  .react-chat-session-aside.collapsed:hover .react-chat-aside-toolbar,
+  .react-chat-session-aside.collapsed.is-hover-expanded .react-chat-aside-toolbar {
+    justify-content: space-between;
+  }
+
+  .react-chat-session-aside.collapsed:hover .shell-aside-collapse-btn,
+  .react-chat-session-aside.collapsed.is-hover-expanded .shell-aside-collapse-btn {
+    display: inline-flex;
+  }
+
+  .react-chat-session-aside.collapsed:hover .shell-aside-new-chat-wrap,
+  .react-chat-session-aside.collapsed.is-hover-expanded .shell-aside-new-chat-wrap {
+    padding: unset;
+    margin-bottom: unset;
+  }
+
+  .react-chat-session-aside.collapsed:hover .shell-aside-new-chat-btn,
+  .react-chat-session-aside.collapsed:hover .react-chat-aside-nav-item,
+  .react-chat-session-aside.collapsed:hover .react-chat-aside-footer-btn,
+  .react-chat-session-aside.collapsed.is-hover-expanded .shell-aside-new-chat-btn,
+  .react-chat-session-aside.collapsed.is-hover-expanded .react-chat-aside-nav-item,
+  .react-chat-session-aside.collapsed.is-hover-expanded .react-chat-aside-footer-btn {
+    width: 100%;
+    height: var(--shell-item-h, 30px);
+    margin: 0;
+    padding: 0 var(--shell-item-pad-x, 8px);
+    justify-content: flex-start;
+    gap: var(--shell-item-gap, 8px);
+    border-radius: var(--shell-item-radius, 6px);
+  }
+
+  .react-chat-session-aside.collapsed:hover .react-chat-aside-primary,
+  .react-chat-session-aside.collapsed.is-hover-expanded .react-chat-aside-primary {
+    align-items: stretch;
+    gap: 1px;
+    padding-bottom: 0;
+    border-bottom: none;
+    overflow: visible;
+  }
+
+  .react-chat-session-aside.collapsed:hover .react-chat-aside-nav-item.active::before,
+  .react-chat-session-aside.collapsed.is-hover-expanded .react-chat-aside-nav-item.active::before {
+    display: block;
+  }
+
+  .react-chat-session-aside.collapsed:hover .react-chat-aside-footer,
+  .react-chat-session-aside.collapsed:hover .shell-aside-bottom-bar,
+  #app-shell-aside.shell-aside-host.collapsed:hover .shell-aside-bottom-bar,
+  .react-chat-session-aside.collapsed.is-hover-expanded .react-chat-aside-footer,
+  .react-chat-session-aside.collapsed.is-hover-expanded .shell-aside-bottom-bar,
+  #app-shell-aside.shell-aside-host.collapsed.is-hover-expanded .shell-aside-bottom-bar {
+    flex-direction: row;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 2px;
+    height: 46px;
+    padding: 0;
+    min-height: auto;
+  }
+
+  .react-chat-session-aside.collapsed:hover .shell-aside-notify-mount,
+  .react-chat-session-aside.collapsed.is-hover-expanded .shell-aside-notify-mount {
+    display: inline-flex;
+    justify-content: center;
+    align-items: center;
+    margin-left: auto;
+    width: auto;
+    height: auto;
+  }
+
+  .react-chat-session-aside.collapsed:hover .shell-aside-notify-mount .session-notify-center,
+  .react-chat-session-aside.collapsed:hover .shell-aside-notify-mount .session-notify-bell,
+  .react-chat-session-aside.collapsed:hover .shell-aside-notify-mount .react-chat-toggle-sidebar-btn,
+  .react-chat-session-aside.collapsed.is-hover-expanded .shell-aside-notify-mount .session-notify-center,
+  .react-chat-session-aside.collapsed.is-hover-expanded .shell-aside-notify-mount .session-notify-bell,
+  .react-chat-session-aside.collapsed.is-hover-expanded .shell-aside-notify-mount .react-chat-toggle-sidebar-btn {
+    width: auto;
+    height: auto;
+    min-width: 0;
+  }
+
+  .react-chat-session-aside.collapsed:hover .shell-aside-nav-more,
+  .react-chat-session-aside.collapsed.is-hover-expanded .shell-aside-nav-more {
+    align-items: stretch;
+  }
+
+  .react-chat-session-aside.collapsed:hover .shell-aside-nav-more-toggle,
+  .react-chat-session-aside.collapsed.is-hover-expanded .shell-aside-nav-more-toggle {
+    width: 100%;
+    height: 16px;
+    margin: 0 0 2px;
+    padding: 0;
+    gap: 6px;
+    justify-content: flex-start;
+  }
+
+  .react-chat-session-aside.collapsed:hover .shell-aside-nav-more-line,
+  .react-chat-session-aside.collapsed.is-hover-expanded .shell-aside-nav-more-line {
+    display: block;
+  }
+
+  .react-chat-session-aside.collapsed:hover .shell-aside-nav-more-body,
+  .react-chat-session-aside.collapsed.is-hover-expanded .shell-aside-nav-more-body {
+    align-items: stretch;
+  }
+
+  .react-chat-session-aside.collapsed:hover .shell-account-text,
+  .react-chat-session-aside.collapsed:hover .shell-account-caret,
+  #app-shell-aside.shell-aside-host.collapsed:hover .shell-account-text,
+  #app-shell-aside.shell-aside-host.collapsed:hover .shell-account-caret,
+  .react-chat-session-aside.collapsed.is-hover-expanded .shell-account-text,
+  .react-chat-session-aside.collapsed.is-hover-expanded .shell-account-caret,
+  #app-shell-aside.shell-aside-host.collapsed.is-hover-expanded .shell-account-text,
+  #app-shell-aside.shell-aside-host.collapsed.is-hover-expanded .shell-account-caret {
+    display: revert;
+  }
+
+  .react-chat-session-aside.collapsed:hover .shell-account-btn,
+  #app-shell-aside.shell-aside-host.collapsed:hover .shell-account-btn,
+  .react-chat-session-aside.collapsed.is-hover-expanded .shell-account-btn,
+  #app-shell-aside.shell-aside-host.collapsed.is-hover-expanded .shell-account-btn {
+    justify-content: flex-start;
+    padding: unset;
+    width: auto;
+    height: auto;
+    flex: 1 1 auto;
+  }
+
+  .react-chat-session-aside.collapsed:hover .shell-account-menu,
+  #app-shell-aside.shell-aside-host.collapsed:hover .shell-account-menu,
+  .react-chat-session-aside.collapsed.is-hover-expanded .shell-account-menu,
+  #app-shell-aside.shell-aside-host.collapsed.is-hover-expanded .shell-account-menu {
+    left: 0;
+    right: auto;
+    bottom: calc(100% + 6px);
+    width: 220px;
+  }
 }
 
 /* 移动端抽屉：折叠不走 icon rail，打开时始终完整导航 */

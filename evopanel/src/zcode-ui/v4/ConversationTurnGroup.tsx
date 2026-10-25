@@ -41,9 +41,16 @@ import {
   readOffPeakCreateTaskSummary,
   type OffPeakCreateTaskSummary,
 } from "@/ToolCallBlocks/renderers/offpeak-create.js";
-import { readPlatformBindChannelFeedback } from "@/ToolCallBlocks/renderers/platform.js";
+import {
+  readPlatformBindChannelFeedback,
+  readPlatformProgressFeedback,
+} from "@/ToolCallBlocks/renderers/platform.js";
 import { EmployeeBindChannelQr } from "../../react/components/EmployeeBindChannelQr.js";
-import type { PlatformUiFeedback } from "../../lib/right-stage/platform-feedback.js";
+import {
+  maybeAutoOpenPlatformProgress,
+  type PlatformUiFeedback,
+} from "../../lib/right-stage/platform-feedback.js";
+import { logRightStage } from "../../lib/right-stage/panel-set-debug-log.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import type { AssistantPreviewCard } from "@/lib/assistantPreviewCards.js";
 import { useAssistantCodeCommentFeatureEnabled } from "@/AssistantCodeCommentFeatureProvider.js";
@@ -530,6 +537,49 @@ function resolveBindChannelTurnCards(rows: readonly AssistantWorkRow[]): BindCha
   }
 
   return cards;
+}
+
+/**
+ * 【V4 权威】platform 结果带 autoOpen+openStage → 拉开右栏（workflow.run 等）。
+ * 旧 AG-UI 的 publish-platform-from-agui-result / tools-scan 是双轨旁路，改侧栏别只改旧文件。
+ */
+const v4PlatformProgressAutoOpenedIds = new Set<string>();
+
+function applyV4PlatformProgressAutoOpen(rows: readonly AssistantWorkRow[]): void {
+  for (const row of rows) {
+    if (row.kind !== "toolCall") continue;
+    if (String(row.toolName || "").trim().toLowerCase() !== "platform") continue;
+    if (row.status === "inputStreaming" || row.status === "running") continue;
+    const toolCallId = String(row.toolCallId || row.rowId || "").trim();
+    if (!toolCallId || v4PlatformProgressAutoOpenedIds.has(toolCallId)) continue;
+
+    const node = toolCallRowToLegacyNode(row);
+    // display 优先（agui_mirror 上浮的 actions）；raw 含 output.text 作回落
+    const feedback =
+      readPlatformProgressFeedback(node.toolCall.raw) ||
+      readPlatformProgressFeedback({
+        display: row.output?.display,
+        rawOutput: row.output?.text,
+        output: row.output?.text,
+      });
+    if (!feedback) continue;
+    const opened = maybeAutoOpenPlatformProgress(feedback);
+    logRightStage("V4 autoOpen:platform progress", {
+      toolCallId,
+      opened,
+      actions: feedback.actions?.map((a) => ({
+        label: a.label,
+        autoOpen: a.autoOpen,
+        kind: a.openStage?.kind,
+      })),
+    });
+    if (!opened) continue;
+    v4PlatformProgressAutoOpenedIds.add(toolCallId);
+    if (v4PlatformProgressAutoOpenedIds.size > 256) {
+      const oldest = v4PlatformProgressAutoOpenedIds.values().next().value;
+      if (oldest !== undefined) v4PlatformProgressAutoOpenedIds.delete(oldest);
+    }
+  }
 }
 
 function parseJsonRecord(value: unknown): Record<string, unknown> | null {
@@ -1281,6 +1331,10 @@ function ConversationTurnGroupImpl({
     () => resolveBindChannelTurnCards(unit.assistantWorkRows),
     [unit.assistantWorkRows],
   );
+  // 【V4 权威】workflow.run 等 platform 进度 CTA 在此拉开右栏（勿只改旧 AG-UI 热路径）。
+  useEffect(() => {
+    applyV4PlatformProgressAutoOpen(unit.assistantWorkRows);
+  }, [unit.assistantWorkRows]);
   const canRenderAssistantActions =
     !unit.timelineOnly &&
     latestAssistantTextRow?.state === "complete" &&

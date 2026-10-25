@@ -162,5 +162,40 @@ describe('open-right-stage-file (side pane, not fullscreen modal)', () => {
     expect(source?.type).toBe('file')
     expect(source?.path).toBe('D:/proj/readme.md')
   })
+
+  it('hide() default primary must not close active collab-workflow (RUN_FINISHED bug)', () => {
+    const store = new RightStageStore()
+    store.show({
+      kind: 'collab-workflow',
+      id: 'workflow:mt-keep',
+      title: '工作流',
+      data: { mainTaskId: 'mt-keep' },
+    })
+    expect(store.getSnapshot().surface?.kind).toBe('collab-workflow')
+    // 回合结束路径：applyDecideRightStage → hide() 默认 id=primary
+    store.hide()
+    const snap = store.getSnapshot()
+    expect(snap.tabs).toHaveLength(1)
+    expect(snap.tabs[0]?.kind).toBe('collab-workflow')
+    expect(snap.collapsed).toBe(false)
+  })
+
+  it('hideUnlessProgressOpen keeps workflow and returns false', () => {
+    const store = new RightStageStore()
+    store.show({
+      kind: 'collab-workflow',
+      id: 'workflow:mt-2',
+      data: { mainTaskId: 'mt-2' },
+    })
+    expect(store.hideUnlessProgressOpen()).toBe(false)
+    expect(store.getSnapshot().tabs.map((t) => t.kind)).toEqual(['collab-workflow'])
+  })
+
+  it('hideUnlessProgressOpen closes non-progress panels', () => {
+    const store = new RightStageStore()
+    store.show({ kind: 'workspace-browse', id: 'primary' })
+    expect(store.hideUnlessProgressOpen()).toBe(true)
+    expect(store.getSnapshot().tabs).toEqual([])
+  })
 })
 

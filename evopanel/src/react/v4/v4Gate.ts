@@ -1,6 +1,9 @@
 // V4 双轨闸门 + 开关（EvoFlow 自有代码；渲染路径不依赖 zcode-ui 组件）。
 // 协议语义是 ZCode v4 的（wire/seq/apply），协议客户端（无 UI 的 store 数据层）
 // 复用 vendor 树的 ConversationProjectionStore —— 它不是 UI 组件框架的一部分。
+//
+// 产品默认：V4 开。用户看见的对话 = V4ZCodeTimeline / zcode-ui/v4/**。
+// 旧 ToolCallList / create-chat-ws-on-event 的 TEXT_* 显示会被闸掉；业务副作用仍放行。
 
 /** 双轨开关：**默认开启**。URL `?chatV4=0` 或 localStorage.evoflow_chat_v4=0 显式退回老链路；
 `?chatV4=1` 强制开（调参调试用）。 */

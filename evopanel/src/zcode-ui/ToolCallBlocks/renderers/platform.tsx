@@ -114,6 +114,91 @@ export function readPlatformBindChannelFeedback(
   };
 }
 
+/**
+ * V4 platform 结果 → 进度侧栏反馈（workflow.run autoOpen 等）。
+ * 优先读 ``output.display.actions``；否则回落解析正文 JSON 的 ``ui``。
+ */
+export function readPlatformProgressFeedback(raw: unknown): PlatformUiFeedback | null {
+  const display = readToolResultDisplay(raw);
+  if (display?.kind === "platform_ui" && Array.isArray(display.actions) && display.actions.length) {
+    const actions = display.actions
+      .filter((a) => a && a.openStage && String(a.openStage.kind || "").trim())
+      .map((a) => ({
+        label: String(a.label || "").trim() || "查看进度",
+        autoOpen: a.autoOpen === true,
+        route: a.route,
+        openStage: a.openStage
+          ? {
+              kind: String(a.openStage.kind || "").trim(),
+              title: a.openStage.title,
+              layout: a.openStage.layout,
+              data: a.openStage.data || null,
+            }
+          : undefined,
+      }));
+    if (actions.some((a) => a.autoOpen && a.openStage)) {
+      return {
+        kind: "success",
+        action: String(display.action || "").trim() || undefined,
+        title: String(display.title || "平台操作成功").trim(),
+        domain: "workflow",
+        actions,
+      };
+    }
+  }
+
+  // 冷路径 / 旧镜像：display 未带 actions 时从正文 ui 解
+  let blob: unknown = raw;
+  if (isPlainRecord(raw) && typeof raw.rawOutput === "string") {
+    blob = raw.rawOutput;
+  } else if (isPlainRecord(raw) && typeof raw.output === "string") {
+    blob = raw.output;
+  } else if (isPlainRecord(raw) && isPlainRecord(raw.output) && typeof raw.output.text === "string") {
+    blob = raw.output.text;
+  }
+  if (typeof blob === "string") {
+    const t = blob.trim();
+    if (t.startsWith("{")) {
+      try {
+        blob = JSON.parse(t) as unknown;
+      } catch {
+        return null;
+      }
+    }
+  }
+  if (!isPlainRecord(blob) || blob.ok === false || blob.pending_confirm === true) return null;
+  const ui = isPlainRecord(blob.ui) ? blob.ui : null;
+  if (!ui || !Array.isArray(ui.actions)) return null;
+  const actions = ui.actions
+    .filter((row): row is Record<string, unknown> => isPlainRecord(row))
+    .map((row) => {
+      const open = isPlainRecord(row.openStage) ? row.openStage : null;
+      const kind = open ? readTrimmedString(open.kind) : "";
+      return {
+        label: readTrimmedString(row.label) || "查看进度",
+        autoOpen: row.autoOpen === true,
+        route: readTrimmedString(row.route) || undefined,
+        openStage: kind
+          ? {
+              kind,
+              title: readTrimmedString(open?.title) || undefined,
+              layout: readTrimmedString(open?.layout) || undefined,
+              data: isPlainRecord(open?.data) ? open.data : null,
+            }
+          : undefined,
+      };
+    })
+    .filter((a) => a.openStage);
+  if (!actions.some((a) => a.autoOpen && a.openStage)) return null;
+  return {
+    kind: "success",
+    action: readTrimmedString(ui.action) || readTrimmedString(blob.action) || undefined,
+    title: readTrimmedString(ui.title) || "平台操作成功",
+    domain: readTrimmedString(ui.domain) || undefined,
+    actions,
+  };
+}
+
 export function PlatformToolCallBlock(context: ToolCallBlockRenderContext) {
   const {
     toolCallNode,

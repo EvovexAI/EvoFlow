@@ -1,14 +1,14 @@
-// V4ZCodeTimeline — V4 显示区域的正式渲染件：ZCode ConversationTimeline 直接挂载。
+// V4ZCodeTimeline — 【产品默认聊天渲染面】ZCode ConversationTimeline 宿主装配。
 //
-// 行视图 / 轮分组（工具与正文的排布）/ Streamdown 流式渲染 / 虚拟化 / 贴底跟随 /
-// 滚动条对齐全部来自 ZCode 显示区域的正式实现（vendor 树 zcode-ui），本文件只做宿主装配：
-// - 数据：V4StreamRowsBridge 交付协议原生快照（rows.window 原样，无行适配）；
-// - 上下文：ZCodeIntlProvider（裸挂 zh-CN）+ 稳定引用的 ConversationRowRenderContext；
-// - 布局：对齐 SessionPane —— `@container/conversation` + sticky `bottomDock`（输入区
-//   在同一滚动视口底部，滚轮到底即输入框，不再在消息区下方留一块空白）；
-// - 分页：canLoadOlder/onLoadOlder 接 store 的 rows/range（hasOlderRows 判定）。
-// connecting 阶段（已订阅、快照未到）空态不渲染提示文案，只保持 V4 渲染不回落老链路。
-// 回调类能力（编辑/重试/fork/反馈）v1 不接——显示侧为只读投影。
+// 修「对话里看见什么 / 工具卡 / 轮尾卡 / 侧栏由哪行触发」→ 从这里下钻到
+// `zcode-ui/v4/ConversationTurnGroup` 等，不要改旧版 ToolCallList。
+//
+// 行视图 / 轮分组 / Streamdown / 虚拟化 / 贴底跟随来自 zcode-ui；本文件只做：
+// - 数据：V4StreamRowsBridge 原生快照；
+// - 上下文：ZCodeIntlProvider + ConversationRowRenderContext；
+// - 布局：`@container/conversation` + sticky bottomDock；
+// - 分页：canLoadOlder/onLoadOlder。
+// connecting 时空态不回落老链路。编辑/重试/fork/反馈 v1 只读投影。
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import "@/styles-bridge.css";
 import { ZCodeIntlProvider } from "@zcode/ui/i18n/IntlProvider.js";
@@ -37,6 +37,7 @@ import type { V4TimelinePayload } from "./V4StreamRowsBridge.js";
 import type { ConversationRowRenderContext } from "@zcode/ui/v4/conversationRowContext.js";
 import { getEvoflowV4Transport } from "./evoflowV4Transport.js";
 import { mergeOptimisticUserInputRow } from "./optimisticUserInput.js";
+import { V4QueuePanelBridge } from "./V4QueuePanelBridge.js";
 import { evoflowStubPlatform } from "../../pages/settings/evoflow-bridge-services.js";
 import {
   ToolApprovalPanel,
@@ -688,6 +689,23 @@ export function V4ZCodeTimeline(props: {
     [sessionId],
   );
 
+  // 队列面板：bottomDock 内 composer 之上（对齐 SessionPane 布局）。
+  // queue 引用只在 queue patch 到达时变化（键级整体替换），memo 不跟流式帧抖动。
+  const queueState = snapshot?.queue ?? null;
+  const dockWithQueue = useMemo(() => {
+    if (!sessionId || !queueState || queueState.items.length === 0) return bottomDock;
+    return (
+      <>
+        <V4QueuePanelBridge
+          sessionId={sessionId}
+          queue={queueState}
+          revision={snapshot?.revision ?? 0}
+        />
+        {bottomDock}
+      </>
+    );
+  }, [sessionId, queueState, snapshot?.revision, bottomDock]);
+
   // 审批列表变化时强制相关工具行重绘（rowContext 本身保持稳定，靠 tick 推一次）
   const approvalRenderKey = pendingApprovals.map((p) => p.toolCallId).join(",");
 
@@ -789,7 +807,7 @@ export function V4ZCodeTimeline(props: {
           canLoadOlder={snapshot ? hasOlderRows(snapshot) : false}
           loadingOlder={payload?.loadingOlder ?? false}
           onLoadOlder={payload?.onLoadOlder}
-          bottomDock={bottomDock}
+          bottomDock={dockWithQueue}
           // 小V 窄栏：隐藏左侧轮次导航，把宽度留给正文（主对话不变）
           hideTurnNavigator={embedded}
           // 嵌入态 composer 在面板外：空态不要跟不存在的 dock 居中，否则发消息瞬间整栏跳布局。
