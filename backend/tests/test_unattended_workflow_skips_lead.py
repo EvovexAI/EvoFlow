@@ -329,3 +329,67 @@ async def test_scheduler_advance_ignores_thread(monkeypatch: pytest.MonkeyPatch)
 
     await workflow_scheduler.advance_dag("wf1", reason="initial", thread_id="chat-thread")
     assert seen.get("thread_id") is None
+
+
+# --- The write path that actually leaked the chat thread ------------------
+
+
+def test_pin_session_model_skips_thread_for_workflow(monkeypatch: pytest.MonkeyPatch):
+    """_pin_collab_session_model_on_main_task must not stamp thread on App runs."""
+    import inspect
+
+    from evoflow.tools.builtins.supervisor import execution
+
+    src = inspect.getsource(execution._pin_collab_session_model_on_main_task)
+    assert "_is_workflow_bound_main_task" in src
+    assert 'patch["thread_id"] = lead_tid' in src
+
+
+def test_is_workflow_bound_main_task_detects_app(monkeypatch: pytest.MonkeyPatch):
+    from evoflow.tools.builtins.supervisor import execution
+
+    monkeypatch.setattr(
+        "evoflow.collab.storage.find_main_task",
+        lambda _s, _t: ({"id": "p"}, {"id": "t1", "app_definition_snapshot": {"app_id": "A"}}),
+    )
+    assert execution._is_workflow_bound_main_task(object(), "t1") is True
+
+    monkeypatch.setattr(
+        "evoflow.collab.storage.find_main_task",
+        lambda _s, _t: ({"id": "p"}, {"id": "t2"}),
+    )
+    assert execution._is_workflow_bound_main_task(object(), "t2") is False
+
+
+def test_reconcile_skips_workflow_task(monkeypatch: pytest.MonkeyPatch):
+    """Chat reconcile must not bind a thread onto an App run."""
+    from evoflow.collab import conversation_persist
+
+    saved: list[dict] = []
+
+    class _Store:
+        def save_project(self, project):  # noqa: ANN001
+            saved.append(project)
+            return True
+
+    task = {"id": "t1", "app_definition_snapshot": {"app_id": "A"}, "thread_id": None}
+    monkeypatch.setattr(
+        conversation_persist, "find_main_task", lambda _s, _t: ({"id": "p"}, task)
+    )
+
+    count = conversation_persist.reconcile_lead_conversation_from_chat(_Store(), "t1", "chat-thread")
+    assert count == 0
+    assert task["thread_id"] is None
+    assert saved == []
+
+
+def test_persist_strips_workflow_thread():
+    """The persistence layer is the last guard: workflow rows never keep a thread."""
+    import inspect
+
+    from evoflow.persistence import task_repositories as tr
+
+    src = inspect.getsource(tr.save_task_bundle)
+    assert "workflow_thread_stripped" in src
+    assert 'tr["thread_id"] = None' in src
+    assert "_is_app" in src

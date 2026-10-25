@@ -192,6 +192,17 @@ def save_task_bundle(main_task_id: str, document: dict[str, Any], *, loaded_upda
         _protect_terminal_subtask_rows(conn, mid, parts)
         delete_task_bundle_children(conn, main_task_id)
         for tr in parts["tasks"]:
+            _is_app = bool(tr.get("extra_json") and '"app_definition_snapshot"' in str(tr.get("extra_json")))
+            if _is_app and str(tr.get("thread_id") or "").strip():
+                # Last line of defence: no code path may persist a chat thread on
+                # an App/workflow run (it corrupts that run's observability).
+                logger.warning(
+                    "task_bundle.workflow_thread_stripped main=%s task=%s thread_id=%r",
+                    mid,
+                    tr.get("task_id"),
+                    tr.get("thread_id"),
+                )
+                tr["thread_id"] = None
             conn.execute(
                 """
                 INSERT INTO evoflow_collab_tasks (

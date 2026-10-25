@@ -791,6 +791,15 @@ def reconcile_lead_conversation_from_chat(
     if not found:
         return 0
     project, task = found
+    # An App/workflow run is not thread-bound: binding a lead chat thread here
+    # would make the DAG run inherit the conversation's observability bucket.
+    if task.get("app_definition_snapshot") or str(task.get("source_app_id") or "").strip():
+        logger.debug(
+            "reconcile_lead_conversation: skip workflow task main=%s thread=%s",
+            mid,
+            tid,
+        )
+        return 0
     bound = str(task.get("thread_id") or "").strip()
     if not bound:
         task["thread_id"] = tid

@@ -49,6 +49,23 @@ def _runtime_is_subtask_worker(runtime: ToolRuntime[ContextT, dict] | None) -> b
     return is_collab_executor_thread(tid)
 
 
+def _is_workflow_bound_main_task(storage: Any, main_task_id: str) -> bool:
+    """True when the main task came from an App/workflow run (owns its own plan)."""
+    try:
+        from evoflow.collab.storage import find_main_task
+
+        row = find_main_task(storage, main_task_id)
+        if not row:
+            return False
+        _project, task = row
+        if not isinstance(task, dict):
+            return False
+        return bool(task.get("app_definition_snapshot") or str(task.get("source_app_id") or "").strip())
+    except Exception:
+        logger.debug("is_workflow_bound_main_task probe failed main=%s", main_task_id, exc_info=True)
+        return False
+
+
 def _pin_collab_session_model_on_main_task(
     main_task_id: str,
     runtime: ToolRuntime[ContextT, dict] | None,
@@ -75,8 +92,18 @@ def _pin_collab_session_model_on_main_task(
         if not model:
             return
         patch: dict[str, Any] = {"session_model_name": model}
-        if lead_tid:
+        # Only Lead-supervised tasks may own a thread. An App/workflow run is a
+        # pure DAG: stamping the invoking chat's thread here made the run share
+        # its observability bucket with the whole conversation (reported 144
+        # model calls for a 21-call run). See also app_runner.run_app_workflow.
+        if lead_tid and not _is_workflow_bound_main_task(get_project_storage(), mid):
             patch["thread_id"] = lead_tid
+        elif lead_tid:
+            logger.info(
+                "collab skip thread pin for workflow task main=%s lead_tid=%r",
+                mid,
+                lead_tid,
+            )
         patch_collab_main_task_in_project_storage(get_project_storage(), mid, patch)
         logger.info("collab pinned session_model_name=%r on main_task=%s", model, mid)
     except Exception:
