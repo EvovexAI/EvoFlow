@@ -795,6 +795,20 @@ def sync_subtasks_from_plan_steps(
             if list(prev.get("worker_profile") or {}) != worker_profile:
                 prev["worker_profile"] = worker_profile
                 changed = True
+            # F-1 deterministic nodes: keep executor/template stamped on the row
+            step_executor = str(step.get("executor") or "").strip().lower()
+            if step_executor == "template":
+                if str(prev.get("executor") or "") != "template":
+                    prev["executor"] = "template"
+                    changed = True
+                tpl_text = str(step.get("template") or "").strip()
+                if tpl_text and str(prev.get("template") or "") != tpl_text:
+                    prev["template"] = tpl_text
+                    changed = True
+            elif prev.get("executor"):
+                prev.pop("executor", None)
+                prev.pop("template", None)
+                changed = True
             if depends_refs and list(prev.get("dependencies") or []) != depends_refs:
                 prev["dependencies"] = depends_refs
                 changed = True
@@ -845,6 +859,13 @@ def sync_subtasks_from_plan_steps(
             row_data["work_checklist"] = work_checklist
         if project_path:
             row_data["project_path"] = project_path
+        # F-1 deterministic nodes: stamp executor/template so the wave runner
+        # executes them inline instead of delegating an LLM worker.
+        if str(step.get("executor") or "").strip().lower() == "template":
+            row_data["executor"] = "template"
+            tpl_text = str(step.get("template") or "").strip()
+            if tpl_text:
+                row_data["template"] = tpl_text
         existing.append(row_data)
         touched_ids.add(sid)
         result["created"].append(

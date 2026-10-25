@@ -181,25 +181,59 @@ async def advance_runnable_wave(
     *,
     wait_for_completion: bool = False,
 ) -> list[dict[str, Any]]:
-    """Resolve currently runnable subtasks and ``run_steps`` them.
+    """Resolve currently runnable subtasks and run them.
 
     Shared by WorkflowScheduler followup/retry and Lead ``auto_delegate`` body.
+
+    F-1 deterministic nodes: ``executor=template`` subtasks execute inline
+    (no subagent, no LLM). Each template completion may unblock further steps,
+    so the loop drains template chains before/alongside delegating the LLM
+    remainder — template-only chains never wait on a worker ``done``.
     """
     from evoflow.collab.execution_kernel import resolve_runnable_subtasks
+    from evoflow.collab.storage import find_main_task
+    from evoflow.collab.template_node import execute_template_subtask, is_template_subtask
 
     tid = str(main_task_id or "").strip()
     if not tid:
         return []
-    to_run, _blocked = resolve_runnable_subtasks(storage, tid)
-    if not to_run:
-        return []
-    return await run_steps(
-        runtime,
-        storage,
-        tid,
-        to_run,
-        wait_for_completion=wait_for_completion,
-    )
+    delegated_total: list[dict[str, Any]] = []
+    # Upper bound: a template chain cannot be longer than the subtask count;
+    # 64 rounds covers any sane DAG while guaranteeing termination.
+    for _round in range(64):
+        row = find_main_task(storage, tid, bypass_cache=True)
+        if not row:
+            break
+        _proj, task = row
+        to_run, _blocked = resolve_runnable_subtasks(storage, tid)
+        if not to_run:
+            break
+        subs_by_id = {
+            str(st.get("id") or "").strip(): st
+            for st in (task.get("subtasks") or [])
+            if isinstance(st, dict) and str(st.get("id") or "").strip()
+        }
+        template_ids = [sid for sid in to_run if is_template_subtask(subs_by_id.get(sid))]
+        llm_ids = [sid for sid in to_run if sid not in set(template_ids)]
+
+        progressed = False
+        if template_ids:
+            params = task.get("run_parameters") if isinstance(task.get("run_parameters"), dict) else {}
+            for sid in template_ids:
+                result = execute_template_subtask(storage, tid, subs_by_id[sid], params=params)
+                if result.get("ok"):
+                    progressed = True
+
+        if llm_ids:
+            delegated = await run_steps(runtime, storage, tid, llm_ids, wait_for_completion=wait_for_completion)
+            delegated_total.extend(delegated or [])
+            return delegated_total
+
+        if not progressed:
+            # Nothing completed this round (all templates failed or nothing
+            # new became runnable) — stop instead of spinning.
+            break
+    return delegated_total
 
 
 __all__ = [

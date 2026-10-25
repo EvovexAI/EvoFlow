@@ -45,6 +45,10 @@ _STEP_CONTENT_KEYS = (
     "model",
     "project_path",
     "mcp_servers",
+    # F-1 deterministic nodes: executor="template" renders `template` inline
+    # (no LLM worker); default / absent executor keeps the LLM worker path.
+    "executor",
+    "template",
 )
 
 _PARAM_TYPES = frozenset({"text", "textarea", "select", "number"})
