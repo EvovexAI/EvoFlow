@@ -188,14 +188,29 @@ export function renderRightStageBody(
         : undefined
     const scope = workspaceOpenScopeRef.current
     const root = String(scope.root || effectiveWorkspaceRoot || '').trim()
+    const threadId = wsClient.getSessionThreadId(selectedSessionKey || '') || undefined
+    // file kind ZCode 化：顶部文件路径面包屑用 ZCode PreviewPane（CodeViewer 全家桶）；
+    // 无 root/threadId 或带行级 focus 诉求（poll/focusAnnotation，当前无生产方）时回落 kv 面板。
+    if ((root || threadId) && !data.poll && !focusAnnotation) {
+      return sidePanelHeavyMount ? (
+        <RightStageTabErrorBoundary title={name || '文件预览'}>
+          <V4PreviewPane
+            source={{ type: 'file', title: name || path, path }}
+            threadId={threadId}
+            workspacePath={root || undefined}
+            onClose={() => rightStageStore.closeTab(tabKeyOf(surface))}
+          />
+        </RightStageTabErrorBoundary>
+      ) : (
+        <SidePanelBootShell title={name || '文件预览'} className="react-chat-workspace-preview-stage" />
+      )
+    }
     return sidePanelHeavyMount ? (
       <RightStageTabErrorBoundary title={name || '文件预览'}>
         <WorkspaceFilePreviewPanel
           embedded
           workspaceRoot={root}
-          threadId={
-            root ? undefined : wsClient.getSessionThreadId(selectedSessionKey || '') || undefined
-          }
+          threadId={root ? undefined : threadId}
           workspaceScopeOpts={{
             configuredRoot: scope.configuredRoot,
             useVirtualPaths: scope.useVirtualPaths,
