@@ -208,7 +208,8 @@ def assets_tool(
     - memory/facts/ — preferences & short facts
     - memory/episodic/ — process / rollout recaps
     - memory/journal/ — reflections
-    - craft/*/SKILL.md — reusable experience / procedures
+    - craft/<name>.md — reusable experience / procedures (flat files; mature
+      crafts can be promoted to skill packages via Asset Center)
     - memory/MEMORY.md + memory/standing.md — registry & standing (read only in dialogue)
 
     Prefer this over legacy ``experience_*``, ``memory_remember``, or direct file edits.

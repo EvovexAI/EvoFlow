@@ -141,6 +141,9 @@ def format_pending_inbox_notes_for_prompt(
     """Inject pending ``_inbox/notes`` until Phase2 consolidates them into standing/craft.
 
     Without this, a note written mid-chat is invisible until consolidation finishes.
+
+    每条 note 单独过 prompt-injection 扫描器：note 正文是不可信内容（对话里
+    可以种），一条中毒只屏蔽那一条，不拖累整块。
     """
     from evoflow.assets.catalog import parse_frontmatter
     from evoflow.assets.paths import entity_root
@@ -178,6 +181,13 @@ def format_pending_inbox_notes_for_prompt(
         used += len(line) + 1
     if not lines:
         return ""
+    try:
+        # note 正文不可信：逐条扫描（整块扫描会被单条中毒笔记整块屏蔽）。
+        from evoflow.agents.content_scanner import scan_memory_entries
+
+        lines = scan_memory_entries(lines, source="pending_inbox_notes")
+    except Exception:
+        pass
     return (
         "<!-- pending inbox notes: injected until Phase2 consolidates -->\n"
         + "\n".join(lines)

@@ -294,37 +294,6 @@ def build_read_path_guidance(
     return "\n\n".join(parts)
 
 
-def _entity_layout_lines(entity: EntityRef) -> tuple[str, str]:
-    """Compact layout: root stated once in template; lines are relative paths only."""
-    e = entity.normalized()
-    lines: list[str] = []
-
-    if e.entity_type == "user":
-        lines.append("- profile/basic-info.md · preferences.md · persona.md (USER_PROFILE when filled)")
-    elif e.entity_type == "employee":
-        lines.append("- profile/ (SOUL / duty identity)")
-    # workspace: no profile tree
-
-    lines.extend(
-        [
-            "- memory/standing.md (summary below; do not re-open for the same text)",
-            "- memory/MEMORY.md (registry — primary search target)",
-            "- memory/facts/ (stable facts / conventions)",
-            "- memory/episodic/ (process recaps — search, do not bulk-read)",
-            "- memory/journal/ (reflections — search, do not bulk-read)",
-            "- craft/<name>.md (reusable procedures; flat files, NOT subdirectories)",
-        ]
-    )
-
-    cross = ""
-    if e.entity_type == "workspace":
-        cross = "\nShared (not under this root): user dialogue → `user/memory/` · agent SOUL → `agents/{code}/profile/`"
-    elif e.entity_type == "employee":
-        cross = "\nShared: user dialogue → `user/memory/` · agent SOUL → `agents/{code}/profile/`"
-
-    return "\n".join(lines), cross
-
-
 def build_entity_memory_injection(
     entity: EntityRef,
     *,

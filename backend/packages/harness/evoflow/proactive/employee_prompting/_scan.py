@@ -8,7 +8,9 @@ def scan_prompt_piece(text: str, *, source: str) -> str:
     if not body:
         return ""
     try:
-        from evoflow.security.prompt_injection_scanner import scan_content
+        # 真实扫描器在 evoflow.agents.content_scanner；历史上引用过不存在的
+        # evoflow.security.*，导致员工侧扫描静默空转。
+        from evoflow.agents.content_scanner import scan_content
 
         return scan_content(body, source=source).strip()
     except Exception:
