@@ -1,21 +1,35 @@
 """Asset usage tracking + forgetting window (runtime max_unused_days).
 
-Persists ``last_used_at`` / ``use_count`` in Markdown YAML frontmatter when present.
-Files without frontmatter get a minimal frontmatter block prepended on first touch.
+Usage counters live in a sidecar ledger (``memory/.usage-ledger.json``) instead
+of the asset files' frontmatter. Counting is a *read-side* side effect (every
+``assets(search/read)`` bumps counters) — writing it back into the counted
+file raced with every other writer (panel edits, journal append, Phase2) and
+the last writer silently dropped content. The ledger keeps reads write-free.
+
+Legacy frontmatter counters (``use_count`` / ``cite_count`` written before the
+ledger existed) remain part of the picture: effective values are the max of
+frontmatter and ledger per field — both only grow, so ``max`` is monotone and
+needs no migration.
 """
 
 from __future__ import annotations
 
+import json
 import logging
 import re
+import threading
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 from evoflow.assets.catalog import parse_frontmatter
+from evoflow.assets.locks import atomic_write_text
 from evoflow.assets.paths import EntityRef, entity_root, resolve_entity_file
 
 logger = logging.getLogger(__name__)
+
+_LEDGER_NAME = ".usage-ledger.json"
+_LEDGER_GUARD = threading.Lock()
 
 _FRONTMATTER_RE = re.compile(r"\A---\s*\n(.*?)\n---\s*\n?", re.DOTALL)
 
@@ -43,7 +57,11 @@ def _parse_iso(value: str) -> datetime | None:
 
 
 def upsert_frontmatter_fields(text: str, fields: dict[str, str]) -> str:
-    """Set/replace simple scalar frontmatter keys; create block if missing."""
+    """Set/replace simple scalar frontmatter keys; create block if missing.
+
+    Kept for callers that intentionally rewrite a file's frontmatter; usage
+    counters no longer go through here (see module docstring).
+    """
     raw = str(text or "")
     m = _FRONTMATTER_RE.match(raw)
     lines_out: list[str] = []
@@ -66,45 +84,126 @@ def upsert_frontmatter_fields(text: str, fields: dict[str, str]) -> str:
     return f"---\n{front}\n---\n{body.lstrip()}" if body else f"---\n{front}\n---\n"
 
 
-def touch_asset_citation(entity: EntityRef, rel_path: str) -> bool:
-    """Bump ``last_cited_at`` / ``cite_count`` when an asset appears in ``<evo-asset-citation>``."""
+# ── Sidecar ledger ──────────────────────────────────────────────────
+
+
+def _ledger_path(entity: EntityRef) -> Path:
+    return entity_root(entity.normalized()) / "memory" / _LEDGER_NAME
+
+
+def _read_ledger(entity: EntityRef) -> dict[str, dict[str, Any]]:
+    try:
+        raw = _ledger_path(entity).read_text(encoding="utf-8")
+        data = json.loads(raw)
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _is_trackable(entity: EntityRef, rel_path: str) -> Path | None:
     rel = str(rel_path or "").replace("\\", "/").lstrip("/")
     if not rel or rel.endswith("/"):
-        return False
+        return None
     if "/_inbox/" in f"/{rel}/" or rel.startswith("memory/_inbox/"):
-        return False
+        return None
     try:
         path = resolve_entity_file(entity, rel)
     except ValueError:
-        return False
+        return None
     if not path.is_file() or path.suffix.lower() != ".md":
-        return False
+        return None
+    return path
+
+
+def _ledger_bump(entity: EntityRef, rel_path: str, *, used: bool, cited: bool) -> bool:
+    """Add one use/cite to the ledger entry. Full RMW runs under one lock."""
+    rel = str(rel_path or "").replace("\\", "/").lstrip("/")
     try:
-        text = path.read_text(encoding="utf-8")
-    except OSError:
-        return False
-    meta, _body = parse_frontmatter(text)
-    try:
-        count = int(str(meta.get("cite_count") or "0").strip() or "0")
-    except ValueError:
-        count = 0
-    updated = upsert_frontmatter_fields(
-        text,
-        {
-            "last_cited_at": _now_iso(),
-            "cite_count": str(count + 1),
-        },
-    )
-    if updated == text:
-        return False
-    try:
-        tmp = path.with_suffix(path.suffix + ".tmp")
-        tmp.write_text(updated, encoding="utf-8")
-        tmp.replace(path)
-        return True
+        with _LEDGER_GUARD:
+            data = _read_ledger(entity)
+            entry = dict(data.get(rel) or {})
+            try:
+                uses = int(entry.get("useCount") or 0)
+            except (TypeError, ValueError):
+                uses = 0
+            try:
+                cites = int(entry.get("citeCount") or 0)
+            except (TypeError, ValueError):
+                cites = 0
+            now = _now_iso()
+            changed = False
+            if used:
+                entry["useCount"] = uses + 1
+                entry["lastUsedAt"] = now
+                changed = True
+            if cited:
+                entry["citeCount"] = cites + 1
+                entry["lastCitedAt"] = now
+                changed = True
+            if not changed:
+                return False
+            data[rel] = entry
+            atomic_write_text(_ledger_path(entity), json.dumps(data, ensure_ascii=False))
+            return True
     except OSError as exc:
-        logger.debug("touch_asset_citation failed %s: %s", rel, exc)
+        logger.debug("usage ledger bump failed %s: %s", rel, exc)
         return False
+
+
+def _ledger_entry(entity: EntityRef, rel_path: str) -> dict[str, Any]:
+    rel = str(rel_path or "").replace("\\", "/").lstrip("/")
+    return dict(_read_ledger(entity).get(rel) or {})
+
+
+def overlay_ledger_meta(
+    entity: EntityRef,
+    rel_path: str,
+    base_meta: dict[str, str],
+) -> dict[str, str]:
+    """Overlay the ledger onto frontmatter meta — per field, newer/max wins."""
+    rel = str(rel_path or "").replace("\\", "/").lstrip("/")
+    led = _ledger_entry(entity, rel)
+
+    def _pick(fm_value: str, led_value: str, key: str) -> str:
+        if key.startswith("last"):
+            a = _parse_iso(fm_value) if isinstance(fm_value, str) else None
+            b = _parse_iso(led_value) if isinstance(led_value, str) else None
+            if a is None:
+                return str(led_value or "")
+            if b is None:
+                return str(fm_value or "")
+            return fm_value if a >= b else led_value
+        try:
+            fa = int(str(fm_value or "0").strip() or 0)
+        except (TypeError, ValueError):
+            fa = 0
+        try:
+            fb = int(str(led_value or "0").strip() or 0)
+        except (TypeError, ValueError):
+            fb = 0
+        return str(max(fa, fb))
+
+    if not led:
+        return dict(base_meta or {})
+    out = dict(base_meta or {})
+    if "useCount" in led or out.get("use_count"):
+        out["use_count"] = _pick(out.get("use_count") or out.get("useCount") or "", str(led.get("useCount") or "0"), "useCount")
+    if "citeCount" in led or out.get("cite_count"):
+        out["cite_count"] = _pick(out.get("cite_count") or out.get("citeCount") or "", str(led.get("citeCount") or "0"), "citeCount")
+    out["last_used_at"] = _pick(out.get("last_used_at") or out.get("last_used") or "", str(led.get("lastUsedAt") or ""), "last_used_at")
+    out["last_cited_at"] = _pick(out.get("last_cited_at") or "", str(led.get("lastCitedAt") or ""), "last_cited_at")
+    return out
+
+
+# ── Public touch / read API (unchanged signatures) ──────────────────
+
+
+def touch_asset_citation(entity: EntityRef, rel_path: str) -> bool:
+    """Bump ``last_cited_at`` / ``cite_count`` in the sidecar ledger."""
+    path = _is_trackable(entity, rel_path)
+    if path is None:
+        return False
+    return _ledger_bump(entity, rel_path, used=False, cited=True)
 
 
 def touch_asset_citations(entity: EntityRef, rel_paths: list[str]) -> int:
@@ -121,45 +220,11 @@ def touch_asset_citations(entity: EntityRef, rel_paths: list[str]) -> int:
 
 
 def touch_asset_usage(entity: EntityRef, rel_path: str) -> bool:
-    """Bump ``last_used_at`` / ``use_count`` on an asset file. Returns True if written."""
-    rel = str(rel_path or "").replace("\\", "/").lstrip("/")
-    if not rel or rel.endswith("/"):
+    """Bump ``last_used_at`` / ``use_count`` in the sidecar ledger."""
+    path = _is_trackable(entity, rel_path)
+    if path is None:
         return False
-    # Don't track inbox drafts / merge artifacts
-    if "/_inbox/" in f"/{rel}/" or rel.startswith("memory/_inbox/"):
-        return False
-    try:
-        path = resolve_entity_file(entity, rel)
-    except ValueError:
-        return False
-    if not path.is_file() or path.suffix.lower() != ".md":
-        return False
-    try:
-        text = path.read_text(encoding="utf-8")
-    except OSError:
-        return False
-    meta, _body = parse_frontmatter(text)
-    try:
-        count = int(str(meta.get("use_count") or "0").strip() or "0")
-    except ValueError:
-        count = 0
-    updated = upsert_frontmatter_fields(
-        text,
-        {
-            "last_used_at": _now_iso(),
-            "use_count": str(count + 1),
-        },
-    )
-    if updated == text:
-        return False
-    try:
-        tmp = path.with_suffix(path.suffix + ".tmp")
-        tmp.write_text(updated, encoding="utf-8")
-        tmp.replace(path)
-        return True
-    except OSError as exc:
-        logger.debug("touch_asset_usage failed %s: %s", rel, exc)
-        return False
+    return _ledger_bump(entity, rel_path, used=True, cited=False)
 
 
 def touch_asset_usages(entity: EntityRef, rel_paths: list[str]) -> int:
@@ -176,12 +241,15 @@ def touch_asset_usages(entity: EntityRef, rel_paths: list[str]) -> int:
 
 
 def read_usage_meta(entity: EntityRef, rel_path: str) -> dict[str, Any]:
+    """Effective usage meta: frontmatter overlaid with the sidecar ledger."""
+    rel = str(rel_path or "").replace("\\", "/").lstrip("/")
     try:
-        path = resolve_entity_file(entity, rel_path)
+        path = resolve_entity_file(entity, rel)
         text = path.read_text(encoding="utf-8") if path.is_file() else ""
     except (ValueError, OSError):
         return {}
     meta, _ = parse_frontmatter(text)
+    meta = overlay_ledger_meta(entity, rel, meta)
     return {
         "last_used_at": meta.get("last_used_at") or meta.get("last_used") or "",
         "last_cited_at": meta.get("last_cited_at") or "",
@@ -219,8 +287,16 @@ def asset_is_stale(
 
 
 def usage_recency_score(meta: dict[str, str], path: Path | None = None) -> float:
-    """Higher = more recently used (for catalog ordering)."""
+    """Higher = more recently used (for catalog ordering).
+
+    Accepts either raw frontmatter meta or ledger-overlaid meta (see
+    ``overlay_ledger_meta``); callers with an entity in scope should overlay
+    first or counters written before the ledger dominated the ordering.
+    """
     stamp = _parse_iso(str(meta.get("last_used_at") or meta.get("last_used") or ""))
+    cited = _parse_iso(str(meta.get("last_cited_at") or ""))
+    if cited is not None and (stamp is None or cited > stamp):
+        stamp = cited
     if stamp is None:
         stamp = _parse_iso(str(meta.get("created_at") or ""))
     if stamp is None and path is not None:
@@ -316,6 +392,7 @@ def collect_entity_usage_stats(
         except OSError:
             continue
         meta, _body = parse_frontmatter(text)
+        meta = overlay_ledger_meta(e, rel, meta)
         try:
             count = int(str(meta.get("use_count") or "0").strip() or "0")
         except ValueError:

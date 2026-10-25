@@ -8,6 +8,7 @@ from datetime import UTC
 from pathlib import Path
 from typing import Any
 
+from evoflow.assets.locks import atomic_write_text, lock_for
 from evoflow.assets.paths import (
     EntityRef,
     assets_root,
@@ -395,17 +396,11 @@ def write_text_file(entity: EntityRef, rel_path: str, content: str) -> dict[str,
     target = resolve_entity_file(entity, rel_path)
     if target.suffix.lower() not in _TEXT_SUFFIXES:
         raise ValueError("only text assets can be written via API")
-    target.parent.mkdir(parents=True, exist_ok=True)
     text = content if content is not None else ""
-    tmp = target.with_suffix(target.suffix + ".tmp")
-    tmp.write_text(text, encoding="utf-8")
-    tmp.replace(target)
-    try:
-        from evoflow.assets.memory_mirror import schedule_asset_vault_reindex_delayed
-
-        schedule_asset_vault_reindex_delayed()
-    except Exception:
-        logger.debug("asset reindex schedule skipped", exc_info=True)
+    # 路径锁：UI 保存 / 对话写入 / Phase2 对同一文件的写相互串行，
+    # 原子写走唯一 tmp + fsync + replace（不再共用固定 .tmp 名）。
+    with lock_for(target):
+        atomic_write_text(target, text)
     return read_text_file(entity, rel_path)
 
 
@@ -586,40 +581,43 @@ def write_journal(
     rel = f"memory/journal/{day_filename}.md"
     e = entity.normalized()
     target = resolve_entity_file(e, rel)
-    existing = ""
-    if target.is_file():
-        try:
-            existing = target.read_text(encoding="utf-8")
-        except OSError:
-            existing = ""
+    # 读-改-写全程持锁：并发追加（员工写反思 + UI 编辑）不再互相丢内容
+    with lock_for(target):
+        existing = ""
+        if target.is_file():
+            try:
+                existing = target.read_text(encoding="utf-8")
+            except OSError:
+                existing = ""
 
-    def _with_frontmatter(body_md: str) -> str:
-        # strip old frontmatter if present
-        raw = body_md
-        if raw.startswith("---"):
-            parts = raw.split("---", 2)
-            if len(parts) >= 3:
-                raw = parts[2].lstrip("\n")
-        fm = f"---\ndate: {day}\nsummary: {one_liner}\n---\n\n"
-        if not raw.lstrip().startswith("#"):
-            raw = f"# {day_filename}\n\n{raw}"
-        return fm + raw.rstrip() + "\n"
+        def _with_frontmatter(body_md: str) -> str:
+            # strip old frontmatter if present
+            raw = body_md
+            if raw.startswith("---"):
+                parts = raw.split("---", 2)
+                if len(parts) >= 3:
+                    raw = parts[2].lstrip("\n")
+            fm = f"---\ndate: {day}\nsummary: {one_liner}\n---\n\n"
+            if not raw.lstrip().startswith("#"):
+                raw = f"# {day_filename}\n\n{raw}"
+            return fm + raw.rstrip() + "\n"
 
-    if existing and append:
-        stamp = datetime.now(UTC).astimezone().strftime("%H:%M")
-        # drop old fm, append section, rewrite fm with latest summary
-        raw = existing
-        if raw.startswith("---"):
-            parts = raw.split("---", 2)
-            if len(parts) >= 3:
-                raw = parts[2].lstrip("\n")
-        merged = raw.rstrip() + f"\n\n## {stamp}\n\n{body}\n"
-        text = _with_frontmatter(merged)
-    elif existing and not append:
-        text = _with_frontmatter(body if body.lstrip().startswith("#") else f"# {day_filename}\n\n{body}\n")
-    else:
-        text = _with_frontmatter(f"# {day_filename}\n\n{body}\n")
-    return write_text_file(e, rel, text)
+        if existing and append:
+            stamp = datetime.now(UTC).astimezone().strftime("%H:%M")
+            # drop old fm, append section, rewrite fm with latest summary
+            raw = existing
+            if raw.startswith("---"):
+                parts = raw.split("---", 2)
+                if len(parts) >= 3:
+                    raw = parts[2].lstrip("\n")
+            merged = raw.rstrip() + f"\n\n## {stamp}\n\n{body}\n"
+            text = _with_frontmatter(merged)
+        elif existing and not append:
+            text = _with_frontmatter(body if body.lstrip().startswith("#") else f"# {day_filename}\n\n{body}\n")
+        else:
+            text = _with_frontmatter(f"# {day_filename}\n\n{body}\n")
+        atomic_write_text(target, text)
+    return read_text_file(e, rel)
 
 
 def save_craft_note(
@@ -683,12 +681,6 @@ def delete_text_file(entity: EntityRef, rel_path: str) -> dict[str, Any]:
             parent.rmdir()
     except OSError:
         pass
-    try:
-        from evoflow.assets.memory_mirror import schedule_asset_vault_reindex_delayed
-
-        schedule_asset_vault_reindex_delayed()
-    except Exception:
-        logger.debug("asset reindex schedule skipped", exc_info=True)
     return {
         "ok": True,
         "entityType": e.entity_type,

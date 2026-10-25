@@ -85,7 +85,7 @@ def migrate_experiences(*, dry_run: bool = False) -> dict[str, Any]:
 
 def migrate_memory_namespaces(*, dry_run: bool = False) -> dict[str, Any]:
     """Mirror all mem_* namespaces into Asset Hub markdown files."""
-    from evoflow.assets.memory_mirror import mirror_memory_document, namespace_to_entity, schedule_asset_vault_reindex_delayed
+    from evoflow.assets.memory_mirror import mirror_memory_document, namespace_to_entity
     from evoflow.memory.document_codec import atoms_to_document
     from evoflow.memory.namespaces_api import _ns_rows
 
@@ -109,8 +109,6 @@ def migrate_memory_namespaces(*, dry_run: bool = False) -> dict[str, Any]:
                 skipped += 1
         except Exception as exc:
             errors.append(f"{ns}: {exc}")
-    if mirrored and not dry_run:
-        schedule_asset_vault_reindex_delayed(delay_s=5.0)
     return {
         "ok": not errors,
         "dry_run": dry_run,

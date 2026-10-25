@@ -416,6 +416,13 @@ def remove_workspace_path_everywhere(path: str) -> None:
     for wid in ids_to_delete:
         conn.execute("DELETE FROM evoflow_workspaces WHERE id = ?", (wid,))
     conn.commit()
+    # ws-{hash} → path 的进程内缓存随注册行一起失效，解绑后不再写回旧项目目录
+    try:
+        from evoflow.assets.paths import invalidate_workspace_path_cache
+
+        invalidate_workspace_path_cache()
+    except Exception:
+        pass
 
 
 def clear_session_workspace_history(session_key: str) -> None:
