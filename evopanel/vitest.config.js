@@ -139,6 +139,8 @@ export default defineConfig({
       'tests/agent-trace-compaction.test.js',
       'tests/agent-avatar.test.js',
       'tests/agent-tags.test.js',
+      'tests/agent-source-options.test.js',
+      'tests/ko-ask-model-badge.test.js',
       'tests/message-row-stream-display.test.js',
       'tests/message-row-stream-layout.test.js',
       'tests/message-row-display-plan-path.test.js',

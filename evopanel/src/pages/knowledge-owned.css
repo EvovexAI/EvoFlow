@@ -1913,6 +1913,20 @@ html.evopanel-tauri-frameless .ko-topbar--immersive {
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--ko-accent) 14%, transparent);
 }
 
+/* 「整个知识库」旁的默认模型徽章：mono 胶囊，呼应 ko-ask__eyebrow 的标签语言 */
+.ko-ask__scope-model {
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: var(--ko-accent-soft);
+  color: var(--ko-accent);
+  font: 10px/1.4 var(--ko-font-mono);
+  letter-spacing: 0.02em;
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .ko-ask__model-select {
   border: 1px solid var(--ko-line);
   border-radius: 6px;
@@ -1934,6 +1948,13 @@ html.evopanel-tauri-frameless .ko-topbar--immersive {
 .ko-ask__model-select:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* 增强下拉(ko-ask__model-select)在工具栏铺满剩余宽度：
+   flex-basis 0 + grow,不挤压左侧范围簇;min-width 保窄屏可用 */
+.ko-ask__toolbar > .ef-dropdown-select {
+  flex: 1 1 0;
+  min-width: 160px;
 }
 
 .ko-ask__context-label {

@@ -261,14 +261,36 @@ def _infer_duty_create_defaults(
     raised_by: str,
     round_id: str | None,
     runtime: ToolRuntime[ContextT, dict] | None = None,
-) -> tuple[str | None, str | None, str, str]:
-    """Fill assignee/role/source/raised_by for duty patrol creates."""
+) -> tuple[str | None, str | None, str, str, bool]:
+    """Fill assignee/role/source/raised_by for duty patrol creates.
+
+    Returns ``(assignee, role_name, source, raised_by, assignee_is_fallback)``.
+
+    ``assignee_is_fallback`` is True when the requested owner could not be
+    honoured ("me", a bare session key, ...) and the system front desk took
+    the row instead — the caller must then not wake the front desk for a
+    shell task nobody asked for.
+    """
     from evoflow.collab.task_noise import is_duty_patrol_task
     from evoflow.collab.task_source import TASK_SOURCE_CHAT, TASK_SOURCE_ROLE
 
     assignee_norm = str(assignee or "").strip() or None
     role_nm = str(role_name or "").strip() or None
     duty_code = _agent_from_duty_context(runtime)
+
+    # An owner we cannot honour (human word like "me", or a bare session key)
+    # must not be stored as-is: such a row is unowned and only a privileged
+    # actor can close it — that is how one orphan pending Task appeared per
+    # automation round.  Drop it here so the cascade below can look for a
+    # real owner, and remember that we fell back.
+    from evoflow.collab.task_assignee import resolve_task_assignee
+
+    fallback = False
+    pre = resolve_task_assignee(assignee_norm, allow_fallback=False)
+    if pre.source == "unusable":
+        assignee_norm = None
+    elif pre.source == "session_key":
+        assignee_norm = pre.code
 
     if role_nm:
         canonical, code = _resolve_role_assignee(role_nm)
@@ -283,7 +305,20 @@ def _infer_duty_create_defaults(
         if resolved:
             role_nm, assignee_norm = resolved
         else:
-            assignee_norm = duty_code
+            # The ambient actor may itself be a session key (an automation run
+            # stamps its own session key).  Keep it only if a real employee
+            # can be extracted from it.
+            duty_res = resolve_task_assignee(duty_code, allow_fallback=False)
+            if duty_res.source == "session_key":
+                assignee_norm = duty_res.code
+
+    if assignee_norm is None:
+        # Nothing resolved to a real owner: hand the row to the system front
+        # desk so it is owned by somebody who can act on it.
+        fb = resolve_task_assignee(assignee or duty_code, allow_fallback=True)
+        if fb.is_fallback:
+            assignee_norm = fb.code
+            fallback = True
 
     patrol = is_duty_patrol_task({"name": name}) or str(round_id or "").startswith("round:")
     src = str(source or "").strip() or None
@@ -299,7 +334,7 @@ def _infer_duty_create_defaults(
 
     # Operator is always the raiser; model-supplied raised_by is ignored when actor bound.
     raised = stamp_raised_by(actor=duty_code or None, raised_by_arg=raised_by)
-    return assignee_norm, role_nm, src, raised
+    return assignee_norm, role_nm, src, raised, fallback
 
 
 def _resolve_role_assignee(role_name: str) -> tuple[str, str]:
@@ -482,7 +517,7 @@ def tasks_tool(
         nm = str(name or "").strip()
         if not nm:
             return _err(act, "name is required")
-        assignee_norm, role_name, src, raised = _infer_duty_create_defaults(
+        assignee_norm, role_name, src, raised, assignee_is_fallback = _infer_duty_create_defaults(
             name=nm,
             assignee=str(assignee or "").strip() or None,
             role_name=str(role or "").strip() or None,
@@ -512,7 +547,9 @@ def tasks_tool(
             action_type=str(action_type or "").strip() or None,
             round_id=round_v,
             parent_task_id=str(parent_task_id or "").strip() or None,
-            start=bool(start),
+            # A fallback owner means "we could not honour the requested owner".
+            # Do not wake the system front desk for a shell task nobody asked for.
+            start=bool(start) and not assignee_is_fallback,
         )
         return _ok({"action": act, "result": data})
 
