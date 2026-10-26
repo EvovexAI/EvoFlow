@@ -744,6 +744,15 @@ mark {
 }
 
 /* 页面加载动画 */
+.page-loader--overlay {
+  position: fixed;
+  inset: 0;
+  height: auto;
+  z-index: 900;
+  pointer-events: none;
+  animation: fadeInLoader var(--dur-fast) var(--ease-out-soft);
+}
+
 .page-loader {
   display: flex;
   flex-direction: column;

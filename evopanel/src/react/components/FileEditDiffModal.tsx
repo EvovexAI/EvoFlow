@@ -2,6 +2,7 @@ import { memo, useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { fetchFileEditPayloadForToolCall } from '../lib/file-edit-tool-fetch.js'
 import { useModalEscapeClose } from '../hooks/useModalEscapeClose.js'
+import { useModalExit } from '../hooks/useModalExit.js'
 import { FileEditDiffPanel } from './FileEditDiffPanel.js'
 
 export type FileEditDiffModalPayload = {

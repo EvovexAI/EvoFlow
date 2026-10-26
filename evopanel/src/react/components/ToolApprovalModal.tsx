@@ -1,6 +1,7 @@
 import { memo } from 'react'
 import { createPortal } from 'react-dom'
 import { useModalEscapeClose } from '../hooks/useModalEscapeClose.js'
+import { useModalExit } from '../hooks/useModalExit.js'
 import { ToolApprovalPanel, type ToolApprovalChoice } from './ToolApprovalPanel.js'
 
 type Props = {
@@ -23,18 +24,20 @@ function ToolApprovalModalInner({
   onChoice,
   onClose,
 }: Props) {
-  useModalEscapeClose(onClose, { open })
+  const { overlayRef, requestClose } = useModalExit(onClose)
+  useModalEscapeClose(requestClose, { open })
 
   if (!open || typeof document === 'undefined') return null
 
   return createPortal(
     <div
+      ref={overlayRef}
       className="react-chat-modal-overlay tool-approval-modal-overlay"
       role="dialog"
       aria-modal="true"
       aria-label="需要权限"
       onClick={(e) => {
-        if (e.target === e.currentTarget) onClose()
+        if (e.target === e.currentTarget) requestClose()
       }}
     >
       <div

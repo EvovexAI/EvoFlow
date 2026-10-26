@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
 import { getSkillTags, getSkillTagMeta, SKILL_TAGS } from '../../lib/skill-catalog.js'
 import { useGlobalOverlayWhen } from '../hooks/useGlobalOverlayWhen.js'
+import { useModalExit } from '../hooks/useModalExit.js'
 
 export type SkillPickerItem = {
   name: string
@@ -35,6 +36,7 @@ export function SkillPickerModal({
   const [draft, setDraft] = useState<SkillSelection[]>(selected)
   const [activeTag, setActiveTag] = useState<string>('all')
   const searchRef = useRef<HTMLInputElement | null>(null)
+  const { overlayRef, requestClose } = useModalExit(onClose)
   useGlobalOverlayWhen(open, 'skill-picker')
 
   // 打开时同步 draft（仅 open 变化触发，避免用户编辑中被父状态覆盖）
@@ -47,7 +49,7 @@ export function SkillPickerModal({
   useEffect(() => {
     if (!open) return
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
+      if (e.key === 'Escape') requestClose()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -99,12 +101,13 @@ export function SkillPickerModal({
 
   return createPortal(
     <div
+      ref={overlayRef}
       className="react-chat-modal-overlay"
       role="dialog"
       aria-modal="true"
       aria-label="选择技能"
       onClick={(e) => {
-        if (e.target === e.currentTarget) onClose()
+        if (e.target === e.currentTarget) requestClose()
       }}
     >
       <div className="react-chat-modal-card react-chat-skill-modal" onClick={(e) => e.stopPropagation()}>
@@ -113,7 +116,7 @@ export function SkillPickerModal({
             <span className="react-chat-modal-title">选择技能</span>
             <span className="react-chat-skill-modal-sub">可多选 · 发送时优先使用所选技能</span>
           </div>
-          <button type="button" className="react-chat-modal-close" onClick={onClose} aria-label="关闭">
+          <button type="button" className="react-chat-modal-close" onClick={requestClose} aria-label="关闭">
             ×
           </button>
         </div>

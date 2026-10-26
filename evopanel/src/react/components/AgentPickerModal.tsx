@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
+import { useModalExit } from '../hooks/useModalExit.js'
 import { useGlobalOverlayWhen } from '../hooks/useGlobalOverlayWhen.js'
 import AgentAvatar from './AgentAvatar.js'
 import {
@@ -33,6 +34,7 @@ export function AgentPickerModal({
   const [draft, setDraft] = useState<string>(selected || '')
   const [activeTag, setActiveTag] = useState<string | null>(null)
   const searchRef = useRef<HTMLInputElement | null>(null)
+  const { overlayRef, requestClose } = useModalExit(onClose)
   useGlobalOverlayWhen(open, 'agent-picker')
 
   useEffect(() => {
@@ -47,7 +49,7 @@ export function AgentPickerModal({
   useEffect(() => {
     if (!open) return
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
+      if (e.key === 'Escape') requestClose()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -86,19 +88,20 @@ export function AgentPickerModal({
     const next = code.trim()
     if (!next) return
     onConfirm(next)
-    onClose()
+    requestClose()
   }
 
   if (!open || typeof document === 'undefined') return null
 
   return createPortal(
     <div
+      ref={overlayRef}
       className="react-chat-modal-overlay"
       role="dialog"
       aria-modal="true"
       aria-label="选择预设角色"
       onClick={(e) => {
-        if (e.target === e.currentTarget) onClose()
+        if (e.target === e.currentTarget) requestClose()
       }}
     >
       <div className="react-chat-modal-card react-chat-skill-modal" onClick={(e) => e.stopPropagation()}>
@@ -107,7 +110,7 @@ export function AgentPickerModal({
             <span className="react-chat-modal-title">选择预设角色</span>
             <span className="react-chat-skill-modal-sub">单选 · 切换后立即作用于当前会话</span>
           </div>
-          <button type="button" className="react-chat-modal-close" onClick={onClose} aria-label="关闭">
+          <button type="button" className="react-chat-modal-close" onClick={requestClose} aria-label="关闭">
             ×
           </button>
         </div>

@@ -305,7 +305,15 @@ export function prefetchRoute(path) {
 async function renderChatRoute(path, hash, thisLoad) {
   setContentVisible(false)
   setChatHostVisible(true)
-  if (_contentEl) _contentEl.innerHTML = ''
+  // 内容宿主正在随 110ms 退出淡出变透明，等淡出结束再清空，避免淡出中内容瞬间消失；
+  // 期间用户切回内容路由（宿主重新可见）则跳过清理
+  if (_contentEl) {
+    setTimeout(() => {
+      if (_contentEl && (_contentEl.hidden || _contentEl.style.display === 'none')) {
+        _contentEl.innerHTML = ''
+      }
+    }, 150)
+  }
 
   const loader = resolveLoader(path)
   if (!loader || !_chatHostEl) {
@@ -374,20 +382,31 @@ async function renderContentRoute(path, hash, thisLoad) {
     return
   }
 
-  _contentEl.innerHTML = ''
-
-  let mod
-  try {
-    if (!_moduleCache[path]) {
-      const spinnerEl = document.createElement('div')
-      spinnerEl.className = 'page-loader'
-      spinnerEl.innerHTML = `
+  // 旧页面保留展示直至新页就绪，消除「内容瞬间消失 → 白屏转圈」的闪变；
+  // 未缓存模块时叠一个不挡操作的居中加载指示（.page-loader--overlay）
+  let spinnerEl = null
+  if (!_moduleCache[path] && _contentEl.querySelector(':scope > .page')) {
+    spinnerEl = document.createElement('div')
+    spinnerEl.className = 'page-loader page-loader--overlay'
+    spinnerEl.innerHTML = `
       <div class="page-loader-spinner"></div>
       <div class="page-loader-text">加载中...</div>
     `
-      _contentEl.appendChild(spinnerEl)
-      upgradeSlowLoaderText(spinnerEl, Date.now())
-    }
+    _contentEl.appendChild(spinnerEl)
+    upgradeSlowLoaderText(spinnerEl, Date.now())
+  } else if (!_moduleCache[path]) {
+    const empty = document.createElement('div')
+    empty.className = 'page-loader'
+    empty.innerHTML = `
+      <div class="page-loader-spinner"></div>
+      <div class="page-loader-text">加载中...</div>
+    `
+    _contentEl.appendChild(empty)
+    upgradeSlowLoaderText(empty, Date.now())
+  }
+
+  let mod
+  try {
     mod = await loadRouteModule(loader, path)
   } catch (e) {
     console.error('[router] 模块加载失败:', hash, e)

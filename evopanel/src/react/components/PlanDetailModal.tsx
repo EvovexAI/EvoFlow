@@ -1,5 +1,6 @@
 import { createPortal } from 'react-dom'
 import { useModalEscapeClose } from '../hooks/useModalEscapeClose.js'
+import { useModalExit } from '../hooks/useModalExit.js'
 import { PlanDetailView, type StructuredPlanInput } from './PlanDetailView.js'
 
 export type PlanDetailModalProps = {
@@ -11,18 +12,20 @@ export type PlanDetailModalProps = {
 }
 
 export function PlanDetailModal({ open, loading, error, plan, onClose }: PlanDetailModalProps) {
-  useModalEscapeClose(onClose, { open })
+  const { overlayRef, requestClose } = useModalExit(onClose)
+  useModalEscapeClose(requestClose, { open })
 
   if (!open || typeof document === 'undefined') return null
 
   return createPortal(
     <div
+      ref={overlayRef}
       className="react-chat-modal-overlay"
       role="dialog"
       aria-modal="true"
       aria-label="计划详情"
       onClick={(e) => {
-        if (e.target === e.currentTarget) onClose()
+        if (e.target === e.currentTarget) requestClose()
       }}
     >
       <div
@@ -31,7 +34,7 @@ export function PlanDetailModal({ open, loading, error, plan, onClose }: PlanDet
       >
         <div className="react-chat-modal-header">
           <div className="react-chat-modal-title">任务计划</div>
-          <button type="button" className="react-chat-modal-close" onClick={onClose}>
+          <button type="button" className="react-chat-modal-close" onClick={requestClose}>
             ×
           </button>
         </div>
