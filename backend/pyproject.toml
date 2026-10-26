@@ -22,11 +22,26 @@ dependencies = [
     "markdown-to-mrkdwn>=0.3.1",
     "websockets>=12.0",
     "dingtalk-stream>=0.20",
-    "pipecat-ai>=1.14.0,<2",
+    # pipecat-ai requires onnxruntime>=1.24.3; those wheels omit macOS Intel
+    # (x86_64). Skip voice stack there — same gap as sentence-transformers.
+    "pipecat-ai>=1.14.0,<2; sys_platform != 'darwin' or platform_machine != 'x86_64'",
+    # magika (markitdown) still needs onnxruntime; 1.23.2 is last x86_64 wheel.
+    "onnxruntime>=1.23.2,<1.24; sys_platform == 'darwin' and platform_machine == 'x86_64'",
 ]
 
 [dependency-groups]
 dev = ["pytest>=8.0.0", "pytest-asyncio>=0.24.0", "ruff>=0.14.11", "pyinstaller>=6.16.0"]
+
+[tool.uv]
+# Fork resolution so macOS Intel can pin onnxruntime 1.23.2 without
+# fighting pipecat's onnxruntime>=1.24.3 on arm64 / Linux / Windows.
+environments = [
+    "sys_platform == 'darwin' and platform_machine == 'arm64'",
+    "sys_platform == 'darwin' and platform_machine == 'x86_64'",
+    "sys_platform == 'linux' and platform_machine == 'x86_64'",
+    "sys_platform == 'linux' and platform_machine == 'aarch64'",
+    "sys_platform == 'win32'",
+]
 
 [tool.uv.workspace]
 members = ["packages/harness"]

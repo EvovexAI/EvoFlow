@@ -232,6 +232,18 @@ if not _INCLUDE_LOCAL_EMBEDDING:
         "scipy",
     ]
 
+# pipecat-ai / onnxruntime>=1.24 have no macOS Intel wheels; skip voice stack there.
+try:
+    import pipecat  # noqa: F401
+except ImportError:
+    _excludes += [
+        "pipecat",
+        "app.gateway.speech.runtime.processors.pipecat_voice_bridge",
+        "app.gateway.speech.runtime.processors.pipecat_tts_bridge",
+        "app.gateway.speech.runtime.pipecat_volc_stt",
+        "app.gateway.speech.runtime.pipecat_volc_tts",
+    ]
+
 # Key difference from gateway.spec: use obfuscated code path
 # pathex includes obfuscated directory FIRST so PyArmor-protected modules load before source
 a = Analysis(
