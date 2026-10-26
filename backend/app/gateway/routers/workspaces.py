@@ -930,7 +930,7 @@ async def workspace_git_ignored_paths(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
-    git_exe, is_repository, _ = _git_repo_probe(base)
+    git_exe, is_repository, _ = await _run_git_repo_probe(base)
     if not git_exe or not is_repository:
         return GitIgnoredPathsResponse(ignored=[])
     rel_by_abs: dict[str, str] = {}
@@ -1133,7 +1133,8 @@ async def write_workspace_file(request: Request, body: WorkspaceWriteFileRequest
         raise HTTPException(status_code=400, detail="path is a directory")
     try:
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(body.content, encoding="utf-8")
+        # 写盘是阻塞 I/O，不下事件循环
+        await asyncio.to_thread(target.write_text, body.content, "utf-8")
     except OSError as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
     try:
@@ -1503,26 +1504,32 @@ async def resolve_workspace(request: Request, req: ResolveWorkspaceRequest) -> R
 @router.get("", response_model=ListWorkspacesResponse)
 async def list_workspaces() -> ListWorkspacesResponse:
     """List thread-bound workspace directories managed by EvoFlow."""
-    paths = get_paths()
-    threads_dir = paths.base_dir / "threads"
-    if not threads_dir.exists():
-        return ListWorkspacesResponse(workspaces=[])
+    import asyncio
 
-    items: list[WorkspaceSummary] = []
-    for entry in threads_dir.iterdir():
-        if not entry.is_dir():
-            continue
-        thread_id = entry.name
-        try:
-            workspace_path = paths.sandbox_work_dir(thread_id)
-        except ValueError:
-            continue
-        items.append(
-            WorkspaceSummary(
-                thread_id=thread_id,
-                path=str(workspace_path),
-                exists=workspace_path.exists(),
+    def _list_sync() -> ListWorkspacesResponse:
+        paths = get_paths()
+        threads_dir = paths.base_dir / "threads"
+        if not threads_dir.exists():
+            return ListWorkspacesResponse(workspaces=[])
+
+        items: list[WorkspaceSummary] = []
+        for entry in threads_dir.iterdir():
+            if not entry.is_dir():
+                continue
+            thread_id = entry.name
+            try:
+                workspace_path = paths.sandbox_work_dir(thread_id)
+            except ValueError:
+                continue
+            items.append(
+                WorkspaceSummary(
+                    thread_id=thread_id,
+                    path=str(workspace_path),
+                    exists=workspace_path.exists(),
+                )
             )
-        )
-    items.sort(key=lambda x: x.thread_id)
-    return ListWorkspacesResponse(workspaces=items)
+        items.sort(key=lambda x: x.thread_id)
+        return ListWorkspacesResponse(workspaces=items)
+
+    # threads 目录可能有上千条目，逐个 stat 是阻塞 I/O，不下事件循环
+    return await asyncio.to_thread(_list_sync)

@@ -8,6 +8,7 @@ to let the AI decide when to call supervisor_tool for task execution.
 import asyncio
 import json
 import logging
+import threading
 from datetime import UTC, datetime
 from typing import Any
 
@@ -33,7 +34,9 @@ DEFAULT_LANGGRAPH_URL = "http://127.0.0.1:8070/api/langgraph"
 DEFAULT_ASSISTANT_ID = "lead_agent"
 
 
-_TASK_LINK_LOCK = asyncio.Lock()
+# threading.Lock (not asyncio.Lock): only guards log serialization, never
+# awaits inside; safe across the EventQueue worker thread and any loop.
+_TASK_LINK_LOCK = threading.Lock()
 
 
 async def _log_task_link(
@@ -47,7 +50,7 @@ async def _log_task_link(
         import json
 
         # 避免并发下日志内容交错，保持单条日志为一个原子片段
-        async with _TASK_LINK_LOCK:
+        with _TASK_LINK_LOCK:
             if details:
                 details_str = json.dumps(details, ensure_ascii=False, default=str)
                 if len(details_str) > 2000:

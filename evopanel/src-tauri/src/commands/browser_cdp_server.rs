@@ -22,7 +22,7 @@ use std::sync::atomic::{AtomicBool, AtomicU16, Ordering};
 
 use tauri::Manager;
 
-use crate::browser_cdp::{browser_cdp_command, browser_cdp_status};
+use crate::browser_cdp::{browser_cdp_command_impl, browser_cdp_status};
 use crate::commands::evoflow_dir;
 
 /// The well-known file that holds the currently-bound HTTP port.
@@ -457,8 +457,9 @@ fn handle_connection(mut socket: TcpStream, app: tauri::AppHandle) {
     let _ = socket.shutdown(std::net::Shutdown::Both);
 }
 
-/// Dispatch ``browser_cdp_command`` synchronously on this thread.
-/// ``browser_cdp_command`` is a regular sync ``fn`` (annotated with
+/// Dispatch ``browser_cdp_command_impl`` synchronously on this thread.
+/// The Tauri-facing ``browser_cdp_command`` is async; this path calls the
+/// sync impl directly (annotated with
 /// ``#[tauri::command]``), so it can run anywhere we have a ``TAURI`` handle —
 /// we don't need Tauri or tokio's async runtime here.
 fn run_cdp_dispatch(
@@ -511,7 +512,7 @@ fn run_cdp_dispatch(
     std::thread::Builder::new()
         .name("browser-cdp-dispatch".into())
         .spawn(move || {
-            let r = browser_cdp_command(app, thread_id, method, body);
+            let r = browser_cdp_command_impl(app, thread_id, method, body);
             let _ = tx.send(r);
         })
         .ok();

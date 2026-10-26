@@ -10,6 +10,7 @@ notice — they are not part of WeCom's public developer API.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 import uuid
@@ -77,7 +78,8 @@ class WecomRegistrationClient:
         self._sessions[session_id] = sess
 
         try:
-            qr = get_wecom_qr()
+            # Sync httpx call (15s timeout) — must not run on the gateway loop.
+            qr = await asyncio.to_thread(get_wecom_qr)
         except Exception as exc:
             del self._sessions[session_id]
             logger.exception("WeCom registration begin failed")
@@ -101,7 +103,9 @@ class WecomRegistrationClient:
             return sess
 
         try:
-            creds = poll_wecom_qr(sess.scode, timeout_seconds=POLL_INTERVAL_SECONDS + 1)
+            # Sync httpx.get + time.sleep loop (~4s per call, polled every ~3s
+            # by the frontend) — must not run on the gateway loop.
+            creds = await asyncio.to_thread(poll_wecom_qr, sess.scode, timeout_seconds=POLL_INTERVAL_SECONDS + 1)
         except Exception as exc:
             logger.warning("WeCom registration poll error: %s", exc)
             return sess

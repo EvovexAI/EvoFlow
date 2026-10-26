@@ -49,6 +49,7 @@ class EventQueue:
         self._handlers: dict[str, list[Callable]] = {}
         self._running = False
         self._worker_thread: threading.Thread | None = None
+        self._worker_loop: asyncio.AbstractEventLoop | None = None
         self._max_size = max_size
         self._stats = {
             "published": 0,
@@ -139,6 +140,21 @@ class EventQueue:
         """Main event processing loop (runs in background thread)."""
         logger.info("[事件队列] 事件处理器已启动")
 
+        # Resident loop for async handlers. Creating a fresh loop per event
+        # would bind module-level asyncio.Lock objects acquired inside handlers
+        # to a loop that is closed right after, so every subsequent event
+        # failed with "bound to a different event loop" (silently swallowed by
+        # per-handler isolation). One loop lives for the worker's lifetime.
+        worker_loop = asyncio.new_event_loop()
+        self._worker_loop = worker_loop
+        try:
+            self._process_events_inner()
+        finally:
+            self._worker_loop = None
+            worker_loop.close()
+            logger.info("[事件队列] 事件处理器已停止")
+
+    def _process_events_inner(self) -> None:
         while self._running:
             try:
                 # Get next event
@@ -162,15 +178,13 @@ class EventQueue:
                 logger.exception(f"[事件队列] 事件处理循环错误: {e}")
                 time.sleep(1)  # Sleep longer on error
 
-        logger.info("[事件队列] 事件处理器已停止")
-
     def _run_async_handler(self, coro) -> None:
-        """Run a coroutine on a dedicated loop in the worker thread (never on Gateway loop)."""
-        loop = asyncio.new_event_loop()
-        try:
-            loop.run_until_complete(coro)
-        finally:
-            loop.close()
+        """Run a coroutine on the worker thread's resident loop (never on Gateway loop)."""
+        loop = self._worker_loop
+        if loop is None or loop.is_closed():
+            loop = asyncio.new_event_loop()
+            self._worker_loop = loop
+        loop.run_until_complete(coro)
 
     def _handle_event(self, event: dict) -> None:
         """Handle a single event by calling all subscribed handlers.

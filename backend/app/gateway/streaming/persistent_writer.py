@@ -19,9 +19,6 @@ from evoflow.timeutil import utc_now_iso_z
 
 logger = logging.getLogger(__name__)
 
-# Thread-safe lock for file operations
-_file_lock = threading.Lock()
-
 # Global registry of active writers
 _active_writers: dict[str, "PersistentStreamWriter"] = {}
 _writers_lock = threading.Lock()
@@ -71,6 +68,10 @@ class PersistentStreamWriter:
         self._closed = False
         self._write_count = 0
         self._last_fsync_ts = 0.0
+        # Per-writer lock: each writer owns its file handle exclusively, so a
+        # process-wide lock would serialize every concurrent stream's disk IO.
+        # RLock because _persist_message holds it across open/rotate helpers.
+        self._file_lock = threading.RLock()
 
         # Register in active writers
         with _writers_lock:
@@ -101,7 +102,7 @@ class PersistentStreamWriter:
     def _ensure_file_open(self) -> None:
         """Ensure output file is open."""
         if self._file is None and not self._closed:
-            with _file_lock:
+            with self._file_lock:
                 if self._file is None and not self._closed:
                     self._file_path = self._get_file_path()
                     self._file = open(self._file_path, "a", encoding="utf-8")
@@ -111,7 +112,7 @@ class PersistentStreamWriter:
     def _rotate_file_if_needed(self, entry_size: int) -> None:
         """Rotate file if size exceeds limit."""
         if self._current_size + entry_size > self.max_file_size:
-            with _file_lock:
+            with self._file_lock:
                 if self._file:
                     self._file.close()
 
@@ -179,7 +180,7 @@ class PersistentStreamWriter:
         self._rotate_file_if_needed(len(line_bytes))
 
         # Write to file
-        with _file_lock:
+        with self._file_lock:
             if self._file:
                 self._file.write(line)
                 # flush 每条写入即可；fsync 过重，会显著拖慢高频 chunk 的 SSE 体验
@@ -208,7 +209,7 @@ class PersistentStreamWriter:
                 del _active_writers[self.stream_id]
 
         # Close file
-        with _file_lock:
+        with self._file_lock:
             if self._file:
                 try:
                     self._file.close()
@@ -449,24 +450,11 @@ class StreamStorage:
         Returns:
             是否找到并关闭了写入器
         """
-        with self._writers_lock:
-            writer = self._writers.pop(thread_id, None)
-            if writer:
-                writer.close()
-                return True
-        return False
+        return close_writer(thread_id)
 
     def close_all(self) -> None:
         """关闭所有写入器"""
-        with self._writers_lock:
-            writers = list(self._writers.values())
-            self._writers.clear()
-
-        for writer in writers:
-            try:
-                writer.close()
-            except Exception as e:
-                logger.error(f"Error closing writer: {e}")
+        close_all_writers()
 
 
 # 全局单例实例

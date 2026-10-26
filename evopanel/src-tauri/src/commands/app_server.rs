@@ -235,7 +235,7 @@ fn dispatch_tauri_command_from_python(
                     .and_then(|v| v.as_str())
                     .unwrap_or("{}")
                     .to_string();
-                let value = crate::commands::browser_cdp::browser_cdp_command(
+                let value = crate::commands::browser_cdp::browser_cdp_command_impl(
                     app.clone(),
                     thread_id,
                     inner_method,

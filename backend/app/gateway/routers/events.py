@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import os
+import threading
 from collections import defaultdict
 from datetime import UTC
 from typing import Any
@@ -37,7 +38,11 @@ def _log_stream_debug(thread_id: str, phase: str, details: dict | None = None) -
 
 # Observers keyed by thread_id - unified stream identifier
 _thread_observers: dict[str, list[asyncio.Queue]] = defaultdict(list)
-_thread_observer_lock = asyncio.Lock()
+# threading.Lock, not asyncio.Lock: this guards a plain dict copy from both the
+# gateway loop (SSE routes) and the EventQueue worker thread (broadcast from
+# handlers) — an asyncio.Lock here breaks when two different loops contend on
+# it. Critical sections never await.
+_thread_observer_lock = threading.Lock()
 # Bound per-subscriber backlog so a slow SSE client cannot grow Gateway RSS unboundedly.
 _SSE_QUEUE_MAXSIZE = max(16, int(os.getenv("EVOFLOW_SSE_QUEUE_MAXSIZE", "256") or 256))
 
@@ -78,9 +83,8 @@ class EventBroadcaster:
             "timestamp": utc_now_iso_z(),
         }
 
-        async with _thread_observer_lock:
+        with _thread_observer_lock:
             queues = list(_thread_observers.get(thread_id, []))
-
         if str(event_type or "").startswith("task:"):
             try:
                 from evoflow.collab.subtask_stream_trace import stream_info
@@ -136,7 +140,7 @@ async def event_generator(thread_id: str):
     try:
         from evoflow.collab.subtask_stream_trace import stream_info
 
-        async with _thread_observer_lock:
+        with _thread_observer_lock:
             obs = len(_thread_observers.get(thread_id, []))
         stream_info("sse_subscribe main=%s observers=%s", thread_id, obs)
     except Exception:
@@ -421,6 +425,13 @@ async def get_thread_stream_status(request: Request, thread_id: str) -> dict:
     """
     require_thread_visible(request, thread_id)
 
+    # Probing involves sync file reads, sync httpx calls (up to 3×5s) and sync
+    # DB checks — all off the gateway loop; this endpoint is polled by the UI.
+    return await asyncio.to_thread(_collect_thread_stream_status, thread_id)
+
+
+def _collect_thread_stream_status(thread_id: str) -> dict:
+    """Collect stream status synchronously (runs in a worker thread)."""
     import httpx
 
     logger.debug("[events.stream_status] query thread_id=%s", thread_id)
@@ -622,7 +633,7 @@ async def get_stream_diagnostics(request: Request, task_id: str) -> dict:
         result["file_storage"] = {"exists": False}
 
     # 2. 检查内存广播状态
-    async with _thread_observer_lock:
+    with _thread_observer_lock:
         queues = _thread_observers.get(task_id, [])
         result["memory_broadcast"] = {
             "observer_count": len(queues),

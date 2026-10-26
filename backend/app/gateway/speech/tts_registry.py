@@ -21,6 +21,7 @@ existing callers (and the old /tts endpoints) keep working unchanged.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from collections.abc import AsyncGenerator
@@ -391,10 +392,11 @@ async def synthesize_tts_stream(
         return
 
     if prov == "dashscope":
-        # DashScope has no native stream; synthesize then yield once.
+        # DashScope has no native stream; synthesize (sync HTTP) then yield once.
+        # Off-loop: the sync request would otherwise stall the gateway loop.
         from evoflow.community.media_generation.providers.dashscope_tts import synthesize_speech as _ds
 
-        yield _ds(text, voice=voice or None)
+        yield await asyncio.to_thread(_ds, text, voice=voice or None)
         return
 
     if prov == "openai":

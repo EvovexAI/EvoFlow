@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 
 from fastapi import APIRouter, File, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
@@ -177,7 +178,7 @@ async def speech_asr(audio: UploadFile = File(...)) -> SpeechAsrResponse:
                 fmt = "mp3"
             elif "ogg" in audio.content_type:
                 fmt = "ogg"
-        text = transcribe_audio_flash(data, audio_format=fmt)
+        text = await asyncio.to_thread(transcribe_audio_flash, data, audio_format=fmt)
         return SpeechAsrResponse(text=text)
     except HTTPException:
         raise
@@ -249,11 +250,16 @@ async def speech_tts(body: SpeechTtsRequest) -> Response:
         t0 = time.perf_counter()
         if provider == "volcengine":
             # Native volcengine path (keeps exact prior behavior for volcengine).
-            audio_bytes, used_speaker = synthesize_speech_v3(text, speaker=speaker, preview=body.preview)
+            # Both providers do sync HTTP (up to 120s timeout) — must not run on
+            # the gateway event loop.
+            audio_bytes, used_speaker = await asyncio.to_thread(
+                synthesize_speech_v3, text, speaker=speaker, preview=body.preview
+            )
         else:
             from app.gateway.speech.tts_registry import synthesize_tts
 
-            audio_bytes, used_speaker = synthesize_tts(
+            audio_bytes, used_speaker = await asyncio.to_thread(
+                synthesize_tts,
                 text,
                 provider=provider,
                 speaker=speaker,

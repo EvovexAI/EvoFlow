@@ -298,7 +298,7 @@ class StreamBackgroundWorker:
 
             # Close writer (flush pending batch first)
             if self._writer:
-                self._flush_persist_buffer(force=True)
+                await self._flush_persist_buffer(force=True)
                 self._writer.close()
                 logger.info("✅ Writer closed")
 
@@ -547,8 +547,13 @@ class StreamBackgroundWorker:
                             exc_info=True,
                         )
 
-    def _flush_persist_buffer(self, *, force: bool = False) -> None:
-        """Flush buffered chunks to disk (batched to avoid per-chunk IO)."""
+    async def _flush_persist_buffer(self, *, force: bool = False) -> None:
+        """Flush buffered chunks to disk (batched to avoid per-chunk IO).
+
+        The batch is snapshotted on the event loop and written in a worker
+        thread: disk IO + fsync on the loop thread stalls every other request
+        on the shared gateway loop.
+        """
         if not self._writer or not self._persist_buffer:
             return
         import time
@@ -558,13 +563,22 @@ class StreamBackgroundWorker:
             if len(self._persist_buffer) < PERSIST_CHUNK_BATCH_SIZE:
                 if self._last_persist_flush and (now - self._last_persist_flush) < PERSIST_CHUNK_FLUSH_SECONDS:
                     return
-        for item in self._persist_buffer:
-            try:
-                self._writer(item)
-            except Exception as e:
-                logger.error("Failed to write buffered chunk for thread %s: %s", self.thread_id, e)
-        self._persist_buffer.clear()
+        batch = self._persist_buffer
+        self._persist_buffer = []
         self._last_persist_flush = now
+        writer = self._writer
+        try:
+            await asyncio.to_thread(self._write_persist_batch, writer, batch)
+        except Exception as e:
+            logger.error("Failed to write persisted batch for thread %s: %s", self.thread_id, e)
+
+    @staticmethod
+    def _write_persist_batch(writer: Any, batch: list[dict[str, Any]]) -> None:
+        for item in batch:
+            try:
+                writer(item)
+            except Exception as e:
+                logger.error("Failed to write buffered chunk: %s", e)
 
     async def _write_and_broadcast(self, data: dict[str, Any] | list, event_type: str = "") -> None:
         """Write to persistent storage and broadcast to memory."""
@@ -584,7 +598,7 @@ class StreamBackgroundWorker:
                         "event_type": event_type,
                     }
                 )
-                self._flush_persist_buffer()
+                await self._flush_persist_buffer()
             except Exception as e:
                 logger.error(f"Failed to queue persistent storage write: {e}")
 

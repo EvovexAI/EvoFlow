@@ -1157,8 +1157,28 @@ fn event_receiver(
 /// the JSON result.  This is the "direct" path that replaces the WS broker:
 /// Python calls this over HTTP (browser_cdp_server) rather than over
 /// `playwright.chromium.connect_over_cdp(ws://127.0.0.1:…/devtools/browser/…)`.
+/// Async Tauri command wrapper. Sync `#[tauri::command]` fns execute on the
+/// main/UI thread, but the impl below parks on `recv_timeout` waits that
+/// themselves need the main-thread pump (run_on_main_thread closures, COM
+/// completion callbacks) — invoking it from the frontend would deadlock the
+/// window for 8–25s per call. Running the impl on the blocking pool keeps it
+/// off the main thread; the internal HTTP/thread dispatch paths call
+/// `browser_cdp_command_impl` directly.
 #[tauri::command]
-pub fn browser_cdp_command(
+pub async fn browser_cdp_command(
+    app: tauri::AppHandle,
+    thread_id: String,
+    method: String,
+    params_json: String,
+) -> Result<Value, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        browser_cdp_command_impl(app, thread_id, method, params_json)
+    })
+    .await
+    .map_err(|e| format!("browser_cdp_command join failed: {e}"))?
+}
+
+pub fn browser_cdp_command_impl(
     app: tauri::AppHandle,
     thread_id: String,
     method: String,
@@ -1296,9 +1316,11 @@ pub fn browser_cdp_command(
 /// Return the HTTP port the CDP command server is listening on, starting it if
 /// needed.  Python reads this once per session (or from the well-known file).
 #[tauri::command]
-pub fn browser_cdp_http_port(app: tauri::AppHandle) -> Result<u16, String> {
+pub async fn browser_cdp_http_port(app: tauri::AppHandle) -> Result<u16, String> {
     use crate::commands::browser_cdp_server::ensure_http_server;
-    tauri::async_runtime::block_on(async move { ensure_http_server(app).await })
+    // Async command runs on a tokio worker; the old `block_on` here executed
+    // on the main thread and could interlock with the main-thread pump.
+    ensure_http_server(app).await
 }
 
 /// Start the CDP event subscription for a thread's embedded browser.  Python's

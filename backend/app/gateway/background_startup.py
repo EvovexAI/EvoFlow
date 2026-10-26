@@ -20,6 +20,11 @@ logger = logging.getLogger(__name__)
 
 StLogFn = Callable[[str], None]
 
+# Belt-and-braces ceiling for the post-ready langgraph_ready_event wait. The
+# failure path now also sets the event; the timeout only guards against a
+# future code path that never sets it (otherwise every runner hangs forever).
+_LANGGRAPH_READY_WAIT_TIMEOUT_S = float(os.environ.get("EVOFLOW_LG_READY_WAIT_TIMEOUT_S", "180"))
+
 
 def init_startup_state(app: FastAPI) -> None:
     """Initialize lifespan state once per FastAPI app instance.
@@ -755,6 +760,13 @@ async def run_background_startup(app: FastAPI, st_log: StLogFn, _st: Any) -> Non
         except Exception:
             logger.exception("Failed to initialize LangGraph lifespan components")
             print("[LG-LIFESPAN] FAILED — graph execution will likely hang!", file=sys.stderr, flush=True)
+            # Release post-ready waiters even on failure: channel service / event
+            # queue / all runner schedulers hang forever behind
+            # langgraph_ready_event.wait() otherwise. Degraded (runs will fail)
+            # beats a silently dead gateway.
+            _ready_event = getattr(app.state, "langgraph_ready_event", None)
+            if _ready_event is not None:
+                _ready_event.set()
 
         try:
             from langgraph_api import graph as _lg_graph
@@ -987,8 +999,15 @@ async def run_post_ready_warmups(app: FastAPI, st_log: StLogFn, _st: Any) -> Non
             langgraph_ready_event = getattr(app.state, "langgraph_ready_event", None)
             if langgraph_ready_event is not None:
                 logger.info("[Gateway] post-ready: waiting on langgraph_ready_event before starting channels")
-                await langgraph_ready_event.wait()
-                logger.info("[Gateway] post-ready: langgraph_ready_event released, starting channels")
+                try:
+                    await asyncio.wait_for(langgraph_ready_event.wait(), timeout=_LANGGRAPH_READY_WAIT_TIMEOUT_S)
+                except asyncio.TimeoutError:
+                    logger.error(
+                        "[Gateway] post-ready: langgraph_ready_event not set within %ss — starting channels anyway (degraded)",
+                        _LANGGRAPH_READY_WAIT_TIMEOUT_S,
+                    )
+                else:
+                    logger.info("[Gateway] post-ready: langgraph_ready_event released, starting channels")
             else:
                 logger.warning("[Gateway] post-ready: langgraph not ready and no ready_event — skipping channel start this pass")
                 return
