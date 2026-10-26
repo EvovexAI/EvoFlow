@@ -496,12 +496,12 @@ function AskAiPanel({
         <div className="ko-ask__scope">
           <span className="ko-ask__scope-dot" aria-hidden="true" />
           <span>{selectedTitle ? "当前文档" : "整个知识库"}</span>
+          {!askModel && effectiveChatModel ? (
+            <span className="ko-ask__scope-model" title="未选择时使用知识库默认对话模型">
+              {effectiveChatModel}
+            </span>
+          ) : null}
         </div>
-        {!askModel && effectiveChatModel ? (
-          <span className="ko-ask__scope-dot" title="未选择时使用知识库默认对话模型">
-            {effectiveChatModel}
-          </span>
-        ) : null}
         {chatModels.length > 0 ? (
           <select
             className="ko-ask__model-select"
