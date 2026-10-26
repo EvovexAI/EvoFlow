@@ -21,6 +21,13 @@
  * 通过独立平台 variant 使用真实 Window Controls Overlay 安全区；普通 Web 不继承该规则。 */
 @custom-variant platform-windows-desktop (&:where(.platform-windows-desktop, .platform-windows-desktop *));
 
+/* EvoFlow 主题修复：Tailwind v4 的 dark: 变体默认跟随系统 prefers-color-scheme，
+ * 与应用内手动切换的主题不同步 —— 手动切深色时 dark: 规则不生效，文字/图标停在
+ * 浅色档位导致对比度不足。这里把 dark: 统一映射到应用的三套深色标识：.dark 类
+ * （zcode 独立页 / 桥接容器 .zcode-bridge-root.dark）与 EvoFlow 壳的
+ * [data-theme="dark"]。 */
+@custom-variant dark (&:where(.dark, .dark *, [data-theme="dark"], [data-theme="dark"] *));
+
 /*
  * 当前 UI 直接使用了 shadcn 的 radix-mira 风格组件源码，这些组件大量依赖
  * data-active / data-horizontal / data-vertical 这类语义 variant。
@@ -288,6 +295,10 @@
   --color-primary: var(--color-neutral-950);
   --color-primary-foreground: var(--color-neutral-50);
   --color-secondary: var(--color-neutral-300);
+  /* ai-elements 组件（tool/conversation/message）依赖 shadcn 的 muted token，
+   * 之前未定义导致 text-muted-foreground / bg-muted 类不生成、文字回退继承色。 */
+  --color-muted: var(--color-neutral-100);
+  --color-muted-foreground: var(--color-neutral-500);
   --color-interaction-ask-surface: var(--color-sky-50);
   --color-interaction-ask-foreground: var(--color-sky-700);
   --color-interaction-ask-fill: color-mix(in oklab, var(--color-green-500) 20%, transparent);
@@ -347,9 +358,13 @@
 }
 
 /* EvoFlow 桥接：dark 类挂在 .zcode-bridge-root 容器上（不写 html，避免激活宿主
-   html.dark 规则把整站切暗）。这里让两套作用域共用同一组暗色 token。 */
+   html.dark 规则把整站切暗）。这里让两套作用域共用同一组暗色 token。
+   额外并入 [data-theme="dark"]：这是 EvoFlow 壳真正写入 <html> 的深色标识（lib/theme.js），
+   之前只认 .dark 就会让 V4 正文的 text-foreground / 表格 / 引用 / 列表 marker 等
+   zcode token 元素落回浅色档（深灰字压深底 → 看不清），且完全依赖 JS 补 .dark 类的时序。 */
 .dark,
-.zcode-bridge-root.dark {
+.zcode-bridge-root.dark,
+[data-theme="dark"] {
   --animated-gradient-text-strong: rgba(255, 255, 255, 1);
   --animated-gradient-text-soft: rgba(255, 255, 255, 0.2);
   --color-background: var(--color-neutral-900);
@@ -440,6 +455,8 @@
   --color-primary: var(--color-neutral-50);
   --color-primary-foreground: var(--color-neutral-950);
   --color-secondary: var(--color-neutral-700);
+  --color-muted: var(--color-neutral-800);
+  --color-muted-foreground: var(--color-neutral-400);
   --color-interaction-ask-surface: color-mix(in oklab, var(--color-sky-950) 50%, transparent);
   --color-interaction-ask-foreground: var(--color-sky-300);
   --color-interaction-ask-fill: color-mix(in oklab, var(--color-green-400) 24%, transparent);
@@ -451,7 +468,9 @@
   --color-interaction-confirmation-foreground: var(--color-green-300);
   --color-foreground: var(--color-neutral-200);
   --color-foreground-subtle: color-mix(in oklab, var(--color-neutral-200) 60%, transparent);
-  --color-foreground-subtlest: color-mix(in oklab, var(--color-neutral-200) 30%, transparent);
+  /* 深色下 30% 不透明度在 neutral-900 底上对比度仅约 2.3:1（远低于 WCAG AA 4.5:1），
+   * 思考块 / 次级标签几乎与背景融为一体。提升到 55% 后约 5.0:1，同时仍弱于 subtle。 */
+  --color-foreground-subtlest: color-mix(in oklab, var(--color-neutral-200) 55%, transparent);
   --color-foreground-inverse: var(--color-white);
   --color-success: var(--color-green-500);
   --color-success-foreground: var(--color-foreground-inverse);
@@ -589,6 +608,8 @@
   --color-primary: #000000;
   --color-primary-foreground: #ffffff;
   --color-secondary: #e6e6e6;
+  --color-muted: #f0f0f0;
+  --color-muted-foreground: #737373;
   --color-interaction-ask-surface: #ebf4ff;
   --color-interaction-ask-foreground: #0066dd;
   --color-interaction-ask-fill: rgba(70, 191, 114, 0.2);
@@ -734,6 +755,8 @@
   --color-primary: #ffffff;
   --color-primary-foreground: #000000;
   --color-secondary: #363636;
+  --color-muted: #262626;
+  --color-muted-foreground: #a3a3a3;
   --color-interaction-ask-surface: #001d3d;
   --color-interaction-ask-foreground: #80beff;
   --color-interaction-ask-fill: rgba(70, 191, 114, 0.24);
@@ -741,7 +764,7 @@
   --color-interaction-confirmation-foreground: #87d9a4;
   --color-foreground: var(--color-neutral-300);
   --color-foreground-subtle: color-mix(in oklab, var(--color-neutral-300) 60%, transparent);
-  --color-foreground-subtlest: color-mix(in oklab, var(--color-neutral-300) 30%, transparent);
+  --color-foreground-subtlest: color-mix(in oklab, var(--color-neutral-300) 55%, transparent);
   --color-foreground-inverse: #000000;
   --color-success: #46bf72;
   --color-success-foreground: #000000;

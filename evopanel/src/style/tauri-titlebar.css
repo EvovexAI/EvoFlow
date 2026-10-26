@@ -129,7 +129,15 @@ html.dark .tauri-main-chrome {
 
 html[data-theme='dark'] .tauri-main-chrome--scrolled,
 html.dark .tauri-main-chrome--scrolled {
-  box-shadow: 0 1px 0 var(--border-primary);
+  /* 深色下不再用 1px 边框色当分隔阴影，保持顶栏干净 */
+  box-shadow: none;
+}
+
+/* 科技风：顶栏同样去掉底边框/阴影，避免边框观感过丑（与深色一致） */
+html[data-scifi-ui='1'] .tauri-main-chrome,
+html[data-scifi-ui='1'] .tauri-main-chrome--scrolled {
+  border-bottom: none !important;
+  box-shadow: none !important;
 }
 
 /* 自定义背景：默认透出；液态玻璃下在 liquid-glass.css 补磨砂 */

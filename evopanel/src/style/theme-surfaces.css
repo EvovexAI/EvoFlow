@@ -440,7 +440,8 @@ html[data-theme='dark']:not([data-translucent-ui='1']) #app.evopanel-app-studio-
 /* ── Tauri 顶栏：暗色实底兜底（液态规则在 liquid-glass.css） ── */
 html[data-theme='dark'] #main-col > .tauri-main-chrome:not(.tauri-main-chrome--hidden) {
   background: var(--bg-secondary) !important;
-  border-bottom: 1px solid var(--border-primary) !important;
+  /* 去掉深色下的 1px 底边框：顶栏与内容同底色即可，边框线在深色/科技风下显得很丑 */
+  border-bottom: none !important;
 }
 
 /* ── 工作流列表：正文一律主色（覆盖 layout 的 tertiary/secondary） ── */

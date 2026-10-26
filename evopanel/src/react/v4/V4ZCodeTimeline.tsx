@@ -992,7 +992,10 @@ export function V4ZCodeTimeline(props: {
   const rowContext = useMemo<ConversationRowRenderContext>(
     () => ({
       workspacePath: workspacePath ?? "",
-      theme: "system" as const,
+      // 代码块/diff 主题必须跟随应用（宿主 data-theme），不能用 "system" 的 OS 偏好：
+      // 否则深色应用 + 浅色 OS 下，@pierre/diffs 用 github-light 的深色文字（--diffs-fg:#24292e）
+      // 压在深色 --color-card 上，代码块内容看不清。
+      theme: hostTheme,
       codePreviewSettings: DEFAULT_CODE_PREVIEW_SETTINGS,
       sessionId: sessionId || null,
       onOpenCodeViewer,
@@ -1017,7 +1020,7 @@ export function V4ZCodeTimeline(props: {
     // approvalRenderKey：仅在待审批集合变化时换 context，让工具行挂上/摘掉面板；
     // 不跟每帧 rows/snapshot 绑定，避免展开「文件已更改」时整区闪。
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: approvalRenderKey gates refresh
-    [sessionId, onOpenCodeViewer, onOpenFileLink, onOpenFileLinkProp, onOpenBrowserUrl, fetchFileChanges, renderToolCallApproval, workspacePath, approvalRenderKey, onAutoOpenCodeViewers, handleAutoOpenAssistantPptx, assistantPreviewPptxAutoOpenTarget],
+    [sessionId, onOpenCodeViewer, onOpenFileLink, onOpenFileLinkProp, onOpenBrowserUrl, fetchFileChanges, renderToolCallApproval, workspacePath, approvalRenderKey, onAutoOpenCodeViewers, handleAutoOpenAssistantPptx, assistantPreviewPptxAutoOpenTarget, hostTheme],
   );
 
   // stream-compare：页面画什么 → 同轮目录 v4-ui-display.log（排查发送后白屏/无回复）。

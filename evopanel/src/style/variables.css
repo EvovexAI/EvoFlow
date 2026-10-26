@@ -32,6 +32,10 @@
   --text-secondary: #656b73;
   --text-tertiary: #9297a0;
   --text-inverse: #ffffff;
+  /* Markdown 正文链接色：此前从未定义，streamdown.css 只能用 fallback #2563eb，
+   * 深色模式下深蓝压深底几乎不可读。这里显式给出两套主题值。 */
+  --text-link: #2563eb;
+  --text-link-hover: #1d4ed8;
 
   --accent: #635bff;
   --accent-hover: #534bef;
@@ -194,6 +198,8 @@
   --text-secondary: #a8b0bf;
   --text-tertiary: #7d8aa0;
   --text-inverse: #05070c;
+  --text-link: #60a5fa;
+  --text-link-hover: #93c5fd;
 
   --accent: #7b74ff;
   --accent-hover: #958fff;

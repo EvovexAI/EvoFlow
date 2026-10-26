@@ -125,6 +125,8 @@ export function initTauriFramelessChrome(mainColEl, insertBeforeEl) {
   const chrome = document.createElement('div')
   chrome.id = MAIN_CHROME_ID
   chrome.className = 'tauri-main-chrome'
+  // 统一主题框架：声明所属区域，颜色交由 theme-framework.css 的 --region-chrome-* token 决定
+  chrome.dataset.region = 'chrome'
   chrome.setAttribute('role', 'toolbar')
   chrome.setAttribute('aria-label', '窗口')
   chrome.innerHTML = `

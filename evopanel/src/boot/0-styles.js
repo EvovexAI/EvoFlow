@@ -10,6 +10,9 @@
 
 // 基础变量 / 重置 / 布局
 import '../style/variables.css'
+// 统一主题/皮肤契约（region × surface token）；必须早于下方四层主题外墙
+// （liquid-glass / sci-fi-theme / theme-surfaces / theme-readability），让外墙按既有序覆盖默认值。
+import '../style/theme-framework.css'
 import '../style/reset.css'
 import '../style/layout.css'
 import '../style/components.css'
