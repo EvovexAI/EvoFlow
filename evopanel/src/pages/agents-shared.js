@@ -117,7 +117,7 @@ export const AGENT_STATUS_OPTIONS = [
 
 export const AGENT_SOURCE_OPTIONS = [
   { key: 'system', label: '系统' },
-  { key: 'custom', label: '' },
+  { key: 'custom', label: '自定义' },
   { key: 'skillhub', label: 'SkillHub' },
 ]
 
