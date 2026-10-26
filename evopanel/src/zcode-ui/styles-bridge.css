@@ -113,6 +113,48 @@
   transform: translateX(0);
 }
 
+/*
+ * 语音全屏右上角回复区（surface=glass）：同一套 V4 时间线，只换皮肤。
+ *
+ * 目标：不再用「手写活动轨 + line-clamp 截断」那种割裂的列表，
+ * 而是主对话同款轮分组 / 流式 / 工具卡，压在语音画面上做玻璃浮层。
+ *
+ * 规则：
+ * - 明暗跟随宿主（html[data-theme]），与主对话一致 —— 不做强制暗色，
+ *   否则浅色站里这块会变成一块突兀的黑板。
+ * - 正文限宽放宽到接近浮层宽度（默认 max-w-4xl 在窄浮层里会留大片空白）。
+ * - 轮之间保留分隔（继承 bridge 的 section 规则）但去掉外边距堆积。
+ */
+.zcode-bridge-root.v4-surface-glass {
+  --ui-font-size: 12.5px;
+}
+.zcode-bridge-root.v4-surface-glass section[data-turn-id] + section[data-turn-id] {
+  margin-top: 0.35rem;
+  border-top-color: color-mix(in srgb, currentColor 8%, transparent);
+}
+/* 浮层里不需要「回到底部」大圆钮占位；窄浮层里它会盖住正文。 */
+.zcode-bridge-root.v4-surface-glass [data-v4-back-to-bottom-anchor="composer-dock"] {
+  display: none;
+}
+/* 浮层正文两侧留白收紧，避免窄面板里字被夹成一列。 */
+.zcode-bridge-root.v4-surface-glass [data-v4-timeline-scroll="true"] {
+  padding-left: 2px;
+  padding-right: 2px;
+}
+/* 窄浮层不吃 zcode 默认的 max-w-4xl 居中柱，否则两边留大片空白。 */
+.zcode-bridge-root.v4-surface-glass [data-v4-timeline-content-column="true"] {
+  width: 100% !important;
+  max-width: 100% !important;
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+  transform: none !important;
+}
+/* 工具卡在浮层里不要画成整块重底色（压住玻璃感）。 */
+.zcode-bridge-root.v4-surface-glass [data-v4-timeline-message-layer="true"] {
+  mask-image: none;
+  -webkit-mask-image: none;
+}
+
 /* 中文模板描述按单字断行会拆开“简报”等词组，并把标点挤到下一行。
  * Chromium 支持时启用短语级换行；其它环境保留正常断行，避免 keep-all 在窄屏产生溢出。 */
 .text-wrap-phrase {

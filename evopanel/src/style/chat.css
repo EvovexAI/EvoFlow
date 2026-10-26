@@ -4166,6 +4166,19 @@ button.msg-file-card.msg-file-card--button:focus-visible {
   color: var(--text-secondary, #888);
   font-size: 0.8em;
 }
+/* 绝对路径：让用户一眼看到文件真实落点（相对/临时路径看不懂也找不到） */
+.evf-deliverable-path {
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  unicode-bidi: plaintext;
+  text-align: left;
+  color: var(--text-tertiary, #6b7280);
+  font-size: 0.72em;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
 
 /* ===== 划词操作菜单（选中助手回复文字后浮出） ===== */
 .evf-sel-menu {

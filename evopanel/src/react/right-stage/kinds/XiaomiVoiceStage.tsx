@@ -1,6 +1,7 @@
 /**
  * 小V 语音全屏：干净三块 —— 聆听状态 / 最新用户输入 / AI 回复；
- * 右上角文字区展示最近几轮对话。全屏由 lib/xw-voice-mode.ts 驱动。
+ * 右上角「对话」区复用主对话 V4 时间线（同一套轮分组 / 流式 / 工具卡）。
+ * 全屏由 lib/xw-voice-mode.ts 驱动。
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react'
 import { getState, subscribe } from '../../../components/global-assistant/assistant-store.js'
@@ -25,18 +26,10 @@ import { onSpeakingChange } from '../../../lib/speech-client.js'
 import { subscribeVoiceLevels } from '../../../lib/voice-capture-service.js'
 import { showRightStageBrowserUrl } from '../../../lib/right-stage/open-right-stage-browser.js'
 import { isXwVoiceMode, subscribeXwVoiceMode } from '../../../lib/xw-voice-mode.js'
-import { buildActivityItems } from './xiaomi-voice-activity.js'
+import { XiaomiV4Timeline } from '../../components/XiaomiV4Timeline.js'
 import './xiaomi-voice-stage.css'
 
 type StageState = 'idle' | 'listen' | 'parse' | 'think' | 'speak'
-
-type ActivityItem = {
-  key: string
-  kind: 'user' | 'assistant' | 'tool' | 'pulse' | 'tool_more'
-  roleLabel: string
-  text: string
-  toolStatus?: 'running' | 'ok' | 'error'
-}
 
 const STATE_LABEL: Record<StageState, string> = {
   idle: '待命',
@@ -46,18 +39,51 @@ const STATE_LABEL: Record<StageState, string> = {
   speak: '播报',
 }
 
+/*
+ * 状态色：值改指 CSS 令牌，明暗两套由样式表决定。
+ * 直接写 hex 会在浅色主题下变成浅底浅字（10px 状态字几乎看不见）。
+ */
 const STATE_COLOR: Record<StageState, string> = {
-  idle: '#9fb2c8',
-  listen: '#38bdf8',
-  parse: '#60a5fa',
-  think: '#a78bfa',
+  idle: 'var(--xws-state-idle, #9fb2c8)',
+  listen: 'var(--xws-state-listen, #38bdf8)',
+  parse: 'var(--xws-state-parse, #60a5fa)',
+  think: 'var(--xws-state-think, #a78bfa)',
   // 播报：靛紫蓝（去掉刺眼绿）
-  speak: '#818cf8',
+  speak: 'var(--xws-state-speak, #818cf8)',
 }
 
-const DOT_MAIN = '#eaf4ff'
-const DOT_COOL = '#9fd8ff'
+/** 点阵球默认配色（浅色主题）；深色主题由 CSS 变量覆盖。 */
+const DOT_MAIN = '#334155'
+const DOT_COOL = '#0284c7'
+const DOT_CORE = '#1e293b'
+const DOT_COOL_CORE = '#075985'
 const LEVEL_BINS = 32
+
+/**
+ * 读面板上的主题令牌（点阵球要跟随明暗，canvas 画不出来 CSS 变量）。
+ * 令牌写在 .xws-root 上：--xws-dot / --xws-dot-core / --xws-dot-cool / --xws-dot-cool-core。
+ */
+function readDotColors(el: Element | null): {
+  main: string
+  mainCore: string
+  cool: string
+  coolCore: string
+} {
+  const fallback = { main: DOT_MAIN, mainCore: DOT_CORE, cool: DOT_COOL, coolCore: DOT_COOL_CORE }
+  if (!el || typeof window === 'undefined') return fallback
+  try {
+    const cs = window.getComputedStyle(el)
+    const pick = (name: string, fb: string) => String(cs.getPropertyValue(name) || '').trim() || fb
+    return {
+      main: pick('--xws-dot', fallback.main),
+      mainCore: pick('--xws-dot-core', fallback.mainCore),
+      cool: pick('--xws-dot-cool', fallback.cool),
+      coolCore: pick('--xws-dot-cool-core', fallback.coolCore),
+    }
+  } catch {
+    return fallback
+  }
+}
 
 function extractUrl(reply: string): string {
   const m = String(reply || '').match(/https?:\/\/[^\s，。；、）)】\]"'）]+/i)
@@ -70,7 +96,7 @@ export function XiaomiVoiceStage() {
   const [transcript, setTranscript] = useState('')
   const [lastUser, setLastUser] = useState('')
   const [reply, setReply] = useState('')
-  const [activity, setActivity] = useState<ActivityItem[]>([])
+  const [sessionKey, setSessionKey] = useState('')
   const [sessionActive, setSessionActive] = useState(false)
   const [parseHold, setParseHold] = useState(false)
 
@@ -84,11 +110,8 @@ export function XiaomiVoiceStage() {
   const parseHoldRef = useRef(false)
   const stateSinceRef = useRef(0)
   const stateRef = useRef<StageState>('idle')
-  const activityBodyRef = useRef<HTMLDivElement | null>(null)
-  const activityStickBottomRef = useRef(true)
   const levelsRef = useRef<number[]>(new Array(LEVEL_BINS).fill(0))
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
-  const recentBodyRef = useRef<HTMLDivElement | null>(null)
   const parsedReplyRef = useRef('')
 
   useEffect(() => {
@@ -255,7 +278,7 @@ export function XiaomiVoiceStage() {
     }
   }, [derive])
 
-  /* ASR partial 直推左侧「你」+ 活动轨最下实时跟随 */
+  /* ASR partial 直推左侧「你」；右上角对话区由 V4 时间线自己跟随 */
   useEffect(() => {
     return subscribeXiaomiVoicePartial((text) => {
       const t = String(text || '')
@@ -264,62 +287,16 @@ export function XiaomiVoiceStage() {
       liveRef.current.continuousListen = true
       if (!liveRef.current.tray) liveRef.current.tray = 'recording'
       derive()
-      // lastUser 下一帧才进 state；这里直接用 partial 刷轨，避免等 store
-      const s = getState()
-      const msgs = Array.isArray(s.messages) ? s.messages : []
-      let liveReply = ''
-      for (let i = msgs.length - 1; i >= 0; i--) {
-        const m = msgs[i] as { role?: string; text?: string }
-        if (m?.role === 'assistant') {
-          liveReply = String(m.text || '').trim()
-          break
-        }
-        if (m?.role === 'user') break
-      }
-      setActivity(
-        buildActivityItems(msgs as Parameters<typeof buildActivityItems>[0], {
-          liveUser: t.trim() || undefined,
-          liveAssistant: liveReply,
-          streaming: !!s.streaming,
-          stageState: stateRef.current,
-        }) as ActivityItem[],
-      )
     })
   }, [derive])
-
-  const refreshActivity = useCallback(() => {
-    const s = getState()
-    const msgs = Array.isArray(s.messages) ? s.messages : []
-    let liveReply = ''
-    let liveUser = ''
-    for (let i = msgs.length - 1; i >= 0; i--) {
-      const m = msgs[i] as { role?: string; text?: string }
-      if (!liveReply && m?.role === 'assistant') {
-        liveReply = String(m.text || '').trim()
-        continue
-      }
-      if (m?.role === 'user') {
-        liveUser = String(m.text || '').trim()
-        break
-      }
-    }
-    const draft = String(s.draft || '').trim()
-    // 轨内实时跟随：听写 draft / 流式助手句挂在最下，不再 skip 掉
-    const focusUser = draft || liveUser || String(lastUser || '').trim()
-    setActivity(
-      buildActivityItems(msgs as Parameters<typeof buildActivityItems>[0], {
-        liveUser: focusUser,
-        liveAssistant: liveReply || String(reply || '').trim(),
-        streaming: !!s.streaming,
-        stageState: stateRef.current,
-      }) as ActivityItem[],
-    )
-  }, [lastUser, reply])
 
   useEffect(() => {
     const sync = () => {
       const s = getState()
       liveRef.current.streaming = !!s.streaming
+      // 右上角 V4 时间线要用同一个会话：sessionKey 变了要跟着换
+      const sk = String(s.sessionKey || '').trim()
+      setSessionKey((prev) => (prev === sk ? prev : sk))
       let continuous = false
       try {
         continuous = isConversationListeningActive()
@@ -361,7 +338,6 @@ export function XiaomiVoiceStage() {
       // 本轮用户句：听写中用 draft；否则用消息里紧挨助手前的那条 user
       const focusUser = draft || liveUser
       if (focusUser) setLastUser(focusUser)
-      refreshActivity()
       derive()
     }
     sync()
@@ -369,29 +345,7 @@ export function XiaomiVoiceStage() {
     return () => {
       unsub()
     }
-  }, [derive, refreshActivity])
-
-  // 舞台状态变化时也刷轨（思考脉冲不依赖 store 推送）
-  useEffect(() => {
-    refreshActivity()
-  }, [state, refreshActivity])
-
-  // 活动轨：最新在最下；默认贴底跟随，用户上滚后暂停，靠近底部再恢复
-  useEffect(() => {
-    if (!activityStickBottomRef.current) return
-    const el = activityBodyRef.current
-    if (!el) return
-    const stick = () => {
-      el.scrollTop = el.scrollHeight
-    }
-    stick()
-    // 等文本换行 / 工具行插入后再贴一次
-    const raf = requestAnimationFrame(() => {
-      stick()
-      requestAnimationFrame(stick)
-    })
-    return () => cancelAnimationFrame(raf)
-  }, [activity])
+  }, [derive])
 
   useEffect(
     () =>
@@ -433,6 +387,8 @@ export function XiaomiVoiceStage() {
     ro.observe(box)
     const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches === true
     const N = 360
+    // 主题观察器在 bootTimer 之外创建，才能在 effect cleanup 里断开。
+    let themeObserverRef: MutationObserver | null = null
     const bootTimer = window.setTimeout(() => {
       if (cancelled) return
       const pts: Array<{ x: number; y: number; z: number; sz: number; ph: number; cool: boolean; lv: number }> = []
@@ -452,8 +408,11 @@ export function XiaomiVoiceStage() {
         })
       }
       const sprites = new Map<string, HTMLCanvasElement>()
-      const sprite = (color: string) => {
-        let cv = sprites.get(color)
+      // 点阵球配色跟随明暗：canvas 画不出 CSS 变量，这里从面板读取。
+      let dotColors = readDotColors(box)
+      const sprite = (color: string, coreColor: string) => {
+        const key = `${color}|${coreColor}`
+        let cv = sprites.get(key)
         if (!cv) {
           cv = document.createElement('canvas')
           cv.width = 12
@@ -461,7 +420,7 @@ export function XiaomiVoiceStage() {
           const g = cv.getContext('2d')
           if (g) {
             const rg = g.createRadialGradient(6, 6, 0, 6, 6, 6)
-            rg.addColorStop(0, '#ffffff')
+            rg.addColorStop(0, coreColor)
             rg.addColorStop(0.35, color)
             rg.addColorStop(1, 'transparent')
             g.fillStyle = rg
@@ -469,10 +428,30 @@ export function XiaomiVoiceStage() {
             g.arc(6, 6, 6, 0, Math.PI * 2)
             g.fill()
           }
-          sprites.set(color, cv)
+          sprites.set(key, cv)
         }
         return cv
       }
+      // 语音全屏开着时用户仍可能切主题 → 观察宿主 data-theme / class，
+      // 变了就重读令牌并清空 sprite 缓存（canvas 里画死的颜色不会自动跟随 CSS）。
+      const themeObserver = new MutationObserver(() => {
+        const next = readDotColors(box)
+        if (
+          next.main === dotColors.main &&
+          next.cool === dotColors.cool &&
+          next.mainCore === dotColors.mainCore &&
+          next.coolCore === dotColors.coolCore
+        ) {
+          return
+        }
+        dotColors = next
+        sprites.clear()
+      })
+      themeObserver.observe(document.documentElement, {
+        attributes: true,
+        attributeFilter: ['class', 'data-theme'],
+      })
+      themeObserverRef = themeObserver
       let energy = 0.06
       let mouth = 0
       let rotY = 0
@@ -513,7 +492,6 @@ export function XiaomiVoiceStage() {
         const cx = W / 2
         const cy = H * 0.42
         const R = Math.min(W, H) * 0.22
-        const stColor = STATE_COLOR[st]
         const rotSpd =
           st === 'think' ? 0.00058 : st === 'speak' ? 0.0002 + mouth * 0.00016 : st === 'listen' ? 0.00014 + energy * 0.00014 : 0.00005
         rotY += rotSpd * dt * motionScale
@@ -527,8 +505,8 @@ export function XiaomiVoiceStage() {
         const LX = -0.48
         const LY = -0.68
         const LZ = -0.55
-        const spMain = sprite(DOT_MAIN)
-        const spCool = sprite(DOT_COOL)
+        const spMain = sprite(dotColors.main, dotColors.mainCore)
+        const spCool = sprite(dotColors.cool, dotColors.coolCore)
         for (let i = 0; i < pts.length; i++) {
           const p = pts[i]
           const theta = Math.acos(Math.max(-1, Math.min(1, p.y)))
@@ -556,13 +534,6 @@ export function XiaomiVoiceStage() {
           ctx.drawImage(p.cool ? spCool : spMain, X - sz, Y - sz, sz * 2, sz * 2)
         }
         ctx.globalAlpha = 1
-        ctx.strokeStyle = stColor
-        ctx.globalAlpha = 0.12 + energy * 0.15
-        ctx.lineWidth = dpr
-        ctx.beginPath()
-        ctx.arc(cx, cy, R * 1.24, 0, Math.PI * 2)
-        ctx.stroke()
-        ctx.globalAlpha = 1
       }
       raf = requestAnimationFrame(frame)
     }, 520)
@@ -571,6 +542,8 @@ export function XiaomiVoiceStage() {
       window.clearTimeout(bootTimer)
       cancelAnimationFrame(raf)
       ro.disconnect()
+      themeObserverRef?.disconnect()
+      themeObserverRef = null
     }
   }, [visible])
 
@@ -623,40 +596,20 @@ export function XiaomiVoiceStage() {
         退出
       </button>
 
-      <aside className="xws-recent" data-tauri-no-drag="" aria-label="活动">
-        <div className="xws-recent-head">活动</div>
-        <div
-          className="xws-recent-body"
-          ref={activityBodyRef}
-          onScroll={() => {
-            const el = activityBodyRef.current
-            if (!el) return
-            const gap = el.scrollHeight - el.scrollTop - el.clientHeight
-            activityStickBottomRef.current = gap < 48
-          }}
-        >
-          {activity.length ? (
-            activity.map((item) => (
-              <div
-                key={item.key}
-                className={`xws-recent-line is-${item.kind}${
-                  item.toolStatus ? ` is-tool-${item.toolStatus}` : ''
-                }`}
-              >
-                <span className="xws-recent-role">
-                  {item.kind === 'tool' || item.kind === 'tool_more' ? (
-                    <span
-                      className={`xws-tool-dot is-${item.toolStatus || 'ok'}`}
-                      aria-hidden="true"
-                    />
-                  ) : item.kind === 'pulse' ? (
-                    <span className="xws-tool-dot is-running" aria-hidden="true" />
-                  ) : null}
-                  {item.roleLabel}
-                </span>
-                <span className="xws-recent-text">{item.text}</span>
-              </div>
-            ))
+      {/*
+        右上角「对话」区 = 主对话 V4 时间线（同一套轮分组 / 流式 / 工具卡）。
+        皮肤走 glass：宿主明暗 + 玻璃底，浮在语音画面上。
+      */}
+      <aside className="xws-recent xws-recent--timeline" data-tauri-no-drag="" aria-label="对话">
+        <div className="xws-recent-head">
+          <span className="xws-recent-head-title">对话</span>
+          <span className="xws-recent-head-state" data-state={state}>
+            {stateWord}
+          </span>
+        </div>
+        <div className="xws-recent-body xws-recent-body--timeline">
+          {sessionKey ? (
+            <XiaomiV4Timeline sessionKey={sessionKey} surface="glass" embedded />
           ) : (
             <div className="xws-recent-empty">对话与工具会出现在这里</div>
           )}

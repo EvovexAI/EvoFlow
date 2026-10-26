@@ -1,8 +1,11 @@
 /**
  * 小V 语音「关闭 / 退出」统一入口。
  *
- * 手动点「退出」与口令「停止 / 关闭 / 退出」走同一条路径：
- * 停播报 + 退全屏 + 停 Frame/continuous，不把口令发给 AI。
+ * 口令「停止 / 关闭 / 退出」与按钮「退出」：
+ * 1. 若本轮仍在生成 → stopXiaomiChat（chatAbort / stopExecution）
+ * 2. 停本地/Frame 播报
+ * 3. 口令退出时播固定缓存退下语（不调语音模型）
+ * 4. 退全屏 + 停 continuous / Frame
  */
 
 import { isStopTtsOnlyCommand } from './voice-listen-control.js'
@@ -57,19 +60,113 @@ export function isXiaomiVoiceExitCommand(text) {
 }
 
 /**
- * 关闭小V语音舞台（与右上角「退出」按钮同一效果）。
- * @param {{ reason?: 'voice' | 'button' | 'esc' | 'program' }} [opts]
- * @returns {Promise<'closed' | 'noop'>}
+ * 停掉当前小V 任务（后端 abort）+ 本地/Frame 播报。
+ * @returns {Promise<boolean>} 是否曾尝试 abort（有 session）
  */
-export async function closeXiaomiVoice(opts = {}) {
-  const reason = String(opts.reason || 'program')
+async function _stopActiveXiaomiTask() {
+  let aborted = false
   try {
-    const { voiceFeLog } = await import('./xiaomi-voice/voice-file-log.js')
-    voiceFeLog('退出', `closeXiaomiVoice reason=${reason}`)
+    const { getState } = await import('../components/global-assistant/assistant-store.js')
+    const streaming = !!getState?.()?.streaming
+    const { stopXiaomiChat } = await import('../components/global-assistant/assistant-session.js')
+    if (streaming || getState?.()?.sessionKey) {
+      await stopXiaomiChat()
+      aborted = true
+    }
+  } catch (e) {
+    console.warn('[xiaomi-voice-close] stopXiaomiChat failed', e?.message || e)
+  }
+
+  try {
+    const { stopAllAssistantSpeech } = await import('./speech-client.js')
+    stopAllAssistantSpeech({ reason: 'voice-exit' })
   } catch {
     /* ignore */
   }
 
+  try {
+    const {
+      interruptXiaomiFrame,
+      stopXiaomiFrameLocalPlayback,
+      isXiaomiFrameSessionActive,
+      isXiaomiFramePipelineActive,
+    } = await import('./xiaomi-voice/index.js')
+    if (isXiaomiFrameSessionActive?.() || isXiaomiFramePipelineActive?.()) {
+      try {
+        stopXiaomiFrameLocalPlayback?.({ reason: 'voice-exit' })
+      } catch {
+        /* ignore */
+      }
+      try {
+        await interruptXiaomiFrame?.()
+      } catch {
+        /* ignore */
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+
+  return aborted
+}
+
+/**
+ * 播固定缓存退下语（IndexedDB；不走 Frame / 语音模型）。
+ */
+async function _playExitFarewell() {
+  try {
+    const { playFixedVoiceSfx, VOICE_FAREWELL_LINE } = await import('./voice-fixed-sfx.js')
+    const { voiceFeLog } = await import('./xiaomi-voice/voice-file-log.js')
+    voiceFeLog('退出', `播固定退下语「${VOICE_FAREWELL_LINE}」`)
+    await playFixedVoiceSfx(VOICE_FAREWELL_LINE)
+  } catch (e) {
+    console.warn('[xiaomi-voice-close] farewell sfx failed', e?.message || e)
+  }
+}
+
+/**
+ * 关闭小V语音舞台。
+ * @param {{
+ *   reason?: 'voice' | 'button' | 'esc' | 'program',
+ *   farewell?: boolean,
+ * }} [opts]
+ *   farewell: 默认口令退出播退下语；按钮/Esc 默认不播（可显式 true）
+ * @returns {Promise<'closed' | 'noop'>}
+ */
+export async function closeXiaomiVoice(opts = {}) {
+  const reason = String(opts.reason || 'program')
+  const playFarewell = opts.farewell != null ? !!opts.farewell : reason === 'voice'
+
+  try {
+    const { voiceFeLog } = await import('./xiaomi-voice/voice-file-log.js')
+    voiceFeLog('退出', `closeXiaomiVoice reason=${reason} farewell=${playFarewell}`)
+  } catch {
+    /* ignore */
+  }
+
+  // 1) 停任务 + 停播报（在拆 UI 之前，session 还在）
+  const aborted = await _stopActiveXiaomiTask()
+  try {
+    const { voiceFeLog } = await import('./xiaomi-voice/voice-file-log.js')
+    voiceFeLog('退出', aborted ? '已请求后端停止本轮任务' : '无进行中任务 / 已停播报')
+  } catch {
+    /* ignore */
+  }
+
+  // 先停常听，避免退下语被 ASR/barge 打断；UI 稍后再关，好播完固定句
+  try {
+    const { pauseConversationListening } = await import('./background-voice.js')
+    await pauseConversationListening({ reason: 'exit-xw-voice', silent: true })
+  } catch {
+    /* ignore */
+  }
+
+  // 2) 固定话术退下（缓存音效，不调语音模型）
+  if (playFarewell) {
+    await _playExitFarewell()
+  }
+
+  // 3) 退全屏 / 再兜底停 runtime
   try {
     const { isXwVoiceMode, exitXwVoiceMode } = await import('./xw-voice-mode.js')
     if (isXwVoiceMode()) {
@@ -80,17 +177,11 @@ export async function closeXiaomiVoice(opts = {}) {
     /* ignore */
   }
 
-  // 未在全屏：仍停播报 + 监听，避免口令落空
   try {
     const { shutdownXiaomiVoiceRuntime } = await import('./background-voice.js')
     await shutdownXiaomiVoiceRuntime?.()
   } catch {
-    try {
-      const { pauseConversationListening } = await import('./background-voice.js')
-      await pauseConversationListening({ reason: 'voice', silent: true })
-    } catch {
-      /* ignore */
-    }
+    /* ignore */
   }
   return 'closed'
 }

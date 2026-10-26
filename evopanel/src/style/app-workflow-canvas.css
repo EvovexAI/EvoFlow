@@ -4573,8 +4573,8 @@ body:has(.app-wf-canvas-host) .react-chat-skill-modal-list {
   gap: 10px;
   flex-shrink: 0;
   padding: 8px 14px;
-  border-bottom: 1px solid #e5e7eb;
-  background: #fafbfc;
+  border-bottom: 1px solid var(--border-primary);
+  background: var(--bg-secondary);
 }
 
 .wf-debug-log-opt {
@@ -4597,9 +4597,9 @@ body:has(.app-wf-canvas-host) .react-chat-skill-modal-list {
   flex-direction: column;
   gap: 8px;
   padding: 10px 12px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--border-primary);
   border-radius: 10px;
-  background: #f8f9fb;
+  background: var(--bg-secondary);
 }
 
 .wf-debug-io-row {
@@ -4843,7 +4843,7 @@ body:has(.app-wf-canvas-host) .react-chat-skill-modal-list {
   margin: 0;
   padding: 10px 12px;
   border-radius: 8px;
-  background: #f8f9fb;
+  background: var(--bg-secondary);
   border: 1px solid var(--border-primary);
   font-size: 12.5px;
   line-height: 1.5;
@@ -4877,7 +4877,7 @@ body:has(.app-wf-canvas-host) .react-chat-skill-modal-list {
   padding: 10px 12px;
   border: 1px solid var(--border-primary);
   border-radius: 10px;
-  background: #f8f9fb;
+  background: var(--bg-secondary);
 }
 
 .wf-debug-artifact-ico {
@@ -5705,8 +5705,8 @@ body:has(.app-wf-canvas-host) .react-chat-skill-modal-list {
 }
 
 .wf-toolbar-status-badge.is-draft {
-  color: #73798d;
-  background: #f3f4f8;
+  color: var(--text-tertiary);
+  background: var(--bg-tertiary);
   border-color: var(--wf-node-border);
 }
 
@@ -5831,8 +5831,8 @@ body:has(.app-wf-canvas-host) .react-chat-skill-modal-list {
   font-size: 10.5px;
   font-weight: 650;
   letter-spacing: 0.02em;
-  background: #f3f4f8;
-  color: #73798d;
+  background: var(--bg-tertiary);
+  color: var(--text-tertiary);
 }
 
 .wf-node-type-tag--start {
@@ -5852,8 +5852,8 @@ body:has(.app-wf-canvas-host) .react-chat-skill-modal-list {
   background: color-mix(in srgb, #ea8c2a 12%, #fff);
 }
 .wf-node-type-tag--answer {
-  color: #5b6172;
-  background: #f0f1f5;
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
 }
 
 /* ??????????? / ?????? */

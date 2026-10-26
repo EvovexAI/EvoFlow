@@ -298,6 +298,12 @@ html[data-theme='dark'] .react-chat-file-chip-x {
   color: var(--text-primary) !important;
 }
 
+/* 「完全访问」保留警告色，不被上方主色可读性覆盖 */
+html[data-theme='dark'] .react-chat-bottom-permission-pill--full .react-chat-bottom-pill-text,
+html[data-theme='dark'] .react-chat-bottom-permission-pill--full .react-chat-permission-pill-icon {
+  color: var(--warning, #d4a017) !important;
+}
+
 /* 思考 / 工具折叠 / 运行进度 */
 html[data-theme='dark'] .react-chat-conversation-col :is(
   .react-chat-inline-reasoning-toggle,
@@ -510,6 +516,21 @@ html:not([data-translucent-ui='1']) .react-chat-bottom-dock .react-chat-context-
 html:not([data-translucent-ui='1']) .react-chat-bottom-dock .react-chat-file-chip,
 html:not([data-translucent-ui='1']) .react-chat-bottom-dock .react-chat-file-chip-x {
   color: var(--text-primary) !important;
+}
+
+html:not([data-translucent-ui='1']) .react-chat-bottom-dock .react-chat-bottom-permission-pill--full .react-chat-bottom-pill-text,
+html:not([data-translucent-ui='1']) .react-chat-bottom-dock .react-chat-bottom-permission-pill--full .react-chat-permission-pill-icon {
+  color: var(--warning, #b45309) !important;
+}
+
+/* 「完全访问」保留警告色：上面的 pill 文字统一成主色会把它冲掉 */
+html .react-chat-bottom-permission-pill--full .react-chat-bottom-pill-text,
+html .react-chat-bottom-permission-pill--full .react-chat-permission-pill-icon {
+  color: var(--warning, #b45309) !important;
+}
+html .react-chat-bottom-permission-pill--full.react-chat-bottom-pill--open .react-chat-bottom-pill-text,
+html .react-chat-bottom-permission-pill--full:hover:not(:disabled) .react-chat-bottom-pill-text {
+  color: color-mix(in srgb, var(--warning, #b45309) 82%, var(--text-primary)) !important;
 }
 
 /* AI 回复：无框贴底（覆盖 chat.css 实底；与对话区同层，避免卡片浮在背景上） */

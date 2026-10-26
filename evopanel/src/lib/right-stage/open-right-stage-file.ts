@@ -8,6 +8,8 @@
  * - 话术 Markdown 路径 pill / 普通文件 → `file`（WorkspaceFilePreviewPanel）
  * - patch / diff / pptx / pdf / 多媒体 → `codeViewer`（PreviewPane）
  */
+import { getChatWorkspaceRoot } from '../chat-workspace-context.js'
+import { healStrippedAbsolutePath, isAbsoluteHostPath } from '../workspace-abs-path.js'
 import { rightStageStore } from './right-stage-store.js'
 import { logPanelSet } from './panel-set-debug-log.js'
 import { getCurrentRightStageSessionKey } from './right-stage-scope.js'
@@ -133,7 +135,11 @@ export function showRightStageFilePreview(
   path: string,
   opts?: OpenRightStageFilePreviewOpts,
 ): string {
-  const id = normalizePathId(path)
+  // 修复被剥掉盘符的 Windows 绝对路径（``/dev/proj/x`` → ``D:/dev/proj/x``）。
+  // 否则右栏会用错误路径去读文件，表现为「文件预览打不开」。
+  const rawPath = String(path || '').trim()
+  const healed = healStrippedAbsolutePath(rawPath, getChatWorkspaceRoot() || '')
+  const id = normalizePathId(isAbsoluteHostPath(healed) ? healed : rawPath)
   const name = String(opts?.name || '').trim() || basename(id)
   const key = `file:${id}`
   const sessionKey = String(opts?.sessionKey || '').trim() || undefined

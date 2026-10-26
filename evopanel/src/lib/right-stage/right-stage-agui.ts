@@ -8,6 +8,7 @@ import { getPanelSetting } from '../panel-settings.js'
 import { isAutoWorkPreviewEnabled, normalizeWriteStreamMode } from './write-stream-mode.js'
 import { logPanelSet } from './panel-set-debug-log.js'
 import { isProgressStageKind, openProgressFromPanelSet } from './open-progress-from-panel-set.js'
+import { isXiaomiVoiceRightStageForeground } from '../xiaomi-voice/voice-right-stage-foreground.js'
 
 /** 写入面板是否允许被远端 / panel_set 自动拉开（跟随「自动打开工作预览」设置）。 */
 function mayAutoShowWritePanel(): boolean {
@@ -166,7 +167,15 @@ export function applyStageSetPayload(
     } else {
       hideRightStageIfKind('artifacts')
     }
-    dispatchStageSetApplied(payload)
+    // 必须带上事件归属会话：syncRemoteStageSet 要靠它解析产物路径（线程沙箱）
+    // 并决定文件签钉到哪个会话（小V语音全屏时归属 ≠ 当前 UI 会话）。
+    dispatchStageSetApplied({
+      action: payload.action,
+      surface: {
+        ...payload.surface,
+        sessionKey: payload.surface?.sessionKey || ownerSessionKey || undefined,
+      },
+    })
     return true
   }
   // 编辑/写入相关：未开「每次写入都打开」、且用户没在看写入面板时，忽略 AI panel_set 抢开
@@ -180,9 +189,12 @@ export function applyStageSetPayload(
     return false
   }
   const uiSessionKey = getCurrentRightStageSessionKey()
-  const isBackgroundOwner = Boolean(
-    ownerSessionKey && uiSessionKey && ownerSessionKey !== uiSessionKey,
-  )
+  // 小V语音全屏：事件归属小V会话，但右栏 UI 仍挂在主对话会话键上——
+  // 必须按前台写 live，否则 web-embed/file 等会话级 kind 会被冻进 memory 看不见。
+  const xiaomiVoiceFg = isXiaomiVoiceRightStageForeground(ownerSessionKey)
+  const isBackgroundOwner =
+    !xiaomiVoiceFg &&
+    Boolean(ownerSessionKey && uiSessionKey && ownerSessionKey !== uiSessionKey)
   if (isBackgroundOwner && scopeOfKind(kind) === 'session') {
     // 后台会话：只更新它自己的冻结记忆，绝不写当前 UI 的右栏。
     logPanelSet('① 后台会话：只写冻结记忆，不抢当前右栏', {
@@ -204,11 +216,15 @@ export function applyStageSetPayload(
     dispatchStageSetApplied(payload)
     return true
   }
-  logPanelSet('① 前台：applyRemote 写右栏', { kind, action })
+  logPanelSet('① 前台：applyRemote 写右栏', { kind, action, xiaomiVoiceFg })
+  // 语音全屏：归属钉到当前 UI 会话，避免 tab.sessionKey=小V 被 ChatApp 过滤掉
+  const stampSk = xiaomiVoiceFg
+    ? uiSessionKey || undefined
+    : ownerSessionKey || undefined
   rightStageStore.applyRemote({
     action,
-    surface: ownerSessionKey
-      ? { ...payload.surface, sessionKey: ownerSessionKey }
+    surface: stampSk
+      ? { ...payload.surface, sessionKey: stampSk }
       : payload.surface,
   })
   dispatchStageSetApplied(payload)

@@ -40,6 +40,9 @@
   --accent: #635bff;
   --accent-hover: #534bef;
   --accent-muted: rgba(99, 91, 255, 0.08);
+  /* 缺失 token：聊天底部 mode 菜单（含「完全访问」）active 项引用 --accent-soft，
+     此前未定义只能用 fallback（不随主题）；指向 --accent-muted 随浅/深自动变化 */
+  --accent-soft: var(--accent-muted);
   --accent-secondary: #635bff;
 
   --brand-blue: var(--accent);

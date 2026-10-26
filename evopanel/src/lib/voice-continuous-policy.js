@@ -14,16 +14,17 @@ const SILENCE_SEND_MS = (() => {
 /** 火山 final 常在句中就出：宽限内来新转写则取消快发 */
 const FAST_SEND_AFTER_FINAL_MS = 400
 
-// ─── 打断检测（对齐 bailongma/src/ui/brain-ui/voice-continuous.js） ───
+// ─── 打断检测（对齐 bailongma；Frame MSE 回声更重 → warmup 加长） ───
 const BARGEIN_THRESHOLD = 0.09
-const BARGEIN_WARMUP_MS = 600
+/** 白龙马 600ms；本端扬声器→麦泄漏更强，短 warmup 会在首秒误停播（日志 1s local-stop） */
+const BARGEIN_WARMUP_MS = 1500
 
 const DUCK_TRIGGER_FRAMES = 3
-const DUCK_SUSTAIN_FRAMES = 10
+const DUCK_SUSTAIN_FRAMES = 12
 const DUCK_DECAY_FRAMES = 6
 const DUCK_MAX_MS = 1500
-const ECHO_MARGIN_VOL = 0.025
-const ECHO_HARD_VOL = 0.16
+const ECHO_MARGIN_VOL = 0.035
+const ECHO_HARD_VOL = 0.2
 
 const BARGEIN_NO_SPEECH_MS = 3500
 
@@ -36,10 +37,11 @@ const BARGEIN_NO_SPEECH_MS = 3500
  *   stopTTS: () => void,
  *   onProcessing?: () => void,
  *   isPttHolding?: () => boolean,
+ *   canSend?: () => boolean,
  * }} opts
  */
 export function createContinuousPolicy(opts) {
-  const { getText, sendText, duckTTS, unduckTTS, stopTTS, onProcessing, isPttHolding } = opts
+  const { getText, sendText, duckTTS, unduckTTS, stopTTS, onProcessing, isPttHolding, canSend } = opts
 
   let autoSendTimer = null
   let lastTranscriptActivityTs = 0
@@ -56,6 +58,8 @@ export function createContinuousPolicy(opts) {
   let ttsStartTime = 0
 
   let bargeinNoSpeechTimer = null
+  /** canSend 延后重试次数，防止永久空转 */
+  let sendDeferTries = 0
 
   function cancelAutoSend() {
     if (autoSendTimer) {
@@ -75,8 +79,18 @@ export function createContinuousPolicy(opts) {
     cancelAutoSend()
     cancelFastSend()
     autoSendTimer = null
-    lastObservedText = ''
+    // 上一轮 chatSend 未结束：别清空转写、别进「处理中」空转；稍后重试
+    if (canSend && !canSend() && sendDeferTries < 80) {
+      sendDeferTries++
+      autoSendTimer = setTimeout(() => {
+        autoSendTimer = null
+        fireSend()
+      }, 400)
+      return
+    }
+    sendDeferTries = 0
     const text = (getText?.() || '').trim()
+    lastObservedText = ''
     if (text) {
       onProcessing?.()
       sendText(text)
@@ -234,6 +248,7 @@ export function createContinuousPolicy(opts) {
     clearNoSpeechTimer()
     lastObservedText = ''
     lastTranscriptActivityTs = 0
+    sendDeferTries = 0
     bargeinFrames = 0
     duckActive = false
     duckHighFrames = 0

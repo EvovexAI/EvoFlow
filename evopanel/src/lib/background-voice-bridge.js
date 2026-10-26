@@ -12,8 +12,14 @@ import { noteVoicePanelDisplay, noteVoicePanelSend } from './xiaomi-voice/voice-
 let voiceSendHandler = null
 /** @type {((text: string, opts?: { global?: boolean, xiaomi?: boolean }) => void | Promise<void>) | null} */
 let xiaomiVoiceSendHandler = null
-/** 防重锁：正在发送中就拒绝新请求，杜绝重复发消息 */
+/** 防重锁：chatSend 整轮 await 期间为 true（可能长达数十秒） */
 let isSending = false
+/**
+ * 常听下一句排队：chatSend 未结束时不能丢弃（旧逻辑直接 return → 转写已清、界面卡「处理中」）。
+ * 只保留最新一句（白龙马式一轮一发，后话覆盖前话）。
+ * @type {{ text: string, opts: Record<string, unknown> } | null}
+ */
+let _pendingVoiceSend = null
 
 // ─── 持续模式 / 全局 PTT partial 文字显示桥接 ───
 /** @type {((text: string) => void) | null} */
@@ -300,13 +306,24 @@ export async function sendVoiceTranscript(text, opts = {}) {
     if (useMeeting) throw new Error('会议室尚未就绪，请稍候再试')
     throw new Error('语音输入仅支持小V，请先唤醒小V')
   }
+  const payload = String(text || '').trim()
+  if (!payload) return
+
+  // 上一轮 chatSend 仍在飞：排队最新一句，绝不静默丢弃（多轮卡死根因）
   if (isSending) {
-    console.warn('[background-voice-bridge] 检测到重复发送请求，已拒绝！')
+    _pendingVoiceSend = { text: payload, opts: { ...opts } }
+    console.warn('[background-voice-bridge] 发送中 → 排队最新一句 len=', payload.length)
+    try {
+      const { voiceFeLog } = await import('./xiaomi-voice/voice-file-log.js')
+      voiceFeLog('会话', `发送中 → 排队最新一句：「${payload.slice(0, 40)}」`)
+    } catch {
+      /* ignore */
+    }
     return
   }
+
   isSending = true
   try {
-    const payload = String(text || '').trim()
     // 小V 发问由 sendXiaomiChat 统一记「发送」；此处只记会议室等其它路径，避免双行
     if (!useXiaomi) {
       noteVoicePanelSend(payload, {
@@ -321,5 +338,20 @@ export async function sendVoiceTranscript(text, opts = {}) {
     })
   } finally {
     isSending = false
+    const next = _pendingVoiceSend
+    _pendingVoiceSend = null
+    if (next?.text) {
+      void sendVoiceTranscript(next.text, next.opts || {})
+    }
   }
+}
+
+/** 常听策略：上一轮仍在飞时先别 fireSend（等排队槽或 finally 冲刷） */
+export function isVoiceSendBusy() {
+  return !!isSending
+}
+
+/** 退出语音时丢掉排队句，避免关掉后又发出去 */
+export function clearPendingVoiceSend() {
+  _pendingVoiceSend = null
 }

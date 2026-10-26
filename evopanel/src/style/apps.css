@@ -1,4 +1,48 @@
-/* 应用中心 — 偏 iOS / 饿了么：大圆角、轻阴影、清楚层级 */
+/* ???? ????iOS / ?????????????????*/
+
+/* ?? ??????app studio?????? ????????????????????????????
+ * ???? / ??????????????????#fff ??+ #e5e7eb ??+
+ * #0f172a/#64748b/#94a3b8 ????????????=????????? * ???????????????????????????? * ????html[data-theme='dark'] ????????????*/
+.page.apps-page,
+.app-run-prompt-overlay,
+.app-settings-overlay {
+  --app-studio-surface: #fff;
+  --app-studio-surface-2: #f8fafc;
+  --app-studio-surface-3: #f8f9fb;
+  --app-studio-surface-4: #f1f5f9;
+  --app-studio-surface-5: #eef2f7;
+  --app-studio-surface-6: #f3f4f6;
+  --app-studio-border: #e5e7eb;
+  --app-studio-border-soft: #eef0f3;
+  --app-studio-border-soft-2: #dbe1ea;
+  --app-studio-fg: #0f172a;
+  --app-studio-fg-2: #334155;
+  --app-studio-fg-3: #475569;
+  --app-studio-fg-muted: #64748b;
+  --app-studio-fg-weak: #94a3b8;
+  --app-studio-link: #2563eb;
+}
+
+html[data-theme='dark'] .page.apps-page,
+html[data-theme='dark'] .app-run-prompt-overlay,
+html[data-theme='dark'] .app-settings-overlay {
+  /* ????? theme-surfaces.css ????????--bg-secondary?????? */
+  --app-studio-surface: var(--bg-secondary, #0a0e15);
+  --app-studio-surface-2: var(--bg-secondary, #0a0e15);
+  --app-studio-surface-3: var(--bg-card, #0b101a);
+  --app-studio-surface-4: var(--bg-tertiary, #0f141d);
+  --app-studio-surface-5: color-mix(in srgb, var(--bg-tertiary, #0f141d) 80%, var(--bg-secondary, #0a0e15));
+  --app-studio-surface-6: var(--bg-secondary, #0a0e15);
+  --app-studio-border: var(--border-primary, rgba(255, 255, 255, 0.1));
+  --app-studio-border-soft: var(--border-secondary, rgba(255, 255, 255, 0.06));
+  --app-studio-border-soft-2: rgba(255, 255, 255, 0.14);
+  --app-studio-fg: var(--text-primary, #e8eef8);
+  --app-studio-fg-2: var(--text-secondary, #a8b0bf);
+  --app-studio-fg-3: var(--text-secondary, #a8b0bf);
+  --app-studio-fg-muted: var(--text-tertiary, #7d8aa0);
+  --app-studio-fg-weak: var(--text-tertiary, #7d8aa0);
+  --app-studio-link: var(--text-link, #60a5fa);
+}
 
 .page.apps-page {
   font-family: var(--font-sans);
@@ -365,7 +409,7 @@
   overflow: hidden;
 }
 
-/* 卡片底部主操作（仅已发布应用）：运行提升为一级入口 */
+/* ??????????????????????????*/
 .app-card-actions {
   display: flex;
   align-items: center;
@@ -396,7 +440,7 @@
   display: none;
 }
 
-/* 卡片底部时间（创建/更新）——与右下角「···」同一行 */
+/* ????????????????????���?????*/
 .app-card-footer {
   position: absolute;
   left: 16px;
@@ -540,7 +584,7 @@
   line-height: 1.4;
 }
 
-/* 从任务沉淀弹窗 */
+/* ??????? */
 .apps-from-task {
   display: flex;
   flex-direction: column;
@@ -620,7 +664,7 @@
   font-size: 13px;
 }
 
-/* 运行页：同一套圆角语言 */
+/* ??????????? */
 .app-run-page {
   font-family: var(--font-sans);
 }
@@ -636,7 +680,7 @@
   border-color: color-mix(in srgb, var(--border-primary) 70%, transparent) !important;
 }
 
-/* ── 调试运行填参弹窗（单栏） ── */
+/* ?? ???????????? ?? */
 .app-run-prompt-overlay {
   background: rgba(0, 0, 0, 0.45);
   backdrop-filter: none;
@@ -647,8 +691,8 @@
   max-width: min(680px, 94vw) !important;
   max-height: calc(100vh - 48px);
   padding: 0;
-  background: #fff;
-  border: 1px solid #e5e7eb;
+  background: var(--app-studio-surface);
+  border: 1px solid var(--app-studio-border);
   border-radius: 14px;
   overflow: hidden;
 }
@@ -656,7 +700,7 @@
 .modal.app-run-prompt-modal .modal-header {
   padding: 20px 24px 12px;
   margin-bottom: 0;
-  border-bottom: 1px solid #eef0f3;
+  border-bottom: 1px solid var(--app-studio-border-soft);
 }
 
 .modal.app-run-prompt-modal .modal-title {
@@ -677,8 +721,8 @@
 .modal.app-run-prompt-modal .modal-actions {
   margin: 0;
   padding: 14px 24px;
-  border-top: 1px solid #eef0f3;
-  background: #fff;
+  border-top: 1px solid var(--app-studio-border-soft);
+  background: var(--app-studio-surface);
 }
 
 .app-run-prompt {
@@ -693,14 +737,14 @@
   margin-bottom: 8px;
   font-size: var(--ef-text-sm) ;
   font-weight: 600;
-  color: #64748b;
+  color: var(--app-studio-fg-muted);
   letter-spacing: 0.02em;
 }
 
 .app-run-prompt-task-name {
   font-size: 15px;
   font-weight: 650;
-  color: #0f172a;
+  color: var(--app-studio-fg);
   line-height: 1.35;
   word-break: break-word;
 }
@@ -709,7 +753,7 @@
   margin: 8px 0 0;
   font-size: 13px;
   line-height: 1.55;
-  color: #64748b;
+  color: var(--app-studio-fg-muted);
   white-space: pre-wrap;
   word-break: break-word;
 }
@@ -728,14 +772,14 @@
   padding: 6px 0 0;
   font: inherit;
   font-size: var(--ef-text-sm) ;
-  color: #2563eb;
+  color: var(--app-studio-link);
   cursor: pointer;
 }
 
 .app-run-prompt-mode-value {
   font-size: var(--ef-text-base) ;
   font-weight: 550;
-  color: #0f172a;
+  color: var(--app-studio-fg);
 }
 
 .app-run-prompt-fields {
@@ -750,13 +794,13 @@
   margin-bottom: 14px;
   font-size: 13px;
   font-weight: 650;
-  color: #0f172a;
+  color: var(--app-studio-fg);
 }
 
 .app-run-prompt-fields-count {
   font-size: var(--ef-text-sm) ;
   font-weight: 500;
-  color: #64748b;
+  color: var(--app-studio-fg-muted);
 }
 
 .app-run-prompt-field {
@@ -773,7 +817,7 @@
 .app-run-prompt-label {
   font-size: 13px;
   font-weight: 600;
-  color: #0f172a;
+  color: var(--app-studio-fg);
 }
 
 .app-run-prompt-star {
@@ -783,22 +827,22 @@
 
 .app-run-prompt-key {
   font-size: var(--ef-text-sm) ;
-  color: #94a3b8;
+  color: var(--app-studio-fg-weak);
   line-height: 1.35;
 }
 
 .app-run-prompt-key code {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 11.5px;
-  color: #64748b;
-  background: #f1f5f9;
+  color: var(--app-studio-fg-muted);
+  background: var(--app-studio-surface-4);
   padding: 1px 5px;
   border-radius: 4px;
 }
 
 .app-run-prompt-hint {
   font-size: var(--ef-text-sm) ;
-  color: #94a3b8;
+  color: var(--app-studio-fg-weak);
   line-height: 1.35;
 }
 
@@ -806,9 +850,9 @@
   width: 100%;
   min-height: 40px;
   padding: 8px 12px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--app-studio-border);
   border-radius: 8px;
-  background: #fff;
+  background: var(--app-studio-surface);
   color: var(--text-primary);
   font-size: var(--ef-text-base) ;
   line-height: 1.4;
@@ -836,12 +880,12 @@ textarea.app-run-prompt-input {
   align-items: center;
   gap: 8px;
   font-size: 13px;
-  color: #475569;
+  color: var(--app-studio-fg-3);
   cursor: pointer;
   user-select: none;
 }
 
-/* ── 运行历史独立页 ── */
+/* ?? ?????????? */
 .page.apps-history-page {
   max-width: 1100px !important;
   width: 100%;
@@ -895,7 +939,7 @@ textarea.app-run-prompt-input {
   overflow: hidden;
 }
 
-/* Shared inspect: left nodes · split overview | trajectory */
+/* Shared inspect: left nodes � split overview | trajectory */
 .app-run-inspect {
   display: grid;
   grid-template-columns: minmax(180px, 220px) minmax(0, 1fr);
@@ -1307,7 +1351,7 @@ textarea.app-run-prompt-input {
   top: 12px;
 }
 
-/* display:flex 会覆盖原生 [hidden]，未选中记录时必须整块消失 */
+/* display:flex ??????[hidden]??????????????*/
 .apps-history-detail[hidden] {
   display: none !important;
 }
@@ -1490,7 +1534,7 @@ textarea.app-run-prompt-input {
   }
 }
 
-/* 应用设置 — 三模块布局 + 参数卡片 */
+/* ???? ??????? + ???? */
 .app-settings-overlay {
   background: rgba(0, 0, 0, 0.45);
   backdrop-filter: none;
@@ -1501,8 +1545,8 @@ textarea.app-run-prompt-input {
   max-width: 740px !important;
   max-height: calc(100vh - 48px);
   padding: 0;
-  background: #fff;
-  border: 1px solid #e5e7eb;
+  background: var(--app-studio-surface);
+  border: 1px solid var(--app-studio-border);
   border-radius: 14px;
   overflow: hidden;
 }
@@ -1510,13 +1554,13 @@ textarea.app-run-prompt-input {
 .app-settings-modal .modal-header {
   padding: 20px 24px 12px;
   margin-bottom: 0;
-  border-bottom: 1px solid #eef0f3;
+  border-bottom: 1px solid var(--app-studio-border-soft);
 }
 
 .app-settings-modal .modal-title {
   font-size: 18px;
   font-weight: 600;
-  color: #0f172a;
+  color: var(--app-studio-fg);
 }
 
 .app-settings-modal .modal-content-body {
@@ -1531,8 +1575,8 @@ textarea.app-run-prompt-input {
 .app-settings-modal .modal-actions {
   margin: 0;
   padding: 14px 24px;
-  border-top: 1px solid #eef0f3;
-  background: #fff;
+  border-top: 1px solid var(--app-studio-border-soft);
+  background: var(--app-studio-surface);
 }
 
 .app-settings {
@@ -1546,7 +1590,7 @@ textarea.app-run-prompt-input {
   margin: 0 0 16px;
   font-size: var(--ef-text-base) ;
   font-weight: 650;
-  color: #0f172a;
+  color: var(--app-studio-fg);
 }
 
 .app-settings-field {
@@ -1563,7 +1607,7 @@ textarea.app-run-prompt-input {
 .app-settings-label {
   font-size: 13px;
   font-weight: 600;
-  color: #334155;
+  color: var(--app-studio-fg-2);
 }
 
 .app-settings-req {
@@ -1586,7 +1630,7 @@ textarea.app-run-prompt-input {
 
 .app-settings-counter {
   font-size: var(--ef-text-sm) ;
-  color: #94a3b8;
+  color: var(--app-studio-fg-weak);
   text-align: right;
 }
 
@@ -1600,12 +1644,12 @@ textarea.app-run-prompt-input {
   padding: 0;
   font: inherit;
   font-size: 13px;
-  color: #475569;
+  color: var(--app-studio-fg-3);
   cursor: pointer;
 }
 
 .app-settings-fold-toggle:hover {
-  color: #0f172a;
+  color: var(--app-studio-fg);
 }
 
 .app-settings-fold-chevron {
@@ -1648,7 +1692,7 @@ textarea.app-run-prompt-input {
   padding: 14px 16px;
   border: 1.5px solid #e5e7eb;
   border-radius: 10px;
-  background: #fff;
+  background: var(--app-studio-surface);
   cursor: pointer;
   transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
 }
@@ -1660,31 +1704,31 @@ textarea.app-run-prompt-input {
 }
 
 .app-settings-mode-card.is-selected {
-  border-color: #2563eb;
-  background: #f8fafc;
+  border-color: var(--app-studio-link);
+  background: var(--app-studio-surface-2);
   box-shadow: 0 0 0 1px #2563eb;
 }
 
 .app-settings-mode-title {
   font-size: var(--ef-text-base) ;
   font-weight: 650;
-  color: #0f172a;
+  color: var(--app-studio-fg);
 }
 
 .app-settings-mode-card.is-selected .app-settings-mode-title::before {
-  content: '● ';
-  color: #2563eb;
+  content: '??';
+  color: var(--app-studio-link);
 }
 
 .app-settings-mode-card:not(.is-selected) .app-settings-mode-title::before {
-  content: '○ ';
-  color: #94a3b8;
+  content: '??';
+  color: var(--app-studio-fg-weak);
 }
 
 .app-settings-mode-desc {
   font-size: var(--ef-text-sm) ;
   line-height: 1.45;
-  color: #64748b;
+  color: var(--app-studio-fg-muted);
 }
 
 .app-settings-check {
@@ -1703,14 +1747,14 @@ textarea.app-run-prompt-input {
   display: block;
   font-size: var(--ef-text-base) ;
   font-weight: 550;
-  color: #0f172a;
+  color: var(--app-studio-fg);
 }
 
 .app-settings-check-desc {
   display: block;
   margin-top: 2px;
   font-size: var(--ef-text-sm) ;
-  color: #64748b;
+  color: var(--app-studio-fg-muted);
   line-height: 1.45;
 }
 
@@ -1729,14 +1773,14 @@ textarea.app-run-prompt-input {
 .app-params-title {
   font-size: var(--ef-text-base) ;
   font-weight: 650;
-  color: #0f172a;
+  color: var(--app-studio-fg);
 }
 
 .app-params-hint {
   margin: 4px 0 0;
   font-size: var(--ef-text-sm) ;
   line-height: 1.45;
-  color: #64748b;
+  color: var(--app-studio-fg-muted);
 }
 
 .app-params-list {
@@ -1747,24 +1791,24 @@ textarea.app-run-prompt-input {
 
 .app-params-empty {
   padding: 18px 14px;
-  border: 1px dashed #e5e7eb;
+  border: 1px dashed var(--app-studio-border);
   border-radius: 10px;
   font-size: 13px;
-  color: #94a3b8;
-  background: #f8f9fb;
+  color: var(--app-studio-fg-weak);
+  background: var(--app-studio-surface-3);
   text-align: center;
 }
 
 .app-param-card {
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--app-studio-border);
   border-radius: 10px;
-  background: #f8f9fb;
+  background: var(--app-studio-surface-3);
   overflow: visible;
 }
 
 .app-param-card.is-expanded {
-  background: #fff;
-  border-color: #dbe1ea;
+  background: var(--app-studio-surface);
+  border-color: var(--app-studio-border-soft-2);
 }
 
 .app-param-card-head {
@@ -1790,7 +1834,7 @@ textarea.app-run-prompt-input {
 .app-param-card-title {
   font-size: var(--ef-text-base) ;
   font-weight: 650;
-  color: #0f172a;
+  color: var(--app-studio-fg);
 }
 
 .app-param-badge {
@@ -1800,8 +1844,8 @@ textarea.app-run-prompt-input {
   border-radius: 999px;
   font-size: 11px;
   font-weight: 600;
-  color: #64748b;
-  background: #eef2f7;
+  color: var(--app-studio-fg-muted);
+  background: var(--app-studio-surface-5);
 }
 
 .app-param-badge--req {
@@ -1813,7 +1857,7 @@ textarea.app-run-prompt-input {
 .app-param-card-line {
   margin-top: 4px;
   font-size: var(--ef-text-sm) ;
-  color: #64748b;
+  color: var(--app-studio-fg-muted);
   line-height: 1.45;
   word-break: break-all;
 }
@@ -1835,14 +1879,14 @@ textarea.app-run-prompt-input {
   border-radius: 8px;
   font-size: 18px;
   line-height: 1;
-  color: #64748b;
+  color: var(--app-studio-fg-muted);
   cursor: pointer;
 }
 
 .app-param-more-btn:hover,
 .app-param-more.is-open .app-param-more-btn {
   background: rgba(15, 23, 42, 0.06);
-  color: #0f172a;
+  color: var(--app-studio-fg);
 }
 
 .app-param-more-panel {
@@ -1852,8 +1896,8 @@ textarea.app-run-prompt-input {
   min-width: 132px;
   padding: 6px;
   border-radius: 10px;
-  border: 1px solid #e5e7eb;
-  background: #fff;
+  border: 1px solid var(--app-studio-border);
+  background: var(--app-studio-surface);
   box-shadow: 0 10px 28px rgba(15, 23, 42, 0.12);
   z-index: 20;
 }
@@ -1869,12 +1913,12 @@ textarea.app-run-prompt-input {
   border-radius: 8px;
   font: inherit;
   font-size: 13px;
-  color: #0f172a;
+  color: var(--app-studio-fg);
   cursor: pointer;
 }
 
 .app-param-more-item:hover:not(:disabled) {
-  background: #f3f4f6;
+  background: var(--app-studio-surface-6);
 }
 
 .app-param-more-item:disabled {
@@ -1891,7 +1935,7 @@ textarea.app-run-prompt-input {
   flex-direction: column;
   gap: 14px;
   padding: 0 16px 16px;
-  border-top: 1px solid #eef0f3;
+  border-top: 1px solid var(--app-studio-border-soft);
   padding-top: 14px;
 }
 
@@ -1909,12 +1953,12 @@ textarea.app-run-prompt-input {
 .app-param-field-label {
   font-size: 13px;
   font-weight: 600;
-  color: #334155;
+  color: var(--app-studio-fg-2);
 }
 
 .app-param-field-hint {
   font-size: var(--ef-text-sm) ;
-  color: #94a3b8;
+  color: var(--app-studio-fg-weak);
   line-height: 1.35;
   margin-top: -2px;
 }
@@ -1924,13 +1968,13 @@ textarea.app-run-prompt-input {
   align-items: center;
   gap: 8px;
   font-size: 13px;
-  color: #334155;
+  color: var(--app-studio-fg-2);
   cursor: pointer;
 }
 
 .app-param-advanced {
   font-size: 13px;
-  color: #64748b;
+  color: var(--app-studio-fg-muted);
 }
 
 .app-param-advanced summary {
@@ -1946,7 +1990,7 @@ textarea.app-run-prompt-input {
 .app-params-dsl {
   margin-top: 14px;
   font-size: var(--ef-text-sm) ;
-  color: #94a3b8;
+  color: var(--app-studio-fg-weak);
 }
 
 .app-params-dsl summary {
@@ -1977,7 +2021,7 @@ textarea.app-run-prompt-input {
   }
 }
 
-/* ── 工作流列表：顶栏按钮与正文对比 ── */
+/* ?? ?????????????????? */
 .apps-page .page-header .page-usage-guide-btn,
 .apps-page .page-actions .btn-ghost {
   color: var(--text-primary);
@@ -1995,7 +2039,7 @@ textarea.app-run-prompt-input {
   color: color-mix(in srgb, var(--text-primary) 62%, var(--text-tertiary));
 }
 
-/* ── 暗色 / 液态：工作流列表页可读性（保持主色，勿降回 secondary） ── */
+/* ?? ?? / ????????????????????? secondary???? */
 html[data-theme='dark'] .apps-tip {
   background: color-mix(in srgb, var(--accent) 14%, var(--bg-secondary));
   border-color: color-mix(in srgb, var(--accent) 24%, var(--border-primary));

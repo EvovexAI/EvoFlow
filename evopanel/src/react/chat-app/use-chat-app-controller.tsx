@@ -2055,6 +2055,7 @@ export function useChatAppController() {
       evoflowInvokeGatewayJson,
       normalizeChatArtifacts,
       platformRunEntriesFromChatArtifacts,
+      wsClient,
     })
   }, [selectedSessionKey])
 

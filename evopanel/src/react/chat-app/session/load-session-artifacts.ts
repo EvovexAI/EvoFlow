@@ -37,7 +37,21 @@ export function runLoadSessionArtifactsEffect(
       ctx.turnPlatformEntriesRef.current = []
       ctx.setTurnPlatformEntries([])
       ctx.setSessionPlatformEntries(platformEntries)
-      ctx.setSessionArtifacts(all.filter((it: { type?: string }) => it.type !== 'platform'))
+      const files = all.filter((it: { type?: string }) => it.type !== 'platform')
+      // 产物路径补绝对路径（历史落库的相对路径同样要能打开）
+      void import('../../../lib/artifact-absolute-path.js')
+        .then((m) =>
+          m.withAbsoluteArtifactPaths(files, {
+            threadId: ctx.wsClient?.getSessionThreadId?.(sk),
+          }),
+        )
+        .then((absFiles: Array<Record<string, any>>) => {
+          if (cancelled) return
+          ctx.setSessionArtifacts(absFiles)
+        })
+        .catch(() => {
+          if (!cancelled) ctx.setSessionArtifacts(files)
+        })
     })
     .catch(() => {
       if (!cancelled) {

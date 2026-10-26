@@ -26,6 +26,7 @@ import { MarkdownTableVariantProvider } from "@zcode/ui/components/ai-elements/m
 import { AssistantCodeCommentFeatureProvider } from "@zcode/ui/AssistantCodeCommentFeatureProvider.js";
 import { TooltipProvider } from "@zcode/ui/components/ui/tooltip.js";
 import { ConversationTimeline } from "@zcode/ui/v4/ConversationTimeline.js";
+import { cn } from "@zcode/ui/components/lib/utils.js";
 import {
   replayThemeIntoBridgeRoots,
   useHostResolvedTheme,
@@ -541,6 +542,12 @@ export function V4ZCodeTimeline(props: {
    * 宿主负责逐个 show 进右侧面板并激活第一张。
    */
   onAutoOpenCodeViewers?: (sources: readonly CodeViewerSource[]) => void;
+  /**
+   * 显示面皮肤。default = 主对话 / 右栏（zcode token 卡片）；
+   * glass = 语音全屏右上角浮层（宿主明暗 + 玻璃底 + 更紧行距）。
+   * 只换皮肤，不换渲染管线：轮分组 / 流式 / 工具卡全部是同一套 V4 实现。
+   */
+  surface?: "default" | "glass";
 }): React.JSX.Element {
   const {
     payload,
@@ -560,6 +567,7 @@ export function V4ZCodeTimeline(props: {
     subagentTasks,
     onOpenSubagentTranscript,
     onAutoOpenCodeViewers,
+    surface = "default",
   } = props;
 
   // 桥接主题：本组件自挂 .zcode-bridge-root，但不走 StoreProvider。
@@ -1075,8 +1083,12 @@ export function V4ZCodeTimeline(props: {
         - bottomDock：输入区 sticky 在滚动视口底，与正文同轴
       */}
       <div
-        className="zcode-bridge-root @container/conversation relative flex h-full min-h-0 flex-1 flex-col"
+        className={cn(
+          "zcode-bridge-root @container/conversation relative flex h-full min-h-0 flex-1 flex-col",
+          surface === "glass" && "v4-surface-glass",
+        )}
         data-v4-embedded={embedded ? "true" : undefined}
+        data-v4-surface={surface}
       >
         <ServiceProvider services={partialServices}>
         <div className="relative flex min-h-0 flex-1 flex-col">

@@ -23,6 +23,8 @@ import { showRightStageFilePreview } from '../../../lib/right-stage/open-right-s
 import { isProgressStageKind } from '../../../lib/right-stage/open-progress-from-panel-set.js'
 import { logPanelSet, logRightStage } from '../../../lib/right-stage/panel-set-debug-log.js'
 import { rightStageStore } from '../../../lib/right-stage/right-stage-store.js'
+import { isXiaomiVoiceRightStageForeground } from '../../../lib/xiaomi-voice/voice-right-stage-foreground.js'
+import { withAbsoluteArtifactPaths } from '../../../lib/artifact-absolute-path.js'
 
 export type ChatWsOnEventCtx = Record<string, any>
 
@@ -552,8 +554,9 @@ export function createChatWsOnEventHandler(ctx: ChatWsOnEventCtx) {
         // 本轮产物只累计本 run 新增路径；勿把 thread 里历史 artifacts 灌进 turnRunArtifactsRef，
         // 否则纯 platform 操作也会在 RUN_FINISHED 误开「本轮产物」右栏。
         if (newArtifacts.length > 0) {
-          turnRunArtifactsRef.current = mergeChatArtifacts(
-            turnRunArtifactsRef.current,
+          // 产物路径补绝对本机路径（相对路径既看不懂也读不到）。
+          // 解析要打后端，故异步；解析失败保留原 path，不影响既有流程。
+          const absArtifactsPromise = withAbsoluteArtifactPaths(
             normalizeChatArtifacts(
               newArtifacts.map((path: string) => ({
                 type: 'file',
@@ -561,24 +564,34 @@ export function createChatWsOnEventHandler(ctx: ChatWsOnEventCtx) {
                 status: 'new' as const,
               })),
             ),
+            { threadId: wsClient.getSessionThreadId(evtSk || activeSk || '') },
           )
+          void absArtifactsPromise.then((absItems) => {
+            if (absItems.length) {
+              turnRunArtifactsRef.current = mergeChatArtifacts(
+                turnRunArtifactsRef.current,
+                absItems,
+              )
+            }
+          })
         }
 
         // 处理 artifacts：将文件路径转换为文件展示对象（流式进行中不写 stream/assistant，避免与写入预览叠卡）
         if (newArtifacts.length > 0) {
           const artifactItems = turnRunArtifactsRef.current
-          setSessionArtifacts((prev) =>
-            mergeChatArtifacts(
-              prev,
-              normalizeChatArtifacts(
-            newArtifacts.map((path: string) => ({
+          void withAbsoluteArtifactPaths(
+            normalizeChatArtifacts(
+              newArtifacts.map((path: string) => ({
                 type: 'file',
                 path,
-                  status: 'new',
-                })),
-              ),
+                status: 'new' as const,
+              })),
             ),
-          )
+            { threadId: wsClient.getSessionThreadId(evtSk || activeSk || '') },
+          ).then((absItems) => {
+            if (!absItems.length) return
+            setSessionArtifacts((prev) => mergeChatArtifacts(prev, absItems))
+          })
           publishArtifacts({
             focusId: artifactItems.find((it) => it.path === newArtifacts[0])?.id || '',
             hint: `本轮新增 ${newArtifacts.length} 个产物`,
@@ -1117,20 +1130,24 @@ export function createChatWsOnEventHandler(ctx: ChatWsOnEventCtx) {
 
       if (state === 'chat_artifacts') {
         const incoming = normalizeChatArtifacts((payload as { items?: unknown }).items)
+        const xiaomiVoiceFg = isXiaomiVoiceRightStageForeground(eventSk)
         try {
           console.log('[右栏·panel_set]', '⓪ SSE chat_artifacts', {
             isBackground: !!isBackground,
+            xiaomiVoiceFg,
             count: incoming.length,
             paths: incoming.map((it) => it.path || it.url || '(无)'),
           })
         } catch {
           /* ignore */
         }
-        if (incoming.length && !isBackground) {
+        // 小V语音全屏：事件 session 是小V，但仍复用本段主对话开文件预览逻辑
+        if (incoming.length && (!isBackground || xiaomiVoiceFg)) {
           const platformItems = incoming.filter((it) => it.type === 'platform')
           const fileItems = incoming.filter((it) => it.type !== 'platform')
+          const previewSk = xiaomiVoiceFg ? uiSk || undefined : targetSk || undefined
           // 平台工具落库后的直播：走「平台」tab，不要塞进产物
-          if (platformItems.length) {
+          if (platformItems.length && !isBackground) {
             const fromArtifacts = platformRunEntriesFromChatArtifacts(platformItems)
             if (fromArtifacts.length) {
               const merged = [...turnPlatformEntriesRef.current]
@@ -1150,51 +1167,67 @@ export function createChatWsOnEventHandler(ctx: ChatWsOnEventCtx) {
             }
           }
           if (fileItems.length) {
-            setSessionArtifacts((prev) => mergeChatArtifacts(prev, fileItems))
-            turnRunArtifactsRef.current = mergeChatArtifacts(turnRunArtifactsRef.current, fileItems)
-            const focusItem =
-              [...fileItems].reverse().find((it) => String(it.path || '').trim()) ||
-              fileItems[fileItems.length - 1]
-            const focusId = String(focusItem?.id || fileItems[fileItems.length - 1]?.id || '')
-            const focusPath = String(focusItem?.path || '').trim()
-            // panel_set(artifacts) 主路径是 SSE chat_artifacts；V4 下 TOOL_CALL_RESULT
-            // 常未进 applyStageSet，必须在这里直接开右侧文件预览，否则右栏无反应。
-            if (focusPath) {
-              // 工作流/节点/员工进度正开着时勿抢焦：只进产物列表，否则会表现为
-              // 「platform ui.show 工作流过一会儿被文件签顶掉 + 高亮 chunk 崩栏」。
-              const currentKind = String(rightStageStore.currentKind || '').trim()
-              const pinnedKind = String(rightStageUserPinnedRef?.current || '').trim()
-              if (isProgressStageKind(currentKind) || isProgressStageKind(pinnedKind)) {
-                logPanelSet('⓪ chat_artifacts 有 path 但进度面板优先 → 只写产物列表不抢焦', {
-                  path: focusPath,
-                  currentKind,
-                  pinnedKind,
-                })
-                publishArtifacts({ focusId, force: false })
-              } else {
-                logPanelSet('⓪ chat_artifacts 有本地 path → 打开右侧文件预览', {
-                  path: focusPath,
-                  name: focusItem?.name || focusItem?.label,
-                  sessionKey: targetSk || '(空)',
-                })
-                publishArtifacts({ focusId, force: false })
-                showRightStageFilePreview(focusPath, {
-                  name: String(focusItem?.name || focusItem?.label || '').trim() || undefined,
-                  sessionKey: targetSk || undefined,
-                  layout: 'half',
-                })
-                if (rightStageUserPinnedRef) rightStageUserPinnedRef.current = 'file'
-              }
-            } else {
-              const newCount =
-                fileItems.filter((x) => x.status !== 'updated').length || fileItems.length
-              logPanelSet('⓪ chat_artifacts 无本地 path → 仅状态卡', { focusId })
-              publishArtifacts({
-                focusId,
-                hint: `本轮新增 ${newCount} 个产物`,
-                force: true,
+            // 产物路径先补成绝对本机路径（相对/临时路径既看不懂也读不到）。
+            // 解析要打后端，故异步做；解析失败保留原 path 不影响既有流程。
+            void (async () => {
+              const absFileItems = await withAbsoluteArtifactPaths(fileItems, {
+                threadId: wsClient.getSessionThreadId(targetSk || uiSk || ''),
               })
-            }
+              if (!isBackground) {
+                setSessionArtifacts((prev) => mergeChatArtifacts(prev, absFileItems))
+                turnRunArtifactsRef.current = mergeChatArtifacts(
+                  turnRunArtifactsRef.current,
+                  absFileItems,
+                )
+              }
+              const focusItem =
+                [...absFileItems].reverse().find((it) => String(it.path || '').trim()) ||
+                absFileItems[absFileItems.length - 1]
+              const focusId = String(
+                focusItem?.id || absFileItems[absFileItems.length - 1]?.id || '',
+              )
+              const focusPath = String(focusItem?.path || '').trim()
+              // panel_set(artifacts) 主路径是 SSE chat_artifacts；V4 下 TOOL_CALL_RESULT
+              // 常未进 applyStageSet，必须在这里直接开右侧文件预览，否则右栏无反应。
+              if (focusPath) {
+                // 工作流/节点/员工进度正开着时勿抢焦：只进产物列表，否则会表现为
+                // 「platform ui.show 工作流过一会儿被文件签顶掉 + 高亮 chunk 崩栏」。
+                const currentKind = String(rightStageStore.currentKind || '').trim()
+                const pinnedKind = String(rightStageUserPinnedRef?.current || '').trim()
+                if (isProgressStageKind(currentKind) || isProgressStageKind(pinnedKind)) {
+                  logPanelSet('⓪ chat_artifacts 有 path 但进度面板优先 → 只写产物列表不抢焦', {
+                    path: focusPath,
+                    currentKind,
+                    pinnedKind,
+                  })
+                  if (!isBackground) publishArtifacts({ focusId, force: false })
+                } else {
+                  logPanelSet('⓪ chat_artifacts 有本地 path → 打开右侧文件预览', {
+                    path: focusPath,
+                    name: focusItem?.name || focusItem?.label,
+                    sessionKey: previewSk || '(空)',
+                    xiaomiVoiceFg,
+                  })
+                  if (!isBackground) publishArtifacts({ focusId, force: false })
+                  showRightStageFilePreview(focusPath, {
+                    name: String(focusItem?.name || focusItem?.label || '').trim() || undefined,
+                    sessionKey: previewSk,
+                    layout: 'half',
+                  })
+                  if (rightStageUserPinnedRef) rightStageUserPinnedRef.current = 'file'
+                }
+              } else if (!isBackground) {
+                const newCount =
+                  absFileItems.filter((x) => x.status !== 'updated').length ||
+                  absFileItems.length
+                logPanelSet('⓪ chat_artifacts 无本地 path → 仅状态卡', { focusId })
+                publishArtifacts({
+                  focusId,
+                  hint: `本轮新增 ${newCount} 个产物`,
+                  force: true,
+                })
+              }
+            })()
           }
         }
         return

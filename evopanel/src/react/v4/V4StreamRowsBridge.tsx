@@ -176,11 +176,22 @@ export function V4StreamRowsBridge(props: {
   const connectingSessionRef = useRef<string | null>(null);
 
   // 闸门权威：仅 ready（有快照）时闸 AG-UI TEXT_*；failed/connecting 必须放行正文。
+  // 幂等：只在「非 live → live」时 +1，「live → 非 live」时 -1，卸载时 -1。
+  // 快照每帧更新都会重跑这个 effect，若按帧 +1 会把引用计数撑爆。
+  const authorityRef = useRef<string | null>(null);
   useLayoutEffect(() => {
     const live = enabled && !!sessionId && !!snapshot;
-    publishV4DisplayAuthority({ threadId: live ? sessionId : null, live });
+    const tid = live ? sessionId! : null;
+    const prev = authorityRef.current;
+    if (prev === tid) return;
+    if (prev) publishV4DisplayAuthority({ threadId: prev, live: false });
+    if (tid) publishV4DisplayAuthority({ threadId: tid, live: true });
+    authorityRef.current = tid;
     return () => {
-      publishV4DisplayAuthority({ threadId: null, live: false });
+      if (authorityRef.current) {
+        publishV4DisplayAuthority({ threadId: authorityRef.current, live: false });
+        authorityRef.current = null;
+      }
     };
   }, [enabled, sessionId, snapshot]);
 

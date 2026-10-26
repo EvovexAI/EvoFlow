@@ -3461,7 +3461,7 @@ html.dark .xm-panel.xm-panel--dock {
   padding: 7px 10px;
   text-align: left;
   vertical-align: top;
-  border-bottom: 1px solid color-mix(in srgb, var(--border, #e5e7eb) 80%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--xm-stage-border, var(--border-primary, #e5e7eb)) 80%, transparent);
 }
 
 .xm-debug-table th {
@@ -3506,12 +3506,23 @@ body.xm-resizing {
 
 /* —— 小V right-stage 标签页内容（与 browser/file/workflow 同级） —— */
 .xm-stage-pane {
+  /* 普通小V标签页是 right-stage 面板，跟随宿主 surface；语音全屏由 .xws-root 独立着色。 */
+  --xm-stage-bg: var(--surface-base-bg, var(--bg-primary, #fff));
+  --xm-stage-fg: var(--surface-base-fg, var(--text-primary, #202124));
+  --xm-stage-border: var(--surface-raised-border, var(--border-primary, #e6e8ec));
   display: flex;
   flex-direction: column;
   min-height: 0;
   height: 100%;
   width: 100%;
   overflow: hidden;
+  background: var(--xm-stage-bg);
+  color: var(--xm-stage-fg);
+}
+
+/* 半透明/壁纸模式：面板本身已由玻璃层接管，小V页不再压一层实底挡住壁纸 */
+html[data-translucent-ui='1'] .xm-stage-pane {
+  background: transparent;
 }
 
 .xm-stage-toolbar {
@@ -3521,7 +3532,7 @@ body.xm-resizing {
   gap: 8px;
   flex: 0 0 auto;
   padding: 6px 10px;
-  border-bottom: 1px solid color-mix(in srgb, var(--border, #e5e7eb) 80%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--xm-stage-border, var(--border-primary, #e5e7eb)) 80%, transparent);
 }
 
 .xm-stage-toolbar-chips,
@@ -3540,7 +3551,7 @@ body.xm-resizing {
 
 .xm-stage-chip {
   appearance: none;
-  border: 1px solid color-mix(in srgb, var(--border, #e5e7eb) 90%, transparent);
+  border: 1px solid color-mix(in srgb, var(--xm-stage-border, var(--border, #e5e7eb)) 90%, transparent);
   background: transparent;
   color: inherit;
   font-size: 11px;
@@ -3551,7 +3562,7 @@ body.xm-resizing {
 }
 
 .xm-stage-chip:hover {
-  background: color-mix(in srgb, var(--fg, #111) 6%, transparent);
+  background: color-mix(in srgb, var(--xm-stage-fg, var(--text-primary, #111)) 6%, transparent);
 }
 
 .xm-stage-icon-btn {
@@ -3568,7 +3579,7 @@ body.xm-resizing {
 }
 
 .xm-stage-icon-btn:hover {
-  background: color-mix(in srgb, var(--fg, #111) 6%, transparent);
+  background: color-mix(in srgb, var(--xm-stage-fg, var(--text-primary, #111)) 6%, transparent);
 }
 
 .xm-stage-hist {
@@ -3585,9 +3596,10 @@ body.xm-resizing {
   max-height: 260px;
   overflow: auto;
   border-radius: 10px;
-  border: 1px solid color-mix(in srgb, var(--border, #e5e7eb) 90%, transparent);
-  background: var(--bg, #fff);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  border: 1px solid color-mix(in srgb, var(--xm-stage-border, var(--border, #e5e7eb)) 90%, transparent);
+  background: var(--surface-overlay-bg, var(--bg-elevated, #fff));
+  color: var(--surface-base-fg, var(--text-primary, #202124));
+  box-shadow: var(--surface-overlay-shadow, 0 8px 24px rgba(0, 0, 0, 0.12));
   padding: 6px;
 }
 
@@ -3620,7 +3632,7 @@ body.xm-resizing {
 
 .xm-stage-hist-item:hover,
 .xm-stage-hist-item.is-active {
-  background: color-mix(in srgb, var(--fg, #111) 6%, transparent);
+  background: color-mix(in srgb, var(--xm-stage-fg, var(--text-primary, #111)) 6%, transparent);
 }
 
 .xm-stage-hist-title {
@@ -3650,21 +3662,21 @@ body.xm-resizing {
   gap: 8px;
   flex: 0 0 auto;
   padding: 10px 12px 12px;
-  border-top: 1px solid color-mix(in srgb, var(--border, #e5e7eb) 80%, transparent);
+  border-top: 1px solid color-mix(in srgb, var(--xm-stage-border, var(--border, #e5e7eb)) 80%, transparent);
 }
 
 .xm-stage-composer-input {
   width: 100%;
   resize: none;
-  border: 1px solid color-mix(in srgb, var(--border, #e5e7eb) 90%, transparent);
+  border: 1px solid color-mix(in srgb, var(--xm-stage-border, var(--border, #e5e7eb)) 90%, transparent);
   border-radius: 10px;
   padding: 8px 10px;
   font: inherit;
   font-size: 13px;
   line-height: 1.4;
   /* 勿用未定义的 --bg（会落到 #fff）；对齐 dock 版 .xm-composer-input */
-  background: var(--bg-elevated, var(--bg-card, #fff));
-  color: var(--text-primary, inherit);
+  background: var(--surface-raised-bg, var(--bg-elevated, var(--bg-card, #fff)));
+  color: var(--xm-stage-fg, var(--text-primary, inherit));
   outline: none;
 }
 
@@ -3679,9 +3691,9 @@ body.xm-resizing {
 
 html[data-theme='dark'] .xm-stage-composer-input,
 html.dark .xm-stage-composer-input {
-  background: var(--bg-elevated, #1f1f24);
-  border-color: var(--border, #2e2e35);
-  color: var(--text-primary, #e8e8ea);
+  background: var(--surface-raised-bg, var(--bg-elevated, #1f1f24));
+  border-color: var(--xm-stage-border, var(--border, #2e2e35));
+  color: var(--xm-stage-fg, var(--text-primary, #e8e8ea));
 }
 
 html[data-theme='dark'] .xm-stage-composer-input::placeholder,
@@ -3691,24 +3703,24 @@ html.dark .xm-stage-composer-input::placeholder {
 
 html[data-theme='dark'] .xm-stage-hist-menu,
 html.dark .xm-stage-hist-menu {
-  background: var(--bg-elevated, #1f1f24);
-  border-color: var(--border, #2e2e35);
-  color: var(--text-primary, #e8e8ea);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  background: var(--surface-overlay-bg, var(--bg-elevated, #1f1f24));
+  border-color: var(--xm-stage-border, var(--border, #2e2e35));
+  color: var(--surface-base-fg, var(--text-primary, #e8e8ea));
+  box-shadow: var(--surface-overlay-shadow, 0 8px 24px rgba(0, 0, 0, 0.45));
 }
 
 html[data-theme='dark'] .xm-stage-chip,
 html.dark .xm-stage-chip {
-  border-color: rgba(255, 255, 255, 0.22);
-  background: rgba(255, 255, 255, 0.06);
-  color: #f0f2f5;
+  border-color: color-mix(in srgb, var(--xm-stage-border, #2e2e35) 90%, transparent);
+  background: color-mix(in srgb, var(--xm-stage-fg, #e8e8ea) 6%, transparent);
+  color: var(--xm-stage-fg, #f0f2f5);
 }
 
 html[data-theme='dark'] .xm-stage-chip:hover,
 html.dark .xm-stage-chip:hover {
-  background: rgba(255, 255, 255, 0.12);
-  border-color: rgba(255, 255, 255, 0.34);
-  color: #ffffff;
+  background: color-mix(in srgb, var(--xm-stage-fg, #e8e8ea) 12%, transparent);
+  border-color: color-mix(in srgb, var(--xm-stage-fg, #e8e8ea) 34%, transparent);
+  color: var(--xm-stage-fg, #ffffff);
 }
 
 html[data-theme='dark'] .xm-stage-chip.is-voice-enter,
@@ -3727,24 +3739,24 @@ html.dark .xm-stage-chip.is-voice-enter:hover {
 
 html[data-theme='dark'] .xm-stage-icon-btn,
 html.dark .xm-stage-icon-btn {
-  color: #e8eaed;
+  color: var(--xm-stage-fg, #e8eaed);
 }
 
 html[data-theme='dark'] .xm-stage-icon-btn:hover,
 html.dark .xm-stage-icon-btn:hover {
-  background: rgba(255, 255, 255, 0.1);
-  color: #ffffff;
+  background: color-mix(in srgb, var(--xm-stage-fg, #e8e8ea) 10%, transparent);
+  color: var(--xm-stage-fg, #ffffff);
 }
 
 html[data-theme='dark'] .xm-stage-toolbar,
 html.dark .xm-stage-toolbar {
-  border-bottom-color: rgba(255, 255, 255, 0.12);
-  color: #f0f2f5;
+  border-bottom-color: color-mix(in srgb, var(--xm-stage-border, #2e2e35) 80%, transparent);
+  color: var(--xm-stage-fg, #f0f2f5);
 }
 
 html[data-theme='dark'] .xm-stage-composer,
 html.dark .xm-stage-composer {
-  border-top-color: var(--border, #2e2e35);
+  border-top-color: color-mix(in srgb, var(--xm-stage-border, #2e2e35) 80%, transparent);
 }
 
 .xm-stage-composer-bar {
@@ -3761,7 +3773,7 @@ html.dark .xm-stage-composer {
   font-weight: 600;
   cursor: pointer;
   background: var(--accent, #6366f1);
-  color: #fff;
+  color: var(--text-inverse, #fff);
 }
 
 .xm-stage-send:disabled {

@@ -27,6 +27,16 @@
   --eval-green: var(--success);
   --eval-red: var(--danger);
   --eval-amber: var(--warn);
+  /* 语义底色（状态标签 / 进度槽 / 提示条）——浅色取值与原硬编码一致 */
+  --eval-tint-ok: #ecfdf5;
+  --eval-tint-err: #fef2f2;
+  --eval-tint-warn: #fef3c7;
+  --eval-tint-violet: #f5f3ff;
+  --eval-tint-rose: #fff1f2;
+  --eval-tint-neutral: #f3f4f6;
+  --eval-tint-subtle: #fafafa;
+  --eval-tint-code: #f3f4f6;
+  --eval-tint-amber-soft: #fff7ed;
   min-height: 100vh;
   display: flex;
   background: var(--bg);
@@ -34,6 +44,34 @@
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC",
     "Microsoft YaHei", sans-serif;
   -webkit-font-smoothing: antialiased;
+}
+
+/* 暗色：整个评测台跟随宿主明暗（此前整块写死浅色，深色下白底紫字割裂） */
+html[data-theme='dark'] .eval-root {
+  --primary: #a78bfa;
+  --primary-hover: #c4b5fd;
+  --primary-light: rgba(167, 139, 250, 0.16);
+  --accent: #fb7185;
+  --success: #34d399;
+  --warn: #fbbf24;
+  --danger: #f87171;
+  --bg: #0b0a14;
+  --card: #16141f;
+  --text: #ede9fe;
+  --text2: #a8a3b8;
+  --border: rgba(167, 139, 250, 0.16);
+  --shadow: 0 2px 12px rgba(0, 0, 0, 0.4);
+  --shadow-hover: 0 4px 20px rgba(0, 0, 0, 0.5);
+  --eval-border: rgba(255, 255, 255, 0.1);
+  --eval-tint-ok: rgba(52, 211, 153, 0.12);
+  --eval-tint-err: rgba(248, 113, 113, 0.12);
+  --eval-tint-warn: rgba(251, 191, 36, 0.12);
+  --eval-tint-violet: rgba(167, 139, 250, 0.12);
+  --eval-tint-rose: rgba(251, 113, 133, 0.12);
+  --eval-tint-neutral: rgba(255, 255, 255, 0.06);
+  --eval-tint-subtle: rgba(255, 255, 255, 0.04);
+  --eval-tint-code: rgba(255, 255, 255, 0.08);
+  --eval-tint-amber-soft: rgba(251, 191, 36, 0.12);
 }
 
 .eval-sidebar {
@@ -243,13 +281,13 @@
 }
 
 .eval-hero .eval-btn.primary {
-  background: #fff;
+  background: var(--card);
   color: var(--primary);
   box-shadow: none;
 }
 
 .eval-hero .eval-btn.primary:hover:not(:disabled) {
-  background: #f5f3ff;
+  background: var(--eval-tint-violet);
 }
 
 .eval-hero-badge {
@@ -349,7 +387,7 @@
   margin-bottom: 12px;
   padding: 12px 14px;
   border-radius: 12px;
-  background: #f3f4f6;
+  background: var(--eval-tint-neutral);
   color: var(--text);
   font-size: 14px;
   line-height: 1.5;
@@ -396,8 +434,8 @@
   align-items: flex-start;
   padding: 10px 12px;
   border-radius: 12px;
-  background: #fafafa;
-  border: 1px solid #eee;
+  background: var(--eval-tint-subtle);
+  border: 1px solid var(--eval-border);
 }
 
 .eval-emp-step.is-running {
@@ -406,12 +444,12 @@
 }
 
 .eval-emp-step.is-passed {
-  background: #ecfdf5;
+  background: var(--eval-tint-ok);
   border-color: rgba(16, 185, 129, 0.25);
 }
 
 .eval-emp-step.is-failed {
-  background: #fef2f2;
+  background: var(--eval-tint-err);
   border-color: rgba(220, 38, 38, 0.2);
 }
 
@@ -487,7 +525,7 @@
 .eval-table td {
   text-align: left;
   padding: 10px 12px;
-  border-bottom: 1px solid #f3f4f6;
+  border-bottom: 1px solid var(--eval-border);
 }
 
 .eval-table th {
@@ -511,16 +549,16 @@
 }
 
 .eval-badge.ok {
-  background: #d1fae5;
-  color: #065f46;
+  background: var(--eval-tint-ok);
+  color: var(--success);
 }
 .eval-badge.fail {
-  background: #fee2e2;
-  color: #dc2626;
+  background: var(--eval-tint-err);
+  color: var(--danger);
 }
 .eval-badge.warn {
-  background: #fef3c7;
-  color: #92400e;
+  background: var(--eval-tint-warn);
+  color: var(--warn);
 }
 .eval-badge.run {
   background: var(--primary-light);
@@ -528,9 +566,9 @@
 }
 
 .eval-error {
-  background: #fee2e2;
-  border: 1px solid #fecaca;
-  color: #dc2626;
+  background: var(--eval-tint-err);
+  border: 1px solid var(--eval-tint-err);
+  color: var(--danger);
   padding: 12px 14px;
   border-radius: var(--radius-btn);
   margin-bottom: 12px;
@@ -550,7 +588,7 @@
 }
 
 .eval-tab {
-  border: 1.5px solid #e5e7eb;
+  border: 1.5px solid var(--eval-border);
   background: var(--card);
   color: var(--text2);
   border-radius: var(--radius-tag);
@@ -575,7 +613,7 @@
 
 .eval-progress {
   height: 8px;
-  background: #e5e7eb;
+  background: var(--eval-border);
   border-radius: 99px;
   overflow: hidden;
   margin: 8px 0 16px;
@@ -618,21 +656,21 @@
 }
 
 .eval-case-block {
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--eval-border);
   border-radius: var(--radius-card);
   margin: 12px 0;
   overflow: hidden;
-  background: #fafafa;
+  background: var(--eval-tint-subtle);
   box-shadow: none;
 }
 
 .eval-case-block.is-ok {
-  background: #fff;
+  background: var(--card);
 }
 
 .eval-case-block.is-fail {
-  border-color: #fecaca;
-  background: #fffafa;
+  border-color: var(--eval-tint-err);
+  background: var(--eval-tint-err);
 }
 
 .eval-case-head {
@@ -656,7 +694,7 @@
 
 .eval-case-body {
   padding: 0 16px 16px;
-  border-top: 1px solid #f3f4f6;
+  border-top: 1px solid var(--eval-border);
 }
 
 .eval-case-body h4 {
@@ -706,7 +744,7 @@
 .eval-mini-pre {
   margin: 4px 0 0;
   padding: 10px 12px;
-  background: #f5f3ff;
+  background: var(--eval-tint-violet);
   border: 1px solid rgba(124, 58, 237, 0.12);
   border-radius: 10px;
   font-size: 11px;
@@ -715,7 +753,7 @@
   word-break: break-word;
   max-height: 220px;
   overflow: auto;
-  color: #3730a3;
+  color: var(--primary);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
@@ -798,8 +836,8 @@
   align-items: flex-start;
   gap: 4px;
   text-align: left;
-  border: 1.5px solid #e5e7eb;
-  background: #fff;
+  border: 1.5px solid var(--eval-border);
+  background: var(--card);
   border-radius: 14px;
   padding: 12px 14px;
   cursor: pointer;
@@ -830,15 +868,15 @@
 }
 
 .eval-module-chip.has-fail {
-  border-color: #fecaca;
+  border-color: var(--eval-tint-err);
 }
 
 .eval-module-chip.has-fail.active {
-  background: #fff1f2;
+  background: var(--eval-tint-rose);
 }
 
 .eval-module-chip.all-ok.active {
-  background: #ecfdf5;
+  background: var(--eval-tint-ok);
   border-color: #6ee7b7;
 }
 
@@ -902,19 +940,19 @@
 }
 
 .eval-table tr.eval-row-fail td {
-  background: #fff1f2;
+  background: var(--eval-tint-rose);
 }
 
 .eval-case-card {
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--eval-border);
   border-radius: 14px;
   margin: 10px 0;
-  background: #fff;
+  background: var(--card);
   overflow: hidden;
 }
 
 .eval-case-card.is-planned {
-  background: #fafafa;
+  background: var(--eval-tint-subtle);
   border-style: dashed;
 }
 
@@ -946,7 +984,7 @@
 
 .eval-case-card-body {
   padding: 0 14px 14px;
-  border-top: 1px solid #f3f4f6;
+  border-top: 1px solid var(--eval-border);
 }
 
 .eval-case-card-body h5 {

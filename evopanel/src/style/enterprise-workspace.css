@@ -350,8 +350,8 @@ html[data-theme='dark'] body .msg.msg-turn.msg-turn--user.msg-user .msg-bubble.m
 /* ---- Action / deliverable / platform result cards ---- */
 .msg-deliverable-card,
 .react-chat-platform-feedback-card {
-  background: #fafafb !important;
-  border: 1px solid #e7e8ec !important;
+  background: var(--surface-raised-bg, #fafafb) !important;
+  border: 1px solid var(--border-primary, #e7e8ec) !important;
   border-radius: 10px !important;
   box-shadow: none !important;
   padding: 10px 12px !important;
@@ -360,7 +360,7 @@ html[data-theme='dark'] body .msg.msg-turn.msg-turn--user.msg-user .msg-bubble.m
 .react-chat-platform-feedback-card--success,
 .react-chat-platform-feedback-card--warning,
 .react-chat-platform-feedback-card--error {
-  background: #fafafb !important;
+  background: var(--surface-raised-bg, #fafafb) !important;
 }
 
 .react-chat-platform-feedback-status--success {

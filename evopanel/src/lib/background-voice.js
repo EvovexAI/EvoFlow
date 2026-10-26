@@ -22,6 +22,7 @@ import {
 import {
   beginVoicePartialSession,
   endVoicePartialSession,
+  isVoiceSendBusy,
   isVoiceSendHandlerReady,
   isXiaomiVoiceSendHandlerReady,
   sendVoiceTranscript,
@@ -1081,11 +1082,16 @@ export async function toggleContinuousMode(opts = {}) {
   // Create the continuous policy（参数对齐白龙马 voice-continuous）
   continuousPolicy = createContinuousPolicy({
     getText: () => getContinuousTranscript(),
+    // chatSend 整轮占用 isSending 时先别 fire（由 bridge 排队 + 此处重试）
+    canSend: () => !isVoiceSendBusy(),
     sendText: (text) => {
+      const cleaned = String(text || '').trim()
+      if (!cleaned) return
+      // 真正出手后再清转写，避免「拒绝发送却已清空」导致卡死
       resetContinuousTranscript()
       _clearContinuousIdleTimer() // 用户已开口，等 AI 说完再重新计空闲
       _awaitingAssistantReply = true
-      void handleVoiceCommandText(text, { global: true })
+      void handleVoiceCommandText(cleaned, { global: true })
         .then(() => {
           // 本轮若无 TTS（播报关/短答无声），仍要重新挂空闲计时。
           // 等够长：工具轮常要几十秒；Frame 有会话时交给 notifyTTSStopped。
@@ -1176,7 +1182,10 @@ export async function toggleContinuousMode(opts = {}) {
         // Feed transcript to policy for auto-send timing
         continuousPolicy?.onTranscript()
         _armContinuousIdleTimer() // 有人说话 → 重置空闲
-        void setVoiceTrayState('recording')
+        // 等模型时别把「思考中」盖回聆听（舞台会跟着跳）
+        if (!_awaitingAssistantReply) {
+          void setVoiceTrayState('recording')
+        }
       },
       onFinal: () => {
         // 先刷转写计时（若 final 带来新文本则回静默计时），再挂快发：
@@ -1241,12 +1250,29 @@ export function notifyTTSStopped() {
     void recorder?.resumeFromTTS(false).catch(() => {})
   }
   continuousPolicy?.onTTSStop()
-  _awaitingAssistantReply = false
-  // 播报结束 → 回到持续聆听态（起止可感知），并重新计空闲退下
-  if (continuousModeEnabled && isContinuousCaptureActive() && !_continuousFarewellBusy) {
-    void setVoiceTrayState('recording')
-    _armContinuousIdleTimer()
-  }
+  // 本地停播（回声 barge）时模型可能仍在生成：勿清 awaiting，否则空闲计时/托盘会误以为轮次结束
+  void import('../components/global-assistant/assistant-store.js')
+    .then(({ getState }) => {
+      const stillStreaming = !!getState?.()?.streaming
+      if (!stillStreaming) {
+        _awaitingAssistantReply = false
+      }
+      if (!continuousModeEnabled || !isContinuousCaptureActive() || _continuousFarewellBusy) return
+      if (!stillStreaming) {
+        void setVoiceTrayState('recording')
+        _armContinuousIdleTimer()
+      } else {
+        // 仍在生成：保持 processing，允许用户继续说（排队到 send 空闲）
+        void setVoiceTrayState('processing')
+      }
+    })
+    .catch(() => {
+      _awaitingAssistantReply = false
+      if (continuousModeEnabled && isContinuousCaptureActive() && !_continuousFarewellBusy) {
+        void setVoiceTrayState('recording')
+        _armContinuousIdleTimer()
+      }
+    })
 }
 
 /**

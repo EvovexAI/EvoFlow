@@ -608,6 +608,12 @@ function syncXiaomiLiveFromAgui() {
   last.runId = _activeRunId || last.runId
   patchState({ messages: [...messages], streaming: true })
   if (openText) syncXiaomiVoiceSpeech(openText)
+  // 语音全屏无 V4 时间线：platform 结果在此旁路拉开右栏（文件/进度/浏览器）
+  if (Array.isArray(last.tools) && last.tools.length) {
+    void import('../../lib/xiaomi-voice/platform-auto-open.js')
+      .then((m) => m.maybeAutoOpenXiaomiPlatformTools?.(last.tools))
+      .catch(() => {})
+  }
 }
 
 /**
@@ -650,6 +656,11 @@ function patchXiaomiLiveProcess(patch) {
   last.pending = false
   last.streaming = true
   patchState({ messages: [...messages], streaming: true })
+  if (Array.isArray(last.tools) && last.tools.length) {
+    void import('../../lib/xiaomi-voice/platform-auto-open.js')
+      .then((m) => m.maybeAutoOpenXiaomiPlatformTools?.(last.tools))
+      .catch(() => {})
+  }
 }
 
 /** Append one assistant text piece (classic delta or AG-UI TEXT_MESSAGE_CONTENT). */

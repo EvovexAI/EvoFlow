@@ -1,0 +1,20 @@
+{
+  "background: #ecfdf5;": "background: var(--eval-tint-ok);",
+  "background: #fef2f2;": "background: var(--eval-tint-err);",
+  "background: #fef3c7;": "background: var(--eval-tint-warn);",
+  "background: #f5f3ff;": "background: var(--eval-tint-violet);",
+  "background: #fff1f2;": "background: var(--eval-tint-rose);",
+  "background: #f3f4f6;": "background: var(--eval-tint-neutral);",
+  "background: #fafafa;": "background: var(--eval-tint-subtle);",
+  "background: #ffffff;": "background: var(--card);",
+  "background: #fff;": "background: var(--card);",
+  "background: #e5e7eb;": "background: var(--eval-border);",
+  "border: 1px solid #e5e7eb;": "border: 1px solid var(--eval-border);",
+  "border: 1.5px solid #e5e7eb;": "border: 1.5px solid var(--eval-border);",
+  "background: #fffafa;": "background: var(--eval-tint-err);",
+  "color: #dc2626;": "color: var(--danger);",
+  "color: #92400e;": "color: var(--warn);",
+  "color: #64748b;": "color: var(--text2);",
+  "color: #6b7280;": "color: var(--text2);",
+  "color: #1e1b4b;": "color: var(--text);"
+}

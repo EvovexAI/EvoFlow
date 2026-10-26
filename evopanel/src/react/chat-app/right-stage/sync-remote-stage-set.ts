@@ -20,6 +20,9 @@ import {
   type ChatArtifact,
 } from '../../lib/chat-artifact.js'
 import { logPanelSet } from '../../../lib/right-stage/panel-set-debug-log.js'
+import { withAbsoluteArtifactPaths } from '../../../lib/artifact-absolute-path.js'
+import { isXiaomiVoiceRightStageForeground } from '../../../lib/xiaomi-voice/voice-right-stage-foreground.js'
+import { wsClient } from '../../../lib/ws-client.js'
 
 export type SyncRemoteStageSetCtx = {
   rightStageUserPinnedRef: { current: RightStageKind | null }
@@ -94,58 +97,77 @@ export function syncRemoteStageSet(ctx: SyncRemoteStageSetCtx, detail: StageSetP
       paths: incoming.map((it) => it.path || it.url || '(无路径)'),
     })
     if (incoming.length) {
-      ctx.turnRunArtifactsRef.current = mergeChatArtifacts(ctx.turnRunArtifactsRef.current, incoming)
-      ctx.setSessionArtifactsRef.current((prev) => mergeChatArtifacts(prev, incoming))
       const focusId = String(data.focusId || incoming[incoming.length - 1]?.id || '')
-      const focusFile = pickFocusArtifact(incoming, data)
       const titleHint = String(detail.surface?.title || '').trim() || undefined
-      if (focusFile?.path) {
-        const sk =
+      // 产物路径先补绝对本机路径：相对/临时路径既看不懂也读不到。
+      // 解析要打后端，故异步；失败时回退原始相对路径，既有流程不受影响。
+      void (async () => {
+        // 事件归属会话（可能是小V语音会话）：解析路径要用它自己的线程沙箱。
+        const ownerSk =
           String(detail.surface?.sessionKey || '').trim() ||
           getCurrentRightStageSessionKey() ||
-          undefined
-        const layout = coerceFileLayout(detail.surface?.layout) || 'half'
-        // 进度面板优先：只落产物列表，不抢工作流/节点/员工过程
-        const currentKind = String(rightStageStore.currentKind || '').trim()
-        const pinnedKind = String(ctx.rightStageUserPinnedRef.current || '').trim()
-        if (isProgressStageKind(currentKind) || isProgressStageKind(pinnedKind)) {
-          logPanelSet('② artifacts 有 path 但进度面板优先 → 只写列表不抢焦', {
-            path: focusFile.path,
-            currentKind,
-            pinnedKind,
-          })
-          ctx.publishArtifactsRef.current({ focusId, force: false })
-          ctx.scheduleBumpRef.current?.({ immediate: true })
+          ''
+        const absIncoming = await withAbsoluteArtifactPaths(incoming, {
+          threadId: ownerSk ? wsClient.getSessionThreadId(ownerSk) : undefined,
+        })
+        ctx.turnRunArtifactsRef.current = mergeChatArtifacts(
+          ctx.turnRunArtifactsRef.current,
+          absIncoming,
+        )
+        ctx.setSessionArtifactsRef.current((prev) => mergeChatArtifacts(prev, absIncoming))
+        const focusFile = pickFocusArtifact(absIncoming, data)
+        if (focusFile?.path) {
+          // 小V语音全屏：事件归属小V会话，但右栏 UI 挂在主对话会话键上——
+          // 文件签必须钉到当前 UI 会话，否则会被会话过滤掉（看着像「没打开」）。
+          const xiaomiVoiceFg = isXiaomiVoiceRightStageForeground(ownerSk)
+          const sk = xiaomiVoiceFg
+            ? getCurrentRightStageSessionKey() || undefined
+            : String(detail.surface?.sessionKey || '').trim() ||
+              getCurrentRightStageSessionKey() ||
+              undefined
+          const layout = coerceFileLayout(detail.surface?.layout) || 'half'
+          // 进度面板优先：只落产物列表，不抢工作流/节点/员工过程
+          const currentKind = String(rightStageStore.currentKind || '').trim()
+          const pinnedKind = String(ctx.rightStageUserPinnedRef.current || '').trim()
+          if (isProgressStageKind(currentKind) || isProgressStageKind(pinnedKind)) {
+            logPanelSet('② artifacts 有 path 但进度面板优先 → 只写列表不抢焦', {
+              path: focusFile.path,
+              currentKind,
+              pinnedKind,
+            })
+            ctx.publishArtifactsRef.current({ focusId, force: false })
+            ctx.scheduleBumpRef.current?.({ immediate: true })
+          } else {
+            logPanelSet('② 有本地 path → 调用 showRightStageFilePreview', {
+              path: focusFile.path,
+              name: focusFile.name || focusFile.label,
+              sessionKey: sk || '(空)',
+              layout,
+            })
+            // 先落列表（不 force 开状态卡，避免 collapseRightStage 打掉刚开的文件签）
+            ctx.publishArtifactsRef.current({
+              focusId,
+              force: false,
+            })
+            const tabKey = showRightStageFilePreview(String(focusFile.path).trim(), {
+              name: String(focusFile.name || focusFile.label || '').trim() || undefined,
+              sessionKey: sk,
+              layout,
+            })
+            logPanelSet('② showRightStageFilePreview 已返回', { tabKey })
+            ctx.rightStageUserPinnedRef.current = 'file'
+            ctx.scheduleBumpRef.current?.({ immediate: true })
+          }
         } else {
-          logPanelSet('② 有本地 path → 调用 showRightStageFilePreview', {
-            path: focusFile.path,
-            name: focusFile.name || focusFile.label,
-            sessionKey: sk || '(空)',
-            layout,
-          })
-          // 先落列表（不 force 开状态卡，避免 collapseRightStage 打掉刚开的文件签）
+          logPanelSet('② 无本地 path → force 打开状态卡产物 tab', { focusId, titleHint })
+          // 无本地 path（纯 url/文案）：仍 force 打开状态卡产物 tab
           ctx.publishArtifactsRef.current({
             focusId,
-            force: false,
+            force: true,
+            hint: titleHint,
           })
-          const tabKey = showRightStageFilePreview(String(focusFile.path).trim(), {
-            name: String(focusFile.name || focusFile.label || '').trim() || undefined,
-            sessionKey: sk,
-            layout,
-          })
-          logPanelSet('② showRightStageFilePreview 已返回', { tabKey })
-          ctx.rightStageUserPinnedRef.current = 'file'
-          ctx.scheduleBumpRef.current?.({ immediate: true })
         }
-      } else {
-        logPanelSet('② 无本地 path → force 打开状态卡产物 tab', { focusId, titleHint })
-        // 无本地 path（纯 url/文案）：仍 force 打开状态卡产物 tab
-        ctx.publishArtifactsRef.current({
-          focusId,
-          force: true,
-          hint: titleHint,
-        })
-      }
+      })()
     } else {
       logPanelSet('② artifacts items 为空，什么都没打开')
     }
