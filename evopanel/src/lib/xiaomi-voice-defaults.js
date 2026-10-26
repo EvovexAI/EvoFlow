@@ -13,9 +13,29 @@
 import { setPreferXiaomiVoice, isPreferXiaomiVoice } from './background-voice-bridge.js'
 import { isDebugOn } from './debug-flag.js'
 
-/** 里程碑日志（默认开，方便排查「唤醒后不播」） */
+/** 里程碑日志（默认开，方便排查「唤醒后不播」）；同时写入语音专用日志文件 */
 export function xiaomiVoiceLog(...args) {
   console.info('[xiaomi-voice]', ...args)
+  try {
+    const msg = args
+      .map((a) => {
+        if (a == null) return ''
+        if (typeof a === 'string') return a
+        try {
+          return JSON.stringify(a)
+        } catch {
+          return String(a)
+        }
+      })
+      .filter(Boolean)
+      .join(' ')
+    if (!msg) return
+    void import('./xiaomi-voice/voice-file-log.js').then(({ voiceFeLog }) => {
+      voiceFeLog('过程', msg)
+    })
+  } catch {
+    /* ignore */
+  }
 }
 
 /** 高频明细（默认关） */

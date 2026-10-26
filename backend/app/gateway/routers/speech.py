@@ -41,6 +41,8 @@ class SpeechTtsRequest(BaseModel):
     # TTS provider id. None / "volcengine" keeps backward-compatible behavior.
     # Supported: volcengine | doubao | dashscope | openai | elevenlabs | minimax
     provider: str | None = None
+    # 与前端语音播报日志对齐的 TRACE（一轮提问→播报）
+    trace_id: str | None = Field(default=None, max_length=64)
 
 
 @router.get("/status", response_model=SpeechStatusResponse)
@@ -71,6 +73,50 @@ async def speech_asr_validate(provider: str | None = None) -> dict:
     from app.gateway.speech.asr_registry import validate_asr_config
 
     return validate_asr_config(provider)
+
+
+class SpeechLogEntry(BaseModel):
+    stage: str = Field(default="前端", max_length=64)
+    message: str = Field(..., min_length=1, max_length=2000)
+    source: str | None = Field(default=None, max_length=32)
+    detail: str | None = Field(default=None, max_length=1000)
+    ts: str | None = None
+    trace: str | None = Field(default=None, max_length=64)
+
+
+class SpeechLogBatch(BaseModel):
+    source: str = Field(default="前端", max_length=32)
+    entries: list[SpeechLogEntry] = Field(default_factory=list)
+
+
+@router.get("/log/path")
+async def speech_log_path() -> dict:
+    """Where Xiaomi voice-playback logs are written today (语音播报/前端|后端)."""
+    from app.gateway.speech.voice_file_log import voice_log_path_today, voice_log_paths_today
+
+    paths = voice_log_paths_today()
+    fe = voice_log_path_today("前端")
+    be = voice_log_path_today("后端")
+    return {
+        "ok": True,
+        "dir": paths.get("dir"),
+        "path": str(be),
+        "frontend": str(fe),
+        "backend": str(be),
+        "exists": be.is_file() or fe.is_file(),
+    }
+
+
+@router.post("/log")
+async def speech_log_append(batch: SpeechLogBatch) -> dict:
+    """Frontend appends lines into 语音播报/前端-*.log."""
+    from app.gateway.speech.voice_file_log import voice_log_batch
+
+    count = voice_log_batch(
+        [e.model_dump() for e in (batch.entries or [])],
+        default_source=str(batch.source or "前端"),
+    )
+    return {"ok": True, "count": count}
 
 
 @router.websocket("/asr/stream")
@@ -174,6 +220,10 @@ async def speech_tts_validate(provider: str | None = None) -> dict:
 
 @router.post("/tts")
 async def speech_tts(body: SpeechTtsRequest) -> Response:
+    import time
+
+    from app.gateway.speech.voice_file_log import set_voice_trace, voice_playback_event
+
     provider = (body.provider or "").strip().lower() or "volcengine"
     text = body.text.strip()
     if not text:
@@ -188,6 +238,15 @@ async def speech_tts(body: SpeechTtsRequest) -> Response:
         )
     try:
         speaker = body.speaker.strip() if body.speaker else None
+        if body.trace_id:
+            set_voice_trace(body.trace_id)
+        voice_playback_event(
+            "语音合成",
+            text,
+            extra=f"HTTP /tts 开始 provider={provider}",
+            trace=body.trace_id,
+        )
+        t0 = time.perf_counter()
         if provider == "volcengine":
             # Native volcengine path (keeps exact prior behavior for volcengine).
             audio_bytes, used_speaker = synthesize_speech_v3(text, speaker=speaker, preview=body.preview)
@@ -200,7 +259,14 @@ async def speech_tts(body: SpeechTtsRequest) -> Response:
                 speaker=speaker,
                 preview=body.preview,
             )
+        ms = (time.perf_counter() - t0) * 1000
         digest = hashlib.md5(audio_bytes).hexdigest()[:12]
+        voice_playback_event(
+            "语音合成",
+            text,
+            extra=f"HTTP /tts 完成 bytes={len(audio_bytes)} cost={ms:.0f}ms digest={digest}",
+            trace=body.trace_id,
+        )
         return Response(
             content=audio_bytes,
             media_type="audio/mpeg",
@@ -223,6 +289,10 @@ async def speech_tts_stream(body: SpeechTtsRequest) -> StreamingResponse:
 
     Reduces first-byte latency vs the non-streaming /tts endpoint.
     """
+    import time
+
+    from app.gateway.speech.voice_file_log import set_voice_trace, voice_playback_event
+
     provider = (body.provider or "").strip().lower() or "volcengine"
     text = body.text.strip()
     if not text:
@@ -235,6 +305,15 @@ async def speech_tts_stream(body: SpeechTtsRequest) -> StreamingResponse:
         )
     try:
         speaker = body.speaker.strip() if body.speaker else None
+        if body.trace_id:
+            set_voice_trace(body.trace_id)
+        voice_playback_event(
+            "语音合成",
+            text,
+            extra=f"HTTP /tts/stream 开始 provider={provider}",
+            trace=body.trace_id,
+        )
+        t0 = time.perf_counter()
         if provider == "volcengine":
             # Native volcengine path (keeps exact prior behavior for volcengine).
             gen = synthesize_speech_v3_stream(text, speaker=speaker, preview=body.preview)
@@ -256,10 +335,28 @@ async def speech_tts_stream(body: SpeechTtsRequest) -> StreamingResponse:
         except StopAsyncIteration:
             raise HTTPException(status_code=502, detail="TTS returned empty audio") from None
 
+        first_ms = (time.perf_counter() - t0) * 1000
+        voice_playback_event(
+            "语音合成",
+            text,
+            extra=f"HTTP /tts/stream 首包 ttfb={first_ms:.0f}ms",
+            trace=body.trace_id,
+        )
+
         async def _out():
+            total = len(first) if isinstance(first, (bytes, bytearray)) else 0
             yield first
             async for chunk in aiter:
+                if isinstance(chunk, (bytes, bytearray)):
+                    total += len(chunk)
                 yield chunk
+            ms_all = (time.perf_counter() - t0) * 1000
+            voice_playback_event(
+                "语音合成",
+                text,
+                extra=f"HTTP /tts/stream 完成 bytes={total} cost={ms_all:.0f}ms",
+                trace=body.trace_id,
+            )
 
         return StreamingResponse(_out(), media_type="audio/mpeg")
     except HTTPException:

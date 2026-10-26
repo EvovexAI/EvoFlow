@@ -172,3 +172,35 @@ async def test_pipeline_start_end() -> None:
     assert any(isinstance(f, StartFrame) for f in out) or any(
         isinstance(f, LLMTextFrame) for f in out
     )
+
+
+@pytest.mark.asyncio
+async def test_interruption_delivered_once_per_processor() -> None:
+    """A barge-in must reach each station exactly once (no duplicate fan-out)."""
+    first = CollectProcessor("First")
+    second = CollectProcessor("Second")
+    pipe = Pipeline([first, second])
+    worker = PipelineWorker(pipe, idle_timeout_s=0)
+    await worker.start()
+    await worker.broadcast_interruption("barge_in")
+    await asyncio.sleep(0.1)
+    await worker.stop()
+
+    assert sum(isinstance(f, InterruptionFrame) for f in first.seen) == 1
+    assert sum(isinstance(f, InterruptionFrame) for f in second.seen) == 1
+
+
+@pytest.mark.asyncio
+async def test_interruption_cancels_whole_data_chain() -> None:
+    """Cancelling the newest task must also stop the older ones behind it."""
+    slow = SlowInterruptibleProcessor()
+    collect = CollectProcessor()
+    pipe = Pipeline([slow, collect])
+    worker = PipelineWorker(pipe, idle_timeout_s=0)
+    await worker.start()
+    await worker.push(AudioRawFrame(audio=b"\x00\x01" * 100))
+    await asyncio.wait_for(slow.started.wait(), timeout=1.0)
+    await worker.broadcast_interruption("barge_in")
+    await asyncio.sleep(0.2)
+    await worker.stop()
+    assert slow.cancelled, "in-flight data work must be cancelled by the barge-in"

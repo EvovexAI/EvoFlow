@@ -147,10 +147,21 @@ export function bindingToGlobalShortcut(binding) {
   return parts.join('+')
 }
 
+/** 语音舞台 / 全屏 UI 订阅：与 Tauri 托盘文案同源 */
+export const VOICE_TRAY_STATE_EVENT = 'evopanel:voice-tray-state'
+
 /**
  * @param {'idle' | 'recording' | 'processing' | 'running' | 'speaking'} state
  */
 export async function setVoiceTrayState(state) {
+  const next = String(state || 'idle')
+  try {
+    window.dispatchEvent(
+      new CustomEvent(VOICE_TRAY_STATE_EVENT, { detail: { state: next } }),
+    )
+  } catch {
+    /* ignore */
+  }
   if (!isTauri) return
   const labels = {
     idle: `${TRAY_BASE} · 待命`,
@@ -159,7 +170,7 @@ export async function setVoiceTrayState(state) {
     running: `${TRAY_BASE} · 执行中…`,
     speaking: `${TRAY_BASE} · 播报中…`,
   }
-  const text = labels[state] || labels.idle
+  const text = labels[next] || labels.idle
   try {
     const { invoke } = await import('@tauri-apps/api/core')
     await invoke('set_tray_tooltip', { text })
@@ -548,10 +559,9 @@ async function onWakeWordHit() {
     }
 
     if (volcReady && !continuousModeEnabled) {
-      // 连续模式路径：只播短 chime（非语音、280ms），省掉「在呢」播报 → 唤醒到开麦 <700ms。
-      // 连续模式里 TTS 期间 ASR 本就挂起 + 回声地板，无自听问题。
-      await acknowledgeWakeHit({ spoken: false })
-      await new Promise((r) => setTimeout(r, 350))
+      // 先口头「在呢」再开麦：用户明确知道已唤醒；ack 播完再采音，避免自听。
+      await acknowledgeWakeHit({ spoken: true })
+      await new Promise((r) => setTimeout(r, 200))
       const ok = await toggleContinuousMode({ onTrayState: (s) => setVoiceTrayState(s) })
       if (ok) return
       // 开启失败（未配置/未就绪）→ 回退单轮命令；runWebSpeechCommandTurn 的 finally 会恢复唤醒耳。
@@ -559,8 +569,9 @@ async function onWakeWordHit() {
     } else if (!volcReady) {
       await acknowledgeWakeHit({ spoken: true })
     } else {
-      // 已在连续模式：再喊一次只做轻提示，不打断既有会话状态机。
-      await acknowledgeWakeHit({ spoken: false })
+      // 已在连续模式：再喊一次仍口头回应，并拉回聆听态。
+      await acknowledgeWakeHit({ spoken: true })
+      void setVoiceTrayState('recording')
       return
     }
 
@@ -575,6 +586,13 @@ async function onWakeWordHit() {
  * Toast + earcon + short spoken ack; waits until speech ends so ASR won't hear itself.
  * @param {{ spoken?: boolean }} [opts] spoken=false 时只播 chime（连续模式路径，快）
  */
+/** 最近一次唤醒口头 ack 时间；用于跳过 send 后再播一遍确认语 */
+let _lastWakeSpokenAckAt = 0
+
+export function wasWakeSpokenAckRecent(withinMs = 5000) {
+  return _lastWakeSpokenAckAt > 0 && Date.now() - _lastWakeSpokenAckAt < withinMs
+}
+
 async function acknowledgeWakeHit(opts = {}) {
   const spoken = opts.spoken !== false
   try {
@@ -588,12 +606,18 @@ async function acknowledgeWakeHit(opts = {}) {
     if (spoken) {
       const { playWakeListeningAck } = await import('./wake-ack.js')
       await playWakeListeningAck()
+      _lastWakeSpokenAckAt = Date.now()
     } else {
       const { playWakeChime } = await import('./wake-ack.js')
       await playWakeChime()
     }
   } catch (e) {
     console.warn('[background-voice] wake ack failed:', e?.message || e)
+  } finally {
+    // ack 结束：若已在常听则回「聆听中」，否则先 idle，等 continuous 启动再 recording
+    if (continuousModeEnabled && isContinuousCaptureActive()) {
+      void setVoiceTrayState('recording')
+    }
   }
 }
 
@@ -702,6 +726,88 @@ let continuousPolicy = null
 let continuousModeEnabled = false
 /** @type {((state: 'idle' | 'recording' | 'processing' | 'running' | 'speaking') => void) | null} */
 let continuousTrayStateCb = null
+/** 常听空闲：长时间无人说话 → 播「先退下了」并关麦 */
+/** @type {ReturnType<typeof setTimeout> | null} */
+let _continuousIdleTimer = null
+/** 正在播退下语，避免空闲计时重入 */
+let _continuousFarewellBusy = false
+/** continuous stopTTS 日志节流 */
+let _continuousLastStopTtsAt = 0
+
+/** 默认 20s；可用 localStorage `evoflow-voice-idle-farewell-ms` 覆盖（≥10000） */
+function _continuousIdleFarewellMs() {
+  try {
+    const v = parseInt(localStorage.getItem('evoflow-voice-idle-farewell-ms') || '', 10)
+    if (Number.isFinite(v) && v >= 10000) return v
+  } catch {
+    /* ignore */
+  }
+  return 20000
+}
+
+function _clearContinuousIdleTimer() {
+  if (_continuousIdleTimer) {
+    clearTimeout(_continuousIdleTimer)
+    _continuousIdleTimer = null
+  }
+}
+
+function _armContinuousIdleTimer() {
+  _clearContinuousIdleTimer()
+  if (!continuousModeEnabled || _continuousFarewellBusy) return
+  const ms = _continuousIdleFarewellMs()
+  _continuousIdleTimer = setTimeout(() => {
+    _continuousIdleTimer = null
+    void _runContinuousIdleFarewell()
+  }, ms)
+}
+
+/**
+ * 空闲退下：播固定音效 → 关闭常听（唤醒耳恢复）。
+ */
+async function _runContinuousIdleFarewell() {
+  if (!continuousModeEnabled || _continuousFarewellBusy) return
+  _continuousFarewellBusy = true
+  _clearContinuousIdleTimer()
+  try {
+    void setVoiceTrayState('speaking')
+    try {
+      const { toast } = await import('../components/toast.js')
+      toast('小V先退下了', 'info')
+    } catch {
+      /* ignore */
+    }
+    notifyTTSStarted()
+    try {
+      const { playFixedVoiceSfx, VOICE_FAREWELL_LINE } = await import('./voice-fixed-sfx.js')
+      await playFixedVoiceSfx(VOICE_FAREWELL_LINE)
+    } catch (e) {
+      console.warn('[background-voice] idle farewell failed:', e?.message || e)
+    }
+  } finally {
+    try {
+      // 关掉常听并恢复唤醒耳（勿走 notifyTTSStopped，否则会重新 arm 空闲计时）
+      if (continuousModeEnabled) {
+        continuousModeEnabled = false
+        continuousPolicy?.reset()
+        continuousPolicy = null
+        try {
+          const { clearTTSNotifyCallbacks } = await import('./voice-reply-speech.js')
+          clearTTSNotifyCallbacks()
+        } catch {
+          /* ignore */
+        }
+        await stopContinuousCapture()
+        setPreferXiaomiVoice(false)
+        void setVoiceTrayState('idle')
+        void resumeWakeEarAfterContinuous()
+      }
+    } catch (e) {
+      console.warn('[background-voice] idle farewell stop failed:', e?.message || e)
+    }
+    _continuousFarewellBusy = false
+  }
+}
 
 export function isContinuousModeActive() {
   return continuousModeEnabled && isContinuousCaptureActive()
@@ -718,12 +824,19 @@ export async function toggleContinuousMode(opts = {}) {
 
   if (continuousModeEnabled) {
     // Turn OFF
+    _clearContinuousIdleTimer()
     continuousModeEnabled = false
     continuousPolicy?.reset()
     continuousPolicy = null
     try {
       const { clearTTSNotifyCallbacks } = await import('./voice-reply-speech.js')
       clearTTSNotifyCallbacks()
+    } catch {
+      /* ignore */
+    }
+    try {
+      const { stopXiaomiFrameSession } = await import('./xiaomi-voice/index.js')
+      stopXiaomiFrameSession()
     } catch {
       /* ignore */
     }
@@ -755,6 +868,28 @@ export async function toggleContinuousMode(opts = {}) {
   // Free wake-word mic while continuous ASR owns capture.
   await pauseWakeEarForContinuous()
 
+  // 预热「在呢 / 先退下了」等固定句（IndexedDB 复用，不每次打 TTS）
+  try {
+    const { prefetchFixedVoiceSfxLines } = await import('./voice-fixed-sfx.js')
+    prefetchFixedVoiceSfxLines()
+  } catch {
+    /* ignore */
+  }
+
+  // Pipecat：预连 Frame session（只占 WS 做分句 TTS，麦仍归 continuous ASR）
+  try {
+    const { connectXiaomiFrameSession, isXiaomiFrameSessionActive } = await import(
+      './xiaomi-voice/index.js',
+    )
+    if (!isXiaomiFrameSessionActive()) {
+      void connectXiaomiFrameSession().then((ws) => {
+        if (ws) console.info('[background-voice] Frame session ready for continuous TTS')
+      })
+    }
+  } catch (e) {
+    console.warn('[background-voice] Frame session prefetch failed:', e?.message || e)
+  }
+
   // Wire TTS start/stop → barge-in + suspend/resume ASR during playback.
   try {
     const { setTTSNotifyCallbacks } = await import('./voice-reply-speech.js')
@@ -771,9 +906,24 @@ export async function toggleContinuousMode(opts = {}) {
     getText: () => getContinuousTranscript(),
     sendText: (text) => {
       resetContinuousTranscript()
-      void handleVoiceCommandText(text, { global: true }).catch(() => {
-        void setVoiceTrayState('idle')
-      })
+      _clearContinuousIdleTimer() // 用户已开口，等 AI 说完再重新计空闲
+      void handleVoiceCommandText(text, { global: true })
+        .then(() => {
+          // 本轮若无 TTS（播报关/短答无声），仍要重新挂空闲计时
+          window.setTimeout(() => {
+            if (!continuousModeEnabled || _continuousFarewellBusy) return
+            void import('./speech-client.js')
+              .then(({ isAssistantSpeaking, isSpeechPlaybackBusy }) => {
+                if (isAssistantSpeaking() || isSpeechPlaybackBusy()) return
+                _armContinuousIdleTimer()
+              })
+              .catch(() => _armContinuousIdleTimer())
+          }, 12000)
+        })
+        .catch(() => {
+          void setVoiceTrayState('idle')
+          _armContinuousIdleTimer()
+        })
     },
     duckTTS: () => {
       import('./speech-client.js').then(({ duckTTS }) => duckTTS())
@@ -782,7 +932,23 @@ export async function toggleContinuousMode(opts = {}) {
       import('./speech-client.js').then(({ unduckTTS }) => unduckTTS())
     },
     stopTTS: () => {
-      // Barge-in: stop playback; idle hook / notifyTTSStopped resumes ASR.
+      // Barge-in：停播。正文已走 Frame，必须 barge Frame；legacy stopTTS 只清本地 Audio。
+      const now = Date.now()
+      if (!_continuousLastStopTtsAt || now - _continuousLastStopTtsAt > 400) {
+        _continuousLastStopTtsAt = now
+        void import('./xiaomi-voice/voice-file-log.js')
+          .then(({ voiceFeLog }) =>
+            voiceFeLog('打断', 'continuous 判定用户开口，停止 TTS（Frame barge + legacy pause）'),
+          )
+          .catch(() => {})
+        void import('./xiaomi-voice/index.js')
+          .then(({ bargeInXiaomiFrame, isXiaomiFrameSessionActive }) => {
+            if (isXiaomiFrameSessionActive()) {
+              bargeInXiaomiFrame({ reason: 'continuous-barge-in' })
+            }
+          })
+          .catch(() => {})
+      }
       void import('./speech-client.js').then(({ stopTTS }) => stopTTS())
       const recorder = getContinuousRecorder()
       if (recorder?.suspendedByTTS) {
@@ -790,6 +956,7 @@ export async function toggleContinuousMode(opts = {}) {
       }
     },
     onProcessing: () => {
+      _clearContinuousIdleTimer()
       void setVoiceTrayState('processing')
     },
     // PTT 门控：PTT 按住期间禁用持续模式的自动发送
@@ -803,6 +970,7 @@ export async function toggleContinuousMode(opts = {}) {
         updateVoicePartialText(text)
         // Feed transcript to policy for auto-send timing
         continuousPolicy?.onTranscript()
+        _armContinuousIdleTimer() // 有人说话 → 重置空闲
         void setVoiceTrayState('recording')
       },
       onFinal: () => {
@@ -810,6 +978,7 @@ export async function toggleContinuousMode(opts = {}) {
         // 火山 final 是强"说完了"信号 → 400ms 宽限后发（期间来新转写会被取消）。
         continuousPolicy?.onTranscript()
         continuousPolicy?.onFinal()
+        _armContinuousIdleTimer()
       },
       onFrame: (vol) => {
         // Feed mic volume to policy for barge-in detection
@@ -819,9 +988,12 @@ export async function toggleContinuousMode(opts = {}) {
         console.warn('[continuous] error', err)
       },
     })
-    void setVoiceTrayState('idle')
+    // 常开聆听：启动后保持「录音中」，让语音舞台持续显示「正在聆听」
+    void setVoiceTrayState('recording')
+    _armContinuousIdleTimer()
     return true
   } catch (e) {
+    _clearContinuousIdleTimer()
     continuousModeEnabled = false
     continuousPolicy = null
     try {
@@ -843,11 +1015,13 @@ export async function toggleContinuousMode(opts = {}) {
  * 挂起持续监听的 ASR（只断 WS 不断 mic，开启打断预缓冲）。
  */
 export function notifyTTSStarted() {
+  _clearContinuousIdleTimer() // AI 说话期间不计空闲
   const recorder = getContinuousRecorder()
   if (recorder?.recording || recorder?.suspendedByTTS) {
     recorder?.suspendForTTS()
   }
   continuousPolicy?.onTTSStart()
+  if (continuousModeEnabled) void setVoiceTrayState('speaking')
 }
 
 /**
@@ -861,6 +1035,11 @@ export function notifyTTSStopped() {
     void recorder?.resumeFromTTS(false).catch(() => {})
   }
   continuousPolicy?.onTTSStop()
+  // 播报结束 → 回到持续聆听态（起止可感知），并重新计空闲退下
+  if (continuousModeEnabled && isContinuousCaptureActive() && !_continuousFarewellBusy) {
+    void setVoiceTrayState('recording')
+    _armContinuousIdleTimer()
+  }
 }
 
 /**
@@ -899,11 +1078,12 @@ export async function handleVoiceCommandText(text, opts = {}) {
     return 'tts_stopped'
   }
 
-  // Speaking over the assistant → interrupt TTS before sending the new turn.
+  // Speaking over the assistant → 停当前播放并清空队列，再发新一轮。
+  // 用 stopAll；但 continuous 回声误触应走 stopTTS（保留队列），此处是确认要发新 turn。
   try {
     const { isSpeechPlaybackBusy, stopAllAssistantSpeech } = await import('./speech-client.js')
     if (isSpeechPlaybackBusy()) {
-      stopAllAssistantSpeech()
+      stopAllAssistantSpeech({ reason: 'voice-command-new-turn' })
       notifyTTSStopped()
     }
   } catch {
@@ -944,6 +1124,7 @@ export async function pauseConversationListening(opts = {}) {
   }
 
   if (continuousModeEnabled) {
+    _clearContinuousIdleTimer()
     continuousModeEnabled = false
     continuousPolicy?.reset()
     continuousPolicy = null
@@ -995,6 +1176,7 @@ export function resetAllVoiceState() {
     /* ignore */
   }
   // Also stop continuous mode if active
+  _clearContinuousIdleTimer()
   if (continuousModeEnabled) {
     continuousModeEnabled = false
     continuousPolicy?.reset()
@@ -1016,6 +1198,7 @@ export function teardownBackgroundVoiceCapture() {
   pttController?.reset()
   stopVoiceDemo()
   cancelVoiceCapture()
+  _clearContinuousIdleTimer()
   if (continuousModeEnabled) {
     continuousModeEnabled = false
     continuousPolicy?.reset()

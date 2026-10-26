@@ -14,10 +14,16 @@ import {
 import {
   startVoicePtt,
   stopVoicePtt,
-  toggleContinuousMode,
-  isContinuousModeActive,
   stopAssistantVoicePlayback,
+  VOICE_TRAY_STATE_EVENT,
+  isConversationListeningActive,
 } from '../../../lib/background-voice.js'
+import {
+  toggleXiaomiFramePipeline,
+  isXiaomiFramePipelineActive,
+  stopXiaomiFramePipeline,
+  interruptXiaomiFrame,
+} from '../../../lib/xiaomi-voice/index.js'
 import { onSpeakingChange } from '../../../lib/speech-client.js'
 import { subscribeVoiceLevels } from '../../../lib/voice-capture-service.js'
 import { showRightStageBrowserUrl } from '../../../lib/right-stage/open-right-stage-browser.js'
@@ -29,8 +35,8 @@ type StageState = 'idle' | 'listen' | 'parse' | 'think' | 'speak'
 
 /** 左下状态大字（参考「艾薇正在说话」的临场文案） */
 const STATE_TITLE: Record<StageState, { title: string; sub: string; en: string }> = {
-  idle: { title: '小V 待命中', sub: '按住语音键说话，或开启免提连续对话', en: 'STANDBY' },
-  listen: { title: '小V 正在聆听', sub: '请讲，我在听', en: 'LISTENING' },
+  idle: { title: '小V 待命中', sub: '说「小V小V」唤醒，或按住语音键说话', en: 'STANDBY' },
+  listen: { title: '小V 正在聆听', sub: '请讲 · 我说完后会自动回复', en: 'LISTENING' },
   parse: { title: '小V 正在识别', sub: '整理你刚说的话', en: 'PARSING' },
   think: { title: '小V 正在思考', sub: '查名册、看进度、派任务…', en: 'THINKING' },
   speak: { title: '小V 正在播报', sub: '再次按下语音键即可打断', en: 'SPEAKING' },
@@ -64,7 +70,7 @@ export function XiaomiVoiceStage() {
   const [reply, setReply] = useState('')
   const [handsfree, setHandsfree] = useState(() => {
     try {
-      return isContinuousModeActive()
+      return isXiaomiFramePipelineActive()
     } catch {
       return false
     }
@@ -79,7 +85,13 @@ export function XiaomiVoiceStage() {
   const [sessionKey, setSessionKey] = useState('')
 
   /** 语音链路实时量（不参与渲染，事件/回调内读写） */
-  const liveRef = useRef({ session: false, speaking: false, streaming: false, tray: '' })
+  const liveRef = useRef({
+    session: false,
+    speaking: false,
+    streaming: false,
+    tray: '',
+    continuousListen: false,
+  })
   const parseHoldRef = useRef(false)
   const heldRef = useRef(false)
   const stateSinceRef = useRef(0)
@@ -97,9 +109,17 @@ export function XiaomiVoiceStage() {
   const derive = useCallback(() => {
     const l = liveRef.current
     const tray = String(l.tray || '')
+    let continuous = false
+    try {
+      continuous = isConversationListeningActive()
+    } catch {
+      continuous = !!l.continuousListen
+    }
+    l.continuousListen = continuous
     let next: StageState = 'idle'
-    if (l.session || tray === 'recording') next = 'listen'
-    else if (l.speaking || tray === 'speaking') next = 'speak'
+    // 播报优先，避免 continuous 常听把 speak 盖成 listen
+    if (l.speaking || tray === 'speaking') next = 'speak'
+    else if (l.session || tray === 'recording' || continuous) next = 'listen'
     else if (tray === 'processing') next = 'parse'
     else if (tray === 'running' || l.streaming) next = 'think'
     else if (parseHoldRef.current) next = 'parse'
@@ -117,10 +137,10 @@ export function XiaomiVoiceStage() {
           let tries = 0
           const tryStart = () => {
             tries += 1
-            if (!isXwVoiceMode() || isContinuousModeActive()) return
-            void toggleContinuousMode({
+            if (!isXwVoiceMode() || isXiaomiFramePipelineActive()) return
+            void toggleXiaomiFramePipeline({
               onTrayState: (s: string) => {
-                liveRef.current.tray = isContinuousModeActive() ? s : ''
+                liveRef.current.tray = isXiaomiFramePipelineActive() ? s : ''
                 derive()
               },
             }).then((ok) => {
@@ -136,8 +156,9 @@ export function XiaomiVoiceStage() {
           }, 560)
         } else {
           liveRef.current.tray = ''
-          if (isContinuousModeActive()) {
-            void toggleContinuousMode().then(() => setHandsfree(false))
+          if (isXiaomiFramePipelineActive()) {
+            stopXiaomiFramePipeline()
+            setHandsfree(false)
           }
         }
       }),
@@ -182,6 +203,29 @@ export function XiaomiVoiceStage() {
       window.removeEventListener(VOICE_CAPTURE_SESSION_BEGIN, onBegin as EventListener)
       window.removeEventListener(VOICE_CAPTURE_SESSION_END, onEnd as EventListener)
     }
+  }, [derive])
+
+  /* ── 常听 / 唤醒托盘态 → 舞台「正在聆听」等（与 Frame tray 合流） ── */
+  useEffect(() => {
+    const onTray = (ev: Event) => {
+      const s = String((ev as CustomEvent<{ state?: string }>).detail?.state || '')
+      liveRef.current.tray = s
+      if (s === 'recording') liveRef.current.continuousListen = true
+      if (s === 'idle') liveRef.current.continuousListen = false
+      derive()
+    }
+    window.addEventListener(VOICE_TRAY_STATE_EVENT, onTray as EventListener)
+    // 进入时若已在常听，立刻对齐 UI
+    try {
+      if (isConversationListeningActive()) {
+        liveRef.current.continuousListen = true
+        if (!liveRef.current.tray) liveRef.current.tray = 'recording'
+        derive()
+      }
+    } catch {
+      /* ignore */
+    }
+    return () => window.removeEventListener(VOICE_TRAY_STATE_EVENT, onTray as EventListener)
   }, [derive])
 
   /* ── TTS 播报状态 ── */
@@ -511,6 +555,15 @@ export function XiaomiVoiceStage() {
     e.preventDefault()
     heldRef.current = true
     setPreferXiaomiVoice(true)
+    // Frame 运行时播报中按下 = barge-in；否则走传统 PTT
+    if (liveRef.current.speaking || liveRef.current.tray === 'speaking') {
+      void interruptXiaomiFrame()
+      try {
+        stopAssistantVoicePlayback()
+      } catch {
+        /* ignore */
+      }
+    }
     void startVoicePtt()
   }, [])
   const onPttUp = useCallback(() => {
@@ -522,15 +575,15 @@ export function XiaomiVoiceStage() {
   const onHandsfree = useCallback(async () => {
     setPreferXiaomiVoice(true)
     try {
-      await toggleContinuousMode({
+      const ok = await toggleXiaomiFramePipeline({
         onTrayState: (s: string) => {
-          liveRef.current.tray = isContinuousModeActive() ? s : ''
+          liveRef.current.tray = isXiaomiFramePipelineActive() ? s : ''
           derive()
         },
       })
-      setHandsfree(isContinuousModeActive())
+      setHandsfree(!!ok || isXiaomiFramePipelineActive())
     } catch (e) {
-      setHandsfree(isContinuousModeActive())
+      setHandsfree(isXiaomiFramePipelineActive())
       toast(String((e as Error)?.message || e || '开启免提失败'), 'warning')
     }
   }, [derive])
@@ -656,7 +709,8 @@ export function XiaomiVoiceStage() {
 
       <div className="xws-stage">
         <canvas ref={canvasRef} className="xws-canvas" aria-hidden="true" />
-        <div className="xws-statepill">
+        <div className={`xws-statepill${state === 'listen' ? ' is-live' : ''}`} aria-live="polite">
+          {state === 'listen' ? <span className="xws-state-dot" aria-hidden="true" /> : null}
           <span className="xws-state-word">{meta.en}</span>
           <span className="xws-state-timer">{elapsed}</span>
         </div>

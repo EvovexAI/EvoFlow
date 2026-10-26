@@ -21,12 +21,16 @@ from app.gateway.speech.runtime.frames import (
     UserTurnCompleteFrame,
 )
 from app.gateway.speech.runtime.processor import FrameDirection, FrameProcessor
+from app.gateway.speech.voice_file_log import voice_log
 
 logger = logging.getLogger("evoflow.speech.runtime.agg")
 
 # Chinese + Latin sentence terminators (Pipecat-style boundary)
 _SENTENCE_RE = re.compile(r"[^。！？!?；;\n]*[。！？!?；;\n]+")
+# 首句快速开口：逗号/顿号也可切（对齐 Pipecat「先开口再讲完」）
+_FIRST_PAUSE_RE = re.compile(r"[^。！？!?；;\n，,、]{8,}[，,、]")
 _READABLE_RE = re.compile(r"[\w\u4e00-\u9fff]", re.UNICODE)
+_FIRST_SENTENCE_MAX = 40
 
 
 def _has_readable(text: str) -> bool:
@@ -51,6 +55,8 @@ class SentenceAggregator(FrameProcessor):
         super().__init__(name="SentenceAggregator")
         self._buf = ""
         self._seq = 0
+        self._turn = 0
+        self._emitted_in_turn = 0
 
     def _next_seq(self) -> int:
         self._seq += 1
@@ -58,6 +64,7 @@ class SentenceAggregator(FrameProcessor):
 
     async def on_interruption(self, frame: Frame) -> None:
         self._buf = ""
+        self._emitted_in_turn = 0
 
     async def process_frame(self, frame: Frame, direction: FrameDirection) -> None:
         if direction != FrameDirection.DOWNSTREAM:
@@ -66,6 +73,7 @@ class SentenceAggregator(FrameProcessor):
 
         if isinstance(frame, (InterruptionFrame, StartFrame)):
             self._buf = ""
+            self._emitted_in_turn = 0
             await self.push_downstream(frame)
             return
 
@@ -73,16 +81,23 @@ class SentenceAggregator(FrameProcessor):
             text = strip_markdown_light(frame.text)
             if text and _has_readable(text):
                 seq = frame.seq if frame.seq is not None else self._next_seq()
-                await self.push_downstream(TTSRequestFrame(text=text, seq=seq))
+                voice_log("分句", f"直接播报句 seq={seq}：「{text}」")
+                await self.push_downstream(
+                    TTSRequestFrame(text=text, seq=seq, turn=frame.turn)
+                )
             return
 
         if isinstance(frame, LLMTextFrame):
+            if frame.turn and frame.turn != self._turn:
+                self._emitted_in_turn = 0
             self._buf += frame.text or ""
+            self._turn = max(self._turn, frame.turn)
             await self._emit_complete_sentences(flush=False)
             return
 
         if isinstance(frame, (LLMResponseEndFrame, EndFrame)):
             await self._emit_complete_sentences(flush=True)
+            self._emitted_in_turn = 0
             await self.push_downstream(frame)
             return
 
@@ -96,13 +111,39 @@ class SentenceAggregator(FrameProcessor):
             piece = strip_markdown_light(m.group(0))
             last = m.end()
             if piece and _has_readable(piece):
-                await self.push_downstream(TTSRequestFrame(text=piece, seq=self._next_seq()))
+                seq = self._next_seq()
+                self._emitted_in_turn += 1
+                voice_log("分句", f"切出完整句 seq={seq}：「{piece}」")
+                await self.push_downstream(
+                    TTSRequestFrame(text=piece, seq=seq, turn=self._turn)
+                )
         self._buf = self._buf[last:]
+
+        # 首句尚未开口：逗号/顿号或满 40 字快切，降低首包延迟
+        if not flush and self._emitted_in_turn == 0 and self._buf and len(self._buf) >= 8:
+            m = _FIRST_PAUSE_RE.match(self._buf)
+            cut_at = m.end() if m else (_FIRST_SENTENCE_MAX if len(self._buf) >= _FIRST_SENTENCE_MAX else 0)
+            if cut_at > 0:
+                piece = strip_markdown_light(self._buf[:cut_at])
+                self._buf = self._buf[cut_at:]
+                if piece and _has_readable(piece):
+                    seq = self._next_seq()
+                    self._emitted_in_turn += 1
+                    voice_log("分句", f"首句快切 seq={seq}：「{piece}」")
+                    await self.push_downstream(
+                        TTSRequestFrame(text=piece, seq=seq, turn=self._turn)
+                    )
+
         if flush and self._buf.strip():
             piece = strip_markdown_light(self._buf)
             self._buf = ""
             if piece and _has_readable(piece):
-                await self.push_downstream(TTSRequestFrame(text=piece, seq=self._next_seq()))
+                seq = self._next_seq()
+                self._emitted_in_turn += 1
+                voice_log("分句", f"冲刷残句 seq={seq}：「{piece}」")
+                await self.push_downstream(
+                    TTSRequestFrame(text=piece, seq=seq, turn=self._turn)
+                )
 
 
 class UserTurnAggregator(FrameProcessor):

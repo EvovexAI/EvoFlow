@@ -42,6 +42,8 @@ let _runStartedAtMs = 0
 /** 语音唤醒发起的一轮：流式正文同步到 TTS */
 let _voiceReplyPending = false
 let _voiceSpeechSyncedPlain = ''
+/** 本轮已切到 Frame 喂入，只需停一次 legacy，避免每个 delta 都 barge */
+let _voiceFrameTookOver = false
 
 /** 当前轮开始时间（ms）；0 表示没有运行中的轮 */
 export function getXiaomiRunStartedAtMs() {
@@ -68,9 +70,48 @@ async function xiaomiShouldSpeak() {
   }
 }
 
+/**
+ * 仅当 Frame session/管线真正在跑时走 Frame TTS。
+ * 不能只凭语音全屏（xwVoice）：常听 continuous 可在全屏下工作而 Frame 从未启动，
+ * 否则正文会一直「暂存」却无人冲刷 → 静音（见 10:59 日志）。
+ */
+async function _preferXiaomiFrameTts() {
+  try {
+    const {
+      isXiaomiFrameSessionActive,
+      isXiaomiFramePipelineActive,
+      isXiaomiFrameSessionConnecting,
+    } = await import('../../lib/xiaomi-voice/index.js')
+    if (isXiaomiFrameSessionActive() || isXiaomiFramePipelineActive()) return true
+    if (typeof isXiaomiFrameSessionConnecting === 'function' && isXiaomiFrameSessionConnecting()) {
+      return true
+    }
+  } catch {
+    /* ignore */
+  }
+  return false
+}
+
+async function _stopLegacyVoicePlayback() {
+  try {
+    // 只清 legacy 队列 / speech-session，不要 barge Frame（arm 时 Frame 正是目标通路）
+    const {
+      stopAssistantSpeech,
+      resetStreamingSpeechQueue,
+    } = await import('../../lib/speech-client.js')
+    stopAssistantSpeech()
+    resetStreamingSpeechQueue()
+    const { notifySpeechSessionBargeIn } = await import('../../lib/speech-session-client.js')
+    notifySpeechSessionBargeIn()
+  } catch {
+    /* ignore */
+  }
+}
+
 async function armXiaomiVoiceReply(opts = {}) {
   _voiceReplyPending = true
   _voiceSpeechSyncedPlain = ''
+  _voiceFrameTookOver = false
   try {
     const { xiaomiVoiceLog } = await import('../../lib/xiaomi-voice-defaults.js')
     if (!(await xiaomiShouldSpeak())) {
@@ -78,21 +119,58 @@ async function armXiaomiVoiceReply(opts = {}) {
       xiaomiVoiceLog('arm: SKIP — 本轮不朗读（设置关且非语音全屏/唤醒）')
       return
     }
-    const { resetStreamingSpeechQueue } = await import('../../lib/speech-client.js')
-    resetStreamingSpeechQueue()
-    const { startVoiceSimpleAck, resetVoiceToolMuteState } = await import(
-      '../../lib/voice-reply-speech.js',
-    )
-    resetVoiceToolMuteState()
-    xiaomiVoiceLog(
-      'arm: OK pending=true',
-      opts.voiceInitiated ? 'voiceInitiated→先播确认语「在呢」' : '等正文流式 TTS',
-      '（TTS：前台请求 Gateway /api/speech/tts → 火山合成 → 前台播放）',
-    )
-    // 确认语仅语音提问；键盘发送直接等正文播报
-    if (opts.voiceInitiated) {
-      startVoiceSimpleAck(() => {})
+    // 本轮播报 TRACE：语音路径若 turn_end 已对齐则沿用；文本路径新开一轮
+    try {
+      const { beginVoiceTrace, getVoiceTrace, voiceFeLog } = await import(
+        '../../lib/xiaomi-voice/voice-file-log.js',
+      )
+      const existing = getVoiceTrace()
+      if (opts.voiceInitiated && existing) {
+        voiceFeLog('会话', `语音 arm 沿用 TRACE=${existing}`)
+      } else {
+        beginVoiceTrace({
+          reason: opts.voiceInitiated ? '语音提问 arm' : '文本/其它 arm',
+        })
+      }
+    } catch {
+      /* ignore */
     }
+
+    // Pipecat 对齐：流式正文 → 后端 SentenceAgg → 有序 TTS → 前端只播音频。
+    // 禁止再走 legacy HTTP 逐句队列（已证实会双合同句 / NotSupportedError 风暴）。
+    try {
+      const { connectXiaomiFrameSession, isXiaomiFrameSessionActive } = await import(
+        '../../lib/xiaomi-voice/index.js',
+      )
+      if (!isXiaomiFrameSessionActive()) {
+        xiaomiVoiceLog('arm: 连接 Frame session（Pipecat 路径）…')
+        await connectXiaomiFrameSession()
+      }
+    } catch (e) {
+      xiaomiVoiceLog('arm: Frame session 连接失败', e?.message || e)
+    }
+
+    if (await _preferXiaomiFrameTts()) {
+      try {
+        const { resetXiaomiFrameAssistantFeed, stashXiaomiFrameAssistantPending } = await import(
+          '../../lib/xiaomi-voice/index.js',
+        )
+        resetXiaomiFrameAssistantFeed()
+        stashXiaomiFrameAssistantPending('', { final: false })
+      } catch {
+        /* ignore */
+      }
+      await _stopLegacyVoicePlayback()
+      _voiceFrameTookOver = true
+      xiaomiVoiceLog('arm: Frame runtime — assistant_delta → 后端分句 TTS（禁止 legacy HTTP 正文）')
+      return
+    }
+
+    // Frame 不可用：宁可不播正文，也不回落 legacy 队列（效果更差、还会打爆 TTS）。
+    // 固定句「在呢」仍走 voice-fixed-sfx / httpOnly，与此无关。
+    await _stopLegacyVoicePlayback()
+    _voiceReplyPending = false
+    xiaomiVoiceLog('arm: ABORT — Frame 未就绪，跳过本轮正文播报（不回落 legacy HTTP）')
   } catch (e) {
     _voiceReplyPending = false
     console.warn('[xiaomi-voice] arm failed', e)
@@ -107,7 +185,10 @@ function clearXiaomiVoiceReply() {
   }
   _voiceReplyPending = false
   _voiceSpeechSyncedPlain = ''
+  _voiceFrameTookOver = false
 }
+
+export { clearXiaomiVoiceReply }
 
 function syncXiaomiVoiceSpeech(fullText, { final = false } = {}) {
   if (!_voiceReplyPending) {
@@ -119,56 +200,42 @@ function syncXiaomiVoiceSpeech(fullText, { final = false } = {}) {
     return
   }
   const body = String(fullText || '')
-  void import('../../lib/voice-reply-speech.js')
+  // Pipecat：前端只喂累计正文；切句 / TTS / 播报顺序全在后端 Frame。
+  // 禁止再 enqueueVoiceStreamSpeech（legacy HTTP 队列）。
+  void import('../../lib/xiaomi-voice/index.js')
     .then(
-      ({
-        shouldAdvanceVoiceSpeechSync,
-        toVoiceSpeechPlain,
-        enqueueVoiceStreamSpeech,
-        flushVoiceStreamSpeechIfNeeded,
-        clipVoiceSpeechForPlayback,
-        exitVoiceToolMute,
-        isVoiceToolMuteActive,
+      async ({
+        isXiaomiFrameSessionActive,
+        isXiaomiFrameSessionConnecting,
+        connectXiaomiFrameSession,
+        feedXiaomiFrameAssistant,
+        stashXiaomiFrameAssistantPending,
       }) => {
-        if (!_voiceReplyPending) return
-        if (isVoiceToolMuteActive()) {
-          void import('../../lib/xiaomi-voice-defaults.js').then(({ xiaomiVoiceLog }) =>
-            xiaomiVoiceLog('sync: 工具执行中曾静音，现退出静音再播'),
-          )
-          exitVoiceToolMute()
-        }
-        if (final) {
-          const ok = flushVoiceStreamSpeechIfNeeded(body)
-          void import('../../lib/xiaomi-voice-defaults.js').then(({ xiaomiVoiceLog }) =>
-            xiaomiVoiceLog(
-              'sync FINAL flush=',
-              ok,
-              'chars=',
-              body.length,
-              'preview=',
-              JSON.stringify(body.slice(0, 48)),
-            ),
-          )
-          clearXiaomiVoiceReply()
+        if (isXiaomiFrameSessionActive()) {
+          if (!_voiceFrameTookOver) {
+            _voiceFrameTookOver = true
+            void _stopLegacyVoicePlayback()
+          }
+          feedXiaomiFrameAssistant(body, { final })
+          if (final) clearXiaomiVoiceReply()
           return
         }
-        const speakable = clipVoiceSpeechForPlayback(body)
-        if (!shouldAdvanceVoiceSpeechSync(speakable, _voiceSpeechSyncedPlain)) {
-          void import('../../lib/xiaomi-voice-defaults.js').then(({ xiaomiVoiceDebug }) =>
-            xiaomiVoiceDebug('sync no-advance chars=', speakable.length),
-          )
+        if (
+          typeof isXiaomiFrameSessionConnecting === 'function' &&
+          isXiaomiFrameSessionConnecting()
+        ) {
+          stashXiaomiFrameAssistantPending(body, { final })
+          if (final) clearXiaomiVoiceReply()
           return
         }
-        _voiceSpeechSyncedPlain = toVoiceSpeechPlain(speakable)
-        void import('../../lib/xiaomi-voice-defaults.js').then(({ xiaomiVoiceDebug }) =>
-          xiaomiVoiceDebug(
-            'sync enqueue chars=',
-            speakable.length,
-            'preview=',
-            JSON.stringify(speakable.slice(0, 40)),
-          ),
-        )
-        enqueueVoiceStreamSpeech(speakable)
+        // 迟到流：再抢一次连接；连上前先暂存，绝不回落 legacy
+        stashXiaomiFrameAssistantPending(body, { final })
+        try {
+          await connectXiaomiFrameSession()
+        } catch {
+          /* ignore */
+        }
+        if (final) clearXiaomiVoiceReply()
       },
     )
     .catch((e) => console.warn('[xiaomi-voice] sync failed', e))

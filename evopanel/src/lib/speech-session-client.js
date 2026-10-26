@@ -107,11 +107,21 @@ async function _connect() {
   return _connecting
 }
 
-/** 打断：取消后端所有进行中的合成（barge-in / 停止播报时尽力通知）。 */
-export function notifySpeechSessionBargeIn() {
+/** @type {number} */
+let _lastSessionBargeAt = 0
+
+/**
+ * 打断：取消后端所有进行中的合成（barge-in / 停止播报时尽力通知）。
+ * @param {{ reason?: string }} [opts]
+ */
+export function notifySpeechSessionBargeIn(opts = {}) {
   if (!isSpeechSessionTtsActive()) return
+  const now = Date.now()
+  if (now - _lastSessionBargeAt < 200) return
+  _lastSessionBargeAt = now
+  const reason = String(opts.reason || 'client_barge_in')
   try {
-    _ws.send(JSON.stringify({ type: 'barge_in' }))
+    _ws.send(JSON.stringify({ type: 'barge_in', reason }))
   } catch {
     /* ignore */
   }

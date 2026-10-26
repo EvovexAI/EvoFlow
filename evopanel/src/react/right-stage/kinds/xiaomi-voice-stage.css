@@ -176,6 +176,7 @@
   gap: 8px;
   padding: 3px 10px;
   border-radius: 999px;
+  transition: border-color 0.25s ease, box-shadow 0.25s ease, background 0.25s ease;
   border: 1px solid rgba(255, 255, 255, 0.1);
   background: rgba(2, 4, 10, 0.55);
   backdrop-filter: blur(6px);
@@ -191,6 +192,30 @@
   color: var(--xws-sub);
   font-variant-numeric: tabular-nums;
 }
+.xws-statepill.is-live {
+  border-color: color-mix(in srgb, #22d3ee 55%, transparent);
+  background: color-mix(in srgb, #22d3ee 14%, rgba(2, 4, 10, 0.7));
+  box-shadow: 0 0 18px color-mix(in srgb, #22d3ee 28%, transparent);
+}
+.xws-state-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #22d3ee;
+  box-shadow: 0 0 8px #22d3ee;
+  animation: xws-dot-pulse 1.1s ease-in-out infinite;
+}
+@keyframes xws-dot-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.45;
+    transform: scale(0.75);
+  }
+}
 
 /* 左下状态大字（「小V 正在说话」式） */
 .xws-caption {
@@ -202,6 +227,19 @@
   font-weight: 600;
   letter-spacing: 0.04em;
   transition: color 0.3s ease;
+}
+.xws-listen .xws-caption-title {
+  text-shadow: 0 0 18px color-mix(in srgb, #22d3ee 45%, transparent);
+  animation: xws-listen-title 1.8s ease-in-out infinite;
+}
+@keyframes xws-listen-title {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.72;
+  }
 }
 .xws-caption-row {
   display: flex;
@@ -395,7 +433,16 @@
 
 /* ───────── 状态点缀 ───────── */
 .xws-listen .xws-stage {
-  border-color: color-mix(in srgb, #22d3ee 24%, transparent);
+  border-color: color-mix(in srgb, #22d3ee 42%, transparent);
+  box-shadow: inset 0 0 40px color-mix(in srgb, #22d3ee 10%, transparent);
+}
+.xws-listen .xws-ptt {
+  border-color: color-mix(in srgb, #22d3ee 55%, transparent);
+  box-shadow: 0 0 22px color-mix(in srgb, #22d3ee 28%, transparent);
+}
+.xws-listen .xws-ptt-ring {
+  animation-duration: 1.4s;
+  opacity: 0.85;
 }
 .xws-think .xws-stage {
   border-color: color-mix(in srgb, #a78bfa 22%, transparent);

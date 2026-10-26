@@ -147,6 +147,8 @@ export async function transcribeSpeechAudio(wavBlob) {
 
 /** @type {HTMLAudioElement | null} */
 let _activeAudio = null
+/** 每次 play / stop 递增；用于区分「被打断」与真正的 NotSupportedError */
+let _playGeneration = 0
 let _playbackUnlocked = false
 
 // ─── TTS 播报状态广播 ───
@@ -237,12 +239,91 @@ export function getStreamingSpeechSpeaker() {
  * @param {{ speaker?: string }} [opts]
  * @returns {Promise<{ objectUrl: string, audio: HTMLAudioElement } | null>}
  */
+/** Frame / 语音全屏时禁止 legacy 再开 `/api/speech/session`（会双管线乱播）。 */
+async function _speechSessionTtsAllowed() {
+  if (localStorage.getItem('evoflow-voice-session') === '0') return false
+  try {
+    const { isXiaomiFrameSessionActive, isXiaomiFrameSessionConnecting } = await import(
+      './xiaomi-voice/session-client.js',
+    )
+    if (isXiaomiFrameSessionActive()) return false
+    if (isXiaomiFrameSessionConnecting?.()) return false
+  } catch {
+    /* ignore */
+  }
+  try {
+    const { isXwVoiceMode } = await import('./xw-voice-mode.js')
+    if (isXwVoiceMode()) return false
+  } catch {
+    /* ignore */
+  }
+  return true
+}
+
+/**
+ * 合成一句并返回 Blob（固定短句音效缓存用）。
+ * **强制 HTTP**：绝不能走 speech-session，否则会另开一条 Frame 管线，
+ * 日志里出现「直接播报句「在呢」」并被 barge_in 风暴打断正文。
+ * @param {string} text
+ * @param {{ speaker?: string }} [opts]
+ * @returns {Promise<Blob | null>}
+ */
+export async function fetchSpeechAudioBlob(text, opts = {}) {
+  const pack = await _fetchSentenceAudio(text, { ...opts, httpOnly: true })
+  if (!pack?.objectUrl) return null
+  try {
+    const res = await fetch(pack.objectUrl)
+    if (!res.ok) return null
+    const blob = await res.blob()
+    return blob && blob.size > 0 ? blob : null
+  } catch {
+    return null
+  } finally {
+    try {
+      pack.audio?.pause?.()
+    } catch {
+      /* ignore */
+    }
+    try {
+      URL.revokeObjectURL(pack.objectUrl)
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+/** 同文同音色在途合成去重，避免队列重试 / 并发踢播放把同一句打爆后端 */
+/** @type {Map<string, Promise<{ objectUrl: string, audio: HTMLAudioElement, text?: string } | null>>} */
+const _ttsInflight = new Map()
+
+/**
+ * @param {string} text
+ * @param {{ speaker?: string, httpOnly?: boolean }} [opts]
+ */
 async function _fetchSentenceAudio(text, opts = {}) {
   const plain = plainTextForSpeech(text)
   if (!plain) return null
   const speaker = String(opts.speaker || _queueSpeaker || '').trim()
-  // P1 会话 WS 流式通道：默认启用；未连接/超时/MSE 不可用 → 逐句自动回退 HTTP
-  if (localStorage.getItem('evoflow-voice-session') !== '0') {
+  const inflightKey = `${opts.httpOnly ? 'h' : 's'}::${speaker}::${plain}`
+  const hit = _ttsInflight.get(inflightKey)
+  if (hit) return hit
+
+  const task = _fetchSentenceAudioUniq(plain, speaker, opts).finally(() => {
+    if (_ttsInflight.get(inflightKey) === task) _ttsInflight.delete(inflightKey)
+  })
+  _ttsInflight.set(inflightKey, task)
+  return task
+}
+
+/**
+ * @param {string} plain
+ * @param {string} speaker
+ * @param {{ speaker?: string, httpOnly?: boolean }} [opts]
+ */
+async function _fetchSentenceAudioUniq(plain, speaker, opts = {}) {
+  // P1 会话 WS 流式通道：未连接/超时/MSE 不可用 → 逐句自动回退 HTTP
+  // Frame / 语音全屏 / httpOnly：禁止再开第二条 session
+  if (!opts.httpOnly && (await _speechSessionTtsAllowed())) {
     try {
       const { fetchSpeechSessionAudio } = await import('./speech-session-client.js')
       const pack = await fetchSpeechSessionAudio(plain, { speaker })
@@ -261,7 +342,16 @@ async function _fetchSentenceAudio(text, opts = {}) {
           speaker ? `id=${speaker}` : 'reqSpeaker=(empty→Gateway默认)',
           '（前台开始播放）',
         )
-        return pack
+        void import('./xiaomi-voice/voice-file-log.js')
+          .then(({ voicePlaybackMark }) =>
+            voicePlaybackMark(
+              '语音合成',
+              plain,
+              `session WS 完成 音色=${label}`,
+            ),
+          )
+          .catch(() => {})
+        return { ...pack, text: plain }
       }
     } catch {
       /* fallthrough → HTTP */
@@ -278,6 +368,16 @@ async function _fetchSentenceAudio(text, opts = {}) {
     JSON.stringify(plain.slice(0, 40)),
     speaker ? `reqSpeaker=${speaker}` : 'reqSpeaker=(empty→Gateway默认)',
   )
+  const synthStartedAt = Date.now()
+  void import('./xiaomi-voice/voice-file-log.js')
+    .then(({ voicePlaybackMark }) =>
+      voicePlaybackMark(
+        '语音合成',
+        plain,
+        `HTTP 请求开始 ${url}${speaker ? ` speaker=${speaker}` : ''}`,
+      ),
+    )
+    .catch(() => {})
   _ttsLog(
     '[speech-queue] tts fetch',
     JSON.stringify(plain.slice(0, 40)),
@@ -286,6 +386,13 @@ async function _fetchSentenceAudio(text, opts = {}) {
   /** @type {Record<string, string>} */
   const body = { text: plain }
   if (speaker) body.speaker = speaker
+  try {
+    const { getVoiceTrace } = await import('./xiaomi-voice/voice-file-log.js')
+    const tid = getVoiceTrace()
+    if (tid) body.trace_id = tid
+  } catch {
+    /* ignore */
+  }
   const res = await fetch(url, {
     method: 'POST',
     credentials: 'same-origin',
@@ -294,6 +401,11 @@ async function _fetchSentenceAudio(text, opts = {}) {
   })
   if (!res.ok) {
     console.warn('[xiaomi-voice] TTS HTTP failed', res.status, url, '（检查 Gateway 火山 TTS 配置）')
+    void import('./xiaomi-voice/voice-file-log.js')
+      .then(({ voicePlaybackMark }) =>
+        voicePlaybackMark('语音合成', plain, `HTTP 失败 status=${res.status}`),
+      )
+      .catch(() => {})
   }
   const usedSpeaker = String(res.headers.get('X-Tts-Speaker') || speaker || '').trim()
   let speakerLabel = usedSpeaker || '(未知)'
@@ -304,29 +416,48 @@ async function _fetchSentenceAudio(text, opts = {}) {
     /* ignore */
   }
   const blob = await _readTtsAudioBlob(res)
+  const synthMs = Date.now() - synthStartedAt
   console.info(
     '[xiaomi-voice] TTS ok',
     `bytes=${blob.size}`,
     `音色=${speakerLabel}`,
     usedSpeaker ? `id=${usedSpeaker}` : '',
+    `cost=${synthMs}ms`,
     '（前台开始播放）',
   )
+  void import('./xiaomi-voice/voice-file-log.js')
+    .then(({ voicePlaybackMark }) =>
+      voicePlaybackMark(
+        '语音合成',
+        plain,
+        `HTTP 完成 bytes=${blob.size} 音色=${speakerLabel} cost=${synthMs}ms`,
+      ),
+    )
+    .catch(() => {})
   _ttsLog('[speech-queue] tts ok bytes=', blob.size, 'speaker=', usedSpeaker || '(default)')
   const objectUrl = URL.createObjectURL(blob)
   const audio = new Audio(objectUrl)
-  return { objectUrl, audio }
+  return { objectUrl, audio, text: plain }
 }
 
 /**
- * @param {{ objectUrl: string, audio: HTMLAudioElement }} prepared
+ * @param {{ objectUrl: string, audio: HTMLAudioElement, text?: string }} prepared
  * @param {{ timeoutMs?: number }} [opts]
  */
 async function _playPreparedAudio(prepared, opts = {}) {
-  const { objectUrl, audio } = prepared
+  const objectUrl = prepared?.objectUrl
+  if (!objectUrl) throw new Error('TTS audio missing objectUrl')
+  // 每次播放新建 Audio：预取的 element 可能被 stopAssistantSpeech 糟蹋过
+  const audio = new Audio(objectUrl)
+  const playText = String(prepared?.text || '').trim()
   const timeoutMs = Math.max(8000, Number(opts.timeoutMs) || 90000)
+  const playGen = ++_playGeneration
   _activeAudio = audio
   audio.volume = 1
   _setSpeaking(true)
+  const playStartedAt = Date.now()
+  let playLogged = false
+  let interrupted = false
 
   try {
     try {
@@ -372,7 +503,14 @@ async function _playPreparedAudio(prepared, opts = {}) {
         _ttsLog('[speech-queue] play ended')
         done()
       }
-      audio.onerror = () => done(new Error('Audio playback failed'))
+      audio.onerror = () => {
+        if (playGen !== _playGeneration) {
+          interrupted = true
+          done(new Error('TTS interrupted'))
+          return
+        }
+        done(new Error('Audio playback failed'))
+      }
       audio.onloadedmetadata = () => {
         const dur = Number(audio.duration)
         _ttsLog('[speech-queue] play metadata duration=', dur)
@@ -385,18 +523,63 @@ async function _playPreparedAudio(prepared, opts = {}) {
       }
 
       _ttsLog('[speech-queue] play start')
-      audio.play().catch((e) => done(e))
+      void import('./xiaomi-voice/voice-file-log.js')
+        .then(({ voicePlaybackMark }) => {
+          if (playLogged) return
+          playLogged = true
+          voicePlaybackMark('语音播放', playText, `HTMLAudio.play 开始 t=${new Date().toISOString()}`)
+        })
+        .catch(() => {})
+      audio.play().catch((e) => {
+        if (playGen !== _playGeneration) {
+          interrupted = true
+          done(new Error('TTS interrupted'))
+          return
+        }
+        done(e)
+      })
     })
+    void import('./xiaomi-voice/voice-file-log.js')
+      .then(({ voicePlaybackMark }) =>
+        voicePlaybackMark(
+          '播放结束',
+          playText,
+          `正常结束 duration=${Date.now() - playStartedAt}ms`,
+        ),
+      )
+      .catch(() => {})
+  } catch (e) {
+    const name = e?.name || ''
+    const msg = e?.message || String(e)
+    if (interrupted || /interrupted/i.test(msg) || name === 'AbortError') {
+      void import('./xiaomi-voice/voice-file-log.js')
+        .then(({ voicePlaybackMark }) =>
+          voicePlaybackMark('播放结束', playText, `被打断 duration=${Date.now() - playStartedAt}ms`),
+        )
+        .catch(() => {})
+      const err = new Error('TTS interrupted')
+      err.name = 'TTSInterrupted'
+      throw err
+    }
+    void import('./xiaomi-voice/voice-file-log.js')
+      .then(({ voicePlaybackMark }) =>
+        voicePlaybackMark('播放结束', playText, `失败 ${name} ${msg}`),
+      )
+      .catch(() => {})
+    throw e
   } finally {
     try {
       audio.pause()
     } catch {
       /* ignore */
     }
-    try {
-      URL.revokeObjectURL(objectUrl)
-    } catch {
-      /* ignore */
+    // 仅在本轮仍持有该 url 时释放；打断后队列可能还要用同一 blob 重试 → 由调用方决定 revoke
+    if (!opts.keepObjectUrl) {
+      try {
+        URL.revokeObjectURL(objectUrl)
+      } catch {
+        /* ignore */
+      }
     }
     if (_activeAudio === audio) _activeAudio = null
     _setSpeaking(false)
@@ -493,6 +676,8 @@ const _speechQueue = {
   prefetchAhead: 2,
   /** When true, append/prefetch may run but playback waits (ack race). */
   holdPlayback: false,
+  /** 防止 append/finalFlush 并发踢播放导致同句双合成双播 */
+  _playChain: /** @type {Promise<void> | null} */ (null),
 
   reset() {
     for (const s of this.sentences) {
@@ -509,6 +694,7 @@ const _speechQueue = {
     this.consecutiveFailures = 0
     this.playing = false
     this.holdPlayback = false
+    this._playChain = null
     _setSpeaking(false)
   },
 
@@ -556,18 +742,38 @@ const _speechQueue = {
 
   /** @param {{ id: string, text: string, played: boolean }} item */
   _enqueueChunk(item) {
+    let t = String(item.text || '').trim()
+    if (!t) return
+    // 去重 / 去重叠：流式先切「三件事…进度、」再入长句时，禁止把已播前缀再说一遍
+    for (const s of this.sentences) {
+      const st = String(s.text || '').trim()
+      if (!st) continue
+      if (st === t) return
+      if (st.startsWith(t) && st.length > t.length) return
+      if (t.startsWith(st)) {
+        if (!s.played && !s.prefetch) {
+          s.text = t
+          return
+        }
+        const rest = t.slice(st.length).trim()
+        if (!rest) return
+        t = rest
+      }
+    }
+    if (!t || this.sentences.some((s) => s.text === t)) return
     const tail = this.sentences[this.sentences.length - 1]
-    if (tail?.text === item.text) return
     if (
       tail &&
       !tail.played &&
       !tail.prefetch &&
-      tail.text.length + item.text.length <= 96
+      tail.text.length + t.length <= 96
     ) {
-      tail.text = `${tail.text}${item.text}`
+      const merged = `${tail.text}${t}`
+      if (this.sentences.some((s) => s !== tail && s.text === merged)) return
+      tail.text = merged
       return
     }
-    this.sentences.push(item)
+    this.sentences.push({ ...item, text: t })
   },
 
   /** @param {number} fromIdx */
@@ -681,50 +887,128 @@ const _speechQueue = {
     void this._tryPlayNext()
   },
 
+  /**
+   * 串行排空播放队列。append/finalFlush 可并发调用，但实际播放只走一条 chain，
+   * 否则同句会 _ensurePrepared 两次（prefetch 被置空后再拉）→ 双合成双播。
+   */
   async _tryPlayNext() {
-    if (this.playing || this.holdPlayback) return
-    if (this.consecutiveFailures >= this.maxConsecutiveFailures) {
-      console.warn('[speech-queue] 连续播放失败超过', this.maxConsecutiveFailures, '次，停止自动播放')
-      _notifySpeechQueueIdle()
+    if (this._playChain) {
+      await this._playChain
+      // chain 结束时可能又入队了新句，再踢一轮
+      if (!this.holdPlayback && this.sentences.some((s) => !s.played)) {
+        return this._tryPlayNext()
+      }
       return
     }
-
-    const nextIdx = this.sentences.findIndex((s) => !s.played)
-    if (nextIdx < 0 || nextIdx <= this.lastPlayedIndex) {
-      if (nextIdx < 0) _notifySpeechQueueIdle()
-      return
-    }
-
-    const sentence = this.sentences[nextIdx]
-    if (sentence.text.trim().length < 2) {
-      sentence.played = true
-      this.lastPlayedIndex = nextIdx
-      this._tryPlayNext()
-      return
-    }
-
-    this.playing = true
-    sentence.played = true
-    this.lastPlayedIndex = nextIdx
-    this._schedulePrefetch(nextIdx + 1)
-
+    this._playChain = this._drainPlayQueue()
     try {
-      // 清掉确认语等残留 Audio，避免占着 _activeAudio 或被 barge-in 误杀后队列卡住
-      stopAssistantSpeech()
-      const prepared = await this._ensurePrepared(sentence)
-      await _playPreparedAudio(prepared)
-      sentence.objectUrl = null
-      this.consecutiveFailures = 0
-    } catch (e) {
-      console.warn('[speech-queue] play failed', e)
-      this.consecutiveFailures++
+      await this._playChain
+    } finally {
+      this._playChain = null
+    }
+  },
+
+  async _drainPlayQueue() {
+    if (this.holdPlayback) return
+    this.playing = true
+    try {
+      while (!this.holdPlayback) {
+        if (this.consecutiveFailures >= this.maxConsecutiveFailures) {
+          console.warn(
+            '[speech-queue] 连续播放失败超过',
+            this.maxConsecutiveFailures,
+            '次，停止自动播放',
+          )
+          break
+        }
+        const nextIdx = this.sentences.findIndex((s) => !s.played)
+        if (nextIdx < 0 || nextIdx <= this.lastPlayedIndex) break
+
+        const sentence = this.sentences[nextIdx]
+        if (sentence.text.trim().length < 2) {
+          sentence.played = true
+          this.lastPlayedIndex = nextIdx
+          continue
+        }
+
+        this._schedulePrefetch(nextIdx + 1)
+
+        try {
+          // 清掉确认语等残留 Audio，避免占着 _activeAudio
+          stopAssistantSpeech()
+          let prepared = await this._ensurePrepared(sentence)
+          try {
+            await _playPreparedAudio({
+              ...prepared,
+              text: prepared?.text || sentence.text || '',
+            })
+          } catch (playErr) {
+            const msg = String(playErr?.message || playErr || '')
+            const interrupted =
+              playErr?.name === 'TTSInterrupted' || /interrupted/i.test(msg)
+            // continuous 回声打断：不要立刻重拉同句（否则 400ms 一刀 → TTS 风暴）
+            if (interrupted) {
+              sentence.prefetch = null
+              void import('./xiaomi-voice/voice-file-log.js')
+                .then(({ voicePlaybackMark }) =>
+                  voicePlaybackMark(
+                    '播放结束',
+                    sentence.text || '',
+                    '被打断，保留队列等待后续 kick',
+                  ),
+                )
+                .catch(() => {})
+              break
+            }
+            // NotSupportedError（旧 src='' 残毒 / blob 失效）：换新鲜 Audio 再试一次
+            if (
+              playErr?.name === 'NotSupportedError' ||
+              /no supported sources/i.test(msg)
+            ) {
+              if (prepared?.objectUrl) {
+                try {
+                  URL.revokeObjectURL(prepared.objectUrl)
+                } catch {
+                  /* ignore */
+                }
+              }
+              sentence.objectUrl = null
+              sentence.prefetch = null
+              prepared = await _fetchSentenceAudio(sentence.text)
+              if (!prepared) throw playErr
+              await _playPreparedAudio({
+                ...prepared,
+                text: prepared?.text || sentence.text || '',
+              })
+            } else {
+              throw playErr
+            }
+          }
+          sentence.played = true
+          this.lastPlayedIndex = nextIdx
+          sentence.objectUrl = null
+          this.consecutiveFailures = 0
+        } catch (e) {
+          console.warn('[speech-queue] play failed', e)
+          void import('./xiaomi-voice/voice-file-log.js')
+            .then(({ voicePlaybackMark }) =>
+              voicePlaybackMark(
+                '播放结束',
+                sentence.text || '',
+                `play failed ${e?.name || ''} ${e?.message || String(e)}`,
+              ),
+            )
+            .catch(() => {})
+          // 失败也前进，避免同一句死循环打 TTS；留给后续句
+          sentence.played = true
+          this.lastPlayedIndex = nextIdx
+          this.consecutiveFailures++
+        }
+      }
     } finally {
       this.playing = false
-      if (this.consecutiveFailures < this.maxConsecutiveFailures) {
-        const more = this.sentences.findIndex((s) => !s.played)
-        if (more >= 0) this._tryPlayNext()
-        else _notifySpeechQueueIdle()
-      } else {
+      const more = this.sentences.findIndex((s) => !s.played)
+      if (more < 0 || this.consecutiveFailures >= this.maxConsecutiveFailures) {
         _notifySpeechQueueIdle()
       }
     }
@@ -807,7 +1091,11 @@ async function _playSentenceInternal(text, opts = {}) {
     prepared = await cached
     // 预取得到的 Audio 可能已绑定过时状态；用 objectUrl 新建更稳
     if (prepared?.objectUrl) {
-      prepared = { objectUrl: prepared.objectUrl, audio: new Audio(prepared.objectUrl) }
+      prepared = {
+        objectUrl: prepared.objectUrl,
+        audio: new Audio(prepared.objectUrl),
+        text: prepared.text || plain,
+      }
     }
   } else {
     prepared = await _fetchSentenceAudio(plain, opts)
@@ -815,7 +1103,7 @@ async function _playSentenceInternal(text, opts = {}) {
   if (!prepared) return
   stopAssistantSpeech()
   try {
-    await _playPreparedAudio(prepared)
+    await _playPreparedAudio({ ...prepared, text: prepared.text || plain })
   } catch (e) {
     if (e && typeof e === 'object' && /** @type {{ name?: string }} */ (e).name === 'NotAllowedError') {
       throw new Error('浏览器阻止自动播放，请再点一次麦克风或发送按钮后重试', { cause: e })
@@ -840,10 +1128,15 @@ export function unlockSpeechPlayback() {
 }
 
 export function stopAssistantSpeech() {
-  if (!_activeAudio) return
+  // 只 pause，不要 src=''：continuous 回声 barge 会在 play() 瞬间清 src，
+  // 触发 NotSupportedError: The element has no supported sources，然后队列重试打爆 TTS。
+  _playGeneration += 1
+  if (!_activeAudio) {
+    _setSpeaking(false)
+    return
+  }
   try {
     _activeAudio.pause()
-    _activeAudio.src = ''
   } catch {
     /* ignore */
   }
@@ -854,18 +1147,28 @@ export function stopAssistantSpeech() {
 /**
  * 彻底停止所有语音播放（包括流式队列中待播放的）
  * 用户打断说话时调用：立刻停掉 AI 正在说的，清空播放队列
+ * @param {{ reason?: string, skipFrame?: boolean }} [opts]
  */
-export function stopAllAssistantSpeech() {
+export function stopAllAssistantSpeech(opts = {}) {
+  const reason = String(opts.reason || 'stopAllAssistantSpeech')
   stopAssistantSpeech()
   _speechQueue.reset()
   clearAssistantSpeechPrefetch()
   // 会话 WS 通道：取消后端所有进行中的合成（barge-in / 停止播报）
   void import('./speech-session-client.js')
-    .then(({ notifySpeechSessionBargeIn }) => notifySpeechSessionBargeIn())
+    .then(({ notifySpeechSessionBargeIn }) => notifySpeechSessionBargeIn({ reason }))
     .catch(() => {})
+  // 仅 Frame 管线真正在跑时才 barge Frame；continuous 误触 stop 不应狂打 Frame barge_in
+  if (!opts.skipFrame) {
+    void import('./xiaomi-voice/index.js')
+      .then(({ bargeInXiaomiFrame, isXiaomiFramePipelineActive }) => {
+        if (isXiaomiFramePipelineActive()) bargeInXiaomiFrame({ reason })
+      })
+      .catch(() => {})
+  }
   // Ensure continuous-mode / follow-up idle hooks run on barge-in / UI stop.
   _notifySpeechQueueIdle()
-  _ttsLog('[speech-client] 已停止所有语音播放，队列已清空')
+  _ttsLog('[speech-client] 已停止所有语音播放，队列已清空', reason)
 }
 
 /** Duck TTS volume (barge-in phase 1: lower volume without stopping) */
@@ -884,7 +1187,19 @@ export function unduckTTS() {
 
 /** Stop TTS completely (barge-in phase 2: real speech detected) */
 export function stopTTS() {
-  stopAllAssistantSpeech()
+  // continuous 回声误触很常见：只停当前正在播的一句，保留队列里后续正文。
+  // 真正清空整轮请走 stopAllAssistantSpeech（PTT / 用户打断）。
+  stopAssistantSpeech()
+  void import('./speech-session-client.js')
+    .then(({ notifySpeechSessionBargeIn }) =>
+      notifySpeechSessionBargeIn({ reason: 'continuous-barge-in' }),
+    )
+    .catch(() => {})
+  // 不 discard、不 reset：否则 ack 预取的正文被清光 → final flush=false、听感「说一句就停」
+  if (!_speechQueue.holdPlayback && !_speechQueue.playing) {
+    _speechQueue._kickPlay()
+  }
+  _ttsLog('[speech-client] stopTTS (keep queue, skipFrame)')
 }
 
 /**

@@ -44,6 +44,7 @@ class FrameProcessor(ABC):
         self._worker: PipelineWorker | None = None
         self._running = False
         self._process_task: asyncio.Task[None] | None = None
+        self._chain: list[asyncio.Task[None]] = []
         self._current_interruptible = True
 
     # ── wiring ──
@@ -84,6 +85,10 @@ class FrameProcessor(ABC):
             except (asyncio.CancelledError, Exception):
                 pass
             self._process_task = None
+        for task in self._chain:
+            if not task.done():
+                task.cancel()
+        self._chain.clear()
 
     async def queue_frame(
         self,
@@ -127,19 +132,42 @@ class FrameProcessor(ABC):
                 # Process interruption inline (fast); must not block the inbox
                 await self._dispatch_inline(frame, direction)
                 continue
-            if isinstance(frame, SystemFrame) or not frame.interruptible:
-                # Wait for any prior interruptible work so ordering stays sane
+            if isinstance(frame, EndFrame):
+                # EndFrame terminates the pipeline — it must not overtake data
+                # frames that are still queued (unlike system frames).
                 await self._await_process_task()
+                await self._dispatch_inline(frame, direction)
+                continue
+            if isinstance(frame, SystemFrame) or not frame.interruptible:
+                # System / uninterruptible frames are handled right away and never
+                # wait behind in-flight data work (Pipecat runs system frames on
+                # a dedicated input task). Ordering with StartFrame is kept by
+                # the priority queue: START > SYSTEM > DATA.
                 await self._dispatch_inline(frame, direction)
                 continue
             # Interruptible data runs in a side task so InterruptionFrame can be
             # dequeued (priority) while synthesis/ASR work is in flight.
-            await self._await_process_task()
-            self._current_interruptible = True
-            self._process_task = asyncio.create_task(
-                self._dispatch_inline(frame, direction),
-                name=f"fp-work-{self.name}",
-            )
+            # Ordering of data frames is preserved by chaining each new task
+            # behind the previous one — but the inbox itself stays free, so a
+            # barge-in jumps ahead of queued audio/text.
+            prev = self._process_task
+
+            async def _run(
+                frame: Frame = frame,
+                direction: FrameDirection = direction,
+                prev: asyncio.Task[None] | None = prev,
+            ) -> None:
+                if prev and not prev.done():
+                    # NOTE: awaiting a task does NOT hand cancellation down, so
+                    # the whole chain is cancelled explicitly on interruption.
+                    await prev
+                await self._dispatch_inline(frame, direction)
+
+            self._process_task = asyncio.create_task(_run(), name=f"fp-work-{self.name}")
+            self._chain.append(self._process_task)
+            # Keep the chain list bounded: drop tasks that already finished.
+            if len(self._chain) > 64:
+                self._chain = [t for t in self._chain if not t.done()]
 
     async def _await_process_task(self) -> None:
         if self._process_task and not self._process_task.done():
@@ -171,13 +199,20 @@ class FrameProcessor(ABC):
                 kept.append(item)
         for item in kept:
             await self._queue.put(item)
-        if self._process_task and not self._process_task.done() and self._current_interruptible:
-            self._process_task.cancel()
-            try:
-                await self._process_task
-            except (asyncio.CancelledError, Exception):
-                pass
-            self._process_task = None
+        # Cancel the whole data chain. Cancelling only the newest task is not
+        # enough: awaiting a predecessor does not propagate cancellation, so the
+        # older tasks would keep running (Pipecat resets the process task).
+        if self._current_interruptible:
+            for task in self._chain:
+                if not task.done():
+                    task.cancel()
+            for task in self._chain:
+                try:
+                    await task
+                except (asyncio.CancelledError, Exception):
+                    pass
+        self._chain.clear()
+        self._process_task = None
         await self.on_interruption(frame)
 
     async def on_interruption(self, frame: Frame) -> None:

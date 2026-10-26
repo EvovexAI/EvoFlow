@@ -40,10 +40,12 @@ export function setXiaomiTtsProvider(id) {
 
 export function getXiaomiTtsSpeaker() {
   try {
-    return localStorage.getItem(SPEAKER_KEY) || ''
+    const local = localStorage.getItem(SPEAKER_KEY) || ''
+    if (local) return local
   } catch {
-    return ''
+    /* ignore */
   }
+  return ''
 }
 
 export function setXiaomiTtsSpeaker(id) {

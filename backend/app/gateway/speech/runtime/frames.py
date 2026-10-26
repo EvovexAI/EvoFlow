@@ -90,11 +90,13 @@ class UserStoppedSpeakingFrame(SystemFrame):
 @dataclass(slots=True)
 class BotStartedSpeakingFrame(SystemFrame):
     seq: int = 0
+    text: str = ""
 
 
 @dataclass(slots=True)
 class BotStoppedSpeakingFrame(SystemFrame):
     seq: int = 0
+    text: str = ""
 
 
 @dataclass(slots=True)
@@ -119,13 +121,14 @@ class UserTurnCompleteFrame(ControlFrame):
 @dataclass(slots=True)
 class LLMTextFrame(Frame):
     text: str = ""
+    turn: int = 0
 
 
 @dataclass(slots=True)
 class LLMResponseEndFrame(ControlFrame):
     """Marks end of one assistant reply stream (flush residual sentence)."""
 
-    pass
+    turn: int = 0
 
 
 @dataclass(slots=True)
@@ -134,6 +137,7 @@ class TTSSpeakFrame(ControlFrame):
 
     text: str = ""
     seq: int | None = None
+    turn: int = 0
 
 
 @dataclass(slots=True)
@@ -150,3 +154,4 @@ class TTSRequestFrame(ControlFrame):
 
     text: str = ""
     seq: int = 0
+    turn: int = 0

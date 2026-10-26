@@ -430,7 +430,7 @@ function buildVolcengineTtsHeader() {
   return `
     <header class="media-vendor-detail-head media-vendor-detail-head--speech">
       <h3 class="media-vendor-detail-title">火山语音</h3>
-      <p class="media-vendor-detail-desc">用于语音朗读与 Agent 语音回复（TTS）。输入区扬声器可开关语音播报。</p>
+      <p class="media-vendor-detail-desc">小V Frame 语音运行时默认走火山 ASR/TTS；下方可选其它通道（需已配置凭证）。</p>
       <p class="media-vendor-help-links">
         <a href="https://console.volcengine.com/speech/service/8" target="_blank" rel="noopener noreferrer">获取 API Key</a>
         <span class="media-tts-speaker-hint-sep">·</span>
@@ -441,9 +441,34 @@ function buildVolcengineTtsHeader() {
     </header>`
 }
 
+function buildXiaomiProviderFieldsHtml() {
+  return `
+    <div class="form-field" data-xiaomi-voice-providers>
+      <label class="form-label">小V · 识别通道（ASR）</label>
+      <select class="form-input" data-xiaomi-asr-provider>
+        <option value="volcengine">火山引擎（默认）</option>
+        <option value="whisper">本地 Whisper</option>
+      </select>
+      <p class="form-hint" data-xiaomi-asr-hint></p>
+    </div>
+    <div class="form-field">
+      <label class="form-label">小V · 合成通道（TTS）</label>
+      <select class="form-input" data-xiaomi-tts-provider>
+        <option value="volcengine">火山引擎（默认）</option>
+        <option value="doubao">豆包（方舟）</option>
+        <option value="openai">OpenAI TTS</option>
+        <option value="elevenlabs">ElevenLabs</option>
+        <option value="minimax">MiniMax</option>
+        <option value="dashscope">阿里 DashScope</option>
+      </select>
+      <p class="form-hint" data-xiaomi-tts-hint></p>
+    </div>`
+}
+
 function buildVolcengineTtsFieldsHtml(creds) {
   return `
     ${secretFieldHtml('volcengineSpeechApiKey', 'API Key', creds)}
+    ${buildXiaomiProviderFieldsHtml()}
     ${buildTtsSpeakerFieldHtml('volcengineTtsSpeaker', '朗读音色', VOLCENGINE_TTS_SPEAKER_PRESETS, creds, {
       showVoiceId: false,
       customModeLabel: '自定义音色',
@@ -455,7 +480,7 @@ function buildVolcengineTtsFieldsHtml(creds) {
     </button>
     <div class="media-advanced-group" data-media-advanced-group hidden>
       ${textFieldHtml('volcengineTtsResourceId', 'TTS 模型', 'seed-tts-2.0', creds)}
-      <p class="form-hint">语音识别（ASR）已临时改用系统识别；火山 ASR 配置口子已隐藏，后端逻辑仍保留。</p>
+      <p class="form-hint">小V 语音全屏走 Frame 运行时（/api/speech/session）；切句与打断由后端编排。</p>
     </div>`
 }
 
@@ -631,8 +656,66 @@ function renderDetail() {
     bindJimengModelFields(panel)
     bindTtsSpeakerFields(panel, VOLCENGINE_TTS_SPEAKER_PRESETS)
     bindMediaAdvancedToggle(panel)
+    void bindXiaomiProviderFields(panel)
   } catch (e) {
     mount.innerHTML = `<p style="color:var(--error);padding:16px">渲染失败：${escHtml(e?.message || e)}</p>`
+  }
+}
+
+async function bindXiaomiProviderFields(panel) {
+  if (!panel) return
+  const asrEl = panel.querySelector('[data-xiaomi-asr-provider]')
+  const ttsEl = panel.querySelector('[data-xiaomi-tts-provider]')
+  if (!asrEl && !ttsEl) return
+  try {
+    const {
+      getXiaomiAsrProvider,
+      setXiaomiAsrProvider,
+      getXiaomiTtsProvider,
+      setXiaomiTtsProvider,
+    } = await import('../../lib/xiaomi-voice/config.js')
+    if (asrEl) {
+      asrEl.value = getXiaomiAsrProvider()
+      asrEl.addEventListener('change', () => {
+        setXiaomiAsrProvider(asrEl.value)
+        const hint = panel.querySelector('[data-xiaomi-asr-hint]')
+        if (hint) hint.textContent = `已选择 ${asrEl.value}（下次进入小V语音全屏生效）`
+      })
+    }
+    if (ttsEl) {
+      ttsEl.value = getXiaomiTtsProvider()
+      ttsEl.addEventListener('change', () => {
+        setXiaomiTtsProvider(ttsEl.value)
+        const hint = panel.querySelector('[data-xiaomi-tts-hint]')
+        if (hint) hint.textContent = `已选择 ${ttsEl.value}（需对应厂商凭证已配置）`
+      })
+    }
+    // Validate against gateway catalogs (best-effort)
+    const apiBase = import.meta.env?.DEV ? '/api/speech' : null
+    if (apiBase) {
+      try {
+        const { apiUrl } = await import('../../lib/api-client.js')
+        const base = import.meta.env?.DEV ? '/api/speech' : apiUrl('/speech')
+        const [asrRes, ttsRes] = await Promise.all([
+          fetch(`${base}/asr/providers`, { credentials: 'same-origin' }).then((r) => r.json()).catch(() => null),
+          fetch(`${base}/tts/providers`, { credentials: 'same-origin' }).then((r) => r.json()).catch(() => null),
+        ])
+        const asrHint = panel.querySelector('[data-xiaomi-asr-hint]')
+        const ttsHint = panel.querySelector('[data-xiaomi-tts-hint]')
+        if (asrHint && asrRes?.providers) {
+          const hit = asrRes.providers.find((p) => p.id === asrEl?.value)
+          asrHint.textContent = hit?.configured ? '凭证就绪' : '当前通道未配置 / 不可用'
+        }
+        if (ttsHint && ttsRes?.providers) {
+          const hit = ttsRes.providers.find((p) => p.id === ttsEl?.value)
+          ttsHint.textContent = hit?.configured ? '凭证就绪' : '当前通道未配置 / 不可用'
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+  } catch (e) {
+    console.warn('[media] xiaomi provider bind failed', e)
   }
 }
 
@@ -678,6 +761,14 @@ async function onSave({ quiet = false } = {}) {
     _loaded = await fetchMediaCredentials()
     _draft = { ...DEFAULT_MEDIA_CREDENTIALS, ..._loaded }
     delete _draft._configured
+    // Keep Xiaomi Frame session speaker in sync with saved TTS voice
+    try {
+      const { setXiaomiTtsSpeaker } = await import('../../lib/xiaomi-voice/config.js')
+      const sp = String(patch.volcengineTtsSpeaker || _loaded.volcengineTtsSpeaker || '').trim()
+      setXiaomiTtsSpeaker(sp)
+    } catch {
+      /* ignore */
+    }
     _pickerMode = false
     renderRail()
     renderDetail()

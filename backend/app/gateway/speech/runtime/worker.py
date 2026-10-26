@@ -89,9 +89,11 @@ class PipelineWorker:
     async def broadcast_interruption(self, reason: str = "barge_in") -> None:
         self.metrics["interrupt_at"] = time.monotonic()
         frame = InterruptionFrame(reason=reason)
-        # Fan-out to every processor so each can cancel local work immediately
-        for proc in self.pipeline.processors:
-            await proc.queue_frame(frame, FrameDirection.DOWNSTREAM)
+        # Single injection at the pipeline head; it then propagates downstream one
+        # hop at a time. Fanning out to every processor *and* forwarding it
+        # downstream would deliver the interruption several times (Pipecat
+        # broadcasts once, upstream + downstream).
+        await self.pipeline.queue_frame(frame, FrameDirection.DOWNSTREAM)
         self.metrics["interrupt_cleared_at"] = time.monotonic()
         logger.info(
             "interruption broadcast reason=%s cleared_ms=%.1f",

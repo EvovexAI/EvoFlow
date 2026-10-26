@@ -15,6 +15,7 @@ const WAKE_PHRASES = [
   '小v小v',
   '小维小维', // spoken “V” ≈ 维
   '小微小微',
+  '小薇小薇', // 口语常写成「小薇」
   '小委小委',
   '小威小威',
   '嘿小V',
@@ -55,7 +56,7 @@ function matchWakePhrase(text) {
     if (n.includes(normalizeZh(phrase))) return WAKE_WORD_LABEL
   }
   // 「小V」×2 with Latin/Chinese V variants, even if ASR inserts odd chars
-  if (/小[vV维微委威蜜米]小[vV维微委威蜜米]/.test(n)) return WAKE_WORD_LABEL
+  if (/小[vV维微薇委威蜜米]小[vV维微薇委威蜜米]/.test(n)) return WAKE_WORD_LABEL
   return null
 }
 
@@ -137,12 +138,24 @@ export async function startWebSpeechEar() {
     backend = 'webspeech'
     rec.start()
     console.log('[wake-word-webspeech] Ear listening for', WAKE_WORD_LABEL)
+    void import('./xiaomi-voice/voice-file-log.js')
+      .then(({ voiceFeMirror }) => voiceFeMirror('会话', '唤醒耳已开启，聆听', WAKE_WORD_LABEL))
+      .catch(() => {})
     return true
   } catch (e) {
     console.warn(
       '[wake-word-webspeech] Failed to start:',
       e instanceof Error ? e.message : String(e),
     )
+    void import('./xiaomi-voice/voice-file-log.js')
+      .then(({ voiceFeMirror }) =>
+        voiceFeMirror(
+          '会话',
+          '唤醒耳启动失败',
+          e instanceof Error ? e.message : String(e),
+        ),
+      )
+      .catch(() => {})
     stopWebSpeechEar()
     return false
   }

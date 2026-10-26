@@ -21,6 +21,17 @@ export function microphoneErrorMessage(err) {
   return msg || '无法打开麦克风'
 }
 
+/** 镜像到 xiaomi-voice 日志文件（控制台仍打） */
+function _voiceFileWarn(...args) {
+  try {
+    void import('./xiaomi-voice/voice-file-log.js').then(({ voiceFeMirror }) => {
+      voiceFeMirror('语音转文字', ...args)
+    })
+  } catch {
+    /* ignore */
+  }
+}
+
 /** @returns {Promise<MediaStream>} */
 export async function requestMicrophoneStream() {
   if (!navigator.mediaDevices?.getUserMedia) {
@@ -395,6 +406,7 @@ export class StreamingVoiceRecorder {
     if (!this.#micActive || this.#intentionalClose || this.#reconnecting) return;
     this.#reconnecting = true;
     console.warn('[voice] ASR glitch, reconnecting:', reason);
+    _voiceFileWarn('ASR glitch, reconnecting:', reason);
     try { this.#ws?.close(); } catch { /* ignore */ }
     const url = this.#lastWsUrl;
     if (!url) {
@@ -412,6 +424,7 @@ export class StreamingVoiceRecorder {
       this.#lastInboundTs = Date.now();
     } catch (e) {
       console.warn('[voice] ASR reconnect waitForReady failed', e);
+      _voiceFileWarn('ASR reconnect waitForReady failed', e?.message || e);
       try { this.#ws?.close(); } catch { /* ignore */ }
     } finally {
       this.#reconnecting = false;
@@ -860,6 +873,7 @@ export class StreamingVoiceRecorder {
         await this.#waitForReady();
       } catch (e) {
         console.warn('[voice] resume waitForReady failed', e);
+        _voiceFileWarn('resume waitForReady failed', e?.message || e);
         try { this.#ws?.close(); } catch { /* ignore */ }
         return false;
       }
