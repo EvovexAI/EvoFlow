@@ -123,7 +123,7 @@ html.dark .xws-root {
   padding: 4px 14px;
   border-radius: 999px;
   cursor: pointer;
-  transition: color 0.18s ease, background 0.18s ease;
+  transition: color var(--dur-base) var(--ease-out-soft), background var(--dur-base) var(--ease-out-soft);
 }
 .xws-mode-btn:hover {
   color: var(--xws-txt);
@@ -153,7 +153,7 @@ html.dark .xws-root {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  transition: color 0.18s ease, border-color 0.18s ease;
+  transition: color var(--dur-base) var(--ease-out-soft), border-color var(--dur-base) var(--ease-out-soft);
 }
 .xws-topbtn:hover {
   color: var(--xws-txt);
@@ -251,7 +251,7 @@ html.dark .xws-root {
   gap: 8px;
   padding: 3px 10px;
   border-radius: 999px;
-  transition: border-color 0.25s ease, box-shadow 0.25s ease, background 0.25s ease;
+  transition: border-color var(--dur-base) var(--ease-out-soft), box-shadow var(--dur-base) var(--ease-out-soft), background var(--dur-base) var(--ease-out-soft);
   border: 1px solid var(--xws-line);
   background: color-mix(in srgb, var(--xws-solid) 62%, transparent);
   backdrop-filter: blur(6px);
@@ -260,7 +260,7 @@ html.dark .xws-root {
   font-size: 10px;
   letter-spacing: 0.22em;
   color: var(--xws-state);
-  transition: color 0.3s ease;
+  transition: color var(--dur-panel) var(--ease-out-soft);
 }
 .xws-state-timer {
   font-size: 10px;
@@ -301,7 +301,7 @@ html.dark .xws-root {
   font-size: 17px;
   font-weight: 600;
   letter-spacing: 0.04em;
-  transition: color 0.3s ease;
+  transition: color var(--dur-panel) var(--ease-out-soft);
 }
 .xws-listen .xws-caption-title {
   text-shadow: 0 0 18px color-mix(in srgb, var(--xws-accent-glow) 45%, transparent);
@@ -408,7 +408,7 @@ html.dark .xws-root {
   justify-content: center;
   touch-action: none;
   user-select: none;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.15s ease;
+  transition: border-color var(--dur-base) var(--ease-out-soft), box-shadow var(--dur-base) var(--ease-out-soft), transform var(--dur-fast) var(--ease-out-soft);
 }
 .xws-ptt:hover {
   border-color: color-mix(in srgb, var(--xws-txt) 45%, transparent);
@@ -460,7 +460,7 @@ html.dark .xws-root {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  transition: color 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+  transition: color var(--dur-base) var(--ease-out-soft), border-color var(--dur-base) var(--ease-out-soft), box-shadow var(--dur-base) var(--ease-out-soft);
 }
 .xws-sidebtn:hover {
   color: var(--xws-txt);
@@ -497,7 +497,7 @@ html.dark .xws-root {
   align-items: center;
   justify-content: center;
   flex: none;
-  transition: color 0.18s ease, border-color 0.18s ease;
+  transition: color var(--dur-base) var(--ease-out-soft), border-color var(--dur-base) var(--ease-out-soft);
 }
 .xws-composer-mic:hover {
   color: var(--xws-accent);
@@ -563,7 +563,7 @@ html.dark .xws-root {
   padding: 5px 12px;
   border-radius: 999px;
   cursor: pointer;
-  transition: color 0.15s ease, border-color 0.15s ease;
+  transition: color var(--dur-fast) var(--ease-out-soft), border-color var(--dur-fast) var(--ease-out-soft);
 }
 .xws-content-chip:hover {
   color: var(--xws-txt);
@@ -629,7 +629,7 @@ html[data-xw-voice='1'] .xw-voice-host {
  * 向左铺满主内容区。时长与 xw-voice-mode ENTER_ANIM_MS 对齐。
  */
 html[data-xw-voice='1'][data-xw-voice-anim='enter'] .react-chat-main-body {
-  animation: xw-arc-expand 480ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: xw-arc-expand 480ms var(--ease-out-soft) both;
   will-change: clip-path;
 }
 html[data-xw-voice='1'][data-xw-voice-anim='enter'] .react-chat-conversation-frame {
@@ -677,7 +677,7 @@ html[data-xw-voice='1'] .react-chat-main-body:not(.is-right-stage-open) .xw-voic
 .xws-root .xws-chrome-hover {
   opacity: 0;
   pointer-events: none;
-  transition: opacity 0.18s ease;
+  transition: opacity var(--dur-base) var(--ease-out-soft);
 }
 .xws-root:hover .xws-chrome-hover,
 .xws-root:focus-within .xws-chrome-hover,
@@ -691,7 +691,7 @@ html[data-xw-voice='1'] .react-chat-main-body:not(.is-right-stage-open) .xw-voic
 }
 .xws-root .xws-openhint.xws-chrome-hover {
   transform: translateX(-50%) translateY(4px);
-  transition: opacity 0.18s ease, transform 0.18s ease;
+  transition: opacity var(--dur-base) var(--ease-out-soft), transform var(--dur-base) var(--ease-out-soft);
 }
 .xws-root:hover .xws-openhint.xws-chrome-hover,
 .xws-root:focus-within .xws-openhint.xws-chrome-hover {
@@ -776,7 +776,7 @@ html[data-xw-voice='1'] .react-chat-main-body {
   align-items: center;
   justify-content: center;
   backdrop-filter: blur(8px);
-  transition: color 0.18s ease, border-color 0.18s ease;
+  transition: color var(--dur-base) var(--ease-out-soft), border-color var(--dur-base) var(--ease-out-soft);
 }
 .xws-clean .xws-exit:hover,
 .xws-clean .xws-expand:hover {
@@ -805,7 +805,7 @@ html[data-xw-voice='1'] .react-chat-main-body {
   backdrop-filter: blur(16px) saturate(1.2);
   overflow: hidden;
   pointer-events: auto;
-  transition: width 0.22s ease, max-height 0.22s ease, box-shadow 0.22s ease, border-color 0.22s ease;
+  transition: width var(--dur-base) var(--ease-out-soft), max-height var(--dur-base) var(--ease-out-soft), box-shadow var(--dur-base) var(--ease-out-soft), border-color var(--dur-base) var(--ease-out-soft);
 }
 .xws-clean.is-voice-expanded .xws-recent {
   width: min(280px, 30vw);
@@ -882,7 +882,7 @@ html[data-xw-voice='1'] .react-chat-main-body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  transition: color 0.15s ease, background 0.15s ease;
+  transition: color var(--dur-fast) var(--ease-out-soft), background var(--dur-fast) var(--ease-out-soft);
 }
 .xws-clean .xws-recent-btn:hover:not(:disabled) {
   color: var(--xws-txt);
@@ -911,7 +911,7 @@ html[data-xw-voice='1'] .react-chat-main-body {
   cursor: pointer;
   backdrop-filter: blur(10px);
   pointer-events: auto;
-  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+  transition: color var(--dur-fast) var(--ease-out-soft), border-color var(--dur-fast) var(--ease-out-soft), background var(--dur-fast) var(--ease-out-soft);
 }
 .xws-clean .xws-recent-chip:hover {
   color: var(--xws-txt);
@@ -1009,7 +1009,7 @@ html[data-xw-voice='1'] .react-chat-main-body {
     );
   filter: blur(var(--xws-aura-blur, 28px));
   opacity: var(--xws-aura-opacity);
-  transition: background 0.45s ease, opacity 0.45s ease;
+  transition: background 0.45s var(--ease-out-soft), opacity 0.45s var(--ease-out-soft);
 }
 /* 浅色：再叠一圈更实的内核，让「圆」在浅灰底上站得住 */
 .xws-clean .xws-stage::after {
@@ -1031,7 +1031,7 @@ html[data-xw-voice='1'] .react-chat-main-body {
   );
   opacity: 0.55;
   filter: blur(10px);
-  transition: background 0.45s ease, opacity 0.45s ease;
+  transition: background 0.45s var(--ease-out-soft), opacity 0.45s var(--ease-out-soft);
 }
 html[data-theme='dark'] .xws-clean .xws-stage::after,
 html.dark .xws-clean .xws-stage::after {
@@ -1153,7 +1153,7 @@ html.dark .xws-clean .xws-stage::after {
   letter-spacing: 0.28em;
   color: var(--xws-state);
   text-indent: 0.28em;
-  transition: color 0.3s ease;
+  transition: color var(--dur-panel) var(--ease-out-soft);
 }
 .xws-clean .xws-status.is-live .xws-status-word {
   text-shadow: 0 0 22px color-mix(in srgb, var(--xws-state) 45%, transparent);

@@ -72,7 +72,7 @@ html[data-custom-bg='1'] .page.cron-page {
   font-weight: 500;
   cursor: pointer;
   white-space: nowrap;
-  transition: background-color .16s, border-color .16s, color .16s, opacity .16s, transform .16s;
+  transition: background-color var(--dur-fast), border-color var(--dur-fast), color var(--dur-fast), opacity var(--dur-fast), transform var(--dur-fast);
 }
 .cron-btn:hover { border-color: var(--accent); color: var(--accent); }
 .cron-btn:active { transform: scale(.98); }
@@ -102,7 +102,7 @@ html[data-custom-bg='1'] .page.cron-page {
   background: transparent;
   color: var(--text-tertiary);
   cursor: pointer;
-  transition: background-color .16s, color .16s, border-color .16s;
+  transition: background-color var(--dur-fast), color var(--dur-fast), border-color var(--dur-fast);
 }
 .cron-icon-btn:hover { background: var(--bg-card-hover); color: var(--text-primary); }
 .cron-icon-btn:disabled { opacity: .55; cursor: default; }
@@ -118,7 +118,7 @@ html[data-custom-bg='1'] .page.cron-page {
   font-size: var(--font-size-xs);
   color: var(--text-tertiary);
   cursor: pointer;
-  transition: color .16s;
+  transition: color var(--dur-fast);
 }
 .cron-link:hover { color: var(--accent); }
 
@@ -153,7 +153,7 @@ html[data-custom-bg='1'] .page.cron-page {
   font-size: var(--font-size-sm);
   font-weight: 500;
   cursor: pointer;
-  transition: background-color .16s, color .16s, box-shadow .16s;
+  transition: background-color var(--dur-fast), color var(--dur-fast), box-shadow var(--dur-fast);
 }
 .cron-tab:hover { color: var(--text-primary); }
 .cron-tab.is-active {
@@ -178,7 +178,7 @@ html[data-custom-bg='1'] .page.cron-page {
   font-size: var(--font-size-xs);
   color: var(--text-tertiary);
   cursor: pointer;
-  transition: color .14s, background-color .14s;
+  transition: color var(--dur-fast), background-color var(--dur-fast);
 }
 .cron-kindbar-btn:hover { color: var(--text-primary); background: var(--bg-card-hover); }
 .cron-kindbar-btn { display: inline-flex; align-items: center; gap: 5px; }
@@ -281,7 +281,7 @@ html[data-custom-bg='1'] .page.cron-page {
   padding: 10px 16px;
   border-bottom: 1px solid var(--border-secondary);
   cursor: pointer;
-  transition: background-color .14s, opacity .16s;
+  transition: background-color var(--dur-fast), opacity var(--dur-fast);
   min-width: 0;
 }
 .cron-row:last-child { border-bottom: none; }
@@ -398,7 +398,7 @@ html[data-custom-bg='1'] .page.cron-page {
   border-color: var(--border-primary);
   color: var(--text-secondary);
   font-weight: 500;
-  transition: background-color .14s, border-color .14s, color .14s;
+  transition: background-color var(--dur-fast), border-color var(--dur-fast), color var(--dur-fast);
 }
 .cron-row:hover .cron-row-ops .cron-btn.primary:not(:disabled),
 .cron-row-ops .cron-btn.primary:focus-visible {
@@ -406,7 +406,7 @@ html[data-custom-bg='1'] .page.cron-page {
   border-color: var(--accent);
   color: var(--text-inverse, #fff);
 }
-.cron-row-ops .cron-more { opacity: 0; transition: opacity .14s; }
+.cron-row-ops .cron-more { opacity: 0; transition: opacity var(--dur-fast); }
 .cron-row:hover .cron-row-ops .cron-more,
 .cron-row:focus-within .cron-row-ops .cron-more { opacity: 1; }
 
@@ -587,7 +587,7 @@ html[data-custom-bg='1'] .page.cron-page {
   cursor: pointer;
   text-align: left;
   min-width: 0;
-  transition: border-color .14s, background-color .14s;
+  transition: border-color var(--dur-fast), background-color var(--dur-fast);
 }
 .cron-idea:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--border-primary)); background: var(--bg-secondary); }
 .cron-idea-icon { color: var(--text-tertiary); flex-shrink: 0; display: inline-flex; }
@@ -791,7 +791,7 @@ html[data-custom-bg='1'] .page.cron-page {
   inset: 0;
   z-index: 1000;
   background: rgba(0, 0, 0, .35);
-  backdrop-filter: blur(4px);
+  backdrop-filter: blur(var(--blur-xs));
   display: flex;
   align-items: center;
   justify-content: center;
@@ -942,7 +942,7 @@ html[data-custom-bg='1'] .page.cron-page {
   inset: 0;
   z-index: 1100;
   background: rgba(0, 0, 0, .35);
-  backdrop-filter: blur(4px);
+  backdrop-filter: blur(var(--blur-xs));
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1042,7 +1042,7 @@ html[data-custom-bg='1'] .page.cron-page {
   border: 1px solid var(--border-primary);
   border-radius: var(--radius-xl);
   padding: 14px;
-  transition: box-shadow .3s ease;
+  transition: box-shadow var(--dur-panel) var(--ease-out-soft);
 }
 .sched-panel--simple { padding: 12px; }
 .sched-expr-box { margin-bottom: 12px; }
@@ -1067,7 +1067,7 @@ html[data-custom-bg='1'] .page.cron-page {
   flex: 1; padding: 7px 10px; border: none; border-radius: 8px;
   background: transparent; color: var(--text-tertiary);
   font-size: 12.5px; font-weight: 550; cursor: pointer;
-  transition: background-color 0.2s, border-color 0.2s, color 0.2s, opacity 0.2s, transform 0.2s, box-shadow 0.2s; text-align: center;
+  transition: background-color var(--dur-base), border-color var(--dur-base), color var(--dur-base), opacity var(--dur-base), transform var(--dur-base), box-shadow var(--dur-base); text-align: center;
   position: relative; overflow: hidden;
 }
 .sched-tab:hover { color: var(--text-secondary); background: color-mix(in srgb, var(--accent) 6%, transparent); }
@@ -1080,7 +1080,7 @@ html[data-custom-bg='1'] .page.cron-page {
 /* ── Body area ── */
 .sched-body { }
 .sched-row { margin-bottom: 12px; display:flex; align-items:center; gap:12px;}
-.sched-day-row { animation: fadeSlideIn .25s ease; }
+.sched-day-row { animation: fadeSlideIn var(--dur-base) var(--ease-out-soft); }
 @keyframes fadeSlideIn { from{opacity:0;transform:translateY(-4px)} to{opacity:1;transform:none} }
 .sched-label {
   font-size: 11.5px; font-weight: 650; text-transform: uppercase;
@@ -1107,18 +1107,18 @@ html[data-custom-bg='1'] .page.cron-page {
 .clock-svg {
   width: 100%; height: 100%;
   filter: drop-shadow(0 4px 16px rgba(0,0,0,.08));
-  transition: transform .3s cubic-bezier(.34,1.56,.64,1);
+  transition: transform var(--dur-panel) cubic-bezier(.34,1.56,.64,1);
 }
 .clock-svg:hover { transform: scale(1.03); }
 
 /* 时钟交互热区 —— 悬浮动效 */
-.clk-hr-hit { cursor: pointer; transition: background-color 0.2s, border-color 0.2s, color 0.2s, opacity 0.2s, transform 0.2s, box-shadow 0.2s; }
+.clk-hr-hit { cursor: pointer; transition: background-color var(--dur-base), border-color var(--dur-base), color var(--dur-base), opacity var(--dur-base), transform var(--dur-base), box-shadow var(--dur-base); }
 .clk-hr-hit:hover {
   fill: color-mix(in srgb, var(--accent) 22%, transparent) !important;
   r: 17;
-  animation: pulseRing .6s ease infinite alternate;
+  animation: pulseRing .6s var(--ease-out-soft) infinite alternate;
 }
-.clk-min-hit { cursor: pointer; transition: background-color 0.2s, border-color 0.2s, color 0.2s, opacity 0.2s, transform 0.2s, box-shadow 0.2s; }
+.clk-min-hit { cursor: pointer; transition: background-color var(--dur-base), border-color var(--dur-base), color var(--dur-base), opacity var(--dur-base), transform var(--dur-base), box-shadow var(--dur-base); }
 .clk-min-hit:hover { r: 14; fill: color-mix(in srgb, var(--accent-hover) 20%, transparent) !important; }
 @keyframes pulseRing { from{r:13} to{r:18} }
 
@@ -1131,7 +1131,7 @@ html[data-custom-bg='1'] .page.cron-page {
   display: flex; align-items: center; gap: 6px;
   background: var(--bg-secondary); padding: 8px 14px; border-radius: 12px;
   border: 1px solid var(--border-secondary);
-  transition: border-color .2s;
+  transition: border-color var(--dur-base);
 }
 .sched-digit-group:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent); }
 .sched-digit {
@@ -1140,7 +1140,7 @@ html[data-custom-bg='1'] .page.cron-page {
   font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', var(--font-mono);
   border: none; border-bottom: 2.5px solid var(--border-primary);
   background: transparent; color: var(--text-primary);
-  outline: none; transition: border-color .25s;
+  outline: none; transition: border-color var(--dur-base);
   -moz-appearance: textfield;
 }
 .sched-digit::-webkit-inner-spin-button, .sched-digit::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
@@ -1158,7 +1158,7 @@ html[data-custom-bg='1'] .page.cron-page {
   padding: 6px 16px; border: none; border-radius: 7px;
   background: transparent; color: var(--text-tertiary);
   font-size: var(--ef-text-sm) ; font-weight: 700; cursor: pointer;
-  transition: background-color 0.2s, border-color 0.2s, color 0.2s, opacity 0.2s, transform 0.2s, box-shadow 0.2s; letter-spacing: .5px;
+  transition: background-color var(--dur-base), border-color var(--dur-base), color var(--dur-base), opacity var(--dur-base), transform var(--dur-base), box-shadow var(--dur-base); letter-spacing: .5px;
 }
 .ampm-btn.on {
   background: linear-gradient(135deg, var(--accent), var(--accent-hover)); color: #fff;
@@ -1180,12 +1180,12 @@ html[data-custom-bg='1'] .page.cron-page {
   padding: 8px 20px; border: 1.5px solid var(--border-primary); border-radius: 24px;
   background: var(--bg-primary); color: var(--text-secondary); font-size: var(--font-size-sm);
   cursor: pointer; font-weight: 600; letter-spacing: .02em;
-  transition: background-color 0.2s, border-color 0.2s, color 0.2s, opacity 0.2s, transform 0.2s, box-shadow 0.2s;
+  transition: background-color var(--dur-base), border-color var(--dur-base), color var(--dur-base), opacity var(--dur-base), transform var(--dur-base), box-shadow var(--dur-base);
   position: relative; overflow: hidden;
 }
 .min-quick-btn::after {
   content:''; position:absolute; inset:0; border-radius:inherit;
-  opacity:0; transition:opacity .25s;
+  opacity:0; transition:opacity var(--dur-base);
   background: linear-gradient(135deg, var(--accent), var(--accent-hover));
 }
 .min-quick-btn:hover { border-color: var(--accent); color: var(--accent); transform: translateY(-1px); }
@@ -1208,7 +1208,7 @@ html[data-custom-bg='1'] .page.cron-page {
 .min-ring-grid::-webkit-scrollbar-track { background: transparent; border-radius: 3px; }
 .min-ring-grid::-webkit-scrollbar-thumb {
   background: color-mix(in srgb, var(--accent) 25%, transparent); border-radius: 3px;
-  transition: background .2s;
+  transition: background var(--dur-base);
 }
 .min-ring-grid::-webkit-scrollbar-thumb:hover { background: color-mix(in srgb, var(--accent) 45%, transparent); }
 .min-ring-cell {
@@ -1216,7 +1216,7 @@ html[data-custom-bg='1'] .page.cron-page {
   border: 1.5px solid transparent; border-radius: 50%;
   background: transparent; color: var(--text-quaternary, #aaa); font-size: 11.5px;
   font-family: var(--font-mono); font-weight: 500; cursor: pointer;
-  transition: background-color 0.2s, border-color 0.2s, color 0.2s, opacity 0.2s, transform 0.2s, box-shadow 0.2s;
+  transition: background-color var(--dur-base), border-color var(--dur-base), color var(--dur-base), opacity var(--dur-base), transform var(--dur-base), box-shadow var(--dur-base);
 }
 .min-ring-cell:hover {
   background: var(--accent-muted); color: var(--accent);
@@ -1236,7 +1236,7 @@ html[data-custom-bg='1'] .page.cron-page {
   border: 1.5px solid var(--border-primary); border-radius: 50%;
   background: var(--bg-secondary); color: var(--text-tertiary);
   font-size: var(--font-size-xs); font-weight: 700; cursor: pointer;
-  transition: background-color 0.2s, border-color 0.2s, color 0.2s, opacity 0.2s, transform 0.2s, box-shadow 0.2s;
+  transition: background-color var(--dur-base), border-color var(--dur-base), color var(--dur-base), opacity var(--dur-base), transform var(--dur-base), box-shadow var(--dur-base);
   position: relative;
 }
 .day-chip:hover {
@@ -1252,7 +1252,7 @@ html[data-custom-bg='1'] .page.cron-page {
 }
 
 /* ── 自定义 Cron ── */
-.sched-custom { animation: fadeSlideIn .2s ease; }
+.sched-custom { animation: fadeSlideIn var(--dur-base) var(--ease-out-soft); }
 .sched-help-text {
   font-size: 11.5px; color: var(--text-tertiary);
   margin-top: 6px; line-height: 1.55;
@@ -1282,7 +1282,7 @@ html[data-custom-bg='1'] .page.cron-page {
   border:1.5px solid var(--border-primary); border-radius:var(--radius-md);
   background:var(--bg-primary) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23a1a1aa' stroke-width='2'%3E%3Crect x='3' y='4' width='18' height='18' rx='2' ry='2'/%3E%3Cline x1='16' y1='2' x2='16' y2='6'/%3E%3Cline x1='8' y1='2' x2='8' y2='6'/%3E%3Cline x1='3' y1='10' x2='21' y2='10'/%3E%3C/svg%3E") no-repeat 13px center/16px 16px;
   color:var(--text-primary); font-family:inherit; font-size:var(--font-size-md); font-weight:500;
-  outline:none; transition:all .25s cubic-bezier(.4,0,.2,1);
+  outline:none; transition: background var(--dur-base) cubic-bezier(.4,0,.2,1), color var(--dur-base) cubic-bezier(.4,0,.2,1), border-color var(--dur-base) cubic-bezier(.4,0,.2,1), box-shadow var(--dur-base) cubic-bezier(.4,0,.2,1), opacity var(--dur-base) cubic-bezier(.4,0,.2,1), transform var(--dur-base) cubic-bezier(.4,0,.2,1), filter var(--dur-base) cubic-bezier(.4,0,.2,1);
   box-sizing:border-box; appearance:none; -webkit-appearance:none;
   cursor:pointer;
 }
@@ -1292,7 +1292,7 @@ html[data-custom-bg='1'] .page.cron-page {
   background-color:var(--bg-primary);
 }
 .sched-datetime::-webkit-calendar-picker-indicator {
-  cursor:pointer; opacity:.55; transition:opacity .2s; margin-right:4px;
+  cursor:pointer; opacity:.55; transition:opacity var(--dur-base); margin-right:4px;
   filter: invert(0.5) sepia(1) saturate(500%) hue-rotate(230deg);
 }
 .sched-datetime:hover::-webkit-calendar-picker-indicator,
@@ -1310,13 +1310,13 @@ html[data-custom-bg='1'] .page.cron-page {
 .sched-once-quick-btn {
   display:block; width:100%; padding:7px 8px; border:1.5px solid var(--border-primary); border-radius:9px;
   background:var(--bg-primary); color:var(--text-secondary); font-size:11.5px; font-weight:600;
-  cursor:pointer; text-align:center; transition:all .22s cubic-bezier(.34,1.56,.64,1);
+  cursor:pointer; text-align:center; transition: background var(--dur-base) cubic-bezier(.34,1.56,.64,1), color var(--dur-base) cubic-bezier(.34,1.56,.64,1), border-color var(--dur-base) cubic-bezier(.34,1.56,.64,1), box-shadow var(--dur-base) cubic-bezier(.34,1.56,.64,1), opacity var(--dur-base) cubic-bezier(.34,1.56,.64,1), transform var(--dur-base) cubic-bezier(.34,1.56,.64,1), filter var(--dur-base) cubic-bezier(.34,1.56,.64,1);
   white-space:nowrap; position:relative; overflow:hidden;
 }
 .sched-once-quick-btn::after {
   content:''; position:absolute; inset:0; border-radius:inherit; opacity:0;
   background:linear-gradient(135deg,#f59e0b,#ef4444);
-  transition:opacity .22s;
+  transition:opacity var(--dur-base);
 }
 .sched-once-quick-btn:hover {
   border-color:#f59e0b; color:#f59e0b; transform:translateY(-1px);
@@ -1333,7 +1333,7 @@ html[data-custom-bg='1'] .page.cron-page {
 .sched-once-preview {
   margin-top:10px; padding:10px 16px; background:var(--bg-secondary); border-radius:var(--radius-md);
   border:1px solid var(--border-secondary); display:flex; align-items:center; gap:10px;
-  animation:fadeSlideIn .25s ease;
+  animation:fadeSlideIn var(--dur-base) var(--ease-out-soft);
 }
 .sched-once-preview-icon { font-size:20px; }
 .sched-once-preview-text {
@@ -1412,7 +1412,7 @@ html[data-custom-bg='1'] .page.cron-page {
   font-size: var(--ef-text-sm) ;
   font-weight: 600;
   cursor: pointer;
-  transition: border-color 0.18s, color 0.18s, background 0.18s, box-shadow 0.18s;
+  transition: border-color var(--dur-base), color var(--dur-base), background var(--dur-base), box-shadow var(--dur-base);
 }
 .sched-preset-chip:hover {
   border-color: var(--accent);
@@ -1434,7 +1434,7 @@ html[data-custom-bg='1'] .page.cron-page {
   font-size: var(--ef-text-sm) ; color: var(--text-primary);
   display: flex; align-items: center; justify-content: center; gap: 6px; flex-wrap: wrap;
   font-weight: 500; letter-spacing: .01em;
-  transition: background-color 0.2s, border-color 0.2s, color 0.2s, opacity 0.2s, transform 0.2s, box-shadow 0.2s;
+  transition: background-color var(--dur-base), border-color var(--dur-base), color var(--dur-base), opacity var(--dur-base), transform var(--dur-base), box-shadow var(--dur-base);
 }
 .sched-summary-card:hover { border-color: color-mix(in srgb, var(--accent) 25%, transparent); }
 .ss-icon { font-size: var(--ef-text-base) ; }

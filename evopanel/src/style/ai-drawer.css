@@ -16,7 +16,7 @@
   align-items: center;
   justify-content: center;
   box-shadow: var(--shadow-sm, 0 1px 2px rgba(32, 33, 36, 0.04));
-  transition: background 150ms ease-out, box-shadow 150ms ease-out;
+  transition: background var(--dur-fast) ease-out, box-shadow var(--dur-fast) ease-out;
   touch-action: none; /* 拖动时禁止浏览器默认手势 */
   user-select: none;
 }
@@ -115,7 +115,7 @@
   border: 1px solid transparent;
   font-size: 11px;
   cursor: pointer;
-  transition: background 0.15s;
+  transition: background var(--dur-fast);
 }
 .ast-error-banner .btn-analyze {
   background: var(--error, #ef4444);
@@ -140,7 +140,7 @@
   margin-top: 8px;
   max-height: 0;
   overflow: hidden;
-  transition: max-height 0.3s ease;
+  transition: max-height var(--dur-panel) var(--ease-out-soft);
 }
 .ast-error-banner-detail.expanded {
   max-height: 300px;
@@ -185,7 +185,7 @@
   border-radius: 6px;
   white-space: nowrap;
   pointer-events: none;
-  animation: fab-hint-fade 4s ease forwards;
+  animation: fab-hint-fade 4s var(--ease-out-soft) forwards;
 }
 @keyframes fab-hint-fade {
   0% { opacity: 0; transform: translateX(-50%) translateY(4px); }

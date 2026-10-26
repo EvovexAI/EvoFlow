@@ -34,7 +34,7 @@ html.evopanel-tauri-frameless #app-shell-aside.shell-aside-host {
   box-shadow: none;
   user-select: none;
   -webkit-user-select: none;
-  transition: box-shadow 0.18s ease, background-color 0.18s ease, border-color 0.18s ease;
+  transition: box-shadow var(--dur-base) var(--ease-out-soft), background-color var(--dur-base) var(--ease-out-soft), border-color var(--dur-base) var(--ease-out-soft);
 }
 
 /* macOS 原生标题栏（交通灯悬浮在 WebView 之上）：加高顶栏并让内容下移为其让位。
@@ -91,7 +91,7 @@ html.evopanel-macos-titlebar .tauri-main-chrome {
   cursor: pointer;
   box-shadow: none;
   -webkit-app-region: no-drag;
-  transition: background-color 0.12s ease, color 0.12s ease;
+  transition: background-color var(--dur-fast) var(--ease-out-soft), color var(--dur-fast) var(--ease-out-soft);
 }
 
 .tauri-chrome-nav-btn:hover {
@@ -204,7 +204,7 @@ html[data-custom-bg='1'] #content:has(> .task-detail-page) {
   color: var(--text-secondary);
   cursor: pointer;
   box-shadow: none;
-  transition: background-color 0.12s ease, color 0.12s ease;
+  transition: background-color var(--dur-fast) var(--ease-out-soft), color var(--dur-fast) var(--ease-out-soft);
 }
 
 .tauri-chrome-guide-btn:hover {
@@ -254,7 +254,7 @@ html.dark .tauri-chrome-guide-btn:hover {
   line-height: 1;
   cursor: pointer;
   box-shadow: none;
-  transition: background-color 0.12s ease, color 0.12s ease;
+  transition: background-color var(--dur-fast) var(--ease-out-soft), color var(--dur-fast) var(--ease-out-soft);
 }
 
 .ep-window-controls-btn:hover {
@@ -323,8 +323,8 @@ html.dark .ep-window-controls-btn--close:hover {
   border: 1px solid var(--border-primary, rgba(0, 0, 0, 0.08));
   background: color-mix(in srgb, var(--bg-secondary, #fff) 92%, transparent);
   box-shadow: 0 10px 28px rgba(15, 23, 42, 0.14);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(var(--blur-md));
+  -webkit-backdrop-filter: blur(var(--blur-md));
 }
 
 .ep-desktop-ctx-item {

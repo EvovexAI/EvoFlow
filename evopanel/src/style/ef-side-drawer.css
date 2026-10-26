@@ -59,8 +59,8 @@
   border: 0;
   cursor: pointer;
   background: color-mix(in srgb, var(--accent, #1e1b4b) 28%, rgba(15, 23, 42, 0.42));
-  backdrop-filter: blur(2px);
-  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(var(--blur-xs));
+  -webkit-backdrop-filter: blur(var(--blur-xs));
 }
 
 .ef-side-drawer {
@@ -76,7 +76,7 @@
   box-shadow: var(--ef-d-glow);
   color: var(--ef-d-ink);
   overflow: hidden;
-  animation: ef-side-drawer-in 180ms ease-out;
+  animation: ef-side-drawer-in var(--dur-base) ease-out;
 }
 
 .ef-side-drawer::before {

@@ -464,7 +464,7 @@
 .session-bar {
   height: 100%;
   border-radius: 2px;
-  transition: width 0.3s ease;
+  transition: width var(--dur-panel) var(--ease-out-soft);
 }
 .session-row-meta {
   font-size: var(--font-size-xs);
@@ -517,7 +517,7 @@
   background: var(--accent);
   border-radius: 2px 2px 0 0;
   min-height: 2px;
-  transition: height 0.3s ease;
+  transition: height var(--dur-panel) var(--ease-out-soft);
 }
 .usage-daily-label {
   font-size: 9px;
@@ -864,7 +864,7 @@ html.dark .config-section-title {
   border-radius: 12px;
   cursor: pointer;
   white-space: nowrap;
-  transition: border-color 0.15s, background 0.15s, color 0.15s;
+  transition: border-color var(--dur-fast), background var(--dur-fast), color var(--dur-fast);
 }
 
 .filter-dropdown-btn:hover {
@@ -908,7 +908,7 @@ html.dark .config-section-title {
   color: var(--text-secondary, #6b7280);
   cursor: pointer;
   border-radius: 6px;
-  transition: background 0.12s, color 0.12s;
+  transition: background var(--dur-fast), color var(--dur-fast);
   user-select: none;
 }
 
@@ -1005,7 +1005,7 @@ html.dark .config-section-title {
   border: 1px solid var(--border-light, rgba(128,128,128,0.14));
   border-radius: 10px;
   background: var(--bg-secondary, #fafbfc);
-  transition: border-color 0.18s, box-shadow 0.18s, transform 0.15s;
+  transition: border-color var(--dur-base), box-shadow var(--dur-base), transform var(--dur-fast);
 }
 
 .market-card:hover {
@@ -1144,7 +1144,7 @@ html.dark .config-section-title {
   gap: 12px;
   padding: 12px 16px;
   border-bottom: 1px solid var(--border-light, rgba(128,128,128,0.10));
-  transition: background 0.15s;
+  transition: background var(--dur-fast);
 }
 .mcp-server-row:last-child {
   border-bottom: none;
@@ -1219,7 +1219,7 @@ html.dark .config-section-title {
   border-radius: 10px;
   background: var(--border-light, #ccc);
   position: relative;
-  transition: background 0.2s;
+  transition: background var(--dur-base);
 }
 .mcp-toggle-thumb {
   position: absolute;
@@ -1230,7 +1230,7 @@ html.dark .config-section-title {
   border-radius: 50%;
   background: #fff;
   box-shadow: 0 1px 3px rgba(0,0,0,0.2);
-  transition: transform 0.2s;
+  transition: transform var(--dur-base);
 }
 .mcp-row-toggle input:checked + .mcp-toggle-track {
   background: var(--accent, #4f8ef7);
@@ -1242,7 +1242,7 @@ html.dark .config-section-title {
 .mcp-row-delete {
   flex-shrink: 0;
   opacity: 0;
-  transition: opacity 0.15s;
+  transition: opacity var(--dur-fast);
   background: none;
   border: none;
   color: var(--text-tertiary, #888);
@@ -1270,7 +1270,7 @@ html.dark .config-section-title {
   border-radius: 12px;
   background: var(--bg-secondary, #fafbfc);
   cursor: default;
-  transition: border-color 0.18s, box-shadow 0.18s, transform 0.15s;
+  transition: border-color var(--dur-base), box-shadow var(--dur-base), transform var(--dur-fast);
   overflow: hidden;
 }
 
@@ -1663,7 +1663,7 @@ html.dark .config-section-title {
   height: 100%;
   background: var(--accent);
   border-radius: 3px;
-  transition: width 0.4s ease;
+  transition: width var(--dur-panel) var(--ease-out-soft);
 }
 
 .upgrade-progress-fill.done { background: var(--success); }
@@ -1703,7 +1703,7 @@ html.dark .config-section-title {
   color: #fff;
   font-size: 13px;
   box-shadow: 0 2px 8px rgba(0,0,0,0.15);
-  animation: task-bar-slide-in 0.3s ease;
+  animation: task-bar-slide-in var(--dur-panel) var(--ease-out-soft);
 }
 .upgrade-task-bar-text {
   flex: 1;
@@ -1830,7 +1830,7 @@ html.dark .config-section-title {
 }
 
 .gw-advanced-panel {
-  animation: fadeIn 200ms ease;
+  animation: fadeIn var(--dur-base) var(--ease-out-soft);
 }
 
 /* Gateway ? ??? */
@@ -1927,7 +1927,7 @@ html.dark .config-section-title {
   align-items: center;
   justify-content: center;
   z-index: 1000;
-  animation: fadeIn 150ms ease;
+  animation: fadeIn var(--dur-fast) var(--ease-out-soft);
 }
 .docker-dialog {
   background: #fff;
@@ -2180,7 +2180,7 @@ html.dark .config-section-title {
   background: var(--bg-tertiary);
   border-radius: 22px;
   cursor: pointer;
-  transition: background 0.2s;
+  transition: background var(--dur-base);
 }
 .toggle-slider::before {
   content: '';
@@ -2191,7 +2191,7 @@ html.dark .config-section-title {
   bottom: 3px;
   background: white;
   border-radius: 50%;
-  transition: transform 0.2s;
+  transition: transform var(--dur-base);
 }
 .toggle-switch input:checked + .toggle-slider {
   background: var(--accent);
@@ -2387,7 +2387,7 @@ html.dark .config-section-title {
   background: var(--bg-primary, #fff);
   transform: translateY(-50%);
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
-  transition: left 150ms ease, background 150ms ease;
+  transition: left var(--dur-fast) var(--ease-out-soft), background var(--dur-fast) var(--ease-out-soft);
 }
 
 .tasks-unattended-toggle input:checked + .tasks-unattended-toggle-track {
@@ -2871,7 +2871,7 @@ html.dark .config-section-title {
   align-items: center;
   gap: var(--space-lg);
   box-shadow: var(--shadow-md);
-  animation: slideDown 0.3s ease;
+  animation: slideDown var(--dur-panel) var(--ease-out-soft);
 }
 
 @keyframes slideDown {
@@ -3127,7 +3127,7 @@ html.dark .config-section-title {
   height: 100%;
   background: var(--accent);
   border-radius: 2px;
-  transition: width 0.3s ease;
+  transition: width var(--dur-panel) var(--ease-out-soft);
 }
 
 .task-item-footer {
@@ -3725,7 +3725,7 @@ html.dark .config-section-title {
   height: 100%;
   border-radius: inherit;
   background: linear-gradient(90deg, #3b82f6, #2563eb);
-  transition: width 0.25s ease;
+  transition: width var(--dur-base) var(--ease-out-soft);
 }
 
 /* ???????????????????????????????????? */
@@ -3778,7 +3778,7 @@ html.dark .config-section-title {
   border-bottom: 2px solid transparent;
   margin-bottom: -1px;
   border-radius: 0;
-  transition: color 160ms ease, border-color 160ms ease;
+  transition: color var(--dur-fast) var(--ease-out-soft), border-color var(--dur-fast) var(--ease-out-soft);
 }
 
 .task-detail-page .td-section-tab:hover {
@@ -4113,7 +4113,7 @@ html.dark .config-section-title {
   font: inherit;
   text-align: left;
   cursor: pointer;
-  transition: border-color 0.12s ease, background 0.12s ease, transform 0.12s ease;
+  transition: border-color var(--dur-fast) var(--ease-out-soft), background var(--dur-fast) var(--ease-out-soft), transform var(--dur-fast) var(--ease-out-soft);
 }
 
 .task-detail-page .td-stage-entry:hover {
@@ -4435,7 +4435,7 @@ html.dark .config-section-title {
 
 .td-output-row.is-clickable {
   cursor: pointer;
-  transition: border-color 0.15s ease, background 0.15s ease;
+  transition: border-color var(--dur-fast) var(--ease-out-soft), background var(--dur-fast) var(--ease-out-soft);
 }
 
 .td-output-row.is-clickable:hover {
@@ -4999,7 +4999,7 @@ html.dark .config-section-title {
   border-radius: 8px;
   min-height: 36px;
   padding: 0 14px;
-  transition: background 160ms ease, border-color 160ms ease;
+  transition: background var(--dur-fast) var(--ease-out-soft), border-color var(--dur-fast) var(--ease-out-soft);
 }
 
 .task-detail-page .btn-danger-outline:hover:not(:disabled) {
@@ -5946,7 +5946,7 @@ html.dark .config-section-title {
   cursor: pointer;
   color: inherit;
   font: inherit;
-  transition: background 0.14s ease;
+  transition: background var(--dur-fast) var(--ease-out-soft);
 }
 
 .task-detail-page .td-flow-node:hover,
@@ -6051,7 +6051,7 @@ html.dark .config-section-title {
   line-height: 1;
   color: var(--td-muted, #94a3b8);
   opacity: 0.35;
-  transition: opacity 0.14s ease, color 0.14s ease, transform 0.14s ease;
+  transition: opacity var(--dur-fast) var(--ease-out-soft), color var(--dur-fast) var(--ease-out-soft), transform var(--dur-fast) var(--ease-out-soft);
   padding: 0 4px;
 }
 
@@ -6832,7 +6832,7 @@ html.dark .config-section-title {
 .subtask-progress-mini .task-progress-fill {
   height: 100%;
   background: linear-gradient(90deg, var(--accent), var(--accent-hover));
-  transition: width 0.3s ease;
+  transition: width var(--dur-panel) var(--ease-out-soft);
 }
 
 /* Supervisor ???? */
@@ -6998,7 +6998,7 @@ html.dark .config-section-title {
 }
 
 .subtask-item {
-  animation: slideIn 0.3s ease-out;
+  animation: slideIn var(--dur-panel) ease-out;
 }
 
 /* Supervisor ???????? */
@@ -7025,7 +7025,7 @@ html.dark .config-section-title {
   width: 100%;
   height: 100%;
   background: linear-gradient(90deg, transparent, rgba(255,255,255,0.05), transparent);
-  transition: left 0.5s ease;
+  transition: left 0.5s var(--ease-out-soft);
   pointer-events: none;
 }
 
@@ -7052,7 +7052,7 @@ html.dark .config-section-title {
 
 /* ??????? */
 .batch-toolbar {
-  animation: slideDown 0.2s ease-out;
+  animation: slideDown var(--dur-base) ease-out;
 }
 
 @keyframes slideDown {
@@ -7213,7 +7213,7 @@ html.dark .config-section-title {
 .output-entry {
   padding: 8px 10px;
   border-bottom: 1px solid var(--border-secondary);
-  transition: background 0.12s ease;
+  transition: background var(--dur-fast) var(--ease-out-soft);
 }
 
 .output-entry:hover {
@@ -7966,7 +7966,7 @@ html.dark .config-section-title {
 .models-sidebar-chevron {
   flex-shrink: 0;
   opacity: 0.7;
-  transition: transform 0.15s ease;
+  transition: transform var(--dur-fast) var(--ease-out-soft);
 }
 
 .models-sidebar-section.collapsed .models-sidebar-chevron {
@@ -8004,7 +8004,7 @@ html.dark .config-section-title {
   text-align: left;
   font: inherit;
   color: inherit;
-  transition: background 0.12s ease;
+  transition: background var(--dur-fast) var(--ease-out-soft);
 }
 
 .models-vendor-item:hover {
@@ -8183,7 +8183,7 @@ html.dark .config-section-title {
   background: var(--bg-primary, #fff);
   color: var(--text-primary);
   font: inherit;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  transition: border-color var(--dur-base) var(--ease-out-soft), box-shadow var(--dur-base) var(--ease-out-soft);
 }
 
 .media-tts-speaker-trigger:hover {
@@ -8292,7 +8292,7 @@ html.dark .config-section-title {
   color: var(--text-primary);
   text-align: left;
   cursor: pointer;
-  transition: background 0.12s ease;
+  transition: background var(--dur-fast) var(--ease-out-soft);
 }
 
 .media-tts-speaker-item-main:hover {
@@ -8313,7 +8313,7 @@ html.dark .config-section-title {
   background: var(--bg-primary, #fff);
   color: var(--text-secondary);
   cursor: pointer;
-  transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+  transition: border-color var(--dur-fast) var(--ease-out-soft), color var(--dur-fast) var(--ease-out-soft), background var(--dur-fast) var(--ease-out-soft);
 }
 
 .media-tts-speaker-preview-btn:hover {
@@ -8546,7 +8546,7 @@ html.dark .config-section-title {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
+  transition: border-color var(--dur-fast), background var(--dur-fast), box-shadow var(--dur-fast);
 }
 
 .models-connection-picker-main {
@@ -8803,9 +8803,9 @@ html.dark .config-section-title {
   cursor: pointer;
   user-select: none;
   transition:
-    border-color 0.15s ease,
-    box-shadow 0.15s ease,
-    background 0.15s ease;
+    border-color var(--dur-fast) var(--ease-out-soft),
+    box-shadow var(--dur-fast) var(--ease-out-soft),
+    background var(--dur-fast) var(--ease-out-soft);
 }
 
 .models-sort-dropdown-trigger:hover {
@@ -8884,7 +8884,7 @@ html[data-theme='dark'] .models-sort-dropdown-panel {
   border: none;
   border-radius: var(--radius-sm);
   cursor: pointer;
-  transition: background 0.12s ease;
+  transition: background var(--dur-fast) var(--ease-out-soft);
 }
 
 .models-sort-dropdown-item:hover {
@@ -9643,7 +9643,7 @@ html[data-theme='dark'] .models-sort-dropdown-panel {
   border: 1px solid var(--border-primary);
   background: var(--bg-secondary);
   cursor: pointer;
-  transition: border-color 0.12s ease, background 0.12s ease;
+  transition: border-color var(--dur-fast) var(--ease-out-soft), background var(--dur-fast) var(--ease-out-soft);
 }
 
 .models-url-mode-option:hover {
@@ -9700,7 +9700,7 @@ html[data-theme='dark'] .models-sort-dropdown-panel {
   padding: 4px 10px;
   border-radius: 999px;
   cursor: pointer;
-  transition: border-color 0.15s, color 0.15s, background 0.15s;
+  transition: border-color var(--dur-fast), color var(--dur-fast), background var(--dur-fast);
 }
 
 .models-context-tier-chip:hover,
@@ -9797,7 +9797,7 @@ html[data-theme='dark'] .models-sort-dropdown-panel {
   padding: 10px 12px;
   margin-bottom: 6px;
   border-radius: var(--radius-sm);
-  transition: background 0.12s ease, box-shadow 0.12s ease;
+  transition: background var(--dur-fast) var(--ease-out-soft), box-shadow var(--dur-fast) var(--ease-out-soft);
 }
 .model-card:hover { background: var(--bg-secondary); }
 
@@ -9916,7 +9916,7 @@ html[data-theme='dark'] .models-sort-dropdown-panel {
   font-size: var(--font-size-sm);
   text-align: left;
   cursor: pointer;
-  transition: background 0.12s ease, color 0.12s ease;
+  transition: background var(--dur-fast) var(--ease-out-soft), color var(--dur-fast) var(--ease-out-soft);
 }
 
 .settings-nav-item:hover {
@@ -10180,7 +10180,7 @@ html[data-theme='dark'] .models-sort-dropdown-panel {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  transition: border-color 0.15s, transform 0.12s, box-shadow 0.15s;
+  transition: border-color var(--dur-fast), transform var(--dur-fast), box-shadow var(--dur-fast);
 }
 
 .settings-accent-swatch:hover {
@@ -10272,7 +10272,7 @@ html[data-theme='dark'] .models-sort-dropdown-panel {
   color: var(--text-secondary);
   font-size: var(--font-size-sm);
   cursor: pointer;
-  transition: background 0.15s, border-color 0.15s, color 0.15s;
+  transition: background var(--dur-fast), border-color var(--dur-fast), color var(--dur-fast);
 }
 
 .settings-theme-btn:hover {
@@ -10849,7 +10849,7 @@ html.dark .settings-modal-root .settings-layout--hub .settings-hub-main {
   background: var(--bg-tertiary);
   border: 1px solid var(--border-primary);
   position: relative;
-  transition: background 0.15s ease, border-color 0.15s ease;
+  transition: background var(--dur-fast) var(--ease-out-soft), border-color var(--dur-fast) var(--ease-out-soft);
   flex-shrink: 0;
 }
 
@@ -10862,7 +10862,7 @@ html.dark .settings-modal-root .settings-layout--hub .settings-hub-main {
   background: var(--text-tertiary);
   top: 2px;
   left: 3px;
-  transition: transform 0.15s ease, background 0.15s ease;
+  transition: transform var(--dur-fast) var(--ease-out-soft), background var(--dur-fast) var(--ease-out-soft);
 }
 
 .channels-enable:has(.channels-enable-input:checked) .channels-enable-track {
@@ -10996,7 +10996,7 @@ html.dark .settings-modal-root .settings-layout--hub .settings-hub-main {
   justify-content: space-between;
   padding: 10px var(--space-lg);
   cursor: pointer;
-  transition: background 0.12s ease, color 0.12s ease;
+  transition: background var(--dur-fast) var(--ease-out-soft), color var(--dur-fast) var(--ease-out-soft);
   position: relative;
   user-select: none;
   gap: var(--space-xs);
@@ -11065,7 +11065,7 @@ html.dark .settings-modal-root .settings-layout--hub .settings-hub-main {
   border-radius: 999px;
   background: var(--bg-tertiary);
   border: 1px solid var(--border-primary);
-  transition: background 0.15s ease, border-color 0.15s ease;
+  transition: background var(--dur-fast) var(--ease-out-soft), border-color var(--dur-fast) var(--ease-out-soft);
   position: relative;
 }
 
@@ -11078,7 +11078,7 @@ html.dark .settings-modal-root .settings-layout--hub .settings-hub-main {
   top: 1.5px;
   left: 2px;
   background: var(--text-tertiary);
-  transition: transform 0.15s ease, background 0.15s ease;
+  transition: transform var(--dur-fast) var(--ease-out-soft), background var(--dur-fast) var(--ease-out-soft);
 }
 
 .im-toggle:has(.im-toggle-input:checked) .im-toggle-track {
@@ -11379,7 +11379,7 @@ html.dark .settings-modal-root .settings-layout--hub .settings-hub-main {
   background: var(--bg-secondary);
   color: var(--text-primary);
   outline: none;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  transition: border-color var(--dur-fast) var(--ease-out-soft), box-shadow var(--dur-fast) var(--ease-out-soft);
   box-sizing: border-box;
 }
 
@@ -11767,9 +11767,9 @@ html.dark .settings-modal-root .settings-layout--hub .settings-hub-main {
   cursor: pointer;
   user-select: none;
   transition:
-    border-color 0.15s ease,
-    box-shadow 0.15s ease,
-    background 0.15s ease;
+    border-color var(--dur-fast) var(--ease-out-soft),
+    box-shadow var(--dur-fast) var(--ease-out-soft),
+    background var(--dur-fast) var(--ease-out-soft);
 }
 
 .memory-agent-dropdown-trigger:hover {
@@ -11851,7 +11851,7 @@ html[data-theme='dark'] .memory-agent-dropdown-panel {
   border: none;
   border-radius: var(--radius-sm);
   cursor: pointer;
-  transition: background 0.12s ease;
+  transition: background var(--dur-fast) var(--ease-out-soft);
 }
 
 .memory-agent-dropdown-item:hover {
@@ -11902,9 +11902,9 @@ html[data-theme='dark'] .memory-agent-dropdown-panel {
   font-size: var(--font-size-xs);
   cursor: pointer;
   transition:
-    background 0.15s ease,
-    border-color 0.15s ease,
-    color 0.15s ease;
+    background var(--dur-fast) var(--ease-out-soft),
+    border-color var(--dur-fast) var(--ease-out-soft),
+    color var(--dur-fast) var(--ease-out-soft);
 }
 
 .memory-agent-chip:hover {
@@ -12556,7 +12556,7 @@ html[data-theme='dark'] .memory-agent-dropdown-panel {
   scrollbar-color: var(--border-primary) transparent;
 }
 .settings-modal-pane--shortcuts::-webkit-scrollbar {
-  width: 6px;
+  width: var(--sb-size);
 }
 .settings-modal-pane--shortcuts::-webkit-scrollbar-thumb {
   background: var(--border-primary);
@@ -14169,7 +14169,7 @@ html[data-theme='dark'] .memory-agent-dropdown-panel {
   height: 100%;
   border-radius: inherit;
   background: var(--blue);
-  transition: width 0.25s ease;
+  transition: width var(--dur-base) var(--ease-out-soft);
 }
 
 .code-index-progress-bar-fill.indeterminate {
@@ -14483,7 +14483,7 @@ html[data-theme='dark'] .memory-agent-dropdown-panel {
   color: var(--text-primary);
   text-decoration: none;
   font-size: var(--font-size-sm);
-  transition: background 0.15s ease;
+  transition: background var(--dur-fast) var(--ease-out-soft);
 }
 
 .about-link:hover {
@@ -14517,7 +14517,7 @@ html[data-theme='dark'] .memory-agent-dropdown-panel {
   color: var(--text-primary);
   font-size: var(--font-size-sm);
   cursor: pointer;
-  transition: background 0.15s ease, border-color 0.15s ease;
+  transition: background var(--dur-fast) var(--ease-out-soft), border-color var(--dur-fast) var(--ease-out-soft);
 }
 
 .about-check-btn:hover:not(:disabled) {
@@ -14916,7 +14916,7 @@ html[data-theme='dark'] .memory-agent-dropdown-panel {
   box-shadow:
     0 24px 80px rgba(0, 0, 0, 0.18),
     0 0 0 1px color-mix(in srgb, var(--border-primary) 60%, transparent);
-  animation: models-edit-modal-in 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  animation: models-edit-modal-in var(--dur-base) cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 /* æµè²æ¨¡å¼ä¸ç¡®ä¿å¼¹çªèæ¯æ­£ç¡® */
@@ -15150,7 +15150,7 @@ html[data-theme='dark'] .memory-agent-dropdown-panel {
   background: var(--bg-primary, #fff);
   color: var(--text-primary);
   font-size: 13px;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+  transition: border-color var(--dur-base) var(--ease-out-soft), box-shadow var(--dur-base) var(--ease-out-soft), background var(--dur-base) var(--ease-out-soft);
 }
 
 .models-edit-modal-body .form-input:hover {
@@ -15340,7 +15340,7 @@ html[data-theme='dark'] .memory-agent-dropdown-panel {
   font-size: 13px;
   font-family: var(--mono-font, ui-monospace, monospace);
   font-variant-numeric: tabular-nums;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  transition: border-color var(--dur-base) var(--ease-out-soft), box-shadow var(--dur-base) var(--ease-out-soft);
 }
 
 .models-edit-ctx-input:hover {
@@ -15583,7 +15583,7 @@ html[data-theme='dark'] .memory-agent-dropdown-panel {
   border-radius: var(--radius-md, 8px);
   cursor: pointer;
   background: color-mix(in srgb, var(--bg-primary, #fff) 50%, transparent);
-  transition: border-color 0.15s ease, background 0.15s ease;
+  transition: border-color var(--dur-fast) var(--ease-out-soft), background var(--dur-fast) var(--ease-out-soft);
 }
 .sec-profile-card input {
   position: absolute;
@@ -15759,7 +15759,7 @@ html[data-theme='dark'] .memory-agent-dropdown-panel {
   bottom: 0;
   background: var(--text-tertiary, #94a3b8);
   border-radius: 24px;
-  transition: 0.25s;
+  transition: var(--dur-base);
 }
 .sec-switch-slider::before {
   content: '';
@@ -15770,7 +15770,7 @@ html[data-theme='dark'] .memory-agent-dropdown-panel {
   bottom: 3px;
   background: #fff;
   border-radius: 50%;
-  transition: 0.25s;
+  transition: var(--dur-base);
 }
 .sec-switch input:checked + .sec-switch-slider {
   background: var(--accent, #2563eb);
@@ -15982,7 +15982,7 @@ html[data-theme='dark'] .memory-agent-dropdown-panel {
   color: var(--text-secondary, #aaa);
 }
 .api-cap-card {
-  transition: border-color 0.15s, background 0.15s;
+  transition: border-color var(--dur-fast), background var(--dur-fast);
 }
 .api-cap-card:hover {
   border-color: var(--accent, #3b82f6) !important;
@@ -16035,7 +16035,7 @@ html[data-theme='dark'] .memory-agent-dropdown-panel {
   scrollbar-color: var(--border-primary) transparent;
 }
 .settings-modal-pane--general::-webkit-scrollbar {
-  width: 6px;
+  width: var(--sb-size);
 }
 .settings-modal-pane--general::-webkit-scrollbar-thumb {
   background: var(--border-primary);
@@ -16107,7 +16107,7 @@ html[data-theme='dark'] .memory-agent-dropdown-panel {
   background: var(--text-tertiary);
   border-radius: 22px;
   cursor: pointer;
-  transition: background 0.25s ease;
+  transition: background var(--dur-base) var(--ease-out-soft);
 }
 
 .switch-slider::before {
@@ -16119,7 +16119,7 @@ html[data-theme='dark'] .memory-agent-dropdown-panel {
   top: 2px;
   background: #fff;
   border-radius: 50%;
-  transition: transform 0.25s ease;
+  transition: transform var(--dur-base) var(--ease-out-soft);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
 }
 
@@ -16149,7 +16149,7 @@ html[data-theme='dark'] .memory-agent-dropdown-panel {
   scrollbar-color: var(--border-primary) transparent;
 }
 .settings-modal-pane--media::-webkit-scrollbar {
-  width: 6px;
+  width: var(--sb-size);
 }
 .settings-modal-pane--media::-webkit-scrollbar-thumb {
   background: var(--border-primary);
@@ -16181,7 +16181,7 @@ html[data-theme='dark'] .memory-agent-dropdown-panel {
   border: 1px solid color-mix(in srgb, var(--text-primary) 8%, transparent);
   cursor: pointer;
   user-select: none;
-  transition: all 0.15s ease;
+  transition: background var(--dur-fast) var(--ease-out-soft), color var(--dur-fast) var(--ease-out-soft), border-color var(--dur-fast) var(--ease-out-soft), box-shadow var(--dur-fast) var(--ease-out-soft), opacity var(--dur-fast) var(--ease-out-soft), transform var(--dur-fast) var(--ease-out-soft), filter var(--dur-fast) var(--ease-out-soft);
   white-space: nowrap;
 }
 
@@ -16260,7 +16260,7 @@ html[data-theme='dark'] .memory-agent-dropdown-panel {
   border: 1px solid color-mix(in srgb, var(--text-primary) 8%, transparent);
   cursor: pointer;
   user-select: none;
-  transition: all 0.15s ease;
+  transition: background var(--dur-fast) var(--ease-out-soft), color var(--dur-fast) var(--ease-out-soft), border-color var(--dur-fast) var(--ease-out-soft), box-shadow var(--dur-fast) var(--ease-out-soft), opacity var(--dur-fast) var(--ease-out-soft), transform var(--dur-fast) var(--ease-out-soft), filter var(--dur-fast) var(--ease-out-soft);
   white-space: nowrap;
 }
 
@@ -16312,7 +16312,7 @@ html[data-theme='dark'] .memory-agent-dropdown-panel {
   background: var(--bg-secondary, transparent);
   color: var(--text-secondary);
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: background var(--dur-fast) var(--ease-out-soft), color var(--dur-fast) var(--ease-out-soft), border-color var(--dur-fast) var(--ease-out-soft), box-shadow var(--dur-fast) var(--ease-out-soft), opacity var(--dur-fast) var(--ease-out-soft), transform var(--dur-fast) var(--ease-out-soft), filter var(--dur-fast) var(--ease-out-soft);
 }
 .tasks-today-chip b { font-weight: 600; }
 .tasks-today-chip:disabled {
@@ -16359,7 +16359,7 @@ html[data-theme='dark'] .memory-agent-dropdown-panel {
   background: var(--bg-card);
   color: var(--text-secondary);
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: background var(--dur-fast) var(--ease-out-soft), color var(--dur-fast) var(--ease-out-soft), border-color var(--dur-fast) var(--ease-out-soft), box-shadow var(--dur-fast) var(--ease-out-soft), opacity var(--dur-fast) var(--ease-out-soft), transform var(--dur-fast) var(--ease-out-soft), filter var(--dur-fast) var(--ease-out-soft);
 }
 .tasks-source-tab:hover { border-color: var(--primary, #3b82f6); color: var(--primary, #3b82f6); }
 .tasks-source-tab.is-active {
@@ -16464,7 +16464,7 @@ html[data-theme='dark'] .memory-agent-dropdown-panel {
 }
 .tl-row {
   border-bottom: 1px solid var(--border-primary);
-  transition: background 0.12s ease;
+  transition: background var(--dur-fast) var(--ease-out-soft);
 }
 .tl-table tbody .tl-row:last-child { border-bottom: none; }
 .tl-row:hover { background: var(--bg-secondary, rgba(0,0,0,0.02)); }
@@ -16594,7 +16594,7 @@ html[data-theme='dark'] .memory-agent-dropdown-panel {
 
 /* ??????????????hover ????????? */
 .tl-ops { display: flex; gap: 6px; justify-content: flex-end; }
-.tl-ops .btn { opacity: 0; transition: opacity 0.12s ease; }
+.tl-ops .btn { opacity: 0; transition: opacity var(--dur-fast) var(--ease-out-soft); }
 .tl-ops .btn-primary { opacity: 1; }
 .tl-row:hover .tl-ops .btn { opacity: 1; }
 .tl-table--batch .tl-ops .btn { opacity: 1; }
@@ -16654,8 +16654,8 @@ html[data-translucent-ui='1'] .tasks-page .task-card,
 html[data-custom-bg='1'] .tasks-page .tasks-today-strip,
 html[data-custom-bg='1'] .tasks-page .tasks-monitor-hero,
 html[data-custom-bg='1'] .tasks-page .task-card {
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(var(--blur-md));
+  -webkit-backdrop-filter: blur(var(--blur-md));
 }
 
 html[data-custom-bg='1'] .task-detail-page.page {
@@ -16674,8 +16674,8 @@ html[data-custom-bg='1'] .task-detail-page .td-progress,
 html[data-custom-bg='1'] .task-detail-page .task-decision-panel,
 html[data-custom-bg='1'] .task-detail-page .task-obs-panel {
   background: color-mix(in srgb, var(--bg-secondary) 58%, transparent) !important;
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(var(--blur-md));
+  -webkit-backdrop-filter: blur(var(--blur-md));
 }
 
 .tasks-page .tasks-shell-top {
@@ -16779,7 +16779,7 @@ html[data-custom-bg='1'] .task-detail-page .task-obs-panel {
   color: var(--t-muted);
   cursor: pointer;
   white-space: nowrap;
-  transition: border-color 0.12s ease, color 0.12s ease, background 0.12s ease;
+  transition: border-color var(--dur-fast) var(--ease-out-soft), color var(--dur-fast) var(--ease-out-soft), background var(--dur-fast) var(--ease-out-soft);
 }
 
 .tasks-page .tasks-today-chip-ico {
@@ -17226,7 +17226,7 @@ html[data-custom-bg='1'] .task-detail-page .task-obs-panel {
   font-size: 13px;
   line-height: 1.2;
   cursor: pointer;
-  transition: border-color 0.15s, box-shadow 0.15s;
+  transition: border-color var(--dur-fast), box-shadow var(--dur-fast);
 }
 
 .tasks-page .tasks-filter-select:hover {
@@ -17817,7 +17817,7 @@ html[data-custom-bg='1'] .task-detail-page .task-obs-panel {
   height: 100%;
   border-radius: inherit;
   background: linear-gradient(90deg, #3b82f6, #2563eb);
-  transition: width 0.25s ease;
+  transition: width var(--dur-base) var(--ease-out-soft);
 }
 .tl-progbar.is-done .tl-progbar__fill {
   background: linear-gradient(90deg, #22c55e, #16a34a);
@@ -18597,7 +18597,7 @@ html[data-custom-bg='1'] .task-detail-page .task-obs-panel {
   opacity: 0;
   transform: translateY(-6px);
   pointer-events: none;
-  transition: opacity 160ms ease, transform 160ms ease;
+  transition: opacity var(--dur-fast) var(--ease-out-soft), transform var(--dur-fast) var(--ease-out-soft);
 }
 .uiext-shell-chrome:hover .uiext-shell-bar,
 .uiext-shell-chrome:hover .uiext-shell-win,
@@ -18616,7 +18616,7 @@ html[data-custom-bg='1'] .task-detail-page .task-obs-panel {
   border: 1px solid rgba(15, 23, 42, 0.1);
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.92);
-  backdrop-filter: blur(10px);
+  backdrop-filter: blur(var(--blur-md));
   box-shadow: 0 2px 12px rgba(15, 23, 42, 0.1);
 }
 .uiext-shell-win {
@@ -18626,7 +18626,7 @@ html[data-custom-bg='1'] .task-detail-page .task-obs-panel {
   padding: 2px;
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.88);
-  backdrop-filter: blur(8px);
+  backdrop-filter: blur(var(--blur-sm));
   box-shadow: 0 2px 10px rgba(15, 23, 42, 0.08);
 }
 .uiext-shell-title { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; }
@@ -18669,7 +18669,7 @@ html[data-custom-bg='1'] .task-detail-page .task-obs-panel {
   background-size: 200% 100%;
   border-radius: 4px;
   animation: uiext-skeleton-pulse 1.4s ease-in-out infinite;
-  transition: width 0.4s ease;
+  transition: width var(--dur-panel) var(--ease-out-soft);
 }
 @keyframes uiext-skeleton-pulse {
   0% { background-position: 200% 0; }
@@ -18685,7 +18685,7 @@ html[data-custom-bg='1'] .task-detail-page .task-obs-panel {
   color: var(--text-tertiary, #94a3b8);
   font-size: 13px;
   opacity: 0.4;
-  transition: opacity 0.3s ease;
+  transition: opacity var(--dur-panel) var(--ease-out-soft);
 }
 .uiext-shell-skeleton-step.is-active {
   opacity: 1;
@@ -18780,7 +18780,7 @@ html[data-custom-bg='1'] .task-detail-page .task-obs-panel {
   flex-shrink: 0;
   color: #9ca2b3;
   opacity: 0.85;
-  transition: transform 0.15s ease;
+  transition: transform var(--dur-fast) var(--ease-out-soft);
 }
 
 .shell-aside-ext-group.is-expanded .shell-aside-ext-chevron {
@@ -18827,7 +18827,7 @@ html[data-custom-bg='1'] .task-detail-page .task-obs-panel {
   text-align: left;
   cursor: pointer;
   box-shadow: none;
-  transition: background 0.12s ease, color 0.12s ease;
+  transition: background var(--dur-fast) var(--ease-out-soft), color var(--dur-fast) var(--ease-out-soft);
 }
 
 .shell-aside-ext-item:hover {
@@ -19114,9 +19114,9 @@ html[data-custom-bg='1'] .task-detail-page .task-obs-panel {
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
   cursor: pointer;
   transition:
-    transform 0.18s ease,
-    box-shadow 0.18s ease,
-    border-color 0.18s ease;
+    transform var(--dur-base) var(--ease-out-soft),
+    box-shadow var(--dur-base) var(--ease-out-soft),
+    border-color var(--dur-base) var(--ease-out-soft);
 }
 
 .uiext-app:hover {
@@ -19339,7 +19339,7 @@ html[data-custom-bg='1'] .task-detail-page .task-obs-panel {
   cursor: pointer;
   opacity: 0.55;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
-  transition: opacity 0.15s ease, background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+  transition: opacity var(--dur-fast) var(--ease-out-soft), background var(--dur-fast) var(--ease-out-soft), color var(--dur-fast) var(--ease-out-soft), border-color var(--dur-fast) var(--ease-out-soft);
 }
 
 .uiext-app:hover .uiext-app-more,
@@ -20045,7 +20045,7 @@ html.dark .users-pill--enforce {
   background: color-mix(in srgb, var(--bg-primary, #fff) 50%, transparent);
   color: inherit;
   font: inherit;
-  transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+  transition: border-color var(--dur-fast) var(--ease-out-soft), background var(--dur-fast) var(--ease-out-soft), box-shadow var(--dur-fast) var(--ease-out-soft);
 }
 
 .users-mode-card:hover {
@@ -20207,7 +20207,7 @@ html.dark .users-pill--enforce {
   border: 1px solid var(--border-primary);
   border-radius: var(--radius-md, 8px);
   background: color-mix(in srgb, var(--bg-primary, #fff) 50%, transparent);
-  transition: border-color 0.15s ease, opacity 0.15s ease;
+  transition: border-color var(--dur-fast) var(--ease-out-soft), opacity var(--dur-fast) var(--ease-out-soft);
 }
 
 .users-person-card:hover {
@@ -20319,7 +20319,7 @@ html.dark .users-pill--enforce {
   cursor: pointer;
   font-size: var(--ef-text-base) ;
   color: var(--text-primary, #222);
-  transition: background 0.15s, border-color 0.15s, transform 0.05s;
+  transition: background var(--dur-fast), border-color var(--dur-fast), transform 0.05s;
   text-align: left;
 }
 .im-channel-picker__chip:hover:not(:disabled) {

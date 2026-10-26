@@ -160,10 +160,33 @@ export function navigate(path) {
   window.location.hash = normalized
 }
 
+const SHELL_FADE_OUT_MS = 110
+let _chatHostHideTimer = null
+let _contentHideTimer = null
+
+/** 退出淡出：路由切换是 display 硬切换，先把旧宿主淡到 0 再藏，消除「闪一下」。
+ *  只延迟 display 样式本身；setChatSurfaceVisible / hidden 的语义时机保持立即。 */
+function hideShellElWithFade(el, hideFn, timerRef) {
+  if (!el || el.hidden || el.style.display === 'none') {
+    hideFn()
+    return
+  }
+  el.style.transition = `opacity ${SHELL_FADE_OUT_MS}ms ease`
+  // 强制一帧让 transition 生效（同帧设 transition+opacity 不会插值）
+  void el.offsetWidth
+  el.style.opacity = '0'
+  if (timerRef.current) clearTimeout(timerRef.current)
+  timerRef.current = setTimeout(() => {
+    timerRef.current = null
+    el.style.transition = ''
+    el.style.opacity = ''
+    hideFn()
+  }, SHELL_FADE_OUT_MS)
+}
+
 function setChatHostVisible(visible) {
   if (!_chatHostEl) return
-  _chatHostEl.hidden = !visible
-  _chatHostEl.style.display = visible ? 'flex' : 'none'
+  if (_chatHostHideTimer) { clearTimeout(_chatHostHideTimer); _chatHostHideTimer = null }
   // 必须同步：动态 import().then 在快速切路由时会乱序，导致 chatSurfaceVisible 卡在 false，
   // ChatMessageStreamPane 一直渲染 hibernate 空壳，看起来像「对话空白，刷新才好」。
   const epoch = ++_chatSurfaceEpoch
@@ -171,12 +194,33 @@ function setChatHostVisible(visible) {
   setChatSurfaceVisible(next)
   // 防御 epoch，便于以后若改回异步路径仍可丢弃过期回调
   void epoch
+  if (visible) {
+    _chatHostEl.style.opacity = ''
+    _chatHostEl.style.transition = ''
+    _chatHostEl.hidden = false
+    _chatHostEl.style.display = 'flex'
+  } else {
+    hideShellElWithFade(_chatHostEl, () => {
+      _chatHostEl.hidden = true
+      _chatHostEl.style.display = 'none'
+    }, { get current() { return _chatHostHideTimer }, set current(v) { _chatHostHideTimer = v } })
+  }
 }
 
 function setContentVisible(visible) {
   if (!_contentEl) return
-  _contentEl.hidden = !visible
-  _contentEl.style.display = visible ? '' : 'none'
+  if (_contentHideTimer) { clearTimeout(_contentHideTimer); _contentHideTimer = null }
+  if (visible) {
+    _contentEl.style.opacity = ''
+    _contentEl.style.transition = ''
+    _contentEl.hidden = false
+    _contentEl.style.display = ''
+  } else {
+    hideShellElWithFade(_contentEl, () => {
+      _contentEl.hidden = true
+      _contentEl.style.display = 'none'
+    }, { get current() { return _contentHideTimer }, set current(v) { _contentHideTimer = v } })
+  }
 }
 
 export function initRouter(contentEl, opts = {}) {

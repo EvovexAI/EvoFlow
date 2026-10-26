@@ -156,7 +156,7 @@
   align-items: center;
   cursor: pointer;
   color: var(--obs-nav-color);
-  transition: all .18s ease;
+  transition: background var(--dur-base) var(--ease-out-soft), color var(--dur-base) var(--ease-out-soft), border-color var(--dur-base) var(--ease-out-soft), box-shadow var(--dur-base) var(--ease-out-soft), opacity var(--dur-base) var(--ease-out-soft), transform var(--dur-base) var(--ease-out-soft), filter var(--dur-base) var(--ease-out-soft);
   text-align: left;
 }
 
@@ -268,7 +268,7 @@
   gap: 10px;
   cursor: pointer;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
-  transition: all .2s ease;
+  transition: background var(--dur-base) var(--ease-out-soft), color var(--dur-base) var(--ease-out-soft), border-color var(--dur-base) var(--ease-out-soft), box-shadow var(--dur-base) var(--ease-out-soft), opacity var(--dur-base) var(--ease-out-soft), transform var(--dur-base) var(--ease-out-soft), filter var(--dur-base) var(--ease-out-soft);
 }
 .filter-pill:hover, .mini-select:hover, .text-link:hover, .drawer-actions button:hover, .card-button-row button:hover, .setting-row button:hover, .filter-panel button:hover {
   border-color: rgba(53, 120, 255, .6);
@@ -959,7 +959,7 @@
   cursor: pointer;
   color: var(--text-muted);
   flex-shrink: 0;
-  transition: all 0.15s ease;
+  transition: background var(--dur-fast) var(--ease-out-soft), color var(--dur-fast) var(--ease-out-soft), border-color var(--dur-fast) var(--ease-out-soft), box-shadow var(--dur-fast) var(--ease-out-soft), opacity var(--dur-fast) var(--ease-out-soft), transform var(--dur-fast) var(--ease-out-soft), filter var(--dur-fast) var(--ease-out-soft);
 }
 
 .jv-toggle:hover {
@@ -975,7 +975,7 @@
   border-left: 5px solid transparent;
   border-right: 5px solid transparent;
   border-top: 6px solid var(--text-muted);
-  transition: transform 0.15s ease;
+  transition: transform var(--dur-fast) var(--ease-out-soft);
 }
 
 .jv-toggle-icon--open {
@@ -1204,7 +1204,7 @@
   padding: 0 12px;
   font-size: 12px;
   cursor: pointer;
-  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+  transition: background var(--dur-fast) var(--ease-out-soft), border-color var(--dur-fast) var(--ease-out-soft), color var(--dur-fast) var(--ease-out-soft);
 }
 .obs-theme-btn:hover {
   border-color: rgba(53, 120, 255, 0.45);
@@ -1534,7 +1534,7 @@ html[data-theme="light"] .obs-dashboard-root .obs-empty-panel {
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: background var(--dur-fast) var(--ease-out-soft), color var(--dur-fast) var(--ease-out-soft), border-color var(--dur-fast) var(--ease-out-soft), box-shadow var(--dur-fast) var(--ease-out-soft), opacity var(--dur-fast) var(--ease-out-soft), transform var(--dur-fast) var(--ease-out-soft), filter var(--dur-fast) var(--ease-out-soft);
 }
 
 .code-index-tab:hover {
@@ -1730,7 +1730,7 @@ html[data-theme="light"] .obs-dashboard-root .obs-empty-panel {
   color: var(--text);
   cursor: pointer;
   text-align: left;
-  transition: all 0.15s ease;
+  transition: background var(--dur-fast) var(--ease-out-soft), color var(--dur-fast) var(--ease-out-soft), border-color var(--dur-fast) var(--ease-out-soft), box-shadow var(--dur-fast) var(--ease-out-soft), opacity var(--dur-fast) var(--ease-out-soft), transform var(--dur-fast) var(--ease-out-soft), filter var(--dur-fast) var(--ease-out-soft);
 }
 
 .code-index-workspace-btn:hover {
@@ -1777,7 +1777,7 @@ html[data-theme="light"] .obs-dashboard-root .obs-empty-panel {
   color: var(--text);
   font-size: 13px;
   cursor: pointer;
-  transition: all 0.12s ease;
+  transition: background var(--dur-fast) var(--ease-out-soft), color var(--dur-fast) var(--ease-out-soft), border-color var(--dur-fast) var(--ease-out-soft), box-shadow var(--dur-fast) var(--ease-out-soft), opacity var(--dur-fast) var(--ease-out-soft), transform var(--dur-fast) var(--ease-out-soft), filter var(--dur-fast) var(--ease-out-soft);
   text-align: left;
 }
 
@@ -1825,7 +1825,7 @@ html[data-theme="light"] .obs-dashboard-root .obs-empty-panel {
   font-size: 14px;
   cursor: pointer;
   opacity: 0;
-  transition: all 0.12s ease;
+  transition: background var(--dur-fast) var(--ease-out-soft), color var(--dur-fast) var(--ease-out-soft), border-color var(--dur-fast) var(--ease-out-soft), box-shadow var(--dur-fast) var(--ease-out-soft), opacity var(--dur-fast) var(--ease-out-soft), transform var(--dur-fast) var(--ease-out-soft), filter var(--dur-fast) var(--ease-out-soft);
 }
 
 .code-index-workspace-history-item:hover .code-index-workspace-remove {
@@ -1854,7 +1854,7 @@ html[data-theme="light"] .obs-dashboard-root .obs-empty-panel {
   border-radius: 8px;
   color: #fff;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: background var(--dur-fast) var(--ease-out-soft), color var(--dur-fast) var(--ease-out-soft), border-color var(--dur-fast) var(--ease-out-soft), box-shadow var(--dur-fast) var(--ease-out-soft), opacity var(--dur-fast) var(--ease-out-soft), transform var(--dur-fast) var(--ease-out-soft), filter var(--dur-fast) var(--ease-out-soft);
 }
 
 .code-index-build-btn:hover {
@@ -2002,7 +2002,7 @@ html[data-theme="light"] .obs-dashboard-root .obs-empty-panel {
   font-size: 13px;
   cursor: pointer;
   user-select: none;
-  transition: all 0.15s ease;
+  transition: background var(--dur-fast) var(--ease-out-soft), color var(--dur-fast) var(--ease-out-soft), border-color var(--dur-fast) var(--ease-out-soft), box-shadow var(--dur-fast) var(--ease-out-soft), opacity var(--dur-fast) var(--ease-out-soft), transform var(--dur-fast) var(--ease-out-soft), filter var(--dur-fast) var(--ease-out-soft);
 }
 
 .code-index-relations-details-summary:hover {
@@ -2068,7 +2068,7 @@ html[data-theme="light"] .obs-dashboard-root .obs-empty-panel {
   height: 100%;
   border-radius: 999px;
   background: linear-gradient(90deg, var(--blue), var(--purple));
-  transition: width 0.35s ease;
+  transition: width var(--dur-panel) var(--ease-out-soft);
 }
 
 .code-index-progress-bar-fill.indeterminate {
@@ -2288,7 +2288,7 @@ html[data-theme="light"] .obs-dashboard-root .obs-empty-panel {
   background: var(--obs-surface-muted);
   color: var(--text-secondary);
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: background var(--dur-fast) var(--ease-out-soft), color var(--dur-fast) var(--ease-out-soft), border-color var(--dur-fast) var(--ease-out-soft), box-shadow var(--dur-fast) var(--ease-out-soft), opacity var(--dur-fast) var(--ease-out-soft), transform var(--dur-fast) var(--ease-out-soft), filter var(--dur-fast) var(--ease-out-soft);
 }
 
 .filter-group button:hover {
@@ -2391,7 +2391,7 @@ html[data-theme="light"] .obs-dashboard-root .obs-empty-panel {
   color: var(--text-secondary);
   cursor: pointer;
   white-space: nowrap;
-  transition: all 0.15s ease;
+  transition: background var(--dur-fast) var(--ease-out-soft), color var(--dur-fast) var(--ease-out-soft), border-color var(--dur-fast) var(--ease-out-soft), box-shadow var(--dur-fast) var(--ease-out-soft), opacity var(--dur-fast) var(--ease-out-soft), transform var(--dur-fast) var(--ease-out-soft), filter var(--dur-fast) var(--ease-out-soft);
 }
 
 .compact-back-btn:hover {
@@ -2410,7 +2410,7 @@ html[data-theme="light"] .obs-dashboard-root .obs-empty-panel {
   color: var(--text-secondary);
   cursor: pointer;
   white-space: nowrap;
-  transition: all 0.15s ease;
+  transition: background var(--dur-fast) var(--ease-out-soft), color var(--dur-fast) var(--ease-out-soft), border-color var(--dur-fast) var(--ease-out-soft), box-shadow var(--dur-fast) var(--ease-out-soft), opacity var(--dur-fast) var(--ease-out-soft), transform var(--dur-fast) var(--ease-out-soft), filter var(--dur-fast) var(--ease-out-soft);
 }
 
 .compact-refresh:hover {
@@ -2433,7 +2433,7 @@ html[data-theme="light"] .obs-dashboard-root .obs-empty-panel {
   font-size: 12px;
   min-height: 32px;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
-  transition: all .2s ease;
+  transition: background var(--dur-base) var(--ease-out-soft), color var(--dur-base) var(--ease-out-soft), border-color var(--dur-base) var(--ease-out-soft), box-shadow var(--dur-base) var(--ease-out-soft), opacity var(--dur-base) var(--ease-out-soft), transform var(--dur-base) var(--ease-out-soft), filter var(--dur-base) var(--ease-out-soft);
 }
 
 .compact-select-wrap span {
@@ -2489,7 +2489,7 @@ html[data-theme="light"] .obs-dashboard-root .obs-empty-panel {
   border-radius: 4px;
   color: var(--text-secondary);
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: background var(--dur-fast) var(--ease-out-soft), color var(--dur-fast) var(--ease-out-soft), border-color var(--dur-fast) var(--ease-out-soft), box-shadow var(--dur-fast) var(--ease-out-soft), opacity var(--dur-fast) var(--ease-out-soft), transform var(--dur-fast) var(--ease-out-soft), filter var(--dur-fast) var(--ease-out-soft);
 }
 
 .mini-btn:hover:not(:disabled) {
@@ -2519,7 +2519,7 @@ html[data-theme="light"] .obs-dashboard-root .obs-empty-panel {
   background: var(--obs-surface-muted);
   border: 1px solid var(--border);
   border-radius: 8px;
-  transition: all 0.2s ease;
+  transition: background var(--dur-base) var(--ease-out-soft), color var(--dur-base) var(--ease-out-soft), border-color var(--dur-base) var(--ease-out-soft), box-shadow var(--dur-base) var(--ease-out-soft), opacity var(--dur-base) var(--ease-out-soft), transform var(--dur-base) var(--ease-out-soft), filter var(--dur-base) var(--ease-out-soft);
 }
 
 .runtime-summary-card.active {
@@ -2781,7 +2781,7 @@ html[data-theme="light"] .obs-dashboard-root .obs-empty-panel {
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 16px;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: background var(--dur-panel) cubic-bezier(0.4, 0, 0.2, 1), color var(--dur-panel) cubic-bezier(0.4, 0, 0.2, 1), border-color var(--dur-panel) cubic-bezier(0.4, 0, 0.2, 1), box-shadow var(--dur-panel) cubic-bezier(0.4, 0, 0.2, 1), opacity var(--dur-panel) cubic-bezier(0.4, 0, 0.2, 1), transform var(--dur-panel) cubic-bezier(0.4, 0, 0.2, 1), filter var(--dur-panel) cubic-bezier(0.4, 0, 0.2, 1);
   overflow: hidden;
 }
 
@@ -2794,7 +2794,7 @@ html[data-theme="light"] .obs-dashboard-root .obs-empty-panel {
   height: 2px;
   background: linear-gradient(90deg, transparent, var(--border), transparent);
   opacity: 0;
-  transition: opacity 0.3s;
+  transition: opacity var(--dur-panel);
 }
 
 .runtime-agent-card.active {
@@ -2954,7 +2954,7 @@ html[data-theme="light"] .obs-dashboard-root .obs-empty-panel {
   height: 100%;
   background: linear-gradient(90deg, var(--green), var(--green-light, #4ade80));
   border-radius: 4px;
-  transition: width 0.5s ease;
+  transition: width 0.5s var(--ease-out-soft);
 }
 
 .activity-bar-label {
@@ -3041,7 +3041,7 @@ html[data-theme="light"] .obs-dashboard-root .obs-empty-panel {
   border: 1px solid var(--border);
   border-radius: 12px;
   min-width: 120px;
-  transition: all 0.3s ease;
+  transition: background var(--dur-panel) var(--ease-out-soft), color var(--dur-panel) var(--ease-out-soft), border-color var(--dur-panel) var(--ease-out-soft), box-shadow var(--dur-panel) var(--ease-out-soft), opacity var(--dur-panel) var(--ease-out-soft), transform var(--dur-panel) var(--ease-out-soft), filter var(--dur-panel) var(--ease-out-soft);
 }
 
 .pipeline-stage:hover {
@@ -3172,7 +3172,7 @@ html[data-theme="light"] .obs-dashboard-root .obs-empty-panel {
   background: var(--obs-surface-soft);
   border-radius: 8px;
   border-left: 3px solid transparent;
-  transition: all 0.2s ease;
+  transition: background var(--dur-base) var(--ease-out-soft), color var(--dur-base) var(--ease-out-soft), border-color var(--dur-base) var(--ease-out-soft), box-shadow var(--dur-base) var(--ease-out-soft), opacity var(--dur-base) var(--ease-out-soft), transform var(--dur-base) var(--ease-out-soft), filter var(--dur-base) var(--ease-out-soft);
 }
 
 .alert-item:hover {
@@ -3375,7 +3375,7 @@ html[data-theme="light"] .obs-dashboard-root .obs-empty-panel {
   cursor: pointer;
   min-height: 32px;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
-  transition: all .2s ease;
+  transition: background var(--dur-base) var(--ease-out-soft), color var(--dur-base) var(--ease-out-soft), border-color var(--dur-base) var(--ease-out-soft), box-shadow var(--dur-base) var(--ease-out-soft), opacity var(--dur-base) var(--ease-out-soft), transform var(--dur-base) var(--ease-out-soft), filter var(--dur-base) var(--ease-out-soft);
 }
 
 .mini-select:hover {
@@ -3432,7 +3432,7 @@ html[data-theme="light"] .obs-dashboard-root .obs-empty-panel {
   font-style: normal;
   font-size: 11px;
   line-height: 1;
-  transition: transform 0.2s ease;
+  transition: transform var(--dur-base) var(--ease-out-soft);
 }
 
 .custom-select-open .custom-select-arrow {
@@ -3458,7 +3458,7 @@ html[data-theme="light"] .obs-dashboard-root .obs-empty-panel {
   list-style: none;
   margin: 0;
   backdrop-filter: blur(16px);
-  animation: custom-select-fade-in 0.15s ease-out;
+  animation: custom-select-fade-in var(--dur-fast) ease-out;
 }
 
 .custom-select-dropdown.placement-bottom-end {
@@ -3485,7 +3485,7 @@ html[data-theme="light"] .obs-dashboard-root .obs-empty-panel {
   font-weight: 500;
   color: var(--text-primary, #e2e8f0);
   cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease;
+  transition: background var(--dur-fast) var(--ease-out-soft), color var(--dur-fast) var(--ease-out-soft);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -3504,7 +3504,7 @@ html[data-theme="light"] .obs-dashboard-root .obs-empty-panel {
 
 /* 滚动条美化 */
 .custom-select-dropdown::-webkit-scrollbar {
-  width: 4px;
+  width: var(--sb-size-sm);
 }
 .custom-select-dropdown::-webkit-scrollbar-track {
   background: transparent;

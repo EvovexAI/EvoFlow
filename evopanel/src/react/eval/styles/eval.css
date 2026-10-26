@@ -136,7 +136,7 @@ html[data-theme='dark'] .eval-root {
   font-size: 14px;
   font-weight: 500;
   font-family: inherit;
-  transition: background 0.2s, color 0.2s, transform 0.15s;
+  transition: background var(--dur-base), color var(--dur-base), transform var(--dur-fast);
 }
 
 .eval-nav-btn .nav-ico {
@@ -206,7 +206,7 @@ html[data-theme='dark'] .eval-root {
   font-family: inherit;
   cursor: pointer;
   box-shadow: var(--shadow);
-  transition: transform 0.15s, background 0.15s, box-shadow 0.15s;
+  transition: transform var(--dur-fast), background var(--dur-fast), box-shadow var(--dur-fast);
 }
 
 .eval-btn:hover:not(:disabled) {
@@ -314,7 +314,7 @@ html[data-theme='dark'] .eval-root {
   padding: 18px 16px;
   box-shadow: var(--shadow);
   text-align: center;
-  transition: transform 0.2s, box-shadow 0.2s;
+  transition: transform var(--dur-base), box-shadow var(--dur-base);
 }
 
 .eval-metric:hover {
@@ -597,7 +597,7 @@ html[data-theme='dark'] .eval-root {
   font-weight: 500;
   font-family: inherit;
   cursor: pointer;
-  transition: all 0.15s;
+  transition: background var(--dur-fast), color var(--dur-fast), border-color var(--dur-fast), box-shadow var(--dur-fast), opacity var(--dur-fast), transform var(--dur-fast), filter var(--dur-fast);
 }
 
 .eval-tab:hover {
@@ -624,7 +624,7 @@ html[data-theme='dark'] .eval-root {
   height: 100%;
   border-radius: 99px;
   background: linear-gradient(90deg, var(--primary), #a78bfa);
-  transition: width 0.4s ease;
+  transition: width var(--dur-panel) var(--ease-out-soft);
 }
 
 .eval-assert {
@@ -796,7 +796,7 @@ html[data-theme='dark'] .eval-root {
   cursor: pointer;
   font-family: inherit;
   color: var(--text);
-  transition: transform 0.15s, box-shadow 0.15s, border-color 0.15s;
+  transition: transform var(--dur-fast), box-shadow var(--dur-fast), border-color var(--dur-fast);
 }
 
 .eval-guide-card strong {
@@ -843,7 +843,7 @@ html[data-theme='dark'] .eval-root {
   cursor: pointer;
   font-family: inherit;
   color: var(--text);
-  transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s;
+  transition: border-color var(--dur-fast), box-shadow var(--dur-fast), transform var(--dur-fast);
 }
 
 .eval-module-chip strong {

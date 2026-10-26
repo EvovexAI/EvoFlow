@@ -113,7 +113,7 @@
   width: 100%;
   text-align: left;
   cursor: grab;
-  transition: background 0.15s ease, border-color 0.15s ease;
+  transition: background var(--dur-fast) var(--ease-out-soft), border-color var(--dur-fast) var(--ease-out-soft);
 }
 
 .wf-drawer-lib-row:hover {
@@ -147,7 +147,7 @@
   background: color-mix(in srgb, var(--wf-select) 10%, transparent);
   color: var(--wf-select);
   flex-shrink: 0;
-  transition: opacity 0.15s ease;
+  transition: opacity var(--dur-fast) var(--ease-out-soft);
 }
 
 .wf-drawer-lib-row:hover .wf-drawer-lib-add {
@@ -325,10 +325,10 @@ html.dark .wf-studio-toolbar-win-sep {
   cursor: pointer;
   white-space: nowrap;
   transition:
-    background 0.15s ease,
-    border-color 0.15s ease,
-    color 0.15s ease,
-    box-shadow 0.15s ease;
+    background var(--dur-fast) var(--ease-out-soft),
+    border-color var(--dur-fast) var(--ease-out-soft),
+    color var(--dur-fast) var(--ease-out-soft),
+    box-shadow var(--dur-fast) var(--ease-out-soft);
 }
 
 .wf-toolbar-action:disabled {
@@ -520,7 +520,7 @@ html.dark .wf-studio-toolbar-win-sep {
   height: 12px !important;
   border-width: 2px !important;
   opacity: 0.72;
-  transition: opacity 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease !important;
+  transition: opacity var(--dur-fast) var(--ease-out-soft), transform var(--dur-fast) var(--ease-out-soft), box-shadow var(--dur-fast) var(--ease-out-soft) !important;
 }
 
 .wf-handle--in {

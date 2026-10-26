@@ -73,7 +73,7 @@ html.evopanel-macos-titlebar .react-chat-aside-toolbar {
   letter-spacing: -0.01em;
   gap: 8px;
   padding: 0 8px;
-  transition: background 120ms ease-out, color 120ms ease-out;
+  transition: background var(--dur-fast) ease-out, color var(--dur-fast) ease-out;
 }
 
 .react-chat-aside-nav-item:hover {
@@ -491,7 +491,7 @@ html[data-theme='dark'] body .msg.msg-turn.msg-turn--user.msg-user .msg-bubble.m
   font-size: var(--ef-text-sm) ;
   font-weight: 500;
   cursor: pointer;
-  transition: background 150ms ease-out, color 150ms ease-out;
+  transition: background var(--dur-fast) ease-out, color var(--dur-fast) ease-out;
 }
 
 .msg-action-result-link:hover {
@@ -813,7 +813,7 @@ html.dark .react-chat-bottom-dock .react-chat-bottom-area {
   border: 1px solid color-mix(in srgb, var(--text-primary) 5%, transparent);
   cursor: pointer;
   text-align: left;
-  transition: background 150ms ease-out, border-color 150ms ease-out;
+  transition: background var(--dur-fast) ease-out, border-color var(--dur-fast) ease-out;
 }
 
 .react-chat-agent-cap-overview-item:hover,
@@ -917,7 +917,7 @@ html.dark .react-chat-bottom-dock .react-chat-bottom-area {
   content: '›';
   display: inline-block;
   margin-right: 4px;
-  transition: transform 150ms ease-out;
+  transition: transform var(--dur-fast) ease-out;
   color: var(--text-tertiary, #9297a0);
 }
 

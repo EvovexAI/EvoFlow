@@ -96,8 +96,8 @@ html[data-custom-bg='1'] .kv-detail-sidebar,
 html[data-custom-bg='1'] .kv-workspace-panel,
 html[data-custom-bg='1'] .kv-note-panel,
 html[data-custom-bg='1'] .kv-graph-panel {
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(var(--blur-md));
+  -webkit-backdrop-filter: blur(var(--blur-md));
 }
 
 #app {
@@ -138,7 +138,7 @@ input:focus, textarea:focus, select:focus {
   border-color: var(--border-focus);
 }
 
-::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar { width: var(--sb-size); height: var(--sb-size); }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb {
   background: var(--border-primary);

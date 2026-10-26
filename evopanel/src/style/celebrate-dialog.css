@@ -25,10 +25,10 @@
   position: fixed;
   inset: 0;
   background: rgba(0, 0, 0, 0.45);
-  backdrop-filter: blur(2px);
-  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(var(--blur-xs));
+  -webkit-backdrop-filter: blur(var(--blur-xs));
   opacity: 0;
-  transition: opacity 180ms ease-out;
+  transition: opacity var(--dur-base) ease-out;
 }
 
 .evo-celebrate-overlay.is-open .evo-celebrate-backdrop {
@@ -37,7 +37,7 @@
 
 .evo-celebrate-overlay.is-closing .evo-celebrate-backdrop {
   opacity: 0;
-  transition-duration: 160ms;
+  transition-duration: var(--dur-fast);
 }
 
 .evo-celebrate-dialog {
@@ -57,8 +57,8 @@
   opacity: 0;
   transform: scale(0.96) translateY(4px);
   transition:
-    opacity 200ms cubic-bezier(0.22, 1, 0.36, 1),
-    transform 200ms cubic-bezier(0.22, 1, 0.36, 1);
+    opacity var(--dur-base) var(--ease-out-soft),
+    transform var(--dur-base) var(--ease-out-soft);
 }
 
 .evo-celebrate-overlay.is-open .evo-celebrate-dialog {
@@ -69,7 +69,7 @@
 .evo-celebrate-overlay.is-closing .evo-celebrate-dialog {
   opacity: 0;
   transform: scale(0.97) translateY(2px);
-  transition-duration: 160ms;
+  transition-duration: var(--dur-fast);
 }
 
 /* ---- Hero：4:3 区，渐变 + 光环 + 图标 + 粒子 ---- */
@@ -106,7 +106,7 @@
   border-radius: 50%;
   border: 2px solid color-mix(in srgb, var(--accent, #6366f1) 60%, transparent);
   opacity: 0;
-  animation: evo-celebrate-glow-pulse 1.8s ease-out 0.2s infinite;
+  animation: evo-celebrate-glow-pulse 1.8s ease-out var(--dur-base) infinite;
 }
 
 .evo-celebrate-glow--2 {
@@ -138,7 +138,7 @@
   background: var(--accent, #6366f1);
   transform: scale(0);
   opacity: 0;
-  animation: evo-celebrate-icon-in 520ms cubic-bezier(0.34, 1.56, 0.64, 1) 0.15s forwards;
+  animation: evo-celebrate-icon-in 520ms cubic-bezier(0.34, 1.56, 0.64, 1) var(--dur-fast) forwards;
   filter: drop-shadow(0 6px 18px color-mix(in srgb, var(--accent, #6366f1) 55%, transparent));
 }
 
@@ -171,7 +171,7 @@
   border-radius: 50%;
   background: color-mix(in srgb, var(--accent, #6366f1) 85%, #fff 15%);
   opacity: 0;
-  animation: evo-celebrate-particle 900ms ease-out 0.25s forwards;
+  animation: evo-celebrate-particle 900ms ease-out var(--dur-base) forwards;
 }
 
 @keyframes evo-celebrate-particle {
@@ -258,7 +258,7 @@
   font-size: 14px;
   font-weight: 500;
   cursor: pointer;
-  transition: background 160ms ease-out, color 160ms ease-out, border-color 160ms ease-out, transform 120ms ease-out;
+  transition: background var(--dur-fast) ease-out, color var(--dur-fast) ease-out, border-color var(--dur-fast) ease-out, transform var(--dur-fast) ease-out;
   white-space: nowrap;
 }
 
@@ -302,7 +302,7 @@
   background: transparent;
   color: var(--text-tertiary, #9ca3af);
   cursor: pointer;
-  transition: background 160ms ease-out, color 160ms ease-out;
+  transition: background var(--dur-fast) ease-out, color var(--dur-fast) ease-out;
   -webkit-app-region: no-drag;
 }
 

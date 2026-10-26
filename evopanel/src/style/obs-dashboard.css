@@ -100,7 +100,7 @@
   font-size: var(--ef-text-base) ;
   text-align: left;
   cursor: pointer;
-  transition: background 0.15s, color 0.15s;
+  transition: background var(--dur-fast), color var(--dur-fast);
 }
 
 .obs-console .el-obs-menu-item:hover {

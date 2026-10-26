@@ -293,7 +293,7 @@ export const MeetingLauncher: React.FC<MeetingLauncherProps> = ({
             border: 1px solid rgba(124, 77, 255, 0.3);
             color: #b9c0f0;
             border-radius: 10px; font-size: 16px; cursor: pointer;
-            transition: all 0.2s;
+            transition: background 0.2s, color 0.2s, border-color 0.2s, box-shadow 0.2s, opacity 0.2s, transform 0.2s;
           }
           .rv-launcher-close:hover {
             background: rgba(255, 92, 138, 0.18);
@@ -330,7 +330,7 @@ export const MeetingLauncher: React.FC<MeetingLauncherProps> = ({
             border: 1px solid rgba(124, 77, 255, 0.35);
             border-radius: 12px;
             outline: none;
-            transition: all 0.25s;
+            transition: background 0.25s, color 0.25s, border-color 0.25s, box-shadow 0.25s, opacity 0.25s, transform 0.25s;
             box-shadow: inset 0 0 8px rgba(74, 108, 247, 0.06);
           }
           .rv-launcher-input::placeholder { color: #6b74a8; }
@@ -365,7 +365,7 @@ export const MeetingLauncher: React.FC<MeetingLauncherProps> = ({
             border: 1px solid rgba(124, 77, 255, 0.2);
             border-radius: 12px;
             cursor: pointer;
-            transition: all 0.25s ease;
+            transition: background 0.25s ease, color 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease, opacity 0.25s ease, transform 0.25s ease;
             position: relative;
           }
           .rv-launcher-agent-card:hover {
@@ -447,7 +447,7 @@ export const MeetingLauncher: React.FC<MeetingLauncherProps> = ({
             border-radius: 12px;
             font-size: 14px; font-weight: 700; cursor: pointer;
             border: none;
-            transition: all 0.2s;
+            transition: background 0.2s, color 0.2s, border-color 0.2s, box-shadow 0.2s, opacity 0.2s, transform 0.2s;
           }
           .rv-launcher-btn:disabled { opacity: 0.5; cursor: not-allowed; }
           .rv-launcher-btn-cancel {

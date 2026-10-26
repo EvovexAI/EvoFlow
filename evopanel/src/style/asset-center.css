@@ -84,7 +84,7 @@
   --ac-icon: 28px;
   --ac-row-h: 34px;
   --ac-tabs-h: 44px;
-  --ac-ease: 150ms ease-out;
+  --ac-ease: var(--dur-fast) ease-out;
 
   --ac-font:
     Inter, "SF Pro Text", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
@@ -350,7 +350,7 @@ html[data-translucent-ui='1'] #content > .assets-center-outlet {
   background: var(--ac-surface);
   box-shadow: var(--ac-shadow-lg);
   z-index: 60;
-  animation: ac-pop-in 130ms ease-out;
+  animation: ac-pop-in var(--dur-fast) ease-out;
 }
 
 @keyframes ac-pop-in {
@@ -2038,8 +2038,8 @@ html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .assets-center-root .
   justify-content: center;
   padding: 24px;
   background: color-mix(in srgb, var(--text-primary) 44%, transparent);
-  backdrop-filter: blur(3px);
-  animation: ac-fade-in 140ms ease-out;
+  backdrop-filter: blur(var(--blur-xs));
+  animation: ac-fade-in var(--dur-fast) ease-out;
 }
 
 html[data-theme='dark'] .assets-center-root .ac-modal-overlay,
@@ -2079,7 +2079,7 @@ html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .assets-center-root .
   border: 1px solid var(--ac-border);
   background: var(--ac-surface);
   box-shadow: var(--ac-shadow-lg);
-  animation: ac-modal-in 160ms cubic-bezier(0.2, 0.9, 0.3, 1);
+  animation: ac-modal-in var(--dur-fast) cubic-bezier(0.2, 0.9, 0.3, 1);
 }
 
 @keyframes ac-modal-in {
@@ -2287,8 +2287,8 @@ html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .assets-center-root .
 }
 
 .assets-center-root ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: var(--sb-size);
+  height: var(--sb-size);
 }
 
 .assets-center-root ::-webkit-scrollbar-track {

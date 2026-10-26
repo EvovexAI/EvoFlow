@@ -153,7 +153,7 @@ html[data-theme='dark'] .app-settings-overlay {
   font-size: var(--ef-text-sm) ;
   outline: none;
   width: 180px;
-  transition: border-color 0.15s ease, width 0.15s ease;
+  transition: border-color var(--dur-fast) var(--ease-out-soft), width var(--dur-fast) var(--ease-out-soft);
 }
 
 .apps-filter-search:focus {
@@ -219,9 +219,9 @@ html[data-theme='dark'] .app-settings-overlay {
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
   cursor: pointer;
   transition:
-    transform 0.18s ease,
-    box-shadow 0.18s ease,
-    border-color 0.18s ease;
+    transform var(--dur-base) var(--ease-out-soft),
+    box-shadow var(--dur-base) var(--ease-out-soft),
+    border-color var(--dur-base) var(--ease-out-soft);
 }
 
 .app-card:hover {
@@ -252,7 +252,7 @@ html[data-theme='dark'] .app-settings-overlay {
   cursor: pointer;
   opacity: 0.55;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
-  transition: opacity 0.15s ease, background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+  transition: opacity var(--dur-fast) var(--ease-out-soft), background var(--dur-fast) var(--ease-out-soft), color var(--dur-fast) var(--ease-out-soft), border-color var(--dur-fast) var(--ease-out-soft);
 }
 
 .app-card:hover .app-card-more,
@@ -440,7 +440,7 @@ html[data-theme='dark'] .app-settings-overlay {
   display: none;
 }
 
-/* ????????????????????···?????*/
+/* ????????????????????ï¿½ï¿½ï¿½?????*/
 .app-card-footer {
   position: absolute;
   left: 16px;
@@ -555,7 +555,7 @@ html[data-theme='dark'] .app-settings-overlay {
   border-radius: 14px;
   background: var(--bg-secondary);
   cursor: pointer;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+  transition: border-color var(--dur-fast) var(--ease-out-soft), box-shadow var(--dur-fast) var(--ease-out-soft), transform var(--dur-fast) var(--ease-out-soft);
   text-align: center;
 }
 
@@ -623,7 +623,7 @@ html[data-theme='dark'] .app-settings-overlay {
   border-radius: 10px;
   background: var(--bg-secondary);
   cursor: pointer;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  transition: border-color var(--dur-fast) var(--ease-out-soft), box-shadow var(--dur-fast) var(--ease-out-soft);
 }
 
 .apps-from-task-card:hover {
@@ -858,7 +858,7 @@ html[data-theme='dark'] .app-settings-overlay {
   line-height: 1.4;
   outline: none;
   box-sizing: border-box;
-  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+  transition: border-color var(--dur-fast) var(--ease-out-soft), box-shadow var(--dur-fast) var(--ease-out-soft);
 }
 
 textarea.app-run-prompt-input {
@@ -939,7 +939,7 @@ textarea.app-run-prompt-input {
   overflow: hidden;
 }
 
-/* Shared inspect: left nodes · split overview | trajectory */
+/* Shared inspect: left nodes ï¿½ split overview | trajectory */
 .app-run-inspect {
   display: grid;
   grid-template-columns: minmax(180px, 220px) minmax(0, 1fr);
@@ -1658,7 +1658,7 @@ textarea.app-run-prompt-input {
   border-style: solid;
   border-width: 5px 0 5px 7px;
   border-color: transparent transparent transparent currentColor;
-  transition: transform 0.15s ease;
+  transition: transform var(--dur-fast) var(--ease-out-soft);
 }
 
 .app-settings-fold[data-open] .app-settings-fold-chevron {
@@ -1694,7 +1694,7 @@ textarea.app-run-prompt-input {
   border-radius: 10px;
   background: var(--app-studio-surface);
   cursor: pointer;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+  transition: border-color var(--dur-fast) var(--ease-out-soft), box-shadow var(--dur-fast) var(--ease-out-soft), background var(--dur-fast) var(--ease-out-soft);
 }
 
 .app-settings-mode-card input {

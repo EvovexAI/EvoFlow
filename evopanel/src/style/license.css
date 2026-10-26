@@ -18,7 +18,7 @@
 .premium-activate-shell {
   width: 100%;
   max-width: 560px;
-  animation: premium-activate-in 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: premium-activate-in 420ms var(--ease-out-soft) both;
 }
 
 @keyframes premium-activate-in {
@@ -38,7 +38,7 @@
   border: 1px solid var(--border-primary, var(--border-color, #333));
   border-radius: var(--radius-xl, 16px);
   background: color-mix(in srgb, var(--bg-secondary, #18181b) 88%, transparent);
-  backdrop-filter: blur(10px);
+  backdrop-filter: blur(var(--blur-md));
 }
 
 .premium-activate-hero {
@@ -265,7 +265,7 @@
   content: '▸';
   display: inline-block;
   margin-right: 6px;
-  transition: transform 160ms ease;
+  transition: transform var(--dur-fast) var(--ease-out-soft);
 }
 
 .premium-activate-advanced[open] > summary::before {

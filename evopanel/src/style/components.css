@@ -24,7 +24,7 @@
 .skeleton {
   background: linear-gradient(90deg, var(--bg-secondary) 25%, var(--bg-tertiary, var(--bg-card-hover)) 50%, var(--bg-secondary) 75%);
   background-size: 200% 100%;
-  animation: skeleton-shine 1.4s ease infinite;
+  animation: skeleton-shine 1.4s var(--ease-out-soft) infinite;
 }
 
 @keyframes skeleton-shine {
@@ -82,7 +82,7 @@
 
 .stat-card-clickable {
   cursor: pointer;
-  transition: border-color 0.15s, background 0.15s;
+  transition: border-color var(--dur-fast), background var(--dur-fast);
 }
 .stat-card-clickable:hover {
   border-color: var(--accent);
@@ -250,7 +250,7 @@
   background: var(--bg-primary);
   border: 1px solid var(--border);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
-  animation: slideIn 250ms ease;
+  animation: slideIn var(--dur-base) var(--ease-out-soft);
   max-width: 360px;
 }
 
@@ -373,7 +373,7 @@
   color: var(--text-secondary, #64748b);
   cursor: pointer;
   line-height: 1.2;
-  transition: background 0.15s, color 0.15s, box-shadow 0.15s;
+  transition: background var(--dur-fast), color var(--dur-fast), box-shadow var(--dur-fast);
 }
 
 .expert-seg-item:hover {
@@ -546,7 +546,7 @@ mark {
   position: fixed;
   inset: 0;
   background: rgba(0, 0, 0, 0.6);
-  backdrop-filter: blur(4px);
+  backdrop-filter: blur(var(--blur-xs));
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -554,7 +554,7 @@ mark {
   /* 高于设置弹窗 .react-chat-modal-overlay(1000001)、plan-bundle(1000010)、
      #login-overlay(99998)/voice HUD(999999)，避免模型列表等嵌在设置里时确认框被盖住 */
   z-index: 1000020;
-  animation: fadeInModal 150ms ease;
+  animation: fadeInModal var(--dur-fast) var(--ease-out-soft);
   overflow-y: auto;
   overscroll-behavior: contain;
   padding: 18px;
@@ -736,7 +736,7 @@ mark {
   justify-content: center;
   height: 60vh;
   gap: var(--space-md);
-  animation: fadeInLoader 0.3s ease;
+  animation: fadeInLoader var(--dur-panel) var(--ease-out-soft);
 }
 
 .page-loader-spinner {
@@ -767,7 +767,7 @@ mark {
   position: fixed; inset: 0; z-index: 99998;
   display: flex; align-items: center; justify-content: center;
   background: var(--bg-primary, #f8f9fb);
-  transition: opacity 0.4s ease;
+  transition: opacity var(--dur-panel) var(--ease-out-soft);
 }
 #login-overlay.hide { opacity: 0; pointer-events: none; }
 .login-card {
@@ -796,7 +796,7 @@ mark {
   border-radius: 8px; outline: none;
   background: var(--bg-secondary, #f4f4f5);
   color: var(--text-primary, #18181b);
-  transition: border-color 0.2s;
+  transition: border-color var(--dur-base);
 }
 .login-card .login-input:focus {
   border-color: var(--primary, #6366f1);
@@ -807,7 +807,7 @@ mark {
   font-size: var(--ef-text-base) ; font-weight: 500;
   border: none; border-radius: 8px; cursor: pointer;
   background: var(--primary, #6366f1);
-  color: #fff; transition: opacity 0.2s;
+  color: #fff; transition: opacity var(--dur-base);
 }
 .login-card .login-btn:hover { opacity: 0.9; }
 .login-card .login-btn:disabled { opacity: 0.6; cursor: not-allowed; }
@@ -829,7 +829,7 @@ mark {
   position: absolute; inset: 0;
   cursor: pointer; border-radius: 24px;
   background: var(--border-primary, #d4d4d8);
-  transition: background 0.25s;
+  transition: background var(--dur-base);
 }
 .toggle-slider::before {
   content: '';
@@ -837,7 +837,7 @@ mark {
   width: 20px; height: 20px; border-radius: 50%;
   background: #fff;
   box-shadow: 0 1px 3px rgba(0,0,0,0.15);
-  transition: transform 0.25s;
+  transition: transform var(--dur-base);
 }
 .toggle-switch input:checked + .toggle-slider {
   background: var(--error, #ef4444);
@@ -852,12 +852,12 @@ mark {
   inset: 0;
   z-index: 1100;
   background: rgba(0,0,0,.5);
-  backdrop-filter: blur(4px);
+  backdrop-filter: blur(var(--blur-xs));
   display: flex;
   align-items: center;
   justify-content: center;
   opacity: 0;
-  transition: opacity 250ms ease;
+  transition: opacity var(--dur-base) var(--ease-out-soft);
 }
 .engage-overlay.engage-visible { opacity: 1; }
 .engage-modal {
@@ -871,7 +871,7 @@ mark {
   overflow-y: auto;
   box-shadow: 0 24px 80px rgba(0,0,0,.2);
   transform: scale(0.92) translateY(12px);
-  transition: transform 250ms cubic-bezier(.22,1,.36,1);
+  transition: transform var(--dur-base) cubic-bezier(.22,1,.36,1);
 }
 .engage-visible .engage-modal {
   transform: scale(1) translateY(0);
@@ -1039,7 +1039,7 @@ mark {
   color: var(--text-tertiary);
   cursor: pointer;
   opacity: 0.6;
-  transition: opacity 150ms;
+  transition: opacity var(--dur-fast);
 }
 .engage-today-dismiss:hover,
 .engage-never:hover {
@@ -1183,7 +1183,7 @@ mark {
   height: 100%;
   background: linear-gradient(90deg, var(--accent, #6366f1), var(--accent-hover, #4f46e5));
   border-radius: 4px;
-  transition: width 0.3s ease;
+  transition: width var(--dur-panel) var(--ease-out-soft);
 }
 
 .task-progress-text {
@@ -1248,7 +1248,7 @@ mark {
   height: 100%;
   background: var(--accent, #6366f1);
   border-radius: 3px;
-  transition: width 0.3s ease;
+  transition: width var(--dur-panel) var(--ease-out-soft);
 }
 
 .task-overview-progress {
@@ -1477,7 +1477,7 @@ mark {
   z-index: 9997;
   display: flex;
   flex-direction: column;
-  animation: slideIn 0.3s ease;
+  animation: slideIn var(--dur-panel) var(--ease-out-soft);
 }
 
 [data-theme="dark"] .task-conversation-drawer {
@@ -1569,7 +1569,7 @@ mark {
 .message {
   display: flex;
   gap: 12px;
-  animation: fadeIn 0.3s ease;
+  animation: fadeIn var(--dur-panel) var(--ease-out-soft);
 }
 
 @keyframes fadeIn {
@@ -1650,7 +1650,7 @@ mark {
   background: var(--bg-primary, #fff);
   color: var(--text-primary, #18181b);
   outline: none;
-  transition: border-color 0.2s;
+  transition: border-color var(--dur-base);
 }
 
 [data-theme="dark"] .message-input input {
@@ -1672,7 +1672,7 @@ mark {
   font-size: var(--ef-text-base) ;
   font-weight: 500;
   cursor: pointer;
-  transition: opacity 0.2s;
+  transition: opacity var(--dur-base);
 }
 
 .btn-send:hover {

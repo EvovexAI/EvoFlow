@@ -213,7 +213,7 @@
   background: var(--bg-app, #f7f8fa);
   box-shadow: none;
   outline: none;
-  transition: background 140ms ease, border-color 140ms ease;
+  transition: background var(--dur-fast) var(--ease-out-soft), border-color var(--dur-fast) var(--ease-out-soft);
 }
 
 .react-chat-platform-run-card.is-clickable {
@@ -348,7 +348,7 @@
   line-height: 1;
   white-space: nowrap;
   cursor: pointer;
-  transition: background 140ms ease, color 140ms ease, border-color 140ms ease;
+  transition: background var(--dur-fast) var(--ease-out-soft), color var(--dur-fast) var(--ease-out-soft), border-color var(--dur-fast) var(--ease-out-soft);
 }
 
 .react-chat-platform-run-action:hover {

@@ -7,7 +7,7 @@
   background: transparent;
   box-shadow: none;
   pointer-events: none;
-  animation: ev-hover-bubble-in 120ms ease;
+  animation: ev-hover-bubble-in var(--dur-fast) var(--ease-out-soft);
 }
 
 @keyframes ev-hover-bubble-in {

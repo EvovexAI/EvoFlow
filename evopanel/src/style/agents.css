@@ -62,7 +62,7 @@
   color: var(--text-primary);
   font-size: 13.5px;
   outline: none;
-  transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
+  transition: border-color var(--dur-base), box-shadow var(--dur-base), background var(--dur-base);
   box-sizing: border-box;
 }
 .role-search-input::placeholder { color: var(--text-tertiary); }
@@ -97,7 +97,7 @@
   border-radius: 14px;
   background: var(--bg-secondary, #fafbfc);
   cursor: pointer;
-  transition: border-color 0.18s, box-shadow 0.18s, transform 0.15s;
+  transition: border-color var(--dur-base), box-shadow var(--dur-base), transform var(--dur-fast);
   font: inherit;
   color: inherit;
   position: relative;
@@ -181,7 +181,7 @@
   color: var(--text-secondary);
   font-size: 13px;
   cursor: pointer;
-  transition: background 0.15s, border-color 0.15s;
+  transition: background var(--dur-fast), border-color var(--dur-fast);
 }
 
 .role-back-btn:hover {
@@ -552,7 +552,7 @@ html[data-liquid-glass-webgl='1'] .role-filter-select {
   display: flex;
   gap: 4px;
   opacity: 0;
-  transition: opacity 0.15s;
+  transition: opacity var(--dur-fast);
 }
 .role-team-card:hover .role-team-card-actions {
   opacity: 1;
@@ -608,7 +608,7 @@ html[data-liquid-glass-webgl='1'] .role-filter-select {
   font-size: 13px;
   line-height: 1.2;
   cursor: pointer;
-  transition: background 0.15s, border-color 0.15s, color 0.15s;
+  transition: background var(--dur-fast), border-color var(--dur-fast), color var(--dur-fast);
 }
 
 .agent-tag-chip:hover {
@@ -727,7 +727,7 @@ html[data-liquid-glass-webgl='1'] .role-filter-select {
   position: relative;
   overflow: visible;
   cursor: pointer;
-  transition: border-color 0.15s, transform 0.15s, box-shadow 0.15s;
+  transition: border-color var(--dur-fast), transform var(--dur-fast), box-shadow var(--dur-fast);
 }
 .role-card:hover {
   border-color: color-mix(in srgb, var(--agent-teal) 45%, var(--agent-line, transparent));
@@ -1248,7 +1248,7 @@ html[data-liquid-glass-webgl='1'] .role-filter-select {
   font-family: inherit;
   line-height: 1.35;
   outline: none;
-  transition: border-color 0.15s, box-shadow 0.15s;
+  transition: border-color var(--dur-fast), box-shadow var(--dur-fast);
 }
 .hire-select-wrap {
   position: relative;
@@ -1306,7 +1306,7 @@ html[data-liquid-glass-webgl='1'] .role-filter-select {
   font-family: inherit;
   cursor: pointer;
   white-space: nowrap;
-  transition: border-color 0.15s, color 0.15s, background 0.15s;
+  transition: border-color var(--dur-fast), color var(--dur-fast), background var(--dur-fast);
 }
 .hire-workspace-pick-btn:hover {
   border-color: color-mix(in srgb, var(--hire-accent) 40%, var(--border-primary, rgba(0, 0, 0, 0.1)));
@@ -1346,7 +1346,7 @@ html[data-liquid-glass-webgl='1'] .role-filter-select {
   text-align: left;
   cursor: pointer;
   outline: none;
-  transition: border-color 0.15s, box-shadow 0.15s;
+  transition: border-color var(--dur-fast), box-shadow var(--dur-fast);
 }
 .hire-dd-trigger:hover:not(:disabled) {
   border-color: color-mix(in srgb, var(--hire-accent) 40%, var(--border-primary, rgba(0,0,0,0.1)));
@@ -1374,7 +1374,7 @@ html[data-liquid-glass-webgl='1'] .role-filter-select {
   border-right: 1.5px solid var(--text-tertiary, #71717a);
   border-bottom: 1.5px solid var(--text-tertiary, #71717a);
   transform: translateY(-2px) rotate(45deg);
-  transition: transform 0.15s;
+  transition: transform var(--dur-fast);
 }
 .hire-dd.is-open .hire-dd-chevron {
   transform: translateY(1px) rotate(225deg);
@@ -1407,7 +1407,7 @@ html[data-liquid-glass-webgl='1'] .role-filter-select {
   padding: 9px 11px;
   border-radius: 8px;
   cursor: pointer;
-  transition: background 0.12s, color 0.12s;
+  transition: background var(--dur-fast), color var(--dur-fast);
 }
 .hire-dd-option:hover {
   background: color-mix(in srgb, var(--hire-accent) 10%, transparent);
@@ -1456,7 +1456,7 @@ html[data-liquid-glass-webgl='1'] .role-filter-select {
   font-size: var(--ef-text-sm) ;
   font-weight: 550;
   cursor: pointer;
-  transition: background 0.15s, border-color 0.15s, color 0.15s;
+  transition: background var(--dur-fast), border-color var(--dur-fast), color var(--dur-fast);
 }
 .hire-chip:hover {
   border-color: color-mix(in srgb, var(--hire-accent) 45%, transparent);
@@ -1595,7 +1595,7 @@ html[data-liquid-glass-webgl='1'] .role-filter-select {
   content: '\203A';
   display: inline-block;
   margin-right: 6px;
-  transition: transform 0.15s;
+  transition: transform var(--dur-fast);
 }
 .hire-advanced[open] > summary::before {
   transform: rotate(90deg);
@@ -1675,7 +1675,7 @@ html[data-liquid-glass-webgl='1'] .role-filter-select {
   border-radius: 12px;
   background: var(--bg-secondary, #fafbfc);
   cursor: default;
-  transition: border-color 0.18s, box-shadow 0.18s, transform 0.15s;
+  transition: border-color var(--dur-base), box-shadow var(--dur-base), transform var(--dur-fast);
 }
 .skill-card:hover {
   border-color: color-mix(in srgb, var(--tag-skill, #8b5cf6) 30%, transparent);
@@ -1866,7 +1866,7 @@ html[data-liquid-glass-webgl='1'] .role-filter-select {
   z-index: 10000;
   align-items: center;
   justify-content: center;
-  backdrop-filter: blur(6px);
+  backdrop-filter: blur(var(--blur-sm));
 }
 
 /* Modal ?? ? ??????? / ?? */

@@ -839,7 +839,7 @@ export const MeetingView: React.FC<MeetingViewProps> = ({
           border: 1px solid rgba(124, 77, 255, 0.3);
           background: rgba(124, 77, 255, 0.08);
           color: #d6d9ff; border-radius: 9px; font-size: 15px; cursor: pointer;
-          transition: all 0.2s;
+          transition: background 0.2s, color 0.2s, border-color 0.2s, box-shadow 0.2s, opacity 0.2s, transform 0.2s;
         }
         .rv-icon-btn:hover { background: rgba(124, 77, 255, 0.22); box-shadow: 0 0 12px rgba(124,77,255,0.4); }
         .rv-icon-btn-off { opacity: 0.55; }
@@ -1184,7 +1184,7 @@ export const MeetingView: React.FC<MeetingViewProps> = ({
           background: rgba(124, 77, 255, 0.1);
           border: 1px solid rgba(124, 77, 255, 0.3);
           cursor: pointer;
-          transition: all 0.2s;
+          transition: background 0.2s, color 0.2s, border-color 0.2s, box-shadow 0.2s, opacity 0.2s, transform 0.2s;
         }
         .rv-quick-tag:hover { background: rgba(124,77,255,0.25); color: #fff; box-shadow: 0 0 10px rgba(124,77,255,0.3); }
         .rv-composer-main { display: flex; align-items: center; gap: 10px; }
@@ -1202,7 +1202,7 @@ export const MeetingView: React.FC<MeetingViewProps> = ({
           border: 1px solid rgba(124, 77, 255, 0.4);
           border-radius: 12px;
           outline: none;
-          transition: all 0.25s;
+          transition: background 0.25s, color 0.25s, border-color 0.25s, box-shadow 0.25s, opacity 0.25s, transform 0.25s;
           box-shadow: inset 0 0 8px rgba(74,108,247,0.08);
         }
         .rv-input::placeholder { color: #6b74a8; }
@@ -1217,7 +1217,7 @@ export const MeetingView: React.FC<MeetingViewProps> = ({
           border-radius: 12px;
           font-size: 13px; font-weight: 700; cursor: pointer;
           white-space: nowrap; border: none;
-          transition: all 0.2s;
+          transition: background 0.2s, color 0.2s, border-color 0.2s, box-shadow 0.2s, opacity 0.2s, transform 0.2s;
         }
         .rv-btn-ic { font-size: 14px; }
         .rv-btn:disabled { opacity: 0.5; cursor: not-allowed; }

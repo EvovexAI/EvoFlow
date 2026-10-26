@@ -76,7 +76,7 @@
   background: var(--bg-elevated, #fff);
   cursor: pointer;
   text-align: left;
-  transition: background 0.15s, border-color 0.15s;
+  transition: background var(--dur-fast), border-color var(--dur-fast);
 }
 
 .lk-stat:hover {

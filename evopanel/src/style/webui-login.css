@@ -239,7 +239,7 @@
   outline: none;
   background: var(--login-paper);
   color: var(--login-ink);
-  transition: border-color 0.18s, box-shadow 0.18s, background 0.18s;
+  transition: border-color var(--dur-base), box-shadow var(--dur-base), background var(--dur-base);
 }
 
 .webui-login-input::placeholder {
@@ -264,7 +264,7 @@
   cursor: pointer;
   color: #fff;
   background: var(--login-accent);
-  transition: background 0.18s, transform 0.12s;
+  transition: background var(--dur-base), transform var(--dur-fast);
 }
 
 .webui-login-submit:hover:not(:disabled) {
@@ -374,7 +374,7 @@
   text-decoration: none;
   color: #fff;
   background: var(--login-accent);
-  transition: background 0.18s;
+  transition: background var(--dur-base);
 }
 
 .webui-login-link-btn:hover {
@@ -408,7 +408,7 @@
   font-weight: 600;
   font-family: inherit;
   cursor: pointer;
-  transition: border-color 0.18s, background 0.18s;
+  transition: border-color var(--dur-base), background var(--dur-base);
 }
 
 .webui-login-sso svg {

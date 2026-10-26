@@ -168,7 +168,7 @@
   font-size: 12.5px;
   font-weight: 550;
   cursor: pointer;
-  transition: color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+  transition: color var(--dur-fast) var(--ease-out-soft), background var(--dur-fast) var(--ease-out-soft), box-shadow var(--dur-fast) var(--ease-out-soft);
 }
 
 .sr-subtab__icon {
@@ -229,7 +229,7 @@
   font-weight: 500;
   cursor: pointer;
   box-shadow: 0 1px 2px rgb(15 23 42 / 4%);
-  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+  transition: background var(--dur-fast) var(--ease-out-soft), color var(--dur-fast) var(--ease-out-soft), border-color var(--dur-fast) var(--ease-out-soft), box-shadow var(--dur-fast) var(--ease-out-soft);
 }
 
 .sr-btn:hover {
@@ -398,7 +398,7 @@
   font-size: 12.5px;
   background: var(--surface-2, #fafbfc);
   outline: none;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  transition: border-color var(--dur-fast) var(--ease-out-soft), box-shadow var(--dur-fast) var(--ease-out-soft);
 }
 
 .sr-search:focus {
@@ -424,7 +424,7 @@
   padding: 0 10px;
   font-size: 12px;
   cursor: pointer;
-  transition: color 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+  transition: color var(--dur-fast) var(--ease-out-soft), background var(--dur-fast) var(--ease-out-soft), border-color var(--dur-fast) var(--ease-out-soft);
 }
 
 .sr-chips .sr-chip:hover {
@@ -463,7 +463,7 @@
   border-radius: 9px;
   cursor: pointer;
   margin: 0;
-  transition: background 0.15s ease;
+  transition: background var(--dur-fast) var(--ease-out-soft);
 }
 
 .sr-pick:hover {
@@ -685,7 +685,7 @@
   border-radius: 10px;
   background: color-mix(in srgb, var(--primary, #4f46e5) 2%, var(--surface, #fff));
   cursor: pointer;
-  transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+  transition: border-color var(--dur-fast) var(--ease-out-soft), background var(--dur-fast) var(--ease-out-soft), box-shadow var(--dur-fast) var(--ease-out-soft);
 }
 
 .sr-pick-card:hover {
@@ -849,7 +849,7 @@
   border: 1px solid var(--border, #e7eaf0);
   border-radius: 11px;
   background: var(--surface, #fff);
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  transition: border-color var(--dur-fast) var(--ease-out-soft), box-shadow var(--dur-fast) var(--ease-out-soft);
 }
 
 .sr-card:hover {
@@ -1069,7 +1069,7 @@
   background: var(--surface, #fff);
   color: var(--text, #1f2937);
   outline: none;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  transition: border-color var(--dur-fast) var(--ease-out-soft), box-shadow var(--dur-fast) var(--ease-out-soft);
 }
 
 .sr-input:focus {

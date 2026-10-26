@@ -481,8 +481,8 @@ html[data-scifi-ui='1'][data-theme='dark'] .react-chat-header.react-chat-header-
     inset 0 1px 0 color-mix(in srgb, var(--accent) 55%, rgba(255, 255, 255, 0.20)),
     inset 0 2px 14px color-mix(in srgb, var(--accent) 22%, transparent),
     inset 0 -2px 10px color-mix(in srgb, var(--accent) 30%, transparent) !important;
-  backdrop-filter: blur(40px) saturate(260%) !important;
-  -webkit-backdrop-filter: blur(40px) saturate(260%) !important;
+  backdrop-filter: blur(var(--blur-xl)) saturate(260%) !important;
+  -webkit-backdrop-filter: blur(var(--blur-xl)) saturate(260%) !important;
   position: relative;
   z-index: 5;
 }
@@ -531,8 +531,8 @@ html[data-scifi-ui='1'] .react-chat-session-aside.shell-aside-host {
     inset 0 1px 0 rgba(255, 255, 255, 0.14),
     inset 1px 0 0 color-mix(in srgb, var(--accent) 30%, transparent),
     inset 0 0 32px color-mix(in srgb, var(--accent) 4%, transparent) !important;
-  backdrop-filter: blur(36px) saturate(220%) !important;
-  -webkit-backdrop-filter: blur(36px) saturate(220%) !important;
+  backdrop-filter: blur(var(--blur-xl)) saturate(220%) !important;
+  -webkit-backdrop-filter: blur(var(--blur-xl)) saturate(220%) !important;
   position: relative;
   isolation: isolate;
   overflow: hidden;
@@ -584,7 +584,7 @@ html[data-scifi-ui='1'] .react-chat-aside-nav-item {
   color: var(--text-secondary) !important;
   border-radius: 0 !important;
   padding: 0 13px !important;
-  transition: all 0.18s ease;
+  transition: background var(--dur-base) var(--ease-out-soft), color var(--dur-base) var(--ease-out-soft), border-color var(--dur-base) var(--ease-out-soft), box-shadow var(--dur-base) var(--ease-out-soft), opacity var(--dur-base) var(--ease-out-soft), transform var(--dur-base) var(--ease-out-soft), filter var(--dur-base) var(--ease-out-soft);
 }
 
 html[data-scifi-ui='1'] .react-chat-aside-nav-item:hover {
@@ -603,7 +603,7 @@ html[data-scifi-ui='1'] .react-chat-aside-nav-item.is-active {
 html[data-scifi-ui='1'] .react-chat-aside-segment-btn {
   border-radius: 8px !important;
   padding: 4px 10px !important;
-  transition: all 0.18s ease;
+  transition: background var(--dur-base) var(--ease-out-soft), color var(--dur-base) var(--ease-out-soft), border-color var(--dur-base) var(--ease-out-soft), box-shadow var(--dur-base) var(--ease-out-soft), opacity var(--dur-base) var(--ease-out-soft), transform var(--dur-base) var(--ease-out-soft), filter var(--dur-base) var(--ease-out-soft);
   font-weight: 400 !important;
 }
 
@@ -687,8 +687,8 @@ html[data-scifi-ui='1'] .react-chat-agent-cap-list {
   background: linear-gradient(145deg, rgba(15, 19, 18, 0.85), rgba(8, 12, 11, 0.84)) !important;
   border: 1px solid rgba(255, 255, 255, 0.12) !important;
   border-radius: 16px !important;
-  backdrop-filter: blur(20px) saturate(180%) !important;
-  -webkit-backdrop-filter: blur(20px) saturate(180%) !important;
+  backdrop-filter: blur(var(--blur-lg)) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(var(--blur-lg)) saturate(180%) !important;
   box-shadow:
     0 24px 70px rgba(0, 0, 0, 0.55),
     inset 0 1px 0 rgba(255, 255, 255, 0.08) !important;
@@ -724,8 +724,8 @@ html[data-scifi-ui='1'] .modal-dialog {
   background: linear-gradient(145deg, rgba(15, 19, 18, 0.96), rgba(8, 12, 11, 0.94)) !important;
   border: 1px solid color-mix(in srgb, var(--accent) 40%, rgba(255, 255, 255, 0.16)) !important;
   border-radius: 16px !important;
-  backdrop-filter: blur(44px) saturate(220%) !important;
-  -webkit-backdrop-filter: blur(44px) saturate(220%) !important;
+  backdrop-filter: blur(var(--blur-xl)) saturate(220%) !important;
+  -webkit-backdrop-filter: blur(var(--blur-xl)) saturate(220%) !important;
   box-shadow:
     0 0 0 1px color-mix(in srgb, var(--accent) 24%, transparent),
     0 0 64px 8px color-mix(in srgb, var(--accent) 24%, transparent),
@@ -739,8 +739,8 @@ html[data-scifi-ui='1'] .toast {
   border: 1px solid color-mix(in srgb, var(--accent) 40%, rgba(255, 255, 255, 0.16)) !important;
   color: var(--text-primary) !important;
   border-radius: 14px !important;
-  backdrop-filter: blur(32px) saturate(220%) !important;
-  -webkit-backdrop-filter: blur(32px) saturate(220%) !important;
+  backdrop-filter: blur(var(--blur-xl)) saturate(220%) !important;
+  -webkit-backdrop-filter: blur(var(--blur-xl)) saturate(220%) !important;
   box-shadow:
     0 0 48px 8px color-mix(in srgb, var(--accent) 24%, transparent),
     0 0 96px 16px color-mix(in srgb, var(--accent) 12%, transparent),
@@ -797,8 +797,8 @@ html[data-scifi-ui='1'] .react-chat-web-embed-panel {
   background: linear-gradient(145deg, rgba(15, 19, 18, 0.96), rgba(8, 12, 11, 0.94)) !important;
   border: 1px solid color-mix(in srgb, var(--accent-secondary) 50%, rgba(255, 255, 255, 0.16)) !important;
   border-radius: 16px !important;
-  backdrop-filter: blur(40px) saturate(240%) !important;
-  -webkit-backdrop-filter: blur(40px) saturate(240%) !important;
+  backdrop-filter: blur(var(--blur-xl)) saturate(240%) !important;
+  -webkit-backdrop-filter: blur(var(--blur-xl)) saturate(240%) !important;
   box-shadow:
     -32px 0 96px rgba(0, 0, 0, 0.7),
     -8px 0 0 0 color-mix(in srgb, var(--accent-secondary) 14%, transparent),
@@ -920,7 +920,7 @@ html[data-scifi-ui='1'] .react-chat-collab-exec-panel-body [data-panel-section] 
     0 0 24px 0 color-mix(in srgb, var(--accent-secondary) 8%, transparent),
     0 0 48px 8px color-mix(in srgb, var(--accent-secondary) 4%, transparent) !important;
   position: relative;
-  transition: all 0.18s ease;
+  transition: background var(--dur-base) var(--ease-out-soft), color var(--dur-base) var(--ease-out-soft), border-color var(--dur-base) var(--ease-out-soft), box-shadow var(--dur-base) var(--ease-out-soft), opacity var(--dur-base) var(--ease-out-soft), transform var(--dur-base) var(--ease-out-soft), filter var(--dur-base) var(--ease-out-soft);
 }
 
 html[data-scifi-ui='1'] .react-chat-collab-exec-panel-body > .card:hover,
@@ -972,7 +972,7 @@ html[data-scifi-ui='1'] .react-chat-collab-exec-panel-footer button {
   color: var(--text-secondary) !important;
   font-size: 11px !important;
   cursor: pointer;
-  transition: all 0.18s ease;
+  transition: background var(--dur-base) var(--ease-out-soft), color var(--dur-base) var(--ease-out-soft), border-color var(--dur-base) var(--ease-out-soft), box-shadow var(--dur-base) var(--ease-out-soft), opacity var(--dur-base) var(--ease-out-soft), transform var(--dur-base) var(--ease-out-soft), filter var(--dur-base) var(--ease-out-soft);
   position: relative;
   overflow: hidden;
   isolation: isolate;
@@ -995,7 +995,7 @@ html[data-scifi-ui='1'] .react-chat-collab-exec-panel-footer button::before {
   -webkit-mask-composite: xor;
   mask-composite: exclude;
   opacity: 0;
-  transition: opacity 0.18s ease;
+  transition: opacity var(--dur-base) var(--ease-out-soft);
 }
 
 html[data-scifi-ui='1'] .react-chat-collab-exec-panel-body button:hover {
@@ -1110,7 +1110,7 @@ html[data-scifi-ui='1'] .react-chat-artifacts-item {
   cursor: pointer;
   width: 100% !important;
   text-align: left !important;
-  transition: all 0.18s ease;
+  transition: background var(--dur-base) var(--ease-out-soft), color var(--dur-base) var(--ease-out-soft), border-color var(--dur-base) var(--ease-out-soft), box-shadow var(--dur-base) var(--ease-out-soft), opacity var(--dur-base) var(--ease-out-soft), transform var(--dur-base) var(--ease-out-soft), filter var(--dur-base) var(--ease-out-soft);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.10),
     inset 0 -1px 0 rgba(0, 0, 0, 0.30),
@@ -1248,8 +1248,8 @@ html[data-scifi-ui='1'] .react-chat-turn-assistant-content {
   background: linear-gradient(145deg, rgba(15, 19, 18, 0.75), rgba(8, 12, 11, 0.70)) !important;
   border: 1px solid color-mix(in srgb, var(--accent) 18%, rgba(255, 255, 255, 0.10)) !important;
   border-radius: 14px !important;
-  backdrop-filter: blur(24px) saturate(180%) !important;
-  -webkit-backdrop-filter: blur(24px) saturate(180%) !important;
+  backdrop-filter: blur(var(--blur-lg)) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(var(--blur-lg)) saturate(180%) !important;
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.10),
     inset 0 -1px 0 rgba(0, 0, 0, 0.30),
@@ -1546,7 +1546,7 @@ html[data-scifi-ui='1'] .chat-messages-wrap {
 /* 自定义滚动条 */
 html[data-scifi-ui='1'] .react-chat-messages-body::-webkit-scrollbar,
 html[data-scifi-ui='1'] .chat-messages-body::-webkit-scrollbar {
-  width: 6px;
+  width: var(--sb-size);
 }
 html[data-scifi-ui='1'] .react-chat-messages-body::-webkit-scrollbar-track,
 html[data-scifi-ui='1'] .chat-messages-body::-webkit-scrollbar-track {
@@ -1571,8 +1571,8 @@ html[data-scifi-ui='1'] .chat-msg.is-assistant {
   background: linear-gradient(145deg, color-mix(in srgb, var(--accent) 8%, rgba(15, 19, 18, 0.78)) 0%, rgba(10, 14, 13, 0.72) 100%) !important;
   border: 1px solid color-mix(in srgb, var(--accent) 22%, rgba(255, 255, 255, 0.10)) !important;
   border-radius: 14px !important;
-  backdrop-filter: blur(20px) saturate(200%) !important;
-  -webkit-backdrop-filter: blur(20px) saturate(200%) !important;
+  backdrop-filter: blur(var(--blur-lg)) saturate(200%) !important;
+  -webkit-backdrop-filter: blur(var(--blur-lg)) saturate(200%) !important;
   box-shadow:
     inset 0 1px 0 color-mix(in srgb, var(--accent) 30%, rgba(255, 255, 255, 0.12)),
     inset 4px 0 0 color-mix(in srgb, var(--accent) 80%, transparent),
@@ -1603,8 +1603,8 @@ html[data-scifi-ui='1'] .chat-msg.is-user {
   background: linear-gradient(145deg, color-mix(in srgb, var(--accent) 18%, rgba(10, 14, 13, 0.85)) 0%, color-mix(in srgb, var(--accent) 28%, rgba(5, 7, 6, 0.85)) 100%) !important;
   border: 1px solid color-mix(in srgb, var(--accent) 35%, rgba(255, 255, 255, 0.12)) !important;
   border-radius: 14px !important;
-  backdrop-filter: blur(20px) saturate(200%) !important;
-  -webkit-backdrop-filter: blur(20px) saturate(200%) !important;
+  backdrop-filter: blur(var(--blur-lg)) saturate(200%) !important;
+  -webkit-backdrop-filter: blur(var(--blur-lg)) saturate(200%) !important;
   box-shadow:
     inset 0 1px 0 color-mix(in srgb, var(--accent) 35%, rgba(255, 255, 255, 0.18)),
     inset -4px 0 0 color-mix(in srgb, var(--accent) 90%, transparent),
@@ -1730,7 +1730,7 @@ html[data-scifi-ui='1'] .react-chat-icon-send-btn {
   box-shadow:
     0 0 12px color-mix(in srgb, var(--accent) 65%, transparent),
     inset 0 1px 0 rgba(255, 255, 255, 0.24) !important;
-  transition: all 0.18s ease;
+  transition: background var(--dur-base) var(--ease-out-soft), color var(--dur-base) var(--ease-out-soft), border-color var(--dur-base) var(--ease-out-soft), box-shadow var(--dur-base) var(--ease-out-soft), opacity var(--dur-base) var(--ease-out-soft), transform var(--dur-base) var(--ease-out-soft), filter var(--dur-base) var(--ease-out-soft);
   animation: scifi-pulse-halo 2.8s ease-in-out infinite;
 }
 
@@ -1828,7 +1828,7 @@ html[data-scifi-ui='1'] .react-chat-agent-cap-overview-item {
   border: 1px solid color-mix(in srgb, var(--accent) 20%, rgba(255, 255, 255, 0.08)) !important;
   border-radius: 12px !important;
   padding: 10px 12px !important;
-  transition: all 0.18s ease;
+  transition: background var(--dur-base) var(--ease-out-soft), color var(--dur-base) var(--ease-out-soft), border-color var(--dur-base) var(--ease-out-soft), box-shadow var(--dur-base) var(--ease-out-soft), opacity var(--dur-base) var(--ease-out-soft), transform var(--dur-base) var(--ease-out-soft), filter var(--dur-base) var(--ease-out-soft);
   cursor: pointer;
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.10),
@@ -1894,7 +1894,7 @@ html[data-scifi-ui='1'] .react-chat-agent-cap-tabs {
 html[data-scifi-ui='1'] .react-chat-agent-cap-tab {
   border-radius: 10px 10px 0 0 !important;
   color: var(--text-tertiary) !important;
-  transition: all 0.18s ease;
+  transition: background var(--dur-base) var(--ease-out-soft), color var(--dur-base) var(--ease-out-soft), border-color var(--dur-base) var(--ease-out-soft), box-shadow var(--dur-base) var(--ease-out-soft), opacity var(--dur-base) var(--ease-out-soft), transform var(--dur-base) var(--ease-out-soft), filter var(--dur-base) var(--ease-out-soft);
 }
 
 html[data-scifi-ui='1'] .react-chat-agent-cap-tab:hover {
@@ -1933,7 +1933,7 @@ html[data-scifi-ui='1'] .react-chat-agent-cap-list .react-chat-agent-cap-row {
     inset 0 1px 0 rgba(255, 255, 255, 0.08),
     inset 0 -1px 0 rgba(0, 0, 0, 0.28),
     0 0 12px 0 color-mix(in srgb, var(--accent) 4%, transparent) !important;
-  transition: all 0.16s ease;
+  transition: background var(--dur-fast) var(--ease-out-soft), color var(--dur-fast) var(--ease-out-soft), border-color var(--dur-fast) var(--ease-out-soft), box-shadow var(--dur-fast) var(--ease-out-soft), opacity var(--dur-fast) var(--ease-out-soft), transform var(--dur-fast) var(--ease-out-soft), filter var(--dur-fast) var(--ease-out-soft);
 }
 
 html[data-scifi-ui='1'] .react-chat-agent-cap-list > li:hover,
@@ -2005,7 +2005,7 @@ html[data-scifi-ui='1'] .react-chat-asset-quick-btn {
     inset 0 1px 0 rgba(255, 255, 255, 0.10),
     inset 0 -1px 0 rgba(0, 0, 0, 0.30),
     0 0 14px 0 color-mix(in srgb, var(--accent-secondary) 6%, transparent) !important;
-  transition: all 0.18s ease;
+  transition: background var(--dur-base) var(--ease-out-soft), color var(--dur-base) var(--ease-out-soft), border-color var(--dur-base) var(--ease-out-soft), box-shadow var(--dur-base) var(--ease-out-soft), opacity var(--dur-base) var(--ease-out-soft), transform var(--dur-base) var(--ease-out-soft), filter var(--dur-base) var(--ease-out-soft);
   cursor: pointer;
 }
 
@@ -2099,8 +2099,8 @@ html[data-scifi-ui='1'] .react-chat-ctx-meter-compact-btn:hover {
 html[data-scifi-ui='1'] .react-chat-info-rail {
   background: rgba(8, 11, 10, 0.72) !important;
   border-left: 1px solid color-mix(in srgb, var(--accent) 30%, rgba(255, 255, 255, 0.08)) !important;
-  backdrop-filter: blur(24px) saturate(220%) !important;
-  -webkit-backdrop-filter: blur(24px) saturate(220%) !important;
+  backdrop-filter: blur(var(--blur-lg)) saturate(220%) !important;
+  -webkit-backdrop-filter: blur(var(--blur-lg)) saturate(220%) !important;
 }
 
 html[data-scifi-ui='1'] .react-chat-info-rail-header {
@@ -2443,8 +2443,8 @@ html[data-scifi-ui='1'] .assets-center-root .ac-main,
 html[data-scifi-ui='1'] .assets-center-root .ac-explorer {
   background: linear-gradient(145deg, rgba(15, 19, 18, 0.88), rgba(8, 12, 11, 0.86)) !important;
   border: 1px solid rgba(255, 255, 255, 0.12) !important;
-  backdrop-filter: blur(20px) saturate(180%) !important;
-  -webkit-backdrop-filter: blur(20px) saturate(180%) !important;
+  backdrop-filter: blur(var(--blur-lg)) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(var(--blur-lg)) saturate(180%) !important;
   box-shadow:
     0 8px 40px rgba(0, 0, 0, 0.5),
     inset 0 1px 0 rgba(255, 255, 255, 0.08) !important;
@@ -2479,8 +2479,8 @@ html[data-scifi-ui='1'] .assets-page .assets-export-panel,
 html[data-scifi-ui='1'] .assets-page .assets-profile-panel {
   background: linear-gradient(145deg, rgba(15, 19, 18, 0.85), rgba(8, 12, 11, 0.84)) !important;
   border: 1px solid rgba(255, 255, 255, 0.12) !important;
-  backdrop-filter: blur(20px) saturate(180%) !important;
-  -webkit-backdrop-filter: blur(20px) saturate(180%) !important;
+  backdrop-filter: blur(var(--blur-lg)) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(var(--blur-lg)) saturate(180%) !important;
   box-shadow: 0 8px 40px rgba(0, 0, 0, 0.4) !important;
 }
 
@@ -2554,7 +2554,7 @@ html[data-scifi-ui='1'] #evopanel-app-wallpaper::after {
   position: absolute !important;
   inset: 0 !important;
   background: rgba(5, 7, 6, 0.55) !important;
-  backdrop-filter: blur(0px) !important;
+  backdrop-filter: blur(var(--blur-xs)) !important;
   pointer-events: none;
 }
 
@@ -2819,7 +2819,7 @@ html[data-scifi-ui='1'] #evopanel-app-wallpaper::after {
   color: var(--text-primary) !important;
   border: 1px solid transparent !important;
   border-radius: 6px !important;
-  transition: all 0.15s ease !important;
+  transition: background var(--dur-fast) var(--ease-out-soft) !important, color var(--dur-fast) var(--ease-out-soft) !important, border-color var(--dur-fast) var(--ease-out-soft) !important, box-shadow var(--dur-fast) var(--ease-out-soft) !important, opacity var(--dur-fast) var(--ease-out-soft) !important, transform var(--dur-fast) var(--ease-out-soft) !important, filter var(--dur-fast) var(--ease-out-soft) !important;
 }
 
 :where(html[data-scifi-ui='1']) .sr-subtab:hover {
@@ -2849,7 +2849,7 @@ html[data-scifi-ui='1'] #evopanel-app-wallpaper::after {
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.06),
     inset 0 -1px 0 rgba(0, 0, 0, 0.3) !important;
-  transition: border-color 0.18s ease, box-shadow 0.18s ease !important;
+  transition: border-color var(--dur-base) var(--ease-out-soft), box-shadow var(--dur-base) var(--ease-out-soft) !important;
 }
 
 :where(html[data-scifi-ui='1']) .sr-search:focus,
@@ -2880,7 +2880,7 @@ html[data-scifi-ui='1'] #evopanel-app-wallpaper::after {
   color: var(--text-primary) !important;
   border: 1px solid color-mix(in srgb, var(--scifi-glow-accent) 20%, rgba(255, 255, 255, 0.08)) !important;
   border-radius: 6px !important;
-  transition: all 0.15s ease !important;
+  transition: background var(--dur-fast) var(--ease-out-soft) !important, color var(--dur-fast) var(--ease-out-soft) !important, border-color var(--dur-fast) var(--ease-out-soft) !important, box-shadow var(--dur-fast) var(--ease-out-soft) !important, opacity var(--dur-fast) var(--ease-out-soft) !important, transform var(--dur-fast) var(--ease-out-soft) !important, filter var(--dur-fast) var(--ease-out-soft) !important;
 }
 
 :where(html[data-scifi-ui='1']) .sr-chip:hover {
@@ -2907,7 +2907,7 @@ html[data-scifi-ui='1'] #evopanel-app-wallpaper::after {
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.06),
     0 0 0 1px color-mix(in srgb, var(--scifi-glow-accent) 8%, transparent) !important;
-  transition: all 0.15s ease !important;
+  transition: background var(--dur-fast) var(--ease-out-soft) !important, color var(--dur-fast) var(--ease-out-soft) !important, border-color var(--dur-fast) var(--ease-out-soft) !important, box-shadow var(--dur-fast) var(--ease-out-soft) !important, opacity var(--dur-fast) var(--ease-out-soft) !important, transform var(--dur-fast) var(--ease-out-soft) !important, filter var(--dur-fast) var(--ease-out-soft) !important;
 }
 
 :where(html[data-scifi-ui='1']) .sr-btn:hover {
@@ -2990,7 +2990,7 @@ html[data-scifi-ui='1'] #evopanel-app-wallpaper::after {
   box-shadow:
     0 0 0 1px color-mix(in srgb, var(--scifi-glow-accent) 8%, transparent),
     0 0 10px color-mix(in srgb, var(--scifi-glow-accent) 12%, transparent) !important;
-  transition: border-color 0.18s ease, box-shadow 0.18s ease !important;
+  transition: border-color var(--dur-base) var(--ease-out-soft), box-shadow var(--dur-base) var(--ease-out-soft) !important;
 }
 
 :where(html[data-scifi-ui='1']) .sr-card:hover {
@@ -3018,7 +3018,7 @@ html[data-scifi-ui='1'] #evopanel-app-wallpaper::after {
   background: rgba(12, 16, 15, 0.75) !important;
   border: 1px solid color-mix(in srgb, var(--scifi-glow-accent) 14%, rgba(255, 255, 255, 0.06)) !important;
   border-radius: 8px !important;
-  transition: all 0.15s ease !important;
+  transition: background var(--dur-fast) var(--ease-out-soft) !important, color var(--dur-fast) var(--ease-out-soft) !important, border-color var(--dur-fast) var(--ease-out-soft) !important, box-shadow var(--dur-fast) var(--ease-out-soft) !important, opacity var(--dur-fast) var(--ease-out-soft) !important, transform var(--dur-fast) var(--ease-out-soft) !important, filter var(--dur-fast) var(--ease-out-soft) !important;
 }
 
 :where(html[data-scifi-ui='1']) .sr-pick:hover {
@@ -3214,8 +3214,8 @@ html[data-scifi-ui='1'] #evopanel-app-wallpaper::after {
     0 0 18px 2px color-mix(in srgb, var(--scifi-glow-accent) 22%, transparent),
     0 0 44px 8px color-mix(in srgb, var(--scifi-glow-accent) 10%, transparent),
     inset 0 1px 0 rgba(255, 255, 255, 0.10) !important;
-  backdrop-filter: blur(20px) saturate(180%);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  backdrop-filter: blur(var(--blur-lg)) saturate(180%);
+  -webkit-backdrop-filter: blur(var(--blur-lg)) saturate(180%);
 }
 
 /* === 通用 .section / 内容块(工作流/任务内的子区域)== */
@@ -3500,7 +3500,7 @@ html[data-scifi-ui='1'] #evopanel-app-wallpaper::after {
   display: flex !important;
   align-items: center !important;
   position: relative !important;
-  transition: border-color 0.18s ease, box-shadow 0.18s ease !important;
+  transition: border-color var(--dur-base) var(--ease-out-soft), box-shadow var(--dur-base) var(--ease-out-soft) !important;
 }
 
 :where(html[data-scifi-ui='1']) .role-search-wrap:focus-within {
@@ -3547,7 +3547,7 @@ html[data-scifi-ui='1'] #evopanel-app-wallpaper::after {
     inset 0 1px 0 rgba(255, 255, 255, 0.06),
     0 0 0 1px color-mix(in srgb, var(--scifi-glow-accent) 8%, transparent),
     0 0 10px color-mix(in srgb, var(--scifi-glow-accent) 14%, transparent) !important;
-  transition: border-color 0.18s ease, box-shadow 0.18s ease !important;
+  transition: border-color var(--dur-base) var(--ease-out-soft), box-shadow var(--dur-base) var(--ease-out-soft) !important;
 }
 
 :where(html[data-scifi-ui='1']) .role-filter-select:focus,
@@ -3633,7 +3633,7 @@ html[data-scifi-ui='1'] #evopanel-app-wallpaper::after {
     inset 0 -1px 0 rgba(0, 0, 0, 0.3),
     0 0 0 1px color-mix(in srgb, var(--scifi-glow-accent) 8%, transparent),
     0 0 10px color-mix(in srgb, var(--scifi-glow-accent) 12%, transparent) !important;
-  transition: border-color 0.18s ease, box-shadow 0.18s ease !important;
+  transition: border-color var(--dur-base) var(--ease-out-soft), box-shadow var(--dur-base) var(--ease-out-soft) !important;
 }
 
 :where(html[data-scifi-ui='1']) .users-section .form-input:focus,
@@ -3674,7 +3674,7 @@ html[data-scifi-ui='1'] #evopanel-app-wallpaper::after {
     0 0 12px color-mix(in srgb, var(--scifi-glow-accent) 40%, transparent),
     0 0 24px color-mix(in srgb, var(--scifi-glow-accent) 20%, transparent),
     inset 0 1px 0 rgba(255, 255, 255, 0.20) !important;
-  transition: all 0.18s ease !important;
+  transition: background var(--dur-base) var(--ease-out-soft) !important, color var(--dur-base) var(--ease-out-soft) !important, border-color var(--dur-base) var(--ease-out-soft) !important, box-shadow var(--dur-base) var(--ease-out-soft) !important, opacity var(--dur-base) var(--ease-out-soft) !important, transform var(--dur-base) var(--ease-out-soft) !important, filter var(--dur-base) var(--ease-out-soft) !important;
 }
 
 .users-section .cron-btn.primary:hover {
@@ -3721,7 +3721,7 @@ html[data-scifi-ui='1'] #evopanel-app-wallpaper::after {
     inset 0 -1px 0 rgba(0, 0, 0, 0.3),
     0 0 0 1px color-mix(in srgb, var(--scifi-glow-accent) 8%, transparent),
     0 0 10px color-mix(in srgb, var(--scifi-glow-accent) 12%, transparent) !important;
-  transition: border-color 0.18s ease, box-shadow 0.18s ease !important;
+  transition: border-color var(--dur-base) var(--ease-out-soft), box-shadow var(--dur-base) var(--ease-out-soft) !important;
 }
 
 :where(html[data-scifi-ui='1']) .config-section :is(
@@ -3766,7 +3766,7 @@ html[data-scifi-ui='1'] #evopanel-app-wallpaper::after {
     inset 0 -1px 0 rgba(0, 0, 0, 0.3),
     0 0 0 1px color-mix(in srgb, var(--scifi-glow-accent) 8%, transparent),
     0 0 10px color-mix(in srgb, var(--scifi-glow-accent) 12%, transparent) !important;
-  transition: border-color 0.18s ease, box-shadow 0.18s ease !important;
+  transition: border-color var(--dur-base) var(--ease-out-soft), box-shadow var(--dur-base) var(--ease-out-soft) !important;
 }
 
 :where(html[data-scifi-ui='1']) .models-edit-modal-body :is(
@@ -3831,7 +3831,7 @@ html[data-scifi-ui='1'] #evopanel-app-wallpaper::after {
     0 0 0 1px color-mix(in srgb, var(--scifi-glow-accent) 10%, transparent),
     0 0 12px color-mix(in srgb, var(--scifi-glow-accent) 16%, transparent),
     inset 0 1px 0 rgba(255, 255, 255, 0.06) !important;
-  transition: border-color 0.18s ease, box-shadow 0.18s ease !important;
+  transition: border-color var(--dur-base) var(--ease-out-soft), box-shadow var(--dur-base) var(--ease-out-soft) !important;
 }
 
 :where(html[data-scifi-ui='1']) .tasks-page .tasks-search-field:focus-within {
@@ -3871,7 +3871,7 @@ html[data-scifi-ui='1'] #evopanel-app-wallpaper::after {
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.06),
     inset 0 -1px 0 rgba(0, 0, 0, 0.3) !important;
-  transition: border-color 0.18s ease, box-shadow 0.18s ease !important;
+  transition: border-color var(--dur-base) var(--ease-out-soft), box-shadow var(--dur-base) var(--ease-out-soft) !important;
 }
 
 /* placeholder 颜色 */
@@ -3915,7 +3915,7 @@ html[data-scifi-ui='1'] #evopanel-app-wallpaper::after {
   width: 240px !important;
   max-width: 42vw !important;
   position: relative !important;
-  transition: border-color 0.18s ease, box-shadow 0.18s ease !important;
+  transition: border-color var(--dur-base) var(--ease-out-soft), box-shadow var(--dur-base) var(--ease-out-soft) !important;
 }
 
 :where(html[data-scifi-ui='1']) .tasks-search-field:focus-within,
@@ -4021,8 +4021,8 @@ html[data-scifi-ui='1'] #evopanel-app-wallpaper::after {
     0 0 56px 12px color-mix(in srgb, var(--scifi-glow-accent) 12%, transparent),
     inset 0 1px 0 rgba(255, 255, 255, 0.10),
     inset 0 -1px 0 rgba(0, 0, 0, 0.4) !important;
-  backdrop-filter: blur(28px) saturate(200%);
-  -webkit-backdrop-filter: blur(28px) saturate(200%);
+  backdrop-filter: blur(var(--blur-xl)) saturate(200%);
+  -webkit-backdrop-filter: blur(var(--blur-xl)) saturate(200%);
   padding: 14px !important;
 }
 
@@ -4078,7 +4078,7 @@ html[data-scifi-ui='1'] #evopanel-app-wallpaper::after {
     0 0 0 1px color-mix(in srgb, var(--scifi-glow-accent) 12%, transparent),
     0 0 14px 2px color-mix(in srgb, var(--scifi-glow-accent) 18%, transparent),
     inset 0 1px 0 rgba(255, 255, 255, 0.08) !important;
-  transition: all 0.18s ease;
+  transition: background var(--dur-base) var(--ease-out-soft), color var(--dur-base) var(--ease-out-soft), border-color var(--dur-base) var(--ease-out-soft), box-shadow var(--dur-base) var(--ease-out-soft), opacity var(--dur-base) var(--ease-out-soft), transform var(--dur-base) var(--ease-out-soft), filter var(--dur-base) var(--ease-out-soft);
 }
 
 :where(html[data-scifi-ui='1']) .evo-home-kpi:hover {
@@ -4102,8 +4102,8 @@ html[data-scifi-ui='1'] #evopanel-app-wallpaper::after {
     0 0 48px 10px color-mix(in srgb, var(--scifi-glow-accent) 10%, transparent),
     inset 0 1px 0 rgba(255, 255, 255, 0.10),
     inset 0 -1px 0 rgba(0, 0, 0, 0.35) !important;
-  backdrop-filter: blur(24px) saturate(200%);
-  -webkit-backdrop-filter: blur(24px) saturate(200%);
+  backdrop-filter: blur(var(--blur-lg)) saturate(200%);
+  -webkit-backdrop-filter: blur(var(--blur-lg)) saturate(200%);
 }
 
 /* 卡片左侧细辉光线 */
@@ -4141,7 +4141,7 @@ html[data-scifi-ui='1'] #evopanel-app-wallpaper::after {
     0 0 0 1px color-mix(in srgb, var(--scifi-glow-accent) 10%, transparent),
     0 0 12px color-mix(in srgb, var(--scifi-glow-accent) 16%, transparent),
     inset 0 1px 0 rgba(255, 255, 255, 0.08) !important;
-  transition: all 0.18s ease;
+  transition: background var(--dur-base) var(--ease-out-soft), color var(--dur-base) var(--ease-out-soft), border-color var(--dur-base) var(--ease-out-soft), box-shadow var(--dur-base) var(--ease-out-soft), opacity var(--dur-base) var(--ease-out-soft), transform var(--dur-base) var(--ease-out-soft), filter var(--dur-base) var(--ease-out-soft);
 }
 
 :where(html[data-scifi-ui='1']) .evo-home-quick:hover {
@@ -4163,8 +4163,8 @@ html[data-scifi-ui='1'] #evopanel-app-wallpaper::after {
     -8px 0 32px color-mix(in srgb, var(--scifi-glow-accent) 24%, transparent),
     -8px 0 80px 16px color-mix(in srgb, var(--scifi-glow-accent) 12%, transparent),
     inset 1px 0 0 rgba(255, 255, 255, 0.10) !important;
-  backdrop-filter: blur(36px) saturate(220%);
-  -webkit-backdrop-filter: blur(36px) saturate(220%);
+  backdrop-filter: blur(var(--blur-xl)) saturate(220%);
+  -webkit-backdrop-filter: blur(var(--blur-xl)) saturate(220%);
 }
 
 /* 抽屉头部 */

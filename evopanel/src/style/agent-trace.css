@@ -810,7 +810,7 @@
   border-top: 5px solid transparent;
   border-bottom: 5px solid transparent;
   border-left: 7px solid var(--text-tertiary);
-  transition: transform 0.15s ease;
+  transition: transform var(--dur-fast) var(--ease-out-soft);
 }
 
 .agent-trace-model-cycle-fold[open] > .agent-trace-model-cycle-fold-sum::before {
@@ -1533,7 +1533,7 @@ p.agent-trace-vendor-sys-none {
 }
 
 .agent-trace-tl-card {
-  transition: box-shadow 0.15s ease, border-color 0.15s ease;
+  transition: box-shadow var(--dur-fast) var(--ease-out-soft), border-color var(--dur-fast) var(--ease-out-soft);
 }
 
 .agent-trace-tl-card:hover {
@@ -1836,7 +1836,7 @@ p.agent-trace-vendor-sys-none {
   font-size: var(--ef-text-base) ;
   text-align: left;
   cursor: pointer;
-  transition: background 0.2s, color 0.2s;
+  transition: background var(--dur-base), color var(--dur-base);
 }
 
 .agent-trace-page .el-obs-menu-item:hover {
@@ -1928,7 +1928,7 @@ p.agent-trace-vendor-sys-none {
   border-radius: var(--el-radius-base);
   box-shadow: var(--el-shadow-light);
   padding: 18px 20px;
-  transition: box-shadow 0.2s;
+  transition: box-shadow var(--dur-base);
 }
 
 .agent-trace-page .el-obs-stat-card:hover {
@@ -2016,7 +2016,7 @@ p.agent-trace-vendor-sys-none {
   border: 1px solid var(--el-border-color);
   border-radius: var(--el-radius-base);
   outline: none;
-  transition: border-color 0.2s;
+  transition: border-color var(--dur-base);
   box-sizing: border-box;
 }
 
@@ -2039,7 +2039,7 @@ p.agent-trace-vendor-sys-none {
   border-radius: var(--el-radius-base);
   border: 1px solid transparent;
   cursor: pointer;
-  transition: background 0.2s, border-color 0.2s, color 0.2s;
+  transition: background var(--dur-base), border-color var(--dur-base), color var(--dur-base);
 }
 
 .agent-trace-page .el-obs-btn--primary {

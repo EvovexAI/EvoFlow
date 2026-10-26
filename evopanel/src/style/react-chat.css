@@ -68,11 +68,11 @@
   min-height: 0;
   z-index: 2;
   transition:
-    width 0.38s cubic-bezier(0.22, 1, 0.36, 1),
-    min-width 0.38s cubic-bezier(0.22, 1, 0.36, 1),
-    max-width 0.38s cubic-bezier(0.22, 1, 0.36, 1),
-    border-right 0.38s ease,
-    padding 0.38s ease;
+    width var(--dur-panel) var(--ease-out-soft),
+    min-width var(--dur-panel) var(--ease-out-soft),
+    max-width var(--dur-panel) var(--ease-out-soft),
+    border-right var(--dur-base) var(--ease-out-soft),
+    padding var(--dur-base) var(--ease-out-soft);
 }
 
 #app-shell-aside.shell-aside-host #shell-chat-panel,
@@ -92,7 +92,7 @@
   background: rgba(15, 15, 20, 0.38);
   opacity: 0;
   pointer-events: none;
-  transition: opacity 0.2s ease;
+  transition: opacity var(--dur-base) var(--ease-out-soft);
 }
 
 .shell-aside-overlay.visible {
@@ -139,10 +139,10 @@
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   transition:
-    width 0.38s cubic-bezier(0.22, 1, 0.36, 1),
-    min-width 0.38s cubic-bezier(0.22, 1, 0.36, 1),
-    max-width 0.38s cubic-bezier(0.22, 1, 0.36, 1),
-    padding 0.38s ease;
+    width var(--dur-panel) var(--ease-out-soft),
+    min-width var(--dur-panel) var(--ease-out-soft),
+    max-width var(--dur-panel) var(--ease-out-soft),
+    padding var(--dur-base) var(--ease-out-soft);
 }
 
 .react-chat-session-aside.collapsed {
@@ -273,14 +273,14 @@
   .react-chat-session-aside.collapsed.is-hover-expanded .react-chat-aside-nav-label,
   .react-chat-session-aside.collapsed.is-hover-expanded .shell-aside-nav-divider {
     display: revert !important;
-    animation: shell-aside-peek-fade 0.22s ease both;
+    animation: shell-aside-peek-fade var(--dur-base) var(--ease-out-soft) both;
   }
 
   /* 默认悬停先不挂会话列表；JS 加 is-hover-expanded-ready 后再显示 */
   .react-chat-session-aside.collapsed.is-hover-expanded-ready #shell-chat-panel,
   .react-chat-session-aside.collapsed.is-hover-expanded-ready .shell-aside-recent {
     display: flex !important;
-    animation: shell-aside-peek-fade 0.24s ease both;
+    animation: shell-aside-peek-fade var(--dur-base) var(--ease-out-soft) both;
   }
 
   .react-chat-session-aside.collapsed.is-hover-expanded .react-chat-aside-brand {
@@ -496,7 +496,7 @@ html.dark .react-chat-session-aside {
   line-height: 1;
   cursor: pointer;
   box-shadow: 0 1px 4px rgba(15, 23, 42, 0.08);
-  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease, opacity 0.15s ease;
+  transition: background var(--dur-fast) var(--ease-out-soft), color var(--dur-fast) var(--ease-out-soft), border-color var(--dur-fast) var(--ease-out-soft), opacity var(--dur-fast) var(--ease-out-soft);
   opacity: 0.72;
 }
 
@@ -634,7 +634,7 @@ html[data-theme='dark'] .react-chat-aside-brand-logo {
 }
 
 .react-chat-aside-primary::-webkit-scrollbar {
-  width: 2px;
+  width: var(--sb-size-lg);
 }
 
 .react-chat-aside-primary::-webkit-scrollbar-thumb {
@@ -674,7 +674,7 @@ html[data-theme='dark'] .react-chat-aside-brand-logo {
   line-height: 1;
   cursor: pointer;
   box-shadow: none;
-  transition: background-color 120ms ease;
+  transition: background-color var(--dur-fast) var(--ease-out-soft);
   flex-shrink: 0;
 }
 
@@ -742,8 +742,8 @@ html[data-theme='dark'] .react-chat-aside-brand-logo {
   box-shadow: none;
   flex-shrink: 0;
   transition:
-    background-color 120ms ease,
-    color 120ms ease;
+    background-color var(--dur-fast) var(--ease-out-soft),
+    color var(--dur-fast) var(--ease-out-soft);
 }
 
 .react-chat-aside-nav-item:hover {
@@ -785,7 +785,7 @@ html[data-theme='dark'] .react-chat-aside-brand-logo {
   height: var(--shell-icon-size, 14px);
   color: var(--text-tertiary, #6f7682);
   flex-shrink: 0;
-  transition: color 120ms ease;
+  transition: color var(--dur-fast) var(--ease-out-soft);
 }
 
 .react-chat-aside-nav-ic svg {
@@ -834,7 +834,7 @@ html[data-theme='dark'] .react-chat-aside-brand-logo {
   letter-spacing: 0.04em;
   cursor: pointer;
   user-select: none;
-  transition: color 140ms ease, background-color 140ms ease;
+  transition: color var(--dur-fast) var(--ease-out-soft), background-color var(--dur-fast) var(--ease-out-soft);
 }
 
 .shell-aside-nav-more-toggle:hover {
@@ -848,7 +848,7 @@ html[data-theme='dark'] .react-chat-aside-brand-logo {
   height: 1px;
   background: color-mix(in srgb, var(--shell-text-weak, #9ca2b3) 25%, transparent);
   border-radius: 1px;
-  transition: background-color 160ms ease;
+  transition: background-color var(--dur-fast) var(--ease-out-soft);
 }
 
 .shell-aside-nav-more-toggle:hover .shell-aside-nav-more-line {
@@ -876,7 +876,7 @@ html[data-theme='dark'] .react-chat-aside-brand-logo {
   justify-content: center;
   color: inherit;
   opacity: 0.6;          /* 比之前 0.85 更淡 */
-  transition: transform 160ms cubic-bezier(0.2, 0.8, 0.2, 1), opacity 140ms ease;
+  transition: transform var(--dur-fast) cubic-bezier(0.2, 0.8, 0.2, 1), opacity var(--dur-fast) var(--ease-out-soft);
   transform: rotate(0deg);
 }
 
@@ -985,7 +985,7 @@ html[data-theme='dark'] .react-chat-aside-brand-logo {
   font-size: var(--font-size-xs, 11px);
   font-weight: 500;
   cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+  transition: background var(--dur-fast) var(--ease-out-soft), color var(--dur-fast) var(--ease-out-soft), box-shadow var(--dur-fast) var(--ease-out-soft);
   white-space: nowrap;
 }
 
@@ -1068,7 +1068,7 @@ html[data-translucent-ui='1'] .shell-view-tab.is-active {
   background: transparent;
   color: var(--shell-text-muted, #6b7080);
   cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease;
+  transition: background var(--dur-fast) var(--ease-out-soft), color var(--dur-fast) var(--ease-out-soft);
 }
 
 .shell-view-action-btn:hover {
@@ -1181,7 +1181,7 @@ html.dark .react-chat-aside-history-head {
   letter-spacing: 0.02em;
   line-height: 1;
   cursor: pointer;
-  transition: background 0.16s ease, color 0.16s ease, box-shadow 0.16s ease;
+  transition: background var(--dur-fast) var(--ease-out-soft), color var(--dur-fast) var(--ease-out-soft), box-shadow var(--dur-fast) var(--ease-out-soft);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1262,7 +1262,7 @@ html.dark .react-chat-aside-segment-btn.is-active {
   flex-shrink: 0;
   opacity: 0.65;
   transform: rotate(90deg);
-  transition: transform 0.12s ease;
+  transition: transform var(--dur-fast) var(--ease-out-soft);
 }
 
 .react-chat-aside-ws-trigger-chevron.is-open {
@@ -1693,7 +1693,7 @@ html.dark .react-chat-aside-ws-menu {
   color: #60667a;
   cursor: pointer;
   flex-shrink: 0;
-  transition: background 0.12s ease, color 0.12s ease;
+  transition: background var(--dur-fast) var(--ease-out-soft), color var(--dur-fast) var(--ease-out-soft);
 }
 
 .shell-footer-icon-btn:hover {
@@ -1723,8 +1723,8 @@ html.dark .react-chat-aside-footer {
   cursor: pointer;
   box-shadow: none;
   transition:
-    background 0.12s ease,
-    color 0.12s ease;
+    background var(--dur-fast) var(--ease-out-soft),
+    color var(--dur-fast) var(--ease-out-soft);
 }
 
 .react-chat-aside-footer-btn:hover {
@@ -1768,7 +1768,7 @@ html.dark .react-chat-aside-footer {
   color: var(--shell-text, #171a2b);
   cursor: pointer;
   text-align: left;
-  transition: background 0.12s ease;
+  transition: background var(--dur-fast) var(--ease-out-soft);
 }
 
 .shell-account-btn:hover,
@@ -2085,7 +2085,7 @@ html.dark .shell-account-menu {
   color: var(--shell-text-weak, #9ca2b3);
   flex-shrink: 0;
   opacity: 0.75;
-  transition: background 0.12s ease, color 0.12s ease, opacity 0.12s ease;
+  transition: background var(--dur-fast) var(--ease-out-soft), color var(--dur-fast) var(--ease-out-soft), opacity var(--dur-fast) var(--ease-out-soft);
 }
 
 .react-chat-aside-icon-btn:hover {
@@ -2174,7 +2174,7 @@ html.dark .shell-account-menu {
 }
 
 .react-chat-session-list::-webkit-scrollbar {
-  width: 2px;
+  width: var(--sb-size-lg);
 }
 
 .react-chat-session-list::-webkit-scrollbar-button {
@@ -2290,7 +2290,7 @@ html.dark .shell-account-menu {
 .react-chat-session-duty-fold-chevron {
   flex-shrink: 0;
   opacity: 0.7;
-  transition: transform 150ms ease;
+  transition: transform var(--dur-fast) var(--ease-out-soft);
   transform: rotate(0deg);
 }
 
@@ -2365,7 +2365,7 @@ html.dark .shell-account-menu {
   color: var(--shell-text-muted, #777e92);
   cursor: pointer;
   opacity: 0;
-  transition: opacity 120ms ease, background 120ms ease, color 120ms ease;
+  transition: opacity var(--dur-fast) var(--ease-out-soft), background var(--dur-fast) var(--ease-out-soft), color var(--dur-fast) var(--ease-out-soft);
 }
 
 /* 无「+」时占位，保证右侧箭头与其它工作区对齐 */
@@ -2406,7 +2406,7 @@ html.dark .shell-account-menu {
   text-align: left;
   cursor: pointer;
   box-shadow: none;
-  transition: background 120ms ease, color 120ms ease;
+  transition: background var(--dur-fast) var(--ease-out-soft), color var(--dur-fast) var(--ease-out-soft);
 }
 
 .react-chat-session-workspace-head:hover {
@@ -2424,7 +2424,7 @@ html.dark .shell-account-menu {
   margin-left: auto;
   color: var(--shell-text-weak, #9ca2b3);
   opacity: 0.75;
-  transition: transform 150ms ease, opacity 120ms ease;
+  transition: transform var(--dur-fast) var(--ease-out-soft), opacity var(--dur-fast) var(--ease-out-soft);
   transform: rotate(0deg);
 }
 
@@ -2519,7 +2519,7 @@ html.dark .shell-account-menu {
 /* 加载中时撑开一点空间显示转圈 */
 .react-chat-session-workspace-load-more-sentinel:has(.react-chat-session-workspace-load-spinner) {
   height: 28px;
-  transition: height 200ms ease-out;
+  transition: height var(--dur-base) ease-out;
 }
 
 .react-chat-session-workspace-load-spinner {
@@ -2552,7 +2552,7 @@ html.dark .shell-account-menu {
   position: relative;
   overflow: hidden;
   z-index: 1;
-  transition: background 150ms ease-out, color 150ms ease-out;
+  transition: background var(--dur-fast) ease-out, color var(--dur-fast) ease-out;
   transform: none;
   box-shadow: none;
   border: none;
@@ -2975,7 +2975,7 @@ body.react-chat-session-row-dragging .react-chat-history-item {
   text-align: left;
   cursor: pointer;
   border-radius: 6px;
-  transition: background-color 0.15s ease, color 0.15s ease;
+  transition: background-color var(--dur-fast) var(--ease-out-soft), color var(--dur-fast) var(--ease-out-soft);
 }
 
 .react-chat-session-pinned-toggle:hover {
@@ -3004,7 +3004,7 @@ body.react-chat-session-row-dragging .react-chat-history-item {
   color: var(--foreground, #1f2328);
   font-size: 12.5px;
   cursor: pointer;
-  transition: background-color 0.15s ease, border-color 0.15s ease;
+  transition: background-color var(--dur-fast) var(--ease-out-soft), border-color var(--dur-fast) var(--ease-out-soft);
 }
 
 .react-chat-session-empty-cta:hover {
@@ -3115,7 +3115,7 @@ body.react-chat-session-row-dragging .react-chat-history-item {
   transform: none;
   text-align: right;
   white-space: nowrap;
-  transition: opacity 100ms ease;
+  transition: opacity 100ms var(--ease-out-soft);
 }
 
 .react-chat-history-item-trailing .react-chat-history-item-meta.is-live {
@@ -3129,7 +3129,7 @@ body.react-chat-session-row-dragging .react-chat-history-item {
   transform: translateY(-50%);
   opacity: 0;
   pointer-events: none;
-  transition: opacity 100ms ease;
+  transition: opacity 100ms var(--ease-out-soft);
   z-index: 1;
 }
 
@@ -3171,10 +3171,10 @@ body.react-chat-session-row-dragging .react-chat-history-item {
     0 1px 3px rgba(0, 0, 0, 0.03);
   transform: translateY(0);
   transition:
-    background 140ms ease,
-    border-color 140ms ease,
-    box-shadow 140ms ease,
-    transform 140ms ease;
+    background var(--dur-fast) var(--ease-out-soft),
+    border-color var(--dur-fast) var(--ease-out-soft),
+    box-shadow var(--dur-fast) var(--ease-out-soft),
+    transform var(--dur-fast) var(--ease-out-soft);
 }
 
 .react-chat-session-card:hover {
@@ -3247,7 +3247,7 @@ body.react-chat-session-row-dragging .react-chat-history-item {
   color: var(--text-tertiary, #9ca3af);
   border-radius: 8px;
   cursor: pointer;
-  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+  transition: background var(--dur-fast) var(--ease-out-soft), border-color var(--dur-fast) var(--ease-out-soft), color var(--dur-fast) var(--ease-out-soft);
   padding: 0;
   flex-shrink: 0;
 }
@@ -3287,7 +3287,7 @@ body.react-chat-session-row-dragging .react-chat-history-item {
   color: var(--text-tertiary, #9ca3af);
   border-radius: 8px;
   cursor: pointer;
-  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+  transition: background var(--dur-fast) var(--ease-out-soft), border-color var(--dur-fast) var(--ease-out-soft), color var(--dur-fast) var(--ease-out-soft);
   font-size: var(--font-size-lg);
   font-weight: 900;
   user-select: none;
@@ -3538,7 +3538,7 @@ html.dark .react-chat-main-body.is-chat-summary-split {
   z-index: 14;
   touch-action: none;
   background: transparent;
-  transition: background 0.15s ease;
+  transition: background var(--dur-fast) var(--ease-out-soft);
 }
 
 .react-chat-panel-resize-handle::before {
@@ -3547,7 +3547,7 @@ html.dark .react-chat-main-body.is-chat-summary-split {
   border-radius: 999px;
   background: var(--border, #e5e7eb);
   opacity: 0;
-  transition: opacity 0.15s ease, background 0.15s ease;
+  transition: opacity var(--dur-fast) var(--ease-out-soft), background var(--dur-fast) var(--ease-out-soft);
 }
 
 .react-chat-panel-resize-handle:hover::before,
@@ -4257,7 +4257,7 @@ html.dark .browser-panel-empty {
   border-radius: 10px;
   text-align: left;
   cursor: pointer;
-  transition: background-color 0.12s ease, border-color 0.12s ease, transform 0.05s ease;
+  transition: background-color var(--dur-fast) var(--ease-out-soft), border-color var(--dur-fast) var(--ease-out-soft), transform 0.05s var(--ease-out-soft);
   color: var(--text-primary);
 }
 .browser-panel-home-card:hover {
@@ -5366,7 +5366,7 @@ html[data-translucent-ui='1'] .react-chat-header--tauri-chrome {
   cursor: default;
   user-select: none;
   -webkit-user-select: none;
-  transition: background-color 0.18s ease;
+  transition: background-color var(--dur-base) var(--ease-out-soft);
 }
 
 .react-chat-header-title-drag:hover {
@@ -5489,7 +5489,7 @@ html.evopanel-tauri-frameless .react-chat-header-title-drag:hover {
   border-radius: 8px;
   background: transparent;
   flex-shrink: 0;
-  transition: box-shadow 160ms ease, border-color 160ms ease, background 160ms ease;
+  transition: box-shadow var(--dur-fast) var(--ease-out-soft), border-color var(--dur-fast) var(--ease-out-soft), background var(--dur-fast) var(--ease-out-soft);
 }
 
 .react-chat-header-metrics:hover {
@@ -5572,7 +5572,7 @@ html.dark .react-chat-context-ring-track {
   color: var(--text-secondary, #64748b);
   cursor: pointer;
   font: inherit;
-  transition: background-color 120ms ease, color 120ms ease, border-color 120ms ease;
+  transition: background-color var(--dur-fast) var(--ease-out-soft), color var(--dur-fast) var(--ease-out-soft), border-color var(--dur-fast) var(--ease-out-soft);
   flex-shrink: 0;
 }
 
@@ -5619,7 +5619,7 @@ html.dark .react-chat-context-ring-track {
   background: var(--bg-card, #fff);
   box-shadow: var(--shadow-lg, 0 4px 16px rgba(0, 0, 0, 0.08));
   cursor: default;
-  animation: react-chat-ctx-zcode-enter 120ms ease-out;
+  animation: react-chat-ctx-zcode-enter var(--dur-fast) ease-out;
 }
 
 @keyframes react-chat-ctx-zcode-enter {
@@ -5765,7 +5765,7 @@ html.dark .react-chat-context-ring-track {
   font-size: var(--ef-text-sm);
   font-weight: 500;
   cursor: pointer;
-  transition: background-color 120ms ease, color 120ms ease;
+  transition: background-color var(--dur-fast) var(--ease-out-soft), color var(--dur-fast) var(--ease-out-soft);
 }
 
 .react-chat-ctx-zcode-compact-btn:hover:not(:disabled) {
@@ -5904,7 +5904,7 @@ html.dark .react-chat-ctx-zcode-compact-btn:hover:not(:disabled) {
 
 .react-chat-context-ring-fill {
   stroke: #22c55e;
-  transition: stroke-dashoffset 520ms cubic-bezier(0.22, 1, 0.36, 1), stroke 200ms ease;
+  transition: stroke-dashoffset 520ms var(--ease-out-soft), stroke var(--dur-base) var(--ease-out-soft);
 }
 
 .react-chat-context-ring--medium .react-chat-context-ring-fill {
@@ -6200,8 +6200,8 @@ html.evopanel-tauri .react-chat-main-col .msg-tool-markdown-content code {
   cursor: pointer;
   z-index: 10;
   user-select: none;
-  transition: opacity 0.2s ease, transform 0.2s ease;
-  animation: react-chat-new-msg-in 0.2s ease;
+  transition: opacity var(--dur-base) var(--ease-out-soft), transform var(--dur-base) var(--ease-out-soft);
+  animation: react-chat-new-msg-in var(--dur-base) var(--ease-out-soft);
 }
 .react-chat-new-msg-btn:hover {
   background: color-mix(in srgb, var(--accent, #2563eb) 8%, var(--bg-primary, #fff));
@@ -6240,7 +6240,7 @@ html.evopanel-tauri .react-chat-main-col .msg-tool-markdown-content code {
   justify-content: center;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
   opacity: 0.82;
-  transition: opacity 0.15s ease, background 0.15s ease, color 0.15s ease;
+  transition: opacity var(--dur-fast) var(--ease-out-soft), background var(--dur-fast) var(--ease-out-soft), color var(--dur-fast) var(--ease-out-soft);
 }
 
 .react-chat-scroll-jump-btn:hover {
@@ -6282,8 +6282,8 @@ html.evopanel-tauri .react-chat-main-col .msg-tool-markdown-content code {
 }
 
 .react-vlist-scroller::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: var(--sb-size);
+  height: var(--sb-size);
 }
 .react-vlist-scroller::-webkit-scrollbar-track {
   background: transparent;
@@ -6871,7 +6871,7 @@ html.dark .react-chat-conversation-col {
   border-top: 4px solid currentColor;
   opacity: 0.75;
   transform: translateY(0.5px);
-  transition: transform 0.15s ease;
+  transition: transform var(--dur-fast) var(--ease-out-soft);
 }
 
 .msg-run-telemetry-details.is-open .msg-run-telemetry-chevron {
@@ -7914,7 +7914,7 @@ html.dark .msg-stream-run-status-tip,
   border-left: 5px solid transparent;
   border-right: 5px solid transparent;
   border-top: 6px solid var(--text-secondary, #64748b);
-  transition: transform 0.15s ease;
+  transition: transform var(--dur-fast) var(--ease-out-soft);
 }
 
 .react-chat-session-debug-modal .jv-toggle-icon--open {
@@ -8347,7 +8347,7 @@ html.dark .msg-turn--delivery .msg-tool-activity-fold.is-done:not(.is-live-body)
 .react-chat-conversation-col .msg-turn-assistant-meta .msg-action-bar {
   margin-left: auto;
   opacity: 0;
-  transition: opacity 200ms ease;
+  transition: opacity var(--dur-base) var(--ease-out-soft);
   flex-shrink: 0;
 }
 
@@ -8365,7 +8365,7 @@ html.dark .msg-turn--delivery .msg-tool-activity-fold.is-done:not(.is-live-body)
   border: none;
   padding: 0;
   cursor: pointer;
-  transition: background-color 150ms ease, color 150ms ease;
+  transition: background-color var(--dur-fast) var(--ease-out-soft), color var(--dur-fast) var(--ease-out-soft);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -8489,7 +8489,7 @@ html[data-theme='dark'] .react-chat-conversation-col .msg-turn-assistant-meta .m
   border-radius: 12px;
   margin: -4px;
   padding: 4px;
-  transition: background 0.12s ease;
+  transition: background var(--dur-fast) var(--ease-out-soft);
 }
 
 .react-chat-agent-profile-top.is-editable:hover {
@@ -8504,7 +8504,7 @@ html[data-theme='dark'] .react-chat-conversation-col .msg-turn-assistant-meta .m
 .react-chat-agent-profile-bio.is-editable {
   cursor: pointer;
   border-radius: 8px;
-  transition: background 0.12s ease;
+  transition: background var(--dur-fast) var(--ease-out-soft);
 }
 
 .react-chat-agent-profile-bio.is-editable:hover {
@@ -8637,7 +8637,7 @@ html[data-theme='dark'] .react-chat-conversation-col .msg-turn-assistant-meta .m
   font-size: var(--ef-text-sm);
   font-weight: 500;
   cursor: pointer;
-  transition: background 150ms ease-out, border-color 150ms ease-out, color 150ms ease-out;
+  transition: background var(--dur-fast) ease-out, border-color var(--dur-fast) ease-out, color var(--dur-fast) ease-out;
 }
 
 .react-chat-asset-quick-btn:hover:not(:disabled) {
@@ -8848,7 +8848,7 @@ html[data-theme='dark'] .react-chat-conversation-col .msg-turn-assistant-meta .m
   max-height: 0;
   opacity: 0;
   overflow: hidden;
-  transition: max-height 0.25s ease, opacity 0.2s ease;
+  transition: max-height var(--dur-base) var(--ease-out-soft), opacity var(--dur-base) var(--ease-out-soft);
 }
 
 .react-chat-current-task-body.is-expanded {
@@ -8886,7 +8886,7 @@ html[data-theme='dark'] .react-chat-conversation-col .msg-turn-assistant-meta .m
   border-radius: 6px;
   cursor: pointer;
   font-weight: 500;
-  transition: background 0.15s;
+  transition: background var(--dur-fast);
 }
 
 .react-chat-current-task-expand:hover {
@@ -9009,7 +9009,7 @@ html.dark .react-chat-current-task-expand,
   color: var(--text-secondary, #64748b);
   cursor: pointer;
   border-radius: 6px;
-  transition: color 0.15s, background 0.15s;
+  transition: color var(--dur-fast), background var(--dur-fast);
 }
 
 .react-chat-task-detail-toggle:hover {
@@ -9022,7 +9022,7 @@ html.dark .react-chat-current-task-expand,
   font-size: var(--ef-text-base) ;
   line-height: 1;
   transform: rotate(90deg);
-  transition: transform 0.2s ease;
+  transition: transform var(--dur-base) var(--ease-out-soft);
 }
 
 .react-chat-task-detail-toggle[aria-expanded='true'] .react-chat-task-detail-toggle-icon {
@@ -9033,7 +9033,7 @@ html.dark .react-chat-current-task-expand,
   display: flex;
   flex-direction: column;
   gap: 10px;
-  animation: react-chat-detail-fade-in 0.2s ease;
+  animation: react-chat-detail-fade-in var(--dur-base) var(--ease-out-soft);
 }
 
 @keyframes react-chat-detail-fade-in {
@@ -9518,7 +9518,7 @@ html.dark .react-chat-current-task-expand,
   background: var(--agent-soft, color-mix(in srgb, var(--text-primary) 5%, transparent));
   color: var(--agent-mute, var(--text-tertiary));
   cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease;
+  transition: background var(--dur-fast) var(--ease-out-soft), color var(--dur-fast) var(--ease-out-soft);
 }
 
 .react-chat-agent-edit-btn:hover,
@@ -9541,7 +9541,7 @@ html.dark .react-chat-current-task-expand,
   background: var(--agent-soft);
   color: var(--agent-mute);
   cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease;
+  transition: background var(--dur-fast) var(--ease-out-soft), color var(--dur-fast) var(--ease-out-soft);
 }
 
 .react-chat-agent-switch:hover {
@@ -10605,7 +10605,7 @@ html.evopanel-tauri .react-chat-main-col .msg-ai-ask-inline-md {
   border: 1px solid var(--border-primary, #e5e7eb);
   background: var(--bg-tertiary, #f9fafb);
   cursor: pointer;
-  transition: border-color 0.15s, box-shadow 0.15s;
+  transition: border-color var(--dur-fast), box-shadow var(--dur-fast);
 }
 
 .react-chat-image-preview-card:hover {
@@ -10664,7 +10664,7 @@ html.evopanel-tauri .react-chat-main-col .msg-ai-ask-inline-md {
   display: flex;
   align-items: center;
   justify-content: center;
-  animation: react-chat-image-preview-fade 0.15s ease-out;
+  animation: react-chat-image-preview-fade var(--dur-fast) ease-out;
 }
 
 @keyframes react-chat-image-preview-fade {
@@ -10770,7 +10770,7 @@ html.evopanel-tauri .react-chat-main-col .msg-ai-ask-inline-md {
   justify-content: center;
   cursor: pointer;
   padding: 0;
-  transition: background 0.15s;
+  transition: background var(--dur-fast);
 }
 
 .react-chat-image-preview-nav:hover {
@@ -10797,7 +10797,7 @@ html.evopanel-tauri .react-chat-main-col .msg-ai-ask-inline-md {
   border: 1px solid var(--border-primary, #e5e7eb);
   background: var(--bg-tertiary, #f9fafb);
   cursor: pointer;
-  transition: border-color 0.15s, box-shadow 0.15s;
+  transition: border-color var(--dur-fast), box-shadow var(--dur-fast);
   text-align: left;
   color: inherit;
 }
@@ -10842,7 +10842,7 @@ html.evopanel-tauri .react-chat-main-col .msg-ai-ask-inline-md {
   justify-content: center;
   cursor: pointer;
   opacity: 0;
-  transition: opacity 0.15s;
+  transition: opacity var(--dur-fast);
 }
 
 .react-chat-context-img-card:hover .react-chat-context-img-x {
@@ -10941,8 +10941,8 @@ html.evopanel-tauri .react-chat-main-col .msg-ai-ask-inline-md {
   overflow: visible;
   max-height: 100%;
   transition:
-    border-color 160ms ease,
-    background-color 160ms ease;
+    border-color var(--dur-fast) var(--ease-out-soft),
+    background-color var(--dur-fast) var(--ease-out-soft);
 }
 
 .react-chat-composer-shell:hover {
@@ -11197,10 +11197,10 @@ html.evopanel-tauri .react-chat-main-col .msg-ai-ask-inline-md {
   justify-content: center;
   color: var(--text-secondary, #64748b);
   transition:
-    background-color 0.18s ease,
-    color 0.18s ease,
-    transform 0.12s ease,
-    box-shadow 0.18s ease;
+    background-color var(--dur-base) var(--ease-out-soft),
+    color var(--dur-base) var(--ease-out-soft),
+    transform var(--dur-fast) var(--ease-out-soft),
+    box-shadow var(--dur-base) var(--ease-out-soft);
 }
 
 .react-chat-icon-flush-btn {
@@ -11813,7 +11813,7 @@ html.dark .react-chat-icon-stop-btn:hover {
   align-items: center;
   gap: 2px;
   cursor: pointer;
-  transition: background 0.12s ease, color 0.12s ease;
+  transition: background var(--dur-fast) var(--ease-out-soft), color var(--dur-fast) var(--ease-out-soft);
   box-shadow: none;
   overflow: visible;
 }
@@ -11998,7 +11998,7 @@ html.dark .react-chat-icon-stop-btn:hover {
   font-size: 13px;
   color: inherit;
   text-align: left;
-  transition: background 0.12s;
+  transition: background var(--dur-fast);
 }
 .react-chat-model-vendor-header:hover,
 .react-chat-model-vendor-header--hover {
@@ -12063,7 +12063,7 @@ html.dark .react-chat-icon-stop-btn:hover {
   font-size: 13px;
   color: inherit;
   text-align: left;
-  transition: background 0.12s;
+  transition: background var(--dur-fast);
 }
 .react-chat-more-submenu-header:hover,
 .react-chat-more-submenu-header--open {
@@ -12376,10 +12376,10 @@ html.dark .react-chat-icon-stop-btn:hover {
   overflow: hidden;
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
   transition:
-    background 0.12s ease,
-    border-color 0.12s ease,
-    box-shadow 0.12s ease,
-    transform 0.12s ease;
+    background var(--dur-fast) var(--ease-out-soft),
+    border-color var(--dur-fast) var(--ease-out-soft),
+    box-shadow var(--dur-fast) var(--ease-out-soft),
+    transform var(--dur-fast) var(--ease-out-soft);
 }
 
 .react-chat-picker-card-head {
@@ -12570,7 +12570,7 @@ html.dark .react-chat-icon-stop-btn:hover {
   color: inherit;
   cursor: pointer;
   opacity: 0.7;
-  transition: opacity 0.15s;
+  transition: opacity var(--dur-fast);
 }
 
 .react-chat-skill-modal-chip-x:hover {
@@ -12618,7 +12618,7 @@ html.dark .react-chat-icon-stop-btn:hover {
   line-height: 1;
   color: var(--text-tertiary, #9ca3af);
   cursor: pointer;
-  transition: background 0.12s, color 0.12s;
+  transition: background var(--dur-fast), color var(--dur-fast);
   flex-shrink: 0;
 }
 
@@ -12667,7 +12667,7 @@ html.dark .react-chat-icon-stop-btn:hover {
   font-weight: 600;
   letter-spacing: 0.01em;
   cursor: pointer;
-  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease, transform 0.12s ease;
+  transition: background var(--dur-fast) var(--ease-out-soft), color var(--dur-fast) var(--ease-out-soft), border-color var(--dur-fast) var(--ease-out-soft), transform var(--dur-fast) var(--ease-out-soft);
   user-select: none;
   white-space: nowrap;
 }
@@ -12760,7 +12760,7 @@ html[data-theme='dark'] .react-chat-bottom-permission-pill--full {
   box-shadow: var(--surface-overlay-shadow, 0 10px 38px rgba(15, 23, 42, 0.12));
   padding: 8px 0 6px;
   overflow: hidden;
-  animation: react-chat-permission-menu-in 0.14s ease-out;
+  animation: react-chat-permission-menu-in var(--dur-fast) ease-out;
 }
 /* 半透明 / 壁纸：对齐 bottom-dropdown 玻璃浮层，别再锁死实心白 */
 html[data-translucent-ui='1'] .react-chat-permission-menu,
@@ -12822,7 +12822,7 @@ html[data-translucent-ui='1'] .react-chat-bottom-permission-pill--readonly {
   background: transparent;
   text-align: left;
   cursor: pointer;
-  transition: background 0.12s ease;
+  transition: background var(--dur-fast) var(--ease-out-soft);
 }
 .react-chat-permission-menu-item:hover {
   background: var(--bg-tertiary, #f3f4f6);
@@ -12913,7 +12913,7 @@ html[data-translucent-ui='1'] .react-chat-bottom-permission-pill--readonly {
   inset: 0;
   background: var(--text-tertiary, #94a3b8);
   border-radius: 20px;
-  transition: background 0.2s ease;
+  transition: background var(--dur-base) var(--ease-out-soft);
 }
 .react-chat-permission-menu-switch-slider::before {
   content: '';
@@ -12924,7 +12924,7 @@ html[data-translucent-ui='1'] .react-chat-bottom-permission-pill--readonly {
   bottom: 3px;
   background: var(--surface-overlay-bg, var(--bg-elevated, #fff));
   border-radius: 50%;
-  transition: transform 0.2s ease;
+  transition: transform var(--dur-base) var(--ease-out-soft);
 }
 .react-chat-permission-menu-switch input:checked + .react-chat-permission-menu-switch-slider {
   background: var(--accent, #2563eb);
@@ -13045,7 +13045,7 @@ html[data-theme='dark'] .react-chat-permission-menu-check {
   background: transparent;
   text-align: left;
   cursor: pointer;
-  transition: background 0.12s ease;
+  transition: background var(--dur-fast) var(--ease-out-soft);
 }
 
 .react-chat-permission-option:hover {
@@ -13412,7 +13412,7 @@ html[data-app-occluded='1'] * {
   font: inherit;
   color: var(--text-primary, #111827);
   cursor: pointer;
-  transition: background 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease;
+  transition: background var(--dur-fast) var(--ease-out-soft), border-color var(--dur-fast) var(--ease-out-soft), box-shadow var(--dur-fast) var(--ease-out-soft);
 }
 
 .ef-dropdown-select__trigger:focus-visible {
@@ -13478,7 +13478,7 @@ html[data-app-occluded='1'] * {
   opacity: 0.55;
   font-size: 11px;
   line-height: 1;
-  transition: transform 0.12s ease;
+  transition: transform var(--dur-fast) var(--ease-out-soft);
 }
 
 .ef-dropdown-select.is-open .ef-dropdown-select__caret {
@@ -13967,7 +13967,7 @@ html[data-app-occluded='1'] * {
   height: 100%;
   border-radius: 999px;
   background: linear-gradient(90deg, #3b82f6, #2563eb);
-  transition: width 0.25s ease;
+  transition: width var(--dur-base) var(--ease-out-soft);
   min-width: 0;
 }
 .react-chat-subagent-card__progress-bar--indeterminate {
@@ -14386,10 +14386,10 @@ html[data-app-occluded='1'] * {
   background: var(--bg-primary, #fff);
   cursor: pointer;
   transition:
-    border-color 0.15s ease,
-    background 0.15s ease,
-    box-shadow 0.15s ease,
-    transform 0.15s ease;
+    border-color var(--dur-fast) var(--ease-out-soft),
+    background var(--dur-fast) var(--ease-out-soft),
+    box-shadow var(--dur-fast) var(--ease-out-soft),
+    transform var(--dur-fast) var(--ease-out-soft);
 }
 
 .react-chat-thread-clarify-option:hover {
@@ -15000,7 +15000,7 @@ html.dark .msg-ai-ask-inline-label,
   height: 100%;
   background: linear-gradient(90deg, #3b82f6, #60a5fa);
   border-radius: 2px;
-  transition: width 200ms ease-out;
+  transition: width var(--dur-base) ease-out;
 }
 .msg-tool-write-progress-indicator {
   display: inline-block;
@@ -15048,7 +15048,7 @@ html.dark .msg-ai-ask-inline-label,
   height: 100%;
   background: linear-gradient(90deg, #3b82f6, #60a5fa);
   border-radius: 3px;
-  transition: width 200ms ease-out;
+  transition: width var(--dur-base) ease-out;
 }
 .file-edit-modal-progress-spinner {
   display: inline-block;
@@ -15724,7 +15724,7 @@ body.theme-dark .tool-approval-panel__decision--denied {
 .react-chat-plan-exec-subtasks-head::before {
   content: '▸ ';
   display: inline-block;
-  transition: transform 120ms ease;
+  transition: transform var(--dur-fast) var(--ease-out-soft);
 }
 .react-chat-plan-exec-subtasks[open] .react-chat-plan-exec-subtasks-head::before {
   transform: rotate(90deg);
@@ -16104,7 +16104,7 @@ body.theme-dark .tool-approval-panel__decision--denied {
   color: var(--text-primary, #111827);
   text-align: left;
   cursor: pointer;
-  transition: border-color 120ms ease, background 120ms ease;
+  transition: border-color var(--dur-fast) var(--ease-out-soft), background var(--dur-fast) var(--ease-out-soft);
 }
 
 .plan-detail-step-nav-item:hover {
@@ -16602,7 +16602,7 @@ body.theme-dark .tool-approval-panel__decision--denied {
     var(--accent),
     color-mix(in srgb, var(--accent) 65%, white)
   );
-  transition: width 0.3s ease;
+  transition: width var(--dur-panel) var(--ease-out-soft);
 }
 
 .react-chat-goal-progress-error {
@@ -16814,7 +16814,7 @@ body.theme-dark .tool-approval-panel__decision--denied {
   border: 1px solid var(--border-primary, #cbd5e1);
   position: relative;
   cursor: pointer;
-  transition: background 150ms ease, border-color 150ms ease;
+  transition: background var(--dur-fast) var(--ease-out-soft), border-color var(--dur-fast) var(--ease-out-soft);
 }
 
 .react-chat-goal-toggle-track::after {
@@ -16828,7 +16828,7 @@ body.theme-dark .tool-approval-panel__decision--denied {
   background: var(--bg-primary, #fff);
   transform: translateY(-50%);
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
-  transition: left 150ms ease;
+  transition: left var(--dur-fast) var(--ease-out-soft);
 }
 
 .react-chat-goal-toggle input:checked + .react-chat-goal-toggle-track {
@@ -16988,7 +16988,7 @@ html.evopanel-tauri .react-chat-main-col .msg-bubble--system-closure .react-chat
   box-shadow:
     0 8px 24px rgba(37, 99, 235, 0.12),
     0 2px 8px rgba(0, 0, 0, 0.06);
-  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+  transition: border-color var(--dur-fast) var(--ease-out-soft), box-shadow var(--dur-fast) var(--ease-out-soft), transform var(--dur-fast) var(--ease-out-soft);
   max-width: min(280px, calc(100vw - 40px));
   overflow: hidden;
 }
@@ -17037,7 +17037,7 @@ html.evopanel-tauri .react-chat-main-col .msg-bubble--system-closure .react-chat
   position: fixed;
   inset: 0;
   background: rgba(17, 24, 39, 0.28);
-  backdrop-filter: blur(10px);
+  backdrop-filter: blur(var(--blur-md));
   /* Above in-page voice HUD (.voice-recording-overlay = 999999) so transcript is visible */
   z-index: 1000001;
   display: flex;
@@ -17312,7 +17312,7 @@ html.evopanel-tauri .react-chat-main-col .msg-bubble--system-closure .react-chat
   height: 100%;
   border-radius: inherit;
   background: linear-gradient(90deg, #2563eb, #60a5fa);
-  transition: width 0.25s ease;
+  transition: width var(--dur-base) var(--ease-out-soft);
 }
 
 .react-chat-subtask-modal-body {
@@ -18100,7 +18100,7 @@ html.evopanel-macos-titlebar .settings-modal-error-banner {
 }
 
 .settings-modal-error-banner--visible {
-  animation: settingsModalErrorIn 180ms ease;
+  animation: settingsModalErrorIn var(--dur-base) var(--ease-out-soft);
 }
 
 @keyframes settingsModalErrorIn {
@@ -18800,11 +18800,11 @@ html.evopanel-macos-titlebar .settings-modal-error-banner {
 }
 
 .react-chat-inline-reasoning-dot:nth-child(2) {
-  animation-delay: 0.15s;
+  animation-delay: var(--dur-fast);
 }
 
 .react-chat-inline-reasoning-dot:nth-child(3) {
-  animation-delay: 0.3s;
+  animation-delay: var(--dur-panel);
 }
 
 @keyframes react-chat-reasoning-dot-bounce {
@@ -19126,7 +19126,7 @@ html.dark .react-chat-inline-reasoning-md,
   border-bottom: 1.25px solid var(--text-secondary, #6b7280);
   transform: rotate(-45deg);
   transform-origin: 40% 60%;
-  transition: transform 0.15s ease, border-color 0.15s ease;
+  transition: transform var(--dur-fast) var(--ease-out-soft), border-color var(--dur-fast) var(--ease-out-soft);
   opacity: 0.9;
 }
 
@@ -19309,7 +19309,7 @@ html.dark .react-chat-inline-reasoning--in-exploring {
 }
 .react-chat-inline-reasoning--in-exploring .react-chat-inline-reasoning-body:hover::-webkit-scrollbar {
   display: block;
-  width: 4px;
+  width: var(--sb-size-sm);
 }
 .react-chat-inline-reasoning--in-exploring .react-chat-inline-reasoning-body:hover::-webkit-scrollbar-thumb {
   background: var(--border-color, #d1d5db);
@@ -19487,7 +19487,7 @@ html.dark .react-chat-inline-reasoning--in-exploring {
   margin: 0;
   padding: 6px 14px 6px 4px;
   border-radius: 6px;
-  transition: background-color 0.12s ease;
+  transition: background-color var(--dur-fast) var(--ease-out-soft);
 }
 
 .msg-ai .msg-bubble .msg-tool-activity-fold-toggle:hover {
@@ -19537,7 +19537,7 @@ html.dark .msg-ai .msg-bubble .msg-tool-activity-fold-scroll {
 /* === done 沉淀：跑完后探索区整体变淡，把视觉重心让给最终正文 === */
 .msg-tool-activity-fold.is-done .msg-tool-activity-fold-scroll {
   opacity: 0.66;
-  transition: opacity 0.2s ease;
+  transition: opacity var(--dur-base) var(--ease-out-soft);
 }
 
 /* hover 展开区时恢复至 0.86，方便回看 */
@@ -19573,7 +19573,7 @@ html.dark .msg-tool-item--failed .msg-tool-brief {
 
 /* 工具行 hover 底色 */
 .msg-tool--in-activity-fold .msg-tool-item--in-fold > summary {
-  transition: background-color 0.12s ease;
+  transition: background-color var(--dur-fast) var(--ease-out-soft);
 }
 
 .msg-tool--in-activity-fold .msg-tool-item--in-fold:hover > summary {
@@ -19654,7 +19654,7 @@ html.dark .msg-tool-activity-fold-steps {
 
 /* === 折叠展开轻量淡入：只 fade opacity，不碰高度（避免与 max-height/autoFollow 冲突） === */
 .msg-tool-activity-fold.is-expanded .msg-tool-activity-fold-inner {
-  animation: exploring-fold-fade-in 0.18s ease-out;
+  animation: exploring-fold-fade-in var(--dur-base) ease-out;
 }
 
 @keyframes exploring-fold-fade-in {
@@ -20027,7 +20027,7 @@ html.dark .msg-tool--in-activity-fold {
 .msg-tool--in-activity-fold .msg-tool-item--in-fold .msg-tool-chevron {
   opacity: 0;
   font-size: 9px;
-  transition: opacity 0.12s ease;
+  transition: opacity var(--dur-fast) var(--ease-out-soft);
 }
 
 .msg-tool--in-activity-fold .msg-tool-item--in-fold.msg-tool-item--fold-interactive .msg-tool-chevron {
@@ -20311,7 +20311,7 @@ html.dark .msg-tool-activity-fold.is-running .msg-tool-activity-fold-label {
   padding: 10px 12px;
   font-size: var(--ef-text-sm);
   border-bottom: 1px solid color-mix(in srgb, var(--border, #e5e7eb) 60%, transparent);
-  animation: react-chat-task-step-in 0.22s ease-out;
+  animation: react-chat-task-step-in var(--dur-base) ease-out;
 }
 
 .react-chat-task-step:last-child {
@@ -20400,8 +20400,8 @@ html.dark .msg-tool-activity-fold.is-running .msg-tool-activity-fold-label {
   min-height: 40px;
   box-shadow: none;
   transition:
-    box-shadow 0.15s ease,
-    border-color 0.15s ease;
+    box-shadow var(--dur-fast) var(--ease-out-soft),
+    border-color var(--dur-fast) var(--ease-out-soft);
 }
 
 .react-chat-task-sidebar .react-chat-subtask-card {
@@ -20757,7 +20757,7 @@ html.dark .msg-tool-activity-fold.is-running .msg-tool-activity-fold-label {
   z-index: 101;
   display: flex;
   flex-direction: column;
-  animation: slide-in-right 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  animation: slide-in-right var(--dur-panel) cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .react-chat-run-manager-header {
@@ -20767,7 +20767,7 @@ html.dark .msg-tool-activity-fold.is-running .msg-tool-activity-fold-label {
   padding: 18px 20px;
   border-bottom: 1px solid rgba(229, 231, 235, 0.6);
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.95) 0%, rgba(248, 250, 252, 0.8) 100%);
-  backdrop-filter: blur(8px);
+  backdrop-filter: blur(var(--blur-sm));
   contain: paint;
 }
 
@@ -21350,7 +21350,7 @@ html.dark .msg-tool-activity-fold.is-running .msg-tool-activity-fold-label {
   z-index: 1001;
   display: flex;
   flex-direction: column;
-  animation: slide-in-left 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  animation: slide-in-left var(--dur-panel) cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 @keyframes slide-in-left {
@@ -21867,7 +21867,7 @@ html.dark .msg-tool-activity-fold.is-running .msg-tool-activity-fold-label {
   align-items: center;
   justify-content: center;
   z-index: 1100;
-  animation: fade-in 0.2s ease;
+  animation: fade-in var(--dur-base) var(--ease-out-soft);
 }
 
 @keyframes fade-in {
@@ -21882,7 +21882,7 @@ html.dark .msg-tool-activity-fold.is-running .msg-tool-activity-fold-label {
   max-width: 400px;
   width: 90%;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
-  animation: scale-in 0.2s ease;
+  animation: scale-in var(--dur-base) var(--ease-out-soft);
 }
 
 @keyframes scale-in {
@@ -22059,7 +22059,7 @@ html.dark .msg-tool-activity-fold.is-running .msg-tool-activity-fold-label {
   font-size: 16px;
   color: #dc2626;
   opacity: 0.6;
-  transition: opacity 0.15s;
+  transition: opacity var(--dur-fast);
   line-height: 1;
 }
 
@@ -22145,8 +22145,8 @@ html[data-custom-bg='1'] .react-chat-main-col--home {
 }
 
 .chat-messages-inner--home::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: var(--sb-size);
+  height: var(--sb-size);
 }
 
 .chat-messages-inner--home::-webkit-scrollbar-thumb {
@@ -22426,7 +22426,7 @@ html[data-custom-bg='1'] .react-chat-main-col--home {
   max-width: 220px;
   overflow: hidden;
   cursor: pointer;
-  transition: border-color 0.15s ease, color 0.15s ease;
+  transition: border-color var(--dur-fast) var(--ease-out-soft), color var(--dur-fast) var(--ease-out-soft);
 }
 
 .evo-home-workspace-pill:hover {
@@ -23202,7 +23202,7 @@ html[data-custom-bg='1'] .react-chat-main-col--home {
   font-size: var(--ef-text-sm);
   font-weight: 500;
   cursor: pointer;
-  transition: background 0.12s ease, color 0.12s ease;
+  transition: background var(--dur-fast) var(--ease-out-soft), color var(--dur-fast) var(--ease-out-soft);
 }
 
 .evo-home-todo-tab:hover {
@@ -23292,7 +23292,7 @@ html[data-custom-bg='1'] .react-chat-main-col--home {
   font-size: var(--ef-text-sm);
   font-weight: 500;
   cursor: pointer;
-  transition: background 0.12s ease, color 0.12s ease;
+  transition: background var(--dur-fast) var(--ease-out-soft), color var(--dur-fast) var(--ease-out-soft);
 }
 
 .evo-home-todo-more:hover {
@@ -23792,11 +23792,11 @@ html[data-custom-bg='1'] .react-chat-main-col--home {
   background: rgba(255, 255, 255, 0.74);
   box-shadow: 0 12px 32px rgba(99, 102, 241, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.82);
   cursor: pointer;
-  transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+  transition: transform var(--dur-base) var(--ease-out-soft), border-color var(--dur-base) var(--ease-out-soft), box-shadow var(--dur-base) var(--ease-out-soft), background var(--dur-base) var(--ease-out-soft);
   outline: none;
   position: relative;
   overflow: hidden;
-  backdrop-filter: blur(6px);
+  backdrop-filter: blur(var(--blur-sm));
   contain: paint;
 }
 
@@ -23881,7 +23881,7 @@ html[data-custom-bg='1'] .react-chat-main-col--home {
   justify-content: center;
   margin-top: 0;
   color: #5f6b7a;
-  transition: color 0.18s ease, transform 0.18s ease;
+  transition: color var(--dur-base) var(--ease-out-soft), transform var(--dur-base) var(--ease-out-soft);
 }
 
 .quick-start-card-arrow svg {
@@ -23910,7 +23910,7 @@ html[data-custom-bg='1'] .react-chat-main-col--home {
   object-fit: contain;
   opacity: 0.62;
   pointer-events: none;
-  transition: opacity 0.2s ease, transform 0.2s ease;
+  transition: opacity var(--dur-base) var(--ease-out-soft), transform var(--dur-base) var(--ease-out-soft);
   filter: drop-shadow(0 12px 18px rgba(99, 102, 241, 0.16));
 }
 
@@ -24039,7 +24039,7 @@ html[data-custom-bg='1'] .react-chat-main-col--home {
   cursor: pointer;
   user-select: none;
   outline: none;
-  transition: background-color 120ms ease-out, border-color 120ms ease-out, color 120ms ease-out;
+  transition: background-color var(--dur-fast) ease-out, border-color var(--dur-fast) ease-out, color var(--dur-fast) ease-out;
 }
 
 .kvft-row:hover {
@@ -24076,7 +24076,7 @@ html[data-custom-bg='1'] .react-chat-main-col--home {
   padding: 0;
   border-radius: 4px;
   cursor: pointer;
-  transition: color 120ms ease-out, background-color 120ms ease-out;
+  transition: color var(--dur-fast) ease-out, background-color var(--dur-fast) ease-out;
 }
 
 .kvft-caret:hover {
@@ -24085,7 +24085,7 @@ html[data-custom-bg='1'] .react-chat-main-col--home {
 }
 
 .kvft-caret svg.kv-icon--caret {
-  transition: transform 120ms ease-out;
+  transition: transform var(--dur-fast) ease-out;
 }
 
 /* KvTreeCaret 的两个 SVG path 不一致；统一用 CSS 旋转实现"展开"翻折 */
@@ -24462,7 +24462,7 @@ html[data-translucent-ui='1'] .react-chat-workspace-tree .kv-tree-expand {
   inset: 0;
   background: var(--bg-tertiary, #e5e7eb);
   border-radius: 18px;
-  transition: background 0.2s;
+  transition: background var(--dur-base);
 }
 
 .react-chat-workspace-tree-watch-slider::before {
@@ -24474,7 +24474,7 @@ html[data-translucent-ui='1'] .react-chat-workspace-tree .kv-tree-expand {
   bottom: 2px;
   background: #fff;
   border-radius: 50%;
-  transition: transform 0.2s;
+  transition: transform var(--dur-base);
 }
 
 .react-chat-workspace-tree-watch-switch input:checked + .react-chat-workspace-tree-watch-slider {
@@ -25336,6 +25336,26 @@ html.dark .react-chat-workspace-panel {
   min-width: 240px;
 }
 
+/* 打开右栏的入场：面板是条件挂载（open ? <RightStagePanel/> : null），transition
+   捕捉不到，只能用挂载动画。必须限定在外壳直挂层——这个类名还复用在右栏内部
+   stage-body 的标签内容上，动画若下放到基类，display:none→显示 的每次标签切换
+   都会重播展开动画。 */
+@keyframes rightStageShellIn {
+  from {
+    flex-basis: 0px;
+    width: 0px;
+    max-width: 0px;
+    min-width: 0px;
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .react-chat-main-body.is-right-stage-open > .react-chat-right-stage-panel {
+    animation: rightStageShellIn var(--dur-panel) var(--ease-out-soft);
+  }
+}
+
 /* 壳页面挂载（Mount Table → shell-page）：同款页面模块进右栏 */
 .react-chat-shell-page-panel {
   min-height: 0;
@@ -26038,8 +26058,8 @@ html.dark .react-chat-right-stage-panel {
 .react-chat-artifacts-panel ::-webkit-scrollbar,
 .react-chat-right-stage-panel ::-webkit-scrollbar,
 .chat-summary-panel-scroll::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: var(--sb-size);
+  height: var(--sb-size);
 }
 
 .react-chat-artifacts-panel ::-webkit-scrollbar-track,
@@ -26210,7 +26230,7 @@ html.dark .react-chat-collab-exec-panel {
   height: 100%;
   border-radius: inherit;
   background: linear-gradient(90deg, #3b82f6, #2563eb);
-  transition: width 0.25s ease;
+  transition: width var(--dur-base) var(--ease-out-soft);
 }
 
 /* 进度缓冲动画：黄色→紫色渐变不断扫描 */
@@ -27000,7 +27020,7 @@ html.dark .km-xmind-processing-panel {
   border: 1px solid var(--border, #e5e7eb);
   background: var(--surface-2, #f9fafb);
   cursor: pointer;
-  transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+  transition: border-color var(--dur-fast), box-shadow var(--dur-fast), background var(--dur-fast);
   outline: none;
 }
 
@@ -27233,7 +27253,7 @@ html.dark .km-xmind-processing-panel {
   font: inherit;
   padding: 1px 6px;
   border-radius: 999px;
-  transition: background-color 0.12s ease;
+  transition: background-color var(--dur-fast) var(--ease-out-soft);
 }
 
 .km-xmind-processing-panel-item-status.km-node-status-btn {
@@ -27403,7 +27423,7 @@ html.dark .km-mind-toolbar {
   background: var(--surface, #fff);
   color: var(--text, #111827);
   cursor: pointer;
-  transition: background 0.15s, border-color 0.15s;
+  transition: background var(--dur-fast), border-color var(--dur-fast);
 }
 
 .km-mind-tool-btn:hover {
@@ -27440,7 +27460,7 @@ html.dark .km-mind-tool-btn {
   background: var(--surface, #fff);
   color: var(--text, #111827);
   cursor: pointer;
-  transition: background 0.15s, border-color 0.15s, color 0.15s;
+  transition: background var(--dur-fast), border-color var(--dur-fast), color var(--dur-fast);
 }
 
 .km-mind-zoom-btn:hover {
@@ -27529,7 +27549,7 @@ html.dark .km-mind-zoom-btn {
   border-radius: 10px;
   padding: 10px 16px;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
-  transition: border-color 0.15s, box-shadow 0.15s;
+  transition: border-color var(--dur-fast), box-shadow var(--dur-fast);
 }
 
 .km-xmind-topic.is-interactive {
@@ -27689,10 +27709,10 @@ html.dark .km-xmind-detail-popover {
   justify-content: center;
   color: var(--text-secondary, #64748b);
   transition:
-    background-color 0.18s ease,
-    color 0.18s ease,
-    transform 0.12s ease,
-    box-shadow 0.18s ease;
+    background-color var(--dur-base) var(--ease-out-soft),
+    color var(--dur-base) var(--ease-out-soft),
+    transform var(--dur-fast) var(--ease-out-soft),
+    box-shadow var(--dur-base) var(--ease-out-soft);
 }
 
 .react-chat-icon-roles-btn:hover:not(:disabled) {
@@ -27729,7 +27749,7 @@ html.dark .react-chat-icon-roles-btn {
   justify-content: center;
   color: var(--text-secondary, #64748b);
   flex-shrink: 0;
-  transition: background 0.15s, color 0.15s, box-shadow 0.15s;
+  transition: background var(--dur-fast), color var(--dur-fast), box-shadow var(--dur-fast);
 }
 
 .react-chat-icon-attach-btn:hover:not(:disabled) {
@@ -27763,7 +27783,7 @@ html.dark .react-chat-icon-attach-btn {
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.16);
   overflow: hidden;
   z-index: 60;
-  animation: react-chat-roles-popover-in 0.16s ease;
+  animation: react-chat-roles-popover-in var(--dur-fast) var(--ease-out-soft);
 }
 
 @keyframes react-chat-roles-popover-in {
@@ -27808,7 +27828,7 @@ html.dark .react-chat-roles-popover-head {
   color: #18181b;
   background: #fafafa;
   outline: none;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  transition: border-color var(--dur-fast) var(--ease-out-soft), box-shadow var(--dur-fast) var(--ease-out-soft);
 }
 
 .react-chat-roles-search:focus {
@@ -27847,7 +27867,7 @@ html.dark .react-chat-roles-search:focus {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  transition: background-color 0.15s ease, color 0.15s ease;
+  transition: background-color var(--dur-fast) var(--ease-out-soft), color var(--dur-fast) var(--ease-out-soft);
 }
 
 .react-chat-roles-close:hover {
@@ -27882,7 +27902,7 @@ html.dark .react-chat-roles-close:hover {
   padding: 8px 10px;
   border-radius: 10px;
   cursor: pointer;
-  transition: background-color 0.12s ease;
+  transition: background-color var(--dur-fast) var(--ease-out-soft);
   border: none;
   background: transparent;
   width: 100%;
@@ -28161,7 +28181,7 @@ html.dark .km-xmind-topic-body {
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: background 0.15s, border-color 0.15s, color 0.15s;
+  transition: background var(--dur-fast), border-color var(--dur-fast), color var(--dur-fast);
 }
 
 .km-xmind-topic-toggle--right {
@@ -28254,7 +28274,7 @@ html.dark .km-xmind-topic.is-root .km-xmind-topic-toggle {
   border-top: 4px solid transparent;
   border-bottom: 4px solid transparent;
   border-left: 5px solid var(--text-muted, #6b7280);
-  transition: transform 0.15s;
+  transition: transform var(--dur-fast);
 }
 
 .km-section.is-collapsible.is-open .km-section-title::before {
@@ -28272,7 +28292,7 @@ html.dark .km-xmind-topic.is-root .km-xmind-topic-toggle {
   inset: 0;
   z-index: 2600;
   background: rgba(17, 24, 39, 0.48);
-  backdrop-filter: blur(10px);
+  backdrop-filter: blur(var(--blur-md));
   display: flex;
   align-items: stretch;
   justify-content: center;
@@ -28579,7 +28599,7 @@ html.dark .km-mind-tool-btn--processing {
   background: var(--bg-primary, #fff);
   color: var(--text-secondary, #6b7280);
   cursor: pointer;
-  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+  transition: background var(--dur-fast) var(--ease-out-soft), border-color var(--dur-fast) var(--ease-out-soft), color var(--dur-fast) var(--ease-out-soft);
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05);
 }
 .collab-wf-expand-btn:hover {
@@ -28639,7 +28659,7 @@ html.dark .km-mind-tool-btn--processing {
   cursor: pointer;
   font-size: 16px;
   line-height: 1;
-  transition: background 0.1s ease, border-color 0.1s ease;
+  transition: background 0.1s var(--ease-out-soft), border-color 0.1s var(--ease-out-soft);
 }
 .collab-wf-expand-zoom-btn:hover {
   background: var(--bg-tertiary, #f3f4f6);
@@ -28734,7 +28754,7 @@ html.dark .collab-wf-edge--active {
   box-shadow: 0 2px 8px rgba(15, 23, 42, 0.06);
   text-align: left;
   cursor: pointer;
-  transition: border-color 0.15s, box-shadow 0.15s;
+  transition: border-color var(--dur-fast), box-shadow var(--dur-fast);
   overflow: hidden;
 }
 
@@ -28787,7 +28807,7 @@ html.dark .collab-wf-edge--active {
   height: 100%;
   border-radius: inherit;
   background: linear-gradient(90deg, #3b82f6, #2563eb);
-  transition: width 0.25s ease;
+  transition: width var(--dur-base) var(--ease-out-soft);
 }
 
 /* 子任务节点进度缓冲动画：黄色→紫色渐变不断扫描 */
@@ -29601,7 +29621,7 @@ html.dark .session-notify-panel-title {
   cursor: pointer;
   padding: 2px 6px;
   border-radius: 4px;
-  transition: background 0.15s;
+  transition: background var(--dur-fast);
 }
 
 .session-notify-panel-action-btn:hover {
@@ -29634,7 +29654,7 @@ html.dark .session-notify-panel-action-btn:hover {
   gap: 10px;
   padding: 12px 16px;
   cursor: pointer;
-  transition: background 0.12s;
+  transition: background var(--dur-fast);
   border-bottom: 1px solid var(--border-color-soft, rgba(0, 0, 0, 0.04));
   position: relative;
 }
@@ -29781,7 +29801,7 @@ html.dark .session-notify-item-text {
   line-height: 1;
   cursor: pointer;
   white-space: nowrap;
-  transition: background 0.12s ease, color 0.12s ease;
+  transition: background var(--dur-fast) var(--ease-out-soft), color var(--dur-fast) var(--ease-out-soft);
 }
 
 .react-chat-usage-guide-btn:hover {
@@ -30329,7 +30349,7 @@ html.dark .react-chat-header-win-sep {
   margin-left: 4px;
   padding-top: 2px;
   opacity: 0;
-  transition: opacity 0.15s ease;
+  transition: opacity var(--dur-fast) var(--ease-out-soft);
   vertical-align: top;
   flex-shrink: 0;
   align-self: flex-start;
@@ -30355,7 +30375,7 @@ html.dark .react-chat-header-win-sep {
   line-height: 1;
   cursor: pointer;
   padding: 0;
-  transition: background 0.12s ease, color 0.12s ease;
+  transition: background var(--dur-fast) var(--ease-out-soft), color var(--dur-fast) var(--ease-out-soft);
 }
 
 .msg-action-btn:hover {
@@ -30579,7 +30599,7 @@ html.dark .tool-char-scan {
   color: var(--error, #ef4444);
   background: color-mix(in srgb, var(--error, #ef4444) 10%, transparent);
   cursor: pointer;
-  transition: background 120ms ease;
+  transition: background var(--dur-fast) var(--ease-out-soft);
 }
 
 .react-chat-recovery-banner--unavailable:hover {
@@ -30784,7 +30804,7 @@ html.dark .tool-char-scan {
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.15s ease;
+  transition: background var(--dur-fast) var(--ease-out-soft), color var(--dur-fast) var(--ease-out-soft), border-color var(--dur-fast) var(--ease-out-soft), box-shadow var(--dur-fast) var(--ease-out-soft), opacity var(--dur-fast) var(--ease-out-soft), transform var(--dur-fast) var(--ease-out-soft), filter var(--dur-fast) var(--ease-out-soft);
 }
 .meeting-close-btn:hover {
   background: #27272a;
@@ -30979,7 +30999,7 @@ html.dark .tool-char-scan {
   font-weight: 600;
   cursor: pointer;
   flex-shrink: 0;
-  transition: background 0.15s ease;
+  transition: background var(--dur-fast) var(--ease-out-soft);
 }
 .meeting-send-btn:hover:not(:disabled) {
   background: #4f46e5;
@@ -30995,7 +31015,7 @@ html.dark .tool-char-scan {
   inset: 0;
   z-index: 10000;
   background: rgba(0, 0, 0, 0.6);
-  backdrop-filter: blur(4px);
+  backdrop-filter: blur(var(--blur-xs));
   display: flex;
   align-items: center;
   justify-content: center;
@@ -31037,7 +31057,7 @@ html.dark .tool-char-scan {
   color: #71717a;
   font-size: 16px;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: background var(--dur-fast) var(--ease-out-soft), color var(--dur-fast) var(--ease-out-soft), border-color var(--dur-fast) var(--ease-out-soft), box-shadow var(--dur-fast) var(--ease-out-soft), opacity var(--dur-fast) var(--ease-out-soft), transform var(--dur-fast) var(--ease-out-soft), filter var(--dur-fast) var(--ease-out-soft);
 }
 .meeting-launcher-close:hover {
   background: #27272a;
@@ -31102,7 +31122,7 @@ html.dark .tool-char-scan {
   border: 1px solid #27272a;
   background: #18181b;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: background var(--dur-fast) var(--ease-out-soft), color var(--dur-fast) var(--ease-out-soft), border-color var(--dur-fast) var(--ease-out-soft), box-shadow var(--dur-fast) var(--ease-out-soft), opacity var(--dur-fast) var(--ease-out-soft), transform var(--dur-fast) var(--ease-out-soft), filter var(--dur-fast) var(--ease-out-soft);
 }
 .meeting-launcher-agent-card:hover {
   border-color: #3f3f46;
@@ -31154,7 +31174,7 @@ html.dark .tool-char-scan {
   font-size: 13px;
   color: transparent;
   flex-shrink: 0;
-  transition: all 0.15s ease;
+  transition: background var(--dur-fast) var(--ease-out-soft), color var(--dur-fast) var(--ease-out-soft), border-color var(--dur-fast) var(--ease-out-soft), box-shadow var(--dur-fast) var(--ease-out-soft), opacity var(--dur-fast) var(--ease-out-soft), transform var(--dur-fast) var(--ease-out-soft), filter var(--dur-fast) var(--ease-out-soft);
 }
 .meeting-launcher-check.checked {
   border-color: #6366f1;
@@ -31185,7 +31205,7 @@ html.dark .tool-char-scan {
   font-size: var(--ef-text-base) ;
   font-weight: 600;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: background var(--dur-fast) var(--ease-out-soft), color var(--dur-fast) var(--ease-out-soft), border-color var(--dur-fast) var(--ease-out-soft), box-shadow var(--dur-fast) var(--ease-out-soft), opacity var(--dur-fast) var(--ease-out-soft), transform var(--dur-fast) var(--ease-out-soft), filter var(--dur-fast) var(--ease-out-soft);
 }
 .meeting-launcher-btn-cancel {
   background: transparent;
@@ -31263,7 +31283,7 @@ html.evopanel-macos-titlebar .react-chat-header {
   color: #606779;
   background: transparent;
   box-shadow: none;
-  transition: background 0.15s ease, color 0.15s ease;
+  transition: background var(--dur-fast) var(--ease-out-soft), color var(--dur-fast) var(--ease-out-soft);
 }
 
 .react-chat-header-product-actions .react-chat-toggle-sidebar-btn svg {
@@ -31345,7 +31365,7 @@ html.evopanel-macos-titlebar .react-chat-header {
   max-width: 200px;
   vertical-align: middle;
   cursor: pointer;
-  transition: background 150ms ease;
+  transition: background var(--dur-fast) var(--ease-out-soft);
 }
 
 .react-chat-header-workspace:hover {
@@ -31366,8 +31386,8 @@ html.evopanel-macos-titlebar .react-chat-header {
 
 .react-chat-main-col--home .react-chat-header-product-actions {
   background: color-mix(in srgb, #fff 55%, transparent);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(var(--blur-sm));
+  -webkit-backdrop-filter: blur(var(--blur-sm));
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
 }
 
@@ -31439,8 +31459,8 @@ html[data-scifi-ui='1'][data-theme='dark'] .react-chat-header.react-chat-header-
     inset 0 1px 0 color-mix(in srgb, var(--accent) 55%, rgba(255, 255, 255, 0.20)),
     inset 0 2px 14px color-mix(in srgb, var(--accent) 22%, transparent),
     inset 0 -2px 10px color-mix(in srgb, var(--accent) 30%, transparent) !important;
-  backdrop-filter: blur(40px) saturate(260%) !important;
-  -webkit-backdrop-filter: blur(40px) saturate(260%) !important;
+  backdrop-filter: blur(var(--blur-xl)) saturate(260%) !important;
+  -webkit-backdrop-filter: blur(var(--blur-xl)) saturate(260%) !important;
   position: relative;
   z-index: 5;
 }
@@ -32015,7 +32035,7 @@ html.dark .react-chat-platform-feedback-details li,
   font-size: var(--ef-text-sm);
   line-height: 1.5;
   cursor: pointer;
-  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+  transition: background var(--dur-fast) var(--ease-out-soft), border-color var(--dur-fast) var(--ease-out-soft), color var(--dur-fast) var(--ease-out-soft);
 }
 
 .react-chat-inline-artifact-chip:hover {
@@ -32386,7 +32406,7 @@ html.dark .browser-step-group-header {
   margin-left: 4px;
   margin-right: 0;
   opacity: 0;
-  transition: transform 150ms ease, opacity 150ms ease;
+  transition: transform var(--dur-fast) var(--ease-out-soft), opacity var(--dur-fast) var(--ease-out-soft);
 }
 
 .react-chat-inline-reasoning-toggle:hover .react-chat-inline-reasoning-toggle-chevron-icon,
@@ -32423,20 +32443,20 @@ html.dark .browser-step-group-header {
 }
 
 .react-chat-inline-reasoning.is-expanded .react-chat-inline-reasoning-body:not(.is-closing) {
-  animation: evf-collapsible-down 200ms ease-out;
+  animation: evf-collapsible-down var(--dur-base) ease-out;
 }
 
 .react-chat-inline-reasoning-body.is-closing {
-  animation: evf-collapsible-up 180ms ease-in forwards;
+  animation: evf-collapsible-up var(--dur-base) ease-in forwards;
   overflow: hidden;
 }
 
 .react-msg-tool .msg-tool-item[data-state='open'] > .msg-tool-body {
-  animation: evf-collapsible-down 180ms ease-out;
+  animation: evf-collapsible-down var(--dur-base) ease-out;
 }
 
 .react-msg-tool .msg-tool-body.is-closing {
-  animation: evf-collapsible-up 180ms ease-in forwards;
+  animation: evf-collapsible-up var(--dur-base) ease-in forwards;
   overflow: hidden;
 }
 
@@ -32494,7 +32514,7 @@ html[data-theme='dark'] .react-chat-browser-panel .browser-panel-chrome {
   border-radius: 6px;
   border: 1px solid transparent;
   background: transparent;
-  transition: background-color 0.12s ease, border-color 0.12s ease;
+  transition: background-color var(--dur-fast) var(--ease-out-soft), border-color var(--dur-fast) var(--ease-out-soft);
 }
 .react-chat-browser-panel .browser-panel-url-bar:hover {
   background: var(--bg-hover, rgba(127, 127, 127, 0.08));
@@ -32522,7 +32542,7 @@ html[data-theme='dark'] .react-chat-browser-panel .browser-panel-chrome {
   background: transparent;
   color: var(--text-secondary, #6b7280);
   cursor: pointer;
-  transition: background-color 0.12s ease, color 0.12s ease;
+  transition: background-color var(--dur-fast) var(--ease-out-soft), color var(--dur-fast) var(--ease-out-soft);
 }
 .react-chat-browser-panel .browser-panel-url-refresh:hover:not(:disabled),
 .react-chat-browser-panel .browser-panel-chrome-close:hover,
@@ -32559,7 +32579,7 @@ html[data-theme='dark'] .react-chat-browser-panel .browser-panel-chrome {
   font-variant-numeric: tabular-nums;
   color: var(--text-primary);
   cursor: pointer;
-  transition: background-color 0.12s ease, border-color 0.12s ease;
+  transition: background-color var(--dur-fast) var(--ease-out-soft), border-color var(--dur-fast) var(--ease-out-soft);
 }
 .react-chat-browser-panel .browser-panel-zoom:hover {
   background: var(--bg-hover, rgba(127, 127, 127, 0.1));
@@ -32634,7 +32654,7 @@ html[data-theme='dark'] .react-chat-browser-panel .browser-panel-chrome {
 .react-chat-composer-toolbar .react-chat-icon-send-btn {
   border-radius: 50% !important;
   border: none !important;
-  transition: background-color 150ms ease, color 150ms ease, opacity 150ms ease !important;
+  transition: background-color var(--dur-fast) var(--ease-out-soft), color var(--dur-fast) var(--ease-out-soft), opacity var(--dur-fast) var(--ease-out-soft) !important;
 }
 
 .react-chat-composer-toolbar .react-chat-icon-send-btn:not(:disabled) {
@@ -32698,7 +32718,7 @@ html.dark .react-chat-composer-toolbar .react-chat-icon-stop-btn {
   color: var(--text-primary);
   text-align: center;
   outline: none;
-  transition: background-color 0.12s ease, border-color 0.12s ease;
+  transition: background-color var(--dur-fast) var(--ease-out-soft), border-color var(--dur-fast) var(--ease-out-soft);
 }
 .react-chat-browser-panel .browser-panel-viewport-dim:hover,
 .react-chat-browser-panel .browser-panel-viewport-dim:focus {
@@ -32748,7 +32768,7 @@ html[data-theme='dark'] .react-chat-browser-panel .browser-panel-viewport-dim:fo
 .msg-turn-history-fold-chevron {
   flex-shrink: 0;
   opacity: 0.7;
-  transition: transform 150ms ease;
+  transition: transform var(--dur-fast) var(--ease-out-soft);
 }
 
 .msg-turn-history-fold-chevron.is-open {
@@ -32777,12 +32797,12 @@ html[data-theme='dark'] .react-chat-browser-panel .browser-panel-viewport-dim:fo
 }
 
 .msg-turn-history-fold-body.is-closing {
-  animation: evf-collapsible-up 180ms ease-in forwards;
+  animation: evf-collapsible-up var(--dur-base) ease-in forwards;
   overflow: hidden;
 }
 
 .msg-turn-history-fold-body:not(.is-closing) {
-  animation: evf-collapsible-down 200ms ease-out;
+  animation: evf-collapsible-down var(--dur-base) ease-out;
 }
 
 /* 文件变更行：40px 行 + hover 底色 + 旋转箭头 + undo2 幽灵撤销按钮 */
@@ -32802,7 +32822,7 @@ html[data-theme='dark'] .react-chat-browser-panel .browser-panel-viewport-dim:fo
   height: 40px;
   padding: 0 8px;
   border-radius: 8px;
-  transition: background-color 150ms ease;
+  transition: background-color var(--dur-fast) var(--ease-out-soft);
 }
 
 .evf-changed-files-header:hover {
@@ -32836,7 +32856,7 @@ html[data-theme='dark'] .react-chat-browser-panel .browser-panel-viewport-dim:fo
   border: none;
   flex-shrink: 0;
   color: var(--text-tertiary, #9ca3af);
-  transition: transform 150ms ease;
+  transition: transform var(--dur-fast) var(--ease-out-soft);
 }
 
 .evf-changed-files-arrow.is-open {
@@ -32897,7 +32917,7 @@ html[data-theme='dark'] .react-chat-browser-panel .browser-panel-viewport-dim:fo
   background: transparent;
   color: var(--text-primary);
   cursor: pointer;
-  transition: background-color 0.12s ease, color 0.12s ease;
+  transition: background-color var(--dur-fast) var(--ease-out-soft), color var(--dur-fast) var(--ease-out-soft);
 }
 .react-chat-browser-panel .browser-panel-tb-btn:hover:not(:disabled) {
   background: var(--bg-hover, rgba(127, 127, 127, 0.1));
@@ -32924,7 +32944,7 @@ html[data-theme='dark'] .react-chat-browser-panel .browser-panel-viewport-dim:fo
   font-size: 12.5px;
   color: var(--text-primary);
   outline: none;
-  transition: border-color 0.12s ease, background-color 0.12s ease;
+  transition: border-color var(--dur-fast) var(--ease-out-soft), background-color var(--dur-fast) var(--ease-out-soft);
 }
 .react-chat-browser-panel .browser-panel-tb-url::placeholder { color: var(--text-secondary, #94a3b8); }
 .react-chat-browser-panel .browser-panel-tb-url:focus {
@@ -33050,10 +33070,10 @@ html[data-theme='dark'] .react-chat-browser-panel .browser-panel-viewport-dim:fo
   opacity: 0.58;
   transform-origin: left center;
   transition:
-    height 150ms ease-out,
-    opacity 150ms ease-out,
-    transform 150ms ease-out,
-    background-color 150ms ease-out;
+    height var(--dur-fast) ease-out,
+    opacity var(--dur-fast) ease-out,
+    transform var(--dur-fast) ease-out,
+    background-color var(--dur-fast) ease-out;
 }
 
 /* 悬停/聚焦放大：宽度上限 ≈ 16px，仍落在 --chat-column-gutter 留白内，不压到正文 */
@@ -33169,7 +33189,7 @@ html[data-theme='dark'] .react-chat-browser-panel .browser-panel-viewport-dim:fo
   overflow: hidden;
   white-space: pre-wrap;
   word-break: break-word;
-  transition: max-height 300ms ease-out;
+  transition: max-height var(--dur-panel) ease-out;
 }
 
 /* 折叠态渐隐遮罩 */
@@ -33210,11 +33230,11 @@ html[data-theme='dark'] .react-chat-browser-panel .browser-panel-viewport-dim:fo
   border: 1px solid var(--color-border, #e5e7eb);
   background: var(--color-surface, #ffffff);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1), 0 1px 2px rgba(0, 0, 0, 0.06);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(var(--blur-sm));
+  -webkit-backdrop-filter: blur(var(--blur-sm));
   cursor: pointer;
   color: var(--color-foreground-subtle, #6b7280);
-  transition: background-color 150ms ease, color 150ms ease;
+  transition: background-color var(--dur-fast) var(--ease-out-soft), color var(--dur-fast) var(--ease-out-soft);
 }
 
 .group\/user-row [data-v4-user-input-collapsible-toggle]:hover {
@@ -33248,7 +33268,7 @@ html[data-theme='dark'] .react-chat-browser-panel .browser-panel-viewport-dim:fo
   align-self: flex-end;
   margin-left: auto;
   opacity: 0;
-  transition: opacity 200ms ease;
+  transition: opacity var(--dur-base) var(--ease-out-soft);
   flex-shrink: 0;
 }
 
@@ -33273,7 +33293,7 @@ html[data-theme='dark'] .react-chat-browser-panel .browser-panel-viewport-dim:fo
   font-size: 14px;
   line-height: 1;
   cursor: pointer;
-  transition: background-color 150ms ease, color 150ms ease;
+  transition: background-color var(--dur-fast) var(--ease-out-soft), color var(--dur-fast) var(--ease-out-soft);
   flex-shrink: 0;
 }
 
@@ -33332,7 +33352,7 @@ html[data-theme='dark'] .react-chat-browser-panel .browser-panel-viewport-dim:fo
   line-height: 1.45;
   outline: none;
   box-shadow: none;
-  transition: border-color 150ms ease;
+  transition: border-color var(--dur-fast) var(--ease-out-soft);
 }
 
 .group\/user-row .msg-user-edit-textarea:focus {
@@ -33358,7 +33378,7 @@ html[data-theme='dark'] .react-chat-browser-panel .browser-panel-viewport-dim:fo
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
-  transition: background-color 150ms ease, opacity 150ms ease;
+  transition: background-color var(--dur-fast) var(--ease-out-soft), opacity var(--dur-fast) var(--ease-out-soft);
   line-height: 1.4;
 }
 
@@ -33651,7 +33671,7 @@ html[data-theme='dark'] .react-chat-browser-panel .browser-panel-toptabs {
   position: relative;
   white-space: nowrap;
   overflow: hidden;
-  transition: background-color 0.12s ease, color 0.12s ease;
+  transition: background-color var(--dur-fast) var(--ease-out-soft), color var(--dur-fast) var(--ease-out-soft);
 }
 .react-chat-browser-panel .browser-panel-toptab span {
   overflow: hidden;
@@ -34091,7 +34111,7 @@ html.dark .react-chat-stage-popover {
   font-size: 0.875rem;
   font-weight: 500;
   cursor: pointer;
-  transition: background-color 0.12s ease;
+  transition: background-color var(--dur-fast) var(--ease-out-soft);
 }
 .react-chat-stage-add-item {
   height: 2.25rem;
@@ -34331,7 +34351,7 @@ html.dark .react-chat-right-stage-body > .react-chat-knowledge-map-panel {
   white-space: nowrap;
   cursor: default;
   overflow: hidden;
-  transition: background-color 0.12s ease, color 0.12s ease;
+  transition: background-color var(--dur-fast) var(--ease-out-soft), color var(--dur-fast) var(--ease-out-soft);
 }
 .react-chat-stage-tab:hover { color: var(--text-primary, inherit); }
 .react-chat-stage-tabs-viewport .react-chat-stage-tab:only-of-type {
@@ -34436,7 +34456,7 @@ html[data-theme='dark'] .react-chat-stage-tab.is-active {
   cursor: pointer;
   opacity: 0;
   pointer-events: none;
-  transition: opacity 0.12s ease;
+  transition: opacity var(--dur-fast) var(--ease-out-soft);
 }
 .react-chat-stage-tab:hover .react-chat-stage-tab-close,
 .react-chat-stage-tab.is-active .react-chat-stage-tab-close {
@@ -34464,7 +34484,7 @@ html[data-theme='dark'] .react-chat-stage-tab.is-active {
   background: transparent;
   color: var(--text-secondary, #6b7280);
   cursor: pointer;
-  transition: background-color 0.12s ease, color 0.12s ease;
+  transition: background-color var(--dur-fast) var(--ease-out-soft), color var(--dur-fast) var(--ease-out-soft);
 }
 .react-chat-stage-tab-new:hover,
 .react-chat-stage-tab-collapse:hover {
@@ -34548,7 +34568,7 @@ html[data-theme='dark'] .react-chat-stage-tab.is-active {
   background: transparent;
   color: var(--text-primary, inherit);
   cursor: pointer;
-  transition: background-color 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+  transition: background-color var(--dur-fast) var(--ease-out-soft), color var(--dur-fast) var(--ease-out-soft), border-color var(--dur-fast) var(--ease-out-soft);
 }
 .react-chat-header-icon-btn:hover:not(:disabled) {
   background: var(--bg-hover, rgba(127, 127, 127, 0.12));
@@ -34643,7 +34663,7 @@ html[data-theme='dark'] .react-chat-stage-tab.is-active {
   align-self: center;
   border-radius: 8px;
   color: var(--text-primary, inherit);
-  transition: background-color 0.12s ease, color 0.12s ease;
+  transition: background-color var(--dur-fast) var(--ease-out-soft), color var(--dur-fast) var(--ease-out-soft);
 }
 .ep-window-controls-btn:hover { background: var(--bg-hover, rgba(127, 127, 127, 0.12)); }
 .ep-window-controls-btn--close:hover {
@@ -34694,7 +34714,7 @@ html[data-theme='dark'] .react-chat-stage-tab.is-active {
   text-align: left;
   cursor: pointer;
   outline: none;
-  transition: background-color 120ms ease-out, color 120ms ease-out;
+  transition: background-color var(--dur-fast) ease-out, color var(--dur-fast) ease-out;
 }
 
 .react-chat-session-ws-group-header:hover {
@@ -34735,7 +34755,7 @@ html[data-theme='dark'] .react-chat-stage-tab.is-active {
   font-size: 12px;
   font-weight: 600;
   color: var(--shell-text-muted, #6b7280);
-  transition: transform 150ms ease-out;
+  transition: transform var(--dur-fast) ease-out;
   flex-shrink: 0;
   margin-left: auto;
 }

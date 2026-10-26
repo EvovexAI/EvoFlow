@@ -160,7 +160,7 @@ body :is(.msg-ai .msg-bubble, .msg-turn-assistant-content, .msg-text, .markdown-
   color: #9aa3b5 !important;
   cursor: pointer !important;
   opacity: 1 !important;
-  transition: background-color 0.15s ease, color 0.15s ease !important;
+  transition: background-color var(--dur-fast) var(--ease-out-soft), color var(--dur-fast) var(--ease-out-soft) !important;
 }
 
 [data-streamdown='code-block-actions'] button:hover {
@@ -304,11 +304,11 @@ body :is(.msg-ai .msg-bubble, .msg-turn-assistant-content, .msg-text, .markdown-
   );
   border: 1px solid var(--md-table-border);
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06), 0 4px 12px rgba(15, 23, 42, 0.06);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(var(--blur-sm));
+  -webkit-backdrop-filter: blur(var(--blur-sm));
   opacity: 0;
   pointer-events: none;
-  transition: opacity 0.15s ease;
+  transition: opacity var(--dur-fast) var(--ease-out-soft);
 }
 
 .msg-md-table:hover .msg-md-table-actions,
@@ -334,7 +334,7 @@ body :is(.msg-ai .msg-bubble, .msg-turn-assistant-content, .msg-text, .markdown-
   border: 1px solid transparent;
   border-radius: 7px;
   cursor: pointer;
-  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+  transition: background-color var(--dur-fast) var(--ease-out-soft), color var(--dur-fast) var(--ease-out-soft), border-color var(--dur-fast) var(--ease-out-soft);
   user-select: none;
 }
 
@@ -439,7 +439,7 @@ body :is(.msg-ai .msg-bubble, .msg-turn-assistant-content, .msg-text, .markdown-
   align-items: center;
   justify-content: center;
   background: rgba(15, 17, 24, 0.52);
-  backdrop-filter: blur(4px);
+  backdrop-filter: blur(var(--blur-xs));
 }
 
 .msg-md-table-modal-panel {
@@ -479,7 +479,7 @@ body :is(.msg-ai .msg-bubble, .msg-turn-assistant-content, .msg-text, .markdown-
   border: 1px solid var(--md-table-border, var(--border-primary, #e6e8ec));
   border-radius: 8px;
   cursor: pointer;
-  transition: background-color 0.15s ease;
+  transition: background-color var(--dur-fast) var(--ease-out-soft);
 }
 
 .msg-md-table-modal-toolbar button:hover {
@@ -567,7 +567,7 @@ body :is(.msg-ai .msg-bubble, .msg-turn-assistant-content, .msg-text, .markdown-
   border-radius: 6px;
   background: rgba(0, 0, 0, 0.18);
   opacity: 0;
-  transition: opacity 0.15s ease;
+  transition: opacity var(--dur-fast) var(--ease-out-soft);
 }
 
 .msg-md-code:hover .msg-md-code-actions,
@@ -607,7 +607,7 @@ body :is(.msg-ai .msg-bubble, .msg-turn-assistant-content, .msg-text, .markdown-
   align-items: center;
   justify-content: center;
   background: rgba(15, 17, 24, 0.55);
-  backdrop-filter: blur(2px);
+  backdrop-filter: blur(var(--blur-xs));
 }
 
 .msg-md-code-modal-panel {
@@ -698,7 +698,7 @@ body :is(.msg-ai .msg-bubble, .msg-turn-assistant-content, .msg-text, .markdown-
   align-items: center;
   justify-content: center;
   background: rgba(15, 17, 24, 0.55);
-  backdrop-filter: blur(2px);
+  backdrop-filter: blur(var(--blur-xs));
 }
 
 .msg-md-mermaid-modal-panel {

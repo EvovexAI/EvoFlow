@@ -690,8 +690,8 @@ html[data-translucent-ui='1']:not([data-liquid-glass='1']) .react-chat-task-side
 html[data-custom-bg='1']:not([data-liquid-glass='1']) .react-chat-task-sidebar {
   background: color-mix(in srgb, var(--bg-secondary) 22%, transparent) !important;
   border-color: color-mix(in srgb, var(--border-primary) 42%, transparent) !important;
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(var(--blur-sm));
+  -webkit-backdrop-filter: blur(var(--blur-sm));
   box-shadow: none !important;
 }
 
@@ -731,8 +731,8 @@ html[data-custom-bg='1']:not([data-liquid-glass='1']) .wf-drawer.wf-drawer--conf
 html[data-custom-bg='1']:not([data-liquid-glass='1']) .wf-status-bar {
   background: color-mix(in srgb, var(--bg-secondary) 24%, transparent) !important;
   border-color: color-mix(in srgb, var(--border-primary) 40%, transparent) !important;
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(var(--blur-sm));
+  -webkit-backdrop-filter: blur(var(--blur-sm));
   box-shadow: none !important;
 }
 
@@ -740,8 +740,8 @@ html[data-translucent-ui='1']:not([data-liquid-glass='1']) .wf-studio-toolbar,
 html[data-custom-bg='1']:not([data-liquid-glass='1']) .wf-studio-toolbar {
   background: color-mix(in srgb, var(--bg-card) 28%, transparent) !important;
   border-color: color-mix(in srgb, var(--border-primary) 40%, transparent) !important;
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(var(--blur-md));
+  -webkit-backdrop-filter: blur(var(--blur-md));
 }
 
 html[data-translucent-ui='1']:not([data-liquid-glass='1']) .wf-node-card,
@@ -759,8 +759,8 @@ html[data-custom-bg='1']:not([data-liquid-glass='1']) .wf-inspector-control,
 html[data-custom-bg='1']:not([data-liquid-glass='1']) .wf-palette-row {
   background: color-mix(in srgb, var(--bg-card) 26%, transparent) !important;
   border-color: color-mix(in srgb, var(--border-primary) 42%, transparent) !important;
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(var(--blur-sm));
+  -webkit-backdrop-filter: blur(var(--blur-sm));
   box-shadow: none !important;
 }
 
@@ -796,8 +796,8 @@ html[data-custom-bg='1']:not([data-liquid-glass='1']) .ef-side-drawer-root {
 
 html[data-translucent-ui='1']:not([data-liquid-glass='1']) .ef-side-drawer,
 html[data-custom-bg='1']:not([data-liquid-glass='1']) .ef-side-drawer {
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(var(--blur-md));
+  -webkit-backdrop-filter: blur(var(--blur-md));
   border-left-color: color-mix(in srgb, var(--border-primary) 42%, transparent) !important;
   box-shadow: none !important;
 }
@@ -1159,7 +1159,7 @@ html:not([data-translucent-ui='1']) body .react-chat-aside-primary::-webkit-scro
 html:not([data-translucent-ui='1']) body .react-chat-session-list::-webkit-scrollbar,
 html:not([data-translucent-ui='1']) body #shell-chat-panel::-webkit-scrollbar,
 html:not([data-translucent-ui='1']) body .shell-aside-recent::-webkit-scrollbar {
-  width: 2px !important;
+  width: var(--sb-size-lg) !important;
 }
 
 html:not([data-translucent-ui='1']) body .react-chat-aside-primary:hover::-webkit-scrollbar-thumb,

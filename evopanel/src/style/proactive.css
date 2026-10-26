@@ -49,7 +49,7 @@
   border: 1px solid var(--pro-slate-line);
   border-radius: var(--radius-lg, 12px);
   border-left: 3px solid var(--text-tertiary);
-  transition: border-color 0.2s, background 0.2s;
+  transition: border-color var(--dur-base), background var(--dur-base);
 }
 
 .pro-duty-card--on {
@@ -220,7 +220,7 @@
   border-radius: 50%;
   flex-shrink: 0;
   background: var(--text-tertiary);
-  transition: background 0.3s, box-shadow 0.3s;
+  transition: background var(--dur-panel), box-shadow var(--dur-panel);
 }
 
 .pro-switch-dot--on {
@@ -324,7 +324,7 @@
   color: var(--text-tertiary);
   border-radius: 8px;
   white-space: nowrap;
-  transition: color 0.15s, background 0.15s;
+  transition: color var(--dur-fast), background var(--dur-fast);
 }
 
 .pro-tab:hover {
@@ -408,7 +408,7 @@
   background: var(--bg-secondary);
   border: 1px solid var(--pro-slate-line);
   border-radius: var(--radius-lg, 12px);
-  transition: border-color 0.15s, transform 0.15s;
+  transition: border-color var(--dur-fast), transform var(--dur-fast);
   cursor: pointer;
   overflow: hidden;
   /* Allow open ⋯ menu to stack above later sibling cards (backdrop-filter / opacity). */
@@ -1125,7 +1125,7 @@ html.evopanel-macos-titlebar .pro-employee-page--nav-in-chrome {
   border-right: 1.5px solid var(--text-tertiary, #94a3b8);
   border-bottom: 1.5px solid var(--text-tertiary, #94a3b8);
   transform: rotate(-45deg);
-  transition: transform 0.15s ease;
+  transition: transform var(--dur-fast) var(--ease-out-soft);
   margin-left: 4px;
 }
 .pro-duty-fold[open] > .pro-duty-fold-sum .pro-duty-fold-chev {
@@ -1469,7 +1469,7 @@ html.evopanel-macos-titlebar .pro-employee-page--nav-in-chrome {
   background: var(--bg-secondary);
   text-align: left;
   cursor: pointer;
-  transition: border-color 0.15s, transform 0.15s;
+  transition: border-color var(--dur-fast), transform var(--dur-fast);
 }
 .pro-item-card:hover {
   border-color: color-mix(in srgb, var(--pro-teal) 50%, var(--pro-slate-line));
@@ -1598,7 +1598,7 @@ html.evopanel-macos-titlebar .pro-employee-page--nav-in-chrome {
   height: 100%;
   border-radius: 999px;
   background: var(--accent, #2563eb);
-  transition: width 0.35s ease;
+  transition: width var(--dur-panel) var(--ease-out-soft);
 }
 
 .pro-item-progress-meta {
@@ -1829,7 +1829,7 @@ html.evopanel-macos-titlebar .pro-employee-page--nav-in-chrome {
   background: var(--pro-teal-soft);
   text-align: left;
   cursor: pointer;
-  transition: border-color 0.15s, transform 0.15s;
+  transition: border-color var(--dur-fast), transform var(--dur-fast);
   overflow: hidden;
 }
 .pro-work-summary:hover {
@@ -1892,7 +1892,7 @@ html.evopanel-macos-titlebar .pro-employee-page--nav-in-chrome {
   height: 100%;
   border-radius: 2px;
   background: var(--success, #22c55e);
-  transition: width 0.3s ease;
+  transition: width var(--dur-panel) var(--ease-out-soft);
 }
 .pro-role-task-pct {
   margin-top: 2px;
@@ -1923,7 +1923,7 @@ html.evopanel-macos-titlebar .pro-employee-page--nav-in-chrome {
   background: var(--bg-primary, #fff);
   text-align: left;
   cursor: pointer;
-  transition: border-color 0.15s, background 0.15s;
+  transition: border-color var(--dur-fast), background var(--dur-fast);
 }
 .pro-role-task-item:hover {
   border-color: color-mix(in srgb, var(--pro-teal) 45%, var(--pro-slate-line));
@@ -2627,7 +2627,7 @@ html.evopanel-macos-titlebar .pro-employee-page--nav-in-chrome {
   gap: 12px;
   padding: 0 0 16px 0;
   position: relative;
-  transition: background 0.15s;
+  transition: background var(--dur-fast);
 }
 
 .pro-timeline-item:hover {
@@ -2725,7 +2725,7 @@ html.evopanel-macos-titlebar .pro-employee-page--nav-in-chrome {
   margin-top: 12px;
   padding-top: 12px;
   border-top: 1px solid var(--pro-slate-line);
-  animation: pro-slide-down 0.2s ease-out;
+  animation: pro-slide-down var(--dur-base) ease-out;
 }
 
 @keyframes pro-slide-down {
@@ -3580,7 +3580,7 @@ html.evopanel-macos-titlebar .pro-employee-page--nav-in-chrome {
   background: var(--bg-primary, #fff);
   text-align: left;
   cursor: pointer;
-  transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
+  transition: border-color var(--dur-fast), background var(--dur-fast), box-shadow var(--dur-fast);
 }
 .pro-kanban-card-wrap {
   position: relative;
@@ -3607,7 +3607,7 @@ html.evopanel-macos-titlebar .pro-employee-page--nav-in-chrome {
   border: 1px solid color-mix(in srgb, var(--danger, #ef4444) 35%, transparent);
   border-radius: 5px;
   cursor: pointer;
-  transition: opacity 0.15s, background 0.15s;
+  transition: opacity var(--dur-fast), background var(--dur-fast);
 }
 .pro-kanban-card-del:hover {
   background: color-mix(in srgb, var(--danger, #ef4444) 12%, var(--bg-primary, #fff));
@@ -4303,7 +4303,7 @@ html.evopanel-macos-titlebar .pro-employee-page--nav-in-chrome {
   border-right: 1.5px solid currentColor;
   border-bottom: 1.5px solid currentColor;
   transform: rotate(-45deg) translate(-0.5px, -0.5px);
-  transition: transform 0.12s ease;
+  transition: transform var(--dur-fast) var(--ease-out-soft);
 }
 .dd-org-twist.is-open .dd-org-twist-icon {
   transform: rotate(45deg) translate(-0.5px, -0.5px);
@@ -4921,7 +4921,7 @@ html.evopanel-macos-titlebar .pro-employee-page--nav-in-chrome {
   border: 1px solid var(--border, #e0e0e0);
   background: var(--surface, #fff);
   cursor: pointer;
-  transition: background 0.15s, border-color 0.15s;
+  transition: background var(--dur-fast), border-color var(--dur-fast);
 }
 .hire-inject-toggles .hire-toggle:hover {
   border-color: var(--primary, #6366f1);
@@ -4951,8 +4951,8 @@ html.evopanel-macos-titlebar .pro-employee-page--nav-in-chrome {
   inset: 0;
   z-index: 100;
   background: rgba(30, 27, 75, 0.34);
-  backdrop-filter: blur(2px);
-  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(var(--blur-xs));
+  -webkit-backdrop-filter: blur(var(--blur-xs));
 }
 .pro-wp-overlay--drawer {
   display: flex;
@@ -4994,7 +4994,7 @@ html.evopanel-macos-titlebar .pro-employee-page--nav-in-chrome {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  animation: pro-wp-drawer-in 180ms ease-out;
+  animation: pro-wp-drawer-in var(--dur-base) ease-out;
   color: var(--ef-d-ink);
 }
 .pro-wp-drawer::before {
@@ -5910,7 +5910,7 @@ html.evopanel-macos-titlebar .pro-employee-page--nav-in-chrome {
   border-radius: 12px;
   background: var(--bg-primary);
   border: 1px solid var(--pro-slate-line);
-  transition: border-color 0.2s, transform 0.15s;
+  transition: border-color var(--dur-base), transform var(--dur-fast);
 }
 .pro-onboard-step:hover {
   border-color: color-mix(in srgb, var(--pro-teal) 40%, var(--pro-slate-line));
@@ -5963,7 +5963,7 @@ html.evopanel-macos-titlebar .pro-employee-page--nav-in-chrome {
   color: #fff;
   border: none;
   box-shadow: 0 2px 8px color-mix(in srgb, var(--accent, #2563eb) 30%, transparent);
-  transition: transform 0.15s, box-shadow 0.2s;
+  transition: transform var(--dur-fast), box-shadow var(--dur-base);
 }
 .pro-dispatch-btn:hover {
   transform: translateY(-1px);
@@ -6008,7 +6008,7 @@ html.evopanel-macos-titlebar .pro-employee-page--nav-in-chrome {
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
-  transition: opacity 0.18s, transform 0.18s, visibility 0.18s;
+  transition: opacity var(--dur-base), transform var(--dur-base), visibility var(--dur-base);
   z-index: 50;
 }
 
@@ -6022,7 +6022,7 @@ html.evopanel-macos-titlebar .pro-employee-page--nav-in-chrome {
   border-top-color: var(--bg-primary);
   opacity: 0;
   visibility: hidden;
-  transition: opacity 0.18s, visibility 0.18s;
+  transition: opacity var(--dur-base), visibility var(--dur-base);
   z-index: 51;
   filter: drop-shadow(0 1px 0 var(--pro-slate-line));
 }
@@ -6061,7 +6061,7 @@ html.evopanel-macos-titlebar .pro-employee-page--nav-in-chrome {
   font-weight: 550;
   color: var(--text-secondary);
   cursor: pointer;
-  transition: all 0.15s;
+  transition: background var(--dur-fast), color var(--dur-fast), border-color var(--dur-fast), box-shadow var(--dur-fast), opacity var(--dur-fast), transform var(--dur-fast), filter var(--dur-fast);
   white-space: nowrap;
 }
 
@@ -6085,7 +6085,7 @@ html.evopanel-macos-titlebar .pro-employee-page--nav-in-chrome {
   border-radius: 12px;
   background: var(--bg-secondary);
   overflow: hidden;
-  transition: border-color 0.2s;
+  transition: border-color var(--dur-base);
 }
 [data-theme="dark"] .pro-config-fold {
   background: var(--bg-secondary);
@@ -6104,7 +6104,7 @@ html.evopanel-macos-titlebar .pro-employee-page--nav-in-chrome {
   cursor: pointer;
   list-style: none;
   user-select: none;
-  transition: background 0.15s;
+  transition: background var(--dur-fast);
 }
 .pro-config-fold__sum::-webkit-details-marker { display: none; }
 .pro-config-fold__sum:hover {

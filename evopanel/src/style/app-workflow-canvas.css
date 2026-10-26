@@ -636,7 +636,7 @@
   background: none;
   color: var(--text-tertiary);
   cursor: pointer;
-  transition: background 0.15s, color 0.15s;
+  transition: background var(--dur-fast), color var(--dur-fast);
 }
 
 .wf-binding-remove:hover {
@@ -755,7 +755,7 @@
   color: var(--text-secondary);
   font-size: var(--ef-text-sm) ;
   cursor: pointer;
-  transition: color 0.15s, border-color 0.15s;
+  transition: color var(--dur-fast), border-color var(--dur-fast);
 }
 
 .wf-debug-tab:hover:not(:disabled) {
@@ -796,7 +796,7 @@
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
-  transition: opacity 0.15s;
+  transition: opacity var(--dur-fast);
 }
 
 .wf-debug-run-btn:hover:not(:disabled) {
@@ -1243,7 +1243,7 @@
   color: inherit;
   text-align: left;
   cursor: pointer;
-  transition: background 0.12s ease;
+  transition: background var(--dur-fast) var(--ease-out-soft);
 }
 
 .wf-node-agent-hit:hover {
@@ -1269,7 +1269,7 @@
   color: inherit;
   cursor: pointer;
   line-height: 0;
-  transition: box-shadow 0.12s ease, outline 0.12s ease;
+  transition: box-shadow var(--dur-fast) var(--ease-out-soft), outline var(--dur-fast) var(--ease-out-soft);
 }
 
 .wf-node-agent-avatar-hit:hover {
@@ -1295,7 +1295,7 @@
   color: var(--text-tertiary);
   cursor: pointer;
   opacity: 0.55;
-  transition: background 0.12s ease, color 0.12s ease, opacity 0.12s ease;
+  transition: background var(--dur-fast) var(--ease-out-soft), color var(--dur-fast) var(--ease-out-soft), opacity var(--dur-fast) var(--ease-out-soft);
 }
 
 .wf-node:hover .wf-node-close,
@@ -1324,7 +1324,7 @@
   pointer-events: all;
   opacity: 0;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-  transition: opacity 0.12s ease, background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+  transition: opacity var(--dur-fast) var(--ease-out-soft), background var(--dur-fast) var(--ease-out-soft), color var(--dur-fast) var(--ease-out-soft), border-color var(--dur-fast) var(--ease-out-soft);
 }
 
 /* EdgeLabelRenderer ?? edge DOM ?????? .is-visible???? .react-flow__edge:hover */
@@ -1640,8 +1640,8 @@
   padding: 0 14px 0 8px;
   border-bottom: 1px solid color-mix(in srgb, var(--border-primary) 70%, transparent);
   background: color-mix(in srgb, var(--bg-card) 82%, transparent);
-  backdrop-filter: saturate(1.4) blur(16px);
-  -webkit-backdrop-filter: saturate(1.4) blur(16px);
+  backdrop-filter: saturate(1.4) blur(var(--blur-lg));
+  -webkit-backdrop-filter: saturate(1.4) blur(var(--blur-lg));
   z-index: 4;
   font-family:
     -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI',
@@ -1677,7 +1677,7 @@
   color: var(--accent, var(--primary));
   cursor: pointer;
   flex-shrink: 0;
-  transition: background 0.15s ease;
+  transition: background var(--dur-fast) var(--ease-out-soft);
 }
 
 .wf-toolbar-back:hover {
@@ -1710,7 +1710,7 @@
   background: transparent;
   color: var(--text-secondary);
   cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease;
+  transition: background var(--dur-fast) var(--ease-out-soft), color var(--dur-fast) var(--ease-out-soft);
 }
 
 .wf-toolbar-icon-btn:hover {
@@ -1874,7 +1874,7 @@
   font-weight: 650;
   letter-spacing: -0.01em;
   cursor: pointer;
-  transition: opacity 0.12s ease, transform 0.12s ease, background 0.12s ease;
+  transition: opacity var(--dur-fast) var(--ease-out-soft), transform var(--dur-fast) var(--ease-out-soft), background var(--dur-fast) var(--ease-out-soft);
 }
 
 .wf-toolbar-action:disabled {
@@ -1931,7 +1931,7 @@
   border-right: 1px solid var(--border-primary);
   display: flex;
   flex-direction: column;
-  transition: width 0.22s ease;
+  transition: width var(--dur-base) var(--ease-out-soft);
 }
 
 .wf-drawer.is-open {
@@ -2086,7 +2086,7 @@
   flex-direction: column;
   background: color-mix(in srgb, var(--bg-card) 96%, var(--bg-page));
   border-left: 1px solid transparent;
-  transition: width 0.22s ease, border-color 0.22s ease;
+  transition: width var(--dur-base) var(--ease-out-soft), border-color var(--dur-base) var(--ease-out-soft);
 }
 
 .wf-right-rail.is-open {
@@ -2966,7 +2966,7 @@
   color: var(--text-primary);
   text-align: left;
   cursor: pointer;
-  transition: background 0.12s ease, border-color 0.12s ease;
+  transition: background var(--dur-fast) var(--ease-out-soft), border-color var(--dur-fast) var(--ease-out-soft);
 }
 
 .wf-agent-picker-item:hover {
@@ -4234,7 +4234,7 @@ body:has(.app-wf-canvas-host) .react-chat-skill-modal-list {
   background: var(--bg-card);
   color: var(--text-primary);
   box-shadow: 0 18px 48px color-mix(in srgb, var(--text-primary) 16%, transparent);
-  animation: wf-debug-dock-in 0.2s ease-out;
+  animation: wf-debug-dock-in var(--dur-base) ease-out;
   font-family: var(--font-sans, inherit);
   overflow: hidden;
 }
@@ -4262,7 +4262,7 @@ body:has(.app-wf-canvas-host) .react-chat-skill-modal-list {
   border-radius: 999px;
   background: color-mix(in srgb, var(--text-tertiary) 35%, transparent);
   opacity: 0;
-  transition: opacity 0.15s ease;
+  transition: opacity var(--dur-fast) var(--ease-out-soft);
 }
 
 .wf-debug-dock-resize:hover::after,
@@ -4433,7 +4433,7 @@ body:has(.app-wf-canvas-host) .react-chat-skill-modal-list {
   width: 0;
   border-radius: inherit;
   background: var(--accent);
-  transition: width 0.35s ease;
+  transition: width var(--dur-panel) var(--ease-out-soft);
 }
 
 .wf-debug-dock.is-done .wf-debug-dock-track i { background: var(--success, #16a34a); }
@@ -4457,7 +4457,7 @@ body:has(.app-wf-canvas-host) .react-chat-skill-modal-list {
   font-size: var(--ef-text-sm) ;
   font-weight: 500;
   cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease;
+  transition: background var(--dur-fast) var(--ease-out-soft), color var(--dur-fast) var(--ease-out-soft);
 }
 
 .wf-debug-dock-btn:hover {
@@ -4534,7 +4534,7 @@ body:has(.app-wf-canvas-host) .react-chat-skill-modal-list {
   color: var(--text-primary);
   text-align: left;
   cursor: pointer;
-  transition: background 0.15s ease, border-color 0.15s ease;
+  transition: background var(--dur-fast) var(--ease-out-soft), border-color var(--dur-fast) var(--ease-out-soft);
 }
 
 .wf-debug-flow-indent {
@@ -5158,8 +5158,8 @@ body:has(.app-wf-canvas-host) .react-chat-skill-modal-list {
   border-radius: 999px;
   background: color-mix(in srgb, var(--bg-secondary, #fff) 92%, transparent);
   box-shadow: 0 8px 28px rgba(0, 0, 0, 0.12);
-  backdrop-filter: blur(10px);
-  animation: wf-run-chip-in 0.2s ease-out;
+  backdrop-filter: blur(var(--blur-md));
+  animation: wf-run-chip-in var(--dur-base) ease-out;
 }
 
 @keyframes wf-run-chip-in {
@@ -5212,7 +5212,7 @@ body:has(.app-wf-canvas-host) .react-chat-skill-modal-list {
   width: 0;
   border-radius: inherit;
   background: var(--accent);
-  transition: width 0.35s ease;
+  transition: width var(--dur-panel) var(--ease-out-soft);
 }
 
 .wf-run-chip-btn {
@@ -5456,8 +5456,8 @@ body:has(.app-wf-canvas-host) .react-chat-skill-modal-list {
   animation: wf-debug-dot 1s ease-in-out infinite;
 }
 
-.wf-debug-live-dots i:nth-child(2) { animation-delay: 0.15s; }
-.wf-debug-live-dots i:nth-child(3) { animation-delay: 0.3s; }
+.wf-debug-live-dots i:nth-child(2) { animation-delay: var(--dur-fast); }
+.wf-debug-live-dots i:nth-child(3) { animation-delay: var(--dur-panel); }
 
 @keyframes wf-debug-dot {
   0%, 80%, 100% { opacity: 0.25; transform: translateY(0); }
@@ -5589,7 +5589,7 @@ body:has(.app-wf-canvas-host) .react-chat-skill-modal-list {
   width: 100%;
   text-align: left;
   cursor: grab;
-  transition: background 0.15s ease, border-color 0.15s ease;
+  transition: background var(--dur-fast) var(--ease-out-soft), border-color var(--dur-fast) var(--ease-out-soft);
 }
 
 .wf-drawer-lib-row:hover {
@@ -5623,7 +5623,7 @@ body:has(.app-wf-canvas-host) .react-chat-skill-modal-list {
   background: color-mix(in srgb, var(--wf-select) 10%, transparent);
   color: var(--wf-select);
   flex-shrink: 0;
-  transition: opacity 0.15s ease;
+  transition: opacity var(--dur-fast) var(--ease-out-soft);
 }
 
 .wf-drawer-lib-row:hover .wf-drawer-lib-add {
@@ -5862,7 +5862,7 @@ body:has(.app-wf-canvas-host) .react-chat-skill-modal-list {
   height: 12px !important;
   border-width: 2px !important;
   opacity: 0.72;
-  transition: opacity 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease !important;
+  transition: opacity var(--dur-fast) var(--ease-out-soft), transform var(--dur-fast) var(--ease-out-soft), box-shadow var(--dur-fast) var(--ease-out-soft) !important;
 }
 
 .wf-handle--in {
@@ -5997,7 +5997,7 @@ body:has(.app-wf-canvas-host) .react-chat-skill-modal-list {
   border: 1px solid var(--border-primary);
   border-radius: 12px;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: background var(--dur-fast) var(--ease-out-soft), color var(--dur-fast) var(--ease-out-soft), border-color var(--dur-fast) var(--ease-out-soft), box-shadow var(--dur-fast) var(--ease-out-soft), opacity var(--dur-fast) var(--ease-out-soft), transform var(--dur-fast) var(--ease-out-soft), filter var(--dur-fast) var(--ease-out-soft);
   text-align: left;
   font: inherit;
   color: inherit;
