@@ -139,7 +139,11 @@ _market_catalog_cache: dict[str, Any] | None = None
 """上次成功拉取的市场目录。外网 GitHub 不可达时兜底返回（stale-while-error），
 避免资源中心/插件市场每次打开都干等外网超时。"""
 
+_market_catalog_failed_until: float = 0.0
+"""负缓存：外网连续不可达时，5 分钟内直接返回空目录，不再每次干等超时。"""
+
 _MARKET_CATALOG_TIMEOUT_S = 8
+_MARKET_CATALOG_FAILURE_TTL_S = 300
 
 
 @router.get("/market/catalog")
@@ -147,6 +151,7 @@ async def api_market_catalog() -> dict[str, Any]:
     """Return GitHub catalog.json (default public market; optional non-empty URL override)."""
     import asyncio
     import json
+    import time
     import urllib.request
 
     from evoflow.organizations.fetch import market_catalog_url
@@ -163,6 +168,18 @@ async def api_market_catalog() -> dict[str, Any]:
     if not url:
         return empty
 
+    # 两个模块级缓存都在本函数读写；global 声明必须先于首次使用
+    # （负缓存分支在下方 try 之前就读 _market_catalog_cache）。
+    global _market_catalog_cache, _market_catalog_failed_until
+    now = time.monotonic()
+    if now < _market_catalog_failed_until:
+        # 外网刚失败过：立即返回（优先上次成功目录，否则空目录），不等超时
+        if _market_catalog_cache:
+            stale = dict(_market_catalog_cache)
+            stale["stale"] = True
+            return stale
+        return empty
+
     def _fetch_catalog() -> dict[str, Any]:
         with urllib.request.urlopen(url, timeout=_MARKET_CATALOG_TIMEOUT_S) as resp:  # noqa: S310 — operator-configured URL
             raw = resp.read().decode("utf-8", errors="replace")
@@ -176,12 +193,13 @@ async def api_market_catalog() -> dict[str, Any]:
             data["packs"] = []
         return data
 
-    global _market_catalog_cache
     try:
         data = await asyncio.to_thread(_fetch_catalog)
         _market_catalog_cache = data
+        _market_catalog_failed_until = 0.0
         return data
     except Exception as e:
+        _market_catalog_failed_until = time.monotonic() + _MARKET_CATALOG_FAILURE_TTL_S
         # 外网超时/失败：立即回退最近一次成功目录，页面照常打开
         if _market_catalog_cache:
             stale = dict(_market_catalog_cache)
