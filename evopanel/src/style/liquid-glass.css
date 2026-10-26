@@ -71,29 +71,14 @@ html[data-translucent-ui='1'] #app {
   background: transparent;
 }
 
-html[data-translucent-ui='1'] #main-col,
-html[data-translucent-ui='1'] #content,
-html[data-translucent-ui='1'] #chat-persistent-host,
-html[data-translucent-ui='1'] #react-chat-root,
-html[data-translucent-ui='1'] .chat-react-full,
-html[data-translucent-ui='1'] .react-chat-workspace,
-html[data-translucent-ui='1'] .react-chat-workspace--no-aside,
-html[data-translucent-ui='1'] .react-chat-main-col,
-html[data-translucent-ui='1'] .react-chat-main-body,
-html[data-translucent-ui='1'] .react-chat-messages-wrap,
-html[data-translucent-ui='1'] .react-chat-root {
-  background: transparent !important;
-  background-image: none !important;
-}
+/* [已收编 → theme-regions.css] 区域根背景透明规则（#main-col / #content /
+   #chat-persistent-host / #react-chat-root / .chat-react-full / .react-chat-workspace(--no-aside) /
+   .react-chat-main-col / .react-chat-main-body / .react-chat-conversation-frame(.is-rounded) /
+   .react-chat-messages-wrap / .react-chat-root）已统一收敛到区域接管层，此处删除以免双源。
+   如需调整请改 theme-regions.css。 */
 
 /* ???????????????????? */
-html[data-translucent-ui='1'] .tauri-main-chrome {
-  background: var(--ef-glass-surface) !important;
-  backdrop-filter: blur(var(--ef-glass-blur)) saturate(var(--ef-glass-saturate));
-  -webkit-backdrop-filter: blur(var(--ef-glass-blur)) saturate(var(--ef-glass-saturate));
-  border-bottom: 1px solid var(--ef-glass-border) !important;
-  box-shadow: none !important;
-}
+/* [已收编 → theme-regions.css：chrome 玻璃块] 原 .tauri-main-chrome 玻璃配方已迁至区域接管层 */
 
 html[data-translucent-ui='1'] .tauri-chrome-guide-btn,
 html[data-translucent-ui='1'] .ep-window-controls-btn {
@@ -114,17 +99,7 @@ html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .tauri-main-chrome {
 }
 
 /* Layer 1??? ? ???? */
-html[data-translucent-ui='1'] #app-shell-aside,
-html[data-translucent-ui='1'] #app-shell-aside.shell-aside-host,
-html[data-translucent-ui='1'] .shell-aside-host,
-html[data-translucent-ui='1'] .react-chat-session-aside,
-html[data-translucent-ui='1'] .mobile-topbar {
-  background: var(--ef-glass-surface) !important;
-  backdrop-filter: blur(var(--ef-glass-blur)) saturate(var(--ef-glass-saturate));
-  -webkit-backdrop-filter: blur(var(--ef-glass-blur)) saturate(var(--ef-glass-saturate));
-  border-color: var(--ef-glass-border) !important;
-  box-shadow: none;
-}
+/* [已收编 → theme-regions.css：shell 玻璃块] 原壳/侧栏/移动顶栏玻璃配方已迁至区域接管层 */
 
 html[data-translucent-ui='1'] .react-chat-aside-history-search {
   background: color-mix(in srgb, var(--bg-primary) 28%, transparent) !important;
@@ -305,26 +280,9 @@ html[data-translucent-ui='1'] .react-chat-conversation-col {
 /* ???? / ?????????????? */
 html[data-translucent-ui='1'] .react-chat-info-rail,
 html[data-translucent-ui='1'] .react-chat-workspace-panel,
-html[data-translucent-ui='1'] .react-chat-right-stage-panel,
-html[data-translucent-ui='1'] .react-chat-collab-exec-panel,
-html[data-translucent-ui='1'] .react-chat-knowledge-map-panel,
-html[data-translucent-ui='1'] .react-chat-browser-panel,
-html[data-translucent-ui='1'] .react-chat-artifacts-panel,
-html[data-translucent-ui='1'] .react-chat-platform-feedback-panel {
-  background: var(--ef-glass-surface) !important;
-  backdrop-filter: blur(calc(var(--ef-glass-blur) * 0.85)) saturate(var(--ef-glass-saturate));
-  -webkit-backdrop-filter: blur(calc(var(--ef-glass-blur) * 0.85)) saturate(var(--ef-glass-saturate));
-  border-color: var(--ef-glass-border) !important;
-  box-shadow: none !important;
-}
+/* [已收编 → theme-regions.css：panel 玻璃块] 右侧舞台及其子面板玻璃配方已迁至区域接管层 */
 
-html[data-translucent-ui='1'] .react-chat-info-rail-header,
-html[data-translucent-ui='1'] .react-chat-right-stage-header,
-html[data-translucent-ui='1'] .react-chat-collab-exec-panel-header,
-html[data-translucent-ui='1'] .react-chat-workspace-panel-header {
-  background: transparent !important;
-  border-bottom-color: var(--ef-glass-border) !important;
-}
+/* [已收编 → theme-regions.css：panel header 透明块] 原 info-rail/right-stage/collab-exec/workspace panel header 规则已迁 */
 
 /* Info Rail「资产沉淀」：玻璃态下勿用实心白底，否则字看不清 */
 html[data-translucent-ui='1'] .react-chat-asset-quick {
@@ -353,12 +311,8 @@ html[data-translucent-ui='1'] .react-chat-asset-quick-link:hover {
 }
 
 /* ????????? */
-html[data-translucent-ui='1'] .knowledge-owned-page,
-html[data-translucent-ui='1'] .knowledge-vaults-page,
-html[data-translucent-ui='1'] #content > .page {
-  background: transparent !important;
-  background-image: none !important;
-}
+/* [已收编 → theme-regions.css] 内容页根（#content > .page / .knowledge-owned-page /
+   .knowledge-vaults-page）的透明规则已收敛到区域接管层，此处删除以免双源。 */
 
 html[data-translucent-ui='1'] .knowledge-owned-page .ko-glass,
 html[data-translucent-ui='1'] .knowledge-owned-page .ko-table-wrap,
@@ -464,14 +418,8 @@ html[data-theme='dark'][data-translucent-ui='1'] .msg.msg-system.msg-system--hos
   box-shadow: none;
 }
 
-html[data-translucent-ui='1'] .react-chat-bottom-dock {
-  background: transparent !important;
-}
-
-html[data-translucent-ui='1'] .react-chat-conversation-col > .react-chat-bottom-dock {
-  background: transparent !important;
-  padding-top: 8px;
-}
+/* [已收编 → theme-regions.css] composer 底部 dock 透明（.react-chat-bottom-dock 及
+   .react-chat-conversation-col > .react-chat-bottom-dock）已迁至区域接管层 */
 
 html[data-translucent-ui='1'] .react-chat-input,
 html[data-translucent-ui='1'] .react-chat-input-wrap .react-chat-input {

@@ -39,7 +39,9 @@
   --surface-overlay-bg: var(--bg-elevated);
   --surface-overlay-border: var(--border-primary);
   --surface-overlay-shadow: 0 18px 60px rgba(0, 0, 0, 0.12);
-  --surface-glass-bg: var(--ef-glass-surface-strong, var(--bg-card));
+  /* 玻璃表面：单一来源指向现有 --ef-glass-* 配方（值不变，仅做 token 收敛） */
+  --surface-glass-bg: var(--ef-glass-surface, var(--bg-card));
+  --surface-glass-strong-bg: var(--ef-glass-surface-strong, var(--surface-glass-bg));
   --surface-glass-border: var(--ef-glass-border, var(--border-primary));
   --surface-glass-blur: var(--ef-glass-blur, 12px);
   --surface-glass-saturate: var(--ef-glass-saturate, 1.28);
