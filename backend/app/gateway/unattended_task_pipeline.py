@@ -218,11 +218,25 @@ def _schedule_retry(task: dict[str, Any]) -> None:
 
 def _save_task_row(project: dict[str, Any], task_index: int, task: dict[str, Any]) -> bool:
     project["tasks"][task_index] = task
-    project["updated_at"] = utc_now_iso_z()
+    # NOTE: do not pre-stamp project["updated_at"] here — save_project captures
+    # the *loaded* updated_at as the optimistic-concurrency token before
+    # stamping the new value itself. Pre-stamping made every save look fresh
+    # and defeated stale-write detection.
     return get_project_storage().save_project(project)
 
 
 def _patch_task(task_id: str, mutator) -> dict[str, Any] | None:
+    patched = _patch_task_once(task_id, mutator)
+    if patched is None:
+        # The save may have been rejected as a stale bundle write (another
+        # writer persisted between load and save — P0-3). save_project
+        # invalidated the cache on that path, so one re-read + re-apply
+        # converges on fresh state; mutators are pure.
+        patched = _patch_task_once(task_id, mutator)
+    return patched
+
+
+def _patch_task_once(task_id: str, mutator) -> dict[str, Any] | None:
     storage = get_project_storage()
     row = find_main_task(storage, task_id)
     if not row:

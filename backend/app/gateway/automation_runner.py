@@ -1162,7 +1162,9 @@ def _stamp_automation_on_collab_task(
             root["automation_name"] = str(automation_name).strip()[:120]
         root["updated_at"] = utc_now_iso_z()
         project["tasks"] = [root] + tasks[1:]
-        project["updated_at"] = utc_now_iso_z()
+        # No project-level updated_at pre-stamp: save_project captures the
+        # loaded ts as the optimistic-concurrency token (P0-3) and stamps
+        # the new value itself.
         storage.save_project(project)
     except Exception:
         logger.debug(

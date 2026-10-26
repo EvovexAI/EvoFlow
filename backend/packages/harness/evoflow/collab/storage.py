@@ -207,6 +207,20 @@ class ProjectStorage:
                 logger.info("Project %s saved", project_id)
                 return True
             except Exception as e:
+                from evoflow.persistence.task_repositories import StaleBundleWriteError
+
+                if isinstance(e, StaleBundleWriteError):
+                    # Optimistic-concurrency rejection (P0-3): another writer
+                    # persisted between our load and save. Drop the stale cache
+                    # so the next load converges, and report failure — losing
+                    # this write beats silently overwriting the other writer.
+                    logger.warning(
+                        "Project %s save rejected as stale bundle: %s (cache invalidated)",
+                        project_id,
+                        e,
+                    )
+                    self.invalidate_project(str(project_id))
+                    return False
                 logger.error("Failed to save project %s: %s", project_id, e)
                 return False
 

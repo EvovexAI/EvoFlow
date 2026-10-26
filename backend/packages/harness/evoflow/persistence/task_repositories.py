@@ -9,6 +9,15 @@ from evoflow.persistence.db import get_db
 from evoflow.timeutil import utc_now_iso_z
 
 
+class StaleBundleWriteError(RuntimeError):
+    """Whole-bundle rewrite rejected: the bundle moved on since the caller loaded it.
+
+    Raised only when the caller passes ``loaded_updated_at`` (opt-in optimistic
+    concurrency, workflow-audit-roadmap P0-3); callers that omit it keep the
+    previous detect-and-log behavior.
+    """
+
+
 def _row_dict(cursor_row: Any) -> dict[str, Any]:
     if cursor_row is None:
         return {}
@@ -158,16 +167,23 @@ def save_task_bundle(main_task_id: str, document: dict[str, Any], *, loaded_upda
             ).fetchone()
             db_ts = str(row_ts[0] or "").strip() if row_ts else ""
             seen_ts = str(loaded_updated_at or "").strip()
-            if db_ts and seen_ts and db_ts != seen_ts:
+            stale_mismatch = bool(db_ts) and bool(seen_ts) and db_ts != seen_ts
+            if stale_mismatch:
                 logger.warning(
-                    "task_bundle.stale_write_overwrite main=%s db_updated_at=%s loaded_updated_at=%s "
-                    "(another writer persisted between load and save; this rewrite may drop its changes)",
+                    "task_bundle.stale_write_rejected main=%s db_updated_at=%s loaded_updated_at=%s "
+                    "(another writer persisted between load and save; rewrite rejected, caller should re-read)",
                     mid,
                     db_ts,
                     seen_ts,
                 )
         except Exception:
-            pass
+            stale_mismatch = False
+        # Raise outside the guard above: the ts probe is best-effort, the
+        # rejection itself must propagate to the caller.
+        if stale_mismatch:
+            raise StaleBundleWriteError(
+                f"bundle {mid} changed since load (db={db_ts} loaded={seen_ts})"
+            )
         # Preserve ACL across REPLACE (delete+insert clears columns).
         prev_owner: tuple[str | None, str | None, str | None] = (None, None, None)
         try:
