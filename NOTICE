@@ -198,6 +198,17 @@ of any of them, and it does **not** change this repository's primary license.
   Areas we looked at include coding-agent UX, sandbox helpers, and local
   agent-loop patterns.
 
+* Pipecat (Daily)
+  https://github.com/pipecat-ai/pipecat
+  BSD 2-Clause License — see licenses/pipecat-BSD-2-Clause.txt.
+  EvoFlow's Xiaomi (小V) realtime voice path depends on ``pipecat-ai``
+  (Pipeline / VAD / UserTurn / TTSService / AudioContextManager, etc.)
+  under ``backend/app/gateway/speech/``. We also studied Pipecat's frame
+  pipeline, interruption, and latency-observer patterns when designing
+  that voice session. Attribution here is thanks and license notice; it
+  does **not** change this repository's primary PolyForm Noncommercial
+  license for EvoFlow-authored code.
+
 Other runtime / UI foundations are listed in the README acknowledgements
 (LangGraph, LangChain, MCP, Tauri, etc.).
 
