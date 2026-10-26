@@ -10,6 +10,7 @@ import { copyToClipboard } from '../../lib/subtask-transcript-display.js'
 import { normalizeTime } from '../../lib/chat-normalize.js'
 import { expandRowsToTrailTurns } from '../../lib/subtask-modal-rows.js'
 import { useModalEscapeClose } from '../hooks/useModalEscapeClose.js'
+import { useModalExit } from '../hooks/useModalExit.js'
 import { SubtaskModalMessageRow } from './SubtaskModalMessageRow.js'
 import AgentAvatar from './AgentAvatar.js'
 import { V4SessionPaneBridge } from '../v4/V4SessionPaneBridge.js'
@@ -383,7 +384,8 @@ export function SubtaskExecutionDrawer(props: SubtaskExecutionDrawerProps) {
     onOpenMessageFile,
   } = props
 
-  useModalEscapeClose(onClose, { open: open && mode === 'modal', deferToNestedModal: true })
+  const { overlayRef, requestClose } = useModalExit(onClose)
+  useModalEscapeClose(requestClose, { open: open && mode === 'modal', deferToNestedModal: true })
 
   if (!open) return null
 
@@ -427,11 +429,11 @@ export function SubtaskExecutionDrawer(props: SubtaskExecutionDrawerProps) {
           复制
         </button>
         {mode === 'modal' ? (
-          <button type="button" className="react-chat-modal-close" onClick={onClose}>
+          <button type="button" className="react-chat-modal-close" onClick={requestClose}>
             ×
           </button>
         ) : hideClose ? null : (
-          <button type="button" className="react-chat-modal-btn react-chat-modal-btn--ghost" onClick={onClose}>
+          <button type="button" className="react-chat-modal-btn react-chat-modal-btn--ghost" onClick={requestClose}>
             关闭
           </button>
         )}
@@ -493,11 +495,12 @@ export function SubtaskExecutionDrawer(props: SubtaskExecutionDrawerProps) {
 
   return createPortal(
     <div
+      ref={overlayRef}
       className="react-chat-modal-overlay"
       role="dialog"
       aria-modal="true"
       onClick={(e) => {
-        if (e.target === e.currentTarget) onClose()
+        if (e.target === e.currentTarget) requestClose()
       }}
     >
       <div

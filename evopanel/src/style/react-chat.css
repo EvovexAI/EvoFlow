@@ -15990,7 +15990,7 @@ body.theme-dark .tool-approval-panel__decision--denied {
     color-mix(in srgb, var(--bg-secondary, #f3f4f6) 80%, transparent) 100%
   );
   background-size: 200% 100%;
-  animation: plan-flowchart-shimmer 1.2s ease-in-out infinite;
+  animation: plan-flowchart-shimmer var(--skeleton-dur) ease-in-out infinite;
 }
 
 @keyframes plan-flowchart-shimmer {
@@ -17076,7 +17076,8 @@ html.evopanel-tauri .react-chat-main-col .msg-bubble--system-closure .react-chat
     opacity: 0;
     transition: opacity var(--dur-fast) ease;
   }
-  .react-chat-modal-overlay.react-chat-modal-overlay--closing .react-chat-modal-card {
+  .react-chat-modal-overlay.react-chat-modal-overlay--closing .react-chat-modal-card,
+  .react-chat-modal-overlay.react-chat-modal-overlay--closing .tool-approval-modal-shell {
     animation: none;
     opacity: 0;
     transform: translateY(8px) scale(0.985);
@@ -27225,7 +27226,7 @@ html.dark .km-xmind-processing-panel {
   min-height: 48px;
   background: linear-gradient(90deg, #f3f4f6 25%, #e5e7eb 50%, #f3f4f6 75%);
   background-size: 200% 100%;
-  animation: plan-flowchart-shimmer 1.2s ease-in-out infinite;
+  animation: plan-flowchart-shimmer var(--skeleton-dur) ease-in-out infinite;
 }
 
 .km-diagram-svg-host--zoomable {
@@ -30353,7 +30354,7 @@ html.dark .react-chat-header-win-sep {
 .react-chat-skeleton-item {
   border-radius: 12px;
   background: var(--bg-secondary, #f3f4f6);
-  animation: react-chat-skeleton-pulse 1.5s ease-in-out infinite;
+  animation: react-chat-skeleton-pulse var(--skeleton-dur) ease-in-out infinite;
 }
 
 .react-chat-skeleton-item--user {

@@ -836,7 +836,7 @@
     color-mix(in srgb, var(--border-primary) 45%, transparent) 100%
   );
   background-size: 200% 100%;
-  animation: ext-skel-shimmer 1.4s ease-in-out infinite;
+  animation: ext-skel-shimmer var(--skeleton-dur) ease-in-out infinite;
 }
 
 @keyframes ext-skel-shimmer {

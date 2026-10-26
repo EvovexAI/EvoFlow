@@ -24,7 +24,7 @@
 .skeleton {
   background: linear-gradient(90deg, var(--bg-secondary) 25%, var(--bg-tertiary, var(--bg-card-hover)) 50%, var(--bg-secondary) 75%);
   background-size: 200% 100%;
-  animation: skeleton-shine 1.4s var(--ease-out-soft) infinite;
+  animation: skeleton-shine var(--skeleton-dur) var(--ease-out-soft) infinite;
 }
 
 @keyframes skeleton-shine {
@@ -523,7 +523,7 @@ mark {
   min-height: 80px;
   background: linear-gradient(90deg, var(--bg-tertiary) 25%, var(--bg-glass-hover) 50%, var(--bg-tertiary) 75%);
   background-size: 200% 100%;
-  animation: shimmer 1.5s infinite;
+  animation: shimmer var(--skeleton-dur) infinite;
 }
 .loading-text {
   color: var(--text-tertiary);

@@ -391,6 +391,9 @@
   --sb-size: 6px;
   --sb-size-lg: 8px;
 
+  /* 骨架屏节奏：全库 shimmer/pulse 统一周期，避免同屏两套骨架闪动节奏不一 */
+  --skeleton-dur: 1.4s;
+
   --sidebar-width:      232px;
   --sidebar-collapsed:    60px;
   --header-height:       52px;

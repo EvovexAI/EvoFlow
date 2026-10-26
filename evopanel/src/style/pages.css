@@ -2204,7 +2204,7 @@ html.dark .config-section-title {
 .loading-placeholder {
   background: linear-gradient(90deg, var(--bg-secondary) 25%, var(--bg-tertiary) 50%, var(--bg-secondary) 75%);
   background-size: 200% 100%;
-  animation: shimmer 1.5s infinite;
+  animation: shimmer var(--skeleton-dur) infinite;
   border-radius: var(--radius-lg);
 }
 @keyframes shimmer {
@@ -2778,7 +2778,7 @@ html.dark .config-section-title {
 .task-card-skeleton .skeleton {
   background: linear-gradient(90deg, var(--bg-secondary) 25%, var(--bg-tertiary) 50%, var(--bg-secondary) 75%);
   background-size: 200% 100%;
-  animation: shimmer 1.5s infinite;
+  animation: shimmer var(--skeleton-dur) infinite;
 }
 
 /* === ????? === */
@@ -2903,7 +2903,7 @@ html.dark .config-section-title {
 .subtask-item-skeleton .skeleton {
   background: linear-gradient(90deg, var(--bg-secondary) 25%, var(--bg-tertiary) 50%, var(--bg-secondary) 75%);
   background-size: 200% 100%;
-  animation: shimmer 1.5s infinite;
+  animation: shimmer var(--skeleton-dur) infinite;
 }
 
 /* ????? */
@@ -18668,7 +18668,7 @@ html[data-custom-bg='1'] .task-detail-page .task-obs-panel {
   );
   background-size: 200% 100%;
   border-radius: 4px;
-  animation: uiext-skeleton-pulse 1.4s ease-in-out infinite;
+  animation: uiext-skeleton-pulse var(--skeleton-dur) ease-in-out infinite;
   transition: width var(--dur-panel) var(--ease-out-soft);
 }
 @keyframes uiext-skeleton-pulse {
@@ -18707,7 +18707,7 @@ html[data-custom-bg='1'] .task-detail-page .task-obs-panel {
     var(--bg-secondary, #f1f5f9) 100%
   );
   background-size: 200% 200%;
-  animation: uiext-skeleton-pulse 1.4s ease-in-out infinite;
+  animation: uiext-skeleton-pulse var(--skeleton-dur) ease-in-out infinite;
   margin-bottom: 8px;
 }
 

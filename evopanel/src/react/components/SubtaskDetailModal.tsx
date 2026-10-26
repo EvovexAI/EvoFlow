@@ -1,6 +1,7 @@
 import { createPortal } from 'react-dom'
 import type { CollabSubtaskSnapshot } from '../chat-types.js'
 import { useModalEscapeClose } from '../hooks/useModalEscapeClose.js'
+import { useModalExit } from '../hooks/useModalExit.js'
 import { SubtaskDetailView } from './SubtaskDetailView.js'
 
 type SubtaskOutcome = {
@@ -23,18 +24,20 @@ export function SubtaskDetailModal({
   outcome?: SubtaskOutcome | null
   onClose: () => void
 }) {
-  useModalEscapeClose(onClose, { open, deferToNestedModal: true })
+  const { overlayRef, requestClose } = useModalExit(onClose)
+  useModalEscapeClose(requestClose, { open, deferToNestedModal: true })
 
   if (!open || typeof document === 'undefined') return null
 
   return createPortal(
     <div
+      ref={overlayRef}
       className="react-chat-modal-overlay react-chat-modal-overlay--nested"
       role="dialog"
       aria-modal="true"
       aria-label="子任务详情"
       onClick={(e) => {
-        if (e.target === e.currentTarget) onClose()
+        if (e.target === e.currentTarget) requestClose()
       }}
     >
       <div
@@ -43,7 +46,7 @@ export function SubtaskDetailModal({
       >
         <div className="react-chat-modal-header">
           <div className="react-chat-modal-title">{title || '子任务详情'}</div>
-          <button type="button" className="react-chat-modal-close" onClick={onClose}>
+          <button type="button" className="react-chat-modal-close" onClick={requestClose}>
             ×
           </button>
         </div>

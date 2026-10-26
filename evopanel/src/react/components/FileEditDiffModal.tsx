@@ -123,7 +123,8 @@ function FileEditDiffModalInner({ open, sessionKey, payload, onClose }: Props) {
     payload?.lines_removed,
   ])
 
-  useModalEscapeClose(onClose, { open })
+  const { overlayRef, requestClose } = useModalExit(onClose)
+  useModalEscapeClose(requestClose, { open })
 
   if (!open || !payload || typeof document === 'undefined') return null
 
@@ -162,12 +163,13 @@ function FileEditDiffModalInner({ open, sessionKey, payload, onClose }: Props) {
 
   return createPortal(
     <div
+      ref={overlayRef}
       className="react-chat-modal-overlay"
       role="dialog"
       aria-modal="true"
       aria-label={view.title}
       onClick={(e) => {
-        if (e.target === e.currentTarget) onClose()
+        if (e.target === e.currentTarget) requestClose()
       }}
     >
       <div
@@ -178,7 +180,7 @@ function FileEditDiffModalInner({ open, sessionKey, payload, onClose }: Props) {
           <span className="read-tool-detail-modal__title" title={view.path}>
             {view.title}
           </span>
-          <button type="button" className="react-chat-modal-close" onClick={onClose} aria-label="关闭">
+          <button type="button" className="react-chat-modal-close" onClick={requestClose} aria-label="关闭">
             ×
           </button>
         </div>
