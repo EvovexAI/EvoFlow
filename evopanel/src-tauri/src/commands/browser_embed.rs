@@ -2494,33 +2494,45 @@ pub async fn browser_embed_upsert(
     // destroy when the *current* label still has no HWND after show+retry.
     // Soft-decouple: place_only / agent restore must NEVER destroy — that raced
     // Page.navigate and recreated blank (then restore), burning cold opens.
-    if app.get_webview_window(&label).is_some() {
-        if wait_embed_hwnd_label(&app, &label, Duration::from_secs(2)).is_err() {
-            if let Some(w) = app.get_webview_window(&label) {
-                mark_parked(&label, false);
-                let _ = w.show();
-                let _ = w.unminimize();
-            }
-            if wait_embed_hwnd_label(&app, &label, Duration::from_secs(3)).is_err() {
-                if place_only || restore_url.is_some() {
-                    browser_cdp_server::log_line(&format!(
-                        "[browser-embed] upsert: no-hwnd keep window (place_only/agent) label={label}"
-                    ));
-                } else {
-                    browser_cdp_server::log_line(&format!(
-                        "[browser-embed] upsert: zombie/no-hwnd label={label} — destroy+recreate"
-                    ));
-                    browser_cdp_server::log_line(&format!(
-                        "[浏览器时间线] 失败｜贴位前 HWND 仍不可用，将销毁重建（可能冲掉已打开页面） label={label}"
-                    ));
-                    destroy_zombie_embed(&app, &label);
+    // Whole wait sequence (2s+3s worst case + zombie destroy) runs on the
+    // blocking pool: a tokio worker parked here starves every other async
+    // command (gateway proxy stream included).
+    {
+        let app_wait = app.clone();
+        let label_wait = label.clone();
+        let restore_wait = restore_url.clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            if app_wait.get_webview_window(&label_wait).is_some() {
+                if wait_embed_hwnd_label(&app_wait, &label_wait, Duration::from_secs(2)).is_err() {
+                    if let Some(w) = app_wait.get_webview_window(&label_wait) {
+                        mark_parked(&label_wait, false);
+                        let _ = w.show();
+                        let _ = w.unminimize();
+                    }
+                    if wait_embed_hwnd_label(&app_wait, &label_wait, Duration::from_secs(3)).is_err() {
+                        if place_only || restore_wait.is_some() {
+                            browser_cdp_server::log_line(&format!(
+                                "[browser-embed] upsert: no-hwnd keep window (place_only/agent) label={label_wait}"
+                            ));
+                        } else {
+                            browser_cdp_server::log_line(&format!(
+                                "[browser-embed] upsert: zombie/no-hwnd label={label_wait} — destroy+recreate"
+                            ));
+                            browser_cdp_server::log_line(&format!(
+                                "[浏览器时间线] 失败｜贴位前 HWND 仍不可用，将销毁重建（可能冲掉已打开页面） label={label_wait}"
+                            ));
+                            destroy_zombie_embed(&app_wait, &label_wait);
+                        }
+                    } else {
+                        browser_cdp_server::log_line(&format!(
+                            "[browser-embed] upsert: hwnd recovered after show label={label_wait}"
+                        ));
+                    }
                 }
-            } else {
-                browser_cdp_server::log_line(&format!(
-                    "[browser-embed] upsert: hwnd recovered after show label={label}"
-                ));
             }
-        }
+        })
+        .await
+        .map_err(|e| format!("upsert hwnd wait join failed: {e}"))?;
     }
     if let Some(existing) = app.get_webview_window(&label) {
         // A reused window is not necessarily on screen. It reaches this branch
@@ -2704,31 +2716,41 @@ pub async fn browser_embed_upsert(
         // Mirror ensure_webview: WebView2::build often finishes after the wait.
         // Hard-failing on timeout left HMR / cold-open permanently broken while
         // the create thread still held EMBED_CREATE_LOCK and later succeeded.
-        match rx.recv_timeout(Duration::from_secs(15)) {
-            Ok(Ok(())) => {}
-            Ok(Err(e)) => return Err(e),
-            Err(_) => {
-                if app.get_webview_window(&label).is_some()
-                    && wait_embed_hwnd_label(&app, &label, Duration::from_secs(3)).is_ok()
-                {
-                    browser_cdp_server::log_line(&format!(
-                        "[browser-embed] upsert: create late ok label={label}"
-                    ));
-                } else {
-                    // One more beat — create thread may still be inside build().
-                    std::thread::sleep(Duration::from_millis(500));
-                    if app.get_webview_window(&label).is_some()
-                        && wait_embed_hwnd_label(&app, &label, Duration::from_secs(5)).is_ok()
+        // The recv(15s) + grace waits (up to ~8.5s more) park a tokio worker —
+        // run them on the blocking pool instead.
+        let app_wait = app.clone();
+        let label_wait = label.clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            match rx.recv_timeout(Duration::from_secs(15)) {
+                Ok(Ok(())) => Ok(()),
+                Ok(Err(e)) => Err(e),
+                Err(_) => {
+                    if app_wait.get_webview_window(&label_wait).is_some()
+                        && wait_embed_hwnd_label(&app_wait, &label_wait, Duration::from_secs(3)).is_ok()
                     {
                         browser_cdp_server::log_line(&format!(
-                            "[browser-embed] upsert: create late-ok after grace label={label}"
+                            "[browser-embed] upsert: create late ok label={label_wait}"
                         ));
+                        Ok(())
                     } else {
-                        return Err(format!("embed create timed out for '{label}'"));
+                        // One more beat — create thread may still be inside build().
+                        std::thread::sleep(Duration::from_millis(500));
+                        if app_wait.get_webview_window(&label_wait).is_some()
+                            && wait_embed_hwnd_label(&app_wait, &label_wait, Duration::from_secs(5)).is_ok()
+                        {
+                            browser_cdp_server::log_line(&format!(
+                                "[browser-embed] upsert: create late-ok after grace label={label_wait}"
+                            ));
+                            Ok(())
+                        } else {
+                            Err(format!("embed create timed out for '{label_wait}'"))
+                        }
                     }
                 }
             }
-        }
+        })
+        .await
+        .map_err(|e| format!("embed create wait join failed: {e}"))??;
     }
 
     browser_cdp_server::log_line(&format!(
