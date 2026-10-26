@@ -188,6 +188,23 @@ def require_app_visible(request: Request | None, app_id: str) -> None:
         raise HTTPException(status_code=404, detail=f"Application not found: {aid}")
 
 
+def require_run_visible(request: Request | None, run_id: str) -> None:
+    """Run-scoped guard: a run inherits its application's visibility.
+
+    Closes the gap where knowing a run_id was enough to view/cancel/pause
+    anyone's run (roadmap P0-1).
+    """
+    from evoflow.persistence import app_repositories
+
+    rid = str(run_id or "").strip()
+    if not rid:
+        raise HTTPException(status_code=404, detail="Run not found")
+    run = app_repositories.load_run(rid)
+    if run is None:
+        raise HTTPException(status_code=404, detail=f"Run not found: {rid}")
+    require_app_visible(request, str(run.get("app_id") or ""))
+
+
 def require_agent_visible(request: Request | None, agent_code: str) -> None:
     from evoflow.persistence import config_repositories as cfg_repo
 

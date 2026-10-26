@@ -225,7 +225,12 @@ def list_apps_endpoint(
             )
         ]
     except Exception:
-        pass
+        # Fail-closed: resolve_request_authz already falls back to local admin
+        # for local/no-JWT requests, so an exception here means the authz
+        # infrastructure itself is broken. Swallowing it used to return the
+        # full unfiltered app list (roadmap P0-1).
+        logger.exception("list_apps: authz resolution failed — failing closed")
+        raise HTTPException(status_code=503, detail="Authorization unavailable") from None
     run_counts = app_repositories.count_runs_batch([a.get("id") for a in apps if a])
     for a in apps:
         if not isinstance(a, dict):
@@ -675,8 +680,11 @@ def list_app_runs_endpoint(
 
 
 @router.get("/runs/{run_id}")
-def get_run_status_endpoint(run_id: str) -> dict[str, Any]:
+def get_run_status_endpoint(request: Request, run_id: str) -> dict[str, Any]:
     """Get current execution status of a run (aggregates with task center status)."""
+    from evoflow.authz.http_guard import require_run_visible
+
+    require_run_visible(request, run_id)
     result = get_run_status(run_id)
     if result is None:
         raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
@@ -684,13 +692,16 @@ def get_run_status_endpoint(run_id: str) -> dict[str, Any]:
 
 
 @router.post("/runs/{run_id}/cancel")
-async def cancel_run_endpoint(run_id: str, reason: str = "User cancelled") -> dict[str, bool]:
+async def cancel_run_endpoint(request: Request, run_id: str, reason: str = "User cancelled") -> dict[str, bool]:
     """Cancel a running application instance (deep cancel, E-2).
 
     Same depth as Task Center cancel: status flip + authorization revoke +
     cooperative flags + stream worker / LangGraph run / supervisor monitor
     interrupts — not just the status-field flip of the old ``cancel_run``.
     """
+    from evoflow.authz.http_guard import require_run_visible
+
+    require_run_visible(request, run_id)
     from app.gateway.task_cancel_support import cancel_app_run_deep
 
     success = await cancel_app_run_deep(run_id, reason)
@@ -700,8 +711,11 @@ async def cancel_run_endpoint(run_id: str, reason: str = "User cancelled") -> di
 
 
 @router.post("/runs/{run_id}/pause")
-def pause_run_endpoint(run_id: str, reason: str = "User paused") -> dict[str, bool]:
+def pause_run_endpoint(request: Request, run_id: str, reason: str = "User paused") -> dict[str, bool]:
     """Pause a running application instance."""
+    from evoflow.authz.http_guard import require_run_visible
+
+    require_run_visible(request, run_id)
     success = pause_run(run_id, reason)
     if not success:
         raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
@@ -709,8 +723,11 @@ def pause_run_endpoint(run_id: str, reason: str = "User paused") -> dict[str, bo
 
 
 @router.post("/runs/{run_id}/resume")
-def resume_run_endpoint(run_id: str) -> dict[str, bool]:
+def resume_run_endpoint(request: Request, run_id: str) -> dict[str, bool]:
     """Resume a paused application instance."""
+    from evoflow.authz.http_guard import require_run_visible
+
+    require_run_visible(request, run_id)
     success = resume_run(run_id)
     if not success:
         raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
@@ -718,13 +735,16 @@ def resume_run_endpoint(run_id: str) -> dict[str, bool]:
 
 
 @router.post("/runs/{run_id}/recover")
-async def recover_run_endpoint(run_id: str, reason: str = "api") -> dict:
+async def recover_run_endpoint(request: Request, run_id: str, reason: str = "api") -> dict:
     """Recover a crashed / failed-node app run from persisted DAG state.
 
     Heals zombie ``executing`` rows (lease/epoch) and requeues failed steps under
     auto-retry budget, then calls WorkflowRuntime ``retry_wave`` / ``start``.
     Distinct from ``/resume`` (pause-only).
     """
+    from evoflow.authz.http_guard import require_run_visible
+
+    require_run_visible(request, run_id)
     from evoflow.admin import apps as apps_admin
     from evoflow.admin.errors import NotFoundError, ValidationError
 
