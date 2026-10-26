@@ -74,13 +74,22 @@ export function openDrawer(page, { title, subtitle = '', body = '', foot = '', m
     : ''
   const markEl = root.querySelector('.ef-side-drawer__mark')
   if (markEl) markEl.textContent = String(mark || '详').slice(0, 1)
+  // 若正处关闭动画窗口内重开，撤销 closing 态，避免挂起的隐藏定时器把开着的抽屉藏掉
+  root.classList.remove('ef-side-drawer-root--closing')
   root.hidden = false
   return root
 }
 
 export function closeDrawer(page, idPrefix = 'ec') {
   const root = page.querySelector(`#${idPrefix}Drawer`)
-  if (root) root.hidden = true
+  if (!root || root.hidden) return
+  // 退场：叠 closing 类淡出后再 hidden；期间 pointer-events 已被该类关掉
+  root.classList.add('ef-side-drawer-root--closing')
+  setTimeout(() => {
+    if (!root.classList.contains('ef-side-drawer-root--closing')) return
+    root.classList.remove('ef-side-drawer-root--closing')
+    root.hidden = true
+  }, 150)
 }
 
 export function setBtnState(btn, state, labels = {}) {

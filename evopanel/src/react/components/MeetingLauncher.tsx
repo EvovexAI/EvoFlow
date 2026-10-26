@@ -253,7 +253,7 @@ export const MeetingLauncher: React.FC<MeetingLauncherProps> = ({
               0 0 40px rgba(74, 108, 247, 0.2),
               inset 0 1px 0 rgba(255, 255, 255, 0.06);
             overflow: hidden;
-            animation: rv-modal-in 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+            animation: rv-modal-in var(--dur-panel, 0.35s) cubic-bezier(0.16, 1, 0.3, 1);
           }
           @keyframes rv-modal-in {
             from { opacity: 0; transform: translateY(20px) scale(0.96); }

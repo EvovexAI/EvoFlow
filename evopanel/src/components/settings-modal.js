@@ -156,7 +156,11 @@ export function closeSettingsModal(opts = {}) {
   if (_instance?.unlistenEscape) {
     _instance.unlistenEscape()
   }
-  overlay.remove()
+  // 退场淡出：--closing 已把 pointer-events 关掉，清理逻辑同步执行不受影响
+  overlay.classList.add('react-chat-modal-overlay--closing')
+  setTimeout(() => {
+    try { overlay.remove() } catch { /* ignore */ }
+  }, 150)
   import('../pages/settings.js')
     .then((m) => {
       if (typeof m.cleanupTabs === 'function') m.cleanupTabs()

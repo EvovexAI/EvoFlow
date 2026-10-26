@@ -728,6 +728,21 @@ mark {
   to { opacity: 1; }
 }
 
+/* 菜单类弹层统一 pop-in：下拉/右键/more/小V FAB 菜单原先全部双向硬切。
+   参照 hover-bubble 的挂载动画写法；display 或条件挂载切换都会重播。 */
+@keyframes ef-pop-in {
+  from { opacity: 0; transform: translateY(4px) scale(0.98); }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .ef-dropdown-select__menu,
+  .react-chat-artifact-context-menu,
+  .react-chat-session-more-menu,
+  .react-chat-aside-history-more-menu,
+  .xm-fab-menu {
+    animation: ef-pop-in var(--dur-fast) var(--ease-out-soft);
+  }
+}
+
 /* 页面加载动画 */
 .page-loader {
   display: flex;

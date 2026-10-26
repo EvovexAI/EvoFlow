@@ -17055,6 +17055,38 @@ html.evopanel-tauri .react-chat-main-col .msg-bubble--system-closure .react-chat
   max-height: calc(100vh - 36px);
 }
 
+/* 模态进场/退场：进场走挂载动画（同时覆盖 React 条件渲染与 vanilla appendChild），
+   关闭由 JS 叠 --closing 类淡出后移除。遮罩有半透明+blur 底，双向都不该硬切。 */
+@keyframes reactChatModalOverlayIn {
+  from { opacity: 0; }
+}
+@keyframes reactChatModalCardIn {
+  from { opacity: 0; transform: translateY(10px) scale(0.985); }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .react-chat-modal-overlay {
+    animation: reactChatModalOverlayIn var(--dur-base) var(--ease-out-soft);
+  }
+  .react-chat-modal-overlay .react-chat-modal-card {
+    animation: reactChatModalCardIn var(--dur-panel) var(--ease-out-soft);
+  }
+  .react-chat-modal-overlay.react-chat-modal-overlay--closing {
+    animation: none;
+    opacity: 0;
+    transition: opacity var(--dur-fast) ease;
+  }
+  .react-chat-modal-overlay.react-chat-modal-overlay--closing .react-chat-modal-card {
+    animation: none;
+    opacity: 0;
+    transform: translateY(8px) scale(0.985);
+    transition: opacity var(--dur-fast) ease, transform var(--dur-fast) ease;
+  }
+}
+.react-chat-modal-overlay--closing {
+  pointer-events: none;
+}
+
 .react-chat-modal-card {
   width: 420px;
   max-width: 100%;

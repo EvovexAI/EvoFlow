@@ -21,6 +21,20 @@
   }
 }
 
+/* 退场：Radix Presence 检测到 data-state="closed" 上有动画会延迟卸载，
+   气泡不再瞬间消失；若库版本不支持则退化为原卸载行为，无副作用 */
+@keyframes ev-hover-bubble-out {
+  to {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .ev-hover-bubble-content[data-state='closed'] {
+    animation: ev-hover-bubble-out var(--dur-fast) ease-in forwards;
+  }
+}
+
 .ev-hover-bubble {
   pointer-events: auto;
   padding: 10px 12px;

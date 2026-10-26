@@ -371,7 +371,7 @@ html.is-xm-docked #main-col {
 
 /* ???????????�?tab / ??????????�?*/
 .xm-panel.xm-panel--enter {
-  animation: xm-in 0.22s ease;
+  animation: xm-in var(--dur-base) var(--ease-out-soft, ease);
 }
 
 /* Panel header — 与主对话顶栏同款 chrome 灰 */
