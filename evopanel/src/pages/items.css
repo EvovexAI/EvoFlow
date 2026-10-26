@@ -17,10 +17,15 @@
   align-items: center;
   gap: 2px;
   margin: 0;
-  padding: 0;
-  border: none;
-  background: transparent;
-  border-radius: 0;
+  padding: 2px;
+  border: 1px solid color-mix(in srgb, var(--text-primary) 8%, transparent);
+  /* 相对浮层底色压一档，避免 --surface-sunken 与 page-canvas 同色时轨道消失 */
+  background: color-mix(
+    in srgb,
+    var(--text-primary) 7%,
+    var(--page-canvas, var(--surface-base-bg, var(--bg-primary, #fff)))
+  );
+  border-radius: 8px;
 }
 
 .tasks-ledger-btn {
@@ -29,18 +34,43 @@
   color: var(--text-secondary, #64748b);
   font-size: 13px;
   font-weight: 600;
-  padding: 6px 10px;
-  border-radius: 0;
+  padding: 5px 12px;
+  border-radius: 6px;
   cursor: pointer;
   line-height: 1.2;
-  border-bottom: 2px solid transparent;
+  border-bottom: none;
+  transition: background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .tasks-ledger-btn.is-active {
   color: var(--text-primary, #0f172a);
+  background: color-mix(
+    in srgb,
+    var(--accent, #6366f1) 12%,
+    var(--surface-raised-bg, var(--bg-card, #fff))
+  );
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--text-primary) 8%, transparent);
+  border-bottom-color: transparent;
+}
+
+html[data-theme='dark'] .tasks-ledger-btn.is-active,
+html.dark .tasks-ledger-btn.is-active {
+  background: color-mix(
+    in srgb,
+    var(--accent, #6366f1) 18%,
+    var(--surface-raised-bg, var(--bg-card, #0b101a))
+  );
+}
+
+html[data-translucent-ui='1'] .tasks-ledger-toggle {
   background: transparent;
+  border-color: var(--ef-glass-border, var(--border-primary));
+}
+
+html[data-translucent-ui='1'] .tasks-ledger-btn.is-active {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
   box-shadow: none;
-  border-bottom-color: var(--accent, #6366f1);
 }
 
 .tasks-page.is-ledger-items [data-ledger-show='tasks'] {
@@ -52,12 +82,12 @@
 }
 
 .tasks-page.is-ledger-items {
-  --im-text-primary: #0f172a;
-  --im-text-secondary: #64748b;
-  --im-text-tertiary: #94a3b8;
-  --im-border: #e9ecf2;
-  --im-surface: #ffffff;
-  --im-page-bg: #f7f8fc;
+  --im-text-primary: var(--text-primary, #0f172a);
+  --im-text-secondary: var(--text-secondary, #64748b);
+  --im-text-tertiary: var(--text-tertiary, #94a3b8);
+  --im-border: var(--border-primary, #e9ecf2);
+  --im-surface: var(--surface-raised-bg, var(--bg-card, #ffffff));
+  --im-page-bg: var(--page-canvas, var(--bg-primary, #f7f8fc));
   --im-brand: var(--accent, #6366f1);
   /* 状态标签/徽章的语义底色（浅色取值与原硬编码一致） */
   --im-tint-violet: #f4f2fa;

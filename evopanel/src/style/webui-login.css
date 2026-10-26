@@ -249,7 +249,7 @@
 .webui-login-input:focus {
   border-color: var(--login-accent);
   box-shadow: 0 0 0 3px var(--login-accent-soft);
-  background: #fff;
+  background: var(--login-card);
 }
 
 .webui-login-submit {

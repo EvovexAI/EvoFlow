@@ -8,17 +8,17 @@
  */
 
 /*
- * 强调青挂在 :root 上：right-stage 的「语音模式」chip 在 .xws-root 之外，
- * 也要跟着明暗走色。深色覆盖写在 html[data-theme='dark']（特异性高于 :root）。
+ * 强调色挂在 :root：right-stage「语音模式」chip 在 .xws-root 之外也要跟着明暗。
+ * 整套只用冷静蓝灰，不要青/紫/绿乱跳（浅色底上尤其扎眼）。
  */
 :root {
-  --xws-accent: #0891b2;
-  --xws-accent-glow: #22d3ee;
+  --xws-accent: #4b6fa8;
+  --xws-accent-glow: #6b8fc4;
 }
 html[data-theme='dark'],
 html.dark {
-  --xws-accent: #22d3ee;
-  --xws-accent-glow: #22d3ee;
+  --xws-accent: #8aa4c8;
+  --xws-accent-glow: #a8c0dc;
 }
 
 .xws-root {
@@ -35,25 +35,25 @@ html.dark {
   --xws-glass: rgba(255, 255, 255, 0.58);
   /* 底部渐隐遮罩色（压在底色上做「聚光」效果） */
   --xws-fade: rgba(248, 250, 252, 0.94);
-  /* 点阵球画布着色：core 是点中心色，浅色下要比主体更实（否则白心会形成空心圈） */
-  --xws-dot: #334155;
-  --xws-dot-core: #1e293b;
-  --xws-dot-cool: #0284c7;
-  --xws-dot-cool-core: #075985;
-  /* 中心氛围光晕在浅色下要压低，否则会糊成一片白 */
-  --xws-aura-opacity: 0.45;
-  --xws-aura-strong: 18%;
-  --xws-aura-mid: 9%;
-  --xws-aura-soft: 5%;
+  /* 点阵球：同色系蓝灰，略有冷暖差即可，不要青+宝蓝对撞 */
+  --xws-dot: #5b7aa8;
+  --xws-dot-core: #3d5a80;
+  --xws-dot-cool: #6b8ab0;
+  --xws-dot-cool-core: #4a6a90;
+  /* 光晕：跟状态色同系，够见但不花 */
+  --xws-aura-opacity: 0.72;
+  --xws-aura-strong: 36%;
+  --xws-aura-mid: 20%;
+  --xws-aura-soft: 10%;
+  --xws-aura-blur: 24px;
   /*
-   * 状态色：浅色下必须用深一档的色，否则 10px 的状态字在浅底上读不出来。
-   * 组件用 style={{ '--xws-state': 'var(--xws-state-listen)' }} 间接引用。
+   * 状态色：浅色下一色相蓝灰阶，仅明度/饱和略变，避免听=青、想=紫、播=靛。
    */
-  --xws-state-idle: #64748b;
-  --xws-state-listen: #0284c7;
-  --xws-state-parse: #2563eb;
-  --xws-state-think: #7c3aed;
-  --xws-state-speak: #4f46e5;
+  --xws-state-idle: #7a8799;
+  --xws-state-listen: #4b6fa8;
+  --xws-state-parse: #4a6a9a;
+  --xws-state-think: #5a6f9a;
+  --xws-state-speak: #5568a0;
   position: relative;
   flex: 1;
   min-height: 0;
@@ -78,20 +78,21 @@ html.dark .xws-root {
   --xws-line: rgba(255, 255, 255, 0.12);
   --xws-glass: rgba(255, 255, 255, 0.035);
   --xws-fade: rgba(1, 3, 8, 0.92);
-  --xws-dot: #eaf4ff;
-  --xws-dot-core: #ffffff;
-  --xws-dot-cool: #9fd8ff;
-  --xws-dot-cool-core: #ffffff;
-  --xws-aura-opacity: 0.85;
+  --xws-dot: #d6e2f0;
+  --xws-dot-core: #f2f6fb;
+  --xws-dot-cool: #c5d6ea;
+  --xws-dot-cool-core: #e8eef6;
+  --xws-aura-opacity: 0.8;
   --xws-aura-strong: 28%;
   --xws-aura-mid: 14%;
   --xws-aura-soft: 8%;
-  /* 深色下状态色用原来的亮色档 */
+  --xws-aura-blur: 28px;
+  /* 深色：同样收成蓝灰阶，去掉霓虹青/紫 */
   --xws-state-idle: #9fb2c8;
-  --xws-state-listen: #38bdf8;
-  --xws-state-parse: #60a5fa;
-  --xws-state-think: #a78bfa;
-  --xws-state-speak: #818cf8;
+  --xws-state-listen: #8aa4c8;
+  --xws-state-parse: #92a8c8;
+  --xws-state-think: #9aa8c8;
+  --xws-state-speak: #8e9ec4;
 }
 
 /* ───────── 顶栏（冷峻） ───────── */
@@ -518,10 +519,10 @@ html.dark .xws-root {
   opacity: 0.85;
 }
 .xws-think .xws-stage {
-  border-color: color-mix(in srgb, #a78bfa 22%, transparent);
+  border-color: color-mix(in srgb, var(--xws-state-think) 28%, transparent);
 }
 .xws-speak .xws-stage {
-  border-color: color-mix(in srgb, #818cf8 28%, transparent);
+  border-color: color-mix(in srgb, var(--xws-state-speak) 28%, transparent);
 }
 
 /* 舞台内「内容区提示 + 快捷开标签」浮层（内容真实打开处在右侧标签页） */
@@ -571,11 +572,11 @@ html.dark .xws-root {
 
 /* 小V标签页「语音模式」入口 chip（在 right-stage 面板里，不在 .xws-root 内） */
 .xm-stage-chip.is-voice-enter {
-  color: var(--xws-accent, #22d3ee);
-  border-color: color-mix(in srgb, var(--xws-accent, #22d3ee) 35%, transparent);
+  color: var(--xws-accent, #4b6fa8);
+  border-color: color-mix(in srgb, var(--xws-accent, #4b6fa8) 35%, transparent);
 }
 .xm-stage-chip.is-voice-enter:hover {
-  background: color-mix(in srgb, var(--xws-accent, #22d3ee) 10%, transparent);
+  background: color-mix(in srgb, var(--xws-accent, #4b6fa8) 10%, transparent);
 }
 
 /* ═══════════════════════════════════════════════════════
@@ -589,6 +590,14 @@ html[data-xw-voice='1'] #app-shell-aside,
 html[data-xw-voice='1'] .react-chat-header,
 html[data-xw-voice='1'] .react-chat-conversation-col,
 html[data-xw-voice='1'] .react-chat-panel-resize-handle {
+  display: none !important;
+}
+
+/*
+ * 状态卡（智能体/进程/产物/平台/调试）默认不要叠在语音球上。
+ * 平台工具落地后设 data-xw-voice-summary=1 再露出。
+ */
+html[data-xw-voice='1']:not([data-xw-voice-summary='1']) .chat-summary-float {
   display: none !important;
 }
 
@@ -646,11 +655,22 @@ html[data-xw-voice='1'][data-xw-voice-anim='enter'] .react-chat-conversation-fra
  * 无右栏（唤醒词 left-only / expandRightStage:false）：
  * 语音域铺满主区。切勿 display:none —— 聊天 chrome 已被 data-xw-voice 隐藏，
  * 再藏语音域会整页空白。
+ *
+ * 注意：无 is-right-stage-open 时 main-body 是 column；仅靠 flex:0 0 440px 会把高度卡成
+ * 440px 一条横条。这里绝对铺满，避免「唤醒成功但看不见面板」。
  */
+html[data-xw-voice='1'] .react-chat-main-body:not(.is-right-stage-open) {
+  position: relative;
+}
 html[data-xw-voice='1'] .react-chat-main-body:not(.is-right-stage-open) .xw-voice-host {
-  flex: 1 1 auto !important;
+  position: absolute !important;
+  inset: 0 !important;
+  flex: none !important;
   width: auto !important;
   max-width: none !important;
+  height: auto !important;
+  min-height: 0 !important;
+  z-index: 6;
 }
 
 /* ── 语音交互精简：次要控件默认隐藏，悬停 / 焦点 / 菜单打开时再露 ── */
@@ -713,72 +733,82 @@ html[data-xw-voice='1'] .react-chat-main-body {
   background: var(--xws-bg);
 }
 
-.xws-clean .xws-exit {
+/*
+ * 顶部拖动带：WebView2 要求元素自身带 data-tauri-drag-region（不吃父级继承）。
+ * 语音全屏会藏掉聊天顶栏，必须在语音域里自备一条，否则放大后整窗拖不动。
+ */
+.xws-clean .xws-drag-strip {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 48px;
+  z-index: 18;
+  /* 透明命中区，不挡视觉；按钮 / 对话浮层 z-index 更高且 data-tauri-no-drag */
+  background: transparent;
+  pointer-events: auto;
+  cursor: default;
+}
+
+/* 左上角：退出 + 放大/缩小（关掉右侧 → 语音域铺满；再开右侧 → 半屏） */
+.xws-clean .xws-chrome-top {
   position: absolute;
   top: 14px;
   left: 16px;
-  z-index: 20;
+  z-index: 21;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  pointer-events: auto;
+}
+.xws-clean .xws-exit,
+.xws-clean .xws-expand {
   appearance: none;
+  width: 32px;
+  height: 32px;
+  padding: 0;
   border: 1px solid var(--xws-line);
   background: color-mix(in srgb, var(--xws-solid) 62%, transparent);
   color: var(--xws-sub);
-  font: inherit;
-  font-size: 12px;
-  letter-spacing: 0.08em;
-  padding: 6px 14px;
-  border-radius: 999px;
+  border-radius: 50%;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   backdrop-filter: blur(8px);
   transition: color 0.18s ease, border-color 0.18s ease;
 }
-.xws-clean .xws-exit:hover {
+.xws-clean .xws-exit:hover,
+.xws-clean .xws-expand:hover {
   color: var(--xws-txt);
   border-color: color-mix(in srgb, var(--xws-txt) 30%, transparent);
 }
 
 /*
  * 右上角「对话」浮层：内容 = 主对话 V4 时间线。
- *
- * 皮肤说明：语音画面本身是深色的（点阵 + 氛围光），但正文 token 跟随**宿主明暗**
- * （用户选浅色就是浅色），否则这块会变成一块突兀的黑板。
- * 玻璃底用 color-mix 混合宿主底色，浅色下是浅玻璃、深色下是深玻璃。
+ * 角落小卡；语音域整窗放大靠左上「放大/缩小」收放右侧栏。
+ * 刚打开待命不挂；交互开始后才出现。玻璃底跟随宿主明暗。
  */
 .xws-clean .xws-recent {
   position: absolute;
   top: 14px;
   right: 16px;
   z-index: 20;
-  width: min(420px, 46vw);
-  /* 长回复要能滚完：抬高可用高度，别被宽度卡死 */
-  max-height: min(66vh, 600px);
+  width: min(340px, 42vw);
+  max-height: min(42vh, 360px);
   display: flex;
   flex-direction: column;
   border: 1px solid color-mix(in srgb, var(--text-primary, #202124) 12%, transparent);
-  border-radius: 14px;
+  border-radius: 12px;
   background: color-mix(in srgb, var(--bg-surface, #fff) 82%, transparent);
   backdrop-filter: blur(16px) saturate(1.2);
   overflow: hidden;
   pointer-events: auto;
 }
-.xws-clean .xws-recent-head {
-  flex: none;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 9px 14px 7px;
-  font-size: 11px;
-  letter-spacing: 0.14em;
-  color: var(--text-secondary, #656b73);
-  border-bottom: 1px solid color-mix(in srgb, var(--text-primary, #202124) 8%, transparent);
-}
-.xws-clean .xws-recent-head-title {
-  font-weight: 600;
-}
-.xws-clean .xws-recent-head-state {
-  letter-spacing: 0.1em;
-  font-size: 10px;
-  color: var(--xws-state);
+/* 语音域铺满整窗时，对话浮层可以稍大一点 */
+.xws-clean.is-voice-expanded .xws-recent {
+  width: min(420px, 36vw);
+  max-height: min(52vh, 480px);
 }
 /* V4 时间线自带滚动容器：外层不能再 overflow:auto，否则会出现双滚动条 */
 .xws-clean .xws-recent-body {
@@ -791,7 +821,7 @@ html[data-xw-voice='1'] .react-chat-main-body {
   min-width: 0;
 }
 .xws-clean .xws-recent-body--timeline {
-  padding: 4px 6px 6px;
+  padding: 8px 6px 6px;
 }
 /* V4 根容器必须吃满高度，否则时间线的滚动层没有高度、整块空白 */
 .xws-clean .xws-recent-body--timeline > .zcode-bridge-root {
@@ -831,27 +861,67 @@ html[data-xw-voice='1'] .react-chat-main-body {
     radial-gradient(
       circle at 50% 45%,
       color-mix(in srgb, var(--xws-state) var(--xws-aura-strong), transparent) 0%,
-      color-mix(in srgb, #818cf8 var(--xws-aura-mid), transparent) 32%,
-      color-mix(in srgb, #6366f1 var(--xws-aura-soft), transparent) 52%,
-      transparent 72%
+      color-mix(in srgb, var(--xws-accent-glow) var(--xws-aura-mid), transparent) 34%,
+      color-mix(in srgb, var(--xws-accent) var(--xws-aura-soft), transparent) 58%,
+      transparent 76%
     );
-  filter: blur(28px);
+  filter: blur(var(--xws-aura-blur, 28px));
   opacity: var(--xws-aura-opacity);
   transition: background 0.45s ease, opacity 0.45s ease;
+}
+/* 浅色：再叠一圈更实的内核，让「圆」在浅灰底上站得住 */
+.xws-clean .xws-stage::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 42%;
+  width: min(38vmin, 280px);
+  height: min(38vmin, 280px);
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 0;
+  background: radial-gradient(
+    circle at 50% 45%,
+    color-mix(in srgb, var(--xws-state) 26%, transparent) 0%,
+    color-mix(in srgb, var(--xws-accent) 12%, transparent) 55%,
+    transparent 78%
+  );
+  opacity: 0.55;
+  filter: blur(10px);
+  transition: background 0.45s ease, opacity 0.45s ease;
+}
+html[data-theme='dark'] .xws-clean .xws-stage::after,
+html.dark .xws-clean .xws-stage::after {
+  opacity: 0.35;
 }
 .xws-clean.xws-listen .xws-stage::before,
 .xws-clean.xws-parse .xws-stage::before {
   opacity: var(--xws-aura-opacity);
   animation: xws-aura-breathe 2.4s ease-in-out infinite;
 }
+.xws-clean.xws-listen .xws-stage::after,
+.xws-clean.xws-parse .xws-stage::after {
+  opacity: 0.75;
+  animation: xws-aura-core-breathe 2.4s ease-in-out infinite;
+}
 .xws-clean.xws-think .xws-stage::before {
   opacity: var(--xws-aura-opacity);
   animation: xws-aura-breathe 3.2s ease-in-out infinite;
 }
+.xws-clean.xws-think .xws-stage::after {
+  opacity: 0.65;
+  animation: xws-aura-core-breathe 3.2s ease-in-out infinite;
+}
+/* 播报：慢一拍的轻呼吸，别用快速缩放（看着晕） */
 .xws-clean.xws-speak .xws-stage::before {
   opacity: var(--xws-aura-opacity);
-  filter: blur(34px);
-  animation: xws-aura-breathe 1.6s ease-in-out infinite;
+  filter: blur(var(--xws-aura-blur, 28px));
+  animation: xws-aura-speak 3.6s ease-in-out infinite;
+}
+.xws-clean.xws-speak .xws-stage::after {
+  opacity: 0.55;
+  animation: xws-aura-speak-core 3.6s ease-in-out infinite;
 }
 .xws-clean .xws-canvas {
   z-index: 1;
@@ -867,8 +937,42 @@ html[data-xw-voice='1'] .react-chat-main-body {
     opacity: var(--xws-aura-opacity);
   }
 }
+@keyframes xws-aura-core-breathe {
+  0%,
+  100% {
+    transform: translate(-50%, -50%) scale(0.94);
+    opacity: 0.45;
+  }
+  50% {
+    transform: translate(-50%, -50%) scale(1.08);
+    opacity: 0.8;
+  }
+}
+@keyframes xws-aura-speak {
+  0%,
+  100% {
+    transform: translate(-50%, -50%) scale(0.98);
+    opacity: calc(var(--xws-aura-opacity) * 0.85);
+  }
+  50% {
+    transform: translate(-50%, -50%) scale(1.03);
+    opacity: var(--xws-aura-opacity);
+  }
+}
+@keyframes xws-aura-speak-core {
+  0%,
+  100% {
+    transform: translate(-50%, -50%) scale(0.97);
+    opacity: 0.4;
+  }
+  50% {
+    transform: translate(-50%, -50%) scale(1.04);
+    opacity: 0.62;
+  }
+}
 @media (prefers-reduced-motion: reduce) {
-  .xws-clean .xws-stage::before {
+  .xws-clean .xws-stage::before,
+  .xws-clean .xws-stage::after {
     animation: none !important;
   }
 }
@@ -882,17 +986,22 @@ html[data-xw-voice='1'] .react-chat-main-body {
   right: 0;
   bottom: 0;
   z-index: 10;
-  padding: 0 28px 36px;
+  /* 整块焦点区限高：长文在内部滚，别把点阵球整块盖死 */
+  max-height: min(42vh, 360px);
+  padding: 28px 28px 36px;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 14px;
-  background: linear-gradient(to top, var(--xws-fade) 0%, color-mix(in srgb, var(--xws-fade) 60%, transparent) 55%, transparent 100%);
+  background: linear-gradient(to top, var(--xws-fade) 0%, color-mix(in srgb, var(--xws-fade) 70%, transparent) 55%, transparent 100%);
   pointer-events: none;
+  box-sizing: border-box;
 }
 .xws-clean .xws-status {
+  flex: none;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 10px;
   pointer-events: none;
 }
@@ -908,41 +1017,47 @@ html[data-xw-voice='1'] .react-chat-main-body {
   text-shadow: 0 0 22px color-mix(in srgb, var(--xws-state) 45%, transparent);
   animation: xws-listen-title 1.8s ease-in-out infinite;
 }
+/* 居中两行正文：上行用户、下行小V；不写角色名 */
 .xws-clean .xws-live-user,
 .xws-clean .xws-live-ai {
-  width: min(640px, 92%);
+  width: min(560px, 92%);
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
   text-align: center;
+  min-height: 0;
+  min-width: 0;
+  box-sizing: border-box;
 }
-.xws-clean .xws-live-label {
-  font-size: 11px;
-  letter-spacing: 0.16em;
-  color: var(--xws-muted);
+.xws-clean .xws-live-user {
+  flex: 0 1 auto;
 }
-.xws-clean .xws-live-ai .xws-live-label {
-  color: color-mix(in srgb, var(--xws-state) 70%, var(--xws-muted));
+.xws-clean .xws-live-ai {
+  flex: 1 1 auto;
+  max-height: 100%;
 }
 .xws-clean .xws-live-text {
   margin: 0;
+  width: 100%;
   font-size: 16px;
   line-height: 1.55;
   color: var(--xws-txt);
-  max-height: 4.8em;
-  overflow: hidden;
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
+  overflow-x: hidden;
+  overflow-y: auto;
   white-space: pre-wrap;
   word-break: break-word;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--xws-txt) 28%, transparent) transparent;
+  pointer-events: auto;
+  -webkit-overflow-scrolling: touch;
 }
 .xws-clean .xws-live-user .xws-live-text {
   color: var(--xws-sub);
   font-size: 15px;
-  -webkit-line-clamp: 2;
-  max-height: 3.2em;
+  max-height: 4.8em;
+}
+.xws-clean .xws-live-ai .xws-live-text {
+  max-height: min(14em, 28vh);
 }
 .xws-clean .xws-live-ai .xws-live-text:empty {
   display: none;
@@ -950,8 +1065,12 @@ html[data-xw-voice='1'] .react-chat-main-body {
 
 @media (max-width: 720px) {
   .xws-clean .xws-recent {
-    width: min(280px, 52vw);
-    max-height: 48vh;
+    width: min(260px, 56vw);
+    max-height: min(36vh, 280px);
+  }
+  .xws-clean.is-voice-expanded .xws-recent {
+    width: min(320px, 70vw);
+    max-height: min(44vh, 360px);
   }
   .xws-clean .xws-status-word {
     font-size: 22px;

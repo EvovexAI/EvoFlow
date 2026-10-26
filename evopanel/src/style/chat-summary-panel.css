@@ -10,8 +10,13 @@
 .chat-summary-float {
   --chat-summary-card-width: 360px;
   --chat-summary-bg: var(--surface-overlay-bg, var(--bg-elevated, #fff));
-  --chat-summary-border: var(--surface-overlay-border, var(--border-default, #e6e8ec));
+  --chat-summary-border: var(--surface-overlay-border, var(--border-primary, #e6e8ec));
   --chat-summary-hover: var(--bg-hover, color-mix(in srgb, var(--text-primary) 8%, transparent));
+  --chat-summary-tab-bg: color-mix(
+    in srgb,
+    var(--text-primary) 7%,
+    var(--chat-summary-bg, var(--surface-overlay-bg, #fff))
+  );
   --chat-summary-region-collapsed: 48px;
   box-sizing: border-box;
   flex: 0 0 auto;
@@ -30,6 +35,23 @@
   box-shadow: none;
   transition: width 280ms cubic-bezier(0.22, 1, 0.36, 1);
   z-index: 5;
+}
+
+/* 半透明 / 壁纸：面板走玻璃表面，别再锁死浅色实心白 */
+html[data-translucent-ui='1'] .chat-summary-float {
+  --chat-summary-bg: var(--surface-glass-strong-bg, var(--ef-glass-surface-strong, var(--bg-elevated)));
+  --chat-summary-border: var(--surface-glass-border, var(--ef-glass-border, var(--border-primary)));
+  --chat-summary-hover: color-mix(in srgb, var(--accent, var(--text-primary)) 10%, transparent);
+  --chat-summary-tab-bg: transparent;
+}
+
+/* WebGL 透镜：glass bg 被置透明，用半透明 elevated 保可读 */
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .chat-summary-float {
+  --chat-summary-bg: color-mix(
+    in srgb,
+    var(--bg-elevated, var(--bg-card, #0f1622)) 78%,
+    transparent
+  );
 }
 
 .chat-summary-float.is-open {
@@ -59,13 +81,27 @@
   border: 1px solid var(--chat-summary-border);
   border-radius: 12px;
   background: var(--chat-summary-bg);
-  box-shadow: var(--surface-overlay-shadow, 0 12px 32px rgba(15, 23, 42, 0.1));
+  box-shadow: var(--surface-overlay-shadow, 0 12px 32px color-mix(in srgb, var(--text-primary) 10%, transparent));
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
   transform-origin: top right;
   transform: scale(0.96) translateY(-4px);
   opacity: 0;
   transition:
     transform 240ms cubic-bezier(0.22, 1, 0.36, 1),
-    opacity 200ms ease;
+    opacity 200ms ease,
+    background-color 150ms ease;
+}
+
+html[data-translucent-ui='1'] .chat-summary-float .chat-summary-panel {
+  backdrop-filter: blur(var(--surface-glass-blur, 12px)) saturate(var(--surface-glass-saturate, 1.28));
+  -webkit-backdrop-filter: blur(var(--surface-glass-blur, 12px)) saturate(var(--surface-glass-saturate, 1.28));
+}
+
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .chat-summary-float .chat-summary-panel {
+  /* shader 管模糊，CSS 再 blur 会糊 */
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 .chat-summary-float.is-open .chat-summary-panel {
@@ -116,18 +152,24 @@
   border: 1px solid transparent;
   border-radius: 6px;
   background: transparent;
-  color: var(--text-primary);
+  color: var(--text-secondary, var(--text-tertiary, #92a0b0));
   cursor: pointer;
-  transition: background-color 150ms ease, color 150ms ease;
+  transition: background-color 150ms ease, color 150ms ease, border-color 150ms ease;
 }
 
 .chat-summary-panel-icon-btn:hover {
-  background: var(--chat-summary-hover);
+  color: var(--text-primary);
+  background: var(--chat-summary-hover, color-mix(in srgb, var(--text-primary) 8%, transparent));
 }
 
 .chat-summary-panel-icon-btn:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 2px var(--border-focus, rgba(99, 91, 255, 0.2));
+  box-shadow: 0 0 0 2px var(--border-focus, color-mix(in srgb, var(--accent) 35%, transparent));
+}
+
+html[data-translucent-ui='1'] .chat-summary-panel-icon-btn:hover {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 18%, transparent);
 }
 
 .chat-summary-panel-icon-btn svg {
@@ -227,7 +269,7 @@ html.dark .chat-summary-panel-scroll::-webkit-scrollbar-thumb:active {
 .chat-summary-section + .chat-summary-section {
   margin-top: 6px;
   padding-top: 6px;
-  border-top: 1px solid var(--border-subtle, #ecedef);
+  border-top: 1px solid color-mix(in srgb, var(--text-primary) 8%, transparent);
 }
 
 .chat-summary-section-head {
@@ -582,27 +624,32 @@ html.dark .chat-summary-panel-scroll::-webkit-scrollbar-thumb:active {
   overflow: hidden;
 }
 
-/* ── 面板级 tab 条（原「更多」区 tab 上移至此） ─────── */
+/* ── 面板级 tab 条：配方对齐 shell-view-tabs / aside-segment ─────── */
 .chat-summary-panel-head .chat-summary-more-tabs {
   display: flex;
   align-items: center;
   gap: 2px;
   min-width: 0;
   flex-wrap: wrap;
-  padding: 0;
+  padding: 2px;
+  border-radius: 8px;
+  background: var(--chat-summary-tab-bg);
+  border: 1px solid color-mix(in srgb, var(--text-primary) 6%, transparent);
 }
 
 .chat-summary-panel-head .chat-summary-more-tab {
-  padding: 2px 6px;
+  padding: 3px 8px;
   border: 0;
   border-radius: 6px;
   background: transparent;
-  color: var(--text-tertiary);
+  color: var(--text-secondary, var(--text-tertiary));
   font: inherit;
   font-size: var(--ef-text-sm);
+  font-weight: 500;
   text-align: left;
   cursor: pointer;
   white-space: nowrap;
+  transition: background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .chat-summary-panel-head .chat-summary-more-tab:hover {
@@ -612,12 +659,37 @@ html.dark .chat-summary-panel-scroll::-webkit-scrollbar-thumb:active {
 
 .chat-summary-panel-head .chat-summary-more-tab.is-active {
   color: var(--text-primary);
-  background: var(--chat-summary-hover);
+  background: color-mix(
+    in srgb,
+    var(--accent, #635bff) 12%,
+    var(--surface-raised-bg, var(--bg-card, #fff))
+  );
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--text-primary) 8%, transparent);
+}
+
+html[data-theme='dark'] .chat-summary-panel-head .chat-summary-more-tab.is-active,
+html.dark .chat-summary-panel-head .chat-summary-more-tab.is-active {
+  background: color-mix(
+    in srgb,
+    var(--accent, #635bff) 18%,
+    var(--surface-raised-bg, var(--bg-card, #0b101a))
+  );
 }
 
 .chat-summary-panel-head .chat-summary-more-tab:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 2px var(--border-focus, rgba(99, 91, 255, 0.2));
+  box-shadow: 0 0 0 2px var(--border-focus, color-mix(in srgb, var(--accent) 35%, transparent));
+}
+
+html[data-translucent-ui='1'] .chat-summary-panel-head .chat-summary-more-tabs {
+  background: transparent;
+  border-color: var(--ef-glass-border, var(--surface-glass-border, var(--border-primary)));
+}
+
+html[data-translucent-ui='1'] .chat-summary-panel-head .chat-summary-more-tab.is-active {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  box-shadow: none;
 }
 
 /* ── 更多区内容主体（tab 条已上移到面板头部） ─────── */
@@ -644,38 +716,86 @@ html.dark .chat-summary-panel-scroll::-webkit-scrollbar-thumb:active {
  * 搬进分区后需要补一点内边距，并让能力面板的 min-height 放开，
  * 否则「技能/工具/MCP/知识库」四个 tab 全挤在一条窄缝里。
  */
-.chat-summary-section[data-summary-section='agent'] .react-chat-agent-cap {
+.chat-summary-section[data-summary-section='agent'] .react-chat-agent-cap,
+.chat-summary-agent-body .react-chat-agent-cap {
   padding: 0 8px;
 }
 
-.chat-summary-section[data-summary-section='agent'] .react-chat-agent-cap-panel {
+.chat-summary-section[data-summary-section='agent'] .react-chat-agent-cap-panel,
+.chat-summary-agent-body .react-chat-agent-cap-panel {
   min-height: 96px;
 }
 
 /* 能力清单展开态保持组件自身的 180px 内滚（已带 overscroll-behavior: contain），
    不在这里改 max-height —— 拆掉它会让长清单把整个面板撑得过长。 */
 
-/* 资产沉淀复用旧侧栏的 .react-chat-asset-quick-*，这里只调边距与按钮尺寸 */
-.chat-summary-section[data-summary-section='agent'] .react-chat-asset-quick {
+/* 资产沉淀复用旧侧栏的 .react-chat-asset-quick-*，这里只调边距与按钮尺寸
+ * DOM：新面板在 .chat-summary-agent-body 下，旧折叠段仍可能挂 data-summary-section=agent */
+.chat-summary-section[data-summary-section='agent'] .react-chat-asset-quick,
+.chat-summary-agent-body .react-chat-asset-quick {
   margin: 8px 8px 0;
   padding: 8px;
   /* 旧样式带 border-top 是因为它跟在长列表后面做分隔；
      这里它下面是空的，去掉免得多一条无意义的横线。 */
   border-top: none;
-  border: 1px solid var(--border-subtle, #ecedef);
+  border: 1px solid var(--surface-raised-border, var(--border-primary, #ecedef));
   border-radius: 10px;
-  background: var(--bg-secondary, #f4f6f8);
+  background: color-mix(
+    in srgb,
+    var(--text-primary) 5%,
+    var(--chat-summary-bg, var(--surface-sunken-bg, var(--bg-secondary, #f4f6f8)))
+  );
 }
 
-.chat-summary-section[data-summary-section='agent'] .react-chat-asset-quick-actions {
+html[data-translucent-ui='1'] .chat-summary-section[data-summary-section='agent'] .react-chat-asset-quick,
+html[data-translucent-ui='1'] .chat-summary-agent-body .react-chat-asset-quick {
+  background: color-mix(in srgb, var(--bg-secondary, var(--text-primary)) 18%, transparent);
+  border-color: var(--ef-glass-border, var(--border-primary));
+}
+
+.chat-summary-section[data-summary-section='agent'] .react-chat-asset-quick-actions,
+.chat-summary-agent-body .react-chat-asset-quick-actions {
   gap: 4px;
 }
 
-.chat-summary-section[data-summary-section='agent'] .react-chat-asset-quick-btn {
+.chat-summary-section[data-summary-section='agent'] .react-chat-asset-quick-btn,
+.chat-summary-agent-body .react-chat-asset-quick-btn {
   min-height: 26px;
   padding: 0 8px;
   font-size: var(--ef-text-sm);
   border-radius: 6px;
+  /* 跟面板 token，避免 control 实心白卡在玻璃面板上 */
+  background: color-mix(
+    in srgb,
+    var(--text-primary) 5%,
+    var(--chat-summary-bg, var(--surface-control-bg, var(--bg-card, #fff)))
+  );
+  border-color: color-mix(in srgb, var(--text-primary) 10%, transparent);
+  color: var(--text-secondary, #656b73);
+}
+
+.chat-summary-section[data-summary-section='agent'] .react-chat-asset-quick-btn:hover:not(:disabled),
+.chat-summary-agent-body .react-chat-asset-quick-btn:hover:not(:disabled) {
+  background: color-mix(
+    in srgb,
+    var(--accent) 10%,
+    var(--chat-summary-bg, var(--surface-raised-bg, var(--bg-card, #fff)))
+  );
+  border-color: color-mix(in srgb, var(--accent) 22%, transparent);
+  color: var(--text-primary);
+}
+
+html[data-translucent-ui='1'] .chat-summary-section[data-summary-section='agent'] .react-chat-asset-quick-btn,
+html[data-translucent-ui='1'] .chat-summary-agent-body .react-chat-asset-quick-btn {
+  background: color-mix(in srgb, var(--text-primary) 7%, transparent);
+  border-color: var(--ef-glass-border, var(--border-primary));
+  color: var(--text-primary);
+}
+
+html[data-translucent-ui='1'] .chat-summary-section[data-summary-section='agent'] .react-chat-asset-quick-btn:hover:not(:disabled),
+html[data-translucent-ui='1'] .chat-summary-agent-body .react-chat-asset-quick-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 28%, transparent);
 }
 
 /* ── 收起气泡 ───────────────────────────────────────── */

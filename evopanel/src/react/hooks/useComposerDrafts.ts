@@ -4,6 +4,7 @@
  */
 import { useCallback, useEffect, useRef, useState, type MutableRefObject } from 'react'
 import {
+  isXiaomiVoiceCaptureScope,
   registerVoicePartialBeginHandler,
   registerVoicePartialEndHandler,
   registerVoicePartialHandler,
@@ -39,16 +40,19 @@ export function useComposerDrafts(opts: {
     [selectedSessionKey, sessionRef],
   )
 
-  // 持续监听 / 全局按住说话：把实时识别文字推到 Composer 输入框（与话筒按钮一致）
+  // 主对话 Composer 的语音 partial 桥：小V/小微对话作用域内一律忽略，防灌字。
   useEffect(() => {
     registerVoicePartialBeginHandler(() => {
+      if (isXiaomiVoiceCaptureScope()) return
       savedDraftBeforeGlobalVoiceRef.current = composerTextRef.current
       pushComposerText('')
     })
     registerVoicePartialHandler((partialText: string) => {
+      if (isXiaomiVoiceCaptureScope()) return
       pushComposerText(partialText)
     })
     registerVoicePartialEndHandler(({ cancelled }) => {
+      if (isXiaomiVoiceCaptureScope()) return
       if (cancelled) {
         pushComposerText(savedDraftBeforeGlobalVoiceRef.current)
       } else {

@@ -25,6 +25,16 @@ export async function handleVoiceTranscribed(
   text: string,
   opts?: { global?: boolean },
 ): Promise<void> {
+  // 小V/小微对话作用域：主对话 Composer 不接手（应走 sendXiaomiChat）
+  try {
+    const { isXiaomiVoiceCaptureScope } = await import('../../../lib/background-voice-bridge.js')
+    if (isXiaomiVoiceCaptureScope()) {
+      console.warn('[voice] handleVoiceTranscribed ignored — 小V 作用域，主对话不发')
+      return
+    }
+  } catch {
+    /* ignore */
+  }
   const t = String(text || '').trim()
   if (!t) {
     toast('未识别到语音内容', 'warning')

@@ -427,9 +427,9 @@
 }
 
 :root[data-theme="light"] .form-input {
-  background: #ffffff !important;
-  color: #202124 !important;
-  border-color: #e6e8ec !important;
+  background: var(--bg-input, var(--bg-primary, #ffffff)) !important;
+  color: var(--text-primary, #202124) !important;
+  border-color: var(--border-primary, #e6e8ec) !important;
 }
 
 :root[data-theme="light"] .form-hint {
@@ -442,8 +442,8 @@
 
 /* 通用模态框 */
 :root[data-theme="light"] .modal {
-  background: #f4f6f8 !important;
-  border-color: #e6e8ec !important;
+  background: var(--bg-elevated, #f4f6f8) !important;
+  border-color: var(--border-primary, #e6e8ec) !important;
 }
 
 :root[data-theme="light"] .modal .modal-title {

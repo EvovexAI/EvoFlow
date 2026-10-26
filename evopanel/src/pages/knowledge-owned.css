@@ -4501,8 +4501,8 @@ html[data-theme="light"] .ko-catalog {
   width: 16px;
   height: 16px;
   border-radius: 50%;
-  background: #fff;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  background: var(--ko-surface, var(--bg-elevated, #fff));
+  box-shadow: 0 1px 3px color-mix(in srgb, var(--ko-ink, #000) 25%, transparent);
   transition: transform 160ms var(--ko-ease);
 }
 .ko-sheet__switch.is-on .ko-sheet__switch-track {

@@ -932,12 +932,15 @@ html[data-translucent-ui='1'] .tasks-page .tasks-source-tabs::-webkit-scrollbar-
   background: transparent !important;
 }
 
-html[data-theme='dark'] .tasks-page .tasks-ledger-btn,
-html[data-translucent-ui='1'] .tasks-page .tasks-ledger-btn {
+html[data-theme='dark'] .tasks-page .tasks-ledger-btn:not(.is-active),
+html[data-translucent-ui='1'] .tasks-page .tasks-ledger-btn:not(.is-active) {
+  color: var(--text-secondary, var(--text-primary)) !important;
+}
+
+html[data-theme='dark'] .tasks-page .tasks-ledger-btn.is-active {
   color: var(--text-primary) !important;
 }
 
-html[data-theme='dark'] .tasks-page .tasks-ledger-btn.is-active,
 html[data-translucent-ui='1'] .tasks-page .tasks-ledger-btn.is-active {
   color: var(--accent) !important;
 }
@@ -952,13 +955,14 @@ html[data-translucent-ui='1'] #content .tasks-page :is(
   .tasks-ledger-summary,
   .task-card
 ) {
-  background: var(--ef-glass-surface-strong) !important;
+  background: var(--ef-glass-surface-strong, var(--t-card)) !important;
   backdrop-filter: blur(var(--ef-glass-blur)) saturate(var(--ef-glass-saturate));
   -webkit-backdrop-filter: blur(var(--ef-glass-blur)) saturate(var(--ef-glass-saturate));
-  border-color: var(--ef-glass-border) !important;
+  border-color: var(--ef-glass-border, var(--t-line)) !important;
   box-shadow: none !important;
 }
 
+/* WebGL：glass token 被置透明时，别掏成空框——留半透明 elevated + 玻璃描边 */
 html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] #content .tasks-page :is(
   .tasks-today-strip,
   .tasks-monitor-hero,
@@ -968,7 +972,12 @@ html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] #content .tasks-page 
   .tasks-ledger-summary,
   .task-card
 ) {
-  background: transparent !important;
+  background: color-mix(
+    in srgb,
+    var(--bg-elevated, var(--bg-card, #0f1622)) 55%,
+    transparent
+  ) !important;
+  border-color: var(--ef-glass-border, var(--t-line)) !important;
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
 }
@@ -1299,17 +1308,26 @@ html[data-translucent-ui='1'] .tasks-page .tl-ops .btn {
 }
 
 html[data-theme='dark'] .tasks-page .tl-ops .btn-secondary,
-html[data-translucent-ui='1'] .tasks-page .tl-ops .btn-secondary {
+html[data-theme='dark'] .tasks-page .page-actions .btn-secondary,
+html[data-translucent-ui='1'] .tasks-page .tl-ops .btn-secondary,
+html[data-translucent-ui='1'] .tasks-page .page-actions .btn-secondary {
   color: var(--text-primary) !important;
-  border-color: var(--border-primary) !important;
-  background: color-mix(in srgb, var(--text-primary) 10%, transparent) !important;
+  border-color: var(--ef-glass-border, var(--border-primary)) !important;
+  background: color-mix(in srgb, var(--text-primary) 8%, transparent) !important;
 }
 
 html[data-theme='dark'] .tasks-page .tl-ops .btn-secondary:hover,
-html[data-translucent-ui='1'] .tasks-page .tl-ops .btn-secondary:hover {
+html[data-theme='dark'] .tasks-page .page-actions .btn-secondary:hover,
+html[data-translucent-ui='1'] .tasks-page .tl-ops .btn-secondary:hover,
+html[data-translucent-ui='1'] .tasks-page .page-actions .btn-secondary:hover {
   color: var(--text-primary) !important;
   background: color-mix(in srgb, var(--accent) 14%, transparent) !important;
   border-color: color-mix(in srgb, var(--accent) 35%, var(--border-primary)) !important;
+}
+
+html[data-theme='dark'] .tasks-page .tl-ops .btn-primary,
+html[data-translucent-ui='1'] .tasks-page .tl-ops .btn-primary {
+  border-color: transparent !important;
 }
 
 html[data-theme='dark'] .tasks-page .tl-type--workflow,

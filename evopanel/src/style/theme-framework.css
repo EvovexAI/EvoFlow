@@ -19,6 +19,7 @@
   --region-shell-border: var(--border-primary);
   --region-chrome-bg: var(--chrome-bg, var(--bg-app));
   --region-chrome-fg: var(--text-primary);
+  --region-chrome-border: var(--border-primary);
   --region-content-bg: var(--bg-primary);
   --region-content-fg: var(--text-primary);
   --region-panel-bg: var(--bg-primary);

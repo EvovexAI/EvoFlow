@@ -47,6 +47,52 @@ let _voiceFrameTookOver = false
 /** 工具日志去重 */
 /** @type {Set<string>} */
 let _voiceLoggedTools = new Set()
+/** 语音发问近义去重：Frame turn_end 与 continuous 迟到句常差几个字 */
+let _lastVoiceSendNorm = ''
+let _lastVoiceSendAtMs = 0
+const VOICE_SEND_DEDUPE_MS = 2800
+
+/** @param {string} text */
+function _normalizeVoiceSendText(text) {
+  return String(text || '')
+    .replace(/[\s\u3000]+/g, '')
+    .replace(/[，。！？、,.!?;；：:"""''（）()【】\[\]…—\-]/g, '')
+    .toLowerCase()
+}
+
+/**
+ * 两句是否同属一轮 ASR 变体（包含关系或短编辑距离）。
+ * @param {string} a
+ * @param {string} b
+ */
+function _isNearDuplicateVoiceText(a, b) {
+  const x = _normalizeVoiceSendText(a)
+  const y = _normalizeVoiceSendText(b)
+  if (!x || !y) return false
+  if (x === y) return true
+  if (x.includes(y) || y.includes(x)) return true
+  // 短句：允许差 1～2 字（「发送两次」vs「发送了两次」）
+  const longer = x.length >= y.length ? x : y
+  const shorter = x.length >= y.length ? y : x
+  if (longer.length <= 4) return false
+  let i = 0
+  let j = 0
+  let miss = 0
+  while (i < longer.length && j < shorter.length) {
+    if (longer[i] === shorter[j]) {
+      i++
+      j++
+      continue
+    }
+    miss++
+    if (miss > 2) return false
+    // 优先跳过长串多出来的字
+    if (longer.length - i > shorter.length - j) i++
+    else j++
+  }
+  miss += longer.length - i + (shorter.length - j)
+  return miss <= 2
+}
 
 /** 对话/工具进度写入「语音播报」前端日志（方便对照发问→接口→回复） */
 function _voiceChatLog(stage, message, detailOrOpts) {
@@ -1094,8 +1140,32 @@ export async function syncXiaomiPageContext(override = {}) {
 export async function sendXiaomiChat(text, ctx = {}) {
   const raw = String(text || '').trim()
   if (!raw) return
+  // 语音近义去重：Frame 已发「看一下…发送两次」，continuous 再塞「…发送了两次」不应打断重发。
+  // 戳必须在任何 await 前落下，否则两路并发会一起穿过。
+  if (ctx.voiceInitiated) {
+    const now = Date.now()
+    if (
+      _lastVoiceSendNorm &&
+      now - _lastVoiceSendAtMs < VOICE_SEND_DEDUPE_MS &&
+      _isNearDuplicateVoiceText(raw, _lastVoiceSendNorm)
+    ) {
+      try {
+        const { voiceFeLog } = await import('../../lib/xiaomi-voice/voice-file-log.js')
+        voiceFeLog(
+          '对话',
+          `语音近义去重 → 丢弃重复发问：「${raw.slice(0, 80)}」（距上次 ${now - _lastVoiceSendAtMs}ms）`,
+        )
+      } catch {
+        /* ignore */
+      }
+      return
+    }
+    _lastVoiceSendNorm = _normalizeVoiceSendText(raw)
+    _lastVoiceSendAtMs = now
+  }
   // 语音多轮：对齐 Pipecat barge → 新 turn——上一轮还在生成时先 abort，再发本轮。
   // 文本路径仍拒绝并发，避免误触双发。
+  // 近义句上面已丢掉；这里只对「明显新一句」做打断重发。
   if (getState().streaming) {
     if (ctx.voiceInitiated) {
       try {

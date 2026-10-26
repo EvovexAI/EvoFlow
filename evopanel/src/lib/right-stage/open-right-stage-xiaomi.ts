@@ -199,9 +199,19 @@ export async function openXiaomiRightStage(opts: OpenXiaomiRightStageOpts = {}):
   if (voiceMode) {
     const enter = () => {
       void import('../xw-voice-mode.js')
-        .then((m) =>
-          m.enterXwVoiceMode({ expandRightStage: showRightStage }),
-        )
+        .then((m) => {
+          m.enterXwVoiceMode({ expandRightStage: showRightStage })
+          // 再补一拍：navigate('/chat') 后 ChatApp 可能晚一帧才挂上订阅
+          window.setTimeout(() => {
+            if (!m.isXwVoiceMode()) {
+              m.enterXwVoiceMode({ expandRightStage: showRightStage })
+            } else {
+              window.dispatchEvent(
+                new CustomEvent(m.XW_VOICE_MODE_EVENT, { detail: { on: true } }),
+              )
+            }
+          }, 80)
+        })
         .catch((e) => console.warn('[xiaomi-stage] enter voice mode failed', e))
     }
     if (showRightStage) {
@@ -210,7 +220,10 @@ export async function openXiaomiRightStage(opts: OpenXiaomiRightStageOpts = {}):
         requestAnimationFrame(enter)
       })
     } else {
-      enter()
+      // left-only 也等两帧：collapse 右侧后 React 去掉 is-right-stage-open，再进语音态铺满
+      requestAnimationFrame(() => {
+        requestAnimationFrame(enter)
+      })
     }
   }
 }

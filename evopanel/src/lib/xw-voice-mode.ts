@@ -25,6 +25,36 @@ export function isXwVoiceMode(): boolean {
   }
 }
 
+/**
+ * 语音全屏下是否允许浮出状态卡（智能体/进程/产物/平台/调试）。
+ * 默认关：刚进语音域时这张卡叠在球上很难看；平台工具落地后再 allow。
+ */
+export function isXwVoiceSummaryAllowed(): boolean {
+  try {
+    return document.documentElement.dataset.xwVoiceSummary === '1'
+  } catch {
+    return false
+  }
+}
+
+/** 平台工具有结果后调用：允许状态卡在语音全屏里出现。 */
+export function allowXwVoiceSummary(): void {
+  try {
+    if (!isXwVoiceMode()) return
+    document.documentElement.dataset.xwVoiceSummary = '1'
+  } catch {
+    /* ignore */
+  }
+}
+
+export function clearXwVoiceSummary(): void {
+  try {
+    delete document.documentElement.dataset.xwVoiceSummary
+  } catch {
+    /* ignore */
+  }
+}
+
 export function subscribeXwVoiceMode(fn: (on: boolean) => void): () => void {
   const handler = (ev: Event) => fn(Boolean((ev as CustomEvent<{ on?: boolean }>).detail?.on))
   window.addEventListener(XW_VOICE_MODE_EVENT, handler)
@@ -44,6 +74,8 @@ function apply(on: boolean) {
 
   if (on) {
     root.dataset.xwVoice = '1'
+    // 进语音域先藏状态卡；等平台工具再 allowXwVoiceSummary
+    delete root.dataset.xwVoiceSummary
     const reduceMotion =
       typeof window !== 'undefined' &&
       window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches === true
@@ -67,6 +99,7 @@ function apply(on: boolean) {
 
   delete root.dataset.xwVoice
   delete root.dataset.xwVoiceAnim
+  delete root.dataset.xwVoiceSummary
   window.dispatchEvent(new CustomEvent(XW_VOICE_MODE_EVENT, { detail: { on: false } }))
   notifyLayoutChromeChanged('xw-voice-exit')
 }
@@ -81,7 +114,6 @@ export type EnterXwVoiceModeOpts = {
 
 /** 进入语音全屏模式：左栏小V语音域；可选展开右栏（若停在小V标签则切到别的标签，避免右侧重复显示小V）。 */
 export function enterXwVoiceMode(opts: EnterXwVoiceModeOpts = {}): void {
-  if (isXwVoiceMode()) return
   const expandRight = opts.expandRightStage !== false
   if (expandRight) {
     rightStageStore.expand()
@@ -90,6 +122,19 @@ export function enterXwVoiceMode(opts: EnterXwVoiceModeOpts = {}): void {
       const other = snap.tabs.find((t) => t.kind !== 'xiaomi')
       if (other) rightStageStore.activateTab(`${other.kind}:${other.id}`)
     }
+  } else {
+    // 唤醒 left-only：必须收起右侧。否则对话列被 CSS 藏掉、语音域只剩左栏 440px，
+    // 整窗几乎空白，用户会以为「面板没弹出来」。
+    // 只用 store.collapse()，勿走 collapseRightStageShell（那条会 exit 语音模式）。
+    rightStageStore.collapse()
+  }
+  if (isXwVoiceMode()) {
+    // 再进语音（唤醒）：仍先藏状态卡，等本轮平台工具再放行
+    clearXwVoiceSummary()
+    // 已在语音态仍要通知 React：可能 DOM 已标 data-xw-voice，但 ChatApp 当时未挂载漏听了事件。
+    window.dispatchEvent(new CustomEvent(XW_VOICE_MODE_EVENT, { detail: { on: true } }))
+    notifyLayoutChromeChanged('xw-voice-reenter')
+    return
   }
   apply(true)
   // 默认开语音播报 + prefer 小V（火山 TTS 已配即可听会说）

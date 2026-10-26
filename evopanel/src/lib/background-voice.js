@@ -21,6 +21,7 @@ import {
 } from './voice-demo-mode.js'
 import {
   beginVoicePartialSession,
+  clearPendingVoiceSend,
   endVoicePartialSession,
   isVoiceSendBusy,
   isVoiceSendHandlerReady,
@@ -186,11 +187,11 @@ export async function setVoiceTrayState(state) {
   }
   if (!isTauri) return
   const labels = {
-    idle: `${TRAY_BASE} · 待命`,
-    recording: `${TRAY_BASE} · 录音中…`,
-    processing: `${TRAY_BASE} · 识别中…`,
-    running: `${TRAY_BASE} · 执行中…`,
-    speaking: `${TRAY_BASE} · 播报中…`,
+    idle: `${TRAY_BASE} · 聆听`,
+    recording: `${TRAY_BASE} · 聆听`,
+    processing: `${TRAY_BASE} · 思考`,
+    running: `${TRAY_BASE} · 思考`,
+    speaking: `${TRAY_BASE} · 播报`,
   }
   const text = labels[next] || labels.idle
   try {
@@ -541,6 +542,12 @@ async function openXiaomiForWake() {
       voiceMode: true,
       showRightStage: false,
     })
+    try {
+      const { isXwVoiceMode } = await import('./xw-voice-mode.js')
+      console.log('[background-voice] wake open done, xwVoice=', isXwVoiceMode())
+    } catch {
+      /* ignore */
+    }
     return
   } catch (e) {
     console.warn('[background-voice] open xiaomi stage failed:', e?.message || e)
@@ -1293,6 +1300,40 @@ export async function handleVoiceCommandText(text, opts = {}) {
   const cleaned = String(text || '').trim()
   if (!cleaned) return 'empty'
 
+  // Frame 占麦时只允许「退出」口令；普通转写由 turn_end 发问，勿再走 continuous 发送。
+  try {
+    const { isXiaomiFramePipelineActive } = await import('./xiaomi-voice/index.js')
+    if (isXiaomiFramePipelineActive?.()) {
+      try {
+        const { isXiaomiVoiceExitCommand, closeXiaomiVoice } = await import('./xiaomi-voice-close.js')
+        if (isXiaomiVoiceExitCommand(cleaned)) {
+          await closeXiaomiVoice({ reason: 'voice' })
+          try {
+            const { toast } = await import('../components/toast.js')
+            toast('已退出语音', 'info')
+          } catch {
+            /* ignore */
+          }
+          return 'exited'
+        }
+      } catch {
+        /* ignore */
+      }
+      try {
+        const { voiceFeLog } = await import('./xiaomi-voice/voice-file-log.js')
+        voiceFeLog(
+          '会话',
+          `Frame 占麦 → 忽略 continuous 发问：「${cleaned.slice(0, 40)}」`,
+        )
+      } catch {
+        /* ignore */
+      }
+      return 'empty'
+    }
+  } catch {
+    /* ignore */
+  }
+
   // 口令关舞台：听到「停止/关闭/退出」→ 客户端直接退，不发给 AI
   try {
     const { isXiaomiVoiceExitCommand, closeXiaomiVoice } = await import('./xiaomi-voice-close.js')
@@ -1449,12 +1490,13 @@ export async function stopContinuousListeningForFrame() {
 /**
  * 退出小V语音全屏：停 Frame 管线 + continuous ASR + 播报，只留唤醒耳。
  * 防止「面板关了 ASR 还在灌输入框」（日志 source=输入框 + ASR glitch）。
+ * 小V 听麦/发问/播报只活在「小微对话」；退出后主对话绝不承接。
  */
 export async function shutdownXiaomiVoiceRuntime() {
   _voiceExitLog('退出语音全屏 shutdownXiaomiVoiceRuntime → 停 Frame / continuous / 播报（仅留唤醒耳）')
   try {
     const { voiceFeLog } = await import('./xiaomi-voice/voice-file-log.js')
-    voiceFeLog('会话', '退出语音全屏 → 停止 Frame / continuous / 播报（仅留唤醒耳）')
+    voiceFeLog('会话', '退出语音全屏 → 停止 Frame / continuous / 播报（仅留唤醒耳；主对话不承接）')
   } catch {
     /* ignore */
   }
@@ -1469,6 +1511,13 @@ export async function shutdownXiaomiVoiceRuntime() {
       }
     }
     stopXiaomiFramePipeline?.()
+  } catch {
+    /* ignore */
+  }
+  // 先掐 prefer / 排队句，再 pause：避免退出瞬间迟到 partial 仍标「小V」或灌主输入框
+  try {
+    setPreferXiaomiVoice(false)
+    clearPendingVoiceSend()
   } catch {
     /* ignore */
   }

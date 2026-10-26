@@ -87,7 +87,7 @@ function _setTray(next) {
   }
 }
 
-/** 按优先级重算：speaking > processing > recording */
+/** 按优先级重算：播报 > 思考(等模型/排队) > 聆听。三态对齐舞台文案。 */
 function _refreshTray() {
   if (!_running) {
     _setTray('')
@@ -97,7 +97,8 @@ function _refreshTray() {
     _setTray('speaking')
     return
   }
-  if (_sending || _awaitingReply) {
+  // 排队里还有待发句时保持 processing，避免 finally 里先闪回 recording 再进思考
+  if (_sending || _awaitingReply || _pendingTurns.length > 0) {
     _setTray('processing')
     return
   }
@@ -310,8 +311,11 @@ async function _enqueueTurn(text) {
   const t = String(text || '').trim()
   if (!t) return
   if (_sending) {
+    // ASR 定稿会连推近义句：只保留最新一句，别堆成队列=5 连发
+    _pendingTurns.length = 0
     _pendingTurns.push(t)
-    voiceFeLog('用户输入', `上一轮仍在发送，已排队：「${t}」（队列=${_pendingTurns.length}）`)
+    voiceFeLog('用户输入', `上一轮仍在发送 → 覆盖排队为最新：「${t.slice(0, 60)}」`)
+    _refreshTray()
     return
   }
   await _sendTurn(t)
@@ -319,6 +323,7 @@ async function _enqueueTurn(text) {
 
 async function _sendTurn(text) {
   if (_sending) {
+    _pendingTurns.length = 0
     _pendingTurns.push(text)
     return
   }
@@ -339,10 +344,14 @@ async function _sendTurn(text) {
     _awaitingReply = false
   } finally {
     _sending = false
-    // 仍在等播报 / 已在播 → processing|speaking；不要秒回 recording
-    _refreshTray()
-    const next = _pendingTurns.shift()
-    if (next) void _sendTurn(next)
+    const next = _pendingTurns.pop()
+    _pendingTurns.length = 0
+    if (next) {
+      // 不先 _refreshTray→recording，直接续发，状态保持「思考」
+      void _sendTurn(next)
+    } else {
+      _refreshTray()
+    }
   }
 }
 
@@ -351,6 +360,14 @@ export function stopXiaomiFramePipeline() {
   _running = false
   _pendingTurns.length = 0
   _sending = false
+  // 退出小微对话后不再 prefer 小V，避免迟到 ASR 仍标小V 或误路由
+  void import('../background-voice-bridge.js')
+    .then((m) => {
+      m.setPreferXiaomiVoice?.(false)
+      m.clearPendingVoiceSend?.()
+      m.updateVoicePartialText?.('')
+    })
+    .catch(() => {})
   _awaitingReply = false
   _turnEndAt = 0
   _turnEndWall = ''

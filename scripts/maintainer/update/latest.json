@@ -1,10 +1,10 @@
 {
-  "version": "1.1.6",
-  "minAppVersion": "1.1.6",
+  "version": "1.1.7",
+  "minAppVersion": "1.1.7",
   "updateKind": "full",
   "assetKind": "installer",
   "hash": "",
-  "url": "https://github.com/EvovexAI/EvoFlow/releases/download/v1.1.6/EvoFlow_1.1.6_x64-setup.exe",
+  "url": "https://github.com/EvovexAI/EvoFlow/releases/download/v1.1.7/EvoFlow_1.1.7_x64-setup.exe",
   "size": 0,
-  "changelog": "EvoFlow 1.1.6（相对 1.1.5）：任务详情新增「任务节点」树，点节点在右侧查看工作流与每节点独立进度；创建/雇佣员工后引导在对话内扫码绑定飞书/企微机器人；右侧预览升级（代码/补丁/图片/音视频/PDF/PPT/多文件差异、HTML 渲染↔源码、产物自动打开）；首页工作台「正在处理」聚合卡；员工值班记录；模型调用失败改为可见正文并明确结束；自动化定时任务支持补跑与按分钟触发；对话模式默认 Agent（Ask 下线）。另修历史会话卡「等待首帧」、发送气泡延迟、飞书重连重复回复、Office 预览整页刷新、已完成节点被改回执行中等。前后端同一版本号，覆盖安装即可。"
+  "changelog": "EvoFlow 1.1.7（相对 1.1.6）：上线小V语音助手，支持连续语音对话、免提全屏语音舞台、实时语音识别与合成、TTS 打断与情感化自然播报；Agent 应用页改为商店式布局、打开应用收进侧栏；资源中心与用量账本重构，支持资源包详情/技能目录与按消息计费定价；深色模式落地统一主题框架、修复多处可读性；工作流与聊天线程解耦、blocked 终态避免主任务卡死、跨 Agent 串行阻塞解除；另修标签误清空、侧栏折叠残留、预览频繁刷新、资产审计错乱与权限越权。前后端同一版本号，覆盖安装即可。"
 }

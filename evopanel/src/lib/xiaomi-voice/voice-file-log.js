@@ -46,18 +46,18 @@ let _lastSendAtMs = 0
 /** 最近一次 UI 状态中文标签 */
 let _uiStateLabel = ''
 
-/** tray / 舞台 state → 日志用中文 */
+/** tray / 舞台 state → 日志用中文（仅三态：聆听 / 思考 / 播报） */
 const UI_STATE_LABEL = {
   recording: '聆听',
   listen: '聆听',
+  idle: '聆听',
+  '': '聆听',
   speaking: '播报',
   speak: '播报',
-  processing: '处理中',
-  parse: '处理中',
-  running: '思考中',
-  think: '思考中',
-  idle: '空闲',
-  '': '空闲',
+  processing: '思考',
+  parse: '思考',
+  running: '思考',
+  think: '思考',
 }
 
 function clip(s, n = 800) {

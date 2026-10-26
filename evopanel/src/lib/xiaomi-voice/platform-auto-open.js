@@ -9,7 +9,7 @@
 
 import { syncPlatformFeedbackFromTools } from '../right-stage/platform-feedback.js'
 import { rightStageStore } from '../right-stage/right-stage-store.js'
-import { isXwVoiceMode } from '../xw-voice-mode.js'
+import { allowXwVoiceSummary, isXwVoiceMode } from '../xw-voice-mode.js'
 
 /** @type {Set<string>} */
 const _seen = new Set()
@@ -24,6 +24,8 @@ export function maybeAutoOpenXiaomiPlatformTools(tools) {
   const { shown } = syncPlatformFeedbackFromTools(tools, _seen, { existingEntries: [] })
   if (!shown.length) return
 
+  // 平台工具已落地：允许状态卡；进度类再展开 right-stage
+  allowXwVoiceSummary()
   try {
     if (!rightStageStore.getSnapshot().expanded) {
       rightStageStore.expand()

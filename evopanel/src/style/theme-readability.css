@@ -170,6 +170,41 @@ html[data-theme='dark'] .react-chat-aside-segment-btn.is-active,
   font-weight: 400 !important;
 }
 
+/* 任务/员工 shell-view-tabs：与 aside-segment 同可读性策略 */
+html[data-theme='dark'] .shell-view-tab:not(.is-active),
+[data-theme='dark'] .shell-view-tab:not(.is-active),
+html[data-theme='dark'][data-translucent-ui='1'] .shell-view-tab:not(.is-active) {
+  color: var(--text-secondary, var(--shell-text-muted)) !important;
+  opacity: 1 !important;
+  background: transparent !important;
+}
+
+html[data-theme='dark'] .shell-view-tabs,
+[data-theme='dark'] .shell-view-tabs,
+html[data-theme='dark'][data-translucent-ui='1'] .shell-view-tabs {
+  border-color: color-mix(in srgb, var(--text-primary) 12%, transparent) !important;
+}
+
+html[data-theme='dark'][data-translucent-ui='1'] .shell-view-tabs {
+  background: transparent !important;
+}
+
+html[data-theme='dark'] .shell-view-tab.is-active,
+[data-theme='dark'] .shell-view-tab.is-active {
+  color: var(--shell-text, var(--text-primary)) !important;
+  background: color-mix(
+    in srgb,
+    var(--accent) 18%,
+    var(--shell-bg-elevated, var(--surface-raised-bg, #0b101a))
+  ) !important;
+}
+
+html[data-theme='dark'][data-translucent-ui='1'] .shell-view-tab.is-active {
+  color: var(--accent) !important;
+  background: color-mix(in srgb, var(--accent) 14%, transparent) !important;
+  box-shadow: none !important;
+}
+
 /* agent rail / 侧栏：抬高 mute 色 */
 html[data-theme='dark'] .react-chat-root,
 html[data-theme='dark'] .react-chat-agent-rail,
@@ -470,7 +505,7 @@ html:not([data-translucent-ui='1']) .react-chat-bottom-dock .react-chat-bottom-a
   /* 顶侧略留呼吸，勿贴死边框，也不要回到原先大块空白 */
   padding: 6px 12px 6px !important;
   background: var(--chat-canvas, #ffffff) !important;
-  border: 1px solid rgba(15, 23, 42, 0.1) !important;
+  border: 1px solid color-mix(in srgb, var(--text-primary) 10%, transparent) !important;
   border-radius: 16px !important;
   box-shadow: none !important;
   backdrop-filter: none !important;
@@ -478,13 +513,13 @@ html:not([data-translucent-ui='1']) .react-chat-bottom-dock .react-chat-bottom-a
 }
 
 html:not([data-translucent-ui='1']) .react-chat-bottom-dock .react-chat-bottom-area:hover {
-  border-color: rgba(15, 23, 42, 0.14) !important;
+  border-color: color-mix(in srgb, var(--text-primary) 14%, transparent) !important;
   box-shadow: none !important;
 }
 
 html:not([data-translucent-ui='1']) .react-chat-bottom-dock .react-chat-bottom-area:focus-within {
-  border-color: rgba(15, 23, 42, 0.18) !important;
-  box-shadow: 0 0 0 3px rgba(15, 23, 42, 0.04) !important;
+  border-color: color-mix(in srgb, var(--text-primary) 18%, transparent) !important;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--text-primary) 4%, transparent) !important;
 }
 
 /* 文字输入本身不要再套一层框 */
@@ -1180,7 +1215,7 @@ html:not([data-translucent-ui='1']) body .react-chat-conversation-col .react-vli
 html:not([data-translucent-ui='1']) body .react-chat-bottom-dock .react-chat-bottom-area,
 html:not([data-translucent-ui='1']) body .react-chat-composer-stack .react-chat-bottom-area {
   background: var(--chat-canvas, #ffffff) !important;
-  border: 1px solid rgba(15, 23, 42, 0.1) !important;
+  border: 1px solid color-mix(in srgb, var(--text-primary) 10%, transparent) !important;
   border-radius: 16px !important;
   box-shadow: none !important;
   padding: 6px 12px 6px !important;
@@ -1209,7 +1244,7 @@ html:not([data-translucent-ui='1']) body .react-chat-bottom-dock .react-chat-inp
 html[data-theme='dark']:not([data-translucent-ui='1']) body .react-chat-bottom-dock .react-chat-bottom-area,
 html[data-theme='dark']:not([data-translucent-ui='1']) body .react-chat-composer-stack .react-chat-bottom-area {
   background: var(--chat-canvas, #070a11) !important;
-  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  border: 1px solid color-mix(in srgb, var(--text-primary) 14%, transparent) !important;
 }
 
 body .msg.msg-turn.msg-turn--user.msg-user .msg-bubble.msg-turn-user-bubble,
@@ -1332,13 +1367,14 @@ html:not([data-translucent-ui='1']) body #app:not(.evopanel-auth-mode) #content 
 html:not([data-translucent-ui='1']) body #app:not(.evopanel-auth-mode) #content > .asset-center-page,
 html:not([data-translucent-ui='1']) body #app:not(.evopanel-auth-mode) #content > [class*='-outlet'],
 html:not([data-translucent-ui='1']) body #app:not(.evopanel-auth-mode) #content > [class$='-page'] {
-  background: var(--page-canvas, var(--bg-surface, #ffffff)) !important;
+  background: var(--page-canvas, var(--surface-base-bg, var(--bg-surface, #ffffff))) !important;
   border-radius: var(--page-sheet-radius, 16px);
   box-shadow:
-    0 0 0 1px rgba(15, 23, 42, 0.04),
-    0 1px 2px rgba(15, 23, 42, 0.03);
+    0 0 0 1px color-mix(in srgb, var(--text-primary, #0f172a) 4%, transparent),
+    0 1px 2px color-mix(in srgb, var(--text-primary, #0f172a) 3%, transparent);
   box-sizing: border-box;
   min-height: 100%;
+  color: var(--region-content-fg, var(--text-primary));
 }
 
 html[data-theme='dark']:not([data-translucent-ui='1']) body #app:not(.evopanel-auth-mode) #main-col,

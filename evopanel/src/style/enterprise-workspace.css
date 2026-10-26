@@ -795,7 +795,7 @@ html.dark .react-chat-bottom-dock .react-chat-bottom-area {
   animation: none !important;
 }
 
-/* Capability overview grid */
+/* Capability overview grid —— 跟 surface-sunken / raised */
 .react-chat-agent-cap-overview {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -808,17 +808,22 @@ html.dark .react-chat-bottom-dock .react-chat-bottom-area {
   flex-direction: column;
   gap: 2px;
   padding: 10px 12px;
-  background: var(--bg-app, #f7f8fa);
+  background: var(--surface-sunken-bg, var(--bg-secondary, #f7f8fa));
   border-radius: 8px;
-  border: none;
+  border: 1px solid color-mix(in srgb, var(--text-primary) 5%, transparent);
   cursor: pointer;
   text-align: left;
-  transition: background 150ms ease-out;
+  transition: background 150ms ease-out, border-color 150ms ease-out;
 }
 
 .react-chat-agent-cap-overview-item:hover,
 .react-chat-agent-cap-overview-item.is-active {
-  background: var(--bg-active, #f0f1f4);
+  background: color-mix(
+    in srgb,
+    var(--accent, #635bff) 10%,
+    var(--surface-raised-bg, var(--bg-card, #fff))
+  );
+  border-color: color-mix(in srgb, var(--accent, #635bff) 22%, transparent);
 }
 
 .react-chat-agent-cap-overview-label {
