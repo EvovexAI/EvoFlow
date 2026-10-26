@@ -41,6 +41,7 @@ const SESSION_SCOPED_KINDS = new Set<string>([
   'summary',
   'subagentTranscript',
   'artifacts',
+  'screenshot',
 ])
 
 export type RightStageScope = 'workspace' | 'session'

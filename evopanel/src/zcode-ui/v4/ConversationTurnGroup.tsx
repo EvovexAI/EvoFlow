@@ -50,7 +50,14 @@ import {
   maybeAutoOpenPlatformProgress,
   type PlatformUiFeedback,
 } from "../../lib/right-stage/platform-feedback.js";
+import { showRightStageScreenshot } from "../../lib/right-stage/open-right-stage-screenshot.js";
+import { getCurrentRightStageSessionKey } from "../../lib/right-stage/right-stage-scope.js";
+import { isRightStageTabVisibleForSession } from "../../lib/right-stage/right-stage-session-visibility.js";
+import { rightStageStore } from "../../lib/right-stage/right-stage-store.js";
 import { logRightStage } from "../../lib/right-stage/panel-set-debug-log.js";
+import { buildNodeReplDisplayModel } from "@/lib/nodeReplToolDisplay.js";
+import { applyXiaomiVoiceReadAutoOpen } from "@/v4/xiaomiVoiceReadAutoOpen.js";
+import { toolCallRowToLegacyNode } from "@/v4/toolCallRowAdapter.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import type { AssistantPreviewCard } from "@/lib/assistantPreviewCards.js";
 import { useAssistantCodeCommentFeatureEnabled } from "@/AssistantCodeCommentFeatureProvider.js";
@@ -96,7 +103,6 @@ import type {
 import { formatConversationWorkDuration } from "@/v4/conversationWorkDuration.js";
 import { ConversationTurnRow, resolveAssistantCopyText } from "@/v4/ConversationTurnRow.js";
 import { ConversationHookDetailsAction } from "@/v4/ConversationHookDetailsAction.js";
-import { toolCallRowToLegacyNode } from "@/v4/toolCallRowAdapter.js";
 
 interface ConversationTurnGroupProps {
   unit: ConversationTurnRenderUnit;
@@ -578,6 +584,117 @@ function applyV4PlatformProgressAutoOpen(rows: readonly AssistantWorkRow[]): voi
     if (v4PlatformProgressAutoOpenedIds.size > 256) {
       const oldest = v4PlatformProgressAutoOpenedIds.values().next().value;
       if (oldest !== undefined) v4PlatformProgressAutoOpenedIds.delete(oldest);
+    }
+  }
+}
+
+/**
+ * 【V4 权威】轮尾 CUA / browser_turn_end 截图 → 右栏大图（与对话内缩略图同源）。
+ * 每个 toolCallId 只自动开一次；多图取最后一张。
+ */
+const v4CuaScreenshotAutoOpenedIds = new Set<string>();
+
+function readToolCallVisualDisplay(row: Extract<AssistantWorkRow, { kind: "toolCall" }>) {
+  return row.display ?? row.output?.display;
+}
+
+function extractLatestScreenshotFromDisplay(
+  display: unknown,
+): { uri: string; mimeType: string } | null {
+  if (!display || typeof display !== "object" || Array.isArray(display)) return null;
+  const d = display as Record<string, unknown>;
+  const kind = String(d.kind || "").trim();
+
+  if (kind === "cua" && Array.isArray(d.media)) {
+    for (let i = d.media.length - 1; i >= 0; i -= 1) {
+      const item = d.media[i];
+      if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+      const m = item as Record<string, unknown>;
+      const mimeType = String(m.mimeType || "").trim() || "image/png";
+      if (mimeType && !mimeType.startsWith("image/")) continue;
+      const artifactUri = String(m.artifactUri || "").trim();
+      if (artifactUri) return { uri: artifactUri, mimeType };
+      const data = String(m.data || "").trim();
+      if (data) return { uri: `data:${mimeType};base64,${data}`, mimeType };
+    }
+  }
+
+  if (kind === "node_repl_images" && Array.isArray(d.images)) {
+    for (let i = d.images.length - 1; i >= 0; i -= 1) {
+      const item = d.images[i];
+      if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+      const img = item as Record<string, unknown>;
+      const mimeType = String(img.mimeType || "").trim() || "image/png";
+      const url = String(img.url || img.artifactUri || "").trim();
+      if (url) return { uri: url, mimeType };
+      const base64 = String(img.base64 || img.data || "").trim();
+      if (base64) return { uri: `data:${mimeType};base64,${base64}`, mimeType };
+    }
+  }
+
+  return null;
+}
+
+/** 与对话内 NodeReplImageGrid 同源：display 缺字段时仍能从 CUA / 正文推断出图。 */
+function extractLatestScreenshotFromToolRow(
+  row: Extract<AssistantWorkRow, { kind: "toolCall" }>,
+): { uri: string; mimeType: string } | null {
+  const fromDisplay = extractLatestScreenshotFromDisplay(readToolCallVisualDisplay(row));
+  if (fromDisplay) return fromDisplay;
+  try {
+    const node = toolCallRowToLegacyNode(row);
+    const model = buildNodeReplDisplayModel(node.toolCall);
+    for (let i = model.images.length - 1; i >= 0; i -= 1) {
+      const img = model.images[i];
+      if (!img) continue;
+      const mimeType = String(img.mimeType || "").trim() || "image/png";
+      const url = String(img.url || "").trim();
+      if (url) return { uri: url, mimeType };
+      const base64 = String(img.base64 || "").trim();
+      if (base64) return { uri: `data:${mimeType};base64,${base64}`, mimeType };
+    }
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
+function applyV4CuaScreenshotAutoOpen(rows: readonly AssistantWorkRow[]): void {
+  // 必须用当前 UI 会话 key 打戳；绝不能传 threadId（context.sessionId）——
+  // 否则标签写入后被会话过滤掉，对话里有图、右栏空白。
+  const sessionKey = getCurrentRightStageSessionKey() || undefined;
+  for (const row of rows) {
+    if (row.kind !== "toolCall") continue;
+    const toolCallId = String(row.toolCallId || row.rowId || "").trim();
+    if (!toolCallId) continue;
+
+    // 已开过且对当前会话可见 → 跳过；曾用错 sessionKey 导致不可见时允许再开一次。
+    if (v4CuaScreenshotAutoOpenedIds.has(toolCallId)) {
+      const existing = rightStageStore.findTab(`screenshot:${toolCallId}`);
+      if (existing && isRightStageTabVisibleForSession(existing, sessionKey)) continue;
+    }
+
+    const shot = extractLatestScreenshotFromToolRow(row);
+    if (!shot) continue;
+
+    const key = showRightStageScreenshot(shot.uri, {
+      sessionKey,
+      mimeType: shot.mimeType,
+      title: "截图",
+      dedupeKey: toolCallId,
+      layout: "half",
+    });
+    logRightStage("V4 autoOpen:cua screenshot", {
+      toolCallId,
+      opened: Boolean(key),
+      uri: shot.uri.slice(0, 120),
+      sessionKey: sessionKey || "(空→stamp current)",
+    });
+    if (!key) continue;
+    v4CuaScreenshotAutoOpenedIds.add(toolCallId);
+    if (v4CuaScreenshotAutoOpenedIds.size > 256) {
+      const oldest = v4CuaScreenshotAutoOpenedIds.values().next().value;
+      if (oldest !== undefined) v4CuaScreenshotAutoOpenedIds.delete(oldest);
     }
   }
 }
@@ -1335,6 +1452,19 @@ function ConversationTurnGroupImpl({
   useEffect(() => {
     applyV4PlatformProgressAutoOpen(unit.assistantWorkRows);
   }, [unit.assistantWorkRows]);
+  // 【V4 权威】轮尾截图同步开右栏大图；仅当前尾轮，避免冷加载历史连开多标签。
+  useEffect(() => {
+    if (!unit.isLastTurn) return;
+    applyV4CuaScreenshotAutoOpen(unit.browserTurnEndRows);
+  }, [unit.isLastTurn, unit.browserTurnEndRows]);
+  // 小V语音特例：语音全屏中 Read 文件 → 右栏预览（闸门在 applyXiaomiVoiceReadAutoOpen）。
+  useEffect(() => {
+    if (!unit.isLastTurn) return;
+    applyXiaomiVoiceReadAutoOpen(unit.assistantWorkRows, {
+      workspacePath: context.workspacePath,
+      sessionKey: context.sessionId,
+    });
+  }, [unit.isLastTurn, unit.assistantWorkRows, context.workspacePath, context.sessionId]);
   const canRenderAssistantActions =
     !unit.timelineOnly &&
     latestAssistantTextRow?.state === "complete" &&

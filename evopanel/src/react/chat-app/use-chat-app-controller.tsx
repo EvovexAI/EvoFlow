@@ -163,6 +163,13 @@ import {
   buildDefaultRightStageLauncherItems,
 } from '../components/RightStagePanel.js'
 import { switchRightStageSession } from '../../lib/right-stage/right-stage-session-memory.js'
+import {
+  isXiaomiRightStageSessionAdopted,
+  resolveRightStageFilterSessionKey,
+  updateParkedChatRightStageSessionKey,
+  XIAOMI_RIGHT_STAGE_ADOPTED_EVENT,
+  XIAOMI_RIGHT_STAGE_RELEASED_EVENT,
+} from '../../lib/right-stage/xiaomi-right-stage-session.js'
 import { KnowledgeMapPanel } from '../components/KnowledgeMapPanel.js'
 import {
   type InfoRailTab,
@@ -1583,25 +1590,51 @@ export function useChatAppController() {
     mainBodyStageClasses,
     isOpen: rightStageShellOpen,
   } = useRightStageChatBridge()
-  // 派生值（非 Hook）：任务中心独占 tab 撑开 store 时，对话侧不占宽。
-  // 勿在此插入 useMemo/useState，否则会打乱后续 Hooks 序触发 invalid-hook-call。
-  const _visibleForOpen = filterRightStageTabsForSession(rightStageTabs, selectedSessionKey)
-  const rightStageOpen =
-    !!rightStageShellOpen &&
-    (_visibleForOpen.length > 0 ||
-      !(rightStageTabs || []).length ||
-      !(rightStageTabs || []).every((t) => isTaskCenterStageSessionKey(t.sessionKey)))
   const rightStageSessionKeyRef = useRef(String(selectedSessionKey || '').trim())
+  // 小V 占用/释放时补 park，并 bump 过滤 key（resolve 读模块状态，需重渲染）。
+  const [xiaomiRightStageEpoch, setXiaomiRightStageEpoch] = useState(0)
+  useEffect(() => {
+    const onAdopted = () => {
+      updateParkedChatRightStageSessionKey(selectedSessionKey)
+      setXiaomiRightStageEpoch((n) => n + 1)
+    }
+    const onReleased = () => setXiaomiRightStageEpoch((n) => n + 1)
+    window.addEventListener(XIAOMI_RIGHT_STAGE_ADOPTED_EVENT, onAdopted)
+    window.addEventListener(XIAOMI_RIGHT_STAGE_RELEASED_EVENT, onReleased)
+    return () => {
+      window.removeEventListener(XIAOMI_RIGHT_STAGE_ADOPTED_EVENT, onAdopted)
+      window.removeEventListener(XIAOMI_RIGHT_STAGE_RELEASED_EVENT, onReleased)
+    }
+  }, [selectedSessionKey])
   // 切会话时冻结 / 恢复右栏 tabs（浏览器标签式缓存）
   useEffect(() => {
     const nextKey = String(selectedSessionKey || '').trim()
     const prevKey = rightStageSessionKeyRef.current
+    // 小V 语音占用右栏表：只更新「退出后恢复到哪」，禁止把 live 表切回聊天（会串缓存）。
+    if (isXiaomiRightStageSessionAdopted()) {
+      // 进语音时若 park 仍是空串，这里用当前选中会话补上，退出才能回到正确侧栏。
+      updateParkedChatRightStageSessionKey(nextKey)
+      rightStageSessionKeyRef.current = nextKey
+      return
+    }
     // 换会话前清掉 browser:primary 去重，否则 A/B 同 id 时 HWND 不会跟到新会话 URL。
     if (prevKey !== nextKey) resetBrowserStageSwitchTracking()
     // 同 key 也要登记「当前 UI 会话」，否则后台 agent 开浏览器无法判断归属。
     switchRightStageSession(prevKey, nextKey)
     rightStageSessionKeyRef.current = nextKey
   }, [selectedSessionKey])
+  // 派生值：任务中心独占 tab 撑开 store 时，对话侧不占宽。
+  // xiaomiRightStageEpoch：adopt/release 后重算过滤 key（模块状态不触发 React）
+  const rightStageFilterSessionKey = useMemo(
+    () => resolveRightStageFilterSessionKey(selectedSessionKey),
+    [selectedSessionKey, xiaomiRightStageEpoch],
+  )
+  const _visibleForOpen = filterRightStageTabsForSession(rightStageTabs, rightStageFilterSessionKey)
+  const rightStageOpen =
+    !!rightStageShellOpen &&
+    (_visibleForOpen.length > 0 ||
+      !(rightStageTabs || []).length ||
+      !(rightStageTabs || []).every((t) => isTaskCenterStageSessionKey(t.sessionKey)))
   const [knowledgeMapRefreshKey, setKnowledgeMapRefreshKey] = useState(0)
   const bumpKnowledgeMapRefresh = useCallback(() => {
     setKnowledgeMapRefreshKey((k) => k + 1)
@@ -5038,9 +5071,10 @@ export function useChatAppController() {
   
 
   // 浏览器面板头部开关：存在则激活，再点一次关掉这一页（不关整栏其它标签）
+  // 小V 占用期间按小V 会话过滤，避免主对话签混进右侧。
   const visibleRightStageTabs = useMemo(
-    () => filterRightStageTabsForSession(rightStageTabs, selectedSessionKey),
-    [rightStageTabs, selectedSessionKey],
+    () => filterRightStageTabsForSession(rightStageTabs, rightStageFilterSessionKey),
+    [rightStageTabs, rightStageFilterSessionKey],
   )
   const browserStageOpen = visibleRightStageTabs.some(
     (t) => normalizeRightStageKind(t.kind) === 'browser',
@@ -6325,6 +6359,7 @@ export function useChatAppController() {
     toUserFacingError,
     turnArtifacts,
     visibleRightStageTabs,
+    rightStageFilterSessionKey,
     voiceReplyEnabled,
     voiceReplyModeToSettingsPatch,
     voiceReplyPendingRef,

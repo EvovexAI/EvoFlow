@@ -15,12 +15,19 @@ import {
   setXiaomiFirstLocalPlayHandler,
   setXiaomiFrameEventHandler,
   setXiaomiPlaybackIdleHandler,
+  setXiaomiDeferClientListening,
+  flushXiaomiClientListeningIfIdle,
+  sendXiaomiClientPhase,
+  forceXiaomiOpenMic,
+  adoptXiaomiFrameSocket,
   stopXiaomiFrameSession,
 } from './session-client.js'
 import {
   noteVoiceLogPathOnce,
   voiceFeLog,
   voicePlaybackMark,
+  voiceDecisionLog,
+  noteWakeMilestone,
   flushVoiceFeLog,
   beginVoiceTrace,
   adoptVoiceTrace,
@@ -30,6 +37,16 @@ import {
   noteVoiceUiState,
   formatVoiceLocalTs,
 } from './voice-file-log.js'
+import {
+  canAcceptVadBarge,
+  canUnmuteStt,
+  deriveVoicePhase,
+  getVoicePhase,
+  installVoiceVisibilityTerminal,
+  resetVoicePhase,
+  setVoicePhase,
+  subscribeVoicePhase,
+} from './voice-phase.js'
 
 function _logDialogue(message, opts = {}) {
   voiceFeLog('对话', message, opts)
@@ -52,6 +69,9 @@ let _stream = null
 let _node = null
 /** @type {boolean} */
 let _running = false
+/** 防止 enterXw 重入 / 双 rAF 并行 start 把共享 WS 掐死（日志 readyState=-1） */
+/** @type {Promise<boolean> | null} */
+let _startLock = null
 /** @type {((s: string) => void) | null} */
 let _onTray = null
 /** @type {'recording'|'processing'|'speaking'|''} */
@@ -69,9 +89,24 @@ let _turnEndAt = 0
 let _turnEndWall = ''
 /** text of the turn awaiting first playback */
 let _turnAwaitingPlay = ''
+/** assistant_end 后等 TTS 入队的短延迟（正文常晚于 end 数百 ms） */
+let _endFlushTimer = 0
+/** @type {(() => void) | null} */
+let _unsubVisibility = null
+/** @type {(() => void) | null} */
+let _unsubPhaseVis = null
 
 export function isXiaomiFramePipelineActive() {
   return _running && isXiaomiFrameSessionActive()
+}
+
+export function isXiaomiFramePipelineStarting() {
+  return !!_startLock
+}
+
+/** 已发问、仍等助手正文（确认短句可能已在播） */
+export function isXiaomiFrameAwaitingReply() {
+  return !!_awaitingReply
 }
 
 function _setTray(next) {
@@ -87,28 +122,76 @@ function _setTray(next) {
   }
 }
 
+/** tray + VoicePhase 同步；相位是 unmute/barge 唯一门控 */
+function _syncPhase(reason = 'refresh') {
+  const next = deriveVoicePhase({
+    running: _running,
+    playing: isXiaomiFramePlaying(),
+    awaitingReply: _awaitingReply,
+    sending: _sending,
+    pending: _pendingTurns.length,
+  })
+  const changed = setVoicePhase(next, reason)
+  sendXiaomiClientPhase(getVoicePhase())
+  // 回到聆听且可 unmute → 补发（确认句 defer 解除后）
+  if (changed && next === 'listening' && canUnmuteStt()) {
+    flushXiaomiClientListeningIfIdle()
+  }
+  return next
+}
+
 /** 按优先级重算：播报 > 思考(等模型/排队) > 聆听。三态对齐舞台文案。 */
 function _refreshTray() {
   if (!_running) {
     _setTray('')
+    _syncPhase('stopped')
     return
   }
   if (isXiaomiFramePlaying()) {
     _setTray('speaking')
+    _syncPhase('playing')
     return
   }
   // 排队里还有待发句时保持 processing，避免 finally 里先闪回 recording 再进思考
   if (_sending || _awaitingReply || _pendingTurns.length > 0) {
+    // 仅在「本会本该回聆听却被摁住」时打决策，避免每次 refresh 刷屏
+    if (_tray === 'recording' || _tray === 'speaking' || _tray === '') {
+      voiceDecisionLog('keep_think', {
+        sending: _sending,
+        awaitingReply: _awaitingReply,
+        pending: _pendingTurns.length,
+        assistantEnded: _assistantEnded,
+        prevTray: _tray || 'empty',
+        phase: getVoicePhase(),
+      })
+    }
     _setTray('processing')
+    _syncPhase('awaiting')
     return
   }
   _setTray('recording')
+  _syncPhase('idle_listen')
 }
 
 /**
  * @param {{ onTrayState?: (s: string) => void }} [opts]
  */
 export async function startXiaomiFramePipeline(opts = {}) {
+  if (_running) return true
+  if (_startLock) {
+    voiceFeLog('会话', 'Frame 管线启动中 → 等待已有 start（防并行掐 WS）')
+    return _startLock
+  }
+  _startLock = _startXiaomiFramePipelineInner(opts).finally(() => {
+    _startLock = null
+  })
+  return _startLock
+}
+
+/**
+ * @param {{ onTrayState?: (s: string) => void }} [opts]
+ */
+async function _startXiaomiFramePipelineInner(opts = {}) {
   if (_running) return true
   _onTray = opts.onTrayState || null
   _assistantPlain = ''
@@ -120,9 +203,22 @@ export async function startXiaomiFramePipeline(opts = {}) {
     return false
   }
 
+  // 确认短句「行」播完仍等正文：勿 client_listening（与 VoicePhase.thinking 双保险）
+  setXiaomiDeferClientListening(
+    () => (_awaitingReply && !_assistantEnded) || !canUnmuteStt(),
+  )
+  _unsubVisibility = installVoiceVisibilityTerminal()
+  // 切后台/回前台：重算 tray + 补发 listening（hidden hold 解除后）
+  _unsubPhaseVis = subscribeVoicePhase((_n, _p, reason) => {
+    if (String(reason || '').startsWith('document_') && _running) {
+      _refreshTray()
+    }
+  })
+
   setXiaomiFirstLocalPlayHandler(({ seq, at }) => {
-    _awaitingReply = false
+    // 确认句开播 ≠ 正文结束：保持 _awaitingReply，tray 进播报
     _setTray('speaking')
+    _syncPhase('first_local_play')
     // Frame 本地开播时挂起 continuous ASR，避免回声触发 legacy watchdog stall
     void import('../background-voice.js')
       .then((m) => m.notifyTTSStarted?.())
@@ -140,15 +236,34 @@ export async function startXiaomiFramePipeline(opts = {}) {
 
   setXiaomiPlaybackIdleHandler((idle) => {
     if (!idle) {
-      _awaitingReply = false
       _setTray('speaking')
+      _syncPhase('playback_active')
       return
     }
     // 本地听完 → 才回聆听；恢复 continuous ASR（若仍开着）
     void import('../background-voice.js')
       .then((m) => m.notifyTTSStopped?.())
       .catch(() => {})
+    // 确认句播完但模型/正文未结束：保持「思考」，勿闪回聆听
+    if (_awaitingReply && !_assistantEnded) {
+      voiceDecisionLog('idle_keep_awaiting', {
+        awaitingReply: true,
+        assistantEnded: false,
+        playing: isXiaomiFramePlaying(),
+      })
+      _refreshTray()
+      return
+    }
     _awaitingReply = false
+    // 本轮播完回聆听：清空「你」区旧稿，避免下一轮开口前仍挂着上轮用户句
+    _partial = ''
+    void import('../background-voice-bridge.js')
+      .then((b) => {
+        b.updateVoicePartialText?.('')
+        b.clearPendingVoiceSend?.()
+      })
+      .catch(() => {})
+    noteVoicePanelDisplay('', { immediate: true, source: '播完回聆听清空' })
     _refreshTray()
   })
 
@@ -193,8 +308,14 @@ export async function startXiaomiFramePipeline(opts = {}) {
         playText,
         `Frame tts_start seq=${m.seq ?? ''} at=${wall}（后端音频到前端，尚未本地 play）`,
       )
-      _awaitingReply = false
+      // 正文 TTS 已到：取消 assistant_end 后的安全 flush，避免误 unmute
+      if (_endFlushTimer) {
+        window.clearTimeout(_endFlushTimer)
+        _endFlushTimer = 0
+      }
+      // 勿清 _awaitingReply：确认短句 tts_start 之后模型往往还要跑几十秒
       _setTray('speaking')
+      _syncPhase('tts_start')
     }
     if (type === 'tts_end') {
       const playText = String(m.text || '').trim()
@@ -209,17 +330,60 @@ export async function startXiaomiFramePipeline(opts = {}) {
     if (type === 'interrupted') {
       const reason = String(m.reason || '')
       voiceFeLog('打断', `前端收到 interrupted（reason=${reason}），已停播`)
+      // 相位门控：非 speaking 的 vad_barge 一律忽略（思考/聆听误触不 abort）
+      const phaseBlockVad =
+        reason === 'vad_barge_in' && !canAcceptVadBarge()
+      if (phaseBlockVad) {
+        voiceDecisionLog('ignore_vad_barge', {
+          reason,
+          phase: getVoicePhase(),
+          playing: isXiaomiFramePlaying(),
+          awaitingReply: _awaitingReply,
+          sending: _sending,
+          assistantEnded: _assistantEnded,
+        })
+        voiceFeLog(
+          '打断',
+          `忽略 vad_barge（phase=${getVoicePhase()}，仅 speaking 可抢话）`,
+        )
+        _refreshTray()
+        return
+      }
+      // stopAll / wake：本地队列已被 teardown，若仍 keep awaiting + reset(assistant_begin)
+      // → 舞台卡「思考」、后端空开 turn（日志 18:19:29 turn=5/6）。播完/停播应收口回聆听。
+      if (reason === 'stopAllAssistantSpeech' || reason === 'wake-word-hit') {
+        const wasAwaiting = _awaitingReply
+        _awaitingReply = false
+        // 只清增量状态，不要 sendXiaomiAssistantBegin（那会空开一轮）
+        _assistantPlain = ''
+        _assistantEnded = false
+        _stashBody = ''
+        _stashFinal = false
+        voiceDecisionLog('stopall_release_think', {
+          reason,
+          wasAwaiting,
+          sending: _sending,
+          playing: isXiaomiFramePlaying(),
+        })
+        voiceFeLog('打断', `stopAll/wake 停播 → 释放思考态回聆听（不清模型 run）`)
+        _refreshTray()
+        return
+      }
       // 后端已停合成；前端同时丢弃迟到的正文增量，避免旧回复回流成语音。
       resetXiaomiFrameAssistantFeed()
       _awaitingReply = false
       _refreshTray()
       if (reason === 'client_barge_in') {
-        // 前端自己发起的打断：模型推理已经在 interruptXiaomiFrame() 里取消过，
-        // 这里再取消一次会误伤「打断后刚开始的新一轮」。
+        // 前端主动 barge：勿再 abort（调用方已编排）
         return
       }
-      // VAD 触发的打断来自后端，前端不知道 → 这里补上「取消模型推理」，
-      // 否则旧回复会继续流式生成（Pipecat 里由 InterruptionFrame 取消 LLM 推理）。
+      // VAD 真打断（正在播报）：取消模型推理
+      voiceDecisionLog('abort_on_vad_barge', {
+        reason,
+        playing: isXiaomiFramePlaying(),
+        awaitingReply: _awaitingReply,
+        sending: _sending,
+      })
       void _abortModelRunForBargeIn()
     }
     if (type === 'metrics') {
@@ -251,23 +415,25 @@ export async function startXiaomiFramePipeline(opts = {}) {
     }
     await pauseWakeEarForVoiceSession()
     voiceFeLog('会话', 'Frame 管线接管麦克风 → 已停 continuous + 唤醒耳')
+    noteWakeMilestone('frame_mic_taken')
   } catch {
     /* ignore */
   }
 
   try {
+    // Frame 只上行 PCM、不听本地返送：关 AEC，避免浏览器把输入压成近静音（peak≈0.007）
     _stream = await navigator.mediaDevices.getUserMedia({
       audio: {
-        echoCancellation: true,
+        echoCancellation: false,
         noiseSuppression: true,
-        autoGainControl: false,
+        autoGainControl: true,
         channelCount: 1,
       },
     })
   } catch (e) {
     voiceFeLog('会话', `麦克风权限/采麦失败：${e?.message || e}`)
     console.warn('[xiaomi-frame] mic failed', e)
-    stopXiaomiFrameSession()
+    // 勿 stopXiaomiFrameSession：并行/重试 start 可能共用同一 WS，掐掉会 readyState=-1
     return false
   }
 
@@ -275,25 +441,92 @@ export async function startXiaomiFramePipeline(opts = {}) {
   const src = _actx.createMediaStreamSource(_stream)
   // ScriptProcessor fallback (widely available); 4096 ≈ 256ms @16k
   const proc = _actx.createScriptProcessor(4096, 1, 1)
+  let _pcmChunks = 0
+  let _pcmPeak = 0
   proc.onaudioprocess = (ev) => {
     if (!_running) return
     const input = ev.inputBuffer.getChannelData(0)
     const i16 = new Int16Array(input.length)
+    let peak = 0
     for (let i = 0; i < input.length; i++) {
       const s = Math.max(-1, Math.min(1, input[i]))
+      if (Math.abs(s) > peak) peak = Math.abs(s)
       i16[i] = s < 0 ? s * 0x8000 : s * 0x7fff
+    }
+    _pcmChunks += 1
+    if (peak > _pcmPeak) _pcmPeak = peak
+    // 约每 2s 打一次能量，确认不是「推了全零 PCM」
+    if (_pcmChunks === 8 || _pcmChunks % 50 === 0) {
+      voiceFeLog(
+        '会话',
+        `PCM 能量 chunks=${_pcmChunks} peak=${_pcmPeak.toFixed(4)}（<0.01 基本是静音/AEC 吃掉）`,
+      )
+      _pcmPeak = 0
     }
     sendXiaomiPcm(i16.buffer)
   }
   src.connect(proc)
-  proc.connect(_actx.destination)
+  // 关键：绝不能 proc→destination。麦声进喇叭 + echoCancellation → 输入被消成接近 0 → 后端聋。
+  // ScriptProcessor 仍需挂到图上才会回调：经 gain=0 哑接。
+  const sink = _actx.createGain()
+  sink.gain.value = 0
+  proc.connect(sink)
+  sink.connect(_actx.destination)
   _node = proc
   _running = true
   _awaitingReply = false
-  voiceFeLog('会话', '采麦已启动，正在向后端推送 PCM')
+  // connect 返回的 ws 仍 OPEN 时，即使模块 _ws 被 onclose 清掉也要挂回
+  adoptXiaomiFrameSocket(ws)
+  voiceFeLog('会话', '采麦已启动，正在向后端推送 PCM（哑接 destination，防 AEC 吞麦）')
+  noteWakeMilestone('frame_pcm_ready')
   _flushStashedAssistant()
   _setTray('recording')
+  _syncPhase('pipeline_ready')
+  let opened = forceXiaomiOpenMic('pipeline_ready', ws)
+  if (!opened) {
+    voiceFeLog(
+      '会话',
+      `开麦失败 hintState=${ws?.readyState ?? -1} → 重连 Frame session 并重试`,
+    )
+    try {
+      stopXiaomiFrameSession()
+    } catch {
+      /* ignore */
+    }
+    const ws2 = await connectXiaomiFrameSession()
+    if (ws2) {
+      await new Promise((r) => setTimeout(r, 500))
+      adoptXiaomiFrameSocket(ws2)
+      opened = forceXiaomiOpenMic('pipeline_ready_retry', ws2)
+    }
+  }
+  voiceDecisionLog('pipeline_ready_open_mic', {
+    phase: getVoicePhase(),
+    canUnmute: canUnmuteStt() ? 1 : 0,
+    opened: opened ? 1 : 0,
+    ws: isXiaomiFrameSessionActive() ? 1 : 0,
+    hintState: ws?.readyState ?? -1,
+  })
+  // 口头「在呢」：等开麦成功后用 HTTP 固定句，不走 speech-session、不 notifyTTS（防抢麦）
+  if (opened) {
+    void _playWakeAckSafe()
+  } else {
+    voiceFeLog('会话', '开麦仍失败 → 跳过口头「在呢」（会话未就绪）')
+  }
   return true
+}
+
+async function _playWakeAckSafe() {
+  try {
+    voiceFeLog('会话', '播放唤醒应答「在呢」…')
+    const { playWakeChime } = await import('../wake-ack.js')
+    await playWakeChime?.()
+    const { playFixedVoiceSfx } = await import('../voice-fixed-sfx.js')
+    await playFixedVoiceSfx('在呢')
+    voiceFeLog('会话', '唤醒应答「在呢」播放完成')
+  } catch (e) {
+    voiceFeLog('会话', `唤醒应答「在呢」失败：${e?.message || e}`)
+  }
 }
 
 /** Cancel the in-flight model run (barge-in must stop generation, not just playback). */
@@ -329,29 +562,43 @@ async function _sendTurn(text) {
   }
   _sending = true
   _awaitingReply = true
+  _assistantEnded = false
+  if (_endFlushTimer) {
+    window.clearTimeout(_endFlushTimer)
+    _endFlushTimer = 0
+  }
   _setTray('processing')
+  let releasedSending = false
+  const releaseSending = () => {
+    if (releasedSending) return
+    releasedSending = true
+    _sending = false
+    const next = _pendingTurns.pop()
+    _pendingTurns.length = 0
+    if (next) {
+      void _sendTurn(next)
+    } else {
+      _refreshTray()
+    }
+  }
   try {
     const { setPreferXiaomiVoice } = await import('../background-voice-bridge.js')
     setPreferXiaomiVoice(true)
     // 发送字 + 发送于/上屏于 由 sendXiaomiChat → noteVoicePanelSend 统一落盘
     noteVoicePanelSend(text, { source: 'Frame发问', detail: 'voiceInitiated=true' })
     const { sendXiaomiChat } = await import('../../components/global-assistant/assistant-session.js')
-    await sendXiaomiChat(text, { voiceInitiated: true })
+    // onSubmitted：prep 完立刻释放 _sending，勿等 chatSend 整轮 stream（曾卡 13s+）
+    await sendXiaomiChat(text, {
+      voiceInitiated: true,
+      onSubmitted: () => releaseSending(),
+    })
     _logDialogue(`用户发送完成 完成于=${formatVoiceLocalTs()}：「${text}」`)
   } catch (e) {
     _logDialogue(`用户发送失败 于=${formatVoiceLocalTs()}：${e?.message || e}｜「${text}」`)
     console.warn('[xiaomi-frame] send turn failed', e)
     _awaitingReply = false
   } finally {
-    _sending = false
-    const next = _pendingTurns.pop()
-    _pendingTurns.length = 0
-    if (next) {
-      // 不先 _refreshTray→recording，直接续发，状态保持「思考」
-      void _sendTurn(next)
-    } else {
-      _refreshTray()
-    }
+    releaseSending()
   }
 }
 
@@ -372,8 +619,30 @@ export function stopXiaomiFramePipeline() {
   _turnEndAt = 0
   _turnEndWall = ''
   _turnAwaitingPlay = ''
+  if (_endFlushTimer) {
+    window.clearTimeout(_endFlushTimer)
+    _endFlushTimer = 0
+  }
   setXiaomiFirstLocalPlayHandler(null)
   setXiaomiPlaybackIdleHandler(null)
+  setXiaomiDeferClientListening(null)
+  if (_unsubVisibility) {
+    try {
+      _unsubVisibility()
+    } catch {
+      /* ignore */
+    }
+    _unsubVisibility = null
+  }
+  if (_unsubPhaseVis) {
+    try {
+      _unsubPhaseVis()
+    } catch {
+      /* ignore */
+    }
+    _unsubPhaseVis = null
+  }
+  resetVoicePhase('pipeline_stop')
   try {
     flushXiaomiAsr()
   } catch {
@@ -474,6 +743,22 @@ export function feedXiaomiFrameAssistant(fullText, { final = false } = {}) {
       `本轮结束累计 ${plain.length} 字，冲刷残句`,
     )
     sendXiaomiAssistantEnd()
+    // 正文 end 后 TTS 常晚 1–2s（火山 ttfb）；旧 1.2s 就 flush → 误 unmute →
+    // 回声 stopAll → 只播一句（日志 18:30:23→25）。等 tts_start 取消；仅超久无播才兜底。
+    if (_endFlushTimer) window.clearTimeout(_endFlushTimer)
+    _endFlushTimer = window.setTimeout(() => {
+      _endFlushTimer = 0
+      if (!_running || !_assistantEnded) return
+      if (isXiaomiFramePlaying()) return
+      voiceDecisionLog('end_flush_timeout', {
+        awaitingReply: _awaitingReply,
+        playing: false,
+      })
+      voiceFeLog('管线', '正文结束已久仍无本地播报 → 释放思考并 client_listening')
+      _awaitingReply = false
+      _refreshTray()
+      flushXiaomiClientListeningIfIdle()
+    }, 8000)
     // 注意：不要清空 _assistantPlain。清空后若再进 feed，会把全文当 delta 再推一遍。
   }
   return true

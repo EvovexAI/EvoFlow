@@ -232,22 +232,45 @@ export async function openXiaomiRightStage(opts: OpenXiaomiRightStageOpts = {}):
 export async function toggleXiaomiRightStage(opts: OpenXiaomiRightStageOpts = {}): Promise<void> {
   let voiceOn = false
   try {
-    const { isXwVoiceMode, exitXwVoiceMode } = await import('../xw-voice-mode.js')
+    const { isXwVoiceMode } = await import('../xw-voice-mode.js')
     voiceOn = isXwVoiceMode()
-    if (voiceOn) exitXwVoiceMode()
   } catch {
     /* ignore */
   }
 
-  if (voiceOn || isXiaomiRightStageActive()) {
-    rightStageStore.collapse()
-    syncXiaomiStageDomHint(false)
-    syncShellXiaomiButton(false)
+  // 关语音对话区 = 退出整套语音（停听/停播）；走 closeXiaomiVoice 才会落「关闭退出→已经退出」
+  if (voiceOn) {
     try {
-      window.dispatchEvent(new CustomEvent('evopanel:xiaomi-stage-changed', { detail: { open: false } }))
+      const { closeXiaomiVoice } = await import('../xiaomi-voice-close.js')
+      await closeXiaomiVoice({ reason: 'button' })
     } catch {
-      /* ignore */
+      try {
+        const { exitXwVoiceMode } = await import('../xw-voice-mode.js')
+        exitXwVoiceMode()
+      } catch {
+        /* ignore */
+      }
     }
+  }
+
+  if (voiceOn || isXiaomiRightStageActive()) {
+    const finishClose = () => {
+      rightStageStore.collapse()
+      syncXiaomiStageDomHint(false)
+      syncShellXiaomiButton(false)
+      try {
+        window.dispatchEvent(new CustomEvent('evopanel:xiaomi-stage-changed', { detail: { open: false } }))
+      } catch {
+        /* ignore */
+      }
+    }
+    // 语音刚退：等窄槽位贴上再 collapse/park，避免大 HWND 盖住随后打开的图片预览。
+    if (voiceOn) {
+      const { afterXwVoiceExitSettle } = await import('../xw-voice-embed-settle.js')
+      afterXwVoiceExitSettle({ then: finishClose })
+      return
+    }
+    finishClose()
     return
   }
   if (isXiaomiRightStageVisible()) {

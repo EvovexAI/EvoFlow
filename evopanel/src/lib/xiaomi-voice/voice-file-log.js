@@ -12,6 +12,10 @@
  *   - [面板] 上屏：「…」 at=本地时间  → 左侧「你」/草稿当时显示的字
  *   - [对话] 发送：「…」 发送于=… 上屏于=… → 真正发出去的字 + 两个时间点
  *   - [状态] 聆听/播报/处理中/思考中/空闲 at=… → 舞台当时状态（播报中不会记成聆听）
+ *   - [已经进入] / [关闭退出] / [已经退出] → 语音对话区闸门（关面板 = 退出整套听麦/播报）
+ *   - [时效] 唤醒链路里程碑 + since_hit_ms → 排查「唤醒慢」
+ *   - [决策] unmute/defer/barge/tray 取舍 + 关键布尔 → 排查卡顿/误打断/状态闪回
+ *   - [决策] phase from→to / client_phase → VoicePhase 门控（listening 才 unmute，speaking 才 barge）
  */
 
 import { apiUrl } from '../api-client.js'
@@ -45,6 +49,12 @@ let _lastSendAtMs = 0
 
 /** 最近一次 UI 状态中文标签 */
 let _uiStateLabel = ''
+
+/**
+ * 语音对话区闸门：entered | closing | exited
+ * 关面板 ≡ 退出整套语音；日志 stage 固定为「已经进入 / 关闭退出 / 已经退出」。
+ */
+let _modeGate = /** @type {'entered' | 'closing' | 'exited'} */ ('exited')
 
 /** tray / 舞台 state → 日志用中文（仅三态：聆听 / 思考 / 播报） */
 const UI_STATE_LABEL = {
@@ -264,6 +274,80 @@ export function getLastVoiceUiStateLabel() {
   return _uiStateLabel
 }
 
+/** @returns {'entered' | 'closing' | 'exited'} */
+export function getVoiceModeGate() {
+  return _modeGate
+}
+
+/**
+ * 语音对话区开/关闸门打点（关面板 = 退出整套语音体系）。
+ * 落盘 stage 固定三选一，便于 grep：
+ *   - 已经进入
+ *   - 关闭退出
+ *   - 已经退出
+ *
+ * @param {'enter' | 'closing' | 'exited'} phase
+ * @param {{
+ *   reason?: string,
+ *   source?: string,
+ *   message?: string,
+ *   force?: boolean,
+ * }} [opts]
+ */
+export function noteVoiceModeGate(phase, opts = {}) {
+  try {
+    const raw = String(phase || '').trim()
+    /** @type {'enter' | 'closing' | 'exited'} */
+    const key = raw === 'enter' || raw === 'closing' || raw === 'exited' ? raw : 'exited'
+    const stage =
+      key === 'enter' ? '已经进入' : key === 'closing' ? '关闭退出' : '已经退出'
+
+    // 去重：同态不刷屏；关面板时若已不在岗 → 记「已经退出」一眼看清
+    if (key === 'closing' && _modeGate === 'exited' && !opts.force) {
+      const at = formatVoiceLocalTs()
+      const reason = opts.reason ? ` reason=${opts.reason}` : ''
+      const source = opts.source ? ` source=${opts.source}` : ''
+      voiceFeLog(
+        '已经退出',
+        `关闭时发现语音对话区已不在岗（不应再听用户说话） at=${at}${reason}${source}`,
+      )
+      void flushVoiceFeLog()
+      return
+    }
+    if (key === 'closing' && _modeGate === 'closing' && !opts.force) return
+    if (key === 'exited' && _modeGate === 'exited' && !opts.force) return
+    if (key === 'enter' && _modeGate === 'entered' && !opts.force) {
+      const at = formatVoiceLocalTs()
+      const reason = opts.reason ? ` reason=${opts.reason}` : ''
+      const source = opts.source ? ` source=${opts.source}` : ''
+      voiceFeLog(
+        '已经进入',
+        `仍在语音对话区（再次确认进入） at=${at}${reason}${source}`,
+      )
+      void flushVoiceFeLog()
+      return
+    }
+
+    _modeGate = key === 'enter' ? 'entered' : key === 'closing' ? 'closing' : 'exited'
+    if (key === 'exited') _uiStateLabel = ''
+
+    const at = formatVoiceLocalTs()
+    const reason = opts.reason ? ` reason=${opts.reason}` : ''
+    const source = opts.source ? ` source=${opts.source}` : ''
+    const extra = opts.message ? ` ${clip(opts.message, 200)}` : ''
+    const defaultMsg =
+      key === 'enter'
+        ? '语音对话区已打开，开始听麦/对话'
+        : key === 'closing'
+          ? '关闭语音对话区 → 退出整套语音（停听/停播，仅留唤醒耳）'
+          : '语音对话区已关闭，语音体系已退出（不应再听用户说话）'
+    voiceFeLog(stage, `${defaultMsg}${extra} at=${at}${reason}${source}`)
+    void flushVoiceFeLog()
+  } catch {
+    /* never throw */
+  }
+}
+
 /**
  * @param {string} stage 中文阶段，如「流式正文」「语音合成」「语音播放」
  * @param {string} message
@@ -306,6 +390,61 @@ export function voicePlaybackMark(kind, content = '', extra = '') {
     const quoted = body ? `「${body}」` : ''
     const msg = [mid, quoted].filter(Boolean).join(' ') || kind
     voiceFeLog(kind || '过程', msg)
+  } catch {
+    /* ignore */
+  }
+}
+
+/**
+ * 决策点打点：unmute / barge / tray / defer。flags 会 JSON 进 detail，便于事后对照。
+ * @param {string} action 短动作名，如 defer_listening / ignore_vad_barge / keep_think
+ * @param {Record<string, unknown>} [flags]
+ */
+export function voiceDecisionLog(action, flags = {}) {
+  try {
+    const keys = Object.keys(flags || {})
+    const compact = keys
+      .map((k) => {
+        const v = flags[k]
+        if (typeof v === 'boolean') return `${k}=${v ? 1 : 0}`
+        if (v == null) return `${k}=-`
+        return `${k}=${String(v)}`
+      })
+      .join(' ')
+    voiceFeLog('决策', `${action}${compact ? ` ${compact}` : ''}`, {
+      detail: keys.length ? JSON.stringify(flags) : undefined,
+    })
+  } catch {
+    /* ignore */
+  }
+}
+
+/** @type {number} */
+let _wakeHitAt = 0
+
+/** 唤醒命中起点（后续 noteWakeMilestone 算 since_hit_ms） */
+export function markWakeHitClock() {
+  _wakeHitAt = performance.now()
+}
+
+/**
+ * 唤醒链路里程碑。grep「时效」+「唤醒」即可看 hit→面板→Frame 各段耗时。
+ * @param {string} step 如 open_panel / frame_pcm_ready
+ * @param {Record<string, unknown>} [extra]
+ */
+export function noteWakeMilestone(step, extra = {}) {
+  try {
+    const since =
+      _wakeHitAt > 0 ? Math.round(performance.now() - _wakeHitAt) : null
+    const bits = Object.keys(extra || {})
+      .map((k) => `${k}=${extra[k]}`)
+      .join(' ')
+    voiceFeLog(
+      '时效',
+      `唤醒 ${step}` +
+        (since != null ? ` since_hit_ms=${since}` : '') +
+        (bits ? ` ${bits}` : ''),
+    )
   } catch {
     /* ignore */
   }

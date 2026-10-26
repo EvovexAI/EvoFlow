@@ -98,6 +98,47 @@ def _has_readable(text: str) -> bool:
     return bool(_READABLE.search(text or ""))
 
 
+def _norm_tts_cover(text: str) -> str:
+    """Collapse whitespace for spoken-vs-plain coverage checks."""
+    return re.sub(r"\s+", "", strip_markdown_light(text or ""))
+
+
+def _plain_unspoken(plain: str, spoken_parts: list[str]) -> str | None:
+    """Return text still missing from TTS this turn, or None if plain is covered.
+
+    Ack short phrases are in spoken_parts but usually absent from plain; we
+    match the longest spoken suffix that is a prefix of plain, then return the
+    remainder. If nothing overlaps, return the full plain.
+    """
+    target = _norm_tts_cover(plain)
+    if not target:
+        return None
+    spoken_norm = _norm_tts_cover("".join(spoken_parts or []))
+    if not spoken_norm:
+        return strip_markdown_light(plain).strip() or None
+    if target in spoken_norm:
+        return None
+    # Longest suffix of spoken that is a prefix of target (ack + partial body)
+    best = 0
+    for i in range(len(spoken_norm)):
+        suf = spoken_norm[i:]
+        if target.startswith(suf) and len(suf) > best:
+            best = len(suf)
+    if best <= 0:
+        return strip_markdown_light(plain).strip() or None
+    # Map normalized prefix length back onto original plain (best-effort)
+    kept = 0
+    for idx, ch in enumerate(plain):
+        if ch.isspace():
+            continue
+        kept += 1
+        if kept >= best:
+            rest = strip_markdown_light(plain[idx + 1 :]).strip()
+            rest = rest.lstrip("，,、；; ")
+            return rest or None
+    return None
+
+
 class _BotGatedVADStartStrategy(VADUserTurnStartStrategy):
     """VAD start，但 bot 仍在对用户出声时不打断（防喇叭回声自打断）。
 
@@ -369,13 +410,32 @@ class PipecatVoiceBridge(FrameProcessor):
         self._assistant_plain = ""
         # 本轮是否已走进合成（on_tts_request）；用于 End 后兜底整段播报
         self._turn_tts_count = 0
+        # 本轮已送去合成的文本（含确认短句）；End 后用覆盖检查补残句
+        self._turn_spoken_texts: list[str] = []
         self._end_fallback_task: asyncio.Task[None] | None = None
+        # FE VoicePhase：idle|listening|thinking|speaking（unmute/barge 门控）
+        self._client_phase = "listening"
+        # True：正文不流式分句，等 assistant_end 再整段 TTS（防残句少播）
+        self._hold_body_tts_until_end = True
 
     # ── public API used by SpeechSession ───────────────────────────────
 
     @property
     def turn(self) -> int:
         return self._turn
+
+    @property
+    def client_phase(self) -> str:
+        return self._client_phase or "listening"
+
+    def set_client_phase(self, phase: str | None) -> None:
+        p = (phase or "listening").strip().lower()
+        if p not in ("idle", "listening", "thinking", "speaking"):
+            p = "listening"
+        prev = self._client_phase
+        self._client_phase = p
+        if prev != p:
+            voice_log("决策", f"client_phase {prev} → {p}")
 
     def set_turn_handler(self, handler: TurnHandler | None = None) -> None:
         self._on_user_turn = handler
@@ -386,6 +446,7 @@ class PipecatVoiceBridge(FrameProcessor):
         self._ignore_assistant = False
         self._assistant_plain = ""
         self._turn_tts_count = 0
+        self._turn_spoken_texts = []
         self._cancel_end_fallback()
         self._turn += 1
         # 上轮 End 与分句竞态时，残句会留在 aggregator，混进下一轮（日志：turn2 先合成「更细的…」）
@@ -395,6 +456,10 @@ class PipecatVoiceBridge(FrameProcessor):
         if self._ignore_assistant or not text:
             return
         self._assistant_plain = (self._assistant_plain or "") + text
+        # 默认：只攒正文，等 End 整段播。流式分句曾在 End 竞态下少播尾句
+        # （日志 19:01:44 只播到「飞书还开着呢」，丢了「你想让我点哪儿？」）。
+        if self._hold_body_tts_until_end:
+            return
         await self.queue_frame(
             LLMTextFrame(text=text, turn=self._turn), FrameDirection.DOWNSTREAM
         )
@@ -408,14 +473,42 @@ class PipecatVoiceBridge(FrameProcessor):
         else:
             voice_log("对话", "助手回复结束（空正文）")
         turn = self._turn
+        if self._hold_body_tts_until_end:
+            # 流式 delta 只攒字；End 时原子写入 Start+Text+End 到 Pipecat。
+            # 勿经 Evo queue 拆成两帧：曾出现 Text 入管、End 见 _in_llm_turn=False
+            # 被跳过 → 尾句卡缓冲，1s 兜底再灌一遍 = 多播半句（日志 19:29:28）。
+            await self._close_llm_turn_and_drop_residual(reason="assistant_end_hold")
+            if plain and _has_readable(plain) and not self._ignore_assistant:
+                body = strip_markdown_light(plain)
+                voice_log(
+                    "分句",
+                    f"正文齐 → 整段入分句管线 turn={turn}：「{body[:80]}」"
+                    + ("…" if len(body) > 80 else ""),
+                )
+                await self._push_hold_body_to_tts(body)
+                # hold 已保证 End 进管；勿再 coverage 补播（会与未完成的切句竞态重复）
+            return
         await self.queue_frame(
             LLMResponseEndFrame(turn=turn), FrameDirection.DOWNSTREAM
         )
         # 禁止同步 flush aggregator（与 pipe 内 aggregate 竞态会截断）。
         # 若 EndFrame 因 _in_llm_turn 竞态未进 pipe / flush 空转，本轮会完全无合成
-        # （日志 14:19：有完整正文却无「切出完整句」）。延迟兜底整段 TTSSpeakFrame。
+        # （日志 14:19：有完整正文却无「切出完整句」）。延迟兜底整段。
         if plain and _has_readable(plain) and not self._ignore_assistant:
             self._schedule_end_tts_fallback(plain, turn)
+
+    async def _push_hold_body_to_tts(self, body: str) -> None:
+        """Atomically feed one full assistant reply into Pipecat TTS aggregation."""
+        await self._ensure_pipecat()
+        if not self._pipe_worker or not self._ready:
+            return
+        self._in_llm_turn = True
+        try:
+            await self._pipe_worker.queue_frame(LLMFullResponseStartFrame())
+            await self._pipe_worker.queue_frame(PipeLLMTextFrame(text=body))
+            await self._pipe_worker.queue_frame(LLMFullResponseEndFrame())
+        finally:
+            self._in_llm_turn = False
 
     def _cancel_end_fallback(self) -> None:
         t = self._end_fallback_task
@@ -424,25 +517,31 @@ class PipecatVoiceBridge(FrameProcessor):
             t.cancel()
 
     def _schedule_end_tts_fallback(self, plain: str, turn: int) -> None:
+        """Streaming-mode only: if nothing body-sized was synthesized, push once."""
         self._cancel_end_fallback()
 
         async def _run() -> None:
             try:
-                await asyncio.sleep(0.45)
+                await asyncio.sleep(1.2)
                 if self._ignore_assistant or turn != self._turn:
-                    return
-                if self._turn_tts_count > 0:
                     return
                 if not self._pipe_worker or not self._ready:
                     return
+                # 仅「完全没进正文合成」才兜底；勿按覆盖率补段（易与在途切句重复）
+                body_hit = any(
+                    len(_norm_tts_cover(t)) >= 8 for t in (self._turn_spoken_texts or [])
+                )
+                if body_hit:
+                    return
+                missing = strip_markdown_light(plain).strip()
+                if not missing or not _has_readable(missing):
+                    return
                 voice_log(
                     "分句",
-                    f"End 后本轮仍无合成 → 兜底整段播报 turn={turn}：「{plain[:80]}」"
-                    + ("…" if len(plain) > 80 else ""),
+                    f"End 后仍无正文合成 → 兜底整段 turn={turn}：「{missing[:80]}」"
+                    + ("…" if len(missing) > 80 else ""),
                 )
-                await self._pipe_worker.queue_frame(PipeTTSSpeakFrame(text=plain))
-                # 清掉 aggregator 残句，避免下一轮 begin 再混入
-                await self._drop_tts_residual(reason="end_tts_fallback")
+                await self._push_hold_body_to_tts(missing)
             except asyncio.CancelledError:
                 return
             except Exception:
@@ -488,6 +587,16 @@ class PipecatVoiceBridge(FrameProcessor):
 
     async def release_stt_unmute_hold(self, *, reason: str = "client_listening") -> None:
         """FE local playback drained — allow STT to unmute for the next turn."""
+        # 思考/播报相位：暂缓释放（FE 误发或 barge 附带 release 时）
+        # 真打断 reason 以 barge: 开头仍放行，避免打断后永远哑麦
+        phase = self._client_phase or "listening"
+        is_barge_release = str(reason or "").startswith("barge:")
+        if phase in ("thinking", "speaking") and not is_barge_release:
+            voice_log(
+                "决策",
+                f"暂缓 unmute hold 释放 phase={phase} reason={reason}",
+            )
+            return
         was_audible = self._bot_audible
         self._bot_audible = False
         if self._stt and hasattr(self._stt, "release_unmute_hold"):
@@ -646,9 +755,12 @@ class PipecatVoiceBridge(FrameProcessor):
         turn_strategies, turn_mode = _build_user_turn_strategies(
             silence_s=self._silence_s, host=self
         )
+        # 外层兜底：旧值 max(5.0, …) 在火山只有 interim、SpeechTimeout 收不了口时
+        # 硬等满 5s 才 turn_end（日志说完→定稿≈5.3s）。配合 STT vad_stop 冲定稿，
+        # 正常路径走 0.9s SpeechTimeout；这里只作短兜底。
         turn = UserTurnProcessor(
             user_turn_strategies=turn_strategies,
-            user_turn_stop_timeout=max(5.0, self._silence_s + 3.0),
+            user_turn_stop_timeout=max(1.5, self._silence_s + 0.6),
         )
         self._hook = _XiaomiHook(
             on_user_turn=self._on_user_turn,
@@ -662,7 +774,12 @@ class PipecatVoiceBridge(FrameProcessor):
         @self._tts.event_handler("on_tts_request")
         async def _on_tts_request(_svc, context_id: str, text: str):
             self._turn_tts_count += 1
-            self._cancel_end_fallback()
+            if text:
+                self._turn_spoken_texts.append(str(text))
+            # 仅当本轮正文已被覆盖时取消兜底；确认短句 on_tts 不应吃掉 End 补播
+            plain_now = (self._assistant_plain or "").strip()
+            if plain_now and _plain_unspoken(plain_now, self._turn_spoken_texts) is None:
+                self._cancel_end_fallback()
             self._ctx_text[context_id] = text
             speaker = self._speaker or "(default)"
             # Pipecat 切句后进合成 — 对齐旧「分句」打点
@@ -874,6 +991,15 @@ class PipecatVoiceBridge(FrameProcessor):
             return
 
         if isinstance(frame, PipeInterruptionFrame):
+            # FE 相位门控：仅 speaking（或后端仍认为 bot 可听）才转发 VAD barge
+            # 思考期转发会 abort 刚发出的模型 run（日志 18:10:21）
+            phase = self._client_phase or "listening"
+            if phase == "thinking" or (phase != "speaking" and not self._bot_audible):
+                voice_log(
+                    "打断",
+                    f"抑制 VAD barge（phase={phase} bot_audible={self._bot_audible}）",
+                )
+                return
             voice_log("打断", "Pipecat 管线内打断（VAD barge-in）→ 通知前端停播")
             await self.push_downstream(InterruptionFrame(reason="vad_barge_in"))
             return

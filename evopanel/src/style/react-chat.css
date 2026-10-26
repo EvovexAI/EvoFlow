@@ -34097,7 +34097,8 @@ html.dark .react-chat-stage-popover {
 .react-chat-right-stage-body > .react-chat-knowledge-map-panel,
 .react-chat-right-stage-body > .react-chat-terminal-stage,
 .react-chat-right-stage-body > .v4-collab-subtask-transcript,
-.react-chat-right-stage-body > .v4-employee-process-panel {
+.react-chat-right-stage-body > .v4-employee-process-panel,
+.react-chat-right-stage-body > .react-chat-screenshot-panel {
   height: 100%;
   min-height: 0;
 }
@@ -34260,14 +34261,34 @@ html.dark .react-chat-right-stage-body > .react-chat-knowledge-map-panel {
   height: 100%;
   cursor: default;
 }
+
+/*
+ * StageTabChip（[data-side-pane-tab-id]）宽度权威样式。
+ * 不依赖 Tailwind flex-[…]：单签曾被压到 min-w-15≈60px，标题只剩 1～2 个字。
+ * 单签：按内容撑开、禁止收缩；多签：可缩但地板提高到约 7 个汉字宽。
+ */
+.react-chat-stage-tabs-viewport [data-side-pane-tab-id].react-chat-stage-tab-chip {
+  box-sizing: border-box;
+  flex: 0 1 auto;
+  width: max-content;
+  min-width: 7.5rem; /* icon+约 4 字，不再用 60px */
+  max-width: 14rem;
+}
+.react-chat-stage-tabs-viewport[data-tab-count='1'] [data-side-pane-tab-id].react-chat-stage-tab-chip,
+.react-chat-stage-tabs-viewport [data-side-pane-tab-id][data-alone='1'].react-chat-stage-tab-chip {
+  flex: 0 0 auto; /* 单签绝不被 viewport 挤扁 */
+  min-width: 10rem;
+  max-width: min(22rem, 70vw);
+}
+
 .react-chat-stage-tab {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  /* 基准 156px（9.75rem）可 grow/shrink，60px 触底后才交给外层滚动 */
-  flex: 1 1 156px;
-  min-width: 60px;
-  max-width: 156px;
+  flex: 0 1 auto;
+  width: max-content;
+  min-width: 7.5rem;
+  max-width: 14rem;
   height: 28px;
   padding: 0 6px 0 8px;
   border: 1px solid transparent;
@@ -34282,6 +34303,11 @@ html.dark .react-chat-right-stage-body > .react-chat-knowledge-map-panel {
   transition: background-color 0.12s ease, color 0.12s ease;
 }
 .react-chat-stage-tab:hover { color: var(--text-primary, inherit); }
+.react-chat-stage-tabs-viewport .react-chat-stage-tab:only-of-type {
+  flex: 0 0 auto;
+  min-width: 10rem;
+  max-width: min(22rem, 70vw);
+}
 .react-chat-stage-tab.is-active {
   background: color-mix(
     in srgb,
@@ -34685,4 +34711,54 @@ html[data-theme='dark'] .react-chat-stage-tab.is-active {
 
 .react-chat-session-duty-fold-chevron.is-open {
   transform: rotate(90deg);
+}
+
+/* 右栏截图预览（CUA / browser_turn_end） */
+.react-chat-screenshot-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  background: var(--bg-primary, #ffffff);
+}
+.xw-right-shot {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
+  overflow: auto;
+}
+.xw-right-shot__frame {
+  max-width: 100%;
+  max-height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.xw-right-shot__img {
+  display: block;
+  max-width: 100%;
+  max-height: calc(100vh - 120px);
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  border-radius: 6px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.12);
+}
+.xw-right-shot__empty,
+.xw-right-shot__err {
+  color: var(--shell-text-muted, #6b7280);
+  font-size: var(--ef-text-sm, 13px);
+  text-align: center;
+  padding: 24px 16px;
+}
+html[data-theme='dark'] .react-chat-screenshot-panel,
+html.dark .react-chat-screenshot-panel {
+  background: var(--bg-primary, #0b1220);
+}
+html[data-theme='dark'] .xw-right-shot__img,
+html.dark .xw-right-shot__img {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
 }

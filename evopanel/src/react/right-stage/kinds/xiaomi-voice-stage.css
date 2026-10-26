@@ -786,7 +786,7 @@ html[data-xw-voice='1'] .react-chat-main-body {
 
 /*
  * 右上角「对话」浮层：内容 = 主对话 V4 时间线。
- * 角落小卡；语音域整窗放大靠左上「放大/缩小」收放右侧栏。
+ * 标题栏可放大 / 缩小 / 隐藏；隐藏后右上角留「对话」角标再开。
  * 刚打开待命不挂；交互开始后才出现。玻璃底跟随宿主明暗。
  */
 .xws-clean .xws-recent {
@@ -794,21 +794,129 @@ html[data-xw-voice='1'] .react-chat-main-body {
   top: 14px;
   right: 16px;
   z-index: 20;
-  width: min(340px, 42vw);
-  max-height: min(42vh, 360px);
+  /* 默认：无头栏，约两行正文；高度略留余量，避免贴底空白把字顶出视口 */
+  width: min(260px, 34vw);
+  max-height: 108px;
   display: flex;
   flex-direction: column;
-  border: 1px solid color-mix(in srgb, var(--text-primary, #202124) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--text-primary, #202124) 10%, transparent);
   border-radius: 12px;
-  background: color-mix(in srgb, var(--bg-surface, #fff) 82%, transparent);
+  background: color-mix(in srgb, var(--bg-surface, #fff) 78%, transparent);
   backdrop-filter: blur(16px) saturate(1.2);
   overflow: hidden;
   pointer-events: auto;
+  transition: width 0.22s ease, max-height 0.22s ease, box-shadow 0.22s ease, border-color 0.22s ease;
 }
-/* 语音域铺满整窗时，对话浮层可以稍大一点 */
 .xws-clean.is-voice-expanded .xws-recent {
-  width: min(420px, 36vw);
-  max-height: min(52vh, 480px);
+  width: min(280px, 30vw);
+  max-height: 112px;
+}
+/* 悬停或焦点在浮层内 → 标题栏 + 拉高；宽度仍克制，别盖半屏 */
+.xws-clean .xws-recent:hover,
+.xws-clean .xws-recent:focus-within {
+  width: min(320px, 38vw);
+  max-height: min(52vh, 420px);
+  z-index: 32;
+  border-color: color-mix(in srgb, var(--text-primary, #202124) 14%, transparent);
+  box-shadow: 0 12px 40px color-mix(in srgb, #000 18%, transparent);
+}
+.xws-clean.is-voice-expanded .xws-recent:hover,
+.xws-clean.is-voice-expanded .xws-recent:focus-within {
+  width: min(360px, 34vw);
+  max-height: min(58vh, 480px);
+}
+/* 收起态顶缘淡出；展开后去掉 */
+.xws-clean .xws-recent:not(:hover):not(:focus-within) .xws-recent-body--timeline::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 18px;
+  z-index: 2;
+  pointer-events: none;
+  background: linear-gradient(
+    to bottom,
+    color-mix(in srgb, var(--bg-surface, #fff) 78%, transparent),
+    transparent
+  );
+}
+.xws-clean .xws-recent-head {
+  flex: none;
+  display: none;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 8px 6px 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--text-primary, #202124) 8%, transparent);
+  min-width: 0;
+}
+.xws-clean .xws-recent:hover .xws-recent-head,
+.xws-clean .xws-recent:focus-within .xws-recent-head {
+  display: flex;
+}
+.xws-clean .xws-recent-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--xws-sub);
+  user-select: none;
+}
+.xws-clean .xws-recent-actions {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.xws-clean .xws-recent-btn {
+  appearance: none;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--xws-muted);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+.xws-clean .xws-recent-btn:hover:not(:disabled) {
+  color: var(--xws-txt);
+  background: color-mix(in srgb, var(--xws-txt) 8%, transparent);
+}
+.xws-clean .xws-recent-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+/* 隐藏后的角标：点一下恢复 open（默认矮窗，悬停再展开） */
+.xws-clean .xws-recent-chip {
+  position: absolute;
+  top: 14px;
+  right: 16px;
+  z-index: 20;
+  appearance: none;
+  height: 28px;
+  padding: 0 12px;
+  border: 1px solid var(--xws-line);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--xws-solid) 72%, transparent);
+  color: var(--xws-sub);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  backdrop-filter: blur(10px);
+  pointer-events: auto;
+  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+.xws-clean .xws-recent-chip:hover {
+  color: var(--xws-txt);
+  border-color: color-mix(in srgb, var(--xws-txt) 28%, transparent);
+  background: color-mix(in srgb, var(--xws-solid) 88%, transparent);
 }
 /* V4 时间线自带滚动容器：外层不能再 overflow:auto，否则会出现双滚动条 */
 .xws-clean .xws-recent-body {
@@ -821,7 +929,41 @@ html[data-xw-voice='1'] .react-chat-main-body {
   min-width: 0;
 }
 .xws-clean .xws-recent-body--timeline {
-  padding: 8px 6px 6px;
+  position: relative;
+  padding: 8px 10px 10px;
+}
+/* 收起态再紧一点，尽量只露正文 */
+.xws-clean .xws-recent:not(:hover):not(:focus-within) .xws-recent-body--timeline {
+  padding: 4px 8px 2px;
+}
+/*
+ * 矮窗贴底时，V4 轮尾 pb/gap、透明操作栏、消息层 flex-1 会在视口底堆空白，
+ * 看起来像「有两三层空的、字全看不见」。收起态压掉这些占位，让最新正文贴进窗口。
+ */
+.xws-clean .xws-recent:not(:hover):not(:focus-within) .v4-surface-glass [data-v4-timeline-message-layer='true'] {
+  flex: none !important;
+  min-height: 0 !important;
+}
+.xws-clean .xws-recent:not(:hover):not(:focus-within) .v4-surface-glass [data-v4-timeline-scroll='true'] > div {
+  min-height: 0 !important;
+}
+.xws-clean .xws-recent:not(:hover):not(:focus-within) .v4-surface-glass section[data-turn-id] {
+  padding-top: 0 !important;
+  padding-bottom: 2px !important;
+  gap: 0.25rem !important;
+}
+.xws-clean .xws-recent:not(:hover):not(:focus-within) .v4-surface-glass .group\/assistant-turn,
+.xws-clean .xws-recent:not(:hover):not(:focus-within) .v4-surface-glass .group\/assistant-turn > .flex.flex-col {
+  gap: 0.25rem !important;
+}
+/* 透明操作栏（复制等）收起态仍占高，直接藏掉 */
+.xws-clean .xws-recent:not(:hover):not(:focus-within) .v4-surface-glass .opacity-0 {
+  display: none !important;
+}
+.xws-clean .xws-recent:not(:hover):not(:focus-within) .v4-surface-glass [data-v4-timeline-scroll='true'] {
+  padding-left: 0;
+  padding-right: 0;
+  scrollbar-gutter: auto;
 }
 /* V4 根容器必须吃满高度，否则时间线的滚动层没有高度、整块空白 */
 .xws-clean .xws-recent-body--timeline > .zcode-bridge-root {
@@ -1065,12 +1207,22 @@ html.dark .xws-clean .xws-stage::after {
 
 @media (max-width: 720px) {
   .xws-clean .xws-recent {
-    width: min(260px, 56vw);
-    max-height: min(36vh, 280px);
+    width: min(240px, 68vw);
+    max-height: 80px;
   }
   .xws-clean.is-voice-expanded .xws-recent {
-    width: min(320px, 70vw);
-    max-height: min(44vh, 360px);
+    width: min(260px, 72vw);
+    max-height: 84px;
+  }
+  .xws-clean .xws-recent:hover,
+  .xws-clean .xws-recent:focus-within {
+    width: min(280px, 72vw);
+    max-height: min(48vh, 360px);
+  }
+  .xws-clean.is-voice-expanded .xws-recent:hover,
+  .xws-clean.is-voice-expanded .xws-recent:focus-within {
+    width: min(300px, 78vw);
+    max-height: min(52vh, 400px);
   }
   .xws-clean .xws-status-word {
     font-size: 22px;

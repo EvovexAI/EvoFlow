@@ -101,7 +101,11 @@ function apply(on: boolean) {
   delete root.dataset.xwVoiceAnim
   delete root.dataset.xwVoiceSummary
   window.dispatchEvent(new CustomEvent(XW_VOICE_MODE_EVENT, { detail: { on: false } }))
+  // 立刻通知一次（MutationObserver / 早监听）；再补 settle，等 flex 收成普通分栏后再贴 HWND。
   notifyLayoutChromeChanged('xw-voice-exit')
+  void import('./xw-voice-embed-settle.js')
+    .then((m) => m.afterXwVoiceExitSettle?.())
+    .catch(() => {})
 }
 
 export type EnterXwVoiceModeOpts = {
@@ -112,12 +116,21 @@ export type EnterXwVoiceModeOpts = {
   expandRightStage?: boolean
 }
 
-/** 进入语音全屏模式：左栏小V语音域；可选展开右栏（若停在小V标签则切到别的标签，避免右侧重复显示小V）。 */
-export function enterXwVoiceMode(opts: EnterXwVoiceModeOpts = {}): void {
-  const expandRight = opts.expandRightStage !== false
+function noteGate(
+  phase: 'enter' | 'closing' | 'exited',
+  opts: { reason?: string; source?: string; message?: string; force?: boolean } = {},
+) {
+  void import('./xiaomi-voice/voice-file-log.js')
+    .then((m) => m.noteVoiceModeGate?.(phase, opts))
+    .catch(() => {})
+}
+
+function afterXiaomiSessionAdopted(expandRight: boolean): void {
   if (expandRight) {
     rightStageStore.expand()
     const snap = rightStageStore.getSnapshot()
+    // 左栏已是小V语音域：右栏若还停在小V文字签，切到同会话其它签（截图/文件），
+    // 切勿在未 adopt 时点到主对话残留签——adopt 之后 live 表里已无外会话标签。
     if (String(snap.activeKey || '').startsWith('xiaomi:')) {
       const other = snap.tabs.find((t) => t.kind !== 'xiaomi')
       if (other) rightStageStore.activateTab(`${other.kind}:${other.id}`)
@@ -128,25 +141,72 @@ export function enterXwVoiceMode(opts: EnterXwVoiceModeOpts = {}): void {
     // 只用 store.collapse()，勿走 collapseRightStageShell（那条会 exit 语音模式）。
     rightStageStore.collapse()
   }
+}
+
+/** 进入语音全屏模式：左栏小V语音域；可选展开右栏（若停在小V标签则切到别的标签，避免右侧重复显示小V）。 */
+export function enterXwVoiceMode(opts: EnterXwVoiceModeOpts = {}): void {
+  const expandRight = opts.expandRightStage !== false
+  // 先占用小V 右栏会话表，再展开——避免主对话的浏览器/截图签留在右侧。
+  void import('./right-stage/xiaomi-right-stage-session.js')
+    .then(async (m) => {
+      await m.adoptXiaomiRightStageSession()
+      afterXiaomiSessionAdopted(expandRight)
+    })
+    .catch(() => {
+      afterXiaomiSessionAdopted(expandRight)
+    })
   if (isXwVoiceMode()) {
     // 再进语音（唤醒）：仍先藏状态卡，等本轮平台工具再放行
     clearXwVoiceSummary()
     // 已在语音态仍要通知 React：可能 DOM 已标 data-xw-voice，但 ChatApp 当时未挂载漏听了事件。
     window.dispatchEvent(new CustomEvent(XW_VOICE_MODE_EVENT, { detail: { on: true } }))
     notifyLayoutChromeChanged('xw-voice-reenter')
+    noteGate('enter', {
+      source: 'enterXwVoiceMode',
+      reason: expandRight ? 'reenter' : 'reenter-left-only',
+    })
     return
   }
   apply(true)
+  noteGate('enter', {
+    source: 'enterXwVoiceMode',
+    reason: expandRight ? 'enter' : 'enter-left-only',
+  })
   // 默认开语音播报 + prefer 小V（火山 TTS 已配即可听会说）
   void import('./xiaomi-voice-defaults.js')
     .then((m) => m.ensureXiaomiVoiceReplyOn())
     .catch(() => {})
 }
 
-/** 退出语音全屏模式，还原正常聊天布局，并停掉整套语音（Frame / continuous / ASR）。 */
+/**
+ * 退出语音全屏模式，还原正常聊天布局，并停掉整套语音（Frame / continuous / ASR）。
+ * 关闭语音对话区 ≡ 退出这套体系；日志会写「关闭退出」→「已经退出」。
+ */
+function releaseXiaomiRightStageOnVoiceExit(): void {
+  void import('./right-stage/xiaomi-right-stage-session.js')
+    .then((m) => m.releaseXiaomiRightStageSession?.())
+    .catch(() => {})
+  void import('../zcode-ui/v4/xiaomiVoiceReadAutoOpen.js')
+    .then((m) => m.resetXiaomiVoiceReadAutoOpen?.())
+    .catch(() => {})
+}
+
 export function exitXwVoiceMode(): void {
-  if (!isXwVoiceMode()) return
+  if (!isXwVoiceMode()) {
+    // 面板已关仍被点退出：强制落「已经退出」，日志里一眼能确认不在岗
+    noteGate('exited', {
+      source: 'exitXwVoiceMode',
+      reason: 'already-off',
+      force: true,
+      message: '关闭时语音对话区已不在岗',
+    })
+    // 语音 DOM 已关仍可能占着小V 右栏表——一并释放，避免主对话继续看到小V 缓存
+    releaseXiaomiRightStageOnVoiceExit()
+    return
+  }
+  noteGate('closing', { source: 'exitXwVoiceMode', reason: 'close-panel' })
   apply(false)
+  releaseXiaomiRightStageOnVoiceExit()
   // 必须停干净：否则面板关了 continuous 仍识别并灌「输入框」（见前端日志 source=输入框）
   void import('./background-voice.js')
     .then((m) => m.shutdownXiaomiVoiceRuntime?.())

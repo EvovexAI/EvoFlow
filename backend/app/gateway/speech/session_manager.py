@@ -122,24 +122,30 @@ class SpeechSession:
     async def run(self) -> None:
         await self._ws.accept()
         # Soft gate: allow whisper-only setups; warn if nothing for TTS later.
+        # 注意：日志失败绝不能 return——旧逻辑 except:return 会在 ready 后立刻掐 WS（FE 见 1006）。
         try:
             self._bind_trace(self._sid)
             await self._ws.send_json(
                 {"type": "ready", "runtime": "frame", "sid": self._sid, "trace_id": self._trace_id}
             )
+        except Exception as e:
+            logger.exception("speech session ready send failed: %s", e)
+            return
+        try:
             paths = voice_log_paths_today()
             voice_log(
                 "会话",
                 f"语音会话已就绪（Frame 运行时）SID={self._sid}，播报日志目录：{paths.get('dir')} "
                 f"后端={voice_log_path_today('后端')} 前端={voice_log_path_today('前端')}",
             )
-        except Exception:
-            return
+        except Exception as e:
+            logger.warning("speech session voice_log failed (session continues): %s", e)
 
         try:
             while True:
                 msg = await self._ws.receive()
                 if msg.get("type") == "websocket.disconnect":
+                    voice_log("会话", f"客户端断开 SID={self._sid}")
                     break
                 if msg.get("bytes") is not None:
                     await self._on_pcm(bytes(msg["bytes"]))
@@ -154,7 +160,22 @@ class SpeechSession:
                 op = str(data.get("type") or "")
                 if op == "start":
                     self._adopt_trace_from(data)
-                    await self._on_start(data)
+                    try:
+                        await self._on_start(data)
+                    except Exception as e:
+                        logger.exception("speech session start failed: %s", e)
+                        voice_log("错误", f"start/建管线失败：{e}")
+                        try:
+                            await self._ws.send_json(
+                                {
+                                    "type": "error",
+                                    "message": f"语音管线启动失败：{e}",
+                                    "op": "start",
+                                }
+                            )
+                        except Exception:
+                            pass
+                        # 不结束整段 session：等前端重发 start / 用户停会话
                 elif op == "speak":
                     self._adopt_trace_from(data)
                     await self._on_speak(data)
@@ -177,17 +198,39 @@ class SpeechSession:
                     self._adopt_trace_from(data)
                     reason = str(data.get("reason") or "client_barge_in").strip() or "client_barge_in"
                     await self._on_barge_in(reason)
+                elif op == "client_phase":
+                    # FE VoicePhase：listening|thinking|speaking|idle → 抑制思考期 VAD barge
+                    phase = str(data.get("phase") or "").strip().lower()
+                    if self._bridge and hasattr(self._bridge, "set_client_phase"):
+                        self._bridge.set_client_phase(phase)
                 elif op == "client_listening":
                     # FE 本地播完（队列空）→ 释放 STT unmute hold，下一轮才能识别
-                    if self._bridge and hasattr(self._bridge, "release_stt_unmute_hold"):
+                    # 相位门控：仅 listening（或 idle）可 unmute；thinking/speaking 挡住误放麦
+                    phase = ""
+                    if self._bridge and hasattr(self._bridge, "client_phase"):
+                        phase = str(getattr(self._bridge, "client_phase", "") or "")
+                    if phase in ("thinking", "speaking"):
+                        from app.gateway.speech.voice_file_log import voice_log
+
+                        voice_log(
+                            "决策",
+                            f"忽略 client_listening（phase={phase}，仅 listening 可 unmute）",
+                        )
+                    elif self._bridge and hasattr(self._bridge, "release_stt_unmute_hold"):
                         await self._bridge.release_stt_unmute_hold(reason="client_listening")
                 elif op == "stop":
                     break
         except WebSocketDisconnect:
-            pass
+            voice_log("会话", f"WebSocketDisconnect SID={self._sid}")
         except Exception as e:  # noqa: BLE001
-            logger.warning("speech session loop error: %s", e)
+            logger.exception("speech session loop error: %s", e)
+            voice_log("错误", f"session 循环异常：{e}")
+            try:
+                await self._ws.send_json({"type": "error", "message": f"session error: {e}"})
+            except Exception:
+                pass
         finally:
+            voice_log("会话", f"语音会话关闭 SID={self._sid}")
             await self._close()
 
     async def _ensure_pipeline(self) -> None:

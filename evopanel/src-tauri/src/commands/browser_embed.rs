@@ -2896,14 +2896,29 @@ pub async fn browser_embed_set_bounds(
     {
         let _ui = UiBusyGuard::enter(&app, 3);
         let label = webview_label_for_thread(&thread_id);
-        // present=false：面板没在前台，不要把停靠的窗口再显示出来。
+        // present=false：面板不在前台（切到图片/文件、折叠、遮罩）。
+        // 必须立刻挪出客户区：否则语音全屏时的大 HWND 会盖住新标签一整拍。
         // present=true：当前就是浏览器页，允许解除停靠。中途如果又被 park，
         // SHOW_GEN 会变，贴完再藏回去。
         if !present.unwrap_or(false) {
-            browser_cdp_server::log_line(&format!(
-                "[browser-embed] set_bounds skip label={label} present=false parked={}",
-                is_parked(&label)
-            ));
+            SHOW_GEN.fetch_add(1, Ordering::AcqRel);
+            mark_parked(&label, true);
+            note_writer(&label, "set-bounds-present-false");
+            if let Some(window) = app.get_webview_window(&label) {
+                if let Err(e) = hide_embed_hwnd(&window) {
+                    browser_cdp_server::log_line(&format!(
+                        "[browser-embed] set_bounds present=false hide soft-fail label={label}: {e}"
+                    ));
+                } else {
+                    browser_cdp_server::log_line(&format!(
+                        "[browser-embed] set_bounds present=false OFFSCREEN label={label}"
+                    ));
+                }
+            } else {
+                browser_cdp_server::log_line(&format!(
+                    "[browser-embed] set_bounds present=false no window label={label}"
+                ));
+            }
             return Ok(false);
         }
         let show_gen = SHOW_GEN.load(Ordering::Acquire);

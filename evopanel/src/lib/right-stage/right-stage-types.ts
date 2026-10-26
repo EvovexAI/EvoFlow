@@ -58,6 +58,7 @@ export const RIGHT_STAGE_KIND_LABELS: Record<string, string> = {
   'news-dashboard': '资讯',
   'web-embed': '网页',
   browser: '浏览器',
+  screenshot: '截图',
   xiaomi: '小V',
 }
 
@@ -112,6 +113,8 @@ export function defaultLayoutForKind(kind: string): RightStageLayout {
     case 'news-dashboard':
     case 'web-embed':
       return 'wide'
+    case 'screenshot':
+      return 'half'
     // 文件 / 代码预览默认半宽：侧栏可读，不把主对话挤成窄条
     case 'file':
     case 'codeViewer':

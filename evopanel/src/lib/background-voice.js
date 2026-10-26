@@ -27,6 +27,7 @@ import {
   isVoiceSendHandlerReady,
   isXiaomiVoiceSendHandlerReady,
   sendVoiceTranscript,
+  isPreferXiaomiVoice,
   setPreferXiaomiVoice,
   updateVoicePartialText,
 } from './background-voice-bridge.js'
@@ -346,7 +347,7 @@ function initPttController() {
     // ── TTS 停止（按下时打断当前播报） ──
     stopAllSpeech: async () => {
       const { stopAllAssistantSpeech } = await import('./speech-client.js')
-      stopAllAssistantSpeech()
+      stopAllAssistantSpeech({ reason: 'user-stop-tts', forceFrame: true })
     },
 
     // ── 麦克风探测 ──
@@ -527,13 +528,14 @@ export function isWakeWordActive() {
 
 async function openXiaomiForWake() {
   setPreferXiaomiVoice(true)
-  // 统一走 openXiaomiRightStage：ensure session + 语音全屏 + 默认开语音播报
-  try {
-    const { ensureXiaomiVoiceReplyOn } = await import('./xiaomi-voice-defaults.js')
-    await ensureXiaomiVoiceReplyOn()
-  } catch (e) {
-    console.warn('[background-voice] enable voice reply failed:', e?.message || e)
-  }
+  // 唤醒热路径：先弹面板开麦，ensure（拉 /speech/status + 音色）放后台。
+  // 旧逻辑 await ensure 会卡 5s+（日志 18:07:03→08），体感「唤醒慢」。
+  void import('./xiaomi-voice/voice-file-log.js')
+    .then((m) => m.noteWakeMilestone?.('prefer_set_ensure_bg'))
+    .catch(() => {})
+  void import('./xiaomi-voice-defaults.js')
+    .then((m) => m.ensureXiaomiVoiceReplyOn())
+    .catch((e) => console.warn('[background-voice] enable voice reply failed:', e?.message || e))
   try {
     const { openXiaomiRightStage } = await import('./right-stage/open-right-stage-xiaomi.js')
     // 唤醒：只进左侧语音域，不弹右侧流式文字面板（对话以左栏实时区为主）
@@ -544,7 +546,11 @@ async function openXiaomiForWake() {
     })
     try {
       const { isXwVoiceMode } = await import('./xw-voice-mode.js')
-      console.log('[background-voice] wake open done, xwVoice=', isXwVoiceMode())
+      const xw = isXwVoiceMode()
+      console.log('[background-voice] wake open done, xwVoice=', xw)
+      void import('./xiaomi-voice/voice-file-log.js')
+        .then((m) => m.noteWakeMilestone?.('open_panel_done', { xwVoice: xw }))
+        .catch(() => {})
     } catch {
       /* ignore */
     }
@@ -574,7 +580,11 @@ async function onWakeWordHit() {
   onWakeWordHit._busy = true
   console.log('[background-voice] Wake word hit! Opening 小V...')
   try {
-    const { voiceFeLog } = await import('./xiaomi-voice/voice-file-log.js')
+    const { voiceFeLog, markWakeHitClock, noteWakeMilestone } = await import(
+      './xiaomi-voice/voice-file-log.js',
+    )
+    markWakeHitClock()
+    noteWakeMilestone('hit')
     voiceFeLog('会话', '收到 wake-word-hit → 开麦应答')
   } catch {
     /* ignore */
@@ -582,19 +592,31 @@ async function onWakeWordHit() {
 
   try {
     await openXiaomiForWake()
-    // Re-wake while speaking / listening → interrupt TTS and start a fresh turn.
+    // prefer/即将进 Frame：必须 skipFrame。开面板后舞台异步起管线，此时 framePipe 常仍 false，
+    // 若不跳过，stopAll 可能误伤刚连上的 Frame session。
     try {
       const { stopAllAssistantSpeech } = await import('./speech-client.js')
-      stopAllAssistantSpeech()
+      const prefer = isPreferXiaomiVoice()
+      let framePipe = prefer
+      if (!framePipe) {
+        try {
+          const { isXiaomiFramePipelineActive } = await import('./xiaomi-voice/index.js')
+          framePipe = !!isXiaomiFramePipelineActive?.()
+        } catch {
+          framePipe = false
+        }
+      }
+      stopAllAssistantSpeech({ reason: 'wake-word-hit', skipFrame: framePipe })
       notifyTTSStopped()
     } catch {
       /* ignore */
     }
     try {
-      const { bargeInXiaomiFrame, isXiaomiFrameSessionActive } = await import(
+      const { bargeInXiaomiFrame, isXiaomiFrameSessionActive, isXiaomiFramePlaying } = await import(
         './xiaomi-voice/index.js',
       )
-      if (isXiaomiFrameSessionActive()) {
+      // 仅真在播报时 barge；空闲会话勿抬 min_turn
+      if (isXiaomiFrameSessionActive() && isXiaomiFramePlaying?.()) {
         bargeInXiaomiFrame({ reason: 'wake-word-hit' })
       }
     } catch {
@@ -608,20 +630,45 @@ async function onWakeWordHit() {
     }
     await pauseWakeEarForContinuous()
 
-    // Frame 管线已占麦（语音舞台）：只需应答，不要再开 continuous 抢第二路 ASR
+    // 小V 语音全屏 / prefer：麦归 Frame（舞台会自启管线）。切勿再开 continuous——
+    // 旧竞态：open 后 Frame 尚未 _running，误开 continuous → 双 ASR + stopAll 风暴。
+    // 再等最多 ~1.5s 让舞台拉起 Frame（open 返回时 xw/frame 常仍是 false）。
     let frameActive = false
-    try {
-      const { isXiaomiFramePipelineActive } = await import('./xiaomi-voice/index.js')
-      frameActive = !!isXiaomiFramePipelineActive()
-    } catch {
-      frameActive = false
+    let xwOn = false
+    const prefer = isPreferXiaomiVoice()
+    for (let i = 0; i < 20; i++) {
+      try {
+        const { isXiaomiFramePipelineActive } = await import('./xiaomi-voice/index.js')
+        frameActive = !!isXiaomiFramePipelineActive()
+      } catch {
+        frameActive = false
+      }
+      try {
+        const { isXwVoiceMode } = await import('./xw-voice-mode.js')
+        xwOn = !!isXwVoiceMode()
+      } catch {
+        xwOn = false
+      }
+      if (frameActive) break
+      if (!prefer && !xwOn) break
+      await new Promise((r) => setTimeout(r, 75))
     }
-    if (frameActive) {
-      await acknowledgeWakeHit({ spoken: true })
+    if (frameActive || xwOn || prefer) {
+      // Frame 路径：口头「在呢」改由 pipeline_ready 开麦成功后播放（HTTP 固定句），
+      // 此处只 toast，避免与 getUserMedia 抢跑。
+      try {
+        const { toast } = await import('../components/toast.js')
+        toast('小V在听，请说…', 'info')
+      } catch {
+        /* ignore */
+      }
       void setVoiceTrayState('recording')
       try {
         const { voiceFeLog } = await import('./xiaomi-voice/voice-file-log.js')
-        voiceFeLog('会话', '唤醒命中且 Frame 已在聆听 → 只应答，不再开 continuous')
+        voiceFeLog(
+          '会话',
+          `唤醒命中 → 小V全屏/Frame 接管（frame=${frameActive} xw=${xwOn} prefer=${prefer}）不开 continuous；「在呢」等开麦后播`,
+        )
       } catch {
         /* ignore */
       }
@@ -1358,7 +1405,7 @@ export async function handleVoiceCommandText(text, opts = {}) {
   }
   if (isStopTtsOnlyCommand(cleaned)) {
     const { stopAllAssistantSpeech } = await import('./speech-client.js')
-    stopAllAssistantSpeech()
+    stopAllAssistantSpeech({ reason: 'user-stop-tts', forceFrame: true })
     notifyTTSStopped()
     try {
       const { toast } = await import('../components/toast.js')
@@ -1413,7 +1460,7 @@ export async function pauseConversationListening(opts = {}) {
 
   try {
     const { stopAllAssistantSpeech } = await import('./speech-client.js')
-    stopAllAssistantSpeech()
+    stopAllAssistantSpeech({ reason: 'pause-listening' })
   } catch {
     /* ignore */
   }
@@ -1522,6 +1569,16 @@ export async function shutdownXiaomiVoiceRuntime() {
     /* ignore */
   }
   await pauseConversationListening({ reason: 'exit-xw-voice', silent: true })
+  // 闸门收尾：已经退出（关面板后不应再听用户说话）
+  try {
+    const { noteVoiceModeGate } = await import('./xiaomi-voice/voice-file-log.js')
+    noteVoiceModeGate('exited', {
+      source: 'shutdownXiaomiVoiceRuntime',
+      reason: 'runtime-stopped',
+    })
+  } catch {
+    /* ignore */
+  }
 }
 
 /**

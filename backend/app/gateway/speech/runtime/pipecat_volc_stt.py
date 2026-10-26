@@ -30,6 +30,8 @@ from pipecat.frames.frames import (
     StartFrame,
     STTMuteFrame,
     TranscriptionFrame,
+    VADUserStartedSpeakingFrame,
+    VADUserStoppedSpeakingFrame,
 )
 from pipecat.processors.frame_processor import FrameDirection
 from pipecat.services.settings import STTSettings
@@ -44,8 +46,9 @@ _KEEPALIVE_INTERVAL_S = 0.20
 _KEEPALIVE_PCM = b"\x00" * (16000 * 2 // 5)  # 6400 bytes ≈ 200ms
 # 距上一包真实/保活 PCM 超过该间隔就补静音（火山空闲约数秒就掐）
 _IDLE_GAP_S = 0.18
-# FE 播完才应 unmute；若 client_listening 丢失，最多卡住这么久
-_UNMUTE_HOLD_SAFETY_S = 8.0
+# FE 播完才应 unmute；若 client_listening 丢失，最多卡住这么久。
+# 旧值 8s：长回复多句串行本地播时常 >30s，超时强制 unmute → 麦收喇叭 → 卡顿/误 barge。
+_UNMUTE_HOLD_SAFETY_S = 120.0
 # mute 期环形缓冲：unmute 后回灌，避免「AI 说完用户立刻开口」丢字头
 _MUTE_PCM_MAX_BYTES = 16000 * 2 * 2  # ≈2s
 
@@ -82,6 +85,11 @@ class EvoSTTService(STTService):
         # mute 期间 Pipecat 会丢弃音频；自缓冲以便 unmute 回灌
         self._mute_pcm_buf: deque[bytes] = deque()
         self._mute_pcm_bytes = 0
+        # 火山流式常只出 interim（definite 很晚/没有）→ SpeechTimeout 收不到
+        # TranscriptionFrame._text，只能等 UserTurn 外层 5s 超时。落静音时把末次
+        # interim 冲成 finalized，让 0.9s SpeechTimeout 能收口。
+        self._last_interim_text = ""
+        self._finalized_this_utt = False
 
     def set_provider(self, provider: str | None) -> None:
         if provider:
@@ -116,6 +124,12 @@ class EvoSTTService(STTService):
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):
         was_muted = self._muted
+        # 用户又开口：允许下一轮 VAD-stop 再冲定稿
+        if isinstance(frame, VADUserStartedSpeakingFrame):
+            self._finalized_this_utt = False
+        # 落静音：把末次 interim 冲成 finalized，供 SpeechTimeout 收口（勿等 5s 外层）
+        if isinstance(frame, VADUserStoppedSpeakingFrame):
+            await self._flush_interim_as_final(reason="vad_stop")
         # Intercept unmute while FE is still playing
         if isinstance(frame, STTMuteFrame) and not frame.mute and self._hold_unmute:
             self._pending_unmute = True
@@ -385,6 +399,8 @@ class EvoSTTService(STTService):
                 voice_log("语音转文字", f"ASR{kind}结果 provider={self._provider}：「{text}」")
             ts = time_now_iso8601()
             if is_final:
+                self._last_interim_text = ""
+                self._finalized_this_utt = True
                 await self.push_frame(
                     TranscriptionFrame(
                         text=text,
@@ -398,15 +414,33 @@ class EvoSTTService(STTService):
                 await self.stop_ttfb_metrics()
                 await self.stop_processing_metrics()
             else:
-                await self.push_frame(
-                    InterimTranscriptionFrame(
-                        text=text,
-                        user_id="user",
-                        timestamp=ts,
-                        language=Language.ZH,
-                        result={"seg": seg} if seg else None,
+                self._last_interim_text = text
+                # VAD 后尾包：Interim 会清掉 SpeechTimeout 的 finalized 标志，直接再冲定稿
+                if self._finalized_this_utt:
+                    voice_log(
+                        "语音转文字",
+                        f"ASR落静音后尾包 → 再冲定稿 provider={self._provider}：「{text}」",
                     )
-                )
+                    await self.push_frame(
+                        TranscriptionFrame(
+                            text=text,
+                            user_id="user",
+                            timestamp=ts,
+                            language=Language.ZH,
+                            result={"seg": seg or "vad-tail"},
+                            finalized=True,
+                        )
+                    )
+                else:
+                    await self.push_frame(
+                        InterimTranscriptionFrame(
+                            text=text,
+                            user_id="user",
+                            timestamp=ts,
+                            language=Language.ZH,
+                            result={"seg": seg} if seg else None,
+                        )
+                    )
 
         def on_error(msg: str) -> None:
             # May be invoked without a running loop context — keep sync + schedule.
@@ -439,6 +473,37 @@ class EvoSTTService(STTService):
             voice_log("语音转文字", f"ASR 会话启动失败 provider={self._provider}：{e}")
             self._session = None
             self._session_dead = True
+
+    async def _flush_interim_as_final(self, *, reason: str = "vad_stop") -> None:
+        """落静音时把末次 interim 冲成 finalized TranscriptionFrame。
+
+        火山流式多数只有中间结果；SpeechTimeout 只认 TranscriptionFrame 累积 ``_text``，
+        没有 finalized 就会拖到 UserTurn 外层 5s 超时（日志里说完→turn_end≈5.3s）。
+        """
+        text = str(self._last_interim_text or "").strip()
+        if not text or self._finalized_this_utt:
+            return
+        self._finalized_this_utt = True
+        self._last_interim_text = ""
+        voice_log(
+            "语音转文字",
+            f"ASR落静音冲定稿 reason={reason} provider={self._provider}：「{text}」",
+        )
+        await self.push_frame(
+            TranscriptionFrame(
+                text=text,
+                user_id="user",
+                timestamp=time_now_iso8601(),
+                language=Language.ZH,
+                result={"seg": "vad-flush"},
+                finalized=True,
+            )
+        )
+        try:
+            await self.stop_ttfb_metrics()
+            await self.stop_processing_metrics()
+        except Exception:
+            pass
 
     async def _close_session(self) -> None:
         sess = self._session

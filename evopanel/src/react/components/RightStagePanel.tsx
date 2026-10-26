@@ -126,23 +126,24 @@ function tabTitleOf(tab: RightStageSurface): string {
 
 /**
  * StageTabChip — ZCode SidePaneTabTrigger 同款视觉配方（换装 2026-10-25）：
- * class 逐条对齐 vendored zcode-ui/app-shell/SidePaneTabTrigger.tsx 的 chip 层
- * （156px 等宽收缩 / text-ui-base / bg-hover / data-active:bg-selected / mask 渐隐 /
- * hover 亮出的右上角关闭钮 / 中键关闭）。未直接复用该组件的原因：它强类型绑定
- * WorkspaceSidePaneTab 19 成员判别联合（code-viewer 等成员要求 source 等必填字段），
- * EvoFlow 的 RightStageSurface 适配不过去；数据管道（dnd 排序 / 右键菜单）保持 EvoFlow 自有。
- * 注意根节点用 div：关闭钮是真实 button，root 若是 button 会形成嵌套 button，
- * 生产包里浏览器会修 DOM 导致 tab/close/drag 事件错位（ZCode 上游同款注释）。
+ * class 对齐 vendored SidePaneTabTrigger chip（等宽收缩 / text-ui-base / bg-hover /
+ * data-active:bg-selected / mask 渐隐 / hover 关闭钮 / 中键关闭）。
+ * 默认宽于上游 9.75rem：多签 ~12rem、单签 ~16rem（中文标题可读），仍不 grow 满栏。
+ * 未直接复用该组件：它强绑 WorkspaceSidePaneTab 判别联合；数据管道保持 EvoFlow 自有。
+ * 根节点用 div：关闭钮是 button，避免嵌套 button 被生产包改 DOM。
  */
 function StageTabChip({
   tab,
   active,
+  alone = false,
   onActivate,
   onClose,
   onContextMenu,
 }: {
   tab: RightStageSurface
   active: boolean
+  /** 仅一枚标签时放宽 max-width，标题可读；多签仍等宽弹性、不抢拖窗区。 */
+  alone?: boolean
   onActivate: (key: string) => void
   onClose: (key: string) => void
   onContextMenu: (key: string, x: number, y: number) => void
@@ -172,6 +173,7 @@ function StageTabChip({
       ref={setNodeRef}
       data-tauri-no-drag
       data-side-pane-tab-id={key}
+      data-alone={alone ? '1' : undefined}
       data-active={active ? '' : undefined}
       data-state={active ? 'active' : 'inactive'}
       title={title}
@@ -218,13 +220,13 @@ function StageTabChip({
         onContextMenu(key, e.clientX, e.clientY)
       }}
       className={cn(
-        'group relative inline-flex items-center gap-1',
-        // 勿 flex-grow：单标签撑满 viewport 会盖住拖窗空白区（data-tauri-drag-region）
-        'flex-[0_1_9.75rem] !h-7 min-w-15 max-w-39 justify-start overflow-hidden rounded-md border px-1.5 pr-2 text-ui-base font-medium whitespace-nowrap transition-all focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-1 focus-visible:outline-ring',
+        // 宽度走 react-chat.css [data-side-pane-tab-id]；这里只管外观。
+        // 单签禁止 shrink 到 60px（否则标题只剩 1～2 个字）。
+        'react-chat-stage-tab-chip group relative inline-flex items-center gap-1',
+        '!h-7 justify-start overflow-hidden rounded-md border px-1.5 pr-2 text-ui-base font-medium whitespace-nowrap transition-all focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-1 focus-visible:outline-ring',
         '!border-transparent !bg-transparent text-foreground-subtle !rounded-lg',
         'hover:text-foreground',
         !active && 'hover:!bg-hover',
-        // 受控 isActive 补齐 data-active，保证 Tailwind 的 active variant 命中（ZCode 同款）。
         'data-active:!bg-selected data-active:text-foreground',
         'cursor-default outline-none',
         isDragging && 'cursor-grabbing shadow-md',
@@ -241,7 +243,7 @@ function StageTabChip({
         <span className="flex size-4 shrink-0 items-center justify-center">
           <KindTabIcon kind={kind} faviconUrl={faviconUrl} />
         </span>
-        <span data-side-pane-tab-title="" className="shrink-0 whitespace-nowrap">
+        <span data-side-pane-tab-title="" className="min-w-0 truncate whitespace-nowrap">
           {title}
         </span>
       </span>
@@ -605,6 +607,7 @@ export const RightStagePanel = memo(function RightStagePanel({
           <div
             ref={viewportRef}
             className="react-chat-stage-tabs-viewport"
+            data-tab-count={tabs.length}
             data-overflow-left={overflowEdges.left ? 'true' : undefined}
             data-overflow-right={overflowEdges.right ? 'true' : undefined}
             onScroll={measureViewport}
@@ -621,6 +624,7 @@ export const RightStagePanel = memo(function RightStagePanel({
                   <StageTabChip
                     key={tabKeyOf(tab)}
                     tab={tab}
+                    alone={tabs.length === 1}
                     active={tabKeyOf(tab) === visibleActiveKey}
                     onActivate={onActivateTab}
                     onClose={onCloseTab}
@@ -634,7 +638,7 @@ export const RightStagePanel = memo(function RightStagePanel({
                   <div
                     className={cn(
                       'relative inline-flex items-center gap-1',
-                      '!h-7 min-w-15 max-w-39 justify-start overflow-hidden rounded-md px-1.5 pr-2 text-ui-base font-medium whitespace-nowrap',
+                      '!h-7 min-w-15 max-w-52 justify-start overflow-hidden rounded-md px-1.5 pr-2 text-ui-base font-medium whitespace-nowrap',
                       '!rounded-lg bg-selected text-foreground cursor-grabbing shadow-md',
                     )}
                     data-tauri-no-drag

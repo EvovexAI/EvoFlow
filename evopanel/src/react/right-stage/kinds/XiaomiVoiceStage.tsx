@@ -34,6 +34,13 @@ import './xiaomi-voice-stage.css'
 /** 舞台只暴露三态：跟流式/播报接口对齐，别再拆「待命/识别/占用」。 */
 type StageState = 'listen' | 'think' | 'speak'
 
+/**
+ * 右上角对话浮层：
+ * - open（默认）：无标题栏，只露最新 2～3 行正文；悬停后再出「对话」头栏 + 完整时间线
+ * - hidden：收成「对话」角标（悬停后点隐藏）
+ */
+type RecentPanelSize = 'open' | 'hidden'
+
 const STATE_LABEL: Record<StageState, string> = {
   listen: '聆听',
   think: '思考',
@@ -114,6 +121,8 @@ export function XiaomiVoiceStage() {
   const [sessionActive, setSessionActive] = useState(false)
   /** 本轮语音全屏是否已发生过真实交互；刚打开待命时不挂右上角对话浮层。 */
   const [hasInteracted, setHasInteracted] = useState(false)
+  /** 右上角对话浮层：open=悬停展开；hidden=角标。 */
+  const [recentSize, setRecentSize] = useState<RecentPanelSize>('open')
   /**
    * 右侧 right-stage 是否开着。关着时语音域 CSS 会铺满整窗（真正「放大」）；
    * 开着时语音域固定左栏宽。本组件用按钮直接 collapse/expand store，不退出语音模式。
@@ -166,21 +175,29 @@ export function XiaomiVoiceStage() {
           let tries = 0
           const tryStart = () => {
             tries += 1
-            if (!isXwVoiceMode() || isXiaomiFramePipelineActive()) return
-            void toggleXiaomiFramePipeline({
-              onTrayState: (s: string) => {
-                liveRef.current.tray = isXiaomiFramePipelineActive() ? s : ''
-                derive()
-              },
-            }).then((ok) => {
-              if (!ok && tries < 3 && isXwVoiceMode()) window.setTimeout(tryStart, 900)
+            // starting 中也要跳过：否则 80ms 重派发会并行 start → 掐死共享 WS（readyState=-1）
+            void import('../../../lib/xiaomi-voice/pipeline-client.js').then((pipe) => {
+              if (!isXwVoiceMode()) return
+              if (isXiaomiFramePipelineActive() || pipe.isXiaomiFramePipelineStarting?.()) return
+              void toggleXiaomiFramePipeline({
+                onTrayState: (s: string) => {
+                  liveRef.current.tray = isXiaomiFramePipelineActive() ? s : ''
+                  derive()
+                },
+              }).then((ok) => {
+                if (!ok && tries < 3 && isXwVoiceMode()) window.setTimeout(tryStart, 900)
+              })
             })
           }
-          window.setTimeout(() => {
+          // 唤醒要快：两帧后即开 Frame（旧 560ms 人为拖慢）
+          requestAnimationFrame(() => {
             requestAnimationFrame(() => {
-              requestAnimationFrame(tryStart)
+              void import('../../../lib/xiaomi-voice/voice-file-log.js')
+                .then((m) => m.noteWakeMilestone?.('stage_try_start_frame'))
+                .catch(() => {})
+              tryStart()
             })
-          }, 560)
+          })
         } else {
           liveRef.current.tray = ''
           liveRef.current.continuousListen = false
@@ -195,6 +212,7 @@ export function XiaomiVoiceStage() {
           setLastUser('')
           setReply('')
           setHasInteracted(false)
+          setRecentSize('open')
           setState('listen')
         }
       }),
@@ -570,12 +588,13 @@ export function XiaomiVoiceStage() {
   }, [])
 
   const showUser = useMemo(() => {
-    // 聆听：听写草稿优先；思考/播报：用已发送句（与右上角 V4 一致）
-    if (state === 'listen' && (sessionActive || transcript.trim())) {
-      return transcript || lastUser
+    // 聆听：只显示当前听写（空=等开口）；勿回退 lastUser，否则上一轮用户句清不掉
+    // 思考/播报：用已发送句（与右上角 V4 一致）
+    if (state === 'listen') {
+      return transcript
     }
     return lastUser
-  }, [sessionActive, state, transcript, lastUser])
+  }, [state, transcript, lastUser])
 
   /*
    * 右上角对话浮层：刚打开不显示；等用户真正开口 / AI 开始回再出现。
@@ -693,19 +712,58 @@ export function XiaomiVoiceStage() {
       </div>
 
       {/*
-        右上角「对话」区 = 主对话 V4 时间线。
-        仅交互后挂载；语音域放大/缩小由左上「放大/缩小」控制右侧栏。
+        右上角「对话」区 = V4 时间线。
+        默认矮窗只露最新 2～3 行；悬停/聚焦拉高看全；标题栏可隐藏成角标。
       */}
       {showRecent ? (
-        <aside className="xws-recent xws-recent--timeline" data-tauri-no-drag="" aria-label="对话">
-          <div className="xws-recent-body xws-recent-body--timeline">
-            {sessionKey ? (
-              <XiaomiV4Timeline sessionKey={sessionKey} surface="glass" embedded />
-            ) : (
-              <div className="xws-recent-empty">对话与工具会出现在这里</div>
-            )}
-          </div>
-        </aside>
+        recentSize === 'hidden' ? (
+          <button
+            type="button"
+            className="xws-recent-chip"
+            data-tauri-no-drag=""
+            onClick={() => setRecentSize('open')}
+            aria-label="显示对话"
+            title="显示对话"
+          >
+            对话
+          </button>
+        ) : (
+          <aside
+            className="xws-recent xws-recent--timeline"
+            data-tauri-no-drag=""
+            aria-label="对话"
+          >
+            <header className="xws-recent-head">
+              <span className="xws-recent-title">对话</span>
+              <div className="xws-recent-actions">
+                <button
+                  type="button"
+                  className="xws-recent-btn"
+                  onClick={() => setRecentSize('hidden')}
+                  aria-label="隐藏对话"
+                  title="隐藏"
+                >
+                  <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
+                    <path
+                      d="M4 4l8 8M12 4l-8 8"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                      strokeLinecap="round"
+                    />
+                  </svg>
+                </button>
+              </div>
+            </header>
+            <div className="xws-recent-body xws-recent-body--timeline">
+              {sessionKey ? (
+                <XiaomiV4Timeline sessionKey={sessionKey} surface="glass" embedded />
+              ) : (
+                <div className="xws-recent-empty">对话与工具会出现在这里</div>
+              )}
+            </div>
+          </aside>
+        )
       ) : null}
 
       <div className="xws-stage" onClick={onInterrupt} title={state === 'speak' ? '点击打断' : undefined}>

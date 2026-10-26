@@ -102,6 +102,7 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
     executionToolTiming,
     filteredSessions,
     filterRightStageTabsForSession,
+    rightStageFilterSessionKey,
     getApi,
     getDisplayLabel,
     globalWorkspaceHistory,
@@ -1489,7 +1490,10 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
                 tabs={visibleRightStageTabs}
                 activeKey={rightStageActiveKey}
                 recentClosed={rightStageRecentClosed.filter((entry) =>
-                  filterRightStageTabsForSession([entry.tab], selectedSessionKey).length > 0,
+                  filterRightStageTabsForSession(
+                    [entry.tab],
+                    rightStageFilterSessionKey || selectedSessionKey,
+                  ).length > 0,
                 )}
                 onActivateTab={activateRightStageTab}
                 onCloseTab={handleCloseRightStageTab}

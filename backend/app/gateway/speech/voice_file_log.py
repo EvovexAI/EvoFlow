@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+import logging
 import secrets
 import threading
 import time
@@ -166,8 +167,14 @@ def voice_log(
             fh.flush()
             _last_line_key = key
             _last_line_at = now
-    except Exception:
-        pass
+    except Exception as e:
+        # 绝不能把异常抛回 session.run（会掐 WS）；打到标准日志便于查「后端语音日志空文件」
+        try:
+            logging.getLogger("evoflow.speech.voice_file_log").warning(
+                "voice_log write failed: %s", e
+            )
+        except Exception:
+            pass
 
 
 def voice_playback_event(

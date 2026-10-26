@@ -23,6 +23,10 @@ import type { BrowserStreamFrameMetadata } from './browser-stream-client.js'
 import type { BrowserTabSummary } from './browser-viewport-client.js'
 import { dbgLog, dbgWarn } from './browser-debug-log.js'
 import { blogTimeline } from './browser-unified-log.js'
+import {
+  resolveXiaomiVoiceBrowserSessionKey,
+  shouldSurfaceBrowserOnXiaomiVoiceUi,
+} from './xiaomi-voice/voice-right-stage-foreground.js'
 
 export { getBridgeOwnerSessionKey, setBridgeOwnerSessionKey } from './browser-bridge-owner.js'
 
@@ -85,13 +89,24 @@ export function isUserNavigateIntent(url: string): boolean {
 let state: BrowserRuntimeState = { ...EMPTY }
 const listeners = new Set<() => void>()
 
-/** Resolve session for engine/panel-request writes: explicit → owner → current UI. */
+/** Resolve session for engine/panel-request writes: explicit → owner → current UI.
+ * 语音占用时钉到小V UI key（小V 开浏览器常被 wire 标成 main）。 */
 export function resolveBrowserUiSessionKey(explicit?: string | null): string {
   const fromArg = String(explicit || '').trim()
-  if (fromArg) return fromArg
   const owner = getBridgeOwnerSessionKey()
-  if (owner) return owner
-  return getCurrentRightStageSessionKey()
+  const raw = fromArg || owner || getCurrentRightStageSessionKey()
+  return resolveXiaomiVoiceBrowserSessionKey(raw) || raw
+}
+
+/**
+ * 归属会话 ≠ UI 会话 → 通常后台；语音占用右栏时一律抬 live（小V 开的浏览器）。
+ */
+function isBrowserUiBackground(sessionKey?: string | null): boolean {
+  const sk = String(sessionKey || '').trim()
+  const currentSk = getCurrentRightStageSessionKey()
+  if (!sk || !currentSk || sk === currentSk) return false
+  if (shouldSurfaceBrowserOnXiaomiVoiceUi(sk)) return false
+  return true
 }
 
 function emit() {
@@ -363,7 +378,11 @@ function applyStageBrowserSurface(tabId: string, pageUrl: string, pageTitle: str
   // syncNativeEmbed already parks on foreign-owner; chrome above still updates.
   const uiSk = getCurrentRightStageSessionKey()
   const ownerSk = getBridgeOwnerSessionKey()
-  if (ownerSk && uiSk && ownerSk !== uiSk) {
+  // 语音占用：小V 开浏览器时 owner 常残留 main，仍可贴位
+  const foreign =
+    Boolean(ownerSk && uiSk && ownerSk !== uiSk) &&
+    !shouldSurfaceBrowserOnXiaomiVoiceUi(ownerSk)
+  if (foreign) {
     dbgLog(
       `[browser-panel-store] skip HWND nav (foreign owner=${ownerSk} ui=${uiSk}) reason=${reason} url=${url}`,
     )
@@ -457,9 +476,14 @@ export function ensureBrowserStage(opts?: {
     : null
   const skipHwndNav = opts?.skipHwndNav === true
   const currentSk = getCurrentRightStageSessionKey()
+  // 语音占用：小V 开的浏览器 wire 常带 main key → 仍抬 live，标签钉到 UI（xiaomi）。
+  const voiceSurface = Boolean(
+    sessionKey && currentSk && sessionKey !== currentSk && shouldSurfaceBrowserOnXiaomiVoiceUi(sessionKey),
+  )
+  const stageSessionKey = voiceSurface ? currentSk : sessionKey
 
   // 后台会话：不碰当前 UI 右栏。
-  if (sessionKey && currentSk && sessionKey !== currentSk) {
+  if (sessionKey && currentSk && sessionKey !== currentSk && !voiceSurface) {
     dbgLog(
       `[browser-panel-store] ensureBrowserStage background session=${sessionKey} (ui=${currentSk}) id=${id}`,
     )
@@ -493,8 +517,17 @@ export function ensureBrowserStage(opts?: {
     return
   }
 
-  // Foreground open claims ownership so a prior background agent cannot keep the HWND parked forever.
-  if (sessionKey && (!currentSk || sessionKey === currentSk)) {
+  if (voiceSurface) {
+    dbgLog(
+      `[browser-panel-store] ensureBrowserStage xw-voice surface (小V开浏览器) wire=${sessionKey} → ui=${currentSk} id=${id}`,
+    )
+  }
+
+  // Foreground open claims ownership。语音态把 owner 也钉到 UI（xiaomi），
+  // 避免后续 panel-request 又用残留 main 走 background。
+  if (voiceSurface && currentSk) {
+    setBridgeOwnerSessionKey(currentSk)
+  } else if (sessionKey && (!currentSk || sessionKey === currentSk)) {
     setBridgeOwnerSessionKey(sessionKey)
   }
 
@@ -514,7 +547,7 @@ export function ensureBrowserStage(opts?: {
       id,
       title: '新标签页',
       layout: 'wide',
-      sessionKey,
+      sessionKey: stageSessionKey,
       data: {
         pageUrl: 'about:blank',
         faviconUrl: '',
@@ -567,7 +600,7 @@ export function ensureBrowserStage(opts?: {
     id,
     title: String(opts?.title || '').trim() || existing?.title || '浏览器',
     layout: 'wide',
-    sessionKey,
+    sessionKey: stageSessionKey,
     data: nextData,
   })
   const navUrl = String(nextData.pageUrl || '').trim()
@@ -660,8 +693,7 @@ export function applyBrowserCommandResponse(input: {
   stageId?: string
 }): boolean {
   const sessionKey = resolveBrowserUiSessionKey(input.sessionKey) || undefined
-  const currentSk = getCurrentRightStageSessionKey()
-  const isBackground = Boolean(sessionKey && currentSk && sessionKey !== currentSk)
+  const isBackground = isBrowserUiBackground(sessionKey)
 
   const next: Partial<BrowserRuntimeState> = {}
   const tid = acceptThreadId(input.threadId)
@@ -804,8 +836,7 @@ export function notifyBrowserToolStart(
     operatingAction: action || (isNodeRepl ? 'node_repl' : ''),
     operatingToolCallId: String(toolCallId || '').trim(),
   })
-  const currentSk = getCurrentRightStageSessionKey()
-  const isBackground = Boolean(sessionKey && currentSk && sessionKey !== currentSk)
+  const isBackground = isBrowserUiBackground(sessionKey)
   // Publish the target URL now rather than waiting for the tool result. The
   // embedded browser mounts as soon as the stage opens, so a late URL meant the
   // window rendered on `about:blank` until the agent finished.
@@ -924,9 +955,7 @@ export function notifyBrowserToolResult(
       })
     }
   }
-  const currentSk = getCurrentRightStageSessionKey()
-  const isBackground =
-    Boolean(sessionKey && currentSk && sessionKey !== currentSk)
+  const isBackground = isBrowserUiBackground(sessionKey)
   if (isBackground) {
     // 后台结果只写归属会话记忆；禁止改全局 runtime.pageUrl，否则前台 B 地址栏会串成 A。
     const bgUrl = String(next.pageUrl || '').trim()

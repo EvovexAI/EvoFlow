@@ -137,8 +137,14 @@ export async function closeXiaomiVoice(opts = {}) {
   const reason = String(opts.reason || 'program')
   const playFarewell = opts.farewell != null ? !!opts.farewell : reason === 'voice'
 
+  // 关面板 = 退出整套语音；闸门日志固定「关闭退出」→ 收尾「已经退出」
   try {
-    const { voiceFeLog } = await import('./xiaomi-voice/voice-file-log.js')
+    const { noteVoiceModeGate, voiceFeLog } = await import('./xiaomi-voice/voice-file-log.js')
+    noteVoiceModeGate('closing', {
+      source: 'closeXiaomiVoice',
+      reason,
+      message: `farewell=${playFarewell}`,
+    })
     voiceFeLog('退出', `closeXiaomiVoice reason=${reason} farewell=${playFarewell}`)
   } catch {
     /* ignore */

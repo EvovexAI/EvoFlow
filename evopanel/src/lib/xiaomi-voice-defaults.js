@@ -170,13 +170,14 @@ export async function ensureXiaomiVoiceReplyOn() {
     const speakerId = String(
       creds?.volcengineTtsSpeaker || DEFAULT_MEDIA_CREDENTIALS?.volcengineTtsSpeaker || '',
     ).trim()
-    const label = await resolveTtsSpeakerLabel(speakerId)
-    xiaomiVoiceLog('ensure: 配置音色', { speaker: speakerId || '(空)', label })
-    // 写入 Frame localStorage，保证 start 永远带同一 speaker（多句不分人）
+    // 先落 speaker（唤醒热路径依赖），label 解析可慢（日志曾卡 ~5s）放到后台
     if (speakerId) {
       const { setXiaomiTtsSpeaker } = await import('./xiaomi-voice/config.js')
       setXiaomiTtsSpeaker(speakerId)
     }
+    void resolveTtsSpeakerLabel(speakerId).then((label) => {
+      xiaomiVoiceLog('ensure: 配置音色', { speaker: speakerId || '(空)', label })
+    })
   } catch (e) {
     xiaomiVoiceLog('ensure: 读音色配置失败', String(e?.message || e))
   }

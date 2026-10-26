@@ -1172,12 +1172,47 @@ export function stopAllAssistantSpeech(opts = {}) {
   void import('./speech-session-client.js')
     .then(({ notifySpeechSessionBargeIn }) => notifySpeechSessionBargeIn({ reason }))
     .catch(() => {})
-  // 仅 Frame 管线真正在跑时才 barge Frame；continuous 误触 stop 不应狂打 Frame barge_in
+  // Frame：仅本地真在播时才 barge。空闲聆听时 skipFrame / 未播也 barge →
+  // 抬 min_turn + abort 刚发出的 chat run（日志里 stopAll 风暴）。
+  // 思考/播报中默认 reason 勿杀 Frame（日志 19:01:29 确认句「行」被误 barge → 正文整轮忽略）。
   if (!opts.skipFrame) {
     void import('./xiaomi-voice/index.js')
-      .then(({ bargeInXiaomiFrame, isXiaomiFramePipelineActive }) => {
-        if (isXiaomiFramePipelineActive()) bargeInXiaomiFrame({ reason })
-      })
+      .then(
+        ({
+          bargeInXiaomiFrame,
+          isXiaomiFramePipelineActive,
+          isXiaomiFramePlaying,
+          isXiaomiFrameAwaitingReply,
+          getVoicePhase,
+          voiceDecisionLog,
+        }) => {
+          if (!isXiaomiFramePipelineActive?.()) return
+          if (!isXiaomiFramePlaying?.()) return
+          const phase = String(getVoicePhase?.() || '')
+          const awaiting = !!isXiaomiFrameAwaitingReply?.()
+          const allowFrameBarge =
+            !!opts.forceFrame ||
+            reason === 'wake-word-hit' ||
+            reason === 'voice-exit' ||
+            reason === 'voice-command-new-turn' ||
+            reason === 'client_barge_in' ||
+            reason === 'user-stop-tts' ||
+            reason === 'ptt-mic-start' ||
+            reason === 'composer-stop' ||
+            reason === 'pause-listening'
+          // 仍等模型正文时，匿名 stopAll 勿杀 Frame（确认句「行」被误伤 → 整轮 ignore）
+          if (!allowFrameBarge && reason === 'stopAllAssistantSpeech' && awaiting) {
+            voiceDecisionLog?.('stopall_skip_frame', {
+              reason,
+              phase,
+              awaiting: 1,
+              playing: 1,
+            })
+            return
+          }
+          bargeInXiaomiFrame({ reason })
+        },
+      )
       .catch(() => {})
   }
   // Ensure continuous-mode / follow-up idle hooks run on barge-in / UI stop.

@@ -1,17 +1,18 @@
 /**
  * 右侧标签条溢出判定（ZCode 同构）。
  *
- * tab 宽度策略是「基准 156px 等宽弹性 → 60px 下限」：空间不足时所有 tab
- * 同步收缩，而不是让长标题独占一行。只有 60px × N + gap 仍然放不下，
- * 才开始横向滚动；此时「新建」按钮从条内末尾搬到条外右侧，把宽度全让给 tab。
+ * tab 宽度策略是「基准 ~12rem（单签 ~16rem）等宽弹性 → 60px 下限」：
+ * 空间不足时所有 tab 同步收缩，而不是让长标题独占一行。只有 60px × N + gap
+ * 仍然放不下，才开始横向滚动；此时「新建」按钮从条内末尾搬到条外右侧，
+ * 把宽度全让给 tab。
  *
  * 这里刻意不读 content.scrollWidth：溢出状态本身会改变 viewport 宽度
  * （新增按钮在条内/条外移动），直接读 scrollWidth 会和 ResizeObserver
  * 形成反馈环，导致临界区反复抖动。改为只用稳定的最小宽度预算推导。
  */
 
-/** 单个 tab 的收缩下限，与 CSS `.react-chat-stage-tab { min-width }` 保持一致。 */
-export const STAGE_TAB_MIN_WIDTH_PX = 60;
+/** 单个 tab 的收缩下限，与 CSS `[data-side-pane-tab-id] { min-width: 7.5rem }` 保持一致。 */
+export const STAGE_TAB_MIN_WIDTH_PX = 120;
 /** tab 之间与 tab→按钮的间距，与 CSS `gap` 保持一致。 */
 export const STAGE_TAB_GAP_PX = 4;
 /** 亚像素容差，避免 1px 抖动反复翻转溢出态。 */

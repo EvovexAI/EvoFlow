@@ -77,6 +77,7 @@ if (isTauri) {
               './lib/browser-embed-surface.js'
             )
             const bridgeTid = tid || NODE_REPL_BRIDGE_THREAD_ID
+            // resolveBrowserUiSessionKey 语音占用时已钉到小V UI
             const sessionKey = resolveBrowserUiSessionKey(getBridgeOwnerSessionKey()) || undefined
             setBrowserPanelThreadId(bridgeTid)
             if (!String(window.location.hash || '').includes('/chat')) {
@@ -94,7 +95,7 @@ if (isTauri) {
             if (hostOwns || window.__EVOFLOW_CHAT_BROWSER_PANEL__) {
               blog(
                 'info',
-                `[early] skip upsert (hostOwns=${hostOwns} chatOwns=${Boolean(window.__EVOFLOW_CHAT_BROWSER_PANEL__)}) source=${source || '(none)'}`,
+                `[early] skip upsert (hostOwns=${hostOwns} chatOwns=${Boolean(window.__EVOFLOW_CHAT_BROWSER_PANEL__)}) source=${source || '(none)'} sk=${sessionKey || '(none)'}`,
               )
               if (window.__EVOFLOW_CHAT_BROWSER_PANEL__) return
               // No chat-app yet: only raise stage chrome, panel-mount places HWND.
@@ -787,7 +788,7 @@ async function boot() {
               if (hostOwns || window.__EVOFLOW_CHAT_BROWSER_PANEL__) {
                 blog(
                   'info',
-                  `[boot] skip upsert (hostOwns=${hostOwns} chatOwns=${Boolean(window.__EVOFLOW_CHAT_BROWSER_PANEL__)}) source=${source || '(none)'}`,
+                  `[boot] skip upsert (hostOwns=${hostOwns} chatOwns=${Boolean(window.__EVOFLOW_CHAT_BROWSER_PANEL__)}) source=${source || '(none)'} sk=${sessionKey || '(none)'}`,
                 )
                 if (window.__EVOFLOW_CHAT_BROWSER_PANEL__) return
                 if (navUrl !== 'about:blank') {

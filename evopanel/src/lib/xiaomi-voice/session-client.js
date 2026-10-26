@@ -17,7 +17,9 @@ import {
   adoptVoiceTrace,
   voiceFeLog,
   voicePlaybackMark,
+  voiceDecisionLog,
 } from './voice-file-log.js'
+import { canUnmuteStt, getVoicePhase, subscribeVoicePhase } from './voice-phase.js'
 
 /** @type {WebSocket | null} */
 let _ws = null
@@ -56,8 +58,50 @@ let _replyPlayLogged = false
 let _onFirstLocalPlay = null
 /** @type {((idle: boolean) => void) | null} */
 let _onPlaybackIdle = null
+/** 确认句播完但正文未到：延后 client_listening，避免思考期 unmute 误 barge */
+/** @type {(() => boolean) | null} */
+let _shouldDeferListening = null
 /** 本地停播后丢弃迟到 tts_*，直到下一轮 assistant_begin（白龙马 stopTTS 语义） */
 let _dropIncomingAudio = false
+/** 相位 → 后端 client_phase 同步 */
+let _phaseUnsub = null
+let _lastSentPhase = ''
+/** 是否已向当前 WS 发送过 start（等 ready 后再发，避免 start 建管线失败直接掐连接） */
+let _startSent = false
+/** @type {{ asr: string, tts: string, speaker: string, tid: string } | null} */
+let _pendingStart = null
+
+function _ensurePhaseWire() {
+  if (_phaseUnsub) return
+  // 只同步 client_phase；unmute 仍走 _maybeNotifyListening（避免 hidden→visible 抢跑）
+  _phaseUnsub = subscribeVoicePhase(() => {
+    sendXiaomiClientPhase(getVoicePhase())
+  })
+}
+
+function _sendStartIfNeeded(reason = 'ready') {
+  if (_startSent || !_pendingStart || !isXiaomiFrameSessionActive()) return
+  const { asr, tts, speaker, tid } = _pendingStart
+  _startSent = true
+  try {
+    _ws.send(
+      JSON.stringify({
+        type: 'start',
+        asr_provider: asr,
+        tts_provider: tts,
+        trace_id: tid,
+        speaker,
+      }),
+    )
+    voiceFeLog(
+      '会话',
+      `发送 start（${reason}）ASR=${asr} TTS=${tts} 音色=${speaker} TRACE=${tid}`,
+    )
+  } catch (e) {
+    _startSent = false
+    voiceFeLog('会话', `发送 start 失败：${e?.message || e}`)
+  }
+}
 
 export function isXiaomiFrameSessionActive() {
   return !!(_ws && _ws.readyState === WebSocket.OPEN)
@@ -87,19 +131,10 @@ export async function connectXiaomiFrameSession() {
   _connecting = (async () => {
     try {
       const url = await _sessionUrl()
+      voiceFeLog('会话', `正在连接 Frame session ${String(url).replace(/\?.*/, '?…')}`)
       const ws = new WebSocket(url)
       ws.binaryType = 'arraybuffer'
-      await new Promise((resolve, reject) => {
-        const timer = setTimeout(() => reject(new Error('session timeout')), 2500)
-        ws.onopen = () => {
-          clearTimeout(timer)
-          resolve()
-        }
-        ws.onerror = () => {
-          clearTimeout(timer)
-          reject(new Error('session error'))
-        }
-      })
+      // 必须在 open 前挂好 handler，否则 ready 帧会丢（随后永远不发 start）
       ws.onmessage = (ev) => {
         if (typeof ev.data === 'string') {
           let m
@@ -117,38 +152,62 @@ export async function connectXiaomiFrameSession() {
           _appendAudio(seq, ev.data.slice(4))
         }
       }
-      ws.onclose = () => {
+      ws.onclose = (ev) => {
+        voiceFeLog(
+          '会话',
+          `Frame WS onclose code=${ev?.code ?? '?'} reason=${ev?.reason || '-'} wasClean=${ev?.wasClean ? 1 : 0} startSent=${_startSent ? 1 : 0}`,
+        )
         if (_ws === ws) _ws = null
         _active = false
+        _startSent = false
         _teardownAllAudio()
       }
+      ws.onerror = () => {
+        voiceFeLog('会话', 'Frame WS onerror（随后通常有 onclose）')
+      }
+      await new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('session timeout')), 2500)
+        ws.onopen = () => {
+          clearTimeout(timer)
+          resolve()
+        }
+        const prevErr = ws.onerror
+        ws.onerror = () => {
+          clearTimeout(timer)
+          try {
+            prevErr?.()
+          } catch {
+            /* ignore */
+          }
+          reject(new Error('session error'))
+        }
+      })
       _ws = ws
       _active = true
+      _lastSentPhase = ''
+      _startSent = false
+      _ensurePhaseWire()
       const asr = getXiaomiAsrProvider()
       const tts = getXiaomiTtsProvider()
       // 固定音色：永不空，避免多句分片落到不同默认说话人
       const speaker = resolveXiaomiTtsSpeaker()
       if (!getXiaomiTtsSpeaker()) setXiaomiTtsSpeaker(speaker)
       const tid = getVoiceTrace() || beginVoiceTrace({ reason: 'frame-session-start' })
+      _pendingStart = { asr, tts, speaker, tid }
       voiceFeLog(
         '会话',
-        `WebSocket 已连接，发送 start ASR=${asr} TTS=${tts} 音色=${speaker} TRACE=${tid}`,
+        `WebSocket 已连接，等待 ready 再 start ASR=${asr} TTS=${tts} 音色=${speaker} TRACE=${tid}`,
       )
-      ws.send(
-        JSON.stringify({
-          type: 'start',
-          asr_provider: asr,
-          tts_provider: tts,
-          trace_id: tid,
-          speaker,
-        }),
-      )
+      // ready 可能已先到（handler 已挂）→ 立刻 start；否则等 ready 回调
+      _sendStartIfNeeded('connected')
       return ws
     } catch (e) {
       voiceFeLog('会话', `WebSocket 连接失败：${e?.message || e}`)
       console.warn('[xiaomi-frame] connect failed', e)
       _ws = null
       _active = false
+      _startSent = false
+      _pendingStart = null
       return null
     } finally {
       _connecting = null
@@ -172,6 +231,31 @@ function _handleJson(m) {
       setVoiceSid(sid)
       voiceFeLog('会话', `Frame ready SID=${sid}`)
     }
+    if (type === 'ready') {
+      voiceFeLog('会话', `收到 session ready SID=${sid || '-'} → 发送 start`)
+      _sendStartIfNeeded('session_ready')
+    }
+  }
+  if (type === 'error') {
+    voiceFeLog(
+      '错误',
+      `Frame 后端 error：${String(m.message || m.error || JSON.stringify(m)).slice(0, 400)}`,
+    )
+    // start 失败时允许重发一次
+    if (String(m.op || '') === 'start') {
+      _startSent = false
+      voiceFeLog('会话', 'start 失败 → 300ms 后重发 start')
+      window.setTimeout(() => _sendStartIfNeeded('retry_after_error'), 300)
+    }
+  }
+  if (type === 'partial' || type === 'final') {
+    const t = String(m.text || '').trim()
+    if (t) {
+      voiceFeLog(
+        '语音转文字',
+        `${type === 'final' ? 'ASR最终' : 'ASR中间'}：「${t.slice(0, 120)}」`,
+      )
+    }
   }
   if (type === 'tts_start') {
     if (_dropIncomingAudio) return
@@ -194,6 +278,8 @@ function _handleJson(m) {
   } else if (type === 'interrupted') {
     _dropIncomingAudio = false
     _teardownAllAudio()
+    // 不在这里 unmute：思考期误 barge 应由 pipeline 保持 thinking；
+    // 真打断由 pipeline _refreshTray → listening → flushXiaomiClientListeningIfIdle。
   }
   try {
     _onEvent?.(m)
@@ -364,35 +450,52 @@ function _kickSerialPlay() {
     entry.audio.addEventListener(
       'ended',
       () => {
+        if (_playingSeq !== seq) return
         voicePlaybackMark('播放结束', '', `本地播完 seq=${seq}`)
         _advanceAfterSeq(seq)
       },
       { once: true },
     )
-    // 距结尾 80ms 预切下一句；duration 未知时用 buffered 估
-    const onTime = () => {
+    // MSE/mpeg 常不触发 ended、timeupdate 也稀：用 rAF 近尾预切，压句间静音（看门狗推进=卡顿主因）
+    let raf = 0
+    const tickNearEnd = () => {
       if (_playingSeq !== seq) return
       const dur = _entryPlayableDuration(entry)
       const cur = Number(entry.audio.currentTime)
-      if (!(dur > 0) || !Number.isFinite(cur)) return
-      // buffered 变长时刷新看门狗
-      if (!entry._watchFromBuf || Math.abs(entry._watchFromBuf - dur) > 0.05) {
-        entry._watchFromBuf = dur
-        _armPlayWatchdog(seq, entry)
+      if (dur > 0 && Number.isFinite(cur)) {
+        if (!entry._watchFromBuf || Math.abs(entry._watchFromBuf - dur) > 0.05) {
+          entry._watchFromBuf = dur
+          _armPlayWatchdog(seq, entry)
+        }
+        // 下一句已在队列：150ms 预切；否则等 ended/看门狗，避免截尾
+        const hasNext = _playOrder.some((s) => s !== seq)
+        const lead = hasNext ? 0.15 : 0.04
+        if (dur - cur <= lead) {
+          const leftMs = Math.round((dur - cur) * 1000)
+          voiceDecisionLog('advance_near_tail', {
+            seq,
+            leftMs,
+            hasNext,
+            leadMs: Math.round(lead * 1000),
+            queue: _playOrder.length,
+          })
+          voicePlaybackMark(
+            '播放结束',
+            '',
+            `本地近尾预切 seq=${seq} left=${leftMs}ms next=${hasNext}`,
+          )
+          _advanceAfterSeq(seq)
+          return
+        }
       }
-      if (dur - cur <= 0.08) {
-        entry.audio.removeEventListener('timeupdate', onTime)
-        voicePlaybackMark(
-          '播放结束',
-          '',
-          `本地近尾预切 seq=${seq} left=${((dur - cur) * 1000).toFixed(0)}ms`,
-        )
-        _advanceAfterSeq(seq)
-      }
+      raf = requestAnimationFrame(tickNearEnd)
     }
-    entry.audio.addEventListener('timeupdate', onTime)
-    entry._nearEndHandler = onTime
-    // 防卡死：MSE 短句常无 duration → 旧硬超时 12s 会整轮卡住（日志 seq=7）
+    raf = requestAnimationFrame(tickNearEnd)
+    entry._nearEndRaf = () => {
+      if (raf) cancelAnimationFrame(raf)
+      raf = 0
+    }
+    entry._nearEndHandler = null
     _armPlayWatchdog(seq, entry)
     return
   }
@@ -411,10 +514,19 @@ function _armPlayWatchdog(seq, entry) {
     const dur = _entryPlayableDuration(entry)
     if (!(dur > 0)) return false
     const cur = Number(entry.audio.currentTime) || 0
-    const leftMs = Math.max(200, Math.ceil((dur - cur) * 1000) + 250)
+    // +80ms 余量即可；旧 +250ms 叠在「ended 不触发」上，句间空档听感像卡碟
+    const leftMs = Math.max(120, Math.ceil((dur - cur) * 1000) + 80)
     clear()
     entry._watchTimer = window.setTimeout(() => {
       if (_playingSeq === seq) {
+        const curNow = Number(entry.audio.currentTime) || 0
+        voiceDecisionLog('advance_watchdog', {
+          seq,
+          dur: Number(dur.toFixed(2)),
+          cur: Number(curNow.toFixed(2)),
+          leftMs: Math.round((dur - curNow) * 1000),
+          queue: _playOrder.length,
+        })
         voiceFeLog('播报', `本地播报看门狗推进 seq=${seq}（ended/近尾未触发） dur≈${dur.toFixed(2)}s`)
         _advanceAfterSeq(seq)
       }
@@ -462,6 +574,11 @@ function _disposeEntry(seq) {
     /* ignore */
   }
   try {
+    if (typeof entry._nearEndRaf === 'function') entry._nearEndRaf()
+  } catch {
+    /* ignore */
+  }
+  try {
     if (entry._nearEndHandler) {
       entry.audio.removeEventListener('timeupdate', entry._nearEndHandler)
     }
@@ -494,12 +611,20 @@ function _disposeEntry(seq) {
 }
 
 function _advanceAfterSeq(seq) {
+  const inOrder = _playOrder.includes(seq)
+  const wasPlaying = _playingSeq === seq
+  const hasEntry = _play.has(seq)
+  // 近尾预切与 ended 常双触；第二次直接忽略
+  if (!inOrder && !wasPlaying && !hasEntry) return
   const idx = _playOrder.indexOf(seq)
   if (idx >= 0) _playOrder.splice(idx, 1)
   if (_playingSeq === seq) _playingSeq = null
   _disposeEntry(seq)
   _kickSerialPlay()
-  _maybeNotifyListening()
+  // 仅整轮播完才 client_listening。句间也 unmute → 麦收喇叭 → 卡顿/误 barge
+  if (_playingSeq == null && _playOrder.length === 0 && _play.size === 0) {
+    _maybeNotifyListening()
+  }
 }
 
 /** 本地是否仍有待播 / 在播 */
@@ -510,13 +635,46 @@ export function isXiaomiFramePlaying() {
 /** 本地播放队列已空 → 通知后端可 unmute，下一轮才能识别 */
 function _maybeNotifyListening() {
   if (isXiaomiFramePlaying()) return
-  sendXiaomiClientListening()
   try {
     _onPlaybackIdle?.(true)
   } catch {
     /* ignore */
   }
   _notifyBgVoiceTts(false)
+  const deferred = _shouldDeferListening?.() || !canUnmuteStt()
+  if (deferred) {
+    voiceDecisionLog('defer_client_listening', {
+      playing: false,
+      deferred: true,
+      phase: getVoicePhase(),
+      legacyDefer: !!_shouldDeferListening?.(),
+    })
+    voiceFeLog(
+      '管线',
+      `本地队列空但延后 client_listening（phase=${getVoicePhase()}，等正文/思考结束）`,
+    )
+    return
+  }
+  voiceDecisionLog('send_client_listening', {
+    playing: false,
+    deferred: false,
+    phase: getVoicePhase(),
+  })
+  sendXiaomiClientListening()
+}
+
+/** 正文 assistant_end 后若本地已空，补发被 defer 的 listening */
+export function flushXiaomiClientListeningIfIdle() {
+  if (isXiaomiFramePlaying()) return
+  if (_shouldDeferListening?.() || !canUnmuteStt()) return
+  sendXiaomiClientListening()
+}
+
+/**
+ * @param {(() => boolean) | null} fn 返回 true 则暂不发 client_listening
+ */
+export function setXiaomiDeferClientListening(fn) {
+  _shouldDeferListening = typeof fn === 'function' ? fn : null
 }
 
 /** Frame 本地播报起止 → continuous 空闲计时 / ASR duck（不依赖 pipeline 是否挂了 handler） */
@@ -529,13 +687,94 @@ function _notifyBgVoiceTts(started) {
     .catch(() => {})
 }
 
-export function sendXiaomiClientListening() {
-  if (!isXiaomiFrameSessionActive()) return
+/**
+ * @param {{ force?: boolean }} [opts] force=真打断后必须放麦
+ */
+export function sendXiaomiClientListening(opts = {}) {
+  if (!isXiaomiFrameSessionActive()) {
+    voiceDecisionLog('skip_client_listening', {
+      reason: 'ws_inactive',
+      readyState: _ws ? _ws.readyState : -1,
+      force: opts.force ? 1 : 0,
+    })
+    return
+  }
+  // 相位门控：非 listening 一律不放麦（后端也会再挡一层）；force 仅用于真打断收口
+  if (!opts.force && !canUnmuteStt()) {
+    voiceDecisionLog('block_client_listening', { phase: getVoicePhase() })
+    return
+  }
   try {
     _ws.send(JSON.stringify({ type: 'client_listening' }))
-    voiceFeLog('管线', '本地播完 → 发送 client_listening（后端可 unmute）')
-  } catch {
-    /* ignore */
+    voiceFeLog(
+      '管线',
+      `发送 client_listening（后端可 unmute） phase=${getVoicePhase()}${opts.force ? ' force=1' : ''}`,
+    )
+  } catch (e) {
+    voiceFeLog('管线', `发送 client_listening 失败：${e?.message || e}`)
+  }
+}
+
+/**
+ * 若模块级 _ws 被误清、但 connect 返回的 socket 仍 OPEN，重新挂回。
+ * @param {WebSocket | null | undefined} ws
+ */
+export function adoptXiaomiFrameSocket(ws) {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return false
+  if (_ws !== ws) {
+    voiceFeLog('会话', `adopt Frame socket（_ws 曾=${_ws ? _ws.readyState : -1} → OPEN）`)
+    _ws = ws
+    _active = true
+  }
+  return true
+}
+
+/**
+ * 管线 ready / 恢复聆听：强制 phase=listening + client_listening（带诊断，不静默）。
+ * @param {string} [reason]
+ * @param {WebSocket | null} [wsHint] connect() 返回的 socket，优先于模块 _ws
+ * @returns {boolean}
+ */
+export function forceXiaomiOpenMic(reason = 'open_mic', wsHint = null) {
+  if (wsHint) adoptXiaomiFrameSocket(wsHint)
+  const sock = _ws && _ws.readyState === WebSocket.OPEN ? _ws : wsHint
+  const state = sock ? sock.readyState : -1
+  if (!sock || state !== WebSocket.OPEN) {
+    voiceDecisionLog('force_open_mic_fail', { reason, readyState: state })
+    voiceFeLog('决策', `forceOpenMic 失败 reason=${reason} readyState=${state}`)
+    return false
+  }
+  try {
+    if (_ws !== sock) {
+      _ws = sock
+      _active = true
+    }
+    _lastSentPhase = 'listening'
+    sock.send(JSON.stringify({ type: 'client_phase', phase: 'listening' }))
+    sock.send(JSON.stringify({ type: 'client_listening' }))
+    voiceFeLog('管线', `forceOpenMic 已发送 phase+listening reason=${reason}`)
+    return true
+  } catch (e) {
+    voiceFeLog('决策', `forceOpenMic send 失败：${e?.message || e}`)
+    return false
+  }
+}
+
+/**
+ * 同步 FE 相位给后端，用于抑制思考期 VAD barge / 暂缓 unmute。
+ * @param {string} phase
+ * @param {{ force?: boolean }} [opts]
+ */
+export function sendXiaomiClientPhase(phase, opts = {}) {
+  if (!isXiaomiFrameSessionActive()) return
+  const p = String(phase || '').trim().toLowerCase() || 'idle'
+  if (!opts.force && p === _lastSentPhase) return
+  _lastSentPhase = p
+  try {
+    _ws.send(JSON.stringify({ type: 'client_phase', phase: p }))
+    voiceFeLog('决策', `同步后端 client_phase=${p}${opts.force ? ' force=1' : ''}`)
+  } catch (e) {
+    voiceFeLog('决策', `同步 client_phase 失败：${e?.message || e}`)
   }
 }
 
@@ -599,8 +838,8 @@ function _teardownAllAudio() {
     _disposeEntry(seq)
   }
   _replyPlayLogged = false
-  // 打断后立刻可听下一轮
-  sendXiaomiClientListening()
+  // 不在这里发 client_listening：assistant_begin 清旧队列时发会思考期误 unmute。
+  // interrupted / 真停播由调用方显式 send。
 }
 
 export function sendXiaomiPcm(pcm) {
@@ -691,6 +930,8 @@ export function stopXiaomiFrameLocalPlayback(opts = {}) {
     /* ignore */
   }
   _notifyBgVoiceTts(false)
+  // 本地主动停播（非 barge_in）也要放麦，否则 STT 一直 hold
+  _maybeNotifyListening()
 }
 
 /**
@@ -699,6 +940,13 @@ export function stopXiaomiFrameLocalPlayback(opts = {}) {
 export function bargeInXiaomiFrame(opts = {}) {
   if (!isXiaomiFrameSessionActive()) return
   const reason = String(opts.reason || 'client_barge_in')
+  // 本地没在播：空闲 stopAll 再 barge 只会抬 min_turn、刷 interrupted，无益
+  if (
+    !isXiaomiFramePlaying() &&
+    (reason === 'stopAllAssistantSpeech' || reason === 'wake-word-hit')
+  ) {
+    return
+  }
   const now = Date.now()
   // 200ms 内同因去重：continuous 回声会连打几十次 stopTTS/barge
   if (now - _lastBargeAt < 200 && reason === _lastBargeReason) {
@@ -740,6 +988,15 @@ export function stopXiaomiFrameSession() {
   }
   _ws = null
   _active = false
+  _lastSentPhase = ''
+  if (_phaseUnsub) {
+    try {
+      _phaseUnsub()
+    } catch {
+      /* ignore */
+    }
+    _phaseUnsub = null
+  }
 }
 
 export function isXiaomiFrameRuntimePreferred() {
