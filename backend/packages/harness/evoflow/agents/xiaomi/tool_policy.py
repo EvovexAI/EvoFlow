@@ -1,7 +1,7 @@
-"""小V工具边界：前台系统工具 + bash + 全量 MCP；其余工程师写仓面仍禁止。
+"""小V工具边界：仅 ``platform`` + bash + 全量 MCP；其余工程师写仓面仍禁止。
 
-不问澄清空转——先查员工与进度，再推进任务；用法/概念题走知识库；
-平台杂活统一走 ``platform``；终端用 ``bash``；MCP 按全局启用列表挂载。
+不问澄清空转——先 ``employees.org_status`` / ``board_overview`` / ``brief``，
+再 ``employees.dispatch`` / ``wake``；文档走 ``knowledge.search``；行政一律 ``platform``。
 """
 
 from __future__ import annotations
@@ -9,19 +9,8 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import Any
 
-# 小V 前台系统工具（始终挂载）
-XIAOMI_SYSTEM_TOOL_NAMES = frozenset(
-    {
-        "xiaomi_org_status",
-        "xiaomi_board_overview",
-        "xiaomi_employee_brief",
-        "xiaomi_task_brief",
-        "xiaomi_dispatch",
-        "xiaomi_wake",
-        "xiaomi_knowledge_search",
-        "platform",
-    }
-)
+# 小V 强制挂载：系统 platform（读写视图与行政同源）
+XIAOMI_SYSTEM_TOOL_NAMES = frozenset({"platform"})
 
 # 额外内置：bash（终端）
 XIAOMI_EXTRA_BUILTIN_TOOLS = frozenset({"bash"})
@@ -97,7 +86,7 @@ def filter_xiaomi_tools(
     session_mode: str | None = None,
     intent_hint: str | None = None,
 ) -> list[Any]:
-    """Keep xiaomi system tools + bash + MCP; drop engineer write/clarify surface."""
+    """Keep platform + bash + MCP; drop engineer write/clarify surface."""
     _ = session_mode, intent_hint
     out: list[Any] = []
     seen: set[str] = set()
@@ -114,7 +103,7 @@ def filter_xiaomi_tools(
 
 
 def merge_xiaomi_system_tools(filtered: Iterable[Any], system_tools: Iterable[Any]) -> list[Any]:
-    """Ensure front-desk system tools are present after filtering the lead catalog."""
+    """Ensure platform is present after filtering the lead catalog."""
     out = list(filtered or [])
     have = {str(getattr(t, "name", "") or "").strip().lower() for t in out}
     for t in system_tools or []:

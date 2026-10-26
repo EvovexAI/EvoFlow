@@ -225,6 +225,19 @@ export async function sendVoiceTranscript(text, opts = {}) {
     : useMeeting
       ? meetingVoiceSendHandler
       : voiceSendHandler
+  const preview = String(text || '').trim().slice(0, 40)
+  console.info(
+    '[xiaomi-voice] sendVoiceTranscript',
+    {
+      useXiaomi,
+      useMeeting,
+      preferXiaomiVoice,
+      hasXiaomiHandler: typeof xiaomiVoiceSendHandler === 'function',
+      hasMainHandler: typeof voiceSendHandler === 'function',
+      textLen: String(text || '').trim().length,
+    },
+    JSON.stringify(preview),
+  )
   if (!handler) {
     if (useXiaomi) throw new Error('小V尚未就绪，请稍候再试')
     if (useMeeting) throw new Error('会议室尚未就绪，请稍候再试')

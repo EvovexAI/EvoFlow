@@ -51,14 +51,31 @@ export function getXiaomiRunStartedAtMs() {
 /**
  * @param {{ voiceInitiated?: boolean }} [opts]
  */
+async function xiaomiShouldSpeak() {
+  try {
+    const { getVoiceReplyEnabled } = await import('../../lib/panel-settings.js')
+    const { shouldArmVoiceReply } = await import('../../lib/voice-reply-mode.js')
+    const { shouldXiaomiVoiceReply, xiaomiVoiceReplySnapshot, xiaomiVoiceLog } = await import(
+      '../../lib/xiaomi-voice-defaults.js',
+    )
+    const settingsOn = shouldArmVoiceReply(getVoiceReplyEnabled())
+    const snap = xiaomiVoiceReplySnapshot(settingsOn)
+    xiaomiVoiceLog('shouldSpeak?', snap)
+    return snap.speak
+  } catch (e) {
+    console.warn('[xiaomi-voice] shouldSpeak check failed', e)
+    return false
+  }
+}
+
 async function armXiaomiVoiceReply(opts = {}) {
   _voiceReplyPending = true
   _voiceSpeechSyncedPlain = ''
   try {
-    const { getVoiceReplyEnabled } = await import('../../lib/panel-settings.js')
-    const { shouldArmVoiceReply } = await import('../../lib/voice-reply-mode.js')
-    if (!shouldArmVoiceReply(getVoiceReplyEnabled())) {
+    const { xiaomiVoiceLog } = await import('../../lib/xiaomi-voice-defaults.js')
+    if (!(await xiaomiShouldSpeak())) {
       _voiceReplyPending = false
+      xiaomiVoiceLog('arm: SKIP — 本轮不朗读（设置关且非语音全屏/唤醒）')
       return
     }
     const { resetStreamingSpeechQueue } = await import('../../lib/speech-client.js')
@@ -67,22 +84,40 @@ async function armXiaomiVoiceReply(opts = {}) {
       '../../lib/voice-reply-speech.js',
     )
     resetVoiceToolMuteState()
+    xiaomiVoiceLog(
+      'arm: OK pending=true',
+      opts.voiceInitiated ? 'voiceInitiated→先播确认语「在呢」' : '等正文流式 TTS',
+      '（TTS：前台请求 Gateway /api/speech/tts → 火山合成 → 前台播放）',
+    )
     // 确认语仅语音提问；键盘发送直接等正文播报
     if (opts.voiceInitiated) {
       startVoiceSimpleAck(() => {})
     }
-  } catch {
-    /* ignore */
+  } catch (e) {
+    _voiceReplyPending = false
+    console.warn('[xiaomi-voice] arm failed', e)
   }
 }
 
 function clearXiaomiVoiceReply() {
+  if (_voiceReplyPending) {
+    void import('../../lib/xiaomi-voice-defaults.js')
+      .then(({ xiaomiVoiceLog }) => xiaomiVoiceLog('clear: pending=false'))
+      .catch(() => {})
+  }
   _voiceReplyPending = false
   _voiceSpeechSyncedPlain = ''
 }
 
 function syncXiaomiVoiceSpeech(fullText, { final = false } = {}) {
-  if (!_voiceReplyPending) return
+  if (!_voiceReplyPending) {
+    void import('../../lib/xiaomi-voice-defaults.js')
+      .then(({ xiaomiVoiceDebug }) =>
+        xiaomiVoiceDebug('sync skip: pending=false len=', String(fullText || '').length),
+      )
+      .catch(() => {})
+    return
+  }
   const body = String(fullText || '')
   void import('../../lib/voice-reply-speech.js')
     .then(
@@ -96,19 +131,47 @@ function syncXiaomiVoiceSpeech(fullText, { final = false } = {}) {
         isVoiceToolMuteActive,
       }) => {
         if (!_voiceReplyPending) return
-        if (isVoiceToolMuteActive()) exitVoiceToolMute()
+        if (isVoiceToolMuteActive()) {
+          void import('../../lib/xiaomi-voice-defaults.js').then(({ xiaomiVoiceLog }) =>
+            xiaomiVoiceLog('sync: 工具执行中曾静音，现退出静音再播'),
+          )
+          exitVoiceToolMute()
+        }
         if (final) {
-          flushVoiceStreamSpeechIfNeeded(body)
+          const ok = flushVoiceStreamSpeechIfNeeded(body)
+          void import('../../lib/xiaomi-voice-defaults.js').then(({ xiaomiVoiceLog }) =>
+            xiaomiVoiceLog(
+              'sync FINAL flush=',
+              ok,
+              'chars=',
+              body.length,
+              'preview=',
+              JSON.stringify(body.slice(0, 48)),
+            ),
+          )
           clearXiaomiVoiceReply()
           return
         }
         const speakable = clipVoiceSpeechForPlayback(body)
-        if (!shouldAdvanceVoiceSpeechSync(speakable, _voiceSpeechSyncedPlain)) return
+        if (!shouldAdvanceVoiceSpeechSync(speakable, _voiceSpeechSyncedPlain)) {
+          void import('../../lib/xiaomi-voice-defaults.js').then(({ xiaomiVoiceDebug }) =>
+            xiaomiVoiceDebug('sync no-advance chars=', speakable.length),
+          )
+          return
+        }
         _voiceSpeechSyncedPlain = toVoiceSpeechPlain(speakable)
+        void import('../../lib/xiaomi-voice-defaults.js').then(({ xiaomiVoiceDebug }) =>
+          xiaomiVoiceDebug(
+            'sync enqueue chars=',
+            speakable.length,
+            'preview=',
+            JSON.stringify(speakable.slice(0, 40)),
+          ),
+        )
         enqueueVoiceStreamSpeech(speakable)
       },
     )
-    .catch(() => {})
+    .catch((e) => console.warn('[xiaomi-voice] sync failed', e))
 }
 
 function readStoredSessionKey() {
@@ -912,18 +975,20 @@ export async function sendXiaomiChat(text, ctx = {}) {
   _sealedRunId = ''
   _activeRunId = ''
 
-  if (await (async () => {
-    try {
-      const { getVoiceReplyEnabled } = await import('../../lib/panel-settings.js')
-      const { shouldArmVoiceReply } = await import('../../lib/voice-reply-mode.js')
-      return shouldArmVoiceReply(getVoiceReplyEnabled())
-    } catch {
-      return false
+  {
+    const speak = await xiaomiShouldSpeak()
+    void import('../../lib/xiaomi-voice-defaults.js').then(({ xiaomiVoiceLog }) =>
+      xiaomiVoiceLog(
+        'sendXiaomiChat',
+        { voiceInitiated: !!ctx.voiceInitiated, speak, textLen: raw.length },
+        JSON.stringify(raw.slice(0, 40)),
+      ),
+    )
+    if (speak) {
+      await armXiaomiVoiceReply({ voiceInitiated: !!ctx.voiceInitiated })
+    } else {
+      clearXiaomiVoiceReply()
     }
-  })()) {
-    await armXiaomiVoiceReply({ voiceInitiated: !!ctx.voiceInitiated })
-  } else {
-    clearXiaomiVoiceReply()
   }
 
   const live = extractPageContext()
@@ -981,14 +1046,7 @@ export async function sendXiaomiChat(text, ctx = {}) {
   patchState({ messages, streaming: true, draft: '', activeView: 'chat' }, { persistUi: true })
 
   try {
-    let voiceReply = false
-    try {
-      const { getVoiceReplyEnabled } = await import('../../lib/panel-settings.js')
-      const { shouldArmVoiceReply } = await import('../../lib/voice-reply-mode.js')
-      voiceReply = shouldArmVoiceReply(getVoiceReplyEnabled())
-    } catch {
-      /* ignore */
-    }
+    const voiceReply = await xiaomiShouldSpeak()
     await wsClient.chatSend(key, raw, [], [], {
       messageId: userMsgId,
       ...(ctx.voiceInitiated ? { voiceInitiated: true } : {}),

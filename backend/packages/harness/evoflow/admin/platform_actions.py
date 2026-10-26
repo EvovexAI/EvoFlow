@@ -77,8 +77,10 @@ DOMAIN_GUIDES: dict[str, dict[str, str]] = {
     "employees": {
         "title": "智能体员工岗位",
         "when": (
-            "雇佣/暂停/恢复/唤醒/删除员工、改心跳、看工作日志、迁移旧事项到 Task、"
+            "看名册汇总/跨岗看板/单岗近况（org_status、board_overview、brief）、"
+            "雇佣/暂停/恢复/唤醒/派新活/删除员工、改心跳、看工作日志、迁移旧事项到 Task、"
             "为岗位扫码绑飞书/企微（绑定本岗 AI 员工）时；新建优先 capability_pack=duty。"
+            "新目标用 employees.dispatch；已有 Task / 卡住用 employees.wake；"
             "create/hire 后读 assistant_guide.say_to_user 告诉用户怎么用；"
             "绑渠道用 employees.bind_channel_*（不是 channels.registration_*）"
         ),
@@ -254,7 +256,7 @@ def _build_registry() -> dict[str, PlatformAction]:
     items: list[PlatformAction] = [
         # knowledge
         _A("knowledge.list", "knowledge", "列出平台自有知识库", "read", "无", H.knowledge_list, "有哪些知识库"),
-        _A("knowledge.search", "knowledge", "检索知识库文档", "read", "query, vaultId?/kbId?, top_k?, mode?", H.knowledge_search, "怎么配置 MCP"),
+        _A("knowledge.search", "knowledge", "检索自有知识库（默认 hybrid 多库扇出）", "read", "query, vaultId?/kbId?, top_k?, mode?", H.knowledge_search, "怎么配置 MCP"),
         _A("knowledge.create", "knowledge", "新建平台自有知识库", "write", "name, description?, embeddingModelRef?", H.knowledge_create, "建个英语单词库"),
         _A("knowledge.enable", "knowledge", "启用/停用 Obsidian Vault（遗留）", "write", "vaultId, enabled", H.knowledge_enable, "关掉某 Vault"),
         _A("knowledge.ingest", "knowledge", "写入一篇笔记", "write", "title, content, vaultId?/kbId?, summary?, tags?", H.knowledge_ingest, "把大纲写进库"),
@@ -480,6 +482,34 @@ def _build_registry() -> dict[str, PlatformAction]:
         ),
         # employees
         _A("employees.list", "employees", "列出智能体员工岗位", "read", "status?", H.employees_list, "现在有哪些员工"),
+        _A(
+            "employees.org_status",
+            "employees",
+            "名册汇总：人数、忙闲、待审批（不含小V自身）",
+            "read",
+            "无",
+            H.employees_org_status,
+            "现在有多少员工、谁空闲",
+        ),
+        _A(
+            "employees.board_overview",
+            "employees",
+            "跨岗未结看板 + stuck_candidates（催办前先看）",
+            "read",
+            "limit_per_role?",
+            H.employees_board_overview,
+            "各岗未结任务卡在哪",
+        ),
+        _A(
+            "employees.brief",
+            "employees",
+            "单岗近况简报：忙闲、未结任务、轨迹摘要",
+            "read",
+            "agent_code/role_name, include_trail?, task_limit?",
+            H.employees_brief,
+            "拆解岗最近在干嘛",
+            "文案助手进度怎么样",
+        ),
         _A("employees.get", "employees", "查看员工详情", "read", "agent_code, recent_limit?", H.employees_get, "拆解岗近况"),
         _A("employees.hire", "employees", "雇佣智能体为值班员工", "write", "agent_code, role_name?, heartbeat_rrule?…", H.employees_hire, "把文案助手雇成员工"),
         _A(
@@ -521,6 +551,16 @@ def _build_registry() -> dict[str, PlatformAction]:
             "agent_code, round_id?, max_steps?",
             H.employees_trail,
             "这轮他到底调了哪些工具",
+        ),
+        _A(
+            "employees.dispatch",
+            "employees",
+            "把新目标派给指定员工（后台值班轮；小V/前台 source=xiaomi）",
+            "write",
+            "agent_code/role_name, goal, description?, source?, from_agent?, task_id?, priority?",
+            H.employees_dispatch,
+            "派给拆解岗：把这份需求拆成子任务",
+            "让文案助手写个标题",
         ),
         _A(
             "employees.wake",

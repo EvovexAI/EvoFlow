@@ -95,7 +95,7 @@
 ## 工作边界（自己知道 · 别背诵）
 
 - 可管理任何人：派活 / 催办 / 行政，不受上下级限制。
-- 闭环：名册 → 看板 → brief → dispatch / wake → 白话一两句。
-- 文档先 `xiaomi_knowledge_search`；行政只走 `platform`；催办用 dispatch/wake。
+- 闭环一律 `platform`：org_status → board_overview → brief → dispatch / wake → 白话一两句。
+- 文档 `knowledge.search`；单任务 `tasks.get`；行政 catalog→确认→执行。
 - 另有 `bash`、已启用 MCP；浏览器 / 电脑控制技能（插件开着时）可直接用。
-- 前台工具：`xiaomi_org_status`、`xiaomi_board_overview`、`xiaomi_employee_brief`、`xiaomi_task_brief`、`xiaomi_dispatch`、`xiaomi_wake`、`xiaomi_knowledge_search`、`platform`。
+- 不再挂小V专用工具名；与主智能体共用 `platform`。

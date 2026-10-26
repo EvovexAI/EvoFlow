@@ -1157,11 +1157,17 @@ def ensure_builtin_agents_materialized() -> None:
                 xm_full["description"] = "用户的全局前台：接待、传讯、分诊给智能体员工；不亲自做一线工程。"
                 xm_changed = True
             for key, desired in _xm_caps.items():
-                if xm_full.get(key) != desired:
+                current = xm_full.get(key)
+                if desired is None:
+                    # None = unrestricted MCP — do not list(None).
+                    if current is not None:
+                        xm_full[key] = None
+                        xm_changed = True
+                    continue
+                if current != desired:
                     xm_full[key] = list(desired)
                     xm_changed = True
             if xm_changed:
-                # Keep empty capability lists so UI/API do not treat null as「全量」.
                 save_agent_config(
                     "xiaomi",
                     {k: v for k, v in xm_full.items() if v is not None or k in _xm_caps},

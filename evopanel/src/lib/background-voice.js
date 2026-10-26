@@ -301,7 +301,8 @@ function initPttController() {
     startSimpleAck: async (cb) => {
       const { getVoiceReplyEnabled } = await import('./panel-settings.js')
       const { shouldArmVoiceReply } = await import('./voice-reply-mode.js')
-      if (!shouldArmVoiceReply(getVoiceReplyEnabled())) return
+      const { shouldXiaomiVoiceReply } = await import('./xiaomi-voice-defaults.js')
+      if (!shouldXiaomiVoiceReply(shouldArmVoiceReply(getVoiceReplyEnabled()))) return
       const { resetStreamingSpeechQueue } = await import('./speech-client.js')
       resetStreamingSpeechQueue()
       const { startVoiceSimpleAck } = await import('./voice-reply-speech.js')
@@ -483,7 +484,20 @@ export function isWakeWordActive() {
 
 async function openXiaomiForWake() {
   setPreferXiaomiVoice(true)
-  // 唤醒直落语音全屏主场（左语音域 + 右标签区）；失败回退打开小V面板。
+  // 统一走 openXiaomiRightStage：ensure session + 语音全屏 + 默认开语音播报
+  try {
+    const { ensureXiaomiVoiceReplyOn } = await import('./xiaomi-voice-defaults.js')
+    await ensureXiaomiVoiceReplyOn()
+  } catch (e) {
+    console.warn('[background-voice] enable voice reply failed:', e?.message || e)
+  }
+  try {
+    const { openXiaomiRightStage } = await import('./right-stage/open-right-stage-xiaomi.js')
+    await openXiaomiRightStage({ navigateToChat: true, voiceMode: true })
+    return
+  } catch (e) {
+    console.warn('[background-voice] open xiaomi stage failed:', e?.message || e)
+  }
   try {
     const { enterXwVoiceMode } = await import('./xw-voice-mode.js')
     enterXwVoiceMode()

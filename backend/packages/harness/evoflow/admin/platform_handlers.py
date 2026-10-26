@@ -99,7 +99,8 @@ def knowledge_search(args: dict[str, Any]) -> dict[str, Any]:
     # ``knowledge.recall`` now takes ``kb_id`` (owned KB), vault_id is optional/legacy.
     kb_id = _arg_str(args, "kbId", "kb_id", "vaultId", "vault_id") or None
     limit = int(args.get("top_k") or args.get("limit") or 8)
-    mode = _arg_str(args, "mode") or "fulltext"
+    # 默认 hybrid：与前小V专用检索一致（多库扇出 + 语义/关键词）；无向量时 recall 侧会退化
+    mode = _arg_str(args, "mode") or "hybrid"
     data = kn.recall(query, kb_id=kb_id, limit=limit, mode=mode)
     entries = data.get("entries") or data.get("results") or data.get("hits") or []
     if not isinstance(entries, list):
@@ -109,7 +110,7 @@ def knowledge_search(args: dict[str, Any]) -> dict[str, Any]:
         **data,
         "hits": len(entries),
         "results": entries,
-        "hint": "用片段口语回答；无命中勿编造。",
+        "hint": "用片段口语回答；引用 title/path；无命中勿编造。",
     }
 
 
@@ -918,6 +919,37 @@ def employees_list(args: dict[str, Any]) -> dict[str, Any]:
     return {"ok": True, **data, "employees": roles, "items": roles}
 
 
+def employees_org_status(_args: dict[str, Any]) -> dict[str, Any]:
+    """名册汇总：人数 / 忙闲 / 待审批（原 xiaomi_org_status）。"""
+    from evoflow.admin.employee_front_desk import org_status
+
+    return org_status()
+
+
+def employees_board_overview(args: dict[str, Any]) -> dict[str, Any]:
+    """跨岗未结看板 + stuck_candidates（原 xiaomi_board_overview）。"""
+    from evoflow.admin.employee_front_desk import board_overview
+
+    lim = int(args.get("limit_per_role") or args.get("limitPerRole") or args.get("limit") or 8)
+    return board_overview(limit_per_role=lim)
+
+
+def employees_brief(args: dict[str, Any]) -> dict[str, Any]:
+    """单岗近况简报：忙闲 / 未结 / 轨迹（原 xiaomi_employee_brief）。"""
+    from evoflow.admin.employee_front_desk import employee_brief
+
+    code = _arg_str(args, "agent_code", "agentCode", "code", "role", "role_name", "name", "target")
+    if not code:
+        raise ValidationError("agent_code is required（或岗位名）")
+    include_trail = True
+    if "include_trail" in args:
+        include_trail = _arg_bool(args, "include_trail", True)
+    elif "includeTrail" in args:
+        include_trail = _arg_bool(args, "includeTrail", True)
+    task_limit = int(args.get("task_limit") or args.get("taskLimit") or 8)
+    return employee_brief(code, include_trail=include_trail, task_limit=task_limit)
+
+
 def employees_get(args: dict[str, Any]) -> dict[str, Any]:
     from evoflow.admin import employees as emp
 
@@ -1043,20 +1075,65 @@ def employees_trail(args: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def employees_dispatch(args: dict[str, Any]) -> dict[str, Any]:
+    """派新目标给员工（底层 ``employees.dispatch``；催已有 Task 用 ``employees.wake``）。"""
+    from evoflow.admin import employees as emp
+    from evoflow.agents.xiaomi.identity import XIAOMI_AGENT_CODE, is_xiaomi_agent
+
+    target = _arg_str(args, "target", "agent_code", "agentCode", "code", "role", "role_name")
+    goal = _arg_str(args, "goal")
+    if not target:
+        raise ValidationError("agent_code is required（或 role_name）")
+    if not goal:
+        raise ValidationError("goal is required")
+    role = emp.resolve_role_ref(target)
+    if is_xiaomi_agent(role.agent_code):
+        raise ValidationError("cannot dispatch to xiaomi herself")
+    from_agent = _arg_str(args, "from_agent", "fromAgent") or ""
+    source = _arg_str(args, "source") or "role"
+    # 小V 前台：source=xiaomi 且未传 from_agent 时盖章，便于轨迹归因
+    if source == "xiaomi" and not from_agent:
+        from_agent = XIAOMI_AGENT_CODE
+    data = emp.dispatch(
+        role.agent_code,
+        goal,
+        description=_arg_str(args, "description") or "",
+        priority=_arg_str(args, "priority") or "normal",
+        source=source,
+        from_agent=from_agent,
+        related_task_id=_arg_str(args, "task_id", "taskId", "related_task_id", "relatedTaskId") or "",
+        round_id=_arg_str(args, "round_id", "roundId") or "",
+        resume_round=_arg_bool(args, "resume_round", False) or _arg_bool(args, "resumeRound", False),
+        fresh_round=_arg_bool(args, "fresh_round", False) or _arg_bool(args, "freshRound", False),
+        skip_done_guard=_arg_bool(args, "skip_done_guard", False) or _arg_bool(args, "skipDoneGuard", False),
+    )
+    return {
+        "ok": True,
+        **(data if isinstance(data, dict) else {"result": data}),
+        "name": role.role_name or role.agent_code,
+        "agent_code": role.agent_code,
+    }
+
+
 def employees_wake(args: dict[str, Any]) -> dict[str, Any]:
     from evoflow.admin import employees as emp
+    from evoflow.agents.xiaomi.identity import XIAOMI_AGENT_CODE
 
     target = _arg_str(args, "target", "agent_code", "agentCode", "code", "role", "role_name")
     if not target:
         raise ValidationError("target is required（agent_code 或 role_name）")
+    from_agent = _arg_str(args, "from_agent", "fromAgent") or ""
+    source = _arg_str(args, "source") or "role"
+    if source == "xiaomi" and not from_agent:
+        from_agent = XIAOMI_AGENT_CODE
     data = emp.wake(
         target,
         _arg_str(args, "goal") or "",
-        from_agent=_arg_str(args, "from_agent", "fromAgent") or "",
+        from_agent=from_agent,
         task_id=_arg_str(args, "task_id", "taskId") or "",
         description=_arg_str(args, "description") or "",
         priority=_arg_str(args, "priority") or "normal",
-        source=_arg_str(args, "source") or "role",
+        source=source,
         round_id=_arg_str(args, "round_id", "roundId") or "",
         resume_round=_arg_bool(args, "resume_round", False) or _arg_bool(args, "resumeRound", False),
         fresh_round=_arg_bool(args, "fresh_round", False) or _arg_bool(args, "freshRound", False),

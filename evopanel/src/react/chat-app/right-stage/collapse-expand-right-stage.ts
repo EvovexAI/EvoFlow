@@ -11,6 +11,7 @@ import {
   saveChatSummaryDisplayMode,
   type ChatSummaryDisplayMode,
 } from '../../lib/chat-summary-panel-prefs.js'
+import { exitXwVoiceMode, isXwVoiceMode } from '../../../lib/xw-voice-mode.js'
 
 export type CollapseRightStageCtx = {
   rightStageUserPinnedRef: { current: RightStageKind | null }
@@ -29,6 +30,9 @@ export type ExpandRightStageCtx = {
 
 export function collapseRightStageShell(ctx: CollapseRightStageCtx): void {
   ctx.rightStageUserPinnedRef.current = null
+  // 语音全屏下只 collapse 会留下「左半语音域 + 聊天 chrome 仍被 CSS 藏掉」，
+  // 且收起钮消失后难以再开。收起前必须先退出语音全屏。
+  if (isXwVoiceMode()) exitXwVoiceMode()
   ctx.collapseRightStage()
   clearAllRightStageOverlayDefer()
   ctx.syncShellAsideForWorkspacePanel(false)

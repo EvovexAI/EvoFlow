@@ -49,7 +49,8 @@ export async function waitForAssistantSpeechThenGap(opts = {}) {
   if (!isActive()) return
 
   const { getVoiceReplyEnabled } = await import('./panel-settings.js')
-  if (!getVoiceReplyEnabled()) {
+  const { shouldXiaomiVoiceReply } = await import('./xiaomi-voice-defaults.js')
+  if (!shouldXiaomiVoiceReply(!!getVoiceReplyEnabled())) {
     await new Promise((r) => setTimeout(r, 900))
     return
   }

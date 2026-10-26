@@ -3,11 +3,19 @@
  * 开启后 html[data-xw-voice='1'] —— 左侧小V语音域 + 右侧 right-stage 标签区两栏铺满整窗，
  * 正常聊天 chrome（会话列表/顶栏/对话列/输入区）由 CSS 隐藏，退出即还原。
  * 状态不放 React：任何模块（面板按钮/语音舞台）都可同步读写。
+ *
+ * 进入时带 data-xw-voice-anim=enter：从右缘小弧（对齐边缘「小V」标签）展开，
+ * 动画结束后再 notify 布局（避免 HWND 中途跳动）。
  */
 import { notifyLayoutChromeChanged } from './layout-chrome.js'
 import { rightStageStore } from './right-stage/right-stage-store.js'
 
 export const XW_VOICE_MODE_EVENT = 'xw-voice-mode-change'
+
+/** 与 CSS @keyframes xw-arc-expand 时长对齐 */
+const ENTER_ANIM_MS = 480
+
+let enterAnimTimer = 0
 
 export function isXwVoiceMode(): boolean {
   try {
@@ -23,12 +31,44 @@ export function subscribeXwVoiceMode(fn: (on: boolean) => void): () => void {
   return () => window.removeEventListener(XW_VOICE_MODE_EVENT, handler)
 }
 
+function clearEnterAnimTimer() {
+  if (enterAnimTimer) {
+    window.clearTimeout(enterAnimTimer)
+    enterAnimTimer = 0
+  }
+}
+
 function apply(on: boolean) {
-  if (on) document.documentElement.dataset.xwVoice = '1'
-  else delete document.documentElement.dataset.xwVoice
-  window.dispatchEvent(new CustomEvent(XW_VOICE_MODE_EVENT, { detail: { on } }))
-  // 右栏槽位四角大变：通知内嵌浏览器立刻 rebind（不能等 ResizeObserver 晚一拍）
-  notifyLayoutChromeChanged(on ? 'xw-voice-enter' : 'xw-voice-exit')
+  const root = document.documentElement
+  clearEnterAnimTimer()
+
+  if (on) {
+    root.dataset.xwVoice = '1'
+    const reduceMotion =
+      typeof window !== 'undefined' &&
+      window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches === true
+    if (reduceMotion) {
+      delete root.dataset.xwVoiceAnim
+      window.dispatchEvent(new CustomEvent(XW_VOICE_MODE_EVENT, { detail: { on: true } }))
+      notifyLayoutChromeChanged('xw-voice-enter')
+      return
+    }
+    root.dataset.xwVoiceAnim = 'enter'
+    window.dispatchEvent(new CustomEvent(XW_VOICE_MODE_EVENT, { detail: { on: true } }))
+    // 展开动画结束后再通知内嵌浏览器 rebind，避免半动画时 HWND 乱跳
+    enterAnimTimer = window.setTimeout(() => {
+      enterAnimTimer = 0
+      if (root.dataset.xwVoice !== '1') return
+      delete root.dataset.xwVoiceAnim
+      notifyLayoutChromeChanged('xw-voice-enter')
+    }, ENTER_ANIM_MS)
+    return
+  }
+
+  delete root.dataset.xwVoice
+  delete root.dataset.xwVoiceAnim
+  window.dispatchEvent(new CustomEvent(XW_VOICE_MODE_EVENT, { detail: { on: false } }))
+  notifyLayoutChromeChanged('xw-voice-exit')
 }
 
 /** 进入语音全屏模式：右栏标签区升为主体（必须展开；若停在小V标签则切到别的标签，避免右侧重复显示小V）。 */
@@ -41,10 +81,18 @@ export function enterXwVoiceMode(): void {
     if (other) rightStageStore.activateTab(`${other.kind}:${other.id}`)
   }
   apply(true)
+  // 默认开语音播报 + prefer 小V（火山 TTS 已配即可听会说）
+  void import('./xiaomi-voice-defaults.js')
+    .then((m) => m.ensureXiaomiVoiceReplyOn())
+    .catch(() => {})
 }
 
 /** 退出语音全屏模式，还原正常聊天布局。 */
 export function exitXwVoiceMode(): void {
   if (!isXwVoiceMode()) return
   apply(false)
+  // 退出后 ASR / 发送不再强制走小V（播报开关保留用户刚才打开的状态）
+  void import('./background-voice-bridge.js')
+    .then((m) => m.setPreferXiaomiVoice(false))
+    .catch(() => {})
 }

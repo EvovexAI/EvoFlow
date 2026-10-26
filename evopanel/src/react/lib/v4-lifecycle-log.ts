@@ -246,8 +246,17 @@ export function logV4Life(input: V4LifeLogInput): void {
   if (!enabled()) return
   const event = String(input.event || '').trim() || 'unknown'
   const zh = String(input.zh || '').trim() || undefined
-  const sessionKey = String(input.sessionKey || '').trim() || undefined
-  const threadId = normalizeThreadId(input.threadId)
+  // Inherit click-open sessionKey when callers only pass threadId (common in transport).
+  const sessionKey =
+    String(input.sessionKey || '').trim() ||
+    (openTrace &&
+    (!input.threadId ||
+      !openTrace.threadId ||
+      normalizeThreadId(input.threadId) === openTrace.threadId)
+      ? openTrace.sessionKey
+      : undefined) ||
+    undefined
+  const threadId = normalizeThreadId(input.threadId) || openTrace?.threadId
   const level = input.level || 'info'
   const detail = attachOpenTiming(
     input.detail && typeof input.detail === 'object' ? { ...input.detail } : undefined,

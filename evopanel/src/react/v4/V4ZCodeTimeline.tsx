@@ -26,6 +26,10 @@ import { MarkdownTableVariantProvider } from "@zcode/ui/components/ai-elements/m
 import { AssistantCodeCommentFeatureProvider } from "@zcode/ui/AssistantCodeCommentFeatureProvider.js";
 import { TooltipProvider } from "@zcode/ui/components/ui/tooltip.js";
 import { ConversationTimeline } from "@zcode/ui/v4/ConversationTimeline.js";
+import {
+  replayThemeIntoBridgeRoots,
+  useHostResolvedTheme,
+} from "@zcode/ui/useTheme.js";
 import { V4DraftEmptyState } from "./V4DraftEmptyState.js";
 import { hasOlderRows } from "@zcode/ui/v4/conversationProjectionStore.js";
 import {
@@ -557,6 +561,15 @@ export function V4ZCodeTimeline(props: {
     onOpenSubagentTranscript,
     onAutoOpenCodeViewers,
   } = props;
+
+  // 桥接主题：本组件自挂 .zcode-bridge-root，但不走 StoreProvider。
+  // store 模块加载时容器常未就绪，dark/theme-zai-* 写不进去 → 暗色宿主上仍用浅色
+  // token（foreground-subtle 成深灰），「已工作」等次要字几乎看不见。
+  // 挂载后 + 宿主 data-theme 变化时重放，与右侧 PreviewPane 的 StoreProvider 补写同效。
+  const hostTheme = useHostResolvedTheme();
+  useLayoutEffect(() => {
+    replayThemeIntoBridgeRoots(hostTheme === "dark" ? "zai-dark" : "zai-light");
+  }, [hostTheme]);
 
   // Markdown 路径 pill：优先 onOpenFileLink（宿主应打开右侧「文件」区）；
   // 未传时回落 onOpenCodeViewer(type:file)——宿主 openRightStageForCodeViewerSource 会再分流到 file。

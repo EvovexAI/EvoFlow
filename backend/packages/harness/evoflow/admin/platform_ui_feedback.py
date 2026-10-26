@@ -239,6 +239,7 @@ def _build_title(action: str, domain: str, verb: str, label: str, args: dict[str
         "assets.export": f"已导出资产包「{name}」",
         "assets.import": f"已导入资产包到「{name}」",
         "employees.wake": f"已唤醒「{name}」",
+        "employees.dispatch": f"已派给「{name}」",
         "employees.migrate": "员工事项迁移已完成",
         "tasks.progress": f"任务「{name}」进度已更新",
         "tasks.cleanup_noise": "噪音任务清理已执行",
@@ -474,18 +475,27 @@ def _progress_open_stage_action(
     # 叫醒/恢复值班：有 taskId+agentCode → 员工执行过程（派活后立刻开侧栏）
     if domain == "employees" and action in {
         "employees.wake",
+        "employees.dispatch",
         "employees.resume",
         "employees.create",
         "employees.hire",
     }:
         if assigned and tid:
-            # wake/resume 即开始执行；create/hire 仅在已带 task 时同样 autoOpen
-            auto = action in {"employees.wake", "employees.resume"} or bool(tid)
+            # wake/dispatch/resume 即开始执行；create/hire 仅在已带 task 时同样 autoOpen
+            auto = action in {"employees.wake", "employees.dispatch", "employees.resume"} or bool(tid)
             return _employee_process_cta(
                 task_id=tid,
                 agent_code=assigned,
                 round_id=round_id,
                 auto_open=auto,
+            )
+        # dispatch 常无 task_id：有 agent 也给过程 CTA（侧栏跟值班轮）
+        if action == "employees.dispatch" and assigned:
+            return _employee_process_cta(
+                task_id=tid or "",
+                agent_code=assigned,
+                round_id=round_id,
+                auto_open=True,
             )
         return None
 

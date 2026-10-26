@@ -274,9 +274,19 @@ export function shouldAdvanceVoiceSpeechSync(nextRawBody, lastSyncedPlain) {
  * @param {string} text
  */
 export function enqueueVoiceStreamSpeech(text) {
-  if (_toolMuteActive) return
+  if (_toolMuteActive) {
+    void import('./xiaomi-voice-defaults.js')
+      .then(({ xiaomiVoiceLog }) => xiaomiVoiceLog('enqueue SKIP: toolMuteActive'))
+      .catch(() => {})
+    return
+  }
   const t = clipVoiceSpeechForPlayback(text)
   if (!t) return
+  void import('./xiaomi-voice-defaults.js')
+    .then(({ xiaomiVoiceDebug }) =>
+      xiaomiVoiceDebug('enqueue → Gateway TTS', JSON.stringify(t.slice(0, 40))),
+    )
+    .catch(() => {})
   _onTTSStartCb?.()
   appendStreamingSpeech(t)
 }

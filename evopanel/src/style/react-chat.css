@@ -34118,9 +34118,20 @@ html.dark .react-chat-right-stage-body > .react-chat-knowledge-map-panel {
   min-width: 0;
   overflow-x: auto;
   scrollbar-width: none;
-  flex: 1 1 auto;
+  /* 只吃标签内容宽；剩余交给右侧 drag-gap 拖窗 */
+  flex: 0 1 auto;
+  max-width: calc(100% - 88px);
 }
 .react-chat-stage-tabs-viewport::-webkit-scrollbar { display: none; }
+
+/* 标签右侧空白：整段可拖动窗口（须自带 data-tauri-drag-region，WebView2 不吃父级继承） */
+.react-chat-stage-tabs-drag-gap {
+  flex: 1 1 auto;
+  align-self: stretch;
+  min-width: 48px;
+  height: 100%;
+  cursor: default;
+}
 .react-chat-stage-tab {
   display: inline-flex;
   align-items: center;
@@ -34148,10 +34159,23 @@ html.dark .react-chat-right-stage-body > .react-chat-knowledge-map-panel {
   color: var(--text-primary, inherit);
   border-color: transparent;
 }
+html.dark .react-chat-stage-tab,
+html[data-theme='dark'] .react-chat-stage-tab {
+  /* 未选中也用主色，避免暗底 + text-secondary 发灰看不清（小V 等标签） */
+  color: var(--text-primary, #e8e8ea);
+  opacity: 0.78;
+}
+html.dark .react-chat-stage-tab:hover,
+html[data-theme='dark'] .react-chat-stage-tab:hover {
+  opacity: 1;
+}
 html.dark .react-chat-stage-tab.is-active,
 html[data-theme='dark'] .react-chat-stage-tab.is-active {
   border-color: transparent;
-  background: var(--bg-active, rgba(255, 255, 255, 0.08));
+  background: var(--bg-active, rgba(255, 255, 255, 0.1));
+  color: var(--text-primary, #f4f4f5);
+  opacity: 1;
+  font-weight: 600;
 }
 .react-chat-stage-tab-icon {
   display: inline-flex;

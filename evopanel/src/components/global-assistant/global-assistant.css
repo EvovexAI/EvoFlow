@@ -3662,13 +3662,89 @@ body.xm-resizing {
   font: inherit;
   font-size: 13px;
   line-height: 1.4;
-  background: color-mix(in srgb, var(--bg, #fff) 92%, transparent);
-  color: inherit;
+  /* 勿用未定义的 --bg（会落到 #fff）；对齐 dock 版 .xm-composer-input */
+  background: var(--bg-elevated, var(--bg-card, #fff));
+  color: var(--text-primary, inherit);
   outline: none;
 }
 
 .xm-stage-composer-input:focus {
   border-color: color-mix(in srgb, var(--accent, #6366f1) 55%, transparent);
+}
+
+.xm-stage-composer-input::placeholder {
+  color: var(--text-tertiary, #9ca3af);
+  opacity: 1;
+}
+
+html[data-theme='dark'] .xm-stage-composer-input,
+html.dark .xm-stage-composer-input {
+  background: var(--bg-elevated, #1f1f24);
+  border-color: var(--border, #2e2e35);
+  color: var(--text-primary, #e8e8ea);
+}
+
+html[data-theme='dark'] .xm-stage-composer-input::placeholder,
+html.dark .xm-stage-composer-input::placeholder {
+  color: var(--text-tertiary, #a1a1aa);
+}
+
+html[data-theme='dark'] .xm-stage-hist-menu,
+html.dark .xm-stage-hist-menu {
+  background: var(--bg-elevated, #1f1f24);
+  border-color: var(--border, #2e2e35);
+  color: var(--text-primary, #e8e8ea);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+
+html[data-theme='dark'] .xm-stage-chip,
+html.dark .xm-stage-chip {
+  border-color: rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.06);
+  color: #f0f2f5;
+}
+
+html[data-theme='dark'] .xm-stage-chip:hover,
+html.dark .xm-stage-chip:hover {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.34);
+  color: #ffffff;
+}
+
+html[data-theme='dark'] .xm-stage-chip.is-voice-enter,
+html.dark .xm-stage-chip.is-voice-enter {
+  color: #67e8f9;
+  border-color: rgba(34, 211, 238, 0.55);
+  background: rgba(34, 211, 238, 0.12);
+}
+
+html[data-theme='dark'] .xm-stage-chip.is-voice-enter:hover,
+html.dark .xm-stage-chip.is-voice-enter:hover {
+  background: rgba(34, 211, 238, 0.2);
+  border-color: rgba(34, 211, 238, 0.7);
+  color: #a5f3fc;
+}
+
+html[data-theme='dark'] .xm-stage-icon-btn,
+html.dark .xm-stage-icon-btn {
+  color: #e8eaed;
+}
+
+html[data-theme='dark'] .xm-stage-icon-btn:hover,
+html.dark .xm-stage-icon-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+}
+
+html[data-theme='dark'] .xm-stage-toolbar,
+html.dark .xm-stage-toolbar {
+  border-bottom-color: rgba(255, 255, 255, 0.12);
+  color: #f0f2f5;
+}
+
+html[data-theme='dark'] .xm-stage-composer,
+html.dark .xm-stage-composer {
+  border-top-color: var(--border, #2e2e35);
 }
 
 .xm-stage-composer-bar {

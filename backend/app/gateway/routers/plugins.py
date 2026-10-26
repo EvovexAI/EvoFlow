@@ -29,7 +29,10 @@ def _org_admin_guard(request: Request) -> None:
     require_org_admin(request)
 
 
-router = APIRouter(prefix="/api/plugins", tags=["plugins"], dependencies=[Depends(_org_admin_guard)])
+# Read endpoints (overview/list/icon/…) are used by every user for the 「+」插件目录
+# and skill picker. Requiring org_admin there spammed ``org_admin required`` on
+# session open for non-admins. Mutating routes keep ``Depends(_org_admin_guard)``.
+router = APIRouter(prefix="/api/plugins", tags=["plugins"])
 
 
 def _get_service() -> PluginManagementService:
@@ -137,7 +140,7 @@ async def get_plugin_icon(plugin_name: str) -> FileResponse:
 # ---------------------------------------------------------------------------
 
 
-@router.post("/marketplaces")
+@router.post("/marketplaces", dependencies=[Depends(_org_admin_guard)])
 async def add_marketplace(payload: AddMarketplaceRequest) -> dict[str, Any]:
     service = _get_service()
     if payload.dryRun:
@@ -158,14 +161,14 @@ async def add_marketplace(payload: AddMarketplaceRequest) -> dict[str, Any]:
     }
 
 
-@router.delete("/marketplaces/{marketplace_id}")
+@router.delete("/marketplaces/{marketplace_id}", dependencies=[Depends(_org_admin_guard)])
 async def remove_marketplace(marketplace_id: str) -> dict[str, Any]:
     service = _get_service()
     await asyncio.to_thread(service.remove_marketplace, marketplace_id)
     return {"diagnostics": []}
 
 
-@router.post("/marketplaces/{marketplace_id}/refresh")
+@router.post("/marketplaces/{marketplace_id}/refresh", dependencies=[Depends(_org_admin_guard)])
 async def refresh_marketplace(marketplace_id: str) -> dict[str, Any]:
     service = _get_service()
     try:
@@ -175,7 +178,7 @@ async def refresh_marketplace(marketplace_id: str) -> dict[str, Any]:
     return {"diagnostics": [item.to_json() for item in diagnostics]}
 
 
-@router.post("/marketplaces/validate")
+@router.post("/marketplaces/validate", dependencies=[Depends(_org_admin_guard)])
 async def validate_source(payload: ValidateSourceRequest) -> dict[str, Any]:
     service = _get_service()
     return await asyncio.to_thread(service.validate_source, payload.source)
@@ -186,7 +189,7 @@ async def validate_source(payload: ValidateSourceRequest) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-@router.post("/install")
+@router.post("/install", dependencies=[Depends(_org_admin_guard)])
 async def install_plugin(payload: InstallPluginRequest) -> dict[str, Any]:
     service = _get_service()
     try:
@@ -197,7 +200,7 @@ async def install_plugin(payload: InstallPluginRequest) -> dict[str, Any]:
         raise _to_http_error(error) from error
 
 
-@router.delete("/installed/{plugin_id:path}")
+@router.delete("/installed/{plugin_id:path}", dependencies=[Depends(_org_admin_guard)])
 async def uninstall_plugin(
     plugin_id: str, removeCache: bool = Query(default=True)
 ) -> dict[str, Any]:
@@ -208,7 +211,7 @@ async def uninstall_plugin(
         raise _to_http_error(error) from error
 
 
-@router.post("/installed/{plugin_id:path}/enabled")
+@router.post("/installed/{plugin_id:path}/enabled", dependencies=[Depends(_org_admin_guard)])
 async def set_plugin_enabled(plugin_id: str, payload: SetEnabledRequest) -> dict[str, Any]:
     service = _get_service()
     try:
@@ -217,7 +220,7 @@ async def set_plugin_enabled(plugin_id: str, payload: SetEnabledRequest) -> dict
         raise _to_http_error(error) from error
 
 
-@router.post("/installed/{plugin_id:path}/update")
+@router.post("/installed/{plugin_id:path}/update", dependencies=[Depends(_org_admin_guard)])
 async def update_plugin(plugin_id: str) -> dict[str, Any]:
     service = _get_service()
     try:
@@ -226,7 +229,7 @@ async def update_plugin(plugin_id: str) -> dict[str, Any]:
         raise _to_http_error(error) from error
 
 
-@router.post("/installed/{plugin_id:path}/restore")
+@router.post("/installed/{plugin_id:path}/restore", dependencies=[Depends(_org_admin_guard)])
 async def restore_builtin_plugin(plugin_id: str) -> dict[str, Any]:
     service = _get_service()
     try:
@@ -235,7 +238,7 @@ async def restore_builtin_plugin(plugin_id: str) -> dict[str, Any]:
         raise _to_http_error(error) from error
 
 
-@router.post("/installed/{plugin_id:path}/configure")
+@router.post("/installed/{plugin_id:path}/configure", dependencies=[Depends(_org_admin_guard)])
 async def configure_plugin(plugin_id: str, payload: ConfigurePluginRequest) -> dict[str, Any]:
     service = _get_service()
     try:
@@ -246,7 +249,7 @@ async def configure_plugin(plugin_id: str, payload: ConfigurePluginRequest) -> d
         raise _to_http_error(error) from error
 
 
-@router.post("/installed/{plugin_id:path}/reset-config")
+@router.post("/installed/{plugin_id:path}/reset-config", dependencies=[Depends(_org_admin_guard)])
 async def reset_plugin_config(plugin_id: str) -> dict[str, Any]:
     service = _get_service()
     return await asyncio.to_thread(service.reset_plugin_config, plugin_id)

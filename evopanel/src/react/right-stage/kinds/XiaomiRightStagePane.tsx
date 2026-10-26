@@ -42,7 +42,9 @@ export function XiaomiRightStagePane() {
   useEffect(() => {
     void (async () => {
       try {
-        await ensureXiaomiSession({ reloadHistory: true })
+        // openXiaomiRightStage 已后台 ensure；这里有 key 就别再强制拉历史
+        const hasKey = !!String(getState().sessionKey || '').trim()
+        await ensureXiaomiSession({ reloadHistory: !hasKey })
         bindXiaomiStreamListener()
       } catch (e) {
         console.warn('[xiaomi-stage] session', e)

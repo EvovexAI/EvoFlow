@@ -113,6 +113,7 @@ export function XiaomiVoiceStage() {
         setVisible(on)
         if (on) {
           setPreferXiaomiVoice(true)
+          // ensureXiaomiVoiceReplyOn 由 enterXwVoiceMode 统一触发，这里不重复
           let tries = 0
           const tryStart = () => {
             tries += 1
@@ -127,7 +128,12 @@ export function XiaomiVoiceStage() {
               else if (tries < 3 && isXwVoiceMode()) window.setTimeout(tryStart, 900)
             })
           }
-          window.setTimeout(tryStart, 250)
+          // 等右缘弧形展开完成后再开麦，减轻打开瞬间主线程争抢
+          window.setTimeout(() => {
+            requestAnimationFrame(() => {
+              requestAnimationFrame(tryStart)
+            })
+          }, 560)
         } else {
           liveRef.current.tray = ''
           if (isContinuousModeActive()) {
@@ -267,6 +273,8 @@ export function XiaomiVoiceStage() {
     if (!canvas || !box) return
     const ctx = canvas.getContext('2d')
     if (!ctx) return
+    let cancelled = false
+    let raf = 0
     let dpr = Math.min(2, window.devicePixelRatio || 1)
     const resize = () => {
       dpr = Math.min(2, window.devicePixelRatio || 1)
@@ -285,174 +293,172 @@ export function XiaomiVoiceStage() {
 
     const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches === true
 
-    /* 斐波那契球面点阵：均匀小实心点，随状态波动 */
-    const N = 680
-    const pts: Array<{ x: number; y: number; z: number; sz: number; ph: number; cool: boolean; lv: number }> = []
-    const GA = Math.PI * (3 - Math.sqrt(5))
-    for (let i = 0; i < N; i++) {
-      const y0 = 1 - (2 * (i + 0.5)) / N
-      const r0 = Math.sqrt(Math.max(0, 1 - y0 * y0))
-      const phi = i * GA
-      pts.push({
-        x: Math.cos(phi) * r0,
-        y: y0,
-        z: Math.sin(phi) * r0,
-        sz: 0.8 + Math.random() * 0.9,
-        ph: Math.random() * Math.PI * 2,
-        cool: Math.random() < 0.16,
-        lv: Math.floor(Math.random() * LEVEL_BINS),
-      })
-    }
+    /* 等右缘弧形展开（~480ms）后再跑点阵，避免与 clip-path 动画抢帧 */
+    const N = 420
+    const bootTimer = window.setTimeout(() => {
+      if (cancelled) return
+      const pts: Array<{ x: number; y: number; z: number; sz: number; ph: number; cool: boolean; lv: number }> = []
+      const GA = Math.PI * (3 - Math.sqrt(5))
+      for (let i = 0; i < N; i++) {
+        const y0 = 1 - (2 * (i + 0.5)) / N
+        const r0 = Math.sqrt(Math.max(0, 1 - y0 * y0))
+        const phi = i * GA
+        pts.push({
+          x: Math.cos(phi) * r0,
+          y: y0,
+          z: Math.sin(phi) * r0,
+          sz: 0.8 + Math.random() * 0.9,
+          ph: Math.random() * Math.PI * 2,
+          cool: Math.random() < 0.16,
+          lv: Math.floor(Math.random() * LEVEL_BINS),
+        })
+      }
 
-    const sprites = new Map<string, HTMLCanvasElement>()
-    const sprite = (color: string) => {
-      let cv = sprites.get(color)
-      if (!cv) {
-        cv = document.createElement('canvas')
-        cv.width = 12
-        cv.height = 12
-        const g = cv.getContext('2d')
-        if (g) {
-          const rg = g.createRadialGradient(6, 6, 0, 6, 6, 6)
-          rg.addColorStop(0, '#ffffff')
-          rg.addColorStop(0.35, color)
-          rg.addColorStop(1, 'transparent')
-          g.fillStyle = rg
-          g.beginPath()
-          g.arc(6, 6, 6, 0, Math.PI * 2)
-          g.fill()
+      const sprites = new Map<string, HTMLCanvasElement>()
+      const sprite = (color: string) => {
+        let cv = sprites.get(color)
+        if (!cv) {
+          cv = document.createElement('canvas')
+          cv.width = 12
+          cv.height = 12
+          const g = cv.getContext('2d')
+          if (g) {
+            const rg = g.createRadialGradient(6, 6, 0, 6, 6, 6)
+            rg.addColorStop(0, '#ffffff')
+            rg.addColorStop(0.35, color)
+            rg.addColorStop(1, 'transparent')
+            g.fillStyle = rg
+            g.beginPath()
+            g.arc(6, 6, 6, 0, Math.PI * 2)
+            g.fill()
+          }
+          sprites.set(color, cv)
         }
-        sprites.set(color, cv)
-      }
-      return cv
-    }
-
-    let energy = 0.06
-    let mouth = 0
-    let rotY = 0
-    let rotX = -0.22
-    let last = performance.now()
-    let raf = 0
-
-    const frame = (t: number) => {
-      raf = requestAnimationFrame(frame)
-      const dt = Math.min(50, t - (last || t))
-      last = t
-      const W = canvas.width
-      const H = canvas.height
-      if (!W || !H) return
-      const st = stateRef.current
-      const levels = levelsRef.current
-      const motionScale = reduceMotion ? 0.35 : 1
-
-      /* 能量与音节包络 */
-      let target: number
-      if (st === 'listen') {
-        let sum = 0
-        for (let i = 0; i < levels.length; i++) sum += levels[i]
-        target = 0.3 + (sum / levels.length) * 0.8
-      } else if (st === 'think') {
-        target = 0.32 + 0.12 * Math.sin(t * 0.004)
-      } else if (st === 'speak') {
-        target = 0.38 + 0.2 * Math.abs(Math.sin(t * 0.014)) + 0.06 * Math.random()
-      } else if (st === 'parse') {
-        target = 0.2
-      } else {
-        target = 0.06 + 0.02 * Math.sin(t * 0.0016)
-      }
-      energy += (target - energy) * 0.09
-      if (st === 'speak') {
-        const ph = t * 0.01
-        const syl = Math.max(
-          0,
-          Math.sin(ph) + Math.sin(ph * 2.3 + 1.7) * 0.5 + Math.sin(ph * 4.1 + 0.6) * 0.25 + Math.random() * 0.14,
-        )
-        mouth += (Math.min(1, syl) - mouth) * 0.32
-      } else {
-        mouth += (0 - mouth) * 0.18
+        return cv
       }
 
-      /* 残影拖尾（纯黑底，稍快消隐保持颗粒清晰） */
-      ctx.globalCompositeOperation = 'destination-out'
-      ctx.fillStyle = 'rgba(0,0,0,.4)'
-      ctx.fillRect(0, 0, W, H)
-      ctx.globalCompositeOperation = 'source-over'
+      let energy = 0.06
+      let mouth = 0
+      let rotY = 0
+      let rotX = -0.22
+      let last = performance.now()
 
-      const cx = W / 2
-      const cy = H / 2
-      const R = Math.min(W, H) * 0.3
-      const stColor = STATE_COLOR[st]
+      const frame = (t: number) => {
+        if (cancelled) return
+        raf = requestAnimationFrame(frame)
+        const dt = Math.min(50, t - (last || t))
+        last = t
+        const W = canvas.width
+        const H = canvas.height
+        if (!W || !H) return
+        const st = stateRef.current
+        const levels = levelsRef.current
+        const motionScale = reduceMotion ? 0.35 : 1
 
-      /* 旋转：思考加速 + 倾斜摆动 */
-      const rotSpd =
-        st === 'think' ? 0.00058 : st === 'speak' ? 0.0002 + mouth * 0.00016 : st === 'listen' ? 0.00014 + energy * 0.00014 : 0.00005
-      rotY += rotSpd * dt * motionScale
-      const tiltBase = st === 'think' ? Math.sin(t * 0.0012) * 0.42 - 0.2 : Math.sin(t * 0.00032) * 0.16 - 0.22
-      rotX += (tiltBase - rotX) * 0.05
-
-      const cosY = Math.cos(rotY)
-      const sinY = Math.sin(rotY)
-      const cosX = Math.cos(rotX)
-      const sinX = Math.sin(rotX)
-      const F = 3.2
-      /* 左上方向点光源（单位向量），给球体真实的明暗面 */
-      const LX = -0.48
-      const LY = -0.68
-      const LZ = -0.55
-
-      const spMain = sprite(DOT_MAIN)
-      const spCool = sprite(DOT_COOL)
-
-      for (let i = 0; i < pts.length; i++) {
-        const p = pts[i]
-        const theta = Math.acos(Math.max(-1, Math.min(1, p.y))) // 极角（0=北极）
-        /* 半径调制：说话=球面波纹由极点扩散；聆听=随音量微抖；思考=收缩；待命=呼吸 */
-        let r = 1
-        if (st === 'speak') {
-          const wave = Math.sin(theta * 5.2 - t * 0.009 + p.ph * 0.15)
-          r += wave * mouth * 0.14
-        } else if (st === 'listen') {
-          r += (levels[p.lv] || 0) * 0.06 + Math.sin(t * 0.005 + p.ph) * 0.012
+        let target: number
+        if (st === 'listen') {
+          let sum = 0
+          for (let i = 0; i < levels.length; i++) sum += levels[i]
+          target = 0.3 + (sum / levels.length) * 0.8
         } else if (st === 'think') {
-          r = 0.72 + Math.sin(theta * 3 + t * 0.003) * 0.05
+          target = 0.32 + 0.12 * Math.sin(t * 0.004)
+        } else if (st === 'speak') {
+          target = 0.38 + 0.2 * Math.abs(Math.sin(t * 0.014)) + 0.06 * Math.random()
         } else if (st === 'parse') {
-          r += Math.sin(t * 0.007 + p.ph) * 0.022
+          target = 0.2
         } else {
-          r += Math.sin(t * 0.0012) * 0.025 + Math.sin(t * 0.0009 + p.ph) * 0.01
+          target = 0.06 + 0.02 * Math.sin(t * 0.0016)
         }
-        const rr = r * R
-        /* 绕 Y → 绕 X 旋转 */
-        const x1 = p.x * cosY + p.z * sinY
-        const z1 = -p.x * sinY + p.z * cosY
-        const y2 = p.y * cosX - z1 * sinX
-        const z2 = p.y * sinX + z1 * cosX
-        /* 单位法向量的明暗：受光面亮、背光面暗 → 立体感 */
-        const bright = Math.max(0, x1 * LX + y2 * LY + z2 * LZ)
-        const shade = 0.18 + 0.82 * bright
-        const persp = F / (F + z2 * r)
-        const X = cx + x1 * rr * persp
-        const Y = cy + y2 * rr * persp
-        const frontness = Math.max(0, Math.min(1, (persp - 0.72) / 0.8))
-        const sz = p.sz * dpr * (0.72 + 0.42 * frontness)
-        let al = (0.16 + 0.52 * frontness) * shade
-        if (st === 'speak') al = Math.min(0.95, al + mouth * 0.15)
-        else if (st === 'listen') al = Math.min(0.95, al + energy * 0.16)
-        ctx.globalAlpha = al
-        ctx.drawImage(p.cool ? spCool : spMain, X - sz, Y - sz, sz * 2, sz * 2)
-      }
-      ctx.globalAlpha = 1
+        energy += (target - energy) * 0.09
+        if (st === 'speak') {
+          const ph = t * 0.01
+          const syl = Math.max(
+            0,
+            Math.sin(ph) + Math.sin(ph * 2.3 + 1.7) * 0.5 + Math.sin(ph * 4.1 + 0.6) * 0.25 + Math.random() * 0.14,
+          )
+          mouth += (Math.min(1, syl) - mouth) * 0.32
+        } else {
+          mouth += (0 - mouth) * 0.18
+        }
 
-      /* 状态细环（唯一用色处，克制） */
-      ctx.strokeStyle = stColor
-      ctx.globalAlpha = 0.12 + energy * 0.15
-      ctx.lineWidth = dpr
-      ctx.beginPath()
-      ctx.arc(cx, cy, R * 1.24, 0, Math.PI * 2)
-      ctx.stroke()
-      ctx.globalAlpha = 1
-    }
-    raf = requestAnimationFrame(frame)
+        ctx.globalCompositeOperation = 'destination-out'
+        ctx.fillStyle = 'rgba(0,0,0,.4)'
+        ctx.fillRect(0, 0, W, H)
+        ctx.globalCompositeOperation = 'source-over'
+
+        const cx = W / 2
+        const cy = H / 2
+        const R = Math.min(W, H) * 0.3
+        const stColor = STATE_COLOR[st]
+
+        const rotSpd =
+          st === 'think' ? 0.00058 : st === 'speak' ? 0.0002 + mouth * 0.00016 : st === 'listen' ? 0.00014 + energy * 0.00014 : 0.00005
+        rotY += rotSpd * dt * motionScale
+        const tiltBase = st === 'think' ? Math.sin(t * 0.0012) * 0.42 - 0.2 : Math.sin(t * 0.00032) * 0.16 - 0.22
+        rotX += (tiltBase - rotX) * 0.05
+
+        const cosY = Math.cos(rotY)
+        const sinY = Math.sin(rotY)
+        const cosX = Math.cos(rotX)
+        const sinX = Math.sin(rotX)
+        const F = 3.2
+        const LX = -0.48
+        const LY = -0.68
+        const LZ = -0.55
+
+        const spMain = sprite(DOT_MAIN)
+        const spCool = sprite(DOT_COOL)
+
+        for (let i = 0; i < pts.length; i++) {
+          const p = pts[i]
+          const theta = Math.acos(Math.max(-1, Math.min(1, p.y)))
+          let r = 1
+          if (st === 'speak') {
+            const wave = Math.sin(theta * 5.2 - t * 0.009 + p.ph * 0.15)
+            r += wave * mouth * 0.14
+          } else if (st === 'listen') {
+            r += (levels[p.lv] || 0) * 0.06 + Math.sin(t * 0.005 + p.ph) * 0.012
+          } else if (st === 'think') {
+            r = 0.72 + Math.sin(theta * 3 + t * 0.003) * 0.05
+          } else if (st === 'parse') {
+            r += Math.sin(t * 0.007 + p.ph) * 0.022
+          } else {
+            r += Math.sin(t * 0.0012) * 0.025 + Math.sin(t * 0.0009 + p.ph) * 0.01
+          }
+          const rr = r * R
+          const x1 = p.x * cosY + p.z * sinY
+          const z1 = -p.x * sinY + p.z * cosY
+          const y2 = p.y * cosX - z1 * sinX
+          const z2 = p.y * sinX + z1 * cosX
+          const bright = Math.max(0, x1 * LX + y2 * LY + z2 * LZ)
+          const shade = 0.18 + 0.82 * bright
+          const persp = F / (F + z2 * r)
+          const X = cx + x1 * rr * persp
+          const Y = cy + y2 * rr * persp
+          const frontness = Math.max(0, Math.min(1, (persp - 0.72) / 0.8))
+          const sz = p.sz * dpr * (0.72 + 0.42 * frontness)
+          let al = (0.16 + 0.52 * frontness) * shade
+          if (st === 'speak') al = Math.min(0.95, al + mouth * 0.15)
+          else if (st === 'listen') al = Math.min(0.95, al + energy * 0.16)
+          ctx.globalAlpha = al
+          ctx.drawImage(p.cool ? spCool : spMain, X - sz, Y - sz, sz * 2, sz * 2)
+        }
+        ctx.globalAlpha = 1
+
+        ctx.strokeStyle = stColor
+        ctx.globalAlpha = 0.12 + energy * 0.15
+        ctx.lineWidth = dpr
+        ctx.beginPath()
+        ctx.arc(cx, cy, R * 1.24, 0, Math.PI * 2)
+        ctx.stroke()
+        ctx.globalAlpha = 1
+      }
+      raf = requestAnimationFrame(frame)
+    }, 520)
+
     return () => {
+      cancelled = true
+      window.clearTimeout(bootTimer)
       cancelAnimationFrame(raf)
       ro.disconnect()
     }
@@ -603,7 +609,10 @@ export function XiaomiVoiceStage() {
             语音
           </button>
         </div>
-        <div className="xws-topbar-actions" data-tauri-no-drag="">
+        <div
+          className={`xws-topbar-actions xws-chrome-hover${histOpen ? ' is-menu-open' : ''}`}
+          data-tauri-no-drag=""
+        >
           <div className={`xws-hist${histOpen ? ' is-open' : ''}`}>
             <button
               type="button"
@@ -651,7 +660,7 @@ export function XiaomiVoiceStage() {
           <span className="xws-state-word">{meta.en}</span>
           <span className="xws-state-timer">{elapsed}</span>
         </div>
-        <div className="xws-openhint" data-tauri-no-drag="">
+        <div className="xws-openhint xws-chrome-hover" data-tauri-no-drag="">
           <span className="xws-openhint-title">内容区在右侧标签页打开</span>
           <span className="xws-openhint-actions">
             <button type="button" className="xws-content-chip" onClick={() => openTab('https://www.bilibili.com')}>
@@ -690,7 +699,7 @@ export function XiaomiVoiceStage() {
       <footer className="xws-deck" data-tauri-no-drag="">
         <button
           type="button"
-          className={`xws-sidebtn${handsfree ? ' is-on' : ''}`}
+          className={`xws-sidebtn xws-chrome-hover${handsfree ? ' is-on' : ''}`}
           aria-pressed={handsfree}
           aria-label="免提连续对话"
           title="免提连续对话"
@@ -726,7 +735,7 @@ export function XiaomiVoiceStage() {
         </button>
         <button
           type="button"
-          className="xws-sidebtn"
+          className="xws-sidebtn xws-chrome-hover"
           aria-label="停止播报"
           title="停止播报"
           onClick={() => void stopAssistantVoicePlayback()}
@@ -734,7 +743,7 @@ export function XiaomiVoiceStage() {
           ♪
         </button>
       </footer>
-      <div className="xws-hint">
+      <div className="xws-hint xws-chrome-hover">
         按住 <b>语音键</b> 说话 · 播报中再次按下即可<b>打断</b>
       </div>
     </div>

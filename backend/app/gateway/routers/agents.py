@@ -486,7 +486,12 @@ async def list_agents(
         Includes the main (default) agent as the first entry.
     """
     try:
-        ensure_builtin_agents_materialized()
+        try:
+            ensure_builtin_agents_materialized()
+        except Exception:
+            # Listing must still work when builtin seed/backfill fails
+            # (e.g. historical list(None) on mcp_servers=None).
+            logger.warning("ensure_builtin_agents_materialized failed (non-fatal for list)", exc_info=True)
         # Get main agent first
         main_agent = _main_agent_to_response(include_soul=False)
 

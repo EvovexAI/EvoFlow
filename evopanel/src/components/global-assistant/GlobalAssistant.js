@@ -1385,8 +1385,11 @@ function openPanel() {
   patchState(patch, { persistUi: true })
   syncDockChrome(getState())
   schedulePoll()
-  void refreshDashboard()
-  void refreshXiaomiObsEnabled()
+  // 仪表盘/观测延后：右栏路径不依赖它们，别挡首帧
+  queueMicrotask(() => {
+    void refreshXiaomiObsEnabled()
+    void refreshDashboard()
+  })
   void import('../../lib/right-stage/open-right-stage-xiaomi.js')
     .then((m) => m.openXiaomiRightStage())
     .catch((e) => {
@@ -2817,8 +2820,16 @@ async function handleAction(act, el, e) {
       cancelFabOpenTimer()
       return
     }
-    // 延迟打开，给双击「恢复默认」留窗口
+    // 右缘「小V」标签 / coach CTA：立即打开（无双击冲突）；FAB 仍延迟给双击「恢复默认」留窗口
+    const instant =
+      !!el?.closest?.('.xm-edge-tab, .xm-edge-coach-cta') ||
+      el?.classList?.contains?.('xm-edge-tab') ||
+      el?.classList?.contains?.('xm-edge-coach-cta')
     cancelFabOpenTimer()
+    if (instant) {
+      openPanel()
+      return
+    }
     _fabOpenTimer = setTimeout(() => {
       _fabOpenTimer = null
       if (_suppressFabOpen) {

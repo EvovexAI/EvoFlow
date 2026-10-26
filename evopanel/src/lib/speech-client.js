@@ -246,7 +246,23 @@ async function _fetchSentenceAudio(text, opts = {}) {
     try {
       const { fetchSpeechSessionAudio } = await import('./speech-session-client.js')
       const pack = await fetchSpeechSessionAudio(plain, { speaker })
-      if (pack) return pack
+      if (pack) {
+        // 会话 WS 路径不回传 X-Tts-Speaker；音色与 HTTP 相同规则（空=Gateway 媒体默认）
+        let label = speaker || '(Gateway 默认音色)'
+        try {
+          const { resolveTtsSpeakerLabel } = await import('./xiaomi-voice-defaults.js')
+          label = await resolveTtsSpeakerLabel(speaker)
+        } catch {
+          /* ignore */
+        }
+        console.info(
+          '[xiaomi-voice] TTS ok (session WS)',
+          `音色=${label}`,
+          speaker ? `id=${speaker}` : 'reqSpeaker=(empty→Gateway默认)',
+          '（前台开始播放）',
+        )
+        return pack
+      }
     } catch {
       /* fallthrough → HTTP */
     }
@@ -254,6 +270,14 @@ async function _fetchSentenceAudio(text, opts = {}) {
   // Non-stream /tts returns a complete mp3; HTMLAudioElement handles it more reliably
   // than a blob assembled from /tts/stream (truncated streams can hang without onended).
   const url = import.meta.env?.DEV ? '/api/speech/tts' : apiUrl('/speech/tts')
+  // 里程碑：前台 → Gateway TTS（后台火山合成）
+  // speaker 空 = 请求体不带 speaker，Gateway 用媒体设置 / 环境默认音色
+  console.info(
+    '[xiaomi-voice] TTS fetch →',
+    url,
+    JSON.stringify(plain.slice(0, 40)),
+    speaker ? `reqSpeaker=${speaker}` : 'reqSpeaker=(empty→Gateway默认)',
+  )
   _ttsLog(
     '[speech-queue] tts fetch',
     JSON.stringify(plain.slice(0, 40)),
@@ -268,8 +292,26 @@ async function _fetchSentenceAudio(text, opts = {}) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
+  if (!res.ok) {
+    console.warn('[xiaomi-voice] TTS HTTP failed', res.status, url, '（检查 Gateway 火山 TTS 配置）')
+  }
+  const usedSpeaker = String(res.headers.get('X-Tts-Speaker') || speaker || '').trim()
+  let speakerLabel = usedSpeaker || '(未知)'
+  try {
+    const { resolveTtsSpeakerLabel } = await import('./xiaomi-voice-defaults.js')
+    speakerLabel = await resolveTtsSpeakerLabel(usedSpeaker)
+  } catch {
+    /* ignore */
+  }
   const blob = await _readTtsAudioBlob(res)
-  _ttsLog('[speech-queue] tts ok bytes=', blob.size)
+  console.info(
+    '[xiaomi-voice] TTS ok',
+    `bytes=${blob.size}`,
+    `音色=${speakerLabel}`,
+    usedSpeaker ? `id=${usedSpeaker}` : '',
+    '（前台开始播放）',
+  )
+  _ttsLog('[speech-queue] tts ok bytes=', blob.size, 'speaker=', usedSpeaker || '(default)')
   const objectUrl = URL.createObjectURL(blob)
   const audio = new Audio(objectUrl)
   return { objectUrl, audio }

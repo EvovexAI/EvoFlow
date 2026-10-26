@@ -3,7 +3,9 @@
 .xws-root {
   --xws-state: #9fb2c8;
   --xws-txt: #e8eef8;
-  --xws-sub: #7d8aa0;
+  /* 次要字抬亮：黑底上 #7d8aa0 / #4a5568 几乎看不见 */
+  --xws-sub: #a8b4c8;
+  --xws-muted: #8b97ab;
   --xws-line: rgba(255, 255, 255, 0.12);
   --xws-glass: rgba(255, 255, 255, 0.035);
   position: relative;
@@ -52,8 +54,10 @@
   color: var(--xws-txt);
 }
 .xws-mode-btn.is-active {
-  color: #03060c;
-  background: #e8eef8;
+  /* 暗色语音域：勿用白底黑字，改半透明高亮 pill */
+  color: #f2f6fc;
+  background: rgba(255, 255, 255, 0.14);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
 }
 .xws-topbar-actions {
   display: flex;
@@ -263,7 +267,7 @@
 }
 .xws-msg-empty {
   font-size: 12px;
-  color: #4a5568;
+  color: var(--xws-muted);
   padding: 6px 2px;
 }
 
@@ -358,11 +362,11 @@
   flex: none;
   text-align: center;
   font-size: 11px;
-  color: #4a5568;
+  color: var(--xws-muted);
   padding-top: 2px;
 }
 .xws-hint b {
-  color: #93a3ba;
+  color: #c5d0e0;
   font-weight: 600;
 }
 
@@ -420,7 +424,7 @@
 .xws-openhint-title {
   font-size: 10.5px;
   letter-spacing: 0.06em;
-  color: #56627a;
+  color: var(--xws-muted);
 }
 .xws-openhint-actions {
   display: flex;
@@ -430,9 +434,9 @@
 }
 .xws-content-chip {
   appearance: none;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  background: rgba(255, 255, 255, 0.04);
-  color: #93a3ba;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.06);
+  color: #c5d0e0;
   font: inherit;
   font-size: 11.5px;
   padding: 5px 12px;
@@ -441,8 +445,8 @@
   transition: color 0.15s ease, border-color 0.15s ease;
 }
 .xws-content-chip:hover {
-  color: #dce8f8;
-  border-color: rgba(255, 255, 255, 0.32);
+  color: #eaf2ff;
+  border-color: rgba(255, 255, 255, 0.4);
 }
 
 /* 小V标签页「语音模式」入口 chip */
@@ -458,6 +462,8 @@
  * 语音全屏模式（html[data-xw-voice='1']）：
  * 左 = 小V语音域（.xw-voice-host），右 = right-stage 标签区升为主体，
  * 正常聊天 chrome（会话列表/顶栏/对话列/拖宽手柄）全部隐藏，退出即还原。
+ *
+ * data-xw-voice-anim=enter：从右缘「小V」弧形标签展开成整页（clip-path）。
  * ═══════════════════════════════════════════════════════ */
 html[data-xw-voice='1'] #app-shell-aside,
 html[data-xw-voice='1'] .react-chat-header,
@@ -486,6 +492,72 @@ html[data-xw-voice='1'] .xw-voice-host {
   html[data-xw-voice='1'] .xw-voice-host {
     flex: 0 0 360px !important;
     width: 360px !important;
+  }
+}
+
+/*
+ * 从右缘小弧展开：起点近似边缘「小V」标签（竖条 + 左侧圆角），
+ * 向左铺满主内容区。时长与 xw-voice-mode ENTER_ANIM_MS 对齐。
+ */
+html[data-xw-voice='1'][data-xw-voice-anim='enter'] .react-chat-main-body {
+  animation: xw-arc-expand 480ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  will-change: clip-path;
+}
+html[data-xw-voice='1'][data-xw-voice-anim='enter'] .react-chat-conversation-frame {
+  /* 展开过程中避免外框圆角裁切动画 */
+  overflow: hidden;
+}
+
+@keyframes xw-arc-expand {
+  0% {
+    clip-path: inset(34% 0 34% calc(100% - 34px) round 14px 0 0 14px);
+    opacity: 0.92;
+  }
+  55% {
+    opacity: 1;
+  }
+  100% {
+    clip-path: inset(0 0 0 0);
+    opacity: 1;
+  }
+}
+
+/* 右栏已收起仍残留语音标记时：勿占半屏（主路径应 exitXwVoiceMode） */
+html[data-xw-voice='1'] .react-chat-main-body:not(.is-right-stage-open) .xw-voice-host {
+  display: none !important;
+}
+
+/* ── 语音交互精简：次要控件默认隐藏，悬停 / 焦点 / 菜单打开时再露 ── */
+.xws-root .xws-chrome-hover {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.18s ease;
+}
+.xws-root:hover .xws-chrome-hover,
+.xws-root:focus-within .xws-chrome-hover,
+.xws-root.is-chrome-pinned .xws-chrome-hover,
+/* 免提已开：侧钮保持可见，避免误以为关了 */
+.xws-root .xws-sidebtn.xws-chrome-hover.is-on,
+/* 历史菜单打开时顶栏动作必须可点 */
+.xws-root .xws-topbar-actions.xws-chrome-hover.is-menu-open {
+  opacity: 1;
+  pointer-events: auto;
+}
+.xws-root .xws-openhint.xws-chrome-hover {
+  transform: translateX(-50%) translateY(4px);
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+.xws-root:hover .xws-openhint.xws-chrome-hover,
+.xws-root:focus-within .xws-openhint.xws-chrome-hover {
+  transform: translateX(-50%) translateY(0);
+}
+@media (prefers-reduced-motion: reduce) {
+  .xws-root .xws-chrome-hover,
+  .xws-root .xws-openhint.xws-chrome-hover,
+  html[data-xw-voice='1'][data-xw-voice-anim='enter'] .react-chat-main-body {
+    animation: none !important;
+    transition: none;
+    clip-path: none !important;
   }
 }
 

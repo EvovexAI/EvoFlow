@@ -25,6 +25,9 @@ class SpeechStatusResponse(BaseModel):
     streaming_asr: bool = False
     local_asr: bool = False
     wake_word: bool = False
+    runtime: str = "frame"
+    default_asr: str = "volcengine"
+    default_tts: str = "volcengine"
 
 
 class SpeechAsrResponse(BaseModel):
@@ -46,7 +49,28 @@ async def get_speech_status() -> SpeechStatusResponse:
         configured=speech_configured(),
         streaming_asr=speech_streaming_asr_available(),
         local_asr=whisper_available(),
+        runtime="frame",
+        default_asr="volcengine",
+        default_tts="volcengine",
     )
+
+
+@router.get("/asr/providers")
+async def speech_asr_providers() -> dict:
+    """ASR provider catalog for Xiaomi voice settings."""
+    from app.gateway.speech.asr_registry import list_asr_providers
+
+    return {
+        "providers": list_asr_providers(),
+        "defaults": {"provider": "volcengine"},
+    }
+
+
+@router.get("/asr/validate")
+async def speech_asr_validate(provider: str | None = None) -> dict:
+    from app.gateway.speech.asr_registry import validate_asr_config
+
+    return validate_asr_config(provider)
 
 
 @router.websocket("/asr/stream")
@@ -248,10 +272,9 @@ async def speech_tts_stream(body: SpeechTtsRequest) -> StreamingResponse:
 
 @router.websocket("/session")
 async def speech_session(ws: WebSocket) -> None:
-    """P1 单 WS 会话（首片：流式 TTS 通道；音频上行/ASR/agent 内化为后续增量）。
+    """Xiaomi Frame-runtime voice session (PCM in → ASR → turn → TTS out).
 
-    协议见 app/gateway/speech/session_manager.py 模块注释与
-    docs/design/xiaowei-voice-experience-upgrade.md §6。
+    Protocol: ``app/gateway/speech/session_manager.py``.
     """
     from app.gateway.speech.session_manager import SpeechSession
 

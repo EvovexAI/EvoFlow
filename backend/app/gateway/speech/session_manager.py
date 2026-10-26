@@ -1,21 +1,18 @@
-"""Speech session manager — P1 首片：`/api/speech/session` 单 WS 的流式 TTS 通道。
+"""Speech session — PipelineWorker host for Xiaomi Frame voice runtime.
 
-设计（docs/design/xiaowei-voice-experience-upgrade.md §6）：
-- 本片只承载 TTS 下行：客户端发 `speak(seq,text)`，网关进程内调火山流式合成，
-  边合成边把 mp3 分片推回（`tts_start` → binary… → `tts_end`），
-  省掉逐句 HTTP 的握手与整段等待（首句快 ~150-300ms）。
-- 二进制上行（麦克风 PCM → 后端 VAD/ASR）为后续增量预留：收到即忽略。
-- agent 内化 + 预测执行在下一片（需要 agent 运行管线的 speculative/cancel）。
-
-协议：
-  C→S {"type":"start","speaker":"..."}
-  C→S {"type":"speak","seq":1,"text":"...","speaker":"..."}
-  C→S {"type":"barge_in"}      # 打断：取消所有进行中的合成
-  C→S {"type":"stop"}
+Protocol (C→S / S→C):
+  C→S {"type":"start","speaker":"...","asr_provider":"volcengine","tts_provider":"volcengine"}
+  C→S binary PCM16LE @16kHz mono
+  C→S {"type":"flush"} | {"type":"barge_in"} | {"type":"stop"}
+  C→S {"type":"speak","seq":1,"text":"..."}          # legacy / imperative TTS
+  C→S {"type":"assistant_delta","text":"..."}         # LLM tokens → SentenceAgg
+  C→S {"type":"assistant_end"}
   S→C {"type":"ready"}
-  S→C {"type":"tts_start","seq":1} → <binary mp3 分片>… → {"type":"tts_end","seq":1}
-  S→C {"type":"interrupted"}   # barge_in 生效
-  S→C {"type":"error","message":"..."}
+  S→C {"type":"partial"|"final","text":"..."}
+  S→C {"type":"turn_end","text":"..."}
+  S→C {"type":"tts_start","seq":n} → <binary 4B-seq+mp3>… → {"type":"tts_end","seq":n}
+  S→C {"type":"interrupted"} | {"type":"error","message":"..."}
+  S→C {"type":"metrics","user_to_bot_ms":...}
 """
 
 from __future__ import annotations
@@ -23,50 +20,60 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 from typing import Any
 
 from fastapi import WebSocket, WebSocketDisconnect
 
-from app.gateway.speech.volcengine_speech import (
-    speech_configured,
-    synthesize_speech_v3_stream,
+from app.gateway.speech.runtime.frames import (
+    AudioRawFrame,
+    BotStartedSpeakingFrame,
+    BotStoppedSpeakingFrame,
+    Frame,
+    InterruptionFrame,
+    StartFrame,
+    TranscriptionFrame,
+    TTSAudioRawFrame,
+    TTSSpeakFrame,
+    UserTurnCompleteFrame,
 )
+from app.gateway.speech.runtime.worker import PipelineWorker
+from app.gateway.speech.runtime.xiaomi_pipeline import build_xiaomi_voice_pipeline
+from app.gateway.speech.volcengine_speech import speech_configured
 
 logger = logging.getLogger("evoflow.speech.session")
 
-# 同一会话并发行成的句子上限（客户端预取 2 句 + 余量）
-_MAX_CONCURRENT_TTS = 3
-# 单句合成的总时长上限（防止上游 hang 拖死会话）
-_TTS_TIMEOUT_S = 60.0
-
 
 class SpeechSession:
-    """一个 /session WebSocket 连接的会话编排（TTS 通道片）。"""
+    """WebSocket host that drives a Xiaomi Frame pipeline."""
 
     def __init__(self, ws: WebSocket) -> None:
         self._ws = ws
-        self._default_speaker: str | None = None
-        self._tasks: dict[int, asyncio.Task[None]] = {}
+        self._worker: PipelineWorker | None = None
+        self._bridge = None
+        self._asr = None
+        self._vad = None
         self._closing = False
+        self._tts_open_seqs: set[int] = set()
+        self._default_speaker: str | None = None
+        self._asr_provider = "volcengine"
+        self._tts_provider = "volcengine"
 
     async def run(self) -> None:
         await self._ws.accept()
-        if not speech_configured():
-            try:
-                await self._ws.send_json({"type": "error", "message": "speech not configured"})
-                await self._ws.close(code=1013, reason="speech not configured")
-            except Exception:
-                pass
+        # Soft gate: allow whisper-only setups; warn if nothing for TTS later.
+        try:
+            await self._ws.send_json({"type": "ready", "runtime": "frame"})
+        except Exception:
             return
 
-        await self._ws.send_json({"type": "ready"})
         try:
             while True:
                 msg = await self._ws.receive()
                 if msg.get("type") == "websocket.disconnect":
                     break
                 if msg.get("bytes") is not None:
-                    # 麦克风 PCM 上行位（后续增量接 VAD/ASR），本片忽略
+                    await self._on_pcm(bytes(msg["bytes"]))
                     continue
                 text = msg.get("text")
                 if not text:
@@ -77,118 +84,194 @@ class SpeechSession:
                     continue
                 op = str(data.get("type") or "")
                 if op == "start":
-                    speaker = str(data.get("speaker") or "").strip()
-                    self._default_speaker = speaker or None
+                    await self._on_start(data)
                 elif op == "speak":
                     await self._on_speak(data)
+                elif op == "assistant_delta":
+                    await self._on_assistant_delta(data)
+                elif op == "assistant_end":
+                    await self._on_assistant_end()
+                elif op == "flush":
+                    if self._asr:
+                        await self._asr.flush_asr()
                 elif op == "cancel":
-                    self._cancel_seq(int(data.get("seq") or 0))
+                    # legacy single-seq cancel — treat as soft barge for that path
+                    pass
                 elif op == "barge_in":
-                    await self._on_barge_in()
+                    await self._on_barge_in("client_barge_in")
                 elif op == "stop":
                     break
         except WebSocketDisconnect:
             pass
-        except Exception as e:  # noqa: BLE001 — 会话级兜底，避免裸异常打崩网关
+        except Exception as e:  # noqa: BLE001
             logger.warning("speech session loop error: %s", e)
         finally:
             await self._close()
 
-    # ── speak ──
+    async def _ensure_pipeline(self) -> None:
+        if self._worker:
+            return
+
+        async def on_user_turn(text: str) -> None:
+            # Client still owns Xiaomi agent; we only signal turn_end.
+            try:
+                await self._ws.send_json({"type": "turn_end", "text": text})
+            except Exception:
+                pass
+
+        pipe, bridge, asr, vad = build_xiaomi_voice_pipeline(
+            asr_provider=self._asr_provider,
+            tts_provider=self._tts_provider,
+            speaker=self._default_speaker,
+            on_user_turn=on_user_turn,
+        )
+        self._bridge = bridge
+        self._asr = asr
+        self._vad = vad
+        self._worker = PipelineWorker(
+            pipe,
+            on_output=self._on_pipeline_output,
+            idle_timeout_s=600.0,
+        )
+        await self._worker.start(
+            StartFrame(
+                asr_provider=self._asr_provider,
+                tts_provider=self._tts_provider,
+                speaker=self._default_speaker,
+            )
+        )
+
+    async def _on_start(self, data: dict[str, Any]) -> None:
+        speaker = str(data.get("speaker") or "").strip()
+        self._default_speaker = speaker or None
+        self._asr_provider = str(data.get("asr_provider") or self._asr_provider).strip() or "volcengine"
+        self._tts_provider = str(data.get("tts_provider") or self._tts_provider).strip() or "volcengine"
+        if self._tts_provider in {"volcengine", "doubao"} and not speech_configured():
+            try:
+                await self._ws.send_json(
+                    {
+                        "type": "error",
+                        "message": "speech not configured — enable 火山 TTS in Settings → Models",
+                        "needsConfig": True,
+                    }
+                )
+            except Exception:
+                pass
+        # Rebuild pipeline if already running with new providers
+        if self._worker:
+            await self._worker.stop()
+            self._worker = None
+        await self._ensure_pipeline()
+
+    async def _on_pcm(self, pcm: bytes) -> None:
+        await self._ensure_pipeline()
+        if self._worker:
+            await self._worker.push(AudioRawFrame(audio=pcm, sample_rate=16000))
 
     async def _on_speak(self, data: dict[str, Any]) -> None:
-        seq = int(data.get("seq") or 0)
+        """Legacy imperative TTS — inject TTSSpeakFrame into the live pipeline."""
+        await self._ensure_pipeline()
         text = str(data.get("text") or "").strip()
-        if not seq or not text:
+        seq = int(data.get("seq") or 0)
+        if not text or not self._bridge:
             return
         speaker = str(data.get("speaker") or "").strip() or self._default_speaker
-        # 复用同 seq：先取消旧任务（客户端不应重发，防御）
-        old = self._tasks.pop(seq, None)
-        if old and not old.done():
-            old.cancel()
-        if len(self._tasks) >= _MAX_CONCURRENT_TTS:
-            # 退最旧的一句，保证最新（正在播的下一句）能进来
-            oldest = min(self._tasks)
-            t = self._tasks.pop(oldest)
-            if not t.done():
-                t.cancel()
-            try:
-                await self._ws.send_json({"type": "tts_drop", "seq": oldest})
-            except Exception:
-                pass
-        self._tasks[seq] = asyncio.create_task(self._speak_task(seq, text, speaker))
+        if speaker and self._worker:
+            # Update speaker on TTS station if present
+            for p in self._worker.pipeline.processors:
+                if hasattr(p, "_speaker"):
+                    p._speaker = speaker
+        await self._bridge.inject_speak(text, seq=seq or None)
 
-    async def _speak_task(self, seq: int, text: str, speaker: str | None) -> None:
-        try:
-            await self._ws.send_json({"type": "tts_start", "seq": seq})
-            sent = 0
+    async def _on_assistant_delta(self, data: dict[str, Any]) -> None:
+        await self._ensure_pipeline()
+        text = str(data.get("text") or "")
+        if self._bridge and text:
+            await self._bridge.inject_assistant_text(text)
 
-            async def _pump() -> int:
-                nonlocal sent
-                gen = synthesize_speech_v3_stream(text, speaker=speaker or None)
-                async for chunk in gen:
-                    if not isinstance(chunk, (bytes, bytearray, memoryview)):
-                        continue
-                    # 二进制帧前 4 字节 = seq（小端）：并句预取时分片可能交错，客户端按头归属
-                    frame = seq.to_bytes(4, "little") + bytes(chunk)
-                    await self._ws.send_bytes(frame)
-                    sent += len(chunk)
-                return sent
+    async def _on_assistant_end(self) -> None:
+        await self._ensure_pipeline()
+        if self._bridge:
+            await self._bridge.inject_assistant_end()
 
-            total = await asyncio.wait_for(_pump(), timeout=_TTS_TIMEOUT_S)
-            await self._ws.send_json({"type": "tts_end", "seq": seq, "bytes": total})
-        except asyncio.CancelledError:
-            # barge_in / 顶替 / 会话关闭：尽力补一个 end，让客户端别等
-            try:
-                await self._ws.send_json({"type": "tts_end", "seq": seq, "bytes": 0, "cancelled": True})
-            except Exception:
-                pass
-            raise
-        except (TimeoutError, asyncio.TimeoutError):
-            logger.warning("tts speak timeout seq=%s", seq)
-            try:
-                await self._ws.send_json({"type": "tts_error", "seq": seq, "message": "tts timeout"})
-            except Exception:
-                pass
-        except Exception as e:  # noqa: BLE001
-            logger.warning("tts speak failed seq=%s: %s", seq, e)
-            try:
-                await self._ws.send_json({"type": "tts_error", "seq": seq, "message": str(e)})
-            except Exception:
-                pass
-        finally:
-            self._tasks.pop(seq, None)
-
-    # ── barge-in / teardown ──
-
-    def _cancel_seq(self, seq: int) -> None:
-        """单句取消（客户端回退 HTTP 时用，不影响其他进行中的句子）。"""
-        if not seq:
+    async def _on_barge_in(self, reason: str = "barge_in") -> None:
+        if not self._worker:
             return
-        task = self._tasks.get(seq)
-        if task and not task.done():
-            task.cancel()
-
-    async def _on_barge_in(self) -> None:
-        cancelled = False
-        for seq, task in list(self._tasks.items()):
-            if not task.done():
-                task.cancel()
-                cancelled = True
-        if cancelled:
+        t0 = time.monotonic()
+        await self._worker.broadcast_interruption(reason)
+        try:
+            await self._ws.send_json(
+                {
+                    "type": "interrupted",
+                    "reason": reason,
+                    "cleared_ms": round((time.monotonic() - t0) * 1000, 1),
+                }
+            )
+        except Exception:
+            pass
+        # Close any open tts seqs for client
+        for seq in list(self._tts_open_seqs):
             try:
-                await self._ws.send_json({"type": "interrupted"})
+                await self._ws.send_json(
+                    {"type": "tts_end", "seq": seq, "bytes": 0, "cancelled": True}
+                )
             except Exception:
                 pass
+        self._tts_open_seqs.clear()
+
+    async def _on_pipeline_output(self, frame: Frame) -> None:
+        try:
+            if isinstance(frame, TranscriptionFrame):
+                await self._ws.send_json(
+                    {
+                        "type": "final" if frame.is_final else "partial",
+                        "text": frame.text,
+                        "is_final": frame.is_final,
+                        "seg": frame.seg,
+                    }
+                )
+                return
+            if isinstance(frame, UserTurnCompleteFrame):
+                # turn_end already sent from on_user_turn; also emit final for UI
+                await self._ws.send_json(
+                    {"type": "final", "text": frame.text, "is_final": True, "turn": True}
+                )
+                return
+            if isinstance(frame, BotStartedSpeakingFrame):
+                self._tts_open_seqs.add(frame.seq)
+                await self._ws.send_json({"type": "tts_start", "seq": frame.seq})
+                return
+            if isinstance(frame, TTSAudioRawFrame):
+                if frame.seq not in self._tts_open_seqs:
+                    self._tts_open_seqs.add(frame.seq)
+                    await self._ws.send_json({"type": "tts_start", "seq": frame.seq})
+                packet = int(frame.seq).to_bytes(4, "little") + frame.audio
+                await self._ws.send_bytes(packet)
+                return
+            if isinstance(frame, BotStoppedSpeakingFrame):
+                self._tts_open_seqs.discard(frame.seq)
+                await self._ws.send_json({"type": "tts_end", "seq": frame.seq})
+                # Emit TTFB metric once per reply if available
+                if self._worker:
+                    m = self._worker.metrics
+                    if m.get("user_stopped_at") and m.get("bot_first_audio_at"):
+                        ms = (m["bot_first_audio_at"] - m["user_stopped_at"]) * 1000
+                        await self._ws.send_json(
+                            {"type": "metrics", "user_to_bot_ms": round(ms, 1)}
+                        )
+                return
+            if isinstance(frame, InterruptionFrame):
+                return
+        except Exception as e:
+            logger.debug("pipeline output send failed: %s", e)
 
     async def _close(self) -> None:
         if self._closing:
             return
         self._closing = True
-        tasks = [t for t in self._tasks.values() if not t.done()]
-        for task in tasks:
-            task.cancel()
-        if tasks:
-            # 收敛取消（CancelledError 需 return_exceptions 吞掉），最长等 0.5s
-            done, _ = await asyncio.wait(tasks, timeout=0.5)
-        self._tasks.clear()
+        if self._worker:
+            try:
+                await self._worker.stop()
+            except Exception:
+                pass
+            self._worker = None

@@ -111,6 +111,24 @@ function syncShellXiaomiButton(active: boolean) {
   }
 }
 
+/** 后台补会话 / 语音配置：不挡面板首帧。 */
+function hydrateXiaomiSessionInBackground() {
+  void import('../../components/global-assistant/assistant-session.js')
+    .then(async (m) => {
+      // 已有 sessionKey 时勿强制拉历史（发送热路径同款），首开仍 reload
+      let hasKey = false
+      try {
+        const { getState } = await import('../../components/global-assistant/assistant-store.js')
+        hasKey = !!String(getState().sessionKey || '').trim()
+      } catch {
+        /* ignore */
+      }
+      await m.ensureXiaomiSession({ reloadHistory: !hasKey })
+      m.bindXiaomiStreamListener()
+    })
+    .catch((e) => console.warn('[xiaomi-stage] ensure session failed', e))
+}
+
 /** 打开/激活小V，并钉住；默认直接进入语音全屏。 */
 export async function openXiaomiRightStage(opts: OpenXiaomiRightStageOpts = {}): Promise<void> {
   const navigateToChat = opts.navigateToChat !== false
@@ -126,17 +144,7 @@ export async function openXiaomiRightStage(opts: OpenXiaomiRightStageOpts = {}):
     /* ignore */
   }
 
-  try {
-    const { ensureXiaomiSession, bindXiaomiStreamListener } = await import(
-      '../../components/global-assistant/assistant-session.js'
-    )
-    await ensureXiaomiSession({ reloadHistory: true })
-    bindXiaomiStreamListener()
-  } catch (e) {
-    console.warn('[xiaomi-stage] ensure session failed', e)
-  }
-
-  // 外挂 dock 不再占用右缘
+  // 外挂 dock 不再占用右缘（轻量同步，先于 show）
   try {
     const { patchState, getState } = await import(
       '../../components/global-assistant/assistant-store.js'
@@ -154,6 +162,7 @@ export async function openXiaomiRightStage(opts: OpenXiaomiRightStageOpts = {}):
     /* ignore */
   }
 
+  // 先亮面板 / 语音全屏，会话与播报配置后台补（避免点击后干等网络）
   rightStageStore.show({
     kind: XIAOMI_STAGE_KIND,
     id: XIAOMI_STAGE_ID,
@@ -164,20 +173,24 @@ export async function openXiaomiRightStage(opts: OpenXiaomiRightStageOpts = {}):
   syncXiaomiStageDomHint(true)
   requestUserPin(XIAOMI_STAGE_KIND)
 
-  if (voiceMode) {
-    try {
-      const { enterXwVoiceMode } = await import('../xw-voice-mode.js')
-      enterXwVoiceMode()
-    } catch (e) {
-      console.warn('[xiaomi-stage] enter voice mode failed', e)
-    }
-  }
-
   syncShellXiaomiButton(true)
   try {
     window.dispatchEvent(new CustomEvent('evopanel:xiaomi-stage-changed', { detail: { open: true } }))
   } catch {
     /* ignore */
+  }
+
+  hydrateXiaomiSessionInBackground()
+
+  if (voiceMode) {
+    // 等右栏 DOM 挂上再进语音全屏，弧形展开动画才有可裁切的主体
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        void import('../xw-voice-mode.js')
+          .then((m) => m.enterXwVoiceMode())
+          .catch((e) => console.warn('[xiaomi-stage] enter voice mode failed', e))
+      })
+    })
   }
 }
 

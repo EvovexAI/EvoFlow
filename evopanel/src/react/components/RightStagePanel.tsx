@@ -26,7 +26,22 @@ import {
 import { cn } from '@zcode/ui/components/lib/utils.js'
 import { Button } from '@zcode/ui/components/ui/button.js'
 import { createPortal } from 'react-dom'
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from 'react'
+import {
+  replayThemeIntoBridgeRoots,
+  useHostResolvedTheme,
+} from '@zcode/ui/useTheme.js'
+import '@/styles-bridge.css'
 import {
   defaultTitleForKind,
   normalizeRightStageKind,
@@ -43,6 +58,7 @@ import {
   resolveStageTabsOverflowEdges,
 } from './rightStageTabLayout.js'
 import { useGlobalOverlayWhen } from '../hooks/useGlobalOverlayWhen.js'
+import { TAURI_HEADER_CELL_DRAG_PROPS } from '../chat-app/utils/desktop-workspace.js'
 
 /**
  * 失活仍挂载：切签像浏览器标签一样保活。
@@ -203,7 +219,8 @@ function StageTabChip({
       }}
       className={cn(
         'group relative inline-flex items-center gap-1',
-        'flex-[1_1_9.75rem] !h-7 min-w-15 max-w-39 justify-start overflow-hidden rounded-md border px-1.5 pr-2 text-ui-base font-medium whitespace-nowrap transition-all focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-1 focus-visible:outline-ring',
+        // 勿 flex-grow：单标签撑满 viewport 会盖住拖窗空白区（data-tauri-drag-region）
+        'flex-[0_1_9.75rem] !h-7 min-w-15 max-w-39 justify-start overflow-hidden rounded-md border px-1.5 pr-2 text-ui-base font-medium whitespace-nowrap transition-all focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-1 focus-visible:outline-ring',
         '!border-transparent !bg-transparent text-foreground-subtle !rounded-lg',
         'hover:text-foreground',
         !active && 'hover:!bg-hover',
@@ -293,6 +310,13 @@ export const RightStagePanel = memo(function RightStagePanel({
   const viewportRef = useRef<HTMLDivElement | null>(null)
   const [viewportWidth, setViewportWidth] = useState(0)
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }))
+
+  // 标签条用 text-foreground-subtle 等 zcode token；不在 .zcode-bridge-root.dark 下
+  // 会落到 @theme 浅色值（深灰字）→ 暗色宿主上「小V」几乎看不见。
+  const hostTheme = useHostResolvedTheme()
+  useLayoutEffect(() => {
+    replayThemeIntoBridgeRoots(hostTheme === 'dark' ? 'zai-dark' : 'zai-light')
+  }, [hostTheme])
 
   useEffect(() => {
     if (!tabCtx) return
@@ -511,14 +535,22 @@ export const RightStagePanel = memo(function RightStagePanel({
 
   if (tabs.length === 0) {
     return (
-      <aside className="react-chat-right-stage-panel react-chat-right-stage-shell" role="region" aria-label="右侧面板">
+      <aside
+        className="zcode-bridge-root react-chat-right-stage-panel react-chat-right-stage-shell"
+        role="region"
+        aria-label="右侧面板"
+      >
         {openTabLauncher}
       </aside>
     )
   }
 
   return (
-    <aside className="react-chat-right-stage-panel react-chat-right-stage-shell" role="region" aria-label="右侧面板">
+    <aside
+      className="zcode-bridge-root react-chat-right-stage-panel react-chat-right-stage-shell"
+      role="region"
+      aria-label="右侧面板"
+    >
       {/* 标签条兼窗口拖拽区：空白处拖窗；tab/按钮各自 data-tauri-no-drag */}
       <div
         className={`react-chat-stage-chrome${chromeForcedOpen ? ' is-open' : ''}`}
@@ -629,7 +661,15 @@ export const RightStagePanel = memo(function RightStagePanel({
             </DndContext>
           </div>
 
-          <div className="react-chat-stage-tabs-tail">
+          {/* WebView2：拖区须标在实际被点中的节点上；标签右侧整段空白拖整窗 */}
+          <div
+            className="react-chat-stage-tabs-drag-gap"
+            aria-hidden="true"
+            title="拖动窗口"
+            {...TAURI_HEADER_CELL_DRAG_PROPS}
+          />
+
+          <div className="react-chat-stage-tabs-tail" data-tauri-no-drag="">
             {isOverflowing ? addTabMenu : null}
             {collapseButton}
           </div>
