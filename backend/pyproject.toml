@@ -22,6 +22,7 @@ dependencies = [
     "markdown-to-mrkdwn>=0.3.1",
     "websockets>=12.0",
     "dingtalk-stream>=0.20",
+    "pipecat-ai>=1.14.0,<2",
 ]
 
 [dependency-groups]
@@ -32,6 +33,8 @@ members = ["packages/harness"]
 
 [tool.uv.sources]
 evoflow-harness = { workspace = true }
+# Editable local clone — reuse Pipecat TTSService / AudioContextManager / aggregators.
+pipecat-ai = { path = "../../pipecat", editable = true }
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

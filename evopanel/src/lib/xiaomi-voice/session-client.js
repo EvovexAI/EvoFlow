@@ -21,11 +21,33 @@ import {
 let _ws = null
 /** @type {Promise<WebSocket | null> | null} */
 let _connecting = null
-/** @type {Map<number, { audio: HTMLAudioElement, ms: MediaSource, sb: SourceBuffer|null, pending: ArrayBuffer[], objectUrl: string }>} */
+/**
+ * @typedef {{
+ *   audio: HTMLAudioElement,
+ *   ms: MediaSource,
+ *   sb: SourceBuffer|null,
+ *   pending: ArrayBuffer[],
+ *   objectUrl: string,
+ *   wireEnded: boolean,
+ *   started: boolean,
+ * }} FramePlayEntry
+ */
+/** @type {Map<number, FramePlayEntry>} */
 const _play = new Map()
+/** 播报顺序（Pipecat：一次只出一声，按 seq 串行） */
+/** @type {number[]} */
+const _playOrder = []
+/** @type {number | null} */
+let _playingSeq = null
 /** @type {((msg: Record<string, unknown>) => void) | null} */
 let _onEvent = null
 let _active = false
+/** 本轮回复是否已记过「本地首次开播」（用于时效性） */
+let _replyPlayLogged = false
+/** @type {((info: { seq: number, at: number }) => void) | null} */
+let _onFirstLocalPlay = null
+/** @type {((idle: boolean) => void) | null} */
+let _onPlaybackIdle = null
 
 export function isXiaomiFrameSessionActive() {
   return !!(_ws && _ws.readyState === WebSocket.OPEN)
@@ -144,7 +166,11 @@ function _handleJson(m) {
     const tid = String(m.trace_id || '').trim()
     if (tid) adoptVoiceTrace(tid, { reason: 'tts_start' })
     const seq = Number(m.seq) || 0
-    if (seq) _ensurePlayer(seq)
+    if (seq) {
+      if (!_playOrder.includes(seq)) _playOrder.push(seq)
+      _ensurePlayer(seq)
+      _kickSerialPlay()
+    }
   } else if (type === 'tts_end') {
     const seq = Number(m.seq) || 0
     _finishPlayer(seq, !!m.cancelled)
@@ -168,36 +194,53 @@ function _ensurePlayer(seq) {
   const ms = new MS()
   const objectUrl = URL.createObjectURL(ms)
   const audio = new Audio(objectUrl)
-  /** @type {{ audio: HTMLAudioElement, ms: MediaSource, sb: SourceBuffer|null, pending: ArrayBuffer[], objectUrl: string }} */
-  const entry = { audio, ms, sb: null, pending: [], objectUrl }
+  /** @type {FramePlayEntry} */
+  const entry = {
+    audio,
+    ms,
+    sb: null,
+    pending: [],
+    objectUrl,
+    wireEnded: false,
+    started: false,
+    gotAudio: false,
+    _queuedAt: performance.now(),
+  }
   _play.set(seq, entry)
-  voiceFeLog('播报', `创建本地播放器，准备播报音频 seq=${seq}`)
+  voiceFeLog('播报', `创建本地播放器（待串行开播） seq=${seq}`)
   ms.addEventListener('sourceopen', () => {
     try {
       entry.sb = ms.addSourceBuffer('audio/mpeg')
-      entry.sb.addEventListener('updateend', () => _flushPending(seq))
+      entry.sb.addEventListener('updateend', () => {
+        _flushPending(seq)
+        _kickSerialPlay()
+      })
     } catch {
       /* ignore */
     }
-    void audio.play().catch((err) => {
-      voiceFeLog('播报', `audio.play 失败 seq=${seq}：${err?.message || err}`)
-    })
+    _flushPending(seq)
+    // 不在这里 play：等轮到本 seq，避免短句叠在长句上
+    _kickSerialPlay()
   })
   return entry
 }
 
 function _appendAudio(seq, buf) {
+  if (!_playOrder.includes(seq)) _playOrder.push(seq)
   const entry = _ensurePlayer(seq)
   if (!entry) return
+  entry.gotAudio = true
   if (entry.sb && !entry.sb.updating) {
     try {
       entry.sb.appendBuffer(buf)
+      _kickSerialPlay()
       return
     } catch {
       /* fallthrough */
     }
   }
   entry.pending.push(buf)
+  _kickSerialPlay()
 }
 
 function _flushPending(seq) {
@@ -213,61 +256,232 @@ function _flushPending(seq) {
   }
 }
 
-function _finishPlayer(seq, cancelled) {
-  const entry = _play.get(seq)
-  if (!entry) return
-  const close = () => {
+/**
+ * 只播队列头：上一句听完（或距结尾 <80ms）才开下一句。
+ * 后端「播放结束」= 字节下发完，不等于用户听完。
+ * 下一句若已缓冲，近尾预切可压低句间静音。
+ */
+function _kickSerialPlay() {
+  if (_playingSeq != null) return
+  while (_playOrder.length) {
+    const seq = _playOrder[0]
+    const entry = _play.get(seq)
+    if (!entry) return
+    if (!entry.sb) return
+    // 必须有真实音频再 play。仅 wireEnded、无字节 → 空源会 Failed to load。
+    const hasAudio =
+      entry.pending.length > 0 ||
+      (entry.sb.buffered && entry.sb.buffered.length > 0) ||
+      !!entry.gotAudio
+    if (!hasAudio) {
+      if (entry.wireEnded && !entry.started) {
+        voiceFeLog('播报', `跳过空句 seq=${seq}（tts_end 时仍无音频）`)
+        _playOrder.shift()
+        _disposeEntry(seq)
+        continue
+      }
+      return
+    }
+
+    _playingSeq = seq
+    entry.started = true
     try {
-      if (entry.sb && entry.ms.readyState === 'open') entry.ms.endOfStream()
+      _onPlaybackIdle?.(false)
     } catch {
       /* ignore */
     }
-  }
-  if (cancelled) {
-    try {
-      entry.audio.pause()
-    } catch {
-      /* ignore */
+    const prevGap =
+      typeof entry._queuedAt === 'number' ? Math.round(performance.now() - entry._queuedAt) : null
+    const playAt = performance.now()
+    const wall = new Date().toISOString()
+    voicePlaybackMark(
+      '语音播放',
+      '',
+      `本地串行开播 seq=${seq} at=${wall}` +
+        (prevGap != null ? ` wait_in_queue=${prevGap}ms` : ''),
+    )
+    if (!_replyPlayLogged) {
+      _replyPlayLogged = true
+      voiceFeLog(
+        '时效',
+        `本轮首次本地播报开始 seq=${seq} at=${wall}`,
+      )
+      try {
+        _onFirstLocalPlay?.({ seq, at: playAt })
+      } catch {
+        /* ignore */
+      }
     }
-    close()
-    URL.revokeObjectURL(entry.objectUrl)
-    _play.delete(seq)
+    void entry.audio.play().catch((err) => {
+      voiceFeLog('播报', `audio.play 失败 seq=${seq}：${err?.message || err}`)
+      _advanceAfterSeq(seq)
+    })
+    entry.audio.addEventListener(
+      'ended',
+      () => {
+        voicePlaybackMark('播放结束', '', `本地播完 seq=${seq}`)
+        _advanceAfterSeq(seq)
+      },
+      { once: true },
+    )
+    // 距结尾 80ms 预切下一句，减少 audio.ended 后的空档
+    const onTime = () => {
+      if (_playingSeq !== seq) return
+      const dur = Number(entry.audio.duration)
+      const cur = Number(entry.audio.currentTime)
+      if (!Number.isFinite(dur) || dur <= 0 || !Number.isFinite(cur)) return
+      if (dur - cur <= 0.08) {
+        entry.audio.removeEventListener('timeupdate', onTime)
+        voicePlaybackMark('播放结束', '', `本地近尾预切 seq=${seq} left=${((dur - cur) * 1000).toFixed(0)}ms`)
+        _advanceAfterSeq(seq)
+      }
+    }
+    entry.audio.addEventListener('timeupdate', onTime)
+    entry._nearEndHandler = onTime
+    // wire 已结束且 duration 已知时，防 ended 丢失（余量收紧到 120ms）
+    if (entry.wireEnded) {
+      const dur = Number(entry.audio.duration)
+      if (Number.isFinite(dur) && dur > 0) {
+        window.setTimeout(() => {
+          if (_playingSeq === seq) _advanceAfterSeq(seq)
+        }, Math.ceil(dur * 1000) + 120)
+      }
+    }
     return
   }
-  _flushPending(seq)
-  entry.audio.addEventListener(
-    'ended',
-    () => {
-      close()
-      URL.revokeObjectURL(entry.objectUrl)
-      _play.delete(seq)
-    },
-    { once: true },
-  )
-  // If already ended / never started, clean soon
-  setTimeout(() => {
-    if (_play.get(seq) === entry && entry.audio.ended) {
-      close()
-      URL.revokeObjectURL(entry.objectUrl)
-      _play.delete(seq)
+}
+
+function _disposeEntry(seq) {
+  const entry = _play.get(seq)
+  if (!entry) return
+  try {
+    if (entry._nearEndHandler) {
+      entry.audio.removeEventListener('timeupdate', entry._nearEndHandler)
     }
-  }, 50)
+  } catch {
+    /* ignore */
+  }
+  try {
+    entry.audio.pause()
+  } catch {
+    /* ignore */
+  }
+  try {
+    if (entry.sb && entry.ms.readyState === 'open') entry.ms.endOfStream()
+  } catch {
+    /* ignore */
+  }
+  try {
+    URL.revokeObjectURL(entry.objectUrl)
+  } catch {
+    /* ignore */
+  }
+  _play.delete(seq)
+}
+
+function _advanceAfterSeq(seq) {
+  const idx = _playOrder.indexOf(seq)
+  if (idx >= 0) _playOrder.splice(idx, 1)
+  if (_playingSeq === seq) _playingSeq = null
+  _disposeEntry(seq)
+  _kickSerialPlay()
+  _maybeNotifyListening()
+}
+
+/** 本地是否仍有待播 / 在播 */
+export function isXiaomiFramePlaying() {
+  return _playingSeq != null || _playOrder.length > 0 || _play.size > 0
+}
+
+/** 本地播放队列已空 → 通知后端可 unmute，下一轮才能识别 */
+function _maybeNotifyListening() {
+  if (isXiaomiFramePlaying()) return
+  sendXiaomiClientListening()
+  try {
+    _onPlaybackIdle?.(true)
+  } catch {
+    /* ignore */
+  }
+}
+
+export function sendXiaomiClientListening() {
+  if (!isXiaomiFrameSessionActive()) return
+  try {
+    _ws.send(JSON.stringify({ type: 'client_listening' }))
+    voiceFeLog('管线', '本地播完 → 发送 client_listening（后端可 unmute）')
+  } catch {
+    /* ignore */
+  }
+}
+
+/**
+ * 注册本轮首次本地开播回调（pipeline 用来算 用户说完→播报 延迟）。
+ * @param {((info: { seq: number, at: number }) => void) | null} fn
+ */
+export function setXiaomiFirstLocalPlayHandler(fn) {
+  _onFirstLocalPlay = typeof fn === 'function' ? fn : null
+}
+
+/**
+ * 本地播放队列空闲变化（pipeline 用来把 tray 从 speaking → listening）。
+ * @param {((idle: boolean) => void) | null} fn
+ */
+export function setXiaomiPlaybackIdleHandler(fn) {
+  _onPlaybackIdle = typeof fn === 'function' ? fn : null
+}
+
+/** 新一轮助手回复开始时复位「首次开播」标记 */
+export function resetXiaomiReplyPlayMark() {
+  _replyPlayLogged = false
+}
+
+function _finishPlayer(seq, cancelled) {
+  const entry = _play.get(seq)
+  if (!entry) {
+    const idx = _playOrder.indexOf(seq)
+    if (idx >= 0) _playOrder.splice(idx, 1)
+    if (_playingSeq === seq) {
+      _playingSeq = null
+      _kickSerialPlay()
+    }
+    return
+  }
+  if (cancelled) {
+    _advanceAfterSeq(seq)
+    return
+  }
+  entry.wireEnded = true
+  _flushPending(seq)
+  try {
+    if (entry.sb && !entry.sb.updating && entry.ms.readyState === 'open') {
+      entry.ms.endOfStream()
+    }
+  } catch {
+    /* ignore */
+  }
+  // 若还没轮到播，等 _kickSerialPlay；若正在播，等 ended / 近尾预切
+  if (_playingSeq === seq) {
+    const dur = Number(entry.audio.duration)
+    if (Number.isFinite(dur) && dur > 0) {
+      const left = Math.max(0, dur * 1000 - (entry.audio.currentTime || 0) * 1000)
+      window.setTimeout(() => {
+        if (_playingSeq === seq) _advanceAfterSeq(seq)
+      }, left + 120)
+    }
+  } else {
+    _kickSerialPlay()
+  }
 }
 
 function _teardownAllAudio() {
-  for (const [seq, entry] of _play) {
-    try {
-      entry.audio.pause()
-    } catch {
-      /* ignore */
-    }
-    try {
-      URL.revokeObjectURL(entry.objectUrl)
-    } catch {
-      /* ignore */
-    }
-    _play.delete(seq)
+  _playingSeq = null
+  _playOrder.length = 0
+  for (const seq of [..._play.keys()]) {
+    _disposeEntry(seq)
   }
+  _replyPlayLogged = false
+  // 打断后立刻可听下一轮
+  sendXiaomiClientListening()
 }
 
 export function sendXiaomiPcm(pcm) {
@@ -293,6 +507,7 @@ export function sendXiaomiAssistantBegin() {
   try {
     let tid = getVoiceTrace()
     if (!tid) tid = beginVoiceTrace({ reason: 'assistant_begin' })
+    resetXiaomiReplyPlayMark()
     _ws.send(JSON.stringify({ type: 'assistant_begin', trace_id: tid }))
     voicePlaybackMark('流式正文', '', `assistant_begin → Frame TRACE=${tid}`)
     return true

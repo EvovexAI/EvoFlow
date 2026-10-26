@@ -119,6 +119,14 @@ class UserTurnCompleteFrame(ControlFrame):
 
 
 @dataclass(slots=True)
+class UserBotLatencyFrame(SystemFrame):
+    """Pipecat-aligned: 用户落静音 → 机器人开口（ms）。"""
+
+    user_to_bot_ms: float = 0.0
+    source: str = "pipecat"
+
+
+@dataclass(slots=True)
 class LLMTextFrame(Frame):
     text: str = ""
     turn: int = 0

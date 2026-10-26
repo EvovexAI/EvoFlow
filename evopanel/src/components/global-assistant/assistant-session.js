@@ -960,6 +960,14 @@ async function reloadXiaomiHistoryQuiet(opts = {}) {
       return
     }
     if (liveAsst && (liveLen > histLen || liveHasProcess) && !getState().streaming) {
+      // 库里已有同文助手行时勿再 push，否则语音「最近对话」会双份显示
+      const histTextNorm = String(histAsst?.text || '').trim()
+      const liveTextNorm = String(liveAsst.text || '').trim()
+      if (histAsst && histTextNorm && liveTextNorm && histTextNorm === liveTextNorm) {
+        if (onlyIfRicher) return
+        patchState({ messages })
+        return
+      }
       merged.push({
         id: liveAsst.id || `asst-live-${Date.now()}`,
         role: 'assistant',
@@ -1033,7 +1041,22 @@ export async function syncXiaomiPageContext(override = {}) {
 export async function sendXiaomiChat(text, ctx = {}) {
   const raw = String(text || '').trim()
   if (!raw) return
-  if (getState().streaming) throw new Error('正在生成中，请先停止')
+  // 语音多轮：对齐 Pipecat barge → 新 turn——上一轮还在生成时先 abort，再发本轮。
+  // 文本路径仍拒绝并发，避免误触双发。
+  if (getState().streaming) {
+    if (ctx.voiceInitiated) {
+      try {
+        const { voiceFeLog } = await import('../../lib/xiaomi-voice/voice-file-log.js')
+        voiceFeLog('对话', `上一轮仍在生成 → 语音打断后重发：「${raw.slice(0, 80)}」`)
+      } catch {
+        /* ignore */
+      }
+      await stopXiaomiChat()
+      await new Promise((r) => setTimeout(r, 60))
+    } else {
+      throw new Error('正在生成中，请先停止')
+    }
+  }
 
   // 已有会话则不要先 chatHistory：否则每条消息都多一轮往返，且会冲掉乐观气泡。
   const hadSession = !!String(getState().sessionKey || readStoredSessionKey() || '').trim()
@@ -1051,6 +1074,12 @@ export async function sendXiaomiChat(text, ctx = {}) {
         JSON.stringify(raw.slice(0, 40)),
       ),
     )
+    try {
+      const { voiceFeLog } = await import('../../lib/xiaomi-voice/voice-file-log.js')
+      voiceFeLog('对话', `用户发送：「${raw}」`, { detail: `voice=${!!ctx.voiceInitiated} len=${raw.length}` })
+    } catch {
+      /* ignore */
+    }
     if (speak) {
       await armXiaomiVoiceReply({ voiceInitiated: !!ctx.voiceInitiated })
     } else {

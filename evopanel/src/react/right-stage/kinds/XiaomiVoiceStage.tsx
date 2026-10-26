@@ -1,19 +1,16 @@
 /**
- * 小V 语音域（语音全屏模式左栏）：纯黑点阵球 + 状态大字 + 消息条 + PTT。
- * 全屏模式由 lib/xw-voice-mode.ts 驱动：本组件常驻渲染在 main-body 内，
- * 仅在 html[data-xw-voice='1'] 时由 CSS 显示（避免与 right-stage 小V标签耦合）。
- * 「打开xx」类内容一律开 right-stage 标签页（复用标签系统），不再内嵌 iframe。
+ * 小V 语音全屏：干净三块 —— 聆听状态 / 最新用户输入 / AI 回复；
+ * 右上角文字区展示最近几轮对话。全屏由 lib/xw-voice-mode.ts 驱动。
  */
-import { useCallback, useEffect, useRef, useState, type CSSProperties, type PointerEvent, type MouseEvent as ReactMouseEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react'
 import { getState, subscribe } from '../../../components/global-assistant/assistant-store.js'
 import {
   VOICE_CAPTURE_SESSION_BEGIN,
   VOICE_CAPTURE_SESSION_END,
   setPreferXiaomiVoice,
+  subscribeXiaomiVoicePartial,
 } from '../../../lib/background-voice-bridge.js'
 import {
-  startVoicePtt,
-  stopVoicePtt,
   stopAssistantVoicePlayback,
   VOICE_TRAY_STATE_EVENT,
   isConversationListeningActive,
@@ -27,19 +24,17 @@ import {
 import { onSpeakingChange } from '../../../lib/speech-client.js'
 import { subscribeVoiceLevels } from '../../../lib/voice-capture-service.js'
 import { showRightStageBrowserUrl } from '../../../lib/right-stage/open-right-stage-browser.js'
-import { enterXwVoiceMode, exitXwVoiceMode, isXwVoiceMode, subscribeXwVoiceMode } from '../../../lib/xw-voice-mode.js'
-import { toast } from '../../../components/toast.js'
+import { exitXwVoiceMode, isXwVoiceMode, subscribeXwVoiceMode } from '../../../lib/xw-voice-mode.js'
 import './xiaomi-voice-stage.css'
 
 type StageState = 'idle' | 'listen' | 'parse' | 'think' | 'speak'
 
-/** 左下状态大字（参考「艾薇正在说话」的临场文案） */
-const STATE_TITLE: Record<StageState, { title: string; sub: string; en: string }> = {
-  idle: { title: '小V 待命中', sub: '说「小V小V」唤醒，或按住语音键说话', en: 'STANDBY' },
-  listen: { title: '小V 正在聆听', sub: '请讲 · 我说完后会自动回复', en: 'LISTENING' },
-  parse: { title: '小V 正在识别', sub: '整理你刚说的话', en: 'PARSING' },
-  think: { title: '小V 正在思考', sub: '查名册、看进度、派任务…', en: 'THINKING' },
-  speak: { title: '小V 正在播报', sub: '再次按下语音键即可打断', en: 'SPEAKING' },
+const STATE_LABEL: Record<StageState, string> = {
+  idle: '待命',
+  listen: '聆听',
+  parse: '识别',
+  think: '思考',
+  speak: '播报',
 }
 
 const STATE_COLOR: Record<StageState, string> = {
@@ -53,13 +48,54 @@ const STATE_COLOR: Record<StageState, string> = {
 const DOT_MAIN = '#eaf4ff'
 const DOT_COOL = '#9fd8ff'
 const LEVEL_BINS = 32
+const RECENT_TURNS = 6
 
-type HistRow = { key: string; title: string; messageCount?: number }
+type ChatLine = { role: 'user' | 'assistant'; text: string }
 
-/** 小V 回复里的第一个 URL → 直接开成 right-stage 浏览器标签 */
 function extractUrl(reply: string): string {
   const m = String(reply || '').match(/https?:\/\/[^\s，。；、）)】\]"'）]+/i)
   return m ? m[0] : ''
+}
+
+function recentLines(
+  msgs: Array<{ role?: string; text?: string }>,
+  opts?: { skipUser?: string; skipAssistant?: string },
+): ChatLine[] {
+  const skipU = String(opts?.skipUser || '').trim()
+  const skipA = String(opts?.skipAssistant || '').trim()
+  const raw: ChatLine[] = []
+  for (let i = msgs.length - 1; i >= 0 && raw.length < RECENT_TURNS * 2 + 4; i--) {
+    const m = msgs[i]
+    const role = m?.role === 'user' || m?.role === 'assistant' ? m.role : null
+    const text = String(m?.text || '').trim()
+    if (!role || !text) continue
+    // 合并历史/live 造成的连续同文重复
+    if (raw.length && raw[raw.length - 1].role === role && raw[raw.length - 1].text === text) continue
+    raw.push({ role, text })
+  }
+  raw.reverse()
+  // 底下「本轮」已在展示的最新一对，右上角不再重复贴一遍
+  while (raw.length) {
+    const last = raw[raw.length - 1]
+    if (last.role === 'assistant' && skipA && last.text === skipA) {
+      raw.pop()
+      continue
+    }
+    if (last.role === 'user' && skipU && last.text === skipU) {
+      raw.pop()
+      continue
+    }
+    break
+  }
+  if (raw.length >= 2) {
+    const a = raw[raw.length - 2]
+    const b = raw[raw.length - 1]
+    if (a.role === 'user' && b.role === 'assistant' && a.text === skipU && b.text === skipA) {
+      raw.pop()
+      raw.pop()
+    }
+  }
+  return raw.slice(-RECENT_TURNS * 2)
 }
 
 export function XiaomiVoiceStage() {
@@ -68,23 +104,10 @@ export function XiaomiVoiceStage() {
   const [transcript, setTranscript] = useState('')
   const [lastUser, setLastUser] = useState('')
   const [reply, setReply] = useState('')
-  const [handsfree, setHandsfree] = useState(() => {
-    try {
-      return isXiaomiFramePipelineActive()
-    } catch {
-      return false
-    }
-  })
-  const [elapsed, setElapsed] = useState('00:00')
+  const [history, setHistory] = useState<ChatLine[]>([])
   const [sessionActive, setSessionActive] = useState(false)
   const [parseHold, setParseHold] = useState(false)
-  /* 历史对话（语音域自管，脱离小V标签渲染） */
-  const [histOpen, setHistOpen] = useState(false)
-  const [histLoading, setHistLoading] = useState(false)
-  const [sessions, setSessions] = useState<HistRow[]>([])
-  const [sessionKey, setSessionKey] = useState('')
 
-  /** 语音链路实时量（不参与渲染，事件/回调内读写） */
   const liveRef = useRef({
     session: false,
     speaking: false,
@@ -93,12 +116,11 @@ export function XiaomiVoiceStage() {
     continuousListen: false,
   })
   const parseHoldRef = useRef(false)
-  const heldRef = useRef(false)
   const stateSinceRef = useRef(0)
   const stateRef = useRef<StageState>('idle')
   const levelsRef = useRef<number[]>(new Array(LEVEL_BINS).fill(0))
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
-  const waveRef = useRef<HTMLCanvasElement | null>(null)
+  const recentBodyRef = useRef<HTMLDivElement | null>(null)
   const parsedReplyRef = useRef('')
 
   useEffect(() => {
@@ -116,24 +138,22 @@ export function XiaomiVoiceStage() {
       continuous = !!l.continuousListen
     }
     l.continuousListen = continuous
+    // 优先级必须对齐 Pipecat 听感：播报 > 处理/思考 > 聆听
+    // 旧逻辑把 continuous/recording 放在 processing 前 → 永远卡在「聆听」
     let next: StageState = 'idle'
-    // 播报优先，避免 continuous 常听把 speak 盖成 listen
     if (l.speaking || tray === 'speaking') next = 'speak'
-    else if (l.session || tray === 'recording' || continuous) next = 'listen'
-    else if (tray === 'processing') next = 'parse'
+    else if (tray === 'processing' || parseHoldRef.current) next = 'parse'
     else if (tray === 'running' || l.streaming) next = 'think'
-    else if (parseHoldRef.current) next = 'parse'
+    else if (l.session || tray === 'recording' || continuous) next = 'listen'
     setState((prev) => (prev === next ? prev : next))
   }, [])
 
-  /* ── 语音全屏模式联动：进入语音域自动免提常听；退出收麦（唤醒词耳朵常驻）。 ── */
   useEffect(
     () =>
       subscribeXwVoiceMode((on) => {
         setVisible(on)
         if (on) {
           setPreferXiaomiVoice(true)
-          // ensureXiaomiVoiceReplyOn 由 enterXwVoiceMode 统一触发，这里不重复
           let tries = 0
           const tryStart = () => {
             tries += 1
@@ -144,11 +164,9 @@ export function XiaomiVoiceStage() {
                 derive()
               },
             }).then((ok) => {
-              if (ok) setHandsfree(true)
-              else if (tries < 3 && isXwVoiceMode()) window.setTimeout(tryStart, 900)
+              if (!ok && tries < 3 && isXwVoiceMode()) window.setTimeout(tryStart, 900)
             })
           }
-          // 等右缘弧形展开完成后再开麦，减轻打开瞬间主线程争抢
           window.setTimeout(() => {
             requestAnimationFrame(() => {
               requestAnimationFrame(tryStart)
@@ -156,16 +174,12 @@ export function XiaomiVoiceStage() {
           }, 560)
         } else {
           liveRef.current.tray = ''
-          if (isXiaomiFramePipelineActive()) {
-            stopXiaomiFramePipeline()
-            setHandsfree(false)
-          }
+          if (isXiaomiFramePipelineActive()) stopXiaomiFramePipeline()
         }
       }),
     [derive],
   )
 
-  /* ── 录音 session 事件 ── */
   useEffect(() => {
     let parseTimer = 0
     const onBegin = () => {
@@ -205,17 +219,23 @@ export function XiaomiVoiceStage() {
     }
   }, [derive])
 
-  /* ── 常听 / 唤醒托盘态 → 舞台「正在聆听」等（与 Frame tray 合流） ── */
   useEffect(() => {
     const onTray = (ev: Event) => {
       const s = String((ev as CustomEvent<{ state?: string }>).detail?.state || '')
       liveRef.current.tray = s
-      if (s === 'recording') liveRef.current.continuousListen = true
+      if (s === 'recording') {
+        liveRef.current.continuousListen = true
+        // 播报/思考结束后回到聆听：清空「你」，避免一直显示上一句直到 partial 迟到
+        const st = stateRef.current
+        if (st === 'speak' || st === 'think' || st === 'idle') {
+          setTranscript('')
+          setLastUser('')
+        }
+      }
       if (s === 'idle') liveRef.current.continuousListen = false
       derive()
     }
     window.addEventListener(VOICE_TRAY_STATE_EVENT, onTray as EventListener)
-    // 进入时若已在常听，立刻对齐 UI
     try {
       if (isConversationListeningActive()) {
         liveRef.current.continuousListen = true
@@ -228,7 +248,6 @@ export function XiaomiVoiceStage() {
     return () => window.removeEventListener(VOICE_TRAY_STATE_EVENT, onTray as EventListener)
   }, [derive])
 
-  /* ── TTS 播报状态 ── */
   useEffect(() => {
     const off = onSpeakingChange((v: boolean) => {
       liveRef.current.speaking = v
@@ -239,39 +258,68 @@ export function XiaomiVoiceStage() {
     }
   }, [derive])
 
-  /* ── 会话 store：转写（draft）/ 回复（最后一条 assistant）/ streaming / 历史列表 ── */
+  /* ASR partial 直推左侧「你」——不经过 silent patchState */
+  useEffect(() => {
+    return subscribeXiaomiVoicePartial((text) => {
+      const t = String(text || '')
+      setTranscript(t)
+      if (t.trim()) setLastUser(t)
+      liveRef.current.continuousListen = true
+      if (!liveRef.current.tray) liveRef.current.tray = 'recording'
+      derive()
+    })
+  }, [derive])
+
   useEffect(() => {
     const sync = () => {
-      const s = getState() as ReturnType<typeof getState> & {
-        xiaomiSessions?: HistRow[]
-        xiaomiSessionsLoading?: boolean
-      }
+      const s = getState()
       liveRef.current.streaming = !!s.streaming
-      if (liveRef.current.session || parseHoldRef.current) {
-        setTranscript(String(s.draft || ''))
+      let continuous = false
+      try {
+        continuous = isConversationListeningActive()
+      } catch {
+        continuous = !!liveRef.current.continuousListen
       }
-      setSessionKey(String(s.sessionKey || ''))
-      setSessions(Array.isArray(s.xiaomiSessions) ? s.xiaomiSessions : [])
-      setHistLoading(!!s.xiaomiSessionsLoading)
+      const listeningLive =
+        liveRef.current.session ||
+        continuous ||
+        liveRef.current.tray === 'recording' ||
+        stateRef.current === 'listen'
+      if (listeningLive || parseHoldRef.current) {
+        const d = String(s.draft || '')
+        setTranscript(d)
+        if (d.trim()) setLastUser(d)
+      }
       const msgs = Array.isArray(s.messages) ? (s.messages as Array<{ role?: string; text?: string }>) : []
+      let liveReply = ''
+      let liveUser = ''
       for (let i = msgs.length - 1; i >= 0; i--) {
         const m = msgs[i]
-        if (m?.role === 'assistant') {
-          const text = String(m.text || '')
-          setReply(text)
-          /* 回复中的链接 → right-stage 浏览器标签（每条回复只触发一次） */
-          if (text && text !== parsedReplyRef.current) {
-            parsedReplyRef.current = text
-            const url = extractUrl(text)
+        if (!liveReply && m?.role === 'assistant') {
+          liveReply = String(m.text || '').trim()
+          setReply(liveReply)
+          if (liveReply && liveReply !== parsedReplyRef.current) {
+            parsedReplyRef.current = liveReply
+            const url = extractUrl(liveReply)
             if (url) showRightStageBrowserUrl(url)
           }
-          break
+          continue
         }
         if (m?.role === 'user') {
-          setReply('')
+          liveUser = String(m.text || '').trim()
+          if (!liveReply) setReply('')
           break
         }
       }
+      const draft = String(s.draft || '').trim()
+      // 本轮用户句：听写中用 draft；否则用消息里紧挨助手前的那条 user
+      const focusUser = draft || liveUser
+      setHistory(
+        recentLines(msgs, {
+          skipUser: focusUser,
+          skipAssistant: liveReply,
+        }),
+      )
       derive()
     }
     sync()
@@ -281,7 +329,6 @@ export function XiaomiVoiceStage() {
     }
   }, [derive])
 
-  /* ── 麦克风电平 ── */
   useEffect(
     () =>
       subscribeVoiceLevels((levels: number[]) => {
@@ -295,21 +342,7 @@ export function XiaomiVoiceStage() {
     [],
   )
 
-  /* ── 计时 ── */
-  useEffect(() => {
-    const timer = window.setInterval(() => {
-      const st = stateRef.current
-      let next = '00:00'
-      if (st === 'listen' || st === 'speak') {
-        const sec = Math.max(0, Math.floor((Date.now() - (stateSinceRef.current || Date.now())) / 1000))
-        next = `${String(Math.floor(sec / 60)).padStart(2, '0')}:${String(sec % 60).padStart(2, '0')}`
-      }
-      setElapsed((prev) => (prev === next ? prev : next))
-    }, 500)
-    return () => window.clearInterval(timer)
-  }, [])
-
-  /* ── 球面点阵画布（依赖 visible：语音模式开启时才挂 canvas，退出即停帧） ── */
+  /* 球面点阵（装饰） */
   useEffect(() => {
     if (!visible) return
     const canvas = canvasRef.current
@@ -334,11 +367,8 @@ export function XiaomiVoiceStage() {
     resize()
     const ro = new ResizeObserver(resize)
     ro.observe(box)
-
     const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches === true
-
-    /* 等右缘弧形展开（~480ms）后再跑点阵，避免与 clip-path 动画抢帧 */
-    const N = 420
+    const N = 360
     const bootTimer = window.setTimeout(() => {
       if (cancelled) return
       const pts: Array<{ x: number; y: number; z: number; sz: number; ph: number; cool: boolean; lv: number }> = []
@@ -357,7 +387,6 @@ export function XiaomiVoiceStage() {
           lv: Math.floor(Math.random() * LEVEL_BINS),
         })
       }
-
       const sprites = new Map<string, HTMLCanvasElement>()
       const sprite = (color: string) => {
         let cv = sprites.get(color)
@@ -380,13 +409,11 @@ export function XiaomiVoiceStage() {
         }
         return cv
       }
-
       let energy = 0.06
       let mouth = 0
       let rotY = 0
       let rotX = -0.22
       let last = performance.now()
-
       const frame = (t: number) => {
         if (cancelled) return
         raf = requestAnimationFrame(frame)
@@ -398,32 +425,21 @@ export function XiaomiVoiceStage() {
         const st = stateRef.current
         const levels = levelsRef.current
         const motionScale = reduceMotion ? 0.35 : 1
-
         let target: number
         if (st === 'listen') {
           let sum = 0
           for (let i = 0; i < levels.length; i++) sum += levels[i]
           target = 0.3 + (sum / levels.length) * 0.8
-        } else if (st === 'think') {
-          target = 0.32 + 0.12 * Math.sin(t * 0.004)
-        } else if (st === 'speak') {
-          target = 0.38 + 0.2 * Math.abs(Math.sin(t * 0.014)) + 0.06 * Math.random()
-        } else if (st === 'parse') {
-          target = 0.2
-        } else {
-          target = 0.06 + 0.02 * Math.sin(t * 0.0016)
-        }
+        } else if (st === 'think') target = 0.32 + 0.12 * Math.sin(t * 0.004)
+        else if (st === 'speak') target = 0.38 + 0.2 * Math.abs(Math.sin(t * 0.014))
+        else if (st === 'parse') target = 0.2
+        else target = 0.06 + 0.02 * Math.sin(t * 0.0016)
         energy += (target - energy) * 0.09
         if (st === 'speak') {
           const ph = t * 0.01
-          const syl = Math.max(
-            0,
-            Math.sin(ph) + Math.sin(ph * 2.3 + 1.7) * 0.5 + Math.sin(ph * 4.1 + 0.6) * 0.25 + Math.random() * 0.14,
-          )
+          const syl = Math.max(0, Math.sin(ph) + Math.sin(ph * 2.3 + 1.7) * 0.5)
           mouth += (Math.min(1, syl) - mouth) * 0.32
-        } else {
-          mouth += (0 - mouth) * 0.18
-        }
+        } else mouth += (0 - mouth) * 0.18
 
         ctx.globalCompositeOperation = 'destination-out'
         ctx.fillStyle = 'rgba(0,0,0,.4)'
@@ -431,16 +447,14 @@ export function XiaomiVoiceStage() {
         ctx.globalCompositeOperation = 'source-over'
 
         const cx = W / 2
-        const cy = H / 2
-        const R = Math.min(W, H) * 0.3
+        const cy = H * 0.42
+        const R = Math.min(W, H) * 0.22
         const stColor = STATE_COLOR[st]
-
         const rotSpd =
           st === 'think' ? 0.00058 : st === 'speak' ? 0.0002 + mouth * 0.00016 : st === 'listen' ? 0.00014 + energy * 0.00014 : 0.00005
         rotY += rotSpd * dt * motionScale
         const tiltBase = st === 'think' ? Math.sin(t * 0.0012) * 0.42 - 0.2 : Math.sin(t * 0.00032) * 0.16 - 0.22
         rotX += (tiltBase - rotX) * 0.05
-
         const cosY = Math.cos(rotY)
         const sinY = Math.sin(rotY)
         const cosX = Math.cos(rotX)
@@ -449,26 +463,16 @@ export function XiaomiVoiceStage() {
         const LX = -0.48
         const LY = -0.68
         const LZ = -0.55
-
         const spMain = sprite(DOT_MAIN)
         const spCool = sprite(DOT_COOL)
-
         for (let i = 0; i < pts.length; i++) {
           const p = pts[i]
           const theta = Math.acos(Math.max(-1, Math.min(1, p.y)))
           let r = 1
-          if (st === 'speak') {
-            const wave = Math.sin(theta * 5.2 - t * 0.009 + p.ph * 0.15)
-            r += wave * mouth * 0.14
-          } else if (st === 'listen') {
-            r += (levels[p.lv] || 0) * 0.06 + Math.sin(t * 0.005 + p.ph) * 0.012
-          } else if (st === 'think') {
-            r = 0.72 + Math.sin(theta * 3 + t * 0.003) * 0.05
-          } else if (st === 'parse') {
-            r += Math.sin(t * 0.007 + p.ph) * 0.022
-          } else {
-            r += Math.sin(t * 0.0012) * 0.025 + Math.sin(t * 0.0009 + p.ph) * 0.01
-          }
+          if (st === 'speak') r += Math.sin(theta * 5.2 - t * 0.009 + p.ph * 0.15) * mouth * 0.14
+          else if (st === 'listen') r += (levels[p.lv] || 0) * 0.06 + Math.sin(t * 0.005 + p.ph) * 0.012
+          else if (st === 'think') r = 0.72 + Math.sin(theta * 3 + t * 0.003) * 0.05
+          else r += Math.sin(t * 0.0012) * 0.025
           const rr = r * R
           const x1 = p.x * cosY + p.z * sinY
           const z1 = -p.x * sinY + p.z * cosY
@@ -488,7 +492,6 @@ export function XiaomiVoiceStage() {
           ctx.drawImage(p.cool ? spCool : spMain, X - sz, Y - sz, sz * 2, sz * 2)
         }
         ctx.globalAlpha = 1
-
         ctx.strokeStyle = stColor
         ctx.globalAlpha = 0.12 + energy * 0.15
         ctx.lineWidth = dpr
@@ -499,7 +502,6 @@ export function XiaomiVoiceStage() {
       }
       raf = requestAnimationFrame(frame)
     }, 520)
-
     return () => {
       cancelled = true
       window.clearTimeout(bootTimer)
@@ -508,297 +510,84 @@ export function XiaomiVoiceStage() {
     }
   }, [visible])
 
-  /* ── 竖线声纹 ── */
-  useEffect(() => {
-    if (!visible) return
-    const canvas = waveRef.current
-    if (!canvas) return
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return
-    let raf = 0
-    const draw = (t: number) => {
-      raf = requestAnimationFrame(draw)
-      const rect = canvas.getBoundingClientRect()
-      const w = Math.round(rect.width)
-      const h = Math.round(rect.height)
-      if (!w || !h) return
-      const dpr = Math.min(2, window.devicePixelRatio || 1)
-      if (canvas.width !== w * dpr || canvas.height !== h * dpr) {
-        canvas.width = Math.round(w * dpr)
-        canvas.height = Math.round(h * dpr)
-      }
-      ctx.clearRect(0, 0, canvas.width, canvas.height)
-      const st = stateRef.current
-      const stColor = STATE_COLOR[st]
-      const bars = 18
-      const bw = canvas.width / bars
-      for (let i = 0; i < bars; i++) {
-        let v: number
-        if (st === 'listen') v = levelsRef.current[Math.floor((i / bars) * LEVEL_BINS)] || 0
-        else if (st === 'speak') v = Math.abs(Math.sin(t * 0.01 + i * 0.7)) * (0.3 + 0.6 * Math.random() * 0.5 + 0.15)
-        else if (st === 'think' || st === 'parse') v = 0.12 + 0.08 * Math.sin(t * 0.004 + i * 0.9)
-        else v = 0.05 + 0.03 * Math.sin(t * 0.001 + i * 0.5)
-        const barH = Math.max(2 * dpr, v * canvas.height)
-        const x = i * bw + bw * 0.3
-        ctx.globalAlpha = 0.85
-        ctx.fillStyle = i === Math.floor(bars / 2) ? stColor : '#cfe3ff'
-        ctx.fillRect(x, canvas.height / 2 - barH / 2, bw * 0.4, barH)
-      }
-      ctx.globalAlpha = 1
-    }
-    raf = requestAnimationFrame(draw)
-    return () => cancelAnimationFrame(raf)
-  }, [visible])
-
-  /* ── 交互 ── */
-  const onPttDown = useCallback((e: PointerEvent<HTMLButtonElement>) => {
-    e.preventDefault()
-    heldRef.current = true
-    setPreferXiaomiVoice(true)
-    // Frame 运行时播报中按下 = barge-in；否则走传统 PTT
-    if (liveRef.current.speaking || liveRef.current.tray === 'speaking') {
-      void interruptXiaomiFrame()
-      try {
-        stopAssistantVoicePlayback()
-      } catch {
-        /* ignore */
-      }
-    }
-    void startVoicePtt()
-  }, [])
-  const onPttUp = useCallback(() => {
-    if (!heldRef.current) return
-    heldRef.current = false
-    stopVoicePtt()
-  }, [])
-
-  const onHandsfree = useCallback(async () => {
-    setPreferXiaomiVoice(true)
-    try {
-      const ok = await toggleXiaomiFramePipeline({
-        onTrayState: (s: string) => {
-          liveRef.current.tray = isXiaomiFramePipelineActive() ? s : ''
-          derive()
-        },
-      })
-      setHandsfree(!!ok || isXiaomiFramePipelineActive())
-    } catch (e) {
-      setHandsfree(isXiaomiFramePipelineActive())
-      toast(String((e as Error)?.message || e || '开启免提失败'), 'warning')
-    }
-  }, [derive])
-
-  /* 历史/新对话：直接走 assistant-session，与小V文字标签同源 */
-  const onToggleHistory = useCallback(() => {
-    const next = !histOpen
-    setHistOpen(next)
-    if (next) {
-      void import('../../../components/global-assistant/assistant-session.js').then((m) => {
-        void m.refreshXiaomiSessionList().catch(() => {})
-      })
-    }
-  }, [histOpen])
-
-  const onNewChat = useCallback(() => {
-    void import('../../../components/global-assistant/assistant-session.js')
-      .then((m) => m.startXiaomiNewChat())
-      .then(() => {
-        setHistOpen(false)
-        toast('已新开对话', 'success')
-      })
-      .catch((e) => {
-        toast(String((e as Error)?.message || e || '新开对话失败'), 'error')
-      })
-  }, [])
-
-  const onSelectSession = useCallback((key: string) => {
-    void import('../../../components/global-assistant/assistant-session.js')
-      .then((m) => m.switchXiaomiSession(key))
-      .then(() => {
-        setHistOpen(false)
-        toast('已切换会话', 'success')
-      })
-      .catch((e) => {
-        toast(String((e as Error)?.message || e || '切换失败'), 'error')
-      })
-  }, [])
-
-  const openTab = useCallback((url: string) => {
-    if (!isXwVoiceMode()) enterXwVoiceMode()
-    showRightStageBrowserUrl(url)
-  }, [])
-
-  /* Tauri 无边框窗口：语音域顶栏接管拖拽/双击最大化（原聊天 header 已隐藏） */
   const onTopbarDoubleClick = useCallback((e: ReactMouseEvent<HTMLElement>) => {
     if ((e.target as HTMLElement).closest('[data-tauri-no-drag],button')) return
     void import('@tauri-apps/api/window').then(({ getCurrentWindow }) => void getCurrentWindow().toggleMaximize())
   }, [])
 
-  const showUser = sessionActive || parseHold ? transcript : lastUser
-  const meta = STATE_TITLE[state]
+  const onInterrupt = useCallback(() => {
+    if (stateRef.current !== 'speak' && !liveRef.current.speaking) return
+    void interruptXiaomiFrame()
+    try {
+      stopAssistantVoicePlayback()
+    } catch {
+      /* ignore */
+    }
+  }, [])
+
+  const showUser = useMemo(() => {
+    if (sessionActive || parseHold || state === 'listen' || state === 'parse') {
+      return transcript || lastUser
+    }
+    return lastUser
+  }, [sessionActive, parseHold, state, transcript, lastUser])
+
   const stColor = STATE_COLOR[state]
+  const stateWord = STATE_LABEL[state]
 
   if (!visible) return null
 
-  // 整栏 + 顶栏均可拖窗。chromeFloorY 已忽略 height>120，不会挤扁右侧浏览器。
   return (
     <div
-      className={`xws-root xws-${state} xw-voice-host`}
+      className={`xws-root xws-clean xws-${state} xw-voice-host`}
       style={{ '--xws-state': stColor } as CSSProperties}
       data-tauri-drag-region=""
       onDoubleClick={onTopbarDoubleClick}
     >
-      {/* 顶栏显式 drag-region：空白/间隙拖窗；控件单独 no-drag */}
-      <div
-        className="xws-topbar"
-        data-tauri-drag-region=""
-        title="拖动窗口 · 双击最大化"
+      <button
+        type="button"
+        className="xws-exit"
+        data-tauri-no-drag=""
+        onClick={() => exitXwVoiceMode()}
+        aria-label="退出语音"
+        title="退出语音"
       >
-        <div className="xws-modeswitch" role="group" aria-label="形态切换" data-tauri-no-drag="">
-          <button type="button" className="xws-mode-btn" aria-pressed={false} onClick={() => exitXwVoiceMode()}>
-            文字
-          </button>
-          <button type="button" className="xws-mode-btn is-active" aria-pressed={true}>
-            语音
-          </button>
-        </div>
-        <div
-          className={`xws-topbar-actions xws-chrome-hover${histOpen ? ' is-menu-open' : ''}`}
-          data-tauri-no-drag=""
-        >
-          <div className={`xws-hist${histOpen ? ' is-open' : ''}`}>
-            <button
-              type="button"
-              className="xws-topbtn"
-              onClick={() => onToggleHistory()}
-              title="历史对话"
-              aria-expanded={histOpen}
-              aria-label="历史对话"
-            >
-              ⏱
-            </button>
-            {histOpen ? (
-              <div className="xws-hist-menu" role="menu">
-                <div className="xws-hist-head">历史对话</div>
-                {histLoading ? (
-                  <div className="xws-hist-empty">加载中…</div>
-                ) : sessions.length ? (
-                  sessions.map((s) => (
-                    <button
-                      key={s.key}
-                      type="button"
-                      role="menuitem"
-                      className={`xws-hist-item${s.key === sessionKey ? ' is-active' : ''}`}
-                      onClick={() => onSelectSession(s.key)}
-                    >
-                      <span className="xws-hist-title">{s.title || '未命名'}</span>
-                      {s.messageCount ? <span className="xws-hist-meta">{s.messageCount} 条</span> : null}
-                    </button>
-                  ))
-                ) : (
-                  <div className="xws-hist-empty">暂无历史对话</div>
-                )}
+        退出
+      </button>
+
+      <aside className="xws-recent" data-tauri-no-drag="" aria-label="最近对话">
+        <div className="xws-recent-head">最近对话</div>
+        <div className="xws-recent-body">
+          {history.length ? (
+            history.map((line, i) => (
+              <div key={`${line.role}-${i}`} className={`xws-recent-line is-${line.role}`}>
+                <span className="xws-recent-role">{line.role === 'user' ? '你' : '小V'}</span>
+                <span className="xws-recent-text">{line.text}</span>
               </div>
-            ) : null}
-          </div>
-          <button type="button" className="xws-topbtn" onClick={() => onNewChat()} title="新开对话" aria-label="新开对话">
-            ＋
-          </button>
+            ))
+          ) : (
+            <div className="xws-recent-empty">对话会出现在这里</div>
+          )}
         </div>
+      </aside>
+
+      <div className="xws-stage" onClick={onInterrupt} title={state === 'speak' ? '点击打断' : undefined}>
+        <canvas ref={canvasRef} className="xws-canvas" aria-hidden="true" />
       </div>
 
-      <div className="xws-stage">
-        <canvas ref={canvasRef} className="xws-canvas" aria-hidden="true" />
-        <div className={`xws-statepill${state === 'listen' ? ' is-live' : ''}`} aria-live="polite">
+      <div className="xws-focus" data-tauri-no-drag="">
+        <div className={`xws-status${state === 'listen' ? ' is-live' : ''}`} aria-live="polite">
           {state === 'listen' ? <span className="xws-state-dot" aria-hidden="true" /> : null}
-          <span className="xws-state-word">{meta.en}</span>
-          <span className="xws-state-timer">{elapsed}</span>
+          <span className="xws-status-word">{stateWord}</span>
         </div>
-        <div className="xws-openhint xws-chrome-hover" data-tauri-no-drag="">
-          <span className="xws-openhint-title">内容区在右侧标签页打开</span>
-          <span className="xws-openhint-actions">
-            <button type="button" className="xws-content-chip" onClick={() => openTab('https://www.bilibili.com')}>
-              打开 bilibili
-            </button>
-            <button type="button" className="xws-content-chip" onClick={() => openTab('https://github.com/trending')}>
-              GitHub Trending
-            </button>
-          </span>
+        <div className="xws-live-user">
+          <span className="xws-live-label">你</span>
+          <p className="xws-live-text">{showUser || '…'}</p>
         </div>
-      </div>
-      <div className="xws-caption">
-        <div className="xws-caption-title" style={{ color: stColor } as CSSProperties}>
-          {meta.title}
+        <div className="xws-live-ai">
+          <span className="xws-live-label">小V</span>
+          <p className="xws-live-text">{reply || (state === 'think' || state === 'parse' ? '…' : '')}</p>
         </div>
-        <div className="xws-caption-row">
-          <canvas ref={waveRef} className="xws-wave" aria-hidden="true" />
-          <span className="xws-caption-sub">{meta.sub}</span>
-        </div>
-      </div>
-      <div className="xws-msgs" aria-live="polite" data-tauri-no-drag="">
-        {showUser ? (
-          <div className="xws-msg u">
-            <span className="xws-msg-role">你</span>
-            <span className="xws-msg-text">{showUser}</span>
-          </div>
-        ) : null}
-        {reply ? (
-          <div className="xws-msg a">
-            <span className="xws-msg-role">小V</span>
-            <span className="xws-msg-text">{reply}</span>
-          </div>
-        ) : null}
-        {!showUser && !reply ? <div className="xws-msg-empty">对话内容将在这里出现</div> : null}
-      </div>
-      <footer className="xws-deck" data-tauri-no-drag="">
-        <button
-          type="button"
-          className={`xws-sidebtn xws-chrome-hover${handsfree ? ' is-on' : ''}`}
-          aria-pressed={handsfree}
-          aria-label="免提连续对话"
-          title="免提连续对话"
-          onClick={() => void onHandsfree()}
-        >
-          ∞
-        </button>
-        <button
-          type="button"
-          className="xws-ptt"
-          aria-label={state === 'speak' ? '按住说话（当前播报中按下即打断）' : '按住说话'}
-          onPointerDown={onPttDown}
-          onPointerUp={onPttUp}
-          onPointerCancel={onPttUp}
-          onPointerLeave={onPttUp}
-        >
-          <span className="xws-ptt-ring" aria-hidden="true" />
-          {state === 'speak' ? (
-            <svg className="xws-ptt-ic" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
-              <rect x="7" y="7" width="10" height="10" rx="2" fill="currentColor" />
-            </svg>
-          ) : (
-            <svg className="xws-ptt-ic" viewBox="0 0 24 24" width="22" height="22" fill="none" aria-hidden="true">
-              <rect x="9" y="3" width="6" height="11" rx="3" fill="currentColor" />
-              <path
-                d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M9 21h6"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-              />
-            </svg>
-          )}
-        </button>
-        <button
-          type="button"
-          className="xws-sidebtn xws-chrome-hover"
-          aria-label="停止播报"
-          title="停止播报"
-          onClick={() => void stopAssistantVoicePlayback()}
-        >
-          ♪
-        </button>
-      </footer>
-      <div className="xws-hint xws-chrome-hover">
-        按住 <b>语音键</b> 说话 · 播报中再次按下即可<b>打断</b>
       </div>
     </div>
   )

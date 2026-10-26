@@ -1,4 +1,4 @@
-"""Simple energy VAD — emits UserStarted/StoppedSpeaking for barge-in + turn."""
+"""LEGACY energy VAD — production uses Pipecat SileroVADAnalyzer via PipecatVoiceBridge."""
 
 from __future__ import annotations
 

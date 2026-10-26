@@ -1,8 +1,6 @@
-"""Bridge Xiaomi agent text into the frame pipeline.
+"""LEGACY Xiaomi bridge — production uses PipecatVoiceBridge._XiaomiHook.
 
-On UserTurnComplete → notify host (client runs sendXiaomiChat).
-Host feeds assistant deltas via inject_assistant_text → LLMTextFrame.
-Ack / working lines use TTSSpeakFrame without leaving the runtime.
+Kept for reference; SpeechSession now talks to PipecatVoiceBridge directly.
 """
 
 from __future__ import annotations

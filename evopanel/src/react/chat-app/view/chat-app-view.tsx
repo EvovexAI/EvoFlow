@@ -1063,8 +1063,8 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
               onEditPendingSend={handleEditPendingSend}
               onInterruptAndSendSteers={handleInterruptAndSendSteers}
               onEnhancePrompt={handleEnhancePrompt}
-              speechEnabled={speechEnabled}
-              onVoiceTranscribed={speechEnabled ? handleVoiceTranscribed : undefined}
+              speechEnabled={false}
+              onVoiceTranscribed={undefined}
               onDispatchEmployee={handleDispatchEmployee}
               contextUsage={displayContextUsage}
               tokenTotals={headerTokenTotals}

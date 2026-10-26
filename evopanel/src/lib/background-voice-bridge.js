@@ -17,6 +17,8 @@ let isSending = false
 let voicePartialHandler = null
 /** @type {((text: string) => void) | null} */
 let xiaomiVoicePartialHandler = null
+/** @type {Set<(text: string) => void>} 语音全屏等额外订阅（不替换主 handler） */
+const xiaomiVoicePartialListeners = new Set()
 /** @type {((text: string) => void) | null} */
 let meetingVoicePartialHandler = null
 /** @type {((text: string, opts?: { global?: boolean, xiaomi?: boolean, meeting?: boolean }) => void | Promise<void>) | null} */
@@ -78,6 +80,19 @@ export function registerXiaomiVoicePartialHandler(fn) {
 
 export function unregisterXiaomiVoicePartialHandler() {
   xiaomiVoicePartialHandler = null
+}
+
+/**
+ * 额外订阅小V ASR partial（语音全屏左侧「你」实时区）。
+ * @param {(text: string) => void} fn
+ * @returns {() => void}
+ */
+export function subscribeXiaomiVoicePartial(fn) {
+  if (typeof fn !== 'function') return () => {}
+  xiaomiVoicePartialListeners.add(fn)
+  return () => {
+    xiaomiVoicePartialListeners.delete(fn)
+  }
 }
 
 /** @param {((text: string) => void) | null} fn */
@@ -155,8 +170,18 @@ export function updateVoicePartialText(text) {
     meetingVoicePartialHandler(t)
     return
   }
-  if (preferXiaomiVoice && typeof xiaomiVoicePartialHandler === 'function') {
-    xiaomiVoicePartialHandler(t)
+  if (preferXiaomiVoice) {
+    if (typeof xiaomiVoicePartialHandler === 'function') {
+      xiaomiVoicePartialHandler(t)
+    }
+    // 语音全屏等：必须同步推，不能只靠 silent patchState（订阅收不到）
+    for (const fn of xiaomiVoicePartialListeners) {
+      try {
+        fn(t)
+      } catch {
+        /* ignore */
+      }
+    }
     return
   }
   if (typeof voicePartialHandler === 'function') {
@@ -217,14 +242,23 @@ export function isXiaomiVoiceSendHandlerReady() {
  * @param {{ global?: boolean, xiaomi?: boolean, meeting?: boolean }} [opts]
  */
 export async function sendVoiceTranscript(text, opts = {}) {
-  const useXiaomi = opts?.xiaomi === true || preferXiaomiVoice
+  // 小V Frame 管线活跃时强制走小V，禁止再进主对话输入框路径（双发根因之一）
+  let frameActive = false
+  try {
+    const { isXiaomiFramePipelineActive } = await import('./xiaomi-voice/index.js')
+    frameActive = !!isXiaomiFramePipelineActive?.()
+  } catch {
+    frameActive = false
+  }
+  const useXiaomi = opts?.xiaomi === true || preferXiaomiVoice || frameActive
   const useMeeting =
     !useXiaomi && (opts?.meeting === true || preferMeetingVoice) && typeof meetingVoiceSendHandler === 'function'
+  // 主对话不再承接麦克风转写：无小V/会议室时直接拒绝，避免误发到 ChatComposer
   const handler = useXiaomi
     ? xiaomiVoiceSendHandler
     : useMeeting
       ? meetingVoiceSendHandler
-      : voiceSendHandler
+      : null
   const preview = String(text || '').trim().slice(0, 40)
   console.info(
     '[xiaomi-voice] sendVoiceTranscript',
@@ -232,6 +266,7 @@ export async function sendVoiceTranscript(text, opts = {}) {
       useXiaomi,
       useMeeting,
       preferXiaomiVoice,
+      frameActive,
       hasXiaomiHandler: typeof xiaomiVoiceSendHandler === 'function',
       hasMainHandler: typeof voiceSendHandler === 'function',
       textLen: String(text || '').trim().length,
@@ -241,7 +276,7 @@ export async function sendVoiceTranscript(text, opts = {}) {
   if (!handler) {
     if (useXiaomi) throw new Error('小V尚未就绪，请稍候再试')
     if (useMeeting) throw new Error('会议室尚未就绪，请稍候再试')
-    throw new Error('ChatApp 尚未就绪，请稍候再试')
+    throw new Error('语音输入仅支持小V，请先唤醒小V')
   }
   if (isSending) {
     console.warn('[background-voice-bridge] 检测到重复发送请求，已拒绝！')

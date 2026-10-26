@@ -71,14 +71,25 @@ function apply(on: boolean) {
   notifyLayoutChromeChanged('xw-voice-exit')
 }
 
-/** 进入语音全屏模式：右栏标签区升为主体（必须展开；若停在小V标签则切到别的标签，避免右侧重复显示小V）。 */
-export function enterXwVoiceMode(): void {
+export type EnterXwVoiceModeOpts = {
+  /**
+   * 是否展开右侧 right-stage（默认 true）。
+   * 唤醒后以左侧语音域对话为主时传 false，避免右侧文字流面板干扰。
+   */
+  expandRightStage?: boolean
+}
+
+/** 进入语音全屏模式：左栏小V语音域；可选展开右栏（若停在小V标签则切到别的标签，避免右侧重复显示小V）。 */
+export function enterXwVoiceMode(opts: EnterXwVoiceModeOpts = {}): void {
   if (isXwVoiceMode()) return
-  rightStageStore.expand()
-  const snap = rightStageStore.getSnapshot()
-  if (String(snap.activeKey || '').startsWith('xiaomi:')) {
-    const other = snap.tabs.find((t) => t.kind !== 'xiaomi')
-    if (other) rightStageStore.activateTab(`${other.kind}:${other.id}`)
+  const expandRight = opts.expandRightStage !== false
+  if (expandRight) {
+    rightStageStore.expand()
+    const snap = rightStageStore.getSnapshot()
+    if (String(snap.activeKey || '').startsWith('xiaomi:')) {
+      const other = snap.tabs.find((t) => t.kind !== 'xiaomi')
+      if (other) rightStageStore.activateTab(`${other.kind}:${other.id}`)
+    }
   }
   apply(true)
   // 默认开语音播报 + prefer 小V（火山 TTS 已配即可听会说）

@@ -44,6 +44,11 @@ export type OpenXiaomiRightStageOpts = {
    * 右栏「文字」标签等需要文字态时传 false。
    */
   voiceMode?: boolean
+  /**
+   * 是否打开右侧小V 流式文字面板（默认 true）。
+   * 唤醒词路径传 false：只进左侧语音域，右侧不抢焦点。
+   */
+  showRightStage?: boolean
 }
 
 function tabKeyOf(kind: string, id: string): string {
@@ -133,6 +138,7 @@ function hydrateXiaomiSessionInBackground() {
 export async function openXiaomiRightStage(opts: OpenXiaomiRightStageOpts = {}): Promise<void> {
   const navigateToChat = opts.navigateToChat !== false
   const voiceMode = opts.voiceMode !== false
+  const showRightStage = opts.showRightStage !== false
   await ensureChatRoute(navigateToChat)
 
   try {
@@ -162,35 +168,50 @@ export async function openXiaomiRightStage(opts: OpenXiaomiRightStageOpts = {}):
     /* ignore */
   }
 
-  // 先亮面板 / 语音全屏，会话与播报配置后台补（避免点击后干等网络）
-  rightStageStore.show({
-    kind: XIAOMI_STAGE_KIND,
-    id: XIAOMI_STAGE_ID,
-    title: '小V',
-    layout: 'narrow',
-    data: { globalAssistant: true },
-  })
-  syncXiaomiStageDomHint(true)
-  requestUserPin(XIAOMI_STAGE_KIND)
-
-  syncShellXiaomiButton(true)
-  try {
-    window.dispatchEvent(new CustomEvent('evopanel:xiaomi-stage-changed', { detail: { open: true } }))
-  } catch {
-    /* ignore */
-  }
-
   hydrateXiaomiSessionInBackground()
 
-  if (voiceMode) {
-    // 等右栏 DOM 挂上再进语音全屏，弧形展开动画才有可裁切的主体
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        void import('../xw-voice-mode.js')
-          .then((m) => m.enterXwVoiceMode())
-          .catch((e) => console.warn('[xiaomi-stage] enter voice mode failed', e))
-      })
+  if (showRightStage) {
+    // 先亮右侧小V 文字面板 / 语音全屏（壳按钮、快捷键等显式打开路径）
+    rightStageStore.show({
+      kind: XIAOMI_STAGE_KIND,
+      id: XIAOMI_STAGE_ID,
+      title: '小V',
+      layout: 'narrow',
+      data: { globalAssistant: true },
     })
+    syncXiaomiStageDomHint(true)
+    requestUserPin(XIAOMI_STAGE_KIND)
+
+    syncShellXiaomiButton(true)
+    try {
+      window.dispatchEvent(
+        new CustomEvent('evopanel:xiaomi-stage-changed', { detail: { open: true } }),
+      )
+    } catch {
+      /* ignore */
+    }
+  } else {
+    // 唤醒词：只进左侧语音域，不弹右侧流式面板
+    syncXiaomiStageDomHint(false)
+    syncShellXiaomiButton(true)
+  }
+
+  if (voiceMode) {
+    const enter = () => {
+      void import('../xw-voice-mode.js')
+        .then((m) =>
+          m.enterXwVoiceMode({ expandRightStage: showRightStage }),
+        )
+        .catch((e) => console.warn('[xiaomi-stage] enter voice mode failed', e))
+    }
+    if (showRightStage) {
+      // 等右栏 DOM 挂上再进语音全屏，弧形展开动画才有可裁切的主体
+      requestAnimationFrame(() => {
+        requestAnimationFrame(enter)
+      })
+    } else {
+      enter()
+    }
   }
 }
 

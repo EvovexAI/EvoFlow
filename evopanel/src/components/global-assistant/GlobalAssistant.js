@@ -1436,7 +1436,15 @@ export async function handleXiaomiVoiceTranscript(text) {
   if (getState().fabUserHidden) {
     patchState({ fabUserHidden: false }, { persistUi: true })
   }
-  openPanel()
+  // 已在左侧语音全屏：不要再弹右侧小V文字流面板
+  let voiceOn = false
+  try {
+    const { isXwVoiceMode } = await import('../../lib/xw-voice-mode.js')
+    voiceOn = isXwVoiceMode()
+  } catch {
+    voiceOn = false
+  }
+  if (!voiceOn) openPanel()
   setContactDraft('xiaomi', '', { silent: true })
   patchState({ activeView: 'chat', selectedContact: 'xiaomi', draft: '' }, { persistUi: true })
   await sendXiaomiChat(t, { ...pageContext(), voiceInitiated: true })
@@ -3710,10 +3718,18 @@ export function mountGlobalAssistant() {
     if (getState().fabUserHidden) {
       patchState({ fabUserHidden: false }, { persistUi: true })
     }
-    // 打开 right-stage 小V；草稿同步到 store（stage composer 订阅）
-    if (document.documentElement.dataset.xmStage !== '1') openPanel()
-    setContactDraft('xiaomi', String(partial || ''), { silent: true })
-    patchState({ activeView: 'chat', selectedContact: 'xiaomi', draft: String(partial || '') }, { persistUi: true, silent: true })
+    // 语音全屏 / 已开右栏时只同步草稿到左侧语音域；勿再弹右侧流式面板
+    const voiceOn = document.documentElement.dataset.xwVoice === '1'
+    const stageOn = document.documentElement.dataset.xmStage === '1'
+    if (!voiceOn && !stageOn) openPanel()
+    const text = String(partial || '')
+    // 语音全屏必须 emit：silent 时 XiaomiVoiceStage 的 subscribe 收不到，会一直显示上一句
+    const silent = !(voiceOn || stageOn)
+    setContactDraft('xiaomi', text, { silent })
+    patchState(
+      { activeView: 'chat', selectedContact: 'xiaomi', draft: text },
+      { persistUi: true, silent },
+    )
   })
 
   if (!_routeBound) {

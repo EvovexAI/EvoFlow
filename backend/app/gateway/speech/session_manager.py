@@ -37,6 +37,7 @@ from app.gateway.speech.runtime.frames import (
     TranscriptionFrame,
     TTSAudioRawFrame,
     TTSSpeakFrame,
+    UserBotLatencyFrame,
     UserTurnCompleteFrame,
 )
 from app.gateway.speech.runtime.worker import PipelineWorker
@@ -91,6 +92,32 @@ class SpeechSession:
         if raw:
             return self._bind_trace(raw)
         return self._bind_trace()
+
+    async def _emit_user_to_bot_metric_once(self, ms: float | None = None) -> None:
+        """用户落静音 → 机器人开口。优先用 Pipecat Observer 给出的 ms。"""
+        if not self._worker:
+            return
+        m = self._worker.metrics
+        if m.get("user_to_bot_emitted"):
+            return
+        if ms is None:
+            u_stop = m.get("user_stopped_at")
+            bot_at = m.get("bot_first_audio_at")
+            if not u_stop or not bot_at:
+                return
+            ms = (bot_at - u_stop) * 1000
+        m["user_to_bot_emitted"] = True
+        voice_log("延迟", f"用户落静音→机器人开口约 {ms:.0f} ms")
+        try:
+            await self._ws.send_json(
+                {
+                    "type": "metrics",
+                    "user_to_bot_ms": round(float(ms), 1),
+                    "anchor": "vad_silence→bot_started",
+                }
+            )
+        except Exception:
+            pass
 
     async def run(self) -> None:
         await self._ws.accept()
@@ -150,6 +177,10 @@ class SpeechSession:
                     self._adopt_trace_from(data)
                     reason = str(data.get("reason") or "client_barge_in").strip() or "client_barge_in"
                     await self._on_barge_in(reason)
+                elif op == "client_listening":
+                    # FE 本地播完（队列空）→ 释放 STT unmute hold，下一轮才能识别
+                    if self._bridge and hasattr(self._bridge, "release_stt_unmute_hold"):
+                        await self._bridge.release_stt_unmute_hold(reason="client_listening")
                 elif op == "stop":
                     break
         except WebSocketDisconnect:
@@ -168,7 +199,7 @@ class SpeechSession:
             # 用户说完即开新 TRACE（若前端稍后 assistant_begin 带自己的 id 会覆盖对齐）
             tid = new_voice_trace("vt")
             self._bind_trace(tid)
-            voice_log("用户输入", f"用户说完一轮，识别文本：「{text}」")
+            voice_log("对话", f"用户输入 → turn_end：「{text}」 TRACE={tid}")
             try:
                 await self._ws.send_json(
                     {"type": "turn_end", "text": text, "trace_id": tid, "sid": self._sid}
@@ -183,8 +214,8 @@ class SpeechSession:
             on_user_turn=on_user_turn,
         )
         self._bridge = bridge
-        self._asr = asr
-        self._vad = vad
+        self._asr = asr  # PipecatVoiceBridge (flush_asr)
+        self._vad = vad  # None — Silero lives inside Pipecat
         self._worker = PipelineWorker(
             pipe,
             on_output=self._on_pipeline_output,
@@ -297,6 +328,8 @@ class SpeechSession:
         voice_log("打断", f"收到打断请求 reason={reason}，正在停播并清空可中断队列")
         t0 = time.monotonic()
         await self._worker.broadcast_interruption(reason)
+        if self._bridge and hasattr(self._bridge, "release_stt_unmute_hold"):
+            await self._bridge.release_stt_unmute_hold(reason=f"barge:{reason}")
         try:
             await self._ws.send_json(
                 {
@@ -344,6 +377,10 @@ class SpeechSession:
                     {"type": "final", "text": frame.text, "is_final": True, "turn": True}
                 )
                 return
+            if isinstance(frame, UserBotLatencyFrame):
+                # Pipecat UserBotLatencyObserver 权威值
+                await self._emit_user_to_bot_metric_once(ms=float(frame.user_to_bot_ms))
+                return
             if isinstance(frame, BotStartedSpeakingFrame):
                 self._tts_open_seqs.add(frame.seq)
                 text = getattr(frame, "text", "") or ""
@@ -355,6 +392,8 @@ class SpeechSession:
                         "trace_id": self._trace_id,
                     }
                 )
+                # fallback：Observer 未触发时仍用 worker.metrics
+                await self._emit_user_to_bot_metric_once()
                 return
             if isinstance(frame, TTSAudioRawFrame):
                 if frame.seq not in self._tts_open_seqs:
@@ -369,6 +408,7 @@ class SpeechSession:
                     )
                 packet = int(frame.seq).to_bytes(4, "little") + frame.audio
                 await self._ws.send_bytes(packet)
+                await self._emit_user_to_bot_metric_once()
                 return
             if isinstance(frame, BotStoppedSpeakingFrame):
                 self._tts_open_seqs.discard(frame.seq)
@@ -381,15 +421,6 @@ class SpeechSession:
                         "trace_id": self._trace_id,
                     }
                 )
-                # Emit TTFB metric once per reply if available
-                if self._worker:
-                    m = self._worker.metrics
-                    if m.get("user_stopped_at") and m.get("bot_first_audio_at"):
-                        ms = (m["bot_first_audio_at"] - m["user_stopped_at"]) * 1000
-                        voice_log("延迟", f"用户说完→机器人开口约 {ms:.0f} ms")
-                        await self._ws.send_json(
-                            {"type": "metrics", "user_to_bot_ms": round(ms, 1)}
-                        )
                 return
             if isinstance(frame, InterruptionFrame):
                 # VAD 等管线内部触发的打断也要通知前端停播（Pipecat 里由

@@ -569,9 +569,15 @@ html[data-xw-voice='1'][data-xw-voice-anim='enter'] .react-chat-conversation-fra
   }
 }
 
-/* 右栏已收起仍残留语音标记时：勿占半屏（主路径应 exitXwVoiceMode） */
+/*
+ * 无右栏（唤醒词 left-only / expandRightStage:false）：
+ * 语音域铺满主区。切勿 display:none —— 聊天 chrome 已被 data-xw-voice 隐藏，
+ * 再藏语音域会整页空白。
+ */
 html[data-xw-voice='1'] .react-chat-main-body:not(.is-right-stage-open) .xw-voice-host {
-  display: none !important;
+  flex: 1 1 auto !important;
+  width: auto !important;
+  max-width: none !important;
 }
 
 /* ── 语音交互精简：次要控件默认隐藏，悬停 / 焦点 / 菜单打开时再露 ── */
@@ -623,5 +629,195 @@ html[data-xw-voice='1'] .react-chat-main-body {
   .xws-ptt-ring,
   .xws-content-glyph {
     animation: none;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════
+ * 干净语音全屏（.xws-clean）：状态 + 本轮你/小V + 右上最近对话
+ * ═══════════════════════════════════════════════════════ */
+.xws-root.xws-clean {
+  padding: 0;
+  background: #010308;
+}
+
+.xws-clean .xws-exit {
+  position: absolute;
+  top: 14px;
+  left: 16px;
+  z-index: 20;
+  appearance: none;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(8, 12, 20, 0.55);
+  color: var(--xws-sub);
+  font: inherit;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  padding: 6px 14px;
+  border-radius: 999px;
+  cursor: pointer;
+  backdrop-filter: blur(8px);
+  transition: color 0.18s ease, border-color 0.18s ease;
+}
+.xws-clean .xws-exit:hover {
+  color: var(--xws-txt);
+  border-color: rgba(255, 255, 255, 0.28);
+}
+
+.xws-clean .xws-recent {
+  position: absolute;
+  top: 14px;
+  right: 16px;
+  z-index: 20;
+  width: min(320px, 42vw);
+  max-height: min(42vh, 360px);
+  display: flex;
+  flex-direction: column;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 14px;
+  background: rgba(6, 10, 18, 0.72);
+  backdrop-filter: blur(12px);
+  overflow: hidden;
+  pointer-events: auto;
+}
+.xws-clean .xws-recent-head {
+  flex: none;
+  padding: 10px 14px 6px;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  color: var(--xws-sub);
+}
+.xws-clean .xws-recent-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 4px 12px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.xws-clean .xws-recent-line {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.xws-clean .xws-recent-role {
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  color: var(--xws-muted);
+}
+.xws-clean .xws-recent-line.is-assistant .xws-recent-role {
+  color: color-mix(in srgb, var(--xws-state) 80%, #fff);
+}
+.xws-clean .xws-recent-text {
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: #c5d0e0;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.xws-clean .xws-recent-empty {
+  font-size: 12px;
+  color: var(--xws-muted);
+  padding: 8px 2px;
+}
+
+.xws-clean .xws-stage {
+  flex: 1 1 auto;
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  cursor: default;
+}
+.xws-clean.xws-speak .xws-stage {
+  cursor: pointer;
+}
+
+.xws-clean .xws-focus {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 10;
+  padding: 0 28px 36px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  background: linear-gradient(to top, rgba(1, 3, 8, 0.92) 0%, rgba(1, 3, 8, 0.55) 55%, transparent 100%);
+  pointer-events: none;
+}
+.xws-clean .xws-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  pointer-events: none;
+}
+.xws-clean .xws-status-word {
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: 0.28em;
+  color: var(--xws-state);
+  text-indent: 0.28em;
+  transition: color 0.3s ease;
+}
+.xws-clean .xws-status.is-live .xws-status-word {
+  text-shadow: 0 0 22px color-mix(in srgb, #22d3ee 40%, transparent);
+  animation: xws-listen-title 1.8s ease-in-out infinite;
+}
+.xws-clean .xws-live-user,
+.xws-clean .xws-live-ai {
+  width: min(640px, 92%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  text-align: center;
+}
+.xws-clean .xws-live-label {
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  color: var(--xws-muted);
+}
+.xws-clean .xws-live-ai .xws-live-label {
+  color: color-mix(in srgb, var(--xws-state) 70%, #9fb2c8);
+}
+.xws-clean .xws-live-text {
+  margin: 0;
+  font-size: 16px;
+  line-height: 1.55;
+  color: #d7e2f0;
+  max-height: 4.8em;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.xws-clean .xws-live-user .xws-live-text {
+  color: #a8b8cc;
+  font-size: 15px;
+  -webkit-line-clamp: 2;
+  max-height: 3.2em;
+}
+.xws-clean .xws-live-ai .xws-live-text:empty {
+  display: none;
+}
+
+@media (max-width: 720px) {
+  .xws-clean .xws-recent {
+    width: min(260px, 48vw);
+    max-height: 32vh;
+  }
+  .xws-clean .xws-status-word {
+    font-size: 22px;
+  }
+  .xws-clean .xws-focus {
+    padding: 0 16px 24px;
   }
 }

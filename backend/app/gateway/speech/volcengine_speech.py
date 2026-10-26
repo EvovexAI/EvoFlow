@@ -382,12 +382,35 @@ def synthesize_speech_v3(text: str, *, speaker: str | None = None, preview: bool
     raise RuntimeError("TTS returned empty audio")
 
 
-async def synthesize_speech_v3_stream(text: str, *, speaker: str | None = None, preview: bool = False):
+_tts_http_client: httpx.AsyncClient | None = None
+
+
+def _get_tts_http_client() -> httpx.AsyncClient:
+    """Reuse one AsyncClient so TLS/keepalive is not paid per sentence."""
+    global _tts_http_client
+    if _tts_http_client is None or _tts_http_client.is_closed:
+        _tts_http_client = httpx.AsyncClient(
+            timeout=120.0,
+            limits=httpx.Limits(max_connections=16, max_keepalive_connections=8),
+        )
+    return _tts_http_client
+
+
+async def synthesize_speech_v3_stream(
+    text: str,
+    *,
+    speaker: str | None = None,
+    preview: bool = False,
+    session_uid: str | None = None,
+):
     """Streaming version of synthesize_speech_v3 — yields audio chunks as they arrive.
 
     Uses httpx async streaming to read the NDJSON response line by line,
     decoding base64 audio data and yielding immediately.  This reduces
     first-byte latency from full-synthesis-wait to first-chunk-wait.
+
+    ``session_uid`` sticky across sentences in one voice session helps keep
+    provider-side timbre/prosody more consistent.
     """
     import base64 as _b64
     import json as _json
@@ -409,8 +432,11 @@ async def synthesize_speech_v3_stream(text: str, *, speaker: str | None = None, 
             },
             ensure_ascii=False,
         )
+    uid = (session_uid or "").strip() or (
+        f"evoflow-{'preview' if preview else 'chat'}-{uuid.uuid4().hex[:12]}"
+    )
     payload = {
-        "user": {"uid": f"evoflow-{'preview' if preview else 'chat'}-{uuid.uuid4().hex[:12]}"},
+        "user": {"uid": uid},
         "req_params": req_params,
     }
     headers = _speech_headers(
@@ -447,33 +473,33 @@ async def synthesize_speech_v3_stream(text: str, *, speaker: str | None = None, 
                 message = obj.get("message") or obj.get("msg") or str(obj)
                 _raise_tts_business_error(code, message)
 
+    client = _get_tts_http_client()
     last_error: BaseException | None = None
     for i, try_url in enumerate(urls_to_try):
         allow_retry = i < len(urls_to_try) - 1
         yielded = False
         try:
-            async with httpx.AsyncClient(timeout=120.0) as client:
-                async with client.stream("POST", try_url, json=payload, headers=headers) as resp:
-                    if resp.status_code != 200:
-                        body = await resp.aread()
-                        last_error = RuntimeError(f"TTS HTTP {resp.status_code}: {body[:300]!r}")
-                        if allow_retry:
-                            logger.warning(
-                                "TTS stream failed (%s) on %s, trying next",
-                                resp.status_code,
-                                try_url,
-                            )
-                            continue
-                        raise last_error
-                    async for chunk in _drain_response(resp):
-                        yielded = True
-                        yield chunk
-                    if yielded:
-                        return
-                    last_error = RuntimeError("TTS returned empty audio")
+            async with client.stream("POST", try_url, json=payload, headers=headers) as resp:
+                if resp.status_code != 200:
+                    body = await resp.aread()
+                    last_error = RuntimeError(f"TTS HTTP {resp.status_code}: {body[:300]!r}")
                     if allow_retry:
+                        logger.warning(
+                            "TTS stream failed (%s) on %s, trying next",
+                            resp.status_code,
+                            try_url,
+                        )
                         continue
                     raise last_error
+                async for chunk in _drain_response(resp):
+                    yielded = True
+                    yield chunk
+                if yielded:
+                    return
+                last_error = RuntimeError("TTS returned empty audio")
+                if allow_retry:
+                    continue
+                raise last_error
         except ValueError as e:
             last_error = e
             if allow_retry and not yielded and _is_agent_plan_deduct_error(str(e)):

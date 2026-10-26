@@ -1,4 +1,4 @@
-"""ASR processor — audio frames → TranscriptionFrame via provider session."""
+"""LEGACY ASR processor — production uses Pipecat EvoSTTService via PipecatVoiceBridge."""
 
 from __future__ import annotations
 

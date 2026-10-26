@@ -16,6 +16,7 @@ export {
   sendXiaomiAssistantBegin,
   sendXiaomiAssistantDelta,
   sendXiaomiAssistantEnd,
+  sendXiaomiClientListening,
   bargeInXiaomiFrame,
   stopXiaomiFrameSession,
 } from './session-client.js'

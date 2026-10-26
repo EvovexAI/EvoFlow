@@ -147,9 +147,9 @@ class SentenceAggregator(FrameProcessor):
 
 
 class UserTurnAggregator(FrameProcessor):
-    """Silence window + ASR final → UserTurnCompleteFrame.
+    """LEGACY silence-window turn end — production uses Pipecat UserTurnProcessor.
 
-    First version: transcript-driven (no local SmartTurn model).
+    Kept for unit tests of the old Frame runtime.
     """
 
     def __init__(

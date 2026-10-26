@@ -1,8 +1,7 @@
-"""TTS processor — TTSRequestFrame → streamed TTSAudioRawFrame.
+"""LEGACY TTS processor — replaced by PipecatTtsBridge + VolcengineTTSService.
 
-Synthesis runs ahead (concurrently) for latency, but playback order follows the
-request order, mirroring Pipecat's audio-context model. Without this, two
-sentences overlap in the browser and the bot talks over itself.
+Kept for reference / emergency fallback. Production Xiaomi pipeline uses
+``PipecatTtsBridge`` (real Pipecat TTSService + AudioContextManager).
 """
 
 from __future__ import annotations

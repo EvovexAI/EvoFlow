@@ -6,22 +6,39 @@ import {
   bargeInXiaomiFrame,
   connectXiaomiFrameSession,
   flushXiaomiAsr,
+  isXiaomiFramePlaying,
   isXiaomiFrameSessionActive,
   sendXiaomiAssistantBegin,
   sendXiaomiAssistantDelta,
   sendXiaomiAssistantEnd,
   sendXiaomiPcm,
+  setXiaomiFirstLocalPlayHandler,
   setXiaomiFrameEventHandler,
+  setXiaomiPlaybackIdleHandler,
   stopXiaomiFrameSession,
 } from './session-client.js'
 import {
   noteVoiceLogPathOnce,
   voiceFeLog,
   voicePlaybackMark,
+  flushVoiceFeLog,
   beginVoiceTrace,
   adoptVoiceTrace,
   getVoiceTrace,
 } from './voice-file-log.js'
+
+function _logDialogue(message, opts = {}) {
+  voiceFeLog('对话', message, opts)
+  void flushVoiceFeLog()
+}
+
+/**
+ * 前端唯一 tray 状态（给 XiaomiVoiceStage）：
+ *   recording  = 聆听中（可说话）
+ *   processing = 已发送 / 等模型或首包音频
+ *   speaking   = 本地正在播报
+ * 禁止用 tts_end（wire 合成完）切回 recording —— 那不等于听完。
+ */
 
 /** @type {AudioContext | null} */
 let _actx = null
@@ -33,12 +50,53 @@ let _node = null
 let _running = false
 /** @type {((s: string) => void) | null} */
 let _onTray = null
+/** @type {'recording'|'processing'|'speaking'|''} */
+let _tray = ''
 /** @type {string} */
 let _partial = ''
 let _sending = false
+/** 已发问、还在等回复播报 */
+let _awaitingReply = false
+/** @type {string[]} */
+const _pendingTurns = []
+/** performance.now() when turn_end received — for local latency */
+let _turnEndAt = 0
+/** wall-clock ISO when user finished speaking */
+let _turnEndWall = ''
+/** text of the turn awaiting first playback */
+let _turnAwaitingPlay = ''
 
 export function isXiaomiFramePipelineActive() {
   return _running && isXiaomiFrameSessionActive()
+}
+
+function _setTray(next) {
+  const s = String(next || '')
+  if (s === _tray) return
+  _tray = s
+  voiceFeLog('状态', `tray → ${s || '(空)'}`)
+  try {
+    _onTray?.(s)
+  } catch {
+    /* ignore */
+  }
+}
+
+/** 按优先级重算：speaking > processing > recording */
+function _refreshTray() {
+  if (!_running) {
+    _setTray('')
+    return
+  }
+  if (isXiaomiFramePlaying()) {
+    _setTray('speaking')
+    return
+  }
+  if (_sending || _awaitingReply) {
+    _setTray('processing')
+    return
+  }
+  _setTray('recording')
 }
 
 /**
@@ -55,6 +113,31 @@ export async function startXiaomiFramePipeline(opts = {}) {
     voiceFeLog('会话', '连接 Frame session 失败，管线未启动')
     return false
   }
+
+  setXiaomiFirstLocalPlayHandler(({ seq, at }) => {
+    _awaitingReply = false
+    _setTray('speaking')
+    if (!_turnEndAt || !_turnAwaitingPlay) return
+    const ms = Math.round(at - _turnEndAt)
+    voiceFeLog(
+      '时效',
+      `用户说完→本地播报开始 ${ms} ms（「${_turnAwaitingPlay}」→ seq=${seq}）` +
+        (_turnEndWall ? ` turn_end_at=${_turnEndWall}` : ''),
+    )
+    console.info('[xiaomi-frame] user_stop→local_play_ms=', ms)
+    _turnAwaitingPlay = ''
+  })
+
+  setXiaomiPlaybackIdleHandler((idle) => {
+    if (!idle) {
+      _awaitingReply = false
+      _setTray('speaking')
+      return
+    }
+    // 本地听完 → 才回聆听
+    _awaitingReply = false
+    _refreshTray()
+  })
 
   setXiaomiFrameEventHandler((m) => {
     const type = String(m?.type || '')
@@ -79,34 +162,43 @@ export async function startXiaomiFramePipeline(opts = {}) {
           getVoiceTrace() ||
           beginVoiceTrace({ reason: 'turn_end→发问' })
         if (m.trace_id) adoptVoiceTrace(String(m.trace_id), { reason: 'turn_end' })
-        voiceFeLog('用户输入', `一轮说完，准备发给小V：「${text}」 TRACE=${tid}`)
-        void _sendTurn(text)
+        _turnEndAt = performance.now()
+        _turnEndWall = new Date().toISOString()
+        _turnAwaitingPlay = text
+        _logDialogue(`用户输入：「${text}」 at=${_turnEndWall} TRACE=${tid}`)
+        void _enqueueTurn(text)
+      } else {
+        _logDialogue('用户输入为空（turn_end 无文本）→ 本轮不发送')
       }
     }
     if (type === 'tts_start') {
       const playText = String(m.text || '').trim()
+      const wall = new Date().toISOString()
       voicePlaybackMark(
         '语音播放',
         playText,
-        `Frame tts_start seq=${m.seq ?? ''}（后端流式音频到前端）`,
+        `Frame tts_start seq=${m.seq ?? ''} at=${wall}（后端音频到前端，尚未本地 play）`,
       )
-      _onTray?.('speaking')
+      _awaitingReply = false
+      _setTray('speaking')
     }
     if (type === 'tts_end') {
       const playText = String(m.text || '').trim()
       voicePlaybackMark(
         '播放结束',
         playText,
-        `Frame tts_end seq=${m.seq ?? ''}${m.cancelled ? '（已取消）' : ''}`,
+        `Frame tts_end seq=${m.seq ?? ''}${m.cancelled ? '（已取消）' : ''}（wire 完，未必本地听完）`,
       )
-      if (_running) _onTray?.('recording')
+      // 不在这里切 recording —— 等本地播完 idle
+      _refreshTray()
     }
     if (type === 'interrupted') {
       const reason = String(m.reason || '')
       voiceFeLog('打断', `前端收到 interrupted（reason=${reason}），已停播`)
       // 后端已停合成；前端同时丢弃迟到的正文增量，避免旧回复回流成语音。
       resetXiaomiFrameAssistantFeed()
-      if (_running) _onTray?.('recording')
+      _awaitingReply = false
+      _refreshTray()
       if (reason === 'client_barge_in') {
         // 前端自己发起的打断：模型推理已经在 interruptXiaomiFrame() 里取消过，
         // 这里再取消一次会误伤「打断后刚开始的新一轮」。
@@ -117,8 +209,12 @@ export async function startXiaomiFramePipeline(opts = {}) {
       void _abortModelRunForBargeIn()
     }
     if (type === 'metrics') {
-      voiceFeLog('延迟', `用户说完→开口约 ${m.user_to_bot_ms} ms`)
-      console.info('[xiaomi-frame] user_to_bot_ms=', m.user_to_bot_ms)
+      const anchor = String(m.anchor || 'vad_silence→bot_started')
+      voiceFeLog(
+        '延迟',
+        `Pipecat ${anchor} ${m.user_to_bot_ms} ms（后端 wire 开口；本地听感见「时效」）`,
+      )
+      console.info('[xiaomi-frame] user_to_bot_ms=', m.user_to_bot_ms, anchor)
     }
     if (type === 'error') {
       voiceFeLog('错误', String(m.message || '未知错误'))
@@ -160,9 +256,10 @@ export async function startXiaomiFramePipeline(opts = {}) {
   proc.connect(_actx.destination)
   _node = proc
   _running = true
+  _awaitingReply = false
   voiceFeLog('会话', '采麦已启动，正在向后端推送 PCM')
   _flushStashedAssistant()
-  _onTray?.('recording')
+  _setTray('recording')
   return true
 }
 
@@ -177,28 +274,57 @@ async function _abortModelRunForBargeIn() {
   }
 }
 
+async function _enqueueTurn(text) {
+  const t = String(text || '').trim()
+  if (!t) return
+  if (_sending) {
+    _pendingTurns.push(t)
+    voiceFeLog('用户输入', `上一轮仍在发送，已排队：「${t}」（队列=${_pendingTurns.length}）`)
+    return
+  }
+  await _sendTurn(t)
+}
+
 async function _sendTurn(text) {
-  if (_sending) return
+  if (_sending) {
+    _pendingTurns.push(text)
+    return
+  }
   _sending = true
-  _onTray?.('processing')
+  _awaitingReply = true
+  _setTray('processing')
+  const sendWall = new Date().toISOString()
   try {
     const { setPreferXiaomiVoice } = await import('../background-voice-bridge.js')
     setPreferXiaomiVoice(true)
-    voiceFeLog('用户输入', `调用 sendXiaomiChat（语音发起）：「${text}」`)
+    _logDialogue(`用户发送中 at=${sendWall}：「${text}」`)
     const { sendXiaomiChat } = await import('../../components/global-assistant/assistant-session.js')
     await sendXiaomiChat(text, { voiceInitiated: true })
+    _logDialogue(`用户发送完成 at=${new Date().toISOString()}：「${text}」`)
   } catch (e) {
-    voiceFeLog('错误', `发送用户轮次失败：${e?.message || e}`)
+    _logDialogue(`用户发送失败：${e?.message || e}｜「${text}」`)
     console.warn('[xiaomi-frame] send turn failed', e)
+    _awaitingReply = false
   } finally {
     _sending = false
-    if (_running) _onTray?.('recording')
+    // 仍在等播报 / 已在播 → processing|speaking；不要秒回 recording
+    _refreshTray()
+    const next = _pendingTurns.shift()
+    if (next) void _sendTurn(next)
   }
 }
 
 export function stopXiaomiFramePipeline() {
   if (_running) voiceFeLog('会话', '前端停止语音管线')
   _running = false
+  _pendingTurns.length = 0
+  _sending = false
+  _awaitingReply = false
+  _turnEndAt = 0
+  _turnEndWall = ''
+  _turnAwaitingPlay = ''
+  setXiaomiFirstLocalPlayHandler(null)
+  setXiaomiPlaybackIdleHandler(null)
   try {
     flushXiaomiAsr()
   } catch {
@@ -224,7 +350,7 @@ export function stopXiaomiFramePipeline() {
   _actx = null
   stopXiaomiFrameSession()
   setXiaomiFrameEventHandler(null)
-  _onTray?.('')
+  _setTray('')
   _onTray = null
 }
 
@@ -282,10 +408,17 @@ export function feedXiaomiFrameAssistant(fullText, { final = false } = {}) {
   }
   if (final) {
     _assistantEnded = true
+    const plain = String(_assistantPlain || '').trim()
+    _logDialogue(
+      plain
+        ? `助手回复：「${plain.slice(0, 800)}${plain.length > 800 ? '…' : ''}」`
+        : '助手回复：（空）',
+      { detail: `len=${plain.length}` },
+    )
     voicePlaybackMark(
       '流式正文',
-      _assistantPlain.slice(0, 400),
-      `本轮结束累计 ${_assistantPlain.length} 字，冲刷残句`,
+      plain.slice(0, 400),
+      `本轮结束累计 ${plain.length} 字，冲刷残句`,
     )
     sendXiaomiAssistantEnd()
     // 注意：不要清空 _assistantPlain。清空后若再进 feed，会把全文当 delta 再推一遍。

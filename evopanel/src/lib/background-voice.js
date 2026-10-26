@@ -504,14 +504,19 @@ async function openXiaomiForWake() {
   }
   try {
     const { openXiaomiRightStage } = await import('./right-stage/open-right-stage-xiaomi.js')
-    await openXiaomiRightStage({ navigateToChat: true, voiceMode: true })
+    // 唤醒：只进左侧语音域，不弹右侧流式文字面板（对话以左栏实时区为主）
+    await openXiaomiRightStage({
+      navigateToChat: true,
+      voiceMode: true,
+      showRightStage: false,
+    })
     return
   } catch (e) {
     console.warn('[background-voice] open xiaomi stage failed:', e?.message || e)
   }
   try {
     const { enterXwVoiceMode } = await import('./xw-voice-mode.js')
-    enterXwVoiceMode()
+    enterXwVoiceMode({ expandRightStage: false })
     return
   } catch (e) {
     console.warn('[background-voice] enter voice stage failed:', e?.message || e)

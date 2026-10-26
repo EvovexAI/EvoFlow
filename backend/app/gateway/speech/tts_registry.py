@@ -370,6 +370,7 @@ async def synthesize_tts_stream(
     speaker: str | None = None,
     preview: bool = False,
     creds: dict[str, Any] | None = None,
+    session_uid: str | None = None,
 ) -> AsyncGenerator[bytes, None]:
     """Streaming TTS — yields audio chunks as they arrive from the provider."""
     prov = _resolve_provider(provider)
@@ -380,7 +381,12 @@ async def synthesize_tts_stream(
     if prov in ("volcengine", "doubao"):
         from app.gateway.speech.volcengine_speech import synthesize_speech_v3_stream
 
-        async for chunk in synthesize_speech_v3_stream(text, speaker=voice or None, preview=preview):
+        async for chunk in synthesize_speech_v3_stream(
+            text,
+            speaker=voice or None,
+            preview=preview,
+            session_uid=session_uid,
+        ):
             yield chunk
         return
 
