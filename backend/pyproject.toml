@@ -33,8 +33,10 @@ members = ["packages/harness"]
 
 [tool.uv.sources]
 evoflow-harness = { workspace = true }
-# Editable local clone — reuse Pipecat TTSService / AudioContextManager / aggregators.
-pipecat-ai = { path = "../../pipecat", editable = true }
+# pipecat-ai comes from PyPI (see dependencies). Local editable for hacking:
+#   uv add --editable ../../pipecat
+# Do NOT commit a path source — desktop CI has no sibling ../../pipecat
+# (Release failed: Distribution not found at file:///…/pipecat).
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
