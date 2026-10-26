@@ -68,6 +68,9 @@ def _scheduler_owner_id() -> str:
     return f"{host}:{os.getpid()}"
 
 
+_LG_SDK_CALL_TIMEOUT_S = float(os.getenv("EVOFLOW_LG_SDK_TIMEOUT_S", "30"))
+
+
 def _langgraph_run_semaphore() -> asyncio.Semaphore:
     global _langgraph_semaphore
     if _langgraph_semaphore is None:
@@ -315,7 +318,8 @@ async def _invoke_langgraph_for_automation(
 
     if mode == "sticky" and thread_id:
         try:
-            await client.threads.get(thread_id)
+            # SDK 无默认超时；挂在调度协程上会占住一个后台 fire 任务
+            await asyncio.wait_for(client.threads.get(thread_id), timeout=_LG_SDK_CALL_TIMEOUT_S)
         except Exception:
             logger.warning(
                 "automation_runner: sticky langgraph_thread_id invalid, creating new thread (task_id=%s old=%s)",
@@ -335,7 +339,7 @@ async def _invoke_langgraph_for_automation(
         if sk_meta:
             meta["session_key"] = sk_meta
         try:
-            thread = await client.threads.create(metadata=meta)
+            thread = await asyncio.wait_for(client.threads.create(metadata=meta), timeout=_LG_SDK_CALL_TIMEOUT_S)
         except Exception as e:
             err_msg = str(e)
             resp = getattr(e, "response", None)
@@ -353,7 +357,7 @@ async def _invoke_langgraph_for_automation(
             # Retry once with empty metadata (some LangGraph versions reject metadata on create)
             try:
                 logger.info("automation_runner: retrying thread create without metadata task_id=%s", task_id)
-                thread = await client.threads.create()
+                thread = await asyncio.wait_for(client.threads.create(), timeout=_LG_SDK_CALL_TIMEOUT_S)
             except Exception:
                 logger.exception("automation_runner: thread create retry also failed task_id=%s", task_id)
                 raise
@@ -836,7 +840,7 @@ async def _run_catchup_missed_runs(
     if max_runs <= 0:
         return fired, reasons
 
-    last_tick = _last_scheduler_tick_at()
+    last_tick = await asyncio.to_thread(_last_scheduler_tick_at)
     if last_tick is None:
         reasons.append("catchup:no_last_tick_state")
         return fired, reasons
@@ -880,7 +884,7 @@ async def _run_catchup_missed_runs(
             if slot in already_ran_slots:
                 reasons.append(f"{task_id}:catchup_already_ran slot={slot}")
                 continue
-            claim = _claim_slot_for_task(task_id, slot, trigger_type="catchup")
+            claim = await asyncio.to_thread(_claim_slot_for_task, task_id, slot, trigger_type="catchup")
             if not claim.get("claimed"):
                 reasons.append(
                     f"{task_id}:catchup_slot_taken slot={slot} reason={claim.get('reason') or 'duplicate'}"
@@ -898,10 +902,10 @@ async def _run_catchup_missed_runs(
                 await _run_one_task(task_id, task, service, trigger_type="catchup")
             except Exception:
                 logger.exception("automation_runner: catch-up run failed task_id=%s slot=%s", task_id, slot)
-                _complete_slot_for_task(task_id, slot, status="failed")
+                await asyncio.to_thread(_complete_slot_for_task, task_id, slot, status="failed")
                 reasons.append(f"{task_id}:catchup_run_failed slot={slot}")
                 continue
-            _complete_slot_for_task(task_id, slot, status="done")
+            await asyncio.to_thread(_complete_slot_for_task, task_id, slot, status="done")
             fired.append(task_id)
             break  # one catch-up run per task per tick
 
@@ -948,7 +952,7 @@ async def _run_near_miss_catchup(
             slot = _slot_key_for(when)
             if slot in already:
                 continue
-            claim = _claim_slot_for_task(task_id, slot, trigger_type="near_miss")
+            claim = await asyncio.to_thread(_claim_slot_for_task, task_id, slot, trigger_type="near_miss")
             if not claim.get("claimed"):
                 reasons.append(
                     f"{task_id}:near_miss_slot_taken slot={slot} reason={claim.get('reason') or 'duplicate'}"
@@ -965,10 +969,10 @@ async def _run_near_miss_catchup(
                 await _run_one_task(task_id, task, service, trigger_type="near_miss")
             except Exception:
                 logger.exception("automation_runner: near-miss run failed task_id=%s slot=%s", task_id, slot)
-                _complete_slot_for_task(task_id, slot, status="failed")
+                await asyncio.to_thread(_complete_slot_for_task, task_id, slot, status="failed")
                 reasons.append(f"{task_id}:near_miss_run_failed slot={slot}")
                 continue
-            _complete_slot_for_task(task_id, slot, status="done")
+            await asyncio.to_thread(_complete_slot_for_task, task_id, slot, status="done")
             fired.append(task_id)
             break
     return fired, reasons
@@ -1379,6 +1383,38 @@ async def _run_employee_heartbeat(
         status,
         err or "",
     )
+
+
+_active_fire_tasks: set["asyncio.Task[None]"] = set()
+"""Strong refs to in-flight fire tasks — asyncio only keeps weak references."""
+
+
+def _spawn_automation_fire(
+    task_id: str,
+    task: dict[str, Any],
+    service: Any,
+    slot: str,
+    skipped_reasons: list[str],
+    *,
+    trigger: str,
+) -> None:
+    """Run one fired automation in a background task with the tick's
+    error/completion semantics (failed slot on exception, done otherwise)."""
+
+    async def _fire() -> None:
+        try:
+            await _run_one_task(task_id, task, service, trigger_type=trigger)
+        except Exception:
+            logger.exception("automation_runner: run failed task_id=%s slot=%s trigger=%s", task_id, slot, trigger)
+            await asyncio.to_thread(_complete_slot_for_task, task_id, slot, status="failed")
+            skipped_reasons.append(f"{task_id}:run_failed slot={slot}")
+            return
+        await asyncio.to_thread(_complete_slot_for_task, task_id, slot, status="done")
+        logger.info("automation_runner: fired done task_id=%s name=%r trigger=%s", task_id, task.get("name", ""), trigger)
+
+    fire_task = asyncio.create_task(_fire(), name=f"automation-fire:{task_id}:{slot}")
+    _active_fire_tasks.add(fire_task)
+    fire_task.add_done_callback(_active_fire_tasks.discard)
 
 
 async def _run_one_task(
@@ -1986,7 +2022,7 @@ async def automation_tick() -> None:
         # Cross-process dedupe: the slot claim lives in SQLite, so two Gateway
         # processes (desktop sidecar + dev gateway) ticking in the same minute
         # cannot both fire — exactly one wins the atomic claim.
-        claim = _claim_slot_for_task(task_id, slot, trigger_type="schedule")
+        claim = await asyncio.to_thread(_claim_slot_for_task, task_id, slot, trigger_type="schedule")
         if not claim.get("claimed"):
             skipped_reasons.append(
                 f"{task_id}:dedupe_same_minute reason={claim.get('reason') or 'duplicate'} "
@@ -2007,19 +2043,20 @@ async def automation_tick() -> None:
             channel_ok,
         )
         try:
-            await _run_one_task(task_id, task, service)
+            # Fire in the background instead of inline: a serial await parked
+            # the whole tick behind the previous run's wall-clock budget
+            # (LONG_RUN_WALL_SECONDS), delaying same-minute tasks and making
+            # _langgraph_run_semaphore useless. The slot claim above already
+            # happened synchronously, so spawning cannot double-fire.
+            _spawn_automation_fire(task_id, task, service, slot, skipped_reasons, trigger="schedule")
+            fired_ids.append(task_id)
+            logger.info("automation_runner: fired (dispatched) task_id=%s name=%r", task_id, task.get("name", ""))
         except Exception:
-            # Do not re-raise: aborting the tick would skip remaining tasks,
-            # catch-up, and the last-tick stamp — potentially losing a whole
-            # minute of schedule forever when the gap is still under the
-            # catch-up minimum. Match the catch-up path: mark failed, continue.
-            logger.exception("automation_runner: run failed task_id=%s slot=%s", task_id, slot)
-            _complete_slot_for_task(task_id, slot, status="failed")
+            # create_task itself failed — nothing else can release the slot.
+            logger.exception("automation_runner: dispatch failed task_id=%s slot=%s", task_id, slot)
+            await asyncio.to_thread(_complete_slot_for_task, task_id, slot, status="failed")
             skipped_reasons.append(f"{task_id}:run_failed slot={slot}")
             continue
-        _complete_slot_for_task(task_id, slot, status="done")
-        fired_ids.append(task_id)
-        logger.info("automation_runner: fired done task_id=%s name=%r", task_id, task.get("name", ""))
 
     # Near-miss: previous 1–2 minutes' exact cron slots (align / brief lag).
     near_miss_fired: list[str] = []
@@ -2076,7 +2113,7 @@ async def automation_tick() -> None:
         "clock": "Asia/Shanghai",
     }
     # Persist the tick stamp so the next process start can detect the gap.
-    _record_scheduler_tick(now)
+    await asyncio.to_thread(_record_scheduler_tick, now)
 
     logger.debug(
         "automation_tick end slot=%s files=%d active=%d fired=%s channel_ok=%s (HTTP GET /api/automation/scheduler/status → last_tick)",

@@ -46,7 +46,10 @@ async def test_workflow_dispatch_failure_does_not_fall_into_lead_path(monkeypatc
     monkeypatch.setattr(pipeline, "get_project_storage", lambda: object())
     monkeypatch.setattr(pipeline, "is_unattended_task", lambda _t: True)
     monkeypatch.setattr(pipeline, "is_task_execution_authorized", lambda _s, _t: True)
-    monkeypatch.setattr(pipeline, "_finalize_executing_task", lambda _t: None)
+    async def _noop_finalize(_t):
+        return None
+
+    monkeypatch.setattr(pipeline, "_finalize_executing_task", _noop_finalize)
 
     ensure_thread_calls: list[str] = []
 
@@ -74,7 +77,10 @@ async def test_workflow_dispatch_success_returns_dispatched(monkeypatch: pytest.
     monkeypatch.setattr(pipeline, "get_project_storage", lambda: object())
     monkeypatch.setattr(pipeline, "is_unattended_task", lambda _t: True)
     monkeypatch.setattr(pipeline, "is_task_execution_authorized", lambda _s, _t: True)
-    monkeypatch.setattr(pipeline, "_finalize_executing_task", lambda _t: None)
+    async def _noop_finalize(_t):
+        return None
+
+    monkeypatch.setattr(pipeline, "_finalize_executing_task", _noop_finalize)
     monkeypatch.setattr(pipeline, "_patch_task", lambda _tid, _fn: None)
 
     ensure_thread_calls: list[str] = []

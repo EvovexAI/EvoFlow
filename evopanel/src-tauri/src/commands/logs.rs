@@ -43,7 +43,16 @@ fn resolve_log_path(log_name: &str) -> PathBuf {
 }
 
 #[tauri::command]
-pub fn read_log_tail(log_name: String, lines: Option<u32>) -> Result<String, String> {
+pub async fn read_log_tail(log_name: String, lines: Option<u32>) -> Result<String, String> {
+    // Sync commands execute on the main/UI thread; these do file IO (log
+    // storms call the appends per frame) — run the body on the blocking pool.
+    tauri::async_runtime::spawn_blocking(move || read_log_tail_impl(log_name, lines))
+        .await
+        .map_err(|e| format!("read_log_tail join failed: {e}"))?
+}
+
+fn read_log_tail_impl(log_name: String, lines: Option<u32>) -> Result<String, String> {
+    
     let lines = lines.unwrap_or(200) as usize;
     let path = resolve_log_path(&log_name);
     if !path.exists() {
@@ -84,7 +93,16 @@ pub fn read_log_tail(log_name: String, lines: Option<u32>) -> Result<String, Str
 }
 
 #[tauri::command]
-pub fn search_log(
+pub async fn search_log(log_name: String, query: String, max_results: Option<u32>) -> Result<Vec<String>, String> {
+    // Sync commands execute on the main/UI thread; these do file IO (log
+    // storms call the appends per frame) — run the body on the blocking pool.
+    tauri::async_runtime::spawn_blocking(move || search_log_impl(log_name, query, max_results))
+        .await
+        .map_err(|e| format!("search_log join failed: {e}"))?
+}
+
+#[tauri::command]
+fn search_log_impl(
     log_name: String,
     query: String,
     max_results: Option<u32>,
@@ -131,7 +149,16 @@ pub fn search_log(
 }
 
 #[tauri::command]
-pub fn append_frontend_log(level: String, message: String) -> Result<(), String> {
+pub async fn append_frontend_log(level: String, message: String) -> Result<(), String> {
+    // Sync commands execute on the main/UI thread; these do file IO (log
+    // storms call the appends per frame) — run the body on the blocking pool.
+    tauri::async_runtime::spawn_blocking(move || append_frontend_log_impl(level, message))
+        .await
+        .map_err(|e| format!("append_frontend_log join failed: {e}"))?
+}
+
+fn append_frontend_log_impl(level: String, message: String) -> Result<(), String> {
+    
     let dir = log_dir();
     let ts = Local::now().format("%Y-%m-%d %H:%M:%S%.3f");
     let lvl = level.trim().to_uppercase();
@@ -150,7 +177,16 @@ pub fn append_frontend_log(level: String, message: String) -> Result<(), String>
 /// Gateway is on the wrong port / unreachable (HTTP `/api/browser/log` alone
 /// used to silently drop the whole FE timeline).
 #[tauri::command]
-pub fn append_plugin_control_log(
+pub async fn append_plugin_control_log(source: String, level: String, message: String) -> Result<(), String> {
+    // Sync commands execute on the main/UI thread; these do file IO (log
+    // storms call the appends per frame) — run the body on the blocking pool.
+    tauri::async_runtime::spawn_blocking(move || append_plugin_control_log_impl(source, level, message))
+        .await
+        .map_err(|e| format!("append_plugin_control_log join failed: {e}"))?
+}
+
+#[tauri::command]
+fn append_plugin_control_log_impl(
     source: String,
     level: String,
     message: String,
@@ -188,7 +224,16 @@ pub fn append_plugin_control_log(
 /// + ``ui-display*.log`` + ``v4-ui-display.log``（ZCode ConversationTimeline 面板所见）。
 /// （时间前缀由前端在首次落盘时生成，便于按目录名排序定位某轮对话。）
 #[tauri::command]
-pub fn append_stream_compare_log(
+pub async fn append_stream_compare_log(channel: String, session_key: Option<String>, run_id: String, message: String) -> Result<(), String> {
+    // Sync commands execute on the main/UI thread; these do file IO (log
+    // storms call the appends per frame) — run the body on the blocking pool.
+    tauri::async_runtime::spawn_blocking(move || append_stream_compare_log_impl(channel, session_key, run_id, message))
+        .await
+        .map_err(|e| format!("append_stream_compare_log join failed: {e}"))?
+}
+
+#[tauri::command]
+fn append_stream_compare_log_impl(
     channel: String,
     session_key: Option<String>,
     run_id: String,

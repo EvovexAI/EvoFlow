@@ -128,7 +128,13 @@ fn create_overlay_window(app: &tauri::AppHandle) -> Result<(WebviewWindow, bool)
 /// 显示语音浮动窗口并设置初始文本
 #[tauri::command]
 pub async fn voice_overlay_show(app: tauri::AppHandle, _text: Option<String>) -> Result<(), String> {
-    let (window, created) = create_overlay_window(&app)?;
+    // WebviewWindowBuilder::build() 不能跑在 async 命令所在的运行时上，
+    // 否则和主线程泵互锁（与 browser_embed_upsert 同一规则，见其注释）。
+    // 挪到阻塞线程执行，创建完成后再回 async 侧收尾。
+    let app_create = app.clone();
+    let (window, created) = tauri::async_runtime::spawn_blocking(move || create_overlay_window(&app_create))
+        .await
+        .map_err(|e| format!("voice overlay create join failed: {e}"))??;
 
     reposition_overlay_window(&window, &app)?;
 

@@ -1011,16 +1011,7 @@ class GoalService:
         except Exception:
             pass
 
-        async with global_lock:
-            # 全局并发限制
-            if global_running_count >= MAX_CONCURRENT_GOALS:
-                raise RuntimeError(f"当前运行的目标任务过多，请稍后再试（最多同时运行{MAX_CONCURRENT_GOALS}个）")
-
-            # 单用户并发限制
-            if user_id and user_running_counts.get(user_id, 0) >= MAX_USER_CONCURRENT_GOALS:
-                raise RuntimeError(f"您已经有{MAX_USER_CONCURRENT_GOALS}个正在运行的目标任务，请先停止再启动新的")
-
-        # 创建会话
+        # 创建会话（提前到限额检查之前：占用登记需要 session.id 先存在）
         session = GoalSession(
             user_id=user_id,
             channel_type=channel_type,
@@ -1035,8 +1026,25 @@ class GoalService:
             completion_outcome="",
         )
 
-        # 初始化历史，加入系统提示
+        # 初始化历史，加入系统提示（纯同步：锁内占用后到注册进 _sessions 之间不留 await 失败窗口）
         system_prompt = self._build_system_prompt(config, config.prompt)
+
+        async with global_lock:
+            # 全局并发限制
+            if global_running_count >= MAX_CONCURRENT_GOALS:
+                raise RuntimeError(f"当前运行的目标任务过多，请稍后再试（最多同时运行{MAX_CONCURRENT_GOALS}个）")
+
+            # 单用户并发限制
+            if user_id and user_running_counts.get(user_id, 0) >= MAX_USER_CONCURRENT_GOALS:
+                raise RuntimeError(f"您已经有{MAX_USER_CONCURRENT_GOALS}个正在运行的目标任务，请先停止再启动新的")
+
+            # 原子占用：限额检查与计数递增必须在同一临界区——原来这里只检查
+            # 不占用，两个并发 start_goal 都能在 count=9 时过检，把计数推到 11。
+            # 后续 _acquire_run_slot 按 _run_slot_held 幂等跳过，行为不变。
+            global_running_count += 1
+            if session.user_id:
+                user_running_counts[session.user_id] = user_running_counts.get(session.user_id, 0) + 1
+            self._run_slot_held.add(session.id)
         self._histories[session.id] = [
             GoalHistoryItem(
                 session_id=session.id,

@@ -41,6 +41,7 @@ _advance_locks_guard: asyncio.Lock | None = None
 
 DEFAULT_LANGGRAPH_URL = "http://127.0.0.1:8070/api/langgraph"
 DEFAULT_ASSISTANT_ID = "lead_agent"
+_LG_SDK_CALL_TIMEOUT_S = float(os.getenv("EVOFLOW_LG_SDK_TIMEOUT_S", "30"))
 
 
 # Pipeline historically wrote run statuses directly; map them onto main-task
@@ -149,7 +150,7 @@ def _plan_retry_exhausted(task: dict[str, Any]) -> bool:
     return _plan_attempts(task) >= task_plan_retry_max()
 
 
-def _pause_stale_plan(task_id: str, *, attempts: int, reason: str) -> bool:
+async def _pause_stale_plan(task_id: str, *, attempts: int, reason: str) -> bool:
     """Persist a terminal guard for a plan that must never be retriggered."""
 
     def _pause(t: dict[str, Any]) -> dict[str, Any] | None:
@@ -164,7 +165,7 @@ def _pause_stale_plan(task_id: str, *, attempts: int, reason: str) -> bool:
         t["error"] = reason[:2000]
         return t
 
-    patched = _patch_task(task_id, _pause)
+    patched = await _patch_task_async(task_id, _pause)
     if patched is not None:
         logger.error(
             "unattended_pipeline: paused stale planning task_id=%s attempts=%s reason=%s",
@@ -234,6 +235,11 @@ def _patch_task(task_id: str, mutator) -> dict[str, Any] | None:
     if not _save_task_row(project, idx, updated):
         return None
     return updated
+
+
+async def _patch_task_async(task_id: str, mutator) -> dict[str, Any] | None:
+    """_patch_task 的离 loop 版本：项目 JSON 全量 load+save 不应阻塞事件循环。"""
+    return await asyncio.to_thread(_patch_task, task_id, mutator)
 
 
 def _has_active_subtasks(task: dict[str, Any]) -> bool:
@@ -436,7 +442,7 @@ async def _maybe_trigger_unattended_plan(task_id: str, thread_id: str, task: dic
 
     attempts = _plan_attempts(task)
     if attempts >= task_plan_retry_max():
-        _pause_stale_plan(
+        await _pause_stale_plan(
             task_id,
             attempts=attempts,
             reason=("无人值守规划已达到最大重试次数，已暂停任务，不会继续调用模型。请检查中转站/网络后手动恢复。"),
@@ -465,14 +471,14 @@ async def _maybe_trigger_unattended_plan(task_id: str, thread_id: str, task: dic
         t["unattended_plan_retry_exhausted"] = False
         return t
 
-    claimed = _patch_task(task_id, _claim)
+    claimed = await _patch_task_async(task_id, _claim)
     if claimed is None:
         current = find_main_task(get_project_storage(), task_id)
         current_status = str(current[1].get("status") if current else "").strip().lower()
         if current_status in {"paused", "cancelled", "canceled"} or current_status in _TERMINAL:
             return "plan_skipped"
         if current_status and _plan_retry_exhausted(current[1]):
-            _pause_stale_plan(
+            await _pause_stale_plan(
                 task_id,
                 attempts=_plan_attempts(current[1]),
                 reason=("无人值守规划已达到最大重试次数，已暂停任务，不会继续调用模型。请检查中转站/网络后手动恢复。"),
@@ -498,7 +504,8 @@ async def _ensure_langgraph_thread(task_id: str, task: dict[str, Any]) -> str | 
             from langgraph_sdk import get_client
 
             client = get_client(url=langgraph_url)
-            await client.threads.get(tid)
+            # SDK 没有默认超时：LangGraph 假死会把整个 task-queue tick 永久挂住
+            await asyncio.wait_for(client.threads.get(tid), timeout=_LG_SDK_CALL_TIMEOUT_S)
             return tid
         except Exception:
             logger.warning(
@@ -518,13 +525,16 @@ async def _ensure_langgraph_thread(task_id: str, task: dict[str, Any]) -> str | 
         from langgraph_sdk import get_client
 
         client = get_client(url=langgraph_url)
-        thread = await client.threads.create(
-            metadata={
-                "task_id": task_id,
-                "source": "unattended_task_pipeline",
-                "run_mode": RUN_MODE_UNATTENDED,
-                **({"replaced_thread_id": raw} if raw else {}),
-            }
+        thread = await asyncio.wait_for(
+            client.threads.create(
+                metadata={
+                    "task_id": task_id,
+                    "source": "unattended_task_pipeline",
+                    "run_mode": RUN_MODE_UNATTENDED,
+                    **({"replaced_thread_id": raw} if raw else {}),
+                }
+            ),
+            timeout=_LG_SDK_CALL_TIMEOUT_S,
         )
         thread_id = str(thread.get("thread_id") or "").strip()
         if not thread_id:
@@ -538,14 +548,14 @@ async def _ensure_langgraph_thread(task_id: str, task: dict[str, Any]) -> str | 
                 t["status"] = "planning"
             return t
 
-        patched = _patch_task(task_id, _set_thread)
+        patched = await _patch_task_async(task_id, _set_thread)
         return str(patched.get("thread_id") or thread_id) if patched else thread_id
     except Exception:
         logger.exception("unattended_pipeline: thread create failed task_id=%s", task_id)
         return None
 
 
-def _finalize_executing_task(task_id: str) -> dict[str, Any] | None:
+async def _finalize_executing_task(task_id: str) -> dict[str, Any] | None:
     """When all subtasks are terminal, rollup progress and close the main task."""
     storage = get_project_storage()
     row = find_main_task(storage, task_id)
@@ -602,7 +612,7 @@ def _finalize_executing_task(task_id: str) -> dict[str, Any] | None:
             t["completed_at"] = utc_now_iso_z()
             return t
 
-        _patch_task(task_id, _complete)
+        await _patch_task_async(task_id, _complete)
         _sync_linked_app_run(task, status="completed", progress=100, error=None)
         return {"task_id": task_id, "ok": True, "action": "completed", "status": "completed"}
 
@@ -620,7 +630,7 @@ def _finalize_executing_task(task_id: str) -> dict[str, Any] | None:
         t["failed_at"] = utc_now_iso_z()
         return t
 
-    _patch_task(task_id, _fail)
+    await _patch_task_async(task_id, _fail)
     _sync_linked_app_run(
         task,
         status="failed",
@@ -734,7 +744,7 @@ async def _advance_unattended_task_impl(task_id: str) -> dict[str, Any]:
                     _schedule_retry(t)
                     return t
 
-                _patch_task(task_id, _requeue)
+                await _patch_task_async(task_id, _requeue)
                 # Reset linked app_run so UI does not keep showing executing/98% after
                 # subtasks were cleared. source_run_id is preserved on the main task.
                 _sync_linked_app_run(
@@ -764,7 +774,7 @@ async def _advance_unattended_task_impl(task_id: str) -> dict[str, Any]:
             t["progress"] = 0
             return t
 
-        _patch_task(task_id, _heal)
+        await _patch_task_async(task_id, _heal)
         row = find_main_task(storage, task_id)
         if not row:
             return {"task_id": task_id, "ok": False, "error": "not_found_after_heal"}
@@ -772,7 +782,7 @@ async def _advance_unattended_task_impl(task_id: str) -> dict[str, Any]:
         status = "pending"
         _sync_linked_app_run(task, status="running", progress=0, error=None)
 
-    finalized = _finalize_executing_task(task_id)
+    finalized = await _finalize_executing_task(task_id)
     if finalized is not None:
         # When subtasks fail, notify the Lead Agent so it can report to the user
         # or take corrective action (retry / re-plan).
@@ -792,7 +802,7 @@ async def _advance_unattended_task_impl(task_id: str) -> dict[str, Any]:
             t["plan_bound_at"] = t.get("plan_bound_at") or utc_now_iso_z()
             return t
 
-        _patch_task(task_id, _promote_planned)
+        await _patch_task_async(task_id, _promote_planned)
         row = find_main_task(storage, task_id)
         if not row:
             return {"task_id": task_id, "ok": False, "error": "not_found_after_promote"}
@@ -815,7 +825,7 @@ async def _advance_unattended_task_impl(task_id: str) -> dict[str, Any]:
                 t["status"] = "planned"
                 return t
 
-            _patch_task(task_id, _promote_pending)
+            await _patch_task_async(task_id, _promote_pending)
         parsed = await dispatch_workflow_task_now(task_id, authorized_by="system")
         if _dispatch_result_ok(parsed):
             return {"task_id": task_id, "ok": True, "action": "dispatched", "dispatch": parsed}
@@ -868,7 +878,7 @@ async def _advance_unattended_task_impl(task_id: str) -> dict[str, Any]:
         t["plan_bound_at"] = t.get("plan_bound_at") or utc_now_iso_z()
         return t
 
-    _patch_task(task_id, _mark_planned)
+    await _patch_task_async(task_id, _mark_planned)
     row = find_main_task(storage, task_id)
     if not row:
         return {"task_id": task_id, "ok": False, "error": "not_found_after_planned"}
@@ -888,7 +898,7 @@ async def _advance_unattended_task_impl(task_id: str) -> dict[str, Any]:
             t["unattended_stage"] = "authorized"
             return t
 
-        _patch_task(task_id, _mark_auth)
+        await _patch_task_async(task_id, _mark_auth)
 
     from evoflow.collab.workflow_runtime import dispatch_for_task
 
@@ -924,7 +934,7 @@ async def _advance_unattended_task_impl(task_id: str) -> dict[str, Any]:
                 t["authorized_by"] = None
             return t
 
-        _patch_task(task_id, _fail)
+        await _patch_task_async(task_id, _fail)
         row_after = find_main_task(storage, task_id)
         if row_after:
             _proj_f, task_f = row_after
@@ -948,7 +958,7 @@ async def _advance_unattended_task_impl(task_id: str) -> dict[str, Any]:
         t["unattended_enqueued_at"] = t.get("unattended_enqueued_at") or utc_now_iso_z()
         return t
 
-    _patch_task(task_id, _running)
+    await _patch_task_async(task_id, _running)
     return {"task_id": task_id, "ok": True, "action": "dispatched", "dispatch": parsed}
 
 

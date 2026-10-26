@@ -516,10 +516,14 @@ class V4ConversationHub:
         """把一批协议 delta 写入权威日志并广播到订阅者缓冲（每条 delta 一个 seq）。"""
         if not deltas:
             return
+        # JSON 尺寸编码在锁外完成：持锁逐条 json.dumps 是流式 worker 长时间
+        # 占住 _write_lock 的主要来源，会让 loop 线程上的 rows_range /
+        # poll_frames 无界等待。
+        sizes = [len(json.dumps(d, ensure_ascii=False)) for d in deltas]
         with self._write_lock:
             sess = self._get_or_create_session(session_id)
             subs = [s for s in self._subscriptions.values() if s.session_id == sess.session_id]
-            for delta in deltas:
+            for delta, encoded in zip(deltas, sizes):
                 sess.seq += 1
                 sess.delta_log.append((sess.seq, delta))
                 if len(sess.delta_log) > _DELTA_RETENTION_MAX:
@@ -528,7 +532,6 @@ class V4ConversationHub:
                     sess.delta_log_floor = max(sess.delta_log_floor, floor)
                 if not subs:
                     continue
-                encoded = len(json.dumps(delta, ensure_ascii=False))
                 for sub in subs:
                     if sub.overflowed:
                         continue
