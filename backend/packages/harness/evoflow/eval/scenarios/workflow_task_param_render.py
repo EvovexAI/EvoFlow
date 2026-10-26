@@ -26,7 +26,7 @@ def _app_def() -> dict:
                 "ref": "1",
                 "type": "agentStep",
                 "name": "渲染步骤",
-                "assigned_agent": "general-purpose",
+                "assigned_agent": "agent",
                 "goal": "处理主题 {{topic}}",
                 "instruction": "请围绕 {{topic}} 产出摘要",
                 "depends_on": [],

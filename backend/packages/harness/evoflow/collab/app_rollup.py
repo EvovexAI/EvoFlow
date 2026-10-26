@@ -35,7 +35,7 @@ logger = logging.getLogger(__name__)
 
 ROLLUP_REF = "__rollup__"
 _ROLLUP_SUBTASK_NAME = "结果汇总与验收"
-_DEFAULT_ROLLUP_AGENT = "general-purpose"
+_DEFAULT_ROLLUP_AGENT = "agent"
 
 
 # ─────────────────────────────── helpers ───────────────────────────────

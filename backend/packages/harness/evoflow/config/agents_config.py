@@ -581,13 +581,13 @@ def merge_baseline_skills_into_agent(agent_code: str, *, baseline: tuple[str, ..
 
 
 def merge_baseline_skills_for_lead_family() -> None:
-    """Ensure main has evoflow-admin; strip admin/retired merged skills from general-purpose.
+    """Ensure main has evoflow-admin; strip admin/retired merged skills from agent.
 
     小V（xiaomi）的浏览器/电脑控制技能由 :func:`plugin_skills_for_main_agent` +
     :func:`enforce_xiaomi_front_desk_capabilities` 注入，不走 baseline merge。
     """
     merge_baseline_skills_into_agent("main")
-    merge_baseline_skills_into_agent("general-purpose")
+    merge_baseline_skills_into_agent("agent")
 
 
 def xiaomi_front_desk_capability_defaults() -> dict[str, list[str] | None]:
@@ -681,7 +681,7 @@ def sync_skills_then_merge_baseline_for_lead_family() -> None:
 
 # Display names aligned with evoflow.collab.agent_assignment.BUILTIN_AGENT_UI_NAMES (list_agents / UI).
 _BUILTIN_SUBAGENT_UI_NAMES: dict[str, str] = {
-    "general-purpose": "通用助手",
+    "agent": "Agent",
     "code-agent": "代码助手",
     "bash": "终端执行",
     "knowledge-retriever": "知识检索",
@@ -717,7 +717,7 @@ _XIAOMI_DEFAULT_AVATAR = "preset:analyst"
 _BUILTIN_AGENT_AVATARS: dict[str, str] = {
     "main": "image",
     "xiaomi": _XIAOMI_DEFAULT_AVATAR,
-    "general-purpose": "image",
+    "agent": "image",
     "bash": "image",
     "code-agent": "image",
     "project-architect": "image",
@@ -786,7 +786,7 @@ def _payload_for_builtin_subagent(code: str, sub: Any, *, gp_skill_bundle: list[
         payload["model"] = sub.model
 
     bundle = list(gp_skill_bundle or [])
-    if code == "general-purpose" and bundle:
+    if code == "agent" and bundle:
         payload["skills"] = list(bundle)
     elif code.startswith("media-"):
         if code == "media-artist" and "byted-ark-seedream-skill" in bundle:

@@ -80,7 +80,7 @@ def build_worker_profile_from_step(
     """Build ``worker_profile`` aligned with supervisor ``create_subtasks``."""
     from evoflow.collab.models import WorkerProfile
 
-    base = str(assigned or "general-purpose").strip() or "general-purpose"
+    base = str(assigned or "agent").strip() or "agent"
     wp_data: dict[str, Any] = {"base_subagent": base}
     if depends_refs:
         wp_data["depends_on"] = [str(x).strip() for x in depends_refs if str(x).strip()]

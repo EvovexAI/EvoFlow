@@ -62,7 +62,7 @@ _PLAN_STEP_EXAMPLE_2: dict[str, Any] = {
     "outputs": "outputs/task2.txt",
     "acceptance": 'read_file("outputs/task2.txt") 包含「任务1执行完毕 + 任务2执行」',
     "failure": "重试；上游不存在则回退 Step 1",
-    "assigned_agent": "general-purpose",
+    "assigned_agent": "agent",
     "depends_on": ["1"],
 }
 
@@ -80,7 +80,7 @@ _PLAN_INPUT_EXAMPLE: dict[str, Any] = {
             "outputs": "outputs/task3.txt",
             "acceptance": 'read_file("outputs/task3.txt") 包含「任务1执行完毕 + 任务3执行」',
             "failure": "重试；上游不存在则回退 Step 1",
-            "assigned_agent": "general-purpose",
+            "assigned_agent": "agent",
             "depends_on": ["1"],
         },
     ],
@@ -156,7 +156,7 @@ class PlanStepInput(BaseModel):
     failure: str = Field(default="", description="失败时的处理策略")
     assigned_agent: str = Field(
         description="执行人 agent_code（须先 list_agents 对照能力）",
-        examples=["general-purpose", "code-agent", "bash"],
+        examples=["agent", "code-agent", "bash"],
     )
     depends_on: list[str] | str | int | None = Field(
         default=None,
@@ -236,7 +236,7 @@ class PlanStepInput(BaseModel):
                         data["assigned_agent"] = alt
                         break
         if not str(data.get("assigned_agent") or "").strip() and str(data.get("name") or "").strip() and str(data.get("goal") or "").strip():
-            data["assigned_agent"] = "general-purpose"
+            data["assigned_agent"] = "agent"
         if not str(data.get("name") or "").strip():
             for alias in ("title", "step_name", "stepName", "label"):
                 alt = str(data.get(alias) or "").strip()

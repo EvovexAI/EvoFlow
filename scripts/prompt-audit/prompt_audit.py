@@ -67,7 +67,7 @@ IDENTITY_CLUSTERS = {
     "EvovexAI": ["EvovexAI", "evovex"],
     "EvoFlow_Product": ["EvoFlow助手", "EvoFlow 产品", "EvoFlow 助手"],
     "Orchestrator": ["编排伙伴", "任务编排", "派岗"],
-    "Generic_Assistant": ["超级助手", "通用助手", "编程助手"],
+    "Generic_Assistant": ["超级助手", "通用 Agent", "编程助手"],
     "Cursor": ["Cursor", "Cursor IDE"],
 }
 

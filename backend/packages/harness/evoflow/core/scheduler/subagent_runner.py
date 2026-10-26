@@ -40,7 +40,7 @@ def run_subagent(prompt: str, task_id: str, trace_id: str) -> dict:
     SubagentStatus = _executor_module.SubagentStatus
 
     # Load config and tools
-    config = get_subagent_config("general-purpose")
+    config = get_subagent_config("agent")
     tools = get_available_tools(model_name=None, subagent_enabled=False)
 
     # Use task_id as thread_id to ensure ThreadDataMiddleware can get it from context

@@ -4,7 +4,7 @@ from .bash_agent import BASH_AGENT_CONFIG
 from .code_agent import CODE_AGENT_CONFIG
 from .file_worker import FILE_WORKER_CONFIG
 from .finance_crew import FINANCE_CREW_SUBAGENTS
-from .general_purpose import GENERAL_PURPOSE_CONFIG
+from .agent import AGENT_CONFIG
 from .hyperframes_crew import HYPERFRAMES_CREW_SUBAGENTS
 from .knowledge_curator import KNOWLEDGE_CURATOR_CONFIG
 from .knowledge_retriever import KNOWLEDGE_RETRIEVER_CONFIG
@@ -14,7 +14,7 @@ from .project_crew import PROJECT_CREW_SUBAGENTS
 from .search_worker import SEARCH_WORKER_CONFIG
 
 __all__ = [
-    "GENERAL_PURPOSE_CONFIG",
+    "AGENT_CONFIG",
     "CODE_AGENT_CONFIG",
     "FILE_WORKER_CONFIG",
     "SEARCH_WORKER_CONFIG",
@@ -33,7 +33,7 @@ __all__ = [
 # Ephemeral worker templates (file-worker, search-worker) stay importable but
 # are intentionally omitted — same pattern as search-worker historically.
 BUILTIN_SUBAGENTS = {
-    "general-purpose": GENERAL_PURPOSE_CONFIG,
+    "agent": AGENT_CONFIG,
     "code-agent": CODE_AGENT_CONFIG,
     "bash": BASH_AGENT_CONFIG,
     "marketing-social-media-operation": MARKETING_SOCIAL_MEDIA_OPERATION_CONFIG,

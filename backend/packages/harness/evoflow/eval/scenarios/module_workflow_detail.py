@@ -24,7 +24,7 @@ def _app_def() -> dict:
                 "ref": "1",
                 "type": "agentStep",
                 "title": "一步",
-                "agent_code": "general-purpose",
+                "agent_code": "agent",
                 "goal": "处理 {topic}",
                 "instruction": "处理 {topic}",
                 "depends_on": [],

@@ -96,7 +96,7 @@ def _build_debug_prompt(
 async def _execute_step_async(
     prompt: str,
     *,
-    subagent_type: str = "general-purpose",
+    subagent_type: str = "agent",
     project_path: str = "",
 ) -> str:
     """Execute a single step via delegate_via_task_tool (synchronous wait)."""
@@ -214,7 +214,7 @@ def debug_run_step(
     )
 
     # 4. Determine subagent type
-    subagent_type = str(step.get("assigned_agent") or step.get("assigned_to") or (step.get("worker_profile") or {}).get("base_subagent") or "general-purpose").strip() or "general-purpose"
+    subagent_type = str(step.get("assigned_agent") or step.get("assigned_to") or (step.get("worker_profile") or {}).get("base_subagent") or "agent").strip() or "agent"
 
     # 5. Execute
     try:

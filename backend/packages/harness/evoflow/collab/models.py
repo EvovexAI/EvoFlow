@@ -84,7 +84,7 @@ class WorkerProfile(BaseModel):
 
     model_config = ConfigDict(extra="ignore")
 
-    base_subagent: str = Field(..., description="Subagent template name, e.g. general-purpose")
+    base_subagent: str = Field(..., description="Subagent template name, e.g. Agent")
     model: str | None = Field(
         default=None,
         description="Rare per-subtask override; omit in normal use (worker uses the session default chat model).",

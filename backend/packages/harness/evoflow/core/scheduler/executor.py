@@ -320,7 +320,7 @@ class AutomationExecutor:
     def _run_agent(self, prompt: str, task_name: str, workspace: str | None = None) -> SubagentResult:
         """Run automation prompt via SubagentExecutor in isolated subprocess.
 
-        Uses general-purpose subagent with full toolset, same execution path
+        Uses Agent subagent with full toolset, same execution path
         as interactive task delegation. Runs in separate subprocess with fresh
         Python interpreter to avoid LangGraph context issues.
         """

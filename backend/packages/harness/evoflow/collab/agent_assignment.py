@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 BUILTIN_AGENT_UI_NAMES: dict[str, str] = {
     "main": "EvoFlow",
     "xiaomi": "小V",
-    "general-purpose": "通用助手",
+    "agent": "Agent",
     "code-agent": "代码助手",
     "bash": "终端执行",
     "knowledge-retriever": "知识检索",
@@ -41,7 +41,7 @@ _EMPTY_ASSIGNEE = frozenset(
     {"", "无", "none", "—", "-", "待定", "tbd", "待分配", "未指定", "n/a", "na"},
 )
 
-DEFAULT_ASSIGNEE_CODE = "general-purpose"
+DEFAULT_ASSIGNEE_CODE = "agent"
 
 # Lead / session shells — never valid ``assigned_agent`` for workflow steps (CORE-WF-04).
 _NON_DISPATCHABLE_WORKERS = frozenset(
@@ -58,16 +58,32 @@ def normalize_agent_code_key(raw: str | None) -> str:
     return str(raw or "").strip().lower().replace("_", "-")
 
 
+# Legacy code aliases → canonical agent code. Historical workflow apps / DB rows
+# still carry the pre-rename code; resolve them to the current one without a
+# data migration. ``general-purpose`` was renamed to ``Agent``.
+LEGACY_AGENT_CODE_ALIASES: dict[str, str] = {
+    "general-purpose": "agent",
+}
+
+
+def canonical_agent_code(raw: str | None) -> str:
+    """Map a legacy agent code to its current canonical code."""
+    key = normalize_agent_code_key(raw)
+    if key in LEGACY_AGENT_CODE_ALIASES:
+        return LEGACY_AGENT_CODE_ALIASES[key]
+    return str(raw or "").strip()
+
+
 def is_dispatchable_workflow_worker(raw: str | None) -> tuple[bool, str]:
     """Return ``(ok, error_message)`` — used by create/update/publish validation."""
     key = str(raw or "").strip()
     if not key or key.lower() in _EMPTY_ASSIGNEE:
-        return False, "missing assigned_agent (use a dispatchable worker e.g. general-purpose)"
+        return False, "missing assigned_agent (use a dispatchable worker e.g. agent)"
     code = normalize_agent_code_key(key)
     if code in _NON_DISPATCHABLE_WORKERS:
         return (
             False,
-            f"'{key}' is not a workflow worker; use general-purpose or a subagent code "
+            f"'{key}' is not a workflow worker; use agent or a subagent code "
             "(lead/main are session agents, not step workers)",
         )
     try:
@@ -99,6 +115,10 @@ def is_dispatchable_workflow_worker(raw: str | None) -> tuple[bool, str]:
 def _assignable_index() -> dict[str, str]:
     """Normalized agent_code -> display name (agent_name or built-in label)."""
     out = dict(BUILTIN_AGENT_UI_NAMES)
+    # Accept legacy codes (e.g. general-purpose) without a data migration.
+    for legacy, canonical in LEGACY_AGENT_CODE_ALIASES.items():
+        if canonical in out:
+            out.setdefault(legacy, out[canonical])
     try:
         for cfg in list_all_agents():
             ac = normalize_agent_code_key(cfg.agent_code)
@@ -145,6 +165,10 @@ def resolve_assignable_agent(
     idx = _assignable_index()
     if key:
         norm = normalize_agent_code_key(key)
+        canonical = LEGACY_AGENT_CODE_ALIASES.get(norm)
+        if canonical:
+            # Legacy code -> canonical code, keep the canonical display name.
+            return canonical, idx.get(canonical, canonical), warnings
         if norm in idx:
             return norm, idx[norm], warnings
         for code, dn in idx.items():

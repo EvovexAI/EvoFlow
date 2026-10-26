@@ -1020,18 +1020,18 @@ def _build_supervisor_create_task_with_subtasks_tool_call(*, user_hint: str) -> 
         {
             "name": "生成 task1.txt",
             "description": "创建工作区文件 task1.txt，并写入一行完成说明（可并行准备，但建议先完成以固定路径）。",
-            "assigned_to": "general-purpose",
+            "assigned_to": "agent",
         },
         {
             "name": "生成 task2.txt",
             "description": "创建工作区文件 task2.txt，并写入一行完成说明（与 task3 均依赖步骤 1，可与 task3 并行）。",
-            "assigned_to": "general-purpose",
+            "assigned_to": "agent",
             "depends_on": ["1"],
         },
         {
             "name": "生成 task3.txt",
             "description": "创建工作区文件 task3.txt，并写入一行完成说明（与 task2 并行，仅依赖步骤 1）。",
-            "assigned_to": "general-purpose",
+            "assigned_to": "agent",
             "depends_on": ["1"],
         },
     ]

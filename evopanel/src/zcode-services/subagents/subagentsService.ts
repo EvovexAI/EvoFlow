@@ -80,7 +80,7 @@ interface PluginAgentDiscovery {
   runtimeAgents: AgentSummary[];
 }
 
-const BUILT_IN_AGENT_NAMES = new Set(["general-purpose", "Explore"]);
+const BUILT_IN_AGENT_NAMES = new Set(["Agent", "general-purpose", "Explore"]);
 const PLUGIN_MANIFEST_PATHS = [
   join(".zcode-plugin", "plugin.json"),
   join(".claude-plugin", "plugin.json"),

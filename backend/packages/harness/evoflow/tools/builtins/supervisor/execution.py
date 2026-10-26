@@ -1014,9 +1014,9 @@ async def auto_delegate_collab_followup_wave(
 def _resolved_subagent_type_for_subtask(st: dict) -> str:
     """Prefer explicit assigned_to on the subtask row; else worker_profile.base_subagent; else default.
 
-    Falls back to ``general-purpose`` if nothing is assigned.
+    Falls back to ``Agent`` if nothing is assigned.
     """
-    resolved = "general-purpose"
+    resolved = "agent"
     a = (st.get("assigned_to") or "").strip()
     if a:
         resolved = a

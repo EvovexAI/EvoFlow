@@ -549,7 +549,7 @@ describe('formatSubagentTypeLabel / resolveAssignedAgentDisplayName', () => {
     expect(formatSubagentTypeLabel('claude-code')).toBe('Claude Code')
     expect(formatSubagentTypeLabel('claude_session')).toBe('Claude Code')
     expect(resolveAssignedAgentDisplayName('claude-code', [])).toBe('Claude Code')
-    expect(resolveAssignedAgentDisplayName('general-purpose', [])).toBe('通用助手')
+    expect(resolveAssignedAgentDisplayName('general-purpose', [])).toBe('Agent')
   })
 
   it('prefers /api/agents display name when present', () => {

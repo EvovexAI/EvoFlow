@@ -796,7 +796,8 @@ export function supervisorActionZh(action) {
  * 内置子代理展示名（与后端 ``BUILTIN_AGENT_UI_NAMES`` / ``_BUILTIN_SUBAGENT_UI_NAMES`` 对齐）。
  */
 export const BUILTIN_SUBAGENT_UI_NAMES = {
-  'general-purpose': '通用助手',
+  'general-purpose': 'Agent',
+  Agent: 'Agent',
   'code-agent': '代码助手',
   bash: '终端执行',
   'knowledge-retriever': '知识检索',

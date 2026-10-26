@@ -6,7 +6,7 @@ from typing import Any
 
 # Minimal runnable step (linear DAG). Backend normalizes via app_schema.normalize_step.
 # Use a real bundled worker code — ``lead``/``main`` are not dispatchable (CORE-WF-04).
-_DEFAULT_WORKER = "general-purpose"
+_DEFAULT_WORKER = "agent"
 
 WORKFLOW_STEP_MINIMAL: dict[str, Any] = {
     "ref": "s1",
@@ -108,8 +108,8 @@ def build_workflow_platform_schema() -> dict[str, Any]:
                 "input_bindings / input_schema / output_schema",
             ],
             "assigned_agent": (
-                "智能体角色 code（须为可派发 worker，如 general-purpose、xiaomi、code-agent）；"
-                "不要用 lead/main（不是 worker）。不确定时用 general-purpose，或 workflow.get 参考已有应用"
+                "智能体角色 code（须为可派发 worker，如 agent、xiaomi、code-agent）；"
+                "不要用 lead/main（不是 worker）。不确定时用 agent，或 workflow.get 参考已有应用"
             ),
             "depends_on_rule": "无依赖=可并行；链式流程用 depends_on 指向前序 ref",
             "minimal_example": WORKFLOW_STEP_MINIMAL,

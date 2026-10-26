@@ -815,7 +815,7 @@ async def supervisor_tool(
                 # depends_on / tools 等「直写字段」合成 profile 时，assigned_to 可能为空；
                 # WorkerProfile 仍要求 base_subagent — 与下行兜底一致默认 general-purpose。
                 if not str(wp_obj.get("base_subagent") or "").strip():
-                    wp_obj["base_subagent"] = (str(agent).strip() if agent else "") or "general-purpose"
+                    wp_obj["base_subagent"] = (str(agent).strip() if agent else "") or "agent"
                 try:
                     wp_valid = WorkerProfile.model_validate(wp_obj)
                     worker_profile = wp_valid.to_storage_dict() or None
@@ -875,7 +875,7 @@ async def supervisor_tool(
                         subtask_data["assigned_to"] = bs
             # Final safety-net: subtasks without assignment cannot be dispatched.
             if not subtask_data.get("assigned_to"):
-                subtask_data["assigned_to"] = "general-purpose"
+                subtask_data["assigned_to"] = "agent"
 
             task_data.setdefault("subtasks", []).append(subtask_data)
             _row: dict[str, Any] = {
@@ -1128,7 +1128,7 @@ async def supervisor_tool(
                         if isinstance(direct_model, str) and direct_model.strip():
                             wp_obj["model"] = direct_model.strip()
                         if not str(wp_obj.get("base_subagent") or "").strip():
-                            wp_obj["base_subagent"] = (str(agent).strip() if agent else "") or "general-purpose"
+                            wp_obj["base_subagent"] = (str(agent).strip() if agent else "") or "agent"
                         try:
                             wp_valid = WorkerProfile.model_validate(wp_obj)
                             worker_profile = wp_valid.to_storage_dict() or None
@@ -1193,7 +1193,7 @@ async def supervisor_tool(
                                 subtask_data["assigned_to"] = bs
                     # Final safety-net: subtasks without assignment cannot be dispatched.
                     if not subtask_data.get("assigned_to"):
-                        subtask_data["assigned_to"] = "general-purpose"
+                        subtask_data["assigned_to"] = "agent"
 
                     task.setdefault("subtasks", []).append(subtask_data)
                     _row: dict[str, Any] = {
@@ -1281,7 +1281,7 @@ async def supervisor_tool(
             try:
                 # Back-compat/UX: allow omitting base_subagent in worker_profile_json.
                 if not str(parsed.get("base_subagent") or "").strip():
-                    _bs = (str(assigned_agent).strip() if assigned_agent else "") or "general-purpose"
+                    _bs = (str(assigned_agent).strip() if assigned_agent else "") or "agent"
                     parsed = {**parsed, "base_subagent": _bs}
                 wp = WorkerProfile.model_validate(parsed)
             except ValidationError as e:

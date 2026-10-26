@@ -167,7 +167,7 @@ def resolve_worker_tool_allowlist(
         inherited = _session_agent_mode_catalog(str(session_key).strip(), session_mode)
         source = f"session:{session_key}"
     else:
-        inherited = _agent_mode_catalog_for_agent(base or "general-purpose", session_mode)
+        inherited = _agent_mode_catalog_for_agent(base or "agent", session_mode)
         source = f"base:{base_subagent}"
 
     out = _intersect_catalog(inherited, allowed)

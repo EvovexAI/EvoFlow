@@ -226,7 +226,7 @@ function appendLive(cur: string | undefined, chunk: string, opts?: { claudePrefi
   // 避免 Claude Code 末尾 token 修正导致首帧标点被吞。
   if (smart && lastSeg && lastSeg.startsWith(c) && lastSeg.length - c.length >= 4) return base
   // 整条 task_running 有时是「整段快照」：新正文里完整包含上一段，但前面又插了状态句，不满足 startsWith；
-  // 若再追加分隔会叠成多段重复墙（通用助手、Claude 都会出现）。
+  // 若再追加分隔会叠成多段重复墙（通用 Agent、Claude 都会出现）。
   const minSuperset = 64
   if (smart && lastSeg.length >= minSuperset && c.length >= lastSeg.length - 24 && c.includes(lastSeg)) {
     const nextSegs = segs.slice()

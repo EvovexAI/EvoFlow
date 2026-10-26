@@ -1090,7 +1090,7 @@ def _build_subagent_section(
             catalog_lines.append(f"- `{name}`：{one_line}")
         catalog_lines.append("")
 
-    catalog_lines.append(f"- `general-purpose`{dyn.SUBAGENT_GP_LABEL}")
+    catalog_lines.append(f"- `agent`{dyn.SUBAGENT_GP_LABEL}")
     if "code-agent" in available_names:
         catalog_lines.append(f"- `code-agent`{dyn.SUBAGENT_CODE_LABEL}")
     if "bash" in available_names:
