@@ -3,6 +3,7 @@
  */
 import { setChatSurfaceVisible } from './react/lib/client-perf.js'
 import { bootMark } from './lib/startup-trace.js'
+import { nextFrameSafe } from './lib/raf-safe.js'
 
 const routes = {}
 const _moduleCache = {}
@@ -37,11 +38,9 @@ export function removeBootSplash() {
 }
 
 function scheduleRemoveBootSplash() {
-  requestAnimationFrame(() => {
-    requestAnimationFrame(() => {
-      // Chat 首包较大，略延迟再撤层，减少「层消失后仍有一帧空白」感
-      setTimeout(() => removeBootSplash(), 120)
-    })
+  // rAF 在 WebView 被节流（遮挡/最小化）时可能长期不派发，用 setTimeout 兜底
+  nextFrameSafe(() => {
+    setTimeout(() => removeBootSplash(), 120)
   })
 }
 

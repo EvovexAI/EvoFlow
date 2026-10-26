@@ -23,6 +23,8 @@ const TAB_LOADERS = {
   users: () => import('../pages/settings/users.js'),
   sso: () => import('../pages/settings/sso.js'),
   license: () => import('../pages/settings/license.js'),
+  'mcp-server-management': () => import('../pages/settings/mcp-server-management.tsx'),
+  'plugin-management': () => import('../pages/settings/plugin-management.tsx'),
 }
 
 function warmTabModule(tab) {
@@ -40,7 +42,11 @@ async function warmTabApis(tab) {
   const { api } = await import('./tauri-api.js')
   switch (String(tab || '')) {
     case 'models':
+      // 与 pages/models.js loadConfig 的四个读取对齐，hover 预热一次拿齐
       warmNavKey('settings:models', () => api.listModels())
+      warmNavKey('settings:models:primary', () => api.getPrimaryModel())
+      warmNavKey('settings:models:conns', () => api.listModelConnections())
+      warmNavKey('settings:models:plans', () => api.listPlanBindings(false).catch(() => null))
       break
     case 'im':
       warmNavKey('settings:channels', () => api.getChannelsStatus())

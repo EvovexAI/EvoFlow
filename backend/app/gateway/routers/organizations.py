@@ -135,6 +135,13 @@ async def api_list(
     return {"items": items, "count": len(items)}
 
 
+_market_catalog_cache: dict[str, Any] | None = None
+"""上次成功拉取的市场目录。外网 GitHub 不可达时兜底返回（stale-while-error），
+避免资源中心/插件市场每次打开都干等外网超时。"""
+
+_MARKET_CATALOG_TIMEOUT_S = 8
+
+
 @router.get("/market/catalog")
 async def api_market_catalog() -> dict[str, Any]:
     """Return GitHub catalog.json (default public market; optional non-empty URL override)."""
@@ -157,7 +164,7 @@ async def api_market_catalog() -> dict[str, Any]:
         return empty
 
     def _fetch_catalog() -> dict[str, Any]:
-        with urllib.request.urlopen(url, timeout=15) as resp:  # noqa: S310 — operator-configured URL
+        with urllib.request.urlopen(url, timeout=_MARKET_CATALOG_TIMEOUT_S) as resp:  # noqa: S310 — operator-configured URL
             raw = resp.read().decode("utf-8", errors="replace")
         data = json.loads(raw)
         if not isinstance(data, dict):
@@ -169,9 +176,17 @@ async def api_market_catalog() -> dict[str, Any]:
             data["packs"] = []
         return data
 
+    global _market_catalog_cache
     try:
-        return await asyncio.to_thread(_fetch_catalog)
+        data = await asyncio.to_thread(_fetch_catalog)
+        _market_catalog_cache = data
+        return data
     except Exception as e:
+        # 外网超时/失败：立即回退最近一次成功目录，页面照常打开
+        if _market_catalog_cache:
+            stale = dict(_market_catalog_cache)
+            stale["stale"] = True
+            return stale
         raise HTTPException(
             status_code=502,
             detail=f"Failed to fetch market catalog: {e}",

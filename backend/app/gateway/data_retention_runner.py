@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from pathlib import Path
 import os
 import time
 from typing import Any
@@ -127,6 +128,53 @@ def _run_wal_checkpoint_all() -> dict[str, Any]:
         return {}
 
 
+_WAL_SIZE_ALERT_MB = max(
+    32, int(os.getenv("EVOFLOW_WAL_SIZE_ALERT_MB", "256") or "256")
+)
+"""WAL 大于该值（MB）时提前触发 checkpoint，不等整点（实测 WAL 可在两次整点间长到 780MB）。"""
+
+_WAL_SIZE_GUARD_MIN_GAP_S = max(60, int(os.getenv("EVOFLOW_WAL_SIZE_GUARD_MIN_GAP_S", "300") or "300"))
+"""尺寸保险两次触发的最小间隔，避免 busy 反复空转。"""
+
+
+def _any_wal_oversized() -> bool:
+    """Cheap stat-only check: any known SQLite WAL beyond the alert size?"""
+    from evoflow.config.data_paths import (
+        checkpoints_db_path,
+        observability_db_path,
+        resolve_data_base_dir,
+    )
+    from evoflow.persistence.db import resolve_evolflow_db_path
+
+    limit = _WAL_SIZE_ALERT_MB * 1024 * 1024
+    paths: list[Path] = []
+    try:
+        paths.append(resolve_evolflow_db_path())
+    except Exception:
+        pass
+    try:
+        base = resolve_data_base_dir()
+        paths.append(observability_db_path(base))
+        paths.append(checkpoints_db_path(base))
+    except Exception:
+        pass
+    for path in paths:
+        try:
+            if path.suffix == ".db" or path.name.endswith(".db"):
+                wal = path.with_name(path.name + "-wal")
+            else:
+                wal = Path(str(path) + "-wal")
+            if wal.is_file() and wal.stat().st_size >= limit:
+                logger.warning(
+                    "WAL oversized: %s is %.0f MB (limit %d MB)",
+                    wal, wal.stat().st_size / (1024 * 1024), _WAL_SIZE_ALERT_MB,
+                )
+                return True
+        except OSError:
+            continue
+    return False
+
+
 async def run_data_retention_scheduler(stop: asyncio.Event) -> None:
     """Run retention on an interval, with a startup delay; WAL checkpoint hourly.
 
@@ -145,6 +193,7 @@ async def run_data_retention_scheduler(stop: asyncio.Event) -> None:
         wal_interval,
     )
     last_wal_checkpoint = 0.0  # monotonic seconds of last WAL checkpoint
+    last_wal_size_check = 0.0  # monotonic seconds of last WAL size stat
     last_retention = 0.0  # 0 => not yet run; set after first successful/attempted pass
     retention_due_at = time.monotonic() + startup_delay
 
@@ -163,6 +212,21 @@ async def run_data_retention_scheduler(stop: asyncio.Event) -> None:
             except Exception:
                 logger.warning("WAL checkpoint pass failed", exc_info=True)
             last_wal_checkpoint = now
+        elif now - last_wal_size_check >= 60:
+            # 尺寸保险：两次整点之间 WAL 仍可能因高写入膨胀（实测出现过 780MB）。
+            # 每分钟 stat 一次（廉价），超过阈值立即提前回收，不等下一个整点。
+            last_wal_size_check = now
+            try:
+                oversized = await asyncio.to_thread(_any_wal_oversized)
+            except Exception:
+                oversized = False
+            if oversized and now - last_wal_checkpoint >= _WAL_SIZE_GUARD_MIN_GAP_S:
+                try:
+                    wal_summary = await asyncio.to_thread(_run_wal_checkpoint_all)
+                    logger.warning("WAL size guard triggered early checkpoint: %s", wal_summary)
+                except Exception:
+                    logger.warning("WAL size-guard checkpoint failed", exc_info=True)
+                last_wal_checkpoint = time.monotonic()
 
         # --- Full data retention pass (infrequent; delayed after startup) ---
         retention_due = now >= retention_due_at and (last_retention <= 0.0 or (now - last_retention) >= interval)

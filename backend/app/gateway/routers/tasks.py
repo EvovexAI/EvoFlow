@@ -53,6 +53,10 @@ _LIST_DROP_KEYS = (
     "result_json",
     "messages",
     "transcript",
+    # 列表 UI 不消费的大字段：app_definition_snapshot 占整个列表响应 ~20%
+    # （App 运行详情走 GET /tasks/{id}），evidence_paths 亦无列表读点。
+    "app_definition_snapshot",
+    "evidence_paths",
 )
 
 _LIST_TRUNCATE_KEYS = (
@@ -585,6 +589,10 @@ async def list_tasks(
         True,
         description=("Hide task-center noise by default: duty patrol rounds, upstream receipts, meeting oral reports, status_check, eval placeholders. Pass hide_noise=false to include."),
     ),
+    has_role: bool = Query(
+        False,
+        description="Only return tasks stamped with assigned_role (岗位). Role work-boards drop unassigned tasks client-side, so they can filter server-side instead of pulling the full catalog.",
+    ),
 ) -> dict:
     """List all tasks (flattened from all projects) with filtering and sorting.
 
@@ -695,6 +703,7 @@ async def list_tasks(
             page=page,
             page_size=page_size,
             hide_noise=hide_noise,
+            has_role=has_role,
             is_admin=bool(authz.get("is_admin")),
             personal_scope=authz.get("personal_scope"),
             org_scope=authz.get("org_scope"),
@@ -717,6 +726,7 @@ def _list_tasks_catalog_sync(
     page: int,
     page_size: int,
     hide_noise: bool,
+    has_role: bool = False,
     is_admin: bool = False,
     personal_scope: str | None = None,
     org_scope: str | None = None,
@@ -730,6 +740,8 @@ def _list_tasks_catalog_sync(
     raw_tasks = list_root_task_summaries(main_task_id=mid)
     all_tasks: list[dict[str, Any]] = []
     for task in raw_tasks:
+        if has_role and not str(task.get("assigned_role") or "").strip():
+            continue
         if not owner_scope_visible_to_principal(
             task.get("owner_scope_id"),
             principal,

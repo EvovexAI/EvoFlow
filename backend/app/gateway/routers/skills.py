@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import shutil
 import tempfile
@@ -164,7 +165,8 @@ def _skill_to_response(skill: Skill) -> SkillResponse:
 )
 async def list_skills(request: Request) -> SkillsListResponse:
     try:
-        skills = _load_skills_for_request(request, enabled_only=False)
+        # 技能目录扫描（读每个 SKILL.md frontmatter）是阻塞 I/O，不下事件循环
+        skills = await asyncio.to_thread(_load_skills_for_request, request, enabled_only=False)
         skills_root: str | None = None
         warnings: list[str] = []
         try:
@@ -193,7 +195,8 @@ async def list_skills(request: Request) -> SkillsListResponse:
 )
 async def get_skill(request: Request, skill_name: str) -> SkillResponse:
     try:
-        skills = _load_skills_for_request(request, enabled_only=False)
+        # 技能目录扫描（读每个 SKILL.md frontmatter）是阻塞 I/O，不下事件循环
+        skills = await asyncio.to_thread(_load_skills_for_request, request, enabled_only=False)
         wanted = str(skill_name or "").strip().lower()
         skill = next((s for s in skills if str(s.name or "").strip().lower() == wanted), None)
 
@@ -218,7 +221,7 @@ async def update_skill(http_request: Request, skill_name: str, request: SkillUpd
     # Global enablement is install-wide — only org admins may flip it.
     require_org_admin(http_request)
     try:
-        skills = _load_skills_for_request(http_request, enabled_only=False)
+        skills = await asyncio.to_thread(_load_skills_for_request, http_request, enabled_only=False)
         skill = next((s for s in skills if s.name == skill_name), None)
 
         if skill is None:
@@ -235,7 +238,7 @@ async def update_skill(http_request: Request, skill_name: str, request: SkillUpd
         logger.info("Skill '%s' enabled=%s saved to SQLite", skill_name, request.enabled)
 
         clear_skills_cache()
-        skills = _load_skills_for_request(http_request, enabled_only=False)
+        skills = await asyncio.to_thread(_load_skills_for_request, http_request, enabled_only=False)
         updated_skill = next((s for s in skills if s.name == skill_name), None)
 
         if updated_skill is None:
@@ -259,7 +262,7 @@ async def update_skill(http_request: Request, skill_name: str, request: SkillUpd
 )
 async def delete_skill(http_request: Request, skill_name: str) -> SkillDeleteResponse:
     try:
-        skills = _load_skills_for_request(http_request, enabled_only=False)
+        skills = await asyncio.to_thread(_load_skills_for_request, http_request, enabled_only=False)
         skill = next((s for s in skills if s.name == skill_name), None)
 
         if skill is None:
@@ -289,7 +292,8 @@ async def delete_skill(http_request: Request, skill_name: str) -> SkillDeleteRes
                 detail="Skill directory is not under skills/custom; refusing to delete",
             ) from e
 
-        shutil.rmtree(skill_dir, ignore_errors=False)
+        # 技能目录可能包含大量文件，rmtree 是阻塞 I/O，不下事件循环
+        await asyncio.to_thread(shutil.rmtree, skill_dir, ignore_errors=False)
         _prune_empty_parents_under_custom(skill_dir, custom_root)
 
         from evoflow.persistence import config_repositories as cfg_repo

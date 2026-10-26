@@ -969,7 +969,8 @@ class WeixinChannel(Channel):
             return False
 
         try:
-            plaintext = attachment.actual_path.read_bytes()
+            # 媒体文件整读不下事件循环
+            plaintext = await asyncio.to_thread(attachment.actual_path.read_bytes)
             mime = attachment.mime_type
 
             # Determine media type

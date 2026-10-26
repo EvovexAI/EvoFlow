@@ -470,7 +470,9 @@ export async function render() {
     try {
       const [rolesRes, tasksRes] = await Promise.all([
         api.proactiveListRoles().catch(() => ({ roles: [] })),
-        api.listAllTasks().catch(() => null),
+        // 看板只按 assigned_role 归并（无岗位戳的任务客户端本来就会丢弃），
+        // 服务端过滤可少拉大部分无关任务
+        api.listAllTasks({ has_role: true }).catch(() => null),
       ])
       const roles = (rolesRes.roles || []).filter((r) => r.status !== 'archived')
       const tasks = tasksFromListResponse(tasksRes)

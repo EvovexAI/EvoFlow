@@ -60,14 +60,33 @@ function getSharedLayer(): SessionDataLayer {
 }
 
 /**
- * 悬停预热：acquire → 立刻 release，让 SessionDataLayer 进 keep-warm（默认 30s）。
- * 点击时再次 acquire 可命中已订阅/已有快照，避免「本地 history 已到、V4 还冷」闪老面板。
+ * 悬停预热限流：每个未命中快照的预热 = 一条完整 V4 快照订阅（单帧 370–854KB，
+ * 主线程 JSON.parse）。鼠标扫过会话列表会连续触发，实测一次滑过 8+ 会话可在
+ * 1s 内产生 ~4MB 解析导致整窗卡死（2026-10-27 00:44 复现）。
+ * 命中已有快照的预热零成本，不受限；冷启动订阅按滑动窗口限量 + 总数封顶。
  */
-export function warmEvoflowV4Session(sessionId: string): void {
+const WARM_COLD_WINDOW_MS = 3_000;
+const WARM_COLD_MAX_PER_WINDOW = 2;
+const WARM_MAX_LIVE_SESSIONS = 6;
+let _warmColdTimestamps: number[] = [];
+
+export function warmEvoflowV4Session(
+  sessionId: string,
+  opts?: { force?: boolean },
+): void {
   const id = String(sessionId || "").trim();
   if (!id) return;
   try {
-    const lease = getSharedLayer().acquire(id);
+    const layer = getSharedLayer();
+    const now = monotonicNowSafe();
+    _warmColdTimestamps = _warmColdTimestamps.filter((t) => now - t < WARM_COLD_WINDOW_MS);
+    const known = layer.has(id);
+    if (!known && !opts?.force) {
+      if (layer.size >= WARM_MAX_LIVE_SESSIONS) return;
+      if (_warmColdTimestamps.length >= WARM_COLD_MAX_PER_WINDOW) return;
+      _warmColdTimestamps.push(now);
+    }
+    const lease = layer.acquire(id);
     const st = lease.store.getState();
     const hasSnap = Boolean(st.snapshot);
     const rowCount =
@@ -95,6 +114,10 @@ export function warmEvoflowV4Session(sessionId: string): void {
   } catch {
     /* best effort */
   }
+}
+
+function monotonicNowSafe(): number {
+  return typeof performance !== "undefined" ? performance.now() : Date.now();
 }
 
 export function V4StreamRowsBridge(props: {
@@ -386,7 +409,8 @@ export function V4StreamRowsBridge(props: {
             store?.recoverFromStaleAuthority();
           } else if (sessionId) {
             // store=error 且无 subscription：re-acquire 走 keep-warm 再试一次
-            warmEvoflowV4Session(sessionId);
+            // （用户正在看的会话，绕过预热限流）
+            warmEvoflowV4Session(sessionId, { force: true });
           }
         }
       } catch {

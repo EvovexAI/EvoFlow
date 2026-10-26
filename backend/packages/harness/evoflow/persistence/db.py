@@ -412,6 +412,16 @@ def run_db_with_retry[T](fn: Callable[[], T], *, max_attempts: int | None = None
 
 
 _READ_POOL_SIZE = max(2, int(os.getenv("EVOFLOW_SQLITE_READ_POOL_SIZE", "4") or "4"))
+"""Seconds to wait for a pooled read connection before opening a transient one.
+
+Previously ``pool.get()`` blocked forever: when all pooled connections were held
+by slow queries (big observability reads during chat streaming), every other
+read request queued indefinitely — panels looked "inexplicably slow" until
+restart. Bounded wait + transient ro connection degrades gracefully instead.
+"""
+_READ_POOL_CHECKOUT_TIMEOUT_S = max(
+    0.5, float(os.getenv("EVOFLOW_SQLITE_READ_POOL_WAIT_S", "2") or "2")
+)
 _read_pool: _queue.Queue[sqlite3.Connection] | None = None
 _read_pool_lock = threading.Lock()
 
@@ -423,6 +433,7 @@ def _create_read_connection(path: Path) -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys=ON")
     conn.execute("PRAGMA query_only=1")  # 硬性只读
+    conn.execute(f"PRAGMA busy_timeout={_DEFAULT_BUSY_TIMEOUT_MS}")
     return conn
 
 
@@ -443,6 +454,9 @@ def get_read_connection():
 
     WAL 模式下读操作不会阻塞写连接上的事务，也不被写事务阻塞。
 
+    池耗尽时不再无限等待：短暂等待后打开一条一次性只读连接兜底，
+    避免慢查询占满池时所有读请求无限排队（表现为面板「莫名变慢」）。
+
     用法::
 
         with get_read_connection() as db:
@@ -450,11 +464,32 @@ def get_read_connection():
     """
     path = resolve_evolflow_db_path()
     pool = _get_read_pool(path)
-    conn = pool.get()  # 阻塞等待空闲连接
+    conn: sqlite3.Connection | None = None
+    transient = False
     try:
-        yield conn
+        try:
+            conn = pool.get(timeout=_READ_POOL_CHECKOUT_TIMEOUT_S)
+        except _queue.Empty:
+            # 池被占满：开临时连接而不是无限排队
+            transient = True
+            conn = _create_read_connection(path)
+        try:
+            yield conn
+        finally:
+            if transient:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+            else:
+                pool.put(conn)
+                conn = None
     finally:
-        pool.put(conn)  # 归还
+        if transient and conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
 
 def run_db_read[T](fn: Callable[[sqlite3.Connection], T]) -> T:

@@ -9,6 +9,7 @@ import {
   parseTabFromLocation,
   visibleSettingsTabs,
 } from './meta.js'
+import { nextFrameSafe } from '../../lib/raf-safe.js'
 
 const _panelMounted = new Set()
 /** @type {Map<string, () => void>} */
@@ -129,6 +130,31 @@ async function ensurePanelMounted(rootEl, tab) {
 
   const work = (async () => {
     inner.replaceChildren()
+
+    // 模块 import（dev 冷路径可达数秒）期间给即时反馈，避免整块空白像卡死
+    const skeleton = document.createElement('div')
+    skeleton.className = 'settings-panel-skeleton'
+    // 网关预热窗口内所有请求会静默排队（最长 90s），明示原因而不是让用户以为死机
+    let warmingHint = ''
+    try {
+      void import('../../lib/tauri-api.js').then((m) => {
+        if (m.isGatewayWarming?.() && skeleton.isConnected) {
+          const tip = document.createElement('div')
+          tip.className = 'settings-panel-skeleton__tip'
+          tip.style.cssText = 'margin-bottom:14px;color:var(--text-tertiary);font-size:12px'
+          tip.textContent = '网关就绪中…（数据会在就绪后自动加载，约需数十秒）'
+          skeleton.prepend(tip)
+        }
+      }).catch(() => {})
+    } catch { /* ignore */ }
+    skeleton.innerHTML = `
+      <div class="skeleton" style="height:18px;width:34%;margin-bottom:16px;border-radius:6px"></div>
+      <div class="skeleton" style="height:56px;width:100%;margin-bottom:10px;border-radius:10px"></div>
+      <div class="skeleton" style="height:56px;width:100%;margin-bottom:10px;border-radius:10px"></div>
+      <div class="skeleton" style="height:56px;width:82%;margin-bottom:10px;border-radius:10px"></div>
+      <div class="skeleton" style="height:120px;width:100%;border-radius:10px"></div>
+    `
+    inner.appendChild(skeleton)
 
     try {
       switch (tab) {
@@ -289,6 +315,7 @@ async function ensurePanelMounted(rootEl, tab) {
         default:
           break
       }
+      skeleton.remove()
       _panelMounted.add(tab)
     } catch (e) {
       if (!inner.isConnected) return
@@ -406,7 +433,9 @@ export async function render() {
   const q = hash.includes('?') ? hash.split('?')[1] : ''
   const tab = new URLSearchParams(q).get('tab')
 
-  requestAnimationFrame(async () => {
+  // 不能裸依赖 requestAnimationFrame：WebView 被节流时 rAF 可能长期不派发，
+  // 设置路由会永远停在占位元素上（弹窗打不开）。nextFrameSafe 保证仍会打开。
+  nextFrameSafe(async () => {
     const { openSettingsModal } = await import('../../components/settings-modal.js')
     const visible = visibleSettingsTabs()
     openSettingsModal({

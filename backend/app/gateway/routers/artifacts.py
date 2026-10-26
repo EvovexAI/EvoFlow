@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import mimetypes
 import zipfile
@@ -136,7 +137,8 @@ async def get_artifact(thread_id: str, path: str, request: Request, download: bo
             raise HTTPException(status_code=400, detail=f"Path is not a file: {skill_file_path}")
 
         # Extract the file from the skill archive
-        content = _extract_file_from_skill_archive(actual_skill_path, internal_path)
+        # zip 解包是阻塞 I/O，不下事件循环
+        content = await asyncio.to_thread(_extract_file_from_skill_archive, actual_skill_path, internal_path)
         if content is None:
             raise HTTPException(status_code=404, detail=f"File '{internal_path}' not found in skill archive")
 
@@ -177,10 +179,22 @@ async def get_artifact(thread_id: str, path: str, request: Request, download: bo
     if mime_type in ACTIVE_CONTENT_MIME_TYPES:
         return FileResponse(path=actual_path, filename=actual_path.name, media_type=mime_type, headers=_build_attachment_headers(actual_path.name))
 
-    if mime_type and mime_type.startswith("text/"):
-        return PlainTextResponse(content=actual_path.read_text(encoding="utf-8"), media_type=mime_type)
+    # >2MB 的"文本"（大 CSV/日志等）不整读进内存，按流式内联返回
+    _INLINE_TEXT_MAX_BYTES = 2 * 1024 * 1024
+    try:
+        file_size = actual_path.stat().st_size
+    except OSError:
+        file_size = 0
 
-    if is_text_file_by_content(actual_path):
-        return PlainTextResponse(content=actual_path.read_text(encoding="utf-8"), media_type=mime_type)
+    if mime_type and mime_type.startswith("text/") and file_size <= _INLINE_TEXT_MAX_BYTES:
+        return PlainTextResponse(content=await asyncio.to_thread(actual_path.read_text, "utf-8"), media_type=mime_type)
 
-    return Response(content=actual_path.read_bytes(), media_type=mime_type, headers={"Content-Disposition": _build_content_disposition("inline", actual_path.name)})
+    if file_size <= _INLINE_TEXT_MAX_BYTES and await asyncio.to_thread(is_text_file_by_content, actual_path):
+        return PlainTextResponse(content=await asyncio.to_thread(actual_path.read_text, "utf-8"), media_type=mime_type)
+
+    # 二进制内联一律走 FileResponse 流式（ previously read_bytes 会把整个文件读上事件循环）
+    return FileResponse(
+        path=actual_path,
+        media_type=mime_type or "application/octet-stream",
+        headers={"Content-Disposition": _build_content_disposition("inline", actual_path.name)},
+    )

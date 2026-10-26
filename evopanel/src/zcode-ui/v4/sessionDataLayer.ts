@@ -122,6 +122,11 @@ export class SessionDataLayer {
     return this.entries.size;
   }
 
+  /** 该 session 是否已有活跃（含 keep-warm 中）的 store。 */
+  has(sessionId: string): boolean {
+    return this.entries.has(conversationTopic(sessionId));
+  }
+
   /** renderer pending-command registry 的只读对账入口；仍复用本 layer 的同一 host connection。 */
   queryCommands(params: CommandsQueryParams): Promise<CommandsQueryResult> {
     return this.transport.queryCommands(params);

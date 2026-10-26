@@ -271,7 +271,16 @@ def _secrets_equal(expected: str, provided: str | None) -> bool:
 @router.get("", response_model=ChannelStatusResponse)
 @router.get("/", response_model=ChannelStatusResponse)
 async def get_channels_status() -> ChannelStatusResponse:
-    """Get the status of all IM channels."""
+    """Get the status of all IM channels.
+
+    Starting the channel service here must never block the response: the
+    background startup path waits on ``langgraph_ready_event``, so an inline
+    ``await start_channel_service()`` could hold the panel for minutes on a
+    cold gateway. Kick it as a background task and answer with registry
+    defaults immediately.
+    """
+    import asyncio
+
     from app.channels.service import (
         get_channel_service,
         registry_channel_status,
@@ -281,10 +290,10 @@ async def get_channels_status() -> ChannelStatusResponse:
     service = get_channel_service()
     if service is None:
         try:
-            service = await start_channel_service()
+            asyncio.create_task(start_channel_service())
         except Exception:
-            logger.exception("Channel service unavailable; returning registry defaults")
-            return ChannelStatusResponse(**registry_channel_status(service_running=False))
+            logger.exception("Background channel service start failed to schedule")
+        return ChannelStatusResponse(**registry_channel_status(service_running=False))
     status = service.get_status()
     return ChannelStatusResponse(**status)
 

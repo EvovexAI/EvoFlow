@@ -1,5 +1,6 @@
 """Upload router for handling file uploads."""
 
+import asyncio
 import logging
 import os
 import stat
@@ -89,13 +90,14 @@ async def upload_files(
         try:
             content = await file.read()
             file_path = uploads_dir / safe_filename
-            file_path.write_bytes(content)
+            # 上传文件可达数十 MB：写盘与沙箱拷贝是阻塞 I/O，不下事件循环
+            await asyncio.to_thread(file_path.write_bytes, content)
 
             virtual_path = upload_virtual_path(safe_filename)
 
             if sandbox_id != "local":
-                _make_file_sandbox_writable(file_path)
-                sandbox.update_file(virtual_path, content)
+                await asyncio.to_thread(_make_file_sandbox_writable, file_path)
+                await asyncio.to_thread(sandbox.update_file, virtual_path, content)
 
             file_info = {
                 "filename": safe_filename,
@@ -114,8 +116,9 @@ async def upload_files(
                     md_virtual_path = upload_virtual_path(md_path.name)
 
                     if sandbox_id != "local":
-                        _make_file_sandbox_writable(md_path)
-                        sandbox.update_file(md_virtual_path, md_path.read_bytes())
+                        await asyncio.to_thread(_make_file_sandbox_writable, md_path)
+                        md_bytes = await asyncio.to_thread(md_path.read_bytes)
+                        await asyncio.to_thread(sandbox.update_file, md_virtual_path, md_bytes)
 
                     file_info["markdown_file"] = md_path.name
                     file_info["markdown_path"] = str(sandbox_uploads / md_path.name)

@@ -43,10 +43,13 @@ def _entity(request: Request, entity_type: str, entity_id: str):
 
 @router.get("/entities")
 async def get_entities(request: Request):
+    import asyncio
+
     from evoflow.assets.hub import list_entities
 
     try:
-        payload = list_entities()
+        # 阻塞 FS 扫描不下事件循环（同 /init）
+        payload = await asyncio.to_thread(list_entities)
         entities = payload.get("entities") if isinstance(payload, dict) else payload
         filtered = filter_asset_entities_for_request(request, entities if isinstance(entities, list) else [])
         if isinstance(payload, dict):
@@ -534,11 +537,18 @@ async def post_phase2_startup_scan(
 @router.post("/init")
 async def init_assets_tree(request: Request):
     """Ensure ``~/.evoflow/assets/`` skeleton exists."""
+    import asyncio
+
     from evoflow.assets.hub import ensure_assets_tree, list_entities
 
-    try:
+    def _init_sync():
         root = ensure_assets_tree()
         payload = list_entities()
+        return root, payload
+
+    try:
+        # 目录树扫描/遍历是阻塞 FS I/O，放事件循环上会把整个网关冻住几秒
+        root, payload = await asyncio.to_thread(_init_sync)
         entities = payload.get("entities") if isinstance(payload, dict) else payload
         filtered = filter_asset_entities_for_request(request, entities if isinstance(entities, list) else [])
         return {

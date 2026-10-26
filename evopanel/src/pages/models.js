@@ -1683,16 +1683,20 @@ function showModelsBar(page, state) {
 async function loadConfig(page, state) {
   const detailMount = page.querySelector('#models-detail-inner')
   try {
-    try {
-      await api.cleanupStaleModels()
-    } catch {
-      /* best-effort legacy cleanup */
-    }
+    // 遗留清理：结果未被使用，不阻塞首屏
+    api.cleanupStaleModels().catch(() => {})
 
     // 数据源：Gateway SQLite evoflow_models（非 YAML）
     const { takeNavWarm } = await import('../lib/nav-panel-prefetch.js')
     const warmList = takeNavWarm('settings:models')
-    const list = warmList || (await api.listModels())
+    // 四个读取相互独立，串行 await 会白白叠加冷启动延迟；hover 预热命中时零等待
+    const [warmOrList, primaryInfo, connResp, planRes] = await Promise.all([
+      warmList ? Promise.resolve(warmList) : api.listModels(),
+      takeNavWarm('settings:models:primary') || api.getPrimaryModel(),
+      takeNavWarm('settings:models:conns') || api.listModelConnections(),
+      takeNavWarm('settings:models:plans') || api.listPlanBindings(false).catch(() => null),
+    ])
+    const list = warmOrList
     const models = Array.isArray(list?.models) ? list.models : []
 
     // 收集向量模型（用于"向量模型" Tab）
@@ -1700,13 +1704,11 @@ async function loadConfig(page, state) {
     invalidateEmbeddingStatuses(state)
     void loadKbDefaultEmbedding(state)
 
-    const primaryInfo = await api.getPrimaryModel()
     const primaryModelRaw = primaryInfo?.primary_model || ''
 
     const chatModels = models.filter((m) => !isEmbeddingModel(m))
     const { providers, primaryFull } = providersFromGatewayModels(chatModels, primaryModelRaw)
 
-    const connResp = await api.listModelConnections()
     const connList = Array.isArray(connResp?.connections) ? connResp.connections : []
     const mergedProviders = mergeProvidersWithStoredConnections(providers, connList)
 
@@ -1717,14 +1719,11 @@ async function loadConfig(page, state) {
       agents: { defaults: { model: { primary: primaryFull } } },
     }
     state.planBindings = {}
-    try {
-      const planRes = await api.listPlanBindings(false)
+    if (planRes) {
       const items = Array.isArray(planRes?.items) ? planRes.items : []
       for (const b of items) {
         if (b?.catalog_id && b.status === 'active') state.planBindings[b.catalog_id] = b
       }
-    } catch {
-      /* Plan API 未就绪时忽略 */
     }
     if (state.activeTab === 'chat') {
       renderDefaultBar(page, state)
