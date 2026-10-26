@@ -25,6 +25,10 @@ import {
   beginVoiceTrace,
   adoptVoiceTrace,
   getVoiceTrace,
+  noteVoicePanelDisplay,
+  noteVoicePanelSend,
+  noteVoiceUiState,
+  formatVoiceLocalTs,
 } from './voice-file-log.js'
 
 function _logDialogue(message, opts = {}) {
@@ -74,7 +78,8 @@ function _setTray(next) {
   const s = String(next || '')
   if (s === _tray) return
   _tray = s
-  voiceFeLog('状态', `tray → ${s || '(空)'}`)
+  // 中文状态 + 时间点（播报/聆听/处理中…）
+  noteVoiceUiState(s || 'idle', { source: 'Frame管线' })
   try {
     _onTray?.(s)
   } catch {
@@ -117,6 +122,10 @@ export async function startXiaomiFramePipeline(opts = {}) {
   setXiaomiFirstLocalPlayHandler(({ seq, at }) => {
     _awaitingReply = false
     _setTray('speaking')
+    // Frame 本地开播时挂起 continuous ASR，避免回声触发 legacy watchdog stall
+    void import('../background-voice.js')
+      .then((m) => m.notifyTTSStarted?.())
+      .catch(() => {})
     if (!_turnEndAt || !_turnAwaitingPlay) return
     const ms = Math.round(at - _turnEndAt)
     voiceFeLog(
@@ -134,7 +143,10 @@ export async function startXiaomiFramePipeline(opts = {}) {
       _setTray('speaking')
       return
     }
-    // 本地听完 → 才回聆听
+    // 本地听完 → 才回聆听；恢复 continuous ASR（若仍开着）
+    void import('../background-voice.js')
+      .then((m) => m.notifyTTSStopped?.())
+      .catch(() => {})
     _awaitingReply = false
     _refreshTray()
   })
@@ -143,12 +155,7 @@ export async function startXiaomiFramePipeline(opts = {}) {
     const type = String(m?.type || '')
     if (type === 'partial' || (type === 'final' && !m.turn)) {
       _partial = String(m.text || '')
-      if (type === 'final' || _partial.length >= 4) {
-        voiceFeLog(
-          '语音转文字',
-          `${type === 'final' ? '最终' : '中间'}识别：「${_partial}」`,
-        )
-      }
+      // 上屏字 + 上屏时间走面板日志（updateVoicePartialText → noteVoicePanelDisplay）
       void import('../background-voice-bridge.js').then((b) => {
         b.updateVoicePartialText?.(_partial)
       })
@@ -163,11 +170,17 @@ export async function startXiaomiFramePipeline(opts = {}) {
           beginVoiceTrace({ reason: 'turn_end→发问' })
         if (m.trace_id) adoptVoiceTrace(String(m.trace_id), { reason: 'turn_end' })
         _turnEndAt = performance.now()
-        _turnEndWall = new Date().toISOString()
+        _turnEndWall = formatVoiceLocalTs()
         _turnAwaitingPlay = text
-        _logDialogue(`用户输入：「${text}」 at=${_turnEndWall} TRACE=${tid}`)
+        // 定稿上屏（立即落盘，不等 120ms 合并）
+        noteVoicePanelDisplay(text, { immediate: true, source: 'turn_end定稿' })
+        void import('../background-voice-bridge.js').then((b) => {
+          b.updateVoicePartialText?.(text)
+        })
+        _logDialogue(`用户说完定稿：「${text}」 定稿于=${_turnEndWall} TRACE=${tid}`)
         void _enqueueTurn(text)
       } else {
+        noteVoicePanelDisplay('', { immediate: true, source: 'turn_end空' })
         _logDialogue('用户输入为空（turn_end 无文本）→ 本轮不发送')
       }
     }
@@ -221,6 +234,25 @@ export async function startXiaomiFramePipeline(opts = {}) {
       console.warn('[xiaomi-frame]', m.message)
     }
   })
+
+  // Frame 管线自采麦：整套关掉 continuous（含 policy/mode 标志），否则 ASR glitch + 误 barge
+  try {
+    const { stopContinuousListeningForFrame, pauseWakeEarForVoiceSession } = await import(
+      '../background-voice.js',
+    )
+    if (typeof stopContinuousListeningForFrame === 'function') {
+      await stopContinuousListeningForFrame()
+    } else {
+      const { stopContinuousCapture, isContinuousCaptureActive } = await import(
+        '../voice-capture-service.js',
+      )
+      if (isContinuousCaptureActive?.()) await stopContinuousCapture()
+    }
+    await pauseWakeEarForVoiceSession()
+    voiceFeLog('会话', 'Frame 管线接管麦克风 → 已停 continuous + 唤醒耳')
+  } catch {
+    /* ignore */
+  }
 
   try {
     _stream = await navigator.mediaDevices.getUserMedia({
@@ -293,16 +325,16 @@ async function _sendTurn(text) {
   _sending = true
   _awaitingReply = true
   _setTray('processing')
-  const sendWall = new Date().toISOString()
   try {
     const { setPreferXiaomiVoice } = await import('../background-voice-bridge.js')
     setPreferXiaomiVoice(true)
-    _logDialogue(`用户发送中 at=${sendWall}：「${text}」`)
+    // 发送字 + 发送于/上屏于 由 sendXiaomiChat → noteVoicePanelSend 统一落盘
+    noteVoicePanelSend(text, { source: 'Frame发问', detail: 'voiceInitiated=true' })
     const { sendXiaomiChat } = await import('../../components/global-assistant/assistant-session.js')
     await sendXiaomiChat(text, { voiceInitiated: true })
-    _logDialogue(`用户发送完成 at=${new Date().toISOString()}：「${text}」`)
+    _logDialogue(`用户发送完成 完成于=${formatVoiceLocalTs()}：「${text}」`)
   } catch (e) {
-    _logDialogue(`用户发送失败：${e?.message || e}｜「${text}」`)
+    _logDialogue(`用户发送失败 于=${formatVoiceLocalTs()}：${e?.message || e}｜「${text}」`)
     console.warn('[xiaomi-frame] send turn failed', e)
     _awaitingReply = false
   } finally {
@@ -350,6 +382,10 @@ export function stopXiaomiFramePipeline() {
   _actx = null
   stopXiaomiFrameSession()
   setXiaomiFrameEventHandler(null)
+  // 释放麦后恢复唤醒耳（语音舞台关掉时）
+  void import('../background-voice.js')
+    .then((m) => m.resumeWakeEarAfterVoiceSession?.())
+    .catch(() => {})
   _setTray('')
   _onTray = null
 }

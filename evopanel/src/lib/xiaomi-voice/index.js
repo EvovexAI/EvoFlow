@@ -5,7 +5,9 @@ export {
   getXiaomiTtsProvider,
   setXiaomiTtsProvider,
   getXiaomiTtsSpeaker,
+  resolveXiaomiTtsSpeaker,
   setXiaomiTtsSpeaker,
+  XIAOMI_DEFAULT_TTS_SPEAKER,
 } from './config.js'
 
 export {
@@ -13,10 +15,12 @@ export {
   isXiaomiFrameSessionActive,
   isXiaomiFrameSessionConnecting,
   isXiaomiFrameRuntimePreferred,
+  isXiaomiFramePlaying,
   sendXiaomiAssistantBegin,
   sendXiaomiAssistantDelta,
   sendXiaomiAssistantEnd,
   sendXiaomiClientListening,
+  stopXiaomiFrameLocalPlayback,
   bargeInXiaomiFrame,
   stopXiaomiFrameSession,
 } from './session-client.js'
@@ -38,6 +42,12 @@ export {
   voicePlaybackMark,
   flushVoiceFeLog,
   noteVoiceLogPathOnce,
+  noteVoicePanelDisplay,
+  noteVoicePanelSend,
+  noteVoiceUiState,
+  formatVoiceLocalTs,
+  getLastVoicePanelSnapshot,
+  getLastVoiceUiStateLabel,
   beginVoiceTrace,
   adoptVoiceTrace,
   getVoiceTrace,

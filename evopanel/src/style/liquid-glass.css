@@ -277,11 +277,7 @@ html[data-translucent-ui='1'] .react-chat-conversation-col {
   -webkit-backdrop-filter: none !important;
 }
 
-/* ???? / ?????????????? */
-html[data-translucent-ui='1'] .react-chat-info-rail,
-html[data-translucent-ui='1'] .react-chat-workspace-panel,
-/* [已收编 → theme-regions.css：panel 玻璃块] 右侧舞台及其子面板玻璃配方已迁至区域接管层 */
-
+/* [已收编 → theme-regions.css：panel 玻璃块] 右信息栏/工作区面板/右侧舞台及其子面板玻璃配方已迁至区域接管层 */
 /* [已收编 → theme-regions.css：panel header 透明块] 原 info-rail/right-stage/collab-exec/workspace panel header 规则已迁 */
 
 /* Info Rail「资产沉淀」：玻璃态下勿用实心白底，否则字看不清 */

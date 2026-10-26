@@ -98,12 +98,12 @@ export function enterXwVoiceMode(opts: EnterXwVoiceModeOpts = {}): void {
     .catch(() => {})
 }
 
-/** 退出语音全屏模式，还原正常聊天布局。 */
+/** 退出语音全屏模式，还原正常聊天布局，并停掉整套语音（Frame / continuous / ASR）。 */
 export function exitXwVoiceMode(): void {
   if (!isXwVoiceMode()) return
   apply(false)
-  // 退出后 ASR / 发送不再强制走小V（播报开关保留用户刚才打开的状态）
-  void import('./background-voice-bridge.js')
-    .then((m) => m.setPreferXiaomiVoice(false))
+  // 必须停干净：否则面板关了 continuous 仍识别并灌「输入框」（见前端日志 source=输入框）
+  void import('./background-voice.js')
+    .then((m) => m.shutdownXiaomiVoiceRuntime?.())
     .catch(() => {})
 }

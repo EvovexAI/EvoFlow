@@ -5,6 +5,9 @@
  * 持续监听模式下，partial 文字也通过此桥接实时推到 ChatComposer / 小V面板。
  */
 
+import { isXwVoiceMode } from './xw-voice-mode.js'
+import { noteVoicePanelDisplay, noteVoicePanelSend } from './xiaomi-voice/voice-file-log.js'
+
 /** @type {((text: string, opts?: { global?: boolean, xiaomi?: boolean }) => void | Promise<void>) | null} */
 let voiceSendHandler = null
 /** @type {((text: string, opts?: { global?: boolean, xiaomi?: boolean }) => void | Promise<void>) | null} */
@@ -165,6 +168,14 @@ export function endVoicePartialSession(opts = {}) {
  */
 export function updateVoicePartialText(text) {
   const t = String(text || '')
+  // 已退出语音全屏且未 prefer 小V/会议室：丢弃迟到 ASR，禁止再灌主输入框
+  if (!preferXiaomiVoice && !preferMeetingVoice && !isXwVoiceMode()) {
+    if (t.trim()) return
+  }
+  // 与面板显示同步落盘：上屏字 + 上屏时间（发送时间在 noteVoicePanelSend）
+  noteVoicePanelDisplay(t, {
+    source: preferXiaomiVoice ? '小V面板' : preferMeetingVoice ? '会议室' : '输入框',
+  })
   // 会议室打开时优先（唤醒小V 仍可抢占）
   if (!preferXiaomiVoice && preferMeetingVoice && typeof meetingVoicePartialHandler === 'function') {
     meetingVoicePartialHandler(t)
@@ -242,6 +253,17 @@ export function isXiaomiVoiceSendHandlerReady() {
  * @param {{ global?: boolean, xiaomi?: boolean, meeting?: boolean }} [opts]
  */
 export async function sendVoiceTranscript(text, opts = {}) {
+  // 已退出语音全屏：拒绝迟到发送（避免面板关了还往外发）
+  if (!preferXiaomiVoice && !preferMeetingVoice && !isXwVoiceMode() && opts?.xiaomi !== true && opts?.meeting !== true) {
+    console.warn('[xiaomi-voice] sendVoiceTranscript ignored — voice UI exited')
+    try {
+      const { voiceFeLog } = await import('./xiaomi-voice/voice-file-log.js')
+      voiceFeLog('会话', `已退出语音 → 丢弃迟到发送：「${String(text || '').trim().slice(0, 40)}」`)
+    } catch {
+      /* ignore */
+    }
+    return
+  }
   // 小V Frame 管线活跃时强制走小V，禁止再进主对话输入框路径（双发根因之一）
   let frameActive = false
   try {
@@ -284,7 +306,15 @@ export async function sendVoiceTranscript(text, opts = {}) {
   }
   isSending = true
   try {
-    await handler(String(text || '').trim(), {
+    const payload = String(text || '').trim()
+    // 小V 发问由 sendXiaomiChat 统一记「发送」；此处只记会议室等其它路径，避免双行
+    if (!useXiaomi) {
+      noteVoicePanelSend(payload, {
+        source: useMeeting ? '会议室' : '语音',
+        detail: `voiceTranscript len=${payload.length}`,
+      })
+    }
+    await handler(payload, {
       ...opts,
       xiaomi: useXiaomi,
       meeting: useMeeting,

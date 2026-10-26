@@ -34,8 +34,10 @@
 
 /* 卡片 */
 .card {
-  background: var(--bg-card);
-  border: 1px solid var(--border-primary);
+  background: var(--surface-raised-bg, var(--bg-card));
+  border: 1px solid var(--surface-raised-border, var(--border-primary));
+  backdrop-filter: var(--surface-raised-backdrop, none);
+  -webkit-backdrop-filter: var(--surface-raised-backdrop, none);
   border-radius: var(--radius-lg);
   padding: var(--space-lg);
   transition: background-color $1, border-color $1, color $1, opacity $1, transform $1, box-shadow $1;

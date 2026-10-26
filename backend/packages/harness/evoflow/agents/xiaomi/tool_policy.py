@@ -1,4 +1,4 @@
-"""小V工具边界：仅 ``platform`` + bash + 全量 MCP；其余工程师写仓面仍禁止。
+"""小V工具边界：``platform`` + bash + assets（记忆/画像） + 全量 MCP；其余工程师写仓面仍禁止。
 
 不问澄清空转——先 ``employees.org_status`` / ``board_overview`` / ``brief``，
 再 ``employees.dispatch`` / ``wake``；文档走 ``knowledge.search``；行政一律 ``platform``。
@@ -12,8 +12,8 @@ from typing import Any
 # 小V 强制挂载：系统 platform（读写视图与行政同源）
 XIAOMI_SYSTEM_TOOL_NAMES = frozenset({"platform"})
 
-# 额外内置：bash（终端）
-XIAOMI_EXTRA_BUILTIN_TOOLS = frozenset({"bash"})
+# 额外内置：bash（终端）、assets（记忆/画像/经验读写 — 仍受会话记忆开关门控）
+XIAOMI_EXTRA_BUILTIN_TOOLS = frozenset({"bash", "assets"})
 
 # 角色配置 tools 白名单默认（可配置面）；系统工具另由 get_xiaomi_tools 强制挂载
 XIAOMI_DEFAULT_CONFIG_TOOLS = ("bash",)

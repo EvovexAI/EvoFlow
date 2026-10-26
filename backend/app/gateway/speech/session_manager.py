@@ -235,8 +235,11 @@ class SpeechSession:
         )
 
     async def _on_start(self, data: dict[str, Any]) -> None:
+        from app.gateway.speech.volcengine_speech import DEFAULT_TTS_SPEAKER
+
         speaker = str(data.get("speaker") or "").strip()
-        self._default_speaker = speaker or None
+        # 钉死音色：空则产品默认，保证同 session 多句同一 speaker
+        self._default_speaker = speaker or DEFAULT_TTS_SPEAKER
         self._asr_provider = str(data.get("asr_provider") or self._asr_provider).strip() or "volcengine"
         self._tts_provider = str(data.get("tts_provider") or self._tts_provider).strip() or "volcengine"
         if self._tts_provider in {"volcengine", "doubao"} and not speech_configured():
@@ -283,7 +286,7 @@ class SpeechSession:
             raw = str(data.get("trace_id") or data.get("trace") or "").strip()
         tid = self._bind_trace(raw or new_voice_trace("vt"))
         if self._bridge:
-            self._bridge.begin_assistant_turn()
+            await self._bridge.begin_assistant_turn()
             voice_playback_event(
                 "流式正文",
                 "",

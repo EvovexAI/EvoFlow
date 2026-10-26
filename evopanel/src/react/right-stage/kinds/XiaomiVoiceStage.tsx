@@ -24,10 +24,19 @@ import {
 import { onSpeakingChange } from '../../../lib/speech-client.js'
 import { subscribeVoiceLevels } from '../../../lib/voice-capture-service.js'
 import { showRightStageBrowserUrl } from '../../../lib/right-stage/open-right-stage-browser.js'
-import { exitXwVoiceMode, isXwVoiceMode, subscribeXwVoiceMode } from '../../../lib/xw-voice-mode.js'
+import { isXwVoiceMode, subscribeXwVoiceMode } from '../../../lib/xw-voice-mode.js'
+import { buildActivityItems } from './xiaomi-voice-activity.js'
 import './xiaomi-voice-stage.css'
 
 type StageState = 'idle' | 'listen' | 'parse' | 'think' | 'speak'
+
+type ActivityItem = {
+  key: string
+  kind: 'user' | 'assistant' | 'tool' | 'pulse' | 'tool_more'
+  roleLabel: string
+  text: string
+  toolStatus?: 'running' | 'ok' | 'error'
+}
 
 const STATE_LABEL: Record<StageState, string> = {
   idle: '待命',
@@ -39,63 +48,20 @@ const STATE_LABEL: Record<StageState, string> = {
 
 const STATE_COLOR: Record<StageState, string> = {
   idle: '#9fb2c8',
-  listen: '#22d3ee',
-  parse: '#38bdf8',
+  listen: '#38bdf8',
+  parse: '#60a5fa',
   think: '#a78bfa',
-  speak: '#34d399',
+  // 播报：靛紫蓝（去掉刺眼绿）
+  speak: '#818cf8',
 }
 
 const DOT_MAIN = '#eaf4ff'
 const DOT_COOL = '#9fd8ff'
 const LEVEL_BINS = 32
-const RECENT_TURNS = 6
-
-type ChatLine = { role: 'user' | 'assistant'; text: string }
 
 function extractUrl(reply: string): string {
   const m = String(reply || '').match(/https?:\/\/[^\s，。；、）)】\]"'）]+/i)
   return m ? m[0] : ''
-}
-
-function recentLines(
-  msgs: Array<{ role?: string; text?: string }>,
-  opts?: { skipUser?: string; skipAssistant?: string },
-): ChatLine[] {
-  const skipU = String(opts?.skipUser || '').trim()
-  const skipA = String(opts?.skipAssistant || '').trim()
-  const raw: ChatLine[] = []
-  for (let i = msgs.length - 1; i >= 0 && raw.length < RECENT_TURNS * 2 + 4; i--) {
-    const m = msgs[i]
-    const role = m?.role === 'user' || m?.role === 'assistant' ? m.role : null
-    const text = String(m?.text || '').trim()
-    if (!role || !text) continue
-    // 合并历史/live 造成的连续同文重复
-    if (raw.length && raw[raw.length - 1].role === role && raw[raw.length - 1].text === text) continue
-    raw.push({ role, text })
-  }
-  raw.reverse()
-  // 底下「本轮」已在展示的最新一对，右上角不再重复贴一遍
-  while (raw.length) {
-    const last = raw[raw.length - 1]
-    if (last.role === 'assistant' && skipA && last.text === skipA) {
-      raw.pop()
-      continue
-    }
-    if (last.role === 'user' && skipU && last.text === skipU) {
-      raw.pop()
-      continue
-    }
-    break
-  }
-  if (raw.length >= 2) {
-    const a = raw[raw.length - 2]
-    const b = raw[raw.length - 1]
-    if (a.role === 'user' && b.role === 'assistant' && a.text === skipU && b.text === skipA) {
-      raw.pop()
-      raw.pop()
-    }
-  }
-  return raw.slice(-RECENT_TURNS * 2)
 }
 
 export function XiaomiVoiceStage() {
@@ -104,7 +70,7 @@ export function XiaomiVoiceStage() {
   const [transcript, setTranscript] = useState('')
   const [lastUser, setLastUser] = useState('')
   const [reply, setReply] = useState('')
-  const [history, setHistory] = useState<ChatLine[]>([])
+  const [activity, setActivity] = useState<ActivityItem[]>([])
   const [sessionActive, setSessionActive] = useState(false)
   const [parseHold, setParseHold] = useState(false)
 
@@ -118,6 +84,8 @@ export function XiaomiVoiceStage() {
   const parseHoldRef = useRef(false)
   const stateSinceRef = useRef(0)
   const stateRef = useRef<StageState>('idle')
+  const activityBodyRef = useRef<HTMLDivElement | null>(null)
+  const activityStickBottomRef = useRef(true)
   const levelsRef = useRef<number[]>(new Array(LEVEL_BINS).fill(0))
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const recentBodyRef = useRef<HTMLDivElement | null>(null)
@@ -126,7 +94,14 @@ export function XiaomiVoiceStage() {
   useEffect(() => {
     stateRef.current = state
     stateSinceRef.current = Date.now()
-  }, [state])
+    if (!visible) return
+    // 舞台可见态变化 → 前端日志（聆听/播报/处理中… + 时间点）
+    void import('../../../lib/xiaomi-voice/voice-file-log.js')
+      .then(({ noteVoiceUiState }) => {
+        noteVoiceUiState(state, { source: '语音舞台' })
+      })
+      .catch(() => {})
+  }, [state, visible])
 
   const derive = useCallback(() => {
     const l = liveRef.current
@@ -174,7 +149,17 @@ export function XiaomiVoiceStage() {
           }, 560)
         } else {
           liveRef.current.tray = ''
-          if (isXiaomiFramePipelineActive()) stopXiaomiFramePipeline()
+          liveRef.current.continuousListen = false
+          liveRef.current.speaking = false
+          // 退出全屏：停 Frame + continuous（exitXwVoiceMode 也会调；这里双保险）
+          void import('../../../lib/background-voice.js')
+            .then((m) => m.shutdownXiaomiVoiceRuntime?.())
+            .catch(() => {
+              if (isXiaomiFramePipelineActive()) stopXiaomiFramePipeline()
+            })
+          setTranscript('')
+          setLastUser('')
+          setState('idle')
         }
       }),
     [derive],
@@ -222,14 +207,26 @@ export function XiaomiVoiceStage() {
   useEffect(() => {
     const onTray = (ev: Event) => {
       const s = String((ev as CustomEvent<{ state?: string }>).detail?.state || '')
+      // 正在播报时忽略 continuous 打来的「聆听/空闲」，避免舞台闪回聆听
+      const speakingNow =
+        liveRef.current.speaking ||
+        liveRef.current.tray === 'speaking' ||
+        stateRef.current === 'speak'
+      if (speakingNow && (s === 'recording' || s === 'idle')) {
+        return
+      }
       liveRef.current.tray = s
       if (s === 'recording') {
         liveRef.current.continuousListen = true
-        // 播报/思考结束后回到聆听：清空「你」，避免一直显示上一句直到 partial 迟到
+        // 播报/空闲回到聆听可清空「你」；生成中禁止清——否则用户句闪一下就没
         const st = stateRef.current
-        if (st === 'speak' || st === 'think' || st === 'idle') {
+        if (
+          (st === 'speak' || st === 'idle') &&
+          !liveRef.current.streaming &&
+          !parseHoldRef.current
+        ) {
           setTranscript('')
-          setLastUser('')
+          // 保留 lastUser：右上角/本轮「你」要对着刚发出的那句
         }
       }
       if (s === 'idle') liveRef.current.continuousListen = false
@@ -258,7 +255,7 @@ export function XiaomiVoiceStage() {
     }
   }, [derive])
 
-  /* ASR partial 直推左侧「你」——不经过 silent patchState */
+  /* ASR partial 直推左侧「你」+ 活动轨最下实时跟随 */
   useEffect(() => {
     return subscribeXiaomiVoicePartial((text) => {
       const t = String(text || '')
@@ -267,8 +264,57 @@ export function XiaomiVoiceStage() {
       liveRef.current.continuousListen = true
       if (!liveRef.current.tray) liveRef.current.tray = 'recording'
       derive()
+      // lastUser 下一帧才进 state；这里直接用 partial 刷轨，避免等 store
+      const s = getState()
+      const msgs = Array.isArray(s.messages) ? s.messages : []
+      let liveReply = ''
+      for (let i = msgs.length - 1; i >= 0; i--) {
+        const m = msgs[i] as { role?: string; text?: string }
+        if (m?.role === 'assistant') {
+          liveReply = String(m.text || '').trim()
+          break
+        }
+        if (m?.role === 'user') break
+      }
+      setActivity(
+        buildActivityItems(msgs as Parameters<typeof buildActivityItems>[0], {
+          liveUser: t.trim() || undefined,
+          liveAssistant: liveReply,
+          streaming: !!s.streaming,
+          stageState: stateRef.current,
+        }) as ActivityItem[],
+      )
     })
   }, [derive])
+
+  const refreshActivity = useCallback(() => {
+    const s = getState()
+    const msgs = Array.isArray(s.messages) ? s.messages : []
+    let liveReply = ''
+    let liveUser = ''
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      const m = msgs[i] as { role?: string; text?: string }
+      if (!liveReply && m?.role === 'assistant') {
+        liveReply = String(m.text || '').trim()
+        continue
+      }
+      if (m?.role === 'user') {
+        liveUser = String(m.text || '').trim()
+        break
+      }
+    }
+    const draft = String(s.draft || '').trim()
+    // 轨内实时跟随：听写 draft / 流式助手句挂在最下，不再 skip 掉
+    const focusUser = draft || liveUser || String(lastUser || '').trim()
+    setActivity(
+      buildActivityItems(msgs as Parameters<typeof buildActivityItems>[0], {
+        liveUser: focusUser,
+        liveAssistant: liveReply || String(reply || '').trim(),
+        streaming: !!s.streaming,
+        stageState: stateRef.current,
+      }) as ActivityItem[],
+    )
+  }, [lastUser, reply])
 
   useEffect(() => {
     const sync = () => {
@@ -290,11 +336,11 @@ export function XiaomiVoiceStage() {
         setTranscript(d)
         if (d.trim()) setLastUser(d)
       }
-      const msgs = Array.isArray(s.messages) ? (s.messages as Array<{ role?: string; text?: string }>) : []
+      const msgs = Array.isArray(s.messages) ? s.messages : []
       let liveReply = ''
       let liveUser = ''
       for (let i = msgs.length - 1; i >= 0; i--) {
-        const m = msgs[i]
+        const m = msgs[i] as { role?: string; text?: string }
         if (!liveReply && m?.role === 'assistant') {
           liveReply = String(m.text || '').trim()
           setReply(liveReply)
@@ -314,12 +360,8 @@ export function XiaomiVoiceStage() {
       const draft = String(s.draft || '').trim()
       // 本轮用户句：听写中用 draft；否则用消息里紧挨助手前的那条 user
       const focusUser = draft || liveUser
-      setHistory(
-        recentLines(msgs, {
-          skipUser: focusUser,
-          skipAssistant: liveReply,
-        }),
-      )
+      if (focusUser) setLastUser(focusUser)
+      refreshActivity()
       derive()
     }
     sync()
@@ -327,7 +369,29 @@ export function XiaomiVoiceStage() {
     return () => {
       unsub()
     }
-  }, [derive])
+  }, [derive, refreshActivity])
+
+  // 舞台状态变化时也刷轨（思考脉冲不依赖 store 推送）
+  useEffect(() => {
+    refreshActivity()
+  }, [state, refreshActivity])
+
+  // 活动轨：最新在最下；默认贴底跟随，用户上滚后暂停，靠近底部再恢复
+  useEffect(() => {
+    if (!activityStickBottomRef.current) return
+    const el = activityBodyRef.current
+    if (!el) return
+    const stick = () => {
+      el.scrollTop = el.scrollHeight
+    }
+    stick()
+    // 等文本换行 / 工具行插入后再贴一次
+    const raf = requestAnimationFrame(() => {
+      stick()
+      requestAnimationFrame(stick)
+    })
+    return () => cancelAnimationFrame(raf)
+  }, [activity])
 
   useEffect(
     () =>
@@ -548,25 +612,53 @@ export function XiaomiVoiceStage() {
         type="button"
         className="xws-exit"
         data-tauri-no-drag=""
-        onClick={() => exitXwVoiceMode()}
+        onClick={() => {
+          void import('../../../lib/xiaomi-voice-close.js').then((m) =>
+            m.closeXiaomiVoice({ reason: 'button' }),
+          )
+        }}
         aria-label="退出语音"
         title="退出语音"
       >
         退出
       </button>
 
-      <aside className="xws-recent" data-tauri-no-drag="" aria-label="最近对话">
-        <div className="xws-recent-head">最近对话</div>
-        <div className="xws-recent-body">
-          {history.length ? (
-            history.map((line, i) => (
-              <div key={`${line.role}-${i}`} className={`xws-recent-line is-${line.role}`}>
-                <span className="xws-recent-role">{line.role === 'user' ? '你' : '小V'}</span>
-                <span className="xws-recent-text">{line.text}</span>
+      <aside className="xws-recent" data-tauri-no-drag="" aria-label="活动">
+        <div className="xws-recent-head">活动</div>
+        <div
+          className="xws-recent-body"
+          ref={activityBodyRef}
+          onScroll={() => {
+            const el = activityBodyRef.current
+            if (!el) return
+            const gap = el.scrollHeight - el.scrollTop - el.clientHeight
+            activityStickBottomRef.current = gap < 48
+          }}
+        >
+          {activity.length ? (
+            activity.map((item) => (
+              <div
+                key={item.key}
+                className={`xws-recent-line is-${item.kind}${
+                  item.toolStatus ? ` is-tool-${item.toolStatus}` : ''
+                }`}
+              >
+                <span className="xws-recent-role">
+                  {item.kind === 'tool' || item.kind === 'tool_more' ? (
+                    <span
+                      className={`xws-tool-dot is-${item.toolStatus || 'ok'}`}
+                      aria-hidden="true"
+                    />
+                  ) : item.kind === 'pulse' ? (
+                    <span className="xws-tool-dot is-running" aria-hidden="true" />
+                  ) : null}
+                  {item.roleLabel}
+                </span>
+                <span className="xws-recent-text">{item.text}</span>
               </div>
             ))
           ) : (
-            <div className="xws-recent-empty">对话会出现在这里</div>
+            <div className="xws-recent-empty">对话与工具会出现在这里</div>
           )}
         </div>
       </aside>

@@ -67,8 +67,8 @@ html[data-theme='dark'] .config-section {
 }
 
 /* ── 模块卡片共用选择器（液态玻璃磨砂） ── */
+/* 注：.card 已 token 化（见 components.css + theme-framework.css 的 --surface-raised-*），从此列表移除 */
 html[data-translucent-ui='1'] #content :is(
-  .card,
   .overview-card,
   .service-card,
   .market-card,
@@ -92,7 +92,7 @@ html[data-translucent-ui='1'] #content :is(
   .pro-worklog-listrow,
   .pro-role-task-stats,
   .pro-patrol-panel,
-  .task-card,
+  
   .tasks-today-strip,
   .tasks-monitor-hero,
   .cron-card,
@@ -124,7 +124,7 @@ html[data-translucent-ui='1'] #content :is(
   .app-card:hover,
   .role-card:hover,
   .pro-role-card:hover,
-  .task-card:hover,
+  
   .cron-card:hover,
   .card:hover
 ) {
@@ -163,7 +163,6 @@ html[data-translucent-ui='1'] .app-param-card.is-expanded {
 
 /* WebGL 透镜模式：卡片只留描边，光学层由 shader 绘制 */
 html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] #content :is(
-  .card,
   .overview-card,
   .service-card,
   .market-card,
@@ -187,7 +186,7 @@ html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] #content :is(
   .pro-worklog-listrow,
   .pro-role-task-stats,
   .pro-patrol-panel,
-  .task-card,
+  
   .tasks-today-strip,
   .tasks-monitor-hero,
   .cron-card,
@@ -221,7 +220,7 @@ html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .app-settings-modal.m
 
 /* 自定义墙纸：模块卡片略提高不透明度，避免文字发飘 */
 html[data-translucent-ui='1'] #content :is(
-  .card,
+
   .overview-card,
   .service-card,
   .market-card,
@@ -230,7 +229,7 @@ html[data-translucent-ui='1'] #content :is(
   .app-card,
   .role-card,
   .pro-role-card,
-  .task-card,
+  
   .cron-card,
   .config-section
 ) {
@@ -238,7 +237,6 @@ html[data-translucent-ui='1'] #content :is(
 }
 
 html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] #content :is(
-  .card,
   .overview-card,
   .service-card,
   .market-card,
@@ -247,7 +245,7 @@ html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] #content :is(
   .app-card,
   .role-card,
   .pro-role-card,
-  .task-card,
+  
   .cron-card,
   .config-section
 ) {

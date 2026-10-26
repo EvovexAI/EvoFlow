@@ -27,6 +27,18 @@ const WAKE_PHRASES = [
   '小米小米',
 ]
 
+/** 单喊一次也算唤醒（用户常只说「小薇」；成对短语仍优先） */
+const WAKE_PHRASES_ONCE = new Set([
+  '小v',
+  '小薇',
+  '小维',
+  '小微',
+  '小委',
+  '小威',
+  '小蜜',
+  // 不加「小米」：太容易误触
+])
+
 /** @type {SpeechRecognition | null} */
 let recognition = null
 let running = false
@@ -57,6 +69,11 @@ function matchWakePhrase(text) {
   }
   // 「小V」×2 with Latin/Chinese V variants, even if ASR inserts odd chars
   if (/小[vV维微薇委威蜜米]小[vV维微薇委威蜜米]/.test(n)) return WAKE_WORD_LABEL
+  // 整句就是单次唤醒词（或末尾是）：「小薇」「嘿，小V」
+  if (WAKE_PHRASES_ONCE.has(n)) return WAKE_WORD_LABEL
+  for (const once of WAKE_PHRASES_ONCE) {
+    if (n.endsWith(once) && n.length <= once.length + 4) return WAKE_WORD_LABEL
+  }
   return null
 }
 
@@ -65,10 +82,16 @@ function emitHit(keyword) {
   if (now - lastHitTime < COOLDOWN_MS) return
   lastHitTime = now
   const label = WAKE_WORD_LABEL
-  console.log('[wake-word-webspeech] HIT:', label)
+  const asr = String(keyword || label)
+  console.log('[wake-word-webspeech] HIT:', label, asr)
+  void import('./xiaomi-voice/voice-file-log.js')
+    .then(({ voiceFeLog }) =>
+      voiceFeLog('会话', `唤醒命中 backend=webspeech asr=「${asr.slice(0, 40)}」→ 开麦`),
+    )
+    .catch(() => {})
   window.dispatchEvent(
     new CustomEvent('wake-word-hit', {
-      detail: { keyword: label, backend: 'webspeech', asr: keyword || label },
+      detail: { keyword: label, backend: 'webspeech', asr },
     }),
   )
 }

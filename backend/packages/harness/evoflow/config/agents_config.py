@@ -1184,10 +1184,47 @@ def ensure_builtin_agents_materialized() -> None:
         try:
             cur_soul = (load_agent_soul("xiaomi") or "").strip()
             bundled = load_bundled_soul("xiaomi") or ""
-            if bundled and (not cur_soul or cur_soul.startswith("# xiaomi") or cur_soul.startswith("# 小蜜") or cur_soul.startswith("# 小V") or "Built-in subagent" in cur_soul or "禁止 Markdown" not in cur_soul):
+            # Soul = style only (语气/例句/心情/语音轮). Refresh when an older generated
+            # version is detected: v0 front-desk text, or the v1 merged soul that still
+            # carried duty sections (你怎么做事/带用户看见/标准动作) now owned by
+            # ``<agent_system_prompt>``. The current style-only soul contains none of
+            # these markers, so user-customized souls are left untouched.
+            if bundled and (
+                not cur_soul
+                or cur_soul.startswith("# xiaomi")
+                or cur_soul.startswith("# 小蜜")
+                or "Built-in subagent" in cur_soul
+                or "对用户来说，你就是身边那个" in cur_soul
+                or "## 你怎么做事" in cur_soul
+                or "## 带用户看见" in cur_soul
+                or "## 标准动作" in cur_soul
+            ):
                 save_agent_soul("xiaomi", bundled)
         except Exception:
             logger.debug("xiaomi soul backfill skipped", exc_info=True)
+        # system_prompt = duty/constraint layer (``<agent_system_prompt>``). Seed on
+        # fresh installs; replace stale generated copies (pre-soul legacy text with
+        # retired xiaomi_* tool names / 管家 identity, or the v1 full-prompt copy that
+        # duplicated the soul). Genuine custom overrides without these markers stay.
+        try:
+            from evoflow.agents.xiaomi.prompt import duty_system_prompt
+
+            _xm_duties = duty_system_prompt()
+            _xm_sp = str(getattr(load_agent_config("xiaomi"), "system_prompt", "") or "")
+            if _xm_sp != _xm_duties and (
+                not _xm_sp
+                or "xiaomi_" in _xm_sp
+                or "常驻管家" in _xm_sp
+                or "我的心情" in _xm_sp
+                or "你是用户的全局助手" in _xm_sp
+                or "不再挂小V专用工具名" in _xm_sp
+            ):
+                _xm_full = load_agent_config("xiaomi").model_dump(exclude_none=False, exclude={"name"})
+                _xm_full["system_prompt"] = _xm_duties
+                save_agent_config("xiaomi", _xm_full)
+                logger.info("xiaomi: system_prompt synced to bundled duty prompt")
+        except Exception:
+            logger.debug("xiaomi system_prompt duty sync skipped", exc_info=True)
 
     # Copy packaged cutouts into agents/{code}/ so has_avatar_file /api/.../avatar work
     # on fresh installs; also refresh superseded product defaults for existing installs

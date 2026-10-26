@@ -44,6 +44,27 @@ let _voiceReplyPending = false
 let _voiceSpeechSyncedPlain = ''
 /** 本轮已切到 Frame 喂入，只需停一次 legacy，避免每个 delta 都 barge */
 let _voiceFrameTookOver = false
+/** 工具日志去重 */
+/** @type {Set<string>} */
+let _voiceLoggedTools = new Set()
+
+/** 对话/工具进度写入「语音播报」前端日志（方便对照发问→接口→回复） */
+function _voiceChatLog(stage, message, detailOrOpts) {
+  const detail =
+    detailOrOpts != null && typeof detailOrOpts === 'object' && !Array.isArray(detailOrOpts)
+      ? detailOrOpts.detail
+      : detailOrOpts
+  void import('../../lib/xiaomi-voice/voice-file-log.js')
+    .then(({ voiceFeLog, formatVoiceLocalTs }) => {
+      const at = typeof formatVoiceLocalTs === 'function' ? ` at=${formatVoiceLocalTs()}` : ''
+      voiceFeLog(
+        stage || '对话',
+        `${message}${at}`,
+        detail != null && detail !== '' ? { detail: String(detail) } : {},
+      )
+    })
+    .catch(() => {})
+}
 
 /** 当前轮开始时间（ms）；0 表示没有运行中的轮 */
 export function getXiaomiRunStartedAtMs() {
@@ -494,9 +515,11 @@ function markXiaomiRunStarted(runId) {
   }
   _activeRunId = rid || _activeRunId
   _sealedRunId = ''
+  _voiceLoggedTools = new Set()
   // 发送占位路径已先记录起点；这里只兜底非 send 发起的 run
   if (!_runStartedAtMs) _runStartedAtMs = Date.now()
   _aguiTurn = emptyAgUiTurnState(String(rid || _activeRunId || ''))
+  _voiceChatLog('对话', `RUN_STARTED run=${rid || '(无id)'}`, `streaming=true`)
   const messages = [...(getState().messages || [])]
   let last = messages[messages.length - 1]
   if (last && last.role === 'assistant' && (last.pending || last.streaming || !String(last.text || '').trim())) {
@@ -608,7 +631,18 @@ function patchXiaomiLiveProcess(patch) {
     }
     messages.push(last)
   }
-  if (Array.isArray(patch.tools)) last.tools = patch.tools
+  if (Array.isArray(patch.tools)) {
+    last.tools = patch.tools
+    for (const t of patch.tools) {
+      const name = String(t?.name || t?.tool || t?.id || '').trim()
+      const status = String(t?.status || t?.state || '').trim()
+      const key = `${name}|${status}`
+      if (name && !_voiceLoggedTools.has(key)) {
+        _voiceLoggedTools.add(key)
+        _voiceChatLog('对话', `工具 ${name}${status ? ` (${status})` : ''}`)
+      }
+    }
+  }
   if (patch.reasoningDelta) {
     last.reasoning = `${String(last.reasoning || '')}${patch.reasoningDelta}`
     last.reasoningPreview = last.reasoning
@@ -694,6 +728,13 @@ function finishXiaomiAssistantRun(runId, finalText) {
     clearXiaomiVoiceReply()
   }
 
+  const sealedText = String(last?.text || incoming || '').trim()
+  _voiceChatLog(
+    '对话',
+    `RUN_FINISHED run=${rid || '(无id)'} 回复 ${sealedText.length} 字` +
+      (turnDurationStr ? ` 耗时=${turnDurationStr}` : ''),
+    sealedText.slice(0, 120),
+  )
   _activeRunId = ''
   _aguiTurn = null
   _runStartedAtMs = 0
@@ -716,6 +757,7 @@ function finishXiaomiAssistantRun(runId, finalText) {
 function failXiaomiAssistantRun(errText) {
   clearXiaomiVoiceReply()
   const err = String(errText || '生成失败').trim()
+  _voiceChatLog('错误', `RUN_ERROR：${err.slice(0, 200)}`)
   const messages = [...(getState().messages || [])]
   const last = messages[messages.length - 1]
   if (last && last.role === 'assistant' && (last.pending || last.streaming)) {
@@ -1075,8 +1117,11 @@ export async function sendXiaomiChat(text, ctx = {}) {
       ),
     )
     try {
-      const { voiceFeLog } = await import('../../lib/xiaomi-voice/voice-file-log.js')
-      voiceFeLog('对话', `用户发送：「${raw}」`, { detail: `voice=${!!ctx.voiceInitiated} len=${raw.length}` })
+      const { noteVoicePanelSend } = await import('../../lib/xiaomi-voice/voice-file-log.js')
+      noteVoicePanelSend(raw, {
+        source: ctx.voiceInitiated ? '语音发问' : '文本发问',
+        detail: `voice=${!!ctx.voiceInitiated} len=${raw.length}`,
+      })
     } catch {
       /* ignore */
     }
@@ -1140,6 +1185,11 @@ export async function sendXiaomiChat(text, ctx = {}) {
     },
   ]
   patchState({ messages, streaming: true, draft: '', activeView: 'chat' }, { persistUi: true })
+  _voiceChatLog(
+    '对话',
+    `chatSend 准备 session=${key.slice(0, 12)}… agent=${XIAOMI_AGENT} voice=${!!ctx.voiceInitiated}`,
+    raw.slice(0, 80),
+  )
 
   try {
     const voiceReply = await xiaomiShouldSpeak()
@@ -1148,12 +1198,14 @@ export async function sendXiaomiChat(text, ctx = {}) {
       ...(ctx.voiceInitiated ? { voiceInitiated: true } : {}),
       ...(voiceReply ? { voiceReply: true } : {}),
     })
+    _voiceChatLog('对话', `chatSend 已提交 messageId=${userMsgId} voiceReply=${!!voiceReply}`)
     // chatSend 后 thread 通常已落库：立刻 resolve + warm，缩短 V4 空白窗
     void bindXiaomiV4Thread(key)
   } catch (e) {
     clearXiaomiVoiceReply()
     _runStartedAtMs = 0
     const err = String(e?.message || e || '发送失败')
+    _voiceChatLog('错误', `chatSend 失败：${err.slice(0, 200)}`)
     const cur = [...(getState().messages || [])]
     const last = cur[cur.length - 1]
     if (last?.pending) cur.pop()

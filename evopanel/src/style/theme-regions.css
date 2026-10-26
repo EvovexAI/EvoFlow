@@ -39,7 +39,9 @@ html[data-translucent-ui='1'] .mobile-topbar {
   box-shadow: none;
 }
 
-/* panel：右侧舞台及其子面板（原 liquid-glass.css:299-310；token 驱动，值等价） */
+/* panel：右信息栏 / 工作区面板 / 右侧舞台及其子面板（原 liquid-glass 同一玻璃块；token 驱动，值等价） */
+html[data-translucent-ui='1'] .react-chat-info-rail,
+html[data-translucent-ui='1'] .react-chat-workspace-panel,
 html[data-translucent-ui='1'] .react-chat-right-stage-panel,
 html[data-translucent-ui='1'] .react-chat-collab-exec-panel,
 html[data-translucent-ui='1'] .react-chat-knowledge-map-panel,

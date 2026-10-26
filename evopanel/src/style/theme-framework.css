@@ -32,6 +32,8 @@
   --surface-raised-bg: var(--bg-card);
   --surface-raised-border: var(--border-primary);
   --surface-raised-shadow: none;
+  --surface-raised-backdrop: none;
+  --surface-raised-hover-bg: var(--surface-raised-bg);
   --surface-control-bg: var(--bg-card);
   --surface-control-border: var(--border-primary);
   --surface-control-fg: var(--text-primary);
@@ -99,8 +101,28 @@
 html[data-translucent-ui='1'] {
   --region-app-bg: transparent;
   --region-content-bg: transparent;
-  --surface-raised-bg: var(--surface-glass-bg);
+  /* chat 画布 token：半透明/自定义壁纸下置透明，让消费 --chat-canvas 的 chat 表面透出壁纸
+     （对齐科技风先例 sci-fi-theme.css:93；带 :not([data-translucent-ui]) 守卫的旧规则不受影响） */
+  --chat-canvas: transparent;
+}
+/* 内容区内的 raised 表面（卡片）转磨砂——作用域对齐原白名单（#content），
+   避免波及弹层/侧栏里的卡片；值对齐原白名单（strong 玻璃） */
+html[data-translucent-ui='1'] #content {
+  --surface-raised-bg: var(--surface-glass-strong-bg);
   --surface-raised-border: var(--surface-glass-border);
+  --surface-raised-backdrop: blur(var(--surface-glass-blur)) saturate(var(--surface-glass-saturate));
+  --surface-raised-hover-bg: color-mix(in srgb, var(--surface-glass-strong-bg) 82%, var(--accent) 18%);
+}
+/* 自定义墙纸：内容区卡片略提高不透明度（对齐原白名单 color-mix 62%） */
+html[data-custom-bg='1'] #content {
+  --surface-raised-bg: color-mix(in srgb, var(--bg-secondary) 62%, transparent);
+}
+/* WebGL 透镜：raised 表面只留描边（对齐原白名单） */
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] #content {
+  --surface-raised-bg: transparent;
+  --surface-raised-backdrop: none;
+  --surface-raised-border: color-mix(in srgb, var(--border-primary) 50%, transparent);
+  --surface-raised-hover-bg: transparent;
 }
 html[data-custom-bg='1'] {
   --region-app-bg: transparent;

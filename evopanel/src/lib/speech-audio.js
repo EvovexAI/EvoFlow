@@ -751,7 +751,7 @@ export class StreamingVoiceRecorder {
     this.#watchdogStartedAt = Date.now();
     this.#watchdogTimer = setInterval(() => {
       if (!this.#micActive || !this.#ws || this.#ws.readyState !== WebSocket.OPEN) return;
-      if (this.#reconnecting) return;
+      if (this.#reconnecting || this.#suspendedByTTS) return;
       const now = Date.now();
       // Warmup: Volcengine often needs several seconds before first transcript.
       if (now - this.#watchdogStartedAt < WATCHDOG_WARMUP_MS) return;
@@ -823,6 +823,10 @@ export class StreamingVoiceRecorder {
     this.#userWantedMic = true;
     this.#bargeinBuffer = [];
     this.#bargeinBuffering = true;
+    // TTS 期重置看门狗，避免喇叭回声被当成「用户在说却无转写」
+    this.#lastLoudTs = 0;
+    this.#lastInboundTs = Date.now();
+    this.#watchdogStartedAt = Date.now();
     // 只断 WS，保留 mic + worklet/processor + analyser
     this.#intentionalClose = true; // 防止 onclose 触发重连
     if (this.#ws) {

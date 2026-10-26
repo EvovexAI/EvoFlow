@@ -7,6 +7,8 @@ import {
   getXiaomiAsrProvider,
   getXiaomiTtsProvider,
   getXiaomiTtsSpeaker,
+  resolveXiaomiTtsSpeaker,
+  setXiaomiTtsSpeaker,
 } from './config.js'
 import {
   beginVoiceTrace,
@@ -30,6 +32,12 @@ let _connecting = null
  *   objectUrl: string,
  *   wireEnded: boolean,
  *   started: boolean,
+ *   gotAudio?: boolean,
+ *   _queuedAt?: number,
+ *   _nearEndHandler?: (() => void) | null,
+ *   _watchTimer?: number,
+ *   _watchFromBuf?: number,
+ *   _watchBufHandler?: (() => void) | null,
  * }} FramePlayEntry
  */
 /** @type {Map<number, FramePlayEntry>} */
@@ -48,6 +56,8 @@ let _replyPlayLogged = false
 let _onFirstLocalPlay = null
 /** @type {((idle: boolean) => void) | null} */
 let _onPlaybackIdle = null
+/** 本地停播后丢弃迟到 tts_*，直到下一轮 assistant_begin（白龙马 stopTTS 语义） */
+let _dropIncomingAudio = false
 
 export function isXiaomiFrameSessionActive() {
   return !!(_ws && _ws.readyState === WebSocket.OPEN)
@@ -102,6 +112,7 @@ export async function connectXiaomiFrameSession() {
           return
         }
         if (ev.data instanceof ArrayBuffer && ev.data.byteLength > 4) {
+          if (_dropIncomingAudio) return
           const seq = new DataView(ev.data).getUint32(0, true)
           _appendAudio(seq, ev.data.slice(4))
         }
@@ -115,13 +126,13 @@ export async function connectXiaomiFrameSession() {
       _active = true
       const asr = getXiaomiAsrProvider()
       const tts = getXiaomiTtsProvider()
-      const speaker = getXiaomiTtsSpeaker()
+      // 固定音色：永不空，避免多句分片落到不同默认说话人
+      const speaker = resolveXiaomiTtsSpeaker()
+      if (!getXiaomiTtsSpeaker()) setXiaomiTtsSpeaker(speaker)
       const tid = getVoiceTrace() || beginVoiceTrace({ reason: 'frame-session-start' })
       voiceFeLog(
         '会话',
-        `WebSocket 已连接，发送 start ASR=${asr} TTS=${tts}` +
-          (speaker ? ` 音色=${speaker}` : '') +
-          ` TRACE=${tid}`,
+        `WebSocket 已连接，发送 start ASR=${asr} TTS=${tts} 音色=${speaker} TRACE=${tid}`,
       )
       ws.send(
         JSON.stringify({
@@ -129,7 +140,7 @@ export async function connectXiaomiFrameSession() {
           asr_provider: asr,
           tts_provider: tts,
           trace_id: tid,
-          ...(speaker ? { speaker } : {}),
+          speaker,
         }),
       )
       return ws
@@ -163,18 +174,25 @@ function _handleJson(m) {
     }
   }
   if (type === 'tts_start') {
+    if (_dropIncomingAudio) return
     const tid = String(m.trace_id || '').trim()
     if (tid) adoptVoiceTrace(tid, { reason: 'tts_start' })
     const seq = Number(m.seq) || 0
     if (seq) {
+      // 首包进队即挂起 continuous（白龙马：整轮只 suspend 一次）
+      if (_play.size === 0 && _playOrder.length === 0) {
+        _notifyBgVoiceTts(true)
+      }
       if (!_playOrder.includes(seq)) _playOrder.push(seq)
       _ensurePlayer(seq)
       _kickSerialPlay()
     }
   } else if (type === 'tts_end') {
+    if (_dropIncomingAudio) return
     const seq = Number(m.seq) || 0
     _finishPlayer(seq, !!m.cancelled)
   } else if (type === 'interrupted') {
+    _dropIncomingAudio = false
     _teardownAllAudio()
   }
   try {
@@ -226,6 +244,7 @@ function _ensurePlayer(seq) {
 }
 
 function _appendAudio(seq, buf) {
+  if (_dropIncomingAudio) return
   if (!_playOrder.includes(seq)) _playOrder.push(seq)
   const entry = _ensurePlayer(seq)
   if (!entry) return
@@ -254,6 +273,30 @@ function _flushPending(seq) {
       break
     }
   }
+}
+
+/**
+ * MSE/流式 mp3 时常 duration=Infinity/NaN；用 SourceBuffer.buffered 估时长。
+ * @param {FramePlayEntry} entry
+ * @returns {number} seconds, 0 if unknown
+ */
+function _entryPlayableDuration(entry) {
+  try {
+    const dur = Number(entry.audio.duration)
+    if (Number.isFinite(dur) && dur > 0 && dur < 3600) return dur
+  } catch {
+    /* ignore */
+  }
+  try {
+    const b = entry.sb?.buffered
+    if (b && b.length > 0) {
+      const end = b.end(b.length - 1)
+      if (Number.isFinite(end) && end > 0) return end
+    }
+  } catch {
+    /* ignore */
+  }
+  return 0
 }
 
 /**
@@ -290,6 +333,8 @@ function _kickSerialPlay() {
     } catch {
       /* ignore */
     }
+    // continuous / follow-up 必须知道 Frame 在播（pipeline 未挂 handler 时也曾漏 notify → 空闲误退下）
+    _notifyBgVoiceTts(true)
     const prevGap =
       typeof entry._queuedAt === 'number' ? Math.round(performance.now() - entry._queuedAt) : null
     const playAt = performance.now()
@@ -324,30 +369,84 @@ function _kickSerialPlay() {
       },
       { once: true },
     )
-    // 距结尾 80ms 预切下一句，减少 audio.ended 后的空档
+    // 距结尾 80ms 预切下一句；duration 未知时用 buffered 估
     const onTime = () => {
       if (_playingSeq !== seq) return
-      const dur = Number(entry.audio.duration)
+      const dur = _entryPlayableDuration(entry)
       const cur = Number(entry.audio.currentTime)
-      if (!Number.isFinite(dur) || dur <= 0 || !Number.isFinite(cur)) return
+      if (!(dur > 0) || !Number.isFinite(cur)) return
+      // buffered 变长时刷新看门狗
+      if (!entry._watchFromBuf || Math.abs(entry._watchFromBuf - dur) > 0.05) {
+        entry._watchFromBuf = dur
+        _armPlayWatchdog(seq, entry)
+      }
       if (dur - cur <= 0.08) {
         entry.audio.removeEventListener('timeupdate', onTime)
-        voicePlaybackMark('播放结束', '', `本地近尾预切 seq=${seq} left=${((dur - cur) * 1000).toFixed(0)}ms`)
+        voicePlaybackMark(
+          '播放结束',
+          '',
+          `本地近尾预切 seq=${seq} left=${((dur - cur) * 1000).toFixed(0)}ms`,
+        )
         _advanceAfterSeq(seq)
       }
     }
     entry.audio.addEventListener('timeupdate', onTime)
     entry._nearEndHandler = onTime
-    // wire 已结束且 duration 已知时，防 ended 丢失（余量收紧到 120ms）
-    if (entry.wireEnded) {
-      const dur = Number(entry.audio.duration)
-      if (Number.isFinite(dur) && dur > 0) {
-        window.setTimeout(() => {
-          if (_playingSeq === seq) _advanceAfterSeq(seq)
-        }, Math.ceil(dur * 1000) + 120)
-      }
-    }
+    // 防卡死：MSE 短句常无 duration → 旧硬超时 12s 会整轮卡住（日志 seq=7）
+    _armPlayWatchdog(seq, entry)
     return
+  }
+}
+
+/** @param {number} seq @param {FramePlayEntry} entry */
+function _armPlayWatchdog(seq, entry) {
+  const clear = () => {
+    if (entry._watchTimer) {
+      window.clearTimeout(entry._watchTimer)
+      entry._watchTimer = 0
+    }
+  }
+  clear()
+  const armFromDuration = () => {
+    const dur = _entryPlayableDuration(entry)
+    if (!(dur > 0)) return false
+    const cur = Number(entry.audio.currentTime) || 0
+    const leftMs = Math.max(200, Math.ceil((dur - cur) * 1000) + 250)
+    clear()
+    entry._watchTimer = window.setTimeout(() => {
+      if (_playingSeq === seq) {
+        voiceFeLog('播报', `本地播报看门狗推进 seq=${seq}（ended/近尾未触发） dur≈${dur.toFixed(2)}s`)
+        _advanceAfterSeq(seq)
+      }
+    }, leftMs)
+    return true
+  }
+  if (!armFromDuration()) {
+    // wire 已结束仍无时长：短句常见，2.5s 内必须推进（勿再 12s）
+    // wire 未结束：给合成/下发留余量，最多 6s
+    const hardMs = entry.wireEnded ? 2500 : 6000
+    entry._watchTimer = window.setTimeout(() => {
+      if (_playingSeq !== seq) return
+      // 到期再试一次 buffered
+      if (armFromDuration()) return
+      voiceFeLog(
+        '播报',
+        `本地播报硬超时推进 seq=${seq} wireEnded=${!!entry.wireEnded} limit=${hardMs}ms`,
+      )
+      _advanceAfterSeq(seq)
+    }, hardMs)
+    const onMeta = () => {
+      if (_playingSeq === seq) armFromDuration()
+    }
+    entry.audio.addEventListener('loadedmetadata', onMeta)
+    entry.audio.addEventListener('durationchange', onMeta)
+    // MSE：append 完成后 buffered 才有值
+    try {
+      entry.sb?.addEventListener('updateend', onMeta)
+      entry._watchBufHandler = onMeta
+    } catch {
+      /* ignore */
+    }
   }
 }
 
@@ -355,8 +454,23 @@ function _disposeEntry(seq) {
   const entry = _play.get(seq)
   if (!entry) return
   try {
+    if (entry._watchTimer) {
+      window.clearTimeout(entry._watchTimer)
+      entry._watchTimer = 0
+    }
+  } catch {
+    /* ignore */
+  }
+  try {
     if (entry._nearEndHandler) {
       entry.audio.removeEventListener('timeupdate', entry._nearEndHandler)
+    }
+  } catch {
+    /* ignore */
+  }
+  try {
+    if (entry._watchBufHandler && entry.sb) {
+      entry.sb.removeEventListener('updateend', entry._watchBufHandler)
     }
   } catch {
     /* ignore */
@@ -402,6 +516,17 @@ function _maybeNotifyListening() {
   } catch {
     /* ignore */
   }
+  _notifyBgVoiceTts(false)
+}
+
+/** Frame 本地播报起止 → continuous 空闲计时 / ASR duck（不依赖 pipeline 是否挂了 handler） */
+function _notifyBgVoiceTts(started) {
+  void import('../background-voice.js')
+    .then((m) => {
+      if (started) m.notifyTTSStarted?.()
+      else m.notifyTTSStopped?.()
+    })
+    .catch(() => {})
 }
 
 export function sendXiaomiClientListening() {
@@ -459,15 +584,9 @@ function _finishPlayer(seq, cancelled) {
   } catch {
     /* ignore */
   }
-  // 若还没轮到播，等 _kickSerialPlay；若正在播，等 ended / 近尾预切
+  // 若还没轮到播，等 _kickSerialPlay；若正在播，重挂看门狗（wire 刚结束、duration 可能刚就绪）
   if (_playingSeq === seq) {
-    const dur = Number(entry.audio.duration)
-    if (Number.isFinite(dur) && dur > 0) {
-      const left = Math.max(0, dur * 1000 - (entry.audio.currentTime || 0) * 1000)
-      window.setTimeout(() => {
-        if (_playingSeq === seq) _advanceAfterSeq(seq)
-      }, left + 120)
-    }
+    _armPlayWatchdog(seq, entry)
   } else {
     _kickSerialPlay()
   }
@@ -507,7 +626,14 @@ export function sendXiaomiAssistantBegin() {
   try {
     let tid = getVoiceTrace()
     if (!tid) tid = beginVoiceTrace({ reason: 'assistant_begin' })
-    resetXiaomiReplyPlayMark()
+    _dropIncomingAudio = false
+    // 新一轮开闸前清掉卡死的旧队列，否则永不 client_listening、残句叠播
+    if (_playingSeq != null || _playOrder.length > 0 || _play.size > 0) {
+      voiceFeLog('播报', 'assistant_begin → 清空上一轮未播完队列')
+      _teardownAllAudio()
+    } else {
+      resetXiaomiReplyPlayMark()
+    }
     _ws.send(JSON.stringify({ type: 'assistant_begin', trace_id: tid }))
     voicePlaybackMark('流式正文', '', `assistant_begin → Frame TRACE=${tid}`)
     return true
@@ -546,6 +672,26 @@ export function sendXiaomiAssistantEnd() {
 let _lastBargeAt = 0
 /** @type {string} */
 let _lastBargeReason = ''
+
+/**
+ * 白龙马式本地停播：只清 MSE 队列 + client_listening，**不**发 barge_in。
+ * continuous 音量打断应走这里——发 barge_in 会抬 min_turn、掐掉整轮合成（回声误触日志 14:16）。
+ * 真·新提问由下一轮 assistant_begin / 显式 bargeInXiaomiFrame 收口。
+ * @param {{ reason?: string }} [opts]
+ */
+export function stopXiaomiFrameLocalPlayback(opts = {}) {
+  const reason = String(opts.reason || 'local-stop')
+  if (!isXiaomiFramePlaying() && _play.size === 0) return
+  voiceFeLog('打断', `本地停播（不对后端 barge_in）reason=${reason}`)
+  _dropIncomingAudio = true
+  _teardownAllAudio()
+  try {
+    _onPlaybackIdle?.(true)
+  } catch {
+    /* ignore */
+  }
+  _notifyBgVoiceTts(false)
+}
 
 /**
  * @param {{ reason?: string }} [opts]

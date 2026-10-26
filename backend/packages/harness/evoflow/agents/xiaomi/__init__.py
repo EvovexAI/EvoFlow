@@ -15,9 +15,8 @@ from evoflow.agents.xiaomi.identity import (
     is_xiaomi_agent,
 )
 from evoflow.agents.xiaomi.prompt import (
+    duty_system_prompt,
     format_page_context_block,
-    policy_block,
-    role_block,
     strip_xiaomi_ui_context_from_system_prompt,
 )
 from evoflow.agents.xiaomi.tool_policy import (
@@ -32,8 +31,7 @@ __all__ = [
     "XIAOMI_DISPLAY_NAME_ZH",
     "XIAOMI_DISPLAY_NAME_EN",
     "is_xiaomi_agent",
-    "role_block",
-    "policy_block",
+    "duty_system_prompt",
     "format_page_context_block",
     "strip_xiaomi_ui_context_from_system_prompt",
     "filter_xiaomi_tools",

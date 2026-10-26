@@ -172,6 +172,11 @@ export async function ensureXiaomiVoiceReplyOn() {
     ).trim()
     const label = await resolveTtsSpeakerLabel(speakerId)
     xiaomiVoiceLog('ensure: 配置音色', { speaker: speakerId || '(空)', label })
+    // 写入 Frame localStorage，保证 start 永远带同一 speaker（多句不分人）
+    if (speakerId) {
+      const { setXiaomiTtsSpeaker } = await import('./xiaomi-voice/config.js')
+      setXiaomiTtsSpeaker(speakerId)
+    }
   } catch (e) {
     xiaomiVoiceLog('ensure: 读音色配置失败', String(e?.message || e))
   }

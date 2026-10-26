@@ -367,6 +367,9 @@ class PipecatVoiceBridge(FrameProcessor):
         # True from first TTSStarted until FE client_listening / 真打断
         self._bot_audible = False
         self._assistant_plain = ""
+        # 本轮是否已走进合成（on_tts_request）；用于 End 后兜底整段播报
+        self._turn_tts_count = 0
+        self._end_fallback_task: asyncio.Task[None] | None = None
 
     # ── public API used by SpeechSession ───────────────────────────────
 
@@ -379,10 +382,14 @@ class PipecatVoiceBridge(FrameProcessor):
         if self._hook:
             self._hook.set_turn_handler(handler)
 
-    def begin_assistant_turn(self) -> None:
+    async def begin_assistant_turn(self) -> None:
         self._ignore_assistant = False
         self._assistant_plain = ""
+        self._turn_tts_count = 0
+        self._cancel_end_fallback()
         self._turn += 1
+        # 上轮 End 与分句竞态时，残句会留在 aggregator，混进下一轮（日志：turn2 先合成「更细的…」）
+        await self._close_llm_turn_and_drop_residual(reason="assistant_begin")
 
     async def inject_assistant_text(self, text: str) -> None:
         if self._ignore_assistant or not text:
@@ -400,9 +407,71 @@ class PipecatVoiceBridge(FrameProcessor):
             voice_log("对话", "助手回复结束（本轮已打断/忽略，无正文）")
         else:
             voice_log("对话", "助手回复结束（空正文）")
+        turn = self._turn
         await self.queue_frame(
-            LLMResponseEndFrame(turn=self._turn), FrameDirection.DOWNSTREAM
+            LLMResponseEndFrame(turn=turn), FrameDirection.DOWNSTREAM
         )
+        # 禁止同步 flush aggregator（与 pipe 内 aggregate 竞态会截断）。
+        # 若 EndFrame 因 _in_llm_turn 竞态未进 pipe / flush 空转，本轮会完全无合成
+        # （日志 14:19：有完整正文却无「切出完整句」）。延迟兜底整段 TTSSpeakFrame。
+        if plain and _has_readable(plain) and not self._ignore_assistant:
+            self._schedule_end_tts_fallback(plain, turn)
+
+    def _cancel_end_fallback(self) -> None:
+        t = self._end_fallback_task
+        self._end_fallback_task = None
+        if t and not t.done():
+            t.cancel()
+
+    def _schedule_end_tts_fallback(self, plain: str, turn: int) -> None:
+        self._cancel_end_fallback()
+
+        async def _run() -> None:
+            try:
+                await asyncio.sleep(0.45)
+                if self._ignore_assistant or turn != self._turn:
+                    return
+                if self._turn_tts_count > 0:
+                    return
+                if not self._pipe_worker or not self._ready:
+                    return
+                voice_log(
+                    "分句",
+                    f"End 后本轮仍无合成 → 兜底整段播报 turn={turn}：「{plain[:80]}」"
+                    + ("…" if len(plain) > 80 else ""),
+                )
+                await self._pipe_worker.queue_frame(PipeTTSSpeakFrame(text=plain))
+                # 清掉 aggregator 残句，避免下一轮 begin 再混入
+                await self._drop_tts_residual(reason="end_tts_fallback")
+            except asyncio.CancelledError:
+                return
+            except Exception:
+                logger.exception("end TTS fallback failed")
+
+        self._end_fallback_task = asyncio.create_task(_run())
+
+    async def _close_llm_turn_and_drop_residual(self, *, reason: str) -> None:
+        """Close dangling LLM turn and discard leftover aggregator text (no speak)."""
+        if self._pipe_worker and self._ready and self._in_llm_turn:
+            try:
+                await self._pipe_worker.queue_frame(LLMFullResponseEndFrame())
+            except Exception:
+                logger.exception("failed to close LLM turn on %s", reason)
+            self._in_llm_turn = False
+        await self._drop_tts_residual(reason=reason)
+
+    async def _drop_tts_residual(self, *, reason: str) -> None:
+        agg = getattr(self._tts, "_text_aggregator", None) if self._tts else None
+        if agg is None:
+            return
+        try:
+            leftover = await agg.flush()
+            text = (getattr(leftover, "text", None) or "").strip()
+            if text:
+                voice_log("分句", f"丢弃上轮残句 reason={reason}：「{text[:80]}」")
+            await agg.reset()
+        except Exception:
+            logger.exception("failed to drop TTS residual on %s", reason)
 
     async def inject_speak(self, text: str, seq: int | None = None) -> None:
         if self._ignore_assistant:
@@ -521,8 +590,15 @@ class PipecatVoiceBridge(FrameProcessor):
             turn = int(frame.turn or 0)
             if turn:
                 self._current_turn = max(self._current_turn, turn)
+            await self._ensure_pipecat()
             if self._pipe_worker and self._in_llm_turn:
                 await self._pipe_worker.queue_frame(LLMFullResponseEndFrame())
+            elif self._pipe_worker and not self._in_llm_turn:
+                # Text 尚未 process 时 End 先到 → 旧逻辑丢 End，残句卡死；交由 inject 侧兜底播报
+                voice_log(
+                    "分句",
+                    f"End 时 _in_llm_turn=False turn={turn} → 跳过 pipe End（等兜底整段播报）",
+                )
             self._in_llm_turn = False
             return
 
@@ -585,6 +661,8 @@ class PipecatVoiceBridge(FrameProcessor):
 
         @self._tts.event_handler("on_tts_request")
         async def _on_tts_request(_svc, context_id: str, text: str):
+            self._turn_tts_count += 1
+            self._cancel_end_fallback()
             self._ctx_text[context_id] = text
             speaker = self._speaker or "(default)"
             # Pipecat 切句后进合成 — 对齐旧「分句」打点

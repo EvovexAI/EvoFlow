@@ -119,7 +119,10 @@ class VolcengineTTSService(TTSService):
             **kwargs,
         )
         self._provider = (provider or "volcengine").strip().lower()
-        self._speaker = speaker
+        # 空 speaker 钉死产品默认，避免各句落到不同 Gateway 默认
+        from app.gateway.speech.volcengine_speech import DEFAULT_TTS_SPEAKER
+
+        self._speaker = (speaker or "").strip() or DEFAULT_TTS_SPEAKER
         # 同会话复用 uid，减轻厂商侧音色/韵律漂移
         self._session_uid = f"evoflow-chat-{uuid.uuid4().hex[:12]}"
         self._bg_tasks: set[asyncio.Task] = set()
@@ -133,7 +136,12 @@ class VolcengineTTSService(TTSService):
             self._provider = provider.strip().lower()
 
     def set_speaker(self, speaker: str | None) -> None:
-        self._speaker = speaker
+        from app.gateway.speech.volcengine_speech import DEFAULT_TTS_SPEAKER
+
+        pinned = (speaker or "").strip() or DEFAULT_TTS_SPEAKER
+        # 同会话内不因空值冲掉已钉好的音色
+        if pinned:
+            self._speaker = pinned
 
     def refresh_session(self) -> None:
         """New sticky uid after barge / new voice session."""

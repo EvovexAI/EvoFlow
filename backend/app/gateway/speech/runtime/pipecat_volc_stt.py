@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from collections import deque
 from collections.abc import AsyncGenerator
 from typing import Any
 
@@ -24,6 +25,7 @@ from loguru import logger
 from pipecat.frames.frames import (
     EndFrame,
     Frame,
+    InputAudioRawFrame,
     InterimTranscriptionFrame,
     StartFrame,
     STTMuteFrame,
@@ -44,6 +46,8 @@ _KEEPALIVE_PCM = b"\x00" * (16000 * 2 // 5)  # 6400 bytes ≈ 200ms
 _IDLE_GAP_S = 0.18
 # FE 播完才应 unmute；若 client_listening 丢失，最多卡住这么久
 _UNMUTE_HOLD_SAFETY_S = 8.0
+# mute 期环形缓冲：unmute 后回灌，避免「AI 说完用户立刻开口」丢字头
+_MUTE_PCM_MAX_BYTES = 16000 * 2 * 2  # ≈2s
 
 
 class EvoSTTService(STTService):
@@ -75,6 +79,9 @@ class EvoSTTService(STTService):
         self._pending_unmute = False
         self._unmute_hold_logged = False
         self._unmute_safety_task: asyncio.Task | None = None
+        # mute 期间 Pipecat 会丢弃音频；自缓冲以便 unmute 回灌
+        self._mute_pcm_buf: deque[bytes] = deque()
+        self._mute_pcm_bytes = 0
 
     def set_provider(self, provider: str | None) -> None:
         if provider:
@@ -144,6 +151,7 @@ class EvoSTTService(STTService):
                 await self._ensure_session()
             else:
                 voice_log("管线", "STT unmute → ASR 会话仍存活（保活成功）")
+            await self._flush_mute_pcm()
             await self._ensure_keepalive()
 
     async def release_unmute_hold(self, *, reason: str = "client_listening") -> None:
@@ -157,6 +165,9 @@ class EvoSTTService(STTService):
         await self._cancel_unmute_safety()
         if not self._pending_unmute:
             voice_log("管线", f"STT unmute hold 已清除 reason={reason}（无待处理 unmute）")
+            # 即使无 pending unmute，也可能已 unmuted 但仍有缓冲（安全超时路径）
+            if not self._muted:
+                await self._flush_mute_pcm()
             return
         was = self._muted
         self._muted = False
@@ -167,7 +178,52 @@ class EvoSTTService(STTService):
                 voice_log("管线", "STT unmute → 重建 ASR 会话（hold 期间已超时）")
                 await self._close_session()
                 await self._ensure_session()
+            await self._flush_mute_pcm()
             await self._ensure_keepalive()
+
+    async def process_audio_frame(self, frame: InputAudioRawFrame, direction: FrameDirection):
+        """Mute 时基类直接丢包；这里环形缓冲，unmute 后回灌防丢字头。"""
+        if self._muted and frame.audio:
+            # 仅「TTS 已停、等前端播完」窗口缓冲——喇叭回声少、用户抢话字头在这儿
+            if self._pending_unmute:
+                self._push_mute_pcm(frame.audio)
+            return
+        await super().process_audio_frame(frame, direction)
+
+    def _push_mute_pcm(self, audio: bytes) -> None:
+        if not audio:
+            return
+        self._mute_pcm_buf.append(audio)
+        self._mute_pcm_bytes += len(audio)
+        while self._mute_pcm_bytes > _MUTE_PCM_MAX_BYTES and self._mute_pcm_buf:
+            old = self._mute_pcm_buf.popleft()
+            self._mute_pcm_bytes -= len(old)
+
+    def _clear_mute_pcm(self) -> None:
+        self._mute_pcm_buf.clear()
+        self._mute_pcm_bytes = 0
+
+    async def _flush_mute_pcm(self) -> None:
+        if not self._mute_pcm_buf:
+            return
+        n = self._mute_pcm_bytes
+        chunks = list(self._mute_pcm_buf)
+        self._clear_mute_pcm()
+        if not self._session:
+            return
+        ms = max(0, n // 32)  # 16kHz s16le → 32 bytes/ms
+        voice_log("管线", f"STT unmute → 回灌 mute 期 PCM ≈{ms}ms（防丢字头）")
+        for chunk in chunks:
+            try:
+                await self._session.send_pcm(chunk)
+                self._last_pcm_at = time.monotonic()
+            except Exception as e:
+                logger.warning(f"{self} mute-pcm flush failed: {e}")
+                voice_log("语音转文字", f"ASR 回灌失败，将重建会话：{e}")
+                self._session_dead = True
+                await self._close_session()
+                self._schedule_rebuild()
+                return
 
     async def flush_asr(self) -> None:
         if self._session:

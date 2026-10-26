@@ -155,6 +155,27 @@ export const VOICE_TRAY_STATE_EVENT = 'evopanel:voice-tray-state'
  */
 export async function setVoiceTrayState(state) {
   const next = String(state || 'idle')
+  // Frame 本地播报中：禁止 continuous 把 UI 打回「聆听/空闲」
+  try {
+    const { isXiaomiFramePlaying, isXiaomiFramePipelineActive } = await import(
+      './xiaomi-voice/index.js',
+    )
+    if (
+      isXiaomiFramePipelineActive?.() &&
+      isXiaomiFramePlaying?.() &&
+      (next === 'recording' || next === 'idle')
+    ) {
+      return
+    }
+  } catch {
+    /* ignore */
+  }
+  try {
+    const { noteVoiceUiState } = await import('./xiaomi-voice/voice-file-log.js')
+    noteVoiceUiState(next, { source: '托盘' })
+  } catch {
+    /* ignore */
+  }
   try {
     window.dispatchEvent(
       new CustomEvent(VOICE_TRAY_STATE_EVENT, { detail: { state: next } }),
@@ -386,6 +407,15 @@ export async function initBackgroundVoice() {
   // 装配 PTT 控制器（策略模块）
   initPttController()
 
+  // Frame MSE 播报也算「忙碌」，避免 continuous 空闲计时在 AI 还在说时开火
+  try {
+    const { registerSpeechBusyExtra } = await import('./speech-client.js')
+    const { isXiaomiFramePlaying } = await import('./xiaomi-voice/session-client.js')
+    registerSpeechBusyExtra(() => !!isXiaomiFramePlaying?.())
+  } catch {
+    /* ignore */
+  }
+
   const { listen } = await import('@tauri-apps/api/event')
   await listen('voice-push-down', () => {
     void onVoicePushDown()
@@ -535,6 +565,12 @@ async function onWakeWordHit() {
   if (onWakeWordHit._busy) return
   onWakeWordHit._busy = true
   console.log('[background-voice] Wake word hit! Opening 小V...')
+  try {
+    const { voiceFeLog } = await import('./xiaomi-voice/voice-file-log.js')
+    voiceFeLog('会话', '收到 wake-word-hit → 开麦应答')
+  } catch {
+    /* ignore */
+  }
 
   try {
     await openXiaomiForWake()
@@ -547,12 +583,42 @@ async function onWakeWordHit() {
       /* ignore */
     }
     try {
+      const { bargeInXiaomiFrame, isXiaomiFrameSessionActive } = await import(
+        './xiaomi-voice/index.js',
+      )
+      if (isXiaomiFrameSessionActive()) {
+        bargeInXiaomiFrame({ reason: 'wake-word-hit' })
+      }
+    } catch {
+      /* ignore */
+    }
+    try {
       const { cancelVoiceFollowUp } = await import('./voice-follow-up.js')
       cancelVoiceFollowUp()
     } catch {
       /* ignore */
     }
     await pauseWakeEarForContinuous()
+
+    // Frame 管线已占麦（语音舞台）：只需应答，不要再开 continuous 抢第二路 ASR
+    let frameActive = false
+    try {
+      const { isXiaomiFramePipelineActive } = await import('./xiaomi-voice/index.js')
+      frameActive = !!isXiaomiFramePipelineActive()
+    } catch {
+      frameActive = false
+    }
+    if (frameActive) {
+      await acknowledgeWakeHit({ spoken: true })
+      void setVoiceTrayState('recording')
+      try {
+        const { voiceFeLog } = await import('./xiaomi-voice/voice-file-log.js')
+        voiceFeLog('会话', '唤醒命中且 Frame 已在聆听 → 只应答，不再开 continuous')
+      } catch {
+        /* ignore */
+      }
+      return
+    }
 
     // 是否能走常开连续模式（火山流式 ASR 已配置）
     let volcReady = false
@@ -653,7 +719,7 @@ async function runWebSpeechCommandTurn() {
     void setVoiceTrayState('processing')
     updateVoicePartialText('')
     const result = await handleVoiceCommandText(cleaned, { global: true, xiaomi: true })
-    if (result === 'paused' || result === 'empty') return
+    if (result === 'paused' || result === 'empty' || result === 'exited') return
     // 「停止播报」后仍可继续说下一句
     if (result === 'tts_stopped') {
       // fall through to follow-up listen window
@@ -710,6 +776,21 @@ async function pauseWakeEarForContinuous() {
 
 async function resumeWakeEarAfterContinuous() {
   if (!wakeWordEnabled) return
+  // Frame 管线已占麦 / 正在播时再开唤醒耳 = 聋耳 + 抢麦
+  // 仅有 Frame session（continuous 分句 TTS）不算占麦，允许恢复唤醒耳
+  try {
+    const { isXiaomiFramePipelineActive, isXiaomiFramePlaying } = await import(
+      './xiaomi-voice/index.js',
+    )
+    if (isXiaomiFramePipelineActive?.() || isXiaomiFramePlaying?.()) {
+      _voiceExitLog(
+        `恢复唤醒耳跳过：Frame 占麦/在播 pipeline=${!!isXiaomiFramePipelineActive?.()} playing=${!!isXiaomiFramePlaying?.()}`,
+      )
+      return
+    }
+  } catch {
+    /* ignore */
+  }
   try {
     if (wakeWordBackend === 'webspeech') {
       const { startWebSpeechEar } = await import('./wake-word-webspeech.js')
@@ -718,8 +799,10 @@ async function resumeWakeEarAfterContinuous() {
       const { startEar } = await import('./wake-word.js')
       await startEar()
     }
+    _voiceExitLog(`唤醒耳已恢复 backend=${wakeWordBackend || '-'}`)
   } catch (e) {
     console.warn('[background-voice] resume wake ear failed:', e?.message)
+    _voiceExitLog(`唤醒耳恢复失败：${e?.message || e}`)
   }
 }
 
@@ -738,16 +821,26 @@ let _continuousIdleTimer = null
 let _continuousFarewellBusy = false
 /** continuous stopTTS 日志节流 */
 let _continuousLastStopTtsAt = 0
+/** 已发问、等助手回复/播报：此间勿因 ASR partial 重挂空闲 */
+let _awaitingAssistantReply = false
+/** 空闲计时挂载日志节流 */
+let _lastIdleArmLogAt = 0
 
-/** 默认 20s；可用 localStorage `evoflow-voice-idle-farewell-ms` 覆盖（≥10000） */
+/** 默认 45s（原先 20s 太急：模型/播报刚完用户还在想下一句就被退下）；localStorage `evoflow-voice-idle-farewell-ms` 可覆盖（≥15000） */
 function _continuousIdleFarewellMs() {
   try {
     const v = parseInt(localStorage.getItem('evoflow-voice-idle-farewell-ms') || '', 10)
-    if (Number.isFinite(v) && v >= 10000) return v
+    if (Number.isFinite(v) && v >= 15000) return v
   } catch {
     /* ignore */
   }
-  return 20000
+  return 45000
+}
+
+function _voiceExitLog(message) {
+  void import('./xiaomi-voice/voice-file-log.js')
+    .then(({ voiceFeLog }) => voiceFeLog('退出', message))
+    .catch(() => {})
 }
 
 function _clearContinuousIdleTimer() {
@@ -760,20 +853,58 @@ function _clearContinuousIdleTimer() {
 function _armContinuousIdleTimer() {
   _clearContinuousIdleTimer()
   if (!continuousModeEnabled || _continuousFarewellBusy) return
+  // 等模型/播报期间挂空闲 = 思考中被退下；等 notifyTTSStopped 再挂
+  if (_awaitingAssistantReply) return
   const ms = _continuousIdleFarewellMs()
   _continuousIdleTimer = setTimeout(() => {
     _continuousIdleTimer = null
     void _runContinuousIdleFarewell()
   }, ms)
+  const now = Date.now()
+  if (!_lastIdleArmLogAt || now - _lastIdleArmLogAt > 15000) {
+    _lastIdleArmLogAt = now
+    _voiceExitLog(`常听空闲计时已挂 idle_ms=${ms}（无人说话将自动退下）`)
+  }
 }
 
 /**
  * 空闲退下：播固定音效 → 关闭常听（唤醒耳恢复）。
+ * Frame session / 本地仍在播时推迟，避免「回复还没说完就先退下了」。
  */
 async function _runContinuousIdleFarewell() {
   if (!continuousModeEnabled || _continuousFarewellBusy) return
+
+  let framePlaying = false
+  let frameSession = false
+  let framePipeline = false
+  let legacyBusy = false
+  try {
+    const { isSpeechPlaybackBusy } = await import('./speech-client.js')
+    legacyBusy = !!isSpeechPlaybackBusy()
+  } catch {
+    legacyBusy = false
+  }
+  try {
+    const fr = await import('./xiaomi-voice/index.js')
+    framePlaying = !!fr.isXiaomiFramePlaying?.()
+    frameSession = !!fr.isXiaomiFrameSessionActive?.()
+    framePipeline = !!fr.isXiaomiFramePipelineActive?.()
+  } catch {
+    /* ignore */
+  }
+  if (framePlaying || legacyBusy) {
+    _voiceExitLog(
+      `空闲退下推迟：仍在播报 framePlaying=${framePlaying} legacyBusy=${legacyBusy}`,
+    )
+    _armContinuousIdleTimer()
+    return
+  }
+
   _continuousFarewellBusy = true
   _clearContinuousIdleTimer()
+  _voiceExitLog(
+    `空闲自动退下开始 idle_ms=${_continuousIdleFarewellMs()} frameSession=${frameSession} framePipeline=${framePipeline}`,
+  )
   try {
     void setVoiceTrayState('speaking')
     try {
@@ -788,6 +919,7 @@ async function _runContinuousIdleFarewell() {
       await playFixedVoiceSfx(VOICE_FAREWELL_LINE)
     } catch (e) {
       console.warn('[background-voice] idle farewell failed:', e?.message || e)
+      _voiceExitLog(`空闲退下音效失败：${e?.message || e}`)
     }
   } finally {
     try {
@@ -803,12 +935,41 @@ async function _runContinuousIdleFarewell() {
           /* ignore */
         }
         await stopContinuousCapture()
-        setPreferXiaomiVoice(false)
-        void setVoiceTrayState('idle')
-        void resumeWakeEarAfterContinuous()
+        // 仅 Frame 管线仍占麦时保留聆听；否则关掉 Frame session，真正退下并恢复唤醒耳
+        let keepVoice = false
+        try {
+          const { isXiaomiFramePipelineActive, stopXiaomiFrameSession } = await import(
+            './xiaomi-voice/index.js',
+          )
+          keepVoice = !!isXiaomiFramePipelineActive?.()
+          if (!keepVoice) {
+            try {
+              stopXiaomiFrameSession?.()
+            } catch {
+              /* ignore */
+            }
+          }
+        } catch {
+          keepVoice = false
+        }
+        if (keepVoice) {
+          setPreferXiaomiVoice(true)
+          void setVoiceTrayState('recording')
+          _voiceExitLog(
+            '常听空闲退下，但 Frame 管线仍占麦 → 继续聆听偏好（不恢复唤醒耳）',
+          )
+        } else {
+          setPreferXiaomiVoice(false)
+          void setVoiceTrayState('idle')
+          _voiceExitLog('常听空闲退下完成 → 空闲 + 恢复唤醒耳')
+          void resumeWakeEarAfterContinuous()
+        }
+      } else {
+        _voiceExitLog('空闲退下结束时 continuous 已关，跳过收尾')
       }
     } catch (e) {
       console.warn('[background-voice] idle farewell stop failed:', e?.message || e)
+      _voiceExitLog(`空闲退下收尾失败：${e?.message || e}`)
     }
     _continuousFarewellBusy = false
   }
@@ -829,7 +990,9 @@ export async function toggleContinuousMode(opts = {}) {
 
   if (continuousModeEnabled) {
     // Turn OFF
+    _voiceExitLog('用户关闭常听（toggleContinuousMode off）→ 停 Frame session + 恢复唤醒耳')
     _clearContinuousIdleTimer()
+    _awaitingAssistantReply = false
     continuousModeEnabled = false
     continuousPolicy?.reset()
     continuousPolicy = null
@@ -870,6 +1033,15 @@ export async function toggleContinuousMode(opts = {}) {
 
   continuousModeEnabled = true
 
+  // 兜底注册（initBackgroundVoice 仅 Tauri；面板页也要 Frame busy）
+  try {
+    const { registerSpeechBusyExtra } = await import('./speech-client.js')
+    const { isXiaomiFramePlaying } = await import('./xiaomi-voice/session-client.js')
+    registerSpeechBusyExtra(() => !!isXiaomiFramePlaying?.())
+  } catch {
+    /* ignore */
+  }
+
   // Free wake-word mic while continuous ASR owns capture.
   await pauseWakeEarForContinuous()
 
@@ -906,27 +1078,43 @@ export async function toggleContinuousMode(opts = {}) {
     console.warn('[background-voice] TTS notify wire failed:', e?.message || e)
   }
 
-  // Create the continuous policy
+  // Create the continuous policy（参数对齐白龙马 voice-continuous）
   continuousPolicy = createContinuousPolicy({
     getText: () => getContinuousTranscript(),
     sendText: (text) => {
       resetContinuousTranscript()
       _clearContinuousIdleTimer() // 用户已开口，等 AI 说完再重新计空闲
+      _awaitingAssistantReply = true
       void handleVoiceCommandText(text, { global: true })
         .then(() => {
-          // 本轮若无 TTS（播报关/短答无声），仍要重新挂空闲计时
+          // 本轮若无 TTS（播报关/短答无声），仍要重新挂空闲计时。
+          // 等够长：工具轮常要几十秒；Frame 有会话时交给 notifyTTSStopped。
           window.setTimeout(() => {
             if (!continuousModeEnabled || _continuousFarewellBusy) return
-            void import('./speech-client.js')
-              .then(({ isAssistantSpeaking, isSpeechPlaybackBusy }) => {
-                if (isAssistantSpeaking() || isSpeechPlaybackBusy()) return
+            void Promise.all([
+              import('./speech-client.js'),
+              import('./xiaomi-voice/session-client.js'),
+            ])
+              .then(([sc, fr]) => {
+                if (sc.isAssistantSpeaking?.() || sc.isSpeechPlaybackBusy?.()) return
+                if (fr.isXiaomiFramePlaying?.()) return
+                if (fr.isXiaomiFrameSessionActive?.()) {
+                  _voiceExitLog('发问后兜底空闲：Frame 会话仍开且未在播 → 暂不挂计时（等播完）')
+                  return
+                }
+                _awaitingAssistantReply = false
                 _armContinuousIdleTimer()
               })
-              .catch(() => _armContinuousIdleTimer())
-          }, 12000)
+              .catch(() => {
+                _awaitingAssistantReply = false
+                _armContinuousIdleTimer()
+              })
+          }, 90000)
         })
         .catch(() => {
+          _awaitingAssistantReply = false
           void setVoiceTrayState('idle')
+          _voiceExitLog('常听发问失败 → 重新挂空闲计时')
           _armContinuousIdleTimer()
         })
     },
@@ -937,28 +1125,40 @@ export async function toggleContinuousMode(opts = {}) {
       import('./speech-client.js').then(({ unduckTTS }) => unduckTTS())
     },
     stopTTS: () => {
-      // Barge-in：停播。正文已走 Frame，必须 barge Frame；legacy stopTTS 只清本地 Audio。
+      // 白龙马：window.stopTTS() 只停本地播报，再 resumeSession(true) 开 ASR。
+      // 禁止对 Frame 发 barge_in（会抬 min_turn，回声误触直接废掉整轮）。
       const now = Date.now()
-      if (!_continuousLastStopTtsAt || now - _continuousLastStopTtsAt > 400) {
-        _continuousLastStopTtsAt = now
-        void import('./xiaomi-voice/voice-file-log.js')
-          .then(({ voiceFeLog }) =>
-            voiceFeLog('打断', 'continuous 判定用户开口，停止 TTS（Frame barge + legacy pause）'),
-          )
-          .catch(() => {})
-        void import('./xiaomi-voice/index.js')
-          .then(({ bargeInXiaomiFrame, isXiaomiFrameSessionActive }) => {
-            if (isXiaomiFrameSessionActive()) {
-              bargeInXiaomiFrame({ reason: 'continuous-barge-in' })
+      if (_continuousLastStopTtsAt && now - _continuousLastStopTtsAt < 400) return
+      _continuousLastStopTtsAt = now
+      void import('./xiaomi-voice/index.js')
+        .then(({ isXiaomiFrameSessionActive, stopXiaomiFrameLocalPlayback }) => {
+          if (isXiaomiFrameSessionActive?.()) {
+            void import('./xiaomi-voice/voice-file-log.js')
+              .then(({ voiceFeLog }) =>
+                voiceFeLog('打断', 'continuous barge → 本地停播（白龙马式，不 barge_in）'),
+              )
+              .catch(() => {})
+            stopXiaomiFrameLocalPlayback?.({ reason: 'continuous-local-stop' })
+            const recorder = getContinuousRecorder()
+            if (recorder?.suspendedByTTS) {
+              void recorder.resumeFromTTS(true).catch(() => {})
             }
-          })
-          .catch(() => {})
-      }
-      void import('./speech-client.js').then(({ stopTTS }) => stopTTS())
-      const recorder = getContinuousRecorder()
-      if (recorder?.suspendedByTTS) {
-        void recorder.resumeFromTTS(true).catch(() => {})
-      }
+            return
+          }
+          void import('./xiaomi-voice/voice-file-log.js')
+            .then(({ voiceFeLog }) =>
+              voiceFeLog('打断', 'continuous 判定用户开口，停止 TTS（legacy）'),
+            )
+            .catch(() => {})
+          void import('./speech-client.js').then(({ stopTTS }) => stopTTS())
+          const recorder = getContinuousRecorder()
+          if (recorder?.suspendedByTTS) {
+            void recorder.resumeFromTTS(true).catch(() => {})
+          }
+        })
+        .catch(() => {
+          void import('./speech-client.js').then(({ stopTTS }) => stopTTS())
+        })
     },
     onProcessing: () => {
       _clearContinuousIdleTimer()
@@ -1021,6 +1221,7 @@ export async function toggleContinuousMode(opts = {}) {
  */
 export function notifyTTSStarted() {
   _clearContinuousIdleTimer() // AI 说话期间不计空闲
+  _awaitingAssistantReply = true
   const recorder = getContinuousRecorder()
   if (recorder?.recording || recorder?.suspendedByTTS) {
     recorder?.suspendForTTS()
@@ -1040,6 +1241,7 @@ export function notifyTTSStopped() {
     void recorder?.resumeFromTTS(false).catch(() => {})
   }
   continuousPolicy?.onTTSStop()
+  _awaitingAssistantReply = false
   // 播报结束 → 回到持续聆听态（起止可感知），并重新计空闲退下
   if (continuousModeEnabled && isContinuousCaptureActive() && !_continuousFarewellBusy) {
     void setVoiceTrayState('recording')
@@ -1056,14 +1258,31 @@ export function isConversationListeningActive() {
 }
 
 /**
- * Route a recognized voice command: stop-listen / stop-TTS / normal send.
+ * Route a recognized voice command: exit / stop-listen / stop-TTS / normal send.
  * @param {string} text
  * @param {{ global?: boolean, xiaomi?: boolean }} [opts]
- * @returns {Promise<'paused' | 'tts_stopped' | 'sent' | 'empty'>}
+ * @returns {Promise<'exited' | 'paused' | 'tts_stopped' | 'sent' | 'empty'>}
  */
 export async function handleVoiceCommandText(text, opts = {}) {
   const cleaned = String(text || '').trim()
   if (!cleaned) return 'empty'
+
+  // 口令关舞台：听到「停止/关闭/退出」→ 客户端直接退，不发给 AI
+  try {
+    const { isXiaomiVoiceExitCommand, closeXiaomiVoice } = await import('./xiaomi-voice-close.js')
+    if (isXiaomiVoiceExitCommand(cleaned)) {
+      await closeXiaomiVoice({ reason: 'voice' })
+      try {
+        const { toast } = await import('../components/toast.js')
+        toast('已退出语音', 'info')
+      } catch {
+        /* ignore */
+      }
+      return 'exited'
+    }
+  } catch {
+    /* ignore */
+  }
 
   const { isStopListenCommand, isStopTtsOnlyCommand } = await import('./voice-listen-control.js')
   if (isStopListenCommand(cleaned)) {
@@ -1102,10 +1321,14 @@ export async function handleVoiceCommandText(text, opts = {}) {
 /**
  * Pause conversation listening (continuous / follow-up). Wake-word ear stays on
  * so the user can say 「小V小V」 to resume.
- * @param {{ reason?: 'voice' | 'button' | 'reset', silent?: boolean }} [opts]
+ * @param {{ reason?: 'voice' | 'button' | 'reset' | 'exit-xw-voice', silent?: boolean }} [opts]
  */
 export async function pauseConversationListening(opts = {}) {
   const silent = !!opts.silent
+  const reason = String(opts.reason || 'unknown')
+  _voiceExitLog(
+    `暂停监听 pauseConversationListening reason=${reason} silent=${silent} continuous=${continuousModeEnabled}`,
+  )
 
   try {
     const { cancelVoiceFollowUp } = await import('./voice-follow-up.js')
@@ -1128,6 +1351,8 @@ export async function pauseConversationListening(opts = {}) {
     /* ignore */
   }
 
+  // 即使 continuousModeEnabled 已假，也要停 capture（Frame 启动时可能只停了半套）
+  const hadContinuous = continuousModeEnabled || isContinuousCaptureActive()
   if (continuousModeEnabled) {
     _clearContinuousIdleTimer()
     continuousModeEnabled = false
@@ -1139,7 +1364,13 @@ export async function pauseConversationListening(opts = {}) {
     } catch {
       /* ignore */
     }
-    await stopContinuousCapture()
+  }
+  if (hadContinuous || isContinuousCaptureActive()) {
+    try {
+      await stopContinuousCapture()
+    } catch {
+      /* ignore */
+    }
   }
 
   setPreferXiaomiVoice(false)
@@ -1155,6 +1386,67 @@ export async function pauseConversationListening(opts = {}) {
       /* ignore */
     }
   }
+}
+
+/**
+ * Frame 管线接管麦：关掉 continuous 模式与 ASR，但不恢复唤醒耳、不改 preferXiaomi。
+ */
+export async function stopContinuousListeningForFrame() {
+  _clearContinuousIdleTimer()
+  const wasOn = continuousModeEnabled || isContinuousCaptureActive()
+  continuousModeEnabled = false
+  if (continuousPolicy) {
+    continuousPolicy.reset()
+    continuousPolicy = null
+  }
+  try {
+    const { clearTTSNotifyCallbacks } = await import('./voice-reply-speech.js')
+    clearTTSNotifyCallbacks()
+  } catch {
+    /* ignore */
+  }
+  try {
+    await stopContinuousCapture()
+  } catch {
+    /* ignore */
+  }
+  if (wasOn) {
+    try {
+      const { voiceFeLog } = await import('./xiaomi-voice/voice-file-log.js')
+      voiceFeLog('会话', 'Frame 接管 → continuous 已停（防双 ASR / 误 barge）')
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+/**
+ * 退出小V语音全屏：停 Frame 管线 + continuous ASR + 播报，只留唤醒耳。
+ * 防止「面板关了 ASR 还在灌输入框」（日志 source=输入框 + ASR glitch）。
+ */
+export async function shutdownXiaomiVoiceRuntime() {
+  _voiceExitLog('退出语音全屏 shutdownXiaomiVoiceRuntime → 停 Frame / continuous / 播报（仅留唤醒耳）')
+  try {
+    const { voiceFeLog } = await import('./xiaomi-voice/voice-file-log.js')
+    voiceFeLog('会话', '退出语音全屏 → 停止 Frame / continuous / 播报（仅留唤醒耳）')
+  } catch {
+    /* ignore */
+  }
+  try {
+    const { interruptXiaomiFrame, stopXiaomiFramePipeline, isXiaomiFramePipelineActive } =
+      await import('./xiaomi-voice/index.js')
+    if (isXiaomiFramePipelineActive?.()) {
+      try {
+        await interruptXiaomiFrame?.()
+      } catch {
+        /* ignore */
+      }
+    }
+    stopXiaomiFramePipeline?.()
+  } catch {
+    /* ignore */
+  }
+  await pauseConversationListening({ reason: 'exit-xw-voice', silent: true })
 }
 
 /**

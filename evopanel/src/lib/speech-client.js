@@ -623,10 +623,24 @@ function _notifySpeechQueueIdle() {
   }
 }
 
-/** Whether assistant TTS (single-shot or streaming queue) is active / pending. */
+/** @type {(() => boolean) | null} */
+let _speechBusyExtra = null
+
+/** 额外忙碌源（如 Frame MSE 串行播报）；由 background-voice / xiaomi-voice 注册 */
+export function registerSpeechBusyExtra(fn) {
+  _speechBusyExtra = typeof fn === 'function' ? fn : null
+}
+
+/** Whether assistant TTS (single-shot, streaming queue, or Frame local play) is active / pending. */
 export function isSpeechPlaybackBusy() {
   if (_speaking || _speechQueue.playing) return true
-  return _speechQueue.sentences.some((s) => !s.played)
+  if (_speechQueue.sentences.some((s) => !s.played)) return true
+  try {
+    if (_speechBusyExtra?.()) return true
+  } catch {
+    /* ignore */
+  }
+  return false
 }
 
 /**

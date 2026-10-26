@@ -448,7 +448,7 @@
   border-color: color-mix(in srgb, #a78bfa 22%, transparent);
 }
 .xws-speak .xws-stage {
-  border-color: color-mix(in srgb, #34d399 24%, transparent);
+  border-color: color-mix(in srgb, #818cf8 28%, transparent);
 }
 
 /* 舞台内「内容区提示 + 快捷开标签」浮层（内容真实打开处在右侧标签页） */
@@ -694,6 +694,13 @@ html[data-xw-voice='1'] .react-chat-main-body {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
+}
+/* 内容少时把消息顶到底部；溢出时正常上滚，最新仍在列表末尾 */
+.xws-clean .xws-recent-body::before {
+  content: '';
+  flex: 1 0 auto;
 }
 .xws-clean .xws-recent-line {
   display: flex;
@@ -701,12 +708,55 @@ html[data-xw-voice='1'] .react-chat-main-body {
   gap: 3px;
 }
 .xws-clean .xws-recent-role {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   font-size: 10px;
   letter-spacing: 0.12em;
   color: var(--xws-muted);
 }
-.xws-clean .xws-recent-line.is-assistant .xws-recent-role {
+.xws-clean .xws-recent-line.is-assistant .xws-recent-role,
+.xws-clean .xws-recent-line.is-pulse .xws-recent-role {
   color: color-mix(in srgb, var(--xws-state) 80%, #fff);
+}
+.xws-clean .xws-recent-line.is-tool .xws-recent-role,
+.xws-clean .xws-recent-line.is-tool_more .xws-recent-role {
+  color: #9ec5e8;
+}
+.xws-clean .xws-tool-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex: none;
+  background: #64748b;
+}
+.xws-clean .xws-tool-dot.is-running {
+  background: #22d3ee;
+  box-shadow: 0 0 0 0 rgba(34, 211, 238, 0.55);
+  animation: xws-tool-pulse 1.2s ease-out infinite;
+}
+.xws-clean .xws-tool-dot.is-ok {
+  background: #818cf8;
+}
+.xws-clean .xws-tool-dot.is-error {
+  background: #f87171;
+}
+@keyframes xws-tool-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(34, 211, 238, 0.5);
+  }
+  70% {
+    box-shadow: 0 0 0 6px rgba(34, 211, 238, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(34, 211, 238, 0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .xws-clean .xws-tool-dot.is-running {
+    animation: none;
+    opacity: 0.9;
+  }
 }
 .xws-clean .xws-recent-text {
   font-size: 12.5px;
@@ -718,6 +768,16 @@ html[data-xw-voice='1'] .react-chat-main-body {
   overflow: hidden;
   white-space: pre-wrap;
   word-break: break-word;
+}
+.xws-clean .xws-recent-line.is-tool .xws-recent-text,
+.xws-clean .xws-recent-line.is-tool_more .xws-recent-text,
+.xws-clean .xws-recent-line.is-pulse .xws-recent-text {
+  -webkit-line-clamp: 2;
+  color: #a8bdd4;
+  font-size: 12px;
+}
+.xws-clean .xws-recent-line.is-tool.is-tool-running .xws-recent-text {
+  color: #c8e7f7;
 }
 .xws-clean .xws-recent-empty {
   font-size: 12px;
@@ -732,6 +792,64 @@ html[data-xw-voice='1'] .react-chat-main-body {
   border-radius: 0;
   background: transparent;
   cursor: default;
+  /* 中心氛围：蓝→紫径向光晕，随 --xws-state 变色 */
+  isolation: isolate;
+}
+.xws-clean .xws-stage::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 42%;
+  width: min(72vmin, 560px);
+  height: min(72vmin, 560px);
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 0;
+  background:
+    radial-gradient(
+      circle at 50% 45%,
+      color-mix(in srgb, var(--xws-state) 28%, transparent) 0%,
+      color-mix(in srgb, #818cf8 14%, transparent) 32%,
+      color-mix(in srgb, #6366f1 8%, transparent) 52%,
+      transparent 72%
+    );
+  filter: blur(28px);
+  opacity: 0.85;
+  transition: background 0.45s ease, opacity 0.45s ease;
+}
+.xws-clean.xws-listen .xws-stage::before,
+.xws-clean.xws-parse .xws-stage::before {
+  opacity: 1;
+  animation: xws-aura-breathe 2.4s ease-in-out infinite;
+}
+.xws-clean.xws-think .xws-stage::before {
+  opacity: 0.95;
+  animation: xws-aura-breathe 3.2s ease-in-out infinite;
+}
+.xws-clean.xws-speak .xws-stage::before {
+  opacity: 1;
+  filter: blur(34px);
+  animation: xws-aura-breathe 1.6s ease-in-out infinite;
+}
+.xws-clean .xws-canvas {
+  z-index: 1;
+}
+@keyframes xws-aura-breathe {
+  0%,
+  100% {
+    transform: translate(-50%, -50%) scale(0.92);
+    opacity: 0.72;
+  }
+  50% {
+    transform: translate(-50%, -50%) scale(1.06);
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .xws-clean .xws-stage::before {
+    animation: none !important;
+  }
 }
 .xws-clean.xws-speak .xws-stage {
   cursor: pointer;
@@ -766,7 +884,7 @@ html[data-xw-voice='1'] .react-chat-main-body {
   transition: color 0.3s ease;
 }
 .xws-clean .xws-status.is-live .xws-status-word {
-  text-shadow: 0 0 22px color-mix(in srgb, #22d3ee 40%, transparent);
+  text-shadow: 0 0 22px color-mix(in srgb, var(--xws-state) 45%, transparent);
   animation: xws-listen-title 1.8s ease-in-out infinite;
 }
 .xws-clean .xws-live-user,

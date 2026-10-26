@@ -2638,8 +2638,10 @@ html.dark .config-section-title {
 }
 
 .task-card {
-  background: var(--bg-card);
-  border: 1px solid var(--border-primary);
+  background: var(--surface-raised-bg, var(--bg-card));
+  border: 1px solid var(--surface-raised-border, var(--border-primary));
+  backdrop-filter: var(--surface-raised-backdrop, none);
+  -webkit-backdrop-filter: var(--surface-raised-backdrop, none);
   border-radius: var(--radius-xl);
   padding: var(--space-xl);
   transition: background-color $1, border-color $1, color $1, opacity $1, transform $1, box-shadow $1;
@@ -2666,6 +2668,7 @@ html.dark .config-section-title {
 }
 
 .task-card:hover {
+  background: var(--surface-raised-hover-bg, var(--surface-raised-bg));
   border-color: var(--border-focus);
   box-shadow: var(--shadow-lg);
   transform: translateY(-4px);
