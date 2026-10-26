@@ -17,7 +17,10 @@ from evoflow.timeutil import utc_now_iso_z
 logger = logging.getLogger(__name__)
 
 _IN_FLIGHT = frozenset({"executing", "running", "in_progress", "active", "planning"})
-_FAILED = frozenset({"failed", "error", "timed_out"})
+# ``blocked`` is a worker-reported terminal outcome (needs human/lead decision);
+# without it here a blocked step never gets its bounded auto-retry and the
+# follow-up wave keeps re-dispatching it forever.
+_FAILED = frozenset({"failed", "error", "timed_out", "blocked"})
 _PAUSED = frozenset({"paused", "interrupted", "pausing"})
 _PENDING_LIKE = frozenset({"pending", "planned", "waiting_dispatch"})
 _OPEN_APP_RUN = frozenset(
