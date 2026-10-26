@@ -1,0 +1,141 @@
+/*
+ * EvoFlow 统一主题/皮肤框架 —— region × surface 契约
+ * 设计见 docs/design/theme-surface-framework.md（本地草稿，不提交仓库）
+ *
+ * 阶段 0（灰度铺路）：只建立契约 + 基础消费规则 + 维度→token 映射。
+ *   - 默认值一律引用现有原子 token，故不改变任何现有视觉；
+ *   - 不含 !important，后续各皮肤维度统一在此覆写 token。
+ *
+ * 加载位置：style/variables.css 之后、四层主题外墙
+ *   （liquid-glass / sci-fi-theme / theme-surfaces / theme-readability）之前，
+ *   以便外墙规则按既有顺序覆盖本文件的默认值。
+ */
+
+/* ═══ 契约 · region 层（布局区域的默认表现） ═══ */
+:root {
+  --region-app-bg: var(--bg-app);
+  --region-shell-bg: var(--chrome-bg, var(--bg-app));
+  --region-shell-fg: var(--text-primary);
+  --region-shell-border: var(--border-primary);
+  --region-chrome-bg: var(--chrome-bg, var(--bg-app));
+  --region-chrome-fg: var(--text-primary);
+  --region-chrome-border: var(--border-primary);
+  --region-content-bg: var(--bg-primary);
+  --region-content-fg: var(--text-primary);
+  --region-panel-bg: var(--bg-primary);
+  --region-panel-border: var(--border-primary);
+}
+
+/* ═══ 契约 · surface 层（承载层的默认表现） ═══ */
+:root {
+  --surface-base-bg: var(--bg-primary);
+  --surface-base-fg: var(--text-primary);
+  --surface-raised-bg: var(--bg-card);
+  --surface-raised-border: var(--border-primary);
+  --surface-raised-shadow: none;
+  --surface-raised-backdrop: none;
+  --surface-raised-hover-bg: var(--surface-raised-bg);
+  --surface-control-bg: var(--bg-card);
+  --surface-control-border: var(--border-primary);
+  --surface-control-fg: var(--text-primary);
+  --surface-sunken-bg: var(--bg-secondary);
+  --surface-overlay-bg: var(--bg-elevated);
+  --surface-overlay-border: var(--border-primary);
+  --surface-overlay-shadow: 0 18px 60px rgba(0, 0, 0, 0.12);
+  /* 玻璃表面：单一来源指向现有 --ef-glass-* 配方（值不变，仅做 token 收敛） */
+  --surface-glass-bg: var(--ef-glass-surface, var(--bg-card));
+  --surface-glass-strong-bg: var(--ef-glass-surface-strong, var(--surface-glass-bg));
+  --surface-glass-border: var(--ef-glass-border, var(--border-primary));
+  --surface-glass-blur: var(--ef-glass-blur, 12px);
+  --surface-glass-saturate: var(--ef-glass-saturate, 1.28);
+}
+
+/* ═══ 基础消费规则 · 组件只需挂 data-region / data-surface ═══ */
+[data-region='chrome'] {
+  background: var(--region-chrome-bg);
+  color: var(--region-chrome-fg);
+}
+[data-region='shell'] {
+  background: var(--region-shell-bg);
+  color: var(--region-shell-fg);
+}
+[data-region='content'] {
+  background: var(--region-content-bg);
+  color: var(--region-content-fg);
+}
+[data-region='panel'] {
+  background: var(--region-panel-bg);
+  border-color: var(--region-panel-border);
+}
+[data-surface='base'] {
+  background: var(--surface-base-bg);
+  color: var(--surface-base-fg);
+}
+[data-surface='raised'] {
+  background: var(--surface-raised-bg);
+  border: 1px solid var(--surface-raised-border);
+  box-shadow: var(--surface-raised-shadow);
+}
+[data-surface='control'] {
+  background: var(--surface-control-bg);
+  border: 1px solid var(--surface-control-border);
+  color: var(--surface-control-fg);
+}
+[data-surface='sunken'] {
+  background: var(--surface-sunken-bg);
+}
+[data-surface='overlay'] {
+  background: var(--surface-overlay-bg);
+  border: 1px solid var(--surface-overlay-border);
+  box-shadow: var(--surface-overlay-shadow);
+}
+[data-surface='glass'] {
+  background: var(--surface-glass-bg);
+  border: 1px solid var(--surface-glass-border);
+  backdrop-filter: blur(var(--surface-glass-blur)) saturate(var(--surface-glass-saturate));
+  -webkit-backdrop-filter: blur(var(--surface-glass-blur)) saturate(var(--surface-glass-saturate));
+}
+
+/* ═══ 维度 → token 映射（集中一处；后续新增维度也写这里） ═══
+ * 阶段 0 仅建立映射，尚无组件消费这些 token，故不产生视觉变化。 */
+/* 半透明护肤 / 自定义壁纸：内容与外层透出壁纸，卡片转磨砂 */
+html[data-translucent-ui='1'] {
+  --region-app-bg: transparent;
+  --region-content-bg: transparent;
+  /* chat 画布 token：半透明/自定义壁纸下置透明，让消费 --chat-canvas 的 chat 表面透出壁纸
+     （对齐科技风先例 sci-fi-theme.css:93；带 :not([data-translucent-ui]) 守卫的旧规则不受影响） */
+  --chat-canvas: transparent;
+}
+/* 内容区内的 raised 表面（卡片）转磨砂——作用域对齐原白名单（#content），
+   避免波及弹层/侧栏里的卡片；值对齐原白名单（strong 玻璃） */
+html[data-translucent-ui='1'] #content {
+  --surface-raised-bg: var(--surface-glass-strong-bg);
+  --surface-raised-border: var(--surface-glass-border);
+  --surface-raised-backdrop: blur(var(--surface-glass-blur)) saturate(var(--surface-glass-saturate));
+  --surface-raised-hover-bg: color-mix(in srgb, var(--surface-glass-strong-bg) 82%, var(--accent) 18%);
+}
+/* 自定义墙纸：内容区卡片略提高不透明度（对齐原白名单 color-mix 62%） */
+html[data-custom-bg='1'] #content {
+  --surface-raised-bg: color-mix(in srgb, var(--bg-secondary) 62%, transparent);
+}
+/* WebGL 透镜：raised 表面只留描边（对齐原白名单） */
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] #content {
+  --surface-raised-bg: transparent;
+  --surface-raised-backdrop: none;
+  --surface-raised-border: color-mix(in srgb, var(--border-primary) 50%, transparent);
+  --surface-raised-hover-bg: transparent;
+}
+html[data-custom-bg='1'] {
+  --region-app-bg: transparent;
+  --region-content-bg: transparent;
+}
+/* 科技风：顶栏与面板走暗色配方 */
+html[data-scifi-ui='1'] {
+  --region-chrome-bg: rgba(8, 11, 10, 0.94);
+  --region-panel-bg: rgba(8, 11, 10, 0.94);
+}
+/* WebGL 透镜：glass 由 shader 绘制，规则层只留描边 */
+html[data-liquid-glass-webgl='1'] {
+  --surface-glass-bg: transparent;
+  --surface-glass-blur: 0px;
+}

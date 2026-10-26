@@ -98,10 +98,10 @@ def find_root_task_by_session_key(session_key: str, *, prefer_task_id: str = "")
     return task_repo.find_root_task_by_session_key(session_key, prefer_task_id=prefer_task_id)
 
 
-def save_task_bundle(main_task_id: str, document: dict[str, Any]) -> None:
+def save_task_bundle(main_task_id: str, document: dict[str, Any], *, loaded_updated_at: str | None = None) -> None:
     from evoflow.persistence import task_repositories as task_repo
 
-    task_repo.save_task_bundle(main_task_id, document)
+    task_repo.save_task_bundle(main_task_id, document, loaded_updated_at=loaded_updated_at)
 
 
 def delete_task_bundle(main_task_id: str) -> None:

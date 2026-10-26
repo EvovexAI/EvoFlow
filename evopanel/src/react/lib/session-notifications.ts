@@ -15,7 +15,7 @@
 
 import { apiUrlAsync } from '../../lib/api-client.js'
 
-export type SessionNotificationKind = 'goal_closure' | 'goal_error' | 'goal_stopped'
+export type SessionNotificationKind = 'goal_closure' | 'goal_error' | 'goal_stopped' | 'workflow_finished'
 
 export type SessionNotification = {
   id: string
@@ -33,6 +33,39 @@ export type SessionNotification = {
 const MAX_NOTIFICATIONS = 200
 const PREFIX = '[session-notify]'
 const REFRESH_INTERVAL_MS = 60_000
+
+// 桌面通知桥（轻量 D-2）：后端在 /api/session-notifications 落工作流终态事件；
+// 这里在轮询发现「新到的未读 workflow_finished」时弹系统通知（点击深链到运行历史）。
+// 首次加载只记 ID 不弹，避免应用重启后把历史通知全部重弹一遍。
+const desktopNotifiedIds = new Set<string>()
+let firstRefreshSeen = false
+
+function _maybeDesktopNotifyWorkflowFinished(list: SessionNotification[]): void {
+  const fresh = list.filter((n) => n.kind === 'workflow_finished' && !n.read)
+  if (!firstRefreshSeen) {
+    for (const n of fresh) desktopNotifiedIds.add(n.id)
+    firstRefreshSeen = true
+    return
+  }
+  for (const n of fresh) {
+    if (desktopNotifiedIds.has(n.id)) continue
+    desktopNotifiedIds.add(n.id)
+    const parts = String(n.sessionKey || '').split(':')
+    const appId = parts[0] === 'app-run' ? (parts[1] || '') : ''
+    void import('../../lib/desktop-notification.js')
+      .then(({ notifyDesktopCompletion }) =>
+        notifyDesktopCompletion({
+          title: n.title || '工作流结束',
+          body: n.body,
+          tag: `wf-finished:${n.id}`,
+          extra: appId ? { hash: `#/apps/${appId}/history` } : undefined,
+        }),
+      )
+      .catch(() => {
+        /* ignore */
+      })
+  }
+}
 
 // ── 内存缓存（从后端 API 加载）──────────────────────────────
 let notifications: SessionNotification[] = []
@@ -83,6 +116,7 @@ async function refreshFromApi(): Promise<void> {
     const data = await _fetchJson(url)
     if (data && Array.isArray(data.notifications)) {
       notifications = data.notifications.slice(0, MAX_NOTIFICATIONS)
+      _maybeDesktopNotifyWorkflowFinished(notifications)
     }
     if (data && typeof data.unread_count === 'number') {
       unreadCount = data.unread_count

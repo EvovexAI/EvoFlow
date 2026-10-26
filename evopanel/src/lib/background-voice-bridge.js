@@ -5,18 +5,29 @@
  * 持续监听模式下，partial 文字也通过此桥接实时推到 ChatComposer / 小V面板。
  */
 
+import { isXwVoiceMode } from './xw-voice-mode.js'
+import { noteVoicePanelDisplay, noteVoicePanelSend } from './xiaomi-voice/voice-file-log.js'
+
 /** @type {((text: string, opts?: { global?: boolean, xiaomi?: boolean }) => void | Promise<void>) | null} */
 let voiceSendHandler = null
 /** @type {((text: string, opts?: { global?: boolean, xiaomi?: boolean }) => void | Promise<void>) | null} */
 let xiaomiVoiceSendHandler = null
-/** 防重锁：正在发送中就拒绝新请求，杜绝重复发消息 */
+/** 防重锁：chatSend 整轮 await 期间为 true（可能长达数十秒） */
 let isSending = false
+/**
+ * 常听下一句排队：chatSend 未结束时不能丢弃（旧逻辑直接 return → 转写已清、界面卡「处理中」）。
+ * 只保留最新一句（白龙马式一轮一发，后话覆盖前话）。
+ * @type {{ text: string, opts: Record<string, unknown> } | null}
+ */
+let _pendingVoiceSend = null
 
 // ─── 持续模式 / 全局 PTT partial 文字显示桥接 ───
 /** @type {((text: string) => void) | null} */
 let voicePartialHandler = null
 /** @type {((text: string) => void) | null} */
 let xiaomiVoicePartialHandler = null
+/** @type {Set<(text: string) => void>} 语音全屏等额外订阅（不替换主 handler） */
+const xiaomiVoicePartialListeners = new Set()
 /** @type {((text: string) => void) | null} */
 let meetingVoicePartialHandler = null
 /** @type {((text: string, opts?: { global?: boolean, xiaomi?: boolean, meeting?: boolean }) => void | Promise<void>) | null} */
@@ -78,6 +89,19 @@ export function registerXiaomiVoicePartialHandler(fn) {
 
 export function unregisterXiaomiVoicePartialHandler() {
   xiaomiVoicePartialHandler = null
+}
+
+/**
+ * 额外订阅小V ASR partial（语音全屏左侧「你」实时区）。
+ * @param {(text: string) => void} fn
+ * @returns {() => void}
+ */
+export function subscribeXiaomiVoicePartial(fn) {
+  if (typeof fn !== 'function') return () => {}
+  xiaomiVoicePartialListeners.add(fn)
+  return () => {
+    xiaomiVoicePartialListeners.delete(fn)
+  }
 }
 
 /** @param {((text: string) => void) | null} fn */
@@ -145,20 +169,58 @@ export function endVoicePartialSession(opts = {}) {
 }
 
 /**
+ * 当前是否应把 ASR 当作「小V/小微对话」专用（禁止灌主对话 Composer）。
+ * prefer 标志或语音全屏任一为真 → 只走小V。
+ */
+export function isXiaomiVoiceCaptureScope() {
+  return !!(preferXiaomiVoice || isXwVoiceMode())
+}
+
+/**
  * 推送 partial 文字到 ChatComposer 或小V草稿区。
+ * 小V 作用域内：只推小V；绝不进主对话输入框。
  * @param {string} text
  */
 export function updateVoicePartialText(text) {
   const t = String(text || '')
-  // 会议室打开时优先（唤醒小V 仍可抢占）
-  if (!preferXiaomiVoice && preferMeetingVoice && typeof meetingVoicePartialHandler === 'function') {
+  const xiaomiScope = isXiaomiVoiceCaptureScope()
+  // 已退出小V 且未开会议室：丢弃迟到 ASR，禁止再灌主输入框
+  if (!xiaomiScope && !preferMeetingVoice) {
+    if (t.trim()) return
+    // 空串允许落到小V listeners 清屏；主 Composer 不碰
+    for (const fn of xiaomiVoicePartialListeners) {
+      try {
+        fn('')
+      } catch {
+        /* ignore */
+      }
+    }
+    return
+  }
+  // 与面板显示同步落盘：上屏字 + 上屏时间（发送时间在 noteVoicePanelSend）
+  noteVoicePanelDisplay(t, {
+    source: xiaomiScope ? '小V面板' : preferMeetingVoice ? '会议室' : '输入框',
+  })
+  // 小V 作用域：只推小V，切断主对话 Composer
+  if (xiaomiScope) {
+    if (typeof xiaomiVoicePartialHandler === 'function') {
+      xiaomiVoicePartialHandler(t)
+    }
+    for (const fn of xiaomiVoicePartialListeners) {
+      try {
+        fn(t)
+      } catch {
+        /* ignore */
+      }
+    }
+    return
+  }
+  // 会议室打开时
+  if (preferMeetingVoice && typeof meetingVoicePartialHandler === 'function') {
     meetingVoicePartialHandler(t)
     return
   }
-  if (preferXiaomiVoice && typeof xiaomiVoicePartialHandler === 'function') {
-    xiaomiVoicePartialHandler(t)
-    return
-  }
+  // 主对话 Composer：仅非小V、非会议室的遗留 PTT 路径（当前产品默认不应走到）
   if (typeof voicePartialHandler === 'function') {
     voicePartialHandler(t)
   }
@@ -217,31 +279,124 @@ export function isXiaomiVoiceSendHandlerReady() {
  * @param {{ global?: boolean, xiaomi?: boolean, meeting?: boolean }} [opts]
  */
 export async function sendVoiceTranscript(text, opts = {}) {
-  const useXiaomi = opts?.xiaomi === true || preferXiaomiVoice
+  // 已退出语音全屏：拒绝迟到发送（避免面板关了还往外发）
+  if (!preferXiaomiVoice && !preferMeetingVoice && !isXwVoiceMode() && opts?.xiaomi !== true && opts?.meeting !== true) {
+    console.warn('[xiaomi-voice] sendVoiceTranscript ignored — voice UI exited')
+    try {
+      const { voiceFeLog } = await import('./xiaomi-voice/voice-file-log.js')
+      voiceFeLog('会话', `已退出语音 → 丢弃迟到发送：「${String(text || '').trim().slice(0, 40)}」`)
+    } catch {
+      /* ignore */
+    }
+    return
+  }
+  // 小V Frame 管线活跃时：turn_end → sendXiaomiChat 是唯一发问口。
+  // continuous / 静默快发再走这里会双发（日志：Frame发问 + 语音发问 各一次）。
+  let frameActive = false
+  try {
+    const { isXiaomiFramePipelineActive } = await import('./xiaomi-voice/index.js')
+    frameActive = !!isXiaomiFramePipelineActive?.()
+  } catch {
+    frameActive = false
+  }
+  if (frameActive) {
+    console.info(
+      '[xiaomi-voice] sendVoiceTranscript dropped — Frame owns send',
+      JSON.stringify(String(text || '').trim().slice(0, 40)),
+    )
+    try {
+      const { voiceFeLog } = await import('./xiaomi-voice/voice-file-log.js')
+      voiceFeLog(
+        '会话',
+        `Frame 管线活跃 → 丢弃 continuous/桥发送（防双发）：「${String(text || '').trim().slice(0, 40)}」`,
+      )
+    } catch {
+      /* ignore */
+    }
+    return
+  }
+  // 小微对话专用：未在小V 作用域且非会议室 → 绝不发到主对话
+  const xiaomiScope = opts?.xiaomi === true || isXiaomiVoiceCaptureScope()
+  const useXiaomi = xiaomiScope
   const useMeeting =
     !useXiaomi && (opts?.meeting === true || preferMeetingVoice) && typeof meetingVoiceSendHandler === 'function'
   const handler = useXiaomi
     ? xiaomiVoiceSendHandler
     : useMeeting
       ? meetingVoiceSendHandler
-      : voiceSendHandler
+      : null
+  const preview = String(text || '').trim().slice(0, 40)
+  console.info(
+    '[xiaomi-voice] sendVoiceTranscript',
+    {
+      useXiaomi,
+      useMeeting,
+      preferXiaomiVoice,
+      xwVoice: isXwVoiceMode(),
+      frameActive,
+      hasXiaomiHandler: typeof xiaomiVoiceSendHandler === 'function',
+      textLen: String(text || '').trim().length,
+    },
+    JSON.stringify(preview),
+  )
   if (!handler) {
     if (useXiaomi) throw new Error('小V尚未就绪，请稍候再试')
     if (useMeeting) throw new Error('会议室尚未就绪，请稍候再试')
-    throw new Error('ChatApp 尚未就绪，请稍候再试')
-  }
-  if (isSending) {
-    console.warn('[background-voice-bridge] 检测到重复发送请求，已拒绝！')
+    console.warn('[xiaomi-voice] sendVoiceTranscript blocked — 主对话不承接语音发问')
+    try {
+      const { voiceFeLog } = await import('./xiaomi-voice/voice-file-log.js')
+      voiceFeLog('会话', `主对话不承接语音发问 → 已丢弃：「${preview}」`)
+    } catch {
+      /* ignore */
+    }
     return
   }
+  const payload = String(text || '').trim()
+  if (!payload) return
+
+  // 上一轮 chatSend 仍在飞：排队最新一句，绝不静默丢弃（多轮卡死根因）
+  if (isSending) {
+    _pendingVoiceSend = { text: payload, opts: { ...opts } }
+    console.warn('[background-voice-bridge] 发送中 → 排队最新一句 len=', payload.length)
+    try {
+      const { voiceFeLog } = await import('./xiaomi-voice/voice-file-log.js')
+      voiceFeLog('会话', `发送中 → 排队最新一句：「${payload.slice(0, 40)}」`)
+    } catch {
+      /* ignore */
+    }
+    return
+  }
+
   isSending = true
   try {
-    await handler(String(text || '').trim(), {
+    // 小V 发问由 sendXiaomiChat 统一记「发送」；此处只记会议室等其它路径，避免双行
+    if (!useXiaomi) {
+      noteVoicePanelSend(payload, {
+        source: useMeeting ? '会议室' : '语音',
+        detail: `voiceTranscript len=${payload.length}`,
+      })
+    }
+    await handler(payload, {
       ...opts,
       xiaomi: useXiaomi,
       meeting: useMeeting,
     })
   } finally {
     isSending = false
+    const next = _pendingVoiceSend
+    _pendingVoiceSend = null
+    if (next?.text) {
+      void sendVoiceTranscript(next.text, next.opts || {})
+    }
   }
+}
+
+/** 常听策略：上一轮仍在飞时先别 fireSend（等排队槽或 finally 冲刷） */
+export function isVoiceSendBusy() {
+  return !!isSending
+}
+
+/** 退出语音时丢掉排队句，避免关掉后又发出去 */
+export function clearPendingVoiceSend() {
+  _pendingVoiceSend = null
 }

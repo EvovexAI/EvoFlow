@@ -4,63 +4,69 @@
 @import "tailwindcss";
 
 .assets-center-root {
-  /* Surfaces */
-  --ac-bg: #f6f7f9;
-  --ac-surface: #ffffff;
-  --ac-surface-2: #f8fafc;
-  --ac-explorer: #fafbfc;
-  --ac-editor-bar: #fafafa;
-  --ac-editor-body: #ffffff;
-  --ac-gutter: #fafafa;
-  --ac-footer: #fafafa;
-  --ac-vault-bg: #fafafa;
+  /* Surfaces — 接 region×surface，别锁死浅色实底 */
+  --ac-bg: var(--page-canvas, var(--surface-base-bg, var(--bg-primary, #f6f7f9)));
+  --ac-surface: var(--surface-raised-bg, var(--bg-card, #ffffff));
+  --ac-surface-2: var(--surface-sunken-bg, var(--bg-secondary, #f8fafc));
+  --ac-explorer: var(--surface-sunken-bg, var(--bg-secondary, #fafbfc));
+  --ac-editor-bar: var(--surface-sunken-bg, var(--bg-secondary, #fafafa));
+  --ac-editor-body: var(--surface-raised-bg, var(--bg-card, #ffffff));
+  --ac-gutter: var(--surface-sunken-bg, var(--bg-secondary, #fafafa));
+  --ac-footer: var(--surface-sunken-bg, var(--bg-secondary, #fafafa));
+  --ac-vault-bg: var(--surface-sunken-bg, var(--bg-secondary, #fafafa));
 
   /* Borders */
-  --ac-border: #e8ebf0;
-  --ac-border-subtle: #eef1f5;
-  --ac-divider: #e8ebf0;
-  --ac-border-strong: #dfe3ea;
+  --ac-border: var(--border-primary, #e8ebf0);
+  --ac-border-subtle: color-mix(in srgb, var(--border-primary, #eef1f5) 72%, transparent);
+  --ac-divider: var(--border-primary, #e8ebf0);
+  --ac-border-strong: color-mix(in srgb, var(--text-primary) 12%, var(--border-primary, #dfe3ea));
 
   /* Text */
-  --ac-text: #101828;
-  --ac-text-secondary: #475467;
-  --ac-text-muted: #667085;
-  --ac-text-faint: #98a2b3;
-  --ac-text-disabled: #cbd5e1;
-  --ac-editor-fg: #1f2937;
+  --ac-text: var(--text-primary, #101828);
+  --ac-text-secondary: var(--text-secondary, #475467);
+  --ac-text-muted: var(--text-tertiary, #667085);
+  --ac-text-faint: var(--text-tertiary, #98a2b3);
+  --ac-text-disabled: color-mix(in srgb, var(--text-tertiary, #cbd5e1) 60%, transparent);
+  --ac-editor-fg: var(--text-primary, #1f2937);
 
-  /* Primary — single brand (Indigo) */
-  --ac-primary: #4f46e5;
-  --ac-primary-hover: #4338ca;
-  --ac-primary-soft: #eef2ff;
-  --ac-primary-ring: rgba(79, 70, 229, 0.2);
+  /* Primary — 跟色卡 accent，不锁死 Indigo */
+  --ac-primary: var(--accent, #4f46e5);
+  --ac-primary-hover: var(--accent-hover, #4338ca);
+  --ac-primary-soft: var(--accent-muted, color-mix(in srgb, var(--accent, #4f46e5) 12%, transparent));
+  --ac-primary-ring: color-mix(in srgb, var(--accent, #4f46e5) 22%, transparent);
   --ac-accent: var(--ac-primary);
   --ac-underline: var(--ac-primary);
   --ac-link: var(--ac-primary);
   --ac-caret: var(--ac-primary);
-  --ac-selection: rgba(79, 70, 229, 0.14);
+  --ac-selection: color-mix(in srgb, var(--accent, #4f46e5) 14%, transparent);
   --ac-active: var(--ac-primary-soft);
 
   /* Semantic */
-  --ac-success: #12b76a;
-  --ac-success-bg: rgba(18, 183, 106, 0.09);
-  --ac-success-border: rgba(18, 183, 106, 0.2);
-  --ac-warning: #d97706;
-  --ac-folder: #98a2b3;
-  --ac-danger: #dc2626;
+  --ac-success: var(--success, #12b76a);
+  --ac-success-bg: color-mix(in srgb, var(--success, #12b76a) 10%, transparent);
+  --ac-success-border: color-mix(in srgb, var(--success, #12b76a) 22%, transparent);
+  --ac-warning: var(--warning, #d97706);
+  --ac-folder: var(--text-tertiary, #98a2b3);
+  --ac-danger: var(--danger, var(--ef-color-danger, #dc2626));
 
   /* Interactive */
-  --ac-fill: #f2f4f7;
-  --ac-hover: #f2f4f7;
-  --ac-icon-bg: #f2f4f7;
-  --ac-icon-fg: #667085;
-  --ac-icon-border: #e8ebf0;
+  --ac-fill: color-mix(in srgb, var(--text-primary) 5%, var(--bg-secondary, #f2f4f7));
+  --ac-hover: color-mix(in srgb, var(--text-primary) 6%, transparent);
+  --ac-icon-bg: color-mix(in srgb, var(--text-primary) 5%, var(--bg-secondary, #f2f4f7));
+  --ac-icon-fg: var(--text-tertiary, #667085);
+  --ac-icon-border: var(--border-primary, #e8ebf0);
 
   /* Shadows */
-  --ac-shadow-xs: 0 1px 2px rgba(16, 24, 40, 0.05);
-  --ac-shadow-sm: 0 1px 3px rgba(16, 24, 40, 0.06), 0 1px 2px rgba(16, 24, 40, 0.04);
-  --ac-shadow-md: 0 4px 10px -2px rgba(16, 24, 40, 0.08), 0 2px 4px -2px rgba(16, 24, 40, 0.04);
-  --ac-shadow-lg: 0 16px 32px -8px rgba(16, 24, 40, 0.14), 0 4px 10px -4px rgba(16, 24, 40, 0.06);
+  --ac-shadow-xs: 0 1px 2px color-mix(in srgb, var(--text-primary) 5%, transparent);
+  --ac-shadow-sm:
+    0 1px 3px color-mix(in srgb, var(--text-primary) 6%, transparent),
+    0 1px 2px color-mix(in srgb, var(--text-primary) 4%, transparent);
+  --ac-shadow-md:
+    0 4px 10px -2px color-mix(in srgb, var(--text-primary) 8%, transparent),
+    0 2px 4px -2px color-mix(in srgb, var(--text-primary) 4%, transparent);
+  --ac-shadow-lg:
+    0 16px 32px -8px color-mix(in srgb, var(--text-primary) 12%, transparent),
+    0 4px 10px -4px color-mix(in srgb, var(--text-primary) 6%, transparent);
 
   /* Radius */
   --ac-radius-shell: 12px;
@@ -94,40 +100,57 @@
   line-height: 1.45;
 }
 
-[data-theme="dark"] .assets-center-root {
-  --ac-bg: #070b14;
-  --ac-surface: #0b1322;
-  --ac-surface-2: #0e1727;
-  --ac-explorer: #0a111e;
-  --ac-editor-bar: #0a121f;
-  --ac-editor-body: #0c1424;
-  --ac-gutter: #0c1424;
-  --ac-footer: #0a121f;
-  --ac-vault-bg: #0a111e;
-  --ac-border: rgba(148, 163, 184, 0.14);
-  --ac-border-subtle: rgba(148, 163, 184, 0.09);
-  --ac-divider: rgba(148, 163, 184, 0.12);
-  --ac-border-strong: rgba(148, 163, 184, 0.22);
-  --ac-text: #f1f5f9;
-  --ac-text-secondary: #a5b4c4;
-  --ac-text-muted: #8195ab;
-  --ac-text-faint: #64748b;
-  --ac-text-disabled: #475569;
-  --ac-editor-fg: #e2e8f0;
-  --ac-primary: #818cf8;
-  --ac-primary-hover: #a5b4fc;
-  --ac-primary-soft: rgba(99, 102, 241, 0.18);
-  --ac-primary-ring: rgba(129, 140, 248, 0.3);
-  --ac-hover: rgba(255, 255, 255, 0.05);
-  --ac-fill: rgba(255, 255, 255, 0.05);
-  --ac-active: var(--ac-primary-soft);
-  --ac-icon-bg: rgba(255, 255, 255, 0.06);
-  --ac-icon-fg: #94a3b8;
-  --ac-icon-border: rgba(148, 163, 184, 0.16);
+/* 暗色：token 已随 html[data-theme] 翻转，只补交互/阴影 */
+html[data-theme='dark'] .assets-center-root,
+html.dark .assets-center-root,
+[data-theme='dark'] .assets-center-root {
+  --ac-hover: color-mix(in srgb, var(--text-primary) 8%, transparent);
+  --ac-fill: color-mix(in srgb, var(--text-primary) 6%, transparent);
+  --ac-icon-bg: color-mix(in srgb, var(--text-primary) 8%, transparent);
+  --ac-icon-border: color-mix(in srgb, var(--text-primary) 12%, transparent);
   --ac-shadow-xs: none;
   --ac-shadow-sm: none;
-  --ac-shadow-md: 0 4px 12px rgba(0, 0, 0, 0.35);
-  --ac-shadow-lg: 0 18px 40px rgba(0, 0, 0, 0.5);
+  --ac-shadow-md: 0 4px 12px color-mix(in srgb, #000 35%, transparent);
+  --ac-shadow-lg: 0 18px 40px color-mix(in srgb, #000 50%, transparent);
+}
+
+/* 半透明 / 壁纸：页面透出底，卡片走 elevated 半透明，别再实心白/浅灰 */
+html[data-translucent-ui='1'] .assets-center-root {
+  --ac-bg: transparent;
+  --ac-surface: color-mix(in srgb, var(--bg-elevated, var(--bg-card)) 55%, transparent);
+  --ac-surface-2: color-mix(in srgb, var(--bg-secondary) 35%, transparent);
+  --ac-explorer: color-mix(in srgb, var(--bg-secondary) 28%, transparent);
+  --ac-editor-bar: color-mix(in srgb, var(--bg-secondary) 28%, transparent);
+  --ac-editor-body: color-mix(in srgb, var(--bg-elevated, var(--bg-card)) 48%, transparent);
+  --ac-gutter: transparent;
+  --ac-footer: color-mix(in srgb, var(--bg-secondary) 28%, transparent);
+  --ac-vault-bg: transparent;
+  --ac-border: var(--ef-glass-border, color-mix(in srgb, var(--border-primary) 55%, transparent));
+  --ac-border-subtle: var(--ef-glass-border, color-mix(in srgb, var(--border-primary) 40%, transparent));
+  --ac-divider: var(--ef-glass-border, color-mix(in srgb, var(--border-primary) 45%, transparent));
+  --ac-border-strong: color-mix(in srgb, var(--text-primary) 18%, transparent);
+  --ac-fill: color-mix(in srgb, var(--text-primary) 7%, transparent);
+  --ac-hover: color-mix(in srgb, var(--accent) 10%, transparent);
+  --ac-icon-bg: color-mix(in srgb, var(--text-primary) 7%, transparent);
+  --ac-icon-border: var(--ef-glass-border, var(--border-primary));
+  --ac-shadow-xs: none;
+  --ac-shadow-sm: none;
+  --ac-shadow-md: var(--ef-glass-shadow, 0 8px 24px color-mix(in srgb, var(--text-primary) 10%, transparent));
+  --ac-shadow-lg: var(--ef-glass-shadow, 0 16px 40px color-mix(in srgb, var(--text-primary) 14%, transparent));
+  background: transparent;
+}
+
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .assets-center-root {
+  /* WebGL 下 glass token 常透明：编辑区/卡片仍要可读底 */
+  --ac-surface: color-mix(in srgb, var(--bg-elevated, var(--bg-card, #0f1622)) 55%, transparent);
+  --ac-editor-body: color-mix(in srgb, var(--bg-elevated, var(--bg-card, #0f1622)) 62%, transparent);
+  --ac-surface-2: color-mix(in srgb, var(--bg-elevated, var(--bg-secondary)) 40%, transparent);
+}
+
+html[data-translucent-ui='1'] .assets-center-outlet,
+html[data-translucent-ui='1'] #content > .assets-center-outlet {
+  background: transparent !important;
+  box-shadow: none !important;
 }
 
 /* ── Page / Header ─────────────────────────────────────────────── */
@@ -169,7 +192,11 @@
   flex-shrink: 0;
   border-radius: 11px;
   color: var(--ac-primary);
-  background: linear-gradient(135deg, var(--ac-primary-soft), rgba(79, 70, 229, 0.14));
+  background: linear-gradient(
+    135deg,
+    var(--ac-primary-soft),
+    color-mix(in srgb, var(--ac-primary) 14%, transparent)
+  );
   border: 1px solid color-mix(in srgb, var(--ac-primary) 16%, transparent);
 }
 
@@ -903,25 +930,51 @@
   border-radius: 16px;
   border: 1px solid color-mix(in srgb, var(--ac-primary) 14%, var(--ac-border));
   background:
-    radial-gradient(120% 160% at 100% 0%, rgba(79, 70, 229, 0.1) 0%, transparent 55%),
-    radial-gradient(90% 140% at 0% 100%, rgba(99, 102, 241, 0.08) 0%, transparent 50%),
-    linear-gradient(135deg, #fbfbfe 0%, #f4f5fd 100%);
+    radial-gradient(120% 160% at 100% 0%, color-mix(in srgb, var(--ac-primary) 12%, transparent) 0%, transparent 55%),
+    radial-gradient(90% 140% at 0% 100%, color-mix(in srgb, var(--ac-primary) 8%, transparent) 0%, transparent 50%),
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--ac-primary) 4%, var(--ac-surface)) 0%,
+      color-mix(in srgb, var(--ac-primary) 8%, var(--ac-surface-2)) 100%
+    );
   box-shadow: var(--ac-shadow-sm);
 }
 
-[data-theme="dark"] .assets-center-root .ac-hero {
+html[data-theme='dark'] .assets-center-root .ac-hero,
+[data-theme='dark'] .assets-center-root .ac-hero {
   background:
-    radial-gradient(120% 160% at 100% 0%, rgba(99, 102, 241, 0.2) 0%, transparent 55%),
-    radial-gradient(90% 140% at 0% 100%, rgba(79, 70, 229, 0.14) 0%, transparent 50%),
-    linear-gradient(135deg, #0d1526 0%, #0b1120 100%);
+    radial-gradient(120% 160% at 100% 0%, color-mix(in srgb, var(--ac-primary) 20%, transparent) 0%, transparent 55%),
+    radial-gradient(90% 140% at 0% 100%, color-mix(in srgb, var(--ac-primary) 14%, transparent) 0%, transparent 50%),
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--ac-primary) 10%, var(--ac-surface)) 0%,
+      var(--ac-surface-2) 100%
+    );
   border-color: color-mix(in srgb, var(--ac-primary) 22%, var(--ac-border));
+}
+
+html[data-translucent-ui='1'] .assets-center-root .ac-hero {
+  background:
+    radial-gradient(120% 160% at 100% 0%, color-mix(in srgb, var(--ac-primary) 14%, transparent) 0%, transparent 55%),
+    color-mix(in srgb, var(--bg-elevated, var(--bg-card)) 48%, transparent);
+  backdrop-filter: blur(var(--surface-glass-blur, 12px)) saturate(var(--surface-glass-saturate, 1.28));
+  -webkit-backdrop-filter: blur(var(--surface-glass-blur, 12px)) saturate(var(--surface-glass-saturate, 1.28));
+}
+
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .assets-center-root .ac-hero {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 .assets-center-root .ac-hero-glow {
   position: absolute;
   inset: 0;
   pointer-events: none;
-  background: radial-gradient(42% 90% at 78% 18%, rgba(129, 140, 248, 0.16) 0%, transparent 70%);
+  background: radial-gradient(
+    42% 90% at 78% 18%,
+    color-mix(in srgb, var(--ac-primary) 16%, transparent) 0%,
+    transparent 70%
+  );
 }
 
 .assets-center-root .ac-hero-body {
@@ -1019,7 +1072,11 @@
   height: 120px;
   right: 36px;
   top: -30px;
-  background: radial-gradient(circle at 30% 30%, rgba(129, 140, 248, 0.5), rgba(129, 140, 248, 0.06));
+  background: radial-gradient(
+    circle at 30% 30%,
+    color-mix(in srgb, var(--ac-primary) 50%, transparent),
+    color-mix(in srgb, var(--ac-primary) 6%, transparent)
+  );
   opacity: 0.8;
 }
 
@@ -1028,7 +1085,11 @@
   height: 64px;
   right: 150px;
   bottom: -6px;
-  background: radial-gradient(circle at 30% 30%, rgba(79, 70, 229, 0.36), rgba(79, 70, 229, 0.05));
+  background: radial-gradient(
+    circle at 30% 30%,
+    color-mix(in srgb, var(--ac-primary) 36%, transparent),
+    color-mix(in srgb, var(--ac-primary) 5%, transparent)
+  );
 }
 
 .assets-center-root .ac-hero-orb--3 {
@@ -1036,7 +1097,7 @@
   height: 28px;
   right: 60px;
   bottom: 30px;
-  background: rgba(129, 140, 248, 0.4);
+  background: color-mix(in srgb, var(--ac-primary) 40%, transparent);
 }
 
 /* Stat tiles */
@@ -1732,14 +1793,10 @@
   font-family: var(--ac-mono);
   font-size: 11px;
   line-height: 23.8px; /* 14px * 1.7 */
-  color: #cbd5e1;
+  color: var(--ac-text-faint);
   text-align: right;
   user-select: none;
   padding-top: 12px;
-}
-
-[data-theme="dark"] .assets-center-root .ac-gutter {
-  color: #334155;
 }
 
 .assets-center-root .ac-editor-textarea {
@@ -1980,13 +2037,27 @@
   align-items: center;
   justify-content: center;
   padding: 24px;
-  background: rgba(16, 24, 40, 0.44);
+  background: color-mix(in srgb, var(--text-primary) 44%, transparent);
   backdrop-filter: blur(3px);
   animation: ac-fade-in 140ms ease-out;
 }
 
-[data-theme="dark"] .assets-center-root .ac-modal-overlay {
-  background: rgba(2, 6, 16, 0.6);
+html[data-theme='dark'] .assets-center-root .ac-modal-overlay,
+[data-theme='dark'] .assets-center-root .ac-modal-overlay {
+  background: color-mix(in srgb, #000 60%, transparent);
+}
+
+html[data-translucent-ui='1'] .assets-center-root .ac-modal {
+  background: color-mix(in srgb, var(--bg-elevated, var(--bg-card)) 82%, transparent);
+  border-color: var(--ef-glass-border, var(--ac-border));
+  backdrop-filter: blur(var(--surface-glass-blur, 12px)) saturate(var(--surface-glass-saturate, 1.28));
+  -webkit-backdrop-filter: blur(var(--surface-glass-blur, 12px)) saturate(var(--surface-glass-saturate, 1.28));
+}
+
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .assets-center-root .ac-modal {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  background: color-mix(in srgb, var(--bg-elevated, var(--bg-card, #0f1622)) 82%, transparent);
 }
 
 @keyframes ac-fade-in {

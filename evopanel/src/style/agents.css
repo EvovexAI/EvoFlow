@@ -69,7 +69,7 @@
 .role-search-input:focus {
   border-color: var(--accent, #6366f1);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent, #6366f1) 16%, transparent);
-  background: #fff;
+  background: var(--bg-card, var(--bg-secondary, #fff));
 }
 
 .role-total {
@@ -266,7 +266,7 @@
   padding: 0 10px;
   border-radius: 8px;
   border: 1px solid var(--border-primary, #e2e8f0) !important;
-  background: #ffffff !important;
+  background: var(--bg-card, var(--bg-primary, #ffffff)) !important;
   color: var(--text-secondary, #475569) !important;
   font-size: 13px;
   cursor: pointer;
@@ -315,8 +315,8 @@
 html[data-custom-bg='1'] .role-filter-select,
 html[data-translucent-ui='1'] .role-filter-select,
 html[data-liquid-glass-webgl='1'] .role-filter-select {
-  background: #ffffff !important;
-  border-color: #e2e8f0 !important;
+  background: var(--bg-card, var(--bg-primary, #ffffff)) !important;
+  border-color: var(--border-primary, #e2e8f0) !important;
 }
 
 .role-filter-btn.is-active {
@@ -2172,7 +2172,7 @@ html[data-liquid-glass-webgl='1'] .role-filter-select {
 .re-search:focus {
   border-color: var(--accent, #6366f1);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent, #6366f1) 16%, transparent);
-  background: #fff;
+  background: var(--bg-card, var(--bg-secondary, #fff));
 }
 
 /* ??? */

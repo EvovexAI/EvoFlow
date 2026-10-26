@@ -52,6 +52,9 @@ def collect_assigned_agent_errors(steps: list[Any]) -> list[str]:
             continue
         ref = _as_str(step.get("ref"))
         step_name = _as_str(step.get("name"), ref or "?")
+        # F-1: deterministic template nodes execute inline — no worker to assign.
+        if _as_str(step.get("executor")).strip().lower() == "template":
+            continue
         raw = _as_str(
             step.get("assigned_agent")
             or step.get("assignee")
@@ -340,7 +343,28 @@ def validate_app_definition(app_def: dict[str, Any]) -> dict[str, Any]:
     checks["schema_policy"] = {"warnings": len(check6_warnings)}
     warnings.extend(check6_warnings)
 
-    # ── Check 7: Empty workflow ──────────────────────────────────────
+    # ── Check 7: Deterministic executor nodes (F-1) ───────────────────
+    check7_errors: list[str] = []
+    for step in steps:
+        if not isinstance(step, dict):
+            continue
+        executor = _as_str(step.get("executor")).strip().lower()
+        if not executor or executor == "llm":
+            continue
+        ref = _as_str(step.get("ref"))
+        if executor != "template":
+            check7_errors.append(
+                f"Step ref={ref}: executor='{executor}' is not supported (expected 'llm' or 'template')"
+            )
+            continue
+        if not _as_str(step.get("template")).strip():
+            check7_errors.append(
+                f"Step ref={ref}: executor=template requires a non-empty template"
+            )
+    checks["executors"] = {"errors": len(check7_errors)}
+    errors.extend(check7_errors)
+
+    # ── Check 8: Empty workflow ──────────────────────────────────────
     if not steps:
         errors.append("App definition has no steps")
 

@@ -18,15 +18,17 @@ describe('resolveStageTabsOverflow', () => {
     ).toBe(false)
   })
 
-  it('空间不足以容纳 60px 下限才判定溢出', () => {
-    // 5 tab：5*60 + 4*4 = 316，再加 gap 4 + 按钮 28 = 348。
-    // 容差 1px：348 > viewport + 1，故 347 仍判不溢出，346 起溢出。
+  it('空间不足以容纳 min-width 下限才判定溢出', () => {
+    // 5 tab：5*STAGE_TAB_MIN_WIDTH + 4*gap + gap + 按钮
+    const required =
+      5 * STAGE_TAB_MIN_WIDTH_PX + 4 * STAGE_TAB_GAP_PX + STAGE_TAB_GAP_PX + 28
+    // 容差 1px：required > viewport + 1 才溢出
     expect(
       resolveStageTabsOverflow({
         addButtonInside: true,
         addButtonWidth: 28,
         tabCount: 5,
-        viewportWidth: 347,
+        viewportWidth: required - 1,
       }),
     ).toBe(false)
 
@@ -35,7 +37,7 @@ describe('resolveStageTabsOverflow', () => {
         addButtonInside: true,
         addButtonWidth: 28,
         tabCount: 5,
-        viewportWidth: 346,
+        viewportWidth: required - 2,
       }),
     ).toBe(true)
   })

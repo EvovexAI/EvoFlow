@@ -123,13 +123,21 @@ html.evopanel-macos-titlebar .tauri-main-chrome {
 
 html[data-theme='dark'] .tauri-main-chrome,
 html.dark .tauri-main-chrome {
-  background: var(--chrome-bg, #141414);
+  background: var(--chrome-bg, #05070c);
   border-bottom: none;
 }
 
 html[data-theme='dark'] .tauri-main-chrome--scrolled,
 html.dark .tauri-main-chrome--scrolled {
-  box-shadow: 0 1px 0 var(--border-primary);
+  /* 深色下不再用 1px 边框色当分隔阴影，保持顶栏干净 */
+  box-shadow: none;
+}
+
+/* 科技风：顶栏同样去掉底边框/阴影，避免边框观感过丑（与深色一致） */
+html[data-scifi-ui='1'] .tauri-main-chrome,
+html[data-scifi-ui='1'] .tauri-main-chrome--scrolled {
+  border-bottom: none !important;
+  box-shadow: none !important;
 }
 
 /* 自定义背景：默认透出；液态玻璃下在 liquid-glass.css 补磨砂 */
@@ -161,12 +169,12 @@ html.dark[data-custom-bg='1'] .tauri-main-chrome {
 
 html[data-theme='dark'] #main-col:has(#content > .task-detail-page) > .tauri-main-chrome:not(.tauri-main-chrome--hidden),
 html.dark #main-col:has(#content > .task-detail-page) > .tauri-main-chrome:not(.tauri-main-chrome--hidden) {
-  background: var(--chrome-bg, #141414);
+  background: var(--chrome-bg, #05070c);
 }
 
 html[data-theme='dark'] #content:has(> .task-detail-page),
 html.dark #content:has(> .task-detail-page) {
-  background: var(--bg-secondary, #1e1e1e);
+  background: var(--bg-secondary, #0a0e15);
 }
 
 /* 自定义壁纸时仍透出 */

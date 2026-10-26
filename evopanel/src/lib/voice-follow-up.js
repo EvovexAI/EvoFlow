@@ -49,7 +49,8 @@ export async function waitForAssistantSpeechThenGap(opts = {}) {
   if (!isActive()) return
 
   const { getVoiceReplyEnabled } = await import('./panel-settings.js')
-  if (!getVoiceReplyEnabled()) {
+  const { shouldXiaomiVoiceReply } = await import('./xiaomi-voice-defaults.js')
+  if (!shouldXiaomiVoiceReply(!!getVoiceReplyEnabled())) {
     await new Promise((r) => setTimeout(r, 900))
     return
   }
@@ -142,12 +143,26 @@ export async function runVoiceFollowUpRounds(opts) {
       const cleaned = String(text || '').trim()
       onPartial?.('')
       if (!cleaned) {
+        try {
+          const { voiceFeLog } = await import('./xiaomi-voice/voice-file-log.js')
+          voiceFeLog(
+            '退出',
+            `追问聆听超时无话 → 结束 follow-up（listenTimeoutMs=${listenTimeoutMs}）`,
+          )
+        } catch {
+          /* ignore */
+        }
         onTrayState?.('idle')
         break
       }
 
-      // 「停止」等口令：结束追问轮，回到仅唤醒词。
+      // 「停止/关闭/退出」：客户端直接关舞台；「停止播报」仅停 TTS。
       try {
+        const { isXiaomiVoiceExitCommand, closeXiaomiVoice } = await import('./xiaomi-voice-close.js')
+        if (isXiaomiVoiceExitCommand(cleaned)) {
+          await closeXiaomiVoice({ reason: 'voice' })
+          break
+        }
         const { isStopListenCommand, isStopTtsOnlyCommand } = await import('./voice-listen-control.js')
         if (isStopListenCommand(cleaned)) {
           const { pauseConversationListening } = await import('./background-voice.js')
@@ -180,6 +195,12 @@ export async function runVoiceFollowUpRounds(opts) {
     if (gen === sessionGen) {
       busy = false
       onPartial?.('')
+      try {
+        const { voiceFeLog } = await import('./xiaomi-voice/voice-file-log.js')
+        voiceFeLog('退出', '追问轮结束 follow-up finally → 恢复唤醒耳 / 空闲')
+      } catch {
+        /* ignore */
+      }
       if (manageWake && opts.resumeWake) {
         await new Promise((r) => setTimeout(r, 350))
         try {

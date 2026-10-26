@@ -10,6 +10,9 @@
 
 // 基础变量 / 重置 / 布局
 import '../style/variables.css'
+// 统一主题/皮肤契约（region × surface token）；必须早于下方四层主题外墙
+// （liquid-glass / sci-fi-theme / theme-surfaces / theme-readability），让外墙按既有序覆盖默认值。
+import '../style/theme-framework.css'
 import '../style/reset.css'
 import '../style/layout.css'
 import '../style/components.css'
@@ -53,3 +56,6 @@ import '../style/chat-summary-panel.css'
 // Streamdown 默认组件（表格/代码块）的主窗口接管，必须排在 chat-redesign.css /
 // sci-fi-theme.css 之后才能在同级 ！important 规则里按顺序胜出
 import '../style/streamdown.css'
+// 区域接管层：统一各布局区域在半透明/自定义壁纸下的背景表现（壳/顶栏/面板→玻璃，内容/会话→透明）。
+// 必须置于所有主题外墙与组件样式之后，才能作为最终接管层按顺序胜出。
+import '../style/theme-regions.css'

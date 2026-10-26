@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import logging
+import secrets
 from datetime import UTC
 from pathlib import Path
 from typing import Any
 
+from evoflow.assets.locks import atomic_write_text, lock_for
 from evoflow.assets.paths import (
     EntityRef,
     assets_root,
@@ -394,17 +396,11 @@ def write_text_file(entity: EntityRef, rel_path: str, content: str) -> dict[str,
     target = resolve_entity_file(entity, rel_path)
     if target.suffix.lower() not in _TEXT_SUFFIXES:
         raise ValueError("only text assets can be written via API")
-    target.parent.mkdir(parents=True, exist_ok=True)
     text = content if content is not None else ""
-    tmp = target.with_suffix(target.suffix + ".tmp")
-    tmp.write_text(text, encoding="utf-8")
-    tmp.replace(target)
-    try:
-        from evoflow.assets.memory_mirror import schedule_asset_vault_reindex_delayed
-
-        schedule_asset_vault_reindex_delayed()
-    except Exception:
-        logger.debug("asset reindex schedule skipped", exc_info=True)
+    # 路径锁：UI 保存 / 对话写入 / Phase2 对同一文件的写相互串行，
+    # 原子写走唯一 tmp + fsync + replace（不再共用固定 .tmp 名）。
+    with lock_for(target):
+        atomic_write_text(target, text)
     return read_text_file(entity, rel_path)
 
 
@@ -455,13 +451,40 @@ def materialized_assets_vault_dir() -> Path:
     return assets_root().resolve()
 
 
-def _slug_ascii(text: str, *, max_len: int = 48, fallback: str = "note") -> str:
+_SLUG_CJK_RE = None
+
+
+def _slug_cjk(text: str, *, max_len: int = 48, fallback: str = "note") -> str:
+    """CJK-aware slug — 记忆标题多为中文，文件名保持可读。
+
+    仅用于**内容文件**名（facts/episodic/craft 的 .md）；实体桶与目录名仍是
+    ASCII 约定。非法字符折叠为 ``-``，ASCII 保留小写。
+    """
     import re
 
-    s = re.sub(r"[^a-z0-9_-]+", "-", str(text or "").strip().lower()).strip("-")
+    global _SLUG_CJK_RE
+    if _SLUG_CJK_RE is None:
+        _SLUG_CJK_RE = re.compile(r"[^a-zA-Z0-9\u4e00-\u9fff_-]+")
+    s = _SLUG_CJK_RE.sub("-", str(text or "").strip()).strip("-_")
     if not s:
         s = fallback
-    return s[:max_len].strip("-") or fallback
+    return s[:max_len].strip("-_") or fallback
+
+
+def _unique_rel_name(entity: EntityRef, rel_dir: str, base: str, *, ext: str = ".md") -> str:
+    """``{rel_dir}/{base}{ext}``，已存在时追加短随机后缀。
+
+    随机后缀替代旧的 ``-2/-3`` 计数循环：计数是 TOCTOU——并发写同标题的两条
+    记忆会看到同一个“未占用”名，后写者整文件覆盖前者（记忆静默消失）。
+    """
+    rel = f"{rel_dir}/{base}{ext}"
+    if not resolve_entity_file(entity, rel).exists():
+        return rel
+    for _ in range(6):
+        rel = f"{rel_dir}/{base}-{secrets.token_hex(2)}{ext}"
+        if not resolve_entity_file(entity, rel).exists():
+            return rel
+    raise ValueError(f"file name collision under {rel_dir}")
 
 
 def record_fact(
@@ -485,15 +508,8 @@ def record_fact(
 
     heading = str(title or "").strip() or body.split("\n", 1)[0].lstrip("# ").strip()[:60]
     one_liner = (str(summary or "").strip() or heading)[:30]
-    slug = _slug_ascii(str(slug_hint or "").strip() or heading, fallback="fact")
-    date_part = datetime.now(UTC).strftime("%Y%m%d")
-    facts_dir = entity_root(entity.normalized()) / "memory" / "facts"
-    fname = f"{date_part}-{slug}.md"
-    n = 1
-    while (facts_dir / fname).exists():
-        n += 1
-        fname = f"{date_part}-{slug}-{n}.md"
-    rel = f"memory/facts/{fname}"
+    slug = _slug_cjk(str(slug_hint or "").strip() or heading, fallback="fact")
+    rel = _unique_rel_name(entity, "memory/facts", slug)
     created = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     e = entity.normalized()
     cat_line = ""
@@ -525,17 +541,10 @@ def write_episode(
 
     heading = str(title or "").strip() or body.split("\n", 1)[0].lstrip("# ").strip()[:60]
     one_liner = (str(summary or "").strip() or heading)[:30]
-    slug = _slug_ascii(heading, fallback="episode")
+    slug = _slug_cjk(heading, fallback="episode")
     now = datetime.now(UTC).astimezone()
-    date_part = now.strftime("%Y%m%d")
     day = now.date().isoformat()
-    episodic_dir = entity_root(entity.normalized()) / "memory" / "episodic"
-    fname = f"{date_part}-{slug}.md"
-    n = 1
-    while (episodic_dir / fname).exists():
-        n += 1
-        fname = f"{date_part}-{slug}-{n}.md"
-    rel = f"memory/episodic/{fname}"
+    rel = _unique_rel_name(entity, "memory/episodic", slug)
     created = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     e = entity.normalized()
     md = f"---\ntitle: {heading}\nsummary: {one_liner}\ndate: {day}\nentity: {e.entity_type}\nentity_id: {e.entity_id}\ncreated_at: {created}\n---\n\n# {heading}\n\n{body}\n"
@@ -572,40 +581,43 @@ def write_journal(
     rel = f"memory/journal/{day_filename}.md"
     e = entity.normalized()
     target = resolve_entity_file(e, rel)
-    existing = ""
-    if target.is_file():
-        try:
-            existing = target.read_text(encoding="utf-8")
-        except OSError:
-            existing = ""
+    # 读-改-写全程持锁：并发追加（员工写反思 + UI 编辑）不再互相丢内容
+    with lock_for(target):
+        existing = ""
+        if target.is_file():
+            try:
+                existing = target.read_text(encoding="utf-8")
+            except OSError:
+                existing = ""
 
-    def _with_frontmatter(body_md: str) -> str:
-        # strip old frontmatter if present
-        raw = body_md
-        if raw.startswith("---"):
-            parts = raw.split("---", 2)
-            if len(parts) >= 3:
-                raw = parts[2].lstrip("\n")
-        fm = f"---\ndate: {day}\nsummary: {one_liner}\n---\n\n"
-        if not raw.lstrip().startswith("#"):
-            raw = f"# {day_filename}\n\n{raw}"
-        return fm + raw.rstrip() + "\n"
+        def _with_frontmatter(body_md: str) -> str:
+            # strip old frontmatter if present
+            raw = body_md
+            if raw.startswith("---"):
+                parts = raw.split("---", 2)
+                if len(parts) >= 3:
+                    raw = parts[2].lstrip("\n")
+            fm = f"---\ndate: {day}\nsummary: {one_liner}\n---\n\n"
+            if not raw.lstrip().startswith("#"):
+                raw = f"# {day_filename}\n\n{raw}"
+            return fm + raw.rstrip() + "\n"
 
-    if existing and append:
-        stamp = datetime.now(UTC).astimezone().strftime("%H:%M")
-        # drop old fm, append section, rewrite fm with latest summary
-        raw = existing
-        if raw.startswith("---"):
-            parts = raw.split("---", 2)
-            if len(parts) >= 3:
-                raw = parts[2].lstrip("\n")
-        merged = raw.rstrip() + f"\n\n## {stamp}\n\n{body}\n"
-        text = _with_frontmatter(merged)
-    elif existing and not append:
-        text = _with_frontmatter(body if body.lstrip().startswith("#") else f"# {day_filename}\n\n{body}\n")
-    else:
-        text = _with_frontmatter(f"# {day_filename}\n\n{body}\n")
-    return write_text_file(e, rel, text)
+        if existing and append:
+            stamp = datetime.now(UTC).astimezone().strftime("%H:%M")
+            # drop old fm, append section, rewrite fm with latest summary
+            raw = existing
+            if raw.startswith("---"):
+                parts = raw.split("---", 2)
+                if len(parts) >= 3:
+                    raw = parts[2].lstrip("\n")
+            merged = raw.rstrip() + f"\n\n## {stamp}\n\n{body}\n"
+            text = _with_frontmatter(merged)
+        elif existing and not append:
+            text = _with_frontmatter(body if body.lstrip().startswith("#") else f"# {day_filename}\n\n{body}\n")
+        else:
+            text = _with_frontmatter(f"# {day_filename}\n\n{body}\n")
+        atomic_write_text(target, text)
+    return read_text_file(e, rel)
 
 
 def save_craft_note(
@@ -669,12 +681,6 @@ def delete_text_file(entity: EntityRef, rel_path: str) -> dict[str, Any]:
             parent.rmdir()
     except OSError:
         pass
-    try:
-        from evoflow.assets.memory_mirror import schedule_asset_vault_reindex_delayed
-
-        schedule_asset_vault_reindex_delayed()
-    except Exception:
-        logger.debug("asset reindex schedule skipped", exc_info=True)
     return {
         "ok": True,
         "entityType": e.entity_type,

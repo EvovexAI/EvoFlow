@@ -4,6 +4,7 @@
 import './items.css'
 import '../style/ef-module-head.css'
 import { api, invalidate, isGatewayWarming, waitForBackendReady } from '../lib/tauri-api.js'
+import { displayErrorText } from '../lib/error-kinds.js'
 import { toast } from '../components/toast.js'
 import { showModal, showConfirm } from '../components/modal.js'
 import {
@@ -1177,9 +1178,9 @@ function formatDuration(task) {
   return remHr ? `${day}天${remHr}时` : `${day}天`
 }
 
-/** 失败原因首行：截断 error 字段第一行 */
+/** 失败原因首行：截断 error 字段第一行（依赖等待/对账痕迹等非用户可见类别隐藏） */
 function getErrorFirstLine(task) {
-  const err = String(task?.error || task?.error_text || '').trim()
+  const err = displayErrorText(task)
   if (!err) return ''
   const firstLine = err.split(/\r?\n/)[0].trim()
   if (!firstLine) return ''

@@ -126,6 +126,12 @@ function setAppStudioShellMode(active) {
   if (active) closeAppSidebarDrawer()
 }
 
+/** Agent 应用打开态：不全屏，侧栏收成图标栏（配合 ui-extension-shell 自动折叠） */
+function setUiExtensionOpenMode(active) {
+  const app = document.getElementById('app')
+  if (app) app.classList.toggle('evopanel-uiext-open-mode', !!active)
+}
+
 /**
  * Knowledge detail (Owned KB) — enter detail view: hide global sidebar shell.
  * Kept for backward compat; the shell mode class also serves Owned KB.
@@ -413,6 +419,7 @@ async function loadRoute() {
       }
       setAuthShellMode(false)
       setAppStudioShellMode(false)
+      setUiExtensionOpenMode(false)
       setChatHostVisible(false)
       setContentVisible(true)
       if (!_contentEl) {
@@ -447,6 +454,7 @@ async function loadRoute() {
 
   setAuthShellMode(isAuthRoute(path))
   setAppStudioShellMode(isImmersiveShellRoute(path))
+  setUiExtensionOpenMode(isUiExtensionRoute(path))
 
   if (isChatRoute(path)) {
     await renderChatRoute(path, hash, thisLoad)

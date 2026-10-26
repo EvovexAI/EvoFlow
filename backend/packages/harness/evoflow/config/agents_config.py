@@ -336,6 +336,34 @@ def resolve_skill_allowlist_for_lead_prompt(agent_config: AgentConfig | None) ->
     return {str(s).strip() for s in agent_config.skills if str(s).strip()}
 
 
+# Only these plugins' skills auto-mount on the main agent (short name before
+# ``@``). Other plugins (documents / pdf / github / …) stay opt-in via each
+# agent's explicit ``skills`` list — their skills are low-value to always
+# inject and would bloat the prompt.
+MAIN_AGENT_AUTO_PLUGIN_NAMES: tuple[str, ...] = ("browser-use", "computer-use")
+
+
+def plugin_skills_for_main_agent(agent_name: str | None) -> set[str]:
+    """Enabled plugins' skill names auto-included for **main** and **xiaomi**.
+
+    ZCode parity: the bundled browser-use / computer-use skills must stay
+    discoverable without per-agent opt-in — the plugin enable switch is their
+    sole authority. Other employee agents keep the pure opt-in ``skills``
+    allowlist; plugins not listed in :data:`MAIN_AGENT_AUTO_PLUGIN_NAMES`
+    never auto-mount.
+    """
+    code = str(agent_name or "").strip().lower()
+    if code not in {"main", "xiaomi"}:
+        return set()
+    try:
+        from evoflow.skills.loader import enabled_plugin_skill_names
+
+        return enabled_plugin_skill_names(MAIN_AGENT_AUTO_PLUGIN_NAMES)
+    except Exception:
+        logger.warning("Plugin skill auto-include failed", exc_info=True)
+        return set()
+
+
 def parse_preferred_skills_from_context(cfg: dict[str, Any] | None) -> list[str]:
     """User-selected skills from chat composer (per-turn run context)."""
     if not isinstance(cfg, dict):
@@ -555,27 +583,42 @@ def merge_baseline_skills_into_agent(agent_code: str, *, baseline: tuple[str, ..
 def merge_baseline_skills_for_lead_family() -> None:
     """Ensure main has evoflow-admin; strip admin/retired merged skills from general-purpose.
 
-    小V（xiaomi）是系统前台，不挂普通技能面——见 :func:`enforce_xiaomi_front_desk_capabilities`。
+    小V（xiaomi）的浏览器/电脑控制技能由 :func:`plugin_skills_for_main_agent` +
+    :func:`enforce_xiaomi_front_desk_capabilities` 注入，不走 baseline merge。
     """
     merge_baseline_skills_into_agent("main")
     merge_baseline_skills_into_agent("general-purpose")
 
 
-def xiaomi_front_desk_capability_defaults() -> dict[str, list[str]]:
-    """小V 持久化能力面：无角色可配置工具 / MCP / 技能。
+def xiaomi_front_desk_capability_defaults() -> dict[str, list[str] | None]:
+    """小V 持久化能力面：bash + 全量 MCP + 浏览器/电脑控制技能。
 
-    运行时由 ``filter_xiaomi_tools`` + ``get_xiaomi_tools`` 挂载前台系统工具
-    （名册 / 看板 / 派发 / 催办 / 知识检索），与普通智能体白名单无关。
+    - ``tools``：角色可配置白名单含 bash；前台 ``xiaomi_*`` / ``platform`` 运行时强制挂载。
+    - ``mcp_servers``：``None`` = 全量已启用 MCP（与 main 同语义）。
+    - ``skills``：写入 browser-use / computer-use 插件技能名（插件开关仍是总闸）。
     """
+    skills: list[str] = []
+    try:
+        from evoflow.skills.loader import enabled_plugin_skill_names
+
+        skills = sorted(enabled_plugin_skill_names(MAIN_AGENT_AUTO_PLUGIN_NAMES))
+    except Exception:
+        logger.debug("xiaomi skill defaults: plugin skill resolve failed", exc_info=True)
+    try:
+        from evoflow.agents.xiaomi.tool_policy import XIAOMI_DEFAULT_CONFIG_TOOLS
+
+        tools = list(XIAOMI_DEFAULT_CONFIG_TOOLS)
+    except Exception:
+        tools = ["bash"]
     return {
-        "tools": [],
-        "mcp_servers": [],
-        "skills": [],
+        "tools": tools,
+        "mcp_servers": None,
+        "skills": skills,
     }
 
 
 def enforce_xiaomi_front_desk_capabilities() -> bool:
-    """Force existing ``xiaomi`` config off the ordinary agent tool/skill/MCP surface.
+    """Keep ``xiaomi`` on bash + all MCP + browser/computer-use skills.
 
     Returns True when the config was written (or already correct after load).
     """
@@ -592,19 +635,21 @@ def enforce_xiaomi_front_desk_capabilities() -> bool:
     changed = False
     for key, desired in caps.items():
         current = xm_full.get(key)
+        if desired is None:
+            # None = unrestricted MCP — clear stale [] / list.
+            if current is not None:
+                xm_full[key] = None
+                changed = True
+            continue
         if current != desired:
             xm_full[key] = list(desired)
             changed = True
-    # Drop stale nulls that UI treats as「全工具 / 全 MCP」
-    for key in caps:
-        if xm_full.get(key) is None:
-            xm_full[key] = []
-            changed = True
     if changed:
-        # Persist empty lists (exclude_none would drop them and revive「全量」语义).
-        save_agent_config("xiaomi", {k: v for k, v in xm_full.items() if v is not None or k in caps})
+        # Persist None for mcp_servers (all); keep tools/skills lists.
+        payload = {k: v for k, v in xm_full.items() if v is not None or k == "mcp_servers"}
+        save_agent_config("xiaomi", payload)
         logger.info(
-            "[Xiaomi] enforced front-desk capabilities tools=%s mcp=%s skills=%s",
+            "[Xiaomi] enforced capabilities tools=%s mcp=%s skills=%s",
             caps["tools"],
             caps["mcp_servers"],
             caps["skills"],
@@ -1070,7 +1115,7 @@ def ensure_builtin_agents_materialized() -> None:
     _migrate_shell_tools_onto_agents()
 
     # ``xiaomi`` = system front desk (separate builtin; never overwrite ``main``).
-    # Capability surface is fixed: no ordinary tools / MCP / skills (runtime mounts xiaomi_*).
+    # Capability: bash + all MCP + browser/computer-use skills; runtime also mounts xiaomi_*.
     _xm_caps = xiaomi_front_desk_capability_defaults()
     if not cfg_repo.agent_exists("xiaomi"):
         save_agent_config(
@@ -1112,11 +1157,17 @@ def ensure_builtin_agents_materialized() -> None:
                 xm_full["description"] = "用户的全局前台：接待、传讯、分诊给智能体员工；不亲自做一线工程。"
                 xm_changed = True
             for key, desired in _xm_caps.items():
-                if xm_full.get(key) != desired:
+                current = xm_full.get(key)
+                if desired is None:
+                    # None = unrestricted MCP — do not list(None).
+                    if current is not None:
+                        xm_full[key] = None
+                        xm_changed = True
+                    continue
+                if current != desired:
                     xm_full[key] = list(desired)
                     xm_changed = True
             if xm_changed:
-                # Keep empty capability lists so UI/API do not treat null as「全量」.
                 save_agent_config(
                     "xiaomi",
                     {k: v for k, v in xm_full.items() if v is not None or k in _xm_caps},
@@ -1133,10 +1184,47 @@ def ensure_builtin_agents_materialized() -> None:
         try:
             cur_soul = (load_agent_soul("xiaomi") or "").strip()
             bundled = load_bundled_soul("xiaomi") or ""
-            if bundled and (not cur_soul or cur_soul.startswith("# xiaomi") or cur_soul.startswith("# 小蜜") or cur_soul.startswith("# 小V") or "Built-in subagent" in cur_soul or "禁止 Markdown" not in cur_soul):
+            # Soul = style only (语气/例句/心情/语音轮). Refresh when an older generated
+            # version is detected: v0 front-desk text, or the v1 merged soul that still
+            # carried duty sections (你怎么做事/带用户看见/标准动作) now owned by
+            # ``<agent_system_prompt>``. The current style-only soul contains none of
+            # these markers, so user-customized souls are left untouched.
+            if bundled and (
+                not cur_soul
+                or cur_soul.startswith("# xiaomi")
+                or cur_soul.startswith("# 小蜜")
+                or "Built-in subagent" in cur_soul
+                or "对用户来说，你就是身边那个" in cur_soul
+                or "## 你怎么做事" in cur_soul
+                or "## 带用户看见" in cur_soul
+                or "## 标准动作" in cur_soul
+            ):
                 save_agent_soul("xiaomi", bundled)
         except Exception:
             logger.debug("xiaomi soul backfill skipped", exc_info=True)
+        # system_prompt = duty/constraint layer (``<agent_system_prompt>``). Seed on
+        # fresh installs; replace stale generated copies (pre-soul legacy text with
+        # retired xiaomi_* tool names / 管家 identity, or the v1 full-prompt copy that
+        # duplicated the soul). Genuine custom overrides without these markers stay.
+        try:
+            from evoflow.agents.xiaomi.prompt import duty_system_prompt
+
+            _xm_duties = duty_system_prompt()
+            _xm_sp = str(getattr(load_agent_config("xiaomi"), "system_prompt", "") or "")
+            if _xm_sp != _xm_duties and (
+                not _xm_sp
+                or "xiaomi_" in _xm_sp
+                or "常驻管家" in _xm_sp
+                or "我的心情" in _xm_sp
+                or "你是用户的全局助手" in _xm_sp
+                or "不再挂小V专用工具名" in _xm_sp
+            ):
+                _xm_full = load_agent_config("xiaomi").model_dump(exclude_none=False, exclude={"name"})
+                _xm_full["system_prompt"] = _xm_duties
+                save_agent_config("xiaomi", _xm_full)
+                logger.info("xiaomi: system_prompt synced to bundled duty prompt")
+        except Exception:
+            logger.debug("xiaomi system_prompt duty sync skipped", exc_info=True)
 
     # Copy packaged cutouts into agents/{code}/ so has_avatar_file /api/.../avatar work
     # on fresh installs; also refresh superseded product defaults for existing installs

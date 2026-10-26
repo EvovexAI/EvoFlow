@@ -7,10 +7,13 @@ bound project at ``<workspace>/.evoflow/`` (same standing/facts/craft tree).
 from __future__ import annotations
 
 import hashlib
+import logging
 import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
+
+logger = logging.getLogger(__name__)
 
 BUILTIN_ASSET_VAULT_ID = "evoflow-assets"
 BUILTIN_ASSET_VAULT_NAME = "EvoFlow 资产中心"
@@ -36,10 +39,21 @@ _SAFE_REL_PATH = re.compile(r"^[\w./\-]+$", re.UNICODE)
 _WS_PATH_BY_ID: dict[str, str] = {}
 
 
+def invalidate_workspace_path_cache(entity_id: str | None = None) -> None:
+    """Drop ws-{hash} → path cache entries (call when workspace bindings change)."""
+    if entity_id:
+        _WS_PATH_BY_ID.pop(str(entity_id).strip().lower(), None)
+    else:
+        _WS_PATH_BY_ID.clear()
+
+
 def sanitize_user_asset_id(principal_or_id: str) -> str:
     """Map a principal id (or alias) to a filesystem-safe user asset bucket id.
 
     Legacy shared bucket is ``user``. Multi-user installs use ``users/<id>/``.
+    Ids containing characters that get replaced (``a.b`` → ``a_b``) collide with
+    lookalike principals, so the cleaned form is disambiguated with a short
+    digest — two different principals never share one memory bucket.
     """
     raw = str(principal_or_id or "").strip()
     if not raw or raw.lower() in ("user", "me", "self"):
@@ -48,6 +62,9 @@ def sanitize_user_asset_id(principal_or_id: str) -> str:
         return raw.lower()
     cleaned = re.sub(r"[^a-zA-Z0-9_-]+", "_", raw).strip("_").lower()
     if cleaned and _SAFE_SEGMENT.match(cleaned):
+        if cleaned != raw.lower():
+            digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:8]
+            return f"{cleaned}-{digest}"
         return cleaned
     return "p_" + hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
 
@@ -230,4 +247,40 @@ def workspace_entity_ref(workspace_path: str) -> EntityRef:
     digest = hashlib.sha256(resolved.encode("utf-8")).hexdigest()[:32]
     ref = EntityRef("workspace", f"ws-{digest}").normalized()
     _WS_PATH_BY_ID[ref.entity_id] = resolved
+    _migrate_orphan_workspace_bucket(ref, resolved)
     return ref
+
+
+def _migrate_orphan_workspace_bucket(ref: EntityRef, resolved_path: str) -> None:
+    """把解绑期间写进 ``assets/workspaces/{id}`` 兜底桶的资产迁回项目 ``.evoflow``。
+
+    未绑定注册表时写入走兜底桶，绑定后读取切到 ``<project>/.evoflow``——数据
+    会"分裂"在旧桶。绑定瞬间如果兜底桶有内容而项目树还没有，整体搬一次。
+    """
+    import shutil
+
+    target = Path(resolved_path) / WORKSPACE_ASSET_REL
+    if target.is_dir():
+        return
+    legacy = assets_root() / "workspaces" / ref.entity_id
+    try:
+        if not legacy.is_dir() or not any(legacy.iterdir()):
+            return
+        target.mkdir(parents=True, exist_ok=True)
+        for child in list(legacy.iterdir()):
+            move_dest = target / child.name
+            if move_dest.exists():
+                continue
+            try:
+                shutil.move(str(child), str(move_dest))
+            except OSError:
+                logger.warning("orphan workspace bucket migrate failed: %s", child, exc_info=True)
+                continue
+        try:
+            if not any(legacy.iterdir()):
+                legacy.rmdir()
+        except OSError:
+            pass
+        logger.info("migrated orphan workspace bucket %s -> %s", legacy, target)
+    except OSError:
+        logger.debug("orphan workspace bucket check skipped: %s", legacy, exc_info=True)

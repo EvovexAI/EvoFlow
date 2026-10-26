@@ -147,7 +147,7 @@ def _schedule_main_task_broadcast(main_task_id: str, event_type: str, data: dict
         logger.debug("schedule main task broadcast failed", exc_info=True)
 
 
-def sync_main_task_from_subtasks(storage: Any, main_task_id: str) -> dict[str, Any]:
+def sync_main_task_from_subtasks(storage: Any, main_task_id: str, *, persist: bool = True) -> dict[str, Any]:
     """Persist main-task progress (and non-terminal status) from subtask rows.
 
     Intermediate progress is auto-synced (capped at 99% until lead sets ``completed``).
@@ -156,6 +156,11 @@ def sync_main_task_from_subtasks(storage: Any, main_task_id: str) -> dict[str, A
 
     Uses per-main-task lock to prevent lost updates when multiple subtasks
     finish concurrently and both trigger a rollup.
+
+    ``persist=False`` is the read-path projection variant (GET run status):
+    loads a fresh DB copy (bypassing cache), computes the rolled-up view in
+    memory, and skips every persistence side effect (bundle save, memory
+    snapshot, episode recording). Safe to call from any reader.
     """
     from evoflow.collab.storage import main_task_mutation_lock
 
@@ -165,12 +170,12 @@ def sync_main_task_from_subtasks(storage: Any, main_task_id: str) -> dict[str, A
 
     # Serialize read-modify-write per main task to avoid lost updates
     with main_task_mutation_lock(mid):
-        return _sync_main_task_from_subtasks_locked(storage, mid)
+        return _sync_main_task_from_subtasks_locked(storage, mid, persist=persist)
 
 
-def _sync_main_task_from_subtasks_locked(storage: Any, main_task_id: str) -> dict[str, Any]:
+def _sync_main_task_from_subtasks_locked(storage: Any, main_task_id: str, *, persist: bool = True) -> dict[str, Any]:
     """Inner implementation of sync_main_task_from_subtasks (caller must hold lock)."""
-    found = find_main_task(storage, main_task_id)
+    found = find_main_task(storage, main_task_id, bypass_cache=not persist)
     if not found:
         return {"ok": False, "changed": False}
 
@@ -229,12 +234,13 @@ def _sync_main_task_from_subtasks_locked(storage: Any, main_task_id: str) -> dic
             new_progress = 100
             if task.get("completed_at") is None:
                 task["completed_at"] = now
-            try:
-                from evoflow.memory.episodes import record_task_episode
+            if persist:
+                try:
+                    from evoflow.memory.episodes import record_task_episode
 
-                record_task_episode(task, outcome="completed")
-            except Exception:
-                logger.debug("sync complete → memory episode skipped", exc_info=True)
+                    record_task_episode(task, outcome="completed")
+                except Exception:
+                    logger.debug("sync complete → memory episode skipped", exc_info=True)
         elif new_status == "failed":
             if task.get("failed_at") is None:
                 task["failed_at"] = now
@@ -261,6 +267,18 @@ def _sync_main_task_from_subtasks_locked(storage: Any, main_task_id: str) -> dic
             "changed": False,
             "status": task.get("status"),
             "progress": clamp_task_progress(task.get("progress")),
+        }
+
+    if not persist:
+        # Read-path projection (GET run status): computed view only, no writes.
+        effective_progress = clamp_task_progress(task.get("progress"))
+        if normalize_main_task_status(str(task.get("status") or "")) == "completed":
+            effective_progress = 100
+        return {
+            "ok": True,
+            "changed": True,
+            "status": task.get("status"),
+            "progress": effective_progress,
         }
 
     task["updated_at"] = utc_now_iso_z()

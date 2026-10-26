@@ -20,6 +20,7 @@ const kindIcon: Record<string, string> = {
   goal_closure: '✅',
   goal_error: '⚠️',
   goal_stopped: '⏹',
+  workflow_finished: '⚙️',
 }
 
 function formatTime(ts: number | string | undefined): string {

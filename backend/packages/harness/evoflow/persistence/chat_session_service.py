@@ -387,12 +387,20 @@ def ensure_executor_transcript_session(
     *,
     lead_thread_id: str | None = None,
     collab_task_id: str | None = None,
+    force_dedicated: bool = False,
+    workflow: dict[str, Any] | None = None,
 ) -> str | None:
     """Resolve/create a chat ``session_key`` for subtask executor transcript writes.
 
     Lead-bound workers reuse the lead sidebar session. Workflow app runs
     (``SubThread_{subtask_id}``, no lead) get a dedicated non-sidebar session
     ``agent:executor:{thread_id}`` so ``evoflow_chat_messages`` can be written.
+
+    ``force_dedicated=True`` (workflow runs invoked FROM a chat): the chat is
+    just an entry point — never reuse its sidebar session for worker
+    transcripts/usage. The dedicated session context carries the workflow
+    ids (``workflow``: main_task_id / app_id / run_id / app_name) so logs and
+    usage attribute to the run, not the launching conversation.
     """
     tid = str(executor_thread_id or "").strip()
     if not tid:
@@ -408,11 +416,12 @@ def ensure_executor_transcript_session(
         sk = sess_repo.find_session_key_by_thread_id(tid)
         if sk:
             return sk
-        lead = normalize_lead_thread_id(lead) or lead or lead_thread_from_executor_thread(tid)
-        if lead:
-            sk_lead = sess_repo.find_session_key_by_thread_id(lead)
-            if sk_lead:
-                return sk_lead
+        if not force_dedicated:
+            lead = normalize_lead_thread_id(lead) or lead or lead_thread_from_executor_thread(tid)
+            if lead:
+                sk_lead = sess_repo.find_session_key_by_thread_id(lead)
+                if sk_lead:
+                    return sk_lead
         if not is_collab_executor_thread(tid):
             return None
         sk = f"{EXECUTOR_SESSION_KEY_PREFIX}{tid}"
@@ -421,6 +430,16 @@ def ensure_executor_transcript_session(
         cid = str(collab_task_id or "").strip()
         if cid:
             ctx["collab_task_id"] = cid
+        title = "节点执行记录"
+        if isinstance(workflow, dict) and workflow:
+            ctx["workflow_run"] = True
+            for key in ("main_task_id", "app_id", "run_id"):
+                val = str(workflow.get(key) or "").strip()
+                if val:
+                    ctx[key] = val
+            app_name = str(workflow.get("app_name") or "").strip()
+            if app_name:
+                title = f"工作流执行 · {app_name}"[:80]
         sess_repo.upsert_session_row(
             sk,
             thread_id=tid,
@@ -428,7 +447,7 @@ def ensure_executor_transcript_session(
             updated_at_ms=now,
             message_count=0,
             context=ctx,
-            title="节点执行记录",
+            title=title,
             agent_id="executor",
             session_status=sess_repo.SESSION_STATUS_ACTIVE,
             **({"collab_task_id": cid} if cid else {}),

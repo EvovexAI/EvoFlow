@@ -84,6 +84,25 @@ def _principal_from_runtime(runtime: ToolRuntime[ContextT, dict] | None) -> str:
         return ""
 
 
+def _assert_workspace_allowed(runtime: ToolRuntime[ContextT, dict] | None, wp: str) -> None:
+    """workspace 记忆只允许会话绑定的项目（或其子目录绑定的项目）。
+
+    没有 session 工作区、或请求的路径解析到别的项目 → 拒绝，防跨项目读写。
+    """
+    session_wp = _workspace_from_runtime(runtime)
+    if not session_wp:
+        raise PermissionError("workspace_entity_forbidden_without_session_workspace")
+    from evoflow.assets.paths import workspace_asset_root
+
+    try:
+        base = workspace_asset_root(session_wp)
+        target = workspace_asset_root(wp)
+    except ValueError as exc:
+        raise PermissionError(f"invalid_workspace_path:{exc}") from exc
+    if target != base and base not in target.parents:
+        raise PermissionError("workspace_entity_forbidden")
+
+
 def _resolve_entity(
     runtime: ToolRuntime[ContextT, dict] | None,
     *,
@@ -115,6 +134,7 @@ def _resolve_entity(
     if sc in ("workspace", "project", "ws") or et == "workspace":
         wp = eid or _workspace_from_runtime(runtime)
         if wp:
+            _assert_workspace_allowed(runtime, wp)
             return workspace_entity_ref(wp)
     if et and eid:
         ent = EntityRef(et, eid).normalized()
@@ -132,10 +152,19 @@ def _resolve_entity(
             return ent
         if ent.entity_type == "agent":
             return _user_entity()
-        if ent.entity_type == "employee" and act == "note":
-            current_agent = _agent_from_runtime(runtime)
-            if current_agent and current_agent.lower() != eid.lower():
-                return EntityRef("employee", current_agent).normalized()
+        if ent.entity_type == "employee":
+            current_agent = (_agent_from_runtime(runtime) or "").strip().lower()
+            if act == "note":
+                # 写入只落当前员工自己的树；无员工身份的会话不允许显式写他人员工
+                if not current_agent:
+                    raise PermissionError("employee_entity_forbidden_without_session_agent")
+                if current_agent != ent.entity_id:
+                    return EntityRef("employee", current_agent).normalized()
+                return ent
+            # 读 / 列表 / 检索同样不允许跨员工（防提示注入越权读他人员工的日志）
+            if not current_agent or current_agent != ent.entity_id:
+                raise PermissionError("cross_employee_entity_forbidden")
+            return ent
         return ent
     agent = _agent_from_runtime(runtime) or None
     if act == "read" and rel.startswith("profile/"):
@@ -179,7 +208,8 @@ def assets_tool(
     - memory/facts/ — preferences & short facts
     - memory/episodic/ — process / rollout recaps
     - memory/journal/ — reflections
-    - craft/*/SKILL.md — reusable experience / procedures
+    - craft/<name>.md — reusable experience / procedures (flat files; mature
+      crafts can be promoted to skill packages via Asset Center)
     - memory/MEMORY.md + memory/standing.md — registry & standing (read only in dialogue)
 
     Prefer this over legacy ``experience_*``, ``memory_remember``, or direct file edits.
@@ -342,6 +372,7 @@ def assets_tool(
         if re.match(r"^\[project\]", text, re.I):
             wp = _workspace_from_runtime(runtime)
             if wp:
+                _assert_workspace_allowed(runtime, wp)
                 from evoflow.assets.paths import workspace_entity_ref
 
                 note_entity = workspace_entity_ref(wp)

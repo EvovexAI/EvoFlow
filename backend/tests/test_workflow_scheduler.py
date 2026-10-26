@@ -68,7 +68,7 @@ async def test_advance_dag_followup_delegates_and_pushes(monkeypatch: pytest.Mon
         lambda _tid: {"id": "wf1", "source_app_id": "App_x", "execution_authorized": True},
     )
     monkeypatch.setattr(
-        "evoflow.tools.builtins.supervisor.execution._resolve_collab_followup_runtime",
+        "evoflow.collab.execution_kernel.resolve_followup_runtime",
         lambda runtime, tid: runtime or MagicMock(),
     )
 
@@ -80,11 +80,11 @@ async def test_advance_dag_followup_delegates_and_pushes(monkeypatch: pytest.Mon
             return False
 
     monkeypatch.setattr(
-        "evoflow.tools.builtins.supervisor.execution._followup_lock_for_task",
+        "evoflow.collab.execution_kernel.followup_lock_for_task",
         lambda _tid: _Lock(),
     )
     monkeypatch.setattr(
-        "evoflow.tools.builtins.supervisor.execution._verify_upstream_artifacts_before_followup",
+        "evoflow.collab.execution_kernel.verify_upstream_artifacts_before_followup",
         lambda *_a, **_k: None,
     )
     monkeypatch.setattr(
@@ -128,7 +128,7 @@ async def test_advance_dag_retry_uses_followup_path(monkeypatch: pytest.MonkeyPa
         lambda _tid: {"id": "wf1", "source_app_id": "App_x", "execution_authorized": True},
     )
     monkeypatch.setattr(
-        "evoflow.tools.builtins.supervisor.execution._resolve_collab_followup_runtime",
+        "evoflow.collab.execution_kernel.resolve_followup_runtime",
         lambda runtime, tid: MagicMock(),
     )
 
@@ -140,11 +140,11 @@ async def test_advance_dag_retry_uses_followup_path(monkeypatch: pytest.MonkeyPa
             return False
 
     monkeypatch.setattr(
-        "evoflow.tools.builtins.supervisor.execution._followup_lock_for_task",
+        "evoflow.collab.execution_kernel.followup_lock_for_task",
         lambda _tid: _Lock(),
     )
     monkeypatch.setattr(
-        "evoflow.tools.builtins.supervisor.execution._verify_upstream_artifacts_before_followup",
+        "evoflow.collab.execution_kernel.verify_upstream_artifacts_before_followup",
         lambda *_a, **_k: None,
     )
     monkeypatch.setattr(

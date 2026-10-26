@@ -10,7 +10,13 @@ import {
   clearBrowserEmbedCdp,
   registerBrowserEmbedCdp,
 } from '../../lib/browser-embed-client.js'
-import { ensureNativeEmbed, NATIVE_EMBED_THREAD_ID, reportEmbedSlot } from '../../lib/browser-embed-surface.js'
+import {
+  currentEmbedPlacement,
+  ensureNativeEmbed,
+  getEmbedGateEpoch,
+  NATIVE_EMBED_THREAD_ID,
+  reportEmbedSlot,
+} from '../../lib/browser-embed-surface.js'
 import { blogTimeline } from '../../lib/browser-unified-log.js'
 import { getUiZoom } from '../../lib/ui-zoom.js'
 import { useGlobalOverlayWhen } from '../hooks/useGlobalOverlayWhen.js'
@@ -569,9 +575,15 @@ function chromeFloorY(): number {
   try {
     const nodes = document.querySelectorAll<HTMLElement>('[data-tauri-drag-region]')
     let floor = 0
+    // 只认「顶栏」高度的拖拽区。小V 语音域曾把整栏挂 drag-region，bottom≈整窗，
+    // 会被当成地板 → y 压到底、height 塌成 80，右侧浏览器错位成一条缝。
+    const maxChromeH = 120
     nodes.forEach((el) => {
-      const b = el.getBoundingClientRect().bottom
-      if (b > floor) floor = b
+      const b = el.getBoundingClientRect()
+      if (b.width < 8 || b.height < 8) return
+      if (b.height > maxChromeH) return
+      if (b.top > maxChromeH) return
+      if (b.bottom > floor) floor = b.bottom
     })
     if (floor >= 24) return Math.ceil(floor)
   } catch {
@@ -652,21 +664,31 @@ async function logEmbedCompare(
     viewportWidth?: number
     viewportHeight?: number
   } | null,
-) {
+  opts?: { onlyIfMisaligned?: boolean },
+): Promise<boolean> {
   const raw = slotEl?.getBoundingClientRect()
   const probe = await browserEmbedProbeCoords(NATIVE_EMBED_THREAD_ID)
   if (!probe) {
-    console.log(`%c[embed对比] ${reason}`, 'color:#38bdf8;font-weight:bold')
-    console.log('  ②WebView(原生) (读不到 — 窗口可能未创建)')
-    return
+    if (!opts?.onlyIfMisaligned) {
+      console.warn(`%c[embed对比] ${reason} → 无 WebView`, 'color:#f59e0b;font-weight:bold')
+      console.warn('  ②WebView(原生) (读不到 — 窗口可能未创建/已销毁)')
+      if (bounds) {
+        console.warn(
+          `  槽位上报 css=(${bounds.x},${bounds.y} ${bounds.width}x${bounds.height}) viewport=(${bounds.viewportWidth}x${bounds.viewportHeight})`,
+        )
+      }
+    }
+    return false
   }
   const wc = probe.webviewClient
   const mw = probe.mainClient?.w || 0
   const mh = probe.mainClient?.h || 0
   const vw = Math.max(8, bounds?.viewportWidth || window.innerWidth || 1)
   const vh = Math.max(8, bounds?.viewportHeight || window.innerHeight || 1)
+  const dpr = window.devicePixelRatio || 1
+  const uiZoom = getUiZoom() || 1
   // 与 Rust to_client_px 同一口径：physical = css * (mainInner / viewport)
-  const sx = mw > 8 ? mw / vw : window.devicePixelRatio || 1
+  const sx = mw > 8 ? mw / vw : dpr
   const sy = mh > 8 ? mh / vh : sx
   const htmlPhys = bounds
     ? {
@@ -686,17 +708,69 @@ async function logEmbedCompare(
     Math.abs(dy) <= 20 &&
     Math.abs(dw) <= 36 &&
     Math.abs(dh) <= 36
-  const cssStr = raw
+  if (opts?.onlyIfMisaligned && ok) return true
+
+  const place = currentEmbedPlacement()
+  const rawCss = raw
     ? `(${Math.round(raw.left)},${Math.round(raw.top)} ${Math.round(raw.width)}x${Math.round(raw.height)})`
     : '(无)'
-  console.log(`%c[embed对比] ${reason} → ${ok ? '对齐' : '错位!!!'}`, 'color:#38bdf8;font-weight:bold')
-  console.log(
-    `  ①HTML css=${cssStr} → 物理≈(${htmlPhys ? `${Math.round(htmlPhys.x)},${Math.round(htmlPhys.y)} ${Math.round(htmlPhys.w)}x${Math.round(htmlPhys.h)}` : '无'}) scale=(${sx.toFixed(3)},${sy.toFixed(3)})`,
+  const slotCss = bounds
+    ? `(${bounds.x},${bounds.y} ${bounds.width}x${bounds.height})`
+    : '(无)'
+  const physStr = htmlPhys
+    ? `(${Math.round(htmlPhys.x)},${Math.round(htmlPhys.y)} ${Math.round(htmlPhys.w)}x${Math.round(htmlPhys.h)})`
+    : '(无)'
+  const last = probe.lastSlot
+  const lastStr = last
+    ? `(${Math.round(last.x)},${Math.round(last.y)} ${Math.round(last.w)}x${Math.round(last.h)})`
+    : '(无)'
+  const title = `[embed对比] ${reason} → ${ok ? '对齐' : '错位!!!'}`
+  const style = ok ? 'color:#38bdf8;font-weight:bold' : 'color:#f43f5e;font-weight:bold;font-size:13px'
+  const log = ok ? console.log.bind(console) : console.warn.bind(console)
+  log(`%c${title}`, style)
+  log(`  ①DOM raw css=${rawCss}`)
+  log(`  ①槽位上报 css=${slotCss} → 物理≈${physStr}  scale=(${sx.toFixed(3)},${sy.toFixed(3)}) dpr=${dpr} uiZoom=${uiZoom}`)
+  log(
+    `  ②WebView 物理 client=(${Math.round(wc.x)},${Math.round(wc.y)} ${Math.round(wc.w)}x${Math.round(wc.h)}) ` +
+      `screen=(${Math.round(probe.webviewScreen.x)},${Math.round(probe.webviewScreen.y)} ${Math.round(probe.webviewScreen.w)}x${Math.round(probe.webviewScreen.h)})`,
   )
-  console.log(
-    `  ②WebView 物理 client=(${Math.round(wc.x)},${Math.round(wc.y)} ${Math.round(wc.w)}x${Math.round(wc.h)}) screen=(${Math.round(probe.webviewScreen.x)},${Math.round(probe.webviewScreen.y)})`,
-  )
-  console.log(`  Δ(②−①) = (${dx},${dy}) sizeΔ=(${dw},${dh})`)
+  log(`  Δ(②−①) = (${dx},${dy}) sizeΔ=(${dw},${dh})`)
+  if (!ok) {
+    log(
+      `  ③Rust lastSlot=${lastStr}  mainClient=(${Math.round(mw)}x${Math.round(mh)}) viewport=(${Math.round(vw)}x${Math.round(vh)})`,
+    )
+    log(
+      `  ③gate stage=${place.stageId || '(hide)'} epoch=${getEmbedGateEpoch()} ` +
+        `parked=${probe.parked} visible=${probe.visible} kind=${probe.kind} overlay=${place.overlayDepth}`,
+    )
+    log('  坐标摘要', {
+      reason,
+      slotCss: bounds
+        ? { x: bounds.x, y: bounds.y, w: bounds.width, h: bounds.height }
+        : null,
+      htmlPhys: htmlPhys
+        ? {
+            x: Math.round(htmlPhys.x),
+            y: Math.round(htmlPhys.y),
+            w: Math.round(htmlPhys.w),
+            h: Math.round(htmlPhys.h),
+          }
+        : null,
+      webviewClient: {
+        x: Math.round(wc.x),
+        y: Math.round(wc.y),
+        w: Math.round(wc.w),
+        h: Math.round(wc.h),
+      },
+      delta: { x: dx, y: dy, w: dw, h: dh },
+      lastSlot: last
+        ? { x: Math.round(last.x), y: Math.round(last.y), w: Math.round(last.w), h: Math.round(last.h) }
+        : null,
+      parked: probe.parked,
+      visible: probe.visible,
+    })
+  }
+  return ok
 }
 
 async function waitForEmbedBounds(el: HTMLElement | null, timeoutMs = 2400) {
@@ -1016,17 +1090,30 @@ function BrowserEmbedHost({
       settleTimers = []
     }
 
-    const dumpCompare = (reason: string, bounds: ReturnType<typeof readEmbedBounds>) => {
+    const dumpCompare = (
+      reason: string,
+      bounds: ReturnType<typeof readEmbedBounds>,
+      opts?: { force?: boolean; onlyIfMisaligned?: boolean },
+    ) => {
       const now = performance.now()
-      // 对照日志：≥2s 一条；settle/+Nms 静默（只贴位不打 log）。
-      if (compareInflight || now - lastCompareAt < 2000) return
-      if (/^(raf|resize-observer|tick)/.test(reason)) return
-      if (/\+\d+ms$/.test(reason) || /settle/i.test(reason)) return
-      lastCompareAt = now
+      const isNoise = /^(raf|resize-observer|tick)/.test(reason)
+      const isSettle = /\+\d+ms$/.test(reason) || /settle/i.test(reason)
+      // 对齐时：≥2s 一条，settle 静默。错位时：settle 也打（onlyIfMisaligned），方便抓语音退出/切图。
+      if (compareInflight) return
+      if (isNoise) return
+      if (!opts?.force && !opts?.onlyIfMisaligned && now - lastCompareAt < 2000) return
+      if (isSettle && !opts?.force && !opts?.onlyIfMisaligned) return
+      if (!opts?.onlyIfMisaligned) lastCompareAt = now
       compareInflight = true
-      void logEmbedCompare(reason, slotRef.current, bounds).finally(() => {
-        compareInflight = false
+      void logEmbedCompare(reason, slotRef.current, bounds, {
+        onlyIfMisaligned: opts?.onlyIfMisaligned === true,
       })
+        .then((aligned) => {
+          if (!aligned) lastCompareAt = performance.now()
+        })
+        .finally(() => {
+          compareInflight = false
+        })
     }
 
     const applyCorners = (force = false, reason = 'tick', withCompare = false) => {
@@ -1041,17 +1128,30 @@ function BrowserEmbedHost({
       if (!force && now < backoffUntil) return
       if (!force && now - lastIpcAt < 32) return
       lastIpcAt = now
-      if (withCompare) dumpCompare(reason, bounds)
+      if (withCompare) {
+        const isSettleStep = /\+\d+ms$/.test(reason)
+        dumpCompare(reason, bounds, {
+          force: /xw-voice|defer/i.test(reason) && !isSettleStep,
+          onlyIfMisaligned: isSettleStep,
+        })
+      }
       // 只有贴位成功才锁 lastKey。最大化时 Moved 会 defer set_bounds 并返回 false，
       // 若此处先锁 key，HWND 停在旧左侧而右侧槽位已就位。
       void reportEmbedSlot(stageIdRef.current, bounds, { force: true }).then((ok) => {
         if (ok) {
           lastKey = key
           backoffUntil = 0
+          // 贴成功后再探一次：只在仍错位时打坐标（抓「IPC 成功但 HWND 没跟上」）。
+          if (/xw-voice|dock|defer|mount/i.test(reason)) {
+            window.setTimeout(
+              () => dumpCompare(`${reason}:after`, bounds, { onlyIfMisaligned: true }),
+              120,
+            )
+          }
         } else {
           lastKey = ''
           backoffUntil = performance.now() + 220
-          dumpCompare(`${reason}:defer`, bounds)
+          dumpCompare(`${reason}:defer`, bounds, { force: true })
         }
       })
     }
@@ -1061,17 +1161,21 @@ function BrowserEmbedHost({
       backoffUntil = 0
       clearSettles()
       const isDock = /dock|xm-dock/i.test(reason)
-      // dock 开合：等 margin/--xm-dock-width 生效后再量，避免量到开合前的旧 x（693→473）。
+      // 语音全屏进/出会改整窗 flex（左 440 + 右铺满 ↔ 普通分栏），立刻量会吃到半布局，
+      // HWND 停在语音态大矩形 → 日志 Δ≈-600；与 dock 一样等两帧再贴。
+      const isVoiceChrome = /xw-voice/i.test(reason)
+      const deferLayout = isDock || isVoiceChrome
       const start = () => {
         applyCorners(true, reason, true)
-        const settles = isDock ? [160, 360, 640] : [80, 250, 700, 1400]
+        const settles = deferLayout ? [160, 360, 640, 1200] : [80, 250, 700, 1400]
         for (const ms of settles) {
+          // settle 步也带 compare：对齐静默，错位才打全套坐标
           settleTimers.push(
-            window.setTimeout(() => applyCorners(true, `${reason}+${ms}ms`, false), ms),
+            window.setTimeout(() => applyCorners(true, `${reason}+${ms}ms`, true), ms),
           )
         }
       }
-      if (isDock) {
+      if (deferLayout) {
         requestAnimationFrame(() => {
           requestAnimationFrame(() => {
             settleTimers.push(window.setTimeout(start, 40))
@@ -1151,7 +1255,8 @@ function BrowserEmbedHost({
         : null
     mo?.observe(document.documentElement, {
       attributes: true,
-      attributeFilter: ['class'],
+      // data-xw-voice：小V 语音全屏切布局时不是 class，也要立刻重贴 HWND
+      attributeFilter: ['class', 'data-xw-voice'],
     })
     const sidebarEl = document.getElementById('sidebar')
     if (sidebarEl) {
@@ -1790,6 +1895,7 @@ export const BrowserPanel = memo(function BrowserPanel({
       setNavError('')
       try {
         // 先压逻辑栈 + 解 park/贴 HWND（空白新标签），再补 CDP 对齐引擎态。
+        // stageId 钉死本签：settle 时用户若已切走，禁止把 URL 写进另一签。
         applyBrowserCommandResponse({
           threadId: tid,
           pageUrl: normalized,
@@ -1797,6 +1903,7 @@ export const BrowserPanel = memo(function BrowserPanel({
           streamWs: '',
           pushHistory: true,
           navigateIntent: true,
+          stageId,
         })
         const result = await sendBrowserCommand(tid, 'navigate', normalized)
         if (result) {
@@ -1805,7 +1912,7 @@ export const BrowserPanel = memo(function BrowserPanel({
             setNavError('页面加载失败，请检查网址或网络后重试')
           } else if (settled !== normalized) {
             // 重定向：用最终 URL 更新栈顶（再 push 一次会去重同 URL）。
-            pushBrowserTabHistory(settled, result.pageTitle || '')
+            pushBrowserTabHistory(settled, result.pageTitle || '', stageId)
             void ensureNativeEmbed({
               url: settled,
               stageId,
@@ -1818,6 +1925,7 @@ export const BrowserPanel = memo(function BrowserPanel({
             pageUrl: settled,
             pageTitle: result.pageTitle,
             streamWs: result.streamWs,
+            stageId,
           })
         } else {
           // CDP 失败时 upsert 已在 applyBrowserCommandResponse 里发起；再补一枪贴位。
@@ -1895,8 +2003,8 @@ export const BrowserPanel = memo(function BrowserPanel({
   // once per tick.
   useEffect(() => {
     const tid = effectiveThreadId
-    if (!isOpen || !tid) {
-      setBrowserTabs([])
+    // 仅前台签轮询：FORCE_MOUNT 下后台实例一起 setBrowserTabs 会把 HWND 残留 URL 写串。
+    if (!isOpen || !tid || !surfaceActive) {
       return
     }
     let cancelled = false
@@ -1939,7 +2047,7 @@ export const BrowserPanel = memo(function BrowserPanel({
       cancelled = true
       window.clearTimeout(timer)
     }
-  }, [isOpen, effectiveThreadId, refreshNonce])
+  }, [isOpen, effectiveThreadId, refreshNonce, surfaceActive])
 
   const [streamError, setStreamError] = useState('')
   const handleStreamError = useCallback((message: string) => {

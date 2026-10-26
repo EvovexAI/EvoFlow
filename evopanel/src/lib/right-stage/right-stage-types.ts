@@ -11,6 +11,7 @@ export type RightStageKind =
   | 'platform-feedback'
   | 'news-dashboard'
   | 'web-embed'
+  | 'xiaomi'
   | string
 
 export type RightStageSurface = {
@@ -57,6 +58,8 @@ export const RIGHT_STAGE_KIND_LABELS: Record<string, string> = {
   'news-dashboard': '资讯',
   'web-embed': '网页',
   browser: '浏览器',
+  screenshot: '截图',
+  xiaomi: '小V',
 }
 
 /** Normalize panel kind aliases (legacy workspace-write / write-stream). */
@@ -99,6 +102,8 @@ export function defaultLayoutForKind(kind: string): RightStageLayout {
       return 'narrow'
     case 'platform-feedback':
       return 'narrow'
+    case 'xiaomi':
+      return 'narrow'
     case 'terminal':
       return 'half'
     case 'write':
@@ -108,6 +113,8 @@ export function defaultLayoutForKind(kind: string): RightStageLayout {
     case 'news-dashboard':
     case 'web-embed':
       return 'wide'
+    case 'screenshot':
+      return 'half'
     // 文件 / 代码预览默认半宽：侧栏可读，不把主对话挤成窄条
     case 'file':
     case 'codeViewer':

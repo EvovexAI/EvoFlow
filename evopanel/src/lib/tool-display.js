@@ -135,10 +135,14 @@ export const TOOL_NAME_ZH = {
   recall: '知识库检索 (CLI)',
   list_agents: '查询智能体 (CLI)',
   list_agent_teams: '查询团队 (CLI)',
+  // 历史会话旧小V工具名（已全部收敛到 platform employees.* / tasks.* / knowledge.*）
   xiaomi_org_status: '名册状态',
+  xiaomi_board_overview: '全局看板',
+  xiaomi_employee_brief: '员工近况',
   xiaomi_dispatch: '派给员工',
   xiaomi_wake: '催办推进',
-  xiaomi_board_overview: '全局看板',
+  xiaomi_task_brief: '任务详情',
+  xiaomi_knowledge_search: '知识检索',
   tasks: '任务看板',
   knowledge: '知识库',
   platform: '平台管理',
@@ -960,9 +964,13 @@ export const CORE_CHAT_TOOL_NAMES = new Set([
   'read_file',
   'terminal',
   'xiaomi_org_status',
+  'xiaomi_board_overview',
+  'xiaomi_employee_brief',
+  // 历史回合旧名（已收敛到 platform）
   'xiaomi_dispatch',
   'xiaomi_wake',
-  'xiaomi_board_overview',
+  'xiaomi_task_brief',
+  'xiaomi_knowledge_search',
 ])
 
 /** @param {string | { name?: string } | null | undefined} name */

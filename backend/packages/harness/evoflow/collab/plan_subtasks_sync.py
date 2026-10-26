@@ -724,6 +724,10 @@ def sync_subtasks_from_plan_steps(
         result["success"] = True
         return result
 
+    run_project_path = str(
+        task.get("project_path") or project.get("project_path") or ""
+    ).strip()
+
     goal_text = str(goal or "").strip()
     if goal_text:
         from evoflow.collab.plan_task_storage import sync_main_task_identity_from_plan_goal
@@ -755,7 +759,11 @@ def sync_subtasks_from_plan_steps(
             from evoflow.collab.work_checklist import normalize_checklist_items
 
             work_checklist = normalize_checklist_items(wc_raw)
-        project_path = str(step.get("project_path") or "").strip()
+        # Step-level override wins; otherwise inherit the run's working directory.
+        # Without the fallback a workflow step row gets project_path=NULL, so each
+        # worker picks its own base (some wrote <repo>/outputs, others
+        # <repo>/backend/outputs) and downstream nodes chase phantom paths.
+        project_path = str(step.get("project_path") or "").strip() or run_project_path
         for w in assign_warns:
             if w and w not in result["warnings"]:
                 result["warnings"].append(w)
@@ -794,6 +802,20 @@ def sync_subtasks_from_plan_steps(
                 changed = True
             if list(prev.get("worker_profile") or {}) != worker_profile:
                 prev["worker_profile"] = worker_profile
+                changed = True
+            # F-1 deterministic nodes: keep executor/template stamped on the row
+            step_executor = str(step.get("executor") or "").strip().lower()
+            if step_executor == "template":
+                if str(prev.get("executor") or "") != "template":
+                    prev["executor"] = "template"
+                    changed = True
+                tpl_text = str(step.get("template") or "").strip()
+                if tpl_text and str(prev.get("template") or "") != tpl_text:
+                    prev["template"] = tpl_text
+                    changed = True
+            elif prev.get("executor"):
+                prev.pop("executor", None)
+                prev.pop("template", None)
                 changed = True
             if depends_refs and list(prev.get("dependencies") or []) != depends_refs:
                 prev["dependencies"] = depends_refs
@@ -845,6 +867,13 @@ def sync_subtasks_from_plan_steps(
             row_data["work_checklist"] = work_checklist
         if project_path:
             row_data["project_path"] = project_path
+        # F-1 deterministic nodes: stamp executor/template so the wave runner
+        # executes them inline instead of delegating an LLM worker.
+        if str(step.get("executor") or "").strip().lower() == "template":
+            row_data["executor"] = "template"
+            tpl_text = str(step.get("template") or "").strip()
+            if tpl_text:
+                row_data["template"] = tpl_text
         existing.append(row_data)
         touched_ids.add(sid)
         result["created"].append(

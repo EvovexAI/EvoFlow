@@ -15,6 +15,7 @@ const WAKE_PHRASES = [
   '小v小v',
   '小维小维', // spoken “V” ≈ 维
   '小微小微',
+  '小薇小薇', // 口语常写成「小薇」
   '小委小委',
   '小威小威',
   '嘿小V',
@@ -25,6 +26,18 @@ const WAKE_PHRASES = [
   '小蜜小蜜',
   '小米小米',
 ]
+
+/** 单喊一次也算唤醒（用户常只说「小薇」；成对短语仍优先） */
+const WAKE_PHRASES_ONCE = new Set([
+  '小v',
+  '小薇',
+  '小维',
+  '小微',
+  '小委',
+  '小威',
+  '小蜜',
+  // 不加「小米」：太容易误触
+])
 
 /** @type {SpeechRecognition | null} */
 let recognition = null
@@ -55,7 +68,12 @@ function matchWakePhrase(text) {
     if (n.includes(normalizeZh(phrase))) return WAKE_WORD_LABEL
   }
   // 「小V」×2 with Latin/Chinese V variants, even if ASR inserts odd chars
-  if (/小[vV维微委威蜜米]小[vV维微委威蜜米]/.test(n)) return WAKE_WORD_LABEL
+  if (/小[vV维微薇委威蜜米]小[vV维微薇委威蜜米]/.test(n)) return WAKE_WORD_LABEL
+  // 整句就是单次唤醒词（或末尾是）：「小薇」「嘿，小V」
+  if (WAKE_PHRASES_ONCE.has(n)) return WAKE_WORD_LABEL
+  for (const once of WAKE_PHRASES_ONCE) {
+    if (n.endsWith(once) && n.length <= once.length + 4) return WAKE_WORD_LABEL
+  }
   return null
 }
 
@@ -64,10 +82,16 @@ function emitHit(keyword) {
   if (now - lastHitTime < COOLDOWN_MS) return
   lastHitTime = now
   const label = WAKE_WORD_LABEL
-  console.log('[wake-word-webspeech] HIT:', label)
+  const asr = String(keyword || label)
+  console.log('[wake-word-webspeech] HIT:', label, asr)
+  void import('./xiaomi-voice/voice-file-log.js')
+    .then(({ voiceFeLog }) =>
+      voiceFeLog('会话', `唤醒命中 backend=webspeech asr=「${asr.slice(0, 40)}」→ 开麦`),
+    )
+    .catch(() => {})
   window.dispatchEvent(
     new CustomEvent('wake-word-hit', {
-      detail: { keyword: label, backend: 'webspeech', asr: keyword || label },
+      detail: { keyword: label, backend: 'webspeech', asr },
     }),
   )
 }
@@ -137,12 +161,24 @@ export async function startWebSpeechEar() {
     backend = 'webspeech'
     rec.start()
     console.log('[wake-word-webspeech] Ear listening for', WAKE_WORD_LABEL)
+    void import('./xiaomi-voice/voice-file-log.js')
+      .then(({ voiceFeMirror }) => voiceFeMirror('会话', '唤醒耳已开启，聆听', WAKE_WORD_LABEL))
+      .catch(() => {})
     return true
   } catch (e) {
     console.warn(
       '[wake-word-webspeech] Failed to start:',
       e instanceof Error ? e.message : String(e),
     )
+    void import('./xiaomi-voice/voice-file-log.js')
+      .then(({ voiceFeMirror }) =>
+        voiceFeMirror(
+          '会话',
+          '唤醒耳启动失败',
+          e instanceof Error ? e.message : String(e),
+        ),
+      )
+      .catch(() => {})
     stopWebSpeechEar()
     return false
   }
@@ -250,7 +286,7 @@ export function listenOnceForCommand(opts = {}) {
       // Commit shortly after speech pauses (Web Speech often ends the session itself).
       silenceTimer = setTimeout(() => {
         if (best.trim()) finish(best)
-      }, 1600)
+      }, 900)
     }
 
     rec.onresult = (event) => {
@@ -270,7 +306,7 @@ export function listenOnceForCommand(opts = {}) {
       if (chunk) onPartial?.(stripWakePrefix(chunk))
       // If we already have a solid non-wake command, don't wait forever.
       const cleaned = stripWakePrefix(best)
-      if (cleaned.length >= 2 && Date.now() - startedAt > 2500) {
+      if (cleaned.length >= 2 && Date.now() - startedAt > 1200) {
         scheduleSilenceCommit()
       }
     }

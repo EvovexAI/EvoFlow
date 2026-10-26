@@ -115,19 +115,22 @@ export async function loadPluginCatalog(opts = {}) {
   }
 
   _inflight = (async () => {
-    const body = await gatewayProxy('GET', '/api/plugins/overview')
-    const raw = Array.isArray(body?.installedPlugins) ? body.installedPlugins : []
-    const rows = raw.map(normalizePluginRow).filter(Boolean)
-    return commitCache(rows)
+    try {
+      const body = await gatewayProxy('GET', '/api/plugins/overview')
+      const raw = Array.isArray(body?.installedPlugins) ? body.installedPlugins : []
+      const rows = raw.map(normalizePluginRow).filter(Boolean)
+      return commitCache(rows)
+    } catch (e) {
+      // Non-admin / transient gateway errors must not surface as Uncaught —
+      // chat 「+」 and home prefetch share this path on every session open.
+      _inflight = null
+      console.warn('[plugin-catalog] overview failed:', e?.message || e)
+      return commitCache([])
+    }
   })()
 
-  try {
-    const rows = await _inflight
-    return enabledOnly ? rows.filter((p) => p.enabled) : rows.slice()
-  } catch (e) {
-    _inflight = null
-    throw e
-  }
+  const rows = await _inflight
+  return enabledOnly ? rows.filter((p) => p.enabled) : rows.slice()
 }
 
 /** 应用启动或进入工作台时可预拉取，避免首次点「+」才请求。 */

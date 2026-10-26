@@ -124,6 +124,10 @@ class MemoryLiveFooterMiddleware(AgentMiddleware[AgentState]):
         principal_id = str(ctx.get("principal_id") or "").strip()
 
         def _build_standing() -> str:
+            # User profile is NOT frozen here — it is appended fresh below so profile
+            # edits reach the model without waiting for standing-freeze invalidation
+            # (freeze is per-thread in-process; a thread frozen before the profile was
+            # written would otherwise keep serving a snapshot without <user_profile>).
             return build_memory_injection_sections(
                 agent_name=agent_name,
                 local_workspace_root=lw,
@@ -132,11 +136,24 @@ class MemoryLiveFooterMiddleware(AgentMiddleware[AgentState]):
                 query="",
                 include_query_recall=False,
                 principal_id=principal_id,
-                # Pass injection toggles from runtime context
-                inject_user_profile=ctx.get("inject_user_profile"),
+                # Profile excluded from freeze — appended fresh below.
+                inject_user_profile=False,
             )
 
         standing = get_frozen_standing_memory(tid, _build_standing)
+        try:
+            from evoflow.agents.lead_agent.prompt import build_user_profile_block_for_agent
+
+            profile_footer = build_user_profile_block_for_agent(
+                agent_name=agent_name,
+                prompt_language=pl,
+                principal_id=principal_id,
+                inject_user_profile=ctx.get("inject_user_profile"),
+            )
+        except Exception:
+            profile_footer = ""
+        if profile_footer:
+            standing = f"{standing}\n\n{profile_footer}".strip() if standing else profile_footer
         base = strip_memory_xml_blocks(str(getattr(sm, "content", "") or "")).rstrip()
         if standing:
             merged = f"{base}\n\n{standing}".strip() if base else standing

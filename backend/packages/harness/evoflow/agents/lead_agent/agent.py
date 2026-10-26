@@ -92,6 +92,7 @@ from evoflow.config.agents_config import (
     ensure_builtin_agents_materialized,
     load_agent_config,
     merge_skill_allowlist_with_preferred,
+    plugin_skills_for_main_agent,
     resolve_skill_allowlist_for_lead_prompt,
 )
 from evoflow.config.app_config import get_app_config
@@ -1061,6 +1062,15 @@ def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None
     thread_id = cfg.get("thread_id")
     collab_phase = cfg.get("collab_phase")
     voice_mode = bool(cfg.get("channel") == "voice" or cfg.get("is_voice_channel"))
+    try:
+        from evoflow.agents.xiaomi.identity import is_xiaomi_agent
+
+        _xm_flag = cfg.get("xiaomi_global_assistant")
+        xiaomi_front_desk = bool(is_xiaomi_agent(agent_name)) or _xm_flag is True or str(
+            _xm_flag or ""
+        ).strip().lower() in {"1", "true", "yes"}
+    except Exception:
+        xiaomi_front_desk = False
 
     # Voice mode: lower temperature for more concise, deterministic output
     _voice_temp = 0.35 if voice_mode else None
@@ -1092,14 +1102,28 @@ def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None
         if _voice_phase in ("", "idle", "done"):
             is_plan_mode = False
             cfg["is_plan_mode"] = False
-    auto_thinking_active = session_mode != "flash" and not voice_mode and (session_mode == "auto" or thinking_type == "auto") and thinking_type != "manual"
+    # 小V 前台：接待/分诊要快回，永不开思考（含模型 default_mode=enabled）。
+    if xiaomi_front_desk:
+        thinking_enabled = False
+        reasoning_effort = "minimum"
+        thinking_type = "disabled"
+        cfg["thinking_enabled"] = False
+        cfg["thinking_type"] = "disabled"
+        cfg["reasoning_effort"] = "minimum"
+    auto_thinking_active = (
+        session_mode != "flash"
+        and not voice_mode
+        and not xiaomi_front_desk
+        and (session_mode == "auto" or thinking_type == "auto")
+        and thinking_type != "manual"
+    )
 
     # Settings → Models ``thinking.default_mode``:
     # - disabled: force off
     # - enabled: force on (model fixed policy, overrides Auto)
     # - auto: leave session Auto as omit (do not classifier / force on)
-    # Voice mode already forced off above — do not let model defaults re-enable thinking.
-    if session_mode != "flash" and not voice_mode and thinking_type != "manual":
+    # Voice / 小V already forced off above — do not let model defaults re-enable thinking.
+    if session_mode != "flash" and not voice_mode and not xiaomi_front_desk and thinking_type != "manual":
         _model_name_early = (requested_model_name or "").strip()
         if _model_name_early:
             _mc_early = get_app_config().get_model_config(_model_name_early)
@@ -1410,6 +1434,15 @@ def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None
 
     # Default lead agent — skills are opt-in (missing / null / [] => no skill block in prompt)
     _available_skills = resolve_skill_allowlist_for_lead_prompt(agent_config)
+    # Main agent only: enabled plugins' skills are always discoverable (ZCode
+    # parity — bundled browser-use / computer-use); employee agents stay opt-in.
+    _plugin_skills = plugin_skills_for_main_agent(agent_name)
+    if _plugin_skills:
+        _available_skills = set(_available_skills) | _plugin_skills
+        logger.info(
+            "[Agent Config] main-agent plugin skills auto-included: %s",
+            sorted(_plugin_skills),
+        )
     from evoflow.agents.lead_agent.runtime_context import resolve_preferred_skills_for_turn
 
     _preferred_skills = resolve_preferred_skills_for_turn(cfg)
@@ -1475,11 +1508,30 @@ def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None
         logger.debug("agent-mode system tool filter skipped", exc_info=True)
 
     # Apply tool whitelist filter: configurable tools only; session spine always kept.
+    # 小V：白名单是 bash 等显式项，但 mcp_servers=None 时仍保留全部 MCP 工具。
     if _tool_whitelist is not None:
         from evoflow.tools.tool_aliases import canonical_tool_name
         from evoflow.tools.tool_catalog import is_role_editor_configurable_tool
 
-        tools = [t for t in tools if not is_role_editor_configurable_tool(getattr(t, "name", "")) or canonical_tool_name(str(getattr(t, "name", "") or "").strip().lower()) in _tool_whitelist]
+        _keep_all_mcp = False
+        try:
+            from evoflow.agents.xiaomi.identity import is_xiaomi_agent
+            from evoflow.mcp.binding import is_mcp_tool_name
+
+            _keep_all_mcp = bool(is_xiaomi_agent(agent_name) and _cfg_mcp is None)
+        except Exception:
+            _keep_all_mcp = False
+
+        def _whitelist_keep(t) -> bool:
+            raw = str(getattr(t, "name", "") or "")
+            name = canonical_tool_name(raw.strip().lower())
+            if _keep_all_mcp and is_mcp_tool_name(raw):
+                return True
+            if not is_role_editor_configurable_tool(raw):
+                return True
+            return name in _tool_whitelist
+
+        tools = [t for t in tools if _whitelist_keep(t)]
     # Subagent templates persist disallowed_tools; honor them for lead runs too.
     if agent_config and agent_config.disallowed_tools:
         from evoflow.tools.tool_aliases import canonical_tool_name
@@ -1611,16 +1663,16 @@ def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None
     tools = _strip_mind_map_tools(tools)
     all_tools = _strip_mind_map_tools(all_tools)
 
-    # 小V（xiaomi）：平台管家工具白名单 + 传讯三件套（与 main / 员工工具面分离）。
+    # 小V（xiaomi）：前台系统工具 + bash + MCP（过滤掉写仓/澄清等工程师面）。
     try:
         from evoflow.agents.xiaomi.identity import is_xiaomi_agent
+        from evoflow.agents.xiaomi.tool_policy import filter_xiaomi_tools, merge_xiaomi_system_tools
         from evoflow.agents.xiaomi.tools import get_xiaomi_tools
 
         if is_xiaomi_agent(agent_name):
-            xiaomi_tools = get_xiaomi_tools()
-            # Fixed surface only: no deferred catalog / tool_search spillover from lead tools.
-            tools = list(xiaomi_tools)
-            all_tools = list(xiaomi_tools)
+            system = get_xiaomi_tools()
+            tools = merge_xiaomi_system_tools(filter_xiaomi_tools(tools), system)
+            all_tools = merge_xiaomi_system_tools(filter_xiaomi_tools(all_tools), system)
     except Exception:
         logger.debug("xiaomi tool mount failed", exc_info=True)
 

@@ -31,6 +31,7 @@ import { isNavigableBrowserUrl, sanitizeBrowserPageUrl } from './browser-page-ur
 import { blog } from './browser-unified-log.js'
 import { getCurrentRightStageSessionKey } from './right-stage/right-stage-session-memory.js'
 import { rightStageStore } from './right-stage/right-stage-store.js'
+import { shouldSurfaceBrowserOnXiaomiVoiceUi } from './xiaomi-voice/voice-right-stage-foreground.js'
 
 /** 与 browser-panel-store 的 NODE_REPL_BRIDGE_THREAD_ID 同一扇原生窗。 */
 export const NATIVE_EMBED_THREAD_ID = 'evoflow-node-repl-bridge'
@@ -80,6 +81,11 @@ let visibleStageId = ''
 let overlayDepth = 0
 /** 上次成功发出的槽位；park/换页时清掉，相同槽位去重。 */
 let lastReportedSlotKey = ''
+/**
+ * 显隐世代：hide 时自增。reportEmbedSlot 发出前/await 后都要核对，
+ * 否则「切到图片/折叠」之后仍在飞的 set_bounds 会把语音态大 HWND 又贴回屏上盖住新页。
+ */
+let embedGateEpoch = 0
 
 export function currentEmbedPlacement(): EmbedPlacement {
   return { stageId: visibleStageId, reason: lastPlacementKey, overlayDepth }
@@ -87,6 +93,11 @@ export function currentEmbedPlacement(): EmbedPlacement {
 
 export function getGlobalOverlayDepth(): number {
   return overlayDepth
+}
+
+/** 当前显隐世代；BrowserPanel 也可用来丢弃过期 settle。 */
+export function getEmbedGateEpoch(): number {
+  return embedGateEpoch
 }
 
 function placementKey(stageId: string, depth: number): string {
@@ -102,7 +113,10 @@ export function syncNativeEmbed(reason = 'right-stage') {
   // to B while A's agent still drives the bridge, park — otherwise B sees A's page.
   const uiSk = getCurrentRightStageSessionKey()
   const ownerSk = getBridgeOwnerSessionKey()
-  const foreignOwner = Boolean(ownerSk && uiSk && ownerSk !== uiSk)
+  // 语音占用：小V 开的浏览器 owner 常被标成 main，仍允许贴位。
+  const foreignOwner =
+    Boolean(ownerSk && uiSk && ownerSk !== uiSk) &&
+    !shouldSurfaceBrowserOnXiaomiVoiceUi(ownerSk)
   const canShow = Boolean(stageId) && overlayDepth === 0 && !foreignOwner
   const shownId = canShow ? stageId : ''
   const key = foreignOwner
@@ -133,7 +147,23 @@ export function syncNativeEmbed(reason = 'right-stage') {
       }),
     )
   }
-  if (!shownId) void browserEmbedPark(NATIVE_EMBED_THREAD_ID)
+  if (!shownId) {
+    // 先抬世代再 park：阻断本拍之前已排队的 reportEmbedSlot。
+    embedGateEpoch += 1
+    // present=false 也会走 hide（见 Rust）；与 park 双发，谁先到谁先把语音态大窗挪走，
+    // 避免「打开图片」后 HWND 还盖在文件预览上整整一拍。
+    void browserEmbedSetBounds({
+      threadId: NATIVE_EMBED_THREAD_ID,
+      x: 0,
+      y: 0,
+      width: 120,
+      height: 80,
+      present: false,
+    })
+    void browserEmbedPark(NATIVE_EMBED_THREAD_ID)
+  } else {
+    embedGateEpoch += 1
+  }
 }
 
 /**
@@ -166,26 +196,39 @@ export function reportEmbedSlot(
 ): Promise<boolean> {
   const id = String(stageId || '').trim()
   if (!id || id !== visibleStageId || overlayDepth > 0) return Promise.resolve(false)
+  const epoch = embedGateEpoch
   const key = `${id}:${slot.x},${slot.y},${slot.width}x${slot.height}:${slot.viewportWidth || 0}x${slot.viewportHeight || 0}`
   if (!opts?.force && key === lastReportedSlotKey) return Promise.resolve(true)
   lastReportedSlotKey = key
   return (async () => {
+    const stillFront = () =>
+      epoch === embedGateEpoch && id === visibleStageId && overlayDepth === 0
+    if (!stillFront()) {
+      lastReportedSlotKey = ''
+      return false
+    }
     const applied = await browserEmbedSetBounds({
       threadId: NATIVE_EMBED_THREAD_ID,
       ...slot,
       present: true,
     })
+    if (!stillFront()) {
+      lastReportedSlotKey = ''
+      return false
+    }
     if (applied) return true
     // 失败后允许立刻重试，不要被上一次 key 卡住。
     // （含：最大化 Moved 把 set_bounds defer 后返回 false）
     lastReportedSlotKey = ''
     blog('warn', `[browser-embed-surface] set-bounds missed stage=${id} — retry`)
     await new Promise((r) => setTimeout(r, 250))
+    if (!stillFront()) return false
     const retried = await browserEmbedSetBounds({
       threadId: NATIVE_EMBED_THREAD_ID,
       ...slot,
       present: true,
     })
+    if (!stillFront()) return false
     if (retried) {
       lastReportedSlotKey = key
       return true
@@ -260,7 +303,9 @@ export async function ensureNativeEmbed(opts: {
   const forceHidden = opts.forceHidden === true || opts.reason === 'background-session'
   const uiSk = getCurrentRightStageSessionKey()
   const ownerSk = getBridgeOwnerSessionKey()
-  const foreignOwner = Boolean(ownerSk && uiSk && ownerSk !== uiSk)
+  const foreignOwner =
+    Boolean(ownerSk && uiSk && ownerSk !== uiSk) &&
+    !shouldSurfaceBrowserOnXiaomiVoiceUi(ownerSk)
   const present =
     !forceHidden &&
     !foreignOwner &&

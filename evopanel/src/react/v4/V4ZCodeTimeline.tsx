@@ -26,6 +26,11 @@ import { MarkdownTableVariantProvider } from "@zcode/ui/components/ai-elements/m
 import { AssistantCodeCommentFeatureProvider } from "@zcode/ui/AssistantCodeCommentFeatureProvider.js";
 import { TooltipProvider } from "@zcode/ui/components/ui/tooltip.js";
 import { ConversationTimeline } from "@zcode/ui/v4/ConversationTimeline.js";
+import { cn } from "@zcode/ui/components/lib/utils.js";
+import {
+  replayThemeIntoBridgeRoots,
+  useHostResolvedTheme,
+} from "@zcode/ui/useTheme.js";
 import { V4DraftEmptyState } from "./V4DraftEmptyState.js";
 import { hasOlderRows } from "@zcode/ui/v4/conversationProjectionStore.js";
 import {
@@ -537,6 +542,12 @@ export function V4ZCodeTimeline(props: {
    * 宿主负责逐个 show 进右侧面板并激活第一张。
    */
   onAutoOpenCodeViewers?: (sources: readonly CodeViewerSource[]) => void;
+  /**
+   * 显示面皮肤。default = 主对话 / 右栏（zcode token 卡片）；
+   * glass = 语音全屏右上角浮层（宿主明暗 + 玻璃底 + 更紧行距）。
+   * 只换皮肤，不换渲染管线：轮分组 / 流式 / 工具卡全部是同一套 V4 实现。
+   */
+  surface?: "default" | "glass";
 }): React.JSX.Element {
   const {
     payload,
@@ -556,7 +567,17 @@ export function V4ZCodeTimeline(props: {
     subagentTasks,
     onOpenSubagentTranscript,
     onAutoOpenCodeViewers,
+    surface = "default",
   } = props;
+
+  // 桥接主题：本组件自挂 .zcode-bridge-root，但不走 StoreProvider。
+  // store 模块加载时容器常未就绪，dark/theme-zai-* 写不进去 → 暗色宿主上仍用浅色
+  // token（foreground-subtle 成深灰），「已工作」等次要字几乎看不见。
+  // 挂载后 + 宿主 data-theme 变化时重放，与右侧 PreviewPane 的 StoreProvider 补写同效。
+  const hostTheme = useHostResolvedTheme();
+  useLayoutEffect(() => {
+    replayThemeIntoBridgeRoots(hostTheme === "dark" ? "zai-dark" : "zai-light");
+  }, [hostTheme]);
 
   // Markdown 路径 pill：优先 onOpenFileLink（宿主应打开右侧「文件」区）；
   // 未传时回落 onOpenCodeViewer(type:file)——宿主 openRightStageForCodeViewerSource 会再分流到 file。
@@ -979,7 +1000,10 @@ export function V4ZCodeTimeline(props: {
   const rowContext = useMemo<ConversationRowRenderContext>(
     () => ({
       workspacePath: workspacePath ?? "",
-      theme: "system" as const,
+      // 代码块/diff 主题必须跟随应用（宿主 data-theme），不能用 "system" 的 OS 偏好：
+      // 否则深色应用 + 浅色 OS 下，@pierre/diffs 用 github-light 的深色文字（--diffs-fg:#24292e）
+      // 压在深色 --color-card 上，代码块内容看不清。
+      theme: hostTheme,
       codePreviewSettings: DEFAULT_CODE_PREVIEW_SETTINGS,
       sessionId: sessionId || null,
       onOpenCodeViewer,
@@ -1004,7 +1028,7 @@ export function V4ZCodeTimeline(props: {
     // approvalRenderKey：仅在待审批集合变化时换 context，让工具行挂上/摘掉面板；
     // 不跟每帧 rows/snapshot 绑定，避免展开「文件已更改」时整区闪。
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: approvalRenderKey gates refresh
-    [sessionId, onOpenCodeViewer, onOpenFileLink, onOpenFileLinkProp, onOpenBrowserUrl, fetchFileChanges, renderToolCallApproval, workspacePath, approvalRenderKey, onAutoOpenCodeViewers, handleAutoOpenAssistantPptx, assistantPreviewPptxAutoOpenTarget],
+    [sessionId, onOpenCodeViewer, onOpenFileLink, onOpenFileLinkProp, onOpenBrowserUrl, fetchFileChanges, renderToolCallApproval, workspacePath, approvalRenderKey, onAutoOpenCodeViewers, handleAutoOpenAssistantPptx, assistantPreviewPptxAutoOpenTarget, hostTheme],
   );
 
   // stream-compare：页面画什么 → 同轮目录 v4-ui-display.log（排查发送后白屏/无回复）。
@@ -1059,8 +1083,12 @@ export function V4ZCodeTimeline(props: {
         - bottomDock：输入区 sticky 在滚动视口底，与正文同轴
       */}
       <div
-        className="zcode-bridge-root @container/conversation relative flex h-full min-h-0 flex-1 flex-col"
+        className={cn(
+          "zcode-bridge-root @container/conversation relative flex h-full min-h-0 flex-1 flex-col",
+          surface === "glass" && "v4-surface-glass",
+        )}
         data-v4-embedded={embedded ? "true" : undefined}
+        data-v4-surface={surface}
       >
         <ServiceProvider services={partialServices}>
         <div className="relative flex min-h-0 flex-1 flex-col">

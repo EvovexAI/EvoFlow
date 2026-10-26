@@ -1,0 +1,128 @@
+/*
+ * EvoFlow 统一主题框架 · 区域接管层（region takeover layer）
+ * ---------------------------------------------------------------
+ * 作用：集中管控各「布局区域」在半透明 / 自定义壁纸（data-translucent-ui=1，
+ *       自定义背景会自动开启它）下的「背景层」表现，作为四层主题外墙
+ *       （liquid-glass → sci-fi-theme → theme-surfaces → theme-readability）之后的
+ *       最终接管，从根上杜绝「白名单漏一处 → 整块挡住壁纸」。
+ *
+ * 设计见 docs/design/theme-surface-framework.md（本地草稿，不提交）。
+ * 加载位置：boot/0-styles.js 末尾（所有主题/组件样式之后）。
+ * 覆盖范围：仅「背景层」（background / background-image / backdrop-filter），
+ *           不接管文字、边框、圆角、布局。
+ * 说明：本层取代原先分散在 liquid-glass.css / theme-surfaces.css 等处的区域
+ *       透明/玻璃白名单；旧规则暂留作灰度，验证无误后可逐条删除。
+ */
+
+/* ══ 区域根 → 玻璃（逐块等价复刻自 liquid-glass.css，收编为单源）══
+ * 壳 / 顶栏 / 右侧面板在「半透明 / 壁纸」下的玻璃配方；声明与旧块逐字一致，保证等价。 */
+
+/* chrome：顶栏（原 liquid-glass.css:81-87；配方改由 --surface-glass-* token 驱动，值等价） */
+html[data-translucent-ui='1'] .tauri-main-chrome {
+  background: var(--surface-glass-bg) !important;
+  backdrop-filter: blur(var(--surface-glass-blur)) saturate(var(--surface-glass-saturate));
+  -webkit-backdrop-filter: blur(var(--surface-glass-blur)) saturate(var(--surface-glass-saturate));
+  border-bottom: 1px solid var(--surface-glass-border) !important;
+  box-shadow: none !important;
+}
+
+/* shell：左导航 / 会话侧栏 / 移动顶栏（原 liquid-glass.css:108-118；token 驱动，值等价） */
+html[data-translucent-ui='1'] #app-shell-aside,
+html[data-translucent-ui='1'] #app-shell-aside.shell-aside-host,
+html[data-translucent-ui='1'] .shell-aside-host,
+html[data-translucent-ui='1'] .react-chat-session-aside,
+html[data-translucent-ui='1'] .mobile-topbar {
+  background: var(--surface-glass-bg) !important;
+  backdrop-filter: blur(var(--surface-glass-blur)) saturate(var(--surface-glass-saturate));
+  -webkit-backdrop-filter: blur(var(--surface-glass-blur)) saturate(var(--surface-glass-saturate));
+  border-color: var(--surface-glass-border) !important;
+  box-shadow: none;
+}
+
+/* panel：右信息栏 / 工作区面板 / 右侧舞台及其子面板（原 liquid-glass 同一玻璃块；token 驱动，值等价） */
+html[data-translucent-ui='1'] .react-chat-info-rail,
+html[data-translucent-ui='1'] .react-chat-workspace-panel,
+html[data-translucent-ui='1'] .react-chat-right-stage-panel,
+html[data-translucent-ui='1'] .react-chat-collab-exec-panel,
+html[data-translucent-ui='1'] .react-chat-knowledge-map-panel,
+html[data-translucent-ui='1'] .react-chat-browser-panel,
+html[data-translucent-ui='1'] .react-chat-artifacts-panel,
+html[data-translucent-ui='1'] .react-chat-platform-feedback-panel {
+  background: var(--surface-glass-bg) !important;
+  backdrop-filter: blur(calc(var(--surface-glass-blur) * 0.85)) saturate(var(--surface-glass-saturate));
+  -webkit-backdrop-filter: blur(calc(var(--surface-glass-blur) * 0.85)) saturate(var(--surface-glass-saturate));
+  border-color: var(--surface-glass-border) !important;
+  box-shadow: none !important;
+}
+
+/* panel header → 透明（原 liquid-glass.css:285-291） */
+html[data-translucent-ui='1'] .react-chat-info-rail-header,
+html[data-translucent-ui='1'] .react-chat-right-stage-header,
+html[data-translucent-ui='1'] .react-chat-collab-exec-panel-header,
+html[data-translucent-ui='1'] .react-chat-workspace-panel-header {
+  background: transparent !important;
+  border-bottom-color: var(--ef-glass-border) !important;
+}
+
+/* ══ 内容层区域 → 透明（透出壁纸）══
+ * 覆盖 chat 全部层级 + 会话 frame（含右栏开启时的 .is-rounded 浮层态）+ 右栏 body。 */
+html[data-translucent-ui='1'] #main-col,
+html[data-translucent-ui='1'] #content,
+html[data-translucent-ui='1'] #chat-persistent-host,
+html[data-translucent-ui='1'] #react-chat-root,
+html[data-translucent-ui='1'] .chat-react-full,
+html[data-translucent-ui='1'] .chat-react-outlet,
+/* chat 顶栏：react-chat.css:31267 给 .react-chat-header--tauri-chrome 锁定
+   background:var(--bg-primary) 且无 translucent 守卫 → 半透明/壁纸下会挡图；
+   顶栏本就与内容同色 → 透明 */
+html[data-translucent-ui='1'] .react-chat-header,
+html[data-translucent-ui='1'] .react-chat-header.react-chat-header--tauri-chrome,
+html[data-translucent-ui='1'] .react-chat-workspace,
+html[data-translucent-ui='1'] .react-chat-workspace--no-aside,
+html[data-translucent-ui='1'] .react-chat-main-col,
+html[data-translucent-ui='1'] .react-chat-main-body,
+html[data-translucent-ui='1'] .react-chat-conversation-col,
+html[data-translucent-ui='1'] .react-chat-conversation-frame,
+html[data-translucent-ui='1'] .react-chat-conversation-frame.is-rounded,
+html[data-translucent-ui='1'] .react-chat-messages,
+html[data-translucent-ui='1'] .react-chat-messages-wrap,
+html[data-translucent-ui='1'] .react-chat-surface,
+html[data-translucent-ui='1'] .react-chat-right-stage-body,
+/* 内容页（非 chat 路由）：页面根透明，透出壁纸（原 liquid-glass.css 同名块收编于此） */
+html[data-translucent-ui='1'] #content > .page,
+html[data-translucent-ui='1'] .knowledge-owned-page,
+html[data-translucent-ui='1'] .knowledge-vaults-page,
+html[data-translucent-ui='1'] .react-chat-root {
+  background: transparent !important;
+  background-image: none !important;
+}
+
+/* composer 底部 dock → 透明（原 liquid-glass.css:421-428） */
+html[data-translucent-ui='1'] .react-chat-bottom-dock {
+  background: transparent !important;
+}
+html[data-translucent-ui='1'] .react-chat-conversation-col > .react-chat-bottom-dock {
+  background: transparent !important;
+  padding-top: 8px;
+}
+
+/* ══ 弹层区域 → 玻璃（模态 / 下拉 / popover / 抽屉）══
+ * 弹层需要一定不透明度保证可读性，故沿用较强的玻璃配方。 */
+html[data-translucent-ui='1'] .modal,
+html[data-translucent-ui='1'] .modal-content,
+html[data-translucent-ui='1'] .modal-dialog,
+html[data-translucent-ui='1'] .ef-dropdown-select__menu,
+html[data-translucent-ui='1'] .ef-popover,
+html[data-translucent-ui='1'] .ef-side-drawer {
+  background: var(--surface-glass-strong-bg) !important;
+  backdrop-filter: blur(var(--surface-glass-blur)) saturate(var(--surface-glass-saturate));
+  -webkit-backdrop-filter: blur(var(--surface-glass-blur)) saturate(var(--surface-glass-saturate));
+}
+
+/* ══ 兜底：半透明下，任何直接落在区域根上的「不透明实底」都让位 ══
+ * 防呆——未来新容器若忘了单列，只要它是这几个区域根的直接子层，也不挡壁纸。 */
+html[data-translucent-ui='1'] #main-col > .react-chat-conversation-frame,
+html[data-translucent-ui='1'] #main-col > .react-chat-main-body > .react-chat-conversation-frame {
+  background: transparent !important;
+  background-image: none !important;
+}

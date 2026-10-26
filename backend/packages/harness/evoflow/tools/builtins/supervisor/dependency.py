@@ -17,7 +17,13 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 # Re-exported from supervisor_tool module for backward compat
-_TERMINAL_SUBTASK = frozenset({"completed", "failed", "cancelled"})
+# ``blocked`` is a worker-reported terminal outcome (outcome="blocked" — needs a
+# human/lead decision). It must be terminal here too: ``step_runner`` never claims
+# it (CLAIMABLE_SUBTASK_STATUSES = pending/planned/waiting_dispatch), so treating it
+# as runnable made every follow-up wave re-dispatch a dead step (claim ->
+# status=blocked/not_claimable -> delegate_abort reason=nothing_claimed, every ~60s)
+# while the main task stayed ``executing`` forever.
+_TERMINAL_SUBTASK = frozenset({"completed", "failed", "cancelled", "blocked"})
 _IN_FLIGHT_SUBTASK = frozenset({"executing", "running", "in_progress"})
 _MAX_SUBTASK_RETRIES = 10
 
@@ -575,6 +581,8 @@ def _clear_auto_blocked_diagnostics(st: dict[str, Any]) -> bool:
         cleared = True
     if st.pop("dispatch_block_reason", None) is not None:
         cleared = True
+    if st.pop("error_kind", None) == "dependency_blocked":
+        cleared = True
     return cleared
 
 
@@ -632,7 +640,7 @@ def _auto_finalize_unrunnable_pending_subtasks(storage: Any, main_task_id: str) 
             if not dep_id or dep_id not in by_id:
                 continue
             d_status = status_by_id.get(dep_id, "pending")
-            if d_status in {"failed", "cancelled", "timed_out"}:
+            if d_status in {"failed", "cancelled", "timed_out", "blocked"}:
                 blocked_by_upstream_terminal.append(dep_id)
 
         if not blocked_by_upstream_terminal:
@@ -650,6 +658,8 @@ def _auto_finalize_unrunnable_pending_subtasks(storage: Any, main_task_id: str) 
         st["status"] = "waiting_dispatch"
         st["progress"] = int(st.get("progress") or 0)
         st["dispatch_block_reason"] = reason[:500]
+        # E-4: structured kind so the UI can filter without prefix sniffing.
+        st["error_kind"] = "dependency_blocked"
         if _is_auto_blocked_reason(st.get("error")):
             st.pop("error", None)
         if _is_auto_blocked_reason(st.get("error_text")):
@@ -671,7 +681,9 @@ def _auto_finalize_unrunnable_pending_subtasks(storage: Any, main_task_id: str) 
 
 
 _MAX_SUBTASK_RETRIES = 10
-_FAILED_UPSTREAM_STATUSES = frozenset({"failed", "error", "timed_out", "cancelled", "canceled"})
+# ``blocked`` belongs here: it is terminal for DAG purposes, so downstream steps must
+# be auto-skipped instead of waiting on an upstream that will never complete.
+_FAILED_UPSTREAM_STATUSES = frozenset({"failed", "error", "timed_out", "cancelled", "canceled", "blocked"})
 _WAITING_DOWNSTREAM_STATUSES = frozenset({"planned", "pending", "waiting_dispatch"})
 
 

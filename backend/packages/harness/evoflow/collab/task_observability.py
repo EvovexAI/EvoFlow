@@ -154,6 +154,29 @@ def resolve_subtask_duration(sub: dict[str, Any]) -> dict[str, Any]:
     return _duration_fields(start, end, running=running and not end)
 
 
+def _task_observation_window(task: dict[str, Any] | None) -> tuple[str | None, str | None]:
+    """Execution window (started_at, completed_at) used to bound observability.
+
+    Returns ``(None, None)`` when the task has no start time, in which case the
+    caller falls back to plain thread-level aggregation.
+    """
+    if not isinstance(task, dict):
+        return None, None
+
+    def _pick(*keys: str) -> str | None:
+        for k in keys:
+            v = str(task.get(k) or "").strip()
+            if v:
+                return v
+        return None
+
+    start = _pick("started_at", "created_at")
+    if not start:
+        return None, None
+    end = _pick("completed_at", "failed_at", "cancelled_at")
+    return start, end
+
+
 def summarize_task_observability(
     task_id: str,
     task: dict[str, Any] | None,
@@ -163,15 +186,24 @@ def summarize_task_observability(
     """Task-level metrics from observability SQLite (no task-row retry fields)."""
     tid = str(task_id or "").strip()
     thread_ids = collect_task_thread_ids(task)
+    # Bound the aggregation to this task's own execution window. A workflow run
+    # that reused its invoker's thread_id otherwise reports the whole
+    # conversation's model/tool calls as its own (observed: 21 real calls shown
+    # as 144 because the thread also carried the chat that started the run).
+    window_start, window_end = _task_observation_window(task)
     by_thread = obs_queries.fetch_observability_breakdown_by_thread(
         thread_ids,
         since_hours=since_hours,
+        window_start=window_start,
+        window_end=window_end,
     )
     metrics = obs_queries.fetch_task_observability_metrics(
         thread_ids,
         main_task_id=tid,
         since_hours=since_hours,
         by_thread=by_thread,
+        window_start=window_start,
+        window_end=window_end,
     )
 
     lead_thread = _resolve_lead_thread_id(task) if task else None

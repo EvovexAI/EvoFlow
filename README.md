@@ -130,7 +130,7 @@ Windows：`.\scripts\windows\dev-stack-isolated.bat`
 
 ## 致谢
 
-EvoFlow 是独立产品。开发中参考了 [DeerFlow](https://github.com/bytedance/deer-flow)、[Hermes Agent](https://github.com/NousResearch/hermes-agent)、[OpenClaw](https://github.com/openclaw/openclaw)、[OpenAI Codex](https://github.com/openai/codex)、[LangGraph](https://github.com/langchain-ai/langgraph) / [LangChain](https://github.com/langchain-ai/langchain)、[MCP](https://modelcontextprotocol.io)、[Tauri](https://tauri.app) 等项目的设计思路；同时 vendored / 借鉴了 [ZCode](https://github.com/zai-org/ZCode)（Z.AI Co., Ltd.，Apache-2.0）的部分 UI、协议与服务代码（详见 [NOTICE](NOTICE) 中 `ZCode (Apache License 2.0)` 一节）。完整版权与许可证说明见 [NOTICE](NOTICE)。
+EvoFlow 是独立产品。开发中参考了 [DeerFlow](https://github.com/bytedance/deer-flow)、[Hermes Agent](https://github.com/NousResearch/hermes-agent)、[OpenClaw](https://github.com/openclaw/openclaw)、[OpenAI Codex](https://github.com/openai/codex)、[LangGraph](https://github.com/langchain-ai/langgraph) / [LangChain](https://github.com/langchain-ai/langchain)、[MCP](https://modelcontextprotocol.io)、[Tauri](https://tauri.app) 等项目的设计思路；同时 vendored / 借鉴了 [ZCode](https://github.com/zai-org/ZCode)（Z.AI Co., Ltd.，Apache-2.0）的部分 UI、协议与服务代码（详见 [NOTICE](NOTICE) 中 `ZCode (Apache License 2.0)` 一节）。小V 实时语音链路依赖并致谢 [Pipecat](https://github.com/pipecat-ai/pipecat)（Daily，BSD-2-Clause）的帧管线 / 打断 / TTS 编排能力（详见 [NOTICE](NOTICE)）。完整版权与许可证说明见 [NOTICE](NOTICE)。
 
 ---
 

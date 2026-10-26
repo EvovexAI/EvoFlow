@@ -109,6 +109,13 @@
   --shell-brand-soft: #ece9ff;
   --shell-brand-softer: #f5f3ff;
   --shell-bg: var(--chrome-bg, #f6f7f9);
+  --shell-bg-elevated: var(--surface-raised-bg, var(--bg-card, #fff));
+  /* 轨道跟侧栏 tint（色卡 chrome-bg），别用脱节的中性灰 sunken */
+  --shell-tab-bg: color-mix(
+    in srgb,
+    var(--shell-text, var(--text-primary, #202124)) 7%,
+    var(--shell-bg, var(--chrome-bg, #f6f7f9))
+  );
   --shell-hover: color-mix(in srgb, var(--text-primary, #202124) 6%, transparent);
   --shell-border: var(--border-default, #e6e8ec);
   --shell-text: var(--text-primary, #202124);
@@ -393,9 +400,28 @@
   }
 }
 
+/* 深色：shell 侧栏变量此前硬编码浅色，导致深色下侧栏（含"任务/员工"切换等）不跟随主题。
+ * 注意：必须放在任意 @media 之外，否则桌面端深色永远吃不到。 */
+html[data-theme='dark'] .react-chat-session-aside,
+html.dark .react-chat-session-aside {
+  --shell-text-body: var(--text-secondary, #a8b0bf);
+  --shell-text-muted: var(--text-tertiary, #7d8aa0);
+  --shell-text-weak: var(--text-tertiary, #7d8aa0);
+  --shell-brand-soft: color-mix(in srgb, var(--accent, #635bff) 22%, transparent);
+  --shell-brand-softer: color-mix(in srgb, var(--accent, #635bff) 14%, transparent);
+  --shell-hover: color-mix(in srgb, var(--text-primary, #e8eef8) 8%, transparent);
+  --shell-border: var(--border-primary, #1b2432);
+  --shell-bg-elevated: var(--surface-raised-bg, var(--bg-card, #0b101a));
+  --shell-tab-bg: color-mix(
+    in srgb,
+    var(--shell-text, var(--text-primary, #e8eef8)) 10%,
+    var(--shell-bg, var(--chrome-bg, #0a0e15))
+  );
+}
+
 /* 移动端抽屉：折叠不走 icon rail，打开时始终完整导航 */
 @media (max-width: 768px) {
-  .react-chat-session-aside.collapsed {
+.react-chat-session-aside.collapsed {
     width: 0;
     min-width: 0;
     max-width: 0;
@@ -930,15 +956,10 @@ html[data-theme='dark'] .react-chat-aside-brand-logo {
   gap: 8px;
   min-height: 32px;
   padding: 6px 8px;
-  background: var(--shell-bg, #f8f9fc);
+  background: var(--shell-bg, var(--chrome-bg, transparent));
 }
 
-html[data-theme='dark'] .shell-view-header,
-.shell-view-header {
-  background: var(--shell-bg, #252526);
-}
-
-/* 视图切换 Tabs */
+/* 视图切换 Tabs —— 配方对齐 .react-chat-aside-segment，跟随色卡 tint / 明暗 */
 .shell-view-tabs {
   display: flex;
   align-items: center;
@@ -946,11 +967,8 @@ html[data-theme='dark'] .shell-view-header,
   height: 26px;
   padding: 2px;
   border-radius: 8px;
-  background: var(--shell-tab-bg, #f0f1f4);
-}
-
-html[data-theme='dark'] .shell-view-tabs {
-  background: var(--shell-tab-bg, #2d2f36);
+  background: var(--shell-tab-bg);
+  border: 1px solid color-mix(in srgb, var(--shell-text, var(--text-primary)) 6%, transparent);
 }
 
 .shell-view-tab {
@@ -963,29 +981,38 @@ html[data-theme='dark'] .shell-view-tabs {
   border: none;
   border-radius: 6px;
   background: transparent;
-  color: var(--shell-text-muted, #6b7080);
+  color: var(--shell-text-muted, var(--text-secondary, #6b7080));
   font-size: var(--font-size-xs, 11px);
   font-weight: 500;
   cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease;
+  transition: background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
   white-space: nowrap;
 }
 
 .shell-view-tab:hover {
-  color: var(--shell-text, #171a2b);
-  background: color-mix(in srgb, var(--shell-text, #171a2b) 6%, transparent);
+  color: var(--shell-text, var(--text-primary));
+  background: var(--shell-hover, color-mix(in srgb, var(--shell-text, var(--text-primary)) 6%, transparent));
 }
 
 .shell-view-tab.is-active {
-  color: var(--shell-text, #171a2b);
-  background: var(--shell-bg, #ffffff);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+  color: var(--shell-text, var(--text-primary));
+  background: color-mix(
+    in srgb,
+    var(--accent, var(--shell-brand, #635bff)) 12%,
+    var(--shell-bg-elevated, var(--surface-raised-bg, #fff))
+  );
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--text-primary, #000) 8%, transparent);
 }
 
-html[data-theme='dark'] .shell-view-tab.is-active {
-  color: var(--shell-text, #e8eaed);
-  background: var(--shell-bg, #353740);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+html[data-theme='dark'] .shell-view-tab.is-active,
+html.dark .shell-view-tab.is-active {
+  color: var(--shell-text, var(--text-primary));
+  background: color-mix(
+    in srgb,
+    var(--accent, var(--shell-brand, #635bff)) 18%,
+    var(--shell-bg-elevated, var(--surface-raised-bg, #0b101a))
+  );
+  box-shadow: 0 1px 2px color-mix(in srgb, #000 35%, transparent);
 }
 
 .shell-view-tab:focus-visible {
@@ -995,6 +1022,31 @@ html[data-theme='dark'] .shell-view-tab.is-active {
 
 .shell-view-tab svg {
   flex-shrink: 0;
+}
+
+/* 半透明 / 壁纸：与 aside-segment 同一套玻璃分段控件 */
+html[data-translucent-ui='1'] .shell-view-tabs {
+  background: transparent;
+  border: 1px solid var(--ef-glass-border, var(--surface-glass-border, var(--border-primary)));
+  box-shadow: none;
+}
+
+html[data-translucent-ui='1'] .shell-view-tab:not(.is-active) {
+  color: var(--text-primary);
+  opacity: 1;
+  background: transparent;
+}
+
+html[data-translucent-ui='1'] .shell-view-tab:hover {
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+html[data-translucent-ui='1'] .shell-view-tab.is-active {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  box-shadow: none;
+  font-weight: 500;
 }
 
 /* 操作按钮 */
@@ -1073,7 +1125,7 @@ html[data-theme='dark'] .shell-view-action-btn:hover {
 html[data-theme='dark'] .react-chat-aside-history-head,
 html.dark .react-chat-aside-history-head {
   /* 侧栏分区线：用背景微差，不用发白描边 */
-  border-top-color: color-mix(in srgb, #fff 4%, var(--shell-bg, #252526));
+  border-top-color: color-mix(in srgb, #fff 4%, var(--shell-bg, #0a0e15));
 }
 
 .react-chat-aside-history {
@@ -1148,7 +1200,7 @@ html.dark .react-chat-aside-history-head {
 
 html[data-theme='dark'] .react-chat-aside-segment-btn.is-active,
 html.dark .react-chat-aside-segment-btn.is-active {
-  background: color-mix(in srgb, var(--accent) 18%, var(--shell-bg, #252526));
+  background: color-mix(in srgb, var(--accent) 18%, var(--shell-bg, #0a0e15));
   box-shadow: none;
 }
 
@@ -1245,7 +1297,7 @@ html.dark .react-chat-aside-segment-btn.is-active {
 
 html[data-theme='dark'] .react-chat-aside-ws-menu-search,
 html.dark .react-chat-aside-ws-menu-search {
-  background: color-mix(in srgb, #fff 6%, var(--shell-bg, #252526));
+  background: color-mix(in srgb, #fff 6%, var(--shell-bg, #0a0e15));
 }
 
 .react-chat-aside-ws-menu-search-input {
@@ -1278,7 +1330,7 @@ html.dark .react-chat-aside-ws-menu-search {
 
 html[data-theme='dark'] .react-chat-aside-ws-menu,
 html.dark .react-chat-aside-ws-menu {
-  background: color-mix(in srgb, #fff 6%, var(--shell-bg, #252526));
+  background: color-mix(in srgb, #fff 6%, var(--shell-bg, #0a0e15));
   box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
 }
 
@@ -1411,8 +1463,9 @@ html.dark .react-chat-aside-ws-menu {
   padding: 4px;
   border: 1px solid var(--shell-border, #e8eaf1);
   border-radius: 10px;
-  background: #fff;
-  box-shadow: 0 8px 24px rgba(23, 26, 43, 0.1);
+  background: var(--surface-overlay-bg, var(--bg-elevated, #fff));
+  color: var(--text-primary);
+  box-shadow: var(--surface-overlay-shadow, 0 8px 24px rgba(23, 26, 43, 0.1));
 }
 
 .react-chat-aside-history-more-item {
@@ -1462,7 +1515,7 @@ html.dark .react-chat-aside-ws-menu {
   font-size: var(--font-size-xs);
   border: 1px solid var(--shell-border, #e8eaf1);
   border-radius: 8px;
-  background: #fff;
+  background: var(--surface-control-bg, var(--bg-card, #fff));
   color: var(--shell-text, #171a2b);
 }
 
@@ -1650,7 +1703,7 @@ html.dark .react-chat-aside-ws-menu {
 
 html[data-theme='dark'] .react-chat-aside-footer,
 html.dark .react-chat-aside-footer {
-  border-top-color: color-mix(in srgb, #fff 4%, var(--shell-bg, #252526));
+  border-top-color: color-mix(in srgb, #fff 4%, var(--shell-bg, #0a0e15));
 }
 
 .react-chat-aside-footer-btn {
@@ -1841,7 +1894,7 @@ html.dark .react-chat-aside-footer {
 
 html[data-theme='dark'] .shell-account-menu,
 html.dark .shell-account-menu {
-  background: var(--bg-secondary, #1e1e1e);
+  background: var(--bg-secondary, #05070c);
   border-color: color-mix(in srgb, #fff 8%, transparent);
   box-shadow: 0 10px 32px rgba(0, 0, 0, 0.45);
 }
@@ -2648,15 +2701,15 @@ html.dark .shell-account-menu {
 }
 
 html[data-theme='dark'] .react-chat-history-item {
-  --history-fade-bg: var(--chrome-bg, #141414);
+  --history-fade-bg: var(--chrome-bg, #05070c);
 }
 
 html[data-theme='dark'] .react-chat-history-item:hover {
-  --history-fade-bg: color-mix(in srgb, rgba(255, 255, 255, 0.06) 100%, var(--chrome-bg, #141414));
+  --history-fade-bg: color-mix(in srgb, rgba(255, 255, 255, 0.06) 100%, var(--chrome-bg, #05070c));
 }
 
 html[data-theme='dark'] .react-chat-history-item.active {
-  --history-fade-bg: color-mix(in srgb, rgba(255, 255, 255, 0.1) 100%, var(--chrome-bg, #141414));
+  --history-fade-bg: color-mix(in srgb, rgba(255, 255, 255, 0.1) 100%, var(--chrome-bg, #05070c));
 }
 
 .react-chat-history-item-text--chat {
@@ -3433,7 +3486,7 @@ body.react-chat-session-row-dragging .react-chat-history-item {
 
 html[data-theme='dark'] .react-chat-main-body.is-chat-summary-split,
 html.dark .react-chat-main-body.is-chat-summary-split {
-  background: var(--bg-surface, #2a2a2a);
+  background: var(--bg-surface, #0a0e15);
 }
 
 .react-chat-main-body.is-chat-summary-split .react-chat-conversation-col {
@@ -4550,13 +4603,14 @@ html.dark .browser-panel-debug-pane {
   height: 48px;
   min-height: 48px;
   max-height: 48px;
-  border-bottom: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--region-chrome-border, var(--border-primary, var(--color-border)));
   gap: 10px;
   flex-shrink: 0;
   position: relative;
   z-index: 8;
-  /* 顶栏背景融入面板色，与 conversation section 保持一致 */
-  background: var(--color-panel);
+  /* 顶栏走 chrome region；Reminder 风由 theme-readability 再用 --chrome-bg 覆盖 */
+  background: var(--region-chrome-bg, var(--chrome-bg, var(--color-panel)));
+  color: var(--region-chrome-fg, var(--text-primary));
 }
 
 /* macOS 原生标题栏：顶栏加高、内容下移为交通灯让位（其它平台维持 48px） */
@@ -5243,17 +5297,19 @@ html.evopanel-macos-titlebar .react-chat-header {
   max-height: 48px;
   box-sizing: border-box;
   padding: 0 0 0 8px;
-  background: var(--bg-primary, #f6f7fb);
+  /* 与 .react-chat-header 同走 chrome region，避免盖掉色卡 --chrome-bg */
+  background: var(--region-chrome-bg, var(--chrome-bg, var(--bg-primary, #f6f7fb)));
   border-bottom: none;
   box-shadow: none;
 }
 
 html[data-theme='dark'] .react-chat-header--tauri-chrome,
 html.dark .react-chat-header--tauri-chrome {
-  background: var(--bg-primary, #1e1e1e);
+  background: var(--region-chrome-bg, var(--chrome-bg, var(--bg-primary, #05070c)));
 }
 
-html[data-custom-bg='1'] .react-chat-header--tauri-chrome {
+html[data-custom-bg='1'] .react-chat-header--tauri-chrome,
+html[data-translucent-ui='1'] .react-chat-header--tauri-chrome {
   background: transparent;
 }
 
@@ -5443,7 +5499,7 @@ html.evopanel-tauri-frameless .react-chat-header-title-drag:hover {
 
 html[data-theme='dark'] .react-chat-header-metrics,
 html.dark .react-chat-header-metrics {
-  border-color: color-mix(in srgb, #fff 5%, var(--bg-primary, #1e1e1e));
+  border-color: color-mix(in srgb, #fff 5%, var(--bg-primary, #05070c));
   background: color-mix(in srgb, #fff 3%, transparent);
 }
 
@@ -6355,7 +6411,7 @@ html.evopanel-tauri .react-chat-main-col .msg-tool-markdown-content code {
 
 html[data-theme='dark'] .react-chat-conversation-col,
 html.dark .react-chat-conversation-col {
-  background: var(--bg-surface, #2a2a2a);
+  background: var(--bg-surface, #0a0e15);
 }
 
 .react-chat-conversation-col .react-vlist-scroll-wrap,
@@ -8541,7 +8597,7 @@ html[data-theme='dark'] .react-chat-conversation-col .msg-turn-assistant-meta .m
   margin: 0;
   font-size: var(--ef-text-sm);
   line-height: 1.45;
-  color: #4d5868;
+  color: var(--agent-mute, var(--text-secondary, #4d5868));
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
@@ -8575,8 +8631,8 @@ html[data-theme='dark'] .react-chat-conversation-col .msg-turn-assistant-meta .m
   height: 32px;
   padding: 0 12px;
   border-radius: 8px;
-  border: 1px solid var(--border-default, #e6e8ec);
-  background: var(--bg-surface, #fff);
+  border: 1px solid var(--surface-control-border, var(--border-primary, #e6e8ec));
+  background: var(--surface-control-bg, var(--bg-card, #fff));
   color: var(--text-secondary, #656b73);
   font-size: var(--ef-text-sm);
   font-weight: 500;
@@ -8585,8 +8641,8 @@ html[data-theme='dark'] .react-chat-conversation-col .msg-turn-assistant-meta .m
 }
 
 .react-chat-asset-quick-btn:hover:not(:disabled) {
-  background: var(--bg-hover, #f4f5f7);
-  border-color: var(--border-default, #e6e8ec);
+  background: var(--surface-raised-hover-bg, var(--bg-hover, #f4f5f7));
+  border-color: var(--surface-control-border, var(--border-primary, #e6e8ec));
   color: var(--text-primary, #202124);
 }
 
@@ -8612,7 +8668,7 @@ html[data-theme='dark'] .react-chat-conversation-col .msg-turn-assistant-meta .m
   gap: 6px;
   margin: 10px 0 4px;
   padding-top: 8px;
-  border-top: 1px solid #e9ebf2;
+  border-top: 1px solid var(--border-primary, #e9ebf2);
 }
 
 .react-chat-employee-responsibilities {
@@ -8646,7 +8702,7 @@ html[data-theme='dark'] .react-chat-conversation-col .msg-turn-assistant-meta .m
   gap: 6px;
   margin-top: 8px;
   padding-top: 8px;
-  border-top: 1px solid #e9ebf2;
+  border-top: 1px solid var(--border-primary, #e9ebf2);
 }
 
 .react-chat-employee-duty-toggle {
@@ -9177,7 +9233,8 @@ html.dark .react-chat-current-task-expand,
   gap: 2px;
   padding: 2px;
   border-radius: 8px;
-  background: color-mix(in srgb, var(--agent-mute, #9299ac) 12%, transparent);
+  background: var(--surface-sunken-bg, color-mix(in srgb, var(--agent-mute, #9299ac) 12%, transparent));
+  border: 1px solid color-mix(in srgb, var(--text-primary) 6%, transparent);
 }
 
 .react-chat-agent-cap-tab {
@@ -9187,7 +9244,7 @@ html.dark .react-chat-current-task-expand,
   border: none;
   border-radius: 6px;
   background: transparent;
-  color: var(--agent-mute, #6b7280);
+  color: var(--agent-mute, var(--text-secondary, #6b7280));
   font-size: var(--ef-text-sm);
   font-weight: 550;
   line-height: 1.2;
@@ -9195,12 +9252,16 @@ html.dark .react-chat-current-task-expand,
 }
 
 .react-chat-agent-cap-tab:hover {
-  color: var(--agent-ink, #374151);
+  color: var(--agent-ink, var(--text-primary, #374151));
 }
 
 .react-chat-agent-cap-tab.is-active {
-  background: var(--bg-card);
-  color: var(--agent-ink, #111827);
+  background: color-mix(
+    in srgb,
+    var(--accent, #635bff) 12%,
+    var(--surface-raised-bg, var(--bg-card, #fff))
+  );
+  color: var(--agent-ink, var(--text-primary, #111827));
   box-shadow: 0 1px 2px color-mix(in srgb, var(--text-primary) 6%, transparent);
 }
 
@@ -9283,8 +9344,8 @@ html.dark .react-chat-current-task-expand,
 }
 
 .react-chat-agent-cap-remove:hover:not(:disabled) {
-  color: #b42318;
-  background: color-mix(in srgb, #b42318 8%, transparent);
+  color: var(--ef-color-danger, var(--danger, #b42318));
+  background: color-mix(in srgb, var(--ef-color-danger, var(--danger, #b42318)) 10%, transparent);
 }
 
 .react-chat-agent-cap-remove:disabled {
@@ -9406,7 +9467,7 @@ html.dark .react-chat-current-task-expand,
   justify-self: end;
   font-size: 11px;
   font-weight: 550;
-  color: #4d5868;
+  color: var(--agent-mute, var(--text-secondary, #4d5868));
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
   line-height: 1.2;
@@ -9432,7 +9493,7 @@ html.dark .react-chat-current-task-expand,
   padding: 2px 2px 0;
   border: none;
   background: transparent;
-  color: #5b6574;
+  color: var(--agent-mute, var(--text-secondary, #5b6574));
   font-size: 11.5px;
   font-weight: 550;
   cursor: pointer;
@@ -9484,7 +9545,7 @@ html.dark .react-chat-current-task-expand,
 }
 
 .react-chat-agent-switch:hover {
-  background: #e7ebf0;
+  background: color-mix(in srgb, var(--agent-mute, var(--text-secondary)) 14%, transparent);
   color: var(--agent-ink);
 }
 
@@ -10034,11 +10095,11 @@ html.evopanel-tauri .react-chat-main-col .msg-ai-ask-inline-md {
   box-sizing: border-box;
   margin: 0;
   padding: 8px 10px;
-  border: 1px solid #d0d5dd;
+  border: 1px solid var(--border-primary, #d0d5dd);
   border-radius: 10px;
-  background: #fff;
-  color: #1f2937;
-  caret-color: #1f2937;
+  background: var(--surface-control-bg, var(--bg-card, #fff));
+  color: var(--text-primary, #1f2937);
+  caret-color: var(--text-primary, #1f2937);
   font: inherit;
   font-size: var(--ef-text-base) ;
   line-height: 1.45;
@@ -10047,7 +10108,7 @@ html.evopanel-tauri .react-chat-main-col .msg-ai-ask-inline-md {
 }
 
 .msg-user-inline-edit-textarea:focus {
-  border-color: #98a2b3;
+  border-color: var(--border-strong, var(--accent, #98a2b3));
   box-shadow: none;
 }
 
@@ -10063,15 +10124,15 @@ html.evopanel-tauri .react-chat-main-col .msg-ai-ask-inline-md {
 
 .msg-user-inline-edit-btn {
   appearance: none;
-  border: 1px solid #d0d5dd;
+  border: 1px solid var(--border-primary, #d0d5dd);
   border-radius: 8px;
   padding: 5px 12px;
   font-size: var(--ef-text-sm);
   font-weight: 500;
   line-height: 1.3;
   cursor: pointer;
-  background: #fff;
-  color: #344054;
+  background: var(--surface-control-bg, var(--bg-card, #fff));
+  color: var(--text-primary, #344054);
 }
 
 .msg-user-inline-edit-btn:disabled {
@@ -10080,23 +10141,23 @@ html.evopanel-tauri .react-chat-main-col .msg-ai-ask-inline-md {
 }
 
 .msg-user-inline-edit-btn--ghost {
-  background: #fff;
-  color: #475467;
+  background: var(--surface-control-bg, var(--bg-card, #fff));
+  color: var(--text-secondary, #475467);
 }
 
 .msg-user-inline-edit-btn--ghost:hover:not(:disabled) {
-  background: #f9fafb;
+  background: var(--bg-hover, #f9fafb);
 }
 
 .msg-user-inline-edit-btn--primary {
-  border-color: #344054;
-  background: #344054;
-  color: #fff;
+  border-color: var(--text-primary, #344054);
+  background: var(--text-primary, #344054);
+  color: var(--text-inverse, #fff);
 }
 
 .msg-user-inline-edit-btn--primary:hover:not(:disabled) {
-  background: #1f2937;
-  border-color: #1f2937;
+  background: color-mix(in srgb, var(--text-primary, #344054) 86%, var(--accent));
+  border-color: color-mix(in srgb, var(--text-primary, #344054) 86%, var(--accent));
 }
 
 /* 编辑态：外层气泡去掉渐变/反色，只留干净容器 */
@@ -12588,15 +12649,19 @@ html.dark .react-chat-icon-stop-btn:hover {
 }
 
 .react-chat-bottom-permission-pill {
-  /* v4 视觉基线：与工具栏 leading 区其它圆角元素统一 */
+  /* v4 视觉基线：与工具栏 leading 区其它圆角元素统一；底色跟 surface/control，别锁死灰 */
   display: inline-flex;
   align-items: center;
   gap: 5px;
   height: 30px;
   padding: 0 12px;
   border-radius: 999px;
-  border: 1px solid transparent;
-  background: var(--bg-tertiary, #f3f4f6);
+  border: 1px solid color-mix(in srgb, var(--text-primary) 8%, transparent);
+  background: color-mix(
+    in srgb,
+    var(--text-primary) 6%,
+    var(--surface-control-bg, var(--bg-tertiary, #f3f4f6))
+  );
   color: var(--text-secondary, #64748b);
   font-size: var(--ef-text-sm);
   font-weight: 600;
@@ -12607,62 +12672,78 @@ html.dark .react-chat-icon-stop-btn:hover {
   white-space: nowrap;
 }
 .react-chat-bottom-permission-pill:hover:not(:disabled) {
-  background: color-mix(in oklab, var(--text-primary, #6366f1) 6%, var(--bg-tertiary, #f3f4f6));
-  border-color: color-mix(in oklab, var(--text-primary, #6366f1) 14%, transparent);
+  background: color-mix(in srgb, var(--text-primary) 10%, var(--surface-control-bg, var(--bg-tertiary, #f3f4f6)));
+  border-color: color-mix(in srgb, var(--text-primary) 14%, transparent);
   color: var(--text-primary, #111827);
 }
 .react-chat-bottom-permission-pill:active:not(:disabled) {
   transform: scale(0.96);
 }
 .react-chat-bottom-permission-pill--default {
-  background: rgba(37, 99, 235, 0.08);
-  border-color: rgba(37, 99, 235, 0.18);
-  color: #2563eb;
+  background: color-mix(in srgb, var(--accent, #2563eb) 10%, transparent);
+  border-color: color-mix(in srgb, var(--accent, #2563eb) 22%, transparent);
+  color: var(--accent, #2563eb);
 }
 .react-chat-bottom-permission-pill--default:hover:not(:disabled) {
-  background: rgba(37, 99, 235, 0.14);
-  border-color: rgba(37, 99, 235, 0.32);
-  color: #1d4ed8;
+  background: color-mix(in srgb, var(--accent, #2563eb) 16%, transparent);
+  border-color: color-mix(in srgb, var(--accent, #2563eb) 34%, transparent);
+  color: var(--accent-hover, var(--accent, #1d4ed8));
 }
 .react-chat-bottom-permission-pill--readonly {
-  background: rgba(107, 114, 128, 0.06);
-  border-color: rgba(107, 114, 128, 0.18);
-  color: #6b7280;
+  background: color-mix(in srgb, var(--text-secondary, #6b7280) 8%, transparent);
+  border-color: color-mix(in srgb, var(--text-secondary, #6b7280) 18%, transparent);
+  color: var(--text-secondary, #6b7280);
 }
 .react-chat-bottom-permission-pill--readonly:hover:not(:disabled) {
-  background: rgba(107, 114, 128, 0.12);
-  border-color: rgba(107, 114, 128, 0.28);
-  color: #374151;
+  background: color-mix(in srgb, var(--text-secondary, #6b7280) 14%, transparent);
+  border-color: color-mix(in srgb, var(--text-secondary, #6b7280) 28%, transparent);
+  color: var(--text-primary, #374151);
+}
+/* 完全访问：警告色 soft chip，别再铺死灰底 */
+.react-chat-bottom-permission-pill--full {
+  background: color-mix(in srgb, var(--warning, #b45309) 12%, transparent);
+  border-color: color-mix(in srgb, var(--warning, #b45309) 26%, transparent);
+  color: var(--warning, #b45309);
+}
+.react-chat-bottom-permission-pill--full:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--warning, #b45309) 18%, transparent);
+  border-color: color-mix(in srgb, var(--warning, #b45309) 36%, transparent);
+  color: color-mix(in srgb, var(--warning, #b45309) 82%, var(--text-primary));
 }
 html[data-theme='dark'] .react-chat-bottom-permission-pill {
-  background: rgba(255, 255, 255, 0.04);
-  border-color: rgba(255, 255, 255, 0.08);
+  background: color-mix(in srgb, var(--text-primary) 8%, transparent);
+  border-color: color-mix(in srgb, var(--text-primary) 12%, transparent);
   color: var(--text-secondary, #94a3b8);
 }
 html[data-theme='dark'] .react-chat-bottom-permission-pill:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.08);
+  background: color-mix(in srgb, var(--text-primary) 12%, transparent);
   color: var(--text-primary, #f1f5f9);
-  border-color: rgba(255, 255, 255, 0.16);
+  border-color: color-mix(in srgb, var(--text-primary) 18%, transparent);
 }
 html[data-theme='dark'] .react-chat-bottom-permission-pill--default {
-  background: rgba(59, 130, 246, 0.12);
-  border-color: rgba(59, 130, 246, 0.3);
-  color: #93c5fd;
+  background: color-mix(in srgb, var(--accent, #3b82f6) 14%, transparent);
+  border-color: color-mix(in srgb, var(--accent, #3b82f6) 32%, transparent);
+  color: color-mix(in srgb, var(--accent, #3b82f6) 72%, white);
 }
 html[data-theme='dark'] .react-chat-bottom-permission-pill--default:hover:not(:disabled) {
-  background: rgba(59, 130, 246, 0.2);
-  border-color: rgba(59, 130, 246, 0.42);
-  color: #bfdbfe;
+  background: color-mix(in srgb, var(--accent, #3b82f6) 22%, transparent);
+  border-color: color-mix(in srgb, var(--accent, #3b82f6) 44%, transparent);
+  color: color-mix(in srgb, var(--accent, #3b82f6) 55%, white);
 }
 html[data-theme='dark'] .react-chat-bottom-permission-pill--readonly {
-  background: rgba(156, 163, 175, 0.08);
-  border-color: rgba(156, 163, 175, 0.22);
-  color: #9ca3af;
+  background: color-mix(in srgb, var(--text-secondary, #9ca3af) 10%, transparent);
+  border-color: color-mix(in srgb, var(--text-secondary, #9ca3af) 22%, transparent);
+  color: var(--text-secondary, #9ca3af);
 }
 html[data-theme='dark'] .react-chat-bottom-permission-pill--readonly:hover:not(:disabled) {
-  background: rgba(156, 163, 175, 0.16);
-  border-color: rgba(156, 163, 175, 0.3);
-  color: #d1d5db;
+  background: color-mix(in srgb, var(--text-secondary, #9ca3af) 16%, transparent);
+  border-color: color-mix(in srgb, var(--text-secondary, #9ca3af) 30%, transparent);
+  color: var(--text-primary, #d1d5db);
+}
+html[data-theme='dark'] .react-chat-bottom-permission-pill--full {
+  background: color-mix(in srgb, var(--warning, #f59e0b) 16%, transparent);
+  border-color: color-mix(in srgb, var(--warning, #f59e0b) 32%, transparent);
+  color: color-mix(in srgb, var(--warning, #f59e0b) 70%, white);
 }
 
 /* v4 权限三选一上拉（点击 pill 展开，向上出现在 pill 上方） */
@@ -12673,15 +12754,58 @@ html[data-theme='dark'] .react-chat-bottom-permission-pill--readonly:hover:not(:
   min-width: 280px;
   max-width: 340px;
   z-index: 1100;
-  background: var(--bg-primary, #fff);
-  border: 1px solid var(--border-subtle, #e9ebf2);
+  background: var(--surface-overlay-bg, var(--bg-elevated, var(--bg-primary, #fff)));
+  border: 1px solid var(--surface-overlay-border, var(--border-primary, var(--border-subtle, #e9ebf2)));
   border-radius: 16px;
-  box-shadow:
-    0 10px 38px rgba(15, 23, 42, 0.12),
-    0 2px 8px rgba(15, 23, 42, 0.06);
+  box-shadow: var(--surface-overlay-shadow, 0 10px 38px rgba(15, 23, 42, 0.12));
   padding: 8px 0 6px;
   overflow: hidden;
   animation: react-chat-permission-menu-in 0.14s ease-out;
+}
+/* 半透明 / 壁纸：对齐 bottom-dropdown 玻璃浮层，别再锁死实心白 */
+html[data-translucent-ui='1'] .react-chat-permission-menu,
+html[data-translucent-ui='1'] .react-chat-permission-card {
+  background: color-mix(in srgb, var(--bg-elevated, var(--bg-card, #fff)) 78%, transparent);
+  border-color: var(--surface-glass-border, var(--ef-glass-border, var(--border-primary)));
+  backdrop-filter: blur(var(--surface-glass-blur, 12px)) saturate(var(--surface-glass-saturate, 1.28));
+  -webkit-backdrop-filter: blur(var(--surface-glass-blur, 12px)) saturate(var(--surface-glass-saturate, 1.28));
+  box-shadow: var(--ef-glass-shadow, var(--surface-overlay-shadow, 0 12px 32px rgba(15, 23, 42, 0.14)));
+}
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .react-chat-permission-menu,
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .react-chat-permission-card {
+  /* shader 管模糊；保留半透明 elevated 保可读 */
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+html[data-translucent-ui='1'] .react-chat-permission-menu-item:hover,
+html[data-translucent-ui='1'] .react-chat-permission-card .react-chat-permission-menu-item:hover {
+  background: color-mix(in srgb, var(--text-primary) 8%, transparent);
+}
+html[data-translucent-ui='1'] .react-chat-permission-menu-item--active {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+html[data-translucent-ui='1'] .react-chat-permission-menu-global {
+  border-top-color: var(--ef-glass-border, var(--border-primary));
+}
+html[data-translucent-ui='1'] .react-chat-bottom-permission-pill {
+  background: color-mix(in srgb, var(--text-primary) 8%, transparent);
+  border-color: var(--ef-glass-border, var(--border-primary));
+}
+html[data-translucent-ui='1'] .react-chat-bottom-permission-pill:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 28%, transparent);
+}
+html[data-translucent-ui='1'] .react-chat-bottom-permission-pill--full {
+  background: color-mix(in srgb, var(--warning, #b45309) 14%, transparent);
+  border-color: color-mix(in srgb, var(--warning, #b45309) 30%, transparent);
+}
+html[data-translucent-ui='1'] .react-chat-bottom-permission-pill--default {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 28%, transparent);
+}
+html[data-translucent-ui='1'] .react-chat-bottom-permission-pill--readonly {
+  background: color-mix(in srgb, var(--text-secondary) 10%, transparent);
+  border-color: var(--ef-glass-border, var(--border-primary));
 }
 @keyframes react-chat-permission-menu-in {
   from { opacity: 0; transform: translateY(4px); }
@@ -12798,7 +12922,7 @@ html[data-theme='dark'] .react-chat-bottom-permission-pill--readonly:hover:not(:
   width: 14px;
   left: 3px;
   bottom: 3px;
-  background: #fff;
+  background: var(--surface-overlay-bg, var(--bg-elevated, #fff));
   border-radius: 50%;
   transition: transform 0.2s ease;
 }
@@ -12812,9 +12936,9 @@ html[data-theme='dark'] .react-chat-bottom-permission-pill--readonly:hover:not(:
   outline: 2px solid rgba(37, 99, 235, 0.45);
   outline-offset: 2px;
 }
-html[data-theme='dark'] .react-chat-permission-menu {
+html[data-theme='dark']:not([data-translucent-ui='1']) .react-chat-permission-menu {
   background: var(--bg-secondary, #1f2937);
-  border-color: rgba(255, 255, 255, 0.08);
+  border-color: color-mix(in srgb, var(--text-primary) 12%, transparent);
 }
 html[data-theme='dark'] .react-chat-permission-menu-global {
   border-top-color: rgba(255, 255, 255, 0.08);
@@ -12856,21 +12980,19 @@ html[data-theme='dark'] .react-chat-permission-menu-check {
 
 .react-chat-bottom-permission-pill--full .react-chat-bottom-pill-text,
 .react-chat-bottom-permission-pill--full .react-chat-permission-pill-icon {
-  color: #b45309;
+  color: var(--warning, #b45309);
 }
 
 .react-chat-bottom-permission-pill--full.react-chat-bottom-pill--open .react-chat-bottom-pill-text,
 .react-chat-bottom-permission-pill--full:hover:not(:disabled) .react-chat-bottom-pill-text {
-  color: #92400e;
+  color: color-mix(in srgb, var(--warning, #b45309) 82%, var(--text-primary));
 }
 
 .react-chat-permission-card {
-  background: var(--bg-primary, #fff);
-  border: 1px solid var(--border-subtle, #e9ebf2);
+  background: var(--surface-overlay-bg, var(--bg-primary, #fff));
+  border: 1px solid var(--surface-overlay-border, var(--border-subtle, #e9ebf2));
   border-radius: 16px;
-  box-shadow:
-    0 10px 38px rgba(15, 23, 42, 0.12),
-    0 2px 8px rgba(15, 23, 42, 0.06);
+  box-shadow: var(--surface-overlay-shadow, 0 10px 38px rgba(15, 23, 42, 0.12));
   padding: 12px 0 8px;
   overflow: hidden;
 }
@@ -15053,12 +15175,12 @@ html.dark .msg-ai-ask-inline-label,
 }
 .tool-approval-panel {
   outline: none;
-  border: 1px solid rgba(15, 23, 42, 0.12);
+  border: 1px solid var(--surface-raised-border, rgba(15, 23, 42, 0.12));
   border-radius: 12px;
-  background: #fff;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  background: var(--surface-raised-bg, #fff);
+  box-shadow: var(--surface-raised-shadow, 0 1px 2px rgba(15, 23, 42, 0.04));
   padding: 12px 14px 12px;
-  color: #0f172a;
+  color: var(--surface-base-fg, #0f172a);
 }
 .tool-approval-panel:focus-visible {
   border-color: rgba(15, 23, 42, 0.28);
@@ -15233,8 +15355,8 @@ html.dark .msg-ai-ask-inline-label,
   flex-shrink: 0;
   border: 0;
   border-radius: 8px;
-  background: #0f172a;
-  color: #fff;
+  background: var(--text-primary, #0f172a);
+  color: var(--text-inverse, #fff);
   font: inherit;
   font-size: 13px;
   font-weight: 600;
@@ -15242,7 +15364,7 @@ html.dark .msg-ai-ask-inline-label,
   cursor: pointer;
 }
 .tool-approval-panel__confirm:hover:not(:disabled) {
-  background: #1e293b;
+  background: color-mix(in srgb, var(--text-primary, #0f172a) 86%, var(--accent));
 }
 .tool-approval-panel__confirm:disabled {
   opacity: 0.55;
@@ -15266,10 +15388,10 @@ html.dark .msg-ai-ask-inline-label,
 :root[data-theme='dark'] .tool-approval-panel,
 html.theme-dark .tool-approval-panel,
 body.theme-dark .tool-approval-panel {
-  background: #111827;
-  border-color: rgba(148, 163, 184, 0.22);
-  color: #e5e7eb;
-  box-shadow: none;
+  background: var(--surface-raised-bg, #111827);
+  border-color: var(--surface-raised-border, rgba(148, 163, 184, 0.22));
+  color: var(--surface-base-fg, #e5e7eb);
+  box-shadow: var(--surface-raised-shadow, none);
 }
 :root[data-theme='dark'] .tool-approval-panel__eyebrow,
 html.theme-dark .tool-approval-panel__eyebrow,
@@ -15291,7 +15413,7 @@ body.theme-dark .tool-approval-panel__choice-title,
 :root[data-theme='dark'] .tool-approval-panel__context-detail,
 html.theme-dark .tool-approval-panel__context-detail,
 body.theme-dark .tool-approval-panel__context-detail {
-  color: #e5e7eb;
+  color: var(--text-primary, #e5e7eb);
 }
 :root[data-theme='dark'] .tool-approval-panel__choice.is-selected,
 html.theme-dark .tool-approval-panel__choice.is-selected,
@@ -15326,8 +15448,8 @@ body.theme-dark .tool-approval-panel__global-desc {
 :root[data-theme='dark'] .tool-approval-panel__confirm,
 html.theme-dark .tool-approval-panel__confirm,
 body.theme-dark .tool-approval-panel__confirm {
-  background: #f8fafc;
-  color: #0f172a;
+  background: var(--text-primary, #f8fafc);
+  color: var(--text-inverse, #0f172a);
 }
 :root[data-theme='dark'] .tool-approval-panel--decided,
 html.theme-dark .tool-approval-panel--decided,
@@ -18298,14 +18420,14 @@ html.evopanel-macos-titlebar .settings-modal-error-banner {
   line-height: 1.3;
 }
 .react-chat-stream-health-banner--disconnected {
-  background: #fef2f2;
-  color: #b91c1c;
-  border: 1px solid #fecaca;
+  background: var(--error-muted, #fef2f2);
+  color: var(--error, #b91c1c);
+  border: 1px solid color-mix(in srgb, var(--error, #b91c1c) 26%, transparent);
 }
 .react-chat-stream-health-banner--silent {
-  background: #fffbeb;
-  color: #92400e;
-  border: 1px solid #fde68a;
+  background: var(--warning-muted, #fffbeb);
+  color: var(--warning, #92400e);
+  border: 1px solid color-mix(in srgb, var(--warning, #92400e) 26%, transparent);
 }
 .react-chat-stream-health-icon {
   flex-shrink: 0;
@@ -25260,7 +25382,7 @@ html.dark .react-chat-workspace-panel {
 }
 
 .react-chat-write-stream-kind {
-  --wd-bg: var(--fd-bg, #1e1e1e);
+  --wd-bg: var(--fd-bg, #05070c);
   --wd-add-bg: var(--fd-add-bg, rgba(63, 185, 80, 0.32));
   --wd-add-bar: var(--fd-add-bar, #3fb950);
   --wd-remove-bg: var(--fd-remove-bg, rgba(248, 81, 73, 0.30));
@@ -25297,7 +25419,7 @@ html.dark .react-chat-workspace-panel {
 
 /* ---- 写入流 diff 渲染（复用 file-diff 配色体系） ---- */
 .react-chat-write-stream-kind {
-  --wd-bg: var(--fd-bg, #1e1e1e);
+  --wd-bg: var(--fd-bg, #05070c);
   --wd-add-bg: var(--fd-add-bg, rgba(63, 185, 80, 0.32));
   --wd-add-bar: var(--fd-add-bar, #3fb950);
   --wd-remove-bg: var(--fd-remove-bg, rgba(248, 81, 73, 0.30));
@@ -31119,8 +31241,8 @@ html.evopanel-macos-titlebar .react-chat-header {
 }
 
 .react-chat-header-product-actions .react-chat-toggle-sidebar-btn:hover {
-  background: #fff;
-  color: #25283a;
+  background: var(--surface-raised-bg, #fff);
+  color: var(--text-primary, #25283a);
   box-shadow: 0 1px 2px rgba(37, 40, 58, 0.06);
 }
 
@@ -31134,7 +31256,7 @@ html.evopanel-macos-titlebar .react-chat-header {
 .react-chat-header-product-actions .react-chat-stage-extensions-toggle-btn.is-menu-open,
 .react-chat-header-product-actions .react-chat-workspace-folder-btn.is-active,
 .react-chat-header-product-actions .react-chat-browser-stage-toggle-btn.is-active {
-  background: #fff;
+  background: var(--surface-raised-bg, #fff);
   color: var(--accent);
   box-shadow: 0 1px 2px color-mix(in srgb, var(--accent) 18%, transparent);
 }
@@ -31271,7 +31393,7 @@ html.dark .react-chat-main-col--home .react-chat-header-toolbar > .react-chat-to
 
 html[data-theme='dark'] .react-chat-header,
 html.dark .react-chat-header {
-  background: var(--bg-primary, #1e1e1e);
+  background: var(--bg-primary, #05070c);
   border-bottom: none;
 }
 
@@ -31316,7 +31438,7 @@ html[data-scifi-ui='1'] .react-chat-header::after {
 
 html[data-theme='dark'] .react-chat-header.react-chat-header--tauri-chrome,
 html.dark .react-chat-header.react-chat-header--tauri-chrome {
-  background: var(--bg-primary, #1e1e1e);
+  background: var(--bg-primary, #05070c);
   border-bottom: none;
 }
 
@@ -33842,12 +33964,18 @@ html[data-theme='dark'] .react-chat-browser-panel .browser-panel-nav-error {
   opacity: 1;
   transform: none;
   pointer-events: auto;
-  background: var(--bg-primary, var(--background, #fff));
-  border-bottom: 1px solid color-mix(in srgb, var(--border, #e5e7eb) 50%, transparent);
+  background: var(--region-panel-bg, var(--surface-base-bg, var(--bg-primary, #fff)));
+  border-bottom: 1px solid var(--region-panel-border, color-mix(in srgb, var(--border-primary, #e5e7eb) 50%, transparent));
 }
 html[data-theme='dark'] .react-chat-stage-chrome .react-chat-stage-tabs,
 html.dark .react-chat-stage-chrome .react-chat-stage-tabs {
-  background: var(--bg-primary, #0b1220);
+  background: var(--region-panel-bg, var(--surface-base-bg, var(--bg-primary, #0b1220)));
+}
+html[data-translucent-ui='1'] .react-chat-stage-chrome .react-chat-stage-tabs {
+  background: var(--surface-glass-bg, transparent);
+  border-bottom-color: var(--surface-glass-border, var(--ef-glass-border, var(--border-primary)));
+  backdrop-filter: blur(var(--surface-glass-blur, 12px)) saturate(var(--surface-glass-saturate, 1.28));
+  -webkit-backdrop-filter: blur(var(--surface-glass-blur, 12px)) saturate(var(--surface-glass-saturate, 1.28));
 }
 
 /* 正文让出标签条高度 */
@@ -33969,7 +34097,8 @@ html.dark .react-chat-stage-popover {
 .react-chat-right-stage-body > .react-chat-knowledge-map-panel,
 .react-chat-right-stage-body > .react-chat-terminal-stage,
 .react-chat-right-stage-body > .v4-collab-subtask-transcript,
-.react-chat-right-stage-body > .v4-employee-process-panel {
+.react-chat-right-stage-body > .v4-employee-process-panel,
+.react-chat-right-stage-body > .react-chat-screenshot-panel {
   height: 100%;
   min-height: 0;
 }
@@ -34118,17 +34247,48 @@ html.dark .react-chat-right-stage-body > .react-chat-knowledge-map-panel {
   min-width: 0;
   overflow-x: auto;
   scrollbar-width: none;
-  flex: 1 1 auto;
+  /* 只吃标签内容宽；剩余交给右侧 drag-gap 拖窗 */
+  flex: 0 1 auto;
+  max-width: calc(100% - 88px);
 }
 .react-chat-stage-tabs-viewport::-webkit-scrollbar { display: none; }
+
+/* 标签右侧空白：整段可拖动窗口（须自带 data-tauri-drag-region，WebView2 不吃父级继承） */
+.react-chat-stage-tabs-drag-gap {
+  flex: 1 1 auto;
+  align-self: stretch;
+  min-width: 48px;
+  height: 100%;
+  cursor: default;
+}
+
+/*
+ * StageTabChip（[data-side-pane-tab-id]）宽度权威样式。
+ * 不依赖 Tailwind flex-[…]：单签曾被压到 min-w-15≈60px，标题只剩 1～2 个字。
+ * 单签：按内容撑开、禁止收缩；多签：可缩但地板提高到约 7 个汉字宽。
+ */
+.react-chat-stage-tabs-viewport [data-side-pane-tab-id].react-chat-stage-tab-chip {
+  box-sizing: border-box;
+  flex: 0 1 auto;
+  width: max-content;
+  min-width: 7.5rem; /* icon+约 4 字，不再用 60px */
+  max-width: 14rem;
+}
+.react-chat-stage-tabs-viewport[data-tab-count='1'] [data-side-pane-tab-id].react-chat-stage-tab-chip,
+.react-chat-stage-tabs-viewport [data-side-pane-tab-id][data-alone='1'].react-chat-stage-tab-chip {
+  flex: 0 0 auto; /* 单签绝不被 viewport 挤扁 */
+  min-width: 10rem;
+  max-width: min(22rem, 70vw);
+}
+
 .react-chat-stage-tab {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  /* 基准 156px（9.75rem）可 grow/shrink，60px 触底后才交给外层滚动 */
-  flex: 1 1 156px;
-  min-width: 60px;
-  max-width: 156px;
+  flex: 0 1 auto;
+  width: max-content;
+  min-width: 7.5rem;
+  max-width: 14rem;
   height: 28px;
   padding: 0 6px 0 8px;
   border: 1px solid transparent;
@@ -34143,21 +34303,60 @@ html.dark .react-chat-right-stage-body > .react-chat-knowledge-map-panel {
   transition: background-color 0.12s ease, color 0.12s ease;
 }
 .react-chat-stage-tab:hover { color: var(--text-primary, inherit); }
+.react-chat-stage-tabs-viewport .react-chat-stage-tab:only-of-type {
+  flex: 0 0 auto;
+  min-width: 10rem;
+  max-width: min(22rem, 70vw);
+}
 .react-chat-stage-tab.is-active {
-  background: var(--bg-selected, rgba(127, 127, 127, 0.1));
+  background: color-mix(
+    in srgb,
+    var(--accent, #635bff) 12%,
+    var(--surface-raised-bg, var(--bg-card, transparent))
+  );
   color: var(--text-primary, inherit);
   border-color: transparent;
+}
+html.dark .react-chat-stage-tab,
+html[data-theme='dark'] .react-chat-stage-tab {
+  /* 未选中也用主色，避免暗底 + text-secondary 发灰看不清（小V 等标签） */
+  color: var(--text-primary, #e8e8ea);
+  opacity: 0.78;
+}
+html.dark .react-chat-stage-tab:hover,
+html[data-theme='dark'] .react-chat-stage-tab:hover {
+  opacity: 1;
 }
 html.dark .react-chat-stage-tab.is-active,
 html[data-theme='dark'] .react-chat-stage-tab.is-active {
   border-color: transparent;
-  background: var(--bg-active, rgba(255, 255, 255, 0.08));
+  background: var(--bg-active, rgba(255, 255, 255, 0.1));
+  color: var(--text-primary, #f4f4f5);
+  opacity: 1;
+  font-weight: 600;
 }
 .react-chat-stage-tab-icon {
   display: inline-flex;
   flex-shrink: 0;
   align-items: center;
   justify-content: center;
+}
+.react-chat-stage-tab-icon--avatar .agent-avatar {
+  width: 14px !important;
+  height: 14px !important;
+  border-radius: 4px !important;
+}
+.react-chat-stage-launcher-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+}
+.react-chat-stage-launcher-avatar .agent-avatar {
+  width: 16px !important;
+  height: 16px !important;
+  border-radius: 4px !important;
 }
 .react-chat-stage-tab-favicon {
   width: 14px;
@@ -34512,4 +34711,54 @@ html[data-theme='dark'] .react-chat-stage-tab.is-active {
 
 .react-chat-session-duty-fold-chevron.is-open {
   transform: rotate(90deg);
+}
+
+/* 右栏截图预览（CUA / browser_turn_end） */
+.react-chat-screenshot-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  background: var(--bg-primary, #ffffff);
+}
+.xw-right-shot {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
+  overflow: auto;
+}
+.xw-right-shot__frame {
+  max-width: 100%;
+  max-height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.xw-right-shot__img {
+  display: block;
+  max-width: 100%;
+  max-height: calc(100vh - 120px);
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  border-radius: 6px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.12);
+}
+.xw-right-shot__empty,
+.xw-right-shot__err {
+  color: var(--shell-text-muted, #6b7280);
+  font-size: var(--ef-text-sm, 13px);
+  text-align: center;
+  padding: 24px 16px;
+}
+html[data-theme='dark'] .react-chat-screenshot-panel,
+html.dark .react-chat-screenshot-panel {
+  background: var(--bg-primary, #0b1220);
+}
+html[data-theme='dark'] .xw-right-shot__img,
+html.dark .xw-right-shot__img {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
 }

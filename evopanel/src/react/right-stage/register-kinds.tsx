@@ -2,7 +2,9 @@ import { registerRightStageKind } from '../../lib/right-stage/right-stage-regist
 import { rightStageStore } from '../../lib/right-stage/right-stage-store.js'
 import { NewsDashboardKind } from './kinds/NewsDashboardKind.js'
 import { PlatformFeedbackKind } from './kinds/PlatformFeedbackKind.js'
+import { ScreenshotStage } from './kinds/ScreenshotStage.js'
 import { WebEmbedKind } from './kinds/WebEmbedKind.js'
+import { XiaomiRightStagePane } from './kinds/XiaomiRightStagePane.js'
 import { BrowserPanel } from '../components/BrowserPanel.js'
 import { closeBrowserStage } from '../../lib/browser-panel-store.js'
 
@@ -11,6 +13,11 @@ let registered = false
 export function ensureRightStageKindsRegistered() {
   if (registered) return
   registered = true
+
+  registerRightStageKind({
+    kind: 'xiaomi',
+    render: () => <XiaomiRightStagePane />,
+  })
 
   registerRightStageKind({
     kind: 'platform-feedback',
@@ -56,6 +63,11 @@ export function ensureRightStageKindsRegistered() {
         />
       )
     },
+  })
+
+  registerRightStageKind({
+    kind: 'screenshot',
+    render: (props) => <ScreenshotStage {...props} />,
   })
 
   registerRightStageKind({

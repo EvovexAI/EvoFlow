@@ -93,16 +93,16 @@ async def advance_dag(
 
     # followup / retry: resolve + run_steps (no Lead auto_delegate import).
     if reason in ("followup", "retry"):
+        from evoflow.collab.execution_kernel import (
+            followup_lock_for_task,
+            resolve_followup_runtime,
+            verify_upstream_artifacts_before_followup,
+        )
         from evoflow.collab.storage import find_main_task, get_project_storage
         from evoflow.collab.step_runner import advance_runnable_wave
-        from evoflow.tools.builtins.supervisor.execution import (
-            _followup_lock_for_task,
-            _resolve_collab_followup_runtime,
-            _verify_upstream_artifacts_before_followup,
-        )
 
         storage = get_project_storage()
-        rt = _resolve_collab_followup_runtime(runtime, tid)
+        rt = resolve_followup_runtime(runtime, tid)
         if rt is None:
             logger.warning(
                 "workflow_scheduler: followup skip task_id=%s reason=no_runtime",
@@ -117,8 +117,8 @@ async def advance_dag(
                 "error": "no_runtime",
             }
 
-        async with _followup_lock_for_task(tid):
-            _verify_upstream_artifacts_before_followup(storage, tid)
+        async with followup_lock_for_task(tid):
+            verify_upstream_artifacts_before_followup(storage, tid)
             row = find_main_task(storage, tid)
             if not row:
                 _push_app_run(tid, reason=f"dag_{reason}_missing")
@@ -166,9 +166,10 @@ async def advance_dag(
 
     from evoflow.collab.dispatch_authorized_execution import dispatch_authorized_main_task_execution
 
+    # Workflow waves never run under a chat thread; see dispatch_for_task.
     parsed = await dispatch_authorized_main_task_execution(
         tid,
-        thread_id=thread_id,
+        thread_id=None,
         authorized_by=str(authorized_by or "api").strip() or "api",
     )
     _push_app_run(tid, reason=f"dag_{reason}")

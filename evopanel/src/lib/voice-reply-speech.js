@@ -169,6 +169,11 @@ export function startVoiceSimpleAck(onTrayState) {
   void playVoiceSimpleAck(onTrayState)
     .catch((e) => {
       console.warn('[voice-reply-speech] simple ack failed', e)
+      void import('./xiaomi-voice/voice-file-log.js')
+        .then(({ voiceFeMirror }) =>
+          voiceFeMirror('播报', 'simple ack failed', e?.name || '', e?.message || String(e)),
+        )
+        .catch(() => {})
       releaseStreamingSpeechPlayback()
       completeVoiceAckBarrier()
       if (onTrayState) void onTrayState('running')
@@ -270,13 +275,32 @@ export function shouldAdvanceVoiceSpeechSync(nextRawBody, lastSyncedPlain) {
 }
 
 /**
- * 流式追加可播报正文（按句入队）。ack hold 期间只预取不播放；工具静音期直接丢弃。
+ * LEGACY：前台 HTTP 逐句队列。小V正文播报已改走 Frame（Pipecat：后端分句 TTS）。
+ * 仅保留给非小V / 调试回退；正常 arm/sync 不再调用。
  * @param {string} text
  */
 export function enqueueVoiceStreamSpeech(text) {
-  if (_toolMuteActive) return
+  if (_toolMuteActive) {
+    void import('./xiaomi-voice-defaults.js')
+      .then(({ xiaomiVoiceLog }) => xiaomiVoiceLog('enqueue SKIP: toolMuteActive'))
+      .catch(() => {})
+    void import('./xiaomi-voice/voice-file-log.js')
+      .then(({ voicePlaybackMark }) => voicePlaybackMark('流式正文', '', 'enqueue 跳过：工具静音中'))
+      .catch(() => {})
+    return
+  }
   const t = clipVoiceSpeechForPlayback(text)
   if (!t) return
+  void import('./xiaomi-voice-defaults.js')
+    .then(({ xiaomiVoiceDebug }) =>
+      xiaomiVoiceDebug('enqueue → Gateway TTS', JSON.stringify(t.slice(0, 40))),
+    )
+    .catch(() => {})
+  void import('./xiaomi-voice/voice-file-log.js')
+    .then(({ voicePlaybackMark }) =>
+      voicePlaybackMark('流式正文', t, `enqueue 入队 ${t.length} 字（legacy HTTP TTS）`),
+    )
+    .catch(() => {})
   _onTTSStartCb?.()
   appendStreamingSpeech(t)
 }
@@ -289,9 +313,21 @@ export function enqueueVoiceStreamSpeech(text) {
 export function flushVoiceStreamSpeechIfNeeded(text) {
   if (_toolMuteActive) exitVoiceToolMute()
   const t = clipVoiceSpeechForPlayback(text)
-  if (!t || !hasStreamingSpeechRemaining(t)) return false
+  if (!t) return false
+  // 即使游标已到末尾，也要 kick 未播句（ack hold / stopTTS 丢句后可能卡住）
+  const needTail = hasStreamingSpeechRemaining(t)
   _onTTSStartCb?.()
-  return finalFlushStreamingSpeech(t)
+  const ok = finalFlushStreamingSpeech(t)
+  void import('./xiaomi-voice/voice-file-log.js')
+    .then(({ voicePlaybackMark }) =>
+      voicePlaybackMark(
+        '流式正文',
+        t,
+        `finalFlush needTail=${needTail} ok=${ok} chars=${t.length}`,
+      ),
+    )
+    .catch(() => {})
+  return ok || needTail
 }
 
 /**

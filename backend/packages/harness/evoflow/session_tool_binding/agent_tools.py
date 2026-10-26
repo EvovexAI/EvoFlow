@@ -174,17 +174,6 @@ def resolve_agent_tool_names_for_agent(
 ) -> frozenset[str]:
     """Tool names an agent code may use (runtime catalog ∩ agent config)."""
     aid = str(agent_id or "").strip() or "main"
-    # 小V：config.tools=[] is intentional (no role-editor tools). Runtime surface is
-    # fixed xiaomi_* — must not treat empty whitelist as “no tools”.
-    try:
-        from evoflow.agents.xiaomi.identity import is_xiaomi_agent
-        from evoflow.agents.xiaomi.tool_policy import XIAOMI_SYSTEM_TOOL_NAMES
-
-        if is_xiaomi_agent(aid):
-            return frozenset(XIAOMI_SYSTEM_TOOL_NAMES)
-    except Exception:
-        logger.debug("xiaomi tool universe resolve skipped agent=%s", aid, exc_info=True)
-
     try:
         agent_config = load_agent_config(aid)
     except Exception:
@@ -193,7 +182,7 @@ def resolve_agent_tool_names_for_agent(
     mcp_skill_mode = _agent_mcp_skill_mode_enabled(agent_config)
     whitelist_key = tuple(sorted(str(t).strip() for t in agent_config.tools if str(t or "").strip())) if agent_config and agent_config.tools is not None else None
     disallowed_key = tuple(sorted(str(t).strip() for t in agent_config.disallowed_tools if str(t or "").strip())) if agent_config and agent_config.disallowed_tools else None
-    return _cached_agent_tool_names(
+    names = _cached_agent_tool_names(
         aid,
         subagent_enabled,
         include_search,
@@ -202,6 +191,21 @@ def resolve_agent_tool_names_for_agent(
         disallowed_key,
         mcp_skill_mode,
     )
+    # 小V：白名单含 bash + 全量 MCP；前台 xiaomi_* / platform 不在 catalog 里，强制并入。
+    try:
+        from evoflow.agents.xiaomi.identity import is_xiaomi_agent
+        from evoflow.agents.xiaomi.tool_policy import (
+            is_xiaomi_mcp_tool_name,
+            xiaomi_bound_tool_name_set,
+        )
+
+        if is_xiaomi_agent(aid):
+            bound = set(xiaomi_bound_tool_name_set())
+            kept = {n for n in names if n in bound or is_xiaomi_mcp_tool_name(n)}
+            return frozenset(kept | bound)
+    except Exception:
+        logger.debug("xiaomi tool universe resolve skipped agent=%s", aid, exc_info=True)
+    return names
 
 
 def resolve_agent_tool_names_for_session(session_key: str) -> frozenset[str]:
@@ -246,10 +250,11 @@ def bound_tools_for_session_agent(session_key: str, mode: str | None) -> list[st
     m = normalize_session_mode(mode)
     try:
         from evoflow.agents.xiaomi.identity import is_xiaomi_agent
-        from evoflow.agents.xiaomi.tool_policy import XIAOMI_SYSTEM_TOOL_NAMES
+        from evoflow.agents.xiaomi.tool_policy import xiaomi_bound_tool_name_set
 
         if is_xiaomi_agent(resolve_session_agent_id(session_key)):
-            return sorted(XIAOMI_SYSTEM_TOOL_NAMES)
+            # Front-desk + bash always bound; MCP stays in agent universe for mount.
+            return sorted(xiaomi_bound_tool_name_set())
     except Exception:
         logger.debug("xiaomi bound tools resolve skipped", exc_info=True)
 

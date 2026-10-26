@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import secrets
 from datetime import UTC, datetime
 from typing import Any
 
@@ -10,7 +11,8 @@ from evoflow.assets.paths import EntityRef
 
 _FILENAME_MAX_BYTES = 128
 _SLUG_MAX_BYTES = 80
-_SLUG_RE = re.compile(r"[^a-z0-9-]+")
+# CJK-aware: 记忆/笔记标题多为中文，文件名保持可读（目录名仍是 ASCII 约定）。
+_SLUG_RE = re.compile(r"[^a-zA-Z0-9\u4e00-\u9fff-]+")
 # Legacy writes used YYYY-MM-DDTHH-MM-SS-<slug>.md — still accepted when reading.
 _LEGACY_TS_PREFIX_LEN = len("YYYY-MM-DDTHH-MM-SS-")
 
@@ -55,8 +57,10 @@ def validate_ad_hoc_filename(filename: str) -> str | None:
         slug = stem
     if not slug or len(slug.encode("utf-8")) > _SLUG_MAX_BYTES:
         return "slug must be 1 to 80 bytes"
-    if not all(c.isascii() and (c.islower() or c.isdigit() or c == "-") for c in slug):
-        return "slug must contain only lowercase ASCII letters, digits, or hyphens"
+    if not all(
+        c == "-" or c.isdigit() or ("a" <= c <= "z") or ("\u4e00" <= c <= "\u9fff") for c in slug
+    ):
+        return "slug must contain only CJK, lowercase ASCII letters, digits, or hyphens"
     return None
 
 
@@ -81,12 +85,17 @@ def _has_valid_timestamp_prefix(stem: str) -> bool:
 
 
 def _unique_note_rel(entity: EntityRef, filename: str) -> str:
-    """Avoid clobbering: slug.md, then slug-2.md, slug-3.md, …"""
+    """Avoid clobbering: ``slug.md``，冲突时追加短随机后缀。
+
+    随机后缀替代旧的 ``-2/-3`` 计数循环：计数是 TOCTOU，并发写同标题的两条
+    笔记会互相整文件覆盖。
+    """
     from evoflow.assets.paths import resolve_entity_file
 
     base = filename[: -len(".md")] if filename.endswith(".md") else filename
-    for i in range(1, 100):
-        name = f"{base}.md" if i == 1 else f"{base}-{i}.md"
+    candidates = [f"{base}.md"]
+    candidates += [f"{base}-{secrets.token_hex(2)}.md" for _ in range(5)]
+    for name in candidates:
         err = validate_ad_hoc_filename(name)
         if err:
             continue
@@ -132,6 +141,9 @@ def format_pending_inbox_notes_for_prompt(
     """Inject pending ``_inbox/notes`` until Phase2 consolidates them into standing/craft.
 
     Without this, a note written mid-chat is invisible until consolidation finishes.
+
+    每条 note 单独过 prompt-injection 扫描器：note 正文是不可信内容（对话里
+    可以种），一条中毒只屏蔽那一条，不拖累整块。
     """
     from evoflow.assets.catalog import parse_frontmatter
     from evoflow.assets.paths import entity_root
@@ -169,6 +181,13 @@ def format_pending_inbox_notes_for_prompt(
         used += len(line) + 1
     if not lines:
         return ""
+    try:
+        # note 正文不可信：逐条扫描（整块扫描会被单条中毒笔记整块屏蔽）。
+        from evoflow.agents.content_scanner import scan_memory_entries
+
+        lines = scan_memory_entries(lines, source="pending_inbox_notes")
+    except Exception:
+        pass
     return (
         "<!-- pending inbox notes: injected until Phase2 consolidates -->\n"
         + "\n".join(lines)

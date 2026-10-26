@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from evoflow.assets.locks import atomic_write_text
 from evoflow.assets.paths import EntityRef
 
 logger = logging.getLogger(__name__)
@@ -16,6 +17,37 @@ logger = logging.getLogger(__name__)
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
 _reindex_timer: threading.Timer | None = None
 _reindex_lock = threading.Lock()
+
+
+def _parse_ts(value: str) -> datetime | None:
+    s = str(value or "").strip()
+    if not s:
+        return None
+    try:
+        if s.endswith("Z"):
+            s = s[:-1] + "+00:00"
+        return datetime.fromisoformat(s)
+    except ValueError:
+        return None
+
+
+def _should_overwrite(path: Path, updated_at: str) -> bool:
+    """Legacy 镜像新者胜：目标文件比 legacy 块的 ``updatedAt`` 新 → 跳过。
+
+    legacy 同步曾整文件覆盖 profile/standing，会冲掉面板里更新的手工编辑；
+    文件不存在时照常写入（迁移场景）。legacy 块缺时间戳时不覆盖已存在文件
+    （fail-closed）。
+    """
+    if not path.is_file():
+        return True
+    doc_ts = _parse_ts(updated_at)
+    if doc_ts is None:
+        return False
+    try:
+        mtime = datetime.fromtimestamp(path.stat().st_mtime, tz=UTC)
+    except OSError:
+        return True
+    return mtime <= doc_ts
 
 
 def namespace_to_entity(namespace: str) -> EntityRef | None:
@@ -43,10 +75,7 @@ def _slug(text: str, *, max_len: int = 48) -> str:
 
 
 def _atomic_write(path: Path, content: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(content, encoding="utf-8")
-    tmp.replace(path)
+    atomic_write_text(path, content)
 
 
 def _yaml_escape(value: str) -> str:
@@ -79,11 +108,15 @@ def mirror_memory_document(namespace: str, document: dict[str, Any]) -> int:
     if isinstance(user, dict):
         top = user.get("topOfMind")
         standing = ""
+        top_updated = ""
         if isinstance(top, dict):
             standing = str(top.get("summary") or "").strip()[:400]
+            top_updated = str(top.get("updatedAt") or "").strip()
         if standing:
-            _atomic_write(root / "memory" / "standing.md", standing + "\n")
-            written += 1
+            target = root / "memory" / "standing.md"
+            if _should_overwrite(target, top_updated):
+                _atomic_write(target, standing + "\n")
+                written += 1
 
     if entity.entity_type == "user":
         mapping = [
@@ -122,15 +155,23 @@ def mirror_memory_document(namespace: str, document: dict[str, Any]) -> int:
                 if isinstance(block, dict) and str(block.get("summary") or "").strip():
                     persona_parts.append(f"## {heading}\n{str(block.get('summary') or '').strip()}")
         prof = root / "profile"
+        # 新者胜：legacy 摘要不覆盖面板里更新的手工编辑（无 updatedAt 的块不覆盖）
         if basic_parts:
-            _atomic_write(prof / "basic-info.md", "\n".join(basic_parts).strip() + "\n")
-            written += 1
+            target = prof / "basic-info.md"
+            if _should_overwrite(target, str((user.get("workContext") or {}).get("updatedAt") or "")):
+                _atomic_write(target, "\n".join(basic_parts).strip() + "\n")
+                written += 1
         if pref_parts:
-            _atomic_write(prof / "preferences.md", "\n".join(pref_parts).strip() + "\n")
-            written += 1
+            target = prof / "preferences.md"
+            if _should_overwrite(target, str((user.get("personalContext") or {}).get("updatedAt") or "")):
+                _atomic_write(target, "\n".join(pref_parts).strip() + "\n")
+                written += 1
         if persona_parts:
-            _atomic_write(prof / "persona.md", "\n".join(persona_parts).strip() + "\n")
-            written += 1
+            target = prof / "persona.md"
+            block_ts = str((user.get("topOfMind") or {}).get("updatedAt") or "")
+            if _should_overwrite(target, block_ts):
+                _atomic_write(target, "\n".join(persona_parts).strip() + "\n")
+                written += 1
 
     facts = document.get("facts") or []
     if isinstance(facts, list):
@@ -170,8 +211,6 @@ def mirror_memory_document(namespace: str, document: dict[str, Any]) -> int:
             _atomic_write(path, front + body)
             written += 1
 
-    if written:
-        schedule_asset_vault_reindex_delayed()
     return written
 
 
@@ -224,7 +263,6 @@ def mirror_atom_file(
     title = (summary or text)[:120]
     body = f"# {title}\n\n{text}\n"
     _atomic_write(path, front + body)
-    schedule_asset_vault_reindex_delayed()
     return True
 
 
@@ -261,5 +299,10 @@ def _atom_frontmatter(
 
 
 def schedule_asset_vault_reindex_delayed(delay_s: float = 20.0) -> None:
-    """Debounce asset reindex after file writes (no-op: Obsidian vault support removed)."""
-    pass
+    """Deprecated no-op — Obsidian vault indexing was removed.
+
+    Historically every asset write "scheduled a reindex" here; there is no
+    index anymore (asset search is a file substring scan), so this exists only
+    for backward-compatible imports. Do not add new call sites.
+    """
+    return None

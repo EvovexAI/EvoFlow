@@ -17,10 +17,15 @@
   align-items: center;
   gap: 2px;
   margin: 0;
-  padding: 0;
-  border: none;
-  background: transparent;
-  border-radius: 0;
+  padding: 2px;
+  border: 1px solid color-mix(in srgb, var(--text-primary) 8%, transparent);
+  /* 相对浮层底色压一档，避免 --surface-sunken 与 page-canvas 同色时轨道消失 */
+  background: color-mix(
+    in srgb,
+    var(--text-primary) 7%,
+    var(--page-canvas, var(--surface-base-bg, var(--bg-primary, #fff)))
+  );
+  border-radius: 8px;
 }
 
 .tasks-ledger-btn {
@@ -29,18 +34,43 @@
   color: var(--text-secondary, #64748b);
   font-size: 13px;
   font-weight: 600;
-  padding: 6px 10px;
-  border-radius: 0;
+  padding: 5px 12px;
+  border-radius: 6px;
   cursor: pointer;
   line-height: 1.2;
-  border-bottom: 2px solid transparent;
+  border-bottom: none;
+  transition: background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .tasks-ledger-btn.is-active {
   color: var(--text-primary, #0f172a);
+  background: color-mix(
+    in srgb,
+    var(--accent, #6366f1) 12%,
+    var(--surface-raised-bg, var(--bg-card, #fff))
+  );
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--text-primary) 8%, transparent);
+  border-bottom-color: transparent;
+}
+
+html[data-theme='dark'] .tasks-ledger-btn.is-active,
+html.dark .tasks-ledger-btn.is-active {
+  background: color-mix(
+    in srgb,
+    var(--accent, #6366f1) 18%,
+    var(--surface-raised-bg, var(--bg-card, #0b101a))
+  );
+}
+
+html[data-translucent-ui='1'] .tasks-ledger-toggle {
   background: transparent;
+  border-color: var(--ef-glass-border, var(--border-primary));
+}
+
+html[data-translucent-ui='1'] .tasks-ledger-btn.is-active {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
   box-shadow: none;
-  border-bottom-color: var(--accent, #6366f1);
 }
 
 .tasks-page.is-ledger-items [data-ledger-show='tasks'] {
@@ -52,13 +82,25 @@
 }
 
 .tasks-page.is-ledger-items {
-  --im-text-primary: #0f172a;
-  --im-text-secondary: #64748b;
-  --im-text-tertiary: #94a3b8;
-  --im-border: #e9ecf2;
-  --im-surface: #ffffff;
-  --im-page-bg: #f7f8fc;
+  --im-text-primary: var(--text-primary, #0f172a);
+  --im-text-secondary: var(--text-secondary, #64748b);
+  --im-text-tertiary: var(--text-tertiary, #94a3b8);
+  --im-border: var(--border-primary, #e9ecf2);
+  --im-surface: var(--surface-raised-bg, var(--bg-card, #ffffff));
+  --im-page-bg: var(--page-canvas, var(--bg-primary, #f7f8fc));
   --im-brand: var(--accent, #6366f1);
+  /* 状态标签/徽章的语义底色（浅色取值与原硬编码一致） */
+  --im-tint-violet: #f4f2fa;
+  --im-tint-blue: #f2f5fa;
+  --im-tint-amber: #faf6f1;
+  --im-tint-rose: #faf3f4;
+  --im-tint-slate: #f3f5f8;
+  --im-tint-emerald: #f2f7f4;
+  --im-tint-todo: #eff6ff;
+  --im-tint-progress: #eef2ff;
+  --im-tint-waiting: #fff7ed;
+  --im-tint-done: #eefbf3;
+  --im-tint-parked: #f1f5f9;
   background: var(--im-page-bg);
   display: flex;
   flex-direction: column;
@@ -73,6 +115,18 @@
   --im-border: var(--border-primary, #2a2f3a);
   --im-surface: var(--bg-secondary, #1c1f26);
   --im-page-bg: var(--bg-primary, #111318);
+  /* 暗色：语义色底改为同色相低透明叠层，字色走深色下的语义前景 */
+  --im-tint-violet: rgba(139, 92, 246, 0.14);
+  --im-tint-blue: rgba(59, 130, 246, 0.14);
+  --im-tint-amber: rgba(234, 140, 42, 0.14);
+  --im-tint-rose: rgba(225, 29, 72, 0.14);
+  --im-tint-slate: rgba(255, 255, 255, 0.07);
+  --im-tint-emerald: rgba(16, 185, 129, 0.14);
+  --im-tint-todo: rgba(59, 130, 246, 0.14);
+  --im-tint-progress: rgba(99, 102, 241, 0.14);
+  --im-tint-waiting: rgba(234, 140, 42, 0.14);
+  --im-tint-done: rgba(16, 185, 129, 0.14);
+  --im-tint-parked: rgba(255, 255, 255, 0.07);
 }
 
 .tasks-page.is-ledger-items .tasks-shell-top {
@@ -530,8 +584,8 @@
 }
 
 .im-card:hover {
-  border-color: #cfd5e0;
-  background: #fcfcfd;
+  border-color: var(--im-border);
+  background: var(--im-surface);
   box-shadow: none;
   transform: none;
 }
@@ -658,28 +712,28 @@
 }
 
 .im-tag--violet {
-  background: #f4f2fa;
-  color: #6b6580;
+  background: var(--im-tint-violet);
+  color: var(--im-text-secondary);
 }
 .im-tag--blue {
-  background: #f2f5fa;
-  color: #5a6b86;
+  background: var(--im-tint-blue);
+  color: var(--im-text-secondary);
 }
 .im-tag--amber {
-  background: #faf6f1;
-  color: #8a7356;
+  background: var(--im-tint-amber);
+  color: var(--im-text-secondary);
 }
 .im-tag--rose {
-  background: #faf3f4;
-  color: #8a6570;
+  background: var(--im-tint-rose);
+  color: var(--im-text-secondary);
 }
 .im-tag--slate {
-  background: #f3f5f8;
-  color: #6b7380;
+  background: var(--im-tint-slate);
+  color: var(--im-text-secondary);
 }
 .im-tag--emerald {
-  background: #f2f7f4;
-  color: #5d7a6a;
+  background: var(--im-tint-emerald);
+  color: var(--im-text-secondary);
 }
 
 .im-card-meta {
@@ -826,24 +880,24 @@
 }
 
 .im-badge--st-todo {
-  background: #eff6ff;
-  color: #2563eb;
+  background: var(--im-tint-todo);
+  color: var(--im-brand);
 }
 .im-badge--st-in_progress {
-  background: #eef2ff;
-  color: #4f46e5;
+  background: var(--im-tint-progress);
+  color: var(--im-brand);
 }
 .im-badge--st-waiting {
-  background: #fff7ed;
-  color: #c2410c;
+  background: var(--im-tint-waiting);
+  color: var(--warning, #c2410c);
 }
 .im-badge--st-done {
-  background: #eefbf3;
-  color: #16a34a;
+  background: var(--im-tint-done);
+  color: var(--success, #16a34a);
 }
 .im-badge--st-parked {
-  background: #f1f5f9;
-  color: #64748b;
+  background: var(--im-tint-parked);
+  color: var(--im-text-secondary);
 }
 
 .im-badge--priority {

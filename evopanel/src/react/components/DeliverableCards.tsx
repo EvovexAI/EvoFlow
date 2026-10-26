@@ -1,7 +1,8 @@
-import { memo, useState, type ReactNode, type SyntheticEvent } from 'react'
+import { memo, useEffect, useState, type ReactNode, type SyntheticEvent } from 'react'
 import { showChatLightbox } from '../../lib/chat-lightbox.js'
 import { resolveMediaAssetSrc } from '../../lib/chat-normalize.js'
 import type { TurnDeliverable } from '../../lib/deliverable-mentions.js'
+import { resolveArtifactAbsolutePath } from '../../lib/artifact-absolute-path.js'
 
 /** 各交付物类型的 16×16 线性图标（lucide 风格，stroke 用 currentColor）。 */
 const KIND_ICONS: Record<string, ReactNode> = {
@@ -91,6 +92,7 @@ function DeliverableFileTile({
       <span className="evf-deliverable-meta">
         <span className="evf-deliverable-name">{item.name}</span>
         <span className="evf-deliverable-kind">{item.label}</span>
+        <span className="evf-deliverable-path">{item.path}</span>
       </span>
     </button>
   )
@@ -133,6 +135,7 @@ function DeliverableImageCard({
       >
         <span className="evf-deliverable-name">{item.name}</span>
         <span className="evf-deliverable-kind">{item.label}</span>
+        <span className="evf-deliverable-path">{item.path}</span>
       </button>
     </div>
   )
@@ -160,6 +163,7 @@ function DeliverableVideoCard({
       >
         <span className="evf-deliverable-name">{item.name}</span>
         <span className="evf-deliverable-kind">{item.label}</span>
+        <span className="evf-deliverable-path">{item.path}</span>
       </button>
     </div>
   )
@@ -187,6 +191,7 @@ function DeliverableAudioCard({
       >
         <span className="evf-deliverable-name">{item.name}</span>
         <span className="evf-deliverable-kind">{item.label}</span>
+        <span className="evf-deliverable-path">{item.path}</span>
       </button>
     </div>
   )
@@ -195,6 +200,9 @@ function DeliverableAudioCard({
 /**
  * 回合末尾交付物：图片/视频/音频直接内嵌展示（ZCode 式直观预览），
  * 其余类型保持文件卡，点击走 onOpenFile。
+ *
+ * 路径统一解析成本机绝对路径：模型给的常是相对/临时路径，
+ * 展示出来用户看不懂、点开也找不到。解析不出来才回退原值。
  */
 function DeliverableCardsInner({
   items,
@@ -203,10 +211,44 @@ function DeliverableCardsInner({
   items: readonly TurnDeliverable[]
   onOpenFile?: (rawPath: string, displayName?: string) => void
 }) {
+  const [absPaths, setAbsPaths] = useState<Record<string, string>>({})
+
+  useEffect(() => {
+    let cancelled = false
+    const list = Array.isArray(items) ? items : []
+    if (!list.length) {
+      setAbsPaths({})
+      return
+    }
+    void (async () => {
+      const entries = await Promise.all(
+        list.map(async (it) => {
+          const abs = await resolveArtifactAbsolutePath(it.path)
+          return [it.path, abs] as const
+        }),
+      )
+      if (cancelled) return
+      const next: Record<string, string> = {}
+      for (const [raw, abs] of entries) {
+        if (abs) next[raw] = abs
+      }
+      setAbsPaths(next)
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [items])
+
   if (items.length === 0) return null
 
-  const media = items.filter((it) => it.kind === 'image' || it.kind === 'video' || it.kind === 'audio')
-  const files = items.filter((it) => it.kind !== 'image' && it.kind !== 'video' && it.kind !== 'audio')
+  // 展示 / 打开都用绝对路径（解析失败则仍是原路径）
+  const resolved = items.map((it) => ({ ...it, path: absPaths[it.path] || it.path }))
+  const media = resolved.filter(
+    (it) => it.kind === 'image' || it.kind === 'video' || it.kind === 'audio',
+  )
+  const files = resolved.filter(
+    (it) => it.kind !== 'image' && it.kind !== 'video' && it.kind !== 'audio',
+  )
 
   return (
     <section className="evf-deliverables" data-testid="deliverable-cards">

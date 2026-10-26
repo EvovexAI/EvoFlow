@@ -23,6 +23,12 @@ import { normalizeAssistantSegmentTimelineOrder } from '../../lib/chat-normalize
 
 const LS_SESSION = 'evopanel_xiaomi_assistant_session_key'
 export const XIAOMI_AGENT = 'xiaomi'
+/** 小V 会话固定关闭思考（前端 context + 后端 hard guard）。 */
+const XIAOMI_THINKING_OFF = Object.freeze({
+  thinking_enabled: false,
+  thinking_type: 'disabled',
+  reasoning_effort: 'minimum',
+})
 export const XIAOMI_SESSION_TITLE = '小V · 全局助手'
 
 let _unsubEvent = null
@@ -36,6 +42,75 @@ let _runStartedAtMs = 0
 /** 语音唤醒发起的一轮：流式正文同步到 TTS */
 let _voiceReplyPending = false
 let _voiceSpeechSyncedPlain = ''
+/** 本轮已切到 Frame 喂入，只需停一次 legacy，避免每个 delta 都 barge */
+let _voiceFrameTookOver = false
+/** 工具日志去重 */
+/** @type {Set<string>} */
+let _voiceLoggedTools = new Set()
+/** 语音发问近义去重：Frame turn_end 与 continuous 迟到句常差几个字 */
+let _lastVoiceSendNorm = ''
+let _lastVoiceSendAtMs = 0
+const VOICE_SEND_DEDUPE_MS = 2800
+
+/** @param {string} text */
+function _normalizeVoiceSendText(text) {
+  return String(text || '')
+    .replace(/[\s\u3000]+/g, '')
+    .replace(/[，。！？、,.!?;；：:"""''（）()【】\[\]…—\-]/g, '')
+    .toLowerCase()
+}
+
+/**
+ * 两句是否同属一轮 ASR 变体（包含关系或短编辑距离）。
+ * @param {string} a
+ * @param {string} b
+ */
+function _isNearDuplicateVoiceText(a, b) {
+  const x = _normalizeVoiceSendText(a)
+  const y = _normalizeVoiceSendText(b)
+  if (!x || !y) return false
+  if (x === y) return true
+  if (x.includes(y) || y.includes(x)) return true
+  // 短句：允许差 1～2 字（「发送两次」vs「发送了两次」）
+  const longer = x.length >= y.length ? x : y
+  const shorter = x.length >= y.length ? y : x
+  if (longer.length <= 4) return false
+  let i = 0
+  let j = 0
+  let miss = 0
+  while (i < longer.length && j < shorter.length) {
+    if (longer[i] === shorter[j]) {
+      i++
+      j++
+      continue
+    }
+    miss++
+    if (miss > 2) return false
+    // 优先跳过长串多出来的字
+    if (longer.length - i > shorter.length - j) i++
+    else j++
+  }
+  miss += longer.length - i + (shorter.length - j)
+  return miss <= 2
+}
+
+/** 对话/工具进度写入「语音播报」前端日志（方便对照发问→接口→回复） */
+function _voiceChatLog(stage, message, detailOrOpts) {
+  const detail =
+    detailOrOpts != null && typeof detailOrOpts === 'object' && !Array.isArray(detailOrOpts)
+      ? detailOrOpts.detail
+      : detailOrOpts
+  void import('../../lib/xiaomi-voice/voice-file-log.js')
+    .then(({ voiceFeLog, formatVoiceLocalTs }) => {
+      const at = typeof formatVoiceLocalTs === 'function' ? ` at=${formatVoiceLocalTs()}` : ''
+      voiceFeLog(
+        stage || '对话',
+        `${message}${at}`,
+        detail != null && detail !== '' ? { detail: String(detail) } : {},
+      )
+    })
+    .catch(() => {})
+}
 
 /** 当前轮开始时间（ms）；0 表示没有运行中的轮 */
 export function getXiaomiRunStartedAtMs() {
@@ -45,64 +120,192 @@ export function getXiaomiRunStartedAtMs() {
 /**
  * @param {{ voiceInitiated?: boolean }} [opts]
  */
-async function armXiaomiVoiceReply(opts = {}) {
-  _voiceReplyPending = true
-  _voiceSpeechSyncedPlain = ''
+async function xiaomiShouldSpeak() {
   try {
     const { getVoiceReplyEnabled } = await import('../../lib/panel-settings.js')
     const { shouldArmVoiceReply } = await import('../../lib/voice-reply-mode.js')
-    if (!shouldArmVoiceReply(getVoiceReplyEnabled())) {
-      _voiceReplyPending = false
-      return
-    }
-    const { resetStreamingSpeechQueue } = await import('../../lib/speech-client.js')
-    resetStreamingSpeechQueue()
-    const { startVoiceSimpleAck, resetVoiceToolMuteState } = await import(
-      '../../lib/voice-reply-speech.js',
+    const { shouldXiaomiVoiceReply, xiaomiVoiceReplySnapshot, xiaomiVoiceLog } = await import(
+      '../../lib/xiaomi-voice-defaults.js',
     )
-    resetVoiceToolMuteState()
-    // 确认语仅语音提问；键盘发送直接等正文播报
-    if (opts.voiceInitiated) {
-      startVoiceSimpleAck(() => {})
+    const settingsOn = shouldArmVoiceReply(getVoiceReplyEnabled())
+    const snap = xiaomiVoiceReplySnapshot(settingsOn)
+    xiaomiVoiceLog('shouldSpeak?', snap)
+    return snap.speak
+  } catch (e) {
+    console.warn('[xiaomi-voice] shouldSpeak check failed', e)
+    return false
+  }
+}
+
+/**
+ * 仅当 Frame session/管线真正在跑时走 Frame TTS。
+ * 不能只凭语音全屏（xwVoice）：常听 continuous 可在全屏下工作而 Frame 从未启动，
+ * 否则正文会一直「暂存」却无人冲刷 → 静音（见 10:59 日志）。
+ */
+async function _preferXiaomiFrameTts() {
+  try {
+    const {
+      isXiaomiFrameSessionActive,
+      isXiaomiFramePipelineActive,
+      isXiaomiFrameSessionConnecting,
+    } = await import('../../lib/xiaomi-voice/index.js')
+    if (isXiaomiFrameSessionActive() || isXiaomiFramePipelineActive()) return true
+    if (typeof isXiaomiFrameSessionConnecting === 'function' && isXiaomiFrameSessionConnecting()) {
+      return true
     }
+  } catch {
+    /* ignore */
+  }
+  return false
+}
+
+async function _stopLegacyVoicePlayback() {
+  try {
+    // 只清 legacy 队列 / speech-session，不要 barge Frame（arm 时 Frame 正是目标通路）
+    const {
+      stopAssistantSpeech,
+      resetStreamingSpeechQueue,
+    } = await import('../../lib/speech-client.js')
+    stopAssistantSpeech()
+    resetStreamingSpeechQueue()
+    const { notifySpeechSessionBargeIn } = await import('../../lib/speech-session-client.js')
+    notifySpeechSessionBargeIn()
   } catch {
     /* ignore */
   }
 }
 
-function clearXiaomiVoiceReply() {
-  _voiceReplyPending = false
+async function armXiaomiVoiceReply(opts = {}) {
+  _voiceReplyPending = true
   _voiceSpeechSyncedPlain = ''
+  _voiceFrameTookOver = false
+  try {
+    const { xiaomiVoiceLog } = await import('../../lib/xiaomi-voice-defaults.js')
+    if (!(await xiaomiShouldSpeak())) {
+      _voiceReplyPending = false
+      xiaomiVoiceLog('arm: SKIP — 本轮不朗读（设置关且非语音全屏/唤醒）')
+      return
+    }
+    // 本轮播报 TRACE：语音路径若 turn_end 已对齐则沿用；文本路径新开一轮
+    try {
+      const { beginVoiceTrace, getVoiceTrace, voiceFeLog } = await import(
+        '../../lib/xiaomi-voice/voice-file-log.js',
+      )
+      const existing = getVoiceTrace()
+      if (opts.voiceInitiated && existing) {
+        voiceFeLog('会话', `语音 arm 沿用 TRACE=${existing}`)
+      } else {
+        beginVoiceTrace({
+          reason: opts.voiceInitiated ? '语音提问 arm' : '文本/其它 arm',
+        })
+      }
+    } catch {
+      /* ignore */
+    }
+
+    // Pipecat 对齐：流式正文 → 后端 SentenceAgg → 有序 TTS → 前端只播音频。
+    // 禁止再走 legacy HTTP 逐句队列（已证实会双合同句 / NotSupportedError 风暴）。
+    try {
+      const { connectXiaomiFrameSession, isXiaomiFrameSessionActive } = await import(
+        '../../lib/xiaomi-voice/index.js',
+      )
+      if (!isXiaomiFrameSessionActive()) {
+        xiaomiVoiceLog('arm: 连接 Frame session（Pipecat 路径）…')
+        await connectXiaomiFrameSession()
+      }
+    } catch (e) {
+      xiaomiVoiceLog('arm: Frame session 连接失败', e?.message || e)
+    }
+
+    if (await _preferXiaomiFrameTts()) {
+      try {
+        const { resetXiaomiFrameAssistantFeed, stashXiaomiFrameAssistantPending } = await import(
+          '../../lib/xiaomi-voice/index.js',
+        )
+        resetXiaomiFrameAssistantFeed()
+        stashXiaomiFrameAssistantPending('', { final: false })
+      } catch {
+        /* ignore */
+      }
+      await _stopLegacyVoicePlayback()
+      _voiceFrameTookOver = true
+      xiaomiVoiceLog('arm: Frame runtime — assistant_delta → 后端分句 TTS（禁止 legacy HTTP 正文）')
+      return
+    }
+
+    // Frame 不可用：宁可不播正文，也不回落 legacy 队列（效果更差、还会打爆 TTS）。
+    // 固定句「在呢」仍走 voice-fixed-sfx / httpOnly，与此无关。
+    await _stopLegacyVoicePlayback()
+    _voiceReplyPending = false
+    xiaomiVoiceLog('arm: ABORT — Frame 未就绪，跳过本轮正文播报（不回落 legacy HTTP）')
+  } catch (e) {
+    _voiceReplyPending = false
+    console.warn('[xiaomi-voice] arm failed', e)
+  }
 }
 
+function clearXiaomiVoiceReply() {
+  if (_voiceReplyPending) {
+    void import('../../lib/xiaomi-voice-defaults.js')
+      .then(({ xiaomiVoiceLog }) => xiaomiVoiceLog('clear: pending=false'))
+      .catch(() => {})
+  }
+  _voiceReplyPending = false
+  _voiceSpeechSyncedPlain = ''
+  _voiceFrameTookOver = false
+}
+
+export { clearXiaomiVoiceReply }
+
 function syncXiaomiVoiceSpeech(fullText, { final = false } = {}) {
-  if (!_voiceReplyPending) return
+  if (!_voiceReplyPending) {
+    void import('../../lib/xiaomi-voice-defaults.js')
+      .then(({ xiaomiVoiceDebug }) =>
+        xiaomiVoiceDebug('sync skip: pending=false len=', String(fullText || '').length),
+      )
+      .catch(() => {})
+    return
+  }
   const body = String(fullText || '')
-  void import('../../lib/voice-reply-speech.js')
+  // Pipecat：前端只喂累计正文；切句 / TTS / 播报顺序全在后端 Frame。
+  // 禁止再 enqueueVoiceStreamSpeech（legacy HTTP 队列）。
+  void import('../../lib/xiaomi-voice/index.js')
     .then(
-      ({
-        shouldAdvanceVoiceSpeechSync,
-        toVoiceSpeechPlain,
-        enqueueVoiceStreamSpeech,
-        flushVoiceStreamSpeechIfNeeded,
-        clipVoiceSpeechForPlayback,
-        exitVoiceToolMute,
-        isVoiceToolMuteActive,
+      async ({
+        isXiaomiFrameSessionActive,
+        isXiaomiFrameSessionConnecting,
+        connectXiaomiFrameSession,
+        feedXiaomiFrameAssistant,
+        stashXiaomiFrameAssistantPending,
       }) => {
-        if (!_voiceReplyPending) return
-        if (isVoiceToolMuteActive()) exitVoiceToolMute()
-        if (final) {
-          flushVoiceStreamSpeechIfNeeded(body)
-          clearXiaomiVoiceReply()
+        if (isXiaomiFrameSessionActive()) {
+          if (!_voiceFrameTookOver) {
+            _voiceFrameTookOver = true
+            void _stopLegacyVoicePlayback()
+          }
+          feedXiaomiFrameAssistant(body, { final })
+          if (final) clearXiaomiVoiceReply()
           return
         }
-        const speakable = clipVoiceSpeechForPlayback(body)
-        if (!shouldAdvanceVoiceSpeechSync(speakable, _voiceSpeechSyncedPlain)) return
-        _voiceSpeechSyncedPlain = toVoiceSpeechPlain(speakable)
-        enqueueVoiceStreamSpeech(speakable)
+        if (
+          typeof isXiaomiFrameSessionConnecting === 'function' &&
+          isXiaomiFrameSessionConnecting()
+        ) {
+          stashXiaomiFrameAssistantPending(body, { final })
+          if (final) clearXiaomiVoiceReply()
+          return
+        }
+        // 迟到流：再抢一次连接；连上前先暂存，绝不回落 legacy
+        stashXiaomiFrameAssistantPending(body, { final })
+        try {
+          await connectXiaomiFrameSession()
+        } catch {
+          /* ignore */
+        }
+        if (final) clearXiaomiVoiceReply()
       },
     )
-    .catch(() => {})
+    .catch((e) => console.warn('[xiaomi-voice] sync failed', e))
 }
 
 function readStoredSessionKey() {
@@ -230,8 +433,9 @@ export function stripInjectedPageContext(text) {
  * 解析 session→thread 并预热 V4 帧订阅（对齐主对话 warmEvoflowV4Session）。
  * @param {string} sessionKey
  * @param {{ hintThreadId?: string }} [opts]
+ * @returns {Promise<string>} threadId
  */
-async function bindXiaomiV4Thread(sessionKey, opts = {}) {
+export async function bindXiaomiV4Thread(sessionKey, opts = {}) {
   const key = String(sessionKey || '').trim()
   if (!key) return ''
   let tid = ''
@@ -295,6 +499,7 @@ export async function ensureXiaomiSession(opts = {}) {
           agent_id: XIAOMI_AGENT,
           use_claude_code_chat: false,
           xiaomi_global_assistant: true,
+          ...XIAOMI_THINKING_OFF,
         }).catch(() => {})
       }
     } catch {
@@ -311,6 +516,7 @@ export async function ensureXiaomiSession(opts = {}) {
         agent_id: XIAOMI_AGENT,
         xiaomi_global_assistant: true,
         memory_enabled: true,
+        ...XIAOMI_THINKING_OFF,
       },
     })
     key = String(row?.sessionKey || row?.key || '').trim()
@@ -325,9 +531,16 @@ export async function ensureXiaomiSession(opts = {}) {
     const hist = await api.chatHistory(key, 80).catch(() => ({ messages: [] }))
     const messages = historyToUiMessages(hist?.messages || [])
     patchState({ messages })
-    // 有历史则立刻绑 thread + 预热 V4，避免打开侧栏空白/闪草稿问候
-    if (messages.length || hintThreadId) {
-      void bindXiaomiV4Thread(key, { hintThreadId })
+    // V4 只认 thread：无论有无本地镜像消息，都必须 resolve/ensure thread 再预热，
+    // 否则右栏重开时会一直 connecting、历史空白。
+    let tid = await bindXiaomiV4Thread(key, { hintThreadId })
+    if (!tid) {
+      try {
+        tid = String((await wsClient.ensureChatThread(key)) || '').trim()
+      } catch {
+        tid = ''
+      }
+      if (tid) await bindXiaomiV4Thread(key, { hintThreadId: tid })
     }
   }
   return key
@@ -348,9 +561,11 @@ function markXiaomiRunStarted(runId) {
   }
   _activeRunId = rid || _activeRunId
   _sealedRunId = ''
+  _voiceLoggedTools = new Set()
   // 发送占位路径已先记录起点；这里只兜底非 send 发起的 run
   if (!_runStartedAtMs) _runStartedAtMs = Date.now()
   _aguiTurn = emptyAgUiTurnState(String(rid || _activeRunId || ''))
+  _voiceChatLog('对话', `RUN_STARTED run=${rid || '(无id)'}`, `streaming=true`)
   const messages = [...(getState().messages || [])]
   let last = messages[messages.length - 1]
   if (last && last.role === 'assistant' && (last.pending || last.streaming || !String(last.text || '').trim())) {
@@ -439,6 +654,12 @@ function syncXiaomiLiveFromAgui() {
   last.runId = _activeRunId || last.runId
   patchState({ messages: [...messages], streaming: true })
   if (openText) syncXiaomiVoiceSpeech(openText)
+  // 语音全屏无 V4 时间线：platform 结果在此旁路拉开右栏（文件/进度/浏览器）
+  if (Array.isArray(last.tools) && last.tools.length) {
+    void import('../../lib/xiaomi-voice/platform-auto-open.js')
+      .then((m) => m.maybeAutoOpenXiaomiPlatformTools?.(last.tools))
+      .catch(() => {})
+  }
 }
 
 /**
@@ -462,7 +683,18 @@ function patchXiaomiLiveProcess(patch) {
     }
     messages.push(last)
   }
-  if (Array.isArray(patch.tools)) last.tools = patch.tools
+  if (Array.isArray(patch.tools)) {
+    last.tools = patch.tools
+    for (const t of patch.tools) {
+      const name = String(t?.name || t?.tool || t?.id || '').trim()
+      const status = String(t?.status || t?.state || '').trim()
+      const key = `${name}|${status}`
+      if (name && !_voiceLoggedTools.has(key)) {
+        _voiceLoggedTools.add(key)
+        _voiceChatLog('对话', `工具 ${name}${status ? ` (${status})` : ''}`)
+      }
+    }
+  }
   if (patch.reasoningDelta) {
     last.reasoning = `${String(last.reasoning || '')}${patch.reasoningDelta}`
     last.reasoningPreview = last.reasoning
@@ -470,6 +702,11 @@ function patchXiaomiLiveProcess(patch) {
   last.pending = false
   last.streaming = true
   patchState({ messages: [...messages], streaming: true })
+  if (Array.isArray(last.tools) && last.tools.length) {
+    void import('../../lib/xiaomi-voice/platform-auto-open.js')
+      .then((m) => m.maybeAutoOpenXiaomiPlatformTools?.(last.tools))
+      .catch(() => {})
+  }
 }
 
 /** Append one assistant text piece (classic delta or AG-UI TEXT_MESSAGE_CONTENT). */
@@ -548,6 +785,13 @@ function finishXiaomiAssistantRun(runId, finalText) {
     clearXiaomiVoiceReply()
   }
 
+  const sealedText = String(last?.text || incoming || '').trim()
+  _voiceChatLog(
+    '对话',
+    `RUN_FINISHED run=${rid || '(无id)'} 回复 ${sealedText.length} 字` +
+      (turnDurationStr ? ` 耗时=${turnDurationStr}` : ''),
+    sealedText.slice(0, 120),
+  )
   _activeRunId = ''
   _aguiTurn = null
   _runStartedAtMs = 0
@@ -570,6 +814,7 @@ function finishXiaomiAssistantRun(runId, finalText) {
 function failXiaomiAssistantRun(errText) {
   clearXiaomiVoiceReply()
   const err = String(errText || '生成失败').trim()
+  _voiceChatLog('错误', `RUN_ERROR：${err.slice(0, 200)}`)
   const messages = [...(getState().messages || [])]
   const last = messages[messages.length - 1]
   if (last && last.role === 'assistant' && (last.pending || last.streaming)) {
@@ -814,6 +1059,14 @@ async function reloadXiaomiHistoryQuiet(opts = {}) {
       return
     }
     if (liveAsst && (liveLen > histLen || liveHasProcess) && !getState().streaming) {
+      // 库里已有同文助手行时勿再 push，否则语音「最近对话」会双份显示
+      const histTextNorm = String(histAsst?.text || '').trim()
+      const liveTextNorm = String(liveAsst.text || '').trim()
+      if (histAsst && histTextNorm && liveTextNorm && histTextNorm === liveTextNorm) {
+        if (onlyIfRicher) return
+        patchState({ messages })
+        return
+      }
       merged.push({
         id: liveAsst.id || `asst-live-${Date.now()}`,
         role: 'assistant',
@@ -887,25 +1140,86 @@ export async function syncXiaomiPageContext(override = {}) {
 export async function sendXiaomiChat(text, ctx = {}) {
   const raw = String(text || '').trim()
   if (!raw) return
-  if (getState().streaming) throw new Error('正在生成中，请先停止')
+  // 语音近义去重：Frame 已发「看一下…发送两次」，continuous 再塞「…发送了两次」不应打断重发。
+  // 戳必须在任何 await 前落下，否则两路并发会一起穿过。
+  if (ctx.voiceInitiated) {
+    const now = Date.now()
+    if (
+      _lastVoiceSendNorm &&
+      now - _lastVoiceSendAtMs < VOICE_SEND_DEDUPE_MS &&
+      _isNearDuplicateVoiceText(raw, _lastVoiceSendNorm)
+    ) {
+      try {
+        const { voiceFeLog } = await import('../../lib/xiaomi-voice/voice-file-log.js')
+        voiceFeLog(
+          '对话',
+          `语音近义去重 → 丢弃重复发问：「${raw.slice(0, 80)}」（距上次 ${now - _lastVoiceSendAtMs}ms）`,
+        )
+      } catch {
+        /* ignore */
+      }
+      return
+    }
+    _lastVoiceSendNorm = _normalizeVoiceSendText(raw)
+    _lastVoiceSendAtMs = now
+  }
+  // 语音多轮：对齐 Pipecat barge → 新 turn——上一轮还在生成时先 abort，再发本轮。
+  // 文本路径仍拒绝并发，避免误触双发。
+  // 近义句上面已丢掉；这里只对「明显新一句」做打断重发。
+  if (getState().streaming) {
+    if (ctx.voiceInitiated) {
+      try {
+        const { voiceFeLog } = await import('../../lib/xiaomi-voice/voice-file-log.js')
+        voiceFeLog('对话', `上一轮仍在生成 → 语音打断后重发：「${raw.slice(0, 80)}」`)
+      } catch {
+        /* ignore */
+      }
+      await stopXiaomiChat()
+      await new Promise((r) => setTimeout(r, 60))
+    } else {
+      throw new Error('正在生成中，请先停止')
+    }
+  }
+
+  const t0 = Date.now()
+  const voiceHot = !!ctx.voiceInitiated
+  const mark = (step) => {
+    if (!voiceHot) return
+    try {
+      _voiceChatLog('时效', `sendXiaomiChat ${step} +${Date.now() - t0}ms`)
+    } catch {
+      /* ignore */
+    }
+  }
 
   // 已有会话则不要先 chatHistory：否则每条消息都多一轮往返，且会冲掉乐观气泡。
   const hadSession = !!String(getState().sessionKey || readStoredSessionKey() || '').trim()
   const key = await ensureXiaomiSession({ reloadHistory: !hadSession })
+  mark(`ensureSession had=${hadSession ? 1 : 0}`)
   bindXiaomiStreamListener()
   _sealedRunId = ''
   _activeRunId = ''
 
-  if (await (async () => {
-    try {
-      const { getVoiceReplyEnabled } = await import('../../lib/panel-settings.js')
-      const { shouldArmVoiceReply } = await import('../../lib/voice-reply-mode.js')
-      return shouldArmVoiceReply(getVoiceReplyEnabled())
-    } catch {
-      return false
-    }
-  })()) {
-    await armXiaomiVoiceReply({ voiceInitiated: !!ctx.voiceInitiated })
+  const speak = await xiaomiShouldSpeak()
+  void import('../../lib/xiaomi-voice-defaults.js').then(({ xiaomiVoiceLog }) =>
+    xiaomiVoiceLog(
+      'sendXiaomiChat',
+      { voiceInitiated: voiceHot, speak, textLen: raw.length },
+      JSON.stringify(raw.slice(0, 40)),
+    ),
+  )
+  try {
+    const { noteVoicePanelSend } = await import('../../lib/xiaomi-voice/voice-file-log.js')
+    noteVoicePanelSend(raw, {
+      source: voiceHot ? '语音发问' : '文本发问',
+      detail: `voice=${voiceHot} len=${raw.length}`,
+    })
+  } catch {
+    /* ignore */
+  }
+  if (speak) {
+    await armXiaomiVoiceReply({ voiceInitiated: voiceHot })
+    mark('armVoice')
   } else {
     clearXiaomiVoiceReply()
   }
@@ -914,7 +1228,7 @@ export async function sendXiaomiChat(text, ctx = {}) {
   /** @type {Record<string, string>} */
   const merged = { ...live }
   for (const [k, v] of Object.entries(ctx)) {
-    if (k === 'voiceInitiated') continue
+    if (k === 'voiceInitiated' || k === 'onSubmitted') continue
     const s = v == null ? '' : String(v).trim()
     if (s) merged[k] = s
   }
@@ -928,17 +1242,26 @@ export async function sendXiaomiChat(text, ctx = {}) {
   }
   const pageChanged = !prevFp || fp !== prevFp
 
-  try {
-    await api.chatUpdateContext(key, {
-      agent_name: XIAOMI_AGENT,
-      agent_id: XIAOMI_AGENT,
-      xiaomi_global_assistant: true,
-      // 变化才带快照；未变则清空，避免 runContext 重复注入砸缓存
-      xiaomi_page_context: pageChanged ? pageSnap : null,
-      xiaomi_page_context_fp: fp || null,
+  // 语音热路径：页面上下文同步不可挡 chatSend（日志曾卡 chatUpdateContext ~6s）
+  const ctxPayload = {
+    agent_name: XIAOMI_AGENT,
+    agent_id: XIAOMI_AGENT,
+    xiaomi_global_assistant: true,
+    ...XIAOMI_THINKING_OFF,
+    xiaomi_page_context: pageChanged ? pageSnap : null,
+    xiaomi_page_context_fp: fp || null,
+  }
+  if (voiceHot) {
+    void api.chatUpdateContext(key, ctxPayload).catch((e) => {
+      console.warn('[xiaomi] page context sync failed (bg)', e)
     })
-  } catch (e) {
-    console.warn('[xiaomi] page context sync failed', e)
+    mark(`contextSync bg pageChanged=${pageChanged ? 1 : 0}`)
+  } else {
+    try {
+      await api.chatUpdateContext(key, ctxPayload)
+    } catch (e) {
+      console.warn('[xiaomi] page context sync failed', e)
+    }
   }
 
   const userMsgId = `user-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
@@ -962,27 +1285,36 @@ export async function sendXiaomiChat(text, ctx = {}) {
     },
   ]
   patchState({ messages, streaming: true, draft: '', activeView: 'chat' }, { persistUi: true })
+  _voiceChatLog(
+    '对话',
+    `chatSend 准备 session=${key.slice(0, 12)}… agent=${XIAOMI_AGENT} voice=${voiceHot} prep=+${Date.now() - t0}ms`,
+    raw.slice(0, 80),
+  )
+  // 语音：prep 完即可释放 Frame `_sending`，勿等整轮 stream 结束（曾卡 13s+）
+  try {
+    if (typeof ctx.onSubmitted === 'function') ctx.onSubmitted({ messageId: userMsgId })
+  } catch {
+    /* ignore */
+  }
 
   try {
-    let voiceReply = false
-    try {
-      const { getVoiceReplyEnabled } = await import('../../lib/panel-settings.js')
-      const { shouldArmVoiceReply } = await import('../../lib/voice-reply-mode.js')
-      voiceReply = shouldArmVoiceReply(getVoiceReplyEnabled())
-    } catch {
-      /* ignore */
-    }
+    const voiceReply = speak
     await wsClient.chatSend(key, raw, [], [], {
       messageId: userMsgId,
-      ...(ctx.voiceInitiated ? { voiceInitiated: true } : {}),
+      ...(voiceHot ? { voiceInitiated: true } : {}),
       ...(voiceReply ? { voiceReply: true } : {}),
     })
+    _voiceChatLog(
+      '对话',
+      `chatSend 已提交 messageId=${userMsgId} voiceReply=${!!voiceReply} total=+${Date.now() - t0}ms`,
+    )
     // chatSend 后 thread 通常已落库：立刻 resolve + warm，缩短 V4 空白窗
     void bindXiaomiV4Thread(key)
   } catch (e) {
     clearXiaomiVoiceReply()
     _runStartedAtMs = 0
     const err = String(e?.message || e || '发送失败')
+    _voiceChatLog('错误', `chatSend 失败：${err.slice(0, 200)}`)
     const cur = [...(getState().messages || [])]
     const last = cur[cur.length - 1]
     if (last?.pending) cur.pop()
@@ -1040,6 +1372,7 @@ export async function startXiaomiNewRound() {
       agent_name: XIAOMI_AGENT,
       agent_id: XIAOMI_AGENT,
       xiaomi_global_assistant: true,
+      ...XIAOMI_THINKING_OFF,
       xiaomi_page_context: null,
       xiaomi_page_context_fp: null,
     })
@@ -1153,6 +1486,7 @@ export async function switchXiaomiSession(sessionKey) {
         agent_id: XIAOMI_AGENT,
         use_claude_code_chat: false,
         xiaomi_global_assistant: true,
+        ...XIAOMI_THINKING_OFF,
       })
       .catch(() => {})
     const hist = await api.chatHistory(key, 80).catch(() => ({ messages: [] }))
@@ -1187,6 +1521,7 @@ export async function startXiaomiNewChat() {
       agent_id: XIAOMI_AGENT,
       xiaomi_global_assistant: true,
       memory_enabled: true,
+      ...XIAOMI_THINKING_OFF,
     },
   })
   const key = String(row?.sessionKey || row?.key || '').trim()

@@ -23,6 +23,10 @@ import type { BrowserStreamFrameMetadata } from './browser-stream-client.js'
 import type { BrowserTabSummary } from './browser-viewport-client.js'
 import { dbgLog, dbgWarn } from './browser-debug-log.js'
 import { blogTimeline } from './browser-unified-log.js'
+import {
+  resolveXiaomiVoiceBrowserSessionKey,
+  shouldSurfaceBrowserOnXiaomiVoiceUi,
+} from './xiaomi-voice/voice-right-stage-foreground.js'
 
 export { getBridgeOwnerSessionKey, setBridgeOwnerSessionKey } from './browser-bridge-owner.js'
 
@@ -85,13 +89,24 @@ export function isUserNavigateIntent(url: string): boolean {
 let state: BrowserRuntimeState = { ...EMPTY }
 const listeners = new Set<() => void>()
 
-/** Resolve session for engine/panel-request writes: explicit → owner → current UI. */
+/** Resolve session for engine/panel-request writes: explicit → owner → current UI.
+ * 语音占用时钉到小V UI key（小V 开浏览器常被 wire 标成 main）。 */
 export function resolveBrowserUiSessionKey(explicit?: string | null): string {
   const fromArg = String(explicit || '').trim()
-  if (fromArg) return fromArg
   const owner = getBridgeOwnerSessionKey()
-  if (owner) return owner
-  return getCurrentRightStageSessionKey()
+  const raw = fromArg || owner || getCurrentRightStageSessionKey()
+  return resolveXiaomiVoiceBrowserSessionKey(raw) || raw
+}
+
+/**
+ * 归属会话 ≠ UI 会话 → 通常后台；语音占用右栏时一律抬 live（小V 开的浏览器）。
+ */
+function isBrowserUiBackground(sessionKey?: string | null): boolean {
+  const sk = String(sessionKey || '').trim()
+  const currentSk = getCurrentRightStageSessionKey()
+  if (!sk || !currentSk || sk === currentSk) return false
+  if (shouldSurfaceBrowserOnXiaomiVoiceUi(sk)) return false
+  return true
 }
 
 function emit() {
@@ -225,9 +240,13 @@ function applyHistoryFlags(stack: string[], index: number) {
   })
 }
 
-/** 站内导航：压入当前前台标签的逻辑历史栈（单 HWND 不能靠 window.history）。 */
-export function pushBrowserTabHistory(url: string, pageTitle = ''): boolean {
-  const tabId = activeBrowserTabId()
+/**
+ * 站内导航：压入指定（或当前前台）标签的逻辑历史栈（单 HWND 不能靠 window.history）。
+ * @param pinTabId 钉死目标签；地址栏回车必须传 stageId，禁止跟「当时 active」——
+ *   否则 agent ensure(primary) 抢激活后，第二签的地址会写进第一签标题，表现为「第一签没了」。
+ */
+export function pushBrowserTabHistory(url: string, pageTitle = '', pinTabId?: string): boolean {
+  const tabId = String(pinTabId || activeBrowserTabId() || '').trim()
   if (!tabId) return false
   const clean = sanitizeBrowserPageUrl(url)
   if (!clean) return false
@@ -293,14 +312,14 @@ export function stepBrowserTabHistory(delta: -1 | 1): string | null {
   return url
 }
 
-/** 把当前网页标题/图标写到右侧前台浏览器标签上（单 HWND，每标签各自记 URL）。 */
-function syncBrowserStageChrome(pageUrl: string, pageTitle: string) {
-  const snap = rightStageStore.getSnapshot()
-  const activeKey = String(snap.activeKey || '')
-  // 只写当前激活的浏览器标签。禁止 || browsers[0]——新标签导航时会把 URL 写进 primary，
-  // 表现为「输入新地址后，之前那个标签也变成新地址」。
-  if (!activeKey.startsWith('browser:')) return
-  const active = snap.tabs.find((t) => `browser:${t.id}` === activeKey)
+/**
+ * 把网页标题/图标写到指定（或当前激活）浏览器标签。
+ * @param pinTabId 钉死写入目标；CDP settle 时必须传发起导航的签，禁止跟「当时 active」。
+ */
+function syncBrowserStageChrome(pageUrl: string, pageTitle: string, pinTabId?: string) {
+  const id = String(pinTabId || activeBrowserTabId() || '').trim()
+  if (!id) return
+  const active = rightStageStore.findTab(`browser:${id}`)
   if (!active) return
   // 错误页 URL 不写进标签，保留该标签已有地址。
   const prevUrl = String(active.data?.pageUrl || '').trim()
@@ -308,11 +327,18 @@ function syncBrowserStageChrome(pageUrl: string, pageTitle: string) {
   if (!url && String(pageUrl || '').trim()) return
   const isBlank = !url || url === 'about:blank'
   const prevBlank = !prevUrl || prevUrl === 'about:blank'
-  // 新标签仍是 blank：HWND 常还停在上一标签页。禁止把残留页写进本标签，
-  // 否则第二个标签地址栏会显示第一个的 URL，切回去两边状态都乱。
+  // 新标签仍是 blank：HWND 常还停在上一标签页。禁止把残留页写进本标签。
   if (prevBlank && !isBlank && !isUserNavigateIntent(url)) {
     dbgLog(
       `[browser-panel-store] skip chrome sync onto blank tab id=${active.id} url=${url}`,
+    )
+    return
+  }
+  // 已有独立 URL 的签：禁止换成另一地址。用户导航走 pushBrowserTabHistory；
+  // 这里若放行 isUserNavigateIntent，会在 pin=primary 时把第二签的地址盖进第一签。
+  if (!prevBlank && !isBlank && !isSameBrowserLoad(prevUrl, url)) {
+    dbgLog(
+      `[browser-panel-store] skip chrome overwrite id=${active.id} prev=${prevUrl} url=${url}`,
     )
     return
   }
@@ -352,7 +378,11 @@ function applyStageBrowserSurface(tabId: string, pageUrl: string, pageTitle: str
   // syncNativeEmbed already parks on foreign-owner; chrome above still updates.
   const uiSk = getCurrentRightStageSessionKey()
   const ownerSk = getBridgeOwnerSessionKey()
-  if (ownerSk && uiSk && ownerSk !== uiSk) {
+  // 语音占用：小V 开浏览器时 owner 常残留 main，仍可贴位
+  const foreign =
+    Boolean(ownerSk && uiSk && ownerSk !== uiSk) &&
+    !shouldSurfaceBrowserOnXiaomiVoiceUi(ownerSk)
+  if (foreign) {
     dbgLog(
       `[browser-panel-store] skip HWND nav (foreign owner=${ownerSk} ui=${uiSk}) reason=${reason} url=${url}`,
     )
@@ -427,6 +457,10 @@ export function ensureBrowserStage(opts?: {
    * upsert-navigating the HWND (agent CDP already owns the page).
    */
   skipHwndNav?: boolean
+  /**
+   * Agent 导航：允许把已有 URL 的签改成新地址。用户地址栏禁止靠这个盖其它签。
+   */
+  replacePageUrl?: boolean
 }) {
   const sessionKey = String(opts?.sessionKey || '').trim() || undefined
   // 未指定 id 时跟当前激活浏览器标签，不要写死 primary——否则在第二个标签里
@@ -434,12 +468,22 @@ export function ensureBrowserStage(opts?: {
   const id = opts?.forceNew
     ? newBrowserStageId()
     : String(opts?.id || activeBrowserTabId() || 'primary').trim() || 'primary'
-  const pageUrl = sanitizeBrowserPageUrl(String(opts?.pageUrl || state.pageUrl || '').trim(), 'about:blank')
+  // 关键模型：tab.data.pageUrl 只接受「调用方显式传入」的 URL。
+  // 禁止 opts.pageUrl 缺失时用 state.pageUrl（HWND/上一签残留）回填——那会把 blank 新签写成 baidu。
+  const hasExplicitUrl = opts != null && Object.prototype.hasOwnProperty.call(opts, 'pageUrl')
+  const explicitPageUrl = hasExplicitUrl
+    ? sanitizeBrowserPageUrl(String(opts?.pageUrl || '').trim(), 'about:blank')
+    : null
   const skipHwndNav = opts?.skipHwndNav === true
   const currentSk = getCurrentRightStageSessionKey()
+  // 语音占用：小V 开的浏览器 wire 常带 main key → 仍抬 live，标签钉到 UI（xiaomi）。
+  const voiceSurface = Boolean(
+    sessionKey && currentSk && sessionKey !== currentSk && shouldSurfaceBrowserOnXiaomiVoiceUi(sessionKey),
+  )
+  const stageSessionKey = voiceSurface ? currentSk : sessionKey
 
   // 后台会话：不碰当前 UI 右栏。
-  if (sessionKey && currentSk && sessionKey !== currentSk) {
+  if (sessionKey && currentSk && sessionKey !== currentSk && !voiceSurface) {
     dbgLog(
       `[browser-panel-store] ensureBrowserStage background session=${sessionKey} (ui=${currentSk}) id=${id}`,
     )
@@ -447,7 +491,7 @@ export function ensureBrowserStage(opts?: {
       sessionKey,
       id,
       title: opts?.title,
-      pageUrl: pageUrl || 'about:blank',
+      pageUrl: explicitPageUrl || 'about:blank',
       pageTitle: opts?.title,
       activate: true,
     })
@@ -456,9 +500,14 @@ export function ensureBrowserStage(opts?: {
     const uiSnap = rightStageStore.getSnapshot()
     const uiShowsBrowser =
       !uiSnap.collapsed && String(uiSnap.activeKey || '').startsWith('browser:')
-    if (!skipHwndNav && !uiShowsBrowser && pageUrl && pageUrl !== 'about:blank') {
+    if (
+      !skipHwndNav &&
+      !uiShowsBrowser &&
+      explicitPageUrl &&
+      explicitPageUrl !== 'about:blank'
+    ) {
       void ensureNativeEmbed({
-        url: pageUrl,
+        url: explicitPageUrl,
         stageId: id,
         reason: 'background-session',
         replace: true,
@@ -468,8 +517,17 @@ export function ensureBrowserStage(opts?: {
     return
   }
 
-  // Foreground open claims ownership so a prior background agent cannot keep the HWND parked forever.
-  if (sessionKey && (!currentSk || sessionKey === currentSk)) {
+  if (voiceSurface) {
+    dbgLog(
+      `[browser-panel-store] ensureBrowserStage xw-voice surface (小V开浏览器) wire=${sessionKey} → ui=${currentSk} id=${id}`,
+    )
+  }
+
+  // Foreground open claims ownership。语音态把 owner 也钉到 UI（xiaomi），
+  // 避免后续 panel-request 又用残留 main 走 background。
+  if (voiceSurface && currentSk) {
+    setBridgeOwnerSessionKey(currentSk)
+  } else if (sessionKey && (!currentSk || sessionKey === currentSk)) {
     setBridgeOwnerSessionKey(sessionKey)
   }
 
@@ -489,7 +547,7 @@ export function ensureBrowserStage(opts?: {
       id,
       title: '新标签页',
       layout: 'wide',
-      sessionKey,
+      sessionKey: stageSessionKey,
       data: {
         pageUrl: 'about:blank',
         faviconUrl: '',
@@ -502,8 +560,35 @@ export function ensureBrowserStage(opts?: {
   }
 
   const nextData = existing?.data ? { ...existing.data } : {}
-  if (pageUrl && pageUrl !== 'about:blank') {
-    nextData.pageUrl = pageUrl
+  const prevTabUrl = String(existing?.data?.pageUrl || '').trim()
+  const prevTabBlank = !prevTabUrl || prevTabUrl === 'about:blank'
+  if (explicitPageUrl && explicitPageUrl !== 'about:blank') {
+    // 写 pageUrl 规则：
+    // - 同趟 URL：可以（刷新 chrome）
+    // - blank 签：仅 primary（agent 种子）或「本签」用户导航意图
+    // - 已有其它 URL：仅 replacePageUrl（agent）或「本签」用户导航意图
+    // 禁止：仅凭 isUserNavigateIntent(url) 盖掉另一签（第二签回车 → 第一签标题被换）。
+    const same = !prevTabBlank && isSameBrowserLoad(prevTabUrl, explicitPageUrl)
+    const activeId = activeBrowserTabId()
+    const intentForThisTab =
+      Boolean(activeId) &&
+      id === activeId &&
+      isUserNavigateIntent(explicitPageUrl)
+    let allowWrite = false
+    if (same) {
+      allowWrite = true
+    } else if (prevTabBlank) {
+      allowWrite = id === 'primary' || intentForThisTab
+    } else {
+      allowWrite = opts?.replacePageUrl === true || intentForThisTab
+    }
+    if (allowWrite) {
+      nextData.pageUrl = explicitPageUrl
+    } else {
+      dbgLog(
+        `[browser-panel-store] ensure skip stomp tab id=${id} prev=${prevTabUrl || '(blank)'} url=${explicitPageUrl}`,
+      )
+    }
   }
   // Latch BEFORE show: show() notifies subscribers synchronously; if
   // lastActiveBrowserKey is still empty, onRightStageBrowserChange treats this
@@ -515,16 +600,17 @@ export function ensureBrowserStage(opts?: {
     id,
     title: String(opts?.title || '').trim() || existing?.title || '浏览器',
     layout: 'wide',
-    sessionKey,
+    sessionKey: stageSessionKey,
     data: nextData,
   })
+  const navUrl = String(nextData.pageUrl || '').trim()
   if (
     !skipHwndNav &&
-    pageUrl &&
-    pageUrl !== 'about:blank' &&
-    String(existing?.data?.pageUrl || '') !== pageUrl
+    navUrl &&
+    navUrl !== 'about:blank' &&
+    String(existing?.data?.pageUrl || '') !== navUrl
   ) {
-    applyStageBrowserSurface(id, pageUrl, String(opts?.title || ''), 'ensure-nav')
+    applyStageBrowserSurface(id, navUrl, String(opts?.title || ''), 'ensure-nav')
   }
 }
 
@@ -532,28 +618,30 @@ export function ensureBrowserStage(opts?: {
 export function setBrowserTabs(tabs: BrowserTabSummary[]) {
   const list = Array.isArray(tabs) ? tabs : []
   const next: Partial<BrowserRuntimeState> = { tabs: list }
-  const active = list.find((t) => t.active) || list[0]
-  if (active) {
-    const url = sanitizeBrowserPageUrl(String(active.url || '').trim())
-    const title = String(active.title || '').trim()
-    // 同趟加载（编码/尾斜杠差异）不刷 pageUrl，避免地址栏↔标签 chrome 来回 bump。
+  const engineActive = list.find((t) => t.active) || list[0]
+  if (engineActive) {
+    const url = sanitizeBrowserPageUrl(String(engineActive.url || '').trim())
+    const title = String(engineActive.title || '').trim()
+    // 只把引擎 URL 同步进 runtime（地址栏瞬时对齐），且必须与当前激活签同趟。
+    // 禁止 syncBrowserStageChrome：切签后 HWND 常还停在上一页，会把 baidu 写进 blank/另一签。
+    const tabId = activeBrowserTabId()
+    const tab = tabId ? rightStageStore.findTab(`browser:${tabId}`) : null
+    const tabUrl = String(tab?.data?.pageUrl || '').trim()
     if (
       url &&
+      tabUrl &&
+      tabUrl !== 'about:blank' &&
+      isSameBrowserLoad(url, tabUrl) &&
       url !== state.pageUrl &&
       !isSameBrowserLoad(url, state.pageUrl)
     ) {
       next.pageUrl = url
     }
-    if (title && title !== state.pageTitle) next.pageTitle = title
+    if (title && tabUrl && tabUrl !== 'about:blank' && isSameBrowserLoad(url, tabUrl)) {
+      if (title !== state.pageTitle) next.pageTitle = title
+    }
   }
-  const prevUrl = state.pageUrl
-  const prevTitle = state.pageTitle
   patch(next)
-  const urlOut = next.pageUrl !== undefined ? next.pageUrl : prevUrl
-  const titleOut = next.pageTitle !== undefined ? next.pageTitle : prevTitle
-  if (urlOut !== prevUrl || titleOut !== prevTitle) {
-    syncBrowserStageChrome(urlOut, titleOut)
-  }
 }
 
 /** 只关浏览器这一页，其它 right-stage 标签保留。 */
@@ -598,10 +686,14 @@ export function applyBrowserCommandResponse(input: {
    * write into whatever session the user is currently viewing.
    */
   sessionKey?: string
+  /**
+   * 钉死 chrome 回写的浏览器签 id。CDP settle 时若用户已切走，必须仍写发起导航的签，
+   * 不能跟「当前 active」。
+   */
+  stageId?: string
 }): boolean {
   const sessionKey = resolveBrowserUiSessionKey(input.sessionKey) || undefined
-  const currentSk = getCurrentRightStageSessionKey()
-  const isBackground = Boolean(sessionKey && currentSk && sessionKey !== currentSk)
+  const isBackground = isBrowserUiBackground(sessionKey)
 
   const next: Partial<BrowserRuntimeState> = {}
   const tid = acceptThreadId(input.threadId)
@@ -664,11 +756,12 @@ export function applyBrowserCommandResponse(input: {
     return true
   }
 
+  const pinTabId = String(input.stageId || '').trim() || undefined
   if (Object.keys(next).length) patch(next)
   if (input.pushHistory && pageUrl) {
-    pushBrowserTabHistory(pageUrl, state.pageTitle)
+    pushBrowserTabHistory(pageUrl, state.pageTitle, pinTabId)
   } else if (pageUrlChanged || next.pageTitle !== undefined) {
-    syncBrowserStageChrome(state.pageUrl, state.pageTitle)
+    syncBrowserStageChrome(state.pageUrl, state.pageTitle, pinTabId)
   }
   // 地址栏回车（navigateIntent + pushHistory）：空白新标签 HWND 处于 park，
   // 仅靠 CDP soft-decouple 不会 upsert/贴位 → 用户感觉「按了回车没反应」。
@@ -680,7 +773,7 @@ export function applyBrowserCommandResponse(input: {
     pageUrl !== 'about:blank' &&
     !isBackground
   ) {
-    const tabId = activeBrowserTabId()
+    const tabId = pinTabId || activeBrowserTabId()
     syncNativeEmbed('address-bar')
     if (tabId) {
       void ensureNativeEmbed({
@@ -699,6 +792,8 @@ export function applyBrowserCommandResponse(input: {
     ensureBrowserStage({
       sessionKey,
       pageUrl: pageUrl || undefined,
+      // 引擎/agent 抬栏：允许改当前签地址；用户地址栏走 pushHistory，不靠这里盖写。
+      replacePageUrl: Boolean(pageUrl) && !input.navigateIntent,
       skipHwndNav: true,
     })
     blogTimeline(
@@ -741,8 +836,7 @@ export function notifyBrowserToolStart(
     operatingAction: action || (isNodeRepl ? 'node_repl' : ''),
     operatingToolCallId: String(toolCallId || '').trim(),
   })
-  const currentSk = getCurrentRightStageSessionKey()
-  const isBackground = Boolean(sessionKey && currentSk && sessionKey !== currentSk)
+  const isBackground = isBrowserUiBackground(sessionKey)
   // Publish the target URL now rather than waiting for the tool result. The
   // embedded browser mounts as soon as the stage opens, so a late URL meant the
   // window rendered on `about:blank` until the agent finished.
@@ -768,10 +862,12 @@ export function notifyBrowserToolStart(
       `工具=${toolName || '(无)'} 动作=${action || '(无)'} 链接=${url || '(无)'} ` +
         `会话=${sessionKey || '(无)'} 识别为浏览器调用=${nodeReplBrowser ? '是' : '否'}`,
     )
-    // Soft-decouple: raise UI from tool args; CDP owns the real Page.navigate.
+    // Soft-decouple: raise UI from tool args；Agent 固定写 primary，不盖用户加号出的 blank 签。
     ensureBrowserStage({
       sessionKey,
+      id: 'primary',
       pageUrl: url || undefined,
+      replacePageUrl: Boolean(url),
       skipHwndNav: true,
     })
     blogTimeline(
@@ -815,7 +911,8 @@ export function notifyBrowserToolResult(
     next.browserMode = next.browserMode || state.browserMode || 'embed'
     next.sharedBrowser = false
     if (opts?.nodeReplBrowser !== false) {
-      ensureBrowserStage({ sessionKey, pageUrl: state.pageUrl || undefined })
+      // 只抬 primary chrome；不传 pageUrl，避免用 runtime 残留盖掉用户其它签。
+      ensureBrowserStage({ sessionKey, id: 'primary', skipHwndNav: true })
     }
   }
   if (live) {
@@ -847,20 +944,25 @@ export function notifyBrowserToolResult(
     // the user's own browser, so we suppress the shared-browser flag there.
     next.sharedBrowser = headed || mode === 'headed' || mode === 'cdp' || mode === 'embed'
     if (mode === 'evopanel' || mode === 'embed' || onBridge) next.sharedBrowser = false
-    // Agent opened a page → bring the browser stage up (ZCode side-pane behavior).
+    // Agent opened a page → 只抬 primary，不盖用户加号签。
     if (pageUrl || backendTid || onBridge) {
-      ensureBrowserStage({ sessionKey, pageUrl: pageUrl || undefined })
+      ensureBrowserStage({
+        sessionKey,
+        id: 'primary',
+        pageUrl: pageUrl || undefined,
+        replacePageUrl: Boolean(pageUrl),
+        skipHwndNav: true,
+      })
     }
   }
-  const currentSk = getCurrentRightStageSessionKey()
-  const isBackground =
-    Boolean(sessionKey && currentSk && sessionKey !== currentSk)
+  const isBackground = isBrowserUiBackground(sessionKey)
   if (isBackground) {
     // 后台结果只写归属会话记忆；禁止改全局 runtime.pageUrl，否则前台 B 地址栏会串成 A。
     const bgUrl = String(next.pageUrl || '').trim()
     if (bgUrl) {
       upsertBrowserTabInSessionMemory({
         sessionKey: sessionKey!,
+        id: 'primary',
         pageUrl: bgUrl,
         pageTitle: String(next.pageTitle || '').trim() || undefined,
         activate: true,
@@ -875,7 +977,8 @@ export function notifyBrowserToolResult(
   }
   patch(next)
   if (next.pageUrl || state.pageUrl) {
-    syncBrowserStageChrome(state.pageUrl, state.pageTitle)
+    // Agent 结果只回写 primary chrome。
+    syncBrowserStageChrome(state.pageUrl, state.pageTitle, 'primary')
   }
   return Boolean(live) || onBridge
 }

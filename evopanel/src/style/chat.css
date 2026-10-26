@@ -3017,8 +3017,8 @@ button.msg-file-card.msg-file-card--button:focus-visible {
 
 /* IDE-style inline file diff (VS Code / Cursor inspired) */
 .react-msg-tool .file-diff-card--ide {
-  --fd-bg: #1e1e1e;
-  --fd-head-bg: #252526;
+  --fd-bg: #090d14;
+  --fd-head-bg: #0f141d;
   --fd-border: rgba(255, 255, 255, 0.08);
   --fd-text: #fafafa;
   --fd-muted: #c4c4c4;
@@ -4165,6 +4165,19 @@ button.msg-file-card.msg-file-card--button:focus-visible {
 .evf-deliverable-kind {
   color: var(--text-secondary, #888);
   font-size: 0.8em;
+}
+/* 绝对路径：让用户一眼看到文件真实落点（相对/临时路径看不懂也找不到） */
+.evf-deliverable-path {
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  unicode-bidi: plaintext;
+  text-align: left;
+  color: var(--text-tertiary, #6b7280);
+  font-size: 0.72em;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
 /* ===== 划词操作菜单（选中助手回复文字后浮出） ===== */

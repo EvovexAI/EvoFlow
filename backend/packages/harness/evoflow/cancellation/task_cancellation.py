@@ -56,9 +56,67 @@ def is_task_cancelled(task_id: str) -> bool:
 
     Returns:
         True if task is cancelled
+
+    Cross-process note (workflow-audit-roadmap E-2): the in-memory set only
+    sees marks made in *this* process. In the desktop split model the Gateway
+    process marks the cancel while worker executors run in the LangGraph
+    process — so fall back to the task row status in SQLite (the shared
+    cross-process truth, cheap with a short TTL cache).
     """
+    tid = str(task_id or "").strip()
+    if not tid:
+        return False
     with _cancelled_lock:
-        return task_id in _cancelled_tasks
+        if tid in _cancelled_tasks:
+            return True
+    return _cancelled_in_db(tid)
+
+
+_DB_CANCEL_CACHE_TTL_S = 3.0
+_DB_CANCEL_CACHE_MAX = 4096
+_db_cancel_cache: dict[str, tuple[float, bool]] = {}
+_db_cancel_cache_lock = threading.Lock()
+
+_CANCELLED_ROW_STATUSES = frozenset({"cancelled", "canceled"})
+
+
+def _cancelled_in_db(task_id: str) -> bool:
+    """DB fallback: the collab task/subtask row itself already says cancelled."""
+    import time
+
+    now = time.monotonic()
+    with _db_cancel_cache_lock:
+        hit = _db_cancel_cache.get(task_id)
+        if hit is not None and (now - hit[0]) < _DB_CANCEL_CACHE_TTL_S:
+            return hit[1]
+    cancelled = False
+    try:
+        from evoflow.persistence.db import get_db
+
+        conn = get_db()
+        row = conn.execute(
+            "SELECT status FROM evoflow_collab_tasks WHERE main_task_id = ? AND task_id = main_task_id LIMIT 1",
+            (task_id,),
+        ).fetchone()
+        if row is None:
+            # task_id may be a subtask id — subtasks live in their own table
+            row = conn.execute(
+                "SELECT status FROM evoflow_collab_subtasks WHERE subtask_id = ? LIMIT 1",
+                (task_id,),
+            ).fetchone()
+        if row is not None:
+            cancelled = str(row[0] or "").strip().lower() in _CANCELLED_ROW_STATUSES
+    except Exception:
+        logger.debug("cancel DB fallback query failed task_id=%s", task_id, exc_info=True)
+        with _db_cancel_cache_lock:
+            _db_cancel_cache.pop(task_id, None)
+        return False
+    with _db_cancel_cache_lock:
+        _db_cancel_cache[task_id] = (now, cancelled)
+        if len(_db_cancel_cache) > _DB_CANCEL_CACHE_MAX:
+            for k in list(_db_cancel_cache)[: len(_db_cancel_cache) - _DB_CANCEL_CACHE_MAX]:
+                _db_cancel_cache.pop(k, None)
+    return cancelled
 
 
 def unmark_task_cancelled(task_id: str) -> bool:
@@ -72,6 +130,8 @@ def unmark_task_cancelled(task_id: str) -> bool:
     Returns:
         True if task was unmarked, False if not found
     """
+    with _db_cancel_cache_lock:
+        _db_cancel_cache.pop(str(task_id or ""), None)
     with _cancelled_lock:
         removed = task_id in _cancelled_tasks
         _cancelled_tasks.discard(task_id)

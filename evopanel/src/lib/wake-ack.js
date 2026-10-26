@@ -3,10 +3,11 @@
  * Prefer Volc TTS when configured; else browser speechSynthesis; earcon always plays.
  */
 
-const WAKE_ACK_LINES = ['在呢', '我在', '嗯，请说']
+/** 唤醒口头回应：默认「在呢」，偶尔变体，保证有声反馈 */
+const WAKE_ACK_LINES = ['在呢', '在呢', '在呢', '我在', '嗯，请说']
 
 function pickWakeAckLine() {
-  return WAKE_ACK_LINES[Math.floor(Math.random() * WAKE_ACK_LINES.length)]
+  return WAKE_ACK_LINES[Math.floor(Math.random() * WAKE_ACK_LINES.length)] || '在呢'
 }
 
 /** Soft two-tone chime (Genie-style), independent of TTS. */
@@ -72,6 +73,7 @@ function speakLocalWakeAck(text) {
 
 /**
  * Play wake feedback, then resolve when spoken ack (if any) has finished.
+ * 常听模式下挂起 ASR，避免「在呢」被自己听进去触发 barge-in。
  * @returns {Promise<void>}
  */
 export async function playWakeListeningAck() {
@@ -82,20 +84,54 @@ export async function playWakeListeningAck() {
     console.warn('[wake-ack] chime failed:', e?.message || e)
   }
 
+  let notified = false
+  const markSpeakStart = async () => {
+    try {
+      const { notifyTTSStarted } = await import('./background-voice.js')
+      notifyTTSStarted()
+      notified = true
+    } catch {
+      /* ignore */
+    }
+  }
+  const markSpeakStop = async () => {
+    if (!notified) return
+    try {
+      const { notifyTTSStopped } = await import('./background-voice.js')
+      notifyTTSStopped()
+    } catch {
+      /* ignore */
+    }
+  }
+
   try {
-    const { fetchSpeechConfigured, playAssistantSpeech } = await import('./speech-client.js')
+    const { fetchSpeechConfigured } = await import('./speech-client.js')
     const ok = await fetchSpeechConfigured().catch(() => false)
     if (ok) {
-      await playAssistantSpeech(line)
+      await markSpeakStart()
+      try {
+        // 固定句走本地缓存音效，避免每次打 TTS
+        const { playFixedVoiceSfx } = await import('./voice-fixed-sfx.js')
+        await playFixedVoiceSfx(line)
+      } finally {
+        await markSpeakStop()
+      }
       return
     }
   } catch (e) {
     console.warn('[wake-ack] TTS failed, trying local speech:', e?.message || e)
+    await markSpeakStop()
   }
 
   try {
-    await speakLocalWakeAck(line)
+    await markSpeakStart()
+    try {
+      await speakLocalWakeAck(line)
+    } finally {
+      await markSpeakStop()
+    }
   } catch {
     /* ignore — toast still covers visual feedback */
+    await markSpeakStop()
   }
 }

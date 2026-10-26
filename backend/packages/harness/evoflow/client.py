@@ -235,9 +235,17 @@ class EvoFlowClient:
         except Exception:
             agent_config = None
 
-        from evoflow.config.agents_config import resolve_skill_allowlist_for_lead_prompt
+        from evoflow.config.agents_config import (
+            plugin_skills_for_main_agent,
+            resolve_skill_allowlist_for_lead_prompt,
+        )
 
         _available_skills = resolve_skill_allowlist_for_lead_prompt(agent_config)
+        # Main agent only: enabled plugins' skills are always discoverable (ZCode
+        # parity); employee agents keep the pure opt-in allowlist.
+        _plugin_skills = plugin_skills_for_main_agent(self._agent_name)
+        if _plugin_skills:
+            _available_skills = set(_available_skills) | _plugin_skills
 
         # Determine available tools from config: None = all, [] = none, ["a","b"] = filtered
         _cfg_tools = agent_config.tools if agent_config else None

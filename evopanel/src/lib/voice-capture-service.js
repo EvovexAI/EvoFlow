@@ -18,6 +18,28 @@ let captureGeneration = 0
 /** Wake ear paused for this capture — must resume on stop/cancel unless follow-up owns it. */
 let wakePausedForCapture = false
 
+/** 麦克风电平订阅（0–1 数组）：小V语音舞台等 UI 消费 */
+const voiceLevelListeners = new Set()
+
+export function subscribeVoiceLevels(fn) {
+  if (typeof fn !== 'function') return () => {}
+  voiceLevelListeners.add(fn)
+  return () => {
+    voiceLevelListeners.delete(fn)
+  }
+}
+
+function emitVoiceLevels(levels) {
+  if (!voiceLevelListeners.size || !Array.isArray(levels)) return
+  for (const fn of voiceLevelListeners) {
+    try {
+      fn(levels)
+    } catch {
+      /* 单个监听器异常不影响采集链路 */
+    }
+  }
+}
+
 export function isVoiceCaptureActive() {
   return recording || startInFlight
 }
@@ -80,7 +102,13 @@ export async function startVoiceCapture(opts = {}) {
   const generation = ++captureGeneration
   voiceTranscript = ''
   const onPartial = typeof opts.onPartial === 'function' ? opts.onPartial : null
-  const onLevel = typeof opts.onLevel === 'function' ? opts.onLevel : null
+  const onLevel =
+    typeof opts.onLevel === 'function'
+      ? (levels) => {
+          opts.onLevel?.(levels)
+          emitVoiceLevels(levels)
+        }
+      : emitVoiceLevels
   const notifyPartial = (next) => {
     if (generation !== captureGeneration) return
     voiceTranscript = String(next || '').trim()
@@ -374,6 +402,7 @@ export async function startContinuousCapture(opts = {}) {
         continuousOnFinal?.()
       },
       onLevel: (levels) => {
+        emitVoiceLevels(levels)
         if (continuousOnFrame) {
           const avg = levels.reduce((a, b) => a + b, 0) / levels.length
           continuousOnFrame(avg)

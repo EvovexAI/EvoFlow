@@ -388,7 +388,13 @@ def format_entity_catalog_lines(
 
     cap = max(1, int(TIER0_CATALOG_MAX_ROWS))
     pinned = ["memory/MEMORY.md · (search primary)"]
-    body = [f"{p} · {lbl}".rstrip() for p, lbl in rows[:cap]]
-    if len(rows) > cap:
-        body.append(f"… +{len(rows) - cap} more (`read <root>/memory/<subdir>/`)")
+    # 按类配额填充:craft(可复用经验)最容易被数量占优的 facts 挤出目录,
+    # 排序改为 craft → facts → 其余(episodic 等),再按 cap 截断。
+    craft_rows = [r for r in rows if r[0].startswith("craft/")]
+    facts_rows = [r for r in rows if r[0].startswith("memory/facts/")]
+    rest_rows = [r for r in rows if r not in craft_rows and r not in facts_rows]
+    ordered = craft_rows + facts_rows + rest_rows
+    body = [f"{p} · {lbl}".rstrip() for p, lbl in ordered[:cap]]
+    if len(ordered) > cap:
+        body.append(f"… +{len(ordered) - cap} more (`read <root>/memory/<subdir>/`)")
     return pinned + body

@@ -690,6 +690,7 @@ def _inject_identity_layers(
     soul: str,
     custom_system_prompt: str,
     dyn,
+    override_first: bool = False,
 ) -> None:
     """Inject the three identity layers (soul / custom override) into *blocks* in canonical order.
 
@@ -703,22 +704,29 @@ def _inject_identity_layers(
       - These two layers coexist with the L1 ``<decision_chain>`` rule: on conflict,
         ``<agent_system_prompt>`` outranks ``<soul>``, which outranks the base role block.
 
+    ``override_first=True`` (xiaomi) puts the duty/constraint override before the
+    style soul — duties first, persona style layered underneath.
+
     Centralizing this avoids drift between the xiaomi-mode and the default-assemble
     branches (they previously inlined this logic with subtle wording differences).
     """
-    if soul.strip():
-        safe_soul = scan_content(soul.strip(), source="soul")
-        # Defensive: callers may pass already-wrapped `<soul>...</soul>` text
-        # (e.g. via `get_agent_soul()` which XML-wraps for the employee chat path).
-        # We re-wrap here ourselves, so strip any outer tag first to avoid stacking
-        # two `<soul>` / `<agent_system_prompt>` blocks for the same content.
-        if safe_soul.startswith("<soul>") and safe_soul.endswith("</soul>"):
-            safe_soul = safe_soul[len("<soul>") : -len("</soul>")].strip()
-        if safe_soul.strip():
-            blocks.append(f"<soul>\n{safe_soul}\n</soul>")
 
-    extra = (custom_system_prompt or "").strip()
-    if extra:
+    def _append_soul() -> None:
+        if soul.strip():
+            safe_soul = scan_content(soul.strip(), source="soul")
+            # Defensive: callers may pass already-wrapped `<soul>...</soul>` text
+            # (e.g. via `get_agent_soul()` which XML-wraps for the employee chat path).
+            # We re-wrap here ourselves, so strip any outer tag first to avoid stacking
+            # two `<soul>` / `<agent_system_prompt>` blocks for the same content.
+            if safe_soul.startswith("<soul>") and safe_soul.endswith("</soul>"):
+                safe_soul = safe_soul[len("<soul>") : -len("</soul>")].strip()
+            if safe_soul.strip():
+                blocks.append(f"<soul>\n{safe_soul}\n</soul>")
+
+    def _append_override() -> None:
+        extra = (custom_system_prompt or "").strip()
+        if not extra:
+            return
         # ``save_agent_config`` 把 soul 复制到 ``system_prompt`` 字段(调度器只看 system_prompt)。
         # 这里不要把同一份 SOUL 文本在 ``<soul>`` 和 ``<agent_system_prompt>`` 两个标签里重复显示——
         # 已是 soul 内容的 custom_system_prompt 由 ``<soul>`` 段承载,这里跳过注入。
@@ -753,6 +761,13 @@ def _inject_identity_layers(
         blocks.append(
             f"<agent_system_prompt>\n{safe_extra}\n</agent_system_prompt>"
         )
+
+    if override_first:
+        _append_override()
+        _append_soul()
+    else:
+        _append_soul()
+        _append_override()
 
 
 def _assemble_system_prompt(
@@ -801,21 +816,24 @@ def _assemble_system_prompt(
     blocks: list[str] = []
 
     if xiaomi_mode:
-        # Platform steward: dedicated lean prompt — do not stack engineer lead blocks.
-        # No tool_catalog / tool_search / deferred loading — fixed xiaomi_* tool surface only.
+        # Two-layer prompt, no duplication:
+        #   <agent_system_prompt> = duty/constraint layer, seeded from
+        #       ``evoflow.agents.xiaomi.prompt.DUTY_SYSTEM_PROMPT`` (agents_config).
+        #   <soul>                = style layer (语气/例句/心情/语音轮),
+        #       assets/builtin_agent_souls/xiaomi.md.
+        # Duties come first; style soul layers underneath (override_first=True).
         # Page snapshot is NOT in system (cache bust); XiaomiUiContextLiveFooterMiddleware
         # appends it as ephemeral HumanMessage name=xiaomi_ui_context when the panel sends it.
-        from evoflow.agents.xiaomi.prompt import policy_block, role_block
-
-        blocks.append(role_block(prompt_language=prompt_language))
-        blocks.append(policy_block(prompt_language=prompt_language))
         dyn = get_prompt_dynamic(prompt_language)
         _inject_identity_layers(
             blocks,
             soul=soul,
             custom_system_prompt=custom_system_prompt,
             dyn=dyn,
+            override_first=True,
         )
+        if skills_section.strip():
+            blocks.append(skills_section.strip())
         if memory_context.strip():
             safe_mem = scan_content(memory_context.strip(), source="memory_context").strip()
             if safe_mem:
@@ -824,6 +842,11 @@ def _assemble_system_prompt(
             safe_pm = scan_content(person_memory_context.strip(), source="person_memory_context").strip()
             if safe_pm:
                 blocks.append(f"<!-- █ PERSON MEMORY — YOUR autobiography; read first, cite when relevant; never confuse with user <memory> █ -->\n{safe_pm}\n<!-- █ END PERSON MEMORY █ -->")
+        # Voice mode must reach xiaomi too — the default path appends it below, but this
+        # branch returns early. Without it the model never learns the turn is spoken
+        # (soul's 语音轮 section is conditional and never activates on its own).
+        if voice_mode and static.VOICE_MODE_BLOCK:
+            blocks.append(static.VOICE_MODE_BLOCK.strip())
         return "\n\n".join([b for b in blocks if b]).strip() + "\n"
 
     # 统一裁决链：静态块（role/communication/entity_assets）是基础，
@@ -1219,6 +1242,56 @@ def _get_memory_context(
         return ""
 
 
+def build_user_profile_block_for_agent(
+    *,
+    agent_name: str | None,
+    prompt_language: str | None,
+    principal_id: str = "",
+    inject_user_profile: bool | None = None,
+) -> str:
+    """Fresh ``<user_profile>`` block for one agent run (empty when disabled/absent).
+
+    Kept separate from ``build_memory_injection_sections`` so MemoryLiveFooter can
+    freeze the standing blocks while re-reading the profile every call — profile
+    edits then reach the model without waiting for standing-freeze invalidation.
+
+    inject_user_profile: None=注入, False=禁用. Employees skip (profile/identity
+    already live in employee ``<session>``); 小V skipped from that skip — 对用户
+    仍是全局助手，与 main 一样注入用户画像.
+    """
+    if inject_user_profile is False:
+        return ""
+    try:
+        from evoflow.agents.xiaomi.identity import is_xiaomi_agent
+        from evoflow.assets.guidance import is_employee_agent_name
+
+        if not is_xiaomi_agent(agent_name) and is_employee_agent_name(agent_name):
+            return ""
+    except Exception:
+        pass
+    try:
+        from evoflow.assets.paths import EntityRef, sanitize_user_asset_id
+        from evoflow.assets.profile_injection import (
+            build_user_profile_injection_block,
+            resolve_profile_injection_scope,
+        )
+
+        pid = str(principal_id or "").strip()
+        profile_entity = EntityRef("user", sanitize_user_asset_id(pid)).normalized() if pid else None
+        pscope = resolve_profile_injection_scope(agent_name=agent_name)
+        profile_block = build_user_profile_injection_block(
+            prompt_language=prompt_language,
+            scope=pscope,
+            entity=profile_entity,
+        ).strip()
+        if not profile_block:
+            return ""
+        return scan_content(profile_block, source="user_profile").strip()
+    except Exception:
+        logger.debug("user profile injection skipped", exc_info=True)
+        return ""
+
+
 def build_memory_injection_sections(
     *,
     agent_name: str | None = None,
@@ -1245,7 +1318,6 @@ def build_memory_injection_sections(
     bucket (matches Asset Center view; empty = local shared bucket).
     """
     from evoflow.assets.memory_injection import asset_hub_memory_injection
-    from evoflow.assets.paths import EntityRef, sanitize_user_asset_id
 
     asset_mode = asset_hub_memory_injection()
     memory_context = ""
@@ -1256,41 +1328,21 @@ def build_memory_injection_sections(
             prompt_language=prompt_language,
         )
 
-    pid = str(principal_id or "").strip()
-    profile_entity = EntityRef("user", sanitize_user_asset_id(pid)).normalized() if pid else None
-
     sections: list[str] = []
     body_parts: list[str] = []
 
-    # inject_user_profile: None=注入, False=禁用
-    # Employees: profile/identity already lives in employee <session> — skip here so
-    # MemoryLiveFooter standing does not duplicate <user_identity> under <memory_assets>.
-    _skip_profile_for_employee = False
-    try:
-        from evoflow.assets.guidance import is_employee_agent_name
-
-        _skip_profile_for_employee = is_employee_agent_name(agent_name)
-    except Exception:
-        _skip_profile_for_employee = False
-    if inject_user_profile is not False and not _skip_profile_for_employee:
-        try:
-            from evoflow.assets.profile_injection import (
-                build_user_profile_injection_block,
-                resolve_profile_injection_scope,
-            )
-
-            pscope = resolve_profile_injection_scope(agent_name=agent_name)
-            profile_block = build_user_profile_injection_block(
-                prompt_language=prompt_language,
-                scope=pscope,
-                entity=profile_entity,
-            ).strip()
-            if profile_block:
-                safe_profile = scan_content(profile_block, source="user_profile").strip()
-                if safe_profile:
-                    body_parts.append(safe_profile)
-        except Exception:
-            logger.debug("user profile injection skipped", exc_info=True)
+    # inject_user_profile: None=注入, False=禁用.
+    # MemoryLiveFooterMiddleware passes inject_user_profile=False here and appends
+    # the profile block fresh (unfrozen) via ``build_user_profile_block_for_agent``
+    # so profile edits reach the model without standing-freeze invalidation.
+    profile_block = build_user_profile_block_for_agent(
+        agent_name=agent_name,
+        prompt_language=prompt_language,
+        principal_id=principal_id,
+        inject_user_profile=inject_user_profile,
+    )
+    if profile_block:
+        body_parts.append(profile_block)
 
     # inject_memory: None=注入, False=禁用 (memory_context already controlled by caller)
     if memory_context.strip() and inject_memory is not False:
@@ -1354,7 +1406,13 @@ def build_memory_injection_sections(
     from evoflow.assets.memory_assets_prompt import build_memory_assets_block
 
     compact = str(injection_profile or "").strip().lower() == "chat_compact"
-    employee = is_employee_agent_name(agent_name)
+    try:
+        from evoflow.agents.xiaomi.identity import is_xiaomi_agent
+
+        _is_xiaomi = bool(is_xiaomi_agent(agent_name))
+    except Exception:
+        _is_xiaomi = False
+    employee = bool(is_employee_agent_name(agent_name)) and not _is_xiaomi
     scope = "employee" if employee else ("compact" if compact else "main")
     code = str(agent_name or "").strip() if employee else ""
     return build_memory_assets_block(
@@ -1743,6 +1801,15 @@ def _load_agent_soul_text(agent_name: str | None) -> str:
     """Tier-0 soul text (summary preferred) without XML wrappers or employee posting."""
     soul = load_agent_soul(agent_name) or ""
     try:
+        from evoflow.agents.xiaomi.identity import is_xiaomi_agent
+
+        if is_xiaomi_agent(agent_name):
+            # 小V 的 soul 是精写全文（风格层唯一来源：语气/心情/例句/语音轮），
+            # 不走 Tier-0 摘要——摘要会把情绪段和语音规则裁掉。
+            return soul
+    except Exception:
+        pass
+    try:
         from evoflow.assets.injection_budget import TIER0_SOUL_SUMMARY_CHARS
         from evoflow.assets.soul_summary import load_soul_summary_text
 
@@ -1788,9 +1855,16 @@ def get_agent_soul(agent_name: str | None, *, include_employee_posting: bool = F
     if id_block:
         parts.append(id_block)
     is_lead = _is_lead_agent_code(agent_name)
+    # 小V：soul 即完整风格层（精写全文），不截断；main/lead 保持 400 字摘要上限。
+    try:
+        from evoflow.agents.xiaomi.identity import is_xiaomi_agent
+
+        _xiaomi_full_soul = bool(is_xiaomi_agent(agent_name))
+    except Exception:
+        _xiaomi_full_soul = False
     soul_block = format_soul_prompt_block(
         soul,
-        max_chars=400,  # summary already capped; small headroom for XML wrapper noise
+        max_chars=0 if _xiaomi_full_soul else 400,  # summary already capped; small headroom for XML wrapper noise
         # Main/lead: identity in <role>; soul = traits/habits only.
         omit_identity=is_lead,
         omit_lessons_learned=is_lead,
@@ -2068,13 +2142,23 @@ def apply_prompt_template(
 
         skills_blob = "\n\n".join(p for p in (str(skills_section or "").strip(), str(mcp_skill_section or "").strip()) if p)
         # Employee chat: global user profile once in <session> when it has real facts.
+        # 锚定当前 principal 的个人桶（users/<pid>），与主会话/资产中心一致；
+        # 不传会读到共享 user 桶（多用户部署下是别人的画像）。
         emp_user_profile = ""
         try:
+            from evoflow.assets.paths import EntityRef, sanitize_user_asset_id
             from evoflow.assets.profile_injection import build_user_profile_injection_block
 
+            _emp_pid = str(principal_id or "").strip()
+            _emp_profile_ent = (
+                EntityRef("user", sanitize_user_asset_id(_emp_pid)).normalized()
+                if _emp_pid
+                else EntityRef("user", "user").normalized()
+            )
             emp_user_profile = build_user_profile_injection_block(
                 prompt_language=lang,
                 scope="full",
+                entity=_emp_profile_ent,
             ).strip()
         except Exception:
             emp_user_profile = ""

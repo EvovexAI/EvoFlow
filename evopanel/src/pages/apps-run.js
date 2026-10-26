@@ -207,14 +207,26 @@ export async function render() {
               </div>`
             : ''
         }
-        <div style="display:flex;gap:8px;margin-top:16px">
+        <div style="display:flex;gap:8px;margin-top:16px;align-items:center;flex-wrap:wrap">
           <button type="submit" class="btn btn-primary" id="btn-start-run">运行</button>
+          <button type="button" class="btn btn-secondary" id="btn-dry-run">预览最终计划</button>
+          <label class="form-hint" style="display:flex;align-items:center;gap:6px;margin:0 0 0 auto">
+            运行性质
+            <select class="form-input" id="run-kind-select" style="width:auto;padding:2px 8px">
+              <option value="production" selected>正式</option>
+              <option value="debug">调试</option>
+            </select>
+          </label>
         </div>
+        <div data-role="dry-run-result" hidden style="margin-top:12px"></div>
       </form>
     `
 
     const form = body.querySelector('#app-run-form')
     const previewEl = body.querySelector('[data-role="goal-preview"]')
+    const dryRunEl = body.querySelector('[data-role="dry-run-result"]')
+    const dryRunBtn = body.querySelector('#btn-dry-run')
+    const runKindSelect = body.querySelector('#run-kind-select')
     const readValues = () => {
       const result = {}
       form.querySelectorAll('[data-name]').forEach((el) => {
@@ -228,6 +240,50 @@ export async function render() {
     form.addEventListener('input', syncPreview)
     form.addEventListener('change', syncPreview)
     syncPreview()
+
+    // F-4 干跑预览：服务端渲染最终 goal/步骤/模板节点产物，不创建任何任务
+    const renderDryRun = (doc) => {
+      const bits = []
+      if (!doc.parameters_valid) {
+        const missing = Array.isArray(doc.missing_parameters) ? doc.missing_parameters.join('、') : ''
+        bits.push(`<div style="color:var(--warning,#d97706);margin-bottom:8px">⚠️ 缺少参数：${escHtml(missing || '未知')}</div>`)
+      }
+      if (doc.goal) {
+        bits.push(`<div style="margin-bottom:8px"><strong>最终目标</strong><div class="form-hint" style="white-space:pre-wrap;margin-top:4px">${escHtml(doc.goal)}</div></div>`)
+      }
+      const steps = Array.isArray(doc.steps) ? doc.steps : []
+      if (steps.length) {
+        const rows = steps
+          .map((s, i) => {
+            const kind = s.executor === 'template' ? '⚙️ 模板节点' : '🤖 AI 节点'
+            const deps = Array.isArray(s.depends_on) && s.depends_on.length ? `（依赖 ${escHtml(s.depends_on.join('、'))}）` : ''
+            const tp = s.template_preview
+              ? `<div class="form-hint" style="white-space:pre-wrap;margin-top:2px">${escHtml(String(s.template_preview).slice(0, 600))}</div>`
+              : ''
+            return `<li style="margin-bottom:6px"><div>${i + 1}. ${escHtml(s.name || s.ref || '步骤')} <span class="form-hint">${kind}${deps}</span></div>${tp}</li>`
+          })
+          .join('')
+        bits.push(`<div><strong>步骤（${steps.length}）</strong><ol style="margin:6px 0 0 18px;padding:0">${rows}</ol></div>`)
+      }
+      const v = doc.validation || {}
+      if (Array.isArray(v.errors) && v.errors.length) {
+        bits.push(`<div style="color:var(--danger,#dc2626);margin-top:8px">❌ 定义校验：${escHtml(v.errors.slice(0, 3).join('；'))}</div>`)
+      }
+      dryRunEl.innerHTML = bits.join('') || '<div class="form-hint">（无内容）</div>'
+      dryRunEl.hidden = false
+    }
+    dryRunBtn?.addEventListener('click', async () => {
+      dryRunBtn.disabled = true
+      try {
+        const doc = await api.dryRunApp(appId, { parameters: readValues() })
+        renderDryRun(doc)
+        dryRunEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+      } catch (err) {
+        toast.error('预览失败: ' + (err?.message || err))
+      } finally {
+        dryRunBtn.disabled = false
+      }
+    })
 
     form.addEventListener('submit', async (e) => {
       e.preventDefault()
@@ -245,6 +301,7 @@ export async function render() {
         const result = await api.runApp(appId, {
           parameters: collected.values,
           execution_mode: appData.execution_mode || 'workflow',
+          run_kind: runKindSelect?.value || 'production',
         })
         toast.success(
           (appData.execution_mode || 'workflow') === 'lead_supervised'

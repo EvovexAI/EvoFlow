@@ -17,7 +17,10 @@ from evoflow.timeutil import utc_now_iso_z
 logger = logging.getLogger(__name__)
 
 _IN_FLIGHT = frozenset({"executing", "running", "in_progress", "active", "planning"})
-_FAILED = frozenset({"failed", "error", "timed_out"})
+# ``blocked`` is a worker-reported terminal outcome (needs human/lead decision);
+# without it here a blocked step never gets its bounded auto-retry and the
+# follow-up wave keeps re-dispatching it forever.
+_FAILED = frozenset({"failed", "error", "timed_out", "blocked"})
 _PAUSED = frozenset({"paused", "interrupted", "pausing"})
 _PENDING_LIKE = frozenset({"pending", "planned", "waiting_dispatch"})
 _OPEN_APP_RUN = frozenset(
@@ -127,6 +130,7 @@ def _heal_subtasks(
                 st["status"] = "pending"
                 why = why or "forced_pending"
             st["error"] = f"reconcile:{reason}:zombie_executing"
+            st["error_kind"] = "reconcile"
             st["updated_at"] = now_iso
             # A healed row's elapsed span is bookkeeping residue, not work time —
             # keep it out of duration aggregates.
@@ -169,6 +173,7 @@ def _heal_subtasks(
             st["auto_retry_count"] = auto_n + 1
             st["retry_count"] = int(st.get("retry_count") or 0) + 1
             st["error"] = f"reconcile:{reason}:retry_failed"
+            st["error_kind"] = "reconcile"
             st["updated_at"] = now_iso
             st.pop("lease_until_ts", None)
             healed.append(

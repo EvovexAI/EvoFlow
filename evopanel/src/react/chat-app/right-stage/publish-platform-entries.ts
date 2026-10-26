@@ -73,4 +73,12 @@ export function publishPlatformEntries(
   ctx.setInfoRailTab('platform')
   const focus = String(focusEntryId || ctx.latestPlatformRunEntryId(entries)).trim()
   if (focus) ctx.setPlatformFocusEntryId(focus)
+  // 语音全屏：平台工具已有结果 → 才允许状态卡浮出（进语音时默认藏）
+  try {
+    void import('../../../lib/xw-voice-mode.js').then((m) => {
+      if (m.isXwVoiceMode?.()) m.allowXwVoiceSummary?.()
+    })
+  } catch {
+    /* ignore */
+  }
 }

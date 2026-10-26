@@ -3461,7 +3461,7 @@ html.dark .xm-panel.xm-panel--dock {
   padding: 7px 10px;
   text-align: left;
   vertical-align: top;
-  border-bottom: 1px solid color-mix(in srgb, var(--border, #e5e7eb) 80%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--xm-stage-border, var(--border-primary, #e5e7eb)) 80%, transparent);
 }
 
 .xm-debug-table th {
@@ -3502,4 +3502,285 @@ body.xm-resizing .xm-panel--dock .xm-dock-resize {
 body.xm-resizing {
   user-select: none;
   cursor: ew-resize;
+}
+
+/* —— 小V right-stage 标签页内容（与 browser/file/workflow 同级） —— */
+.xm-stage-pane {
+  /* 普通小V标签页是 right-stage 面板，跟随宿主 surface；语音全屏由 .xws-root 独立着色。 */
+  --xm-stage-bg: var(--surface-base-bg, var(--bg-primary, #fff));
+  --xm-stage-fg: var(--surface-base-fg, var(--text-primary, #202124));
+  --xm-stage-border: var(--surface-raised-border, var(--border-primary, #e6e8ec));
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  background: var(--xm-stage-bg);
+  color: var(--xm-stage-fg);
+}
+
+/* 半透明/壁纸模式：面板本身已由玻璃层接管，小V页不再压一层实底挡住壁纸 */
+html[data-translucent-ui='1'] .xm-stage-pane {
+  background: transparent;
+}
+
+.xm-stage-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex: 0 0 auto;
+  padding: 6px 10px;
+  border-bottom: 1px solid color-mix(in srgb, var(--xm-stage-border, var(--border-primary, #e5e7eb)) 80%, transparent);
+}
+
+.xm-stage-toolbar-chips,
+.xm-stage-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  min-width: 0;
+}
+
+.xm-stage-toolbar-chips {
+  flex: 1 1 auto;
+  flex-wrap: wrap;
+}
+
+.xm-stage-chip {
+  appearance: none;
+  border: 1px solid color-mix(in srgb, var(--xm-stage-border, var(--border, #e5e7eb)) 90%, transparent);
+  background: transparent;
+  color: inherit;
+  font-size: 11px;
+  line-height: 1;
+  padding: 6px 8px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.xm-stage-chip:hover {
+  background: color-mix(in srgb, var(--xm-stage-fg, var(--text-primary, #111)) 6%, transparent);
+}
+
+.xm-stage-icon-btn {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: inherit;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.xm-stage-icon-btn:hover {
+  background: color-mix(in srgb, var(--xm-stage-fg, var(--text-primary, #111)) 6%, transparent);
+}
+
+.xm-stage-hist {
+  position: relative;
+}
+
+.xm-stage-hist-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 20;
+  min-width: 200px;
+  max-width: min(280px, 70vw);
+  max-height: 260px;
+  overflow: auto;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--xm-stage-border, var(--border, #e5e7eb)) 90%, transparent);
+  background: var(--surface-overlay-bg, var(--bg-elevated, #fff));
+  color: var(--surface-base-fg, var(--text-primary, #202124));
+  box-shadow: var(--surface-overlay-shadow, 0 8px 24px rgba(0, 0, 0, 0.12));
+  padding: 6px;
+}
+
+.xm-stage-hist-head {
+  font-size: 11px;
+  opacity: 0.55;
+  padding: 4px 8px 6px;
+}
+
+.xm-stage-hist-empty {
+  font-size: 12px;
+  opacity: 0.55;
+  padding: 10px 8px;
+}
+
+.xm-stage-hist-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  text-align: left;
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: inherit;
+  border-radius: 8px;
+  padding: 8px;
+  cursor: pointer;
+}
+
+.xm-stage-hist-item:hover,
+.xm-stage-hist-item.is-active {
+  background: color-mix(in srgb, var(--xm-stage-fg, var(--text-primary, #111)) 6%, transparent);
+}
+
+.xm-stage-hist-title {
+  font-size: 12px;
+  font-weight: 550;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.xm-stage-hist-meta {
+  font-size: 11px;
+  opacity: 0.5;
+}
+
+.xm-stage-thread {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.xm-stage-composer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 0 0 auto;
+  padding: 10px 12px 12px;
+  border-top: 1px solid color-mix(in srgb, var(--xm-stage-border, var(--border, #e5e7eb)) 80%, transparent);
+}
+
+.xm-stage-composer-input {
+  width: 100%;
+  resize: none;
+  border: 1px solid color-mix(in srgb, var(--xm-stage-border, var(--border, #e5e7eb)) 90%, transparent);
+  border-radius: 10px;
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.4;
+  /* 勿用未定义的 --bg（会落到 #fff）；对齐 dock 版 .xm-composer-input */
+  background: var(--surface-raised-bg, var(--bg-elevated, var(--bg-card, #fff)));
+  color: var(--xm-stage-fg, var(--text-primary, inherit));
+  outline: none;
+}
+
+.xm-stage-composer-input:focus {
+  border-color: color-mix(in srgb, var(--accent, #6366f1) 55%, transparent);
+}
+
+.xm-stage-composer-input::placeholder {
+  color: var(--text-tertiary, #9ca3af);
+  opacity: 1;
+}
+
+html[data-theme='dark'] .xm-stage-composer-input,
+html.dark .xm-stage-composer-input {
+  background: var(--surface-raised-bg, var(--bg-elevated, #1f1f24));
+  border-color: var(--xm-stage-border, var(--border, #2e2e35));
+  color: var(--xm-stage-fg, var(--text-primary, #e8e8ea));
+}
+
+html[data-theme='dark'] .xm-stage-composer-input::placeholder,
+html.dark .xm-stage-composer-input::placeholder {
+  color: var(--text-tertiary, #a1a1aa);
+}
+
+html[data-theme='dark'] .xm-stage-hist-menu,
+html.dark .xm-stage-hist-menu {
+  background: var(--surface-overlay-bg, var(--bg-elevated, #1f1f24));
+  border-color: var(--xm-stage-border, var(--border, #2e2e35));
+  color: var(--surface-base-fg, var(--text-primary, #e8e8ea));
+  box-shadow: var(--surface-overlay-shadow, 0 8px 24px rgba(0, 0, 0, 0.45));
+}
+
+html[data-theme='dark'] .xm-stage-chip,
+html.dark .xm-stage-chip {
+  border-color: color-mix(in srgb, var(--xm-stage-border, #2e2e35) 90%, transparent);
+  background: color-mix(in srgb, var(--xm-stage-fg, #e8e8ea) 6%, transparent);
+  color: var(--xm-stage-fg, #f0f2f5);
+}
+
+html[data-theme='dark'] .xm-stage-chip:hover,
+html.dark .xm-stage-chip:hover {
+  background: color-mix(in srgb, var(--xm-stage-fg, #e8e8ea) 12%, transparent);
+  border-color: color-mix(in srgb, var(--xm-stage-fg, #e8e8ea) 34%, transparent);
+  color: var(--xm-stage-fg, #ffffff);
+}
+
+html[data-theme='dark'] .xm-stage-chip.is-voice-enter,
+html.dark .xm-stage-chip.is-voice-enter {
+  color: #67e8f9;
+  border-color: rgba(34, 211, 238, 0.55);
+  background: rgba(34, 211, 238, 0.12);
+}
+
+html[data-theme='dark'] .xm-stage-chip.is-voice-enter:hover,
+html.dark .xm-stage-chip.is-voice-enter:hover {
+  background: rgba(34, 211, 238, 0.2);
+  border-color: rgba(34, 211, 238, 0.7);
+  color: #a5f3fc;
+}
+
+html[data-theme='dark'] .xm-stage-icon-btn,
+html.dark .xm-stage-icon-btn {
+  color: var(--xm-stage-fg, #e8eaed);
+}
+
+html[data-theme='dark'] .xm-stage-icon-btn:hover,
+html.dark .xm-stage-icon-btn:hover {
+  background: color-mix(in srgb, var(--xm-stage-fg, #e8e8ea) 10%, transparent);
+  color: var(--xm-stage-fg, #ffffff);
+}
+
+html[data-theme='dark'] .xm-stage-toolbar,
+html.dark .xm-stage-toolbar {
+  border-bottom-color: color-mix(in srgb, var(--xm-stage-border, #2e2e35) 80%, transparent);
+  color: var(--xm-stage-fg, #f0f2f5);
+}
+
+html[data-theme='dark'] .xm-stage-composer,
+html.dark .xm-stage-composer {
+  border-top-color: color-mix(in srgb, var(--xm-stage-border, #2e2e35) 80%, transparent);
+}
+
+.xm-stage-composer-bar {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.xm-stage-send {
+  appearance: none;
+  border: none;
+  border-radius: 8px;
+  padding: 7px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  background: var(--accent, #6366f1);
+  color: var(--text-inverse, #fff);
+}
+
+.xm-stage-send:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.xm-stage-send.is-stop {
+  background: color-mix(in srgb, #ef4444 88%, #000);
 }

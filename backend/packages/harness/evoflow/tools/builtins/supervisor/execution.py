@@ -10,7 +10,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-import weakref
 from typing import Any
 
 from langchain.tools import ToolRuntime
@@ -27,12 +26,19 @@ from evoflow.timeutil import utc_now_iso_z
 
 logger = logging.getLogger(__name__)
 
-# Per main-task lock: concurrent subtask completions must not double-start follow-up waves.
-_followup_wave_locks: dict[str, asyncio.Lock] = {}
-# Lead ToolRuntime from start_execution — used when follow-up fires from a worker subthread.
-_collab_lead_runtime_by_task: dict[str, weakref.ReferenceType[ToolRuntime[ContextT, dict]]] = {}
-# Strong refs: weakref alone is often collected before wave-2 follow-up runs.
-_collab_lead_runtime_strong: dict[str, ToolRuntime[ContextT, dict]] = {}
+# E-3: wave locks + lead runtime registry now live in collab.execution_kernel so
+# workflow-side schedulers and Lead supervisor share ONE dict process-wide.
+# Historical private names stay importable from here as thin aliases.
+from evoflow.collab.execution_kernel import (  # noqa: E402
+    drop_lead_runtime as _kernel_drop_lead_runtime,
+    followup_lock_for_task as _kernel_followup_lock_for_task,
+    resolve_followup_runtime as _kernel_resolve_followup_runtime,
+    store_lead_runtime as _kernel_store_lead_runtime,
+    verify_upstream_artifacts_before_followup as _kernel_verify_upstream_artifacts,
+)
+
+_followup_lock_for_task = _kernel_followup_lock_for_task
+_verify_upstream_artifacts_before_followup = _kernel_verify_upstream_artifacts
 
 
 def _runtime_is_subtask_worker(runtime: ToolRuntime[ContextT, dict] | None) -> bool:
@@ -41,6 +47,23 @@ def _runtime_is_subtask_worker(runtime: ToolRuntime[ContextT, dict] | None) -> b
 
     tid = _runtime_thread_id(runtime)
     return is_collab_executor_thread(tid)
+
+
+def _is_workflow_bound_main_task(storage: Any, main_task_id: str) -> bool:
+    """True when the main task came from an App/workflow run (owns its own plan)."""
+    try:
+        from evoflow.collab.storage import find_main_task
+
+        row = find_main_task(storage, main_task_id)
+        if not row:
+            return False
+        _project, task = row
+        if not isinstance(task, dict):
+            return False
+        return bool(task.get("app_definition_snapshot") or str(task.get("source_app_id") or "").strip())
+    except Exception:
+        logger.debug("is_workflow_bound_main_task probe failed main=%s", main_task_id, exc_info=True)
+        return False
 
 
 def _pin_collab_session_model_on_main_task(
@@ -69,8 +92,18 @@ def _pin_collab_session_model_on_main_task(
         if not model:
             return
         patch: dict[str, Any] = {"session_model_name": model}
-        if lead_tid:
+        # Only Lead-supervised tasks may own a thread. An App/workflow run is a
+        # pure DAG: stamping the invoking chat's thread here made the run share
+        # its observability bucket with the whole conversation (reported 144
+        # model calls for a 21-call run). See also app_runner.run_app_workflow.
+        if lead_tid and not _is_workflow_bound_main_task(get_project_storage(), mid):
             patch["thread_id"] = lead_tid
+        elif lead_tid:
+            logger.info(
+                "collab skip thread pin for workflow task main=%s lead_tid=%r",
+                mid,
+                lead_tid,
+            )
         patch_collab_main_task_in_project_storage(get_project_storage(), mid, patch)
         logger.info("collab pinned session_model_name=%r on main_task=%s", model, mid)
     except Exception:
@@ -86,67 +119,29 @@ def _register_collab_lead_runtime(main_task_id: str, runtime: ToolRuntime[Contex
         return
     from evoflow.collab.unified_stream import attach_gateway_writer_to_runtime
 
-    _collab_lead_runtime_strong[tid] = runtime
     attach_gateway_writer_to_runtime(runtime, tid)
+    _kernel_store_lead_runtime(tid, runtime)
     _pin_collab_session_model_on_main_task(tid, runtime)
-    try:
-        _collab_lead_runtime_by_task[tid] = weakref.ref(
-            runtime,
-            lambda _r, task_id=tid: _collab_lead_runtime_strong.pop(task_id, None),
-        )
-    except TypeError:
-        # Gateway/minimal runtimes must not abort delegation (follow-up may lack lead runtime).
-        logger.debug("collab lead runtime not weakref-able for task %s type=%s", tid, type(runtime).__name__)
 
 
 def unregister_collab_lead_runtime(main_task_id: str) -> None:
     """Drop strong/weak refs to lead runtime when a task reaches terminal."""
-    tid = str(main_task_id or "").strip()
-    if not tid:
-        return
-    _collab_lead_runtime_strong.pop(tid, None)
-    _collab_lead_runtime_by_task.pop(tid, None)
+    _kernel_drop_lead_runtime(main_task_id)
 
 
 def _resolve_collab_followup_runtime(
     runtime: ToolRuntime[ContextT, dict] | None,
     main_task_id: str,
 ) -> ToolRuntime[ContextT, dict] | None:
-    from evoflow.collab.dag_trace import dag_info
-
-    tid = str(main_task_id or "").strip()
-    strong = _collab_lead_runtime_strong.get(tid)
-    if strong is not None:
-        dag_info("followup_runtime main=%s source=strong_ref type=%s", tid, type(strong).__name__)
-        return strong
-    if runtime is not None and not _runtime_is_subtask_worker(runtime):
-        dag_info("followup_runtime main=%s source=caller_lead_runtime type=%s", tid, type(runtime).__name__)
-        return runtime
-    ref = _collab_lead_runtime_by_task.get(tid)
-    if ref is not None:
-        resolved = ref()
-        if resolved is not None:
-            dag_info("followup_runtime main=%s source=weakref_alive type=%s", tid, type(resolved).__name__)
-            return resolved
-        dag_info("followup_runtime main=%s source=weakref_dead", tid)
-    if runtime is not None:
-        dag_info("followup_runtime main=%s source=caller_worker_runtime type=%s", tid, type(runtime).__name__)
-        return runtime
-    dag_info("followup_runtime main=%s source=none (no caller runtime, no stored lead runtime)", tid)
-    return None
+    return _kernel_resolve_followup_runtime(
+        runtime,
+        main_task_id,
+        is_subtask_worker=_runtime_is_subtask_worker,
+    )
 
 
 # Register followup handler at import time so task_tool can call us via bridge.
 # This is done lazily below (after function definitions) to avoid forward-ref issues.
-
-
-def _followup_lock_for_task(main_task_id: str) -> asyncio.Lock:
-    tid = str(main_task_id or "").strip()
-    lock = _followup_wave_locks.get(tid)
-    if lock is None:
-        lock = asyncio.Lock()
-        _followup_wave_locks[tid] = lock
-    return lock
 
 
 def _is_acp_worker(subagent_type: str) -> bool:
@@ -1014,111 +1009,6 @@ async def auto_delegate_collab_followup_wave(
             to_run_peek,
             _subtask_status_snapshot(storage, tid),
         )
-
-
-def _verify_upstream_artifacts_before_followup(storage: Any, main_task_id: str) -> None:
-    """Verify that completed subtasks have produced their expected outputs on disk.
-
-    If a completed subtask's expected_outputs files are missing, mark it as ``failed``
-    so dependents won't start with broken upstream artifacts.
-    """
-    import os as _os
-
-    from evoflow.collab.storage import find_main_task
-
-    row = find_main_task(storage, main_task_id)
-    if not row:
-        return
-    project, task = row
-    subtasks = [st for st in (task.get("subtasks") or []) if isinstance(st, dict)]
-    if not subtasks:
-        return
-
-    project_path = str(task.get("project_path") or "").strip()
-    if not project_path:
-        project_path = str(project.get("project_path") or "").strip()
-    if not project_path:
-        logger.warning(
-            "artifact verification skipped for task %s: project_path is empty",
-            main_task_id,
-        )
-        return
-
-    now = utc_now_iso_z()
-    changed = False
-
-    for st in subtasks:
-        sid = str(st.get("id") or "").strip()
-        if not sid:
-            continue
-        status = str(st.get("status") or "").strip().lower()
-        if status != "completed":
-            continue
-
-        wp = st.get("worker_profile")
-        if not isinstance(wp, dict):
-            continue
-        expected = wp.get("expected_outputs")
-        if not isinstance(expected, list) or not expected:
-            continue
-
-        def _path_exists(rel_or_abs: str) -> bool:
-            p_str = str(rel_or_abs or "").strip()
-            if not p_str:
-                return False
-            candidates: list[str] = []
-            if _os.path.isabs(p_str):
-                candidates.append(p_str)
-            else:
-                candidates.append(_os.path.join(project_path, p_str))
-                for sub in ("outputs", "workspace", "workspace/outputs", "mnt/user-data/outputs"):
-                    candidates.append(_os.path.join(project_path, sub, p_str))
-            for full in candidates:
-                if full and _os.path.exists(full):
-                    return True
-            return False
-
-        missing: list[str] = []
-        for p in expected:
-            p_str = str(p or "").strip()
-            if not p_str:
-                continue
-            if not _path_exists(p_str):
-                missing.append(p_str)
-
-        if missing:
-            evidence_raw = st.get("evidence_paths")
-            if not isinstance(evidence_raw, list):
-                evidence_raw = wp.get("evidence_paths") if isinstance(wp.get("evidence_paths"), list) else []
-            evidence = [str(x).strip() for x in evidence_raw if str(x).strip()]
-            if evidence and any(_path_exists(p) for p in evidence):
-                logger.info(
-                    "artifact verification: subtask %s missing %s but evidence_paths exist on disk; allow",
-                    sid,
-                    missing,
-                )
-                continue
-
-        if missing:
-            logger.warning(
-                "artifact verification: subtask %s completed but missing outputs: %s",
-                sid,
-                missing,
-            )
-            st["status"] = "failed"
-            st["error"] = f"Artifact verification failed: missing expected outputs: {missing}"
-            st["failed_at"] = now
-            st.pop("completed_at", None)
-            changed = True
-
-    if changed:
-        storage.save_project(project)
-        try:
-            from evoflow.collab.storage import rollup_root_task_progress_from_subtasks
-
-            rollup_root_task_progress_from_subtasks(storage, main_task_id)
-        except Exception:
-            logger.debug("artifact verification: rollup failed", exc_info=True)
 
 
 def _resolved_subagent_type_for_subtask(st: dict) -> str:

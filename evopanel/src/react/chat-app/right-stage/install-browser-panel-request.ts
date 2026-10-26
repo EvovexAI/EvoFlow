@@ -3,6 +3,8 @@
  * Listen for Tauri `browser-panel-request` (Rust CDP) and open/ensure browser stage.
  * Extracted from ChatApp.tsx (P120).
  */
+import { resolveXiaomiVoiceBrowserSessionKey } from '../../../lib/xiaomi-voice/voice-right-stage-foreground.js'
+
 export type InstallBrowserPanelRequestCtx = Record<string, any>
 
 export function runBrowserPanelRequestEffect(ctx: InstallBrowserPanelRequestCtx): () => void {
@@ -25,11 +27,16 @@ export function runBrowserPanelRequestEffect(ctx: InstallBrowserPanelRequestCtx)
         const url = String(ev.payload?.url || '').trim()
         // Attribute to bridge owner (session that started browser tools), not the
         // chat the user happens to be viewing — otherwise A→B switch steals the UI.
+        // 语音占用例外：钉到小V UI key（小V 开浏览器常被标成 main owner）。
         const ownerSk =
           typeof ctx.getBridgeOwnerSessionKey === 'function'
             ? String(ctx.getBridgeOwnerSessionKey() || '').trim()
             : ''
-        const sessionKey = ownerSk || ctx.rightStageSessionKeyRef.current || undefined
+        const sessionKey =
+          resolveXiaomiVoiceBrowserSessionKey(ownerSk || ctx.rightStageSessionKeyRef.current) ||
+          ownerSk ||
+          ctx.rightStageSessionKeyRef.current ||
+          undefined
         ctx.dbgLog(
           `[chat-app] browser-panel-request thread=${tid} url=${url || '(none)'} session=${sessionKey || '(none)'}`,
         )

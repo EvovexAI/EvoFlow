@@ -38,25 +38,42 @@ export function isEvoflowChatV4Enabled(): boolean {
  * V4 时间线是否已真正接管显示（有快照可画）。
  * 仅在此为 true 时才闸掉 AG-UI TEXT_*：若 store=error / 永连不上，
  * 闸门会把模型报错正文丢掉，面板只剩「V4 连接中」。
+ *
+ * 多宿主：主对话 + 右栏小V + 语音全屏小V 可能同时各挂一条 V4 时间线。
+ * 引用计数而不是单值：
+ * - 不同 host 用不同 thread → 互不抢权威；
+ * - 同一 thread 被两个 host 共用（右栏小V + 语音全屏小V）→ 必须计数，
+ *   否则一个 host 卸载就会把另一个的权威一起清掉，AG-UI 正文会突然双份回流。
  */
-let _v4DisplayLiveThreadId: string | null = null;
-let _v4DisplayLive = false;
+const liveThreadCounts = new Map<string, number>();
 
 export function publishV4DisplayAuthority(opts: {
   threadId: string | null;
   live: boolean;
 }): void {
   const tid = String(opts.threadId || "").trim() || null;
-  _v4DisplayLiveThreadId = tid;
-  _v4DisplayLive = !!opts.live && !!tid;
+  if (!tid) return;
+  const count = liveThreadCounts.get(tid) ?? 0;
+  if (opts.live) {
+    if (count === 0) liveThreadCounts.set(tid, 1);
+    else liveThreadCounts.set(tid, count + 1);
+    return;
+  }
+  if (count <= 1) liveThreadCounts.delete(tid);
+  else liveThreadCounts.set(tid, count - 1);
+}
+
+/** 当前有 V4 权威显示的 thread 集合（诊断用）。 */
+export function getV4AuthoritativeThreadIds(): string[] {
+  return Array.from(liveThreadCounts.keys());
 }
 
 /** V4 已对当前 thread 权威显示时才为 true（可安全闸 AG-UI 正文热路径）。 */
 export function isV4DisplayAuthoritative(threadId?: string | null): boolean {
-  if (!_v4DisplayLive || !_v4DisplayLiveThreadId) return false;
+  if (liveThreadCounts.size === 0) return false;
   const want = String(threadId || "").trim();
-  if (want && want !== _v4DisplayLiveThreadId) return false;
-  return true;
+  if (!want) return true;
+  return liveThreadCounts.has(want);
 }
 
 /**

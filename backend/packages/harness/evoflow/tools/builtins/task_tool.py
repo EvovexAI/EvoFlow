@@ -705,6 +705,34 @@ async def task_tool(
                         {"subtask_thread_id": subtask_thread_id},
                     )
                 execution_thread_id = subtask_thread_id
+                # Workflow runs are independent of the launching chat (the chat is
+                # just an entry point): bind the executor thread to a dedicated
+                # transcript session BEFORE the first worker message persists, so
+                # transcripts / usage / logs attribute to the run, not the chat.
+                from evoflow.collab.app_runner import is_workflow_bound_task
+
+                if is_workflow_bound_task(main_task):
+                    try:
+                        from evoflow.persistence.chat_session_service import (
+                            ensure_executor_transcript_session,
+                        )
+
+                        ensure_executor_transcript_session(
+                            subtask_thread_id,
+                            lead_thread_id=collab_lead_thread_id,
+                            collab_task_id=resolved_collab,
+                            force_dedicated=True,
+                            workflow={
+                                "main_task_id": resolved_collab,
+                                "app_id": str(main_task.get("source_app_id") or "").strip(),
+                                "run_id": str(main_task.get("source_run_id") or "").strip(),
+                                "app_name": str(main_task.get("source_app_name") or "").strip(),
+                            },
+                        )
+                    except Exception:
+                        logger.debug(
+                            "workflow executor session bind skipped sub=%s", resolved_subtask, exc_info=True
+                        )
                 wp = sub_row.get("worker_profile")
                 if wp:
                     try:

@@ -28,6 +28,7 @@ from evoflow.config.agents_config import (
     load_agent_config,
     load_agent_identity,
     load_agent_soul,
+    plugin_skills_for_main_agent,
     save_agent_config,
     save_agent_identity,
     save_agent_soul,
@@ -178,6 +179,12 @@ def _main_agent_to_response(include_soul: bool = False) -> AgentResponse:
 
     _main_display = (agent_cfg.agent_name or "").strip() if agent_cfg else ""
     _main_type = (agent_cfg.agent_type if agent_cfg else None) or "custom"
+    _skills = agent_cfg.skills if agent_cfg else None
+    # Main agent only: enabled plugins' skills show as mounted (ZCode parity).
+    # lead_agent/agent.py merges the same set into the runtime prompt allowlist.
+    _plugin_skills = plugin_skills_for_main_agent("main")
+    if _plugin_skills:
+        _skills = sorted(set(_skills or []) | _plugin_skills)
     return AgentResponse(
         agent_code="main",
         agent_name=_main_display or "EvoFlow",
@@ -185,7 +192,7 @@ def _main_agent_to_response(include_soul: bool = False) -> AgentResponse:
         model=model,
         tools=_normalize_agent_tools_for_api(agent_cfg.tools if agent_cfg else None),
         mcp_servers=agent_cfg.mcp_servers if agent_cfg else None,
-        skills=agent_cfg.skills if agent_cfg else None,
+        skills=_skills,
         knowledge_vault_ids=list(getattr(agent_cfg, "knowledge_vault_ids", None) or []) if agent_cfg else [],
         soul=soul,
         identity=identity,
@@ -428,9 +435,9 @@ def _agent_config_to_response(agent_cfg: AgentConfig, include_soul: bool = False
 
         if is_xiaomi_agent(code):
             caps = xiaomi_front_desk_capability_defaults()
-            tools = list(caps["tools"])
-            mcp_servers = list(caps["mcp_servers"])
-            skills = list(caps["skills"])
+            tools = list(caps["tools"] or [])
+            mcp_servers = caps["mcp_servers"]  # None = all MCP
+            skills = list(caps["skills"] or [])
             knowledge_vault_ids = []
     except Exception:
         pass
@@ -479,7 +486,12 @@ async def list_agents(
         Includes the main (default) agent as the first entry.
     """
     try:
-        ensure_builtin_agents_materialized()
+        try:
+            ensure_builtin_agents_materialized()
+        except Exception:
+            # Listing must still work when builtin seed/backfill fails
+            # (e.g. historical list(None) on mcp_servers=None).
+            logger.warning("ensure_builtin_agents_materialized failed (non-fatal for list)", exc_info=True)
         # Get main agent first
         main_agent = _main_agent_to_response(include_soul=False)
 
@@ -909,7 +921,7 @@ async def update_agent(http_request: Request, name: str, request: AgentUpdateReq
             elif agent_cfg.model is not None:
                 updated["model"] = agent_cfg.model
 
-            # 小V：系统前台固定能力面，禁止挂普通工具 / MCP / 技能。
+            # 小V：bash + 全量 MCP + 浏览器/电脑控制技能（与 capability defaults 对齐）。
             _is_xiaomi = False
             try:
                 from evoflow.agents.xiaomi.identity import is_xiaomi_agent
@@ -921,9 +933,9 @@ async def update_agent(http_request: Request, name: str, request: AgentUpdateReq
 
             if _is_xiaomi:
                 caps = xiaomi_front_desk_capability_defaults()
-                new_tools = list(caps["tools"])
-                new_mcp = list(caps["mcp_servers"])
-                new_skills = list(caps["skills"])
+                new_tools = list(caps["tools"] or [])
+                new_mcp = caps["mcp_servers"]  # None = all
+                new_skills = list(caps["skills"] or [])
             elif _agent_requires_external_cli(agent_cfg):
                 new_tools = agent_cfg.tools
                 new_mcp = agent_cfg.mcp_servers
@@ -935,25 +947,29 @@ async def update_agent(http_request: Request, name: str, request: AgentUpdateReq
 
             if new_tools is not None:
                 updated["tools"] = new_tools
-            if new_mcp is not None:
-                updated["mcp_servers"] = new_mcp
-            if new_skills is not None:
-                updated["skills"] = new_skills
             if _is_xiaomi:
-                # Empty lists must always persist (None =「全量」).
-                updated["tools"] = []
-                updated["mcp_servers"] = []
-                updated["skills"] = []
+                # mcp_servers=None means all enabled MCP.
+                updated["mcp_servers"] = new_mcp
+                updated["skills"] = new_skills if new_skills is not None else []
                 updated["knowledge_vault_ids"] = []
-            elif "knowledge_vault_ids" in request_set:
-                from evoflow.proactive.prompt import validate_agent_knowledge_ids
-
-                try:
-                    updated["knowledge_vault_ids"] = validate_agent_knowledge_ids(list(request.knowledge_vault_ids or []))
-                except ValueError as e:
-                    raise HTTPException(status_code=422, detail=str(e)) from e
             else:
-                updated["knowledge_vault_ids"] = list(getattr(agent_cfg, "knowledge_vault_ids", None) or [])
+                if new_mcp is not None:
+                    updated["mcp_servers"] = new_mcp
+                if new_skills is not None:
+                    updated["skills"] = new_skills
+                if "knowledge_vault_ids" in request_set:
+                    from evoflow.proactive.prompt import validate_agent_knowledge_ids
+
+                    try:
+                        updated["knowledge_vault_ids"] = validate_agent_knowledge_ids(
+                            list(request.knowledge_vault_ids or [])
+                        )
+                    except ValueError as e:
+                        raise HTTPException(status_code=422, detail=str(e)) from e
+                else:
+                    updated["knowledge_vault_ids"] = list(
+                        getattr(agent_cfg, "knowledge_vault_ids", None) or []
+                    )
 
             new_system_prompt = request.system_prompt if request.system_prompt is not None else agent_cfg.system_prompt
             if new_system_prompt is not None:

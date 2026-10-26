@@ -67,8 +67,8 @@ html[data-theme='dark'] .config-section {
 }
 
 /* ── 模块卡片共用选择器（液态玻璃磨砂） ── */
+/* 注：.card 已 token 化（见 components.css + theme-framework.css 的 --surface-raised-*），从此列表移除 */
 html[data-translucent-ui='1'] #content :is(
-  .card,
   .overview-card,
   .service-card,
   .market-card,
@@ -92,7 +92,7 @@ html[data-translucent-ui='1'] #content :is(
   .pro-worklog-listrow,
   .pro-role-task-stats,
   .pro-patrol-panel,
-  .task-card,
+  
   .tasks-today-strip,
   .tasks-monitor-hero,
   .cron-card,
@@ -124,7 +124,7 @@ html[data-translucent-ui='1'] #content :is(
   .app-card:hover,
   .role-card:hover,
   .pro-role-card:hover,
-  .task-card:hover,
+  
   .cron-card:hover,
   .card:hover
 ) {
@@ -163,7 +163,6 @@ html[data-translucent-ui='1'] .app-param-card.is-expanded {
 
 /* WebGL 透镜模式：卡片只留描边，光学层由 shader 绘制 */
 html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] #content :is(
-  .card,
   .overview-card,
   .service-card,
   .market-card,
@@ -187,7 +186,7 @@ html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] #content :is(
   .pro-worklog-listrow,
   .pro-role-task-stats,
   .pro-patrol-panel,
-  .task-card,
+  
   .tasks-today-strip,
   .tasks-monitor-hero,
   .cron-card,
@@ -221,7 +220,7 @@ html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .app-settings-modal.m
 
 /* 自定义墙纸：模块卡片略提高不透明度，避免文字发飘 */
 html[data-translucent-ui='1'] #content :is(
-  .card,
+
   .overview-card,
   .service-card,
   .market-card,
@@ -230,7 +229,7 @@ html[data-translucent-ui='1'] #content :is(
   .app-card,
   .role-card,
   .pro-role-card,
-  .task-card,
+  
   .cron-card,
   .config-section
 ) {
@@ -238,7 +237,6 @@ html[data-translucent-ui='1'] #content :is(
 }
 
 html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] #content :is(
-  .card,
   .overview-card,
   .service-card,
   .market-card,
@@ -247,7 +245,7 @@ html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] #content :is(
   .app-card,
   .role-card,
   .pro-role-card,
-  .task-card,
+  
   .cron-card,
   .config-section
 ) {
@@ -440,7 +438,8 @@ html[data-theme='dark']:not([data-translucent-ui='1']) #app.evopanel-app-studio-
 /* ── Tauri 顶栏：暗色实底兜底（液态规则在 liquid-glass.css） ── */
 html[data-theme='dark'] #main-col > .tauri-main-chrome:not(.tauri-main-chrome--hidden) {
   background: var(--bg-secondary) !important;
-  border-bottom: 1px solid var(--border-primary) !important;
+  /* 去掉深色下的 1px 底边框：顶栏与内容同底色即可，边框线在深色/科技风下显得很丑 */
+  border-bottom: none !important;
 }
 
 /* ── 工作流列表：正文一律主色（覆盖 layout 的 tertiary/secondary） ── */
@@ -933,12 +932,15 @@ html[data-translucent-ui='1'] .tasks-page .tasks-source-tabs::-webkit-scrollbar-
   background: transparent !important;
 }
 
-html[data-theme='dark'] .tasks-page .tasks-ledger-btn,
-html[data-translucent-ui='1'] .tasks-page .tasks-ledger-btn {
+html[data-theme='dark'] .tasks-page .tasks-ledger-btn:not(.is-active),
+html[data-translucent-ui='1'] .tasks-page .tasks-ledger-btn:not(.is-active) {
+  color: var(--text-secondary, var(--text-primary)) !important;
+}
+
+html[data-theme='dark'] .tasks-page .tasks-ledger-btn.is-active {
   color: var(--text-primary) !important;
 }
 
-html[data-theme='dark'] .tasks-page .tasks-ledger-btn.is-active,
 html[data-translucent-ui='1'] .tasks-page .tasks-ledger-btn.is-active {
   color: var(--accent) !important;
 }
@@ -953,13 +955,14 @@ html[data-translucent-ui='1'] #content .tasks-page :is(
   .tasks-ledger-summary,
   .task-card
 ) {
-  background: var(--ef-glass-surface-strong) !important;
+  background: var(--ef-glass-surface-strong, var(--t-card)) !important;
   backdrop-filter: blur(var(--ef-glass-blur)) saturate(var(--ef-glass-saturate));
   -webkit-backdrop-filter: blur(var(--ef-glass-blur)) saturate(var(--ef-glass-saturate));
-  border-color: var(--ef-glass-border) !important;
+  border-color: var(--ef-glass-border, var(--t-line)) !important;
   box-shadow: none !important;
 }
 
+/* WebGL：glass token 被置透明时，别掏成空框——留半透明 elevated + 玻璃描边 */
 html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] #content .tasks-page :is(
   .tasks-today-strip,
   .tasks-monitor-hero,
@@ -969,7 +972,12 @@ html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] #content .tasks-page 
   .tasks-ledger-summary,
   .task-card
 ) {
-  background: transparent !important;
+  background: color-mix(
+    in srgb,
+    var(--bg-elevated, var(--bg-card, #0f1622)) 55%,
+    transparent
+  ) !important;
+  border-color: var(--ef-glass-border, var(--t-line)) !important;
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
 }
@@ -1300,17 +1308,26 @@ html[data-translucent-ui='1'] .tasks-page .tl-ops .btn {
 }
 
 html[data-theme='dark'] .tasks-page .tl-ops .btn-secondary,
-html[data-translucent-ui='1'] .tasks-page .tl-ops .btn-secondary {
+html[data-theme='dark'] .tasks-page .page-actions .btn-secondary,
+html[data-translucent-ui='1'] .tasks-page .tl-ops .btn-secondary,
+html[data-translucent-ui='1'] .tasks-page .page-actions .btn-secondary {
   color: var(--text-primary) !important;
-  border-color: var(--border-primary) !important;
-  background: color-mix(in srgb, var(--text-primary) 10%, transparent) !important;
+  border-color: var(--ef-glass-border, var(--border-primary)) !important;
+  background: color-mix(in srgb, var(--text-primary) 8%, transparent) !important;
 }
 
 html[data-theme='dark'] .tasks-page .tl-ops .btn-secondary:hover,
-html[data-translucent-ui='1'] .tasks-page .tl-ops .btn-secondary:hover {
+html[data-theme='dark'] .tasks-page .page-actions .btn-secondary:hover,
+html[data-translucent-ui='1'] .tasks-page .tl-ops .btn-secondary:hover,
+html[data-translucent-ui='1'] .tasks-page .page-actions .btn-secondary:hover {
   color: var(--text-primary) !important;
   background: color-mix(in srgb, var(--accent) 14%, transparent) !important;
   border-color: color-mix(in srgb, var(--accent) 35%, var(--border-primary)) !important;
+}
+
+html[data-theme='dark'] .tasks-page .tl-ops .btn-primary,
+html[data-translucent-ui='1'] .tasks-page .tl-ops .btn-primary {
+  border-color: transparent !important;
 }
 
 html[data-theme='dark'] .tasks-page .tl-type--workflow,

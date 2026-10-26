@@ -1,0 +1,4 @@
+{
+  "background: #ffffff;": "background: var(--bg-card);",
+  "background: #fff;": "background: var(--bg-card);"
+}

@@ -36,7 +36,106 @@ MODEL_PREVIEW_CHARS = 2_000
 # ZCode bash-model-content.ts: assistant turns must not block on a foreground shell.
 ASSISTANT_BLOCKING_BUDGET_MS = 15_000
 # ZCode bash.ts metadata.concurrentSafe = false
-_BASH_EXEC_LOCK = threading.Lock()
+#
+# Execution channels are PER-THREAD + a process-wide concurrency cap.
+# History: the original single process-global lock (ZCode interactive model:
+# one user, one assistant, sequential commands) serialized EVERY bash call —
+# in EvoFlow's multi-agent process a main conversation holding an explicit-
+# timeout `sleep 50` parked the only slot and blocked all parallel workflow
+# workers (observed 2026-10-25: trivial worker `ls` queued 40–55s behind
+# main-chat sleeps). Commands are independent Popen processes and CWD
+# persistence is already keyed per thread, so per-thread locks plus a
+# semaphore cap restore parallelism safely.
+_EXEC_LOCKS: dict[str, threading.Lock] = {}
+_EXEC_LOCKS_GUARD = threading.Lock()
+_EXEC_LOCKS_MAX = 1024
+
+
+def _bash_max_concurrent() -> int:
+    raw = (os.getenv("EVOFLOW_BASH_MAX_CONCURRENT") or "8").strip()
+    try:
+        return max(1, int(raw))
+    except ValueError:
+        return 8
+
+
+_BASH_CONCURRENCY = threading.Semaphore(_bash_max_concurrent())
+
+
+class _bash_concurrency_slot:
+    """Process-wide cap on simultaneously running bash processes."""
+
+    def __enter__(self) -> "_bash_concurrency_slot":
+        _BASH_CONCURRENCY.acquire()
+        return self
+
+    def __exit__(self, *_exc) -> bool:
+        _BASH_CONCURRENCY.release()
+        return False
+
+
+def _exec_lock_for(thread_key: str) -> threading.Lock:
+    """Per-thread bash execution lock.
+
+    Parallel agents (main chat / workflow workers / subagents) each get their
+    own channel; within one thread commands still run one at a time.
+    """
+    key = str(thread_key or "").strip() or "_default"
+    with _EXEC_LOCKS_GUARD:
+        lock = _EXEC_LOCKS.get(key)
+        if lock is None:
+            if len(_EXEC_LOCKS) >= _EXEC_LOCKS_MAX:
+                # Trim idle entries only — evicting a HELD lock would fork the
+                # channel into two locks and break mutual exclusion.
+                for k in list(_EXEC_LOCKS):
+                    if len(_EXEC_LOCKS) < _EXEC_LOCKS_MAX:
+                        break
+                    candidate = _EXEC_LOCKS.get(k)
+                    if candidate is not None and not candidate.locked():
+                        _EXEC_LOCKS.pop(k, None)
+            lock = threading.Lock()
+            _EXEC_LOCKS[key] = lock
+        return lock
+
+
+# Pure-wait guard: agents "waiting for progress" used to run
+# `sleep 50 && echo waited`, parking an execution channel for ~a minute each.
+# Waiting should rely on completion notifications, not sleeps.
+_PURE_WAIT_SLEEP_RE = re.compile(r"(?i)\bsleep\s+([0-9]+(?:\.[0-9]+)?)")
+_PURE_WAIT_FILLER_RE = re.compile(r"(?i)\b(?:echo\s+(?:\"[^\"]*\"|'[^']*'|[^;&|]+)|true)\b")
+_PURE_WAIT_MAX_SECONDS = 10.0
+
+
+def _pure_wait_guard(command: str) -> str | None:
+    """Reject pure-wait commands (total sleep >10s with no other effect).
+
+    Returns a rejection message, or ``None`` when the command should execute.
+    A command that does real work besides sleeping (e.g. polling loops with
+    actual commands) is allowed through.
+    """
+    cmd = str(command or "").strip()
+    if not cmd or "sleep" not in cmd.lower():
+        return None
+    total = 0.0
+    for m in _PURE_WAIT_SLEEP_RE.finditer(cmd):
+        try:
+            total += float(m.group(1))
+        except ValueError:
+            return None
+    if total <= _PURE_WAIT_MAX_SECONDS:
+        return None
+    residue = _PURE_WAIT_SLEEP_RE.sub(" ", cmd)
+    residue = _PURE_WAIT_FILLER_RE.sub(" ", residue)
+    for ch in ("&&", "||", ";", "|", "(", ")", "\n"):
+        residue = residue.replace(ch, " ")
+    if residue.strip():
+        return None  # real work beyond waiting — let it run
+    return (
+        "status: rejected\ninterrupted: false\n"
+        f"该命令是纯等待（sleep 合计 {total:.0f}s），已拒绝执行。"
+        "等待任务/工作流完成请依赖完成通知（后台任务完成会推送 tool result / 终态通知），"
+        "不要用 sleep 轮询进度；短时重试间隔请把总 sleep 控制在 10 秒内。"
+    )
 
 _TRUE = {"true", "1", "yes", "y", "on"}
 _FALSE = {"false", "0", "no", "n", "off"}
@@ -853,23 +952,30 @@ def bash_tool(
         command = rewrite_skill_paths_in_command(command)
     except Exception:
         pass
+    guard = _pure_wait_guard(command)
+    if guard is not None:
+        return guard
     explicit = _timeout_was_explicit(timeout)
     timeout_ms = _effective_timeout_ms(command, _semantic_timeout(timeout), explicit=explicit)
     tid = _thread_id(runtime)
     sk = _session_key(runtime)
     desc = description or command[:80]
-    # ZCode Bash is not concurrent-safe: one shell at a time per process.
-    with _BASH_EXEC_LOCK:
-        if _semantic_bool(run_in_background):
-            return _run_background(command, cwd, tool_call_id, desc, thread_id=tid, session_key=sk)
-        result = _run_foreground(
-            command,
-            timeout_ms,
-            cwd,
-            tool_call_id,
-            thread_id=tid,
-            explicit=explicit,
-            description=desc,
-            session_key=sk,
-        )
+    # Execution channels are per-thread: the main conversation, parallel
+    # workflow workers and subagents must not serialize behind each other's
+    # long commands (a main-chat `sleep 50` used to block every worker's
+    # `ls`). A process-wide concurrency cap keeps resource use bounded.
+    with _exec_lock_for(tid or sk):
+        with _bash_concurrency_slot():
+            if _semantic_bool(run_in_background):
+                return _run_background(command, cwd, tool_call_id, desc, thread_id=tid, session_key=sk)
+            result = _run_foreground(
+                command,
+                timeout_ms,
+                cwd,
+                tool_call_id,
+                thread_id=tid,
+                explicit=explicit,
+                description=desc,
+                session_key=sk,
+            )
     return _maybe_stage_agent_browser_screenshot(runtime, command, cwd, tool_call_id, result)

@@ -553,11 +553,13 @@ def _mode_agent_full_catalog(session_key: str, mode: str) -> set[str]:
     """
     try:
         from evoflow.agents.xiaomi.identity import is_xiaomi_agent
-        from evoflow.agents.xiaomi.tool_policy import XIAOMI_SYSTEM_TOOL_NAMES
-        from evoflow.session_tool_binding.agent_tools import resolve_session_agent_id
+        from evoflow.session_tool_binding.agent_tools import (
+            resolve_agent_tool_names_for_session,
+            resolve_session_agent_id,
+        )
 
         if is_xiaomi_agent(resolve_session_agent_id(session_key)):
-            return set(XIAOMI_SYSTEM_TOOL_NAMES)
+            return set(resolve_agent_tool_names_for_session(session_key))
     except Exception:
         logger.debug("proactive: xiaomi catalog check failed", exc_info=True)
 
@@ -616,11 +618,11 @@ def resolve_proactive_session_allow_names(runtime: Any) -> set[str] | None:
 
     try:
         from evoflow.agents.xiaomi.identity import is_xiaomi_agent
-        from evoflow.agents.xiaomi.tool_policy import XIAOMI_SYSTEM_TOOL_NAMES
+        from evoflow.session_tool_binding.agent_tools import resolve_agent_tool_names_for_session
 
         code = str(ctx.get("proactive_agent_code") or ctx.get("agent_name") or "").strip()
         if is_xiaomi_agent(code) or sk.lower().startswith("proactive:xiaomi"):
-            return _finalize_duty_allow(set(XIAOMI_SYSTEM_TOOL_NAMES))
+            return _finalize_duty_allow(set(resolve_agent_tool_names_for_session(sk)))
     except Exception:
         logger.debug("proactive: xiaomi allowlist check failed", exc_info=True)
 

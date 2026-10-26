@@ -278,8 +278,8 @@ html[data-theme='dark'] .msg-action-result,
 html.dark .msg-action-result,
 html[data-theme='dark'] .msg-deliverable-card,
 html.dark .msg-deliverable-card {
-  background: #2d2d2d !important;
-  border-color: #3a3a3a !important;
+  background: #0b101a !important;
+  border-color: rgba(255, 255, 255, 0.1) !important;
 }
 
 html[data-theme='dark'] .react-chat-conversation-col .msg-bubble code:not(pre code),
@@ -350,8 +350,8 @@ html[data-theme='dark'] body .msg.msg-turn.msg-turn--user.msg-user .msg-bubble.m
 /* ---- Action / deliverable / platform result cards ---- */
 .msg-deliverable-card,
 .react-chat-platform-feedback-card {
-  background: #fafafb !important;
-  border: 1px solid #e7e8ec !important;
+  background: var(--surface-raised-bg, #fafafb) !important;
+  border: 1px solid var(--border-primary, #e7e8ec) !important;
   border-radius: 10px !important;
   box-shadow: none !important;
   padding: 10px 12px !important;
@@ -360,7 +360,7 @@ html[data-theme='dark'] body .msg.msg-turn.msg-turn--user.msg-user .msg-bubble.m
 .react-chat-platform-feedback-card--success,
 .react-chat-platform-feedback-card--warning,
 .react-chat-platform-feedback-card--error {
-  background: #fafafb !important;
+  background: var(--surface-raised-bg, #fafafb) !important;
 }
 
 .react-chat-platform-feedback-status--success {
@@ -501,14 +501,14 @@ html[data-theme='dark'] body .msg.msg-turn.msg-turn--user.msg-user .msg-bubble.m
 
 html[data-theme='dark'] .msg-action-result,
 html.dark .msg-action-result {
-  background: #2d2d2d;
-  border-color: #3a3a3a;
+  background: #0b101a;
+  border-color: rgba(255, 255, 255, 0.1);
 }
 
 html[data-theme='dark'] .msg-action-result-link,
 html.dark .msg-action-result-link {
-  background: #2a2a2a;
-  border-color: #3a3a3a;
+  background: #0a0e15;
+  border-color: rgba(255, 255, 255, 0.1);
   color: #a8adb5;
 }
 
@@ -567,8 +567,8 @@ html.dark .msg-action-result-link {
 
 html[data-theme='dark'] .msg-bind-employee-qr,
 html.dark .msg-bind-employee-qr {
-  background: #2d2d2d;
-  border-color: #3a3a3a;
+  background: #0b101a;
+  border-color: rgba(255, 255, 255, 0.1);
 }
 
 .emp-bind-channel-qr {
@@ -653,8 +653,8 @@ html.dark .msg-bind-employee-qr {
 
 html[data-theme='dark'] .emp-bind-channel-qr-frame,
 html.dark .emp-bind-channel-qr-frame {
-  border-color: #3a3a3a;
-  background: #1f1f1f;
+  border-color: rgba(255, 255, 255, 0.1);
+  background: #070a11;
 }
 
 /* ---- Composer（与消息列同宽同轴、左右留白） ---- */
@@ -748,16 +748,16 @@ html.dark .emp-bind-channel-qr-frame {
 /* Dark: composer dock charcoal, not pure black */
 html[data-theme='dark'] .react-chat-conversation-col > .react-chat-bottom-dock,
 html.dark .react-chat-conversation-col > .react-chat-bottom-dock {
-  background: #252526;
-  border-top-color: #3a3a3a;
+  background: #0a0e15;
+  border-top-color: rgba(255, 255, 255, 0.1);
 }
 
 html[data-theme='dark'] .react-chat-composer-stack .react-chat-bottom-area,
 html[data-theme='dark'] .react-chat-bottom-dock .react-chat-bottom-area,
 html.dark .react-chat-composer-stack .react-chat-bottom-area,
 html.dark .react-chat-bottom-dock .react-chat-bottom-area {
-  background: #2a2a2a;
-  border-color: #3a3a3a;
+  background: #0a0e15;
+  border-color: rgba(255, 255, 255, 0.1);
 }
 
 /* ---- Info rail / Agent panel ---- */
@@ -795,7 +795,7 @@ html.dark .react-chat-bottom-dock .react-chat-bottom-area {
   animation: none !important;
 }
 
-/* Capability overview grid */
+/* Capability overview grid —— 跟 surface-sunken / raised */
 .react-chat-agent-cap-overview {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -808,17 +808,22 @@ html.dark .react-chat-bottom-dock .react-chat-bottom-area {
   flex-direction: column;
   gap: 2px;
   padding: 10px 12px;
-  background: var(--bg-app, #f7f8fa);
+  background: var(--surface-sunken-bg, var(--bg-secondary, #f7f8fa));
   border-radius: 8px;
-  border: none;
+  border: 1px solid color-mix(in srgb, var(--text-primary) 5%, transparent);
   cursor: pointer;
   text-align: left;
-  transition: background 150ms ease-out;
+  transition: background 150ms ease-out, border-color 150ms ease-out;
 }
 
 .react-chat-agent-cap-overview-item:hover,
 .react-chat-agent-cap-overview-item.is-active {
-  background: var(--bg-active, #f0f1f4);
+  background: color-mix(
+    in srgb,
+    var(--accent, #635bff) 10%,
+    var(--surface-raised-bg, var(--bg-card, #fff))
+  );
+  border-color: color-mix(in srgb, var(--accent, #635bff) 22%, transparent);
 }
 
 .react-chat-agent-cap-overview-label {

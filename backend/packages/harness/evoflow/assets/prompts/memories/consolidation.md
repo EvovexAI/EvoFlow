@@ -47,8 +47,9 @@ Folder structure (under {{ entity_root }}/):
     pointers to rollout summaries if certain past rollouts are very relevant.
 - memory/_inbox/raw_memories.md
   - Temporary file: merged raw memories from Phase 1. Input for Phase 2.
-- craft/<skill-name>/
-  - Reusable procedures. Entrypoint: SKILL.md; may include scripts/, templates/, examples/.
+- craft/<skill-name>.md
+  - Reusable procedures. ONE flat Markdown file per skill (frontmatter + body);
+    do NOT create subdirectories or SKILL.md nesting here.
 - memory/episodic/<rollout_slug>.md
   - Recap of the rollout, including lessons learned, reusable knowledge,
     pointers/references, and pruned raw evidence snippets. Distilled version of
@@ -349,8 +350,8 @@ Schema rules (strict):
   - Do not hide high-value failure shields or reusable procedures inside generic summaries.
     Preserve them in their dedicated block-level subsections.
   - If you reference skills, do it in body bullets only (for example:
-    `- Related skill: craft/<skill-name>/SKILL.md`).
-  - Use lowercase, hyphenated skill folder names.
+    `- Related skill: craft/<skill-name>.md`).
+  - Use lowercase, hyphenated skill file names (flat `.md` files, no subdirectories).
 - E) Ordering and conflict handling
   - Order top-level `# Task Group` blocks by expected future utility, with recency as a
     strong default proxy (usually the freshest meaningful `updated_at` represented in that
@@ -706,15 +707,16 @@ Notes:
 
 # ============================================================ 3) `craft/` FORMAT (optional)
 
-A skill is a reusable "slash-command" package: a directory containing a SKILL.md
-entrypoint (YAML frontmatter + instructions), plus optional supporting files.
+A craft is a reusable procedure stored as ONE flat Markdown file:
+`craft/<skill-name>.md` (YAML frontmatter with `name` / `description`, then the
+procedure body). No subdirectories, no SKILL.md nesting — when a craft matures
+and needs supporting files (scripts / templates), it gets PROMOTED to a real
+skill package by the promote flow, not hand-built here.
 
 Where skills live (in this memory folder):
-craft/<skill-name>/
-SKILL.md # required entrypoint
-scripts/<tool>.\* # optional; executed, not loaded (prefer stdlib-only)
-templates/<tpl>.md # optional; filled in by the model
-examples/<example>.md # optional; expected output format / worked example
+craft/<skill-name>.md # one flat file per skill (required)
+- frontmatter: name + description (+ tags / confidence / category when known)
+- body: the procedure itself
 
 What to turn into a skill (high priority):
 
@@ -734,24 +736,20 @@ Skill quality rules (strict):
 - Do not create a skill for one-off trivia or generic advice.
 - If you cannot write a reliable procedure (too many unknowns), do not create a skill.
 
-SKILL.md frontmatter (YAML between --- markers):
+craft file frontmatter (YAML between --- markers):
 
 - name: <skill-name> (lowercase letters, numbers, hyphens only; <= 64 chars)
 - description: 1-2 lines; include concrete triggers/cues in user-like language
-- argument-hint: optional; e.g. "[branch]" or "[path] [mode]"
-- disable-model-invocation: true for workflows with side effects (push/deploy/delete/etc.)
-- user-invocable: false for background/reference-only skills
-- allowed-tools: optional; list what the skill needs (e.g., Read, Grep, Glob, Bash)
-- context / agent / model: optional; use only when truly needed (e.g., context: fork)
+- tags / confidence / category: optional; keep consistent with existing craft files
 
-SKILL.md content expectations:
+craft file content expectations:
 
-- Use $ARGUMENTS, $ARGUMENTS[N], or $N (e.g., $0, $1) for user-provided arguments.
 - Distinguish two content types:
   - Reference: conventions/context to apply inline (keep very short).
   - Task: step-by-step procedure (preferred for this memory system).
-- Keep SKILL.md focused. Put long reference docs, large examples, or complex code in supporting files.
-- Keep SKILL.md under 500 lines; move detailed reference content to supporting files.
+- Keep one craft focused on ONE procedure; split unrelated procedures into
+  separate craft files.
+- Keep craft files under 500 lines.
 - Always include:
   - When to use (triggers + non-goals)
   - Inputs / context to gather (what to check first)
@@ -760,21 +758,9 @@ SKILL.md content expectations:
   - Pitfalls and fixes (symptom -> likely cause -> fix)
   - Verification checklist (concrete success checks)
 
-Supporting scripts (optional but highly recommended):
-
-- Put helper scripts in scripts/ and reference them from SKILL.md (e.g.,
-  collect_context.py, verify.sh, extract_errors.py).
-- Prefer Python (stdlib only) or small shell scripts.
-- Make scripts safe by default:
-  - avoid destructive actions, or require explicit confirmation flags
-  - do not print secrets
-  - deterministic outputs when possible
-- Include a minimal usage example in SKILL.md.
-
-Supporting files (use sparingly; only when they add value):
-
-- templates/: a fill-in skeleton for the skill's output (plans, reports, checklists).
-- examples/: one or two small, high-quality example outputs showing the expected format.
+Supporting files (scripts/ templates/ examples/) do NOT belong here — a craft
+that has outgrown a single file should be flagged in its body for the promote
+flow, which stages it as a real skill package.
 
 ============================================================
 WORKFLOW

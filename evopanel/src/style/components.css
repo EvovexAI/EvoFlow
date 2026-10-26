@@ -34,8 +34,10 @@
 
 /* 卡片 */
 .card {
-  background: var(--bg-card);
-  border: 1px solid var(--border-primary);
+  background: var(--surface-raised-bg, var(--bg-card));
+  border: 1px solid var(--surface-raised-border, var(--border-primary));
+  backdrop-filter: var(--surface-raised-backdrop, none);
+  -webkit-backdrop-filter: var(--surface-raised-backdrop, none);
   border-radius: var(--radius-lg);
   padding: var(--space-lg);
   transition: background-color $1, border-color $1, color $1, opacity $1, transform $1, box-shadow $1;
@@ -595,27 +597,27 @@ mark {
 
 /* 浅色模式下确保模态框背景正确 */
 :root[data-theme="light"] .modal {
-  background: #f4f6f8 !important;
-  border-color: #e6e8ec !important;
-  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.12), 0 0 0 1px #e6e8ec !important;
+  background: var(--bg-elevated, #f4f6f8) !important;
+  border-color: var(--border-primary, #e6e8ec) !important;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.12), 0 0 0 1px var(--border-primary, #e6e8ec) !important;
 }
 
 :root[data-theme="light"] .modal .modal-title {
-  color: #202124 !important;
+  color: var(--text-primary, #202124) !important;
 }
 
 :root[data-theme="light"] .modal .form-label {
-  color: #656b73 !important;
+  color: var(--text-secondary, #656b73) !important;
 }
 
 :root[data-theme="light"] .modal .form-input {
-  background: #ffffff !important;
-  color: #202124 !important;
-  border-color: #e6e8ec !important;
+  background: var(--bg-input, var(--bg-primary, #ffffff)) !important;
+  color: var(--text-primary, #202124) !important;
+  border-color: var(--border-primary, #e6e8ec) !important;
 }
 
 :root[data-theme="light"] .modal .form-hint {
-  color: #9297a0 !important;
+  color: var(--text-tertiary, #9297a0) !important;
 }
 .modal-body,
 .modal-content-body {

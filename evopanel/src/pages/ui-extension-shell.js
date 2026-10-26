@@ -5,7 +5,12 @@
  * 健康检查通过后再揭开骨架 / 必要时刷新 iframe，避免「等服务就绪才开始加载页面」。
  */
 import { getCurrentRoute, navigate } from '../router.js'
+import '../style/ext-apps.css'
 import { toast } from '../components/toast.js'
+import {
+  getShellAsideCollapsed,
+  setShellAsideCollapsed,
+} from '../components/shell-aside.js'
 import {
   ensureUiExtensionReady,
   getUiExtension,
@@ -16,6 +21,8 @@ import { attachUiExtensionBridge } from '../lib/ui-extension-bridge.js'
 let _cleanupBridge = null
 let _poll = null
 let _mountGen = 0
+/** 打开应用时自动折叠了侧栏 → 离开时恢复原状 */
+let _autoCollapsedSidebar = false
 
 /** restart = stop + start */
 async function restartService(id) {
@@ -40,6 +47,10 @@ function extensionIdFromRoute() {
   return m ? decodeURIComponent(m[1]) : ''
 }
 
+function stillInShellRoute() {
+  return /^\/extensions\/[^/]+$/.test(String(getCurrentRoute() || '').split('?')[0])
+}
+
 export function cleanup() {
   _mountGen += 1
   if (_cleanupBridge) {
@@ -49,6 +60,15 @@ export function cleanup() {
   if (_poll) {
     clearInterval(_poll)
     _poll = null
+  }
+  // 离开应用壳：把自动折叠的侧栏还原成进入前的状态
+  if (_autoCollapsedSidebar && !stillInShellRoute()) {
+    _autoCollapsedSidebar = false
+    try {
+      setShellAsideCollapsed(false)
+    } catch {
+      /* ignore */
+    }
   }
 }
 
@@ -60,6 +80,16 @@ export async function render() {
   if (!id) {
     page.innerHTML = `<div class="uiext-shell-error">缺少扩展 id</div>`
     return page
+  }
+
+  // 应用页不默认全屏:自动把左侧栏收成图标栏,离开时在 cleanup 还原
+  if (document.getElementById('app-shell-aside') && !getShellAsideCollapsed()) {
+    _autoCollapsedSidebar = true
+    try {
+      setShellAsideCollapsed(true)
+    } catch {
+      /* ignore */
+    }
   }
 
   page.innerHTML = `

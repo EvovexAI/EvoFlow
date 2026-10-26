@@ -627,7 +627,10 @@ export class EvoFlowV4Transport implements ConversationTransport {
           : "frame_deltas";
     let zh: string | undefined;
     if (via === "early_stage" && isSnapshot) {
-      zh = `首帧 snapshot 在 ACK 前到达并暂存（行数≈${rowCount ?? "?"}）；activate 后才会进投影并渲染历史。`;
+      zh =
+        rowCount === 0
+          ? `首帧 snapshot 在 ACK 前到达并暂存（行数=0，空会话/尚未 hydrate）；属正常时序，activate 后会上屏空态。`
+          : `首帧 snapshot 在 ACK 前到达并暂存（行数≈${rowCount ?? "?"}）；activate 后才会进投影并渲染历史。`;
     } else if (via === "activate_release" && isSnapshot) {
       zh = `activate 释放暂存 snapshot（行数≈${rowCount ?? "?"}）→ 此时应开始渲染历史时间线。`;
     } else if (isSnapshot) {

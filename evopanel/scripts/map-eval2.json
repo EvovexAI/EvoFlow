@@ -1,0 +1,11 @@
+{
+  "background: #d1fae5;": "background: var(--eval-tint-ok);",
+  "color: #065f46;": "color: var(--success);",
+  "background: #fee2e2;": "background: var(--eval-tint-err);",
+  "border: 1px solid #fecaca;": "border: 1px solid var(--eval-tint-err);",
+  "border-color: #fecaca;": "border-color: var(--eval-tint-err);",
+  "border: 1px solid #eee;": "border: 1px solid var(--eval-border);",
+  "border-bottom: 1px solid #f3f4f6;": "border-bottom: 1px solid var(--eval-border);",
+  "border-top: 1px solid #f3f4f6;": "border-top: 1px solid var(--eval-border);",
+  "color: #3730a3;": "color: var(--primary);"
+}
