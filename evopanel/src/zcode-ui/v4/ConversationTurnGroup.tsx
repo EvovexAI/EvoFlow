@@ -48,6 +48,7 @@ import {
 import { EmployeeBindChannelQr } from "../../react/components/EmployeeBindChannelQr.js";
 import {
   maybeAutoOpenPlatformProgress,
+  parsePlatformUiFeedback,
   type PlatformUiFeedback,
 } from "../../lib/right-stage/platform-feedback.js";
 import { showRightStageScreenshot } from "../../lib/right-stage/open-right-stage-screenshot.js";
@@ -560,14 +561,32 @@ function applyV4PlatformProgressAutoOpen(rows: readonly AssistantWorkRow[]): voi
     if (!toolCallId || v4PlatformProgressAutoOpenedIds.has(toolCallId)) continue;
 
     const node = toolCallRowToLegacyNode(row);
-    // display 优先（agui_mirror 上浮的 actions）；raw 含 output.text 作回落
-    const feedback =
+    // display 优先（agui_mirror 上浮的 actions）；raw / 正文 ui 作回落。
+    // shell-page 可能只在 ui.actions.route 里（旧网关）——maybeAutoOpen 内会升成 openStage。
+    const feedback: PlatformUiFeedback | null =
       readPlatformProgressFeedback(node.toolCall.raw) ||
       readPlatformProgressFeedback({
         display: row.output?.display,
         rawOutput: row.output?.text,
         output: row.output?.text,
-      });
+      }) ||
+      parsePlatformUiFeedback(node.toolCall.raw) ||
+      parsePlatformUiFeedback(row.output?.text) ||
+      (row.output?.display
+        ? parsePlatformUiFeedback({
+            ok: true,
+            action: (row.output.display as { action?: string }).action,
+            ui: {
+              title: (row.output.display as { title?: string }).title || "平台操作成功",
+              action: (row.output.display as { action?: string }).action,
+              actions: (row.output.display as { actions?: unknown }).actions,
+              agentCode: (row.output.display as { agentCode?: string }).agentCode,
+              entityId: (row.output.display as { agentCode?: string }).agentCode,
+              entityLabel: (row.output.display as { entityLabel?: string }).entityLabel,
+              domain: "employees",
+            },
+          })
+        : null);
     if (!feedback) continue;
     const opened = maybeAutoOpenPlatformProgress(feedback);
     logRightStage("V4 autoOpen:platform progress", {

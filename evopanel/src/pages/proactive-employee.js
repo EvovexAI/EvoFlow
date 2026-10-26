@@ -1056,6 +1056,39 @@ async function onWatchLiveClick(page, role) {
 
 let _currentPage = null
 
+/**
+ * 右栏 shell-page 挂载员工详情（不改 hash，与菜单同款页面模块）。
+ * @returns {{ destroy: () => void }}
+ */
+export async function mountEmployeePageInto(container, { code, onClose } = {}) {
+  const host = container
+  const agentCode = String(code || '').trim()
+  if (!host || !agentCode) return { destroy: () => {} }
+  const page = await renderEmployeePage(agentCode, {})
+  page.classList.add('shell-page-embed')
+  const back = page.querySelector('[data-act="back"]')
+  if (back) {
+    const next = back.cloneNode(true)
+    back.replaceWith(next)
+    next.addEventListener('click', (e) => {
+      e.preventDefault()
+      if (typeof onClose === 'function') onClose()
+      else navigate('/proactive')
+    })
+  }
+  host.replaceChildren(page)
+  return {
+    destroy: () => {
+      try {
+        page.remove()
+      } catch {
+        /* ignore */
+      }
+      if (_currentPage === page) _currentPage = null
+    },
+  }
+}
+
 export async function render() {
   const route = parseRoute()
   let page

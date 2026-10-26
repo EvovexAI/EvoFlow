@@ -1287,6 +1287,10 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
                           onClick={async () => {
                             const next = !voiceReplyEnabled
                             setVoiceReplyEnabled(next)
+                            try {
+                              const { markVoiceReplyUserExplicit } = await import('../../../lib/voice-reply-mode.js')
+                              markVoiceReplyUserExplicit()
+                            } catch { /* ignore */ }
                             await patchPanelSettings(voiceReplyModeToSettingsPatch(next))
                             if (!next) { voiceReplyPendingRef.current = false; voiceStreamingStartedRef.current = false; voiceSpeechSyncedPlainRef.current = ''
                               void import('../../../lib/speech-client.js').then(({ stopAllAssistantSpeech, resetStreamingSpeechQueue }) => { stopAllAssistantSpeech(); resetStreamingSpeechQueue() })
@@ -1434,6 +1438,10 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
                       onToggleVoice={async () => {
                         const next = !voiceReplyEnabled
                         setVoiceReplyEnabled(next)
+                        try {
+                          const { markVoiceReplyUserExplicit } = await import('../../../lib/voice-reply-mode.js')
+                          markVoiceReplyUserExplicit()
+                        } catch { /* ignore */ }
                         await patchPanelSettings(voiceReplyModeToSettingsPatch(next))
                         if (!next) {
                           voiceReplyPendingRef.current = false

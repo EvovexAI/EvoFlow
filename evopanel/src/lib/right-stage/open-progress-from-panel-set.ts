@@ -6,6 +6,7 @@ import { normalizeRightStageKind } from './right-stage-types.js'
 import { openCollabWorkflowInRightStage } from './open-collab-workflow-stage.js'
 import { openCollabSubtaskInRightStage } from './open-collab-subtask-stage.js'
 import { openEmployeeProcessInRightStage } from './open-employee-process-stage.js'
+import { openShellPageInRightStage } from './open-shell-page-stage.js'
 import { logRightStage } from './panel-set-debug-log.js'
 import { rightStageStore } from './right-stage-store.js'
 
@@ -100,10 +101,34 @@ export function openProgressFromPanelSet(
     )
   }
 
+  if (kind === 'shell-page') {
+    const path = firstStr(data.path, data.route, data.href, data.url)
+    if (!path) {
+      logRightStage('openProgress:shell-page missing path', { dataKeys: Object.keys(data) })
+      return ''
+    }
+    const tabId = openShellPageInRightStage(
+      {
+        path,
+        title: title || undefined,
+        mountId: firstStr(data.mountId, data.mount_id),
+        layout: (surface.layout as 'wide') || 'wide',
+      },
+      { sessionKey: sk, layout: (surface.layout as 'wide') || 'wide' },
+    )
+    logRightStage('openProgress:shell-page', { tabId, path, title }, { store: rightStageStore })
+    return tabId
+  }
+
   return ''
 }
 
 export function isProgressStageKind(kind: string | null | undefined): boolean {
   const k = normalizeRightStageKind(kind)
-  return k === 'collab-workflow' || k === 'collabSubtaskTranscript' || k === 'employeeProcess'
+  return (
+    k === 'collab-workflow' ||
+    k === 'collabSubtaskTranscript' ||
+    k === 'employeeProcess' ||
+    k === 'shell-page'
+  )
 }

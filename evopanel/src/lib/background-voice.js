@@ -1569,6 +1569,13 @@ export async function shutdownXiaomiVoiceRuntime() {
     /* ignore */
   }
   await pauseConversationListening({ reason: 'exit-xw-voice', silent: true })
+  // 勿把小V 期间的「语音播报」泄漏到主对话文本轮
+  try {
+    const { restoreXiaomiVoiceReplyAfterExit } = await import('./xiaomi-voice-defaults.js')
+    await restoreXiaomiVoiceReplyAfterExit()
+  } catch {
+    /* ignore */
+  }
   // 闸门收尾：已经退出（关面板后不应再听用户说话）
   try {
     const { noteVoiceModeGate } = await import('./xiaomi-voice/voice-file-log.js')

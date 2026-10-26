@@ -28,7 +28,11 @@ def test_tasks_create_workflow_open_stage():
     progress = next(a for a in actions if a.get("label") == "查看进度")
     assert progress["openStage"]["kind"] == "collab-workflow"
     assert progress["openStage"]["data"]["mainTaskId"] == "mt-wf"
-    assert any(a.get("route") for a in actions)
+    view = next(a for a in actions if a.get("label") == "查看任务")
+    assert view["openStage"]["kind"] == "shell-page"
+    assert view["openStage"]["data"]["path"] == "/task/mt-wf"
+    # 已有进度 CTA：详情不 autoOpen
+    assert view.get("autoOpen") is not True
 
 
 def test_tasks_create_employee_open_stage():
@@ -104,6 +108,47 @@ def test_employees_create_without_task_has_no_progress_cta():
     ui = build_platform_ui_feedback(entry, {"agent_code": "duty-ops"}, result)
     assert ui is not None
     assert not any(a.get("label") == "查看进度" for a in ui["actions"])
+    view = next(a for a in ui["actions"] if a.get("label") == "查看员工")
+    assert view["autoOpen"] is True
+    assert view["openStage"]["kind"] == "shell-page"
+    assert view["openStage"]["data"]["path"] == "/proactive/duty-ops"
+    assert view["openStage"]["data"]["mountId"] == "employees.detail"
+    assert view["route"] == "/proactive/duty-ops"
+
+
+def test_employees_update_shell_page_auto_open():
+    entry = _entry("employees.update", "employees")
+    result = {
+        "ok": True,
+        "action": "employees.update",
+        "agent_code": "duty-ops",
+        "role_name": "值班",
+    }
+    ui = build_platform_ui_feedback(entry, {"agent_code": "duty-ops"}, result)
+    assert ui is not None
+    view = next(a for a in ui["actions"] if a.get("label") == "查看员工")
+    assert view["autoOpen"] is True
+    assert view["openStage"]["kind"] == "shell-page"
+    assert view["openStage"]["data"]["path"] == "/proactive/duty-ops"
+
+
+def test_employees_create_with_task_prefers_progress_auto_open():
+    """带 task 的 create：进度 autoOpen，详情不抢栏。"""
+    entry = _entry("employees.create", "employees")
+    result = {
+        "ok": True,
+        "action": "employees.create",
+        "agent_code": "duty-ops",
+        "task_id": "mt-1",
+        "role_name": "值班",
+    }
+    ui = build_platform_ui_feedback(entry, {"agent_code": "duty-ops"}, result)
+    assert ui is not None
+    progress = next(a for a in ui["actions"] if a.get("label") == "查看进度")
+    assert progress["autoOpen"] is True
+    view = next(a for a in ui["actions"] if a.get("label") == "查看员工")
+    assert view.get("autoOpen") is not True
+    assert view["openStage"]["kind"] == "shell-page"
 
 
 def test_employees_delete_notifies_without_view_employee_cta():

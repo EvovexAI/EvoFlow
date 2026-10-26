@@ -25336,6 +25336,37 @@ html.dark .react-chat-workspace-panel {
   min-width: 240px;
 }
 
+/* 壳页面挂载（Mount Table → shell-page）：同款页面模块进右栏 */
+.react-chat-shell-page-panel {
+  min-height: 0;
+}
+.react-chat-shell-page-host {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+}
+.react-chat-shell-page-host > .page,
+.react-chat-shell-page-host > .shell-page-embed {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  box-sizing: border-box;
+}
+.react-chat-shell-page-status {
+  padding: 16px 14px;
+  font-size: 13px;
+  color: var(--text-secondary, #64748b);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: flex-start;
+}
+.react-chat-shell-page-status--error {
+  color: var(--danger, #b91c1c);
+}
+
 /* 仅当 BrowserPanel 仍是 main-body 的直接子级时才当外壳占宽（旧路径兜底）。
    标签内容路径见下方 ``.react-chat-right-stage-body > …``。 */
 .react-chat-main-body > .react-chat-browser-panel.react-chat-collab-exec-panel {

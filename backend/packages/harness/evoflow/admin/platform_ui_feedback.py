@@ -548,6 +548,35 @@ def _entity_removed_by_action(action: str) -> bool:
     return verb in {"delete", "archive", "clear", "note_delete"}
 
 
+def _shell_page_cta(
+    *,
+    label: str,
+    path: str,
+    mount_id: str = "",
+    title: str = "",
+    auto_open: bool = False,
+) -> dict[str, Any]:
+    """右栏挂载壳页面（与菜单同一 path）；保留 route 供旧客户端 / 挂载失败回落。"""
+    p = str(path or "").strip()
+    out: dict[str, Any] = {
+        "label": label,
+        "route": p,
+        "openStage": {
+            "kind": "shell-page",
+            "title": (title or label or p).strip() or label,
+            "layout": "wide",
+            "data": {
+                "path": p,
+                "route": p,
+                "mountId": str(mount_id or "").strip(),
+            },
+        },
+    }
+    if auto_open:
+        out["autoOpen"] = True
+    return out
+
+
 def _build_actions(
     action: str,
     domain: str,
@@ -564,15 +593,47 @@ def _build_actions(
     if _entity_removed_by_action(action):
         return actions
 
+    # 已有进度侧栏 CTA 时，详情页不要再 autoOpen 抢栏（可点「查看xxx」）
+    has_progress_stage = bool(progress and isinstance(progress.get("openStage"), dict))
+
     app_id = _first_str(result.get("appId"), result.get("app_id"))
     run_id = _first_str(result.get("runId"), result.get("run_id"))
+    entity_label = _pick_label(action, args, result)
 
     if domain == "items" and entity_id:
         actions.append({"label": "查看事项", "route": f"/tasks?tab=items&focus={entity_id}"})
     elif domain == "tasks" and entity_id:
-        actions.append({"label": "查看任务", "route": f"/task/{entity_id}"})
+        # 无进度 CTA 时写成功可自动挂任务详情；有进度则只挂可点 shell-page
+        auto = (not has_progress_stage) and action in {
+            "tasks.create",
+            "tasks.update",
+            "tasks.set_state",
+        }
+        actions.append(
+            _shell_page_cta(
+                label="查看任务",
+                path=f"/task/{entity_id}",
+                mount_id="tasks.detail",
+                title=entity_label or entity_id,
+                auto_open=auto,
+            )
+        )
     elif domain == "employees" and entity_id:
-        actions.append({"label": "查看员工", "route": f"/proactive/{entity_id}"})
+        # create / hire / update：无执行进度时自动挂员工详情
+        auto = (not has_progress_stage) and action in {
+            "employees.create",
+            "employees.hire",
+            "employees.update",
+        }
+        actions.append(
+            _shell_page_cta(
+                label="查看员工",
+                path=f"/proactive/{entity_id}",
+                mount_id="employees.detail",
+                title=entity_label or entity_id,
+                auto_open=auto,
+            )
+        )
     elif domain == "agents" and entity_id:
         actions.append({"label": "查看智能体", "route": "/agents"})
     elif domain == "knowledge":

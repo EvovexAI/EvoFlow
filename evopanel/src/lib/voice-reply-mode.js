@@ -3,6 +3,31 @@
  * 开：每次助手回复都朗读；关：不自动朗读。与是否语音提问无关。
  */
 
+const LS_VOICE_REPLY_USER_EXPLICIT = 'evoflow.voiceReplyUserExplicit'
+
+/**
+ * 用户是否在 UI 里显式开关过「语音播报」（用于区分旧版小V ensure 误持久打开）。
+ * @returns {boolean}
+ */
+export function isVoiceReplyUserExplicit() {
+  try {
+    return localStorage.getItem(LS_VOICE_REPLY_USER_EXPLICIT) === '1'
+  } catch {
+    return false
+  }
+}
+
+/**
+ * 标记用户手动开关过「语音播报」。
+ */
+export function markVoiceReplyUserExplicit() {
+  try {
+    localStorage.setItem(LS_VOICE_REPLY_USER_EXPLICIT, '1')
+  } catch {
+    /* ignore */
+  }
+}
+
 /**
  * @param {unknown} rawMode
  * @param {unknown} [legacyEnabled]
@@ -23,10 +48,30 @@ export function isVoiceReplyEnabled(rawMode, legacyEnabled) {
 }
 
 /**
+ * 主对话是否应 arm TTS。
+ * 仅认「用户在 UI 显式开过」的开关；旧版小V ensure 误持久的开不算
+ * （语音提问仍靠 voiceInitiated 单独 arm）。
  * @param {boolean} enabled
  */
 export function shouldArmVoiceReply(enabled) {
-  return !!enabled
+  if (!enabled) return false
+  return isVoiceReplyUserExplicit()
+}
+
+/**
+ * 清掉「非用户显式」却仍为开的语音播报（旧版进小V 误持久）。
+ * @returns {Promise<boolean>} 是否改写了设置
+ */
+export async function scrubNonExplicitVoiceReplyEnabled() {
+  try {
+    const { getVoiceReplyEnabled, patchPanelSettings } = await import('./panel-settings.js')
+    if (!getVoiceReplyEnabled()) return false
+    if (isVoiceReplyUserExplicit()) return false
+    await patchPanelSettings(voiceReplyModeToSettingsPatch(false))
+    return true
+  } catch {
+    return false
+  }
 }
 
 /**

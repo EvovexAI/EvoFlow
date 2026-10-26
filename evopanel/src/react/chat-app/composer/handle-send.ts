@@ -156,7 +156,11 @@ export async function handleSend(
 
     // 用户发新消息时重置停止标记，确保停止后可立即发新消息
     userInitiatedStopRef.current = false
-    if (shouldArmVoiceReply(voiceReplyEnabled)) {
+    // 仅：用户开了「语音播报」或本轮是语音提问 → 才 arm TTS。
+    // 避免小V 退出后全局开关仍开、文本轮误走 legacy HTTP 播报。
+    const armVoiceThisTurn =
+      shouldArmVoiceReply(voiceReplyEnabled) || !!opts?.voiceInitiated
+    if (armVoiceThisTurn) {
       voiceReplyPendingRef.current = true
       voiceStreamingStartedRef.current = false
       voiceSpeechSyncedPlainRef.current = ''
@@ -169,6 +173,10 @@ export async function handleSend(
           resetVoiceToolMuteState()
         })
       }
+    } else {
+      voiceReplyPendingRef.current = false
+      voiceStreamingStartedRef.current = false
+      voiceSpeechSyncedPlainRef.current = ''
     }
     const preserveCollabOnSendEarly = isUserExecutionStartIntent(message)
     const skBusy = String(sessionRef.current || '').trim()

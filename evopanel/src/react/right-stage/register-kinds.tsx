@@ -5,6 +5,7 @@ import { PlatformFeedbackKind } from './kinds/PlatformFeedbackKind.js'
 import { ScreenshotStage } from './kinds/ScreenshotStage.js'
 import { WebEmbedKind } from './kinds/WebEmbedKind.js'
 import { XiaomiRightStagePane } from './kinds/XiaomiRightStagePane.js'
+import { ShellPageKind } from './kinds/ShellPageKind.js'
 import { BrowserPanel } from '../components/BrowserPanel.js'
 import { closeBrowserStage } from '../../lib/browser-panel-store.js'
 
@@ -68,6 +69,11 @@ export function ensureRightStageKindsRegistered() {
   registerRightStageKind({
     kind: 'screenshot',
     render: (props) => <ScreenshotStage {...props} />,
+  })
+
+  registerRightStageKind({
+    kind: 'shell-page',
+    render: ({ surface, onClose }) => <ShellPageKind surface={surface} onClose={onClose} />,
   })
 
   registerRightStageKind({

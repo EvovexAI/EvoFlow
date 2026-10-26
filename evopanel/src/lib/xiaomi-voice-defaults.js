@@ -1,6 +1,6 @@
 /**
- * 小V 语音会话默认：唤醒 / 打开语音全屏时打开「语音播报」，
- * 并标记 preferXiaomiVoice，让 ASR 结果走小V 而不是主对话。
+ * 小V 语音会话默认：唤醒 / 打开语音全屏时标记 preferXiaomiVoice（ASR→小V），
+ * 朗读靠 prefer / xwVoice，不改全局「语音播报」开关（避免退出后主对话误播）。
  *
  * 语音转换在哪：
  * - ASR（你说 → 字）：前台采麦 → Gateway `/api/speech/asr*` → 火山识别（后台）
@@ -12,6 +12,7 @@
  */
 import { setPreferXiaomiVoice, isPreferXiaomiVoice } from './background-voice-bridge.js'
 import { isDebugOn } from './debug-flag.js'
+import { isVoiceReplyUserExplicit } from './voice-reply-mode.js'
 
 /** 里程碑日志（默认开，方便排查「唤醒后不播」）；同时写入语音专用日志文件 */
 export function xiaomiVoiceLog(...args) {
@@ -80,11 +81,19 @@ export async function resolveTtsSpeakerLabel(speakerId) {
 }
 
 /**
- * 小V 语音回合是否应朗读（设置已开，或正处于语音全屏 / 唤醒优先）。
+ * 进入小V 语音时记下的「语音播报」开关快照；退出时还原，避免泄漏到主对话。
+ * null = 本会话未进过 ensure。
+ * @type {boolean | null}
+ */
+let _voiceReplyBaselineOnEnter = null
+
+/**
+ * 小V 语音回合是否应朗读：
+ * 语音全屏 / prefer 唤醒优先，或用户在 UI 显式开过的「语音播报」。
+ * 旧版 ensure 误持久的开关 alone 不够。
  * @param {boolean} [settingsEnabled]
  */
 export function shouldXiaomiVoiceReply(settingsEnabled) {
-  if (settingsEnabled) return true
   try {
     if (isPreferXiaomiVoice()) return true
   } catch {
@@ -97,6 +106,7 @@ export function shouldXiaomiVoiceReply(settingsEnabled) {
   } catch {
     /* ignore */
   }
+  if (settingsEnabled && isVoiceReplyUserExplicit()) return true
   return false
 }
 
@@ -126,7 +136,7 @@ export function xiaomiVoiceReplySnapshot(settingsEnabled) {
 }
 
 /**
- * 打开小V 语音主场时调用：prefer 小V +（若语音已配置）打开语音播报开关。
+ * 打开小V 语音主场时调用：prefer 小V（朗读靠 prefer/xwVoice，不持久改全局播报开关）。
  * @returns {Promise<boolean>} 是否已具备朗读条件（设置开或本回合强制开）
  */
 export async function ensureXiaomiVoiceReplyOn() {
@@ -182,21 +192,67 @@ export async function ensureXiaomiVoiceReplyOn() {
     xiaomiVoiceLog('ensure: 读音色配置失败', String(e?.message || e))
   }
 
+  // 小V 朗读靠 preferXiaomi + xwVoice（见 shouldXiaomiVoiceReply），
+  // 不要把全局「语音播报」永久打开——否则退出后主对话文本轮也会 legacy TTS。
   try {
-    const { getVoiceReplyEnabled, patchPanelSettings } = await import('./panel-settings.js')
-    const { voiceReplyModeToSettingsPatch } = await import('./voice-reply-mode.js')
-    const before = getVoiceReplyEnabled()
-    if (!before) {
-      await patchPanelSettings(voiceReplyModeToSettingsPatch(true))
-      xiaomiVoiceLog('ensure: 已打开「语音播报」开关 voiceReplyEnabledDefault=true')
-    } else {
-      xiaomiVoiceLog('ensure: 语音播报开关本来就是开的')
+    const { getVoiceReplyEnabled } = await import('./panel-settings.js')
+    const settingsOn = !!getVoiceReplyEnabled()
+    if (_voiceReplyBaselineOnEnter == null) {
+      _voiceReplyBaselineOnEnter = settingsOn
     }
-    const snap = xiaomiVoiceReplySnapshot(getVoiceReplyEnabled())
-    xiaomiVoiceLog('ensure: speak decision', snap)
+    const snap = xiaomiVoiceReplySnapshot(settingsOn)
+    xiaomiVoiceLog('ensure: speak decision（不改全局开关）', snap)
   } catch (e) {
-    console.warn('[xiaomi-voice] ensure: enable voice reply failed', e?.message || e)
+    console.warn('[xiaomi-voice] ensure: speak snapshot failed', e?.message || e)
   }
 
   return speechOk || shouldXiaomiVoiceReply(true)
+}
+
+/**
+ * 退出小V 语音后：还原全局「语音播报」、清 pending、停残留播报。
+ * - 有进场快照 → 还原到进场时
+ * - 开关开着但用户从未在 UI 显式开过 → 关掉（清掉旧版 ensure 误持久）
+ */
+export async function restoreXiaomiVoiceReplyAfterExit() {
+  try {
+    const { getVoiceReplyEnabled, patchPanelSettings } = await import('./panel-settings.js')
+    const { voiceReplyModeToSettingsPatch, isVoiceReplyUserExplicit, scrubNonExplicitVoiceReplyEnabled } =
+      await import('./voice-reply-mode.js')
+    const nowOn = !!getVoiceReplyEnabled()
+    let target = nowOn
+    if (_voiceReplyBaselineOnEnter != null) {
+      target = !!_voiceReplyBaselineOnEnter
+      _voiceReplyBaselineOnEnter = null
+    }
+    // 旧版 ensure 曾把开关写进 settings；用户没显式开过则退出后关掉
+    if (target && !isVoiceReplyUserExplicit()) {
+      target = false
+    }
+    if (nowOn !== target) {
+      await patchPanelSettings(voiceReplyModeToSettingsPatch(target))
+      xiaomiVoiceLog('exit: 还原「语音播报」', { from: nowOn, to: target })
+    } else {
+      const scrubbed = await scrubNonExplicitVoiceReplyEnabled()
+      if (scrubbed) xiaomiVoiceLog('exit: 已清除非用户显式的「语音播报」开')
+    }
+  } catch (e) {
+    console.warn('[xiaomi-voice] restore voice reply setting failed', e?.message || e)
+  }
+
+  try {
+    const { clearXiaomiVoiceReply } = await import(
+      '../components/global-assistant/assistant-session.js'
+    )
+    clearXiaomiVoiceReply?.()
+  } catch {
+    /* ignore */
+  }
+
+  try {
+    const { stopAllAssistantSpeech } = await import('./speech-client.js')
+    stopAllAssistantSpeech?.({ reason: 'xiaomi-voice-exit-restore', forceFrame: true })
+  } catch {
+    /* ignore */
+  }
 }

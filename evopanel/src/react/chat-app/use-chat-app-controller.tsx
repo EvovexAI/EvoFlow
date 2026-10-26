@@ -1313,6 +1313,13 @@ export function useChatAppController() {
     }
     window.addEventListener('evopanel:panel-settings-loaded', syncVoiceReply)
     window.addEventListener('evopanel:panel-settings-changed', syncVoiceReply)
+    // 清掉旧版进小V 误持久的「语音播报」开，避免文本轮误播
+    void import('../../lib/voice-reply-mode.js')
+      .then(({ scrubNonExplicitVoiceReplyEnabled }) => scrubNonExplicitVoiceReplyEnabled())
+      .then((scrubbed) => {
+        if (scrubbed) syncVoiceReply()
+      })
+      .catch(() => {})
     return () => {
       window.removeEventListener('evopanel:panel-settings-loaded', syncVoiceReply)
       window.removeEventListener('evopanel:panel-settings-changed', syncVoiceReply)

@@ -60,6 +60,7 @@ export const RIGHT_STAGE_KIND_LABELS: Record<string, string> = {
   browser: '浏览器',
   screenshot: '截图',
   xiaomi: '小V',
+  'shell-page': '页面',
 }
 
 /** Normalize panel kind aliases (legacy workspace-write / write-stream). */
@@ -85,6 +86,10 @@ export function normalizeRightStageKind(kind: string | null | undefined): string
     case 'employee':
     case 'employee-progress':
       return 'employeeProcess'
+    case 'shell_page':
+    case 'shellPage':
+    case 'shellpage':
+      return 'shell-page'
     default:
       return k
   }
@@ -115,6 +120,8 @@ export function defaultLayoutForKind(kind: string): RightStageLayout {
       return 'wide'
     case 'screenshot':
       return 'half'
+    case 'shell-page':
+      return 'wide'
     // 文件 / 代码预览默认半宽：侧栏可读，不把主对话挤成窄条
     case 'file':
     case 'codeViewer':

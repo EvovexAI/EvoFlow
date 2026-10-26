@@ -235,13 +235,15 @@ function asActions(raw: unknown): PlatformFeedbackAction[] {
 }
 
 /**
- * 若 CTA 带 autoOpen+openStage，立刻拉开右栏进度（不跳路由）。
+ * 若 CTA 带 autoOpen+openStage，立刻拉开右栏（进度 kind 或 shell-page）。
  * 共享工具：V4（ConversationTurnGroup）与旧 AG-UI 热路径都会调用。
  * 默认产品聊天以 V4 调用为准；只改调用方不够时再改本函数。
  */
 export function maybeAutoOpenPlatformProgress(ui: PlatformUiFeedback | null | undefined): boolean {
-  if (!ui || !Array.isArray(ui.actions)) return false
-  const hit = ui.actions.find((a) => a && a.autoOpen && a.openStage)
+  if (!ui) return false
+  const enriched = enrichShellPageOpenStages(ui)
+  if (!Array.isArray(enriched.actions)) return false
+  const hit = enriched.actions.find((a) => a && a.autoOpen && a.openStage)
   if (!hit?.openStage) return false
   // 同步打开：避免 dynamic import 晚于 RUN_FINISHED / tools-scan 标 seen，导致侧栏永远不展开
   logRightStage('maybeAutoOpenPlatformProgress', {
@@ -249,8 +251,8 @@ export function maybeAutoOpenPlatformProgress(ui: PlatformUiFeedback | null | un
     label: hit.label,
     openStage: hit.openStage,
   })
-  openProgressFromPanelSet(hit.openStage)
-  return true
+  const tabId = openProgressFromPanelSet(hit.openStage)
+  return Boolean(tabId)
 }
 
 function pickLabel(obj: Record<string, unknown>, args: Record<string, unknown>): string {
@@ -296,6 +298,135 @@ function entityRemovedByAction(action: string): boolean {
   return verb === 'delete' || verb === 'archive' || verb === 'clear' || verb === 'note_delete'
 }
 
+function shellPageAction(opts: {
+  label: string
+  path: string
+  mountId: string
+  title?: string
+  autoOpen?: boolean
+}): PlatformFeedbackAction {
+  const path = String(opts.path || '').trim()
+  const out: PlatformFeedbackAction = {
+    label: opts.label,
+    route: path,
+    openStage: {
+      kind: 'shell-page',
+      title: opts.title || opts.label || path,
+      layout: 'wide',
+      data: { path, route: path, mountId: opts.mountId },
+    },
+  }
+  if (opts.autoOpen) out.autoOpen = true
+  return out
+}
+
+/** 写成功且无进度抢栏时，应对齐后端：详情页 shell-page + autoOpen */
+function shouldAutoOpenShellPage(action: string): boolean {
+  return (
+    action === 'employees.create' ||
+    action === 'employees.hire' ||
+    action === 'employees.update' ||
+    action === 'tasks.update' ||
+    action === 'tasks.set_state'
+  )
+}
+
+function isProgressOpenStageKind(kind: string | null | undefined): boolean {
+  const k = String(kind || '').trim()
+  return (
+    k === 'employeeProcess' ||
+    k === 'employee-process' ||
+    k === 'collab-workflow' ||
+    k === 'collab_workflow' ||
+    k === 'collabSubtaskTranscript' ||
+    k === 'collab-subtask'
+  )
+}
+
+/**
+ * 把「只有 route」的查看员工/任务 CTA 升成 shell-page openStage。
+ * 解决：最新通知（Info Rail）已出，但 V4 display / 旧网关未带 openStage → 更右 Stage 不开。
+ */
+export function enrichShellPageOpenStages(ui: PlatformUiFeedback): PlatformUiFeedback {
+  const action = asString(ui.action)
+  const domain = asString(ui.domain)
+  const entityId = asString(ui.entityId) || asString(ui.agentCode)
+  const entityLabel = asString(ui.entityLabel)
+  const actions = (Array.isArray(ui.actions) ? ui.actions : []).map((a) => ({
+    ...a,
+    openStage: a.openStage ? { ...a.openStage, data: a.openStage.data ? { ...a.openStage.data } : a.openStage.data } : undefined,
+  }))
+  const hasProgressStage = actions.some((a) => isProgressOpenStageKind(a.openStage?.kind))
+  const autoOk = shouldAutoOpenShellPage(action) && !hasProgressStage
+
+  let touched = false
+  for (const a of actions) {
+    const route = asString(a.route)
+    const existingKind = asString(a.openStage?.kind)
+    if (existingKind === 'shell-page' || existingKind === 'shell_page' || existingKind === 'shellPage') {
+      if (autoOk && !a.autoOpen) {
+        a.autoOpen = true
+        touched = true
+      }
+      continue
+    }
+    if (existingKind) continue
+
+    const emp = route.match(/^\/proactive\/([^/?#]+)\/?$/)
+    if (emp && emp[1] !== 'board' && emp[1] !== 'approvals') {
+      const path = `/proactive/${decodeURIComponent(emp[1])}`
+      Object.assign(
+        a,
+        shellPageAction({
+          label: a.label || '查看员工',
+          path,
+          mountId: 'employees.detail',
+          title: entityLabel || emp[1],
+          autoOpen: autoOk,
+        }),
+      )
+      touched = true
+      continue
+    }
+    const task = route.match(/^\/task\/([^/?#]+)\/?$/)
+    if (task) {
+      const path = `/task/${decodeURIComponent(task[1])}`
+      Object.assign(
+        a,
+        shellPageAction({
+          label: a.label || '查看任务',
+          path,
+          mountId: 'tasks.detail',
+          title: entityLabel || task[1],
+          autoOpen: autoOk && action !== 'tasks.create',
+        }),
+      )
+      touched = true
+    }
+  }
+
+  if (
+    autoOk &&
+    entityId &&
+    (domain === 'employees' || action.startsWith('employees.')) &&
+    !actions.some((a) => String(a.openStage?.kind || '').includes('shell'))
+  ) {
+    actions.push(
+      shellPageAction({
+        label: '查看员工',
+        path: `/proactive/${entityId}`,
+        mountId: 'employees.detail',
+        title: entityLabel || entityId,
+        autoOpen: true,
+      }),
+    )
+    touched = true
+  }
+
+  if (!touched) return ui
+  return { ...ui, actions }
+}
+
 function buildActions(action: string, domain: string, entityId: string): PlatformFeedbackAction[] {
   if (entityRemovedByAction(action)) return []
 
@@ -303,10 +434,24 @@ function buildActions(action: string, domain: string, entityId: string): Platfor
     return [{ label: '查看事项', route: `/tasks?tab=items&focus=${entityId}` }]
   }
   if (domain === 'tasks' && entityId) {
-    return [{ label: '查看任务', route: `/task/${entityId}` }]
+    return [
+      shellPageAction({
+        label: '查看任务',
+        path: `/task/${entityId}`,
+        mountId: 'tasks.detail',
+        autoOpen: shouldAutoOpenShellPage(action),
+      }),
+    ]
   }
   if (domain === 'employees' && entityId) {
-    return [{ label: '查看员工', route: `/proactive/${entityId}` }]
+    return [
+      shellPageAction({
+        label: '查看员工',
+        path: `/proactive/${entityId}`,
+        mountId: 'employees.detail',
+        autoOpen: shouldAutoOpenShellPage(action),
+      }),
+    ]
   }
   if (domain === 'agents') {
     return [{ label: '查看智能体', route: '/agents' }]
@@ -426,7 +571,8 @@ function uiFromBackend(obj: Record<string, unknown>): PlatformUiFeedback | null 
 export function parsePlatformUiFeedback(raw: unknown, argsText?: string): PlatformUiFeedback | null {
   const obj = parseJsonObject(raw)
   if (!obj || obj.ok === false || obj.pending_confirm === true) return null
-  return uiFromBackend(obj) || inferPlatformUiFeedbackFallback(obj, argsText)
+  const ui = uiFromBackend(obj) || inferPlatformUiFeedbackFallback(obj, argsText)
+  return ui ? enrichShellPageOpenStages(ui) : null
 }
 
 export function platformFeedbackTitleFromToolOutput(raw: unknown, argsText?: string): string {
@@ -440,12 +586,22 @@ export function navigatePlatformFeedbackRoute(route: string): void {
   window.location.hash = hash
 }
 
-/** 平台反馈 CTA：优先 openStage（右栏进度），否则跳 route。 */
+/** 平台反馈 CTA：优先 openStage（右栏），失败再跳 route。 */
 export function activatePlatformFeedbackAction(action: PlatformFeedbackAction | null | undefined): boolean {
   if (!action) return false
-  if (action.openStage) {
-    openProgressFromPanelSet(action.openStage)
-    return true
+  // 点「查看员工/任务」时：只有 route 也升成 shell-page，避免整窗跳转
+  let openStage = action.openStage
+  if (!openStage?.kind && action.route) {
+    const enriched = enrichShellPageOpenStages({
+      kind: 'success',
+      title: action.label || '查看',
+      actions: [{ ...action }],
+    })
+    openStage = enriched.actions?.[0]?.openStage
+  }
+  if (openStage) {
+    const tabId = openProgressFromPanelSet(openStage)
+    if (tabId) return true
   }
   if (action.route) {
     navigatePlatformFeedbackRoute(action.route)
