@@ -352,7 +352,9 @@ export function enrichShellPageOpenStages(ui: PlatformUiFeedback): PlatformUiFee
   const domain = asString(ui.domain)
   const entityId = asString(ui.entityId) || asString(ui.agentCode)
   const entityLabel = asString(ui.entityLabel)
-  const actions = (Array.isArray(ui.actions) ? ui.actions : []).map((a) => ({
+  // 显式标注：map 重塑会把 openStage 变成「必填但可 undefined」，与
+  // PlatformFeedbackAction 的可选 openStage 失配，导致后面 actions.push 报 TS2345
+  const actions: PlatformFeedbackAction[] = (Array.isArray(ui.actions) ? ui.actions : []).map((a) => ({
     ...a,
     openStage: a.openStage ? { ...a.openStage, data: a.openStage.data ? { ...a.openStage.data } : a.openStage.data } : undefined,
   }))

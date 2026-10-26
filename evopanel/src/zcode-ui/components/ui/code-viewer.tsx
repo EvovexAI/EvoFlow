@@ -723,7 +723,7 @@ export function CodeViewer({
   }, [file.cacheKey, firstLineNumber, focusedEndLine, focusedStartLine, focusRequestId]);
   // 依赖是 CSS 字符串（内容）而不是数组引用：调用方每次渲染给一个新数组时，options 不该跟着换（File 会重排）。
   const markedLinesCss = codeViewerMarkedLinesCss(markedLines);
-  const options = useMemo<FileOptions<CodeViewerAnnotationMetadata, undefined>>(
+  const options = useMemo<FileOptions<CodeViewerAnnotationMetadata>>(
     () => ({
       disableFileHeader: true,
       disableLineNumbers: !showLineNumbers,
