@@ -192,7 +192,9 @@ export async function resolveProactiveProcessMeta(opts = {}) {
   if (!code) {
     return { session_key: '', thread_id: '', run_status: '' }
   }
-  const taskId = String(opts.taskId || '').trim()
+  // live:{code} 是右栏跟岗占位，不是真实 task session
+  const rawTaskId = String(opts.taskId || '').trim()
+  const taskId = rawTaskId.startsWith('live:') ? '' : rawTaskId
   const roundId = String(opts.roundId || '').trim()
   const explicitSk = String(opts.sessionKey || '').trim()
 
@@ -214,8 +216,62 @@ export async function resolveProactiveProcessMeta(opts = {}) {
     (roundId ? buildProactiveDutySessionKey(code, roundId) : '') ||
     buildProactiveLegacySessionKey(code)
 
+  // 员工过程绝不能落到主聊 / 其它 agent 会话
+  const looksLikeForeignSession = (key) => {
+    const s = String(key || '').trim()
+    if (!s) return true
+    if (s.startsWith('agent:main:') || s === 'agent:main' || s.startsWith('agent:xiaomi:')) return true
+    if (s.startsWith('proactive:')) {
+      // 精确 legacy proactive:{code} 或 proactive:{code}:…
+      const mine = s === `proactive:${code}` || s.startsWith(`proactive:${code}:`)
+      return !mine
+    }
+    return false
+  }
+
+  // 平台/chat_send 指定了 session_key：只认这一条，绝不改绑到别的会话的 done 状态
+  if (explicitSk) {
+    if (looksLikeForeignSession(explicitSk)) {
+      return {
+        session_key: '',
+        thread_id: '',
+        run_status: '',
+        role_name: roleName || undefined,
+      }
+    }
+    sk = explicitSk
+    const pinned = convs.find((c) => String(c?.session_key || '').trim() === explicitSk) || null
+    let threadId = String(pinned?.thread_id || pinned?.threadId || '').trim()
+    // 会话行尚未入库时不要冒充 done，留给面板继续轮询 / busy 兜底
+    const runStatus = pinned
+      ? String(pinned?.run_status || pinned?.runStatus || '').trim()
+      : ''
+    if (!threadId && typeof opts.ensureThread === 'function') {
+      try {
+        threadId = String((await opts.ensureThread(explicitSk)) || '').trim()
+      } catch {
+        /* optional */
+      }
+    }
+    return {
+      session_key: sk,
+      thread_id: threadId,
+      run_status: runStatus,
+      role_name: roleName || undefined,
+    }
+  }
+
+  if (looksLikeForeignSession(sk)) {
+    sk =
+      (taskId ? buildProactiveTaskSessionKey(code, taskId) : '') ||
+      (roundId ? buildProactiveDutySessionKey(code, roundId) : '') ||
+      buildProactiveLegacySessionKey(code)
+  }
+
   const hit =
-    (sk && convs.find((c) => String(c?.session_key || '').trim() === sk)) ||
+    (sk &&
+      !looksLikeForeignSession(sk) &&
+      convs.find((c) => String(c?.session_key || '').trim() === sk)) ||
     (taskId &&
       convs.find((c) => {
         const ctid = sanitizeProactiveSessionSuffix(c?.task_id || '')
@@ -224,11 +280,13 @@ export async function resolveProactiveProcessMeta(opts = {}) {
       })) ||
     null
 
-  if (hit?.session_key) sk = String(hit.session_key).trim()
+  if (hit?.session_key && !looksLikeForeignSession(hit.session_key)) {
+    sk = String(hit.session_key).trim()
+  }
   let threadId = String(hit?.thread_id || hit?.threadId || '').trim()
   const runStatus = String(hit?.run_status || hit?.runStatus || '').trim()
 
-  if (!threadId && sk && typeof opts.ensureThread === 'function') {
+  if (!threadId && sk && !looksLikeForeignSession(sk) && typeof opts.ensureThread === 'function') {
     try {
       threadId = String((await opts.ensureThread(sk)) || '').trim()
     } catch {
@@ -237,9 +295,9 @@ export async function resolveProactiveProcessMeta(opts = {}) {
   }
 
   return {
-    session_key: sk,
-    thread_id: threadId,
-    run_status: runStatus,
+    session_key: looksLikeForeignSession(sk) ? '' : sk,
+    thread_id: looksLikeForeignSession(sk) ? '' : threadId,
+    run_status: looksLikeForeignSession(sk) ? '' : runStatus,
     role_name: roleName || undefined,
   }
 }

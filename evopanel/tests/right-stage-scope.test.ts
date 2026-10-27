@@ -13,24 +13,28 @@ import {
   setRightStageSessionPersistenceSuspended,
   restoreRightStageSessionMemory,
   saveRightStageSessionMemory,
+  switchRightStageSession,
   upsertTabInSessionMemory,
 } from '../src/lib/right-stage/right-stage-session-memory.js'
+import { filterRightStageTabsForSession } from '../src/lib/right-stage/right-stage-session-visibility.js'
+import { openProgressFromPanelSet } from '../src/lib/right-stage/open-progress-from-panel-set.js'
 
 describe('right stage scope', () => {
   it('classifies workspace-scoped kinds', () => {
     expect(scopeOfKind('workspace-browse')).toBe('workspace')
     expect(scopeOfKind('write')).toBe('workspace')
     expect(scopeOfKind('mind-map')).toBe('workspace')
-    expect(scopeOfKind('collab-workflow')).toBe('workspace')
-    expect(scopeOfKind('collabSubtaskTranscript')).toBe('workspace')
-    expect(scopeOfKind('employeeProcess')).toBe('workspace')
-    expect(scopeOfKind('shell-page')).toBe('workspace')
+    expect(scopeOfKind('xiaomi')).toBe('workspace')
   })
 
   it('classifies session-scoped kinds and defaults unknown to session', () => {
     expect(scopeOfKind('browser')).toBe('session')
     expect(scopeOfKind('file')).toBe('session')
     expect(scopeOfKind('terminal')).toBe('session')
+    expect(scopeOfKind('collab-workflow')).toBe('session')
+    expect(scopeOfKind('collabSubtaskTranscript')).toBe('session')
+    expect(scopeOfKind('employeeProcess')).toBe('session')
+    expect(scopeOfKind('shell-page')).toBe('session')
     expect(scopeOfKind('some-future-kind')).toBe('session')
     expect(scopeOfKind('')).toBe('session')
   })
@@ -84,6 +88,49 @@ describe('session memory ownership routing', () => {
     rightStageStore.show({ kind: 'browser', id: 'primary' })
     const memory = rightStageStore.exportSessionMemory()
     expect(memory.tabs.map((t) => t.kind)).toEqual(['browser'])
+  })
+
+  it('progress tabs freeze with the session and do not carry into a new session', () => {
+    setCurrentRightStageSessionKey('sess-a')
+    openProgressFromPanelSet(
+      {
+        kind: 'employeeProcess',
+        data: { taskId: 't-1', agentCode: 'duty-ops', roleName: '值班' },
+      },
+      { sessionKey: 'sess-a' },
+    )
+    openProgressFromPanelSet(
+      {
+        kind: 'shell-page',
+        data: { path: '/employees/duty-ops' },
+      },
+      { sessionKey: 'sess-a' },
+    )
+    expect(rightStageStore.getSnapshot().tabs.map((t) => t.kind).sort()).toEqual([
+      'employeeProcess',
+      'shell-page',
+    ])
+
+    switchRightStageSession('sess-a', 'sess-b')
+    expect(rightStageStore.getSnapshot().tabs).toEqual([])
+
+    switchRightStageSession('sess-b', 'sess-a')
+    const restored = rightStageStore.getSnapshot().tabs.map((t) => t.kind).sort()
+    expect(restored).toEqual(['employeeProcess', 'shell-page'])
+  })
+
+  it('hides session-scoped tabs when current UI session is empty (new draft)', () => {
+    const tabs = [
+      { id: 'a', kind: 'browser' as const, sessionKey: 'sess-a', data: {} },
+      { id: 'proc', kind: 'employeeProcess' as const, data: {} },
+      { id: 'tree', kind: 'workspace-browse' as const, data: {} },
+    ]
+    expect(filterRightStageTabsForSession(tabs, '').map((t) => t.id)).toEqual(['tree'])
+    expect(filterRightStageTabsForSession(tabs, 'sess-a').map((t) => t.id)).toEqual([
+      'a',
+      'proc',
+      'tree',
+    ])
   })
 
   it('local store instances see the same current session key', () => {

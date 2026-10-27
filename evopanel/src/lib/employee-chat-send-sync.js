@@ -1,6 +1,6 @@
 /**
- * platform employees.chat_send → 打开右栏员工对话 + 走主聊同款 chatSend。
- * 小薇不跟流；结果用 employees.messages 回看。
+ * platform employees.chat_send â ćĺźĺłć ĺĺˇĽĺŻščŻ + čľ°ä¸ťčĺćŹž chatSendă
+ * ĺ°čä¸čˇćľďźçťćç¨ employees.messages ĺçă
  */
 import { openEmployeeProcessInRightStage } from './right-stage/open-employee-process-stage.js'
 import {
@@ -63,6 +63,21 @@ export async function syncEmployeeChatSendFromToolResult(raw, opts = {}) {
   const taskId = String(obj.task_id || obj.taskId || '').trim()
   const roleName = String(obj.role_name || obj.roleName || obj.name || '').trim()
   if (!agentCode || !message || !sessionKey) return false
+
+  // 后端应已吐 proactive:{agentCode}:…；若仍是主聊 key，绝不能往主会话 chatSend
+  if (!isProactiveSessionKey(sessionKey)) {
+    console.warn('[employee-chat-send] refuse non-proactive session_key', sessionKey)
+    return false
+  }
+  const parsed = parseProactiveSessionKey(sessionKey)
+  if (String(parsed.agentCode || '').trim() !== agentCode) {
+    console.warn('[employee-chat-send] session_key agent mismatch', {
+      sessionKey,
+      agentCode,
+      parsed: parsed.agentCode,
+    })
+    return false
+  }
 
   try {
     const { ensureRightStageKindsRegistered } = await import(

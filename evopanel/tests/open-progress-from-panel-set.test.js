@@ -17,16 +17,19 @@ describe('openProgressFromPanelSet', () => {
     expect(isProgressStageKind('browser')).toBe(false)
   })
 
-  it('opens collab-workflow without sessionKey (workspace)', () => {
-    const id = openProgressFromPanelSet({
-      kind: 'collab-workflow',
-      data: { mainTaskId: 'mt-1' },
-    })
+  it('opens collab-workflow and stamps explicit sessionKey', () => {
+    const id = openProgressFromPanelSet(
+      {
+        kind: 'collab-workflow',
+        data: { mainTaskId: 'mt-1' },
+      },
+      { sessionKey: 'sess-a' },
+    )
     expect(id).toBe('workflow:mt-1')
     const tabs = rightStageStore.getSnapshot().tabs
     const tab = tabs.find((t) => t.kind === 'collab-workflow')
     expect(tab?.id).toBe('workflow:mt-1')
-    expect(tab?.sessionKey).toBeFalsy()
+    expect(tab?.sessionKey).toBe('sess-a')
     expect(tab?.data?.mainTaskId).toBe('mt-1')
   })
 

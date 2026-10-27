@@ -141,16 +141,41 @@ export function applyStageSetPayload(
     return false
   }
   const kind = normalizeRightStageKind(String(payload.surface.kind || ''))
-  // 进度类（工作流/节点/员工）：workspace 归属，走统一 helper，不绑触发会话
+  // 进度类（工作流/节点/员工/壳页）：会话级归属，钉触发会话，避免新建/切会话串台
   if (isProgressStageKind(kind) && action !== 'hide') {
-    logPanelSet('① 进度面板：openProgressFromPanelSet（不写 chat sessionKey）', { kind })
-    const opened = openProgressFromPanelSet({
-      ...payload.surface,
+    const uiSessionKey = getCurrentRightStageSessionKey()
+    const xiaomiVoiceFg = isXiaomiVoiceRightStageForeground(ownerSessionKey)
+    const stampSk = xiaomiVoiceFg
+      ? uiSessionKey || ownerSessionKey || undefined
+      : ownerSessionKey || uiSessionKey || undefined
+    const isBackgroundOwner =
+      !xiaomiVoiceFg &&
+      Boolean(ownerSessionKey && uiSessionKey && ownerSessionKey !== uiSessionKey)
+    logPanelSet('① 进度面板：openProgressFromPanelSet', {
       kind,
+      stampSk: stampSk || '(空)',
+      isBackgroundOwner,
     })
+    const opened = openProgressFromPanelSet(
+      {
+        ...payload.surface,
+        kind,
+      },
+      { sessionKey: stampSk },
+    )
     if (!opened) {
       logPanelSet('① 进度面板打开失败：缺必填 data')
       return false
+    }
+    // 后台会话：live 打开后立刻挪进该会话冻结记忆，再从当前 UI 表剔除，避免串进前台。
+    if (isBackgroundOwner && ownerSessionKey) {
+      const tabKey = `${kind}:${opened}`
+      const tab = rightStageStore.findTab(tabKey)
+      if (tab) {
+        upsertTabInSessionMemory({ sessionKey: ownerSessionKey, tab })
+        rightStageStore.discardTab(tabKey)
+        logPanelSet('① 进度面板：已挪入后台会话记忆', { ownerSessionKey, tabKey })
+      }
     }
     dispatchStageSetApplied(payload)
     return true

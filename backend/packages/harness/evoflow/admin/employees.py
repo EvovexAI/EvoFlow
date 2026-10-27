@@ -2096,6 +2096,25 @@ def wake(
     return result
 
 
+def _employee_owns_session_key(session_key: str, agent_code: str) -> bool:
+    """True only for ``proactive:{agent_code}`` / ``proactive:{agent_code}:…``.
+
+    Platform ``dispatch_platform_action`` injects the *caller* conversation
+    ``session_key`` (often ``agent:main:…`` / Xiaomi). Those must never be
+    treated as the employee chat target.
+    """
+    from evoflow.proactive.chat_session import is_proactive_session_key, parse_proactive_session_key
+
+    sk = str(session_key or "").strip()
+    code = str(agent_code or "").strip()
+    if not sk or not code:
+        return False
+    if not is_proactive_session_key(sk):
+        return False
+    parsed = parse_proactive_session_key(sk)
+    return str(parsed.get("agent_code") or "").strip() == code
+
+
 def chat_send(
     agent_code: str,
     message: str,
@@ -2110,6 +2129,9 @@ def chat_send(
     ``client_effect=employee_chat_send`` so the Panel opens the right-stage
     employee process pane and runs the same ``chatSend`` path as the UI.
     Does not subscribe to the stream — Xiaomi reads results via ``messages``.
+
+    Caller-injected session keys that are not owned by this employee are
+    ignored (common when Xiaomi/main invokes ``platform`` from its own chat).
     """
     from evoflow.proactive.chat_session import (
         list_employee_conversation_sessions,
@@ -2133,11 +2155,16 @@ def chat_send(
         raise ValidationError(f"Role status is '{role.status}', not 'active'")
 
     tid = str(task_id or "").strip()
-    sk = str(session_key or "").strip()
+    raw_sk = str(session_key or "").strip()
+    ignored_caller_session = False
+    sk = raw_sk
+    if sk and not _employee_owns_session_key(sk, code):
+        # Do not raise: platform always setdefaults the ambient chat key.
+        ignored_caller_session = True
+        sk = ""
+
     if sk:
         parsed = parse_proactive_session_key(sk)
-        if parsed.get("agent_code") and parsed["agent_code"] != code:
-            raise ValidationError("session_key does not belong to this agent")
         if not tid and parsed.get("kind") == "task":
             tid = str(parsed.get("task_id") or "").strip()
     elif tid:
@@ -2149,11 +2176,21 @@ def chat_send(
             (
                 c
                 for c in convs
-                if str(c.get("run_status") or "").lower() in {"running", "busy", "active", "in_progress"}
+                if str(c.get("run_status") or "").lower()
+                in {"running", "busy", "active", "in_progress"}
+                and _employee_owns_session_key(str(c.get("session_key") or ""), code)
             ),
             None,
         )
-        chat_hit = next((c for c in convs if str(c.get("kind") or "") == "chat"), None)
+        chat_hit = next(
+            (
+                c
+                for c in convs
+                if str(c.get("kind") or "") == "chat"
+                and _employee_owns_session_key(str(c.get("session_key") or ""), code)
+            ),
+            None,
+        )
         hit = running or chat_hit
         if hit and hit.get("session_key"):
             sk = str(hit["session_key"]).strip()
@@ -2162,7 +2199,7 @@ def chat_send(
         else:
             sk = proactive_chat_session_key(code, utc_now_iso_z())
 
-    return {
+    out: dict[str, Any] = {
         "ok": True,
         "agent_code": code,
         "role_name": role.role_name,
@@ -2173,6 +2210,9 @@ def chat_send(
         "client_effect": "employee_chat_send",
         "queued": True,
     }
+    if ignored_caller_session:
+        out["ignored_caller_session_key"] = raw_sk
+    return out
 
 
 def list_chat_messages(
@@ -2186,7 +2226,6 @@ def list_chat_messages(
     from evoflow.persistence.chat_message_repositories import list_messages_for_display_all
     from evoflow.proactive.chat_session import (
         list_employee_conversation_sessions,
-        parse_proactive_session_key,
         proactive_session_key,
         proactive_task_session_key,
     )
@@ -2201,19 +2240,27 @@ def list_chat_messages(
     lim = max(1, min(int(limit or 20), 100))
     tid = str(task_id or "").strip()
     sk = str(session_key or "").strip()
-    if sk:
-        parsed = parse_proactive_session_key(sk)
-        if parsed.get("agent_code") and parsed["agent_code"] != code:
-            raise ValidationError("session_key does not belong to this agent")
-    elif tid:
-        sk = proactive_task_session_key(code, tid)
-    else:
-        convs = list_employee_conversation_sessions(code, limit=20)
-        preferred = next(
-            (c for c in convs if str(c.get("kind") or "") in {"chat", "task", "duty"}),
-            None,
-        )
-        sk = str((preferred or {}).get("session_key") or "").strip() or proactive_session_key(code)
+    # 同 chat_send：忽略注入进来的主聊 / 非本岗 session_key
+    if sk and not _employee_owns_session_key(sk, code):
+        sk = ""
+    if not sk:
+        if tid:
+            sk = proactive_task_session_key(code, tid)
+        else:
+            convs = list_employee_conversation_sessions(code, limit=20)
+            preferred = next(
+                (
+                    c
+                    for c in convs
+                    if str(c.get("kind") or "") in {"chat", "task", "duty"}
+                    and _employee_owns_session_key(str(c.get("session_key") or ""), code)
+                ),
+                None,
+            )
+            sk = (
+                str((preferred or {}).get("session_key") or "").strip()
+                or proactive_session_key(code)
+            )
 
     raw = list_messages_for_display_all(sk, max_rows=max(lim * 3, 60), include_hidden=False)
     rows = list(raw.get("messages") or []) if isinstance(raw, dict) else []

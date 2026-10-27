@@ -194,8 +194,9 @@ export type RestoreRightStageOptions = {
 
 /**
  * 换入目标会话记忆。
- * workspace 级标签（文件树 / 写入 / 思维导图 / 工作流）不随会话冻结，
+ * workspace 级标签（文件树 / 写入 / 思维导图 / 小V）不随会话冻结，
  * 这里从当前 live 表里摘出来带过去，保证切会话后它们仍在。
+ * 进度/壳页已是会话级，会进冻结记忆，不会被 carry 到新建对话。
  */
 export function restoreRightStageSessionMemory(
   sessionKey: string | null | undefined,

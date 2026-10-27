@@ -17,12 +17,19 @@ export function V4SessionPaneBridge(props: {
   connecting?: boolean;
   /** 归属主会话：文件/预览 tab 挂到同一 sessionKey，避免切会话丢签。 */
   sessionKey?: string | null;
+  /**
+   * 时间线 scope（审批去重 / 切会话清缓存）。员工过程页应传 proactive 会话 key，
+   * 不要用主聊 sessionKey，否则会与左侧主对话串 scope。
+   * 缺省回落 sessionKey。
+   */
+  evoflowSessionKey?: string | null;
   /** 底部输入区（主聊同款 sticky dock）；缺省则只读时间线。 */
   bottomDock?: ReactNode;
 }): React.JSX.Element {
-  const { sessionId, connecting, sessionKey, bottomDock } = props;
+  const { sessionId, connecting, sessionKey, evoflowSessionKey, bottomDock } = props;
   const enabled = Boolean(sessionId);
   const sk = String(sessionKey || "").trim() || undefined;
+  const evoSk = String(evoflowSessionKey || sessionKey || "").trim() || undefined;
 
   const onOpenFileLink = useCallback(
     (target: MessageFileLinkTarget) => {
@@ -51,7 +58,7 @@ export function V4SessionPaneBridge(props: {
         <V4ZCodeTimeline
           payload={payload}
           connecting={connecting || !payload}
-          evoflowSessionKey={sk}
+          evoflowSessionKey={evoSk}
           bottomDock={bottomDock}
           onOpenFileLink={onOpenFileLink}
           onOpenCodeViewer={onOpenCodeViewer}

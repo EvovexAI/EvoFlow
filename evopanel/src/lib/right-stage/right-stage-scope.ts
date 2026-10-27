@@ -18,20 +18,17 @@ const WORKSPACE_SCOPED_KINDS = new Set<string>([
   'workspace-browse',
   'write',
   'mind-map',
-  'collab-workflow',
   // 小V：全局前台，切会话仍保留
   'xiaomi',
-  // 进度类：任意对话可盯同一工作流/节点/员工过程（panel_set 跨会话）
-  'collabSubtaskTranscript',
-  'employeeProcess',
-  // 壳页面（员工墙/详情/任务详情）：主对话之间共享；
-  // 小V adopt/release 另走 carryWorkspace:false，不会带进语音域。
-  'shell-page',
 ])
 
 /**
  * 会话级：只属于产生它的那条会话。
  * 除白名单外的所有 kind 都落在这里（含 browser / file / terminal / web-embed 等）。
+ *
+ * 进度/壳页（employeeProcess / shell-page / collab-*）也是会话级：
+ * 新建或切换对话时不得把上一会话侧栏「顺带」看见；小V 仍靠 adopt
+ * carryWorkspace:false 与主对话彻底隔离。
  */
 const SESSION_SCOPED_KINDS = new Set<string>([
   'browser',
@@ -45,6 +42,10 @@ const SESSION_SCOPED_KINDS = new Set<string>([
   'subagentTranscript',
   'artifacts',
   'screenshot',
+  'collab-workflow',
+  'collabSubtaskTranscript',
+  'employeeProcess',
+  'shell-page',
 ])
 
 export type RightStageScope = 'workspace' | 'session'

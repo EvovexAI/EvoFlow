@@ -1,9 +1,13 @@
 import type { RightStageSurface } from './right-stage-types.js'
+import { scopeOfKind } from './right-stage-scope.js'
 import { isTaskCenterStageSessionKey } from './task-center-stage-key.js'
 
 /**
- * 无 sessionKey 的旧标签对所有会话可见；有归属则只在匹配会话显示。
- * task-center:* 仅任务详情宿主使用，对话侧栏永不展示（避免无选中会话时串台）。
+ * 无 sessionKey 的旧标签：在真实会话下仍可见（遗留未打归属）；
+ * 有归属则只在匹配会话显示。
+ * 当前 UI 会话为空（新建草稿瞬间）时：只保留真正的 workspace 级标签，
+ * 进度/壳页等会话级内容一律隐藏，避免串台闪现。
+ * task-center:* 仅任务详情宿主使用，对话侧栏永不展示。
  */
 export function isRightStageTabVisibleForSession(
   tab: RightStageSurface,
@@ -11,9 +15,9 @@ export function isRightStageTabVisibleForSession(
 ): boolean {
   const tabSk = String(tab.sessionKey || '').trim()
   if (isTaskCenterStageSessionKey(tabSk)) return false
-  if (!tabSk) return true
   const sk = String(sessionKey || '').trim()
-  if (!sk) return true
+  if (!sk) return scopeOfKind(tab.kind) === 'workspace'
+  if (!tabSk) return true
   return tabSk === sk
 }
 

@@ -1198,6 +1198,11 @@ def ensure_builtin_agents_materialized() -> None:
                 or "## 你怎么做事" in cur_soul
                 or "## 带用户看见" in cur_soul
                 or "## 标准动作" in cur_soul
+                # 旧风格 soul：缺「少特殊字符 / 工具过程少开口」时刷到 bundled（用户自制文案不含该旧句则不动）
+                or (
+                    "按能念出来的话写：禁止 Markdown；别念 JSON、字段名。" in cur_soul
+                    and "少特殊字符" not in cur_soul
+                )
             ):
                 save_agent_soul("xiaomi", bundled)
         except Exception:

@@ -74,4 +74,95 @@ describe('proactive session message keys', () => {
       api.proactiveListConversations = orig
     }
   })
+
+  it('resolveProactiveProcessMeta pins explicit sessionKey and ignores other done rows', async () => {
+    const { api } = await import('../src/lib/tauri-api.js')
+    const orig = api.proactiveListConversations
+    api.proactiveListConversations = async () => ({
+      role_name: '知识库验证员',
+      conversations: [
+        {
+          kind: 'duty',
+          session_key: 'proactive:kb-bot:duty:old',
+          thread_id: 'thread-old',
+          run_status: 'done',
+        },
+        {
+          kind: 'chat',
+          session_key: 'proactive:kb-bot:chat:live',
+          thread_id: 'thread-live',
+          run_status: 'running',
+        },
+      ],
+    })
+    try {
+      const meta = await resolveProactiveProcessMeta({
+        agentCode: 'kb-bot',
+        sessionKey: 'proactive:kb-bot:chat:live',
+      })
+      assert.equal(meta.session_key, 'proactive:kb-bot:chat:live')
+      assert.equal(meta.thread_id, 'thread-live')
+      assert.equal(meta.run_status, 'running')
+    } finally {
+      api.proactiveListConversations = orig
+    }
+  })
+
+  it('resolveProactiveProcessMeta with unknown explicit key keeps empty run_status', async () => {
+    const { api } = await import('../src/lib/tauri-api.js')
+    const origList = api.proactiveListConversations
+    api.proactiveListConversations = async () => ({
+      conversations: [
+        {
+          kind: 'duty',
+          session_key: 'proactive:kb-bot:duty:old',
+          thread_id: 'thread-old',
+          run_status: 'done',
+        },
+      ],
+    })
+    try {
+      const ensured = []
+      const meta = await resolveProactiveProcessMeta({
+        agentCode: 'kb-bot',
+        sessionKey: 'proactive:kb-bot:chat:new',
+        ensureThread: async (sk) => {
+          ensured.push(sk)
+          return 'thread-new'
+        },
+      })
+      assert.equal(meta.session_key, 'proactive:kb-bot:chat:new')
+      assert.equal(meta.thread_id, 'thread-new')
+      assert.equal(meta.run_status, '')
+      assert.deepEqual(ensured, ['proactive:kb-bot:chat:new'])
+    } finally {
+      api.proactiveListConversations = origList
+    }
+  })
+
+  it('resolveProactiveProcessMeta treats live: taskId as empty', async () => {
+    const { api } = await import('../src/lib/tauri-api.js')
+    const orig = api.proactiveListConversations
+    api.proactiveListConversations = async () => ({
+      conversations: [
+        {
+          kind: 'chat',
+          session_key: 'proactive:ops-bot:chat:x',
+          thread_id: 'thread-x',
+          run_status: 'running',
+        },
+      ],
+    })
+    try {
+      const meta = await resolveProactiveProcessMeta({
+        agentCode: 'ops-bot',
+        taskId: 'live:ops-bot',
+      })
+      assert.equal(meta.session_key, 'proactive:ops-bot:chat:x')
+      assert.equal(meta.thread_id, 'thread-x')
+      assert.equal(meta.run_status, 'running')
+    } finally {
+      api.proactiveListConversations = orig
+    }
+  })
 })

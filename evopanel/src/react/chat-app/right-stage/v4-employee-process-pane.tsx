@@ -6,6 +6,7 @@
  * - 执行中 / 尚无 thread：约 3s 拉 meta + 强制 V4 投影刷新
  * - 刚结束：再收一帧后停止高频轮询
  * - 已完成：不再定时刷
+ * - 打开后宽限内继续刷，避免首轮误绑旧 done 会话就停死
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ChatAttachment } from '../../chat-types.js'
@@ -22,6 +23,7 @@ import {
   resolveEmployeeProcessTabTitle,
 } from '../../../lib/right-stage/open-employee-process-stage.js'
 import { rightStageStore } from '../../../lib/right-stage/right-stage-store.js'
+import { logRightStage } from '../../../lib/right-stage/panel-set-debug-log.js'
 import { refreshEvoflowV4Session } from '../../v4/V4StreamRowsBridge.js'
 import { V4SessionPaneBridge } from '../../v4/V4SessionPaneBridge.js'
 import { toast } from '../../../components/toast.js'
@@ -30,6 +32,11 @@ import { toast } from '../../../components/toast.js'
 const POLL_ACTIVE_MS = 3000
 /** 刚结束：收尾再确认一次的延迟 */
 const SETTLE_DELAY_MS = 2500
+/**
+ * 派发/唤醒常先开右栏、会话行稍后才入库。若首轮 meta 误绑旧「done」会话会立刻停刷。
+ * 打开后宽限内即使看起来已结束也继续轮询，好换到真正在跑的 thread。
+ */
+const OPEN_GRACE_MS = 45_000
 
 const RUNNING = new Set(['running', 'busy', 'active', 'in_progress', 'queued', 'pending'])
 
@@ -155,6 +162,7 @@ export function V4EmployeeProcessPane(props: V4EmployeeProcessPaneProps) {
   const settleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const wasRunningRef = useRef(false)
   const settledRef = useRef(false)
+  const openedAtRef = useRef(Date.now())
 
   const fetchMeta = useCallback(async () => {
     if (!code) {
@@ -162,19 +170,52 @@ export function V4EmployeeProcessPane(props: V4EmployeeProcessPaneProps) {
       return
     }
     try {
+      const hintSk = String(employeeSessionKeyHint || employeeSessionKey || '').trim()
+      // surface.sessionKey / selectedSessionKey = 主聊归属；绝不能当员工会话去订 V4
+      const ownerSk = String(sessionKey || '').trim()
       const meta = await resolveProactiveProcessMeta({
         agentCode: code,
         taskId,
         roundId,
+        sessionKey: hintSk || undefined,
         ensureThread: ensureChatThread,
       })
-      const tid = String(meta.thread_id || '').trim()
-      if (tid) setThreadId(tid)
-      // 平台 chat_send / 用户已绑定的 key 优先，避免轮询 meta 抢成别的会话
-      if (meta.session_key) {
-        setEmployeeSessionKey((prev) => prev || String(meta.session_key).trim())
+      let tid = String(meta.thread_id || '').trim()
+      const metaSk = String(meta.session_key || '').trim()
+      // 防串台：解析结果若落到主聊 session/thread，丢掉 thread，继续宽限轮询
+      let rejectedOwner = false
+      if (ownerSk && metaSk && metaSk === ownerSk) {
+        rejectedOwner = true
+        tid = ''
+      } else if (tid && ownerSk) {
+        try {
+          const { wsClient } = await import('../../../lib/ws-client.js')
+          const ownerTid = String(wsClient.getSessionThreadId?.(ownerSk) || '').trim()
+          if (ownerTid && tid === ownerTid) {
+            rejectedOwner = true
+            tid = ''
+          }
+        } catch {
+          /* optional */
+        }
       }
-      if (meta.run_status) setRunStatus(String(meta.run_status).trim())
+      // 拒绑时也必须清掉错误 thread，否则会一直订着主聊
+      setThreadId(tid)
+      if (hintSk) {
+        setEmployeeSessionKey(hintSk)
+      } else if (metaSk && metaSk !== ownerSk) {
+        setEmployeeSessionKey((prev) => prev || metaSk)
+      }
+      const status = String(meta.run_status || '').trim()
+      if (rejectedOwner) {
+        setRunStatus('')
+      } else if (hintSk && metaSk && metaSk !== hintSk) {
+        /* keep prior / busy fallback */
+      } else if (status) {
+        setRunStatus(status)
+      } else if (!hintSk || metaSk === hintSk) {
+        setRunStatus('')
+      }
       if (meta.role_name) {
         setDisplayRole(
           resolveEmployeeProcessTabTitle({
@@ -185,14 +226,27 @@ export function V4EmployeeProcessPane(props: V4EmployeeProcessPaneProps) {
         )
       }
       if (tid) refreshEvoflowV4Session(tid)
+      logRightStage('employeeProcess.fetchMeta', {
+        agentCode: code,
+        taskId: taskId || null,
+        roundId: roundId || null,
+        hintSk: hintSk || null,
+        ownerSk: ownerSk || null,
+        sessionKey: metaSk || null,
+        threadId: tid || null,
+        runStatus: rejectedOwner ? null : status || null,
+        hintMismatch: Boolean(hintSk && metaSk && metaSk !== hintSk),
+        rejectedOwnerBind: rejectedOwner,
+        graceMsLeft: Math.max(0, OPEN_GRACE_MS - (Date.now() - openedAtRef.current)),
+      })
       setLoaded(true)
     } catch {
       setLoaded(true)
     }
-  }, [code, taskId, roundId])
+  }, [code, taskId, roundId, employeeSessionKeyHint, employeeSessionKey, sessionKey])
 
   const statusLow = String(runStatus || '').toLowerCase()
-  // 后端 run_status 是唯一权威；busy 只在尚未取到时兜底。
+  // 后端 run_status 是权威；busy 只在尚未取到时兜底。
   const running = statusLow ? RUNNING.has(statusLow) : busy
   const turnBusy = sending || running
 
@@ -207,6 +261,15 @@ export function V4EmployeeProcessPane(props: V4EmployeeProcessPaneProps) {
       /* store 不可用时忽略 */
     }
   }, [statusLow, taskId, sessionKey, code])
+
+  useEffect(() => {
+    openedAtRef.current = Date.now()
+    wasRunningRef.current = false
+    settledRef.current = false
+    setLoaded(false)
+    setThreadId('')
+    setRunStatus('')
+  }, [code, taskId, roundId, employeeSessionKeyHint])
 
   useEffect(() => {
     setDisplayRole(resolveEmployeeProcessTabTitle({ title, roleName, agentCode: code }))
@@ -240,14 +303,45 @@ export function V4EmployeeProcessPane(props: V4EmployeeProcessPaneProps) {
 
     void fetchMeta()
 
-    if (!loaded || running || sending) {
+    const inOpenGrace = Date.now() - openedAtRef.current < OPEN_GRACE_MS
+    // 宽限内继续刷：派发后会话行可能晚于右栏打开，避免首轮误绑旧 done 就停死
+    const shouldPoll =
+      !loaded || running || sending || !threadId || (inOpenGrace && !settledRef.current)
+
+    logRightStage('employeeProcess.poll', {
+      agentCode: code,
+      shouldPoll,
+      loaded,
+      running,
+      sending,
+      hasThread: Boolean(threadId),
+      inOpenGrace,
+      settled: settledRef.current,
+      wasRunning: wasRunningRef.current,
+      runStatus: statusLow || null,
+      sessionKey: String(employeeSessionKeyHint || employeeSessionKey || '').trim() || null,
+      threadId: threadId || null,
+    })
+
+    if (shouldPoll) {
       wasRunningRef.current = wasRunningRef.current || running || sending
-      settledRef.current = false
+      if (running || sending) settledRef.current = false
       clearSettle()
       clearPoll()
       pollRef.current = setInterval(() => {
         if (disposed) return
         if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
+        // 宽限结束后若已非 running 且有 thread，下一轮 effect 会走 settle/停刷
+        if (
+          Date.now() - openedAtRef.current >= OPEN_GRACE_MS &&
+          !running &&
+          !sending &&
+          threadId &&
+          loaded
+        ) {
+          clearPoll()
+          return
+        }
         void fetchMeta()
       }, POLL_ACTIVE_MS)
       return () => {
@@ -289,6 +383,7 @@ export function V4EmployeeProcessPane(props: V4EmployeeProcessPaneProps) {
           agentCode: code,
           taskId,
           roundId,
+          sessionKey: String(employeeSessionKey || employeeSessionKeyHint || '').trim() || undefined,
           ensureThread: ensureChatThread,
         })
         sk = String(meta.session_key || '').trim()
@@ -302,7 +397,7 @@ export function V4EmployeeProcessPane(props: V4EmployeeProcessPaneProps) {
       if (tid) setThreadId(tid)
     }
     return { sk, tid }
-  }, [employeeSessionKey, code, taskId, roundId, threadId])
+  }, [employeeSessionKey, employeeSessionKeyHint, code, taskId, roundId, threadId])
 
   const handleSend = useCallback(
     async (message: string, attachments?: ChatAttachment[]) => {
@@ -391,7 +486,11 @@ export function V4EmployeeProcessPane(props: V4EmployeeProcessPaneProps) {
 
   const headerTitle =
     String(displayRole || title || roleName || code).trim() || '执行过程'
-  const bridgeSessionKey = String(sessionKey || employeeSessionKey || '').trim() || undefined
+  // 时间线 scope 必须用员工会话；主聊 sessionKey 只作文件 tab 挂靠（owner）
+  const ownerSessionKey = String(sessionKey || '').trim()
+  const timelineSessionKey = String(employeeSessionKey || ownerSessionKey || '').trim()
+  const bridgeSessionKey = timelineSessionKey || undefined
+  const fileOwnerSessionKey = ownerSessionKey || timelineSessionKey || undefined
 
   if (!code) return null
 
@@ -429,7 +528,8 @@ export function V4EmployeeProcessPane(props: V4EmployeeProcessPaneProps) {
           <V4SessionPaneBridge
             sessionId={threadId}
             connecting={!loaded}
-            sessionKey={bridgeSessionKey}
+            sessionKey={fileOwnerSessionKey}
+            evoflowSessionKey={bridgeSessionKey}
             bottomDock={composerDock}
           />
         ) : (

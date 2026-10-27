@@ -645,7 +645,8 @@ def list_employee_conversation_sessions(
                 "title": str(row["title"] or "").strip(),
                 "kind": kind,
                 "task_id": parsed.get("task_id") or str(ctx.get("related_task_id") or "").strip() or None,
-                "run_status": str(row["run_status"] or "").strip() or "done",
+                # 空状态保持空串：前端 busy 兜底继续轮询；勿默认 done 导致右栏误停
+                "run_status": str(row["run_status"] or "").strip(),
                 "updated_at": str(row["updated_at"] or ""),
                 "created_at": str(row["created_at"] or ""),
                 "message_count": int(row["message_count"] or 0),

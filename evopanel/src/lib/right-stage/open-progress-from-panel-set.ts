@@ -1,6 +1,6 @@
 /**
  * 把 panel_set / 平台 CTA 的 progress surface 落到右栏（与任务中心打开同构）。
- * workspace 级：不传 sessionKey → 任意对话可见。
+ * 会话级：应传入触发会话的 sessionKey；缺省时由 store 冻结当前 UI 会话归属。
  */
 import { normalizeRightStageKind } from './right-stage-types.js'
 import { openCollabWorkflowInRightStage } from './open-collab-workflow-stage.js'
