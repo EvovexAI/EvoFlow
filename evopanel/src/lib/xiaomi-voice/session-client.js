@@ -751,27 +751,38 @@ function _notifyBgVoiceTts(started) {
 }
 
 /**
- * @param {{ force?: boolean }} [opts] force=真打断后必须放麦
+ * @param {{ force?: boolean, purpose?: string }} [opts]
+ *   force — 真打断收口 / 思考期听退出，绕过 FE listening 门控
+ *   purpose — ``exit_listen``：思考期仅放麦听停止/退出口令（后端仍挡 speaking）
  */
 export function sendXiaomiClientListening(opts = {}) {
+  const purpose = String(opts.purpose || '').trim()
+  const exitListen = purpose === 'exit_listen'
+  const force = !!opts.force || exitListen
   if (!isXiaomiFrameSessionActive()) {
     voiceDecisionLog('skip_client_listening', {
       reason: 'ws_inactive',
       readyState: _ws ? _ws.readyState : -1,
-      force: opts.force ? 1 : 0,
+      force: force ? 1 : 0,
+      purpose: purpose || '-',
     })
     return
   }
-  // 相位门控：非 listening 一律不放麦（后端也会再挡一层）；force 仅用于真打断收口
-  if (!opts.force && !canUnmuteStt()) {
-    voiceDecisionLog('block_client_listening', { phase: getVoicePhase() })
+  // 相位门控：非 listening 一律不放麦；force / exit_listen 可在 thinking 放行
+  if (!force && !canUnmuteStt()) {
+    voiceDecisionLog('block_client_listening', { phase: getVoicePhase(), purpose: purpose || '-' })
     return
   }
   try {
-    _ws.send(JSON.stringify({ type: 'client_listening' }))
+    /** @type {Record<string, unknown>} */
+    const payload = { type: 'client_listening' }
+    if (force) payload.force = true
+    if (purpose) payload.purpose = purpose
+    _ws.send(JSON.stringify(payload))
     voiceFeLog(
       '管线',
-      `发送 client_listening（后端可 unmute） phase=${getVoicePhase()}${opts.force ? ' force=1' : ''}`,
+      `发送 client_listening（后端可 unmute） phase=${getVoicePhase()}` +
+        `${force ? ' force=1' : ''}${purpose ? ` purpose=${purpose}` : ''}`,
     )
   } catch (e) {
     voiceFeLog('管线', `发送 client_listening 失败：${e?.message || e}`)

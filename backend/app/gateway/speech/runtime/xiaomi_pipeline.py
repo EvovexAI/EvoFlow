@@ -66,7 +66,7 @@ def build_xiaomi_voice_pipeline(
     speaker: str | None = None,
     on_user_turn: TurnHandler | None = None,
     silence_ms: float = 900.0,
-    auto_ack: bool = True,
+    auto_ack: bool = False,
 ) -> tuple[Pipeline, Any, Any, None]:
     """Return (pipeline, bridge, asr_flush_target, vad).
 

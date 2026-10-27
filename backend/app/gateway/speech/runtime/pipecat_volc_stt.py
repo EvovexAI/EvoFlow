@@ -173,12 +173,19 @@ class EvoSTTService(STTService):
 
         If TTS is still flowing (no pending unmute yet), only clear the hold so
         the next real unmute from TTSStopped applies immediately.
+        ``exit_listen`` / ``barge:`` may force unmute while still muted with no pending.
         """
         self._hold_unmute = False
         self._unmute_hold_logged = False
         await self._cancel_unmute_safety()
-        if not self._pending_unmute:
-            voice_log("管线", f"STT unmute hold 已清除 reason={reason}（无待处理 unmute）")
+        reason_s = str(reason or "")
+        force = (
+            reason_s == "exit_listen"
+            or reason_s.startswith("exit_listen")
+            or reason_s.startswith("barge:")
+        )
+        if not self._pending_unmute and not (force and self._muted):
+            voice_log("管线", f"STT unmute hold 已清除 reason={reason_s}（无待处理 unmute）")
             # 即使无 pending unmute，也可能已 unmuted 但仍有缓冲（安全超时路径）
             if not self._muted:
                 await self._flush_mute_pcm()
@@ -186,7 +193,7 @@ class EvoSTTService(STTService):
         was = self._muted
         self._muted = False
         self._pending_unmute = False
-        voice_log("管线", f"STT unmute 已释放 reason={reason}")
+        voice_log("管线", f"STT unmute 已释放 reason={reason_s}{' force' if force else ''}")
         if was:
             if self._session_dead or not self._session:
                 voice_log("管线", "STT unmute → 重建 ASR 会话（hold 期间已超时）")

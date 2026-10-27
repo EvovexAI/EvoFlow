@@ -88,7 +88,7 @@ logger = logging.getLogger("evoflow.speech.pipecat_voice_bridge")
 TurnHandler = Callable[[str], Awaitable[None]]
 
 _READABLE = re.compile(r"[\w\u4e00-\u9fff]", re.UNICODE)
-# 用户说完后的即时应声（暂只保留两句，随机）
+# 用户说完后的即时应声（默认关闭；auto_ack=True 时随机抽）
 _ACK_POOL = ("好的", "收到")
 # Pipecat 推荐默认；STT p99 表按 0.2 标定
 _VAD_STOP_SECS = 0.2
@@ -403,7 +403,7 @@ class PipecatVoiceBridge(FrameProcessor):
         speaker: str | None = None,
         on_user_turn: TurnHandler | None = None,
         silence_ms: float = 900.0,
-        auto_ack: bool = True,
+        auto_ack: bool = False,
     ) -> None:
         super().__init__(name="PipecatVoiceBridge")
         self._asr_provider = (asr_provider or "volcengine").strip().lower()
@@ -624,20 +624,28 @@ class PipecatVoiceBridge(FrameProcessor):
 
     async def release_stt_unmute_hold(self, *, reason: str = "client_listening") -> None:
         """FE local playback drained — allow STT to unmute for the next turn."""
-        # 思考/播报相位：暂缓释放（FE 误发或 barge 附带 release 时）
-        # 真打断 reason 以 barge: 开头仍放行，避免打断后永远哑麦
+        # speaking：暂缓（防回声）；thinking：仅 barge / exit_listen 放行
+        # （确认句播完后的长思考若不放麦，用户喊「退出/停止」永远进不了 ASR）
         phase = self._client_phase or "listening"
-        is_barge_release = str(reason or "").startswith("barge:")
-        if phase in ("thinking", "speaking") and not is_barge_release:
+        reason_s = str(reason or "")
+        is_barge_release = reason_s.startswith("barge:")
+        is_exit_listen = reason_s == "exit_listen" or reason_s.startswith("exit_listen")
+        if phase == "speaking" and not is_barge_release:
             voice_log(
                 "决策",
-                f"暂缓 unmute hold 释放 phase={phase} reason={reason}",
+                f"暂缓 unmute hold 释放 phase=speaking reason={reason_s}",
+            )
+            return
+        if phase == "thinking" and not is_barge_release and not is_exit_listen:
+            voice_log(
+                "决策",
+                f"暂缓 unmute hold 释放 phase=thinking reason={reason_s}",
             )
             return
         was_audible = self._bot_audible
         self._bot_audible = False
         if self._stt and hasattr(self._stt, "release_unmute_hold"):
-            await self._stt.release_unmute_hold(reason=reason)
+            await self._stt.release_unmute_hold(reason=reason_s)
         # 对齐 Pipecat OutputTransport：用户听完 ≈ BotStoppedSpeaking
         if was_audible and self._pipe_worker and self._ready:
             try:

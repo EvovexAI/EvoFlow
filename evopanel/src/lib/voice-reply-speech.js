@@ -16,9 +16,6 @@ import {
   setSpeechQueueIdleCallback,
 } from './speech-client.js'
 
-/** 识别完成后的固定一句确认（不等 AI）——暂只「好的 / 收到」随机 */
-const VOICE_SIMPLE_ACK_POOL = ['好的', '收到']
-
 /** 进入工具执行时播一次，避免长时间死寂 */
 const VOICE_WORKING_STATUS_POOL = [
   '我处理一下',
@@ -26,10 +23,6 @@ const VOICE_WORKING_STATUS_POOL = [
   '正在处理',
   '我弄一下',
 ]
-
-function pickVoiceAckText() {
-  return VOICE_SIMPLE_ACK_POOL[Math.floor(Math.random() * VOICE_SIMPLE_ACK_POOL.length)]
-}
 
 function pickVoiceWorkingStatusText() {
   return VOICE_WORKING_STATUS_POOL[Math.floor(Math.random() * VOICE_WORKING_STATUS_POOL.length)]
@@ -130,48 +123,22 @@ export function exitVoiceToolMute() {
 }
 
 /**
- * 播报固定短确认；期间 hold 流式队列以便正文预取，完成后 release 立刻接播。
+ * 用户说完后的固定短确认——已关闭（每轮「好的/收到」太吵）。
+ * 保留 API：立刻放行 ack barrier，不挡正文预取。
  * @param {(state: 'speaking' | 'running') => void | Promise<void>} [onTrayState]
  */
 export async function playVoiceSimpleAck(onTrayState) {
-  if (onTrayState) void onTrayState('speaking')
-  _onTTSStartCb?.()
-  holdStreamingSpeechPlayback()
-  const { playAssistantSpeech } = await import('./speech-client.js')
-  try {
-    await playAssistantSpeech(pickVoiceAckText())
-  } finally {
-    releaseStreamingSpeechPlayback()
-    completeVoiceAckBarrier()
-    _onTTSStopCb?.()
-    if (onTrayState) void onTrayState('running')
-  }
+  completeVoiceAckBarrier()
+  if (onTrayState) void onTrayState('running')
 }
 
 /**
  * @param {(state: 'speaking' | 'running') => void | Promise<void>} [onTrayState]
  */
 export function startVoiceSimpleAck(onTrayState) {
-  if (_voiceAckInFlight) return
-  _voiceAckInFlight = true
-  resetVoiceAckBarrier()
   resetVoiceToolMuteState()
-  holdStreamingSpeechPlayback()
-  void playVoiceSimpleAck(onTrayState)
-    .catch((e) => {
-      console.warn('[voice-reply-speech] simple ack failed', e)
-      void import('./xiaomi-voice/voice-file-log.js')
-        .then(({ voiceFeMirror }) =>
-          voiceFeMirror('播报', 'simple ack failed', e?.name || '', e?.message || String(e)),
-        )
-        .catch(() => {})
-      releaseStreamingSpeechPlayback()
-      completeVoiceAckBarrier()
-      if (onTrayState) void onTrayState('running')
-    })
-    .finally(() => {
-      _voiceAckInFlight = false
-    })
+  completeVoiceAckBarrier()
+  if (onTrayState) void onTrayState('running')
 }
 
 /**

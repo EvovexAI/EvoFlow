@@ -25,7 +25,7 @@ logger = logging.getLogger("evoflow.speech.xiaomi_bridge")
 
 TurnHandler = Callable[[str], Awaitable[None]]
 
-# 与 pipecat_voice_bridge 对齐（暂只保留两句）
+# 与 pipecat_voice_bridge 对齐（默认关闭；auto_ack=True 时随机抽）
 _ACK_POOL = ("好的", "收到")
 
 
@@ -34,7 +34,7 @@ class XiaomiBridgeProcessor(FrameProcessor):
         self,
         *,
         on_user_turn: TurnHandler | None = None,
-        auto_ack: bool = True,
+        auto_ack: bool = False,
     ) -> None:
         super().__init__(name="XiaomiBridge")
         self._on_user_turn = on_user_turn

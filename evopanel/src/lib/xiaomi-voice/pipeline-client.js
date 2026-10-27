@@ -17,6 +17,7 @@ import {
   setXiaomiPlaybackIdleHandler,
   setXiaomiDeferClientListening,
   flushXiaomiClientListeningIfIdle,
+  sendXiaomiClientListening,
   sendXiaomiClientPhase,
   forceXiaomiOpenMic,
   adoptXiaomiFrameSocket,
@@ -406,9 +407,10 @@ async function _startXiaomiFramePipelineInner(opts = {}) {
     void import('../background-voice.js')
       .then((m) => m.notifyTTSStopped?.())
       .catch(() => {})
-    // 互斥：仍等本轮回复时绝不回聆听/放麦。
+    // 互斥：仍等本轮回复时不回「正常聆听」。
     // 旧条件 `_awaitingReply && !_assistantEnded` 会在「确认句播完 + 模型已 end、正文 TTS 未到」
     // 时误开聆听（日志 17:17:35 speaking→listening → 回声确认句进 ASR）。
+    // 但仍需 exit_listen 放麦：否则思考期喊「退出/停止」ASR 全哑。
     if (_awaitingReply && (!_assistantEnded || !_heardBodySpeak)) {
       voiceDecisionLog('idle_keep_awaiting', {
         awaitingReply: true,
@@ -417,6 +419,7 @@ async function _startXiaomiFramePipelineInner(opts = {}) {
         playing: isXiaomiFramePlaying(),
       })
       _refreshTray()
+      _armExitListenWhileThinking('playback_idle_awaiting')
       return
     }
     _awaitingReply = false
@@ -464,9 +467,21 @@ async function _startXiaomiFramePipelineInner(opts = {}) {
       }
       _partial = ''
       if (raw && !text) {
-        // 整段只是上轮/助手回声 → 不上屏、不发送
-        noteVoicePanelDisplay('', { immediate: true, source: 'turn_end回声丢弃' })
-        voiceFeLog('用户输入', `turn_end 丢弃纯回声：「${raw.slice(0, 60)}」`)
+        // 剥完变空：仍可能是粘连里夹了「退出/停止」——思考期靠这条才能停
+        void import('../xiaomi-voice-close.js')
+          .then(async (m) => {
+            if (m.isXiaomiVoiceExitCommand?.(raw)) {
+              voiceFeLog('用户输入', `回声剥空但仍命中退出口令 → 走闸门：「${raw.slice(0, 40)}」`)
+              await _handleTurnEndLocalOrEnqueue(raw)
+              return
+            }
+            noteVoicePanelDisplay('', { immediate: true, source: 'turn_end回声丢弃' })
+            voiceFeLog('用户输入', `turn_end 丢弃纯回声：「${raw.slice(0, 60)}」`)
+          })
+          .catch(() => {
+            noteVoicePanelDisplay('', { immediate: true, source: 'turn_end回声丢弃' })
+            voiceFeLog('用户输入', `turn_end 丢弃纯回声：「${raw.slice(0, 60)}」`)
+          })
       } else if (text) {
         // 仅「喇叭正在出声」时挡普通定稿（防自录）；宽限/思考中放行，交给录入队列
         const speakerHot = isXiaomiFramePlaying() || getVoicePhase() === 'speaking'
@@ -475,7 +490,7 @@ async function _startXiaomiFramePipelineInner(opts = {}) {
             .then(async (m) => {
               if (m.isXiaomiVoiceExitCommand?.(raw) || m.isXiaomiVoiceExitCommand?.(text)) {
                 voiceFeLog('用户输入', `播报中命中退出口令 → 走闸门：「${text.slice(0, 40)}」`)
-                await _handleTurnEndLocalOrEnqueue(text)
+                await _handleTurnEndLocalOrEnqueue(text || raw)
                 return
               }
               // 真打断：有实质用户尾巴则仍入队（_commitUserTurn 会 barge）
@@ -980,6 +995,8 @@ async function _sendTurn(text) {
   // 一进思考就清「你」区：勿等 tts_start；并挡住迟到 ASR 回灌
   _clearUserCaption('发送后进思考清用户句')
   _setTray('processing')
+  // 等确认句/正文前也能喊退出（确认句开播后 TTS 会再 mute）
+  _armExitListenWhileThinking('send_turn')
   let releasedSending = false
   const releaseSending = () => {
     if (releasedSending) return
@@ -1145,7 +1162,7 @@ let _listenGraceUntilMs = 0
 /** 近尾预切后喇叭还有尾音；过长宽限会误丢用户紧接着说的话（日志 17:30） */
 const LISTEN_UNMUTE_GRACE_MS = 800
 
-/** 确认短句（与后端 _ACK_POOL 对齐）——ASR 回声剥除用 */
+/** 历史确认短句回声（应声已关；仍剥残留「好的/收到」） */
 const _TURN_ACK_ECHO = ['好的', '收到']
 
 function _isAckEchoText(text) {
@@ -1198,6 +1215,24 @@ function _peelAssistantEchoPrefix(text) {
 
 function _inListenGrace() {
   return Date.now() < _listenGraceUntilMs
+}
+
+/**
+ * 思考期（等模型 / 确认句已播完、正文未到）专门放麦听「退出/停止」。
+ * 不改 phase、不开正常聆听；后端 purpose=exit_listen，播报中仍 mute。
+ */
+function _armExitListenWhileThinking(reason = 'think') {
+  if (!_running || !_awaitingReply) return
+  if (isXiaomiFramePlaying() || getVoicePhase() === 'speaking') return
+  voiceFeLog('管线', `思考期放麦听退出（${reason}）`)
+  voiceDecisionLog('exit_listen_arm', {
+    reason: String(reason || '-'),
+    awaitingReply: true,
+    assistantEnded: !!_assistantEnded,
+    heardBodySpeak: !!_heardBodySpeak,
+    phase: getVoicePhase(),
+  })
+  sendXiaomiClientListening({ force: true, purpose: 'exit_listen' })
 }
 
 function _scheduleListenUnmute(reason = 'grace') {
@@ -1341,6 +1376,8 @@ export function feedXiaomiFrameAssistant(fullText, { final = false } = {}) {
       `本轮结束累计 ${plain.length} 字，冲刷残句`,
     )
     sendXiaomiAssistantEnd()
+    // 正文 TTS 可能还要等几秒：这段窗口也要能喊退出
+    _armExitListenWhileThinking('assistant_end')
     // 正文 end 后 TTS 常晚 1–2s（火山 ttfb）；旧 1.2s 就 flush → 误 unmute →
     // 回声 stopAll → 只播一句（日志 18:30:23→25）。等 tts_start 取消；仅超久无播才兜底。
     if (_endFlushTimer) window.clearTimeout(_endFlushTimer)

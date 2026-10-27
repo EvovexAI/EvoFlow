@@ -11,8 +11,8 @@ export const VOICE_FAREWELL_LINE = '没什么事，我就先退下了'
 /** 用户说「停止 / 退出」后的友好确认（IndexedDB 缓存，首播合成一次） */
 export const VOICE_STOPPED_LINE = '好的，我们下次再聊'
 export const VOICE_WAKE_ACK_LINES = ['在呢', '我在', '嗯，请说']
-/** 用户说完后的快捷应声（与后端 _ACK_POOL 对齐；IndexedDB 预热） */
-export const VOICE_TURN_ACK_LINES = ['好的', '收到']
+/** 用户说完快捷应声已关闭；留空数组以免预热无用缓存 */
+export const VOICE_TURN_ACK_LINES = []
 
 const DB_NAME = 'evoflow-voice-sfx'
 const DB_VER = 1

@@ -211,19 +211,29 @@ class SpeechSession:
                     await self._on_playback_ack(data)
                 elif op == "client_listening":
                     # FE 本地播完（队列空）→ 释放 STT unmute hold，下一轮才能识别
-                    # 相位门控：仅 listening（或 idle）可 unmute；thinking/speaking 挡住误放麦
+                    # 相位门控：listening/idle 正常放麦；speaking 一律挡；
+                    # thinking 仅允许 purpose=exit_listen（否则确认句后思考期喊「退出」进不了 ASR）
                     phase = ""
                     if self._bridge and hasattr(self._bridge, "client_phase"):
                         phase = str(getattr(self._bridge, "client_phase", "") or "")
-                    if phase in ("thinking", "speaking"):
-                        # 勿在本函数内再 import voice_log：会把它变成 local，
-                        # 导致上方/except 里的模块级 voice_log 全部 UnboundLocalError。
+                    purpose = str(data.get("purpose") or "").strip().lower()
+                    force = bool(data.get("force"))
+                    exit_listen = purpose == "exit_listen" or (
+                        force and purpose in ("", "exit_listen")
+                    )
+                    if phase == "speaking":
                         voice_log(
                             "决策",
-                            f"忽略 client_listening（phase={phase}，仅 listening 可 unmute）",
+                            f"忽略 client_listening（phase=speaking，播报中不放麦）purpose={purpose or '-'}",
+                        )
+                    elif phase == "thinking" and not exit_listen:
+                        voice_log(
+                            "决策",
+                            f"忽略 client_listening（phase=thinking，仅 exit_listen 可放麦）",
                         )
                     elif self._bridge and hasattr(self._bridge, "release_stt_unmute_hold"):
-                        await self._bridge.release_stt_unmute_hold(reason="client_listening")
+                        reason = "exit_listen" if exit_listen else "client_listening"
+                        await self._bridge.release_stt_unmute_hold(reason=reason)
                 elif op == "stop":
                     break
         except WebSocketDisconnect:
