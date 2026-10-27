@@ -91,6 +91,8 @@ def ensure_xiaomi_proactive_role() -> dict[str, Any]:
         approval_timeout_minutes=60,
         soul_md=XIAOMI_SOUL,
         think_mode="agent_loop",
+        # 平台秘书默认关闭思考：接待/分诊要快回；员工设置展示「禁用思考」
+        thinking_enabled=False,
         max_turns=10,
         timeout_seconds=360,
         work_schedule_enabled=True,

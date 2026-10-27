@@ -143,7 +143,7 @@ export const TOOL_NAME_ZH = {
   xiaomi_wake: '催办推进',
   xiaomi_task_brief: '任务详情',
   xiaomi_knowledge_search: '知识检索',
-  tasks: '任务看板',
+  tasks: '员工任务',
   knowledge: '知识库',
   platform: '平台管理',
   create_agent: '创建智能体 (CLI)',
@@ -201,7 +201,7 @@ export const TOOL_NAME_ZH = {
   // 常见 MCP / 别名
   mcp: '扩展工具',
   // Entity Asset Hub
-  assets: '实体资产',
+  assets: '资产',
 }
 
 /** 气泡内折叠条用的超短标签（2～4 字，与 ToolCallList 一致） */
@@ -511,7 +511,7 @@ const MCP_SERVER_ZH = {
   excalidraw: 'Excalidraw',
   slack: 'Slack',
   exa: 'Exa 搜索',
-  evoflow_assets: '实体资产',
+  evoflow_assets: '资产',
 }
 
 const MCP_ACTION_ZH = {

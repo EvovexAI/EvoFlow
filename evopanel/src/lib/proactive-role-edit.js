@@ -500,7 +500,14 @@ export async function showEditRoleModal(role, {
   const cfg = role.config || {}
   const autonomy = cfg.autonomy_level || 'approval_for_risky'
   const thinkMode = cfg.think_mode || 'agent_loop'
-  const thinkingEnabled = cfg.thinking_enabled  // null=跟随默认, true=启用, false=禁用
+  const isXiaomiFrontDesk =
+    !!role.system_front_desk || String(role.agent_code || '').trim().toLowerCase() === 'xiaomi'
+  // null=跟随默认, true=启用, false=禁用；平台秘书默认按「禁用」展示（产品要求快回）
+  const thinkingEnabledRaw = cfg.thinking_enabled
+  const thinkingEnabled =
+    isXiaomiFrontDesk && (thinkingEnabledRaw === null || thinkingEnabledRaw === undefined)
+      ? false
+      : thinkingEnabledRaw
   const resp = Array.isArray(cfg.responsibilities) ? cfg.responsibilities.join('\n') : ''
   const workspacePath = String(cfg.workspace_path || '').trim()
   const modelName = String(cfg.model_name || '').trim()
@@ -651,11 +658,15 @@ export async function showEditRoleModal(role, {
               <div class="hire-field">
                 <span>模型思考</span>
                 <div class="hire-chip-row" data-name="thinking_enabled" role="radiogroup">
-                  <button type="button" class="hire-chip${thinkingEnabled === null ? ' is-on' : ''}" data-value="">跟随默认</button>
+                  <button type="button" class="hire-chip${thinkingEnabled === null || thinkingEnabled === undefined ? ' is-on' : ''}" data-value="">跟随默认</button>
                   <button type="button" class="hire-chip${thinkingEnabled === true ? ' is-on' : ''}" data-value="true">启用思考</button>
                   <button type="button" class="hire-chip${thinkingEnabled === false ? ' is-on' : ''}" data-value="false">禁用思考</button>
                 </div>
-                <p class="hire-chip-hint">控制模型的推理/思考过程（如 CoT、extended thinking）</p>
+                <p class="hire-chip-hint">${
+                  isXiaomiFrontDesk
+                    ? '平台秘书默认关闭思考，保证接待/分诊快回；一般无需开启'
+                    : '控制模型的推理/思考过程（如 CoT、extended thinking）'
+                }</p>
               </div>
               <div class="hire-field">
                 <span>记忆</span>
@@ -797,10 +808,15 @@ export async function showEditRoleModal(role, {
     const think_mode =
       overlay.querySelector('[data-name="think_mode"] .hire-chip.is-on')?.dataset.value || 'agent_loop'
     // thinking_enabled: '' = 跟随默认, 'true' = 启用, 'false' = 禁用
+    // 平台秘书：未选手动档时落成禁用（与 ensure_xiaomi 默认一致），避免再回到「跟随默认→模型开思考」
     const thinking_enabled_raw =
       overlay.querySelector('[data-name="thinking_enabled"] .hire-chip.is-on')?.dataset.value || ''
     const thinking_enabled =
-      thinking_enabled_raw === '' ? null : thinking_enabled_raw === 'true'
+      thinking_enabled_raw === ''
+        ? isXiaomiFrontDesk
+          ? false
+          : null
+        : thinking_enabled_raw === 'true'
     const model_name = readModelName(overlay)
     const nextDaily = Number(overlay.querySelector('[data-name="daily_budget_usd"]')?.value || 0) || 0
     const nextPerRun = Number(overlay.querySelector('[data-name="per_run_budget_usd"]')?.value || 0) || 0

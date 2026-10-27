@@ -1367,21 +1367,19 @@ export async function handleVoiceCommandText(text, opts = {}) {
   const cleaned = String(text || '').trim()
   if (!cleaned) return 'empty'
 
-  // Frame 占麦时只允许「退出」口令；普通转写由 turn_end 发问，勿再走 continuous 发送。
+  // Frame 占麦时只允许本地口令（退出/停播）；普通转写由 turn_end 发问，勿再走 continuous 发送。
   try {
     const { isXiaomiFramePipelineActive } = await import('./xiaomi-voice/index.js')
     if (isXiaomiFramePipelineActive?.()) {
       try {
-        const { isXiaomiVoiceExitCommand, closeXiaomiVoice } = await import('./xiaomi-voice-close.js')
-        if (isXiaomiVoiceExitCommand(cleaned)) {
-          await closeXiaomiVoice({ reason: 'voice' })
-          try {
-            const { toast } = await import('../components/toast.js')
-            toast('已退出语音', 'info')
-          } catch {
-            /* ignore */
-          }
-          return 'exited'
+        const { tryHandleXiaomiVoiceLocalCommand } = await import('./xiaomi-voice-close.js')
+        const handled = await tryHandleXiaomiVoiceLocalCommand(cleaned, {
+          source: 'continuous-while-frame',
+        })
+        if (handled === 'exited') return 'exited'
+        if (handled === 'tts_stopped') {
+          notifyTTSStopped()
+          return 'tts_stopped'
         }
       } catch {
         /* ignore */
@@ -1401,39 +1399,23 @@ export async function handleVoiceCommandText(text, opts = {}) {
     /* ignore */
   }
 
-  // 口令关舞台：听到「停止/关闭/退出」→ 客户端直接退，不发给 AI
+  // 口令关舞台 / 停播报：客户端直接处理，不发给 AI
   try {
-    const { isXiaomiVoiceExitCommand, closeXiaomiVoice } = await import('./xiaomi-voice-close.js')
-    if (isXiaomiVoiceExitCommand(cleaned)) {
-      await closeXiaomiVoice({ reason: 'voice' })
-      try {
-        const { toast } = await import('../components/toast.js')
-        toast('已退出语音', 'info')
-      } catch {
-        /* ignore */
-      }
-      return 'exited'
+    const { tryHandleXiaomiVoiceLocalCommand } = await import('./xiaomi-voice-close.js')
+    const handled = await tryHandleXiaomiVoiceLocalCommand(cleaned, { source: 'continuous' })
+    if (handled === 'exited') return 'exited'
+    if (handled === 'tts_stopped') {
+      notifyTTSStopped()
+      return 'tts_stopped'
     }
   } catch {
     /* ignore */
   }
 
-  const { isStopListenCommand, isStopTtsOnlyCommand } = await import('./voice-listen-control.js')
+  const { isStopListenCommand } = await import('./voice-listen-control.js')
   if (isStopListenCommand(cleaned)) {
     await pauseConversationListening({ reason: 'voice' })
     return 'paused'
-  }
-  if (isStopTtsOnlyCommand(cleaned)) {
-    const { stopAllAssistantSpeech } = await import('./speech-client.js')
-    stopAllAssistantSpeech({ reason: 'user-stop-tts', forceFrame: true })
-    notifyTTSStopped()
-    try {
-      const { toast } = await import('../components/toast.js')
-      toast('已停止播报', 'info')
-    } catch {
-      /* ignore */
-    }
-    return 'tts_stopped'
   }
 
   // Speaking over the assistant → 停当前播放并清空队列，再发新一轮。

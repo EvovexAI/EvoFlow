@@ -699,8 +699,19 @@ class ProactiveEngine:
         if model_name:
             run_context["model_name"] = model_name
         # thinking_enabled: None=跟随模型默认, True=启用思考, False=禁用思考
+        # 小V/平台秘书：值班轮也强制关思考（与 chat hard guard 对齐，避免慢回）
+        try:
+            from evoflow.agents.xiaomi.identity import is_xiaomi_agent
+
+            _xiaomi_duty = is_xiaomi_agent(getattr(role, "agent_code", None))
+        except Exception:
+            _xiaomi_duty = False
         thinking_enabled = getattr(role.config, "thinking_enabled", None)
-        if thinking_enabled is not None:
+        if _xiaomi_duty:
+            run_context["thinking_enabled"] = False
+            run_context["thinking_type"] = "disabled"
+            run_context["reasoning_effort"] = "minimum"
+        elif thinking_enabled is not None:
             run_context["thinking_enabled"] = bool(thinking_enabled)
         # Unified memory gate + remaining prompt injection toggles
         from evoflow.agents.memory.runtime_overrides import role_memory_enabled_from_config

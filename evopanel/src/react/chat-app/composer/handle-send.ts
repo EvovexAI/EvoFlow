@@ -722,8 +722,9 @@ export async function handleSend(
           ...(preferredSkillNames.length ? { preferredSkills: preferredSkillNames } : {}),
           ...(preferredPluginIds.length ? { preferredPlugins: preferredPluginIds } : {}),
           ...(opts?.skipTranscriptAppend || alreadyInjected ? { skipTranscriptAppend: true } : {}),
+          // 语音提问 / 语音播报回合：打标 → ws-client + 后端强制关思考（避免慢回）
           ...(opts?.voiceInitiated ? { voiceInitiated: true } : {}),
-          ...(shouldArmVoiceReply(voiceReplyEnabled) ? { voiceReply: true } : {}),
+          ...(armVoiceThisTurn ? { voiceReply: true } : {}),
         },
       )
       // run_started 事件已提前写入 expectedChatRunIdBySessionRef；此处仅作兜底。

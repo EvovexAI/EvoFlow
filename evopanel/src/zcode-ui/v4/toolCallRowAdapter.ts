@@ -8,6 +8,11 @@ import type { ToolCallRow } from "@zcode/shared/zcode-protocol-v4";
 import type { TaskChatToolCallTreeNode } from "@/lib/toolCallTree.js";
 import { normalizeWrappedErrorText } from "@/lib/toolError.js";
 import { platformActionShortLabelZh } from "../../lib/platform-action-labels.js";
+import {
+  assetsActionLabelZh,
+  readNamedToolAction,
+  tasksActionLabelZh,
+} from "../../lib/builtin-action-labels.js";
 import { readPlatformToolAction } from "@/ToolCallBlocks/renderers/platform.js";
 
 // v4 status → 旧 ChatToolCall.status（mapToolStatus 的输入词表：
@@ -93,22 +98,33 @@ export function toolCallRowToLegacyNode(row: ToolCallRow): TaskChatToolCallTreeN
   // CUA v1 历史 display 会重复保存 input；工具调用行已经持有唯一输入，桥接时丢弃旧副本。
   const legacyDisplay =
     display?.kind === "cua" ? (({ input: _legacyInput, ...rest }) => rest)(display) : display;
-  const platformAction =
-    String(row.toolName || "")
-      .trim()
-      .toLowerCase() === "platform"
-      ? readPlatformToolAction(inputPreview.input)
-      : "";
-  const platformTitle = platformAction
-    ? platformActionShortLabelZh(platformAction, { max: 24 }) || undefined
-    : undefined;
+  const toolNameLower = String(row.toolName || "")
+    .trim()
+    .toLowerCase();
+  const actionTitle = (() => {
+    if (toolNameLower === "platform") {
+      const action = readPlatformToolAction(inputPreview.input);
+      return action
+        ? platformActionShortLabelZh(action, { max: 24 }) || undefined
+        : undefined;
+    }
+    if (toolNameLower === "tasks") {
+      const action = readNamedToolAction(inputPreview.input);
+      return action ? tasksActionLabelZh(action, { max: 24 }) : undefined;
+    }
+    if (toolNameLower === "assets") {
+      const action = readNamedToolAction(inputPreview.input);
+      return action ? assetsActionLabelZh(action, { max: 24 }) : undefined;
+    }
+    return undefined;
+  })();
   return {
     toolCall: {
       toolId: row.toolCallId,
       toolName: row.toolName,
       // kind 兼容旧聚合分类：v4 下没有旧 ZCode Agent 快照形态，直接用固定工具名。
       kind: row.toolName,
-      ...(platformTitle ? { title: platformTitle } : {}),
+      ...(actionTitle ? { title: actionTitle } : {}),
       input: inputPreview.input,
       status: legacyStatus,
       output: row.output?.text,

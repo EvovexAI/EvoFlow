@@ -29,6 +29,12 @@ const EXIT_PHRASES = [
   '你可以歇了',
   '别说了',
   '不要再说了',
+  '取消',
+  '取消任务',
+  'stop',
+  'exit',
+  'cancel',
+  'quit',
 ]
 
 function normalizeZh(text) {
@@ -57,6 +63,70 @@ export function isXiaomiVoiceExitCommand(text) {
     }
   }
   return false
+}
+
+/**
+ * Frame / continuous 共用：本地口令闸（不经模型）。
+ * - 退出/停止类 → 中断任务 + 停播 + 关语音舞台
+ * - 仅停播报 → 停 TTS，继续听
+ * @param {string} text
+ * @param {{ source?: string }} [opts]
+ * @returns {Promise<'exited' | 'tts_stopped' | 'none'>}
+ */
+export async function tryHandleXiaomiVoiceLocalCommand(text, opts = {}) {
+  const cleaned = String(text || '').trim()
+  if (!cleaned) return 'none'
+  const source = String(opts.source || 'local-command')
+
+  if (isXiaomiVoiceExitCommand(cleaned)) {
+    try {
+      const { voiceFeLog } = await import('./xiaomi-voice/voice-file-log.js')
+      voiceFeLog(
+        '打断',
+        `本地口令退出（不经模型）source=${source}：「${cleaned.slice(0, 40)}」`,
+      )
+    } catch {
+      /* ignore */
+    }
+    await closeXiaomiVoice({ reason: 'voice' })
+    try {
+      const { toast } = await import('../components/toast.js')
+      toast('已退出语音', 'info')
+    } catch {
+      /* ignore */
+    }
+    return 'exited'
+  }
+
+  if (isStopTtsOnlyCommand(cleaned)) {
+    try {
+      const { voiceFeLog } = await import('./xiaomi-voice/voice-file-log.js')
+      voiceFeLog('打断', `本地口令停播报 source=${source}：「${cleaned.slice(0, 40)}」`)
+    } catch {
+      /* ignore */
+    }
+    try {
+      const { stopAllAssistantSpeech } = await import('./speech-client.js')
+      stopAllAssistantSpeech({ reason: 'user-stop-tts', forceFrame: true })
+    } catch {
+      /* ignore */
+    }
+    try {
+      const { stopXiaomiFrameLocalPlayback } = await import('./xiaomi-voice/index.js')
+      stopXiaomiFrameLocalPlayback?.({ reason: 'user-stop-tts' })
+    } catch {
+      /* ignore */
+    }
+    try {
+      const { toast } = await import('../components/toast.js')
+      toast('已停止播报', 'info')
+    } catch {
+      /* ignore */
+    }
+    return 'tts_stopped'
+  }
+
+  return 'none'
 }
 
 /**

@@ -23,6 +23,14 @@ import {
   isPlatformToolCall,
   PlatformToolCallBlock,
 } from "@/ToolCallBlocks/renderers/platform.js";
+import {
+  isTasksToolCall,
+  TasksToolCallBlock,
+} from "@/ToolCallBlocks/renderers/tasks.js";
+import {
+  isAssetsToolCall,
+  AssetsToolCallBlock,
+} from "@/ToolCallBlocks/renderers/assets.js";
 import { GetWorkflowRunToolCallBlock } from "@/ToolCallBlocks/renderers/get-workflow-run.js";
 import { ListModelsToolCallBlock } from "@/ToolCallBlocks/renderers/list-models.js";
 import { ListSavedWorkflowsToolCallBlock } from "@/ToolCallBlocks/renderers/list-saved-workflows.js";
@@ -133,10 +141,16 @@ export function resolveToolCallRenderer(context: ToolCallBlockRenderContext) {
     return McpToolCallBlock;
   }
 
-  // platform 不在 ZCode 已知 family 表里，会掉进 Fallback →「Platform / 工具调用 / 已执行」。
-  // 按名认领，用注册表中文 action 枚举。
+  // platform / tasks / assets 不在 ZCode 已知 family 表里，会掉进 Fallback →
+  // 「工具调用 / 执行中」。按名认领，用 action 中文枚举。
   if (isPlatformToolCall(context.toolCallNode.toolCall)) {
     return PlatformToolCallBlock;
+  }
+  if (isTasksToolCall(context.toolCallNode.toolCall)) {
+    return TasksToolCallBlock;
+  }
+  if (isAssetsToolCall(context.toolCallNode.toolCall)) {
+    return AssetsToolCallBlock;
   }
 
   // 当前工具名已经是固定集合。继续用正则扫 kind/title 的话，

@@ -156,23 +156,19 @@ export async function runVoiceFollowUpRounds(opts) {
         break
       }
 
-      // 「停止/关闭/退出」：客户端直接关舞台；「停止播报」仅停 TTS。
+      // 「停止/关闭/退出」：客户端直接关舞台；「停止播报」仅停 TTS（不经模型）。
       try {
-        const { isXiaomiVoiceExitCommand, closeXiaomiVoice } = await import('./xiaomi-voice-close.js')
-        if (isXiaomiVoiceExitCommand(cleaned)) {
-          await closeXiaomiVoice({ reason: 'voice' })
-          break
-        }
-        const { isStopListenCommand, isStopTtsOnlyCommand } = await import('./voice-listen-control.js')
+        const { tryHandleXiaomiVoiceLocalCommand } = await import('./xiaomi-voice-close.js')
+        const handled = await tryHandleXiaomiVoiceLocalCommand(cleaned, {
+          source: 'voice-follow-up',
+        })
+        if (handled === 'exited') break
+        if (handled === 'tts_stopped') continue
+        const { isStopListenCommand } = await import('./voice-listen-control.js')
         if (isStopListenCommand(cleaned)) {
           const { pauseConversationListening } = await import('./background-voice.js')
           await pauseConversationListening({ reason: 'voice' })
           break
-        }
-        if (isStopTtsOnlyCommand(cleaned)) {
-          const { stopAssistantVoicePlayback } = await import('./background-voice.js')
-          await stopAssistantVoicePlayback()
-          continue
         }
       } catch {
         /* ignore */

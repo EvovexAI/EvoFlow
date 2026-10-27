@@ -288,13 +288,13 @@ async function _startXiaomiFramePipelineInner(opts = {}) {
         _turnEndAt = performance.now()
         _turnEndWall = formatVoiceLocalTs()
         _turnAwaitingPlay = text
-        // 定稿上屏（立即落盘，不等 120ms 合并）
+        // 定稿上屏（立即落盘，不等 120ms 合并）——本地口令也可上字幕，但绝不发给模型
         noteVoicePanelDisplay(text, { immediate: true, source: 'turn_end定稿' })
         void import('../background-voice-bridge.js').then((b) => {
           b.updateVoicePartialText?.(text)
         })
         _logDialogue(`用户说完定稿：「${text}」 定稿于=${_turnEndWall} TRACE=${tid}`)
-        void _enqueueTurn(text)
+        void _handleTurnEndLocalOrEnqueue(text)
       } else {
         noteVoicePanelDisplay('', { immediate: true, source: 'turn_end空' })
         _logDialogue('用户输入为空（turn_end 无文本）→ 本轮不发送')
@@ -549,9 +549,63 @@ async function _abortModelRunForBargeIn() {
   }
 }
 
+/**
+ * Frame ASR 定稿：先走本地口令（停止/退出/停播报），命中则中断任务且不 chatSend。
+ * @param {string} text
+ */
+async function _handleTurnEndLocalOrEnqueue(text) {
+  const t = String(text || '').trim()
+  if (!t) return
+  try {
+    const { tryHandleXiaomiVoiceLocalCommand } = await import('../xiaomi-voice-close.js')
+    const handled = await tryHandleXiaomiVoiceLocalCommand(t, { source: 'frame-turn_end' })
+    if (handled === 'exited') {
+      // 关舞台会 teardown 管线；清排队，防迟到 enqueue 再发问
+      _pendingTurns.length = 0
+      _sending = false
+      _awaitingReply = false
+      _turnAwaitingPlay = ''
+      _logDialogue(`本地口令退出（不经模型）：「${t}」`)
+      return
+    }
+    if (handled === 'tts_stopped') {
+      _logDialogue(`本地口令停播报（不经模型）：「${t}」`)
+      _refreshTray()
+      return
+    }
+  } catch (e) {
+    voiceFeLog('打断', `本地口令闸失败，回退发问：${e?.message || e}`)
+  }
+  await _enqueueTurn(t)
+}
+
 async function _enqueueTurn(text) {
   const t = String(text || '').trim()
   if (!t) return
+  // 双保险：排队迟到句若是退出口令，也绝不发给模型（避免绕过 turn_end 闸）
+  try {
+    const { isXiaomiVoiceExitCommand } = await import('../xiaomi-voice-close.js')
+    const { isStopTtsOnlyCommand } = await import('../voice-listen-control.js')
+    if (isXiaomiVoiceExitCommand(t) || isStopTtsOnlyCommand(t)) {
+      voiceFeLog('用户输入', `排队句命中本地口令 → 改走闸门：「${t.slice(0, 40)}」`)
+      // 直接走闸门，勿再 _handleTurnEndLocalOrEnqueue→_enqueueTurn 递归
+      const { tryHandleXiaomiVoiceLocalCommand } = await import('../xiaomi-voice-close.js')
+      const handled = await tryHandleXiaomiVoiceLocalCommand(t, { source: 'frame-enqueue' })
+      if (handled === 'exited') {
+        _pendingTurns.length = 0
+        _sending = false
+        _awaitingReply = false
+        _turnAwaitingPlay = ''
+        return
+      }
+      if (handled === 'tts_stopped') {
+        _refreshTray()
+        return
+      }
+    }
+  } catch {
+    /* ignore — 下方正常发问 */
+  }
   if (_sending) {
     // ASR 定稿会连推近义句：只保留最新一句，别堆成队列=5 连发
     _pendingTurns.length = 0
@@ -568,6 +622,19 @@ async function _sendTurn(text) {
     _pendingTurns.length = 0
     _pendingTurns.push(text)
     return
+  }
+  // 发送前最后一道：退出/停播报口令永不进模型
+  try {
+    const { tryHandleXiaomiVoiceLocalCommand } = await import('../xiaomi-voice-close.js')
+    const handled = await tryHandleXiaomiVoiceLocalCommand(text, { source: 'frame-sendTurn' })
+    if (handled === 'exited' || handled === 'tts_stopped') {
+      _pendingTurns.length = 0
+      _awaitingReply = false
+      _refreshTray()
+      return
+    }
+  } catch {
+    /* ignore */
   }
   _sending = true
   _awaitingReply = true

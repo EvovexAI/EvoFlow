@@ -161,6 +161,10 @@ export function enterXwVoiceMode(opts: EnterXwVoiceModeOpts = {}): void {
     .catch(() => {
       afterXiaomiSessionAdopted(expandRight)
     })
+  // 进场 / 唤醒重进：prefer 小V + 会话强制关思考（语音要快回）
+  void import('./xiaomi-voice-defaults.js')
+    .then((m) => m.ensureXiaomiVoiceReplyOn())
+    .catch(() => {})
   if (isXwVoiceMode()) {
     // 再进语音（唤醒）：仍先藏状态卡，等本轮平台工具再放行
     clearXwVoiceSummary()
@@ -178,10 +182,6 @@ export function enterXwVoiceMode(opts: EnterXwVoiceModeOpts = {}): void {
     source: 'enterXwVoiceMode',
     reason: expandRight ? 'enter' : 'enter-left-only',
   })
-  // 默认开语音播报 + prefer 小V（火山 TTS 已配即可听会说）
-  void import('./xiaomi-voice-defaults.js')
-    .then((m) => m.ensureXiaomiVoiceReplyOn())
-    .catch(() => {})
 }
 
 /**

@@ -136,12 +136,40 @@ export function xiaomiVoiceReplySnapshot(settingsEnabled) {
 }
 
 /**
+ * 语音进场：会话 context 强制关思考（与 chatSend voice 硬闸对齐，避免模型慢回）。
+ * 失败不阻断进场。
+ */
+async function ensureXiaomiVoiceThinkingOff() {
+  try {
+    const { ensureXiaomiSession, XIAOMI_AGENT } = await import(
+      '../components/global-assistant/assistant-session.js'
+    )
+    const { api } = await import('./tauri-api.js')
+    // 语音热路径：勿 reloadHistory，只保证 session + context 关思考
+    const key = await ensureXiaomiSession({ reloadHistory: false })
+    if (!key) return
+    await api.chatUpdateContext(key, {
+      agent_name: XIAOMI_AGENT,
+      agent_id: XIAOMI_AGENT,
+      xiaomi_global_assistant: true,
+      thinking_enabled: false,
+      thinking_type: 'disabled',
+      reasoning_effort: 'minimum',
+    })
+    xiaomiVoiceLog('ensure: thinking_enabled=false（语音快回）')
+  } catch (e) {
+    console.warn('[xiaomi-voice] ensure thinking off failed', e?.message || e)
+  }
+}
+
+/**
  * 打开小V 语音主场时调用：prefer 小V（朗读靠 prefer/xwVoice，不持久改全局播报开关）。
  * @returns {Promise<boolean>} 是否已具备朗读条件（设置开或本回合强制开）
  */
 export async function ensureXiaomiVoiceReplyOn() {
   setPreferXiaomiVoice(true)
   xiaomiVoiceLog('ensure: preferXiaomiVoice=true（ASR 将走小V）')
+  void ensureXiaomiVoiceThinkingOff()
 
   let speechOk = false
   let speechDetail = {}

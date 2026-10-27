@@ -202,6 +202,7 @@ export default defineConfig({
       'tests/browser-panel-node-repl-intent.test.js',
       'tests/platform-feedback.test.js',
       'tests/close-removed-entity-stage.test.js',
+      'tests/builtin-action-labels.test.js',
       'tests/permission-tier.test.js',
       'tests/chat-host-route-toggle.test.js',
       'tests/idle-nav-warm.test.js',
