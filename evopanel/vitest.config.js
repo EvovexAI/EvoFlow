@@ -116,6 +116,7 @@ export default defineConfig({
       'tests/resolve-live-stream-activity.test.js',
       'tests/session-runtime-store.test.js',
       'tests/session-rows-cap.test.js',
+      'tests/user-timing-guard.test.js',
       'tests/bounded-buffer.test.js',
       'tests/session-execution.test.js',
       'tests/session-list-pin.test.js',
