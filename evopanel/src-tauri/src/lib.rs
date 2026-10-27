@@ -7,7 +7,7 @@ mod voice_hotkey;
 
 use commands::{
     app_server, assistant, backend, boot_cycle, browser_embed, browser_embed_bridge, config,
-    gateway, logs, mcp_market, ui_extensions, update, voice_overlay,
+    gateway, logs, mcp_market, ui_extensions, update, voice_overlay, wake_kws,
 };
 /// Windows-only: expose WebView2 CDP commands directly to Python over HTTP invoke.
 #[cfg(target_os = "windows")]
@@ -31,6 +31,7 @@ pub fn run() {
     tauri::Builder::default()
         .manage(browser_embed::BrowserEmbedState::default())
         .manage(browser_embed_bridge::EmbedBridge::default())
+        .manage(wake_kws::WakeKwsState::default())
         .manage(std::sync::Arc::new(
             browser_embed::BrowserCdpBroker::default(),
         ))
@@ -342,6 +343,7 @@ pub fn run() {
             logs::append_frontend_log,
             logs::append_plugin_control_log,
             logs::append_stream_compare_log,
+            logs::append_right_stage_log,
             boot_cycle::boot_cycle_mark,
             boot_cycle::boot_cycle_info,
             mcp_market::mcp_market_search,
@@ -404,6 +406,12 @@ pub fn run() {
             voice_overlay::voice_overlay_processing,
             voice_overlay::voice_overlay_hide,
             voice_overlay::voice_overlay_set_complete,
+            wake_kws::wake_kws_start,
+            wake_kws::wake_kws_feed_pcm,
+            wake_kws::wake_kws_pause,
+            wake_kws::wake_kws_resume,
+            wake_kws::wake_kws_stop,
+            wake_kws::wake_kws_is_running,
             browser_embed::browser_embed_supported,
             browser_embed::browser_embed_exists,
             browser_embed::browser_embed_upsert,

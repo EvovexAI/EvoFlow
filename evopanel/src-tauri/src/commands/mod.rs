@@ -21,6 +21,7 @@ pub mod logs;
 pub mod mcp_market;
 pub mod update;
 pub mod voice_overlay;
+pub mod wake_kws;
 
 /// Per-profile subdirectory under `evoflow_dir()`. Lives next to the per-profile
 /// `evopanel.json`, `backend-runtime.json`, and EVOFLOW_HOME. Multiple profiles may

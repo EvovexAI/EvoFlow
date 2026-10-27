@@ -1221,14 +1221,16 @@ html.dark .react-chat-aside-segment-btn.is-active {
   align-items: center;
   gap: 6px;
   width: 100%;
-  height: 28px;
+  height: var(--shell-item-h, 30px);
   padding: 0 8px 0 10px;
   border: 1px solid var(--shell-border, #e8eaf1);
   border-radius: 8px;
   background: transparent;
   color: var(--shell-text-body, #42475a);
-  font-size: var(--font-size-xs, 10px);
-  font-weight: 500;
+  font-family: inherit;
+  font-size: var(--shell-font-size, 13px);
+  font-weight: var(--shell-item-fw, 400);
+  letter-spacing: -0.005em;
   line-height: 1.25;
   cursor: pointer;
   text-align: left;
@@ -1345,8 +1347,10 @@ html.dark .react-chat-aside-ws-menu {
   border-radius: 7px;
   background: transparent;
   color: var(--shell-text-body, #42475a);
-  font-size: var(--font-size-xs, 10px);
-  font-weight: 500;
+  font-family: inherit;
+  font-size: var(--shell-font-size, 13px);
+  font-weight: var(--shell-item-fw, 400);
+  letter-spacing: -0.005em;
   line-height: 1.25;
   text-align: left;
   cursor: pointer;
@@ -34991,12 +34995,25 @@ html[data-theme='dark'] .react-chat-stage-tab.is-active {
   border-radius: 8px;
   background: transparent;
   color: var(--shell-text-muted, #6b7280);
-  font-size: 12px;
-  font-weight: 600;
+  font-family: inherit;
+  font-size: var(--shell-font-size, 13px);
+  font-weight: var(--shell-item-fw, 400);
+  letter-spacing: -0.005em;
+  line-height: 1.25;
   text-align: left;
   cursor: pointer;
   outline: none;
   transition: background-color var(--dur-fast) ease-out, color var(--dur-fast) ease-out;
+}
+
+/* 工作区/文件夹组头标题：与侧栏 nav 同一套 shell 字号/字重 */
+.react-chat-session-ws-group-label {
+  font-family: inherit;
+  font-size: var(--shell-font-size, 13px);
+  font-weight: var(--shell-item-fw, 400);
+  letter-spacing: -0.005em;
+  line-height: 1.25;
+  color: var(--shell-text-body, #42475a);
 }
 
 .react-chat-session-ws-group-header:hover {

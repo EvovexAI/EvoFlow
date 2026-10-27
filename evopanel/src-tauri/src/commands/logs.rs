@@ -22,6 +22,7 @@ fn log_prefix(log_name: &str) -> &'static str {
         "guardian-backup" => "guardian-backup",
         "config-audit" => "config-audit",
         "startup" => "startup",
+        "right-stage" => "right-stage",
         _ => "evoflow-gateway",
     }
 }
@@ -274,4 +275,26 @@ fn append_stream_compare_log_impl(
         format!("[{ts}] {msg}\n")
     };
     super::log_files::append_log_file_line(&path, &line)
+}
+
+/// 右栏 / platform 侧栏专项日志：`logs/right-stage-YYYY-MM-DD.log`
+/// 记录平台工具调用、触发链路、右栏是否打开及是否正确。
+#[tauri::command]
+pub async fn append_right_stage_log(message: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || append_right_stage_log_impl(message))
+        .await
+        .map_err(|e| format!("append_right_stage_log join failed: {e}"))?
+}
+
+fn append_right_stage_log_impl(message: String) -> Result<(), String> {
+    let dir = log_dir();
+    let ts = Local::now().format("%Y-%m-%d %H:%M:%S%.3f");
+    let msg = message
+        .replace('\r', " ")
+        .replace('\n', " ")
+        .chars()
+        .take(16_000)
+        .collect::<String>();
+    let line = format!("[{ts}] {msg}\n");
+    super::log_files::append_daily_log_line(&dir, "right-stage", &line)
 }

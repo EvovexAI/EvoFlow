@@ -18,6 +18,7 @@ import { V4WorkspaceFileTreePane } from './v4-workspace-file-tree-pane.js'
 import { V4SubagentTranscriptPane } from './v4-subagent-transcript-pane.js'
 import { V4CollabSubtaskTranscriptPane } from './v4-collab-subtask-transcript-pane.js'
 import { V4EmployeeProcessPane } from './v4-employee-process-pane.js'
+import { resolveEmployeeProcessTabTitle } from '../../../lib/right-stage/open-employee-process-stage.js'
 import { V4SessionPaneBridge } from '../../v4/V4SessionPaneBridge.js'
 import {
   openCollabSubtaskInRightStage,
@@ -446,8 +447,12 @@ export function renderRightStageBody(
     const agentCode = String(data.agentCode || '').trim()
     if (!agentCode) return null
     const roleName = String(data.roleName || '').trim()
-    const empTitle =
-      String(surface.title || data.title || roleName || agentCode).trim() || '执行过程'
+    // 标题只用岗位/员工中文名；禁止把 agent_code 当标题传下去
+    const empTitle = resolveEmployeeProcessTabTitle({
+      title: String(surface.title || data.title || '').trim(),
+      roleName,
+      agentCode,
+    })
     return sidePanelHeavyMount ? (
       <V4EmployeeProcessPane
         agentCode={agentCode}
@@ -460,6 +465,7 @@ export function renderRightStageBody(
         employeeSessionKeyHint={String(
           data.employeeSessionKey || data.sessionKey || data.session_key || '',
         ).trim() || undefined}
+        pendingSendMessage={String(data.pendingSendMessage || '').trim() || undefined}
         onClose={() => rightStageStore.closeTab(tabKeyOf(surface))}
       />
     ) : (

@@ -1542,7 +1542,7 @@ export function ShellSessionList({
                                 <FolderOpenIcon className='size-4 text-foreground-subtle' />
                               )}
                             </span>
-                            <span className='min-w-0 flex-1 truncate text-[13px] text-foreground-subtle'>
+                            <span className='react-chat-session-ws-group-label min-w-0 flex-1 truncate'>
                               {section.label}
                             </span>
                             <span className='hidden shrink-0 items-center gap-1 group-hover/ws:flex'>

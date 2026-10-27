@@ -5,13 +5,16 @@
 import {
   bargeInXiaomiFrame,
   connectXiaomiFrameSession,
+  duckXiaomiFramePlayback,
   flushXiaomiAsr,
   isXiaomiFramePlaying,
   isXiaomiFrameSessionActive,
+  isXiaomiPcmUplinkHeld,
   sendXiaomiAssistantBegin,
   sendXiaomiAssistantDelta,
   sendXiaomiAssistantEnd,
   sendXiaomiPcm,
+  setXiaomiPcmUplinkHold,
   setXiaomiFirstLocalPlayHandler,
   setXiaomiFrameEventHandler,
   setXiaomiPlaybackIdleHandler,
@@ -21,7 +24,12 @@ import {
   sendXiaomiClientPhase,
   forceXiaomiOpenMic,
   adoptXiaomiFrameSocket,
+  isXiaomiFrameSoftPaused,
+  pauseXiaomiFrameLocalPlayback,
+  resumeXiaomiFrameLocalPlayback,
+  stopXiaomiFrameLocalPlayback,
   stopXiaomiFrameSession,
+  unduckXiaomiFramePlayback,
 } from './session-client.js'
 import {
   noteVoiceLogPathOnce,
@@ -217,6 +225,8 @@ function _peelCommittedAsrPrefix(text) {
 
 /** 思考/播报中不应再改「你」区；仅允许空串清屏 */
 function _shouldHoldUserCaption() {
+  // 软打断探测窗：需要看见 ASR 才能确认是真抢话还是误触
+  if (_softBargeProbing) return false
   if (_sending || _awaitingReply) return true
   const phase = getVoicePhase()
   if (phase === 'thinking' || phase === 'speaking') return true
@@ -382,6 +392,10 @@ async function _startXiaomiFramePipelineInner(opts = {}) {
     // 确认句开播 ≠ 正文结束：保持 _awaitingReply，tray 进播报
     _setTray('speaking')
     _syncPhase('first_local_play')
+    // 本地开播即停上行：喇叭声不进 ASR；打断改本地音量 duck（见 _onLocalBargePeak）
+    setXiaomiPcmUplinkHold(true, 'first_local_play')
+    _localBargeSpeakSince = Date.now()
+    _resetLocalBarge()
     // Frame 本地开播时挂起 continuous ASR，避免回声触发 legacy watchdog stall
     void import('../background-voice.js')
       .then((m) => m.notifyTTSStarted?.())
@@ -419,6 +433,8 @@ async function _startXiaomiFramePipelineInner(opts = {}) {
         playing: isXiaomiFramePlaying(),
       })
       _refreshTray()
+      // 确认句已播完、正文未到：需放行 PCM 才能听「退出/停止」
+      setXiaomiPcmUplinkHold(false, 'playback_idle_awaiting_exit_listen')
       _armExitListenWhileThinking('playback_idle_awaiting')
       return
     }
@@ -446,6 +462,9 @@ async function _startXiaomiFramePipelineInner(opts = {}) {
       }
       const peeled = _peelCommittedAsrPrefix(raw)
       _partial = peeled
+      if (_softBargeProbing && peeled && peeled.trim().length >= 4) {
+        _confirmSoftBargeWithUserSpeech(peeled)
+      }
       // 上屏字 + 上屏时间走面板日志（updateVoicePartialText → noteVoicePanelDisplay）
       void import('../background-voice-bridge.js').then((b) => {
         b.updateVoicePartialText?.(peeled)
@@ -466,6 +485,12 @@ async function _startXiaomiFramePipelineInner(opts = {}) {
         }
       }
       _partial = ''
+      if (_softBargeProbing && (text || raw)) {
+        if (_confirmSoftBargeWithUserSpeech(text || raw)) {
+          if (text) void _handleTurnEndLocalOrEnqueue(text)
+          return
+        }
+      }
       if (raw && !text) {
         // 剥完变空：仍可能是粘连里夹了「退出/停止」——思考期靠这条才能停
         void import('../xiaomi-voice-close.js')
@@ -556,6 +581,10 @@ async function _startXiaomiFramePipelineInner(opts = {}) {
         playText,
         `Frame tts_end seq=${m.seq ?? ''}${m.cancelled ? '（已取消）' : ''}（wire 完，未必本地听完）`,
       )
+      // wire 完后端进入 pending_unmute；本地往往还在播 → 停上行，避免尾音灌进 mute 回灌缓冲
+      if (isXiaomiFramePlaying() || getVoicePhase() === 'speaking') {
+        setXiaomiPcmUplinkHold(true, 'tts_end_local_still_playing')
+      }
       // 不在这里切 recording —— 等本地播完 idle
       _refreshTray()
     }
@@ -660,7 +689,9 @@ async function _startXiaomiFramePipelineInner(opts = {}) {
     // Frame 只上行 PCM、不听本地返送：关 AEC，避免浏览器把输入压成近静音（peak≈0.007）
     _stream = await navigator.mediaDevices.getUserMedia({
       audio: {
-        echoCancellation: false,
+        // 对话麦开轻量 AEC，压外放回声；唤醒耳仍关 AEC（见 wake-word-native）。
+        // 采麦经 gain=0 哑接 destination，避免「麦进喇叭 + AEC → 输入被吃光」。
+        echoCancellation: true,
         noiseSuppression: true,
         autoGainControl: true,
         channelCount: 1,
@@ -689,6 +720,7 @@ async function _startXiaomiFramePipelineInner(opts = {}) {
       if (Math.abs(s) > peak) peak = Math.abs(s)
       i16[i] = s < 0 ? s * 0x8000 : s * 0x7fff
     }
+    _lastMicPeak = peak
     _pcmChunks += 1
     if (peak > _pcmPeak) _pcmPeak = peak
     // 约每 2s 打一次能量，确认不是「推了全零 PCM」
@@ -698,6 +730,12 @@ async function _startXiaomiFramePipelineInner(opts = {}) {
         `PCM 能量 chunks=${_pcmChunks} peak=${_pcmPeak.toFixed(4)}（<0.01 基本是静音/AEC 吃掉）`,
       )
       _pcmPeak = 0
+    }
+    // 播报期本地 duck/打断（上行 hold 时后端 VAD 听不见）
+    try {
+      _onLocalBargePeak(peak)
+    } catch {
+      /* ignore */
     }
     sendXiaomiPcm(i16.buffer)
   }
@@ -1070,6 +1108,13 @@ export function stopXiaomiFramePipeline() {
     window.clearTimeout(_listenUnmuteTimer)
     _listenUnmuteTimer = 0
   }
+  setXiaomiPcmUplinkHold(false, 'pipeline_stop')
+  _clearSoftBargeResumeTimer()
+  _softBargeProbing = false
+  _resetLocalBarge('pipeline_stop')
+  _localBargeSpeakSince = 0
+  _lastMicPeak = 0
+  _localBargeBusy = false
   _turnEndAt = 0
   _turnEndWall = ''
   _turnAwaitingPlay = ''
@@ -1164,8 +1209,194 @@ let _assistantSegmentEndSent = false
 let _listenUnmuteTimer = 0
 /** @type {number} */
 let _listenGraceUntilMs = 0
-/** 近尾预切后喇叭还有尾音；过长宽限会误丢用户紧接着说的话（日志 17:30） */
-const LISTEN_UNMUTE_GRACE_MS = 800
+/**
+ * 放麦：最短宽限 + 能量门控（麦峰落到回声基线下才 unmute），封顶避免拖死。
+ * 宽限内仍 hold PCM 上行。
+ */
+const LISTEN_UNMUTE_MIN_MS = 1200
+const LISTEN_UNMUTE_MAX_MS = 2800
+const LISTEN_QUIET_PEAK = 0.045
+const LISTEN_QUIET_NEED = 3
+
+// ─── 播报期本地音量打断（PCM 上行 hold 时 VAD 听不见，改看麦峰） ───
+const LOCAL_BARGE_THRESHOLD = 0.09
+const LOCAL_BARGE_WARMUP_MS = 700
+const LOCAL_BARGE_ECHO_MARGIN = 0.035
+const LOCAL_BARGE_HARD_VOL = 0.2
+const LOCAL_DUCK_TRIGGER = 3
+const LOCAL_DUCK_SUSTAIN = 10
+const LOCAL_DUCK_DECAY = 6
+const LOCAL_DUCK_MAX_MS = 1500
+/** 软打断后无有效 ASR → 续播 */
+const LOCAL_SOFT_BARGE_RESUME_MS = 3500
+
+/** @type {number} */
+let _lastMicPeak = 0
+/** @type {number} */
+let _ttsEchoFloor = 0
+/** @type {number} */
+let _localBargeSpeakSince = 0
+let _localBargeFrames = 0
+let _localDuckActive = false
+let _localDuckHigh = 0
+let _localDuckLow = 0
+let _localDuckStart = 0
+let _localBargeBusy = false
+/** @type {ReturnType<typeof setTimeout> | null} */
+let _softBargeResumeTimer = null
+let _softBargeProbing = false
+
+function _clearSoftBargeResumeTimer() {
+  if (_softBargeResumeTimer) {
+    clearTimeout(_softBargeResumeTimer)
+    _softBargeResumeTimer = null
+  }
+}
+
+function _resetLocalBarge(reason = '') {
+  _localBargeFrames = 0
+  _localDuckActive = false
+  _localDuckHigh = 0
+  _localDuckLow = 0
+  _localDuckStart = 0
+  _ttsEchoFloor = 0
+  if (reason) {
+    try {
+      unduckXiaomiFramePlayback()
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+/**
+ * 软打断探测期内出现有效用户话 → 硬停播并放麦。
+ * @param {string} [text]
+ */
+function _confirmSoftBargeWithUserSpeech(text = '') {
+  if (!_softBargeProbing && !isXiaomiFrameSoftPaused()) return false
+  const t = String(text || '').trim()
+  if (t && t.length < 2) return false
+  _clearSoftBargeResumeTimer()
+  _softBargeProbing = false
+  voiceFeLog('打断', `软打断确认有用户话 → 硬停播「${t.slice(0, 40)}」`)
+  try {
+    stopXiaomiFrameLocalPlayback({ reason: 'local-vol-barge-confirm' })
+  } catch {
+    /* ignore */
+  }
+  _awaitingReply = false
+  _heardBodySpeak = false
+  _scheduleListenUnmute('local_vol_barge_confirm')
+  _refreshTray()
+  return true
+}
+
+function _armSoftBargeResumeWatch() {
+  _clearSoftBargeResumeTimer()
+  _softBargeProbing = true
+  _softBargeResumeTimer = setTimeout(() => {
+    _softBargeResumeTimer = null
+    if (!_softBargeProbing) return
+    _softBargeProbing = false
+    if (!isXiaomiFrameSoftPaused()) return
+    voiceFeLog('打断', `软打断 ${LOCAL_SOFT_BARGE_RESUME_MS}ms 无 ASR → 续播`)
+    try {
+      resumeXiaomiFrameLocalPlayback({ reason: 'no-asr-resume' })
+    } catch {
+      /* ignore */
+    }
+    setXiaomiPcmUplinkHold(true, 'soft_barge_false_resume')
+    _localBargeSpeakSince = Date.now()
+    _refreshTray()
+  }, LOCAL_SOFT_BARGE_RESUME_MS)
+}
+
+function _learnEchoFloor(peak, { force = false } = {}) {
+  const raw = Math.max(0, Number(peak) || 0)
+  if (!force && raw > LOCAL_BARGE_THRESHOLD) return
+  const sample = Math.min(raw, LOCAL_BARGE_THRESHOLD)
+  _ttsEchoFloor = _ttsEchoFloor ? _ttsEchoFloor * 0.9 + sample * 0.1 : sample
+}
+
+function _isLocalBargeCandidate(peak) {
+  if (peak <= LOCAL_BARGE_THRESHOLD) return false
+  const guard = Math.max(LOCAL_BARGE_THRESHOLD, _ttsEchoFloor + LOCAL_BARGE_ECHO_MARGIN)
+  return peak >= LOCAL_BARGE_HARD_VOL || peak > guard
+}
+
+/**
+ * 播报 + PCM hold 时：两阶段 duck → 软暂停（无 ASR 则续播；有用户话再硬停）。
+ * @param {number} peak 0–1
+ */
+function _onLocalBargePeak(peak) {
+  if (!_running || _localBargeBusy || _softBargeProbing) return
+  if (!isXiaomiFramePlaying() && getVoicePhase() !== 'speaking') {
+    if (_localDuckActive) _resetLocalBarge('not_speaking')
+    return
+  }
+  // 仅上行 hold 时走本地打断；已放麦则交给后端 VAD
+  if (!isXiaomiPcmUplinkHeld()) {
+    if (_localDuckActive) _resetLocalBarge('uplink_open')
+    return
+  }
+  if (!_localBargeSpeakSince) _localBargeSpeakSince = Date.now()
+  const warmed = Date.now() - _localBargeSpeakSince > LOCAL_BARGE_WARMUP_MS
+  if (!warmed) {
+    _learnEchoFloor(peak, { force: true })
+    return
+  }
+  if (!_localDuckActive) _learnEchoFloor(peak)
+  const cand = _isLocalBargeCandidate(peak)
+  if (!_localDuckActive) {
+    if (cand) {
+      if (++_localBargeFrames >= LOCAL_DUCK_TRIGGER) {
+        _localBargeFrames = 0
+        _localDuckActive = true
+        _localDuckStart = Date.now()
+        _localDuckHigh = 0
+        _localDuckLow = 0
+        duckXiaomiFramePlayback(0.22)
+        voiceFeLog('打断', `本地音量 duck（peak=${peak.toFixed(3)} floor=${_ttsEchoFloor.toFixed(3)}）`)
+      }
+    } else {
+      _localBargeFrames = 0
+    }
+    return
+  }
+  const elapsed = Date.now() - _localDuckStart
+  if (cand) {
+    _localDuckHigh += 1
+    _localDuckLow = 0
+    if (_localDuckHigh >= LOCAL_DUCK_SUSTAIN) {
+      _localBargeBusy = true
+      _resetLocalBarge()
+      voiceFeLog('打断', `本地音量确认 → 软暂停探测 ASR peak=${peak.toFixed(3)}`)
+      try {
+        pauseXiaomiFrameLocalPlayback({ reason: 'local-vol-soft-barge' })
+      } catch {
+        /* ignore */
+      }
+      // 短暂放行上行，看有没有真用户话；无则续播
+      setXiaomiPcmUplinkHold(false, 'soft_barge_probe')
+      try {
+        sendXiaomiClientListening({ force: true, purpose: 'exit_listen' })
+      } catch {
+        /* ignore */
+      }
+      _armSoftBargeResumeWatch()
+      _refreshTray()
+      _localBargeBusy = false
+    }
+    return
+  }
+  _localDuckLow += 1
+  _localDuckHigh = 0
+  if (_localDuckLow >= LOCAL_DUCK_DECAY || elapsed >= LOCAL_DUCK_MAX_MS) {
+    voiceFeLog('打断', '本地 duck 消退 → 恢复音量（判为噪音）')
+    _resetLocalBarge('noise')
+  }
+}
 
 /** 历史确认短句回声（应声已关；仍剥残留「好的/收到」） */
 const _TURN_ACK_ECHO = ['好的', '收到']
@@ -1240,20 +1471,62 @@ function _armExitListenWhileThinking(reason = 'think') {
   sendXiaomiClientListening({ force: true, purpose: 'exit_listen' })
 }
 
+function _finishListenUnmute(reason = 'grace') {
+  _listenUnmuteTimer = 0
+  _listenGraceUntilMs = 0
+  _resetLocalBarge('unmute')
+  if (!_running || _awaitingReply || isXiaomiFramePlaying()) return
+  if (!canUnmuteStt()) return
+  setXiaomiPcmUplinkHold(false, `listen_unmute:${reason}`)
+  voiceFeLog(
+    '管线',
+    `放麦（${reason}）peak=${_lastMicPeak.toFixed(3)} floor=${_ttsEchoFloor.toFixed(3)} → client_listening`,
+  )
+  flushXiaomiClientListeningIfIdle()
+}
+
 function _scheduleListenUnmute(reason = 'grace') {
-  _listenGraceUntilMs = Date.now() + LISTEN_UNMUTE_GRACE_MS
+  const startedAt = Date.now()
+  _listenGraceUntilMs = startedAt + LISTEN_UNMUTE_MAX_MS
+  setXiaomiPcmUplinkHold(true, `listen_grace:${reason}`)
+  // 保留 _ttsEchoFloor 给能量门控；只清 duck 状态
+  _localBargeFrames = 0
+  _localDuckActive = false
+  _localDuckHigh = 0
+  _localDuckLow = 0
+  try {
+    unduckXiaomiFramePlayback()
+  } catch {
+    /* ignore */
+  }
   if (_listenUnmuteTimer) {
     window.clearTimeout(_listenUnmuteTimer)
     _listenUnmuteTimer = 0
   }
-  _listenUnmuteTimer = window.setTimeout(() => {
+  let quietStreak = 0
+  const tick = () => {
     _listenUnmuteTimer = 0
-    _listenGraceUntilMs = 0
     if (!_running || _awaitingReply || isXiaomiFramePlaying()) return
     if (!canUnmuteStt()) return
-    voiceFeLog('管线', `放麦宽限结束（${reason}）→ client_listening`)
-    flushXiaomiClientListeningIfIdle()
-  }, LISTEN_UNMUTE_GRACE_MS)
+    const elapsed = Date.now() - startedAt
+    // 宽限内继续学一点地板，避免绝对阈值过松/过紧
+    _learnEchoFloor(_lastMicPeak, { force: _lastMicPeak < LOCAL_BARGE_THRESHOLD })
+    const quietCeil = Math.max(LISTEN_QUIET_PEAK, (_ttsEchoFloor || 0) + 0.02)
+    const quiet = _lastMicPeak <= quietCeil
+    if (elapsed >= LISTEN_UNMUTE_MIN_MS) {
+      if (quiet) quietStreak += 1
+      else quietStreak = 0
+      if (quietStreak >= LISTEN_QUIET_NEED || elapsed >= LISTEN_UNMUTE_MAX_MS) {
+        _finishListenUnmute(
+          quietStreak >= LISTEN_QUIET_NEED ? `${reason}+quiet` : `${reason}+max`,
+        )
+        return
+      }
+    }
+    _listenUnmuteTimer = window.setTimeout(tick, 100)
+  }
+  // 最短宽限后再开始判静音 streak（此前只 hold）
+  _listenUnmuteTimer = window.setTimeout(tick, Math.min(200, LISTEN_UNMUTE_MIN_MS))
 }
 
 function _noteFed(delta) {

@@ -1,0 +1,10 @@
+{
+  "name": "evoflow-kws-sidecar",
+  "private": true,
+  "version": "1.0.0",
+  "description": "EvoFlow wake-word KWS child process (sherpa-onnx in Node)",
+  "main": "kws-process.cjs",
+  "dependencies": {
+    "sherpa-onnx": "1.12.15"
+  }
+}

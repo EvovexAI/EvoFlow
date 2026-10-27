@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { normalizeRightStageKind } from '../../lib/right-stage/right-stage-types.js'
+import { EmployeeStageAvatar } from './EmployeeStageAvatar.js'
 import { XiaomiStageAvatar } from './XiaomiStageAvatar.js'
 
 /** kind → 16px 线性图标（lucide 风格，stroke 用 currentColor）。 */
@@ -88,9 +89,21 @@ const KIND_TAB_ICONS: Record<string, ReactNode> = {
   ),
 }
 
-export function KindTabIcon({ kind, faviconUrl }: { kind: string; faviconUrl?: string | null }) {
+export function KindTabIcon({
+  kind,
+  faviconUrl,
+  agentCode,
+  agentTitle,
+}: {
+  kind: string
+  faviconUrl?: string | null
+  /** employeeProcess 页签：显示该员工头像 */
+  agentCode?: string | null
+  agentTitle?: string | null
+}) {
   const k = normalizeRightStageKind(kind)
   const src = String(faviconUrl || '').trim()
+  const empCode = String(agentCode || '').trim()
   const [failed, setFailed] = useState(false)
   useEffect(() => {
     setFailed(false)
@@ -99,6 +112,17 @@ export function KindTabIcon({ kind, faviconUrl }: { kind: string; faviconUrl?: s
     return (
       <span className="react-chat-stage-tab-icon react-chat-stage-tab-icon--avatar" aria-hidden="true">
         <XiaomiStageAvatar size={14} />
+      </span>
+    )
+  }
+  if (k === 'employeeProcess' && empCode) {
+    return (
+      <span className="react-chat-stage-tab-icon react-chat-stage-tab-icon--avatar" aria-hidden="true">
+        <EmployeeStageAvatar
+          agentCode={empCode}
+          title={String(agentTitle || '').trim() || undefined}
+          size={14}
+        />
       </span>
     )
   }

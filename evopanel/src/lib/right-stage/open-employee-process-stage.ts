@@ -6,6 +6,7 @@
  */
 import { rightStageStore } from './right-stage-store.js'
 import { isTaskCenterStageSessionKey } from './task-center-stage-key.js'
+import { logRightStageTrigger } from './panel-set-debug-log.js'
 
 export type EmployeeProcessStagePayload = {
   taskId: string
@@ -16,6 +17,11 @@ export type EmployeeProcessStagePayload = {
   busy?: boolean
   /** 员工对话 session_key（chat_send / 续聊）；写入 tab.data 供面板直接发送 */
   employeeSessionKey?: string
+  /**
+   * 平台 chat_send 排队的首条用户消息。面板挂载后走与输入框同一套 handleSend
+   * （ensureThread → chatSend），不要在 sync 里另开一条发送链路。
+   */
+  pendingSendMessage?: string
 }
 
 export type OpenEmployeeProcessStageOpts = {
@@ -37,13 +43,15 @@ export function resolveEmployeeProcessTabTitle(payload: {
   roleName?: string | null
   agentCode?: string | null
 }): string {
+  const code = String(payload.agentCode || '').trim()
   for (const raw of [payload.roleName, payload.title]) {
     const s = String(raw || '').trim()
     if (!s || looksLikePathOrGeneric(s)) continue
+    // 不要用 agent_code 冒充标题（如 evoflow-fullstack-lead）
+    if (code && s.toLowerCase() === code.toLowerCase()) continue
     return s.slice(0, 48)
   }
-  const code = String(payload.agentCode || '').trim()
-  return code || '执行过程'
+  return '执行过程'
 }
 
 /**
@@ -108,6 +116,13 @@ export function openEmployeeProcessInRightStage(
       ? String(existing.title || '').trim()
       : title
 
+  const employeeSessionKey =
+    String(payload.employeeSessionKey || existing?.data?.employeeSessionKey || '').trim() ||
+    undefined
+  const pendingSendMessage =
+    String(payload.pendingSendMessage || '').trim() ||
+    String(existing?.data?.pendingSendMessage || '').trim() ||
+    undefined
   rightStageStore.show({
     kind: 'employeeProcess',
     id,
@@ -122,12 +137,40 @@ export function openEmployeeProcessInRightStage(
       title: keepTitle,
       roundId: String(payload.roundId || '').trim(),
       busy: payload.busy !== false,
-      employeeSessionKey:
-        String(payload.employeeSessionKey || existing?.data?.employeeSessionKey || '').trim() ||
-        undefined,
+      employeeSessionKey,
+      pendingSendMessage,
     },
   })
+  logRightStageTrigger(
+    'openEmployeeProcessInRightStage',
+    {
+      id,
+      key,
+      agentCode: code,
+      taskId: realTaskId || null,
+      live,
+      title: keepTitle,
+      roleName: roleName || null,
+      ownerSessionKey: sk || null,
+      employeeSessionKey: employeeSessionKey || null,
+      pendingSendLen: pendingSendMessage ? pendingSendMessage.length : 0,
+      hadExisting: Boolean(existing),
+    },
+    { store: rightStageStore },
+  )
   return id
+}
+
+/** 面板消费完 pending 首发后清掉，避免切回页签重复发送。 */
+export function clearEmployeeProcessPendingSend(
+  taskId: string,
+  opts?: { sessionKey?: string | null; agentCode?: string },
+): void {
+  const key = employeeProcessStageTabKey(taskId, opts?.sessionKey, opts?.agentCode)
+  if (!key) return
+  rightStageStore.patchTab(key, {
+    data: { pendingSendMessage: undefined },
+  })
 }
 
 /** 解析到真实岗位名后回写标签。 */

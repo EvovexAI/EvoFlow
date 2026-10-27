@@ -64,8 +64,13 @@ let _onPlaybackIdle = null
 /** 确认句播完但正文未到：延后 client_listening，避免思考期 unmute 误 barge */
 /** @type {(() => boolean) | null} */
 let _shouldDeferListening = null
-/** 本地停播后丢弃迟到 tts_*，直到下一轮 assistant_begin（白龙马 stopTTS 语义） */
+/** 本地停播后丢弃迟到 tts_*，直到下一轮 assistant_begin */
 let _dropIncomingAudio = false
+/**
+ * 播报 / 放麦宽限期内：麦 PCM 不上行（后端靠静音保活）。
+ * 与「mute 后回灌」相反——上行尾音正是「AI 最后一句被录进去」的来源。
+ */
+let _pcmUplinkHold = false
 /** 相位 → 后端 client_phase 同步 */
 let _phaseUnsub = null
 let _lastSentPhase = ''
@@ -313,6 +318,7 @@ function _ensurePlayer(seq) {
   const ms = new MS()
   const objectUrl = URL.createObjectURL(ms)
   const audio = new Audio(objectUrl)
+  _applyPlaybackDuck(audio)
   /** @type {FramePlayEntry} */
   const entry = {
     audio,
@@ -917,8 +923,131 @@ function _teardownAllAudio() {
   // interrupted / 真停播由调用方显式 send。
 }
 
+/**
+ * 播报中 / 放麦宽限：停上行真实麦 PCM（防喇叭尾音进 ASR）。
+ * 打断抢话时由 release 路径单独处理，不在此回灌。
+ * @param {boolean} hold
+ * @param {string} [reason]
+ */
+export function setXiaomiPcmUplinkHold(hold, reason = '') {
+  const next = !!hold
+  if (next === _pcmUplinkHold) return
+  _pcmUplinkHold = next
+  voiceFeLog(
+    '管线',
+    next
+      ? `PCM 上行暂停（播报/宽限，防回声）${reason ? ` reason=${reason}` : ''}`
+      : `PCM 上行恢复${reason ? ` reason=${reason}` : ''}`,
+  )
+}
+
+export function isXiaomiPcmUplinkHeld() {
+  return _pcmUplinkHold
+}
+
+/** @type {number} */
+let _playbackDuckFactor = 1
+
+/**
+ * 本地打断检测：先压低播报音量，确认是语音再 stop。
+ * @param {number} [factor] 0–1，默认 0.22
+ */
+export function duckXiaomiFramePlayback(factor = 0.22) {
+  const f = Math.max(0.05, Math.min(1, Number(factor) || 0.22))
+  _playbackDuckFactor = f
+  for (const entry of _play.values()) {
+    try {
+      if (entry?.audio) entry.audio.volume = f
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+/** 冲击噪音消退：恢复播报音量 */
+export function unduckXiaomiFramePlayback() {
+  _playbackDuckFactor = 1
+  for (const entry of _play.values()) {
+    try {
+      if (entry?.audio) entry.audio.volume = 1
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+/** 新开播条目继承当前 duck 因子 */
+function _applyPlaybackDuck(audio) {
+  try {
+    if (audio) audio.volume = _playbackDuckFactor
+  } catch {
+    /* ignore */
+  }
+}
+
+/** 软打断：暂停本地播报但保留队列，便于误触后续播 */
+let _pausedForSoftBarge = false
+
+export function isXiaomiFrameSoftPaused() {
+  return _pausedForSoftBarge
+}
+
+/**
+ * 软打断暂停：不拆队列、不发 idle。
+ * @param {{ reason?: string }} [opts]
+ * @returns {boolean}
+ */
+export function pauseXiaomiFrameLocalPlayback(opts = {}) {
+  const reason = String(opts.reason || 'soft-barge')
+  if (!isXiaomiFramePlaying() && _play.size === 0) return false
+  if (_pausedForSoftBarge) return true
+  _pausedForSoftBarge = true
+  duckXiaomiFramePlayback(0.15)
+  for (const entry of _play.values()) {
+    try {
+      entry?.audio?.pause?.()
+    } catch {
+      /* ignore */
+    }
+  }
+  voiceFeLog('打断', `本地软暂停（可续播）reason=${reason}`)
+  _notifyBgVoiceTts(false)
+  return true
+}
+
+/**
+ * 误触恢复：继续播未说完的队列。
+ * @param {{ reason?: string }} [opts]
+ * @returns {boolean}
+ */
+export function resumeXiaomiFrameLocalPlayback(opts = {}) {
+  const reason = String(opts.reason || 'soft-barge-false')
+  if (!_pausedForSoftBarge) return false
+  _pausedForSoftBarge = false
+  unduckXiaomiFramePlayback()
+  const seq = _playingSeq
+  const entry = seq != null ? _play.get(seq) : null
+  voiceFeLog('打断', `本地续播（误触恢复）reason=${reason} seq=${seq ?? '-'}`)
+  _notifyBgVoiceTts(true)
+  if (entry?.audio) {
+    void entry.audio.play().catch(() => {
+      /* ignore */
+    })
+    return true
+  }
+  // 无当前 seq 时踢串行播放器
+  try {
+    _kickSerialPlay()
+  } catch {
+    /* ignore */
+  }
+  return true
+}
+
 export function sendXiaomiPcm(pcm) {
   if (!isXiaomiFrameSessionActive() || !pcm) return
+  // 播报/宽限：不上行。后端 mute 期自有静音保活，无需灌喇叭尾音。
+  if (_pcmUplinkHold) return
   try {
     _ws.send(pcm)
   } catch {
@@ -998,16 +1127,18 @@ let _lastBargeAt = 0
 let _lastBargeReason = ''
 
 /**
- * 白龙马式本地停播：只清 MSE 队列 + client_listening，**不**发 barge_in。
- * continuous 音量打断应走这里——发 barge_in 会抬 min_turn、掐掉整轮合成（回声误触日志 14:16）。
+ * 本地停播：只清 MSE 队列 + client_listening，**不**发 barge_in。
+ * continuous 音量打断应走这里——发 barge_in 会抬 min_turn、掐掉整轮合成。
  * 真·新提问由下一轮 assistant_begin / 显式 bargeInXiaomiFrame 收口。
  * @param {{ reason?: string }} [opts]
  */
 export function stopXiaomiFrameLocalPlayback(opts = {}) {
   const reason = String(opts.reason || 'local-stop')
-  if (!isXiaomiFramePlaying() && _play.size === 0) return
+  if (!isXiaomiFramePlaying() && _play.size === 0 && !_pausedForSoftBarge) return
   voiceFeLog('打断', `本地停播（不对后端 barge_in）reason=${reason}`)
   _dropIncomingAudio = true
+  _pausedForSoftBarge = false
+  _playbackDuckFactor = 1
   _teardownAllAudio()
   try {
     _onPlaybackIdle?.(true)

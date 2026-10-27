@@ -49,7 +49,8 @@ _IDLE_GAP_S = 0.18
 # FE 播完才应 unmute；若 client_listening 丢失，最多卡住这么久。
 # 旧值 8s：长回复多句串行本地播时常 >30s，超时强制 unmute → 麦收喇叭 → 卡顿/误 barge。
 _UNMUTE_HOLD_SAFETY_S = 120.0
-# mute 期环形缓冲：unmute 后回灌，避免「AI 说完用户立刻开口」丢字头
+# mute 期环形缓冲：仅 barge 打断时回灌（抢话字头）。
+# 正常 client_listening 放麦若回灌，缓冲里多是喇叭尾音 →「AI 最后一句被当作用户说」。
 _MUTE_PCM_MAX_BYTES = 16000 * 2 * 2  # ≈2s
 
 
@@ -165,7 +166,8 @@ class EvoSTTService(STTService):
                 await self._ensure_session()
             else:
                 voice_log("管线", "STT unmute → ASR 会话仍存活（保活成功）")
-            await self._flush_mute_pcm()
+            # TTSStopped 直通 unmute：缓冲里仍可能是播报尾音，默认丢弃
+            self._discard_mute_pcm(reason="stt_mute_frame_off")
             await self._ensure_keepalive()
 
     async def release_unmute_hold(self, *, reason: str = "client_listening") -> None:
@@ -179,16 +181,20 @@ class EvoSTTService(STTService):
         self._unmute_hold_logged = False
         await self._cancel_unmute_safety()
         reason_s = str(reason or "")
+        is_barge = reason_s.startswith("barge:")
         force = (
             reason_s == "exit_listen"
             or reason_s.startswith("exit_listen")
-            or reason_s.startswith("barge:")
+            or is_barge
         )
         if not self._pending_unmute and not (force and self._muted):
             voice_log("管线", f"STT unmute hold 已清除 reason={reason_s}（无待处理 unmute）")
-            # 即使无 pending unmute，也可能已 unmuted 但仍有缓冲（安全超时路径）
+            # 已 unmuted 仍可能有缓冲：正常放麦丢弃；打断才回灌
             if not self._muted:
-                await self._flush_mute_pcm()
+                if is_barge:
+                    await self._flush_mute_pcm()
+                else:
+                    self._discard_mute_pcm(reason=reason_s or "client_listening")
             return
         was = self._muted
         self._muted = False
@@ -199,13 +205,17 @@ class EvoSTTService(STTService):
                 voice_log("管线", "STT unmute → 重建 ASR 会话（hold 期间已超时）")
                 await self._close_session()
                 await self._ensure_session()
-            await self._flush_mute_pcm()
+            if is_barge:
+                await self._flush_mute_pcm()
+            else:
+                # 播完放麦：丢弃 mute 窗 PCM（喇叭尾音），从干净麦开始听
+                self._discard_mute_pcm(reason=reason_s or "client_listening")
             await self._ensure_keepalive()
 
     async def process_audio_frame(self, frame: InputAudioRawFrame, direction: FrameDirection):
-        """Mute 时基类直接丢包；这里环形缓冲，unmute 后回灌防丢字头。"""
+        """Mute 时基类丢包；仅 pending_unmute 窗环形缓冲，供 barge 回灌字头。"""
         if self._muted and frame.audio:
-            # 仅「TTS 已停、等前端播完」窗口缓冲——喇叭回声少、用户抢话字头在这儿
+            # 仅「TTS 已停、等前端播完」窗口缓冲——抢话字头在这儿；正常放麦会丢弃
             if self._pending_unmute:
                 self._push_mute_pcm(frame.audio)
             return
@@ -224,6 +234,18 @@ class EvoSTTService(STTService):
         self._mute_pcm_buf.clear()
         self._mute_pcm_bytes = 0
 
+    def _discard_mute_pcm(self, *, reason: str = "") -> None:
+        if not self._mute_pcm_buf:
+            return
+        n = self._mute_pcm_bytes
+        self._clear_mute_pcm()
+        ms = max(0, n // 32)  # 16kHz s16le → 32 bytes/ms
+        voice_log(
+            "管线",
+            f"STT unmute → 丢弃 mute 期 PCM ≈{ms}ms（防回声进 ASR）"
+            + (f" reason={reason}" if reason else ""),
+        )
+
     async def _flush_mute_pcm(self) -> None:
         if not self._mute_pcm_buf:
             return
@@ -233,7 +255,7 @@ class EvoSTTService(STTService):
         if not self._session:
             return
         ms = max(0, n // 32)  # 16kHz s16le → 32 bytes/ms
-        voice_log("管线", f"STT unmute → 回灌 mute 期 PCM ≈{ms}ms（防丢字头）")
+        voice_log("管线", f"STT unmute → 回灌 mute 期 PCM ≈{ms}ms（打断保留字头）")
         for chunk in chunks:
             try:
                 await self._session.send_pcm(chunk)

@@ -1030,7 +1030,20 @@ async def run_post_ready_warmups(app: FastAPI, st_log: StLogFn, _st: Any) -> Non
             skills = load_skills()
             logger.info("Skills cache preheated (post-ready): %d skills", len(skills))
 
-        _asyncio.get_running_loop().run_in_executor(None, _preheat_skills)
+        def _preheat_web_search_admin() -> None:
+            # 联网搜索设置首开要现 import 社区 web 注册表 + plan 状态链路
+            # （冷 import ~0.3s+），与技能同理预热，消除重启后首开惩罚。
+            from evoflow.admin.web_search import get_web_search
+
+            snap = get_web_search()
+            logger.info(
+                "Web-search admin preheated (post-ready): %d providers",
+                len(snap.get("providers") or []),
+            )
+
+        _loop = _asyncio.get_running_loop()
+        _loop.run_in_executor(None, _preheat_skills)
+        _loop.run_in_executor(None, _preheat_web_search_admin)
     except Exception:
         logger.exception("Skills cache preheat failed to schedule (non-fatal)")
 

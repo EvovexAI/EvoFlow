@@ -447,13 +447,13 @@ export async function initBackgroundVoice() {
 
 // ─── Wake word ───
 
-/** @type {'kws' | 'webspeech' | null} */
+/** @type {'native-kws' | 'kws' | 'webspeech' | null} */
 let wakeWordBackend = null
 
 /**
  * Toggle wake word detection (「小V小V」).
- * Prefer local sherpa-onnx KWS; if WASM missing, fall back to Web Speech API.
- * On hit → auto-starts continuous voice mode.
+ * Prefer native sidecar KWS → browser WASM → Web Speech.
+ * On hit → open 手屏 (语音全屏) via openXiaomiForWake.
  * @param {boolean} [enable] true=on, false=off, undefined=toggle
  * @returns {Promise<boolean>} current state after toggle
  */
@@ -462,6 +462,22 @@ export async function toggleWakeWord(enable) {
   if (target === wakeWordEnabled) return wakeWordEnabled
 
   if (target) {
+    try {
+      const { isNativeKwsAvailable, startNativeEar } = await import('./wake-word-native.js')
+      if (await isNativeKwsAvailable()) {
+        const ok = await startNativeEar()
+        if (ok) {
+          wakeWordEnabled = true
+          wakeWordBackend = 'native-kws'
+          window.addEventListener('wake-word-hit', onWakeWordHit)
+          console.log('[background-voice] Wake word ear ON (native KWS sidecar · 小V小V)')
+          return true
+        }
+      }
+    } catch (e) {
+      console.warn('[background-voice] native KWS wake start failed:', e?.message)
+    }
+
     try {
       const { isKwsBundleAvailable, startEar } = await import('./wake-word.js')
       if (await isKwsBundleAvailable()) {
@@ -475,7 +491,7 @@ export async function toggleWakeWord(enable) {
         }
       } else {
         console.info(
-          '[background-voice] KWS WASM missing — trying Web Speech wake (say 小V小V). Optional: node scripts/download-kws-model.js',
+          '[background-voice] KWS WASM missing/unusable — trying Web Speech wake (say 小V小V)',
         )
       }
     } catch (e) {
@@ -487,7 +503,9 @@ export async function toggleWakeWord(enable) {
         './wake-word-webspeech.js'
       )
       if (!isWebSpeechWakeAvailable()) {
-        console.warn('[background-voice] Wake word unavailable (no KWS WASM, no Web Speech)')
+        console.warn(
+          '[background-voice] Wake word unavailable (no native KWS, no WASM, no Web Speech)',
+        )
         return false
       }
       const ok = await startWebSpeechEar()
@@ -508,7 +526,10 @@ export async function toggleWakeWord(enable) {
     if (wakeWordBackend === 'webspeech') {
       const { stopWebSpeechEar } = await import('./wake-word-webspeech.js')
       stopWebSpeechEar()
-    } else {
+    } else if (wakeWordBackend === 'native-kws') {
+      const { stopNativeEar } = await import('./wake-word-native.js')
+      await stopNativeEar()
+    } else if (wakeWordBackend === 'kws') {
       const { stopEar } = await import('./wake-word.js')
       stopEar()
     }
@@ -526,19 +547,31 @@ export function isWakeWordActive() {
   return wakeWordEnabled
 }
 
+async function focusMainWindowForWake() {
+  try {
+    const { getCurrentWindow } = await import('@tauri-apps/api/window')
+    const win = getCurrentWindow()
+    await win.unminimize().catch(() => {})
+    await win.show().catch(() => {})
+    await win.setFocus().catch(() => {})
+  } catch {
+    /* web / non-tauri */
+  }
+}
+
 async function openXiaomiForWake() {
   setPreferXiaomiVoice(true)
-  // 唤醒热路径：先弹面板开麦，ensure（拉 /speech/status + 音色）放后台。
-  // 旧逻辑 await ensure 会卡 5s+（日志 18:07:03→08），体感「唤醒慢」。
+  // 唤醒热路径：先弹手屏（语音全屏）开麦，ensure 放后台。
   void import('./xiaomi-voice/voice-file-log.js')
     .then((m) => m.noteWakeMilestone?.('prefer_set_ensure_bg'))
     .catch(() => {})
   void import('./xiaomi-voice-defaults.js')
     .then((m) => m.ensureXiaomiVoiceReplyOn())
     .catch((e) => console.warn('[background-voice] enable voice reply failed:', e?.message || e))
+  await focusMainWindowForWake()
   try {
     const { openXiaomiRightStage } = await import('./right-stage/open-right-stage-xiaomi.js')
-    // 唤醒：只进左侧语音域，不弹右侧流式文字面板（对话以左栏实时区为主）
+    // 唤醒：左侧手屏语音域（xw-voice-mode），不弹右侧流式文字面板
     await openXiaomiRightStage({
       navigateToChat: true,
       voiceMode: true,
@@ -840,6 +873,9 @@ async function pauseWakeEarForContinuous() {
     if (wakeWordBackend === 'webspeech') {
       const { stopWebSpeechEar } = await import('./wake-word-webspeech.js')
       stopWebSpeechEar()
+    } else if (wakeWordBackend === 'native-kws') {
+      const { pauseNativeEar } = await import('./wake-word-native.js')
+      await pauseNativeEar()
     } else if (wakeWordBackend === 'kws') {
       const { stopEar } = await import('./wake-word.js')
       stopEar()
@@ -870,6 +906,9 @@ async function resumeWakeEarAfterContinuous() {
     if (wakeWordBackend === 'webspeech') {
       const { startWebSpeechEar } = await import('./wake-word-webspeech.js')
       await startWebSpeechEar()
+    } else if (wakeWordBackend === 'native-kws') {
+      const { resumeNativeEarCapture } = await import('./wake-word-native.js')
+      await resumeNativeEarCapture()
     } else if (wakeWordBackend === 'kws') {
       const { startEar } = await import('./wake-word.js')
       await startEar()
@@ -1153,7 +1192,7 @@ export async function toggleContinuousMode(opts = {}) {
     console.warn('[background-voice] TTS notify wire failed:', e?.message || e)
   }
 
-  // Create the continuous policy（参数对齐白龙马 voice-continuous）
+  // Create the continuous policy（参数见 voice-continuous-policy）
   continuousPolicy = createContinuousPolicy({
     getText: () => getContinuousTranscript(),
     // chatSend 整轮占用 isSending 时先别 fire（由 bridge 排队 + 此处重试）
@@ -1205,7 +1244,7 @@ export async function toggleContinuousMode(opts = {}) {
       import('./speech-client.js').then(({ unduckTTS }) => unduckTTS())
     },
     stopTTS: () => {
-      // 白龙马：window.stopTTS() 只停本地播报，再 resumeSession(true) 开 ASR。
+      // 本地停播后 resumeSession(true) 开 ASR（不发服务端 barge_in）。
       // 禁止对 Frame 发 barge_in（会抬 min_turn，回声误触直接废掉整轮）。
       const now = Date.now()
       if (_continuousLastStopTtsAt && now - _continuousLastStopTtsAt < 400) return
@@ -1215,7 +1254,7 @@ export async function toggleContinuousMode(opts = {}) {
           if (isXiaomiFrameSessionActive?.()) {
             void import('./xiaomi-voice/voice-file-log.js')
               .then(({ voiceFeLog }) =>
-                voiceFeLog('打断', 'continuous barge → 本地停播（白龙马式，不 barge_in）'),
+                voiceFeLog('打断', 'continuous barge → 本地停播（不 barge_in）'),
               )
               .catch(() => {})
             stopXiaomiFrameLocalPlayback?.({ reason: 'continuous-local-stop' })

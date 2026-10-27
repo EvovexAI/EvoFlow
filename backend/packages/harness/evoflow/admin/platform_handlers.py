@@ -1,4 +1,4 @@
-"""platform å·¥å·åå handlerï¼å¯ä½ç¨èµ° evoflow.admin.*ï¼ã"""
+"""platform tool domain handlers (side effects via evoflow.admin.*)."""
 
 from __future__ import annotations
 
@@ -78,7 +78,7 @@ def _workflow_app_result(data: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
-# ââ knowledge ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+# ── knowledge ──────────────────────────────────────────────────────────────
 
 
 def knowledge_list(_args: dict[str, Any]) -> dict[str, Any]:
@@ -99,7 +99,7 @@ def knowledge_search(args: dict[str, Any]) -> dict[str, Any]:
     # ``knowledge.recall`` now takes ``kb_id`` (owned KB), vault_id is optional/legacy.
     kb_id = _arg_str(args, "kbId", "kb_id", "vaultId", "vault_id") or None
     limit = int(args.get("top_k") or args.get("limit") or 8)
-    # é»è®¤ hybridï¼ä¸åå°Vä¸ç¨æ£ç´¢ä¸è´ï¼å¤åºæåº + è¯­ä¹/å³é®è¯ï¼ï¼æ åéæ¶ recall ä¾§ä¼éå
+    # 默认 hybrid：与前小V专用检索一致（多库扇出 + 语义/关键词）；无向量时 recall 侧会退化
     mode = _arg_str(args, "mode") or "hybrid"
     data = kn.recall(query, kb_id=kb_id, limit=limit, mode=mode)
     entries = data.get("entries") or data.get("results") or data.get("hits") or []
@@ -110,7 +110,7 @@ def knowledge_search(args: dict[str, Any]) -> dict[str, Any]:
         **data,
         "hits": len(entries),
         "results": entries,
-        "hint": "ç¨çæ®µå£è¯­åç­ï¼å¼ç¨ title/pathï¼æ å½ä¸­å¿ç¼é ã",
+        "hint": "用片段口语回答；引用 title/path；无命中勿编造。",
     }
 
 
@@ -131,7 +131,7 @@ def knowledge_create(args: dict[str, Any]) -> dict[str, Any]:
     out = {
         "ok": True,
         **data,
-        "hint": "å·²åå»ºå¹³å°èªæç¥è¯åºï¼åå¥åå®¹ç¨ knowledge.ingestï¼vaultId/kbId åå¯ï¼ã",
+        "hint": "已创建平台自有知识库；写入内容用 knowledge.ingest（vaultId/kbId 均可）。",
     }
     out["assistant_guide"] = build_knowledge_create_assistant_guide(out)
     return out
@@ -144,7 +144,7 @@ def knowledge_enable(args: dict[str, Any]) -> dict[str, Any]:
     if not vault_id:
         raise ValidationError("vaultId is required")
     if vault_id.startswith("kb_"):
-        raise ValidationError("èªæç¥è¯åºæ éå¯ç¨/åç¨ï¼å é¤è¯·å¨é¢æ¿ãç¥è¯åºãæä½ï¼æç»§ç»­ç¨ knowledge.ingest / searchã")
+        raise ValidationError("自有知识库无需启用/停用；删除请在面板「知识库」操作，或继续用 knowledge.ingest / search。")
     data = kn.set_vault_enabled(vault_id, _arg_bool(args, "enabled", True))
     return {"ok": True, **data}
 
@@ -158,7 +158,7 @@ def knowledge_reindex(args: dict[str, Any]) -> dict[str, Any]:
     data = kn.reindex_owned_base(
         kb_id,
         embedding_model_ref=_arg_str(args, "embeddingModelRef", "embedding_model_ref") or None,
-        # Default false: omit force â incremental/cheaper path; force=true rebuilds all (DEF-06).
+        # Default false: omit force → incremental/cheaper path; force=true rebuilds all (DEF-06).
         force=_arg_bool(args, "force", False),
     )
     return {
@@ -166,7 +166,7 @@ def knowledge_reindex(args: dict[str, Any]) -> dict[str, Any]:
         **data,
         "kbId": kb_id,
         "vaultId": kb_id,
-        "hint": "å·²æééç´¢å¼ï¼å¨ééå»ºè¯·ä¼  force=trueï¼å¤§ææ¡£å local æ¶å¯ä¼  embeddingModelRef=bge-small-zhã",
+        "hint": "已排队重索引；全量重建请传 force=true；大文档切 local 时可传 embeddingModelRef=bge-small-zh。",
     }
 
 
@@ -179,7 +179,7 @@ def knowledge_requeue(args: dict[str, Any]) -> dict[str, Any]:
     return {
         "ok": True,
         **data,
-        "hint": "å·²æå¡ä½ç pending/processing ææ¡£éæ°æéç´¢å¼ã",
+        "hint": "已把卡住的 pending/processing 文档重新排队索引。",
     }
 
 
@@ -248,7 +248,7 @@ def knowledge_delete(args: dict[str, Any]) -> dict[str, Any]:
     return {"ok": True, **kn.delete_owned_base(kb_id)}
 
 
-# ââ workflow âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+# ── workflow ───────────────────────────────────────────────────────────────
 
 
 def workflow_list(args: dict[str, Any]) -> dict[str, Any]:
@@ -294,8 +294,8 @@ def workflow_run(args: dict[str, Any]) -> dict[str, Any]:
     if not app_id:
         raise ValidationError("appId is required")
     parameters = args.get("parameters") if isinstance(args.get("parameters"), dict) else {}
-    # è´£ä»»äºº = è¿è¡æ¶æ³¨å¥ç principal_id / proactive_agent_codeï¼platform_tool å·²ç» ambientï¼
-    # ä¸æ¯ session agent_idï¼agent:main:â¦ï¼ââé£æ¯é¢éæ è¯ï¼ä¸æ¯è°ç¨äººèº«ä»½
+    # 责任人 = 运行时注入的 principal_id / proactive_agent_code（platform_tool 已绑 ambient）
+    # 不是 session agent_id（agent:main:…）——那是频道标识，不是调用人身份
     invoker = resolve_invoker_stamp()
     data = apps_admin.run_app(
         app_id,
@@ -312,7 +312,7 @@ def workflow_run(args: dict[str, Any]) -> dict[str, Any]:
     if run_id:
         out["runId"] = run_id
         out["run_id"] = run_id
-    # Hoist for platform_ui openStage (å³æ å·¥ä½æµéè¦ mainTaskId)
+    # Hoist for platform_ui openStage (右栏工作流需要 mainTaskId)
     if task_id:
         out["task_id"] = task_id
         out["taskId"] = task_id
@@ -325,7 +325,7 @@ def workflow_stop(args: dict[str, Any]) -> dict[str, Any]:
     run_id = _arg_str(args, "runId", "run_id")
     if not run_id:
         raise ValidationError("runId is required")
-    reason = _arg_str(args, "reason") or "å°Væç¨æ·è¦æ±åæ­¢"
+    reason = _arg_str(args, "reason") or "小V按用户要求停止"
     if _arg_bool(args, "pause", False):
         return {"ok": True, **apps_admin.pause_run(run_id, reason=reason)}
     return {"ok": True, **apps_admin.cancel_run(run_id, reason=reason)}
@@ -408,7 +408,7 @@ def workflow_create(args: dict[str, Any]) -> dict[str, Any]:
         canvas=canvas if isinstance(canvas, dict) else None,
         plan=plan if isinstance(plan, dict) else None,
     )
-    return _workflow_app_result({**data, "hint": "å·²åå»ºèç¨¿ï¼åå¸åå¯ç¨ workflow.publishã"})
+    return _workflow_app_result({**data, "hint": "已创建草稿；发布前可用 workflow.publish。"})
 
 
 def workflow_update(args: dict[str, Any]) -> dict[str, Any]:
@@ -444,7 +444,7 @@ def workflow_publish(args: dict[str, Any]) -> dict[str, Any]:
     if not app_id:
         raise ValidationError("appId is required")
     data = apps_admin.publish_app(app_id)
-    return _workflow_app_result({**data, "hint": "å·²åå¸ï¼å¯ workflow.run æåå»º API Keyã"})
+    return _workflow_app_result({**data, "hint": "已发布，可 workflow.run 或创建 API Key。"})
 
 
 def workflow_unpublish(args: dict[str, Any]) -> dict[str, Any]:
@@ -454,7 +454,7 @@ def workflow_unpublish(args: dict[str, Any]) -> dict[str, Any]:
     if not app_id:
         raise ValidationError("appId is required")
     data = apps_admin.unpublish_app(app_id)
-    return _workflow_app_result({**data, "hint": "å·²éåèç¨¿ï¼å¯ç»§ç»­ workflow.update ä¿®æ¹ã"})
+    return _workflow_app_result({**data, "hint": "已退回草稿，可继续 workflow.update 修改。"})
 
 
 def workflow_generate(args: dict[str, Any]) -> dict[str, Any]:
@@ -478,7 +478,7 @@ def workflow_generate(args: dict[str, Any]) -> dict[str, Any]:
         goal=goal,
         steps=steps,
         description=_arg_str(args, "description"),
-        icon=_arg_str(args, "icon") or "ð",
+        icon=_arg_str(args, "icon") or "📋",
         category=_arg_str(args, "category") or "general",
         execution_mode=_arg_str(args, "execution_mode", "executionMode") or "workflow",
         auto_run=_arg_bool(args, "auto_run", False),
@@ -487,7 +487,7 @@ def workflow_generate(args: dict[str, Any]) -> dict[str, Any]:
         tags=tags,
         canvas=canvas if isinstance(canvas, dict) else None,
     )
-    return _workflow_app_result({**data, "hint": "å·²ä»ç®æ +æ­¥éª¤çæèç¨¿åºç¨ã"})
+    return _workflow_app_result({**data, "hint": "已从目标+步骤生成草稿应用。"})
 
 
 def workflow_duplicate(args: dict[str, Any]) -> dict[str, Any]:
@@ -497,7 +497,7 @@ def workflow_duplicate(args: dict[str, Any]) -> dict[str, Any]:
     if not app_id:
         raise ValidationError("appId is required")
     data = apps_admin.duplicate_app(app_id, name=_arg_str(args, "name", "title") or None)
-    return _workflow_app_result({**data, "hint": "å·²å¤å¶ä¸ºæ°çèç¨¿åºç¨ã"})
+    return _workflow_app_result({**data, "hint": "已复制为新的草稿应用。"})
 
 
 def workflow_list_runs(args: dict[str, Any]) -> dict[str, Any]:
@@ -565,10 +565,10 @@ def workflow_restore_revision(args: dict[str, Any]) -> dict[str, Any]:
         int(version_raw),
         as_draft=_arg_bool(args, "as_draft", True),
     )
-    return _workflow_app_result({**data, "hint": "å·²ä»åå²çæ¬æ¢å¤ä¸ºå½åèç¨¿ã"})
+    return _workflow_app_result({**data, "hint": "已从历史版本恢复为当前草稿。"})
 
 
-# ââ settings / models ââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+# ── settings / models ──────────────────────────────────────────────────────
 
 
 def settings_list_models(_args: dict[str, Any]) -> dict[str, Any]:
@@ -625,14 +625,14 @@ def settings_update_model(args: dict[str, Any]) -> dict[str, Any]:
 
     name = _arg_str(args, "model", "name", "modelName")
     if not name:
-        raise ValidationError("model is requiredï¼è¦æ´æ°çæ¨¡ååï¼")
+        raise ValidationError("model is required（要更新的模型名）")
     skip = {"model", "name", "modelName", "model_name", "confirm", "principal_id"}
     payload = {k: v for k, v in args.items() if k not in skip and v is not None}
     api_key = payload.get("api_key")
     if is_masked_api_key(api_key):
         payload.pop("api_key", None)
     if not payload:
-        raise ValidationError("è³å°æä¾ä¸ä¸ªè¦æ´æ°çå­æ®µï¼å¦ base_url / api_key / temperatureï¼")
+        raise ValidationError("至少提供一个要更新的字段（如 base_url / api_key / temperature）")
     return {"ok": True, "model": models_admin.update_model(name, payload), "name": name}
 
 
@@ -732,7 +732,7 @@ def assets_import(args: dict[str, Any]) -> dict[str, Any]:
     entity_type = _arg_str(args, "entity_type", "type")
     entity_id = _arg_str(args, "entity_id", "id")
     if not pack:
-        raise ValidationError("pack path is requiredï¼.evoflow-packï¼")
+        raise ValidationError("pack path is required（.evoflow-pack）")
     if not entity_type or not entity_id:
         raise ValidationError("entity_type and entity_id are required")
     conflict = _arg_str(args, "conflict") or "skip"
@@ -761,7 +761,7 @@ def settings_patch_web_search(args: dict[str, Any]) -> dict[str, Any]:
     from evoflow.admin import web_search as ws
 
     if not ws.normalize_web_search_patch(args):
-        raise ValidationError("pass preferredBackend and/or provider keys (doubaoApiKey / bochaApiKey / tavilyApiKey / searxngUrl / â¦)")
+        raise ValidationError("pass preferredBackend and/or provider keys (doubaoApiKey / bochaApiKey / tavilyApiKey / searxngUrl / …)")
     data = ws.patch_web_search(args)
     guide = data.pop("assistant_guide", None)
     out: dict[str, Any] = {"ok": True}
@@ -796,7 +796,7 @@ def settings_test_web_search(args: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-# ââ agents âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+# ── agents ─────────────────────────────────────────────────────────────────
 
 
 def agents_list(args: dict[str, Any]) -> dict[str, Any]:
@@ -907,7 +907,7 @@ def agents_delete(args: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-# ââ employees ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+# ── employees ──────────────────────────────────────────────────────────────
 
 
 def employees_list(args: dict[str, Any]) -> dict[str, Any]:
@@ -920,14 +920,14 @@ def employees_list(args: dict[str, Any]) -> dict[str, Any]:
 
 
 def employees_org_status(_args: dict[str, Any]) -> dict[str, Any]:
-    """ååæ±æ»ï¼äººæ° / å¿é² / å¾å®¡æ¹ï¼å xiaomi_org_statusï¼ã"""
+    """名册汇总：人数 / 忙闲 / 待审批（原 xiaomi_org_status）。"""
     from evoflow.admin.employee_front_desk import org_status
 
     return org_status()
 
 
 def employees_board_overview(args: dict[str, Any]) -> dict[str, Any]:
-    """è·¨å²æªç»çæ¿ + stuck_candidatesï¼å xiaomi_board_overviewï¼ã"""
+    """跨岗未结看板 + stuck_candidates（原 xiaomi_board_overview）。"""
     from evoflow.admin.employee_front_desk import board_overview
 
     lim = int(args.get("limit_per_role") or args.get("limitPerRole") or args.get("limit") or 8)
@@ -935,12 +935,12 @@ def employees_board_overview(args: dict[str, Any]) -> dict[str, Any]:
 
 
 def employees_brief(args: dict[str, Any]) -> dict[str, Any]:
-    """åå²è¿åµç®æ¥ï¼å¿é² / æªç» / è½¨è¿¹ï¼å xiaomi_employee_briefï¼ã"""
+    """单岗近况简报：忙闲 / 未结 / 轨迹（原 xiaomi_employee_brief）。"""
     from evoflow.admin.employee_front_desk import employee_brief
 
     code = _arg_str(args, "agent_code", "agentCode", "code", "role", "role_name", "name", "target")
     if not code:
-        raise ValidationError("agent_code is requiredï¼æå²ä½åï¼")
+        raise ValidationError("agent_code is required (or role_name)")
     include_trail = True
     if "include_trail" in args:
         include_trail = _arg_bool(args, "include_trail", True)
@@ -1023,7 +1023,7 @@ def employees_chat_send(args: dict[str, Any]) -> dict[str, Any]:
     target = _arg_str(args, "target", "agent_code", "agentCode", "code", "role", "role_name")
     message = _arg_str(args, "message", "text", "content", "goal")
     if not target:
-        raise ValidationError("agent_code is required（或 role_name）")
+        raise ValidationError("agent_code is required (or role_name)")
     if not message:
         raise ValidationError("message is required")
     role = emp.resolve_role_ref(target)
@@ -1036,11 +1036,23 @@ def employees_chat_send(args: dict[str, Any]) -> dict[str, Any]:
         task_id=_arg_str(args, "task_id", "taskId", "related_task_id", "relatedTaskId") or "",
         source=_arg_str(args, "source") or "xiaomi",
     )
+    # Display: Chinese role_name, else agent_name; never use English agent_code as title.
+    display = str(role.role_name or "").strip()
+    if not display or display == role.agent_code:
+        try:
+            from evoflow.admin.agents import get_agent
+
+            display = str(get_agent(role.agent_code).get("agent_name") or "").strip()
+        except Exception:
+            display = ""
+    if isinstance(data, dict) and display:
+        data.setdefault("role_name", display)
     return {
         "ok": True,
         **(data if isinstance(data, dict) else {"result": data}),
-        "name": role.role_name or role.agent_code,
+        "name": display or role.role_name or role.agent_code,
         "agent_code": role.agent_code,
+        "role_name": display or str(role.role_name or "").strip(),
     }
 
 
@@ -1132,14 +1144,14 @@ def employees_trail(args: dict[str, Any]) -> dict[str, Any]:
 
 
 def employees_dispatch(args: dict[str, Any]) -> dict[str, Any]:
-    """æ´¾æ°ç®æ ç»åå·¥ï¼åºå± ``employees.dispatch``ï¼å¬å·²æ Task ç¨ ``employees.wake``ï¼ã"""
+    """派新目标给员工（底层 ``employees.dispatch``；催已有 Task 用 ``employees.wake``）。"""
     from evoflow.admin import employees as emp
     from evoflow.agents.xiaomi.identity import XIAOMI_AGENT_CODE, is_xiaomi_agent
 
     target = _arg_str(args, "target", "agent_code", "agentCode", "code", "role", "role_name")
     goal = _arg_str(args, "goal")
     if not target:
-        raise ValidationError("agent_code is requiredï¼æ role_nameï¼")
+        raise ValidationError("agent_code is required（或 role_name）")
     if not goal:
         raise ValidationError("goal is required")
     role = emp.resolve_role_ref(target)
@@ -1147,7 +1159,7 @@ def employees_dispatch(args: dict[str, Any]) -> dict[str, Any]:
         raise ValidationError("cannot dispatch to xiaomi herself")
     from_agent = _arg_str(args, "from_agent", "fromAgent") or ""
     source = _arg_str(args, "source") or "role"
-    # å°V åå°ï¼source=xiaomi ä¸æªä¼  from_agent æ¶çç« ï¼ä¾¿äºè½¨è¿¹å½å 
+    # 小V 前台：source=xiaomi 且未传 from_agent 时盖章，便于轨迹归因
     if source == "xiaomi" and not from_agent:
         from_agent = XIAOMI_AGENT_CODE
     data = emp.dispatch(
@@ -1177,7 +1189,7 @@ def employees_wake(args: dict[str, Any]) -> dict[str, Any]:
 
     target = _arg_str(args, "target", "agent_code", "agentCode", "code", "role", "role_name")
     if not target:
-        raise ValidationError("target is requiredï¼agent_code æ role_nameï¼")
+        raise ValidationError("target is required（agent_code 或 role_name）")
     from_agent = _arg_str(args, "from_agent", "fromAgent") or ""
     source = _arg_str(args, "source") or "role"
     if source == "xiaomi" and not from_agent:
@@ -1223,8 +1235,8 @@ def _normalize_employee_bind_channel(raw: str) -> str:
         ch = "weixin"
     if ch not in _EMPLOYEE_BIND_CHANNELS:
         raise ValidationError(
-            "channel must be feishu|wecomï¼ç»å®æ¬å² AI åå·¥ï¼éé/å¾®ä¿¡è¯·ç¨åå·¥é¡µç»å®ï¼"
-            "å¨å±ä¸»æºå¨äººç¨ channels.registration_*ï¼"
+            "channel must be feishu|wecom（绑定本岗 AI 员工；钉钉/微信请用员工页绑定，"
+            "全局主机器人用 channels.registration_*）"
         )
     return ch
 
@@ -1237,7 +1249,7 @@ def _employee_bind_role(agent_code: str) -> Any:
         raise ValidationError("agent_code is required")
     role = ProactiveRepository.get_role(code)
     if role is None:
-        raise ValidationError(f"åå·¥ã{code}ãä¸å­å¨ï¼è¯·å employees.create / hire")
+        raise ValidationError(f"员工「{code}」不存在；请先 employees.create / hire")
     return role
 
 
@@ -1266,7 +1278,7 @@ def employees_bind_channel_begin(args: dict[str, Any]) -> dict[str, Any]:
         "session_id": session_id,
         "qr_url": qr_url,
         "status": status,
-        "hint": "æ«ç å®æåèªå¨ç»å®æ¬å² AI åå·¥ã",
+        "hint": "扫码完成后自动绑定本岗 AI 员工。",
     }
     out["assistant_guide"] = build_bind_channel_begin_assistant_guide(
         agent_code=code,
@@ -1300,7 +1312,7 @@ def employees_bind_channel_poll(args: dict[str, Any]) -> dict[str, Any]:
         "qr_url": str(getattr(session, "qr_url", None) or "").strip() or None,
     }
     if status == "completed":
-        out["hint"] = "æ«ç å·²å®æï¼è¯· employees.bind_channel_applyï¼confirm=trueï¼ç»å°è¯¥åå·¥"
+        out["hint"] = "扫码已完成；请 employees.bind_channel_apply（confirm=true）绑到该员工"
         if channel == "feishu":
             for key in ("app_id", "open_id"):
                 val = getattr(session, key, None)
@@ -1333,8 +1345,8 @@ def _employee_bind_apply_via_gateway(agent_code: str, channel: str, session_id: 
             r = client.post(url)
     except Exception as exc:
         raise ValidationError(
-            f"{ch} bind apply failed: Gateway ä¸å¯è¾¾ï¼{exc}ï¼ã"
-            "ç¡®è®¤ Gateway å·²å¯å¨ä¸ EVOFLOW_GATEWAY_URL æ­£ç¡®ã"
+            f"{ch} bind apply failed: Gateway 不可达（{exc}）。"
+            "确认 Gateway 已启动且 EVOFLOW_GATEWAY_URL 正确。"
         ) from exc
     if r.status_code >= 400:
         detail = ""
@@ -1345,7 +1357,7 @@ def _employee_bind_apply_via_gateway(agent_code: str, channel: str, session_id: 
             detail = (r.text or "")[:240]
         raise ValidationError(
             f"{ch} bind apply failed: HTTP {r.status_code}"
-            + (f" â {detail}" if detail else "")
+            + (f" — {detail}" if detail else "")
         )
     data = r.json() if r.content else {}
     return data if isinstance(data, dict) else {"ok": True, "result": data}
@@ -1414,21 +1426,21 @@ def employees_bind_channel_apply(args: dict[str, Any]) -> dict[str, Any]:
         "role_name": role_name,
         "channel": channel,
         "session_id": session_id,
-        "hint": f"å·²ç»å®æ¬å² AI åå·¥å°{('é£ä¹¦' if channel == 'feishu' else 'ä¼å¾®')}ï¼æè¿ç¾¤å³å¯ @{role_name}",
+        "hint": f"已绑定本岗 AI 员工到{('飞书' if channel == 'feishu' else '企微')}；拉进群即可 @{role_name}",
         "assistant_guide": {
             "status": "bind_applied",
             "say_to_user": (
-                f"ã{role_name}ãæ¬å² AI åå·¥å·²ç»å®{('é£ä¹¦' if channel == 'feishu' else 'ä¼å¾®')}ã"
-                f"æä»æè¿åäºæå¨ç¾¤ï¼@{role_name} å³å¯åä½ã"
+                f"「{role_name}」本岗 AI 员工已绑定{('飞书' if channel == 'feishu' else '企微')}。"
+                f"把他拉进同事所在群，@{role_name} 即可协作。"
             ),
-            "next_steps": ["æ say_to_user åè¯ç¨æ·", "å¯éï¼employees.get ç¡®è®¤ binding ç¶æ"],
-            "instruction": "åç¨æ·å¤è¿° say_to_userã",
+            "next_steps": ["把 say_to_user 告诉用户", "可选：employees.get 确认 binding 状态"],
+            "instruction": "向用户复述 say_to_user。",
         },
     }
     return out
 
 
-# ââ tasks ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+# ── tasks ──────────────────────────────────────────────────────────────────
 
 
 def tasks_list(args: dict[str, Any]) -> dict[str, Any]:
@@ -1516,7 +1528,7 @@ def tasks_execution_trail(args: dict[str, Any]) -> dict[str, Any]:
     trails = []
     for t in targets:
         sk = t["session_key"]
-        # Executor subtask sessions are filtered out of "lead" display APIs â read raw.
+        # Executor subtask sessions are filtered out of "lead" display APIs — read raw.
         raw_messages = list(list_messages(sk, limit=max(200, max_steps * 4)) or [])
         messages: list[dict[str, Any]] = []
         for msg in raw_messages:
@@ -1618,7 +1630,7 @@ def tasks_progress(args: dict[str, Any]) -> dict[str, Any]:
     if not tid:
         raise ValidationError("task_id is required")
     if "progress" not in args:
-        raise ValidationError("progress is requiredï¼0-100ï¼")
+        raise ValidationError("progress is required（0-100）")
     try:
         progress = int(args.get("progress"))
     except (TypeError, ValueError) as e:
@@ -1670,7 +1682,7 @@ def tasks_reclaim_zombies(args: dict[str, Any]) -> dict[str, Any]:
     return {"ok": True, **(data if isinstance(data, dict) else {"result": data}), "dry_run": dry_run}
 
 
-# ââ evalï¼è¯æµä¸­å¿ï¼âââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+# ── eval（评测中心）─────────────────────────────────────────────────────────
 
 
 def eval_cases(args: dict[str, Any]) -> dict[str, Any]:
@@ -1754,7 +1766,7 @@ def eval_progress(args: dict[str, Any]) -> dict[str, Any]:
     return {"ok": True, **(data if isinstance(data, dict) else {}), "id": run_id}
 
 
-# ââ skills âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+# ── skills ─────────────────────────────────────────────────────────────────
 
 
 def skills_list(args: dict[str, Any]) -> dict[str, Any]:
@@ -1822,7 +1834,7 @@ def skills_install(args: dict[str, Any]) -> dict[str, Any]:
 
 
 def skills_import_orphans(args: dict[str, Any]) -> dict[str, Any]:
-    """Dry-run by default; platform confirm=true â execute copy into active skills root."""
+    """Dry-run by default; platform confirm=true → execute copy into active skills root."""
     from evoflow.admin import skills as skills_admin
 
     # Platform write gate already passed when confirm=true; treat as execute.
@@ -1840,7 +1852,7 @@ def skills_delete(args: dict[str, Any]) -> dict[str, Any]:
     return {"ok": True, **skills_admin.delete_skill(name)}
 
 
-# ââ mcp ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+# ── mcp ────────────────────────────────────────────────────────────────────
 
 
 def mcp_get(_args: dict[str, Any]) -> dict[str, Any]:
@@ -1873,7 +1885,7 @@ def mcp_add(args: dict[str, Any]) -> dict[str, Any]:
         skip = {"server", "name", "server_name", "document", "config", "server_config", "confirm", "principal_id"}
         document = {k: v for k, v in args.items() if k not in skip}
     if not document:
-        raise ValidationError("document/config is requiredï¼url æ command+argsï¼")
+        raise ValidationError("document/config is required（url 或 command+args）")
     return {"ok": True, **mcp_add_server(name, document), "name": name}
 
 
@@ -1920,7 +1932,7 @@ def mcp_set(args: dict[str, Any]) -> dict[str, Any]:
     return {"ok": True, **mcp_admin.set_mcp_config(payload if isinstance(payload, dict) else args)}
 
 
-# ââ automation âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+# ── automation ─────────────────────────────────────────────────────────────
 
 
 def automation_list(_args: dict[str, Any]) -> dict[str, Any]:
@@ -1982,7 +1994,7 @@ def automation_delete(args: dict[str, Any]) -> dict[str, Any]:
     return {"ok": True, **auto_admin.delete_automation(tid)}
 
 
-# ââ approvals ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+# ── approvals ──────────────────────────────────────────────────────────────
 
 
 def approvals_list(args: dict[str, Any]) -> dict[str, Any]:
@@ -2033,7 +2045,7 @@ def approvals_reject(args: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-# ââ sessions âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+# ── sessions ───────────────────────────────────────────────────────────────
 
 
 def sessions_search(args: dict[str, Any]) -> dict[str, Any]:
@@ -2067,7 +2079,7 @@ def sessions_status(args: dict[str, Any]) -> dict[str, Any]:
 
 
 def sessions_compact(args: dict[str, Any]) -> dict[str, Any]:
-    """ä¸»å¨åç¼©å½åï¼ææå®ï¼ä¼è¯ä¸ä¸æ â ä¸ UI ``/compact`` åå¼æã"""
+    """主动压缩当前（或指定）会话上下文 — 与 UI ``/compact`` 同引擎。"""
     from evoflow.admin import sessions as sess
     from evoflow.agents.manual_context_compaction import ManualCompactionError, run_manual_context_compaction
 
@@ -2099,7 +2111,7 @@ def sessions_compact(args: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
-# ââ itemsï¼ç¨æ·äºé¡¹ï¼âââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+# ── items（用户事项）───────────────────────────────────────────────────────
 
 
 def items_list(args: dict[str, Any]) -> dict[str, Any]:
@@ -2150,7 +2162,7 @@ def items_create(args: dict[str, Any]) -> dict[str, Any]:
                 "progress": int(args["progress"]) if args.get("progress") is not None else None,
             }
         ),
-        "hint": "å·²è®°å¥ãäºé¡¹ãè¡¨ï¼è¥è¦åå·¥ç«å»å¹²æ´»è¯·åç¨ items.dispatchã",
+        "hint": "已记入「事项」表；若要员工立刻干活请再用 items.dispatch。",
     }
 
 
@@ -2203,7 +2215,7 @@ def items_dispatch(args: dict[str, Any]) -> dict[str, Any]:
     )
 
 
-# ââ diagnosticsï¼æ¥å¿å¼å¸¸ï¼ââââââââââââââââââââââââââââââââââââââââââââââââââ
+# ── diagnostics（日志异常）──────────────────────────────────────────────────
 
 
 def _diagnostics_sources_arg(args: dict[str, Any]) -> list[str] | None:
@@ -2247,35 +2259,35 @@ def diagnostics_timeline(args: dict[str, Any]) -> dict[str, Any]:
 
 
 def _diagnostics_focus_modules(focus: str) -> set[str] | None:
-    """Map focus string â module keys to run; None means all modules."""
+    """Map focus string → module keys to run; None means all modules."""
     f = str(focus or "").strip().lower()
     if not f:
         return None
     aliases: dict[str, set[str]] = {
         "logs": {"logs"},
         "log": {"logs"},
-        "æ¥å¿": {"logs"},
-        "å¯¹è¯": {"logs"},  # chat disappear often needs log scan
+        "日志": {"logs"},
+        "对话": {"logs"},  # chat disappear often needs log scan
         "chat": {"logs"},
         "knowledge": {"knowledge"},
-        "ç¥è¯åº": {"knowledge"},
+        "知识库": {"knowledge"},
         "kb": {"knowledge"},
         "models": {"models"},
         "model": {"models"},
-        "æ¨¡å": {"models"},
+        "模型": {"models"},
         "employees": {"employees"},
         "employee": {"employees"},
-        "åå·¥": {"employees"},
-        "æºè½ä½": {"employees"},
+        "员工": {"employees"},
+        "智能体": {"employees"},
         "automation": {"automation"},
-        "å®æ¶": {"automation"},
-        "å®æ¶ä»»å¡": {"automation"},
+        "定时": {"automation"},
+        "定时任务": {"automation"},
         "cron": {"automation"},
     }
     if f in aliases:
         return set(aliases[f])
     # comma / space separated
-    parts = {p.strip() for p in f.replace("ï¼", ",").replace("|", ",").split(",") if p.strip()}
+    parts = {p.strip() for p in f.replace("，", ",").replace("|", ",").split(",") if p.strip()}
     if not parts:
         return None
     out: set[str] = set()
@@ -2289,9 +2301,9 @@ def _diagnostics_focus_modules(focus: str) -> set[str] | None:
 
 
 def diagnostics_run(args: dict[str, Any]) -> dict[str, Any]:
-    """ç»¼åç³»ç»è¯æ­ï¼æ£æ¥æ¨¡åå¥åº·ç¶æ + æ¥å¿å¼å¸¸ï¼è¾åºå¯è¯»è¯æ­æ¥åã
+    """综合系统诊断：检查模块健康状态 + 日志异常，输出可读诊断报告。
 
-    ``focus`` ä¸ºçè¿æ»¤ï¼åªè·å¯¹åºæ¨¡åï¼logs/knowledge/models/employees/automation æä¸­æå«åï¼ã
+    ``focus`` 为真过滤：只跑对应模块（logs/knowledge/models/employees/automation 或中文别名）。
     """
     import time
 
@@ -2310,7 +2322,7 @@ def diagnostics_run(args: dict[str, Any]) -> dict[str, Any]:
     def _run(mod: str) -> bool:
         return want is None or mod in want
 
-    # ââ 1. æ¥å¿å¼å¸¸æ«æ ââââââââââââââââââââââââââââââââââââââ
+    # ── 1. 日志异常扫描 ──────────────────────────────────────
     if _run("logs"):
         try:
             sources_scan = diag.scan_errors(hours=24, max_events=50)
@@ -2319,9 +2331,9 @@ def diagnostics_run(args: dict[str, Any]) -> dict[str, Any]:
             modules.append(
                 {
                     "module": "logs",
-                    "title": "ç³»ç»æ¥å¿",
+                    "title": "系统日志",
                     "status": "error" if err_sources else "ok",
-                    "detail": f"æè¿24å°æ¶æ {event_count} æ¡å¼å¸¸ï¼æ¥æº: {', '.join(err_sources) if err_sources else 'æ '}",
+                    "detail": f"最近24小时有 {event_count} 条异常，来源: {', '.join(err_sources) if err_sources else '无'}",
                     "error_sources": err_sources,
                     "event_count": event_count,
                     "top_events": (sources_scan.get("events") or [])[:5],
@@ -2333,15 +2345,15 @@ def diagnostics_run(args: dict[str, Any]) -> dict[str, Any]:
                         {
                             "module": "logs",
                             "severity": "high" if src in ("gateway", "langgraph") else "medium",
-                            "title": f"{src} æ¥å¿æå¼å¸¸",
-                            "detail": f"æ¥æº {src} å¨æè¿24å°æ¶ææ¥éè®°å½",
+                            "title": f"{src} 日志有异常",
+                            "detail": f"来源 {src} 在最近24小时有报错记录",
                         }
                     )
         except Exception as e:
-            modules.append({"module": "logs", "title": "ç³»ç»æ¥å¿", "status": "error", "detail": f"æ«æå¤±è´¥: {e}"})
-            issues.append({"module": "logs", "severity": "high", "title": "æ¥å¿æ«æå¤±è´¥", "detail": str(e)})
+            modules.append({"module": "logs", "title": "系统日志", "status": "error", "detail": f"扫描失败: {e}"})
+            issues.append({"module": "logs", "severity": "high", "title": "日志扫描失败", "detail": str(e)})
 
-    # ââ 2. ç¥è¯åº âââââââââââââââââââââââââââââââââââââââââââââ
+    # ── 2. 知识库 ─────────────────────────────────────────────
     if _run("knowledge"):
         try:
             bases = kn.list_bases()
@@ -2350,9 +2362,9 @@ def diagnostics_run(args: dict[str, Any]) -> dict[str, Any]:
             modules.append(
                 {
                     "module": "knowledge",
-                    "title": "ç¥è¯åº",
+                    "title": "知识库",
                     "status": "ok" if total_bases else "warn",
-                    "detail": f"å± {total_bases} ä¸ªå¹³å°èªæç¥è¯åº",
+                    "detail": f"共 {total_bases} 个平台自有知识库",
                     "total": total_bases,
                 }
             )
@@ -2361,14 +2373,14 @@ def diagnostics_run(args: dict[str, Any]) -> dict[str, Any]:
                     {
                         "module": "knowledge",
                         "severity": "low",
-                        "title": "å°æªåå»ºèªæç¥è¯åº",
-                        "detail": "å¯ç¨ knowledge.create æé¢æ¿ãç¥è¯åºãæ°å»º",
+                        "title": "尚未创建自有知识库",
+                        "detail": "可用 knowledge.create 或面板「知识库」新建",
                     }
                 )
         except Exception as e:
-            modules.append({"module": "knowledge", "title": "ç¥è¯åº", "status": "error", "detail": f"æ£æ¥å¤±è´¥: {e}"})
+            modules.append({"module": "knowledge", "title": "知识库", "status": "error", "detail": f"检查失败: {e}"})
 
-    # ââ 3. æ¨¡åéç½® âââââââââââââââââââââââââââââââââââââââââââ
+    # ── 3. 模型配置 ───────────────────────────────────────────
     if _run("models"):
         try:
             primary = models_admin.get_primary_model()
@@ -2377,9 +2389,9 @@ def diagnostics_run(args: dict[str, Any]) -> dict[str, Any]:
             modules.append(
                 {
                     "module": "models",
-                    "title": "æ¨¡åéç½®",
+                    "title": "模型配置",
                     "status": "ok" if models_data else "warn",
-                    "detail": f"å± {len(models_data)} ä¸ªæ¨¡åï¼é»è®¤: {primary.get('model_name', primary.get('name', 'æªè®¾ç½®'))}",
+                    "detail": f"共 {len(models_data)} 个模型，默认: {primary.get('model_name', primary.get('name', '未设置'))}",
                     "total": len(models_data),
                     "primary": primary.get("model_name") or primary.get("name"),
                 }
@@ -2389,14 +2401,14 @@ def diagnostics_run(args: dict[str, Any]) -> dict[str, Any]:
                     {
                         "module": "models",
                         "severity": "high",
-                        "title": "æ å¯ç¨æ¨¡åéç½®",
-                        "detail": "æªéç½®ä»»ä½æ¨¡åï¼å¯¹è¯ååå·¥åæ æ³æ­£å¸¸å·¥ä½",
+                        "title": "无可用模型配置",
+                        "detail": "未配置任何模型，对话和员工均无法正常工作",
                     }
                 )
         except Exception as e:
-            modules.append({"module": "models", "title": "æ¨¡åéç½®", "status": "error", "detail": f"æ£æ¥å¤±è´¥: {e}"})
+            modules.append({"module": "models", "title": "模型配置", "status": "error", "detail": f"检查失败: {e}"})
 
-    # ââ 4. åå·¥/æºè½ä½ ââââââââââââââââââââââââââââââââââââââââ
+    # ── 4. 员工/智能体 ────────────────────────────────────────
     if _run("employees"):
         try:
             emp_data = emp.list_roles(status=None)
@@ -2405,9 +2417,9 @@ def diagnostics_run(args: dict[str, Any]) -> dict[str, Any]:
             modules.append(
                 {
                     "module": "employees",
-                    "title": "åå·¥/æºè½ä½",
+                    "title": "员工/智能体",
                     "status": "warn" if paused else "ok",
-                    "detail": f"å± {len(emp_list)} ä¸ªåå·¥ï¼{len(paused)} ä¸ªæå/åæ­¢",
+                    "detail": f"共 {len(emp_list)} 个员工，{len(paused)} 个暂停/停止",
                     "total": len(emp_list),
                     "paused_count": len(paused),
                     "paused": [e.get("agent_code") or e.get("name", "?") for e in paused],
@@ -2418,14 +2430,14 @@ def diagnostics_run(args: dict[str, Any]) -> dict[str, Any]:
                     {
                         "module": "employees",
                         "severity": "medium",
-                        "title": f"{len(paused)} ä¸ªåå·¥å¤äºæå/åæ­¢ç¶æ",
+                        "title": f"{len(paused)} 个员工处于暂停/停止状态",
                         "detail": ", ".join(e.get("agent_code") or e.get("name", "?") for e in paused),
                     }
                 )
         except Exception as e:
-            modules.append({"module": "employees", "title": "åå·¥/æºè½ä½", "status": "error", "detail": f"æ£æ¥å¤±è´¥: {e}"})
+            modules.append({"module": "employees", "title": "员工/智能体", "status": "error", "detail": f"检查失败: {e}"})
 
-    # ââ 5. å®æ¶ä»»å¡/èªå¨å ââââââââââââââââââââââââââââââââââââ
+    # ── 5. 定时任务/自动化 ────────────────────────────────────
     if _run("automation"):
         try:
             auto_data = auto_admin.list_automations()
@@ -2434,9 +2446,9 @@ def diagnostics_run(args: dict[str, Any]) -> dict[str, Any]:
             modules.append(
                 {
                     "module": "automation",
-                    "title": "å®æ¶ä»»å¡",
+                    "title": "定时任务",
                     "status": "warn" if disabled_auto else "ok",
-                    "detail": f"å± {len(auto_list)} ä¸ªå®æ¶ä»»å¡ï¼{len(disabled_auto)} ä¸ªæªå¯ç¨",
+                    "detail": f"共 {len(auto_list)} 个定时任务，{len(disabled_auto)} 个未启用",
                     "total": len(auto_list),
                     "disabled_count": len(disabled_auto),
                 }
@@ -2446,42 +2458,44 @@ def diagnostics_run(args: dict[str, Any]) -> dict[str, Any]:
                     {
                         "module": "automation",
                         "severity": "low",
-                        "title": f"{len(disabled_auto)} ä¸ªå®æ¶ä»»å¡æªå¯ç¨",
+                        "title": f"{len(disabled_auto)} 个定时任务未启用",
                         "detail": ", ".join(a.get("name", a.get("id", "?")) for a in disabled_auto),
                     }
                 )
         except Exception as e:
-            modules.append({"module": "automation", "title": "å®æ¶ä»»å¡", "status": "error", "detail": f"æ£æ¥å¤±è´¥: {e}"})
+            modules.append({"module": "automation", "title": "定时任务", "status": "error", "detail": f"检查失败: {e}"})
 
-    # ââ æ±æ» ââââââââââââââââââââââââââââââââââââââââââââââââââ
+    # ── 汇总 ──────────────────────────────────────────────────
     elapsed = round(time.time() - t0, 2)
     has_errors = any(m.get("status") == "error" for m in modules)
     has_warns = any(m.get("status") in ("error", "warn") for m in modules)
 
-    # çæå¯è¯»æ¥å
+    # 生成可读报告
     report_lines = [
-        "## ð EvoFlow ç³»ç»è¯æ­æ¥å",
-        f"- è¯æ­æ¶é´ï¼{time.strftime('%Y-%m-%d %H:%M:%S')}",
-        f"- èæ¶ï¼{elapsed}s",
-        f"- å³æ³¨æ¨¡åï¼{focus or 'å¨é'}",
+        "## 🔍 EvoFlow 系统诊断报告",
+        f"- 诊断时间：{time.strftime('%Y-%m-%d %H:%M:%S')}",
+        f"- 耗时：{elapsed}s",
+        f"- 关注模块：{focus or '全量'}",
         "",
     ]
 
     if not issues:
-        report_lines.append("â **åæ¨¡åç¶ææ­£å¸¸ï¼æªåç°å¼å¸¸ã**")
+        report_lines.append("✅ **各模块状态正常，未发现异常。**")
     else:
-        report_lines.append(f"â ï¸ **åç° {len(issues)} ä¸ªæ½å¨é®é¢ï¼**\n")
+        report_lines.append(f"⚠️ **发现 {len(issues)} 个潜在问题：**\n")
         for i, issue in enumerate(issues, 1):
-            sev_icon = {"high": "ð´", "medium": "ð¡", "low": "ð¢"}.get(issue.get("severity", "low"), "âª")
-            report_lines.append(f"{i}. {sev_icon} **{issue['title']}**ï¼{issue['module']}ï¼")
+            sev_icon = {"high": "🔴", "medium": "🟡", "low": "🟢"}.get(
+                issue.get("severity", "low"), "⚫"
+            )
+            report_lines.append(f"{i}. {sev_icon} **{issue['title']}**（{issue['module']}）")
             report_lines.append(f"   {issue['detail']}")
         report_lines.append("")
 
-    report_lines.append("### æ¨¡åè¯¦æ\n")
-    report_lines.append("| æ¨¡å | ç¶æ | è¯´æ |")
+    report_lines.append("### 模块详情\n")
+    report_lines.append("| 模块 | 状态 | 说明 |")
     report_lines.append("|---|---|---|")
     for m in modules:
-        status_icon = {"ok": "â", "warn": "ð¡", "error": "ð´"}.get(m.get("status", "ok"), "âª")
+        status_icon = {"ok": "✅", "warn": "🟡", "error": "🔴"}.get(m.get("status", "ok"), "⚫")
         report_lines.append(f"| {m['title']} | {status_icon} | {m['detail']} |")
 
     markdown = "\n".join(report_lines)
@@ -2500,7 +2514,7 @@ def diagnostics_run(args: dict[str, Any]) -> dict[str, Any]:
 
 
 def diagnostics_status(args: dict[str, Any]) -> dict[str, Any]:
-    """å½åç³»ç»è¿è¡å¿«ç§ï¼ç«¯å£ / ååç«¯ / æå¡ç¶æ / æ°æ®ç®å½ / å®è£ç®å½ã"""
+    """当前系统运行快照：端口 / 前后端 / 服务状态 / 数据目录 / 安装目录。"""
     from evoflow.admin.system_status import build_system_status_snapshot
 
     _ = args  # no args yet; keep signature consistent with other handlers
@@ -2508,7 +2522,7 @@ def diagnostics_status(args: dict[str, Any]) -> dict[str, Any]:
     return {"ok": True, "action": "diagnostics.status", **snap}
 
 
-# ââ verificationï¼ç³»ç»éªè¯è½®æ¬¡ï¼ââââââââââââââââââââââââââââââââââââââââââââ
+# ── verification（系统验证轮次）────────────────────────────────────────────
 
 
 def verification_catalog(args: dict[str, Any]) -> dict[str, Any]:
@@ -2553,7 +2567,7 @@ def verification_init(args: dict[str, Any]) -> dict[str, Any]:
     from evoflow.admin import verification as ver
 
     rid = _arg_str(args, "roundId", "round_id", "id")
-    title = _arg_str(args, "title", "name") or "å¨å¹³å°æ¥å£éªè¯"
+    title = _arg_str(args, "title", "name") or "全平台接口验证"
     scenario = _arg_str(args, "scenario") or "platform-api-inventory"
     started = ver.start_round(
         title=title,
@@ -2662,7 +2676,7 @@ def verification_delete(args: dict[str, Any]) -> dict[str, Any]:
     return {"ok": True, **ver.delete_round(rid)}
 
 
-# ââ appearanceï¼EvoPanel çé¢å¤è§ï¼è¯»è®¾ç½®èµ° HTTPï¼ââââââââââââââââââââââââââââ
+# ── appearance（EvoPanel 界面外观；读设置走 HTTP）────────────────────────────
 
 
 def appearance_patch(args: dict[str, Any]) -> dict[str, Any]:
@@ -2671,7 +2685,7 @@ def appearance_patch(args: dict[str, Any]) -> dict[str, Any]:
     return patch_appearance(args)
 
 
-# ââ uiï¼å³ä¾§é¢æ¿ï¼å panel_setï¼âââââââââââââââââââââââââââââââââââââââââââââ
+# ── ui（右侧面板；原 panel_set）─────────────────────────────────────────────
 
 
 def _ui_panel_args(args: dict[str, Any]) -> dict[str, Any]:
@@ -2707,7 +2721,7 @@ def ui_show(args: dict[str, Any]) -> dict[str, Any]:
     if not panel.get("kind"):
         raise ValidationError(
             "ui.show requires kind "
-            "(collab-workflow | collabSubtaskTranscript | employeeProcess | web-embed | artifacts | â¦)"
+            "(collab-workflow | collabSubtaskTranscript | employeeProcess | web-embed | artifacts | …)"
         )
     return apply_right_panel(action="show", **panel)
 
@@ -2727,7 +2741,7 @@ def ui_hide(_args: dict[str, Any]) -> dict[str, Any]:
     return apply_right_panel(action="hide")
 
 
-# ââ extensionsï¼Agentåºç¨ / UI æ©å±ï¼ä¾§æ  #/extensionsï¼âââââââââââââââââââââ
+# ── extensions（Agent应用 / UI 扩展；侧栏 #/extensions）─────────────────────
 
 
 def _map_extension_error(exc: Exception) -> None:
@@ -2796,13 +2810,13 @@ def extensions_get(args: dict[str, Any]) -> dict[str, Any]:
         _map_extension_error(exc)
         raise
     if row is None:
-        raise NotFoundError(f"æ©å±ä¸å­å¨: {ext_id}")
+        raise NotFoundError(f"扩展不存在: {ext_id}")
     manifest = row.get("manifest") if isinstance(row.get("manifest"), dict) else {}
     return {"ok": True, "extension": row, "id": ext_id, "name": _arg_str(manifest, "name") or ext_id}
 
 
 def extensions_install(args: dict[str, Any]) -> dict[str, Any]:
-    """Install Agentåºç¨: local ``path``, remote ``id``+``url``/``entry``, or ``manifest``(+``install_path``)."""
+    """Install Agent应用: local ``path``, remote ``id``+``url``/``entry``, or ``manifest``(+``install_path``)."""
     from pathlib import Path
 
     from evoflow.admin.ui_extensions_registry import (
@@ -2832,14 +2846,14 @@ def extensions_install(args: dict[str, Any]) -> dict[str, Any]:
                 ui = manifest.get("ui") if isinstance(manifest.get("ui"), dict) else {}
                 install_path = str(ui.get("entry") or "").strip()
             if not install_path:
-                raise ValidationError("manifest å®è£é¡»æä¾ install_pathï¼æ manifest.ui.entryï¼")
+                raise ValidationError("manifest 安装须提供 install_path（或 manifest.ui.entry）")
             row = upsert_row(manifest, install_path, source or "api")
         elif ext_id and entry:
             built = _remote_extension_manifest(ext_id=ext_id, name=name, entry=entry)
             row = upsert_row(built, entry, source or "remote")
         else:
             raise ValidationError(
-                "é¡»æä¾ pathï¼æ¬å°ç®å½ï¼ãæ id+url/entryï¼è¿ç¨å¥å£ï¼ãæ manifestï¼+install_pathï¼"
+                "须提供 path（本地目录）、或 id+url/entry（远程入口）、或 manifest（+install_path）"
             )
     except Exception as exc:
         _map_extension_error(exc)
@@ -2878,7 +2892,7 @@ def extensions_uninstall(args: dict[str, Any]) -> dict[str, Any]:
     return {"ok": True, "id": ext_id, "uninstalled": True, "extension": row, "name": ext_id}
 
 
-# ââ pluginsï¼ZCode å¼å®¹æä»¶å¸åºï¼å®è£/å¯å/å¸åºï¼ââââââââââââââââââââââââââââ
+# ── plugins（ZCode 兼容插件市场：安装/启停/市场）────────────────────────────
 
 
 def _plugins_service():
@@ -2951,7 +2965,7 @@ def plugins_install(args: dict[str, Any]) -> dict[str, Any]:
 def plugins_enable(args: dict[str, Any]) -> dict[str, Any]:
     plugin_id = _arg_str(args, "pluginId", "plugin_id", "id")
     if not plugin_id:
-        raise ValidationError("pluginId is requiredï¼å½¢å¦ name@marketplaceï¼")
+        raise ValidationError("pluginId is required（形如 name@marketplace）")
     try:
         data = _plugins_service().set_plugin_enabled(plugin_id, _arg_bool(args, "enabled", True))
     except Exception as exc:
@@ -3005,7 +3019,7 @@ def plugins_uninstall(args: dict[str, Any]) -> dict[str, Any]:
 def plugins_marketplace_add(args: dict[str, Any]) -> dict[str, Any]:
     source = _arg_str(args, "source")
     if not source:
-        raise ValidationError("source is requiredï¼URL / git / owner/repo / æ¬å°è·¯å¾ï¼")
+        raise ValidationError("source is required（URL / git / owner/repo / 本地路径）")
     try:
         record, diagnostics = _plugins_service().add_marketplace(source)
     except Exception as exc:
@@ -3047,7 +3061,7 @@ def plugins_marketplace_refresh(args: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-# ââ orgï¼èµæºå / Organization Packï¼âââââââââââââââââââââââââââââââââââââââââ
+# ── org（资源包 / Organization Pack）─────────────────────────────────────────
 
 
 def _org_source_from_args(args: dict[str, Any]) -> dict[str, Any]:
@@ -3069,7 +3083,7 @@ def _org_source_from_args(args: dict[str, Any]) -> dict[str, Any]:
         return out
     if url:
         return {"type": "zip_url", "url": url, "repo": _arg_str(args, "repo") or None}
-    raise ValidationError("é¡»æä¾ source å¯¹è±¡ï¼æ path / url")
+    raise ValidationError("须提供 source 对象，或 path / url")
 
 
 def _org_install_options(args: dict[str, Any]) -> dict[str, Any]:
@@ -3107,7 +3121,7 @@ def org_install(args: dict[str, Any]) -> dict[str, Any]:
             options=_org_install_options(args) or None,
         )
     except OrganizationInstallError as exc:
-        raise ValidationError(f"{exc}ï¼rolled_back={getattr(exc, 'rolled_back', None)}ï¼") from exc
+        raise ValidationError(f"{exc}（rolled_back={getattr(exc, 'rolled_back', None)}）") from exc
     oid = _arg_str(data if isinstance(data, dict) else {}, "org_instance_id", "id")
     return {"ok": True, **(data if isinstance(data, dict) else {"result": data}), "id": oid, "name": oid}
 
@@ -3174,7 +3188,7 @@ def org_export(args: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(pack, dict):
         pack = {
             "id": _arg_str(args, "pack_id", "id") or "exported-pack",
-            "name": _arg_str(args, "pack_name", "name") or "å¯¼åºçèµæºå",
+            "name": _arg_str(args, "pack_name", "name") or "导出的资源包",
             "version": _arg_str(args, "version") or "1.0.0",
         }
     include = _arg_json_value(args, "include")
@@ -3238,7 +3252,7 @@ def org_market_catalog(_args: dict[str, Any]) -> dict[str, Any]:
 def org_market_install(args: dict[str, Any]) -> dict[str, Any]:
     path = _arg_str(args, "path", "pack_path")
     if not path:
-        raise ValidationError("path is requiredï¼å¸åºåç¸å¯¹è·¯å¾ï¼å¦ packs/fooï¼")
+        raise ValidationError("path is required（市场内相对路径，如 packs/foo）")
     merged = dict(args)
     merged["source"] = {
         "type": "market_path",
@@ -3250,7 +3264,7 @@ def org_market_install(args: dict[str, Any]) -> dict[str, Any]:
     return org_install(merged)
 
 
-# ââ channelsï¼IM æ¸ éï¼é£ä¹¦/ä¼å¾®/éé/å¾®ä¿¡ï¼ââââââââââââââââââââââââââââââââ
+# ── channels（IM 渠道：飞书/企微/钉钉/微信）────────────────────────────────
 
 
 def _channels_service_or_none():
@@ -3303,7 +3317,7 @@ def channels_list(_args: dict[str, Any]) -> dict[str, Any]:
 def channels_get(args: dict[str, Any]) -> dict[str, Any]:
     name = _arg_str(args, "name", "channel", "platform")
     if not name:
-        raise ValidationError("name is requiredï¼feishu|weixin|wecom|dingtalkï¼")
+        raise ValidationError("name is required（feishu|weixin|wecom|dingtalk）")
     service = _channels_service_or_none()
     if service is not None:
         config, enabled, running = service.get_channel_config(name)
@@ -3326,7 +3340,7 @@ def channels_get(args: dict[str, Any]) -> dict[str, Any]:
         "enabled": bool(cfg.get("enabled")),
         "running": False,
         "config": cfg,
-        "hint": "Channel service æªè¿è¡ï¼ä»è¿åæä¹åéç½®",
+        "hint": "Channel service 未运行；仅返回持久化配置",
     }
 
 
@@ -3361,7 +3375,7 @@ def channels_set_config(args: dict[str, Any]) -> dict[str, Any]:
         "name": name,
         "success": True,
         "config": doc,
-        "hint": "å·²åå¥éç½®ï¼éå¯ Gateway æ channels.restart åçæ",
+        "hint": "已写入配置；重启 Gateway 或 channels.restart 后生效",
     }
 
 
@@ -3383,7 +3397,7 @@ def channels_enable(args: dict[str, Any]) -> dict[str, Any]:
             "name": name,
             "enabled": enabled,
             "success": True,
-            "hint": "Channel service æªè¿è¡ï¼ä»åå¥ enabledï¼éå¯ Gateway åçæ",
+            "hint": "Channel service 未运行；仅写入 enabled，重启 Gateway 后生效",
         }
     ok = bool(_run_coro_sync(service.set_channel_enabled(name, enabled)))
     return {"ok": ok, "name": name, "enabled": enabled, "success": ok}
@@ -3395,7 +3409,7 @@ def channels_restart(args: dict[str, Any]) -> dict[str, Any]:
         raise ValidationError("name is required")
     service = _channels_ensure_service()
     if service is None:
-        raise ValidationError("Channel service is not runningï¼è¯·åå¯å¨ Gatewayï¼")
+        raise ValidationError("Channel service is not running（请先启动 Gateway）")
     ok = bool(_run_coro_sync(service.restart_channel(name)))
     return {"ok": ok, "name": name, "success": ok, "restarted": ok}
 
@@ -3491,8 +3505,8 @@ def _registration_http_begin(channel: str) -> Any:
             r = client.post(url)
     except Exception as exc:
         raise ValidationError(
-            f"{channel} registration begin failed: Gateway ä¸å¯è¾¾ï¼{exc}ï¼ã"
-            "ç¡®è®¤ Gateway å·²å¯å¨ä¸ EVOFLOW_GATEWAY_URL æåæ­£ç¡®ç«¯å£ã"
+            f"{channel} registration begin failed: Gateway 不可达（{exc}）。"
+            "确认 Gateway 已启动且 EVOFLOW_GATEWAY_URL 指向正确端口。"
         ) from exc
     if r.status_code >= 400:
         detail = ""
@@ -3503,7 +3517,7 @@ def _registration_http_begin(channel: str) -> Any:
             detail = (r.text or "")[:240]
         raise ValidationError(
             f"{channel} registration begin failed: HTTP {r.status_code}"
-            + (f" â {detail}" if detail else "")
+            + (f" — {detail}" if detail else "")
         )
     data = r.json() if r.content else {}
     if not isinstance(data, dict):
@@ -3523,7 +3537,7 @@ def _registration_http_poll(channel: str, session_id: str) -> Any:
         with httpx.Client(timeout=30.0) as client:
             r = client.get(url)
     except Exception as exc:
-        raise ValidationError(f"{channel} registration poll failed: Gateway ä¸å¯è¾¾ï¼{exc}ï¼") from exc
+        raise ValidationError(f"{channel} registration poll failed: Gateway 不可达（{exc}）") from exc
     if r.status_code >= 400:
         detail = ""
         try:
@@ -3533,7 +3547,7 @@ def _registration_http_poll(channel: str, session_id: str) -> Any:
             detail = (r.text or "")[:240]
         raise ValidationError(
             f"{channel} registration poll failed: HTTP {r.status_code}"
-            + (f" â {detail}" if detail else "")
+            + (f" — {detail}" if detail else "")
         )
     data = r.json() if r.content else {}
     if not isinstance(data, dict):
@@ -3585,7 +3599,7 @@ def channels_registration_begin(args: dict[str, Any]) -> dict[str, Any]:
         "session_id": getattr(session, "session_id", None),
         "qr_url": getattr(session, "qr_url", None) or "",
         "status": getattr(session, "status", None),
-        "hint": "ç¨å¯¹åº App æ«ç ï¼å channels.registration_poll è½®è¯¢ï¼å®æå registration_apply",
+        "hint": "用对应 App 扫码；再 channels.registration_poll 轮询，完成后 registration_apply",
     }
 
 
@@ -3654,7 +3668,7 @@ def channels_registration_apply(args: dict[str, Any]) -> dict[str, Any]:
             "name": channel,
             "success": True,
             "channel_running": running,
-            "hint": "å¾®ä¿¡å­è¯å·²ä¿å­" + ("" if running else "ï¼å¦æªè¿è¡è¯· channels.restart"),
+            "hint": "微信凭证已保存" + ("" if running else "；如未运行请 channels.restart"),
         }
     elif channel == "wecom":
         try:
@@ -3673,7 +3687,7 @@ def channels_registration_apply(args: dict[str, Any]) -> dict[str, Any]:
                 "name": channel,
                 "success": True,
                 "agent_code": agent_code,
-                "hint": "ä¼å¾®å­è¯å·²ä¿å­ï¼å¦éç»å®åå·¥è¯·å¨é¢æ¿å®æ agent_code å³è",
+                "hint": "企微凭证已保存；如需绑定员工请在面板完成 agent_code 关联",
             }
         return {"ok": True, "name": channel, "success": True}
     elif channel == "dingtalk":
@@ -3688,10 +3702,10 @@ def channels_registration_apply(args: dict[str, Any]) -> dict[str, Any]:
     return {
         **channels_set_config({"name": channel, "config": config, "merge": True}),
         "channel": channel,
-        "hint": "å­è¯å·²åå¥ï¼å¯ç¨ channels.restart æèµ·æ¸ é",
+        "hint": "凭证已写入；可用 channels.restart 拉起渠道",
     }
 
-# --- media (ÉúÍ¼ / ÉúÊÓÆµ£»Ä¬ÈÏ»ðÉ½ jimeng / Agent Plan) ---
+# --- media（图片 / 视频生成；即梦 jimeng / Agent Plan） ---
 
 
 def media_catalog(args: dict[str, Any]) -> dict[str, Any]:

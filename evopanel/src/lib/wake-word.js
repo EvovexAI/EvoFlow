@@ -15,9 +15,9 @@ const KWS_GLUE_JS = `${KWS_BASE}/sherpa-onnx-kws.js`
 const KWS_WASM_JS = `${KWS_BASE}/sherpa-onnx-wasm-kws-main.js`
 const KWS_WASM_BIN = `${KWS_BASE}/sherpa-onnx-wasm-kws-main.wasm`
 
-// Default sherpa keywordsThreshold is 0.25; 0.35 made letter-V / 维 weaker than 蜜.
+// Higher score improves wake recall; threshold kept lower for letter-V / 维.
 const KEYWORD_THRESHOLD = 0.22
-const KEYWORD_SCORE = 1.5
+const KEYWORD_SCORE = 3.0
 const COOLDOWN_MS = 800
 const SAMPLE_RATE = 16000
 const CHUNK_SAMPLES = 1600

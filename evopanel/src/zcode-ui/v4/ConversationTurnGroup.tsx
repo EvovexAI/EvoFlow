@@ -561,6 +561,12 @@ function applyV4PlatformProgressAutoOpen(rows: readonly AssistantWorkRow[]): voi
     if (!toolCallId || v4PlatformProgressAutoOpenedIds.has(toolCallId)) continue;
 
     const node = toolCallRowToLegacyNode(row);
+    // employees.chat_send：即使无 ui feedback，也要开右栏 + pendingSend（与 AG-UI 热路径对齐）
+    void import("../../lib/employee-chat-send-sync.js")
+      .then((m) =>
+        m.syncEmployeeChatSendFromToolResult(row.output?.text || node.toolCall.raw, {}),
+      )
+      .catch(() => {});
     // display 优先（agui_mirror 上浮的 actions）；raw / 正文 ui 作回落。
     // shell-page 可能只在 ui.actions.route 里（旧网关）——maybeAutoOpen 内会升成 openStage。
     const feedback: PlatformUiFeedback | null =

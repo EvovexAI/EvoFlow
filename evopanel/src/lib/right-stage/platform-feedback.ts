@@ -4,9 +4,46 @@ import { syncEmployeeChatSendFromToolResult } from '../employee-chat-send-sync.j
 import { syncEmployeesRosterFromToolResult } from '../employees-roster-sync.js'
 import { syncPanelAppearanceFromToolResult } from '../panel-appearance-sync.js'
 import { openProgressFromPanelSet } from './open-progress-from-panel-set.js'
-import { logRightStage } from './panel-set-debug-log.js'
+import {
+  logRightStage,
+  logRightStagePlatform,
+  logRightStageTrigger,
+} from './panel-set-debug-log.js'
 import { rightStageStore } from './right-stage-store.js'
 import type { RightStageSurface } from './right-stage-types.js'
+
+function safePreviewObj(raw: unknown): string {
+  try {
+    const o = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : null
+    if (!o) return ''
+    const pick: Record<string, unknown> = {}
+    for (const k of [
+      'ok',
+      'action',
+      'client_effect',
+      'agent_code',
+      'agentCode',
+      'role_name',
+      'name',
+      'session_key',
+      'sessionKey',
+      'task_id',
+      'taskId',
+      'message',
+      'queued',
+      'ignored_caller_session_key',
+    ]) {
+      if (o[k] !== undefined) {
+        const v = o[k]
+        pick[k] =
+          typeof v === 'string' && v.length > 160 ? `${v.slice(0, 160)}…` : v
+      }
+    }
+    return JSON.stringify(pick)
+  } catch {
+    return ''
+  }
+}
 
 export type PlatformFeedbackDetail = {
   label: string
@@ -290,13 +327,20 @@ export function tryAutoOpenPlatformProgress(
   if (!hit?.openStage) {
     return { opened: false, reason: 'no-autoOpen-openStage', ...base }
   }
-  logRightStage('maybeAutoOpenPlatformProgress', {
+  logRightStageTrigger('maybeAutoOpenPlatformProgress', {
     kind: hit.openStage?.kind,
     label: hit.label,
     openStage: hit.openStage,
+    action: base.action,
+    domain: base.domain,
   })
   const tabId = openProgressFromPanelSet(hit.openStage)
   if (!tabId) {
+    logRightStageTrigger('maybeAutoOpenPlatformProgress failed', {
+      reason: 'openProgress-failed',
+      kind: hit.openStage?.kind,
+      dataKeys: hit.openStage?.data ? Object.keys(hit.openStage.data) : [],
+    })
     return { opened: false, reason: 'openProgress-failed', tabId: '', ...base }
   }
   if (rightStageStore.getSnapshot().collapsed) rightStageStore.expand()
@@ -307,6 +351,11 @@ export function tryAutoOpenPlatformProgress(
       if (rightStageStore.getSnapshot().collapsed) rightStageStore.expand()
     })
     .catch(() => {})
+  logRightStageTrigger(
+    'maybeAutoOpenPlatformProgress opened',
+    { tabId, kind: hit.openStage?.kind, label: hit.label, ...base },
+    { store: rightStageStore },
+  )
   return { opened: true, reason: 'opened', tabId, ...base }
 }
 
@@ -1080,19 +1129,55 @@ export function applyPlatformFeedbackFromToolResult(
     existingEntries?: PlatformRunEntry[]
     /** Live tool results only — history scan must not spam roster reloads. */
     notifyEmployeesRoster?: boolean
+    /**
+     * 是否处理 employees.chat_send 的 client_effect（开右栏 + pendingSend）。
+     * 与 roster 解耦：AG-UI 热路径常关 roster，但仍必须同步 chat_send。
+     * 缺省跟 notifyEmployeesRoster；显式传 true/false 优先。
+     */
+    syncEmployeeChatSend?: boolean
     /** Live results only — history scan must not discard unrelated open tabs. */
     closeRemovedEntityStage?: boolean
   },
 ): { ui: PlatformUiFeedback; entries: PlatformRunEntry[] } | null {
+  const t0 = Date.now()
   void syncPanelAppearanceFromToolResult(raw, { argsText: opts?.argsText })
   if (opts?.notifyEmployeesRoster !== false) {
     syncEmployeesRosterFromToolResult(raw, { argsText: opts?.argsText })
   }
-  // Live only：历史扫描勿重复 chatSend
-  if (opts?.notifyEmployeesRoster !== false) {
+  // Live only：历史扫描勿重复 chatSend。与 roster 开关解耦。
+  const syncChat =
+    opts?.syncEmployeeChatSend !== undefined
+      ? opts.syncEmployeeChatSend
+      : opts?.notifyEmployeesRoster !== false
+  if (syncChat) {
     void syncEmployeeChatSendFromToolResult(raw, { argsText: opts?.argsText })
   }
   const ui = parsePlatformUiFeedback(raw, opts?.argsText)
+  const rawPreview =
+    typeof raw === 'string'
+      ? raw.slice(0, 400)
+      : raw && typeof raw === 'object'
+        ? safePreviewObj(raw)
+        : String(raw ?? '')
+  logRightStagePlatform('applyPlatformFeedback', {
+    toolCallId: opts?.toolCallId || null,
+    live: opts?.notifyEmployeesRoster !== false,
+    hasUi: Boolean(ui),
+    action: ui?.action || null,
+    domain: ui?.domain || null,
+    agentCode: ui?.agentCode || null,
+    clientEffect:
+      (raw && typeof raw === 'object' && !Array.isArray(raw)
+        ? String((raw as Record<string, unknown>).client_effect || '')
+        : '') || null,
+    actionCount: Array.isArray(ui?.actions) ? ui!.actions!.length : 0,
+    autoOpenKinds: (ui?.actions || [])
+      .filter((a) => a?.autoOpen && a?.openStage?.kind)
+      .map((a) => a.openStage!.kind),
+    argsPreview: String(opts?.argsText || '').slice(0, 240) || null,
+    rawPreview: rawPreview || null,
+    ms: Date.now() - t0,
+  })
   if (!ui) return null
   // 删除/归档成功：立刻丢掉指向该实体的右栏页签，避免再点开「Role not found」
   if (opts?.closeRemovedEntityStage !== false && entityRemovedByAction(String(ui.action || ''))) {
@@ -1209,10 +1294,27 @@ export function syncPlatformFeedbackFromTools(
       toolCallId,
       existingEntries: entries,
       notifyEmployeesRoster: false,
+      // chat_send 必须同步；与 roster 解耦（历史扫描也要能开右栏 pending）
+      syncEmployeeChatSend: true,
       // 历史扫描只合并 Info Rail，勿因旧删除记录误关当前打开的页签
       closeRemovedEntityStage: false,
     })
-    if (!result) continue
+    // 无 ui 的 chat_send：sync 已跑；仍标记 seen，避免重复 pending
+    if (!result) {
+      const effect =
+        typeof output === 'string'
+          ? (() => {
+              try {
+                const o = JSON.parse(output)
+                return String(o?.client_effect || '').trim()
+              } catch {
+                return ''
+              }
+            })()
+          : ''
+      if (effect === 'employee_chat_send') seen.add(toolCallId)
+      continue
+    }
 
     seen.add(toolCallId)
     shown.push(result.ui)

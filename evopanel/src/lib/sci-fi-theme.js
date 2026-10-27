@@ -1,11 +1,13 @@
 /**
  * 科技风 (Sci-Fi Theme) 管理
- * 赛博朋克风格：深蓝黑底 + 霓虹青描边 + 网格 + 扫描线
+ * 赛博朋克风格：黑底星空 + 霓虹描边 + 流星
  */
 import { getPanelSetting, patchPanelSettings } from './panel-settings.js'
 
 export const SCIFI_UI_EVENT = 'evopanel-scifi-ui-changed'
 export const SCIFI_UI_PREF_KEY = 'sciFiUIEnabled'
+
+const STARFIELD_ID = 'scifi-starfield'
 
 /** 获取科技风开启状态 —— 默认 true(新装即科技风) */
 export function getSciFiUIEnabled() {
@@ -25,13 +27,36 @@ export function toggleSciFiUI() {
   setSciFiUIEnabled(!getSciFiUIEnabled())
 }
 
+function ensureStarfield() {
+  let el = document.getElementById(STARFIELD_ID)
+  if (el) return el
+  el = document.createElement('div')
+  el.id = STARFIELD_ID
+  el.setAttribute('aria-hidden', 'true')
+  el.innerHTML = [
+    '<div class="scifi-stars scifi-stars--near"></div>',
+    '<div class="scifi-stars scifi-stars--far"></div>',
+    '<span class="scifi-meteor scifi-meteor--a"></span>',
+    '<span class="scifi-meteor scifi-meteor--b"></span>',
+    '<span class="scifi-meteor scifi-meteor--c"></span>',
+  ].join('')
+  document.body.prepend(el)
+  return el
+}
+
+function removeStarfield() {
+  document.getElementById(STARFIELD_ID)?.remove()
+}
+
 /** 应用科技风偏好到 DOM */
 export function applySciFiUIPreference(enabled) {
   const root = document.documentElement
   if (enabled) {
     root.dataset.scifiUi = '1'
+    ensureStarfield()
   } else {
     root.dataset.scifiUi = '0'
+    removeStarfield()
   }
 }
 

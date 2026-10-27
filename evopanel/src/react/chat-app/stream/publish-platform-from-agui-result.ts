@@ -62,6 +62,22 @@ function rebuildContentFromPlatformUi(
   }
 }
 
+function peekClientEffect(raw: unknown): string {
+  if (!raw) return ''
+  if (typeof raw === 'object' && !Array.isArray(raw)) {
+    return String((raw as Record<string, unknown>).client_effect || '').trim()
+  }
+  if (typeof raw === 'string') {
+    try {
+      const o = JSON.parse(raw)
+      return o && typeof o === 'object' ? String(o.client_effect || '').trim() : ''
+    } catch {
+      return ''
+    }
+  }
+  return ''
+}
+
 function resolveResultContent(
   ctx: PublishPlatformFromAgUiResultCtx,
 ): unknown {
@@ -135,13 +151,23 @@ export function publishPlatformFromAgUiResult(ctx: PublishPlatformFromAgUiResult
     return true
   }
 
+  // roster 可关（避免与 tools-scan 双刷）；chat_send 必须开，否则右栏只有空壳 ui.show
   const feedback = applyPlatformFeedbackFromToolResult(resultContent, {
     argsText: ctx.argsText,
     toolCallId,
     existingEntries: ctx.turnPlatformEntriesRef.current,
     notifyEmployeesRoster: false,
+    syncEmployeeChatSend: true,
   })
-  if (!feedback) return false
+  if (!feedback) {
+    // chat_send 可能只有 client_effect、无 parseable ui：sync 已在上面跑过
+    const effect = peekClientEffect(resultContent)
+    if (effect === 'employee_chat_send') {
+      ctx.platformFeedbackSeenRef.current.add(toolCallId)
+      return true
+    }
+    return false
+  }
 
   ctx.platformFeedbackSeenRef.current.add(toolCallId)
   ctx.publishPlatformEntries(feedback.entries, latestPlatformRunEntryId(feedback.entries))

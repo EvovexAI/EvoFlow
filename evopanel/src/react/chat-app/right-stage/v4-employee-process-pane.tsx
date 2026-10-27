@@ -18,15 +18,17 @@ import {
 } from '../../lib/session-list/workspace-groups.js'
 import { resolveProactiveProcessMeta } from '../../../lib/proactive-session-messages.js'
 import {
+  clearEmployeeProcessPendingSend,
   employeeProcessStageTabKey,
   patchEmployeeProcessTabTitle,
   resolveEmployeeProcessTabTitle,
 } from '../../../lib/right-stage/open-employee-process-stage.js'
 import { rightStageStore } from '../../../lib/right-stage/right-stage-store.js'
-import { logRightStage } from '../../../lib/right-stage/panel-set-debug-log.js'
+import { logRightStagePane } from '../../../lib/right-stage/panel-set-debug-log.js'
 import { refreshEvoflowV4Session } from '../../v4/V4StreamRowsBridge.js'
 import { V4SessionPaneBridge } from '../../v4/V4SessionPaneBridge.js'
 import { toast } from '../../../components/toast.js'
+import { EmployeeStageAvatar } from '../../components/EmployeeStageAvatar.js'
 
 /** 执行中：跟进度 */
 const POLL_ACTIVE_MS = 3000
@@ -39,6 +41,16 @@ const SETTLE_DELAY_MS = 2500
 const OPEN_GRACE_MS = 45_000
 
 const RUNNING = new Set(['running', 'busy', 'active', 'in_progress', 'queued', 'pending'])
+
+
+function looksLikeAgentCodeLabel(name: string, agentCode: string): boolean {
+  const n = String(name || '').trim()
+  const c = String(agentCode || '').trim()
+  if (!n) return true
+  if (c && n.toLowerCase() === c.toLowerCase()) return true
+  if (n === '执行过程' || n === '查看进度' || n === '进度') return true
+  return false
+}
 
 /** 后端 run_status 原值 → 徽标文案（未收录的回退原样显示） */
 const STATUS_LABEL: Record<string, string> = {
@@ -70,6 +82,8 @@ export type V4EmployeeProcessPaneProps = {
   sessionKey?: string
   /** 平台 chat_send / openStage 传入的员工对话 key，优先于 meta 解析 */
   employeeSessionKeyHint?: string
+  /** 平台 chat_send 排队的首条消息；挂载后走输入框同款 handleSend */
+  pendingSendMessage?: string
   onClose?: () => void
 }
 
@@ -137,6 +151,7 @@ export function V4EmployeeProcessPane(props: V4EmployeeProcessPaneProps) {
     busy = false,
     sessionKey = '',
     employeeSessionKeyHint = '',
+    pendingSendMessage = '',
     onClose,
   } = props
 
@@ -163,6 +178,30 @@ export function V4EmployeeProcessPane(props: V4EmployeeProcessPaneProps) {
   const wasRunningRef = useRef(false)
   const settledRef = useRef(false)
   const openedAtRef = useRef(Date.now())
+
+  useEffect(() => {
+    logRightStagePane('employeeProcess.mount', {
+      agentCode: code || null,
+      roleName: String(roleName || '').trim() || null,
+      title: String(title || '').trim() || null,
+      taskId: taskId || null,
+      roundId: roundId || null,
+      ownerSessionKey: String(sessionKey || '').trim() || null,
+      employeeSessionKeyHint: String(employeeSessionKeyHint || '').trim() || null,
+      pendingSendLen: String(pendingSendMessage || '').trim().length,
+      busy,
+    })
+  }, [
+    code,
+    roleName,
+    title,
+    taskId,
+    roundId,
+    sessionKey,
+    employeeSessionKeyHint,
+    pendingSendMessage,
+    busy,
+  ])
 
   const fetchMeta = useCallback(async () => {
     if (!code) {
@@ -191,10 +230,18 @@ export function V4EmployeeProcessPane(props: V4EmployeeProcessPaneProps) {
         try {
           const { wsClient } = await import('../../../lib/ws-client.js')
           const ownerTid = String(wsClient.getSessionThreadId?.(ownerSk) || '').trim()
-          if (ownerTid && tid === ownerTid) {
+          // 有明确员工 hint 时，ensure 出的 thread 以 hint 为准，勿因偶发与主聊 map 撞号而拒绑
+          if (ownerTid && tid === ownerTid && !hintSk) {
             rejectedOwner = true
             tid = ''
           }
+        } catch {
+          /* optional */
+        }
+      }
+      if (!tid && hintSk) {
+        try {
+          tid = String((await ensureChatThread(hintSk)) || '').trim()
         } catch {
           /* optional */
         }
@@ -226,7 +273,7 @@ export function V4EmployeeProcessPane(props: V4EmployeeProcessPaneProps) {
         )
       }
       if (tid) refreshEvoflowV4Session(tid)
-      logRightStage('employeeProcess.fetchMeta', {
+      logRightStagePane('employeeProcess.fetchMeta', {
         agentCode: code,
         taskId: taskId || null,
         roundId: roundId || null,
@@ -238,9 +285,14 @@ export function V4EmployeeProcessPane(props: V4EmployeeProcessPaneProps) {
         hintMismatch: Boolean(hintSk && metaSk && metaSk !== hintSk),
         rejectedOwnerBind: rejectedOwner,
         graceMsLeft: Math.max(0, OPEN_GRACE_MS - (Date.now() - openedAtRef.current)),
+        displayRole: String(displayRole || roleName || '').trim() || null,
       })
       setLoaded(true)
-    } catch {
+    } catch (err) {
+      logRightStagePane('employeeProcess.fetchMeta error', {
+        agentCode: code,
+        error: String((err as Error)?.message || err || 'unknown'),
+      })
       setLoaded(true)
     }
   }, [code, taskId, roundId, employeeSessionKeyHint, employeeSessionKey, sessionKey])
@@ -275,6 +327,61 @@ export function V4EmployeeProcessPane(props: V4EmployeeProcessPaneProps) {
     setDisplayRole(resolveEmployeeProcessTabTitle({ title, roleName, agentCode: code }))
   }, [title, roleName, code])
 
+  // 岗位名缺失或只剩 agent_code 时，拉 proactiveGetRole / agents 补中文名
+  useEffect(() => {
+    if (!code) return
+    let cancelled = false
+    const current = String(displayRole || roleName || title || '').trim()
+    if (current && !looksLikeAgentCodeLabel(current, code)) return
+
+    void (async () => {
+      try {
+        const { api } = await import('../../../lib/tauri-api.js')
+        let nice = ''
+        try {
+          const res = await api.proactiveGetRole?.(code)
+          const role = (res && typeof res === 'object' ? (res as any).role || res : null) as
+            | Record<string, unknown>
+            | null
+          // 岗位中文名优先；合同名为空时用智能体显示名，绝不用 agent_code
+          nice = String(
+            role?.role_name || role?.roleName || role?.agent_name || role?.name || '',
+          ).trim()
+        } catch {
+          /* ignore */
+        }
+        if ((!nice || looksLikeAgentCodeLabel(nice, code)) && typeof api.listAgents === 'function') {
+          try {
+            const agents = await api.listAgents()
+            const row = (Array.isArray(agents) ? agents : []).find(
+              (a: any) =>
+                String(a?.agent_code || '')
+                  .trim()
+                  .toLowerCase() === code.toLowerCase(),
+            )
+            nice =
+              String(row?.agent_name || row?.name || '').trim() || nice
+          } catch {
+            /* ignore */
+          }
+        }
+        if (cancelled || !nice || looksLikeAgentCodeLabel(nice, code)) return
+        setDisplayRole(nice)
+        patchEmployeeProcessTabTitle(taskId, nice, {
+          sessionKey,
+          roleName: nice,
+          agentCode: code,
+        })
+      } catch {
+        /* ignore */
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [code, displayRole, roleName, title, taskId, sessionKey])
+
   useEffect(() => {
     const nice = String(displayRole || '').trim()
     if (!code || !nice || nice === '执行过程') return
@@ -308,7 +415,7 @@ export function V4EmployeeProcessPane(props: V4EmployeeProcessPaneProps) {
     const shouldPoll =
       !loaded || running || sending || !threadId || (inOpenGrace && !settledRef.current)
 
-    logRightStage('employeeProcess.poll', {
+    logRightStagePane('employeeProcess.poll', {
       agentCode: code,
       shouldPoll,
       loaded,
@@ -430,6 +537,38 @@ export function V4EmployeeProcessPane(props: V4EmployeeProcessPaneProps) {
     [sending, resolveSendSessionKey, fetchMeta],
   )
 
+  // 平台 chat_send：只开右栏 + pending，由本面板走与输入框同一套发送（ensureThread→chatSend）
+  const pendingSentRef = useRef('')
+  useEffect(() => {
+    const pending = String(pendingSendMessage || '').trim()
+    if (!pending || !code) return
+    const dedupe = `${code}||${String(employeeSessionKeyHint || employeeSessionKey || '').trim()}||${pending}`
+    if (pendingSentRef.current === dedupe) return
+    if (sending) return
+    pendingSentRef.current = dedupe
+    logRightStagePane('employeeProcess.pendingSend → handleSend', {
+      agentCode: code,
+      pendingLen: pending.length,
+      pendingPreview: pending.slice(0, 120),
+      employeeSessionKey:
+        String(employeeSessionKeyHint || employeeSessionKey || '').trim() || null,
+    })
+    clearEmployeeProcessPendingSend(taskId, {
+      sessionKey,
+      agentCode: code,
+    })
+    void handleSend(pending)
+  }, [
+    pendingSendMessage,
+    code,
+    employeeSessionKeyHint,
+    employeeSessionKey,
+    taskId,
+    sessionKey,
+    sending,
+    handleSend,
+  ])
+
   const handleAbort = useCallback(async () => {
     const sk = String(employeeSessionKey || '').trim()
     if (!sk) return
@@ -484,8 +623,10 @@ export function V4EmployeeProcessPane(props: V4EmployeeProcessPaneProps) {
     ],
   )
 
-  const headerTitle =
-    String(displayRole || title || roleName || code).trim() || '执行过程'
+  const headerTitleRaw = String(displayRole || title || roleName || '').trim()
+  const headerTitle = looksLikeAgentCodeLabel(headerTitleRaw, code)
+    ? '执行过程'
+    : headerTitleRaw || '执行过程'
   // 时间线 scope 必须用员工会话；主聊 sessionKey 只作文件 tab 挂靠（owner）
   const ownerSessionKey = String(sessionKey || '').trim()
   const timelineSessionKey = String(employeeSessionKey || ownerSessionKey || '').trim()
@@ -497,6 +638,13 @@ export function V4EmployeeProcessPane(props: V4EmployeeProcessPaneProps) {
   return (
     <div className="v4-employee-process flex h-full min-h-0 flex-col bg-card">
       <div className="flex h-10 shrink-0 items-center gap-2 border-b border-border px-3">
+        <EmployeeStageAvatar
+          agentCode={code}
+          title={headerTitle}
+          size={22}
+          busy={running || sending}
+          className="shrink-0"
+        />
         <span className="min-w-0 truncate text-ui-sm font-medium text-foreground">{headerTitle}</span>
         <span
           className={

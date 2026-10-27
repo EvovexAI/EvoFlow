@@ -60,7 +60,9 @@
     "resources": [
       "binaries/evoflow-gateway",
       "windows/install-data.ps1",
-      "windows/uninstall-data.ps1"
+      "windows/uninstall-data.ps1",
+      "../kws-sidecar",
+      "../public/kws"
     ],
     "targets": [
       "nsis",

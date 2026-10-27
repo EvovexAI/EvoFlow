@@ -121,6 +121,20 @@ function tabKeyOf(tab: RightStageSurface): string {
 }
 
 function tabTitleOf(tab: RightStageSurface): string {
+  const kind = normalizeRightStageKind(tab.kind)
+  if (kind === 'employeeProcess') {
+    const roleName = String(tab.data?.roleName || tab.data?.title || '').trim()
+    const code = String(tab.data?.agentCode || tab.data?.agent_code || '').trim()
+    const titled = String(tab.title || '').trim()
+    // 优先岗位中文名；避免页签只剩 agent_code
+    for (const cand of [roleName, titled]) {
+      if (!cand) continue
+      if (code && cand.toLowerCase() === code.toLowerCase()) continue
+      if (cand === '执行过程' || cand === '查看进度' || cand === '进度') continue
+      return cand
+    }
+    return roleName || titled || code || defaultTitleForKind(tab.kind)
+  }
   return tab.title?.trim() || defaultTitleForKind(tab.kind)
 }
 
@@ -152,6 +166,14 @@ function StageTabChip({
   const title = tabTitleOf(tab)
   const kind = normalizeRightStageKind(tab.kind)
   const faviconUrl = kind === 'browser' ? String(tab.data?.faviconUrl || '') : ''
+  const empCode =
+    kind === 'employeeProcess'
+      ? String(tab.data?.agentCode || tab.data?.agent_code || '').trim()
+      : ''
+  const empTitle =
+    kind === 'employeeProcess'
+      ? String(tab.data?.roleName || tab.data?.title || title || '').trim()
+      : ''
   const wasDraggingRef = useRef(false)
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: key,
@@ -241,7 +263,12 @@ function StageTabChip({
         )}
       >
         <span className="flex size-4 shrink-0 items-center justify-center">
-          <KindTabIcon kind={kind} faviconUrl={faviconUrl} />
+          <KindTabIcon
+            kind={kind}
+            faviconUrl={faviconUrl}
+            agentCode={empCode || undefined}
+            agentTitle={empTitle || undefined}
+          />
         </span>
         <span data-side-pane-tab-title="" className="min-w-0 truncate whitespace-nowrap">
           {title}
@@ -650,6 +677,25 @@ export const RightStagePanel = memo(function RightStagePanel({
                           normalizeRightStageKind(draggingTab.kind) === 'browser'
                             ? String(draggingTab.data?.faviconUrl || '')
                             : ''
+                        }
+                        agentCode={
+                          normalizeRightStageKind(draggingTab.kind) === 'employeeProcess'
+                            ? String(
+                                draggingTab.data?.agentCode ||
+                                  draggingTab.data?.agent_code ||
+                                  '',
+                              ).trim() || undefined
+                            : undefined
+                        }
+                        agentTitle={
+                          normalizeRightStageKind(draggingTab.kind) === 'employeeProcess'
+                            ? String(
+                                draggingTab.data?.roleName ||
+                                  draggingTab.data?.title ||
+                                  tabTitleOf(draggingTab) ||
+                                  '',
+                              ).trim() || undefined
+                            : undefined
                         }
                       />
                     </span>

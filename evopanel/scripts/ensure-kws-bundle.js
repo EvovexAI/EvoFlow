@@ -3,7 +3,8 @@
  *
  * - ONNX + keywords are expected in-repo.
  * - WASM runtime must be present for offline KWS wake.
- * - Missing WASM is a warning by default (Web Speech fallback works).
+ * - Missing browser WASM is a warning by default: desktop prefers the
+ *   Node kws-sidecar (see kws-sidecar/), then Web Speech.
  * - Set EVOFLOW_REQUIRE_KWS_WASM=1 to fail the build if WASM is absent.
  */
 

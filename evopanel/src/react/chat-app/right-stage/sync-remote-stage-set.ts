@@ -76,6 +76,21 @@ export function syncRemoteStageSet(ctx: SyncRemoteStageSetCtx, detail: StageSetP
     kind: kind || '(空)',
     title: detail.surface?.title,
     layout: detail.surface?.layout,
+    id: detail.surface?.id,
+    sessionKey: detail.surface?.sessionKey || null,
+    dataKeys: detail.surface?.data ? Object.keys(detail.surface.data) : [],
+    agentCode:
+      (detail.surface?.data as { agentCode?: string; agent_code?: string } | undefined)
+        ?.agentCode ||
+      (detail.surface?.data as { agentCode?: string; agent_code?: string } | undefined)
+        ?.agent_code ||
+      null,
+    employeeSessionKey:
+      (detail.surface?.data as { employeeSessionKey?: string; sessionKey?: string } | undefined)
+        ?.employeeSessionKey ||
+      (detail.surface?.data as { employeeSessionKey?: string; session_key?: string } | undefined)
+        ?.session_key ||
+      null,
   })
   if (detail.action === 'hide' || !kind) {
     logPanelSet('② 动作=hide 或 kind 空，收起侧栏相关状态')
