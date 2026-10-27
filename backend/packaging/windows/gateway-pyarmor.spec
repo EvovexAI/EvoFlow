@@ -15,7 +15,13 @@ import os
 import sys
 import sysconfig
 
-from PyInstaller.utils.hooks import collect_all, collect_dynamic_libs, collect_submodules, copy_metadata
+from PyInstaller.utils.hooks import (
+    collect_all,
+    collect_data_files,
+    collect_dynamic_libs,
+    collect_submodules,
+    copy_metadata,
+)
 
 _INCLUDE_LOCAL_EMBEDDING = os.environ.get(
     "EVOFLOW_GATEWAY_INCLUDE_LOCAL_EMBEDDING", ""
@@ -233,8 +239,16 @@ if not _INCLUDE_LOCAL_EMBEDDING:
     ]
 
 # pipecat-ai / onnxruntime>=1.24 have no macOS Intel wheels; skip voice stack there.
+# When present, also ship Silero/SmartTurn *.onnx (same as gateway.spec).
 try:
     import pipecat  # noqa: F401
+
+    datas += collect_data_files("pipecat", includes=["**/*.onnx"])
+    hiddenimports += [
+        "pipecat.audio.vad.silero",
+        "pipecat.audio.vad.data",
+        "onnxruntime",
+    ]
 except ImportError:
     _excludes += [
         "pipecat",

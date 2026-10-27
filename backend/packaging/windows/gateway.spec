@@ -5,7 +5,13 @@ import os
 import sys
 import sysconfig
 
-from PyInstaller.utils.hooks import collect_all, collect_dynamic_libs, collect_submodules, copy_metadata
+from PyInstaller.utils.hooks import (
+    collect_all,
+    collect_data_files,
+    collect_dynamic_libs,
+    collect_submodules,
+    copy_metadata,
+)
 
 # Desktop installers stay lean by default: local BGE embedding (torch/ST/scipy)
 # is opt-in via EVOFLOW_GATEWAY_INCLUDE_LOCAL_EMBEDDING=1. Cloud embedding is
@@ -239,8 +245,17 @@ if not _INCLUDE_LOCAL_EMBEDDING:
     ]
 
 # pipecat-ai / onnxruntime>=1.24 have no macOS Intel wheels; skip voice stack there.
+# When present, also ship Silero/SmartTurn *.onnx — PyInstaller only pulls .py into PYZ
+# otherwise, and Xiaomi Frame voice dies at VAD load on packaged installs.
 try:
     import pipecat  # noqa: F401
+
+    datas += collect_data_files("pipecat", includes=["**/*.onnx"])
+    hiddenimports += [
+        "pipecat.audio.vad.silero",
+        "pipecat.audio.vad.data",
+        "onnxruntime",
+    ]
 except ImportError:
     _excludes += [
         "pipecat",

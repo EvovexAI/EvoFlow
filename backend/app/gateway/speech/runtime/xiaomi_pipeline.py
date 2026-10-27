@@ -17,6 +17,39 @@ _PIPECAT_UNAVAILABLE = (
     "no wheels on macOS Intel (x86_64). Use Apple Silicon, Windows, or Linux."
 )
 
+_PIPECAT_ONNX_MISSING = (
+    "Realtime Xiaomi voice is missing Silero/SmartTurn ONNX models inside the "
+    "packaged gateway (silero_vad.onnx). Rebuild the desktop sidecar so "
+    "PyInstaller collects pipecat **/*.onnx data files."
+)
+
+
+def _assert_pipecat_vad_assets() -> None:
+    """Fail early with a clear message when packaged installs omit *.onnx datas."""
+    try:
+        try:
+            from importlib import resources as importlib_resources
+        except ImportError:  # pragma: no cover
+            import importlib_resources  # type: ignore
+
+        root = importlib_resources.files("pipecat.audio.vad.data")
+        model = root.joinpath("silero_vad.onnx")
+        ok = False
+        try:
+            ok = model.is_file()  # type: ignore[attr-defined]
+        except Exception:
+            ok = False
+        if not ok:
+            # Traversable may need as_file() on older layouts
+            with importlib_resources.as_file(model) as path:
+                ok = path.is_file()
+        if not ok:
+            raise RuntimeError(_PIPECAT_ONNX_MISSING)
+    except RuntimeError:
+        raise
+    except Exception as e:
+        raise RuntimeError(_PIPECAT_ONNX_MISSING) from e
+
 
 def build_xiaomi_voice_pipeline(
     *,
@@ -38,6 +71,8 @@ def build_xiaomi_voice_pipeline(
         )
     except ImportError as e:
         raise RuntimeError(_PIPECAT_UNAVAILABLE) from e
+
+    _assert_pipecat_vad_assets()
 
     voice = PipecatVoiceBridge(
         asr_provider=asr_provider,

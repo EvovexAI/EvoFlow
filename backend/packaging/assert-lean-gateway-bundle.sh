@@ -128,6 +128,18 @@ else
   fi
 fi
 
+# Xiaomi Frame voice ONNX (skip macOS Intel — pipecat-ai omitted there).
+require_voice_onnx=1
+if [[ "$(uname -s 2>/dev/null)" == "Darwin" && "$(uname -m 2>/dev/null)" == "x86_64" ]]; then
+  require_voice_onnx=0
+fi
+if [[ "${require_voice_onnx}" == "1" ]]; then
+  silero_count=$(find "${GATEWAY_DIR}" -type f -name 'silero_vad.onnx' 2>/dev/null | wc -l | tr -d ' ')
+  if [[ "${silero_count}" -lt 1 ]]; then
+    fail "pipecat Silero ONNX missing (silero_vad.onnx). Rebuild with gateway.spec collect_data_files(pipecat) or Xiaomi voice fails at VAD load."
+  fi
+fi
+
 total_kb=$(du -sk "${GATEWAY_DIR}" 2>/dev/null | awk '{print $1}')
 total_mb=$(( total_kb / 1024 ))
 if [[ "${allow_chromium}" != "1" && "${allow_local_embed}" != "1" && "${allow_whisper}" != "1" && "${total_mb}" -gt 900 ]]; then

@@ -158,6 +158,15 @@ if (-not (Test-Path -LiteralPath $userGuide)) {
   }
 }
 
+# Xiaomi Frame voice: Silero VAD ONNX must ship with pipecat package data.
+# Windows/Linux/arm64 mac always expect this; missing file →「语音管线启动失败」on packaged installs.
+$sileroHits = @(
+  Get-ChildItem -LiteralPath $GatewayDir -Recurse -Filter "silero_vad.onnx" -File -ErrorAction SilentlyContinue
+)
+if ($sileroHits.Count -lt 1) {
+  $errors.Add("pipecat Silero ONNX missing (silero_vad.onnx). Rebuild with gateway.spec collect_data_files(pipecat, **/*.onnx) or Xiaomi realtime voice will fail at VAD load.")
+}
+
 # Soft size guard: lean sidecar should stay well under ~800MB uncompressed.
 $totalSum = (Get-ChildItem -LiteralPath $GatewayDir -Recurse -File -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum
 $totalMb = if ($null -ne $totalSum) { [math]::Round($totalSum / 1MB, 1) } else { 0 }
