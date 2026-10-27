@@ -34,10 +34,13 @@ def test_media_catalog_shape():
     assert any(m.get("id") == "doubao-seedream-5-0-pro" for m in (models.get("image") or []))
     assert any(str(m.get("id") or "").startswith("doubao-seedance-") for m in (models.get("video") or []))
     assert any(m.get("id") == "gpt-image-2.5-sunburst" for m in (models.get("image") or []))
+    assert any(m.get("id") == "wan2.7-image" for m in (models.get("image") or []))
     assert any(m.get("id") == "MiniMax-H3" for m in (models.get("video") or []))
+    assert any(m.get("id") == "wan2.7-i2v" for m in (models.get("video") or []))
     assert cat.get("credentials")
     assert cat.get("input_image_formats")
     assert "openai" in str(cat.get("key_routing") or "")
+    assert "wan2.7" in str(cat.get("key_routing") or "")
     video_params = ((cat.get("interfaces") or {}).get("video") or {}).get("params") or {}
     assert "model" in video_params
     assert "first_frame_url" in video_params
@@ -53,10 +56,34 @@ def test_provider_for_model_routing():
     assert provider_for_model("gpt-image-2.5-flare", capability="image") == "openai"
     assert provider_for_model("MiniMax-H3", capability="video") == "minimax"
     assert provider_for_model("MiniMax-H3-Max", capability="video") == "minimax"
+    assert provider_for_model("wan2.6-i2v", capability="video") == "wan"
+    assert provider_for_model("wan2.7-image", capability="image") == "wan"
     assert provider_for_model("wan2.7-i2v", capability="video") == "wan"
     assert provider_for_model("doubao-seedream-5-0-pro", capability="image") == "jimeng"
     assert vendor_for_provider("openai") == "openai-image"
     assert vendor_for_provider("minimax") == "minimax"
+
+
+def test_wan_protocol_detection():
+    from evoflow.community.media_generation.providers.dashscope_wan import detect_protocol
+
+    assert detect_protocol("wan2.7-image", capability="image") == "image_v27"
+    assert detect_protocol("wan2.7-image-pro", capability="image") == "image_v27"
+    assert detect_protocol("wan2.6-t2i", capability="image") == "image_v26"
+    assert detect_protocol("wan2.7-i2v", capability="video") == "video_v27"
+    assert detect_protocol("wan2.7-t2v", capability="video") == "video_v27"
+    assert detect_protocol("wan2.6-i2v", capability="video") == "video_v26"
+
+
+def test_media_factory_exports():
+    from evoflow.community.media_generation.providers import factory
+
+    assert hasattr(factory, "submit_image")
+    assert hasattr(factory, "submit_video")
+    assert hasattr(factory, "poll_image")
+    assert hasattr(factory, "poll_video")
+    assert "wan" in factory.IMAGE_PROVIDERS
+    assert "minimax" in factory.VIDEO_PROVIDERS
 
 
 def test_media_url_resolver_rejects_raw_base64():

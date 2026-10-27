@@ -1,7 +1,7 @@
-"""Model id → media provider routing.
+"""Model id → media provider routing + channel catalog SSOT.
 
-When the agent picks a model (e.g. ``gpt-image-2.5-sunburst`` / ``MiniMax-H3``),
-we resolve which credential bundle (vendor) to use automatically.
+When the agent picks a model (e.g. ``gpt-image-2.5-sunburst`` / ``MiniMax-H3`` /
+``wan2.7-image``), we resolve which credential bundle (vendor) to use automatically.
 """
 
 from __future__ import annotations
@@ -54,6 +54,112 @@ def vendor_for_provider(provider: str | None) -> str | None:
     return PROVIDER_VENDOR.get(p)
 
 
+def channel_image_models() -> list[dict[str, Any]]:
+    """Non-Plan image models exposed in media.catalog (provider-routed Keys)."""
+    return [
+        {
+            "id": "gpt-image-2.5-sunburst",
+            "label": "GPT Image 2.5 Sunburst",
+            "provider": "openai",
+            "min_tier": None,
+            "use_when": "画质优先；已配置 OpenAI 生图 Key",
+            "protocol": "openai_images_sync",
+        },
+        {
+            "id": "gpt-image-2.5-flare",
+            "label": "GPT Image 2.5 Flare",
+            "provider": "openai",
+            "min_tier": None,
+            "use_when": "更快的日常生图",
+            "protocol": "openai_images_sync",
+        },
+        {
+            "id": "wan2.7-image",
+            "label": "万相 2.7 生图",
+            "provider": "wan",
+            "min_tier": None,
+            "use_when": "已配置通义万相 Key；多模态 messages 同步协议（推荐）",
+            "protocol": "wan_multimodal_sync",
+            "modes": ["text2image", "image2image"],
+        },
+        {
+            "id": "wan2.7-image-pro",
+            "label": "万相 2.7 Pro 生图",
+            "provider": "wan",
+            "min_tier": None,
+            "use_when": "更高画质 / 4K 文生图；同 2.7 多模态协议",
+            "protocol": "wan_multimodal_sync",
+            "modes": ["text2image", "image2image"],
+        },
+        {
+            "id": "wan2.6-t2i",
+            "label": "万相 2.6 文生图",
+            "provider": "wan",
+            "min_tier": None,
+            "use_when": "兼容旧账号 / 旧配额；legacy text2image 异步",
+            "protocol": "wan_text2image_async",
+        },
+    ]
+
+
+def channel_video_models() -> list[dict[str, Any]]:
+    """Non-Plan video models exposed in media.catalog."""
+    return [
+        {
+            "id": "MiniMax-H3",
+            "label": "MiniMax H3",
+            "provider": "minimax",
+            "min_tier": None,
+            "use_when": "已配置 MiniMax Key；图生视频传 first_frame_url；768P/2K · 4–15s",
+            "protocol": "minimax_h3_content",
+        },
+        {
+            "id": "MiniMax-H3-Max",
+            "label": "MiniMax H3 Max",
+            "provider": "minimax",
+            "min_tier": None,
+            "use_when": "更快出片；480P/768P · 5–15s",
+            "protocol": "minimax_h3_content",
+        },
+        {
+            "id": "wan2.7-i2v",
+            "label": "万相 2.7 图生视频",
+            "provider": "wan",
+            "min_tier": None,
+            "use_when": "推荐；首帧/首尾帧走 input.media[]；可加 driving_audio",
+            "protocol": "wan_media_async",
+            "duration": "2–15 秒",
+            "resolution": ["720P", "1080P"],
+        },
+        {
+            "id": "wan2.7-t2v",
+            "label": "万相 2.7 文生视频",
+            "provider": "wan",
+            "min_tier": None,
+            "use_when": "无首帧时的文生视频；同 video-synthesis 异步",
+            "protocol": "wan_media_async",
+            "duration": "2–15 秒",
+            "resolution": ["720P", "1080P"],
+        },
+        {
+            "id": "wan2.6-i2v",
+            "label": "万相 2.6 图生视频",
+            "provider": "wan",
+            "min_tier": None,
+            "use_when": "兼容旧协议（img_url）；新任务优先 wan2.7-i2v",
+            "protocol": "wan_img_url_async",
+        },
+        {
+            "id": "wan2.6-t2v",
+            "label": "万相 2.6 文生视频",
+            "provider": "wan",
+            "min_tier": None,
+            "use_when": "兼容旧协议；新任务优先 wan2.7-t2v",
+            "protocol": "wan_img_url_async",
+        },
+    ]
+
+
 def credential_sources() -> list[dict[str, Any]]:
     """Human-readable where each channel's Key / Base URL is stored."""
     return [
@@ -74,8 +180,13 @@ def credential_sources() -> list[dict[str, Any]]:
             "api_key_fields": ["dashscopeApiKey"],
             "base_url_fields": ["dashscopeBaseUrl"],
             "default_base_url": "https://dashscope.aliyuncs.com/api/v1",
-            "priority": "设置 → 模型 → 媒体渠道 → 通义万相：填 API Key + 可选 Base URL，并启用该渠道",
-            "models_hint": ["wan2.7-image", "wan2.7-i2v", "wan2.6-t2i"],
+            "priority": "设置 → 模型 → 生图生视频 → 通义万相：填 API Key + 可选 Base URL，并启用该渠道",
+            "models_hint": ["wan2.7-image", "wan2.7-i2v", "wan2.7-t2v", "wan2.6-t2i", "wan2.6-i2v"],
+            "protocols": {
+                "wan2.7-image": "multimodal-generation sync (messages/content)",
+                "wan2.7-i2v": "video-synthesis async (input.media[])",
+                "wan2.6-*": "legacy text2image / img_url",
+            },
         },
         {
             "provider": "openai",
@@ -84,7 +195,7 @@ def credential_sources() -> list[dict[str, Any]]:
             "api_key_fields": ["openaiImageApiKey"],
             "base_url_fields": ["openaiImageBaseUrl"],
             "default_base_url": "https://api.openai.com/v1",
-            "priority": "设置 → 模型 → 媒体渠道 → OpenAI 生图：填 API Key + Base URL（可用兼容网关）",
+            "priority": "设置 → 模型 → 生图生视频 → OpenAI 生图：填 API Key + Base URL（可用兼容网关）",
             "models_hint": ["gpt-image-2.5-sunburst", "gpt-image-2.5-flare"],
         },
         {
@@ -94,7 +205,7 @@ def credential_sources() -> list[dict[str, Any]]:
             "api_key_fields": ["minimaxMediaApiKey"],
             "base_url_fields": ["minimaxMediaBaseUrl"],
             "default_base_url": "https://api.minimax.cn",
-            "priority": "设置 → 模型 → 媒体渠道 → MiniMax：填 API Key + Base URL",
+            "priority": "设置 → 模型 → 生图生视频 → MiniMax：填 API Key + Base URL",
             "models_hint": ["MiniMax-H3", "MiniMax-H3-Max"],
         },
         {
@@ -104,7 +215,7 @@ def credential_sources() -> list[dict[str, Any]]:
             "api_key_fields": ["klingApiKey", "klingAccessKeyId+klingAccessKeySecret"],
             "base_url_fields": ["klingApiBase"],
             "default_base_url": "https://api.klingai.com",
-            "priority": "设置 → 模型 → 媒体渠道 → 可灵",
+            "priority": "设置 → 模型 → 生图生视频 → 可灵",
             "models_hint": ["kling"],
         },
     ]
@@ -129,7 +240,7 @@ def input_image_formats() -> dict[str, Any]:
                 "example": "outputs/media_image_xxx.png 或 absolute_path",
                 "notes": (
                     "平台会自动转换：jimeng/openai/minimax → data:image/...;base64；"
-                    "wan → 上传为 oss:// 临时地址"
+                    "wan → 上传为 oss:// 临时地址（2.7 media[] / 2.6 img_url 均可）"
                 ),
             },
             {
@@ -141,13 +252,26 @@ def input_image_formats() -> dict[str, Any]:
         "file_formats": {
             "ark_seedream_seedance": ["jpeg", "png", "webp", "bmp", "tiff", "gif", "heic", "heif"],
             "minimax_hailuo": ["jpg", "jpeg", "png", "webp"],
+            "wan_27": ["jpeg", "jpg", "png", "bmp", "webp"],
         },
         "limits": {
             "ark": "单张 ≤30MB；宽高比约 1/16–16；Seedream 5.0 pro/flash 最多约 10 张参考图",
             "minimax": "≤20MB；短边 >300px；宽高比 2:5–5:2",
+            "wan": "首帧/尾帧 ≤20MB；宽高 [240,8000]；宽高比 1:8～8:1",
         },
         "do_not": [
             "不要传裸 base64（无 data:image/...;base64, 前缀）——方舟会当 URL 解析并报 InvalidParameter",
             "不要假设绝对本地路径能被远端直接读；必须走 resolver（自动转 Data URI / oss）",
         ],
     }
+
+
+def key_routing_summary() -> str:
+    return (
+        "传 model 时会按模型前缀自动选 provider，再用该渠道的 API Key / Base URL。"
+        "也可显式传 provider=jimeng|wan|openai|minimax|kling。"
+        "火山优先 Agent Plan 绑定 Key（套餐模型 ID 如 doubao-seedream-5-0-pro / doubao-seedance-2.5）；"
+        "自定义按量 Key 走 /api/v3 时需用官方带日期快照 ID（如 doubao-seedream-5-0-pro-260628）。"
+        "万相：wan2.7-* 走新协议（生图 multimodal sync / 视频 media[]）；"
+        "wan2.6-* 仍可用旧协议（text2image / img_url）做兼容。"
+    )

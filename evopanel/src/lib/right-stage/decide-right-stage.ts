@@ -98,7 +98,9 @@ export function decideRightStage(input: RightStageDecideInput): RightStageDecide
       input.hasProgressTab ||
       current === 'collab-workflow' ||
       current === 'collabSubtaskTranscript' ||
-      current === 'employeeProcess'
+      current === 'employeeProcess' ||
+      // 员工墙 / 任务详情等壳页：与进度同级，RUN_FINISHED 不能收
+      current === 'shell-page'
     ) {
       return { action: 'noop', reason: 'progress-keep-on-finish' }
     }

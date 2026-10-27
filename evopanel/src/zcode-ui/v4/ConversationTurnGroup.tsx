@@ -47,7 +47,7 @@ import {
 } from "@/ToolCallBlocks/renderers/platform.js";
 import { EmployeeBindChannelQr } from "../../react/components/EmployeeBindChannelQr.js";
 import {
-  maybeAutoOpenPlatformProgress,
+  tryAutoOpenPlatformProgress,
   parsePlatformUiFeedback,
   type PlatformUiFeedback,
 } from "../../lib/right-stage/platform-feedback.js";
@@ -587,18 +587,32 @@ function applyV4PlatformProgressAutoOpen(rows: readonly AssistantWorkRow[]): voi
             },
           })
         : null);
-    if (!feedback) continue;
-    const opened = maybeAutoOpenPlatformProgress(feedback);
+    if (!feedback) {
+      // 有 platform 结果但解不出 ui（slim 正文 / 非反馈类 action）——记一次避免刷屏
+      logRightStage("V4 autoOpen:platform progress", {
+        toolCallId,
+        opened: false,
+        reason: "no-feedback",
+        toolName: row.toolName,
+        hasDisplay: Boolean(row.output?.display),
+        displayKind: (row.output?.display as { kind?: string } | undefined)?.kind,
+      });
+      v4PlatformProgressAutoOpenedIds.add(toolCallId);
+      continue;
+    }
+    const diag = tryAutoOpenPlatformProgress(feedback);
     logRightStage("V4 autoOpen:platform progress", {
       toolCallId,
-      opened,
-      actions: feedback.actions?.map((a) => ({
-        label: a.label,
-        autoOpen: a.autoOpen,
-        kind: a.openStage?.kind,
-      })),
+      opened: diag.opened,
+      reason: diag.reason,
+      action: diag.action,
+      domain: diag.domain,
+      entityId: diag.entityId,
+      title: diag.title,
+      tabId: diag.tabId,
+      actions: diag.actions,
     });
-    if (!opened) continue;
+    // 无论成败都记 seen：同一 toolCallId 每帧重跑会刷爆控制台；结果不会半路补上 autoOpen
     v4PlatformProgressAutoOpenedIds.add(toolCallId);
     if (v4PlatformProgressAutoOpenedIds.size > 256) {
       const oldest = v4PlatformProgressAutoOpenedIds.values().next().value;

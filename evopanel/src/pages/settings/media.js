@@ -24,16 +24,23 @@ import {
   VOLCENGINE_TTS_SPEAKER_PRESETS,
 } from '../../lib/volcengine-tts-speakers.js'
 
+// Agent Plan 套餐概览用短 ID；按量 Ark 官方快照带日期后缀（见方舟模型列表）。
 const JIMENG_IMAGE_MODEL_PRESETS = [
-  { value: 'doubao-seedream-5-0-pro', label: 'Seedream 5.0 Pro' },
-  { value: 'doubao-seedream-5.0-flash', label: 'Seedream 5.0 Flash' },
+  { value: 'doubao-seedream-5-0-pro', label: 'Seedream 5.0 Pro（套餐）' },
+  { value: 'doubao-seedream-5.0-flash', label: 'Seedream 5.0 Flash（套餐）' },
+  { value: 'doubao-seedream-5-0-pro-260628', label: 'Seedream 5.0 Pro · 260628（按量）' },
+  { value: 'doubao-seedream-5-0-flash-260915', label: 'Seedream 5.0 Flash · 260915（按量）' },
 ]
 
 const JIMENG_VIDEO_MODEL_PRESETS = [
-  { value: 'doubao-seedance-2.5', label: 'Seedance 2.5' },
-  { value: 'doubao-seedance-2.0', label: 'Seedance 2.0' },
-  { value: 'doubao-seedance-2.0-fast', label: 'Seedance 2.0 Fast' },
-  { value: 'doubao-seedance-2.0-mini', label: 'Seedance 2.0 Mini' },
+  { value: 'doubao-seedance-2.5', label: 'Seedance 2.5（套餐）' },
+  { value: 'doubao-seedance-2.0', label: 'Seedance 2.0（套餐）' },
+  { value: 'doubao-seedance-2.0-fast', label: 'Seedance 2.0 Fast（套餐）' },
+  { value: 'doubao-seedance-2.0-mini', label: 'Seedance 2.0 Mini（套餐）' },
+  { value: 'doubao-seedance-2-5-260628', label: 'Seedance 2.5 · 260628（按量）' },
+  { value: 'doubao-seedance-2-0-260128', label: 'Seedance 2.0 · 260128（按量）' },
+  { value: 'doubao-seedance-2-0-fast-260128', label: 'Seedance 2.0 Fast · 260128（按量）' },
+  { value: 'doubao-seedance-2-0-mini-260615', label: 'Seedance 2.0 Mini · 260615（按量）' },
 ]
 
 const ADVANCED_VENDORS = [
@@ -52,7 +59,8 @@ const ADVANCED_VENDORS = [
     label: '通义万相',
     sub: 'Wan 生图/视频',
     icon: 'alibabacloud',
-    setupGuide: '在阿里云百炼控制台创建 DashScope API Key，并启用本渠道。选 wan2.7-* / wan2.6-* 模型时自动用此 Key。',
+    setupGuide:
+      '在阿里云百炼控制台创建 DashScope API Key，并启用本渠道。默认 wan2.7-image（多模态同步）/ wan2.7-i2v（media[] 异步）；仍可显式指定 wan2.6-* 走旧协议。',
     officialUrl: 'https://help.aliyun.com/zh/model-studio/get-api-key',
     officialLabel: '百炼 API Key 说明',
   },
@@ -317,11 +325,9 @@ function vendorRailItemHtml(v, creds) {
           _volcPlanBinding?.tier_id ? ` · ${escHtml(String(_volcPlanBinding.tier_id))}` : ''
         }</span>`
       : ''
-  const badge = planBadge
-    ? planBadge
-    : enabled
-      ? '<span class="models-vendor-primary-badge" title="Agent 可调用">启用</span>'
-      : '<span class="models-vendor-disabled-badge" title="已配置但未启用">停用</span>'
+  const badge = !enabled
+    ? '<span class="models-vendor-disabled-badge" title="已配置但未启用">停用</span>'
+    : planBadge || '<span class="models-vendor-primary-badge" title="Agent 可调用">启用</span>'
   let sub = enabled ? 'Agent 可调用' : '已配置 · 未启用'
   if (v.key === 'volcengine') {
     if (isVolcPlanActive() && hasLocalKey) sub = '套餐 Key · 也可自定义下方 Key'
@@ -706,6 +712,7 @@ function buildDetailHtml(vendorKey, creds) {
       fields = `
         ${secretFieldHtml('dashscopeApiKey', 'API Key', creds)}
         ${textFieldHtml('dashscopeBaseUrl', 'Base URL（可选）', 'https://dashscope.aliyuncs.com/api/v1', creds)}
+        <p class="form-hint">生图推荐 wan2.7-image / wan2.7-image-pro；图生视频 wan2.7-i2v（支持首尾帧 + driving_audio）。兼容 wan2.6-t2i / wan2.6-i2v。</p>
       `
       break
     case 'openai-image':
@@ -1099,6 +1106,7 @@ export async function attachMediaToModelsPage(page, modelsState, callbacks = {})
   renderRail()
 
   try {
+    await refreshVolcPlanBinding()
     _loaded = await fetchMediaCredentials()
     _draft = { ...DEFAULT_MEDIA_CREDENTIALS, ..._loaded }
     delete _draft._configured
@@ -1130,6 +1138,10 @@ export function renderMediaDetail(mode = 'voice') {
   _railMode = mode === 'creative' ? 'creative' : 'voice'
   _selected = defaultVendorForMode(_railMode)
   _pickerMode = false
+  void refreshVolcPlanBinding().then(() => {
+    renderRail()
+    renderDetail()
+  })
   renderRail()
   renderDetail()
 }
@@ -1145,6 +1157,7 @@ export function cleanup() {
   _draft = { ...DEFAULT_MEDIA_CREDENTIALS, enabledVendors: { ...DEFAULT_ENABLED_VENDORS } }
   _loaded = { ...DEFAULT_MEDIA_CREDENTIALS, enabledVendors: { ...DEFAULT_ENABLED_VENDORS } }
   _railMode = 'creative'
+  _volcPlanBinding = null
   _selected = defaultVendorForMode('creative')
   _pickerMode = false
 }

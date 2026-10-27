@@ -279,56 +279,72 @@ def _platform_ui_display_block(
     falls back to parsing tool JSON ``ui`` / top-level ``qr_url``.
     """
     ui: dict[str, Any] | None = None
-    if isinstance(payload, dict) and payload:
-        ui = payload
-    elif content.lstrip().startswith("{"):
+    content_ui: dict[str, Any] | None = None
+    content_blob: dict[str, Any] | None = None
+    if content.lstrip().startswith("{"):
         try:
-            blob = json.loads(content)
+            parsed = json.loads(content)
         except (TypeError, ValueError):
-            blob = None
-        if isinstance(blob, dict) and blob.get("ok") is not False and not blob.get("pending_confirm"):
-            nested = blob.get("ui")
+            parsed = None
+        if isinstance(parsed, dict) and parsed.get("ok") is not False and not parsed.get("pending_confirm"):
+            content_blob = parsed
+            nested = parsed.get("ui")
             if isinstance(nested, dict) and nested:
-                ui = nested
-            elif str(blob.get("action") or "").strip() == "employees.bind_channel_begin":
+                content_ui = nested
+
+    if isinstance(payload, dict) and payload:
+        ui = dict(payload)
+        # wire 上的 platform_ui 偶发只有 title/二维码，缺 actions：用正文 ui 补 CTA
+        if content_ui:
+            if not isinstance(ui.get("actions"), list) or not ui.get("actions"):
+                if isinstance(content_ui.get("actions"), list) and content_ui.get("actions"):
+                    ui["actions"] = content_ui["actions"]
+            for key in ("action", "domain", "entityId", "entityLabel", "title", "agentCode"):
+                if not str(ui.get(key) or "").strip() and str(content_ui.get(key) or "").strip():
+                    ui[key] = content_ui[key]
+    elif content_ui is not None:
+        ui = content_ui
+    elif content_blob is not None:
+        blob = content_blob
+        if str(blob.get("action") or "").strip() == "employees.bind_channel_begin":
+            ui = {
+                "action": "employees.bind_channel_begin",
+                "title": "扫码绑定本岗 AI 员工",
+                "qrUrl": blob.get("qr_url") or blob.get("qrUrl"),
+                "sessionId": blob.get("session_id") or blob.get("sessionId"),
+                "channel": blob.get("channel") or "feishu",
+                "agentCode": blob.get("agent_code") or blob.get("agentCode"),
+                "entityLabel": blob.get("role_name") or blob.get("roleName"),
+                "bindStatus": "pending",
+            }
+        else:
+            # media.* 结果：无 ui 时仍可从 absolute_path / preview 抽出预览区
+            action_name = str(blob.get("action") or "").strip()
+            preview = blob.get("preview") if isinstance(blob.get("preview"), dict) else {}
+            abs_path = str(
+                preview.get("src")
+                or blob.get("absolute_path")
+                or blob.get("local_path")
+                or blob.get("url")
+                or ""
+            ).strip()
+            if action_name.startswith("media.") and abs_path:
+                kind = str(preview.get("kind") or blob.get("media_kind") or "image").strip().lower()
+                if kind not in {"image", "video"}:
+                    kind = "video" if abs_path.lower().endswith((".mp4", ".webm", ".mov", ".mkv", ".m4v")) else "image"
                 ui = {
-                    "action": "employees.bind_channel_begin",
-                    "title": "扫码绑定本岗 AI 员工",
-                    "qrUrl": blob.get("qr_url") or blob.get("qrUrl"),
-                    "sessionId": blob.get("session_id") or blob.get("sessionId"),
-                    "channel": blob.get("channel") or "feishu",
-                    "agentCode": blob.get("agent_code") or blob.get("agentCode"),
-                    "entityLabel": blob.get("role_name") or blob.get("roleName"),
-                    "bindStatus": "pending",
+                    "action": action_name,
+                    "title": str(blob.get("message") or "媒体已生成").strip() or "媒体已生成",
+                    "media": [
+                        {
+                            "kind": kind,
+                            "mimeType": str(preview.get("mimeType") or ("video/mp4" if kind == "video" else "image/png")),
+                            "artifactUri": abs_path,
+                            "absolutePath": str(blob.get("absolute_path") or blob.get("local_path") or "").strip() or None,
+                            "url": str(blob.get("url") or "").strip() or None,
+                        }
+                    ],
                 }
-            else:
-                # media.* 结果：无 ui 时仍可从 absolute_path / preview 抽出预览区
-                action_name = str(blob.get("action") or "").strip()
-                preview = blob.get("preview") if isinstance(blob.get("preview"), dict) else {}
-                abs_path = str(
-                    preview.get("src")
-                    or blob.get("absolute_path")
-                    or blob.get("local_path")
-                    or blob.get("url")
-                    or ""
-                ).strip()
-                if action_name.startswith("media.") and abs_path:
-                    kind = str(preview.get("kind") or blob.get("media_kind") or "image").strip().lower()
-                    if kind not in {"image", "video"}:
-                        kind = "video" if abs_path.lower().endswith((".mp4", ".webm", ".mov", ".mkv", ".m4v")) else "image"
-                    ui = {
-                        "action": action_name,
-                        "title": str(blob.get("message") or "媒体已生成").strip() or "媒体已生成",
-                        "media": [
-                            {
-                                "kind": kind,
-                                "mimeType": str(preview.get("mimeType") or ("video/mp4" if kind == "video" else "image/png")),
-                                "artifactUri": abs_path,
-                                "absolutePath": str(blob.get("absolute_path") or blob.get("local_path") or "").strip() or None,
-                                "url": str(blob.get("url") or "").strip() or None,
-                            }
-                        ],
-                    }
     if not isinstance(ui, dict):
         return None
     qr = str(ui.get("qrUrl") or ui.get("qr_url") or "").strip()

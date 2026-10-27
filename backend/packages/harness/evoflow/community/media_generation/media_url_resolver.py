@@ -151,10 +151,10 @@ def _dashscope_upload_model(*, purpose: str, provider: str) -> str | None:
     if provider != "wan":
         return None
     if purpose == "first_frame":
-        return os.getenv("DASHSCOPE_VIDEO_I2V_MODEL", "wan2.6-i2v")
+        return os.getenv("DASHSCOPE_VIDEO_I2V_MODEL", "wan2.7-i2v")
     if purpose == "audio":
-        return os.getenv("DASHSCOPE_VIDEO_T2V_MODEL", "wan2.6-t2v")
-    return os.getenv("DASHSCOPE_VIDEO_I2V_MODEL", "wan2.6-i2v")
+        return os.getenv("DASHSCOPE_VIDEO_T2V_MODEL", "wan2.7-t2v")
+    return os.getenv("DASHSCOPE_VIDEO_I2V_MODEL", "wan2.7-i2v")
 
 
 def encode_local_image_as_data_url(local_file: Path) -> str:

@@ -1696,8 +1696,10 @@ export function createChatWsOnEventHandler(ctx: ChatWsOnEventCtx) {
           const earlyTc = earlyToolCallId
             ? S.aguiTurn?.toolCalls?.get(earlyToolCallId)
             : undefined
+          // 小V 语音占用右栏时：事件 session 是小V ≠ 主对话 UI key，不能当后台丢掉
+          const xiaomiVoiceFg = isXiaomiVoiceRightStageForeground(eventSk)
           publishPlatformFromAgUiResult({
-            isBackground,
+            isBackground: isBackground && !xiaomiVoiceFg,
             aguiEvent,
             toolCallNameFromTurn: earlyTc?.toolCallName,
             platformUiFromTurn: earlyTc?.platformUi || null,
@@ -1951,7 +1953,7 @@ export function createChatWsOnEventHandler(ctx: ChatWsOnEventCtx) {
         // gate 之后再发一次：applyAgUiWireEvent 已抽出 platformUi，补齐 gate 前缺工具名/ui 的情况
         if (
           publishPlatformFromAgUiResult({
-            isBackground,
+            isBackground: isBackground && !isXiaomiVoiceRightStageForeground(eventSk),
             aguiEvent,
             toolCallNameFromTurn: (() => {
               const id = String((aguiEvent as { toolCallId?: string }).toolCallId || '').trim()
@@ -2161,10 +2163,20 @@ export function createChatWsOnEventHandler(ctx: ChatWsOnEventCtx) {
           }
           const hasArtifacts = turnRunArtifactsRef.current.length > 0
           const platformEntries = turnPlatformEntriesRef.current
+          const xiaomiVoiceFgAtFinish = isXiaomiVoiceRightStageForeground(eventSk)
+          // 真正后台会话（非小V 语音前台）的 RUN_FINISHED 不要动 live 右栏
+          if (isBackground && !xiaomiVoiceFgAtFinish) {
+            logRightStage('RUN_FINISHED right-stage skipped (background)', {
+              eventSk,
+              platformEntryCount: platformEntries.length,
+            })
+          } else {
           logRightStage('RUN_FINISHED right-stage branch', {
             hasArtifacts,
             platformEntryCount: platformEntries.length,
             currentKind: rightStageStore.currentKind,
+            xiaomiVoiceFg: xiaomiVoiceFgAtFinish,
+            isBackground,
           }, { store: rightStageStore })
           if (platformEntries.length > 0 && !hasArtifacts) {
             logRightStage('RUN_FINISHED → publishPlatformEntries')
@@ -2206,11 +2218,14 @@ export function createChatWsOnEventHandler(ctx: ChatWsOnEventCtx) {
                     // 否则会表现为「侧边展开了一下、对话结束又自己关了」。
                     const late = rightStageStore.getSnapshot()
                     const keep = (late.tabs || []).some(
-                      (t) => isProgressStageKind(t?.kind) || String(t?.kind || '') === 'browser',
+                      (t) =>
+                        isProgressStageKind(t?.kind) ||
+                        String(t?.kind || '') === 'browser' ||
+                        String(t?.kind || '') === 'shell-page',
                     )
                     logRightStage(
                       keep
-                        ? 'RUN_FINISHED delayed-hide:ABORT (progress/browser now open)'
+                        ? 'RUN_FINISHED delayed-hide:ABORT (progress/browser/shell now open)'
                         : 'RUN_FINISHED delayed-hide:EXECUTE',
                       { delayMs },
                       { stack: !keep, store: rightStageStore },
@@ -2222,6 +2237,7 @@ export function createChatWsOnEventHandler(ctx: ChatWsOnEventCtx) {
               },
             )
           }
+          } // end !background || xiaomiVoiceFg
         }
         if (changed) {
           maybeSyncVoiceReplySpeech(targetSk, S, rt)

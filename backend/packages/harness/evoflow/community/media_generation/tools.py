@@ -24,7 +24,6 @@ from langchain.tools import ToolRuntime, tool
 from langgraph.typing import ContextT
 
 from evoflow.agents.thread_state import ThreadState
-from evoflow.community.media_generation.aspect_ratio import jimeng_image_size, wan_image_size
 from evoflow.community.media_generation.asset_recorder import (
     record_local_asset,
     record_task_completed,
@@ -39,9 +38,8 @@ from evoflow.community.media_generation.config_helpers import (
     resolve_voice_provider,
 )
 from evoflow.community.media_generation.media_url_resolver import resolve_media_reference_url
-from evoflow.community.media_generation.providers import aliyun_vod, dashscope_tts, dashscope_wan, volcengine_tts
-from evoflow.community.media_generation.providers import jimeng as jimeng_provider
-from evoflow.community.media_generation.providers import kling as kling_provider
+from evoflow.community.media_generation.providers import aliyun_vod, dashscope_tts, volcengine_tts
+from evoflow.community.media_generation.providers import factory as media_factory
 from evoflow.community.media_generation.schemas import error_response, success_response
 from evoflow.community.media_generation.subtitle_utils import (
     audio_duration_seconds,
@@ -78,12 +76,6 @@ def _unique_media_save_prefix(media_kind: str, task_id: str, *, url: str = "") -
 
 def _resolve_outputs_dir(runtime: ToolRuntime[ContextT, ThreadState] | None) -> Path | None:
     return resolve_effective_outputs_dir(runtime=runtime)
-
-
-def _image_size_for_provider(provider: str, aspect_ratio: str) -> str:
-    if provider == "wan":
-        return wan_image_size(aspect_ratio)
-    return jimeng_image_size(aspect_ratio)
 
 
 def _path_for_display(p: str | None) -> str | None:
@@ -275,94 +267,20 @@ def _parse_reference_urls(reference_image_urls: str | None) -> list[str] | None:
     return [u.strip() for u in ref.split(",") if u.strip()]
 
 
-def _guard_media_provider(provider: str, *, media_kind: str) -> None:
-    from .config_helpers import provider_unavailable_message
-
-    err = provider_unavailable_message(provider, media_kind=media_kind)
-    if err:
-        raise ValueError(err)
-
-
 def _submit_image(provider: str, **kwargs) -> str:
-    _guard_media_provider(provider, media_kind="image")
-    aspect_ratio = kwargs.pop("aspect_ratio", "16:9")
-    model = kwargs.pop("model", None)
-    if provider == "kling":
-        kwargs["aspect_ratio"] = aspect_ratio
-        if model:
-            kwargs["model_name"] = model
-        return kling_provider.submit_image(**kwargs)
-    if provider == "openai":
-        from evoflow.community.media_generation.providers import openai_images
-
-        kwargs["aspect_ratio"] = aspect_ratio
-        if model:
-            kwargs["model"] = model
-        return openai_images.submit_image(**kwargs)
-    kwargs["size"] = _image_size_for_provider(provider, aspect_ratio)
-    if model:
-        kwargs["model"] = model
-    if provider == "wan":
-        return dashscope_wan.submit_image(**kwargs)
-    return jimeng_provider.submit_image(**kwargs)
+    return media_factory.submit_image(provider, **kwargs)
 
 
 def _poll_image(provider: str, task_id: str):
-    _guard_media_provider(provider, media_kind="image")
-    if provider == "kling":
-        return kling_provider.poll_image(task_id)
-    if provider == "openai":
-        from evoflow.community.media_generation.providers import openai_images
-
-        return openai_images.poll_image(task_id)
-    if provider == "wan":
-        return dashscope_wan.poll_image(task_id)
-    return jimeng_provider.poll_image(task_id)
+    return media_factory.poll_image(provider, task_id)
 
 
 def _submit_video(provider: str, **kwargs) -> str:
-    _guard_media_provider(provider, media_kind="video")
-    model = kwargs.pop("model", None)
-    if provider == "kling":
-        kwargs.pop("generate_audio", None)
-        kwargs.pop("last_frame_url", None)
-        kwargs.pop("watermark", None)
-        kwargs.pop("seed", None)
-        kwargs.pop("resolution", None)
-        if model:
-            kwargs["model_name"] = model
-        return kling_provider.submit_video(**kwargs)
-    if provider == "wan":
-        kwargs.pop("generate_audio", None)
-        kwargs.pop("last_frame_url", None)
-        kwargs.pop("watermark", None)
-        kwargs.pop("seed", None)
-        if model:
-            kwargs["model"] = model
-        return dashscope_wan.submit_video(**kwargs)
-    if provider == "minimax":
-        from evoflow.community.media_generation.providers import minimax_video
-
-        if model:
-            kwargs["model"] = model
-        return minimax_video.submit_video(**kwargs)
-    kwargs.pop("audio_url", None)
-    if model:
-        kwargs["model"] = model
-    return jimeng_provider.submit_video(**kwargs)
+    return media_factory.submit_video(provider, **kwargs)
 
 
 def _poll_video(provider: str, task_id: str):
-    _guard_media_provider(provider, media_kind="video")
-    if provider == "kling":
-        return kling_provider.poll_video(task_id)
-    if provider == "wan":
-        return dashscope_wan.poll_video(task_id)
-    if provider == "minimax":
-        from evoflow.community.media_generation.providers import minimax_video
-
-        return minimax_video.poll_video(task_id)
-    return jimeng_provider.poll_video(task_id)
+    return media_factory.poll_video(provider, task_id)
 
 
 @tool("media_image_generate", parse_docstring=True)

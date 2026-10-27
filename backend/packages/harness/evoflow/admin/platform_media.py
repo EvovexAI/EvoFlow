@@ -108,8 +108,11 @@ def media_catalog(*, tier_hint: str | None = None) -> dict[str, Any]:
         jimeng_video_model,
     )
     from evoflow.community.media_generation.provider_registry import (
+        channel_image_models,
+        channel_video_models,
         credential_sources,
         input_image_formats,
+        key_routing_summary,
     )
 
     avail = available_media_providers()
@@ -188,62 +191,12 @@ def media_catalog(*, tier_hint: str | None = None) -> dict[str, Any]:
             "video_model": default_video,
         },
         "models": {
-            "image": image_models
-            + [
-                {
-                    "id": "gpt-image-2.5-sunburst",
-                    "label": "GPT Image 2.5 Sunburst",
-                    "provider": "openai",
-                    "min_tier": None,
-                    "use_when": "画质优先；已配置 OpenAI 生图 Key",
-                },
-                {
-                    "id": "gpt-image-2.5-flare",
-                    "label": "GPT Image 2.5 Flare",
-                    "provider": "openai",
-                    "min_tier": None,
-                    "use_when": "更快的日常生图",
-                },
-                {
-                    "id": "wan2.7-image",
-                    "label": "万相 2.7 Image",
-                    "provider": "wan",
-                    "min_tier": None,
-                    "use_when": "已配置通义万相 Key",
-                },
-            ],
-            "video": video_models
-            + [
-                {
-                    "id": "MiniMax-H3",
-                    "label": "MiniMax H3",
-                    "provider": "minimax",
-                    "min_tier": None,
-                    "use_when": "已配置 MiniMax Key；图生视频传 first_frame_url；768P/2K · 4–15s",
-                },
-                {
-                    "id": "MiniMax-H3-Max",
-                    "label": "MiniMax H3 Max",
-                    "provider": "minimax",
-                    "min_tier": None,
-                    "use_when": "更快出片；480P/768P · 5–15s",
-                },
-                {
-                    "id": "wan2.7-i2v",
-                    "label": "万相 2.7 图生视频",
-                    "provider": "wan",
-                    "min_tier": None,
-                    "use_when": "已配置通义万相 Key；首帧 / 首尾帧",
-                },
-            ],
+            "image": image_models + channel_image_models(),
+            "video": video_models + channel_video_models(),
         },
         "input_image_formats": input_image_formats(),
         "credentials": credential_sources(),
-        "key_routing": (
-            "传 model 时会按模型前缀自动选 provider，再用该渠道的 API Key / Base URL。"
-            "也可显式传 provider=jimeng|wan|openai|minimax|kling。"
-            "火山优先 Agent Plan 绑定 Key，否则用媒体渠道里的 volcengineApiKey。"
-        ),
+        "key_routing": key_routing_summary(),
         "interfaces": {
             "image": {
                 "pattern": "sync_poll",
@@ -257,7 +210,7 @@ def media_catalog(*, tier_hint: str | None = None) -> dict[str, Any]:
                         "type": "string",
                         "desc": "模型 ID；省略则用 defaults.image_model。选 gpt-image-2.5-* 会自动走 openai Key",
                         "enum_hint": [m["id"] for m in image_models]
-                        + ["gpt-image-2.5-sunburst", "gpt-image-2.5-flare", "wan2.7-image"],
+                        + [m["id"] for m in channel_image_models()],
                     },
                     "mode": {
                         "required": False,
@@ -327,7 +280,8 @@ def media_catalog(*, tier_hint: str | None = None) -> dict[str, Any]:
                         "required": False,
                         "type": "string",
                         "desc": "Seedance 模型 ID；省略则用 defaults.video_model。Agent Plan Large/Max 才有视频。",
-                        "enum_hint": [m["id"] for m in video_models],
+                        "enum_hint": [m["id"] for m in video_models]
+                        + [m["id"] for m in channel_video_models()],
                     },
                     "mode": {
                         "required": False,

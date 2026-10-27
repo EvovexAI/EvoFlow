@@ -198,7 +198,10 @@ def _build_title(action: str, domain: str, verb: str, label: str, args: dict[str
         "employees.create": f"已创建智能体员工「{name}」",
         "employees.update": f"已更新员工「{name}」配置",
         "employees.get": f"员工「{name}」",
+        "employees.brief": f"员工「{name}」近况",
         "employees.list": "员工列表",
+        "employees.org_status": "员工名册",
+        "employees.board_overview": "员工看板",
         "employees.pause": f"已暂停员工「{name}」值班",
         "employees.resume": f"已恢复员工「{name}」值班",
         "employees.stop": f"已停止员工「{name}」当前轮次",
@@ -754,8 +757,12 @@ def _build_actions(
 
     if domain == "items" and entity_id:
         actions.append({"label": "查看事项", "route": f"/tasks?tab=items&focus={entity_id}"})
-    elif domain == "employees" and action == "employees.list":
-        # 列表 → 员工墙；详情走 /proactive/:code
+    elif domain == "employees" and action in {
+        "employees.list",
+        "employees.org_status",
+        "employees.board_overview",
+    }:
+        # 列表 / 名册 / 看板 → 员工墙；详情走 /proactive/:code
         actions.append(
             _shell_page_cta(
                 label="打开员工",
@@ -783,12 +790,13 @@ def _build_actions(
             )
         )
     elif domain == "employees" and entity_id:
-        # create / hire / update / get：无执行进度时自动挂员工详情
+        # create / hire / update / get / brief：无执行进度时自动挂员工详情
         auto = (not has_progress_stage) and action in {
             "employees.create",
             "employees.hire",
             "employees.update",
             "employees.get",
+            "employees.brief",
         }
         actions.append(
             _shell_page_cta(
@@ -843,10 +851,13 @@ def _build_actions(
     return actions
 
 
-# 只读但应自动打开壳页面（右栏 shell-page）的 action：详情 / 列表
+# 只读但应自动打开壳页面（右栏 shell-page）的 action：详情 / 列表 / 近况 / 名册
 _SHELL_PAGE_READ_ACTIONS = frozenset({
     "employees.get",
+    "employees.brief",
     "employees.list",
+    "employees.org_status",
+    "employees.board_overview",
     "tasks.get",
 })
 
