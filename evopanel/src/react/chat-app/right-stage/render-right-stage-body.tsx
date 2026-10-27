@@ -445,19 +445,22 @@ export function renderRightStageBody(
     const data = surface.data || {}
     const agentCode = String(data.agentCode || '').trim()
     if (!agentCode) return null
+    const roleName = String(data.roleName || '').trim()
+    const empTitle =
+      String(surface.title || data.title || roleName || agentCode).trim() || '执行过程'
     return sidePanelHeavyMount ? (
       <V4EmployeeProcessPane
         agentCode={agentCode}
-        roleName={String(data.roleName || '').trim()}
+        roleName={roleName}
         busy={!!data.busy}
-        title={String(surface.title || data.title || '执行过程')}
+        title={empTitle}
         roundId={String(data.roundId || '').trim()}
         taskId={String(data.taskId || '').trim()}
         sessionKey={String(surface.sessionKey || selectedSessionKey || '').trim() || undefined}
         onClose={() => rightStageStore.closeTab(tabKeyOf(surface))}
       />
     ) : (
-      <SidePanelBootShell title={surface.title || '执行过程'} />
+      <SidePanelBootShell title={empTitle} />
     )
   }
   return null

@@ -137,11 +137,20 @@ export function readPlatformProgressFeedback(raw: unknown): PlatformUiFeedback |
           : undefined,
       }));
     if (actions.some((a) => a.autoOpen && a.openStage)) {
+      const actionName = String(display.action || "").trim();
+      const entityLabel = String(display.entityLabel || display.agentCode || "").trim();
+      const domainGuess = actionName.includes(".")
+        ? actionName.split(".")[0]
+        : entityLabel
+          ? "employees"
+          : "workflow";
       return {
         kind: "success",
-        action: String(display.action || "").trim() || undefined,
+        action: actionName || undefined,
         title: String(display.title || "平台操作成功").trim(),
-        domain: "workflow",
+        domain: domainGuess,
+        entityLabel: entityLabel || undefined,
+        entityId: String(display.agentCode || "").trim() || undefined,
         actions,
       };
     }

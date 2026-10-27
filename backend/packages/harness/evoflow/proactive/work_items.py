@@ -814,14 +814,14 @@ def format_live_duty_tasks_section(role: ProactiveRole, *, limit: int = 8) -> st
     lines.extend(
         [
             "",
-            '动作：推进 ``tasks(action="progress", task_id=…, progress=N)``；',
             '干完结案 ``tasks(action="state", task_id=…, status="completed", '
             'summary="做了什么/验收要点", '
             'outputs=[{"type":"file","key":"report","value":"路径"}], '
             'handlers=[{"agent_code":"…","content":"做什么","read_outputs":[…]}])``'
-            "（已完成；handlers 仅直属下级；medium+ 交接由系统挂待审批后再 wake；"
+            "（pending 也可直达 completed；handlers 仅直属下级；"
             "勿经 terminal 拼 handlers JSON；勿对本岗交接再 create+wake 下级）；",
-            "取证/改码时**同批并发** ``mind_map``；证据返回后下一轮立刻 patch 导图并回写进度。",
+            '中间 ``progress`` 可选——写不了就跳过，勿为 Failed to save 空转重试。',
+            "取证/改码时可同批 ``mind_map``；有证据再 patch 导图即可。",
             _LIVE_TASKS_CLOSE,
         ]
     )

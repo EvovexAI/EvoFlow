@@ -17,11 +17,11 @@ from pydantic import BaseModel, BeforeValidator, Field
 logger = logging.getLogger(__name__)
 
 _TASKS_TOOL_DESCRIPTION = """\
-岗位 Task 主工具：有进展就立刻 progress 回写，干完必须 state=completed（可带 handlers），勿只 progress 后空等。
+岗位 Task 主工具。干完直接 state=completed 即可（可带 handlers）；中间 progress 可选，写不了/不想写也没关系，勿为回写卡死。
 
 action: create | progress | state | delete | list | get。
-- progress: task_id + progress 0–100
-- state: task_id + status (completed/failed/cancelled) + summary；有下游 completed 时填 handlers
+- progress: task_id + progress 0–100（可选；失败可忽略，继续做事或直接结案）
+- state: task_id + status (completed/failed/cancelled) + summary；有下游 completed 时填 handlers；pending 可直接 completed
 - delete: task_id + confirm=true
 outputs: 文档路径 [{type,key,value}]（type=file 时路径必须已存在，否则保存失败）；handlers: [{agent_code,content,read_outputs[]}]
 
@@ -40,7 +40,7 @@ tasks_ui_metadata = {
     "group": "builtin",
     "label": "岗位任务",
     "icon": "📋",
-    "description": ("值班主工具：create / progress / state / delete。有进展就 progress；干完必须 state=completed（可带 handlers），禁止只 progress 后空等审批。"),
+    "description": ("值班主工具：create / progress / state / delete。干完直接 state=completed；中间 progress 可选，勿为回写空转。"),
 }
 
 _ACTIONS = frozenset({"list", "get", "create", "progress", "state", "delete"})

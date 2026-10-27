@@ -107,16 +107,27 @@ export function openProgressFromPanelSet(
       logRightStage('openProgress:shell-page missing path', { dataKeys: Object.keys(data) })
       return ''
     }
+    const entityLabel = firstStr(
+      data.entityLabel,
+      data.entity_label,
+      data.roleName,
+      data.role_name,
+      data.name,
+      data.title,
+    )
     const tabId = openShellPageInRightStage(
       {
         path,
-        title: title || undefined,
+        title: title || entityLabel || undefined,
+        entityLabel: entityLabel || undefined,
         mountId: firstStr(data.mountId, data.mount_id),
         layout: (surface.layout as 'wide') || 'wide',
       },
       { sessionKey: sk, layout: (surface.layout as 'wide') || 'wide' },
     )
-    logRightStage('openProgress:shell-page', { tabId, path, title }, { store: rightStageStore })
+    logRightStage('openProgress:shell-page', { tabId, path, title: title || entityLabel }, {
+      store: rightStageStore,
+    })
     return tabId
   }
 

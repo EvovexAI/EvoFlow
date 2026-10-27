@@ -1991,6 +1991,27 @@ html.dark .shell-account-menu {
   background: var(--shell-hover, #f0f2f7);
 }
 
+.shell-account-item:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.shell-account-item--primary {
+  font-weight: 650;
+  color: var(--accent, #2563eb);
+  background: color-mix(in srgb, var(--accent, #2563eb) 10%, transparent);
+}
+
+.shell-account-item--primary:hover {
+  background: color-mix(in srgb, var(--accent, #2563eb) 16%, transparent);
+}
+
+.shell-account--failed .shell-account-avatar--icon {
+  color: #b45309;
+  background: color-mix(in srgb, #f59e0b 14%, transparent);
+  border-color: color-mix(in srgb, #f59e0b 28%, transparent);
+}
+
 .shell-account-note {
   padding: 6px 10px 8px;
   font-size: 11px;
@@ -25418,6 +25439,192 @@ html.dark .react-chat-workspace-panel {
 }
 .react-chat-shell-page-status--error {
   color: var(--danger, #b91c1c);
+}
+
+/* —— 右栏精简员工列表（shell-page / employees.list） —— */
+.shell-roster-page {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  padding: 0;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--bg-primary, #fff) 92%, var(--accent, #3b82f6) 8%) 0%, var(--bg-primary, #fff) 120px),
+    var(--bg-primary, #fff);
+}
+.shell-roster-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 16px 12px;
+  flex-shrink: 0;
+}
+.shell-roster-title {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  color: var(--text-primary, #0f172a);
+}
+.shell-roster-sub {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--text-tertiary, #94a3b8);
+}
+.shell-roster-refresh {
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  border: 1px solid var(--border, #e2e8f0);
+  background: var(--bg-secondary, #f8fafc);
+  color: var(--text-secondary, #64748b);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.shell-roster-refresh:hover {
+  color: var(--text-primary, #0f172a);
+  border-color: color-mix(in srgb, var(--accent, #3b82f6) 35%, var(--border, #e2e8f0));
+  background: color-mix(in srgb, var(--accent, #3b82f6) 8%, var(--bg-secondary, #f8fafc));
+}
+.shell-roster-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 4px 10px 16px;
+}
+.shell-roster-loading {
+  padding: 28px 12px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-tertiary, #94a3b8);
+}
+.shell-roster-empty {
+  padding: 36px 16px;
+  text-align: center;
+}
+.shell-roster-empty-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary, #0f172a);
+}
+.shell-roster-empty-desc {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--text-tertiary, #94a3b8);
+  line-height: 1.5;
+}
+/* 多列紧凑格子：头像 + 名字 + 状态，不一人占满一行 */
+.shell-roster-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+  gap: 8px;
+  padding: 2px 2px 8px;
+}
+.shell-roster-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 10px 8px 8px;
+  border-radius: 12px;
+  border: 1px solid transparent;
+  background: color-mix(in srgb, var(--bg-secondary, #f8fafc) 70%, transparent);
+  cursor: pointer;
+  outline: none;
+  font: inherit;
+  color: inherit;
+  min-width: 0;
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.12s ease;
+}
+.shell-roster-tile:hover,
+.shell-roster-tile:focus-visible {
+  background: var(--bg-secondary, #f8fafc);
+  border-color: color-mix(in srgb, var(--accent, #3b82f6) 28%, var(--border, #e2e8f0));
+}
+.shell-roster-tile:active {
+  transform: scale(0.98);
+}
+.shell-roster-avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-tertiary, #e2e8f0);
+  flex-shrink: 0;
+}
+.shell-roster-avatar img,
+.shell-roster-avatar canvas,
+.shell-roster-avatar > * {
+  width: 100% !important;
+  height: 100% !important;
+  border-radius: 12px;
+  object-fit: cover;
+}
+.shell-roster-name {
+  width: 100%;
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.25;
+  text-align: center;
+  color: var(--text-primary, #0f172a);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.shell-roster-status {
+  max-width: 100%;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 2px 6px;
+  border-radius: 999px;
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.shell-roster-status--run {
+  color: #b45309;
+  background: color-mix(in srgb, #f59e0b 18%, transparent);
+}
+.shell-roster-status--ok {
+  color: #047857;
+  background: color-mix(in srgb, #10b981 16%, transparent);
+}
+.shell-roster-status--warn {
+  color: #a16207;
+  background: color-mix(in srgb, #eab308 18%, transparent);
+}
+.shell-roster-status--muted {
+  color: var(--text-tertiary, #64748b);
+  background: color-mix(in srgb, var(--text-tertiary, #94a3b8) 14%, transparent);
+}
+
+html[data-theme='dark'] .shell-roster-page,
+html.dark .shell-roster-page {
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--bg-primary, #0b1220) 88%, var(--accent, #3b82f6) 12%) 0%, var(--bg-primary, #0b1220) 140px),
+    var(--bg-primary, #0b1220);
+}
+html[data-theme='dark'] .shell-roster-tile,
+html.dark .shell-roster-tile {
+  background: color-mix(in srgb, var(--bg-secondary, #111827) 80%, transparent);
+}
+html[data-theme='dark'] .shell-roster-tile:hover,
+html[data-theme='dark'] .shell-roster-tile:focus-visible,
+html.dark .shell-roster-tile:hover,
+html.dark .shell-roster-tile:focus-visible {
+  background: var(--bg-secondary, #111827);
 }
 
 /* 仅当 BrowserPanel 仍是 main-body 的直接子级时才当外壳占宽（旧路径兜底）。

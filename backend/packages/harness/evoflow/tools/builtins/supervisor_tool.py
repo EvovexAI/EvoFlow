@@ -156,9 +156,33 @@ _ALLOWED_TASK_STATES = {
 _TASK_STATE_TRANSITIONS: dict[str, set[str]] = {
     # 随手待办：分配/升级 → pending；用户勾完成 / 取消
     "inbox": {"pending", "completed", "cancelled"},
-    "pending": {"planned", "planning", "executing", "waiting_user", "cancelled"},
-    "planned": {"planning", "executing", "cancelled"},
-    "planning": {"executing", "waiting_user", "failed", "cancelled"},
+    # pending/planned/planning 可直接结案：不必先 progress→executing（少仪式感）
+    "pending": {
+        "planned",
+        "planning",
+        "executing",
+        "waiting_user",
+        "awaiting_close",
+        "completed",
+        "failed",
+        "cancelled",
+    },
+    "planned": {
+        "planning",
+        "executing",
+        "awaiting_close",
+        "completed",
+        "failed",
+        "cancelled",
+    },
+    "planning": {
+        "executing",
+        "waiting_user",
+        "awaiting_close",
+        "completed",
+        "failed",
+        "cancelled",
+    },
     "executing": {
         "waiting_dispatch",
         "waiting_user",
@@ -177,7 +201,7 @@ _TASK_STATE_TRANSITIONS: dict[str, set[str]] = {
         "failed",
         "cancelled",
     },
-    "waiting_user": {"executing", "cancelled", "failed"},
+    "waiting_user": {"executing", "awaiting_close", "completed", "cancelled", "failed"},
     # 本岗已交、整单未验收关闭；可验收 completed / 失败 / 返工回 executing
     "awaiting_close": {"completed", "failed", "cancelled", "executing"},
     # reviewed kept for legacy rows; treat as terminal success (maps to completed on write)

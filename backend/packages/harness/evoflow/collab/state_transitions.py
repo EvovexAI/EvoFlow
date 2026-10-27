@@ -52,16 +52,22 @@ ALLOWED_TRANSITIONS: dict[TaskStatus, set[TaskStatus]] = {
         TaskStatus.PLANNING,
         TaskStatus.PLANNED,
         TaskStatus.EXECUTING,  # 直接开跑（事项派发 / progress）
+        TaskStatus.COMPLETED,  # 干完可直接结案，不必先走 executing
+        TaskStatus.FAILED,
         TaskStatus.CANCELLED,  # 未开始即可取消（误派发清理）
     },
     TaskStatus.PLANNING: {
         TaskStatus.PLANNED,
+        TaskStatus.EXECUTING,
+        TaskStatus.COMPLETED,
         TaskStatus.FAILED,  # 规划失败
         TaskStatus.CANCELLED,  # 取消
     },
     TaskStatus.PLANNED: {
         TaskStatus.PLANNING,  # 重新规划
         TaskStatus.EXECUTING,  # 开始执行
+        TaskStatus.COMPLETED,
+        TaskStatus.FAILED,
         TaskStatus.CANCELLED,  # 取消
     },
     TaskStatus.EXECUTING: {

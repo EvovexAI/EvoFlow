@@ -150,12 +150,15 @@ export function TaskDetailRightStageHost({
       if (kind === 'employeeProcess') {
         const agentCode = String(data.agentCode || '').trim()
         if (!agentCode) return <SidePanelBootShell title="执行过程" />
+        const roleName = String(data.roleName || '').trim()
+        const empTitle =
+          String(surface.title || data.title || roleName || agentCode).trim() || '执行过程'
         return (
           <V4EmployeeProcessPane
             agentCode={agentCode}
-            roleName={String(data.roleName || '').trim()}
+            roleName={roleName}
             busy={!!data.busy}
-            title={String(surface.title || data.title || '执行过程')}
+            title={empTitle}
             roundId={String(data.roundId || '').trim()}
             taskId={String(data.taskId || tid).trim()}
             sessionKey={stageSk}

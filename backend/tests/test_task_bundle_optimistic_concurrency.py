@@ -110,3 +110,41 @@ def test_storage_save_project_survives_rejection_and_invalidates_cache():
     finally:
         store._project_cache.pop(pid, None)
         store._project_cache_ts.pop(pid, None)
+
+
+def test_save_project_uses_load_stamp_even_if_updated_at_was_bumped():
+    """patch_collab bumps project.updated_at before save; must not self-reject.
+
+    Prod symptom (2026-10-27 emp-99974783): every tasks.progress/state returned
+    ``Failed to save task`` while the employee had already finished the work.
+    """
+    from unittest.mock import MagicMock
+
+    import evoflow.collab.storage as st
+
+    store = st.get_project_storage()
+    pid = "proj-progress-stamp-test"
+    db_ts = "2026-10-27T10:32:16.229565+08:00"
+    try:
+        project = {
+            "id": pid,
+            "updated_at": "2026-10-27T10:33:21.000000+08:00",  # already bumped by patch
+            "_loaded_updated_at": db_ts,
+            "tasks": [{"id": pid, "status": "pending", "progress": 0}],
+        }
+        captured: dict = {}
+
+        def _capture(main_task_id, document, loaded_updated_at=None):
+            captured["loaded_updated_at"] = loaded_updated_at
+            captured["document_updated_at"] = document.get("updated_at")
+
+        with patch("evoflow.persistence.repositories.save_task_bundle", side_effect=_capture):
+            ok = store.save_project(project)
+
+        assert ok is True
+        assert captured["loaded_updated_at"] == db_ts
+        assert captured["document_updated_at"] != db_ts
+        assert project.get("_loaded_updated_at") == captured["document_updated_at"]
+    finally:
+        store._project_cache.pop(pid, None)
+        store._project_cache_ts.pop(pid, None)

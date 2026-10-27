@@ -152,6 +152,8 @@ const TITLE_OVERRIDES: Record<string, (label: string) => string> = {
   'tasks.set_state': (label) => `协作任务「${label}」状态已更新`,
   'tasks.delete': (label) => `已删除协作任务「${label}」`,
   'employees.hire': (label) => `已添加智能体员工「${label}」`,
+  'employees.get': (label) => `员工「${label}」`,
+  'employees.list': () => '员工列表',
   'employees.create': (label) => `已创建智能体员工「${label}」`,
   'employees.bind_channel_begin': (label) => `已为「${label}」生成绑定二维码`,
   'employees.bind_channel_apply': (label) => `已绑定本岗 AI 员工「${label}」`,
@@ -303,31 +305,49 @@ function shellPageAction(opts: {
   path: string
   mountId: string
   title?: string
+  entityLabel?: string
   autoOpen?: boolean
 }): PlatformFeedbackAction {
   const path = String(opts.path || '').trim()
+  // 标签用实体名；title 同时写进 openStage 与 data，防 V4 mirror 丢字段时仍能回落
+  const nice =
+    String(opts.entityLabel || opts.title || '').trim() ||
+    (opts.mountId.startsWith('employees')
+      ? '员工'
+      : opts.mountId.startsWith('tasks')
+        ? '任务'
+        : '页面')
   const out: PlatformFeedbackAction = {
     label: opts.label,
     route: path,
     openStage: {
       kind: 'shell-page',
-      title: opts.title || opts.label || path,
+      title: nice,
       layout: 'wide',
-      data: { path, route: path, mountId: opts.mountId },
+      data: {
+        path,
+        route: path,
+        mountId: opts.mountId,
+        title: nice,
+        entityLabel: String(opts.entityLabel || opts.title || '').trim(),
+      },
     },
   }
   if (opts.autoOpen) out.autoOpen = true
   return out
 }
 
-/** 写成功且无进度抢栏时，应对齐后端：详情页 shell-page + autoOpen */
+/** 写成功 / 查看详情 且无进度抢栏时：详情页 shell-page + autoOpen */
 function shouldAutoOpenShellPage(action: string): boolean {
   return (
     action === 'employees.create' ||
     action === 'employees.hire' ||
     action === 'employees.update' ||
+    action === 'employees.get' ||
+    action === 'employees.list' ||
     action === 'tasks.update' ||
-    action === 'tasks.set_state'
+    action === 'tasks.set_state' ||
+    action === 'tasks.get'
   )
 }
 
@@ -370,10 +390,41 @@ export function enrichShellPageOpenStages(ui: PlatformUiFeedback): PlatformUiFee
         a.autoOpen = true
         touched = true
       }
+      // 已有 shell-page 但标题是 path / 空：用 entityLabel 补可读名
+      if (entityLabel && a.openStage) {
+        const cur = asString(a.openStage.title) || asString(a.openStage.data?.title)
+        if (!cur || cur.startsWith('/') || cur.startsWith('#/')) {
+          a.openStage = {
+            ...a.openStage,
+            title: entityLabel,
+            data: {
+              ...(a.openStage.data || {}),
+              title: entityLabel,
+              entityLabel,
+            },
+          }
+          touched = true
+        }
+      }
       continue
     }
     if (existingKind) continue
 
+    if (route === '/proactive' || route === '/proactive/') {
+      Object.assign(
+        a,
+        shellPageAction({
+          label: a.label || '打开员工',
+          path: '/proactive',
+          mountId: 'employees.board',
+          title: '员工',
+          entityLabel: '员工',
+          autoOpen: autoOk || action === 'employees.list',
+        }),
+      )
+      touched = true
+      continue
+    }
     const emp = route.match(/^\/proactive\/([^/?#]+)\/?$/)
     if (emp && emp[1] !== 'board' && emp[1] !== 'approvals') {
       const path = `/proactive/${decodeURIComponent(emp[1])}`
@@ -383,7 +434,8 @@ export function enrichShellPageOpenStages(ui: PlatformUiFeedback): PlatformUiFee
           label: a.label || '查看员工',
           path,
           mountId: 'employees.detail',
-          title: entityLabel || emp[1],
+          title: entityLabel || '员工',
+          entityLabel: entityLabel || undefined,
           autoOpen: autoOk,
         }),
       )
@@ -399,7 +451,8 @@ export function enrichShellPageOpenStages(ui: PlatformUiFeedback): PlatformUiFee
           label: a.label || '查看任务',
           path,
           mountId: 'tasks.detail',
-          title: entityLabel || task[1],
+          title: entityLabel || '任务',
+          entityLabel: entityLabel || undefined,
           autoOpen: autoOk && action !== 'tasks.create',
         }),
       )
@@ -411,6 +464,7 @@ export function enrichShellPageOpenStages(ui: PlatformUiFeedback): PlatformUiFee
     autoOk &&
     entityId &&
     (domain === 'employees' || action.startsWith('employees.')) &&
+    action !== 'employees.list' &&
     !actions.some((a) => String(a.openStage?.kind || '').includes('shell'))
   ) {
     actions.push(
@@ -418,8 +472,26 @@ export function enrichShellPageOpenStages(ui: PlatformUiFeedback): PlatformUiFee
         label: '查看员工',
         path: `/proactive/${entityId}`,
         mountId: 'employees.detail',
-        title: entityLabel || entityId,
+        title: entityLabel || '员工',
+        entityLabel: entityLabel || undefined,
         autoOpen: true,
+      }),
+    )
+    touched = true
+  }
+
+  if (
+    action === 'employees.list' &&
+    !actions.some((a) => String(a.openStage?.kind || '').includes('shell'))
+  ) {
+    actions.push(
+      shellPageAction({
+        label: '打开员工',
+        path: '/proactive',
+        mountId: 'employees.board',
+        title: '员工',
+        entityLabel: '员工',
+        autoOpen: autoOk,
       }),
     )
     touched = true
@@ -441,6 +513,18 @@ function buildActions(action: string, domain: string, entityId: string): Platfor
         label: '查看任务',
         path: `/task/${entityId}`,
         mountId: 'tasks.detail',
+        autoOpen: shouldAutoOpenShellPage(action),
+      }),
+    ]
+  }
+  if (domain === 'employees' && action === 'employees.list') {
+    return [
+      shellPageAction({
+        label: '打开员工',
+        path: '/proactive',
+        mountId: 'employees.board',
+        title: '员工',
+        entityLabel: '员工',
         autoOpen: shouldAutoOpenShellPage(action),
       }),
     ]
@@ -483,7 +567,17 @@ function inferPlatformUiFeedbackFallback(
   const action = asString(obj.action)
   if (!action || !action.includes('.')) return null
   const [domain, verb] = action.split('.', 2)
-  if (!domain || !verb || READ_VERBS.has(verb)) return null
+  // 普通只读不发反馈；查看详情（get）要能开 shell-page
+  if (
+    !domain ||
+    !verb ||
+    (READ_VERBS.has(verb) &&
+      action !== 'employees.get' &&
+      action !== 'employees.list' &&
+      action !== 'tasks.get')
+  ) {
+    return null
+  }
 
   const args = parseJsonObject(argsText) || {}
   const label = pickLabel(obj, args) || DOMAIN_ENTITY_ZH[domain] || domain

@@ -320,14 +320,25 @@ def _platform_ui_display_block(
             kind = str(open_stage.get("kind") or "").strip()
             if not kind:
                 continue
+            open_data = (
+                open_stage.get("data")
+                if isinstance(open_stage.get("data"), dict)
+                else {}
+            )
+            open_entry: dict[str, Any] = {
+                "kind": kind[:64],
+                "data": open_data,
+            }
+            # 标签标题：必须上浮，否则前端会回落到 path（看起来像链接地址）
+            stage_title = str(open_stage.get("title") or "").strip()
+            if stage_title:
+                open_entry["title"] = stage_title[:256]
+            stage_layout = str(open_stage.get("layout") or "").strip()
+            if stage_layout:
+                open_entry["layout"] = stage_layout[:64]
             entry: dict[str, Any] = {
                 "label": label[:64],
-                "openStage": {
-                    "kind": kind[:64],
-                    "data": open_stage.get("data")
-                    if isinstance(open_stage.get("data"), dict)
-                    else {},
-                },
+                "openStage": open_entry,
             }
             if row.get("autoOpen") is True:
                 entry["autoOpen"] = True

@@ -238,40 +238,48 @@ class ProactiveRepository:
         reports_to = _role_reports_to(role)
         role.config.reports_to = reports_to
         config_json = role.config.to_json()
-        get_db().execute(
-            f"""
-            INSERT INTO evoflow_proactive_roles ({_ROLE_COLS.strip()})
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
-            ON CONFLICT(agent_code) DO UPDATE SET
-                role_name = excluded.role_name,
-                position_code = excluded.position_code,
-                department = excluded.department,
-                config_json = excluded.config_json,
-                reports_to = excluded.reports_to,
-                heartbeat_rrule = excluded.heartbeat_rrule,
-                heartbeat_schedule = excluded.heartbeat_schedule,
-                status = excluded.status,
-                last_heartbeat_at = excluded.last_heartbeat_at,
-                next_heartbeat_at = excluded.next_heartbeat_at,
-                updated_at = excluded.updated_at
-            """,
-            (
-                role.agent_code,
-                role.role_name,
-                role.position_code,
-                role.department,
-                config_json,
-                reports_to,
-                role.heartbeat_rrule,
-                str(getattr(role, "heartbeat_schedule", "") or ""),
-                role.status,
-                role.last_heartbeat_at,
-                role.next_heartbeat_at,
-                role.created_at or now,
-                now,
-            ),
-        )
-        get_db().commit()
+
+        # Wrap in run_db_transaction: a bare execute+commit on the shared
+        # connection leaves an implicit deferred transaction open whenever
+        # anything raises before commit. That orphan txn is then rolled back
+        # by the next ``BEGIN IMMEDIATE`` (e.g. delete_role's session
+        # cleanup), silently resurrecting rows a previous cascade "deleted".
+        def _upsert(db: Any) -> None:
+            db.execute(
+                f"""
+                INSERT INTO evoflow_proactive_roles ({_ROLE_COLS.strip()})
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+                ON CONFLICT(agent_code) DO UPDATE SET
+                    role_name = excluded.role_name,
+                    position_code = excluded.position_code,
+                    department = excluded.department,
+                    config_json = excluded.config_json,
+                    reports_to = excluded.reports_to,
+                    heartbeat_rrule = excluded.heartbeat_rrule,
+                    heartbeat_schedule = excluded.heartbeat_schedule,
+                    status = excluded.status,
+                    last_heartbeat_at = excluded.last_heartbeat_at,
+                    next_heartbeat_at = excluded.next_heartbeat_at,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    role.agent_code,
+                    role.role_name,
+                    role.position_code,
+                    role.department,
+                    config_json,
+                    reports_to,
+                    role.heartbeat_rrule,
+                    str(getattr(role, "heartbeat_schedule", "") or ""),
+                    role.status,
+                    role.last_heartbeat_at,
+                    role.next_heartbeat_at,
+                    role.created_at or now,
+                    now,
+                ),
+            )
+
+        run_db_transaction(_upsert)
         # Keep shadow evoflow_automations row in sync (schedule / pause / resume).
         try:
             from evoflow.proactive.employee_automation import upsert_employee_automation
@@ -299,6 +307,17 @@ class ProactiveRepository:
             return False
 
         db = get_db()
+
+        # Nothing in this function may run inside an inherited open transaction.
+        # Every write below would silently land in that transaction and be
+        # rolled back by the next ``BEGIN IMMEDIATE`` (which treats it as an
+        # orphan) — the original cause of "cascade deleted, then FK fails".
+        if bool(getattr(db, "in_transaction", False)):
+            logger.warning(
+                "proactive.role.delete: rolling back inherited open transaction before delete code=%s",
+                code,
+            )
+            db.rollback()
 
         # 1. Reject if this role is still someone's direct manager.
         subs = db.execute(
@@ -342,11 +361,20 @@ class ProactiveRepository:
                 exc_info=True,
             )
 
-        # 3. Cascade-delete child tables in FK-safe order.
+        # 3. Cascade-delete child tables in FK-safe order, in ONE transaction.
         # approvals.initiative_id → initiatives.id → roles.agent_code
-        # Old code deleted initiatives first; with PRAGMA foreign_keys=ON that
-        # fails, the error was swallowed, and DELETE role then raised IntegrityError.
-        try:
+        #
+        # Must go through run_db_transaction: bare ``db.execute(DELETE)`` on the
+        # shared connection opens an implicit transaction that stays open until
+        # ``commit()`` — which used to happen only in step 5. Step 4's
+        # ``delete_sessions_bulk`` then ran ``BEGIN IMMEDIATE``, saw the orphan
+        # transaction and rolled it back, so these child rows came back and
+        # step 5 died with FOREIGN KEY constraint failed.
+        #
+        # Failures now propagate (with table context) instead of being
+        # swallowed by ``logger.debug``: a cascade that silently does nothing is
+        # strictly worse than a loud error.
+        def _cascade(db: Any) -> None:
             db.execute(
                 """
                 DELETE FROM evoflow_proactive_approvals
@@ -358,25 +386,24 @@ class ProactiveRepository:
                 """,
                 (code, code),
             )
-        except Exception as e:
-            logger.debug("proactive.role.delete cascade skip approvals: %s", e)
-
-        for table in (
-            "evoflow_proactive_initiatives",
-            "evoflow_proactive_memory",
-            "evoflow_proactive_cost_log",
-        ):
-            try:
-                db.execute(
-                    f"DELETE FROM {table} WHERE role_agent_code = ?",
-                    (code,),
-                )
-            except Exception as e:
-                logger.debug("proactive.role.delete cascade skip %s: %s", table, e)
-        try:
+            for table in (
+                "evoflow_proactive_initiatives",
+                "evoflow_proactive_memory",
+                "evoflow_proactive_cost_log",
+            ):
+                db.execute(f"DELETE FROM {table} WHERE role_agent_code = ?", (code,))
             db.execute("DELETE FROM evoflow_duty_runs WHERE agent_code = ?", (code,))
+
+        try:
+            run_db_transaction(_cascade)
         except Exception as e:
-            logger.debug("proactive.role.delete cascade skip evoflow_duty_runs: %s", e)
+            logger.error(
+                "proactive.role.delete cascade FAILED code=%s table-batch=approvals/initiatives/memory/cost_log/duty_runs: %s",
+                code,
+                e,
+                exc_info=True,
+            )
+            raise
 
         # 4. Clean chat session data under ``proactive:{code}`` (+ duty/task/chat children).
         # 批量路径：一次事务清所有会话表 + 一次 LG bulk prune；替代旧版
@@ -405,6 +432,8 @@ class ProactiveRepository:
                     try:
                         await delete_sessions_bulk(wipe_keys)
                     except Exception:
+                        # Session wipe is best-effort (chat data, not FK-guarded);
+                        # log loudly but keep the role delete going.
                         logger.exception(
                             "proactive.role.delete bulk session wipe failed code=%s (sessions=%d)",
                             code,
@@ -423,7 +452,7 @@ class ProactiveRepository:
                             exc_info=True,
                         )
         except Exception:
-            logger.debug(
+            logger.warning(
                 "proactive.role.delete chat session cleanup skipped code=%s",
                 code,
                 exc_info=True,

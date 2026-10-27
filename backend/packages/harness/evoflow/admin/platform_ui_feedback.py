@@ -193,6 +193,8 @@ def _build_title(action: str, domain: str, verb: str, label: str, args: dict[str
         "employees.hire": f"已添加智能体员工「{name}」",
         "employees.create": f"已创建智能体员工「{name}」",
         "employees.update": f"已更新员工「{name}」配置",
+        "employees.get": f"员工「{name}」",
+        "employees.list": "员工列表",
         "employees.pause": f"已暂停员工「{name}」值班",
         "employees.resume": f"已恢复员工「{name}」值班",
         "employees.stop": f"已停止员工「{name}」当前轮次",
@@ -413,14 +415,27 @@ def _employee_process_cta(
     task_id: str,
     agent_code: str,
     round_id: str = "",
+    role_name: str = "",
     auto_open: bool = False,
 ) -> dict[str, Any]:
     data: dict[str, Any] = {"taskId": task_id, "agentCode": agent_code, "busy": True}
     if round_id:
         data["roundId"] = round_id
+    nice = str(role_name or "").strip()
+    if nice:
+        data["roleName"] = nice
+        data["title"] = nice
+        data["entityLabel"] = nice
+    # 标签用员工名，避免显示「执行过程」或 path
+    stage: dict[str, Any] = {
+        "kind": "employeeProcess",
+        "title": nice or str(agent_code or "").strip() or "执行过程",
+        "layout": "wide",
+        "data": data,
+    }
     out: dict[str, Any] = {
         "label": "查看进度",
-        "openStage": {"kind": "employeeProcess", "data": data},
+        "openStage": stage,
     }
     if auto_open:
         out["autoOpen"] = True
@@ -471,6 +486,14 @@ def _progress_open_stage_action(
         task.get("source_ref"),
         args.get("round_id"),
     )
+    role_name = _first_str(
+        result.get("role_name"),
+        result.get("roleName"),
+        task.get("role_name"),
+        args.get("role_name"),
+        _as_dict(result.get("role")).get("role_name"),
+        _pick_label(action, args, result) if domain == "employees" else "",
+    )
 
     # 叫醒/恢复值班：有 taskId+agentCode → 员工执行过程（派活后立刻开侧栏）
     if domain == "employees" and action in {
@@ -487,6 +510,7 @@ def _progress_open_stage_action(
                 task_id=tid,
                 agent_code=assigned,
                 round_id=round_id,
+                role_name=role_name,
                 auto_open=auto,
             )
         # dispatch 常无 task_id：有 agent 也给过程 CTA（侧栏跟值班轮）
@@ -495,6 +519,7 @@ def _progress_open_stage_action(
                 task_id=tid or "",
                 agent_code=assigned,
                 round_id=round_id,
+                role_name=role_name,
                 auto_open=True,
             )
         return None
@@ -506,6 +531,7 @@ def _progress_open_stage_action(
                 task_id=tid,
                 agent_code=assigned,
                 round_id=round_id,
+                role_name=role_name,
                 auto_open=True,
             )
         return None
@@ -517,6 +543,7 @@ def _progress_open_stage_action(
                 task_id=tid,
                 agent_code=assigned,
                 round_id=round_id,
+                role_name=role_name,
                 auto_open=True,
             )
         return {
@@ -558,17 +585,31 @@ def _shell_page_cta(
 ) -> dict[str, Any]:
     """右栏挂载壳页面（与菜单同一 path）；保留 route 供旧客户端 / 挂载失败回落。"""
     p = str(path or "").strip()
+    # 标签用实体名（员工/任务名）；绝不用 path，避免右栏 tab 显示成链接
+    nice = str(title or "").strip()
+    if not nice or nice.startswith("/") or nice.startswith("#/"):
+        mid = str(mount_id or "")
+        if mid.startswith("employees"):
+            nice = "员工"
+        elif mid.startswith("tasks"):
+            nice = "任务"
+        elif mid.startswith("apps") or mid.startswith("workflow"):
+            nice = "工作流"
+        else:
+            nice = str(label or "页面").strip() or "页面"
     out: dict[str, Any] = {
         "label": label,
         "route": p,
         "openStage": {
             "kind": "shell-page",
-            "title": (title or label or p).strip() or label,
+            "title": nice,
             "layout": "wide",
             "data": {
                 "path": p,
                 "route": p,
                 "mountId": str(mount_id or "").strip(),
+                "title": nice,
+                "entityLabel": nice,
             },
         },
     }
@@ -602,12 +643,24 @@ def _build_actions(
 
     if domain == "items" and entity_id:
         actions.append({"label": "查看事项", "route": f"/tasks?tab=items&focus={entity_id}"})
+    elif domain == "employees" and action == "employees.list":
+        # 列表 → 员工墙；详情走 /proactive/:code
+        actions.append(
+            _shell_page_cta(
+                label="打开员工",
+                path="/proactive",
+                mount_id="employees.board",
+                title="员工",
+                auto_open=not has_progress_stage,
+            )
+        )
     elif domain == "tasks" and entity_id:
         # 无进度 CTA 时写成功可自动挂任务详情；有进度则只挂可点 shell-page
         auto = (not has_progress_stage) and action in {
             "tasks.create",
             "tasks.update",
             "tasks.set_state",
+            "tasks.get",
         }
         actions.append(
             _shell_page_cta(
@@ -619,11 +672,12 @@ def _build_actions(
             )
         )
     elif domain == "employees" and entity_id:
-        # create / hire / update：无执行进度时自动挂员工详情
+        # create / hire / update / get：无执行进度时自动挂员工详情
         auto = (not has_progress_stage) and action in {
             "employees.create",
             "employees.hire",
             "employees.update",
+            "employees.get",
         }
         actions.append(
             _shell_page_cta(
@@ -678,27 +732,36 @@ def _build_actions(
     return actions
 
 
+# 只读但应自动打开壳页面（右栏 shell-page）的 action：详情 / 列表
+_SHELL_PAGE_READ_ACTIONS = frozenset({
+    "employees.get",
+    "employees.list",
+    "tasks.get",
+})
+
+
 def build_platform_ui_feedback(
     entry: PlatformAction,
     args: dict[str, Any],
     result: dict[str, Any],
 ) -> dict[str, Any] | None:
-    """Return structured UI payload for successful write/destructive platform actions."""
+    """Return structured UI payload for successful write/destructive（及指定只读详情）platform actions."""
     if not result.get("ok"):
         return None
     if result.get("pending_confirm"):
         return None
-    if entry.risk not in {"write", "destructive"}:
+    action = str(result.get("action") or entry.name).strip()
+    if entry.risk not in {"write", "destructive"} and action not in _SHELL_PAGE_READ_ACTIONS:
         return None
 
-    action = str(result.get("action") or entry.name).strip()
     domain = str(entry.domain or "").strip()
     verb = _action_verb(action)
     label = _pick_label(action, args, result)
     entity_id = _pick_entity_id(action, args, result)
     title = _build_title(action, domain, verb, label, args, result)
     subtitle = _build_subtitle(domain, action, result)
-    details = _build_details(args, result)
+    # 只读详情：少塞细节，避免「最新通知」太吵；重点是 autoOpen 详情页
+    details = [] if action in _SHELL_PAGE_READ_ACTIONS else _build_details(args, result)
     actions = _build_actions(action, domain, entity_id, args, result)
 
     kind = "warning" if entry.risk == "destructive" else "success"

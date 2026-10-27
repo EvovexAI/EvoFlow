@@ -150,12 +150,13 @@ function destroyTaskDetailEmbed() {
 /**
  * 创建任务详情视图（整页与应用内嵌共用同一套 UI / 观测；主控对话仅内嵌调试可选展开）。
  * @param {string} taskId
- * @param {{ mode?: 'page'|'embed', onClose?: () => void }} [opts]
+ * @param {{ mode?: 'page'|'embed', onClose?: () => void, onTitle?: (title: string) => void }} [opts]
  * @returns {{ page: HTMLElement, destroy: () => void }}
  */
 export function createTaskDetailView(taskId, opts = {}) {
   const mode = opts.mode === 'embed' ? 'embed' : 'page'
   const isEmbed = mode === 'embed'
+  const onTitle = typeof opts.onTitle === 'function' ? opts.onTitle : null
 
   const page = document.createElement('div')
   page.className = `page task-detail-page${isEmbed ? ' task-detail-page--embed' : ''}`
@@ -269,6 +270,8 @@ export function createTaskDetailView(taskId, opts = {}) {
     embedMode: isEmbed,
     conversationExpanded: false,
     detailTab: 'overview',
+    /** @type {((title: string) => void) | null} */
+    onTitle,
     /** @type {ReturnType<typeof import('../components/task-detail-right-stage.js').mountTaskDetailRightStage> | null} */
     rightStageHost: null,
   }
@@ -506,22 +509,27 @@ export function createTaskDetailView(taskId, opts = {}) {
 }
 
 /**
- * 嵌入任务详情到指定容器（应用调试坞等）。
- * @returns {{ destroy: () => void }}
+ * 嵌入任务详情到指定容器（应用调试坞 / 右栏 shell-page）。
+ * @returns {{ destroy: () => void, title?: string }}
  */
-export function mountTaskDetailInto(container, { taskId, onClose } = {}) {
+export function mountTaskDetailInto(container, { taskId, onClose, onTitle } = {}) {
   destroyTaskDetailEmbed()
   const id = String(taskId || '').trim()
   if (!container || !id) {
     return { destroy: () => {} }
   }
-  const view = createTaskDetailView(id, { mode: 'embed', onClose })
+  const view = createTaskDetailView(id, {
+    mode: 'embed',
+    onClose,
+    onTitle: typeof onTitle === 'function' ? onTitle : undefined,
+  })
   container.innerHTML = ''
   container.appendChild(view.page)
   _embedCleanup = () => {
     view.destroy()
   }
   return {
+    title: String(view.page?.dataset?.shellPageTitle || '').trim() || undefined,
     destroy: () => {
       if (_embedCleanup) {
         _embedCleanup()
@@ -1498,6 +1506,15 @@ async function loadTaskDetail(page, state) {
     state.subtasks = state.task.subtasks || []
     if (sessionsRes != null) {
       state.runtimeIndex = buildActiveSessionIndex(asActiveSessionList(sessionsRes))
+    }
+    const shellTitle = String(task?.name || task?.title || '').trim()
+    if (shellTitle) {
+      page.dataset.shellPageTitle = shellTitle
+      try {
+        state.onTitle?.(shellTitle)
+      } catch {
+        /* ignore */
+      }
     }
 
     await ensureTaskDetailMaps(state)
@@ -2573,7 +2590,8 @@ async function openTaskCenterEmployeeProcessStage(page, state) {
         taskId: tid,
         agentCode,
         roleName: resolveDetailRoleLabel(task, state),
-        title: taskName || '执行过程',
+        // 标签用员工名；任务名不要盖掉 roleName
+        title: resolveDetailRoleLabel(task, state) || taskName || undefined,
         roundId,
         busy,
       },

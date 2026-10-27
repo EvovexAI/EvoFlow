@@ -116,6 +116,34 @@ export function warmEvoflowV4Session(
   }
 }
 
+/**
+ * 员工执行过程等只读面板：主动拉一次最新投影（非流式）。
+ * 已有租约时 recover → resync；尚未订阅则 warm 冷启动。
+ */
+export function refreshEvoflowV4Session(sessionId: string): void {
+  const id = String(sessionId || "").trim();
+  if (!id) return;
+  try {
+    const layer = getSharedLayer();
+    if (!layer.has(id)) {
+      warmEvoflowV4Session(id, { force: true });
+      return;
+    }
+    const lease = layer.acquire(id);
+    try {
+      lease.store.recoverFromStaleAuthority();
+    } finally {
+      try {
+        lease.release();
+      } catch {
+        /* ignore */
+      }
+    }
+  } catch {
+    /* best effort */
+  }
+}
+
 function monotonicNowSafe(): number {
   return typeof performance !== "undefined" ? performance.now() : Date.now();
 }

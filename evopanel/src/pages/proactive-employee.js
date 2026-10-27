@@ -1058,7 +1058,7 @@ let _currentPage = null
 
 /**
  * 右栏 shell-page 挂载员工详情（不改 hash，与菜单同款页面模块）。
- * @returns {{ destroy: () => void }}
+ * @returns {{ destroy: () => void, title?: string }}
  */
 export async function mountEmployeePageInto(container, { code, onClose } = {}) {
   const host = container
@@ -1077,7 +1077,9 @@ export async function mountEmployeePageInto(container, { code, onClose } = {}) {
     })
   }
   host.replaceChildren(page)
+  const title = String(page.dataset.shellPageTitle || '').trim()
   return {
+    title: title || undefined,
     destroy: () => {
       try {
         page.remove()
@@ -1195,6 +1197,10 @@ async function renderEmployeePage(code, { autoPatrol = false, autoLive = false, 
       knowledgeVaults: Array.isArray(knowledgeVaults) ? knowledgeVaults : [],
       schedulePreview,
     })
+    // 供右栏 shell-page 标签回写真实岗位名（勿用 agent_code / path）
+    page.dataset.shellPageTitle = String(
+      role?.role_name || role?.agent_name || capability?.agent?.agent_name || '',
+    ).trim()
     const avatarHost = page.querySelector('[data-avatar-agent]')
     if (avatarHost) {
       const agent = capability.agent || { agent_code: code }

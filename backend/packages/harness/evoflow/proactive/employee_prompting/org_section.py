@@ -147,7 +147,7 @@ def build_employee_org_section(
             "- **向下（直属下级）**：本岗做完要下游继续 → 结案时 ``tasks state`` + **handlers**（系统建单并叫醒）；**禁止**对下级再 ``create``+``wake`` 做同一次交接。",
             "- **平级（同一上级）**：新事项 ``tasks create``（assignee + ``start=true`` 默认）→ **建单即开工**，不必再 wake；只排队用 ``start=false``；已有未结单才 ``wake`` + ``task_id`` 续跑。",
             "- **向上**：叶子岗对本岗 Task ``completed`` 结案即可；禁止给上级新建验收单。",
-            "- **写权限**：本岗只能 ``tasks progress/state`` 自己的单（``assigned_to``=本岗）；禁止改他人/上级状态。小V 代用户不受此限。",
+            "- **写权限**：本岗只能 ``tasks progress/state`` 自己的单（``assigned_to``=本岗）；禁止改他人/上级状态。小V 代用户不受此限。progress 可选，干完直接 completed 即可。",
             "- **wake 用途**：仅续跑/催办已有未结单；**禁止**「刚 create 完立刻再 wake」同一次派活。小V 代用户 ``create`` 同样自动叫醒。",
         ]
     )

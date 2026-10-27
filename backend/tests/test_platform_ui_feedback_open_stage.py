@@ -64,14 +64,17 @@ def test_employees_wake_open_stage_when_task_present():
         "agent_code": "duty-ops",
         "task_id": "mt-wake",
         "round_id": "r1",
+        "role_name": "值班",
     }
     ui = build_platform_ui_feedback(entry, {"agent_code": "duty-ops"}, result)
     assert ui is not None
     progress = next(a for a in ui["actions"] if a.get("label") == "查看进度")
     assert progress["autoOpen"] is True
     assert progress["openStage"]["kind"] == "employeeProcess"
+    assert progress["openStage"]["title"] == "值班"
     assert progress["openStage"]["data"]["taskId"] == "mt-wake"
     assert progress["openStage"]["data"]["agentCode"] == "duty-ops"
+    assert progress["openStage"]["data"]["roleName"] == "值班"
     assert progress["openStage"]["data"]["roundId"] == "r1"
 
 
@@ -130,6 +133,43 @@ def test_employees_update_shell_page_auto_open():
     assert view["autoOpen"] is True
     assert view["openStage"]["kind"] == "shell-page"
     assert view["openStage"]["data"]["path"] == "/proactive/duty-ops"
+
+
+def test_employees_get_shell_page_auto_open():
+    """查看员工详情（read）也应自动挂员工页。"""
+    entry = _entry("employees.get", "employees", risk="read")
+    result = {
+        "ok": True,
+        "action": "employees.get",
+        "agent_code": "duty-ops",
+        "role_name": "值班",
+    }
+    ui = build_platform_ui_feedback(entry, {"agent_code": "duty-ops"}, result)
+    assert ui is not None
+    assert "值班" in ui["title"]
+    view = next(a for a in ui["actions"] if a.get("label") == "查看员工")
+    assert view["autoOpen"] is True
+    assert view["openStage"]["kind"] == "shell-page"
+    assert view["openStage"]["data"]["path"] == "/proactive/duty-ops"
+    assert view["openStage"]["data"]["mountId"] == "employees.detail"
+
+
+def test_employees_list_shell_page_auto_open():
+    """查看员工列表 → 右栏挂员工墙 /proactive。"""
+    entry = _entry("employees.list", "employees", risk="read")
+    result = {
+        "ok": True,
+        "action": "employees.list",
+        "roles": [{"agent_code": "a"}, {"agent_code": "b"}],
+    }
+    ui = build_platform_ui_feedback(entry, {}, result)
+    assert ui is not None
+    assert ui["title"] == "员工列表"
+    view = next(a for a in ui["actions"] if a.get("label") == "打开员工")
+    assert view["autoOpen"] is True
+    assert view["openStage"]["kind"] == "shell-page"
+    assert view["openStage"]["data"]["path"] == "/proactive"
+    assert view["openStage"]["data"]["mountId"] == "employees.board"
 
 
 def test_employees_create_with_task_prefers_progress_auto_open():

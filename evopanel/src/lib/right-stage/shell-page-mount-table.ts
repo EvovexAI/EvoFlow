@@ -3,11 +3,51 @@
  * 不是 BrowserPanel；未登记的 path 由 ShellPageKind 降级提示 + route 回落。
  */
 
-export type ShellPageMountResult = { destroy: () => void }
+export type ShellPageMountResult = {
+  destroy: () => void
+  /** 挂载后解析到的可读标题（员工名 / 任务名等），供右栏标签回写 */
+  title?: string
+}
 
 export type ShellPageMountOpts = {
   onClose?: () => void
   title?: string
+  /** 异步解析到可读标题时回调（任务详情等） */
+  onTitle?: (title: string) => void
+}
+
+/** 右栏标签绝不直接显示 path；优先实体名，其次按 mountId 给短名。 */
+export function resolveShellPageTabTitle(opts: {
+  title?: string | null
+  entityLabel?: string | null
+  path?: string | null
+  mountId?: string | null
+}): string {
+  const looksLikePath = (s: string) =>
+    !s ||
+    s.startsWith('/') ||
+    s.startsWith('#/') ||
+    s.startsWith('shell:') ||
+    /^https?:\/\//i.test(s)
+
+  for (const raw of [opts.entityLabel, opts.title]) {
+    const s = String(raw || '').trim()
+    if (!s || looksLikePath(s)) continue
+    return s.slice(0, 48)
+  }
+  const mountId = String(opts.mountId || '').trim()
+  if (mountId.startsWith('employees')) return '员工'
+  if (mountId.startsWith('tasks') || mountId.startsWith('items')) return '任务'
+  if (mountId.startsWith('apps') || mountId.startsWith('workflow')) return '工作流'
+  if (mountId.startsWith('knowledge')) return '知识库'
+  if (mountId.startsWith('settings') || mountId === 'settings.models') return '设置'
+  if (mountId.startsWith('automation') || mountId.includes('cron')) return '自动化'
+  const path = String(opts.path || '').trim()
+  if (path === '/proactive' || path.startsWith('/proactive/')) return '员工'
+  if (path.startsWith('/task/')) return '任务'
+  if (path.startsWith('/apps')) return '工作流'
+  if (path.startsWith('/knowledge')) return '知识库'
+  return '页面'
 }
 
 export type ShellPageMountFn = (
@@ -42,6 +82,18 @@ function normalizePath(raw: string): string {
 
 const ENTRIES: Entry[] = [
   {
+    mountId: 'employees.board',
+    pattern: /^\/proactive$/,
+    paramNames: [],
+    mount: async (host, _params, opts) => {
+      // 右栏用精简名册（头像/名字/状态），不挂全量员工墙
+      const mod = await import('../../pages/proactive-roster-compact.js')
+      return mod.mountProactiveRosterCompact(host, {
+        onClose: opts.onClose,
+      })
+    },
+  },
+  {
     mountId: 'employees.detail',
     pattern: /^\/proactive\/([^/]+)$/,
     paramNames: ['code'],
@@ -62,6 +114,7 @@ const ENTRIES: Entry[] = [
       return mod.mountTaskDetailInto(host, {
         taskId: params.id,
         onClose: opts.onClose,
+        onTitle: opts.onTitle,
       })
     },
   },
@@ -71,8 +124,8 @@ const ENTRIES: Entry[] = [
 export function matchShellPagePath(rawPath: string): ShellPageMountMatch | null {
   const path = normalizePath(rawPath)
   if (!path || path === '/') return null
-  // 员工墙 /proactive、board 等暂未接 mount 适配器
-  if (path === '/proactive' || path === '/proactive/board') return null
+  // 工作看板深链暂未接；列表用 /proactive
+  if (path === '/proactive/board') return null
   for (const entry of ENTRIES) {
     const m = path.match(entry.pattern)
     if (!m) continue

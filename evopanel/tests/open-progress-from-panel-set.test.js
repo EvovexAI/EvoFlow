@@ -42,6 +42,23 @@ describe('openProgressFromPanelSet', () => {
     expect(tab?.sessionKey).toBeFalsy()
   })
 
+  it('employeeProcess tab title prefers roleName over task title', () => {
+    const id = openProgressFromPanelSet({
+      kind: 'employeeProcess',
+      title: '某个任务名',
+      data: {
+        taskId: 'mt-role',
+        agentCode: 'duty-ops',
+        roleName: '值班小助手',
+        busy: true,
+      },
+    })
+    expect(id).toBe('process:mt-role')
+    const tab = rightStageStore.getSnapshot().tabs.find((t) => t.kind === 'employeeProcess')
+    expect(tab?.title).toBe('值班小助手')
+    expect(tab?.data?.roleName).toBe('值班小助手')
+  })
+
   it('returns empty when required data missing', () => {
     expect(openProgressFromPanelSet({ kind: 'collab-workflow', data: {} })).toBe('')
     expect(openProgressFromPanelSet({ kind: 'employeeProcess', data: { taskId: 'x' } })).toBe('')

@@ -112,3 +112,15 @@ def test_failed_can_transition_to_pending_and_executing():
 
     assert _can_transition_task_state("failed", "pending")
     assert _can_transition_task_state("failed", "executing")
+
+
+def test_pending_can_complete_without_executing_ceremony():
+    """Employee may skip mid-flight progress and close straight from pending."""
+    from evoflow.tools.builtins.supervisor_tool import _can_transition_task_state
+
+    assert _can_transition_task_state("pending", "completed")
+    assert _can_transition_task_state("pending", "failed")
+    assert _can_transition_task_state("pending", "awaiting_close")
+    assert _can_transition_task_state("planned", "completed")
+    assert _can_transition_task_state("planning", "completed")
+    assert _can_transition_task_state("waiting_user", "completed")

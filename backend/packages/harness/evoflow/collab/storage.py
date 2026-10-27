@@ -167,6 +167,10 @@ class ProjectStorage:
                     return cached
             project_data = repo.load_task_bundle(pid)
             if project_data is not None:
+                # Stamp the DB token for optimistic concurrency. Callers often
+                # bump ``updated_at`` before save_project; without this stamp
+                # every tasks.progress / state write self-rejects as "stale".
+                project_data["_loaded_updated_at"] = str(project_data.get("updated_at") or "").strip()
                 now = time.time()
                 self._project_cache[pid] = project_data
                 self._project_cache_ts[pid] = now
@@ -193,11 +197,18 @@ class ProjectStorage:
 
         with self._lock:
             try:
-                # E-1: remember the loaded updated_at so save_task_bundle can
-                # detect cross-process stale-write overwrites before rewriting.
-                loaded_updated_at = str(project_data.get("updated_at") or "").strip() or None
+                # Prefer the load-time stamp. ``updated_at`` may already have been
+                # mutated by patch helpers (progress/state) — using that value as
+                # the optimistic token always mismatches DB and returns
+                # "Failed to save task" forever (prod: emp dispatch stuck pending).
+                loaded_updated_at = (
+                    str(project_data.get("_loaded_updated_at") or "").strip()
+                    or str(project_data.get("updated_at") or "").strip()
+                    or None
+                )
                 project_data["updated_at"] = utc_now_iso_z()
                 repo.save_task_bundle(str(project_id), project_data, loaded_updated_at=loaded_updated_at)
+                project_data["_loaded_updated_at"] = str(project_data.get("updated_at") or "").strip()
                 self._project_cache[str(project_id)] = project_data
                 import time
 

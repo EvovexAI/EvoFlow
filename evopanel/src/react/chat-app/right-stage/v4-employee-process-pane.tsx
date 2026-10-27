@@ -1,12 +1,26 @@
 /**
  * 员工执行过程：对话体只走主聊同一套 V4（V4SessionPaneBridge → V4ZCodeTimeline）。
  * 旧 ProactiveLiveProcessHost / SubtaskExecutionDrawer 行渲染仅作 modal 等非右栏路径。
+ *
+ * 进度策略（非流式）：
+ * - 执行中 / 尚无 thread：约 3s 拉 meta + 强制 V4 投影刷新，保证能看到最新记录
+ * - 刚结束：再收一帧后停止高频轮询
+ * - 已完成：不再定时刷（结束态没必要打后端）
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { resolveProactiveProcessMeta } from '../../../lib/proactive-session-messages.js'
+import {
+  patchEmployeeProcessTabTitle,
+  resolveEmployeeProcessTabTitle,
+} from '../../../lib/right-stage/open-employee-process-stage.js'
+import { refreshEvoflowV4Session } from '../../v4/V4StreamRowsBridge.js'
 import { V4SessionPaneBridge } from '../../v4/V4SessionPaneBridge.js'
 
-const POLL_MS = 2000
+/** 执行中：跟进度 */
+const POLL_ACTIVE_MS = 3000
+/** 刚结束：收尾再确认一次的延迟 */
+const SETTLE_DELAY_MS = 2500
+
 const RUNNING = new Set(['running', 'busy', 'active', 'in_progress', 'queued', 'pending'])
 
 export type V4EmployeeProcessPaneProps = {
@@ -37,9 +51,14 @@ export function V4EmployeeProcessPane(props: V4EmployeeProcessPaneProps) {
   const [threadId, setThreadId] = useState('')
   const [employeeSessionKey, setEmployeeSessionKey] = useState('')
   const [runStatus, setRunStatus] = useState('')
-  const [displayRole, setDisplayRole] = useState(() => String(roleName || '').trim())
+  const [displayRole, setDisplayRole] = useState(() =>
+    resolveEmployeeProcessTabTitle({ title, roleName, agentCode: code }),
+  )
   const [loaded, setLoaded] = useState(false)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const settleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const wasRunningRef = useRef(false)
+  const settledRef = useRef(false)
 
   const fetchMeta = useCallback(async () => {
     if (!code) {
@@ -74,7 +93,17 @@ export function V4EmployeeProcessPane(props: V4EmployeeProcessPaneProps) {
       if (tid) setThreadId(tid)
       if (meta.session_key) setEmployeeSessionKey(String(meta.session_key).trim())
       if (meta.run_status) setRunStatus(String(meta.run_status).trim())
-      if (meta.role_name) setDisplayRole(String(meta.role_name).trim())
+      if (meta.role_name) {
+        setDisplayRole(
+          resolveEmployeeProcessTabTitle({
+            title: meta.role_name,
+            roleName: meta.role_name,
+            agentCode: code,
+          }),
+        )
+      }
+      // 有 thread 就拉最新投影（不要求流式，只要记录跟上）
+      if (tid) refreshEvoflowV4Session(tid)
       setLoaded(true)
     } catch {
       setLoaded(true)
@@ -83,36 +112,87 @@ export function V4EmployeeProcessPane(props: V4EmployeeProcessPaneProps) {
 
   const statusLow = String(runStatus || '').toLowerCase()
   const running = busy || RUNNING.has(statusLow)
-  const keepPoll = !loaded || running || !threadId
 
   useEffect(() => {
-    setDisplayRole(String(roleName || '').trim())
-  }, [roleName])
+    setDisplayRole(resolveEmployeeProcessTabTitle({ title, roleName, agentCode: code }))
+  }, [title, roleName, code])
 
+  // 标签回写员工名
+  useEffect(() => {
+    const tid = String(taskId || '').trim()
+    const nice = String(displayRole || '').trim()
+    if (!tid || !nice || nice === '执行过程') return
+    patchEmployeeProcessTabTitle(tid, nice, {
+      sessionKey,
+      roleName: nice,
+    })
+  }, [displayRole, taskId, sessionKey])
+
+  // 自适应轮询：跑着跟；结束后收一帧再停
   useEffect(() => {
     let disposed = false
-    void fetchMeta()
-    if (!keepPoll) {
-      return () => {
-        disposed = true
+
+    const clearPoll = () => {
+      if (pollRef.current) {
+        clearInterval(pollRef.current)
+        pollRef.current = null
       }
     }
-    pollRef.current = setInterval(() => {
-      if (disposed) return
-      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
-      void fetchMeta()
-    }, POLL_MS)
+    const clearSettle = () => {
+      if (settleTimerRef.current) {
+        clearTimeout(settleTimerRef.current)
+        settleTimerRef.current = null
+      }
+    }
+
+    void fetchMeta()
+
+    // 未就绪或执行中才高频跟；没有 thread 但已结束则不必空转
+    if (!loaded || running) {
+      wasRunningRef.current = wasRunningRef.current || running
+      settledRef.current = false
+      clearSettle()
+      clearPoll()
+      pollRef.current = setInterval(() => {
+        if (disposed) return
+        if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
+        void fetchMeta()
+      }, POLL_ACTIVE_MS)
+      return () => {
+        disposed = true
+        clearPoll()
+        clearSettle()
+      }
+    }
+
+    // 刚从执行中结束：再拉一次最新记录，然后停
+    if (wasRunningRef.current && !settledRef.current) {
+      settledRef.current = true
+      clearPoll()
+      clearSettle()
+      settleTimerRef.current = setTimeout(() => {
+        if (disposed) return
+        void fetchMeta()
+      }, SETTLE_DELAY_MS)
+      return () => {
+        disposed = true
+        clearPoll()
+        clearSettle()
+      }
+    }
+
+    // 已完成且已收尾：不再轮询
+    clearPoll()
+    clearSettle()
     return () => {
       disposed = true
-      if (pollRef.current) clearInterval(pollRef.current)
-      pollRef.current = null
+      clearPoll()
+      clearSettle()
     }
-  }, [fetchMeta, keepPoll])
+  }, [fetchMeta, loaded, running, threadId])
 
   const headerTitle =
-    String(title || '').trim() ||
-    String(displayRole || roleName || code).trim() ||
-    '执行过程'
+    String(displayRole || title || roleName || code).trim() || '执行过程'
   const bridgeSessionKey = String(sessionKey || employeeSessionKey || '').trim() || undefined
 
   if (!code) return null

@@ -188,15 +188,7 @@ def _next_states(current: str) -> list[str]:
 def _illegal_transition_message(current: str, target: str) -> str:
     nxt = _next_states(current)
     nxt_s = ", ".join(nxt) if nxt else "(none)"
-    hint = ""
-    if current in {"pending", "planned", "planning", "waiting_user"} and target in {
-        "completed",
-        "failed",
-        "awaiting_close",
-        "reviewed",
-    }:
-        hint = "; use progress or state=executing first, then completed"
-    return f"illegal state transition: {current} -> {target}{hint}; next_states=[{nxt_s}]"
+    return f"illegal state transition: {current} -> {target}; next_states=[{nxt_s}]"
 
 
 def _validate_target_state(target: str) -> None:
@@ -732,10 +724,7 @@ def update_progress(
     if status_norm:
         current = _normalize_status(task.get("status"))
         if not _can_transition(current, status_norm):
-            raise ValidationError(
-                f"illegal state transition: {current} -> {status_norm}"
-                + (f"; use progress or state=executing first, then {status_norm}" if current in {"pending", "planned", "planning", "waiting_user"} and status_norm in {"completed", "failed", "awaiting_close", "reviewed"} else "")
-            )
+            raise ValidationError(_illegal_transition_message(current, status_norm))
     updates = {"progress": progress_value}
     if status_norm:
         updates["status"] = status_norm

@@ -1,10 +1,14 @@
 import { memo, useEffect, useRef, useState } from 'react'
 import type { RightStageSurface } from '../../../lib/right-stage/right-stage-types.js'
 import { matchShellPagePath } from '../../../lib/right-stage/shell-page-mount-table.js'
+import { patchShellPageTabTitle } from '../../../lib/right-stage/open-shell-page-stage.js'
 import { navigatePlatformFeedbackRoute } from '../../../lib/right-stage/platform-feedback.js'
 
 /**
  * 右栏挂载壳内页：按 Mount Table 把页面模块 render 进 host（非 iframe / BrowserPanel）。
+ *
+ * 注意：只按 path / surface.id 重挂。onClose / title 会随对话流式重渲染变引用，
+ * 绝不能进 effect deps，否则员工页会一直销毁重建（看起来像不停刷新）。
  */
 export const ShellPageKind = memo(function ShellPageKind({
   surface,
@@ -14,7 +18,11 @@ export const ShellPageKind = memo(function ShellPageKind({
   onClose?: () => void
 }) {
   const hostRef = useRef<HTMLDivElement | null>(null)
+  const onCloseRef = useRef(onClose)
+  onCloseRef.current = onClose
+
   const path = String(surface.data?.path || surface.data?.route || '').trim()
+  const surfaceId = String(surface.id || '').trim()
   const [status, setStatus] = useState<'loading' | 'ready' | 'unsupported' | 'error'>('loading')
   const [errorText, setErrorText] = useState('')
 
@@ -35,14 +43,18 @@ export const ShellPageKind = memo(function ShellPageKind({
       }
       try {
         const result = await matched.mount(host, matched.params, {
-          onClose,
+          onClose: () => onCloseRef.current?.(),
           title: String(surface.title || '').trim(),
+          onTitle: (nice) => {
+            if (!cancelled && nice) patchShellPageTabTitle(path, nice)
+          },
         })
         if (cancelled) {
           result.destroy()
           return
         }
         destroy = () => result.destroy()
+        if (result.title) patchShellPageTabTitle(path, result.title)
         setStatus('ready')
       } catch (e) {
         if (cancelled) return
@@ -61,7 +73,9 @@ export const ShellPageKind = memo(function ShellPageKind({
       destroy = undefined
       host.replaceChildren()
     }
-  }, [path, surface.id, surface.title, onClose])
+    // 故意不依赖 onClose / surface.title：父级 RightStagePanel 每次 render 都会 new 箭头函数
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- path/id 才是挂载身份
+  }, [path, surfaceId])
 
   return (
     <aside

@@ -3856,6 +3856,15 @@ function bindApprovals(container) {
   bindTaskOutputCardActions(container, {})
 }
 
+/**
+ * 右栏 shell-page 挂载员工名册：精简列表（头像 / 名字 / 状态），非全量员工墙。
+ * @returns {{ destroy: () => void, title?: string }}
+ */
+export async function mountProactiveBoardInto(container, { onClose } = {}) {
+  const { mountProactiveRosterCompact } = await import('./proactive-roster-compact.js')
+  return mountProactiveRosterCompact(container, { onClose })
+}
+
 export function cleanup() {
   if (_refreshTimer) { clearInterval(_refreshTimer); _refreshTimer = null }
   if (_busyPollTimer) { clearInterval(_busyPollTimer); _busyPollTimer = null }
