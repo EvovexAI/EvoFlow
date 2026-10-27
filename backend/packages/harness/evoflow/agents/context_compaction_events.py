@@ -8,6 +8,9 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+# session_key → 上次随事件发送的注入节内容哈希（内容未变则事件省略 injected_sections）。
+_INJECTED_SECTIONS_HASHES: dict[str, str] = {}
+
 
 def _emit(event_type: str, *, thread_id: str = "") -> None:
     payload = {"type": event_type}
@@ -256,6 +259,26 @@ def emit_context_usage(
         pass
     injected_sections = injected_sections or _injected
 
+    # 事件流去重：注入节全文（技能目录/资产/记忆，~41KB）内容未变时不再随事件重发。
+    # UI 合并逻辑对缺省字段沿用旧值（context-usage.ts next ?? prev），弹窗正文不受影响；
+    # DB 持久化走完整 snapshot，保留全文。按 session 缓存内容哈希。
+    event_sections: dict[str, str] | None = injected_sections
+    _sections_cache_key = str(session_key or thread_id or "").strip()
+    if _sections_cache_key:
+        if injected_sections:
+            import hashlib
+            import json as _json
+
+            _sig = hashlib.sha1(
+                _json.dumps(injected_sections, ensure_ascii=False, sort_keys=True).encode("utf-8")
+            ).hexdigest()
+            if _INJECTED_SECTIONS_HASHES.get(_sections_cache_key) == _sig:
+                event_sections = None
+            else:
+                _INJECTED_SECTIONS_HASHES[_sections_cache_key] = _sig
+        else:
+            _INJECTED_SECTIONS_HASHES.pop(_sections_cache_key, None)
+
     snapshot = build_context_usage_snapshot(
         used_tokens=used_tokens,
         window_tokens=window_tokens,
@@ -279,6 +302,8 @@ def emit_context_usage(
         "type": "context_usage",
         **snapshot,
     }
+    if event_sections is None:
+        payload.pop("injected_sections", None)
     if not _try_stream_writer(payload):
         tid = _resolve_thread_id_for_stream(
             thread_id=str(thread_id or ""),
