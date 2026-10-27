@@ -1421,7 +1421,7 @@ function renderEmbeddingView(page, state, opts = {}) {
     railEl.innerHTML = `<div style="padding:16px;text-align:center;color:var(--text-tertiary);font-size:13px">暂无向量模型</div>`
     detailMount.innerHTML = `
       <div class="models-embedding-empty">
-        <p class="form-hint">还没有向量模型。若已绑定 Agent Plan 全家桶，请到「套餐」页点「按套餐目录补齐」；或点下方手动添加。</p>
+        <p class="form-hint">还没有向量模型。可添加「云端 API」（填 Key）或「本机安装」（下载/指定本地目录并验证）。若已绑定套餐，也可到「套餐」页补齐。</p>
         <button type="button" class="btn btn-primary btn-sm" data-action="add-embedding-model">+ 添加向量模型</button>
         <button type="button" class="btn btn-secondary btn-sm" data-action="goto-plan" style="margin-left:8px">去套餐页补齐</button>
       </div>`
@@ -1475,17 +1475,39 @@ function renderEmbeddingView(page, state, opts = {}) {
   const errHtml = status.text === '不可用' && errMsg
     ? `<p class="models-embedding-error form-hint">${escHtml(errMsg)}</p>`
     : ''
+  const isLocalVendor = String(m.vendor || '').toLowerCase() === 'local'
+  const hint = isLocalVendor
+    ? '本机向量模型：可查看缓存/下载状态，验证通过后再用作知识库默认。'
+    : '云端向量模型：知识库、代码索引等从此目录选用。可点「重新检测」验证接口。'
 
   detailMount.innerHTML = `
     <div class="models-vendor-detail models-embedding-detail">
       <header class="models-vendor-detail-head models-vendor-detail-head--row">
         <div class="models-vendor-detail-head-main">
           <h3 class="models-vendor-detail-title">${escHtml(m.displayName)}</h3>
+          <p class="form-hint" style="margin:4px 0 0">${escHtml(m.model || m.name)}</p>
         </div>
         <span class="models-embedding-status models-embedding-status--detail ${status.cls}">${escHtml(status.text)}</span>
       </header>
       ${errHtml}
-      <p class="form-hint" style="margin-top:8px">知识库、代码索引等从此目录选用向量模型。本地模型首次检测可能需下载约 95MB 权重。</p>
+      <p class="form-hint" style="margin-top:8px">${hint}</p>
+      ${
+        isLocalVendor
+          ? `<div class="models-emb-install-panel" data-local-install>
+              <div class="models-emb-cache-head">
+                <span class="models-embedding-status models-embedding-status--checking" data-detail-cache-badge>检测中…</span>
+                <button type="button" class="btn btn-sm btn-secondary" data-action="download-embedding" disabled>开始下载</button>
+                <button type="button" class="btn btn-sm btn-secondary" data-action="refresh-embedding-cache">刷新缓存</button>
+              </div>
+              <p class="form-hint" data-detail-cache-msg style="margin:6px 0 0">正在读取本机缓存状态…</p>
+              <div class="models-emb-hub-row" style="margin-top:10px">
+                <input class="form-input" data-name="detailHfEndpoint" placeholder="https://hf-mirror.com">
+                <button type="button" class="btn btn-sm btn-secondary" data-action="save-detail-hub">保存镜像</button>
+              </div>
+              <p class="form-hint" style="margin:6px 0 0">下载镜像可改；保存后对本机向量下载生效。</p>
+            </div>`
+          : ''
+      }
       <div class="models-kb-default-row" style="margin-top:12px;padding:10px 12px;border:1px solid var(--border, #e5e7eb);border-radius:8px;background:var(--bg-secondary, transparent)">
         <div style="font-size:13px;font-weight:600;margin-bottom:6px">知识库默认</div>
         <p class="form-hint" style="margin:0 0 8px">新建知识库时预选此模型；单库仍可覆盖。</p>
@@ -1503,6 +1525,90 @@ function renderEmbeddingView(page, state, opts = {}) {
         <button type="button" class="btn btn-sm btn-danger" data-action="delete-embedding">删除</button>
       </div>
     </div>`
+
+  if (isLocalVendor) {
+    const modelId = m.model || m.name
+    let detailPoll = null
+    const stopDetailPoll = () => {
+      if (detailPoll) {
+        clearInterval(detailPoll)
+        detailPoll = null
+      }
+    }
+    const paintCache = async () => {
+      const badge = detailMount.querySelector('[data-detail-cache-badge]')
+      const msg = detailMount.querySelector('[data-detail-cache-msg]')
+      const dlBtn = detailMount.querySelector('[data-action="download-embedding"]')
+      if (!badge || !msg) return
+      try {
+        const [st, runtime] = await Promise.all([
+          api.getLocalEmbeddingCacheStatus(modelId),
+          api.getLocalEmbeddingRuntime().catch(() => ({ ok: false })),
+        ])
+        const label = localEmbeddingCacheStatusLabel(st?.status)
+        badge.className = `models-embedding-status ${label.cls}`
+        badge.textContent = label.text
+        msg.textContent = st?.message || ''
+        const runtimeOk = Boolean(runtime?.ok)
+        if (dlBtn) {
+          dlBtn.disabled = !runtimeOk || st?.status === 'downloading' || st?.status === 'cached'
+          dlBtn.textContent =
+            st?.status === 'downloading' ? '下载中…' : st?.status === 'cached' ? '已缓存' : '开始下载'
+        }
+        if (st?.status === 'downloading' && !detailPoll) {
+          detailPoll = setInterval(() => {
+            if (!detailMount.isConnected) {
+              stopDetailPoll()
+              return
+            }
+            void paintCache()
+          }, 1500)
+        }
+        if (st?.status !== 'downloading') stopDetailPoll()
+      } catch (e) {
+        badge.className = 'models-embedding-status models-embedding-status--fail'
+        badge.textContent = '状态未知'
+        msg.textContent = String(e?.message || e || '读取失败')
+      }
+    }
+    void (async () => {
+      try {
+        const hub = await api.getLocalEmbeddingHub()
+        const input = detailMount.querySelector('[data-name="detailHfEndpoint"]')
+        if (input) input.value = hub?.endpoint || 'https://hf-mirror.com'
+      } catch {
+        /* ignore */
+      }
+      await paintCache()
+    })()
+    detailMount.querySelector('[data-action="refresh-embedding-cache"]')?.addEventListener('click', () => {
+      void paintCache()
+    })
+    detailMount.querySelector('[data-action="download-embedding"]')?.addEventListener('click', async () => {
+      try {
+        await api.downloadLocalEmbeddingModel(modelId)
+        toast('已开始下载', 'info')
+        await paintCache()
+      } catch (e) {
+        toast('启动下载失败: ' + e, 'error')
+      }
+    })
+    detailMount.querySelector('[data-action="save-detail-hub"]')?.addEventListener('click', async () => {
+      const endpoint = String(detailMount.querySelector('[data-name="detailHfEndpoint"]')?.value || '').trim()
+      if (!endpoint) {
+        toast('请填写镜像地址', 'warning')
+        return
+      }
+      try {
+        const hub = await api.setLocalEmbeddingHub(endpoint)
+        const input = detailMount.querySelector('[data-name="detailHfEndpoint"]')
+        if (input) input.value = hub?.endpoint || endpoint
+        toast('镜像已保存', 'success')
+      } catch (e) {
+        toast('保存镜像失败: ' + e, 'error')
+      }
+    })
+  }
 
   const setDefaultBtn = detailMount.querySelector('[data-action="set-kb-default-embedding"]')
   if (setDefaultBtn) {
@@ -1573,75 +1679,416 @@ async function loadKbDefaultEmbedding(state) {
   }
 }
 
-/** 添加向量模型弹窗 */
+/** 本机向量常用预设（扁平 option，避免 WebView 对 optgroup 只显示一项） */
+const LOCAL_EMBEDDING_PRESETS = [
+  { id: 'BAAI/bge-small-zh-v1.5', label: '【中文·推荐】bge-small-zh · 约 95MB' },
+  { id: 'BAAI/bge-base-zh-v1.5', label: '【中文】bge-base-zh · 约 400MB' },
+  { id: 'BAAI/bge-large-zh-v1.5', label: '【中文】bge-large-zh · 约 1.2GB' },
+  { id: 'shibing624/text2vec-base-chinese', label: '【中文】text2vec-base-chinese · 约 400MB' },
+  { id: 'BAAI/bge-m3', label: '【多语】bge-m3 · 约 2GB' },
+  { id: 'intfloat/multilingual-e5-small', label: '【多语】multilingual-e5-small · 约 470MB' },
+  { id: 'sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2', label: '【多语】paraphrase-MiniLM · 约 420MB' },
+  { id: 'sentence-transformers/all-MiniLM-L6-v2', label: '【英文】all-MiniLM-L6-v2 · 约 80MB' },
+  { id: 'BAAI/bge-small-en-v1.5', label: '【英文】bge-small-en · 约 130MB' },
+  { id: 'nomic-ai/nomic-embed-text-v1.5', label: '【英文】nomic-embed-text · 约 500MB' },
+]
+
+function localEmbeddingPresetListHtml() {
+  // 不用原生 <select>：modal overflow:hidden + WebView 下拉常被裁成「只看见一项/空白」
+  return LOCAL_EMBEDDING_PRESETS.map((p, i) => {
+    const checked = i === 0 ? ' checked' : ''
+    return `<label class="models-emb-preset-item">
+      <input type="radio" name="emb-local-preset" value="${escHtml(p.id)}"${checked}>
+      <span class="models-emb-preset-item-body">
+        <span class="models-emb-preset-item-label">${escHtml(p.label)}</span>
+        <span class="models-emb-preset-item-id">${escHtml(p.id)}</span>
+      </span>
+    </label>`
+  }).join('')
+}
+
+function localEmbeddingCacheStatusLabel(status) {
+  if (status === 'cached') return { text: '已缓存', cls: 'models-embedding-status--ok' }
+  if (status === 'downloading') return { text: '下载中', cls: 'models-embedding-status--checking' }
+  if (status === 'failed') return { text: '下载失败', cls: 'models-embedding-status--fail' }
+  return { text: '未下载', cls: 'models-embedding-status--checking' }
+}
+
+function resolveLocalEmbeddingPick(overlay) {
+  const source = overlay.querySelector('input[name="emb-local-source"]:checked')?.value || 'preset'
+  if (source === 'path') {
+    return String(overlay.querySelector('[data-name="localPath"]')?.value || '').trim()
+  }
+  if (source === 'custom') {
+    return String(overlay.querySelector('[data-name="customHfId"]')?.value || '').trim()
+  }
+  const picked = overlay.querySelector('input[name="emb-local-preset"]:checked')
+  return String(picked?.value || LOCAL_EMBEDDING_PRESETS[0]?.id || '').trim()
+}
+
+function logLocalEmbeddingPresetUi(overlay, reason) {
+  try {
+    const list = overlay?.querySelector('[data-preset-list]')
+    const radios = overlay ? [...overlay.querySelectorAll('input[name="emb-local-preset"]')] : []
+    const picked = resolveLocalEmbeddingPick(overlay)
+    console.info('[emb-local-preset]', reason, {
+      presetCount: LOCAL_EMBEDDING_PRESETS.length,
+      presets: LOCAL_EMBEDDING_PRESETS.map((p) => p.id),
+      domRadioCount: radios.length,
+      listVisible: Boolean(list && !list.hidden),
+      listChildCount: list?.children?.length ?? 0,
+      picked,
+      source: overlay?.querySelector('input[name="emb-local-source"]:checked')?.value || null,
+      mode: overlay?.querySelector('[data-emb-mode].active')?.getAttribute('data-emb-mode') || null,
+    })
+  } catch (e) {
+    console.warn('[emb-local-preset] log failed', e)
+  }
+}
+
+function setEmbMode(overlay, mode) {
+  const isLocal = mode === 'local'
+  overlay.querySelectorAll('[data-emb-mode]').forEach((btn) => {
+    const on = btn.getAttribute('data-emb-mode') === mode
+    btn.classList.toggle('active', on)
+    btn.setAttribute('aria-selected', on ? 'true' : 'false')
+  })
+  const localPane = overlay.querySelector('#emb-local-fields')
+  const cloudPane = overlay.querySelector('#emb-cloud-fields')
+  if (localPane) localPane.hidden = !isLocal
+  if (cloudPane) cloudPane.hidden = isLocal
+  const confirmBtn = overlay.querySelector('[data-action="confirm"]')
+  if (confirmBtn) {
+    confirmBtn.textContent = isLocal ? '添加并验证' : '添加并验证'
+  }
+}
+
+function syncLocalSourceFields(overlay) {
+  const source = overlay.querySelector('input[name="emb-local-source"]:checked')?.value || 'preset'
+  const presetWrap = overlay.querySelector('#emb-local-preset')
+  const customWrap = overlay.querySelector('#emb-local-custom')
+  const pathWrap = overlay.querySelector('#emb-local-path')
+  if (presetWrap) presetWrap.hidden = source !== 'preset'
+  if (customWrap) customWrap.hidden = source !== 'custom'
+  if (pathWrap) pathWrap.hidden = source !== 'path'
+}
+
+async function refreshLocalCacheStatusUi(overlay, modelId) {
+  const badge = overlay.querySelector('[data-cache-badge]')
+  const msg = overlay.querySelector('[data-cache-msg]')
+  const dlBtn = overlay.querySelector('[data-action="download-local"]')
+  if (!badge || !msg) return null
+  const mid = String(modelId || '').trim()
+  if (!mid) {
+    badge.className = 'models-embedding-status models-embedding-status--checking'
+    badge.textContent = '未选择'
+    msg.textContent = '请从列表选用、填写 HF 模型 ID，或指定本地目录。'
+    if (dlBtn) dlBtn.disabled = true
+    return null
+  }
+  try {
+    const st = await api.getLocalEmbeddingCacheStatus(mid)
+    const label = localEmbeddingCacheStatusLabel(st?.status)
+    badge.className = `models-embedding-status ${label.cls}`
+    badge.textContent = label.text
+    msg.textContent = st?.message || ''
+    if (dlBtn) {
+      const runtimeOk = overlay.dataset.runtimeOk === '1'
+      dlBtn.disabled = !runtimeOk || st?.status === 'downloading' || st?.status === 'cached'
+      dlBtn.textContent = st?.status === 'downloading' ? '下载中…' : st?.status === 'cached' ? '已缓存' : '开始下载'
+    }
+    return st
+  } catch (e) {
+    badge.className = 'models-embedding-status models-embedding-status--fail'
+    badge.textContent = '状态未知'
+    msg.textContent = String(e?.message || e || '读取缓存状态失败')
+    return null
+  }
+}
+
+/** 添加向量模型弹窗：云端 API / 本机安装可切换 */
 function addEmbeddingModel(page, state) {
+  const presetListHtml = localEmbeddingPresetListHtml()
+  console.info('[emb-local-preset] open modal', {
+    presetCount: LOCAL_EMBEDDING_PRESETS.length,
+    presets: LOCAL_EMBEDDING_PRESETS.map((p) => p.id),
+  })
+
   const overlay = mountModelsModalOverlay(`
-    <div class="modal" style="max-width:520px">
+    <div class="modal models-emb-add-modal" role="dialog" aria-modal="true" aria-label="添加向量模型">
       <div class="modal-title">添加向量模型</div>
-      <div class="form-group">
-        <label class="form-label">模型类型</label>
-        <div style="display:flex;gap:12px;margin-bottom:8px">
-          <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
-            <input type="radio" name="emb-type" value="local" checked>
-            <span>本地模型</span>
-          </label>
-          <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
-            <input type="radio" name="emb-type" value="cloud">
-            <span>云端 API</span>
-          </label>
+      <div class="models-emb-add-body">
+        <div class="models-emb-mode-tabs" role="tablist">
+          <button type="button" class="models-emb-mode-tab active" data-emb-mode="cloud" role="tab" aria-selected="true">云端 API</button>
+          <button type="button" class="models-emb-mode-tab" data-emb-mode="local" role="tab" aria-selected="false">本机安装</button>
+        </div>
+
+        <div id="emb-cloud-fields" class="models-emb-pane">
+          <p class="form-hint">填写 OpenAI 兼容的向量接口。保存后会自动探测是否可用。</p>
+          <div class="form-group">
+            <label class="form-label">模型 ID</label>
+            <input class="form-input" data-name="cloudModel" value="text-embedding-3-small" placeholder="如 text-embedding-3-small">
+          </div>
+          <div class="models-emb-field-grid">
+            <div class="form-group">
+              <label class="form-label">接口地址 (Base URL)</label>
+              <input class="form-input" data-name="cloudBaseUrl" value="https://api.openai.com/v1" placeholder="https://api.openai.com/v1">
+            </div>
+            <div class="form-group">
+              <label class="form-label">API Key</label>
+              <input class="form-input" data-name="cloudApiKey" type="password" placeholder="sk-...">
+            </div>
+          </div>
+        </div>
+
+        <div id="emb-local-fields" class="models-emb-pane" hidden>
+          <div class="models-emb-runtime" data-runtime-box>
+            <span class="models-embedding-status models-embedding-status--checking" data-runtime-badge>检测中…</span>
+            <p class="form-hint" data-runtime-msg style="margin:6px 0 0">正在检测本机向量运行时…</p>
+          </div>
+          <div class="form-group" style="margin-top:14px">
+            <label class="form-label">来源</label>
+            <div class="models-emb-source-row">
+              <label><input type="radio" name="emb-local-source" value="preset" checked> 从列表选用</label>
+              <label><input type="radio" name="emb-local-source" value="custom"> 自定义 HF ID</label>
+              <label><input type="radio" name="emb-local-source" value="path"> 本地目录</label>
+            </div>
+          </div>
+          <div id="emb-local-preset" class="form-group">
+            <label class="form-label">模型（共 ${LOCAL_EMBEDDING_PRESETS.length} 个，点选即可）</label>
+            <div class="models-emb-preset-list" data-preset-list role="radiogroup" aria-label="本机向量预设">${presetListHtml}</div>
+            <p class="form-hint models-emb-preset-picked" data-preset-picked></p>
+            <p class="form-hint">列表直接展示在弹窗内（避免系统下拉被裁切）。更多可切「自定义 HF ID」。</p>
+          </div>
+          <div id="emb-local-custom" class="form-group" hidden>
+            <label class="form-label">Hugging Face 模型 ID</label>
+            <input class="form-input" data-name="customHfId" placeholder="如 sentence-transformers/all-mpnet-base-v2">
+            <p class="form-hint">须为 sentence-transformers 可加载的向量模型仓库（org/name）。下载后务必「添加并验证」。</p>
+          </div>
+          <div id="emb-local-path" class="form-group" hidden>
+            <label class="form-label">本地模型目录</label>
+            <input class="form-input" data-name="localPath" placeholder="如 D:/models/bge-small-zh-v1.5">
+            <p class="form-hint">目录内需含 config.json 与权重文件；无需联网下载。</p>
+          </div>
+          <div class="form-group">
+            <label class="form-label">下载镜像 (HF Endpoint)</label>
+            <div class="models-emb-hub-row">
+              <input class="form-input" data-name="hfEndpoint" placeholder="https://hf-mirror.com">
+              <button type="button" class="btn btn-sm btn-secondary" data-action="save-hub">保存镜像</button>
+            </div>
+            <p class="form-hint">国内默认建议 https://hf-mirror.com；也可填 https://huggingface.co 或自建镜像。</p>
+          </div>
+          <div class="models-emb-cache-box">
+            <div class="models-emb-cache-head">
+              <span class="models-embedding-status models-embedding-status--checking" data-cache-badge>未下载</span>
+              <button type="button" class="btn btn-sm btn-secondary" data-action="download-local" disabled>开始下载</button>
+              <button type="button" class="btn btn-sm btn-secondary" data-action="refresh-cache">刷新状态</button>
+            </div>
+            <p class="form-hint" data-cache-msg style="margin:6px 0 0">选择模型后可下载到本地缓存，再添加并验证。</p>
+          </div>
         </div>
       </div>
-      <div id="emb-local-fields">
-        <div class="form-group">
-          <label class="form-label">模型 ID</label>
-          <select class="form-input" data-name="localModel">
-            <option value="BAAI/bge-small-zh-v1.5">BAAI/bge-small-zh-v1.5（推荐）</option>
-            <option value="BAAI/bge-base-zh-v1.5">BAAI/bge-base-zh-v1.5</option>
-            <option value="BAAI/bge-large-zh-v1.5">BAAI/bge-large-zh-v1.5</option>
-            <option value="BAAI/bge-m3">BAAI/bge-m3</option>
-            <option value="nomic-ai/nomic-embed-text-v1.5">nomic-ai/nomic-embed-text-v1.5</option>
-          </select>
-        </div>
-      </div>
-      <div id="emb-cloud-fields" style="display:none">
-        <div class="form-group">
-          <label class="form-label">模型 ID</label>
-          <input class="form-input" data-name="cloudModel" value="text-embedding-3-small" placeholder="如 text-embedding-3-small">
-        </div>
-        <div class="form-group">
-          <label class="form-label">接口地址 (Base URL)</label>
-          <input class="form-input" data-name="cloudBaseUrl" value="https://api.openai.com/v1" placeholder="https://api.openai.com/v1">
-        </div>
-        <div class="form-group">
-          <label class="form-label">API Key</label>
-          <input class="form-input" data-name="cloudApiKey" type="password" placeholder="sk-...">
-        </div>
-      </div>
-      <div class="modal-actions">
-        <button type="button" class="btn btn-secondary btn-sm" data-action="cancel">取消</button>
-        <button type="button" class="btn btn-primary btn-sm" data-action="confirm">添加</button>
+
+      <div class="modal-actions models-emb-add-actions">
+        <button type="button" class="btn btn-secondary" data-action="cancel">取消</button>
+        <button type="button" class="btn btn-primary" data-action="confirm">添加并验证</button>
       </div>
     </div>
   `)
 
-  // 类型切换
-  overlay.querySelectorAll('input[name="emb-type"]').forEach(radio => {
-    radio.onchange = () => {
-      const isLocal = radio.value === 'local'
-      overlay.querySelector('#emb-local-fields').style.display = isLocal ? '' : 'none'
-      overlay.querySelector('#emb-cloud-fields').style.display = isLocal ? 'none' : ''
+  let pollTimer = null
+  const stopPoll = () => {
+    if (pollTimer) {
+      clearInterval(pollTimer)
+      pollTimer = null
+    }
+  }
+  const startPoll = () => {
+    stopPoll()
+    pollTimer = setInterval(() => {
+      if (!overlay.isConnected) {
+        stopPoll()
+        return
+      }
+      void refreshLocalCacheStatusUi(overlay, resolveLocalEmbeddingPick(overlay))
+    }, 1500)
+  }
+
+  const applyRuntime = (runtime) => {
+    const ok = Boolean(runtime?.ok)
+    overlay.dataset.runtimeOk = ok ? '1' : '0'
+    const badge = overlay.querySelector('[data-runtime-badge]')
+    const msg = overlay.querySelector('[data-runtime-msg]')
+    const box = overlay.querySelector('[data-runtime-box]')
+    if (badge) {
+      badge.className = `models-embedding-status ${ok ? 'models-embedding-status--ok' : 'models-embedding-status--fail'}`
+      badge.textContent = ok ? '运行时可用' : '运行时不可用'
+    }
+    if (msg) {
+      msg.textContent = ok
+        ? '本机可加载 sentence-transformers。请下载权重或指定本地目录后添加。'
+        : String(runtime?.reason || '当前安装包未捆绑本地向量运行时，请改用「云端 API」。')
+    }
+    let switchBtn = overlay.querySelector('[data-action="switch-cloud"]')
+    if (!ok) {
+      if (!switchBtn && box) {
+        switchBtn = document.createElement('button')
+        switchBtn.type = 'button'
+        switchBtn.className = 'btn btn-sm btn-primary'
+        switchBtn.setAttribute('data-action', 'switch-cloud')
+        switchBtn.textContent = '改用云端 API'
+        switchBtn.style.marginTop = '8px'
+        switchBtn.onclick = () => setEmbMode(overlay, 'cloud')
+        box.appendChild(switchBtn)
+      }
+    } else if (switchBtn) {
+      switchBtn.remove()
+    }
+    const dlBtn = overlay.querySelector('[data-action="download-local"]')
+    if (dlBtn && !ok) dlBtn.disabled = true
+  }
+
+  const syncPresetPickedLabel = () => {
+    const tip = overlay.querySelector('[data-preset-picked]')
+    if (!tip) return
+    const id = resolveLocalEmbeddingPick(overlay)
+    const meta = LOCAL_EMBEDDING_PRESETS.find((p) => p.id === id)
+    tip.textContent = id ? `已选：${id}${meta?.label ? ` · ${meta.label}` : ''}` : ''
+    overlay.querySelectorAll('.models-emb-preset-item').forEach((el) => {
+      const on = el.querySelector('input')?.checked
+      el.classList.toggle('is-selected', Boolean(on))
+    })
+  }
+
+  overlay.querySelectorAll('[data-emb-mode]').forEach((btn) => {
+    btn.onclick = () => {
+      const mode = btn.getAttribute('data-emb-mode') || 'cloud'
+      setEmbMode(overlay, mode)
+      logLocalEmbeddingPresetUi(overlay, `switch-mode:${mode}`)
+      if (mode === 'local') {
+        syncPresetPickedLabel()
+        void refreshLocalCacheStatusUi(overlay, resolveLocalEmbeddingPick(overlay))
+      }
     }
   })
+  overlay.querySelectorAll('input[name="emb-local-source"]').forEach((radio) => {
+    radio.onchange = () => {
+      syncLocalSourceFields(overlay)
+      syncPresetPickedLabel()
+      logLocalEmbeddingPresetUi(overlay, `source:${radio.value}`)
+      void refreshLocalCacheStatusUi(overlay, resolveLocalEmbeddingPick(overlay))
+    }
+  })
+  overlay.querySelectorAll('input[name="emb-local-preset"]').forEach((radio) => {
+    radio.addEventListener('change', () => {
+      syncPresetPickedLabel()
+      logLocalEmbeddingPresetUi(overlay, `pick:${radio.value}`)
+      void refreshLocalCacheStatusUi(overlay, resolveLocalEmbeddingPick(overlay))
+    })
+  })
+  syncPresetPickedLabel()
+  logLocalEmbeddingPresetUi(overlay, 'mounted')
+  overlay.querySelector('[data-name="customHfId"]')?.addEventListener('change', () => {
+    void refreshLocalCacheStatusUi(overlay, resolveLocalEmbeddingPick(overlay))
+  })
+  overlay.querySelector('[data-name="customHfId"]')?.addEventListener('input', () => {
+    // debounce-ish: only refresh when looks like org/name
+    const v = String(overlay.querySelector('[data-name="customHfId"]')?.value || '').trim()
+    if (v.includes('/') || v.length > 8) {
+      void refreshLocalCacheStatusUi(overlay, v)
+    }
+  })
+  overlay.querySelector('[data-name="localPath"]')?.addEventListener('change', () => {
+    void refreshLocalCacheStatusUi(overlay, resolveLocalEmbeddingPick(overlay))
+  })
 
-  // 表单弹窗不因点击遮罩关闭，避免 API Key 等输入误触丢失
-  overlay.querySelector('[data-action="cancel"]').onclick = () => overlay.remove()
+  overlay.querySelector('[data-action="save-hub"]').onclick = async () => {
+    const endpoint = String(overlay.querySelector('[data-name="hfEndpoint"]')?.value || '').trim()
+    if (!endpoint) {
+      toast('请填写镜像地址', 'warning')
+      return
+    }
+    try {
+      const hub = await api.setLocalEmbeddingHub(endpoint)
+      const input = overlay.querySelector('[data-name="hfEndpoint"]')
+      if (input) input.value = hub?.endpoint || endpoint
+      toast('镜像已保存', 'success')
+    } catch (e) {
+      toast('保存镜像失败: ' + e, 'error')
+    }
+  }
+
+  overlay.querySelector('[data-action="refresh-cache"]').onclick = () => {
+    void refreshLocalCacheStatusUi(overlay, resolveLocalEmbeddingPick(overlay))
+  }
+
+  overlay.querySelector('[data-action="download-local"]').onclick = async () => {
+    const modelId = resolveLocalEmbeddingPick(overlay)
+    if (!modelId) {
+      toast('请先选择模型或填写本地目录', 'warning')
+      return
+    }
+    if (overlay.dataset.runtimeOk !== '1') {
+      toast('本机向量运行时不可用，请改用云端 API', 'warning')
+      return
+    }
+    try {
+      await api.downloadLocalEmbeddingModel(modelId)
+      startPoll()
+      await refreshLocalCacheStatusUi(overlay, modelId)
+      toast('已开始下载', 'info')
+    } catch (e) {
+      toast('启动下载失败: ' + e, 'error')
+    }
+  }
+
+  // 默认云端（桌面精简包更常见）；异步拉 runtime / hub
+  setEmbMode(overlay, 'cloud')
+  void (async () => {
+    try {
+      const [runtime, hub] = await Promise.all([
+        api.getLocalEmbeddingRuntime().catch(() => ({ ok: false, reason: '无法检测运行时' })),
+        api.getLocalEmbeddingHub().catch(() => null),
+      ])
+      applyRuntime(runtime)
+      const input = overlay.querySelector('[data-name="hfEndpoint"]')
+      if (input) input.value = hub?.endpoint || 'https://hf-mirror.com'
+      await refreshLocalCacheStatusUi(overlay, resolveLocalEmbeddingPick(overlay))
+    } catch {
+      applyRuntime({ ok: false, reason: '无法检测运行时' })
+    }
+  })()
+
+  overlay.querySelector('[data-action="cancel"]').onclick = () => {
+    stopPoll()
+    overlay.remove()
+  }
   overlay.querySelector('[data-action="confirm"]').onclick = async () => {
-    const type = overlay.querySelector('input[name="emb-type"]:checked')?.value
+    const mode =
+      overlay.querySelector('[data-emb-mode].active')?.getAttribute('data-emb-mode') || 'cloud'
     let req
-    if (type === 'local') {
-      const modelId = overlay.querySelector('[data-name="localModel"]').value
+    if (mode === 'local') {
+      if (overlay.dataset.runtimeOk !== '1') {
+        toast('本机向量运行时不可用，请改用云端 API', 'warning')
+        return
+      }
+      const modelId = resolveLocalEmbeddingPick(overlay)
+      if (!modelId) {
+        toast('请选择模型或填写本地目录', 'warning')
+        return
+      }
+      const st = await refreshLocalCacheStatusUi(overlay, modelId)
+      if (st?.status === 'downloading') {
+        toast('仍在下载，请稍后再添加', 'warning')
+        return
+      }
+      if (st?.status === 'missing' || st?.status === 'failed') {
+        toast('请先点「开始下载」完成缓存，或改用已有本地目录', 'warning')
+        return
+      }
+      const shortName = modelId.includes('/') ? modelId.split('/').pop() : modelId.replace(/[\\/]/g, '-').slice(-48)
       req = {
-        name: modelId.split('/').pop(),
+        name: shortName || 'local-embedding',
         vendor: 'local',
         model: modelId,
         display_name: modelId,
@@ -1650,7 +2097,10 @@ function addEmbeddingModel(page, state) {
       const modelId = overlay.querySelector('[data-name="cloudModel"]').value.trim()
       const baseUrl = overlay.querySelector('[data-name="cloudBaseUrl"]').value.trim()
       const apiKey = overlay.querySelector('[data-name="cloudApiKey"]').value.trim()
-      if (!modelId) { toast('请填写模型 ID', 'warning'); return }
+      if (!modelId) {
+        toast('请填写模型 ID', 'warning')
+        return
+      }
       req = {
         name: `embedding-${modelId}`,
         vendor: 'openai-embedding',
@@ -1662,14 +2112,38 @@ function addEmbeddingModel(page, state) {
       if (apiKey) req.api_key = apiKey
     }
 
+    const confirmBtn = overlay.querySelector('[data-action="confirm"]')
+    if (confirmBtn) confirmBtn.disabled = true
     try {
       await api.createModel(req)
+      stopPoll()
       overlay.remove()
       await reloadEmbeddingModels(state)
+      const idx = (state.embeddingModels || []).findIndex((m) => m.name === req.name)
+      if (idx >= 0) state.selectedEmbeddingIdx = idx
       renderEmbeddingView(page, state)
       toast(`已添加向量模型: ${req.display_name}`, 'success')
+      // 添加后立刻验证
+      try {
+        const res = await api.probeEmbeddingModel(req.name)
+        state.embeddingStatus = state.embeddingStatus || {}
+        state.embeddingErrors = state.embeddingErrors || {}
+        if (res?.ok) {
+          state.embeddingStatus[req.name] = 'ok'
+          delete state.embeddingErrors[req.name]
+          toast('验证通过：向量模型可用', 'success')
+        } else {
+          state.embeddingStatus[req.name] = 'fail'
+          state.embeddingErrors[req.name] = String(res?.message || '探测失败').slice(0, 400)
+          toast('已添加，但验证未通过：' + (res?.message || '探测失败'), 'warning')
+        }
+        renderEmbeddingView(page, state, { skipProbe: true })
+      } catch (e) {
+        toast('已添加，验证请求失败: ' + e, 'warning')
+      }
     } catch (e) {
       toast('添加失败: ' + e, 'error')
+      if (confirmBtn) confirmBtn.disabled = false
     }
   }
 }

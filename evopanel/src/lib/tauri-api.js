@@ -2153,6 +2153,22 @@ export const api = {
     gatewayProxy('POST', `/models/${encodeURIComponent(String(name || ''))}/clear-unavailable`),
   probeEmbeddingModel: async (modelName) =>
     gatewayProxy('POST', '/models/embedding-probe', { model_name: modelName }),
+  /** 本机向量：运行时是否含 sentence-transformers / torch */
+  getLocalEmbeddingRuntime: async () => gatewayProxy('GET', '/models/local-embedding/runtime'),
+  /** 本机向量：当前 HF 镜像 / hub */
+  getLocalEmbeddingHub: async () => gatewayProxy('GET', '/models/local-embedding/hub'),
+  /** 本机向量：持久化并应用 HF 镜像 */
+  setLocalEmbeddingHub: async (endpoint) =>
+    gatewayProxy('PUT', '/models/local-embedding/hub', { endpoint }),
+  /** 本机向量：缓存 / 下载状态 */
+  getLocalEmbeddingCacheStatus: async (modelId) =>
+    gatewayProxy(
+      'GET',
+      `/models/local-embedding/cache-status?model_id=${encodeURIComponent(String(modelId || ''))}`,
+    ),
+  /** 本机向量：开始后台下载 HF 权重 */
+  downloadLocalEmbeddingModel: async (modelId) =>
+    gatewayProxy('POST', '/models/local-embedding/download', { model_id: modelId }),
   /** 使用 Gateway DB 中的模型做一次对话补全（与主会话同源，密钥不经过浏览器直连厂商） */
   invokeConfiguredModel: async (request) => gatewayProxy('POST', '/models/invoke', request),
 

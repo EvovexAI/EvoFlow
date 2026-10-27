@@ -675,6 +675,87 @@ async def probe_embedding_model(http_request: Request, request: EmbeddingProbeRe
         return {"ok": False, "message": str(exc)}
 
 
+class LocalEmbeddingHubRequest(BaseModel):
+    """Update Hugging Face hub / mirror endpoint for local embedding downloads."""
+
+    endpoint: str = Field(..., description="http(s) hub URL, e.g. https://hf-mirror.com")
+
+
+class LocalEmbeddingDownloadRequest(BaseModel):
+    """Start downloading a local embedding model into the HF cache."""
+
+    model_id: str = Field(..., description="HF repo id or local directory path")
+
+
+@router.get(
+    "/models/local-embedding/runtime",
+    summary="Local Embedding Runtime",
+    description="Whether sentence-transformers / torch are available for local embedding.",
+)
+async def local_embedding_runtime(http_request: Request) -> dict:
+    require_org_admin(http_request)
+    from evoflow.knowledge.embedding.local_install import get_runtime_info
+
+    return get_runtime_info()
+
+
+@router.get(
+    "/models/local-embedding/hub",
+    summary="Local Embedding Hub Endpoint",
+    description="Current Hugging Face hub / mirror used for local embedding downloads.",
+)
+async def get_local_embedding_hub(http_request: Request) -> dict:
+    require_org_admin(http_request)
+    from evoflow.knowledge.embedding.local_install import get_hub_info
+
+    return get_hub_info()
+
+
+@router.put(
+    "/models/local-embedding/hub",
+    summary="Set Local Embedding Hub Endpoint",
+    description="Persist and apply Hugging Face hub / mirror for local embedding downloads.",
+)
+async def put_local_embedding_hub(http_request: Request, request: LocalEmbeddingHubRequest) -> dict:
+    require_org_admin(http_request)
+    from evoflow.knowledge.embedding.local_install import get_hub_info, persist_hf_endpoint
+
+    try:
+        persist_hf_endpoint(request.endpoint)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return get_hub_info()
+
+
+@router.get(
+    "/models/local-embedding/cache-status",
+    summary="Local Embedding Cache Status",
+    description="missing | cached | downloading | failed for a HF model id or local path.",
+)
+async def local_embedding_cache_status(http_request: Request, model_id: str = "") -> dict:
+    require_org_admin(http_request)
+    from evoflow.knowledge.embedding.local_install import get_cache_status
+
+    return get_cache_status(model_id)
+
+
+@router.post(
+    "/models/local-embedding/download",
+    summary="Download Local Embedding Model",
+    description="Start background snapshot_download for a HF repo id (no-op if cached).",
+)
+async def local_embedding_download(http_request: Request, request: LocalEmbeddingDownloadRequest) -> dict:
+    require_org_admin(http_request)
+    from evoflow.knowledge.embedding.local_install import start_download
+
+    try:
+        return start_download(request.model_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
 _OPENAI_COMPAT_VERSION_SUFFIX = re.compile(r"/v\d+/?$")
 
 

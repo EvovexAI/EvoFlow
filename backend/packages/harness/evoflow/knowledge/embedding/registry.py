@@ -270,10 +270,17 @@ _KNOWN_DIMS: dict[str, int] = {
     "baai/bge-base-zh-v1.5": 768,
     "baai/bge-large-zh-v1.5": 1024,
     "baai/bge-m3": 1024,
+    "baai/bge-small-en-v1.5": 384,
     "bge-small-zh-v1.5": 512,
     "bge-base-zh-v1.5": 768,
     "bge-large-zh-v1.5": 1024,
     "bge-m3": 1024,
+    "bge-small-en-v1.5": 384,
+    "sentence-transformers/all-minilm-l6-v2": 384,
+    "sentence-transformers/paraphrase-multilingual-minilm-l12-v2": 384,
+    "intfloat/multilingual-e5-small": 384,
+    "thenlper/gte-small": 384,
+    "shibing624/text2vec-base-chinese": 768,
     "nomic-ai/nomic-embed-text-v1.5": 768,
 }
 
