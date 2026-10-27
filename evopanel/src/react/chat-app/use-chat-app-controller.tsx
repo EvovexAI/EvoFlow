@@ -4636,8 +4636,17 @@ export function useChatAppController() {
   )
 
   // 首页不应出现右侧摘要/侧边面板：进入首页时主动折叠右栏（保留 tabs 缓存）。
+  // collapseRightStage 必须引用稳定；否则 store.show/bump 会重跑本 effect，
+  // 把任务中心刚打开的执行过程立刻收掉（ChatApp 常驻、与任务详情共享 store）。
   useEffect(() => {
     if (!isHomeSurface) return
+    // 对话宿主已隐藏（人在任务中心等路由）：勿抢收任务中心侧栏。
+    try {
+      const host = document.getElementById('chat-persistent-host')
+      if (host?.hidden) return
+    } catch {
+      /* ignore */
+    }
     collapseRightStage()
   }, [isHomeSurface, collapseRightStage])
 

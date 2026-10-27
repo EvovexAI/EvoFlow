@@ -2,6 +2,30 @@ import { useCallback, useSyncExternalStore } from 'react'
 import { rightStageStore } from './right-stage-store.js'
 import { normalizeRightStageKind, type RightStageKind, type RightStageSurface } from './right-stage-types.js'
 
+/**
+ * 模块级 bind：useRightStageStore 每次订阅 bump 都会重渲染，若在 render 里
+ * `.bind(store)` 会得到新函数引用。ChatApp「首页收栏」effect 依赖 collapse
+ * 时，任务中心 show() 一展开就会被立刻 collapse（表现为执行过程点击无反应）。
+ */
+const rightStageActions = {
+  show: rightStageStore.show.bind(rightStageStore),
+  hide: rightStageStore.hide.bind(rightStageStore),
+  closeTab: rightStageStore.closeTab.bind(rightStageStore),
+  activateTab: rightStageStore.activateTab.bind(rightStageStore),
+  reopenClosedTab: rightStageStore.reopenClosedTab.bind(rightStageStore),
+  reorderTab: rightStageStore.reorderTab.bind(rightStageStore),
+  expand: rightStageStore.expand.bind(rightStageStore),
+  collapse: rightStageStore.collapse.bind(rightStageStore),
+  toggleCollapsed: rightStageStore.toggleCollapsed.bind(rightStageStore),
+  updateData: rightStageStore.updateData.bind(rightStageStore),
+  appendStream: rightStageStore.appendStream.bind(rightStageStore),
+  openStream: rightStageStore.openStream.bind(rightStageStore),
+  clearStream: rightStageStore.clearStream.bind(rightStageStore),
+  closeStream: rightStageStore.closeStream.bind(rightStageStore),
+  getStream: rightStageStore.getStream.bind(rightStageStore),
+  applyRemote: rightStageStore.applyRemote.bind(rightStageStore),
+}
+
 export function useRightStageStore() {
   const snapshot = useSyncExternalStore(
     useCallback((onStoreChange) => rightStageStore.subscribe(onStoreChange), []),
@@ -19,22 +43,7 @@ export function useRightStageStore() {
     tabs: snapshot.tabs,
     activeKey: snapshot.activeKey,
     recentClosed: snapshot.recentClosed,
-    show: rightStageStore.show.bind(rightStageStore),
-    hide: rightStageStore.hide.bind(rightStageStore),
-    closeTab: rightStageStore.closeTab.bind(rightStageStore),
-    activateTab: rightStageStore.activateTab.bind(rightStageStore),
-    reopenClosedTab: rightStageStore.reopenClosedTab.bind(rightStageStore),
-    reorderTab: rightStageStore.reorderTab.bind(rightStageStore),
-    expand: rightStageStore.expand.bind(rightStageStore),
-    collapse: rightStageStore.collapse.bind(rightStageStore),
-    toggleCollapsed: rightStageStore.toggleCollapsed.bind(rightStageStore),
-    updateData: rightStageStore.updateData.bind(rightStageStore),
-    appendStream: rightStageStore.appendStream.bind(rightStageStore),
-    openStream: rightStageStore.openStream.bind(rightStageStore),
-    clearStream: rightStageStore.clearStream.bind(rightStageStore),
-    closeStream: rightStageStore.closeStream.bind(rightStageStore),
-    getStream: rightStageStore.getStream.bind(rightStageStore),
-    applyRemote: rightStageStore.applyRemote.bind(rightStageStore),
+    ...rightStageActions,
   }
 }
 
