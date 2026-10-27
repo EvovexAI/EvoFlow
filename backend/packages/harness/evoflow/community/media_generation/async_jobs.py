@@ -30,9 +30,14 @@ def _is_safe_url(url: str) -> bool:
 
 
 def download_url_to_file(url: str, dest: Path, timeout: int = 120) -> None:
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    # Local path from authenticated gateway content download (MiniMax OpenAI-Videos).
+    local = Path(url)
+    if local.is_file():
+        dest.write_bytes(local.read_bytes())
+        return
     if not _is_safe_url(url):
         raise ValueError(f"URL blocked for security: {url}")
-    dest.parent.mkdir(parents=True, exist_ok=True)
     req = urllib.request.Request(url, headers={"User-Agent": "EvoFlow-Media/1.0"})
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         data = resp.read()

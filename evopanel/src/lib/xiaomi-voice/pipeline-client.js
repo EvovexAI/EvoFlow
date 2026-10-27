@@ -1155,6 +1155,11 @@ let _stashBody = ''
 let _stashFinal = false
 /** 本轮已成功推给 Frame 的全部正文（跨多段累加），防 RUN_FINISHED 重喂已播段 */
 let _assistantFedText = ''
+/**
+ * text-end 已对当前段发过 assistant_end。
+ * RUN_FINISHED 再 feed(final) 时勿整段重推、勿二次 end（日志 vt-tnk9sn-2b66：工具后第二段播两遍）。
+ */
+let _assistantSegmentEndSent = false
 /** 播完回聆听后短暂延后放麦，躲开喇叭尾音 */
 let _listenUnmuteTimer = 0
 /** @type {number} */
@@ -1256,6 +1261,28 @@ function _noteFed(delta) {
   if (d) _assistantFedText += d
 }
 
+/** 忽略空白差异后比较正文是否已覆盖（防 text-end 后再 final 整段重推） */
+function _normSpeechBody(s) {
+  return String(s || '').replace(/\s+/g, '')
+}
+
+/**
+ * @param {string} fed
+ * @param {string} body
+ * @returns {boolean}
+ */
+function _fedCoversBody(fed, body) {
+  const f = String(fed || '')
+  const b = String(body || '')
+  if (!b) return true
+  if (!f) return false
+  if (f === b || f.endsWith(b) || b.endsWith(f) || f.includes(b)) return true
+  const nf = _normSpeechBody(f)
+  const nb = _normSpeechBody(b)
+  if (!nb) return true
+  return nf === nb || nf.endsWith(nb) || nb.endsWith(nf) || nf.includes(nb)
+}
+
 /**
  * 同轮多段正文（工具调用之间）：冲刷上一段去 TTS，再开闸接下一段。
  * 不置 _assistantEnded，语音 pending 继续；也不拆掉上一段本地播放队列。
@@ -1272,13 +1299,14 @@ export function flushXiaomiFrameAssistantSegment(reason = 'segment') {
     )
     sendXiaomiAssistantEnd()
     _assistantPlain = ''
+    if (reason === 'text-end') _assistantSegmentEndSent = true
   } else if (reason === 'text-end') {
     // 空段 text-end：无字可冲；勿误开 begin
     return false
   }
   // text-end = 本段正文结束，只 end 去 TTS。再 begin 会 +turn，且曾与确认短句后的
   // 正文 TTSSpeak 竞态（合成完无首包下发）。下一段由 tool-start / non-prefix 开闸；
-  // 整轮收尾由 feed(final) 再 end（后端 hold 已清 plain）。
+  // 整轮收尾由 feed(final) 收口（若 text-end 已 end，则不再二次 end / 重推）。
   if (reason === 'text-end') {
     _awaitingReply = true
     _assistantEnded = false
@@ -1286,6 +1314,7 @@ export function flushXiaomiFrameAssistantSegment(reason = 'segment') {
     return true
   }
   // tool-start / non-prefix：下一段开闸，保留本段已在播/排队的音频
+  _assistantSegmentEndSent = false
   sendXiaomiAssistantBegin({ preservePlayback: true })
   _awaitingReply = true
   _assistantEnded = false
@@ -1302,21 +1331,21 @@ export function feedXiaomiFrameAssistant(fullText, { final = false } = {}) {
   }
   const body = String(fullText || '')
   const wasEmpty = !_assistantPlain
+  const fed = String(_assistantFedText || '')
 
-  // RUN_FINISHED 常带「本轮全部正文」：若前缀已推过，只补尚未喂的尾巴，避免整段重播
-  if (
-    final &&
-    _assistantFedText &&
-    body &&
-    body.startsWith(_assistantFedText) &&
-    body.length >= _assistantFedText.length
-  ) {
-    const rest = body.slice(_assistantFedText.length)
+  // text-end 已冲刷 / RUN_FINISHED 重带全文：已喂过的正文一律不重推
+  if (fed && body && _fedCoversBody(fed, body)) {
+    if (wasEmpty || final) {
+      voicePlaybackMark('流式正文', body.slice(0, 40), '跳过已推送正文（text-end/已喂）')
+    }
+  } else if (final && fed && body && body.startsWith(fed)) {
+    const rest = body.slice(fed.length)
     if (rest) {
       voicePlaybackMark('流式正文', rest.slice(0, 80), '收尾补推未播尾巴')
       sendXiaomiAssistantDelta(rest)
       _noteFed(rest)
       _assistantPlain = body
+      _assistantSegmentEndSent = false
     }
   } else if (body.length > _assistantPlain.length && body.startsWith(_assistantPlain)) {
     const delta = body.slice(_assistantPlain.length)
@@ -1328,25 +1357,28 @@ export function feedXiaomiFrameAssistant(fullText, { final = false } = {}) {
       }
       sendXiaomiAssistantDelta(delta)
       _noteFed(delta)
+      _assistantSegmentEndSent = false
     }
   } else if (body && body !== _assistantPlain) {
     if (!_assistantPlain) {
       // 若 body 其实是已喂内容的子集/重复，跳过
-      if (_assistantFedText && (_assistantFedText === body || _assistantFedText.endsWith(body))) {
+      if (fed && _fedCoversBody(fed, body)) {
         voicePlaybackMark('流式正文', body.slice(0, 40), '跳过已推送正文')
-      } else if (_assistantFedText && body.startsWith(_assistantFedText)) {
-        const rest = body.slice(_assistantFedText.length)
+      } else if (fed && body.startsWith(fed)) {
+        const rest = body.slice(fed.length)
         _assistantPlain = body
         if (rest) {
           voicePlaybackMark('流式正文', rest.slice(0, 80), '推送 Frame（续写）')
           sendXiaomiAssistantDelta(rest)
           _noteFed(rest)
+          _assistantSegmentEndSent = false
         }
       } else {
         _assistantPlain = body
         voicePlaybackMark('流式正文', body.slice(0, 80), '推送 Frame（首包整段）')
         sendXiaomiAssistantDelta(body)
         _noteFed(body)
+        _assistantSegmentEndSent = false
       }
     } else {
       // 工具后新开的正文块（openText 不再以前缀延续）→ 先播上一段，再喂本段
@@ -1359,6 +1391,7 @@ export function feedXiaomiFrameAssistant(fullText, { final = false } = {}) {
       _assistantPlain = body
       sendXiaomiAssistantDelta(body)
       _noteFed(body)
+      _assistantSegmentEndSent = false
     }
   }
   if (final) {
@@ -1373,9 +1406,13 @@ export function feedXiaomiFrameAssistant(fullText, { final = false } = {}) {
     voicePlaybackMark(
       '流式正文',
       plain.slice(0, 400),
-      `本轮结束累计 ${plain.length} 字，冲刷残句`,
+      `本轮结束累计 ${plain.length} 字${_assistantSegmentEndSent ? '（text-end 已冲，跳过二次 end）' : '，冲刷残句'}`,
     )
-    sendXiaomiAssistantEnd()
+    // text-end 已 end 过本段：再 end 会让后端把同一段再合成一遍（vt-tnk9sn-2b66 seq=2/3）
+    if (!_assistantSegmentEndSent) {
+      sendXiaomiAssistantEnd()
+    }
+    _assistantSegmentEndSent = false
     // 正文 TTS 可能还要等几秒：这段窗口也要能喊退出
     _armExitListenWhileThinking('assistant_end')
     // 正文 end 后 TTS 常晚 1–2s（火山 ttfb）；旧 1.2s 就 flush → 误 unmute →
@@ -1459,6 +1496,7 @@ export function resetXiaomiFrameAssistantFeed() {
   _assistantPlain = ''
   _assistantEnded = false
   _assistantFedText = ''
+  _assistantSegmentEndSent = false
   _stashBody = ''
   _stashFinal = false
   // 通知后端开闸抬轮次（键盘提问没有 UserTurnComplete）

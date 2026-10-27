@@ -34,6 +34,7 @@ def test_media_catalog_shape():
     assert any(m.get("id") == "doubao-seedream-5-0-pro" for m in (models.get("image") or []))
     assert any(str(m.get("id") or "").startswith("doubao-seedance-") for m in (models.get("video") or []))
     assert any(m.get("id") == "gpt-image-2.5-sunburst" for m in (models.get("image") or []))
+    assert any(m.get("id") == "Qwen-Image-2.1" for m in (models.get("image") or []))
     assert any(m.get("id") == "wan2.7-image" for m in (models.get("image") or []))
     assert any(m.get("id") == "MiniMax-H3" for m in (models.get("video") or []))
     assert any(m.get("id") == "wan2.7-i2v" for m in (models.get("video") or []))
@@ -54,6 +55,8 @@ def test_provider_for_model_routing():
 
     assert provider_for_model("gpt-image-2.5-sunburst", capability="image") == "openai"
     assert provider_for_model("gpt-image-2.5-flare", capability="image") == "openai"
+    assert provider_for_model("Qwen-Image-2.1", capability="image") == "openai"
+    assert provider_for_model("Qwen-Image-2.1/QY5", capability="image") == "openai"
     assert provider_for_model("MiniMax-H3", capability="video") == "minimax"
     assert provider_for_model("MiniMax-H3-Max", capability="video") == "minimax"
     assert provider_for_model("wan2.6-i2v", capability="video") == "wan"

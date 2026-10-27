@@ -67,9 +67,10 @@ const ADVANCED_VENDORS = [
   {
     key: 'openai-image',
     label: 'OpenAI 生图',
-    sub: 'GPT Image 2.5',
+    sub: 'GPT · Qwen-Image',
     icon: 'openai',
-    setupGuide: '填写 OpenAI API Key（或兼容网关）。选 gpt-image-2.5-sunburst / flare 时自动走此渠道。',
+    setupGuide:
+      '官方：api.openai.com + gpt-image-2.5-*。兼容网关（如 hon-maas）：Base URL 填 …/v1，模型用 Qwen-Image-2.1 或 Qwen-Image-2.1/QY5。',
     officialUrl: 'https://developers.openai.com/api/docs/guides/image-generation',
     officialLabel: 'OpenAI Images 文档',
   },
@@ -78,7 +79,8 @@ const ADVANCED_VENDORS = [
     label: 'MiniMax 视频',
     sub: 'H3 · H3 Max',
     icon: 'minimax',
-    setupGuide: '在 MiniMax 开放平台申请 API Key。选 MiniMax-H3 / MiniMax-H3-Max 时自动走此渠道。',
+    setupGuide:
+      '官方：api.minimax.cn + MiniMax-H3。OpenAI Videos 网关（如 hon-maas）：Base URL 填 …/v1，模型用 minimax-h3 或 minimax-h3/QY3。',
     officialUrl: 'https://platform.minimax.io/docs/guides/video-generation',
     officialLabel: 'MiniMax 视频文档',
   },
@@ -719,14 +721,14 @@ function buildDetailHtml(vendorKey, creds) {
       fields = `
         ${secretFieldHtml('openaiImageApiKey', 'API Key', creds)}
         ${textFieldHtml('openaiImageBaseUrl', 'Base URL（可选）', 'https://api.openai.com/v1', creds)}
-        <p class="form-hint">可用 OpenAI 官方或兼容网关。当前主推 gpt-image-2.5-sunburst（画质）/ gpt-image-2.5-flare（速度）。</p>
+        <p class="form-hint">官方用 gpt-image-2.5-*。第三方 OpenAI Images 网关填 https://…/v1（勿多加 /images/generations），模型用 Qwen-Image-2.1。</p>
       `
       break
     case 'minimax':
       fields = `
         ${secretFieldHtml('minimaxMediaApiKey', 'API Key', creds)}
         ${textFieldHtml('minimaxMediaBaseUrl', 'Base URL（可选）', 'https://api.minimax.cn', creds)}
-        <p class="form-hint">与 MiniMax TTS Key 分开存储。当前主推 MiniMax-H3 / MiniMax-H3-Max（旧 Hailuo 仍可显式指定）。</p>
+        <p class="form-hint">官方默认 https://api.minimax.cn（模型 MiniMax-H3）。第三方 OpenAI Videos 网关填 https://…/v1（勿多加 /videos），模型用 minimax-h3。与 TTS Key 分开。</p>
       `
       break
     case 'kling':

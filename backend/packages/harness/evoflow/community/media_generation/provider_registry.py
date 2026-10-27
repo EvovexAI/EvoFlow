@@ -21,8 +21,12 @@ _MODEL_PROVIDER_RULES: list[tuple[str, str, set[str]]] = [
     ("kling", "kling", {"image", "video"}),
     ("gpt-image", "openai", {"image"}),
     ("dall-e", "openai", {"image"}),
+    ("Qwen-Image", "openai", {"image"}),  # OpenAI Images gateways (e.g. hon-maas)
+    ("qwen-image", "openai", {"image"}),
     ("MiniMax-H3", "minimax", {"video"}),
     ("MiniMax-Hailuo", "minimax", {"video"}),
+    ("minimax-h3", "minimax", {"video"}),  # OpenAI-Videos gateways (e.g. hon-maas)
+    ("minimax-hailuo", "minimax", {"video"}),
     ("I2V-01", "minimax", {"video"}),
     ("T2V-01", "minimax", {"video"}),
 ]
@@ -41,10 +45,15 @@ def provider_for_model(model_id: str | None, *, capability: Capability = "image"
     mid = str(model_id or "").strip()
     if not mid:
         return None
+    mid_l = mid.lower()
     for match, provider, caps in _MODEL_PROVIDER_RULES:
         if capability not in caps:
             continue
         if mid == match or mid.startswith(match):
+            return provider
+        # Case-insensitive for gateway ids like minimax-h3/QY3
+        ml = match.lower()
+        if mid_l == ml or mid_l.startswith(ml):
             return provider
     return None
 
@@ -71,6 +80,25 @@ def channel_image_models() -> list[dict[str, Any]]:
             "provider": "openai",
             "min_tier": None,
             "use_when": "更快的日常生图",
+            "protocol": "openai_images_sync",
+        },
+        {
+            "id": "Qwen-Image-2.1",
+            "label": "Qwen-Image 2.1（OpenAI Images 网关）",
+            "provider": "openai",
+            "min_tier": None,
+            "use_when": (
+                "Base URL 填网关 …/v1（如 hon-maas）；"
+                "POST /images/generations；通用路由自动选渠"
+            ),
+            "protocol": "openai_images_sync",
+        },
+        {
+            "id": "Qwen-Image-2.1/QY5",
+            "label": "Qwen-Image 2.1/QY5（指定渠道）",
+            "provider": "openai",
+            "min_tier": None,
+            "use_when": "同上网关；优先指定渠道，失败自动切换",
             "protocol": "openai_images_sync",
         },
         {
@@ -107,19 +135,38 @@ def channel_video_models() -> list[dict[str, Any]]:
     return [
         {
             "id": "MiniMax-H3",
-            "label": "MiniMax H3",
+            "label": "MiniMax H3（官方）",
             "provider": "minimax",
             "min_tier": None,
-            "use_when": "已配置 MiniMax Key；图生视频传 first_frame_url；768P/2K · 4–15s",
+            "use_when": "官方 api.minimax.cn Key；图生视频传 first_frame_url；768P/2K · 4–15s",
             "protocol": "minimax_h3_content",
         },
         {
             "id": "MiniMax-H3-Max",
-            "label": "MiniMax H3 Max",
+            "label": "MiniMax H3 Max（官方）",
             "provider": "minimax",
             "min_tier": None,
             "use_when": "更快出片；480P/768P · 5–15s",
             "protocol": "minimax_h3_content",
+        },
+        {
+            "id": "minimax-h3",
+            "label": "minimax-h3（OpenAI Videos 网关）",
+            "provider": "minimax",
+            "min_tier": None,
+            "use_when": (
+                "Base URL 填网关 …/v1（如 hon-maas token-service）；"
+                "走 POST /videos；渠道锁定可用 minimax-h3/QY3"
+            ),
+            "protocol": "openai_videos",
+        },
+        {
+            "id": "minimax-h3/QY3",
+            "label": "minimax-h3/QY3（指定渠道）",
+            "provider": "minimax",
+            "min_tier": None,
+            "use_when": "同上网关；优先指定渠道，失败自动切换",
+            "protocol": "openai_videos",
         },
         {
             "id": "wan2.7-i2v",
@@ -191,12 +238,24 @@ def credential_sources() -> list[dict[str, Any]]:
         {
             "provider": "openai",
             "vendor": "openai-image",
-            "label": "OpenAI / GPT 生图",
+            "label": "OpenAI / GPT 生图（含兼容网关）",
             "api_key_fields": ["openaiImageApiKey"],
             "base_url_fields": ["openaiImageBaseUrl"],
             "default_base_url": "https://api.openai.com/v1",
-            "priority": "设置 → 模型 → 生图生视频 → OpenAI 生图：填 API Key + Base URL（可用兼容网关）",
-            "models_hint": ["gpt-image-2.5-sunburst", "gpt-image-2.5-flare"],
+            "priority": (
+                "设置 → 模型 → 生图生视频 → OpenAI 生图：填 API Key + Base URL。"
+                "官方用 api.openai.com；hon-maas 等网关填 …/v1，模型用 Qwen-Image-2.1"
+            ),
+            "models_hint": [
+                "gpt-image-2.5-sunburst",
+                "gpt-image-2.5-flare",
+                "Qwen-Image-2.1",
+                "Qwen-Image-2.1/QY5",
+            ],
+            "protocols": {
+                "official_gpt_image": "POST {base}/images/generations",
+                "qwen_image_gateway": "同上路径；model=Qwen-Image-2.1[/渠道]",
+            },
         },
         {
             "provider": "minimax",
@@ -206,7 +265,11 @@ def credential_sources() -> list[dict[str, Any]]:
             "base_url_fields": ["minimaxMediaBaseUrl"],
             "default_base_url": "https://api.minimax.cn",
             "priority": "设置 → 模型 → 生图生视频 → MiniMax：填 API Key + Base URL",
-            "models_hint": ["MiniMax-H3", "MiniMax-H3-Max"],
+            "models_hint": ["MiniMax-H3", "MiniMax-H3-Max", "minimax-h3", "minimax-h3/QY3"],
+            "protocols": {
+                "official": "POST {base}/v2/video_generation（api.minimax.cn）",
+                "openai_videos_gateway": "POST {base}/videos（base 形如 …/v1，如 hon-maas）",
+            },
         },
         {
             "provider": "kling",

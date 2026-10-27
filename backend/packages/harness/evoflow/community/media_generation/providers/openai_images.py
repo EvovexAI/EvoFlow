@@ -1,7 +1,8 @@
-"""OpenAI Images API (GPT Image 2.5 Sunburst / Flare) — text2image (+ edits later).
+"""OpenAI Images API — GPT Image 2.5 + OpenAI-compatible gateways (e.g. Qwen-Image).
 
 Docs: https://developers.openai.com/api/docs/guides/image-generation
-Model IDs: ``gpt-image-2.5-sunburst`` (quality), ``gpt-image-2.5-flare`` (fast).
+- Official: ``gpt-image-2.5-sunburst`` / ``gpt-image-2.5-flare`` → ``POST {base}/images/generations``
+- Gateways (hon-maas etc.): ``Qwen-Image-2.1`` / ``Qwen-Image-2.1/QY5`` on same path
 """
 
 from __future__ import annotations
@@ -17,6 +18,10 @@ from evoflow.community.media_generation.config_helpers import openai_image_api_k
 logger = logging.getLogger(__name__)
 
 DEFAULT_OPENAI_IMAGE_MODEL = "gpt-image-2.5-sunburst"
+
+
+def _is_qwen_image(model: str) -> bool:
+    return (model or "").strip().lower().startswith("qwen-image")
 
 
 def submit_image(
@@ -43,6 +48,8 @@ def submit_image(
         "1:1": "1024x1024",
         "16:9": "1536x1024",
         "9:16": "1024x1536",
+        "4:3": "1024x768",
+        "3:4": "768x1024",
     }
     effective_size = size or size_map.get(aspect_ratio, "1024x1024")
     body: dict[str, Any] = {
@@ -54,8 +61,8 @@ def submit_image(
     # GPT Image family returns b64 by default; quality tiers for 2.5.
     if m.startswith("gpt-image"):
         body["quality"] = "auto"
-    elif m.startswith("dall-e"):
-        # Legacy DALL·E path (compatibility gateways)
+    elif m.startswith("dall-e") or _is_qwen_image(m):
+        # DALL·E + Qwen-Image gateways prefer URL (or return b64 anyway).
         body["response_format"] = "url"
     url = f"{openai_image_base_url().rstrip('/')}/images/generations"
     with httpx.Client(timeout=180.0) as client:
