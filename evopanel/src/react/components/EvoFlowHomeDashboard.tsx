@@ -33,12 +33,12 @@ import {
   YAxis,
 } from 'recharts'
 import { toast } from '../../components/toast.js'
+import { api } from '../../lib/tauri-api.js'
 import { EVOFLOW_INTRO_SELF_PROMPT } from '../../lib/evoflow-intro-prompt.js'
 import { getPanelSetting, getVoiceReplyEnabled, patchPanelSettings } from '../../lib/panel-settings.js'
 import { voiceReplyModeToSettingsPatch } from '../../lib/voice-reply-mode.js'
 import { isTauri } from '../../lib/panel-login.js'
 import { loadSkillCatalog, subscribeSkillCatalog } from '../../lib/skill-catalog.js'
-import { api } from '../../lib/tauri-api.js'
 import { ObjectUrlImg } from './ObjectUrlImg.js'
 import { DropdownSelect } from './DropdownSelect.js'
 import { ImagePreviewModal, type ImagePreviewItem } from './ImagePreviewModal.js'
@@ -906,12 +906,37 @@ export function EvoFlowHomeDashboard({ onPrompt, workspaceLabel = '', workspaceP
     toast('工作台设置已保存', 'success')
   }, [prefsDraft])
 
+  /** 我的待办行内勾选完成（仅随手事项；旧 inbox 任务跳详情处理） */
+  const handleCompleteMyTodo = useCallback(
+    (item: { id: string; title: string }) => {
+      const id = String(item.id || '').trim()
+      if (!id) return
+      void api
+        .updateUserItem(id, { status: 'done' })
+        .then(() => {
+          toast(`已完成：${item.title}`, 'success')
+          data.refresh()
+        })
+        .catch((e: unknown) => {
+          toast(`标记失败：${e instanceof Error ? e.message : String(e || '未知错误')}`, 'error')
+        })
+    },
+    [data.refresh],
+  )
+
   const showTodoEmpty = !data.loading && todosTotal === 0
   const showMyTodoEmpty = !data.loading && myTodosTotal === 0
   const showRecentEmpty = !data.loading && recentRuns.length === 0
 
+  // 欢迎语：按时段问候；有过昨日完成量时顺带一句摘要
+  const greeting = useMemo(() => {
+    const h = new Date().getHours()
+    const part = h < 6 ? '夜深了' : h < 12 ? '早上好' : h < 14 ? '中午好' : h < 18 ? '下午好' : '晚上好'
+    return `${part}，今天想完成什么？`
+  }, [data.yesterdayDone])
+
   return (
-    <div className="evo-home-dashboard">
+    <div className="evo-home-dashboard" data-loading={data.loading ? '1' : undefined}>
       <div className="evo-home-dashboard__inner">
         <header className="evo-home-header">
           <div className="evo-home-header__text">
@@ -919,8 +944,12 @@ export function EvoFlowHomeDashboard({ onPrompt, workspaceLabel = '', workspaceP
               <Sparkles className="evo-home-ic" />
               工作台
             </div>
-            <h1 className="evo-home-title">欢迎回来，今天想完成什么？</h1>
-            <p className="evo-home-subtitle">描述你的任务，EvoFlow 将为你规划并高效推进工作。</p>
+            <h1 className="evo-home-title">{greeting}</h1>
+            <p className="evo-home-subtitle">
+              {data.yesterdayDone > 0
+                ? `昨天完成了 ${data.yesterdayDone} 个任务。描述今天想做的事，EvoFlow 将为你规划并高效推进。`
+                : '描述你的任务，EvoFlow 将为你规划并高效推进工作。'}
+            </p>
           </div>
           <button
             type="button"
@@ -1656,6 +1685,19 @@ export function EvoFlowHomeDashboard({ onPrompt, workspaceLabel = '', workspaceP
                         className="evo-home-list__item"
                         onClick={() => openTodo(item)}
                       >
+                        {item.sourceKey === 'item' ? (
+                          <span
+                            role="checkbox"
+                            aria-checked={false}
+                            aria-label={`完成：${item.title}`}
+                            className="evo-home-todo-check"
+                            title="标记完成"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              void handleCompleteMyTodo(item)
+                            }}
+                          />
+                        ) : null}
                         <div className="evo-home-list__text">
                           <div className="evo-home-list__title">{item.title}</div>
                         </div>
