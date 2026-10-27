@@ -3009,6 +3009,26 @@ export const api = {
       throw err
     }
   },
+  /** 批量员工忙碌状态：一次往返带回全部（仪表盘 15s 轮询专用，替代逐个 fan-out） */
+  proactiveRolesBusyBatch: async (codes) => {
+    const list = (Array.isArray(codes) ? codes : [])
+      .map((c) => String(c || '').trim())
+      .filter((c) => c && c !== 'main')
+      .slice(0, 64)
+    if (!list.length) return { busy: {} }
+    try {
+      const res = await gatewayProxy(
+        'GET',
+        '/proactive/roles-busy',
+        null,
+        { codes: list.join(',') },
+        { silent: true },
+      )
+      return res && typeof res === 'object' && res.busy ? res : { busy: {} }
+    } catch {
+      return { busy: {} }
+    }
+  },
   /** 员工工作空间下的多会话列表（duty/task/chat） */
   proactiveListConversations: async (code, params) =>
     gatewayProxy(

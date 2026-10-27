@@ -17,6 +17,9 @@ logger = logging.getLogger(__name__)
 _skills_cache: tuple[dict[str, tuple[int, int]], list[Skill], float] | None = None
 _skills_cache_ttl: float = 300  # seconds before re-checking mtimes
 _plugin_state_sig: str | None = None
+# Scoped cache: 带 scope_skill_roots 的请求原本完全绕过缓存，每次全量解析
+# （实测 335 项 ~0.5–4s）。按键（roots 签名）缓存，同样用 mtime 校验。
+_scoped_skills_cache: dict[str, tuple[dict[str, tuple[int, int]], list[Skill], float]] = {}
 # Rendered <skill_system> section cache (avoids rebuild on every turn).
 _skills_prompt_section_cache: dict[tuple, str] = {}
 _skills_prompt_section_lock = threading.Lock()
@@ -26,6 +29,7 @@ def clear_skills_cache() -> None:
     """Clear the skills cache to force reload on next load_skills call."""
     global _skills_cache
     _skills_cache = None
+    _scoped_skills_cache.clear()
     with _skills_prompt_section_lock:
         _skills_prompt_section_cache.clear()
     logger.debug("Skills cache cleared")
@@ -46,11 +50,14 @@ def get_cached_skills_prompt_section(cache_key: tuple, builder) -> str:
 def _build_mtime_map(
     skills_path: Path,
     extra_roots: list[Path] | None = None,
+    scope_roots: list[tuple[Path, int]] | None = None,
 ) -> dict[str, tuple[int, int]]:
     """Build an mtime/size map of all SKILL.md files under public/ and custom/.
 
     Extra discovery roots (``skills.extra_roots``) are included too, otherwise edits
     inside them would never invalidate the TTL cache and the stale list would be served.
+    Scope roots (org/personal/group) are included with a ``@scope:`` prefix for the
+    scoped cache.
     """
     mtime_map: dict[str, tuple[int, int]] = {}
     for category in ("public", "custom"):
@@ -84,6 +91,23 @@ def _build_mtime_map(
             try:
                 st = skill_file.stat()
                 mtime_map[f"@extra:{skill_file.resolve()}"] = (st.st_mtime_ns, st.st_size)
+            except OSError:
+                continue
+    for idx, (root, _scope) in enumerate(scope_roots or []):
+        try:
+            root_resolved = Path(root).expanduser().resolve()
+        except OSError:
+            continue
+        if not root_resolved.is_dir():
+            continue
+        for current_root, dir_names, file_names in os.walk(root_resolved, followlinks=True):
+            dir_names[:] = sorted(name for name in dir_names if not name.startswith("."))
+            if "SKILL.md" not in file_names:
+                continue
+            skill_file = Path(current_root) / "SKILL.md"
+            try:
+                st = skill_file.stat()
+                mtime_map[f"@scope:{idx}:{skill_file.resolve()}"] = (st.st_mtime_ns, st.st_size)
             except OSError:
                 continue
     return mtime_map
@@ -432,19 +456,38 @@ def load_skills(
 
     # Plugin enable/disable toggles don't touch skill files, so the mtime cache
     # can't see them; invalidate on installed-plugins state signature change.
-    if use_simple_cache:
-        try:
-            from evoflow.plugins.runtime import plugin_state_signature
+    try:
+        from evoflow.plugins.runtime import plugin_state_signature
 
-            global _plugin_state_sig
-            sig = plugin_state_signature()
-            if sig != _plugin_state_sig:
-                if _plugin_state_sig is not None:
-                    logger.info("Plugin enablement changed, invalidating skills cache")
-                _plugin_state_sig = sig
-                _skills_cache = None
+        global _plugin_state_sig
+        sig = plugin_state_signature()
+        if sig != _plugin_state_sig:
+            if _plugin_state_sig is not None:
+                logger.info("Plugin enablement changed, invalidating skills cache")
+            _plugin_state_sig = sig
+            _skills_cache = None
+            _scoped_skills_cache.clear()
+    except Exception:
+        pass
+
+    # 带作用域根的请求：按 roots 签名走带键缓存（否则每次全量解析 335 项）。
+    scoped_cache_key: str | None = None
+    if not use_simple_cache:
+        if workspace_root is None:
+            try:
+                from evoflow.tools.host_direct.workspace_context import resolve_tool_workspace_root
+
+                ws, _ = resolve_tool_workspace_root(runtime=None)
+                workspace_root = ws
+            except Exception:
+                workspace_root = None
+        try:
+            key_parts = [str(Path(skills_path).resolve())]
+            key_parts += sorted(f"{p}@{s}" for p, s in (scope_skill_roots or []))
+            key_parts += sorted(str(Path(p).resolve()) for p in (extra_roots or []))
+            scoped_cache_key = "|".join(key_parts)
         except Exception:
-            pass
+            scoped_cache_key = None
 
     # ── Check cache: TTL first, then lightweight mtime scan ───────────
     if use_simple_cache and _skills_cache is not None:
@@ -467,6 +510,25 @@ def load_skills(
             logger.info("Skills changed on disk (%d entries differ), reloading", len(cached_mtime_map))
         except Exception:
             pass
+    if not use_simple_cache and scoped_cache_key:
+        cached = _scoped_skills_cache.get(scoped_cache_key)
+        if cached is not None:
+            cached_mtime_map, cached_skills, cached_at = cached
+            age = _time.monotonic() - float(cached_at)
+            current_mtime_map = None
+            if age >= _skills_cache_ttl:
+                try:
+                    current_mtime_map = _build_mtime_map(skills_path, extra_roots, scope_skill_roots)
+                except Exception:
+                    current_mtime_map = None
+            if age < _skills_cache_ttl or (current_mtime_map is not None and current_mtime_map == cached_mtime_map):
+                _scoped_skills_cache[scoped_cache_key] = (cached_mtime_map, cached_skills, _time.monotonic())
+                skills = list(cached_skills)
+                if enabled_only:
+                    skills = [s for s in skills if s.enabled]
+                return skills
+            if current_mtime_map is not None:
+                logger.info("Scoped skills changed on disk, reloading (key=%s...)", scoped_cache_key[:60])
 
     # ── Full scan ─────────────────────────────────────────────────────
     if workspace_root is None:
@@ -547,6 +609,12 @@ def load_skills(
         try:
             mtime_map = _build_mtime_map(skills_path, extra_roots)
             _skills_cache = (mtime_map, list(skills), _time.monotonic())
+        except Exception:
+            pass
+    elif scoped_cache_key:
+        try:
+            mtime_map = _build_mtime_map(skills_path, extra_roots, scope_skill_roots)
+            _scoped_skills_cache[scoped_cache_key] = (mtime_map, list(skills), _time.monotonic())
         except Exception:
             pass
 

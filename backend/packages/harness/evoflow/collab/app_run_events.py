@@ -6,6 +6,7 @@ GET ``_heal_run_invariant`` stays a safety net only — not the primary sync.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
@@ -111,7 +112,50 @@ def emit_app_run_from_main_task(
                 summary=str(task.get("result_summary") or task.get("result_text") or task.get("error_text") or ""),
                 created_by=str(task.get("principal_id") or "").strip() or None,
             )
+            # P0-2: the notification center is not enough — long automation runs
+            # must reach the IM channel they were configured to report into.
+            _fan_out_terminal_im_push(task, str(status))
     return status
+
+
+_IM_PUSH_DEDUP_MAX = 512
+_im_push_dedup: set[str] = set()
+
+
+def _fan_out_terminal_im_push(task: dict[str, Any], status: str) -> None:
+    """Fire-and-forget IM fan-out for automation-triggered runs (P0-2).
+
+    Deduped per (run_id, status): the terminal state may be emitted several
+    times (write-path sync + reconciler + sweeps) and the IM channel must see
+    it once. Requires a running loop; when called from a worker thread the
+    notification-center write above still landed and only the IM fan-out skips.
+    """
+    rid = str(task.get("source_run_id") or "").strip()
+    if not rid:
+        return
+    key = f"{rid}:{status}"
+    if key in _im_push_dedup:
+        return
+    if len(_im_push_dedup) >= _IM_PUSH_DEDUP_MAX:
+        _im_push_dedup.clear()
+    _im_push_dedup.add(key)
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        logger.debug("app_run_events: no running loop, skip IM fan-out run=%s", rid)
+        _im_push_dedup.discard(key)
+        return
+
+    async def _push() -> None:
+        try:
+            from app.gateway.channel_result_push import push_automation_run_terminal
+
+            ok, msg = await push_automation_run_terminal(task)
+            logger.info("app_run_events: terminal IM push run=%s status=%s ok=%s msg=%s", rid, status, ok, msg)
+        except Exception:
+            logger.warning("app_run_events: terminal IM push failed run=%s", rid, exc_info=True)
+
+    loop.create_task(_push())
 
 
 def emit_app_run_for_task_id(task_id: str, *, reason: str = "") -> str | None:

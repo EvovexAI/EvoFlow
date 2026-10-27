@@ -775,7 +775,7 @@ class WeixinChannel(Channel):
         for path in paths:
             self._temp_media_paths.discard(path)
             try:
-                os.unlink(path)
+                os.unlink(path)  # async-block-ok: 单个临时文件 unlink，微秒级
             except OSError as exc:
                 logger.debug("[Weixin] failed to remove temp media %s: %s", path, exc)
 

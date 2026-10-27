@@ -62,23 +62,26 @@ def format_subtask_progress_mandate_block(*, mode: ReportingMode = "full") -> st
 
 **禁止**：用散文代替 `done`。"""
 
-    return """## 子任务进度上报（强制，执行过程中）
+    return """## 子任务进度上报（执行过程中）
 
 协作侧栏与工作流 DAG 的**进度条与状态灯**只认存储里的 `progress`（0–100）与 `status`。聊天文字**不会**更新 UI。
 
-**你必须主动上报（按完成度估算百分比）**
-- 开始实质性工作前：`progress(progress=5~15, current_step="…")`，并确保 checklist 已 `set`
-- 每完成一个关键里程碑（或 checklist 一项 `completed` 后）：再次调用，进度单调递增（建议 20→50→80…）
-- 若在用 `checklist`：每次 `update` 完成项后 checklist 会自动折算进度；**仍建议在阶段边界再调一次** `progress` 写清 `current_step`
-- 收尾前：`done` 会把终态设为 100%（completed）或保留末次进度（failed/blocked）
+**必须（只有两条）**
+- 开始实质性工作前：`progress(progress=5~15, current_step="…")`
+- 收尾：用 `done` 结束（`done` 会把终态设为 100%（completed）或保留末次进度（failed/blocked））
+
+**建议（按需，非硬性要求）**
+- 步骤较多时可用 `checklist` 记录；每次 `update` 完成项后 checklist 会自动折算进度
+- 任务较长时在关键里程碑（或阶段边界）再调 `progress`，进度单调递增（建议 20→50→80…），并写清 `current_step`
+- 一两步就能完成的短任务：跳过中途上报，直接 `done`
 
 **参数**
 - `progress`（必填）：0–100 整数，反映**本子任务**整体完成度（不是主任务）
-- `current_step`（强烈建议）：正在做什么（一句话，供 Lead / UI）
+- `current_step`（建议）：正在做什么（一句话，供 Lead / UI）
 - `status`（可选）：`in_progress`；终态请用 `done`
 
 **禁止**
-- 全程 0% 或只在最后一步才上报
+- 全程 0% 就收尾
 - 用主会话 prose 代替工具调用
 
 **与主任务区分**

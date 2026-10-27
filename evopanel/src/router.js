@@ -369,6 +369,20 @@ async function renderChatRoute(path, hash, thisLoad) {
   _currentCleanup = mod.cleanup || null
   updateNavActive(path.split('?')[0])
   window.dispatchEvent(new CustomEvent('evopanel:chat-route-shown'))
+  // 侧栏「工作台」从其他页面跳转：pending 标记本由 ChatApp 挂载时消费，
+  // 但 ChatApp 是常驻组件、从其他路由切回不会重新挂载 —— 标记会永远滞留，
+  // 用户看到的就是普通「新对话」页而不是工作台仪表盘。这里补消费。
+  try {
+    if (
+      window.sessionStorage.getItem('evopanel_pending_open_home') === '1' &&
+      isChatAppMounted()
+    ) {
+      window.sessionStorage.removeItem('evopanel_pending_open_home')
+      window.dispatchEvent(new CustomEvent('evopanel:shell-open-home'))
+    }
+  } catch {
+    /* ignore */
+  }
   scheduleRemoveBootSplash()
 }
 

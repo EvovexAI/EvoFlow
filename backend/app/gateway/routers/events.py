@@ -616,17 +616,19 @@ async def get_stream_diagnostics(request: Request, task_id: str) -> dict:
     file_path = get_task_output_file_path(task_id)
     if file_path:
         try:
-            with open(file_path, encoding="utf-8") as f:
-                lines = f.readlines()
-                result["file_storage"] = {
+            # 输出文件可达 MB 级，readlines/stat 不能跑在事件循环上。
+            def _inspect_output_file() -> dict:
+                with open(file_path, encoding="utf-8") as f:
+                    lines = f.readlines()
+                return {
                     "exists": True,
                     "path": str(file_path),
                     "total_entries": len(lines),
                     "size_bytes": file_path.stat().st_size,
+                    "lead_agent_chunks": sum(1 for line in lines if '"type": "lead_agent_chunk"' in line),
                 }
-                # 统计 lead_agent_chunk 数量
-                lead_agent_chunks = sum(1 for line in lines if '"type": "lead_agent_chunk"' in line)
-                result["file_storage"]["lead_agent_chunks"] = lead_agent_chunks
+
+            result["file_storage"] = await asyncio.to_thread(_inspect_output_file)
         except Exception as e:
             result["file_storage"] = {"exists": True, "error": str(e)}
     else:

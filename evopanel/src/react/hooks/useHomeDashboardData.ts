@@ -114,6 +114,8 @@ export type HomeDashboardData = {
   autoStats: HomeAutoStats
   /** 此刻在跑：对话 / 员工 / 自动化 / 工作流（runtime liveness） */
   liveNow: HomeLiveItem[]
+  /** 昨日完成任务数（欢迎语摘要用；来自有界任务快照） */
+  yesterdayDone: number
   refresh: () => void
 }
 
@@ -323,6 +325,13 @@ function buildTrend(tasks: any[], rangeDays = 7): HomeTrendPoint[] {
       else point.failed += 1
     }
   }
+  // 样本诚实化：任务快照是有界的（page_size 上限），更早的日子全是假 0，
+  // 画出一条「突然从零开始」的趋势会误导。裁掉样本覆盖不到的前导全零天（至少留 3 天）。
+  let firstNonEmpty = days.findIndex((p) => p.created > 0 || p.completed > 0 || p.failed > 0)
+  if (firstNonEmpty > 0) {
+    firstNonEmpty = Math.min(firstNonEmpty, days.length - 3)
+    return days.slice(firstNonEmpty)
+  }
   return days
 }
 
@@ -523,6 +532,7 @@ export function useHomeDashboardData(opts?: { rangeDays?: number }): HomeDashboa
 
   // Runtime liveness: active sessions + employee busy (poll ~15s while home mounted)
   useEffect(() => {
+    if (document.visibilityState === 'hidden') return
     let cancelled = false
     ;(async () => {
       try {
@@ -541,14 +551,21 @@ export function useHomeDashboardData(opts?: { rangeDays?: number }): HomeDashboa
           setRoleBusyByCode({})
           return
         }
-        const busySettled = await Promise.allSettled(
-          codes.map((code: string) => api.proactiveRoleBusy(code)),
-        )
+        // 批量接口一次带回（原先逐个 fan-out：16 员工 × 15s 轮询 = 60+ 请求/分钟）。
+        // 批量失败时回退到逐个探测，保证降级可用。
+        const batch = await api.proactiveRolesBusyBatch(codes).catch(() => ({ busy: {} }))
         if (cancelled) return
-        const nextBusy: Record<string, any> = {}
-        busySettled.forEach((r, i) => {
-          if (r.status === 'fulfilled') nextBusy[codes[i]] = r.value
-        })
+        const nextBusy: Record<string, any> = { ...(batch?.busy || {}) }
+        const missing = codes.filter((c) => !nextBusy[c])
+        if (missing.length) {
+          const busySettled = await Promise.allSettled(
+            missing.map((code: string) => api.proactiveRoleBusy(code)),
+          )
+          if (cancelled) return
+          busySettled.forEach((r, i) => {
+            if (r.status === 'fulfilled') nextBusy[missing[i]] = r.value
+          })
+        }
         setRoleBusyByCode(nextBusy)
       } catch {
         if (!cancelled) {
@@ -561,9 +578,28 @@ export function useHomeDashboardData(opts?: { rangeDays?: number }): HomeDashboa
     }
   }, [liveTick, roles])
 
+  // 轮询节流：页面不可见（切走/最小化）时暂停，回前台立即刷一次。
+  // 原实现后台照跑 15s 轮询，纯浪费。
   useEffect(() => {
-    const id = window.setInterval(() => setLiveTick((n) => n + 1), 15_000)
-    return () => window.clearInterval(id)
+    let paused = document.visibilityState === 'hidden'
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') {
+        paused = false
+        setLiveTick((n) => n + 1)
+      } else {
+        paused = true
+      }
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    const id = window.setInterval(() => {
+      if (!paused && document.visibilityState === 'visible') {
+        setLiveTick((n) => n + 1)
+      }
+    }, 15_000)
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible)
+      window.clearInterval(id)
+    }
   }, [])
 
   return useMemo(() => {
@@ -892,6 +928,7 @@ export function useHomeDashboardData(opts?: { rangeDays?: number }): HomeDashboa
       apps,
       autoStats,
       liveNow,
+      yesterdayDone: completedYesterday.length,
       refresh,
     }
   }, [

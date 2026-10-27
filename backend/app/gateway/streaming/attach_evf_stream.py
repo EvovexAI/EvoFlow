@@ -52,10 +52,13 @@ class AttachEvfDiffEmitter:
 
         out: list[str] = []
         if not self.baseline_locked:
+            # No anchor frame on first poll: a bare
+            # {"type":"thread_state","anchored":true} forces the panel into a
+            # transient idle state. The live normalizer owns the real
+            # thread_state from its own richer payload.
             self.baseline_locked = True
             self.baseline_text = full_text
             self.last_emitted_text = full_text
-            out.append(_encode_evf({"type": "thread_state", "anchored": True}).decode("utf-8"))
             return out
 
         delta = full_text

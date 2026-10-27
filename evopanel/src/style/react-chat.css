@@ -34846,3 +34846,37 @@ html[data-theme='dark'] .xw-right-shot__img,
 html.dark .xw-right-shot__img {
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
 }
+
+/* ── 工作台仪表盘：加载骨架 + 待办行内勾选 ─────────────────────── */
+.evo-home-dashboard[data-loading='1'] .evo-home-kpi-grid,
+.evo-home-dashboard[data-loading='1'] .evo-home-card__body {
+  position: relative;
+  color: transparent !important;
+  pointer-events: none;
+  user-select: none;
+}
+.evo-home-dashboard[data-loading='1'] .evo-home-kpi-grid::after,
+.evo-home-dashboard[data-loading='1'] .evo-home-card__body::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 10px;
+  background: linear-gradient(90deg, var(--bg-secondary) 25%, var(--bg-tertiary, var(--bg-card-hover)) 50%, var(--bg-secondary) 75%);
+  background-size: 200% 100%;
+  animation: skeleton-shine 1.4s ease infinite;
+}
+
+.evo-home-todo-check {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  margin-right: 2px;
+  border: 1.5px solid var(--border-primary, var(--border));
+  border-radius: 50%;
+  cursor: pointer;
+  transition: background var(--dur-fast, 120ms) ease, border-color var(--dur-fast, 120ms) ease;
+}
+.evo-home-todo-check:hover {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+}

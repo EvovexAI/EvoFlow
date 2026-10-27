@@ -1384,6 +1384,79 @@ async def dispatch_task(request: Request, agent_code: str, req: DispatchTaskRequ
     return result
 
 
+@router.get("/roles-busy")
+async def roles_busy_batch(
+    request: Request,
+    codes: str = Query("", description="Comma-separated role agent codes (max 64)"),
+) -> dict[str, Any]:
+    """Busy state for many employees in one round-trip.
+
+    The home dashboard used to fan out one ``/roles/{code}/busy`` request per
+    employee every 15s tick (16 employees = 60+ requests/min). This returns the
+    same shape per code in a single response; only busy roles pay the
+    conversation-session lookup.
+    """
+    requested = [c.strip() for c in str(codes or "").split(",") if c.strip()][:64]
+    if not requested:
+        return {"busy": {}}
+    runner = _get_proactive_runner()
+    busy_roles = {str(r.get("agent_code") or ""): r for r in runner.busy_roles()}
+    out: dict[str, Any] = {}
+    for code in requested:
+        role = ProactiveRepository.get_role(code)
+        if not role:
+            out[code] = {
+                "agent_code": code,
+                "busy": False,
+                "missing": True,
+            }
+            continue
+        busy = runner.is_role_busy(code)
+        started = str(busy_roles.get(code, {}).get("started_at") or "")
+        current_round_id = ""
+        current_session_key = None
+        if busy:
+            try:
+                from evoflow.proactive.chat_session import list_employee_conversation_sessions
+
+                convs = list_employee_conversation_sessions(code, limit=20)
+                running = [
+                    c
+                    for c in convs
+                    if str(c.get("run_status") or "").strip().lower() in {"running", "pending"}
+                ]
+
+                def _rank(c: dict[str, Any]) -> tuple[int, str]:
+                    kind = str(c.get("kind") or "").strip().lower()
+                    order = {"task": 0, "duty": 1, "chat": 2, "legacy": 3}.get(kind, 4)
+                    return (order, str(c.get("updated_at") or ""))
+
+                pick = sorted(running, key=_rank)[0] if running else None
+                if pick:
+                    current_session_key = str(pick.get("session_key") or "").strip() or None
+                    try:
+                        from evoflow.persistence import session_repositories as sess_repo
+
+                        row = sess_repo.load_session_map().get(current_session_key or "") or {}
+                        ctx = row.get("context") if isinstance(row.get("context"), dict) else {}
+                        current_round_id = str(ctx.get("proactive_round_id") or "").strip()
+                    except Exception:
+                        current_round_id = ""
+            except Exception:
+                current_round_id = ""
+                current_session_key = None
+        out[code] = {
+            "agent_code": code,
+            "role_name": role.role_name,
+            "busy": busy,
+            "started_at": started,
+            "current_round_id": current_round_id or None,
+            "current_session_key": current_session_key,
+            "watch_path": f"/proactive/{code}?live=1",
+        }
+    return {"busy": out}
+
+
 @router.get("/roles/{agent_code}/busy")
 async def role_busy(request: Request, agent_code: str) -> dict[str, Any]:
     """Whether this employee currently has an in-flight patrol."""

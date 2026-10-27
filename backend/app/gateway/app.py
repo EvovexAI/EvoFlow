@@ -473,7 +473,7 @@ This gateway provides custom endpoints for models, MCP configuration, skills, ar
             body = await req.json()
             line = body.get("msg", "")
             _dbg_path = _dbg_o.environ.get("EVOFLOW_FE_LOG", "").strip() or "D:/dev/github/EvoFlow/temp/evoflow-fe.log"
-            with open(_dbg_path, "a", encoding="utf-8") as f:
+            with open(_dbg_path, "a", encoding="utf-8") as f:  # async-block-ok: 开发期 FE 调试日志，追加一行
                 f.write(f"[t={_dbg_t.time():.3f}s fe-post] {line}\n")
         except Exception as exc:
             return {"ok": False, "err": str(exc)}
@@ -483,7 +483,7 @@ This gateway provides custom endpoints for models, MCP configuration, skills, ar
     async def _evoflow_fe_log_tail(n: int = 200):
         try:
             _dbg_path = _dbg_o.environ.get("EVOFLOW_FE_LOG", "").strip() or "D:/dev/github/EvoFlow/temp/evoflow-fe.log"
-            with open(_dbg_path, "r", encoding="utf-8", errors="replace") as f:
+            with open(_dbg_path, "r", encoding="utf-8", errors="replace") as f:  # async-block-ok: 开发期 FE 调试日志，读尾部 n 行
                 lines = f.readlines()[-n:]
             return {"ok": True, "lines": [l.rstrip("\n") for l in lines]}
         except Exception as exc:

@@ -112,13 +112,13 @@ async def get_transport() -> dict[str, Any]:
     transport_file = os.path.join(_EVOFLOW_DIR, "browser-cdp-transport")
     port_file = os.path.join(_EVOFLOW_DIR, "browser-cdp-http-port")
     try:
-        if os.path.isfile(transport_file):
-            transport = open(transport_file, encoding="utf-8").read().strip().lower() or "unknown"
+        if os.path.isfile(transport_file):  # async-block-ok: 固定小路径 stat，微秒级
+            transport = open(transport_file, encoding="utf-8").read().strip().lower() or "unknown"  # async-block-ok: 固定小文件（数十字节）CDP 状态探针
     except OSError:
         pass
     try:
-        if os.path.isfile(port_file):
-            raw = open(port_file, encoding="utf-8").read().strip()
+        if os.path.isfile(port_file):  # async-block-ok: 固定小路径 stat，微秒级
+            raw = open(port_file, encoding="utf-8").read().strip()  # async-block-ok: 固定小文件（数十字节）CDP 端口探针
             digits = "".join(ch for ch in raw if ch.isdigit())
             port = int(digits) if digits else None
     except (OSError, ValueError):

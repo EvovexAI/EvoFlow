@@ -77,12 +77,30 @@ _COLLAB_SUBTASK_MANDATORY_TOOLS_LIGHT = MANDATORY_LIGHT
 _COLLAB_SUBTASK_MANDATORY_TOOLS = _COLLAB_SUBTASK_MANDATORY_TOOLS_FULL
 
 
-def _collab_mandatory_tools_for_mode(mode: str) -> tuple[str, ...]:
-    return (
+def _collab_mandatory_tools_for_mode(mode: str, *, include_peer: bool = True) -> tuple[str, ...]:
+    base = (
         _COLLAB_SUBTASK_MANDATORY_TOOLS_LIGHT
         if str(mode or "").strip().lower() == "light"
         else _COLLAB_SUBTASK_MANDATORY_TOOLS_FULL
     )
+    if include_peer:
+        return base
+    return tuple(name for name in base if not name.startswith("peer_"))
+
+
+def _subtask_has_peer_siblings(main_task_row: dict[str, Any] | None, subtask_id: str | None) -> bool:
+    """Peer messaging targets sibling subtasks; with none, peer tools are dead weight.
+
+    Unknown / malformed rows default to True (keep today's inject-by-default behaviour).
+    """
+    if not isinstance(main_task_row, dict):
+        return True
+    subs = [x for x in (main_task_row.get("subtasks") or []) if isinstance(x, dict)]
+    if len(subs) >= 2:
+        return True
+    if len(subs) == 1:
+        return str(subs[0].get("id") or "").strip() != str(subtask_id or "").strip()
+    return True
 
 
 def _merge_collab_subtask_tool_allowlist(
@@ -91,6 +109,7 @@ def _merge_collab_subtask_tool_allowlist(
     final_tools: list[str] | None,
     allowed_tool_names: set[str],
     reporting_mode: str = "full",
+    include_peer: bool = True,
 ) -> list[str] | None:
     """Append mandatory collab tools to an explicit allowlist.
 
@@ -101,7 +120,7 @@ def _merge_collab_subtask_tool_allowlist(
     if base is None:
         return None
     merged = list(base)
-    for tool_name in _collab_mandatory_tools_for_mode(reporting_mode):
+    for tool_name in _collab_mandatory_tools_for_mode(reporting_mode, include_peer=include_peer):
         aliases = expand_tool_name_aliases(tool_name)
         # Prefer short canonical; fall back to legacy if only that is registered.
         pick = None
@@ -117,7 +136,7 @@ def _merge_collab_subtask_tool_allowlist(
     return merged
 
 
-def _strip_collab_tool_disallow(config_overrides: dict, *, reporting_mode: str = "full") -> dict:
+def _strip_collab_tool_disallow(config_overrides: dict, *, reporting_mode: str = "full", include_peer: bool = True) -> dict:
     """Collab subtask workers MUST be able to report lifecycle state.
 
     A role whose ``disallowed_tools`` bans any mandatory collab tool (e.g.
@@ -128,7 +147,7 @@ def _strip_collab_tool_disallow(config_overrides: dict, *, reporting_mode: str =
     disallowed = config_overrides.get("disallowed_tools")
     if not disallowed:
         return config_overrides
-    mandatory = _collab_mandatory_tools_for_mode(reporting_mode)
+    mandatory = _collab_mandatory_tools_for_mode(reporting_mode, include_peer=include_peer)
     protected: set[str] = set()
     for name in mandatory:
         protected |= set(expand_tool_name_aliases(name))
@@ -1062,18 +1081,26 @@ async def task_tool(
             )
         except Exception:
             reporting_mode = "full"
+        peer_eligible = _subtask_has_peer_siblings(collab_main_task_row, resolved_subtask)
         merged = _merge_collab_subtask_tool_allowlist(
             overrides_tools=overrides.get("tools"),
             final_tools=final_tools,
             allowed_tool_names=allowed_tool_names,
             reporting_mode=reporting_mode,
+            include_peer=peer_eligible,
         )
         if merged is not None:
             overrides["tools"] = merged
-        _strip_collab_tool_disallow(overrides, reporting_mode=reporting_mode)
+        _strip_collab_tool_disallow(overrides, reporting_mode=reporting_mode, include_peer=peer_eligible)
         if reporting_mode == "light":
             logger.info(
                 "task_tool: light reporting mode main=%s sub=%s (outcome-only ceremony)",
+                resolved_collab,
+                resolved_subtask,
+            )
+        elif not peer_eligible:
+            logger.info(
+                "task_tool: full mode without peer tools main=%s sub=%s (no sibling subtasks)",
                 resolved_collab,
                 resolved_subtask,
             )
@@ -1118,8 +1145,8 @@ async def task_tool(
             from evoflow.collab.subtask_outcome import format_subtask_outcome_mandate_block
             from evoflow.collab.task_progress import format_subtask_progress_mandate_block
 
-            system_prompt = system_prompt + "\n\n" + format_subtask_progress_mandate_block()
-            system_prompt = system_prompt + "\n\n" + format_subtask_outcome_mandate_block()
+            system_prompt = system_prompt + "\n\n" + format_subtask_progress_mandate_block(mode=reporting_mode)
+            system_prompt = system_prompt + "\n\n" + format_subtask_outcome_mandate_block(mode=reporting_mode)
         except Exception:
             logger.debug("task_tool: collab mandate blocks skipped", exc_info=True)
         system_prompt = (

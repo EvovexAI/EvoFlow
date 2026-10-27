@@ -66,6 +66,9 @@ _LIST_TRUNCATE_KEYS = (
     "plan_open_questions",
     "error",
     "result",
+    # 列表 UI 不展示全文；会议/详情走各自端点
+    "result_text",
+    "result_summary",
 )
 
 

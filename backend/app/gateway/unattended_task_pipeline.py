@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import os
+import time
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -35,9 +36,14 @@ _PLAN_STALE_SECONDS = 20 * 60
 _DISPATCH_RETRY_MAX = 3
 _DEFAULT_PLAN_RETRY_MAX = 1
 
-# Per-task advancement lock (prevents overlapping ticks on the same row)
+# Per-task advancement lock (prevents overlapping ticks on the same row).
+# Idle entries are retired on access — task ids accumulate for the process
+# lifetime otherwise. The idle stamp (not a bare locked() check) keeps
+# queued waiters safe.
 _advance_locks: dict[str, asyncio.Lock] = {}
+_advance_locks_idle: dict[str, float] = {}
 _advance_locks_guard: asyncio.Lock | None = None
+_ADVANCE_LOCK_IDLE_S = 600.0
 
 DEFAULT_LANGGRAPH_URL = "http://127.0.0.1:8070/api/langgraph"
 DEFAULT_ASSISTANT_ID = "lead_agent"
@@ -290,9 +296,21 @@ async def _advance_lock_for(task_id: str) -> asyncio.Lock:
     if _advance_locks_guard is None:
         _advance_locks_guard = asyncio.Lock()
     async with _advance_locks_guard:
-        if task_id not in _advance_locks:
-            _advance_locks[task_id] = asyncio.Lock()
-        return _advance_locks[task_id]
+        now = time.monotonic()
+        lock = _advance_locks.get(task_id)
+        if lock is None:
+            lock = asyncio.Lock()
+            _advance_locks[task_id] = lock
+            _advance_locks_idle[task_id] = now
+            return lock
+        for key in [k for k, ts in _advance_locks_idle.items() if now - ts > _ADVANCE_LOCK_IDLE_S]:
+            stale = _advance_locks.get(key)
+            if stale is not None and stale is not lock and not stale.locked():
+                _advance_locks.pop(key, None)
+                _advance_locks_idle.pop(key, None)
+            else:
+                _advance_locks_idle.pop(key, None)  # held or reused; re-stamped on release
+        return lock
 
 
 def _is_workflow_bound(task: dict[str, Any] | None) -> bool:
@@ -979,8 +997,11 @@ async def _advance_unattended_task_impl(task_id: str) -> dict[str, Any]:
 async def advance_unattended_task(task_id: str) -> dict[str, Any]:
     """Advance one unattended task (serialized per task_id)."""
     lock = await _advance_lock_for(task_id)
-    async with lock:
-        return await _advance_unattended_task_impl(task_id)
+    try:
+        async with lock:
+            return await _advance_unattended_task_impl(task_id)
+    finally:
+        _advance_locks_idle[task_id] = time.monotonic()
 
 
 def list_unattended_candidates() -> list[dict[str, Any]]:

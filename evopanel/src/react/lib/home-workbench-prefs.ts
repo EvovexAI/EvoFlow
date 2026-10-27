@@ -32,7 +32,8 @@ export const DEFAULT_HOME_PREFS: HomeWorkbenchPrefs = {
     quick: true,
     apps: true,
   },
-  topOrder: ['trend', 'source', 'todos'],
+  // 待办是用户唯一的主动输入数据，默认置顶（工作台设置里仍可自行调整）
+  topOrder: ['todos', 'trend', 'source'],
   bottomOrder: ['recent', 'quick', 'apps'],
   defaultRange: '7d',
   listLimit: 6,

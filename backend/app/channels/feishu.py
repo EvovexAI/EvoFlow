@@ -900,6 +900,9 @@ class FeishuChannel(Channel):
         self._running_card_chat_ids: dict[str, str] = {}
         self._running_card_account_ids: dict[str, str] = {}
         self._send_card_locks: dict[str, asyncio.Lock] = {}
+        # Last release per key — lets _prune_stream_state retire idle locks
+        # (the dict is keyed by message id and otherwise grows forever).
+        self._send_card_locks_idle: dict[str, float] = {}
         self._recent_final_fingerprint: dict[str, tuple[str, float]] = {}
         self._inbound_dedup = _FeishuInboundDeduper()
         self._stream_state_ts: dict[str, float] = {}
@@ -1467,7 +1470,7 @@ class FeishuChannel(Channel):
         same bot account that will send the message (avoids 230017 ownership error).
         """
         api_client = client or self._api_client
-        with open(str(path), "rb") as f:
+        with open(str(path), "rb") as f:  # async-block-ok: 仅建句柄，读文件在 to_thread 的 SDK 内
             request = self._CreateImageRequest.builder().request_body(self._CreateImageRequestBody.builder().image_type("message").image(f).build()).build()
             response = await asyncio.to_thread(api_client.im.v1.image.create, request)
         if not response.success():
@@ -1493,7 +1496,7 @@ class FeishuChannel(Channel):
         else:
             file_type = "stream"
 
-        with open(str(path), "rb") as f:
+        with open(str(path), "rb") as f:  # async-block-ok: 仅建句柄，读文件在 to_thread 的 SDK 内
             request = self._CreateFileRequest.builder().request_body(self._CreateFileRequestBody.builder().file_type(file_type).file_name(filename).file(f).build()).build()
             response = await asyncio.to_thread(api_client.im.v1.file.create, request)
         if not response.success():
@@ -2887,8 +2890,11 @@ class FeishuChannel(Channel):
         source_message_id = msg.thread_ts
         lock_key = source_message_id or msg.chat_id
         lock = self._send_card_locks.setdefault(lock_key, asyncio.Lock())
-        async with lock:
-            await self._send_card_message_locked(msg, source_message_id)
+        try:
+            async with lock:
+                await self._send_card_message_locked(msg, source_message_id)
+        finally:
+            self._send_card_locks_idle[lock_key] = time.monotonic()
         # Audit log: every outbound card (running patch, final reply, new thread)
         # must leave a trail so we can later reconstruct the full agent stream.
         # Failures here must never break the send path — wrap in suppress.
@@ -2945,6 +2951,18 @@ class FeishuChannel(Channel):
         stale = [key for key, ts in self._stream_state_ts.items() if ts < cutoff]
         for key in stale:
             self._clear_stream_state(key)
+        # Retire idle send-card locks (per-message-id keys accumulate forever).
+        # Never prune a lock that is held or possibly contended — hence the
+        # idle timestamp, not a bare locked() check.
+        for key in [k for k, ts in self._send_card_locks_idle.items() if ts < cutoff]:
+            lock = self._send_card_locks.get(key)
+            if lock is None:
+                self._send_card_locks_idle.pop(key, None)
+            elif lock.locked():
+                self._send_card_locks_idle.pop(key, None)  # in use again; re-stamped on release
+            else:
+                self._send_card_locks.pop(key, None)
+                self._send_card_locks_idle.pop(key, None)
         if len(self._stream_state_ts) <= _STREAM_STATE_MAX_ENTRIES:
             return
         overflow = len(self._stream_state_ts) - _STREAM_STATE_MAX_ENTRIES

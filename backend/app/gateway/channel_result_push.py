@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
@@ -285,6 +286,23 @@ def resolve_push_target(
     return None
 
 
+_PUSH_RETRY_DELAYS_S = (2.0, 6.0)
+"""P0-2: transient IM failures must not sink the result — retry twice with backoff."""
+
+
+async def _push_with_retry(label: str, send) -> tuple[bool, str]:
+    last_err = "unknown"
+    for attempt in range(len(_PUSH_RETRY_DELAYS_S) + 1):
+        if attempt:
+            await asyncio.sleep(_PUSH_RETRY_DELAYS_S[attempt - 1])
+        try:
+            return await send()
+        except Exception as e:
+            last_err = str(e)[:200]
+            logger.warning("push %s attempt %d failed: %s", label, attempt + 1, e, exc_info=True)
+    return False, last_err
+
+
 async def push_markdown_result(
     *,
     channel: str,
@@ -311,12 +329,12 @@ async def push_markdown_result(
             receive_id_type = "open_id"
         elif tid.startswith("on_"):
             receive_id_type = "union_id"
-        try:
+
+        async def _send_feishu() -> tuple[bool, str]:
             await service.feishu_push_markdown(tid, text, receive_id_type=receive_id_type)
-        except Exception as e:
-            logger.warning("push feishu failed: %s", e, exc_info=True)
-            return False, str(e)[:200]
-        return True, "ok"
+            return True, "ok"
+
+        return await _push_with_retry("feishu", _send_feishu)
 
     from app.channels.message_bus import OutboundMessage
     from app.channels.service import get_channel_service
@@ -336,9 +354,60 @@ async def push_markdown_result(
         text=text,
         is_final=True,
     )
-    try:
+
+    async def _send_bus() -> tuple[bool, str]:
         await service.bus.publish_outbound(msg)
+        return True, "ok"
+
+    return await _push_with_retry(ch, _send_bus)
+
+
+async def push_automation_run_terminal(task: dict[str, Any] | None) -> tuple[bool, str]:
+    """P0-2: fan a workflow terminal state out to the automation's IM push target.
+
+    ``task`` is the main-task row at terminal time; the automation binding
+    (``automation_id``) and push config live on the automation record. No-op
+    unless the automation exists and has push enabled — panel-triggered runs
+    are watched live and must not spam IM channels.
+    """
+    import asyncio as _asyncio
+
+    from evoflow.persistence import automation_repositories as auto_repo
+
+    t = task if isinstance(task, dict) else {}
+    automation_id = str(t.get("automation_id") or "").strip()
+    if not automation_id:
+        return False, "no_automation_binding"
+    try:
+        automation = await _asyncio.to_thread(auto_repo.load_automation, automation_id)
     except Exception as e:
-        logger.warning("push %s failed: %s", ch, e, exc_info=True)
-        return False, str(e)[:200]
-    return True, "ok"
+        logger.warning("terminal push: load automation %s failed: %s", automation_id, e)
+        return False, "automation_load_failed"
+    if not isinstance(automation, dict) or not bool(automation.get("feishu_push_enabled")):
+        return False, "push_disabled"
+    target = resolve_push_target(
+        push_enabled=True,
+        push_channel=str(automation.get("push_channel") or ""),
+        push_target_id=str(automation.get("push_target_id") or ""),
+    )
+    if not target:
+        return False, "no_push_target"
+    channel, target_id = target
+    st = str(t.get("status") or "").strip().lower()
+    if st in {"completed", "done", "success"}:
+        outcome = "成功"
+    elif st in {"failed", "error"}:
+        outcome = "失败"
+    else:
+        outcome = st or "已结束"
+    name = str(t.get("automation_name") or automation.get("name") or "自动化")
+    summary = str(t.get("result_summary") or t.get("error_text") or "").strip()[:800]
+    body = f"工作流{outcome}\n- 任务：{name}\n- 运行 ID：`{str(t.get('source_run_id') or '—')}`"
+    if summary:
+        body += f"\n\n{summary}"
+    return await push_markdown_result(
+        channel=channel,
+        target_id=target_id,
+        title=f"{name}｜{outcome}",
+        markdown_body=body,
+    )

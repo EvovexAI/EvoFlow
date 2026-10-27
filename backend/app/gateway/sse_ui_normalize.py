@@ -2141,7 +2141,16 @@ class UiStreamNormalizer:
             "toolCalls": wire_tool_calls if activity_kind == "tools" else [],
         }
         try:
-            sig = json.dumps(state_payload, ensure_ascii=False, sort_keys=True, default=str)
+            # Dedup signature covers only fields the panel re-renders on;
+            # toolCalls change every super-step and have their own dedicated
+            # tool_call events — including them re-emitted thread_state
+            # (and ballooned sse-recv.log) on every step.
+            sig = json.dumps(
+                {k: v for k, v in state_payload.items() if k != "toolCalls"},
+                ensure_ascii=False,
+                sort_keys=True,
+                default=str,
+            )
         except Exception:
             sig = ""
         if sig != self.last_thread_state_sig:

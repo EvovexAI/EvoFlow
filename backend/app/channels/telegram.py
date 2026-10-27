@@ -155,7 +155,7 @@ class TelegramChannel(Channel):
 
         try:
             if attachment.is_image and attachment.size <= 10 * 1024 * 1024:
-                with open(attachment.actual_path, "rb") as f:
+                with open(attachment.actual_path, "rb") as f:  # async-block-ok: 仅建句柄，ptb 分块读在自身 executor
                     kwargs: dict[str, Any] = {"chat_id": chat_id, "photo": f}
                     if reply_to:
                         kwargs["reply_to_message_id"] = reply_to
@@ -163,7 +163,7 @@ class TelegramChannel(Channel):
             else:
                 from telegram import InputFile
 
-                with open(attachment.actual_path, "rb") as f:
+                with open(attachment.actual_path, "rb") as f:  # async-block-ok: 仅建句柄，ptb 分块读在自身 executor
                     input_file = InputFile(f, filename=attachment.filename)
                     kwargs = {"chat_id": chat_id, "document": input_file}
                     if reply_to:

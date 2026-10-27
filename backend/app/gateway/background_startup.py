@@ -1020,6 +1020,21 @@ async def run_post_ready_warmups(app: FastAPI, st_log: StLogFn, _st: Any) -> Non
         logger.exception("Channel service failed to start (non-fatal)")
 
     try:
+        # 技能冷加载实测 ~4s/335 项（扫描全部 SKILL.md），不预热则每次网关重启后
+        # 用户首次打开技能相关页面都要吃这一刀。后台线程预热，失败无碍。
+        import asyncio as _asyncio
+
+        def _preheat_skills() -> None:
+            from evoflow.skills.loader import load_skills
+
+            skills = load_skills()
+            logger.info("Skills cache preheated (post-ready): %d skills", len(skills))
+
+        _asyncio.get_running_loop().run_in_executor(None, _preheat_skills)
+    except Exception:
+        logger.exception("Skills cache preheat failed to schedule (non-fatal)")
+
+    try:
         from app.gateway.events import event_queue, register_event_handlers
 
         register_event_handlers(event_queue)

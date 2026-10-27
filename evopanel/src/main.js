@@ -151,6 +151,9 @@ import './boot/0-styles.js'
 // dynamic-import 失败 reload) 抽到 ./boot/3-recovery.js
 import './boot/3-recovery.js'
 
+// 主线程长任务观测（loop-lag 护栏前端侧；诊断口 window.__dumpEvoflowLongtasks）
+import './boot/4-longtask-watch.js'
+
 // v3.5 阶段 F1 commit 3: 后端就绪轮询 + 离线兜底(backend-warming banner /
 // backend-down overlay) 抽到 ./boot/backend-warm.js,只 export
 // startBackendReadyPoll 给下面 IIFE 调
