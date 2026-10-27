@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""CLI for DashScope 通义万相 (Wan) image and video generation."""
+"""CLI for DashScope 通义万相 (Wan) — same factory/protocols as platform media.*.
+
+Defaults: wan2.7-image (multimodal sync) / wan2.7-i2v|t2v (media[] async).
+Pass --model wan2.6-* for legacy protocol.
+"""
 
 from __future__ import annotations
 
@@ -17,7 +21,9 @@ PROVIDER = "wan"
 
 def main() -> int:
     ensure_evoflow_importable()
-    p = argparse.ArgumentParser(description="DashScope Wan image/video generation")
+    p = argparse.ArgumentParser(
+        description="DashScope Wan image/video (factory-aligned with platform media.*)"
+    )
     sub = p.add_subparsers(dest="command", required=True)
 
     image = sub.add_parser("image", help="Text-to-image or image-to-image")
@@ -25,6 +31,11 @@ def main() -> int:
     image.add_argument("--mode", default="text2image", choices=("text2image", "image2image"))
     image.add_argument("--reference-image-urls", default=None, help="Comma-separated or JSON array")
     image.add_argument("--aspect-ratio", default="16:9")
+    image.add_argument(
+        "--model",
+        default=None,
+        help="Model id (default wan2.7-image; e.g. wan2.7-image-pro / wan2.6-t2i)",
+    )
     image.add_argument("--max-wait-seconds", type=int, default=300)
     image.add_argument("--output-dir", default="outputs")
 
@@ -32,8 +43,16 @@ def main() -> int:
     video.add_argument("--prompt", required=True)
     video.add_argument("--mode", default="image2video", choices=("text2video", "image2video"))
     video.add_argument("--first-frame-url", default=None)
+    video.add_argument("--last-frame-url", default=None, help="Wan 2.7 first+last frame")
+    video.add_argument("--audio-url", default=None, help="Wan 2.7 driving_audio")
     video.add_argument("--duration", type=int, default=5)
+    video.add_argument("--resolution", default="720p", help="720p / 1080p (Wan 2.7)")
     video.add_argument("--aspect-ratio", default="16:9")
+    video.add_argument(
+        "--model",
+        default=None,
+        help="Model id (default wan2.7-i2v / wan2.7-t2v; e.g. wan2.6-i2v)",
+    )
     video.add_argument("--output-dir", default="outputs")
     video.add_argument("--max-wait-seconds", type=int, default=600)
     video.add_argument("--poll", action="store_true", help="Poll until done and download")
@@ -53,6 +72,7 @@ def main() -> int:
                 mode=args.mode,
                 reference_image_urls=args.reference_image_urls,
                 aspect_ratio=args.aspect_ratio,
+                model=args.model,
                 max_wait_seconds=args.max_wait_seconds,
                 output_dir=args.output_dir,
             )
@@ -64,8 +84,12 @@ def main() -> int:
                 prompt=args.prompt,
                 mode=args.mode,
                 first_frame_url=args.first_frame_url,
+                last_frame_url=args.last_frame_url,
+                audio_url=args.audio_url,
                 duration=args.duration,
+                resolution=args.resolution,
                 aspect_ratio=args.aspect_ratio,
+                model=args.model,
                 output_dir=args.output_dir,
                 max_wait_seconds=args.max_wait_seconds,
                 poll=args.poll,

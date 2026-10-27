@@ -17,7 +17,7 @@ description: subagent 与 supervisor 选型、委派边界、并行上限与媒�
 - **选型**：`general-purpose` 分析/跨步骤探索；`bash` 仅确需命令时；Claude Code → `subagent_type=claude-code`（`prompt` 只写用户目标）。
 - **planning-like**：只读调研、能力盘点、需求取证 → 仅 `subagent`；禁止委派改代码/交付物/shell；此阶段禁止 `subagent_type=bash`。
 - **非 plan 场景**（如 workspace）：检索改写 → **`worker`**；已知路径 → `read`；大范围架构对照 → `subagent`。
-- **创意媒体**：生图读 **byted-ark-seedream-skill**；生视频/短片读 **media-production**；其它厂商读 **agnes-media-generation** / **wan-media-generation** / **kling-media-generation**。完整流水线用 `subagent_type=media-*`；执行靠 **terminal** + 技能脚本。
+- **创意媒体**：单张/单段 → **`platform` `media.*`**（先 `media.catalog`）；完整短片流水线 → **media-production** + `subagent_type=media-*`，执行靠 **terminal** + 技能脚本。厂商脚本：火山 **byted-ark-seedream-skill**；万相 **wan-media-generation**（wan2.7）；可灵 **kling-media-generation**；Agnes **agnes-media-generation**。
 
 ## 什么时候用 `supervisor`（协作编排）
 

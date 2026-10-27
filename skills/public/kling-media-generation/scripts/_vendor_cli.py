@@ -1,4 +1,4 @@
-"""Shared CLI logic for DashScope Wan and Kling media providers."""
+"""Shared CLI logic for DashScope Wan and Kling — routes through media factory."""
 
 from __future__ import annotations
 
@@ -14,25 +14,15 @@ ensure_evoflow_importable()
 
 from evoflow.community.media_generation.async_jobs import poll_until_done, save_media_from_urls
 from evoflow.community.media_generation.config_helpers import provider_unavailable_message
-from evoflow.community.media_generation.providers import dashscope_wan, kling
+from evoflow.community.media_generation.providers import factory as media_factory
 from evoflow.community.media_generation.schemas import error_response, success_response
 
-_PROVIDERS = {
-    "wan": {
-        "label": "dashscope",
-        "submit_image": dashscope_wan.submit_image,
-        "poll_image": dashscope_wan.poll_image,
-        "submit_video": dashscope_wan.submit_video,
-        "poll_video": dashscope_wan.poll_video,
-    },
-    "kling": {
-        "label": "kling",
-        "submit_image": kling.submit_image,
-        "poll_image": kling.poll_image,
-        "submit_video": kling.submit_video,
-        "poll_video": kling.poll_video,
-    },
-}
+
+def _normalize_provider(provider: str) -> str:
+    p = str(provider or "").strip().lower()
+    if p in ("dashscope", "wan"):
+        return "wan"
+    return p
 
 
 def _path_for_display(p: str | None) -> str | None:
@@ -82,16 +72,14 @@ def _parse_reference_urls(raw: str | None) -> list[str] | None:
     return [p.strip() for p in s.split(",") if p.strip()]
 
 
-def _provider_entry(provider: str) -> tuple[dict, str | None]:
-    prov = provider.strip().lower()
-    if prov in ("dashscope", "wan"):
-        prov = "wan"
-    if prov not in _PROVIDERS:
-        return {}, error_response(f"Unknown provider {provider!r}. Use wan or kling.")
-    err = provider_unavailable_message(prov, media_kind="image")
+def _guard(provider: str, *, media_kind: str) -> str | None:
+    prov = _normalize_provider(provider)
+    if prov not in ("wan", "kling"):
+        return error_response(f"Unknown provider {provider!r}. Use wan or kling.")
+    err = provider_unavailable_message(prov, media_kind=media_kind)
     if err:
-        return {}, error_response(err, provider=prov)
-    return _PROVIDERS[prov], None
+        return error_response(err, provider=prov)
+    return None
 
 
 def run_image_generate(
@@ -101,29 +89,32 @@ def run_image_generate(
     mode: str = "text2image",
     reference_image_urls: str | None = None,
     aspect_ratio: str = "16:9",
+    model: str | None = None,
     max_wait_seconds: int = 300,
     output_dir: str | None = None,
 ) -> str:
-    entry, err = _provider_entry(provider)
-    if err:
-        return err
-    prov = "wan" if provider.strip().lower() in ("dashscope", "wan") else "kling"
+    blocked = _guard(provider, media_kind="image")
+    if blocked:
+        return blocked
+    prov = _normalize_provider(provider)
     refs = _parse_reference_urls(reference_image_urls)
     if mode == "image2image" and not refs:
         return error_response("image2image requires --reference-image-urls", provider=prov)
 
     try:
-        task_id = entry["submit_image"](
+        task_id = media_factory.submit_image(
+            provider=prov,
             prompt=prompt,
             mode=mode,
             reference_image_urls=refs,
             aspect_ratio=aspect_ratio,
+            model=model,
         )
     except Exception as e:
         return error_response(str(e), provider=prov)
 
     def _poll():
-        return entry["poll_image"](task_id)
+        return media_factory.poll_image(prov, task_id)
 
     try:
         status, _primary, urls = poll_until_done(_poll, max_wait_seconds=max_wait_seconds)
@@ -146,6 +137,9 @@ def run_image_generate(
 
     absolute = _path_for_display(local_paths[0] if local_paths else None)
     frame_url = urls[0] if urls else None
+    extra: dict = {}
+    if model:
+        extra["model"] = model
     return success_response(
         provider=prov,
         task_id=task_id,
@@ -157,6 +151,7 @@ def run_image_generate(
         first_frame_url=frame_url,
         message="Image generated successfully." if absolute else "Image generation finished.",
         next_action="For image2video pass `url` from this JSON as --first-frame-url.",
+        extra=extra,
     )
 
 
@@ -166,16 +161,20 @@ def run_video_generate(
     prompt: str,
     mode: str = "image2video",
     first_frame_url: str | None = None,
+    last_frame_url: str | None = None,
+    audio_url: str | None = None,
     duration: int = 5,
+    resolution: str = "720p",
     aspect_ratio: str = "16:9",
+    model: str | None = None,
     output_dir: str | None = None,
     max_wait_seconds: int = 600,
     poll: bool = False,
 ) -> str:
-    entry, err = _provider_entry(provider)
-    if err:
-        return err
-    prov = "wan" if provider.strip().lower() in ("dashscope", "wan") else "kling"
+    blocked = _guard(provider, media_kind="video")
+    if blocked:
+        return blocked
+    prov = _normalize_provider(provider)
 
     effective_mode = mode
     if first_frame_url and mode != "image2video":
@@ -184,18 +183,30 @@ def run_video_generate(
         return error_response("image2video requires --first-frame-url", provider=prov)
 
     try:
-        task_id = entry["submit_video"](
+        task_id = media_factory.submit_video(
+            provider=prov,
             prompt=prompt,
             mode=effective_mode,
             first_frame_url=first_frame_url,
+            last_frame_url=last_frame_url,
+            audio_url=audio_url,
             duration=duration,
+            resolution=resolution,
             aspect_ratio=aspect_ratio,
+            model=model,
         )
     except Exception as e:
         return error_response(str(e), provider=prov)
 
     if not poll:
-        script = "skills/public/kling-media-generation/scripts/kling_api.py"
+        script = (
+            "skills/public/wan-media-generation/scripts/wan_api.py"
+            if prov == "wan"
+            else "skills/public/kling-media-generation/scripts/kling_api.py"
+        )
+        extra: dict = {}
+        if model:
+            extra["model"] = model
         return success_response(
             provider=prov,
             task_id=task_id,
@@ -205,6 +216,7 @@ def run_video_generate(
                 f"python {script} task-get --task-id {task_id!r} "
                 f"--media-kind video --max-wait-seconds {max_wait_seconds} --output-dir outputs"
             ),
+            extra=extra,
         )
 
     return run_task_wait(
@@ -224,15 +236,16 @@ def run_task_wait(
     max_wait_seconds: int = 600,
     output_dir: str | None = None,
 ) -> str:
-    entry, err = _provider_entry(provider)
-    if err:
-        return err
-    prov = "wan" if provider.strip().lower() in ("dashscope", "wan") else "kling"
+    kind = "image" if media_kind == "image" else "video"
+    blocked = _guard(provider, media_kind=kind)
+    if blocked:
+        return blocked
+    prov = _normalize_provider(provider)
 
     def _poll():
-        if media_kind == "image":
-            return entry["poll_image"](task_id)
-        return entry["poll_video"](task_id)
+        if kind == "image":
+            return media_factory.poll_image(prov, task_id)
+        return media_factory.poll_video(prov, task_id)
 
     try:
         status, _primary, urls = poll_until_done(_poll, max_wait_seconds=max_wait_seconds)
@@ -250,8 +263,8 @@ def run_task_wait(
     outputs_dir = resolve_outputs_dir(output_dir)
     local_paths: list[str] = []
     if urls:
-        prefix = _unique_media_save_prefix(media_kind, task_id, url=urls[0])
-        local_paths = save_media_from_urls(urls, outputs_dir, prefix=prefix, media_kind=media_kind)
+        prefix = _unique_media_save_prefix(kind, task_id, url=urls[0])
+        local_paths = save_media_from_urls(urls, outputs_dir, prefix=prefix, media_kind=kind)
 
     ap = _path_for_display(local_paths[0] if local_paths else None)
     msg = f"Saved: {ap}" if ap else ("Task finished." if urls else f"Task status={status}; no download URL yet.")

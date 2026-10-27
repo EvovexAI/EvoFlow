@@ -1,11 +1,16 @@
 ---
 name: media-production
-description: Multi-agent short-video production (producer delegates to media crew subagents) or solo fast path. Default Volcengine Ark scripts via media-production; image via byted-ark-seedream-skill. Read fully before creative work.
+description: |
+  Multi-agent short-video production (producer → media crew) or solo fast path.
+  对话内单张/单段优先 platform → media.catalog → media.generate_*（火山默认 Seedream/Seedance；也可 model=wan2.7-* / gpt-image-2.5-* / MiniMax-H3）。
+  完整短片流水线再读本技能 + byted-ark-seedream-skill，terminal 跑 scripts。
 ---
 
 # Media Production Skill
 
-> **厂商与 API**：生图读 **byted-ark-seedream-skill**；生视频读本技能 `scripts/`（火山 Seedance）。其它厂商：Agnes → **agnes-media-generation**；万相 → **wan-media-generation**；可灵 → **kling-media-generation**。
+> **对话内快速生成**：`platform` → `media.catalog` → `media.generate_image` / `media.generate_video`（`confirm=true`）→ 视频再 `media.task_wait`。默认火山 Agent Plan；传对应 `model` 即走万相 / GPT 生图 / MiniMax H3。
+>
+> **厂商脚本（流水线 / 批量）**：生图 **byted-ark-seedream-skill**；生视频本技能 `scripts/`（Seedance）。其它：Agnes → **agnes-media-generation**；万相 → **wan-media-generation**（默认 wan2.7）；可灵 → **kling-media-generation**。
 
 ## 凭据（环境变量）
 

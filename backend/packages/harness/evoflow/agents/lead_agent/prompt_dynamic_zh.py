@@ -124,8 +124,8 @@ SUBAGENT_MODEL_NOTE = ""
 SUBAGENT_GP_LABEL = "（通用分析/检索/代码探索）"
 SUBAGENT_CODE_LABEL = "（代码读写专精：搜索定位+精确修改+语法检查）"
 SUBAGENT_BASH_LABEL = "（命令执行）"
-SUBAGENT_MEDIA_CREW_TITLE = "**创意媒体工种（读 skill + terminal 脚本 · 按序委派，勿用通用 Agent 代替）**"
-SUBAGENT_MEDIA_CREW_RULE = "流水线：screenwriter → visual-planner → artist → video-director → post；每步读 outputs/ 验收。生图 byted-ark-seedream-skill；生视频 media-production scripts → terminal。"
+SUBAGENT_MEDIA_CREW_TITLE = "**创意媒体工种（单张/单段 platform media.*；完整短片 skill + terminal · 按序委派）**"
+SUBAGENT_MEDIA_CREW_RULE = "单张/单段：platform → media.catalog → media.generate_*（confirm=true；视频再 media.task_wait）。完整短片流水线：screenwriter → visual-planner → artist → video-director → post；每步读 outputs/。生图 byted-ark-seedream-skill；生视频 media-production scripts → terminal；万相 wan-media-generation（默认 wan2.7）。"
 SUBAGENT_MEDIA_WHEN_BULLETS = ""
 
 

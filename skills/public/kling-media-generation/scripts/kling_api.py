@@ -25,6 +25,7 @@ def main() -> int:
     image.add_argument("--mode", default="text2image", choices=("text2image", "image2image"))
     image.add_argument("--reference-image-urls", default=None, help="Comma-separated or JSON array")
     image.add_argument("--aspect-ratio", default="16:9")
+    image.add_argument("--model", default=None, help="Optional Kling model_name override")
     image.add_argument("--max-wait-seconds", type=int, default=300)
     image.add_argument("--output-dir", default="outputs")
 
@@ -34,6 +35,7 @@ def main() -> int:
     video.add_argument("--first-frame-url", default=None)
     video.add_argument("--duration", type=int, default=5)
     video.add_argument("--aspect-ratio", default="16:9")
+    video.add_argument("--model", default=None, help="Optional Kling model_name override")
     video.add_argument("--output-dir", default="outputs")
     video.add_argument("--max-wait-seconds", type=int, default=600)
     video.add_argument("--poll", action="store_true", help="Poll until done and download")
@@ -53,6 +55,7 @@ def main() -> int:
                 mode=args.mode,
                 reference_image_urls=args.reference_image_urls,
                 aspect_ratio=args.aspect_ratio,
+                model=args.model,
                 max_wait_seconds=args.max_wait_seconds,
                 output_dir=args.output_dir,
             )
@@ -66,6 +69,7 @@ def main() -> int:
                 first_frame_url=args.first_frame_url,
                 duration=args.duration,
                 aspect_ratio=args.aspect_ratio,
+                model=args.model,
                 output_dir=args.output_dir,
                 max_wait_seconds=args.max_wait_seconds,
                 poll=args.poll,

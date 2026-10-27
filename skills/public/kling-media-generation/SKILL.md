@@ -3,10 +3,13 @@ name: kling-media-generation
 description: |
   可灵 / Kling 生图/改图/生视频。用户指定可灵、Kling、klingai.com，或已配 KLING_ACCESS_KEY_ID + Secret 时使用。
   ⏰ 触发：「用可灵生图/生视频」「Kling 画图」等。
+  对话内快速单张/单段也可 platform → media.*（provider=kling）；多步再用本技能 scripts。
   火山生图请用 byted-ark-seedream-skill；火山短片请用 media-production。
 ---
 
 # 可灵 / Kling 媒体生成
+
+运行时与平台 `media.*` 共用 `providers/factory`。对话内单张/单段优先 `platform` → `media.generate_*`（`provider=kling` 或对应 model）。
 
 API 基址（默认）：`https://api.klingai.com`  
 认证：`Authorization: Bearer <JWT>`（由 Access Key ID + Secret 签发；或直接 Bearer 单 Key）
@@ -18,11 +21,11 @@ API 基址（默认）：`https://api.klingai.com`
 | 图像生成 | [Kling 开放平台](https://app.klingai.com/cn/dev/document-api/apiReference/model/imageGeneration) |
 | 视频生成 | [Kling 视频 API](https://app.klingai.com/cn/dev/document-api/apiReference/model/videoGeneration) |
 
-默认模型：生图 `kling-v2-1`；生视频 `kling-v2-6`
+默认模型：生图 `kling-v2-1`；生视频 `kling-v2-6`（可用 `--model` 覆盖）
 
 ## 凭据
 
-**设置 → 环境变量**：`KLING_ACCESS_KEY_ID` + `KLING_ACCESS_KEY_SECRET`，或 `KLING_API_KEY`。或在 **创意媒体 → 可灵** 填写。
+**设置 → 模型 → 生图生视频 → 可灵**，或环境变量 `KLING_ACCESS_KEY_ID` + `KLING_ACCESS_KEY_SECRET` / `KLING_API_KEY`。
 
 申请：[可灵 AI 开放平台](https://app.klingai.com/cn/dev)
 

@@ -9,11 +9,12 @@ description: 在 Plan 协作（任务协作模式）中按结构化流程完成�
 
 **前提**：当前已开启 Plan 协作（`scenario(activate, plan)` 已激活），需要进行包含视觉/视频产出（生图、短片、配音、字幕）的任务。
 
-**厂商选择**：生图读 **byted-ark-seedream-skill**；生视频读 **media-production** 脚本（火山 Seedance）。其它厂商见 **agnes-media-generation** / **wan-media-generation** / **kling-media-generation**。
+**厂商选择**：完整短片流水线 → 生图 **byted-ark-seedream-skill**；生视频 **media-production**（Seedance）。其它厂商：**wan-media-generation**（默认 wan2.7）/ **kling-media-generation** / **agnes-media-generation**。
+单张试图 / 单段试片可先 `platform` → `media.catalog` → `media.generate_*`，再回本技能落 plan 步骤。
 
 ## 凭据（环境变量）
 
-在 **设置 → 环境变量** 添加技能要求的 KEY=VALUE（如 `VOLCENGINE_API_KEY` / `ARK_API_KEY`）。也可在 **设置 → 模型 → 创意媒体** 填其它厂商 Key。
+在 **设置 → 环境变量** 添加技能要求的 KEY=VALUE（如 `VOLCENGINE_API_KEY` / `ARK_API_KEY`）。也可在 **设置 → 模型 → 生图生视频** 填其它厂商 Key。
 
 | 能力 | 常用 KEY | 技能 |
 |------|----------|------|

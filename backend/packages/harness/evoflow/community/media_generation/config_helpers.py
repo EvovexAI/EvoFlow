@@ -423,7 +423,7 @@ def provider_unavailable_message(provider: str, *, media_kind: str) -> str | Non
         label = {
             "jimeng": "火山方舟(jimeng)",
             "wan": "通义万相(wan)",
-            "minimax": "MiniMax 海螺",
+            "minimax": "MiniMax H3",
             "kling": "可灵(kling)",
         }
     elif media_kind == "voice":

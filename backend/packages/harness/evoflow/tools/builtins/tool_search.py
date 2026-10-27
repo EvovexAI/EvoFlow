@@ -307,13 +307,21 @@ def tool_search(query: str | None = None, select: str | None = None) -> str:
             if any(n.startswith("media-") for n in names):
                 hint = (
                     " 提示：`media-visual-planner`、`media-artist` 等是子智能体 subagent_type，"
-                    "不是工具名。请读 byted-ark-seedream-skill / media-production 技能，"
-                    '用 `subagent(subagent_type="media-visual-planner", ...)` 委派，或 `list_agents` 查看媒体团队。'
+                    "不是工具名。单张/单段用 `platform` → media.catalog / media.generate_*；"
+                    "完整短片流水线再读 media-production，"
+                    '用 `subagent(subagent_type="media-visual-planner", ...)` 委派。'
                 )
             elif any(n.startswith("media_") for n in names):
-                hint = " 提示：内置 media_* 工具已移除。请读 byted-ark-seedream-skill（生图）或 media-production（生视频），用 terminal 跑对应技能 scripts/。"
+                hint = (
+                    " 提示：内置 media_* 工具已移除。"
+                    "单张/单段：`platform` → media.catalog → media.generate_image|generate_video（confirm=true）。"
+                    "完整短片：读 media-production / byted-ark-seedream-skill，terminal 跑 scripts/。"
+                )
         elif "media_image" in q or "media_video" in q:
-            hint = " 提示：生图/生视频请读 byted-ark-seedream-skill 或 media-production 等厂商技能，terminal 调用对应脚本。"
+            hint = (
+                " 提示：用 `platform` 的 media.catalog / media.generate_*（勿调已退役 media_*）。"
+                "多步短片再读 media-production 等技能脚本。"
+            )
         if registry is None and not (_catalog_tools_var.get() or ()):
             return "No deferred tools available."
         return f"No tools found matching: {query}{hint}"

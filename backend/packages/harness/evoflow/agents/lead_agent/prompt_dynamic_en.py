@@ -121,8 +121,8 @@ SUBAGENT_MODEL_NOTE = ""
 SUBAGENT_GP_LABEL = "(general analysis / retrieval / code exploration)"
 SUBAGENT_CODE_LABEL = "(code read/write specialist: search-locate + precise edit + syntax check)"
 SUBAGENT_BASH_LABEL = "(command execution)"
-SUBAGENT_MEDIA_CREW_TITLE = "**Media crew (skill + terminal scripts · pipeline order; do not substitute the generic Agent)**"
-SUBAGENT_MEDIA_CREW_RULE = "Pipeline: screenwriter → visual-planner → artist → video-director → post; verify outputs/ each step. Image: byted-ark-seedream-skill; video: media-production scripts via terminal."
+SUBAGENT_MEDIA_CREW_TITLE = "**Media crew (quick gen: platform media.*; full film: skill + terminal · pipeline order)**"
+SUBAGENT_MEDIA_CREW_RULE = "Single image/clip: platform → media.catalog → media.generate_* (confirm=true; then media.task_wait for video). Full narrated film: screenwriter → visual-planner → artist → video-director → post; verify outputs/. Image scripts: byted-ark-seedream-skill; video: media-production; Wan: wan-media-generation (wan2.7 default)."
 SUBAGENT_MEDIA_WHEN_BULLETS = ""
 
 

@@ -153,7 +153,7 @@ VENDOR_UI_LABELS: dict[str, str] = {
     "dashscope": "通义万相",
     "kling": "可灵",
     "openai-image": "OpenAI 生图",
-    "minimax": "MiniMax 海螺",
+    "minimax": "MiniMax H3",
     "volcengine-tts": "火山 TTS",
     "aliyun": "阿里云",
     "openai-tts": "OpenAI TTS",
