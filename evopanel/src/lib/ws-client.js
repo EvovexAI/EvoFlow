@@ -3,6 +3,8 @@
  * 兼容原 wsClient 的调用接口，彻底移除旧 ws-rpc 聊天链路。
  */
 
+import { pushBounded } from './bounded-buffer.js'
+
 import {
   isInjectedCheckpointHuman,
   mergeToolCallArgsObjects,
@@ -6663,6 +6665,9 @@ export class WsClient {
     let unanchoredMessagesEventCount = 0
     /** Cache early messages chunks until we are anchored, to avoid dropping the first token. */
     const bufferedUnanchoredMessagesRoots = []
+    /** 未锚定缓冲的条数上限：长 run 一直锚不上时逐事件整包 root 会涨到 GB 级（renderer OOM）。 */
+    const MAX_UNANCHORED_MESSAGES_ROOTS = 64
+    let unanchoredMessagesDroppedCount = 0
     /**
      * messages-tuple 在锚定后仍可能重放整条线程里的历史 AI/tool 块；新 run 会清空 lastTupleToolCallEmitSig，
      * 若不拦截会把上一轮 tool_call 再 emit 一遍。解锁条件：① messages 已推过本轮可见正文增量；或 ② 带 LangGraph 元数据的 2-tuple 里「仅工具、无正文」的首包。
@@ -7445,7 +7450,21 @@ export class WsClient {
                 return
               }
               // Buffer until values 锚定；勿在未 anchorOk 时重放 tool/旧轮 tool_calls。
-              bufferedUnanchoredMessagesRoots.push({ root, meta: tupleMeta })
+              const droppedUnanchored = pushBounded(
+                bufferedUnanchoredMessagesRoots,
+                { root, meta: tupleMeta },
+                MAX_UNANCHORED_MESSAGES_ROOTS,
+              )
+              if (droppedUnanchored > 0) {
+                const firstDrop = unanchoredMessagesDroppedCount === 0
+                unanchoredMessagesDroppedCount += droppedUnanchored
+                if (firstDrop) {
+                  console.warn('[evoflow] unanchored messages buffer overflow; dropping oldest roots', {
+                    sessionKey: key,
+                    runId,
+                  })
+                }
+              }
               unanchoredMessagesEventCount += 1
               if (unanchoredMessagesEventCount >= 2) {
                 messagesStreamAnchored = true
