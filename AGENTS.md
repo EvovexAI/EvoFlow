@@ -1,5 +1,10 @@
 # EvoFlow
 
+## Git 协作（默认）
+- 推送目标：`origin` → `EvovexAI/EvoFlow`（HTTPS + `gh auth git-credential`）
+- **默认直推 / 合进 `main`，不要主动开 PR**；只有用户明确说「开 PR / 提 PR」时才 `gh pr create`
+- 已有 PR 且用户要合：`gh pr merge --admin`（分支保护时）
+
 ## 桌面发版
 升版本 / 打安装包前必读仓库根 [RELEASE.md](./RELEASE.md)（唯一版本源 `evopanel/VERSION`；三份说明；勿只改 package.json）。
 
