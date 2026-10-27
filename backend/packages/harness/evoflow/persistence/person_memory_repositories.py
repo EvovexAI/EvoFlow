@@ -500,11 +500,27 @@ def _relevance_overlap(query: str, row: dict[str, Any]) -> float:
 
 
 def _try_embed_sync(text: str) -> list[float] | None:
-    """Best-effort sync embed via knowledge embedding stack; None if unavailable."""
+    """Best-effort sync embed via knowledge embedding stack; None if unavailable.
+
+    Never blocks a running asyncio event loop. Prompt assembly
+    (``retrieve_for_query`` → duty system prompt) runs on the gateway loop;
+    joining a sync embed thread there stalls all HTTP (task center, SSE, …).
+    When a loop is already running, skip vector search and fall back to
+    keyword overlap — same policy as ``memory.facade._try_embed_sync``.
+    """
     raw = " ".join(str(text or "").strip().split())
     if not raw:
         return None
     try:
+        import asyncio
+
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+        if loop is not None and loop.is_running():
+            return None
+
         from evoflow.code_index.store import _embed_query_sync
 
         vec = _embed_query_sync(raw[:1200])

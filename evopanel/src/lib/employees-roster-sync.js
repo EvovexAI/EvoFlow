@@ -55,14 +55,29 @@ function resolveEmployeeAction(obj, argsText) {
  */
 export function notifyEmployeesUpdated(detail) {
   if (typeof window === 'undefined') return
+  const payload = detail && typeof detail === 'object' ? detail : {}
   try {
     window.dispatchEvent(
       new CustomEvent(EMPLOYEES_UPDATED_EVENT, {
-        detail: detail && typeof detail === 'object' ? detail : {},
+        detail: payload,
       }),
     )
   } catch {
     /* ignore */
+  }
+  // 名册 / 员工页删除：同步丢掉右栏该员工详情与执行过程页签
+  const reason = String(payload.reason || '')
+  const agentCode = String(payload.agentCode || '').trim()
+  if (agentCode && /delete/i.test(reason)) {
+    void import('./right-stage/close-removed-entity-stage.js')
+      .then((m) => {
+        m.closeRightStageTabsForRemovedEntity({
+          domain: 'employees',
+          entityId: agentCode,
+          agentCode,
+        })
+      })
+      .catch(() => {})
   }
 }
 

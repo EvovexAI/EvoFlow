@@ -404,15 +404,35 @@ export class RightStageStore {
   }
 
   closeTab(key: string) {
+    this._removeTab(key, { remember: true })
+  }
+
+  /**
+   * 实体已删除：关掉标签且不进「最近关闭」，避免用户从总览再打开已失效页。
+   */
+  discardTab(key: string) {
+    this._removeTab(key, { remember: false })
+  }
+
+  private _removeTab(key: string, opts: { remember: boolean }) {
     const target = this.tabs.find((t) => this.tabKeyOf(t) === key)
     const idx = this.tabs.findIndex((t) => this.tabKeyOf(t) === key)
-    if (idx < 0) return
+    if (idx < 0) {
+      // 仍可能留在 recentClosed（例如上次手动关过）
+      if (!opts.remember) {
+        const before = this.recentClosed.length
+        this.recentClosed = this.recentClosed.filter((e) => e.key !== key)
+        if (this.recentClosed.length !== before) this.bump()
+      }
+      return
+    }
     logRightStage(
-      'store.closeTab',
+      opts.remember ? 'store.closeTab' : 'store.discardTab',
       { key, kind: target?.kind, id: target?.id },
       { stack: true, store: this },
     )
-    if (target) this.recordClosed(key, target)
+    if (opts.remember && target) this.recordClosed(key, target)
+    else this.recentClosed = this.recentClosed.filter((e) => e.key !== key)
     const wasActive = this.activeKey === key
     this.tabs = this.tabs.filter((t) => this.tabKeyOf(t) !== key)
     if (wasActive) {

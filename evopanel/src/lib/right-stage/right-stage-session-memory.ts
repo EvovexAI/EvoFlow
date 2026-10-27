@@ -184,18 +184,33 @@ export function saveRightStageSessionMemory(sessionKey: string | null | undefine
   touch(key, rightStageStore.exportSessionMemory())
 }
 
+export type RestoreRightStageOptions = {
+  /**
+   * 是否把当前 live 表里的 workspace / task-center 签带到目标会话。
+   * 主对话切会话默认 true；小V adopt/release 必须 false（两侧缓存彻底隔离）。
+   */
+  carryWorkspace?: boolean
+}
+
 /**
  * 换入目标会话记忆。
  * workspace 级标签（文件树 / 写入 / 思维导图 / 工作流）不随会话冻结，
  * 这里从当前 live 表里摘出来带过去，保证切会话后它们仍在。
  */
-export function restoreRightStageSessionMemory(sessionKey: string | null | undefined) {
+export function restoreRightStageSessionMemory(
+  sessionKey: string | null | undefined,
+  options?: RestoreRightStageOptions,
+) {
   const key = String(sessionKey || '').trim()
+  const carryWorkspace = options?.carryWorkspace !== false
   // workspace 级 + 任务中心独占标签：切对话会话时保留，不进会话记忆、也不被冲掉。
-  const carryTabs = rightStageStore.getSnapshot().tabs.filter(
-    (t) =>
-      scopeOfKind(t.kind) === 'workspace' || isTaskCenterStageSessionKey(t.sessionKey),
-  )
+  // 小V 占用/释放时 carryWorkspace=false：不把主对话的员工/任务/工作流签带进语音域。
+  const carryTabs = carryWorkspace
+    ? rightStageStore.getSnapshot().tabs.filter(
+        (t) =>
+          scopeOfKind(t.kind) === 'workspace' || isTaskCenterStageSessionKey(t.sessionKey),
+      )
+    : []
   // 目标会话从未打开过右栏时：有「对话可见」的 workspace 级标签才展开；
   // 仅有 task-center:* 时保持收起，避免对话壳被任务中心侧栏撑开。
   const chatVisibleCarry = carryTabs.filter(
@@ -221,6 +236,7 @@ export function restoreRightStageSessionMemory(sessionKey: string | null | undef
 export function switchRightStageSession(
   fromKey: string | null | undefined,
   toKey: string | null | undefined,
+  options?: RestoreRightStageOptions,
 ) {
   const from = String(fromKey || '').trim()
   const to = String(toKey || '').trim()
@@ -234,7 +250,7 @@ export function switchRightStageSession(
   // 切会话是"紧接着可能刷新页面"的时刻，这里把待写内容刷盘，不等 debounce。
   flushRightStageSessionPersistence()
   // 换入目标会话的标签缓存后，browser-embed-surface 根据激活页决定显示或隐藏。
-  restoreRightStageSessionMemory(to || null)
+  restoreRightStageSessionMemory(to || null, options)
   // Re-evaluate native HWND: foreign bridge owner must stay parked on the new UI.
   void import('../browser-embed-surface.js')
     .then((m) => m.syncNativeEmbed('session-switch'))
@@ -409,6 +425,43 @@ export function getRightStageMemoryStats(): {
 /** 测试与调试用：清空全部会话缓存（不影响 live store）。 */
 export function clearRightStageSessionMemory() {
   sessionMemory.clear()
+}
+
+/**
+ * 从所有会话记忆里剔除匹配标签（含 recentClosed），避免切回会话又打开已删实体页。
+ * @returns 剔除的标签数（含 recentClosed）
+ */
+export function purgeMatchingTabsFromSessionMemory(
+  match: (tab: RightStageSurface) => boolean,
+): number {
+  if (typeof match !== 'function') return 0
+  let purged = 0
+  for (const [key, memory] of sessionMemory.entries()) {
+    const nextTabs = memory.tabs.filter((t) => {
+      if (!match(t)) return true
+      purged += 1
+      return false
+    })
+    const nextClosed = (memory.recentClosed || []).filter((e) => {
+      if (!e?.tab || !match(e.tab)) return true
+      purged += 1
+      return false
+    })
+    if (nextTabs.length === memory.tabs.length && nextClosed.length === (memory.recentClosed || []).length) {
+      continue
+    }
+    let activeKey = memory.activeKey
+    if (activeKey && !nextTabs.some((t) => tabKeyOf(t) === activeKey)) {
+      activeKey = nextTabs.length ? tabKeyOf(nextTabs[nextTabs.length - 1]) : null
+    }
+    touch(key, {
+      tabs: nextTabs,
+      activeKey,
+      collapsed: nextTabs.length === 0 ? true : memory.collapsed,
+      recentClosed: nextClosed,
+    })
+  }
+  return purged
 }
 
 // 页面隐藏/卸载前把待写内容刷盘：debounce 未到就刷新页面时，不能丢掉最后一次改动。

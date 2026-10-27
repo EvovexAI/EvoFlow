@@ -85,10 +85,36 @@ _RATE_LIMIT_PATTERNS = [
     "429",
     "requests ratelimited",
     "request limit",
+    # Vendor bodies that arrive as HTTP 200 *content* (not exceptions)
+    "requests are too frequent",
+    "accountratelimitexceeded",
+    "reduce your request frequency",
     # DeepSeek / Ark: account concurrent or set inference cap (retryable)
     "setlimitexceeded",
     "set inference limit",
     "inference limit",
+]
+
+# Content-as-error: short assistant texts that are really provider failures.
+# Keep this stricter than exception matching — avoid false positives when the
+# employee is *discussing* rate limits in a normal reply.
+_CONTENT_ERROR_MAX_CHARS = 400
+_CONTENT_RATE_LIMIT_STRONG = [
+    r"^requests are too frequent",
+    r"^error code:\s*429\b",
+    r"\baccountratelimitexceeded\b",
+    r"reduce your request frequency",
+]
+_CONTENT_RATE_LIMIT_WEAK = [
+    r"\brate[_\s-]?limit",
+    r"\btoo many requests\b",
+    r"\brequests ratelimited\b",
+]
+_CONTENT_BILLING_STRONG = [
+    r"\binsufficient_quota\b",
+    r"\baccountquotaexceeded\b",
+    r"额度已用尽",
+    r"额度用尽",
 ]
 
 _AUTH_PATTERNS = [
@@ -405,3 +431,82 @@ def classify(exception: Exception, context: dict | None = None) -> Classificatio
         retryable=True,
         message=f"Unknown error: {error_msg[:200]}",
     )
+
+
+def _flatten_model_content(content: object) -> str:
+    """Normalize AIMessage.content / chat payload content to plain text."""
+    if content is None:
+        return ""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: list[str] = []
+        for block in content:
+            if isinstance(block, str):
+                parts.append(block)
+            elif isinstance(block, dict):
+                text = block.get("text")
+                if text is None and block.get("type") == "text":
+                    text = block.get("content")
+                if text is not None:
+                    parts.append(str(text))
+            else:
+                parts.append(str(block))
+        return "".join(parts)
+    return str(content)
+
+
+def classify_model_response_content(
+    content: object,
+    *,
+    has_tool_calls: bool = False,
+    max_chars: int = _CONTENT_ERROR_MAX_CHARS,
+) -> Classification | None:
+    """Detect provider failures that arrived as *successful* message content.
+
+    Some gateways return HTTP 200 with a body like
+    ``Requests are too frequent... Request id: …`` as the assistant text.
+    That bypasses exception-based classification and must not be treated as a
+    successful employee reply.
+
+    Guards against false positives:
+    - any tool_calls → not an error (model did real work)
+    - long text → not an error (likely discussing the topic)
+    - weak markers alone require ``Request id`` / short length / strong lead-in
+    """
+    if has_tool_calls:
+        return None
+    text = " ".join(_flatten_model_content(content).split()).strip()
+    if not text:
+        return None
+
+    low = text.lower()
+    strong_rate = any(re.search(p, low) for p in _CONTENT_RATE_LIMIT_STRONG)
+    if len(text) > max_chars and not strong_rate:
+        return None
+
+    # Weak markers alone are not enough (employee may discuss "rate limit").
+    # Require vendor tracing crumbs: Request id / bare 429 status token.
+    if strong_rate or (
+        len(text) <= max_chars
+        and any(re.search(p, low) for p in _CONTENT_RATE_LIMIT_WEAK)
+        and ("request id" in low or re.search(r"\b429\b", low))
+    ):
+        return Classification(
+            reason=FailoverReason.RATE_LIMIT,
+            retryable=True,
+            should_rotate_credential=False,
+            should_fallback_provider=False,
+            message=f"Rate limited (content): {text[:200]}",
+        )
+
+    if len(text) <= max_chars and any(re.search(p, low) for p in _CONTENT_BILLING_STRONG):
+        return Classification(
+            reason=FailoverReason.BILLING,
+            retryable=False,
+            should_rotate_credential=False,
+            should_fallback_provider=False,
+            message=f"Billing/quota (content): {text[:200]}",
+        )
+
+    return None

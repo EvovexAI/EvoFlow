@@ -142,12 +142,22 @@ export async function playFixedVoiceSfx(text, opts = {}) {
   if (!plain) return
   let blob = await ensureFixedVoiceSfx(plain, opts)
   if (!blob) {
-    // 兜底：直连 speech-client（不写缓存也尽量出声）
+    // 兜底 1：再打一次 HTTP TTS（不写缓存）
     try {
       const { playAssistantSpeech } = await import('./speech-client.js')
       await playAssistantSpeech(plain, opts)
+      return
     } catch (e) {
-      console.warn('[voice-sfx] fallback play failed', e?.message || e)
+      console.warn('[voice-sfx] HTTP fallback failed', e?.message || e)
+    }
+    // 兜底 2：浏览器本地朗读（HTTP 502 / 未配置时仍要有「在呢」）
+    try {
+      const { speakLocalWakeAckFallback } = await import('./wake-ack.js')
+      if (typeof speakLocalWakeAckFallback === 'function') {
+        await speakLocalWakeAckFallback(plain)
+      }
+    } catch (e) {
+      console.warn('[voice-sfx] local speech fallback failed', e?.message || e)
     }
     return
   }

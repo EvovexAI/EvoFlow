@@ -27,8 +27,19 @@ ASR_WS_ASYNC_AGENT_PLAN = f"{OPENSPEECH_WS_BASE}/api/v3/plan/sauc/bigmodel_async
 
 DEFAULT_TTS_RESOURCE_ID = "seed-tts-2.0"
 DEFAULT_TTS_SPEAKER = "zh_female_vv_uranus_bigtts"
+# 火山 audio_params.speech_rate：0=原速，100=2.0x，-50=0.5x。
+# 对话播报略提一点（约 1.15x），避免默认偏拖沓；仍属「稍微快一点」。
+DEFAULT_TTS_SPEECH_RATE = 15
 DEFAULT_ASR_RESOURCE_ID = "volc.bigasr.auc_turbo"
 DEFAULT_AGENT_PLAN_ASR_RESOURCE_ID = "volc.seedasr.sauc.duration"
+
+
+def _tts_audio_params() -> dict:
+    return {
+        "format": "mp3",
+        "sample_rate": 24000,
+        "speech_rate": DEFAULT_TTS_SPEECH_RATE,
+    }
 
 SPEECH_CONSOLE_URL = "https://console.volcengine.com/speech/service/8"
 AGENT_PLAN_DOC_URL = "https://www.volcengine.com/docs/82379/2516286?lang=zh"
@@ -314,7 +325,7 @@ def synthesize_speech_v3(text: str, *, speaker: str | None = None, preview: bool
     req_params: dict = {
         "text": text[:4000],
         "speaker": use_speaker,
-        "audio_params": {"format": "mp3", "sample_rate": 24000},
+        "audio_params": _tts_audio_params(),
     }
     if preview:
         req_params["additions"] = json.dumps(
@@ -422,7 +433,7 @@ async def synthesize_speech_v3_stream(
     req_params: dict = {
         "text": text[:4000],
         "speaker": use_speaker,
-        "audio_params": {"format": "mp3", "sample_rate": 24000},
+        "audio_params": _tts_audio_params(),
     }
     if preview:
         req_params["additions"] = _json.dumps(

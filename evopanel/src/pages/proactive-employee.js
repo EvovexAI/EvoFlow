@@ -4187,6 +4187,12 @@ function bindEmployeePage(page, role, initiatives) {
     try {
       await api.proactiveDeleteRole(role.agent_code)
       toast(`已删除岗位 ${name}`, 'info')
+      try {
+        const { notifyEmployeesUpdated } = await import('../lib/employees-roster-sync.js')
+        notifyEmployeesUpdated({ reason: 'proactive.delete', agentCode: role.agent_code })
+      } catch {
+        /* 右栏收签失败不挡导航 */
+      }
       navigate('/proactive')
     } catch (err) {
       toast(`删除失败: ${err?.message || err}`, 'error')

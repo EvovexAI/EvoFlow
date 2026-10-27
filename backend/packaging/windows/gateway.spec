@@ -155,6 +155,15 @@ try:
     datas += copy_metadata("langgraph")
 except Exception:
     pass
+# pipecat/__init__.py likewise calls importlib.metadata.version("pipecat-ai").
+# Missing metadata → PackageNotFoundError → Frame WS 1006, wake has no TTS.
+try:
+    datas += copy_metadata("pipecat-ai")
+except Exception:
+    try:
+        datas += copy_metadata("pipecat")
+    except Exception:
+        pass
 
 # agent-browser CLI is copied post-build to tools/agent-browser/ (Chromium on-demand; see build-gateway-*.ps1/sh).
 

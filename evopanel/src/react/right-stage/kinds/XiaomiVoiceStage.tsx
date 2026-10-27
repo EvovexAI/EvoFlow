@@ -264,11 +264,17 @@ export function XiaomiVoiceStage() {
         return
       }
       liveRef.current.tray = s
+      if (s === 'speaking') {
+        // 开播即清上一轮用户句：中间「你」区空出来等本轮 AI 输出
+        setTranscript('')
+        setLastUser('')
+      }
       if (s === 'recording') {
         liveRef.current.continuousListen = true
-        // 播报结束回到聆听：清听写草稿，保留 lastUser / reply（与右上角时间线一致）
+        // 播报结束回到聆听：听写草稿应已空（开播时清过）；勿回灌 lastUser
         if (stateRef.current === 'speak' && !liveRef.current.streaming) {
           setTranscript('')
+          setLastUser('')
         }
       }
       if (s === 'idle') liveRef.current.continuousListen = false
@@ -290,6 +296,11 @@ export function XiaomiVoiceStage() {
   useEffect(() => {
     const off = onSpeakingChange((v: boolean) => {
       liveRef.current.speaking = v
+      if (v) {
+        // 本地真正开播：清掉上一轮用户输入，舞台只留 AI 播报区
+        setTranscript('')
+        setLastUser('')
+      }
       derive()
     })
     return () => {
@@ -301,6 +312,18 @@ export function XiaomiVoiceStage() {
   useEffect(() => {
     return subscribeXiaomiVoicePartial((text) => {
       const t = String(text || '')
+      // 播报中忽略迟到 partial，避免把已清掉的上一轮用户句又灌回来
+      const speakingNow =
+        liveRef.current.speaking ||
+        liveRef.current.tray === 'speaking' ||
+        stateRef.current === 'speak'
+      if (speakingNow) {
+        if (!t.trim()) {
+          setTranscript('')
+          setLastUser('')
+        }
+        return
+      }
       setTranscript(t)
       if (t.trim()) setLastUser(t)
       liveRef.current.continuousListen = true
@@ -349,8 +372,12 @@ export function XiaomiVoiceStage() {
           break
         }
       }
-      // 已发送的 user 句优先（与 V4 时间线同源）；听写草稿只在聆听时盖上去
-      if (liveUser) setLastUser(liveUser)
+      // 已发送的 user 句：思考期可回填中间「你」区；播报中勿回灌（开播已清，等本轮输出）
+      const speakingNow =
+        liveRef.current.speaking ||
+        liveRef.current.tray === 'speaking' ||
+        stateRef.current === 'speak'
+      if (liveUser && !speakingNow) setLastUser(liveUser)
       derive()
     }
     sync()
@@ -589,10 +616,10 @@ export function XiaomiVoiceStage() {
 
   const showUser = useMemo(() => {
     // 聆听：只显示当前听写（空=等开口）；勿回退 lastUser，否则上一轮用户句清不掉
-    // 思考/播报：用已发送句（与右上角 V4 一致）
-    if (state === 'listen') {
-      return transcript
-    }
+    // 思考：暂留已发送句，方便对照「我在等什么」
+    // 播报：必须空 —— 上一轮用户输入应已清掉，中间区等本轮 AI 输出
+    if (state === 'listen') return transcript
+    if (state === 'speak') return ''
     return lastUser
   }, [state, transcript, lastUser])
 

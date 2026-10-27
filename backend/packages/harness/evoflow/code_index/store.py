@@ -625,11 +625,22 @@ def _embed_texts_sync(texts: list[str]) -> list[list[float]] | None:
             get_embedding_config,
         )
 
+        try:
+            asyncio.get_running_loop()
+            loop_running = True
+        except RuntimeError:
+            loop_running = False
+
         mc = get_embedding_config()
         provider = _resolve_provider(mc)
         if isinstance(provider, LocalEmbeddingProvider):
             return provider.embed_batch_sync(texts)
-        return _run_async_in_thread(lambda: _embed_texts_batch(texts))
+        if loop_running:
+            logger.debug(
+                "code_index: skip sync remote batch embed while event loop is running"
+            )
+            return None
+        return _run_async_in_thread(lambda: _embed_texts_batch(texts), timeout=30.0)
     except Exception as exc:
         logger.warning(
             "code_index: sync batch embedding failed: %s: %s",
@@ -640,8 +651,20 @@ def _embed_texts_sync(texts: list[str]) -> list[list[float]] | None:
 
 
 def _embed_query_sync(text: str) -> list[float] | None:
-    """Synchronous query embedding — bypasses ``asyncio.to_thread``."""
+    """Synchronous query embedding — bypasses ``asyncio.to_thread``.
+
+    Must not be called from the gateway asyncio thread with a remote provider:
+    that path used to ``Thread.join`` for tens of seconds (429 retries) and
+    froze the whole UI. Local providers stay sync; remote embeds from a
+    running loop are skipped (callers fall back to FTS / overlap).
+    """
     try:
+        try:
+            asyncio.get_running_loop()
+            loop_running = True
+        except RuntimeError:
+            loop_running = False
+
         from evoflow.knowledge.embedding.local_provider import LocalEmbeddingProvider
         from evoflow.knowledge.embedding.registry import (
             _resolve_provider,
@@ -652,7 +675,12 @@ def _embed_query_sync(text: str) -> list[float] | None:
         provider = _resolve_provider(mc)
         if isinstance(provider, LocalEmbeddingProvider):
             return provider.embed_sync(text)
-        return _run_async_in_thread(lambda: _embed_query(text))
+        if loop_running:
+            logger.debug(
+                "code_index: skip sync remote embed while event loop is running"
+            )
+            return None
+        return _run_async_in_thread(lambda: _embed_query(text), timeout=8.0)
     except Exception as exc:
         logger.warning(
             "code_index: sync query embedding failed: %s: %s",
@@ -662,13 +690,31 @@ def _embed_query_sync(text: str) -> list[float] | None:
         return None
 
 
-def _run_async_in_thread(coro_factory: Callable[[], Any]) -> Any:
+def _run_async_in_thread(
+    coro_factory: Callable[[], Any],
+    *,
+    timeout: float | None = 15.0,
+) -> Any:
     """Run an async coroutine in a separate thread with its own event loop.
 
     This avoids ``Cannot run the event loop while another loop is running``
     when :func:`build_index` / :func:`search_index` are called from within an
     async context (e.g. tests using ``asyncio.run``).
+
+    Never call this from the *same* thread that owns a running loop and then
+    join forever — that stalls the gateway. If a loop is already running on
+    this thread, refuse immediately. ``timeout`` caps ``join`` for worker-thread
+    callers (remote embed 429 retries can otherwise hang for minutes).
     """
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        pass
+    else:
+        raise RuntimeError(
+            "refusing _run_async_in_thread while an event loop is running on this thread"
+        )
+
     result: list[Any] = [None]
     exception: list[BaseException | None] = [None]
 
@@ -684,7 +730,12 @@ def _run_async_in_thread(coro_factory: Callable[[], Any]) -> Any:
 
     t = threading.Thread(target=_runner, daemon=True)
     t.start()
-    t.join()
+    t.join(timeout=timeout)
+
+    if t.is_alive():
+        raise TimeoutError(
+            f"_run_async_in_thread timed out after {timeout}s (daemon still running)"
+        )
 
     if exception[0] is not None:
         raise exception[0]
@@ -1026,7 +1077,9 @@ def index_file(
             if cfg.semantic_search_enabled:
                 try:
                     inc_text = abs_path.read_text(encoding="utf-8", errors="replace")[: cfg.max_chars_per_file]
-                    vec = _run_async_in_thread(lambda: _embed_query(inc_text))
+                    vec = _run_async_in_thread(
+                        lambda: _embed_query(inc_text), timeout=8.0
+                    )
                     if vec and len(vec) == cfg.semantic_embedding_dim:
                         conn.execute(
                             "INSERT OR REPLACE INTO code_vec (path, embedding) VALUES (?, ?)",

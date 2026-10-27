@@ -210,8 +210,8 @@ class SpeechSession:
                     if self._bridge and hasattr(self._bridge, "client_phase"):
                         phase = str(getattr(self._bridge, "client_phase", "") or "")
                     if phase in ("thinking", "speaking"):
-                        from app.gateway.speech.voice_file_log import voice_log
-
+                        # 勿在本函数内再 import voice_log：会把它变成 local，
+                        # 导致上方/except 里的模块级 voice_log 全部 UnboundLocalError。
                         voice_log(
                             "决策",
                             f"忽略 client_listening（phase={phase}，仅 listening 可 unmute）",

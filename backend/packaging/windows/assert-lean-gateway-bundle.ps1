@@ -167,6 +167,19 @@ if ($sileroHits.Count -lt 1) {
   $errors.Add("pipecat Silero ONNX missing (silero_vad.onnx). Rebuild with gateway.spec collect_data_files(pipecat, **/*.onnx) or Xiaomi realtime voice will fail at VAD load.")
 }
 
+# pipecat/__init__.py calls importlib.metadata.version("pipecat-ai"). Without
+# dist-info the Frame session crashes right after ready → FE sees WS 1006 / no TTS.
+$pipecatMeta = @(
+  Get-ChildItem -LiteralPath $GatewayDir -Recurse -Directory -Filter "pipecat_ai-*.dist-info" -ErrorAction SilentlyContinue
+) + @(
+  Get-ChildItem -LiteralPath $GatewayDir -Recurse -Directory -Filter "pipecat-ai-*.dist-info" -ErrorAction SilentlyContinue
+) + @(
+  Get-ChildItem -LiteralPath $GatewayDir -Recurse -Directory -Filter "pipecat-*.dist-info" -ErrorAction SilentlyContinue
+)
+if ($pipecatMeta.Count -lt 1) {
+  $errors.Add("pipecat-ai package metadata (*.dist-info) missing. Rebuild with copy_metadata('pipecat-ai') in gateway.spec or wake/TTS Frame session fails with PackageNotFoundError.")
+}
+
 # Soft size guard: lean sidecar should stay well under ~800MB uncompressed.
 $totalSum = (Get-ChildItem -LiteralPath $GatewayDir -Recurse -File -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum
 $totalMb = if ($null -ne $totalSum) { [math]::Round($totalSum / 1MB, 1) } else { 0 }

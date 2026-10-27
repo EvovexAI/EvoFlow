@@ -1077,6 +1077,8 @@ export function applyPlatformFeedbackFromToolResult(
     existingEntries?: PlatformRunEntry[]
     /** Live tool results only — history scan must not spam roster reloads. */
     notifyEmployeesRoster?: boolean
+    /** Live results only — history scan must not discard unrelated open tabs. */
+    closeRemovedEntityStage?: boolean
   },
 ): { ui: PlatformUiFeedback; entries: PlatformRunEntry[] } | null {
   void syncPanelAppearanceFromToolResult(raw, { argsText: opts?.argsText })
@@ -1085,6 +1087,21 @@ export function applyPlatformFeedbackFromToolResult(
   }
   const ui = parsePlatformUiFeedback(raw, opts?.argsText)
   if (!ui) return null
+  // 删除/归档成功：立刻丢掉指向该实体的右栏页签，避免再点开「Role not found」
+  if (opts?.closeRemovedEntityStage !== false && entityRemovedByAction(String(ui.action || ''))) {
+    const entityId = String(ui.entityId || ui.agentCode || '').trim()
+    if (entityId && ui.domain) {
+      void import('./close-removed-entity-stage.js')
+        .then((m) => {
+          m.closeRightStageTabsForRemovedEntity({
+            domain: ui.domain,
+            entityId,
+            agentCode: ui.agentCode || entityId,
+          })
+        })
+        .catch(() => {})
+    }
+  }
   const entry = platformUiToRunEntry(ui, opts?.toolCallId)
   const entries = mergePlatformRunEntries(opts?.existingEntries || [], entry)
   return { ui, entries }
@@ -1185,6 +1202,8 @@ export function syncPlatformFeedbackFromTools(
       toolCallId,
       existingEntries: entries,
       notifyEmployeesRoster: false,
+      // 历史扫描只合并 Info Rail，勿因旧删除记录误关当前打开的页签
+      closeRemovedEntityStage: false,
     })
     if (!result) continue
 

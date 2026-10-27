@@ -24,7 +24,8 @@ const WORKSPACE_SCOPED_KINDS = new Set<string>([
   // 进度类：任意对话可盯同一工作流/节点/员工过程（panel_set 跨会话）
   'collabSubtaskTranscript',
   'employeeProcess',
-  // 壳页面（员工墙/详情/任务详情）：与进度同级，小V 语音占用右栏时仍可见
+  // 壳页面（员工墙/详情/任务详情）：主对话之间共享；
+  // 小V adopt/release 另走 carryWorkspace:false，不会带进语音域。
   'shell-page',
 ])
 

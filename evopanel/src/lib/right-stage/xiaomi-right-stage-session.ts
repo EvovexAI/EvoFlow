@@ -83,10 +83,12 @@ export async function adoptXiaomiRightStageSession(): Promise<boolean> {
   }
 
   parkedChatSessionKey = from || ''
-  switchRightStageSession(from, xiaomiKey)
+  // 小V 与主对话右栏缓存彻底隔离：勿 carry 员工详情/工作流等 workspace 签
+  switchRightStageSession(from, xiaomiKey, { carryWorkspace: false })
   logRightStage('xiaomi adopt: switched', {
     from: from || '(空)',
     to: xiaomiKey,
+    carryWorkspace: false,
   })
   emitAdopted()
   return true
@@ -98,10 +100,12 @@ export function releaseXiaomiRightStageSession(): void {
   const to = parkedChatSessionKey
   parkedChatSessionKey = null
   const from = getCurrentRightStageSessionKey()
-  switchRightStageSession(from, to)
+  // 同样不把小V 侧签带回主对话
+  switchRightStageSession(from, to, { carryWorkspace: false })
   logRightStage('xiaomi release: switched', {
     from: from || '(空)',
     to: to || '(空)',
+    carryWorkspace: false,
   })
   emitReleased()
 }

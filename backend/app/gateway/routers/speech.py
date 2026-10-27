@@ -286,6 +286,11 @@ async def speech_tts(body: SpeechTtsRequest) -> Response:
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
+        import logging
+
+        logging.getLogger("evoflow.speech.tts").exception(
+            "HTTP /tts failed provider=%s text=%r: %s", provider, text[:48], e
+        )
         raise HTTPException(status_code=502, detail=str(e)) from e
 
 

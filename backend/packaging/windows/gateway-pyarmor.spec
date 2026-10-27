@@ -150,6 +150,14 @@ try:
     datas += copy_metadata("langgraph")
 except Exception:
     pass
+# pipecat/__init__.py → version("pipecat-ai"); without this wake TTS dies (WS 1006).
+try:
+    datas += copy_metadata("pipecat-ai")
+except Exception:
+    try:
+        datas += copy_metadata("pipecat")
+    except Exception:
+        pass
 
 # PyArmor runtime files (pyarmor_runtime_*.pyd / .so)
 # PyArmor puts them in the obfuscated output directory

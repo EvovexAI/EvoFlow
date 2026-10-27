@@ -392,7 +392,20 @@ class ProactiveEngine:
             round_id=round_id,
             round_initiative_ids=[i.id for i in round_inits],
             created_task_ids=[str(t.get("task_id") or t.get("id") or "") for t in pending_tasks],
+            run_error=str(run_error or "").strip(),
         )
+
+        # Safety net: related Task still executing after a "successful" round with a
+        # provider-error final message → force failed (covers silent content-as-200).
+        if not run_error and related_task_id:
+            hung = self._fail_related_task_if_provider_error_hung(
+                related_task_id,
+                session_key=session_key,
+                role_code=role.agent_code,
+                round_id=round_id,
+            )
+            if hung:
+                result.run_error = hung
 
         # Persist 角色记忆 + cost log in a single transaction (R0-2: reduce RLock contention).
         # Prefer submit_work wrap_up (already wrote summary); only fallback-write
@@ -723,6 +736,15 @@ class ProactiveEngine:
                     timeout=timeout,
                 )
                 _duration = asyncio.get_event_loop().time() - _run_started_at
+                provider_err = self._detect_provider_error_after_run(
+                    session_key=session_key,
+                    thread_id=thread_id,
+                    run_result=run_result,
+                    role_code=role.agent_code,
+                )
+                if provider_err:
+                    finalize_reason = "proactive_error"
+                    return provider_err, None
                 # Defer cost logging to caller for batch transaction (R0-2)
                 return None, {
                     "thread_id": thread_id,
@@ -1227,7 +1249,22 @@ class ProactiveEngine:
             run = await client.runs.get(thread_id=thread_id, run_id=run_id)
             status = run.get("status", "")
             if status in ("done", "completed"):
-                return run.get("results", {})
+                results = run.get("results", {}) or {}
+                text, has_tc = self._final_assistant_from_state(results)
+                from evoflow.error_classifier import classify_model_response_content
+                from evoflow.proactive.run_errors import format_run_error_detail
+
+                cls = classify_model_response_content(text, has_tool_calls=has_tc)
+                if cls is not None:
+                    logger.warning(
+                        "proactive: model rate limited (poll final message) thread=%s preview=%s",
+                        thread_id,
+                        text[:160].replace("\n", " "),
+                    )
+                    raise RuntimeError(
+                        format_run_error_detail(cls.reason.value, text or cls.message)
+                    )
+                return results
             elif status in ("error", "failed", "cancelled"):
                 from evoflow.proactive.run_errors import format_langgraph_run_failure
 
@@ -1236,11 +1273,160 @@ class ProactiveEngine:
 
     def _extract_final_message(self, final_state: dict[str, Any]) -> str:
         """Extract the last AI message text from a LangGraph final state."""
-        messages = final_state.get("messages", []) if final_state else []
+        text, _has_tc = self._final_assistant_from_state(final_state)
+        return text
+
+    @staticmethod
+    def _final_assistant_from_state(final_state: dict[str, Any] | None) -> tuple[str, bool]:
+        messages = final_state.get("messages", []) if isinstance(final_state, dict) else []
         if not messages:
-            return ""
+            return "", False
         last = messages[-1]
-        content = last.get("content", "") if isinstance(last, dict) else str(last)
+        if not isinstance(last, dict):
+            return str(last), False
+        role = str(last.get("role") or last.get("type") or "").lower()
+        if role and role not in {"assistant", "ai", "aimessage"}:
+            # Walk backwards for last AI message
+            for msg in reversed(messages):
+                if not isinstance(msg, dict):
+                    continue
+                r = str(msg.get("role") or msg.get("type") or "").lower()
+                if r in {"assistant", "ai", "aimessage"} or msg.get("tool_calls"):
+                    last = msg
+                    break
+        content = last.get("content", "")
         if isinstance(content, list):
-            content = "".join(b.get("text", "") if isinstance(b, dict) else str(b) for b in content)
-        return str(content)
+            content = "".join(
+                b.get("text", "") if isinstance(b, dict) else str(b) for b in content
+            )
+        tc = last.get("tool_calls") or last.get("toolCalls")
+        has_tc = bool(isinstance(tc, list) and tc)
+        return str(content or ""), has_tc
+
+    def _last_assistant_from_session(self, session_key: str) -> tuple[str, bool]:
+        """Return ``(text, has_tool_calls)`` for the latest assistant row."""
+        sk = str(session_key or "").strip()
+        if not sk:
+            return "", False
+        try:
+            from evoflow.persistence.chat_message_content import tool_calls as payload_tool_calls
+            from evoflow.persistence.chat_message_repositories import list_messages
+            from evoflow.error_classifier import _flatten_model_content
+
+            rows = list_messages(sk, limit=40)
+            for row in reversed(rows or []):
+                if not isinstance(row, dict):
+                    continue
+                if str(row.get("role") or "").lower() != "assistant":
+                    continue
+                payload = row.get("payload") if isinstance(row.get("payload"), dict) else {}
+                tc = payload_tool_calls(payload) if payload else None
+                has_tc = bool(tc)
+                text = _flatten_model_content(row.get("content") if row.get("content") is not None else payload.get("content"))
+                return text, has_tc
+        except Exception:
+            logger.debug("proactive: read last assistant failed session=%s", sk, exc_info=True)
+        return "", False
+
+    def _detect_provider_error_after_run(
+        self,
+        *,
+        session_key: str,
+        thread_id: str,
+        run_result: Any,
+        role_code: str = "",
+    ) -> str | None:
+        """Return a run_error code when the 'successful' run is really a provider failure."""
+        from evoflow.error_classifier import FailoverReason, classify_model_response_content
+        from evoflow.proactive.run_errors import format_run_error_detail
+
+        # Middleware-registered failure (exception path that returned a visible AIMessage).
+        try:
+            from evoflow.agents.middlewares.model_fallback_middleware import peek_model_error_turn
+
+            entry = peek_model_error_turn(thread_id)
+            if entry:
+                reason = str(entry.get("reason") or "rate_limit").strip() or "rate_limit"
+                msg = str(entry.get("message") or "").strip()
+                if reason == FailoverReason.RATE_LIMIT.value:
+                    logger.warning(
+                        "proactive: model rate limited role=%s thread=%s via model_error_turn",
+                        role_code or "-",
+                        thread_id,
+                    )
+                return format_run_error_detail(reason, msg)
+        except Exception:
+            logger.debug("proactive: peek_model_error_turn failed", exc_info=True)
+
+        text, has_tc = "", False
+        if isinstance(run_result, dict):
+            text, has_tc = self._final_assistant_from_state(run_result)
+        if not text:
+            text, has_tc = self._last_assistant_from_session(session_key)
+
+        cls = classify_model_response_content(text, has_tool_calls=has_tc)
+        if cls is None:
+            return None
+        if cls.reason == FailoverReason.RATE_LIMIT:
+            logger.warning(
+                "proactive: model rate limited role=%s thread=%s preview=%s",
+                role_code or "-",
+                thread_id,
+                text[:160].replace("\n", " "),
+            )
+        else:
+            logger.warning(
+                "proactive: provider error content role=%s reason=%s preview=%s",
+                role_code or "-",
+                cls.reason.value,
+                text[:160].replace("\n", " "),
+            )
+        return format_run_error_detail(cls.reason.value, text or cls.message)
+
+    def _fail_related_task_if_provider_error_hung(
+        self,
+        task_id: str,
+        *,
+        session_key: str,
+        role_code: str,
+        round_id: str,
+    ) -> str | None:
+        """If task is still executing and last assistant is a provider error, mark failed."""
+        tid = str(task_id or "").strip()
+        if not tid:
+            return None
+        try:
+            from evoflow.error_classifier import FailoverReason, classify_model_response_content
+            from evoflow.proactive.run_errors import format_run_error_detail
+            from evoflow.proactive.work_items import load_work_item_task, set_work_item_status
+
+            row = load_work_item_task(tid) or {}
+            st = str(row.get("status") or "").strip().lower()
+            if st not in {"executing", "in_progress", "running"}:
+                return None
+            text, has_tc = self._last_assistant_from_session(session_key)
+            cls = classify_model_response_content(text, has_tool_calls=has_tc)
+            if cls is None:
+                return None
+            err = format_run_error_detail(cls.reason.value, text or cls.message)
+            if cls.reason == FailoverReason.RATE_LIMIT:
+                logger.warning(
+                    "proactive: model rate limited — failing hung task=%s role=%s round=%s",
+                    tid,
+                    role_code,
+                    round_id,
+                )
+            set_work_item_status(
+                tid,
+                "failed",
+                result=f"员工执行失败：{err}",
+                progress=0,
+            )
+            return err
+        except Exception:
+            logger.warning(
+                "proactive.think: hung-task provider-error check failed task=%s",
+                tid,
+                exc_info=True,
+            )
+            return None

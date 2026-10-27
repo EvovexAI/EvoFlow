@@ -41,6 +41,11 @@ export async function playWakeChime() {
   }
 }
 
+/** 供固定句音效在 HTTP TTS 失败时复用（不依赖 speechConfigured）。 */
+export function speakLocalWakeAckFallback(text) {
+  return speakLocalWakeAck(text)
+}
+
 function speakLocalWakeAck(text) {
   return new Promise((resolve) => {
     const Syn = window.speechSynthesis

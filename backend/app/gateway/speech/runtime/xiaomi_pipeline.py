@@ -13,8 +13,16 @@ if TYPE_CHECKING:
 TurnHandler = Callable[[str], Awaitable[None]]
 
 _PIPECAT_UNAVAILABLE = (
-    "Realtime Xiaomi voice requires pipecat-ai + onnxruntime>=1.24, which have "
-    "no wheels on macOS Intel (x86_64). Use Apple Silicon, Windows, or Linux."
+    "Realtime Xiaomi voice requires pipecat-ai + onnxruntime>=1.24. "
+    "On macOS Intel (x86_64) those wheels are unavailable — use Apple Silicon, "
+    "Windows, or Linux. On Windows/Linux packaged installs, also ensure "
+    "PyInstaller copies pipecat-ai package metadata (copy_metadata)."
+)
+
+_PIPECAT_METADATA_MISSING = (
+    "Realtime Xiaomi voice: pipecat code is present but pipecat-ai package "
+    "metadata is missing (importlib.metadata PackageNotFoundError). "
+    "Rebuild the desktop gateway with copy_metadata('pipecat-ai') in gateway.spec."
 )
 
 _PIPECAT_ONNX_MISSING = (
@@ -71,6 +79,13 @@ def build_xiaomi_voice_pipeline(
         )
     except ImportError as e:
         raise RuntimeError(_PIPECAT_UNAVAILABLE) from e
+    except Exception as e:
+        # PyInstaller 常漏打 *.dist-info：pipecat/__init__ 调 version("pipecat-ai") 直接炸
+        name = type(e).__name__
+        msg = str(e) or name
+        if name == "PackageNotFoundError" or "pipecat-ai" in msg:
+            raise RuntimeError(_PIPECAT_METADATA_MISSING) from e
+        raise RuntimeError(f"{_PIPECAT_UNAVAILABLE} ({name}: {msg})") from e
 
     _assert_pipecat_vad_assets()
 

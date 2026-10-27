@@ -25375,7 +25375,9 @@ html.dark .react-chat-workspace-panel {
   border-left-color: var(--border, #374151);
 }
 
-/* 右侧可扩展 Stage */
+/* 右侧可扩展 Stage（内容面板基类：只负责列布局，不锁半宽）。
+   占宽仅外壳 .react-chat-right-stage-shell —— shell-page / 员工详情等内层
+   也复用本类名，若这里写死 50%，右栏里会再缩一半。 */
 .react-chat-right-stage-panel {
   min-height: 0;
   align-self: stretch;
@@ -25384,6 +25386,11 @@ html.dark .react-chat-workspace-panel {
   border-left: 1px solid var(--border, #e5e7eb);
   background: var(--bg-secondary, #f8fafc);
   overflow: hidden;
+  min-width: 0;
+}
+/* 外壳：main-body 直挂时才占 --chat-right-panel-width */
+.react-chat-main-body > .react-chat-right-stage-panel.react-chat-right-stage-shell,
+.react-chat-main-body > .react-chat-right-stage-panel {
   flex: 0 0 var(--chat-right-panel-width, 50%);
   width: var(--chat-right-panel-width, 50%);
   max-width: var(--chat-right-panel-width, 50%);
@@ -25413,24 +25420,44 @@ html.dark .react-chat-workspace-panel {
 /* 壳页面挂载（Mount Table → shell-page）：同款页面模块进右栏 */
 .react-chat-shell-page-panel {
   min-height: 0;
+  flex: 1 1 auto !important;
+  width: 100% !important;
+  max-width: none !important;
+  min-width: 0 !important;
+  align-self: stretch;
+  border-left: 0;
+  background: var(--bg-primary, #ffffff);
+}
+html[data-theme='dark'] .react-chat-shell-page-panel,
+html.dark .react-chat-shell-page-panel {
+  background: var(--bg-primary, #0b1220);
+  border-left-color: transparent;
 }
 .react-chat-shell-page-host {
   flex: 1 1 auto;
   min-height: 0;
+  min-width: 0;
+  width: 100%;
   overflow: auto;
   display: flex;
   flex-direction: column;
 }
 .react-chat-shell-page-host > .page,
-.react-chat-shell-page-host > .shell-page-embed {
+.react-chat-shell-page-host > .shell-page-embed,
+.react-chat-shell-page-host .page.shell-page-embed,
+.react-chat-shell-page-host .page.pro-employee-page {
   flex: 1 1 auto;
   min-height: 0;
+  min-width: 0;
   overflow: auto;
   box-sizing: border-box;
   /* 全局 .page 有 --content-max-width；右栏嵌入必须铺满侧栏，不要居中留白 */
   max-width: none !important;
   width: 100% !important;
   margin: 0 !important;
+  /* 主区 .page 左右大 padding；右栏收紧一点更贴侧栏 */
+  padding-left: 14px !important;
+  padding-right: 14px !important;
 }
 .react-chat-shell-page-status {
   padding: 16px 14px;
@@ -34381,6 +34408,9 @@ html.dark .react-chat-stage-popover {
   height: 100%;
   min-height: 0;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 .react-chat-right-stage-body[hidden] {
   display: none !important;
@@ -34399,17 +34429,25 @@ html.dark .react-chat-stage-popover {
 }
 
 
-/* 嵌进右栏标签后不再套半宽灰底和左边线（外壳已有分隔） */
+/* 嵌进右栏标签后不再套半宽灰底和左边线（外壳已有分隔）。
+   shell-page / platform-feedback / screenshot 等也复用 react-chat-right-stage-panel，
+   若不重置，会再吃一遍 --chat-right-panel-width（员工详情只占右栏一半）。 */
+.react-chat-right-stage-body > .react-chat-right-stage-panel,
+.react-chat-right-stage-body > .react-chat-shell-page-panel,
 .react-chat-right-stage-body > .react-chat-collab-exec-panel,
 .react-chat-right-stage-body > .react-chat-knowledge-map-panel {
-  flex: 1 1 auto;
-  width: 100%;
-  max-width: none;
-  min-width: 0;
+  flex: 1 1 auto !important;
+  width: 100% !important;
+  max-width: none !important;
+  min-width: 0 !important;
   align-self: stretch;
   border-left: 0;
   background: var(--bg-primary, #ffffff);
 }
+html[data-theme='dark'] .react-chat-right-stage-body > .react-chat-right-stage-panel,
+html.dark .react-chat-right-stage-body > .react-chat-right-stage-panel,
+html[data-theme='dark'] .react-chat-right-stage-body > .react-chat-shell-page-panel,
+html.dark .react-chat-right-stage-body > .react-chat-shell-page-panel,
 html[data-theme='dark'] .react-chat-right-stage-body > .react-chat-collab-exec-panel,
 html.dark .react-chat-right-stage-body > .react-chat-collab-exec-panel,
 html[data-theme='dark'] .react-chat-right-stage-body > .react-chat-knowledge-map-panel,

@@ -20,13 +20,20 @@ from langchain_core.messages import AIMessage, BaseMessage
 from langgraph.errors import GraphBubbleUp
 from langgraph.runtime import Runtime
 
-from evoflow.error_classifier import FailoverReason, classify
+from evoflow.error_classifier import (
+    Classification,
+    FailoverReason,
+    classify,
+    classify_model_response_content,
+)
 
 logger = logging.getLogger(__name__)
 
 _MAX_RATE_LIMIT_RETRIES = 3
 _MAX_SERVER_ERROR_RETRIES = 3
 _MAX_BACKOFF_SECONDS = 60.0
+# Content-as-rate-limit: start slower than exception path (vendor often needs cool-down).
+_CONTENT_RATE_LIMIT_BASE_SECONDS = 30.0
 
 _MAX_CREDENTIAL_ROTATIONS = 3
 _MAX_MODEL_FALLBACKS = 3
@@ -70,7 +77,12 @@ def _vendor_error_text(exc: Exception | None, *, limit: int = 800) -> str:
     return type(exc).__name__
 
 
-def _calc_backoff_seconds(attempt: int, error: Exception) -> float:
+def _calc_backoff_seconds(
+    attempt: int,
+    error: Exception,
+    *,
+    base_seconds: float | None = None,
+) -> float:
     """Exponential backoff with jitter; honors Retry-After when present. *attempt* is 1-based.
 
     对齐 zcode：provider 返回的 Retry-After 优先于本地退避曲线，上限 5 分钟
@@ -87,9 +99,57 @@ def _calc_backoff_seconds(attempt: int, error: Exception) -> float:
             except (ValueError, TypeError):
                 pass
 
-    backoff_s = 2.0 * (2 ** (attempt - 1))
+    base = float(base_seconds) if base_seconds is not None else 2.0
+    if base <= 0:
+        base = 2.0
+    backoff_s = base * (2 ** (attempt - 1))
     jitter_s = random.uniform(0, backoff_s * 0.2)
-    return min(backoff_s + jitter_s, _MAX_BACKOFF_SECONDS)
+    cap = 300.0 if base_seconds is not None else _MAX_BACKOFF_SECONDS
+    return min(backoff_s + jitter_s, cap)
+
+
+class ContentAsProviderError(Exception):
+    """Synthetic exception for provider failures returned as successful content."""
+
+    def __init__(self, message: str, *, reason: FailoverReason, status_code: int | None = None):
+        super().__init__(message)
+        self.reason = reason
+        self.status_code = status_code
+        self.message = message
+
+
+ContentAsProviderError.__module__ = "openai"
+
+
+def _content_level_classification_from_result(result: Any) -> Classification | None:
+    from evoflow.agents.middlewares.collab_cycle_trace_middleware import _ai_message_from_model_call_result
+
+    ai = _ai_message_from_model_call_result(result)
+    if ai is None:
+        return None
+    has_tc = bool(getattr(ai, "tool_calls", None))
+    return classify_model_response_content(getattr(ai, "content", None), has_tool_calls=has_tc)
+
+
+def _synthetic_exc_from_content(classification: Classification, content: str) -> ContentAsProviderError:
+    status = 429 if classification.reason == FailoverReason.RATE_LIMIT else (
+        402 if classification.reason == FailoverReason.BILLING else None
+    )
+    return ContentAsProviderError(
+        str(content or classification.message or classification.reason.value)[:800],
+        reason=classification.reason,
+        status_code=status,
+    )
+
+
+def _ai_content_text(result: Any) -> str:
+    from evoflow.agents.middlewares.collab_cycle_trace_middleware import _ai_message_from_model_call_result
+    from evoflow.error_classifier import _flatten_model_content
+
+    ai = _ai_message_from_model_call_result(result)
+    if ai is None:
+        return ""
+    return _flatten_model_content(getattr(ai, "content", None))
 
 
 def _user_facing_error_message(exc: Exception) -> str:
@@ -1081,6 +1141,12 @@ class ModelFallbackMiddleware(AgentMiddleware[AgentState]):
             },
         )
 
+    def _rate_limit_backoff_base(self, exc: Exception) -> float | None:
+        """Use a longer base when the 429 arrived as HTTP-200 content."""
+        if isinstance(exc, ContentAsProviderError):
+            return _CONTENT_RATE_LIMIT_BASE_SECONDS
+        return None
+
     def _try_rate_limit_retry(
         self,
         request: ModelRequest,
@@ -1095,7 +1161,11 @@ class ModelFallbackMiddleware(AgentMiddleware[AgentState]):
         if classify(exc).reason != FailoverReason.RATE_LIMIT:
             return None
         next_attempt = rate_limit_attempt + 1
-        wait_s = _calc_backoff_seconds(next_attempt, exc)
+        wait_s = _calc_backoff_seconds(
+            next_attempt,
+            exc,
+            base_seconds=self._rate_limit_backoff_base(exc),
+        )
         logger.warning(
             "Model API rate limited, retrying attempt %d/%d after %.1fs (thread=%s)",
             next_attempt,
@@ -1133,7 +1203,11 @@ class ModelFallbackMiddleware(AgentMiddleware[AgentState]):
         if classify(exc).reason != FailoverReason.RATE_LIMIT:
             return None
         next_attempt = rate_limit_attempt + 1
-        wait_s = _calc_backoff_seconds(next_attempt, exc)
+        wait_s = _calc_backoff_seconds(
+            next_attempt,
+            exc,
+            base_seconds=self._rate_limit_backoff_base(exc),
+        )
         logger.warning(
             "Model API rate limited, retrying attempt %d/%d after %.1fs (thread=%s)",
             next_attempt,
@@ -1156,6 +1230,118 @@ class ModelFallbackMiddleware(AgentMiddleware[AgentState]):
             compression_attempt=compression_attempt,
             rate_limit_attempt=next_attempt,
         )
+
+    def _handle_content_level_provider_error(
+        self,
+        result: ModelCallResult,
+        request: ModelRequest,
+        handler,
+        *,
+        compression_attempt: int = 0,
+        rate_limit_attempt: int = 0,
+        credential_attempt: int = 0,
+        fallback_attempt: int = 0,
+        server_error_attempt: int = 0,
+        async_mode: bool = False,
+    ) -> ModelCallResult | None:
+        """If the model returned a provider error as content, retry / fail like exceptions.
+
+        Returns a replacement ``ModelCallResult`` when handled; ``None`` when the
+        response is a normal reply.
+        """
+        classification = _content_level_classification_from_result(result)
+        if classification is None:
+            return None
+        text = _ai_content_text(result)
+        exc = _synthetic_exc_from_content(classification, text)
+        tid = _runtime_thread_id(request.runtime)
+        if classification.reason == FailoverReason.RATE_LIMIT:
+            logger.warning(
+                "proactive: model rate limited (content) thread=%s attempt=%d/%d preview=%s",
+                tid,
+                rate_limit_attempt,
+                _MAX_RATE_LIMIT_RETRIES,
+                text[:160].replace("\n", " "),
+            )
+        else:
+            logger.warning(
+                "Model API returned provider error as content reason=%s thread=%s preview=%s",
+                classification.reason.value,
+                tid,
+                text[:160].replace("\n", " "),
+            )
+
+        if async_mode:
+            # Caller awaits this path via dedicated async helper.
+            return None
+
+        if classification.reason == FailoverReason.RATE_LIMIT:
+            retry_result = self._try_rate_limit_retry(
+                request,
+                handler,
+                exc,
+                rate_limit_attempt=rate_limit_attempt,
+                compression_attempt=compression_attempt,
+            )
+            if retry_result is not None:
+                return retry_result
+            return self._handle_model_error(exc, request.runtime)
+
+        if classification.reason == FailoverReason.BILLING:
+            return self._handle_model_error(exc, request.runtime)
+
+        return self._handle_model_error(exc, request.runtime)
+
+    async def _ahandle_content_level_provider_error(
+        self,
+        result: ModelCallResult,
+        request: ModelRequest,
+        handler,
+        *,
+        compression_attempt: int = 0,
+        rate_limit_attempt: int = 0,
+        credential_attempt: int = 0,
+        fallback_attempt: int = 0,
+        server_error_attempt: int = 0,
+    ) -> ModelCallResult | None:
+        classification = _content_level_classification_from_result(result)
+        if classification is None:
+            return None
+        text = _ai_content_text(result)
+        exc = _synthetic_exc_from_content(classification, text)
+        tid = _runtime_thread_id(request.runtime)
+        if classification.reason == FailoverReason.RATE_LIMIT:
+            logger.warning(
+                "proactive: model rate limited (content) thread=%s attempt=%d/%d preview=%s",
+                tid,
+                rate_limit_attempt,
+                _MAX_RATE_LIMIT_RETRIES,
+                text[:160].replace("\n", " "),
+            )
+        else:
+            logger.warning(
+                "Model API returned provider error as content reason=%s thread=%s preview=%s",
+                classification.reason.value,
+                tid,
+                text[:160].replace("\n", " "),
+            )
+
+        if classification.reason == FailoverReason.RATE_LIMIT:
+            retry_result = await self._try_rate_limit_retry_async(
+                request,
+                handler,
+                exc,
+                rate_limit_attempt=rate_limit_attempt,
+                compression_attempt=compression_attempt,
+            )
+            if retry_result is not None:
+                return retry_result
+            return self._handle_model_error(exc, request.runtime)
+
+        if classification.reason == FailoverReason.BILLING:
+            return self._handle_model_error(exc, request.runtime)
+
+        return self._handle_model_error(exc, request.runtime)
 
     def _try_server_error_retry(
         self,
@@ -1690,6 +1876,20 @@ class ModelFallbackMiddleware(AgentMiddleware[AgentState]):
         # Live call succeeded — clear any stale unavailable mark for this session model.
         _clear_model_unavailable_quiet(_resolve_model_name(request.runtime) or "")
 
+        # Provider failures returned as HTTP-200 content (e.g. "Requests are too frequent")
+        content_handled = self._handle_content_level_provider_error(
+            result,
+            request,
+            handler,
+            compression_attempt=compression_attempt,
+            rate_limit_attempt=rate_limit_attempt,
+            credential_attempt=credential_attempt,
+            fallback_attempt=fallback_attempt,
+            server_error_attempt=server_error_attempt,
+        )
+        if content_handled is not None:
+            return content_handled
+
         if _is_empty_ai_response(result):
             self._log_empty_response(result, request, empty_retry_attempt=empty_retry_attempt)
             if empty_retry_attempt == 0:
@@ -1773,6 +1973,19 @@ class ModelFallbackMiddleware(AgentMiddleware[AgentState]):
             return self._handle_model_error(exc, request.runtime)
 
         _clear_model_unavailable_quiet(_resolve_model_name(request.runtime) or "")
+
+        content_handled = await self._ahandle_content_level_provider_error(
+            result,
+            request,
+            handler,
+            compression_attempt=compression_attempt,
+            rate_limit_attempt=rate_limit_attempt,
+            credential_attempt=credential_attempt,
+            fallback_attempt=fallback_attempt,
+            server_error_attempt=server_error_attempt,
+        )
+        if content_handled is not None:
+            return content_handled
 
         if _is_empty_ai_response(result):
             self._log_empty_response(

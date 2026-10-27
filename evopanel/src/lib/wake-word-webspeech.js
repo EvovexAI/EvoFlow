@@ -40,6 +40,7 @@ const WAKE_PHRASES_ONCE = new Set([
   '小委',
   '小威',
   '小蜜',
+  '小飞', // 偶发谐音
   // 不加「小米」：太容易误触
 ])
 
@@ -87,11 +88,18 @@ function matchWakePhrase(text) {
     if (n.includes(normalizeZh(phrase))) return WAKE_WORD_LABEL
   }
   // 「小V」×2 with Latin/Chinese V variants, even if ASR inserts odd chars
-  if (/小[vV维微薇委威蜜米]小[vV维微薇委威蜜米]/.test(n)) return WAKE_WORD_LABEL
+  if (/小[vV维微薇委威蜜米飞]小[vV维微薇委威蜜米飞]/.test(n)) return WAKE_WORD_LABEL
   // 整句就是单次唤醒词（或末尾是）：「小薇」「嘿，小V」
   if (WAKE_PHRASES_ONCE.has(n)) return WAKE_WORD_LABEL
   for (const once of WAKE_PHRASES_ONCE) {
     if (n.endsWith(once) && n.length <= once.length + 4) return WAKE_WORD_LABEL
+  }
+  // 短句里出现一次「小V」变体也算唤醒（「小薇。」「嘿小薇」「叫一下小微」）
+  // 长度上限避免闲聊长句误触；「查。」一类单字仍不命中
+  if (n.length <= 10 && /小[vV维微薇委威蜜米飞]/.test(n)) return WAKE_WORD_LABEL
+  // ASR 常把「小V小V」听成夹杂字：「小薇啊小薇」「那个小微小微」
+  if (/小[vV维微薇委威蜜米飞].{0,3}小[vV维微薇委威蜜米飞]/.test(n) && n.length <= 16) {
+    return WAKE_WORD_LABEL
   }
   return null
 }

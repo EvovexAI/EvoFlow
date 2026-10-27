@@ -138,6 +138,10 @@ if [[ "${require_voice_onnx}" == "1" ]]; then
   if [[ "${silero_count}" -lt 1 ]]; then
     fail "pipecat Silero ONNX missing (silero_vad.onnx). Rebuild with gateway.spec collect_data_files(pipecat) or Xiaomi voice fails at VAD load."
   fi
+  meta_count=$(find "${GATEWAY_DIR}" -type d \( -name 'pipecat_ai-*.dist-info' -o -name 'pipecat-ai-*.dist-info' -o -name 'pipecat-*.dist-info' \) 2>/dev/null | wc -l | tr -d ' ')
+  if [[ "${meta_count}" -lt 1 ]]; then
+    fail "pipecat-ai package metadata (*.dist-info) missing. Rebuild with copy_metadata('pipecat-ai') in gateway.spec or Frame voice fails with PackageNotFoundError."
+  fi
 fi
 
 total_kb=$(du -sk "${GATEWAY_DIR}" 2>/dev/null | awk '{print $1}')

@@ -500,6 +500,9 @@ class ThinkResult:
     round_initiative_ids: list[str] = field(default_factory=list)
     # Pending role work-item Task ids created this round (assigned_role stamped).
     created_task_ids: list[str] = field(default_factory=list)
+    # Non-empty when the LangGraph run / final assistant message is a provider failure
+    # (rate limit as content, model error turn, hard exception). Runner marks duty_run failed.
+    run_error: str = ""
 
     @classmethod
     def from_llm_output(cls, raw: str) -> ThinkResult:

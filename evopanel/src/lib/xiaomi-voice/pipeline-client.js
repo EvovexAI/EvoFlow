@@ -313,6 +313,15 @@ async function _startXiaomiFramePipelineInner(opts = {}) {
         window.clearTimeout(_endFlushTimer)
         _endFlushTimer = 0
       }
+      // 开播即清「你」区上一轮用户句，舞台空出来等本轮播报/下一轮听写
+      _partial = ''
+      void import('../background-voice-bridge.js')
+        .then((b) => {
+          b.updateVoicePartialText?.('')
+          b.clearPendingVoiceSend?.()
+        })
+        .catch(() => {})
+      noteVoicePanelDisplay('', { immediate: true, source: '开播清用户句' })
       // 勿清 _awaitingReply：确认短句 tts_start 之后模型往往还要跑几十秒
       _setTray('speaking')
       _syncPhase('tts_start')

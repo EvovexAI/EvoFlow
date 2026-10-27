@@ -1873,13 +1873,22 @@ class ProactiveRunner:
                     round_id=result_round,
                     task_id=related_tid or None,
                 )
+                run_err = str(getattr(result, "run_error", "") or "").strip()
                 _finish_duty_run(
                     duty_run_id,
-                    status="completed",
+                    status="failed" if run_err else "completed",
                     session_key=final_session_key or duty_session_key,
                     round_id=result_round,
                     primary_task_id=primary_tid or related_tid,
+                    error=run_err[:500] if run_err else "",
                 )
+                if run_err:
+                    logger.warning(
+                        "proactive.runner: duty_run failed role=%s round=%s err=%s",
+                        code,
+                        result_round,
+                        run_err[:240],
+                    )
 
                 report = self._build_heartbeat_report(
                     role,
