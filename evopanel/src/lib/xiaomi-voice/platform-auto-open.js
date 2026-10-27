@@ -24,10 +24,10 @@ export function maybeAutoOpenXiaomiPlatformTools(tools) {
   const { shown } = syncPlatformFeedbackFromTools(tools, _seen, { existingEntries: [] })
   if (!shown.length) return
 
-  // 平台工具已落地：允许状态卡；进度类再展开 right-stage
+  // 平台工具已落地：允许状态卡；进度/壳页 show() 后若仍收起则展开（唤醒 left-only 竞态）
   allowXwVoiceSummary()
   try {
-    if (!rightStageStore.getSnapshot().expanded) {
+    if (rightStageStore.getSnapshot().collapsed) {
       rightStageStore.expand()
     }
   } catch {

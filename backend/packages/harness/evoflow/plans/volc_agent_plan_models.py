@@ -20,13 +20,19 @@ PLAN_MEDIA_BASE = "https://ark.cn-beijing.volces.com/api/plan/v3"
 PLAN_CODING_BASE = "https://ark.cn-beijing.volces.com/api/coding/v3"
 PAYG_CHAT_BASE = "https://ark.cn-beijing.volces.com/api/v3"
 VENDOR_KEY = "volcengine"
-PREFERRED_PRIMARY_IDS = ("ark-code-latest", "doubao-seed-2.0-lite", "glm-5.3", "deepseek-v4-flash")
+PREFERRED_PRIMARY_IDS = (
+    "ark-code-latest",
+    "doubao-seed-2.1-lite",
+    "deepseek-v4.1-flash",
+    "glm-5.3",
+    "deepseek-v4-flash",
+)
 
 _TIER_RANK = {"small": 0, "medium": 1, "large": 2, "max": 3}
 _DATED_ID = re.compile(r"-\d{6}$")
 _SKIP_SUBSTR = ("embedding", "seedream", "seedance", "tts", "asr", "voice")
 
-# Official 套餐概览 chat IDs + commonly listed Agent Plan aliases.
+# Official 套餐概览 chat IDs（对齐 https://www.volcengine.com/docs/82379/2366394 ，2026-10-24）
 AGENT_PLAN_CHAT_MODELS: list[dict[str, Any]] = [
     {
         # Official Auto / latest alias for Agent & Coding Plan clients (not the literal id "auto").
@@ -48,24 +54,17 @@ AGENT_PLAN_CHAT_MODELS: list[dict[str, Any]] = [
         "vision": True,
         "reasoning": True,
         "min_tier": "small",
+        "notes": "文本生成（极速）",
     },
     {
-        "id": "doubao-seed-2.0-lite",
-        "label": "Doubao Seed 2.0 Lite",
-        "context_window": 256000,
-        "max_output": 128000,
+        "id": "doubao-seed-2.1-lite",
+        "label": "Doubao Seed 2.1 Lite",
+        "context_window": 1024000,
+        "max_output": 256000,
         "vision": True,
         "reasoning": True,
         "min_tier": "small",
-    },
-    {
-        "id": "doubao-seed-2.1-turbo",
-        "label": "Doubao Seed 2.1 Turbo",
-        "context_window": 256000,
-        "max_output": 64000,
-        "vision": True,
-        "reasoning": True,
-        "min_tier": "small",
+        "notes": "文本生成（标准）",
     },
     {
         "id": "deepseek-v4-flash",
@@ -75,6 +74,27 @@ AGENT_PLAN_CHAT_MODELS: list[dict[str, Any]] = [
         "vision": False,
         "reasoning": True,
         "min_tier": "small",
+        "notes": "文本生成（标准）",
+    },
+    {
+        "id": "glm-5.3-flash",
+        "label": "GLM 5.3 Flash",
+        "context_window": 1024000,
+        "max_output": 128000,
+        "vision": True,
+        "reasoning": True,
+        "min_tier": "small",
+        "notes": "原生多模态，支持图片输入",
+    },
+    {
+        "id": "doubao-seed-2.1-pro",
+        "label": "Doubao Seed 2.1 Pro",
+        "context_window": 1024000,
+        "max_output": 256000,
+        "vision": True,
+        "reasoning": True,
+        "min_tier": "small",
+        "notes": "文本生成（进阶）",
     },
     {
         "id": "doubao-seed-evolving",
@@ -86,48 +106,11 @@ AGENT_PLAN_CHAT_MODELS: list[dict[str, Any]] = [
         "min_tier": "small",
     },
     {
-        "id": "doubao-seed-2.0-code",
-        "label": "Doubao Seed 2.0 Code",
-        "context_window": 256000,
-        "max_output": 128000,
-        "vision": True,
-        "reasoning": True,
-        "min_tier": "small",
-    },
-    {
-        "id": "doubao-seed-2.0-pro",
-        "label": "Doubao Seed 2.0 Pro",
-        "context_window": 256000,
-        "max_output": 128000,
-        "vision": True,
-        "reasoning": True,
-        "min_tier": "small",
-    },
-    {
-        "id": "minimax-m2.7",
-        "label": "MiniMax M2.7",
-        "context_window": 200000,
-        "max_output": 128000,
-        "vision": False,
-        "reasoning": True,
-        "min_tier": "small",
-        "notes": "即将下线",
-    },
-    {
         "id": "minimax-m3",
         "label": "MiniMax M3",
         "context_window": 1024000,
         "max_output": 128000,
         "vision": True,
-        "reasoning": True,
-        "min_tier": "small",
-    },
-    {
-        "id": "glm-5.2",
-        "label": "GLM 5.2",
-        "context_window": 1024000,
-        "max_output": 128000,
-        "vision": False,
         "reasoning": True,
         "min_tier": "small",
         "notes": "即将下线",
@@ -144,18 +127,8 @@ AGENT_PLAN_CHAT_MODELS: list[dict[str, Any]] = [
         "notes": "glm-latest；默认开启思考，不支持关闭",
     },
     {
-        "id": "deepseek-v4-pro",
-        "label": "DeepSeek V4 Pro",
-        "context_window": 1024000,
-        "max_output": 384000,
-        "vision": False,
-        "reasoning": True,
-        "min_tier": "small",
-        "notes": "尝鲜体验版",
-    },
-    {
-        "id": "kimi-k2.6",
-        "label": "Kimi K2.6",
+        "id": "kimi-k2.7-code",
+        "label": "Kimi K2.7 Code",
         "context_window": 256000,
         "max_output": 32000,
         "vision": True,
@@ -164,13 +137,23 @@ AGENT_PLAN_CHAT_MODELS: list[dict[str, Any]] = [
         "notes": "即将下线",
     },
     {
-        "id": "kimi-k2.7-code",
-        "label": "Kimi K2.7 Code",
-        "context_window": 256000,
-        "max_output": 32000,
+        "id": "kimi-k2.8-preview",
+        "label": "Kimi K2.8 Preview",
+        "context_window": 1024000,
+        "max_output": 1024000,
         "vision": True,
         "reasoning": True,
         "min_tier": "small",
+    },
+    {
+        "id": "deepseek-v4-pro",
+        "label": "DeepSeek V4 Pro",
+        "context_window": 1024000,
+        "max_output": 384000,
+        "vision": False,
+        "reasoning": True,
+        "min_tier": "small",
+        "notes": "正式版",
     },
     {
         "id": "kimi-k3",
@@ -180,6 +163,37 @@ AGENT_PLAN_CHAT_MODELS: list[dict[str, Any]] = [
         "vision": True,
         "reasoning": True,
         "min_tier": "medium",
+        "thinking_always_on": True,
+        "notes": "默认开启思考，不支持关闭；Small 档不可用",
+    },
+    {
+        "id": "kimi-k3.1-pro",
+        "label": "Kimi K3.1 Pro",
+        "context_window": 1024000,
+        "max_output": 128000,
+        "vision": True,
+        "reasoning": True,
+        "min_tier": "small",
+    },
+    {
+        "id": "deepseek-v4.1-flash",
+        "label": "DeepSeek V4.1 Flash",
+        "context_window": 1024000,
+        "max_output": 384000,
+        "vision": True,
+        "reasoning": True,
+        "min_tier": "small",
+        "notes": "原生多模态视觉理解",
+    },
+    {
+        "id": "deepseek-v4.1-flash-economy",
+        "label": "DeepSeek V4.1 Flash Economy",
+        "context_window": 1049000,
+        "max_output": 384000,
+        "vision": True,
+        "reasoning": True,
+        "min_tier": "small",
+        "notes": "与标准版同权重，更便宜、略慢",
     },
 ]
 
@@ -213,7 +227,12 @@ AGENT_PLAN_CAPABILITIES: list[dict[str, Any]] = [
         "summary": "朗读走 Agent Plan 语音抵扣（同源 ark- Key）。",
         "min_tier": "small",
         "items": [
-            {"id": "doubao-tts", "label": "Doubao TTS", "min_tier": "small", "notes": "OpenSpeech Plan 音色预设"},
+            {
+                "id": "doubao-seed-tts-2.0",
+                "label": "Doubao Seed TTS 2.0",
+                "min_tier": "small",
+                "notes": "OpenSpeech Plan 音色预设",
+            },
         ],
     },
     {
@@ -223,37 +242,37 @@ AGENT_PLAN_CAPABILITIES: list[dict[str, Any]] = [
         "min_tier": "small",
         "items": [
             {
-                "id": "volc.seedasr.sauc.duration",
-                "label": "Seed ASR",
+                "id": "doubao-seed-asr-2.0",
+                "label": "Doubao Seed ASR 2.0",
                 "min_tier": "small",
-                "notes": "默认资源 ID",
+                "notes": "套餐概览语音模型；底层资源 ID 仍可能为 volc.seedasr.sauc.duration",
             },
         ],
     },
     {
         "id": "image",
         "label": "生图",
-        "summary": "Seedream 系列，走 /api/plan/v3 媒体口。",
+        "summary": "Seedream 5.0 系列，走 /api/plan/v3 媒体口。",
         "min_tier": "small",
         "items": [
-            {"id": "doubao-seedream-5.0-lite", "label": "Seedream 5.0 Lite", "min_tier": "small"},
+            {"id": "doubao-seedream-5-0-pro", "label": "Seedream 5.0 Pro", "min_tier": "small"},
+            {"id": "doubao-seedream-5.0-flash", "label": "Seedream 5.0 Flash", "min_tier": "small"},
         ],
     },
     {
         "id": "video",
         "label": "生视频",
-        "summary": ("官方套餐概览：Small 不含视频生成（轻量化体验）。Medium 仅 doubao-seedance-1.5-pro；doubao-seedance-2.0 / 2.0-fast 需 Large 或 Max。"),
+        "summary": ("官方套餐概览：Small / Medium 不含视频生成（轻量化体验）。doubao-seedance-2.0 / 2.0-fast / 2.0-mini / 2.5 需 Large 或 Max。"),
         "excluded_hint": {
-            "small": "官方 Small 档不含视频生成。升级 Medium 可用 Seedance 1.5 Pro；2.0 系列需 Large / Max。",
-            "medium": "当前 Medium 仅含即将下线的 Seedance 1.5 Pro；Seedance 2.0 / 2.0-fast 需升级 Large 或 Max。",
+            "small": "官方 Small 档不含视频生成。请升级 Large / Max 使用 Seedance 2.x。",
+            "medium": "官方 Medium 档不含视频生成。请升级 Large / Max 使用 Seedance 2.x。",
         },
-        "min_tier": "medium",
+        "min_tier": "large",
         "items": [
             {
-                "id": "doubao-seedance-1.5-pro",
-                "label": "Seedance 1.5 Pro",
-                "min_tier": "medium",
-                "notes": "即将下线",
+                "id": "doubao-seedance-2.5",
+                "label": "Seedance 2.5",
+                "min_tier": "large",
             },
             {
                 "id": "doubao-seedance-2.0",
@@ -263,6 +282,11 @@ AGENT_PLAN_CAPABILITIES: list[dict[str, Any]] = [
             {
                 "id": "doubao-seedance-2.0-fast",
                 "label": "Seedance 2.0 Fast",
+                "min_tier": "large",
+            },
+            {
+                "id": "doubao-seedance-2.0-mini",
+                "label": "Seedance 2.0 Mini",
                 "min_tier": "large",
             },
         ],
@@ -309,7 +333,7 @@ def default_media_models_for_tier(tier_id: str | None) -> dict[str, str | None]:
         if best:
             out[cap_id] = best[2]
     if not out["image"]:
-        out["image"] = "doubao-seedream-5.0-lite"
+        out["image"] = "doubao-seedream-5-0-pro"
     return out
 
 

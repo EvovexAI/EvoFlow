@@ -52,9 +52,9 @@ export function planBundlePromoHtml(opts = {}) {
       <div class="models-plan-promo-body">
         <h4 class="models-plan-promo-title">一键接入方舟 Agent Plan</h4>
         <p class="models-plan-promo-desc">
-          最新 DeepSeek-V4-flash、Kimi-K3、Doubao-Seed-Evolving、GLM-5.3 等；全模态 + Harness。
+          最新 DeepSeek-V4.1-Flash、Kimi-K3.1-Pro、Doubao-Seed-2.1、GLM-5.3 等；全模态 + Harness。
           粘贴 <code>ark-</code> Key 接通对话 / 生图视频 / 语音。
-          Small/Medium 优惠低至约 <strong>¥9.4</strong> ——
+          活动价低至约 <strong>¥9.9</strong> ——
           <a href="https://www.volcengine.com/product/ark" target="_blank" rel="noopener noreferrer">立即订阅</a>
         </p>
       </div>
@@ -108,7 +108,7 @@ export async function openPlanBundleWizard(opts = {}) {
     : `<a href="${esc(subscribeUrl)}" target="_blank" rel="noopener noreferrer">立即订阅</a>`
   const modelsHint = Array.isArray(catalog.models_hint) && catalog.models_hint.length
     ? catalog.models_hint.join('、')
-    : 'DeepSeek-V4-flash、Kimi-K3、Doubao-Seed-Evolving、GLM-5.2'
+    : 'DeepSeek-V4.1-Flash、Kimi-K3.1-Pro、Doubao-Seed-2.1、GLM-5.3'
   const promo = catalog.promo_hint
     ? `<p style="margin:0 0 12px;font-size:.85rem;line-height:1.45;color:var(--accent,#2563eb)">${esc(catalog.promo_hint)}</p>`
     : ''

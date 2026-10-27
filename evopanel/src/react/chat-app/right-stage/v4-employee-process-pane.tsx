@@ -10,9 +10,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { resolveProactiveProcessMeta } from '../../../lib/proactive-session-messages.js'
 import {
+  employeeProcessStageTabKey,
   patchEmployeeProcessTabTitle,
   resolveEmployeeProcessTabTitle,
 } from '../../../lib/right-stage/open-employee-process-stage.js'
+import { rightStageStore } from '../../../lib/right-stage/right-stage-store.js'
 import { refreshEvoflowV4Session } from '../../v4/V4StreamRowsBridge.js'
 import { V4SessionPaneBridge } from '../../v4/V4SessionPaneBridge.js'
 
@@ -22,6 +24,25 @@ const POLL_ACTIVE_MS = 3000
 const SETTLE_DELAY_MS = 2500
 
 const RUNNING = new Set(['running', 'busy', 'active', 'in_progress', 'queued', 'pending'])
+
+/** 后端 run_status 原值 → 徽标文案（未收录的回退原样显示） */
+const STATUS_LABEL: Record<string, string> = {
+  done: '已完成',
+  completed: '已完成',
+  success: '已完成',
+  failed: '失败',
+  error: '失败',
+  cancelled: '已取消',
+  canceled: '已取消',
+  timeout: '超时',
+  timed_out: '超时',
+  running: '执行中',
+  busy: '执行中',
+  active: '执行中',
+  in_progress: '执行中',
+  queued: '排队中',
+  pending: '等待中',
+}
 
 export type V4EmployeeProcessPaneProps = {
   agentCode: string
@@ -111,7 +132,25 @@ export function V4EmployeeProcessPane(props: V4EmployeeProcessPaneProps) {
   }, [code, taskId, roundId])
 
   const statusLow = String(runStatus || '').toLowerCase()
-  const running = busy || RUNNING.has(statusLow)
+  // 后端 run_status 是唯一权威：一旦拿到（含 done/completed/failed 等终态）就以它为准。
+  // busy 只是「派单那一刻」写进 tab 的乐观值，没有任何回写路径；若用「或」合并，
+  // 任务早已结束徽标也会永远停在「执行中」，且 3s 高频轮询停不下来（实测复现）。
+  // 故 busy 只在后端状态尚未取到时兜底。
+  const running = statusLow ? RUNNING.has(statusLow) : busy
+
+  // 拿到后端真实状态后，把 tab.data.busy 同步回落：否则关掉再打开还会读到
+  // 派单时写死的 busy=true，徽标又"复活"成执行中。
+  useEffect(() => {
+    if (!statusLow) return
+    const key = employeeProcessStageTabKey(taskId, sessionKey)
+    if (!key) return
+    const alive = RUNNING.has(statusLow)
+    try {
+      rightStageStore.patchTab(key, { data: { busy: alive } })
+    } catch {
+      /* store 不可用时忽略 */
+    }
+  }, [statusLow, taskId, sessionKey])
 
   useEffect(() => {
     setDisplayRole(resolveEmployeeProcessTabTitle({ title, roleName, agentCode: code }))
@@ -209,7 +248,9 @@ export function V4EmployeeProcessPane(props: V4EmployeeProcessPaneProps) {
               : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400')
           }
         >
-          {running ? '执行中' : runStatus || (loaded ? '已完成' : '加载中')}
+          {running
+            ? '执行中'
+            : STATUS_LABEL[statusLow] || runStatus || (loaded ? '已完成' : '加载中')}
         </span>
         <div className="flex-1" />
         {onClose ? (

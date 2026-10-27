@@ -1162,8 +1162,9 @@ export async function render(options = {}) {
     <div class="models-tab-bar tab-bar" role="tablist">
       <div class="models-tab-bar-tabs">
         <button type="button" class="tab active" data-model-tab="chat" role="tab" aria-selected="true">对话模型</button>
+        <button type="button" class="tab" data-model-tab="creative" role="tab" aria-selected="false">生图生视频</button>
         <button type="button" class="tab" data-model-tab="embedding" role="tab" aria-selected="false">向量模型</button>
-        <button type="button" class="tab" data-model-tab="media" role="tab" aria-selected="false">语音</button>
+        <button type="button" class="tab" data-model-tab="voice" role="tab" aria-selected="false">语音</button>
         <button type="button" class="tab" data-model-tab="plan" role="tab" aria-selected="false">套餐</button>
       </div>
     </div>
@@ -1249,7 +1250,7 @@ export async function mountModelsForSettingsModal(container) {
 }
 
 // ---------------------------------------------------------------------------
-// Tab switching: 对话模型 / 向量模型 / 语音
+// Tab switching: 对话模型 / 生图生视频 / 向量模型 / 语音 / 套餐
 // ---------------------------------------------------------------------------
 
 /** 从 gateway models 列表中分离出向量模型 */
@@ -1346,37 +1347,41 @@ async function mountPlanTab(page, state) {
 
 async function switchTab(page, state, tabKey) {
   if (!tabKey) return
-  if (state.activeTab === tabKey) {
-    if (tabKey !== 'plan') return
+  // 兼容旧链接 media → voice
+  const resolvedTab = tabKey === 'media' ? 'voice' : tabKey
+  if (state.activeTab === resolvedTab) {
+    if (resolvedTab !== 'plan') return
     const hasPlanRoot = page.querySelector('#models-detail-inner .plans-page, #models-detail-inner .settings-plans-root')
     if (hasPlanRoot) return
   }
   const leavingPlan = state.activeTab === 'plan'
-  state.activeTab = tabKey
+  state.activeTab = resolvedTab
 
   // 更新 Tab 高亮
   page.querySelectorAll('[data-model-tab]').forEach(btn => {
-    const active = btn.dataset.modelTab === tabKey
+    const active = btn.dataset.modelTab === resolvedTab
     btn.classList.toggle('active', active)
     btn.setAttribute('aria-selected', active ? 'true' : 'false')
   })
 
   const modelsSection = page.querySelector('#models-sidebar-section')
   const embeddingSection = page.querySelector('#embedding-sidebar-section')
-  const mediaSection = page.querySelector('#media-sidebar-section')
+  const creativeSection = page.querySelector('#creative-sidebar-section')
+  const voiceSection = page.querySelector('#media-sidebar-section')
   const defaultBar = page.querySelector('#default-model-bar')
   const detailMount = page.querySelector('#models-detail-inner')
 
   // 先全部隐藏
   modelsSection?.setAttribute('hidden', '')
   embeddingSection?.setAttribute('hidden', '')
-  mediaSection?.setAttribute('hidden', '')
+  creativeSection?.setAttribute('hidden', '')
+  voiceSection?.setAttribute('hidden', '')
   defaultBar?.setAttribute('hidden', '')
-  if (leavingPlan || tabKey !== 'plan') {
+  if (leavingPlan || resolvedTab !== 'plan') {
     await unmountPlanTab(page)
   }
 
-  if (tabKey === 'chat') {
+  if (resolvedTab === 'chat') {
     modelsSection?.removeAttribute('hidden')
     defaultBar?.removeAttribute('hidden')
     state.activeSection = 'models'
@@ -1385,22 +1390,29 @@ async function switchTab(page, state, tabKey) {
       renderProviders(page, state)
       renderDefaultBar(page, state)
     }
-  } else if (tabKey === 'embedding') {
+  } else if (resolvedTab === 'creative') {
+    creativeSection?.removeAttribute('hidden')
+    state.activeSection = 'creative'
+    if (detailMount) detailMount.innerHTML = ''
+    try {
+      const { renderMediaDetail } = await import('./settings/media.js')
+      renderMediaDetail('creative')
+    } catch { /* media.js 未加载时忽略 */ }
+  } else if (resolvedTab === 'embedding') {
     embeddingSection?.removeAttribute('hidden')
     state.activeSection = 'embedding'
     await reloadEmbeddingModels(state)
     await loadKbDefaultEmbedding(state)
     renderEmbeddingView(page, state)
-  } else if (tabKey === 'media') {
-    mediaSection?.removeAttribute('hidden')
-    state.activeSection = 'media'
+  } else if (resolvedTab === 'voice') {
+    voiceSection?.removeAttribute('hidden')
+    state.activeSection = 'voice'
     if (detailMount) detailMount.innerHTML = ''
-    // 触发 media.js 渲染详情区
     try {
       const { renderMediaDetail } = await import('./settings/media.js')
-      renderMediaDetail()
+      renderMediaDetail('voice')
     } catch { /* media.js 未加载时忽略 */ }
-  } else if (tabKey === 'plan') {
+  } else if (resolvedTab === 'plan') {
     state.activeSection = 'plan'
     clearMediaSelection(page)
     if (detailMount) detailMount.innerHTML = ''

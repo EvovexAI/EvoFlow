@@ -4,6 +4,7 @@ import { syncEmployeesRosterFromToolResult } from '../employees-roster-sync.js'
 import { syncPanelAppearanceFromToolResult } from '../panel-appearance-sync.js'
 import { openProgressFromPanelSet } from './open-progress-from-panel-set.js'
 import { logRightStage } from './panel-set-debug-log.js'
+import { rightStageStore } from './right-stage-store.js'
 import type { RightStageSurface } from './right-stage-types.js'
 
 export type PlatformFeedbackDetail = {
@@ -254,7 +255,18 @@ export function maybeAutoOpenPlatformProgress(ui: PlatformUiFeedback | null | un
     openStage: hit.openStage,
   })
   const tabId = openProgressFromPanelSet(hit.openStage)
-  return Boolean(tabId)
+  if (!tabId) return false
+  // show() 已会展开；仍同步兜底一次，避免唤醒 left-only 的异步 collapse 晚到后右栏空白
+  if (rightStageStore.getSnapshot().collapsed) rightStageStore.expand()
+  // 小V 语音全屏：放行状态卡（与 Read autoOpen 同构）
+  void import('../xw-voice-mode.js')
+    .then((m) => {
+      if (!m.isXwVoiceMode?.()) return
+      m.allowXwVoiceSummary?.()
+      if (rightStageStore.getSnapshot().collapsed) rightStageStore.expand()
+    })
+    .catch(() => {})
+  return true
 }
 
 function pickLabel(obj: Record<string, unknown>, args: Record<string, unknown>): string {
@@ -390,6 +402,28 @@ export function enrichShellPageOpenStages(ui: PlatformUiFeedback): PlatformUiFee
         a.autoOpen = true
         touched = true
       }
+      // 旧 CTA 可能写 /employees → 归一成 /proactive，否则挂载表 miss
+      if (a.openStage) {
+        const rawPath = asString(a.openStage.data?.path) || asString(a.openStage.data?.route) || asString(a.route)
+        let nextPath = rawPath
+        if (rawPath === '/employees' || rawPath === '/employees/') nextPath = '/proactive'
+        else {
+          const m = rawPath.match(/^\/employees\/([^/?#]+)\/?$/)
+          if (m) nextPath = `/proactive/${decodeURIComponent(m[1])}`
+        }
+        if (nextPath && nextPath !== rawPath) {
+          a.openStage = {
+            ...a.openStage,
+            data: {
+              ...(a.openStage.data || {}),
+              path: nextPath,
+              route: nextPath,
+            },
+          }
+          a.route = nextPath
+          touched = true
+        }
+      }
       // 已有 shell-page 但标题是 path / 空：用 entityLabel 补可读名
       if (entityLabel && a.openStage) {
         const cur = asString(a.openStage.title) || asString(a.openStage.data?.title)
@@ -410,7 +444,12 @@ export function enrichShellPageOpenStages(ui: PlatformUiFeedback): PlatformUiFee
     }
     if (existingKind) continue
 
-    if (route === '/proactive' || route === '/proactive/') {
+    if (
+      route === '/proactive' ||
+      route === '/proactive/' ||
+      route === '/employees' ||
+      route === '/employees/'
+    ) {
       Object.assign(
         a,
         shellPageAction({
@@ -425,7 +464,7 @@ export function enrichShellPageOpenStages(ui: PlatformUiFeedback): PlatformUiFee
       touched = true
       continue
     }
-    const emp = route.match(/^\/proactive\/([^/?#]+)\/?$/)
+    const emp = route.match(/^\/(?:proactive|employees)\/([^/?#]+)\/?$/)
     if (emp && emp[1] !== 'board' && emp[1] !== 'approvals') {
       const path = `/proactive/${decodeURIComponent(emp[1])}`
       Object.assign(
@@ -676,8 +715,14 @@ export function platformFeedbackTitleFromToolOutput(raw: unknown, argsText?: str
 }
 
 export function navigatePlatformFeedbackRoute(route: string): void {
-  const next = asString(route)
+  let next = asString(route)
   if (!next || typeof window === 'undefined') return
+  // 别名落到真实菜单路由，避免主区 404 / 空白
+  if (next === '/employees' || next === '#/employees') next = '/proactive'
+  else {
+    const m = next.replace(/^#/, '').match(/^\/employees\/([^/?#]+)/)
+    if (m) next = `/proactive/${m[1]}`
+  }
   const hash = next.startsWith('#') ? next.slice(1) : next.startsWith('/') ? next : `/${next}`
   window.location.hash = hash
 }

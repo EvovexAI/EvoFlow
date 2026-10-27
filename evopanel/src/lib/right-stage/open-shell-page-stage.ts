@@ -22,6 +22,11 @@ function normalizePath(raw: string): string {
   if (!p) return ''
   if (p.startsWith('#')) p = p.slice(1)
   if (!p.startsWith('/')) p = `/${p}`
+  p = p.split('?')[0].replace(/\/+$/, '') || '/'
+  // 与挂载表一致：/employees → /proactive
+  if (p === '/employees') return '/proactive'
+  const emp = p.match(/^\/employees\/([^/]+)$/)
+  if (emp) return `/proactive/${emp[1]}`
   return p
 }
 

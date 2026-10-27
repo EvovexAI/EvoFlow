@@ -87,14 +87,14 @@ def submit_image(
     reference_image_urls: list[str] | None = None,
     size: str | None = None,
     aspect_ratio: str = "16:9",
-    model: str = "wanx2.1-t2i-turbo",
+    model: str = "wan2.7-image",
 ) -> str:
     """Wan text-to-image (sync-style task via async header)."""
     effective_size = size if size is not None else wan_image_size(aspect_ratio)
     input_body: dict[str, Any] = {"prompt": prompt}
     if mode == "image2image" and reference_image_urls:
         input_body["ref_image"] = reference_image_urls[0]
-        model = os.getenv("DASHSCOPE_IMAGE_I2I_MODEL", "wanx2.1-imageedit")
+        model = os.getenv("DASHSCOPE_IMAGE_I2I_MODEL", "wan2.6-image")
 
     body = {
         "model": model,
@@ -125,7 +125,7 @@ def submit_video(
     model: str | None = None,
 ) -> str:
     if mode == "image2video" and first_frame_url:
-        m = model or os.getenv("DASHSCOPE_VIDEO_I2V_MODEL", "wan2.6-i2v")
+        m = model or os.getenv("DASHSCOPE_VIDEO_I2V_MODEL", "wan2.7-i2v")
         input_body: dict[str, Any] = {
             "prompt": prompt,
             "img_url": first_frame_url,
@@ -133,7 +133,7 @@ def submit_video(
         if audio_url:
             input_body["audio_url"] = audio_url
     else:
-        m = model or os.getenv("DASHSCOPE_VIDEO_T2V_MODEL", "wan2.6-t2v")
+        m = model or os.getenv("DASHSCOPE_VIDEO_T2V_MODEL", "wan2.7-t2v")
         input_body = {"prompt": prompt}
         if audio_url:
             input_body["audio_url"] = audio_url

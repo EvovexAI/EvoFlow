@@ -14,6 +14,7 @@
  *   - [状态] 聆听/播报/处理中/思考中/空闲 at=… → 舞台当时状态（播报中不会记成聆听）
  *   - [已经进入] / [关闭退出] / [已经退出] → 语音对话区闸门（关面板 = 退出整套听麦/播报）
  *   - [时效] 唤醒链路里程碑 + since_hit_ms → 排查「唤醒慢」
+ *   - [唤醒] Web Speech ASR 听写/近失/冷却/onerror/聋耳心跳；KWS 命中 → 排查「叫了没理」
  *   - [决策] unmute/defer/barge/tray 取舍 + 关键布尔 → 排查卡顿/误打断/状态闪回
  *   - [决策] phase from→to / client_phase → VoicePhase 门控（listening 才 unmute，speaking 才 barge）
  */

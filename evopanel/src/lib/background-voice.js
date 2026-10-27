@@ -573,10 +573,26 @@ async function openXiaomiForWake() {
   }
 }
 
-async function onWakeWordHit() {
-  if (!wakeWordEnabled) return
+async function onWakeWordHit(ev) {
+  if (!wakeWordEnabled) {
+    void import('./xiaomi-voice/voice-file-log.js')
+      .then(({ voiceFeLog }) => voiceFeLog('唤醒', '收到 hit 但 wakeWordEnabled=false → 忽略'))
+      .catch(() => {})
+    return
+  }
   // Re-entrancy guard: Web Speech may fire multiple hits while we start listening.
-  if (onWakeWordHit._busy) return
+  if (onWakeWordHit._busy) {
+    console.log('[background-voice] Wake word hit ignored (busy)')
+    void import('./xiaomi-voice/voice-file-log.js')
+      .then(({ voiceFeLog }) =>
+        voiceFeLog(
+          '唤醒',
+          `收到 hit 但处理中 busy → 忽略 asr=「${String(ev?.detail?.asr || ev?.detail?.raw || '').slice(0, 40)}」`,
+        ),
+      )
+      .catch(() => {})
+    return
+  }
   onWakeWordHit._busy = true
   console.log('[background-voice] Wake word hit! Opening 小V...')
   try {
@@ -585,7 +601,11 @@ async function onWakeWordHit() {
     )
     markWakeHitClock()
     noteWakeMilestone('hit')
-    voiceFeLog('会话', '收到 wake-word-hit → 开麦应答')
+    const detail = ev?.detail || {}
+    voiceFeLog(
+      '会话',
+      `收到 wake-word-hit → 开麦应答 backend=${detail.backend || wakeWordBackend || '?'} asr=「${String(detail.asr || detail.raw || '').slice(0, 40)}」`,
+    )
   } catch {
     /* ignore */
   }

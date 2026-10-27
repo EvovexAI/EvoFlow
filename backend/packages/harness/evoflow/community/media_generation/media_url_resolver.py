@@ -1,7 +1,17 @@
-"""Resolve local outputs paths to provider-accessible HTTP / oss:// URLs."""
+"""Resolve local outputs paths / data URLs to provider-accessible references.
+
+Official Ark (Seedream / Seedance) accepts for images:
+- Public http(s) URL
+- Data URI: ``data:image/<fmt>;base64,<payload>`` (fmt lowercase; NOT raw base64)
+- ``asset://<ASSET_ID>``
+
+MiniMax Hailuo: public URL or Data URI.
+DashScope Wan: prefers ``oss://`` temp upload for local files.
+"""
 
 from __future__ import annotations
 
+import base64
 import logging
 import os
 import re
@@ -20,13 +30,33 @@ from evoflow.tools.host_direct.workspace_context import resolve_effective_output
 logger = logging.getLogger(__name__)
 
 _AT_MENTION_RE = re.compile(r"@@(.+?)@@")
+_DATA_URL_RE = re.compile(r"^data:(image|audio)/[a-z0-9.+-]+;base64,", re.IGNORECASE)
+
+_IMAGE_MIME = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".webp": "image/webp",
+    ".bmp": "image/bmp",
+    ".gif": "image/gif",
+    ".tif": "image/tiff",
+    ".tiff": "image/tiff",
+    ".heic": "image/heic",
+    ".heif": "image/heif",
+}
+
+
+def is_data_url(value: str | None) -> bool:
+    return bool(_DATA_URL_RE.match(str(value or "").strip()))
 
 
 def is_provider_accessible_url(value: str | None) -> bool:
     s = str(value or "").strip()
     if not s:
         return False
-    if s.startswith("oss://"):
+    if s.startswith("oss://") or s.startswith("asset://"):
+        return True
+    if is_data_url(s):
         return True
     parsed = urlparse(s)
     return parsed.scheme in ("http", "https") and bool(parsed.netloc)
@@ -127,6 +157,34 @@ def _dashscope_upload_model(*, purpose: str, provider: str) -> str | None:
     return os.getenv("DASHSCOPE_VIDEO_I2V_MODEL", "wan2.6-i2v")
 
 
+def encode_local_image_as_data_url(local_file: Path) -> str:
+    """Ark / MiniMax require full Data URI, never raw base64."""
+    suffix = local_file.suffix.lower()
+    mime = _IMAGE_MIME.get(suffix, "image/jpeg")
+    b64 = base64.b64encode(local_file.read_bytes()).decode("ascii")
+    return f"data:{mime};base64,{b64}"
+
+
+def _jimeng_accepts_local_encode(purpose: str) -> bool:
+    return purpose in {
+        "first_frame",
+        "last_frame",
+        "reference",
+        "image2image",
+        "reference_image",
+    }
+
+
+def _minimax_accepts_local_encode(purpose: str) -> bool:
+    return purpose in {
+        "first_frame",
+        "last_frame",
+        "reference",
+        "image2image",
+        "reference_image",
+    }
+
+
 def resolve_media_reference_url(
     raw: str | None,
     *,
@@ -136,10 +194,25 @@ def resolve_media_reference_url(
     media_kind: str | None = None,
     outputs_dir: Path | None = None,
 ) -> tuple[str | None, str | None]:
-    """Return (resolved_url, note) for ``first_frame_url`` / ``audio_url`` tool args."""
+    """Return (resolved_url, note) for image/video reference args.
+
+    Accepted inputs:
+    - ``https://…`` public URL
+    - ``data:image/<fmt>;base64,…`` Data URI (already OK)
+    - ``oss://…`` / ``asset://…``
+    - local ``outputs/…`` or absolute path → provider-specific encoding/upload
+    """
     s = _strip_wrappers(str(raw or ""))
     if not s:
         return None, None
+
+    # Reject naked base64 (no data: prefix) — Ark treats it as invalid URL.
+    if re.fullmatch(r"[A-Za-z0-9+/=\s]{64,}", s) and not s.startswith("data:"):
+        raise ValueError(
+            "Reference image looks like raw base64. Pass a full Data URI "
+            "`data:image/png;base64,...` or a public https URL / local outputs path."
+        )
+
     if is_provider_accessible_url(s):
         return s, None
 
@@ -152,24 +225,33 @@ def resolve_media_reference_url(
 
     local_file = resolve_local_media_file(s, outputs_dir=out_dir)
     if local_file is None:
-        raise ValueError(f"Media URL must be http(s)/oss:// or a file under outputs/; could not resolve: {s!r}")
+        raise ValueError(
+            f"Media reference must be http(s) URL, data:image/...;base64,..., "
+            f"oss:// / asset://, or a file under outputs/; could not resolve: {s!r}"
+        )
 
     upload_model = _dashscope_upload_model(purpose=purpose, provider=provider)
     if upload_model:
         oss_url = upload_local_file(file_path=local_file, model_name=upload_model)
         return oss_url, f"Uploaded local file to DashScope temporary storage ({local_file.name})."
 
-    if provider == "jimeng" and purpose == "first_frame":
-        import base64
+    if provider == "jimeng" and _jimeng_accepts_local_encode(purpose):
+        data_url = encode_local_image_as_data_url(local_file)
+        return data_url, f"Encoded local image as data URL for Ark ({local_file.name})."
 
-        suffix = local_file.suffix.lower()
-        mime = "image/png" if suffix == ".png" else "image/jpeg"
-        if suffix in (".webp",):
-            mime = "image/webp"
-        b64 = base64.b64encode(local_file.read_bytes()).decode("ascii")
-        return f"data:{mime};base64,{b64}", f"Encoded local image as data URL for Seedance ({local_file.name})."
+    if provider in {"minimax", "hailuo"} and _minimax_accepts_local_encode(purpose):
+        data_url = encode_local_image_as_data_url(local_file)
+        return data_url, f"Encoded local image as data URL for MiniMax ({local_file.name})."
 
-    raise ValueError(f"Provider {provider!r} requires a public http(s) URL for {purpose}; got local path {s!r} with no cached remote URL. Use the `url` field from media_image_generate, not absolute_path.")
+    if provider == "openai" and _jimeng_accepts_local_encode(purpose):
+        data_url = encode_local_image_as_data_url(local_file)
+        return data_url, f"Encoded local image as data URL for OpenAI ({local_file.name})."
+
+    raise ValueError(
+        f"Provider {provider!r} requires a public http(s) URL or data URI for {purpose}; "
+        f"got local path {s!r} with no cached remote URL. "
+        "Pass the `url` from a prior generate_image, or a data:image/...;base64,... URI."
+    )
 
 
 def uses_dashscope_oss_resolve(*urls: str | None) -> bool:

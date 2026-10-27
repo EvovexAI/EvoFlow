@@ -24,6 +24,7 @@ describe('right stage scope', () => {
     expect(scopeOfKind('collab-workflow')).toBe('workspace')
     expect(scopeOfKind('collabSubtaskTranscript')).toBe('workspace')
     expect(scopeOfKind('employeeProcess')).toBe('workspace')
+    expect(scopeOfKind('shell-page')).toBe('workspace')
   })
 
   it('classifies session-scoped kinds and defaults unknown to session', () => {

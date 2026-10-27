@@ -85,6 +85,7 @@ def _build_seedance_content(
     prompt: str,
     mode: str,
     first_frame_url: str | None,
+    last_frame_url: str | None = None,
 ) -> list[dict[str, Any]]:
     content: list[dict[str, Any]] = [{"type": "text", "text": prompt}]
     if mode == "image2video" and first_frame_url:
@@ -95,6 +96,14 @@ def _build_seedance_content(
                 "role": "first_frame",
             }
         )
+        if last_frame_url:
+            content.append(
+                {
+                    "type": "image_url",
+                    "image_url": {"url": last_frame_url},
+                    "role": "last_frame",
+                }
+            )
     return content
 
 
@@ -182,11 +191,14 @@ def submit_video(
     prompt: str,
     mode: str,
     first_frame_url: str | None = None,
+    last_frame_url: str | None = None,
     duration: int = 5,
     resolution: str = "720p",
     aspect_ratio: str = "16:9",
     model: str | None = None,
     generate_audio: bool | None = None,
+    watermark: bool | None = None,
+    seed: int | None = None,
 ) -> str:
     _assert_plan_capability("video")
     if _use_seedance_video():
@@ -198,12 +210,19 @@ def submit_video(
                 prompt=prompt,
                 mode=mode,
                 first_frame_url=first_frame_url,
+                last_frame_url=last_frame_url,
             ),
             "ratio": aspect_ratio,
             "duration": duration,
             "generate_audio": with_audio,
-            "resolution": resolution or "1080p",
+            "resolution": resolution or "720p",
+            "watermark": False if watermark is None else bool(watermark),
         }
+        if seed is not None:
+            try:
+                body["seed"] = int(seed)
+            except (TypeError, ValueError):
+                pass
         data = _request_ark("POST", "/contents/generations/tasks", body)
         task_id = data.get("id")
         if task_id:

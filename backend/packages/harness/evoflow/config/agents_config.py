@@ -1211,6 +1211,9 @@ def ensure_builtin_agents_materialized() -> None:
 
             _xm_duties = duty_system_prompt()
             _xm_sp = str(getattr(load_agent_config("xiaomi"), "system_prompt", "") or "")
+            # Product duty prompt (canonical header) always tracks bundled text so
+            # new sections (e.g. sessions.compact) land on existing installs.
+            # Custom overrides without the product header are left alone.
             if _xm_sp != _xm_duties and (
                 not _xm_sp
                 or "xiaomi_" in _xm_sp
@@ -1218,6 +1221,8 @@ def ensure_builtin_agents_materialized() -> None:
                 or "我的心情" in _xm_sp
                 or "你是用户的全局助手" in _xm_sp
                 or "不再挂小V专用工具名" in _xm_sp
+                or "# 小V · 职责与约束" in _xm_sp
+                or ("sessions.compact" in _xm_duties and "sessions.compact" not in _xm_sp)
             ):
                 _xm_full = load_agent_config("xiaomi").model_dump(exclude_none=False, exclude={"name"})
                 _xm_full["system_prompt"] = _xm_duties

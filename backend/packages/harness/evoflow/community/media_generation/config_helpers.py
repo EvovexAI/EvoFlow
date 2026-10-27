@@ -40,14 +40,14 @@ def _tool_extra(tool_name: str) -> dict[str, Any]:
 
 def default_image_provider(tool_name: str = "media_image_generate") -> ImageProvider:
     raw = str(_tool_extra(tool_name).get("default_provider") or os.getenv("MEDIA_DEFAULT_IMAGE_PROVIDER") or "jimeng")
-    if raw in ("jimeng", "kling", "wan"):
+    if raw in ("jimeng", "kling", "wan", "openai"):
         return raw  # type: ignore[return-value]
     return "jimeng"
 
 
 def default_video_provider(tool_name: str = "media_video_generate") -> VideoProvider:
     raw = str(_tool_extra(tool_name).get("default_provider") or os.getenv("MEDIA_DEFAULT_VIDEO_PROVIDER") or "jimeng")
-    if raw in ("jimeng", "kling", "wan"):
+    if raw in ("jimeng", "kling", "wan", "minimax"):
         return raw  # type: ignore[return-value]
     return "jimeng"
 
@@ -151,8 +151,8 @@ def jimeng_video_base() -> str:
     return volcengine_ark_base().rstrip("/")
 
 
-DEFAULT_JIMENG_IMAGE_MODEL = "doubao-seedream-5.0-lite"
-DEFAULT_JIMENG_VIDEO_MODEL = "doubao-seedance-2.0"
+DEFAULT_JIMENG_IMAGE_MODEL = "doubao-seedream-5-0-pro"
+DEFAULT_JIMENG_VIDEO_MODEL = "doubao-seedance-2.5"
 
 
 def jimeng_image_model() -> str:
@@ -239,7 +239,18 @@ def is_dashscope_tts_configured() -> bool:
     return is_wan_configured()
 
 
-IMAGE_PROVIDER_VENDOR: dict[str, str] = {"jimeng": "volcengine", "wan": "dashscope", "kling": "kling"}
+IMAGE_PROVIDER_VENDOR: dict[str, str] = {
+    "jimeng": "volcengine",
+    "wan": "dashscope",
+    "kling": "kling",
+    "openai": "openai-image",
+}
+VIDEO_PROVIDER_VENDOR: dict[str, str] = {
+    "jimeng": "volcengine",
+    "wan": "dashscope",
+    "kling": "kling",
+    "minimax": "minimax",
+}
 VOICE_PROVIDER_VENDOR: dict[str, str] = {"volcengine": "volcengine-tts", "dashscope": "dashscope"}
 
 
@@ -252,6 +263,62 @@ def is_vendor_enabled(vendor_key: str) -> bool:
         return vendor_key == "volcengine"
 
 
+def is_openai_image_configured() -> bool:
+    try:
+        from evoflow.persistence.media_settings import vendor_has_usable_credentials
+
+        return vendor_has_usable_credentials("openai-image")
+    except Exception:
+        return False
+
+
+def is_minimax_media_configured() -> bool:
+    try:
+        from evoflow.persistence.media_settings import vendor_has_usable_credentials
+
+        return vendor_has_usable_credentials("minimax")
+    except Exception:
+        return False
+
+
+def openai_image_api_key() -> str:
+    try:
+        from evoflow.persistence.media_settings import get_vendor_credentials
+
+        return get_vendor_credentials("openai-image").get("apiKey", "")
+    except Exception:
+        return ""
+
+
+def openai_image_base_url() -> str:
+    default = "https://api.openai.com/v1"
+    try:
+        from evoflow.persistence.media_settings import get_vendor_credentials
+
+        return get_vendor_credentials("openai-image").get("baseUrl", default).rstrip("/") or default
+    except Exception:
+        return default
+
+
+def minimax_media_api_key() -> str:
+    try:
+        from evoflow.persistence.media_settings import get_vendor_credentials
+
+        return get_vendor_credentials("minimax").get("apiKey", "")
+    except Exception:
+        return ""
+
+
+def minimax_media_base_url() -> str:
+    default = "https://api.minimax.cn"
+    try:
+        from evoflow.persistence.media_settings import get_vendor_credentials
+
+        return get_vendor_credentials("minimax").get("baseUrl", default).rstrip("/") or default
+    except Exception:
+        return default
+
+
 def _image_provider_has_credentials(provider: str) -> bool:
     if provider == "jimeng":
         return is_jimeng_configured()
@@ -259,7 +326,15 @@ def _image_provider_has_credentials(provider: str) -> bool:
         return is_wan_configured()
     if provider == "kling":
         return is_kling_configured()
+    if provider == "openai":
+        return is_openai_image_configured()
     return False
+
+
+def _video_provider_has_credentials(provider: str) -> bool:
+    if provider == "minimax":
+        return is_minimax_media_configured()
+    return _image_provider_has_credentials(provider)
 
 
 def is_image_provider_configured(provider: str) -> bool:
@@ -270,7 +345,10 @@ def is_image_provider_configured(provider: str) -> bool:
 
 
 def is_video_provider_configured(provider: str) -> bool:
-    return is_image_provider_configured(provider)
+    vendor = VIDEO_PROVIDER_VENDOR.get(provider)
+    if not vendor or not is_vendor_enabled(vendor):
+        return False
+    return _video_provider_has_credentials(provider)
 
 
 def _voice_provider_has_credentials(provider: str) -> bool:
@@ -290,14 +368,18 @@ def is_voice_provider_configured(provider: str) -> bool:
 
 def configured_image_providers() -> list[ImageProvider]:
     out: list[ImageProvider] = []
-    for p in ("jimeng", "wan", "kling"):
+    for p in ("jimeng", "wan", "openai", "kling"):
         if is_image_provider_configured(p):
             out.append(p)  # type: ignore[arg-type]
     return out
 
 
 def configured_video_providers() -> list[VideoProvider]:
-    return configured_image_providers()  # type: ignore[return-value]
+    out: list[VideoProvider] = []
+    for p in ("jimeng", "wan", "minimax", "kling"):
+        if is_video_provider_configured(p):
+            out.append(p)  # type: ignore[arg-type]
+    return out
 
 
 def configured_voice_providers() -> list[VoiceProvider]:
@@ -318,14 +400,32 @@ def available_media_providers() -> dict[str, list[str]]:
 
 def provider_unavailable_message(provider: str, *, media_kind: str) -> str | None:
     """Return error text if provider credentials are missing or disabled; else None."""
-    if media_kind in ("image", "video"):
+    if media_kind == "image":
         vendor = IMAGE_PROVIDER_VENDOR.get(provider)
         if vendor and not is_vendor_enabled(vendor):
-            return f"媒体 provider {provider!r} 已停用，拒绝调用。请在 EvoPanel → 设置 → 模型 → 视频模型 中启用该厂商后再试。"
+            return f"媒体 provider {provider!r} 已停用，拒绝调用。请在 EvoPanel → 设置 → 模型 → 媒体渠道 中启用该厂商后再试。"
         if is_image_provider_configured(provider):
             return None
         available = configured_image_providers()
-        label = {"jimeng": "火山方舟(jimeng)", "wan": "通义万相(wan)", "kling": "可灵(kling)"}
+        label = {
+            "jimeng": "火山方舟(jimeng)",
+            "wan": "通义万相(wan)",
+            "openai": "OpenAI 生图",
+            "kling": "可灵(kling)",
+        }
+    elif media_kind == "video":
+        vendor = VIDEO_PROVIDER_VENDOR.get(provider)
+        if vendor and not is_vendor_enabled(vendor):
+            return f"媒体 provider {provider!r} 已停用，拒绝调用。请在 EvoPanel → 设置 → 模型 → 媒体渠道 中启用该厂商后再试。"
+        if is_video_provider_configured(provider):
+            return None
+        available = configured_video_providers()
+        label = {
+            "jimeng": "火山方舟(jimeng)",
+            "wan": "通义万相(wan)",
+            "minimax": "MiniMax 海螺",
+            "kling": "可灵(kling)",
+        }
     elif media_kind == "voice":
         vendor = VOICE_PROVIDER_VENDOR.get(provider)
         if vendor and not is_vendor_enabled(vendor):

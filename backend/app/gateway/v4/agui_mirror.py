@@ -301,6 +301,34 @@ def _platform_ui_display_block(
                     "entityLabel": blob.get("role_name") or blob.get("roleName"),
                     "bindStatus": "pending",
                 }
+            else:
+                # media.* 结果：无 ui 时仍可从 absolute_path / preview 抽出预览区
+                action_name = str(blob.get("action") or "").strip()
+                preview = blob.get("preview") if isinstance(blob.get("preview"), dict) else {}
+                abs_path = str(
+                    preview.get("src")
+                    or blob.get("absolute_path")
+                    or blob.get("local_path")
+                    or blob.get("url")
+                    or ""
+                ).strip()
+                if action_name.startswith("media.") and abs_path:
+                    kind = str(preview.get("kind") or blob.get("media_kind") or "image").strip().lower()
+                    if kind not in {"image", "video"}:
+                        kind = "video" if abs_path.lower().endswith((".mp4", ".webm", ".mov", ".mkv", ".m4v")) else "image"
+                    ui = {
+                        "action": action_name,
+                        "title": str(blob.get("message") or "媒体已生成").strip() or "媒体已生成",
+                        "media": [
+                            {
+                                "kind": kind,
+                                "mimeType": str(preview.get("mimeType") or ("video/mp4" if kind == "video" else "image/png")),
+                                "artifactUri": abs_path,
+                                "absolutePath": str(blob.get("absolute_path") or blob.get("local_path") or "").strip() or None,
+                                "url": str(blob.get("url") or "").strip() or None,
+                            }
+                        ],
+                    }
     if not isinstance(ui, dict):
         return None
     qr = str(ui.get("qrUrl") or ui.get("qr_url") or "").strip()
@@ -348,10 +376,49 @@ def _platform_ui_display_block(
             progress_actions.append(entry)
             if len(progress_actions) >= 4:
                 break
-    if not qr and not session_id and not progress_actions and action != "employees.bind_channel_begin":
-        # 既无绑码也无进度 CTA → 不需要特殊 display
+    media_items: list[dict[str, Any]] = []
+    raw_media = ui.get("media")
+    if isinstance(raw_media, list):
+        for row in raw_media[:4]:
+            if not isinstance(row, dict):
+                continue
+            uri = str(
+                row.get("artifactUri")
+                or row.get("artifact_uri")
+                or row.get("src")
+                or row.get("absolutePath")
+                or row.get("absolute_path")
+                or row.get("url")
+                or ""
+            ).strip()
+            if not uri:
+                continue
+            kind = str(row.get("kind") or "").strip().lower()
+            mime = str(row.get("mimeType") or row.get("mime_type") or "").strip()
+            if not kind:
+                kind = "video" if ("video" in mime or uri.lower().endswith((".mp4", ".webm", ".mov", ".mkv", ".m4v"))) else "image"
+            if not mime:
+                mime = "video/mp4" if kind == "video" else "image/png"
+            entry: dict[str, Any] = {
+                "kind": kind,
+                "mimeType": mime[:128],
+                "artifactUri": uri[:4096],
+            }
+            abs_path = str(row.get("absolutePath") or row.get("absolute_path") or "").strip()
+            if abs_path:
+                entry["absolutePath"] = abs_path[:1024]
+            media_items.append(entry)
+
+    if (
+        not qr
+        and not session_id
+        and not progress_actions
+        and not media_items
+        and action != "employees.bind_channel_begin"
+    ):
+        # 既无绑码也无进度 CTA / 媒体预览 → 不需要特殊 display
         return None
-    if not qr and not session_id and not progress_actions:
+    if not qr and not session_id and not progress_actions and not media_items:
         return None
     bind_raw = str(ui.get("bindStatus") or ui.get("bind_status") or "").strip().lower()
     bind_status = (
@@ -385,6 +452,8 @@ def _platform_ui_display_block(
         block["bindStatus"] = bind_status
     if progress_actions:
         block["actions"] = progress_actions
+    if media_items:
+        block["media"] = media_items
     return block
 
 

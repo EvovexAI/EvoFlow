@@ -43,7 +43,14 @@ export function resolveShellPageTabTitle(opts: {
   if (mountId.startsWith('settings') || mountId === 'settings.models') return '设置'
   if (mountId.startsWith('automation') || mountId.includes('cron')) return '自动化'
   const path = String(opts.path || '').trim()
-  if (path === '/proactive' || path.startsWith('/proactive/')) return '员工'
+  if (
+    path === '/proactive' ||
+    path.startsWith('/proactive/') ||
+    path === '/employees' ||
+    path.startsWith('/employees/')
+  ) {
+    return '员工'
+  }
   if (path.startsWith('/task/')) return '任务'
   if (path.startsWith('/apps')) return '工作流'
   if (path.startsWith('/knowledge')) return '知识库'
@@ -77,7 +84,12 @@ function normalizePath(raw: string): string {
   if (p.startsWith('#')) p = p.slice(1)
   if (!p.startsWith('/')) p = `/${p}`
   // 挂载匹配忽略 query；query 仍可从完整 path 传给页面（若需要）
-  return p.split('?')[0].replace(/\/+$/, '') || '/'
+  p = p.split('?')[0].replace(/\/+$/, '') || '/'
+  // 别名：/employees ↔ /proactive（旧 CTA / 口语路由）
+  if (p === '/employees') return '/proactive'
+  const emp = p.match(/^\/employees\/([^/]+)$/)
+  if (emp) return `/proactive/${emp[1]}`
+  return p
 }
 
 const ENTRIES: Entry[] = [

@@ -5,8 +5,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-ImageProvider = Literal["jimeng", "kling", "wan"]
-VideoProvider = Literal["jimeng", "kling", "wan"]
+ImageProvider = Literal["jimeng", "kling", "wan", "openai"]
+VideoProvider = Literal["jimeng", "kling", "wan", "minimax"]
 ImageMode = Literal["text2image", "image2image"]
 VideoMode = Literal["text2video", "image2video"]
 VoiceProvider = Literal["volcengine", "dashscope"]

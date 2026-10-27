@@ -18,7 +18,7 @@ import shutil
 import subprocess
 import time
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from langchain.tools import ToolRuntime, tool
 from langgraph.typing import ContextT
@@ -53,8 +53,8 @@ from evoflow.tools.host_direct.workspace_context import resolve_effective_output
 
 logger = logging.getLogger(__name__)
 
-ImageProviderLit = Literal["jimeng", "kling", "wan"]
-VideoProviderLit = Literal["jimeng", "kling", "wan"]
+ImageProviderLit = Literal["jimeng", "kling", "wan", "openai"]
+VideoProviderLit = Literal["jimeng", "kling", "wan", "minimax"]
 ImageModeLit = Literal["text2image", "image2image"]
 VideoModeLit = Literal["text2video", "image2video"]
 VoiceProviderLit = Literal["volcengine", "dashscope"]
@@ -140,16 +140,19 @@ def _run_image_generate_and_wait(
     reference_image_urls: list[str] | None,
     aspect_ratio: str,
     max_wait_seconds: int,
+    model: str | None = None,
 ) -> str:
     """Submit image job, poll until done, download to outputs — single tool round-trip."""
     try:
-        task_id = _submit_image(
-            provider,
-            prompt=prompt,
-            mode=mode,
-            reference_image_urls=reference_image_urls,
-            aspect_ratio=aspect_ratio,
-        )
+        submit_kwargs: dict[str, Any] = {
+            "prompt": prompt,
+            "mode": mode,
+            "reference_image_urls": reference_image_urls,
+            "aspect_ratio": aspect_ratio,
+        }
+        if model:
+            submit_kwargs["model"] = model
+        task_id = _submit_image(provider, **submit_kwargs)
     except Exception as e:
         logger.exception("media_image_generate submit failed")
         return error_response(str(e), provider=provider)
@@ -283,10 +286,22 @@ def _guard_media_provider(provider: str, *, media_kind: str) -> None:
 def _submit_image(provider: str, **kwargs) -> str:
     _guard_media_provider(provider, media_kind="image")
     aspect_ratio = kwargs.pop("aspect_ratio", "16:9")
+    model = kwargs.pop("model", None)
     if provider == "kling":
         kwargs["aspect_ratio"] = aspect_ratio
+        if model:
+            kwargs["model_name"] = model
         return kling_provider.submit_image(**kwargs)
+    if provider == "openai":
+        from evoflow.community.media_generation.providers import openai_images
+
+        kwargs["aspect_ratio"] = aspect_ratio
+        if model:
+            kwargs["model"] = model
+        return openai_images.submit_image(**kwargs)
     kwargs["size"] = _image_size_for_provider(provider, aspect_ratio)
+    if model:
+        kwargs["model"] = model
     if provider == "wan":
         return dashscope_wan.submit_image(**kwargs)
     return jimeng_provider.submit_image(**kwargs)
@@ -296,6 +311,10 @@ def _poll_image(provider: str, task_id: str):
     _guard_media_provider(provider, media_kind="image")
     if provider == "kling":
         return kling_provider.poll_image(task_id)
+    if provider == "openai":
+        from evoflow.community.media_generation.providers import openai_images
+
+        return openai_images.poll_image(task_id)
     if provider == "wan":
         return dashscope_wan.poll_image(task_id)
     return jimeng_provider.poll_image(task_id)
@@ -303,13 +322,33 @@ def _poll_image(provider: str, task_id: str):
 
 def _submit_video(provider: str, **kwargs) -> str:
     _guard_media_provider(provider, media_kind="video")
+    model = kwargs.pop("model", None)
     if provider == "kling":
         kwargs.pop("generate_audio", None)
+        kwargs.pop("last_frame_url", None)
+        kwargs.pop("watermark", None)
+        kwargs.pop("seed", None)
+        kwargs.pop("resolution", None)
+        if model:
+            kwargs["model_name"] = model
         return kling_provider.submit_video(**kwargs)
     if provider == "wan":
         kwargs.pop("generate_audio", None)
+        kwargs.pop("last_frame_url", None)
+        kwargs.pop("watermark", None)
+        kwargs.pop("seed", None)
+        if model:
+            kwargs["model"] = model
         return dashscope_wan.submit_video(**kwargs)
+    if provider == "minimax":
+        from evoflow.community.media_generation.providers import minimax_video
+
+        if model:
+            kwargs["model"] = model
+        return minimax_video.submit_video(**kwargs)
     kwargs.pop("audio_url", None)
+    if model:
+        kwargs["model"] = model
     return jimeng_provider.submit_video(**kwargs)
 
 
@@ -319,6 +358,10 @@ def _poll_video(provider: str, task_id: str):
         return kling_provider.poll_video(task_id)
     if provider == "wan":
         return dashscope_wan.poll_video(task_id)
+    if provider == "minimax":
+        from evoflow.community.media_generation.providers import minimax_video
+
+        return minimax_video.poll_video(task_id)
     return jimeng_provider.poll_video(task_id)
 
 
