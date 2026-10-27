@@ -1,13 +1,20 @@
 /**
- * 员工执行过程：对话体只走主聊同一套 V4（V4SessionPaneBridge → V4ZCodeTimeline）。
- * 旧 ProactiveLiveProcessHost / SubtaskExecutionDrawer 行渲染仅作 modal 等非右栏路径。
+ * 员工执行过程 / 续聊：对话体走主聊同一套 V4（V4SessionPaneBridge → V4ZCodeTimeline），
+ * 底部 sticky dock 挂主聊 ChatComposer（可输入、发送、停止），不强制切主区会话。
  *
- * 进度策略（非流式）：
- * - 执行中 / 尚无 thread：约 3s 拉 meta + 强制 V4 投影刷新，保证能看到最新记录
+ * 进度策略（非流式订阅）：
+ * - 执行中 / 尚无 thread：约 3s 拉 meta + 强制 V4 投影刷新
  * - 刚结束：再收一帧后停止高频轮询
- * - 已完成：不再定时刷（结束态没必要打后端）
+ * - 已完成：不再定时刷
  */
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { ChatAttachment } from '../../chat-types.js'
+import { ChatComposer } from '../../components/ChatComposer.js'
+import { mintEmployeeChatEpisodeId } from '../../components/EmployeeTalkModeBar.js'
+import {
+  isProactiveSessionKey,
+  parseProactiveSessionKey,
+} from '../../lib/session-list/workspace-groups.js'
 import { resolveProactiveProcessMeta } from '../../../lib/proactive-session-messages.js'
 import {
   employeeProcessStageTabKey,
@@ -17,6 +24,7 @@ import {
 import { rightStageStore } from '../../../lib/right-stage/right-stage-store.js'
 import { refreshEvoflowV4Session } from '../../v4/V4StreamRowsBridge.js'
 import { V4SessionPaneBridge } from '../../v4/V4SessionPaneBridge.js'
+import { toast } from '../../../components/toast.js'
 
 /** 执行中：跟进度 */
 const POLL_ACTIVE_MS = 3000
@@ -53,7 +61,63 @@ export type V4EmployeeProcessPaneProps = {
   busy?: boolean
   /** 归属主会话（文件预览 tab 挂靠）；缺省用员工 session_key */
   sessionKey?: string
+  /** 平台 chat_send / openStage 传入的员工对话 key，优先于 meta 解析 */
+  employeeSessionKeyHint?: string
   onClose?: () => void
+}
+
+async function ensureChatThread(sessionKey: string): Promise<string> {
+  const sk = String(sessionKey || '').trim()
+  if (!sk) return ''
+  try {
+    const { wsClient } = await import('../../../lib/ws-client.js')
+    if (typeof wsClient.resolveSessionThreadId === 'function') {
+      return String((await wsClient.resolveSessionThreadId(sk)) || '').trim()
+    }
+    if (typeof wsClient.ensureChatThread === 'function') {
+      const r = await wsClient.ensureChatThread(sk)
+      return String(
+        r?.thread_id || r?.threadId || wsClient.getSessionThreadId?.(sk) || '',
+      ).trim()
+    }
+  } catch {
+    /* optional */
+  }
+  return ''
+}
+
+async function patchProactiveChatContext(sessionKey: string): Promise<void> {
+  if (!isProactiveSessionKey(sessionKey)) return
+  const parsed = parseProactiveSessionKey(sessionKey)
+  try {
+    const { api } = await import('../../../lib/tauri-api.js')
+    const patch: Record<string, unknown> = {
+      source: 'proactive',
+      proactive_agent_code: parsed.agentCode || null,
+      employee_talk_mode: 'chat',
+    }
+    if (parsed.kind === 'task' && parsed.taskId) {
+      patch.workspace_kind = 'task'
+      patch.related_task_id = parsed.taskId
+    } else if (parsed.kind === 'chat') {
+      patch.workspace_kind = 'chat'
+      patch.related_task_id = null
+    } else if (parsed.kind === 'duty') {
+      patch.workspace_kind = 'duty'
+    }
+    await api.chatUpdateContext?.(sessionKey, patch)
+  } catch {
+    /* ignore */
+  }
+}
+
+function mintEmployeeChatSessionKey(agentCode: string): string {
+  const code = String(agentCode || '').trim()
+  if (!code) return ''
+  const stamp = mintEmployeeChatEpisodeId()
+    .replace(/^chat:/, '')
+    .replace(/[:/\\]/g, '-')
+  return `proactive:${code}:chat:${stamp}`
 }
 
 export function V4EmployeeProcessPane(props: V4EmployeeProcessPaneProps) {
@@ -65,17 +129,28 @@ export function V4EmployeeProcessPane(props: V4EmployeeProcessPaneProps) {
     roundId = '',
     busy = false,
     sessionKey = '',
+    employeeSessionKeyHint = '',
     onClose,
   } = props
 
   const code = String(agentCode || '').trim()
   const [threadId, setThreadId] = useState('')
-  const [employeeSessionKey, setEmployeeSessionKey] = useState('')
+  const [employeeSessionKey, setEmployeeSessionKey] = useState(() =>
+    String(employeeSessionKeyHint || '').trim(),
+  )
+
+  useEffect(() => {
+    const hint = String(employeeSessionKeyHint || '').trim()
+    if (hint) setEmployeeSessionKey(hint)
+  }, [employeeSessionKeyHint])
   const [runStatus, setRunStatus] = useState('')
   const [displayRole, setDisplayRole] = useState(() =>
     resolveEmployeeProcessTabTitle({ title, roleName, agentCode: code }),
   )
   const [loaded, setLoaded] = useState(false)
+  const [sending, setSending] = useState(false)
+  const [draftVersion, setDraftVersion] = useState(0)
+  const draftRef = useRef('')
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const settleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const wasRunningRef = useRef(false)
@@ -87,32 +162,18 @@ export function V4EmployeeProcessPane(props: V4EmployeeProcessPaneProps) {
       return
     }
     try {
-      let ensureThread: ((sk: string) => Promise<string>) | undefined
-      try {
-        const { wsClient } = await import('../../../lib/ws-client.js')
-        if (wsClient && typeof wsClient.resolveSessionThreadId === 'function') {
-          ensureThread = (sk: string) => wsClient.resolveSessionThreadId(sk)
-        } else if (wsClient && typeof wsClient.ensureChatThread === 'function') {
-          ensureThread = async (sk: string) => {
-            const r = await wsClient.ensureChatThread(sk)
-            return String(
-              r?.thread_id || r?.threadId || wsClient.getSessionThreadId?.(sk) || '',
-            ).trim()
-          }
-        }
-      } catch {
-        ensureThread = undefined
-      }
-
       const meta = await resolveProactiveProcessMeta({
         agentCode: code,
         taskId,
         roundId,
-        ensureThread,
+        ensureThread: ensureChatThread,
       })
       const tid = String(meta.thread_id || '').trim()
       if (tid) setThreadId(tid)
-      if (meta.session_key) setEmployeeSessionKey(String(meta.session_key).trim())
+      // 平台 chat_send / 用户已绑定的 key 优先，避免轮询 meta 抢成别的会话
+      if (meta.session_key) {
+        setEmployeeSessionKey((prev) => prev || String(meta.session_key).trim())
+      }
       if (meta.run_status) setRunStatus(String(meta.run_status).trim())
       if (meta.role_name) {
         setDisplayRole(
@@ -123,7 +184,6 @@ export function V4EmployeeProcessPane(props: V4EmployeeProcessPaneProps) {
           }),
         )
       }
-      // 有 thread 就拉最新投影（不要求流式，只要记录跟上）
       if (tid) refreshEvoflowV4Session(tid)
       setLoaded(true)
     } catch {
@@ -132,14 +192,10 @@ export function V4EmployeeProcessPane(props: V4EmployeeProcessPaneProps) {
   }, [code, taskId, roundId])
 
   const statusLow = String(runStatus || '').toLowerCase()
-  // 后端 run_status 是唯一权威：一旦拿到（含 done/completed/failed 等终态）就以它为准。
-  // busy 只是「派单那一刻」写进 tab 的乐观值，没有任何回写路径；若用「或」合并，
-  // 任务早已结束徽标也会永远停在「执行中」，且 3s 高频轮询停不下来（实测复现）。
-  // 故 busy 只在后端状态尚未取到时兜底。
+  // 后端 run_status 是唯一权威；busy 只在尚未取到时兜底。
   const running = statusLow ? RUNNING.has(statusLow) : busy
+  const turnBusy = sending || running
 
-  // 拿到后端真实状态后，把 tab.data.busy 同步回落：否则关掉再打开还会读到
-  // 派单时写死的 busy=true，徽标又"复活"成执行中。
   useEffect(() => {
     if (!statusLow) return
     const key = employeeProcessStageTabKey(taskId, sessionKey, code)
@@ -156,7 +212,6 @@ export function V4EmployeeProcessPane(props: V4EmployeeProcessPaneProps) {
     setDisplayRole(resolveEmployeeProcessTabTitle({ title, roleName, agentCode: code }))
   }, [title, roleName, code])
 
-  // 标签回写员工名（无 taskId 时按 agent live 键回写）
   useEffect(() => {
     const nice = String(displayRole || '').trim()
     if (!code || !nice || nice === '执行过程') return
@@ -167,7 +222,6 @@ export function V4EmployeeProcessPane(props: V4EmployeeProcessPaneProps) {
     })
   }, [displayRole, taskId, sessionKey, code])
 
-  // 自适应轮询：跑着跟；结束后收一帧再停
   useEffect(() => {
     let disposed = false
 
@@ -186,9 +240,8 @@ export function V4EmployeeProcessPane(props: V4EmployeeProcessPaneProps) {
 
     void fetchMeta()
 
-    // 未就绪或执行中才高频跟；没有 thread 但已结束则不必空转
-    if (!loaded || running) {
-      wasRunningRef.current = wasRunningRef.current || running
+    if (!loaded || running || sending) {
+      wasRunningRef.current = wasRunningRef.current || running || sending
       settledRef.current = false
       clearSettle()
       clearPoll()
@@ -204,7 +257,6 @@ export function V4EmployeeProcessPane(props: V4EmployeeProcessPaneProps) {
       }
     }
 
-    // 刚从执行中结束：再拉一次最新记录，然后停
     if (wasRunningRef.current && !settledRef.current) {
       settledRef.current = true
       clearPoll()
@@ -220,7 +272,6 @@ export function V4EmployeeProcessPane(props: V4EmployeeProcessPaneProps) {
       }
     }
 
-    // 已完成且已收尾：不再轮询
     clearPoll()
     clearSettle()
     return () => {
@@ -228,7 +279,115 @@ export function V4EmployeeProcessPane(props: V4EmployeeProcessPaneProps) {
       clearPoll()
       clearSettle()
     }
-  }, [fetchMeta, loaded, running, threadId])
+  }, [fetchMeta, loaded, running, sending, threadId])
+
+  const resolveSendSessionKey = useCallback(async (): Promise<{ sk: string; tid: string }> => {
+    let sk = String(employeeSessionKey || '').trim()
+    if (!sk && code) {
+      if (taskId) {
+        const meta = await resolveProactiveProcessMeta({
+          agentCode: code,
+          taskId,
+          roundId,
+          ensureThread: ensureChatThread,
+        })
+        sk = String(meta.session_key || '').trim()
+      }
+      if (!sk) sk = mintEmployeeChatSessionKey(code)
+      setEmployeeSessionKey(sk)
+    }
+    let tid = String(threadId || '').trim()
+    if (sk && !tid) {
+      tid = await ensureChatThread(sk)
+      if (tid) setThreadId(tid)
+    }
+    return { sk, tid }
+  }, [employeeSessionKey, code, taskId, roundId, threadId])
+
+  const handleSend = useCallback(
+    async (message: string, attachments?: ChatAttachment[]) => {
+      const text = String(message || '').trim()
+      if (!text || sending) return
+      setSending(true)
+      try {
+        const { sk, tid } = await resolveSendSessionKey()
+        if (!sk) {
+          toast('无法解析员工会话', 'error')
+          return
+        }
+        await patchProactiveChatContext(sk)
+        const { api } = await import('../../../lib/tauri-api.js')
+        await api.chatSend(sk, text, attachments || [], undefined, {
+          source: 'employee-process-pane',
+        })
+        draftRef.current = ''
+        setDraftVersion((v) => v + 1)
+        if (tid) refreshEvoflowV4Session(tid)
+        // 乐观：进入执行中，等 meta 回写
+        setRunStatus('running')
+        void fetchMeta()
+      } catch (e) {
+        toast(String((e as Error)?.message || e || '发送失败'), 'error')
+      } finally {
+        setSending(false)
+      }
+    },
+    [sending, resolveSendSessionKey, fetchMeta],
+  )
+
+  const handleAbort = useCallback(async () => {
+    const sk = String(employeeSessionKey || '').trim()
+    if (!sk) return
+    try {
+      const { api } = await import('../../../lib/tauri-api.js')
+      await api.chatAbort?.(sk, undefined, { userInitiated: true, skipRunIdle: true })
+      await api.stopSessionExecution?.(sk, { userInitiated: true })
+      toast('已停止执行', 'info')
+      void fetchMeta()
+    } catch (e) {
+      toast(String((e as Error)?.message || e || '停止失败'), 'error')
+    }
+  }, [employeeSessionKey, fetchMeta])
+
+  const handleDraftChange = useCallback((value: string) => {
+    draftRef.current = value
+  }, [])
+
+  const composerDock = useMemo(
+    () => (
+      <div
+        className="v4-employee-process-composer border-t border-border bg-card px-2 pb-2 pt-1"
+        data-v4-employee-composer-host="true"
+      >
+        <ChatComposer
+          sessionReady={Boolean(code)}
+          engineReady
+          initialDraft={draftRef.current}
+          draftVersion={draftVersion}
+          onDraftChange={handleDraftChange}
+          sending={turnBusy}
+          streaming={turnBusy}
+          onSend={handleSend}
+          onAbort={handleAbort}
+          placeholder={
+            displayRole
+              ? `跟「${displayRole}」说点什么…`
+              : '输入消息，继续与该员工对话…'
+          }
+          speechEnabled={false}
+        />
+      </div>
+    ),
+    [
+      code,
+      draftVersion,
+      handleDraftChange,
+      turnBusy,
+      handleSend,
+      handleAbort,
+      displayRole,
+    ],
+  )
 
   const headerTitle =
     String(displayRole || title || roleName || code).trim() || '执行过程'
@@ -243,14 +402,14 @@ export function V4EmployeeProcessPane(props: V4EmployeeProcessPaneProps) {
         <span
           className={
             'rounded px-1.5 py-0.5 text-[11px] ' +
-            (running
+            (running || sending
               ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400'
               : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400')
           }
         >
-          {running
+          {running || sending
             ? '执行中'
-            : STATUS_LABEL[statusLow] || runStatus || (loaded ? '已完成' : '加载中')}
+            : STATUS_LABEL[statusLow] || runStatus || (loaded ? '可对话' : '加载中')}
         </span>
         <div className="flex-1" />
         {onClose ? (
@@ -271,14 +430,18 @@ export function V4EmployeeProcessPane(props: V4EmployeeProcessPaneProps) {
             sessionId={threadId}
             connecting={!loaded}
             sessionKey={bridgeSessionKey}
+            bottomDock={composerDock}
           />
         ) : (
-          <div className="flex h-full items-center justify-center px-4 text-ui-sm text-foreground-subtlest">
-            {!loaded
-              ? '正在解析员工会话…'
-              : running
-                ? '执行中，等待会话 thread…'
-                : '暂无员工会话（未绑定 thread_id）'}
+          <div className="flex h-full min-h-0 flex-col">
+            <div className="flex min-h-0 flex-1 items-center justify-center px-4 text-ui-sm text-foreground-subtlest">
+              {!loaded
+                ? '正在解析员工会话…'
+                : running || sending
+                  ? '执行中，等待会话 thread…'
+                  : '暂无历史消息，可在下方直接发第一句'}
+            </div>
+            {composerDock}
           </div>
         )}
       </div>

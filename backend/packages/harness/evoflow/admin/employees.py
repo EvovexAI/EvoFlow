@@ -2094,3 +2094,198 @@ def wake(
         if skip_done_guard:
             result.setdefault("skip_done_guard", True)
     return result
+
+
+def chat_send(
+    agent_code: str,
+    message: str,
+    *,
+    session_key: str = "",
+    task_id: str = "",
+    source: str = "xiaomi",
+) -> dict[str, Any]:
+    """Queue a free-chat / continue-chat turn for an employee.
+
+    Resolves (or mints) the conversation ``session_key`` and returns
+    ``client_effect=employee_chat_send`` so the Panel opens the right-stage
+    employee process pane and runs the same ``chatSend`` path as the UI.
+    Does not subscribe to the stream — Xiaomi reads results via ``messages``.
+    """
+    from evoflow.proactive.chat_session import (
+        list_employee_conversation_sessions,
+        parse_proactive_session_key,
+        proactive_chat_session_key,
+        proactive_task_session_key,
+    )
+    from evoflow.timeutil import utc_now_iso_z
+
+    code = str(agent_code or "").strip()
+    text = str(message or "").strip()
+    if not code:
+        raise ValidationError("agent_code is required")
+    if not text:
+        raise ValidationError("message is required")
+
+    role = ProactiveRepository.get_role(code)
+    if not role:
+        raise NotFoundError(f"Role '{code}' not found")
+    if role.status != "active":
+        raise ValidationError(f"Role status is '{role.status}', not 'active'")
+
+    tid = str(task_id or "").strip()
+    sk = str(session_key or "").strip()
+    if sk:
+        parsed = parse_proactive_session_key(sk)
+        if parsed.get("agent_code") and parsed["agent_code"] != code:
+            raise ValidationError("session_key does not belong to this agent")
+        if not tid and parsed.get("kind") == "task":
+            tid = str(parsed.get("task_id") or "").strip()
+    elif tid:
+        sk = proactive_task_session_key(code, tid)
+    else:
+        # Prefer a recent chat / running session; else mint a fresh chat episode.
+        convs = list_employee_conversation_sessions(code, limit=40)
+        running = next(
+            (
+                c
+                for c in convs
+                if str(c.get("run_status") or "").lower() in {"running", "busy", "active", "in_progress"}
+            ),
+            None,
+        )
+        chat_hit = next((c for c in convs if str(c.get("kind") or "") == "chat"), None)
+        hit = running or chat_hit
+        if hit and hit.get("session_key"):
+            sk = str(hit["session_key"]).strip()
+            if not tid and str(hit.get("kind") or "") == "task":
+                tid = str(hit.get("task_id") or "").strip()
+        else:
+            sk = proactive_chat_session_key(code, utc_now_iso_z())
+
+    return {
+        "ok": True,
+        "agent_code": code,
+        "role_name": role.role_name,
+        "session_key": sk,
+        "task_id": tid or None,
+        "message": text,
+        "source": str(source or "xiaomi").strip() or "xiaomi",
+        "client_effect": "employee_chat_send",
+        "queued": True,
+    }
+
+
+def list_chat_messages(
+    agent_code: str,
+    *,
+    session_key: str = "",
+    task_id: str = "",
+    limit: int = 20,
+) -> dict[str, Any]:
+    """Return recent transcript rows for Xiaomi / platform to inspect results."""
+    from evoflow.persistence.chat_message_repositories import list_messages_for_display_all
+    from evoflow.proactive.chat_session import (
+        list_employee_conversation_sessions,
+        parse_proactive_session_key,
+        proactive_session_key,
+        proactive_task_session_key,
+    )
+
+    code = str(agent_code or "").strip()
+    if not code:
+        raise ValidationError("agent_code is required")
+    role = ProactiveRepository.get_role(code)
+    if not role:
+        raise NotFoundError(f"Role '{code}' not found")
+
+    lim = max(1, min(int(limit or 20), 100))
+    tid = str(task_id or "").strip()
+    sk = str(session_key or "").strip()
+    if sk:
+        parsed = parse_proactive_session_key(sk)
+        if parsed.get("agent_code") and parsed["agent_code"] != code:
+            raise ValidationError("session_key does not belong to this agent")
+    elif tid:
+        sk = proactive_task_session_key(code, tid)
+    else:
+        convs = list_employee_conversation_sessions(code, limit=20)
+        preferred = next(
+            (c for c in convs if str(c.get("kind") or "") in {"chat", "task", "duty"}),
+            None,
+        )
+        sk = str((preferred or {}).get("session_key") or "").strip() or proactive_session_key(code)
+
+    raw = list_messages_for_display_all(sk, max_rows=max(lim * 3, 60), include_hidden=False)
+    rows = list(raw.get("messages") or []) if isinstance(raw, dict) else []
+    if not isinstance(rows, list):
+        rows = []
+
+    def _extract_text(row: dict[str, Any]) -> str:
+        direct = str(row.get("content") or row.get("text") or row.get("body") or "").strip()
+        if direct:
+            return direct
+        payload = row.get("content_json")
+        if isinstance(payload, str):
+            return payload.strip()
+        if isinstance(payload, dict):
+            for key in ("text", "content", "body"):
+                v = payload.get(key)
+                if isinstance(v, str) and v.strip():
+                    return v.strip()
+            parts = payload.get("parts") or payload.get("content")
+            if isinstance(parts, list):
+                bits: list[str] = []
+                for p in parts:
+                    if isinstance(p, str) and p.strip():
+                        bits.append(p.strip())
+                    elif isinstance(p, dict):
+                        t = str(p.get("text") or p.get("content") or "").strip()
+                        if t:
+                            bits.append(t)
+                return "\n".join(bits).strip()
+        if isinstance(payload, list):
+            bits = []
+            for p in payload:
+                if isinstance(p, str) and p.strip():
+                    bits.append(p.strip())
+                elif isinstance(p, dict):
+                    t = str(p.get("text") or p.get("content") or "").strip()
+                    if t:
+                        bits.append(t)
+            return "\n".join(bits).strip()
+        return ""
+
+    # Keep last N user/assistant only; slim for tool consumption
+    slim: list[dict[str, Any]] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        role_name = str(row.get("role") or "").strip().lower()
+        if role_name not in {"user", "assistant", "human", "ai"}:
+            continue
+        content = _extract_text(row)
+        if not content:
+            continue
+        slim.append(
+            {
+                "role": "user" if role_name in {"user", "human"} else "assistant",
+                "content": content[:4000],
+                "created_at": str(row.get("created_at") or row.get("createdAt") or "").strip() or None,
+            }
+        )
+    slim = slim[-lim:]
+    last_assistant = ""
+    for row in reversed(slim):
+        if str(row.get("role") or "") == "assistant":
+            last_assistant = str(row.get("content") or "")
+            break
+    return {
+        "ok": True,
+        "agent_code": code,
+        "role_name": role.role_name,
+        "session_key": sk,
+        "task_id": tid or None,
+        "count": len(slim),
+        "messages": slim,
+        "last_assistant_text": last_assistant[:2000] if last_assistant else "",
+    }

@@ -29,6 +29,7 @@ import { rightStageStore } from '../../../lib/right-stage/right-stage-store.js'
 import { notifyLayoutChromeChanged } from '../../../lib/layout-chrome.js'
 import { isXwVoiceMode, subscribeXwVoiceMode } from '../../../lib/xw-voice-mode.js'
 import { XiaomiV4Timeline } from '../../components/XiaomiV4Timeline.js'
+import { VoicePlaybackDiagnostics } from '../../components/VoicePlaybackDiagnostics.js'
 import './xiaomi-voice-stage.css'
 
 /** 舞台只暴露三态：跟流式/播报接口对齐，别再拆「待命/识别/占用」。 */
@@ -128,6 +129,8 @@ export function XiaomiVoiceStage() {
    * 开着时语音域固定左栏宽。本组件用按钮直接 collapse/expand store，不退出语音模式。
    */
   const [rightStageOpen, setRightStageOpen] = useState(() => rightStageStore.isOpen)
+  /** P2 播报台账诊断面板 */
+  const [ledgerOpen, setLedgerOpen] = useState(false)
 
   const liveRef = useRef({
     session: false,
@@ -736,7 +739,19 @@ export function XiaomiVoiceStage() {
             </svg>
           )}
         </button>
+        <button
+          type="button"
+          className={`xws-ledger${ledgerOpen ? ' is-on' : ''}`}
+          onClick={() => setLedgerOpen((v) => !v)}
+          aria-label="播报台账"
+          title="播报台账：按 TRACE 看每句合成/播放状态"
+          aria-pressed={ledgerOpen}
+        >
+          台账
+        </button>
       </div>
+
+      <VoicePlaybackDiagnostics open={ledgerOpen} onClose={() => setLedgerOpen(false)} />
 
       {/*
         右上角「对话」区 = V4 时间线。

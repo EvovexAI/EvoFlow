@@ -205,6 +205,8 @@ def _build_title(action: str, domain: str, verb: str, label: str, args: dict[str
         "employees.pause": f"已暂停员工「{name}」值班",
         "employees.resume": f"已恢复员工「{name}」值班",
         "employees.stop": f"已停止员工「{name}」当前轮次",
+        "employees.chat_send": f"已向「{name}」发送消息",
+        "employees.messages": f"员工「{name}」近况消息",
         "employees.bind_channel_begin": f"已为「{name}」生成绑定二维码",
         "employees.bind_channel_apply": f"已绑定本岗 AI 员工「{name}」",
         "agents.create": f"已创建智能体「{name}」",
@@ -530,6 +532,8 @@ def _employee_process_cta(
     agent_code: str,
     round_id: str = "",
     role_name: str = "",
+    session_key: str = "",
+    label: str = "查看进度",
     auto_open: bool = False,
 ) -> dict[str, Any]:
     code = str(agent_code or "").strip()
@@ -538,6 +542,9 @@ def _employee_process_cta(
     data: dict[str, Any] = {"taskId": tid, "agentCode": code, "busy": True}
     if round_id:
         data["roundId"] = round_id
+    sk = str(session_key or "").strip()
+    if sk:
+        data["sessionKey"] = sk
     nice = str(role_name or "").strip()
     if nice:
         data["roleName"] = nice
@@ -551,7 +558,7 @@ def _employee_process_cta(
         "data": data,
     }
     out: dict[str, Any] = {
-        "label": "查看进度",
+        "label": str(label or "查看进度").strip() or "查看进度",
         "openStage": stage,
     }
     if auto_open:
@@ -623,18 +630,27 @@ def _progress_open_stage_action(
         "employees.resume",
         "employees.create",
         "employees.hire",
+        "employees.chat_send",
     }:
         if not assigned:
             return None
-        # wake/dispatch/resume：立刻 autoOpen；create/hire 仅在已带 task 时同样
-        auto = action in {"employees.wake", "employees.dispatch", "employees.resume"} or bool(tid)
+        # wake/dispatch/resume/chat_send：立刻 autoOpen；create/hire 仅在已带 task 时同样
+        auto = action in {
+            "employees.wake",
+            "employees.dispatch",
+            "employees.resume",
+            "employees.chat_send",
+        } or bool(tid)
         if not auto:
             return None
+        sk = _first_str(result.get("session_key"), result.get("sessionKey"), args.get("session_key"))
         return _employee_process_cta(
-            task_id=tid,
+            task_id=tid if tid and not str(tid).startswith("live:") else _first_str(result.get("task_id"), args.get("task_id")),
             agent_code=assigned,
             round_id=round_id,
             role_name=role_name,
+            session_key=sk,
+            label="打开对话" if action == "employees.chat_send" else "查看进度",
             auto_open=True,
         )
 
@@ -858,6 +874,7 @@ _SHELL_PAGE_READ_ACTIONS = frozenset({
     "employees.list",
     "employees.org_status",
     "employees.board_overview",
+    "employees.messages",
     "tasks.get",
 })
 

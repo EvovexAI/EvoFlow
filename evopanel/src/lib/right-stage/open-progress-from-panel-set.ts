@@ -104,6 +104,7 @@ export function openProgressFromPanelSet(
         title: title || undefined,
         roundId: firstStr(data.roundId, data.round_id, data.source_ref),
         busy: data.busy !== false,
+        employeeSessionKey: firstStr(data.sessionKey, data.session_key, data.employeeSessionKey),
       },
       { sessionKey: sk, layout: (surface.layout as 'wide') || 'wide' },
     )

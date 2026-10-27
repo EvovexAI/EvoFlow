@@ -507,90 +507,116 @@ class ProactiveRepository:
             raise ValueError(f"Role '{new_code}' already exists")
 
         now = utc_now_iso_z()
-        db = get_db()
         reports_to = _role_reports_to(role)
         role.config.reports_to = reports_to
-        db.execute(
-            f"""
-            INSERT INTO evoflow_proactive_roles ({_ROLE_COLS.strip()})
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
-            """,
-            (
-                new_code,
-                role.role_name,
-                role.position_code,
-                role.department,
-                role.config.to_json(),
-                reports_to,
-                role.heartbeat_rrule,
-                str(getattr(role, "heartbeat_schedule", "") or ""),
-                role.status,
-                role.last_heartbeat_at,
-                role.next_heartbeat_at,
-                role.created_at or now,
-                now,
-            ),
-        )
-        for table in (
-            "evoflow_proactive_initiatives",
-            "evoflow_proactive_approvals",
-            "evoflow_proactive_memory",
-            "evoflow_proactive_cost_log",
-        ):
-            try:
-                db.execute(
-                    f"UPDATE {table} SET role_agent_code = ? WHERE role_agent_code = ?",
-                    (new_code, old_code),
-                )
-            except Exception as e:
-                # cost_log may be absent on very old DBs
-                if table.endswith("cost_log"):
-                    logger.debug("proactive.rebind skip %s: %s", table, e)
-                    continue
-                raise
-        # Keep memory_json.role_agent_code aligned with the row PK after rebind.
-        try:
-            mem_row = db.execute(
-                "SELECT memory_json FROM evoflow_proactive_memory WHERE role_agent_code = ?",
-                (new_code,),
-            ).fetchone()
-            if mem_row is not None:
-                raw = str(mem_row[0] if not hasattr(mem_row, "keys") else mem_row["memory_json"] or "")
-                try:
-                    blob = json.loads(raw) if raw.strip() else {}
-                except Exception:
-                    blob = {}
-                if isinstance(blob, dict) and blob.get("role_agent_code") != new_code:
-                    blob["role_agent_code"] = new_code
-                    db.execute(
-                        "UPDATE evoflow_proactive_memory SET memory_json = ?, updated_at = ? WHERE role_agent_code = ?",
-                        (json.dumps(blob, ensure_ascii=False), now, new_code),
-                    )
-        except Exception:
-            logger.debug("proactive.rebind memory_json rewrite skipped", exc_info=True)
-        # Point direct reports at the rebound code (column + config_json).
-        peers = db.execute(
-            "SELECT agent_code, config_json FROM evoflow_proactive_roles WHERE reports_to = ? AND agent_code != ?",
-            (old_code, new_code),
-        ).fetchall()
-        for peer in peers:
-            peer_code = str(peer[0] or "").strip()
-            try:
-                cfg = json.loads(peer[1] or "{}")
-            except Exception:
-                cfg = {}
-            if not isinstance(cfg, dict):
-                cfg = {}
-            cfg["reports_to"] = new_code
+
+        # Same rule as delete_role/save_role: nothing here may run as a series
+        # of bare ``db.execute`` on the shared connection. A bare write opens an
+        # implicit transaction that survives until ``commit()``, so any raise
+        # mid-rebind used to leave an orphan txn behind — the next
+        # ``BEGIN IMMEDIATE`` (e.g. delete_role's cascade) then rolled it back,
+        # resurrecting the old role row and producing the "rebound but old code
+        # still there" / "missing after migrate" mess.
+        #
+        # The copy is written as an upsert so ``new_code`` stays the only key
+        # touched: a retry (or a stale row left by an older build) converges
+        # instead of failing on a PRIMARY KEY conflict. Retries are off anyway
+        # (``no_retry``) because this batch is not replayable.
+        def _rebind(db: Any) -> None:
             db.execute(
-                "UPDATE evoflow_proactive_roles SET reports_to = ?, config_json = ?, updated_at = ? WHERE agent_code = ?",
-                (new_code, json.dumps(cfg, ensure_ascii=False), now, peer_code),
+                f"""
+                INSERT INTO evoflow_proactive_roles ({_ROLE_COLS.strip()})
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+                ON CONFLICT(agent_code) DO UPDATE SET
+                    role_name = excluded.role_name,
+                    position_code = excluded.position_code,
+                    department = excluded.department,
+                    config_json = excluded.config_json,
+                    reports_to = excluded.reports_to,
+                    heartbeat_rrule = excluded.heartbeat_rrule,
+                    heartbeat_schedule = excluded.heartbeat_schedule,
+                    status = excluded.status,
+                    last_heartbeat_at = excluded.last_heartbeat_at,
+                    next_heartbeat_at = excluded.next_heartbeat_at,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    new_code,
+                    role.role_name,
+                    role.position_code,
+                    role.department,
+                    role.config.to_json(),
+                    reports_to,
+                    role.heartbeat_rrule,
+                    str(getattr(role, "heartbeat_schedule", "") or ""),
+                    role.status,
+                    role.last_heartbeat_at,
+                    role.next_heartbeat_at,
+                    role.created_at or now,
+                    now,
+                ),
             )
-        db.execute(
-            "DELETE FROM evoflow_proactive_roles WHERE agent_code = ?",
-            (old_code,),
-        )
-        db.commit()
+            for table in (
+                "evoflow_proactive_initiatives",
+                "evoflow_proactive_approvals",
+                "evoflow_proactive_memory",
+                "evoflow_proactive_cost_log",
+            ):
+                try:
+                    db.execute(
+                        f"UPDATE {table} SET role_agent_code = ? WHERE role_agent_code = ?",
+                        (new_code, old_code),
+                    )
+                except Exception as e:
+                    # cost_log may be absent on very old DBs
+                    if table.endswith("cost_log"):
+                        logger.debug("proactive.rebind skip %s: %s", table, e)
+                        continue
+                    raise
+            # Keep memory_json.role_agent_code aligned with the row PK after rebind.
+            try:
+                mem_row = db.execute(
+                    "SELECT memory_json FROM evoflow_proactive_memory WHERE role_agent_code = ?",
+                    (new_code,),
+                ).fetchone()
+                if mem_row is not None:
+                    raw = str(mem_row[0] if not hasattr(mem_row, "keys") else mem_row["memory_json"] or "")
+                    try:
+                        blob = json.loads(raw) if raw.strip() else {}
+                    except Exception:
+                        blob = {}
+                    if isinstance(blob, dict) and blob.get("role_agent_code") != new_code:
+                        blob["role_agent_code"] = new_code
+                        db.execute(
+                            "UPDATE evoflow_proactive_memory SET memory_json = ?, updated_at = ? WHERE role_agent_code = ?",
+                            (json.dumps(blob, ensure_ascii=False), now, new_code),
+                        )
+            except Exception:
+                logger.debug("proactive.rebind memory_json rewrite skipped", exc_info=True)
+            # Point direct reports at the rebound code (column + config_json).
+            peers = db.execute(
+                "SELECT agent_code, config_json FROM evoflow_proactive_roles WHERE reports_to = ? AND agent_code != ?",
+                (old_code, new_code),
+            ).fetchall()
+            for peer in peers:
+                peer_code = str(peer[0] or "").strip()
+                try:
+                    cfg = json.loads(peer[1] or "{}")
+                except Exception:
+                    cfg = {}
+                if not isinstance(cfg, dict):
+                    cfg = {}
+                cfg["reports_to"] = new_code
+                db.execute(
+                    "UPDATE evoflow_proactive_roles SET reports_to = ?, config_json = ?, updated_at = ? WHERE agent_code = ?",
+                    (new_code, json.dumps(cfg, ensure_ascii=False), now, peer_code),
+                )
+            db.execute(
+                "DELETE FROM evoflow_proactive_roles WHERE agent_code = ?",
+                (old_code,),
+            )
+
+        run_db_transaction(_rebind, no_retry=True)
         rebound = ProactiveRepository.get_role(new_code)
         if not rebound:
             raise RuntimeError(f"Rebind failed: role '{new_code}' missing after migrate")

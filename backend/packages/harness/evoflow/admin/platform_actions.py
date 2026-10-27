@@ -82,6 +82,7 @@ DOMAIN_GUIDES: dict[str, dict[str, str]] = {
             "雇佣/暂停/恢复/唤醒/派新活/删除员工、改心跳、看工作日志、迁移旧事项到 Task、"
             "为岗位扫码绑飞书/企微（绑定本岗 AI 员工）时；新建优先 capability_pack=duty。"
             "新目标用 employees.dispatch；已有 Task / 卡住用 employees.wake；"
+            "要跟岗对话用 employees.chat_send，看近几条用 employees.messages；"
             "create/hire 后读 assistant_guide.say_to_user 告诉用户怎么用；"
             "绑渠道用 employees.bind_channel_*（不是 channels.registration_*）"
         ),
@@ -591,7 +592,27 @@ def _build_registry() -> dict[str, PlatformAction]:
         _A("employees.update", "employees", "更新员工岗位配置", "write", "agent_code + 字段", H.employees_update, "改拆解岗心跳"),
         _A("employees.pause", "employees", "暂停员工值班", "write", "agent_code", H.employees_pause, "让拆解岗先休息"),
         _A("employees.resume", "employees", "恢复员工值班", "write", "agent_code", H.employees_resume, "恢复拆解岗"),
-        _A("employees.stop", "employees", "停止员工当前轮次", "write", "agent_code", H.employees_stop, "停掉他手头这轮"),
+        _A("employees.stop", "employees", "停止员工当前轮次（含对话轮）", "write", "agent_code", H.employees_stop, "停掉他手头这轮"),
+        _A(
+            "employees.chat_send",
+            "employees",
+            "打开/续聊员工对话：发一条消息并拉开右栏对话页（可多次调用续聊）",
+            "write",
+            "agent_code/role_name, message, session_key?, task_id?, source?",
+            H.employees_chat_send,
+            "跟拆解岗说：先列三步计划",
+            "继续问文案助手刚才那个标题再短一点",
+        ),
+        _A(
+            "employees.messages",
+            "employees",
+            "查看员工对话近几条消息 / 最后一条助手回复（不跟流，读结果用）",
+            "read",
+            "agent_code/role_name, session_key?, task_id?, limit?",
+            H.employees_messages,
+            "拆解岗最后回了什么",
+            "看看他对话里近几条消息",
+        ),
         _A(
             "employees.delete",
             "employees",

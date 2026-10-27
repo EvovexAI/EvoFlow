@@ -457,6 +457,9 @@ export function renderRightStageBody(
         roundId={String(data.roundId || '').trim()}
         taskId={String(data.taskId || '').trim()}
         sessionKey={String(surface.sessionKey || selectedSessionKey || '').trim() || undefined}
+        employeeSessionKeyHint={String(
+          data.employeeSessionKey || data.sessionKey || data.session_key || '',
+        ).trim() || undefined}
         onClose={() => rightStageStore.closeTab(tabKeyOf(surface))}
       />
     ) : (

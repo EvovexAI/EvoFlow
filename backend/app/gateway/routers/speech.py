@@ -108,6 +108,73 @@ async def speech_log_path() -> dict:
     }
 
 
+@router.get("/playback/recent")
+async def speech_playback_recent(limit: int = 50) -> dict:
+    """Recent TTS utterances (memory ring + SQLite sidecar)."""
+    from app.gateway.speech.playback_ledger import query_recent
+    from app.gateway.speech.playback_store import voice_playback_db_path
+
+    n = max(1, min(int(limit or 50), 200))
+    rows = query_recent(limit=n)
+    return {
+        "ok": True,
+        "count": len(rows),
+        "items": rows,
+        "db": str(voice_playback_db_path()),
+    }
+
+
+@router.get("/playback/by-trace")
+async def speech_playback_by_trace(trace: str = "", limit: int = 100) -> dict:
+    """Utterances for one TRACE (vt-…)."""
+    from app.gateway.speech.playback_ledger import query_by_trace
+
+    tid = str(trace or "").strip()
+    if not tid:
+        raise HTTPException(status_code=400, detail="trace required")
+    rows = query_by_trace(tid, limit=max(1, min(int(limit or 100), 500)))
+    return {"ok": True, "trace_id": tid, "count": len(rows), "items": rows}
+
+
+class PlaybackNoteRequest(BaseModel):
+    """FE fixed-sfx / offline play lifecycle → utterance ledger."""
+
+    phase: str = Field(..., min_length=1, max_length=32)
+    text: str = Field(default="", max_length=2000)
+    source: str = Field(default="fixed_sfx", max_length=32)
+    trace_id: str | None = Field(default=None, max_length=64)
+    seq: int = 0
+    utterance_id: str | None = Field(default=None, max_length=180)
+    play_token: str | None = Field(default=None, max_length=64)
+    speaker: str = Field(default="", max_length=256)
+    provider: str = Field(default="", max_length=64)
+    duration_ms: int = 0
+    bytes: int = 0
+    error: str = Field(default="", max_length=500)
+
+
+@router.post("/playback/note")
+async def speech_playback_note(body: PlaybackNoteRequest) -> dict:
+    """Best-effort ledger note (fixed_sfx wake/stop/farewell; does not block play)."""
+    from app.gateway.speech.playback_ledger import note_client_event
+
+    uid = note_client_event(
+        phase=body.phase,
+        text=body.text or "",
+        trace_id=str(body.trace_id or ""),
+        seq=int(body.seq or 0),
+        source=str(body.source or "fixed_sfx"),
+        speaker=body.speaker or "",
+        provider=body.provider or "",
+        duration_ms=int(body.duration_ms or 0),
+        bytes_n=int(body.bytes or 0),
+        error=body.error or "",
+        utterance_id=str(body.utterance_id or ""),
+        play_token=str(body.play_token or ""),
+    )
+    return {"ok": True, "utterance_id": uid}
+
+
 @router.post("/log")
 async def speech_log_append(batch: SpeechLogBatch) -> dict:
     """Frontend appends lines into 语音播报/前端-*.log."""

@@ -40,8 +40,10 @@ export type OpenXiaomiRightStageOpts = {
   /** 非 /chat 时先导航到工作台（right-stage 挂在 ChatApp） */
   navigateToChat?: boolean
   /**
-   * 打开后直接进入语音全屏（默认 true：壳按钮 / 快捷键 / 唤醒「呼叫小V」主路径）。
-   * 右栏「文字」标签等需要文字态时传 false。
+   * 打开后是否进入语音全屏（默认 false）。
+   * 点侧栏 / 壳按钮 / 启动器 → 只开文字小V，不自动开麦、不播「在呢」。
+   * 语音唤醒须显式传 true（见 background-voice openXiaomiForWake）。
+   * 面板内「语音模式」chip 走 enterXwVoiceMode，不经本开关。
    */
   voiceMode?: boolean
   /**
@@ -134,10 +136,11 @@ function hydrateXiaomiSessionInBackground() {
     .catch((e) => console.warn('[xiaomi-stage] ensure session failed', e))
 }
 
-/** 打开/激活小V，并钉住；默认直接进入语音全屏。 */
+/** 打开/激活小V 并钉住；默认仅文字侧栏。语音全屏须 opts.voiceMode === true。 */
 export async function openXiaomiRightStage(opts: OpenXiaomiRightStageOpts = {}): Promise<void> {
   const navigateToChat = opts.navigateToChat !== false
-  const voiceMode = opts.voiceMode !== false
+  // 边界：UI 打开 ≠ 语音唤醒。仅显式 voiceMode:true（唤醒词）才进语音全屏。
+  const voiceMode = opts.voiceMode === true
   const showRightStage = opts.showRightStage !== false
   await ensureChatRoute(navigateToChat)
 
@@ -228,7 +231,7 @@ export async function openXiaomiRightStage(opts: OpenXiaomiRightStageOpts = {}):
   }
 }
 
-/** 语音全屏中 / 小V 标签激活 → 退出并收起；否则打开并进语音全屏。 */
+/** 语音全屏中 / 小V 标签激活 → 退出并收起；否则打开小V（默认文字侧栏，除非 opts.voiceMode）。 */
 export async function toggleXiaomiRightStage(opts: OpenXiaomiRightStageOpts = {}): Promise<void> {
   let voiceOn = false
   try {
@@ -274,7 +277,7 @@ export async function toggleXiaomiRightStage(opts: OpenXiaomiRightStageOpts = {}
     return
   }
   if (isXiaomiRightStageVisible()) {
-    // 已有小V 标签但未激活：呼叫仍走语音全屏（与 open 默认一致）
+    // 已有小V 标签但未激活：按 opts 打开（默认文字侧栏）
     await openXiaomiRightStage(opts)
     return
   }

@@ -170,6 +170,10 @@ export async function ensureXiaomiVoiceReplyOn() {
   setPreferXiaomiVoice(true)
   xiaomiVoiceLog('ensure: preferXiaomiVoice=true（ASR 将走小V）')
   void ensureXiaomiVoiceThinkingOff()
+  // 预热「在呢 / 好的，我们下次再聊 / 退下」固定句，停止口令首响不卡 TTS
+  void import('./voice-fixed-sfx.js')
+    .then((m) => m.prefetchFixedVoiceSfxLines?.())
+    .catch(() => {})
 
   let speechOk = false
   let speechDetail = {}

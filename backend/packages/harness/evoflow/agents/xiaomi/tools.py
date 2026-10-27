@@ -4,7 +4,8 @@
 
 旧专用工具已迁入 ``platform``：
 ``employees.org_status`` / ``employees.board_overview`` / ``employees.brief`` /
-``employees.dispatch`` / ``employees.wake`` / ``tasks.get`` / ``knowledge.search``。
+``employees.dispatch`` / ``employees.wake`` / ``employees.chat_send`` /
+``employees.messages`` / ``tasks.get`` / ``knowledge.search``。
 """
 
 from __future__ import annotations

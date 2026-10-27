@@ -305,7 +305,7 @@ class CatchUpTest(_SchedulerTestBase):
         )
 
     def test_catchup_fires_missed_slot_once(self) -> None:
-        """A missed slot is compensated, and only once."""
+        """A missed slot is compensated, and only once (when catch-up is on)."""
         from evoflow.persistence import automation_repositories as auto_repo
         from app.gateway.automation_runner import _run_catchup_missed_runs
 
@@ -328,29 +328,46 @@ class CatchUpTest(_SchedulerTestBase):
 
         import app.gateway.automation_runner as runner_mod
 
+        prev = os.environ.get("EVOFLOW_AUTOMATION_CATCHUP")
+        os.environ["EVOFLOW_AUTOMATION_CATCHUP"] = "1"
         original = runner_mod._run_one_task
         runner_mod._run_one_task = _fake_run  # type: ignore[assignment]
         try:
             fired_a, reasons = asyncio_run(_run_catchup_missed_runs([("90390552", task)], None, now=now))
         finally:
             runner_mod._run_one_task = original  # type: ignore[assignment]
+            if prev is None:
+                os.environ.pop("EVOFLOW_AUTOMATION_CATCHUP", None)
+            else:
+                os.environ["EVOFLOW_AUTOMATION_CATCHUP"] = prev
 
         self.assertEqual(fired_a, ["90390552"])
         self.assertEqual(runs, ["catchup"])
         self.assertTrue(any("catchup" in r for r in reasons) or not reasons)
 
         # Second attempt: the slot is claimed now → no second fire.
-        fired_b, _reasons_b = asyncio_run(
-            _run_catchup_missed_runs([("90390552", task)], None, now=now)
-        )
+        os.environ["EVOFLOW_AUTOMATION_CATCHUP"] = "1"
+        try:
+            fired_b, _reasons_b = asyncio_run(
+                _run_catchup_missed_runs([("90390552", task)], None, now=now)
+            )
+        finally:
+            if prev is None:
+                os.environ.pop("EVOFLOW_AUTOMATION_CATCHUP", None)
+            else:
+                os.environ["EVOFLOW_AUTOMATION_CATCHUP"] = prev
         self.assertEqual(fired_b, [])
 
-    def test_catchup_disabled_env(self) -> None:
+    def test_catchup_disabled_by_default(self) -> None:
         from app.gateway.automation_runner import _catchup_enabled
 
         prev = os.environ.get("EVOFLOW_AUTOMATION_CATCHUP")
-        os.environ["EVOFLOW_AUTOMATION_CATCHUP"] = "0"
+        os.environ.pop("EVOFLOW_AUTOMATION_CATCHUP", None)
         try:
+            self.assertFalse(_catchup_enabled())
+            os.environ["EVOFLOW_AUTOMATION_CATCHUP"] = "1"
+            self.assertTrue(_catchup_enabled())
+            os.environ["EVOFLOW_AUTOMATION_CATCHUP"] = "0"
             self.assertFalse(_catchup_enabled())
         finally:
             if prev is None:

@@ -14,6 +14,8 @@ export type EmployeeProcessStagePayload = {
   title?: string
   roundId?: string
   busy?: boolean
+  /** 员工对话 session_key（chat_send / 续聊）；写入 tab.data 供面板直接发送 */
+  employeeSessionKey?: string
 }
 
 export type OpenEmployeeProcessStageOpts = {
@@ -120,6 +122,9 @@ export function openEmployeeProcessInRightStage(
       title: keepTitle,
       roundId: String(payload.roundId || '').trim(),
       busy: payload.busy !== false,
+      employeeSessionKey:
+        String(payload.employeeSessionKey || existing?.data?.employeeSessionKey || '').trim() ||
+        undefined,
     },
   })
   return id

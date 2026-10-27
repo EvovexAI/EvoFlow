@@ -1,7 +1,7 @@
-// V4SessionPaneBridge — 右侧面板的子会话流式查看器（ZCode drilldown 同机制）。
-// 子会话（collab 子任务线程 {lead}__sub__{id} / 子代理独立线程）的流早已被网关镜像
-// 捕获进 v4 投影——本组件按 childSessionId 建 v4 订阅， readOnly 渲染完整时间线。
-import { useCallback } from "react";
+// V4SessionPaneBridge — 右侧面板子会话时间线（ZCode drilldown 同机制）。
+// 子会话流已被网关镜像进 v4 投影；本组件按 sessionId 订阅。
+// 可挂 bottomDock（如员工过程页的 ChatComposer），与主聊同轴 sticky 底栏。
+import { useCallback, type ReactNode } from "react";
 import { V4StreamRowsBridge, type V4TimelinePayload } from "./V4StreamRowsBridge.js";
 import { V4ZCodeTimeline } from "./V4ZCodeTimeline.js";
 import {
@@ -17,8 +17,10 @@ export function V4SessionPaneBridge(props: {
   connecting?: boolean;
   /** 归属主会话：文件/预览 tab 挂到同一 sessionKey，避免切会话丢签。 */
   sessionKey?: string | null;
+  /** 底部输入区（主聊同款 sticky dock）；缺省则只读时间线。 */
+  bottomDock?: ReactNode;
 }): React.JSX.Element {
-  const { sessionId, connecting, sessionKey } = props;
+  const { sessionId, connecting, sessionKey, bottomDock } = props;
   const enabled = Boolean(sessionId);
   const sk = String(sessionKey || "").trim() || undefined;
 
@@ -50,6 +52,7 @@ export function V4SessionPaneBridge(props: {
           payload={payload}
           connecting={connecting || !payload}
           evoflowSessionKey={sk}
+          bottomDock={bottomDock}
           onOpenFileLink={onOpenFileLink}
           onOpenCodeViewer={onOpenCodeViewer}
           onOpenBrowserUrl={onOpenBrowserUrl}

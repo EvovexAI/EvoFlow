@@ -47,6 +47,9 @@ const _play = new Map()
 /** 播报顺序（Pipecat：一次只出一声，按 seq 串行） */
 /** @type {number[]} */
 const _playOrder = []
+/** 已推进完的 seq：迟到二进制不得再 _ensurePlayer 复活（否则截尾+重播=卡顿漏词） */
+/** @type {Set<number>} */
+const _finishedSeqs = new Set()
 /** @type {number | null} */
 let _playingSeq = null
 /** @type {((msg: Record<string, unknown>) => void) | null} */
@@ -263,6 +266,10 @@ function _handleJson(m) {
     if (tid) adoptVoiceTrace(tid, { reason: 'tts_start' })
     const seq = Number(m.seq) || 0
     if (seq) {
+      if (_finishedSeqs.has(seq)) {
+        voiceFeLog('播报', `忽略已结束 seq 的迟到 tts_start seq=${seq}`)
+        return
+      }
       // 首包进队即挂起 continuous（白龙马：整轮只 suspend 一次）
       if (_play.size === 0 && _playOrder.length === 0) {
         _notifyBgVoiceTts(true)
@@ -289,6 +296,7 @@ function _handleJson(m) {
 }
 
 function _ensurePlayer(seq) {
+  if (_finishedSeqs.has(seq)) return null
   if (_play.has(seq)) return _play.get(seq)
   const MS = window.MediaSource
   if (!MS || !MS.isTypeSupported('audio/mpeg')) {
@@ -331,6 +339,8 @@ function _ensurePlayer(seq) {
 
 function _appendAudio(seq, buf) {
   if (_dropIncomingAudio) return
+  // 已近尾推进的句：迟到字节勿复活播放器（日志里截尾后再播半句=卡顿漏词）
+  if (_finishedSeqs.has(seq)) return
   if (!_playOrder.includes(seq)) _playOrder.push(seq)
   const entry = _ensurePlayer(seq)
   if (!entry) return
@@ -385,6 +395,26 @@ function _entryPlayableDuration(entry) {
   return 0
 }
 
+/** 本地播报状态回传台账（playing / played），不挡主路径。 */
+function _sendPlaybackAck(seq, phase, extra = {}) {
+  if (!isXiaomiFrameSessionActive() || !seq) return
+  try {
+    const tid = getVoiceTrace() || ''
+    _ws.send(
+      JSON.stringify({
+        type: 'playback',
+        phase,
+        seq: Number(seq),
+        trace_id: tid,
+        utterance_id: tid ? `${tid}:${Number(seq)}` : '',
+        ...extra,
+      }),
+    )
+  } catch {
+    /* ignore */
+  }
+}
+
 /**
  * 只播队列头：上一句听完（或距结尾 <80ms）才开下一句。
  * 后端「播放结束」= 字节下发完，不等于用户听完。
@@ -414,6 +444,8 @@ function _kickSerialPlay() {
 
     _playingSeq = seq
     entry.started = true
+    entry._playStartedAt = performance.now()
+    _sendPlaybackAck(seq, 'playing')
     try {
       _onPlaybackIdle?.(false)
     } catch {
@@ -456,7 +488,8 @@ function _kickSerialPlay() {
       },
       { once: true },
     )
-    // MSE/mpeg 常不触发 ended、timeupdate 也稀：用 rAF 近尾预切，压句间静音（看门狗推进=卡顿主因）
+    // MSE/mpeg 常不触发 ended：wire 收齐后再近尾推进；未 wireEnded 绝不用 buffered 尾预切
+    // （旧 150ms+hasNext 会在下一句已排队时截掉本句末尾 → 卡顿/漏词，见 16:01 日志）
     let raf = 0
     const tickNearEnd = () => {
       if (_playingSeq !== seq) return
@@ -467,22 +500,28 @@ function _kickSerialPlay() {
           entry._watchFromBuf = dur
           _armPlayWatchdog(seq, entry)
         }
-        // 下一句已在队列：150ms 预切；否则等 ended/看门狗，避免截尾
-        const hasNext = _playOrder.some((s) => s !== seq)
-        const lead = hasNext ? 0.15 : 0.04
+        const wireDone =
+          !!entry.wireEnded && !(entry.pending && entry.pending.length) && !entry.sb?.updating
+        if (!wireDone) {
+          raf = requestAnimationFrame(tickNearEnd)
+          return
+        }
+        // wire 已齐：仅留极短近尾，避免句间空档；优先等 ended
+        const lead = 0.04
         if (dur - cur <= lead) {
           const leftMs = Math.round((dur - cur) * 1000)
           voiceDecisionLog('advance_near_tail', {
             seq,
             leftMs,
-            hasNext,
+            hasNext: _playOrder.some((s) => s !== seq),
             leadMs: Math.round(lead * 1000),
             queue: _playOrder.length,
+            wireEnded: true,
           })
           voicePlaybackMark(
             '播放结束',
             '',
-            `本地近尾预切 seq=${seq} left=${leftMs}ms next=${hasNext}`,
+            `本地近尾预切 seq=${seq} left=${leftMs}ms wireEnded=1`,
           )
           _advanceAfterSeq(seq)
           return
@@ -511,6 +550,8 @@ function _armPlayWatchdog(seq, entry) {
   }
   clear()
   const armFromDuration = () => {
+    // wire 未齐时 buffered 尾会继续涨，按当前 dur 推进会截词
+    if (!entry.wireEnded) return false
     const dur = _entryPlayableDuration(entry)
     if (!(dur > 0)) return false
     const cur = Number(entry.audio.currentTime) || 0
@@ -519,6 +560,10 @@ function _armPlayWatchdog(seq, entry) {
     clear()
     entry._watchTimer = window.setTimeout(() => {
       if (_playingSeq === seq) {
+        if (!entry.wireEnded) {
+          _armPlayWatchdog(seq, entry)
+          return
+        }
         const curNow = Number(entry.audio.currentTime) || 0
         voiceDecisionLog('advance_watchdog', {
           seq,
@@ -526,6 +571,7 @@ function _armPlayWatchdog(seq, entry) {
           cur: Number(curNow.toFixed(2)),
           leftMs: Math.round((dur - curNow) * 1000),
           queue: _playOrder.length,
+          wireEnded: true,
         })
         voiceFeLog('播报', `本地播报看门狗推进 seq=${seq}（ended/近尾未触发） dur≈${dur.toFixed(2)}s`)
         _advanceAfterSeq(seq)
@@ -616,9 +662,18 @@ function _advanceAfterSeq(seq) {
   const hasEntry = _play.has(seq)
   // 近尾预切与 ended 常双触；第二次直接忽略
   if (!inOrder && !wasPlaying && !hasEntry) return
+  const entry = _play.get(seq)
+  let durationMs = 0
+  if (entry && typeof entry._playStartedAt === 'number') {
+    durationMs = Math.max(0, Math.round(performance.now() - entry._playStartedAt))
+  }
+  if (wasPlaying || entry?.started) {
+    _sendPlaybackAck(seq, 'played', { duration_ms: durationMs })
+  }
   const idx = _playOrder.indexOf(seq)
   if (idx >= 0) _playOrder.splice(idx, 1)
   if (_playingSeq === seq) _playingSeq = null
+  if (seq) _finishedSeqs.add(seq)
   _disposeEntry(seq)
   _kickSerialPlay()
   // 仅整轮播完才 client_listening。句间也 unmute → 麦收喇叭 → 卡顿/误 barge
@@ -834,6 +889,7 @@ function _finishPlayer(seq, cancelled) {
 function _teardownAllAudio() {
   _playingSeq = null
   _playOrder.length = 0
+  _finishedSeqs.clear()
   for (const seq of [..._play.keys()]) {
     _disposeEntry(seq)
   }
@@ -860,21 +916,31 @@ export function flushXiaomiAsr() {
   }
 }
 
-export function sendXiaomiAssistantBegin() {
+/**
+ * @param {{ preservePlayback?: boolean }} [opts]
+ *   preservePlayback=true：工具轮次间「新一段正文」开闸，勿拆掉上一段还在播的队列
+ */
+export function sendXiaomiAssistantBegin(opts = {}) {
   if (!isXiaomiFrameSessionActive()) return false
   try {
     let tid = getVoiceTrace()
     if (!tid) tid = beginVoiceTrace({ reason: 'assistant_begin' })
     _dropIncomingAudio = false
-    // 新一轮开闸前清掉卡死的旧队列，否则永不 client_listening、残句叠播
-    if (_playingSeq != null || _playOrder.length > 0 || _play.size > 0) {
+    const preserve = !!opts.preservePlayback
+    // 新用户轮开闸：清掉卡死的旧队列。同轮多段正文（工具后下一段）要保留上一段播报。
+    if (!preserve && (_playingSeq != null || _playOrder.length > 0 || _play.size > 0)) {
       voiceFeLog('播报', 'assistant_begin → 清空上一轮未播完队列')
       _teardownAllAudio()
-    } else {
+    } else if (!preserve) {
+      _finishedSeqs.clear()
       resetXiaomiReplyPlayMark()
     }
     _ws.send(JSON.stringify({ type: 'assistant_begin', trace_id: tid }))
-    voicePlaybackMark('流式正文', '', `assistant_begin → Frame TRACE=${tid}`)
+    voicePlaybackMark(
+      '流式正文',
+      '',
+      `assistant_begin → Frame TRACE=${tid}${preserve ? '（保留在播）' : ''}`,
+    )
     return true
   } catch {
     return false

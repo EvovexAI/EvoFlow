@@ -689,10 +689,13 @@ _NEAR_MISS_LOOKBACK_MINUTES = 2
 
 
 def _catchup_enabled() -> bool:
+    """Long-downtime missed-slot catch-up. Off by default (restart must not
+    auto-fire employee/cron work); set EVOFLOW_AUTOMATION_CATCHUP=1 to enable.
+    """
     v = os.getenv("EVOFLOW_AUTOMATION_CATCHUP", "").strip().lower()
     if not v:
-        return True
-    return v not in ("0", "false", "no", "off", "disabled")
+        return False
+    return v in ("1", "true", "yes", "on", "enabled")
 
 
 def _catchup_lookback_minutes() -> int:
@@ -2080,9 +2083,8 @@ async def automation_tick() -> None:
             )
     skipped_reasons.extend(near_miss_reasons)
 
-    # D3: compensate runs missed while the Gateway was down. The gap is
-    # measured against the persisted last-tick stamp, so closing the desktop
-    # app no longer silently drops scheduled runs.
+    # D3: optional compensate for runs missed while Gateway was down (off by
+    # default — EVOFLOW_AUTOMATION_CATCHUP=1). Gap vs persisted last-tick stamp.
     catchup_fired: list[str] = []
     catchup_reasons: list[str] = []
     if active_pairs:

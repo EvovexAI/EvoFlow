@@ -1,5 +1,6 @@
 /** Parse platform tool JSON result and apply Right Stage feedback panel. */
 
+import { syncEmployeeChatSendFromToolResult } from '../employee-chat-send-sync.js'
 import { syncEmployeesRosterFromToolResult } from '../employees-roster-sync.js'
 import { syncPanelAppearanceFromToolResult } from '../panel-appearance-sync.js'
 import { openProgressFromPanelSet } from './open-progress-from-panel-set.js'
@@ -155,6 +156,8 @@ const TITLE_OVERRIDES: Record<string, (label: string) => string> = {
   'employees.hire': (label) => `已添加智能体员工「${label}」`,
   'employees.get': (label) => `员工「${label}」`,
   'employees.brief': (label) => `员工「${label}」近况`,
+  'employees.chat_send': (label) => `已向「${label}」发送消息`,
+  'employees.messages': (label) => `员工「${label}」近况消息`,
   'employees.list': () => '员工列表',
   'employees.org_status': () => '员工名册',
   'employees.board_overview': () => '员工看板',
@@ -1084,6 +1087,10 @@ export function applyPlatformFeedbackFromToolResult(
   void syncPanelAppearanceFromToolResult(raw, { argsText: opts?.argsText })
   if (opts?.notifyEmployeesRoster !== false) {
     syncEmployeesRosterFromToolResult(raw, { argsText: opts?.argsText })
+  }
+  // Live only：历史扫描勿重复 chatSend
+  if (opts?.notifyEmployeesRoster !== false) {
+    void syncEmployeeChatSendFromToolResult(raw, { argsText: opts?.argsText })
   }
   const ui = parsePlatformUiFeedback(raw, opts?.argsText)
   if (!ui) return null

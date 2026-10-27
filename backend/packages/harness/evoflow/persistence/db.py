@@ -265,9 +265,18 @@ def run_db_transaction[T](
     fn: Callable[[Any], T],
     *,
     max_attempts: int | None = None,
+    no_retry: bool = False,
 ) -> T:
-    """Commit a write batch; nested calls use SAVEPOINT instead of a second BEGIN."""
-    attempts = _DEFAULT_MAX_ATTEMPTS if max_attempts is None else max_attempts
+    """Commit a write batch; nested calls use SAVEPOINT instead of a second BEGIN.
+
+    ``no_retry=True`` disables the sqlite busy/locked retry loop. Use it for
+    batches that are not safe to replay (e.g. a multi-key migration such as
+    ``rebind_role``): by the time one statement fails, ``fn`` has already
+    mutated caller-owned state (a role object, a pending list), so a second
+    pass would start from a half-synced world. Callers whose writes are keyed
+    idempotently should keep the default (retryable).
+    """
+    attempts = 1 if no_retry else (_DEFAULT_MAX_ATTEMPTS if max_attempts is None else max_attempts)
 
     def _do() -> T:
         db = get_db()

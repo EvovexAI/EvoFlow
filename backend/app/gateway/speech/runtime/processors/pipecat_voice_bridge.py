@@ -98,6 +98,38 @@ def _has_readable(text: str) -> bool:
     return bool(_READABLE.search(text or ""))
 
 
+# 厂商单次合成长度软上限；超过才按句号切开（仍避免逗号/36 字碎切）
+_HOLD_ONESHOT_MAX_CHARS = 280
+_HOLD_SENTENCE_SPLIT_RE = re.compile(r"(?<=[。！？!?；;])")
+
+
+def _split_hold_body_for_oneshot_tts(body: str) -> list[str]:
+    """Prefer one clip; only split on major punctuation when very long."""
+    text = (body or "").strip()
+    if not text:
+        return []
+    if len(text) <= _HOLD_ONESHOT_MAX_CHARS:
+        return [text]
+    parts = [p.strip() for p in _HOLD_SENTENCE_SPLIT_RE.split(text) if p and p.strip()]
+    if not parts:
+        return [text]
+    # 合并过短碎片，减少句间接头
+    merged: list[str] = []
+    buf = ""
+    for p in parts:
+        if not buf:
+            buf = p
+            continue
+        if len(buf) + len(p) <= _HOLD_ONESHOT_MAX_CHARS:
+            buf = f"{buf}{p}"
+        else:
+            merged.append(buf)
+            buf = p
+    if buf:
+        merged.append(buf)
+    return merged or [text]
+
+
 def _norm_tts_cover(text: str) -> str:
     """Collapse whitespace for spoken-vs-plain coverage checks."""
     return re.sub(r"\s+", "", strip_markdown_light(text or ""))
@@ -415,7 +447,7 @@ class PipecatVoiceBridge(FrameProcessor):
         self._end_fallback_task: asyncio.Task[None] | None = None
         # FE VoicePhase：idle|listening|thinking|speaking（unmute/barge 门控）
         self._client_phase = "listening"
-        # True：正文不流式分句，等 assistant_end 再整段 TTS（防残句少播）
+        # True：攒齐正文再 TTS；合成走 TTSSpeak 整段一次（仅超长按句号切），避免碎切拼接
         self._hold_body_tts_until_end = True
 
     # ── public API used by SpeechSession ───────────────────────────────
@@ -474,19 +506,17 @@ class PipecatVoiceBridge(FrameProcessor):
             voice_log("对话", "助手回复结束（空正文）")
         turn = self._turn
         if self._hold_body_tts_until_end:
-            # 流式 delta 只攒字；End 时原子写入 Start+Text+End 到 Pipecat。
-            # 勿经 Evo queue 拆成两帧：曾出现 Text 入管、End 见 _in_llm_turn=False
-            # 被跳过 → 尾句卡缓冲，1s 兜底再灌一遍 = 多播半句（日志 19:29:28）。
+            # 流式 delta 只攒字；End 后整段一次合成（不经 FastFirst 逗号/36 字切句）。
+            # 旧路径 Start+Text+End → 分句聚合 → 多段 MP3 串播，听感卡顿/漏词（前端近尾预切）。
             await self._close_llm_turn_and_drop_residual(reason="assistant_end_hold")
             if plain and _has_readable(plain) and not self._ignore_assistant:
                 body = strip_markdown_light(plain)
                 voice_log(
                     "分句",
-                    f"正文齐 → 整段入分句管线 turn={turn}：「{body[:80]}」"
+                    f"正文齐 → 整段一次合成 turn={turn} len={len(body)}：「{body[:80]}」"
                     + ("…" if len(body) > 80 else ""),
                 )
                 await self._push_hold_body_to_tts(body)
-                # hold 已保证 End 进管；勿再 coverage 补播（会与未完成的切句竞态重复）
             return
         await self.queue_frame(
             LLMResponseEndFrame(turn=turn), FrameDirection.DOWNSTREAM
@@ -498,17 +528,21 @@ class PipecatVoiceBridge(FrameProcessor):
             self._schedule_end_tts_fallback(plain, turn)
 
     async def _push_hold_body_to_tts(self, body: str) -> None:
-        """Atomically feed one full assistant reply into Pipecat TTS aggregation."""
+        """Hold 模式：整段一次 TTSSpeak（尽量单 seq），超长才按句号切开。"""
         await self._ensure_pipecat()
         if not self._pipe_worker or not self._ready:
             return
-        self._in_llm_turn = True
-        try:
-            await self._pipe_worker.queue_frame(LLMFullResponseStartFrame())
-            await self._pipe_worker.queue_frame(PipeLLMTextFrame(text=body))
-            await self._pipe_worker.queue_frame(LLMFullResponseEndFrame())
-        finally:
-            self._in_llm_turn = False
+        chunks = _split_hold_body_for_oneshot_tts(body)
+        for i, chunk in enumerate(chunks):
+            if not chunk or not _has_readable(chunk):
+                continue
+            if len(chunks) > 1:
+                voice_log(
+                    "分句",
+                    f"超长正文切块 {i + 1}/{len(chunks)} len={len(chunk)}：「{chunk[:60]}」",
+                )
+            # PipeTTSSpeakFrame：绕过 SentenceAggregator，一句一合成、韵律连续
+            await self._pipe_worker.queue_frame(PipeTTSSpeakFrame(text=chunk))
 
     def _cancel_end_fallback(self) -> None:
         t = self._end_fallback_task
@@ -792,6 +826,21 @@ class PipecatVoiceBridge(FrameProcessor):
                     f"speaker={speaker}"
                 ),
             )
+            try:
+                from app.gateway.speech.playback_ledger import note_queued
+                from app.gateway.speech.voice_file_log import get_voice_trace
+
+                seq = self._seq_for(context_id)
+                note_queued(
+                    trace_id=get_voice_trace() or "",
+                    seq=seq,
+                    text=str(text or ""),
+                    source="frame",
+                    speaker=str(speaker or ""),
+                    provider=str(self._tts_provider or ""),
+                )
+            except Exception:
+                pass
 
         sink = _CaptureSink(self._out_q, host=self)
         pipeline = PipePipeline([vad, self._stt, turn, self._hook, self._tts, sink])
