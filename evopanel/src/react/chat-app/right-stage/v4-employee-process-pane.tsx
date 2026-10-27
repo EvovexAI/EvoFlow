@@ -419,7 +419,7 @@ export function V4EmployeeProcessPane(props: V4EmployeeProcessPaneProps) {
             onClick={onClose}
             aria-label="关闭"
           >
-            ✕
+            {'\u2715'}
           </button>
         ) : null}
       </div>

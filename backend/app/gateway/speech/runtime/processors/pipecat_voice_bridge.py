@@ -88,7 +88,8 @@ logger = logging.getLogger("evoflow.speech.pipecat_voice_bridge")
 TurnHandler = Callable[[str], Awaitable[None]]
 
 _READABLE = re.compile(r"[\w\u4e00-\u9fff]", re.UNICODE)
-_ACK_POOL = ("好的", "嗯", "收到", "好的，稍等", "行", "好嘞")
+# 用户说完后的即时应声（暂只保留两句，随机）
+_ACK_POOL = ("好的", "收到")
 # Pipecat 推荐默认；STT p99 表按 0.2 标定
 _VAD_STOP_SECS = 0.2
 _VAD_START_SECS = 0.2
@@ -517,6 +518,8 @@ class PipecatVoiceBridge(FrameProcessor):
                     + ("…" if len(body) > 80 else ""),
                 )
                 await self._push_hold_body_to_tts(body)
+            # 清空，避免 text-end 后再来空 End / feed(final) 用旧 plain 重推一遍
+            self._assistant_plain = ""
             return
         await self.queue_frame(
             LLMResponseEndFrame(turn=turn), FrameDirection.DOWNSTREAM

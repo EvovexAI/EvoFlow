@@ -3724,6 +3724,7 @@ export function mountGlobalAssistant() {
     if (!voiceOn && !stageOn) openPanel()
     const text = String(partial || '')
     // 语音全屏必须 emit：silent 时 XiaomiVoiceStage 的 subscribe 收不到，会一直显示上一句
+    // 思考/播报期非空灌字由 pipeline-client._shouldHoldUserCaption 拦截，此处只收清空或聆听增量
     const silent = !(voiceOn || stageOn)
     setContactDraft('xiaomi', text, { silent })
     patchState(

@@ -225,11 +225,15 @@ async function armXiaomiVoiceReply(opts = {}) {
 
     if (await _preferXiaomiFrameTts()) {
       try {
-        const { resetXiaomiFrameAssistantFeed, stashXiaomiFrameAssistantPending } = await import(
-          '../../lib/xiaomi-voice/index.js',
-        )
+        const {
+          resetXiaomiFrameAssistantFeed,
+          stashXiaomiFrameAssistantPending,
+          flushXiaomiFrameAssistantStash,
+        } = await import('../../lib/xiaomi-voice/index.js')
         resetXiaomiFrameAssistantFeed()
         stashXiaomiFrameAssistantPending('', { final: false })
+        // 若 arm 前已有迟到 stash，连上后立刻冲（避免首轮静音）
+        flushXiaomiFrameAssistantStash?.()
       } catch {
         /* ignore */
       }
@@ -307,6 +311,30 @@ function syncXiaomiVoiceSpeech(fullText, { final = false } = {}) {
           await connectXiaomiFrameSession()
         } catch {
           /* ignore */
+        }
+        // 关键：connecting 期间 final 已 stash 时，连上后若不冲刷 → 有字无声（台账也空）
+        if (isXiaomiFrameSessionActive()) {
+          if (!_voiceFrameTookOver) {
+            _voiceFrameTookOver = true
+            void _stopLegacyVoicePlayback()
+          }
+          try {
+            const { flushXiaomiFrameAssistantStash } = await import(
+              '../../lib/xiaomi-voice/index.js',
+            )
+            flushXiaomiFrameAssistantStash?.()
+          } catch {
+            feedXiaomiFrameAssistant(body, { final })
+          }
+        } else {
+          void import('../../lib/xiaomi-voice-defaults.js')
+            .then(({ xiaomiVoiceLog }) =>
+              xiaomiVoiceLog(
+                'sync: Frame 仍不可用 — 正文已暂存但无法播报（检查 gateway /speech/session）',
+                { len: body.length, final: !!final },
+              ),
+            )
+            .catch(() => {})
         }
         if (final) clearXiaomiVoiceReply()
       },

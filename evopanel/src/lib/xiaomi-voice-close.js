@@ -18,6 +18,9 @@ const EXIT_PHRASES = [
   '关掉',
   '关了',
   '退出',
+  '退出吧',
+  '退出停止',
+  '停止退出',
   '退出语音',
   '退出小V',
   '结束',
@@ -38,6 +41,22 @@ const EXIT_PHRASES = [
   'exit',
   'cancel',
   'quit',
+]
+
+/** 夹在回声长句中间的强意图片段（日志：模型播报粘连 +「退出吧/退出停止」仍被送模型） */
+const EXIT_EMBEDDED_FRAGMENTS = [
+  '退出停止',
+  '停止退出',
+  '退出吧',
+  '停止吧',
+  '退出啦',
+  '停止啦',
+  '退出啊',
+  '请退出',
+  '请停止',
+  '退出语音',
+  '退出小v',
+  '结束对话',
 ]
 
 /** 允许作为「长句尾巴」命中的短口令（ASR 回声 + 用户说停止） */
@@ -73,7 +92,7 @@ export function isXiaomiVoiceExitCommand(text) {
   if (!n) return false
 
   // 1) 短句精确
-  if (n.length <= 14) {
+  if (n.length <= 16) {
     for (const phrase of EXIT_PHRASES) {
       if (_matchesExitPhrase(n, normalizeZh(phrase))) return true
     }
@@ -90,6 +109,32 @@ export function isXiaomiVoiceExitCommand(text) {
     if (/(不要|别再|别|先别|不用|别给我)$/.test(head)) continue
     // 尾巴必须是短口令本身（防止「停止下载」类任务句）
     return true
+  }
+
+  // 3) 分句扫描：播报回声粘连时「退出吧」是中间一段，尾巴已是别的字
+  const segs = String(text || '')
+    .split(/[，。！？、,.!?;；\n]+/)
+    .map((s) => normalizeZh(s))
+    .filter(Boolean)
+  for (const seg of segs) {
+    if (seg.length > 18) continue
+    for (const phrase of EXIT_PHRASES) {
+      if (_matchesExitPhrase(seg, normalizeZh(phrase))) return true
+    }
+  }
+
+  // 4) 全文嵌入口令（「…退出停止…」「…退出吧…」），排除「不要/别」紧挨前面
+  for (const frag of EXIT_EMBEDDED_FRAGMENTS) {
+    const f = normalizeZh(frag)
+    if (!f) continue
+    let from = 0
+    while (from < n.length) {
+      const at = n.indexOf(f, from)
+      if (at < 0) break
+      const before = n.slice(Math.max(0, at - 4), at)
+      if (!/(不要|别再|别|先别|不用)$/.test(before)) return true
+      from = at + f.length
+    }
   }
   return false
 }

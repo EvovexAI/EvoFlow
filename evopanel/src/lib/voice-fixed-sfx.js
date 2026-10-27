@@ -11,6 +11,8 @@ export const VOICE_FAREWELL_LINE = '没什么事，我就先退下了'
 /** 用户说「停止 / 退出」后的友好确认（IndexedDB 缓存，首播合成一次） */
 export const VOICE_STOPPED_LINE = '好的，我们下次再聊'
 export const VOICE_WAKE_ACK_LINES = ['在呢', '我在', '嗯，请说']
+/** 用户说完后的快捷应声（与后端 _ACK_POOL 对齐；IndexedDB 预热） */
+export const VOICE_TURN_ACK_LINES = ['好的', '收到']
 
 const DB_NAME = 'evoflow-voice-sfx'
 const DB_VER = 1
@@ -317,7 +319,12 @@ export async function playFixedVoiceSfx(text, opts = {}) {
 
 /** 预热唤醒 / 停止确认 / 退下等固定句（后台，不阻塞 UI）。 */
 export function prefetchFixedVoiceSfxLines(opts = {}) {
-  const lines = [...VOICE_WAKE_ACK_LINES, VOICE_STOPPED_LINE, VOICE_FAREWELL_LINE]
+  const lines = [
+    ...VOICE_WAKE_ACK_LINES,
+    ...VOICE_TURN_ACK_LINES,
+    VOICE_STOPPED_LINE,
+    VOICE_FAREWELL_LINE,
+  ]
   void (async () => {
     for (const line of lines) {
       try {

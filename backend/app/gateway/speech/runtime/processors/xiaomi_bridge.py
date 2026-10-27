@@ -25,7 +25,8 @@ logger = logging.getLogger("evoflow.speech.xiaomi_bridge")
 
 TurnHandler = Callable[[str], Awaitable[None]]
 
-_ACK_POOL = ("好的", "嗯", "收到", "好的，稍等", "行", "好嘞")
+# 与 pipecat_voice_bridge 对齐（暂只保留两句）
+_ACK_POOL = ("好的", "收到")
 
 
 class XiaomiBridgeProcessor(FrameProcessor):

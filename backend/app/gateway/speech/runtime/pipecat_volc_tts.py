@@ -154,6 +154,22 @@ class VolcengineTTSService(TTSService):
         self.refresh_session()
         await super()._handle_interruption(frame, direction)
 
+    async def on_turn_context_completed(self):
+        """Async `_speak_text` owns context lifetime — do not sync-close here.
+
+        Base TTSService closes the turn context when `_is_yielding_frames_synchronously`
+        is set (HTTP services that await ``run_tts`` inline). We synthesize in a
+        background task, so that flag often still reflects the *previous* utterance
+        when ``_handle_tts_speak`` calls this hook — which would ``remove_audio_context``
+        on the new UUID before the first MP3 chunk is appended. Symptom in 语音播报
+        logs: 「收到」首包下发正常，正文「流式合成完成」却无「首包音频下发」.
+        Stop/remove stay in ``_bg.finally``.
+        """
+        self._is_yielding_frames_synchronously = False
+        if self._turn_context_id and self.audio_context_available(self._turn_context_id):
+            await self.flush_audio(context_id=self._turn_context_id)
+        self._turn_context_id = None
+
     async def _speak_text(self, src_frame: AggregatedTextFrame, text: str, context_id: str):
         """Speak one sentence without blocking the next sentence's synthesis."""
         if self.supports_processing_metrics and not self._is_streaming_tokens:
@@ -163,6 +179,9 @@ class VolcengineTTSService(TTSService):
         if prepared_text is None:
             await self.stop_processing_metrics()
             return
+
+        # 本句尚未同步产出帧；清掉上句遗留，避免 on_turn_context_completed 误关本 context
+        self._is_yielding_frames_synchronously = False
 
         context = self._tts_contexts.setdefault(
             context_id, TTSContext(interruptible=src_frame.interruptible)

@@ -203,6 +203,13 @@ export async function connectXiaomiFrameSession() {
       )
       // ready 可能已先到（handler 已挂）→ 立刻 start；否则等 ready 回调
       _sendStartIfNeeded('connected')
+      // 正文常在 connecting 期间被 stash；连上后必须冲刷，否则有字无声、台账空
+      try {
+        const { flushXiaomiFrameAssistantStash } = await import('./pipeline-client.js')
+        flushXiaomiFrameAssistantStash?.()
+      } catch {
+        /* ignore */
+      }
       return ws
     } catch (e) {
       voiceFeLog('会话', `WebSocket 连接失败：${e?.message || e}`)
@@ -506,14 +513,15 @@ function _kickSerialPlay() {
           raf = requestAnimationFrame(tickNearEnd)
           return
         }
-        // wire 已齐：仅留极短近尾，避免句间空档；优先等 ended
-        const lead = 0.04
+        // wire 已齐：句间可短切；最后一句多留一点，避免近尾预切后立刻放麦把自己录进去
+        const hasNext = _playOrder.some((s) => s !== seq)
+        const lead = hasNext ? 0.04 : 0.22
         if (dur - cur <= lead) {
           const leftMs = Math.round((dur - cur) * 1000)
           voiceDecisionLog('advance_near_tail', {
             seq,
             leftMs,
-            hasNext: _playOrder.some((s) => s !== seq),
+            hasNext,
             leadMs: Math.round(lead * 1000),
             queue: _playOrder.length,
             wireEnded: true,

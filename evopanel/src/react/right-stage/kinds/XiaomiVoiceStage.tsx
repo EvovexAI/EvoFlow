@@ -267,8 +267,8 @@ export function XiaomiVoiceStage() {
         return
       }
       liveRef.current.tray = s
-      if (s === 'speaking') {
-        // 开播即清上一轮用户句：中间「你」区空出来等本轮 AI 输出
+      if (s === 'speaking' || s === 'processing') {
+        // 发送进思考 / 开播：中间「你」区空出来，勿继续挂上轮用户句
         setTranscript('')
         setLastUser('')
       }
@@ -315,12 +315,14 @@ export function XiaomiVoiceStage() {
   useEffect(() => {
     return subscribeXiaomiVoicePartial((text) => {
       const t = String(text || '')
-      // 播报中忽略迟到 partial，避免把已清掉的上一轮用户句又灌回来
-      const speakingNow =
+      // 思考/播报中忽略迟到 partial，避免把已清掉的上一轮用户句又灌回来（叠加）
+      const holdCaption =
         liveRef.current.speaking ||
         liveRef.current.tray === 'speaking' ||
-        stateRef.current === 'speak'
-      if (speakingNow) {
+        liveRef.current.tray === 'processing' ||
+        stateRef.current === 'speak' ||
+        stateRef.current === 'think'
+      if (holdCaption) {
         if (!t.trim()) {
           setTranscript('')
           setLastUser('')

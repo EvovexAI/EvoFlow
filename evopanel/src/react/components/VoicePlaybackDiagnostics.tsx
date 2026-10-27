@@ -223,7 +223,11 @@ export function VoicePlaybackDiagnostics({ open, onClose }: Props) {
 
       <div className="xws-playback-body">
         {groups.length === 0 && !loading ? (
-          <div className="xws-playback-empty">暂无记录。说一轮或播「在呢」后再看。</div>
+          <div className="xws-playback-empty">
+            {error
+              ? '台账接口不可用（gateway /api/speech/playback）。重启 gateway 后再试。'
+              : '暂无记录。有字无声时通常是正文卡在 Frame 暂存、尚未进 TTS——看前端日志「连接中暂存 / 冲刷暂存」。'}
+          </div>
         ) : null}
         {groups.map((g) => (
           <section key={g.trace} className="xws-playback-group">

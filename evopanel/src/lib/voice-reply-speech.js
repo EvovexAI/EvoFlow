@@ -16,17 +16,8 @@ import {
   setSpeechQueueIdleCallback,
 } from './speech-client.js'
 
-/** 识别完成后的固定一句确认（不等 AI）——随机选一句，避免每次都一样 */
-const VOICE_SIMPLE_ACK_POOL = [
-  '好的',
-  '嗯',
-  '收到',
-  '好的，稍等',
-  '行',
-  '好嘞',
-  '嗯，我看看',
-  '收到，稍等',
-]
+/** 识别完成后的固定一句确认（不等 AI）——暂只「好的 / 收到」随机 */
+const VOICE_SIMPLE_ACK_POOL = ['好的', '收到']
 
 /** 进入工具执行时播一次，避免长时间死寂 */
 const VOICE_WORKING_STATUS_POOL = [
