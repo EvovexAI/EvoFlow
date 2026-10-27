@@ -370,6 +370,47 @@ def _resolve_primary_webui_admin(*, org_id: str = DEFAULT_ORG_ID) -> Principal |
     return principal_from_row(row) if row else None
 
 
+def is_unique_constraint_error(exc: BaseException) -> bool:
+    """True for SQLite PK/UNIQUE races (e.g. concurrent local-admin bootstrap)."""
+    import sqlite3
+
+    cur: BaseException | None = exc
+    seen: set[int] = set()
+    while cur is not None and id(cur) not in seen:
+        seen.add(id(cur))
+        if isinstance(cur, sqlite3.IntegrityError):
+            msg = str(cur).lower()
+            return "unique" in msg or "primary key" in msg
+        cur = cur.__cause__ or cur.__context__
+    return False
+
+
+def _lookup_local_admin_candidate(*, org_id: str = DEFAULT_ORG_ID) -> Principal | None:
+    """Resolve existing localhost identity without creating (primary → org admin → bootstrap row)."""
+    found = _resolve_primary_webui_admin(org_id=org_id)
+    if found is not None:
+        return found
+    row = (
+        get_db()
+        .execute(
+            """
+            SELECT p.*
+            FROM evoflow_admin_grants g
+            JOIN evoflow_principals p ON p.principal_id = g.principal_id
+            WHERE g.org_id = ? AND g.role = 'org_admin' AND g.scope_id = ?
+              AND g.principal_id != ?
+            ORDER BY g.created_at ASC
+            LIMIT 1
+            """,
+            (org_id, org_scope(org_id), LOCAL_ADMIN_PRINCIPAL_ID),
+        )
+        .fetchone()
+    )
+    if row:
+        return principal_from_row(row)
+    return get_principal(LOCAL_ADMIN_PRINCIPAL_ID, org_id=org_id)
+
+
 def get_or_create_local_admin(*, org_id: str = DEFAULT_ORG_ID) -> Principal:
     """Resolve the localhost / no-JWT identity.
 
@@ -377,26 +418,13 @@ def get_or_create_local_admin(*, org_id: str = DEFAULT_ORG_ID) -> Principal:
     1. the primary WebUI login principal (the operator's real account);
     2. any non-bootstrap org admin;
     3. create the bootstrap principal as a last resort.
+
+    Concurrent first-boot requests used to race on INSERT ``local-admin`` and
+    raise ``UNIQUE constraint failed: evoflow_principals.principal_id``, which
+    cascaded into ``/api/identity/me`` 500 and ``list_apps`` 503. On conflict we
+    re-read the winner instead of failing the request.
     """
-    found = _resolve_primary_webui_admin(org_id=org_id)
-    if found is None:
-        row = (
-            get_db()
-            .execute(
-                """
-                SELECT p.*
-                FROM evoflow_admin_grants g
-                JOIN evoflow_principals p ON p.principal_id = g.principal_id
-                WHERE g.org_id = ? AND g.role = 'org_admin' AND g.scope_id = ?
-                  AND g.principal_id != ?
-                ORDER BY g.created_at ASC
-                LIMIT 1
-                """,
-                (org_id, org_scope(org_id), LOCAL_ADMIN_PRINCIPAL_ID),
-            )
-            .fetchone()
-        )
-        found = principal_from_row(row) if row else None
+    found = _lookup_local_admin_candidate(org_id=org_id)
     if found is not None:
         try:
             from evoflow.authz.scope_paths import ensure_principal_home
@@ -407,12 +435,30 @@ def get_or_create_local_admin(*, org_id: str = DEFAULT_ORG_ID) -> Principal:
         return found
     # Last resort create. Display name matches the default login username so the
     # account chip never reads "Local Admin" on a fresh install.
-    created = create_principal(
-        display_name="admin",
-        org_id=org_id,
-        principal_id=LOCAL_ADMIN_PRINCIPAL_ID,
-        attrs={"bootstrap": True},
-    )
+    try:
+        created = create_principal(
+            display_name="admin",
+            org_id=org_id,
+            principal_id=LOCAL_ADMIN_PRINCIPAL_ID,
+            attrs={"bootstrap": True},
+        )
+    except Exception as e:
+        if not is_unique_constraint_error(e):
+            raise
+        logger.info(
+            "local-admin create raced (UNIQUE) — re-resolving winner org_id=%s",
+            org_id,
+        )
+        raced = _lookup_local_admin_candidate(org_id=org_id)
+        if raced is None:
+            raise
+        try:
+            from evoflow.authz.scope_paths import ensure_principal_home
+
+            ensure_principal_home(raced)
+        except Exception:
+            logger.debug("ensure_principal_home after race failed", exc_info=True)
+        return raced
     try:
         from evoflow.authz import admin_grants as admin_mod
 

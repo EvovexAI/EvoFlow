@@ -149,7 +149,17 @@ def resolve_request_authz(
     session_key: str | None = None,
     scope_id: str | None = None,
 ) -> AuthzContext:
-    principal = resolve_request_principal(request)
+    try:
+        principal = resolve_request_principal(request)
+    except Exception as e:
+        # Fresh-install race: concurrent /me + /apps both try to mint local-admin.
+        # principals.get_or_create_local_admin recovers; retry once if anything leaked.
+        from evoflow.authz.principals import is_unique_constraint_error
+
+        if not is_unique_constraint_error(e):
+            raise
+        logger.warning("resolve_request_authz UNIQUE race — retry once", exc_info=True)
+        principal = resolve_request_principal(request)
     return build_authz_context(principal, session_key=session_key, scope_id=scope_id)
 
 

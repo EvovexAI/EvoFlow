@@ -65,6 +65,27 @@ def test_bootstrap_is_last_resort_and_named_admin(app_db: sqlite3.Connection) ->
     assert "local admin" not in str(resolved["display_name"]).lower()
 
 
+def test_local_admin_create_race_recovers(app_db: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Concurrent bootstrap INSERT must not surface as /identity/me 500."""
+    real_create = principals_mod.create_principal
+    calls = {"n": 0}
+
+    def _racing_create(**kwargs):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            # Simulate the loser of a race: peer already inserted local-admin.
+            real_create(**kwargs)
+            raise sqlite3.IntegrityError(
+                "UNIQUE constraint failed: evoflow_principals.principal_id"
+            )
+        return real_create(**kwargs)
+
+    monkeypatch.setattr(principals_mod, "create_principal", _racing_create)
+    resolved = principals_mod.get_or_create_local_admin()
+    assert resolved["principal_id"] == "local-admin"
+    assert calls["n"] == 1
+
+
 @pytest.mark.skipif(sqlite3.sqlite_version_info < (3, 33), reason="requires upsert support")
 def test_merge_lets_local_admin_resolve_to_admin(app_db: sqlite3.Connection) -> None:
     """After the one-time merge, localhost calls land on the real account."""
