@@ -517,10 +517,19 @@ async function startEar() {
       const hit = processPcm(f32)
       if (hit) {
         const label = WAKE_WORD_LABEL
-        console.log('[wake-word] HIT:', label)
+        const raw = String(hit.keyword || '')
+        console.log('[wake-word] HIT:', label, raw)
+        void import('./xiaomi-voice/voice-file-log.js')
+          .then(({ voiceFeLog }) =>
+            voiceFeLog(
+              '会话',
+              `唤醒命中 backend=kws keyword=「${raw.slice(0, 40) || label}」→ 开麦`,
+            ),
+          )
+          .catch(() => {})
         window.dispatchEvent(
           new CustomEvent('wake-word-hit', {
-            detail: { keyword: label, backend: 'kws', raw: hit.keyword },
+            detail: { keyword: label, backend: 'kws', raw },
           }),
         )
       }
@@ -531,9 +540,27 @@ async function startEar() {
 
     running = true
     console.log('[wake-word] Ear listening @ %d Hz', audioCtx.sampleRate)
+    void import('./xiaomi-voice/voice-file-log.js')
+      .then(({ voiceFeMirror }) =>
+        voiceFeMirror(
+          '会话',
+          '唤醒耳已开启，聆听',
+          `${WAKE_WORD_LABEL} backend=kws @${audioCtx.sampleRate}Hz`,
+        ),
+      )
+      .catch(() => {})
     return true
   } catch (e) {
     console.warn('[wake-word] Failed to start:', e instanceof Error ? e.message : String(e))
+    void import('./xiaomi-voice/voice-file-log.js')
+      .then(({ voiceFeMirror }) =>
+        voiceFeMirror(
+          '会话',
+          '唤醒耳启动失败 backend=kws',
+          e instanceof Error ? e.message : String(e),
+        ),
+      )
+      .catch(() => {})
     stopEar()
     return false
   }

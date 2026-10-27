@@ -1997,6 +1997,52 @@ def sessions_search(args: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def sessions_status(args: dict[str, Any]) -> dict[str, Any]:
+    from evoflow.admin import sessions as sess
+
+    return {
+        "ok": True,
+        "action": "sessions.status",
+        **sess.get_session_status(
+            session_key=_arg_str(args, "session_key", "sessionKey", "session"),
+            thread_id=_arg_str(args, "thread_id", "threadId"),
+        ),
+    }
+
+
+def sessions_compact(args: dict[str, Any]) -> dict[str, Any]:
+    """主动压缩当前（或指定）会话上下文 — 与 UI ``/compact`` 同引擎。"""
+    from evoflow.admin import sessions as sess
+    from evoflow.agents.manual_context_compaction import ManualCompactionError, run_manual_context_compaction
+
+    prep = sess.prepare_session_compact(
+        session_key=_arg_str(args, "session_key", "sessionKey", "session"),
+        thread_id=_arg_str(args, "thread_id", "threadId"),
+    )
+    try:
+        result = _run_coro_sync(
+            run_manual_context_compaction(prep["session_key"], session_row=prep["session_row"])
+        )
+    except ManualCompactionError as exc:
+        return {
+            "ok": False,
+            "action": "sessions.compact",
+            "error": str(exc),
+            "session_key": prep["session_key"],
+            "running": prep["running"],
+            "run_status": prep["run_status"],
+        }
+    out = sess.format_compact_result(
+        session_key=prep["session_key"],
+        running=bool(prep["running"]),
+        result=result,
+    )
+    out["action"] = "sessions.compact"
+    out["run_status"] = prep["run_status"]
+    out["title"] = prep.get("title") or ""
+    return out
+
+
 # ── items（用户事项）───────────────────────────────────────────────────────
 
 
@@ -2395,6 +2441,15 @@ def diagnostics_run(args: dict[str, Any]) -> dict[str, Any]:
         "has_warnings": has_warns,
         "markdown": markdown,
     }
+
+
+def diagnostics_status(args: dict[str, Any]) -> dict[str, Any]:
+    """当前系统运行快照：端口 / 前后端 / 服务状态 / 数据目录 / 安装目录。"""
+    from evoflow.admin.system_status import build_system_status_snapshot
+
+    _ = args  # no args yet; keep signature consistent with other handlers
+    snap = build_system_status_snapshot()
+    return {"ok": True, "action": "diagnostics.status", **snap}
 
 
 # ── verification（系统验证轮次）────────────────────────────────────────────
@@ -3579,3 +3634,44 @@ def channels_registration_apply(args: dict[str, Any]) -> dict[str, Any]:
         "channel": channel,
         "hint": "凭证已写入；可用 channels.restart 拉起渠道",
     }
+
+# --- media (��ͼ / ����Ƶ��Ĭ�ϻ�ɽ jimeng / Agent Plan) ---
+
+
+def media_catalog(args: dict[str, Any]) -> dict[str, Any]:
+    from evoflow.admin.platform_media import media_catalog as _catalog
+
+    return _catalog(tier_hint=_arg_str(args, "tier_id", "tierId", "tier") or None)
+
+
+def media_status(args: dict[str, Any]) -> dict[str, Any]:
+    from evoflow.admin.platform_media import media_status as _status
+
+    return _status()
+
+
+def media_generate_image(args: dict[str, Any]) -> dict[str, Any]:
+    from evoflow.admin.platform_media import generate_image
+
+    tid = _arg_str(args, "thread_id", "threadId")
+    out = generate_image(args, thread_id=tid or None)
+    out.setdefault("action", "media.generate_image")
+    return out
+
+
+def media_generate_video(args: dict[str, Any]) -> dict[str, Any]:
+    from evoflow.admin.platform_media import generate_video
+
+    tid = _arg_str(args, "thread_id", "threadId")
+    out = generate_video(args, thread_id=tid or None)
+    out.setdefault("action", "media.generate_video")
+    return out
+
+
+def media_task_wait(args: dict[str, Any]) -> dict[str, Any]:
+    from evoflow.admin.platform_media import task_wait
+
+    tid = _arg_str(args, "thread_id", "threadId")
+    out = task_wait(args, thread_id=tid or None)
+    out.setdefault("action", "media.task_wait")
+    return out

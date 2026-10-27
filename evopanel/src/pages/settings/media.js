@@ -1,5 +1,7 @@
 /**
- * 语音 API 配置 — 嵌入「设置 → 模型」页左侧分组
+ * 媒体渠道配置 — 嵌入「设置 → 模型」：
+ * - 生图生视频 Tab（creative）
+ * - 语音 Tab（voice）
  */
 import { toast } from '../../components/toast.js'
 import { publicIconUrl } from '../../lib/public-asset.js'
@@ -22,24 +24,63 @@ import {
   VOLCENGINE_TTS_SPEAKER_PRESETS,
 } from '../../lib/volcengine-tts-speakers.js'
 
+// Agent Plan 套餐概览用短 ID；按量 Ark 官方快照带日期后缀（见方舟模型列表）。
+const JIMENG_IMAGE_MODEL_PRESETS = [
+  { value: 'doubao-seedream-5-0-pro', label: 'Seedream 5.0 Pro（套餐）' },
+  { value: 'doubao-seedream-5.0-flash', label: 'Seedream 5.0 Flash（套餐）' },
+  { value: 'doubao-seedream-5-0-pro-260628', label: 'Seedream 5.0 Pro · 260628（按量）' },
+  { value: 'doubao-seedream-5-0-flash-260915', label: 'Seedream 5.0 Flash · 260915（按量）' },
+]
+
+const JIMENG_VIDEO_MODEL_PRESETS = [
+  { value: 'doubao-seedance-2.5', label: 'Seedance 2.5（套餐）' },
+  { value: 'doubao-seedance-2.0', label: 'Seedance 2.0（套餐）' },
+  { value: 'doubao-seedance-2.0-fast', label: 'Seedance 2.0 Fast（套餐）' },
+  { value: 'doubao-seedance-2.0-mini', label: 'Seedance 2.0 Mini（套餐）' },
+  { value: 'doubao-seedance-2-5-260628', label: 'Seedance 2.5 · 260628（按量）' },
+  { value: 'doubao-seedance-2-0-260128', label: 'Seedance 2.0 · 260128（按量）' },
+  { value: 'doubao-seedance-2-0-fast-260128', label: 'Seedance 2.0 Fast · 260128（按量）' },
+  { value: 'doubao-seedance-2-0-mini-260615', label: 'Seedance 2.0 Mini · 260615（按量）' },
+]
+
 const ADVANCED_VENDORS = [
   {
-    key: 'agnes',
-    label: 'Agnes AI',
-    sub: 'Image 2.1 · Video v2.0',
-    icon: null,
-    setupGuide: '在 Agnes 平台申请 API Key，用于生图、改图、生视频。官方文档见 agnes-ai.com/doc/overview。',
-    officialUrl: 'https://agnes-ai.com/doc/overview',
-    officialLabel: 'Agnes API 文档',
+    key: 'volcengine',
+    label: '火山方舟',
+    sub: 'Seedream · Seedance',
+    icon: 'volcengine',
+    setupGuide:
+      '默认优先用「套餐」里绑定的 Agent Plan Key。也可在此填写自定义 Ark API Key / Base URL（按量或自建网关）。选 doubao-seedream / doubao-seedance 时走此渠道。',
+    officialUrl: 'https://www.volcengine.com/docs/82379/2366394?lang=zh',
+    officialLabel: 'Agent Plan / 媒体模型说明',
   },
   {
     key: 'dashscope',
     label: '通义万相',
     sub: 'Wan 生图/视频',
     icon: 'alibabacloud',
-    setupGuide: '在阿里云百炼控制台创建 DashScope API Key。',
+    setupGuide:
+      '在阿里云百炼控制台创建 DashScope API Key，并启用本渠道。默认 wan2.7-image（多模态同步）/ wan2.7-i2v（media[] 异步）；仍可显式指定 wan2.6-* 走旧协议。',
     officialUrl: 'https://help.aliyun.com/zh/model-studio/get-api-key',
     officialLabel: '百炼 API Key 说明',
+  },
+  {
+    key: 'openai-image',
+    label: 'OpenAI 生图',
+    sub: 'GPT Image 2.5',
+    icon: 'openai',
+    setupGuide: '填写 OpenAI API Key（或兼容网关）。选 gpt-image-2.5-sunburst / flare 时自动走此渠道。',
+    officialUrl: 'https://developers.openai.com/api/docs/guides/image-generation',
+    officialLabel: 'OpenAI Images 文档',
+  },
+  {
+    key: 'minimax',
+    label: 'MiniMax 视频',
+    sub: 'H3 · H3 Max',
+    icon: 'minimax',
+    setupGuide: '在 MiniMax 开放平台申请 API Key。选 MiniMax-H3 / MiniMax-H3-Max 时自动走此渠道。',
+    officialUrl: 'https://platform.minimax.io/docs/guides/video-generation',
+    officialLabel: 'MiniMax 视频文档',
   },
   {
     key: 'volcengine-tts',
@@ -60,6 +101,15 @@ const ADVANCED_VENDORS = [
     officialLabel: '可灵 API 文档',
   },
   {
+    key: 'agnes',
+    label: 'Agnes AI',
+    sub: 'Image 2.1 · Video v2.0',
+    icon: null,
+    setupGuide: '在 Agnes 平台申请 API Key，用于生图、改图、生视频。官方文档见 agnes-ai.com/doc/overview。',
+    officialUrl: 'https://agnes-ai.com/doc/overview',
+    officialLabel: 'Agnes API 文档',
+  },
+  {
     key: 'aliyun',
     label: '阿里云',
     sub: '字幕提取',
@@ -70,18 +120,81 @@ const ADVANCED_VENDORS = [
   },
 ]
 
-const ALWAYS_VISIBLE_MEDIA_KEYS = new Set(['volcengine-tts'])
+const CREATIVE_VENDOR_KEYS = new Set([
+  'volcengine',
+  'dashscope',
+  'openai-image',
+  'minimax',
+  'kling',
+  'agnes',
+  'aliyun',
+])
+const VOICE_VENDOR_KEYS = new Set(['volcengine-tts'])
+
+const ALWAYS_VISIBLE_CREATIVE_KEYS = new Set(['volcengine', 'dashscope', 'openai-image', 'minimax'])
+const ALWAYS_VISIBLE_VOICE_KEYS = new Set(['volcengine-tts'])
 
 const ALL_VENDORS = [...ADVANCED_VENDORS]
 
-/** 当前仅开放语音配置（视频渠道已下线） */
-const VOICE_VENDORS = ALL_VENDORS.filter((v) => v.key === 'volcengine-tts')
+/** @type {'creative' | 'voice'} */
+let _railMode = 'creative'
+/** @type {{ tier_id?: string, status?: string } | null} */
+let _volcPlanBinding = null
 
-function railVendors(_creds = _loaded) {
-  return VOICE_VENDORS
+function vendorsForMode(mode = _railMode) {
+  const keys = mode === 'voice' ? VOICE_VENDOR_KEYS : CREATIVE_VENDOR_KEYS
+  return ALL_VENDORS.filter((v) => keys.has(v.key))
+}
+
+function alwaysVisibleKeys(mode = _railMode) {
+  return mode === 'voice' ? ALWAYS_VISIBLE_VOICE_KEYS : ALWAYS_VISIBLE_CREATIVE_KEYS
+}
+
+function defaultVendorForMode(mode = _railMode) {
+  return mode === 'voice' ? 'volcengine-tts' : 'volcengine'
+}
+
+function isVolcPlanActive() {
+  return String(_volcPlanBinding?.status || '').toLowerCase() === 'active'
+}
+
+async function refreshVolcPlanBinding() {
+  try {
+    const { api } = await import('../../lib/tauri-api.js')
+    const bindRes = await api.listPlanBindings(false)
+    const items = Array.isArray(bindRes?.items) ? bindRes.items : []
+    _volcPlanBinding =
+      items.find((b) => b.catalog_id === 'volcengine.agent_plan' && b.status === 'active') ||
+      items.find(
+        (b) => b.vendor === 'volcengine' && b.plan_family === 'agent_plan' && b.status === 'active',
+      ) ||
+      null
+  } catch {
+    _volcPlanBinding = null
+  }
+}
+
+function railVendors(creds = _loaded, mode = _railMode) {
+  const pool = vendorsForMode(mode)
+  const alwaysKeys = alwaysVisibleKeys(mode)
+  const always = pool.filter((v) => alwaysKeys.has(v.key))
+  const extra = pool.filter((v) => !alwaysKeys.has(v.key) && isVendorConfigured(v.key, creds))
+  const seen = new Set()
+  const out = []
+  for (const v of [...always, ...extra]) {
+    if (seen.has(v.key)) continue
+    seen.add(v.key)
+    out.push(v)
+  }
+  return out
+}
+
+function isVoiceVendor(key) {
+  return VOICE_VENDOR_KEYS.has(key)
 }
 
 const SECRET_IDS = [
+  'volcengineApiKey',
   'dashscopeApiKey',
   'klingAccessKeyId',
   'klingAccessKeySecret',
@@ -89,6 +202,8 @@ const SECRET_IDS = [
   'agnesApiKey',
   'volcengineSpeechApiKey',
   'volcengineTtsAccessToken',
+  'openaiImageApiKey',
+  'minimaxMediaApiKey',
   'aliyunAccessKeySecret',
 ]
 
@@ -100,7 +215,7 @@ let _modelsState = null
 let _loaded = { ...DEFAULT_MEDIA_CREDENTIALS }
 /** @type {Record<string, unknown>} */
 let _draft = { ...DEFAULT_MEDIA_CREDENTIALS }
-let _selected = 'volcengine-tts'
+let _selected = 'dashscope'
 let _pickerMode = false
 /** @type {((e: Event) => void) | null} */
 let _clickHandler = null
@@ -139,6 +254,12 @@ function vendorIcon(v) {
 function isVendorConfigured(key, creds) {
   const c = creds?._configured || {}
   switch (key) {
+    case 'volcengine':
+      return !!(
+        c.volcengineApiKey ||
+        isFieldConfigured(creds, 'volcengineApiKey') ||
+        isVolcPlanActive()
+      )
     case 'agnes':
       return !!c.agnesApiKey
     case 'volcengine-tts':
@@ -150,6 +271,10 @@ function isVendorConfigured(key, creds) {
       )
     case 'dashscope':
       return !!c.dashscopeApiKey
+    case 'openai-image':
+      return !!(c.openaiImageApiKey || isFieldConfigured(creds, 'openaiImageApiKey'))
+    case 'minimax':
+      return !!(c.minimaxMediaApiKey || isFieldConfigured(creds, 'minimaxMediaApiKey'))
     case 'kling':
       return !!(c.klingApiKey || (c.klingAccessKeyId && c.klingAccessKeySecret))
     case 'aliyun':
@@ -166,12 +291,12 @@ function isVendorEnabled(key, creds) {
   return !!getEnabledVendors(creds)[key]
 }
 
-function configuredVendors(creds = _loaded) {
-  return ALL_VENDORS.filter((v) => isVendorConfigured(v.key, creds))
+function configuredVendors(creds = _loaded, mode = _railMode) {
+  return vendorsForMode(mode).filter((v) => isVendorConfigured(v.key, creds))
 }
 
-function unconfiguredVendors(creds = _loaded) {
-  return ALL_VENDORS.filter((v) => !isVendorConfigured(v.key, creds))
+function unconfiguredVendors(creds = _loaded, mode = _railMode) {
+  return vendorsForMode(mode).filter((v) => !isVendorConfigured(v.key, creds))
 }
 
 function vendorRailItemHtml(v, creds) {
@@ -191,10 +316,24 @@ function vendorRailItemHtml(v, creds) {
   </button>`
   }
   const enabled = isVendorEnabled(v.key, creds)
-  const badge = enabled
-    ? '<span class="models-vendor-primary-badge" title="Agent 可调用">启用</span>'
-    : '<span class="models-vendor-disabled-badge" title="已配置但未启用">停用</span>'
-  const sub = enabled ? 'Agent 可调用' : '已配置 · 未启用'
+  const hasLocalKey =
+    v.key === 'volcengine' &&
+    !!(creds?._configured?.volcengineApiKey || isFieldConfigured(creds, 'volcengineApiKey'))
+  const planBadge =
+    v.key === 'volcengine' && isVolcPlanActive()
+      ? `<span class="models-vendor-primary-badge" title="Agent Plan 已绑定">套餐${
+          _volcPlanBinding?.tier_id ? ` · ${escHtml(String(_volcPlanBinding.tier_id))}` : ''
+        }</span>`
+      : ''
+  const badge = !enabled
+    ? '<span class="models-vendor-disabled-badge" title="已配置但未启用">停用</span>'
+    : planBadge || '<span class="models-vendor-primary-badge" title="Agent 可调用">启用</span>'
+  let sub = enabled ? 'Agent 可调用' : '已配置 · 未启用'
+  if (v.key === 'volcengine') {
+    if (isVolcPlanActive() && hasLocalKey) sub = '套餐 Key · 也可自定义下方 Key'
+    else if (isVolcPlanActive()) sub = 'Agent Plan 已接通'
+    else if (hasLocalKey) sub = enabled ? '自定义 Key · Agent 可调用' : '已填自定义 Key · 未启用'
+  }
   return `<button type="button" class="models-vendor-item configured${active ? ' active' : ''}"
     data-media-vendor="${escAttr(v.key)}">
     <span class="models-vendor-icon" aria-hidden="true">${vendorIcon(v)}</span>
@@ -209,10 +348,18 @@ function vendorRailItemHtml(v, creds) {
 }
 
 function renderRail() {
-  const list = _modelsPage?.querySelector('#media-vendor-rail')
-  if (!list) return
-  const items = railVendors().map((v) => vendorRailItemHtml(v, _loaded)).join('')
-  list.innerHTML = items
+  const creativeList = _modelsPage?.querySelector('#creative-vendor-rail')
+  if (creativeList) {
+    creativeList.innerHTML = railVendors(_loaded, 'creative')
+      .map((v) => vendorRailItemHtml(v, _loaded))
+      .join('')
+  }
+  const voiceList = _modelsPage?.querySelector('#media-vendor-rail')
+  if (voiceList) {
+    voiceList.innerHTML = railVendors(_loaded, 'voice')
+      .map((v) => vendorRailItemHtml(v, _loaded))
+      .join('')
+  }
 }
 
 function modelsLayoutRoot(page) {
@@ -241,7 +388,8 @@ function setSectionExpanded(page, section, expanded) {
 function applySidebarSection(page, section) {
   if (!page) return
   setSectionExpanded(page, 'models', section === 'models')
-  setSectionExpanded(page, 'media', section === 'media')
+  setSectionExpanded(page, 'creative', section === 'creative')
+  setSectionExpanded(page, 'media', section === 'media' || section === 'voice')
 }
 
 function toggleSectionCollapsed(page, section) {
@@ -299,10 +447,12 @@ function bindSidebarSectionToggles(page, modelsState, callbacks = {}) {
         }
         return
       }
-      if (section === 'media' && expanded) {
-        if (modelsState) modelsState.activeSection = 'media'
+      if ((section === 'media' || section === 'creative') && expanded) {
+        const mode = section === 'creative' ? 'creative' : 'voice'
+        _railMode = mode
+        if (modelsState) modelsState.activeSection = mode
         page.querySelector('#default-model-bar')?.setAttribute('hidden', '')
-        _selected = 'volcengine-tts'
+        _selected = defaultVendorForMode(mode)
         _pickerMode = false
         renderDetail()
       }
@@ -314,11 +464,18 @@ function bindSidebarSectionToggles(page, modelsState, callbacks = {}) {
 
 function enableToggleHtml(vendorKey, creds) {
   const configured = isVendorConfigured(vendorKey, creds)
-  if (!configured && vendorKey !== 'volcengine-tts') return ''
+  // 火山生图/视频：套餐可用或未填 Key 时也显示开关（默认启用）
+  if (!configured && vendorKey !== 'volcengine-tts' && vendorKey !== 'volcengine') return ''
   const enabled =
-    vendorKey === 'volcengine-tts' && !configured ? true : isVendorEnabled(vendorKey, creds)
+    (vendorKey === 'volcengine-tts' || vendorKey === 'volcengine') && !configured
+      ? true
+      : isVendorEnabled(vendorKey, creds)
   const label =
-    vendorKey === 'volcengine-tts' ? '启用语音功能' : '启用（Agent 可调用）'
+    vendorKey === 'volcengine-tts'
+      ? '启用语音功能'
+      : vendorKey === 'volcengine'
+        ? '启用火山生图/生视频'
+        : '启用（Agent 可调用）'
   return `
     <div class="media-enable-row">
       <label class="media-enable-label">
@@ -484,10 +641,65 @@ function buildVolcengineTtsFieldsHtml(creds) {
     </div>`
 }
 
+function buildVolcengineCreativeHeader() {
+  const tier = String(_volcPlanBinding?.tier_id || '').trim()
+  const planLine = isVolcPlanActive()
+    ? `<p class="form-hint media-vendor-setup-guide">Agent Plan 已绑定${
+        tier ? `（${escHtml(tier)}）` : ''
+      }：生图/生视频优先用套餐 Key。下方可改默认模型，或另填自定义 Ark Key / Base URL。</p>`
+    : `<p class="form-hint media-vendor-setup-guide">未绑定套餐时，请填写 Ark API Key。也可到「套餐」Tab 绑定 Agent Plan 后自动接通。</p>`
+  return `
+    <header class="media-vendor-detail-head">
+      <h3 class="media-vendor-detail-title">火山方舟</h3>
+      ${planLine}
+      <p class="media-vendor-official-link">
+        <a href="https://www.volcengine.com/docs/82379/2366394?lang=zh" target="_blank" rel="noopener noreferrer">套餐与媒体模型说明</a>
+        <span class="media-tts-speaker-hint-sep"> · </span>
+        <a href="https://console.volcengine.com/ark" target="_blank" rel="noopener noreferrer">方舟控制台</a>
+      </p>
+    </header>`
+}
+
+function buildVolcengineCreativeFieldsHtml(creds) {
+  return `
+    ${secretFieldHtml('volcengineApiKey', 'Ark API Key（可选）', creds)}
+    <p class="form-hint">有 Agent Plan 时可留空。自定义 Key 用于按量 / 兼容网关，保存后与套餐并行：运行时优先套餐 Key。</p>
+    ${textFieldHtml(
+      'volcengineArkBaseUrl',
+      'Ark Base URL（可选）',
+      'https://ark.cn-beijing.volces.com/api/plan/v3',
+      creds,
+    )}
+    ${textFieldHtml(
+      'jimengVideoBaseUrl',
+      '视频 API Base（可选）',
+      '默认跟随 Ark Base / 方舟视频口',
+      creds,
+    )}
+    ${jimengModelFieldHtml(
+      'jimengImageModel',
+      '默认生图模型',
+      JIMENG_IMAGE_MODEL_PRESETS,
+      creds,
+      'Agent 未显式传 model 时使用',
+    )}
+    ${jimengModelFieldHtml(
+      'jimengVideoModel',
+      '默认生视频模型',
+      JIMENG_VIDEO_MODEL_PRESETS,
+      creds,
+      'Large/Max 套餐可用 Seedance；Small/Medium 官方不含视频',
+    )}
+  `
+}
+
 function buildDetailHtml(vendorKey, creds) {
   const v = vendorByKey(vendorKey)
   let fields
   switch (vendorKey) {
+    case 'volcengine':
+      fields = buildVolcengineCreativeFieldsHtml(creds)
+      break
     case 'agnes':
       fields = `
         ${secretFieldHtml('agnesApiKey', 'API Key', creds)}
@@ -500,6 +712,21 @@ function buildDetailHtml(vendorKey, creds) {
       fields = `
         ${secretFieldHtml('dashscopeApiKey', 'API Key', creds)}
         ${textFieldHtml('dashscopeBaseUrl', 'Base URL（可选）', 'https://dashscope.aliyuncs.com/api/v1', creds)}
+        <p class="form-hint">生图推荐 wan2.7-image / wan2.7-image-pro；图生视频 wan2.7-i2v（支持首尾帧 + driving_audio）。兼容 wan2.6-t2i / wan2.6-i2v。</p>
+      `
+      break
+    case 'openai-image':
+      fields = `
+        ${secretFieldHtml('openaiImageApiKey', 'API Key', creds)}
+        ${textFieldHtml('openaiImageBaseUrl', 'Base URL（可选）', 'https://api.openai.com/v1', creds)}
+        <p class="form-hint">可用 OpenAI 官方或兼容网关。当前主推 gpt-image-2.5-sunburst（画质）/ gpt-image-2.5-flare（速度）。</p>
+      `
+      break
+    case 'minimax':
+      fields = `
+        ${secretFieldHtml('minimaxMediaApiKey', 'API Key', creds)}
+        ${textFieldHtml('minimaxMediaBaseUrl', 'Base URL（可选）', 'https://api.minimax.cn', creds)}
+        <p class="form-hint">与 MiniMax TTS Key 分开存储。当前主推 MiniMax-H3 / MiniMax-H3-Max（旧 Hailuo 仍可显式指定）。</p>
       `
       break
     case 'kling':
@@ -522,17 +749,19 @@ function buildDetailHtml(vendorKey, creds) {
   }
 
   const guide =
-    vendorKey !== 'volcengine-tts' && v.setupGuide
+    vendorKey !== 'volcengine-tts' && vendorKey !== 'volcengine' && v.setupGuide
       ? `<p class="form-hint media-vendor-setup-guide">${escHtml(v.setupGuide)}</p>`
       : ''
   const officialLink =
-    vendorKey !== 'volcengine-tts' && v.officialUrl
+    vendorKey !== 'volcengine-tts' && vendorKey !== 'volcengine' && v.officialUrl
       ? `<p class="media-vendor-official-link"><a href="${escAttr(v.officialUrl)}" target="_blank" rel="noopener noreferrer">${escHtml(v.officialLabel || '官方文档')}</a></p>`
       : ''
   const header =
     vendorKey === 'volcengine-tts'
       ? buildVolcengineTtsHeader()
-      : `<header class="media-vendor-detail-head">
+      : vendorKey === 'volcengine'
+        ? buildVolcengineCreativeHeader()
+        : `<header class="media-vendor-detail-head">
         <h3 class="media-vendor-detail-title">${escHtml(v.label)}</h3>
         ${guide}
         ${officialLink}
@@ -549,7 +778,11 @@ function buildDetailHtml(vendorKey, creds) {
 function buildPickerHtml() {
   const pending = unconfiguredVendors()
   if (!pending.length) {
-    return `<div class="media-vendor-empty"><p class="form-hint">所有视频模型厂商均已配置。在左侧选择一项编辑或切换启用状态。</p></div>`
+    const emptyHint =
+      _railMode === 'voice'
+        ? '语音渠道已配置。在左侧选择一项编辑或切换启用状态。'
+        : '生图/生视频渠道均已配置。在左侧选择一项编辑或切换启用状态。'
+    return `<div class="media-vendor-empty"><p class="form-hint">${emptyHint}</p></div>`
   }
   const cards = pending
     .map(
@@ -564,7 +797,7 @@ function buildPickerHtml() {
     .join('')
   return `
     <div class="media-vendor-picker">
-      <h3 class="media-vendor-detail-title">添加视频模型厂商</h3>
+      <h3 class="media-vendor-detail-title">${_railMode === 'voice' ? '添加语音渠道' : '添加生图/生视频渠道'}</h3>
       <p class="form-hint">选择厂商并填写 API Key，保存后可勾选启用。</p>
       <div class="media-vendor-picker-list">${cards}</div>
     </div>`
@@ -619,20 +852,22 @@ function collectPatch() {
 
 function showMediaDetailPanel() {
   if (!_modelsPage) return
-  setSectionExpanded(_modelsPage, 'media', true)
+  const section = _railMode === 'creative' ? 'creative' : 'media'
+  setSectionExpanded(_modelsPage, section, true)
   const bar = _modelsPage.querySelector('#default-model-bar')
   bar?.setAttribute('hidden', '')
   _modelsPage.querySelectorAll('#models-provider-rail .models-vendor-item.active').forEach((el) => {
     el.classList.remove('active')
   })
-  if (_modelsState) _modelsState.activeSection = 'media'
+  if (_modelsState) _modelsState.activeSection = _railMode
   renderDetail()
 }
 
 function focusMediaSection() {
   if (!_modelsPage) return
-  setSectionExpanded(_modelsPage, 'media', true)
-  if (_modelsState) _modelsState.activeSection = 'media'
+  const section = _railMode === 'creative' ? 'creative' : 'media'
+  setSectionExpanded(_modelsPage, section, true)
+  if (_modelsState) _modelsState.activeSection = _railMode
   _modelsPage.querySelector('#default-model-bar')?.setAttribute('hidden', '')
   _modelsPage.querySelectorAll('#models-provider-rail .models-vendor-item.active').forEach((el) => {
     el.classList.remove('active')
@@ -722,6 +957,7 @@ async function bindXiaomiProviderFields(panel) {
 function selectMediaVendor(key, { picker = false } = {}) {
   if (!key || !ALL_VENDORS.some((v) => v.key === key)) return
   syncDraftFromDetail()
+  _railMode = isVoiceVendor(key) ? 'voice' : 'creative'
   _selected = key
   _pickerMode = picker
   renderRail()
@@ -731,9 +967,11 @@ function selectMediaVendor(key, { picker = false } = {}) {
 function openAddPicker() {
   _pickerMode = true
   focusMediaSection()
-  _modelsPage?.querySelectorAll('#media-vendor-rail .models-vendor-item.active').forEach((el) => {
-    el.classList.remove('active')
-  })
+  _modelsPage
+    ?.querySelectorAll('#creative-vendor-rail .models-vendor-item.active, #media-vendor-rail .models-vendor-item.active')
+    .forEach((el) => {
+      el.classList.remove('active')
+    })
   renderDetail()
 }
 
@@ -773,7 +1011,7 @@ async function onSave({ quiet = false } = {}) {
     renderRail()
     renderDetail()
     if (!quiet) {
-      toast('语音配置已保存', 'success')
+      toast(isVoiceVendor(_selected) ? '语音配置已保存' : '生图/生视频渠道已保存', 'success')
     }
     window.dispatchEvent(new CustomEvent('evopanel:media-updated'))
     return true
@@ -797,6 +1035,7 @@ function bindClicks() {
     const addBtn = e.target.closest?.('[data-media-add-vendor]')
     if (addBtn) {
       e.preventDefault()
+      _railMode = 'creative'
       openAddPicker()
       return
     }
@@ -807,7 +1046,10 @@ function bindClicks() {
       return
     }
     const vendorBtn = e.target.closest?.('[data-media-vendor]')
-    if (vendorBtn && vendorBtn.closest('#media-vendor-rail')) {
+    if (
+      vendorBtn &&
+      (vendorBtn.closest('#media-vendor-rail') || vendorBtn.closest('#creative-vendor-rail'))
+    ) {
       e.preventDefault()
       selectMediaVendor(vendorBtn.getAttribute('data-media-vendor'))
     }
@@ -816,7 +1058,7 @@ function bindClicks() {
 }
 
 /**
- * 嵌入模型设置页：左侧「语音」分组 + 右侧详情
+ * 嵌入模型设置页：生图生视频 + 语音 两个侧栏分组
  * @param {HTMLElement} page models 页根节点
  * @param {{ activeSection?: string }} modelsState
  */
@@ -826,14 +1068,25 @@ export async function attachMediaToModelsPage(page, modelsState, callbacks = {})
   _modelsState = modelsState
   _loaded = { ...DEFAULT_MEDIA_CREDENTIALS, enabledVendors: { ...DEFAULT_ENABLED_VENDORS } }
   _draft = { ...DEFAULT_MEDIA_CREDENTIALS, enabledVendors: { ...DEFAULT_ENABLED_VENDORS } }
-  _selected = 'volcengine-tts'
+  _railMode = 'creative'
+  _selected = defaultVendorForMode('creative')
   _pickerMode = false
 
   const host = page.querySelector('#media-vendor-rail-host')
   if (host) {
     host.innerHTML = `
-      <section class="models-sidebar-section" id="media-sidebar-section" data-sidebar-section="media">
-        <button type="button" class="models-sidebar-section-head" data-sidebar-section-toggle="media" aria-expanded="true">
+      <section class="models-sidebar-section" id="creative-sidebar-section" data-sidebar-section="creative" hidden>
+        <button type="button" class="models-sidebar-section-head" data-sidebar-section-toggle="creative" aria-expanded="true" style="display:none">
+          <span>生图生视频</span>
+          <svg class="models-sidebar-chevron" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+        </button>
+        <div class="models-sidebar-section-body">
+          <nav id="creative-vendor-rail" class="models-vendor-list" aria-label="生图生视频渠道"></nav>
+          <button type="button" class="btn btn-sm btn-secondary" data-media-add-vendor style="margin:8px 12px;width:calc(100% - 24px)">+ 添加渠道</button>
+        </div>
+      </section>
+      <section class="models-sidebar-section" id="media-sidebar-section" data-sidebar-section="media" hidden>
+        <button type="button" class="models-sidebar-section-head" data-sidebar-section-toggle="media" aria-expanded="true" style="display:none">
           <span>语音</span>
           <svg class="models-sidebar-chevron" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
         </button>
@@ -845,6 +1098,7 @@ export async function attachMediaToModelsPage(page, modelsState, callbacks = {})
   }
 
   setSectionExpanded(page, 'models', true)
+  setSectionExpanded(page, 'creative', true)
   setSectionExpanded(page, 'media', true)
 
   bindSidebarSectionToggles(page, modelsState, callbacks)
@@ -852,31 +1106,43 @@ export async function attachMediaToModelsPage(page, modelsState, callbacks = {})
   renderRail()
 
   try {
+    await refreshVolcPlanBinding()
     _loaded = await fetchMediaCredentials()
     _draft = { ...DEFAULT_MEDIA_CREDENTIALS, ..._loaded }
     delete _draft._configured
-    _selected = 'volcengine-tts'
+    _selected = defaultVendorForMode(_railMode)
     renderRail()
   } catch (e) {
-    toast(`加载语音配置失败：${e?.message || e}`, 'error')
+    toast(`加载媒体配置失败：${e?.message || e}`, 'error')
   }
 }
 
-/** 用户点击对话模型厂商时清除语音选中态 */
+/** 用户点击对话模型厂商时清除媒体选中态 */
 export function clearMediaSelection(page) {
   const root = modelsLayoutRoot(page)
-  root?.querySelectorAll('#media-vendor-rail .models-vendor-item.active').forEach((el) => {
-    el.classList.remove('active')
-  })
+  root
+    ?.querySelectorAll('#creative-vendor-rail .models-vendor-item.active, #media-vendor-rail .models-vendor-item.active')
+    .forEach((el) => {
+      el.classList.remove('active')
+    })
   _pickerMode = false
 }
 
 export { applySidebarSection, modelsLayoutRoot, setSectionExpanded }
 
-/** 渲染语音 Tab 详情区（供 models.js tab 切换时调用） */
-export function renderMediaDetail() {
-  _selected = 'volcengine-tts'
+/**
+ * 渲染生图生视频 / 语音 Tab 详情区（供 models.js tab 切换时调用）
+ * @param {'creative' | 'voice'} [mode]
+ */
+export function renderMediaDetail(mode = 'voice') {
+  _railMode = mode === 'creative' ? 'creative' : 'voice'
+  _selected = defaultVendorForMode(_railMode)
   _pickerMode = false
+  void refreshVolcPlanBinding().then(() => {
+    renderRail()
+    renderDetail()
+  })
+  renderRail()
   renderDetail()
 }
 
@@ -890,12 +1156,14 @@ export function cleanup() {
   _modelsState = null
   _draft = { ...DEFAULT_MEDIA_CREDENTIALS, enabledVendors: { ...DEFAULT_ENABLED_VENDORS } }
   _loaded = { ...DEFAULT_MEDIA_CREDENTIALS, enabledVendors: { ...DEFAULT_ENABLED_VENDORS } }
-  _selected = 'volcengine-tts'
+  _railMode = 'creative'
+  _volcPlanBinding = null
+  _selected = defaultVendorForMode('creative')
   _pickerMode = false
 }
 
 /** @deprecated 独立 Tab 已移除，保留空实现避免旧引用报错 */
 export async function mountMediaForSettingsModal(container) {
   container.innerHTML =
-    '<p class="form-hint" style="padding:16px">语音配置已移至「设置 → 模型 → 语音」Tab。</p>'
+    '<p class="form-hint" style="padding:16px">媒体配置已移至「设置 → 模型」：生图生视频 / 语音 Tab。</p>'
 }

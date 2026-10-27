@@ -32,6 +32,23 @@ def _principal_from_runtime(runtime: ToolRuntime[ContextT, dict] | None) -> str:
         return ""
 
 
+def _ctx_get(runtime: ToolRuntime[ContextT, dict] | None, key: str) -> Any:
+    ctx = getattr(runtime, "context", None) if runtime is not None else None
+    if ctx is None:
+        return None
+    get = getattr(ctx, "get", None)
+    if callable(get):
+        return get(key)
+    return getattr(ctx, key, None)
+
+
+def _session_from_runtime(runtime: ToolRuntime[ContextT, dict] | None) -> tuple[str, str]:
+    """Return ``(session_key, thread_id)`` from runtime context when present."""
+    sk = str(_ctx_get(runtime, "session_key") or "").strip()
+    tid = str(_ctx_get(runtime, "thread_id") or "").strip()
+    return sk, tid
+
+
 def _bind_runtime_identity(runtime: ToolRuntime[ContextT, dict] | None) -> None:
     """Refresh ambient identity from **runtime-injected** fields for this turn.
 
@@ -50,18 +67,15 @@ def _bind_runtime_identity(runtime: ToolRuntime[ContextT, dict] | None) -> None:
             set_current_agent_actor,
         )
 
-        ctx = getattr(runtime, "context", None) if runtime is not None else None
         emp = ""
-        if ctx is not None:
-            get = getattr(ctx, "get", None)
-            raw = get("proactive_agent_code") if callable(get) else getattr(ctx, "proactive_agent_code", None)
-            emp = normalize_agent_actor(raw)
-            if (
-                not emp
-                or emp.lower() in {"main", "lead_agent", "auto", "user"}
-                or is_privileged_task_actor(emp)
-            ):
-                emp = ""
+        raw = _ctx_get(runtime, "proactive_agent_code")
+        emp = normalize_agent_actor(raw)
+        if (
+            not emp
+            or emp.lower() in {"main", "lead_agent", "auto", "user"}
+            or is_privileged_task_actor(emp)
+        ):
+            emp = ""
         set_current_agent_actor(emp)
     except Exception:
         pass
@@ -69,11 +83,13 @@ def _bind_runtime_identity(runtime: ToolRuntime[ContextT, dict] | None) -> None:
 
 _PLATFORM_TOOL_DESCRIPTION = """\
 Platform admin: catalog/help → pick action → confirm writes (confirm=true).
-action format: domain.op (knowledge.*, workflow.*, settings.*, assets.*, agents.*, employees.*, tasks.*, items.*, skills.*, mcp, automation.*, approvals.*, sessions.*, diagnostics.*, appearance.*, ui.*, verification.*). Long-term memory → assets tool / evoflow-admin assets-contract (not platform memory.*).
+action format: domain.op (knowledge.*, workflow.*, settings.*, assets.*, agents.*, employees.*, tasks.*, items.*, skills.*, mcp, automation.*, approvals.*, sessions.*, diagnostics.*, appearance.*, ui.*, media.*, verification.*). Long-term memory → assets tool / evoflow-admin assets-contract (not platform memory.*).
 catalog: pass domain via tool arg ``domain`` or args_json {\"domain\":\"mcp\"}; summary mode args_json {\"summary\":true}.
 items.* = user notes; tasks.* = collab ledger (prefer tasks tool on duty); todo = chat checklist only.
 Reusable craft/experience → assets tool (not platform experience.*).
+sessions.status = current conversation run/context usage; sessions.compact (confirm=true) = manually compress context (same as /compact; applies to later turns).
 Right panel: ui.show kind+data (collab-workflow / collabSubtaskTranscript / employeeProcess / web-embed / artifacts…); ui.hide to close. Read-risk, no confirm. Only when user should watch progress — not after every write.
+Media: media.catalog → media.generate_image (confirm=true, sync poll) / media.generate_video (confirm=true, async) → media.task_wait. Default Volcengine jimeng (Agent Plan Seedream/Seedance). Do not call retired media_* tool names. UI shows image/video preview from absolute_path — do not paste ![markdown] again.
 When result has assistant_guide.say_to_user: tell the user that text.
 employees.create/hire → relay say_to_user; bind channel with employees.bind_channel_begin (not channels.registration_*; not ui.show/artifacts QR png; not Markdown ![](url)). UI renders QR under the tool result.
 settings.* also covers web-search setup (Agent Plan Doubao Harness key / Tavily / Bocha…): prefer settings.get_web_search → follow assistant_guide → patch/test; do not push users into the complex Settings UI.
@@ -94,12 +110,15 @@ def platform_tool(
 
     try:
         _bind_runtime_identity(runtime)
+        sk, tid = _session_from_runtime(runtime)
         data = dispatch_platform_action(
             action,
             args_json=args_json,
             domain=domain or None,
             confirm=bool(confirm),
             principal_id=_principal_from_runtime(runtime),
+            session_key=sk,
+            thread_id=tid,
         )
         return _json(data)
     except Exception as exc:

@@ -18,13 +18,12 @@ import shutil
 import subprocess
 import time
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from langchain.tools import ToolRuntime, tool
 from langgraph.typing import ContextT
 
 from evoflow.agents.thread_state import ThreadState
-from evoflow.community.media_generation.aspect_ratio import jimeng_image_size, wan_image_size
 from evoflow.community.media_generation.asset_recorder import (
     record_local_asset,
     record_task_completed,
@@ -39,9 +38,8 @@ from evoflow.community.media_generation.config_helpers import (
     resolve_voice_provider,
 )
 from evoflow.community.media_generation.media_url_resolver import resolve_media_reference_url
-from evoflow.community.media_generation.providers import aliyun_vod, dashscope_tts, dashscope_wan, volcengine_tts
-from evoflow.community.media_generation.providers import jimeng as jimeng_provider
-from evoflow.community.media_generation.providers import kling as kling_provider
+from evoflow.community.media_generation.providers import aliyun_vod, dashscope_tts, volcengine_tts
+from evoflow.community.media_generation.providers import factory as media_factory
 from evoflow.community.media_generation.schemas import error_response, success_response
 from evoflow.community.media_generation.subtitle_utils import (
     audio_duration_seconds,
@@ -53,8 +51,8 @@ from evoflow.tools.host_direct.workspace_context import resolve_effective_output
 
 logger = logging.getLogger(__name__)
 
-ImageProviderLit = Literal["jimeng", "kling", "wan"]
-VideoProviderLit = Literal["jimeng", "kling", "wan"]
+ImageProviderLit = Literal["jimeng", "kling", "wan", "openai"]
+VideoProviderLit = Literal["jimeng", "kling", "wan", "minimax"]
 ImageModeLit = Literal["text2image", "image2image"]
 VideoModeLit = Literal["text2video", "image2video"]
 VoiceProviderLit = Literal["volcengine", "dashscope"]
@@ -78,12 +76,6 @@ def _unique_media_save_prefix(media_kind: str, task_id: str, *, url: str = "") -
 
 def _resolve_outputs_dir(runtime: ToolRuntime[ContextT, ThreadState] | None) -> Path | None:
     return resolve_effective_outputs_dir(runtime=runtime)
-
-
-def _image_size_for_provider(provider: str, aspect_ratio: str) -> str:
-    if provider == "wan":
-        return wan_image_size(aspect_ratio)
-    return jimeng_image_size(aspect_ratio)
 
 
 def _path_for_display(p: str | None) -> str | None:
@@ -140,16 +132,19 @@ def _run_image_generate_and_wait(
     reference_image_urls: list[str] | None,
     aspect_ratio: str,
     max_wait_seconds: int,
+    model: str | None = None,
 ) -> str:
     """Submit image job, poll until done, download to outputs — single tool round-trip."""
     try:
-        task_id = _submit_image(
-            provider,
-            prompt=prompt,
-            mode=mode,
-            reference_image_urls=reference_image_urls,
-            aspect_ratio=aspect_ratio,
-        )
+        submit_kwargs: dict[str, Any] = {
+            "prompt": prompt,
+            "mode": mode,
+            "reference_image_urls": reference_image_urls,
+            "aspect_ratio": aspect_ratio,
+        }
+        if model:
+            submit_kwargs["model"] = model
+        task_id = _submit_image(provider, **submit_kwargs)
     except Exception as e:
         logger.exception("media_image_generate submit failed")
         return error_response(str(e), provider=provider)
@@ -272,54 +267,20 @@ def _parse_reference_urls(reference_image_urls: str | None) -> list[str] | None:
     return [u.strip() for u in ref.split(",") if u.strip()]
 
 
-def _guard_media_provider(provider: str, *, media_kind: str) -> None:
-    from .config_helpers import provider_unavailable_message
-
-    err = provider_unavailable_message(provider, media_kind=media_kind)
-    if err:
-        raise ValueError(err)
-
-
 def _submit_image(provider: str, **kwargs) -> str:
-    _guard_media_provider(provider, media_kind="image")
-    aspect_ratio = kwargs.pop("aspect_ratio", "16:9")
-    if provider == "kling":
-        kwargs["aspect_ratio"] = aspect_ratio
-        return kling_provider.submit_image(**kwargs)
-    kwargs["size"] = _image_size_for_provider(provider, aspect_ratio)
-    if provider == "wan":
-        return dashscope_wan.submit_image(**kwargs)
-    return jimeng_provider.submit_image(**kwargs)
+    return media_factory.submit_image(provider, **kwargs)
 
 
 def _poll_image(provider: str, task_id: str):
-    _guard_media_provider(provider, media_kind="image")
-    if provider == "kling":
-        return kling_provider.poll_image(task_id)
-    if provider == "wan":
-        return dashscope_wan.poll_image(task_id)
-    return jimeng_provider.poll_image(task_id)
+    return media_factory.poll_image(provider, task_id)
 
 
 def _submit_video(provider: str, **kwargs) -> str:
-    _guard_media_provider(provider, media_kind="video")
-    if provider == "kling":
-        kwargs.pop("generate_audio", None)
-        return kling_provider.submit_video(**kwargs)
-    if provider == "wan":
-        kwargs.pop("generate_audio", None)
-        return dashscope_wan.submit_video(**kwargs)
-    kwargs.pop("audio_url", None)
-    return jimeng_provider.submit_video(**kwargs)
+    return media_factory.submit_video(provider, **kwargs)
 
 
 def _poll_video(provider: str, task_id: str):
-    _guard_media_provider(provider, media_kind="video")
-    if provider == "kling":
-        return kling_provider.poll_video(task_id)
-    if provider == "wan":
-        return dashscope_wan.poll_video(task_id)
-    return jimeng_provider.poll_video(task_id)
+    return media_factory.poll_video(provider, task_id)
 
 
 @tool("media_image_generate", parse_docstring=True)

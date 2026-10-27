@@ -59,7 +59,7 @@ export const NAV_LABELS = {
 export const TAB_META = {
   // general tab 顶部标题区会被整体隐藏；保留空字符串避免任何"闪现/回退显示"
   general: { title: '', desc: '' },
-  models: { title: '模型配置', desc: '对话模型服务商、套餐与主模型选择。' },
+  models: { title: '模型配置', desc: '对话模型、生图生视频、向量、语音与套餐。' },
   search: { title: '联网搜索', desc: '配置 web_search 引擎；Agent Plan 默认优先豆包（Harness 联网 Key），也可改引擎或自备 Key。' },
   im: { title: '消息渠道', desc: '飞书、Slack、Telegram 等 IM 对接。' },
   security: { title: '安全中心', desc: 'OS 沙箱、新对话默认权限、终端命令策略与审计。' },

@@ -23,8 +23,10 @@ SECRET_FIELDS = frozenset(
         "volcengineTtsAccessToken",
         "aliyunAccessKeySecret",
         "openaiTtsKey",
+        "openaiImageApiKey",
         "elevenLabsKey",
         "minimaxKey",
+        "minimaxMediaApiKey",
     }
 )
 
@@ -38,8 +40,8 @@ DEFAULT_MEDIA_CREDENTIALS: dict[str, Any] = {
     "volcengineApiKey": "",
     "agnesApiKey": "",
     "volcengineArkBaseUrl": "",
-    "jimengImageModel": "doubao-seedream-5.0-lite",
-    "jimengVideoModel": "doubao-seedance-2.0",
+    "jimengImageModel": "doubao-seedream-5-0-pro",
+    "jimengVideoModel": "doubao-seedance-2.5",
     "jimengVideoBaseUrl": "",
     "volcengineTtsAppId": "",
     "volcengineTtsAccessToken": "",
@@ -52,8 +54,12 @@ DEFAULT_MEDIA_CREDENTIALS: dict[str, Any] = {
     # These are read by app.gateway.speech.tts_registry and its providers.
     "openaiTtsKey": "",
     "openaiTtsBaseUrl": "",
+    "openaiImageApiKey": "",
+    "openaiImageBaseUrl": "https://api.openai.com/v1",
     "elevenLabsKey": "",
     "minimaxKey": "",
+    "minimaxMediaApiKey": "",
+    "minimaxMediaBaseUrl": "https://api.minimax.cn",
     "aliyunAccessKeyId": "",
     "aliyunAccessKeySecret": "",
     "aliyunOssBucket": "",
@@ -63,6 +69,8 @@ DEFAULT_MEDIA_CREDENTIALS: dict[str, Any] = {
         "agnes": False,
         "dashscope": False,
         "kling": False,
+        "openai-image": False,
+        "minimax": False,
         "volcengine-tts": False,
         "aliyun": False,
     },
@@ -110,11 +118,19 @@ VENDOR_CREDENTIAL_ALIASES: dict[str, dict[str, str]] = {
         "apiKey": "openaiTtsKey",
         "baseUrl": "openaiTtsBaseUrl",
     },
+    "openai-image": {
+        "apiKey": "openaiImageApiKey",
+        "baseUrl": "openaiImageBaseUrl",
+    },
     "elevenlabs-tts": {
         "apiKey": "elevenLabsKey",
     },
     "minimax-tts": {
         "apiKey": "minimaxKey",
+    },
+    "minimax": {
+        "apiKey": "minimaxMediaApiKey",
+        "baseUrl": "minimaxMediaBaseUrl",
     },
 }
 
@@ -126,6 +142,9 @@ PROVIDER_TO_VENDOR: dict[str, str] = {
     "agnes": "agnes",
     "volcengine": "volcengine",
     "dashscope": "dashscope",
+    "openai": "openai-image",
+    "minimax": "minimax",
+    "hailuo": "minimax",
 }
 
 VENDOR_UI_LABELS: dict[str, str] = {
@@ -133,11 +152,13 @@ VENDOR_UI_LABELS: dict[str, str] = {
     "agnes": "Agnes AI",
     "dashscope": "通义万相",
     "kling": "可灵",
+    "openai-image": "OpenAI 生图",
+    "minimax": "MiniMax 海螺",
     "volcengine-tts": "火山 TTS",
     "aliyun": "阿里云",
     "openai-tts": "OpenAI TTS",
     "elevenlabs-tts": "ElevenLabs",
-    "minimax-tts": "MiniMax",
+    "minimax-tts": "MiniMax TTS",
 }
 
 
@@ -322,6 +343,16 @@ _VENDOR_ENV_BINDINGS: dict[str, list[tuple[str, str]]] = {
         ("ALIYUN_ACCESS_KEY_SECRET", "aliyunAccessKeySecret"),
         ("ALIYUN_OSS_BUCKET", "aliyunOssBucket"),
         ("ALIYUN_IMS_ENDPOINT", "aliyunImsEndpoint"),
+    ],
+    "openai-image": [
+        ("OPENAI_IMAGE_API_KEY", "openaiImageApiKey"),
+        ("OPENAI_API_KEY", "openaiImageApiKey"),
+        ("OPENAI_IMAGE_BASE_URL", "openaiImageBaseUrl"),
+    ],
+    "minimax": [
+        ("MINIMAX_MEDIA_API_KEY", "minimaxMediaApiKey"),
+        ("MINIMAX_API_KEY", "minimaxMediaApiKey"),
+        ("MINIMAX_MEDIA_BASE_URL", "minimaxMediaBaseUrl"),
     ],
 }
 

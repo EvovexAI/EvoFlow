@@ -43,6 +43,7 @@ PLATFORM_DOMAINS = (
     "verification",
     "appearance",
     "ui",
+    "media",
     "eval",
 )
 
@@ -137,13 +138,20 @@ DOMAIN_GUIDES: dict[str, dict[str, str]] = {
         "not": "不是任务状态本身（用 tasks.set_state / tasks 工具）",
     },
     "sessions": {
-        "title": "会话检索",
-        "when": "按关键词检索历史会话时",
-        "not": "不是当前对话内 todo",
+        "title": "会话与上下文",
+        "when": (
+            "查当前对话状态/上下文占用用 sessions.status；"
+            "主动压缩上下文用 sessions.compact（confirm=true）；"
+            "按关键词检索历史会话用 sessions.search"
+        ),
+        "not": "不是当前对话内 todo；不是系统级端口/目录（用 diagnostics.status）",
     },
     "diagnostics": {
         "title": "日志与异常诊断",
-        "when": "系统报错、启动失败、任务跑挂；要知道有哪些日志源、哪些源有报错、汇总可转发的异常时间线时",
+        "when": (
+            "查当前系统运行状态（端口/前后端/服务是否就绪/数据目录/安装目录）用 diagnostics.status；"
+            "系统报错、启动失败、任务跑挂；要知道有哪些日志源、哪些源有报错、汇总可转发的异常时间线时"
+        ),
         "not": "不是会话内工具轨迹（用会话调试/任务详情）；不是改配置（用 settings）",
     },
     "verification": {
@@ -163,6 +171,15 @@ DOMAIN_GUIDES: dict[str, dict[str, str]] = {
             "用户要盯进度时用 ui.show（勿对每次写操作都开）"
         ),
         "not": "不是改主题/液态玻璃（用 appearance）；不是跳页面路由（用反馈卡 CTA）",
+    },
+    "media": {
+        "title": "生图/生视频",
+        "when": (
+            "用户要生成图片或视频时：先 media.catalog 看可用厂商与 Agent Plan 档位，"
+            "再 media.generate_image / media.generate_video（写操作 confirm=true）；"
+            "视频提交后用 media.task_wait 等结果。默认火山方舟 jimeng（Seedream/Seedance）。"
+        ),
+        "not": "不是改媒体 API Key（设置页）；不是朗读/语音输入（创意媒体 TTS/ASR）；不要再调已退役的 media_* 独立工具名",
     },
     "eval": {
         "title": "评测中心",
@@ -439,6 +456,56 @@ def _build_registry() -> dict[str, PlatformAction]:
             "无",
             H.ui_hide,
             "把右侧面板收起来",
+        ),
+        # media（生图 / 生视频；默认火山 Agent Plan / jimeng）
+        _A(
+            "media.catalog",
+            "media",
+            "查看生图/生视频能力目录（厂商、档位、同步/异步接口与传参）",
+            "read",
+            "tier_id?",
+            H.media_catalog,
+            "现在能生图生视频吗",
+            "Agent Plan 支持哪些 Seedream/Seedance",
+        ),
+        _A(
+            "media.status",
+            "media",
+            "检查生图/生视频是否已配置可用",
+            "read",
+            "无",
+            H.media_status,
+            "火山生图 Key 配好了吗",
+        ),
+        _A(
+            "media.generate_image",
+            "media",
+            "生成图片（提交+轮询+落盘，一次返回路径）",
+            "write",
+            "prompt, model?, mode?, aspect_ratio?, reference_image_urls?, provider?, max_wait_seconds?",
+            H.media_generate_image,
+            "画一张暗色科技风产品海报 16:9",
+            "用 doubao-seedream-5-0-pro 出首帧",
+            "用上一张参考图做 image2image",
+        ),
+        _A(
+            "media.generate_video",
+            "media",
+            "提交生视频任务（异步；再用 media.task_wait）",
+            "write",
+            "prompt, model?, mode?, first_frame_url?, last_frame_url?, duration?, resolution?, aspect_ratio?, generate_audio?, watermark?, seed?, provider?",
+            H.media_generate_video,
+            "用刚生成的图做 5 秒 image2video 并带口播",
+            "指定 model=doubao-seedance-2.0 resolution=720p",
+        ),
+        _A(
+            "media.task_wait",
+            "media",
+            "等待生视频/生图异步任务完成并落盘",
+            "read",
+            "task_id, provider?, media_kind?, max_wait_seconds?",
+            H.media_task_wait,
+            "等刚才的视频任务出片",
         ),
         _A(
             "ui.update",
@@ -1021,6 +1088,27 @@ def _build_registry() -> dict[str, PlatformAction]:
         _A("approvals.reject", "approvals", "驳回审批", "write", "id/task_id, reason", H.approvals_reject, "驳回并说明原因"),
         # sessions
         _A("sessions.search", "sessions", "按关键词搜历史会话", "read", "query, max_results?, max_age_days?, search_titles?", H.sessions_search, "上次聊英语单词是哪个会话"),
+        _A(
+            "sessions.status",
+            "sessions",
+            "查看当前（或指定）对话状态：运行态、消息数、上下文占用、是否已压缩",
+            "read",
+            "session_key?/thread_id?（默认当前对话）",
+            H.sessions_status,
+            "当前对话上下文用了多少",
+            "这个会话还在跑吗",
+            "上下文占用到百分之几了",
+        ),
+        _A(
+            "sessions.compact",
+            "sessions",
+            "主动压缩当前（或指定）对话上下文（与 /compact 同引擎；需 confirm=true）",
+            "write",
+            "session_key?/thread_id?, confirm=true",
+            H.sessions_compact,
+            "帮我压缩一下上下文",
+            "上下文太满了，压缩当前对话",
+        ),
         # diagnostics（系统已知日志源 + 异常扫描 + 可转发时间线）
         _A(
             "diagnostics.sources",
@@ -1062,6 +1150,18 @@ def _build_registry() -> dict[str, PlatformAction]:
             "帮我查一下系统有什么问题",
             "员工跑不起来帮我诊断一下",
             "定时任务没触发帮我看看",
+        ),
+        _A(
+            "diagnostics.status",
+            "diagnostics",
+            "查看当前系统运行状态（系统端口、前后端端口、服务状态、数据目录、安装目录）",
+            "read",
+            "无",
+            H.diagnostics_status,
+            "系统现在运行状态怎么样",
+            "前后端端口是多少",
+            "数据目录和安装目录在哪",
+            "当前服务跑在哪个端口",
         ),
         # verification（系统验证轮次：进度/结论/异常 + 接口入参出参耗时）
         _A(
@@ -1329,6 +1429,8 @@ def dispatch_platform_action(
     domain: str | None = None,
     confirm: bool = False,
     principal_id: str = "",
+    session_key: str = "",
+    thread_id: str = "",
 ) -> dict[str, Any]:
     act = str(action or "").strip()
     if not act:
@@ -1398,13 +1500,18 @@ def dispatch_platform_action(
     if entry.handler is None:
         return {"ok": False, "error": "handler_missing", "action": entry.name}
 
-    # Thread principal into handlers that bucket per-user assets (extra key
-    # is inert for handlers that ignore it). Task「责任人」uses ambient
-    # ContextVar (set at session / platform_tool entry), not args.
+    # Thread principal / current conversation into handlers (extra keys are
+    # inert when unused). Task「责任人」uses ambient ContextVar, not args.
+    args = dict(args or {})
     pid = str(principal_id or "").strip()
     if pid:
-        args = dict(args or {})
         args.setdefault("principal_id", pid)
+    sk = str(session_key or "").strip()
+    if sk:
+        args.setdefault("session_key", sk)
+    tid = str(thread_id or "").strip()
+    if tid:
+        args.setdefault("thread_id", tid)
 
     try:
         result = entry.handler(args)

@@ -4,6 +4,7 @@ import { syncEmployeesRosterFromToolResult } from '../employees-roster-sync.js'
 import { syncPanelAppearanceFromToolResult } from '../panel-appearance-sync.js'
 import { openProgressFromPanelSet } from './open-progress-from-panel-set.js'
 import { logRightStage } from './panel-set-debug-log.js'
+import { rightStageStore } from './right-stage-store.js'
 import type { RightStageSurface } from './right-stage-types.js'
 
 export type PlatformFeedbackDetail = {
@@ -153,7 +154,10 @@ const TITLE_OVERRIDES: Record<string, (label: string) => string> = {
   'tasks.delete': (label) => `已删除协作任务「${label}」`,
   'employees.hire': (label) => `已添加智能体员工「${label}」`,
   'employees.get': (label) => `员工「${label}」`,
+  'employees.brief': (label) => `员工「${label}」近况`,
   'employees.list': () => '员工列表',
+  'employees.org_status': () => '员工名册',
+  'employees.board_overview': () => '员工看板',
   'employees.create': (label) => `已创建智能体员工「${label}」`,
   'employees.bind_channel_begin': (label) => `已为「${label}」生成绑定二维码`,
   'employees.bind_channel_apply': (label) => `已绑定本岗 AI 员工「${label}」`,
@@ -236,25 +240,80 @@ function asActions(raw: unknown): PlatformFeedbackAction[] {
   return out
 }
 
-/**
- * 若 CTA 带 autoOpen+openStage，立刻拉开右栏（进度 kind 或 shell-page）。
- * 共享工具：V4（ConversationTurnGroup）与旧 AG-UI 热路径都会调用。
- * 默认产品聊天以 V4 调用为准；只改调用方不够时再改本函数。
- */
-export function maybeAutoOpenPlatformProgress(ui: PlatformUiFeedback | null | undefined): boolean {
-  if (!ui) return false
+export type PlatformAutoOpenDiag = {
+  opened: boolean
+  /** 人类可读原因：opened / no-ui / no-actions / no-autoOpen-openStage / openProgress-failed */
+  reason: string
+  action?: string
+  domain?: string
+  entityId?: string
+  title?: string
+  tabId?: string
+  actions: Array<{
+    label: string
+    autoOpen?: boolean
+    kind?: string
+    route?: string
+    path?: string
+  }>
+}
+
+/** 诊断 + 打开；V4 / 语音旁路共用。 */
+export function tryAutoOpenPlatformProgress(
+  ui: PlatformUiFeedback | null | undefined,
+): PlatformAutoOpenDiag {
+  if (!ui) {
+    return { opened: false, reason: 'no-ui', actions: [] }
+  }
   const enriched = enrichShellPageOpenStages(ui)
-  if (!Array.isArray(enriched.actions)) return false
-  const hit = enriched.actions.find((a) => a && a.autoOpen && a.openStage)
-  if (!hit?.openStage) return false
-  // 同步打开：避免 dynamic import 晚于 RUN_FINISHED / tools-scan 标 seen，导致侧栏永远不展开
+  const actions = (Array.isArray(enriched.actions) ? enriched.actions : []).map((a) => ({
+    label: String(a.label || '').trim(),
+    autoOpen: a.autoOpen === true,
+    kind: a.openStage?.kind,
+    route: a.route,
+    path: asString(a.openStage?.data?.path) || asString(a.openStage?.data?.route) || undefined,
+  }))
+  const base = {
+    action: asString(enriched.action) || undefined,
+    domain: asString(enriched.domain) || undefined,
+    entityId: asString(enriched.entityId) || asString(enriched.agentCode) || undefined,
+    title: asString(enriched.title) || undefined,
+    actions,
+  }
+  if (!actions.length) {
+    return { opened: false, reason: 'no-actions', ...base }
+  }
+  const hit = enriched.actions?.find((a) => a && a.autoOpen && a.openStage)
+  if (!hit?.openStage) {
+    return { opened: false, reason: 'no-autoOpen-openStage', ...base }
+  }
   logRightStage('maybeAutoOpenPlatformProgress', {
     kind: hit.openStage?.kind,
     label: hit.label,
     openStage: hit.openStage,
   })
   const tabId = openProgressFromPanelSet(hit.openStage)
-  return Boolean(tabId)
+  if (!tabId) {
+    return { opened: false, reason: 'openProgress-failed', tabId: '', ...base }
+  }
+  if (rightStageStore.getSnapshot().collapsed) rightStageStore.expand()
+  void import('../xw-voice-mode.js')
+    .then((m) => {
+      if (!m.isXwVoiceMode?.()) return
+      m.allowXwVoiceSummary?.()
+      if (rightStageStore.getSnapshot().collapsed) rightStageStore.expand()
+    })
+    .catch(() => {})
+  return { opened: true, reason: 'opened', tabId, ...base }
+}
+
+/**
+ * 若 CTA 带 autoOpen+openStage，立刻拉开右栏（进度 kind 或 shell-page）。
+ * 共享工具：V4（ConversationTurnGroup）与旧 AG-UI 热路径都会调用。
+ * 默认产品聊天以 V4 调用为准；只改调用方不够时再改本函数。
+ */
+export function maybeAutoOpenPlatformProgress(ui: PlatformUiFeedback | null | undefined): boolean {
+  return tryAutoOpenPlatformProgress(ui).opened
 }
 
 function pickLabel(obj: Record<string, unknown>, args: Record<string, unknown>): string {
@@ -337,14 +396,17 @@ function shellPageAction(opts: {
   return out
 }
 
-/** 写成功 / 查看详情 且无进度抢栏时：详情页 shell-page + autoOpen */
+/** 写成功 / 查看详情·近况·名册 且无进度抢栏时：详情页 shell-page + autoOpen */
 function shouldAutoOpenShellPage(action: string): boolean {
   return (
     action === 'employees.create' ||
     action === 'employees.hire' ||
     action === 'employees.update' ||
     action === 'employees.get' ||
+    action === 'employees.brief' ||
     action === 'employees.list' ||
+    action === 'employees.org_status' ||
+    action === 'employees.board_overview' ||
     action === 'tasks.update' ||
     action === 'tasks.set_state' ||
     action === 'tasks.get'
@@ -390,6 +452,28 @@ export function enrichShellPageOpenStages(ui: PlatformUiFeedback): PlatformUiFee
         a.autoOpen = true
         touched = true
       }
+      // 旧 CTA 可能写 /employees → 归一成 /proactive，否则挂载表 miss
+      if (a.openStage) {
+        const rawPath = asString(a.openStage.data?.path) || asString(a.openStage.data?.route) || asString(a.route)
+        let nextPath = rawPath
+        if (rawPath === '/employees' || rawPath === '/employees/') nextPath = '/proactive'
+        else {
+          const m = rawPath.match(/^\/employees\/([^/?#]+)\/?$/)
+          if (m) nextPath = `/proactive/${decodeURIComponent(m[1])}`
+        }
+        if (nextPath && nextPath !== rawPath) {
+          a.openStage = {
+            ...a.openStage,
+            data: {
+              ...(a.openStage.data || {}),
+              path: nextPath,
+              route: nextPath,
+            },
+          }
+          a.route = nextPath
+          touched = true
+        }
+      }
       // 已有 shell-page 但标题是 path / 空：用 entityLabel 补可读名
       if (entityLabel && a.openStage) {
         const cur = asString(a.openStage.title) || asString(a.openStage.data?.title)
@@ -410,7 +494,12 @@ export function enrichShellPageOpenStages(ui: PlatformUiFeedback): PlatformUiFee
     }
     if (existingKind) continue
 
-    if (route === '/proactive' || route === '/proactive/') {
+    if (
+      route === '/proactive' ||
+      route === '/proactive/' ||
+      route === '/employees' ||
+      route === '/employees/'
+    ) {
       Object.assign(
         a,
         shellPageAction({
@@ -419,13 +508,17 @@ export function enrichShellPageOpenStages(ui: PlatformUiFeedback): PlatformUiFee
           mountId: 'employees.board',
           title: '员工',
           entityLabel: '员工',
-          autoOpen: autoOk || action === 'employees.list',
+          autoOpen:
+            autoOk ||
+            action === 'employees.list' ||
+            action === 'employees.org_status' ||
+            action === 'employees.board_overview',
         }),
       )
       touched = true
       continue
     }
-    const emp = route.match(/^\/proactive\/([^/?#]+)\/?$/)
+    const emp = route.match(/^\/(?:proactive|employees)\/([^/?#]+)\/?$/)
     if (emp && emp[1] !== 'board' && emp[1] !== 'approvals') {
       const path = `/proactive/${decodeURIComponent(emp[1])}`
       Object.assign(
@@ -465,6 +558,8 @@ export function enrichShellPageOpenStages(ui: PlatformUiFeedback): PlatformUiFee
     entityId &&
     (domain === 'employees' || action.startsWith('employees.')) &&
     action !== 'employees.list' &&
+    action !== 'employees.org_status' &&
+    action !== 'employees.board_overview' &&
     !actions.some((a) => String(a.openStage?.kind || '').includes('shell'))
   ) {
     actions.push(
@@ -481,7 +576,9 @@ export function enrichShellPageOpenStages(ui: PlatformUiFeedback): PlatformUiFee
   }
 
   if (
-    action === 'employees.list' &&
+    (action === 'employees.list' ||
+      action === 'employees.org_status' ||
+      action === 'employees.board_overview') &&
     !actions.some((a) => String(a.openStage?.kind || '').includes('shell'))
   ) {
     actions.push(
@@ -517,7 +614,12 @@ function buildActions(action: string, domain: string, entityId: string): Platfor
       }),
     ]
   }
-  if (domain === 'employees' && action === 'employees.list') {
+  if (
+    domain === 'employees' &&
+    (action === 'employees.list' ||
+      action === 'employees.org_status' ||
+      action === 'employees.board_overview')
+  ) {
     return [
       shellPageAction({
         label: '打开员工',
@@ -573,7 +675,10 @@ function inferPlatformUiFeedbackFallback(
     !verb ||
     (READ_VERBS.has(verb) &&
       action !== 'employees.get' &&
+      action !== 'employees.brief' &&
       action !== 'employees.list' &&
+      action !== 'employees.org_status' &&
+      action !== 'employees.board_overview' &&
       action !== 'tasks.get')
   ) {
     return null
@@ -627,19 +732,27 @@ function uiFromBackend(obj: Record<string, unknown>): PlatformUiFeedback | null 
   const kindRaw = asString(ui.kind).toLowerCase()
   const kind: PlatformUiFeedback['kind'] =
     kindRaw === 'warning' || kindRaw === 'error' ? kindRaw : 'success'
+  const action = asString(ui.action || obj.action) || undefined
+  const domain = asString(ui.domain) || (action?.includes('.') ? action.split('.')[0] : undefined)
+  const entityId = asString(ui.entityId) || asString(ui.agentCode) || asString(obj.agent_code) || null
+  let actions = asActions(ui.actions)
+  // 线上下发的 ui 偶发只有 title、actions 被 slim 丢光：按 action/domain 回补壳页 CTA
+  if (!actions.length && action && domain) {
+    actions = buildActions(action, domain, entityId || '')
+  }
   const out: PlatformUiFeedback = {
     kind,
     verb: asString(ui.verb) || undefined,
-    domain: asString(ui.domain) || undefined,
+    domain: domain || undefined,
     entityType: asString(ui.entityType) || undefined,
     entityLabel: asString(ui.entityLabel) || undefined,
-    entityId: asString(ui.entityId) || null,
+    entityId,
     icon: asString(ui.icon) || undefined,
     title,
     subtitle: asString(ui.subtitle) || undefined,
     details: asDetails(ui.details),
-    actions: asActions(ui.actions),
-    action: asString(ui.action || obj.action) || undefined,
+    actions,
+    action,
   }
   const qrUrl = asString(ui.qrUrl || ui.qr_url || obj.qr_url || obj.qrUrl)
   const sessionId = asString(ui.sessionId || ui.session_id || obj.session_id || obj.sessionId)
@@ -676,8 +789,14 @@ export function platformFeedbackTitleFromToolOutput(raw: unknown, argsText?: str
 }
 
 export function navigatePlatformFeedbackRoute(route: string): void {
-  const next = asString(route)
+  let next = asString(route)
   if (!next || typeof window === 'undefined') return
+  // 别名落到真实菜单路由，避免主区 404 / 空白
+  if (next === '/employees' || next === '#/employees') next = '/proactive'
+  else {
+    const m = next.replace(/^#/, '').match(/^\/employees\/([^/?#]+)/)
+    if (m) next = `/proactive/${m[1]}`
+  }
   const hash = next.startsWith('#') ? next.slice(1) : next.startsWith('/') ? next : `/${next}`
   window.location.hash = hash
 }
@@ -1054,7 +1173,7 @@ export function syncPlatformFeedbackFromTools(
     if (toolPlatformName(tool) !== 'platform') continue
     if (toolIsRunning(tool)) continue
 
-    const toolCallId = asString(tool.id || tool.tool_call_id)
+    const toolCallId = asString(tool.id || tool.tool_call_id || tool.toolCallId)
     if (!toolCallId || seen.has(toolCallId)) continue
 
     const output = toolPlatformOutput(tool)

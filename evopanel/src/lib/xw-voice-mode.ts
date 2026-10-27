@@ -126,15 +126,20 @@ function noteGate(
 }
 
 function afterXiaomiSessionAdopted(expandRight: boolean): void {
+  const snap = rightStageStore.getSnapshot()
+  const sideContent = snap.tabs.find((t) => String(t.kind || '') !== 'xiaomi')
   if (expandRight) {
     rightStageStore.expand()
-    const snap = rightStageStore.getSnapshot()
-    // 左栏已是小V语音域：右栏若还停在小V文字签，切到同会话其它签（截图/文件），
+    // 左栏已是小V语音域：右栏若还停在小V文字签，切到同会话其它签（截图/文件/壳页），
     // 切勿在未 adopt 时点到主对话残留签——adopt 之后 live 表里已无外会话标签。
-    if (String(snap.activeKey || '').startsWith('xiaomi:')) {
-      const other = snap.tabs.find((t) => t.kind !== 'xiaomi')
-      if (other) rightStageStore.activateTab(`${other.kind}:${other.id}`)
+    if (String(snap.activeKey || '').startsWith('xiaomi:') && sideContent) {
+      rightStageStore.activateTab(`${sideContent.kind}:${sideContent.id}`)
     }
+  } else if (sideContent) {
+    // 唤醒 left-only 期间平台工具可能已抢先 show() 开了员工/任务/进度；
+    // 再 collapse 会把刚打开的右栏打掉（竞态：adopt 异步晚于 maybeAutoOpen）。
+    rightStageStore.expand()
+    rightStageStore.activateTab(`${sideContent.kind}:${sideContent.id}`)
   } else {
     // 唤醒 left-only：必须收起右侧。否则对话列被 CSS 藏掉、语音域只剩左栏 440px，
     // 整窗几乎空白，用户会以为「面板没弹出来」。
@@ -188,6 +193,9 @@ function releaseXiaomiRightStageOnVoiceExit(): void {
     .catch(() => {})
   void import('../zcode-ui/v4/xiaomiVoiceReadAutoOpen.js')
     .then((m) => m.resetXiaomiVoiceReadAutoOpen?.())
+    .catch(() => {})
+  void import('./xiaomi-voice/platform-auto-open.js')
+    .then((m) => m.resetXiaomiPlatformAutoOpen?.())
     .catch(() => {})
 }
 

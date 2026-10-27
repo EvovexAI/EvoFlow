@@ -386,7 +386,7 @@ async def _verify_image(*, api_key: str, catalog: dict[str, Any]) -> dict[str, A
     except Exception:
         pass
     # Prefer catalog Seedream id when present
-    model_id = "doubao-seedream-5.0-lite"
+    model_id = "doubao-seedream-5-0-pro"
     for row in catalog.get("capabilities") or []:
         if str(row.get("id") or "") == "image":
             items = list(row.get("items") or [])
@@ -459,7 +459,7 @@ async def _verify_web_search(*, api_key: str, catalog: dict[str, Any]) -> dict[s
     endpoints = catalog.get("endpoints") or {}
     base = str((endpoints.get("chat") or {}).get("base_url") or PLAN_CHAT_BASE)
     # Agent Plan has no reliable GET /models; reuse a tiny chat completion as Key probe.
-    model_id = "doubao-seed-2.0-lite"
+    model_id = "doubao-seed-2.0-mini"
     try:
         from evoflow.plans.volc_agent_plan_models import chat_models_for_tier
 

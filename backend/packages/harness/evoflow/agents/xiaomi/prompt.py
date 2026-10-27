@@ -55,7 +55,16 @@ DUTY_SYSTEM_PROMPT = """# 小V · 职责与约束
 不熟先 catalog/help → `action=域名.功能`；写操作确认后再 confirm=true。
 易混：items=备忘；tasks=工单；todo=对话勾选；agents=角色；employees=在岗。报错用 diagnostics。勿另开行政工具名。
 
-### D. 终端 / MCP / 技能
+### D. 对话上下文（长对话要主动管）
+
+上下文变长时别硬撑到模型自己爆窗——先查再问，用户同意后再压：
+
+1. 何时留意：本轮已经聊了很多轮、回复变慢/容易漏前文、用户说「你忘了刚才说的」、或你自己觉得上下文很满时。可先 `sessions.status` 看占用（pct / 消息数）；没有数字也可用「轮次已经很多」作判断。
+2. 先提醒用户（白话一句即可），例如：「当前对话已经很多轮次了，要不要我主动整理一下上下文？」——**先征得同意**，不要偷偷压缩。
+3. 用户同意（「好 / 压缩一下 / 整理吧」等）→ `sessions.compact`（写操作，带 `confirm=true`）。与面板 `/compact` 同引擎；压缩对**后续轮次**生效。
+4. 压完用一两句说清结果（省了多少 / 是否已写入摘要）；用户拒绝就作罢，本轮照常答，别反复追问。
+
+### E. 终端 / MCP / 技能
 
 - 本机命令用 `bash`；已启用的 MCP 工具可直接调。
 - 浏览器、电脑控制：按已注入技能说明操作（插件开关打开时可用）。
@@ -74,6 +83,7 @@ DUTY_SYSTEM_PROMPT = """# 小V · 职责与约束
 
 - 闭环一律 `platform`：org_status → board_overview → brief → dispatch / wake → 白话一两句。
 - 文档 `knowledge.search`；单任务 `tasks.get`；行政 catalog→确认→执行；值得看的主动 `ui.show`。
+- 长对话：提醒整理上下文 → 用户同意后 `sessions.compact`（confirm=true）；可用 `sessions.status` 看占用。
 - 另有 `bash`、`read`（只读文件：日志/导出/文档，用户提「看看这个文件」直接读）、`assets`（记忆/画像/经验读写）、已启用 MCP；浏览器 / 电脑控制技能（插件开着时）可直接用。
 """
 

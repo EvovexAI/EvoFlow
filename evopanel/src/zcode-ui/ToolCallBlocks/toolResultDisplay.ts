@@ -64,7 +64,7 @@ interface CuaToolResultDisplay {
   };
 }
 
-/** platform 工具结构化展示：绑渠道扫码 和/或 进度侧栏 CTA（workflow.run autoOpen） */
+/** platform 工具结构化展示：绑渠道扫码 / 进度 CTA / 生图生视频预览 */
 export interface PlatformUiToolResultDisplay {
   kind: "platform_ui";
   schemaVersion: 1;
@@ -76,6 +76,13 @@ export interface PlatformUiToolResultDisplay {
   agentCode?: string;
   entityLabel?: string;
   bindStatus?: "pending" | "scanning" | "bound" | "failed" | "expired";
+  media?: Array<{
+    kind?: "image" | "video" | string;
+    mimeType?: string;
+    artifactUri?: string;
+    absolutePath?: string;
+    url?: string;
+  }>;
   actions?: Array<{
     label: string;
     autoOpen?: boolean;
@@ -256,6 +263,35 @@ function parseDisplay(value: unknown): ToolResultDisplay | undefined {
       bindRaw === "expired"
         ? bindRaw
         : undefined;
+    const mediaRaw = Array.isArray(value.media) ? value.media : [];
+    const media: NonNullable<PlatformUiToolResultDisplay["media"]> = [];
+    for (const row of mediaRaw) {
+      if (!isRecord(row)) continue;
+      const artifactUri = readOptionalString(row, "artifactUri");
+      const absolutePath = readOptionalString(row, "absolutePath");
+      const url = readOptionalString(row, "url");
+      const mimeType = readOptionalString(row, "mimeType");
+      const kindRaw = readOptionalString(row, "kind");
+      if (artifactUri === null || absolutePath === null || url === null || mimeType === null || kindRaw === null) {
+        continue;
+      }
+      const src = artifactUri || absolutePath || url;
+      if (!src) continue;
+      const kind =
+        kindRaw === "video" || kindRaw === "image"
+          ? kindRaw
+          : mimeType?.startsWith("video/")
+            ? "video"
+            : "image";
+      media.push({
+        kind,
+        ...(mimeType ? { mimeType } : {}),
+        ...(src ? { artifactUri: src } : {}),
+        ...(absolutePath ? { absolutePath } : {}),
+        ...(url ? { url } : {}),
+      });
+      if (media.length >= 4) break;
+    }
     const actionsRaw = Array.isArray(value.actions) ? value.actions : [];
     const actions: NonNullable<PlatformUiToolResultDisplay["actions"]> = [];
     for (const row of actionsRaw) {
@@ -303,6 +339,7 @@ function parseDisplay(value: unknown): ToolResultDisplay | undefined {
         : qrUrl || sessionId
           ? { bindStatus: "pending" as const }
           : {}),
+      ...(media.length ? { media } : {}),
       ...(actions.length ? { actions } : {}),
     };
   }

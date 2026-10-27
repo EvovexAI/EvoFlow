@@ -42,6 +42,17 @@ describe('openProgressFromPanelSet', () => {
     expect(tab?.sessionKey).toBeFalsy()
   })
 
+  it('opens shell-page /employees as proactive board', () => {
+    const id = openProgressFromPanelSet({
+      kind: 'shell-page',
+      data: { path: '/employees', mountId: 'employees.board' },
+    })
+    expect(id).toBe('shell:/proactive')
+    const tab = rightStageStore.getSnapshot().tabs.find((t) => t.kind === 'shell-page')
+    expect(tab?.data?.path).toBe('/proactive')
+    expect(tab?.sessionKey).toBeFalsy()
+  })
+
   it('employeeProcess tab title prefers roleName over task title', () => {
     const id = openProgressFromPanelSet({
       kind: 'employeeProcess',

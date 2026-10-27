@@ -12,9 +12,13 @@ import {
 import type { PlatformUiFeedback } from "../../../lib/right-stage/platform-feedback.js";
 import { ToolCallBody } from "@/ToolCallBlocks/ToolCallBody.js";
 import { ToolSnapshotFieldNotice } from "@/ToolCallBlocks/ToolSnapshotFieldNotice.js";
-import { readToolResultDisplay } from "@/ToolCallBlocks/toolResultDisplay.js";
+import {
+  readToolResultDisplay,
+  type PlatformUiToolResultDisplay,
+} from "@/ToolCallBlocks/toolResultDisplay.js";
 import { ToolLayout } from "../ToolLayout.js";
 import type { ToolCallBlockRenderContext } from "../shared.js";
+import { PlatformMediaPreview } from "./PlatformMediaPreview.js";
 
 const PLATFORM_TOOL_ICON = <Building2 className="size-4 shrink-0 text-foreground-subtle" />;
 
@@ -58,6 +62,7 @@ export function readPlatformToolBrief(input: unknown): string {
   if (!isPlainRecord(input)) return "";
   const payload = parseArgsJson(input) || {};
   const candidates = [
+    payload.prompt,
     payload.query,
     payload.search,
     payload.name,
@@ -65,6 +70,8 @@ export function readPlatformToolBrief(input: unknown): string {
     payload.agent_name,
     payload.role_name,
     payload.status,
+    payload.task_id,
+    payload.taskId,
     input.query,
     input.domain,
   ];
@@ -208,6 +215,66 @@ export function readPlatformProgressFeedback(raw: unknown): PlatformUiFeedback |
   };
 }
 
+/** 从 display 或工具正文 JSON 抽出 media.* 预览列表。 */
+export function readPlatformMediaPreview(
+  toolCall: ToolCallBlockRenderContext["toolCallNode"]["toolCall"],
+): NonNullable<PlatformUiToolResultDisplay["media"]> {
+  const display = readToolResultDisplay(toolCall.raw);
+  if (display?.kind === "platform_ui" && Array.isArray(display.media) && display.media.length) {
+    return display.media;
+  }
+
+  let blob: unknown = toolCall.raw;
+  if (isPlainRecord(blob) && typeof blob.rawOutput === "string") blob = blob.rawOutput;
+  else if (isPlainRecord(blob) && typeof blob.output === "string") blob = blob.output;
+  else if (isPlainRecord(blob) && isPlainRecord(blob.output) && typeof blob.output.text === "string") {
+    blob = blob.output.text;
+  }
+  if (typeof blob === "string") {
+    const t = blob.trim();
+    if (t.startsWith("{")) {
+      try {
+        blob = JSON.parse(t) as unknown;
+      } catch {
+        return [];
+      }
+    }
+  }
+  if (!isPlainRecord(blob) || blob.ok === false) return [];
+
+  const nestedUi = isPlainRecord(blob.ui) ? blob.ui : null;
+  if (nestedUi && Array.isArray(nestedUi.media) && nestedUi.media.length) {
+    return nestedUi.media.filter(isPlainRecord).map((row) => ({
+      kind: readTrimmedString(row.kind) || undefined,
+      mimeType: readTrimmedString(row.mimeType) || undefined,
+      artifactUri: readTrimmedString(row.artifactUri) || undefined,
+      absolutePath: readTrimmedString(row.absolutePath) || undefined,
+      url: readTrimmedString(row.url) || undefined,
+    }));
+  }
+
+  const preview = isPlainRecord(blob.preview) ? blob.preview : null;
+  const src =
+    readTrimmedString(preview?.src) ||
+    readTrimmedString(blob.absolute_path) ||
+    readTrimmedString(blob.local_path) ||
+    readTrimmedString(blob.url);
+  if (!src) return [];
+  const kind =
+    readTrimmedString(preview?.kind) ||
+    readTrimmedString(blob.media_kind) ||
+    (/\.(mp4|webm|mov|mkv|m4v)(\?|$)/i.test(src) ? "video" : "image");
+  return [
+    {
+      kind,
+      mimeType: kind === "video" ? "video/mp4" : "image/png",
+      artifactUri: src,
+      absolutePath: readTrimmedString(blob.absolute_path) || undefined,
+      url: readTrimmedString(blob.url) || undefined,
+    },
+  ];
+}
+
 export function PlatformToolCallBlock(context: ToolCallBlockRenderContext) {
   const {
     toolCallNode,
@@ -233,11 +300,15 @@ export function PlatformToolCallBlock(context: ToolCallBlockRenderContext) {
   const brief = readPlatformToolBrief(toolCall.input);
   const kindLabel = context.kindLabelOverride ?? "平台";
   const primaryText = brief ? `${actionLabel} · ${brief}` : actionLabel;
+  const mediaPreview = useMemo(() => readPlatformMediaPreview(toolCall), [toolCall]);
 
   const handleLoadFullToolCallFields = context.onLoadFullToolCallFields;
   const renderContent = useCallback(
     () => (
       <>
+        {mediaPreview.length ? (
+          <PlatformMediaPreview media={mediaPreview} label={actionLabel || "生成媒体"} />
+        ) : null}
         <ToolCallBody
           childToolList={childToolList}
           displayModel={displayModel}
@@ -260,10 +331,12 @@ export function PlatformToolCallBlock(context: ToolCallBlockRenderContext) {
       </>
     ),
     [
+      actionLabel,
       childToolList,
       codePreviewSettings,
       displayModel,
       handleLoadFullToolCallFields,
+      mediaPreview,
       onOpenBrowserUrl,
       onOpenCodeViewer,
       onOpenFileLink,
@@ -284,7 +357,7 @@ export function PlatformToolCallBlock(context: ToolCallBlockRenderContext) {
       icon={PLATFORM_TOOL_ICON}
       showIcon={context.showIcon !== false}
       canToggle={context.canToggle ?? true}
-      forceOpen={context.forceOpen ?? false}
+      forceOpen={context.forceOpen ?? mediaPreview.length > 0}
       kindLabel={kindLabel}
       sourceLabel={context.sourceLabel}
       primaryText={primaryTextNode}
