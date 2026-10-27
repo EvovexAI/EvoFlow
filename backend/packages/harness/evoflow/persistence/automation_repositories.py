@@ -7,7 +7,7 @@ import time
 from datetime import datetime
 from typing import Any
 
-from evoflow.persistence.db import get_db
+from evoflow.persistence.db import get_db, run_db_transaction
 from evoflow.persistence.row_mappers import (
     automation_doc_to_row,
     automation_row_to_doc,
@@ -115,11 +115,16 @@ def save_automation(task_id: str, document: dict[str, Any]) -> None:
 
 def delete_automation(task_id: str) -> bool:
     tid = task_id.strip()
-    conn = get_db()
-    cur = conn.execute("DELETE FROM evoflow_automations WHERE task_id = ?", (tid,))
-    conn.execute("DELETE FROM evoflow_automation_runs WHERE task_id = ?", (tid,))
-    conn.commit()
-    return cur.rowcount > 0
+
+    # run_db_transaction (not bare execute+commit): an open implicit transaction
+    # leaked by anything above would be rolled back by the next BEGIN IMMEDIATE,
+    # resurrecting the rows we just deleted.
+    def _delete(db: Any) -> bool:
+        cur = db.execute("DELETE FROM evoflow_automations WHERE task_id = ?", (tid,))
+        db.execute("DELETE FROM evoflow_automation_runs WHERE task_id = ?", (tid,))
+        return cur.rowcount > 0
+
+    return bool(run_db_transaction(_delete))
 
 
 def set_automation_owner_scope(
