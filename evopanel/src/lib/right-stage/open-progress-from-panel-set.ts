@@ -85,17 +85,25 @@ export function openProgressFromPanelSet(
   }
 
   if (kind === 'employeeProcess') {
-    const taskId = firstStr(data.taskId, data.task_id, data.mainTaskId, data.main_task_id)
+    const taskId = firstStr(
+      data.taskId,
+      data.task_id,
+      data.mainTaskId,
+      data.main_task_id,
+      data.related_task_id,
+      data.relatedTaskId,
+    )
     const agentCode = firstStr(data.agentCode, data.agent_code, data.assigned_to)
-    if (!taskId || !agentCode) return ''
+    // 派发/唤醒常只有 agent：仍开右栏实时进度（对话面板）
+    if (!agentCode) return ''
     return openEmployeeProcessInRightStage(
       {
-        taskId,
+        taskId: taskId || '',
         agentCode,
         roleName: firstStr(data.roleName, data.role_name),
         title: title || undefined,
         roundId: firstStr(data.roundId, data.round_id, data.source_ref),
-        busy: data.busy === true,
+        busy: data.busy !== false,
       },
       { sessionKey: sk, layout: (surface.layout as 'wide') || 'wide' },
     )

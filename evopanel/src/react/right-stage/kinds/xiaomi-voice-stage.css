@@ -601,7 +601,7 @@ html[data-xw-voice='1']:not([data-xw-voice-summary='1']) .chat-summary-float {
   display: none !important;
 }
 
-/* 右栏标签区：由固定宽侧栏变为铺满剩余宽度的主体 */
+/* 右栏标签区：由固定宽侧栏变为铺满剩余宽度的主体（勿吃 --chat-right-panel-width 像素锁） */
 html[data-xw-voice='1'] .react-chat-main-body.is-layout-custom-width.is-right-stage-open > .react-chat-right-stage-panel,
 html[data-xw-voice='1'] .react-chat-main-body > .react-chat-right-stage-panel {
   flex: 1 1 auto !important;
@@ -610,17 +610,29 @@ html[data-xw-voice='1'] .react-chat-main-body > .react-chat-right-stage-panel {
   min-width: 0 !important;
 }
 
-/* 小V语音域左栏（固定宽，窄窗口收缩） */
+/* 小V语音域左栏（无右栏 / 兜底固定宽） */
 html[data-xw-voice='1'] .xw-voice-host {
   flex: 0 0 440px !important;
   width: 440px !important;
   max-width: 46vw !important;
   min-height: 0;
 }
+
+/* 有右栏时：左栏按视口收缩，横向空间让给员工/任务壳页（须写在兜底规则之后） */
+html[data-xw-voice='1'] .react-chat-main-body.is-right-stage-open .xw-voice-host {
+  flex: 0 0 clamp(300px, 30vw, 400px) !important;
+  width: clamp(300px, 30vw, 400px) !important;
+  max-width: 36vw !important;
+}
 @media (max-width: 900px) {
   html[data-xw-voice='1'] .xw-voice-host {
     flex: 0 0 360px !important;
     width: 360px !important;
+  }
+  html[data-xw-voice='1'] .react-chat-main-body.is-right-stage-open .xw-voice-host {
+    flex: 0 0 clamp(260px, 34vw, 320px) !important;
+    width: clamp(260px, 34vw, 320px) !important;
+    max-width: 40vw !important;
   }
 }
 

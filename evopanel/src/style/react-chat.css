@@ -25427,6 +25427,10 @@ html.dark .react-chat-workspace-panel {
   min-height: 0;
   overflow: auto;
   box-sizing: border-box;
+  /* 全局 .page 有 --content-max-width；右栏嵌入必须铺满侧栏，不要居中留白 */
+  max-width: none !important;
+  width: 100% !important;
+  margin: 0 !important;
 }
 .react-chat-shell-page-status {
   padding: 16px 14px;

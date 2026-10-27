@@ -121,6 +121,9 @@ export function defaultLayoutForKind(kind: string): RightStageLayout {
     case 'screenshot':
       return 'half'
     case 'shell-page':
+    case 'employeeProcess':
+    case 'collab-workflow':
+    case 'collabSubtaskTranscript':
       return 'wide'
     // 文件 / 代码预览默认半宽：侧栏可读，不把主对话挤成窄条
     case 'file':

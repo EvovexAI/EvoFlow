@@ -11,8 +11,8 @@ export type RightPanelLayoutKind =
 export const RIGHT_PANEL_MIN_PX = 280
 /** ZCode maxSize 65%。 */
 export const RIGHT_PANEL_MAX_RATIO = 0.65
-/** 浏览器等宽内容：首次展开默认占比（对话约 55% / 侧栏约 45%）。 */
-export const RIGHT_PANEL_DEFAULT_RATIO = 0.45
+/** 浏览器 / 壳页等宽内容：首次展开默认占比（对话约 48% / 侧栏约 52%）。 */
+export const RIGHT_PANEL_DEFAULT_RATIO = 0.52
 /**
  * 摘要等窄内容默认宽度。
  * 对话默认开摘要时用这个，不要一上来就占半栏。

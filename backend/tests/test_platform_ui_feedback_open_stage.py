@@ -78,6 +78,31 @@ def test_employees_wake_open_stage_when_task_present():
     assert progress["openStage"]["data"]["roundId"] == "r1"
 
 
+def test_employees_dispatch_open_stage_without_task_id():
+    """派活常无 task_id：仍 autoOpen 员工实时进度（按 agent 跟对话）。"""
+    entry = _entry("employees.dispatch", "employees")
+    result = {
+        "ok": True,
+        "action": "employees.dispatch",
+        "agent_code": "duty-ops",
+        "role_name": "值班",
+        "dispatched": True,
+        "goal": "写周报",
+    }
+    ui = build_platform_ui_feedback(
+        entry,
+        {"agent_code": "duty-ops", "goal": "写周报"},
+        result,
+    )
+    assert ui is not None
+    progress = next(a for a in ui["actions"] if a.get("label") == "查看进度")
+    assert progress["autoOpen"] is True
+    assert progress["openStage"]["kind"] == "employeeProcess"
+    assert progress["openStage"]["data"]["agentCode"] == "duty-ops"
+    # 无真实 task 时用 live:{code} 占位，前端按 agent 跟岗对话
+    assert progress["openStage"]["data"]["taskId"] == "live:duty-ops"
+
+
 def test_items_dispatch_open_stage_auto_open():
     entry = _entry("items.dispatch", "items")
     result = {

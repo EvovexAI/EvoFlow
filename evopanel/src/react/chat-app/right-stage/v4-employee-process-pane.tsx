@@ -142,7 +142,7 @@ export function V4EmployeeProcessPane(props: V4EmployeeProcessPaneProps) {
   // 派单时写死的 busy=true，徽标又"复活"成执行中。
   useEffect(() => {
     if (!statusLow) return
-    const key = employeeProcessStageTabKey(taskId, sessionKey)
+    const key = employeeProcessStageTabKey(taskId, sessionKey, code)
     if (!key) return
     const alive = RUNNING.has(statusLow)
     try {
@@ -150,22 +150,22 @@ export function V4EmployeeProcessPane(props: V4EmployeeProcessPaneProps) {
     } catch {
       /* store 不可用时忽略 */
     }
-  }, [statusLow, taskId, sessionKey])
+  }, [statusLow, taskId, sessionKey, code])
 
   useEffect(() => {
     setDisplayRole(resolveEmployeeProcessTabTitle({ title, roleName, agentCode: code }))
   }, [title, roleName, code])
 
-  // 标签回写员工名
+  // 标签回写员工名（无 taskId 时按 agent live 键回写）
   useEffect(() => {
-    const tid = String(taskId || '').trim()
     const nice = String(displayRole || '').trim()
-    if (!tid || !nice || nice === '执行过程') return
-    patchEmployeeProcessTabTitle(tid, nice, {
+    if (!code || !nice || nice === '执行过程') return
+    patchEmployeeProcessTabTitle(taskId, nice, {
       sessionKey,
       roleName: nice,
+      agentCode: code,
     })
-  }, [displayRole, taskId, sessionKey])
+  }, [displayRole, taskId, sessionKey, code])
 
   // 自适应轮询：跑着跟；结束后收一帧再停
   useEffect(() => {

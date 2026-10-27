@@ -133,13 +133,13 @@ export function useChatLayoutResize(opts: {
     }
   }, [isMobileChat, mobileChatPane])
 
-  // 摘要默认窄宽；当前对话第一次打开浏览器再抬到系统默认宽（45%），之后尊重用户拖拽。
+  // 摘要默认窄宽；宽内容标签（浏览器 / 壳页 / 进度）出现时抬到约 45%，之后尊重用户拖拽。
   const rightPanelWasOpenRef = useRef(false)
-  const browserWideSeededRef = useRef(false)
-  const browserWideSeedSessionRef = useRef(String(selectedSessionKey || ''))
-  if (browserWideSeedSessionRef.current !== String(selectedSessionKey || '')) {
-    browserWideSeedSessionRef.current = String(selectedSessionKey || '')
-    browserWideSeededRef.current = false
+  const wideContentSeededRef = useRef(false)
+  const wideContentSeedSessionRef = useRef(String(selectedSessionKey || ''))
+  if (wideContentSeedSessionRef.current !== String(selectedSessionKey || '')) {
+    wideContentSeedSessionRef.current = String(selectedSessionKey || '')
+    wideContentSeededRef.current = false
   }
 
   useLayoutEffect(() => {
@@ -176,21 +176,44 @@ export function useChatLayoutResize(opts: {
     if (shouldPersist) saveChatLayoutPrefs(layoutSizesRef.current)
   }, [anyRightPanelOpen, layoutResizeEnabled])
 
-  // 本会话首次出现 browser 标签：一次性抬到宽栏默认；第 2+ 次打开不改用户拖过的宽度。
+  /** 需要可读宽栏的标签（与 defaultLayoutForKind / open* layout:wide 对齐） */
+  const hasWideStageTab = rightStageTabs.some((t) => {
+    const k = normalizeRightStageKind(t.kind)
+    return (
+      k === 'browser' ||
+      k === 'shell-page' ||
+      k === 'employeeProcess' ||
+      k === 'collab-workflow' ||
+      k === 'collabSubtaskTranscript' ||
+      k === 'write' ||
+      k === 'web-embed' ||
+      k === 'news-dashboard' ||
+      k === 'mind-map' ||
+      k === 'workspace-browse'
+    )
+  })
   const hasBrowserStageTab = rightStageTabs.some(
     (t) => normalizeRightStageKind(t.kind) === 'browser',
   )
+
+  // 本会话首次出现宽内容标签：从摘要窄栏抬到宽栏默认；已更宽则不动。
   useLayoutEffect(() => {
     if (!anyRightPanelOpen || !layoutResizeEnabled) return
-    if (!hasBrowserStageTab) return
-    if (browserWideSeededRef.current) return
+    if (!hasWideStageTab) return
+    if (wideContentSeededRef.current) return
     const el = mainBodyRef.current
     if (!el) return
-    browserWideSeededRef.current = true
-    const wide = defaultWideRightPanelWidth(el.clientWidth)
+    wideContentSeededRef.current = true
+    const bodyW = el.clientWidth
+    const narrow = defaultNarrowRightPanelWidth(bodyW)
+    const wide = defaultWideRightPanelWidth(bodyW)
     setRightPanelWidthPx((prev) => {
-      // 已比宽默认更宽（或接近）则不动，避免把用户更大的栏缩回去
+      // 已比宽默认更宽（或接近）则不动
       if (prev != null && Number.isFinite(prev) && prev >= wide - 8) {
+        return prev
+      }
+      // 用户已明显拖离窄栏（比窄默认大约 64px+）→ 尊重，勿硬抬
+      if (prev != null && Number.isFinite(prev) && prev > narrow + 64) {
         return prev
       }
       layoutSizesRef.current.rightPanelWidthPx = wide
@@ -200,7 +223,7 @@ export function useChatLayoutResize(opts: {
       })
       return wide
     })
-  }, [anyRightPanelOpen, layoutResizeEnabled, hasBrowserStageTab])
+  }, [anyRightPanelOpen, layoutResizeEnabled, hasWideStageTab])
 
   useEffect(() => {
     layoutSizesRef.current = { rightPanelWidthPx, bottomDockHeightPx }

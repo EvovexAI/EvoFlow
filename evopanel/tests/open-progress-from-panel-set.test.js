@@ -42,6 +42,20 @@ describe('openProgressFromPanelSet', () => {
     expect(tab?.sessionKey).toBeFalsy()
   })
 
+  it('opens employeeProcess with agent only (dispatch/wake without taskId)', () => {
+    const id = openProgressFromPanelSet({
+      kind: 'employeeProcess',
+      title: '值班',
+      data: { agentCode: 'duty-ops', roleName: '值班小助手', busy: true },
+    })
+    expect(id).toBe('process:live:duty-ops')
+    const tab = rightStageStore.getSnapshot().tabs.find((t) => t.kind === 'employeeProcess')
+    expect(tab?.data?.agentCode).toBe('duty-ops')
+    expect(tab?.data?.taskId).toBeFalsy()
+    expect(tab?.title).toBe('值班小助手')
+    expect(rightStageStore.getSnapshot().collapsed).toBe(false)
+  })
+
   it('opens shell-page /employees as proactive board', () => {
     const id = openProgressFromPanelSet({
       kind: 'shell-page',

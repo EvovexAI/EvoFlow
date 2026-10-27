@@ -44,27 +44,49 @@ export function resolveEmployeeProcessTabTitle(payload: {
   return code || '执行过程'
 }
 
-/** store tabKey = `employeeProcess:${id}` */
-export function employeeProcessStageTabId(taskId: string, sessionKey?: string | null): string {
+/**
+ * store tab id 片段。有真实 taskId 用它；派发/唤醒常无 task → `live:{agentCode}`，
+ * 仍能开右栏跟岗对话（V4EmployeeProcessPane 按 agentCode 拉 meta）。
+ */
+export function employeeProcessStageTabId(
+  taskId: string,
+  sessionKey?: string | null,
+  agentCode?: string | null,
+): string {
   const tid = String(taskId || '').trim()
-  if (!tid) return ''
-  const base = `process:${tid}`
+  const code = String(agentCode || '').trim()
+  const baseId = tid || (code ? `live:${code}` : '')
+  if (!baseId) return ''
+  const base = `process:${baseId}`
   return isTaskCenterStageSessionKey(sessionKey) ? `tc:${base}` : base
 }
 
-export function employeeProcessStageTabKey(taskId: string, sessionKey?: string | null): string {
-  const id = employeeProcessStageTabId(taskId, sessionKey)
+export function employeeProcessStageTabKey(
+  taskId: string,
+  sessionKey?: string | null,
+  agentCode?: string | null,
+): string {
+  const id = employeeProcessStageTabId(taskId, sessionKey, agentCode)
   return id ? `employeeProcess:${id}` : ''
 }
 
-/** 打开（或激活）员工执行过程 tab。标签用员工名。 */
+/** `live:{code}` 是无真实 task 时的跟岗占位，不当作 proactive task session。 */
+export function isLiveEmployeeProcessTaskId(taskId: string | null | undefined): boolean {
+  const tid = String(taskId || '').trim()
+  return !tid || tid.startsWith('live:')
+}
+
+/** 打开（或激活）员工执行过程 tab。标签用员工名。有 agent 即可，taskId 可空 / live:。 */
 export function openEmployeeProcessInRightStage(
   payload: EmployeeProcessStagePayload,
   opts?: OpenEmployeeProcessStageOpts,
 ): string {
-  const tid = String(payload?.taskId || '').trim()
+  const rawTaskId = String(payload?.taskId || '').trim()
   const code = String(payload?.agentCode || '').trim()
-  if (!tid || !code) return ''
+  if (!code) return ''
+  const live = isLiveEmployeeProcessTaskId(rawTaskId)
+  const realTaskId = live ? '' : rawTaskId
+  const tabBase = live ? rawTaskId || `live:${code}` : rawTaskId
   const sk = String(opts?.sessionKey || '').trim() || undefined
   const roleName = String(payload.roleName || '').trim()
   const title = resolveEmployeeProcessTabTitle({
@@ -72,7 +94,8 @@ export function openEmployeeProcessInRightStage(
     roleName,
     agentCode: code,
   })
-  const id = employeeProcessStageTabId(tid, sk)
+  const id = employeeProcessStageTabId(tabBase, sk, code)
+  if (!id) return ''
   const key = `employeeProcess:${id}`
   const existing = rightStageStore.findTab(key)
   // 已有可读名字时别被「执行过程」盖掉
@@ -90,12 +113,13 @@ export function openEmployeeProcessInRightStage(
     layout: opts?.layout || 'wide',
     sessionKey: sk,
     data: {
-      taskId: tid,
+      // 跟岗占位不写入 data.taskId，避免拼出假的 proactive:…:task:live-…
+      taskId: realTaskId,
       agentCode: code,
       roleName: roleName || String(existing?.data?.roleName || '').trim(),
       title: keepTitle,
       roundId: String(payload.roundId || '').trim(),
-      busy: !!payload.busy,
+      busy: payload.busy !== false,
     },
   })
   return id
@@ -105,14 +129,14 @@ export function openEmployeeProcessInRightStage(
 export function patchEmployeeProcessTabTitle(
   taskId: string,
   title: string,
-  opts?: { sessionKey?: string | null; roleName?: string },
+  opts?: { sessionKey?: string | null; roleName?: string; agentCode?: string },
 ): void {
   const nice = resolveEmployeeProcessTabTitle({
     title,
     roleName: opts?.roleName,
   })
   if (!nice || looksLikePathOrGeneric(nice)) return
-  const key = employeeProcessStageTabKey(taskId, opts?.sessionKey)
+  const key = employeeProcessStageTabKey(taskId, opts?.sessionKey, opts?.agentCode)
   if (!key) return
   rightStageStore.patchTab(key, {
     title: nice,
