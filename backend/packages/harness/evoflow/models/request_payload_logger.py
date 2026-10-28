@@ -1,11 +1,22 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
+import re
 import time
 from typing import Any
 
 from evoflow.timeutil import instant_to_beijing_iso
+
+logger = logging.getLogger(__name__)
+
+_DATA_IMAGE_RE = re.compile(
+    r"^data:(image/[a-zA-Z0-9.+-]+);base64,(.+)$",
+    re.IGNORECASE | re.DOTALL,
+)
+_ATTACHED_AT_RE = re.compile(r"\[Image attached at:\s*([^\]]+)\]", re.IGNORECASE)
+_BOLD_PATH_RE = re.compile(r"\*\*([^*]+?\.(?:jpg|jpeg|png|webp|gif|bmp|svg))\*\*", re.IGNORECASE)
 
 _MAX_FIELD_LEN = 4000
 # 系统提示、instructions、顶层 system 等允许更长（调试日志）；可用环境变量覆盖。
@@ -475,6 +486,176 @@ def _extract_system_prompt_preview(payload: dict[str, Any]) -> tuple[bool, str]:
     return False, ""
 
 
+def _image_label_hints_from_text(text: str) -> list[str]:
+    hints: list[str] = []
+    if not text:
+        return hints
+    for m in _ATTACHED_AT_RE.finditer(text):
+        p = str(m.group(1) or "").strip()
+        if p:
+            hints.append(p)
+    for m in _BOLD_PATH_RE.finditer(text):
+        p = str(m.group(1) or "").strip()
+        if p:
+            hints.append(p)
+    return hints
+
+
+def _describe_image_url(url: str) -> dict[str, Any]:
+    s = str(url or "").strip()
+    out: dict[str, Any] = {"kind": "unknown", "label": ""}
+    if not s:
+        return out
+    m = _DATA_IMAGE_RE.match(s)
+    if m:
+        mime = (m.group(1) or "image/*").lower()
+        b64 = m.group(2) or ""
+        # base64 length ≈ 4/3 of bytes; report decoded estimate without decoding.
+        approx_bytes = max(0, (len(b64) * 3) // 4)
+        out.update(
+            {
+                "kind": "data_uri",
+                "mime": mime,
+                "approx_bytes": approx_bytes,
+                "label": f"data:{mime};base64,~{approx_bytes}B",
+            }
+        )
+        return out
+    if s.startswith(("http://", "https://")):
+        # Keep host + basename; drop query for log noise.
+        bare = s.split("?", 1)[0]
+        name = bare.rsplit("/", 1)[-1] or bare
+        out.update({"kind": "http", "label": name[:120], "url_host": bare.split("/", 3)[2] if "://" in bare else ""})
+        return out
+    # local / other ref
+    name = s.replace("\\", "/").rsplit("/", 1)[-1] or s
+    out.update({"kind": "path", "label": name[:160]})
+    return out
+
+
+def summarize_vendor_request_images(payload: dict[str, Any] | None) -> dict[str, Any]:
+    """Scan vendor chat payload for multimodal image parts (no base64 bodies in output)."""
+    empty = {
+        "has_images": False,
+        "image_count": 0,
+        "data_uri_count": 0,
+        "http_count": 0,
+        "other_count": 0,
+        "names": [],
+        "images": [],
+    }
+    if not isinstance(payload, dict):
+        return empty
+
+    messages = payload.get("messages")
+    if not isinstance(messages, list):
+        return empty
+
+    images: list[dict[str, Any]] = []
+    names: list[str] = []
+
+    for msg_i, msg in enumerate(messages):
+        if not isinstance(msg, dict):
+            continue
+        content = msg.get("content")
+        role = str(msg.get("role") or "").strip() or "?"
+
+        # Collect nearby path hints from text blocks in the same message.
+        text_hints: list[str] = []
+        if isinstance(content, list):
+            for block in content:
+                if isinstance(block, dict) and isinstance(block.get("text"), str):
+                    text_hints.extend(_image_label_hints_from_text(block["text"]))
+                elif isinstance(block, str):
+                    text_hints.extend(_image_label_hints_from_text(block))
+        elif isinstance(content, str):
+            text_hints.extend(_image_label_hints_from_text(content))
+
+        blocks: list[Any]
+        if isinstance(content, list):
+            blocks = content
+        elif isinstance(content, dict):
+            blocks = [content]
+        else:
+            blocks = []
+
+        hint_i = 0
+        for block in blocks:
+            if not isinstance(block, dict):
+                continue
+            typ = str(block.get("type") or "").strip().lower()
+
+            url = ""
+            # OpenAI-style
+            if typ in {"image_url", "image", "input_image"} or block.get("image_url") is not None:
+                raw = block.get("image_url")
+                if isinstance(raw, dict):
+                    url = str(raw.get("url") or "").strip()
+                elif isinstance(raw, str):
+                    url = raw.strip()
+                if not url and isinstance(block.get("url"), str):
+                    url = block["url"].strip()
+            # Anthropic-style
+            elif typ == "image" or isinstance(block.get("source"), dict):
+                src = block.get("source") if isinstance(block.get("source"), dict) else {}
+                media = str(src.get("media_type") or src.get("mime_type") or "image/*")
+                data = src.get("data")
+                if isinstance(data, str) and data.strip():
+                    approx = max(0, (len(data) * 3) // 4)
+                    label_hint = text_hints[hint_i] if hint_i < len(text_hints) else ""
+                    hint_i += 1 if label_hint else 0
+                    name = label_hint.replace("\\", "/").rsplit("/", 1)[-1] if label_hint else f"anthropic:{media}"
+                    item = {
+                        "msg_index": msg_i,
+                        "role": role,
+                        "kind": "anthropic_base64",
+                        "mime": media,
+                        "approx_bytes": approx,
+                        "label": label_hint or f"anthropic:{media};~{approx}B",
+                        "name": name[:160],
+                    }
+                    images.append(item)
+                    names.append(item["name"])
+                    continue
+
+            if not url:
+                continue
+
+            desc = _describe_image_url(url)
+            label_hint = text_hints[hint_i] if hint_i < len(text_hints) else ""
+            if label_hint:
+                hint_i += 1
+            name = (
+                label_hint.replace("\\", "/").rsplit("/", 1)[-1]
+                if label_hint
+                else str(desc.get("label") or f"image#{len(images)+1}")
+            )
+            item = {
+                "msg_index": msg_i,
+                "role": role,
+                "kind": desc.get("kind"),
+                "mime": desc.get("mime"),
+                "approx_bytes": desc.get("approx_bytes"),
+                "label": label_hint or desc.get("label"),
+                "name": name[:160],
+            }
+            images.append(item)
+            names.append(item["name"])
+
+    data_n = sum(1 for x in images if x.get("kind") == "data_uri")
+    http_n = sum(1 for x in images if x.get("kind") == "http")
+    other_n = len(images) - data_n - http_n
+    return {
+        "has_images": bool(images),
+        "image_count": len(images),
+        "data_uri_count": data_n,
+        "http_count": http_n,
+        "other_count": other_n,
+        "names": names[:20],
+        "images": images[:20],
+    }
+
+
 def log_model_request_payload(
     provider: str,
     model: str | None,
@@ -496,6 +677,54 @@ def log_model_request_payload(
         trace_id = _extract_trace_id(payload)
         has_system_prompt, system_preview = _extract_system_prompt_preview(payload)
         ik_resolved = (invocation_kind or "").strip() or _effective_log_invocation_kind(model)
+        image_summary = summarize_vendor_request_images(payload)
+        try:
+            has_img = bool(image_summary.get("has_images"))
+            logger.info(
+                "[模型请求·识图] 发往厂商请求体是否带图=%s 图片数=%s "
+                "(其中 base64/data_uri=%s http链接=%s 其他=%s) "
+                "provider=%s model=%s stage=%s 图片名=%s",
+                "是" if has_img else "否",
+                image_summary.get("image_count"),
+                image_summary.get("data_uri_count"),
+                image_summary.get("http_count"),
+                image_summary.get("other_count"),
+                provider,
+                model,
+                stage,
+                image_summary.get("names") or "[]",
+            )
+            if image_summary.get("images"):
+                # 明细字段改成中文键，方便直接扫日志
+                detail_zh = []
+                for it in image_summary.get("images") or []:
+                    if not isinstance(it, dict):
+                        continue
+                    kind = str(it.get("kind") or "")
+                    kind_zh = {
+                        "data_uri": "base64内嵌",
+                        "http": "http链接",
+                        "path": "本地路径",
+                        "anthropic_base64": "Anthropic-base64",
+                        "unknown": "未知",
+                    }.get(kind, kind)
+                    detail_zh.append(
+                        {
+                            "消息序号": it.get("msg_index"),
+                            "角色": it.get("role"),
+                            "类型": kind_zh,
+                            "mime": it.get("mime"),
+                            "约字节数": it.get("approx_bytes"),
+                            "名称": it.get("name"),
+                            "标签": it.get("label"),
+                        }
+                    )
+                logger.info(
+                    "[模型请求·识图] 图片明细=%s",
+                    json.dumps(detail_zh, ensure_ascii=False)[:2000],
+                )
+        except Exception:
+            pass
         record: dict[str, Any] = {
             "ts_ms": ts_ms,
             "provider": provider,
@@ -505,6 +734,7 @@ def log_model_request_payload(
             "invocation_kind": (ik_resolved or "").strip() or None,
             "system_prompt_detected": has_system_prompt,
             "system_prompt_preview": system_preview,
+            "images": image_summary,
             "payload": _truncate_payload_for_log(payload),
         }
         tid = _thread_id_for_log()

@@ -73,8 +73,29 @@ def _already_native_viewed(runtime: ToolRuntime[ContextT, ThreadState], ref: str
     if not isinstance(seen, list):
         return False
     normalized = {_normalize_ref_key(x) for x in seen if str(x or "").strip()}
-    return key in normalized
+    if key in normalized:
+        return True
+    # Also match by resolved absolute path basename+parent (Windows slash variants).
+    try:
+        key_path = Path(key)
+        for prev in normalized:
+            try:
+                if Path(prev).resolve() == key_path.resolve():
+                    return True
+            except OSError:
+                continue
+    except Exception:
+        pass
+    return False
 
+
+def _duplicate_native_read_error(image_ref: str) -> str:
+    """Hard-stop re-read loops: soft 'already attached' text is ignored by models."""
+    return (
+        "Error: Image already in model context — do not call read/view_image again on this path. "
+        f"path={image_ref}. Continue with your next non-read action "
+        "(e.g. media.generate_video with first_frame_url set to this path)."
+    )
 
 def _stage_native_image(
     *,
@@ -322,12 +343,15 @@ def _analyze_local_image(
             return err
         return format_vision_tool_result({"error": err}, image_ref=image_path)
     if prepared.get("kind") == "native":
+        if prepared.get("cached"):
+            logger.info("[视觉识图:view_image] HARD-BLOCK 重复 native path=%r", image_path)
+            return _duplicate_native_read_error(str(prepared.get("image_ref") or image_path))
         return _stage_native_image(
             tool_call_id=tool_call_id,
             image_ref=prepared["image_ref"],
             staged=prepared["staged"],
             image_size_bytes=int(prepared.get("image_size_bytes") or 0),
-            cached=bool(prepared.get("cached")),
+            cached=False,
         )
     payload = analyze_image_bytes(
         prepared["img_bytes"],
@@ -357,12 +381,15 @@ def _analyze_remote_image(
     if prepared.get("error"):
         return format_vision_tool_result({"error": prepared["error"]}, image_ref=image_url)
     if prepared.get("kind") == "native":
+        if prepared.get("cached"):
+            logger.info("[视觉识图:view_image] HARD-BLOCK 重复 native url=%r", image_url)
+            return _duplicate_native_read_error(str(prepared.get("image_ref") or image_url))
         return _stage_native_image(
             tool_call_id=tool_call_id,
             image_ref=prepared["image_ref"],
             staged=prepared["staged"],
             image_size_bytes=int(prepared.get("image_size_bytes") or 0),
-            cached=bool(prepared.get("cached")),
+            cached=False,
         )
     payload = analyze_image_bytes(
         prepared["img_bytes"],
@@ -418,6 +445,19 @@ def _view_images_batch(
 
     if route == "native":
         native_items = [p for p in prepared_list if p.get("kind") == "native"]
+        fresh = [p for p in native_items if not p.get("cached")]
+        cached_only = [p for p in native_items if p.get("cached")]
+        if cached_only and not fresh and not load_errors:
+            refs = [str(p.get("image_ref") or "") for p in cached_only]
+            logger.info("[视觉识图:view_image] HARD-BLOCK 批量重复 native refs=%r", refs)
+            if len(refs) == 1:
+                return _duplicate_native_read_error(refs[0])
+            return (
+                "Error: All listed images already in model context — do not call read/view_image again. "
+                f"paths={refs}. Continue with your next non-read action."
+            )
+        # Drop cached duplicates; only stage fresh refs.
+        native_items = fresh or native_items
         cmd = _stage_native_batch(tool_call_id=tool_call_id, items=native_items)
         if load_errors:
             # Annotate tool message with load errors while keeping staging.
