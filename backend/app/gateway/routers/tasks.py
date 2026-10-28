@@ -112,6 +112,17 @@ def _resolve_list_page_size(*, page_size: int, limit: int | None) -> int:
     return max(0, n)
 
 
+def _attach_runtime_health(task: dict[str, Any]) -> dict[str, Any]:
+    """Stamp ``runtime_health`` from SQLite session runs (authoritative for 已中断/在跑)."""
+    try:
+        from evoflow.collab.task_runtime_health import enrich_tasks_runtime_health
+
+        enrich_tasks_runtime_health([task])
+    except Exception:
+        logger.debug("attach runtime_health failed", exc_info=True)
+    return task
+
+
 def _public_task_dict(task: dict[str, Any]) -> dict[str, Any]:
     """Task-centric API: omit legacy project bundle fields from responses."""
     from evoflow.admin.tasks import task_summary_of
@@ -818,6 +829,14 @@ def _list_tasks_catalog_sync(
         size = total
         page_tasks = all_tasks
 
+    # Join SQLite session run_status — UI must not invent「已中断」via client probe.
+    try:
+        from evoflow.collab.task_runtime_health import enrich_tasks_runtime_health
+
+        enrich_tasks_runtime_health(page_tasks)
+    except Exception:
+        logger.debug("list_tasks: runtime_health enrich failed", exc_info=True)
+
     return {
         "tasks": page_tasks,
         "total": total,
@@ -989,7 +1008,7 @@ async def get_task(request: Request, task_id: str) -> dict:
                 except Exception:
                     pass
                 storage.invalidate_project(task_id)
-                return _public_task_dict(task)
+                return _attach_runtime_health(_public_task_dict(task))
 
     projects = storage.list_projects()
 
@@ -998,7 +1017,7 @@ async def get_task(request: Request, task_id: str) -> dict:
         if project:
             for i, task in enumerate(project.get("tasks", [])):
                 if task.get("id") == task_id:
-                    return _public_task_dict(task)
+                    return _attach_runtime_health(_public_task_dict(task))
 
     raise_task_error(ErrorCode.TASK_NOT_FOUND, f"任务 '{task_id}' 不存在")
 

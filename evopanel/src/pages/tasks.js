@@ -2268,11 +2268,9 @@ async function loadTasks(page, state, opts = {}) {
       sort: 'updated_at',
       order: 'desc',
     }
-    const [resp, sessionsRes] = await Promise.all([
-      warmList || api.listAllTasks(catalogQuery),
-      // null = probe failed → keep prior index (avoid marking everything 已中断)
-      api.getActiveSessions({}).catch(() => null),
-    ])
+    // Prefer list API ``runtime_health`` (SQLite session join). Client
+    // active-sessions probe is only a fallback for older gateways.
+    const resp = await (warmList || api.listAllTasks(catalogQuery))
     await mapsPromise
     // API returns { success: true, data: { tasks: [...], total: n } }
     const data = Array.isArray(resp) ? null : (resp?.data || null)
@@ -2281,8 +2279,20 @@ async function loadTasks(page, state, opts = {}) {
     const serverTotal = Number(data?.total)
     state.catalogTotal = Number.isFinite(serverTotal) ? serverTotal : tasks.length
     state.catalogTruncated = state.catalogTotal > tasks.length
-    if (sessionsRes != null) {
-      state.runtimeIndex = buildActiveSessionIndex(asActiveSessionList(sessionsRes))
+    const serverHealthCoverage = tasks.length
+      ? tasks.filter((t) => {
+          const h = String(t?.runtime_health || t?.runtimeHealth || '').toLowerCase()
+          return h === 'live' || h === 'interrupted' || h === 'idle'
+        }).length / tasks.length
+      : 1
+    if (serverHealthCoverage < 0.5) {
+      const sessionsRes = await api.getActiveSessions({}).catch(() => null)
+      // null = probe failed → keep prior index (avoid marking everything 已中断)
+      if (sessionsRes != null) {
+        state.runtimeIndex = buildActiveSessionIndex(asActiveSessionList(sessionsRes))
+      }
+    } else {
+      state.runtimeIndex = null
     }
     updatePageView(page, state)
     void loadApprovals(page, state)

@@ -1,7 +1,11 @@
 /**
  * Task Center：业务 lifecycle（执行中）vs 运行时存活（在跑 / 已中断）。
  *
- * Join keys against GET /langgraph/active-sessions:
+ * Prefer server field ``task.runtime_health`` (joined from ``evoflow_chat_sessions``
+ * on list/detail). Client ``active-sessions`` index is only a fallback when the
+ * API did not stamp health — never invent interrupted without a source of truth.
+ *
+ * Fallback join keys against GET /langgraph/active-sessions:
  *   - task.thread_id === session.thread_id
  *   - task.id === session.collab_task_id
  */
@@ -84,6 +88,9 @@ export function taskActivityMs(task) {
 export const STALE_IN_FLIGHT_MS = 2 * 60 * 60 * 1000 // 2h
 
 /**
+ * Prefer server-stamped ``runtime_health`` (from ``evoflow_chat_sessions`` join).
+ * Client active-sessions probe is fallback only when the field is absent.
+ *
  * @param {any} task
  * @param {{ byThread: Map<string, any>, byTaskId: Map<string, any> } | null | undefined} index
  * @param {{ nowMs?: number }} [opts]
@@ -104,6 +111,16 @@ export function resolveTaskRuntimeHealth(task, index, opts = {}) {
     return 'idle'
   }
   if (!isLifecycleInFlight(task.status)) return 'idle'
+
+  // Authoritative: list/detail API enriches from SQLite session run_status.
+  const server = String(task.runtime_health || task.runtimeHealth || '')
+    .trim()
+    .toLowerCase()
+  if (server === 'live' || server === 'interrupted' || server === 'idle') {
+    return /** @type {TaskRuntimeHealth} */ (server)
+  }
+  if (task.run_alive === true || task.runAlive === true) return 'live'
+  if (task.run_alive === false || task.runAlive === false) return 'interrupted'
 
   // No probe yet — don't guess (avoids flashing「已中断」on first paint)
   if (!index) return 'n/a'

@@ -45,4 +45,19 @@ describe('resolveTaskRuntimeHealth', () => {
       resolveTaskRuntimeHealth({ id: 'x', status: 'executing', thread_id: 'th' }, null),
     ).toBe('n/a')
   })
+
+  it('prefers server runtime_health over client session probe', () => {
+    expect(
+      resolveTaskRuntimeHealth(
+        { id: 'task-a', status: 'executing', runtime_health: 'interrupted' },
+        index,
+      ),
+    ).toBe('interrupted')
+    expect(
+      resolveTaskRuntimeHealth(
+        { id: 'orphan', status: 'executing', runtime_health: 'live' },
+        index,
+      ),
+    ).toBe('live')
+  })
 })

@@ -413,6 +413,12 @@ def list_tasks(
                 }
             )
         total = repo.count_root_task_summaries(main_task_id=mid)
+        try:
+            from evoflow.collab.task_runtime_health import enrich_tasks_runtime_health
+
+            enrich_tasks_runtime_health(rows)
+        except Exception:
+            logger.debug("admin.list_tasks: runtime_health enrich failed", exc_info=True)
         return {
             "count": len(rows),
             "total": total,
@@ -507,6 +513,12 @@ def list_tasks(
         page = rows[start : start + limit_n]
     else:
         page = rows[start:]
+    try:
+        from evoflow.collab.task_runtime_health import enrich_tasks_runtime_health
+
+        enrich_tasks_runtime_health(page)
+    except Exception:
+        logger.debug("admin.list_tasks: runtime_health enrich failed", exc_info=True)
     return {
         "count": len(page),
         "total": total,
@@ -610,7 +622,7 @@ def get_task(task_id: str, *, subtask_id: str | None = None) -> dict[str, Any]:
                 "raised_by": str(parent_task.get("raised_by") or "").strip() or None,
             }
     child_ids: list[str] = repo.list_child_task_ids(tid)
-    return {
+    out: dict[str, Any] = {
         "task_id": tid,
         "subtask_id": None,
         "name": task.get("name"),
@@ -638,6 +650,13 @@ def get_task(task_id: str, *, subtask_id: str | None = None) -> dict[str, Any]:
         "subtask_count": len(subtasks),
         "subtasks": subtasks,
     }
+    try:
+        from evoflow.collab.task_runtime_health import enrich_tasks_runtime_health
+
+        enrich_tasks_runtime_health([out])
+    except Exception:
+        logger.debug("admin.get_task: runtime_health enrich failed", exc_info=True)
+    return out
 
 
 # ── update_progress ──────────────────────────────────────────────────
@@ -1274,12 +1293,27 @@ def set_task_state(
         out["handoff_approval"] = handoff_approval
 
     # Downstream receipt: child terminal / 待闭环 → soft-wake orchestrating superior(s).
+    # Pass handlers_dispatched_* so receipt can skip waking the manager when the
+    # child already chained the next hop (peer/subordinate) — avoids messenger rounds.
     if target in {"completed", "failed", "cancelled", "awaiting_close"} and str(task.get("parent_task_id") or "").strip():
         try:
             from evoflow.collab.upstream_receipt import notify_upstream_on_child_terminal
 
+            receipt_child: dict[str, Any] = {**task, **updates, "id": tid}
+            if dispatched:
+                receipt_child["handlers_dispatched_at"] = now
+                receipt_child["handlers_dispatched"] = [
+                    {
+                        "agent_code": d.get("agent_code"),
+                        "task_id": d.get("task_id"),
+                        "ok": d.get("ok"),
+                    }
+                    for d in (dispatched or [])
+                ]
+            elif handoff_approval is not None:
+                receipt_child["handlers_pending_approval"] = True
             receipt = notify_upstream_on_child_terminal(
-                {**task, **updates, "id": tid},
+                receipt_child,
                 terminal_status=target,
             )
             if receipt is not None:
