@@ -201,6 +201,7 @@ export default defineConfig({
       'tests/right-stage-overlay-commit.test.ts',
       'tests/right-stage-session-persistence.test.ts',
       'tests/browser-panel-node-repl-intent.test.js',
+      'tests/cua-glow-agui.test.js',
       'tests/platform-feedback.test.js',
       'tests/close-removed-entity-stage.test.js',
       'tests/builtin-action-labels.test.js',

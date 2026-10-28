@@ -185,6 +185,8 @@ import type { ProcessItem } from '../lib/chat-summary-panel-model.js'
 import { SidePanelBootShell } from '../components/SidePanelBootShell.js'
 import { applyRightStageAgUiCustom, applyStageSetFromToolCall, STAGE_SET_APPLIED_EVENT, type StageSetPayload } from '../../lib/right-stage/right-stage-agui.js'
 import { syncBrowserPanelFromAgUiEvent, isBrowserToolWireName } from '../../lib/browser-panel-agui.js'
+import { syncCuaGlowFromAgUiEvent } from '../../lib/cua-glow-agui.js'
+import { hideCuaGlowOverlayForced } from '../../lib/cua-glow-overlay.js'
 import {
   applyBrowserCommandResponse,
   closeBrowserStage,
@@ -4396,6 +4398,8 @@ export function useChatAppController() {
       suppressedGoalProposalKeysRef,
       syncAgUiCompatProjection,
       syncBrowserPanelFromAgUiEvent,
+      syncCuaGlowFromAgUiEvent,
+      hideCuaGlowOverlayForced,
       syncEmployeesRosterFromToolResult,
       syncPlanPanelImmediateFromTools,
       syncStreamMediaAssetsFromTools,
@@ -5728,6 +5732,8 @@ export function useChatAppController() {
     voiceSessionKeyRef.current = ''
     voiceStreamingStartedRef.current = false
     void setVoiceTrayState('idle')
+    // 用户停止：立刻收起 Computer Use 屏边蓝光，不等工具 END。
+    void hideCuaGlowOverlayForced()
     await runStopSessionExecution(sessionKey, sessionStopHostRef.current, opts)
   }
 

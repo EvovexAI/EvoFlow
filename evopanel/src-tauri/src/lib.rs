@@ -7,7 +7,7 @@ mod voice_hotkey;
 
 use commands::{
     app_server, assistant, backend, boot_cycle, browser_embed, browser_embed_bridge, config,
-    gateway, logs, mcp_market, ui_extensions, update, voice_overlay, wake_kws,
+    cua_glow_overlay, gateway, logs, mcp_market, ui_extensions, update, voice_overlay, wake_kws,
 };
 /// Windows-only: expose WebView2 CDP commands directly to Python over HTTP invoke.
 #[cfg(target_os = "windows")]
@@ -406,6 +406,8 @@ pub fn run() {
             voice_overlay::voice_overlay_processing,
             voice_overlay::voice_overlay_hide,
             voice_overlay::voice_overlay_set_complete,
+            cua_glow_overlay::cua_glow_overlay_show,
+            cua_glow_overlay::cua_glow_overlay_hide,
             wake_kws::wake_kws_start,
             wake_kws::wake_kws_feed_pcm,
             wake_kws::wake_kws_pause,

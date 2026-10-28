@@ -1,0 +1,8 @@
+{
+  "identifier": "cua-glow-overlay-capability",
+  "description": "Computer Use screen-edge glow overlay windows",
+  "windows": ["cua-glow-0", "cua-glow-1", "cua-glow-2", "cua-glow-3"],
+  "permissions": [
+    "core:event:default"
+  ]
+}

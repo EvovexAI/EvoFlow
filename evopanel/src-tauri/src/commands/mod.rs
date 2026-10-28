@@ -20,6 +20,7 @@ pub mod log_files;
 pub mod logs;
 pub mod mcp_market;
 pub mod update;
+pub mod cua_glow_overlay;
 pub mod voice_overlay;
 pub mod wake_kws;
 
