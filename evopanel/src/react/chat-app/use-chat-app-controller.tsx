@@ -3758,6 +3758,7 @@ export function useChatAppController() {
           setHasReceivedTodos,
           setBoundTaskId,
           setGlobalWorkspaceHistory,
+          getGlobalWorkspaceHistory: () => wsClient.getGlobalWorkspaceHistory(),
           removeSessionFromList,
           purgeWorkspaceFromSidebar,
           refreshSessions,

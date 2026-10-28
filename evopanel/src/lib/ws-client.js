@@ -8781,17 +8781,29 @@ export class WsClient {
   async removeWorkspaceHistoryPath(path) {
     const p = String(path || '').trim()
     if (!p) return
+    const norm = (x) =>
+      String(x || '')
+        .trim()
+        .replace(/\\/g, '/')
+        .replace(/\/+$/, '')
+        .toLowerCase()
+    const want = norm(p)
     await migrateLocalWorkspaceHistoryToDbOnce()
     const data = await fetchJson('/api/workspaces/user-history/remove', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ path: p }),
     })
-    _globalWsHistCache = normalizeHistoryList(data?.paths)
+    _globalWsHistCache = normalizeHistoryList(data?.paths).filter((x) => norm(x) !== want)
     _globalWsHistLoaded = true
+    try {
+      saveGlobalWorkspaceHistory(_globalWsHistCache)
+    } catch {
+      /* optional local mirror */
+    }
     for (const k of Object.keys(_sessionWsHistCache)) {
       if (!Array.isArray(_sessionWsHistCache[k])) continue
-      _sessionWsHistCache[k] = _sessionWsHistCache[k].filter((x) => x !== p)
+      _sessionWsHistCache[k] = _sessionWsHistCache[k].filter((x) => norm(x) !== want)
     }
   }
 
