@@ -59,11 +59,46 @@ def _redact_value(value: Any) -> Any:
     return value
 
 
+def _header_raw_pairs(headers: Any) -> list[tuple[bytes, bytes]]:
+    """ASGI/Starlette header pairs; never use ``dict(headers)``.
+
+    ``starlette.datastructures.Headers`` keeps raw key bytes as-is. ``keys()``
+    returns that original casing, but ``__getitem__`` lowercases the lookup and
+    byte-compares against the stored key — so Title-Case stored keys make
+    ``dict(headers)`` raise ``KeyError`` (see EvovexAI/EvoFlow#93).
+    """
+    if headers is None:
+        return []
+    raw = getattr(headers, "raw", None)
+    if raw is not None:
+        return list(raw)
+    if isinstance(headers, dict):
+        out: list[tuple[bytes, bytes]] = []
+        for k, v in headers.items():
+            kb = k.encode("latin-1") if isinstance(k, str) else bytes(k)
+            vb = v.encode("latin-1") if isinstance(v, str) else bytes(v)
+            out.append((kb, vb))
+        return out
+    return []
+
+
+def _header_get(headers: Any, name: str) -> str | None:
+    """Case-insensitive header read that tolerates Title-Case raw keys."""
+    target = name.lower().encode("latin-1")
+    for key, val in _header_raw_pairs(headers):
+        if key.lower() == target:
+            return val.decode("latin-1")
+    return None
+
+
 def _redact_headers(headers: Any) -> dict[str, str]:
     out: dict[str, str] = {}
-    for k, v in dict(headers or {}).items():
-        key = str(k)
-        out[key] = "[REDACTED]" if _is_sensitive_name(key) else str(v)
+    try:
+        for key_b, val_b in _header_raw_pairs(headers):
+            key = key_b.decode("latin-1")
+            out[key] = "[REDACTED]" if _is_sensitive_name(key) else val_b.decode("latin-1")
+    except Exception:
+        logger.debug("failed to redact headers", exc_info=True)
     return out
 
 
@@ -80,12 +115,12 @@ def _is_streaming_request_path(path: str) -> bool:
 
 def _skip_response_body(content_type: str | None, headers: Any) -> bool:
     ct = (content_type or "").lower()
-    disp = str(dict(headers or {}).get("content-disposition") or "").lower()
+    disp = (_header_get(headers, "content-disposition") or "").lower()
     return "text/event-stream" in ct or "attachment" in disp or not _sampleable_content_type(ct)
 
 
 def _content_length(headers: Any) -> int | None:
-    raw = dict(headers or {}).get("content-length")
+    raw = _header_get(headers, "content-length")
     try:
         return int(raw) if raw is not None else None
     except (TypeError, ValueError):
@@ -208,51 +243,60 @@ class GatewayRequestLoggingMiddleware:
             if logged:
                 return
             logged = True
-            duration_s = time.perf_counter() - started
-            # Surface the exact symptom the user reported:
-            # "流式对话期间其他接口全卡死，watch 这个日志就能看到"。
-            # A non-stream request that took > 3s AND the gateway is currently
-            # overloaded → was probably starved by a stream run, not slow itself.
-            if not is_streaming and duration_s >= 3.0:
-                if is_event_loop_overloaded():
-                    logger.warning(
-                        "[STREAM_BLOCK_SUSPECT] %s %s took %.2fs while gateway overloaded "
-                        "(event_loop_lag=%.2fs); a stream run was likely starving the loop",
-                        method, path, duration_s,
-                        _read_event_loop_lag(),
-                    )
-            req_sample, req_truncated = _body_sample(bytes(request_body), request_content_type) if sample_request_body else (None, False)
-            resp_sample, resp_truncated = _body_sample(bytes(response_body), response_content_type) if sample_response_body else (None, False)
-            metadata = {
-                "scheme": scope.get("scheme"),
-                "host": request_headers.get("host"),
-            }
-            if stream_status:
-                metadata["stream_status"] = stream_status
-            if not is_streaming:
-                unregister_inflight_request(scope_id)
-            schedule_gateway_observability_record(
-                {
-                    "occurred_at": _occurred_at(),
-                    "method": scope.get("method") or "",
-                    "path": normalize_gateway_obs_path(path),
-                    "query_string": request_url.query or None,
-                    "client_ip": _client_ip(request_headers, scope.get("client")),
-                    "user_agent": request_headers.get("user-agent"),
-                    "request_content_type": request_content_type,
-                    "response_content_type": response_content_type,
-                    "status_code": status_code if status_code is not None else 500,
-                    "duration_ms": round((time.perf_counter() - started) * 1000, 2),
-                    "request_headers": _redact_headers(request_headers),
-                    "response_headers": _redact_headers(response_headers),
-                    "request_body_sample": req_sample,
-                    "response_body_sample": resp_sample,
-                    "request_body_truncated": request_body_truncated or req_truncated,
-                    "response_body_truncated": response_body_truncated or resp_truncated,
-                    "error_type": error_type,
-                    "metadata": metadata,
+            # Observability must never take down the business response (#93).
+            try:
+                duration_s = time.perf_counter() - started
+                # Surface the exact symptom the user reported:
+                # "流式对话期间其他接口全卡死，watch 这个日志就能看到"。
+                # A non-stream request that took > 3s AND the gateway is currently
+                # overloaded → was probably starved by a stream run, not slow itself.
+                if not is_streaming and duration_s >= 3.0:
+                    if is_event_loop_overloaded():
+                        logger.warning(
+                            "[STREAM_BLOCK_SUSPECT] %s %s took %.2fs while gateway overloaded "
+                            "(event_loop_lag=%.2fs); a stream run was likely starving the loop",
+                            method, path, duration_s,
+                            _read_event_loop_lag(),
+                        )
+                req_sample, req_truncated = _body_sample(bytes(request_body), request_content_type) if sample_request_body else (None, False)
+                resp_sample, resp_truncated = _body_sample(bytes(response_body), response_content_type) if sample_response_body else (None, False)
+                metadata = {
+                    "scheme": scope.get("scheme"),
+                    "host": request_headers.get("host"),
                 }
-            )
+                if stream_status:
+                    metadata["stream_status"] = stream_status
+                if not is_streaming:
+                    unregister_inflight_request(scope_id)
+                schedule_gateway_observability_record(
+                    {
+                        "occurred_at": _occurred_at(),
+                        "method": scope.get("method") or "",
+                        "path": normalize_gateway_obs_path(path),
+                        "query_string": request_url.query or None,
+                        "client_ip": _client_ip(request_headers, scope.get("client")),
+                        "user_agent": request_headers.get("user-agent"),
+                        "request_content_type": request_content_type,
+                        "response_content_type": response_content_type,
+                        "status_code": status_code if status_code is not None else 500,
+                        "duration_ms": round((time.perf_counter() - started) * 1000, 2),
+                        "request_headers": _redact_headers(request_headers),
+                        "response_headers": _redact_headers(response_headers),
+                        "request_body_sample": req_sample,
+                        "response_body_sample": resp_sample,
+                        "request_body_truncated": request_body_truncated or req_truncated,
+                        "response_body_truncated": response_body_truncated or resp_truncated,
+                        "error_type": error_type,
+                        "metadata": metadata,
+                    }
+                )
+            except Exception:
+                logger.exception("gateway observability record failed for %s %s", method, path)
+                if not is_streaming:
+                    try:
+                        unregister_inflight_request(scope_id)
+                    except Exception:
+                        pass
 
         async def logging_receive() -> dict[str, Any]:
             nonlocal request_body_truncated
@@ -272,7 +316,8 @@ class GatewayRequestLoggingMiddleware:
                 response_started = True
                 status_code = int(message.get("status") or 500)
                 response_headers = Headers(raw=message.get("headers") or [])
-                response_content_type = response_headers.get("content-type")
+                # Prefer raw-pair lookup: Title-Case keys break Headers.get (#93).
+                response_content_type = _header_get(response_headers, "content-type")
                 response_length = _content_length(response_headers)
                 sample_response_body = _gateway_body_samples_enabled() and not _skip_response_body(response_content_type, response_headers) and response_length is not None and response_length <= _BODY_READ_LIMIT
             elif message.get("type") == "http.response.body":
@@ -356,10 +401,13 @@ class Utf8CharsetMiddleware:
                 raw_headers = list(message.get("headers") or [])
                 headers: list[tuple[bytes, bytes]] = []
                 for key, val in raw_headers:
-                    if key.lower() == b"content-type":
-                        headers.append((key, ensure_content_type_charset_utf8(val)))
+                    # ASGI requires lowercase header names; keep them lower so
+                    # inner middleware that wraps Headers(raw=...) never KeyErrors.
+                    lower_key = key.lower()
+                    if lower_key == b"content-type":
+                        headers.append((b"content-type", ensure_content_type_charset_utf8(val)))
                     else:
-                        headers.append((key, val))
+                        headers.append((lower_key, val))
                 message = {**message, "headers": headers}
             await send(message)
 
