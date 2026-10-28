@@ -143,7 +143,7 @@ async def _probe_embedding(model_name: str) -> tuple[bool, str]:
         mc = cfg.get_model_config(model_name)
         if mc is None:
             return False, f"模型配置不存在：{model_name}"
-        vec = await get_embedding("probe", mc)
+        vec = await get_embedding("probe", mc, purpose="probe")
         if vec and len(vec) > 0:
             return True, f"向量可用（dim={len(vec)}）"
         return False, "返回向量为空"

@@ -232,6 +232,71 @@ function buildByUserTable(items) {
     </div>`
 }
 
+function formatCalls(n) {
+  const v = Number(n) || 0
+  return v > 0 ? String(v) : '—'
+}
+
+/**
+ * Per-day consumption table (chat / image / video / embedding / cost).
+ * @param {{ days?: Array<any> } | null | undefined} payload
+ */
+function buildDailyBreakdownTable(payload) {
+  const days = Array.isArray(payload?.days) ? payload.days : []
+  const active = days.filter(
+    (d) =>
+      (Number(d.llm_tokens) || 0) > 0 ||
+      (Number(d.llm_calls) || 0) > 0 ||
+      (Number(d.image_calls) || 0) > 0 ||
+      (Number(d.video_calls) || 0) > 0 ||
+      (Number(d.embed_tokens) || 0) > 0 ||
+      (Number(d.embed_calls) || 0) > 0 ||
+      (Number(d.amount_sum) || 0) > 0,
+  )
+  if (!active.length) {
+    return `<div class="settings-usage-empty">${esc(t('usage.noData'))}</div>`
+  }
+  const body = active
+    .map((d) => {
+      const img = Number(d.image_calls) || 0
+      const vid = Number(d.video_calls) || 0
+      const embTok = Number(d.embed_tokens) || 0
+      const embCalls = Number(d.embed_calls) || 0
+      const embedCell =
+        embTok > 0 || embCalls > 0
+          ? `${formatTokens(embTok)}<small class="su-cell-sub"> · ${embCalls} 次</small>`
+          : '—'
+      return `
+      <tr>
+        <td><strong>${esc(formatAxisDay(d.day))}</strong><span class="su-user-pid">${esc(d.day || '')}</span></td>
+        <td class="su-num">${esc(formatTokens(d.llm_tokens))}</td>
+        <td class="su-num">${esc(formatCalls(d.llm_calls))}</td>
+        <td class="su-num">${esc(formatCalls(img))}</td>
+        <td class="su-num">${esc(formatCalls(vid))}</td>
+        <td class="su-num">${embedCell}</td>
+        <td class="su-num su-num--emph">${esc(formatAmount(d.amount_sum))}</td>
+      </tr>`
+    })
+    .join('')
+  return `
+    <div class="su-user-table-wrap">
+      <table class="su-user-table su-daily-table">
+        <thead>
+          <tr>
+            <th>日期 (UTC)</th>
+            <th>聊天 Token</th>
+            <th>聊天次数</th>
+            <th>生图</th>
+            <th>生视频</th>
+            <th>向量</th>
+            <th>费用</th>
+          </tr>
+        </thead>
+        <tbody>${body}</tbody>
+      </table>
+    </div>`
+}
+
 function renderSkeleton() {
   return `
     <div class="settings-usage settings-usage--dash">
@@ -253,12 +318,17 @@ function renderBody(container, data) {
   const summary = data.summary || {}
   const bySku = data.bySku?.items || []
   const dailyBySku = data.dailyBySku || {}
+  const dailyBreakdown = data.dailyBreakdown || {}
   const cats = data.byCategory?.items || []
   const byPrincipal = data.byPrincipal?.items || null
   const llmTotal = Number(summary.llm_token_sum ?? summary.quantity_sum) || 0
   const mediaCat = cats.find((c) => c.category === 'media') || null
   const mediaCalls = Number(mediaCat?.event_count) || 0
   const mediaAmount = Number(mediaCat?.amount_sum) || 0
+  const embedCat = cats.find((c) => c.category === 'embedding') || null
+  const embedTokens = Number(embedCat?.quantity_sum) || 0
+  const embedCalls = Number(embedCat?.event_count) || 0
+  const embedAmount = Number(embedCat?.amount_sum) || 0
 
   const catChips = cats.length
     ? cats
@@ -270,11 +340,15 @@ function renderBody(container, data) {
                 ? t('usage.tabTools')
                 : c.category === 'media'
                   ? '生图/生视频'
-                  : c.category
+                  : c.category === 'embedding'
+                    ? '向量 Embedding'
+                    : c.category
           const qtyLabel =
             c.category === 'media'
               ? `${Number(c.event_count) || 0} 次 · ${formatAmount(c.amount_sum)}`
-              : `${formatTokens(c.quantity_sum)} · ${Number(c.event_count) || 0} ${esc(t('usage.calls'))}`
+              : c.category === 'embedding'
+                ? `${formatTokens(c.quantity_sum)} · ${Number(c.event_count) || 0} ${esc(t('usage.calls'))} · ${formatAmount(c.amount_sum)}`
+                : `${formatTokens(c.quantity_sum)} · ${Number(c.event_count) || 0} ${esc(t('usage.calls'))}`
           return `
       <div class="settings-usage-cat-chip">
         <strong>${esc(label)}</strong>
@@ -332,6 +406,11 @@ function renderBody(container, data) {
           <div class="settings-usage-kpi-value" title="媒体调用次数（含估价）">${mediaCalls}<small style="font-size:12px;opacity:.7"> 次</small></div>
           <div class="settings-usage-kpi-sub">${formatAmount(mediaAmount)}</div>
         </div>
+        <div class="settings-usage-kpi">
+          <div class="settings-usage-kpi-label">向量 Embedding</div>
+          <div class="settings-usage-kpi-value" title="知识库建库/检索等向量调用（含估价）">${formatTokens(embedTokens)}</div>
+          <div class="settings-usage-kpi-sub">${embedCalls} 次 · ${formatAmount(embedAmount)}</div>
+        </div>
       </div>
 
       <div class="su-dash-row">
@@ -350,6 +429,12 @@ function renderBody(container, data) {
       <section class="settings-usage-card">
         <h3 class="settings-usage-card-title">类型用量</h3>
         <div class="settings-usage-cats">${catChips}</div>
+      </section>
+
+      <section class="settings-usage-card">
+        <h3 class="settings-usage-card-title">每日消耗明细</h3>
+        <p class="settings-usage-card-hint">按 UTC 日汇总：聊天 Token/次数、生图、生视频、向量（建库+检索）与估价费用</p>
+        ${buildDailyBreakdownTable(dailyBreakdown)}
       </section>
     </div>
   `
@@ -374,13 +459,14 @@ async function loadAndRender(container) {
       api.usageDailyBySku({ from, to, category: 'llm', top_n: 6 }),
       api.usageByCategory({ from, to }),
       api.usageBySku({ from, to, category: 'llm' }),
+      api.usageDailyBreakdown({ from, to }),
     ]
     if (isAdmin) tasks.push(api.usageByPrincipal({ from, to }))
     const results = await Promise.all(tasks)
-    const [summary, dailyBySku, byCategory, bySku] = results
-    const byPrincipal = isAdmin ? results[4] : null
+    const [summary, dailyBySku, byCategory, bySku, dailyBreakdown] = results
+    const byPrincipal = isAdmin ? results[5] : null
     if (!container.isConnected) return
-    renderBody(container, { summary, dailyBySku, byCategory, bySku, byPrincipal })
+    renderBody(container, { summary, dailyBySku, byCategory, bySku, dailyBreakdown, byPrincipal })
   } catch (e) {
     if (!container.isConnected) return
     const msg = String(e?.message || e || '')

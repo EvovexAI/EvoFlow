@@ -16,6 +16,7 @@ from evoflow.persistence.usage_ledger import (
     fetch_usage_by_principal,
     fetch_usage_by_sku,
     fetch_usage_daily,
+    fetch_usage_daily_breakdown,
     fetch_usage_daily_by_sku,
     fetch_usage_summary,
 )
@@ -104,6 +105,22 @@ async def get_usage_by_category(
 ) -> dict[str, Any]:
     scope = _usage_scope(request)
     return fetch_usage_by_category(
+        from_day=from_day,
+        to_day=to_day,
+        principal_id=scope["principal_id"],
+        include_orphan=scope["include_orphan"],
+    )
+
+
+@router.get("/daily-breakdown")
+async def get_usage_daily_breakdown(
+    request: Request,
+    from_day: str | None = Query(None, alias="from"),
+    to_day: str | None = Query(None, alias="to"),
+) -> dict[str, Any]:
+    """Per-day pivot: chat / image / video / embedding calls + cost (UTC days)."""
+    scope = _usage_scope(request)
+    return fetch_usage_daily_breakdown(
         from_day=from_day,
         to_day=to_day,
         principal_id=scope["principal_id"],

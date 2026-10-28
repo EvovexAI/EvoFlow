@@ -4,6 +4,7 @@
  * 路由：/knowledge/:id
  */
 import { api } from '../lib/tauri-api.js'
+import { shouldSkipKnowledgeRelPath } from '../lib/knowledge-file-filter.js'
 import { toast } from '../components/toast.js'
 import { showConfirm, showModal } from '../components/modal.js'
 
@@ -160,8 +161,8 @@ async function loadFiles(page, kbId) {
               上传文档
               <input type="file" id="kb-file-input" style="display:none" multiple accept=".txt,.md,.pdf,.docx,.doc,.pptx,.xlsx,.csv,.json">
             </label>
-            <label class="btn btn-secondary btn-sm" style="cursor:pointer">
-              上传文件夹
+            <label class="btn btn-secondary btn-sm" style="cursor:pointer" title="选择本机文件夹，自动跳过压缩包、隐藏文件和临时文件">
+              选择本地文件夹
               <input type="file" id="kb-folder-input" style="display:none" webkitdirectory directory multiple>
             </label>
           </div>
@@ -351,18 +352,38 @@ async function handleUpload(page, kbId, files, { folderId } = {}) {
 
 async function handleFolderUpload(page, kbId, files) {
   if (!files || files.length === 0) return
+  let uploaded = 0
+  let skipped = 0
   for (const file of files) {
     const rel = file.webkitRelativePath || file.name
+    if (shouldSkipKnowledgeRelPath(rel)) {
+      skipped += 1
+      continue
+    }
     try {
       await api.uploadKnowledgeFile(kbId, file, {
         folderId: _selectedFolderId,
         relativePath: rel,
       })
+      uploaded += 1
     } catch (e) {
-      toast(`${rel} 上传失败: ${e?.message || e}`, 'error')
+      const msg = String(e?.message || e || '')
+      if (/unsupported file type/i.test(msg)) {
+        skipped += 1
+        continue
+      }
+      toast(`${rel} 导入失败: ${e?.message || e}`, 'error')
     }
   }
-  toast('文件夹上传完成，正在后台建立索引')
+  toast(
+    uploaded
+      ? `本地文件夹已导入 ${uploaded} 个文件，正在后台建立索引` +
+        (skipped ? `（跳过 ${skipped} 个）` : '')
+      : skipped
+        ? `没有可导入的文件（已跳过 ${skipped} 个压缩包/隐藏/临时文件）`
+        : '没有可导入的文件',
+    uploaded ? 'info' : 'warning',
+  )
   refreshFiles(page, kbId)
   loadDetail(page, kbId)
 }

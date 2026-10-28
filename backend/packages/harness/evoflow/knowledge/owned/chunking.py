@@ -1,9 +1,17 @@
-"""Recursive chunker with protected spans (tables, images, fenced code)."""
+"""Recursive chunker with protected spans (tables, images, fenced code).
+
+Short docs (≤ ~5000 chars) stay as a single chunk — splitting them only
+hurts retrieval. Longer docs keep character-budget splits with boundary-aware
+overlap so neighboring chunks share readable context instead of mid-sentence cuts.
+"""
 
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+
+# Docs at or under this length are kept whole (user: 「5000 字左右不必分块」).
+_NO_SPLIT_MAX_CHARS = 5000
 
 _FENCE_RE = re.compile(r"```[\s\S]*?```")
 _IMAGE_RE = re.compile(r"!\[[^\]]*\]\([^)]+\)")
@@ -87,6 +95,52 @@ def _kind_for(text: str) -> str:
     return "text"
 
 
+def _overlap_tail(text: str, overlap: int) -> str:
+    """Take a trailing window that starts on a readable boundary when possible.
+
+    Prefer paragraph / sentence starts inside the overlap window so the next
+    chunk does not open mid-clause (common cause of「上下文片段丢失」).
+    """
+    text = text or ""
+    overlap = int(overlap or 0)
+    if overlap <= 0 or not text:
+        return ""
+    if len(text) <= overlap:
+        return text
+
+    window = text[-overlap:]
+    # Prefer the latest clean boundary so we keep as much overlap as possible.
+    best = ""
+    for sep in ("\n\n", "\n", "。", "！", "？", "；", ". ", "! ", "? ", "; "):
+        idx = window.rfind(sep)
+        if idx < 0:
+            continue
+        candidate = window[idx + len(sep) :]
+        # Keep enough context; tiny tails are useless for retrieval continuity.
+        if len(candidate) >= max(48, overlap // 5):
+            best = candidate
+            break
+    if best:
+        return best.lstrip()
+    return window.lstrip()
+
+
+def _piece(
+    content: str,
+    *,
+    context_header: str = "",
+    heading_path: str = "",
+) -> ChunkPiece:
+    body = (content or "").strip()
+    return ChunkPiece(
+        content=body,
+        context_header=context_header,
+        heading_path=heading_path,
+        chunk_kind=_kind_for(body),
+        token_estimate=_estimate_tokens(body),
+    )
+
+
 def _split_recursive(
     text: str,
     *,
@@ -102,6 +156,10 @@ def _split_recursive(
 
     chunk_size = max(64, int(chunk_size))
     chunk_overlap = max(0, min(int(chunk_overlap), chunk_size // 2))
+    # Whole section already fits — do not nick it into scraps.
+    if len(text) <= chunk_size:
+        return [_piece(text, context_header=context_header, heading_path=heading_path)]
+
     protected = _find_protected_spans(text)
 
     # Extract protected blocks as atomic units interleaved with free text.
@@ -139,66 +197,39 @@ def _split_recursive(
             continue
         if len(atom) > chunk_size * 2:
             # Hard split oversized atom (e.g. huge table) by lines.
+            if buf.strip():
+                chunks.append(_piece(buf, context_header=context_header, heading_path=heading_path))
+                carry = _overlap_tail(buf, chunk_overlap)
+                buf = ""
+            else:
+                carry = ""
             lines = atom.splitlines(keepends=True)
-            cur = ""
+            cur = carry
             header = ""
             if lines and lines[0].strip().startswith("|") and len(lines) > 1:
                 header = lines[0] + (lines[1] if re.search(r":?-+:?", lines[1] or "") else "")
             for line in lines:
                 if cur and len(cur) + len(line) > chunk_size:
-                    chunks.append(
-                        ChunkPiece(
-                            content=cur.strip(),
-                            context_header=context_header,
-                            heading_path=heading_path,
-                            chunk_kind=_kind_for(cur),
-                            token_estimate=_estimate_tokens(cur),
-                        )
-                    )
-                    cur = header + line if header else line
+                    chunks.append(_piece(cur, context_header=context_header, heading_path=heading_path))
+                    tail = _overlap_tail(cur, chunk_overlap)
+                    cur = (header + line) if header else (tail + line if tail else line)
                 else:
                     cur += line
             if cur.strip():
-                chunks.append(
-                    ChunkPiece(
-                        content=cur.strip(),
-                        context_header=context_header,
-                        heading_path=heading_path,
-                        chunk_kind=_kind_for(cur),
-                        token_estimate=_estimate_tokens(cur),
-                    )
-                )
+                chunks.append(_piece(cur, context_header=context_header, heading_path=heading_path))
             buf = ""
             continue
 
         if buf and len(buf) + len(atom) > chunk_size:
-            chunks.append(
-                ChunkPiece(
-                    content=buf.strip(),
-                    context_header=context_header,
-                    heading_path=heading_path,
-                    chunk_kind=_kind_for(buf),
-                    token_estimate=_estimate_tokens(buf),
-                )
-            )
-            # overlap
-            if chunk_overlap > 0 and len(buf) > chunk_overlap:
-                buf = buf[-chunk_overlap:] + atom
-            else:
-                buf = atom
+            chunks.append(_piece(buf, context_header=context_header, heading_path=heading_path))
+            # Always try to carry readable overlap (even when buf ≤ overlap).
+            carry = _overlap_tail(buf, chunk_overlap)
+            buf = (carry + atom) if carry else atom
         else:
             buf += atom
 
     if buf.strip():
-        chunks.append(
-            ChunkPiece(
-                content=buf.strip(),
-                context_header=context_header,
-                heading_path=heading_path,
-                chunk_kind=_kind_for(buf),
-                token_estimate=_estimate_tokens(buf),
-            )
-        )
+        chunks.append(_piece(buf, context_header=context_header, heading_path=heading_path))
     return chunks
 
 
@@ -240,28 +271,27 @@ def _split_by_heading(
         sections.append((heading_path, m.group(0), block))
 
     out: list[ChunkPiece] = []
+    prev_tail = ""
     for heading_path, _header, block in sections:
         ctx = heading_path
-        if len(block) <= chunk_size:
-            out.append(
-                ChunkPiece(
-                    content=block,
-                    context_header=ctx,
-                    heading_path=heading_path,
-                    chunk_kind=_kind_for(block),
-                    token_estimate=_estimate_tokens(block),
-                )
-            )
+        # Bridge from previous section so heading cuts do not orphan the opener.
+        bridged = block
+        if prev_tail and chunk_overlap > 0 and not block.startswith(prev_tail[: min(24, len(prev_tail))]):
+            bridged = f"{prev_tail.rstrip()}\n\n{block.lstrip()}"
+        if len(bridged) <= chunk_size:
+            piece = _piece(bridged, context_header=ctx, heading_path=heading_path)
+            out.append(piece)
+            prev_tail = _overlap_tail(piece.content, chunk_overlap)
         else:
-            out.extend(
-                _split_recursive(
-                    block,
-                    chunk_size=chunk_size,
-                    chunk_overlap=chunk_overlap,
-                    context_header=ctx,
-                    heading_path=heading_path,
-                )
+            parts = _split_recursive(
+                bridged,
+                chunk_size=chunk_size,
+                chunk_overlap=chunk_overlap,
+                context_header=ctx,
+                heading_path=heading_path,
             )
+            out.extend(parts)
+            prev_tail = _overlap_tail(parts[-1].content, chunk_overlap) if parts else ""
     return out
 
 
@@ -272,11 +302,33 @@ def split_text(
     chunk_overlap: int = 256,
     strategy: str = "recursive",
 ) -> list[ChunkPiece]:
-    """Split text using recursive | heading | auto strategies."""
+    """Split text using recursive | heading | auto strategies.
+
+    Documents at or under ``_NO_SPLIT_MAX_CHARS`` (~5000) are returned as one
+    chunk regardless of strategy — fine splits add noise without helping RAG.
+    """
+    raw = text or ""
+    stripped = raw.strip()
+    if not stripped:
+        return []
+
+    # Short / medium docs: keep whole. Over-splitting ~5k docs loses more
+    # context than it gains for retrieval.
+    if len(stripped) <= _NO_SPLIT_MAX_CHARS:
+        heading = ""
+        m = _HEADING_LINE_RE.search(stripped)
+        if m:
+            heading = m.group(2).strip()
+        return [_piece(stripped, context_header=heading, heading_path=heading)]
+
     strategy = (strategy or "recursive").strip().lower()
     if strategy == "auto":
-        headings = len(_HEADING_LINE_RE.findall(text or ""))
-        strategy = "heading" if headings >= 2 and len(text or "") > max(128, int(chunk_size)) else "recursive"
+        headings = len(_HEADING_LINE_RE.findall(stripped))
+        strategy = (
+            "heading"
+            if headings >= 2 and len(stripped) > max(128, int(chunk_size))
+            else "recursive"
+        )
     if strategy == "heading":
-        return _split_by_heading(text, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
-    return _split_recursive(text, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+        return _split_by_heading(stripped, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+    return _split_recursive(stripped, chunk_size=chunk_size, chunk_overlap=chunk_overlap)

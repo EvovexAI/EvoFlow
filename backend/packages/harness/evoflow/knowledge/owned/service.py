@@ -20,6 +20,7 @@ from evoflow.knowledge.owned.embedding_bind import resolve_create_binding
 from evoflow.knowledge.owned.formats import (
     MAX_FILE_BYTES,
     is_supported_file,
+    folder_path_has_skipped_dir,
     should_skip_dir,
     should_skip_file,
 )
@@ -64,9 +65,10 @@ _CHUNK_SIZE_MIN = 64
 _CHUNK_SIZE_MAX = 8192
 _CHUNK_OVERLAP_MIN = 0
 _CHUNK_OVERLAP_MAX = 4096
-# Character budget defaults (not tokens). 512 was too fine for docs / RAG.
-_CHUNK_SIZE_DEFAULT = 2048
-_CHUNK_OVERLAP_DEFAULT = 256
+# Character budget defaults (not tokens). Prefer larger chunks; docs ≤~5k
+# chars stay whole in owned.chunking.split_text regardless of this size.
+_CHUNK_SIZE_DEFAULT = 4096
+_CHUNK_OVERLAP_DEFAULT = 512
 
 
 def _parse_int_field(raw: Any, *, field: str) -> int:
@@ -1100,6 +1102,11 @@ def delete_base(kb_id: str) -> None:
 
 
 def list_documents(kb_id: str) -> list[dict[str, Any]]:
+    # Prior webkitdirectory uploads created one row per retry for the same
+    # folder_path+file_name; collapse those before the UI counts/renders.
+    dedupe_documents_by_rel_path(kb_id)
+    # Drop legacy rows for code / images / archives so they leave search + tree.
+    purge_unsupported_documents(kb_id)
     with db_for_kb(kb_id) as conn:
         rows = conn.execute(
             """
@@ -1110,6 +1117,110 @@ def list_documents(kb_id: str) -> list[dict[str, Any]]:
             (kb_id,),
         ).fetchall()
     return [_row_doc(r) for r in rows]
+
+
+def purge_unsupported_documents(kb_id: str) -> int:
+    """Soft-delete active docs outside the supported set or under skipped dirs.
+
+    Keeps retrieval and the file tree aligned with current formats.py rules
+    (no code / archives / images; no ``.git`` / ``.obsidian`` / etc. paths).
+    """
+    if not get_base(kb_id):
+        return 0
+    now = utc_now()
+    victims: list[str] = []
+    with db_for_kb(kb_id) as conn:
+        rows = conn.execute(
+            """
+            SELECT id, file_name, folder_path FROM kb_documents
+            WHERE kb_id=? AND deleted_at IS NULL
+            """,
+            (kb_id,),
+        ).fetchall()
+        for row in rows:
+            name = str(row["file_name"] or "")
+            folder = str(row["folder_path"] or "")
+            if folder_path_has_skipped_dir(folder):
+                victims.append(str(row["id"]))
+                continue
+            if not name or should_skip_file(name) or not is_supported_file(name):
+                victims.append(str(row["id"]))
+        for doc_id in victims:
+            conn.execute(
+                "UPDATE kb_documents SET deleted_at=?, updated_at=? WHERE id=? AND deleted_at IS NULL",
+                (now, now, doc_id),
+            )
+            try:
+                purge_document_index(conn, doc_id)
+            except Exception:
+                pass
+    for doc_id in victims:
+        try:
+            jobs.cancel_jobs_for_doc(doc_id, reason="unsupported file type removed")
+        except Exception:
+            pass
+        try:
+            blob_store.delete_doc_blobs(kb_id, doc_id)
+        except Exception:
+            pass
+        try:
+            _forget_doc_kb(doc_id)
+        except Exception:
+            pass
+    return len(victims)
+
+
+def dedupe_documents_by_rel_path(kb_id: str) -> int:
+    """Soft-delete older duplicates that share the same folder_path + file_name.
+
+    Keeps the newest ``updated_at`` (then id) row. Returns how many docs were removed.
+    Soft-deletes in-place (does not require ``kb_doc_index``) so legacy duplicate
+    rows from non-upsert uploads are still cleaned up.
+    """
+    if not get_base(kb_id):
+        return 0
+    now = utc_now()
+    victims: list[str] = []
+    with db_for_kb(kb_id) as conn:
+        rows = conn.execute(
+            """
+            SELECT id, folder_path, file_name, updated_at
+            FROM kb_documents
+            WHERE kb_id=? AND deleted_at IS NULL
+            ORDER BY folder_path ASC, file_name ASC, updated_at DESC, id DESC
+            """,
+            (kb_id,),
+        ).fetchall()
+        seen: set[tuple[str, str]] = set()
+        for row in rows:
+            key = (str(row["folder_path"] or ""), str(row["file_name"] or ""))
+            if key in seen:
+                victims.append(str(row["id"]))
+            else:
+                seen.add(key)
+        for doc_id in victims:
+            conn.execute(
+                "UPDATE kb_documents SET deleted_at=?, updated_at=? WHERE id=? AND deleted_at IS NULL",
+                (now, now, doc_id),
+            )
+            try:
+                purge_document_index(conn, doc_id)
+            except Exception:
+                pass
+    for doc_id in victims:
+        try:
+            jobs.cancel_jobs_for_doc(doc_id, reason="duplicate document removed")
+        except Exception:
+            pass
+        try:
+            blob_store.delete_doc_blobs(kb_id, doc_id)
+        except Exception:
+            pass
+        try:
+            _forget_doc_kb(doc_id)
+        except Exception:
+            pass
+    return len(victims)
 
 
 def _norm_folder_path(path: str | None) -> str:
@@ -1141,7 +1252,7 @@ def list_folders(kb_id: str) -> list[dict[str, Any]]:
     explicit: dict[str, dict[str, Any]] = {}
     for r in rows:
         p = _norm_folder_path(r["path"])
-        if not p:
+        if not p or folder_path_has_skipped_dir(p):
             continue
         paths.add(p)
         explicit[p] = {
@@ -1153,7 +1264,7 @@ def list_folders(kb_id: str) -> list[dict[str, Any]]:
         }
     for r in doc_paths:
         raw = _norm_folder_path(r["folder_path"])
-        if not raw:
+        if not raw or folder_path_has_skipped_dir(raw):
             continue
         parts = raw.split("/")
         acc = ""
@@ -1162,6 +1273,8 @@ def list_folders(kb_id: str) -> list[dict[str, Any]]:
             paths.add(acc)
     out: list[dict[str, Any]] = []
     for p in sorted(paths):
+        if folder_path_has_skipped_dir(p):
+            continue
         if p in explicit:
             out.append(explicit[p])
         else:
@@ -1175,6 +1288,8 @@ def create_folder(kb_id: str, path: str) -> dict[str, Any]:
     folder = _resolve_folder_path(path)
     if not folder:
         raise ValueError("folder path required")
+    if folder_path_has_skipped_dir(folder):
+        raise ValueError("hidden or ignored folder path is not allowed")
     now = utc_now()
     fid = new_id("fld_")
     with db_for_kb(kb_id) as conn:
@@ -1650,12 +1765,26 @@ def get_document_content(doc_id: str, *, max_chars: int = 500_000) -> dict[str, 
             content = ""
 
     if not content.strip():
-        # PDF / Office / failed raw: show pipeline Markdown from chunks (no char cap for UI;
-        # still guard with max_chars).
-        chunks = list_chunks(doc_id)
-        if chunks:
-            parts = [str(c.get("content") or "") for c in chunks if c.get("enabled", True)]
-            content = "\n\n".join(p for p in parts if p)
+        # PDF / Office / failed raw: show pipeline Markdown from chunks.
+        # Avoid list_chunks() (joins embeddings) — content view only needs text.
+        with db_for_kb(kb_id) as conn:
+            chunk_rows = conn.execute(
+                """
+                SELECT content, enabled FROM kb_chunks
+                WHERE doc_id=?
+                ORDER BY ordinal
+                """,
+                (doc_id,),
+            ).fetchall()
+        if chunk_rows:
+            parts = [
+                str(r["content"] or "")
+                for r in chunk_rows
+                if bool(r["enabled"]) and str(r["content"] or "").strip()
+            ]
+            if not parts:
+                parts = [str(r["content"] or "") for r in chunk_rows if str(r["content"] or "").strip()]
+            content = "\n\n".join(parts)
             source = "parsed"
         elif doc.get("summaryText"):
             content = str(doc["summaryText"])
@@ -1981,19 +2110,19 @@ def _find_doc_by_rel_path(kb_id: str, folder_path: str, file_name: str) -> dict[
     return dict(row) if row else None
 
 
-def _update_doc_from_file(
+def _update_doc_from_bytes(
     *,
     existing: dict[str, Any],
-    src_path: Path,
+    data: bytes,
     source_type: str,
+    file_name: str | None = None,
 ) -> dict[str, Any]:
     """Replace blob when content hash changed; re-enqueue parse_index."""
     import hashlib
 
     doc_id = existing["id"]
     kb_id = existing["kb_id"]
-    file_name = str(existing.get("file_name") or src_path.name)
-    data = src_path.read_bytes()
+    name = str(file_name or existing.get("file_name") or "upload.bin")
     if len(data) > MAX_FILE_BYTES:
         raise ValueError(f"file too large (max {MAX_FILE_BYTES} bytes)")
     digest = hashlib.sha256(data).hexdigest()
@@ -2002,9 +2131,9 @@ def _update_doc_from_file(
         doc["syncStatus"] = "unchanged"
         return doc
 
-    blob_path = blob_store.put_bytes(kb_id, doc_id, file_name, data)
+    blob_path = blob_store.put_bytes(kb_id, doc_id, name, data)
     now = utc_now()
-    mime = mimetypes.guess_type(file_name)[0] or "application/octet-stream"
+    mime = mimetypes.guess_type(name)[0] or "application/octet-stream"
     with db_for_kb(kb_id) as conn:
         conn.execute(
             """
@@ -2024,6 +2153,22 @@ def _update_doc_from_file(
     return doc
 
 
+def _update_doc_from_file(
+    *,
+    existing: dict[str, Any],
+    src_path: Path,
+    source_type: str,
+) -> dict[str, Any]:
+    """Replace blob when content hash changed; re-enqueue parse_index."""
+    file_name = str(existing.get("file_name") or src_path.name)
+    return _update_doc_from_bytes(
+        existing=existing,
+        data=src_path.read_bytes(),
+        source_type=source_type,
+        file_name=file_name,
+    )
+
+
 def upload_bytes(
     kb_id: str,
     *,
@@ -2034,11 +2179,33 @@ def upload_bytes(
 ) -> dict[str, Any]:
     if not is_supported_file(file_name):
         raise ValueError(f"unsupported file type: {file_name}")
+    name = Path(file_name).name
+    folder = _resolve_folder_path(folder_path)
+    if folder_path_has_skipped_dir(folder):
+        raise ValueError(f"hidden or ignored folder path is not allowed: {folder}")
+    existing = _find_doc_by_rel_path(kb_id, folder, name)
+    if existing:
+        doc = _update_doc_from_bytes(
+            existing=existing,
+            data=data,
+            source_type="upload",
+            file_name=name,
+        )
+        if doc.get("syncStatus") != "unchanged":
+            owned_activity.record(
+                kb_id,
+                "doc.upload",
+                doc_id=doc.get("id"),
+                title=str(doc.get("title") or name),
+                detail={"fileName": name, "upsert": True},
+            )
+        return doc
+
     doc = _create_doc_record(
         kb_id=kb_id,
         title=title,
-        file_name=Path(file_name).name,
-        folder_path=folder_path,
+        file_name=name,
+        folder_path=folder,
         source_type="upload",
         data=data,
     )
@@ -2047,7 +2214,7 @@ def upload_bytes(
         "doc.upload",
         doc_id=doc.get("id"),
         title=str(doc.get("title") or file_name),
-        detail={"fileName": Path(file_name).name},
+        detail={"fileName": name},
     )
     return doc
 
@@ -2176,6 +2343,156 @@ def remember_sync_source(
         )
 
 
+def _rel_entry(folder: str, file_name: str, **extra: Any) -> dict[str, Any]:
+    rel = f"{folder}/{file_name}".strip("/") if folder else file_name
+    out = {"folderPath": folder, "fileName": file_name, "relPath": rel}
+    out.update(extra)
+    return out
+
+
+def preview_local_folder_sync(
+    kb_id: str,
+    root: str | Path | None = None,
+    *,
+    folder_prefix: str = "",
+    sample_limit: int = 80,
+) -> dict[str, Any]:
+    """Dry-run folder sync: compare disk vs indexed docs without writing.
+
+    Returns create / update / unchanged / prune candidate lists so the UI can
+    confirm the checklist before calling import/resync.
+    """
+    import hashlib
+
+    if not get_base(kb_id):
+        raise ValueError("knowledge base not found")
+    if root is None or str(root).strip() == "":
+        base = get_base(kb_id) or {}
+        kind = str(base.get("syncSourceType") or "")
+        path = str(base.get("syncSourcePath") or "")
+        if kind != "folder" or not path:
+            raise ValueError("no sync source remembered; import a folder first")
+        root = path
+    root_path = Path(root).expanduser().resolve()
+    if not root_path.is_dir():
+        raise ValueError("folder does not exist")
+    prefix = _resolve_folder_path(folder_prefix)
+    limit = max(1, min(int(sample_limit or 80), 300))
+
+    create_samples: list[dict[str, Any]] = []
+    update_samples: list[dict[str, Any]] = []
+    create_total = 0
+    update_total = 0
+    unchanged = 0
+    skipped = 0
+    seen_keys: set[tuple[str, str]] = set()
+
+    for path in sorted(root_path.rglob("*")):
+        if path.is_dir():
+            continue
+        rel = path.relative_to(root_path).as_posix()
+        parts = rel.split("/")
+        if any(should_skip_dir(p) for p in parts[:-1]):
+            skipped += 1
+            continue
+        if should_skip_file(path.name):
+            skipped += 1
+            continue
+        try:
+            size = path.stat().st_size
+            if size > MAX_FILE_BYTES:
+                skipped += 1
+                continue
+            folder = "/".join(parts[:-1])
+            if prefix:
+                folder = f"{prefix}/{folder}".strip("/") if folder else prefix
+            key = (folder, path.name)
+            seen_keys.add(key)
+            existing = _find_doc_by_rel_path(kb_id, folder, path.name)
+            if not existing:
+                create_total += 1
+                if len(create_samples) < limit:
+                    create_samples.append(
+                        _rel_entry(folder, path.name, sizeBytes=size, action="create")
+                    )
+                continue
+            data = path.read_bytes()
+            digest = hashlib.sha256(data).hexdigest()
+            if digest and digest == str(existing.get("content_hash") or ""):
+                unchanged += 1
+                continue
+            update_total += 1
+            if len(update_samples) < limit:
+                update_samples.append(
+                    _rel_entry(
+                        folder,
+                        path.name,
+                        sizeBytes=size,
+                        action="update",
+                        docId=str(existing.get("id") or ""),
+                    )
+                )
+        except Exception:
+            skipped += 1
+
+    prune_samples: list[dict[str, Any]] = []
+    prune_total = 0
+    with db_for_kb(kb_id) as conn:
+        if prefix:
+            rows = conn.execute(
+                """
+                SELECT id, folder_path, file_name FROM kb_documents
+                WHERE kb_id=? AND deleted_at IS NULL
+                  AND source_type IN ('import_folder', 'import_vault')
+                  AND (folder_path=? OR folder_path LIKE ?)
+                """,
+                (kb_id, prefix, f"{prefix}/%"),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """
+                SELECT id, folder_path, file_name FROM kb_documents
+                WHERE kb_id=? AND deleted_at IS NULL
+                  AND source_type IN ('import_folder', 'import_vault')
+                """,
+                (kb_id,),
+            ).fetchall()
+    for r in rows:
+        key = (str(r["folder_path"] or ""), str(r["file_name"] or ""))
+        if key in seen_keys:
+            continue
+        prune_total += 1
+        if len(prune_samples) < limit:
+            prune_samples.append(
+                _rel_entry(
+                    key[0],
+                    key[1],
+                    action="prune",
+                    docId=str(r["id"]),
+                )
+            )
+
+    return {
+        "sourcePath": str(root_path),
+        "folderPrefix": prefix,
+        "create": create_samples,
+        "update": update_samples,
+        "prune": prune_samples,
+        "createTotal": create_total,
+        "updateTotal": update_total,
+        "unchanged": unchanged,
+        "pruneTotal": prune_total,
+        "skipped": skipped,
+        "sampleLimit": limit,
+        "hasChanges": create_total > 0 or update_total > 0 or prune_total > 0,
+    }
+
+
+def preview_resync_base(kb_id: str, *, sample_limit: int = 80) -> dict[str, Any]:
+    """Dry-run against the remembered sync source folder."""
+    return preview_local_folder_sync(kb_id, None, sample_limit=sample_limit)
+
+
 def import_local_folder(
     kb_id: str,
     root: str | Path,
@@ -2196,6 +2513,8 @@ def import_local_folder(
     if not root_path.is_dir():
         raise ValueError("folder does not exist")
     prefix = _resolve_folder_path(folder_prefix)
+    # Clear historical duplicates from older non-upsert uploads before scanning.
+    dedupe_documents_by_rel_path(kb_id)
     created: list[dict[str, Any]] = []
     updated: list[dict[str, Any]] = []
     unchanged = 0
@@ -2525,7 +2844,13 @@ async def search(
                 )
                 qvec = await _cached_query_embedding(
                     cache_key,
-                    lambda: get_embedding(query, mc, expected_dim=int(base["embeddingDim"])),
+                    lambda: get_embedding(
+                        query,
+                        mc,
+                        expected_dim=int(base["embeddingDim"]),
+                        purpose="query",
+                        kb_id=kb_id,
+                    ),
                 )
                 vector_hits = search_vector(
                     kb_id,
@@ -2685,7 +3010,15 @@ def list_chunks(doc_id: str) -> list[dict[str, Any]]:
         return []
     with db_for_kb(str(doc.get("kbId") or "")) as conn:
         rows = conn.execute(
-            "SELECT * FROM kb_chunks WHERE doc_id=? ORDER BY ordinal",
+            """
+            SELECT c.*,
+                   CASE WHEN e.chunk_id IS NULL THEN 0 ELSE 1 END AS has_embedding,
+                   e.dim AS embedding_dim
+            FROM kb_chunks c
+            LEFT JOIN kb_chunk_embeddings e ON e.chunk_id = c.id
+            WHERE c.doc_id=?
+            ORDER BY c.ordinal
+            """,
             (doc_id,),
         ).fetchall()
     return [
@@ -2693,10 +3026,13 @@ def list_chunks(doc_id: str) -> list[dict[str, Any]]:
             "id": r["id"],
             "ordinal": r["ordinal"],
             "content": r["content"],
-            "contextHeader": r["context_header"],
-            "chunkKind": r["chunk_kind"],
+            "contextHeader": r["context_header"] or "",
+            "headingPath": r["heading_path"] or "",
+            "chunkKind": r["chunk_kind"] or "text",
             "tokenEstimate": r["token_estimate"],
             "enabled": bool(r["enabled"]),
+            "hasEmbedding": bool(r["has_embedding"]),
+            "embeddingDim": int(r["embedding_dim"] or 0) if r["has_embedding"] else 0,
         }
         for r in rows
     ]

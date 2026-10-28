@@ -13884,6 +13884,17 @@ html[data-theme='dark'] .memory-agent-dropdown-panel {
   color: var(--text-primary);
 }
 
+.su-daily-table td .su-cell-sub {
+  font-size: 11px;
+  opacity: 0.7;
+  font-weight: 400;
+}
+
+.su-daily-table td strong + .su-user-pid {
+  display: block;
+  margin-top: 2px;
+}
+
 .su-user-cell {
   display: flex;
   flex-direction: column;

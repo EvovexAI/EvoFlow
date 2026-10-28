@@ -31,6 +31,9 @@ UNIT_CREDIT = "credit"
 SUBCATEGORY_CHAT = "chat"
 SUBCATEGORY_IMAGE = "image"
 SUBCATEGORY_VIDEO = "video"
+SUBCATEGORY_EMBED_INDEX = "index"
+SUBCATEGORY_EMBED_QUERY = "query"
+SUBCATEGORY_EMBED_OTHER = "other"
 
 # Fallback USD estimates when the vendor does not return a billable amount.
 # Tune via env later; keep conservative placeholders so calls are never silent.
@@ -42,6 +45,14 @@ _MEDIA_RATE_CARD_USD: dict[str, float] = {
     "video:minimax": 0.12,  # ~5s baseline
     "video:jimeng": 0.15,
     "video:*": 0.15,
+}
+
+# Embedding USD per million input tokens (OpenAI-published ballparks + conservative *).
+_EMBEDDING_RATE_USD_PER_MTOK: dict[str, float] = {
+    "text-embedding-3-small": 0.02,
+    "text-embedding-3-large": 0.13,
+    "text-embedding-ada-002": 0.10,
+    "*": 0.02,
 }
 
 
@@ -529,6 +540,181 @@ def record_media_generation_usage_in_txn(
         workspace_id=_s(workspace_id) or None,
         principal_id=_s(principal_id) or None,
         occurred_at=occurred_at,
+        meta=detail,
+    )
+
+
+def _embedding_rate_usd_per_token(sku: str) -> tuple[float, str]:
+    """Return (usd_per_token, pricing_source) for an embedding model sku."""
+    name = _s(sku)
+    # Prefer app token_usage.pricing (same as chat) when the embedding model is listed.
+    priced = _resolve_llm_price(name)
+    if priced.get("input", 0.0) > 0:
+        return float(priced["input"]), "config:token_usage.pricing"
+    # Rate-card fallback so cloud embedding calls are never silent zero-cost.
+    lower = name.lower()
+    best_len = -1
+    rate = 0.0
+    for pattern, mtok in _EMBEDDING_RATE_USD_PER_MTOK.items():
+        try:
+            import fnmatch
+
+            if pattern == "*" or fnmatch.fnmatch(lower, pattern.lower()) or pattern.lower() in lower:
+                if len(pattern) >= best_len:
+                    best_len = len(pattern)
+                    rate = float(mtok)
+        except Exception:
+            continue
+    if rate <= 0:
+        rate = float(_EMBEDDING_RATE_USD_PER_MTOK.get("*", 0.02))
+    return rate / 1_000_000.0, "estimate:embedding_rate_card"
+
+
+def record_embedding_usage(
+    *,
+    model: str = "",
+    provider: str = "",
+    purpose: str = "",
+    prompt_tokens: float | int = 0,
+    input_count: int = 0,
+    is_local: bool = False,
+    kb_id: str | None = None,
+    session_key: str | None = None,
+    thread_id: str | None = None,
+    run_id: str | None = None,
+    app_id: str | None = None,
+    agent_code: str | None = None,
+    workspace_id: str | None = None,
+    principal_id: str | None = None,
+    occurred_at: str | None = None,
+    meta: dict[str, Any] | None = None,
+) -> bool:
+    """Append one embedding (vector) API / local encode event to the usage ledger.
+
+    Shown in Settings → 使用统计 (category=embedding). Covers KB index + retrieval
+    query embeds and any other caller that goes through the embedding providers.
+    Local encodes are audited (tokens estimated) with amount=0.
+    """
+
+    def _write(db: Any) -> bool:
+        return record_embedding_usage_in_txn(
+            db,
+            model=model,
+            provider=provider,
+            purpose=purpose,
+            prompt_tokens=prompt_tokens,
+            input_count=input_count,
+            is_local=is_local,
+            kb_id=kb_id,
+            session_key=session_key,
+            thread_id=thread_id,
+            run_id=run_id,
+            app_id=app_id,
+            agent_code=agent_code,
+            workspace_id=workspace_id,
+            principal_id=principal_id,
+            occurred_at=occurred_at,
+            meta=meta,
+        )
+
+    try:
+        return bool(run_db_transaction(_write))
+    except Exception:
+        logger.debug("record_embedding_usage failed", exc_info=True)
+        return False
+
+
+def record_embedding_usage_in_txn(
+    db: Any,
+    *,
+    model: str = "",
+    provider: str = "",
+    purpose: str = "",
+    prompt_tokens: float | int = 0,
+    input_count: int = 0,
+    is_local: bool = False,
+    kb_id: str | None = None,
+    session_key: str | None = None,
+    thread_id: str | None = None,
+    run_id: str | None = None,
+    app_id: str | None = None,
+    agent_code: str | None = None,
+    workspace_id: str | None = None,
+    principal_id: str | None = None,
+    occurred_at: str | None = None,
+    meta: dict[str, Any] | None = None,
+) -> bool:
+    import uuid
+
+    purpose_raw = _s(purpose).lower() or SUBCATEGORY_EMBED_OTHER
+    if purpose_raw in ("index", "embed_index", "indexing"):
+        sub = SUBCATEGORY_EMBED_INDEX
+    elif purpose_raw in ("query", "retrieve", "retrieval", "search"):
+        sub = SUBCATEGORY_EMBED_QUERY
+    elif purpose_raw in ("probe", "detect", "warmup"):
+        # Health / dimension probes — do not pollute the fee ledger.
+        return False
+    else:
+        sub = SUBCATEGORY_EMBED_OTHER
+
+    sku = _s(model) or _s(provider) or "embedding"
+    prov = _s(provider) or ("local" if is_local else "")
+    tokens = _f(prompt_tokens)
+    n_in = int(input_count or 0)
+    if tokens <= 0 and n_in > 0:
+        # No vendor usage field — keep a positive quantity so the call is visible.
+        tokens = float(max(1, n_in))
+    if tokens <= 0:
+        return False
+
+    stamp = _s(occurred_at) or utc_now_iso_z()
+    event_id = f"embedding:{sub}:{uuid.uuid4().hex}"
+
+    amount = 0.0
+    pricing_source = ""
+    if not is_local:
+        per_tok, pricing_source = _embedding_rate_usd_per_token(sku)
+        amount = tokens * per_tok
+
+    detail: dict[str, Any] = {
+        "purpose": sub,
+        "model": _s(model) or None,
+        "provider": prov or None,
+        "prompt_tokens": tokens,
+        "input_count": n_in if n_in > 0 else None,
+        "is_local": bool(is_local),
+        "kb_id": _s(kb_id) or None,
+        "pricing_source": pricing_source or None,
+    }
+    if isinstance(meta, dict) and meta:
+        for k, v in meta.items():
+            if k not in detail or detail[k] is None:
+                detail[k] = v
+    detail = {k: v for k, v in detail.items() if v is not None}
+
+    return record_usage_event_in_txn(
+        db,
+        event_id=event_id,
+        category=CATEGORY_EMBEDDING,
+        subcategory=sub,
+        unit=UNIT_TOKEN,
+        quantity=tokens,
+        quantity_in=tokens,
+        currency="USD",
+        amount=amount,
+        pricing_source=pricing_source,
+        provider=prov,
+        sku=sku,
+        session_key=_s(session_key) or None,
+        thread_id=_s(thread_id) or None,
+        run_id=_s(run_id) or None,
+        app_id=_s(app_id) or None,
+        agent_code=_s(agent_code) or None,
+        workspace_id=_s(workspace_id) or None,
+        subject_type="kb" if _s(kb_id) else "install",
+        subject_id=_s(kb_id),
+        principal_id=_s(principal_id) or None,
+        occurred_at=stamp,
         meta=detail,
     )
 
@@ -1083,6 +1269,110 @@ def fetch_usage_by_category(
         for r in rows
     ]
     return {"from": start, "to": end, "day_basis": "utc", "items": items}
+
+
+def fetch_usage_daily_breakdown(
+    *,
+    from_day: str | None = None,
+    to_day: str | None = None,
+    principal_id: str | None = None,
+    include_orphan: bool = True,
+) -> dict[str, Any]:
+    """Per-UTC-day pivot for Settings → 使用统计 daily table.
+
+    Columns: chat tokens/calls, image/video call counts, embedding tokens/calls, cost.
+    Empty days in the inclusive range are filled with zeros (newest day first).
+    """
+    from datetime import date, timedelta
+
+    start, end = _parse_range(from_day, to_day)
+    db = get_db()
+    where, params = _usage_where(
+        "day >= ? AND day <= ?",
+        [start, end],
+        principal_id=principal_id,
+        include_orphan=include_orphan,
+    )
+    rows = db.execute(
+        f"""
+        SELECT day, category, subcategory,
+               SUM(quantity_sum), SUM(amount_sum), SUM(event_count)
+        FROM evoflow_usage_daily
+        WHERE {where}
+        GROUP BY day, category, subcategory
+        ORDER BY day ASC
+        """,
+        params,
+    ).fetchall()
+
+    by_day: dict[str, dict[str, Any]] = {}
+
+    def _slot(day: str) -> dict[str, Any]:
+        slot = by_day.get(day)
+        if slot is None:
+            slot = {
+                "day": day,
+                "llm_tokens": 0.0,
+                "llm_calls": 0,
+                "llm_amount": 0.0,
+                "image_calls": 0,
+                "image_amount": 0.0,
+                "video_calls": 0,
+                "video_amount": 0.0,
+                "embed_tokens": 0.0,
+                "embed_calls": 0,
+                "embed_amount": 0.0,
+                "amount_sum": 0.0,
+                "event_count": 0,
+            }
+            by_day[day] = slot
+        return slot
+
+    for r in rows:
+        day = str(r[0] or "")[:10]
+        if not day:
+            continue
+        cat = _s(r[1]).lower()
+        sub = _s(r[2]).lower()
+        qty = _f(r[3])
+        amt = _f(r[4])
+        ev = int(r[5] or 0)
+        slot = _slot(day)
+        slot["amount_sum"] = _f(slot["amount_sum"]) + amt
+        slot["event_count"] = int(slot["event_count"] or 0) + ev
+        if cat == CATEGORY_LLM:
+            slot["llm_tokens"] = _f(slot["llm_tokens"]) + qty
+            slot["llm_calls"] = int(slot["llm_calls"] or 0) + ev
+            slot["llm_amount"] = _f(slot["llm_amount"]) + amt
+        elif cat == CATEGORY_MEDIA:
+            if sub == SUBCATEGORY_VIDEO or "video" in sub:
+                slot["video_calls"] = int(slot["video_calls"] or 0) + ev
+                slot["video_amount"] = _f(slot["video_amount"]) + amt
+            else:
+                slot["image_calls"] = int(slot["image_calls"] or 0) + ev
+                slot["image_amount"] = _f(slot["image_amount"]) + amt
+        elif cat == CATEGORY_EMBEDDING:
+            slot["embed_tokens"] = _f(slot["embed_tokens"]) + qty
+            slot["embed_calls"] = int(slot["embed_calls"] or 0) + ev
+            slot["embed_amount"] = _f(slot["embed_amount"]) + amt
+
+    try:
+        start_d = date.fromisoformat(start)
+        end_d = date.fromisoformat(end)
+    except ValueError:
+        start_d = end_d = date.fromisoformat(utc_now_iso_z()[:10])
+
+    days_out: list[dict[str, Any]] = []
+    cur = end_d
+    # Cap fill to 93 days to avoid pathological ranges.
+    filled = 0
+    while cur >= start_d and filled < 93:
+        key = cur.isoformat()
+        days_out.append(_slot(key))
+        cur -= timedelta(days=1)
+        filled += 1
+
+    return {"from": start, "to": end, "day_basis": "utc", "days": days_out}
 
 
 def fetch_usage_by_sku(

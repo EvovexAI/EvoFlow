@@ -50,6 +50,7 @@ from evoflow.knowledge.embedding.registry import (
     known_embedding_dim,
     resolve_embedding_model_config,
 )
+from evoflow.knowledge.embedding.usage_meter import embedding_usage_scope
 
 __all__ = [
     # Public API (backwards-compatible with old embedding.py)
@@ -76,6 +77,8 @@ __all__ = [
     "local_embedding_deps_available",
     "probe_local_embedding_deps",
     "reconcile_local_embedding_models_for_runtime",
+    # Usage metering
+    "embedding_usage_scope",
     # Constants
     "DEFAULT_EMBEDDING_MODEL",
     "DEFAULT_EMBEDDING_DIM",

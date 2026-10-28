@@ -101,6 +101,12 @@ class ResyncBody(BaseModel):
     pruneMissing: bool = False
 
 
+class SyncPreviewBody(BaseModel):
+    path: str | None = None
+    folderPrefix: str = ""
+    sampleLimit: int = 80
+
+
 class PrimaryBody(BaseModel):
     primary: Literal["owned", "auto"] | None = None
     defaultEmbeddingModel: str | None = None
@@ -400,6 +406,24 @@ async def resync_base(request: Request, kb_id: str, body: ResyncBody = ResyncBod
         raise HTTPException(404, "knowledge base not found")
     try:
         return owned_service.resync_base(kb_id, prune_missing=body.pruneMissing)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+@router.post("/bases/{kb_id}/sync-preview")
+async def sync_preview(request: Request, kb_id: str, body: SyncPreviewBody = SyncPreviewBody()) -> dict[str, Any]:
+    """Dry-run folder sync checklist (create / update / prune) before applying."""
+    require_kb_visible(request, kb_id)
+    if not owned_service.get_base(kb_id):
+        raise HTTPException(404, "knowledge base not found")
+    try:
+        path = (body.path or "").strip() or None
+        return owned_service.preview_local_folder_sync(
+            kb_id,
+            path,
+            folder_prefix=body.folderPrefix or "",
+            sample_limit=body.sampleLimit,
+        )
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
 

@@ -116,7 +116,7 @@ class CloudEmbeddingProvider(EmbeddingProvider):
         bs = MAX_BATCH_SIZE
         for i in range(0, len(texts), bs):
             batch = texts[i : i + bs]
-            batch_embeddings = await _call_embeddings_api(
+            batch_embeddings, prompt_tokens = await _call_embeddings_api(
                 base_url,
                 api_key,
                 model_name,
@@ -125,6 +125,18 @@ class CloudEmbeddingProvider(EmbeddingProvider):
                 multimodal=multimodal,
             )
             all_embeddings.extend(batch_embeddings)
+            try:
+                from evoflow.knowledge.embedding.usage_meter import note_embedding_call
+
+                note_embedding_call(
+                    model=model_name,
+                    provider=str(getattr(self.model_config, "vendor", "") or "") or "cloud",
+                    prompt_tokens=prompt_tokens,
+                    texts=batch,
+                    is_local=False,
+                )
+            except Exception:
+                logger.debug("embedding usage meter failed", exc_info=True)
 
         return all_embeddings
 
@@ -143,7 +155,22 @@ def _normalize_embedding_vector(raw: Any) -> list[float]:
     raise TypeError("embedding items are not numeric")
 
 
-def _parse_embeddings_response(body: dict[str, Any], *, n_inputs: int) -> list[list[float]]:
+def _parse_usage_tokens(body: dict[str, Any]) -> int:
+    usage = body.get("usage") if isinstance(body, dict) else None
+    if not isinstance(usage, dict):
+        return 0
+    for key in ("prompt_tokens", "input_tokens", "total_tokens"):
+        try:
+            n = int(usage.get(key) or 0)
+        except (TypeError, ValueError):
+            n = 0
+        if n > 0:
+            return n
+    return 0
+
+
+def _parse_embeddings_response(body: dict[str, Any], *, n_inputs: int) -> tuple[list[list[float]], int]:
+    tokens = _parse_usage_tokens(body)
     data = body.get("data")
     # OpenAI / Ark text: data = [{index, embedding}, ...]
     if isinstance(data, list) and data:
@@ -153,15 +180,15 @@ def _parse_embeddings_response(body: dict[str, Any], *, n_inputs: int) -> list[l
         )
         embeddings = [_normalize_embedding_vector(item["embedding"]) for item in data_sorted if isinstance(item, dict)]
         if len(embeddings) == n_inputs:
-            return embeddings
+            return embeddings, tokens
         # Multimodal sometimes returns one combined vector for multi-part input
         if len(embeddings) == 1 and n_inputs >= 1:
-            return embeddings * n_inputs if n_inputs > 1 else embeddings
+            return (embeddings * n_inputs if n_inputs > 1 else embeddings), tokens
         raise EmbeddingError(f"Embedding API returned {len(embeddings)} embeddings for {n_inputs} inputs")
     # Ark multimodal alternate: data = {embedding: [...]}
     if isinstance(data, dict) and "embedding" in data:
         vec = _normalize_embedding_vector(data["embedding"])
-        return [vec] * n_inputs if n_inputs > 1 else [vec]
+        return ([vec] * n_inputs if n_inputs > 1 else [vec]), tokens
     raise EmbeddingError(f"Embedding API response missing 'data' embeddings: {str(body)[:200]}")
 
 
@@ -173,11 +200,12 @@ async def _call_embeddings_api(
     timeout: float,
     *,
     multimodal: bool = False,
-) -> list[list[float]]:
+) -> tuple[list[list[float]], int]:
     """Make a single POST to the embeddings endpoint and parse the response.
 
     Returns:
-        List of embedding vectors in the same order as ``inputs``.
+        ``(vectors, prompt_tokens)`` — vectors in the same order as ``inputs``.
+        ``prompt_tokens`` is 0 when the vendor omits usage (caller may estimate).
 
     Raises:
         EmbeddingError: On any API error (network, auth, rate-limit, malformed response).
@@ -190,13 +218,16 @@ async def _call_embeddings_api(
     if multimodal:
         # One request per text; Ark multimodal input is typed parts, not a string list.
         out: list[list[float]] = []
+        tokens = 0
         for text in inputs:
             payload: dict[str, Any] = {
                 "model": model_name,
                 "input": [{"type": "text", "text": text}],
             }
-            out.append((await _post_embeddings(url, headers, payload, timeout, n_inputs=1))[0])
-        return out
+            vecs, n = await _post_embeddings(url, headers, payload, timeout, n_inputs=1)
+            out.append(vecs[0])
+            tokens += int(n or 0)
+        return out, tokens
 
     payload: dict[str, Any] = {"model": model_name, "input": inputs}
     return await _post_embeddings(url, headers, payload, timeout, n_inputs=len(inputs))
@@ -209,7 +240,7 @@ async def _post_embeddings(
     timeout: float,
     *,
     n_inputs: int,
-) -> list[list[float]]:
+) -> tuple[list[list[float]], int]:
     import asyncio
 
     last_timeout: Exception | None = None

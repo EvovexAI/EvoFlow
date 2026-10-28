@@ -547,7 +547,13 @@ async def search(
     from evoflow.knowledge.embedding import resolve_embedding_model_config
 
     mc = resolve_embedding_model_config(str(ds.get("embedding_model") or "")) or None
-    query_vec = await get_embedding(query, mc, expected_dim=dim)
+    query_vec = await get_embedding(
+        query,
+        mc,
+        expected_dim=dim,
+        purpose="query",
+        kb_id=dataset_id,
+    )
 
     vs = VectorStore(dataset_id, dim=dim)
     recall_k = max(top_k * 5, 12)

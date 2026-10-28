@@ -1,17 +1,26 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../lib/tauri-api.js";
+import {
+  folderPathFromRelative,
+  shouldSkipKnowledgeDir,
+  shouldSkipKnowledgeRelPath,
+} from "../lib/knowledge-file-filter.js";
 import { collectEmbeddingModelOptions } from "../lib/model-classification.js";
-import { setKnowledgeDetailShellMode } from "../router.js";
-import { MarkdownDocumentView } from "../react/components/MarkdownDocumentView.js";
 import { KnowledgeHubLayout } from "./knowledge-owned-hub.jsx";
 import {
-  DocumentHero,
+  DocumentChunksPanel,
   DocumentToc,
   KnowledgeRailCards,
   parseMarkdownHeadings,
   scrollToHeading,
   useReaderMarkdownEnhance,
 } from "./knowledge-owned-reader.jsx";
+import {
+  findOwnedDocByWorkspacePath,
+  KnowledgeV4FileTree,
+  KnowledgeV4Markdown,
+} from "./knowledge-v4-preview.jsx";
+import { syncKnowledgeAsideForDetail } from "./knowledge-owned-aside.js";
 import "./knowledge-source-tabs.css";
 
 /**
@@ -37,10 +46,201 @@ function openModelsEmbeddingSettings() {
 
 function statusBadge(status) {
   const s = String(status || "");
-  if (s === "completed") return { cls: "ok", label: "已就绪" };
-  if (s === "processing" || s === "pending") return { cls: "busy", label: s === "pending" ? "排队中" : "处理中" };
-  if (s === "failed") return { cls: "err", label: "失败" };
-  return { cls: "", label: s || "—" };
+  if (s === "completed") return { cls: "ok", kind: "ready", label: "已就绪" };
+  if (s === "processing" || s === "pending") {
+    return {
+      cls: "busy",
+      kind: "processing",
+      label: s === "pending" ? "排队中" : "处理中",
+    };
+  }
+  if (s === "failed") return { cls: "err", kind: "attention", label: "失败" };
+  return { cls: "", kind: "empty", label: s || "—" };
+}
+
+/** Prefer fileName in trees/headers — folder path already lives in the left rail. */
+function docDisplayName(doc) {
+  const fileName = String(doc?.fileName || "").trim();
+  if (fileName) return fileName;
+  const title = String(doc?.title || "").trim();
+  if (title) return title;
+  return String(doc?.id || "文档");
+}
+
+function IconPencil() {
+  return (
+    <svg fill="none" height="14" viewBox="0 0 16 16" width="14" aria-hidden="true">
+      <path
+        d="M11.3 1.7a1.5 1.5 0 0 1 2.12 0l.88.88a1.5 1.5 0 0 1 0 2.12L6.2 12.8 2 14l1.2-4.2z"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.4"
+      />
+    </svg>
+  );
+}
+
+function IconTrash() {
+  return (
+    <svg fill="none" height="14" viewBox="0 0 16 16" width="14" aria-hidden="true">
+      <path
+        d="M3.5 4.5h9M6 4.5V3.2A1.2 1.2 0 0 1 7.2 2h1.6A1.2 1.2 0 0 1 10 3.2v1.3M4.5 4.5l.6 8.2A1.2 1.2 0 0 0 6.3 14h3.4a1.2 1.2 0 0 0 1.2-1.1l.6-8.2"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.4"
+      />
+    </svg>
+  );
+}
+
+function IconChunks() {
+  return (
+    <svg fill="none" height="14" viewBox="0 0 16 16" width="14" aria-hidden="true">
+      <path
+        d="M2.5 3.5h11M2.5 8h11M2.5 12.5h7"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeWidth="1.4"
+      />
+    </svg>
+  );
+}
+
+function formatSyncBytes(n) {
+  const v = Number(n) || 0;
+  if (v < 1024) return `${v} B`;
+  if (v < 1024 * 1024) return `${(v / 1024).toFixed(1)} KB`;
+  return `${(v / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function SyncPreviewModal({
+  open,
+  loading,
+  plan,
+  path,
+  mode,
+  pruneMissing,
+  onPruneChange,
+  busy,
+  error,
+  onClose,
+  onConfirm,
+  onRetry,
+}) {
+  if (!open) return null;
+  const createTotal = Number(plan?.createTotal || 0);
+  const updateTotal = Number(plan?.updateTotal || 0);
+  const pruneTotal = Number(plan?.pruneTotal || 0);
+  const unchanged = Number(plan?.unchanged || 0);
+  const skipped = Number(plan?.skipped || 0);
+  const hasChanges = Boolean(plan?.hasChanges);
+  const title = mode === "import" ? "核对导入清单" : "核对同步清单";
+  const confirmLabel = mode === "import" ? "确认导入" : "确认同步";
+  const canClose = !busy && !loading;
+
+  const Section = ({ kind, label, total, items }) => {
+    if (!total) return null;
+    const sample = Array.isArray(items) ? items : [];
+    const more = Math.max(0, total - sample.length);
+    return (
+      <section className={`ko-sync-preview__section is-${kind}`}>
+        <header>
+          <strong>{label}</strong>
+          <span>{total}</span>
+        </header>
+        <ul>
+          {sample.map((item) => (
+            <li key={`${kind}:${item.relPath || item.fileName}`}>
+              <code title={item.relPath}>{item.relPath || item.fileName}</code>
+              {item.sizeBytes != null ? (
+                <span className="ko-sync-preview__size">{formatSyncBytes(item.sizeBytes)}</span>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+        {more > 0 ? <p className="ko-sync-preview__more">…还有 {more} 项未列出</p> : null}
+      </section>
+    );
+  };
+
+  return (
+    <div
+      className="ko-modal-backdrop"
+      onMouseDown={(e) => {
+        // Only the dimmed backdrop closes; ignore dialog clicks and opening click-through.
+        if (e.target !== e.currentTarget || !canClose) return;
+        onClose?.();
+      }}
+      role="presentation"
+    >
+      <div
+        className="ko-modal ko-sync-preview"
+        onMouseDown={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="ko-sync-preview-title"
+      >
+        <h2 id="ko-sync-preview-title">{title}</h2>
+        <p className="ko-modal__hint ko-sync-preview__path" title={path || plan?.sourcePath || ""}>
+          源目录：{path || plan?.sourcePath || "—"}
+        </p>
+        {loading ? (
+          <p className="ko-modal__hint">正在扫描本地文件夹与知识库差异…</p>
+        ) : error ? (
+          <div className="ko-sync-preview__error">
+            <p className="ko-modal__hint is-warn">{error}</p>
+            <button className="ko-btn" disabled={busy} onClick={onRetry} type="button">
+              重试扫描
+            </button>
+          </div>
+        ) : plan ? (
+          <>
+            <div className="ko-sync-preview__stats" aria-label="同步差异摘要">
+              <div><strong>{createTotal}</strong><span>新增</span></div>
+              <div><strong>{updateTotal}</strong><span>更新</span></div>
+              <div><strong>{unchanged}</strong><span>未变</span></div>
+              <div><strong>{pruneTotal}</strong><span>将清理</span></div>
+              <div><strong>{skipped}</strong><span>已跳过</span></div>
+            </div>
+            {!hasChanges ? (
+              <p className="ko-modal__hint">没有需要同步的变更。仍可确认以刷新记住的源路径。</p>
+            ) : null}
+            <div className="ko-sync-preview__lists">
+              <Section kind="create" label="将新增" total={createTotal} items={plan.create} />
+              <Section kind="update" label="将更新" total={updateTotal} items={plan.update} />
+              <Section kind="prune" label="源中已删除（可选清理）" total={pruneTotal} items={plan.prune} />
+            </div>
+            <label className="ko-modal__toggle">
+              <input
+                checked={Boolean(pruneMissing)}
+                disabled={busy || pruneTotal === 0}
+                onChange={(e) => onPruneChange?.(e.target.checked)}
+                type="checkbox"
+              />
+              <span>同步后清理知识库中源目录已不存在的文档{pruneTotal ? `（${pruneTotal}）` : ""}</span>
+            </label>
+          </>
+        ) : (
+          <p className="ko-modal__hint is-warn">未能生成同步清单</p>
+        )}
+        <div className="ko-modal__actions">
+          <button className="ko-btn" disabled={!canClose} onClick={onClose} type="button">
+            取消
+          </button>
+          <button
+            className="ko-btn primary"
+            disabled={busy || loading || !plan || Boolean(error)}
+            onClick={onConfirm}
+            type="button"
+          >
+            {busy ? "同步中…" : confirmLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 /** Human label for kb_jobs.type — index vs summary must stay distinct. */
@@ -199,14 +399,44 @@ function formatUpdatedAt(v) {
   return d.toLocaleString("zh-CN", { hour12: false });
 }
 
+/** Keep one doc per folderPath+fileName (newest updatedAt wins). */
+function dedupeDocsByRelPath(docs) {
+  const best = new Map();
+  for (const doc of docs || []) {
+    const folder = String(doc.folderPath || "")
+      .replace(/\\/g, "/")
+      .replace(/^\/+|\/+$/g, "");
+    const name = String(doc.fileName || doc.title || doc.id || "").trim();
+    const key = `${folder}\0${name}`;
+    const prev = best.get(key);
+    if (!prev) {
+      best.set(key, doc);
+      continue;
+    }
+    const prevTs = String(prev.updatedAt || prev.createdAt || "");
+    const nextTs = String(doc.updatedAt || doc.createdAt || "");
+    if (nextTs >= prevTs) best.set(key, doc);
+  }
+  return Array.from(best.values());
+}
+
 /** Build Lexiang-like folder tree from documents' folderPath + explicit folders. */
 function buildDocTree(docs, folders) {
   const root = { type: "folder", name: "", path: "", children: [], docs: [] };
+  const pathHasSkippedDir = (rawPath) => {
+    const parts = String(rawPath || "")
+      .replace(/\\/g, "/")
+      .replace(/^\/+|\/+$/g, "")
+      .split("/")
+      .filter(Boolean);
+    return parts.some((part) => shouldSkipKnowledgeDir(part));
+  };
   const ensureFolder = (rawPath) => {
     const raw = String(rawPath || "")
       .replace(/\\/g, "/")
       .replace(/^\/+|\/+$/g, "");
     if (!raw) return root;
+    if (pathHasSkippedDir(raw)) return null;
     const parts = raw.split("/").filter(Boolean);
     let node = root;
     let acc = "";
@@ -226,8 +456,14 @@ function buildDocTree(docs, folders) {
   }
   for (const doc of docs || []) {
     const node = ensureFolder(doc.folderPath);
-    node.docs.push(doc);
+    if (node) node.docs.push(doc);
   }
+  // Drop empty folders (explicit empties, or dirs that only held skipped files).
+  const pruneEmpty = (n) => {
+    n.children = n.children.map(pruneEmpty).filter((c) => c.children.length > 0 || c.docs.length > 0);
+    return n;
+  };
+  pruneEmpty(root);
   const sortNode = (n) => {
     n.children.sort((a, b) => a.name.localeCompare(b.name, "zh"));
     n.docs.sort((a, b) => {
@@ -412,7 +648,10 @@ function CatalogTreeNodes({
       })}
       {node.docs.map((doc) => {
         const active = doc.id === selectedDocId;
-        const title = doc.title || doc.fileName || doc.id;
+        const title = docDisplayName(doc);
+        const extIdx = title.lastIndexOf(".");
+        const stem = extIdx > 0 ? title.slice(0, extIdx) : title;
+        const ext = extIdx > 0 ? title.slice(extIdx) : "";
         return (
           <div
             className={`ko-tree-item${active ? " is-active" : ""}${dragDocId === doc.id ? " is-dragging" : ""}`}
@@ -458,7 +697,10 @@ function CatalogTreeNodes({
               <span className="ko-tree-type-icon">
                 <IconFile active={active} />
               </span>
-              <span className="ko-tree-title">{title}</span>
+              <span className="ko-tree-title">
+                <span className="ko-tree-title__stem">{stem}</span>
+                {ext ? <span className="ko-tree-title__ext">{ext}</span> : null}
+              </span>
             </button>
             <div className="ko-tree-ops">
               <button
@@ -816,7 +1058,7 @@ function SearchPanel({
   );
 }
 
-function KnowledgeHome({ base, docs, recentDocs, onAsk, onOpenDoc, onSearch, onUpload, onWrite, globalSettings }) {
+function KnowledgeHome({ base, docs, recentDocs, onAsk, onOpenDoc, onSearch, onSyncFolder, onWrite, globalSettings }) {
   const baseName = String(base?.name || "知识库");
   const description = String(base?.description || "集中阅读、检索和维护团队知识");
   return (
@@ -847,7 +1089,7 @@ function KnowledgeHome({ base, docs, recentDocs, onAsk, onOpenDoc, onSearch, onU
         <div className="ko-reader-home__section-head"><h2>开始使用</h2><span>选择一个入口</span></div>
         <div className="ko-reader-home__actions">
           <button type="button" onClick={onAsk}><span>✦</span><strong>问 AI</strong><small>从知识库获得答案</small></button>
-          <button type="button" onClick={onUpload}><span>↑</span><strong>上传文档</strong><small>导入 PDF、Office 或 Markdown</small></button>
+          <button type="button" onClick={onSyncFolder}><span>↻</span><strong>同步本地文件夹</strong><small>改文件后核对清单再同步</small></button>
           <button type="button" onClick={onWrite}><span>＋</span><strong>写一篇笔记</strong><small>记录可复用的知识</small></button>
         </div>
       </section>
@@ -900,7 +1142,8 @@ export default function KnowledgeOwnedPage() {
   const [kbTags, setKbTags] = useState([]);
   const [jobStats, setJobStats] = useState(null);
   const [jobItems, setJobItems] = useState([]);
-  const [syncPopupDismissed, setSyncPopupDismissed] = useState(false);
+  // Default dismissed: processing shows a corner chip; user opens the full ledger on demand.
+  const [syncPopupDismissed, setSyncPopupDismissed] = useState(true);
   const [docCounts, setDocCounts] = useState({});
   const [selectedDocId, setSelectedDocId] = useState("");
   const [expandedFolders, setExpandedFolders] = useState(() => new Set());
@@ -924,7 +1167,11 @@ export default function KnowledgeOwnedPage() {
   const [dragFolderPath, setDragFolderPath] = useState("");
   const [catalogOpen, setCatalogOpen] = useState(false);
   const [railOpen, setRailOpen] = useState(false);
-  const [catalogSideTab, setCatalogSideTab] = useState("files"); // files | toc
+  const [detailMoreOpen, setDetailMoreOpen] = useState(false);
+  const [detailMorePos, setDetailMorePos] = useState({ top: 0, left: 0 });
+  const detailMoreRef = useRef(null);
+  const detailMoreBtnRef = useRef(null);
+  const [tocFloatOpen, setTocFloatOpen] = useState(false);
   const [activeHeading, setActiveHeading] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
   const [showHidden, setShowHidden] = useState(false);
@@ -940,7 +1187,15 @@ export default function KnowledgeOwnedPage() {
   const [settingsEmbRef, setSettingsEmbRef] = useState("");
   const [settingsRebind, setSettingsRebind] = useState(false);
   const [settingsSummary, setSettingsSummary] = useState(false);
-  const fileRef = useRef(null);
+  const [syncPreviewOpen, setSyncPreviewOpen] = useState(false);
+  const [syncPreviewLoading, setSyncPreviewLoading] = useState(false);
+  const [syncPreview, setSyncPreview] = useState(null);
+  const [syncPreviewPath, setSyncPreviewPath] = useState("");
+  const [syncPreviewMode, setSyncPreviewMode] = useState("resync"); // resync | import
+  const [syncPruneMissing, setSyncPruneMissing] = useState(true);
+  const [syncPreviewError, setSyncPreviewError] = useState("");
+  const [chunksPanelOpen, setChunksPanelOpen] = useState(false);
+  const syncPreviewGuardRef = useRef(0);
   const folderRef = useRef(null);
   const askListRef = useRef(null);
   const prevParseStatusRef = useRef("");
@@ -959,12 +1214,43 @@ export default function KnowledgeOwnedPage() {
     return () => window.removeEventListener("hashchange", sync);
   }, []);
 
-  // 详情沉浸：隐藏全局左侧壳菜单（与知识库详情一致）
+  // Detail keeps the global left nav (no setKnowledgeDetailShellMode immersion).
+  // 仅从列表进详情时默认收成图标栏；菜单进「知识库」列表不折叠。
   useEffect(() => {
-    const inDetail = route.view === "detail";
-    setKnowledgeDetailShellMode(inDetail);
-    return () => setKnowledgeDetailShellMode(false);
+    syncKnowledgeAsideForDetail(route.view === "detail");
   }, [route.view]);
+
+  useEffect(() => {
+    if (!detailMoreOpen) return undefined;
+    const place = () => {
+      const btn = detailMoreBtnRef.current;
+      if (!btn) return;
+      const r = btn.getBoundingClientRect();
+      const menuW = 200;
+      const left = Math.min(
+        Math.max(8, r.right - menuW),
+        Math.max(8, window.innerWidth - menuW - 8),
+      );
+      setDetailMorePos({ top: Math.round(r.bottom + 6), left: Math.round(left) });
+    };
+    place();
+    const onPointer = (e) => {
+      if (detailMoreRef.current && !detailMoreRef.current.contains(e.target)) {
+        setDetailMoreOpen(false);
+      }
+    };
+    const onKey = (e) => {
+      if (e.key === "Escape") setDetailMoreOpen(false);
+    };
+    window.addEventListener("resize", place);
+    document.addEventListener("mousedown", onPointer);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("resize", place);
+      document.removeEventListener("mousedown", onPointer);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [detailMoreOpen]);
 
   // Load available chat models for the Ask AI model selector
   const [chatModels, setChatModels] = useState([]);
@@ -1060,15 +1346,17 @@ export default function KnowledgeOwnedPage() {
           items: [],
         })),
       ]);
-      setDocs(res.items || []);
+      setDocs(dedupeDocsByRelPath(res.items || []));
       setFolders(res.folders || []);
       setKbTags(tagsRes.items || []);
       setJobStats(jobsRes.stats || null);
       setJobItems(Array.isArray(jobsRes.items) ? jobsRes.items : []);
+      // list_documents soft-deletes path duplicates; refresh hub counts.
+      void loadBases({ includeHidden: showHidden });
     } catch (e) {
       notify(e?.message || "加载文档失败");
     }
-  }, [notify]);
+  }, [notify, loadBases, showHidden]);
 
   useEffect(() => {
     loadBases({ includeHidden: showHidden });
@@ -1115,6 +1403,22 @@ export default function KnowledgeOwnedPage() {
     setGraphData({ nodes: [], edges: [] });
     setTab("docs");
     setRightMode("reader");
+    setChunksPanelOpen(false);
+    if (!selectedId) return;
+    // Detail payload includes syncSourcePath; list rows can lag after import.
+    void api
+      .getOwnedKnowledgeBase(selectedId)
+      .then((base) => {
+        if (!base?.id) return;
+        setBases((prev) => {
+          const i = prev.findIndex((b) => b.id === base.id);
+          if (i < 0) return [...prev, base];
+          const next = prev.slice();
+          next[i] = { ...next[i], ...base };
+          return next;
+        });
+      })
+      .catch(() => {});
   }, [selectedId, loadDocs]);
 
   const loadWiki = useCallback(async (kbId) => {
@@ -1197,12 +1501,10 @@ export default function KnowledgeOwnedPage() {
     };
   }, [tab, graphData]);
 
-  // Re-show popup when indexing becomes active again
+  // When jobs finish (or KB changes), keep the ledger closed — corner chip reappears next run.
   useEffect(() => {
-    if (jobStats && (jobStats.active > 0 || jobStats.pendingDocs > 0)) {
-      setSyncPopupDismissed(false);
-    }
-  }, [jobStats?.active, jobStats?.pendingDocs]);
+    setSyncPopupDismissed(true);
+  }, [selectedId]);
 
   // Poll while any doc is pending/processing
   useEffect(() => {
@@ -1242,32 +1544,133 @@ export default function KnowledgeOwnedPage() {
     notify(lastErr || "打开目录失败（仅桌面端可用）");
   }
 
-  async function resyncRemembered() {
+  async function openSyncPreview({ mode = "resync", path = "" } = {}) {
     if (!selectedId) return;
-    if (!selected?.syncSourceType) {
-      notify("还没有记住的同步源，请先「上传文件夹」或「上传文件」");
+    let sourcePath = String(path || selected?.syncSourcePath || "").trim();
+    let sourceType = String(selected?.syncSourceType || "").trim();
+    // List rows can lag; refresh detail so remembered sync source is reliable.
+    if (mode === "resync" && (!sourcePath || !sourceType)) {
+      try {
+        const fresh = await api.getOwnedKnowledgeBase(selectedId);
+        if (fresh?.id) {
+          sourcePath = String(fresh.syncSourcePath || sourcePath || "").trim();
+          sourceType = String(fresh.syncSourceType || sourceType || "").trim();
+          setBases((prev) => {
+            const i = prev.findIndex((b) => b.id === fresh.id);
+            if (i < 0) return [...prev, fresh];
+            const next = prev.slice();
+            next[i] = { ...next[i], ...fresh };
+            return next;
+          });
+        }
+      } catch {
+        /* keep whatever we already have */
+      }
+    }
+    if (mode === "resync" && !sourceType && !sourcePath) {
+      notify("还没有记住的同步源，请先「选择本地文件夹」");
       return;
     }
-    const prune = window.confirm("再同步时是否清理源中已删除的文档？");
+    setSyncPreviewMode(mode);
+    setSyncPreviewPath(sourcePath);
+    setSyncPruneMissing(true);
+    setSyncPreview(null);
+    setSyncPreviewError("");
+    syncPreviewGuardRef.current = Date.now();
+    setSyncPreviewOpen(true);
+    setSyncPreviewLoading(true);
+    try {
+      const plan = await api.previewOwnedKnowledgeSync(selectedId, {
+        path: sourcePath || undefined,
+      });
+      setSyncPreview(plan);
+      setSyncPreviewError("");
+      if (plan?.sourcePath) setSyncPreviewPath(String(plan.sourcePath));
+    } catch (e) {
+      // Keep the modal open so the failure is visible (closing looked like a flash).
+      setSyncPreview(null);
+      setSyncPreviewError(e?.message || "无法生成同步清单");
+      notify(e?.message || "无法生成同步清单");
+    } finally {
+      setSyncPreviewLoading(false);
+    }
+  }
+
+  async function confirmSyncPreview() {
+    if (!selectedId || !syncPreview) return;
     setBusy(true);
     try {
-      const res = await api.resyncOwnedKnowledgeBase(selectedId, { pruneMissing: prune });
+      let res;
+      if (syncPreviewMode === "import") {
+        const path = String(syncPreviewPath || syncPreview.sourcePath || "").trim();
+        if (!path) throw new Error("缺少本地文件夹路径");
+        res = await api.importOwnedKnowledgeFolder(selectedId, path, {
+          pruneMissing: Boolean(syncPruneMissing),
+        });
+      } else {
+        res = await api.resyncOwnedKnowledgeBase(selectedId, {
+          pruneMissing: Boolean(syncPruneMissing),
+        });
+      }
+      const fresh = await api.getOwnedKnowledgeBase(selectedId).catch(() => null);
+      if (fresh?.id) {
+        setBases((prev) => {
+          const i = prev.findIndex((b) => b.id === fresh.id);
+          if (i < 0) return [...prev, fresh];
+          const next = prev.slice();
+          next[i] = { ...next[i], ...fresh };
+          return next;
+        });
+      }
       await loadDocs(selectedId);
       await loadBases();
+      setSyncPreviewOpen(false);
+      setSyncPreview(null);
       notify(
-        `再同步：新增 ${res.created || 0} · 更新 ${res.updated || 0} · 未变 ${res.unchanged || 0}` +
-          `${res.pruned ? ` · 清理 ${res.pruned}` : ""}`
+        `${syncPreviewMode === "import" ? "导入" : "再同步"}：新增 ${res.created || 0} · 更新 ${res.updated || 0} · 未变 ${res.unchanged || 0}` +
+          `${res.pruned ? ` · 清理 ${res.pruned}` : ""}` +
+          `${res.skipped ? ` · 跳过 ${res.skipped}` : ""}`,
       );
     } catch (e) {
-      notify(e?.message || "再同步失败");
+      notify(e?.message || "同步失败");
     } finally {
       setBusy(false);
     }
+  }
+
+  function resyncRemembered() {
+    void openSyncPreview({ mode: "resync" });
   }
   const selected = useMemo(
     () => bases.find((b) => b.id === selectedId) || null,
     [bases, selectedId]
   );
+
+  // 库名挂到客户端全局顶栏（#tauri-main-chrome），不占页面内顶区。
+  useEffect(() => {
+    if (route.view !== "detail") return undefined;
+    const chrome = document.getElementById("tauri-main-chrome");
+    const drag = chrome?.querySelector(".tauri-main-chrome-drag");
+    if (!chrome || !drag) return undefined;
+
+    let el = document.getElementById("ko-chrome-title");
+    if (!el) {
+      el = document.createElement("div");
+      el.id = "ko-chrome-title";
+      el.className = "tauri-main-chrome-kb-title";
+      el.setAttribute("data-testid", "ko-page-title");
+      drag.appendChild(el);
+    }
+    el.textContent = selected?.name || "…";
+    el.title = selected?.name || "";
+    chrome.classList.add("tauri-main-chrome--kb-detail");
+
+    return () => {
+      el?.remove();
+      chrome.classList.remove("tauri-main-chrome--kb-detail");
+    };
+  }, [route.view, selected?.name]);
+
   const settingsBase = useMemo(
     () => bases.find((b) => b.id === settingsKbId) || selected,
     [bases, settingsKbId, selected]
@@ -1307,6 +1710,21 @@ export default function KnowledgeOwnedPage() {
   const showJobLedger =
     !!jobStats &&
     (jobStats.active > 0 || jobStats.pendingDocs > 0 || jobStats.error > 0);
+
+  const jobChipBusy = !!(jobStats && (jobStats.active > 0 || jobStats.pendingDocs > 0));
+  const jobChipLabel = useMemo(() => {
+    if (!jobStats) return "";
+    if (jobChipBusy) {
+      const running = jobLedger.running[0];
+      const pct = Number(running?.progress?.percent);
+      const pctText = Number.isFinite(pct) && pct > 0 ? ` · ${Math.round(pct)}%` : "";
+      const name = running ? jobDocLabel(running, docsById) : "";
+      if (name && pctText) return `索引中 ${name}${pctText}`;
+      return `索引中 · 排队 ${jobStats.queued || 0} · 进行 ${jobStats.running || 0}`;
+    }
+    if (jobStats.error) return `索引失败 ${jobStats.error} 项 · 点开查看`;
+    return "处理进度";
+  }, [jobStats, jobChipBusy, jobLedger.running, docsById]);
 
   // Current embedding binding of the base being edited (ref prefers model name).
   const settingsCurrentRef = String(
@@ -1411,6 +1829,41 @@ export default function KnowledgeOwnedPage() {
     [docs, selectedDocId]
   );
 
+  /** Bound local folder for V4 WorkspaceFileTree (same component as chat workspace-browse). */
+  const localTreeRoot = useMemo(
+    () => String(selected?.syncSourcePath || "").trim(),
+    [selected?.syncSourcePath],
+  );
+
+  // Only force-reveal in the tree for non-tree opens (search / citation).
+  // Binding every selectedDoc → activePreviewPath re-runs ancestor loadDirectory
+  // (and empty-dir deep scans) on every click, which feels like a multi-second stall.
+  const [treeRevealPath, setTreeRevealPath] = useState(null);
+
+  function absPathForDoc(doc) {
+    if (!localTreeRoot || !doc) return null;
+    const folder = String(doc.folderPath || "")
+      .replace(/\\/g, "/")
+      .replace(/^\/+|\/+$/g, "");
+    const name = String(doc.fileName || "").trim();
+    if (!name) return null;
+    const rel = folder ? `${folder}/${name}` : name;
+    return `${localTreeRoot.replace(/[/\\]+$/, "")}/${rel}`.replace(/\\/g, "/");
+  }
+
+  function openDocFromTreePath(absPath) {
+    const hit = findOwnedDocByWorkspacePath(docs, localTreeRoot, absPath);
+    if (hit?.id) {
+      // Tree already highlighted the row — skip activePreviewPath expand/scan.
+      setTreeRevealPath(null);
+      setSelectedDocId(hit.id);
+      setTab("docs");
+      setRightMode("reader");
+      return;
+    }
+    notify("该文件尚未入库索引；可在上方「再同步」后重试");
+  }
+
   useEffect(() => {
     const paths = new Set();
     const walk = (n) => {
@@ -1443,34 +1896,37 @@ export default function KnowledgeOwnedPage() {
     }
     setBodyEditing(false);
     setEditDirty(false);
+    setDocLinks(null);
     let cancelled = false;
     setDocContentLoading(true);
     (async () => {
       try {
-        const [payload, links] = await Promise.all([
-          api.getOwnedKnowledgeDocumentContent(selectedDocId),
-          api.getOwnedKnowledgeDocumentLinks(selectedDocId).catch(() => null),
-        ]);
-        if (!cancelled) {
-          setDocContent(payload);
-          setDocLinks(links);
-          setEditDraft(payload?.content || "");
-          setEditDirty(false);
-        }
+        // Content first — don't block the reader on links / related graph.
+        const payload = await api.getOwnedKnowledgeDocumentContent(selectedDocId);
+        if (cancelled) return;
+        setDocContent(payload);
+        setEditDraft(payload?.content || "");
+        setEditDirty(false);
+        setDocContentLoading(false);
+        const links = await api.getOwnedKnowledgeDocumentLinks(selectedDocId).catch(() => null);
+        if (!cancelled) setDocLinks(links);
       } catch (e) {
         if (!cancelled) {
           setDocContent(null);
           setDocLinks(null);
+          setDocContentLoading(false);
           notify(e?.message || "加载文档内容失败");
         }
-      } finally {
-        if (!cancelled) setDocContentLoading(false);
       }
     })();
     return () => {
       cancelled = true;
     };
   }, [selectedDocId, notify, docContentEpoch]);
+
+  useEffect(() => {
+    setChunksPanelOpen(false);
+  }, [selectedDocId]);
 
   // After parse finishes (pending/processing → completed), refresh reader body.
   useEffect(() => {
@@ -1504,8 +1960,7 @@ export default function KnowledgeOwnedPage() {
   useReaderMarkdownEnhance(readerBodyRef, `${selectedDocId}:${readerMarkdown.length}:${bodyEditing}`);
 
   useEffect(() => {
-    if (selectedDocId && docHeadings.length) setCatalogSideTab("toc");
-    else setCatalogSideTab("files");
+    setTocFloatOpen(false);
     setActiveHeading("");
   }, [selectedDocId]);
 
@@ -1827,20 +2282,73 @@ export default function KnowledgeOwnedPage() {
     }
   }
 
-  async function onUploadFiles(fileList) {
+  async function pickAndImportLocalFolder() {
+    if (!selectedId) return;
+    // Desktop: plugin-dialog → sync-preview checklist → import-folder.
+    const isTauri = !!(window.__TAURI_INTERNALS__ || window.__TAURI__);
+    if (isTauri) {
+      try {
+        const dlg = await import("@tauri-apps/plugin-dialog");
+        const picked = await dlg.open({
+          directory: true,
+          multiple: false,
+          title: "选择要同步到知识库的本地文件夹",
+        });
+        const path = Array.isArray(picked) ? picked[0] : picked;
+        if (!path) return;
+        await openSyncPreview({ mode: "import", path: String(path) });
+      } catch (e) {
+        notify(e?.message || "选择本地文件夹失败");
+      }
+      return;
+    }
+    // Web fallback: browser directory picker (upserts; no disk sync source).
+    folderRef.current?.click();
+  }
+
+  async function onPickFolderFiles(fileList) {
     if (!selectedId || !fileList?.length) return;
     setBusy(true);
     try {
+      let uploaded = 0;
+      let skipped = 0;
       for (const file of Array.from(fileList)) {
-        await api.uploadOwnedKnowledgeDocument(selectedId, file);
+        const rel = file.webkitRelativePath || file.name;
+        if (shouldSkipKnowledgeRelPath(rel)) {
+          skipped += 1;
+          continue;
+        }
+        const folderPath = folderPathFromRelative(rel);
+        try {
+          await api.uploadOwnedKnowledgeDocument(selectedId, file, folderPath);
+          uploaded += 1;
+        } catch (e) {
+          const msg = String(e?.message || e || "");
+          if (/unsupported file type/i.test(msg)) {
+            skipped += 1;
+            continue;
+          }
+          throw e;
+        }
       }
       await loadDocs(selectedId);
-      notify(`已上传 ${fileList.length} 个文件，正在索引…`);
+      await loadBases();
+      if (uploaded === 0) {
+        notify(
+          skipped
+            ? `没有可导入的文件（已跳过 ${skipped} 个压缩包/隐藏/临时文件）`
+            : "没有可导入的文件",
+        );
+      } else {
+        notify(
+          `已从本地文件夹导入 ${uploaded} 个文件，正在索引…` +
+            (skipped ? `（已跳过 ${skipped} 个）` : ""),
+        );
+      }
     } catch (e) {
-      notify(e?.message || "上传失败");
+      notify(e?.message || "导入本地文件夹失败");
     } finally {
       setBusy(false);
-      if (fileRef.current) fileRef.current.value = "";
       if (folderRef.current) folderRef.current.value = "";
     }
   }
@@ -1956,6 +2464,9 @@ export default function KnowledgeOwnedPage() {
 
   function openDocFromCitation(docId) {
     if (!docId) return;
+    const doc = docs.find((d) => d.id === docId);
+    const reveal = absPathForDoc(doc);
+    if (reveal) setTreeRevealPath(reveal);
     setSelectedDocId(docId);
     setTab("docs");
     setRightMode("reader");
@@ -2148,174 +2659,14 @@ export default function KnowledgeOwnedPage() {
       ) : (
         <div className="ko-shell ko-shell--full">
           <div className="ko-workspace">
-          <div className="ko-topbar ko-topbar--immersive" data-testid="ko-detail-topbar">
-            <div className="ko-topbar__left" data-tauri-no-drag="">
-              <button
-                className="ko-back-btn"
-                data-testid="ko-back-list"
-                onClick={goOwnedList}
-                title="返回知识库列表"
-                type="button"
-              >
-                <svg fill="none" height="16" viewBox="0 0 16 16" width="16" aria-hidden="true">
-                  <path
-                    d="M10 3.5 5.5 8 10 12.5"
-                    stroke="currentColor"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth="1.6"
-                  />
-                </svg>
-                <span>返回</span>
-              </button>
-              <span className="ko-topbar__divider" aria-hidden="true" />
-              <nav className="ko-crumb" aria-label="面包屑">
-                <span className="ko-crumb__current" data-testid="ko-page-title">
-                  {selected?.name || "…"}
-                </span>
-              </nav>
-              <nav className="ko-top-nav" aria-label="知识库视图">
-                <button
-                  className={tab === "docs" && rightMode === "reader" ? "is-active" : ""}
-                  onClick={() => {
-                    setTab("docs");
-                    setRightMode("reader");
-                  }}
-                  type="button"
-                >
-                  文档
-                </button>
-                <button
-                  className={tab === "docs" && rightMode === "ask" ? "is-active" : ""}
-                  onClick={() => {
-                    setTab("docs");
-                    setRightMode("ask");
-                  }}
-                  type="button"
-                >
-                  问 AI
-                </button>
-                <button
-                  className={tab === "search" ? "is-active" : ""}
-                  onClick={() => setTab("search")}
-                  type="button"
-                >
-                  检索
-                </button>
-                <button
-                  className={tab === "wiki" ? "is-active" : ""}
-                  onClick={() => setTab("wiki")}
-                  type="button"
-                >
-                  Wiki
-                </button>
-                {KB_GRAPH_UI_ENABLED ? (
-                  <button
-                    className={tab === "graph" ? "is-active" : ""}
-                    onClick={() => setTab("graph")}
-                    type="button"
-                  >
-                    图谱
-                  </button>
-                ) : null}
-              </nav>
-            </div>
-            <div className="ko-detail-drawers" data-tauri-no-drag="">
-              <button
-                className="ko-btn ghost"
-                onClick={() => setCatalogOpen((v) => !v)}
-                type="button"
-              >
-                目录
-              </button>
-              <button
-                className="ko-btn ghost"
-                onClick={() => setRailOpen((v) => !v)}
-                type="button"
-              >
-                概览
-              </button>
-            </div>
-            <div className="ko-actions" data-tauri-no-drag="">
-              {showJobLedger ? (
-                <button
-                  className={`ko-btn${jobStats.active > 0 || jobStats.pendingDocs > 0 ? " primary" : ""}`}
-                  onClick={() => setSyncPopupDismissed(false)}
-                  type="button"
-                  title="查看索引 / 摘要作业台账"
-                >
-                  处理进度
-                  {jobStats.active > 0 || jobStats.pendingDocs > 0
-                    ? ` ${jobStats.active || jobStats.pendingDocs || 0}`
-                    : jobStats.error
-                      ? ` · 失败 ${jobStats.error}`
-                      : ""}
-                </button>
-              ) : null}
-              <button className="ko-btn" disabled={busy} onClick={() => openBaseSettings()} type="button">
-                库设置
-              </button>
-              <button className="ko-btn" disabled={busy} onClick={() => fileRef.current?.click()} type="button">
-                上传文件
-              </button>
-              <button className="ko-btn" disabled={busy} onClick={() => folderRef.current?.click()} type="button">
-                上传文件夹
-              </button>
-              <button
-                className="ko-btn"
-                disabled={busy || !(selected?.syncSourcePath || selected?.resolvedStorageDir || selected?.storageDir)}
-                onClick={openKbLocation}
-                title={
-                  selected?.syncSourcePath
-                    ? `在文件管理器中打开源目录：${selected.syncSourcePath}`
-                    : `在文件管理器中打开库目录：${selected?.resolvedStorageDir || selected?.storageDir || ""}`
-                }
-                type="button"
-              >
-                打开位置
-              </button>
-              <button
-                className="ko-btn primary"
-                disabled={busy || !selected?.syncSourceType}
-                onClick={resyncRemembered}
-                title={
-                  selected?.syncSourcePath
-                    ? `再同步：${selected.syncSourcePath}`
-                    : "先上传文件夹后即可一键再同步"
-                }
-                type="button"
-              >
-                再同步
-              </button>
-              <button
-                className="ko-btn"
-                disabled={busy}
-                onClick={() => {
-                  setTab("docs");
-                  setManualOpen(true);
-                }}
-                type="button"
-              >
-                手写笔记
-              </button>
-              <input
-                accept=".md,.markdown,.mdx,.txt,.pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.csv,.json,.html,.htm,.yaml,.yml,.py"
-                hidden
-                multiple
-                onChange={(e) => onUploadFiles(e.target.files)}
-                ref={fileRef}
-                type="file"
-              />
-              <input
-                hidden
-                multiple
-                onChange={(e) => onUploadFiles(e.target.files)}
-                ref={folderRef}
-                type="file"
-                webkitdirectory=""
-              />
-            </div>
-          </div>
+          <input
+            hidden
+            multiple
+            onChange={(e) => onPickFolderFiles(e.target.files)}
+            ref={folderRef}
+            type="file"
+            webkitdirectory=""
+          />
 
           {selected && selected.documentCount > 0 && !selected.vectorized ? (
             <div className="ko-sync-popup is-idle" data-testid="ko-embedding-pending">
@@ -2335,6 +2686,20 @@ export default function KnowledgeOwnedPage() {
             </div>
           ) : null}
 
+          {showJobLedger && syncPopupDismissed ? (
+            <button
+              type="button"
+              className={`ko-sync-chip${jobChipBusy ? " is-active" : " is-idle"}`}
+              data-testid="ko-sync-chip"
+              onClick={() => setSyncPopupDismissed(false)}
+              title="打开处理进度"
+            >
+              <span className="ko-sync-chip__dot" aria-hidden="true" />
+              <span className="ko-sync-chip__label">处理进度</span>
+              <span className="ko-sync-chip__text">{jobChipLabel}</span>
+            </button>
+          ) : null}
+
           {showJobLedger && !syncPopupDismissed ? (
             <div
               className={`ko-sync-popup ko-sync-popup--modal${
@@ -2351,9 +2716,10 @@ export default function KnowledgeOwnedPage() {
                 right: "auto",
                 bottom: "auto",
                 transform: "translate(-50%, -50%)",
-                width: "min(720px, calc(100vw - 48px))",
+                width: "min(900px, calc(100vw - 80px))",
                 maxWidth: "none",
                 maxHeight: "min(78vh, 640px)",
+                alignItems: "stretch",
               }}
             >
               <div className="ko-sync-popup__head">
@@ -2608,14 +2974,15 @@ export default function KnowledgeOwnedPage() {
                   type="button"
                 />
               ) : null}
-              <aside className="ko-catalog" data-testid="ko-tabs">
+              <aside
+                className={`ko-catalog${detailMoreOpen ? " is-more-open" : ""}`}
+                data-testid="ko-tabs"
+              >
                 <div className="ko-catalog__head">
                   <span className="ko-catalog__head-icon" aria-hidden="true">
                     <IconFolder />
                   </span>
-                  <span className="ko-catalog__head-title">
-                    {selectedDocId ? "浏览" : "目录"}
-                  </span>
+                  <span className="ko-catalog__head-title">文件</span>
                   <div className="ko-catalog__head-actions">
                     <button
                       className="ko-icon-btn"
@@ -2633,142 +3000,236 @@ export default function KnowledgeOwnedPage() {
                         <path d="M8 7.2v4M6 9.2h4" stroke="currentColor" strokeLinecap="round" strokeWidth="1.2" />
                       </svg>
                     </button>
-                    <button
-                      className="ko-icon-btn"
-                      disabled={busy}
-                      onClick={() => fileRef.current?.click()}
-                      title="新建 / 上传"
-                      type="button"
-                    >
-                      <svg fill="currentColor" height="18" viewBox="0 0 16 16" width="18" aria-hidden="true">
-                        <path d="M8 1.4a.6.6 0 0 1 .6.6v5.4H14l.121.012a.6.6 0 0 1 0 1.176L14 8.6H8.6V14a.6.6 0 1 1-1.2 0V8.6H2a.6.6 0 1 1 0-1.2h5.4V2a.6.6 0 0 1 .6-.6" />
-                      </svg>
-                    </button>
-                  </div>
-                </div>
-                {selectedDocId ? (
-                  <div className="ko-catalog__tabs" role="tablist" aria-label="侧栏视图">
-                    <button
-                      className={catalogSideTab === "files" ? "is-active" : ""}
-                      onClick={() => setCatalogSideTab("files")}
-                      role="tab"
-                      type="button"
-                    >
-                      文件
-                    </button>
-                    <button
-                      className={catalogSideTab === "toc" ? "is-active" : ""}
-                      onClick={() => setCatalogSideTab("toc")}
-                      role="tab"
-                      type="button"
-                    >
-                      目录
-                    </button>
-                  </div>
-                ) : null}
-                {selectedDocId && catalogSideTab === "toc" ? (
-                  <div className="ko-catalog-toc">
-                    <DocumentToc
-                      activeText={activeHeading}
-                      headings={docHeadings}
-                      onJump={(text) => {
-                        setActiveHeading(text);
-                        scrollToHeading(readerBodyRef.current, text);
-                      }}
-                    />
-                  </div>
-                ) : (
-                <>
-                <div className="ko-catalog-search">
-                  <span aria-hidden="true">⌕</span>
-                  <input
-                    aria-label="搜索当前知识库文档"
-                    onChange={(e) => setDocFilter(e.target.value)}
-                    placeholder="搜索文档"
-                    type="search"
-                    value={docFilter}
-                  />
-                  {docFilter ? (
-                    <button aria-label="清除搜索" className="ko-catalog-search__clear" onClick={() => setDocFilter("")} type="button">
-                      ×
-                    </button>
-                  ) : null}
-                </div>
-                <div
-                  className="ko-catalog-tree"
-                  data-testid="ko-doc-list"
-                  onDragOver={(e) => {
-                    e.preventDefault();
-                    e.dataTransfer.dropEffect = "move";
-                  }}
-                  onDrop={(e) => {
-                    // Drop on empty tree area → root
-                    if (e.target === e.currentTarget) {
-                      e.preventDefault();
-                      const folderFrom =
-                        e.dataTransfer.getData("text/ko-folder-path") || dragFolderPath;
-                      if (folderFrom) {
-                        handleDropFolder({ fromPath: folderFrom, parentPath: "" });
-                        return;
-                      }
-                      const id = e.dataTransfer.getData("text/ko-doc-id") || dragDocId;
-                      if (id) handleDropDoc({ docId: id, folderPath: "" });
-                    }
-                  }}
-                >
-                  {docs.length || folders.length ? (
-                    <CatalogTreeNodes
-                      dragDocId={dragDocId}
-                      dragFolderPath={dragFolderPath}
-                      expanded={expandedFolders}
-                      level={0}
-                      node={docTree}
-                      onCreateSubfolder={createFolderAt}
-                      onDeleteFolder={deleteFolderAt}
-                      onDropDoc={handleDropDoc}
-                      onDropFolder={handleDropFolder}
-                      onMoveDoc={moveDocToFolder}
-                      onRenameFolder={renameFolderAt}
-                      onSelectDoc={(id) => {
-                        setSelectedDocId(id);
-                        setTab("docs");
-                        setRightMode("reader");
-                      }}
-                      onToggle={toggleFolder}
-                      selectedDocId={selectedDocId}
-                      setDragDocId={setDragDocId}
-                      setDragFolderPath={setDragFolderPath}
-                    />
-                  ) : (
-                    <div className="ko-empty" style={{ padding: 16 }}>
-                      暂无文档，点右上角上传，或先新建文件夹
+                    <div className="ko-catalog__more" data-tauri-no-drag="" ref={detailMoreRef}>
+                      <button
+                        ref={detailMoreBtnRef}
+                        aria-expanded={detailMoreOpen}
+                        aria-haspopup="menu"
+                        aria-label="更多操作"
+                        className={`ko-more-btn${detailMoreOpen ? " is-open" : ""}`}
+                        onClick={() => setDetailMoreOpen((v) => !v)}
+                        title="更多"
+                        type="button"
+                      >
+                        <span aria-hidden="true">⋯</span>
+                      </button>
+                      {detailMoreOpen ? (
+                        <div
+                          className="ko-more-menu"
+                          role="menu"
+                          style={{ top: detailMorePos.top, left: detailMorePos.left }}
+                        >
+                          <button
+                            data-testid="ko-back-list"
+                            onClick={() => {
+                              setDetailMoreOpen(false);
+                              goOwnedList();
+                            }}
+                            role="menuitem"
+                            type="button"
+                          >
+                            返回列表
+                          </button>
+                          <div className="ko-more-menu__sep" role="separator" />
+                          <button
+                            className={tab === "docs" && rightMode === "reader" ? "is-active" : ""}
+                            onClick={() => {
+                              setDetailMoreOpen(false);
+                              setTab("docs");
+                              setRightMode("reader");
+                            }}
+                            role="menuitem"
+                            type="button"
+                          >
+                            文档
+                          </button>
+                          <button
+                            className={tab === "docs" && rightMode === "ask" ? "is-active" : ""}
+                            onClick={() => {
+                              setDetailMoreOpen(false);
+                              setTab("docs");
+                              setRightMode("ask");
+                            }}
+                            role="menuitem"
+                            type="button"
+                          >
+                            问 AI
+                          </button>
+                          <button
+                            className={tab === "search" ? "is-active" : ""}
+                            onClick={() => {
+                              setDetailMoreOpen(false);
+                              setTab("search");
+                            }}
+                            role="menuitem"
+                            type="button"
+                          >
+                            检索
+                          </button>
+                          <button
+                            className={tab === "wiki" ? "is-active" : ""}
+                            onClick={() => {
+                              setDetailMoreOpen(false);
+                              setTab("wiki");
+                            }}
+                            role="menuitem"
+                            type="button"
+                          >
+                            Wiki
+                          </button>
+                          {KB_GRAPH_UI_ENABLED ? (
+                            <button
+                              className={tab === "graph" ? "is-active" : ""}
+                              onClick={() => {
+                                setDetailMoreOpen(false);
+                                setTab("graph");
+                              }}
+                              role="menuitem"
+                              type="button"
+                            >
+                              图谱
+                            </button>
+                          ) : null}
+                          <div className="ko-more-menu__sep" role="separator" />
+                          <button
+                            className="ko-more-menu__mobile-only"
+                            onClick={() => {
+                              setDetailMoreOpen(false);
+                              setCatalogOpen((v) => !v);
+                            }}
+                            role="menuitem"
+                            type="button"
+                          >
+                            目录
+                          </button>
+                          <button
+                            className="ko-more-menu__mobile-only"
+                            onClick={() => {
+                              setDetailMoreOpen(false);
+                              setRailOpen((v) => !v);
+                            }}
+                            role="menuitem"
+                            type="button"
+                          >
+                            概览
+                          </button>
+                          <div className="ko-more-menu__sep ko-more-menu__mobile-only" role="separator" />
+                          <button
+                            disabled={busy}
+                            onClick={() => {
+                              setDetailMoreOpen(false);
+                              openBaseSettings();
+                            }}
+                            role="menuitem"
+                            type="button"
+                          >
+                            库设置
+                          </button>
+                          <button
+                            disabled={busy}
+                            onClick={() => {
+                              setDetailMoreOpen(false);
+                              void pickAndImportLocalFolder();
+                            }}
+                            role="menuitem"
+                            title="选择本机文件夹；导入前会核对同步清单"
+                            type="button"
+                          >
+                            选择本地文件夹
+                          </button>
+                          <button
+                            disabled={
+                              busy ||
+                              !(
+                                selected?.syncSourcePath ||
+                                selected?.resolvedStorageDir ||
+                                selected?.storageDir
+                              )
+                            }
+                            onClick={() => {
+                              setDetailMoreOpen(false);
+                              openKbLocation();
+                            }}
+                            role="menuitem"
+                            type="button"
+                          >
+                            打开位置
+                          </button>
+                          <button
+                            disabled={busy || (!selected?.syncSourceType && !selected?.syncSourcePath)}
+                            onClick={() => {
+                              setDetailMoreOpen(false);
+                              resyncRemembered();
+                            }}
+                            role="menuitem"
+                            type="button"
+                          >
+                            再同步
+                          </button>
+                          <button
+                            disabled={busy}
+                            onClick={() => {
+                              setDetailMoreOpen(false);
+                              setTab("docs");
+                              setManualOpen(true);
+                            }}
+                            role="menuitem"
+                            type="button"
+                          >
+                            手写笔记
+                          </button>
+                        </div>
+                      ) : null}
                     </div>
-                  )}
-                  <div
-                    className="ko-tree-root-drop"
-                    onDragOver={(e) => {
-                      e.preventDefault();
-                      e.dataTransfer.dropEffect = "move";
-                      e.currentTarget.classList.add("is-drop");
-                    }}
-                    onDragLeave={(e) => e.currentTarget.classList.remove("is-drop")}
-                    onDrop={(e) => {
-                      e.preventDefault();
-                      e.currentTarget.classList.remove("is-drop");
-                      const folderFrom =
-                        e.dataTransfer.getData("text/ko-folder-path") || dragFolderPath;
-                      if (folderFrom) {
-                        handleDropFolder({ fromPath: folderFrom, parentPath: "" });
-                        return;
-                      }
-                      const id = e.dataTransfer.getData("text/ko-doc-id") || dragDocId;
-                      if (id) handleDropDoc({ docId: id, folderPath: "" });
-                    }}
-                  >
-                    拖到此处移到根目录
                   </div>
                 </div>
-                </>
+                {localTreeRoot ? (
+                  <KnowledgeV4FileTree
+                    activePreviewPath={treeRevealPath}
+                    onOpenFile={openDocFromTreePath}
+                    workspacePath={localTreeRoot}
+                  />
+                ) : (
+                  <div className="ko-catalog-bind" data-testid="ko-doc-list">
+                    <div className="ko-catalog-bind__card">
+                      <strong>侧栏使用 V4 文件树</strong>
+                      <p>
+                        需要先绑定本机文件夹（与对话右侧工作区文件树同一套组件）。当前库还没有同步源，所以不会显示旧版目录树。
+                      </p>
+                      <button
+                        className="ko-btn primary"
+                        disabled={busy}
+                        onClick={() => void pickAndImportLocalFolder()}
+                        type="button"
+                      >
+                        选择本地文件夹
+                      </button>
+                    </div>
+                    {filteredDocs.length ? (
+                      <div className="ko-catalog-bind__list" aria-label="已入库文档（绑定前临时列表）">
+                        <div className="ko-catalog-bind__list-head">已入库 · {filteredDocs.length}</div>
+                        {filteredDocs.map((doc) => {
+                          const active = doc.id === selectedDocId;
+                          const title = docDisplayName(doc);
+                          return (
+                            <button
+                              key={doc.id}
+                              className={`ko-catalog-bind__row${active ? " is-active" : ""}`}
+                              onClick={() => {
+                                setSelectedDocId(doc.id);
+                                setTab("docs");
+                                setRightMode("reader");
+                              }}
+                              title={title}
+                              type="button"
+                            >
+                              {title}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    ) : null}
+                  </div>
                 )}
               </aside>
 
@@ -2779,93 +3240,87 @@ export default function KnowledgeOwnedPage() {
                     <div className="ko-page-view" data-testid="ko-doc-reader">
                       <div className="ko-page-view__bar">
                         <div className="ko-page-view__titles">
-                          <h2>
-                            {(docContent || selectedDoc)?.title ||
-                              (docContent || selectedDoc)?.fileName ||
-                              "文档"}
+                          <h2 title={docDisplayName(docContent || selectedDoc)}>
+                            {docDisplayName(docContent || selectedDoc)}
                           </h2>
+                          {docContent?.truncated ? (
+                            <span className="ko-page-view__hint">已截断</span>
+                          ) : null}
                         </div>
-                        <div className="ko-page-view__meta-actions">
-                          <span className="ko-meta">
-                            {[
-                              (docContent || selectedDoc)?.folderPath,
-                              (docContent || selectedDoc)?.fileName,
-                            ]
-                              .filter(Boolean)
-                              .join(" / ")}
-                            {docContent?.source === "raw"
-                              ? " · 原文"
-                              : docContent?.source === "parsed"
-                                ? " · 解析正文"
-                                : docContent?.source === "summary"
-                                  ? " · 摘要"
-                                  : ""}
-                            {docContent?.truncated ? " · 已截断" : ""}
-                          </span>
-                          <div className="ko-page-view__actions">
-                            {selectedDoc ? (
-                              <span className={`ko-badge ${statusBadge(selectedDoc.parseStatus).cls}`}>
-                                {statusBadge(selectedDoc.parseStatus).label}
-                              </span>
-                            ) : null}
-                            {canEditBody && rightMode === "reader" ? (
-                              bodyEditing ? (
-                                <>
-                                  <button
-                                    className="ko-btn ghost"
-                                    disabled={savingDoc}
-                                    onClick={() => {
-                                      setBodyEditing(false);
-                                      setEditDirty(false);
-                                      setEditDraft(docContent?.content || "");
-                                    }}
-                                    type="button"
-                                  >
-                                    取消
-                                  </button>
-                                  <button
-                                    className="ko-btn primary"
-                                    disabled={savingDoc || !editDirty}
-                                    onClick={saveDocContent}
-                                    type="button"
-                                  >
-                                    {savingDoc ? "保存中…" : "保存"}
-                                  </button>
-                                </>
-                              ) : (
+                        <div className="ko-page-view__actions">
+                          {selectedDoc
+                            ? (() => {
+                                const badge = statusBadge(selectedDoc.parseStatus);
+                                return (
+                                  <span
+                                    className={`ko-status-lamp is-${badge.kind}${
+                                      badge.kind === "ready" ? " is-breathe" : ""
+                                    }${badge.kind === "processing" ? " is-pulse" : ""}`}
+                                    title={badge.label}
+                                    aria-label={badge.label}
+                                  />
+                                );
+                              })()
+                            : null}
+                          <button
+                            className="ko-icon-btn"
+                            onClick={() => setChunksPanelOpen(true)}
+                            title={`查看分块${selectedDoc?.chunkCount != null ? `（${selectedDoc.chunkCount}）` : ""}`}
+                            type="button"
+                          >
+                            <IconChunks />
+                          </button>
+                          {canEditBody && rightMode === "reader" ? (
+                            bodyEditing ? (
+                              <>
                                 <button
-                                  className="ko-btn ghost"
+                                  className="ko-icon-btn"
+                                  disabled={savingDoc}
                                   onClick={() => {
-                                    setEditDraft(docContent?.content || "");
+                                    setBodyEditing(false);
                                     setEditDirty(false);
-                                    setBodyEditing(true);
+                                    setEditDraft(docContent?.content || "");
                                   }}
+                                  title="取消"
                                   type="button"
                                 >
-                                  编辑
+                                  取消
                                 </button>
-                              )
-                            ) : null}
-                            <button
-                              className="ko-btn ghost"
-                              onClick={() => removeDoc(selectedDocId)}
-                              type="button"
-                            >
-                              删除
-                            </button>
-                          </div>
+                                <button
+                                  className="ko-icon-btn is-primary"
+                                  disabled={savingDoc || !editDirty}
+                                  onClick={saveDocContent}
+                                  title={savingDoc ? "保存中…" : "保存"}
+                                  type="button"
+                                >
+                                  {savingDoc ? "…" : "保存"}
+                                </button>
+                              </>
+                            ) : (
+                              <button
+                                className="ko-icon-btn"
+                                onClick={() => {
+                                  setEditDraft(docContent?.content || "");
+                                  setEditDirty(false);
+                                  setBodyEditing(true);
+                                }}
+                                title="编辑"
+                                type="button"
+                              >
+                                <IconPencil />
+                              </button>
+                            )
+                          ) : null}
+                          <button
+                            className="ko-icon-btn is-danger"
+                            onClick={() => removeDoc(selectedDocId)}
+                            title="删除"
+                            type="button"
+                          >
+                            <IconTrash />
+                          </button>
                         </div>
                       </div>
-
-                      <DocumentHero
-                        content={readerMarkdown}
-                        summary={(docContent || selectedDoc)?.summaryText}
-                        title={
-                          (docContent || selectedDoc)?.title ||
-                          (docContent || selectedDoc)?.fileName ||
-                          "文档"
-                        }
-                      />
 
                       {rightMode === "reader" ? (
                         <>
@@ -2888,24 +3343,54 @@ export default function KnowledgeOwnedPage() {
                             </article>
                           ) : docContent?.content || (canEditBody && bodyEditing) ? (
                             <article
-                              className="ko-page-body"
+                              className="ko-page-body ko-page-body--v4"
                               data-testid="ko-md-reader"
                               ref={readerBodyRef}
                             >
                               {activeIsPdf && pdfLoadFailed ? (
                                 <p className="ko-meta ko-pdf-fallback">PDF 预览失败，已显示解析正文。</p>
                               ) : null}
-                              <MarkdownDocumentView
-                                allowEdit={canEditBody && bodyEditing}
-                                className="ko-md-doc ko-md-doc--reader"
-                                onChange={(t) => {
-                                  setEditDraft(t);
-                                  setEditDirty(true);
-                                }}
-                                readOnly={savingDoc || !bodyEditing}
-                                testIdPrefix="ko-md"
-                                text={bodyEditing ? editDraft : docContent?.content || ""}
-                              />
+                              {canEditBody && bodyEditing ? (
+                                <textarea
+                                  className="ko-md-edit"
+                                  data-testid="ko-md-edit"
+                                  disabled={savingDoc}
+                                  onChange={(e) => {
+                                    setEditDraft(e.target.value);
+                                    setEditDirty(true);
+                                  }}
+                                  spellCheck={false}
+                                  value={editDraft}
+                                />
+                              ) : (
+                                <KnowledgeV4Markdown content={docContent?.content || ""} />
+                              )}
+                              {docHeadings.length ? (
+                                <div className={`ko-toc-float${tocFloatOpen ? " is-open" : ""}`}>
+                                  <button
+                                    aria-expanded={tocFloatOpen}
+                                    className="ko-toc-float__toggle"
+                                    onClick={() => setTocFloatOpen((v) => !v)}
+                                    title={tocFloatOpen ? "收起大纲" : "展开大纲"}
+                                    type="button"
+                                  >
+                                    大纲
+                                    <span aria-hidden="true">{tocFloatOpen ? " ›" : " ‹"}</span>
+                                  </button>
+                                  {tocFloatOpen ? (
+                                    <div className="ko-toc-float__panel" role="navigation" aria-label="文档大纲">
+                                      <DocumentToc
+                                        activeText={activeHeading}
+                                        headings={docHeadings}
+                                        onJump={(text) => {
+                                          setActiveHeading(text);
+                                          scrollToHeading(readerBodyRef.current, text);
+                                        }}
+                                      />
+                                    </div>
+                                  ) : null}
+                                </div>
+                              ) : null}
                             </article>
                           ) : (
                             <div className="ko-empty">
@@ -2950,7 +3435,7 @@ export default function KnowledgeOwnedPage() {
                       emptyHint={
                         docs.length
                           ? "从左侧目录打开文档查看正文，或直接提问整个知识库"
-                          : "上传文档后即可阅读与提问"
+                          : "绑定本地文件夹并同步后即可阅读与提问"
                       }
                       messages={askMessages}
                       onAsk={runAsk}
@@ -2974,12 +3459,15 @@ export default function KnowledgeOwnedPage() {
                       docs={docs}
                       recentDocs={recentDocs}
                       onAsk={() => setRightMode("ask")}
-                      onOpenDoc={(id) => {
-                        setSelectedDocId(id);
-                        setRightMode("reader");
-                      }}
+                      onOpenDoc={(id) => openDocFromCitation(id)}
                       onSearch={() => setTab("search")}
-                      onUpload={() => fileRef.current?.click()}
+                      onSyncFolder={() => {
+                        if (selected?.syncSourceType || selected?.syncSourcePath) {
+                          resyncRemembered();
+                        } else {
+                          void pickAndImportLocalFolder();
+                        }
+                      }}
                       onWrite={() => setManualOpen(true)}
                     />
                   )}
@@ -3001,12 +3489,7 @@ export default function KnowledgeOwnedPage() {
                   busy={busy}
                   hits={hits}
                   kbTags={kbTags}
-                  onOpenDoc={(docId) => {
-                    if (!docId) return;
-                    setSelectedDocId(docId);
-                    setTab("docs");
-                    setRightMode("reader");
-                  }}
+                  onOpenDoc={(docId) => openDocFromCitation(docId)}
                   onQuery={setQuery}
                   onSearch={runSearch}
                   onSearchMode={setSearchMode}
@@ -3243,6 +3726,7 @@ export default function KnowledgeOwnedPage() {
                     summaryEnabled={Boolean(selected?.summaryEnabled)}
                     onGenerate={() => generateOverview(false)}
                     onForce={() => generateOverview(true)}
+                    onOpenChunks={() => setChunksPanelOpen(true)}
                     onOpenRelated={openDocFromCitation}
                   />
                 </aside>
@@ -3254,6 +3738,40 @@ export default function KnowledgeOwnedPage() {
       )}
 
       {toast ? <div className="ko-toast">{toast}</div> : null}
+
+      <DocumentChunksPanel
+        docId={selectedDocId}
+        docLabel={docDisplayName(docContent || selectedDoc)}
+        onClose={() => setChunksPanelOpen(false)}
+        open={chunksPanelOpen && Boolean(selectedDocId)}
+      />
+
+      <SyncPreviewModal
+        busy={busy}
+        error={syncPreviewError}
+        loading={syncPreviewLoading}
+        mode={syncPreviewMode}
+        onClose={() => {
+          if (busy || syncPreviewLoading) return;
+          // Ignore the same click that opened the dialog (backdrop click-through).
+          if (Date.now() - syncPreviewGuardRef.current < 400) return;
+          setSyncPreviewOpen(false);
+          setSyncPreview(null);
+          setSyncPreviewError("");
+        }}
+        onConfirm={() => void confirmSyncPreview()}
+        onPruneChange={setSyncPruneMissing}
+        onRetry={() =>
+          void openSyncPreview({
+            mode: syncPreviewMode,
+            path: syncPreviewPath,
+          })
+        }
+        open={syncPreviewOpen}
+        path={syncPreviewPath}
+        plan={syncPreview}
+        pruneMissing={syncPruneMissing}
+      />
 
       {createOpen ? (
         <div className="ko-modal-backdrop" onClick={() => !busy && setCreateOpen(false)} role="presentation">

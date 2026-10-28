@@ -301,8 +301,11 @@ export function useReaderMarkdownEnhance(containerRef, depKey) {
 
     const enhance = () => {
       if (cancelled) return;
-      const root = containerRef.current?.querySelector?.(".markdown-body, .md-doc-preview");
-      if (!root || !root.children.length) {
+      const root =
+        containerRef.current?.querySelector?.(
+          ".markdown-body, .md-doc-preview, [data-markdown-preview], .ko-v4-md__inner",
+        ) || containerRef.current;
+      if (!root || !root.querySelector?.("h1, h2, h3, [data-streamdown^='heading']")) {
         if (tries++ < 20) {
           window.setTimeout(enhance, 50);
         }
@@ -377,7 +380,10 @@ export function useReaderMarkdownEnhance(containerRef, depKey) {
 }
 
 export function scrollToHeading(container, headingText) {
-  const root = container?.querySelector?.(".markdown-body, .md-doc-preview");
+  const root =
+    container?.querySelector?.(
+      ".markdown-body, .md-doc-preview, [data-markdown-preview], .ko-v4-md__inner",
+    ) || container;
   if (!root) return;
   const nodes = root.querySelectorAll("h1, h2, h3");
   for (const el of nodes) {
@@ -414,6 +420,192 @@ function CircularGauge({ value = 92, label = "健康" }) {
   );
 }
 
+function chunkKindLabel(kind) {
+  const k = String(kind || "text");
+  if (k === "table") return "表格";
+  if (k === "mixed") return "混合";
+  return "文本";
+}
+
+/** Inspect parse/index chunks for one document (content + embedding flags). */
+export function DocumentChunksPanel({
+  open,
+  docId,
+  docLabel = "",
+  onClose,
+}) {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [items, setItems] = useState([]);
+  const [filter, setFilter] = useState("all"); // all | embedded | pending
+
+  useEffect(() => {
+    if (!open || !docId) {
+      setItems([]);
+      setError("");
+      return undefined;
+    }
+    let cancelled = false;
+    setLoading(true);
+    setError("");
+    (async () => {
+      try {
+        const res = await api.listOwnedKnowledgeChunks(docId);
+        if (cancelled) return;
+        setItems(Array.isArray(res?.items) ? res.items : []);
+      } catch (e) {
+        if (cancelled) return;
+        setItems([]);
+        setError(e?.message || "加载分块失败");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, docId]);
+
+  if (!open) return null;
+
+  const embedded = items.filter((c) => c.hasEmbedding).length;
+  const enabled = items.filter((c) => c.enabled).length;
+  const visible = items.filter((c) => {
+    if (filter === "embedded") return Boolean(c.hasEmbedding);
+    if (filter === "pending") return !c.hasEmbedding;
+    return true;
+  });
+
+  return (
+    <div
+      className="ko-modal-backdrop"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) onClose?.();
+      }}
+      role="presentation"
+    >
+      <div
+        className="ko-modal ko-chunks-panel"
+        data-testid="ko-chunks-panel"
+        onMouseDown={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="ko-chunks-title"
+      >
+        <header className="ko-chunks-panel__head">
+          <div>
+            <h2 id="ko-chunks-title">分块详情</h2>
+            <p className="ko-modal__hint" title={docLabel}>
+              {docLabel || docId}
+            </p>
+          </div>
+          <button className="ko-icon-btn" onClick={onClose} title="关闭" type="button">
+            ×
+          </button>
+        </header>
+
+        <div className="ko-chunks-panel__stats" aria-label="分块统计">
+          <div>
+            <strong>{items.length}</strong>
+            <span>总分块</span>
+          </div>
+          <div>
+            <strong>{embedded}</strong>
+            <span>已向量化</span>
+          </div>
+          <div>
+            <strong>{enabled}</strong>
+            <span>已启用检索</span>
+          </div>
+          <div>
+            <strong>{Math.max(0, items.length - embedded)}</strong>
+            <span>待向量</span>
+          </div>
+        </div>
+
+        <div className="ko-chunks-panel__filters" role="tablist" aria-label="筛选分块">
+          {[
+            { id: "all", label: "全部" },
+            { id: "embedded", label: "已向量化" },
+            { id: "pending", label: "未向量化" },
+          ].map((f) => (
+            <button
+              key={f.id}
+              className={`ko-chunks-panel__filter${filter === f.id ? " is-active" : ""}`}
+              onClick={() => setFilter(f.id)}
+              type="button"
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="ko-chunks-panel__list">
+          {loading ? (
+            <p className="ko-meta">加载分块…</p>
+          ) : error ? (
+            <p className="ko-modal__hint is-warn">{error}</p>
+          ) : !visible.length ? (
+            <p className="ko-meta">
+              {items.length ? "当前筛选下没有分块" : "该文档还没有分块（可能尚未完成索引）"}
+            </p>
+          ) : (
+            visible.map((chunk, idx) => {
+              const id = String(chunk.id || idx);
+              return (
+                <article
+                  className={`ko-chunk-card is-open${chunk.hasEmbedding ? " is-embedded" : ""}`}
+                  key={id}
+                >
+                  <div className="ko-chunk-card__head">
+                    <span className="ko-chunk-card__ord">#{Number(chunk.ordinal) + 1 || idx + 1}</span>
+                    <span className="ko-chunk-card__kind">{chunkKindLabel(chunk.chunkKind)}</span>
+                    <span
+                      className={`ko-chunk-card__vec${chunk.hasEmbedding ? " is-on" : ""}`}
+                      title={
+                        chunk.hasEmbedding
+                          ? `已向量化${chunk.embeddingDim ? ` · ${chunk.embeddingDim} 维` : ""}`
+                          : "尚未向量化"
+                      }
+                    >
+                      {chunk.hasEmbedding ? "向量 ✓" : "无向量"}
+                    </span>
+                    <span
+                      className={`ko-chunk-card__enabled${chunk.enabled ? " is-on" : ""}`}
+                      title={chunk.enabled ? "已启用检索" : "未启用（索引未完成或失败）"}
+                    >
+                      {chunk.enabled ? "可检索" : "未启用"}
+                    </span>
+                  </div>
+                  <div className="ko-chunk-card__body">
+                    {chunk.headingPath ? (
+                      <p className="ko-chunk-card__meta">
+                        标题路径：<code>{chunk.headingPath}</code>
+                      </p>
+                    ) : null}
+                    {chunk.contextHeader ? (
+                      <p className="ko-chunk-card__meta">
+                        上下文头：<code>{chunk.contextHeader}</code>
+                      </p>
+                    ) : null}
+                    <pre className="ko-chunk-card__content">{chunk.content || "（空）"}</pre>
+                  </div>
+                </article>
+              );
+            })
+          )}
+        </div>
+
+        <div className="ko-modal__actions">
+          <button className="ko-btn" onClick={onClose} type="button">
+            关闭
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function KnowledgeRailCards({
   doc,
   related,
@@ -426,6 +618,7 @@ export function KnowledgeRailCards({
   contentText,
   jobStats,
   kbId,
+  onOpenChunks,
 }) {
   const [activities, setActivities] = useState([]);
   const effectiveKbId = kbId || doc?.kbId || "";
@@ -518,6 +711,17 @@ export function KnowledgeRailCards({
           <div>
             <dt>字数</dt>
             <dd>{stats.chars.toLocaleString("zh-CN")}</dd>
+          </div>
+          <div>
+            <dt>分块</dt>
+            <dd>
+              {Number(doc?.chunkCount || 0).toLocaleString("zh-CN")}
+              {onOpenChunks ? (
+                <button className="ko-link-btn" onClick={onOpenChunks} type="button">
+                  查看
+                </button>
+              ) : null}
+            </dd>
           </div>
           <div>
             <dt>阅读时间</dt>

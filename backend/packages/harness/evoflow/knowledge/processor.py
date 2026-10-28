@@ -384,6 +384,7 @@ async def _batch_embed_and_store(
             model_config,
             expected_dim=expected_dim,
             batch_size=_EMBEDDING_BATCH_SIZE,
+            purpose="index",
         )
         vs.insert_many(list(zip(batch_ids, embeddings, strict=True)))
 
