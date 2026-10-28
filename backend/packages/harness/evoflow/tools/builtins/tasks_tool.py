@@ -21,9 +21,11 @@ _TASKS_TOOL_DESCRIPTION = """\
 
 action: create | progress | state | delete | list | get。
 - progress: task_id + progress 0–100（可选；失败可忽略，继续做事或直接结案）
-- state: task_id + status (completed/failed/cancelled) + summary；有下游 completed 时填 handlers；pending 可直接 completed
+- state: task_id + status (completed/failed/cancelled) + summary；有直属下级时 completed 必须带 handlers（或 handlers_empty_reason 说明本轮为何不派）
 - delete: task_id + confirm=true
-outputs: 文档路径 [{type,key,value}]（type=file 时路径必须已存在，否则保存失败）；handlers: [{agent_code,content,read_outputs[]}]
+outputs: 文档路径 [{type,key,value}]（type=file 时路径必须已存在，否则保存失败）
+handlers: [{agent_code,content,read_outputs[]}] — 有下级时结案必填，系统据此叫醒下游；空数组会断链
+handlers_empty_reason: 本岗有下级但本轮确实不派时必填短因（如「仅修订文档、无下游」）
 
 写权限：progress / state / delete 仅本岗（assigned_to=当前员工）；禁止改他人/上级状态。
 小V（系统前台）代用户可更新任意单。身份由运行时绑定，勿自报 agent_code。
@@ -366,6 +368,7 @@ def tasks_tool(
     progress: int | None = None,
     outputs: OutputsArg = None,
     handlers: HandlersArg = None,
+    handlers_empty_reason: str = "",
     name: str = "",
     description: str = "",
     assignee: str = "",
@@ -457,6 +460,7 @@ def tasks_tool(
                     summary=str(summary or "").strip() or None,
                     outputs=_dump_models(outputs),
                     handlers=_dump_models(handlers),
+                    handlers_empty_reason=str(handlers_empty_reason or "").strip() or None,
                     actor=actor,
                 )
             except ValidationError as exc:
@@ -492,6 +496,7 @@ def tasks_tool(
                         summary=str(summary or "").strip() or None,
                         outputs=_dump_models(outputs),
                         handlers=_dump_models(handlers),
+                        handlers_empty_reason=str(handlers_empty_reason or "").strip() or None,
                         actor=actor,
                     )
                     if isinstance(data, dict):

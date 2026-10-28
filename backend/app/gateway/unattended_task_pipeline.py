@@ -1004,57 +1004,91 @@ async def advance_unattended_task(task_id: str) -> dict[str, Any]:
         _advance_locks_idle[task_id] = time.monotonic()
 
 
-def list_unattended_candidates() -> list[dict[str, Any]]:
-    """Pending/failed tasks eligible for new unattended queue pickup."""
+def _classify_unattended_task(task: dict[str, Any]) -> tuple[bool, bool, bool]:
+    """Return ``(is_candidate, is_in_progress, consumes_active_slot)`` for one task."""
+    if not isinstance(task, dict) or not is_unattended_task(task):
+        return False, False, False
+    status = str(task.get("status") or "").strip().lower()
+    if status == "paused":
+        return False, False, False
+
+    is_candidate = False
+    if status == "pending":
+        is_candidate = True
+    elif status == "failed" and _retry_due(task):
+        attempts = int(task.get("unattended_attempts") or 0)
+        if attempts < task_queue_max_retries():
+            is_candidate = True
+    elif status == "executing" and not (task.get("subtasks") or []) and not task.get("execution_authorized"):
+        is_candidate = True
+
+    has_plan = task_has_bound_plan(task)
+    has_subs = bool(task.get("subtasks") or [])
+    is_in_progress = False
+    if status == "planning":
+        if not _plan_retry_exhausted(task):
+            is_in_progress = True
+    elif status in {"planned", "awaiting_exec", "waiting_dispatch"} and has_plan and not _has_in_flight_subtasks(task):
+        is_in_progress = True
+    elif status == "executing" and has_subs and not _has_in_flight_subtasks(task) and not _all_subtasks_terminal(task):
+        is_in_progress = True
+
+    active = False
+    if status == "planning":
+        if _planning_consumes_concurrency_slot(task):
+            active = True
+    elif status == "executing":
+        if _has_in_flight_subtasks(task):
+            active = True
+        elif has_subs and not _all_subtasks_terminal(task):
+            active = True
+    elif status in {"planned", "awaiting_exec", "waiting_dispatch"} and _has_in_flight_subtasks(task):
+        active = True
+
+    return is_candidate, is_in_progress, active
+
+
+def snapshot_unattended_queue() -> dict[str, Any]:
+    """One project-storage pass for candidates / in-progress / active-slot count.
+
+    ``get_task_queue_status`` and tick snapshots previously walked every project
+    three times (candidates + in_progress + active). Collapsing to one pass keeps
+    Task Center open snappy when the catalog is large.
+    """
     storage = get_project_storage()
-    out: list[dict[str, Any]] = []
+    candidates: list[dict[str, Any]] = []
+    in_progress: list[dict[str, Any]] = []
+    active = 0
     for summary in storage.list_projects():
         project = storage.load_project(summary["id"])
         if not project:
             continue
         for task in project.get("tasks") or []:
-            if not isinstance(task, dict) or not is_unattended_task(task):
-                continue
-            status = str(task.get("status") or "").strip().lower()
-            if status == "paused":
-                continue
-            if status == "pending":
-                out.append(task)
-            elif status == "failed" and _retry_due(task):
-                attempts = int(task.get("unattended_attempts") or 0)
-                if attempts < task_queue_max_retries():
-                    out.append(task)
-            elif status == "executing" and not (task.get("subtasks") or []) and not task.get("execution_authorized"):
-                out.append(task)
-    out.sort(key=lambda t: str(t.get("unattended_enqueued_at") or t.get("created_at") or ""))
-    return out
+            is_candidate, is_in_progress, consumes_slot = _classify_unattended_task(task)
+            if is_candidate:
+                candidates.append(task)
+            if is_in_progress:
+                in_progress.append(task)
+            if consumes_slot:
+                active += 1
+    sort_key = lambda t: str(t.get("unattended_enqueued_at") or t.get("created_at") or "")
+    candidates.sort(key=sort_key)
+    in_progress.sort(key=sort_key)
+    return {
+        "candidates": candidates,
+        "in_progress": in_progress,
+        "active": active,
+    }
+
+
+def list_unattended_candidates() -> list[dict[str, Any]]:
+    """Pending/failed tasks eligible for new unattended queue pickup."""
+    return list(snapshot_unattended_queue()["candidates"])
 
 
 def list_unattended_in_progress() -> list[dict[str, Any]]:
     """In-flight unattended tasks that still need queue ticks (plan → authorize → dispatch)."""
-    storage = get_project_storage()
-    out: list[dict[str, Any]] = []
-    for summary in storage.list_projects():
-        project = storage.load_project(summary["id"])
-        if not project:
-            continue
-        for task in project.get("tasks") or []:
-            if not isinstance(task, dict) or not is_unattended_task(task):
-                continue
-            status = str(task.get("status") or "").strip().lower()
-            if status == "paused":
-                continue
-            has_plan = task_has_bound_plan(task)
-            has_subs = bool(task.get("subtasks") or [])
-            if status == "planning":
-                if not _plan_retry_exhausted(task):
-                    out.append(task)
-            elif status in {"planned", "awaiting_exec", "waiting_dispatch"} and has_plan and not _has_in_flight_subtasks(task):
-                out.append(task)
-            elif status == "executing" and has_subs and not _has_in_flight_subtasks(task) and not _all_subtasks_terminal(task):
-                out.append(task)
-    out.sort(key=lambda t: str(t.get("unattended_enqueued_at") or t.get("created_at") or ""))
-    return out
+    return list(snapshot_unattended_queue()["in_progress"])
 
 
 def _planning_consumes_concurrency_slot(task: dict[str, Any]) -> bool:
@@ -1085,26 +1119,4 @@ def count_active_unattended_tasks() -> int:
 
     Stale ``planning`` rows (dead plan worker, triggered_at > 20min) must NOT count either.
     """
-    storage = get_project_storage()
-    n = 0
-    for summary in storage.list_projects():
-        project = storage.load_project(summary["id"])
-        if not project:
-            continue
-        for task in project.get("tasks") or []:
-            if not isinstance(task, dict) or not is_unattended_task(task):
-                continue
-            status = str(task.get("status") or "").strip().lower()
-            if status == "paused":
-                continue
-            if status == "planning":
-                if _planning_consumes_concurrency_slot(task):
-                    n += 1
-            elif status == "executing":
-                if _has_in_flight_subtasks(task):
-                    n += 1
-                elif (task.get("subtasks") or []) and not _all_subtasks_terminal(task):
-                    n += 1
-            elif status in {"planned", "awaiting_exec", "waiting_dispatch"} and _has_in_flight_subtasks(task):
-                n += 1
-    return n
+    return int(snapshot_unattended_queue()["active"])

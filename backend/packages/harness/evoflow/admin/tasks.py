@@ -773,8 +773,71 @@ def _assignee_role_for_task(task: dict[str, Any]):
         return None
 
 
+def list_assignee_direct_report_codes(assignee: str) -> list[str]:
+    """Active direct reports of ``assignee`` (same-org), for handlers gate / prompts."""
+    code = str(assignee or "").strip()
+    if not code:
+        return []
+    try:
+        from evoflow.proactive.org import filter_roster_same_org, list_direct_reports
+        from evoflow.proactive.repositories import ProactiveRepository
+
+        role = ProactiveRepository.get_role(code)
+        if role is None:
+            return []
+        roster = list(ProactiveRepository.list_roles(status="active") or [])
+        peers = filter_roster_same_org(role, roster)
+        return [str(r.agent_code or "").strip() for r in list_direct_reports(role, peers) if str(r.agent_code or "").strip()]
+    except Exception:
+        logger.debug("admin.tasks: list direct reports failed", exc_info=True)
+        return []
+
+
+def assert_manager_handoff_handlers(
+    *,
+    assignee: str,
+    target_status: str,
+    handlers: list[dict[str, Any]] | None,
+    handlers_empty_reason: str = "",
+) -> None:
+    """Managers (有直属下级) cannot leaf-complete without handlers or an explicit reason.
+
+    Prevents「方案写完、handlers=[]、链路断」——reports_to 树不会自动派活。
+    """
+    st = _normalize_status(target_status)
+    if st not in {"completed", "awaiting_close", "reviewed"}:
+        return
+    if handlers:
+        return
+    reports = list_assignee_direct_report_codes(assignee)
+    if not reports:
+        return
+    reason = str(handlers_empty_reason or "").strip()
+    if reason:
+        return
+    sample = "、".join(f"`{c}`" for c in reports[:6])
+    raise ValidationError(
+        "本岗有直属下级，结案必须带 handlers 派下游，或显式传 handlers_empty_reason 说明为何本轮不派。"
+        f"候选下级：{sample}。"
+        '示例 handlers=[{"agent_code":"'
+        + reports[0]
+        + '","content":"按 docs/需求方案.md 实现…"}]'
+    )
+
+
 def handoff_needs_approval(task: dict[str, Any]) -> bool:
-    """Whether completing this task with handlers should wait for human approval."""
+    """Whether completing this task with handlers should wait for human approval.
+
+    System gate (not prompt): user/小V 派来的单若带 handlers 继续下游，先等人确认再叫醒。
+    员工提示词只写正常流转；不要靠文案「停下来等审核」。
+    """
+    handlers = task_handlers_of(task)
+    if not handlers:
+        return False
+    raised = str(task.get("raised_by") or "").strip().casefold()
+    # User (or 小V acting for user) cascaded work → always ack before wake.
+    if raised in {"user", "xiaomi"}:
+        return True
     role = _assignee_role_for_task(task)
     if role is None:
         return False
@@ -970,6 +1033,7 @@ def set_task_state(
     summary: str | None = None,
     outputs: Any = None,
     handlers: Any = None,
+    handlers_empty_reason: str | None = None,
     actor: str | None = None,
 ) -> dict[str, Any]:
     """Set task/subtask status. Validates against the state machine.
@@ -989,6 +1053,9 @@ def set_task_state(
     ``awaiting_close`` (本岗已交、整单待闭环). Leaf work without handlers still
     uses ``completed``. Legacy ``reviewed`` maps to ``completed``.
 
+    Managers with direct reports must pass non-empty ``handlers`` or
+    ``handlers_empty_reason`` when closing (completed / awaiting_close).
+
     Employee-proposed handlers must target **direct reports** in the same org.
 
     ``actor`` overrides ambient agent actor for ACL (tests / explicit tool bind).
@@ -1001,6 +1068,7 @@ def set_task_state(
     # Legacy "reviewed" (待确认) → completed (final close).
     target = "completed" if raw_target == "reviewed" else raw_target
     handlers_norm = normalize_task_handlers(handlers) if handlers is not None else None
+    empty_reason = str(handlers_empty_reason or "").strip()
     # completed + handlers = 本岗交工派下游 → 待闭环（非整单结束）
     if target == "completed" and handlers_norm:
         target = "awaiting_close"
@@ -1042,12 +1110,22 @@ def set_task_state(
         if handlers_norm is not None:
             handlers_norm = absolutize_handlers_paths(handlers_norm, ws, agent_code=code)
             outcome_updates["handlers"] = handlers_norm
+        if empty_reason:
+            outcome_updates["handlers_empty_reason"] = empty_reason
+        sub_assignee = str(_assigned_to_for_acl(subtask, fallback=main_task) or "").strip()
+        if target in {"completed", "awaiting_close"}:
+            effective_h = handlers_norm if handlers_norm is not None else task_handlers_of(subtask)
+            assert_manager_handoff_handlers(
+                assignee=sub_assignee,
+                target_status=target,
+                handlers=effective_h,
+                handlers_empty_reason=empty_reason,
+            )
         updates: dict[str, Any] = {"status": target, **outcome_updates}
         if target == "completed":
             updates["progress"] = 100
             updates["completed_at"] = subtask.get("completed_at") or now
         elif target == "awaiting_close":
-            # 本岗已交工，进度记 100%（整单待闭环，但不影响本岗完成度）
             updates["progress"] = 100
         elif target in {"failed", "cancelled"}:
             updates["failed_at"] = subtask.get("failed_at") or now
@@ -1096,6 +1174,8 @@ def set_task_state(
     if handlers_norm is not None:
         handlers_norm = absolutize_handlers_paths(handlers_norm, ws, agent_code=code)
         outcome_updates["handlers"] = handlers_norm
+    if empty_reason:
+        outcome_updates["handlers_empty_reason"] = empty_reason
 
     assignee = str(task.get("assigned_to") or "").strip()
     # Org: employee handoff → direct reports only.
@@ -1106,6 +1186,19 @@ def set_task_state(
         if to_check:
             proposer = assignee or str(task.get("raised_by") or "").strip() or "user"
             assert_handlers_org_ok(from_agent=proposer, handlers=to_check)
+
+    # Manager leaf-complete without handlers breaks the org chain — require reason.
+    if target in {"completed", "awaiting_close"}:
+        already_dispatched = str(task.get("handlers_dispatched_at") or "").strip()
+        closing_after_handoff = bool(already_dispatched and current in {"awaiting_close", "reviewed"} and target == "completed")
+        if not closing_after_handoff:
+            effective_h = handlers_norm if handlers_norm is not None else task_handlers_of(task)
+            assert_manager_handoff_handlers(
+                assignee=assignee,
+                target_status=target,
+                handlers=effective_h,
+                handlers_empty_reason=empty_reason,
+            )
 
     updates = {"status": target, **outcome_updates}
     if target == "completed":

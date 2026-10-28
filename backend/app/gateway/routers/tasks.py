@@ -57,6 +57,14 @@ _LIST_DROP_KEYS = (
     # （App 运行详情走 GET /tasks/{id}），evidence_paths 亦无列表读点。
     "app_definition_snapshot",
     "evidence_paths",
+    # 列表卡/筛选不需要结构化交付物；详情走 GET /tasks/{id}
+    "outputs",
+    "handlers",
+    "input_refs",
+    "result_text",
+    "result_summary",
+    "run_parameters",
+    "dependencies",
 )
 
 _LIST_TRUNCATE_KEYS = (
@@ -66,9 +74,6 @@ _LIST_TRUNCATE_KEYS = (
     "plan_open_questions",
     "error",
     "result",
-    # 列表 UI 不展示全文；会议/详情走各自端点
-    "result_text",
-    "result_summary",
 )
 
 
@@ -82,24 +87,29 @@ def _slim_task_for_list(task: dict[str, Any]) -> dict[str, Any]:
         out.pop(k, None)
     for k in _LIST_TRUNCATE_KEYS:
         val = out.get(k)
-        if isinstance(val, str) and len(val) > 240:
-            out[k] = val[:240]
+        if isinstance(val, str) and len(val) > 160:
+            out[k] = val[:160]
         elif isinstance(val, (dict, list)):
             out.pop(k, None)
-    handlers = out.get("handlers")
-    if isinstance(handlers, list) and len(handlers) > 8:
-        out["handlers"] = handlers[:8]
-    outputs = out.get("outputs")
-    if isinstance(outputs, list):
-        light = []
-        for item in outputs[:6]:
-            if not isinstance(item, dict):
-                continue
-            light.append({k: item.get(k) for k in ("type", "key", "label", "value") if k in item})
-            if isinstance(light[-1].get("value"), str) and len(light[-1]["value"]) > 120:
-                light[-1]["value"] = light[-1]["value"][:120]
-        out["outputs"] = light
+    # Root catalog rows always ship empty subtasks[]; omit to shrink wire size.
+    subs = out.get("subtasks")
+    if not isinstance(subs, list) or not subs:
+        out.pop("subtasks", None)
     return out
+
+
+def _resolve_list_page_size(*, page_size: int, limit: int | None) -> int:
+    """``page_size`` wins; ``limit`` is a FE/compat alias when page_size is 0 (all)."""
+    size = int(page_size or 0)
+    if size > 0:
+        return size
+    if limit is None:
+        return 0
+    try:
+        n = int(limit)
+    except (TypeError, ValueError):
+        return 0
+    return max(0, n)
 
 
 def _public_task_dict(task: dict[str, Any]) -> dict[str, Any]:
@@ -585,8 +595,14 @@ async def list_tasks(
     page_size: int = Query(
         0,
         ge=0,
-        le=200,
+        le=500,
         description="Page size; 0 = return all (backward compatible)",
+    ),
+    limit: int | None = Query(
+        None,
+        ge=0,
+        le=500,
+        description="Alias for page_size when page_size=0 (evopanel listAllTasks historically sent limit).",
     ),
     hide_noise: bool = Query(
         True,
@@ -695,6 +711,7 @@ async def list_tasks(
         # (~1500 projects × load_project) when opening Task Center during chat.
         import asyncio
 
+        effective_page_size = _resolve_list_page_size(page_size=page_size, limit=limit)
         payload = await asyncio.to_thread(
             _list_tasks_catalog_sync,
             status=status,
@@ -704,7 +721,7 @@ async def list_tasks(
             sort=sort,
             order=order,
             page=page,
-            page_size=page_size,
+            page_size=effective_page_size,
             hide_noise=hide_noise,
             has_role=has_role,
             is_admin=bool(authz.get("is_admin")),

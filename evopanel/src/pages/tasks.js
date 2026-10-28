@@ -37,6 +37,7 @@ import {
   rootTasksOnly,
   selectRootTasks,
 } from '../lib/task-tree.js'
+import { TASKS_CATALOG_FETCH_CAP } from '../lib/nav-panel-prefetch.js'
 
 /** 任务来源分区：对话 / 智能体员工 / 工作流（对应 task-source.js 三类） */
 const SOURCE_TABS = [
@@ -417,6 +418,8 @@ export async function render() {
     _itemsCtl: null,
     /** @type {{ byThread: Map<string, any>, byTaskId: Map<string, any> } | null} */
     runtimeIndex: null, // 活跃会话索引 → 在跑 / 已中断
+    catalogTotal: 0,
+    catalogTruncated: false,
   }
   const bootQuery = readTasksQueryFromHash()
   applyTasksQueryToState(state, bootQuery)
@@ -2258,15 +2261,26 @@ async function loadTasks(page, state, opts = {}) {
     const mapsPromise = ensureDisplayMaps(state)
     const { takeNavWarm } = await import('../lib/nav-panel-prefetch.js')
     const warmList = takeNavWarm('tasks:list')
+    const catalogQuery = {
+      page: 1,
+      page_size: TASKS_CATALOG_FETCH_CAP,
+      // Keep newest roots for client time/status filters without shipping the full catalog.
+      sort: 'updated_at',
+      order: 'desc',
+    }
     const [resp, sessionsRes] = await Promise.all([
-      warmList || api.listAllTasks(),
+      warmList || api.listAllTasks(catalogQuery),
       // null = probe failed → keep prior index (avoid marking everything 已中断)
       api.getActiveSessions({}).catch(() => null),
     ])
     await mapsPromise
     // API returns { success: true, data: { tasks: [...], total: n } }
-    const tasks = Array.isArray(resp) ? resp : (resp.data?.tasks || [])
+    const data = Array.isArray(resp) ? null : (resp?.data || null)
+    const tasks = Array.isArray(resp) ? resp : (data?.tasks || [])
     state.tasks = tasks
+    const serverTotal = Number(data?.total)
+    state.catalogTotal = Number.isFinite(serverTotal) ? serverTotal : tasks.length
+    state.catalogTruncated = state.catalogTotal > tasks.length
     if (sessionsRes != null) {
       state.runtimeIndex = buildActiveSessionIndex(asActiveSessionList(sessionsRes))
     }
@@ -2306,10 +2320,14 @@ function renderTasks(page, state) {
   )
 
   if (countEl) {
+    const catalogNote =
+      state.catalogTruncated && Number(state.catalogTotal) > 0
+        ? ` · 最近 ${Array.isArray(state.tasks) ? state.tasks.length : 0}/${state.catalogTotal}`
+        : ''
     countEl.textContent = total
       ? (paged.pageCount > 1
-        ? `${total} 条根单 · 第 ${paged.page}/${paged.pageCount} 页`
-        : `${total} 条根单`)
+        ? `${total} 条根单 · 第 ${paged.page}/${paged.pageCount} 页${catalogNote}`
+        : `${total} 条根单${catalogNote}`)
       : ''
   }
   const viewAllBtn = page.querySelector('#btn-view-all-tasks')

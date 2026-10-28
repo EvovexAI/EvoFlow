@@ -5,20 +5,23 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import time
 from typing import Any
 
 from app.gateway.unattended_task_pipeline import (
     advance_unattended_task,
     count_active_unattended_tasks,
-    list_unattended_candidates,
-    list_unattended_in_progress,
+    snapshot_unattended_queue,
 )
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_TICK_SECONDS = 60
+_STATUS_CACHE_TTL_S = 2.5
 _scheduler_loop_running = False
 _last_tick_info: dict[str, Any] = {}
+_status_cache_mono = 0.0
+_status_cache_payload: dict[str, Any] | None = None
 
 
 def task_queue_enabled() -> bool:
@@ -43,27 +46,40 @@ def task_queue_tick_seconds() -> int:
 
 
 def get_task_queue_status() -> dict[str, Any]:
-    return {
+    global _status_cache_mono, _status_cache_payload
+    now = time.monotonic()
+    if _status_cache_payload is not None and (now - _status_cache_mono) < _STATUS_CACHE_TTL_S:
+        out = dict(_status_cache_payload)
+        out["last_tick"] = dict(_last_tick_info)
+        out["backend_loop_running"] = _scheduler_loop_running
+        return out
+
+    snap = snapshot_unattended_queue()
+    payload = {
         "backend_env_enabled": task_queue_enabled(),
         "backend_loop_running": _scheduler_loop_running,
         "max_concurrent": task_queue_max_concurrent(),
         "tick_seconds": task_queue_tick_seconds(),
-        "active_unattended": count_active_unattended_tasks(),
-        "queued_candidates": len(list_unattended_candidates()),
-        "in_progress": len(list_unattended_in_progress()),
+        "active_unattended": int(snap["active"]),
+        "queued_candidates": len(snap["candidates"]),
+        "in_progress": len(snap["in_progress"]),
         "last_tick": dict(_last_tick_info),
         "hint": "Unattended tasks (run_mode=unattended) auto plan/authorize/dispatch. Disable with EVOFLOW_TASK_QUEUE_ENABLED=0.",
     }
+    _status_cache_payload = dict(payload)
+    _status_cache_mono = now
+    return payload
 
 
 def _task_queue_tick_snapshot(max_concurrent: int) -> dict[str, Any]:
-    active = count_active_unattended_tasks()
+    snap = snapshot_unattended_queue()
+    active = int(snap["active"])
     slots = max(0, max_concurrent - active)
     return {
-        "in_progress": list_unattended_in_progress(),
+        "in_progress": list(snap["in_progress"]),
         "active": active,
         "slots": slots,
-        "candidates": list_unattended_candidates()[:slots],
+        "candidates": list(snap["candidates"])[:slots],
     }
 
 
