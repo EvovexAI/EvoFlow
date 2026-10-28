@@ -7,6 +7,7 @@
 
 import type { DisplayRow, StreamState } from '../chat-types.js'
 import { SESSION_RUNNING_ACTIVITY_LABEL } from './resolve-live-stream-activity.js'
+import { capSessionRows } from './session-rows-cap.js'
 import { emptyStream, streamRefHasVisibleContent } from './stream-state.js'
 import type { LiveRunStatus } from './run-turn-gate.js'
 
@@ -702,7 +703,7 @@ export function commitActiveSessionRuntime(
   const sk = String(sessionKey || '').trim()
   if (!sk) return
   const rt = getSessionRuntime(sk)
-  rt.rows = [...snapshot.rows]
+  rt.rows = capSessionRows([...snapshot.rows])
   rt.stream = snapshot.stream
   rt.seenRunIds = [...snapshot.seenRunIds]
   rt.activeChatRunId = snapshot.activeChatRunId
@@ -752,7 +753,7 @@ export function hydrateSessionRuntimeRowsIfIdle(sessionKey: string, rows: Displa
   const rt = getSessionRuntime(sk)
   if (isSessionRuntimeLive(rt)) return
   if (rt.rows.length >= rows.length) return
-  rt.rows = [...rows]
+  rt.rows = capSessionRows([...rows])
   notifySession(sk)
 }
 
@@ -800,7 +801,7 @@ export function updateSessionRuntimeRows(
 ): DisplayRow[] {
   const sk = String(sessionKey || '').trim()
   const rt = getSessionRuntime(sk)
-  rt.rows = updater([...rt.rows])
+  rt.rows = capSessionRows(updater([...rt.rows]))
   notifySession(sk)
   return rt.rows
 }
@@ -1034,7 +1035,7 @@ export function replaceSessionRuntimeRowsFromHistory(sessionKey: string, rows: D
   const sk = String(sessionKey || '').trim()
   if (!sk) return
   const rt = getSessionRuntime(sk)
-  rt.rows = [...rows]
+  rt.rows = capSessionRows([...rows])
   notifySession(sk, { immediate: true })
   notify({ immediate: true })
 }

@@ -25,6 +25,7 @@ import { logPanelSet, logRightStage } from '../../../lib/right-stage/panel-set-d
 import { rightStageStore } from '../../../lib/right-stage/right-stage-store.js'
 import { isXiaomiVoiceRightStageForeground } from '../../../lib/xiaomi-voice/voice-right-stage-foreground.js'
 import { withAbsoluteArtifactPaths } from '../../../lib/artifact-absolute-path.js'
+import { capPersistedRowText, capPersistedToolOutput } from '../../lib/session-rows-cap.js'
 
 export type ChatWsOnEventCtx = Record<string, any>
 
@@ -2857,7 +2858,7 @@ export function createChatWsOnEventHandler(ctx: ChatWsOnEventCtx) {
             clone._terminalData = cloneTerminalStreamTask(stream)
             delete clone._terminalStream
           }
-          return clone
+          return capPersistedToolOutput(clone)
         }) as DisplayRow['tools']
 
         // 添加新消息到 rows
@@ -2915,7 +2916,7 @@ export function createChatWsOnEventHandler(ctx: ChatWsOnEventCtx) {
           }
           const nextRow: DisplayRow = {
             role: 'assistant' as const,
-            text: outText,
+            text: capPersistedRowText(outText),
             reasoningPreview,
             ...(reasoningSegs.length ? { reasoningSegments: reasoningSegs } : {}),
             segments: segmentsForUi,
