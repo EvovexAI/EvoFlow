@@ -921,8 +921,51 @@
   display: none !important;
 }
 
-/* Agent 应用打开态下隐藏桌面标题栏 chrome 会连窗口控制一起没了,
-   这里只保留 app-studio-mode 的既有行为(shell 页自带最小化/关闭钮) */
+/* 复用全局 #tauri-main-chrome（拖窗/窗控），不要再叠一条壳内顶栏 */
+#app.evopanel-app-studio-mode.evopanel-uiext-open-mode #tauri-main-chrome {
+  display: flex !important;
+}
+
+#tauri-main-chrome.tauri-main-chrome--uiext .uiext-shell-nav {
+  flex: 0 1 auto;
+  max-width: min(480px, 50vw);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  margin-right: 8px;
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+#tauri-main-chrome.tauri-main-chrome--uiext .uiext-shell-title {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+#tauri-main-chrome.tauri-main-chrome--uiext .uiext-shell-title strong {
+  font-size: var(--ef-text-sm);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#tauri-main-chrome.tauri-main-chrome--uiext .uiext-shell-status {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+}
+
+#tauri-main-chrome.tauri-main-chrome--uiext .uiext-shell-ops {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
 
 /* ── 响应式 ────────────────────────────────────────────────────── */
 

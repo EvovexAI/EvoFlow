@@ -76,12 +76,12 @@ function syncMainChromeVisibility() {
   const kbDetail =
     typeof document !== 'undefined' &&
     document.getElementById('app')?.classList.contains('evopanel-kb-detail-mode')
-  // 聊天 / 知识库详情顶栏自带窗口钮；应用工作室 / UI 扩展全屏沉浸时也不占顶栏白条
+  // 聊天 / 知识库详情顶栏自带窗口钮；应用工作室沉浸时不占顶栏白条。
+  // Agent 应用（/extensions/:id）复用本 chrome 拖窗，不再另起一条顶栏。
   const hide =
     path === '/chat' ||
     kbDetail ||
-    /^\/apps\/[^/]+(?:\/(?:run|history))?$/.test(path) ||
-    /^\/extensions\/[^/]+$/.test(path)
+    /^\/apps\/[^/]+(?:\/(?:run|history))?$/.test(path)
   el.classList.toggle('tauri-main-chrome--hidden', hide)
   el.setAttribute('aria-hidden', hide ? 'true' : 'false')
   if (hide) {
