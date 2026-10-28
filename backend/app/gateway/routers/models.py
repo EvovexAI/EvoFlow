@@ -596,7 +596,7 @@ async def probe_embedding_model(http_request: Request, request: EmbeddingProbeRe
     if mc is None:
         raise HTTPException(status_code=404, detail=f"Model '{request.model_name}' not found")
     try:
-        vec = await get_embedding("probe", mc)
+        vec = await get_embedding("probe", mc, purpose="probe")
         if vec and len(vec) > 0:
             return {"ok": True}
         return {"ok": False, "message": "返回向量为空"}
