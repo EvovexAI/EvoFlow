@@ -14,14 +14,22 @@ import {
 } from "./knowledge-owned-reader.jsx";
 import "./knowledge-source-tabs.css";
 
+/**
+ * 知识图谱（G1/G2）UI 总开关：默认关。
+ * 关着时不展示「图谱」入口；功能成熟后再翻成 true。
+ */
+const KB_GRAPH_UI_ENABLED = false;
+
 // 知识图谱为重型图渲染（react-force-graph-2d / d3-force），仅在切到「图谱」tab 时
 // 才动态加载，避免打进知识库页面首屏 chunk 导致打开慢。
 // KnowledgeForceGraph 是命名导出，转成 default 供 React.lazy 使用。
-const LazyKnowledgeForceGraph = React.lazy(() =>
-  import("../react/components/KnowledgeForceGraph.jsx").then((m) => ({
-    default: m.KnowledgeForceGraph,
-  })),
-);
+const LazyKnowledgeForceGraph = KB_GRAPH_UI_ENABLED
+  ? React.lazy(() =>
+      import("../react/components/KnowledgeForceGraph.jsx").then((m) => ({
+        default: m.KnowledgeForceGraph,
+      })),
+    )
+  : null;
 
 function openModelsEmbeddingSettings() {
   window.location.hash = "#/settings?tab=models";
@@ -74,6 +82,22 @@ function jobDocLabel(job, docsById) {
     return String(d.title || d.fileName || did).trim() || did;
   }
   return did ? `文档 ${did.slice(0, 10)}…` : "库级任务";
+}
+
+/** Map legacy English reclaim errors (and new Chinese ones) to a clear UI line. */
+function jobErrorHeadline(raw) {
+  const s = String(raw || "").trim();
+  if (!s) return "任务失败，但服务端没有返回详细原因。";
+  if (/retry budget exhausted|多次超时.*停止重试|多次超时.*用尽重试/i.test(s)) {
+    return "处理失败：任务多次超时，已停止重试（可点下方「重试」再跑）";
+  }
+  if (/reclaimed stale running job|任务超时.*重新排队/i.test(s)) {
+    return "任务超时未完成，已重新排队";
+  }
+  if (/task timed out repeatedly/i.test(s)) {
+    return "处理失败：任务多次超时，已停止重试";
+  }
+  return s.split("\n[traceback] ")[0] || s;
 }
 
 function isPdfName(name) {
@@ -1138,15 +1162,24 @@ export default function KnowledgeOwnedPage() {
   useEffect(() => {
     if (!selectedId) return undefined;
     if (tab === "wiki") loadWiki(selectedId);
-    if (tab === "graph") loadGraph(selectedId);
+    if (KB_GRAPH_UI_ENABLED && tab === "graph") loadGraph(selectedId);
     return undefined;
   }, [tab, selectedId, loadWiki, loadGraph]);
+
+  // 图谱 UI 关闭时，避免残留 hash/状态停在 graph 空页。
+  useEffect(() => {
+    if (!KB_GRAPH_UI_ENABLED && tab === "graph") setTab("docs");
+  }, [tab]);
 
   const [preparedGraph, setPreparedGraph] = useState(null);
   useEffect(() => {
     let cancelled = false;
     setPreparedGraph(null);
-    if (tab !== "graph" || !(graphData.nodes?.length || graphData.edges?.length)) {
+    if (
+      !KB_GRAPH_UI_ENABLED ||
+      tab !== "graph" ||
+      !(graphData.nodes?.length || graphData.edges?.length)
+    ) {
       return undefined;
     }
     void import("../react/components/KnowledgeForceGraph.jsx")
@@ -1312,7 +1345,7 @@ export default function KnowledgeOwnedPage() {
       desc !== String(settingsBase.description || "").trim() ||
       settingsEmbChanged ||
       settingsChatChanged ||
-      settingsSummary !== (settingsBase.summaryEnabled !== false)
+      settingsSummary !== Boolean(settingsBase.summaryEnabled)
     );
   }, [
     settingsBase,
@@ -1670,7 +1703,7 @@ export default function KnowledgeOwnedPage() {
     setSettingsDesc(base.description || "");
     setSettingsEmbRef(current);
     setSettingsRebind(false);
-    setSettingsSummary(base.summaryEnabled !== false);
+    setSettingsSummary(Boolean(base.summaryEnabled));
     setSettingsOpen(true);
     const global = await reloadKbGlobalSettings();
     setSettingsChatModel(String(global?.chatModel || "").trim());
@@ -1694,7 +1727,7 @@ export default function KnowledgeOwnedPage() {
     const chatChanged = chatNext !== chatPrev;
     const nameChanged = name !== String(base?.name || "").trim();
     const descChanged = description !== String(base?.description || "").trim();
-    const summaryChanged = settingsSummary !== (base?.summaryEnabled !== false);
+    const summaryChanged = settingsSummary !== Boolean(base?.summaryEnabled);
 
     if (embChanged) {
       const ok = window.confirm(
@@ -2176,13 +2209,15 @@ export default function KnowledgeOwnedPage() {
                 >
                   Wiki
                 </button>
-                <button
-                  className={tab === "graph" ? "is-active" : ""}
-                  onClick={() => setTab("graph")}
-                  type="button"
-                >
-                  图谱
-                </button>
+                {KB_GRAPH_UI_ENABLED ? (
+                  <button
+                    className={tab === "graph" ? "is-active" : ""}
+                    onClick={() => setTab("graph")}
+                    type="button"
+                  >
+                    图谱
+                  </button>
+                ) : null}
               </nav>
             </div>
             <div className="ko-detail-drawers" data-tauri-no-drag="">
@@ -2480,10 +2515,11 @@ export default function KnowledgeOwnedPage() {
                 <div className="ko-sync-popup__errors">
                   <h4 className="ko-sync-ledger__fail-title">失败 · {jobStats.errors.length}</h4>
                   {jobStats.errors.map((item) => {
-                    const raw = String(item.error_message || "任务失败，但服务端没有返回详细原因。");
-                    const split = raw.split("\n[traceback] ");
-                    const headline = split[0] || raw;
-                    const tail = split[1];
+                    const raw = String(item.error_message || "");
+                    const headline = jobErrorHeadline(raw);
+                    const tail = raw.includes("\n[traceback] ")
+                      ? raw.split("\n[traceback] ").slice(1).join("\n[traceback] ")
+                      : "";
                     const docId = String(item.docId || "").trim();
                     const rowRetrying = docId && retryingDocs.has(docId);
                     return (
@@ -3075,7 +3111,7 @@ export default function KnowledgeOwnedPage() {
                     </div>
                   </div>
                 </div>
-              ) : (
+              ) : KB_GRAPH_UI_ENABLED && tab === "graph" ? (
                 <div className="ko-graph" data-testid="ko-wiki-graph">
                   <div className="ko-toolbar">
                     <div className="ko-seg">
@@ -3143,7 +3179,7 @@ export default function KnowledgeOwnedPage() {
                       {graphData.nodes?.length || 0} 节点 · {graphData.edges?.length || 0} 边
                     </span>
                   </div>
-                  {graphData.nodes?.length ? (
+                  {graphData.nodes?.length && LazyKnowledgeForceGraph ? (
                     <div className="ko-graph-canvas">
                       <React.Suspense
                         fallback={
@@ -3191,7 +3227,7 @@ export default function KnowledgeOwnedPage() {
                     </div>
                   )}
                 </div>
-              )}
+              ) : null}
               </section>
 
               {tab === "docs" && selectedDocId ? (
@@ -3204,7 +3240,7 @@ export default function KnowledgeOwnedPage() {
                     kbId={selectedId}
                     related={relatedDocs}
                     summaryBusy={summaryBusy}
-                    summaryEnabled={selected?.summaryEnabled !== false}
+                    summaryEnabled={Boolean(selected?.summaryEnabled)}
                     onGenerate={() => generateOverview(false)}
                     onForce={() => generateOverview(true)}
                     onOpenRelated={openDocFromCitation}
@@ -3428,7 +3464,7 @@ export default function KnowledgeOwnedPage() {
                 <label className={`ko-sheet__switch${settingsSummary ? " is-on" : ""}`}>
                   <span className="ko-sheet__switch-copy">
                     <strong>自动解析摘要</strong>
-                    <small>导入或更新文档后自动生成摘要</small>
+                    <small>默认关闭；开启后导入或更新文档会额外跑摘要任务</small>
                   </span>
                   <input
                     checked={settingsSummary}

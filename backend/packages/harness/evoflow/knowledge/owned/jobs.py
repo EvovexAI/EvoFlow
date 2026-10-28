@@ -546,7 +546,7 @@ def reclaim_stale_running(*, older_than_seconds: int = 1800) -> int:
                     WHERE id=? AND state='running'
                     """,
                     (
-                        "reclaimed stale running job",
+                        "任务超时，已重新排队",
                         now,
                         now,
                         json.dumps(
@@ -564,7 +564,7 @@ def reclaim_stale_running(*, older_than_seconds: int = 1800) -> int:
                     WHERE id=? AND state='running'
                     """,
                     (
-                        "reclaimed stale running job: retry budget exhausted",
+                        "处理失败：任务多次超时，已停止重试",
                         now,
                         now,
                         row["id"],
@@ -576,7 +576,7 @@ def reclaim_stale_running(*, older_than_seconds: int = 1800) -> int:
                 jtype = str(row["type"] or "").strip()
                 kb_id = str(row["kb_id"] or "").strip()
                 if doc_id and jtype in ("parse_index", "reindex"):
-                    err = "task timed out repeatedly and was reclaimed (retry budget exhausted)"
+                    err = "处理失败：任务多次超时，已停止重试"
                     try:
                         conn.execute(
                             """

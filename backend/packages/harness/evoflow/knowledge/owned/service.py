@@ -1725,7 +1725,7 @@ def enqueue_document_summary(doc_id: str, *, force: bool = False) -> dict[str, A
     base = get_base(doc["kbId"])
     if not base:
         raise ValueError("knowledge base not found")
-    if not base.get("summaryEnabled", True):
+    if not base.get("summaryEnabled", False):
         raise ValueError("summary disabled for this knowledge base")
     status = str(doc.get("summaryStatus") or "")
     has_text = bool(str(doc.get("summaryText") or "").strip())

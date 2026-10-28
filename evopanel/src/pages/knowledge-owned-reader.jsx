@@ -418,7 +418,7 @@ export function KnowledgeRailCards({
   doc,
   related,
   summaryBusy,
-  summaryEnabled = true,
+  summaryEnabled = false,
   onGenerate,
   onForce,
   onOpenRelated,
@@ -539,16 +539,22 @@ export function KnowledgeRailCards({
         ) : null}
         {text ? (
           <p className="ko-rail-summary">{text}</p>
+        ) : busy ? (
+          <p className="ko-meta">摘要生成中…</p>
         ) : (
-          <button className="ko-btn primary" disabled={busy} onClick={onGenerate} type="button">
-            {busy ? "生成中…" : "生成概览"}
-          </button>
+          <p className="ko-meta">
+            {summaryEnabled ? "暂无摘要" : "暂无摘要（自动生成已关闭）"}
+          </p>
         )}
         {text ? (
           <button className="ko-btn ghost" disabled={busy} onClick={onForce} type="button">
             重新生成摘要
           </button>
-        ) : null}
+        ) : (
+          <button className="ko-btn ghost" disabled={busy} onClick={onGenerate} type="button">
+            {busy ? "生成中…" : "手动生成摘要"}
+          </button>
+        )}
       </section>
 
       <section className="ko-rail-card" data-testid="ko-rail-activity">

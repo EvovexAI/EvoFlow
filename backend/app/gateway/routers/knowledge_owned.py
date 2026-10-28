@@ -39,7 +39,8 @@ class CreateBaseBody(BaseModel):
     embeddingModel: str = ""
     embeddingBaseUrl: str = ""
     embeddingApiKey: str = ""
-    summaryEnabled: bool = True
+    # Off by default — summaries are optional; turn on per-KB in settings.
+    summaryEnabled: bool = False
     imageCaptionEnabled: bool = False
 
 
