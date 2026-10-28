@@ -1,13 +1,12 @@
 //! Windows CUA 顶部操作提示 — 对齐 ZCode `windowsCuaOperationIndicator`。
 //!
 //! 当前鼠标所在显示器顶部居中：「EvoFlow 正在操作电脑」。
-//! 用 data-URL 内联 HTML（不依赖 Vite 二次窗口模块加载）；显示后强制 HWND_TOPMOST。
+//! 加载 ``cua-glow-overlay.html``（自包含）；显示后强制 HWND_TOPMOST。
 
 use std::sync::Mutex;
 use std::time::Duration;
 
 use tauri::{LogicalPosition, LogicalSize, Manager, WebviewUrl, WebviewWindow};
-use url::Url;
 
 const OVERLAY_LABEL: &str = "cua-glow-0";
 /// 对齐 ZCode indicatorWindowSize（中文 234 卡宽 + shadow inset）。
@@ -23,60 +22,6 @@ struct OverlayState {
 static OVERLAY_STATE: Mutex<OverlayState> = Mutex::new(OverlayState {
     window_created: false,
 });
-
-/// ZCode `indicatorHtml` — self-contained, no external scripts.
-fn indicator_html() -> String {
-    r#"<!doctype html>
-<html lang="zh-CN" data-state="active">
-<head>
-<meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
-<style>
-:root{color-scheme:light dark}
-*{box-sizing:border-box}
-html,body{width:100%;height:100%;margin:0;overflow:hidden;background:#f3f4f6;pointer-events:none;user-select:none}
-body{display:flex;align-items:center;justify-content:center;padding:6px 8px 12px;font-family:"Segoe UI Variable","Segoe UI","PingFang SC","Microsoft YaHei",sans-serif}
-.indicator{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;height:38px;padding:0 18px;color:#202124;background:#fff;border:1px solid rgba(15,23,42,.14);border-radius:12px;box-shadow:0 1px 2px rgba(15,23,42,.08),0 6px 12px -6px rgba(15,23,42,.18);font-size:13px;font-weight:600;line-height:1;white-space:nowrap;opacity:1;transform:translateY(0);transition:opacity 120ms ease,transform 120ms ease;animation:enter 140ms ease-out both}
-.dots{display:flex;align-items:center;gap:3px}
-.dot{width:4px;height:4px;border-radius:50%;background:#64748b;animation:pulse 1.2s ease-in-out infinite}
-.dot:nth-child(2){animation-delay:120ms}
-.dot:nth-child(3){animation-delay:240ms}
-html[data-state="leaving"] .indicator{opacity:0;transform:translateY(-6px)}
-@keyframes enter{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:translateY(0)}}
-@keyframes pulse{0%,70%,100%{opacity:.35;transform:scale(.8)}35%{opacity:1;transform:scale(1)}}
-@media (prefers-color-scheme:dark){html,body{background:#1f2329}.indicator{color:#f8fafc;background:#2b3038;border-color:rgba(255,255,255,.14);box-shadow:0 1px 2px rgba(0,0,0,.18),0 6px 12px -6px rgba(0,0,0,.28)}.dot{background:#a8b3c4}}
-@media (prefers-reduced-motion:reduce){.indicator,.dot{animation:none;transition:opacity 1ms linear;transform:none}html[data-state="leaving"] .indicator{transform:none}}
-</style>
-</head>
-<body>
-<div class="indicator" role="status" aria-live="polite">
-<span class="dots" aria-hidden="true"><span class="dot"></span><span class="dot"></span><span class="dot"></span></span>
-<span id="lbl">EvoFlow 正在操作电脑</span>
-</div>
-<script>
-(function(){
-  var zh=/^zh\b/i.test(String(navigator.language||''));
-  var el=document.getElementById('lbl');
-  if(el) el.textContent=zh?'EvoFlow 正在操作电脑':'EvoFlow is controlling your computer';
-  document.documentElement.lang=zh?'zh-CN':'en';
-  document.documentElement.dataset.state='active';
-  window.__cuaGlowOverlay={
-    setActive:function(){document.documentElement.dataset.state='active'},
-    setLeaving:function(){document.documentElement.dataset.state='leaving'}
-  };
-})();
-</script>
-</body>
-</html>"#
-    .to_string()
-}
-
-fn indicator_data_url() -> Result<Url, String> {
-    use base64::Engine;
-    let b64 = base64::engine::general_purpose::STANDARD.encode(indicator_html().as_bytes());
-    Url::parse(&format!("data:text/html;base64,{b64}"))
-        .map_err(|e| format!("CUA indicator data URL parse failed: {e}"))
-}
 
 fn overlay_logical_position(app: &tauri::AppHandle) -> Result<LogicalPosition<f64>, String> {
     // Prefer cursor's monitor (ZCode getDisplayNearestPoint); fall back to primary.
@@ -157,9 +102,13 @@ fn build_glow_window(
     app: &tauri::AppHandle,
     pos: LogicalPosition<f64>,
 ) -> Result<WebviewWindow, String> {
-    let data_url = indicator_data_url()?;
-    // Opaque: WebView2 transparent windows often paint blank; visibility > chrome.
-    let window = WebviewWindow::builder(app, OVERLAY_LABEL, WebviewUrl::External(data_url))
+    // App HTML (self-contained). data: URLs need `webview-data-url` feature — we don't.
+    // Opaque: transparent WebView2 often paints blank.
+    let window = WebviewWindow::builder(
+        app,
+        OVERLAY_LABEL,
+        WebviewUrl::App("cua-glow-overlay.html".into()),
+    )
         .title("EvoFlow Computer Use")
         .inner_size(OVERLAY_WIDTH, OVERLAY_HEIGHT)
         .position(pos.x, pos.y)
