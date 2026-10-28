@@ -13,7 +13,6 @@ import { toast } from '../components/toast.js'
 import { navigate } from '../router.js'
 import { notifyDesktopCompletion } from '../lib/desktop-notification.js'
 import { showConfirm } from '../components/modal.js'
-import { mountProactiveLiveProcess } from '../components/proactive-live-process.js'
 import { filterChatModels } from '../lib/model-classification.js'
 import { mountAgentAvatar } from '../lib/mount-agent-ui.js'
 import {
@@ -367,85 +366,91 @@ export async function render() {
   const page = document.createElement('div')
   page.className = 'page proactive-page'
   page.innerHTML = `
-    <div class="pro-hero">
-      <div class="pro-hero-main">
-        <p class="pro-hero-kicker">数字员工</p>
-        <h1 class="page-title">员工</h1>
-        <p class="page-desc">加人、排班、组织编制；有事项等你拍板时优先处理，进度全貌看「工作项」</p>
-      </div>
-      <div class="page-actions">
-        <div class="pro-feishu-toolbar" id="pro-feishu-toolbar" hidden>
-          <span class="pro-feishu-toolbar-label" id="pro-feishu-toolbar-label" title=""></span>
-          <button type="button" class="btn btn-sm btn-primary" id="pro-feishu-bind-next">扫码绑定</button>
-        </div>
-        <button type="button" class="btn btn-primary btn-sm" id="pro-hire">加人</button>
-        <button type="button" class="btn btn-secondary btn-sm" id="pro-refresh">刷新</button>
-      </div>
-    </div>
-
-    <div class="pro-duty-card" id="pro-switch-card">
-      <div class="pro-duty-left">
-        <div class="pro-duty-icon" aria-hidden="true">
-          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8">
-            <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/>
-            <circle cx="9" cy="7" r="4"/>
-            <path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/>
-          </svg>
-        </div>
-        <div class="pro-switch-info">
-          <div class="pro-switch-status">
-            <span class="pro-switch-dot" id="pro-switch-dot"></span>
-            <span id="pro-switch-text">加载中…</span>
+    <div class="pro-shell">
+      <div class="pro-detail-pane">
+        <div class="pro-hero">
+          <div class="pro-hero-main">
+            <p class="pro-hero-kicker">数字员工</p>
+            <h1 class="page-title">员工</h1>
+            <p class="page-desc">加人、排班、组织编制；有事项等你拍板时优先处理，进度全貌看「工作项」</p>
           </div>
-          <div class="pro-switch-meta" id="pro-switch-meta"></div>
+          <div class="page-actions">
+            <div class="pro-feishu-toolbar" id="pro-feishu-toolbar" hidden>
+              <span class="pro-feishu-toolbar-label" id="pro-feishu-toolbar-label" title=""></span>
+              <button type="button" class="btn btn-sm btn-primary" id="pro-feishu-bind-next">扫码绑定</button>
+            </div>
+            <button type="button" class="btn btn-primary btn-sm" id="pro-hire">加人</button>
+            <button type="button" class="btn btn-secondary btn-sm" id="pro-refresh">刷新</button>
+          </div>
+        </div>
+
+        <div class="pro-duty-card" id="pro-switch-card">
+          <div class="pro-duty-left">
+            <div class="pro-duty-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8">
+                <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/>
+                <circle cx="9" cy="7" r="4"/>
+                <path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/>
+              </svg>
+            </div>
+            <div class="pro-switch-info">
+              <div class="pro-switch-status">
+                <span class="pro-switch-dot" id="pro-switch-dot"></span>
+                <span id="pro-switch-text">加载中…</span>
+              </div>
+              <div class="pro-switch-meta" id="pro-switch-meta"></div>
+            </div>
+          </div>
+          <button type="button" class="btn btn-sm" id="pro-switch-btn" disabled>—</button>
+        </div>
+
+        <div class="pro-decide-strip" id="pro-decide-strip" hidden></div>
+
+        <div class="pro-tabs-bar">
+          <div class="pro-tabs" role="tablist" aria-label="员工">
+            <button type="button" class="pro-tab ${_currentTab === 'approvals' ? 'pro-tab--active' : ''}" data-tab="approvals" role="tab">
+              待审批 <span class="pro-tab-count" id="pro-tab-count-apprs"></span>
+            </button>
+            <button type="button" class="pro-tab ${_currentTab === 'roles' ? 'pro-tab--active' : ''}" data-tab="roles" role="tab">
+              员工 <span class="pro-tab-count" id="pro-tab-count-roles"></span>
+            </button>
+            <button type="button" class="pro-tab ${_currentTab === 'org' ? 'pro-tab--active' : ''}" data-tab="org" role="tab">
+              组织 / 部门
+            </button>
+            <button type="button" class="pro-tab ${_currentTab === 'health' ? 'pro-tab--active' : ''}" data-tab="health" role="tab">
+              健康
+            </button>
+            <button type="button" class="pro-tab ${_currentTab === 'board' ? 'pro-tab--active' : ''}" data-tab="board" role="tab" title="按状态看全员岗位工作项">
+              工作项
+            </button>
+          </div>
+          <label class="pro-roles-search" title="按岗位名、智能体名或代号筛选">
+            <span class="sr-only">搜索员工</span>
+            <svg class="pro-roles-search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+              <circle cx="11" cy="11" r="8"></circle>
+              <path d="m21 21-4.3-4.3"></path>
+            </svg>
+            <input
+              type="search"
+              class="pro-roles-search-input"
+              id="pro-roles-search"
+              placeholder="搜索员工…"
+              autocomplete="off"
+              value=""
+            />
+          </label>
+        </div>
+
+        <div class="pro-tab-content" id="pro-tab-content">
+          <div class="pro-loading">加载中…</div>
         </div>
       </div>
-      <button type="button" class="btn btn-sm" id="pro-switch-btn" disabled>—</button>
-    </div>
-
-    <div class="pro-decide-strip" id="pro-decide-strip" hidden></div>
-
-    <div class="pro-tabs-bar">
-      <div class="pro-tabs" role="tablist" aria-label="员工">
-        <button type="button" class="pro-tab ${_currentTab === 'approvals' ? 'pro-tab--active' : ''}" data-tab="approvals" role="tab">
-          待审批 <span class="pro-tab-count" id="pro-tab-count-apprs"></span>
-        </button>
-        <button type="button" class="pro-tab ${_currentTab === 'roles' ? 'pro-tab--active' : ''}" data-tab="roles" role="tab">
-          员工 <span class="pro-tab-count" id="pro-tab-count-roles"></span>
-        </button>
-        <button type="button" class="pro-tab ${_currentTab === 'org' ? 'pro-tab--active' : ''}" data-tab="org" role="tab">
-          组织 / 部门
-        </button>
-        <button type="button" class="pro-tab ${_currentTab === 'health' ? 'pro-tab--active' : ''}" data-tab="health" role="tab">
-          健康
-        </button>
-        <button type="button" class="pro-tab ${_currentTab === 'board' ? 'pro-tab--active' : ''}" data-tab="board" role="tab" title="按状态看全员岗位工作项">
-          工作项
-        </button>
-      </div>
-      <label class="pro-roles-search" title="按岗位名、智能体名或代号筛选">
-        <span class="sr-only">搜索员工</span>
-        <svg class="pro-roles-search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-          <circle cx="11" cy="11" r="8"></circle>
-          <path d="m21 21-4.3-4.3"></path>
-        </svg>
-        <input
-          type="search"
-          class="pro-roles-search-input"
-          id="pro-roles-search"
-          placeholder="搜索员工…"
-          autocomplete="off"
-          value=""
-        />
-      </label>
-    </div>
-
-    <div class="pro-tab-content" id="pro-tab-content">
-      <div class="pro-loading">加载中…</div>
+      <aside class="pro-stage-pane" id="pro-right-stage-slot" aria-label="员工侧栏" hidden></aside>
     </div>
   `
 
   bindHeader(page)
+  void ensureRosterRightStage(page)
   // Return shell immediately (tab shows「加载中」); data fills in — don't block router paint.
   void loadAll(page).then(() => {
     try {
@@ -1335,7 +1340,7 @@ let _dashboardData = null
 let _prevApprovalCount = -1
 /** @type {Set<string>} */
 let _busyCodes = new Set()
-/** @type {ReturnType<typeof mountProactiveLiveProcess> | null} */
+/** @deprecated 工作过程已改右栏 employeeProcess；保留空引用以免旧轮询空转报错 */
 let _rosterLiveMount = null
 
 function syncBusyCodes(st) {
@@ -1368,13 +1373,23 @@ function _fmtTrailClock(iso) {
   }
 }
 
+async function ensureRosterRightStage(page) {
+  if (!page || page._rosterRightStage) return page?._rosterRightStage
+  const slot = page.querySelector('#pro-right-stage-slot')
+  if (!slot) return null
+  try {
+    const { mountProactiveRosterRightStage } = await import('../components/proactive-roster-right-stage.js')
+    page._rosterRightStage = mountProactiveRosterRightStage(slot)
+  } catch (e) {
+    console.warn('[proactive] mount roster right stage failed', e)
+  }
+  return page._rosterRightStage
+}
+
 function openRosterLive(page, role) {
   const code = String(role.agent_code || '').trim()
   if (!code) return
 
-  if (!_rosterLiveMount) {
-    _rosterLiveMount = mountProactiveLiveProcess(page)
-  }
   const busy = _busyCodes.has(code)
   const roleInits = (_initiativesData || []).filter((i) => String(i.role_agent_code || '') === code)
   let roundId = ''
@@ -1408,18 +1423,40 @@ function openRosterLive(page, role) {
       roundId = ''
       at = liveAt
     }
+    await ensureRosterRightStage(page)
+    try {
+      const { ensureRightStageKindsRegistered } = await import('../react/right-stage/register-kinds.js')
+      ensureRightStageKindsRegistered()
+    } catch {
+      /* optional */
+    }
+    const { openEmployeeProcessInRightStage } = await import(
+      '../lib/right-stage/open-employee-process-stage.js'
+    )
+    const { EMPLOYEES_ROSTER_STAGE_SESSION_KEY } = await import(
+      '../lib/right-stage/employees-roster-stage-key.js'
+    )
+    const roleName = String(role.role_name || role.agent_name || code).trim()
     const clock = _fmtTrailClock(at || roundId)
     const base = liveBusy ? '工作过程 · 工作中' : '工作过程'
-    _rosterLiveMount.open({
-      agentCode: code,
-      roleName: role.role_name || code,
-      busy: liveBusy,
-      roundId: roundId || undefined,
-      title: clock ? `${clock} · ${base}` : base,
-      onClosed: () => {
-        page.querySelectorAll('.pro-role-card--live-open').forEach((el) => el.classList.remove('pro-role-card--live-open'))
+    const title = clock ? `${clock} · ${base}` : base
+    const tabId = openEmployeeProcessInRightStage(
+      {
+        taskId: '',
+        agentCode: code,
+        roleName,
+        title: roleName || title,
+        roundId: roundId || undefined,
+        busy: liveBusy,
       },
-    })
+      { sessionKey: EMPLOYEES_ROSTER_STAGE_SESSION_KEY, layout: 'wide' },
+    )
+    if (!tabId) {
+      toast('无法打开工作过程面板', 'error')
+      return
+    }
+    page.classList.add('pro-with-right-stage')
+    page.querySelector('#pro-right-stage-slot')?.removeAttribute('hidden')
   })()
   page.querySelectorAll('.pro-role-card--live-open').forEach((el) => el.classList.remove('pro-role-card--live-open'))
   page.querySelectorAll('.pro-role-card[data-code]').forEach((el) => {
@@ -3884,7 +3921,9 @@ export function cleanup() {
     _rosterLiveMount = null
   }
   try {
-    const page = document.querySelector('.pro-page, .page')
+    const page = document.querySelector('.proactive-page')
+    page?._rosterRightStage?.destroy?.()
+    page._rosterRightStage = null
     page?._xmLiveUnsub?.()
   } catch {
     /* ignore */

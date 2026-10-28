@@ -664,38 +664,14 @@ class DecisionGate:
                 if summary and summary not in description:
                     description = f"{description}\n\n交付摘要：{summary}".strip() if description else summary
 
-            # Prefer the bot that already owns this chat (same as normal Feishu replies).
-            # Learned default often comes from 小V/私聊 inbound — sending as Settings
-            # primary into that chat causes 230002. Only use role agent for open_id DM.
-            if receive_id_type == "open_id":
-                send_account = str(role.agent_code or "").strip()
-            else:
-                send_account = ""
-                try:
-                    owned = str(getattr(channel, "_chat_account", {}).get(str(target_id), "") or "").strip()
-                    if owned:
-                        send_account = owned
-                    else:
-                        from evoflow.runtime.ports import (
-                            read_learned_feishu_automation_account_id,
-                            read_learned_feishu_automation_chat_id,
-                        )
-
-                        learned_chat = str(read_learned_feishu_automation_chat_id() or "").strip()
-                        if learned_chat == str(target_id).strip():
-                            send_account = str(read_learned_feishu_automation_account_id() or "").strip()
-                except Exception:
-                    logger.debug(
-                        "proactive.feishu.push: resolve chat owner failed",
-                        exc_info=True,
-                    )
+            # 1:1 — always send as the bound role's own bot. Do not borrow a
+            # learned automation account (another employee) for this card.
+            send_account = str(role.agent_code or "").strip()
 
             # Normalize Feishu id type (ou_ = user open_id).
             tid_s = str(target_id or "").strip()
             if tid_s.startswith("ou_"):
                 receive_id_type = "open_id"
-                if not send_account:
-                    send_account = str(role.agent_code or "").strip()
 
             msg_id = await channel.send_proactive_approval_card(
                 target_id,
@@ -719,41 +695,40 @@ class DecisionGate:
                 next_handlers=next_handlers,
             )
 
-            # If owner bot failed (or unknown after restart), try a few alternates.
-            if not msg_id and receive_id_type == "chat_id":
-                tried = {send_account, ""}
-                for alt in ("xiaomi", str(role.agent_code or "").strip()):
-                    if not alt or alt in tried:
-                        continue
-                    tried.add(alt)
-                    logger.info(
-                        "proactive.feishu.push: retry approval card with account=%s",
-                        alt,
-                    )
-                    msg_id = await channel.send_proactive_approval_card(
-                        target_id,
-                        approval_id=approval.id,
-                        initiative_id=card_ref,
-                        role_name=role.role_name,
-                        department=role.department,
-                        title=initiative.title,
-                        description=description,
-                        risk_level=initiative.risk_level.value,
-                        action_type=initiative.action_type.value,
-                        rationale=initiative.rationale,
-                        expected_outcome=initiative.expected_outcome,
-                        agent_code=role.agent_code,
-                        timeout_minutes=int(getattr(approval, "approval_timeout_minutes", None) or getattr(initiative, "approval_timeout_minutes", None) or 30),
-                        receive_id_type=receive_id_type,
-                        account_id=alt,
-                        summary=summary,
-                        outputs=shareable,
-                        card_kind=card_kind,
-                        next_handlers=next_handlers,
-                    )
-                    if msg_id:
-                        send_account = alt
-                        break
+            # Delivery retry: empty primary only — never send as another employee
+            # (e.g. xiaomi) into this role's 1:1 binding.
+            if not msg_id and receive_id_type == "chat_id" and send_account:
+                logger.info(
+                    "proactive.feishu.push: retry approval card with primary account role=%s",
+                    role.agent_code,
+                )
+                msg_id = await channel.send_proactive_approval_card(
+                    target_id,
+                    approval_id=approval.id,
+                    initiative_id=card_ref,
+                    role_name=role.role_name,
+                    department=role.department,
+                    title=initiative.title,
+                    description=description,
+                    risk_level=initiative.risk_level.value,
+                    action_type=initiative.action_type.value,
+                    rationale=initiative.rationale,
+                    expected_outcome=initiative.expected_outcome,
+                    agent_code=role.agent_code,
+                    timeout_minutes=int(
+                        getattr(approval, "approval_timeout_minutes", None)
+                        or getattr(initiative, "approval_timeout_minutes", None)
+                        or 30
+                    ),
+                    receive_id_type=receive_id_type,
+                    account_id="",
+                    summary=summary,
+                    outputs=shareable,
+                    card_kind=card_kind,
+                    next_handlers=next_handlers,
+                )
+                if msg_id:
+                    send_account = ""
 
             card_summary = (summary or description or initiative.title or "")[:400]
             if msg_id:

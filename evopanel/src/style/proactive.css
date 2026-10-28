@@ -5,8 +5,89 @@
   --pro-teal-soft: var(--accent-muted, color-mix(in srgb, var(--accent, #0f766e) 12%, transparent));
   --pro-accent: var(--accent, #2563eb);
   --pro-slate-line: var(--border-primary, rgba(0, 0, 0, 0.08));
+  --pro-stage-width: min(440px, 42vw);
   color: var(--text-primary);
   box-sizing: border-box;
+  min-height: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 名册 | 工作过程右栏（对齐任务中心 td-split） */
+.proactive-page .pro-shell {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.proactive-page.pro-with-right-stage .pro-shell {
+  flex-direction: row;
+  align-items: stretch;
+}
+.proactive-page .pro-detail-pane {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.proactive-page.pro-with-right-stage .pro-detail-pane {
+  flex: 1 1 52%;
+}
+.proactive-page .pro-stage-pane {
+  display: none;
+  flex: 0 0 var(--pro-stage-width);
+  width: var(--pro-stage-width);
+  max-width: 56%;
+  min-width: 300px;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg-primary, var(--bg-secondary, #fff));
+  border-left: 1px solid var(--pro-slate-line);
+}
+.proactive-page.pro-with-right-stage .pro-stage-pane:not([hidden]) {
+  display: flex;
+  flex-direction: column;
+}
+.proactive-page .pro-right-stage-react-host,
+.proactive-page .pro-right-stage {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+.proactive-page .pro-right-stage .react-chat-right-stage-panel,
+.proactive-page .pro-right-stage .react-chat-right-stage-shell {
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+}
+.proactive-page .pro-right-stage .v4-employee-process-panel {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+@media (max-width: 900px) {
+  .proactive-page.pro-with-right-stage .pro-shell {
+    flex-direction: column;
+  }
+  .proactive-page .pro-stage-pane {
+    flex: 0 0 min(48vh, 420px);
+    width: 100%;
+    max-width: none;
+    min-width: 0;
+    border-left: none;
+    border-top: 1px solid var(--pro-slate-line);
+  }
 }
 
 [data-theme="dark"] .proactive-page {

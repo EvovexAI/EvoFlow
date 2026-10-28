@@ -336,6 +336,7 @@ def maybe_push_tree_receipt_feishu(
                 summary_lines=build_tree_receipt_summary_lines(root=root, tree=tree),
                 child_task_id=child_id,
                 raised_by=str(root.get("raised_by") or "").strip(),
+                assigned_to=str(root.get("assigned_to") or "").strip(),
                 claim_push_id=str(claim_push_id or ""),
             )
         )

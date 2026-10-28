@@ -606,43 +606,82 @@ def finalize_tree_receipt_claim(
     receive_id: str = "",
     receive_id_type: str = "",
     sender_account_id: str = "",
+    role_agent_code: str = "",
     content_summary: str = "",
     error: str = "",
     payload: Any = None,
 ) -> None:
-    """Mark a pending tree_receipt claim as sent or failed."""
+    """Mark a pending tree_receipt claim as sent or failed.
+
+    Also stamps the real notify role onto ``role_agent_code`` (claim inserts
+    default to ``xiaomi`` before routing is resolved).
+    """
     pid = str(push_id or "").strip()
     if not pid:
         return
     status = "ok" if ok else "error"
     event = "sent" if ok else "send_failed"
+    role_code = str(role_agent_code or "").strip()
 
     def _finalize(db: Any) -> None:
-        db.execute(
-            """
-            UPDATE evoflow_channel_push_log
-            SET event = ?,
-                receive_id = ?,
-                receive_id_type = ?,
-                sender_account_id = ?,
-                content_summary = ?,
-                payload_json = ?,
-                status = ?,
-                error = ?
-            WHERE id = ? AND kind = 'tree_receipt'
-            """,
-            (
-                event,
-                str(receive_id or "").strip(),
-                str(receive_id_type or "").strip(),
-                str(sender_account_id or "").strip(),
-                _clip(content_summary, _SUMMARY_MAX),
-                _payload_to_json(payload if payload is not None else {"transport": "markdown"}),
-                status,
-                _clip(error, _SUMMARY_MAX),
-                pid,
-            ),
-        )
+        if role_code:
+            db.execute(
+                """
+                UPDATE evoflow_channel_push_log
+                SET event = ?,
+                    receive_id = ?,
+                    receive_id_type = ?,
+                    sender_account_id = ?,
+                    role_agent_code = ?,
+                    content_summary = ?,
+                    payload_json = ?,
+                    status = ?,
+                    error = ?
+                WHERE id = ? AND kind = 'tree_receipt'
+                """,
+                (
+                    event,
+                    str(receive_id or "").strip(),
+                    str(receive_id_type or "").strip(),
+                    str(sender_account_id or "").strip(),
+                    role_code,
+                    _clip(content_summary, _SUMMARY_MAX),
+                    _payload_to_json(
+                        payload if payload is not None else {"transport": "markdown"}
+                    ),
+                    status,
+                    _clip(error, _SUMMARY_MAX),
+                    pid,
+                ),
+            )
+        else:
+            db.execute(
+                """
+                UPDATE evoflow_channel_push_log
+                SET event = ?,
+                    receive_id = ?,
+                    receive_id_type = ?,
+                    sender_account_id = ?,
+                    content_summary = ?,
+                    payload_json = ?,
+                    status = ?,
+                    error = ?
+                WHERE id = ? AND kind = 'tree_receipt'
+                """,
+                (
+                    event,
+                    str(receive_id or "").strip(),
+                    str(receive_id_type or "").strip(),
+                    str(sender_account_id or "").strip(),
+                    _clip(content_summary, _SUMMARY_MAX),
+                    _payload_to_json(
+                        payload if payload is not None else {"transport": "markdown"}
+                    ),
+                    status,
+                    _clip(error, _SUMMARY_MAX),
+                    pid,
+                ),
+            )
 
     try:
         from evoflow.persistence.db import run_db_transaction
