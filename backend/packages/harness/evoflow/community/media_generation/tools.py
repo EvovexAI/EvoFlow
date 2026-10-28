@@ -253,10 +253,13 @@ def _validate_image_prompt(prompt: str) -> str | None:
     return None
 
 
-def _parse_reference_urls(reference_image_urls: str | None) -> list[str] | None:
+def _parse_reference_urls(reference_image_urls: str | list | None) -> list[str] | None:
     if not reference_image_urls:
         return None
-    ref = reference_image_urls.strip()
+    if isinstance(reference_image_urls, list):
+        out = [str(x).strip() for x in reference_image_urls if str(x).strip()]
+        return out or None
+    ref = str(reference_image_urls).strip()
     if ref.startswith("["):
         try:
             parsed = json.loads(ref)

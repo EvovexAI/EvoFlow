@@ -376,11 +376,17 @@ async def speech_tts_stream(body: SpeechTtsRequest) -> StreamingResponse:
     if not text:
         raise HTTPException(status_code=400, detail="Empty text")
 
-    if provider == "volcengine" and not speech_configured():
+    if provider in {"volcengine", "doubao"} and not speech_configured():
         raise HTTPException(
             status_code=503,
-            detail="Speech not configured. Enable 火山 TTS in Settings → Models.",
+            detail="Speech not configured. Enable 火山 TTS in Settings → Models → 语音.",
         )
+    if provider not in {"volcengine", "doubao"}:
+        from app.gateway.speech.tts_registry import validate_tts_config
+
+        pre = validate_tts_config(provider)
+        if not pre.get("ok"):
+            raise HTTPException(status_code=503, detail=pre.get("guide") or f"{provider} TTS 未配置")
     try:
         speaker = body.speaker.strip() if body.speaker else None
         if body.trace_id:

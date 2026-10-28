@@ -301,17 +301,39 @@ class SpeechSession:
         self._default_speaker = speaker or DEFAULT_TTS_SPEAKER
         self._asr_provider = str(data.get("asr_provider") or self._asr_provider).strip() or "volcengine"
         self._tts_provider = str(data.get("tts_provider") or self._tts_provider).strip() or "volcengine"
-        if self._tts_provider in {"volcengine", "doubao"} and not speech_configured():
+        try:
+            from app.gateway.speech.tts_registry import validate_tts_config
+
+            tts_ok = validate_tts_config(self._tts_provider)
+        except Exception:
+            tts_ok = {"ok": self._tts_provider not in {"volcengine", "doubao"} or speech_configured()}
+        if not tts_ok.get("ok"):
             try:
                 await self._ws.send_json(
                     {
                         "type": "error",
-                        "message": "speech not configured — enable 火山 TTS in Settings → Models",
+                        "message": tts_ok.get("guide")
+                        or "speech not configured — enable TTS in Settings → Models → 语音",
                         "needsConfig": True,
                     }
                 )
             except Exception:
                 pass
+        try:
+            from app.gateway.speech.asr_registry import validate_asr_config
+
+            asr_ok = validate_asr_config(self._asr_provider)
+            if not asr_ok.get("ok"):
+                await self._ws.send_json(
+                    {
+                        "type": "error",
+                        "message": asr_ok.get("guide")
+                        or "ASR not configured — pick a ready channel in Settings → Models → 语音",
+                        "needsConfig": True,
+                    }
+                )
+        except Exception:
+            pass
         # Rebuild pipeline if already running with new providers
         if self._worker:
             await self._worker.stop()

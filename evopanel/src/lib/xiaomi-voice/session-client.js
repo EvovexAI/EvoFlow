@@ -1186,6 +1186,8 @@ export function bargeInXiaomiFrame(opts = {}) {
   } catch {
     /* ignore */
   }
+  _pausedForSoftBarge = false
+  _playbackDuckFactor = 1
   _teardownAllAudio()
 }
 

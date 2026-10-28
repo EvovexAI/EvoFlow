@@ -23,6 +23,13 @@ import {
   VOLCENGINE_TTS_SPEAKER_DOC_URL,
   VOLCENGINE_TTS_SPEAKER_PRESETS,
 } from '../../lib/volcengine-tts-speakers.js'
+import {
+  DASHSCOPE_TTS_SPEAKER_DOC_URL,
+  DASHSCOPE_TTS_SPEAKER_PRESETS,
+  OPENAI_TTS_SPEAKER_PRESETS,
+  ELEVENLABS_TTS_SPEAKER_PRESETS,
+  MINIMAX_TTS_SPEAKER_PRESETS,
+} from '../../lib/dashscope-tts-speakers.js'
 
 // Agent Plan 套餐概览用短 ID；按量 Ark 官方快照带日期后缀（见方舟模型列表）。
 const JIMENG_IMAGE_MODEL_PRESETS = [
@@ -94,6 +101,43 @@ const ADVANCED_VENDORS = [
     officialLabel: '获取 API Key',
   },
   {
+    key: 'dashscope-tts',
+    label: '阿里云语音',
+    sub: 'CosyVoice · Paraformer',
+    icon: 'alibabacloud',
+    setupGuide:
+      '使用百炼 DashScope API Key（与通义万相共用）。ASR 走 Paraformer 实时识别，TTS 走 CosyVoice HTTP。',
+    officialUrl: 'https://help.aliyun.com/zh/model-studio/get-api-key',
+    officialLabel: '百炼 API Key',
+  },
+  {
+    key: 'openai-tts',
+    label: 'OpenAI TTS',
+    sub: 'gpt-4o-mini-tts',
+    icon: 'openai',
+    setupGuide: '填写 OpenAI API Key；可选自定义 Base URL（兼容网关）。',
+    officialUrl: 'https://platform.openai.com/docs/guides/text-to-speech',
+    officialLabel: 'OpenAI TTS 文档',
+  },
+  {
+    key: 'elevenlabs-tts',
+    label: 'ElevenLabs',
+    sub: '多语种 TTS',
+    icon: null,
+    setupGuide: '在 ElevenLabs 控制台创建 API Key。',
+    officialUrl: 'https://elevenlabs.io/docs/api-reference/text-to-speech',
+    officialLabel: 'ElevenLabs 文档',
+  },
+  {
+    key: 'minimax-tts',
+    label: 'MiniMax TTS',
+    sub: '海螺语音合成',
+    icon: 'minimax',
+    setupGuide: '填写 MiniMax TTS API Key（与视频渠道 Key 分开）。',
+    officialUrl: 'https://platform.minimaxi.com/document/T2A%20V2',
+    officialLabel: 'MiniMax TTS 文档',
+  },
+  {
     key: 'kling',
     label: '可灵',
     sub: 'Kling 生图/视频',
@@ -131,10 +175,16 @@ const CREATIVE_VENDOR_KEYS = new Set([
   'agnes',
   'aliyun',
 ])
-const VOICE_VENDOR_KEYS = new Set(['volcengine-tts'])
+const VOICE_VENDOR_KEYS = new Set([
+  'volcengine-tts',
+  'dashscope-tts',
+  'openai-tts',
+  'elevenlabs-tts',
+  'minimax-tts',
+])
 
 const ALWAYS_VISIBLE_CREATIVE_KEYS = new Set(['volcengine', 'dashscope', 'openai-image', 'minimax'])
-const ALWAYS_VISIBLE_VOICE_KEYS = new Set(['volcengine-tts'])
+const ALWAYS_VISIBLE_VOICE_KEYS = new Set(['volcengine-tts', 'dashscope-tts', 'openai-tts', 'minimax-tts'])
 
 const ALL_VENDORS = [...ADVANCED_VENDORS]
 
@@ -204,7 +254,10 @@ const SECRET_IDS = [
   'agnesApiKey',
   'volcengineSpeechApiKey',
   'volcengineTtsAccessToken',
+  'openaiTtsKey',
   'openaiImageApiKey',
+  'elevenLabsKey',
+  'minimaxKey',
   'minimaxMediaApiKey',
   'aliyunAccessKeySecret',
 ]
@@ -275,6 +328,14 @@ function isVendorConfigured(key, creds) {
         isFieldConfigured(creds, 'volcengineSpeechApiKey') ||
         isFieldConfigured(creds, 'volcengineApiKey')
       )
+    case 'dashscope-tts':
+      return !!(c.dashscopeApiKey || isFieldConfigured(creds, 'dashscopeApiKey'))
+    case 'openai-tts':
+      return !!(c.openaiTtsKey || isFieldConfigured(creds, 'openaiTtsKey'))
+    case 'elevenlabs-tts':
+      return !!(c.elevenLabsKey || isFieldConfigured(creds, 'elevenLabsKey'))
+    case 'minimax-tts':
+      return !!(c.minimaxKey || isFieldConfigured(creds, 'minimaxKey'))
     case 'dashscope':
       return !!c.dashscopeApiKey
     case 'openai-image':
@@ -471,13 +532,14 @@ function bindSidebarSectionToggles(page, modelsState, callbacks = {}) {
 function enableToggleHtml(vendorKey, creds) {
   const configured = isVendorConfigured(vendorKey, creds)
   // 火山生图/视频：套餐可用或未填 Key 时也显示开关（默认启用）
-  if (!configured && vendorKey !== 'volcengine-tts' && vendorKey !== 'volcengine') return ''
+  const allowEmptyToggle = vendorKey === 'volcengine-tts' || vendorKey === 'volcengine' || isVoiceVendor(vendorKey)
+  if (!configured && !allowEmptyToggle) return ''
   const enabled =
     (vendorKey === 'volcengine-tts' || vendorKey === 'volcengine') && !configured
       ? true
       : isVendorEnabled(vendorKey, creds)
   const label =
-    vendorKey === 'volcengine-tts'
+    isVoiceVendor(vendorKey)
       ? '启用语音功能'
       : vendorKey === 'volcengine'
         ? '启用火山生图/生视频'
@@ -616,6 +678,7 @@ function buildXiaomiProviderFieldsHtml() {
       <label class="form-label">小V · 识别通道（ASR）</label>
       <select class="form-input" data-xiaomi-asr-provider>
         <option value="volcengine">火山引擎（默认）</option>
+        <option value="dashscope">阿里云 Paraformer</option>
         <option value="whisper">本地 Whisper</option>
       </select>
       <p class="form-hint" data-xiaomi-asr-hint></p>
@@ -625,24 +688,95 @@ function buildXiaomiProviderFieldsHtml() {
       <select class="form-input" data-xiaomi-tts-provider>
         <option value="volcengine">火山引擎（默认）</option>
         <option value="doubao">豆包（方舟）</option>
+        <option value="dashscope">阿里 CosyVoice</option>
         <option value="openai">OpenAI TTS</option>
         <option value="elevenlabs">ElevenLabs</option>
         <option value="minimax">MiniMax</option>
-        <option value="dashscope">阿里 DashScope</option>
       </select>
       <p class="form-hint" data-xiaomi-tts-hint></p>
     </div>`
+}
+
+function buildDashscopeTtsFieldsHtml(creds) {
+  return `
+    ${secretFieldHtml('dashscopeApiKey', 'DashScope API Key', creds)}
+    ${textFieldHtml('dashscopeBaseUrl', 'Base URL（可选）', 'https://dashscope.aliyuncs.com/api/v1', creds)}
+    <p class="form-hint">与「通义万相」共用同一 Key。ASR=Paraformer 实时；TTS=CosyVoice v3-flash。</p>
+    ${buildXiaomiProviderFieldsHtml()}
+    ${withTtsProviderAttr(
+      buildTtsSpeakerFieldHtml('dashscopeTtsVoice', '朗读音色', DASHSCOPE_TTS_SPEAKER_PRESETS, creds, {
+        showVoiceId: false,
+        customModeLabel: '自定义音色',
+        customPlaceholder: '输入 CosyVoice voice 参数',
+      }),
+      'dashscope',
+    )}
+    <p class="form-hint"><a href="${escAttr(DASHSCOPE_TTS_SPEAKER_DOC_URL)}" target="_blank" rel="noopener noreferrer">音色列表</a></p>`
+}
+
+function buildOpenaiTtsFieldsHtml(creds) {
+  return `
+    ${secretFieldHtml('openaiTtsKey', 'API Key', creds)}
+    ${textFieldHtml('openaiTtsBaseUrl', 'Base URL（可选）', 'https://api.openai.com/v1', creds)}
+    ${buildXiaomiProviderFieldsHtml()}
+    ${withTtsProviderAttr(
+      buildTtsSpeakerFieldHtml('openaiTtsVoice', '朗读音色', OPENAI_TTS_SPEAKER_PRESETS, creds, {
+        showVoiceId: false,
+        customModeLabel: '自定义音色',
+        customPlaceholder: 'voice id',
+      }),
+      'openai',
+    )}`
+}
+
+function buildElevenlabsTtsFieldsHtml(creds) {
+  return `
+    ${secretFieldHtml('elevenLabsKey', 'API Key', creds)}
+    ${buildXiaomiProviderFieldsHtml()}
+    ${withTtsProviderAttr(
+      buildTtsSpeakerFieldHtml('elevenLabsVoice', '朗读音色', ELEVENLABS_TTS_SPEAKER_PRESETS, creds, {
+        showVoiceId: true,
+        customModeLabel: '自定义 Voice ID',
+        customPlaceholder: 'ElevenLabs voice id',
+      }),
+      'elevenlabs',
+    )}`
+}
+
+function buildMinimaxTtsFieldsHtml(creds) {
+  return `
+    ${secretFieldHtml('minimaxKey', 'TTS API Key', creds)}
+    <p class="form-hint">与「MiniMax 视频」渠道 Key 分开保存。</p>
+    ${buildXiaomiProviderFieldsHtml()}
+    ${withTtsProviderAttr(
+      buildTtsSpeakerFieldHtml('minimaxTtsVoice', '朗读音色', MINIMAX_TTS_SPEAKER_PRESETS, creds, {
+        showVoiceId: false,
+        customModeLabel: '自定义音色',
+        customPlaceholder: 'voice id',
+      }),
+      'minimax',
+    )}`
+}
+
+function withTtsProviderAttr(html, provider) {
+  return String(html || '').replace(
+    'data-media-tts-speaker-group=',
+    `data-tts-provider="${escAttr(provider)}" data-media-tts-speaker-group=`,
+  )
 }
 
 function buildVolcengineTtsFieldsHtml(creds) {
   return `
     ${secretFieldHtml('volcengineSpeechApiKey', 'API Key', creds)}
     ${buildXiaomiProviderFieldsHtml()}
-    ${buildTtsSpeakerFieldHtml('volcengineTtsSpeaker', '朗读音色', VOLCENGINE_TTS_SPEAKER_PRESETS, creds, {
-      showVoiceId: false,
-      customModeLabel: '自定义音色',
-      customPlaceholder: '输入音色 ID',
-    })}
+    ${withTtsProviderAttr(
+      buildTtsSpeakerFieldHtml('volcengineTtsSpeaker', '朗读音色', VOLCENGINE_TTS_SPEAKER_PRESETS, creds, {
+        showVoiceId: false,
+        customModeLabel: '自定义音色',
+        customPlaceholder: '输入音色 ID',
+      }),
+      'volcengine',
+    )}
     <button type="button" class="media-advanced-toggle gw-advanced-toggle" data-media-advanced-toggle aria-expanded="false">
       <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
       <span>高级设置</span>
@@ -720,11 +854,23 @@ function buildDetailHtml(vendorKey, creds) {
     case 'volcengine-tts':
       fields = buildVolcengineTtsFieldsHtml(creds)
       break
+    case 'dashscope-tts':
+      fields = buildDashscopeTtsFieldsHtml(creds)
+      break
+    case 'openai-tts':
+      fields = buildOpenaiTtsFieldsHtml(creds)
+      break
+    case 'elevenlabs-tts':
+      fields = buildElevenlabsTtsFieldsHtml(creds)
+      break
+    case 'minimax-tts':
+      fields = buildMinimaxTtsFieldsHtml(creds)
+      break
     case 'dashscope':
       fields = `
         ${secretFieldHtml('dashscopeApiKey', 'API Key', creds)}
         ${textFieldHtml('dashscopeBaseUrl', 'Base URL（可选）', 'https://dashscope.aliyuncs.com/api/v1', creds)}
-        <p class="form-hint">生图推荐 wan2.7-image / wan2.7-image-pro；图生视频 wan2.7-i2v（支持首尾帧 + driving_audio）。兼容 wan2.6-t2i / wan2.6-i2v。</p>
+        <p class="form-hint">生图推荐 wan2.7-image / wan2.7-image-pro；图生视频 wan2.7-i2v（支持首尾帧 + driving_audio）。兼容 wan2.6-t2i / wan2.6-i2v。语音请到「语音」Tab 的阿里云语音。</p>
       `
       break
     case 'openai-image':
@@ -760,12 +906,13 @@ function buildDetailHtml(vendorKey, creds) {
       fields = '<p class="form-hint">未知厂商</p>'
   }
 
+  const customVoiceHeader = vendorKey === 'volcengine-tts' || vendorKey === 'volcengine'
   const guide =
-    vendorKey !== 'volcengine-tts' && vendorKey !== 'volcengine' && v.setupGuide
+    !customVoiceHeader && v.setupGuide
       ? `<p class="form-hint media-vendor-setup-guide">${escHtml(v.setupGuide)}</p>`
       : ''
   const officialLink =
-    vendorKey !== 'volcengine-tts' && vendorKey !== 'volcengine' && v.officialUrl
+    !customVoiceHeader && v.officialUrl
       ? `<p class="media-vendor-official-link"><a href="${escAttr(v.officialUrl)}" target="_blank" rel="noopener noreferrer">${escHtml(v.officialLabel || '官方文档')}</a></p>`
       : ''
   const header =
@@ -773,7 +920,7 @@ function buildDetailHtml(vendorKey, creds) {
       ? buildVolcengineTtsHeader()
       : vendorKey === 'volcengine'
         ? buildVolcengineCreativeHeader()
-        : `<header class="media-vendor-detail-head">
+        : `<header class="media-vendor-detail-head${isVoiceVendor(vendorKey) ? ' media-vendor-detail-head--speech' : ''}">
         <h3 class="media-vendor-detail-title">${escHtml(v.label)}</h3>
         ${guide}
         ${officialLink}
@@ -902,7 +1049,17 @@ function renderDetail() {
       if (d != null && !String(d).includes('*')) el.value = String(d)
     })
     bindJimengModelFields(panel)
-    bindTtsSpeakerFields(panel, VOLCENGINE_TTS_SPEAKER_PRESETS)
+    const speakerPresets =
+      _selected === 'dashscope-tts'
+        ? DASHSCOPE_TTS_SPEAKER_PRESETS
+        : _selected === 'openai-tts'
+          ? OPENAI_TTS_SPEAKER_PRESETS
+          : _selected === 'elevenlabs-tts'
+            ? ELEVENLABS_TTS_SPEAKER_PRESETS
+            : _selected === 'minimax-tts'
+              ? MINIMAX_TTS_SPEAKER_PRESETS
+              : VOLCENGINE_TTS_SPEAKER_PRESETS
+    bindTtsSpeakerFields(panel, speakerPresets)
     bindMediaAdvancedToggle(panel)
     bindAutosave(panel)
     void bindXiaomiProviderFields(panel)
@@ -1046,16 +1203,24 @@ async function onSave({ quiet = false, fromAutosave = false } = {}) {
     if (!wasConfigured) {
       patch.enabledVendors = { ...getEnabledVendors(_loaded), [_selected]: true }
     }
-    if (_selected === 'volcengine-tts') {
+    if (isVoiceVendor(_selected)) {
       const panel = _modelsPage?.querySelector(`[data-media-vendor-panel="${CSS.escape(_selected)}"]`)
       const enabledEl = panel?.querySelector('[data-media-enabled]')
       const toggledOff = enabledEl && !enabledEl.checked
-      const hasSpeechKey = !!patch.volcengineSpeechApiKey
-      if (!toggledOff && (hasSpeechKey || !wasConfigured)) {
+      const keyFieldByVendor = {
+        'volcengine-tts': 'volcengineSpeechApiKey',
+        'dashscope-tts': 'dashscopeApiKey',
+        'openai-tts': 'openaiTtsKey',
+        'elevenlabs-tts': 'elevenLabsKey',
+        'minimax-tts': 'minimaxKey',
+      }
+      const keyField = keyFieldByVendor[_selected]
+      const hasKey = !!(keyField && patch[keyField])
+      if (!toggledOff && (hasKey || !wasConfigured)) {
         patch.enabledVendors = {
           ...getEnabledVendors(_loaded),
           ...(patch.enabledVendors || {}),
-          'volcengine-tts': true,
+          [_selected]: true,
         }
       }
     }
@@ -1063,11 +1228,36 @@ async function onSave({ quiet = false, fromAutosave = false } = {}) {
     _loaded = await fetchMediaCredentials()
     _draft = { ...DEFAULT_MEDIA_CREDENTIALS, ..._loaded }
     delete _draft._configured
-    // Keep Xiaomi Frame session speaker in sync with saved TTS voice
+    // Keep Xiaomi Frame session speaker in sync with the vendor just saved
     try {
-      const { setXiaomiTtsSpeaker } = await import('../../lib/xiaomi-voice/config.js')
-      const sp = String(patch.volcengineTtsSpeaker || _loaded.volcengineTtsSpeaker || '').trim()
-      setXiaomiTtsSpeaker(sp)
+      const {
+        setXiaomiTtsSpeaker,
+        setXiaomiTtsProvider,
+        setXiaomiAsrProvider,
+      } = await import('../../lib/xiaomi-voice/config.js')
+      const voiceFieldByVendor = {
+        'volcengine-tts': 'volcengineTtsSpeaker',
+        'dashscope-tts': 'dashscopeTtsVoice',
+        'openai-tts': 'openaiTtsVoice',
+        'elevenlabs-tts': 'elevenLabsVoice',
+        'minimax-tts': 'minimaxTtsVoice',
+      }
+      const ttsProviderByVendor = {
+        'volcengine-tts': 'volcengine',
+        'dashscope-tts': 'dashscope',
+        'openai-tts': 'openai',
+        'elevenlabs-tts': 'elevenlabs',
+        'minimax-tts': 'minimax',
+      }
+      const voiceKey = voiceFieldByVendor[_selected]
+      if (voiceKey) {
+        const sp = String(patch[voiceKey] || _loaded[voiceKey] || '').trim()
+        if (sp) setXiaomiTtsSpeaker(sp)
+      }
+      const ttsProv = ttsProviderByVendor[_selected]
+      if (ttsProv) setXiaomiTtsProvider(ttsProv)
+      // 阿里云语音页保存时默认把 ASR 切到 Paraformer（可再在下拉里改）
+      if (_selected === 'dashscope-tts') setXiaomiAsrProvider('dashscope')
     } catch {
       /* ignore */
     }

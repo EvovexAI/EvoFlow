@@ -72,13 +72,20 @@ TTS_VOICES: dict[str, list[dict[str, str]]] = {
         {"id": "zh_male_taocheng_uranus_bigtts", "label": "小天 2.0（男声，通用）"},
         {"id": "zh_female_kefunvsheng_uranus_bigtts", "label": "暖阳女声 2.0（客服）"},
     ],
+    # CosyVoice v3-flash 系统音色（须与 model=cosyvoice-v3-flash 匹配）
+    # https://help.aliyun.com/zh/model-studio/cosyvoice-voice-list
     "dashscope": [
-        {"id": "longanyang", "label": "龙安阳（女声，通用）"},
-        {"id": "longxiaochun_v2", "label": "龙小淳 v2（女声，自然）"},
-        {"id": "longshu", "label": "龙叔（男声，沉稳）"},
-        {"id": "longcheng", "label": "龙诚（男声，标准）"},
-        {"id": "longxiao", "label": "龙晓（女声，活泼）"},
-        {"id": "longmiao", "label": "龙妙（女声，甜美）"},
+        {"id": "longanyang", "label": "龙安洋（男声，阳光）"},
+        {"id": "longanhuan", "label": "龙安欢（女声，元气）"},
+        {"id": "longxiaochun_v3", "label": "龙小淳 v3（女声，知性）"},
+        {"id": "longxiaoxia_v3", "label": "龙小夏 v3（女声，沉稳）"},
+        {"id": "longcheng_v3", "label": "龙橙 v3（男声，智慧）"},
+        {"id": "longze_v3", "label": "龙泽 v3（男声，温暖）"},
+        {"id": "longmiao_v3", "label": "龙妙 v3（女声，有声书）"},
+        {"id": "longsanshu_v3", "label": "龙三叔 v3（男声，沉稳）"},
+        {"id": "longanrou_v3", "label": "龙安柔 v3（女声，温柔）"},
+        {"id": "longyingjing_v3", "label": "龙应静 v3（女声，客服）"},
+        {"id": "longhua_v3", "label": "龙华 v3（女声，元气甜美）"},
     ],
     "openai": [
         {"id": "nova", "label": "Nova（女声，自然）"},
@@ -319,8 +326,9 @@ def synthesize_tts(
     if prov == "dashscope":
         from evoflow.community.media_generation.providers.dashscope_tts import synthesize_speech as _ds
 
-        audio = _ds(text, voice=voice or None)
-        return audio, voice or "longanyang"
+        used = voice or _cred_value(creds, "dashscopeTtsVoice") or "longanyang"
+        audio = _ds(text, voice=used)
+        return audio, used
 
     if prov == "openai":
         from app.gateway.speech.tts_openai import synthesize_speech as _oai
@@ -396,7 +404,8 @@ async def synthesize_tts_stream(
         # Off-loop: the sync request would otherwise stall the gateway loop.
         from evoflow.community.media_generation.providers.dashscope_tts import synthesize_speech as _ds
 
-        yield await asyncio.to_thread(_ds, text, voice=voice or None)
+        used = voice or _cred_value(creds, "dashscopeTtsVoice") or "longanyang"
+        yield await asyncio.to_thread(_ds, text, voice=used)
         return
 
     if prov == "openai":
@@ -404,7 +413,8 @@ async def synthesize_tts_stream(
 
         key = _cred_value(creds, "openaiTtsKey", "OPENAI_TTS_API_KEY", "OPENAI_API_KEY")
         base = _cred_value(creds, "openaiTtsBaseUrl", "OPENAI_TTS_BASE_URL", "OPENAI_BASE_URL")
-        async for chunk in synthesize_speech_stream(text, voice_id=voice or None, api_key=key, base_url=base or None):
+        used = voice or _cred_value(creds, "openaiTtsVoice") or "nova"
+        async for chunk in synthesize_speech_stream(text, voice_id=used, api_key=key, base_url=base or None):
             yield chunk
         return
 
@@ -412,7 +422,8 @@ async def synthesize_tts_stream(
         from app.gateway.speech.tts_elevenlabs import synthesize_speech_stream
 
         key = _cred_value(creds, "elevenLabsKey", "ELEVENLABS_API_KEY", "ELEVENLABS_KEY")
-        async for chunk in synthesize_speech_stream(text, voice_id=voice or None, api_key=key):
+        used = voice or _cred_value(creds, "elevenLabsVoice") or "21m00Tcm4TlvDq8ikWAM"
+        async for chunk in synthesize_speech_stream(text, voice_id=used, api_key=key):
             yield chunk
         return
 
@@ -420,7 +431,8 @@ async def synthesize_tts_stream(
         from app.gateway.speech.tts_minimax import synthesize_speech_stream
 
         key = _cred_value(creds, "minimaxKey", "MINIMAX_API_KEY", "MINIMAX_KEY")
-        async for chunk in synthesize_speech_stream(text, voice_id=voice or None, api_key=key):
+        used = voice or _cred_value(creds, "minimaxTtsVoice") or "male-qn-qingse"
+        async for chunk in synthesize_speech_stream(text, voice_id=used, api_key=key):
             yield chunk
         return
 

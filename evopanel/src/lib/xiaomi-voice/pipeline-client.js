@@ -27,7 +27,6 @@ import {
   isXiaomiFrameSoftPaused,
   pauseXiaomiFrameLocalPlayback,
   resumeXiaomiFrameLocalPlayback,
-  stopXiaomiFrameLocalPlayback,
   stopXiaomiFrameSession,
   unduckXiaomiFramePlayback,
 } from './session-client.js'
@@ -56,6 +55,12 @@ import {
   setVoicePhase,
   subscribeVoicePhase,
 } from './voice-phase.js'
+import {
+  getSpeechPriorDebug,
+  isSpeechPriorHot,
+  resetSpeechPrior,
+  updateSpeechPrior,
+} from './speech-prior.js'
 
 function _logDialogue(message, opts = {}) {
   voiceFeLog('对话', message, opts)
@@ -638,8 +643,8 @@ async function _startXiaomiFramePipelineInner(opts = {}) {
       _heardBodySpeak = false
       _scheduleListenUnmute('interrupted')
       _refreshTray()
-      if (reason === 'client_barge_in') {
-        // 前端主动 barge：勿再 abort（调用方已编排）
+      if (reason === 'client_barge_in' || reason === 'local-soft-barge-confirm') {
+        // 前端主动 barge / 软打断确认：勿再 abort（调用方已编排）
         return
       }
       // VAD 真打断（正在播报）：取消模型推理
@@ -721,6 +726,11 @@ async function _startXiaomiFramePipelineInner(opts = {}) {
       i16[i] = s < 0 ? s * 0x8000 : s * 0x7fff
     }
     _lastMicPeak = peak
+    try {
+      updateSpeechPrior(input, _actx?.sampleRate || 16000)
+    } catch {
+      /* ignore */
+    }
     _pcmChunks += 1
     if (peak > _pcmPeak) _pcmPeak = peak
     // 约每 2s 打一次能量，确认不是「推了全零 PCM」
@@ -1112,6 +1122,7 @@ export function stopXiaomiFramePipeline() {
   _clearSoftBargeResumeTimer()
   _softBargeProbing = false
   _resetLocalBarge('pipeline_stop')
+  resetSpeechPrior()
   _localBargeSpeakSince = 0
   _lastMicPeak = 0
   _localBargeBusy = false
@@ -1227,8 +1238,8 @@ const LOCAL_DUCK_TRIGGER = 3
 const LOCAL_DUCK_SUSTAIN = 10
 const LOCAL_DUCK_DECAY = 6
 const LOCAL_DUCK_MAX_MS = 1500
-/** 软打断后无有效 ASR → 续播 */
-const LOCAL_SOFT_BARGE_RESUME_MS = 3500
+/** 软打断后无有效 ASR → 续播（先验门控后假阳下降，缩短假暂停窗） */
+const LOCAL_SOFT_BARGE_RESUME_MS = 2500
 
 /** @type {number} */
 let _lastMicPeak = 0
@@ -1270,7 +1281,7 @@ function _resetLocalBarge(reason = '') {
 }
 
 /**
- * 软打断探测期内出现有效用户话 → 硬停播并放麦。
+ * 软打断探测期内出现有效用户话 → 真 barge_in + abort 模型（对齐 vad_barge）。
  * @param {string} [text]
  */
 function _confirmSoftBargeWithUserSpeech(text = '') {
@@ -1279,12 +1290,18 @@ function _confirmSoftBargeWithUserSpeech(text = '') {
   if (t && t.length < 2) return false
   _clearSoftBargeResumeTimer()
   _softBargeProbing = false
-  voiceFeLog('打断', `软打断确认有用户话 → 硬停播「${t.slice(0, 40)}」`)
+  const prior = getSpeechPriorDebug()
+  voiceFeLog(
+    '打断',
+    `软打断确认有用户话 → barge_in+abort「${t.slice(0, 40)}」 priorScore=${prior.score.toFixed(2)}`,
+  )
   try {
-    stopXiaomiFrameLocalPlayback({ reason: 'local-vol-barge-confirm' })
+    bargeInXiaomiFrame({ reason: 'local-soft-barge-confirm' })
   } catch {
     /* ignore */
   }
+  // interrupted(client_barge_in) 不再二次 abort；此处主动停模型
+  void _abortModelRunForBargeIn()
   _awaitingReply = false
   _heardBodySpeak = false
   _scheduleListenUnmute('local_vol_barge_confirm')
@@ -1326,7 +1343,7 @@ function _isLocalBargeCandidate(peak) {
 }
 
 /**
- * 播报 + PCM hold 时：两阶段 duck → 软暂停（无 ASR 则续播；有用户话再硬停）。
+ * 播报 + PCM hold 时：语音先验 + 音量 → duck → 软暂停（无 ASR 则续播；有用户话再真 barge）。
  * @param {number} peak 0–1
  */
 function _onLocalBargePeak(peak) {
@@ -1347,7 +1364,10 @@ function _onLocalBargePeak(peak) {
     return
   }
   if (!_localDuckActive) _learnEchoFloor(peak)
-  const cand = _isLocalBargeCandidate(peak)
+  const priorHot = isSpeechPriorHot()
+  const energyCand = _isLocalBargeCandidate(peak)
+  // 能量候选但先验未热：只学 floor，不 duck（抑拍手/键盘假阳）
+  const cand = energyCand && priorHot
   if (!_localDuckActive) {
     if (cand) {
       if (++_localBargeFrames >= LOCAL_DUCK_TRIGGER) {
@@ -1356,8 +1376,12 @@ function _onLocalBargePeak(peak) {
         _localDuckStart = Date.now()
         _localDuckHigh = 0
         _localDuckLow = 0
+        const prior = getSpeechPriorDebug()
         duckXiaomiFramePlayback(0.22)
-        voiceFeLog('打断', `本地音量 duck（peak=${peak.toFixed(3)} floor=${_ttsEchoFloor.toFixed(3)}）`)
+        voiceFeLog(
+          '打断',
+          `本地音量 duck（peak=${peak.toFixed(3)} floor=${_ttsEchoFloor.toFixed(3)} priorScore=${prior.score.toFixed(2)} zcr=${prior.zcr.toFixed(3)}）`,
+        )
       }
     } else {
       _localBargeFrames = 0
@@ -1371,7 +1395,11 @@ function _onLocalBargePeak(peak) {
     if (_localDuckHigh >= LOCAL_DUCK_SUSTAIN) {
       _localBargeBusy = true
       _resetLocalBarge()
-      voiceFeLog('打断', `本地音量确认 → 软暂停探测 ASR peak=${peak.toFixed(3)}`)
+      const prior = getSpeechPriorDebug()
+      voiceFeLog(
+        '打断',
+        `本地先验确认 → 软暂停探测 ASR peak=${peak.toFixed(3)} priorScore=${prior.score.toFixed(2)} zcr=${prior.zcr.toFixed(3)}`,
+      )
       try {
         pauseXiaomiFrameLocalPlayback({ reason: 'local-vol-soft-barge' })
       } catch {
@@ -1393,7 +1421,7 @@ function _onLocalBargePeak(peak) {
   _localDuckLow += 1
   _localDuckHigh = 0
   if (_localDuckLow >= LOCAL_DUCK_DECAY || elapsed >= LOCAL_DUCK_MAX_MS) {
-    voiceFeLog('打断', '本地 duck 消退 → 恢复音量（判为噪音）')
+    voiceFeLog('打断', '本地 duck 消退 → 恢复音量（判为噪音/先验未热）')
     _resetLocalBarge('noise')
   }
 }
