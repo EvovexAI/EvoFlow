@@ -8555,6 +8555,21 @@ html.dark .config-section-title {
   color: var(--text-tertiary);
 }
 
+.media-save-status {
+  margin: 0 0 var(--space-sm);
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+.media-save-status--ok {
+  color: var(--success, #16a34a);
+}
+
+.media-secret-status--ok code {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
 .media-enable-row {
   margin-bottom: var(--space-md);
   padding: var(--space-sm) var(--space-md);

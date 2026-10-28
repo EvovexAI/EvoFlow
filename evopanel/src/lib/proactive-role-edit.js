@@ -18,6 +18,15 @@ import {
   roleScheduleExpr,
   roleScheduleSummary,
 } from './schedule-panel.js'
+import {
+  AUTONOMY_EDIT_OPTIONS,
+  AUTONOMY_FIELD_DESC,
+  AUTONOMY_FIELD_LABEL,
+  AUTONOMY_HINTS,
+  AUTONOMY_LABELS,
+  autonomyHint,
+  renderAutonomyChips,
+} from './proactive-autonomy-ui.js'
 
 function esc(s) {
   if (s == null) return ''
@@ -26,21 +35,6 @@ function esc(s) {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
-}
-
-const AUTONOMY_HINTS = {
-  full_auto:
-    '本岗结案并指定下游后：仅「极高风险」须你审核才派发；低/中/高风险自动派下游。是否挂审由你在此配置，不由员工自行决定。',
-  approval_for_risky:
-    '本岗结案并指定下游后：中风险及以上须你审核才派发；低风险自动派下游。是否挂审由你在此配置，不由员工自行决定。',
-  approval_for_all:
-    '本岗结案并指定下游后：一律须你审核才派发。是否挂审由你在此配置，不由员工自行决定。',
-}
-
-const AUTONOMY_LABELS = {
-  full_auto: '全自动',
-  approval_for_risky: '平衡型',
-  approval_for_all: '谨慎型',
 }
 
 const THINK_MODE_LABELS = {
@@ -698,13 +692,12 @@ export async function showEditRoleModal(role, {
 
             <div class="hire-edit-panel" data-section="strategy" hidden>
               <div class="hire-field">
-                <span>转交审批策略</span>
+                <span>${AUTONOMY_FIELD_LABEL}</span>
+                <p class="hire-chip-hint">${esc(AUTONOMY_FIELD_DESC)}</p>
                 <div class="hire-chip-row" data-name="autonomy_level" role="radiogroup">
-                  <button type="button" class="hire-chip${autonomy === 'full_auto' ? ' is-on' : ''}" data-value="full_auto">全自动</button>
-                  <button type="button" class="hire-chip${autonomy === 'approval_for_risky' ? ' is-on' : ''}" data-value="approval_for_risky">平衡型</button>
-                  <button type="button" class="hire-chip${autonomy === 'approval_for_all' ? ' is-on' : ''}" data-value="approval_for_all">谨慎型</button>
+                  ${renderAutonomyChips(AUTONOMY_EDIT_OPTIONS, autonomy)}
                 </div>
-                <p class="hire-chip-hint" data-autonomy-hint>${esc(AUTONOMY_HINTS[autonomy] || AUTONOMY_HINTS.approval_for_risky)}</p>
+                <p class="hire-chip-hint" data-autonomy-hint>${esc(autonomyHint(autonomy))}</p>
               </div>
               <div class="hire-field">
                 <span>自动上班</span>
@@ -854,7 +847,7 @@ export async function showEditRoleModal(role, {
     }
     if (autonomy_level !== autonomy) {
       changes.push(
-        `审批策略：${AUTONOMY_LABELS[autonomy] || autonomy} → ${AUTONOMY_LABELS[autonomy_level] || autonomy_level}`,
+        `交工审核：${AUTONOMY_LABELS[autonomy] || autonomy} → ${AUTONOMY_LABELS[autonomy_level] || autonomy_level}`,
       )
     }
     if (heartbeat_schedule !== roleScheduleExpr(role)) {

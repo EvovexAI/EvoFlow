@@ -1171,9 +1171,9 @@ export function TaskPane({
 }
 
 const AUTONOMY_ZH: Record<string, string> = {
-  full_auto: '全自动',
-  approval_for_risky: '风险需审批',
-  approval_for_all: '全部需审批',
+  full_auto: '无需审核',
+  approval_for_risky: '有风险才审',
+  approval_for_all: '需要审核',
 }
 
 /** 员工对话身份卡（含职责/审批）—— 状态面板「员工」Tab 复用 */
@@ -1347,7 +1347,7 @@ export function EmployeePane({
           ) : null}
           {dutyExpanded && hasExtraMeta ? (
             <div className="react-chat-employee-extra-meta">
-              {autonomy ? <Row label="审批策略" value={autonomy} /> : null}
+              {autonomy ? <Row label="交工审核" value={autonomy} /> : null}
               {thinkLabel ? <Row label="工作方式" value={thinkLabel} /> : null}
               {workspacePath ? <Row label="工作空间" value={workspacePath} /> : null}
             </div>

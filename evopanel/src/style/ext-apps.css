@@ -5,13 +5,14 @@
 
 .extensions-page .ext-hero {
   position: relative;
+  z-index: 3; /* 安装下拉需盖住下方工具栏/列表；勿用 overflow:hidden，会裁切菜单 */
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
   margin-bottom: 14px;
   padding: 20px 22px;
-  overflow: hidden;
+  overflow: visible;
   border: 1px solid color-mix(in srgb, var(--accent, #5b5fef) 14%, var(--border-primary));
   border-radius: 16px;
   background:
@@ -19,6 +20,16 @@
     radial-gradient(90% 150% at 0% 100%, color-mix(in srgb, var(--accent, #5b5fef) 7%, transparent) 0%, transparent 50%),
     linear-gradient(135deg, var(--bg-secondary, #fff) 0%, color-mix(in srgb, var(--accent, #5b5fef) 4%, var(--bg-secondary, #fff)) 100%);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+/* 装饰光晕层：裁进圆角，不占用 hero 的 overflow（否则会裁切安装下拉） */
+.extensions-page .ext-hero-glows {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 0;
 }
 
 .extensions-page .ext-hero-glow {
@@ -51,6 +62,8 @@
   align-items: center;
   gap: 12px;
   min-width: 0;
+  position: relative;
+  z-index: 1;
 }
 
 .extensions-page .ext-hero-icon {
@@ -94,6 +107,7 @@
   flex-shrink: 0;
   flex-wrap: wrap;
   position: relative;
+  z-index: 2;
 }
 
 .extensions-page .ext-page-actions .btn {
@@ -119,7 +133,7 @@
   position: absolute;
   top: calc(100% + 6px);
   right: 0;
-  z-index: 30;
+  z-index: 40;
   min-width: 248px;
   padding: 5px;
   border-radius: 12px;
@@ -919,7 +933,7 @@
     padding: 16px;
   }
 
-  .extensions-page .ext-hero-glow {
+  .extensions-page .ext-hero-glows {
     display: none;
   }
 

@@ -221,6 +221,10 @@ let _selected = 'dashscope'
 let _pickerMode = false
 /** @type {((e: Event) => void) | null} */
 let _clickHandler = null
+/** @type {ReturnType<typeof setTimeout> | null} */
+let _autosaveTimer = null
+let _autosaveInflight = false
+let _autosaveQueued = false
 
 function vendorByKey(key) {
   return ALL_VENDORS.find((x) => x.key === key) || ALL_VENDORS[0]
@@ -490,9 +494,15 @@ function enableToggleHtml(vendorKey, creds) {
 function secretFieldHtml(id, label, creds) {
   const configured = isFieldConfigured(creds, id)
   const masked = maskedSecretHint(creds, id)
-  const ph = configured ? '留空表示不修改' : '粘贴 Key 后保存'
+  const ph = configured
+    ? masked && masked !== '已配置'
+      ? `已保存 ${masked} · 留空不修改`
+      : '留空表示不修改'
+    : '粘贴 Key 后自动保存'
   const status = configured
-    ? `<p class="form-hint media-secret-status media-secret-status--ok">已保存${masked && masked !== '已配置' ? ` · ${escHtml(masked)}` : ''}</p>`
+    ? `<p class="form-hint media-secret-status media-secret-status--ok">已保存${
+        masked && masked !== '已配置' ? ` · <code>${escHtml(masked)}</code>` : ''
+      }</p>`
     : ''
   return `
     <div class="form-group">
@@ -772,6 +782,7 @@ function buildDetailHtml(vendorKey, creds) {
   return `
     <div class="media-vendor-detail" data-media-vendor-panel="${escAttr(vendorKey)}">
       ${header}
+      <p class="form-hint media-save-status" data-media-save-status aria-live="polite">改动后自动保存</p>
       ${enableToggleHtml(vendorKey, creds)}
       <form class="media-vendor-form" autocomplete="off">${fields}</form>
     </div>`
@@ -893,6 +904,7 @@ function renderDetail() {
     bindJimengModelFields(panel)
     bindTtsSpeakerFields(panel, VOLCENGINE_TTS_SPEAKER_PRESETS)
     bindMediaAdvancedToggle(panel)
+    bindAutosave(panel)
     void bindXiaomiProviderFields(panel)
   } catch (e) {
     mount.innerHTML = `<p style="color:var(--error);padding:16px">渲染失败：${escHtml(e?.message || e)}</p>`
@@ -977,7 +989,57 @@ function openAddPicker() {
   renderDetail()
 }
 
-async function onSave({ quiet = false } = {}) {
+function setSaveStatus(text, { ok = false } = {}) {
+  const el = _modelsPage?.querySelector('[data-media-save-status]')
+  if (!el) return
+  el.textContent = text
+  el.classList.toggle('media-save-status--ok', ok)
+}
+
+function scheduleAutosave() {
+  if (_autosaveTimer) clearTimeout(_autosaveTimer)
+  setSaveStatus('保存中…')
+  _autosaveTimer = setTimeout(() => {
+    _autosaveTimer = null
+    void onSave({ quiet: false, fromAutosave: true })
+  }, 350)
+}
+
+function bindAutosave(panel) {
+  if (!panel || panel.dataset.mediaAutosaveBound === '1') return
+  panel.dataset.mediaAutosaveBound = '1'
+  const kick = () => scheduleAutosave()
+  panel.querySelector('[data-media-enabled]')?.addEventListener('change', kick)
+  // One listener for selects / secret blur / speaker picker — debounce coalesces bursts.
+  panel.addEventListener('change', (e) => {
+    const t = e.target
+    if (!(t instanceof HTMLElement)) return
+    if (t.closest('[data-xiaomi-voice-providers], [data-xiaomi-asr-provider], [data-xiaomi-tts-provider]')) {
+      return // Xiaomi channel prefs persist locally; not media.credentials
+    }
+    if (t.matches('input, select, textarea') || t.closest('[data-tts-speaker], [data-media-model-group]')) {
+      kick()
+    }
+  })
+  panel.addEventListener(
+    'blur',
+    (e) => {
+      const t = e.target
+      if (!(t instanceof HTMLElement)) return
+      if (t.matches('[data-media-secret], [data-media-field], [data-media-model-custom], [data-tts-speaker-custom]')) {
+        kick()
+      }
+    },
+    true,
+  )
+}
+
+async function onSave({ quiet = false, fromAutosave = false } = {}) {
+  if (_autosaveInflight) {
+    _autosaveQueued = true
+    return true
+  }
+  _autosaveInflight = true
   try {
     const wasConfigured = isVendorConfigured(_selected, _loaded)
     const patch = collectPatch()
@@ -1012,14 +1074,29 @@ async function onSave({ quiet = false } = {}) {
     _pickerMode = false
     renderRail()
     renderDetail()
+    setSaveStatus('已保存', { ok: true })
     if (!quiet) {
-      toast(isVoiceVendor(_selected) ? '语音配置已保存' : '生图/生视频渠道已保存', 'success')
+      toast(
+        fromAutosave
+          ? '已保存'
+          : isVoiceVendor(_selected)
+            ? '语音配置已保存'
+            : '生图/生视频渠道已保存',
+        'success',
+      )
     }
     window.dispatchEvent(new CustomEvent('evopanel:media-updated'))
     return true
   } catch (e) {
+    setSaveStatus('保存失败', { ok: false })
     toast(String(e?.message || e), 'error')
     return false
+  } finally {
+    _autosaveInflight = false
+    if (_autosaveQueued) {
+      _autosaveQueued = false
+      scheduleAutosave()
+    }
   }
 }
 
@@ -1150,6 +1227,12 @@ export function renderMediaDetail(mode = 'voice') {
 
 export function cleanup() {
   unbindSectionHeads()
+  if (_autosaveTimer) {
+    clearTimeout(_autosaveTimer)
+    _autosaveTimer = null
+  }
+  _autosaveInflight = false
+  _autosaveQueued = false
   if (_modelsPage && _clickHandler) {
     _modelsPage.removeEventListener('click', _clickHandler)
   }

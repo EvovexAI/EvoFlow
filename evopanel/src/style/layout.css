@@ -2083,6 +2083,85 @@ html[data-theme='dark'] .help-section-text strong {
   font-family: var(--font-mono, ui-monospace, monospace);
 }
 
+.guide-code-block {
+  margin: 8px 0 4px;
+  padding: 10px 12px;
+  max-height: 280px;
+  overflow: auto;
+  border-radius: 8px;
+  border: 1px solid var(--border-secondary);
+  background: var(--bg-primary, var(--bg-secondary));
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre;
+  tab-size: 2;
+}
+
+.guide-code-block code {
+  padding: 0;
+  background: transparent;
+  border-radius: 0;
+  font-size: inherit;
+  font-family: var(--font-mono, ui-monospace, Menlo, Consolas, monospace);
+  color: var(--text-primary);
+  white-space: inherit;
+}
+
+.guide-overview-card__body .guide-code-block,
+.guide-faq-a-text .guide-code-block,
+.guide-quickstart__body .guide-code-block {
+  margin-top: 8px;
+}
+
+.guide-table-wrap {
+  margin: 8px 0 4px;
+  max-width: 100%;
+  overflow-x: auto;
+  border-radius: 8px;
+  border: 1px solid var(--border-secondary);
+  background: var(--bg-primary, var(--bg-secondary));
+}
+
+.guide-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.guide-table th,
+.guide-table td {
+  padding: 8px 10px;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid var(--border-secondary);
+}
+
+.guide-table th {
+  font-weight: 650;
+  color: var(--text-primary);
+  background: var(--bg-tertiary, var(--bg-glass));
+  white-space: nowrap;
+}
+
+.guide-table td {
+  color: var(--text-secondary);
+}
+
+.guide-table tr:last-child td {
+  border-bottom: none;
+}
+
+.guide-table code {
+  padding: 1px 5px;
+  background: var(--bg-glass-hover);
+  border-radius: 4px;
+  font-size: 11.5px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
 .guide-step-tip {
   font-size: var(--ef-text-sm) ;
   color: var(--text-tertiary);

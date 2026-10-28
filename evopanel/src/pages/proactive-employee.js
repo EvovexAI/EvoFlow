@@ -63,6 +63,11 @@ import {
 } from '../lib/feishu-employee-bind.js'
 import { showIMChannelPicker } from '../components/IMChannelPickerModal.js'
 import { diagnoseRole, renderRoleDiagnosisHtml } from '../lib/proactive-role-diagnosis.js'
+import {
+  AUTONOMY_FIELD_LABEL,
+  AUTONOMY_HINTS as AUTONOMY_HINT,
+  AUTONOMY_LABELS as AUTONOMY_LABEL,
+} from '../lib/proactive-autonomy-ui.js'
 
 /** Map board Task status → work-log card status. */
 function taskStatusToWorklog(status) {
@@ -418,21 +423,6 @@ const ACTION_TYPE_LABEL = {
   task_delegation: '任务委派',
   alert: '告警',
   optimization: '优化',
-}
-
-const AUTONOMY_LABEL = {
-  full_auto: '全自动',
-  approval_for_risky: '平衡型',
-  approval_for_all: '谨慎型',
-}
-
-const AUTONOMY_HINT = {
-  full_auto:
-    '本岗结案并指定下游后：仅「极高风险」须你审核才派发；低/中/高风险自动派下游。是否挂审由你在此配置，不由员工自行决定。',
-  approval_for_risky:
-    '本岗结案并指定下游后：中风险及以上须你审核才派发；低风险自动派下游。是否挂审由你在此配置，不由员工自行决定。',
-  approval_for_all:
-    '本岗结案并指定下游后：一律须你审核才派发。是否挂审由你在此配置，不由员工自行决定。',
 }
 
 const ROLE_STATUS_LABEL = {
@@ -1567,7 +1557,7 @@ function renderRoleProfile(
           ${field('岗位名称', esc(role.role_name || '—'))}
           ${field('智能体标识', `<code>${esc(code)}</code>`)}
           ${field(
-            '转交审批策略',
+            AUTONOMY_FIELD_LABEL,
             `<span title="${esc(autonomyHint)}">${esc(autonomy)}</span>`,
           )}
           ${costLine ? field('今日花费', esc(costLine)) : ''}
@@ -1715,7 +1705,7 @@ function renderEmployeeConfigPanels(role, {
   </div>`
 
   const runtimeBody = `<div class="detail-grid pro-duty-sheet-grid">
-    ${field('转交审批策略', `<span title="${esc(autonomyHint)}">${esc(autonomy)}</span>`)}
+    ${field(AUTONOMY_FIELD_LABEL, `<span title="${esc(autonomyHint)}">${esc(autonomy)}</span>`)}
     ${field('自动上班', esc(scheduleLabel))}
     ${field('上次上班', esc(fmtTime(role.last_heartbeat_at)))}
     ${field('下次自动上班', esc(fmtTime(role.next_heartbeat_at)))}
@@ -1789,7 +1779,7 @@ function renderEmployeeConfigPanels(role, {
         </summary>
         <div class="pro-config-fold__body">
           <div class="detail-grid pro-duty-sheet-grid">
-            ${field('转交审批策略', `<span class="pro-chip-tip" data-tip="${esc(autonomyHint)}">${esc(autonomy)}</span>`)}
+            ${field(AUTONOMY_FIELD_LABEL, `<span class="pro-chip-tip" data-tip="${esc(autonomyHint)}">${esc(autonomy)}</span>`)}
             ${field('自动上班', esc(scheduleLabel))}
             ${field('上次上班', esc(fmtTime(role.last_heartbeat_at)))}
             ${field('下次自动上班', esc(fmtTime(role.next_heartbeat_at)))}

@@ -364,9 +364,10 @@
 .pro-badge {
   display: inline-flex;
   align-items: center;
-  padding: 2px 8px;
-  font-size: 11px;
+  padding: 1px 6px;
+  font-size: 10px;
   font-weight: 600;
+  line-height: 1.4;
   border-radius: 999px;
   white-space: nowrap;
 }
@@ -392,26 +393,26 @@
 .pro-risk--high { background: var(--error-muted); color: var(--error); }
 .pro-risk--crit { background: var(--error-muted); color: var(--error); outline: 1px solid var(--error); }
 
-/* ── 员工名册卡片 ── */
+/* ── 名册卡 v2（员工） ── */
 .pro-role-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-  gap: 14px;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px;
   align-items: stretch;
 }
 
 .pro-role-card {
   display: flex;
   flex-direction: column;
-  height: 292px;
-  padding: 16px;
+  height: auto;
+  min-height: 0;
+  padding: 14px;
   background: var(--bg-secondary);
   border: 1px solid var(--pro-slate-line);
-  border-radius: var(--radius-lg, 12px);
-  transition: border-color var(--dur-fast), transform var(--dur-fast);
+  border-radius: 12px;
+  transition: border-color var(--dur-fast), box-shadow var(--dur-fast);
   cursor: pointer;
-  overflow: hidden;
-  /* Allow open ⋯ menu to stack above later sibling cards (backdrop-filter / opacity). */
+  overflow: visible;
   position: relative;
   z-index: 0;
 }
@@ -421,23 +422,32 @@
 }
 
 .pro-role-card--slim {
-  min-height: 212px;
+  min-height: 0;
   height: auto;
   max-height: none;
-  padding: 14px 14px 12px;
+  padding: 14px;
+  gap: 10px;
 }
 .pro-role-duty {
-  margin: 4px 0 0;
-  min-height: calc(1.45em * 3);
-  font-size: var(--ef-text-sm) ;
+  margin: 3px 0 0;
+  min-height: 0;
+  font-size: 12px;
   line-height: 1.45;
   color: var(--text-secondary);
   white-space: pre-line;
   display: -webkit-box;
-  -webkit-line-clamp: 3;
+  -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
   word-break: break-word;
+}
+.pro-role-duty--one {
+  white-space: nowrap;
+  display: block;
+  -webkit-line-clamp: unset;
+  -webkit-box-orient: unset;
+  text-overflow: ellipsis;
+  overflow: hidden;
 }
 .pro-resp-list {
   margin: 6px 0 0;
@@ -476,34 +486,30 @@
   visibility: hidden;
 }
 .pro-role-meta--compact {
-  display: flex;
-  flex-wrap: nowrap;
-  gap: 6px;
-  margin: 0 0 2px;
-  max-height: 24px;
-  overflow: hidden;
+  display: none;
 }
 
 .pro-role-card--needs-you {
-  border-color: color-mix(in srgb, var(--warning, #b45309) 40%, var(--pro-slate-line));
+  border-color: color-mix(in srgb, var(--warning, #b45309) 36%, var(--pro-slate-line));
 }
 .pro-role-card--idle {
-  border-color: color-mix(in srgb, var(--warning, #b45309) 28%, var(--pro-slate-line));
+  border-color: color-mix(in srgb, var(--warning, #b45309) 24%, var(--pro-slate-line));
 }
 .pro-role-card--idle .pro-badge--warn {
   background: color-mix(in srgb, var(--warning, #b45309) 16%, transparent);
 }
 
 .pro-role-card:hover {
-  border-color: color-mix(in srgb, var(--pro-teal) 45%, var(--pro-slate-line));
+  border-color: color-mix(in srgb, var(--pro-teal) 36%, var(--pro-slate-line));
+  box-shadow: 0 2px 10px color-mix(in srgb, var(--text-primary) 6%, transparent);
 }
 
 .pro-role-card--active {
-  border-top: 2px solid var(--pro-teal);
+  /* 名册卡 v2：不再用顶边色条区分在岗 */
 }
 
 .pro-role-card--paused {
-  opacity: 0.78;
+  opacity: 0.82;
 }
 
 .pro-role-card--archived {
@@ -517,7 +523,7 @@
 .pro-role-more {
   position: relative;
   flex-shrink: 0;
-  margin-left: auto;
+  margin-left: 0;
   z-index: 2;
 }
 
@@ -525,36 +531,37 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
   padding: 0;
-  border: 1px solid transparent;
+  border: 1px solid var(--pro-slate-line);
   border-radius: 8px;
-  background: transparent;
-  color: var(--text-tertiary);
-  font-size: 18px;
+  background: var(--bg-primary, var(--bg-secondary));
+  color: var(--text-secondary);
+  font-size: 16px;
   line-height: 1;
   cursor: pointer;
 }
 
 .pro-role-more-btn:hover,
 .pro-role-more.is-open .pro-role-more-btn {
-  border-color: var(--pro-slate-line);
+  border-color: color-mix(in srgb, var(--pro-teal) 40%, var(--pro-slate-line));
   background: var(--bg-tertiary, var(--bg-primary));
   color: var(--text-primary);
 }
 
 .pro-role-more-menu {
   position: absolute;
-  top: calc(100% + 4px);
+  bottom: calc(100% + 6px);
+  top: auto;
   right: 0;
   z-index: 30;
   min-width: 148px;
   padding: 4px;
   border: 1px solid var(--pro-slate-line);
-  border-radius: 10px;
+  border-radius: 8px;
   background: var(--bg-secondary);
-  box-shadow: 0 8px 24px color-mix(in srgb, #000 12%, transparent);
+  box-shadow: 0 8px 22px color-mix(in srgb, #000 12%, transparent);
 }
 
 .pro-role-more-menu.is-fixed {
@@ -577,10 +584,10 @@
   min-height: 32px;
   padding: 0 10px;
   border: 0;
-  border-radius: 7px;
+  border-radius: 6px;
   background: transparent;
   color: var(--text-primary);
-  font-size: 13px;
+  font-size: 12px;
   text-align: left;
   cursor: pointer;
 }
@@ -604,17 +611,17 @@
 .pro-role-header {
   display: flex;
   align-items: flex-start;
-  gap: 12px;
-  margin-bottom: 10px;
+  gap: 10px;
+  margin-bottom: 0;
   flex-shrink: 0;
 }
 .pro-role-card--slim .pro-role-header {
-  min-height: 68px;
+  min-height: 0;
 }
 .pro-role-card--slim .pro-role-title {
   flex-wrap: nowrap;
-  gap: 4px;
-  max-height: 18px;
+  gap: 6px;
+  max-height: none;
   overflow: hidden;
   align-items: center;
 }
@@ -627,11 +634,11 @@
 }
 .pro-role-card--slim .pro-role-title > .pro-badge {
   flex-shrink: 0;
-  padding: 0 4px;
-  font-size: 9px;
-  line-height: 1.35;
+  padding: 1px 6px;
+  font-size: 10px;
+  line-height: 1.4;
   font-weight: 600;
-  border-radius: 4px;
+  border-radius: 999px;
 }
 .pro-role-card--slim .pro-role-schedule-badge {
   flex-shrink: 0;
@@ -642,21 +649,118 @@
   border-radius: 4px;
 }
 .pro-role-card--slim .pro-role-body {
-  justify-content: space-between;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex: 1;
+  min-height: 0;
+  justify-content: flex-end;
 }
 .pro-role-card--slim .pro-work-summary--slim {
-  margin-top: auto;
+  display: none;
 }
 
+.pro-role-avatar-wrap {
+  position: relative;
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+}
 .pro-role-avatar {
-  width: 44px;
-  height: 44px;
+  width: 40px;
+  height: 40px;
   flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 12px;
+  border-radius: 10px;
   overflow: hidden;
+}
+.pro-presence {
+  position: absolute;
+  right: -1px;
+  bottom: -1px;
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  border: 2px solid var(--bg-secondary, #fff);
+  background: #94a3b8;
+  box-sizing: border-box;
+}
+.pro-presence--ok { background: #22c55e; }
+.pro-presence--run { background: #14b8a6; }
+.pro-presence--warn { background: #f59e0b; }
+.pro-presence--off { background: #94a3b8; }
+.pro-presence-count {
+  position: absolute;
+  top: -5px;
+  right: -6px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--warning, #b45309) 92%, #fff);
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+  box-shadow: 0 0 0 2px var(--bg-secondary, #fff);
+}
+
+.pro-role-signal {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-tertiary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pro-role-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: auto;
+}
+.pro-role-cta {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 32px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid var(--pro-slate-line);
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: border-color var(--dur-fast), background-color var(--dur-fast), color var(--dur-fast);
+}
+.pro-role-cta--ghost:hover {
+  border-color: color-mix(in srgb, var(--pro-teal) 40%, var(--pro-slate-line));
+  color: var(--pro-teal);
+  background: color-mix(in srgb, var(--pro-teal) 6%, transparent);
+}
+.pro-role-cta--primary {
+  background: var(--accent, #6366f1);
+  border-color: transparent;
+  color: #fff;
+}
+.pro-role-cta--primary:hover {
+  filter: brightness(1.04);
+  color: #fff;
+}
+.pro-role-cta--warn {
+  background: color-mix(in srgb, var(--warning, #b45309) 14%, transparent);
+  border-color: color-mix(in srgb, var(--warning, #b45309) 36%, transparent);
+  color: var(--warning, #b45309);
+}
+.pro-role-cta--warn:hover {
+  background: color-mix(in srgb, var(--warning, #b45309) 20%, transparent);
 }
 
 .pro-role-heading {
@@ -667,14 +771,16 @@
 .pro-role-title {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   flex-wrap: wrap;
-  margin-bottom: 3px;
+  margin-bottom: 2px;
 }
 
 .pro-role-name {
-  font-weight: 650;
-  font-size: var(--ef-text-base) ;
+  font-weight: 600;
+  font-size: 14px;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
   color: var(--text-primary);
 }
 
@@ -768,9 +874,10 @@
 .pro-meta-chip {
   display: inline-flex;
   align-items: center;
-  padding: 2px 8px;
-  font-size: 11px;
+  padding: 1px 7px;
+  font-size: 10px;
   font-weight: 500;
+  line-height: 1.4;
   border-radius: 999px;
   background: var(--bg-tertiary);
   color: var(--text-secondary);
@@ -1840,8 +1947,10 @@ html.evopanel-macos-titlebar .pro-employee-page--nav-in-chrome {
   flex: 0 0 auto;
   min-height: 0;
   max-height: none;
-  margin-top: 10px;
-  gap: 4px;
+  margin-top: 6px;
+  gap: 3px;
+  padding: 8px 9px;
+  border-radius: 8px;
 }
 
 /* 员工岗位卡片 · 任务看板（按 role_name 归并主/子任务） */

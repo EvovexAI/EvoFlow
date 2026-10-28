@@ -25662,6 +25662,78 @@ html.dark .shell-roster-tile:focus-visible {
   background: var(--bg-secondary, #111827);
 }
 
+/* —— 右栏精简任务 / 待办列表（shell-page / tasks.board · items.board） —— */
+.shell-tasks-head-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.shell-tasks-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 2px 2px 8px;
+}
+.shell-tasks-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid transparent;
+  background: color-mix(in srgb, var(--bg-secondary, #f8fafc) 70%, transparent);
+  cursor: pointer;
+  text-align: left;
+  outline: none;
+  width: 100%;
+}
+.shell-tasks-row:hover,
+.shell-tasks-row:focus-visible {
+  border-color: color-mix(in srgb, var(--accent, #3b82f6) 35%, var(--border, #e2e8f0));
+  background: color-mix(in srgb, var(--accent, #3b82f6) 8%, var(--bg-secondary, #f8fafc));
+}
+.shell-tasks-row--focus {
+  border-color: color-mix(in srgb, var(--accent, #3b82f6) 55%, var(--border, #e2e8f0));
+  background: color-mix(in srgb, var(--accent, #3b82f6) 12%, var(--bg-secondary, #f8fafc));
+}
+.shell-tasks-row-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.shell-tasks-row-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary, #0f172a);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.shell-tasks-row-id {
+  font-size: 11px;
+  color: var(--text-tertiary, #94a3b8);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+html[data-theme='dark'] .shell-tasks-row,
+html.dark .shell-tasks-row {
+  background: color-mix(in srgb, var(--bg-secondary, #111827) 80%, transparent);
+}
+html[data-theme='dark'] .shell-tasks-row:hover,
+html[data-theme='dark'] .shell-tasks-row:focus-visible,
+html[data-theme='dark'] .shell-tasks-row--focus,
+html.dark .shell-tasks-row:hover,
+html.dark .shell-tasks-row:focus-visible,
+html.dark .shell-tasks-row--focus {
+  background: var(--bg-secondary, #111827);
+}
+
 /* 仅当 BrowserPanel 仍是 main-body 的直接子级时才当外壳占宽（旧路径兜底）。
    标签内容路径见下方 ``.react-chat-right-stage-body > …``。 */
 .react-chat-main-body > .react-chat-browser-panel.react-chat-collab-exec-panel {

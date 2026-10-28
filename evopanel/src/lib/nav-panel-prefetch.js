@@ -125,9 +125,14 @@ async function warmAppsData() {
   warmKey('apps:list', () => api.listApps())
 }
 
+/** Cap hover-warm + first paint; full dump (~700 roots / 1MB+) freezes Task Center. */
+export const TASKS_CATALOG_FETCH_CAP = 200
+
 async function warmTasksData() {
   const { api } = await import('./tauri-api.js')
-  warmKey('tasks:list', () => api.listAllTasks())
+  warmKey('tasks:list', () =>
+    api.listAllTasks({ page: 1, page_size: TASKS_CATALOG_FETCH_CAP }),
+  )
   warmKey('tasks:agents', () => api.listAgents().catch(() => []))
   warmKey('tasks:roles', () => api.proactiveListRoles().catch(() => ({})))
 }

@@ -218,14 +218,15 @@ def get_preferred_backend() -> str | None:
 
 
 def _mask_secret(value: Any) -> str | None:
+    """Mask secrets for UI: keep first/last 4 chars so users can tell keys apart."""
     if value is None:
         return None
     s = str(value).strip()
     if not s:
         return None
-    if len(s) <= 4:
-        return "****"
-    return "*" * min(len(s) - 4, 12) + s[-4:]
+    if len(s) <= 8:
+        return f"****{s[-4:]}" if len(s) > 4 else "****"
+    return f"{s[:4]}****{s[-4:]}"
 
 
 def get_web_search_settings_masked() -> dict[str, Any]:

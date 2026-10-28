@@ -2042,6 +2042,23 @@ html[data-translucent-ui='1'] .proactive-page .pro-role-card .btn {
   filter: none !important;
 }
 
+html[data-translucent-ui='1'] .proactive-page .pro-role-cta {
+  background: transparent !important;
+  border: 1px solid color-mix(in srgb, var(--border-primary) 58%, transparent) !important;
+  color: var(--text-primary) !important;
+  box-shadow: none !important;
+  filter: none !important;
+}
+html[data-translucent-ui='1'] .proactive-page .pro-role-cta--primary,
+html[data-translucent-ui='1'] .proactive-page .pro-role-cta--warn {
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent) !important;
+  color: var(--accent) !important;
+}
+html[data-translucent-ui='1'] .proactive-page .pro-role-cta--warn {
+  border-color: color-mix(in srgb, var(--warning, #b45309) 45%, transparent) !important;
+  color: var(--warning, #b45309) !important;
+}
+
 html[data-translucent-ui='1'] .proactive-page .page-actions .btn-primary,
 html[data-translucent-ui='1'] .proactive-page .pro-page-nav .btn-primary,
 html[data-translucent-ui='1'] .proactive-page .pro-dispatch-btn {

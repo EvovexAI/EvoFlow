@@ -48,6 +48,15 @@ import { showIMChannelPicker } from '../components/IMChannelPickerModal.js'
 import { renderOutputItemCardsHtml, filterDeliverableOutputs } from '../lib/task-summary.js'
 import { bindTaskOutputCardActions } from '../lib/task-output-preview.js'
 import { HIRE_TEMPLATES, hireTemplateById } from '../lib/proactive-hire-templates.js'
+import {
+  AUTONOMY_FIELD_DESC,
+  AUTONOMY_FIELD_LABEL,
+  AUTONOMY_HINTS,
+  AUTONOMY_HIRE_OPTIONS,
+  autonomyHint,
+  normalizeAutonomyForHire,
+  renderAutonomyChips,
+} from '../lib/proactive-autonomy-ui.js'
 import { notifyEmployeesUpdated } from '../lib/employees-roster-sync.js'
 import { diagnoseRole, renderRoleDiagnosisHtml } from '../lib/proactive-role-diagnosis.js'
 import {
@@ -149,8 +158,42 @@ function _avatarSizeForEl(el, fallback = 44) {
   if (el.classList.contains('dd-org-avatar--sm')) return 28
   if (el.closest('.dd-org-mini')) return 40
   if (el.classList.contains('dd-org-avatar')) return 28
-  if (el.classList.contains('pro-role-avatar')) return fallback
+  if (el.classList.contains('pro-role-avatar')) return 40
   return fallback
+}
+
+/** 名册卡面主操作：草稿/请假/待批/忙碌优先，默认打开员工页 */
+function resolveEmployeePrimaryAction(r, { isDraft, isPaused, isBusy, pendingN }) {
+  const code = String(r?.agent_code || '').trim()
+  if (isDraft) {
+    return { action: 'resume', label: '确认上班', className: 'pro-role-cta pro-role-cta--primary', code }
+  }
+  if (isPaused) {
+    return { action: 'resume', label: '上班', className: 'pro-role-cta pro-role-cta--primary', code }
+  }
+  if (pendingN > 0) {
+    return { action: 'approvals', label: '去审批', className: 'pro-role-cta pro-role-cta--warn', code }
+  }
+  if (isBusy) {
+    return { action: 'live', label: '工作过程', className: 'pro-role-cta pro-role-cta--primary', code }
+  }
+  return { action: 'open', label: '打开', className: 'pro-role-cta pro-role-cta--ghost', code }
+}
+
+/** 卡片脸上一句职责 / 简介 */
+function roleDutyOneLiner(role) {
+  const resp = Array.isArray(role?.config?.responsibilities)
+    ? role.config.responsibilities.filter(Boolean)
+    : []
+  if (resp.length) return previewLine(resp.join(' · '), 88)
+  const dept = sanitizeRoleLabel(role?.department || role?.config?.department, '')
+  if (dept) return dept
+  const desc = sanitizeRoleLabel(
+    role?.config?.extra_context?.agent_description || role?.agent_description,
+    '',
+  )
+  if (desc) return previewLine(desc, 88)
+  return ''
 }
 
 function mountProactiveAvatars(root, defaultSize = 44) {
@@ -524,15 +567,6 @@ function bindHeader(page) {
   })
 }
 
-const AUTONOMY_HINTS = {
-  full_auto:
-    '有下游交工时：仅「极高风险」须你点「同意派发」；其余自动叫醒下级。新开任务默认直接跑。',
-  approval_for_risky:
-    '有下游交工时：中风险及以上须你点「同意派发」；低风险自动派。新开任务默认直接跑。',
-  approval_for_all:
-    '有下游交工时：几乎都要你点「同意派发」才叫醒下级。单岗无下游时通常碰不到此闸。',
-}
-
 function parseLines(text) {
   return String(text || '')
     .split('\n')
@@ -829,7 +863,7 @@ async function showHireModal(page) {
         ${renderKnowledgeVaultField(knowledgeVaults, [])}
 
         <details class="hire-advanced">
-          <summary>更多设置（能力来源 / 工作空间 / 审批 / 节奏 / 模型）</summary>
+          <summary>更多设置（能力来源 / 工作空间 / 交工审核 / 节奏 / 模型）</summary>
           <div class="hire-advanced-body">
             <label class="hire-field">
               <span>能力来源</span>
@@ -841,13 +875,12 @@ async function showHireModal(page) {
             ${renderWorkspaceField(workspacePaths, '')}
             ${renderModelField(chatModels, '')}
             <div class="hire-field">
-              <span>转交审批策略</span>
+              <span>${AUTONOMY_FIELD_LABEL}</span>
+              <p class="hire-chip-hint">${AUTONOMY_FIELD_DESC}</p>
               <div class="hire-chip-row" data-name="autonomy_level" role="radiogroup">
-                <button type="button" class="hire-chip" data-value="full_auto">全自动</button>
-                <button type="button" class="hire-chip" data-value="approval_for_risky">平衡型</button>
-                <button type="button" class="hire-chip is-on" data-value="approval_for_all">谨慎型</button>
+                ${renderAutonomyChips(AUTONOMY_HIRE_OPTIONS, 'approval_for_all')}
               </div>
-              <p class="hire-chip-hint" data-autonomy-hint>${AUTONOMY_HINTS.approval_for_all}</p>
+              <p class="hire-chip-hint" data-autonomy-hint>${autonomyHint('approval_for_all')}</p>
             </div>
             <div class="hire-field">
               <span>自动上班</span>
@@ -881,11 +914,12 @@ async function showHireModal(page) {
   const setAutonomyChip = (value) => {
     const row = overlay.querySelector('[data-name="autonomy_level"]')
     if (!row) return
+    const normalized = normalizeAutonomyForHire(value)
     row.querySelectorAll('.hire-chip').forEach((c) => {
-      c.classList.toggle('is-on', c.dataset.value === value)
+      c.classList.toggle('is-on', c.dataset.value === normalized)
     })
     const hint = overlay.querySelector('[data-autonomy-hint]')
-    if (hint) hint.textContent = AUTONOMY_HINTS[value] || ''
+    if (hint) hint.textContent = autonomyHint(normalized)
   }
   const setHireSchedule = (cronExpr) => {
     hireScheduleCtrl.setSchedule(cronExpr || DEFAULT_DUTY_CRON)
@@ -3058,12 +3092,7 @@ function renderRoles(roles) {
     const statusLabel = dutyBadge.label
     const statusCls = dutyBadge.cls
     const isIdle = !!dutyBadge.idle && !isBusy
-    const resp = Array.isArray(r.config?.responsibilities)
-      ? r.config.responsibilities.filter(Boolean)
-      : []
-    const dutyHtml = renderRoleDutyText(resp, {
-      empty: roleDutyFallback(r),
-    })
+    const dutyLine = roleDutyOneLiner(r)
     const mine = _initiativesData.filter((i) => String(i.role_agent_code) === String(r.agent_code))
     const lastInit = mine[0]
     const pendingN = (_approvalsData || []).filter(
@@ -3085,38 +3114,7 @@ function renderRoles(roles) {
     else if (r.last_heartbeat_at) oneLiner = `上次上班 ${fmtTime(r.last_heartbeat_at)}`
 
     const isSystemFrontDesk = !!r.system_front_desk || String(r.agent_code || '') === 'xiaomi'
-    const noWorkspace = !r.config?.workspace_path && !isSystemFrontDesk
-    const diags = diagnoseRole({
-      agentCode: r.agent_code,
-      dash,
-      pendingApprovalCount: pendingN,
-      initiatives: mine,
-      noWorkspace,
-      isDraft,
-      isPaused,
-    })
-    const diagHtml = renderRoleDiagnosisHtml(diags, { esc, code: r.agent_code, compact: true })
-
-    const scheduleLabel = roleScheduleSummary(r)
-    // 底栏：上班时间 / 飞书 / 工作区 / 花费
-    const metaChips = [
-      `<span class="pro-meta-chip" title="自动上班">${esc(scheduleLabel)}</span>`,
-      feishuBoundChipHtml(r),
-    ]
-    if (r.config?.workspace_path) {
-      metaChips.push(
-        `<span class="pro-meta-chip" title="${esc(r.config.workspace_path)}">${esc(pathBasename(r.config.workspace_path))}</span>`,
-      )
-    } else if (isSystemFrontDesk) {
-      metaChips.push('<span class="pro-meta-chip" title="不绑仓库，催办全局任务">全局</span>')
-    } else {
-      metaChips.push('<span class="pro-meta-chip" title="未指定管辖目录，使用系统默认工作空间">默认工作区</span>')
-    }
-    if (dash?.today_cost_usd > 0) {
-      metaChips.push(
-        `<span class="pro-meta-chip" title="今日成本">今日 ${esc(fmtUsd(dash.today_cost_usd))}</span>`,
-      )
-    }
+    const primary = resolveEmployeePrimaryAction(r, { isDraft, isPaused, isBusy, pendingN })
 
     const dutyMenu = isDraft
       ? `<button type="button" class="pro-role-more-item" role="menuitem" data-action="resume" data-code="${esc(r.agent_code)}">确认上班</button>`
@@ -3145,47 +3143,56 @@ function renderRoles(roles) {
       ${imUnbindItems}
     `
 
+    const presenceMod = isBusy
+      ? 'pro-presence--run'
+      : isPaused || isDraft
+        ? 'pro-presence--off'
+        : isIdle || pendingN
+          ? 'pro-presence--warn'
+          : 'pro-presence--ok'
+
     return `
     <article class="pro-role-card pro-role-card--slim ${isPaused || isDraft ? 'pro-role-card--paused' : ''} ${!isPaused && !isDraft ? 'pro-role-card--active' : ''} ${isBusy ? 'pro-role-card--busy' : ''} ${isIdle ? 'pro-role-card--idle' : ''} ${pendingN ? 'pro-role-card--needs-you' : ''}" data-code="${esc(r.agent_code)}">
       <div class="pro-role-header">
-        <div class="pro-role-avatar" data-avatar-agent="${esc(r.agent_code)}" aria-hidden="true"></div>
+        <div class="pro-role-avatar-wrap" title="${esc(statusLabel)}">
+          <div class="pro-role-avatar" data-avatar-agent="${esc(r.agent_code)}" aria-hidden="true"></div>
+          <span class="pro-presence ${presenceMod}" aria-hidden="true"></span>
+          ${pendingN ? `<span class="pro-presence-count" title="${pendingN} 项待批">${pendingN > 9 ? '9+' : pendingN}</span>` : ''}
+        </div>
         <div class="pro-role-heading">
           <div class="pro-role-title">
             <span class="pro-role-name">${esc(roleCardTitle(r))}</span>
             <span class="pro-badge ${statusCls}" data-role-status title="${esc(dutyBadge.tip || '')}">${esc(statusLabel)}</span>
-            ${isSystemFrontDesk ? '<span class="pro-badge pro-badge--muted" title="安装自带，催办全局待办">系统前台</span>' : ''}
-            ${pendingN ? `<span class="pro-badge pro-badge--urgent">${pendingN} 待批</span>` : ''}
           </div>
-          ${dutyHtml}
-        </div>
-        <div class="pro-role-more">
-          <button type="button" class="pro-role-more-btn" data-action="more" data-code="${esc(r.agent_code)}" aria-label="更多操作" title="编辑、删除等" aria-haspopup="menu" aria-expanded="false">⋯</button>
-          <div class="pro-role-more-menu" role="menu" hidden>
-            <button type="button" class="pro-role-more-item" role="menuitem" data-action="live" data-code="${esc(r.agent_code)}">工作过程</button>
-            <button type="button" class="pro-role-more-item" role="menuitem" data-action="edit" data-code="${esc(r.agent_code)}">编辑岗位</button>
-            ${imMenu}
-            ${dutyMenu}
-            ${
-              isSystemFrontDesk
-                ? ''
-                : `<div class="pro-role-more-sep" role="separator"></div>
-          <button type="button" class="pro-role-more-item pro-role-more-item--danger" role="menuitem" data-action="delete" data-code="${esc(r.agent_code)}">删除岗位</button>`
-            }
-          </div>
+          ${
+            dutyLine
+              ? `<p class="pro-role-duty pro-role-duty--one">${esc(dutyLine)}</p>`
+              : isSystemFrontDesk
+                ? '<p class="pro-role-duty pro-role-duty--one">系统前台 · 催办全局待办</p>'
+                : ''
+          }
         </div>
       </div>
       <div class="pro-role-body">
-        <div class="pro-role-meta pro-role-meta--compact">${metaChips.join('')}</div>
-        <button type="button" class="pro-work-summary pro-work-summary--slim" data-action="worklog" data-code="${esc(r.agent_code)}">
-          <span class="pro-work-summary-label">近况</span>
-          <span class="pro-work-summary-last">${esc(oneLiner)}</span>
-          <span class="pro-work-summary-meta">${
-            isDraft
-              ? '编辑完善后点「确认上班」'
-              : `上次 ${fmtTime(r.last_heartbeat_at)} · 下次 ${fmtTime(r.next_heartbeat_at)}`
-          }</span>
-        </button>
-        ${diagHtml}
+        <p class="pro-role-signal" title="${esc(oneLiner)}">${esc(oneLiner)}</p>
+        <div class="pro-role-foot">
+          <button type="button" class="${primary.className}" data-action="${esc(primary.action)}" data-code="${esc(r.agent_code)}">${esc(primary.label)}</button>
+          <div class="pro-role-more">
+            <button type="button" class="pro-role-more-btn" data-action="more" data-code="${esc(r.agent_code)}" aria-label="更多操作" title="编辑、删除等" aria-haspopup="menu" aria-expanded="false">⋯</button>
+            <div class="pro-role-more-menu" role="menu" hidden>
+              <button type="button" class="pro-role-more-item" role="menuitem" data-action="live" data-code="${esc(r.agent_code)}">工作过程</button>
+              <button type="button" class="pro-role-more-item" role="menuitem" data-action="edit" data-code="${esc(r.agent_code)}">编辑岗位</button>
+              ${imMenu}
+              ${dutyMenu}
+              ${
+                isSystemFrontDesk
+                  ? ''
+                  : `<div class="pro-role-more-sep" role="separator"></div>
+            <button type="button" class="pro-role-more-item pro-role-more-item--danger" role="menuitem" data-action="delete" data-code="${esc(r.agent_code)}">删除岗位</button>`
+              }
+            </div>
+          </div>
+        </div>
       </div>
     </article>`
       })
@@ -3427,8 +3434,12 @@ function bindRoles(container) {
         })
         return
       }
-      if (action === 'worklog') {
+      if (action === 'worklog' || action === 'open') {
         navigate(`/proactive/${encodeURIComponent(code)}`)
+        return
+      }
+      if (action === 'approvals') {
+        if (page) switchToApprovalsTab(page)
         return
       }
       if (action === 'live') {

@@ -117,8 +117,10 @@ export async function render() {
 
   page.innerHTML = `
     <div class="page-header ext-hero">
-      <span class="ext-hero-glow ext-hero-glow--1" aria-hidden="true"></span>
-      <span class="ext-hero-glow ext-hero-glow--2" aria-hidden="true"></span>
+      <span class="ext-hero-glows" aria-hidden="true">
+        <span class="ext-hero-glow ext-hero-glow--1"></span>
+        <span class="ext-hero-glow ext-hero-glow--2"></span>
+      </span>
       <div class="ext-hero-brand">
         <span class="ext-hero-icon" aria-hidden="true">${ICONS.puzzle}</span>
         <div class="ext-hero-text">

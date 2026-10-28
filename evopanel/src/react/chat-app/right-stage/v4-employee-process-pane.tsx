@@ -52,6 +52,15 @@ function looksLikeAgentCodeLabel(name: string, agentCode: string): boolean {
   return false
 }
 
+/** 仅本岗 proactive key；主聊 agent:main:* 等不能当员工会话去订 V4。 */
+function employeeOwnedSessionKey(sessionKey: string, agentCode: string): string {
+  const sk = String(sessionKey || '').trim()
+  const code = String(agentCode || '').trim()
+  if (!sk || !code || !isProactiveSessionKey(sk)) return ''
+  const parsed = parseProactiveSessionKey(sk)
+  return String(parsed.agentCode || '').trim() === code ? sk : ''
+}
+
 /** 后端 run_status 原值 → 徽标文案（未收录的回退原样显示） */
 const STATUS_LABEL: Record<string, string> = {
   done: '已完成',
@@ -158,13 +167,13 @@ export function V4EmployeeProcessPane(props: V4EmployeeProcessPaneProps) {
   const code = String(agentCode || '').trim()
   const [threadId, setThreadId] = useState('')
   const [employeeSessionKey, setEmployeeSessionKey] = useState(() =>
-    String(employeeSessionKeyHint || '').trim(),
+    employeeOwnedSessionKey(employeeSessionKeyHint, agentCode),
   )
 
   useEffect(() => {
-    const hint = String(employeeSessionKeyHint || '').trim()
+    const hint = employeeOwnedSessionKey(employeeSessionKeyHint, agentCode)
     if (hint) setEmployeeSessionKey(hint)
-  }, [employeeSessionKeyHint])
+  }, [employeeSessionKeyHint, agentCode])
   const [runStatus, setRunStatus] = useState('')
   const [displayRole, setDisplayRole] = useState(() =>
     resolveEmployeeProcessTabTitle({ title, roleName, agentCode: code }),
@@ -209,8 +218,11 @@ export function V4EmployeeProcessPane(props: V4EmployeeProcessPaneProps) {
       return
     }
     try {
-      const hintSk = String(employeeSessionKeyHint || employeeSessionKey || '').trim()
-      // surface.sessionKey / selectedSessionKey = 主聊归属；绝不能当员工会话去订 V4
+      // 主聊注入的 session_key / surface.sessionKey 绝不能当员工会话
+      const hintSk = employeeOwnedSessionKey(
+        employeeSessionKeyHint || employeeSessionKey,
+        code,
+      )
       const ownerSk = String(sessionKey || '').trim()
       const meta = await resolveProactiveProcessMeta({
         agentCode: code,
@@ -220,7 +232,7 @@ export function V4EmployeeProcessPane(props: V4EmployeeProcessPaneProps) {
         ensureThread: ensureChatThread,
       })
       let tid = String(meta.thread_id || '').trim()
-      const metaSk = String(meta.session_key || '').trim()
+      const metaSk = employeeOwnedSessionKey(meta.session_key || '', code)
       // 防串台：解析结果若落到主聊 session/thread，丢掉 thread，继续宽限轮询
       let rejectedOwner = false
       if (ownerSk && metaSk && metaSk === ownerSk) {
@@ -250,7 +262,7 @@ export function V4EmployeeProcessPane(props: V4EmployeeProcessPaneProps) {
       setThreadId(tid)
       if (hintSk) {
         setEmployeeSessionKey(hintSk)
-      } else if (metaSk && metaSk !== ownerSk) {
+      } else if (metaSk) {
         setEmployeeSessionKey((prev) => prev || metaSk)
       }
       const status = String(meta.run_status || '').trim()
@@ -627,9 +639,9 @@ export function V4EmployeeProcessPane(props: V4EmployeeProcessPaneProps) {
   const headerTitle = looksLikeAgentCodeLabel(headerTitleRaw, code)
     ? '执行过程'
     : headerTitleRaw || '执行过程'
-  // 时间线 scope 必须用员工会话；主聊 sessionKey 只作文件 tab 挂靠（owner）
+  // 时间线 scope 必须用员工会话；绝不能回落主聊，否则与左侧同流
   const ownerSessionKey = String(sessionKey || '').trim()
-  const timelineSessionKey = String(employeeSessionKey || ownerSessionKey || '').trim()
+  const timelineSessionKey = employeeOwnedSessionKey(employeeSessionKey, code)
   const bridgeSessionKey = timelineSessionKey || undefined
   const fileOwnerSessionKey = ownerSessionKey || timelineSessionKey || undefined
 

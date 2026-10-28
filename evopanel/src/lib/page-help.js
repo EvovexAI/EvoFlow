@@ -180,7 +180,7 @@ const GUIDE = {
     steps: [
       {
         title: '点「加人」',
-        desc: '可先点模板。填岗位名与职责 → 确认加人。能力默认自动创建；更多设置可沿用未入职智能体、选工作空间、转交审批（建议先谨慎型）。\n\n**职责怎么写才合格？要能对答案：**\n· 反例：「好好工作」「帮忙处理事务」——没法检查干没干\n· 正例：「每个工作日 09:00 检查 main 分支 CI；红了就写失败报告并 @ 我」\n· 正例：「每天汇总昨天的客诉工单，按紧急度排序发到群里」',
+        desc: '可先点模板。填岗位名与职责 → 确认加人。能力默认自动创建；更多设置可沿用未入职智能体、选工作空间、交工审核（建议先选「需要审核」）。\n\n**职责怎么写才合格？要能对答案：**\n· 反例：「好好工作」「帮忙处理事务」——没法检查干没干\n· 正例：「每个工作日 09:00 检查 main 分支 CI；红了就写失败报告并 @ 我」\n· 正例：「每天汇总昨天的客诉工单，按紧急度排序发到群里」',
         tip: '写不出验收标准的活，先别雇——需求还没想清楚',
       },
       {
@@ -261,31 +261,64 @@ const GUIDE = {
   '/extensions': {
     title: 'Agent应用',
     icon: '🧩',
-    quickstart: '有网址：点「添加远程入口」填 ID、名称、入口 URL → 安装 → 点卡片打开。本地目录要含 evoflow.extension.json，用「安装本地Agent应用」。需要本机进程时，⋯「启动服务」。',
-    watchouts: '· 这是侧栏「Agent应用」，不是设置里的「插件市场」，也不是智能体「连接器」\n· 选文件夹时要选到能直接看到清单的那一层\n· 角标「已停止 / 失败」时先「启动服务」，再「查看日志」\n· 申请任务派发等权限时，启用前会再确认',
+    quickstart: '有网址：页头「安装应用 → 远程入口」填 ID、名称、入口 URL → 点卡片打开。自有项目：在**项目根目录**放 `evoflow.extension.json`，再「安装应用 → 本地文件夹」选到能直接看见该文件的那一层。需要本机进程时，⋯「启动服务」。',
+    watchouts: '· 这是侧栏「Agent应用」，不是设置里的「插件市场」，也不是智能体「连接器」\n· 选文件夹时要选到能直接看到 `evoflow.extension.json` 的那一层\n· 角标「已停止 / 失败」时先「启动服务」，再「查看日志」',
     overview: {
-      what: '把网页挂进面板。三种装法：**添加远程入口**、**安装本地Agent应用**、**导入 zip**。\n\n装好后点卡片打开。⋯ 菜单：启用/禁用、启动服务、停止服务、查看日志、打开目录、卸载。',
+      what: '把网页挂进面板。页头「安装应用」三种装法：**本地文件夹**、**zip 包**、**远程入口**。\n\n装好后点卡片打开。⋯ 菜单：启用/禁用、启动服务、停止服务、查看日志、打开目录、卸载。',
       when: '运营看板、内部后台、自有前端要收进侧栏，不想另开浏览器标签。',
-      how: '远程：填 ID + 名称 + URL。本地：清单在文件夹根上再安装。源码工程按清单启动，看角标是否「运行中」。',
+      how: '有网址就用「远程入口」。自有项目：根目录放一份最小 JSON，再「本地文件夹」选到含清单的那一层。',
     },
     steps: [
-      { title: '远程网址', desc: '「添加远程入口」→ Agent应用 ID、名称、入口 URL →「安装」。', tip: '角标「无本地服务」表示点开即可，不必启动服务' },
-      { title: '本地目录或 zip', desc: '目录或 zip 根上要有 evoflow.extension.json。按钮是「安装本地Agent应用」「导入 zip」。', tip: '清单套在子目录里会装不上，选最里层' },
-      { title: '启动与排错', desc: '需要本机服务时点 ⋯「启动服务」。状态：已停止、启动中、运行中、失败、外部服务、需自行启动。', tip: '失败先「查看日志」' },
-      { title: '启用、禁用、卸载', desc: '不用先「禁用应用」。确认没有人从侧栏进，再「卸载」。', tip: '页头「使用指南」就是这份帮助' },
+      {
+        title: '远程网址（不用写 JSON）',
+        desc: '页头「安装应用」→「远程入口」→ 填 ID、名称、入口 URL →「添加」。有现成网址就用这个，最简单。',
+        tip: '点开即可，一般不必「启动服务」',
+      },
+      {
+        title: '清单放在哪个目录',
+        desc: '自有项目在**项目根目录**放 `evoflow.extension.json`（和 `package.json` 同级）：\n\n```\nmy-ops-dashboard/\n  evoflow.extension.json   ← 装应用时选这一层\n  package.json\n  src/\n```\n\n「安装应用 → 本地文件夹」选这一层；zip 则把清单打在压缩包根上。',
+        tip: '打开选中的文件夹，应能直接看到 evoflow.extension.json',
+      },
+      {
+        title: '怎么写 evoflow.extension.json',
+        desc: '复制下面这份，只改三处：`id`、`name`、`ui.entry`（你的页面地址）。\n\n```json\n{\n  "schema": 1,\n  "id": "my-ops-dashboard",\n  "name": "运营看板",\n  "version": "1.0.0",\n  "ui": {\n    "kind": "webview",\n    "entry": "http://localhost:5173"\n  },\n  "service": { "mode": "none" }\n}\n```\n\n`service.mode` 写 `none` 表示页面你自己打开/部署好，EvoFlow 只负责嵌进来。',
+        tip: '改完若已装过，卸载再装一次即可',
+      },
+      {
+        title: '字段说明',
+        desc: '先只会这几项就够用：\n\n| 字段 | 含义 | 怎么填 |\n|------|------|--------|\n| `schema` | 格式版本 | 固定 `1` |\n| `id` | 唯一 ID | 小写+连字符，如 `my-ops-dashboard` |\n| `name` | 显示名称 | 如 `运营看板` |\n| `version` | 版本 | 如 `1.0.0` |\n| `ui.kind` | 打开方式 | 固定 `webview` |\n| `ui.entry` | 打开的网址 | 如 `http://localhost:5173` 或线上 URL |\n| `service.mode` | 要不要帮你起服务 | 入门写 `none`（你自己起页面） |\n\n可选（不写也行）：`description` 简介、`icon` 图标、`nav.title` 侧栏标题。\n\n要面板一键「启动服务」、或页面要跟对话/派任务联动，再去「更多文档」看进阶字段，入门可以不管。',
+        tip: '权限、bridge、managed 启动命令都是进阶项，嵌网页用不到',
+      },
+      {
+        title: '安装本地目录或 zip',
+        desc: '「安装应用 → 本地文件夹」选到含清单的那一层；或「zip 包」导入。装好后点卡片打开。',
+        tip: '装不上多半是选错了目录',
+      },
+      {
+        title: '启动与排错',
+        desc: '入门用 `service.mode=none` 时：先自己把页面跑起来（或用线上 URL），再点卡片。只有配了自动启动时，才需要 ⋯「启动服务」。',
+        tip: '失败先「查看日志」',
+      },
+      {
+        title: '启用、禁用、卸载',
+        desc: '不用就「禁用」；确认没人打开后再「卸载」。本地文件夹安装一般只摘登记，不删你的源码。',
+        tip: '页头「使用指南」就是这份帮助',
+      },
     ],
     faq: [
       { q: '和插件市场、连接器有啥区别？', a: 'Agent应用 = 嵌进面板的网页。插件市场在设置里装能力包。连接器是 MCP，在智能体页勾给智能体。' },
-      { q: '不会写代码能装吗？', a: '有网址就行：添加远程入口，填链接。' },
-      { q: '能调 EvoFlow 的能力吗？', a: '能，但清单里要声明权限（智能体、记忆、知识库等）。敏感权限启用时会再问你。' },
+      { q: '不会写代码能装吗？', a: '有网址就行：「安装应用 → 远程入口」，填 ID、名称和链接，不必写 JSON。' },
+      { q: '清单必须放在哪？', a: '放在你选中安装的那一层目录根上，文件名必须是 `evoflow.extension.json`。' },
+      { q: '最少要写哪些字段？', a: '`schema`、`id`、`name`、`version`、`ui.kind`、`ui.entry`、`service.mode`。照着示例改三个值就能装。' },
+      { q: '要不要写 permissions？', a: '不用。只是把网页嵌进来时可以整段省略；系统默认按基础嵌入处理。' },
     ],
     docs: [
       { label: '模型、搜索、插件与 Agent 应用', type: 'doc', search: 'Agent应用 远程入口 插件市场' },
-      { label: '把自有项目装成 Agent 应用', type: 'doc', search: 'evoflow.extension.json 本地服务' },
+      { label: '把自有项目装成 Agent 应用（进阶）', type: 'doc', search: 'evoflow.extension.json 本地服务' },
     ],
     onboarding: {
       trigger: 'first-visit',
-      storageKey: 'evopanel.guide.extensions.v2',
+      storageKey: 'evopanel.guide.extensions.v5',
     },
   },
 
@@ -1030,7 +1063,7 @@ const GUIDE = {
     showAgentEmployeeNote: true,
     overview: {
       what: '单个员工主页：状态（工作中 / 在岗 / 已停）+ 能力芯片 + 四个 Tab——**上班记录 · 成长 · 运行数据 · 配置**。\n\n这里改的是岗位合同（职责、节奏、审批、工作区、知识库）。人设、工具、连接器回「智能体」页。',
-      when: '· 刚加人，要核对职责并试跑\n· 改上班时间表、工作区、转交审批、预算\n· 看近几轮干了啥、工作过程是否真调了工具\n· 派发、请假、绑 IM、删除岗位',
+      when: '· 刚加人，要核对职责并试跑\n· 改上班时间表、工作区、交工审核、预算\n· 看近几轮干了啥、工作过程是否真调了工具\n· 派发、请假、绑 IM、删除岗位',
       how: '1. 顶栏看状态与下次巡检\n2. 「派发任务 / 跟他聊 / 工作过程」\n3. ⋯「编辑岗位」改五分区配置\n4. 「上班记录」复核小结；空转就开工作过程\n5. 「本岗全部任务」跳任务中心验收',
     },
     steps: [
@@ -1058,7 +1091,7 @@ const GUIDE = {
     faq: [
       { q: '改职责后立刻生效吗？', a: '保存后，下一轮心跳或下一次派活按新职责；正在跑的那一轮通常仍按旧上下文收尾。' },
       { q: '工作项和任务中心什么关系？', a: '员工工作项常对应一条协作任务。点进去可到任务详情做确认完成 / 要求修改 / 同意派发。' },
-      { q: '如何限制它乱改文件？', a: '转交审批选谨慎型、收窄工作区、在智能体页关掉高危工具与连接器。' },
+      { q: '如何限制它乱改文件？', a: '交工审核选「需要审核」、收窄工作区、在智能体页关掉高危工具与连接器。' },
     ],
     docs: [
       { label: '员工管理指南', type: 'doc', search: '员工 加人 岗位职责' },
@@ -1083,7 +1116,7 @@ const GUIDE = {
       {
         title: '先清「待确认」',
         desc: '待确认堆久了会堵下游。每天先清空再看进行中。',
-        tip: '转交审批也可能在员工页「待审批」Tab',
+        tip: '交工审核也可能在员工页「待审批」Tab',
       },
       {
         title: '点进卡片再决策',
@@ -1255,12 +1288,73 @@ function _esc(s) {
     .replace(/"/g, '&quot;')
 }
 
-// 简单的换行转 <br>，支持 **粗体** 和 `code`
+function _renderInlineMarks(escapedHtml) {
+  return String(escapedHtml || '')
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+}
+
+function _splitTableRow(line) {
+  const raw = String(line || '').trim()
+  if (!raw.startsWith('|')) return null
+  const cells = raw.replace(/^\|/, '').replace(/\|$/, '').split('|').map((c) => c.trim())
+  return cells.length ? cells : null
+}
+
+function _isTableSepRow(cells) {
+  if (!cells || !cells.length) return false
+  return cells.every((c) => /^:?-{3,}:?$/.test(String(c || '').replace(/\s/g, '')))
+}
+
+/** Markdown 管道表 → HTML table（需已抽出，避免被 `<br>` 拆碎） */
+function _renderMarkdownTable(block) {
+  const lines = String(block || '')
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean)
+  if (lines.length < 2) return ''
+  const header = _splitTableRow(lines[0])
+  const sep = _splitTableRow(lines[1])
+  if (!header || !_isTableSepRow(sep)) return ''
+  const body = lines.slice(2).map(_splitTableRow).filter(Boolean)
+  const th = header
+    .map((c) => `<th>${_renderInlineMarks(_esc(c))}</th>`)
+    .join('')
+  const trs = body
+    .map((row) => {
+      const cells = header.map((_, i) => row[i] ?? '')
+      return `<tr>${cells.map((c) => `<td>${_renderInlineMarks(_esc(c))}</td>`).join('')}</tr>`
+    })
+    .join('')
+  return `<div class="guide-table-wrap"><table class="guide-table"><thead><tr>${th}</tr></thead><tbody>${trs}</tbody></table></div>`
+}
+
+// 换行转 <br>；支持 **粗体**、`inline`、``` 代码块、Markdown 表格
 function _renderText(s) {
-  let html = _esc(s)
-  html = html.replace(/`([^`]+)`/g, '<code>$1</code>')
-  html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+  const raw = String(s ?? '')
+  const blocks = []
+  let withSlots = raw.replace(/```(?:json|text|bash|sh|js|ts)?\n?([\s\S]*?)```/g, (_, code) => {
+    const i = blocks.length
+    blocks.push(
+      `<pre class="guide-code-block"><code>${_esc(String(code).replace(/^\n+|\n+$/g, ''))}</code></pre>`,
+    )
+    return `\u0000CB${i}\u0000`
+  })
+  withSlots = withSlots.replace(
+    /(^|\n)((?:\|[^\n]*\|\n)+)\|[-:| \t]+\|(?:\n\|[^\n]*\|)+/g,
+    (full, lead, _head) => {
+      const tableSrc = full.replace(/^\n/, '')
+      const html = _renderMarkdownTable(tableSrc)
+      if (!html) return full
+      const i = blocks.length
+      blocks.push(html)
+      return `${lead}\u0000CB${i}\u0000`
+    },
+  )
+  let html = _esc(withSlots)
+  html = _renderInlineMarks(html)
   html = html.replace(/\n/g, '<br>')
+  html = html.replace(/\u0000CB(\d+)\u0000/g, (_, i) => blocks[Number(i)] || '')
   return html
 }
 
@@ -1392,8 +1486,8 @@ export function showPageHelpPanel(route, initialTab) {
 }
 
 const AGENT_EMPLOYEE_NOTE = [
-  '1. **区别**：智能体管「会什么」（人设、工具、技能、连接器 MCP）。员工管「何时主动干」（岗位、职责、部门与上级、上班时间、转交审批、工作空间、绑定知识库、预算）。聊天里 @ 智能体不会自动值班。',
-  '2. **员工能配什么**：加人时填岗位名称、职责、部门、上级、知识库；更多设置里有能力来源、工作空间、工作模型、转交审批（全自动 / 平衡型 / 谨慎型）、自动上班。编辑岗位还可配工作方式、模型思考、系统提示词注入、知识库检索和预算。工具、技能、连接器到「智能体」页改。',
+  '1. **区别**：智能体管「会什么」（人设、工具、技能、连接器 MCP）。员工管「何时主动干」（岗位、职责、部门与上级、上班时间、交工审核、工作空间、绑定知识库、预算）。聊天里 @ 智能体不会自动值班。',
+  '2. **员工能配什么**：加人时填岗位名称、职责、部门、上级、知识库；更多设置里有能力来源、工作空间、工作模型、交工审核（需要审核 / 无需审核；编辑还可选「有风险才审」）、自动上班。编辑岗位还可配工作方式、模型思考、系统提示词注入、知识库检索和预算。工具、技能、连接器到「智能体」页改。',
   '3. **怎么操作**：侧栏「员工」→「加人」→ 填岗位和至少一条职责 →「确认加人」→ 打开自动上班，或点「现在开始工作」，急活用小V 派活。交工后到任务中心确认或打回。',
 ].join('\n')
 

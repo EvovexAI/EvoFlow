@@ -51,7 +51,7 @@ export const HIRE_TEMPLATES = [
       '列出拖延与缺项清单；可整理笔记提纲，但不代替考试作答或代写论文终稿',
       '晚上写简短工作汇报：今日进度与明日建议复习点',
     ],
-    autonomy_level: 'approval_for_risky',
+    autonomy_level: 'approval_for_all',
     heartbeat_schedule: '0 9-19 * * *',
   },
   {
@@ -64,7 +64,7 @@ export const HIRE_TEMPLATES = [
       '列出缺口与可拍角度；草稿可写，不擅自发布到平台',
       '汇报里写清：还差什么、建议你拍哪一条、相关文件路径',
     ],
-    autonomy_level: 'approval_for_risky',
+    autonomy_level: 'approval_for_all',
     heartbeat_schedule: '0 9-19/3 * * *',
   },
   {
@@ -77,7 +77,7 @@ export const HIRE_TEMPLATES = [
       '把问题清单落盘到工作区；不擅自批量删改他人正文，除非职责明确允许',
       '汇报里写清：扫了哪几处、优先修哪三条',
     ],
-    autonomy_level: 'approval_for_risky',
+    autonomy_level: 'approval_for_all',
     heartbeat_schedule: '0 10 * * *',
   },
 ]

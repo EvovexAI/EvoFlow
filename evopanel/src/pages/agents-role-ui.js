@@ -43,6 +43,14 @@ import {
 } from '../lib/workspace-field-ui.js'
 import { createSchedulePanel, DEFAULT_DUTY_CRON } from '../lib/schedule-panel.js'
 import {
+  AUTONOMY_FIELD_DESC,
+  AUTONOMY_FIELD_LABEL,
+  AUTONOMY_HINTS,
+  AUTONOMY_HIRE_OPTIONS,
+  autonomyHint,
+  renderAutonomyChips,
+} from '../lib/proactive-autonomy-ui.js'
+import {
   loadDepartmentCatalog,
   renderDepartmentSelectControl,
 } from '../lib/proactive-role-edit.js'
@@ -147,7 +155,7 @@ async function gatewayBaseForAvatars() {
   return _gatewayBaseCache
 }
 
-function mountRoleCardAvatars(container, agents, size = 44) {
+function mountRoleCardAvatars(container, agents, size = 40) {
   if (!container) return
   void gatewayBaseForAvatars().then((baseUrl) => {
     container.querySelectorAll('[data-avatar-agent]').forEach((el) => {
@@ -504,21 +512,17 @@ export function agentUsesExternalCli(agent) {
 export function renderRoleSkeleton(container) {
   container.innerHTML = Array.from({ length: 4 }, () => `
     <div class="role-card skeleton-card">
-      <div class="role-card-top">
+      <div class="role-card-header">
         <div class="skeleton-avatar"></div>
         <div class="skeleton-lines">
           <div class="skeleton-line w50"></div>
           <div class="skeleton-line w70"></div>
         </div>
       </div>
-      <div class="role-card-tags">
-        <div class="skeleton-tag"></div>
-        <div class="skeleton-tag short"></div>
-      </div>
-      <div class="role-card-bottom">
-        <div class="skeleton-btn"></div>
-        <div class="skeleton-btn"></div>
-        <div class="skeleton-btn"></div>
+      <div class="skeleton-line" style="width:92%"></div>
+      <div class="role-card-foot-end">
+        <div class="skeleton-btn" style="flex:1;width:auto"></div>
+        <div class="skeleton-btn" style="width:32px"></div>
       </div>
     </div>
   `).join('')
@@ -567,15 +571,15 @@ export function resolvePrimaryAction(agent, state) {
     return { action: 'start-chat', label: '开始对话', className: 'role-btn--primary' }
   }
   if (deploy === 'employee') {
-    return { action: 'open-duty', label: '打开值班台', className: 'role-btn--hired' }
+    return { action: 'open-duty', label: '打开', className: 'role-btn--ghost' }
   }
   if (deploy === 'app') {
-    return { action: 'open-app', label: '打开工作流', className: 'role-btn--primary' }
+    return { action: 'open-app', label: '打开工作流', className: 'role-btn--ghost' }
   }
   if (deploy === 'automation') {
-    return { action: 'open-automation', label: '打开自动化', className: 'role-btn--primary' }
+    return { action: 'open-automation', label: '打开自动化', className: 'role-btn--ghost' }
   }
-  return { action: 'hire', label: '加入员工', className: 'role-btn--hire' }
+  return { action: 'hire', label: '加入员工', className: 'role-btn--ghost' }
 }
 
 // ========== 渲染角色卡片 ==========
@@ -629,18 +633,10 @@ export function renderRoleCards(page, state, _tagFilter) {
       const desc = a.description || '暂无描述'
       const run = agentRunStatusOf(a, ctx)
       const typeLabel = agentTypeLabelOf(a)
-      const caps = agentCapabilityTags(a, 3)
-      const toolsLabel = toolsCountLabel(a, state)
-      const skillsCount = Array.isArray(a.skills) ? a.skills.length : 0
-      const mcpLabel = mcpStatusLabel(a)
       const primary = resolvePrimaryAction(a, state)
       const cliMissing = a.requires_external_cli === true && a.external_cli_available === false
       const selected = selectedId && selectedId === code
-
-      const resourceParts = []
-      if (toolsLabel) resourceParts.push(escapeHtml(toolsLabel))
-      resourceParts.push(skillsCount > 0 ? `${skillsCount} 个技能` : '无技能')
-      resourceParts.push(escapeHtml(mcpLabel))
+      const showStatusText = run === 'error' || run === 'offline'
 
       return `
       <article
@@ -651,17 +647,24 @@ export function renderRoleCards(page, state, _tagFilter) {
         tabindex="0"
       >
         <header class="role-card-header">
-          <div class="role-avatar-mount" data-avatar-agent="${escapeAttr(code)}"></div>
+          <div class="role-avatar-wrap" title="${escapeAttr(runStatusLabel(run))}">
+            <div class="role-avatar-mount" data-avatar-agent="${escapeAttr(code)}"></div>
+            <span class="role-presence ${runStatusClass(run)}" aria-hidden="true"></span>
+          </div>
           <div class="role-card-heading">
             <div class="role-name-row">
               <span class="role-name">${escapeHtml(name)}</span>
-              <button
+              ${
+                showStatusText
+                  ? `<button
                 type="button"
                 class="role-status ${runStatusClass(run)}"
                 data-action="show-status"
                 data-id="${escapeAttr(code)}"
                 title="查看运行状态"
-              >${escapeHtml(runStatusLabel(run))}</button>
+              >${escapeHtml(runStatusLabel(run))}</button>`
+                  : ''
+              }
             </div>
             ${
               typeLabel
@@ -673,22 +676,11 @@ export function renderRoleCards(page, state, _tagFilter) {
 
         <p class="role-desc-text">${escapeHtml(desc)}</p>
 
-        <div class="role-cap-row">
-          ${caps.shown
-            .map((label) => {
-              const meta = tagMetaForLabel(label)
-              return `<button type="button" class="role-cap-chip" data-action="filter-capability" data-tag="${escapeAttr(label)}" style="--tag-color:${meta.color}">${escapeHtml(label)}</button>`
-            })
-            .join('')}
-          ${caps.extra > 0 ? `<span class="role-cap-more">+${caps.extra}</span>` : ''}
-        </div>
-
         <div class="role-card-foot">
-          <div class="role-resource-line">${resourceParts.join(' · ')}</div>
           <div class="role-card-foot-end">
             <button type="button" class="role-btn ${primary.className}" data-action="${escapeAttr(primary.action)}" data-id="${escapeAttr(code)}">${escapeHtml(primary.label)}</button>
             <div class="role-more-wrap">
-              <button type="button" class="role-more-btn" data-action="toggle-more" data-id="${escapeAttr(code)}" aria-label="更多操作" title="更多">…</button>
+              <button type="button" class="role-more-btn" data-action="toggle-more" data-id="${escapeAttr(code)}" aria-label="更多操作" title="更多">⋯</button>
               <div class="role-more-menu" hidden data-more-menu="${escapeAttr(code)}">
                 <button type="button" data-action="detail" data-id="${escapeAttr(code)}">详情</button>
                 <button type="button" data-action="edit" data-id="${escapeAttr(code)}">编辑</button>
@@ -1053,7 +1045,7 @@ async function handlePrimaryOrMenuAction(action, id, page, state) {
     return
   }
   if (action === 'open-duty') {
-    navigate('/proactive')
+    navigate(`/proactive/${encodeURIComponent(id)}`)
     return
   }
   if (action === 'open-app') {
@@ -1249,13 +1241,12 @@ async function showHireAsEmployeeDialog(page, state, agentCode) {
         </label>
 
         <div class="hire-field">
-          <span>转交审批策略</span>
+          <span>${AUTONOMY_FIELD_LABEL}</span>
+          <p class="hire-chip-hint">${AUTONOMY_FIELD_DESC}</p>
           <div class="hire-chip-row" data-name="autonomy_level" role="radiogroup">
-            <button type="button" class="hire-chip" data-value="full_auto">全自动</button>
-            <button type="button" class="hire-chip is-on" data-value="approval_for_risky">平衡型</button>
-            <button type="button" class="hire-chip" data-value="approval_for_all">谨慎型</button>
+            ${renderAutonomyChips(AUTONOMY_HIRE_OPTIONS, 'approval_for_all')}
           </div>
-          <p class="hire-chip-hint" data-autonomy-hint>本岗结案并指定下游后：中风险及以上须你审核才派发；低风险自动派下游。是否挂审由你在此配置，不由员工自行决定。</p>
+          <p class="hire-chip-hint" data-autonomy-hint>${autonomyHint('approval_for_all')}</p>
         </div>
 
         <div class="hire-field">
@@ -1280,14 +1271,7 @@ async function showHireAsEmployeeDialog(page, state, agentCode) {
   document.body.appendChild(overlay)
   hireScheduleCtrl.initEvents(overlay)
 
-  const autonomyHints = {
-    full_auto:
-      '本岗结案并指定下游后：仅「极高风险」须你审核才派发；低/中/高风险自动派下游。是否挂审由你在此配置，不由员工自行决定。',
-    approval_for_risky:
-      '本岗结案并指定下游后：中风险及以上须你审核才派发；低风险自动派下游。是否挂审由你在此配置，不由员工自行决定。',
-    approval_for_all:
-      '本岗结案并指定下游后：一律须你审核才派发。是否挂审由你在此配置，不由员工自行决定。',
-  }
+  const autonomyHints = AUTONOMY_HINTS
 
   const close = () => overlay.remove()
   overlay.addEventListener('click', (e) => {
@@ -1324,7 +1308,7 @@ async function showHireAsEmployeeDialog(page, state, agentCode) {
     const workspace_path = readWorkspacePath(overlay)
     const autonomy_level =
       overlay.querySelector('[data-name="autonomy_level"] .hire-chip.is-on')?.dataset.value ||
-      'approval_for_risky'
+      'approval_for_all'
     const heartbeat_schedule =
       hireScheduleCtrl.getSchedule().cronExpr || DEFAULT_DUTY_CRON
 
@@ -1676,7 +1660,7 @@ async function showRoleDetailDialog(id, page, state) {
         <footer class="re-footer">
           <button class="btn btn-secondary" data-action="close">关闭</button>
           ${hired
-            ? '<button class="btn btn-secondary" data-action="open-duty">查看值班台</button>'
+            ? '<button class="btn btn-secondary" data-action="open-duty">打开</button>'
             : '<button class="btn btn-primary" data-action="hire" style="background:linear-gradient(135deg,#0f766e,#14b8a6);border:none">加入员工编制</button>'}
           <button class="btn btn-primary" data-action="edit">编辑此角色</button>
         </footer>
@@ -1705,7 +1689,7 @@ async function showRoleDetailDialog(id, page, state) {
     })
     overlay.querySelector('[data-action=open-duty]')?.addEventListener('click', () => {
       closeFn()
-      navigate('/proactive')
+      navigate(`/proactive/${encodeURIComponent(id)}`)
     })
 
     // Tab 切换
