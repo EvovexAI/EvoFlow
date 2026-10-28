@@ -237,10 +237,13 @@ class ModelInvokeMessage(BaseModel):
     """One chat message for server-side model invoke."""
 
     role: str = Field(..., description="system | user | assistant")
-    content: str = Field(..., description="Message text")
+    content: Any = Field(
+        ...,
+        description="Message text, or OpenAI multimodal content array (text + image_url)",
+    )
 
 
-_ALLOWED_INVOKE_OBS_KINDS = frozenset({"hosted_panel", "hosted_closure"})
+_ALLOWED_INVOKE_OBS_KINDS = frozenset({"hosted_panel", "hosted_closure", "openai_compat"})
 
 
 class ModelInvokeRequest(BaseModel):
@@ -254,7 +257,7 @@ class ModelInvokeRequest(BaseModel):
     temperature: float | None = Field(default=None, ge=0.0, le=2.0)
     invocation_kind: str | None = Field(
         default=None,
-        description="Optional observability label for SQLite (e.g. hosted_panel, hosted_closure).",
+        description="Optional observability label for SQLite (e.g. hosted_panel, hosted_closure, openai_compat).",
     )
     thinking_enabled: bool | None = Field(
         default=None,
@@ -266,106 +269,32 @@ class ModelInvokeResponse(BaseModel):
     content: str = Field(default="", description="Assistant text")
 
 
-def _extract_invoke_text(content: object) -> str:
-    if isinstance(content, str):
-        return content
-    if isinstance(content, list):
-        parts: list[str] = []
-        for block in content:
-            if isinstance(block, str):
-                parts.append(block)
-            elif isinstance(block, dict) and block.get("type") in {"text", "output_text"}:
-                text = block.get("text")
-                if isinstance(text, str):
-                    parts.append(text)
-        return "\n".join(parts) if parts else ""
-    if content is None:
-        return ""
-    return str(content)
-
-
 @router.post(
     "/models/invoke",
     response_model=ModelInvokeResponse,
     summary="Invoke configured model",
-    description="Run one chat completion using EvoFlow DB-backed model config, same as the main agent stack.",
+    description="Run one chat completion using EvoFlow DB-backed model config, same as the main agent stack. "
+    "content may be a string or OpenAI multimodal array (vision).",
 )
 async def invoke_configured_model(request: ModelInvokeRequest) -> ModelInvokeResponse:
-    from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+    from evoflow.models.openai_compat_invoke import OpenAICompatError, ainvoke_chat_completion
 
-    from evoflow.models import create_chat_model
-
-    config = get_app_config()
-    if not config.models:
-        raise HTTPException(
-            status_code=503,
-            detail="服务器未配置任何模型，请在设置 → 模型中添加模型",
-        )
-
-    name = (request.model_name or "").strip() or None
-    if name is not None and config.get_model_config(name) is None:
-        raise HTTPException(
-            status_code=404,
-            detail=f"模型「{name}」不存在。请在对话底部选择已配置的模型，或留空使用默认模型",
-        )
-
-    raw_ik = (request.invocation_kind or "").strip().lower()
-    obs_ik = raw_ik if raw_ik in _ALLOWED_INVOKE_OBS_KINDS else None
-    model_cfg = config.get_model_config(name) if name else (config.models[0] if config.models else None)
-    # None = unspecified: follow the model default instead of forcing explicit off,
-    # which always-thinking models (e.g. GLM-5.3) reject with error 1210.
-    thinking: bool | None = None
-    if request.thinking_enabled is not None:
-        thinking = bool(request.thinking_enabled)
-        if thinking and model_cfg is not None and not getattr(model_cfg, "supports_thinking", False):
-            thinking = False
+    messages = [{"role": m.role, "content": m.content} for m in request.messages]
     try:
-        model = create_chat_model(name=name, thinking_enabled=thinking, invocation_kind=obs_ik)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
-
-    if request.temperature is not None:
-        try:
-            model = model.bind(temperature=request.temperature)
-        except Exception:
-            logger.debug("model.bind(temperature) skipped", exc_info=True)
-    if getattr(model, "streaming", False):
-        try:
-            model = model.bind(streaming=False)
-        except Exception:
-            logger.debug("model.bind(streaming=False) skipped", exc_info=True)
-
-    lc_messages: list = []
-    for m in request.messages:
-        r = m.role.strip().lower()
-        if r == "system":
-            lc_messages.append(SystemMessage(content=m.content))
-        elif r in ("assistant", "ai"):
-            lc_messages.append(AIMessage(content=m.content))
-        else:
-            lc_messages.append(HumanMessage(content=m.content))
-
+        result = await ainvoke_chat_completion(
+            model=request.model_name,
+            messages=messages,
+            temperature=request.temperature,
+            thinking_enabled=request.thinking_enabled,
+            record_usage=True,
+        )
+    except OpenAICompatError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message) from e
+    text = ""
     try:
-        resp = await model.ainvoke(lc_messages)
-    except Exception as e:
-        logger.exception("models/invoke failed")
-        raise HTTPException(status_code=502, detail=str(e)) from e
-
-    text = _extract_invoke_text(getattr(resp, "content", resp))
-    resolved_name = str(name or getattr(model_cfg, "name", "") or "").strip()
-    if resolved_name:
-        try:
-            from evoflow.config import reload_models_from_db
-            from evoflow.persistence import config_repositories as cfg_repo
-
-            if cfg_repo.clear_model_unavailable(resolved_name):
-                reload_models_from_db()
-        except Exception:
-            logger.debug(
-                "models/invoke: clear unavailable failed for %s",
-                resolved_name,
-                exc_info=True,
-            )
+        text = str((((result.get("choices") or [{}])[0].get("message") or {}).get("content")) or "")
+    except Exception:
+        text = ""
     return ModelInvokeResponse(content=text)
 
 

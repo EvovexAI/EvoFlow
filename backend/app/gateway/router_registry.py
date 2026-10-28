@@ -161,6 +161,7 @@ def register_extended_routers(app: FastAPI) -> None:
         ("app.gateway.routers.stage_news", "stage_news", {}),
         ("app.gateway.routers.auth", "auth", {}),
         ("app.gateway.routers.openai_compat_apps", "openai_compat_apps", {}),
+        ("app.gateway.routers.openai_compat_models", "openai_compat_models", {}),
         ("app.gateway.routers.tools", "tools", {}),
         ("app.gateway.routers.mcp_server", "mcp_server", {}),
         ("app.gateway.routers.webui", "webui", {}),
