@@ -12,6 +12,12 @@ _LEGACY_SKILL_ENV = "EVOFLOW_MCP_TOOL_BINDING"
 MCP_TOOL_PREFIX = "mcp"
 MCP_TOOL_DELIMITER = "__"
 
+# Host plugin kernels reuse the ``mcp__…`` name for ZCode skill parity
+# (``mcp__node_repl__js`` for browser-use / computer-use). They are **not**
+# connectors from mcp.json and must stay mounted even when a role sets
+# ``mcp_servers: []`` (explicitly no external MCP).
+HOST_PLUGIN_KERNEL_SERVERS = frozenset({"node_repl"})
+
 
 def warn_if_legacy_mcp_skill_binding_env() -> None:
     """Log once per process if legacy skill-injection env is set (ignored)."""
@@ -56,6 +62,19 @@ def mcp_server_from_tool_name(tool_name: str) -> str | None:
     return None
 
 
+def is_host_plugin_kernel_tool(tool_name: str) -> bool:
+    """True for plugin kernels that only *look* like MCP (``mcp__node_repl__js``)."""
+    server = mcp_server_from_tool_name(tool_name)
+    return bool(server and server in HOST_PLUGIN_KERNEL_SERVERS)
+
+
+def is_external_mcp_tool_name(tool_name: str) -> bool:
+    """True for connector MCP tools subject to role ``mcp_servers`` binding."""
+    if not is_mcp_tool_name(tool_name):
+        return False
+    return not is_host_plugin_kernel_tool(tool_name)
+
+
 def role_has_mcp_binding(agent_config: Any | None) -> bool:
     """True when the role may use MCP tools (None = all enabled; [] = explicitly none)."""
     if agent_config is None:
@@ -69,13 +88,20 @@ def role_has_mcp_binding(agent_config: Any | None) -> bool:
 
 
 def filter_tools_by_mcp_servers(tools: list, mcp_servers: list[str] | None) -> list:
-    """Filter MCP tools by role binding. ``None`` keeps all MCP tools; ``[]`` strips them."""
+    """Filter external MCP tools by role binding.
+
+    ``None`` keeps all MCP tools; ``[]`` strips connector MCP but **keeps**
+    host plugin kernels (browser-use / computer-use ``mcp__node_repl__js``).
+    """
     if mcp_servers is None:
         return list(tools or [])
     allowed = {str(s).strip() for s in mcp_servers if str(s).strip()}
     out: list = []
     for t in tools or []:
         name = str(getattr(t, "name", "") or "").strip()
+        if is_host_plugin_kernel_tool(name):
+            out.append(t)
+            continue
         server = mcp_server_from_tool_name(name)
         if server is None or server in allowed:
             out.append(t)
@@ -93,6 +119,8 @@ def mount_agent_mcp_tools(loaded_tools: list, all_tools: list, mcp_servers: list
     extra: list = []
     for t in all_tools or []:
         name = str(getattr(t, "name", "") or "").strip()
+        if is_host_plugin_kernel_tool(name):
+            continue  # already mounted via builtins when plugin enabled
         server = mcp_server_from_tool_name(name)
         if server and server in allowed and name not in loaded_names:
             extra.append(t)

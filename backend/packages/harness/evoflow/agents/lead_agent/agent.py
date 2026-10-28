@@ -1512,13 +1512,23 @@ def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None
     # whitelist treats mcp__* as configurable "optional" and drops them, then
     # ``all_tools = list(tools)`` leaves mount_agent_mcp_tools with an empty
     # MCP source — UI/runtime both show "bound MCP" but zero mcp__ tools.
-    from evoflow.mcp.binding import is_mcp_tool_name as _is_mcp_tool_name
+    from evoflow.mcp.binding import (
+        is_external_mcp_tool_name as _is_external_mcp_tool_name,
+        is_host_plugin_kernel_tool as _is_host_plugin_kernel_tool,
+        is_mcp_tool_name as _is_mcp_tool_name,
+    )
 
-    _mcp_catalog_tools = [t for t in tools if _is_mcp_tool_name(str(getattr(t, "name", "") or ""))]
+    # Catalog for remount = connector MCP only (exclude host plugin kernels).
+    _mcp_catalog_tools = [
+        t
+        for t in tools
+        if _is_external_mcp_tool_name(str(getattr(t, "name", "") or ""))
+    ]
 
     # Apply tool whitelist filter: configurable tools only; session spine always kept.
     # 小V：白名单是 bash 等显式项，但 mcp_servers=None 时仍保留全部 MCP 工具。
     # 其它角色：保留 mcp_servers 绑定到的 MCP（或 None=全部），与 mount 语义一致。
+    # Host plugin kernels (mcp__node_repl__js) follow plugin enable, not mcp_servers.
     if _tool_whitelist is not None:
         from evoflow.tools.tool_aliases import canonical_tool_name
         from evoflow.tools.tool_catalog import is_role_editor_configurable_tool
@@ -1532,6 +1542,8 @@ def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None
         def _whitelist_keep(t) -> bool:
             raw = str(getattr(t, "name", "") or "")
             name = canonical_tool_name(raw.strip().lower())
+            if _is_host_plugin_kernel_tool(raw):
+                return True
             if _is_mcp_tool_name(raw):
                 if _mcp_allowed_servers is None:
                     return True
