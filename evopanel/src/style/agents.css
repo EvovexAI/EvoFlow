@@ -2585,3 +2585,112 @@ html[data-liquid-glass-webgl='1'] .role-filter-select {
   padding: 0 0 12px;
 }
 .role-page--agents-flat .agent-tag-bar { display: none; }
+
+/* ---- 智能体详情整页（替代侧栏抽屉） ---- */
+.role-page.role-page--agent-detail {
+  padding: 8px 0 32px;
+  max-width: 920px;
+  margin: 0 auto;
+  width: 100%;
+  box-sizing: border-box;
+}
+.role-detail-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  min-height: min(70vh, 640px);
+}
+.role-detail-top {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 8px 0 20px;
+  border-bottom: 1px solid var(--border-light, rgba(128, 128, 128, 0.12));
+}
+.role-detail-back {
+  margin: 0;
+  padding: 4px 8px 4px 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+.role-detail-back:hover {
+  color: var(--accent, #6366f1);
+}
+.role-detail-heading {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  min-width: 0;
+}
+.role-detail-avatar {
+  flex: 0 0 auto;
+  width: 56px;
+  height: 56px;
+  border-radius: 14px;
+  overflow: hidden;
+}
+.role-detail-titles {
+  min-width: 0;
+  flex: 1;
+}
+.role-detail-title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 750;
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.role-detail-sub {
+  margin-top: 4px;
+  font-size: 13px;
+  color: var(--text-tertiary);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.role-detail-body {
+  padding: 20px 0 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.role-detail-section h4 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--text-secondary);
+  letter-spacing: 0.01em;
+}
+.role-detail-foot {
+  position: sticky;
+  bottom: 0;
+  margin-top: auto;
+  padding: 14px 0 0;
+  border-top: 1px solid var(--border-light, rgba(128, 128, 128, 0.12));
+  background: linear-gradient(
+    to top,
+    var(--bg-primary, #fff) 70%,
+    color-mix(in srgb, var(--bg-primary, #fff) 70%, transparent)
+  );
+}
+.role-detail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+@media (max-width: 640px) {
+  .role-detail-actions {
+    flex-direction: column;
+  }
+  .role-detail-actions .btn {
+    width: 100%;
+  }
+}

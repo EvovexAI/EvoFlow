@@ -731,80 +731,59 @@ export function renderRoleCards(page, state, _tagFilter) {
   }
 }
 
-export function closeAgentDetailDrawer(page) {
-  const root = page?.querySelector('#roleDrawer')
-  if (!root) return
-  root.hidden = true
-  const body = page.querySelector('#roleDrawerBody')
-  const foot = page.querySelector('#roleDrawerFoot')
-  if (body) body.innerHTML = ''
-  if (foot) foot.innerHTML = ''
+/** @deprecated 侧栏已改为整页；保留空实现以免旧调用报错。 */
+export function closeAgentDetailDrawer(_page) {
+  /* no-op */
 }
 
-async function openAgentDetailDrawer(page, state, id) {
-  const root = page.querySelector('#roleDrawer')
-  const titleEl = page.querySelector('#roleDrawerTitle')
-  const subEl = page.querySelector('#roleDrawerSubtitle')
-  const body = page.querySelector('#roleDrawerBody')
-  const foot = page.querySelector('#roleDrawerFoot')
-  if (!root || !body || !foot) {
-    await showRoleDetailDialog(id, page, state)
-    return
-  }
+/** 打开智能体详情整页（替代原侧栏抽屉）。 */
+export function openAgentDetailDrawer(_page, _state, id) {
+  const code = String(id || '').trim()
+  if (!code) return
+  navigate(`/agents/${encodeURIComponent(code)}`)
+}
 
-  state.selectedId = id
-  page.querySelectorAll('.role-card').forEach((el) => {
-    el.classList.toggle('role-card--selected', el.dataset.id === id)
-  })
-
-  root.hidden = false
-  if (titleEl) titleEl.textContent = '加载中…'
-  if (subEl) subEl.textContent = ''
-  body.innerHTML = '<div class="role-drawer-loading">加载详情…</div>'
-  foot.innerHTML = ''
-
+/**
+ * 构建详情页主体 HTML + 页脚操作（供 /agents/:code 使用）。
+ * @returns {Promise<{ name: string, subtitleHtml: string, bodyHtml: string, footHtml: string, agent: object }>}
+ */
+export async function buildAgentDetailSections(id, state) {
+  const agent = await api.getAgent(id)
+  let primaryModel = ''
   try {
-    const agent = await api.getAgent(id)
-    let primaryModel = ''
-    try {
-      const info = await api.getPrimaryModel()
-      primaryModel = String(info?.primary_model || '').trim()
-    } catch {
-      /* ignore */
-    }
-    const ctx = agentCtx(state)
-    const run = agentRunStatusOf(agent, ctx)
-    const deploy = agentDeployKindOf(agent, ctx)
-    const role = state.hiredRolesByCode?.get(id)
-    const appMeta = state.appAgentCodes instanceof Map ? state.appAgentCodes.get(id) : null
-    const name = String(role?.role_name || agent.agent_name || id).trim() || id
-    const toolsTag = agentUsesExternalCli(agent) ? null : formatAgentToolsCardTag(agent, state.toolsMeta)
-    const skills = Array.isArray(agent.skills) ? agent.skills : []
-    const mcps = Array.isArray(agent.mcp_servers) ? agent.mcp_servers : null
-    const caps = agentCapabilityTags(agent, 8)
-    const primary = resolvePrimaryAction(agent, state)
+    const info = await api.getPrimaryModel()
+    primaryModel = String(info?.primary_model || '').trim()
+  } catch {
+    /* ignore */
+  }
+  const ctx = agentCtx(state)
+  const run = agentRunStatusOf(agent, ctx)
+  const deploy = agentDeployKindOf(agent, ctx)
+  const role = state.hiredRolesByCode?.get(id)
+  const appMeta = state.appAgentCodes instanceof Map ? state.appAgentCodes.get(id) : null
+  const name = String(role?.role_name || agent.agent_name || id).trim() || id
+  const toolsTag = agentUsesExternalCli(agent) ? null : formatAgentToolsCardTag(agent, state.toolsMeta)
+  const skills = Array.isArray(agent.skills) ? agent.skills : []
+  const mcps = Array.isArray(agent.mcp_servers) ? agent.mcp_servers : null
+  const caps = agentCapabilityTags(agent, 8)
+  const primary = resolvePrimaryAction(agent, state)
 
-    if (titleEl) titleEl.textContent = name
-    if (subEl) {
-      const typeLabel = agentTypeLabelOf(agent)
-      subEl.innerHTML = typeLabel
-        ? `<span class="role-type-label">${escapeHtml(typeLabel)}</span> · <span class="role-status ${runStatusClass(run)}">${escapeHtml(runStatusLabel(run))}</span>`
-        : `<span class="role-status ${runStatusClass(run)}">${escapeHtml(runStatusLabel(run))}</span>`
-    }
-    const markEl = root.querySelector('.ef-side-drawer__mark')
-    if (markEl) markEl.textContent = String(name || '员').trim().slice(0, 1) || '员'
+  const typeLabel = agentTypeLabelOf(agent)
+  const subtitleHtml = typeLabel
+    ? `<span class="role-type-label">${escapeHtml(typeLabel)}</span> · <span class="role-status ${runStatusClass(run)}">${escapeHtml(runStatusLabel(run))}</span>`
+    : `<span class="role-status ${runStatusClass(run)}">${escapeHtml(runStatusLabel(run))}</span>`
 
-    const deployText =
-      deploy === 'employee'
-        ? `员工岗位：${role?.role_name || id}`
-        : deploy === 'app'
-          ? `工作流：${appMeta?.appName || appMeta?.appId || '已关联工作流'}`
-          : deploy === 'automation'
-            ? '已用于自动化规则'
-            : '未部署'
+  const deployText =
+    deploy === 'employee'
+      ? `员工岗位：${role?.role_name || id}`
+      : deploy === 'app'
+        ? `工作流：${appMeta?.appName || appMeta?.appId || '已关联工作流'}`
+        : deploy === 'automation'
+          ? '已用于自动化规则'
+          : '未部署'
 
-    body.innerHTML = `
-      <section class="ef-side-drawer__section role-drawer-section">
+  const bodyHtml = `
+      <section class="role-detail-section role-drawer-section">
         <h4>基本信息</h4>
         <dl class="role-drawer-dl">
           <div><dt>标识</dt><dd><code>${escapeHtml(id)}</code></dd></div>
@@ -819,18 +798,18 @@ async function openAgentDetailDrawer(page, state, id) {
           )}</dd></div>
         </dl>
       </section>
-      <section class="ef-side-drawer__section role-drawer-section">
+      <section class="role-detail-section role-drawer-section">
         <h4>主要职责</h4>
         <p>${escapeHtml(agent.description || '暂无描述')}</p>
       </section>
-      <section class="ef-side-drawer__section role-drawer-section">
+      <section class="role-detail-section role-drawer-section">
         <h4>模型与参数</h4>
         <dl class="role-drawer-dl">
           <div><dt>默认模型</dt><dd>${escapeHtml(formatAgentModelFollowLabel(agent.model, primaryModel))}</dd></div>
         </dl>
         ${agent.system_prompt ? `<pre class="role-drawer-pre">${escapeHtml(agent.system_prompt)}</pre>` : ''}
       </section>
-      <section class="ef-side-drawer__section role-drawer-section">
+      <section class="role-detail-section role-drawer-section">
         <h4>工具与技能</h4>
         <p>${escapeHtml(toolsTag?.text || (agentUsesExternalCli(agent) ? '由外部 CLI 提供' : '—'))} · ${skills.length} 个技能</p>
         ${
@@ -849,7 +828,7 @@ async function openAgentDetailDrawer(page, state, id) {
             : ''
         }
       </section>
-      <section class="ef-side-drawer__section role-drawer-section">
+      <section class="role-detail-section role-drawer-section">
         <h4>连接器</h4>
         <p>${
           mcps === null
@@ -859,11 +838,11 @@ async function openAgentDetailDrawer(page, state, id) {
               : '未连接 MCP'
         }</p>
       </section>
-      <section class="ef-side-drawer__section role-drawer-section">
+      <section class="role-detail-section role-drawer-section">
         <h4>部署位置</h4>
         <p>${escapeHtml(deployText)}</p>
       </section>
-      <section class="ef-side-drawer__section role-drawer-section">
+      <section class="role-detail-section role-drawer-section">
         <h4>最近运行</h4>
         <p class="role-drawer-muted">${
           role?.last_active_at || role?.updated_at
@@ -871,29 +850,29 @@ async function openAgentDetailDrawer(page, state, id) {
             : '暂无运行记录'
         }</p>
       </section>
-      <section class="ef-side-drawer__section role-drawer-section">
+      <section class="role-detail-section role-drawer-section">
         <h4>版本记录</h4>
         <p class="role-drawer-muted">配置变更历史将在后续版本提供</p>
       </section>
-      <section class="ef-side-drawer__section role-drawer-section">
+      <section class="role-detail-section role-drawer-section">
         <h4>渠道</h4>
         ${renderIMBindingsSection(role)}
       </section>
     `
 
-    const isDefaultAgent = id === 'main' || agent?.isDefault
-    const imBoundCount = role ? imBindingCount(role) : 0
-    const imBtnLabel = imBoundCount > 0 ? `已绑 IM（${imBoundCount}）` : '扫码绑定 IM'
-    const imBtnTitle = imBoundCount > 0
-      ? `已绑 ${imBoundCount} 个 IM 渠道；点此加新渠道或重新扫码`
-      : '扫码给该员工绑定一个 IM 机器人（飞书 / 企业微信 / 钉钉）'
-    const imBtn =
-      isDefaultAgent
-        ? ''
-        : `<button type="button" class="btn btn-secondary" data-action="bind-im" data-id="${escapeAttr(id)}" title="${escapeAttr(imBtnTitle)}">${escapeHtml(imBtnLabel)}</button>`
+  const isDefaultAgent = id === 'main' || agent?.isDefault
+  const imBoundCount = role ? imBindingCount(role) : 0
+  const imBtnLabel = imBoundCount > 0 ? `已绑 IM（${imBoundCount}）` : '扫码绑定 IM'
+  const imBtnTitle = imBoundCount > 0
+    ? `已绑 ${imBoundCount} 个 IM 渠道；点此加新渠道或重新扫码`
+    : '扫码给该员工绑定一个 IM 机器人（飞书 / 企业微信 / 钉钉）'
+  const imBtn =
+    isDefaultAgent
+      ? ''
+      : `<button type="button" class="btn btn-secondary" data-action="bind-im" data-id="${escapeAttr(id)}" title="${escapeAttr(imBtnTitle)}">${escapeHtml(imBtnLabel)}</button>`
 
-    foot.innerHTML = `
-      <div class="ef-side-drawer__actions">
+  const footHtml = `
+      <div class="role-detail-actions">
         <button type="button" class="btn btn-secondary" data-action="edit" data-id="${escapeAttr(id)}">编辑配置</button>
         ${imBtn}
         <button type="button" class="btn btn-primary" data-action="${escapeAttr(primary.action)}" data-id="${escapeAttr(id)}">${escapeHtml(
@@ -902,10 +881,30 @@ async function openAgentDetailDrawer(page, state, id) {
       </div>
     `
 
-    mountRoleCardAvatars(body, [agent], 40)
-  } catch (e) {
-    body.innerHTML = `<div class="role-drawer-error">加载失败：${escapeHtml(e?.message || e)}</div>`
-  }
+  return { name, subtitleHtml, bodyHtml, footHtml, agent }
+}
+
+/**
+ * 详情页事件：与列表卡片同一套 action。
+ * @param {HTMLElement} page
+ * @param {object} state
+ */
+export function attachAgentDetailEvents(page, state) {
+  if (!page || page.dataset.agentDetailEventsBound === '1') return
+  page.dataset.agentDetailEventsBound = '1'
+  page.addEventListener('click', async (e) => {
+    const btn = e.target.closest('[data-action]')
+    if (!btn || !page.contains(btn)) return
+    e.preventDefault()
+    e.stopPropagation()
+    const action = btn.dataset.action
+    const id = btn.dataset.id
+    if (action === 'back') {
+      navigate('/expert')
+      return
+    }
+    await handlePrimaryOrMenuAction(action, id, page, state)
+  })
 }
 
 function closeAllMoreMenus(page) {
@@ -1140,26 +1139,6 @@ export function attachRoleEvents(page, state) {
       if (!card || e.target !== card) return
       e.preventDefault()
       void openAgentDetailDrawer(page, state, card.dataset.id)
-    })
-  }
-
-  const drawer = page.querySelector('#roleDrawer')
-  if (drawer && drawer.dataset.eventsBound !== '1') {
-    drawer.dataset.eventsBound = '1'
-    drawer.addEventListener('click', async (e) => {
-      const closeBtn = e.target.closest('[data-action="close-drawer"]')
-      if (closeBtn) {
-        state.selectedId = null
-        page.querySelectorAll('.role-card--selected').forEach((el) => el.classList.remove('role-card--selected'))
-        closeAgentDetailDrawer(page)
-        return
-      }
-      const btn = e.target.closest('[data-action]')
-      if (!btn) return
-      const action = btn.dataset.action
-      const id = btn.dataset.id
-      if (action === 'close-drawer') return
-      await handlePrimaryOrMenuAction(action, id, page, state)
     })
   }
 

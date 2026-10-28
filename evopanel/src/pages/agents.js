@@ -20,7 +20,6 @@ import {
 } from './agents-shared.js'
 import {
   attachRoleEvents,
-  closeAgentDetailDrawer,
   preloadRoleToolsMeta,
   renderRoleCards,
   renderRoleSkeleton,
@@ -250,7 +249,6 @@ function setView(page, state, view) {
   state.view = view
   state.page = 1
   updateChromeForView(page, state, view)
-  closeAgentDetailDrawer(page)
   // 切到市场时关闭更多筛选弹层
   const morePanel = page.querySelector('#roles-more-panel')
   if (morePanel) morePanel.hidden = true
@@ -515,24 +513,6 @@ export async function render() {
 
     <div class="role-grid" id="roles-list"></div>
     <div class="role-list-pager-wrap" id="roles-list-pager"></div>
-
-    <div class="ef-side-drawer-root role-drawer-root" id="roleDrawer" hidden>
-      <div class="ef-side-drawer-mask role-drawer-mask" data-action="close-drawer"></div>
-      <aside class="ef-side-drawer role-drawer" role="dialog" aria-label="智能体详情">
-        <header class="ef-side-drawer__head role-drawer__head">
-          <div class="ef-side-drawer__brand">
-            <span class="ef-side-drawer__mark" aria-hidden="true">员</span>
-            <div class="ef-side-drawer__heading">
-              <h2 class="ef-side-drawer__title role-drawer__title" id="roleDrawerTitle">智能体详情</h2>
-              <div class="ef-side-drawer__meta role-drawer__subtitle" id="roleDrawerSubtitle"></div>
-            </div>
-          </div>
-          <button type="button" class="ef-side-drawer__close role-drawer__close" data-action="close-drawer" aria-label="关闭">×</button>
-        </header>
-        <div class="ef-side-drawer__body role-drawer__body" id="roleDrawerBody"></div>
-        <footer class="ef-side-drawer__foot role-drawer__foot" id="roleDrawerFoot"></footer>
-      </aside>
-    </div>
   `
 
   const state = {

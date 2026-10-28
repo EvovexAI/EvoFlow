@@ -528,6 +528,7 @@ async function boot() {
   registerRoute('/models', () => import('./pages/models.js'))
   registerRoute('/agents', createAgentsRedirectModule)
   registerRoute('/agents/team/:code', createAgentsRedirectModule)
+  registerRoute('/agents/:code', () => import('./pages/agent-detail.js'))
   registerRoute('/assets', () => import('./pages/assets.js'))
   registerRoute('/memory', () => import('./pages/assets.js'))
   registerRoute('/memory/atoms', () => import('./pages/assets.js'))
