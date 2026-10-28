@@ -155,8 +155,9 @@ def channel_video_models() -> list[dict[str, Any]]:
             "provider": "minimax",
             "min_tier": None,
             "use_when": (
-                "Base URL 填网关 …/v1（如 hon-maas token-service）；"
-                "走 POST /videos；渠道锁定可用 minimax-h3/QY3"
+                "Base URL 填网关 …/v1（如 hon-maas）；"
+                "multipart POST /videos + extra_params t2va/fl2va；"
+                "渠道锁定可用 minimax-h3/QY3"
             ),
             "protocol": "openai_videos",
         },
@@ -165,7 +166,7 @@ def channel_video_models() -> list[dict[str, Any]]:
             "label": "minimax-h3/QY3（指定渠道）",
             "provider": "minimax",
             "min_tier": None,
-            "use_when": "同上网关；优先指定渠道，失败自动切换",
+            "use_when": "同上网关 multipart /videos；指定渠道 id",
             "protocol": "openai_videos",
         },
         {
@@ -268,7 +269,10 @@ def credential_sources() -> list[dict[str, Any]]:
             "models_hint": ["MiniMax-H3", "MiniMax-H3-Max", "minimax-h3", "minimax-h3/QY3"],
             "protocols": {
                 "official": "POST {base}/v2/video_generation（api.minimax.cn）",
-                "openai_videos_gateway": "POST {base}/videos（base 形如 …/v1，如 hon-maas）",
+                "openai_videos_gateway": (
+                    "multipart POST {base}/videos（base …/v1；"
+                    "size/width/height/aspect_ratio + extra_params t2va|fl2va + optional file）"
+                ),
             },
         },
         {

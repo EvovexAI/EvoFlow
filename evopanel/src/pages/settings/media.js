@@ -80,7 +80,7 @@ const ADVANCED_VENDORS = [
     sub: 'H3 · H3 Max',
     icon: 'minimax',
     setupGuide:
-      '官方：api.minimax.cn + MiniMax-H3。OpenAI Videos 网关（如 hon-maas）：Base URL 填 …/v1，模型用 minimax-h3 或 minimax-h3/QY3。',
+      '官方：api.minimax.cn + MiniMax-H3。OpenAI Videos 网关（如 hon-maas）：Base URL 填 …/v1（勿多加 /videos），模型用 minimax-h3 或 minimax-h3/QY3；走 multipart /videos。',
     officialUrl: 'https://platform.minimax.io/docs/guides/video-generation',
     officialLabel: 'MiniMax 视频文档',
   },
@@ -738,7 +738,7 @@ function buildDetailHtml(vendorKey, creds) {
       fields = `
         ${secretFieldHtml('minimaxMediaApiKey', 'API Key', creds)}
         ${textFieldHtml('minimaxMediaBaseUrl', 'Base URL（可选）', 'https://api.minimax.cn', creds)}
-        <p class="form-hint">官方默认 https://api.minimax.cn（模型 MiniMax-H3）。第三方 OpenAI Videos 网关填 https://…/v1（勿多加 /videos），模型用 minimax-h3。与 TTS Key 分开。</p>
+        <p class="form-hint">官方默认 https://api.minimax.cn（模型 MiniMax-H3）。第三方网关（hon-maas）填 https://…/v1（勿多加 /videos），模型用 minimax-h3 或 minimax-h3/QY3。与 TTS Key 分开。</p>
       `
       break
     case 'kling':
