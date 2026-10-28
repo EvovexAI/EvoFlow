@@ -6,6 +6,44 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.1.9] - 2026-10-28
+
+相对 **1.1.8** 以来的增量发布：语音与唤醒链路（DashScope ASR/TTS、KWS 唤醒词 sidecar）、媒体生成渠道与用量记账、OpenAI 兼容网关、MCP 工具绑定重构、组织协作与任务健康度、Computer Use 屏边蓝光提示、界面统一与渲染稳定性修复（前后端同一版本号）。
+GitHub Release 正文见 `scripts/maintainer/windows/release-notes/PRODUCT-NOTES-1.1.9.md`；升级横幅见 `scripts/maintainer/update/latest.json`。
+
+### Added
+
+- **DashScope 语音**：接入 DashScope ASR/TTS 语音会话与音色选择，媒体设置页可选音色，语音管线与媒体设置对齐
+- **唤醒词 KWS**：唤醒词 KWS 原生 sidecar（sherpa-onnx）接入，配套 Tauri 命令与权限接线
+- **OpenAI 兼容网关**：新增 OpenAI 兼容 chat/completions 网关与 CLI `openai` 命令，内部模型可被 OpenAI 客户端调用
+- **Computer Use 屏边蓝光**：屏幕计算机使用运行时显示屏边蓝光 overlay，Tauri 窗口命令 + AGUI 事件转发
+- **转交审核通知**：全局轮询转交审核，左下角芯片 / 侧栏角标 / 桌面通知，不依赖打开员工页
+- **任务运行时健康度**：服务端标注 live / interrupted / idle，任务中心与详情页据此展示
+- **媒体用量记账**：媒体生成接入用量账本，用量与元信息设置页展示
+
+### Changed
+
+- **MCP 工具绑定重构**：工具白名单按角色 mcp_servers 绑定保留，会话级工具名缓存与图重建同步 tools/all_tools；移除 MCP 系统提示词注入，MCP 工具降为普通 function 工具
+- **组织与协作**：组织名册 / 协作规则拆分为独立提示块，新增雇佣通知与上游回执系统唤醒，飞书回执按角色账号路由，组织名册接入右侧栏宿主
+- **UI 扩展外壳页**：导航并入全局顶栏 chrome，顶栏感应带加宽与收起防抖，样式收敛
+- **界面统一**：toast 定位模型统一（center + anchor），员工雇佣 / 主动运营界面改版与主题样式统一
+- **会话列表**：首屏只预拉当前目录与少量已展开组，避免抢占 app-server 管道
+
+### Fixed
+
+- **渲染进程 OOM**：封顶会话 rows 与流式缓冲，修复编排长跑 renderer OOM；dev 环境清理 React 19.2 渲染追踪撑爆 User Timing 缓冲
+- **浏览器冷启动空白页**：浏览器引擎冷启动停在空白页时加固
+- **网关日志 500**：兼容 Title-Case 响应头，避免 /runs/stream 记日志 KeyError
+- **工作区历史删除**：按归一化路径匹配，同步会话缓存与本地镜像
+- **自动化 /roles 性能**：列表改走 load_agent_config 免 soul 物化，cron 运行记录显示名解析统一
+- **聊天空草稿闪跳**：空草稿会话加载中即居中，消除贴底转居中闪跳
+- **自托管知识库**：默认关闭摘要，jobs / schema / service 与阅读页对齐
+
+### Notes
+
+- 发版说明与版本线对齐 **1.1.9**（面板 + Gateway / harness 同一号）
+- 建议从 **1.1.8** 覆盖安装至 **1.1.9**；无数据迁移
+
 ## [1.1.8] - 2026-10-27
 
 相对 **1.1.7** 以来的增量发布：媒体生成多模型接入、语音与唤醒链路加固、阻塞与权限审计修复、弹层动效统一（前后端同一版本号）。

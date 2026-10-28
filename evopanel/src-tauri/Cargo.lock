@@ -1153,7 +1153,7 @@ dependencies = [
 
 [[package]]
 name = "evopanel"
-version = "1.1.8"
+version = "1.1.9"
 dependencies = [
  "arboard",
  "base64 0.22.1",
