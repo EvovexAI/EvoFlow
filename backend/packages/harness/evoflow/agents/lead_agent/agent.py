@@ -1650,12 +1650,12 @@ def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None
                 _scenario_eager_tools_enabled(),
             )
 
-    _mcp_system_section = ""
     # Mount from pre-prune MCP catalog — not from all_tools (may already be stripped
     # by tools allowlist / flat_bind / dynamic profile).
     # CRITICAL: create_agent(tools=all_tools) — remount must update BOTH lists.
     # With tool_search kill-switch, flat_bind does ``all_tools = list(tools)`` after
     # stripping mcp__*, so remounting only ``tools`` left ToolNode without MCP.
+    # No ``<mcp_system>`` prompt: MCP tools are normal function tools only.
     _mcp_source = _filter_tools_by_mcp_servers(list(_mcp_catalog_tools), _cfg_mcp)
     all_tools = _filter_tools_by_mcp_servers(all_tools, _cfg_mcp)
     tools = _filter_tools_by_mcp_servers(tools, _cfg_mcp)
@@ -1675,14 +1675,6 @@ def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None
         all_tools = _mount_agent_mcp_tools(all_tools, _mcp_source, _remount_servers)
     # _cfg_mcp == [] → explicitly no MCP (already filtered)
     mcp_bound = [n for n in (t.name for t in all_tools) if _mcp_server_from_tool_name(n)]
-    if _cfg_mcp != []:
-        from evoflow.mcp.native_prompt import build_mcp_native_prompt_section_safe
-
-        _mcp_system_section = build_mcp_native_prompt_section_safe(
-            _cfg_mcp,
-            bound_tool_names=[t.name for t in tools],
-            prompt_language=_prompt_language,
-        )
     if _cfg_mcp is not None or mcp_bound:
         logger.info(
             "[Agent MCP] role %r native binding servers=%s mounted_mcp_tools=%d catalog_mcp=%d",
@@ -1731,8 +1723,8 @@ def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None
         "all_tool_names": [t.name for t in all_tools],
         "mcp_native": True,
         "mcp_servers": _cfg_mcp,
-        "mcp_system_section": _mcp_system_section,
-        # Deprecated keys (always native):
+        "mcp_system_section": "",
+        # Deprecated keys (always native; no prompt injection):
         "mcp_skill_mode": False,
         "mcp_skill_section": "",
         "subagent_enabled": subagent_enabled,
@@ -1816,7 +1808,7 @@ def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None
             prompt_language=_prompt_language,
             session_mode=session_mode or None,
             session_key=str(cfg.get("session_key") or "").strip() or None,
-            mcp_skill_section=_mcp_system_section,
+            mcp_skill_section="",
             thinking_enabled=bool(thinking_enabled),
             voice_mode=voice_mode,
             principal_id=str(cfg.get("principal_id") or cfg.get("created_by") or "").strip() or None,
