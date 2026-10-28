@@ -74,6 +74,8 @@ const ASSISTANT_PREVIEW_FILE_TYPES: readonly AssistantPreviewFileTypeDefinition[
 
 const FILE_URL_RE = /\bfile:\/\/[^\s<>()\]`"'*“”‘’，。！？；：、]+/gi;
 const MARKDOWN_LINK_RE = /\[([^\]\n]*)\]\(([^)\n]+)\)/g;
+/** Legacy EvoFlow cite wrappers — kept so old replies still get preview cards. */
+const LEGACY_AT_PATH_RE = /@@([^@\r\n]+?)@@/g;
 const DELIMITED_FILE_PATH_RE =
   /([`"'“”‘’])([^`"'“”‘’\r\n]+?\.(?:md|html?|docx|xlsx|pptx|pdf|mp4|mov|webm|m4v|mp3|wav|m4a|ogg|opus|flac|weba)(?::\d+(?::\d+)?)?)([`"'“”‘’])/giu;
 const FILE_PATH_RE =
@@ -194,6 +196,19 @@ export function extractAssistantFileReferences(
     protectedRanges.push([start, end]);
     if (path && definition) {
       references.push({ start, end, kind: definition.kind, path, raw: href });
+    }
+  }
+
+  for (const match of content.matchAll(LEGACY_AT_PATH_RE)) {
+    const raw = (match[1] ?? "").trim();
+    const start = match.index ?? 0;
+    const end = start + (match[0]?.length ?? 0);
+    if (!raw || overlapsRanges(start, end, protectedRanges)) continue;
+    protectedRanges.push([start, end]);
+    const path = resolveAssistantRawFilePath(workspacePath, raw, options);
+    const definition = path ? getAssistantPreviewFileTypeDefinition(path) : null;
+    if (path && definition) {
+      references.push({ start, end, kind: definition.kind, path, raw });
     }
   }
 

@@ -90,7 +90,7 @@
 - **写**：`write_to_file`、`replace_in_file`、`delete_file`
 - **执行**：`terminal`、后台进程（`process_*`）、`read_lints`
 - **委派**：大范围摸底、多文件分析可用 **`subagent`**，主会话做汇总
-- **交付**：回复里用 `@@相对路径@@`（首尾各一对 `@@`）指向 `workspace/` 或 `outputs/` 下文件，EvoFlow 可点击预览
+- **交付**：回复里用 Markdown `[文件名](相对工作目录的路径)` 或短路径反引号指向工作区文件，EvoFlow 渲染为可点击预览卡（与 zcode artifact_display 一致）
 
 **怎么用**：
 1. EvoFlow 顶栏选 **Agent**（或说「切换到 Agent 模式」）

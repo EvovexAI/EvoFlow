@@ -857,7 +857,7 @@ def _assemble_system_prompt(
     blocks.append((static.COMMUNICATION_STYLE_COMPACT_BLOCK if pure_chat else static.COMMUNICATION_STYLE_BLOCK).strip())
     # ENTITY_ASSETS retired — policy + recall live in ``<memory_assets>`` (MemoryLiveFooter /
     # build_memory_injection_sections), gated with the memory switch.
-    # 产物展示协议（@@ 文件交付 + ::code-comment 行内评论）：任何场景都可能引用工作区
+    # 产物展示协议（Markdown/反引号文件交付 + ::code-comment 行内评论）：任何场景都可能引用工作区
     # 文件或评审代码（agent/code 场景的模块映射也落在 chat），无条件注入。
     blocks.append(static.ARTIFACT_DISPLAY_BLOCK.strip())
     # 平台行政：主智能体与小V同源职责；标签 ``<platform_tool>``（勿用 ``<platform>``）。

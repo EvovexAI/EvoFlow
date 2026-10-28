@@ -113,7 +113,7 @@ python skills/public/wan-media-generation/scripts/wan_api.py image \
 
 ## 交付
 
-解析 stdout 的 `absolute_path` / `local_path`；回复：`@@outputs/文件名@@`（png/mp4）。平台工具结果卡已有预览时勿再贴 `![]()`。
+解析 stdout 的 `absolute_path` / `local_path`；回复用 Markdown：`[文件名](相对工作目录的路径)` 或短路径反引号（png/mp4）。平台工具结果卡已有预览时勿再贴 `![]()`。
 
 ## 常见错误
 

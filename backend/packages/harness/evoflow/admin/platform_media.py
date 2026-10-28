@@ -735,6 +735,7 @@ def task_wait(
         _unique_media_save_prefix,
         _path_for_display,
         _media_image_reply_hint,
+        _media_deliverable_reply_hint,
     )
 
     task_id = str(args.get("task_id") or args.get("taskId") or "").strip()
@@ -804,7 +805,7 @@ def task_wait(
     if media_kind == "image" and ap:
         next_action = _media_image_reply_hint(ap)
     elif local_paths:
-        next_action = "Share absolute path in chat as @@/abs/path@@ (no relative @@outputs/…@@)."
+        next_action = _media_deliverable_reply_hint(ap)
     else:
         next_action = "Retry media.task_wait or check provider dashboard."
     msg = f"Saved: {ap}" if ap else ("Task finished." if urls else f"Task status={status}; no download URL yet.")

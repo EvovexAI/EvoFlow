@@ -1122,8 +1122,8 @@ def _accumulate_stream_text(
 def _extract_artifacts(result: dict | list) -> list[str]:
     """Extract artifact paths from the last AI response cycle only.
 
-    Collects ``@@outputs/…@@`` / ``@@uploads/…@@`` paths cited in AI reply text
-    after the last human message (replaces removed ``present_files`` tool).
+    Collects zcode-style Markdown / backtick cites under ``outputs/`` or ``uploads/``,
+    plus legacy ``@@outputs/…@@`` / ``@@uploads/…@@``, after the last human message.
     """
     import re
 
@@ -1134,7 +1134,18 @@ def _extract_artifacts(result: dict | list) -> list[str]:
     else:
         return []
 
+    # Legacy EvoFlow wrappers
     at_path_re = re.compile(r"@@((?:outputs|uploads)/[^@\n]+?)@@", re.IGNORECASE)
+    # zcode artifact_display: [label](outputs/…) or [label](uploads/…)
+    md_link_re = re.compile(
+        r"\[[^\]]*\]\(((?:outputs|uploads)/[^)\s]+)\)",
+        re.IGNORECASE,
+    )
+    # backtick / quoted short paths
+    tick_path_re = re.compile(
+        r"[`'\"]((?:outputs|uploads)/[^`'\"]+)[`'\"]",
+        re.IGNORECASE,
+    )
 
     def _text_from_content(content) -> str:
         if isinstance(content, str):
@@ -1149,6 +1160,12 @@ def _extract_artifacts(result: dict | list) -> list[str]:
             return "\n".join(parts)
         return str(content or "")
 
+    def _add(path: str, *, seen: set[str], artifacts: list[str]) -> None:
+        cleaned = str(path or "").strip().replace("\\", "/")
+        if cleaned and cleaned not in seen:
+            seen.add(cleaned)
+            artifacts.append(cleaned)
+
     artifacts: list[str] = []
     seen: set[str] = set()
     for msg in reversed(messages):
@@ -1159,10 +1176,11 @@ def _extract_artifacts(result: dict | list) -> list[str]:
         if msg.get("type") == "ai":
             text = _text_from_content(msg.get("content"))
             for m in at_path_re.finditer(text):
-                path = str(m.group(1) or "").strip().replace("\\", "/")
-                if path and path not in seen:
-                    seen.add(path)
-                    artifacts.append(path)
+                _add(m.group(1), seen=seen, artifacts=artifacts)
+            for m in md_link_re.finditer(text):
+                _add(m.group(1), seen=seen, artifacts=artifacts)
+            for m in tick_path_re.finditer(text):
+                _add(m.group(1), seen=seen, artifacts=artifacts)
     return artifacts
 
 

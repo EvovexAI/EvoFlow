@@ -183,7 +183,7 @@ APP_DEFINITION: dict[str, Any] = {
                 "   （按实际文件名逗号拼接，保持镜序）\n"
                 "2) 可选：用 production-brief 口播跑 subtitle_build.py + subtitle_burn.py "
                 "生成 outputs/gufeng-travel-final-4k-subtitled.mp4\n"
-                "交付最终绝对路径（@@/path@@），优先 gufeng-travel-final-4k.mp4。"
+                "交付用 Markdown `[成片](相对工作目录路径)`（或反引号路径），优先 gufeng-travel-final-4k.mp4。"
             ),
         },
     ],

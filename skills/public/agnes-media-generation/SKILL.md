@@ -75,7 +75,7 @@ python skills/public/agnes-media-generation/scripts/agnes_api.py video-get TASK_
 
 ## 交付
 
-解析 stdout 的 `absolute_path` / `local_paths`；回复用户：`@@outputs/文件名@@`（png/mp4）。
+解析 stdout 的 `absolute_path` / `local_paths`；回复用户用 Markdown：`[文件名](相对工作目录的路径)` 或短路径反引号（png/mp4）。
 
 ## 常见错误
 

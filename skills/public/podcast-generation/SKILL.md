@@ -165,7 +165,7 @@ The generated podcast follows the "Hello Deer" format:
 After generation:
 
 - Podcasts and transcripts are saved in `/mnt/user-data/outputs/`
-- Share both the podcast MP3 and transcript MD with the user via `@@outputs/...@@` in your reply
+- Share both the podcast MP3 and transcript MD with the user via Markdown `[name](path relative to the workspace)` or a short backtick path in your reply
 - Provide brief description of the generation result (topic, duration, hosts)
 - Offer to regenerate if adjustments needed
 

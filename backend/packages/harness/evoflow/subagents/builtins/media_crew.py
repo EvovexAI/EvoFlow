@@ -229,7 +229,7 @@ MEDIA_POST_CONFIG = SubagentConfig(
    python skills/public/media-production/scripts/subtitle_burn.py \\
      --video-path outputs/<video>.mp4 --subtitle-path outputs/subtitles.srt --output-dir outputs
 
-3. 回复最终文件的**工作区绝对路径**，格式 `@@/绝对路径/…@@`（禁 `@@outputs/…@@` 相对写法）
+3. 在回复中用 Markdown 交付最终文件：`[成片](相对工作目录的路径)` 或短路径反引号（与 artifact_display 一致；勿用 @@path@@）
 </流程>
 
 <准则>

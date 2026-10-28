@@ -411,7 +411,7 @@ Take `best_description` from the JSON output and update the skill's SKILL.md fro
 
 ### Package and deliver
 
-Package the skill and tell the user the resulting `.skill` file path (wrap with `@@outputs/...@@` if under outputs):
+Package the skill and tell the user the resulting `.skill` file path (cite with Markdown `[name](path relative to the workspace)` or a short backtick path):
 
 ```bash
 python -m scripts.package_skill <path/to/skill-folder>

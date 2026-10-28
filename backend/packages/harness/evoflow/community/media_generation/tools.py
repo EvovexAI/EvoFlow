@@ -5,7 +5,7 @@ Workflow hints for the agent (in docstrings):
 1. media_image_generate (generate polls and saves in one call)
 2. media_image_generate → media_video_generate (first_frame_url)
 3. media_voiceover_synthesize → media_video_generate (audio_url) → media_subtitle_build → media_subtitle_burn
-4. Images auto-preview in EvoPanel tool card; cite absolute @@/workspace/…@@ for other deliverables
+4. Images auto-preview in EvoPanel tool card; cite other deliverables as Markdown `[name](workspace-relative path)` or a short backtick path
 """
 
 from __future__ import annotations
@@ -82,6 +82,36 @@ def _path_for_display(p: str | None) -> str | None:
     """Forward slashes for markdown / JSON display (Windows-safe for chat)."""
     s = str(p or "").strip()
     return s.replace("\\", "/") if s else None
+
+
+def _workspace_rel_for_cite(path: str | None) -> str | None:
+    """Best-effort workspace-relative path for zcode artifact_display citations."""
+    display = _path_for_display(path)
+    if not display:
+        return None
+    # Keep trailing workspace-relative segments when absolute (…/outputs/foo.mp4 → outputs/foo.mp4).
+    m = re.search(r"(?:^|/)((?:outputs|uploads)/[^/]+)$", display, re.IGNORECASE)
+    if m:
+        return m.group(1)
+    # Already relative (no drive / leading root)
+    if re.match(r"^[a-zA-Z]:/", display) or display.startswith("/"):
+        return Path(display).name or None
+    return display
+
+
+def _media_deliverable_reply_hint(path: str | None = None) -> str:
+    """Tell the model to cite like zcode ``ARTIFACT_DISPLAY_BLOCK`` (Markdown / backticks)."""
+    rel = _workspace_rel_for_cite(path)
+    if rel:
+        name = Path(rel).name
+        return (
+            f"Cite in reply as Markdown `[{name}]({rel})` or backtick `{rel}` "
+            "(workspace-relative path; zcode artifact_display; do not use @@path@@)."
+        )
+    return (
+        "Cite deliverable in reply as Markdown `[file name](path relative to the workspace)` "
+        "or a short backtick path (zcode artifact_display; do not use @@path@@)."
+    )
 
 
 def _media_image_reply_hint(absolute_path: str | None = None) -> str:
@@ -608,7 +638,15 @@ def media_task_wait_tool(
 
     lp = local_paths[0] if local_paths else None
     ap = _path_for_display(lp)
-    next_action = _media_image_reply_hint(ap) if media_kind == "image" and ap else ("Share absolute path in chat as @@/abs/path@@ (no relative @@outputs/…@@)." if local_paths else "Retry media_task_wait or check provider dashboard.")
+    next_action = (
+        _media_image_reply_hint(ap)
+        if media_kind == "image" and ap
+        else (
+            _media_deliverable_reply_hint(ap or (local_paths[0] if local_paths else None))
+            if local_paths
+            else "Retry media_task_wait or check provider dashboard."
+        )
+    )
     msg = f"Saved: {ap}" if ap else ("Task finished." if urls else f"Task status={status}; no download URL yet.")
     return success_response(
         provider=provider,
@@ -836,7 +874,7 @@ def media_subtitle_burn_tool(
         status="succeeded",
         local_path=f"outputs/{out_name}",
         message="Subtitled video created.",
-        next_action="Cite absolute @@/workspace/path@@ in reply when delivering to user.",
+        next_action=_media_deliverable_reply_hint(None),
     )
 
 
