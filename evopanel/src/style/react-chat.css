@@ -752,6 +752,34 @@ html[data-theme='dark'] .react-chat-aside-brand-logo {
   border-color: transparent;
 }
 
+/* 待审核角标（转交审批等）— 侧栏任务中心 / 员工 */
+.react-chat-aside-nav-item .shell-nav-approval-badge {
+  margin-left: auto;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--warning, #d97706) 88%, #b45309);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+  letter-spacing: 0;
+  flex-shrink: 0;
+}
+.react-chat-session-aside.collapsed .react-chat-aside-nav-item .shell-nav-approval-badge {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  margin-left: 0;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  line-height: 14px;
+  font-size: 9px;
+}
+
 /* 激活态：ZCode 用 bg-selected 底色 + 保持 400，不靠加粗区分。
    EvoFlow 原来 active 提到 500 并加左侧 3px 竖条，和底色并存时显得又重又挤。 */
 .react-chat-aside-nav-item.active {
