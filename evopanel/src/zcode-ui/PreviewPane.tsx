@@ -79,6 +79,7 @@ import {
   isPptxPreviewIncompleteFileError,
   readPptxPreviewData,
 } from "@/lib/pptxPreviewData.js";
+import { isHtmlPreviewPath } from "@/lib/htmlPreview.js";
 
 interface CodeViewerBreadcrumbData {
   rootLabel: string | null;
@@ -120,6 +121,14 @@ function isMarkdownFilePath(path?: string): boolean {
 
   const normalizedPath = path.toLowerCase();
   return normalizedPath.endsWith(".md") || normalizedPath.endsWith(".markdown");
+}
+
+function isHtmlFilePath(path?: string): boolean {
+  return isHtmlPreviewPath(path);
+}
+
+function isSvgFilePath(path?: string): boolean {
+  return path?.toLowerCase().endsWith(".svg") ?? false;
 }
 
 function isPreviewPaneMissingFileError(error: unknown): boolean {
@@ -226,10 +235,6 @@ function resolvePreviewPaneTextFileResult(result: FileTextSlice): {
         filePreview: result,
         fileTooLarge: false,
       };
-}
-
-function isSvgFilePath(path?: string): boolean {
-  return path?.toLowerCase().endsWith(".svg") ?? false;
 }
 
 function getFileImageMediaType(path?: string): string | null {
@@ -381,6 +386,7 @@ function isPlainCodeSource(source: CodeViewerSource | null): boolean {
   if (source.type === "file") {
     return (
       !isMarkdownFilePath(source.path) &&
+      !isHtmlFilePath(source.path) &&
       !isSvgFilePath(source.path) &&
       !getFileImageMediaType(source.path) &&
       // PDF、Office 和 PPTX 走专用只读预览，没有源码视图，也不该出现自动换行开关。
@@ -403,25 +409,30 @@ function getPreviewPaneDisplayOptions(
   source: CodeViewerSource | null,
   viewModes: {
     markdownViewMode?: "preview" | "code";
+    htmlViewMode?: "preview" | "code";
     svgViewMode?: "preview" | "code";
   } = {},
 ) {
   const canToggleMarkdownView =
     source !== null &&
     (isMarkdownSource(source) || (source.type === "file" && isMarkdownFilePath(source.path)));
+  const canToggleHtmlView =
+    source !== null && source.type === "file" && isHtmlFilePath(source.path);
   const canToggleSvgView =
     source !== null &&
     (isSvgSource(source) || (source.type === "file" && isSvgFilePath(source.path)));
   const canToggleCodeWrap =
     isPlainCodeSource(source) ||
     (canToggleMarkdownView && viewModes.markdownViewMode === "code") ||
+    (canToggleHtmlView && viewModes.htmlViewMode === "code") ||
     (canToggleSvgView && viewModes.svgViewMode === "code");
 
   return {
     canToggleCodeWrap,
     canToggleMarkdownView,
+    canToggleHtmlView,
     canToggleSvgView,
-    hasMoreMenu: canToggleMarkdownView || canToggleSvgView || canToggleCodeWrap,
+    hasMoreMenu: canToggleMarkdownView || canToggleHtmlView || canToggleSvgView || canToggleCodeWrap,
   };
 }
 
@@ -549,6 +560,7 @@ export function PreviewPane({
   const [installedEditors, setInstalledEditors] = useState<EditorInfo[]>([]);
   const [preferredEditorId] = useState<string | null>(() => readLastSelectedEditorId());
   const [markdownViewMode, setMarkdownViewMode] = useState<"preview" | "code">("preview");
+  const [htmlViewMode, setHtmlViewMode] = useState<"preview" | "code">("preview");
   const [svgViewMode, setSvgViewMode] = useState<"preview" | "code">("preview");
   const [wrapLongLinesOverride, setWrapLongLinesOverride] = useState<boolean | null>(null);
   const [breadcrumbMaskState, setBreadcrumbMaskState] = useState<BreadcrumbMaskState>("none");
@@ -639,12 +651,37 @@ export function PreviewPane({
     () =>
       getPreviewPaneDisplayOptions(source, {
         markdownViewMode,
+        htmlViewMode,
         svgViewMode,
       }),
-    [markdownViewMode, source, svgViewMode],
+    [htmlViewMode, markdownViewMode, source, svgViewMode],
   );
-  const { canToggleCodeWrap, canToggleMarkdownView, canToggleSvgView, hasMoreMenu } =
-    displayOptions;
+  const {
+    canToggleCodeWrap,
+    canToggleMarkdownView,
+    canToggleHtmlView,
+    canToggleSvgView,
+    hasMoreMenu,
+  } = displayOptions;
+  const canToggleDocView = canToggleMarkdownView || canToggleHtmlView || canToggleSvgView;
+  const docViewMode = canToggleMarkdownView
+    ? markdownViewMode
+    : canToggleHtmlView
+      ? htmlViewMode
+      : svgViewMode;
+  const setDocViewMode = (value: "preview" | "code") => {
+    if (canToggleMarkdownView) {
+      setMarkdownViewMode(value);
+      return;
+    }
+    if (canToggleHtmlView) {
+      setHtmlViewMode(value);
+      return;
+    }
+    if (canToggleSvgView) {
+      setSvgViewMode(value);
+    }
+  };
   const codeCommentLabels = useMemo(
     () => ({
       addComment: intl.formatMessage({ id: "codeViewer.comment.add" }),
@@ -697,6 +734,11 @@ export function PreviewPane({
 
     setMarkdownViewMode(
       source.type !== "code-review" && (isMarkdownSource(source) || isMarkdownFilePath(source.path))
+        ? "preview"
+        : "code",
+    );
+    setHtmlViewMode(
+      source.type !== "code-review" && source.type === "file" && isHtmlFilePath(source.path)
         ? "preview"
         : "code",
     );
@@ -1603,6 +1645,42 @@ export function PreviewPane({
               </span>
             </Button>
           ) : null}
+          {canToggleDocView ? (
+            <div
+              className="flex shrink-0 items-center rounded-lg border border-border bg-background p-0.5"
+              role="group"
+              aria-label={intl.formatMessage({ id: "codeViewer.viewMode" })}
+            >
+              <button
+                type="button"
+                className={cn(
+                  "rounded-md px-2 py-1 text-ui-sm transition-colors",
+                  docViewMode === "preview"
+                    ? "bg-hover text-foreground"
+                    : "text-foreground-subtle hover:text-foreground",
+                )}
+                aria-pressed={docViewMode === "preview"}
+                data-testid="preview-pane-toggle-preview"
+                onClick={() => setDocViewMode("preview")}
+              >
+                {intl.formatMessage({ id: "codeViewer.docPreview" })}
+              </button>
+              <button
+                type="button"
+                className={cn(
+                  "rounded-md px-2 py-1 text-ui-sm transition-colors",
+                  docViewMode === "code"
+                    ? "bg-hover text-foreground"
+                    : "text-foreground-subtle hover:text-foreground",
+                )}
+                aria-pressed={docViewMode === "code"}
+                data-testid="preview-pane-toggle-source"
+                onClick={() => setDocViewMode("code")}
+              >
+                {intl.formatMessage({ id: "codeViewer.docSource" })}
+              </button>
+            </div>
+          ) : null}
           {/* 图片和 patch 这类预览没有任何显示选项，继续渲染触发器会打开空菜单，所以只在存在菜单项时显示更多按钮。*/}
           {hasMoreMenu || source.path ? (
             <DropdownMenu>
@@ -1645,9 +1723,32 @@ export function PreviewPane({
                     </DropdownMenuRadioGroup>
                   </>
                 ) : null}
-                {canToggleSvgView ? (
+                {canToggleHtmlView ? (
                   <>
                     {canToggleMarkdownView ? <DropdownMenuSeparator /> : null}
+                    <DropdownMenuLabel>
+                      {intl.formatMessage({ id: "codeViewer.htmlMode" })}
+                    </DropdownMenuLabel>
+                    <DropdownMenuRadioGroup
+                      value={htmlViewMode}
+                      onValueChange={(value) => {
+                        setHtmlViewMode(value as "preview" | "code");
+                      }}
+                    >
+                      <DropdownMenuRadioItem value="preview">
+                        <EyeIcon className="size-4" />
+                        {intl.formatMessage({ id: "codeViewer.htmlPreview" })}
+                      </DropdownMenuRadioItem>
+                      <DropdownMenuRadioItem value="code">
+                        <FileCode2Icon className="size-4" />
+                        {intl.formatMessage({ id: "codeViewer.htmlSource" })}
+                      </DropdownMenuRadioItem>
+                    </DropdownMenuRadioGroup>
+                  </>
+                ) : null}
+                {canToggleSvgView ? (
+                  <>
+                    {canToggleMarkdownView || canToggleHtmlView ? <DropdownMenuSeparator /> : null}
                     <DropdownMenuLabel>
                       {intl.formatMessage({ id: "codeViewer.svgMode" })}
                     </DropdownMenuLabel>
@@ -1670,7 +1771,9 @@ export function PreviewPane({
                 ) : null}
                 {canToggleCodeWrap ? (
                   <>
-                    {canToggleMarkdownView || canToggleSvgView ? <DropdownMenuSeparator /> : null}
+                    {canToggleMarkdownView || canToggleHtmlView || canToggleSvgView ? (
+                      <DropdownMenuSeparator />
+                    ) : null}
                     <DropdownMenuCheckboxItem
                       checked={wrapLongLines}
                       onCheckedChange={(checked) => {
@@ -1798,6 +1901,7 @@ export function PreviewPane({
                 : undefined
             }
             markdownViewMode={markdownViewMode}
+            htmlViewMode={htmlViewMode}
             svgViewMode={svgViewMode}
             wrapLongLines={wrapLongLines}
             codeComments={codeComments}
