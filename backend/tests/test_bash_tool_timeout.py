@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib
 import sys
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -100,3 +101,67 @@ def test_kill_process_tree_invokes_taskkill() -> None:
     args = run.call_args[0][0]
     assert args[:4] == ["taskkill", "/PID", "4242", "/F"]
     assert "/T" in args
+
+
+def test_rejects_wsl_and_store_bash_stubs() -> None:
+    assert bt._is_windows_wsl_or_store_bash(r"C:\Windows\System32\bash.exe") is True
+    assert bt._is_windows_wsl_or_store_bash(r"C:\Windows\SysWOW64\bash.exe") is True
+    assert (
+        bt._is_windows_wsl_or_store_bash(
+            r"C:\Users\x\AppData\Local\Microsoft\WindowsApps\bash.exe"
+        )
+        is True
+    )
+    assert (
+        bt._is_windows_wsl_or_store_bash(r"C:\Program Files\Git\bin\bash.exe") is False
+    )
+
+
+def test_bash_shell_win32_ignores_path_bash_prefers_git(tmp_path, monkeypatch) -> None:
+    """ZCode parity: never take System32/WSL bash from PATH; use Git Bash only."""
+    git_bash = tmp_path / "Git" / "bin" / "bash.exe"
+    git_bash.parent.mkdir(parents=True)
+    git_bash.write_bytes(b"")
+    git_exe = tmp_path / "Git" / "cmd" / "git.exe"
+    git_exe.parent.mkdir(parents=True)
+    git_exe.write_bytes(b"")
+    wsl_bash = tmp_path / "System32" / "bash.exe"
+    wsl_bash.parent.mkdir(parents=True)
+    wsl_bash.write_bytes(b"")
+
+    monkeypatch.setattr(bt.sys, "platform", "win32")
+    monkeypatch.setenv("ProgramFiles", str(tmp_path))
+    monkeypatch.delenv("ProgramFiles(x86)", raising=False)
+    monkeypatch.delenv("LOCALAPPDATA", raising=False)
+
+    def fake_which(name: str):
+        if name == "bash":
+            return str(wsl_bash)  # would poison old which()-first logic
+        if name == "git":
+            return str(git_exe)
+        return None
+
+    monkeypatch.setattr(bt.shutil, "which", fake_which)
+    shell = bt.bash_shell()
+    assert shell is not None
+    assert Path(shell[0]) == git_bash
+    assert "System32" not in shell[0]
+
+
+def test_bash_shell_win32_no_git_returns_none(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(bt.sys, "platform", "win32")
+    monkeypatch.setenv("ProgramFiles", str(tmp_path / "empty-pf"))
+    monkeypatch.delenv("ProgramFiles(x86)", raising=False)
+    monkeypatch.delenv("LOCALAPPDATA", raising=False)
+    monkeypatch.setattr(bt.shutil, "which", lambda _name: None)
+    assert bt.bash_shell() is None
+
+
+def test_script_falls_back_to_powershell_without_git_bash(monkeypatch) -> None:
+    monkeypatch.setattr(bt.sys, "platform", "win32")
+    monkeypatch.setattr(bt, "bash_shell", lambda: None)
+    monkeypatch.setattr(bt, "_powershell_executable", lambda: "powershell.exe")
+    argv, dialect = bt._script("echo hello", cwd=r"D:\work")
+    assert dialect == "powershell"
+    assert argv[0] == "powershell.exe"
+    assert "echo hello" in argv[-1]

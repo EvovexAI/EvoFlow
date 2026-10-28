@@ -290,29 +290,72 @@ def _kill_process_tree(pid: int) -> None:
             pass
 
 
-def bash_shell() -> list[str] | None:
-    """Prefer a real POSIX bash so the embedded-search function prelude can run.
+def _is_windows_wsl_or_store_bash(path: Path | str) -> bool:
+    """True for WSL / Store stubs that are not a real POSIX shell.
 
-    The WindowsApps ``bash.exe`` stub is not a shell; Git's ``bin/bash.exe`` is.
+    ``C:\\Windows\\System32\\bash.exe`` launches WSL; the WindowsApps copy is a
+    Store stub. Both surface as ``bash`` on PATH and break when WSL is missing
+    or needs ``wsl --update``. ZCode never accepts them — only Git Bash.
+    """
+    normalized = str(path).replace("/", "\\").lower()
+    if "windowsapps" in normalized:
+        return True
+    # System32 / SysWOW64 bash.exe → wsl.exe launcher (not Git Bash).
+    if normalized.endswith("\\bash.exe") and (
+        "\\system32\\" in normalized or "\\syswow64\\" in normalized
+    ):
+        return True
+    return False
+
+
+def _windows_git_bash_candidates() -> list[Path]:
+    """Mirror ZCode ``resolveWindowsGitBashShell``: known Git installs + git.exe.
+
+    Never consult ``PATH`` for bare ``bash`` — that picks up the WSL shim.
     """
     candidates: list[Path] = []
-    found = shutil.which("bash")
-    if found and "WindowsApps" not in found.replace("/", "\\"):
-        candidates.append(Path(found))
-    git = shutil.which("git")
-    if git:
-        git_path = Path(git).resolve()
-        candidates.append(git_path.parent.parent / "bin" / "bash.exe")
-        candidates.append(git_path.parent / "bash.exe")
+    # ZCode fixed paths + user-scoped Git (Scoop / per-user installer).
     for env_key in ("ProgramFiles", "ProgramFiles(x86)", "LOCALAPPDATA"):
         root = os.environ.get(env_key)
         if not root:
             continue
         base = Path(root) / ("Programs" if env_key == "LOCALAPPDATA" else "")
         candidates.append(base / "Git" / "bin" / "bash.exe")
-    for path in candidates:
-        if path.is_file():
-            return [str(path)]
+    git = shutil.which("git")
+    if git:
+        git_dir = Path(git).resolve().parent
+        # git.exe in .../Git/cmd → .../Git/bin/bash.exe
+        candidates.append(git_dir.parent / "bin" / "bash.exe")
+        # git.exe already next to bash (rare portable layouts)
+        candidates.append(git_dir / "bash.exe")
+        # .../Git/mingw64/bin/git.exe → .../Git/bin/bash.exe
+        candidates.append(git_dir.parent.parent / "bin" / "bash.exe")
+    return candidates
+
+
+def bash_shell() -> list[str] | None:
+    """Prefer a real POSIX bash so the embedded-search function prelude can run.
+
+    On Windows this matches ZCode: only Git Bash. WSL/Store ``bash.exe`` stubs
+    are rejected so a broken WSL install falls through to PowerShell in
+    ``_script`` instead of failing every ``echo``.
+    """
+    if sys.platform == "win32":
+        seen: set[str] = set()
+        for path in _windows_git_bash_candidates():
+            key = str(path).replace("/", "\\").lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            if _is_windows_wsl_or_store_bash(path):
+                continue
+            if path.is_file():
+                return [str(path)]
+        return None
+
+    found = shutil.which("bash")
+    if found:
+        return [found]
     return None
 
 
@@ -505,7 +548,16 @@ def _script(command: str, *, cwd: str) -> tuple[list[str], str]:
     if shell:
         return _bash_args(shell, body), "bash"
     if sys.platform == "win32":
-        return ["powershell", "-NoProfile", "-NonInteractive", "-Command", f"Set-Location -LiteralPath '{cwd}'; {command}"], "powershell"
+        # No Git Bash (or only WSL stubs) → native PowerShell, same as ZCode
+        # legacy-shell fallback: keep Agent usable without requiring WSL.
+        safe_cwd = cwd.replace("'", "''")
+        return [
+            _powershell_executable(),
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            f"Set-Location -LiteralPath '{safe_cwd}'; {command}",
+        ], "powershell"
     return ["sh", "-c", body], "sh"
 
 
