@@ -105,8 +105,8 @@ export async function render() {
   page.className = 'page role-page role-page--agent-detail'
   page.innerHTML = `
     <div class="role-detail-shell">
-      <header class="role-detail-top">
-        <button type="button" class="btn btn-ghost role-detail-back" data-action="back">← 返回智能体</button>
+      <button type="button" class="btn btn-ghost role-detail-back" data-action="back">← 返回智能体</button>
+      <header class="role-detail-hero">
         <div class="role-detail-heading">
           <div class="role-detail-avatar" id="agentDetailAvatar" aria-hidden="true"></div>
           <div class="role-detail-titles">
@@ -114,11 +114,11 @@ export async function render() {
             <div class="role-detail-sub" id="agentDetailSub"></div>
           </div>
         </div>
+        <div class="role-detail-hero-actions" id="agentDetailFoot"></div>
       </header>
       <div class="role-detail-body" id="agentDetailBody">
         <div class="role-drawer-loading">加载详情…</div>
       </div>
-      <footer class="role-detail-foot" id="agentDetailFoot"></footer>
     </div>
   `
 
