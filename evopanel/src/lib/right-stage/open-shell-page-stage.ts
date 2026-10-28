@@ -9,6 +9,7 @@ export type ShellPageStagePayload = {
   title?: string
   mountId?: string
   entityLabel?: string
+  focusId?: string
   layout?: 'half' | 'wide' | 'narrow' | 'workspace-write'
 }
 
@@ -48,6 +49,7 @@ export function openShellPageInRightStage(
     path,
     mountId,
   })
+  const focusId = String(payload.focusId || '').trim()
   // 已挂同一 path：只激活/展开；若新标题更可读则回写（不因 path 覆盖好名字）
   const existing = rightStageStore.findTab(`shell-page:${id}`)
   if (existing && String(existing.data?.path || existing.data?.route || '').trim() === path) {
@@ -58,6 +60,7 @@ export function openShellPageInRightStage(
       prevTitle === '页面' ||
       prevTitle === '员工' ||
       prevTitle === '任务' ||
+      prevTitle === '待办' ||
       prevTitle === '工作流'
     const nextTitle = prevLooksGeneric && title && title !== prevTitle ? title : prevTitle || title
     rightStageStore.show({
@@ -74,6 +77,7 @@ export function openShellPageInRightStage(
         entityLabel: String(
           payload.entityLabel || existing.data?.entityLabel || '',
         ).trim(),
+        focusId: focusId || String(existing.data?.focusId || '').trim(),
       },
     })
     return id
@@ -90,6 +94,7 @@ export function openShellPageInRightStage(
       mountId,
       title,
       entityLabel: String(payload.entityLabel || '').trim(),
+      focusId,
     },
   })
   return id

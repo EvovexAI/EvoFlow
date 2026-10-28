@@ -2,6 +2,10 @@
  * 把 panel_set / 平台 CTA 的 progress surface 落到右栏（与任务中心打开同构）。
  * 会话级：应传入触发会话的 sessionKey；缺省时由 store 冻结当前 UI 会话归属。
  */
+import {
+  isProactiveSessionKey,
+  parseProactiveSessionKey,
+} from '../../react/lib/session-list/workspace-groups.js'
 import { normalizeRightStageKind } from './right-stage-types.js'
 import { openCollabWorkflowInRightStage } from './open-collab-workflow-stage.js'
 import { openCollabSubtaskInRightStage } from './open-collab-subtask-stage.js'
@@ -9,6 +13,15 @@ import { openEmployeeProcessInRightStage } from './open-employee-process-stage.j
 import { openShellPageInRightStage } from './open-shell-page-stage.js'
 import { logRightStage } from './panel-set-debug-log.js'
 import { rightStageStore } from './right-stage-store.js'
+
+/** 仅本岗 proactive key 可作员工对话；主聊 agent:main:* 等一律丢掉，防右栏串流。 */
+function employeeOwnedSessionKey(sessionKey: string, agentCode: string): string {
+  const sk = String(sessionKey || '').trim()
+  const code = String(agentCode || '').trim()
+  if (!sk || !code || !isProactiveSessionKey(sk)) return ''
+  const parsed = parseProactiveSessionKey(sk)
+  return String(parsed.agentCode || '').trim() === code ? sk : ''
+}
 
 export type ProgressStageSurface = {
   kind?: string
@@ -96,6 +109,10 @@ export function openProgressFromPanelSet(
     const agentCode = firstStr(data.agentCode, data.agent_code, data.assigned_to)
     // 派发/唤醒常只有 agent：仍开右栏实时进度（对话面板）
     if (!agentCode) return ''
+    const employeeSk = employeeOwnedSessionKey(
+      firstStr(data.sessionKey, data.session_key, data.employeeSessionKey),
+      agentCode,
+    )
     return openEmployeeProcessInRightStage(
       {
         taskId: taskId || '',
@@ -104,7 +121,7 @@ export function openProgressFromPanelSet(
         title: title || undefined,
         roundId: firstStr(data.roundId, data.round_id, data.source_ref),
         busy: data.busy !== false,
-        employeeSessionKey: firstStr(data.sessionKey, data.session_key, data.employeeSessionKey),
+        employeeSessionKey: employeeSk || undefined,
       },
       { sessionKey: sk, layout: (surface.layout as 'wide') || 'wide' },
     )
@@ -130,6 +147,7 @@ export function openProgressFromPanelSet(
         title: title || entityLabel || undefined,
         entityLabel: entityLabel || undefined,
         mountId: firstStr(data.mountId, data.mount_id),
+        focusId: firstStr(data.focusId, data.focus, data.itemId, data.item_id),
         layout: (surface.layout as 'wide') || 'wide',
       },
       { sessionKey: sk, layout: (surface.layout as 'wide') || 'wide' },

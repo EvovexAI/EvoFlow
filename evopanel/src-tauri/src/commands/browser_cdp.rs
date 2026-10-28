@@ -665,6 +665,7 @@ fn native_navigate(
         .or_else(|_| format!("https://{target}").parse::<url::Url>())
         .map_err(|e| format!("invalid navigate url {target:?}: {e}"))?;
     let href = parsed.to_string();
+    let parsed_retry = parsed.clone();
     if let Err(e) = window.navigate(parsed) {
         crate::commands::browser_cdp_server::log_line(&format!(
             "[浏览器时间线] 失败｜后台导航 window.navigate 失败 label={label} 错误={e}"
@@ -679,11 +680,13 @@ fn native_navigate(
     ));
     // 导航后文档换新：旧 guest poller 已死；若此前 stash 失败也再试一次。
     // 不阻塞导航返回——异步补采，避免把 Page.navigate 拖成 3s+。
+    // 冷窗：navigate「发出成功」后 location 仍停在 boot blank → 仅空白时重试一次。
     {
         let app_bg = app.clone();
         let win_bg = window.clone();
         let label_bg = label.to_string();
         let href_bg = href.clone();
+        let want_http = href.starts_with("http://") || href.starts_with("https://");
         let _ = std::thread::Builder::new()
             .name("embed-cdp-refresh".into())
             .spawn(move || {
@@ -693,6 +696,7 @@ fn native_navigate(
                 // 轮询：URL 对上且 readyState 可读 → 页面内容就绪；否则打出失败原因。
                 let deadline = std::time::Instant::now() + std::time::Duration::from_secs(12);
                 let mut last = String::new();
+                let mut blank_retried = false;
                 while std::time::Instant::now() < deadline {
                     match native_evaluate(
                         &app_bg,
@@ -712,6 +716,31 @@ fn native_navigate(
                                 ));
                                 return;
                             }
+                            // Cold HWND: document may look "complete" on boot blank while
+                            // the real navigate never stuck. Retry once — never to about:blank.
+                            if want_http
+                                && !blank_retried
+                                && eval_body_is_blank_boot(&body)
+                            {
+                                blank_retried = true;
+                                crate::commands::browser_cdp_server::log_line(&format!(
+                                    "[browser-cdp] blank retry navigate label={label_bg} want={href_bg} saw={body}"
+                                ));
+                                crate::commands::browser_cdp_server::log_line(&format!(
+                                    "[浏览器时间线] 空白早重试｜label={label_bg} 链接={href_bg}"
+                                ));
+                                if let Err(e) = win_bg.navigate(parsed_retry.clone()) {
+                                    crate::commands::browser_cdp_server::log_line(&format!(
+                                        "[browser-cdp] blank retry navigate FAILED label={label_bg}: {e}"
+                                    ));
+                                } else if let Some(bridge) = app_bg.try_state::<
+                                    crate::commands::browser_embed_bridge::EmbedBridge,
+                                >() {
+                                    bridge.note_url(&label_bg, &href_bg);
+                                }
+                                std::thread::sleep(std::time::Duration::from_millis(350));
+                                refresh_embed_cdp_handles(&app_bg, &win_bg, &label_bg);
+                            }
                         }
                         Err(e) => {
                             last = e.clone();
@@ -725,12 +754,32 @@ fn native_navigate(
                 }
                 crate::commands::browser_cdp_server::log_line(&format!(
                     "[浏览器时间线] 失败｜页面内容就绪超时(12s) label={label_bg} \
-                     期望链接={href_bg} 最后状态={last}"
+                     期望链接={href_bg} 最后状态={last} blank_retried={blank_retried}"
                 ));
             });
     }
     // CDP-shaped success payload so Python's browser_engine stays unchanged.
     Ok(json!({ "frameId": "evopanel", "loaderId": "evopanel" }).to_string())
+}
+
+/// True when eval body `{url, ready, title}` is still on boot blank / placeholder.
+fn eval_body_is_blank_boot(eval_body: &str) -> bool {
+    let marker = "\"url\":\"";
+    let actual = match eval_body.find(marker) {
+        Some(i) => eval_body[i + marker.len()..]
+            .split('"')
+            .next()
+            .unwrap_or("")
+            .to_string(),
+        None => String::new(),
+    };
+    if actual.is_empty() {
+        // No url field — treat as blank only if body itself looks empty/about.
+        return eval_body.contains("about:")
+            || eval_body.contains("/browser-embed/blank")
+            || eval_body.trim().is_empty();
+    }
+    crate::commands::browser_embed::is_embed_boot_placeholder(&actual)
 }
 
 
@@ -1379,8 +1428,19 @@ pub fn browser_cdp_status(
 
 #[cfg(test)]
 mod tests {
-    use super::FORWARDED_EVENTS;
+    use super::{eval_body_is_blank_boot, FORWARDED_EVENTS};
     use std::collections::HashSet;
+
+    #[test]
+    fn eval_body_detects_boot_blank() {
+        assert!(eval_body_is_blank_boot(r#"{"url":"about:blank","ready":"complete"}"#));
+        assert!(eval_body_is_blank_boot(
+            r#"{"url":"http://127.0.0.1:9/browser-embed/blank","ready":"complete"}"#
+        ));
+        assert!(!eval_body_is_blank_boot(
+            r#"{"url":"https://www.bing.com/search?q=x","ready":"complete"}"#
+        ));
+    }
 
     /// receivers for it, so the callback fires twice and Playwright sees
     /// duplicated lifecycle events. `DOM.documentUpdated` was listed twice.

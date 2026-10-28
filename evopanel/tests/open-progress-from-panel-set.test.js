@@ -59,6 +59,39 @@ describe('openProgressFromPanelSet', () => {
     expect(rightStageStore.getSnapshot().collapsed).toBe(false)
   })
 
+  it('drops caller main sessionKey so employee pane cannot pin left chat stream', () => {
+    const id = openProgressFromPanelSet(
+      {
+        kind: 'employeeProcess',
+        title: '技术总监',
+        data: {
+          agentCode: 'dev-tech-director',
+          roleName: '技术总监',
+          sessionKey: 'agent:main:new-10a8acbd',
+          busy: true,
+        },
+      },
+      { sessionKey: 'agent:main:new-10a8acbd' },
+    )
+    expect(id).toBe('process:live:dev-tech-director')
+    const tab = rightStageStore.getSnapshot().tabs.find((t) => t.kind === 'employeeProcess')
+    expect(tab?.sessionKey).toBe('agent:main:new-10a8acbd')
+    expect(tab?.data?.employeeSessionKey).toBeFalsy()
+  })
+
+  it('keeps owned proactive employeeSessionKey', () => {
+    openProgressFromPanelSet({
+      kind: 'employeeProcess',
+      data: {
+        agentCode: 'dev-qa',
+        sessionKey: 'proactive:dev-qa:chat:x1',
+        busy: true,
+      },
+    })
+    const tab = rightStageStore.getSnapshot().tabs.find((t) => t.kind === 'employeeProcess')
+    expect(tab?.data?.employeeSessionKey).toBe('proactive:dev-qa:chat:x1')
+  })
+
   it('opens shell-page /employees as proactive board', () => {
     const id = openProgressFromPanelSet({
       kind: 'shell-page',

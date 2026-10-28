@@ -36,7 +36,7 @@ describe('parsePlatformUiFeedback', () => {
     expect(ui?.title).toContain('待办事项')
   })
 
-  it('skips preview / read actions', () => {
+  it('skips preview / confirm; list reads open shell-page feedback', () => {
     const preview = JSON.stringify({
       ok: true,
       pending_confirm: true,
@@ -49,7 +49,33 @@ describe('parsePlatformUiFeedback', () => {
       action: 'items.list',
       items: [],
     })
-    expect(parsePlatformUiFeedback(listed)).toBeNull()
+    const ui = parsePlatformUiFeedback(listed)
+    expect(ui).not.toBeNull()
+    expect(ui?.actions?.[0]?.openStage?.kind).toBe('shell-page')
+    expect(ui?.actions?.[0]?.openStage?.data?.path).toBe('/tasks/items')
+    expect(ui?.actions?.[0]?.autoOpen).toBe(true)
+  })
+
+  it('items.create enriches shell-page autoOpen for V4 right stage', () => {
+    const raw = JSON.stringify({
+      ok: true,
+      action: 'items.create',
+      item: { id: 'item_1', title: '周五交报告' },
+      ui: {
+        kind: 'success',
+        title: '创建「周五交报告」待办事项成功',
+        domain: 'items',
+        entityId: 'item_1',
+        entityLabel: '周五交报告',
+        action: 'items.create',
+        actions: [{ label: '查看事项', route: '/tasks?tab=items&focus=item_1' }],
+      },
+    })
+    const ui = parsePlatformUiFeedback(raw)
+    expect(ui?.actions?.[0]?.autoOpen).toBe(true)
+    expect(ui?.actions?.[0]?.openStage?.kind).toBe('shell-page')
+    expect(ui?.actions?.[0]?.openStage?.data?.path).toBe('/tasks/items')
+    expect(ui?.actions?.[0]?.openStage?.data?.mountId).toBe('items.board')
   })
 
   it('reads preserved appearance settings after output slimming', () => {

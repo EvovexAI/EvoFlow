@@ -1360,6 +1360,50 @@ class BrowserEngine:
                     pass
             await asyncio.sleep(0.1)
 
+    @staticmethod
+    def _url_is_boot_blank(cur: str) -> bool:
+        u = str(cur or "").strip()
+        if not u:
+            return True
+        if u.startswith("about:"):
+            return True
+        if "/browser-embed/blank" in u:
+            return True
+        if u.startswith("data:text/html"):
+            return True
+        return False
+
+    def _settle_stuck_on_blank(
+        self,
+        session: _Session,
+        state: Any,
+        want_url: str,
+    ) -> bool:
+        """True when settle failed because HWND stayed on boot blank (cold open).
+
+        Must NOT treat evaluate/HWND-not-ready failures as blank — those need
+        wait, not a second Page.navigate.
+        """
+        want = str(want_url or "").strip()
+        if not want.startswith(("http://", "https://")):
+            return False
+        detail = str(getattr(session, "last_settle_error", None) or "").lower()
+        # Probe failed (guest not ready) — not a blank document.
+        if "not ready" in detail or ("evaluate" in detail and "fail" in detail):
+            return False
+        # Explicit settle error: "settled on about:blank while wanting https://..."
+        if "while wanting" in detail and (
+            "about:" in detail or "/browser-embed/blank" in detail
+        ):
+            return True
+        cur = ""
+        if state is not None:
+            cur = str(getattr(state, "url", None) or "").strip()
+        # Empty URL usually means probe never returned a location — not boot blank.
+        if not cur:
+            return False
+        return self._url_is_boot_blank(cur)
+
     async def _wait_document_ready(
         self, tid: str, timeout_ms: int = 5000
     ) -> bool:
@@ -1459,6 +1503,32 @@ class BrowserEngine:
         # best-effort probe only (URL match / readyState). Always return ok
         # after a successful navigate; the agent can snapshot/wait next turn.
         ready, state = await self._settle(session, session.tid, 1200)
+        # Cold HWND: first navigate "succeeds" but document stays on boot blank.
+        # Re-dispatch once only for blank-while-want-http — not for slow sites.
+        if (not ready) and url.startswith(("http://", "https://")) and self._settle_stuck_on_blank(
+            session, state, url
+        ):
+            try:
+                from evoflow.tools.builtins.browser_debug_log import browser_debug_log
+
+                browser_debug_log(
+                    "py",
+                    f"[browser-ready] blank_while_want_http retry navigate tid={session.tid} "
+                    f"want={url[:160]!r} detail={getattr(session, 'last_settle_error', None)!r}",
+                )
+            except Exception:
+                pass
+            try:
+                await _dispatch_run(session.tid, "Page.navigate", {"url": url})
+            except Exception as exc:
+                logger.warning(
+                    "wv2_navigate blank-retry Page.navigate FAILED tid=%s url=%s: %s",
+                    session.tid,
+                    url,
+                    exc,
+                )
+            else:
+                ready, state = await self._settle(session, session.tid, 2000)
         settle_ms = int((time.monotonic() - t_settle) * 1000)
         total_ms = int((time.monotonic() - t0) * 1000)
         detail = str(getattr(session, "last_settle_error", None) or "").strip()

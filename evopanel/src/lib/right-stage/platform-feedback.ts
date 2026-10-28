@@ -418,6 +418,8 @@ function shellPageAction(opts: {
   title?: string
   entityLabel?: string
   autoOpen?: boolean
+  focusId?: string
+  route?: string
 }): PlatformFeedbackAction {
   const path = String(opts.path || '').trim()
   // 标签用实体名；title 同时写进 openStage 与 data，防 V4 mirror 丢字段时仍能回落
@@ -425,23 +427,28 @@ function shellPageAction(opts: {
     String(opts.entityLabel || opts.title || '').trim() ||
     (opts.mountId.startsWith('employees')
       ? '员工'
-      : opts.mountId.startsWith('tasks')
-        ? '任务'
-        : '页面')
+      : opts.mountId.startsWith('items')
+        ? '待办'
+        : opts.mountId.startsWith('tasks')
+          ? '任务'
+          : '页面')
+  const data: Record<string, unknown> = {
+    path,
+    route: path,
+    mountId: opts.mountId,
+    title: nice,
+    entityLabel: String(opts.entityLabel || opts.title || '').trim(),
+  }
+  const focusId = String(opts.focusId || '').trim()
+  if (focusId) data.focusId = focusId
   const out: PlatformFeedbackAction = {
     label: opts.label,
-    route: path,
+    route: String(opts.route || path).trim() || path,
     openStage: {
       kind: 'shell-page',
       title: nice,
       layout: 'wide',
-      data: {
-        path,
-        route: path,
-        mountId: opts.mountId,
-        title: nice,
-        entityLabel: String(opts.entityLabel || opts.title || '').trim(),
-      },
+      data,
     },
   }
   if (opts.autoOpen) out.autoOpen = true
@@ -461,7 +468,12 @@ function shouldAutoOpenShellPage(action: string): boolean {
     action === 'employees.board_overview' ||
     action === 'tasks.update' ||
     action === 'tasks.set_state' ||
-    action === 'tasks.get'
+    action === 'tasks.get' ||
+    action === 'tasks.list' ||
+    action === 'items.create' ||
+    action === 'items.update' ||
+    action === 'items.get' ||
+    action === 'items.list'
   )
 }
 
@@ -598,9 +610,64 @@ export function enrichShellPageOpenStages(ui: PlatformUiFeedback): PlatformUiFee
           mountId: 'tasks.detail',
           title: entityLabel || '任务',
           entityLabel: entityLabel || undefined,
-          autoOpen: autoOk && action !== 'tasks.create',
+          // 有进度 CTA 时不抢栏；无进度时 tasks.create 也可开详情
+          autoOpen: autoOk,
         }),
       )
+      touched = true
+      continue
+    }
+    // 主区待办深链 / 旧 route → 右栏 items.board
+    if (
+      route === '/tasks' ||
+      route === '/tasks/' ||
+      route.startsWith('/tasks?') ||
+      route === '/tasks/items' ||
+      route.startsWith('/tasks/items')
+    ) {
+      const qs = route.includes('?') ? route.slice(route.indexOf('?') + 1) : ''
+      const params = new URLSearchParams(qs)
+      const tab = params.get('tab') || ''
+      const focus = params.get('focus') || entityId || ''
+      const asItems =
+        tab === 'items' ||
+        route === '/tasks/items' ||
+        route.startsWith('/tasks/items') ||
+        domain === 'items' ||
+        action.startsWith('items.')
+      if (asItems) {
+        Object.assign(
+          a,
+          shellPageAction({
+            label: a.label || '打开待办',
+            path: '/tasks/items',
+            mountId: 'items.board',
+            title: entityLabel || '待办',
+            entityLabel: entityLabel || '待办',
+            focusId: focus || undefined,
+            route: focus ? `/tasks?tab=items&focus=${encodeURIComponent(focus)}` : '/tasks?tab=items',
+            autoOpen:
+              autoOk ||
+              action === 'items.list' ||
+              action === 'items.create' ||
+              action === 'items.update' ||
+              action === 'items.get',
+          }),
+        )
+      } else {
+        Object.assign(
+          a,
+          shellPageAction({
+            label: a.label || '打开任务',
+            path: '/tasks',
+            mountId: 'tasks.board',
+            title: '任务',
+            entityLabel: '任务',
+            route: '/tasks',
+            autoOpen: autoOk || action === 'tasks.list',
+          }),
+        )
+      }
       touched = true
     }
   }
@@ -646,6 +713,47 @@ export function enrichShellPageOpenStages(ui: PlatformUiFeedback): PlatformUiFee
     touched = true
   }
 
+  if (
+    (action === 'tasks.list' || (domain === 'tasks' && action === 'tasks.list')) &&
+    !actions.some((a) => String(a.openStage?.kind || '').includes('shell'))
+  ) {
+    actions.push(
+      shellPageAction({
+        label: '打开任务',
+        path: '/tasks',
+        mountId: 'tasks.board',
+        title: '任务',
+        entityLabel: '任务',
+        autoOpen: autoOk,
+      }),
+    )
+    touched = true
+  }
+
+  if (
+    (action === 'items.list' ||
+      action === 'items.create' ||
+      action === 'items.update' ||
+      action === 'items.get') &&
+    !actions.some((a) => String(a.openStage?.kind || '').includes('shell'))
+  ) {
+    actions.push(
+      shellPageAction({
+        label: action === 'items.list' ? '打开待办' : '查看事项',
+        path: '/tasks/items',
+        mountId: 'items.board',
+        title: entityLabel || '待办',
+        entityLabel: entityLabel || '待办',
+        focusId: entityId || undefined,
+        route: entityId
+          ? `/tasks?tab=items&focus=${encodeURIComponent(entityId)}`
+          : '/tasks?tab=items',
+        autoOpen: autoOk,
+      }),
+    )
+    touched = true
+  }
+
   if (!touched) return ui
   return { ...ui, actions }
 }
@@ -653,8 +761,43 @@ export function enrichShellPageOpenStages(ui: PlatformUiFeedback): PlatformUiFee
 function buildActions(action: string, domain: string, entityId: string): PlatformFeedbackAction[] {
   if (entityRemovedByAction(action)) return []
 
+  if (domain === 'items' && (action === 'items.list' || !entityId)) {
+    return [
+      shellPageAction({
+        label: '打开待办',
+        path: '/tasks/items',
+        mountId: 'items.board',
+        title: '待办',
+        entityLabel: '待办',
+        route: '/tasks?tab=items',
+        autoOpen: shouldAutoOpenShellPage(action),
+      }),
+    ]
+  }
   if (domain === 'items' && entityId) {
-    return [{ label: '查看事项', route: `/tasks?tab=items&focus=${entityId}` }]
+    return [
+      shellPageAction({
+        label: '查看事项',
+        path: '/tasks/items',
+        mountId: 'items.board',
+        title: '待办',
+        focusId: entityId,
+        route: `/tasks?tab=items&focus=${encodeURIComponent(entityId)}`,
+        autoOpen: shouldAutoOpenShellPage(action),
+      }),
+    ]
+  }
+  if (domain === 'tasks' && action === 'tasks.list') {
+    return [
+      shellPageAction({
+        label: '打开任务',
+        path: '/tasks',
+        mountId: 'tasks.board',
+        title: '任务',
+        entityLabel: '任务',
+        autoOpen: shouldAutoOpenShellPage(action),
+      }),
+    ]
   }
   if (domain === 'tasks' && entityId) {
     return [
@@ -721,7 +864,7 @@ function inferPlatformUiFeedbackFallback(
   const action = asString(obj.action)
   if (!action || !action.includes('.')) return null
   const [domain, verb] = action.split('.', 2)
-  // 普通只读不发反馈；查看详情（get）要能开 shell-page
+  // 普通只读不发反馈；查看详情 / 列表要能开 shell-page
   if (
     !domain ||
     !verb ||
@@ -731,7 +874,10 @@ function inferPlatformUiFeedbackFallback(
       action !== 'employees.list' &&
       action !== 'employees.org_status' &&
       action !== 'employees.board_overview' &&
-      action !== 'tasks.get')
+      action !== 'tasks.get' &&
+      action !== 'tasks.list' &&
+      action !== 'items.get' &&
+      action !== 'items.list')
   ) {
     return null
   }
@@ -845,9 +991,14 @@ export function navigatePlatformFeedbackRoute(route: string): void {
   if (!next || typeof window === 'undefined') return
   // 别名落到真实菜单路由，避免主区 404 / 空白
   if (next === '/employees' || next === '#/employees') next = '/proactive'
+  else if (next === '/tasks/items' || next === '#/tasks/items') next = '/tasks?tab=items'
   else {
-    const m = next.replace(/^#/, '').match(/^\/employees\/([^/?#]+)/)
-    if (m) next = `/proactive/${m[1]}`
+    const emp = next.replace(/^#/, '').match(/^\/employees\/([^/?#]+)/)
+    if (emp) next = `/proactive/${emp[1]}`
+    else {
+      const items = next.replace(/^#/, '').match(/^\/tasks\/items\/?(\?.*)?$/)
+      if (items) next = `/tasks?tab=items${items[1] || ''}`
+    }
   }
   const hash = next.startsWith('#') ? next.slice(1) : next.startsWith('/') ? next : `/${next}`
   window.location.hash = hash

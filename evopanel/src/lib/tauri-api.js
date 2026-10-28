@@ -3269,8 +3269,17 @@ export const api = {
 
   // ========== 多智能体协作任务 ==========
   // 任务管理（任务为中心）
-  listAllTasks: async (query = null) =>
-    gatewayProxy('GET', '/tasks', null, query, { preferGatewayHttp: true }),
+  listAllTasks: async (query = null) => {
+    const q = query && typeof query === 'object' ? { ...query } : null
+    if (q) {
+      // Backend pages via page_size; older callers (compact shell) sent limit only.
+      if ((q.page_size == null || q.page_size === '' || Number(q.page_size) === 0) && q.limit != null && q.limit !== '') {
+        q.page_size = q.limit
+      }
+      if (q.include_subtasks != null) delete q.include_subtasks
+    }
+    return gatewayProxy('GET', '/tasks', null, q, { preferGatewayHttp: true })
+  },
   getTask: async (taskId) => gatewayProxy('GET', `/tasks/${taskId}`),
   createTask: async (name, description = '', runMode = 'manual', extras = null) => {
     const body = { name, description, run_mode: runMode }

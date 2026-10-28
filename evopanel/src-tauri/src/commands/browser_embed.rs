@@ -897,7 +897,7 @@ fn normalize_target_url(raw: &str) -> Result<url::Url, String> {
 /// Prefer local blank page on the embed HTTP bridge.
 /// Never use example.com — that painted
 /// "Example Domain" whenever placeOnly recreated the HWND after agent navigate.
-fn is_embed_boot_placeholder(url: &str) -> bool {
+pub(crate) fn is_embed_boot_placeholder(url: &str) -> bool {
     let u = url.trim();
     u.is_empty()
         || u.starts_with("about:")
@@ -1880,7 +1880,7 @@ fn create_embed_window(
         .lock()
         .unwrap_or_else(|e| e.into_inner());
     browser_cdp_server::log_line(&format!(
-        "[browser-embed] create_embed_window: label={} url={} pos=({},{}) size={}x{} visible={start_visible}",
+        "[browser-embed] create_embed_window: label={} url={} pos=({:.0},{:.0}) size={:.0}x{:.0} visible={start_visible}",
         label, target_url, x, y, width, height
     ));
     // Tauri docs (Windows): `WebviewWindow::build` deadlocks when run *inside*
@@ -2099,28 +2099,33 @@ fn create_embed_window(
         );
     }
     nest_embed_into_main(&win, &parent)?;
-    place_embed_client(&win, &parent, x, y, width, height)?;
-    log_region_diag("create", label, &parent, &win, (x, y, width, height));
-    log_window_state(&win, "create built off main thread");
-    if !win.is_visible().unwrap_or(false) {
-        let _ = win.show();
-        let _ = win.unminimize();
-        log_window_state(&win, "create after re-assert");
+    // Estimate / managed_only (start_visible=false): nest then park off-screen
+    // directly. Do NOT place into the panel slot first — place uses
+    // SWP_SHOWWINDOW and briefly paints boot-blank over the right stage.
+    if start_visible {
+        place_embed_client(&win, &parent, x, y, width, height)?;
+        log_region_diag("create", label, &parent, &win, (x, y, width, height));
+        log_window_state(&win, "create built off main thread");
+        if !win.is_visible().unwrap_or(false) {
+            let _ = win.show();
+            let _ = win.unminimize();
+            log_window_state(&win, "create after re-assert");
+        }
+    } else {
+        // Keep HWND pumpable for CDP (off-screen + still visible). Do NOT
+        // SW_HIDE or Tauri hide() — both can drop HWND while leaving the
+        // label registered ("underlying handle is not available").
+        mark_parked(label, true);
+        let _ = hide_embed_hwnd(&win);
+        browser_cdp_server::log_line(&format!(
+            "[browser-embed] create estimate parked-offscreen label={label} \
+             slot=({x:.0},{y:.0} {width:.0}x{height:.0})"
+        ));
     }
     browser_cdp::register_embed_debug_port(label, debug_port);
     // Best-effort COM stash + HTTP poller (may no-op on child HWNDs).
     browser_cdp::capture_core_webview2(app, &win, label);
     let _ = win.eval(guest_js);
-    // Estimate / early upsert: park off-screen (still visible). Do NOT
-    // SW_HIDE or Tauri hide() — both can drop HWND ("underlying handle is
-    // not available") while leaving the label registered.
-    if !start_visible {
-        mark_parked(label, true);
-        let _ = hide_embed_hwnd(&win);
-        browser_cdp_server::log_line(&format!(
-            "[browser-embed] create estimate parked-offscreen label={label}"
-        ));
-    }
     Ok(())
 }
 

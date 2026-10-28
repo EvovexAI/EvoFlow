@@ -841,7 +841,9 @@ function BrowserEmbedHost({
   }, [isOpen])
   syncBoundsRef.current = () => syncBounds(true)
 
-  // Shared with mount + navigate effects: avoid remount→navigate double ensure.
+  // Chrome-ack latch only: which pageUrl the FE has acknowledged for the address
+  // bar / pageUrl effect. Does NOT mean HWND finished loading that URL — agent
+  // CDP owns real navigation (soft-decouple). Never use this as "already loaded".
   const lastNavigatedRef = useRef('')
 
   useLayoutEffect(() => {
@@ -986,7 +988,7 @@ function BrowserEmbedHost({
         failMount('embed upsert failed', '内嵌浏览器启动失败')
         return
       }
-      // Mark current URL so the navigate effect does not immediately re-ensure.
+      // Ack chrome URL only (pageUrl effect is chrome-only; does not load HWND).
       if (pageUrlNow) lastNavigatedRef.current = pageUrlNow
       dbgLog(`[browser-embed] cdp ready thread=${tid} label=${info.webviewLabel}`)
       const ok = await registerBrowserEmbedCdp(tid, info.cdpUrl)
@@ -1017,7 +1019,8 @@ function BrowserEmbedHost({
   // Soft-decouple: pageUrl from agent/getState is chrome-only. HWND navigation
   // is owned by CDP (agent) or explicit user actions (address bar → engine
   // navigate, back/forward / tab switch → ensureNativeEmbed). Never upsert-
-  // navigate here — that double-loaded every agent goto.
+  // navigate here — that double-loaded every agent goto. lastNavigatedRef is
+  // chrome-ack only (not proof the WebView loaded the URL).
   useEffect(() => {
     if (!ready) return
     const next = String(pageUrl || '').trim()
@@ -2167,31 +2170,55 @@ export const BrowserPanel = memo(function BrowserPanel({
 
   // 把工具栏缩放落到 WebView2 ZoomFactor（CSS zoom 管不到原生 HWND）。
   // 「适应窗口」跟槽位尺寸走：侧栏窄 → 更小；窗口放大 → 更大。
+  // 冷启动：embedReady 早于 HWND 可探测 → 等 probe 有非零客户区再 setZoom，避免 false。
   useEffect(() => {
     if (!preferEmbeddedBrowser || !embedReady || !surfaceActive) return
     const tid = String(embedThreadId || effectiveThreadId || '').trim()
     if (!tid) return
+    let cancelled = false
+    let timer = 0
+    const waitHwndUntil = Date.now() + 4000
 
-    const apply = () => {
-      if (userZoomLockRef.current) return
+    const apply = async (opts?: { allowHwndWait?: boolean }) => {
+      if (cancelled || userZoomLockRef.current) return
+      const allowHwndWait = opts?.allowHwndWait !== false
+      const probe = await browserEmbedProbeCoords(NATIVE_EMBED_THREAD_ID)
+      if (cancelled) return
+      const wc = probe?.webviewClient
+      if (!wc || !(wc.w > 8 && wc.h > 8)) {
+        // HWND 尚未可读：短延迟后再试，不刷 warn；超过截止则放弃本次。
+        if (allowHwndWait && Date.now() < waitHwndUntil) {
+          timer = window.setTimeout(() => {
+            void apply({ allowHwndWait: true })
+          }, 200)
+        }
+        return
+      }
       const slot =
         panelRootRef.current?.querySelector('.browser-panel-embed-slot') ||
         panelRootRef.current?.querySelector('.browser-panel-body')
       const rect = slot instanceof HTMLElement ? slot.getBoundingClientRect() : null
       const factor = embedZoomFactor(zoom, rect?.width || 0, rect?.height || 0)
       programmaticFactorRef.current = factor
-      void browserEmbedSetZoom(tid, factor).then((ok) => {
-        if (!ok) dbgWarn(`[browser-panel] setZoom failed factor=${factor} zoom=${zoom}`)
-      })
+      const ok = await browserEmbedSetZoom(tid, factor)
+      if (!ok && !cancelled) {
+        dbgWarn(`[browser-panel] setZoom failed factor=${factor} zoom=${zoom}`)
+      }
     }
 
-    apply()
-    if (zoom !== 'fit') return
+    void apply({ allowHwndWait: true })
+    if (zoom !== 'fit') {
+      return () => {
+        cancelled = true
+        window.clearTimeout(timer)
+      }
+    }
 
-    let timer = 0
     const schedule = () => {
       window.clearTimeout(timer)
-      timer = window.setTimeout(apply, 120)
+      timer = window.setTimeout(() => {
+        void apply({ allowHwndWait: false })
+      }, 120)
     }
     window.addEventListener('resize', schedule)
     window.addEventListener('evopanel:xm-dock-layout', schedule)
@@ -2202,6 +2229,7 @@ export const BrowserPanel = memo(function BrowserPanel({
         : null
     if (panelRootRef.current) ro?.observe(panelRootRef.current)
     return () => {
+      cancelled = true
       window.clearTimeout(timer)
       window.removeEventListener('resize', schedule)
       window.removeEventListener('evopanel:xm-dock-layout', schedule)

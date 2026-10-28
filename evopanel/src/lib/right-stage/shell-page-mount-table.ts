@@ -14,6 +14,8 @@ export type ShellPageMountOpts = {
   title?: string
   /** 异步解析到可读标题时回调（任务详情等） */
   onTitle?: (title: string) => void
+  /** 待办列表高亮 focus（items.board） */
+  focusId?: string
 }
 
 /** 右栏标签绝不直接显示 path；优先实体名，其次按 mountId 给短名。 */
@@ -37,7 +39,8 @@ export function resolveShellPageTabTitle(opts: {
   }
   const mountId = String(opts.mountId || '').trim()
   if (mountId.startsWith('employees')) return '员工'
-  if (mountId.startsWith('tasks') || mountId.startsWith('items')) return '任务'
+  if (mountId.startsWith('items')) return '待办'
+  if (mountId.startsWith('tasks')) return '任务'
   if (mountId.startsWith('apps') || mountId.startsWith('workflow')) return '工作流'
   if (mountId.startsWith('knowledge')) return '知识库'
   if (mountId.startsWith('settings') || mountId === 'settings.models') return '设置'
@@ -51,7 +54,8 @@ export function resolveShellPageTabTitle(opts: {
   ) {
     return '员工'
   }
-  if (path.startsWith('/task/')) return '任务'
+  if (path === '/tasks/items' || path.startsWith('/tasks/items/')) return '待办'
+  if (path === '/tasks' || path.startsWith('/task/')) return '任务'
   if (path.startsWith('/apps')) return '工作流'
   if (path.startsWith('/knowledge')) return '知识库'
   return '页面'
@@ -113,6 +117,31 @@ const ENTRIES: Entry[] = [
       const mod = await import('../../pages/proactive-employee.js')
       return mod.mountEmployeePageInto(host, {
         code: params.code,
+        onClose: opts.onClose,
+      })
+    },
+  },
+  {
+    mountId: 'tasks.board',
+    pattern: /^\/tasks$/,
+    paramNames: [],
+    mount: async (host, _params, opts) => {
+      const mod = await import('../../pages/tasks-center-compact.js')
+      return mod.mountTasksCenterCompact(host, {
+        mode: 'tasks',
+        onClose: opts.onClose,
+      })
+    },
+  },
+  {
+    mountId: 'items.board',
+    pattern: /^\/tasks\/items$/,
+    paramNames: [],
+    mount: async (host, _params, opts) => {
+      const mod = await import('../../pages/tasks-center-compact.js')
+      return mod.mountTasksCenterCompact(host, {
+        mode: 'items',
+        focusId: opts.focusId,
         onClose: opts.onClose,
       })
     },

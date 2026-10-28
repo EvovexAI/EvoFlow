@@ -526,6 +526,29 @@ def _build_details(args: dict[str, Any], result: dict[str, Any]) -> list[dict[st
     return details[:6]
 
 
+def _employee_owned_session_key(session_key: str, agent_code: str) -> str:
+    """仅保留本岗 proactive session；丢弃注入进来的主聊 / 其它岗 key。
+
+    ``platform`` 工具常把调用方 ``session_key``（agent:main:…）塞进 args，
+    若原样写入 employeeProcess CTA，右栏会订到左侧主聊同一条流。
+    """
+    sk = str(session_key or "").strip()
+    code = str(agent_code or "").strip()
+    if not sk or not code:
+        return ""
+    try:
+        from evoflow.proactive.chat_session import is_proactive_session_key, parse_proactive_session_key
+
+        if not is_proactive_session_key(sk):
+            return ""
+        parsed = parse_proactive_session_key(sk)
+        if str(parsed.get("agent_code") or "").strip() != code:
+            return ""
+        return sk
+    except Exception:
+        return ""
+
+
 def _employee_process_cta(
     *,
     task_id: str,
@@ -542,7 +565,7 @@ def _employee_process_cta(
     data: dict[str, Any] = {"taskId": tid, "agentCode": code, "busy": True}
     if round_id:
         data["roundId"] = round_id
-    sk = str(session_key or "").strip()
+    sk = _employee_owned_session_key(session_key, code)
     if sk:
         data["sessionKey"] = sk
     nice = str(role_name or "").strip()
@@ -643,6 +666,7 @@ def _progress_open_stage_action(
         } or bool(tid)
         if not auto:
             return None
+        # result 优先；args.session_key 常是主聊注入，_employee_process_cta 会再过滤
         sk = _first_str(result.get("session_key"), result.get("sessionKey"), args.get("session_key"))
         return _employee_process_cta(
             task_id=tid if tid and not str(tid).startswith("live:") else _first_str(result.get("task_id"), args.get("task_id")),
@@ -667,7 +691,7 @@ def _progress_open_stage_action(
         return None
 
     if domain == "tasks" and tid:
-        # 岗位/值班派发 → 员工过程；其余协作任务 → 工作流图
+        # 岗位/值班派发 → 员工过程；其余协作任务 → 工作流图（与 workflow.run 一样立刻 autoOpen）
         if source == "role" and assigned:
             return _employee_process_cta(
                 task_id=tid,
@@ -678,6 +702,7 @@ def _progress_open_stage_action(
             )
         return {
             "label": "查看进度",
+            "autoOpen": True,
             "openStage": {"kind": "collab-workflow", "data": {"mainTaskId": tid}},
         }
 
@@ -712,6 +737,8 @@ def _shell_page_cta(
     mount_id: str = "",
     title: str = "",
     auto_open: bool = False,
+    focus_id: str = "",
+    route: str = "",
 ) -> dict[str, Any]:
     """右栏挂载壳页面（与菜单同一 path）；保留 route 供旧客户端 / 挂载失败回落。"""
     p = str(path or "").strip()
@@ -723,24 +750,30 @@ def _shell_page_cta(
             nice = "员工"
         elif mid.startswith("tasks"):
             nice = "任务"
+        elif mid.startswith("items"):
+            nice = "待办"
         elif mid.startswith("apps") or mid.startswith("workflow"):
             nice = "工作流"
         else:
             nice = str(label or "页面").strip() or "页面"
+    data: dict[str, Any] = {
+        "path": p,
+        "route": p,
+        "mountId": str(mount_id or "").strip(),
+        "title": nice,
+        "entityLabel": nice,
+    }
+    fid = str(focus_id or "").strip()
+    if fid:
+        data["focusId"] = fid
     out: dict[str, Any] = {
         "label": label,
-        "route": p,
+        "route": str(route or p).strip() or p,
         "openStage": {
             "kind": "shell-page",
             "title": nice,
             "layout": "wide",
-            "data": {
-                "path": p,
-                "route": p,
-                "mountId": str(mount_id or "").strip(),
-                "title": nice,
-                "entityLabel": nice,
-            },
+            "data": data,
         },
     }
     if auto_open:
@@ -771,8 +804,36 @@ def _build_actions(
     run_id = _first_str(result.get("runId"), result.get("run_id"))
     entity_label = _pick_label(action, args, result)
 
-    if domain == "items" and entity_id:
-        actions.append({"label": "查看事项", "route": f"/tasks?tab=items&focus={entity_id}"})
+    if domain == "items" and action in {"items.list"}:
+        actions.append(
+            _shell_page_cta(
+                label="打开待办",
+                path="/tasks/items",
+                mount_id="items.board",
+                title="待办",
+                route="/tasks?tab=items",
+                auto_open=not has_progress_stage,
+            )
+        )
+    elif domain == "items" and entity_id:
+        # 右栏挂待办列表（shell path）；主区回落仍用 #/tasks?tab=items
+        actions.append(
+            _shell_page_cta(
+                label="查看事项",
+                path="/tasks/items",
+                mount_id="items.board",
+                title=entity_label or "待办",
+                focus_id=entity_id,
+                route=f"/tasks?tab=items&focus={entity_id}",
+                auto_open=(not has_progress_stage)
+                and action
+                in {
+                    "items.create",
+                    "items.update",
+                    "items.get",
+                },
+            )
+        )
     elif domain == "employees" and action in {
         "employees.list",
         "employees.org_status",
@@ -785,6 +846,16 @@ def _build_actions(
                 path="/proactive",
                 mount_id="employees.board",
                 title="员工",
+                auto_open=not has_progress_stage,
+            )
+        )
+    elif domain == "tasks" and action in {"tasks.list"}:
+        actions.append(
+            _shell_page_cta(
+                label="打开任务",
+                path="/tasks",
+                mount_id="tasks.board",
+                title="任务",
                 auto_open=not has_progress_stage,
             )
         )
@@ -876,6 +947,9 @@ _SHELL_PAGE_READ_ACTIONS = frozenset({
     "employees.board_overview",
     "employees.messages",
     "tasks.get",
+    "tasks.list",
+    "items.get",
+    "items.list",
 })
 
 # 只读但要出反馈卡细节（不开壳页）的 action

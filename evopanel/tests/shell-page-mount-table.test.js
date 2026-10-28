@@ -26,4 +26,12 @@ describe('shell-page mount table', () => {
       '员工',
     )
   })
+
+  it('matches tasks board and items board', () => {
+    expect(matchShellPagePath('/tasks')?.mountId).toBe('tasks.board')
+    expect(matchShellPagePath('/tasks/items')?.mountId).toBe('items.board')
+    expect(matchShellPagePath('/task/mt-1')?.mountId).toBe('tasks.detail')
+    expect(resolveShellPageTabTitle({ path: '/tasks', mountId: 'tasks.board' })).toBe('任务')
+    expect(resolveShellPageTabTitle({ path: '/tasks/items', mountId: 'items.board' })).toBe('待办')
+  })
 })

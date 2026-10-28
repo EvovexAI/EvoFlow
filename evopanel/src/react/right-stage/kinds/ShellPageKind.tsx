@@ -45,6 +45,7 @@ export const ShellPageKind = memo(function ShellPageKind({
         const result = await matched.mount(host, matched.params, {
           onClose: () => onCloseRef.current?.(),
           title: String(surface.title || '').trim(),
+          focusId: String(surface.data?.focusId || surface.data?.focus || '').trim() || undefined,
           onTitle: (nice) => {
             if (!cancelled && nice) patchShellPageTabTitle(path, nice)
           },

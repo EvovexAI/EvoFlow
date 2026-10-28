@@ -26,12 +26,13 @@ def test_tasks_create_workflow_open_stage():
     assert ui is not None
     actions = ui["actions"]
     progress = next(a for a in actions if a.get("label") == "查看进度")
+    assert progress["autoOpen"] is True
     assert progress["openStage"]["kind"] == "collab-workflow"
     assert progress["openStage"]["data"]["mainTaskId"] == "mt-wf"
     view = next(a for a in actions if a.get("label") == "查看任务")
     assert view["openStage"]["kind"] == "shell-page"
     assert view["openStage"]["data"]["path"] == "/task/mt-wf"
-    # 已有进度 CTA：详情不 autoOpen
+    # 已有进度 CTA：详情不抢栏（进度已 autoOpen）
     assert view.get("autoOpen") is not True
 
 
@@ -101,6 +102,54 @@ def test_employees_dispatch_open_stage_without_task_id():
     assert progress["openStage"]["data"]["agentCode"] == "duty-ops"
     # 无真实 task 时用 live:{code} 占位，前端按 agent 跟岗对话
     assert progress["openStage"]["data"]["taskId"] == "live:duty-ops"
+
+
+def test_employees_dispatch_drops_caller_main_session_key():
+    """platform 注入的 agent:main:* 不能写进 CTA，否则右栏与左侧主聊同流。"""
+    entry = _entry("employees.dispatch", "employees")
+    result = {
+        "ok": True,
+        "action": "employees.dispatch",
+        "agent_code": "dev-tech-director",
+        "role_name": "技术总监",
+        "dispatched": True,
+        "scheduled": True,
+    }
+    ui = build_platform_ui_feedback(
+        entry,
+        {
+            "agent_code": "dev-tech-director",
+            "goal": "再来一单",
+            "session_key": "agent:main:new-10a8acbd",
+        },
+        result,
+    )
+    assert ui is not None
+    progress = next(a for a in ui["actions"] if a.get("label") == "查看进度")
+    data = progress["openStage"]["data"]
+    assert data["agentCode"] == "dev-tech-director"
+    assert "sessionKey" not in data
+    assert "session_key" not in data
+
+
+def test_employees_chat_send_keeps_owned_proactive_session_key():
+    entry = _entry("employees.chat_send", "employees")
+    result = {
+        "ok": True,
+        "action": "employees.chat_send",
+        "agent_code": "dev-qa",
+        "role_name": "测试",
+        "session_key": "proactive:dev-qa:chat:abc",
+        "queued": True,
+    }
+    ui = build_platform_ui_feedback(
+        entry,
+        {"agent_code": "dev-qa", "session_key": "agent:main:caller"},
+        result,
+    )
+    assert ui is not None
+    progress = next(a for a in ui["actions"] if a.get("label") == "打开对话")
+    assert progress["openStage"]["data"]["sessionKey"] == "proactive:dev-qa:chat:abc"
 
 
 def test_items_dispatch_open_stage_auto_open():
@@ -280,6 +329,48 @@ def test_workflow_run_open_stage_auto_open():
     assert progress["autoOpen"] is True
     assert progress["openStage"]["kind"] == "collab-workflow"
     assert progress["openStage"]["data"]["mainTaskId"] == "mt-app-run"
+
+
+def test_tasks_list_shell_page_auto_open():
+    entry = _entry("tasks.list", "tasks", risk="read")
+    result = {"ok": True, "action": "tasks.list", "tasks": [{"id": "mt-1"}]}
+    ui = build_platform_ui_feedback(entry, {}, result)
+    assert ui is not None
+    view = next(a for a in ui["actions"] if a.get("label") == "打开任务")
+    assert view["autoOpen"] is True
+    assert view["openStage"]["kind"] == "shell-page"
+    assert view["openStage"]["data"]["path"] == "/tasks"
+    assert view["openStage"]["data"]["mountId"] == "tasks.board"
+
+
+def test_items_list_shell_page_auto_open():
+    entry = _entry("items.list", "items", risk="read")
+    result = {"ok": True, "action": "items.list", "items": []}
+    ui = build_platform_ui_feedback(entry, {}, result)
+    assert ui is not None
+    view = next(a for a in ui["actions"] if a.get("label") == "打开待办")
+    assert view["autoOpen"] is True
+    assert view["openStage"]["data"]["path"] == "/tasks/items"
+    assert view["openStage"]["data"]["mountId"] == "items.board"
+
+
+def test_items_create_shell_page_auto_open():
+    entry = _entry("items.create", "items")
+    result = {
+        "ok": True,
+        "action": "items.create",
+        "item": {"id": "it-1", "title": "周五交报告"},
+        "item_id": "it-1",
+    }
+    ui = build_platform_ui_feedback(entry, {}, result)
+    assert ui is not None
+    view = next(a for a in ui["actions"] if a.get("label") == "查看事项")
+    assert view["autoOpen"] is True
+    assert view["openStage"]["kind"] == "shell-page"
+    assert view["openStage"]["data"]["path"] == "/tasks/items"
+    assert view["openStage"]["data"]["mountId"] == "items.board"
+    assert view["openStage"]["data"]["focusId"] == "it-1"
+    assert "tab=items" in view["route"]
 
 
 def test_workflow_create_without_task_has_no_progress_cta():

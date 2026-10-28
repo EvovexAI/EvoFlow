@@ -457,7 +457,7 @@ def test_unsupported_method_is_capability_error(bridge, engine):
 
 
 def test_navigate_surfaces_timeout_when_readyState_never_completes(monkeypatch, engine):
-    """Page.navigate OK but readyState stuck at 'loading' → explicit TIMEOUT, not silent ok=True."""
+    """Soft-decouple: Page.navigate OK + stuck loading → soft-ok (not TIMEOUT), no blank re-nav."""
     import evoflow.tools.builtins.browser_engine as engine_mod
 
     class StuckLoadingBridge:
@@ -491,14 +491,11 @@ def test_navigate_surfaces_timeout_when_readyState_never_completes(monkeypatch, 
     monkeypatch.setattr(engine, "_wait_document_ready", fast_wait)
 
     result = _execute(engine, {"method": "navigate", "url": "https://pingan.chuangzhan.com/insurance"})
-    assert result["ok"] is False, result
-    assert result["error"]["code"] == "timeout", result
-    assert "readyState" in result["error"]["message"]
-    assert "pingan.chuangzhan.com" in result["error"]["message"]
-    # state is still returned so the agent knows which URL it tried
+    # Soft-decouple: successful Page.navigate always soft-oks; settle is best-effort.
+    assert result["ok"] is True, result
     assert result["state"]["url"].endswith("/insurance")
-    # Page.navigate WAS issued before the wait
-    assert any(c[0] == "Page.navigate" for c in stuck.calls)
+    navs = [c for c in stuck.calls if c[0] == "Page.navigate"]
+    assert len(navs) == 1, f"slow/loading must not blank-retry, got {len(navs)} navigates"
 
 
 def test_navigate_surfaces_dispatch_failure_as_execution_error(monkeypatch, engine):
@@ -566,13 +563,120 @@ def test_navigate_retries_settle_while_webview_mounts(monkeypatch, engine):
     assert "baidu.com" in result["state"]["url"]
 
 
+def test_navigate_blank_while_want_http_redispatches_once(monkeypatch, engine):
+    """Cold open: first settle stuck on about:blank → one Page.navigate retry, then ready."""
+    import evoflow.tools.builtins.browser_engine as engine_mod
+
+    class BlankThenReadyBridge:
+        def __init__(self) -> None:
+            self.navs = 0
+            self.evals = 0
+
+        async def __call__(self, tid, method, params=None):
+            if method == "Page.navigate":
+                self.navs += 1
+                return {"frameId": "fake"}
+            if method == "Runtime.evaluate":
+                self.evals += 1
+                # Until second navigate, document is "complete" on boot blank.
+                if self.navs < 2:
+                    return {
+                        "result": {
+                            "value": {
+                                "ready": "complete",
+                                "url": "about:blank",
+                                "title": "",
+                                "sx": 0,
+                                "sy": 0,
+                                "vw": 1280,
+                                "vh": 720,
+                                "hl": 1,
+                                "canBack": False,
+                                "canForward": False,
+                            }
+                        }
+                    }
+                return {
+                    "result": {
+                        "value": {
+                            "ready": "complete",
+                            "url": "https://www.bing.com/search?q=shanghai",
+                            "title": "shanghai - Search",
+                            "sx": 0,
+                            "sy": 0,
+                            "vw": 1280,
+                            "vh": 720,
+                            "hl": 1,
+                            "canBack": False,
+                            "canForward": False,
+                        }
+                    }
+                }
+            return {}
+
+    bridge = BlankThenReadyBridge()
+    monkeypatch.setattr(engine_mod, "_dispatch_run", bridge)
+    result = _execute(
+        engine, {"method": "navigate", "url": "https://www.bing.com/search?q=shanghai"}
+    )
+    assert result["ok"] is True, result
+    assert bridge.navs == 2, f"expected blank re-nav once, got navs={bridge.navs}"
+    assert "bing.com" in result["state"]["url"]
+
+
+def test_navigate_slow_site_does_not_redispatch(monkeypatch, engine):
+    """Non-blank settle failure (loading on real URL) must not second-navigate."""
+    import evoflow.tools.builtins.browser_engine as engine_mod
+
+    class SlowSiteBridge:
+        def __init__(self) -> None:
+            self.navs = 0
+
+        async def __call__(self, tid, method, params=None):
+            if method == "Page.navigate":
+                self.navs += 1
+                return {"frameId": "fake"}
+            if method == "Runtime.evaluate":
+                return {
+                    "result": {
+                        "value": {
+                            "ready": "loading",
+                            "url": "https://slow.example.com/",
+                            "title": "",
+                            "sx": 0,
+                            "sy": 0,
+                            "vw": 1280,
+                            "vh": 720,
+                            "hl": 1,
+                            "canBack": False,
+                            "canForward": False,
+                        }
+                    }
+                }
+            return {}
+
+    async def short_settle(session, tid, timeout_ms):
+        return await engine_mod.BrowserEngine._settle(engine, session, tid, 200)
+
+    bridge = SlowSiteBridge()
+    monkeypatch.setattr(engine_mod, "_dispatch_run", bridge)
+    monkeypatch.setattr(engine, "_settle", short_settle)
+    result = _execute(engine, {"method": "navigate", "url": "https://slow.example.com/"})
+    assert result["ok"] is True, result
+    assert bridge.navs == 1, f"slow site must not blank-retry, got navs={bridge.navs}"
+
+
 def test_navigate_timeout_mentions_webview_not_ready(monkeypatch, engine):
-    """If embed never mounts, error text must say panel/webview — not anti-bot."""
+    """Embed never mounts: soft-ok after Page.navigate; must not blank-retry on not-ready."""
     import evoflow.tools.builtins.browser_engine as engine_mod
 
     class NeverReadyBridge:
+        def __init__(self) -> None:
+            self.navs = 0
+
         async def __call__(self, tid, method, params=None):
             if method == "Page.navigate":
+                self.navs += 1
                 return {"frameId": "fake"}
             raise RuntimeError("embedded webview not ready for Runtime.evaluate")
 
@@ -580,14 +684,14 @@ def test_navigate_timeout_mentions_webview_not_ready(monkeypatch, engine):
         # Exercise real settle with a short deadline.
         return await engine_mod.BrowserEngine._settle(engine, session, tid, 250)
 
-    monkeypatch.setattr(engine_mod, "_dispatch_run", NeverReadyBridge())
+    bridge = NeverReadyBridge()
+    monkeypatch.setattr(engine_mod, "_dispatch_run", bridge)
     monkeypatch.setattr(engine, "_settle", fast_settle)
     result = _execute(engine, {"method": "navigate", "url": "https://www.baidu.com"})
-    assert result["ok"] is False
-    assert result["error"]["code"] == "timeout"
-    msg = result["error"]["message"]
-    assert "not ready" in msg.lower() or "panel" in msg.lower()
-    assert "anti-bot" not in msg.lower()
+    # Soft-decouple: navigate committed → soft-ok even if settle cannot probe.
+    assert result["ok"] is True, result
+    assert bridge.navs == 1, f"not-ready must not blank-retry, got navs={bridge.navs}"
+    assert "baidu.com" in result["state"]["url"]
 
 
 def test_back_surfaces_timeout_when_readyState_never_completes(monkeypatch, engine):
