@@ -256,6 +256,9 @@ function renderBody(container, data) {
   const cats = data.byCategory?.items || []
   const byPrincipal = data.byPrincipal?.items || null
   const llmTotal = Number(summary.llm_token_sum ?? summary.quantity_sum) || 0
+  const mediaCat = cats.find((c) => c.category === 'media') || null
+  const mediaCalls = Number(mediaCat?.event_count) || 0
+  const mediaAmount = Number(mediaCat?.amount_sum) || 0
 
   const catChips = cats.length
     ? cats
@@ -266,12 +269,16 @@ function renderBody(container, data) {
               : c.category === 'tool'
                 ? t('usage.tabTools')
                 : c.category === 'media'
-                  ? '媒体'
+                  ? '生图/生视频'
                   : c.category
+          const qtyLabel =
+            c.category === 'media'
+              ? `${Number(c.event_count) || 0} 次 · ${formatAmount(c.amount_sum)}`
+              : `${formatTokens(c.quantity_sum)} · ${Number(c.event_count) || 0} ${esc(t('usage.calls'))}`
           return `
       <div class="settings-usage-cat-chip">
         <strong>${esc(label)}</strong>
-        <span>${formatTokens(c.quantity_sum)} · ${Number(c.event_count) || 0} ${esc(t('usage.calls'))}</span>
+        <span>${qtyLabel}</span>
       </div>`
         })
         .join('')
@@ -319,6 +326,11 @@ function renderBody(container, data) {
         <div class="settings-usage-kpi">
           <div class="settings-usage-kpi-label">峰值日 Token</div>
           <div class="settings-usage-kpi-value" title="${esc(summary.peak_day || '')}">${formatTokens(summary.peak_quantity)}</div>
+        </div>
+        <div class="settings-usage-kpi">
+          <div class="settings-usage-kpi-label">生图/生视频</div>
+          <div class="settings-usage-kpi-value" title="媒体调用次数（含估价）">${mediaCalls}<small style="font-size:12px;opacity:.7"> 次</small></div>
+          <div class="settings-usage-kpi-sub">${formatAmount(mediaAmount)}</div>
         </div>
       </div>
 

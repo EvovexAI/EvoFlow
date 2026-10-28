@@ -19,10 +19,15 @@ class MediaAssetItem(BaseModel):
     tool_name: str
     media_kind: str
     provider: str | None = None
+    model: str | None = None
     task_id: str | None = None
     status: str
     remote_url: str | None = None
     local_path: str | None = None
+    result_url: str | None = Field(
+        default=None,
+        description="Canonical media address: http(s) remote_url preferred, else local_path",
+    )
     file_size_bytes: int | None = None
     meta: dict[str, Any] = Field(default_factory=dict)
     created_at: str

@@ -658,7 +658,15 @@ def generate_video(
             media_kind="video",
             status="succeeded",
             remote_url=url,
-            meta={"mode": effective_mode, "immediate": True},
+            meta={
+                "mode": effective_mode,
+                "immediate": True,
+                "model": model,
+                "duration": duration,
+                "aspect_ratio": aspect,
+                "resolution": resolution,
+                "prompt": prompt,
+            },
         )
         return _enrich_preview(
             _parse_tool_json(
@@ -683,6 +691,9 @@ def generate_video(
             "mode": effective_mode,
             "duration": duration,
             "aspect_ratio": aspect,
+            "resolution": resolution,
+            "model": model,
+            "prompt": prompt,
             "first_frame_url": resolved_first,
             "resolve_notes": resolve_notes,
         },

@@ -29,6 +29,20 @@ UNIT_BYTE = "byte"
 UNIT_CREDIT = "credit"
 
 SUBCATEGORY_CHAT = "chat"
+SUBCATEGORY_IMAGE = "image"
+SUBCATEGORY_VIDEO = "video"
+
+# Fallback USD estimates when the vendor does not return a billable amount.
+# Tune via env later; keep conservative placeholders so calls are never silent.
+_MEDIA_RATE_CARD_USD: dict[str, float] = {
+    "image:jimeng": 0.02,
+    "image:openai": 0.04,
+    "image:wan": 0.03,
+    "image:*": 0.03,
+    "video:minimax": 0.12,  # ~5s baseline
+    "video:jimeng": 0.15,
+    "video:*": 0.15,
+}
 
 
 def _day_utc(occurred_at: str) -> str:
@@ -300,6 +314,222 @@ def record_llm_chat_usage_in_txn(
         amount=amt,
         pricing_source="config:token_usage.pricing" if amt > 0 else "",
         meta=meta,
+    )
+
+
+def _media_rate_usd(*, media_kind: str, provider: str, duration_seconds: float = 0) -> tuple[float, str]:
+    """Return (amount_usd, pricing_source) from the built-in media rate card."""
+    kind = _s(media_kind, "image") or "image"
+    prov = _s(provider).lower() or "*"
+    key = f"{kind}:{prov}"
+    base = _MEDIA_RATE_CARD_USD.get(key)
+    if base is None:
+        base = _MEDIA_RATE_CARD_USD.get(f"{kind}:*", 0.0)
+    amt = float(base or 0.0)
+    if kind == "video" and duration_seconds and duration_seconds > 0:
+        # Scale around a 5s baseline clip.
+        amt = amt * (float(duration_seconds) / 5.0)
+    if amt <= 0:
+        return 0.0, ""
+    return amt, "estimate:media_rate_card"
+
+
+def record_media_generation_usage(
+    *,
+    media_kind: str,
+    provider: str = "",
+    model: str | None = None,
+    mode: str | None = None,
+    task_id: str | None = None,
+    status: str = "succeeded",
+    thread_id: str | None = None,
+    session_key: str | None = None,
+    run_id: str | None = None,
+    app_id: str | None = None,
+    agent_code: str | None = None,
+    workspace_id: str | None = None,
+    principal_id: str | None = None,
+    aspect_ratio: str | None = None,
+    duration_seconds: float | int | None = None,
+    resolution: str | None = None,
+    reference_count: int | None = None,
+    prompt: str | None = None,
+    remote_url: str | None = None,
+    local_path: str | None = None,
+    vendor_cost: float | None = None,
+    vendor_currency: str | None = None,
+    tool_name: str | None = None,
+    occurred_at: str | None = None,
+    meta: dict[str, Any] | None = None,
+) -> bool:
+    """Append one media (image/video) generation event to the product usage ledger.
+
+    Shown in Settings → 使用统计 (category=media). Idempotent on ``task_id`` when present.
+    Prefer vendor_cost when the provider returns a bill; otherwise estimate from rate card
+    so successful calls are never silent zero-rows.
+    """
+
+    def _write(db: Any) -> bool:
+        return record_media_generation_usage_in_txn(
+            db,
+            media_kind=media_kind,
+            provider=provider,
+            model=model,
+            mode=mode,
+            task_id=task_id,
+            status=status,
+            thread_id=thread_id,
+            session_key=session_key,
+            run_id=run_id,
+            app_id=app_id,
+            agent_code=agent_code,
+            workspace_id=workspace_id,
+            principal_id=principal_id,
+            aspect_ratio=aspect_ratio,
+            duration_seconds=duration_seconds,
+            resolution=resolution,
+            reference_count=reference_count,
+            prompt=prompt,
+            remote_url=remote_url,
+            local_path=local_path,
+            vendor_cost=vendor_cost,
+            vendor_currency=vendor_currency,
+            tool_name=tool_name,
+            occurred_at=occurred_at,
+            meta=meta,
+        )
+
+    try:
+        return bool(run_db_transaction(_write))
+    except Exception:
+        logger.debug("record_media_generation_usage failed", exc_info=True)
+        return False
+
+
+def record_media_generation_usage_in_txn(
+    db: Any,
+    *,
+    media_kind: str,
+    provider: str = "",
+    model: str | None = None,
+    mode: str | None = None,
+    task_id: str | None = None,
+    status: str = "succeeded",
+    thread_id: str | None = None,
+    session_key: str | None = None,
+    run_id: str | None = None,
+    app_id: str | None = None,
+    agent_code: str | None = None,
+    workspace_id: str | None = None,
+    principal_id: str | None = None,
+    aspect_ratio: str | None = None,
+    duration_seconds: float | int | None = None,
+    resolution: str | None = None,
+    reference_count: int | None = None,
+    prompt: str | None = None,
+    remote_url: str | None = None,
+    local_path: str | None = None,
+    vendor_cost: float | None = None,
+    vendor_currency: str | None = None,
+    tool_name: str | None = None,
+    occurred_at: str | None = None,
+    meta: dict[str, Any] | None = None,
+) -> bool:
+    kind = _s(media_kind).lower()
+    if kind not in (SUBCATEGORY_IMAGE, SUBCATEGORY_VIDEO):
+        kind = SUBCATEGORY_IMAGE if "image" in kind else (SUBCATEGORY_VIDEO if "video" in kind else "")
+    if not kind:
+        return False
+
+    st = _s(status, "succeeded").lower() or "succeeded"
+    tid = _s(task_id)
+    sku = _s(model) or _s(provider) or kind
+    prov = _s(provider)
+    dur = _f(duration_seconds)
+    refs = int(reference_count) if reference_count is not None else None
+
+    if tid:
+        event_id = f"media:{kind}:{tid}"
+    else:
+        # Sync / immediate paths without a stable vendor task id.
+        stamp = _s(occurred_at) or utc_now_iso_z()
+        event_id = f"media:{kind}:{sku}:{stamp}:{_s(thread_id) or 'local'}"
+
+    vendor_amt = _f(vendor_cost) if vendor_cost is not None else 0.0
+    currency = _s(vendor_currency, "USD") or "USD"
+    pricing_source = ""
+    amount = 0.0
+    if vendor_amt > 0:
+        amount = vendor_amt
+        pricing_source = "vendor"
+    elif st in ("succeeded", "success", "completed", "done"):
+        amount, pricing_source = _media_rate_usd(media_kind=kind, provider=prov, duration_seconds=dur)
+
+    # Always count the call (audit); amount may be 0 for failed/unpriced.
+    quantity = 1.0
+    unit = UNIT_REQUEST
+    quantity_out = dur if kind == SUBCATEGORY_VIDEO and dur > 0 else 0.0
+
+    remote = _s(remote_url) or None
+    local = _s(local_path) or None
+    result = None
+    if remote and (remote.lower().startswith("http://") or remote.lower().startswith("https://")):
+        result = remote
+    elif local:
+        result = local
+    elif remote:
+        result = remote
+    detail: dict[str, Any] = {
+        "media_kind": kind,
+        "mode": _s(mode) or None,
+        "model": _s(model) or None,
+        "aspect_ratio": _s(aspect_ratio) or None,
+        "duration_seconds": dur if dur > 0 else None,
+        "resolution": _s(resolution) or None,
+        "reference_count": refs,
+        "prompt_chars": len(prompt) if isinstance(prompt, str) else None,
+        "task_id": tid or None,
+        "status": st,
+        # Dedicated address fields (same semantics as evoflow_media_assets).
+        "result_url": result,
+        "remote_url": remote,
+        "local_path": local,
+        "tool_name": _s(tool_name) or None,
+        "vendor_cost": vendor_amt if vendor_amt > 0 else None,
+        "vendor_currency": currency if vendor_amt > 0 else None,
+        "pricing_source": pricing_source or None,
+        "asset_table": "evoflow_media_assets",
+    }
+    if isinstance(meta, dict) and meta:
+        # Caller extras win only for keys we did not already set.
+        for k, v in meta.items():
+            if k not in detail or detail[k] is None:
+                detail[k] = v
+    # Drop nulls for compact meta_json
+    detail = {k: v for k, v in detail.items() if v is not None}
+
+    return record_usage_event_in_txn(
+        db,
+        event_id=event_id,
+        category=CATEGORY_MEDIA,
+        subcategory=kind,
+        unit=unit,
+        quantity=quantity,
+        quantity_out=quantity_out,
+        currency=currency if amount > 0 else "USD",
+        amount=amount,
+        pricing_source=pricing_source,
+        provider=prov,
+        sku=sku,
+        session_key=_s(session_key) or None,
+        thread_id=_s(thread_id) or None,
+        run_id=_s(run_id) or None,
+        app_id=_s(app_id) or None,
+        agent_code=_s(agent_code) or None,
+        workspace_id=_s(workspace_id) or None,
+        principal_id=_s(principal_id) or None,
+        occurred_at=occurred_at,
+        meta=detail,
     )
 
 

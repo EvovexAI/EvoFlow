@@ -160,7 +160,13 @@ def _run_image_generate_and_wait(
             provider=provider,
             task_id=task_id,
             media_kind="image",
-            meta={"mode": mode, "aspect_ratio": aspect_ratio},
+            meta={
+                "mode": mode,
+                "aspect_ratio": aspect_ratio,
+                "model": model,
+                "prompt": prompt,
+                "reference_count": len(reference_image_urls or []) if reference_image_urls else 0,
+            },
         )
 
         def _poll():
@@ -196,7 +202,16 @@ def _run_image_generate_and_wait(
         remote_url=urls[0] if urls else None,
         local_path=local_paths[0] if local_paths else None,
         outputs_dir=outputs_dir,
-        meta={"urls": urls, "local_paths": local_paths, "absolute_path": absolute},
+        meta={
+            "urls": urls,
+            "local_paths": local_paths,
+            "absolute_path": absolute,
+            "mode": mode,
+            "aspect_ratio": aspect_ratio,
+            "model": model,
+            "prompt": prompt,
+            "reference_count": len(reference_image_urls or []) if reference_image_urls else 0,
+        },
     )
 
     if not absolute and urls:
