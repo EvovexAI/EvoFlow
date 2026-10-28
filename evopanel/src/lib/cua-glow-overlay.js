@@ -100,6 +100,10 @@ export function beginCuaGlowOverlay(toolCallId) {
   armIdleTimer()
   void glowLog(`begin id=${id} visible=${visible} activeCount=${activeToolIds.size}`)
   void showNative()
+  // 亮顶栏后立刻切到快轮询（idle 默认 4s，否则要等下一拍才跟手）
+  void import('./cua-glow-poll.js')
+    .then((m) => m.kickCuaGlowStatusPoll?.())
+    .catch(() => {})
 }
 
 /** Drop one tool call; hide when none remain. */
