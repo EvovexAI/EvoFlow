@@ -111,9 +111,12 @@ _HIRE_KEYS = frozenset(
     {
         "agent_code",
         "role_name",
+        "agent_name",
         "position_code",
         "department",
         "responsibilities",
+        "system_prompt",
+        "description",
         "workspace_path",
         "knowledge_vault_ids",
         "kpis",
@@ -322,10 +325,14 @@ def sync_employee_from_agent(agent_code: str) -> dict[str, Any]:
 
     role.config = cfg
     role.updated_at = utc_now_iso_z()
-    # 岗位名与智能体名分离：仅在完全空/脏时保持为空，禁止用 agent_name 回填
+    # 名称单源 = agent_name：role_name 空/脏时同步写入，保持两边一致
+    agent_display = str(agent_row.get("agent_name") or "").strip()
     current_name = str(role.role_name or "").strip()
     if not current_name or current_name == code or current_name.casefold() in {"none", "null", "undefined"}:
-        role.role_name = ""
+        role.role_name = agent_display or current_name or ""
+    elif agent_display and current_name != agent_display:
+        # Prefer agent_name as canonical display when both exist and diverge.
+        role.role_name = agent_display
     ProactiveRepository.save_role(role)
     return {"synced": True, "agent_code": code}
 
@@ -646,17 +653,27 @@ def create_employee(data: dict[str, Any]) -> dict[str, Any]:
     elif ProactiveRepository.get_role(agent_code):
         raise ConflictError(f"员工「{agent_code}」已存在")
 
+    from evoflow.proactive.employee_prompting.job import merge_duty_into_system_prompt
+
+    # Name + prompt are agent-owned; merge legacy responsibilities into system_prompt.
+    agent_display = str(data.get("agent_name") or role_name).strip() or role_name
+    prompt_raw = str(data.get("system_prompt") or "").strip()
+    legacy_resp = _coerce_responsibilities(data.get("responsibilities"))
+    merged_prompt = merge_duty_into_system_prompt(prompt_raw, legacy_resp)
+
     created_agent = False
     try:
         agent_row = get_agent(agent_code)
     except NotFoundError:
         agent_payload = {
             "agent_code": agent_code,
-            "agent_name": str(data.get("agent_name") or role_name).strip() or role_name,
-            "description": str(data.get("description") or "").strip() or f"员工岗位：{role_name}",
+            "agent_name": agent_display,
+            "description": str(data.get("description") or "").strip() or f"员工：{agent_display}",
             "agent_type": "custom",
             "soul": str(data.get("soul") or data.get("soul_md") or "").strip(),
         }
+        if merged_prompt:
+            agent_payload["system_prompt"] = merged_prompt
         if data.get("model") is not None or data.get("model_name") is not None:
             agent_payload["model"] = str(data.get("model") or data.get("model_name") or "").strip()
         # Pass through binding keys (including explicit null) so agents.create
@@ -689,15 +706,29 @@ def create_employee(data: dict[str, Any]) -> dict[str, Any]:
         created_agent = True
         agent_code = str(agent_row.get("agent_code") or agent_code).strip()
     else:
-        # 同 agent_code 的 agent 已存在：保留其已有 soul / description / tools / skills 等
-        # 人设与能力配置，禁止 employees.create 静默覆盖用户已配置的 agent。
-        # 岗位能力（responsibilities / 排班等）落在 ProactiveRoleConfig 上，由下方 hire 写入，
-        # 不反写回 Agent 本体。
-        pass
+        # 同 agent_code 的 agent 已存在：保留其已有 soul / description / tools / skills 等。
+        # 仅在 agent 尚无 system_prompt 且本次带了合并提示词时补写，不覆盖已有正文。
+        existing_sp = str(agent_row.get("system_prompt") or "").strip()
+        if merged_prompt and not existing_sp:
+            try:
+                from evoflow.admin import agents as agents_admin
+
+                agents_admin.update_agent(agent_code, {"system_prompt": merged_prompt})
+                agent_row = {**agent_row, "system_prompt": merged_prompt}
+            except Exception:
+                logger.debug(
+                    "employees.create: fill empty agent system_prompt skipped code=%s",
+                    agent_code,
+                    exc_info=True,
+                )
 
     hire_payload = dict(data)
     hire_payload["agent_code"] = agent_code
-    hire_payload["role_name"] = role_name
+    # Keep role_name in sync with agent display name (compat field).
+    hire_payload["role_name"] = agent_display
+    # Duties live on agent system_prompt now.
+    hire_payload["responsibilities"] = []
+    hire_payload.pop("system_prompt", None)
     # Create-time-only keys (pack / confirm) must not leak into hire config.
     for key in (
         "capability_pack",
@@ -708,6 +739,9 @@ def create_employee(data: dict[str, Any]) -> dict[str, Any]:
         "confirmInheritAll",
         "confirm_wide_tools",
         "confirmWideTools",
+        "agent_name",
+        "description",
+        "soul",
     ):
         hire_payload.pop(key, None)
     detail = _hire_existing_agent(agent_code, agent_row, hire_payload)
@@ -764,32 +798,41 @@ def _persist_agent_kb_injection(agent_code: str, kb_injection: dict[str, Any]) -
 
 
 def _persist_agent_kb_vault_ids(agent_code: str, vault_ids: list[str]) -> None:
-    """Mirror the role-bound vault IDs into ``evoflow_agents.extra_json``.
+    """Mirror role-bound vault IDs into agent ``extra_json`` **and** ``AgentConfig``.
 
-    The agent config (AgentConfig) and the proactive role config (ProactiveRoleConfig)
-    are two separate storage paths; vault IDs set via the employee hire/update form
-    land on ProactiveRoleConfig. The KbInjectionMiddleware reads from the agent config,
-    so we mirror it here so the live middleware sees the same vault list.
+    Role config and agent config are separate stores; hire/update lands on
+    ProactiveRoleConfig first. KbInjectionMiddleware reads agent-side IDs, so we
+    mirror both extra_json (authoritative for live reads) and AgentConfig so
+    removals cannot linger via the old union fallback.
     """
     code = str(agent_code or "").strip().lower()
     if not code:
         return
+    cleaned: list[str] = []
+    seen: set[str] = set()
+    for raw in list(vault_ids or []):
+        v = str(raw or "").strip()
+        if v and v not in seen:
+            seen.add(v)
+            cleaned.append(v)
     try:
         from evoflow.persistence import config_repositories as cfg_repo
 
         existing = cfg_repo.get_agent_extra_json(code) or {}
         merged = dict(existing)
-        cleaned: list[str] = []
-        seen: set[str] = set()
-        for raw in list(vault_ids or []):
-            v = str(raw or "").strip()
-            if v and v not in seen:
-                seen.add(v)
-                cleaned.append(v)
         merged["knowledge_vault_ids"] = cleaned
         cfg_repo.upsert_agent_extra_json(code, merged)
     except Exception:
         logger.warning("persist agent kb vault_ids failed code=%s", code, exc_info=True)
+    try:
+        from evoflow.config.agents_config import load_agent_config, save_agent_config
+
+        cfg = load_agent_config(code)
+        data = cfg.model_dump(mode="python", exclude={"name"})
+        data["knowledge_vault_ids"] = cleaned
+        save_agent_config(code, data)
+    except Exception:
+        logger.warning("persist agent kb vault_ids on AgentConfig failed code=%s", code, exc_info=True)
 
 
 def backfill_agent_kb_vault_ids() -> dict[str, int]:
@@ -1023,6 +1066,17 @@ def update_role(agent_code: str, data: dict[str, Any]) -> dict[str, Any]:
 
     if data.get("role_name") is not None:
         role.role_name = str(data["role_name"] or "").strip() or role.role_name
+    if data.get("agent_name") is not None:
+        # Canonical display name: sync role_name + agent.agent_name
+        an = str(data.get("agent_name") or "").strip()
+        if an:
+            role.role_name = an
+            try:
+                from evoflow.admin import agents as agents_admin
+
+                agents_admin.update_agent(code, {"agent_name": an})
+            except Exception:
+                logger.debug("employees.update: agent_name mirror skipped code=%s", code, exc_info=True)
     if data.get("position_code") is not None:
         role.position_code = str(data["position_code"] or "").strip()
     if data.get("department") is not None:
@@ -1056,8 +1110,42 @@ def update_role(agent_code: str, data: dict[str, Any]) -> dict[str, Any]:
             agents_admin.update_agent(code, {"description": desc})
         except Exception:
             logger.debug("employees.update: agent description mirror skipped code=%s", code, exc_info=True)
+
+    # Prompt single-source: system_prompt on agent; merge leftover responsibilities then clear.
+    from evoflow.proactive.employee_prompting.job import merge_duty_into_system_prompt
+
+    incoming_prompt = None
+    if data.get("system_prompt") is not None:
+        incoming_prompt = str(data.get("system_prompt") or "").strip()
+    incoming_resp = None
     if data.get("responsibilities") is not None:
-        cfg.responsibilities = list(data.get("responsibilities") or [])
+        incoming_resp = _coerce_responsibilities(data.get("responsibilities"))
+
+    if incoming_prompt is not None or incoming_resp is not None:
+        try:
+            from evoflow.admin import agents as agents_admin
+            from evoflow.config.agents_config import load_agent_config
+
+            existing_sp = ""
+            try:
+                agent_cfg = load_agent_config(code)
+                if agent_cfg and agent_cfg.system_prompt:
+                    existing_sp = str(agent_cfg.system_prompt).strip()
+            except Exception:
+                existing_sp = ""
+            base_sp = incoming_prompt if incoming_prompt is not None else existing_sp
+            legacy = incoming_resp if incoming_resp is not None else list(cfg.responsibilities or [])
+            # Only merge legacy when client did not send an explicit new prompt.
+            if incoming_prompt is not None:
+                merged = incoming_prompt
+            else:
+                merged = merge_duty_into_system_prompt(base_sp, legacy)
+            if merged != existing_sp:
+                agents_admin.update_agent(code, {"system_prompt": merged or None})
+        except Exception:
+            logger.debug("employees.update: system_prompt merge skipped code=%s", code, exc_info=True)
+        # Always clear role responsibilities after handling (duties live on agent).
+        cfg.responsibilities = []
     if data.get("workspace_path") is not None:
         cfg.workspace_path = _validate_workspace_path(data.get("workspace_path"))
     if data.get("knowledge_vault_ids") is not None:
@@ -1177,11 +1265,16 @@ def update_role(agent_code: str, data: dict[str, Any]) -> dict[str, Any]:
                 role.agent_code,
             )
     try:
-        from evoflow.config.agents_config import invalidate_agent_config_cache
+        from evoflow.admin.agents import refresh_agent_runtime_after_capability_change
 
-        invalidate_agent_config_cache(role.agent_code)
+        refresh_agent_runtime_after_capability_change(role.agent_code)
     except Exception:
-        pass
+        try:
+            from evoflow.config.agents_config import invalidate_agent_config_cache
+
+            invalidate_agent_config_cache(role.agent_code)
+        except Exception:
+            pass
 
     out = _role_detail(role)
     notice = _org_notice_for_role(role)

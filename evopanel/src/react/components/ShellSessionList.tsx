@@ -158,8 +158,8 @@ function isGenericEmployeeWorkspaceLabel(value: string): boolean {
 }
 
 /**
- * 员工下拉 / 分组标题:优先岗位名(role_name);空时降级到 agent_name;
- * 都没有时显示英文 agent_code。绝不显示「未命名岗位」字面量。
+ * 员工下拉 / 分组标题:优先 agent_name;空时兜底 role_name;
+ * 都没有时显示英文 agent_code。
  *
  * 详见 `../lib/employee-display.ts`。
  */
