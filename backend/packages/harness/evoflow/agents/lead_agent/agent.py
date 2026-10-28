@@ -1482,27 +1482,32 @@ def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None
     )
     _setup_phase("resolve_available_tools_ms", _t_tools)
 
-    # ``platform`` is an agent-mode system tool (admin + right-side panel ui.* +
-    # platform admin): main lead and channel/custom employees keep them (通道员工的
-    # 平台操作与产物面板依赖)，只有纯 subagent 默认不带 — opt-in 仍走
-    # ``kb_injection.mount_platform_tools=true``。
+    # ``platform``：main/小V 默认挂；员工默认不挂，可在 tools[] 勾选或 mount_platform_tools。
+    _mount_platform = False
     try:
         from evoflow.config.agents_config import get_agent_kb_injection_config
         from evoflow.tools.tool_aliases import canonical_tool_name
-        from evoflow.tools.tool_catalog import AGENT_MODE_SYSTEM_TOOL_NAMES
+        from evoflow.tools.tool_catalog import (
+            AGENT_MODE_SYSTEM_TOOL_NAMES,
+            should_mount_platform_tool,
+        )
 
-        agent_type_str = str((agent_config.agent_type if agent_config else "") or "")
-        is_subagent = agent_type_str == "subagent"
         kb_cfg = get_agent_kb_injection_config(agent_name)
-        if is_subagent and not kb_cfg.mount_platform_tools:
+        _mount_platform = should_mount_platform_tool(
+            agent_name,
+            mount_platform_tools=bool(kb_cfg.mount_platform_tools),
+            tools_whitelist=list(_tool_whitelist) if _tool_whitelist is not None else None,
+        )
+        if not _mount_platform:
             drop = {canonical_tool_name(n) for n in AGENT_MODE_SYSTEM_TOOL_NAMES}
             if drop:
                 before = len(tools)
                 tools = [t for t in tools if canonical_tool_name(str(getattr(t, "name", "") or "")) not in drop]
                 if len(tools) != before:
                     logger.info(
-                        "[Tools] dropped %d agent-mode system tools for agent=%s type=%s — opt-in via kb_injection.mount_platform_tools=true",
-                        before - len(tools), agent_name, agent_type_str,
+                        "[Tools] dropped %d platform tools for agent=%s — check tools[] or kb_injection.mount_platform_tools",
+                        before - len(tools),
+                        agent_name,
                     )
     except Exception:
         logger.debug("agent-mode system tool filter skipped", exc_info=True)
@@ -1531,7 +1536,10 @@ def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None
     # Host plugin kernels (mcp__node_repl__js) follow plugin enable, not mcp_servers.
     if _tool_whitelist is not None:
         from evoflow.tools.tool_aliases import canonical_tool_name
-        from evoflow.tools.tool_catalog import is_role_editor_configurable_tool
+        from evoflow.tools.tool_catalog import (
+            is_agent_mode_system_tool,
+            is_role_editor_configurable_tool,
+        )
 
         _mcp_allowed_servers: set[str] | None
         if _cfg_mcp is None:
@@ -1551,6 +1559,9 @@ def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None
                     return False
                 server = _mcp_server_from_tool_name(raw)
                 return bool(server and server in _mcp_allowed_servers)
+            # platform：勾选进白名单或 main/小V 自动挂才保留
+            if is_agent_mode_system_tool(raw):
+                return bool(_mount_platform) or name in _tool_whitelist
             if not is_role_editor_configurable_tool(raw):
                 return True
             return name in _tool_whitelist
@@ -1559,9 +1570,13 @@ def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None
     # Subagent templates persist disallowed_tools; honor them for lead runs too.
     if agent_config and agent_config.disallowed_tools:
         from evoflow.tools.tool_aliases import canonical_tool_name
+        from evoflow.tools.tool_catalog import AGENT_MODE_SYSTEM_TOOL_NAMES
 
         blocked = {canonical_tool_name(str(x).strip().lower()) for x in agent_config.disallowed_tools if str(x or "").strip()}
         blocked.discard("")
+        # main/小V 的 platform 不可被 disallowed 摘掉；员工未挂载时本就没有
+        if _mount_platform:
+            blocked -= {canonical_tool_name(n) for n in AGENT_MODE_SYSTEM_TOOL_NAMES}
         if blocked:
             tools = [t for t in tools if canonical_tool_name(str(getattr(t, "name", "") or "").strip().lower()) not in blocked]
     # assets = memory write surface: always stay in ToolNode catalog. Per-turn visibility

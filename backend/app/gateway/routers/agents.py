@@ -874,6 +874,14 @@ async def update_agent(http_request: Request, name: str, request: AgentUpdateReq
         if request.soul is not None:
             save_agent_soul("main", request.soul if request.soul.strip() else "")
 
+        if updates or request.soul is not None:
+            try:
+                from evoflow.admin.agents import refresh_agent_runtime_after_capability_change
+
+                refresh_agent_runtime_after_capability_change("main")
+            except Exception:
+                logger.exception("runtime refresh after main agent update failed")
+
         return _main_agent_to_response(include_soul=True)
 
     _validate_agent_name(name)
@@ -1001,6 +1009,17 @@ async def update_agent(http_request: Request, name: str, request: AgentUpdateReq
                 updated["tts_speaker"] = agent_cfg.tts_speaker
 
             save_agent_config(name, updated)
+            # Keep extra_json vault mirror in sync (middleware prefers it; removals must stick).
+            if "knowledge_vault_ids" in request_set and not _is_xiaomi:
+                try:
+                    from evoflow.admin.agents import _persist_agent_knowledge_vault_ids
+
+                    _persist_agent_knowledge_vault_ids(
+                        name,
+                        list(updated.get("knowledge_vault_ids") or []),
+                    )
+                except Exception:
+                    logger.exception("mirror knowledge_vault_ids failed agent=%s", name)
 
         if request.soul is not None:
             save_agent_soul(name, request.soul)
@@ -1008,6 +1027,15 @@ async def update_agent(http_request: Request, name: str, request: AgentUpdateReq
             save_agent_identity(name, request.identity, reason="agent API update")
 
         logger.info("Updated agent '%s' in SQLite", name)
+
+        # Tools / MCP / vaults: refresh live sessions + clear graph so next turn sees changes.
+        if config_changed or request.soul is not None:
+            try:
+                from evoflow.admin.agents import refresh_agent_runtime_after_capability_change
+
+                refresh_agent_runtime_after_capability_change(name)
+            except Exception:
+                logger.exception("runtime refresh after agent update failed agent=%s", name)
 
         refreshed_cfg = load_agent_config(name)
         return _agent_config_to_response(refreshed_cfg, include_soul=True)

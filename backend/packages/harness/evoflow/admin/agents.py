@@ -221,10 +221,16 @@ def _validate_skills_list(skills: Any) -> list[str]:
 def _agent_row(agent_cfg: AgentConfig, *, include_soul: bool = False) -> dict[str, Any]:
     code = agent_cfg.agent_code
     tools = _dedupe_list_inplace(list(agent_cfg.tools) if agent_cfg.tools is not None else None)
-    # Lead session agent always receives ``platform`` at runtime even when the
-    # configured allowlist omits it (CORE-AGENT-03).
-    is_main = str(code or "").strip().lower() == "main"
-    if is_main:
+    # main / 小V 运行时始终可用 platform（配置白名单可省略）；普通员工默认不带。
+    code_l = str(code or "").strip().lower()
+    is_main = code_l == "main"
+    try:
+        from evoflow.agents.xiaomi.identity import is_xiaomi_agent
+
+        is_xiaomi = bool(is_xiaomi_agent(code))
+    except Exception:
+        is_xiaomi = code_l == "xiaomi"
+    if is_main or is_xiaomi:
         if tools is None:
             tools = ["platform"]
         elif "platform" not in tools:
@@ -245,6 +251,8 @@ def _agent_row(agent_cfg: AgentConfig, *, include_soul: bool = False) -> dict[st
     }
     if is_main:
         row["tools_note"] = "tools 含配置白名单；lead(main) 运行时始终可用 platform"
+    elif is_xiaomi:
+        row["tools_note"] = "小V 运行时强制挂载 platform"
     # Surface KB bindings that live in extra_json / AgentConfig (CORE-AGENT-04).
     try:
         from evoflow.config.agents_config import get_agent_kb_injection_config, get_agent_kb_vault_ids
@@ -799,13 +807,8 @@ def update_agent(name: str, data: dict[str, Any]) -> dict[str, Any]:
     except Exception:
         logger.exception("failed to sync employee from agent=%s", normalized)
 
-    # Refresh tool snapshots for existing sessions bound to this agent so an
-    # in-flight conversation picks up newly added tools immediately (the
-    # snapshot is otherwise only rebuilt on session/scenario switch).
-    try:
-        _refresh_sessions_tool_state_for_agent(normalized)
-    except Exception:
-        logger.exception("failed to refresh session tool snapshots for agent=%s", normalized)
+    # Live sessions + graph cache: pick up tools/KB without gateway restart.
+    refresh_agent_runtime_after_capability_change(normalized)
 
     return _agent_row(load_agent_config(normalized), include_soul=True)
 
@@ -813,16 +816,33 @@ def update_agent(name: str, data: dict[str, Any]) -> dict[str, Any]:
 def _refresh_sessions_tool_state_for_agent(agent_code: str) -> int:
     """Rebuild ``active_tools_json`` / ``pending_tools_json`` for sessions bound to ``agent_code``.
 
-    Sessions are located two ways: the flat ``agent_id`` column, or the legacy
-    ``agent:<code>:…`` session-key prefix. Returns the number of sessions refreshed.
+    Sessions are located by: ``agent_id`` column, legacy ``agent:<code>:…`` keys,
+    and employee chat ``proactive:<code>…`` keys. Returns the number refreshed.
     """
     from evoflow.persistence.db import get_db
     from evoflow.session_tool_binding.service import repair_session_tool_state
 
+    code = str(agent_code or "").strip()
+    if not code:
+        return 0
     db = get_db()
     rows = db.execute(
-        "SELECT session_key FROM evoflow_chat_sessions WHERE is_deleted = 0 AND (agent_id = ? OR session_key LIKE ?)",
-        (agent_code, f"agent:{agent_code}:%"),
+        """
+        SELECT session_key FROM evoflow_chat_sessions
+        WHERE is_deleted = 0
+          AND (
+            agent_id = ?
+            OR session_key LIKE ?
+            OR session_key LIKE ?
+            OR session_key = ?
+          )
+        """,
+        (
+            code,
+            f"agent:{code}:%",
+            f"proactive:{code}%",
+            f"proactive:{code}",
+        ),
     ).fetchall()
     refreshed = 0
     for (sk,) in rows:
@@ -835,9 +855,36 @@ def _refresh_sessions_tool_state_for_agent(agent_code: str) -> int:
         logger.info(
             "refreshed tool snapshots for %d session(s) bound to agent=%s",
             refreshed,
-            agent_code,
+            code,
         )
     return refreshed
+
+
+def refresh_agent_runtime_after_capability_change(agent_code: str) -> None:
+    """Invalidate caches + refresh live session tool snapshots after tools/KB edits.
+
+    Call after agent or employee capability changes so the next turn picks up
+    new tools / vaults without restarting the gateway.
+    """
+    code = str(agent_code or "").strip()
+    if not code:
+        return
+    try:
+        from evoflow.config.agents_config import invalidate_agent_config_cache
+
+        invalidate_agent_config_cache(code)
+    except Exception:
+        logger.debug("invalidate_agent_config_cache failed for %s", code, exc_info=True)
+    try:
+        _refresh_sessions_tool_state_for_agent(code)
+    except Exception:
+        logger.exception("failed to refresh session tool snapshots for agent=%s", code)
+    try:
+        from evoflow.agents.lead_agent.graph_cache import clear_lead_agent_graph_cache
+
+        clear_lead_agent_graph_cache()
+    except Exception:
+        logger.debug("clear_lead_agent_graph_cache failed after agent=%s edit", code, exc_info=True)
 
 
 def _update_main_agent(data: dict[str, Any]) -> dict[str, Any]:

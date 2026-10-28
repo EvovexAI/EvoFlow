@@ -860,9 +860,29 @@ def _assemble_system_prompt(
     # 产物展示协议（Markdown/反引号文件交付 + ::code-comment 行内评论）：任何场景都可能引用工作区
     # 文件或评审代码（agent/code 场景的模块映射也落在 chat），无条件注入。
     blocks.append(static.ARTIFACT_DISPLAY_BLOCK.strip())
-    # 平台行政：主智能体与小V同源职责；标签 ``<platform_tool>``（勿用 ``<platform>``）。
+    # 平台行政：main 默认；员工仅在挂载 platform 时注入（勾选 tools[] / mount_platform_tools）。
+    # 标签 ``<platform_tool>``（勿用 ``<platform>``）。小V 走独立 duty，此分支不跑。
     if getattr(static, "PLATFORM_TOOL_BLOCK", "").strip():
-        blocks.append(static.PLATFORM_TOOL_BLOCK.strip())
+        try:
+            from evoflow.config.agents_config import get_agent_kb_injection_config, load_agent_config
+            from evoflow.tools.tool_catalog import should_mount_platform_tool
+
+            _kb = get_agent_kb_injection_config(agent_name)
+            _wl = None
+            try:
+                _ac = load_agent_config(str(agent_name or "").strip() or "main")
+                _wl = list(_ac.tools) if _ac and _ac.tools is not None else None
+            except Exception:
+                _wl = None
+            _show_platform = should_mount_platform_tool(
+                agent_name,
+                mount_platform_tools=bool(_kb.mount_platform_tools),
+                tools_whitelist=_wl,
+            )
+        except Exception:
+            _show_platform = str(agent_name or "").strip().lower() in {"main", "lead_agent", "default"}
+        if _show_platform:
+            blocks.append(static.PLATFORM_TOOL_BLOCK.strip())
     # TOOL_CALLING_BLOCK：不再注入；工具 schema / 模型能力已够用。
 
     if thinking_enabled:

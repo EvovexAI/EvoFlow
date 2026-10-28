@@ -1490,7 +1490,7 @@ async function showRoleDetailDialog(id, page, state) {
     const detailToolsMcpSkillsHtml = (extCli || frontDesk) ? '' : `
               <!-- 内置工具（只显示已选中的） -->
               <section class="re-panel" data-panel="tools" hidden>
-                <p class="re-hint">系统工具（询问、场景切换、查找/激活工具、Plan 协作、Goal 目标模式等）由运行时自动挂载，不在此列出。</p>
+                <p class="re-hint">会话系统工具（询问、场景切换、查找/激活工具、Plan 协作、Goal 等）由运行时自动挂载，不在此列出。<code>platform</code>（平台行政）可勾选：主会话/小V 默认已有；普通员工需勾选才会挂载。</p>
                 <div class="re-bar">
                   <span class="re-count">${isAllTools ? '<em style="color:#10b981">全部可用 (' + metaTools.length + ')</em>' : `<em class="re-num">${activeTools.length}</em> 个工具`}</span>
                 </div>

@@ -123,9 +123,11 @@ class KbInjectionConfig:
         on_failure: What to do on timeout / error: ``ignore`` (continue without KB),
                    ``abort`` (raise, block the LLM call). Default: ``ignore``.
         mount_platform_tools: When ``True`` (opt-in), expose admin tools
-                             (``platform``, ``panel_set``, ``AGENT_MODE_SYSTEM_TOOL_NAMES``)
-                             to this agent. Default: ``False`` — subagents / employees
-                             don't need admin / side-panel tools; ``main`` keeps them.
+                             (``platform`` / ``AGENT_MODE_SYSTEM_TOOL_NAMES``)
+                             to this agent. Default: ``False``.
+                             ``main`` and 小V always mount ``platform``;
+                             ordinary employees / custom / subagent do **not**
+                             auto-mount — set this flag to opt in.
     """
 
     mode: str = "auto"
@@ -196,13 +198,13 @@ def get_agent_kb_injection_config(agent_code: str | None) -> KbInjectionConfig:
 def get_agent_kb_vault_ids(agent_code: str | None) -> list[str]:
     """Return the agent's bound vault IDs (knowledge_vault_ids field).
 
-    Resolves from TWO sources, preferring the most recent:
+    ``evoflow_agents.extra_json['knowledge_vault_ids']`` is authoritative when the
+    key is present (including ``[]`` after an unbind) — written by employee /
+    agent capability edits so live middleware sees adds **and** removals without
+    waiting for restart backfill.
 
-    1. ``evoflow_agents.extra_json['knowledge_vault_ids']`` (mirror written by
-       employee hire/update so the live middleware sees current role bindings).
-    2. ``AgentConfig.knowledge_vault_ids`` (the original on-agent field).
-
-    Returns a deduplicated list preserving order.
+    Falls back to ``AgentConfig.knowledge_vault_ids`` only when the mirror key
+    has never been written.
     """
     if not agent_code:
         return []
@@ -212,11 +214,13 @@ def get_agent_kb_vault_ids(agent_code: str | None) -> list[str]:
         from evoflow.persistence import config_repositories as cfg_repo
 
         extra = cfg_repo.get_agent_extra_json(agent_code) or {}
-        for vid in list(extra.get("knowledge_vault_ids") or []):
-            v = str(vid or "").strip()
-            if v and v not in seen:
-                seen.add(v)
-                out.append(v)
+        if "knowledge_vault_ids" in extra:
+            for vid in list(extra.get("knowledge_vault_ids") or []):
+                v = str(vid or "").strip()
+                if v and v not in seen:
+                    seen.add(v)
+                    out.append(v)
+            return out
     except Exception:
         pass
     try:
