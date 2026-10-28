@@ -984,7 +984,15 @@ html[data-theme='dark'] .react-chat-aside-brand-logo {
   gap: 8px;
   min-height: 32px;
   padding: 6px 8px;
+  /* 筛选搜索框用 absolute + top:100%，必须相对本行定位；
+     否则会爬到更高的定位祖先（整块 aside-history），输入框就出现在侧栏最底部。 */
+  position: relative;
   background: var(--shell-bg, var(--chrome-bg, transparent));
+}
+
+/* 展开筛选时给下方列表让出搜索行高度（旧规则挂在 .react-chat-aside-history-head 上） */
+.shell-view-header:has(.react-chat-aside-history-search-wrap:not([hidden])) {
+  margin-bottom: 34px;
 }
 
 /* 视图切换 Tabs —— 配方对齐 .react-chat-aside-segment，跟随色卡 tint / 明暗 */
@@ -1529,6 +1537,13 @@ html.dark .react-chat-aside-ws-menu {
   top: calc(100% + 2px);
   z-index: 30;
   padding: 0;
+}
+
+/* shell-view-header 自带 8px 水平 padding；绝对定位相对 padding edge，
+   需要内缩，搜索框才和 tabs/按钮左右对齐 */
+.shell-view-header > .react-chat-aside-history-search-wrap {
+  left: 8px;
+  right: 8px;
 }
 
 .react-chat-aside-history-head:has(.react-chat-aside-history-search-wrap:not([hidden])) {
