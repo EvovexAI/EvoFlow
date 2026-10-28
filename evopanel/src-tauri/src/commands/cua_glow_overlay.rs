@@ -1,15 +1,15 @@
 //! Windows CUA 顶部操作提示 — 对齐 ZCode `windowsCuaOperationIndicator`。
 //!
-//! 当前鼠标所在显示器顶部居中的轻量条：「EvoFlow 正在操作电脑」。
-//! 透明、置顶、点击穿透、截图排除；不抢焦点。
+//! 当前鼠标所在显示器顶部居中：「EvoFlow 正在操作电脑」。
+//! 用 data-URL 内联 HTML（不依赖 Vite 二次窗口模块加载）；显示后强制 HWND_TOPMOST。
 
 use std::sync::Mutex;
 use std::time::Duration;
 
-use tauri::{LogicalPosition, LogicalSize, Manager, WebviewWindow};
+use tauri::{LogicalPosition, LogicalSize, Manager, WebviewUrl, WebviewWindow};
+use url::Url;
 
 const OVERLAY_LABEL: &str = "cua-glow-0";
-const OVERLAY_HTML: &str = "cua-glow-overlay.html";
 /// 对齐 ZCode indicatorWindowSize（中文 234 卡宽 + shadow inset）。
 const OVERLAY_WIDTH: f64 = 250.0;
 const OVERLAY_HEIGHT: f64 = 56.0;
@@ -24,19 +24,93 @@ static OVERLAY_STATE: Mutex<OverlayState> = Mutex::new(OverlayState {
     window_created: false,
 });
 
+/// ZCode `indicatorHtml` — self-contained, no external scripts.
+fn indicator_html() -> String {
+    r#"<!doctype html>
+<html lang="zh-CN" data-state="active">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
+<style>
+:root{color-scheme:light dark}
+*{box-sizing:border-box}
+html,body{width:100%;height:100%;margin:0;overflow:hidden;background:#f3f4f6;pointer-events:none;user-select:none}
+body{display:flex;align-items:center;justify-content:center;padding:6px 8px 12px;font-family:"Segoe UI Variable","Segoe UI","PingFang SC","Microsoft YaHei",sans-serif}
+.indicator{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;height:38px;padding:0 18px;color:#202124;background:#fff;border:1px solid rgba(15,23,42,.14);border-radius:12px;box-shadow:0 1px 2px rgba(15,23,42,.08),0 6px 12px -6px rgba(15,23,42,.18);font-size:13px;font-weight:600;line-height:1;white-space:nowrap;opacity:1;transform:translateY(0);transition:opacity 120ms ease,transform 120ms ease;animation:enter 140ms ease-out both}
+.dots{display:flex;align-items:center;gap:3px}
+.dot{width:4px;height:4px;border-radius:50%;background:#64748b;animation:pulse 1.2s ease-in-out infinite}
+.dot:nth-child(2){animation-delay:120ms}
+.dot:nth-child(3){animation-delay:240ms}
+html[data-state="leaving"] .indicator{opacity:0;transform:translateY(-6px)}
+@keyframes enter{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:translateY(0)}}
+@keyframes pulse{0%,70%,100%{opacity:.35;transform:scale(.8)}35%{opacity:1;transform:scale(1)}}
+@media (prefers-color-scheme:dark){html,body{background:#1f2329}.indicator{color:#f8fafc;background:#2b3038;border-color:rgba(255,255,255,.14);box-shadow:0 1px 2px rgba(0,0,0,.18),0 6px 12px -6px rgba(0,0,0,.28)}.dot{background:#a8b3c4}}
+@media (prefers-reduced-motion:reduce){.indicator,.dot{animation:none;transition:opacity 1ms linear;transform:none}html[data-state="leaving"] .indicator{transform:none}}
+</style>
+</head>
+<body>
+<div class="indicator" role="status" aria-live="polite">
+<span class="dots" aria-hidden="true"><span class="dot"></span><span class="dot"></span><span class="dot"></span></span>
+<span id="lbl">EvoFlow 正在操作电脑</span>
+</div>
+<script>
+(function(){
+  var zh=/^zh\b/i.test(String(navigator.language||''));
+  var el=document.getElementById('lbl');
+  if(el) el.textContent=zh?'EvoFlow 正在操作电脑':'EvoFlow is controlling your computer';
+  document.documentElement.lang=zh?'zh-CN':'en';
+  document.documentElement.dataset.state='active';
+  window.__cuaGlowOverlay={
+    setActive:function(){document.documentElement.dataset.state='active'},
+    setLeaving:function(){document.documentElement.dataset.state='leaving'}
+  };
+})();
+</script>
+</body>
+</html>"#
+    .to_string()
+}
+
+fn indicator_data_url() -> Result<Url, String> {
+    use base64::Engine;
+    let b64 = base64::engine::general_purpose::STANDARD.encode(indicator_html().as_bytes());
+    Url::parse(&format!("data:text/html;base64,{b64}"))
+        .map_err(|e| format!("CUA indicator data URL parse failed: {e}"))
+}
+
 fn overlay_logical_position(app: &tauri::AppHandle) -> Result<LogicalPosition<f64>, String> {
-    let monitors = app
-        .available_monitors()
-        .map_err(|e| format!("list monitors failed: {e}"))?;
-    let monitor = monitors
-        .into_iter()
-        .next()
-        .or(app
+    // Prefer cursor's monitor (ZCode getDisplayNearestPoint); fall back to primary.
+    let monitor = {
+        #[cfg(target_os = "windows")]
+        {
+            use windows::Win32::Foundation::POINT;
+            use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
+            let mut pt = POINT::default();
+            let cursor_ok = unsafe { GetCursorPos(&mut pt).is_ok() };
+            if cursor_ok {
+                if let Ok(Some(m)) = app.monitor_from_point(pt.x as f64, pt.y as f64) {
+                    Some(m)
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            None::<tauri::Monitor>
+        }
+    };
+
+    let monitor = match monitor {
+        Some(m) => m,
+        None => app
             .primary_monitor()
             .map_err(|e| format!("primary monitor failed: {e}"))?
-            .into_iter()
-            .next())
-        .ok_or_else(|| "no monitors available".to_string())?;
+            .or_else(|| app.available_monitors().ok().and_then(|mut v| v.pop()))
+            .ok_or_else(|| "no monitors available".to_string())?,
+    };
 
     let scale = monitor.scale_factor();
     let pos = monitor.position();
@@ -51,22 +125,47 @@ fn overlay_logical_position(app: &tauri::AppHandle) -> Result<LogicalPosition<f6
 
 fn apply_overlay_chrome(window: &WebviewWindow) {
     let _ = window.set_ignore_cursor_events(true);
-    let _ = window.set_content_protected(true);
     let _ = window.set_always_on_top(true);
-    let _ = window.set_shadow(false);
 }
+
+/// ZCode showWindowOnTop: Windows 隐藏透明窗后可能丢掉 TOPMOST；每次 show 后强制拉回。
+#[cfg(target_os = "windows")]
+fn force_topmost(window: &WebviewWindow) {
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::UI::WindowsAndMessaging::{
+        SetWindowPos, HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW,
+    };
+    if let Ok(hwnd) = window.hwnd() {
+        unsafe {
+            let _ = SetWindowPos(
+                HWND(hwnd.0 as *mut _),
+                Some(HWND_TOPMOST),
+                0,
+                0,
+                0,
+                0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW,
+            );
+        }
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn force_topmost(_window: &WebviewWindow) {}
 
 fn build_glow_window(
     app: &tauri::AppHandle,
     pos: LogicalPosition<f64>,
 ) -> Result<WebviewWindow, String> {
-    let window = WebviewWindow::builder(app, OVERLAY_LABEL, tauri::WebviewUrl::App(OVERLAY_HTML.into()))
+    let data_url = indicator_data_url()?;
+    // Opaque: WebView2 transparent windows often paint blank; visibility > chrome.
+    let window = WebviewWindow::builder(app, OVERLAY_LABEL, WebviewUrl::External(data_url))
         .title("EvoFlow Computer Use")
         .inner_size(OVERLAY_WIDTH, OVERLAY_HEIGHT)
         .position(pos.x, pos.y)
         .decorations(false)
-        .transparent(true)
-        .shadow(false)
+        .transparent(false)
+        .shadow(true)
         .always_on_top(true)
         .focused(false)
         .skip_taskbar(true)
@@ -75,7 +174,7 @@ fn build_glow_window(
         .minimizable(false)
         .closable(false)
         .visible(false)
-        .content_protected(true)
+        .content_protected(false)
         .build()
         .map_err(|e| format!("create CUA operation indicator failed: {e}"))?;
 
@@ -86,6 +185,8 @@ fn build_glow_window(
 fn ensure_overlay_window(app: &tauri::AppHandle) -> Result<(WebviewWindow, bool), String> {
     let pos = overlay_logical_position(app)?;
     if let Some(existing) = app.get_webview_window(OVERLAY_LABEL) {
+        // Keep frontend-created opaque App HTML shell. Only reposition + TOPMOST.
+        // Closing it used to blank the indicator (JS create → Rust destroy → transparent miss).
         let _ = existing.set_size(LogicalSize::new(OVERLAY_WIDTH, OVERLAY_HEIGHT));
         let _ = existing.set_position(pos);
         apply_overlay_chrome(&existing);
@@ -100,7 +201,8 @@ fn ensure_overlay_window(app: &tauri::AppHandle) -> Result<(WebviewWindow, bool)
 
 async fn wait_overlay_ready(created: bool) {
     if created {
-        tokio::time::sleep(Duration::from_millis(80)).await;
+        // data URL is local; still give WebView2 a beat to paint.
+        tokio::time::sleep(Duration::from_millis(120)).await;
     }
 }
 
@@ -114,13 +216,20 @@ pub async fn cua_glow_overlay_show(app: tauri::AppHandle) -> Result<(), String> 
             .map_err(|e| format!("CUA indicator create join failed: {e}"))??;
 
     apply_overlay_chrome(&window);
-    let _ = window.eval("window.__cuaGlowOverlay?.setActive?.()");
+    let _ = window.eval(
+        "document.documentElement.dataset.state='active';window.__cuaGlowOverlay&&window.__cuaGlowOverlay.setActive&&window.__cuaGlowOverlay.setActive()",
+    );
     window
         .show()
         .map_err(|e| format!("show CUA operation indicator failed: {e}"))?;
     let _ = window.set_always_on_top(true);
+    force_topmost(&window);
 
     wait_overlay_ready(created).await;
+    // Second bump after paint — WeChat/Feishu activate can steal Z-order mid-show.
+    let _ = window.set_always_on_top(true);
+    force_topmost(&window);
+    let _ = window.eval("document.documentElement.dataset.state='active'");
     Ok(())
 }
 
@@ -128,7 +237,9 @@ pub async fn cua_glow_overlay_show(app: tauri::AppHandle) -> Result<(), String> 
 #[tauri::command]
 pub async fn cua_glow_overlay_hide(app: tauri::AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_webview_window(OVERLAY_LABEL) {
-        let _ = window.eval("window.__cuaGlowOverlay?.setLeaving?.()");
+        let _ = window.eval(
+            "document.documentElement.dataset.state='leaving';window.__cuaGlowOverlay&&window.__cuaGlowOverlay.setLeaving&&window.__cuaGlowOverlay.setLeaving()",
+        );
         tokio::time::sleep(Duration::from_millis(120)).await;
         window
             .hide()

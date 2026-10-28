@@ -11,6 +11,10 @@
     "core:window:allow-set-content-protected",
     "core:window:allow-set-size",
     "core:window:allow-set-position",
+    "core:window:allow-outer-position",
+    "core:window:allow-outer-size",
+    "core:window:allow-is-visible",
+    "core:window:allow-close",
     "core:webview:allow-create-webview-window"
   ]
 }

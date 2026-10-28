@@ -42,6 +42,9 @@ def _bridge_token_guard(request: Request) -> None:
 
 router = APIRouter(prefix="/api/cua", tags=["cua-bridge"], dependencies=[Depends(_org_admin_guard)])
 
+# Glow status is local desktop UX only — no org-admin gate (poll must stay cheap).
+glow_router = APIRouter(prefix="/api/cua", tags=["cua-glow"])
+
 
 class CuaExecuteRequest(BaseModel):
     method: str = Field(..., description="CUA wire method (get_app_state, left_click, type, key, scroll, list_apps...)")
@@ -301,19 +304,19 @@ async def app_icon(payload: AppIconRequestBody) -> dict[str, Any] | None:
     return JSONResponse(content=None)
 
 
-@router.get("/glow-status")
+@glow_router.get("/glow-status")
 async def glow_status() -> dict[str, Any]:
     """Desktop polls this to show ZCode-style 「正在操作电脑」 top indicator.
 
     Driven by node_repl CUA cells via ``evoflow.collab.cua_glow_state`` — does not
-    require panel-stream / AG-UI (V4-safe).
+    require panel-stream / AG-UI (V4-safe). No org-admin dependency.
     """
     from evoflow.collab.cua_glow_state import get_cua_glow_status
 
     return get_cua_glow_status()
 
 
-@router.post("/glow-status")
+@glow_router.post("/glow-status")
 async def glow_status_set(payload: dict[str, Any] | None = None) -> dict[str, Any]:
     """Manual / test hook to force indicator on/off."""
     from evoflow.collab.cua_glow_state import set_cua_glow

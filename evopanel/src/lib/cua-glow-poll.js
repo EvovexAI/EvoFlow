@@ -1,8 +1,10 @@
 /**
  * Poll gateway ``/api/cua/glow-status`` and drive the ZCode-aligned top indicator.
  *
- * Why poll: panel-stream / AG-UI sidebands are easy to miss under V4; node_repl
- * already sets in-process glow state on the gateway — this is the reliable path.
+ * IMPORTANT:
+ * - ``api.get`` does not exist — use ``gatewayProxy``.
+ * - ``__probe__: true`` skips the gateway warm queue.
+ * - Only ONE poll interval may run (HMR + bootstrap both call start).
  */
 
 import { isTauri } from './panel-login.js'
@@ -12,12 +14,28 @@ import {
   isCuaGlowOverlayActive,
 } from './cua-glow-overlay.js'
 
-const POLL_MS = 400
+const POLL_MS = 500
 const LOG_TAG = '[cua-glow]'
+const GLOW_STATUS_PATH = '/cua/glow-status'
 
-let pollTimer = null
-let lastActive = false
-let started = false
+const ROOT =
+  typeof window !== 'undefined'
+    ? (window.__evoflowCuaGlowPoll ||= {
+        epoch: 0,
+        timer: null,
+        lastActive: false,
+        tickInFlight: false,
+        fetchErrorLoggedAt: 0,
+        starting: false,
+      })
+    : {
+        epoch: 0,
+        timer: null,
+        lastActive: false,
+        tickInFlight: false,
+        fetchErrorLoggedAt: 0,
+        starting: false,
+      }
 
 async function pluginLog(message) {
   try {
@@ -29,62 +47,116 @@ async function pluginLog(message) {
 }
 
 async function fetchGlowStatus() {
-  try {
-    const { api } = await import('./tauri-api.js')
-    const res = await api.get('/api/cua/glow-status')
-    return res && typeof res === 'object' ? res : null
-  } catch (err) {
-    // Keep quiet on transient gateway blips; log occasionally.
-    return { __error: String(err?.message || err || 'fetch failed') }
-  }
+  const { gatewayProxy } = await import('./tauri-api.js')
+  const res = await gatewayProxy('GET', GLOW_STATUS_PATH, null, null, {
+    silent: true,
+    skipRetry: true,
+    skipDedup: true,
+    __probe__: true,
+  })
+  return res && typeof res === 'object' ? res : null
 }
 
-async function tick() {
-  if (!isTauri) return
-  const status = await fetchGlowStatus()
-  if (!status || status.__error) return
-  const active = status.active === true
-  if (active === lastActive && !(active && !isCuaGlowOverlayActive())) return
-  lastActive = active
-  if (active) {
-    await pluginLog(
-      `poll active=true running=${status.running ?? '?'} grace=${status.grace_ms_left ?? '-'} keys=${JSON.stringify(status.keys || [])}`,
-    )
-    beginCuaGlowOverlay('glow-status-poll')
-  } else {
-    await pluginLog('poll active=false → hide')
-    await hideCuaGlowOverlayForced()
+async function tick(epoch) {
+  if (!isTauri || epoch !== ROOT.epoch || ROOT.tickInFlight) return
+  ROOT.tickInFlight = true
+  try {
+    let status
+    try {
+      status = await fetchGlowStatus()
+    } catch (err) {
+      const now = Date.now()
+      if (now - ROOT.fetchErrorLoggedAt > 8000) {
+        ROOT.fetchErrorLoggedAt = now
+        void pluginLog(`poll fetch failed: ${String(err?.message || err)}`)
+      }
+      return
+    }
+    if (epoch !== ROOT.epoch) return
+    if (!status || typeof status !== 'object') return
+    const active = status.active === true
+    const flipped = active !== ROOT.lastActive
+    const needsReshow = active && !isCuaGlowOverlayActive()
+    if (!flipped && !needsReshow) return
+    ROOT.lastActive = active
+    if (active) {
+      await pluginLog(
+        `poll active=true running=${status.running ?? '?'} grace=${status.grace_ms_left ?? '-'} keys=${JSON.stringify(status.keys || [])}`,
+      )
+      beginCuaGlowOverlay('glow-status-poll')
+    } else {
+      await pluginLog('poll active=false → hide')
+      await hideCuaGlowOverlayForced()
+    }
+  } finally {
+    if (epoch === ROOT.epoch) ROOT.tickInFlight = false
   }
 }
 
 /** Force-clear gateway glow state (user stop / RUN_ERROR). */
 export async function clearCuaGlowStatusRemote() {
   try {
-    const { api } = await import('./tauri-api.js')
-    await api.post('/api/cua/glow-status', { active: false, key: '' })
-    lastActive = false
+    const { gatewayProxy } = await import('./tauri-api.js')
+    await gatewayProxy('POST', GLOW_STATUS_PATH, { active: false, key: '' }, null, {
+      silent: true,
+      skipRetry: true,
+      skipDedup: true,
+      __probe__: true,
+    })
+    ROOT.lastActive = false
     await pluginLog('remote clear posted')
   } catch (err) {
     await pluginLog(`remote clear failed: ${String(err?.message || err)}`)
   }
 }
 
-/** Start polling (idempotent). Call once from desktop chat boot. */
+/** Start polling. Idempotent — concurrent/HMR callers share one interval. */
 export function startCuaGlowStatusPoll() {
-  if (!isTauri || started) return
-  started = true
-  void pluginLog('poll started')
-  void tick()
-  pollTimer = setInterval(() => {
-    void tick()
-  }, POLL_MS)
+  if (!isTauri) return
+  if (ROOT.timer != null) return
+  if (ROOT.starting) return
+  ROOT.starting = true
+  try {
+    ROOT.epoch += 1
+    const epoch = ROOT.epoch
+    ROOT.lastActive = false
+    ROOT.tickInFlight = false
+    void pluginLog(`poll started epoch=${epoch}`)
+    void tick(epoch)
+    ROOT.timer = setInterval(() => {
+      if (epoch !== ROOT.epoch) {
+        clearInterval(ROOT.timer)
+        ROOT.timer = null
+        return
+      }
+      void tick(epoch)
+    }, POLL_MS)
+  } finally {
+    ROOT.starting = false
+  }
 }
 
 export function stopCuaGlowStatusPoll() {
-  if (pollTimer != null) {
-    clearInterval(pollTimer)
-    pollTimer = null
+  ROOT.epoch += 1
+  if (ROOT.timer != null) {
+    clearInterval(ROOT.timer)
+    ROOT.timer = null
   }
-  started = false
-  lastActive = false
+  ROOT.lastActive = false
+  ROOT.tickInFlight = false
+  ROOT.starting = false
+}
+
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => {
+    stopCuaGlowStatusPoll()
+  })
+}
+
+// Bootstrap also calls start (idempotent). Keep microtask so HMR dispose+reload
+// recovers without a full remount. Singleton guard prevents dual intervals.
+if (isTauri) {
+  queueMicrotask(() => {
+    startCuaGlowStatusPoll()
+  })
 }
