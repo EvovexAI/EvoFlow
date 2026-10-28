@@ -714,10 +714,46 @@ _PAGE_STATE_JS = (
 )
 
 
+def _local_path_to_file_url(path: str) -> str:
+    """Windows / POSIX absolute filesystem path → ``file:///…`` for WebView2."""
+    import re
+    from pathlib import Path
+
+    text = str(path or "").strip()
+    if not text:
+        return ""
+    # Chromium file URL pathname form: ``/D:/dev/foo.html``
+    if re.match(r"^/[A-Za-z]:/", text):
+        return f"file://{text.replace(chr(92), '/')}"
+    # Windows drive path: ``D:\dev\foo.html`` / ``D:/dev/foo.html``
+    if re.match(r"^[A-Za-z]:[\\/]", text):
+        return "file:///" + text.replace("\\", "/")
+    # UNC: ``\\server\share\a.html``
+    if text.startswith("\\\\"):
+        return "file:" + text.replace("\\", "/")
+    # POSIX absolute path that looks like a file (has an extension) — keep as file URL.
+    if text.startswith("/") and not text.startswith("//"):
+        return "file://" + text
+    try:
+        p = Path(text)
+        if p.is_absolute() and p.exists():
+            as_posix = p.resolve().as_posix()
+            if re.match(r"^[A-Za-z]:/", as_posix):
+                return "file:///" + as_posix
+            return "file://" + as_posix
+    except Exception:
+        pass
+    return ""
+
+
 def _coerce_navigate_url(raw: Any) -> str:
-    """Flatten nested / stringified URL shapes the agent sometimes emits."""
+    """Flatten nested / stringified URL shapes the agent sometimes emits.
+
+    Also rewrites bare local HTML/file paths to ``file:///…`` so WebView2 does not
+    get ``https://D:/…`` (chrome-error) when opening workspace HTML via browser open.
+    """
     if isinstance(raw, dict):
-        for key in ("url", "href", "uri"):
+        for key in ("url", "href", "uri", "path"):
             inner = raw.get(key)
             if inner is not None:
                 return _coerce_navigate_url(inner)
@@ -743,6 +779,16 @@ def _coerce_navigate_url(raw: Any) -> str:
                 return _coerce_navigate_url(parsed)
         except Exception:
             pass
+    lower = text.lower()
+    if lower.startswith(("http://", "https://", "file://", "about:", "data:")):
+        # Normalize ``file:/D:/…`` / ``file:\D:\…`` oddities into file:///…
+        if lower.startswith("file:") and not lower.startswith("file://"):
+            rest = text[5:].lstrip("/")
+            return _local_path_to_file_url(rest) or text
+        return text
+    file_url = _local_path_to_file_url(text)
+    if file_url:
+        return file_url
     return text
 
 
@@ -1466,8 +1512,10 @@ class BrowserEngine:
         url = _coerce_navigate_url(command.get("url"))
         if not url:
             return fail(ErrorCode.EXECUTION_ERROR, "navigate requires url")
+        # Bare hostnames → https://… ; local paths already became file:// above.
         if not url.startswith(("http://", "https://", "file://", "about:", "data:")):
-            url = f"https://{url}"
+            local = _local_path_to_file_url(url)
+            url = local if local else f"https://{url}"
         t0 = time.monotonic()
         try:
             await _dispatch_run(session.tid, "Page.navigate", {"url": url})

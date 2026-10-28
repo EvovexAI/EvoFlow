@@ -856,6 +856,39 @@ pub(crate) fn webview_label_for_thread(_thread_id: &str) -> String {
 /// scheme-only URL with no authority, so `format!("https://{trimmed}")` would
 ///  produce `https://about:blank`, whose port segment is `blank` — the `url` crate
 /// rejects that with "invalid port number".
+/// Absolute local path / Chromium pathname → ``file:///…`` for WebView2.
+///
+/// Without this, ``D:/dev/foo.html`` and ``/D:/dev/foo.html`` fall through to
+/// ``https://D:/…`` and the panel paints chrome-error (地址栏显示成 `/D:/…`).
+fn local_path_to_file_url(raw: &str) -> Option<String> {
+    let text = raw.trim();
+    if text.is_empty() {
+        return None;
+    }
+    let bytes = text.as_bytes();
+    // Chromium file URL pathname: ``/D:/dev/foo.html``
+    if bytes.len() >= 3
+        && bytes[0] == b'/'
+        && bytes[1].is_ascii_alphabetic()
+        && bytes[2] == b':'
+    {
+        return Some(format!("file://{}", text.replace('\\', "/")));
+    }
+    // Windows drive: ``D:\dev\foo.html`` / ``D:/dev/foo.html``
+    if bytes.len() >= 3
+        && bytes[0].is_ascii_alphabetic()
+        && bytes[1] == b':'
+        && (bytes[2] == b'/' || bytes[2] == b'\\')
+    {
+        return Some(format!("file:///{}", text.replace('\\', "/")));
+    }
+    // UNC ``\\server\share\a.html``
+    if text.starts_with("\\\\") {
+        return Some(format!("file:{}", text.replace('\\', "/")));
+    }
+    None
+}
+
 fn normalize_target_url(raw: &str) -> Result<url::Url, String> {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
@@ -876,10 +909,35 @@ fn normalize_target_url(raw: &str) -> Result<url::Url, String> {
             .parse()
             .map_err(|e| format!("invalid about url {trimmed:?}: {e}"));
     }
-    if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
+    if trimmed.starts_with("http://")
+        || trimmed.starts_with("https://")
+        || trimmed.starts_with("data:")
+    {
         return trimmed
             .parse()
             .map_err(|e| format!("invalid url {trimmed:?}: {e}"));
+    }
+    if lower.starts_with("file:") {
+        // Accept ``file:///D:/…`` as-is; repair odd ``file:/D:/…`` shapes.
+        if lower.starts_with("file://") {
+            return trimmed
+                .parse()
+                .map_err(|e| format!("invalid file url {trimmed:?}: {e}"));
+        }
+        let rest = trimmed.get(5..).unwrap_or("").trim_start_matches('/');
+        if let Some(file_url) = local_path_to_file_url(rest) {
+            return file_url
+                .parse()
+                .map_err(|e| format!("invalid file url {file_url:?}: {e}"));
+        }
+        return trimmed
+            .parse()
+            .map_err(|e| format!("invalid file url {trimmed:?}: {e}"));
+    }
+    if let Some(file_url) = local_path_to_file_url(trimmed) {
+        return file_url
+            .parse()
+            .map_err(|e| format!("invalid file url {file_url:?}: {e}"));
     }
     let with_scheme = format!("https://{trimmed}");
     with_scheme
@@ -3435,6 +3493,45 @@ mod tests {
     fn bare_hosts_get_an_https_scheme() {
         let url = normalize_target_url("baidu.com").expect("must normalize");
         assert_eq!(url.as_str(), "https://baidu.com/");
+    }
+
+    #[test]
+    fn windows_drive_path_becomes_file_url() {
+        let url = normalize_target_url(r"D:\dev\github\EvoFlow\simple_demo.html")
+            .expect("drive path must become file://");
+        assert_eq!(url.scheme(), "file");
+        assert!(
+            url.path().eq_ignore_ascii_case("/D:/dev/github/EvoFlow/simple_demo.html")
+                || url.as_str().to_ascii_lowercase().contains("simple_demo.html"),
+            "got {}",
+            url.as_str()
+        );
+    }
+
+    #[test]
+    fn chromium_file_pathname_becomes_file_url() {
+        let url = normalize_target_url("/D:/dev/github/EvoFlow/simple_demo.html")
+            .expect("/D:/… must become file://");
+        assert_eq!(url.scheme(), "file");
+        assert!(
+            url.as_str()
+                .to_ascii_lowercase()
+                .contains("simple_demo.html"),
+            "got {}",
+            url.as_str()
+        );
+    }
+
+    #[test]
+    fn explicit_file_url_survives() {
+        let url = normalize_target_url("file:///D:/dev/github/EvoFlow/simple_demo.html")
+            .expect("file:// must survive");
+        assert_eq!(url.scheme(), "file");
+        assert!(
+            !url.as_str().starts_with("https://"),
+            "must not rewrite to https: {}",
+            url.as_str()
+        );
     }
 
     /// A colon in a bare host is a port, not a scheme. `localhost:5173` must keep
