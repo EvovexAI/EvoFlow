@@ -97,6 +97,71 @@ def _intersect_catalog(names: list[str], catalog_names: set[str]) -> list[str]:
     return augment_worker_tool_allowlist(matched, catalog_names)
 
 
+def _mcp_tool_names_for_agent(agent_code: str | None, catalog_names: set[str]) -> list[str]:
+    """Native MCP tool names bound on AgentConfig.mcp_servers (lead-agent parity).
+
+    Worker allowlists historically only copied ``AgentConfig.tools``, so an employee
+    with ``mcp_servers=["ecommerce-shangce"]`` but no ``mcp__…`` entries in ``tools``
+    would run workflow steps **without** MCP — falling back to curl/terminal.
+    ``mcp_servers is None`` → all MCP names in catalog; ``[]`` → none.
+    """
+    code = str(agent_code or "").strip()
+    if not code:
+        return []
+    try:
+        from evoflow.config.agents_config import load_agent_config
+        from evoflow.mcp.binding import mcp_server_from_tool_name
+
+        cfg = load_agent_config(code)
+    except (FileNotFoundError, ValueError):
+        return []
+    except Exception:
+        logger.debug("load_agent_config(%r) failed for worker MCP mount", code, exc_info=True)
+        return []
+    if cfg is None:
+        return []
+    mcp_servers = cfg.mcp_servers
+    if mcp_servers is not None and not list(mcp_servers):
+        return []
+    allowed_servers = None if mcp_servers is None else {str(s).strip() for s in mcp_servers if str(s).strip()}
+    out: list[str] = []
+    for name in catalog_names:
+        n = str(name or "").strip()
+        server = mcp_server_from_tool_name(n)
+        if not server:
+            continue
+        if allowed_servers is None or server in allowed_servers:
+            out.append(n)
+    return out
+
+
+def _with_agent_mcp_tools(
+    tools: list[str],
+    *,
+    agent_code: str | None,
+    catalog_names: set[str],
+) -> list[str]:
+    """Append bound MCP tools onto an explicit worker allowlist (deduped, stable order)."""
+    base = [str(t).strip() for t in (tools or []) if str(t or "").strip()]
+    seen = {t.lower() for t in base}
+    extra = _mcp_tool_names_for_agent(agent_code, catalog_names)
+    added = 0
+    for name in extra:
+        key = name.lower()
+        if key in seen:
+            continue
+        base.append(name)
+        seen.add(key)
+        added += 1
+    if added:
+        logger.info(
+            "worker tools: mounted %d MCP tool(s) from AgentConfig(%s).mcp_servers",
+            added,
+            agent_code,
+        )
+    return base
+
+
 def resolve_worker_tool_allowlist(
     *,
     profile_tools: list[str] | None = None,
@@ -115,13 +180,22 @@ def resolve_worker_tool_allowlist(
     3. SubagentConfig.tools (builtin template allowlist)
     4. ``base_subagent`` AgentConfig.tools
     5. Parent session agent ∩ worker execution mode (bound∪deferred)
+
+    After the above, MCP tools from the assignee/base agent's ``mcp_servers`` are
+    mounted (same semantics as lead ``mount_agent_mcp_tools``).
     """
     allowed = {str(n).strip() for n in catalog_names if str(n or "").strip()}
+    mcp_agent = str(assignee_agent_code or "").strip() or str(base_subagent or "").strip()
+
+    def _finish(out: list[str], *, source: str) -> list[str]:
+        mounted = _with_agent_mcp_tools(out, agent_code=mcp_agent, catalog_names=allowed)
+        logger.info("worker tools resolved (%s): %d tool(s)", source, len(mounted))
+        return mounted
 
     if profile_tools is not None:
         out = _intersect_catalog(list(profile_tools), allowed)
         if out:
-            return out
+            return _finish(out, source=f"profile+mcp:{mcp_agent}")
         logger.warning("worker_profile.tools empty after catalog filter; falling back to agent inheritance")
 
     assignee = str(assignee_agent_code or "").strip()
@@ -131,33 +205,18 @@ def resolve_worker_tool_allowlist(
         if wl is not None:
             out = _intersect_catalog(wl, allowed)
             if out:
-                logger.info(
-                    "worker tools from AgentConfig(%s): %d tool(s)",
-                    assignee,
-                    len(out),
-                )
-                return out
+                return _finish(out, source=f"AgentConfig({assignee})")
 
     if subagent_config_tools is not None:
         out = _intersect_catalog(list(subagent_config_tools), allowed)
         if out:
-            logger.info(
-                "worker tools from SubagentConfig(%s): %d tool(s)",
-                base_subagent,
-                len(out),
-            )
-            return out
+            return _finish(out, source=f"SubagentConfig({base_subagent})")
 
     wl = _load_agent_tools_whitelist(base)
     if wl is not None:
         out = _intersect_catalog(wl, allowed)
         if out:
-            logger.info(
-                "worker tools from AgentConfig(%s): %d tool(s)",
-                base,
-                len(out),
-            )
-            return out
+            return _finish(out, source=f"AgentConfig({base})")
 
     # Inherit corresponding agent capability under execution mode — not get_available_tools().
     if assignee and assignee != base:
@@ -177,8 +236,7 @@ def resolve_worker_tool_allowlist(
 
         out = _intersect_catalog(list(bound_tools_for_session_mode("agent")), allowed)
         source = "agent-mode-bound-fallback"
-    logger.info("worker tools inherited (%s): %d tool(s)", source, len(out))
-    return out
+    return _finish(out, source=source)
 
 
 def session_tool_context_from_runtime(runtime: Any | None) -> tuple[str | None, str | None]:

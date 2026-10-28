@@ -44,14 +44,21 @@ def is_path_or_url(value: str) -> bool:
     s = str(value or "").strip().replace("\\", "/")
     if not s or len(s) > 2048:
         return False
-    low = s.lower()
-    if low.startswith(("http://", "https://", "outputs/", "docs/", "evoflow/")):
-        return True
-    if "/" in s and _FILE_EXT_RE.search(s):
-        return True
-    if _FILE_EXT_RE.search(s) and " " not in s[:120]:
-        return True
-    return False
+    try:
+        from evoflow.collab.task_outputs import is_file_shaped_output_value
+
+        return is_file_shaped_output_value(s)
+    except Exception:
+        low = s.lower()
+        if low.startswith(("chat:", "session:", "thread:")):
+            return False
+        if low.startswith(("http://", "https://", "outputs/", "docs/", "evoflow/")):
+            return True
+        if "/" in s and _FILE_EXT_RE.search(s):
+            return True
+        if _FILE_EXT_RE.search(s) and " " not in s[:120]:
+            return True
+        return False
 
 
 def sanitize_string_for_handoff(text: str, max_len: int = _DEFAULT_MAX_STR) -> str:

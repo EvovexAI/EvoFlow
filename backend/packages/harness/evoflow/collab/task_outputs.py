@@ -53,6 +53,43 @@ _FILE_EXT_RE = re.compile(
     r"\.(md|html?|pdf|json|ya?ml|tsx?|jsx?|py|css|txt|csv)$",
     re.IGNORECASE,
 )
+# Session / chat / thread refs agents sometimes mistype as file paths.
+_NON_FILE_REF_RE = re.compile(
+    r"^(?:chat|session|thread|run|msg|message|conversation)\s*:",
+    re.IGNORECASE,
+)
+_ENTITY_ID_ONLY_RE = re.compile(
+    r"^(?:Subtask|Task|Thread|Project|Trace|Fact|Todo|Memory|Automation)_[A-Za-z0-9_]+$",
+    re.IGNORECASE,
+)
+
+
+def is_file_shaped_output_value(value: str) -> bool:
+    """True when ``value`` looks like a filesystem path or http(s) URL.
+
+    Rejects session refs (``chat:Subtask_…``), bare entity ids, and other
+    non-path tokens so they cannot be persisted as ``type=file``.
+    """
+    s = str(value or "").strip().strip("'\"`")
+    if not s or len(s) > 2048:
+        return False
+    if _NON_FILE_REF_RE.match(s):
+        return False
+    if _ENTITY_ID_ONLY_RE.match(s):
+        return False
+    # Windows drive / UNC / POSIX abs
+    if re.match(r"^[A-Za-z]:[\\/]", s) or s.startswith("\\\\") or s.startswith("/"):
+        return True
+    low = s.lower()
+    if low.startswith(("http://", "https://", "file://")):
+        return True
+    # Relative workspace paths: need a separator and/or a known file extension.
+    norm = s.replace("\\", "/")
+    if "/" in norm and not norm.rstrip("/").endswith(":"):
+        return True
+    if _FILE_EXT_RE.search(s) and " " not in s[:120]:
+        return True
+    return False
 
 
 def normalize_output_type(raw: Any) -> str:
@@ -169,9 +206,9 @@ def extract_output_path_fields(value: str) -> tuple[str, str, str]:
         return path, label, key
 
     path, label = split_path_label_suffix(s)
-    if path and ("/" in path or _FILE_EXT_RE.search(path) or path.startswith("http://") or path.startswith("https://")):
+    if path and is_file_shaped_output_value(path):
         # Reject values that are still clearly kv blobs without a usable path.
-        if parse_output_kv_blob(path) and not _FILE_EXT_RE.search(path) and "/" not in path:
+        if parse_output_kv_blob(path) and not _FILE_EXT_RE.search(path) and "/" not in path.replace("\\", "/"):
             pass
         else:
             if not path.lower().startswith("type:"):
@@ -181,10 +218,11 @@ def extract_output_path_fields(value: str) -> tuple[str, str, str]:
     if m:
         found = f"{m.group('path')}.{m.group('ext')}".replace("\\", "/")
         found = found.strip().strip("'\"")
-        found_label = _clean_field_token(m.group("label") or "") or label
-        return found, found_label, ""
+        if is_file_shaped_output_value(found):
+            found_label = _clean_field_token(m.group("label") or "") or label
+            return found, found_label, ""
 
-    return path, label, ""
+    return "", "", ""
 
 
 def coerce_outputs_from_messy_text(text: str) -> list[dict[str, str]]:
@@ -322,8 +360,17 @@ def normalize_task_output(item: Any, *, default_key: str = "artifact") -> dict[s
         label = suffix_label
     if suffix_key and key.startswith("artifact"):
         key = suffix_key
+    typ = normalize_output_type(item.get("type"))
+    # Non-file-shaped values must not be registered as type=file (e.g. chat:Subtask_…).
+    if typ == "file" and not is_file_shaped_output_value(value):
+        typ = "text"
+    elif typ == "url" and not str(value).lower().startswith(("http://", "https://")):
+        if is_file_shaped_output_value(value):
+            typ = "file"
+        else:
+            typ = "text"
     out = {
-        "type": normalize_output_type(item.get("type")),
+        "type": typ,
         "key": key[:_KEY_MAX],
         "value": value[:_VALUE_MAX],
     }
@@ -390,13 +437,17 @@ def normalize_task_outputs(raw: Any) -> list[dict[str, str]]:
 
 
 def outputs_from_evidence_paths(paths: Any) -> list[dict[str, str]]:
-    """Map legacy ``evidence_paths`` string list → ``type=file`` outputs."""
+    """Map legacy ``evidence_paths`` string list → ``type=file`` outputs.
+
+    Non-file-shaped tokens (``chat:…``, bare entity ids) are skipped — they
+    must not become fake file deliverables.
+    """
     if not isinstance(paths, list):
         return []
     items = []
     for i, p in enumerate(paths):
         path = str(p or "").strip()
-        if not path:
+        if not path or not is_file_shaped_output_value(path):
             continue
         items.append({"type": "file", "key": f"file_{i + 1}", "value": path})
     return normalize_task_outputs(items)
@@ -406,10 +457,11 @@ def evidence_paths_from_outputs(outputs: Any) -> list[str]:
     """Derive legacy path list from file-typed outputs (backward compat)."""
     paths: list[str] = []
     for item in normalize_task_outputs(outputs):
-        if item.get("type") == "file":
-            v = str(item.get("value") or "").strip()
-            if v and v not in paths:
-                paths.append(v)
+        if item.get("type") != "file":
+            continue
+        v = str(item.get("value") or "").strip()
+        if v and is_file_shaped_output_value(v) and v not in paths:
+            paths.append(v)
     return paths
 
 
@@ -1070,6 +1122,7 @@ def shareable_approval_outputs(raw: Any, *, max_items: int = 12) -> list[dict[st
 __all__ = [
     "OUTPUT_TYPES",
     "normalize_output_type",
+    "is_file_shaped_output_value",
     "split_path_label_suffix",
     "parse_output_kv_blob",
     "extract_output_path_fields",

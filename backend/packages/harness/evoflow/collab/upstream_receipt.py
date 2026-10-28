@@ -386,13 +386,36 @@ def maybe_push_tree_receipt_feishu(
     }
 
 
+def child_already_chained_handoff(child: dict[str, Any]) -> bool:
+    """True when the child already handed off to a next hop (peer/subordinate).
+
+    In that case the orchestrator must **not** be woken as a relay to re-dispatch
+    the next ring — the chain continues without the manager as messenger.
+    """
+    if str(child.get("handlers_dispatched_at") or "").strip():
+        return True
+    if child.get("handlers_pending_approval") in (True, "true", "1", 1):
+        return True
+    dispatched = child.get("handlers_dispatched")
+    if isinstance(dispatched, list) and any(isinstance(x, dict) and x.get("ok") for x in dispatched):
+        return True
+    return False
+
+
 def resolve_upstream_targets(
     child: dict[str, Any],
     parent: dict[str, Any],
     *,
     all_siblings_done: bool,
 ) -> list[str]:
-    """Ordered unique agent_codes to soft-wake (manager first, then raised_by)."""
+    """Ordered unique agent_codes to soft-wake (manager first, then raised_by).
+
+    Skip wakes entirely when the child already ``handlers``-dispatched the next
+    hop — parent would only act as a redundant messenger.
+    """
+    if child_already_chained_handoff(child):
+        return []
+
     child_code = str(child.get("assigned_to") or "").strip()
     targets: list[str] = []
 
@@ -436,7 +459,7 @@ def build_receipt_goal(
     st_zh = {
         "completed": "已完成",
         "reviewed": "已完成",
-        "awaiting_close": "待闭环",
+        "awaiting_close": "待闭环（≠可派下一环；只是本岗声称交卷）",
         "failed": "失败",
         "error": "失败",
         "cancelled": "已取消",
@@ -446,9 +469,10 @@ def build_receipt_goal(
     lines = [
         "【下游回执】系统自动通知：你派发/编排的下游已结案。",
         "这是验收信号，**禁止新建**任何任务（含同名「下游回执」单）。",
+        "**禁止**当传令兵：若下游本应平级交接下一环，不要替它再 handlers 派一次。",
         "请只在下方「上游编排单」上复核并操作：",
         "- 验收通过 → 对该编排单/根单 ``tasks state … --status completed`` 真正闭环；",
-        "- 仍需下游 → 在该单上再填 handlers 派下一步；不要重做已完成的下游单。",
+        "- 仅当流水线**确实缺下一环**且须由你派时，才在该单上再填 handlers；不要重做已完成的下游单。",
         f"- 下游 Task `{child_id}`（{child_assignee}）状态：**{st_zh}** · {child_name}",
     ]
     if summary:
@@ -458,11 +482,14 @@ def build_receipt_goal(
         open_bits = [f"`{r['task_id']}`({r.get('assigned_to') or '?'})" for r in (rollup.get("open_rows") or [])[:6]]
         lines.append(f"- 仍未结：{', '.join(open_bits)}")
     if rollup.get("all_done"):
-        lines.append("- 建议：同级下游已齐。编排岗继续下一步；提出人请验收根单并 ``completed`` 闭环（根单若仍是「待闭环 / awaiting_close」不要当成已完成；进度 100% ≠ 整单结束）。")
+        lines.append(
+            "- 建议：同级下游已齐。优先验收根单并 ``completed`` 闭环；"
+            "勿默认再派一轮（根单若仍是 awaiting_close，进度 100% ≠ 整单结束）。"
+        )
     else:
-        lines.append("- 建议：可等待其余同级结案，或先处理已回执项——仍在原编排单上操作。")
+        lines.append("- 建议：可等待其余同级结案——仍在原编排单上操作，勿新开单。")
     if parent_id:
-        lines.append(f"- 你的上游编排单：`{parent_id}`（本轮 wake 已绑定此 id；待闭环期间可继续编排，验收后再 completed）")
+        lines.append(f"- 你的上游编排单：`{parent_id}`（本轮 wake 已绑定此 id；验收后再 completed）")
     return "\n".join(lines)
 
 
@@ -619,6 +646,7 @@ def notify_upstream_on_child_terminal(
     except Exception:
         logger.exception("upstream_receipt: tree feishu push failed child=%s", child_id)
 
+    chained = child_already_chained_handoff(child)
     receipt = {
         "at": now,
         "child_task_id": child_id,
@@ -627,6 +655,7 @@ def notify_upstream_on_child_terminal(
         "all_siblings_done": bool(rollup.get("all_done")),
         "wakes": [{"agent_code": w.get("agent_code"), "ok": w.get("ok"), "busy": w.get("busy")} for w in wakes],
         "feishu_tree_receipt": feishu_push,
+        "skipped_wake_already_chained": bool(chained and not targets),
     }
     try:
         existing = list(parent.get("downstream_receipts") or [])
@@ -642,9 +671,9 @@ def notify_upstream_on_child_terminal(
         logger.debug("upstream_receipt: stamp parent receipts failed", exc_info=True)
 
     wake_ok = any(w.get("ok") for w in wakes) or any(w.get("busy") for w in wakes)
-    # Only stamp idempotency when we actually reached the orchestrator (or busy).
+    # Stamp when: wake ok/busy, intentional no-wake (already chained), or feishu-only.
     # Failed wakes must remain retriable — do not set upstream_receipt_at.
-    if wake_ok or (not targets and feishu_push is not None):
+    if wake_ok or chained or (not targets and feishu_push is not None):
         try:
             patch_collab_main_task_in_project_storage(
                 storage,
@@ -684,7 +713,12 @@ def notify_upstream_on_child_terminal(
         )
 
     return {
-        "ok": bool(wake_ok or (not targets and feishu_push is not None) or bool(feishu_push and feishu_push.get("ok"))),
+        "ok": bool(
+            wake_ok
+            or chained
+            or (not targets and feishu_push is not None)
+            or bool(feishu_push and feishu_push.get("ok"))
+        ),
         "task_id": child_id,
         "parent_task_id": parent_id,
         "targets": targets,
@@ -692,5 +726,6 @@ def notify_upstream_on_child_terminal(
         "wakes": wakes,
         "receipt": receipt,
         "feishu_tree_receipt": feishu_push,
+        "skipped_wake_already_chained": bool(chained and not wakes),
         "retried_safe": not wake_ok and bool(targets),
     }

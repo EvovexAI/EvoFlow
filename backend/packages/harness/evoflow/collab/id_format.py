@@ -5,10 +5,14 @@ from __future__ import annotations
 import random
 import re
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime
+
+from evoflow.timeutil import BEIJING_TZ
 
 # Legacy: Task_YYYYMMDDHHMMSS_XXXXXX
 # New (short, no Task_ prefix): YYMMDDHHMM_xxxx  e.g. 2607250830_a3f9
+# Timestamp digits use Asia/Shanghai (UTC+8) so they match panel wall-clock
+# display (``utc_now_iso_z`` / ``started_at``), not UTC.
 _TASK_ID_LEGACY_RE = re.compile(r"Task_[A-Za-z0-9_]+")
 _TASK_ID_SHORT_RE = re.compile(r"\b\d{10}_[0-9a-f]{4}\b", re.IGNORECASE)
 _TASK_ID_SHORT_FULL = re.compile(r"^\d{10}_[0-9a-f]{4}$", re.IGNORECASE)
@@ -20,13 +24,13 @@ TASK_ID_FINDALL_RE = re.compile(
 
 
 def _ts_compact() -> str:
-    # YYYYMMDDHHMMSS
-    return datetime.now(UTC).strftime("%Y%m%d%H%M%S")
+    # YYYYMMDDHHMMSS (Asia/Shanghai)
+    return datetime.now(BEIJING_TZ).strftime("%Y%m%d%H%M%S")
 
 
 def _ts_short() -> str:
-    # YYMMDDHHMM (UTC)
-    return datetime.now(UTC).strftime("%y%m%d%H%M")
+    # YYMMDDHHMM (Asia/Shanghai)
+    return datetime.now(BEIJING_TZ).strftime("%y%m%d%H%M")
 
 
 def _rand6() -> str:
