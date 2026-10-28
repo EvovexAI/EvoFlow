@@ -771,20 +771,22 @@ export function useSessionList(opts: UseSessionListOptions) {
                 silent: currentOpt?.silentReload ?? true,
               })
               const keysToLoad = resolveWorkspaceKeysToLoad()
-              // 首次进入：预拉各工作空间首页。不 await——否则 N 路并行 sessions
-              // 会堵死 app-server stdio，拖慢当前对话 /messages。
+              // 首次进入：只拉「当前会话目录 + 少量已展开组」，不要按 summaries 把所有
+              // 有会话的 workspace_key 扫一遍。否则点智能体进聊天会打出十几路
+              // sessions?workspace_key=…，抢管道导致中间区长时间空白。
+              // 其它目录交给侧栏 ensureWorkspaceExpanded 按需加载。
               if (!initialPreloadDoneRef.current) {
-                const preloadKeys = summaries
-                  .map((g) => String(g.workspaceKey || '').trim())
+                initialPreloadDoneRef.current = true
+                const FIRST_PAINT_EXPANDED_CAP = 3
+                const expandedFirst = [...loadExpandedWorkspaceKeys()]
                   .filter(
                     (k) =>
                       k &&
-                      k !== WORKSPACE_GROUP_PROACTIVE &&
-                      k !== GLOBAL_RECENT_PAGINATION_KEY &&
-                      Number((summaries.find((s) => s.workspaceKey === k) || {}).sessionCount ?? 0) > 0,
+                      !keysToLoad.includes(k) &&
+                      k !== GLOBAL_RECENT_PAGINATION_KEY,
                   )
-                const needKeys = [...new Set([...preloadKeys, ...keysToLoad])]
-                initialPreloadDoneRef.current = true
+                  .slice(0, FIRST_PAINT_EXPANDED_CAP)
+                const needKeys = [...new Set([...keysToLoad, ...expandedFirst])]
                 if (needKeys.length) {
                   void loadWorkspaceSessionsBatch(needKeys, {
                     reset: true,
@@ -805,16 +807,26 @@ export function useSessionList(opts: UseSessionListOptions) {
                   reset: true,
                   silent: currentOpt?.silentReload ?? true,
                 })
-              }
-              // 仍展开着的目录：静默补拉（工作空间面板）
-              const expanded = [...loadExpandedWorkspaceKeys()].filter(
-                (k) => k && !keysToLoad.includes(k) && k !== GLOBAL_RECENT_PAGINATION_KEY,
-              )
-              if (expanded.length) {
-                void loadWorkspaceSessionsBatch(expanded, {
-                  reset: true,
-                  silent: true,
-                }).catch(() => {})
+                // 仍展开着的目录：静默补拉（工作空间面板）
+                const expanded = [...loadExpandedWorkspaceKeys()].filter(
+                  (k) => k && !keysToLoad.includes(k) && k !== GLOBAL_RECENT_PAGINATION_KEY,
+                )
+                if (expanded.length) {
+                  void loadWorkspaceSessionsBatch(expanded, {
+                    reset: true,
+                    silent: true,
+                  }).catch(() => {})
+                }
+              } else {
+                const expanded = [...loadExpandedWorkspaceKeys()].filter(
+                  (k) => k && k !== GLOBAL_RECENT_PAGINATION_KEY,
+                )
+                if (expanded.length) {
+                  void loadWorkspaceSessionsBatch(expanded, {
+                    reset: true,
+                    silent: true,
+                  }).catch(() => {})
+                }
               }
             }
 
