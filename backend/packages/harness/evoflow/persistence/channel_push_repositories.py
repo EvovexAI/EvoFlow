@@ -154,6 +154,7 @@ _KIND_LABEL_ZH = {
     "wrap_digest": "工作汇报",
     "running_work": "处理中",
     "escalation": "催办",
+    "tree_receipt": "协作待闭环",
 }
 
 
@@ -477,6 +478,202 @@ def list_by_approval(approval_id: str, *, limit: int = 50) -> list[dict[str, Any
         .fetchall()
     )
     return [_row_to_dict(r) for r in rows]
+
+
+def tree_receipt_external_id(task_id: str) -> str:
+    """Stable Feishu/audit id for one-shot「协作待闭环」per root task."""
+    tid = str(task_id or "").strip()
+    return f"tree_receipt:{tid}" if tid else ""
+
+
+def tree_receipt_outbound_exists(
+    task_id: str,
+    *,
+    statuses: tuple[str, ...] = ("ok", "pending", "sending"),
+) -> bool:
+    """True when a tree_receipt row for this root already claims the slot."""
+    tid = str(task_id or "").strip()
+    if not tid:
+        return False
+    ext = tree_receipt_external_id(tid)
+    want = tuple(str(s).strip().lower() for s in statuses if str(s).strip())
+    if not want:
+        return False
+    placeholders = ",".join("?" for _ in want)
+    try:
+
+        def _probe(db: Any) -> bool:
+            row = db.execute(
+                f"""
+                SELECT 1 FROM evoflow_channel_push_log
+                WHERE kind = 'tree_receipt'
+                  AND direction = 'outbound'
+                  AND status IN ({placeholders})
+                  AND (task_id = ? OR external_message_id = ?)
+                LIMIT 1
+                """,
+                (*want, tid, ext),
+            ).fetchone()
+            return row is not None
+
+        from evoflow.persistence.db import run_db_with_retry
+
+        return bool(run_db_with_retry(lambda: _probe(get_db())))
+    except Exception:
+        logger.debug("channel_push_log: tree_receipt exists probe failed task=%s", tid, exc_info=True)
+        return False
+
+
+def try_claim_tree_receipt(
+    task_id: str,
+    *,
+    role_agent_code: str = "xiaomi",
+    title: str = "协作待闭环",
+) -> str | None:
+    """Atomically insert a pending tree_receipt row. None = already claimed/sent.
+
+    Uses ``BEGIN IMMEDIATE`` so parallel sibling completions cannot both send.
+    """
+    tid = str(task_id or "").strip()
+    if not tid:
+        return None
+    ext = tree_receipt_external_id(tid)
+    now = utc_now_iso_z()
+    pid = new_push_id()
+
+    def _claim(db: Any) -> str | None:
+        row = db.execute(
+            """
+            SELECT id FROM evoflow_channel_push_log
+            WHERE kind = 'tree_receipt'
+              AND direction = 'outbound'
+              AND status IN ('ok', 'pending', 'sending')
+              AND (task_id = ? OR external_message_id = ?)
+            LIMIT 1
+            """,
+            (tid, ext),
+        ).fetchone()
+        if row is not None:
+            return None
+        db.execute(
+            """
+            INSERT INTO evoflow_channel_push_log (
+                id, direction, channel, kind, event, transport,
+                approval_id, task_id, initiative_id, role_agent_code,
+                receive_id, receive_id_type, sender_account_id, external_message_id,
+                title, content_summary, payload_json, status, error, triggered_by, created_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                pid,
+                "outbound",
+                "feishu",
+                "tree_receipt",
+                "claim",
+                "markdown",
+                "",
+                tid,
+                "",
+                str(role_agent_code or "xiaomi").strip() or "xiaomi",
+                "",
+                "",
+                "",
+                ext,
+                _clip(title, _TITLE_MAX),
+                "claim pending send",
+                _payload_to_json({"transport": "markdown", "phase": "claim"}),
+                "pending",
+                "",
+                "system",
+                now,
+            ),
+        )
+        return pid
+
+    try:
+        from evoflow.persistence.db import run_db_transaction
+
+        return run_db_transaction(_claim)
+    except Exception:
+        logger.debug("channel_push_log: tree_receipt claim failed task=%s", tid, exc_info=True)
+        return None
+
+
+def finalize_tree_receipt_claim(
+    push_id: str,
+    *,
+    ok: bool,
+    receive_id: str = "",
+    receive_id_type: str = "",
+    sender_account_id: str = "",
+    content_summary: str = "",
+    error: str = "",
+    payload: Any = None,
+) -> None:
+    """Mark a pending tree_receipt claim as sent or failed."""
+    pid = str(push_id or "").strip()
+    if not pid:
+        return
+    status = "ok" if ok else "error"
+    event = "sent" if ok else "send_failed"
+
+    def _finalize(db: Any) -> None:
+        db.execute(
+            """
+            UPDATE evoflow_channel_push_log
+            SET event = ?,
+                receive_id = ?,
+                receive_id_type = ?,
+                sender_account_id = ?,
+                content_summary = ?,
+                payload_json = ?,
+                status = ?,
+                error = ?
+            WHERE id = ? AND kind = 'tree_receipt'
+            """,
+            (
+                event,
+                str(receive_id or "").strip(),
+                str(receive_id_type or "").strip(),
+                str(sender_account_id or "").strip(),
+                _clip(content_summary, _SUMMARY_MAX),
+                _payload_to_json(payload if payload is not None else {"transport": "markdown"}),
+                status,
+                _clip(error, _SUMMARY_MAX),
+                pid,
+            ),
+        )
+
+    try:
+        from evoflow.persistence.db import run_db_transaction
+
+        run_db_transaction(_finalize)
+    except Exception:
+        logger.debug("channel_push_log: tree_receipt finalize failed id=%s", pid, exc_info=True)
+
+
+def release_tree_receipt_claim(push_id: str, *, error: str = "send_failed_released") -> None:
+    """Drop a failed pending claim so a later retry can send once."""
+    pid = str(push_id or "").strip()
+    if not pid:
+        return
+
+    def _release(db: Any) -> None:
+        db.execute(
+            """
+            UPDATE evoflow_channel_push_log
+            SET status = 'error', event = 'claim_released', error = ?
+            WHERE id = ? AND kind = 'tree_receipt' AND status IN ('pending', 'sending')
+            """,
+            (_clip(error, _SUMMARY_MAX), pid),
+        )
+
+    try:
+        from evoflow.persistence.db import run_db_transaction
+
+        run_db_transaction(_release)
+    except Exception:
+        logger.debug("channel_push_log: tree_receipt release failed id=%s", pid, exc_info=True)
 
 
 def push_dedup_exists(

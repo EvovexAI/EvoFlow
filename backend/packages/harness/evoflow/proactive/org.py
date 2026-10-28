@@ -87,6 +87,57 @@ def list_direct_reports(
     return out
 
 
+def list_same_org_others(
+    role: ProactiveRole,
+    roster: list[ProactiveRole],
+) -> list[ProactiveRole]:
+    """Active peers in the same org boundary excluding ``role`` itself."""
+    self_code = str(role.agent_code or "").strip()
+    peers = filter_roster_same_org(role, roster)
+    out = [r for r in peers if str(r.agent_code or "").strip() != self_code]
+    out.sort(key=lambda r: (str(r.role_name or ""), str(r.agent_code or "")))
+    return out
+
+
+def describe_org_wiring(
+    role: ProactiveRole,
+    roster: list[ProactiveRole] | None = None,
+) -> dict[str, Any]:
+    """Snapshot used by prompts + hire hints.
+
+    Rules:
+    - Top-level with empty ``reports_to`` is valid (may still have direct reports).
+    - Same-workspace colleagues without any ``reports_to`` links are *not* solo —
+      prompts must still surface the roster and warn that reporting is unwired.
+    - Unbound workspace + no reporting stays a true solo (do not dump global roster).
+    """
+    raw = list(roster) if roster is not None else []
+    peers = filter_roster_same_org(role, raw)
+    others = list_same_org_others(role, raw)
+    manager = get_manager(role, peers)
+    reports = list_direct_reports(role, peers)
+    self_mgr = reports_to_code(role)
+    ws_key = role_org_key(role)
+    reporting_linked = bool(manager or reports or self_mgr)
+    # Bound workspace with colleagues but zero reporting edges → hire/org gap.
+    needs_wiring = bool(ws_key and others and not reporting_linked)
+    # Prompt solo stub: no reporting edges, and either unbound (never dump global
+    # roster as a fake team) or bound but alone in that workspace.
+    is_true_solo = (not reporting_linked) and ((not ws_key) or (not others))
+    return {
+        "workspace_bound": bool(ws_key),
+        "workspace_key": ws_key,
+        "reports_to": self_mgr,
+        "manager_code": str(manager.agent_code or "").strip() if manager else "",
+        "direct_report_codes": [str(r.agent_code or "").strip() for r in reports],
+        "same_org_other_codes": [str(r.agent_code or "").strip() for r in others],
+        "same_org_others": others,
+        "reporting_linked": reporting_linked,
+        "needs_reports_to_wiring": needs_wiring,
+        "is_true_solo": is_true_solo,
+    }
+
+
 def is_descendant(
     ancestor: ProactiveRole,
     candidate: ProactiveRole,

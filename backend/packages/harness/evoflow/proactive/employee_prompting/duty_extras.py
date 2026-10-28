@@ -148,6 +148,7 @@ def build_standard_workflow_section(
 ) -> str:
     """Duty workflow: 接单→执行→自检→交接→验收."""
     from evoflow.proactive.org import (
+        describe_org_wiring,
         filter_roster_same_org,
         get_manager,
         list_direct_reports,
@@ -156,16 +157,21 @@ def build_standard_workflow_section(
 
     raw = roster if roster is not None else _load_active_roster()
     peers = filter_roster_same_org(role, raw)
+    wiring = describe_org_wiring(role, raw)
     manager = get_manager(role, peers)
     reports = list_direct_reports(role, peers)
     self_mgr = reports_to_code(role)
     max_n = int(getattr(role.config, "max_initiatives_per_cycle", 2) or 2)
+    needs_wiring = bool(wiring.get("needs_reports_to_wiring"))
 
     if reports:
         reports_list = "\n".join(
             f"  - `{r.agent_code}` · {r.role_name}（{r.department or '—'}）" for r in reports
         )
         has_downstream = True
+    elif needs_wiring:
+        reports_list = "  - （无直属下级——同组织有人但尚未配置 reports_to 指向本岗）"
+        has_downstream = False
     else:
         reports_list = "  - （无直属下级，本岗是叶子节点）"
         has_downstream = False
@@ -174,7 +180,7 @@ def build_standard_workflow_section(
         manager_line = f"`{manager.agent_code}` · {manager.role_name}（{manager.department or '—'}）"
         has_upstream = True
     else:
-        manager_line = "（无上级，本岗是顶级负责人）"
+        manager_line = "（无上级，本岗是顶级负责人——合法；有下级时靠下属 reports_to 指向本岗）"
         has_upstream = False
 
     self_code = str(role.agent_code or "").strip()
@@ -193,20 +199,17 @@ def build_standard_workflow_section(
     else:
         peer_list = "  - （无同一上级下的平级岗位）"
 
+    # Handoff one-liner only — full rules live in ``<employee_collab>``; people in ``<employee_org>``.
     if has_downstream and has_upstream:
-        handoff_note = (
-            "你既有直属下级也有直属上级：本岗做完自己的部分后，必须通过 handlers 派给下级继续；"
-            "如果是上级派来的任务且本岗已全部完成，则提交上级验收。"
-        )
+        handoff_note = "有上下级：做完本岗部分后 handlers 派下级；上级派来的整单做完则结案验收。"
     elif has_downstream:
-        handoff_note = (
-            "你有直属下级但无上级（顶级负责人）：本岗做完方案/拆解后，必须通过 handlers 派给下级执行，"
-            "不要自己越权做下游的活。"
-        )
+        handoff_note = "顶级负责人：方案/拆解完成后 handlers 派下级，勿越权做下游。"
     elif has_upstream:
-        handoff_note = "你有上级但无直属下级（叶子执行岗）：本岗完成全部开发/测试/执行后，直接提交上级验收。"
+        handoff_note = "叶子执行岗：做完后对本岗 Task completed，勿给上级新建验收单。"
+    elif needs_wiring:
+        handoff_note = "汇报线未挂通：见 ``<employee_collab>`` / ``<employee_org>``；先 tasks create，再补 reports_to。"
     else:
-        handoff_note = "你是独立岗（无上级无下级）：完成后直接结案，无需交接。"
+        handoff_note = "独立岗：完成后直接结案。"
 
     docs_hint = f"文档类产出写到 ``{docs_rel}`` 目录。" if docs_rel else ""
 

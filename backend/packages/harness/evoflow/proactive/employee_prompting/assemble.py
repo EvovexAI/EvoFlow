@@ -145,7 +145,8 @@ def assemble_employee_system_prompt(
     )
     from evoflow.proactive.employee_prompting.job import build_employee_job_block
     from evoflow.proactive.employee_prompting.memory import build_employee_memory_policy_block
-    from evoflow.proactive.employee_prompting.org_section import build_employee_org_section
+    from evoflow.proactive.employee_prompting.collab_rules import build_employee_collab_block
+    from evoflow.proactive.employee_prompting.org_roster import build_employee_org_roster_block
     from evoflow.proactive.employee_prompting.session import build_employee_session_block
 
     duty_role = role
@@ -181,9 +182,11 @@ def assemble_employee_system_prompt(
         except Exception:
             docs_rel = ""
 
+    # job → org roster (people) → collab rules (task flow) → [duty workflow] → …
     parts: list[str] = [
         build_employee_job_block(soul=job_soul, custom_system_prompt=job_sp),
-        build_employee_org_section(org_role, roster=roster, detail=org_detail),
+        build_employee_org_roster_block(org_role, roster=roster, detail=org_detail),
+        build_employee_collab_block(org_role, roster=roster),
     ]
 
     if mode == "duty" and duty_role is not None:

@@ -336,6 +336,8 @@ def validate_dispatch_org_relationship(
     - ``user`` / empty ``from_agent`` → always allowed (human dispatch).
     - ``xiaomi`` (系统前台/小V) → same privilege as human: may wake any active
       employee regardless of reporting line or workspace org (she acts for the user).
+    - ``system`` → platform soft-wake (upstream_receipt child→orchestrator); same
+      privilege as user so receipt is not blocked by 下级不能向上级派发.
     - Same role → not allowed (can't dispatch to self).
     - Target must exist in the roster and be active.
     - Same org (workspace) required (ordinary employees only).
@@ -373,12 +375,14 @@ def validate_dispatch_org_relationship(
 
     target = find_role(roster, tgt_code)
     if target is None:
-        if from_code.lower() in {"", "user"} or is_xiaomi_agent(from_code):
+        if from_code.lower() in {"", "user", "system"} or is_xiaomi_agent(from_code):
             return None
         return f"目标岗位 `{tgt_code}` 不在岗位花名册中"
 
-    # Human user or 小V（系统前台）：代表用户全局派活，不受组织上下级/平级限制。
-    if from_code.lower() in {"", "user"} or is_xiaomi_agent(from_code):
+    # Human / 小V / 系统回执：代表平台全局派活，不受组织上下级/平级限制。
+    # ``system`` is used by upstream_receipt soft-wake (child→manager); must not
+    # be judged as subordinate→superior under the child agent's identity.
+    if from_code.lower() in {"", "user", "system"} or is_xiaomi_agent(from_code):
         return None
 
     dispatcher = find_role(roster, from_code)
@@ -3076,7 +3080,7 @@ class ProactiveRunner:
         # dispatch to the target role. user / empty / xiaomi → always allowed;
         # ordinary employee → direct superior→subordinate / peer→peer /
         # ancestor→descendant, same org.
-        if from_agent_s and from_agent_s.lower() != "user":
+        if from_agent_s and from_agent_s.lower() not in {"user", "system"}:
             try:
                 roster = list(ProactiveRepository.list_roles())
                 org_err = validate_dispatch_org_relationship(

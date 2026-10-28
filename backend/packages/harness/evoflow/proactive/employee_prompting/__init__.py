@@ -1,7 +1,12 @@
 """Employee system-prompt SSOT: one skeleton, mode=chat|duty.
 
-Order: job → org → [duty extras] → session → memory.
-No auto-injected ``<platform>`` shell (optional builders remain in ``platform.py``).
+Order: job → ``<employee_org>`` (roster) → ``<employee_collab>`` (handoff) →
+[duty extras] → session → memory.
+
+- Org **data**: ``evoflow.proactive.org``
+- Org **prompt roster**: ``org_roster.py``
+- Task **handoff prompt**: ``collab_rules.py``
+- Hire/create **notices**: ``evoflow.admin.org_hire_notice``
 
 Public API::
 
@@ -24,6 +29,7 @@ from evoflow.proactive.employee_prompting.assemble import (
     build_employee_chat_framing,
     build_employee_chat_system_prompt,
 )
+from evoflow.proactive.employee_prompting.collab_rules import build_employee_collab_block
 from evoflow.proactive.employee_prompting.identity import (
     is_employee_chat_session,
     load_role_for_code,
@@ -32,6 +38,7 @@ from evoflow.proactive.employee_prompting.identity import (
 )
 from evoflow.proactive.employee_prompting.job import build_employee_job_block
 from evoflow.proactive.employee_prompting.memory import build_employee_memory_policy_block
+from evoflow.proactive.employee_prompting.org_roster import build_employee_org_roster_block
 from evoflow.proactive.employee_prompting.org_section import (
     build_collab_rules_section,
     build_employee_org_section,
@@ -64,12 +71,14 @@ __all__ = [
     "build_collab_rules_section",
     "build_employee_chat_framing",
     "build_employee_chat_system_prompt",
+    "build_employee_collab_block",
     "build_employee_communication_block",
     "build_employee_contract_block",
     "build_employee_habits_block",
     "build_employee_identity_block",
     "build_employee_job_block",
     "build_employee_memory_policy_block",
+    "build_employee_org_roster_block",
     "build_employee_org_section",
     "build_employee_platform_block",
     "build_employee_session_block",

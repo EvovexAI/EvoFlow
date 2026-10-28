@@ -186,13 +186,87 @@ def _run_async(coro: Any) -> Any:
         return pool.submit(lambda: asyncio.run(coro)).result()
 
 
+def claim_tree_receipt_slot(root_task_id: str) -> tuple[bool, dict[str, Any] | None]:
+    """Atomically stamp ``tree_receipt_pushed_at`` on the root under the per-task lock.
+
+    Returns ``(claimed, root_row)``. Only the winner may call Feishu; losers see
+    ``claimed=False`` even when sibling completions race within the same second.
+    """
+    from evoflow.collab.storage import find_main_task, get_project_storage, main_task_mutation_lock
+    from evoflow.timeutil import utc_now_iso_z
+
+    rid = str(root_task_id or "").strip()
+    if not rid:
+        return False, None
+    storage = get_project_storage()
+    with main_task_mutation_lock(rid):
+        found = find_main_task(storage, rid, bypass_cache=True)
+        if not found:
+            return False, None
+        project, task = found
+        if str(task.get("tree_receipt_pushed_at") or "").strip():
+            return False, dict(task)
+        try:
+            from evoflow.persistence.channel_push_repositories import tree_receipt_outbound_exists
+
+            if tree_receipt_outbound_exists(rid):
+                # Another worker already claimed/sent — backfill stamp so local
+                # readers skip without re-hitting SQLite every time.
+                now = utc_now_iso_z()
+                task["tree_receipt_pushed_at"] = now
+                task["updated_at"] = now
+                project["updated_at"] = now
+                storage.save_project(project)
+                return False, dict(task)
+        except Exception:
+            logger.debug("upstream_receipt: push_log exists probe failed root=%s", rid, exc_info=True)
+
+        now = utc_now_iso_z()
+        # Mutate the live row in place so same-process reloads / mocks see the stamp.
+        task["tree_receipt_pushed_at"] = now
+        task["updated_at"] = now
+        project["updated_at"] = now
+        if not storage.save_project(project):
+            task.pop("tree_receipt_pushed_at", None)
+            return False, dict(task)
+        return True, dict(task)
+
+
+def release_tree_receipt_slot(root_task_id: str) -> None:
+    """Clear the root stamp after a failed send so a later hop can retry once."""
+    from evoflow.collab.storage import find_main_task, get_project_storage, main_task_mutation_lock
+    from evoflow.timeutil import utc_now_iso_z
+
+    rid = str(root_task_id or "").strip()
+    if not rid:
+        return
+    storage = get_project_storage()
+    with main_task_mutation_lock(rid):
+        found = find_main_task(storage, rid, bypass_cache=True)
+        if not found:
+            return
+        project, task = found
+        if not str(task.get("tree_receipt_pushed_at") or "").strip():
+            return
+        now = utc_now_iso_z()
+        task.pop("tree_receipt_pushed_at", None)
+        task["updated_at"] = now
+        project["updated_at"] = now
+        storage.save_project(project)
+
+
 def maybe_push_tree_receipt_feishu(
     *,
     child: dict[str, Any],
     parent: dict[str, Any],
     all_siblings_done: bool,
 ) -> dict[str, Any] | None:
-    """When the whole handoff tree under the root is terminal, push Feishu once."""
+    """When the whole handoff tree under the root is terminal, push Feishu once.
+
+    Dedup is claim-before-send: root stamp under ``main_task_mutation_lock`` plus
+    a pending row in ``evoflow_channel_push_log``. Parallel sibling completions
+    must not both hit Feishu.
+    """
     if not all_siblings_done:
         return None
 
@@ -202,6 +276,7 @@ def maybe_push_tree_receipt_feishu(
     root_id = str(root.get("id") or root.get("task_id") or "").strip()
     if not root_id:
         return None
+    # Fast path only — authoritative claim reloads under the per-task lock below.
     if str(root.get("tree_receipt_pushed_at") or "").strip():
         return {"ok": True, "skipped": True, "reason": "already_pushed", "root_task_id": root_id}
 
@@ -225,6 +300,32 @@ def maybe_push_tree_receipt_feishu(
             "total": tree.get("total"),
         }
 
+    claimed, fresh_root = claim_tree_receipt_slot(root_id)
+    if not claimed:
+        return {"ok": True, "skipped": True, "reason": "already_pushed", "root_task_id": root_id}
+    if fresh_root:
+        root = fresh_root
+
+    claim_push_id: str | None = None
+    try:
+        from evoflow.persistence.channel_push_repositories import (
+            release_tree_receipt_claim,
+            try_claim_tree_receipt,
+            tree_receipt_outbound_exists,
+        )
+
+        claim_push_id = try_claim_tree_receipt(root_id)
+        if claim_push_id is None and tree_receipt_outbound_exists(root_id):
+            # Lost the DB race (or already sent). Keep root stamp; do not send again.
+            return {
+                "ok": True,
+                "skipped": True,
+                "reason": "already_pushed_log",
+                "root_task_id": root_id,
+            }
+    except Exception:
+        logger.debug("upstream_receipt: tree_receipt log claim failed root=%s", root_id, exc_info=True)
+
     try:
         from evoflow.proactive.feishu_notify import push_collab_tree_receipt
 
@@ -235,35 +336,52 @@ def maybe_push_tree_receipt_feishu(
                 summary_lines=build_tree_receipt_summary_lines(root=root, tree=tree),
                 child_task_id=child_id,
                 raised_by=str(root.get("raised_by") or "").strip(),
+                claim_push_id=str(claim_push_id or ""),
             )
         )
     except Exception as e:
         logger.exception("upstream_receipt: feishu tree push failed root=%s", root_id)
+        try:
+            release_tree_receipt_slot(root_id)
+        except Exception:
+            logger.debug("upstream_receipt: release stamp failed root=%s", root_id, exc_info=True)
+        if claim_push_id:
+            try:
+                from evoflow.persistence.channel_push_repositories import release_tree_receipt_claim
+
+                release_tree_receipt_claim(claim_push_id, error=str(e)[:200])
+            except Exception:
+                pass
         return {"ok": False, "root_task_id": root_id, "error": str(e)}
 
-    if mid:
+    if not mid:
         try:
-            from evoflow.collab.storage import (
-                get_project_storage,
-                patch_collab_main_task_in_project_storage,
-            )
-            from evoflow.timeutil import utc_now_iso_z
-
-            patch_collab_main_task_in_project_storage(
-                get_project_storage(),
-                root_id,
-                {"tree_receipt_pushed_at": utc_now_iso_z()},
-            )
+            release_tree_receipt_slot(root_id)
         except Exception:
-            logger.debug("upstream_receipt: stamp tree_receipt_pushed_at failed", exc_info=True)
+            logger.debug("upstream_receipt: release stamp failed root=%s", root_id, exc_info=True)
+        if claim_push_id:
+            try:
+                from evoflow.persistence.channel_push_repositories import release_tree_receipt_claim
+
+                release_tree_receipt_claim(claim_push_id, error="feishu_send_returned_none")
+            except Exception:
+                pass
+        return {
+            "ok": False,
+            "root_task_id": root_id,
+            "done": tree.get("done"),
+            "total": tree.get("total"),
+            "error": "feishu_send_failed",
+        }
 
     # Best-effort: Feishu is the user-facing receipt; desktop is optional later.
     return {
-        "ok": bool(mid),
+        "ok": True,
         "root_task_id": root_id,
         "message_id": mid,
         "done": tree.get("done"),
         "total": tree.get("total"),
+        "claim_push_id": claim_push_id,
     }
 
 
@@ -365,8 +483,18 @@ def notify_upstream_on_child_terminal(
 
     child = dict(child_task or {})
     child_id = str(child.get("id") or child.get("task_id") or "").strip()
+    # Handoff parent lives in ``parent_task_id`` (extra_json / task meta).
+    # SQL column ``parent_id`` is a separate collab-tree field — do not treat its
+    # emptiness as "no upstream".
     parent_id = str(child.get("parent_task_id") or "").strip()
-    if not child_id or not parent_id:
+    if not child_id:
+        return None
+    if not parent_id:
+        logger.warning(
+            "upstream_receipt: skip — child %s has no parent_task_id "
+            "(SQL parent_id is unrelated; check create_task / handoff stamp)",
+            child_id,
+        )
         return None
     if str(child.get("upstream_receipt_at") or "").strip():
         try:
@@ -428,7 +556,12 @@ def notify_upstream_on_child_terminal(
             logger.exception("upstream_receipt: cannot import employees admin")
             return {"ok": False, "reason": "import_failed", "task_id": child_id}
 
-        from_agent = str(child.get("assigned_to") or "").strip() or "system"
+        # Always wake as platform ``user`` — never as the child assignee.
+        # Child→manager is denied by org dispatch (下级不能向上级派发); historically
+        # that made receipt look "done" (upstream_receipt_at stamped) while the
+        # orchestrator never woke. ``user`` is already a privileged from_agent on
+        # the Gateway path (``system`` is also allowlisted for in-process wakes).
+        child_assignee = str(child.get("assigned_to") or "").strip()
         for code in targets:
             try:
                 # Soft-wake on the *parent* orchestration board row — never mint a
@@ -436,13 +569,30 @@ def notify_upstream_on_child_terminal(
                 result = employees_admin.wake(
                     code,
                     goal=goal,
-                    from_agent=from_agent,
-                    description="下游回执（系统）",
+                    from_agent="user",
+                    description=f"下游回执（系统 · 来自 {child_assignee or child_id}）",
                     source="role",
                     task_id=parent_id,
                     skip_done_guard=True,
                 )
-                wakes.append({"agent_code": code, "ok": True, "result": result})
+                # dispatch may return ok=False without raising (org_denied etc.)
+                if isinstance(result, dict) and result.get("ok") is False:
+                    wakes.append(
+                        {
+                            "agent_code": code,
+                            "ok": False,
+                            "error": str(result.get("error") or "wake_rejected"),
+                            "result": result,
+                        }
+                    )
+                    logger.info(
+                        "upstream_receipt: wake rejected agent=%s child=%s err=%s",
+                        code,
+                        child_id,
+                        result.get("error"),
+                    )
+                else:
+                    wakes.append({"agent_code": code, "ok": True, "result": result})
             except ConflictError as e:
                 wakes.append({"agent_code": code, "ok": False, "busy": True, "error": str(e)})
                 logger.info("upstream_receipt: target busy agent=%s child=%s", code, child_id)
@@ -490,39 +640,50 @@ def notify_upstream_on_child_terminal(
     except Exception:
         logger.debug("upstream_receipt: stamp parent receipts failed", exc_info=True)
 
-    try:
-        patch_collab_main_task_in_project_storage(
-            storage,
-            child_id,
-            {"upstream_receipt_at": now},
-        )
-    except Exception:
-        logger.debug("upstream_receipt: stamp child failed", exc_info=True)
+    wake_ok = any(w.get("ok") for w in wakes) or any(w.get("busy") for w in wakes)
+    # Only stamp idempotency when we actually reached the orchestrator (or busy).
+    # Failed wakes must remain retriable — do not set upstream_receipt_at.
+    if wake_ok or (not targets and feishu_push is not None):
+        try:
+            patch_collab_main_task_in_project_storage(
+                storage,
+                child_id,
+                {"upstream_receipt_at": now},
+            )
+        except Exception:
+            logger.debug("upstream_receipt: stamp child failed", exc_info=True)
 
-    # Person Kernel Phase D: close open handoff commitments + soft affect
-    try:
-        from evoflow.person_kernel import on_handoff_fulfilled
+        # Person Kernel Phase D: close open handoff commitments + soft affect
+        try:
+            from evoflow.person_kernel import on_handoff_fulfilled
 
-        child_agent = str(child.get("assigned_to") or "").strip()
-        upstream = ""
-        if targets:
-            upstream = str(targets[0] or "").strip()
-        if not upstream:
-            upstream = str(parent.get("assigned_to") or parent.get("raised_by") or "").strip()
-        on_handoff_fulfilled(
-            child_task_id=child_id,
-            child_agent=child_agent,
-            upstream_agent=upstream,
-        )
-    except Exception:
-        logger.debug(
-            "person_kernel on_handoff_fulfilled skipped child=%s",
+            child_agent = str(child.get("assigned_to") or "").strip()
+            upstream = ""
+            if targets:
+                upstream = str(targets[0] or "").strip()
+            if not upstream:
+                upstream = str(parent.get("assigned_to") or parent.get("raised_by") or "").strip()
+            on_handoff_fulfilled(
+                child_task_id=child_id,
+                child_agent=child_agent,
+                upstream_agent=upstream,
+            )
+        except Exception:
+            logger.debug(
+                "person_kernel on_handoff_fulfilled skipped child=%s",
+                child_id,
+                exc_info=True,
+            )
+    else:
+        logger.warning(
+            "upstream_receipt: wakes failed; not stamping upstream_receipt_at child=%s parent=%s wakes=%s",
             child_id,
-            exc_info=True,
+            parent_id,
+            [{"agent_code": w.get("agent_code"), "error": w.get("error")} for w in wakes],
         )
 
     return {
-        "ok": (any(w.get("ok") for w in wakes) or any(w.get("busy") for w in wakes) or bool(feishu_push and feishu_push.get("ok")) or (not targets and feishu_push is not None)),
+        "ok": bool(wake_ok or (not targets and feishu_push is not None) or bool(feishu_push and feishu_push.get("ok"))),
         "task_id": child_id,
         "parent_task_id": parent_id,
         "targets": targets,
@@ -530,4 +691,5 @@ def notify_upstream_on_child_terminal(
         "wakes": wakes,
         "receipt": receipt,
         "feishu_tree_receipt": feishu_push,
+        "retried_safe": not wake_ok and bool(targets),
     }

@@ -330,6 +330,24 @@ def sync_employee_from_agent(agent_code: str) -> dict[str, Any]:
     return {"synced": True, "agent_code": code}
 
 
+def _org_notice_for_role(role: ProactiveRole) -> dict[str, Any]:
+    """Hire/update org notice: wiring + same-dept similar posts (see org_hire_notice)."""
+    try:
+        from evoflow.admin.org_hire_notice import build_org_hire_notice
+
+        return build_org_hire_notice(role)
+    except Exception:
+        return {
+            "severity": "ok",
+            "reports_to": str(getattr(getattr(role, "config", None), "reports_to", "") or "").strip(),
+            "needs_reports_to_wiring": False,
+            "same_department_similar": [],
+            "warnings": [],
+            "tips": [],
+            "hint": "",
+        }
+
+
 def _role_detail(role: ProactiveRole) -> dict[str, Any]:
     cfg = role.config
     from evoflow.proactive.schedule import (
@@ -972,7 +990,11 @@ def _hire_existing_agent(
     except Exception:
         pass
 
-    return _role_detail(verified)
+    detail = _role_detail(verified)
+    notice = _org_notice_for_role(verified)
+    detail["org_notice"] = notice
+    detail["org_wiring"] = notice  # compat alias for earlier clients / guides
+    return detail
 
 
 def update_role(agent_code: str, data: dict[str, Any]) -> dict[str, Any]:
@@ -1162,6 +1184,9 @@ def update_role(agent_code: str, data: dict[str, Any]) -> dict[str, Any]:
         pass
 
     out = _role_detail(role)
+    notice = _org_notice_for_role(role)
+    out["org_notice"] = notice
+    out["org_wiring"] = notice  # compat
     if unknown:
         out["ignored_keys"] = unknown
     return out
@@ -1954,7 +1979,20 @@ def wake(
 
     from_s = str(from_agent or "").strip()
     from_role: ProactiveRole | None = None
-    if from_s:
+    # Platform identities (user / system / 小V) are not roster rows — pass through
+    # to dispatch; do not resolve_role_ref (NotFoundError). Needed for
+    # upstream_receipt soft-wake (from_agent=system).
+    _platform_from = from_s.lower() in {"", "user", "system"}
+    if not _platform_from and from_s:
+        try:
+            from evoflow.agents.xiaomi.identity import is_xiaomi_agent
+        except Exception:
+
+            def is_xiaomi_agent(_name: str | None) -> bool:  # type: ignore[misc]
+                return False
+
+        _platform_from = bool(is_xiaomi_agent(from_s))
+    if from_s and not _platform_from:
         from_role = resolve_role_ref(from_s)
         if from_role.agent_code == target_role.agent_code:
             raise ValidationError("Cannot wake yourself")
@@ -2123,15 +2161,17 @@ def chat_send(
     task_id: str = "",
     source: str = "xiaomi",
 ) -> dict[str, Any]:
-    """Queue a free-chat / continue-chat turn for an employee.
+    """Send a free-chat turn and **server-side wake** the employee.
 
-    Resolves (or mints) the conversation ``session_key`` and returns
-    ``client_effect=employee_chat_send`` so the Panel opens the right-stage
-    employee process pane and runs the same ``chatSend`` path as the UI.
-    Does not subscribe to the stream — Xiaomi reads results via ``messages``.
+    Historically this only returned ``client_effect=employee_chat_send`` and
+    ``queued=true``, relying on the desktop Panel to run ``chatSend``. When
+    Xiaomi/platform is invoked from the main chat (or mobile), that effect
+    never hits the employee trail — no ``duty_run``, fake busy UI.
 
-    Caller-injected session keys that are not owned by this employee are
-    ignored (common when Xiaomi/main invokes ``platform`` from its own chat).
+    Now: resolve session key for the right-stage UI, then ``wake`` with the
+    message as goal so a real duty round starts. ``queued`` is true only when
+    wake accepted (not skipped). Prefer ``dispatch`` / ``wake`` for explicit
+    work items; use chat_send for short follow-ups.
     """
     from evoflow.proactive.chat_session import (
         list_employee_conversation_sessions,
@@ -2199,17 +2239,53 @@ def chat_send(
         else:
             sk = proactive_chat_session_key(code, utc_now_iso_z())
 
+    src = str(source or "xiaomi").strip() or "xiaomi"
+    from_agent = "xiaomi" if src.casefold() in {"xiaomi", "user", "panel", "desktop"} else src
+
+    wake_result: dict[str, Any] | None = None
+    wake_error = ""
+    try:
+        wake_result = wake(
+            code,
+            goal=text[:800],
+            from_agent=from_agent,
+            task_id=tid,
+            description=text[:2000],
+            source="xiaomi" if from_agent == "xiaomi" else src,
+            resume_round=bool(tid),
+        )
+    except Exception as exc:
+        wake_error = str(exc).strip() or type(exc).__name__
+        logger.warning("chat_send: wake failed agent=%s err=%s", code, wake_error)
+
+    skipped = bool(isinstance(wake_result, dict) and wake_result.get("skipped"))
+    woke = bool(wake_result is not None and not skipped and not wake_error)
     out: dict[str, Any] = {
-        "ok": True,
+        "ok": woke or skipped,
         "agent_code": code,
         "role_name": role.role_name,
         "session_key": sk,
-        "task_id": tid or None,
+        "task_id": (wake_result or {}).get("task_id") or tid or None,
         "message": text,
-        "source": str(source or "xiaomi").strip() or "xiaomi",
+        "source": src,
         "client_effect": "employee_chat_send",
-        "queued": True,
+        # Only claim queued when a real wake was accepted (not client-effect theater).
+        "queued": woke,
+        "busy": woke,
+        "wake": wake_result,
     }
+    if skipped:
+        out["skipped"] = True
+        out["skip_reason"] = str((wake_result or {}).get("reason") or (wake_result or {}).get("message") or "")
+    if wake_error:
+        out["ok"] = False
+        out["queued"] = False
+        out["busy"] = False
+        out["error"] = wake_error
+        out["hint"] = (
+            "chat_send 未能叫醒员工（服务端 wake 失败）。"
+            "请改用 employees.dispatch / employees.wake，或检查对方是否 active / 上游交工是否待审。"
+        )
     if ignored_caller_session:
         out["ignored_caller_session_key"] = raw_sk
     return out

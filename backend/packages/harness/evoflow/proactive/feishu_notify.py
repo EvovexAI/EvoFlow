@@ -175,15 +175,36 @@ async def push_collab_tree_receipt(
     summary_lines: list[str] | None = None,
     child_task_id: str = "",
     raised_by: str = "",
+    claim_push_id: str = "",
 ) -> str | None:
     """Push a one-shot「协作树收口」markdown card to the default Feishu chat.
 
     Targets the gateway learned/default chat (same as automation / 小V 会话),
     preferably sent as the ``xiaomi`` bot when that account owns the chat.
+
+    Callers that already claimed via ``try_claim_tree_receipt`` should pass
+    ``claim_push_id`` so we finalize that pending audit row instead of inserting
+    a second log line.
     """
     rid = str(root_task_id or "").strip()
     if not rid:
         return None
+
+    from evoflow.persistence.channel_push_repositories import (
+        finalize_tree_receipt_claim,
+        tree_receipt_external_id,
+        tree_receipt_outbound_exists,
+    )
+
+    ext = tree_receipt_external_id(rid)
+    # Belt-and-suspenders: if an ok row already exists (restart / double call),
+    # never hit Feishu again.
+    if not claim_push_id:
+        try:
+            if tree_receipt_outbound_exists(rid, statuses=("ok",)):
+                return ext
+        except Exception:
+            logger.debug("feishu_notify.tree_receipt: exists probe failed", exc_info=True)
 
     # Prefer xiaomi role for logging / account ownership; fall back to a stub.
     role: Any = None
@@ -212,19 +233,40 @@ async def push_collab_tree_receipt(
         body_bits.append(f"提起人：`{raised_by}`")
     body_bits.append("下游已全部结案。请提出人/产品验收后，将根单从「待闭环」改为 **已完成**；未验收前整单不算结束。")
     text = "\n".join(body_bits)
+    claim_id = str(claim_push_id or "").strip()
 
-    if channel is None:
+    def _record(*, ok: bool, receive_id: str = "", receive_id_type: str = "", sender_account_id: str = "", error: str = "") -> None:
+        payload = {"transport": "markdown", "child_task_id": child_task_id}
+        if claim_id:
+            finalize_tree_receipt_claim(
+                claim_id,
+                ok=ok,
+                receive_id=receive_id,
+                receive_id_type=receive_id_type,
+                sender_account_id=sender_account_id,
+                content_summary=(text[:400] if ok or text else (error or "send failed")),
+                error=error,
+                payload=payload,
+            )
+            return
         _log_notify(
             kind="tree_receipt",
             role=role,
-            ok=False,
+            ok=ok,
+            message_id=ext if ok else "",
             task_id=rid,
+            receive_id=receive_id,
+            receive_id_type=receive_id_type,
+            sender_account_id=sender_account_id,
             title=title,
-            content_summary="feishu channel unavailable",
-            error="feishu_not_running",
-            payload={"transport": "markdown"},
+            content_summary=(text[:400] if text else error) or ("feishu channel unavailable" if error == "feishu_not_running" else ""),
+            error=error,
+            payload=payload,
             transport="markdown",
         )
+
+    if channel is None:
+        _record(ok=False, error="feishu_not_running")
         return None
 
     # Prefer default/learned chat (user ↔ 小V); fall back to role binding.
@@ -246,16 +288,7 @@ async def push_collab_tree_receipt(
     if not receive_id:
         target = resolve_role_feishu_target(role)
         if not target:
-            _log_notify(
-                kind="tree_receipt",
-                role=role,
-                ok=False,
-                task_id=rid,
-                title=title,
-                content_summary="no Feishu push target",
-                error="no_target",
-                transport="markdown",
-            )
+            _record(ok=False, error="no_target")
             return None
         receive_id, receive_id_type = target
 
@@ -270,35 +303,21 @@ async def push_collab_tree_receipt(
             receive_id_type=receive_id_type,
             account_id=send_account,
         )
-        _log_notify(
-            kind="tree_receipt",
-            role=role,
+        _record(
             ok=True,
-            task_id=rid,
             receive_id=receive_id,
             receive_id_type=receive_id_type,
             sender_account_id=send_account,
-            title=title,
-            content_summary=text[:400],
-            payload={"transport": "markdown", "child_task_id": child_task_id},
-            transport="markdown",
         )
-        # No message_id from markdown helper — stamp synthetic ok.
-        return f"tree_receipt:{rid}"
+        return ext
     except Exception as exc:
         logger.warning("feishu_notify.tree_receipt push failed root=%s", rid, exc_info=True)
-        _log_notify(
-            kind="tree_receipt",
-            role=role,
+        _record(
             ok=False,
-            task_id=rid,
             receive_id=receive_id,
             receive_id_type=receive_id_type,
             sender_account_id=send_account,
-            title=title,
-            content_summary=text[:400],
             error=str(exc)[:200],
-            transport="markdown",
         )
         return None
 

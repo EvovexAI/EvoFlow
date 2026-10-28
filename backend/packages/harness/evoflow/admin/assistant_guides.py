@@ -204,8 +204,63 @@ def build_employee_create_assistant_guide(result: dict[str, Any] | None = None) 
     bind_block = format_bindings_say_block(data)
     bind_part = f"\n{bind_block}\n" if bind_block else "\n"
 
+    reports_to = _first_str(
+        data.get("reports_to"),
+        (data.get("config") or {}).get("reports_to") if isinstance(data.get("config"), dict) else "",
+        role.get("reports_to"),
+    )
+    org_notice = data.get("org_notice") if isinstance(data.get("org_notice"), dict) else {}
+    if not org_notice and isinstance(data.get("org_wiring"), dict):
+        org_notice = data["org_wiring"]
+    needs_wiring = bool(org_notice.get("needs_reports_to_wiring"))
+    similar = list(org_notice.get("same_department_similar") or [])
+    org_warnings = [str(w).strip() for w in list(org_notice.get("warnings") or []) if str(w).strip()]
+    org_tips = [str(t).strip() for t in list(org_notice.get("tips") or []) if str(t).strip()]
+    org_hint = str(org_notice.get("hint") or "").strip()
+
+    org_bits: list[str] = []
+    if similar:
+        shown = "、".join(
+            f"`{x.get('agent_code')}`（{x.get('role_name') or '未命名'}）"
+            for x in similar[:5]
+            if isinstance(x, dict)
+        )
+        org_bits.append(
+            f"⚠ 同部门已有相似岗位：{shown}。先跟用户确认是否重复；"
+            "若是上下级，用 reports_to 挂树，不要再建同名平级岗。"
+        )
+    if needs_wiring:
+        peers = "、".join(
+            f"`{c}`" for c in list(org_notice.get("same_org_other_codes") or [])[:6] if str(c).strip()
+        )
+        org_bits.append(
+            f"⚠ 汇报线未挂通：同组织已有同事{f'（{peers}）' if peers else ''}，"
+            f"但「{name}」的 reports_to 为空。顶级可以没有上级；"
+            f"**下属必须** reports_to=上级 agent_code。"
+        )
+    elif org_warnings:
+        org_bits.extend(f"⚠ {w}" for w in org_warnings)
+    elif org_tips:
+        org_bits.extend(org_tips)
+    elif not reports_to:
+        org_bits.append(
+            f"组织：本岗暂无上级（顶级合法）。若他要带下属，创建下属时务必 "
+            f"reports_to=`{code or '本岗代号'}`；只填同部门不够。"
+        )
+    else:
+        org_bits.append(f"组织：已挂上级 `{reports_to}`。")
+
+    org_part = ("\n" + "\n".join(org_bits) + "\n") if org_bits else "\n"
+    flow_part = (
+        "\n流转与审核（跟用户说清楚）：\n"
+        "- 岗位职责/system_prompt **只写正常干活**：产出什么、handlers 派给谁；"
+        "**不要**写「停下等审核 / 禁止自行放行」。\n"
+        "- **审核由系统管**：你（或我）派给他的单，若他结案时带了 handlers 下游，"
+        "系统会先卡住等人确认，再叫醒下级——在看板点批准即可。\n"
+    )
+
     say = (
-        f"「{name}」{code_part}已上岗。{bind_part}"
+        f"「{name}」{code_part}已上岗。{bind_part}{org_part}{flow_part}"
         f"你可以用这些方式使唤他：\n"
         f"1. 在面板里打开该员工对话，直接下达需求；\n"
         f"2. 扫码绑定本岗 AI 员工到飞书/企微后，在群里或私聊发消息；\n"
@@ -214,9 +269,24 @@ def build_employee_create_assistant_guide(result: dict[str, Any] | None = None) 
         f"若要立刻在飞书或企业微信里用，告诉我绑哪个渠道。"
     )
     next_steps = [
-        "把 assistant_guide.say_to_user 告诉用户（含已绑定的工具/技能/知识库，便于核对）",
+        "把 assistant_guide.say_to_user 告诉用户（含已绑定清单、组织提示、审核由系统管）",
+        "写/改职责时：只写正常流转+handlers；禁止写「等用户审核」类卡口",
         "用户要绑渠道：employees.bind_channel_begin（agent_code + channel=feishu|wecom，confirm=true）",
     ]
+    if similar:
+        next_steps.insert(
+            0,
+            "同部门相似岗：向用户确认是否重复；需要上下级则 employees.update reports_to=…",
+        )
+    if needs_wiring and code:
+        next_steps.insert(
+            0,
+            f"补汇报线：employees.update agent_code={code} reports_to=<上级agent_code>（顶级可留空，下属必须指向他）",
+        )
+    elif code and not reports_to:
+        next_steps.append(
+            f"建团队时：下属 employees.create/update 必须带 reports_to={code}；本岗作顶级可无上级"
+        )
     if code:
         next_steps.append(f"查看岗位：employees.get agent_code={code}")
 
@@ -228,8 +298,16 @@ def build_employee_create_assistant_guide(result: dict[str, Any] | None = None) 
         "agent_code": code or None,
         "role_name": name,
         "bindings": bindings,
+        "org_notice": org_notice or None,
+        "org_wiring": org_notice or None,
         "bind_channels": ["feishu", "wecom"],
-        "instruction": "向用户复述 say_to_user（务必带上已绑定清单）；用户确认渠道后调 employees.bind_channel_begin。",
+        "instruction": (
+            "向用户复述 say_to_user（已绑定清单 + 组织警告 + 「审核由系统管、职责别写等人审」）；"
+            "若 org_notice.needs_reports_to_wiring 或 same_department_similar，先处理组织再派活；"
+            "写 system_prompt/responsibilities 只写正常流转与 handlers；"
+            "用户确认渠道后调 employees.bind_channel_begin。"
+            + (f" org_hint={org_hint}" if org_hint else "")
+        ),
     }
 
 

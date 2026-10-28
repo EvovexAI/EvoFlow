@@ -40,7 +40,11 @@ def _loads_dict(raw: Any) -> dict[str, Any]:
 def _row_to_dict(row: tuple[Any, ...], *, mask_key: bool = True) -> dict[str, Any]:
     api_key = str(row[5] or "")
     if mask_key and api_key:
-        api_key_out = ("*" * min(max(len(api_key) - 4, 0), 12)) + api_key[-4:]
+        # Align with chat-model masking: prefix + **** + suffix for identification.
+        if len(api_key) <= 8:
+            api_key_out = f"****{api_key[-4:]}" if len(api_key) > 4 else "****"
+        else:
+            api_key_out = f"{api_key[:4]}****{api_key[-4:]}"
         configured = True
     else:
         api_key_out = api_key

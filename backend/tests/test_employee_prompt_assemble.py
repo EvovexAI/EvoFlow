@@ -63,11 +63,13 @@ def test_chat_skeleton_order_and_org_compact() -> None:
     assert "<agent_system_prompt>" in text
     assert "<platform>" not in text
     assert "<employee_org" in text
+    assert "<employee_collab" in text
     assert "<session>" in text
     assert "<memory_assets>" in text
     assert "<duty_workflow>" not in text
     assert text.index("<agent_system_prompt>") < text.index("<employee_org")
-    assert text.index("<employee_org") < text.index("<session>")
+    assert text.index("<employee_org") < text.index("<employee_collab")
+    assert text.index("<employee_collab") < text.index("<session>")
 
 
 def test_chat_compat_alias() -> None:
@@ -102,10 +104,12 @@ def test_duty_shares_skeleton_job_once_and_workflow() -> None:
     assert "不应重复的 soul" not in text
     assert "<platform>" not in text
     assert "<employee_org" in text
+    assert "<employee_collab" in text
     assert "<duty_workflow>" in text
-    assert "正式交工" in text or "handlers" in text
+    assert "handlers" in text
     assert text.index("<agent_system_prompt>") < text.index("<employee_org")
-    assert text.index("<employee_org") < text.index("<duty_workflow>")
+    assert text.index("<employee_org") < text.index("<employee_collab")
+    assert text.index("<employee_collab") < text.index("<duty_workflow>")
 
 
 def test_build_system_prompt_compat_duty_markers() -> None:
@@ -155,9 +159,77 @@ def test_solo_org_is_one_line_stub() -> None:
     )
     assert "<employee_org" in text
     assert "独立岗" in text
-    assert "正式交工 handlers" not in text
     org = text.split("<employee_org", 1)[-1].split("</employee_org>", 1)[0]
+    assert "handlers" not in org  # roster block only
     assert "你是「" not in org
+    collab = text.split("<employee_collab", 1)[-1].split("</employee_collab>", 1)[0]
+    assert "跨岗" in collab or "结案" in collab
+
+
+def test_unbound_workspace_does_not_dump_global_roster_as_org() -> None:
+    """Empty workspace + no reporting → solo stub even if other active roles exist."""
+    solo = _role(code="douyin-analyst", name="拆解师", reports_to="", workspace="")
+    solo.config.soul_md = ""
+    other = _role(code="dev-frontend", name="前端", reports_to="", workspace="/tmp/org-a")
+    text = assemble_employee_system_prompt(
+        mode="chat",
+        role=solo,
+        roster=[solo, other],
+        custom_system_prompt="job",
+        user_profile_block="<user_identity>u</user_identity>",
+        include_memory=False,
+    )
+    assert "独立岗" in text
+    assert "dev-frontend" not in text.split("<employee_org", 1)[-1].split("</employee_org>", 1)[0]
+
+
+def test_same_org_unlinked_shows_roster_and_wiring_warn() -> None:
+    """Bound workspace colleagues without reports_to must not look like 独立岗."""
+    lead = _role(code="dev-tech-director", name="技术总监", reports_to="", workspace="/tmp/agent")
+    lead.config.soul_md = ""
+    fe = _role(code="dev-frontend", name="前端开发", reports_to="", workspace="/tmp/agent")
+    be = _role(code="dev-backend", name="后端开发", reports_to="", workspace="/tmp/agent")
+    text = assemble_employee_system_prompt(
+        mode="duty",
+        role=lead,
+        roster=[lead, fe, be],
+        custom_system_prompt="job",
+        user_profile_block="<user_profile>u</user_profile>",
+        include_memory=False,
+    )
+    org = text.split("<employee_org", 1)[-1].split("</employee_org>", 1)[0]
+    collab = text.split("<employee_collab", 1)[-1].split("</employee_collab>", 1)[0]
+    assert "独立岗" not in org
+    assert "汇报线未挂通" in org
+    assert "dev-frontend" in org
+    assert "dev-backend" in org
+    assert "handlers" not in org
+    assert "顶层" in org
+    assert "handlers" in collab or "tasks create" in collab
+    assert "<duty_workflow>" in text
+
+
+def test_top_level_with_direct_reports_lists_them() -> None:
+    """Top may have empty reports_to; subordinates pointing at them must appear."""
+    lead = _role(code="dev-tech-director", name="技术总监", reports_to="", workspace="/tmp/agent")
+    lead.config.soul_md = ""
+    fe = _role(code="dev-frontend", name="前端开发", reports_to="dev-tech-director", workspace="/tmp/agent")
+    be = _role(code="dev-backend", name="后端开发", reports_to="dev-tech-director", workspace="/tmp/agent")
+    text = assemble_employee_system_prompt(
+        mode="duty",
+        role=lead,
+        roster=[lead, fe, be],
+        custom_system_prompt="job",
+        user_profile_block="<user_profile>u</user_profile>",
+        include_memory=False,
+    )
+    org = text.split("<employee_org", 1)[-1].split("</employee_org>", 1)[0]
+    assert "独立岗" not in org
+    assert "汇报线未挂通" not in org
+    assert "dev-frontend" in org
+    assert "dev-backend" in org
+    assert "handlers" in text
+    assert "顶级" in text
 
 
 def test_memory_strips_duplicate_profile_tags() -> None:

@@ -22,9 +22,65 @@ def test_employee_create_guide_has_say_to_user_and_bind_hint():
     assert "飞书" in say or "企微" in say
     assert "派发" in say or "派" in say
     assert "上班" in say or "值班" in say
+    assert "顶级" in say or "reports_to" in say
+    assert "审核由系统管" in say
+    assert "handlers" in say
+    assert "不要" in say or "禁止" in say or "别写" in guide["instruction"]
     # No bindings payload → do not invent inherit-all.
     assert "已绑定" not in say
     assert any("bind_channel_begin" in s for s in guide["next_steps"])
+    assert any("等用户审核" in s or "handlers" in s for s in guide["next_steps"])
+
+
+def test_employee_create_guide_warns_when_org_wiring_needed():
+    guide = build_employee_create_assistant_guide(
+        {
+            "agent_code": "dev-tech-director",
+            "role_name": "技术总监",
+            "reports_to": "",
+            "org_notice": {
+                "needs_reports_to_wiring": True,
+                "same_org_other_codes": ["dev-frontend", "dev-backend"],
+                "same_department_similar": [],
+                "warnings": [],
+                "tips": [],
+                "hint": "同组织已有同事但汇报线未挂通",
+            },
+        }
+    )
+    say = guide["say_to_user"]
+    assert "汇报线未挂通" in say
+    assert "dev-frontend" in say
+    assert any("reports_to" in s for s in guide["next_steps"])
+    assert guide["org_notice"]["needs_reports_to_wiring"] is True
+
+
+def test_employee_create_guide_warns_same_department_similar():
+    guide = build_employee_create_assistant_guide(
+        {
+            "agent_code": "dev-frontend-2",
+            "role_name": "前端开发",
+            "reports_to": "",
+            "org_notice": {
+                "needs_reports_to_wiring": False,
+                "same_org_other_codes": ["dev-frontend"],
+                "same_department_similar": [
+                    {
+                        "agent_code": "dev-frontend",
+                        "role_name": "前端开发",
+                        "department": "研发部",
+                    }
+                ],
+                "warnings": ["同部门已有相似岗位"],
+                "tips": [],
+                "hint": "",
+            },
+        }
+    )
+    say = guide["say_to_user"]
+    assert "同部门已有相似岗位" in say
+    assert "dev-frontend" in say
+    assert any("相似" in s or "reports_to" in s for s in guide["next_steps"])
 
 
 def test_employee_create_guide_lists_bindings():
