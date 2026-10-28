@@ -18,6 +18,7 @@ import { publishPlatformFromAgUiResult } from './publish-platform-from-agui-resu
 import {
   platformRunEntriesFromChatArtifacts,
   latestPlatformRunEntryId,
+  tryEagerAutoOpenPlatformFromArgs,
 } from '../../../lib/right-stage/platform-feedback.js'
 import { showRightStageFilePreview } from '../../../lib/right-stage/open-right-stage-file.js'
 import { isProgressStageKind } from '../../../lib/right-stage/open-progress-from-panel-set.js'
@@ -1884,6 +1885,25 @@ export function createChatWsOnEventHandler(ctx: ChatWsOnEventCtx) {
           }
           // Computer Use 屏边蓝光：与 browser panel 同热路径，按 args 识别 computerUse。
           syncCuaGlowFromAgUiEvent?.(aguiEvent, S.aguiTurn?.toolCalls)
+          // 平台员工/待办等：args 一完整就抢先开右栏，别等 TOOL_CALL_RESULT
+          // （须在 applyAgUiWireEvent 之后，才能读到本帧合并后的 argsText）
+          if (
+            evToolName === 'platform' &&
+            !(isBackground && !isXiaomiVoiceRightStageForeground(eventSk)) &&
+            (aguiEvent.type === 'TOOL_CALL_ARGS' ||
+              aguiEvent.type === 'TOOL_CALL_END' ||
+              aguiEvent.type === EventType.TOOL_CALL_ARGS ||
+              aguiEvent.type === EventType.TOOL_CALL_END)
+          ) {
+            const tc = evToolCallId ? S.aguiTurn?.toolCalls?.get(evToolCallId) : undefined
+            const argsText = typeof tc?.argsText === 'string' ? tc.argsText : undefined
+            if (argsText) {
+              tryEagerAutoOpenPlatformFromArgs(argsText, {
+                toolCallId: evToolCallId,
+                toolName: 'platform',
+              })
+            }
+          }
           changed = true
         }
         // panel_set 前后台统一走同一条路径：applyStageSetPayload 按归属路由——

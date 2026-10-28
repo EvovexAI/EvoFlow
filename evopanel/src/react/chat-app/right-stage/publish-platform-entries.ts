@@ -2,9 +2,12 @@
 /**
  * Publish platform-run entries into turn/session state and open info rail.
  * Extracted from ChatApp.tsx (P131).
+ *
+ * 优先级：专用右栏开着时只写入条目 / focus，不自动撑开摘要卡、不收右栏。
  */
 import { isProgressStageKind } from '../../../lib/right-stage/open-progress-from-panel-set.js'
 import { logRightStage } from '../../../lib/right-stage/panel-set-debug-log.js'
+import { isRightStageLayoutOpen } from '../../../lib/right-stage/right-stage-layout-priority.js'
 
 export type PublishPlatformEntriesCtx = Record<string, any>
 
@@ -34,8 +37,30 @@ export function publishPlatformEntries(
     return Array.from(map.values()).sort((a, b) => b.appliedAt - a.appliedAt)
   })
   if (!entries.length) return
-  // 平台条目改走状态面板呈报；默认收掉无关右栏，但勿动浏览器 / 进度类面板。
+
+  const focus = String(focusEntryId || ctx.latestPlatformRunEntryId(entries)).trim()
+  if (focus) ctx.setPlatformFocusEntryId(focus)
+
   const snap = ctx.rightStageStore.getSnapshot()
+  // 右栏优先：开着就不自动展开摘要通知，也不 hide 右栏。
+  if (isRightStageLayoutOpen(snap)) {
+    logRightStage('publishPlatformEntries:SKIP_SUMMARY (right-stage open)', {
+      activeKind: snap?.surface?.kind,
+      entryCount: entries.length,
+      collapsed: snap?.collapsed,
+    }, { store: ctx.rightStageStore })
+    // 语音全屏仍允许状态卡（用户稍后手动开摘要时可见）
+    try {
+      void import('../../../lib/xw-voice-mode.js').then((m) => {
+        if (m.isXwVoiceMode?.()) m.allowXwVoiceSummary?.()
+      })
+    } catch {
+      /* ignore */
+    }
+    return
+  }
+
+  // 平台条目改走状态面板呈报；默认收掉无关右栏，但勿动浏览器 / 进度类面板。
   const activeKind = snap?.surface?.kind
   const keepActive = shouldKeepRightStageOnPlatformPublish(activeKind)
   // 进度 tab 可能在后台（例如刚切到别的签）：只要还开着就整栏保留。
@@ -71,8 +96,6 @@ export function publishPlatformEntries(
   }
   ctx.setInfoRailOpen(true)
   ctx.setInfoRailTab('platform')
-  const focus = String(focusEntryId || ctx.latestPlatformRunEntryId(entries)).trim()
-  if (focus) ctx.setPlatformFocusEntryId(focus)
   // 语音全屏：平台工具已有结果 → 才允许状态卡浮出（进语音时默认藏）
   try {
     void import('../../../lib/xw-voice-mode.js').then((m) => {

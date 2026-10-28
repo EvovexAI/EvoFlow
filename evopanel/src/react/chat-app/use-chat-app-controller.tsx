@@ -2583,6 +2583,7 @@ export function useChatAppController() {
           setSessionHadContent,
           isAutoWorkPreviewEnabled,
           writeStreamModeRef,
+          rightStageStore,
           rightStageHintTimerRef,
           hideRightStageIfKind,
           setChatPanelDisplayMode,

@@ -38,6 +38,8 @@ import {
   type InfoRailScope,
 } from '../lib/info-rail-format.js'
 import { normalizePlatformRunEntries, type PlatformRunEntry } from '../../lib/right-stage/platform-feedback.js'
+import { isRightStageLayoutOpen } from '../../lib/right-stage/right-stage-layout-priority.js'
+import { useRightStageStore } from '../../lib/right-stage/use-right-stage.js'
 import {
   buildProcessSummary,
   buildVisibleSummaryPanelTabs,
@@ -418,6 +420,9 @@ function ChatSummaryPanelInner({
   /** 首帧只建基线不跳转，避免 key 重挂时把上一会话残留 focus 当成新通知 */
   const activityArmedRef = useRef(false)
   const sessionKeyRef = useRef(String(sessionKey || '').trim())
+  // 右栏占宽时：平台/产物通知只切 tab，不自动撑开摘要卡（与右栏互斥）
+  const { snapshot: rightStageSnap } = useRightStageStore()
+  const rightStageOpen = isRightStageLayoutOpen(rightStageSnap)
 
   // 展开策略在挂载时读一次偏好，之后由本组件持有并写回。
   // displayMode 由 ChatApp 侧 useState 初始化读同一份偏好，这里不再重复对齐。
@@ -520,26 +525,31 @@ function ChatSummaryPanelInner({
     if (processStarted) setUserCollapsed(false)
     if (!tab) return
     setPanelTab(tab)
+    // 右栏开着：让位给专用侧栏，不自动展开摘要通知
+    if (rightStageOpen) return
     // 平台/产物/进程通知到了就撑开悬浮卡，胶囊态也要立刻可见
     goPanel()
-  }, [platformFocusEntryId, artifactFocusId, summary.running, goPanel])
+  }, [platformFocusEntryId, artifactFocusId, summary.running, goPanel, rightStageOpen])
 
   // 展开策略：胶囊态 + 有进程在跑时自动撑成面板（用户手动收起后尊重选择）。
   // 仅会话 isRunning、尚无进程项时不撑开，避免「还没开终端」就弹出状态卡暗示终端调用。
+  // 右栏开着时不自动撑开（优先级：专用侧栏 > 摘要通知）。
   const effectiveMode = useMemo<ChatSummaryDisplayMode>(() => {
     if (displayMode === 'hidden') return 'hidden'
     if (displayMode === 'panel') return 'panel'
+    if (rightStageOpen) return 'capsule'
     if (policy === 'auto-expand' && !userCollapsed && summary.running > 0) return 'panel'
     return 'capsule'
-  }, [displayMode, policy, userCollapsed, summary.running])
+  }, [displayMode, policy, userCollapsed, summary.running, rightStageOpen])
 
   // auto-expand 只改了 effectiveMode 时，通知父级切回 panel，
   // 以便右侧空白从气泡撑成悬浮卡（并让出专用侧栏）。
   useEffect(() => {
     if (displayMode !== 'capsule') return
     if (effectiveMode !== 'panel') return
+    if (rightStageOpen) return
     onDisplayModeChange('panel')
-  }, [displayMode, effectiveMode, onDisplayModeChange])
+  }, [displayMode, effectiveMode, onDisplayModeChange, rightStageOpen])
 
   // 面板 tab：智能体/员工固定；进程 / 产物 / 平台始终挂着（有计数才显示数字）。
   const withCount = useCallback(
