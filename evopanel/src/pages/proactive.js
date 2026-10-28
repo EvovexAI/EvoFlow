@@ -179,19 +179,19 @@ function resolveEmployeePrimaryAction(r, { isDraft, isPaused, isBusy, pendingN }
   return { action: 'open', label: '打开', className: 'pro-role-cta pro-role-cta--ghost', code }
 }
 
-/** 卡片脸上一句职责 / 简介 */
+/** 卡片脸上一句简介（提示词/职责已并入智能体 system_prompt） */
 function roleDutyOneLiner(role) {
+  const desc = sanitizeRoleLabel(
+    role?.config?.extra_context?.agent_description || role?.agent_description,
+    '',
+  )
+  if (desc) return previewLine(desc, 88)
   const resp = Array.isArray(role?.config?.responsibilities)
     ? role.config.responsibilities.filter(Boolean)
     : []
   if (resp.length) return previewLine(resp.join(' · '), 88)
   const dept = sanitizeRoleLabel(role?.department || role?.config?.department, '')
   if (dept) return dept
-  const desc = sanitizeRoleLabel(
-    role?.config?.extra_context?.agent_description || role?.agent_description,
-    '',
-  )
-  if (desc) return previewLine(desc, 88)
   return ''
 }
 
@@ -315,8 +315,7 @@ function roleDisplayName(code) {
 function roleCardTitle(role) {
   const code = String(role?.agent_code || '').trim()
   // 全局唯一入口(evopanel/src/react/lib/employee-display.ts);
-  // 优先岗位名 → agent_name → 整组常量「智能体员工」→ ''。
-  // 绝不显示「未命名岗位」字面量。
+  // 优先 agent_name → role_name 兜底 → ''。
   const resolved = resolveEmployeeDisplayName(code, {
     roles: [
       {
@@ -823,24 +822,24 @@ async function showHireModal(page) {
       </header>
 
       <div class="hire-sheet-body" style="padding-top:12px">
-        <p class="hire-chip-hint">直接加人即可：填岗位与职责，系统自动准备能力；可选部门与上级。</p>
+        <p class="hire-chip-hint">直接加人即可：填名称与系统提示词，系统自动准备能力；可选部门与上级。</p>
         <div class="hire-field">
           <span>从模板开始（可选）</span>
           <div class="hire-chip-row hire-template-row" data-role="hire-templates">
             ${templateChips}
             <button type="button" class="hire-chip hire-template-chip" data-template="" title="清空模板预填，自行填写">自定义</button>
           </div>
-          <p class="hire-chip-hint" data-role="template-hint">点模板会预填岗位名、职责、审批策略与上班频率，仍可再改。</p>
+          <p class="hire-chip-hint" data-role="template-hint">点模板会预填名称、系统提示词、审批策略与上班频率，仍可再改。</p>
         </div>
 
         <label class="hire-field">
-          <span>岗位名称</span>
+          <span>名称</span>
           <input class="hire-input" data-name="role_name" value="" placeholder="例如：创意广告负责人、后端开发">
         </label>
 
         <label class="hire-field">
-          <span>职责</span>
-          <textarea class="hire-input hire-textarea" data-name="responsibilities" rows="3" placeholder="每行一条，写清要主动推进的事"></textarea>
+          <span>系统提示词</span>
+          <textarea class="hire-input hire-textarea" data-name="system_prompt" rows="5" placeholder="核心指令与要主动推进的事（可多行）"></textarea>
         </label>
 
         <div class="hire-field-row">
@@ -856,7 +855,7 @@ async function showHireModal(page) {
                 .filter((r) => String(r.agent_code || '').trim())
                 .map((r) => {
                   const c = String(r.agent_code || '').trim()
-                  const n = String(r.role_name || c).trim()
+                  const n = String(r.agent_name || r.role_name || c).trim()
                   const d = String(r.department || '').trim()
                   return `<option value="${esc(c)}">${esc(n)}${d ? ` · ${esc(d)}` : ''}</option>`
                 })
@@ -912,7 +911,7 @@ async function showHireModal(page) {
   overlay.querySelectorAll('[data-act="close"]').forEach((el) => el.addEventListener('click', close))
 
   const nameEl = overlay.querySelector('[data-name="role_name"]')
-  const respEl = overlay.querySelector('[data-name="responsibilities"]')
+  const promptEl = overlay.querySelector('[data-name="system_prompt"]')
   const templateHint = overlay.querySelector('[data-role="template-hint"]')
   let lastPrefill = nameEl?.value || ''
 
@@ -935,7 +934,7 @@ async function showHireModal(page) {
       c.classList.toggle('is-on', (c.dataset.template || '') === String(id || ''))
     })
     if (!id) {
-      if (templateHint) templateHint.textContent = '已切回自定义，请自行填写职责。'
+      if (templateHint) templateHint.textContent = '已切回自定义，请自行填写名称与系统提示词。'
       return
     }
     const tpl = hireTemplateById(id)
@@ -944,7 +943,9 @@ async function showHireModal(page) {
       nameEl.value = tpl.role_name
       lastPrefill = tpl.role_name
     }
-    if (respEl) respEl.value = (tpl.responsibilities || []).join('\n')
+    if (promptEl) {
+      promptEl.value = (tpl.system_prompt || (tpl.responsibilities || []).join('\n') || '').trim()
+    }
     setAutonomyChip(tpl.autonomy_level || 'approval_for_all')
     setHireSchedule(tpl.heartbeat_schedule || tpl.heartbeat_rrule || DEFAULT_DUTY_CRON)
     const adv = overlay.querySelector('details.hire-advanced')
@@ -976,7 +977,7 @@ async function showHireModal(page) {
     }
     const role_name = (nameEl?.value || '').trim()
     if (!role_name) {
-      toast('请填写岗位名称', 'warning')
+      toast('请填写名称', 'warning')
       nameEl?.focus()
       return
     }
@@ -985,11 +986,12 @@ async function showHireModal(page) {
     ).trim()
     const department = (overlay.querySelector('[data-name="department"]')?.value || '').trim()
     const reports_to = (overlay.querySelector('[data-name="reports_to"]')?.value || '').trim()
-    const responsibilities = parseLines(overlay.querySelector('[data-name="responsibilities"]')?.value)
+    const system_prompt = String(promptEl?.value || '').trim()
     const workspace_path = readWorkspacePath(overlay)
     const model_name = readModelName(overlay)
-    if (status === 'active' && !responsibilities.length) {
-      toast('请填写至少一条职责，或先选上方模板预填', 'warning')
+    if (status === 'active' && !system_prompt) {
+      toast('请填写系统提示词，或先选上方模板预填', 'warning')
+      promptEl?.focus()
       return
     }
     const autonomy_level =
@@ -1010,9 +1012,10 @@ async function showHireModal(page) {
       const payload = {
         role_name,
         agent_name: role_name,
+        system_prompt,
         department,
         reports_to,
-        responsibilities,
+        responsibilities: [],
         workspace_path,
         knowledge_vault_ids: readKnowledgeVaultIds(overlay),
         autonomy_level,
@@ -1027,8 +1030,9 @@ async function showHireModal(page) {
         const overlap = await api
           .proactiveCheckOverlap({
             agent_code: bind_agent_code,
-            responsibilities,
+            responsibilities: parseLines(system_prompt),
             role_name,
+            system_prompt,
           })
           .catch(() => null)
         if (overlap?.has_overlap && overlap.warning) {
@@ -3098,7 +3102,7 @@ function renderRoles(roles) {
         </svg>
       </div>
       <p class="pro-empty-title">还没有智能体员工</p>
-      <p class="pro-empty-desc">点「加人」填写岗位与职责即可入职；也可到「组织 / 部门」编入编制后再调汇报线</p>
+      <p class="pro-empty-desc">点「加人」填写名称与系统提示词即可入职；也可到「组织 / 部门」编入编制后再调汇报线</p>
       <button type="button" class="btn btn-primary btn-sm" id="pro-empty-hire" style="margin-top:14px">加人</button>
     </div>`
   }

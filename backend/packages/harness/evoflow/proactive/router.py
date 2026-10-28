@@ -147,6 +147,7 @@ class UpdateRoleRequest(BaseModel):
     responsibilities: list[str] | None = None
     workspace_path: str | None = None
     knowledge_vault_ids: list[str] | None = None
+    kb_injection: dict[str, Any] | None = None
     kpis: list[Any] | None = None
     autonomy_level: str | None = None
     max_initiatives_per_cycle: int | None = None
@@ -266,7 +267,11 @@ class EventEmitRequest(BaseModel):
 
 class OverlapCheckRequest(BaseModel):
     agent_code: str = Field("", description="Candidate agent_code (excluded from compare when editing)")
-    responsibilities: list[str] = Field(default_factory=list)
+    responsibilities: list[str] = Field(
+        default_factory=list,
+        description="Legacy duty lines; prefer system_prompt when present",
+    )
+    system_prompt: str = Field("", description="Agent system prompt (preferred overlap source)")
     role_name: str = Field("")
     exclude_agent_code: str = Field("", description="Skip this role when editing self")
 
@@ -476,11 +481,15 @@ async def get_role(agent_code: str) -> dict[str, Any]:
 class CreateEmployeeRequest(BaseModel):
     """One-step employee create: capability pack + duty contract."""
 
-    role_name: str = Field(..., description="岗位显示名")
+    role_name: str = Field(..., description="显示名（与 agent_name 同步）")
     agent_code: str = Field("", description="可选；空则自动生成")
-    agent_name: str = Field("", description="能力包显示名；默认同岗位名")
+    agent_name: str = Field("", description="智能体显示名；默认同 role_name")
     department: str = Field("")
-    responsibilities: list[str] = Field(default_factory=list)
+    responsibilities: list[str] = Field(
+        default_factory=list,
+        description="兼容旧字段；会合并进 system_prompt 后清空",
+    )
+    system_prompt: str = Field("", description="智能体系统提示词（名称/提示词单源）")
     workspace_path: str = Field("")
     knowledge_vault_ids: list[str] = Field(default_factory=list)
     autonomy_level: str = Field("approval_for_all")
@@ -708,6 +717,10 @@ async def update_role(request: Request, agent_code: str, req: UpdateRoleRequest)
             cfg.knowledge_vault_ids = validate_agent_knowledge_ids(list(req.knowledge_vault_ids or []))
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e)) from e
+    if req.kb_injection is not None:
+        from evoflow.config.agents_config import KbInjectionConfig
+
+        cfg.kb_injection = KbInjectionConfig.from_dict(dict(req.kb_injection or {})).to_dict()
     if req.kpis is not None:
         cfg.kpis = req.kpis
     if req.autonomy_level is not None:
@@ -820,6 +833,34 @@ async def update_role(request: Request, agent_code: str, req: UpdateRoleRequest)
 
         role.next_heartbeat_at = compute_next_duty_iso(role)
     ProactiveRepository.save_role(role)
+
+    # Mirror vaults / kb_injection onto the agent row so live chat middleware
+    # sees them immediately (without waiting for startup backfill / restart).
+    try:
+        from evoflow.admin.employees import (
+            _persist_agent_kb_injection,
+            _persist_agent_kb_vault_ids,
+        )
+
+        if req.knowledge_vault_ids is not None:
+            _persist_agent_kb_vault_ids(agent_code, list(cfg.knowledge_vault_ids or []))
+        if req.kb_injection is not None:
+            _persist_agent_kb_injection(agent_code, dict(cfg.kb_injection or {}))
+    except Exception:
+        logger.exception(
+            "proactive update_role: failed to mirror kb bindings agent=%s",
+            agent_code,
+        )
+    try:
+        from evoflow.admin.agents import refresh_agent_runtime_after_capability_change
+
+        refresh_agent_runtime_after_capability_change(agent_code)
+    except Exception:
+        logger.exception(
+            "proactive update_role: runtime refresh failed agent=%s",
+            agent_code,
+        )
+
     return _role_to_dict(role)
 
 
@@ -1174,6 +1215,7 @@ async def check_role_overlap(req: OverlapCheckRequest) -> dict[str, Any]:
         {
             "agent_code": req.agent_code,
             "responsibilities": req.responsibilities,
+            "system_prompt": req.system_prompt,
             "role_name": req.role_name,
         },
         roles,
@@ -2555,12 +2597,13 @@ def _role_to_dict(role: ProactiveRole) -> dict[str, Any]:
             agent_description = str(getattr(agent_cfg, "description", None) or "").strip()
     except Exception:
         pass
-    # 岗位名只返回雇佣合同上的 role_name；空/脏/塌成 agent_code 时置空。
-    # 禁止用 agent_name 或英文 agent_code 冒充岗位名。
+    # 展示名单源 = agent_name；role_name 空/脏时用 agent_name 回填返回（兼容旧字段）。
     code = str(role.agent_code or "").strip()
     display_name = str(role.role_name or "").strip()
     if not display_name or display_name.casefold() in {"none", "null", "undefined"} or (code and display_name == code):
-        display_name = ""
+        display_name = agent_name or ""
+    if not agent_name and display_name:
+        agent_name = display_name
     feishu_binding = _feishu_binding_for_role(role)
     return {
         "agent_code": role.agent_code,

@@ -36,7 +36,11 @@ from evoflow.proactive.employee_prompting.identity import (
     normalize_employee_agent_code,
     resolve_employee_identity,
 )
-from evoflow.proactive.employee_prompting.job import build_employee_job_block
+from evoflow.proactive.employee_prompting.job import (
+    DUTY_PROMPT_SECTION,
+    build_employee_job_block,
+    merge_duty_into_system_prompt,
+)
 from evoflow.proactive.employee_prompting.memory import build_employee_memory_policy_block
 from evoflow.proactive.employee_prompting.org_roster import build_employee_org_roster_block
 from evoflow.proactive.employee_prompting.org_section import (
@@ -62,6 +66,7 @@ __all__ = [
     "DUTY_BRIEF_CLOSE",
     "DUTY_BRIEF_OPEN",
     "DUTY_CONTRACT_MARKER",
+    "DUTY_PROMPT_SECTION",
     "EMPLOYEE_CHAT_FRAME_CLOSE",
     "EMPLOYEE_CHAT_FRAME_OPEN",
     "EMPLOYEE_V2_CLOSE",
@@ -87,6 +92,7 @@ __all__ = [
     "build_org_system_section",
     "is_employee_chat_session",
     "load_role_for_code",
+    "merge_duty_into_system_prompt",
     "normalize_employee_agent_code",
     "resolve_employee_identity",
 ]

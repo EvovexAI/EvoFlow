@@ -639,17 +639,44 @@
   z-index: 30;
   min-width: 148px;
   padding: 4px;
-  border: 1px solid var(--pro-slate-line);
+  border: 1px solid var(--border-primary, var(--pro-slate-line));
   border-radius: 8px;
-  background: var(--bg-secondary);
-  box-shadow: 0 8px 22px color-mix(in srgb, #000 12%, transparent);
+  /* Hard opaque popover — must not inherit glass / translucent surfaces. */
+  background-color: #ffffff;
+  background-image: none;
+  color: var(--text-primary, #0f172a);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--border-primary, #e2e8f0) 70%, transparent),
+    0 10px 28px color-mix(in srgb, #000 18%, transparent);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  isolation: isolate;
+  opacity: 1;
 }
 
-.pro-role-more-menu.is-fixed {
+html[data-theme='dark'] .pro-role-more-menu {
+  background-color: #141820;
+  color: var(--text-primary, #e2e8f0);
+}
+
+.pro-role-more-menu.is-fixed,
+body > .pro-role-more-menu.is-fixed,
+body > .pro-role-more-menu[data-pro-more-host] {
   position: fixed;
   right: auto;
   /* Above roster cards / glass surfaces; keep below modal-overlay (~1000010). */
   z-index: 10050;
+  background-color: #ffffff;
+  background-image: none;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  opacity: 1 !important;
+}
+
+html[data-theme='dark'] .pro-role-more-menu.is-fixed,
+html[data-theme='dark'] body > .pro-role-more-menu.is-fixed,
+html[data-theme='dark'] body > .pro-role-more-menu[data-pro-more-host] {
+  background-color: #141820;
 }
 
 .pro-role-more-sep {
@@ -5023,7 +5050,7 @@ html.evopanel-macos-titlebar .pro-employee-page--nav-in-chrome {
 }
 
 /* ── Edit role sections ── */
-.hire-sheet.hire-sheet--edit { width: min(760px, 96vw); max-width: 96vw; }
+.hire-sheet.hire-sheet--edit { width: min(820px, 96vw); max-width: 96vw; }
 .hire-edit-layout {
   display: grid;
   grid-template-columns: 148px minmax(0, 1fr);
@@ -5031,6 +5058,20 @@ html.evopanel-macos-titlebar .pro-employee-page--nav-in-chrome {
   min-height: 420px;
   align-items: stretch;
 }
+.hire-edit-panel--agent {
+  min-height: 360px;
+}
+.hire-textarea--agent-prompt,
+.hire-textarea--agent-soul {
+  flex: 1;
+  min-height: 140px;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  font-size: 12.5px;
+  font-weight: 450;
+  line-height: 1.55;
+  resize: vertical;
+}
+.hire-textarea--agent-prompt { min-height: 180px; }
 .hire-edit-nav {
   display: flex;
   flex-direction: column;
