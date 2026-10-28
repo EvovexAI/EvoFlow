@@ -80,10 +80,11 @@ def _provider_status_list() -> list[dict[str, Any]]:
 
 
 def get_agent_plan_web_search_status() -> dict[str, Any] | None:
-    """Active Agent Plan binding that includes web_search (for Settings UI)."""
+    """Active Agent Plan binding that includes web_search (for Settings UI + system status)."""
     try:
         from evoflow.plans.bindings import list_bindings
         from evoflow.plans.catalog import get_catalog_entry
+        from evoflow.persistence.web_search_settings import resolve_agent_plan_doubao_search_api_key
 
         for binding in list_bindings(include_disabled=False, mask_key=True):
             if str(binding.get("status") or "") != "active":
@@ -100,7 +101,18 @@ def get_agent_plan_web_search_status() -> dict[str, Any] | None:
             tier_id = str(binding.get("tier_id") or "").strip()
             raw = get_web_search_settings()
             has_doubao_key = bool(str(raw.get("doubaoApiKey") or "").strip())
+            key_source = str(raw.get("doubaoKeySource") or "").strip()
             preferred = str(raw.get("preferredBackend") or "").strip().lower()
+            preferred_source = str(raw.get("preferredBackendSource") or "").strip()
+            plan_binding_has_key = bool(binding.get("api_key_configured"))
+            # Runtime can still resolve Plan ark- even if settings field is empty.
+            runtime_plan_key = bool(resolve_agent_plan_doubao_search_api_key())
+            key_ready = has_doubao_key or runtime_plan_key or plan_binding_has_key
+            wired_from_plan = key_source == "agent_plan" and has_doubao_key
+            preferred_is_doubao = preferred == "doubao" or (
+                not preferred and preferred_source == "agent_plan"
+            )
+            ready = bool(key_ready and (preferred_is_doubao or not preferred or preferred == "doubao"))
             return {
                 "catalog_id": catalog_id,
                 "binding_id": str(binding.get("id") or ""),
@@ -110,19 +122,27 @@ def get_agent_plan_web_search_status() -> dict[str, Any] | None:
                 "engine": "doubao",
                 "engine_label": "豆包搜索",
                 "doubao_key_configured": has_doubao_key,
-                "needs_search_key": not has_doubao_key,
+                "doubao_key_source": key_source or ("agent_plan" if runtime_plan_key else ""),
+                "plan_binding_has_key": plan_binding_has_key,
+                "wired_from_plan": wired_from_plan or (runtime_plan_key and not has_doubao_key),
+                "needs_search_key": not key_ready,
                 "preferred_is_doubao": preferred == "doubao",
+                "ready": ready,
+                "harness_required": True,
                 "harness_console_url": AGENT_PLAN_HARNESS_CONSOLE_URL,
                 "docs_url": AGENT_PLAN_DOUBAO_SEARCH_DOCS_URL,
                 "standalone_console_url": DOUBAO_SEARCH_CONSOLE_URL,
-                "title": "Agent Plan 含豆包联网搜索",
+                "title": "Agent Plan · 豆包联网搜索",
                 "hint": (
-                    "套餐赠送的是「豆包搜索 / SearchInfinity」额度，和对话用的 ark- Key 不是同一把。请到火山控制台「配置 Harness」领取联网搜索 API Key，填到下方「豆包搜索」。绑定时已默认把首选引擎设为豆包；你也可改成其它引擎或自备 Key。"
+                    "官方：Agent Plan 专属 Key 即可调用豆包搜索（与对话同一把）。"
+                    "绑定套餐后会自动写入首选引擎=豆包，并带上套餐 Key。"
+                    "请到火山控制台 Harness 开启「豆包搜索」抵扣，否则可能无法按套餐额度扣费。"
+                    "也可改成其它引擎或手填独立 SearchInfinity Key。"
                 ),
                 "steps": [
-                    "打开火山方舟控制台 → 配置 Harness → 豆包搜索，领取权益并复制联网搜索 API Key",
-                    "把该 Key 填到本页「豆包搜索」（不是 ark- 对话 Key）",
-                    "点测试确认；也可改首选引擎 / 换 URL / 使用独立开通的 SearchInfinity Key",
+                    "确认火山控制台 → Harness → 已开启「豆包搜索」抵扣",
+                    "本页应显示「套餐 Key 已自动接通」；若未接通可重新保存/绑定 Agent Plan",
+                    "点「测试」确认；也可改首选引擎或手填独立搜索 Key",
                 ],
             }
     except Exception as exc:
@@ -145,14 +165,28 @@ def build_web_search_assistant_guide(snapshot: dict[str, Any] | None = None) -> 
     has_doubao = bool(configured.get("doubaoApiKey"))
     preferred = str(settings.get("preferredBackend") or "").strip().lower()
 
+    plan_ready = bool(plan and (plan.get("ready") or (not plan.get("needs_search_key") and has_doubao)))
+    plan_key_ready = bool(
+        plan
+        and (
+            has_doubao
+            or plan.get("wired_from_plan")
+            or plan.get("plan_binding_has_key")
+            or not plan.get("needs_search_key")
+        )
+    )
+
     if plan and plan.get("needs_search_key"):
         status = "agent_plan_needs_doubao_key"
-        summary = "已绑定 Agent Plan（含豆包联网搜索额度），但还没填「豆包搜索」联网 Key；对话里的 web_search 暂时走不了豆包。"
+        summary = "已绑定 Agent Plan（含豆包联网搜索），但套餐 Key 尚未接通到豆包搜索。"
         say = (
-            "你已开通 Agent Plan，套餐里的联网搜索是「豆包搜索」额度，和对话用的 ark- Key 不是同一把。请到火山控制台「配置 Harness → 豆包搜索」领取联网搜索 API Key，把 Key 发给我，我帮你写入设置并测通。也可以改用博查 / Tavily 等其它引擎。"
+            "你已开通 Agent Plan。官方可用套餐专属 Key 调豆包搜索（与对话同一把）。"
+            "请重新保存/绑定一次套餐以自动写入，或把 Key 发给我写入「豆包搜索」；"
+            "并确认火山控制台 Harness 已开启「豆包搜索」抵扣。也可改用博查 / Tavily。"
         )
         next_steps = list(plan.get("steps") or []) + [
-            "用户贴出联网 Key 后：settings.patch_web_search（preferredBackend=doubao, doubaoApiKey=…）",
+            "重新 materialize / 更新套餐 Key 后会自动写入 doubaoApiKey（doubaoKeySource=agent_plan）",
+            "或 settings.patch_web_search（preferredBackend=doubao, doubaoApiKey=套餐 Key）",
             '再 settings.test_web_search（engines=["doubao"], adopt_recommended=true）',
         ]
         links = {
@@ -160,13 +194,21 @@ def build_web_search_assistant_guide(snapshot: dict[str, Any] | None = None) -> 
             "docs": plan.get("docs_url") or AGENT_PLAN_DOUBAO_SEARCH_DOCS_URL,
             "standalone_doubao": plan.get("standalone_console_url") or DOUBAO_SEARCH_CONSOLE_URL,
         }
-    elif plan and has_doubao:
+    elif plan and plan_key_ready:
         status = "agent_plan_ready"
-        summary = "Agent Plan + 豆包联网 Key 已就绪；web_search 可优先走豆包。"
-        say = "联网搜索已按 Agent Plan 默认走豆包。若要换引擎或更新 Key，直接说目标引擎或把新 Key 发给我即可。"
+        summary = (
+            "Agent Plan 豆包联网搜索已接通（套餐 Key）；web_search 优先走豆包。"
+            if plan.get("wired_from_plan") or has_doubao
+            else "Agent Plan 已绑定且套餐 Key 可用；web_search 可走豆包。"
+        )
+        say = (
+            "联网搜索已按 Agent Plan 自动接好豆包（套餐 Key）。"
+            "请确认控制台 Harness「豆包搜索」抵扣已开。若要换引擎或改用独立搜索 Key，直接说即可。"
+        )
         next_steps = [
-            "可选：settings.test_web_search 再确认通不通",
+            "可选：settings.test_web_search 确认通不通",
             "换引擎：settings.patch_web_search（preferredBackend=…）",
+            "提醒用户：Harness 未开抵扣时可能无法按套餐额度扣费",
         ]
         links = {
             "harness_console": plan.get("harness_console_url") or AGENT_PLAN_HARNESS_CONSOLE_URL,
@@ -194,10 +236,13 @@ def build_web_search_assistant_guide(snapshot: dict[str, Any] | None = None) -> 
     else:
         status = "not_configured"
         summary = "尚未配置任何联网搜索引擎密钥。"
-        say = "还没配联网搜索。常见做法：① 若有火山 Agent Plan：控制台「配置 Harness」领豆包联网 Key 发我；② 或独立开通豆包搜索 / 博查 / Tavily，把 Key 发我，我写入并测通。不要用对话 ark- Key 填豆包搜索。"
+        say = (
+            "还没配联网搜索。常见做法：① 绑定火山 Agent Plan（官方用套餐 Key 调豆包搜索，Harness 开抵扣）；"
+            "② 或独立开通豆包 / 博查 / Tavily，把 Key 发我写入并测通。"
+        )
         next_steps = [
             "先问用户用哪条路径（Agent Plan / 独立豆包 / 博查 / Tavily…）",
-            "拿到 Key 后 settings.patch_web_search + settings.test_web_search",
+            "Agent Plan：保存绑定后自动接通；其它：settings.patch_web_search + settings.test_web_search",
         ]
         links = {
             "harness_console": AGENT_PLAN_HARNESS_CONSOLE_URL,
@@ -215,9 +260,21 @@ def build_web_search_assistant_guide(snapshot: dict[str, Any] | None = None) -> 
         "active_source": source,
         "preferred_backend": preferred or None,
         "agent_plan_bound": bool(plan),
+        "agent_plan_ready": plan_ready,
         "doubao_key_configured": has_doubao,
-        "patch_fields_hint": ("preferredBackend, doubaoApiKey, doubaoBaseUrl, bochaApiKey, tavilyApiKey, braveApiKey, searxngUrl, firecrawlApiKey, infoquestApiKey"),
-        "note": ("帮用户配联网搜索时走 platform settings.*，不要让用户自己在复杂设置页里找。豆包联网 Key ≠ ark- 对话 Key。"),
+        "doubao_key_source": (plan or {}).get("doubao_key_source") if plan else (str(settings.get("doubaoKeySource") or "").strip() or None),
+        "wired_from_plan": bool(plan and plan.get("wired_from_plan")),
+        "harness_required": bool(plan and plan.get("harness_required")),
+        "configured": status in {"agent_plan_ready", "configured"},
+        "online_capable": status in {"agent_plan_ready", "configured"} and bool(active),
+        "patch_fields_hint": (
+            "preferredBackend, doubaoApiKey, doubaoBaseUrl, bochaApiKey, tavilyApiKey, "
+            "braveApiKey, searxngUrl, firecrawlApiKey, infoquestApiKey"
+        ),
+        "note": (
+            "帮用户配联网搜索时走 platform settings.* / diagnostics.status。"
+            "Agent Plan 官方：套餐专属 Key = 豆包搜索鉴权 Key（需 Harness 开启抵扣）。"
+        ),
     }
 
 
@@ -261,21 +318,60 @@ def resolve_web_search_setup_gate() -> dict[str, Any]:
     }
 
 
+def _soft_heal_agent_plan_web_search() -> None:
+    """For bindings created before auto-wire: inject Plan Key + preferred doubao once."""
+    try:
+        from evoflow.persistence.web_search_settings import (
+            apply_agent_plan_web_search_defaults,
+            get_web_search_settings,
+        )
+        from evoflow.plans.bindings import find_active_binding
+
+        binding = find_active_binding(
+            vendor="volcengine",
+            plan_family="agent_plan",
+            capability="web_search",
+            mask_key=True,
+        )
+        if not binding or not binding.get("api_key_configured"):
+            return
+        raw = get_web_search_settings()
+        key_source = str(raw.get("doubaoKeySource") or "").strip()
+        pref_source = str(raw.get("preferredBackendSource") or "").strip()
+        has_key = bool(str(raw.get("doubaoApiKey") or "").strip())
+        pref = str(raw.get("preferredBackend") or "").strip().lower()
+        needs_key = not has_key and key_source != "user"
+        needs_pref = (not pref or pref == "doubao") and pref_source != "user"
+        if needs_key or needs_pref:
+            apply_agent_plan_web_search_defaults()
+    except Exception as exc:
+        logger.debug("soft heal agent plan web_search skipped: %s", exc)
+
+
 def get_web_search() -> dict[str, Any]:
     """Masked settings + provider status for assistant / Gateway GET."""
     apply_runtime_env_to_environ()
+    _soft_heal_agent_plan_web_search()
     active, source = _active_backend_info()
     plan_ws = get_agent_plan_web_search_status()
     providers = _provider_status_list()
     if plan_ws:
         needs_key = bool(plan_ws.get("needs_search_key"))
+        wired = bool(plan_ws.get("wired_from_plan"))
         for prov in providers:
             if prov.get("id") == "doubao":
                 prov["plan_sourced"] = True
                 prov["plan_needs_key"] = needs_key
-                # Entitled via Plan; still need SearchInfinity key to call.
+                prov["plan_key_wired"] = wired
+                prov["plan_ready"] = bool(plan_ws.get("ready"))
+                # Plan entitled + key missing → mark unavailable so UI shows 待接通.
                 if needs_key:
                     prov["available"] = False
+                elif not prov.get("available") and (
+                    plan_ws.get("plan_binding_has_key") or plan_ws.get("doubao_key_configured")
+                ):
+                    # Settings may be empty while runtime Plan key fallback works.
+                    prov["available"] = True
         # Plan entitled but nothing resolved yet → surface intended engine.
         if not active:
             active = "doubao"

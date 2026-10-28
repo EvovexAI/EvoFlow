@@ -448,7 +448,64 @@ def format_system_status_markdown(snap: dict[str, Any]) -> str:
                 + (f" · 并发上限：`{tq.get('max_concurrent')}`" if tq.get("max_concurrent") is not None else "")
             )
 
+    web = snap.get("web_search") if isinstance(snap.get("web_search"), dict) else {}
+    if web:
+        online = "是" if web.get("online_capable") else "否"
+        configured = "是" if web.get("configured") else "否"
+        lines.extend(
+            [
+                "",
+                "### 联网搜索",
+                f"- 已配置：{configured} · 可联网：{online}",
+                f"- 状态：`{web.get('status') or 'unknown'}`",
+                f"- 生效引擎：`{web.get('active_backend') or '—'}`（来源 `{web.get('active_source') or '—'}`）",
+            ]
+        )
+        if web.get("summary"):
+            lines.append(f"- 说明：{web.get('summary')}")
+        if web.get("agent_plan_bound"):
+            plan_ready = "已就绪" if web.get("agent_plan_ready") else "待接通"
+            wired = "套餐 Key 已自动写入" if web.get("wired_from_plan") else "未标记套餐写入"
+            lines.append(f"- Agent Plan：{plan_ready} · {wired}")
+            if web.get("harness_required"):
+                lines.append("- 提醒：需在火山控制台 Harness 开启「豆包搜索」抵扣")
+            if web.get("needs_search_key"):
+                lines.append("- 待办：套餐 Key 尚未接通到豆包搜索")
+
     return "\n".join(lines)
+
+
+def _probe_web_search_status() -> dict[str, Any]:
+    """Compact联网搜索 readiness for diagnostics / assistants (no secrets)."""
+    try:
+        from evoflow.admin.web_search import get_web_search
+
+        snap = get_web_search()
+        guide = snap.get("assistant_guide") if isinstance(snap.get("assistant_guide"), dict) else {}
+        plan = snap.get("agent_plan_web_search") if isinstance(snap.get("agent_plan_web_search"), dict) else None
+        return {
+            "configured": bool(guide.get("configured")),
+            "online_capable": bool(guide.get("online_capable")),
+            "status": guide.get("status") or "unknown",
+            "summary": guide.get("summary") or "",
+            "active_backend": snap.get("active_backend"),
+            "active_source": snap.get("active_source"),
+            "preferred_backend": guide.get("preferred_backend"),
+            "agent_plan_bound": bool(guide.get("agent_plan_bound") or plan),
+            "agent_plan_ready": bool(guide.get("agent_plan_ready") or (plan and plan.get("ready"))),
+            "wired_from_plan": bool(guide.get("wired_from_plan") or (plan and plan.get("wired_from_plan"))),
+            "doubao_key_configured": bool(guide.get("doubao_key_configured")),
+            "doubao_key_source": guide.get("doubao_key_source") or (plan or {}).get("doubao_key_source"),
+            "harness_required": bool(guide.get("harness_required") or (plan and plan.get("harness_required"))),
+            "needs_search_key": bool(plan and plan.get("needs_search_key")),
+        }
+    except Exception as exc:
+        return {
+            "configured": False,
+            "online_capable": False,
+            "status": "unavailable",
+            "summary": f"web_search status unavailable: {exc}"[:160],
+        }
 
 
 def build_system_status_snapshot() -> dict[str, Any]:
@@ -459,6 +516,7 @@ def build_system_status_snapshot() -> dict[str, Any]:
     service = _probe_service_health()
     ready = _probe_ready_state()
     runtime = _probe_runtime_summary()
+    web_search = _probe_web_search_status()
 
     # Prefer live app-server port from Gateway state when present.
     if ready.get("app_server_port") and not ports.get("app_server"):
@@ -480,6 +538,7 @@ def build_system_status_snapshot() -> dict[str, Any]:
         "service": service,
         "ready": ready,
         "runtime": runtime,
+        "web_search": web_search,
     }
     snap["markdown"] = format_system_status_markdown(snap)
     return snap

@@ -470,7 +470,10 @@ async def _verify_web_search(*, api_key: str, catalog: dict[str, Any]) -> dict[s
         pass
     ok, msg = await _post_chat(base_url=base, api_key=api_key, model_id=model_id)
     if ok:
-        msg = "套餐 Key 可用。联网搜索还需在控制台「配置 Harness」领取豆包搜索 Key，填到「设置 → 联网搜索」（不是这把 ark- Key）"
+        msg = (
+            "套餐 Key 可用。官方用同一把 Agent Plan Key 调豆包搜索；"
+            "绑定后会自动写入「设置 → 联网搜索」。请确认控制台 Harness 已开启「豆包搜索」抵扣。"
+        )
     check = _check("web_search", label="联网搜索凭证", ok=ok, message=msg)
     if ok:
         return _ok("web_search", label=label, message=msg, checks=[check])

@@ -28,6 +28,7 @@ class WebSearchSettingsResponse(BaseModel):
     active_backend: str | None = None
     active_source: str = "auto"  # settings | auto | agent_plan | none
     agent_plan_web_search: dict[str, Any] | None = None
+    assistant_guide: dict[str, Any] | None = None
     provider_ui: list[dict[str, str]] = Field(default_factory=lambda: list(PROVIDER_UI))
 
 
@@ -68,6 +69,7 @@ def _to_settings_response(data: dict[str, Any]) -> WebSearchSettingsResponse:
         active_backend=data.get("active_backend"),
         active_source=str(data.get("active_source") or "none"),
         agent_plan_web_search=data.get("agent_plan_web_search"),
+        assistant_guide=data.get("assistant_guide") if isinstance(data.get("assistant_guide"), dict) else None,
         provider_ui=list(data.get("provider_ui") or PROVIDER_UI),
     )
 

@@ -62,7 +62,12 @@ DOMAIN_GUIDES: dict[str, dict[str, str]] = {
     },
     "settings": {
         "title": "设置（模型/联网搜索）",
-        "when": ("改默认模型、增删/更新模型配置；或帮用户配置/测通「联网搜索」（含 Agent Plan 豆包 Harness Key、独立豆包/博查/Tavily 等）。用户说设置页太复杂、不会配搜索、豆包搜不通、Plan 联网怎么填时，优先在此域用对话代配。"),
+        "when": (
+            "改默认模型、增删/更新模型配置；或帮用户配置/测通「联网搜索」"
+            "（Agent Plan 官方用套餐专属 Key 调豆包搜索并自动接通；也可独立豆包/博查/Tavily）。"
+            "用户说设置页太复杂、不会配搜索、豆包搜不通、Plan 联网怎么填时，优先在此域用对话代配；"
+            "查系统是否已配置/可联网时也可读 diagnostics.status 的 web_search 段。"
+        ),
         "not": "不是用户画像（用 assets.*_profile / 资产中心）；不是 IM 渠道（用 channels）；不是临时搜一句网页（那用 web_search）；配好后搜网页仍用 web_search",
     },
     "assets": {
@@ -414,7 +419,8 @@ def _build_registry() -> dict[str, PlatformAction]:
             H.settings_patch_web_search,
             "把首选改成 doubao 并写入豆包 Key",
             "配置 Tavily 联网搜索",
-            "我有 Agent Plan，把 Harness 领的联网 Key 写上",
+            "我有 Agent Plan，帮我接通豆包联网搜索",
+            "套餐 Key 已经配了，联网搜索通了吗",
         ),
         _A(
             "settings.test_web_search",

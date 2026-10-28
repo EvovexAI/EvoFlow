@@ -25,9 +25,12 @@ let _snapshot = null
  *     available: boolean,
  *     plan_sourced?: boolean,
  *     plan_needs_key?: boolean,
+ *     plan_key_wired?: boolean,
+ *     plan_ready?: boolean,
  *   }>,
  *   active_backend: string | null,
  *   active_source: string,
+ *   assistant_guide?: Record<string, unknown> | null,
  *   agent_plan_web_search?: {
  *     catalog_id?: string,
  *     binding_id?: string,
@@ -38,8 +41,13 @@ let _snapshot = null
  *     engine?: string,
  *     engine_label?: string,
  *     doubao_key_configured?: boolean,
+ *     doubao_key_source?: string,
+ *     plan_binding_has_key?: boolean,
+ *     wired_from_plan?: boolean,
  *     needs_search_key?: boolean,
  *     preferred_is_doubao?: boolean,
+ *     ready?: boolean,
+ *     harness_required?: boolean,
  *     harness_console_url?: string,
  *     docs_url?: string,
  *     standalone_console_url?: string,
@@ -82,6 +90,7 @@ function snapshotFromData(data) {
     providers: data?.providers || [],
     active_backend: data?.active_backend ?? null,
     active_source: data?.active_source || 'auto',
+    assistant_guide: data?.assistant_guide ?? null,
     agent_plan_web_search: data?.agent_plan_web_search ?? null,
     provider_ui: data?.provider_ui || [],
   }
@@ -191,9 +200,12 @@ export function activeBackendLabel(backend, snap) {
     const tier = String(plan.tier_id || '').trim()
     const tierText = tier ? ` · ${tier}` : ''
     if (plan.needs_search_key) {
-      return `豆包搜索（Agent Plan 赠送${tierText} · 待填联网 Key）`
+      return `豆包搜索（Agent Plan${tierText} · 待接通套餐 Key）`
     }
-    return `豆包搜索（Agent Plan 赠送${tierText}）`
+    if (plan.wired_from_plan || plan.doubao_key_source === 'agent_plan') {
+      return `豆包搜索（Agent Plan 套餐 Key 已接通${tierText}）`
+    }
+    return `豆包搜索（Agent Plan${tierText}）`
   }
   if (id === 'agent_plan') {
     const tier = String(plan?.tier_id || '').trim()

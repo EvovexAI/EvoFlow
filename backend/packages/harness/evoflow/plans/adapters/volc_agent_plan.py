@@ -94,14 +94,22 @@ class VolcAgentPlanAdapter:
         patch_media_credentials(media_patch)
 
         web_search_applied = False
+        web_search_key_wired = False
         if "web_search" in caps:
             try:
                 from evoflow.persistence.web_search_settings import (
                     apply_agent_plan_web_search_defaults,
+                    get_web_search_settings,
                 )
 
-                apply_agent_plan_web_search_defaults()
+                # Official: Agent Plan 专属 Key 即豆包搜索鉴权 Key（Harness 开启抵扣后）。
+                apply_agent_plan_web_search_defaults(api_key=api_key)
                 web_search_applied = True
+                after = get_web_search_settings()
+                web_search_key_wired = (
+                    str(after.get("doubaoKeySource") or "").strip() == "agent_plan"
+                    and bool(str(after.get("doubaoApiKey") or "").strip())
+                )
             except Exception as exc:
                 logger.warning("Agent Plan web_search defaults failed: %s", exc)
 
@@ -128,6 +136,7 @@ class VolcAgentPlanAdapter:
                 "asr": "asr" in caps,
                 "web_search": "web_search" in caps,
                 "web_search_preferred_doubao": web_search_applied,
+                "web_search_key_wired": web_search_key_wired,
             },
         }
 
