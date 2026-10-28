@@ -7,7 +7,8 @@ Protocols (auto-selected by Base URL + model id):
 3. **OpenAI Videos gateway** (hon-maas etc.) — multipart ``POST {base}/videos``
    Base like ``https://token-service-qy.hon-maas.com/v1``; model ``minimax-h3`` / ``minimax-h3/QY3``.
    Fields: model/prompt/seconds/size/width/height/aspect_ratio + extra_params
-   (``t2va`` / ``fl2va``) + optional ``file`` first frame.
+   (``t2va`` / ``fl2va``) + image frame(s) as repeated ``input_references``
+   (NOT ``file`` / singular ``input_reference`` — hon-maas rejects those for fl2va).
    Poll ``GET {base}/videos/{id}``; content ``GET {base}/videos/{id}/content``.
 """
 
@@ -138,11 +139,12 @@ def _openai_size(resolution: str | None, aspect_ratio: str) -> str:
 
 
 def _clamp_gateway_seconds(duration: int | None) -> int:
+    """MiniMax H3 via OpenAI-Videos gateway accepts duration in [4, 15] only."""
     try:
         n = int(duration or 4)
     except (TypeError, ValueError):
         n = 4
-    return max(2, min(n, 15))
+    return max(4, min(n, 15))
 
 
 def _materialize_image_bytes(ref: str) -> tuple[str, bytes, str]:
@@ -254,19 +256,29 @@ def _submit_openai_videos(
     resolution: str,
     aspect_ratio: str,
 ) -> str:
-    """hon-maas / OpenAI-Videos create — multipart form (matches online API docs)."""
-    del last_frame_url  # gateway docs expose a single first-frame ``file``
+    """hon-maas / OpenAI-Videos create — multipart form.
+
+    Image-to-video on this gateway MUST use repeated form field
+    ``input_references`` (plural) plus ``extra_params.frame_indices``:
+    - first only → one part + ``[0]``
+    - first+last → two parts + ``[0, -1]``
+    ``file`` / singular ``input_reference`` are rejected with the fl2va
+    frame_indices error even when indices are present.
+    """
     base = minimax_media_base_url().rstrip("/")
     size, width, height, ar = _openai_dims(resolution, aspect_ratio)
     seconds = _clamp_gateway_seconds(duration)
-    want_i2v = mode == "image2video" or bool(first_frame_url)
+    want_i2v = mode == "image2video" or bool(first_frame_url) or bool(last_frame_url)
     if want_i2v and not first_frame_url:
         raise ValueError(
             "图生视频需要 first_frame_url（https、data:image/...;base64,... 或本地路径）"
         )
+    if last_frame_url and not first_frame_url:
+        raise ValueError("last_frame_url 需要同时提供 first_frame_url")
 
     if want_i2v:
-        extra: dict[str, Any] = {"task": "fl2va", "frame_indices": [0]}
+        frame_indices = [0, -1] if last_frame_url else [0]
+        extra: dict[str, Any] = {"task": "fl2va", "frame_indices": frame_indices}
     else:
         extra = {"task": "t2va"}
 
@@ -274,25 +286,28 @@ def _submit_openai_videos(
     flow_shift_s = (
         str(int(flow_shift)) if float(flow_shift).is_integer() else str(flow_shift)
     )
-    # httpx: (None, value) → multipart form field (always -F style, even without file)
-    multipart: dict[str, Any] = {
-        "model": (None, model),
-        "prompt": (None, prompt or ""),
-        "seconds": (None, str(seconds)),
-        "size": (None, size),
-        "width": (None, str(width)),
-        "height": (None, str(height)),
-        "aspect_ratio": (None, ar),
-        "num_inference_steps": (None, str(DEFAULT_GATEWAY_INFERENCE_STEPS)),
-        "flow_shift": (None, flow_shift_s),
-        "extra_params": (
-            None,
-            json.dumps(extra, ensure_ascii=False, separators=(",", ":")),
+    # list-of-tuples: required so repeated ``input_references`` keeps both parts
+    multipart: list[tuple[str, Any]] = [
+        ("model", (None, model)),
+        ("prompt", (None, prompt or "")),
+        ("seconds", (None, str(seconds))),
+        ("size", (None, size)),
+        ("width", (None, str(width))),
+        ("height", (None, str(height))),
+        ("aspect_ratio", (None, ar)),
+        ("num_inference_steps", (None, str(DEFAULT_GATEWAY_INFERENCE_STEPS))),
+        ("flow_shift", (None, flow_shift_s)),
+        (
+            "extra_params",
+            (None, json.dumps(extra, ensure_ascii=False, separators=(",", ":"))),
         ),
-    }
+    ]
     if want_i2v:
         filename, raw, mime = _materialize_image_bytes(str(first_frame_url))
-        multipart["file"] = (filename, raw, mime)
+        multipart.append(("input_references", (filename, raw, mime)))
+        if last_frame_url:
+            last_name, last_raw, last_mime = _materialize_image_bytes(str(last_frame_url))
+            multipart.append(("input_references", (last_name, last_raw, last_mime)))
 
     url = f"{base}/videos"
     with httpx.Client(timeout=120.0) as client:
@@ -453,12 +468,25 @@ def _poll_openai_videos(task_id: str) -> tuple[str, str | None, list[str]]:
     except Exception:
         data = {}
     if resp.status_code >= 400:
+        logger.warning(
+            "OpenAI-Videos poll %s → HTTP %s body=%s",
+            task_id,
+            resp.status_code,
+            json.dumps(data, ensure_ascii=False)[:400],
+        )
         return "failed", None, []
 
     status_raw = str(data.get("status") or "").lower()
     if status_raw in {"completed", "succeeded", "success", "done", "finished"}:
         status = "succeeded"
     elif status_raw in {"failed", "fail", "error", "cancelled", "canceled"}:
+        err = data.get("error") if isinstance(data.get("error"), dict) else {}
+        err_msg = str(err.get("message") or data.get("message") or "").strip()
+        logger.warning(
+            "OpenAI-Videos poll %s failed: %s",
+            task_id,
+            err_msg or json.dumps(data, ensure_ascii=False)[:400],
+        )
         status = "failed"
     else:
         status = "processing"

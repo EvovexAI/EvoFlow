@@ -157,6 +157,7 @@ def channel_video_models() -> list[dict[str, Any]]:
             "use_when": (
                 "Base URL 填网关 …/v1（如 hon-maas）；"
                 "multipart POST /videos + extra_params t2va/fl2va；"
+                "图生视频用 input_references + frame_indices；"
                 "渠道锁定可用 minimax-h3/QY3"
             ),
             "protocol": "openai_videos",
@@ -271,7 +272,8 @@ def credential_sources() -> list[dict[str, Any]]:
                 "official": "POST {base}/v2/video_generation（api.minimax.cn）",
                 "openai_videos_gateway": (
                     "multipart POST {base}/videos（base …/v1；"
-                    "size/width/height/aspect_ratio + extra_params t2va|fl2va + optional file）"
+                    "size/width/height/aspect_ratio + extra_params t2va|fl2va；"
+                    "图生：repeated input_references + frame_indices [0]|[0,-1]）"
                 ),
             },
         },
