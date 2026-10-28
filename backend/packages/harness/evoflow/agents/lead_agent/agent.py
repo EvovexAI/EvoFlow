@@ -1507,26 +1507,38 @@ def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None
     except Exception:
         logger.debug("agent-mode system tool filter skipped", exc_info=True)
 
+    # Snapshot MCP tools BEFORE whitelist / dynamic / flat-bind pruning.
+    # Employee roles often set tools=[read,write,…] + mcp_servers=[foo]; the
+    # whitelist treats mcp__* as configurable "optional" and drops them, then
+    # ``all_tools = list(tools)`` leaves mount_agent_mcp_tools with an empty
+    # MCP source — UI/runtime both show "bound MCP" but zero mcp__ tools.
+    from evoflow.mcp.binding import is_mcp_tool_name as _is_mcp_tool_name
+
+    _mcp_catalog_tools = [t for t in tools if _is_mcp_tool_name(str(getattr(t, "name", "") or ""))]
+
     # Apply tool whitelist filter: configurable tools only; session spine always kept.
     # 小V：白名单是 bash 等显式项，但 mcp_servers=None 时仍保留全部 MCP 工具。
+    # 其它角色：保留 mcp_servers 绑定到的 MCP（或 None=全部），与 mount 语义一致。
     if _tool_whitelist is not None:
         from evoflow.tools.tool_aliases import canonical_tool_name
         from evoflow.tools.tool_catalog import is_role_editor_configurable_tool
 
-        _keep_all_mcp = False
-        try:
-            from evoflow.agents.xiaomi.identity import is_xiaomi_agent
-            from evoflow.mcp.binding import is_mcp_tool_name
-
-            _keep_all_mcp = bool(is_xiaomi_agent(agent_name) and _cfg_mcp is None)
-        except Exception:
-            _keep_all_mcp = False
+        _mcp_allowed_servers: set[str] | None
+        if _cfg_mcp is None:
+            _mcp_allowed_servers = None  # all MCP
+        else:
+            _mcp_allowed_servers = {str(s).strip() for s in _cfg_mcp if str(s).strip()}
 
         def _whitelist_keep(t) -> bool:
             raw = str(getattr(t, "name", "") or "")
             name = canonical_tool_name(raw.strip().lower())
-            if _keep_all_mcp and is_mcp_tool_name(raw):
-                return True
+            if _is_mcp_tool_name(raw):
+                if _mcp_allowed_servers is None:
+                    return True
+                if not _mcp_allowed_servers:
+                    return False
+                server = _mcp_server_from_tool_name(raw)
+                return bool(server and server in _mcp_allowed_servers)
             if not is_role_editor_configurable_tool(raw):
                 return True
             return name in _tool_whitelist
@@ -1639,10 +1651,20 @@ def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None
             )
 
     _mcp_system_section = ""
+    # Mount from pre-prune MCP catalog — not from all_tools (may already be stripped
+    # by tools allowlist / flat_bind / dynamic profile).
+    _mcp_source = _filter_tools_by_mcp_servers(list(_mcp_catalog_tools), _cfg_mcp)
     all_tools = _filter_tools_by_mcp_servers(all_tools, _cfg_mcp)
     tools = _filter_tools_by_mcp_servers(tools, _cfg_mcp)
-    if _cfg_mcp is not None:
-        tools = _mount_agent_mcp_tools(tools, all_tools, _cfg_mcp)
+    if _cfg_mcp is None:
+        # Unrestricted: restore any MCP dropped by flat/dynamic pruning.
+        tools = _mount_agent_mcp_tools(tools, _mcp_source, [s for s in {
+            str(_mcp_server_from_tool_name(str(getattr(t, "name", "") or "")) or "")
+            for t in _mcp_source
+        } if s])
+    elif _cfg_mcp:
+        tools = _mount_agent_mcp_tools(tools, _mcp_source, _cfg_mcp)
+    # _cfg_mcp == [] → explicitly no MCP (already filtered)
     mcp_bound = [n for n in (t.name for t in tools) if _mcp_server_from_tool_name(n)]
     if _cfg_mcp != []:
         from evoflow.mcp.native_prompt import build_mcp_native_prompt_section_safe
@@ -1652,12 +1674,13 @@ def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None
             bound_tool_names=[t.name for t in tools],
             prompt_language=_prompt_language,
         )
-    if _cfg_mcp is not None:
+    if _cfg_mcp is not None or mcp_bound:
         logger.info(
-            "[Agent MCP] role %r native binding servers=%s mounted_mcp_tools=%d",
+            "[Agent MCP] role %r native binding servers=%s mounted_mcp_tools=%d catalog_mcp=%d",
             agent_name,
             _cfg_mcp,
             len(mcp_bound),
+            len(_mcp_catalog_tools),
         )
 
     tools = _strip_mind_map_tools(tools)
