@@ -1189,8 +1189,16 @@ export function useChatAppController() {
     if (Array.isArray(rows) && rows.length > 0) {
       setSessionHadContent(true)
       setPreferHomeDashboard(false)
+      try {
+        const sk = String(selectedSessionKey || '').trim()
+        if (sk && sessionStorage.getItem('evopanel_shell_empty_draft') === sk) {
+          sessionStorage.removeItem('evopanel_shell_empty_draft')
+        }
+      } catch {
+        /* ignore */
+      }
     }
-  }, [rows])
+  }, [rows, selectedSessionKey])
 
   useLayoutEffect(() => {
     queueMicrotask(() => setHistoryViewReady(false))

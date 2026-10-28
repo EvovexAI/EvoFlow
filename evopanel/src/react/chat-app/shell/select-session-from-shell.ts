@@ -37,6 +37,11 @@ export function selectSessionFromShell(
   ctx.setShellSelectRevision((r) => r + 1)
   try {
     sessionStorage.removeItem('evopanel_pending_shell_session')
+    // 仅保留「当前正打开的 mint 空草稿」标记；切到其它会话就清掉，避免误居中。
+    const emptyDraft = sessionStorage.getItem('evopanel_shell_empty_draft')
+    if (emptyDraft && emptyDraft !== k) {
+      sessionStorage.removeItem('evopanel_shell_empty_draft')
+    }
   } catch {
     /* ignore */
   }
