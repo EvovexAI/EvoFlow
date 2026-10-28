@@ -57,13 +57,20 @@ def build_mcp_status_snapshot(
     server_load_status = get_mcp_server_load_status()
     config_stale = mcp_config_stale()
 
+    from evoflow.mcp.binding import mcp_server_from_tool_name
+
     tools_by_server: dict[str, list[dict[str, str]]] = {}
     for tool in tools:
-        parts = tool.name.split("__", 1)
-        if len(parts) == 2:
-            server_name, tool_name = parts[0], parts[1]
-        else:
-            server_name, tool_name = "unknown", tool.name
+        full_name = str(getattr(tool, "name", "") or "").strip()
+        server_name = mcp_server_from_tool_name(full_name) or "unknown"
+        # ``mcp__server__tool`` → tool; legacy ``server__tool`` → tool
+        tool_name = full_name
+        mcp_prefix = f"mcp__{server_name}__"
+        legacy_prefix = f"{server_name}__"
+        if full_name.startswith(mcp_prefix):
+            tool_name = full_name[len(mcp_prefix) :]
+        elif full_name.startswith(legacy_prefix):
+            tool_name = full_name[len(legacy_prefix) :]
 
         tools_by_server.setdefault(server_name, [])
         description = ""
@@ -73,7 +80,7 @@ def build_mcp_status_snapshot(
         tools_by_server[server_name].append(
             {
                 "name": tool_name,
-                "full_name": tool.name,
+                "full_name": full_name,
                 "description": description,
             }
         )

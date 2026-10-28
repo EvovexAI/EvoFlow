@@ -215,6 +215,17 @@ def test_tuple_shape_preserved_with_artifact(budget_env):
     assert content[1]["type"] == "text" and "saved to" in content[1]["text"]
 
 
+def test_tuple_shape_preserved_when_artifact_is_none(budget_env):
+    """adapters always return (content, artifact|None); unwrapping breaks content_and_artifact."""
+    rb, _ = budget_env
+    blocks = [{"type": "text", "text": '{"ok": true}'}]
+    out = rb.normalize_mcp_tool_result("mcp__ecommerce-shangce__health", (blocks, None))
+    assert isinstance(out, tuple) and len(out) == 2
+    content, artifact = out
+    assert artifact is None
+    assert content == blocks
+
+
 def test_blocks_text_budget_across_blocks(budget_env):
     rb, _ = budget_env
     rb.text_budget_chars = lambda: 150

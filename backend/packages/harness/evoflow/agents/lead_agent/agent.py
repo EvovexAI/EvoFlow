@@ -1653,19 +1653,28 @@ def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None
     _mcp_system_section = ""
     # Mount from pre-prune MCP catalog — not from all_tools (may already be stripped
     # by tools allowlist / flat_bind / dynamic profile).
+    # CRITICAL: create_agent(tools=all_tools) — remount must update BOTH lists.
+    # With tool_search kill-switch, flat_bind does ``all_tools = list(tools)`` after
+    # stripping mcp__*, so remounting only ``tools`` left ToolNode without MCP.
     _mcp_source = _filter_tools_by_mcp_servers(list(_mcp_catalog_tools), _cfg_mcp)
     all_tools = _filter_tools_by_mcp_servers(all_tools, _cfg_mcp)
     tools = _filter_tools_by_mcp_servers(tools, _cfg_mcp)
+    _remount_servers: list[str] | None = None
     if _cfg_mcp is None:
-        # Unrestricted: restore any MCP dropped by flat/dynamic pruning.
-        tools = _mount_agent_mcp_tools(tools, _mcp_source, [s for s in {
-            str(_mcp_server_from_tool_name(str(getattr(t, "name", "") or "")) or "")
-            for t in _mcp_source
-        } if s])
+        _remount_servers = sorted(
+            {
+                str(_mcp_server_from_tool_name(str(getattr(t, "name", "") or "")) or "")
+                for t in _mcp_source
+            }
+            - {""}
+        )
     elif _cfg_mcp:
-        tools = _mount_agent_mcp_tools(tools, _mcp_source, _cfg_mcp)
+        _remount_servers = list(_cfg_mcp)
+    if _remount_servers:
+        tools = _mount_agent_mcp_tools(tools, _mcp_source, _remount_servers)
+        all_tools = _mount_agent_mcp_tools(all_tools, _mcp_source, _remount_servers)
     # _cfg_mcp == [] → explicitly no MCP (already filtered)
-    mcp_bound = [n for n in (t.name for t in tools) if _mcp_server_from_tool_name(n)]
+    mcp_bound = [n for n in (t.name for t in all_tools) if _mcp_server_from_tool_name(n)]
     if _cfg_mcp != []:
         from evoflow.mcp.native_prompt import build_mcp_native_prompt_section_safe
 
@@ -1764,6 +1773,10 @@ def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None
         tool_whitelist=tuple(sorted(_tool_whitelist)) if _tool_whitelist is not None else tuple(),
         mcp_servers_unrestricted=_cfg_mcp is None,
         mcp_servers=tuple(sorted(str(s) for s in (_cfg_mcp or []))),
+        # Rebuild when MCP cache warms (cold start often builds with 0 mcp tools).
+        mcp_tools_fp=tuple(
+            sorted(str(getattr(t, "name", "") or "").strip() for t in (_mcp_source or []) if str(getattr(t, "name", "") or "").strip())
+        ),
         skills=tuple(sorted(_available_skills)),
         custom_system_prompt_hash=csp_hash,
         summarization_enabled=_create_context_compaction_middleware() is not None,

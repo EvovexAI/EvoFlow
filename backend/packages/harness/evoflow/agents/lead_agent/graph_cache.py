@@ -59,8 +59,10 @@ class LeadAgentGraphCacheKey:
     has_tool_search_tool: bool = True
     # Invalidate when api_key / base_url change without restarting the worker.
     credentials_fp: str = ""
+    # Bound MCP tool names present at build time (empty → full when MCP cache warms).
+    mcp_tools_fp: tuple[str, ...] = ()
     # Bump when compile-time prompt binding changes (invalidates graphs built with placeholders).
-    schema_version: int = 15
+    schema_version: int = 16
 
     def as_tuple(self) -> tuple[Any, ...]:
         """All fields in definition order — new fields auto-included via dataclasses.astuple."""
