@@ -108,10 +108,10 @@ def _cached_agent_tool_names(
     model_name: str | None,
     tools_whitelist_key: tuple[str, ...] | None,
     disallowed_key: tuple[str, ...] | None,
-    mcp_skill_mode: bool,
+    mcp_servers_key: tuple[str, ...] | None,
 ) -> frozenset[str]:
     del model_name  # get_available_tools caches by model; keep signature for cache key stability
-    del mcp_skill_mode  # native-style: MCP always native in tool catalog
+    # mcp_servers_key: None = unrestricted; () = explicitly none; ("srv",…) = bound servers
     try:
         load_agent_config(agent_id)
     except Exception:
@@ -129,6 +129,16 @@ def _cached_agent_tool_names(
         logger.warning("[AgentTools] get_available_tools failed agent=%s: %s", agent_id, exc)
         return frozenset()
 
+    from evoflow.mcp.binding import (
+        filter_tools_by_mcp_servers,
+        is_mcp_tool_name,
+        mcp_server_from_tool_name,
+        mount_agent_mcp_tools,
+    )
+
+    # Snapshot MCP before tools allowlist drops mcp__* (optional tier).
+    mcp_catalog = [t for t in tools if is_mcp_tool_name(str(getattr(t, "name", "") or ""))]
+
     if tools_whitelist_key is not None:
         from evoflow.tools.tool_aliases import canonical_tool_name
         from evoflow.tools.tool_catalog import normalize_tool_name
@@ -141,6 +151,7 @@ def _cached_agent_tool_names(
             whitelist.update({"taskoutput", "taskstop"})
         # Explicit agent.tools = allowlist. ``tool_search`` + agent-mode system tools
         # (platform / panel_set) may bypass; ask_clarification is NOT auto-injected.
+        # Bound MCP is remounted below from mcp_servers — do not require mcp__ in tools[].
         from evoflow.tools.tool_catalog import AGENT_MODE_SYSTEM_TOOL_NAMES
 
         tools = [t for t in tools if ((name := canonical_tool_name(normalize_tool_name(getattr(t, "name", None)))) and (name in whitelist or name == "tool_search" or name in AGENT_MODE_SYSTEM_TOOL_NAMES))]
@@ -153,6 +164,23 @@ def _cached_agent_tool_names(
         # Agent-mode system tools cannot be banned via disallowed_tools.
         blocked -= {canonical_tool_name(n) for n in AGENT_MODE_SYSTEM_TOOL_NAMES}
         tools = [t for t in tools if canonical_tool_name(normalize_tool_name(getattr(t, "name", None))) not in blocked]
+
+    mcp_cfg = None if mcp_servers_key is None else list(mcp_servers_key)
+    mcp_source = filter_tools_by_mcp_servers(mcp_catalog, mcp_cfg)
+    if mcp_servers_key is None:
+        remount_servers = sorted(
+            {
+                str(mcp_server_from_tool_name(str(getattr(t, "name", "") or "")) or "")
+                for t in mcp_source
+            }
+            - {""}
+        )
+        if remount_servers:
+            tools = mount_agent_mcp_tools(tools, mcp_source, remount_servers)
+    elif mcp_servers_key:
+        tools = mount_agent_mcp_tools(tools, mcp_source, list(mcp_servers_key))
+    else:
+        tools = [t for t in tools if not is_mcp_tool_name(str(getattr(t, "name", "") or ""))]
 
     names = {str(getattr(t, "name", "") or "").strip().lower() for t in tools}
     names.discard("")
@@ -179,9 +207,13 @@ def resolve_agent_tool_names_for_agent(
     except Exception:
         agent_config = None
 
-    mcp_skill_mode = _agent_mcp_skill_mode_enabled(agent_config)
+    _agent_mcp_skill_mode_enabled(agent_config)  # legacy env warn only
     whitelist_key = tuple(sorted(str(t).strip() for t in agent_config.tools if str(t or "").strip())) if agent_config and agent_config.tools is not None else None
     disallowed_key = tuple(sorted(str(t).strip() for t in agent_config.disallowed_tools if str(t or "").strip())) if agent_config and agent_config.disallowed_tools else None
+    if agent_config is None or agent_config.mcp_servers is None:
+        mcp_servers_key: tuple[str, ...] | None = None
+    else:
+        mcp_servers_key = tuple(sorted(str(s).strip() for s in agent_config.mcp_servers if str(s).strip()))
     names = _cached_agent_tool_names(
         aid,
         subagent_enabled,
@@ -189,7 +221,7 @@ def resolve_agent_tool_names_for_agent(
         model_name,
         whitelist_key,
         disallowed_key,
-        mcp_skill_mode,
+        mcp_servers_key,
     )
     # 小V：白名单含 bash + 全量 MCP；前台 xiaomi_* / platform 不在 catalog 里，强制并入。
     try:
