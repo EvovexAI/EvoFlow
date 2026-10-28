@@ -5740,8 +5740,9 @@ export function useChatAppController() {
     voiceSessionKeyRef.current = ''
     voiceStreamingStartedRef.current = false
     void setVoiceTrayState('idle')
-    // 用户停止：立刻收起 Computer Use 屏边蓝光，不等工具 END。
+    // 用户停止：立刻收起顶栏提示，并清 gateway 状态（否则 30s grace / poll 会再亮）。
     void hideCuaGlowOverlayForced()
+    void import('../../lib/cua-glow-poll.js').then((m) => m.clearCuaGlowStatusRemote?.())
     await runStopSessionExecution(sessionKey, sessionStopHostRef.current, opts)
   }
 

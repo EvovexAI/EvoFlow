@@ -299,3 +299,26 @@ async def app_icon(payload: AppIconRequestBody) -> dict[str, Any] | None:
         if cached:
             return {"iconDataUrl": f"data:image/png;base64,{cached}"}
     return JSONResponse(content=None)
+
+
+@router.get("/glow-status")
+async def glow_status() -> dict[str, Any]:
+    """Desktop polls this to show ZCode-style 「正在操作电脑」 top indicator.
+
+    Driven by node_repl CUA cells via ``evoflow.collab.cua_glow_state`` — does not
+    require panel-stream / AG-UI (V4-safe).
+    """
+    from evoflow.collab.cua_glow_state import get_cua_glow_status
+
+    return get_cua_glow_status()
+
+
+@router.post("/glow-status")
+async def glow_status_set(payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Manual / test hook to force indicator on/off."""
+    from evoflow.collab.cua_glow_state import set_cua_glow
+
+    body = payload or {}
+    active = bool(body.get("active"))
+    key = str(body.get("key") or body.get("tool_call_id") or "").strip()
+    return set_cua_glow(active=active, key=key)

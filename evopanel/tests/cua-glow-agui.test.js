@@ -6,6 +6,22 @@ import {
 } from '../src/lib/cua-glow-agui.js'
 
 describe('nodeReplArgsTouchComputerUse', () => {
+  it('detects ZCode bootstrap anchor setupComputerUseRuntime', () => {
+    expect(
+      nodeReplArgsTouchComputerUse(
+        JSON.stringify({
+          title: '打开微信',
+          code: `
+const root = process.env.ZCODE_CUA_PLUGIN_ROOT;
+const { setupComputerUseRuntime } = await import(pathToFileURL(join(root, "scripts", "computer-use-client.mjs")).href);
+await setupComputerUseRuntime({ globals: globalThis });
+const app = await agent.computerUse.getApp("微信");
+`,
+        }),
+      ),
+    ).toBe(true)
+  })
+
   it('detects agent.computerUse in code', () => {
     expect(
       nodeReplArgsTouchComputerUse(
@@ -37,7 +53,9 @@ describe('nodeReplArgsTouchComputerUse', () => {
   })
 
   it('regex is exported for reuse', () => {
-    expect(NODE_REPL_COMPUTER_USE_INTENT_RE.test('computerUse.computer.screenshot()')).toBe(true)
+    expect(NODE_REPL_COMPUTER_USE_INTENT_RE.test('setupComputerUseRuntime({ globals: globalThis })')).toBe(
+      true,
+    )
   })
 })
 

@@ -19,6 +19,11 @@
     "global-shortcut:default",
     "core:webview:default",
     "core:webview:allow-create-webview-window",
+    "core:window:allow-set-ignore-cursor-events",
+    "core:window:allow-set-content-protected",
+    "core:window:allow-set-always-on-top",
+    "core:window:allow-show",
+    "core:window:allow-hide",
     "allow-app-commands"
   ]
 }

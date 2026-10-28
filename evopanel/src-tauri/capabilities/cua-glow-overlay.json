@@ -1,8 +1,16 @@
 {
   "identifier": "cua-glow-overlay-capability",
-  "description": "Computer Use screen-edge glow overlay windows",
-  "windows": ["cua-glow-0", "cua-glow-1", "cua-glow-2", "cua-glow-3"],
+  "description": "Computer Use top operation indicator (ZCode-aligned)",
+  "windows": ["cua-glow-0"],
   "permissions": [
-    "core:event:default"
+    "core:event:default",
+    "core:window:allow-show",
+    "core:window:allow-hide",
+    "core:window:allow-set-always-on-top",
+    "core:window:allow-set-ignore-cursor-events",
+    "core:window:allow-set-content-protected",
+    "core:window:allow-set-size",
+    "core:window:allow-set-position",
+    "core:webview:allow-create-webview-window"
   ]
 }

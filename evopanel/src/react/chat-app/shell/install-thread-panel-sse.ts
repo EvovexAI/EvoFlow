@@ -53,6 +53,25 @@ export function runThreadPanelSseEffect(ctx: InstallThreadPanelSseCtx): void | (
             scheduleBumpRef.current?.({ immediate: true })
             return
           }
+          if (evType === 'panel:cua_glow') {
+            // 后端 node_repl CUA cell 起停提示。权威可见性仍以 /api/cua/glow-status 轮询为准；
+            // cell end 只刷新 idle，不硬关（ZCode：同 turn 内保持 + 30s）。
+            const data = ev?.data && typeof ev.data === 'object' ? ev.data : {}
+            const active = data.active === true || data.active === 'true' || data.active === 1
+            const toolCallId = String(data.tool_call_id || data.toolCallId || '').trim()
+            void import('../../../lib/cua-glow-overlay.js').then((mod) => {
+              if (active) {
+                mod.beginCuaGlowOverlay(toolCallId || `panel-${Date.now()}`)
+                return
+              }
+              if (toolCallId) {
+                mod.touchCuaGlowOverlay(toolCallId)
+                return
+              }
+              void mod.hideCuaGlowOverlayForced()
+            })
+            return
+          }
           if (evType !== 'panel:title_updated') return
           const data = ev?.data && typeof ev.data === 'object' ? ev.data : {}
           const title = String(data.title || '').trim()

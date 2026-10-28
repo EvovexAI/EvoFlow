@@ -324,6 +324,71 @@ def _mcp_log(message: str) -> None:
         pass
 
 
+def _code_touches_computer_use(code: str) -> bool:
+    """对齐 ZCode：CUA cell 必带 ``setupComputerUseRuntime`` 引导句。"""
+    raw = str(code or "")
+    if not raw:
+        return False
+    return (
+        "setupComputerUseRuntime" in raw
+        or "computer-use-client" in raw
+        or "agent.computerUse" in raw
+        or "ZCODE_CUA_PLUGIN_ROOT" in raw
+        or "computer-use-bridge" in raw
+    )
+
+
+def _emit_cua_glow(thread_id: str, *, active: bool, tool_call_id: str = "") -> None:
+    """Drive Windows CUA top indicator (ZCode-aligned).
+
+    Start = CUA cell begins. End of a cell only starts 30s grace (does not hard-hide).
+    1) In-process status for ``GET /api/cua/glow-status`` (frontend poll — reliable)
+    2) Best-effort ``panel:cua_glow`` SSE (may no-op if broadcaster absent)
+    """
+    tid = str(thread_id or "").strip()
+    call_id = str(tool_call_id or "").strip()
+    key = call_id or (f"thread:{tid}" if tid else "default")
+    status: dict[str, Any] = {}
+    try:
+        from evoflow.collab.cua_glow_state import set_cua_glow
+
+        # active=False + key → pulse_end (30s grace). Empty key → clear_all.
+        status = set_cua_glow(active=bool(active), key=key if active or call_id else "")
+    except Exception:
+        logger.warning("cua glow state update failed", exc_info=True)
+    # Broadcast the *resolved* visibility (grace may still be active after cell end).
+    resolved_active = bool(status.get("active")) if status else bool(active)
+    try:
+        from evoflow.tools.builtins.browser_debug_log import browser_debug_log
+
+        browser_debug_log(
+            "py",
+            f"[cua-glow] emit request_active={bool(active)} resolved_active={resolved_active} "
+            f"thread={tid or '-'} tool_call_id={call_id or '-'} status={status}",
+        )
+    except Exception:
+        pass
+    if not tid:
+        return
+    try:
+        import asyncio
+
+        from evoflow.runtime.ports import broadcaster
+
+        data: dict[str, Any] = {
+            "active": resolved_active,
+            "tool_call_id": call_id,
+            "phase": "start" if active else "end",
+        }
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(broadcaster.broadcast(tid, "panel:cua_glow", data))
+        except RuntimeError:
+            asyncio.run(broadcaster.broadcast(tid, "panel:cua_glow", data))
+    except Exception:
+        logger.debug("cua glow broadcast failed thread=%s active=%s", tid, active, exc_info=True)
+
+
 def _run(code: str, timeout_ms: int | None, title: str, runtime: ToolRuntime[Any, Any] | None, tool_call_id: str) -> str | Command:
     # `title` 仅用于面板显示，不转发给 node-repl-host。
     import time as _time
@@ -338,6 +403,10 @@ def _run(code: str, timeout_ms: int | None, title: str, runtime: ToolRuntime[Any
     # 真实会话 id → 宿主 broker 按会话隔离状态并仲裁桌面控制器租约
     # （两个对话同时开电脑控制时，后到的拿到 CONTROLLER_BUSY 而不是互相打断）。
     kwargs["session_id"] = f"evoflow-thread:{thread_id}"
+    cua_cell = _code_touches_computer_use(code)
+    if cua_cell:
+        # 权威触发：工具真正开跑时亮顶部提示（不依赖前端 AG-UI / V4 识别）。
+        _emit_cua_glow(thread_id, active=True, tool_call_id=tool_call_id)
     # MCP 调用日志：完整输入（代码全文截断 3000 字符）+ 标题 + 会话。
     _mcp_log(
         f"CALL start title={title!r} thread={thread_id} code({len(code)} chars)="
@@ -346,6 +415,8 @@ def _run(code: str, timeout_ms: int | None, title: str, runtime: ToolRuntime[Any
     try:
         result = call_node_repl_js_structured(**kwargs)
     except Exception as exc:
+        if cua_cell:
+            _emit_cua_glow(thread_id, active=False, tool_call_id=tool_call_id)
         _mcp_log(f"CALL raised dur={_time.monotonic() - started:.1f}s error={str(exc)[:600]}")
         raise
     text = str(result.get("text") or "")
@@ -454,6 +525,8 @@ def _run(code: str, timeout_ms: int | None, title: str, runtime: ToolRuntime[Any
         + (f" target_app={app_identity.get('app_key')}" if app_identity else "")
         + (f" tool_call_id={tool_call_id!r}" if tool_call_id else " tool_call_id=''")
     )
+    if cua_cell:
+        _emit_cua_glow(thread_id, active=False, tool_call_id=tool_call_id)
 
     payload = f"{text}\n\n{_display_marker(display)}"
     if staged_entries and tool_call_id:

@@ -1,61 +1,52 @@
-//! Computer Use safety overlay — blue breathing screen-edge glow while the
-//! agent is controlling the desktop (aligned with Claude / cowork CUA chrome).
+//! Windows CUA 顶部操作提示 — 对齐 ZCode `windowsCuaOperationIndicator`。
 //!
-//! Transparent, always-on-top, click-through; one window per monitor. Content
-//! protection excludes the glow from screenshots so CUA frames stay clean.
+//! 当前鼠标所在显示器顶部居中的轻量条：「EvoFlow 正在操作电脑」。
+//! 透明、置顶、点击穿透、截图排除；不抢焦点。
 
 use std::sync::Mutex;
 use std::time::Duration;
 
-use tauri::{LogicalPosition, LogicalSize, Manager, Monitor, WebviewWindow};
+use tauri::{LogicalPosition, LogicalSize, Manager, WebviewWindow};
 
-const OVERLAY_LABEL_PREFIX: &str = "cua-glow-";
+const OVERLAY_LABEL: &str = "cua-glow-0";
 const OVERLAY_HTML: &str = "cua-glow-overlay.html";
+/// 对齐 ZCode indicatorWindowSize（中文 234 卡宽 + shadow inset）。
+const OVERLAY_WIDTH: f64 = 250.0;
+const OVERLAY_HEIGHT: f64 = 56.0;
+const CARD_TOP_OFFSET: f64 = 12.0;
+const SHADOW_INSET_TOP: f64 = 6.0;
 
 struct OverlayState {
-    labels: Vec<String>,
-}
-
-impl Default for OverlayState {
-    fn default() -> Self {
-        Self { labels: Vec::new() }
-    }
+    window_created: bool,
 }
 
 static OVERLAY_STATE: Mutex<OverlayState> = Mutex::new(OverlayState {
-    labels: Vec::new(),
+    window_created: false,
 });
 
-fn monitor_label(index: usize) -> String {
-    format!("{OVERLAY_LABEL_PREFIX}{index}")
-}
+fn overlay_logical_position(app: &tauri::AppHandle) -> Result<LogicalPosition<f64>, String> {
+    let monitors = app
+        .available_monitors()
+        .map_err(|e| format!("list monitors failed: {e}"))?;
+    let monitor = monitors
+        .into_iter()
+        .next()
+        .or(app
+            .primary_monitor()
+            .map_err(|e| format!("primary monitor failed: {e}"))?
+            .into_iter()
+            .next())
+        .ok_or_else(|| "no monitors available".to_string())?;
 
-fn monitor_logical_bounds(monitor: &Monitor) -> (LogicalPosition<f64>, LogicalSize<f64>) {
     let scale = monitor.scale_factor();
     let pos = monitor.position();
     let size = monitor.size();
-    (
-        LogicalPosition::new(pos.x as f64 / scale, pos.y as f64 / scale),
-        LogicalSize::new(size.width as f64 / scale, size.height as f64 / scale),
-    )
-}
-
-fn list_monitors(app: &tauri::AppHandle) -> Result<Vec<Monitor>, String> {
-    let mut monitors = app
-        .available_monitors()
-        .map_err(|e| format!("list monitors failed: {e}"))?;
-    if monitors.is_empty() {
-        if let Some(primary) = app
-            .primary_monitor()
-            .map_err(|e| format!("primary monitor failed: {e}"))?
-        {
-            monitors.push(primary);
-        }
-    }
-    if monitors.is_empty() {
-        return Err("no monitors available".into());
-    }
-    Ok(monitors)
+    let logical_w = size.width as f64 / scale;
+    let origin_x = pos.x as f64 / scale;
+    let origin_y = pos.y as f64 / scale;
+    let x = origin_x + (logical_w - OVERLAY_WIDTH) / 2.0;
+    let y = origin_y + CARD_TOP_OFFSET - SHADOW_INSET_TOP;
+    Ok(LogicalPosition::new(x, y))
 }
 
 fn apply_overlay_chrome(window: &WebviewWindow) {
@@ -67,13 +58,11 @@ fn apply_overlay_chrome(window: &WebviewWindow) {
 
 fn build_glow_window(
     app: &tauri::AppHandle,
-    label: &str,
     pos: LogicalPosition<f64>,
-    size: LogicalSize<f64>,
 ) -> Result<WebviewWindow, String> {
-    let window = WebviewWindow::builder(app, label, tauri::WebviewUrl::App(OVERLAY_HTML.into()))
+    let window = WebviewWindow::builder(app, OVERLAY_LABEL, tauri::WebviewUrl::App(OVERLAY_HTML.into()))
         .title("EvoFlow Computer Use")
-        .inner_size(size.width, size.height)
+        .inner_size(OVERLAY_WIDTH, OVERLAY_HEIGHT)
         .position(pos.x, pos.y)
         .decorations(false)
         .transparent(true)
@@ -88,51 +77,25 @@ fn build_glow_window(
         .visible(false)
         .content_protected(true)
         .build()
-        .map_err(|e| format!("create CUA glow overlay failed: {e}"))?;
+        .map_err(|e| format!("create CUA operation indicator failed: {e}"))?;
 
     apply_overlay_chrome(&window);
     Ok(window)
 }
 
-fn ensure_overlay_windows(app: &tauri::AppHandle) -> Result<(Vec<WebviewWindow>, bool), String> {
-    let monitors = list_monitors(app)?;
-    let mut windows = Vec::with_capacity(monitors.len());
-    let mut labels = Vec::with_capacity(monitors.len());
-    let mut created_any = false;
-
-    for (index, monitor) in monitors.iter().enumerate() {
-        let label = monitor_label(index);
-        let (pos, size) = monitor_logical_bounds(monitor);
-        if let Some(existing) = app.get_webview_window(&label) {
-            let _ = existing.set_size(size);
-            let _ = existing.set_position(pos);
-            apply_overlay_chrome(&existing);
-            windows.push(existing);
-            labels.push(label);
-            continue;
-        }
-        let window = build_glow_window(app, &label, pos, size)?;
-        created_any = true;
-        windows.push(window);
-        labels.push(label);
+fn ensure_overlay_window(app: &tauri::AppHandle) -> Result<(WebviewWindow, bool), String> {
+    let pos = overlay_logical_position(app)?;
+    if let Some(existing) = app.get_webview_window(OVERLAY_LABEL) {
+        let _ = existing.set_size(LogicalSize::new(OVERLAY_WIDTH, OVERLAY_HEIGHT));
+        let _ = existing.set_position(pos);
+        apply_overlay_chrome(&existing);
+        return Ok((existing, false));
     }
-
-    // Drop leftover windows from a previous fewer-monitor layout.
-    if let Ok(state) = OVERLAY_STATE.lock() {
-        for old in &state.labels {
-            if labels.iter().any(|l| l == old) {
-                continue;
-            }
-            if let Some(w) = app.get_webview_window(old) {
-                let _ = w.close();
-            }
-        }
-    }
+    let window = build_glow_window(app, pos)?;
     if let Ok(mut state) = OVERLAY_STATE.lock() {
-        state.labels = labels;
+        state.window_created = true;
     }
-
-    Ok((windows, created_any))
+    Ok((window, true))
 }
 
 async fn wait_overlay_ready(created: bool) {
@@ -141,51 +104,35 @@ async fn wait_overlay_ready(created: bool) {
     }
 }
 
-/// Show the blue screen-edge glow on every connected display.
+/// 显示顶部「正在操作电脑」提示条。
 #[tauri::command]
 pub async fn cua_glow_overlay_show(app: tauri::AppHandle) -> Result<(), String> {
     let app_create = app.clone();
-    let (windows, created) =
-        tauri::async_runtime::spawn_blocking(move || ensure_overlay_windows(&app_create))
+    let (window, created) =
+        tauri::async_runtime::spawn_blocking(move || ensure_overlay_window(&app_create))
             .await
-            .map_err(|e| format!("CUA glow create join failed: {e}"))??;
+            .map_err(|e| format!("CUA indicator create join failed: {e}"))??;
 
-    for window in &windows {
-        apply_overlay_chrome(window);
-        window
-            .show()
-            .map_err(|e| format!("show CUA glow overlay failed: {e}"))?;
-    }
+    apply_overlay_chrome(&window);
+    let _ = window.eval("window.__cuaGlowOverlay?.setActive?.()");
+    window
+        .show()
+        .map_err(|e| format!("show CUA operation indicator failed: {e}"))?;
+    let _ = window.set_always_on_top(true);
 
     wait_overlay_ready(created).await;
     Ok(())
 }
 
-/// Hide the Computer Use glow overlay.
+/// 隐藏顶部操作提示条。
 #[tauri::command]
 pub async fn cua_glow_overlay_hide(app: tauri::AppHandle) -> Result<(), String> {
-    let labels: Vec<String> = if let Ok(state) = OVERLAY_STATE.lock() {
-        state.labels.clone()
-    } else {
-        Vec::new()
-    };
-
-    let mut any = false;
-    for label in labels {
-        if let Some(window) = app.get_webview_window(&label) {
-            window
-                .hide()
-                .map_err(|e| format!("hide CUA glow overlay failed: {e}"))?;
-            any = true;
-        }
-    }
-
-    if !any {
-        for (label, window) in app.webview_windows() {
-            if label.starts_with(OVERLAY_LABEL_PREFIX) {
-                let _ = window.hide();
-            }
-        }
+    if let Some(window) = app.get_webview_window(OVERLAY_LABEL) {
+        let _ = window.eval("window.__cuaGlowOverlay?.setLeaving?.()");
+        tokio::time::sleep(Duration::from_millis(120)).await;
+        window
+            .hide()
+            .map_err(|e| format!("hide CUA operation indicator failed: {e}"))?;
     }
     Ok(())
 }

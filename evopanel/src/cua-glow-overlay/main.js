@@ -1,97 +1,85 @@
 /**
- * Computer Use safety chrome — blue breathing screen-edge glow + status pill.
- * Window is click-through / content-protected on the Tauri side.
+ * Windows CUA 顶部操作提示 — 对齐 ZCode windowsCuaOperationIndicatorContent。
+ * 「EvoFlow 正在操作电脑」+ 三点呼吸；点击穿透 / 截图排除由宿主窗口负责。
  */
-
-const style = document.createElement('style')
-style.textContent = `
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  html, body {
-    width: 100%;
-    height: 100%;
-    overflow: hidden;
-    background: transparent !important;
-    pointer-events: none;
-    user-select: none;
-    font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
-  }
-  .glow {
-    position: fixed;
-    inset: 0;
-    pointer-events: none;
-    border-radius: 0;
-    box-shadow:
-      inset 0 0 0 3px rgba(59, 130, 246, 0.92),
-      inset 0 0 28px 10px rgba(59, 130, 246, 0.45),
-      inset 0 0 72px 28px rgba(37, 99, 235, 0.22);
-    animation: cua-glow-breathe 2.2s ease-in-out infinite;
-  }
-  .pill {
-    position: fixed;
-    top: 18px;
-    left: 50%;
-    transform: translateX(-50%);
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 8px 16px;
-    border-radius: 999px;
-    background: rgba(15, 23, 42, 0.78);
-    color: #f8fafc;
-    font-size: 13px;
-    font-weight: 600;
-    letter-spacing: 0.01em;
-    backdrop-filter: blur(10px);
-    box-shadow:
-      0 0 0 1px rgba(59, 130, 246, 0.55),
-      0 8px 28px rgba(15, 23, 42, 0.35);
-    white-space: nowrap;
-    animation: cua-pill-breathe 2.2s ease-in-out infinite;
-  }
-  .pill-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: #60a5fa;
-    box-shadow: 0 0 10px 2px rgba(96, 165, 250, 0.85);
-  }
-  @keyframes cua-glow-breathe {
-    0%, 100% {
-      opacity: 0.78;
-      box-shadow:
-        inset 0 0 0 3px rgba(59, 130, 246, 0.88),
-        inset 0 0 24px 8px rgba(59, 130, 246, 0.38),
-        inset 0 0 64px 24px rgba(37, 99, 235, 0.18);
-    }
-    50% {
-      opacity: 1;
-      box-shadow:
-        inset 0 0 0 4px rgba(96, 165, 250, 1),
-        inset 0 0 36px 14px rgba(59, 130, 246, 0.55),
-        inset 0 0 88px 36px rgba(37, 99, 235, 0.28);
-    }
-  }
-  @keyframes cua-pill-breathe {
-    0%, 100% { opacity: 0.9; }
-    50% { opacity: 1; }
-  }
-`
-document.head.appendChild(style)
-
-const glow = document.createElement('div')
-glow.className = 'glow'
-glow.setAttribute('aria-hidden', 'true')
-document.body.appendChild(glow)
 
 const isZh =
   typeof navigator !== 'undefined' &&
   /^zh\b/i.test(String(navigator.language || navigator.languages?.[0] || ''))
 
-const pill = document.createElement('div')
-pill.className = 'pill'
-pill.setAttribute('role', 'status')
-pill.setAttribute('aria-live', 'polite')
-pill.innerHTML = `<span class="pill-dot" aria-hidden="true"></span><span>${
-  isZh ? 'EvoFlow 正在控制此电脑' : 'EvoFlow is using your computer'
-}</span>`
-document.body.appendChild(pill)
+const text = isZh ? 'EvoFlow 正在操作电脑' : 'EvoFlow is controlling your computer'
+
+const style = document.createElement('style')
+style.textContent = `
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  html, body {
+    width: 100%; height: 100%; margin: 0; overflow: hidden;
+    background: transparent !important; pointer-events: none; user-select: none;
+  }
+  body {
+    display: flex; align-items: center; justify-content: center;
+    padding: 6px 8px 12px;
+    font-family: "Segoe UI Variable", "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  }
+  .indicator {
+    display: flex; align-items: center; justify-content: center; gap: 10px;
+    width: 100%; height: 38px; padding: 0 18px;
+    color: #202124; background: rgba(255, 255, 255, 0.96);
+    border: 1px solid rgba(15, 23, 42, 0.14); border-radius: 12px;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08), 0 6px 12px -6px rgba(15, 23, 42, 0.18);
+    font-size: 13px; font-weight: 600; line-height: 1; white-space: nowrap;
+    opacity: 1; transform: translateY(0);
+    transition: opacity 120ms ease, transform 120ms ease;
+    animation: enter 140ms ease-out both;
+  }
+  .dots { display: flex; align-items: center; gap: 3px; }
+  .dot {
+    width: 4px; height: 4px; border-radius: 50%; background: #64748b;
+    animation: pulse 1.2s ease-in-out infinite;
+  }
+  .dot:nth-child(2) { animation-delay: 120ms; }
+  .dot:nth-child(3) { animation-delay: 240ms; }
+  html[data-state="leaving"] .indicator { opacity: 0; transform: translateY(-6px); }
+  @keyframes enter {
+    from { opacity: 0; transform: translateY(-6px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes pulse {
+    0%, 70%, 100% { opacity: .35; transform: scale(.8); }
+    35% { opacity: 1; transform: scale(1); }
+  }
+  @media (prefers-color-scheme: dark) {
+    .indicator {
+      color: #f8fafc; background: rgba(35, 38, 43, 0.96);
+      border-color: rgba(255, 255, 255, 0.14);
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18), 0 6px 12px -6px rgba(0, 0, 0, 0.28);
+    }
+    .dot { background: #a8b3c4; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .indicator, .dot { animation: none; transition: opacity 1ms linear; transform: none; }
+    html[data-state="leaving"] .indicator { transform: none; }
+  }
+`
+document.head.appendChild(style)
+document.documentElement.dataset.state = 'active'
+document.documentElement.lang = isZh ? 'zh-CN' : 'en'
+
+const root = document.createElement('div')
+root.className = 'indicator'
+root.setAttribute('role', 'status')
+root.setAttribute('aria-live', 'polite')
+root.innerHTML =
+  '<span class="dots" aria-hidden="true"><span class="dot"></span><span class="dot"></span><span class="dot"></span></span>' +
+  `<span>${text}</span>`
+document.body.appendChild(root)
+
+window.__cuaGlowOverlay = {
+  setActive() {
+    document.documentElement.dataset.state = 'active'
+  },
+  setLeaving() {
+    document.documentElement.dataset.state = 'leaving'
+  },
+}
