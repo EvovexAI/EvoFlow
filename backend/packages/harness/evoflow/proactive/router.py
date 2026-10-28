@@ -2543,12 +2543,16 @@ def _role_to_dict(role: ProactiveRole) -> dict[str, Any]:
         system_front_desk = is_xiaomi_agent(role.agent_code)
     except Exception:
         system_front_desk = False
+    # List path: load_agent_config (TTL cache) only — never get_agent(include_soul=True).
+    # Soul/identity materialize was the N× disk hit that made /roles (and 自动化首屏) crawl.
     try:
-        from evoflow.admin.agents import get_agent
+        from evoflow.config.agents_config import load_agent_config
 
-        agent_row = get_agent(str(role.agent_code or "").strip())
-        agent_name = str(agent_row.get("agent_name") or "").strip()
-        agent_description = str(agent_row.get("description") or "").strip()
+        code_for_agent = str(role.agent_code or "").strip()
+        agent_cfg = load_agent_config(code_for_agent) if code_for_agent else None
+        if agent_cfg is not None:
+            agent_name = str(getattr(agent_cfg, "agent_name", None) or "").strip()
+            agent_description = str(getattr(agent_cfg, "description", None) or "").strip()
     except Exception:
         pass
     # 岗位名只返回雇佣合同上的 role_name；空/脏/塌成 agent_code 时置空。
@@ -2557,6 +2561,7 @@ def _role_to_dict(role: ProactiveRole) -> dict[str, Any]:
     display_name = str(role.role_name or "").strip()
     if not display_name or display_name.casefold() in {"none", "null", "undefined"} or (code and display_name == code):
         display_name = ""
+    feishu_binding = _feishu_binding_for_role(role)
     return {
         "agent_code": role.agent_code,
         "role_name": display_name,
@@ -2595,13 +2600,13 @@ def _role_to_dict(role: ProactiveRole) -> dict[str, Any]:
             "inject_skills": getattr(role.config, "inject_skills", None),
             "inject_kb": getattr(role.config, "inject_kb", None),
             "inject_soul": getattr(role.config, "inject_soul", None),
-            "feishu_binding": _feishu_binding_for_role(role),
+            "feishu_binding": feishu_binding,
             "wecom_bot_id": getattr(role.config, "wecom_bot_id", "") or "",
             "wecom_secret": getattr(role.config, "wecom_secret", "") or "",
             "wecom_bound_at": getattr(role.config, "wecom_bound_at", "") or "",
         },
         "reports_to": str(getattr(role.config, "reports_to", "") or "").strip(),
-        "feishu_binding": _feishu_binding_for_role(role),
+        "feishu_binding": feishu_binding,
         "wecom_bot_id": getattr(role.config, "wecom_bot_id", "") or "",
         "wecom_secret": getattr(role.config, "wecom_secret", "") or "",
         "wecom_bound_at": getattr(role.config, "wecom_bound_at", "") or "",

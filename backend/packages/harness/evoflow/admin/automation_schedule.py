@@ -789,8 +789,17 @@ def rrule_human_summary(rrule_str: str) -> str:
     return "周期性任务"
 
 
-def enrich_automation_for_api(task: dict[str, Any], *, latest_run: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Attach schedule_summary / next_run / last_run fields for EvoPanel cards."""
+def enrich_automation_for_api(
+    task: dict[str, Any],
+    *,
+    latest_run: dict[str, Any] | None = None,
+    compute_next_run: bool = True,
+) -> dict[str, Any]:
+    """Attach schedule_summary / next_run / last_run fields for EvoPanel cards.
+
+    ``compute_next_run=False`` skips ``preview_schedule`` (used for emp: shadow
+    rows that the automation page filters out but agents/home still need listed).
+    """
     row = dict(task)
     # D2: use the shared resolver so the card shows exactly the cron the
     # runner will fire on (previously this re-implemented the priority rule
@@ -803,16 +812,20 @@ def enrich_automation_for_api(task: dict[str, Any], *, latest_run: dict[str, Any
 
     row["schedule_summary"] = schedule_summary_for_task(row)
 
-    pv = preview_schedule(
-        schedule=str(row.get("schedule_cron") or row.get("schedule") or ""),
-        schedule_type=str(row.get("schedule_type") or ""),
-        scheduled_at=str(row.get("scheduled_at") or ""),
-        rrule="",
-        count=1,
-    )
-    next_runs = pv.get("next_runs") if isinstance(pv, dict) else None
-    row["next_run_at"] = (next_runs[0] if isinstance(next_runs, list) and next_runs else "") or ""
-    row["schedule_ok"] = bool(isinstance(pv, dict) and pv.get("ok"))
+    if compute_next_run:
+        pv = preview_schedule(
+            schedule=str(row.get("schedule_cron") or row.get("schedule") or ""),
+            schedule_type=str(row.get("schedule_type") or ""),
+            scheduled_at=str(row.get("scheduled_at") or ""),
+            rrule="",
+            count=1,
+        )
+        next_runs = pv.get("next_runs") if isinstance(pv, dict) else None
+        row["next_run_at"] = (next_runs[0] if isinstance(next_runs, list) and next_runs else "") or ""
+        row["schedule_ok"] = bool(isinstance(pv, dict) and pv.get("ok"))
+    else:
+        row["next_run_at"] = ""
+        row["schedule_ok"] = True
 
     last = latest_run if isinstance(latest_run, dict) else None
     if last is None:

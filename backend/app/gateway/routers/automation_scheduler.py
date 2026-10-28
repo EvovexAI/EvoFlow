@@ -104,6 +104,16 @@ def _history_path(task_id: str) -> Any:
 
 
 
+def _is_employee_shadow_automation(task_id: str, data: dict[str, Any]) -> bool:
+    """emp:* / proactive-managed rows are shown via roles API, not as cron cards."""
+    kind = str(data.get("kind") or "").strip().lower()
+    if kind == "employee_heartbeat":
+        return True
+    if str(data.get("managed_by") or "").strip() == "proactive_role":
+        return True
+    return str(task_id or "").strip().startswith("emp:")
+
+
 def _list_all_automations(request: Request | None = None) -> list[dict[str, Any]]:
     from app.gateway.automation_runner import _load_automation_tomls
     from evoflow.admin.automation_schedule import enrich_automation_for_api
@@ -142,7 +152,12 @@ def _list_all_automations(request: Request | None = None) -> list[dict[str, Any]
             except Exception:
                 continue
         # Use last_run / last_status on the automation row — avoid N× list_automation_runs.
-        row = enrich_automation_for_api({"id": tid, **data}, latest_run=None)
+        # Shadow emp rules: skip preview_schedule (automation UI filters them; agents only need ids).
+        row = enrich_automation_for_api(
+            {"id": tid, **data},
+            latest_run=None,
+            compute_next_run=not _is_employee_shadow_automation(tid, data if isinstance(data, dict) else {}),
+        )
         out.append(row)
     return out
 

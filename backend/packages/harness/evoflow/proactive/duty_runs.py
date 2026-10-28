@@ -250,6 +250,21 @@ def _trigger_label(row: dict[str, Any]) -> str:
     return "值班轮次"
 
 
+def skip_reason_label_zh(skip_reason: str) -> str:
+    """Human label for employee skip_reason (automation runs + duty journal)."""
+    skip = str(skip_reason or "").strip()
+    labels = {
+        "xiaomi_idle_board": "到点触发 · 空板未开工",
+        "daily_budget_exceeded": "到点触发 · 日预算已满，跳过",
+        "langgraph_unreachable": "到点触发 · 引擎不可达，已改约",
+        "role_busy": "到点触发 · 员工忙碌中，本轮未开跑",
+        "skipped": "到点触发 · 已跳过",
+    }
+    if not skip:
+        return "到点触发 · 已跳过"
+    return labels.get(skip) or f"到点触发 · 已跳过（{skip}）"
+
+
 def _status_outcome(row: dict[str, Any]) -> tuple[str, str | None, str]:
     """Return (status, result, outcome_text) for worklog / rounds UI."""
     st = str(row.get("status") or "").strip().lower()
@@ -264,12 +279,7 @@ def _status_outcome(row: dict[str, Any]) -> tuple[str, str | None, str]:
     if st == "busy":
         return "completed", None, "到点触发，但员工忙碌中（本轮未开跑）"
     if st == "skipped":
-        labels = {
-            "xiaomi_idle_board": "到点触发 · 空板未开工",
-            "daily_budget_exceeded": "到点触发 · 日预算已满，跳过",
-            "langgraph_unreachable": "到点触发 · 引擎不可达，已改约",
-        }
-        return "completed", None, labels.get(skip) or (f"到点触发 · 已跳过（{skip or '未知原因'}）")
+        return "completed", None, skip_reason_label_zh(skip)
     if st == "failed":
         return "failed", "failure", err or reason or "本轮失败"
     # completed
