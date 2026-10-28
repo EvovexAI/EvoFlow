@@ -1365,6 +1365,28 @@ function schedulePoll() {
   }, open ? 20_000 : 60_000)
 }
 
+/** 与 proactive-approval-notify 同步：有新待审时立刻抬高 FAB 角标 */
+function bindApprovalsPendingBridge() {
+  const onPending = (ev) => {
+    const count = Number(ev?.detail?.count || 0)
+    const cur = Number(getState().badgeCount || 0)
+    const summary = { ...(getState().summary || {}) }
+    summary.pendingApprovals = count
+    patchState(
+      {
+        summary,
+        approvals: Array.isArray(ev?.detail?.approvals) ? ev.detail.approvals : getState().approvals,
+        badgeCount: Math.max(cur, count),
+      },
+      { silent: true },
+    )
+    // 有新待审时拉一次完整 dashboard，避免 attention 列表空
+    if (count > 0) void refreshDashboard()
+  }
+  window.addEventListener('evopanel:approvals-pending', onPending)
+  return () => window.removeEventListener('evopanel:approvals-pending', onPending)
+}
+
 /**
  * 打开小V：走 right-stage 常驻页，不再展开 body 外挂 dock（避免双右栏）。
  * GlobalAssistant 宿主仍保留：会议室 / 语音桥 / store。
@@ -3750,6 +3772,7 @@ export function mountGlobalAssistant() {
         void refreshXiaomiObsEnabled()
       }
     })
+    bindApprovalsPendingBridge()
     _routeBound = true
   }
   if (_unsub) _unsub()

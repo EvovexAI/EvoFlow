@@ -49,6 +49,7 @@ export default defineConfig({
       'tests/compose-attach.test.js',
       'tests/web-embed-url.test.js',
       'tests/global-assistant.test.js',
+      'tests/proactive-approval-notify.test.js',
       'tests/assistant-display-noise.test.js',
       'tests/chat-normalize.test.js',
       'tests/chat-cua-display.test.js',

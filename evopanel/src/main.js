@@ -632,6 +632,13 @@ async function boot() {
     } catch (e) {
       console.warn('[boot] mountGlobalAssistant failed', e)
     }
+    // 转交审核：全局轮询 → 左下角芯片 + 侧栏角标 + 桌面通知（不依赖打开员工页）
+    try {
+      const { startProactiveApprovalNotify } = await import('./lib/proactive-approval-notify.js')
+      startProactiveApprovalNotify()
+    } catch (e) {
+      console.warn('[boot] startProactiveApprovalNotify failed', e)
+    }
   }
 
   initRouter(content, { chatHostEl: document.getElementById('chat-persistent-host') })

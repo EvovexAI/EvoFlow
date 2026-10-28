@@ -1013,9 +1013,8 @@
 html:not(.evopanel-macos-titlebar) .pro-employee-page--nav-in-chrome > .pro-page-nav {
   position: fixed;
   top: 0;
-  /* left = 壳侧栏宽 + 内容区左边距，与下方页面内容左对齐
-     注意：当前主导航是 #app-shell-aside（252px），不是旧 #sidebar（220px） */
-  left: calc(var(--shell-aside-width, 252px) + var(--space-lg));
+  /* left 由 proactive-nav-chrome.js 按 #main-col 实测写入，避免折叠/悬停展开时盖住侧栏 */
+  left: calc(var(--shell-aside-width, 240px) + var(--space-lg));
   right: 176px; /* 指南 40px + 3个窗口按钮 44*3 = 132px + 余量 4px */
   height: 56px;
   z-index: 25; /* 在标题栏之上，但低于弹窗 */
@@ -1047,18 +1046,10 @@ html:not(.evopanel-macos-titlebar) .pro-employee-page--nav-in-chrome > .pro-page
   height: 32px;
   font-size: 13px;
 }
-/* 壳侧栏折叠为 icon rail 时，left 相应缩小 */
-html:not(.evopanel-macos-titlebar)
-  #app-shell-aside.shell-aside-host.collapsed
-  ~ #main-col
-  .pro-employee-page--nav-in-chrome
-  > .pro-page-nav {
-  left: calc(var(--shell-aside-collapsed, 60px) + var(--space-lg));
-}
 /* 移动端侧栏为抽屉（不占主列宽度），操作栏贴主列左缘 */
 @media (max-width: 768px) {
   html:not(.evopanel-macos-titlebar) .pro-employee-page--nav-in-chrome > .pro-page-nav {
-    left: var(--space-lg);
+    left: var(--space-lg) !important;
   }
 }
 /* 页面内容顶部不需要额外 padding（标题栏本身已占位） */
