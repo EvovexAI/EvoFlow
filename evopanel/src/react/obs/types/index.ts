@@ -7,12 +7,89 @@ export type NavKey =
   | 'models'
   | 'tools'
   | 'tool-calls'
+  | 'channel-messages'
+  | 'channel-bindings'
+  | 'media-generation'
   | 'mcp'
   | 'gateway'
   | 'trace'
   | 'analytics'
   | 'settings'
-  | 'code-index';
+  | 'code-index'
+
+export interface ChannelBindingRecord {
+  id: string
+  channel: string
+  channelLabel: string
+  botId: string
+  agentCode: string
+  employeeName: string
+  status: Status
+  statusLabel: string
+  bindMethod: string
+  bindMethodLabel: string
+  boundAt: string
+  boundAtLabel: string
+  peerOpenId: string
+  enabled: boolean
+}
+
+export interface ChannelMessageRecord {
+  id: string
+  time: string
+  occurredAt: string
+  channel: string
+  channelLabel: string
+  direction: 'inbound' | 'outbound' | string
+  directionLabel: string
+  status: Status
+  displayStatus: string
+  msgType: string
+  kind: string
+  kindLabel: string
+  content: string
+  attachmentCount: number
+  attachments: string[]
+  receiveId: string
+  senderAccountId: string
+  /** Employee / agent code that owns the bot */
+  agentCode: string
+  /** Display name of the employee who sent / owns the bot */
+  employeeName: string
+  /** Channel bot id (e.g. Feishu app_id / WeCom bot_id) */
+  botId: string
+  /** Inbound peer user id when present */
+  peerUserId: string
+  threadId: string
+  taskId: string
+  error: string
+  triggeredBy: string
+  triggeredByLabel: string
+}
+
+export interface MediaGenerationRecord {
+  id: string
+  time: string
+  occurredAt: string
+  mediaKind: 'image' | 'video' | string
+  mediaKindLabel: string
+  status: Status
+  statusRaw: string
+  model: string
+  provider: string
+  amount: number
+  currency: string
+  amountLabel: string
+  who: string
+  principalId: string
+  agentCode: string
+  channel: string
+  contentPreview: string
+  resultUrl: string
+  threadId: string
+  taskId: string
+  toolName: string
+}
 
 export interface TimePoint {
   label: string;

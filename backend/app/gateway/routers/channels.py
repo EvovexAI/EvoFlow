@@ -307,6 +307,49 @@ async def list_channel_push_targets(request: Request, limit: int = 200) -> dict[
     return {"targets": list_push_targets(limit=limit)}
 
 
+@router.get("/messages")
+async def list_channel_messages(
+    request: Request,
+    page: int = 1,
+    page_size: int = 50,
+    channel: str | None = None,
+    direction: str | None = None,
+    status: str | None = None,
+    kind: str | None = None,
+    task_id: str | None = None,
+    since_hours: float | None = None,
+    q: str | None = None,
+) -> dict[str, Any]:
+    """Paginated IM channel message audit (inbound/outbound) for ops observability."""
+    require_org_admin(request)
+    from evoflow.persistence.channel_push_repositories import list_paginated
+
+    return list_paginated(
+        page=page,
+        page_size=page_size,
+        channel=channel,
+        direction=direction,
+        status=status,
+        kind=kind,
+        task_id=task_id,
+        since_hours=since_hours,
+        q=q,
+    )
+
+
+@router.get("/bindings")
+async def list_channel_bindings(
+    request: Request,
+    channel: str | None = None,
+    q: str | None = None,
+) -> dict[str, Any]:
+    """Employee ↔ IM bot bindings for ops (how / status / who / when)."""
+    require_org_admin(request)
+    from evoflow.persistence.channel_push_repositories import list_channel_bindings as _list
+
+    return _list(channel=channel, q=q)
+
+
 @router.post("/{name}/restart", response_model=ChannelRestartResponse)
 async def restart_channel(request: Request, name: str) -> ChannelRestartResponse:
     """Restart a specific IM channel."""

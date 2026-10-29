@@ -18,6 +18,7 @@ from evoflow.persistence.usage_ledger import (
     fetch_usage_daily,
     fetch_usage_daily_breakdown,
     fetch_usage_daily_by_sku,
+    fetch_usage_events,
     fetch_usage_summary,
 )
 
@@ -173,4 +174,36 @@ async def get_usage_by_principal(
         to_day=to_day,
         category=category,
         limit=limit,
+    )
+
+
+@router.get("/events")
+async def get_usage_events(
+    request: Request,
+    from_day: str | None = Query(None, alias="from"),
+    to_day: str | None = Query(None, alias="to"),
+    category: str | None = Query("media"),
+    subcategory: str | None = Query(None, description="image | video"),
+    provider: str | None = Query(None),
+    sku: str | None = Query(None),
+    status: str | None = Query(None),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200),
+    q: str | None = Query(None),
+) -> dict[str, Any]:
+    """Paginated usage events (default category=media for 生图/生视频记录)."""
+    scope = _usage_scope(request)
+    return fetch_usage_events(
+        from_day=from_day,
+        to_day=to_day,
+        category=category,
+        subcategory=subcategory,
+        provider=provider,
+        sku=sku,
+        status=status,
+        principal_id=scope["principal_id"],
+        include_orphan=scope["include_orphan"],
+        page=page,
+        page_size=page_size,
+        q=q,
     )

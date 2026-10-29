@@ -148,3 +148,69 @@ export async function checkObsEnabled(): Promise<boolean> {
     return false
   }
 }
+
+/** Convert obs time range → UTC day window for usage ledger APIs. */
+export function dayRangeForObsTime(key: ObsTimeRangeKey = getObsTimeRange()): { from?: string; to?: string } {
+  const opt = OBS_TIME_RANGE_OPTIONS.find((o) => o.key === key)
+  const to = new Date().toISOString().slice(0, 10)
+  if (!opt?.sinceHours) return { to }
+  const fromDate = new Date(Date.now() - opt.sinceHours * 3600_000)
+  return { from: fromDate.toISOString().slice(0, 10), to }
+}
+
+export async function fetchChannelMessages(q: {
+  page?: number
+  pageSize?: number
+  channel?: string
+  direction?: string
+  status?: string
+  kind?: string
+  search?: string
+  timeRange?: ObsTimeRangeKey
+} = {}) {
+  const out: Record<string, string> = {}
+  if (q.page) out.page = String(q.page)
+  if (q.pageSize) out.page_size = String(q.pageSize)
+  if (q.channel && q.channel !== 'all') out.channel = q.channel
+  if (q.direction && q.direction !== 'all') out.direction = q.direction
+  if (q.status && q.status !== 'all') out.status = q.status
+  if (q.kind && q.kind !== 'all') out.kind = q.kind
+  if (q.search?.trim()) out.q = q.search.trim()
+  const since = sinceHoursForRange(q.timeRange ?? getObsTimeRange())
+  if (since) out.since_hours = since
+  return api.channelMessages(out)
+}
+
+export async function fetchChannelBindings(q: {
+  channel?: string
+  search?: string
+} = {}) {
+  const out: Record<string, string> = {}
+  if (q.channel && q.channel !== 'all') out.channel = q.channel
+  if (q.search?.trim()) out.q = q.search.trim()
+  return api.channelBindings(out)
+}
+
+export async function fetchMediaGenerationEvents(q: {
+  page?: number
+  pageSize?: number
+  subcategory?: string
+  provider?: string
+  status?: string
+  search?: string
+  timeRange?: ObsTimeRangeKey
+} = {}) {
+  const range = dayRangeForObsTime(q.timeRange ?? getObsTimeRange())
+  const out: Record<string, string> = {
+    category: 'media',
+  }
+  if (range.from) out.from = range.from
+  if (range.to) out.to = range.to
+  if (q.page) out.page = String(q.page)
+  if (q.pageSize) out.page_size = String(q.pageSize)
+  if (q.subcategory && q.subcategory !== 'all') out.subcategory = q.subcategory
+  if (q.provider && q.provider !== 'all') out.provider = q.provider
+  if (q.status && q.status !== 'all') out.status = q.status
+  if (q.search?.trim()) out.q = q.search.trim()
+  return api.usageEvents(out)
+}

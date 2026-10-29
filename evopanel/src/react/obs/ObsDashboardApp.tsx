@@ -4,10 +4,13 @@ import { ObsProvider } from './hooks/ObsContext'
 import { ThreadTitleProvider } from './hooks/useThreadTitles'
 import { Analytics } from './pages/Analytics'
 import { Agents } from './pages/Agents'
+import { ChannelBindings } from './pages/ChannelBindings'
+import { ChannelMessages } from './pages/ChannelMessages'
 import { CodeIndex } from './pages/CodeIndex'
 import { Dashboard } from './pages/Dashboard'
 import { Gateway } from './pages/Gateway'
 import { McpServers } from './pages/McpServers'
+import { MediaGeneration } from './pages/MediaGeneration'
 import { Models } from './pages/Models'
 import { Requests } from './pages/Requests'
 import { Settings } from './pages/Settings'
@@ -23,6 +26,9 @@ const OBS_ACTIVE_PAGE_KEY = 'obs_active_page'
 const VALID_NAV_KEYS: NavKey[] = [
   'dashboard',
   'requests',
+  'channel-messages',
+  'channel-bindings',
+  'media-generation',
   'agents',
   'models',
   'tools',
@@ -52,6 +58,9 @@ type PageProps = { onNavigate?: (key: string) => void }
 const PAGE_COMPONENTS: Record<NavKey, ComponentType<PageProps>> = {
   dashboard: Dashboard,
   requests: Requests,
+  'channel-messages': ChannelMessages,
+  'channel-bindings': ChannelBindings,
+  'media-generation': MediaGeneration,
   agents: Agents,
   models: Models,
   tools: Tools,
