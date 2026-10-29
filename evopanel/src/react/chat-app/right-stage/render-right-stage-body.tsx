@@ -8,7 +8,10 @@ import {
   type RightStageSurface,
 } from '../../../lib/right-stage/right-stage-types.js'
 import { rightStageStore } from '../../../lib/right-stage/right-stage-store.js'
-import { openRightStageForCodeViewerSource } from '../../../lib/right-stage/open-right-stage-file.js'
+import {
+  buildRightStageMediaSource,
+  openRightStageForCodeViewerSource,
+} from '../../../lib/right-stage/open-right-stage-file.js'
 
 function tabKeyOf(surface: RightStageSurface): string {
   return `${normalizeRightStageKind(surface.kind)}:${surface.id}`
@@ -192,14 +195,41 @@ export function renderRightStageBody(
     const root = String(
       data.workspaceRoot || scope.root || effectiveWorkspaceRoot || '',
     ).trim()
-    const threadId = wsClient.getSessionThreadId(selectedSessionKey || '') || undefined
+    const threadId =
+      String(data.threadId || '').trim() ||
+      wsClient.getSessionThreadId(selectedSessionKey || '') ||
+      undefined
+    // 旧 file 标签里若是 mp4 等媒体：升成 type:media，与文件树同一条播放链路
+    const mediaSource = buildRightStageMediaSource(path, {
+      title: name || path,
+      workspacePath: root || undefined,
+    })
+    if (mediaSource && (root || threadId) && !data.poll && !focusAnnotation) {
+      return sidePanelHeavyMount ? (
+        <RightStageTabErrorBoundary title={name || '媒体预览'}>
+          <V4PreviewPane
+            source={mediaSource}
+            threadId={threadId}
+            workspacePath={root || undefined}
+            onClose={() => rightStageStore.closeTab(tabKeyOf(surface))}
+          />
+        </RightStageTabErrorBoundary>
+      ) : (
+        <SidePanelBootShell title={name || '媒体预览'} className="react-chat-workspace-preview-stage" />
+      )
+    }
     // file kind ZCode 化：顶部文件路径面包屑用 ZCode PreviewPane（CodeViewer 全家桶）；
     // 无 root/threadId 或带行级 focus 诉求（poll/focusAnnotation，当前无生产方）时回落 kv 面板。
     if ((root || threadId) && !data.poll && !focusAnnotation) {
       return sidePanelHeavyMount ? (
         <RightStageTabErrorBoundary title={name || '文件预览'}>
           <V4PreviewPane
-            source={{ type: 'file', title: name || path, path }}
+            source={{
+              type: 'file',
+              title: name || path,
+              path,
+              ...(root ? { workspacePath: root } : {}),
+            }}
             threadId={threadId}
             workspacePath={root || undefined}
             onClose={() => rightStageStore.closeTab(tabKeyOf(surface))}
@@ -313,11 +343,14 @@ export function renderRightStageBody(
     if (!source) return null
     // ZCode 正式预览件（PreviewPane）：patch/code-review/text/image/media/
     // pdf/pptx/multi-file-diff；普通 file 已在打开时分流到 file 标签。
+    const codeViewerRoot = String(
+      source.workspacePath || data.workspaceRoot || effectiveWorkspaceRoot || '',
+    ).trim()
     return sidePanelHeavyMount ? (
       <V4PreviewPane
         source={source}
         threadId={String(data.threadId || '')}
-        workspacePath={String(source.workspacePath || effectiveWorkspaceRoot || '') || undefined}
+        workspacePath={codeViewerRoot || undefined}
         onClose={() => rightStageStore.closeTab(tabKeyOf(surface))}
         onOpenCodeViewer={(nextSource) => {
           openRightStageForCodeViewerSource(nextSource, {

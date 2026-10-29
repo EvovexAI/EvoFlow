@@ -1,4 +1,5 @@
 import asyncio
+import mimetypes
 import os
 import re
 from pathlib import Path
@@ -333,6 +334,184 @@ def _fuzzy_match_sibling_file(target: Path) -> Path | None:
     return None
 
 
+# AI 常把 segreport1.md / 2.md / 3.md 误拼成 segreport1/2/3.md
+_NUMBERED_PATH_COLLAPSE_RE = re.compile(
+    r"^(?:(?P<prefix>.+)/)?(?P<stem>[^\d/]*?)(?P<head>\d+)(?:/\d+)+/(?P<tail>\d+)(?P<ext>\.[^./]+)$"
+)
+
+_FUZZY_LOCATE_IGNORE_DIRS = frozenset(
+    {
+        ".git",
+        ".hg",
+        ".svn",
+        ".evoflow",
+        "node_modules",
+        "__pycache__",
+        ".venv",
+        "venv",
+        "dist",
+        "build",
+        ".next",
+        "coverage",
+    }
+)
+
+
+def _collapse_numbered_path_segments(rel: str) -> str | None:
+    """``continuity/segreport1/2/3.md`` → ``continuity/segreport3.md``."""
+    norm = str(rel or "").replace("\\", "/").strip().strip("/")
+    if not norm:
+        return None
+    m = _NUMBERED_PATH_COLLAPSE_RE.match(norm)
+    if not m:
+        return None
+    prefix = m.group("prefix")
+    name = f"{m.group('stem')}{m.group('tail')}{m.group('ext')}"
+    return f"{prefix}/{name}" if prefix else name
+
+
+def _rel_under_root(root: Path, path: Path) -> str | None:
+    try:
+        return path.resolve(strict=False).relative_to(root.resolve(strict=False)).as_posix()
+    except Exception:
+        try:
+            return path.absolute().relative_to(root.absolute()).as_posix()
+        except Exception:
+            return None
+
+
+def _fuzzy_locate_under_workspace(root: Path, rel_or_name: str, *, max_scan: int = 12_000) -> Path | None:
+    """Cite omitted ``projects/<ep>/`` prefix: locate unique ``**/rel`` (or basename) under root."""
+    norm = str(rel_or_name or "").replace("\\", "/").strip().strip("/")
+    if not norm or not root.is_dir():
+        return None
+    suffix = "/" + norm
+    name = Path(norm).name
+    suffix_hits: list[Path] = []
+    name_hits: list[Path] = []
+    scanned = 0
+    for dirpath, dirnames, filenames in os.walk(root, topdown=True):
+        dirnames[:] = [
+            d
+            for d in dirnames
+            if d not in _FUZZY_LOCATE_IGNORE_DIRS and not d.startswith(".")
+        ]
+        for fn in filenames:
+            scanned += 1
+            if scanned > max_scan:
+                break
+            p = Path(dirpath) / fn
+            rel_p = _rel_under_root(root, p)
+            if not rel_p:
+                continue
+            rel_l = rel_p.replace("\\", "/")
+            if rel_l == norm or rel_l.endswith(suffix):
+                suffix_hits.append(p)
+            elif name and len(name) >= 3 and fn.lower() == name.lower():
+                name_hits.append(p)
+        if scanned > max_scan:
+            break
+
+    def _pick(hits: list[Path]) -> Path | None:
+        if not hits:
+            return None
+        if len(hits) == 1:
+            return hits[0]
+        under_projects = [
+            p
+            for p in hits
+            if (_rel_under_root(root, p) or "").replace("\\", "/").startswith("projects/")
+        ]
+        pool = under_projects or hits
+        pool.sort(key=lambda p: (len(str(p)), str(p).lower()))
+        return pool[0]
+
+    return _pick(suffix_hits) or _pick(name_hits)
+
+
+def _heal_missing_workspace_file_target(
+    target: Path,
+    *,
+    root: str | None,
+    thread_id: str | None,
+    cited: str,
+) -> Path:
+    """When cited path 404s: collapse numbered mangling, then search under workspace root."""
+    try:
+        if target.is_file():
+            return target
+    except OSError:
+        pass
+
+    cited_norm = str(cited or "").replace("\\", "/").strip()
+    candidates: list[str] = []
+    collapsed = _collapse_numbered_path_segments(cited_norm)
+    if collapsed:
+        candidates.append(collapsed)
+    # Absolute cite under root → try relative suffix collapse / locate
+    root_s = ""
+    try:
+        root_s = _resolve_workspace_root(root, thread_id)
+    except Exception:
+        root_s = str(root or "").strip()
+    if root_s and cited_norm:
+        root_posix = str(Path(root_s).expanduser().resolve()).replace("\\", "/").rstrip("/")
+        abs_posix = cited_norm
+        if abs_posix.lower().startswith(root_posix.lower() + "/"):
+            rel_from_root = abs_posix[len(root_posix) + 1 :]
+            collapsed_rel = _collapse_numbered_path_segments(rel_from_root)
+            if collapsed_rel and collapsed_rel not in candidates:
+                candidates.append(collapsed_rel)
+            if rel_from_root and rel_from_root not in candidates:
+                candidates.append(rel_from_root)
+
+    for cand in candidates:
+        try:
+            nxt = _resolve_workspace_file_target(root=root, thread_id=thread_id, rel=cand)
+        except ValueError:
+            continue
+        try:
+            if nxt.is_file():
+                return nxt
+        except OSError:
+            continue
+        sibling = _fuzzy_match_sibling_file(nxt)
+        if sibling is not None:
+            try:
+                if sibling.is_file():
+                    return sibling
+            except OSError:
+                pass
+
+    sibling = _fuzzy_match_sibling_file(target)
+    if sibling is not None:
+        try:
+            if sibling.is_file():
+                return sibling
+        except OSError:
+            pass
+
+    if root_s:
+        root_path = Path(root_s).expanduser()
+        locate_keys = list(candidates)
+        # basename fallback after collapse
+        for cand in list(locate_keys):
+            leaf = Path(cand).name
+            if leaf and leaf not in locate_keys:
+                locate_keys.append(leaf)
+        if cited_norm and Path(cited_norm).name not in locate_keys:
+            locate_keys.append(Path(cited_norm).name)
+        for key in locate_keys:
+            hit = _fuzzy_locate_under_workspace(root_path, key)
+            if hit is not None:
+                try:
+                    if hit.is_file():
+                        return hit
+                except OSError:
+                    continue
+    return target
+
+
 def _strip_embedded_workspace_root_prefix(key: str, root_s: str) -> str:
     """Peel a relative key that wrongly re-embeds the bound root's trailing segments.
 
@@ -540,8 +719,10 @@ def _read_workspace_file_impl(
         raise HTTPException(status_code=400, detail=str(e)) from e
     fuzzy_matched = False
     if not target.exists():
-        healed = _fuzzy_match_sibling_file(target)
-        if healed is not None:
+        healed = _heal_missing_workspace_file_target(
+            target, root=root, thread_id=thread_id, cited=rel
+        )
+        if healed != target:
             target = healed
             fuzzy_matched = True
     if not target.exists():
@@ -1020,9 +1201,9 @@ async def resolve_workspace_target(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     if not target.exists():
-        healed = _fuzzy_match_sibling_file(target)
-        if healed is not None:
-            target = healed
+        target = _heal_missing_workspace_file_target(
+            target, root=root, thread_id=thread_id, cited=rel
+        )
     try:
         resolved = str(target.resolve(strict=False))
     except Exception:
@@ -1049,8 +1230,34 @@ async def serve_workspace_file(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     if not target.is_file():
+        target = _heal_missing_workspace_file_target(
+            target, root=root, thread_id=thread_id, cited=path
+        )
+    if not target.is_file():
         raise HTTPException(status_code=404, detail="file not found")
-    return FileResponse(target)
+    # 显式带 media_type：中文文件名等场景下 guess 失败会变成 octet-stream，
+    # 对话里 <video> 会报「不支持播放这种媒体格式」，文件树同文件却能播。
+    guessed, _ = mimetypes.guess_type(str(target))
+    suffix = target.suffix.lower()
+    media_type = guessed or {
+        ".mp4": "video/mp4",
+        ".webm": "video/webm",
+        ".mov": "video/quicktime",
+        ".m4v": "video/x-m4v",
+        ".mp3": "audio/mpeg",
+        ".wav": "audio/wav",
+        ".m4a": "audio/mp4",
+        ".ogg": "audio/ogg",
+        ".opus": "audio/opus",
+        ".flac": "audio/flac",
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".gif": "image/gif",
+        ".webp": "image/webp",
+        ".svg": "image/svg+xml",
+    }.get(suffix)
+    return FileResponse(target, media_type=media_type)
 
 
 @router.get("/read", response_model=WorkspaceReadResponse)
