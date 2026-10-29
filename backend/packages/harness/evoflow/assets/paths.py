@@ -225,6 +225,55 @@ def resolve_entity_file(entity: EntityRef, rel_path: str) -> Path:
     return target
 
 
+# Prompt catalog injects basenames only; ``assets read`` may pass just ``foo.md``.
+# Prefer durable kinds before inbox/archive so collisions resolve deterministically.
+_BASENAME_LOOKUP_DIRS: tuple[str, ...] = (
+    "craft",
+    "memory/facts",
+    "memory/episodic",
+    "memory/journal",
+    "memory",
+    "profile",
+    "memory/_inbox/notes",
+    "memory/_inbox/_done",
+)
+
+
+def resolve_asset_rel(entity: EntityRef, path: str) -> str:
+    """Normalize an asset path; bare filenames resolve under known entity dirs.
+
+    Accepts full relative paths (``craft/foo.md``), inbox shortcuts (``_inbox/…``),
+    or catalog basenames (``foo.md`` / ``MEMORY.md``). Returns the entity-relative
+    path used by ``resolve_entity_file`` / ``read_text_file``.
+    """
+    rel = str(path or "").strip().replace("\\", "/").lstrip("/")
+    if not rel:
+        return ""
+    if rel.startswith("_inbox/") or rel == "_inbox":
+        rel = f"memory/{rel}"
+    if "/" in rel:
+        return rel
+
+    name = rel
+    e = entity.normalized()
+    root = entity_root(e)
+    hits: list[str] = []
+    for dirname in _BASENAME_LOOKUP_DIRS:
+        candidate = root / dirname / name
+        try:
+            if candidate.is_file():
+                hits.append(f"{dirname}/{name}".replace("\\", "/"))
+        except OSError:
+            continue
+    if len(hits) == 1:
+        return hits[0]
+    if len(hits) > 1:
+        # Deterministic: first preferred dir wins (catalog kind heading disambiguates).
+        return hits[0]
+    # Fall through — caller gets not_found with the bare name.
+    return name
+
+
 def default_index_md() -> str:
     return (
         "# 资产中心索引\n\n"

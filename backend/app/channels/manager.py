@@ -232,6 +232,22 @@ def _default_channel_session_title(msg: InboundMessage, *, agent_name: str = "")
     return title
 
 
+def _agent_code_from_im_session_key(session_key: str) -> str:
+    """Extract employee/agent code from ``agent:…`` or ``proactive:…:chat:…`` keys."""
+    sk = str(session_key or "").strip()
+    if sk.startswith("agent:"):
+        parts = sk.split(":")
+        return str(parts[1] or "").strip() if len(parts) >= 2 else ""
+    if sk.startswith("proactive:"):
+        rest = sk[len("proactive:") :]
+        for marker in (":chat:", ":duty:", ":task:"):
+            idx = rest.find(marker)
+            if idx >= 0:
+                return rest[:idx].strip()
+        return rest.strip()
+    return ""
+
+
 def _persist_channel_session_index(
     session_key: str,
     thread_id: str,
@@ -250,17 +266,16 @@ def _persist_channel_session_index(
 
         now_ms = int(time.time() * 1000)
         meta = msg.metadata if isinstance(msg.metadata, dict) else {}
-        agent_code = ""
-        if sk.startswith("agent:"):
-            parts = sk.split(":")
-            if len(parts) >= 2:
-                agent_code = str(parts[1] or "").strip()
+        agent_code = _agent_code_from_im_session_key(sk)
         if not agent_code:
             agent_code = str(meta.get("account_id") or meta.get("agent_code") or "").strip()
         ctx: dict[str, Any] = {
             "channel": str(msg.channel_name or ""),
             "channel_chat_id": str(msg.chat_id or ""),
         }
+        if sk.startswith("proactive:"):
+            # Side-bar「智能体员工」groups by proactive key / context.source.
+            ctx["source"] = "proactive"
         if agent_code:
             ctx["agent_code"] = agent_code
             ctx["agent_name"] = agent_code
@@ -1601,13 +1616,31 @@ class ChannelManager:
         return assistant_id, run_config, run_context
 
     def _channel_thread_session_key(self, msg: InboundMessage) -> str:
-        """EvoPanel 侧栏/底部「智能体」依赖 `agent:{code}:{…}`；与 threads.create(metadata) 对齐，避免仅能用 `thread:{uuid}` 占位。"""
+        """Sidebar session key for an IM thread.
+
+        - Primary / shared bot → ``agent:{code}:{channel}:{chat_id}`` (任务 Tab)
+        - Per-employee bot (account_id set) → ``proactive:{code}:chat:{channel}:{chat_id}``
+          so Feishu/WeCom chats land under「智能体员工」, not the generic task list.
+        """
         _, _, run_context = self._resolve_run_params(msg, "__pending__")
         agent_name = str(run_context.get("agent_name") or "main").strip() or "main"
         parts: list[str] = [str(msg.channel_name), str(msg.chat_id)]
         if msg.topic_id:
             parts.append(str(msg.topic_id))
         tail = ":".join(parts)
+        account_id = self._inbound_account_id(msg)
+        # Dedicated employee bots (Feishu/WeCom accounts[<agent_code>]) belong with
+        # the employee. Primary slot (empty account_id) stays on the task list.
+        if (
+            account_id
+            and account_id not in {"main", "lead_agent"}
+            and msg.channel_name in PER_EMPLOYEE_ACCOUNT_CHANNELS
+        ):
+            code = account_id
+            # Prefer resolved agent_name when it matches the account slot.
+            if agent_name and agent_name not in {"main", "lead_agent"}:
+                code = agent_name
+            return f"proactive:{code}:chat:{tail}"
         return f"agent:{agent_name}:{tail}"
 
     # -- LangGraph SDK client (lazy) ----------------------------------------
@@ -1675,6 +1708,20 @@ class ChannelManager:
                 from evoflow.persistence.channel_push_repositories import safe_record_push
 
                 _meta = msg.metadata if isinstance(msg.metadata, dict) else {}
+                _files = list(msg.files or [])[:8]
+                _summary = str(msg.text or "").strip()
+                if _files:
+                    _names: list[str] = []
+                    for _f in _files:
+                        if isinstance(_f, dict):
+                            _n = str(_f.get("filename") or _f.get("name") or _f.get("path") or "").strip()
+                        else:
+                            _n = str(_f or "").strip()
+                        if _n:
+                            _names.append(_n.split("/")[-1].split("\\")[-1][:80])
+                    if _names:
+                        _att = "、".join(_names[:4])
+                        _summary = f"{_summary} [附件：{_att}]".strip() if _summary else f"[附件：{_att}]"
                 safe_record_push(
                     direction="inbound",
                     channel=str(msg.channel_name or "").strip() or "im",
@@ -1686,12 +1733,12 @@ class ChannelManager:
                     receive_id=str(msg.chat_id or ""),
                     receive_id_type="chat_id",
                     title="",
-                    content_summary=str(msg.text or "")[:800],
+                    content_summary=_summary[:800],
                     payload={
                         "user_id": str(msg.user_id or ""),
                         "msg_type": str(getattr(msg.msg_type, "value", msg.msg_type) or ""),
                         "topic_id": str(msg.topic_id or ""),
-                        "files": list(msg.files or [])[:8],
+                        "files": _files,
                         "metadata": {k: _meta[k] for k in list(_meta.keys())[:12]},
                     },
                     status="ok",
@@ -1895,9 +1942,29 @@ class ChannelManager:
                 sk = meta.get("session_key") or meta.get("sessionKey")
                 if sk and str(sk).strip():
                     existing = str(sk).strip()
+                    if existing == expected:
+                        return existing
+                    # Migrate legacy ``agent:{code}:feishu:…`` employee IM keys into
+                    # ``proactive:{code}:chat:feishu:…`` so they leave the 任务 list.
+                    if expected.startswith("proactive:") and existing.startswith("agent:"):
+                        exp_code = _agent_code_from_im_session_key(expected)
+                        got_code = _agent_code_from_im_session_key(existing)
+                        if exp_code and got_code and exp_code == got_code:
+                            logger.info(
+                                "[Manager] migrate IM session_key to employee group thread=%s %s → %s",
+                                thread_id,
+                                existing,
+                                expected,
+                            )
+                            with contextlib.suppress(Exception):
+                                await client.threads.update(
+                                    thread_id,
+                                    metadata={**meta, "session_key": expected},
+                                )
+                            return expected
                     # Never keep another bot's session_key when this inbound is a different account.
-                    exp_agent = expected.split(":")[1] if expected.startswith("agent:") else ""
-                    got_agent = existing.split(":")[1] if existing.startswith("agent:") else ""
+                    exp_agent = _agent_code_from_im_session_key(expected)
+                    got_agent = _agent_code_from_im_session_key(existing)
                     if exp_agent and got_agent and exp_agent != got_agent:
                         logger.info(
                             "[Manager] session_key agent mismatch (thread=%s existing=%s expected=%s); using expected",
@@ -1987,11 +2054,7 @@ class ChannelManager:
         session_key = await self._resolve_session_key_for_thread(client, thread_id, msg)
         # Refresh weak legacy titles (「飞书 · oc_…」) with 岗位/主对话.
         try:
-            agent_code = ""
-            if session_key.startswith("agent:"):
-                parts = session_key.split(":")
-                if len(parts) >= 2:
-                    agent_code = str(parts[1] or "").strip()
+            agent_code = _agent_code_from_im_session_key(session_key)
             pretty = _default_channel_session_title(msg, agent_name=agent_code)
             from evoflow.persistence import session_repositories as sess_repo
 

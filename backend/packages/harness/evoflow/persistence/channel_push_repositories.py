@@ -147,6 +147,8 @@ def safe_record_push(**kwargs: Any) -> str | None:
 
 
 _KIND_LABEL_ZH = {
+    "im_message": "即时消息",
+    "self_intro": "自我介绍",
     "approval_card": "审批卡",
     "approval_file": "审批附件",
     "approval_decision": "审批回执",
@@ -155,6 +157,40 @@ _KIND_LABEL_ZH = {
     "running_work": "处理中",
     "escalation": "催办",
     "tree_receipt": "协作待闭环",
+}
+
+_MSG_TYPE_LABEL_ZH = {
+    "text": "文本",
+    "chat": "文本",
+    "command": "指令",
+    "image": "图片",
+    "file": "文件",
+    "audio": "语音",
+    "video": "视频",
+    "sticker": "表情",
+    "post": "富文本",
+    "interactive": "交互卡片",
+    "share_chat": "分享会话",
+    "share_user": "分享用户",
+    "attachment": "附件",
+    "media": "媒体",
+}
+
+_CHANNEL_LABEL_ZH = {
+    "feishu": "飞书",
+    "lark": "飞书",
+    "wecom": "企业微信",
+    "weixin": "微信",
+    "dingtalk": "钉钉",
+    "telegram": "Telegram",
+    "slack": "Slack",
+    "im": "即时消息",
+}
+
+_TRIGGERED_BY_LABEL_ZH = {
+    "user": "用户",
+    "agent": "智能体",
+    "system": "系统",
 }
 
 
@@ -422,7 +458,52 @@ def mirror_channel_push_to_chat(*, push_id: str = "", **kwargs: Any) -> None:
             )
 
 
-def _row_to_dict(row: Any) -> dict[str, Any]:
+def _display_status(*, direction: str, status: str, event: str) -> str:
+    """Human-readable Chinese status for ops UI."""
+    st = str(status or "").strip().lower()
+    d = str(direction or "").strip().lower()
+    ev = str(event or "").strip().lower()
+    if st in ("error", "failed"):
+        return "失败"
+    if st in ("pending", "sending"):
+        return "发送中"
+    if d == "inbound":
+        return "已接收"
+    if d == "outbound":
+        if ev in ("card_patched", "patched"):
+            return "已更新"
+        return "已回复"
+    return st or "未知"
+
+
+def _attachment_info(payload: Any) -> tuple[int, list[str]]:
+    """Return (count, preview paths) from inbound files / outbound attachments."""
+    if not isinstance(payload, dict):
+        return 0, []
+    items: list[Any] = []
+    files = payload.get("files")
+    if isinstance(files, list):
+        items.extend(files)
+    atts = payload.get("attachments")
+    if isinstance(atts, list):
+        items.extend(atts)
+    arts = payload.get("artifacts")
+    if isinstance(arts, list):
+        items.extend(arts)
+    previews: list[str] = []
+    for it in items[:8]:
+        if isinstance(it, str) and it.strip():
+            previews.append(it.strip()[:120])
+        elif isinstance(it, dict):
+            for k in ("name", "filename", "virtual_path", "path", "url"):
+                v = str(it.get(k) or "").strip()
+                if v:
+                    previews.append(v[:120])
+                    break
+    return len(items), previews
+
+
+def _row_to_dict(row: Any, *, enrich: bool = False) -> dict[str, Any]:
     payload_raw = str(row["payload_json"] or "")
     payload: Any = payload_raw
     if payload_raw:
@@ -430,7 +511,7 @@ def _row_to_dict(row: Any) -> dict[str, Any]:
             payload = json.loads(payload_raw)
         except Exception:
             payload = payload_raw
-    return {
+    out: dict[str, Any] = {
         "id": str(row["id"] or ""),
         "direction": str(row["direction"] or ""),
         "channel": str(row["channel"] or ""),
@@ -453,6 +534,184 @@ def _row_to_dict(row: Any) -> dict[str, Any]:
         "triggered_by": str(row["triggered_by"] or ""),
         "created_at": str(row["created_at"] or ""),
     }
+    if enrich:
+        msg_type_raw = ""
+        thread_id = ""
+        if isinstance(payload, dict):
+            msg_type_raw = str(payload.get("msg_type") or "").strip()
+            thread_id = str(payload.get("thread_id") or "").strip()
+        att_count, att_preview = _attachment_info(payload)
+        kind = out["kind"]
+        kind_label = _KIND_LABEL_ZH.get(kind, kind or "通道消息")
+        if not msg_type_raw:
+            if att_count > 0:
+                msg_type_raw = "attachment"
+            elif kind and kind != "im_message":
+                # Non-IM kinds (approval_decision, self_intro, …) → use kind as type.
+                msg_type_raw = kind
+            else:
+                msg_type_raw = "text"
+        # Always surface Chinese in the ops UI "消息类型" column.
+        msg_type_zh = _MSG_TYPE_LABEL_ZH.get(msg_type_raw.lower(), "") or _KIND_LABEL_ZH.get(
+            msg_type_raw, ""
+        )
+        if not msg_type_zh:
+            msg_type_zh = kind_label if kind and kind != "im_message" else (msg_type_raw or "文本")
+        out["msg_type"] = msg_type_zh
+        out["msg_type_raw"] = msg_type_raw
+        out["thread_id"] = thread_id
+        out["attachment_count"] = att_count
+        out["attachments"] = att_preview
+        out["display_status"] = _display_status(
+            direction=out["direction"],
+            status=out["status"],
+            event=out["event"],
+        )
+        out["kind_label"] = kind_label
+        ch_raw = str(out.get("channel") or "").strip()
+        out["channel_raw"] = ch_raw
+        out["channel_label"] = _CHANNEL_LABEL_ZH.get(ch_raw.lower(), ch_raw or "—")
+        trig_raw = str(out.get("triggered_by") or "").strip()
+        out["triggered_by_raw"] = trig_raw
+        out["triggered_by_label"] = _TRIGGERED_BY_LABEL_ZH.get(trig_raw.lower(), trig_raw or "—")
+        # Actor placeholders — filled by ``_attach_actor_labels`` for list pages.
+        out["agent_code"] = str(out.get("role_agent_code") or out.get("sender_account_id") or "").strip()
+        out["employee_name"] = ""
+        out["bot_id"] = ""
+        out["peer_user_id"] = ""
+        if isinstance(payload, dict):
+            out["peer_user_id"] = str(payload.get("user_id") or "").strip()
+    return out
+
+
+def _looks_like_chinese(text: str) -> bool:
+    return any("\u4e00" <= ch <= "\u9fff" for ch in str(text or ""))
+
+
+def _looks_like_im_user_id(text: str) -> bool:
+    """True for Feishu peer / app ids that must never be treated as agent codes."""
+    t = str(text or "").strip().lower()
+    if not t:
+        return False
+    return t.startswith(("ou_", "on_", "od_", "oc_", "om_", "cli_"))
+
+
+def _actor_code_from_item(it: dict[str, Any]) -> str:
+    """Prefer role/agent slot; never promote peer open_id into employee code."""
+    for key in ("role_agent_code", "sender_account_id", "agent_code"):
+        c = str(it.get(key) or "").strip()
+        if not c or _looks_like_im_user_id(c):
+            continue
+        return c
+    # Legacy bad rows: sender was human open_id — fall back to payload.account_id.
+    payload = it.get("payload")
+    if isinstance(payload, dict):
+        for key in ("account_id", "bot_account_id", "agent_code"):
+            c = str(payload.get(key) or "").strip()
+            if c and not _looks_like_im_user_id(c):
+                return c
+    return ""
+
+
+def _resolve_employee_zh_name(code: str, role: Any | None) -> str:
+    """Best-effort Chinese display name; never return bare English wire code when avoidable."""
+    c = str(code or "").strip()
+    if not c or _looks_like_im_user_id(c):
+        return "主机器人"
+
+    candidates: list[str] = []
+    # 1) agents table agent_name
+    try:
+        from evoflow.admin.agents import get_agent
+
+        row = get_agent(c) or {}
+        n = str((row or {}).get("agent_name") or "").strip()
+        if n and n != c:
+            candidates.append(n)
+    except Exception:
+        pass
+    # 2) agents_config agent_name
+    try:
+        from evoflow.config.agents_config import load_agent_config
+
+        cfg = load_agent_config(c)
+        n = str(getattr(cfg, "agent_name", "") or "").strip() if cfg else ""
+        if n and n != c:
+            candidates.append(n)
+    except Exception:
+        pass
+    # 3) proactive role job title
+    if role is not None:
+        n = str(getattr(role, "role_name", "") or "").strip()
+        if n and n != c:
+            candidates.append(n)
+
+    for n in candidates:
+        if _looks_like_chinese(n):
+            return n
+    for n in candidates:
+        if n:
+            return n
+    # Last resort: keep code but UI should treat it as weak fallback.
+    return c
+
+
+def _attach_actor_labels(items: list[dict[str, Any]]) -> None:
+    """Fill employee_name / bot_id from proactive roles + agent display names."""
+    if not items:
+        return
+    codes: set[str] = set()
+    for it in items:
+        c = _actor_code_from_item(it)
+        if c:
+            codes.add(c)
+        # Heal peer_user_id from legacy rows that stuffed open_id into sender.
+        if not str(it.get("peer_user_id") or "").strip():
+            raw = str(it.get("sender_account_id") or "").strip()
+            if raw.startswith(("ou_", "on_", "od_")):
+                it["peer_user_id"] = raw
+
+    name_by_code: dict[str, str] = {}
+    bot_by_code: dict[str, dict[str, str]] = {}
+    try:
+        from evoflow.proactive.repositories import ProactiveRepository
+
+        for code in codes:
+            role = None
+            try:
+                role = ProactiveRepository.get_role(code)
+            except Exception:
+                role = None
+            name_by_code[code] = _resolve_employee_zh_name(code, role)
+            cfg = getattr(role, "config", None) if role else None
+            bot_by_code[code] = {
+                "feishu": str(getattr(cfg, "feishu_app_id", "") or "").strip() if cfg else "",
+                "wecom": str(getattr(cfg, "wecom_bot_id", "") or "").strip() if cfg else "",
+                "weixin": "",
+                "dingtalk": "",
+            }
+    except Exception:
+        logger.debug("channel_push_log: actor label resolve failed", exc_info=True)
+        for code in codes:
+            name_by_code.setdefault(code, code)
+
+    for it in items:
+        code = _actor_code_from_item(it)
+        it["agent_code"] = code
+        if not code:
+            it["employee_name"] = "主机器人"
+            it["bot_id"] = ""
+            continue
+        it["employee_name"] = name_by_code.get(code, "") or code
+        ch = str(it.get("channel_raw") or it.get("channel") or "").strip().lower()
+        bots = bot_by_code.get(code) or {}
+        bot_id = str(bots.get(ch) or "").strip()
+        if not bot_id:
+            for v in bots.values():
+                if str(v or "").strip():
+                    bot_id = str(v).strip()
+                    break
+        it["bot_id"] = bot_id
 
 
 _SELECT = """
@@ -801,3 +1060,263 @@ def list_recent(
         .fetchall()
     )
     return [_row_to_dict(r) for r in rows]
+
+
+def list_paginated(
+    *,
+    page: int = 1,
+    page_size: int = 50,
+    channel: str | None = None,
+    direction: str | None = None,
+    status: str | None = None,
+    kind: str | None = None,
+    task_id: str | None = None,
+    since_hours: float | None = None,
+    q: str | None = None,
+) -> dict[str, Any]:
+    """Paginated channel message audit for ops UI.
+
+    Returns ``{ items, total, page, page_size, pages }`` with enriched display fields.
+    """
+    page_n = max(1, int(page or 1))
+    size = max(1, min(int(page_size or 50), 200))
+    offset = (page_n - 1) * size
+
+    clauses: list[str] = [
+        # Hide stream-patch noise (historical card_patched / one-char「已更新」).
+        "(event IS NULL OR LOWER(event) NOT IN ('card_patched', 'patched'))",
+    ]
+    args: list[Any] = []
+
+    ch = str(channel or "").strip()
+    if ch:
+        clauses.append("channel = ?")
+        args.append(ch)
+    d = str(direction or "").strip()
+    if d:
+        clauses.append("direction = ?")
+        args.append(d)
+    st = str(status or "").strip()
+    if st:
+        # Accept display aliases from the UI.
+        alias = {
+            "received": "ok",
+            "replied": "ok",
+            "failed": "error",
+            "error": "error",
+            "pending": "pending",
+            "sending": "sending",
+            "ok": "ok",
+        }.get(st.lower(), st)
+        if st.lower() in ("received",):
+            clauses.append("direction = 'inbound'")
+            clauses.append("status = ?")
+            args.append("ok")
+        elif st.lower() in ("replied", "sent"):
+            clauses.append("direction = 'outbound'")
+            clauses.append("status = ?")
+            args.append("ok")
+        else:
+            clauses.append("status = ?")
+            args.append(alias)
+    kd = str(kind or "").strip()
+    if kd:
+        clauses.append("kind = ?")
+        args.append(kd)
+    tid = str(task_id or "").strip()
+    if tid:
+        clauses.append("task_id = ?")
+        args.append(tid)
+    if since_hours is not None:
+        try:
+            hours = float(since_hours)
+        except (TypeError, ValueError):
+            hours = 0.0
+        if hours > 0:
+            from datetime import datetime, timedelta, timezone
+
+            cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).strftime("%Y-%m-%dT%H:%M:%SZ")
+            clauses.append("created_at >= ?")
+            args.append(cutoff)
+    query = str(q or "").strip()
+    if query:
+        like = f"%{query}%"
+        clauses.append(
+            "(content_summary LIKE ? OR title LIKE ? OR receive_id LIKE ? OR external_message_id LIKE ?"
+            " OR channel LIKE ? OR role_agent_code LIKE ? OR sender_account_id LIKE ?)"
+        )
+        args.extend([like, like, like, like, like, like, like])
+
+    where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+    db = get_db()
+    try:
+        total = int(db.execute(f"SELECT COUNT(1) FROM evoflow_channel_push_log{where}", tuple(args)).fetchone()[0] or 0)
+    except Exception:
+        logger.debug("channel_push_log: count failed", exc_info=True)
+        total = 0
+
+    rows: list[Any] = []
+    try:
+        rows = db.execute(
+            _SELECT + where + " ORDER BY created_at DESC LIMIT ? OFFSET ?",
+            tuple([*args, size, offset]),
+        ).fetchall()
+    except Exception:
+        logger.debug("channel_push_log: list_paginated failed", exc_info=True)
+
+    items = [_row_to_dict(r, enrich=True) for r in rows]
+    _attach_actor_labels(items)
+    pages = (total + size - 1) // size if size else 0
+    return {
+        "items": items,
+        "total": total,
+        "page": page_n,
+        "page_size": size,
+        "pages": pages,
+    }
+
+
+def list_channel_bindings(
+    *,
+    channel: str | None = None,
+    q: str | None = None,
+) -> dict[str, Any]:
+    """Ops list: how/when/who bound which IM bot to which employee."""
+    items: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()  # (platform, bot_id)
+
+    def _append(
+        *,
+        platform: str,
+        bot_id: str,
+        agent_code: str,
+        employee_name: str,
+        bound_at: str,
+        enabled: bool,
+        bind_method: str,
+        peer_open_id: str = "",
+        source: str,
+    ) -> None:
+        plat = str(platform or "").strip().lower()
+        bid = str(bot_id or "").strip()
+        if not plat or not bid:
+            return
+        key = (plat, bid)
+        if key in seen:
+            return
+        seen.add(key)
+        method = str(bind_method or "config").strip().lower() or "config"
+        method_label = {
+            "qr": "扫码绑定",
+            "config": "配置同步",
+            "manual": "手动配置",
+        }.get(method, method)
+        status = "bound" if enabled else "disabled"
+        items.append(
+            {
+                "id": f"{plat}:{bid}",
+                "channel": plat,
+                "channel_label": _CHANNEL_LABEL_ZH.get(plat, plat or "—"),
+                "bot_id": bid,
+                "agent_code": str(agent_code or "").strip(),
+                "employee_name": str(employee_name or "").strip() or str(agent_code or "").strip() or "—",
+                "status": status,
+                "status_label": "已绑定" if enabled else "已停用",
+                "bind_method": method,
+                "bind_method_label": method_label,
+                "bound_at": str(bound_at or "").strip(),
+                "peer_open_id": str(peer_open_id or "").strip(),
+                "enabled": bool(enabled),
+                "source": source,
+            }
+        )
+
+    try:
+        from evoflow.proactive.repositories import ProactiveRepository
+
+        for role in ProactiveRepository.list_roles():
+            code = str(getattr(role, "agent_code", "") or "").strip()
+            if not code:
+                continue
+            cfg = getattr(role, "config", None)
+            name = _resolve_employee_zh_name(code, role)
+            if cfg is None:
+                continue
+            feishu_app = str(getattr(cfg, "feishu_app_id", "") or "").strip()
+            feishu_secret = str(getattr(cfg, "feishu_app_secret", "") or "").strip()
+            feishu_bound = str(getattr(cfg, "feishu_bound_at", "") or "").strip()
+            if feishu_app and feishu_secret:
+                _append(
+                    platform="feishu",
+                    bot_id=feishu_app,
+                    agent_code=code,
+                    employee_name=name,
+                    bound_at=feishu_bound,
+                    enabled=True,
+                    bind_method="qr" if feishu_bound else "config",
+                    peer_open_id=str(getattr(cfg, "feishu_open_id", "") or "").strip(),
+                    source="role",
+                )
+            wecom_bot = str(getattr(cfg, "wecom_bot_id", "") or "").strip()
+            wecom_secret = str(getattr(cfg, "wecom_secret", "") or "").strip()
+            wecom_bound = str(getattr(cfg, "wecom_bound_at", "") or "").strip()
+            if wecom_bot and wecom_secret:
+                _append(
+                    platform="wecom",
+                    bot_id=wecom_bot,
+                    agent_code=code,
+                    employee_name=name,
+                    bound_at=wecom_bound,
+                    enabled=True,
+                    bind_method="qr" if wecom_bound else "config",
+                    source="role",
+                )
+    except Exception:
+        logger.debug("channel_bindings: role scan failed", exc_info=True)
+
+    try:
+        from evoflow.persistence.config_repositories import list_all_bot_bindings
+
+        for row in list_all_bot_bindings(enabled_only=False):
+            plat = str(row.get("platform") or "").strip().lower()
+            bid = str(row.get("bot_id") or "").strip()
+            code = str(row.get("agent_code") or "").strip()
+            name = _resolve_employee_zh_name(code, None) if code else "—"
+            try:
+                from evoflow.proactive.repositories import ProactiveRepository
+
+                role = ProactiveRepository.get_role(code) if code else None
+                if role is not None:
+                    name = _resolve_employee_zh_name(code, role)
+            except Exception:
+                pass
+            _append(
+                platform=plat,
+                bot_id=bid,
+                agent_code=code,
+                employee_name=name,
+                bound_at=str(row.get("bound_at") or "").strip(),
+                enabled=bool(row.get("enabled", True)),
+                bind_method="config",
+                source="bot_bindings",
+            )
+    except Exception:
+        logger.debug("channel_bindings: table scan failed", exc_info=True)
+
+    ch = str(channel or "").strip().lower()
+    if ch and ch != "all":
+        items = [it for it in items if str(it.get("channel") or "").lower() == ch]
+    query = str(q or "").strip().lower()
+    if query:
+        items = [
+            it
+            for it in items
+            if query in str(it.get("bot_id") or "").lower()
+            or query in str(it.get("agent_code") or "").lower()
+            or query in str(it.get("employee_name") or "").lower()
+            or query in str(it.get("channel") or "").lower()
+            or query in str(it.get("channel_label") or "").lower()
+        ]
+
+    items.sort(key=lambda it: str(it.get("bound_at") or ""), reverse=True)
+    return {"items": items, "total": len(items)}

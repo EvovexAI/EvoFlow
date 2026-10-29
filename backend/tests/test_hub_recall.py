@@ -32,7 +32,8 @@ def test_format_hub_asset_recall_title_only(tmp_path: Path, monkeypatch: pytest.
     # Title/description hit
     text = format_hub_asset_recall(EntityRef("employee", "demo-writer"), "五段式")
     assert "ASSET HUB RECALL" in text
-    assert "craft/five-block.md" in text
+    assert "five-block.md" in text
+    assert "craft/five-block.md" not in text
     assert "五段式" in text
 
     # Body-only token must NOT match (title-only policy)

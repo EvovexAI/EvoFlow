@@ -9,6 +9,7 @@ import {
   fmtNum,
   fmtPct,
   fmtRelativeTime,
+  fmtShortDateTime,
   fmtTok,
   agentKindLabel,
   displayProviderLabelZh,
@@ -17,7 +18,10 @@ import {
 import { looksLikeApiError, parseResponseViews } from '../lib/obs-payload-parse'
 import type {
   AgentRecord,
+  ChannelBindingRecord,
+  ChannelMessageRecord,
   GatewayRoute,
+  MediaGenerationRecord,
   ModelRecord,
   ProviderRecord,
   RequestRecord,
@@ -651,4 +655,148 @@ export function trendsToTimePoints(trends: Record<string, unknown> | null): Time
       cost: 0,
     }
   })
+}
+
+function mapChannelDisplayToStatus(display: string, raw: string): ChannelMessageRecord['status'] {
+  const d = String(display || '').trim()
+  const s = String(raw || '').trim().toLowerCase()
+  if (d === '失败' || s === 'error' || s === 'failed') return 'failed'
+  if (d === '发送中' || s === 'pending' || s === 'sending') return 'warning'
+  return 'success'
+}
+
+const CHANNEL_LABEL_ZH: Record<string, string> = {
+  feishu: '飞书',
+  lark: '飞书',
+  wecom: '企业微信',
+  weixin: '微信',
+  dingtalk: '钉钉',
+  telegram: 'Telegram',
+  slack: 'Slack',
+  im: '即时消息',
+}
+
+const TRIGGERED_BY_LABEL_ZH: Record<string, string> = {
+  user: '用户',
+  agent: '智能体',
+  system: '系统',
+}
+
+export function apiChannelBindingToRecord(row: Record<string, unknown>): ChannelBindingRecord {
+  const statusRaw = String(row.status || '')
+  const enabled = row.enabled !== false && statusRaw !== 'disabled'
+  return {
+    id: String(row.id || `${row.channel}:${row.bot_id}`),
+    channel: String(row.channel || ''),
+    channelLabel:
+      String(row.channel_label || '').trim() ||
+      CHANNEL_LABEL_ZH[String(row.channel || '').toLowerCase()] ||
+      String(row.channel || '') ||
+      '—',
+    botId: String(row.bot_id || ''),
+    agentCode: String(row.agent_code || ''),
+    employeeName: String(row.employee_name || row.agent_code || '—'),
+    status: enabled ? 'success' : 'warning',
+    statusLabel: String(row.status_label || (enabled ? '已绑定' : '已停用')),
+    bindMethod: String(row.bind_method || ''),
+    bindMethodLabel: String(row.bind_method_label || row.bind_method || '—'),
+    boundAt: String(row.bound_at || ''),
+    boundAtLabel: fmtShortDateTime(String(row.bound_at || '')) || '—',
+    peerOpenId: String(row.peer_open_id || ''),
+    enabled,
+  }
+}
+
+export function apiChannelMessageToRecord(row: Record<string, unknown>): ChannelMessageRecord {
+  const direction = String(row.direction || '')
+  const displayStatus = String(row.display_status || row.status || '')
+  const statusRaw = String(row.status || '')
+  const atts = Array.isArray(row.attachments) ? row.attachments.map((a) => String(a)) : []
+  const channelRaw = String(row.channel_raw || row.channel || '')
+  const channelLabel =
+    String(row.channel_label || '').trim() ||
+    CHANNEL_LABEL_ZH[channelRaw.toLowerCase()] ||
+    channelRaw ||
+    '—'
+  const triggeredRaw = String(row.triggered_by_raw || row.triggered_by || '')
+  const triggeredByLabel =
+    String(row.triggered_by_label || '').trim() ||
+    TRIGGERED_BY_LABEL_ZH[triggeredRaw.toLowerCase()] ||
+    triggeredRaw ||
+    '—'
+  return {
+    id: String(row.id || ''),
+    time: fmtShortDateTime(String(row.created_at || '')),
+    occurredAt: String(row.created_at || ''),
+    channel: channelRaw || '—',
+    channelLabel,
+    direction,
+    directionLabel: direction === 'inbound' ? '接收' : direction === 'outbound' ? '回复' : direction || '—',
+    status: mapChannelDisplayToStatus(displayStatus, statusRaw),
+    displayStatus: displayStatus || statusRaw || '—',
+    msgType: String(row.msg_type || '文本'),
+    kind: String(row.kind || ''),
+    kindLabel: String(row.kind_label || row.kind || '—'),
+    content: String(row.content_summary || row.title || '').slice(0, 200),
+    attachmentCount: Number(row.attachment_count || 0),
+    attachments: atts,
+    receiveId: String(row.receive_id || ''),
+    senderAccountId: String(row.sender_account_id || ''),
+    agentCode: String(row.agent_code || row.role_agent_code || row.sender_account_id || ''),
+    employeeName: String(row.employee_name || ''),
+    botId: String(row.bot_id || ''),
+    peerUserId: String(row.peer_user_id || ''),
+    threadId: String(row.thread_id || ''),
+    taskId: String(row.task_id || ''),
+    error: String(row.error || ''),
+    triggeredBy: triggeredRaw,
+    triggeredByLabel,
+  }
+}
+
+function mapMediaStatus(raw: string): MediaGenerationRecord['status'] {
+  const s = String(raw || '').toLowerCase()
+  if (s === 'failed' || s === 'error') return 'failed'
+  if (s === 'processing' || s === 'pending' || s === 'running') return 'warning'
+  return 'success'
+}
+
+function fmtMoney(amount: number, currency: string): string {
+  if (!Number.isFinite(amount) || amount <= 0) return '—'
+  const cur = (currency || 'USD').toUpperCase()
+  if (cur === 'CNY' || cur === 'RMB') return amount < 0.01 ? '<¥0.01' : `¥${amount.toFixed(2)}`
+  return amount < 0.01 ? '<$0.01' : `$${amount.toFixed(2)}`
+}
+
+export function apiMediaEventToRecord(row: Record<string, unknown>): MediaGenerationRecord {
+  const kind = String(row.media_kind || row.subcategory || '')
+  const statusRaw = String(row.status || '')
+  const amount = Number(row.amount || 0)
+  const currency = String(row.currency || 'USD')
+  const principal = String(row.principal_id || '')
+  const agent = String(row.agent_code || '')
+  const who = agent || principal || '—'
+  return {
+    id: String(row.event_id || row.id || ''),
+    time: fmtShortDateTime(String(row.occurred_at || '')),
+    occurredAt: String(row.occurred_at || ''),
+    mediaKind: kind,
+    mediaKindLabel: kind === 'video' ? '生视频' : kind === 'image' ? '生图' : kind || '—',
+    status: mapMediaStatus(statusRaw),
+    statusRaw: statusRaw || '—',
+    model: String(row.model || row.sku || '—'),
+    provider: String(row.provider || '—'),
+    amount,
+    currency,
+    amountLabel: fmtMoney(amount, currency),
+    who,
+    principalId: principal,
+    agentCode: agent,
+    channel: String(row.channel || '—') || '—',
+    contentPreview: String(row.content_preview || '').slice(0, 160) || '—',
+    resultUrl: String(row.result_url || row.remote_url || row.local_path || ''),
+    threadId: String(row.thread_id || ''),
+    taskId: String(row.task_id || ''),
+    toolName: String(row.tool_name || ''),
+  }
 }

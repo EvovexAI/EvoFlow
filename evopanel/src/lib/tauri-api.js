@@ -2868,6 +2868,42 @@ export const api = {
     if (query.limit != null) out.limit = String(query.limit)
     return gatewayProxy('GET', '/usage/by-principal', null, out)
   },
+  /** Paginated usage events (default category=media for 生图/生视频). */
+  usageEvents: (query = {}) => {
+    const out = {}
+    if (query.from) out.from = query.from
+    if (query.to) out.to = query.to
+    if (query.category) out.category = query.category
+    if (query.subcategory) out.subcategory = query.subcategory
+    if (query.provider) out.provider = query.provider
+    if (query.sku) out.sku = query.sku
+    if (query.status) out.status = query.status
+    if (query.page != null) out.page = String(query.page)
+    if (query.page_size != null) out.page_size = String(query.page_size)
+    if (query.q) out.q = query.q
+    return gatewayProxy('GET', '/usage/events', null, out)
+  },
+  /** Paginated IM channel message audit (ops). */
+  channelMessages: (query = {}) => {
+    const out = {}
+    if (query.page != null) out.page = String(query.page)
+    if (query.page_size != null) out.page_size = String(query.page_size)
+    if (query.channel) out.channel = query.channel
+    if (query.direction) out.direction = query.direction
+    if (query.status) out.status = query.status
+    if (query.kind) out.kind = query.kind
+    if (query.task_id) out.task_id = query.task_id
+    if (query.since_hours != null) out.since_hours = String(query.since_hours)
+    if (query.q) out.q = query.q
+    return gatewayProxy('GET', '/channels/messages', null, out)
+  },
+  /** Employee ↔ IM bot bindings (ops). */
+  channelBindings: (query = {}) => {
+    const out = {}
+    if (query.channel) out.channel = query.channel
+    if (query.q) out.q = query.q
+    return gatewayProxy('GET', '/channels/bindings', null, out)
+  },
 
   readPanelConfig: () => (isTauri ? invoke('read_panel_config') : Promise.resolve({})),
   writePanelConfig: (config) => invoke('write_panel_config', { config }),

@@ -251,9 +251,51 @@ def _parse_post(body: dict[str, Any], *, message_id: str) -> tuple[str, list[Fei
                     refs.append(
                         FeishuMediaRef(kind="image", file_key=cover, message_id=message_id)
                     )
+            elif tag == "file":
+                # Some clients embed file chips inside post paragraphs.
+                key = _str(element.get("file_key") or element.get("key"))
+                name = _str(element.get("file_name") or element.get("filename") or element.get("name"))
+                if key and message_id and key not in seen_keys:
+                    seen_keys.add(key)
+                    refs.append(
+                        FeishuMediaRef(
+                            kind="file",
+                            file_key=key,
+                            message_id=message_id,
+                            filename=name or f"feishu-file-{key[:8]}",
+                        )
+                    )
             # emotion / hr → ignore
         if parts:
             text_paragraphs.append(" ".join(parts))
+
+    # Feishu post attachment zone: top-level ``files`` (not paragraph tags).
+    # Client "text + Word" often arrives as msg_type=post with files=[{key|file_key}].
+    for src in (body, locale):
+        if not isinstance(src, dict):
+            continue
+        files_zone = src.get("files")
+        if not isinstance(files_zone, list):
+            continue
+        for item in files_zone:
+            if isinstance(item, str):
+                key = item.strip()
+                name = ""
+            elif isinstance(item, dict):
+                key = _str(item.get("file_key") or item.get("key") or item.get("fileKey"))
+                name = _str(item.get("file_name") or item.get("filename") or item.get("name"))
+            else:
+                continue
+            if key and message_id and key not in seen_keys:
+                seen_keys.add(key)
+                refs.append(
+                    FeishuMediaRef(
+                        kind="file",
+                        file_key=key,
+                        message_id=message_id,
+                        filename=name or f"feishu-file-{key[:8]}",
+                    )
+                )
 
     body_text = "\n\n".join(text_paragraphs).strip()
     if title and body_text:

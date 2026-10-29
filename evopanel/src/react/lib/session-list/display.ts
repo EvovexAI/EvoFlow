@@ -77,7 +77,14 @@ export function parseSessionLabel(key: string): string {
         const kind = m.slice(1, -1)
         const suffix = rest.slice(idx + m.length)
         if (kind === 'task') return `任务 · ${suffix.slice(0, 18) || '未命名'}`
-        if (kind === 'chat') return '闲聊'
+        if (kind === 'chat') {
+          // Employee IM (飞书/企微): proactive:{code}:chat:feishu:oc_…
+          const im = parseImChannelParts(suffix)
+          if (im) {
+            return im.shortId ? `${im.label} · ${im.shortId}` : im.label
+          }
+          return '渠道对话'
+        }
         return '值班'
       }
     }

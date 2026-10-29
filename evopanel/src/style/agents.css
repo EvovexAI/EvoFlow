@@ -2398,11 +2398,57 @@ html[data-liquid-glass-webgl='1'] .role-filter-select {
   color: var(--text-tertiary);
 }
 
-.editor-tool-list.re-grid,
+/* 详情页（只读）：一工具一行，信息完整 */
 .detail-list.re-grid {
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+
+/* 编辑页「内置工具」：按档分组 + 组内多列紧凑排布，避免一工具一行占满高度 */
+.editor-tool-list.re-grid {
+  display: block;
+}
+.editor-tool-list .re-tool-tier {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(196px, 1fr));
+  gap: 6px;
+}
+.editor-tool-list .re-tool-tier-head {
+  grid-column: 1 / -1;
+  margin-top: 0;
+  padding: 4px 2px 2px;
+}
+/* 分组标题已表意，编辑态不重复显示类型徽标 */
+.editor-tool-list .re-tool-type {
+  display: none;
+}
+.editor-tool-list .re-check {
+  min-width: 0;
+  gap: 8px;
+  padding: 7px 10px;
+  border-width: 1px;
+  border-radius: 9px;
+}
+.editor-tool-list .re-check input[type=checkbox] {
+  width: 15px;
+  height: 15px;
+}
+.editor-tool-list .re-ci-icon {
+  font-size: 14px;
+}
+.editor-tool-list .re-ci-text {
+  flex: 1;
+  min-width: 0;
+  gap: 0;
+}
+.editor-tool-list .re-ci-text strong {
+  font-size: 12.5px;
+  line-height: 1.4;
+}
+.editor-tool-list .re-ci-text small {
+  font-size: 11px;
+  line-height: 1.35;
 }
 
 /* ????? */

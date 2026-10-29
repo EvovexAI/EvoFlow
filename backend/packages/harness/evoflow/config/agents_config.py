@@ -19,20 +19,86 @@ _builtin_agents_materialized: bool = False
 # SQLite reads while staying fresh for agent config edits.
 _agent_config_cache: dict[str, tuple[Any, float]] = {}
 _AGENT_CONFIG_CACHE_TTL = 10.0
+# Process-local stamp of ``evoflow_agents.updated_at`` — LangGraph workers do not
+# share Gateway's in-memory invalidate, so each make_lead_agent probes SQLite.
+_agent_capability_rev: dict[str, str] = {}
 
 
 def invalidate_agent_config_cache(agent_code: str | None = None) -> None:
     """Clear the agent config cache (call after save_agent_config or delete)."""
     if agent_code:
-        _agent_config_cache.pop(str(agent_code).strip().lower(), None)
+        key = str(agent_code).strip().lower()
+        _agent_config_cache.pop(key, None)
+        _agent_capability_rev.pop(key, None)
     else:
         _agent_config_cache.clear()
+        _agent_capability_rev.clear()
     try:
         from evoflow.session_tool_binding.agent_tools import invalidate_agent_tool_names_cache
 
         invalidate_agent_tool_names_cache(agent_code)
     except Exception:
         pass
+
+
+def probe_agent_capability_revision(agent_code: str | None) -> str:
+    """Cheap SQLite stamp for tools/MCP/skills/KB edits (cross-process hot reload)."""
+    code = str(agent_code or "").strip().lower()
+    if not code:
+        return ""
+    try:
+        from evoflow.persistence.db import get_db
+
+        row = (
+            get_db()
+            .execute(
+                "SELECT COALESCE(updated_at, '') FROM evoflow_agents WHERE agent_code = ?",
+                (code,),
+            )
+            .fetchone()
+        )
+        return str(row[0] or "") if row else ""
+    except Exception:
+        logger.debug("agent capability revision probe failed agent=%s", code, exc_info=True)
+        return ""
+
+
+def refresh_agent_config_if_stale(agent_code: str | None) -> str:
+    """Drop TTL/graph-local caches when another process updated this agent in SQLite.
+
+    Gateway ``refresh_agent_runtime_after_capability_change`` only clears *this*
+    process. Desktop / ``--mode langgraph`` runs the lead agent in a sibling
+    process that would otherwise keep a 10s config TTL + compiled graph with the
+    old tool whitelist until restart or a new session.
+    """
+    code = str(agent_code or "").strip().lower()
+    if not code:
+        return ""
+    rev = probe_agent_capability_revision(code)
+    prev = _agent_capability_rev.get(code)
+    if prev is not None and rev != prev:
+        logger.info(
+            "agent capability changed in DB agent=%s — invalidating local caches (prev=%r new=%r)",
+            code,
+            prev,
+            rev,
+        )
+        # Pop stamp first so invalidate's pop is a no-op, then re-record below.
+        _agent_config_cache.pop(code, None)
+        try:
+            from evoflow.session_tool_binding.agent_tools import invalidate_agent_tool_names_cache
+
+            invalidate_agent_tool_names_cache(code)
+        except Exception:
+            pass
+        try:
+            from evoflow.agents.lead_agent.graph_cache import clear_lead_agent_graph_cache
+
+            clear_lead_agent_graph_cache()
+        except Exception:
+            logger.debug("graph cache clear after agent capability change skipped", exc_info=True)
+    _agent_capability_rev[code] = rev
+    return rev
 
 
 SOUL_FILENAME = "SOUL.md"

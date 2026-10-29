@@ -345,16 +345,22 @@ def _read_memory_index_label(entity: EntityRef) -> tuple[str, int, list[str]]:
     )
 
 
+def _catalog_filename(rel_path: str) -> str:
+    """Prompt catalog shows basename only — kind heading carries the directory."""
+    name = str(rel_path or "").replace("\\", "/").rstrip("/").rsplit("/", 1)[-1].strip()
+    return name or str(rel_path or "").strip()
+
+
 def _format_kind_section_lines(
     *,
     heading: str,
     rows: list[tuple[str, str]],
 ) -> list[str]:
-    """Render one kind block: heading + all filename rows (no row cap)."""
+    """Render one kind block: heading + filename rows (no dir prefix, no row cap)."""
     if not rows:
         return []
     out = [f"{heading}:"]
-    out.extend(f"- {p} · {lbl}".rstrip() for p, lbl in rows)
+    out.extend(f"- {name} · {lbl}".rstrip() for name, lbl in rows)
     return out
 
 
@@ -370,10 +376,11 @@ def format_entity_catalog_xml(
 ) -> str:
     """Build a compact catalog block — one line per entity asset.
 
-    Line format: ``<kind> <path> — <label>``
+    Line format: ``<kind> <filename> — <label>``
 
-    Filenames/short titles only; **no per-kind row cap** (``TIER0_CATALOG_PER_KIND<=0``).
-    MEMORY.md is pinned. Full bodies stay on-demand via ``assets`` read/search.
+    Filenames/short titles only (dir lives in the kind tag); **no per-kind row cap**
+    (``TIER0_CATALOG_PER_KIND<=0``). MEMORY.md is pinned. Full bodies stay on-demand
+    via ``assets`` read/search (basename is enough — tool resolves under the entity).
     """
     sections: list[str] = []
     if include_standing:
@@ -387,7 +394,7 @@ def format_entity_catalog_xml(
 
     body_lines: list[str] = []
     label, _n, _names = _read_memory_index_label(entity)
-    body_lines.append(f"summary memory/MEMORY.md — {label}")
+    body_lines.append(f"summary MEMORY.md — {label}")
 
     kind_buckets: list[tuple[str, list[tuple[str, str, str]]]] = []
     if include_craft:
@@ -427,7 +434,7 @@ def format_entity_catalog_xml(
 
     for _kind, rows in kind_buckets:
         for k, p, lbl in rows:
-            body_lines.append(f"{_KIND_TAG.get(k, k)} {p} — {lbl}".rstrip())
+            body_lines.append(f"{_KIND_TAG.get(k, k)} {_catalog_filename(p)} — {lbl}".rstrip())
 
     if body_lines:
         body = "\n".join(body_lines)
@@ -446,30 +453,31 @@ def format_entity_catalog_lines(
     include_craft: bool = True,
     include_journal: bool = True,
 ) -> list[str]:
-    """Catalog lines for system-prompt: all short titles, grouped by kind (no row cap).
+    """Catalog lines for system-prompt: filenames under kind headings (no dir prefix).
 
-    ``memory/MEMORY.md`` 置顶。craft / facts / episodic / journal 全量文件名索引；
-    正文仍不注入——需要细节再用 ``assets`` read/search。
+    ``MEMORY.md`` 置顶。craft / facts / episodic / journal 只列文件名；分类靠上方
+    标题，不必每行再拼 ``memory/facts/`` 等完整相对路径。正文仍不注入——需要细节
+    再用 ``assets`` read/search（工具按文件名解析）。
     """
-    lines: list[str] = ["- memory/MEMORY.md · (search primary · 索引)"]
+    lines: list[str] = ["- MEMORY.md · (search primary · 索引)"]
 
     craft_rows = (
-        [(r["path"], _catalog_cell(r["name"])) for r in list_craft_catalog(entity)]
+        [(_catalog_filename(r["path"]), _catalog_cell(r["name"])) for r in list_craft_catalog(entity)]
         if include_craft
         else []
     )
     facts_rows = (
-        [(r["path"], _catalog_cell(r["title"])) for r in list_fact_catalog(entity)]
+        [(_catalog_filename(r["path"]), _catalog_cell(r["title"])) for r in list_fact_catalog(entity)]
         if include_facts
         else []
     )
     episode_rows = (
-        [(r["path"], _catalog_cell(r["title"])) for r in list_episode_catalog(entity)]
+        [(_catalog_filename(r["path"]), _catalog_cell(r["title"])) for r in list_episode_catalog(entity)]
         if include_episodes
         else []
     )
     journal_rows = (
-        [(r["path"], _catalog_cell(r["title"])) for r in list_journal_catalog(entity)]
+        [(_catalog_filename(r["path"]), _catalog_cell(r["title"])) for r in list_journal_catalog(entity)]
         if include_journal
         else []
     )

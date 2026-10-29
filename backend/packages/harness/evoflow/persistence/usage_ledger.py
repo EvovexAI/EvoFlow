@@ -1547,6 +1547,196 @@ def fetch_usage_by_principal(
     }
 
 
+def _channel_for_thread(db: Any, thread_id: str) -> str:
+    """Best-effort channel name from ``evoflow_channel_bindings.channel_key``."""
+    tid = _s(thread_id)
+    if not tid:
+        return ""
+    try:
+        row = db.execute(
+            "SELECT channel_key FROM evoflow_channel_bindings WHERE thread_id = ? LIMIT 1",
+            (tid,),
+        ).fetchone()
+        key = str((row[0] if row else "") or "").strip()
+        if not key:
+            return ""
+        # channel_key is usually ``feishu:chat_id`` / ``wecom:...``
+        return key.split(":", 1)[0].strip() or key
+    except Exception:
+        return ""
+
+
+def fetch_usage_events(
+    *,
+    from_day: str | None = None,
+    to_day: str | None = None,
+    category: str | None = CATEGORY_MEDIA,
+    subcategory: str | None = None,
+    provider: str | None = None,
+    sku: str | None = None,
+    status: str | None = None,
+    principal_id: str | None = None,
+    include_orphan: bool = True,
+    page: int = 1,
+    page_size: int = 50,
+    q: str | None = None,
+) -> dict[str, Any]:
+    """Paginated raw usage events (for ops「生图生视频记录」etc.)."""
+    start, end = _parse_range(from_day, to_day)
+    page_n = max(1, int(page or 1))
+    size = max(1, min(int(page_size or 50), 200))
+    offset = (page_n - 1) * size
+
+    # Inclusive UTC day window on ISO ``occurred_at``.
+    where = "occurred_at >= ? AND occurred_at < ?"
+    from datetime import date, timedelta
+
+    try:
+        end_next = (date.fromisoformat(end) + timedelta(days=1)).isoformat()
+    except ValueError:
+        end_next = end
+    params: list[Any] = [f"{start}T00:00:00", f"{end_next}T00:00:00"]
+
+    cat = _s(category)
+    if cat:
+        where += " AND category = ?"
+        params.append(cat)
+    sub = _s(subcategory)
+    if sub:
+        where += " AND subcategory = ?"
+        params.append(sub)
+    prov = _s(provider)
+    if prov:
+        where += " AND provider = ?"
+        params.append(prov)
+    model = _s(sku)
+    if model:
+        where += " AND sku = ?"
+        params.append(model)
+
+    where, params = _usage_where(where, params, principal_id=principal_id, include_orphan=include_orphan)
+
+    query = _s(q)
+    if query:
+        like = f"%{query}%"
+        where += " AND (sku LIKE ? OR provider LIKE ? OR agent_code LIKE ? OR thread_id LIKE ? OR event_id LIKE ? OR meta_json LIKE ?)"
+        params.extend([like, like, like, like, like, like])
+
+    st_filter = _s(status).lower()
+    # status lives in meta_json; filter in SQL when possible.
+    if st_filter:
+        where += " AND meta_json LIKE ?"
+        params.append(f'%"status": "{st_filter}"%')
+
+    db = get_db()
+    try:
+        total = int(db.execute(f"SELECT COUNT(1) FROM evoflow_usage_events WHERE {where}", tuple(params)).fetchone()[0] or 0)
+    except Exception:
+        logger.debug("fetch_usage_events count failed", exc_info=True)
+        total = 0
+
+    rows: list[Any] = []
+    try:
+        rows = db.execute(
+            f"""
+            SELECT id, event_id, occurred_at, category, subcategory, unit,
+                   quantity, quantity_in, quantity_out, currency, amount, pricing_source,
+                   provider, sku, session_key, thread_id, run_id, message_id,
+                   app_id, agent_code, workspace_id, subject_type, subject_id,
+                   principal_id, meta_json, created_at
+            FROM evoflow_usage_events
+            WHERE {where}
+            ORDER BY occurred_at DESC, id DESC
+            LIMIT ? OFFSET ?
+            """,
+            tuple([*params, size, offset]),
+        ).fetchall()
+    except Exception:
+        logger.debug("fetch_usage_events list failed", exc_info=True)
+
+    # Batch-resolve channel from thread bindings.
+    thread_ids = [str(r[15] or "").strip() for r in rows if str(r[15] or "").strip()]
+    channel_map: dict[str, str] = {}
+    for tid in set(thread_ids):
+        ch = _channel_for_thread(db, tid)
+        if ch:
+            channel_map[tid] = ch
+
+    items: list[dict[str, Any]] = []
+    for r in rows:
+        meta_raw = str(r[24] or "")
+        meta: dict[str, Any] = {}
+        if meta_raw:
+            try:
+                parsed = json.loads(meta_raw)
+                if isinstance(parsed, dict):
+                    meta = parsed
+            except Exception:
+                meta = {}
+        tid = str(r[15] or "").strip()
+        prompt = str(meta.get("prompt") or "").strip()
+        content_preview = prompt[:200] if prompt else ""
+        if not content_preview:
+            # Fall back to result address / chars.
+            result = str(meta.get("result_url") or meta.get("remote_url") or meta.get("local_path") or "").strip()
+            if result:
+                content_preview = result[:200]
+            elif meta.get("prompt_chars"):
+                content_preview = f"（prompt {meta.get('prompt_chars')} 字）"
+        items.append(
+            {
+                "id": int(r[0] or 0),
+                "event_id": str(r[1] or ""),
+                "occurred_at": str(r[2] or ""),
+                "category": str(r[3] or ""),
+                "subcategory": str(r[4] or ""),
+                "media_kind": str(meta.get("media_kind") or r[4] or ""),
+                "unit": str(r[5] or ""),
+                "quantity": _f(r[6]),
+                "quantity_in": _f(r[7]),
+                "quantity_out": _f(r[8]),
+                "currency": str(r[9] or "USD"),
+                "amount": _f(r[10]),
+                "pricing_source": str(r[11] or ""),
+                "provider": str(r[12] or ""),
+                "sku": str(r[13] or ""),
+                "model": str(meta.get("model") or r[13] or ""),
+                "session_key": str(r[14] or "") or None,
+                "thread_id": tid or None,
+                "run_id": str(r[16] or "") or None,
+                "message_id": str(r[17] or "") or None,
+                "app_id": str(r[18] or "") or None,
+                "agent_code": str(r[19] or "") or None,
+                "workspace_id": str(r[20] or "") or None,
+                "principal_id": str(r[23] or "") or None,
+                "status": str(meta.get("status") or ""),
+                "task_id": str(meta.get("task_id") or "") or None,
+                "tool_name": str(meta.get("tool_name") or "") or None,
+                "result_url": str(meta.get("result_url") or "") or None,
+                "remote_url": str(meta.get("remote_url") or "") or None,
+                "local_path": str(meta.get("local_path") or "") or None,
+                "content_preview": content_preview,
+                "channel": channel_map.get(tid) or "",
+                "meta": meta,
+                "created_at": str(r[25] or ""),
+            }
+        )
+
+    pages = (total + size - 1) // size if size else 0
+    return {
+        "from": start,
+        "to": end,
+        "day_basis": "utc",
+        "category": cat or None,
+        "subcategory": sub or None,
+        "items": items,
+        "total": total,
+        "page": page_n,
+        "page_size": size,
+        "pages": pages,
+    }
+
+
 def heal_empty_llm_skus(db: Any | None = None) -> dict[str, Any]:
     """Backfill empty llm event sku from session model columns; rebuild llm daily rollup."""
 

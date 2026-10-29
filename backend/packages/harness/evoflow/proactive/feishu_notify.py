@@ -376,29 +376,39 @@ async def push_collab_tree_receipt(
     send_account = _send_account_for_target(role, receive_id, receive_id_type)
 
     try:
+        # Push-log audit is owned by send_proactive_markdown. _record here is
+        # only needed to finalize the tree_receipt claim (when claim_id set);
+        # without a claim it would double-write the push log, so skip then.
         await channel.send_proactive_markdown(
             receive_id,
             text,
             receive_id_type=receive_id_type,
             account_id=send_account,
+            kind="tree_receipt",
+            role_agent_code=str(getattr(role, "agent_code", "") or ""),
+            task_id=rid,
+            title="协作待闭环",
+            triggered_by="system",
         )
-        _record(
-            ok=True,
-            receive_id=receive_id,
-            receive_id_type=receive_id_type,
-            sender_account_id=send_account,
-            message_id=ext,
-        )
+        if claim_id:
+            _record(
+                ok=True,
+                receive_id=receive_id,
+                receive_id_type=receive_id_type,
+                sender_account_id=send_account,
+                message_id=ext,
+            )
         return ext
     except Exception as exc:
         logger.warning("feishu_notify.tree_receipt push failed root=%s", rid, exc_info=True)
-        _record(
-            ok=False,
-            receive_id=receive_id,
-            receive_id_type=receive_id_type,
-            sender_account_id=send_account,
-            error=str(exc)[:200],
-        )
+        if claim_id:
+            _record(
+                ok=False,
+                receive_id=receive_id,
+                receive_id_type=receive_id_type,
+                sender_account_id=send_account,
+                error=str(exc)[:200],
+            )
         return None
 
 

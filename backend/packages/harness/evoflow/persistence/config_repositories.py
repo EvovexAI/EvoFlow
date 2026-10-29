@@ -360,15 +360,34 @@ def get_bot_binding_by_agent(platform: str, agent_code: str) -> dict[str, Any] |
     return bot_binding_row_to_doc(dict(row))
 
 
-def list_bot_bindings(platform: str) -> list[dict[str, Any]]:
-    """List all enabled bindings for a platform."""
+def list_bot_bindings(platform: str, *, enabled_only: bool = True) -> list[dict[str, Any]]:
+    """List bindings for a platform (enabled-only by default)."""
     from evoflow.persistence.row_mappers import bot_binding_row_to_doc
 
     conn = get_db()
-    rows = conn.execute(
-        "SELECT * FROM evoflow_bot_bindings WHERE platform=? AND enabled=1 ORDER BY id",
-        (str(platform),),
-    ).fetchall()
+    if enabled_only:
+        rows = conn.execute(
+            "SELECT * FROM evoflow_bot_bindings WHERE platform=? AND enabled=1 ORDER BY id",
+            (str(platform),),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT * FROM evoflow_bot_bindings WHERE platform=? ORDER BY id",
+            (str(platform),),
+        ).fetchall()
+    return [bot_binding_row_to_doc(dict(r)) for r in rows]
+
+
+def list_all_bot_bindings(*, enabled_only: bool = False) -> list[dict[str, Any]]:
+    """List bot bindings across platforms for ops UI."""
+    from evoflow.persistence.row_mappers import bot_binding_row_to_doc
+
+    conn = get_db()
+    sql = "SELECT * FROM evoflow_bot_bindings"
+    if enabled_only:
+        sql += " WHERE enabled=1"
+    sql += " ORDER BY platform, id"
+    rows = conn.execute(sql).fetchall()
     return [bot_binding_row_to_doc(dict(r)) for r in rows]
 
 

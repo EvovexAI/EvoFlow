@@ -224,6 +224,10 @@ class MessageBus:
         except Exception:
             logger.exception("Error in outbound callback for channel=%s", msg.channel_name)
 
+    def has_outbound(self, channel_name: str, account_id: str = "") -> bool:
+        """True when a channel instance is registered for this outbound slot."""
+        return (str(channel_name or ""), str(account_id or "")) in self._outbound_by_account
+
     async def publish_outbound(self, msg: OutboundMessage) -> None:
         """Dispatch an outbound message to the channel handler and optional listeners."""
         from app.channels.channel_io_log import log_channel_outbound
@@ -235,49 +239,72 @@ class MessageBus:
         # trail in evoflow_channel_push_log. Internal EvoPanel replies do not
         # flow through this bus, so this single hook captures "external IM
         # outbound" only. Failures here must never break delivery.
-        with contextlib.suppress(Exception):
-            from evoflow.persistence.channel_push_repositories import safe_record_push
+        #
+        # Callers may stamp kind / receive_id_type / triggered_by / title /
+        # task_id / role_agent_code on ``msg.metadata`` (proactive markdown,
+        # self-intro, …). Defaults keep the historic reply-path shape.
+        # Stream patches (is_final=False) are not user-visible "messages" —
+        # logging them produced ops rows with a single streamed character.
+        if msg.is_final:
+            with contextlib.suppress(Exception):
+                from evoflow.persistence.channel_push_repositories import safe_record_push
 
-            _meta = msg.metadata if isinstance(msg.metadata, dict) else {}
-            _event = "sent" if msg.is_final else "card_patched"
-            safe_record_push(
-                direction="outbound",
-                channel=str(msg.channel_name or "").strip() or "im",
-                kind="im_message",
-                event=_event,
-                transport="im_event",
-                sender_account_id=str(msg.account_id or ""),
-                external_message_id=str(msg.thread_ts or ""),
-                receive_id=str(msg.chat_id or ""),
-                receive_id_type="chat_id",
-                title="",
-                content_summary=str(msg.text or "")[:800],
-                payload={
-                    "thread_id": str(msg.thread_id or ""),
-                    "topic_id": str(msg.topic_id or ""),
-                    "is_final": bool(msg.is_final),
-                    "artifacts": list(msg.artifacts or [])[:8],
-                    "attachments": [
-                        getattr(a, "virtual_path", str(a)) if not isinstance(a, str) else a
-                        for a in (msg.attachments or [])
-                    ][:8],
-                    "metadata": {k: _meta[k] for k in list(_meta.keys())[:12]},
-                },
-                status="ok",
-                triggered_by="agent",
-            )
+                _meta = msg.metadata if isinstance(msg.metadata, dict) else {}
+                _kind = str(_meta.get("kind") or "im_message").strip() or "im_message"
+                _rtype = str(_meta.get("receive_id_type") or "chat_id").strip() or "chat_id"
+                _triggered = str(_meta.get("triggered_by") or "agent").strip() or "agent"
+                _title = str(_meta.get("title") or "").strip()
+                _task_id = str(_meta.get("task_id") or "").strip()
+                _role = str(_meta.get("role_agent_code") or "").strip()
+                _sender = str(msg.account_id or "").strip() or str(_meta.get("account_id") or "").strip()
+                safe_record_push(
+                    direction="outbound",
+                    channel=str(msg.channel_name or "").strip() or "im",
+                    kind=_kind,
+                    event="sent",
+                    transport="im_event",
+                    task_id=_task_id,
+                    role_agent_code=_role,
+                    sender_account_id=_sender,
+                    external_message_id=str(msg.thread_ts or ""),
+                    receive_id=str(msg.chat_id or ""),
+                    receive_id_type=_rtype,
+                    title=_title,
+                    content_summary=str(msg.text or "")[:800],
+                    payload={
+                        "thread_id": str(msg.thread_id or ""),
+                        "topic_id": str(msg.topic_id or ""),
+                        "is_final": True,
+                        "artifacts": list(msg.artifacts or [])[:8],
+                        "attachments": [
+                            getattr(a, "virtual_path", str(a)) if not isinstance(a, str) else a
+                            for a in (msg.attachments or [])
+                        ][:8],
+                        "msg_type": "interactive" if _meta.get("proactive_markdown") else None,
+                        "source": "message_bus",
+                        "metadata": {k: _meta[k] for k in list(_meta.keys())[:12]},
+                    },
+                    status="ok",
+                    triggered_by=_triggered,
+                )
         # Route by (channel_name, account_id) so the reply lands on the same
         # channel instance that received the inbound. Empty account_id means
         # "primary bot" and is its own slot — it no longer catches replies
         # meant for per-employee bots.
-        # Prefer top-level account_id; fall back to metadata for older publishers
-        # that only stamped the employee code in metadata.
+        #
+        # Proactive markdown may intentionally use slot="" (primary) while
+        # stamping metadata.account_id for credentials — do NOT promote that
+        # into the routing key or the message is dropped when only primary is
+        # registered. Older reply publishers that only stamped metadata still
+        # get the fallthrough below.
+        _meta_route = msg.metadata if isinstance(msg.metadata, dict) else {}
         aid = str(msg.account_id or "").strip()
-        if not aid and isinstance(msg.metadata, dict):
-            aid = str(msg.metadata.get("account_id") or "").strip()
+        if not aid and not _meta_route.get("proactive_markdown"):
+            aid = str(_meta_route.get("account_id") or "").strip()
             if aid:
                 msg.account_id = aid
-        key = (msg.channel_name, aid)
+        key = (msg.channel_name, str(msg.account_id or "").strip())
+        aid = str(msg.account_id or "").strip()
         channel_cb = self._outbound_by_account.get(key)
         listener_count = (1 if channel_cb else 0) + len(self._outbound_listeners)
         logger.info(
