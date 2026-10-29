@@ -149,7 +149,31 @@ def install_skill(path: str | Path) -> dict[str, Any]:
 def delete_skill(name: str) -> dict[str, Any]:
     skill = _find_skill(name)
     if skill.category != "custom":
-        raise ForbiddenError("Built-in public skills cannot be deleted; only custom skills under skills/custom/")
+        raise ForbiddenError("Built-in public skills cannot be deleted; only custom / bound skills")
+
+    reg = cfg_repo.get_skill_registry(name) or {}
+    try:
+        from evoflow.skills.bound import is_bound_registry
+
+        bound = is_bound_registry(reg)
+    except Exception:
+        bound = False
+
+    if bound:
+        # In-place registration: drop DB row only; never delete the user's source tree.
+        cfg_repo.delete_skill_registry(name)
+        extensions_config = get_extensions_config()
+        if name in extensions_config.skills:
+            del extensions_config.skills[name]
+            save_extensions_to_db(extensions_config)
+        reload_extensions_config()
+        clear_skills_cache()
+        return {
+            "success": True,
+            "skill_name": name,
+            "message": f"Skill '{name}' unregistered (source folder left in place)",
+            "install_mode": "bound",
+        }
 
     from evoflow.skills.installer import is_link_or_junction, remove_link_or_junction
 

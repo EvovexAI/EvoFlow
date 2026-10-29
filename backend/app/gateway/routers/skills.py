@@ -60,7 +60,15 @@ class SkillInstallResponse(BaseModel):
     message: str = Field(..., description="Installation result message")
     install_mode: str | None = Field(
         default=None,
-        description="copy = files under skills/custom; link = custom/<name> points at source dir",
+        description=(
+            "bound = skill stays at source path (DB registry only); "
+            "copy = files under skills/custom; "
+            "link = legacy junction/symlink under custom/"
+        ),
+    )
+    bound_path: str | None = Field(
+        default=None,
+        description="Absolute skill directory when install_mode=bound",
     )
     linked_path: str | None = Field(
         default=None,
@@ -258,23 +266,45 @@ async def update_skill(http_request: Request, skill_name: str, request: SkillUpd
     "/skills/{skill_name}",
     response_model=SkillDeleteResponse,
     summary="Delete Skill",
-    description=("Permanently delete a **custom** skill by removing its directory under ``skills/custom/``. Built-in **public** skills cannot be deleted. The skill entry is removed from ``extensions_config.json`` when present."),
+    description=(
+        "Delete a custom skill. Bound (in-place) skills are only unregistered in SQLite — "
+        "the source folder is left untouched. Copied skills under skills/custom/ are removed "
+        "from disk. Built-in public skills cannot be deleted."
+    ),
 )
 async def delete_skill(http_request: Request, skill_name: str) -> SkillDeleteResponse:
     try:
+        from evoflow.persistence import config_repositories as cfg_repo
+        from evoflow.skills.bound import is_bound_registry
+        from evoflow.skills.installer import is_link_or_junction, remove_link_or_junction
+
         skills = await asyncio.to_thread(_load_skills_for_request, http_request, enabled_only=False)
         skill = next((s for s in skills if s.name == skill_name), None)
 
         if skill is None:
             raise HTTPException(status_code=404, detail=f"Skill '{skill_name}' not found")
 
-        if skill.category not in ("custom", "personal"):
+        reg = cfg_repo.get_skill_registry(skill_name) or {}
+        bound = is_bound_registry(reg)
+
+        if skill.category not in ("custom", "personal") and not bound:
             # Allow deleting skills that live under a personal/custom tree.
             if not str(getattr(skill, "skill_dir", "")).replace("\\", "/").endswith(f"/custom/{skill_name}") and "/custom/" not in str(getattr(skill, "skill_dir", "")).replace("\\", "/"):
                 raise HTTPException(
                     status_code=403,
-                    detail="Built-in public skills cannot be deleted; only custom skills under skills/custom/",
+                    detail="Built-in public skills cannot be deleted; only custom / bound skills",
                 )
+
+        if bound:
+            cfg_repo.delete_skill_registry(skill_name)
+            reload_extensions_config()
+            clear_skills_cache()
+            logger.info("Unregistered bound skill '%s' (source left in place)", skill_name)
+            return SkillDeleteResponse(
+                success=True,
+                skill_name=skill_name,
+                message=f"Skill '{skill_name}' unregistered (source folder left in place)",
+            )
 
         skill_dir = skill.skill_dir.resolve()
         # Prefer the skill's own source root custom/ when known.
@@ -284,19 +314,21 @@ async def delete_skill(http_request: Request, skill_name: str) -> SkillDeleteRes
         else:
             custom_root = (_install_skills_root_for_request(http_request) / "custom").resolve()
 
-        try:
-            skill_dir.relative_to(custom_root)
-        except ValueError as e:
-            raise HTTPException(
-                status_code=400,
-                detail="Skill directory is not under skills/custom; refusing to delete",
-            ) from e
+        slot = custom_root / skill_name
+        if slot.is_symlink() or is_link_or_junction(slot):
+            await asyncio.to_thread(remove_link_or_junction, slot)
+        else:
+            try:
+                skill_dir.relative_to(custom_root)
+            except ValueError as e:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Skill directory is not under skills/custom; refusing to delete",
+                ) from e
 
-        # 技能目录可能包含大量文件，rmtree 是阻塞 I/O，不下事件循环
-        await asyncio.to_thread(shutil.rmtree, skill_dir, ignore_errors=False)
-        _prune_empty_parents_under_custom(skill_dir, custom_root)
-
-        from evoflow.persistence import config_repositories as cfg_repo
+            # 技能目录可能包含大量文件，rmtree 是阻塞 I/O，不下事件循环
+            await asyncio.to_thread(shutil.rmtree, skill_dir, ignore_errors=False)
+            _prune_empty_parents_under_custom(skill_dir, custom_root)
 
         cfg_repo.delete_skill_registry(skill_name)
         reload_extensions_config()
@@ -398,14 +430,21 @@ async def install_skill_local(http_request: Request, file: UploadFile = File(...
 
 
 class SkillInstallFromPathRequest(BaseModel):
-    """Install a skill from a local directory path on the server."""
+    """Register or install a skill from a local directory path on the server."""
 
     path: str = Field(..., description="Absolute path to the skill directory on the server")
+    mode: str | None = Field(
+        default="bound",
+        description=(
+            "bound (default): keep skill in place; only register absolute path in DB. "
+            "copy: copy into skills/custom. link: legacy junction under custom/."
+        ),
+    )
     link: bool = Field(
         default=False,
         description=(
-            "When true, mount the skill via symlink/junction under skills/custom "
-            "(edits stay in the source directory). When false, copy into custom/."
+            "Deprecated. When mode is omitted and link=true, treated as mode=bound "
+            "(in-place register). Prefer mode=bound."
         ),
     )
 
@@ -415,22 +454,23 @@ class SkillInstallFromPathRequest(BaseModel):
     response_model=SkillInstallResponse,
     summary="Install Skill from Local Path",
     description=(
-        "Install a skill from a local directory path on the server (must contain SKILL.md). "
-        "Set link=true to folder-link the source directory instead of copying."
+        "Register a skill from a local directory (must contain SKILL.md). "
+        "Default mode=bound keeps the folder in place and only writes evoflow_skills; "
+        "scripts stay reachable as skill:<name>/relative/path."
     ),
 )
 async def install_skill_from_path(http_request: Request, request: SkillInstallFromPathRequest) -> SkillInstallResponse:
-    """Install a skill from a local directory path.
-
-    This endpoint accepts a local filesystem path pointing to a skill directory
-    (containing SKILL.md). By default it copies into skills/custom; with link=true
-    it creates a directory symlink/junction so the live source stays authoritative.
-    Useful for Tauri clients that can select folders via native dialog.
-    """
+    """Register a skill from a local directory path (default: in-place / bound)."""
     try:
+        mode = (request.mode or "").strip().lower() or None
+        if mode is None and request.link:
+            mode = "bound"
+        if mode is None:
+            mode = "bound"
         result = install_skill_from_directory(
             request.path,
             skills_root=_install_skills_root_for_request(http_request),
+            mode=mode,
             link=bool(request.link),
         )
         clear_skills_cache()

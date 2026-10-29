@@ -272,6 +272,118 @@ def install_skill_from_archive(
         "skill_name": skill_name,
         "message": f"Skill '{skill_name}' installed successfully",
         "install_mode": "copy",
+        "bound_path": None,
+        "linked_path": None,
+    }
+
+
+def _skill_name_already_installed(skill_name: str, *, skills_root: Path) -> bool:
+    """True if a user-owned install already uses this name (custom copy/link or bound).
+
+    Same-named **public** skills do not block registration — bound/custom outranks
+    them via scope shadowing.
+    """
+    target = skills_root / "custom" / skill_name
+    if path_occupied(target):
+        return True
+    try:
+        from evoflow.persistence import config_repositories as cfg_repo
+        from evoflow.skills.bound import is_bound_registry
+
+        reg = cfg_repo.get_skill_registry(skill_name)
+        if is_bound_registry(reg):
+            return True
+    except Exception:
+        logger.debug("name existence probe via registry failed", exc_info=True)
+    try:
+        from evoflow.skills.loader import load_skills
+        from evoflow.skills.skill_scope import SkillScope
+
+        key = skill_name.strip().lower()
+        for skill in load_skills(enabled_only=False, use_config=True):
+            if skill.name.strip().lower() != key:
+                continue
+            if skill.category in ("custom", "personal", "external"):
+                return True
+            if int(getattr(skill, "scope", SkillScope.PUBLIC)) >= int(SkillScope.CUSTOM):
+                return True
+    except Exception:
+        logger.debug("name existence probe via load_skills failed", exc_info=True)
+    return False
+
+
+def register_skill_from_directory(
+    source_dir: str | Path,
+    *,
+    skills_root: Path | None = None,
+) -> dict:
+    """Register a local skill folder in place (no copy, no symlink under custom/).
+
+    Persists absolute ``source_path`` + ``meta.install_mode=bound`` in
+    ``evoflow_skills``. Discovery and ``skill:<name>/…`` resolve to the live dir.
+    """
+    logger.info("Registering skill in place from directory %s", source_dir)
+    src = Path(source_dir)
+    if not src.is_dir():
+        if not src.exists():
+            raise FileNotFoundError(f"Skill directory not found: {source_dir}")
+        raise ValueError(f"Path is not a directory: {source_dir}")
+
+    if not (src / "SKILL.md").is_file():
+        raise ValueError(f"Directory does not contain SKILL.md: {source_dir}")
+
+    is_valid, message, skill_name = _validate_skill_frontmatter(src, strict_keys=False)
+    if not is_valid:
+        raise ValueError(f"Invalid skill: {message}")
+
+    layout_ok, layout_msg = validate_skill_install_layout(src)
+    if not layout_ok:
+        raise ValueError(f"Invalid skill layout: {layout_msg}")
+
+    security_issues = scan_skill_directory(src)
+    if security_issues:
+        raise ValueError(f"Skill content failed security scan: {security_issues[0]}")
+
+    if not skill_name or "/" in skill_name or "\\" in skill_name or ".." in skill_name:
+        raise ValueError(f"Invalid skill name: {skill_name}")
+
+    if skills_root is None:
+        skills_root = get_skills_root_path()
+    if _skill_name_already_installed(skill_name, skills_root=skills_root):
+        raise SkillAlreadyExistsError(f"Skill '{skill_name}' already exists")
+
+    src_resolved = src.resolve()
+    try:
+        skill_md = (src_resolved / "SKILL.md").read_text(encoding="utf-8")
+    except OSError:
+        skill_md = None
+
+    description = ""
+    try:
+        from evoflow.skills.parser import parse_skill_file
+
+        parsed = parse_skill_file(src_resolved / "SKILL.md", category="custom", relative_path=Path("."))
+        if parsed is not None:
+            description = getattr(parsed, "description", "") or ""
+    except Exception:
+        pass
+
+    from evoflow.skills.bound import upsert_bound_registry
+
+    upsert_bound_registry(
+        skill_name=skill_name,
+        skill_dir=src_resolved,
+        skill_md=skill_md,
+        description=description,
+        enabled=True,
+    )
+    logger.info("Skill %r registered in place at %s", skill_name, src_resolved)
+    return {
+        "success": True,
+        "skill_name": skill_name,
+        "message": f"Skill '{skill_name}' registered in place",
+        "install_mode": "bound",
+        "bound_path": str(src_resolved),
         "linked_path": None,
     }
 
@@ -281,6 +393,7 @@ def install_skill_from_directory(
     *,
     skills_root: Path | None = None,
     link: bool = False,
+    mode: str | None = None,
 ) -> dict:
     """Install a skill from a local directory (no archive needed).
 
@@ -288,20 +401,34 @@ def install_skill_from_directory(
         source_dir: Path to the skill directory (must contain SKILL.md).
         skills_root: Override the skills root directory. If None, uses
             the default from config.
-        link: When True, create ``custom/<name>`` as a directory symlink /
-            Windows junction pointing at ``source_dir`` instead of copying.
-            Prefer for local monorepo / demo packs so edits stay in-source.
-            Zip/market installs should keep ``link=False`` (portable copy).
+        link: Deprecated alias for in-place register. When True (and mode
+            omitted), behaves as ``mode="bound"`` — skill stays at source;
+            only SQLite points at it. Prefer ``mode="bound"``.
+        mode: ``bound`` (default for folder pick / ``link=True``) registers
+            the absolute path in DB without copying or linking under
+            ``custom/``. ``copy`` copies into ``custom/<name>/`` (portable /
+            pack default). ``link`` still creates a junction/symlink under
+            ``custom/`` for rare legacy callers.
 
     Returns:
-        Dict with success, skill_name, message, install_mode, linked_path.
+        Dict with success, skill_name, message, install_mode, bound_path/linked_path.
 
     Raises:
         FileNotFoundError: If the directory does not exist.
         ValueError: If the directory is invalid (no SKILL.md, invalid
             frontmatter, duplicate name).
     """
-    logger.info("Installing skill from directory %s (link=%s)", source_dir, link)
+    resolved_mode = (mode or "").strip().lower()
+    if not resolved_mode:
+        resolved_mode = "bound" if link else "copy"
+    if resolved_mode not in ("bound", "copy", "link"):
+        raise ValueError(f"Invalid install mode: {mode!r} (expected bound|copy|link)")
+
+    logger.info("Installing skill from directory %s (mode=%s)", source_dir, resolved_mode)
+
+    if resolved_mode == "bound":
+        return register_skill_from_directory(source_dir, skills_root=skills_root)
+
     src = Path(source_dir)
     if not src.is_dir():
         if not src.exists():
@@ -332,11 +459,11 @@ def install_skill_from_directory(
     custom_dir.mkdir(parents=True, exist_ok=True)
 
     target = custom_dir / skill_name
-    if path_occupied(target):
+    if path_occupied(target) or _skill_name_already_installed(skill_name, skills_root=skills_root):
         raise SkillAlreadyExistsError(f"Skill '{skill_name}' already exists")
 
     src_resolved = src.resolve()
-    if link:
+    if resolved_mode == "link":
         link_skill_directory(src_resolved, target)
         logger.info("Skill %r linked from %s -> %s", skill_name, src_resolved, target)
         return {
@@ -344,6 +471,7 @@ def install_skill_from_directory(
             "skill_name": skill_name,
             "message": f"Skill '{skill_name}' linked successfully",
             "install_mode": "link",
+            "bound_path": None,
             "linked_path": str(src_resolved),
         }
 
@@ -355,5 +483,6 @@ def install_skill_from_directory(
         "skill_name": skill_name,
         "message": f"Skill '{skill_name}' installed successfully",
         "install_mode": "copy",
+        "bound_path": None,
         "linked_path": None,
     }

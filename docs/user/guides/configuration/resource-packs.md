@@ -62,13 +62,14 @@
 ```json
 [
   { "path": "./skills/my-skill" },
+  { "path": "./skills/my-skill", "mode": "bound" },
   { "path": "./skills/my-skill", "link": true }
 ]
 ```
 
-- 默认（或不写 `link` / `"link": false`）：**复制**到生效根的 `skills/custom/<name>/`（zip 分发、便携安装用这个）。
-- `"link": true`：在 `skills/custom/<name>` 建**目录挂载**（symlink / Windows junction）指向包内源目录，**不拷贝内容**；改源码即生效。适合本机 monorepo / 演示仓。卸载只摘挂载，不删源目录。非便携（换机器路径会断）。
-- 也可用 HTTP：`POST /api/skills/install-from-path`，body `{ "path": "...", "link": true }`。
+- 默认（或不写 `mode` / `link`）：**复制**到生效根的 `skills/custom/<name>/`（zip 分发、便携安装用这个）。
+- `"mode": "bound"`（或旧字段 `"link": true`）：**原地登记**——技能目录留在原路径，只在 SQLite `evoflow_skills` 写入绝对 `source_path`；改源码即生效，卸载只取消登记、不删源目录。脚本用 **`bash`**：`bash(command="python skill:<name>/scripts/foo.py")`（宿主改写路径）。非便携（换机器路径会断）。
+- 也可用 HTTP：`POST /api/skills/install-from-path`，body `{ "path": "D:/…/my-skill", "mode": "bound" }`（文件夹导入默认即为 `bound`）。
 
 `slug` 形态（从技能市场装）暂未支持（Phase 2）；市场安装始终为 copy。
 

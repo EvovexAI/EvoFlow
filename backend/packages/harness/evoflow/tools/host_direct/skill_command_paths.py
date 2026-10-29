@@ -15,7 +15,7 @@ import re
 from pathlib import Path
 
 from evoflow.skills.active import get_active_skills
-from evoflow.skills.skill_uri import SKILL_URI_PREFIX, resolve_skill_uri
+from evoflow.skills.skill_uri import SKILL_URI_PREFIX, resolve_skill_path_for_command
 
 # Match /mnt/skills/... or skills/public|custom/... (posix or Windows separators).
 # Negative lookbehind avoids rewriting inside longer absolute paths.
@@ -112,7 +112,8 @@ def rewrite_skill_paths_in_command(command: str) -> str:
 
         skilluri = match.group("skilluri")
         if skilluri is not None:
-            resolved = resolve_skill_uri(skilluri, require_enabled=False)
+            # File or directory — bash uses skill: URIs for scripts and ls.
+            resolved = resolve_skill_path_for_command(skilluri, require_enabled=False)
             if resolved is not None:
                 return str(resolved)
             return match.group(0)
@@ -122,7 +123,7 @@ def rewrite_skill_paths_in_command(command: str) -> str:
             active = get_active_skills()
             if len(active) == 1:
                 uri = f"{SKILL_URI_PREFIX}{active[0]}/{relscript.replace(chr(92), '/')}"
-                resolved = resolve_skill_uri(uri, require_enabled=False)
+                resolved = resolve_skill_path_for_command(uri, require_enabled=False)
                 if resolved is not None:
                     return str(resolved)
             return match.group(0)

@@ -152,6 +152,14 @@ def sync_skills_from_filesystem() -> None:
             if not name:
                 continue
             reg = cfg_repo.get_skill_registry(name) or {}
+            # Bound (in-place) skills keep absolute source_path; never rewrite from public/custom scan.
+            try:
+                from evoflow.skills.bound import is_bound_registry
+
+                if is_bound_registry(reg):
+                    continue
+            except Exception:
+                pass
             enabled = reg.get("enabled", True)
             try:
                 skill_md = skill_file_path.read_text(encoding="utf-8")

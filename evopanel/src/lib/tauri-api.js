@@ -2956,10 +2956,15 @@ export const api = {
     }
     return reloadSkillCatalogAfterMutation(result)
   },
-  /** Install a skill from a local directory path (Tauri folder selection). */
-  installSkillFromPath: async (dirPath) =>
+  /**
+   * Register a skill from a local directory (default: in-place / bound).
+   * Skill stays at dirPath; SQLite records the absolute path. Scripts resolve as
+   * skill:<name>/relative/path. Pass mode: 'copy' only when a portable copy under
+   * skills/custom is required.
+   */
+  installSkillFromPath: async (dirPath, { mode = 'bound' } = {}) =>
     reloadSkillCatalogAfterMutation(
-      gatewayProxy('POST', '/skills/install-from-path', { path: dirPath }),
+      gatewayProxy('POST', '/skills/install-from-path', { path: dirPath, mode }),
     ),
 
   // MCP 工具 API
