@@ -126,12 +126,20 @@ function ToolLayoutComponent({
   const summaryKindLabel = isExpanded && expandedKindLabel != null ? expandedKindLabel : kindLabel;
   const summaryKindDetail =
     isExpanded && expandedKindDetail !== undefined ? expandedKindDetail : kindDetail;
-  const summarySecondaryText =
+  const resolvedSecondaryText =
     isExpanded && expandedSecondaryText !== undefined
       ? expandedSecondaryText
       : isExpanded && hideSecondaryTextWhenOpen
         ? null
         : secondaryText;
+  // platform / fallback 等会把「等待中」这类短状态词塞进 secondaryText（裸字符串）。
+  // 窄屏下 flex 会把无空格中文压成单列竖排；与 statusWordNode 一致，禁止折行且不参与收缩。
+  const summarySecondaryText =
+    typeof resolvedSecondaryText === "string" ? (
+      <span className="shrink-0 whitespace-nowrap">{resolvedSecondaryText}</span>
+    ) : (
+      resolvedSecondaryText
+    );
   const summaryTitle = isExpanded && expandedTitle !== undefined ? expandedTitle : title;
   const resolvedSummaryContentKey =
     summaryContentKey ?? `${String(summaryTitle ?? "")}:${String(statusLabel ?? "")}`;

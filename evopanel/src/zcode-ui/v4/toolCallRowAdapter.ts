@@ -10,6 +10,7 @@ import { normalizeWrappedErrorText } from "@/lib/toolError.js";
 import { platformActionShortLabelZh } from "../../lib/platform-action-labels.js";
 import {
   assetsActionLabelZh,
+  knowledgeActionLabelZh,
   readNamedToolAction,
   tasksActionLabelZh,
 } from "../../lib/builtin-action-labels.js";
@@ -115,6 +116,10 @@ export function toolCallRowToLegacyNode(row: ToolCallRow): TaskChatToolCallTreeN
     if (toolNameLower === "assets") {
       const action = readNamedToolAction(inputPreview.input);
       return action ? assetsActionLabelZh(action, { max: 24 }) : undefined;
+    }
+    if (toolNameLower === "knowledge") {
+      const action = readNamedToolAction(inputPreview.input);
+      return action ? knowledgeActionLabelZh(action, { max: 24 }) : undefined;
     }
     return undefined;
   })();
