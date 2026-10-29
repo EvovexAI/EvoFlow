@@ -501,6 +501,53 @@ async def get_asset_usage_stats(
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
+@router.get("/memory-runs")
+async def get_asset_memory_runs(
+    request: Request,
+    entityType: Literal["user", "agent", "employee", "workspace"] | None = Query(default=None),
+    entityId: str | None = Query(default=None),
+    threadId: str | None = Query(default=None),
+    phase: Literal["phase1", "phase2"] | None = Query(default=None),
+    limit: int = Query(default=30, ge=1, le=100),
+):
+    """List recent Asset Hub Phase1/Phase2 processing runs (verification log)."""
+    from evoflow.persistence.asset_memory_run_repositories import list_asset_memory_runs
+
+    et = str(entityType or "").strip()
+    eid = str(entityId or "").strip()
+    if et and eid:
+        # Enforce same entity ACL as other asset reads.
+        _entity(request, et, eid)
+    elif et or eid:
+        raise HTTPException(status_code=400, detail="entityType and entityId must be provided together")
+    try:
+        rows = await asyncio.to_thread(
+            list_asset_memory_runs,
+            entity_type=et,
+            entity_id=eid,
+            thread_id=str(threadId or "").strip(),
+            phase=str(phase or "").strip(),
+            limit=limit,
+        )
+        return {"ok": True, "runs": rows}
+    except Exception as exc:
+        logger.error("assets memory-runs list failed", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+def _request_operator_id(request: Request) -> str:
+    """Runtime human identity for 操作人 on memory-run rows."""
+    try:
+        from evoflow.authz.context import resolve_request_principal
+
+        p = resolve_request_principal(request)
+        if isinstance(p, dict):
+            return str(p.get("principal_id") or "").strip()
+        return str(getattr(p, "principal_id", None) or "").strip()
+    except Exception:
+        return ""
+
+
 @router.post("/phase2/consolidate")
 async def post_phase2_consolidate_entity(
     request: Request,
@@ -508,12 +555,30 @@ async def post_phase2_consolidate_entity(
     entityId: str = Query(...),
 ):
     """Run Phase2 for one entity (manual / stats panel)."""
+    from evoflow.assets.memory_runs import record_asset_phase_run
     from evoflow.assets.phase2 import run_phase2_consolidate
 
     entity = _entity(request, entityType, entityId)
+    operator = _request_operator_id(request)
     try:
-        return await asyncio.to_thread(run_phase2_consolidate, entity=entity)
+        out = await asyncio.to_thread(run_phase2_consolidate, entity=entity)
+        record_asset_phase_run(
+            phase="phase2",
+            trigger="manual",
+            result=out if isinstance(out, dict) else None,
+            entity=entity,
+            principal_id=operator,
+        )
+        return out
     except Exception as exc:
+        record_asset_phase_run(
+            phase="phase2",
+            trigger="manual",
+            result=None,
+            entity=entity,
+            principal_id=operator,
+            error=str(exc),
+        )
         logger.error("assets phase2 consolidate failed", exc_info=True)
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
@@ -527,8 +592,13 @@ async def post_phase2_startup_scan(
     require_org_admin(request)
     from evoflow.assets.startup import scan_and_run_phase2_on_startup
 
+    operator = _request_operator_id(request)
     try:
-        return await asyncio.to_thread(scan_and_run_phase2_on_startup, max_entities=maxEntities)
+        return await asyncio.to_thread(
+            scan_and_run_phase2_on_startup,
+            max_entities=maxEntities,
+            principal_id=operator,
+        )
     except Exception as exc:
         logger.error("assets phase2 scan failed", exc_info=True)
         raise HTTPException(status_code=500, detail=str(exc)) from exc

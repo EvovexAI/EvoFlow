@@ -64,6 +64,16 @@ def _call_profile(runtime, *, content: str):
     return json.loads(raw)
 
 
+def _call(runtime, *, action: str, **kwargs):
+    raw = assets_mod.assets_tool.func(
+        action=action,
+        runtime=runtime,
+        tool_call_id="t1",
+        **kwargs,
+    )
+    return json.loads(raw)
+
+
 def test_employee_note_lands_under_employee_tree(asset_home: Path):
     rt = _runtime(agent="douyin-analyst", principal="yin-tai")
     out = _call_note(rt, content="[experience]\npipeline cookie refresh", path="pipeline-cookie")
@@ -143,11 +153,44 @@ def test_resolve_matrix_quick(asset_home: Path):
     """Routing table sanity without disk writes."""
     cases = [
         (_runtime(agent="douyin-analyst"), "note", ("employee", "douyin-analyst")),
+        (_runtime(agent="douyin-analyst"), "read", ("employee", "douyin-analyst")),
+        (_runtime(agent="douyin-analyst"), "search", ("employee", "douyin-analyst")),
+        (_runtime(agent="douyin-analyst"), "list", ("employee", "douyin-analyst")),
         (_runtime(agent="ops-bot"), "note", ("employee", "ops-bot")),
         (_runtime(agent="main"), "note", ("user", "yin-tai")),
+        (_runtime(agent="main"), "read", ("user", "yin-tai")),
         (_runtime(agent="douyin-analyst"), "profile", ("user", "yin-tai")),
         (_runtime(agent="main"), "profile", ("user", "yin-tai")),
     ]
     for rt, act, expected in cases:
         ent = assets_mod._resolve_entity(rt, action=act)
         assert (ent.entity_type, ent.entity_id) == expected, (act, rt.context, ent)
+
+
+def test_employee_note_then_read_same_bucket(asset_home: Path):
+    """Authenticated employee: note write + immediate read must hit the same tree."""
+    rt = _runtime(agent="douyin-analyst", principal="yin-tai")
+    written = _call(
+        rt,
+        action="note",
+        content="[experience] 漫剧编剧岗本机资料路径与知识库噪声",
+        path="experience-漫剧编剧岗-本机资料路径与知识库噪声-2026-10",
+    )
+    assert written.get("ok") is True, written
+    rel = str(written.get("path") or "")
+    assert rel.startswith("memory/_inbox/notes/"), rel
+
+    read_full = _call(rt, action="read", path=rel)
+    assert read_full.get("ok") is True, read_full
+    assert "漫剧编剧岗" in str(read_full.get("content") or "")
+
+    # LLM often omits the memory/ prefix — tool should still resolve.
+    short = rel.removeprefix("memory/")
+    read_short = _call(rt, action="read", path=short)
+    assert read_short.get("ok") is True, read_short
+
+    # Must land under employee tree, not users/<pid>.
+    emp_file = asset_home / "assets" / "employees" / "douyin-analyst" / Path(rel)
+    assert emp_file.is_file(), emp_file
+    user_file = asset_home / "assets" / "users" / "yin-tai" / Path(rel)
+    assert not user_file.is_file(), user_file

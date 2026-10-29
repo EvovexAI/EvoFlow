@@ -169,8 +169,10 @@ def _resolve_entity(
     agent = _agent_from_runtime(runtime) or None
     if act == "read" and rel.startswith("profile/"):
         return resolve_profile_entity(agent_name=agent, principal_id=pid)
-    # Employee chat notes/search belong on the employee tree, not the caller's user bucket.
-    if agent and act in ("note", "search", "list", ""):
+    # Employee chat memory (note/search/list/read) belongs on the employee tree,
+    # not the caller's user bucket — otherwise note writes succeed then read
+    # returns not_found under assets/users/<pid>/ (authenticated sessions).
+    if agent and act in ("note", "search", "list", "read", ""):
         from evoflow.assets.guidance import is_employee_agent_name
 
         if is_employee_agent_name(agent):
@@ -179,6 +181,14 @@ def _resolve_entity(
         # Default memory bucket follows the authenticated caller.
         return _user_entity()
     return resolve_memory_entity(agent_name=agent)
+
+
+def _normalize_asset_rel(path: str) -> str:
+    """Accept common LLM shortcuts: ``_inbox/...`` → ``memory/_inbox/...``."""
+    rel = str(path or "").strip().replace("\\", "/").lstrip("/")
+    if rel.startswith("_inbox/") or rel == "_inbox":
+        return f"memory/{rel}"
+    return rel
 
 
 def _slug(text: str, *, fallback: str = "note") -> str:
@@ -277,13 +287,16 @@ def assets_tool(
         try:
             from evoflow.assets.search import search_entity_assets
 
+            # Dialogue search includes pending _inbox notes so a note written
+            # this turn is findable before Phase2 consolidation.
             res = search_entity_assets(
                 entity,
                 q,
-                path=str(path or "").strip() or None,
+                path=_normalize_asset_rel(path) or None,
                 kinds=str(kinds or "").strip() or None,
                 max_results=max(1, min(int(max_results or 12), 50)),
                 context_lines=1,
+                include_inbox=True,
             )
             # Compact for model: drop huge snippets slightly
             matches = []
@@ -322,7 +335,7 @@ def assets_tool(
             return json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False)
 
     if act == "read":
-        rel = str(path or "").strip().lstrip("/")
+        rel = _normalize_asset_rel(path)
         if not rel:
             return json.dumps({"ok": False, "error": "path_required"}, ensure_ascii=False)
         try:
@@ -352,7 +365,7 @@ def assets_tool(
             return json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False)
 
     if act == "list":
-        rel = str(path or "").strip().lstrip("/")
+        rel = _normalize_asset_rel(path)
         if not rel:
             # Prefer memory/ when listing root — mirrors progressive disclosure
             rel = "memory"
