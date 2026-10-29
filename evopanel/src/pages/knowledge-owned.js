@@ -1,9 +1,13 @@
 /**
  * Owned knowledge base page entry.
+ *
+ * List hub keeps the global left nav as-is. Detail view collapses it to the
+ * icon rail (handled in knowledge-owned.jsx); leaving the route restores state.
  */
 import { createElement } from 'react'
 import { createRoot } from 'react-dom/client'
 import { setKnowledgeDetailShellMode } from '../router.js'
+import { restoreKnowledgeAsideFromDetail } from './knowledge-owned-aside.js'
 import KnowledgeOwnedPage from './knowledge-owned.jsx'
 import './knowledge-owned.css'
 import '../style/ef-module-head.css'
@@ -30,6 +34,13 @@ export async function render() {
 
 export function cleanup() {
   setKnowledgeDetailShellMode(false)
+  try {
+    document.getElementById('ko-chrome-title')?.remove()
+    document.getElementById('tauri-main-chrome')?.classList.remove('tauri-main-chrome--kb-detail')
+  } catch {
+    /* ignore */
+  }
+  restoreKnowledgeAsideFromDetail()
   try {
     document.querySelector('.knowledge-owned-outlet')?._xmLiveUnsub?.()
   } catch {

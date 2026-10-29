@@ -199,16 +199,23 @@ def normalize_mcp_tool_result(tool_name: str, result: Any) -> Any:
     - ``str``：纯文本，按预算截断；
     - ``(content, artifact)`` 元组：归一化 content，artifact 原样保留
       （structuredContent 属结构化数据，体积通常可控，且 Zcode 同样不预算它）；
+      **必须保持二元组**——即便 artifact 为 ``None``。pool 绑定工具声明
+      ``response_format='content_and_artifact'``，拆成裸 list/str 会触发
+      LangChain ``ValueError``。
     - content blocks 列表：图片归一 + 文本截断；
     - ``ToolMessage`` / ``Command`` / 其他：原样放行。
     """
     if result is None:
         return result
 
+    was_tuple = isinstance(result, tuple) and len(result) == 2
     artifact: Any = None
     content: Any = result
-    if isinstance(result, tuple) and len(result) == 2:
+    if was_tuple:
         content, artifact = result
+
+    def _pack(normalized: Any) -> Any:
+        return (normalized, artifact) if was_tuple else normalized
 
     try:
         if isinstance(content, str):
@@ -226,13 +233,13 @@ def normalize_mcp_tool_result(tool_name: str, result: Any) -> Any:
                     f"{len(content)} characters omitted (budget {budget} chars; "
                     f"tune {_TEXT_BUDGET_ENV})]"
                 )
-            return (content, artifact) if artifact is not None else content
+            return _pack(content)
 
         if isinstance(content, list):
             blocks, images = _normalize_blocks(content, tool_name)
             if images and artifact is None and not blocks:
-                content = f"[MCP returned {images} oversized image(s) only]"
-            return (blocks, artifact) if artifact is not None else blocks
+                blocks = f"[MCP returned {images} oversized image(s) only]"
+            return _pack(blocks)
     except Exception:  # noqa: BLE001 - 归一化失败绝不能弄丢工具结果
         logger.warning(
             "MCP result normalization failed for %r; returning raw result", tool_name,
@@ -240,5 +247,5 @@ def normalize_mcp_tool_result(tool_name: str, result: Any) -> Any:
         )
         return result
 
-    # ToolMessage / Command / 其他形态：不解析，原样放行。
-    return result
+    # ToolMessage / Command / 其他形态：不解析，原样放行（元组则保持形状）。
+    return _pack(content) if was_tuple else result

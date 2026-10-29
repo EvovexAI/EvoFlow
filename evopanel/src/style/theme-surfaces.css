@@ -2099,12 +2099,27 @@ html[data-translucent-ui='1'] .proactive-page .pro-role-more.is-open .pro-role-m
   box-shadow: none !important;
 }
 
-html[data-translucent-ui='1'] .proactive-page .pro-role-more-menu {
-  background: color-mix(in srgb, var(--bg-secondary) 32%, transparent) !important;
-  backdrop-filter: blur(var(--blur-md)) saturate(1.2);
-  -webkit-backdrop-filter: blur(var(--blur-md)) saturate(1.2);
-  border-color: var(--ef-glass-border, var(--border-primary)) !important;
-  box-shadow: 0 12px 32px color-mix(in srgb, #000 22%, transparent) !important;
+/* 员工卡 ⋯ 菜单：硬实底（半透明护肤下也不能透底） */
+html[data-translucent-ui='1'] .proactive-page .pro-role-more-menu,
+html[data-translucent-ui='1'] body > .pro-role-more-menu[data-pro-more-host],
+html[data-translucent-ui='1'] .pro-role-more-menu.is-fixed {
+  background: #ffffff !important;
+  background-color: #ffffff !important;
+  background-image: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  opacity: 1 !important;
+  border-color: var(--border-primary) !important;
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--border-primary) 70%, transparent),
+    0 12px 32px color-mix(in srgb, #000 22%, transparent) !important;
+}
+
+html[data-theme='dark'][data-translucent-ui='1'] .proactive-page .pro-role-more-menu,
+html[data-theme='dark'][data-translucent-ui='1'] body > .pro-role-more-menu[data-pro-more-host],
+html[data-theme='dark'][data-translucent-ui='1'] .pro-role-more-menu.is-fixed {
+  background: #141820 !important;
+  background-color: #141820 !important;
 }
 
 html[data-translucent-ui='1'] .proactive-page .pro-employee-tabs {
@@ -2228,8 +2243,21 @@ html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .proactive-page .pro-
   background: color-mix(in srgb, var(--accent) 14%, transparent) !important;
 }
 
-html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .proactive-page .pro-role-more-menu {
-  background: color-mix(in srgb, var(--bg-secondary) 28%, transparent) !important;
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .proactive-page .pro-role-more-menu,
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] body > .pro-role-more-menu[data-pro-more-host],
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .pro-role-more-menu.is-fixed {
+  background: #ffffff !important;
+  background-color: #ffffff !important;
+  background-image: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+html[data-theme='dark'][data-translucent-ui='1'][data-liquid-glass-webgl='1'] .proactive-page .pro-role-more-menu,
+html[data-theme='dark'][data-translucent-ui='1'][data-liquid-glass-webgl='1'] body > .pro-role-more-menu[data-pro-more-host],
+html[data-theme='dark'][data-translucent-ui='1'][data-liquid-glass-webgl='1'] .pro-role-more-menu.is-fixed {
+  background: #141820 !important;
+  background-color: #141820 !important;
 }
 
 html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] :is(.hire-overlay, .role-editor-overlay) :is(

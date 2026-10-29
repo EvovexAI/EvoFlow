@@ -1451,14 +1451,18 @@ html[data-theme='dark'] .sidebar-logo img {
   max-width: none !important;
 }
 #app.evopanel-app-studio-mode #content > .uiext-shell-page {
-  flex: 1;
+  flex: 1 1 auto;
   min-height: 0;
-  height: 100% !important;
+  /* 勿用 height:100%：顶栏恢复后会把壳撑出视口，外层出现滚动条并抢走滚轮 */
+  height: auto !important;
+  max-height: 100%;
   max-width: none !important;
   margin: 0 !important;
   padding: 0 !important;
   border: 0 !important;
   border-radius: 0 !important;
+  overflow: hidden;
+  overscroll-behavior: none;
 }
 #app.evopanel-app-studio-mode #content > .apps-history-page {
   flex: 0 0 auto;

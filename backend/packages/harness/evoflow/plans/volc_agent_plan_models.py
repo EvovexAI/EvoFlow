@@ -294,14 +294,19 @@ AGENT_PLAN_CAPABILITIES: list[dict[str, Any]] = [
     {
         "id": "web_search",
         "label": "联网搜索",
-        "summary": ("套餐 Harness「豆包搜索」：在控制台领取联网搜索 API Key（SearchInfinity），填到设置 → 联网搜索；与对话 ark- Key 不是同一把。"),
+        "summary": (
+            "套餐 Harness「豆包搜索」：官方用 Agent Plan 专属 Key 鉴权（与对话同一把）；"
+            "绑定后自动写入设置 → 联网搜索；请在控制台开启豆包搜索抵扣。"
+        ),
         "min_tier": "small",
         "items": [
             {
                 "id": "doubao-search",
                 "label": "豆包搜索",
                 "min_tier": "small",
-                "notes": ("赠送额度以控制台为准；领取后把联网 Key 填到「设置 → 联网搜索 → 豆包搜索」"),
+                "notes": (
+                    "绑定套餐后自动接通；控制台 Harness 开启「豆包搜索」抵扣后按套餐额度扣费"
+                ),
             },
         ],
     },

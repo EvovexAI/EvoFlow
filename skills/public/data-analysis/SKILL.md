@@ -224,7 +224,7 @@ python scripts/analyze.py \
 After analysis:
 
 - Present query results directly in conversation as formatted tables
-- For large results, export to file and share via `@@outputs/...@@` in your reply
+- For large results, export to file and share via Markdown `[name](path relative to the workspace)` or a short backtick path in your reply
 - Always explain findings in plain language with key takeaways
 - Suggest follow-up analyses when patterns are interesting
 - Offer to export results if the user wants to keep them

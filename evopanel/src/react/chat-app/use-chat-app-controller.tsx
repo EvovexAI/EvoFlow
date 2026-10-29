@@ -185,6 +185,8 @@ import type { ProcessItem } from '../lib/chat-summary-panel-model.js'
 import { SidePanelBootShell } from '../components/SidePanelBootShell.js'
 import { applyRightStageAgUiCustom, applyStageSetFromToolCall, STAGE_SET_APPLIED_EVENT, type StageSetPayload } from '../../lib/right-stage/right-stage-agui.js'
 import { syncBrowserPanelFromAgUiEvent, isBrowserToolWireName } from '../../lib/browser-panel-agui.js'
+import { syncCuaGlowFromAgUiEvent } from '../../lib/cua-glow-agui.js'
+import { hideCuaGlowOverlayForced } from '../../lib/cua-glow-overlay.js'
 import {
   applyBrowserCommandResponse,
   closeBrowserStage,
@@ -1187,8 +1189,16 @@ export function useChatAppController() {
     if (Array.isArray(rows) && rows.length > 0) {
       setSessionHadContent(true)
       setPreferHomeDashboard(false)
+      try {
+        const sk = String(selectedSessionKey || '').trim()
+        if (sk && sessionStorage.getItem('evopanel_shell_empty_draft') === sk) {
+          sessionStorage.removeItem('evopanel_shell_empty_draft')
+        }
+      } catch {
+        /* ignore */
+      }
     }
-  }, [rows])
+  }, [rows, selectedSessionKey])
 
   useLayoutEffect(() => {
     queueMicrotask(() => setHistoryViewReady(false))
@@ -2573,6 +2583,7 @@ export function useChatAppController() {
           setSessionHadContent,
           isAutoWorkPreviewEnabled,
           writeStreamModeRef,
+          rightStageStore,
           rightStageHintTimerRef,
           hideRightStageIfKind,
           setChatPanelDisplayMode,
@@ -3758,6 +3769,7 @@ export function useChatAppController() {
           setHasReceivedTodos,
           setBoundTaskId,
           setGlobalWorkspaceHistory,
+          getGlobalWorkspaceHistory: () => wsClient.getGlobalWorkspaceHistory(),
           removeSessionFromList,
           purgeWorkspaceFromSidebar,
           refreshSessions,
@@ -4395,6 +4407,8 @@ export function useChatAppController() {
       suppressedGoalProposalKeysRef,
       syncAgUiCompatProjection,
       syncBrowserPanelFromAgUiEvent,
+      syncCuaGlowFromAgUiEvent,
+      hideCuaGlowOverlayForced,
       syncEmployeesRosterFromToolResult,
       syncPlanPanelImmediateFromTools,
       syncStreamMediaAssetsFromTools,
@@ -5727,6 +5741,9 @@ export function useChatAppController() {
     voiceSessionKeyRef.current = ''
     voiceStreamingStartedRef.current = false
     void setVoiceTrayState('idle')
+    // 用户停止：立刻收起顶栏提示，并清 gateway 状态（否则 30s grace / poll 会再亮）。
+    void hideCuaGlowOverlayForced()
+    void import('../../lib/cua-glow-poll.js').then((m) => m.clearCuaGlowStatusRemote?.())
     await runStopSessionExecution(sessionKey, sessionStopHostRef.current, opts)
   }
 

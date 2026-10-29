@@ -177,3 +177,23 @@ def test_view_image_single_string_still_works(tmp_path: Path):
     assert body["mode"] == "native"
     assert body["image_ref"] == path
     assert "count" not in body or body.get("count") == 1
+
+
+def test_view_image_hard_blocks_duplicate_native_read(tmp_path: Path):
+    p = tmp_path / "dup.png"
+    p.write_bytes(_png_bytes())
+    path = str(p.resolve())
+
+    with patch(
+        "evoflow.tools.builtins.view_image_tool.decide_view_image_route",
+        return_value="native",
+    ):
+        out = view_image_tool.func(
+            runtime=_runtime(native_refs=[path]),
+            image_path=path,
+            tool_call_id="call-dup",
+        )
+
+    assert isinstance(out, str)
+    assert out.startswith("Error: Image already in model context")
+    assert "do not call read" in out.lower()

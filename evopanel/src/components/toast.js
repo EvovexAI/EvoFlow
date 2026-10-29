@@ -96,7 +96,7 @@ function scheduleToastRemove(el, duration, key) {
   el.style.transition = ''
   el._hideTimer = setTimeout(() => {
     el.style.opacity = '0'
-    el.style.transform = 'translateX(20px)'
+    el.style.transform = 'translateY(6px) scale(0.98)'
     el.style.transition = 'opacity 250ms var(--ease-out-soft, ease-out), transform 250ms var(--ease-out-soft, ease-out)'
     el._removeTimer = setTimeout(() => {
       if (key && _toastsByKey.get(key) === el) _toastsByKey.delete(key)

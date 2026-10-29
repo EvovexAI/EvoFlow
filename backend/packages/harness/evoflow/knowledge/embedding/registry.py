@@ -156,6 +156,8 @@ async def get_embedding(
     model_config: ModelConfig | None = None,
     *,
     expected_dim: int | None = None,
+    purpose: str | None = None,
+    kb_id: str | None = None,
 ) -> list[float]:
     """Embed a single text string into a dense float vector.
 
@@ -166,6 +168,8 @@ async def get_embedding(
         model_config: Optional model config override. If ``None``, uses
             :func:`get_embedding_config`.
         expected_dim: If provided, validates the returned vector dimension.
+        purpose: Optional usage meter purpose (``index`` / ``query`` / ``probe``).
+        kb_id: Optional knowledge-base id for usage attribution.
 
     Returns:
         A list of floats (the embedding vector).
@@ -174,7 +178,13 @@ async def get_embedding(
         EmbeddingError: On backend errors (network, auth, local load failure).
         EmbeddingDimensionError: If ``expected_dim`` is set and mismatched.
     """
-    results = await get_embeddings([text], model_config, expected_dim=expected_dim)
+    results = await get_embeddings(
+        [text],
+        model_config,
+        expected_dim=expected_dim,
+        purpose=purpose,
+        kb_id=kb_id,
+    )
     return results[0]
 
 
@@ -184,6 +194,8 @@ async def get_embeddings(
     *,
     expected_dim: int | None = None,
     batch_size: int = MAX_BATCH_SIZE,
+    purpose: str | None = None,
+    kb_id: str | None = None,
 ) -> list[list[float]]:
     """Embed multiple texts into dense float vectors.
 
@@ -195,6 +207,8 @@ async def get_embeddings(
         model_config: Optional model config override.
         expected_dim: If provided, validates every returned vector dimension.
         batch_size: Max texts per backend call (default 100).
+        purpose: Optional usage meter purpose (``index`` / ``query`` / ``probe``).
+        kb_id: Optional knowledge-base id for usage attribution.
 
     Returns:
         List of embedding vectors, one per input text, in the same order.
@@ -207,50 +221,68 @@ async def get_embeddings(
     if not texts:
         raise ValueError("texts must not be empty")
 
-    mc = model_config or get_embedding_config()
-    provider = _resolve_provider(mc)
-    model_name = provider.model_name
+    from evoflow.knowledge.embedding.usage_meter import (
+        current_embedding_kb_id,
+        current_embedding_purpose,
+        embedding_usage_scope,
+    )
 
-    # 1) Partition into cached vs uncached.
-    results: list[list[float] | None] = [None] * len(texts)
-    uncached_idx: list[int] = []
-    uncached_texts: list[str] = []
-    for i, t in enumerate(texts):
-        key = _cache_key(t, model_name)
-        hit = _cache.get(key)
-        if hit is not None:
-            results[i] = hit
-        else:
-            uncached_idx.append(i)
-            uncached_texts.append(t)
+    # Nested scopes: explicit kwargs win for this call; otherwise keep outer purpose.
+    use_purpose = purpose if purpose is not None else current_embedding_purpose()
+    use_kb = kb_id if kb_id is not None else (current_embedding_kb_id() or None)
 
-    if not uncached_texts:
-        return [r for r in results if r is not None]  # all cached
+    async def _run() -> list[list[float]]:
+        mc = model_config or get_embedding_config()
+        provider = _resolve_provider(mc)
+        model_name = provider.model_name
 
-    # 2) Call backend for uncached texts in batches.
-    bs = max(1, min(batch_size, MAX_BATCH_SIZE))
-    fetched: list[list[float]] = []
-    for i in range(0, len(uncached_texts), bs):
-        batch = uncached_texts[i : i + bs]
-        batch_vecs = await provider.embed_batch(batch)
-        if len(batch_vecs) != len(batch):
-            raise EmbeddingError(f"Embedding backend returned {len(batch_vecs)} vectors for {len(batch)} inputs")
-        fetched.extend(batch_vecs)
+        # 1) Partition into cached vs uncached.
+        results: list[list[float] | None] = [None] * len(texts)
+        uncached_idx: list[int] = []
+        uncached_texts: list[str] = []
+        for i, t in enumerate(texts):
+            key = _cache_key(t, model_name)
+            hit = _cache.get(key)
+            if hit is not None:
+                results[i] = hit
+            else:
+                uncached_idx.append(i)
+                uncached_texts.append(t)
 
-    # 3) Dimension validation + write back to cache + merge into results.
-    for j, vec in enumerate(fetched):
-        if expected_dim is not None and len(vec) != expected_dim:
-            raise EmbeddingDimensionError(f"Embedding dimension mismatch at index {uncached_idx[j]}: expected {expected_dim}, got {len(vec)}")
-        results[uncached_idx[j]] = vec
-        _cache.set(_cache_key(uncached_texts[j], model_name), vec)
+        if not uncached_texts:
+            return [r for r in results if r is not None]  # all cached
 
-    # 4) Final assembly (all slots now filled).
-    out: list[list[float]] = []
-    for r in results:
-        if r is None:  # pragma: no cover - defensive
-            raise EmbeddingError("Internal error: unfilled embedding slot")
-        out.append(r)
-    return out
+        # 2) Call backend for uncached texts in batches.
+        bs = max(1, min(batch_size, MAX_BATCH_SIZE))
+        fetched: list[list[float]] = []
+        for i in range(0, len(uncached_texts), bs):
+            batch = uncached_texts[i : i + bs]
+            batch_vecs = await provider.embed_batch(batch)
+            if len(batch_vecs) != len(batch):
+                raise EmbeddingError(f"Embedding backend returned {len(batch_vecs)} vectors for {len(batch)} inputs")
+            fetched.extend(batch_vecs)
+
+        # 3) Dimension validation + write back to cache + merge into results.
+        for j, vec in enumerate(fetched):
+            if expected_dim is not None and len(vec) != expected_dim:
+                raise EmbeddingDimensionError(
+                    f"Embedding dimension mismatch at index {uncached_idx[j]}: expected {expected_dim}, got {len(vec)}"
+                )
+            results[uncached_idx[j]] = vec
+            _cache.set(_cache_key(uncached_texts[j], model_name), vec)
+
+        # 4) Final assembly (all slots now filled).
+        out: list[list[float]] = []
+        for r in results:
+            if r is None:  # pragma: no cover - defensive
+                raise EmbeddingError("Internal error: unfilled embedding slot")
+            out.append(r)
+        return out
+
+    if purpose is not None or kb_id is not None:
+        with embedding_usage_scope(purpose=use_purpose or "", kb_id=use_kb):
+            return await _run()
+    return await _run()
 
 
 # ---------------------------------------------------------------------------
@@ -320,9 +352,9 @@ async def detect_embedding_dim(
     if known is not None:
         return known
 
-    # 2) Probe path — run one embedding and read its length.
+    # 2) Probe path — run one embedding and read its length (not billed).
     try:
-        vec = await get_embedding("dimension probe", mc)
+        vec = await get_embedding("dimension probe", mc, purpose="probe")
         if vec:
             return len(vec)
     except Exception as exc:

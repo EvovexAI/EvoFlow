@@ -159,11 +159,10 @@ PLAN_SCENARIO_EAGER_TOOL_NAMES: tuple[str, ...] = (
 
 # P1 渐进加载：scenario 激活后仅 eager 工具立即绑定 schema；其余进 deferred（tool_search 按需加载）。
 # 全量并集仍见 ``resolve_tools_for_scenarios`` / ``NON_CORE_TOOL_GROUPS``。
-# Agent 模式系统必带：``platform``（平台行政 + 右侧面板 ui.*）— 不可 deferred / 不可被角色白名单摘掉。
 # Agent 模式 eager 工具：纯工作区基础能力（读 / 改 / 删 / 搜 / 终端 / 代码索引）。
-# tasks / platform 是平台行政工具，不再强制绑定到白名单外：
-# - 它们仍在 agent 模式 deferred catalog 里，由 ``agent_config.tools`` 白名单决定是否挂载。
-# - 原 ``panel_set`` 已并入 ``platform ui.show|hide|update``，不再单独挂载。
+# tasks / platform 在 deferred catalog；``platform`` 仅 main/小V 运行时自动挂，
+# 普通员工默认不带（``kb_injection.mount_platform_tools`` opt-in）。
+# 原 ``panel_set`` 已并入 ``platform ui.show|hide|update``，不再单独挂载。
 SCENARIO_EAGER_TOOL_NAMES: dict[str, tuple[str, ...]] = {
     "agent": (
         "read",

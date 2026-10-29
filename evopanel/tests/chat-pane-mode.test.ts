@@ -141,6 +141,25 @@ describe('resolveChatPaneMode — V4 开启时对话不回落老面板', () => {
     })
     expect(mode.draftEmpty).toBe(false)
   })
+
+  it('knownEmptyDraft：历史还在加载 / connecting 也按空草稿居中，避免贴底再跳', () => {
+    expect(
+      resolveChatPaneMode({
+        ...base,
+        v4Phase: 'connecting',
+        historyLoading: true,
+        knownEmptyDraft: true,
+      }).draftEmpty,
+    ).toBe(true)
+    expect(
+      resolveChatPaneMode({
+        ...base,
+        v4Phase: 'no-thread',
+        historyLoading: true,
+        knownEmptyDraft: true,
+      }).draftEmpty,
+    ).toBe(true)
+  })
 })
 
 describe('optimistic userInput（发送瞬间不切老面板）', () => {

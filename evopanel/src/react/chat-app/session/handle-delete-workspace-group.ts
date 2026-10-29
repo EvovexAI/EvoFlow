@@ -51,6 +51,7 @@ export type HandleDeleteWorkspaceGroupCtx = {
   setHasReceivedTodos: Dispatch<SetStateAction<boolean>>
   setBoundTaskId: Dispatch<SetStateAction<string | null>>
   setGlobalWorkspaceHistory: Dispatch<SetStateAction<string[]>>
+  getGlobalWorkspaceHistory: () => string[]
   removeSessionFromList: (key: string) => void
   purgeWorkspaceFromSidebar: (
     workspaceKey: string,
@@ -63,13 +64,22 @@ export type HandleDeleteWorkspaceGroupCtx = {
   removeWorkspaceHistoryPath: (path: string) => Promise<void>
 }
 
+/** list?workspace_key= 会顺带返回无目录会话；删除工作空间时必须丢掉它们。 */
+function sessionBelongsToWorkspace(row: ChatSessionRow, workspaceKey: string): boolean {
+  const want = normalizeWorkspacePathKey(workspaceKey)
+  if (!want || isSpecialWorkspaceGroupKey(want)) return false
+  const root = String(row.localWorkspaceRoot || '').trim()
+  if (!root) return false
+  return normalizeWorkspacePathKey(root) === want
+}
+
 export async function handleDeleteWorkspaceGroup(
   ctx: HandleDeleteWorkspaceGroupCtx,
   group: ShellWorkspaceGroup,
 ): Promise<void> {
   if (ctx.deleteWorkspaceInflightRef.current) return
-  const workspaceKey = group.workspaceKey
-  if (isSpecialWorkspaceGroupKey(workspaceKey)) {
+  const workspaceKey = normalizeWorkspacePathKey(group.workspaceKey) || String(group.workspaceKey || '').trim()
+  if (!workspaceKey || isSpecialWorkspaceGroupKey(workspaceKey)) {
     return
   }
 
@@ -89,21 +99,30 @@ export async function handleDeleteWorkspaceGroup(
     if (!yes) return
 
     const { api } = await import('../../../lib/tauri-api.js')
-    const allKeys: string[] = []
+    const keySet = new Set<string>()
+
+    // 侧栏已加载的会话（分页未拉全时作补充）
+    for (const row of group.sessions || []) {
+      const sk = String(row.sessionKey || '').trim()
+      const rowWk = normalizeWorkspacePathKey(row.workspaceKey || '')
+      if (sk && rowWk === workspaceKey) keySet.add(sk)
+    }
+
     let offset = 0
     for (;;) {
       const data = await api.chatSessionsList(SESSION_LIST_PAGE_SIZE, offset, workspaceKey)
       const apiRows = (data?.sessions || []) as ChatSessionRow[]
       for (const s of stripDefaultMainSessionRows(apiRows)) {
+        if (!sessionBelongsToWorkspace(s, workspaceKey)) continue
         const k = String(s.sessionKey || '').trim()
-        if (k) allKeys.push(k)
+        if (k) keySet.add(k)
       }
       if (apiRows.length < SESSION_LIST_PAGE_SIZE) break
       offset += apiRows.length
     }
 
-    const keysSet = new Set(allKeys)
-    const viewingDeleted = !!ctx.sessionRef.current && keysSet.has(ctx.sessionRef.current)
+    const allKeys = [...keySet]
+    const viewingDeleted = !!ctx.sessionRef.current && keySet.has(ctx.sessionRef.current)
 
     if (allKeys.length > 0) {
       for (const k of allKeys) {
@@ -141,8 +160,9 @@ export async function handleDeleteWorkspaceGroup(
     if (removePath) {
       await ctx.removeWorkspaceHistoryPath(removePath)
     }
-    ctx.setGlobalWorkspaceHistory((prev) =>
-      prev.filter((p) => normalizeWorkspacePathKey(p) !== workspaceKey),
+    // 以客户端缓存为准同步 React 状态（remove API 已改写全局历史）
+    ctx.setGlobalWorkspaceHistory(
+      ctx.getGlobalWorkspaceHistory().filter((p) => normalizeWorkspacePathKey(p) !== workspaceKey),
     )
     ctx.purgeWorkspaceFromSidebar(workspaceKey, { skipSessions: allKeys.length > 0 })
 
@@ -150,9 +170,17 @@ export async function handleDeleteWorkspaceGroup(
     expanded.delete(workspaceKey)
     saveExpandedWorkspaceKeys(expanded)
 
+    // refresh 会用 API workspace-groups 覆盖 summaries；必须再清一次，否则空目录又回来
     await ctx.refreshSessions({ skipAutoReselect: true, summariesOnly: true })
+    ctx.setGlobalWorkspaceHistory(
+      ctx.getGlobalWorkspaceHistory().filter((p) => normalizeWorkspacePathKey(p) !== workspaceKey),
+    )
+    ctx.purgeWorkspaceFromSidebar(workspaceKey, { skipSessions: false })
+
     toast(
-      count > 0 ? `已删除工作空间及 ${count} 个会话` : '已从侧栏移除工作空间',
+      allKeys.length > 0
+        ? `已删除工作空间及 ${allKeys.length} 个会话`
+        : '已从侧栏移除工作空间',
       'success',
     )
   } catch (err) {

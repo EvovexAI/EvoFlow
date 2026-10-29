@@ -29,7 +29,7 @@ CREATE TABLE IF NOT EXISTS kb_bases (
   keyword_enabled         INTEGER NOT NULL DEFAULT 1,
   wiki_enabled            INTEGER NOT NULL DEFAULT 0,
   graph_enabled           INTEGER NOT NULL DEFAULT 0,
-  summary_enabled         INTEGER NOT NULL DEFAULT 1,
+  summary_enabled         INTEGER NOT NULL DEFAULT 0,
   image_caption_enabled   INTEGER NOT NULL DEFAULT 0,
   hidden                  INTEGER NOT NULL DEFAULT 0,
   sync_source_type        TEXT NOT NULL DEFAULT '',

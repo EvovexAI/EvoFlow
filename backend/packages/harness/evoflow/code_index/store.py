@@ -587,7 +587,7 @@ async def _embed_texts_batch(texts: list[str]) -> list[list[float]] | None:
     try:
         from evoflow.knowledge.embedding import get_embeddings
 
-        return await get_embeddings(texts)
+        return await get_embeddings(texts, purpose="index")
     except Exception as exc:
         logger.warning("code_index: batch embedding failed: %s: %s", type(exc).__name__, exc)
         return None
@@ -598,7 +598,7 @@ async def _embed_query(text: str) -> list[float] | None:
     try:
         from evoflow.knowledge.embedding import get_embedding
 
-        return await get_embedding(text)
+        return await get_embedding(text, purpose="query")
     except Exception as exc:
         logger.warning("code_index: query embedding failed: %s: %s", type(exc).__name__, exc)
         return None
@@ -634,7 +634,10 @@ def _embed_texts_sync(texts: list[str]) -> list[list[float]] | None:
         mc = get_embedding_config()
         provider = _resolve_provider(mc)
         if isinstance(provider, LocalEmbeddingProvider):
-            return provider.embed_batch_sync(texts)
+            from evoflow.knowledge.embedding.usage_meter import embedding_usage_scope
+
+            with embedding_usage_scope(purpose="index"):
+                return provider.embed_batch_sync(texts)
         if loop_running:
             logger.debug(
                 "code_index: skip sync remote batch embed while event loop is running"
@@ -674,7 +677,10 @@ def _embed_query_sync(text: str) -> list[float] | None:
         mc = get_embedding_config()
         provider = _resolve_provider(mc)
         if isinstance(provider, LocalEmbeddingProvider):
-            return provider.embed_sync(text)
+            from evoflow.knowledge.embedding.usage_meter import embedding_usage_scope
+
+            with embedding_usage_scope(purpose="query"):
+                return provider.embed_sync(text)
         if loop_running:
             logger.debug(
                 "code_index: skip sync remote embed while event loop is running"

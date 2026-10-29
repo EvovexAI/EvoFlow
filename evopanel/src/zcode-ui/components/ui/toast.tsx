@@ -9,8 +9,17 @@ import { useEffect, useState } from "react";
 import { Info, TriangleAlert, X } from "lucide-react";
 import { cn } from "@/components/lib/utils.js";
 
-export type ToastPosition = "top-center" | "top-right" | "bottom-left" | "bottom-center";
+export type ToastPosition =
+  | "center"
+  | "top-center"
+  | "top-right"
+  | "bottom-left"
+  | "bottom-center";
 type ToastVariant = "default" | "update" | "info" | "warning";
+
+/** 通知类气泡统一屏幕正中；左下角仅留给 update 进度芯片。 */
+const CENTER_STACK =
+  "fixed top-1/2 left-1/2 z-[9999] flex max-w-[calc(100vw-2rem)] -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-2";
 
 export interface ToastOptions {
   durationMs?: number;
@@ -47,12 +56,11 @@ export function upsertToastItem(items: readonly ToastItem[], item: ToastItem): T
 export function resolveToastStackClassName(position: ToastPosition): string {
   const bottomInset = "bottom-[calc(1rem+env(safe-area-inset-bottom))]";
   switch (position) {
+    case "center":
     case "top-center":
-      return "fixed top-16 left-1/2 z-[9999] flex -translate-x-1/2 flex-col items-center gap-2";
     case "top-right":
-      return "fixed right-4 top-16 z-[9999] flex max-w-[calc(100vw-2rem)] flex-col items-end gap-2";
     case "bottom-center":
-      return `fixed ${bottomInset} left-1/2 z-[9999] flex -translate-x-1/2 flex-col items-center gap-2`;
+      return CENTER_STACK;
     case "bottom-left":
       return `fixed ${bottomInset} left-4 z-[9999] flex flex-col items-start gap-2`;
   }
@@ -117,45 +125,46 @@ function ToastContainer() {
     setItems((prev) => prev.filter((item) => item.id !== id));
   };
 
-  const topCenterItems = items.filter((item) => item.position === "top-center" && !item.anchorId);
-  const topRightItems = items.filter((item) => item.position === "top-right");
+  const centerItems = items.filter(
+    (item) =>
+      !item.anchorId &&
+      (item.position === "center" ||
+        item.position === "top-center" ||
+        item.position === "top-right" ||
+        item.position === "bottom-center"),
+  );
   const bottomLeftItems = items.filter((item) => item.position === "bottom-left");
-  const bottomCenterItems = items.filter((item) => item.position === "bottom-center");
-  const anchoredTopCenterItems = new Map<string, ToastItem[]>();
+  const anchoredCenterItems = new Map<string, ToastItem[]>();
   for (const item of items) {
-    if (item.position !== "top-center" || !item.anchorId) continue;
-    const anchorItems = anchoredTopCenterItems.get(item.anchorId) ?? [];
+    if (
+      !item.anchorId ||
+      (item.position !== "top-center" &&
+        item.position !== "center" &&
+        item.position !== "top-right" &&
+        item.position !== "bottom-center")
+    ) {
+      continue;
+    }
+    const anchorItems = anchoredCenterItems.get(item.anchorId) ?? [];
     anchorItems.push(item);
-    anchoredTopCenterItems.set(item.anchorId, anchorItems);
+    anchoredCenterItems.set(item.anchorId, anchorItems);
   }
 
   return (
     <>
-      {/* 顶部居中 */}
-      <div className={resolveToastStackClassName("top-center")}>
-        {topCenterItems.map((item) => (
+      {/* 通知类：屏幕正中 */}
+      <div className={resolveToastStackClassName("center")}>
+        {centerItems.map((item) => (
           <ToastMessage key={item.id} item={item} onDone={handleRemove} />
         ))}
       </div>
-      {/* 右上角：与表单状态相关的可操作提示。 */}
-      <div className={resolveToastStackClassName("top-right")}>
-        {topRightItems.map((item) => (
-          <ToastMessage key={item.id} item={item} onDone={handleRemove} />
-        ))}
-      </div>
-      {/* 左下角 */}
+      {/* 左下角：仅 update 进度芯片等 */}
       <div className={resolveToastStackClassName("bottom-left")}>
         {bottomLeftItems.map((item) => (
           <ToastMessage key={item.id} item={item} onDone={handleRemove} isBottom />
         ))}
       </div>
-      {/* 底部居中：保存和连通性等操作结果固定在窗口底部，不随设置内容滚动。 */}
-      <div className={resolveToastStackClassName("bottom-center")}>
-        {bottomCenterItems.map((item) => (
-          <ToastMessage key={item.id} item={item} onDone={handleRemove} isBottom />
-        ))}
-      </div>
-      {[...anchoredTopCenterItems].map(([anchorId, anchorItems]) => (
+      {[...anchoredCenterItems].map(([anchorId, anchorItems]) => (
         <AnchoredToastStack
           key={anchorId}
           anchorId={anchorId}
@@ -219,8 +228,8 @@ export function AnchoredToastStack({
 
   return (
     <div
-      className={cn(resolveToastStackClassName("top-center"))}
-      style={left === null ? undefined : { left }}
+      className={cn(resolveToastStackClassName("center"))}
+      style={left === null ? undefined : { left, top: "50%", transform: "translate(-50%, -50%)" }}
     >
       {items.map((item) => (
         <ToastMessage key={item.id} item={item} onDone={onDone} />
@@ -303,7 +312,6 @@ export function ToastMessageView({
 }) {
   const isUpdate = item.variant === "update";
   const isNotice = item.variant === "info" || item.variant === "warning";
-  const isTopRight = item.position === "top-right";
   const [fallbackTitle, ...fallbackBodyLines] = item.message.split("\n");
   const displayTitle = title ?? fallbackTitle;
   const displayBody = body ?? fallbackBodyLines.join("\n").trim();
@@ -317,18 +325,14 @@ export function ToastMessageView({
           : isNotice
             ? "w-[min(536px,calc(100vw-2rem))] border-border text-foreground"
             : "border-border px-4 py-3 text-foreground whitespace-pre-line",
-        // 右上角 Toast 曾复用顶部居中的纵向缩放动画，无法表达其从右侧进入的空间关系。
-        isTopRight
+        // 居中通知：轻微缩放淡入；左下角 update 仍用纵向位移动画。
+        isBottom
           ? visible
-            ? "translate-x-0 opacity-100"
-            : "translate-x-[calc(100%+1rem)] opacity-0"
-          : isBottom
-            ? visible
-              ? "translate-y-0 scale-100 opacity-100"
-              : "translate-y-1 scale-[0.98] opacity-0"
-            : visible
-              ? "translate-y-0 scale-100 opacity-100"
-              : "-translate-y-1 scale-[0.98] opacity-0",
+            ? "translate-y-0 scale-100 opacity-100"
+            : "translate-y-1 scale-[0.98] opacity-0"
+          : visible
+            ? "translate-y-0 scale-100 opacity-100"
+            : "translate-y-1 scale-[0.98] opacity-0",
       )}
     >
       {isUpdate ? (
@@ -409,7 +413,7 @@ export function toast(message: string, options?: ToastOptions): number {
   const id = nextId++;
   pendingToastIds.add(id);
   const durationMs = options?.durationMs ?? DEFAULT_TOAST_DURATION_MS;
-  const position = options?.position ?? "top-center";
+  const position = options?.position ?? "center";
   const variant = options?.variant ?? "default";
   const actionLabel = options?.actionLabel;
   const onAction = options?.onAction;

@@ -15,7 +15,9 @@ from evoflow.collab.storage import (
 from evoflow.collab.task_outputs import (
     agent_code_for_task_row,
     evidence_paths_from_outputs,
+    is_file_shaped_output_value,
     merge_task_outputs,
+    normalize_output_type,
     outputs_from_evidence_paths,
     resolve_output_path_ex,
     task_outputs_of,
@@ -209,35 +211,68 @@ async def apply_subtask_outcome_report(
 
     now = utc_now_iso_z()
     err_text = str(error or "").strip()[:4000] if error else ""
-    paths = [str(p).strip() for p in (evidence_paths or []) if str(p).strip()]
+    # Only file-shaped tokens may enter evidence_paths → type=file.
+    paths = [
+        str(p).strip()
+        for p in (evidence_paths or [])
+        if str(p).strip() and is_file_shaped_output_value(str(p).strip())
+    ]
     output_items = merge_task_outputs(outputs, outputs_from_evidence_paths(paths))
     if output_items:
         output_items = [sanitize_output_item(item) for item in output_items if isinstance(item, dict)]
-    if not paths:
-        paths = evidence_paths_from_outputs(output_items)
+        # Re-normalize types after sanitize (chat: refs demoted to text).
+        repaired: list[dict[str, Any]] = []
+        for item in output_items:
+            if not isinstance(item, dict):
+                continue
+            typ = normalize_output_type(item.get("type"))
+            val = str(item.get("value") or "").strip()
+            if typ == "file" and not is_file_shaped_output_value(val):
+                item = {**item, "type": "text"}
+            repaired.append(item)
+        output_items = repaired
     # Augment file-type outputs with backend-resolved metadata so the panel can
     # render 「已生成/未生成」 badges and open the right workspace root
-    # without re-probing the filesystem. Non-file outputs are passed through.
+    # without re-probing the filesystem. Missing / non-file values are dropped
+    # from type=file so UI does not show ghost paths.
+    kept: list[dict[str, Any]] = []
     if output_items:
         _sub_root = workspace_root_for_task_row(st)
         _sub_agent = agent_code_for_task_row(st)
         for _item in output_items:
             if not isinstance(_item, dict):
                 continue
-            if str(_item.get("type") or "").strip().lower() != "file":
+            if normalize_output_type(_item.get("type")) != "file":
+                kept.append(_item)
+                continue
+            raw_val = str(_item.get("value") or "").strip()
+            if not is_file_shaped_output_value(raw_val):
+                logger.info(
+                    "subtask_outcome: drop non-file value as type=file (%s)",
+                    raw_val[:120],
+                )
                 continue
             _res = resolve_output_path_ex(
-                str(_item.get("value") or ""),
+                raw_val,
                 _sub_root,
                 agent_code=_sub_agent,
             )
+            if not _res.found:
+                logger.info(
+                    "subtask_outcome: drop missing file output (%s)",
+                    (_res.absolute or raw_val)[:200],
+                )
+                continue
             _item["value"] = _res.absolute
             _item["_resolve_meta"] = {
                 "absolute": _res.absolute,
                 "root_used": _res.root_used,
                 "strategy": _res.strategy,
-                "found": _res.found,
+                "found": True,
             }
+            kept.append(_item)
+        output_items = kept
+    paths = evidence_paths_from_outputs(output_items)
     # Keep task_report self-contained for Lead readers; UI also gets structured outputs.
     if paths and "产出路径" not in summ:
         summ = summ + "\n\n产出路径：\n" + "\n".join(f"- `{p}`" for p in paths)

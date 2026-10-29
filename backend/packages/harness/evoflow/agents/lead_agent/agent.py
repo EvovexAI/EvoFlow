@@ -1482,51 +1482,86 @@ def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None
     )
     _setup_phase("resolve_available_tools_ms", _t_tools)
 
-    # ``platform`` is an agent-mode system tool (admin + right-side panel ui.* +
-    # platform admin): main lead and channel/custom employees keep them (通道员工的
-    # 平台操作与产物面板依赖)，只有纯 subagent 默认不带 — opt-in 仍走
-    # ``kb_injection.mount_platform_tools=true``。
+    # ``platform``：main/小V 默认挂；员工默认不挂，可在 tools[] 勾选或 mount_platform_tools。
+    _mount_platform = False
     try:
         from evoflow.config.agents_config import get_agent_kb_injection_config
         from evoflow.tools.tool_aliases import canonical_tool_name
-        from evoflow.tools.tool_catalog import AGENT_MODE_SYSTEM_TOOL_NAMES
+        from evoflow.tools.tool_catalog import (
+            AGENT_MODE_SYSTEM_TOOL_NAMES,
+            should_mount_platform_tool,
+        )
 
-        agent_type_str = str((agent_config.agent_type if agent_config else "") or "")
-        is_subagent = agent_type_str == "subagent"
         kb_cfg = get_agent_kb_injection_config(agent_name)
-        if is_subagent and not kb_cfg.mount_platform_tools:
+        _mount_platform = should_mount_platform_tool(
+            agent_name,
+            mount_platform_tools=bool(kb_cfg.mount_platform_tools),
+            tools_whitelist=list(_tool_whitelist) if _tool_whitelist is not None else None,
+        )
+        if not _mount_platform:
             drop = {canonical_tool_name(n) for n in AGENT_MODE_SYSTEM_TOOL_NAMES}
             if drop:
                 before = len(tools)
                 tools = [t for t in tools if canonical_tool_name(str(getattr(t, "name", "") or "")) not in drop]
                 if len(tools) != before:
                     logger.info(
-                        "[Tools] dropped %d agent-mode system tools for agent=%s type=%s — opt-in via kb_injection.mount_platform_tools=true",
-                        before - len(tools), agent_name, agent_type_str,
+                        "[Tools] dropped %d platform tools for agent=%s — check tools[] or kb_injection.mount_platform_tools",
+                        before - len(tools),
+                        agent_name,
                     )
     except Exception:
         logger.debug("agent-mode system tool filter skipped", exc_info=True)
 
+    # Snapshot MCP tools BEFORE whitelist / dynamic / flat-bind pruning.
+    # Employee roles often set tools=[read,write,…] + mcp_servers=[foo]; the
+    # whitelist treats mcp__* as configurable "optional" and drops them, then
+    # ``all_tools = list(tools)`` leaves mount_agent_mcp_tools with an empty
+    # MCP source — UI/runtime both show "bound MCP" but zero mcp__ tools.
+    from evoflow.mcp.binding import (
+        is_external_mcp_tool_name as _is_external_mcp_tool_name,
+        is_host_plugin_kernel_tool as _is_host_plugin_kernel_tool,
+        is_mcp_tool_name as _is_mcp_tool_name,
+    )
+
+    # Catalog for remount = connector MCP only (exclude host plugin kernels).
+    _mcp_catalog_tools = [
+        t
+        for t in tools
+        if _is_external_mcp_tool_name(str(getattr(t, "name", "") or ""))
+    ]
+
     # Apply tool whitelist filter: configurable tools only; session spine always kept.
     # 小V：白名单是 bash 等显式项，但 mcp_servers=None 时仍保留全部 MCP 工具。
+    # 其它角色：保留 mcp_servers 绑定到的 MCP（或 None=全部），与 mount 语义一致。
+    # Host plugin kernels (mcp__node_repl__js) follow plugin enable, not mcp_servers.
     if _tool_whitelist is not None:
         from evoflow.tools.tool_aliases import canonical_tool_name
-        from evoflow.tools.tool_catalog import is_role_editor_configurable_tool
+        from evoflow.tools.tool_catalog import (
+            is_agent_mode_system_tool,
+            is_role_editor_configurable_tool,
+        )
 
-        _keep_all_mcp = False
-        try:
-            from evoflow.agents.xiaomi.identity import is_xiaomi_agent
-            from evoflow.mcp.binding import is_mcp_tool_name
-
-            _keep_all_mcp = bool(is_xiaomi_agent(agent_name) and _cfg_mcp is None)
-        except Exception:
-            _keep_all_mcp = False
+        _mcp_allowed_servers: set[str] | None
+        if _cfg_mcp is None:
+            _mcp_allowed_servers = None  # all MCP
+        else:
+            _mcp_allowed_servers = {str(s).strip() for s in _cfg_mcp if str(s).strip()}
 
         def _whitelist_keep(t) -> bool:
             raw = str(getattr(t, "name", "") or "")
             name = canonical_tool_name(raw.strip().lower())
-            if _keep_all_mcp and is_mcp_tool_name(raw):
+            if _is_host_plugin_kernel_tool(raw):
                 return True
+            if _is_mcp_tool_name(raw):
+                if _mcp_allowed_servers is None:
+                    return True
+                if not _mcp_allowed_servers:
+                    return False
+                server = _mcp_server_from_tool_name(raw)
+                return bool(server and server in _mcp_allowed_servers)
+            # platform：勾选进白名单或 main/小V 自动挂才保留
+            if is_agent_mode_system_tool(raw):
+                return bool(_mount_platform) or name in _tool_whitelist
             if not is_role_editor_configurable_tool(raw):
                 return True
             return name in _tool_whitelist
@@ -1535,9 +1570,13 @@ def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None
     # Subagent templates persist disallowed_tools; honor them for lead runs too.
     if agent_config and agent_config.disallowed_tools:
         from evoflow.tools.tool_aliases import canonical_tool_name
+        from evoflow.tools.tool_catalog import AGENT_MODE_SYSTEM_TOOL_NAMES
 
         blocked = {canonical_tool_name(str(x).strip().lower()) for x in agent_config.disallowed_tools if str(x or "").strip()}
         blocked.discard("")
+        # main/小V 的 platform 不可被 disallowed 摘掉；员工未挂载时本就没有
+        if _mount_platform:
+            blocked -= {canonical_tool_name(n) for n in AGENT_MODE_SYSTEM_TOOL_NAMES}
         if blocked:
             tools = [t for t in tools if canonical_tool_name(str(getattr(t, "name", "") or "").strip().lower()) not in blocked]
     # assets = memory write surface: always stay in ToolNode catalog. Per-turn visibility
@@ -1638,26 +1677,38 @@ def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None
                 _scenario_eager_tools_enabled(),
             )
 
-    _mcp_system_section = ""
+    # Mount from pre-prune MCP catalog — not from all_tools (may already be stripped
+    # by tools allowlist / flat_bind / dynamic profile).
+    # CRITICAL: create_agent(tools=all_tools) — remount must update BOTH lists.
+    # With tool_search kill-switch, flat_bind does ``all_tools = list(tools)`` after
+    # stripping mcp__*, so remounting only ``tools`` left ToolNode without MCP.
+    # No ``<mcp_system>`` prompt: MCP tools are normal function tools only.
+    _mcp_source = _filter_tools_by_mcp_servers(list(_mcp_catalog_tools), _cfg_mcp)
     all_tools = _filter_tools_by_mcp_servers(all_tools, _cfg_mcp)
     tools = _filter_tools_by_mcp_servers(tools, _cfg_mcp)
-    if _cfg_mcp is not None:
-        tools = _mount_agent_mcp_tools(tools, all_tools, _cfg_mcp)
-    mcp_bound = [n for n in (t.name for t in tools) if _mcp_server_from_tool_name(n)]
-    if _cfg_mcp != []:
-        from evoflow.mcp.native_prompt import build_mcp_native_prompt_section_safe
-
-        _mcp_system_section = build_mcp_native_prompt_section_safe(
-            _cfg_mcp,
-            bound_tool_names=[t.name for t in tools],
-            prompt_language=_prompt_language,
+    _remount_servers: list[str] | None = None
+    if _cfg_mcp is None:
+        _remount_servers = sorted(
+            {
+                str(_mcp_server_from_tool_name(str(getattr(t, "name", "") or "")) or "")
+                for t in _mcp_source
+            }
+            - {""}
         )
-    if _cfg_mcp is not None:
+    elif _cfg_mcp:
+        _remount_servers = list(_cfg_mcp)
+    if _remount_servers:
+        tools = _mount_agent_mcp_tools(tools, _mcp_source, _remount_servers)
+        all_tools = _mount_agent_mcp_tools(all_tools, _mcp_source, _remount_servers)
+    # _cfg_mcp == [] → explicitly no MCP (already filtered)
+    mcp_bound = [n for n in (t.name for t in all_tools) if _mcp_server_from_tool_name(n)]
+    if _cfg_mcp is not None or mcp_bound:
         logger.info(
-            "[Agent MCP] role %r native binding servers=%s mounted_mcp_tools=%d",
+            "[Agent MCP] role %r native binding servers=%s mounted_mcp_tools=%d catalog_mcp=%d",
             agent_name,
             _cfg_mcp,
             len(mcp_bound),
+            len(_mcp_catalog_tools),
         )
 
     tools = _strip_mind_map_tools(tools)
@@ -1699,8 +1750,8 @@ def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None
         "all_tool_names": [t.name for t in all_tools],
         "mcp_native": True,
         "mcp_servers": _cfg_mcp,
-        "mcp_system_section": _mcp_system_section,
-        # Deprecated keys (always native):
+        "mcp_system_section": "",
+        # Deprecated keys (always native; no prompt injection):
         "mcp_skill_mode": False,
         "mcp_skill_section": "",
         "subagent_enabled": subagent_enabled,
@@ -1741,6 +1792,10 @@ def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None
         tool_whitelist=tuple(sorted(_tool_whitelist)) if _tool_whitelist is not None else tuple(),
         mcp_servers_unrestricted=_cfg_mcp is None,
         mcp_servers=tuple(sorted(str(s) for s in (_cfg_mcp or []))),
+        # Rebuild when MCP cache warms (cold start often builds with 0 mcp tools).
+        mcp_tools_fp=tuple(
+            sorted(str(getattr(t, "name", "") or "").strip() for t in (_mcp_source or []) if str(getattr(t, "name", "") or "").strip())
+        ),
         skills=tuple(sorted(_available_skills)),
         custom_system_prompt_hash=csp_hash,
         summarization_enabled=_create_context_compaction_middleware() is not None,
@@ -1780,7 +1835,7 @@ def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None
             prompt_language=_prompt_language,
             session_mode=session_mode or None,
             session_key=str(cfg.get("session_key") or "").strip() or None,
-            mcp_skill_section=_mcp_system_section,
+            mcp_skill_section="",
             thinking_enabled=bool(thinking_enabled),
             voice_mode=voice_mode,
             principal_id=str(cfg.get("principal_id") or cfg.get("created_by") or "").strip() or None,

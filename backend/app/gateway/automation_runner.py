@@ -1277,21 +1277,23 @@ async def _run_employee_heartbeat(
         "trigger_reason": f"自动化准点触发（{trigger_type}）",
     }
 
+    from evoflow.proactive.duty_runs import skip_reason_label_zh
+
     if not code:
-        err = "missing agent_code"
+        err = "缺少 agent_code"
         status = "fail"
-        lines.append(f"employee: {err}")
+        lines.append(err)
     else:
         role = ProactiveRepository.get_role(code)
         if role is None:
-            err = f"role not found: {code}"
+            err = f"未找到员工：{code}"
             status = "fail"
-            lines.append(f"employee: {err}")
+            lines.append(err)
         else:
             runner = get_proactive_runner()
             if runner.is_role_busy(code):
                 status = "busy"
-                lines.append("employee: busy at exact slot — skip this slot, wait for next cron point")
+                lines.append(skip_reason_label_zh("role_busy"))
                 extra["skip_reason"] = "role_busy"
                 extra["trigger_reason"] = "到点触发，但员工忙碌中（本轮未开跑）"
                 # Advance next_heartbeat for UI; do not leave due timestamp sticky.
@@ -1334,13 +1336,18 @@ async def _run_employee_heartbeat(
                     if result.get("skipped"):
                         status = "skipped"
                         extra["skip_reason"] = str(result.get("reason") or "skipped")
-                        lines.append(f"employee: skipped reason={extra['skip_reason']}")
+                        lines.append(skip_reason_label_zh(extra["skip_reason"]))
                     elif result.get("ok") is False:
                         status = "fail"
                         err = str(result.get("error") or result.get("reason") or "duty failed")
-                        lines.append(f"employee: fail ({err[:240]})")
+                        lines.append(f"值班失败：{err[:240]}")
                     else:
-                        lines.append("employee: ok")
+                        msg_n = int(result.get("msg_count") or 0)
+                        tool_n = int(result.get("tool_count") or 0)
+                        if msg_n or tool_n:
+                            lines.append(f"值班完成 · 轨迹 {msg_n} 条 · 工具 {tool_n} 次")
+                        else:
+                            lines.append("值班完成")
                     for k in ("round_id", "duty_run_id", "session_key", "next_heartbeat_at"):
                         if result.get(k) not in (None, ""):
                             extra[k] = result.get(k)
@@ -1352,7 +1359,7 @@ async def _run_employee_heartbeat(
                     err = str(e)
                     status = "fail"
                     logger.exception("automation_runner: employee heartbeat failed task_id=%s", task_id)
-                    lines.append(f"employee: exception ({err[:240]})")
+                    lines.append(f"值班异常：{err[:240]}")
 
     duration_seconds = max(0, int(round(time.monotonic() - run_t0)))
     try:
@@ -1361,7 +1368,7 @@ async def _run_employee_heartbeat(
             "started_at": record_started,
             "trigger_type": trigger_type,
             "status": status,
-            "output": "\n".join(lines) or f"employee heartbeat {status}",
+            "output": "\n".join(lines) or "员工上班",
             "error": err or "",
             "duration_seconds": duration_seconds,
             "execution_mode": "employee_heartbeat",

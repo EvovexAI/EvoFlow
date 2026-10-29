@@ -1,7 +1,23 @@
-"""Proactive Feishu notifications for all smart employees.
+"""Proactive Feishu notifications — bind-first, 1:1, no spam.
 
-Pushes interactive cards (review / wrap-up digest) and resolves targets using
-RolePushPolicy (single source of truth for push configuration).
+Routing contract
+----------------
+* **Who may receive**: only a role that has an *explicit* Feishu binding
+  (``config.feishu_open_id`` or ``RolePushPolicy`` with feishu enabled +
+  target). Listing ``feishu`` in ``approval_channels`` alone is not a binding.
+* **Who sends**: the same role's bot (``agent_code``). Never borrow another
+  employee's account because it once "owned" a learned chat.
+* **Where we never push for these cards**: gateway learned / automation
+  default chat (``resolve_push_target`` / ``feishu.automation_learned_chat_id``).
+  That path is reserved for cron automations with ``feishu_push_enabled``.
+* **Kinds**:
+  - ``review`` / ``wrap_digest`` / ``running_work`` → the *working* employee's
+    binding (or silent skip if unbound / opted out).
+  - ``tree_receipt`` (协作待闭环) → first bound among
+    ``raised_by`` → root ``assigned_to`` → main agent ``xiaomi``;
+    unbound → record ``no_target`` and do **not** retry-spam.
+
+Desktop / in-app surfaces are unaffected; this module only gates Feishu.
 """
 
 from __future__ import annotations
@@ -10,6 +26,9 @@ import logging
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+_MAIN_AGENT_CODE = "xiaomi"
+_NON_AGENT_RAISERS = frozenset({"", "user", "system", "human", "owner"})
 
 
 def _approval_channels(role: Any) -> list[str]:
@@ -43,49 +62,35 @@ def _outbound_feishu_target(role: Any) -> tuple[str, str] | None:
     return resolve_role_feishu_target(role)
 
 
-def _send_account_for_target(role: Any, receive_id: str, receive_id_type: str) -> str:
-    """Pick the bot that owns this chat (learned / live map); open_id → role bot."""
-    if receive_id_type == "open_id" or str(receive_id or "").startswith("ou_"):
-        return str(getattr(role, "agent_code", "") or "").strip()
-    try:
-        channel = _feishu_channel()
-        if channel is not None:
-            owned = str(getattr(channel, "_chat_account", {}).get(str(receive_id), "") or "").strip()
-            if owned:
-                return owned
-    except Exception:
-        logger.debug("feishu_notify: chat owner lookup failed", exc_info=True)
-    try:
-        from evoflow.runtime.ports import (
-            read_learned_feishu_automation_account_id,
-            read_learned_feishu_automation_chat_id,
-        )
+def _send_account_for_target(role: Any, receive_id: str = "", receive_id_type: str = "") -> str:
+    """Sender is the bound role's own bot — 1:1 with the binding owner.
 
-        if str(read_learned_feishu_automation_chat_id() or "").strip() == str(receive_id).strip():
-            return str(read_learned_feishu_automation_account_id() or "").strip()
-    except Exception:
-        logger.debug("feishu_notify: learned account lookup failed", exc_info=True)
-    return ""
+    Do not resolve via learned automation chat ownership: that caused
+    unrelated bots (e.g. douyin-analyst) to deliver other roles' cards.
+    """
+    del receive_id, receive_id_type  # binding target does not pick the sender
+    return str(getattr(role, "agent_code", "") or "").strip()
 
 
 def resolve_role_feishu_target(role: Any) -> tuple[str, str] | None:
-    """Return ``(receive_id, receive_id_type)`` for this employee using RolePushPolicy.
-    
-    Resolves in order:
-    1. Legacy config.feishu_open_id (for backward compat)
-    2. RolePushPolicy.resolve_target("feishu") (new system)
-    3. Return None if no valid binding found
+    """Return ``(receive_id, receive_id_type)`` for this employee.
+
+    Order:
+    1. Legacy ``config.feishu_open_id`` (QR bind)
+    2. ``RolePushPolicy.resolve_target("feishu")`` when push enabled
+    3. ``None`` if unbound
     """
     from .push_binding_repo import RolePushBindingRepository
-    
-    # Step 1: Check legacy config.feishu_open_id
+
     cfg = getattr(role, "config", None)
     open_id = str(getattr(cfg, "feishu_open_id", "") or "").strip()
     if open_id:
-        logger.debug("[feishu_notify] using legacy feishu_open_id for %s", getattr(role, "agent_code", "?"))
+        logger.debug(
+            "[feishu_notify] using legacy feishu_open_id for %s",
+            getattr(role, "agent_code", "?"),
+        )
         return open_id, "open_id"
-    
-    # Step 2: Try RolePushPolicy
+
     agent_code = str(getattr(role, "agent_code", "") or "").strip()
     if agent_code:
         try:
@@ -102,15 +107,73 @@ def resolve_role_feishu_target(role: Any) -> tuple[str, str] | None:
                     )
                     return target_id, target_type
             elif policy:
-                logger.debug("[feishu_notify] policy exists but feishu not enabled for %s", agent_code)
+                logger.debug(
+                    "[feishu_notify] policy exists but feishu not enabled for %s",
+                    agent_code,
+                )
         except Exception as e:
-            logger.debug("[feishu_notify] failed to load RolePushPolicy for %s: %s", agent_code, e, exc_info=True)
-    
-    # Unbound is normal for desktop-only employees — not a warning.
+            logger.debug(
+                "[feishu_notify] failed to load RolePushPolicy for %s: %s",
+                agent_code,
+                e,
+                exc_info=True,
+            )
+
     logger.debug(
         "[feishu_notify] no Feishu push target for agent_code=%s (unbound)",
         agent_code,
     )
+    return None
+
+
+def _load_role(agent_code: str) -> Any | None:
+    code = str(agent_code or "").strip()
+    if not code or code.lower() in _NON_AGENT_RAISERS:
+        return None
+    try:
+        from evoflow.proactive.repositories import ProactiveRepository
+
+        return ProactiveRepository.get_role(code)
+    except Exception:
+        logger.debug("feishu_notify: load role failed code=%s", code, exc_info=True)
+        return None
+
+
+def resolve_tree_receipt_notify_role(
+    *,
+    raised_by: str = "",
+    assigned_to: str = "",
+) -> Any | None:
+    """Pick the single bound role that should receive「协作待闭环」.
+
+    Priority (first with a real outbound Feishu target wins):
+    1. ``raised_by`` when it is an agent_code
+    2. root ``assigned_to``
+    3. main agent ``xiaomi``
+
+    Returns ``None`` when nobody is bound — caller must not fall back to a
+    machine-wide learned chat.
+    """
+    candidates: list[str] = []
+    for raw in (raised_by, assigned_to, _MAIN_AGENT_CODE):
+        code = str(raw or "").strip()
+        if not code or code.lower() in _NON_AGENT_RAISERS:
+            continue
+        if code not in candidates:
+            candidates.append(code)
+
+    for code in candidates:
+        role = _load_role(code)
+        if role is None and code == _MAIN_AGENT_CODE:
+            role = type(
+                "R",
+                (),
+                {"agent_code": _MAIN_AGENT_CODE, "role_name": "小V", "config": None},
+            )()
+        if role is None:
+            continue
+        if _outbound_feishu_target(role):
+            return role
     return None
 
 
@@ -175,16 +238,20 @@ async def push_collab_tree_receipt(
     summary_lines: list[str] | None = None,
     child_task_id: str = "",
     raised_by: str = "",
+    assigned_to: str = "",
     claim_push_id: str = "",
 ) -> str | None:
-    """Push a one-shot「协作树收口」markdown card to the default Feishu chat.
+    """Push one-shot「协作待闭环」to the bound notify role only.
 
-    Targets the gateway learned/default chat (same as automation / 小V 会话),
-    preferably sent as the ``xiaomi`` bot when that account owns the chat.
+    Target is resolved via :func:`resolve_tree_receipt_notify_role` (raised_by →
+    assigned_to → xiaomi). No learned/default chat fallback.
+
+    * Unbound → finalize audit as ``no_target`` and return the deterministic
+      external id so the root stamp stays (no retry spam).
+    * Channel down → return ``None`` so the caller can release and retry later.
 
     Callers that already claimed via ``try_claim_tree_receipt`` should pass
-    ``claim_push_id`` so we finalize that pending audit row instead of inserting
-    a second log line.
+    ``claim_push_id`` so we finalize that pending audit row.
     """
     rid = str(root_task_id or "").strip()
     if not rid:
@@ -197,8 +264,6 @@ async def push_collab_tree_receipt(
     )
 
     ext = tree_receipt_external_id(rid)
-    # Belt-and-suspenders: if an ok row already exists (restart / double call),
-    # never hit Feishu again.
     if not claim_push_id:
         try:
             if tree_receipt_outbound_exists(rid, statuses=("ok",)):
@@ -206,18 +271,6 @@ async def push_collab_tree_receipt(
         except Exception:
             logger.debug("feishu_notify.tree_receipt: exists probe failed", exc_info=True)
 
-    # Prefer xiaomi role for logging / account ownership; fall back to a stub.
-    role: Any = None
-    try:
-        from evoflow.proactive.repositories import ProactiveRepository
-
-        role = ProactiveRepository.get_role("xiaomi")
-    except Exception:
-        role = None
-    if role is None:
-        role = type("R", (), {"agent_code": "xiaomi", "role_name": "小V", "config": None})()
-
-    channel = _feishu_channel()
     title = "协作待闭环"
     body_bits = [
         f"**{title}**",
@@ -231,12 +284,38 @@ async def push_collab_tree_receipt(
         body_bits.append(f"触发下游：`{child_task_id}`")
     if raised_by:
         body_bits.append(f"提起人：`{raised_by}`")
-    body_bits.append("下游已全部结案。请提出人/产品验收后，将根单从「待闭环」改为 **已完成**；未验收前整单不算结束。")
+    body_bits.append(
+        "下游已全部结案。请提出人/产品验收后，将根单从「待闭环」改为 **已完成**；未验收前整单不算结束。"
+    )
     text = "\n".join(body_bits)
     claim_id = str(claim_push_id or "").strip()
 
-    def _record(*, ok: bool, receive_id: str = "", receive_id_type: str = "", sender_account_id: str = "", error: str = "") -> None:
-        payload = {"transport": "markdown", "child_task_id": child_task_id}
+    role = resolve_tree_receipt_notify_role(raised_by=raised_by, assigned_to=assigned_to)
+    if role is None:
+        role = type(
+            "R",
+            (),
+            {"agent_code": _MAIN_AGENT_CODE, "role_name": "小V", "config": None},
+        )()
+
+    def _record(
+        *,
+        ok: bool,
+        receive_id: str = "",
+        receive_id_type: str = "",
+        sender_account_id: str = "",
+        error: str = "",
+        message_id: str = "",
+    ) -> None:
+        notify_code = str(getattr(role, "agent_code", "") or "")
+        payload = {
+            "transport": "markdown",
+            "child_task_id": child_task_id,
+            "notify_agent_code": notify_code,
+            "raised_by": str(raised_by or "").strip(),
+            "assigned_to": str(assigned_to or "").strip(),
+            "reason": "collab_tree_all_descendants_terminal",
+        }
         if claim_id:
             finalize_tree_receipt_claim(
                 claim_id,
@@ -244,7 +323,10 @@ async def push_collab_tree_receipt(
                 receive_id=receive_id,
                 receive_id_type=receive_id_type,
                 sender_account_id=sender_account_id,
-                content_summary=(text[:400] if ok or text else (error or "send failed")),
+                role_agent_code=notify_code,
+                content_summary=(
+                    text[:400] if ok or text else (error or "send failed")
+                ),
                 error=error,
                 payload=payload,
             )
@@ -253,48 +335,45 @@ async def push_collab_tree_receipt(
             kind="tree_receipt",
             role=role,
             ok=ok,
-            message_id=ext if ok else "",
+            message_id=message_id or (ext if ok else ""),
             task_id=rid,
             receive_id=receive_id,
             receive_id_type=receive_id_type,
             sender_account_id=sender_account_id,
             title=title,
-            content_summary=(text[:400] if text else error) or ("feishu channel unavailable" if error == "feishu_not_running" else ""),
+            content_summary=(text[:400] if text else error)
+            or (
+                "feishu channel unavailable"
+                if error == "feishu_not_running"
+                else ""
+            ),
             error=error,
             payload=payload,
             transport="markdown",
         )
 
+    target = _outbound_feishu_target(role) if role else None
+    # resolve_tree_receipt_notify_role already required a target; re-check for
+    # stub / race. Unbound → consume claim, keep stamp (return ext).
+    if not target:
+        logger.info(
+            "[feishu_notify] tree_receipt skip unbound root=%s raised_by=%s assigned_to=%s",
+            rid,
+            raised_by,
+            assigned_to,
+        )
+        _record(ok=False, error="no_target")
+        return ext
+
+    channel = _feishu_channel()
     if channel is None:
         _record(ok=False, error="feishu_not_running")
         return None
 
-    # Prefer default/learned chat (user ↔ 小V); fall back to role binding.
-    receive_id = ""
-    receive_id_type = "chat_id"
-    try:
-        from evoflow.runtime.ports import resolve_push_target
-
-        resolved = resolve_push_target(
-            push_enabled=True,
-            push_channel="feishu",
-            push_target_id="",
-        )
-        if resolved:
-            _ch, receive_id = resolved
-            receive_id = str(receive_id or "").strip()
-    except Exception:
-        logger.debug("feishu_notify.tree_receipt: resolve default chat failed", exc_info=True)
-    if not receive_id:
-        target = resolve_role_feishu_target(role)
-        if not target:
-            _record(ok=False, error="no_target")
-            return None
-        receive_id, receive_id_type = target
-
+    receive_id, receive_id_type = target
     if str(receive_id).startswith("ou_"):
         receive_id_type = "open_id"
-    send_account = _send_account_for_target(role, receive_id, receive_id_type) or "xiaomi"
+    send_account = _send_account_for_target(role, receive_id, receive_id_type)
 
     try:
         await channel.send_proactive_markdown(
@@ -308,6 +387,7 @@ async def push_collab_tree_receipt(
             receive_id=receive_id,
             receive_id_type=receive_id_type,
             sender_account_id=send_account,
+            message_id=ext,
         )
         return ext
     except Exception as exc:
@@ -423,7 +503,9 @@ def _is_idle_patrol_summary(text: str) -> bool:
     hit = sum(1 for m in markers if m in s)
     if hit >= 2:
         return True
-    if hit >= 1 and len(s) < 220 and not any(k in s for k in ("需要你", "请确认", "阻塞：", "失败", "请拍板", "派发", "待办：")):
+    if hit >= 1 and len(s) < 220 and not any(
+        k in s for k in ("需要你", "请确认", "阻塞：", "失败", "请拍板", "派发", "待办：")
+    ):
         return True
     return False
 
@@ -448,11 +530,29 @@ async def push_wrap_digest_card(
     think_summary = str(report.get("think_summary") or report.get("summary") or "").strip()
     raw_items = report.get("items") if isinstance(report.get("items"), list) else []
     items: list[dict] = [x for x in raw_items if isinstance(x, dict)]
-    has_named_item = any(str(it.get("title") or it.get("preview") or "").strip() and not it.get("is_journal") for it in items)
-    idle_health = _is_idle_patrol_summary(think_summary) and not has_named_item and not created and not pending and not failed and not executing
+    has_named_item = any(
+        str(it.get("title") or it.get("preview") or "").strip() and not it.get("is_journal")
+        for it in items
+    )
+    idle_health = (
+        _is_idle_patrol_summary(think_summary)
+        and not has_named_item
+        and not created
+        and not pending
+        and not failed
+        and not executing
+    )
     if idle_health:
         return None
-    if not created and not pending and not completed and not failed and not executing and not think_summary and not has_named_item:
+    if (
+        not created
+        and not pending
+        and not completed
+        and not failed
+        and not executing
+        and not think_summary
+        and not has_named_item
+    ):
         return None
 
     # Bind-first: never emit feishu_not_running for employees without a Feishu target.
@@ -479,9 +579,9 @@ async def push_wrap_digest_card(
         for it in items:
             if it.get("is_journal"):
                 continue
-            title = str(it.get("title") or it.get("preview") or "").strip()
-            if title:
-                content_preview = title[:400]
+            item_title = str(it.get("title") or it.get("preview") or "").strip()
+            if item_title:
+                content_preview = item_title[:400]
                 break
     try:
         mid = await channel.send_proactive_wrap_card(

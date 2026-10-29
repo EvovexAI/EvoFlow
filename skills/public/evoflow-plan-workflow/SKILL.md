@@ -64,5 +64,5 @@ description: Plan 场景协作流程：需求澄清、写 plan 落库、supervis
 
 ## 6 交付
 
-有文件：写入 `outputs/`，在对话中用 `@@outputs/…@@`、`@@uploads/…@@` 或根下 `@@路径@@` 指向（首尾 @@ 闭合）；无文件：对话中明确结论。
+有文件：写入工作区后，在对话中用 Markdown 链接交付——`[文件名](相对工作目录的路径)`，或短路径反引号（与 zcode artifact_display 一致）；无文件：对话中明确结论。
 </plan_workflow>

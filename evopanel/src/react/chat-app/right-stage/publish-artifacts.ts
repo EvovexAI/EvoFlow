@@ -4,7 +4,10 @@
  * Extracted from ChatApp.tsx (P132).
  *
  * ``force``：显式 panel_set(kind=artifacts) 必须打开状态卡，不跟「自动打开工作预览」走。
+ * 右栏开着时：只写入 focus，不自动撑开摘要卡（与平台通知同优先级）。
  */
+import { isRightStageLayoutOpen } from '../../../lib/right-stage/right-stage-layout-priority.js'
+
 export type PublishArtifactsCtx = Record<string, any>
 
 export function publishArtifacts(
@@ -20,6 +23,15 @@ export function publishArtifacts(
   }
   const autoPreview = ctx.isAutoWorkPreviewEnabled(ctx.writeStreamModeRef.current)
   if (!autoPreview && !opts?.force) return
+  const focus = String(opts?.focusId || items[items.length - 1]?.id || '').trim()
+  if (focus) ctx.setArtifactFocusId(focus)
+
+  const snap = ctx.rightStageStore?.getSnapshot?.()
+  if (isRightStageLayoutOpen(snap)) {
+    if (opts?.hint) ctx.toast(opts.hint, 'info')
+    return
+  }
+
   if (ctx.rightStageHintTimerRef.current) {
     clearTimeout(ctx.rightStageHintTimerRef.current)
     ctx.rightStageHintTimerRef.current = 0
@@ -31,7 +43,5 @@ export function publishArtifacts(
   }
   ctx.setInfoRailOpen(true)
   ctx.setInfoRailTab('artifacts')
-  const focus = String(opts?.focusId || items[items.length - 1]?.id || '').trim()
-  if (focus) ctx.setArtifactFocusId(focus)
   if (opts?.hint) ctx.toast(opts.hint, 'info')
 }

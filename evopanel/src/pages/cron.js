@@ -60,6 +60,8 @@ function pushTargetLabel(task, targets) {
 let _tasks = []
 // 员工上班节奏（heartbeat）也是调度的一种：与定时任务同表展示，靠 kind 区分。
 let _agents = []
+/** task_id → display name（含 emp: 影子规则，供运行记录列用） */
+let _nameByTaskId = {}
 // 调度项类型筛选：全部 / 定时任务 / 员工上班。与顶层 tab（调度任务/运行记录）是两个维度。
 // 默认落在「定时任务」：员工动辄几十个，全量默认会把页面拉得很长；数量在筛选器上可见。
 let _kindFilter = 'task' // all | task | agent
@@ -344,9 +346,6 @@ async function renderRunsPanel(page, dateKey = '7d', filterTaskId = '') {
   const rows = []
   _runsRowCache = {}
   try {
-    const nameById = new Map(
-      (Array.isArray(_tasks) ? _tasks : []).map((t) => [String(t.id || ''), t]),
-    )
     const filterTask = String(_runsFilters.taskId || '').trim()
     let runs = []
     if (filterTask) {
@@ -358,13 +357,12 @@ async function renderRunsPanel(page, dateKey = '7d', filterTaskId = '') {
     }
     for (const r of runs) {
       const taskId = String(r.task_id || r.taskId || filterTask || '').trim()
-      const t = nameById.get(taskId) || {}
       const ts = Date.parse(String(r.started_at || r.created_at || r.finished_at || ''))
       const rowId = `${taskId}-${r.run_id || r.id || ts}`
       const preview = runPreviewText(r)
       const row = {
         id: rowId,
-        name: t.name || taskId || '—',
+        name: resolveAutomationDisplayName(taskId),
         status: String(r.status || r.state || 'unknown'),
         time: Number.isFinite(ts) ? new Date(ts).toLocaleString('zh-CN') : '—',
         ts: Number.isFinite(ts) ? ts : 0,
@@ -374,12 +372,12 @@ async function renderRunsPanel(page, dateKey = '7d', filterTaskId = '') {
         hasChat: !!(r.session_key && r.langgraph_thread_id),
         collabTaskId: String(r.collab_task_id || '').trim(),
         triggerType: String(r.trigger_type || '').trim(),
-        summary: String(r.summary || '').trim(),
+        summary: localizeRunPreview(String(r.summary || '').trim()),
         error: String(r.error || '').trim(),
         diag: String(r.output || '').trim(),
         sessionKey: String(r.session_key || '').trim(),
         threadId: String(r.langgraph_thread_id || '').trim(),
-        appId: String(r.app_id || t.app_id || '').trim(),
+        appId: String(r.app_id || '').trim(),
         runId: String(r.run_id || '').trim(),
       }
       _runsRowCache[rowId] = row
@@ -426,8 +424,31 @@ function filterRunsRows(all, f) {
 }
 
 function runsFilterBarHtml(f) {
-  const taskOpts = (Array.isArray(_tasks) ? _tasks : [])
-    .map((t) => `<option value="${esc(t.id)}"${String(f.taskId) === String(t.id) ? ' selected' : ''}>${esc(t.name || t.id)}</option>`)
+  const seen = new Set()
+  const opts = []
+  for (const t of Array.isArray(_tasks) ? _tasks : []) {
+    const id = String(t.id || t.task_id || '').trim()
+    if (!id || seen.has(id)) continue
+    seen.add(id)
+    opts.push([id, t.name || id])
+  }
+  for (const a of Array.isArray(_agents) ? _agents : []) {
+    const code = String(a.id || '').trim()
+    if (!code) continue
+    const id = `emp:${code}`
+    if (seen.has(id)) continue
+    seen.add(id)
+    opts.push([id, resolveAutomationDisplayName(id)])
+  }
+  // Include any name map ids (shadow rules) not already listed.
+  for (const [id, name] of Object.entries(_nameByTaskId || {})) {
+    if (!id || seen.has(id)) continue
+    seen.add(id)
+    opts.push([id, name || id])
+  }
+  opts.sort((a, b) => String(a[1]).localeCompare(String(b[1]), 'zh'))
+  const taskOpts = opts
+    .map(([id, name]) => `<option value="${esc(id)}"${String(f.taskId) === String(id) ? ' selected' : ''}>${esc(name)}</option>`)
     .join('')
   const sel = (name, val, options) =>
     `<label class="cron-runs-filter-field"><span>${esc(name)}</span><select data-runs-filter="${esc(options.key)}">${options.items
@@ -639,7 +660,7 @@ function cronRunStatusHtml(raw) {
 
 /** Prefer model summary / error over diagnostic ops log for list previews. */
 function runPreviewText(r) {
-  const summary = String(r?.summary || '').trim()
+  const summary = localizeRunPreview(String(r?.summary || '').trim())
   if (summary) return summary.slice(0, 200)
   const err = String(r?.error || '').trim()
   if (err) return err.slice(0, 200)
@@ -651,7 +672,7 @@ function runPreviewText(r) {
     .map((s) => s.trim())
     .filter(Boolean)
     .find((l) => !noisy.test(l))
-  return (human || '').slice(0, 200)
+  return localizeRunPreview(human || '').slice(0, 200)
 }
 
 /** 页面内事件委托（仅处理页面内的 action） */
@@ -833,6 +854,95 @@ function maybeToastGatewaySchedulerStatus(res) {
   }
 }
 
+/** 运行记录「自动化」列：优先影子规则中文名 / 员工岗位名，避免裸 emp:code。 */
+function resolveAutomationDisplayName(taskId) {
+  const id = String(taskId || '').trim()
+  if (!id) return '—'
+  if (_nameByTaskId[id]) return _nameByTaskId[id]
+  const task = (Array.isArray(_tasks) ? _tasks : []).find(
+    (t) => String(t.id || t.task_id || '') === id,
+  )
+  if (task?.name) return String(task.name)
+  let code = id
+  if (id.startsWith('emp:')) code = id.slice(4).trim()
+  const agent = (Array.isArray(_agents) ? _agents : []).find(
+    (a) => String(a.id || '') === code,
+  )
+  if (agent?.name) {
+    const label = `员工上班 · ${agent.name}`
+    _nameByTaskId[id] = label
+    return label
+  }
+  return id.startsWith('emp:') && code ? `员工上班 · ${code}` : id
+}
+
+const EMPLOYEE_SKIP_REASON_ZH = {
+  xiaomi_idle_board: '到点触发 · 空板未开工',
+  daily_budget_exceeded: '到点触发 · 日预算已满，跳过',
+  langgraph_unreachable: '到点触发 · 引擎不可达，已改约',
+  role_busy: '到点触发 · 员工忙碌中，本轮未开跑',
+  skipped: '到点触发 · 已跳过',
+}
+
+/** 把历史英文 employee: 摘要翻成中文；新写入已是中文则原样返回。 */
+function localizeRunPreviewLine(line) {
+  const s = String(line || '').trim()
+  if (!s) return ''
+  if (/^employee:\s*ok$/i.test(s)) return '值班完成'
+  let m = s.match(/^employee:\s*skipped\s+reason=(\S+)/i)
+  if (m) {
+    const reason = m[1]
+    return EMPLOYEE_SKIP_REASON_ZH[reason] || `到点触发 · 已跳过（${reason}）`
+  }
+  if (/^employee:\s*busy at exact slot/i.test(s)) {
+    return EMPLOYEE_SKIP_REASON_ZH.role_busy
+  }
+  m = s.match(/^employee:\s*fail\s*\((.*)\)\s*$/i)
+  if (m) return `值班失败：${m[1]}`
+  m = s.match(/^employee:\s*exception\s*\((.*)\)\s*$/i)
+  if (m) return `值班异常：${m[1]}`
+  m = s.match(/^employee:\s*(.+)$/i)
+  if (m) {
+    const rest = m[1].trim()
+    if (/^missing agent_code$/i.test(rest)) return '缺少 agent_code'
+    if (/^role not found:/i.test(rest)) return rest.replace(/^role not found:\s*/i, '未找到员工：')
+    return rest
+  }
+  return s
+}
+
+function localizeRunPreview(text) {
+  const raw = String(text || '').trim()
+  if (!raw) return ''
+  return raw
+    .split('\n')
+    .map((l) => localizeRunPreviewLine(l.trim()))
+    .filter(Boolean)
+    .join(' · ')
+}
+
+function applyAutomationListPayload(res) {
+  const all = Array.isArray(res?.automations) ? res.automations : []
+  const names = { ..._nameByTaskId }
+  for (const t of all) {
+    const id = String(t?.task_id || t?.id || '').trim()
+    if (!id) continue
+    const name = String(t?.name || '').trim()
+    if (name) names[id] = name
+  }
+  _nameByTaskId = names
+  // Shadow emp:{code} rules are managed by the employee page — show them via
+  // kind=agent rows only, not twice in the task list.
+  _tasks = all.filter((t) => {
+    const kind = String(t?.kind || '').trim().toLowerCase()
+    if (kind === 'employee_heartbeat') return false
+    if (String(t?.managed_by || '').trim() === 'proactive_role') return false
+    const id = String(t?.task_id || t?.id || '').trim()
+    if (id.startsWith('emp:')) return false
+    return true
+  })
+}
+
 async function refresh() {
   _loadSeq++
   const seq = _loadSeq
@@ -841,27 +951,43 @@ async function refresh() {
     const warmList = takeNavWarm('cron:list')
     const warmPush = takeNavWarm('cron:feishu-push-default')
     const warmSched = takeNavWarm('cron:scheduler-status')
-    const [res, pushMeta, schedStatus, agentRes] = await Promise.all([
-      warmList || api.automationList(),
-      warmPush || api.automationFeishuPushDefault().catch(() => ({ targets: [] })),
+    const warmRoles = takeNavWarm('cron:roles') || takeNavWarm('proactive:roles')
+
+    // Push targets: background only — list chips fall back to channel name until ready.
+    void Promise.resolve(warmPush || api.automationFeishuPushDefault().catch(() => ({ targets: [] }))).then(
+      (pushMeta) => {
+        if (_loadSeq !== seq) return
+        _pushTargetsCache = Array.isArray(pushMeta?.targets) ? pushMeta.targets : []
+        if (_tasks.length) renderList()
+      },
+    )
+
+    const listP = warmList || api.automationList()
+    const rolesP = warmRoles || api.proactiveListRoles().catch(() => null)
+    const schedP =
       warmSched != null
         ? Promise.resolve(warmSched)
-        : api.automationSchedulerStatus().catch(() => null),
-      api.proactiveListRoles().catch(() => null),
-    ])
-    if (_loadSeq !== seq) return
-    // Shadow emp:{code} rules are managed by the employee page — show them via
-    // kind=agent rows only, not twice in the task list.
-    _tasks = (res.automations || []).filter((t) => {
-      const kind = String(t?.kind || '').trim().toLowerCase()
-      if (kind === 'employee_heartbeat') return false
-      if (String(t?.managed_by || '').trim() === 'proactive_role') return false
-      const id = String(t?.task_id || t?.id || '').trim()
-      if (id.startsWith('emp:')) return false
-      return true
+        : api.automationSchedulerStatus().catch(() => null)
+
+    // Paint task list as soon as it lands (roles often slower with many employees).
+    void Promise.resolve(listP).then((res) => {
+      if (_loadSeq !== seq) return
+      applyAutomationListPayload(res)
+      renderKindBar()
+      renderList()
+      updateStats()
     })
+
+    const [res, schedStatus, agentRes] = await Promise.all([listP, schedP, rolesP])
+    if (_loadSeq !== seq) return
+    applyAutomationListPayload(res)
     _agents = normalizeAgentSchedules(agentRes)
-    _pushTargetsCache = Array.isArray(pushMeta?.targets) ? pushMeta.targets : []
+    for (const a of _agents) {
+      const code = String(a.id || '').trim()
+      if (!code) continue
+      const empId = `emp:${code}`
+      if (!_nameByTaskId[empId] && a.name) _nameByTaskId[empId] = `员工上班 · ${a.name}`
+    }
     applySchedulerStatus(schedStatus)
     renderKindBar()
     renderList()
@@ -2016,7 +2142,7 @@ function openRunDetail(runId) {
   }
   closeRunDetail()
   const st = normalizeRunStatus(run.status)
-  const summary = String(run.summary || run.output || '').trim()
+  const summary = localizeRunPreview(String(run.summary || run.output || '').trim())
   const err = String(run.error || '').trim()
   const diag = String(run.diag || '').trim()
   const collabId = String(run.collabTaskId || '').trim()

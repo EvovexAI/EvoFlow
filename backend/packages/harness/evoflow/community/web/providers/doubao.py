@@ -5,8 +5,12 @@ China endpoint used by Byted ``byted-web-search`` / nanobot::
     POST https://open.feedcoopapi.com/search_api/web_search
     Authorization: Bearer <DOUBAO_SEARCH_API_KEY>
 
-Create keys at https://console.volcengine.com/search-infinity/web-search-exp
-(Ark API keys do **not** work here.)
+Key sources (resolved via ``get_provider_env``):
+1. Settings → 联网搜索 ``doubaoApiKey`` / env
+2. Active Agent Plan ``ark-`` Key when ``web_search`` is entitled
+   (official Agent Plan → 豆包搜索 path; enable Harness 抵扣 in console)
+
+Standalone SearchInfinity keys: https://console.volcengine.com/search-infinity/web-search-exp
 """
 
 from __future__ import annotations
@@ -62,7 +66,10 @@ class DoubaoWebSearchProvider(WebSearchProvider):
         if not api_key:
             return {
                 "success": False,
-                "error": ("DOUBAO_SEARCH_API_KEY not set. Create a key at https://console.volcengine.com/search-infinity/web-search-exp (not an Ark API key)."),
+                "error": (
+                    "DOUBAO_SEARCH_API_KEY not set. Bind Agent Plan (Harness 开启豆包搜索抵扣) "
+                    "or create a key at https://console.volcengine.com/search-infinity/web-search-exp"
+                ),
             }
 
         q = (query or "").strip()

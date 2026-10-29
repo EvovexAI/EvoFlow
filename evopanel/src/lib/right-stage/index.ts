@@ -1,6 +1,7 @@
 export * from './right-stage-types.js'
 export * from './right-stage-layout.js'
 export * from './right-stage-store.js'
+export * from './right-stage-layout-priority.js'
 export * from './right-stage-registry.js'
 export * from './use-right-stage.js'
 export { applyRightStageAgUiCustom } from './right-stage-agui.js'

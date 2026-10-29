@@ -30,6 +30,12 @@ export interface ChatPaneModeInput {
    * 只压制草稿问候，不再切老面板。
    */
   localOptimisticHold: boolean
+  /**
+   * 侧栏「+」刚 mint 的空会话（员工新对话等）：调用方保证尚无历史。
+   * 允许在 historyLoading / connecting 期间就按空草稿居中，避免输入框
+   * 先贴底再跳到中间闪一下。
+   */
+  knownEmptyDraft?: boolean
 }
 
 export interface ChatPaneMode {
@@ -50,6 +56,7 @@ export function resolveChatPaneMode(input: ChatPaneModeInput): ChatPaneMode {
     v4HasRows,
     isHomeSurface,
     localOptimisticHold,
+    knownEmptyDraft = false,
   } = input
 
   // 对话永不回落旧 ToolCallList 面板；homepage 仍用旧壳挂工作台。
@@ -58,12 +65,18 @@ export function resolveChatPaneMode(input: ChatPaneModeInput): ChatPaneMode {
 
   // 只有「确认无本地行 + 历史已加载完 + V4 已给出结论（ready/no-thread）」才是真草稿。
   // connecting / historyLoading / failed / 乐观发送中 一律不算。
+  // 例外：knownEmptyDraft（刚 mint 的空会话）允许在加载中就居中，消掉贴底→居中闪跳。
+  const phaseOkForDraft =
+    v4Phase === 'ready' ||
+    v4Phase === 'no-thread' ||
+    v4Phase === 'disabled' ||
+    (knownEmptyDraft && v4Phase === 'connecting')
   const draftEmpty =
     !localOptimisticHold &&
     !localHasRows &&
-    !historyLoading &&
     !v4HasRows &&
-    (v4Phase === 'ready' || v4Phase === 'no-thread' || v4Phase === 'disabled')
+    phaseOkForDraft &&
+    (knownEmptyDraft || !historyLoading)
 
   return { useLegacyPane, draftEmpty }
 }

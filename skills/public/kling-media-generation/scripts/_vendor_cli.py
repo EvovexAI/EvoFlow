@@ -277,6 +277,11 @@ def run_task_wait(
         local_path=f"outputs/{Path(ap).name}" if ap else None,
         absolute_path=ap,
         message=msg,
-        next_action="Share @@outputs/…@@ in reply." if ap else "Retry task-get or check vendor console.",
+        next_action=(
+            "Cite local_path from this result as Markdown `[name](path)` or a short backtick path "
+            "(workspace-relative; zcode artifact_display)."
+            if ap
+            else "Retry task-get or check vendor console."
+        ),
         extra={"local_paths": local_paths},
     )

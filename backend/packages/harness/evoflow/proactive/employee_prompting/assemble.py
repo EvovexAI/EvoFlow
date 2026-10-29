@@ -31,13 +31,9 @@ def _resolve_job_sources(
         return job_soul, job_sp
 
     code = str(role.agent_code or "").strip()
-    try:
-        extra = role.config.extra_context if isinstance(role.config.extra_context, dict) else {}
-        inherit = not bool(extra.get("override_capabilities"))
-    except Exception:
-        inherit = True
-
-    if inherit and code:
+    # Name/prompt/soul are agent SSOT — always prefer agent files over role mirrors,
+    # regardless of override_capabilities (that flag only gates skills/tools sync).
+    if code:
         try:
             from evoflow.config.agents_config import load_agent_config, load_agent_soul
 
@@ -54,15 +50,39 @@ def _resolve_job_sources(
 
     if not job_soul:
         job_soul = str(getattr(role.config, "soul_md", None) or "").strip()
+
+    # Inject-time compat: merge leftover role responsibilities into job text (no disk write).
+    try:
+        from evoflow.proactive.employee_prompting.job import merge_duty_into_system_prompt
+
+        legacy = list(getattr(role.config, "responsibilities", None) or [])
+        if legacy:
+            job_sp = merge_duty_into_system_prompt(job_sp, legacy)
+    except Exception:
+        pass
     return job_soul, job_sp
 
 
 def _identity_from_role(role: ProactiveRole) -> dict[str, Any]:
     cfg = role.config
+    # Duties live in agent system_prompt; keep responsibilities empty in identity
+    # once cleared. Legacy non-empty lists still surface until edited/saved.
     resp = [str(x).strip() for x in (cfg.responsibilities or []) if str(x).strip()]
+    display = str(role.role_name or "").strip()
+    if not display or display == str(role.agent_code or "").strip():
+        try:
+            from evoflow.config.agents_config import load_agent_config
+
+            agent_cfg = load_agent_config(str(role.agent_code or "").strip())
+            if agent_cfg and getattr(agent_cfg, "agent_name", None):
+                display = str(agent_cfg.agent_name).strip() or display
+        except Exception:
+            pass
+    if not display:
+        display = str(role.agent_code or "").strip()
     return {
         "code": str(role.agent_code or "").strip(),
-        "role_name": str(role.role_name or role.agent_code or "").strip(),
+        "role_name": display,
         "department": str(role.department or getattr(cfg, "department", None) or "").strip(),
         "responsibilities": resp[:8],
         "workspace_path": str(cfg.workspace_path or "").strip(),

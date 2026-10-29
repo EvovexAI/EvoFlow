@@ -921,8 +921,113 @@
   display: none !important;
 }
 
-/* Agent 应用打开态下隐藏桌面标题栏 chrome 会连窗口控制一起没了,
-   这里只保留 app-studio-mode 的既有行为(shell 页自带最小化/关闭钮) */
+/* 顶栏在文档流里：加宽感应带、展开几乎无动画；收起略延迟防抖 */
+#app.evopanel-app-studio-mode.evopanel-uiext-open-mode #main-col,
+#app.evopanel-app-studio-mode.evopanel-uiext-open-mode #content {
+  overflow: hidden !important;
+  overscroll-behavior: none;
+}
+
+#app.evopanel-app-studio-mode.evopanel-uiext-open-mode #tauri-main-chrome {
+  display: flex !important;
+  position: relative;
+  flex: 0 0 auto;
+  z-index: 30;
+  /* 默认热区加宽，鼠标一到顶部就能命中（12px 太难蹭到） */
+  height: 28px;
+  overflow: hidden;
+  background: transparent;
+  box-shadow: none;
+  /* 盖掉 .tauri-main-chrome 上偏慢的 --dur-base */
+  transition:
+    height 40ms linear,
+    background-color 40ms linear,
+    box-shadow 40ms linear,
+    padding-top 40ms linear !important;
+  /* 移出时稍等再收，避免点按钮途中闪收 */
+  transition-delay: 120ms !important;
+}
+
+#app.evopanel-app-studio-mode.evopanel-uiext-open-mode #tauri-main-chrome:hover,
+#app.evopanel-app-studio-mode.evopanel-uiext-open-mode #tauri-main-chrome:focus-within {
+  height: 48px;
+  overflow: visible;
+  background: var(--chrome-bg, #e8edf2);
+  box-shadow: 0 1px 8px rgba(15, 23, 42, 0.06);
+  /* 移入立刻展开 */
+  transition-delay: 0ms !important;
+}
+
+html.evopanel-macos-titlebar #app.evopanel-app-studio-mode.evopanel-uiext-open-mode #tauri-main-chrome:hover,
+html.evopanel-macos-titlebar #app.evopanel-app-studio-mode.evopanel-uiext-open-mode #tauri-main-chrome:focus-within {
+  height: 74px;
+  padding-top: 26px;
+}
+
+/* 控件显隐跟高度同步，不要再叠一层慢 fade */
+#app.evopanel-app-studio-mode.evopanel-uiext-open-mode #tauri-main-chrome .tauri-chrome-nav-btn,
+#app.evopanel-app-studio-mode.evopanel-uiext-open-mode #tauri-main-chrome .uiext-shell-nav,
+#app.evopanel-app-studio-mode.evopanel-uiext-open-mode #tauri-main-chrome .tauri-main-chrome-actions {
+  opacity: 0;
+  pointer-events: none;
+  transition: none !important;
+}
+
+#app.evopanel-app-studio-mode.evopanel-uiext-open-mode #tauri-main-chrome:hover .tauri-chrome-nav-btn,
+#app.evopanel-app-studio-mode.evopanel-uiext-open-mode #tauri-main-chrome:hover .uiext-shell-nav,
+#app.evopanel-app-studio-mode.evopanel-uiext-open-mode #tauri-main-chrome:hover .tauri-main-chrome-actions,
+#app.evopanel-app-studio-mode.evopanel-uiext-open-mode #tauri-main-chrome:focus-within .tauri-chrome-nav-btn,
+#app.evopanel-app-studio-mode.evopanel-uiext-open-mode #tauri-main-chrome:focus-within .uiext-shell-nav,
+#app.evopanel-app-studio-mode.evopanel-uiext-open-mode #tauri-main-chrome:focus-within .tauri-main-chrome-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+#app.evopanel-app-studio-mode.evopanel-uiext-open-mode #tauri-main-chrome .tauri-main-chrome-drag {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+#tauri-main-chrome.tauri-main-chrome--uiext .uiext-shell-nav {
+  flex: 0 1 auto;
+  max-width: min(480px, 50vw);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  margin-right: 8px;
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+#tauri-main-chrome.tauri-main-chrome--uiext .uiext-shell-title {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+#tauri-main-chrome.tauri-main-chrome--uiext .uiext-shell-title strong {
+  font-size: var(--ef-text-sm);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#tauri-main-chrome.tauri-main-chrome--uiext .uiext-shell-status {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+}
+
+#tauri-main-chrome.tauri-main-chrome--uiext .uiext-shell-ops {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
 
 /* ── 响应式 ────────────────────────────────────────────────────── */
 

@@ -22,6 +22,7 @@ import { showRightStageBrowserUrl } from '../../../lib/right-stage/open-right-st
 import { isEvoflowChatV4Enabled } from '../../v4/v4Gate.js'
 import { v4WindowHasUserText } from '../../v4/optimisticUserInput.js'
 import { resolveChatPaneMode } from '../../lib/chat-pane-mode.js'
+import { SS_SHELL_EMPTY_DRAFT } from '../../components/ShellSessionList.js'
 import { HistoryFetchSpinner } from '../../components/HistoryFetchSpinner.js'
 import { ChatComposer, type WorkspaceMentionConfig, type MentionEmployeeOption } from '../../components/ChatComposer.js'
 import { PendingSteersStrip } from '../../components/PendingSteersStrip.js'
@@ -592,6 +593,14 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
                   const localHasRows = Array.isArray(rows) && rows.length > 0
                   const v4HasRows = v4SessionMatched && v4RowCount > 0
                   const optimisticUserText = localOptimisticHold ? lastLocalUserText : null
+                  let knownEmptyDraft = false
+                  try {
+                    knownEmptyDraft =
+                      sessionStorage.getItem(SS_SHELL_EMPTY_DRAFT) ===
+                      String(selectedSessionKey || '').trim()
+                  } catch {
+                    knownEmptyDraft = false
+                  }
                   /* 面板选择：对话永不回落 ToolCallList；useLegacyPane 仅首页。 */
                   const { useLegacyPane, draftEmpty } = resolveChatPaneMode({
                     v4Phase,
@@ -600,6 +609,7 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
                     v4HasRows,
                     isHomeSurface,
                     localOptimisticHold,
+                    knownEmptyDraft,
                   })
                   return useLegacyPane ? (
               /* LEGACY：仅 isHomeSurface — 勿在此恢复主对话 ToolCallList */
@@ -1473,11 +1483,11 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
           </div>
             )
             // V4 对话：portal 进 timeline sticky bottomDock；工作台首页用自带输入，走兄弟 dock（CSS 隐藏）。
-            // host 未挂好时回落兄弟 dock，避免「新对话」短暂白屏。
+            // host 未挂好时不要回落兄弟 dock——否则空草稿会先贴底再被 portal+居中抬到中间，闪一下。
             if (isEvoflowChatV4Enabled() && !isHomeSurface) {
               return v4ComposerHostEl
                 ? createPortal(bottomDockNode, v4ComposerHostEl)
-                : bottomDockNode
+                : null
             }
             return bottomDockNode
           })()}

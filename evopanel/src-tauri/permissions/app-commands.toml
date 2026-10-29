@@ -87,6 +87,8 @@ commands.allow = [
   "voice_overlay_processing",
   "voice_overlay_hide",
   "voice_overlay_set_complete",
+  "cua_glow_overlay_show",
+  "cua_glow_overlay_hide",
   "wake_kws_start",
   "wake_kws_feed_pcm",
   "wake_kws_pause",

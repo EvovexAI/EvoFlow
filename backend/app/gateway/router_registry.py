@@ -44,6 +44,10 @@ def _include_module_router(
         extra_router = getattr(mod, "conversation_router", None)
         if extra_router is not None:
             app.include_router(extra_router, **include_kwargs)
+        # cua_bridge: glow-status is ungated (desktop poll; no org-admin).
+        glow_router = getattr(mod, "glow_router", None)
+        if glow_router is not None:
+            app.include_router(glow_router, **include_kwargs)
     except Exception:
         if optional:
             logger.exception("optional router %s (%s) failed to register — continuing", tag, module)
@@ -161,6 +165,7 @@ def register_extended_routers(app: FastAPI) -> None:
         ("app.gateway.routers.stage_news", "stage_news", {}),
         ("app.gateway.routers.auth", "auth", {}),
         ("app.gateway.routers.openai_compat_apps", "openai_compat_apps", {}),
+        ("app.gateway.routers.openai_compat_models", "openai_compat_models", {}),
         ("app.gateway.routers.tools", "tools", {}),
         ("app.gateway.routers.mcp_server", "mcp_server", {}),
         ("app.gateway.routers.webui", "webui", {}),

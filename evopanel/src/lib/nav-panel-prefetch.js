@@ -103,15 +103,18 @@ async function warmExtensionsData() {
   warmKey('extensions:list', () => mod.listUiExtensions())
 }
 
-/** Same three reads as cron.js refresh() — hover can finish before click. */
+/** Same critical reads as cron.js refresh() — hover can finish before click. */
 async function warmCronData() {
   const { api } = await import('./tauri-api.js')
   warmKey('cron:list', () => api.automationList())
-  warmKey('cron:feishu-push-default', () =>
-    api.automationFeishuPushDefault().catch(() => ({ targets: [] })),
-  )
   warmKey('cron:scheduler-status', () =>
     api.automationSchedulerStatus().catch(() => null),
+  )
+  // Roles power「员工上班」rows; was missing from warm and blocked first paint.
+  warmKey('cron:roles', () => api.proactiveListRoles().catch(() => null))
+  // Push targets only needed for create/edit chips — warm but do not block paint.
+  warmKey('cron:feishu-push-default', () =>
+    api.automationFeishuPushDefault().catch(() => ({ targets: [] })),
   )
 }
 

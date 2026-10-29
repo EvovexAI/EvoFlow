@@ -75,22 +75,52 @@ def kling_credentials() -> tuple[str, str]:
 
 
 def dashscope_api_key() -> str:
+    """DashScope key for Wan / CosyVoice / Paraformer — no enabledVendors gate.
+
+    Voice ASR/TTS may use the key while creative「通义万相」toggle is off.
+    """
+    import os
+
+    try:
+        from evoflow.persistence.media_settings import get_media_credentials
+
+        key = str(get_media_credentials().get("dashscopeApiKey") or "").strip()
+        if key:
+            return key
+    except Exception:
+        pass
     try:
         from evoflow.persistence.media_settings import get_vendor_credentials
 
-        return get_vendor_credentials("dashscope").get("apiKey", "")
+        key = get_vendor_credentials("dashscope", require_enabled=False).get("apiKey", "")
+        if key:
+            return key
     except Exception:
-        return ""
+        pass
+    return (os.getenv("DASHSCOPE_API_KEY") or "").strip()
 
 
 def dashscope_base_url() -> str:
+    import os
+
     default = "https://dashscope.aliyuncs.com/api/v1"
+    try:
+        from evoflow.persistence.media_settings import get_media_credentials
+
+        raw = str(get_media_credentials().get("dashscopeBaseUrl") or "").strip()
+        if raw:
+            return raw.rstrip("/")
+    except Exception:
+        pass
     try:
         from evoflow.persistence.media_settings import get_vendor_credentials
 
-        return get_vendor_credentials("dashscope").get("baseUrl", default).rstrip("/") or default
+        raw = get_vendor_credentials("dashscope", require_enabled=False).get("baseUrl", "")
+        if raw:
+            return str(raw).rstrip("/") or default
     except Exception:
-        return default
+        pass
+    return (os.getenv("DASHSCOPE_BASE_URL") or default).rstrip("/") or default
 
 
 def kling_api_base() -> str:

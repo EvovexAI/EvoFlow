@@ -70,6 +70,26 @@ html.evopanel-macos-titlebar .tauri-main-chrome {
   opacity: 0.9;
 }
 
+/* Owned KB detail：库名显示在客户端顶栏拖拽区 */
+.tauri-main-chrome-kb-title {
+  min-width: 0;
+  max-width: min(52vw, 420px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  color: var(--text-primary, #111827);
+  pointer-events: none;
+  -webkit-app-region: drag;
+}
+
+html[data-theme='dark'] .tauri-main-chrome-kb-title,
+html.dark .tauri-main-chrome-kb-title {
+  color: var(--text-primary, #f3f4f6);
+}
+
 /* ── 主导航（汉堡）：非 /chat 路由的展开侧栏入口 ───────────────
  * 与聊天顶栏 .react-chat-toggle-sidebar-btn 同款外观，
  * 保证「新建对话」页与其它页面的按钮视觉一致。 */

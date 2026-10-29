@@ -524,7 +524,13 @@ def format_native_tool_result(
         "mime_type": mime_type,
         "image_size_bytes": image_size_bytes,
         "cached": cached,
-        "message": ("Image already attached in this thread; reuse prior analysis." if cached else "Image staged for the main vision model; pixels inject before the next model call."),
+        "message": (
+            "Image already attached in this thread (pixels are in model context). "
+            "Do NOT call read/view_image again on this path; reuse prior visual context and continue the task."
+            if cached
+            else "Image staged for the main vision model; pixels inject before the next model call. "
+            "Do NOT call read/view_image again on this path after that inject."
+        ),
     }
     return json.dumps(body, ensure_ascii=False)
 
@@ -534,9 +540,15 @@ def format_native_batch_tool_result(*, images: list[dict[str, Any]]) -> str:
     n = len(images)
     all_cached = bool(images) and all(bool(item.get("cached")) for item in images)
     if all_cached:
-        message = f"All {n} images already attached in this thread; reuse prior analysis."
+        message = (
+            f"All {n} images already attached in this thread (pixels are in model context). "
+            "Do NOT call read/view_image again on these paths; reuse prior visual context and continue the task."
+        )
     else:
-        message = f"Staged {n} images for the main vision model; pixels inject before the next model call."
+        message = (
+            f"Staged {n} images for the main vision model; pixels inject before the next model call. "
+            "Do NOT call read/view_image again on these paths after that inject."
+        )
     body: dict[str, Any] = {
         "mode": "native",
         "count": n,

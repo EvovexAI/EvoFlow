@@ -201,11 +201,16 @@ def build_standard_workflow_section(
 
     # Handoff one-liner only — full rules live in ``<employee_collab>``; people in ``<employee_org>``.
     if has_downstream and has_upstream:
-        handoff_note = "有上下级：做完本岗部分后 handlers 派下级；上级派来的整单做完则结案验收。"
+        handoff_note = "有上下级：做完本岗部分后 handlers 派下级；下级已平级交接时勿再传令；整单验收再 completed。"
     elif has_downstream:
-        handoff_note = "顶级负责人：方案/拆解完成后 handlers 派下级，勿越权做下游。"
+        handoff_note = "顶级负责人：方案/拆解后 handlers 派第一棒下级即可；勿越权做下游；勿每次回执都重派下一环。"
+    elif has_upstream and peers_same_mgr:
+        handoff_note = (
+            "叶子执行岗（有平级）：做完若还有下一环，``completed``+handlers 直接交平级；"
+            "勿只结案等上级代派；勿给上级新建验收单。"
+        )
     elif has_upstream:
-        handoff_note = "叶子执行岗：做完后对本岗 Task completed，勿给上级新建验收单。"
+        handoff_note = "叶子执行岗（无平级）：做完对本岗 completed；勿给上级新建验收单。"
     elif needs_wiring:
         handoff_note = "汇报线未挂通：见 ``<employee_collab>`` / ``<employee_org>``；先 tasks create，再补 reports_to。"
     else:
@@ -248,14 +253,16 @@ def build_standard_workflow_section(
     直属下级：
 {reports_list}
 
-    **B：无下级 + 有上级，本岗叶子已完成** → 对本岗 ``state=completed``（写 summary）；勿给上级新建任务
-    直属上级：{manager_line}
-
-    **C：平级协作** → 新事项 ``tasks create``（``start=true`` 默认）即可；已有未结单才 wake
+    **B：无下级 + 有平级 + 流水线还有下一环** → ``state=completed`` + **handlers** 交给平级（勿绕回上级代派）
     平级岗：
 {peer_list}
 
-    **D：阻塞/失败** → ``failed`` + 原因；勿空建上级任务
+    **C：本岗即最终环 / 无下一环** → 对本岗 ``state=completed``（写 summary）；勿给上级新建验收单；勿 handlers 指向自己
+    直属上级：{manager_line}
+
+    **D：无关新事项的平级协作** → ``tasks create``（``start=true``）；已有未结单才 wake，禁止重复造单
+
+    **E：阻塞/失败** → ``failed`` + 原因；勿空建上级任务
 
 ### 验收（被 soft-wake / 下游回执时）
 

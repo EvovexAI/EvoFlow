@@ -19,6 +19,7 @@ from evoflow.cli.common import run_handler
 _COMMAND_MODULES: dict[str, str] = {
     "app-server": "app_server",
     "models": "models",
+    "openai": "openai_cmd",
     "skills": "skills",
     "agents": "agents",
     "employees": "employees",

@@ -473,6 +473,109 @@ async function loadRebindableAgents(currentCode) {
   return out
 }
 
+/** Marker used when merging legacy role responsibilities into agent system_prompt. */
+export const DUTY_PROMPT_SECTION = '## 岗位职责'
+
+/**
+ * Merge legacy role responsibilities into agent system_prompt (idempotent).
+ * @param {string} systemPrompt
+ * @param {string[]|string|null|undefined} responsibilities
+ */
+export function mergeDutyIntoSystemPrompt(systemPrompt, responsibilities) {
+  const sp = String(systemPrompt || '').trim()
+  let lines = []
+  if (Array.isArray(responsibilities)) {
+    lines = responsibilities.map((x) => String(x || '').trim()).filter(Boolean)
+  } else if (typeof responsibilities === 'string') {
+    lines = responsibilities
+      .split('\n')
+      .map((s) => s.trim())
+      .filter(Boolean)
+  }
+  if (!lines.length) return sp
+  if (sp.includes(DUTY_PROMPT_SECTION)) return sp
+  if (lines.every((line) => sp.includes(line))) return sp
+  const block = `${DUTY_PROMPT_SECTION}\n${lines.map((l) => `- ${l}`).join('\n')}`
+  return sp ? `${sp}\n\n${block}` : block
+}
+
+/**
+ * 列表接口不含 soul；编辑前拉单条，与智能体页一致。
+ * @param {string} code
+ * @returns {Promise<{
+ *   code: string,
+ *   agent_name: string,
+ *   description: string,
+ *   system_prompt: string,
+ *   soul: string,
+ * }>}
+ */
+async function loadAgentDetailForEdit(code) {
+  const c = String(code || '').trim()
+  if (!c) {
+    return { code: '', agent_name: '', description: '', system_prompt: '', soul: '' }
+  }
+  try {
+    const a = await api.getAgent(c)
+    return {
+      code: String(a?.agent_code || a?.name || c).trim() || c,
+      agent_name: String(a?.agent_name || a?.name || c).trim() || c,
+      description: String(a?.description || '').trim(),
+      system_prompt: String(a?.system_prompt || ''),
+      soul: String(a?.soul || ''),
+    }
+  } catch (e) {
+    toast('加载智能体详情失败: ' + (e?.message || e), 'warning')
+    return { code: c, agent_name: c, description: '', system_prompt: '', soul: '' }
+  }
+}
+
+function renderAgentNativePanel(detail) {
+  const d = detail || {
+    code: '',
+    agent_name: '',
+    description: '',
+    system_prompt: '',
+    soul: '',
+  }
+  return `
+    <p class="hire-chip-hint">名称与系统提示词以智能体为准（聊天与上班共用）。旧「岗位职责」若仍存在，已合并进下方提示词。</p>
+    <label class="hire-field">
+      <span>名称</span>
+      <input class="hire-input" data-name="agent_display_name" value="${esc(d.agent_name)}" placeholder="例如：创意广告负责人、AIGC 编剧">
+    </label>
+    <label class="hire-field">
+      <span>简介</span>
+      <textarea class="hire-input hire-textarea" data-name="agent_description" rows="2" placeholder="一句话说明这个智能体会什么">${esc(d.description)}</textarea>
+    </label>
+    <label class="hire-field hire-field--grow">
+      <span>系统提示词</span>
+      <p class="hire-chip-hint">核心指令、行为规范与要主动推进的事，都写这里。</p>
+      <textarea class="hire-input hire-textarea hire-textarea--agent-prompt" data-name="agent_system_prompt" rows="12" placeholder="例：你是专业编剧…&#10;&#10;每轮要做：&#10;- 选题…&#10;- 写小说…">${esc(d.system_prompt)}</textarea>
+    </label>
+    <label class="hire-field hire-field--grow">
+      <span>人格 SOUL</span>
+      <p class="hire-chip-hint">个性、行为边界、输出风格。是否注入见「能力与工作」里的 SOUL 开关（勾选=强制；未勾=跟随默认）。</p>
+      <textarea class="hire-input hire-textarea hire-textarea--agent-soul" data-name="agent_soul" rows="8" placeholder="例：语气干脆；不确定时先问；不编造事实">${esc(d.soul)}</textarea>
+    </label>
+    <p class="hire-chip-hint">工具 / MCP / 技能仍请到「智能体」页配置。</p>`
+}
+
+function readAgentNativeFields(overlay) {
+  return {
+    agent_name: (overlay.querySelector('[data-name="agent_display_name"]')?.value || '').trim(),
+    description: (overlay.querySelector('[data-name="agent_description"]')?.value || '').trim(),
+    system_prompt: overlay.querySelector('[data-name="agent_system_prompt"]')?.value ?? '',
+    soul: overlay.querySelector('[data-name="agent_soul"]')?.value ?? '',
+  }
+}
+
+function fillAgentNativePanel(overlay, detail) {
+  const panel = overlay.querySelector('.hire-edit-panel[data-section="agent"]')
+  if (!panel) return
+  panel.innerHTML = renderAgentNativePanel(detail)
+}
+
 /**
  * @param {object} role
  * @param {{
@@ -502,7 +605,10 @@ export async function showEditRoleModal(role, {
     isXiaomiFrontDesk && (thinkingEnabledRaw === null || thinkingEnabledRaw === undefined)
       ? false
       : thinkingEnabledRaw
-  const resp = Array.isArray(cfg.responsibilities) ? cfg.responsibilities.join('\n') : ''
+  const legacyDuties = Array.isArray(cfg.responsibilities)
+    ? cfg.responsibilities.map((x) => String(x || '').trim()).filter(Boolean)
+    : []
+  const needsDutyMerge = legacyDuties.length > 0
   const workspacePath = String(cfg.workspace_path || '').trim()
   const modelName = String(cfg.model_name || '').trim()
   const currentReportsTo = String(role.reports_to || cfg.reports_to || '').trim()
@@ -520,7 +626,7 @@ export async function showEditRoleModal(role, {
   const injectSkills = cfg.inject_skills
   const injectKb = cfg.inject_kb
   const injectSoul = cfg.inject_soul
-  const [workspacePaths, chatModels, available, peerRoles, knowledgeVaults, departments] =
+  const [workspacePaths, chatModels, available, peerRoles, knowledgeVaults, departments, agentDetail] =
     await Promise.all([
       loadWorkspacePaths(),
       loadChatModels(),
@@ -531,6 +637,7 @@ export async function showEditRoleModal(role, {
         .catch(() => []),
       loadKnowledgeVaults(),
       loadDepartmentCatalog(),
+      loadAgentDetailForEdit(role.agent_code),
     ])
   if (!available.length) {
     toast('没有可绑定的智能体', 'warning')
@@ -546,12 +653,25 @@ export async function showEditRoleModal(role, {
     })
     .map((r) => {
       const c = String(r.agent_code || '').trim()
-      const n = String(r.role_name || c).trim()
+      const n = String(r.agent_name || r.role_name || c).trim()
       const sel = c === currentReportsTo ? ' selected' : ''
       return `<option value="${esc(c)}"${sel}>${esc(n)} · ${esc(c)}</option>`
     })
     .join('')
   let selected = available.find((a) => a.code === role.agent_code) || available[0]
+  /** Raw agent prompt before duty merge (for change detection). */
+  const rawAgentPrompt = String(agentDetail.system_prompt || '')
+  /** @type {Awaited<ReturnType<typeof loadAgentDetailForEdit>>} */
+  let boundAgent = {
+    ...agentDetail,
+    // Prefer agent_name; fall back to legacy role_name for display.
+    agent_name:
+      String(agentDetail.agent_name || '').trim() ||
+      String(role.agent_name || role.role_name || agentDetail.code || '').trim(),
+    system_prompt: mergeDutyIntoSystemPrompt(rawAgentPrompt, legacyDuties),
+  }
+  /** Baseline: raw prompt so merged duties count as a pending agent change. */
+  let agentBaseline = { ...agentDetail, system_prompt: rawAgentPrompt }
   const agentByCode = new Map(available.map((a) => [a.code.toLowerCase(), a]))
   const scheduleCtrl = createSchedulePanel({
     schedule: roleScheduleExpr(role),
@@ -569,15 +689,16 @@ export async function showEditRoleModal(role, {
       </div>`
 
   const basicAgentBlock = allowAgentRebind
-    ? `<p class="hire-chip-hint">可改绑智能体；工具与人设请到「智能体」页修改。</p>
+    ? `<p class="hire-chip-hint">可改绑智能体。名称与系统提示词在左侧「智能体」分区统一编辑；工具 / MCP / 技能仍请到「智能体」页。</p>
               ${renderAgentPickField(available, selected.code)}
               ${renderAgentCard()}`
-    : `<p class="hire-chip-hint">当前员工信息；工具与人设请到「智能体」页修改。</p>
+    : `<p class="hire-chip-hint">当前绑定智能体。名称与系统提示词在左侧「智能体」分区统一编辑；工具 / MCP / 技能仍请到「智能体」页。</p>
               ${renderAgentCard()}
               <input type="hidden" data-name="agent_code" value="${esc(selected.code)}">`
 
   const sections = [
-    { key: 'basic', label: '基本信息' },
+    { key: 'agent', label: '智能体' },
+    { key: 'basic', label: '组织编制' },
     { key: 'knowledge', label: '知识库' },
     { key: 'capability', label: '能力与工作' },
     { key: 'strategy', label: '工作策略' },
@@ -607,28 +728,22 @@ export async function showEditRoleModal(role, {
               .join('')}
           </nav>
           <div class="hire-edit-panels">
-            <div class="hire-edit-panel hire-edit-panel--duty" data-section="basic">
+            <div class="hire-edit-panel hire-edit-panel--agent" data-section="agent">
+              ${renderAgentNativePanel(boundAgent)}
+            </div>
+
+            <div class="hire-edit-panel" data-section="basic" hidden>
               ${basicAgentBlock}
-              <div class="hire-field-row">
-                <label class="hire-field">
-                  <span>岗位名称</span>
-                  <input class="hire-input" data-name="role_name" value="${esc(role.role_name || '')}" placeholder="岗位显示名">
-                </label>
-                <label class="hire-field">
-                  <span>部门</span>
-                  ${departmentSelect}
-                </label>
-              </div>
+              <label class="hire-field">
+                <span>部门</span>
+                ${departmentSelect}
+              </label>
               <label class="hire-field">
                 <span>直属上级</span>
                 <select class="hire-input" data-name="reports_to">
                   <option value="">（无上级 · 顶层）</option>
                   ${managerOptions}
                 </select>
-              </label>
-              <label class="hire-field hire-field--grow">
-                <span>职责</span>
-                <textarea class="hire-input hire-textarea hire-textarea--duty" data-name="responsibilities" rows="8" placeholder="每行一条，写清要主动推进的事">${esc(resp)}</textarea>
               </label>
             </div>
 
@@ -775,25 +890,30 @@ export async function showEditRoleModal(role, {
   if (allowAgentRebind) {
     bindHireDropdown(overlay, {
       role: 'agent-dd',
-      onPick: (code) => {
+      onPick: async (code) => {
         const next = available.find((a) => a.code === code)
         if (!next) return
         selected = next
         syncAgentCard()
+        const detail = await loadAgentDetailForEdit(code)
+        boundAgent = detail
+        agentBaseline = { ...detail }
+        fillAgentNativePanel(overlay, detail)
       },
     })
   }
 
   overlay.querySelector('[data-act="confirm"]')?.addEventListener('click', async () => {
-    const role_name = (overlay.querySelector('[data-name="role_name"]')?.value || '').trim()
-    if (!role_name) {
-      toast('请填写岗位名称', 'warning')
+    const agentFields = readAgentNativeFields(overlay)
+    if (!agentFields.agent_name) {
+      toast('请填写名称', 'warning')
+      overlay.querySelector('[data-name="agent_display_name"]')?.focus()
       return
     }
+    const role_name = agentFields.agent_name
     const workspace_path = readWorkspacePath(overlay)
     const nextAgent =
       (overlay.querySelector('input[data-name="agent_code"]')?.value || '').trim() || selected.code
-    const responsibilities = parseLines(overlay.querySelector('[data-name="responsibilities"]')?.value)
     const autonomy_level =
       overlay.querySelector('[data-name="autonomy_level"] .hire-chip.is-on')?.dataset.value ||
       'approval_for_risky'
@@ -819,54 +939,85 @@ export async function showEditRoleModal(role, {
     const reports_to = (overlay.querySelector('[data-name="reports_to"]')?.value || '').trim()
     const knowledge_vault_ids = readKnowledgeVaultIds(overlay)
     const kb_injection = readKbInjectionConfig(overlay, existingKbInjection)
+    const agentTargetCode = nextAgent || role.agent_code
+    const agentNameChanged = agentFields.agent_name !== String(agentBaseline.agent_name || '')
+    const agentDescChanged = agentFields.description !== String(agentBaseline.description || '')
+    const agentPromptChanged =
+      String(agentFields.system_prompt || '') !== String(agentBaseline.system_prompt || '')
+    const agentSoulChanged = String(agentFields.soul || '') !== String(agentBaseline.soul || '')
+    const agentNativeChanged =
+      agentNameChanged || agentDescChanged || agentPromptChanged || agentSoulChanged || needsDutyMerge
+    const roleNameOutOfSync =
+      role_name !== String(role.role_name || '').trim() &&
+      role_name !== String(role.agent_name || '').trim()
 
-    const changes = []
-    if (role_name !== String(role.role_name || '')) changes.push(`岗位名称：${role.role_name || '—'} → ${role_name}`)
-    if (department !== String(role.department || '')) changes.push(`部门：${role.department || '—'} → ${department || '—'}`)
-    if (nextAgent !== role.agent_code) changes.push(`绑定智能体：${role.agent_code} → ${nextAgent}`)
-    if (reports_to !== currentReportsTo) changes.push(`直属上级：${currentReportsTo || '无'} → ${reports_to || '无'}`)
-    if (responsibilities.join('\n') !== parseLines(resp).join('\n')) changes.push('职责已修改')
+    const roleChanges = []
+    if (department !== String(role.department || '')) roleChanges.push(`部门：${role.department || '—'} → ${department || '—'}`)
+    if (nextAgent !== role.agent_code) roleChanges.push(`绑定智能体：${role.agent_code} → ${nextAgent}`)
+    if (reports_to !== currentReportsTo) roleChanges.push(`直属上级：${currentReportsTo || '无'} → ${reports_to || '无'}`)
     if (workspace_path !== workspacePath) {
-      changes.push(
+      roleChanges.push(
         `工作空间：${pathBasename(workspacePath) || '默认'} → ${pathBasename(workspace_path) || '默认'}`,
       )
     }
-    if (JSON.stringify(knowledge_vault_ids) !== JSON.stringify(selectedVaultIds)) changes.push('知识库关联已修改')
-    if (model_name !== modelName) changes.push(`工作模型：${modelName || '默认'} → ${model_name || '默认'}`)
-    if (think_mode !== thinkMode) changes.push(`工作方式：${THINK_MODE_LABELS[thinkMode] || thinkMode} → ${THINK_MODE_LABELS[think_mode] || think_mode}`)
+    if (JSON.stringify(knowledge_vault_ids) !== JSON.stringify(selectedVaultIds)) roleChanges.push('知识库关联已修改')
+    if (model_name !== modelName) roleChanges.push(`工作模型：${modelName || '默认'} → ${model_name || '默认'}`)
+    if (think_mode !== thinkMode) roleChanges.push(`工作方式：${THINK_MODE_LABELS[thinkMode] || thinkMode} → ${THINK_MODE_LABELS[think_mode] || think_mode}`)
     // thinking_enabled 变更检测
     if (thinking_enabled !== thinkingEnabled) {
       const labels = { null: '跟随默认', true: '启用思考', false: '禁用思考' }
-      changes.push(`模型思考：${labels[thinkingEnabled]} → ${labels[thinking_enabled]}`)
+      roleChanges.push(`模型思考：${labels[thinkingEnabled]} → ${labels[thinking_enabled]}`)
     }
     const memory_enabled_raw =
       overlay.querySelector('[data-name="memory_enabled"] .hire-chip.is-on')?.dataset.value || 'true'
     const memory_enabled = memory_enabled_raw !== 'false'
     if (memory_enabled !== memoryEnabled) {
-      changes.push(`记忆：${memoryEnabled ? '开' : '关'} → ${memory_enabled ? '开' : '关'}`)
+      roleChanges.push(`记忆：${memoryEnabled ? '开' : '关'} → ${memory_enabled ? '开' : '关'}`)
     }
     if (autonomy_level !== autonomy) {
-      changes.push(
+      roleChanges.push(
         `交工审核：${AUTONOMY_LABELS[autonomy] || autonomy} → ${AUTONOMY_LABELS[autonomy_level] || autonomy_level}`,
       )
     }
     if (heartbeat_schedule !== roleScheduleExpr(role)) {
-      changes.push(
+      roleChanges.push(
         `自动上班：${roleScheduleSummary(role)} → ${prettyRrule(heartbeat_schedule)}`,
       )
     }
-    if (nextDaily !== dailyBudget) changes.push(`每日预算：$${dailyBudget} → $${nextDaily}`)
-    if (nextPerRun !== perRunBudget) changes.push(`单次预算：$${perRunBudget} → $${nextPerRun}`)
+    if (nextDaily !== dailyBudget) roleChanges.push(`每日预算：$${dailyBudget} → $${nextDaily}`)
+    if (nextPerRun !== perRunBudget) roleChanges.push(`单次预算：$${perRunBudget} → $${nextPerRun}`)
     if (nextPolicy !== budgetPolicy) {
-      changes.push(
+      roleChanges.push(
         `超额策略：${BUDGET_POLICY_LABELS[budgetPolicy] || budgetPolicy} → ${BUDGET_POLICY_LABELS[nextPolicy] || nextPolicy}`,
       )
     }
     const prevKb = existingKbInjection || {}
     const kbChanged = JSON.stringify(kb_injection) !== JSON.stringify(prevKb)
-    if (kbChanged) changes.push('知识库检索配置已修改')
+    if (kbChanged) roleChanges.push('知识库检索配置已修改')
+    // inject_* toggles are always written on role save; detect checkbox drift vs open-time values
+    const injectNow = (name, opened) => {
+      const cb = overlay.querySelector(`[data-name="${name}"]`)
+      if (!cb) return false
+      const next = cb.checked ? true : null
+      return next !== (opened === true ? true : null)
+    }
+    if (injectNow('inject_user_profile', injectUserProfile)) roleChanges.push('用户画像注入已修改')
+    if (injectNow('inject_skills', injectSkills)) roleChanges.push('技能描述注入已修改')
+    if (injectNow('inject_soul', injectSoul)) roleChanges.push('SOUL 注入开关已修改')
 
-    if (!changes.length) {
+    const agentChanges = []
+    if (agentNameChanged) agentChanges.push('名称已修改')
+    if (agentDescChanged) agentChanges.push('简介已修改')
+    if (agentPromptChanged || needsDutyMerge) {
+      agentChanges.push(needsDutyMerge && !agentPromptChanged ? '岗位职责已合并进系统提示词' : '系统提示词已修改')
+    }
+    if (agentSoulChanged) agentChanges.push('人格 SOUL 已修改')
+
+    const changes = [...roleChanges, ...agentChanges]
+    const syncNameOrClearDuties = needsDutyMerge || roleNameOutOfSync || agentNameChanged
+    const roleConfigChanged = roleChanges.length > 0 || syncNameOrClearDuties
+
+    if (!changes.length && !syncNameOrClearDuties) {
       toast('没有变更', 'info')
       return
     }
@@ -878,9 +1029,19 @@ export async function showEditRoleModal(role, {
     }
     try {
       const busyRes = await api.proactiveRoleBusy(role.agent_code).catch(() => ({ busy: false }))
-      const impactKeys = ['自动上班', '每日预算', '审批策略', '工作模型', '工作空间', '绑定智能体']
+      const impactKeys = [
+        '自动上班',
+        '每日预算',
+        '审批策略',
+        '工作模型',
+        '工作空间',
+        '绑定智能体',
+        '系统提示词',
+        '人格 SOUL',
+        '岗位职责已合并',
+      ]
       const impactsRunning = changes.some((c) => impactKeys.some((k) => c.includes(k)))
-      let summary = `将保存以下变更：\n\n${changes.map((c) => `· ${c}`).join('\n')}`
+      let summary = `将保存以下变更：\n\n${(changes.length ? changes : ['名称与提示词已与智能体对齐']).map((c) => `· ${c}`).join('\n')}`
       if (busyRes?.busy || (role.status === 'active' && impactsRunning)) {
         summary =
           '该员工可能正在运行或即将自动上班，配置变更将影响后续轮次。\n\n' + summary
@@ -894,69 +1055,95 @@ export async function showEditRoleModal(role, {
         return
       }
 
-      const overlapCode = nextAgent || role.agent_code
-      const overlap = await api
-        .proactiveCheckOverlap({
-          agent_code: overlapCode,
-          exclude_agent_code: role.agent_code,
-          responsibilities,
-          role_name,
+      if (roleConfigChanged) {
+        const overlapCode = nextAgent || role.agent_code
+        const overlap = await api
+          .proactiveCheckOverlap({
+            agent_code: overlapCode,
+            exclude_agent_code: role.agent_code,
+            responsibilities: parseLines(agentFields.system_prompt),
+            role_name,
+            system_prompt: agentFields.system_prompt,
+          })
+          .catch(() => null)
+        if (overlap?.has_overlap && overlap.warning) {
+          const cont = await showConfirm(`${overlap.warning}\n\n仍要保存？`)
+          if (!cont) {
+            if (btn) {
+              btn.disabled = false
+              btn.textContent = confirmLabel
+            }
+            return
+          }
+        }
+        if (nextAgent && nextAgent !== role.agent_code) {
+          const cont = await showConfirm(
+            `将岗位改绑到智能体「${nextAgent}」？\n\n历史工作项会迁移；旧工作过程会话键仍保留在原智能体下。`,
+          )
+          if (!cont) {
+            if (btn) {
+              btn.disabled = false
+              btn.textContent = confirmLabel
+            }
+            return
+          }
+        }
+      }
+      if (agentNativeChanged && agentTargetCode) {
+        // Always send soul as string (incl. "") so clear persists; null is ignored by API.
+        await api.updateAgent(agentTargetCode, {
+          agent_name: agentFields.agent_name || null,
+          description: agentFields.description,
+          system_prompt: agentFields.system_prompt,
+          soul: String(agentFields.soul ?? ''),
         })
-        .catch(() => null)
-      if (overlap?.has_overlap && overlap.warning) {
-        const cont = await showConfirm(`${overlap.warning}\n\n仍要保存？`)
-        if (!cont) {
-          if (btn) {
-            btn.disabled = false
-            btn.textContent = confirmLabel
-          }
-          return
+      }
+      let updated = role
+      if (roleConfigChanged || agentNativeChanged) {
+        const payload = {
+          // Keep role_name in sync with agent display name (compat field).
+          role_name,
+          department,
+          reports_to,
+          // Duties live in agent system_prompt now.
+          responsibilities: [],
+          // Mirror agent SOUL onto role.soul_md so duty/chat still see it when inherit is off.
+          soul_md: String(agentFields.soul ?? ''),
+          workspace_path,
+          knowledge_vault_ids,
+          kb_injection,
+          autonomy_level,
+          heartbeat_schedule,
+          think_mode,
+          thinking_enabled,
+          model_name,
+          daily_budget_usd: nextDaily,
+          per_run_budget_usd: nextPerRun,
+          budget_exceed_policy: nextPolicy,
+          memory_enabled,
         }
-      }
-      if (nextAgent && nextAgent !== role.agent_code) {
-        const cont = await showConfirm(
-          `将岗位改绑到智能体「${nextAgent}」？\n\n历史工作项会迁移；旧工作过程会话键仍保留在原智能体下。`,
-        )
-        if (!cont) {
-          if (btn) {
-            btn.disabled = false
-            btn.textContent = confirmLabel
-          }
-          return
+        // Prompt section toggles: checked → true; unchecked → null (follow default). Never write false on save.
+        const readInjectOptIn = (name) => {
+          const cb = overlay.querySelector(`[data-name="${name}"]`)
+          if (!cb) return undefined
+          return cb.checked ? true : null
         }
+        payload.inject_user_profile = readInjectOptIn('inject_user_profile')
+        payload.inject_skills = readInjectOptIn('inject_skills')
+        payload.inject_soul = readInjectOptIn('inject_soul')
+        if (nextAgent && nextAgent !== role.agent_code) {
+          payload.new_agent_code = nextAgent
+        }
+        updated = await api.proactiveUpdateRole(role.agent_code, payload)
       }
-      const payload = {
-        role_name,
-        department,
-        reports_to,
-        responsibilities,
-        workspace_path,
-        knowledge_vault_ids,
-        kb_injection,
-        autonomy_level,
-        heartbeat_schedule,
-        think_mode,
-        thinking_enabled,
-        model_name,
-        daily_budget_usd: nextDaily,
-        per_run_budget_usd: nextPerRun,
-        budget_exceed_policy: nextPolicy,
-        memory_enabled,
-      }
-      // Prompt section toggles: checked → true; unchecked → null (follow default). Never write false on save.
-      const readInjectOptIn = (name) => {
-        const cb = overlay.querySelector(`[data-name="${name}"]`)
-        if (!cb) return undefined
-        return cb.checked ? true : null
-      }
-      payload.inject_user_profile = readInjectOptIn('inject_user_profile')
-      payload.inject_skills = readInjectOptIn('inject_skills')
-      payload.inject_soul = readInjectOptIn('inject_soul')
-      if (nextAgent && nextAgent !== role.agent_code) {
-        payload.new_agent_code = nextAgent
-      }
-      const updated = await api.proactiveUpdateRole(role.agent_code, payload)
-      toast('岗位已更新', 'success')
+      toast(
+        roleConfigChanged && agentNativeChanged
+          ? '岗位与智能体已更新'
+          : agentNativeChanged
+            ? '智能体已更新'
+            : '岗位已更新',
+        'success',
+      )
       close()
       if (typeof onSaved === 'function') await onSaved(updated)
     } catch (e) {

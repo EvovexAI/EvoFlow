@@ -50,7 +50,8 @@ DEFAULT_WEB_SEARCH_SETTINGS: dict[str, Any] = {
     "preferredBackend": "",
     # "" | "agent_plan" | "user" — who last chose preferredBackend
     "preferredBackendSource": "",
-    # "" | "agent_plan" | "user" — provenance of doubaoApiKey (UI only; never auto-inject ark-)
+    # "" | "agent_plan" | "user" — provenance of doubaoApiKey
+    # Official Agent Plan 豆包搜索 uses the same Plan ark- Key (Harness 抵扣开启后).
     "doubaoKeySource": "",
     "doubaoApiKey": "",
     "doubaoBaseUrl": "",
@@ -86,9 +87,11 @@ _ENV_BINDINGS: list[tuple[str, str]] = [
     ("SEARXNG_URL", "searxngUrl"),
 ]
 
-# Agent Plan Harness console (claim search quota + SearchInfinity key).
+# Agent Plan：Harness 开启豆包搜索抵扣 + 用套餐专属 Key 调搜索（官方路径）。
 AGENT_PLAN_HARNESS_CONSOLE_URL = "https://console.volcengine.com/ark/region:ark+cn-beijing/openManagement?advancedActiveKey=agentPlan"
-AGENT_PLAN_DOUBAO_SEARCH_DOCS_URL = "https://www.volcengine.com/docs/82379/2545597?lang=zh"
+AGENT_PLAN_DOUBAO_SEARCH_DOCS_URL = (
+    "https://ark.volcengine.com/region:cn-beijing/docs/agent-plan-personal-search"
+)
 DOUBAO_SEARCH_CONSOLE_URL = "https://console.volcengine.com/search-infinity/web-search-exp"
 DOUBAO_SEARCH_DOCS_URL = "https://docs.volcengine.com/docs/87772/2272951?lang=zh"
 
@@ -101,7 +104,10 @@ PROVIDER_UI: list[dict[str, str]] = [
         "defaultBaseUrl": "https://open.feedcoopapi.com/search_api/web_search",
         "docsUrl": DOUBAO_SEARCH_DOCS_URL,
         "signupUrl": DOUBAO_SEARCH_CONSOLE_URL,
-        "hint": ("火山「豆包搜索 / SearchInfinity」API。须用联网搜索专用 Key（不是对话用的 ark- Key）。独立开通有每月免费额度；若已订 Agent Plan，可在控制台「配置 Harness」领取套餐赠送额度 Key。"),
+        "hint": (
+            "火山豆包搜索 API。已订 Agent Plan：官方用套餐专属 Key 鉴权（与对话同一把），"
+            "绑定后自动写入；请在控制台 Harness 开启「豆包搜索」抵扣。也可手填独立 SearchInfinity Key。"
+        ),
     },
     {
         "id": "bocha",
@@ -274,27 +280,59 @@ def patch_web_search_settings(patch: dict[str, Any] | None) -> dict[str, Any]:
     return current
 
 
-def apply_agent_plan_web_search_defaults() -> dict[str, Any]:
-    """Prefer Doubao when Agent Plan includes web_search, without clobbering user choices.
+def resolve_agent_plan_doubao_search_api_key() -> str:
+    """Plaintext Agent Plan ``ark-`` key when ``web_search`` is entitled.
 
-    Official Agent Plan Harness grants SearchInfinity quota + a **separate** search API Key
-    (not the chat ``ark-`` key). We only set preferred backend to ``doubao`` when the user
-    has not explicitly chosen another engine.
+    Official docs (Agent Plan → 豆包搜索): use the Plan exclusive API Key for search
+    after enabling Harness 豆包搜索抵扣 — same key as chat.
+    """
+    try:
+        from evoflow.plans.bindings import find_active_binding
+
+        binding = find_active_binding(
+            vendor="volcengine",
+            plan_family="agent_plan",
+            capability="web_search",
+            mask_key=False,
+        )
+        if not binding:
+            return ""
+        key = str(binding.get("api_key") or "").strip()
+        if not key or key.startswith("*"):
+            return ""
+        return key
+    except Exception:
+        return ""
+
+
+def apply_agent_plan_web_search_defaults(api_key: str | None = None) -> dict[str, Any]:
+    """Wire Agent Plan → Doubao web search without clobbering explicit user choices.
+
+    Official path: Plan exclusive Key authenticates 豆包搜索 (AFP 抵扣需 Harness 开启).
+    - Prefer backend ``doubao`` unless ``preferredBackendSource=user``.
+    - Inject Plan ``ark-`` into ``doubaoApiKey`` unless ``doubaoKeySource=user``.
     """
     current = get_web_search_settings()
-    source = _normalize_source(current.get("preferredBackendSource"))
-    if source == "user":
+    patch: dict[str, Any] = {}
+
+    pref_source = _normalize_source(current.get("preferredBackendSource"))
+    if pref_source != "user":
+        pref = _normalize_backend(current.get("preferredBackend"))
+        # Empty (auto) or previously Plan-applied → lock preferred to doubao.
+        # Skip when another engine is set and source is not agent_plan (legacy/manual).
+        if not (pref and pref != "doubao" and pref_source != "agent_plan"):
+            patch["preferredBackend"] = "doubao"
+            patch["preferredBackendSource"] = "agent_plan"
+
+    key = str(api_key or "").strip() or resolve_agent_plan_doubao_search_api_key()
+    key_source = _normalize_source(current.get("doubaoKeySource"))
+    if key and not key.startswith("*") and key_source != "user":
+        patch["doubaoApiKey"] = key
+        patch["doubaoKeySource"] = "agent_plan"
+
+    if not patch:
         return current
-    pref = _normalize_backend(current.get("preferredBackend"))
-    # Empty (auto) or previously Plan-applied → lock preferred to doubao.
-    if pref and pref != "doubao" and source != "agent_plan":
-        return current
-    return patch_web_search_settings(
-        {
-            "preferredBackend": "doubao",
-            "preferredBackendSource": "agent_plan",
-        }
-    )
+    return patch_web_search_settings(patch)
 
 
 def apply_web_search_credentials_to_mapping(env: dict[str, str]) -> None:

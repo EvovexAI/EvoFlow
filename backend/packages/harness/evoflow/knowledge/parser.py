@@ -27,7 +27,22 @@ logger = logging.getLogger(__name__)
 _MARKITDOWN_EXTENSIONS = {".pdf", ".doc", ".docx", ".ppt", ".pptx", ".xls", ".xlsx"}
 
 # Extensions read directly as UTF-8 text
-_TEXT_EXTENSIONS = {".txt", ".md", ".markdown", ".csv", ".json", ".xml", ".html", ".htm", ".log", ".py", ".js", ".ts", ".java", ".go", ".rs", ".c", ".cpp", ".h", ".yaml", ".yml", ".toml", ".ini", ".cfg"}
+# Align with owned KB formats: documents / text only (no source code for now).
+_TEXT_EXTENSIONS = {
+    ".txt",
+    ".md",
+    ".markdown",
+    ".mdx",
+    ".csv",
+    ".json",
+    ".xml",
+    ".html",
+    ".htm",
+    ".log",
+    ".yaml",
+    ".yml",
+    ".toml",
+}
 
 
 def parse_file(

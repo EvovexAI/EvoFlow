@@ -26,6 +26,8 @@ let _activeTab = 'agents'
 let _pageEl = null
 let _contentEl = null
 let _cleanupFn = null
+/** 切换 / 离开时作废未完成的 tab 挂载，避免后台 await 写回已拆卸 DOM */
+let _tabGen = 0
 const _moduleCache = {}
 
 async function _loadModule(tabId) {
@@ -58,6 +60,8 @@ function _syncHeaderChrome({ clearAction = false } = {}) {
 
 async function _renderTab(tabId) {
   if (!_contentEl) return
+  const contentEl = _contentEl
+  const gen = ++_tabGen
 
   if (_cleanupFn) {
     try {
@@ -65,23 +69,32 @@ async function _renderTab(tabId) {
     } catch (_) {}
     _cleanupFn = null
   }
-  _contentEl.innerHTML =
+  contentEl.innerHTML =
     '<div class="page-loader"><div class="page-loader-spinner"></div><div class="page-loader-text">加载中...</div></div>'
 
   try {
     const mod = await _loadModule(tabId)
+    if (gen !== _tabGen || _contentEl !== contentEl) return
     const renderFn = mod.render || mod.default
     if (!renderFn) {
-      _contentEl.innerHTML = '<div style="padding:20px;color:var(--text-tertiary)">模块加载失败</div>'
+      contentEl.innerHTML = '<div style="padding:20px;color:var(--text-tertiary)">模块加载失败</div>'
       return
     }
     const result = await renderFn()
+    if (gen !== _tabGen || _contentEl !== contentEl) {
+      if (result instanceof HTMLElement) {
+        try {
+          mod.cleanup?.()
+        } catch (_) {}
+      }
+      return
+    }
     _cleanupFn = mod.cleanup || null
-    _contentEl.innerHTML = ''
+    contentEl.innerHTML = ''
     if (typeof result === 'string') {
-      _contentEl.innerHTML = result
+      contentEl.innerHTML = result
     } else if (result instanceof HTMLElement) {
-      _contentEl.appendChild(result)
+      contentEl.appendChild(result)
     }
     // 先同步文案，再绑定主操作，避免 sync 清空 onclick 导致「导入技能」等无反应
     _syncHeaderChrome()
@@ -100,8 +113,9 @@ async function _renderTab(tabId) {
       } catch (_) {}
     }
   } catch (e) {
+    if (gen !== _tabGen || _contentEl !== contentEl) return
     console.error('[expert] tab render failed:', tabId, e)
-    _contentEl.innerHTML = `<div style="padding:20px;color:var(--error)">加载失败: ${e.message || e}</div>`
+    contentEl.innerHTML = `<div style="padding:20px;color:var(--error)">加载失败: ${e.message || e}</div>`
   }
 }
 
@@ -154,11 +168,13 @@ export async function render() {
     void _renderTab(tabId)
   })
 
-  await _renderTab(_activeTab)
+  // 壳先交路由；tab 内容异步挂，避免子页慢请求拖垮 30s 渲染超时
+  void _renderTab(_activeTab)
   return page
 }
 
 export function cleanup() {
+  _tabGen += 1
   if (_cleanupFn) {
     try {
       _cleanupFn()

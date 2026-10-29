@@ -207,31 +207,28 @@
   width: 100%;
 }
 
-/* Toast 通知（需高于设置弹窗 .react-chat-modal-overlay = 1000001；运行时 toast.js 会抬到 1000010） */
+/* Toast 通知：屏幕正中（需高于设置弹窗 overlay=1000001；运行时 toast.js 会抬到 1000010） */
 .toast-container {
   position: fixed;
-  top: 56px;
-  right: var(--space-lg);
+  top: 50%;
+  left: 50%;
+  right: auto;
+  transform: translate(-50%, -50%);
   z-index: 13000;
   display: flex;
   flex-direction: column;
+  align-items: center;
   gap: var(--space-sm);
   pointer-events: none;
+  max-width: min(420px, calc(100vw - 2rem));
 }
 
-.toast-container.toast-container--modal-open {
-  top: 16px;
-  left: 50%;
-  right: auto;
-  transform: translateX(-50%);
-  align-items: center;
-}
-
+.toast-container.toast-container--modal-open,
 .toast-container.toast-container--elevated {
-  top: 16px;
+  /* 弹窗打开时同样居中，仅保证层级由 JS 抬升 */
+  top: 50%;
   left: 50%;
-  right: auto;
-  transform: translateX(-50%);
+  transform: translate(-50%, -50%);
   align-items: center;
 }
 
@@ -250,8 +247,10 @@
   background: var(--bg-primary);
   border: 1px solid var(--border);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
-  animation: slideIn var(--dur-base) var(--ease-out-soft);
+  animation: toastIn var(--dur-base) var(--ease-out-soft);
   max-width: 360px;
+  text-align: center;
+  justify-content: center;
 }
 
 .toast.success { color: var(--success); }
@@ -272,13 +271,61 @@
   padding: 0;
 }
 
+/* 转交审核 · 左下角常驻芯片（与右下角小V FAB 错开） */
+.approval-corner-notify {
+  position: fixed;
+  left: max(14px, env(safe-area-inset-left));
+  bottom: max(18px, env(safe-area-inset-bottom));
+  z-index: 49000;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: min(280px, calc(100vw - 88px));
+  padding: 8px 12px;
+  border: 1px solid color-mix(in srgb, var(--warning, #d97706) 35%, var(--border, #e5e7eb));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg-primary, #fff) 92%, #fff7ed);
+  color: var(--text-primary, #1f2937);
+  box-shadow: 0 6px 20px rgba(15, 23, 42, 0.12);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  pointer-events: auto;
+}
+.approval-corner-notify[hidden] {
+  display: none !important;
+}
+.approval-corner-notify:hover {
+  border-color: color-mix(in srgb, var(--warning, #d97706) 55%, var(--border, #e5e7eb));
+}
+.approval-corner-notify__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--warning, #d97706);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--warning, #d97706) 22%, transparent);
+  flex-shrink: 0;
+}
+.approval-corner-notify__text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#app.evopanel-mobile-tabbar-visible .approval-corner-notify {
+  bottom: calc(56px + max(12px, env(safe-area-inset-bottom)));
+}
+[data-theme='dark'] .approval-corner-notify {
+  background: color-mix(in srgb, var(--bg-secondary, #1a1a26) 88%, #78350f);
+}
+
 [data-theme="dark"] .toast {
   background: var(--bg-secondary);
 }
 
-@keyframes slideIn {
-  from { opacity: 0; transform: translateX(20px); }
-  to { opacity: 1; transform: translateX(0); }
+@keyframes toastIn {
+  from { opacity: 0; transform: translateY(6px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
 /* Tab 栏 */

@@ -62,6 +62,19 @@ def get_provider_env(name: str) -> str:
     except Exception:
         pass
 
+    # Agent Plan fallback: official 豆包搜索 uses the same Plan ark- Key as chat.
+    if name in {"DOUBAO_SEARCH_API_KEY", "VOLCENGINE_SEARCH_API_KEY"}:
+        try:
+            from evoflow.persistence.web_search_settings import (
+                resolve_agent_plan_doubao_search_api_key,
+            )
+
+            plan_key = resolve_agent_plan_doubao_search_api_key()
+            if plan_key and not _looks_like_placeholder(plan_key):
+                return plan_key
+        except Exception:
+            pass
+
     # Optional: config.yaml tools.web_search.api_key as shared key for tavily/firecrawl
     if name in {"TAVILY_API_KEY", "FIRECRAWL_API_KEY"}:
         try:

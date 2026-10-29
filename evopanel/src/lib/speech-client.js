@@ -1324,10 +1324,10 @@ let _previewAbort = null
 let _previewGen = 0
 
 /**
- * 试听指定音色（设置页音色选择器等）。需已配置火山 TTS API Key。
+ * 试听指定音色（设置页音色选择器等）。
  * @param {string} text
  * @param {string} speaker voice_type
- * @param {{ signal?: AbortSignal }} [opts]
+ * @param {{ signal?: AbortSignal, provider?: string }} [opts]
  * @returns {Promise<{ audio: HTMLAudioElement, speakerUsed: string }>}
  */
 export async function previewSpeechTts(text, speaker, opts = {}) {
@@ -1335,7 +1335,8 @@ export async function previewSpeechTts(text, speaker, opts = {}) {
   if (!plain) throw new Error('试听文本为空')
   const voice = String(speaker || '').trim()
   if (!voice) throw new Error('未指定 voice_type')
-  const body = { text: plain, speaker: voice, preview: true }
+  const provider = String(opts.provider || '').trim().toLowerCase() || 'volcengine'
+  const body = { text: plain, speaker: voice, preview: true, provider }
   const url = import.meta.env?.DEV ? '/api/speech/tts/stream' : apiUrl('/speech/tts/stream')
   const res = await fetch(url, {
     method: 'POST',
@@ -1345,6 +1346,10 @@ export async function previewSpeechTts(text, speaker, opts = {}) {
     body: JSON.stringify(body),
     signal: opts.signal,
   })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.detail || `TTS 试听失败 (${res.status})`)
+  }
   const speakerUsed = res.headers.get('X-Tts-Speaker') || voice
   const digest = res.headers.get('X-Tts-Digest') || ''
   const blob = await _readTtsAudioBlob(res)

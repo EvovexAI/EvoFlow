@@ -172,67 +172,41 @@ def test_model_connection(data: dict[str, Any]) -> dict[str, Any]:
 def invoke_model(data: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(data, dict):
         raise ValidationError("Invoke payload must be a JSON object")
-    from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+    from evoflow.models.openai_compat_invoke import OpenAICompatError, invoke_chat_completion
 
-    from evoflow.models import create_chat_model
-
-    config = get_app_config()
-    if not config.models:
-        raise ValidationError("No models configured")
-
-    name = str(data.get("model_name") or "").strip() or None
-    if name is not None and config.get_model_config(name) is None:
-        raise NotFoundError(f"Model '{name}' not found")
-
+    name = str(data.get("model_name") or data.get("model") or "").strip() or None
     messages_in = data.get("messages")
     if not isinstance(messages_in, list) or not messages_in:
         single = str(data.get("message") or data.get("prompt") or "").strip()
         if not single:
             raise ValidationError("messages or message is required")
         messages_in = [{"role": "user", "content": single}]
+        system = str(data.get("system") or "").strip()
+        if system:
+            messages_in.insert(0, {"role": "system", "content": system})
 
-    model = create_chat_model(name=name, thinking_enabled=False)
     temperature = data.get("temperature")
-    if temperature is not None:
-        try:
-            model = model.bind(temperature=float(temperature))
-        except Exception:
-            pass
-
-    lc_messages = []
-    for m in messages_in:
-        if not isinstance(m, dict):
-            continue
-        role = str(m.get("role") or "user").strip().lower()
-        content = str(m.get("content") or "")
-        if role == "system":
-            lc_messages.append(SystemMessage(content=content))
-        elif role in ("assistant", "ai"):
-            lc_messages.append(AIMessage(content=content))
-        else:
-            lc_messages.append(HumanMessage(content=content))
-
     try:
-        resp = model.invoke(lc_messages)
-    except Exception as e:
-        raise ValidationError(f"Model invoke failed: {e}") from e
+        result = invoke_chat_completion(
+            model=name,
+            messages=list(messages_in),
+            temperature=float(temperature) if temperature is not None else None,
+            thinking_enabled=(
+                None if data.get("thinking_enabled") is None else bool(data.get("thinking_enabled"))
+            ),
+            record_usage=True,
+        )
+    except OpenAICompatError as e:
+        if e.status_code == 404:
+            raise NotFoundError(e.message) from e
+        raise ValidationError(e.message) from e
 
-    content = getattr(resp, "content", resp)
-    if isinstance(content, list):
-        parts = []
-        for block in content:
-            if isinstance(block, str):
-                parts.append(block)
-            elif isinstance(block, dict) and block.get("type") in {"text", "output_text"}:
-                text = block.get("text")
-                if isinstance(text, str):
-                    parts.append(text)
-        text = "\n".join(parts)
-    elif content is None:
+    text = ""
+    try:
+        text = str((((result.get("choices") or [{}])[0].get("message") or {}).get("content")) or "")
+    except Exception:
         text = ""
-    else:
-        text = str(content)
-    return {"content": text}
+    return {"content": text, "openai": result}
 
 
 _DASHSCOPE_CODING_FALLBACK_MODEL_IDS = (

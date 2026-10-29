@@ -79,7 +79,7 @@ python skills/public/kling-media-generation/scripts/kling_api.py video \
 
 ## 交付
 
-解析 stdout 的 `absolute_path` / `local_path`；回复用户：`@@outputs/文件名@@`（png/mp4）。
+解析 stdout 的 `absolute_path` / `local_path`；回复用户用 Markdown：`[文件名](相对工作目录的路径)` 或短路径反引号（png/mp4）。
 
 ## 常见错误
 

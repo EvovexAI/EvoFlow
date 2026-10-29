@@ -4984,6 +4984,7 @@ function bindWorkItemDetail(page, role, task, opts = {}) {
       await api.proactiveApprove(tid, 'approved', 'user', '')
       const kind = String(btn.dataset.approveKind || '')
       toast(kind === 'handoff' ? '已同意派发' : '已同意', 'success')
+      void import('../lib/proactive-approval-notify.js').then((m) => m.refreshProactiveApprovalNotify())
       const next = await renderWorkItemPage(code, tid, { from })
       page.replaceWith(next)
     } catch (err) {
@@ -5017,6 +5018,7 @@ function bindWorkItemDetail(page, role, task, opts = {}) {
     try {
       await api.proactiveApprove(tid, 'rejected', 'user', reason, reason)
       toast('已驳回', 'info')
+      void import('../lib/proactive-approval-notify.js').then((m) => m.refreshProactiveApprovalNotify())
       const next = await renderWorkItemPage(code, tid, { from })
       page.replaceWith(next)
     } catch (err) {

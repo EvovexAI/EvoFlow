@@ -25,28 +25,56 @@ def _jaccard(a: set[str], b: set[str]) -> float:
     return inter / union if union else 0.0
 
 
+def _lines_from_candidate(candidate: dict[str, Any]) -> list[str]:
+    """Prefer system_prompt; fall back to responsibilities lines (legacy)."""
+    sp = str(candidate.get("system_prompt") or "").strip()
+    if sp:
+        return [ln.strip() for ln in sp.splitlines() if ln.strip()]
+    cand_resp = candidate.get("responsibilities") or []
+    if isinstance(cand_resp, str):
+        return [x.strip() for x in cand_resp.splitlines() if x.strip()]
+    return [str(x).strip() for x in cand_resp if str(x).strip()]
+
+
+def _lines_from_role(role: ProactiveRole) -> list[str]:
+    """Prefer agent system_prompt; fall back to role responsibilities."""
+    code = str(role.agent_code or "").strip()
+    if code:
+        try:
+            from evoflow.config.agents_config import load_agent_config
+            from evoflow.proactive.employee_prompting.job import merge_duty_into_system_prompt
+
+            agent_cfg = load_agent_config(code)
+            sp = str(getattr(agent_cfg, "system_prompt", None) or "").strip() if agent_cfg else ""
+            legacy = list(role.config.responsibilities or [])
+            merged = merge_duty_into_system_prompt(sp, legacy)
+            if merged:
+                return [ln.strip() for ln in merged.splitlines() if ln.strip()]
+        except Exception:
+            pass
+    return [str(x).strip() for x in (role.config.responsibilities or []) if str(x).strip()]
+
+
 def score_role_overlap(
     candidate: dict[str, Any],
     existing: ProactiveRole,
 ) -> dict[str, Any]:
     """Score overlap between a candidate config and an existing role.
 
-    ``candidate`` keys: responsibilities, role_name, agent_code.
+    ``candidate`` keys: system_prompt, responsibilities, role_name, agent_code.
     """
-    cand_resp = candidate.get("responsibilities") or []
-    if isinstance(cand_resp, str):
-        cand_resp = [x.strip() for x in cand_resp.splitlines() if x.strip()]
+    cand_lines = _lines_from_candidate(candidate)
+    exist_lines = _lines_from_role(existing)
 
-    exist_resp = list(existing.config.responsibilities or [])
-
-    resp_tokens_a = set()
-    for line in cand_resp:
+    resp_tokens_a: set[str] = set()
+    for line in cand_lines:
         resp_tokens_a |= _tokens(line)
-    resp_tokens_b = set()
-    for line in exist_resp:
+    resp_tokens_b: set[str] = set()
+    for line in exist_lines:
         resp_tokens_b |= _tokens(line)
 
     overall = round(_jaccard(resp_tokens_a, resp_tokens_b), 3)
+    label = str(existing.role_name or existing.agent_code or "").strip() or existing.agent_code
 
     return {
         "agent_code": existing.agent_code,
@@ -56,7 +84,7 @@ def score_role_overlap(
         "overlap": overall,
         "high": overall >= 0.5,
         "message": (
-            f"与「{existing.role_name}」职责高度重叠（{int(overall * 100)}%），建议合并或明确分工"
+            f"与「{label}」提示词高度重叠（{int(overall * 100)}%），建议合并或明确分工"
             if overall >= 0.5
             else ""
         ),

@@ -598,17 +598,7 @@ class DynamicSystemPromptOnScenarioMiddleware(AgentMiddleware[AgentState]):
                 custom_prompt = str(meta.get("custom_system_prompt") or "").strip() or None
 
             inject_mem = effective_memory_injection_enabled(request.runtime)
-            mcp_skill_section = str(meta.get("mcp_system_section") or meta.get("mcp_skill_section") or "").strip()
-            if not mcp_skill_section and (meta.get("mcp_native") or meta.get("mcp_servers") is not None):
-                from evoflow.mcp.native_prompt import build_mcp_native_prompt_section_safe
-
-                mcp_binding = meta.get("mcp_servers")
-                if mcp_binding is None or isinstance(mcp_binding, list):
-                    mcp_skill_section = build_mcp_native_prompt_section_safe(
-                        mcp_binding,
-                        bound_tool_names=list(tools_sorted),
-                        prompt_language=str(ctx.get("prompt_language") or "").strip() or None,
-                    )
+            # MCP is mounted as normal function tools — no <mcp_system> prompt block.
             _t_prompt = _time.perf_counter()
             text = apply_prompt_template(
                 bool(meta.get("subagent_enabled", False)),
@@ -632,7 +622,7 @@ class DynamicSystemPromptOnScenarioMiddleware(AgentMiddleware[AgentState]):
                 session_mode=session_mode,
                 session_key=session_key,
                 loaded_deferred=loaded_deferred,
-                mcp_skill_section=mcp_skill_section,
+                mcp_skill_section="",
                 thinking_enabled=bool(ctx.get("thinking_enabled")),
             )
             record_phase(

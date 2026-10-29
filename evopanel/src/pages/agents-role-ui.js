@@ -731,181 +731,201 @@ export function renderRoleCards(page, state, _tagFilter) {
   }
 }
 
-export function closeAgentDetailDrawer(page) {
-  const root = page?.querySelector('#roleDrawer')
-  if (!root) return
-  root.hidden = true
-  const body = page.querySelector('#roleDrawerBody')
-  const foot = page.querySelector('#roleDrawerFoot')
-  if (body) body.innerHTML = ''
-  if (foot) foot.innerHTML = ''
+/** @deprecated 侧栏已改为整页；保留空实现以免旧调用报错。 */
+export function closeAgentDetailDrawer(_page) {
+  /* no-op */
 }
 
-async function openAgentDetailDrawer(page, state, id) {
-  const root = page.querySelector('#roleDrawer')
-  const titleEl = page.querySelector('#roleDrawerTitle')
-  const subEl = page.querySelector('#roleDrawerSubtitle')
-  const body = page.querySelector('#roleDrawerBody')
-  const foot = page.querySelector('#roleDrawerFoot')
-  if (!root || !body || !foot) {
-    await showRoleDetailDialog(id, page, state)
-    return
-  }
+/** 打开智能体详情整页（替代原侧栏抽屉）。 */
+export function openAgentDetailDrawer(_page, _state, id) {
+  const code = String(id || '').trim()
+  if (!code) return
+  navigate(`/agents/${encodeURIComponent(code)}`)
+}
 
-  state.selectedId = id
-  page.querySelectorAll('.role-card').forEach((el) => {
-    el.classList.toggle('role-card--selected', el.dataset.id === id)
-  })
-
-  root.hidden = false
-  if (titleEl) titleEl.textContent = '加载中…'
-  if (subEl) subEl.textContent = ''
-  body.innerHTML = '<div class="role-drawer-loading">加载详情…</div>'
-  foot.innerHTML = ''
-
+/**
+ * 构建详情页主体 HTML + 页脚操作（供 /agents/:code 使用）。
+ * @returns {Promise<{ name: string, subtitleHtml: string, bodyHtml: string, footHtml: string, agent: object }>}
+ */
+export async function buildAgentDetailSections(id, state) {
+  const agent = await api.getAgent(id)
+  let primaryModel = ''
   try {
-    const agent = await api.getAgent(id)
-    let primaryModel = ''
-    try {
-      const info = await api.getPrimaryModel()
-      primaryModel = String(info?.primary_model || '').trim()
-    } catch {
-      /* ignore */
-    }
-    const ctx = agentCtx(state)
-    const run = agentRunStatusOf(agent, ctx)
-    const deploy = agentDeployKindOf(agent, ctx)
-    const role = state.hiredRolesByCode?.get(id)
-    const appMeta = state.appAgentCodes instanceof Map ? state.appAgentCodes.get(id) : null
-    const name = String(role?.role_name || agent.agent_name || id).trim() || id
-    const toolsTag = agentUsesExternalCli(agent) ? null : formatAgentToolsCardTag(agent, state.toolsMeta)
-    const skills = Array.isArray(agent.skills) ? agent.skills : []
-    const mcps = Array.isArray(agent.mcp_servers) ? agent.mcp_servers : null
-    const caps = agentCapabilityTags(agent, 8)
-    const primary = resolvePrimaryAction(agent, state)
+    const info = await api.getPrimaryModel()
+    primaryModel = String(info?.primary_model || '').trim()
+  } catch {
+    /* ignore */
+  }
+  const ctx = agentCtx(state)
+  const run = agentRunStatusOf(agent, ctx)
+  const deploy = agentDeployKindOf(agent, ctx)
+  const role = state.hiredRolesByCode?.get(id)
+  const appMeta = state.appAgentCodes instanceof Map ? state.appAgentCodes.get(id) : null
+  const name = String(role?.role_name || agent.agent_name || id).trim() || id
+  const toolsTag = agentUsesExternalCli(agent) ? null : formatAgentToolsCardTag(agent, state.toolsMeta)
+  const skills = Array.isArray(agent.skills) ? agent.skills : []
+  const mcps = Array.isArray(agent.mcp_servers) ? agent.mcp_servers : null
+  const caps = agentCapabilityTags(agent, 8)
+  const primary = resolvePrimaryAction(agent, state)
 
-    if (titleEl) titleEl.textContent = name
-    if (subEl) {
-      const typeLabel = agentTypeLabelOf(agent)
-      subEl.innerHTML = typeLabel
-        ? `<span class="role-type-label">${escapeHtml(typeLabel)}</span> · <span class="role-status ${runStatusClass(run)}">${escapeHtml(runStatusLabel(run))}</span>`
-        : `<span class="role-status ${runStatusClass(run)}">${escapeHtml(runStatusLabel(run))}</span>`
-    }
-    const markEl = root.querySelector('.ef-side-drawer__mark')
-    if (markEl) markEl.textContent = String(name || '员').trim().slice(0, 1) || '员'
+  const typeLabel = agentTypeLabelOf(agent)
+  const subtitleHtml = typeLabel
+    ? `<span class="role-type-label">${escapeHtml(typeLabel)}</span> · <span class="role-status ${runStatusClass(run)}">${escapeHtml(runStatusLabel(run))}</span>`
+    : `<span class="role-status ${runStatusClass(run)}">${escapeHtml(runStatusLabel(run))}</span>`
 
-    const deployText =
-      deploy === 'employee'
-        ? `员工岗位：${role?.role_name || id}`
-        : deploy === 'app'
-          ? `工作流：${appMeta?.appName || appMeta?.appId || '已关联工作流'}`
-          : deploy === 'automation'
-            ? '已用于自动化规则'
-            : '未部署'
+  const deployText =
+    deploy === 'employee'
+      ? `员工岗位：${role?.role_name || id}`
+      : deploy === 'app'
+        ? `工作流：${appMeta?.appName || appMeta?.appId || '已关联工作流'}`
+        : deploy === 'automation'
+          ? '已用于自动化规则'
+          : '未部署'
 
-    body.innerHTML = `
-      <section class="ef-side-drawer__section role-drawer-section">
-        <h4>基本信息</h4>
-        <dl class="role-drawer-dl">
-          <div><dt>标识</dt><dd><code>${escapeHtml(id)}</code></dd></div>
-          <div><dt>类型</dt><dd>${escapeHtml(agentTypeLabelOf(agent) || '—')}</dd></div>
-          <div><dt>运行状态</dt><dd>${escapeHtml(runStatusLabel(run))}</dd></div>
-          <div><dt>来源</dt><dd>${escapeHtml(
-            normalizeAgentTags(agent.tags).some((t) => /skillhub/i.test(t))
-              ? 'SkillHub'
-              : agent.agent_type === 'subagent' || id === 'main'
-                ? '系统'
-                : '—',
-          )}</dd></div>
-        </dl>
-      </section>
-      <section class="ef-side-drawer__section role-drawer-section">
-        <h4>主要职责</h4>
-        <p>${escapeHtml(agent.description || '暂无描述')}</p>
-      </section>
-      <section class="ef-side-drawer__section role-drawer-section">
-        <h4>模型与参数</h4>
-        <dl class="role-drawer-dl">
-          <div><dt>默认模型</dt><dd>${escapeHtml(formatAgentModelFollowLabel(agent.model, primaryModel))}</dd></div>
-        </dl>
-        ${agent.system_prompt ? `<pre class="role-drawer-pre">${escapeHtml(agent.system_prompt)}</pre>` : ''}
-      </section>
-      <section class="ef-side-drawer__section role-drawer-section">
-        <h4>工具与技能</h4>
-        <p>${escapeHtml(toolsTag?.text || (agentUsesExternalCli(agent) ? '由外部 CLI 提供' : '—'))} · ${skills.length} 个技能</p>
-        ${
-          caps.all.length
-            ? `<div class="role-drawer-tags">${caps.all
-                .map((t) => `<span class="role-cap-chip role-cap-chip--static">${escapeHtml(t)}</span>`)
-                .join('')}</div>`
-            : ''
-        }
-        ${
-          skills.length
-            ? `<ul class="role-drawer-list">${skills
-                .slice(0, 12)
-                .map((s) => `<li>${escapeHtml(s)}</li>`)
-                .join('')}${skills.length > 12 ? `<li>…另有 ${skills.length - 12} 个</li>` : ''}</ul>`
-            : ''
-        }
-      </section>
-      <section class="ef-side-drawer__section role-drawer-section">
-        <h4>连接器</h4>
-        <p>${
-          mcps === null
-            ? '可使用全部已配置 MCP'
-            : mcps.length
-              ? mcps.map((m) => escapeHtml(m)).join('、')
-              : '未连接 MCP'
-        }</p>
-      </section>
-      <section class="ef-side-drawer__section role-drawer-section">
-        <h4>部署位置</h4>
-        <p>${escapeHtml(deployText)}</p>
-      </section>
-      <section class="ef-side-drawer__section role-drawer-section">
-        <h4>最近运行</h4>
-        <p class="role-drawer-muted">${
-          role?.last_active_at || role?.updated_at
-            ? escapeHtml(String(role.last_active_at || role.updated_at))
-            : '暂无运行记录'
-        }</p>
-      </section>
-      <section class="ef-side-drawer__section role-drawer-section">
-        <h4>版本记录</h4>
-        <p class="role-drawer-muted">配置变更历史将在后续版本提供</p>
-      </section>
-      <section class="ef-side-drawer__section role-drawer-section">
-        <h4>渠道</h4>
-        ${renderIMBindingsSection(role)}
-      </section>
-    `
+  const sourceLabel = normalizeAgentTags(agent.tags).some((t) => /skillhub/i.test(t))
+    ? 'SkillHub'
+    : agent.agent_type === 'subagent' || id === 'main'
+      ? '系统'
+      : '—'
+  const modelLabel = formatAgentModelFollowLabel(agent.model, primaryModel)
+  const lastRun =
+    role?.last_active_at || role?.updated_at
+      ? String(role.last_active_at || role.updated_at)
+      : '暂无运行记录'
+  const mcpText =
+    mcps === null
+      ? '可使用全部已配置 MCP'
+      : mcps.length
+        ? mcps.map((m) => escapeHtml(m)).join('、')
+        : '未连接 MCP'
+  const toolsSummary = toolsTag?.text || (agentUsesExternalCli(agent) ? '由外部 CLI 提供' : '—')
 
-    const isDefaultAgent = id === 'main' || agent?.isDefault
-    const imBoundCount = role ? imBindingCount(role) : 0
-    const imBtnLabel = imBoundCount > 0 ? `已绑 IM（${imBoundCount}）` : '扫码绑定 IM'
-    const imBtnTitle = imBoundCount > 0
-      ? `已绑 ${imBoundCount} 个 IM 渠道；点此加新渠道或重新扫码`
-      : '扫码给该员工绑定一个 IM 机器人（飞书 / 企业微信 / 钉钉）'
-    const imBtn =
-      isDefaultAgent
-        ? ''
-        : `<button type="button" class="btn btn-secondary" data-action="bind-im" data-id="${escapeAttr(id)}" title="${escapeAttr(imBtnTitle)}">${escapeHtml(imBtnLabel)}</button>`
+  const bodyHtml = `
+      <div class="role-detail-meta">
+        <div class="role-detail-meta__item">
+          <span class="role-detail-meta__k">标识</span>
+          <code class="role-detail-meta__v">${escapeHtml(id)}</code>
+        </div>
+        <div class="role-detail-meta__item">
+          <span class="role-detail-meta__k">模型</span>
+          <span class="role-detail-meta__v">${escapeHtml(modelLabel)}</span>
+        </div>
+        <div class="role-detail-meta__item">
+          <span class="role-detail-meta__k">部署</span>
+          <span class="role-detail-meta__v">${escapeHtml(deployText)}</span>
+        </div>
+        <div class="role-detail-meta__item">
+          <span class="role-detail-meta__k">最近运行</span>
+          <span class="role-detail-meta__v">${escapeHtml(lastRun)}</span>
+        </div>
+      </div>
 
-    foot.innerHTML = `
-      <div class="ef-side-drawer__actions">
-        <button type="button" class="btn btn-secondary" data-action="edit" data-id="${escapeAttr(id)}">编辑配置</button>
-        ${imBtn}
-        <button type="button" class="btn btn-primary" data-action="${escapeAttr(primary.action)}" data-id="${escapeAttr(id)}">${escapeHtml(
-          primary.action === 'hire' ? '加入员工编制' : primary.label,
-        )}</button>
+      <div class="role-detail-layout">
+        <div class="role-detail-main">
+          <section class="role-detail-card">
+            <h4 class="role-detail-card__title">主要职责</h4>
+            <p class="role-detail-card__text">${escapeHtml(agent.description || '暂无描述')}</p>
+          </section>
+
+          <section class="role-detail-card">
+            <h4 class="role-detail-card__title">模型与提示词</h4>
+            <dl class="role-drawer-dl">
+              <div><dt>默认模型</dt><dd>${escapeHtml(modelLabel)}</dd></div>
+            </dl>
+            ${
+              agent.system_prompt
+                ? `<pre class="role-drawer-pre role-detail-prompt">${escapeHtml(agent.system_prompt)}</pre>`
+                : `<p class="role-drawer-muted">未配置系统提示词</p>`
+            }
+          </section>
+
+          <section class="role-detail-card">
+            <h4 class="role-detail-card__title">工具与技能</h4>
+            <p class="role-detail-card__text">${escapeHtml(toolsSummary)} · ${skills.length} 个技能</p>
+            ${
+              caps.all.length
+                ? `<div class="role-drawer-tags">${caps.all
+                    .map((t) => `<span class="role-cap-chip role-cap-chip--static">${escapeHtml(t)}</span>`)
+                    .join('')}</div>`
+                : ''
+            }
+            ${
+              skills.length
+                ? `<ul class="role-drawer-list">${skills
+                    .slice(0, 12)
+                    .map((s) => `<li>${escapeHtml(s)}</li>`)
+                    .join('')}${skills.length > 12 ? `<li>…另有 ${skills.length - 12} 个</li>` : ''}</ul>`
+                : ''
+            }
+          </section>
+        </div>
+
+        <aside class="role-detail-aside">
+          <section class="role-detail-card">
+            <h4 class="role-detail-card__title">基本信息</h4>
+            <dl class="role-drawer-dl">
+              <div><dt>类型</dt><dd>${escapeHtml(agentTypeLabelOf(agent) || '—')}</dd></div>
+              <div><dt>状态</dt><dd>${escapeHtml(runStatusLabel(run))}</dd></div>
+              <div><dt>来源</dt><dd>${escapeHtml(sourceLabel)}</dd></div>
+            </dl>
+          </section>
+
+          <section class="role-detail-card">
+            <h4 class="role-detail-card__title">连接器</h4>
+            <p class="role-detail-card__text">${mcpText}</p>
+          </section>
+
+          <section class="role-detail-card">
+            <h4 class="role-detail-card__title">渠道</h4>
+            ${renderIMBindingsSection(role)}
+          </section>
+        </aside>
       </div>
     `
 
-    mountRoleCardAvatars(body, [agent], 40)
-  } catch (e) {
-    body.innerHTML = `<div class="role-drawer-error">加载失败：${escapeHtml(e?.message || e)}</div>`
-  }
+  const isDefaultAgent = id === 'main' || agent?.isDefault
+  const imBoundCount = role ? imBindingCount(role) : 0
+  const imBtnLabel = imBoundCount > 0 ? `已绑 IM（${imBoundCount}）` : '扫码绑定 IM'
+  const imBtnTitle = imBoundCount > 0
+    ? `已绑 ${imBoundCount} 个 IM 渠道；点此加新渠道或重新扫码`
+    : '扫码给该员工绑定一个 IM 机器人（飞书 / 企业微信 / 钉钉）'
+  const imBtn =
+    isDefaultAgent
+      ? ''
+      : `<button type="button" class="btn btn-secondary" data-action="bind-im" data-id="${escapeAttr(id)}" title="${escapeAttr(imBtnTitle)}">${escapeHtml(imBtnLabel)}</button>`
+
+  const footHtml = `
+      <button type="button" class="btn btn-secondary" data-action="edit" data-id="${escapeAttr(id)}">编辑配置</button>
+      ${imBtn}
+      <button type="button" class="btn btn-primary" data-action="${escapeAttr(primary.action)}" data-id="${escapeAttr(id)}">${escapeHtml(
+        primary.action === 'hire' ? '加入员工编制' : primary.label,
+      )}</button>
+    `
+
+  return { name, subtitleHtml, bodyHtml, footHtml, agent }
+}
+
+/**
+ * 详情页事件：与列表卡片同一套 action。
+ * @param {HTMLElement} page
+ * @param {object} state
+ */
+export function attachAgentDetailEvents(page, state) {
+  if (!page || page.dataset.agentDetailEventsBound === '1') return
+  page.dataset.agentDetailEventsBound = '1'
+  page.addEventListener('click', async (e) => {
+    const btn = e.target.closest('[data-action]')
+    if (!btn || !page.contains(btn)) return
+    e.preventDefault()
+    e.stopPropagation()
+    const action = btn.dataset.action
+    const id = btn.dataset.id
+    if (action === 'back') {
+      navigate('/expert')
+      return
+    }
+    await handlePrimaryOrMenuAction(action, id, page, state)
+  })
 }
 
 function closeAllMoreMenus(page) {
@@ -1140,26 +1160,6 @@ export function attachRoleEvents(page, state) {
       if (!card || e.target !== card) return
       e.preventDefault()
       void openAgentDetailDrawer(page, state, card.dataset.id)
-    })
-  }
-
-  const drawer = page.querySelector('#roleDrawer')
-  if (drawer && drawer.dataset.eventsBound !== '1') {
-    drawer.dataset.eventsBound = '1'
-    drawer.addEventListener('click', async (e) => {
-      const closeBtn = e.target.closest('[data-action="close-drawer"]')
-      if (closeBtn) {
-        state.selectedId = null
-        page.querySelectorAll('.role-card--selected').forEach((el) => el.classList.remove('role-card--selected'))
-        closeAgentDetailDrawer(page)
-        return
-      }
-      const btn = e.target.closest('[data-action]')
-      if (!btn) return
-      const action = btn.dataset.action
-      const id = btn.dataset.id
-      if (action === 'close-drawer') return
-      await handlePrimaryOrMenuAction(action, id, page, state)
     })
   }
 
@@ -1490,7 +1490,7 @@ async function showRoleDetailDialog(id, page, state) {
     const detailToolsMcpSkillsHtml = (extCli || frontDesk) ? '' : `
               <!-- 内置工具（只显示已选中的） -->
               <section class="re-panel" data-panel="tools" hidden>
-                <p class="re-hint">系统工具（询问、场景切换、查找/激活工具、Plan 协作、Goal 目标模式等）由运行时自动挂载，不在此列出。</p>
+                <p class="re-hint">会话系统工具（询问、场景切换、查找/激活工具、Plan 协作、Goal 等）由运行时自动挂载，不在此列出。<code>platform</code>（平台行政）可勾选：主会话/小V 默认已有；普通员工需勾选才会挂载。</p>
                 <div class="re-bar">
                   <span class="re-count">${isAllTools ? '<em style="color:#10b981">全部可用 (' + metaTools.length + ')</em>' : `<em class="re-num">${activeTools.length}</em> 个工具`}</span>
                 </div>

@@ -1963,6 +1963,18 @@ export const api = {
     gatewayProxy('POST', `/knowledge/owned/bases/${encodeURIComponent(String(id || ''))}/resync`, {
       pruneMissing: Boolean(opts.pruneMissing),
     }),
+  previewOwnedKnowledgeSync: async (id, opts = {}) => {
+    const body = {
+      folderPrefix: opts.folderPrefix || '',
+      sampleLimit: opts.sampleLimit != null ? Number(opts.sampleLimit) : 80,
+    }
+    if (opts.path) body.path = String(opts.path)
+    return gatewayProxy(
+      'POST',
+      `/knowledge/owned/bases/${encodeURIComponent(String(id || ''))}/sync-preview`,
+      body,
+    )
+  },
   listOwnedKnowledgeJobs: async (id, opts = {}) => {
     const q = new URLSearchParams()
     if (opts.limit != null) q.set('limit', String(opts.limit))
@@ -2823,6 +2835,13 @@ export const api = {
     if (query.from) out.from = query.from
     if (query.to) out.to = query.to
     return gatewayProxy('GET', '/usage/by-category', null, out)
+  },
+  /** Per-day chat / image / video / embedding pivot for usage dashboard table. */
+  usageDailyBreakdown: (query = {}) => {
+    const out = {}
+    if (query.from) out.from = query.from
+    if (query.to) out.to = query.to
+    return gatewayProxy('GET', '/usage/daily-breakdown', null, out)
   },
   usageBySku: (query = {}) => {
     const out = {}

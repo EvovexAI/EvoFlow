@@ -54,10 +54,14 @@ DEFAULT_MEDIA_CREDENTIALS: dict[str, Any] = {
     # These are read by app.gateway.speech.tts_registry and its providers.
     "openaiTtsKey": "",
     "openaiTtsBaseUrl": "",
+    "openaiTtsVoice": "nova",
     "openaiImageApiKey": "",
     "openaiImageBaseUrl": "https://api.openai.com/v1",
     "elevenLabsKey": "",
+    "elevenLabsVoice": "21m00Tcm4TlvDq8ikWAM",
     "minimaxKey": "",
+    "minimaxTtsVoice": "male-qn-qingse",
+    "dashscopeTtsVoice": "longanyang",
     "minimaxMediaApiKey": "",
     "minimaxMediaBaseUrl": "https://api.minimax.cn",
     "aliyunAccessKeyId": "",
@@ -72,6 +76,10 @@ DEFAULT_MEDIA_CREDENTIALS: dict[str, Any] = {
         "openai-image": False,
         "minimax": False,
         "volcengine-tts": False,
+        "dashscope-tts": False,
+        "openai-tts": False,
+        "elevenlabs-tts": False,
+        "minimax-tts": False,
         "aliyun": False,
     },
 }
@@ -106,17 +114,21 @@ VENDOR_CREDENTIAL_ALIASES: dict[str, dict[str, str]] = {
         "ttsSpeaker": "volcengineTtsSpeaker",
         "asrResourceId": "volcengineAsrResourceId",
     },
+    "dashscope-tts": {
+        "apiKey": "dashscopeApiKey",
+        "baseUrl": "dashscopeBaseUrl",
+        "ttsVoice": "dashscopeTtsVoice",
+    },
     "aliyun": {
         "accessKeyId": "aliyunAccessKeyId",
         "accessKeySecret": "aliyunAccessKeySecret",
         "ossBucket": "aliyunOssBucket",
         "imsEndpoint": "aliyunImsEndpoint",
     },
-    # Multi-provider TTS vendors (no enabledVendors toggle; availability is
-    # determined by validate_tts_config in tts_registry based on credentials).
     "openai-tts": {
         "apiKey": "openaiTtsKey",
         "baseUrl": "openaiTtsBaseUrl",
+        "ttsVoice": "openaiTtsVoice",
     },
     "openai-image": {
         "apiKey": "openaiImageApiKey",
@@ -124,9 +136,11 @@ VENDOR_CREDENTIAL_ALIASES: dict[str, dict[str, str]] = {
     },
     "elevenlabs-tts": {
         "apiKey": "elevenLabsKey",
+        "ttsVoice": "elevenLabsVoice",
     },
     "minimax-tts": {
         "apiKey": "minimaxKey",
+        "ttsVoice": "minimaxTtsVoice",
     },
     "minimax": {
         "apiKey": "minimaxMediaApiKey",
@@ -154,7 +168,8 @@ VENDOR_UI_LABELS: dict[str, str] = {
     "kling": "可灵",
     "openai-image": "OpenAI 生图",
     "minimax": "MiniMax H3",
-    "volcengine-tts": "火山 TTS",
+    "volcengine-tts": "火山语音",
+    "dashscope-tts": "阿里云语音",
     "aliyun": "阿里云",
     "openai-tts": "OpenAI TTS",
     "elevenlabs-tts": "ElevenLabs",

@@ -1,0 +1,20 @@
+{
+  "identifier": "cua-glow-overlay-capability",
+  "description": "Computer Use top operation indicator (ZCode-aligned)",
+  "windows": ["cua-glow-0"],
+  "permissions": [
+    "core:event:default",
+    "core:window:allow-show",
+    "core:window:allow-hide",
+    "core:window:allow-set-always-on-top",
+    "core:window:allow-set-ignore-cursor-events",
+    "core:window:allow-set-content-protected",
+    "core:window:allow-set-size",
+    "core:window:allow-set-position",
+    "core:window:allow-outer-position",
+    "core:window:allow-outer-size",
+    "core:window:allow-is-visible",
+    "core:window:allow-close",
+    "core:webview:allow-create-webview-window"
+  ]
+}

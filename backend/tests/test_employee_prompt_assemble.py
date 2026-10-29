@@ -299,3 +299,26 @@ def test_org_lists_manager_and_peers() -> None:
     )
     assert "product-manager" in text
     assert "quality-inspector" in text
+
+
+def test_leaf_with_peers_prompts_handlers_not_only_complete() -> None:
+    """Fullstack/QA leaves must hand off via peer handlers — not sit waiting for manager relay."""
+    be = _role(code="dev-backend", name="全栈开发", reports_to="dev-tech-director", workspace="/tmp/agent")
+    be.config.soul_md = ""
+    qa = _role(code="dev-qa", name="验证岗", reports_to="dev-tech-director", workspace="/tmp/agent")
+    lead = _role(code="dev-tech-director", name="技术总监", reports_to="", workspace="/tmp/agent")
+    text = assemble_employee_system_prompt(
+        mode="duty",
+        role=be,
+        roster=[be, qa, lead],
+        custom_system_prompt="job",
+        user_profile_block="<user_profile>u</user_profile>",
+        include_memory=False,
+    )
+    collab = text.split("<employee_collab", 1)[-1].split("</employee_collab>", 1)[0]
+    assert "平级" in collab
+    assert "handlers" in collab
+    assert "dev-qa" in collab
+    assert "不要" in collab and "上级" in collab
+    assert "做完可对本岗 Task" not in collab  # old leaf-only copy
+    assert "平级协作" in text or "下一环" in text

@@ -86,6 +86,65 @@ def test_notify_wakes_as_system_and_stamps_on_ok(monkeypatch: pytest.MonkeyPatch
     assert any("upstream_receipt_at" in (f or {}) for _tid, f in patches if _tid == "c1")
 
 
+def test_notify_skips_wake_when_child_already_chained(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Peer handoff already dispatched → do not wake manager as messenger."""
+    from evoflow.collab import upstream_receipt as ur
+
+    child = {
+        "id": "c3",
+        "assigned_to": "dev-backend",
+        "parent_task_id": "p1",
+        "name": "全栈",
+        "status": "completed",
+        "handlers_dispatched_at": "2026-10-28T12:37:07+08:00",
+        "handlers_dispatched": [{"agent_code": "dev-qa", "task_id": "qa1", "ok": True}],
+    }
+    parent = {
+        "id": "p1",
+        "assigned_to": "dev-tech-director",
+        "raised_by": "user",
+        "status": "awaiting_close",
+    }
+    wakes: list[dict] = []
+    patches: list[tuple[str, dict]] = []
+
+    monkeypatch.setattr("evoflow.collab.storage.get_project_storage", lambda: MagicMock())
+    monkeypatch.setattr(
+        "evoflow.collab.storage.find_main_task",
+        lambda *_a, **_k: ({"id": "proj"}, parent),
+    )
+    monkeypatch.setattr(
+        ur,
+        "sibling_rollup",
+        lambda _pid: {
+            "done": 1,
+            "total": 1,
+            "all_done": True,
+            "done_rows": [{"task_id": "c3"}],
+            "open_rows": [],
+        },
+    )
+    monkeypatch.setattr(ur, "maybe_push_tree_receipt_feishu", lambda **_k: None)
+    monkeypatch.setattr(
+        "evoflow.collab.storage.patch_collab_main_task_in_project_storage",
+        lambda _s, tid, fields: patches.append((tid, dict(fields))) or True,
+    )
+    import evoflow.admin.employees as emp_mod
+
+    monkeypatch.setattr(
+        emp_mod,
+        "wake",
+        lambda *_a, **_k: wakes.append({"hit": True}) or {"ok": True},
+    )
+
+    out = ur.notify_upstream_on_child_terminal(child, terminal_status="completed")
+    assert out and out.get("ok") is True
+    assert out.get("targets") == []
+    assert out.get("skipped_wake_already_chained") is True
+    assert wakes == []
+    assert any("upstream_receipt_at" in (f or {}) for _tid, f in patches if _tid == "c3")
+
+
 def test_notify_does_not_stamp_when_wake_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
     from evoflow.collab import upstream_receipt as ur
 

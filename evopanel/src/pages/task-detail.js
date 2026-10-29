@@ -1100,6 +1100,7 @@ function bindTaskGateActions(page, state) {
       try {
         await api.proactiveApprove(tid, 'approved', 'user', '')
         toast('已同意派发', 'success')
+        void import('../lib/proactive-approval-notify.js').then((m) => m.refreshProactiveApprovalNotify())
         await loadTaskDetail(page, state)
       } catch (err) {
         toast('审批失败：' + err, 'error')
@@ -1131,6 +1132,7 @@ function bindTaskGateActions(page, state) {
       try {
         await api.proactiveApprove(tid, 'rejected', 'user', reason, reason)
         toast('已驳回', 'info')
+        void import('../lib/proactive-approval-notify.js').then((m) => m.refreshProactiveApprovalNotify())
         await loadTaskDetail(page, state)
       } catch (err) {
         toast('操作失败：' + err, 'error')
@@ -1497,15 +1499,19 @@ function textLooksSimilar(a, b) {
 
 async function loadTaskDetail(page, state) {
   try {
-    const [task, sessionsRes] = await Promise.all([
-      api.getTask(state.taskId),
-      api.getActiveSessions({}).catch(() => null),
-    ])
+    const task = await api.getTask(state.taskId)
     state.task = task
     state.projectId = state.taskId
     state.subtasks = state.task.subtasks || []
-    if (sessionsRes != null) {
-      state.runtimeIndex = buildActiveSessionIndex(asActiveSessionList(sessionsRes))
+    // Prefer GET /tasks/:id ``runtime_health``; probe only if gateway omitted it.
+    const serverH = String(task?.runtime_health || task?.runtimeHealth || '').toLowerCase()
+    if (serverH === 'live' || serverH === 'interrupted' || serverH === 'idle') {
+      state.runtimeIndex = null
+    } else {
+      const sessionsRes = await api.getActiveSessions({}).catch(() => null)
+      if (sessionsRes != null) {
+        state.runtimeIndex = buildActiveSessionIndex(asActiveSessionList(sessionsRes))
+      }
     }
     const shellTitle = String(task?.name || task?.title || '').trim()
     if (shellTitle) {

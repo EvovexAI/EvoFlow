@@ -10,7 +10,7 @@ import {
   logRightStageTrigger,
 } from './panel-set-debug-log.js'
 import { rightStageStore } from './right-stage-store.js'
-import type { RightStageSurface } from './right-stage-types.js'
+import { normalizeRightStageKind, type RightStageSurface } from './right-stage-types.js'
 
 function safePreviewObj(raw: unknown): string {
   try {
@@ -327,6 +327,38 @@ export function tryAutoOpenPlatformProgress(
   if (!hit?.openStage) {
     return { opened: false, reason: 'no-autoOpen-openStage', ...base }
   }
+  // V4 + 旧热路径常各开一次；已展开同一 shell-page 时直接算成功，少一次 store/挂载抖动
+  {
+    const snap = rightStageStore.getSnapshot()
+    const wantKind = normalizeRightStageKind(hit.openStage.kind)
+    const cur = snap.surface
+    const curKind = normalizeRightStageKind(cur?.kind)
+    if (
+      wantKind === 'shell-page' &&
+      curKind === 'shell-page' &&
+      !snap.collapsed &&
+      cur
+    ) {
+      const norm = (p: string) => {
+        let s = String(p || '').trim()
+        if (s.startsWith('#')) s = s.slice(1)
+        if (!s.startsWith('/')) s = `/${s}`
+        return s.split('?')[0].replace(/\/+$/, '') || '/'
+      }
+      const wantPath = norm(
+        asString(hit.openStage.data?.path) || asString(hit.openStage.data?.route) || '',
+      )
+      const curPath = norm(asString(cur.data?.path) || asString(cur.data?.route) || '')
+      if (wantPath && curPath && wantPath === curPath) {
+        return {
+          opened: true,
+          reason: 'already-open',
+          tabId: snap.activeKey || `shell-page:${cur.id}`,
+          ...base,
+        }
+      }
+    }
+  }
   logRightStageTrigger('maybeAutoOpenPlatformProgress', {
     kind: hit.openStage?.kind,
     label: hit.label,
@@ -475,6 +507,131 @@ function shouldAutoOpenShellPage(action: string): boolean {
     action === 'items.get' ||
     action === 'items.list'
   )
+}
+
+/** 派活 / 叫醒 / 续聊：args 阶段即可挂员工过程（不必等 RESULT） */
+const EAGER_EMPLOYEE_PROCESS_ACTIONS = new Set([
+  'employees.wake',
+  'employees.dispatch',
+  'employees.resume',
+  'employees.chat_send',
+])
+
+const eagerPlatformAutoOpenedIds = new Set<string>()
+
+function rememberEagerPlatformOpen(toolCallId: string): void {
+  if (!toolCallId) return
+  eagerPlatformAutoOpenedIds.add(toolCallId)
+  if (eagerPlatformAutoOpenedIds.size > 256) {
+    const oldest = eagerPlatformAutoOpenedIds.values().next().value
+    if (oldest !== undefined) eagerPlatformAutoOpenedIds.delete(oldest)
+  }
+}
+
+function pickEagerEntityId(args: Record<string, unknown>, domain: string): string {
+  return (
+    asString(args.agent_code) ||
+    asString(args.agentCode) ||
+    asString(args.assignee) ||
+    asString(args.assigned_to) ||
+    asString(args.name) ||
+    (domain === 'tasks' ? asString(args.task_id) || asString(args.taskId) : '') ||
+    (domain === 'items' ? asString(args.item_id) || asString(args.itemId) || asString(args.id) : '') ||
+    asString(args.entity_id) ||
+    asString(args.entityId)
+  )
+}
+
+/**
+ * 平台工具 args 一解析出可开栏 action，立刻拉开右栏（不必等 TOOL_CALL_RESULT）。
+ * 解决：employees.list / hire / wake 等要等结果才弹，用户感觉「调了很多次才出来」。
+ */
+export function tryEagerAutoOpenPlatformFromArgs(
+  argsText: string | null | undefined,
+  opts?: { toolCallId?: string; toolName?: string },
+): PlatformAutoOpenDiag {
+  const empty: PlatformAutoOpenDiag = { opened: false, reason: 'no-args', actions: [] }
+  const toolName = asString(opts?.toolName).toLowerCase()
+  if (toolName && toolName !== 'platform') {
+    return { ...empty, reason: 'not-platform' }
+  }
+  const toolCallId = asString(opts?.toolCallId)
+  if (toolCallId && eagerPlatformAutoOpenedIds.has(toolCallId)) {
+    return { ...empty, reason: 'already-eager', action: undefined }
+  }
+  const args = parseJsonObject(argsText)
+  if (!args) return empty
+  const action = asString(args.action)
+  if (!action.includes('.')) return { ...empty, reason: 'no-action' }
+  const domain = action.split('.', 1)[0] || ''
+  const entityId = pickEagerEntityId(args, domain)
+  const entityLabel =
+    asString(args.role_name) ||
+    asString(args.roleName) ||
+    asString(args.title) ||
+    asString(args.name) ||
+    entityId
+
+  let ui: PlatformUiFeedback | null = null
+  if (EAGER_EMPLOYEE_PROCESS_ACTIONS.has(action) && entityId) {
+    const taskId =
+      asString(args.task_id) || asString(args.taskId) || asString(args.related_task_id) || `live:${entityId}`
+    const sessionKey = asString(args.session_key) || asString(args.sessionKey)
+    ui = {
+      kind: 'success',
+      action,
+      domain: 'employees',
+      entityId,
+      agentCode: entityId,
+      entityLabel: entityLabel || entityId,
+      title: entityLabel || entityId,
+      actions: [
+        {
+          label: action === 'employees.chat_send' ? '打开对话' : '查看进度',
+          autoOpen: true,
+          openStage: {
+            kind: 'employeeProcess',
+            title: entityLabel || entityId,
+            layout: 'wide',
+            data: {
+              taskId,
+              agentCode: entityId,
+              busy: true,
+              roleName: entityLabel || undefined,
+              ...(sessionKey ? { sessionKey } : {}),
+            },
+          },
+        },
+      ],
+    }
+  } else if (shouldAutoOpenShellPage(action)) {
+    // actions 留空：enrichShellPageOpenStages 按 action 补 shell-page + autoOpen
+    ui = {
+      kind: 'success',
+      action,
+      domain,
+      entityId: entityId || null,
+      agentCode: domain === 'employees' ? entityId || null : undefined,
+      entityLabel: entityLabel || undefined,
+      title: TITLE_OVERRIDES[action]?.(entityLabel || entityId || domain) || '平台操作',
+      actions: [],
+    }
+  } else {
+    return { ...empty, reason: 'not-eager-action', action, domain }
+  }
+
+  const diag = tryAutoOpenPlatformProgress(ui)
+  if (diag.opened && toolCallId) rememberEagerPlatformOpen(toolCallId)
+  if (diag.opened) {
+    logRightStageTrigger('eagerAutoOpenPlatformFromArgs', {
+      toolCallId: toolCallId || null,
+      action,
+      domain,
+      entityId: entityId || null,
+      tabId: diag.tabId,
+    })
+  }
+  return diag
 }
 
 function isProgressOpenStageKind(kind: string | null | undefined): boolean {

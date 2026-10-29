@@ -863,10 +863,12 @@ CREATE TABLE IF NOT EXISTS evoflow_media_assets (
             tool_name TEXT NOT NULL,
             media_kind TEXT NOT NULL,
             provider TEXT,
+            model TEXT,
             task_id TEXT,
             status TEXT NOT NULL DEFAULT 'processing',
             remote_url TEXT,
             local_path TEXT,
+            result_url TEXT,
             file_size_bytes INTEGER,
             meta_json TEXT NOT NULL DEFAULT '{}',
             created_at TEXT NOT NULL,
@@ -2095,6 +2097,11 @@ _LEGACY_COLUMN_BACKFILL: dict[str, tuple[tuple[str, str], ...]] = {
         ("exec_duration_ms", "INTEGER"),
         ("timing_state", "TEXT"),
     ),
+    # Call ledger for image/video: model + canonical result_url (http preferred, else local).
+    "evoflow_media_assets": (
+        ("model", "TEXT"),
+        ("result_url", "TEXT"),
+    ),
 }
 
 
@@ -2126,6 +2133,41 @@ def _backfill_legacy_columns(conn: sqlite3.Connection) -> None:
         _backfill_task_durations(conn)
     except Exception:
         logger.debug("schema: task duration backfill failed", exc_info=True)
+
+
+def _ensure_media_assets_schema(conn: sqlite3.Connection) -> None:
+    """Ensure media call-ledger columns exist on current DBs (no schema bump)."""
+    if not _table_exists(conn, "evoflow_media_assets"):
+        return
+    existing = _existing_columns(conn, "evoflow_media_assets")
+    added: list[str] = []
+    for col_name, col_def in (("model", "TEXT"), ("result_url", "TEXT")):
+        if col_name in existing:
+            continue
+        conn.execute(f"ALTER TABLE evoflow_media_assets ADD COLUMN {col_name} {col_def}")
+        added.append(col_name)
+    if added:
+        conn.commit()
+        logger.info("schema: added media_assets column(s): %s", ", ".join(added))
+    # Backfill canonical result_url: prefer http(s) remote_url, else local_path.
+    try:
+        conn.execute(
+            """
+            UPDATE evoflow_media_assets
+            SET result_url = CASE
+                WHEN remote_url IS NOT NULL AND (
+                    lower(remote_url) LIKE 'http://%' OR lower(remote_url) LIKE 'https://%'
+                ) THEN remote_url
+                WHEN local_path IS NOT NULL AND trim(local_path) != '' THEN local_path
+                WHEN remote_url IS NOT NULL AND trim(remote_url) != '' THEN remote_url
+                ELSE result_url
+            END
+            WHERE result_url IS NULL OR trim(result_url) = ''
+            """
+        )
+        conn.commit()
+    except Exception:
+        logger.debug("schema: media_assets result_url backfill failed", exc_info=True)
 
 
 def _ensure_timing_schema(conn: sqlite3.Connection) -> None:
@@ -2419,6 +2461,7 @@ def ensure_app_schema(conn: sqlite3.Connection) -> None:
     if version == 0:
         _apply_baseline(conn)
         _ensure_timing_schema(conn)
+        _ensure_media_assets_schema(conn)
         return
     if version > APP_SCHEMA_VERSION:
         _snap_legacy_user_version(conn, version)
@@ -2427,10 +2470,12 @@ def ensure_app_schema(conn: sqlite3.Connection) -> None:
         if int(conn.execute("PRAGMA user_version").fetchone()[0] or 0) == APP_SCHEMA_VERSION:
             _ensure_duty_runs_table(conn)
             _ensure_timing_schema(conn)
+            _ensure_media_assets_schema(conn)
             return
         _apply_baseline(conn)
         _ensure_duty_runs_table(conn)
         _ensure_timing_schema(conn)
+        _ensure_media_assets_schema(conn)
         return
     # version == APP_SCHEMA_VERSION: already current — still ensure post-baseline tables.
     _ensure_duty_runs_table(conn)
@@ -2439,6 +2484,7 @@ def ensure_app_schema(conn: sqlite3.Connection) -> None:
     # with APP_SCHEMA_VERSION still needs them. Idempotent and cheap (a
     # PRAGMA table_info per table).
     _ensure_timing_schema(conn)
+    _ensure_media_assets_schema(conn)
     return
 
 

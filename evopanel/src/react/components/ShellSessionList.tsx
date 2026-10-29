@@ -120,10 +120,22 @@ export type ShellSessionListProps = {
 }
 
 const SS_PENDING_SHELL_SESSION = 'evopanel_pending_shell_session'
+/** 侧栏 mint 的空草稿 sessionKey；主对话据此首帧就居中输入，避免贴底再跳。 */
+export const SS_SHELL_EMPTY_DRAFT = 'evopanel_shell_empty_draft'
 
 function clearPendingShellSession(): void {
   try {
     sessionStorage.removeItem(SS_PENDING_SHELL_SESSION)
+  } catch {
+    /* ignore */
+  }
+}
+
+function markShellEmptyDraft(sessionKey: string): void {
+  const sk = String(sessionKey || '').trim()
+  if (!sk) return
+  try {
+    sessionStorage.setItem(SS_SHELL_EMPTY_DRAFT, sk)
   } catch {
     /* ignore */
   }
@@ -146,8 +158,8 @@ function isGenericEmployeeWorkspaceLabel(value: string): boolean {
 }
 
 /**
- * 员工下拉 / 分组标题:优先岗位名(role_name);空时降级到 agent_name;
- * 都没有时显示英文 agent_code。绝不显示「未命名岗位」字面量。
+ * 员工下拉 / 分组标题:优先 agent_name;空时兜底 role_name;
+ * 都没有时显示英文 agent_code。
  *
  * 详见 `../lib/employee-display.ts`。
  */
@@ -808,6 +820,7 @@ export function ShellSessionList({
       } catch {
         /* ignore */
       }
+      markShellEmptyDraft(sk)
       onSelectSession(sk)
     },
     [onSelectSession],
@@ -1549,10 +1562,19 @@ export function ShellSessionList({
                               <button
                                 type='button'
                                 className='flex h-6 w-6 shrink-0 items-center justify-center rounded-md border-transparent bg-transparent text-foreground-subtle transition-colors hover:bg-surface-hover hover:text-foreground'
-                                title='新建任务'
+                                title={isEmployeesTab ? '新开员工对话' : '新建任务'}
                                 onMouseDown={(e) => e.stopPropagation()}
                                 onClick={(e) => {
                                   e.stopPropagation()
+                                  // 员工 Tab 组头 key = agent_code，必须开 proactive:…:chat:…
+                                  // 不能走 onNewSessionInWorkspace（那是普通工作空间主对话，会把侧栏切回「对话」Tab）。
+                                  if (isEmployeesTab) {
+                                    const code = String(
+                                      section.avatarAgentCode || section.key || '',
+                                    ).trim()
+                                    if (code) openNewEmployeeChat(code)
+                                    return
+                                  }
                                   const grp = groups.find((g) => g.workspaceKey === section.key)
                                   const wsPath = grp && grp.workspaceKey !== '__unbound__'
                                     ? grp.path || null

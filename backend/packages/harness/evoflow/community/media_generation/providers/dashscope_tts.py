@@ -15,10 +15,16 @@ logger = logging.getLogger(__name__)
 # https://help.aliyun.com/zh/model-studio/cosyvoice-tts-http-api
 _SPEECH_SYNTH_PATH = "/services/audio/tts/SpeechSynthesizer"
 
-# Legacy env values mapped to v3-compatible defaults.
+# Legacy / catalog aliases → CosyVoice v3-flash voice ids.
 _LEGACY_VOICE_MAP = {
-    "longxiaochun": "longanyang",
-    "longxiaochun_v2": "longanhuan",
+    "longxiaochun": "longxiaochun_v3",
+    "longxiaochun_v2": "longxiaochun_v3",
+    "longshu": "longsanshu_v3",
+    "longcheng": "longcheng_v3",
+    "longxiao": "longhua_v3",
+    "longmiao": "longmiao_v3",
+    # Old mistaken "龙安阳" spelling → official 龙安洋
+    "longanyang": "longanyang",
 }
 
 

@@ -31,6 +31,8 @@ const NOOP_BROADCAST: IBroadcastService = {
   })) as IBroadcastService["onMessage"],
 };
 
+type DirEntry = { name: string; path: string; type: "file" | "directory" };
+
 export function V4WorkspaceFileTreePane(props: {
   /** 会话工作区根（绝对路径）：树的根与所有相对化都依赖它；为空时不挂载。 */
   workspacePath: string;
@@ -41,13 +43,117 @@ export function V4WorkspaceFileTreePane(props: {
   onClose: () => void;
   /** 点击文件行 → CodeViewerSource（type:"file"）交给宿主开右侧预览 tab。 */
   onOpenCodeViewer?: (source: CodeViewerSource) => void;
+  /**
+   * Optional file filter (e.g. knowledge base: only docs/text).
+   * Directories always pass unless acceptDirectoryName rejects them.
+   */
+  acceptFileName?: (fileName: string) => boolean;
+  /** Optional directory filter (e.g. hide `.git` / empty-after-filter dirs). */
+  acceptDirectoryName?: (dirName: string) => boolean;
+  /** When true with acceptFileName, hide dirs that contain no accepted files. */
+  hideEmptyDirectories?: boolean;
 }): React.JSX.Element {
-  const { workspacePath, threadId, activePreviewPath, onClose, onOpenCodeViewer } = props;
+  const {
+    workspacePath,
+    threadId,
+    activePreviewPath,
+    onClose,
+    onOpenCodeViewer,
+    acceptFileName,
+    acceptDirectoryName,
+    hideEmptyDirectories = false,
+  } = props;
   // 访问器按 thread + workspace root 建，相对路径带 root 解析。
-  const partialServices = useMemo(
-    () => createEvoflowPartialServices(threadId ?? "", workspacePath),
-    [threadId, workspacePath],
-  );
+  const partialServices = useMemo(() => {
+    const base = createEvoflowPartialServices(threadId ?? "", workspacePath);
+    if (!acceptFileName && !acceptDirectoryName && !hideEmptyDirectories) return base;
+    const fs = base.fileService as {
+      readdir?: (params: { path: string; includeHidden?: boolean }) => Promise<DirEntry[]>;
+      [key: string]: unknown;
+    };
+    if (!fs?.readdir) return base;
+    const rawReaddir = fs.readdir.bind(fs);
+    const contentCache = new Map<string, boolean>();
+
+    const dirAllowed = (name: string) => {
+      if (acceptDirectoryName && !acceptDirectoryName(name)) return false;
+      return true;
+    };
+
+    const dirHasAcceptedContent = async (
+      dirPath: string,
+      includeHidden?: boolean,
+      depth = 0,
+    ): Promise<boolean> => {
+      const key = `${dirPath}\0${includeHidden !== false}`;
+      const cached = contentCache.get(key);
+      if (cached !== undefined) return cached;
+      // Bound recursion: deep code-only trees must not stall every expand/click.
+      if (depth > 6) {
+        contentCache.set(key, false);
+        return false;
+      }
+      let entries: DirEntry[] = [];
+      try {
+        entries = (await rawReaddir({ path: dirPath, includeHidden })) || [];
+      } catch {
+        contentCache.set(key, false);
+        return false;
+      }
+      const childDirs: DirEntry[] = [];
+      for (const entry of entries) {
+        const name = String(entry?.name || "");
+        if (entry?.type === "directory") {
+          if (dirAllowed(name)) childDirs.push(entry);
+          continue;
+        }
+        if (!acceptFileName || acceptFileName(name)) {
+          contentCache.set(key, true);
+          return true;
+        }
+      }
+      if (childDirs.length) {
+        const results = await Promise.all(
+          childDirs.map((entry) => dirHasAcceptedContent(entry.path, includeHidden, depth + 1)),
+        );
+        if (results.some(Boolean)) {
+          contentCache.set(key, true);
+          return true;
+        }
+      }
+      contentCache.set(key, false);
+      return false;
+    };
+
+    return {
+      ...base,
+      fileService: {
+        ...fs,
+        async readdir(params: { path: string; includeHidden?: boolean }) {
+          const entries = (await rawReaddir(params)) || [];
+          const files: DirEntry[] = [];
+          const dirs: DirEntry[] = [];
+          for (const entry of entries) {
+            const name = String(entry?.name || "");
+            if (entry?.type === "directory") {
+              if (!dirAllowed(name)) continue;
+              dirs.push(entry);
+              continue;
+            }
+            if (acceptFileName && !acceptFileName(name)) continue;
+            files.push(entry);
+          }
+          if (!(hideEmptyDirectories && acceptFileName) || dirs.length === 0) {
+            return [...dirs, ...files];
+          }
+          const flags = await Promise.all(
+            dirs.map((entry) => dirHasAcceptedContent(entry.path, params?.includeHidden)),
+          );
+          return [...dirs.filter((_, i) => flags[i]), ...files];
+        },
+      },
+    };
+  }, [threadId, workspacePath, acceptFileName, acceptDirectoryName, hideEmptyDirectories]);
   return (
     <ZCodeIntlProvider initialLocale="zh-CN">
       <StoreProvider broadcastService={NOOP_BROADCAST}>

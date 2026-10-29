@@ -1,19 +1,11 @@
 /**
- * 员工(智能体岗位)展示名解析 —— 全局唯一 SoT。
+ * 员工展示名解析 —— 全局唯一 SoT。
+ *
+ * 名称单源 = 智能体 `agent_name`（岗位 `role_name` 仅作旧数据兜底，保存时会同步写入）。
  *
  * 数据源:
- *   - `GET /api/proactive/roles`         → 雇佣了的角色,带 `role_name`(岗位名)
- *   - `GET /api/agents`                  → 所有智能体,带 `agent_name`(智能体名)
- *
- * 设计意图(后端 schema):
- *   `evoflow_proactive_roles.role_name` 是 NOT NULL,每个雇佣岗位必须有岗位名。
- *   老 DB 里若有空字符串,是历史脏数据,本工具不做回填,只把 UI 显示兜底到 `agent_name`。
- *
- * 之前以下 4 处各写了一份 fallback / 归一化逻辑,语义漂移严重:
- *   - evopanel/src/react/components/ShellSessionList.tsx       (员工 Tab 下拉/分组标题)
- *   - evopanel/src/react/ChatApp.tsx                           (@ 员工菜单 proactiveRolesDisplay)
- *   - evopanel/src/pages/proactive.js                          (proactive 卡片 roleCardTitle)
- *   - evopanel/src/react/components/ChatWorkspaceInfoRail.tsx (右侧员工详情 roleName)
+ *   - `GET /api/proactive/roles` → 雇佣角色（含 agent_name / role_name）
+ *   - `GET /api/agents` → 智能体列表（agent_name）
  *
  * 统一到本模块,调用方一律:
  *   resolveEmployeeDisplayName(code, { roles, agents })
@@ -21,9 +13,9 @@
 
 export type EmployeeRoleLike = {
   agent_code?: string | null
-  /** 岗位名 / 角色名(中文,优先显示)。可能为 null/空(历史脏数据)。 */
+  /** 兼容字段：保存时与 agent_name 同步；展示优先用 agent_name。 */
   role_name?: string | null
-  /** 智能体名(中文,可来自 evoflow_proactive_roles.agent_name 或 /api/agents.agent_name)。 */
+  /** 智能体名（展示主源）。 */
   agent_name?: string | null
 }
 
@@ -37,7 +29,7 @@ export type EmployeeDisplaySources = {
   roles?: ReadonlyArray<EmployeeRoleLike> | null
   /** `GET /api/agents` 的列表,用于补充 agent_name。类型故意保持宽松,内部按需断言。 */
   agents?: ReadonlyArray<unknown> | null
-  /** 直接提供该 code 对应的智能体名(例如来自父级传下来的已解析值),优先于上面的 agents 查找。 */
+  /** 直接提供该 code 对应的智能体名(例如来自父级传下来的已解析值)。 */
   agentNameHint?: string | null
 }
 
@@ -53,7 +45,7 @@ export function normalizeEmployeeCodeKey(code: string): string {
 }
 
 /**
- * label 是否是「整组常量」(`智能体员工` / 空 / 与 code 折叠),不能当岗位名。
+ * label 是否是「整组常量」(`智能体员工` / 空 / 与 code 折叠),不能当展示名。
  */
 export function isGenericEmployeeLabel(value: string): boolean {
   const t = String(value || '').trim()
@@ -61,8 +53,8 @@ export function isGenericEmployeeLabel(value: string): boolean {
 }
 
 /**
- * 岗位名是否已塌成英文 agent_code(数据脏,空字符串或与 code 等价)。
- * 返回 true 表示该 label 不能当岗位名使用。
+ * 名称是否已塌成英文 agent_code(数据脏,空字符串或与 code 等价)。
+ * 返回 true 表示该 label 不能当展示名使用。
  */
 export function isCollapsedJobTitle(title: string, agentCode: string): boolean {
   const name = String(title || '').trim()
@@ -100,17 +92,21 @@ function findAgent(
     | undefined
 }
 
+function usableName(value: string, code: string): string {
+  const t = String(value || '').trim()
+  if (!t || isGenericEmployeeLabel(t) || isCollapsedJobTitle(t, code)) return ''
+  return t
+}
+
 /**
- * 解析员工岗位展示名 —— 全局唯一入口。
+ * 解析员工展示名 —— 全局唯一入口。
  *
  * 优先级:
- *   1. role.role_name(非空、未塌成 code、未与整组常量冲突)
- *   2. agentNameHint(父级已解析好的智能体名)
- *   3. role.agent_name(岗位行里的智能体名)
- *   4. agents[].agent_name(`/api/agents` 列表里的智能体名)
- *   5. '' (空串 —— 调用方决定是否再 fallback 到 code 或显示「智能体员工」)
- *
- * 永远不返回「未命名岗位」字面量,绝不将 agent_name 回填写入 role_name。
+ *   1. role.agent_name
+ *   2. agentNameHint
+ *   3. agents[].agent_name
+ *   4. role.role_name（旧数据兜底）
+ *   5. '' （调用方再 fallback 到 code / 「智能体员工」）
  */
 export function resolveEmployeeDisplayName(
   agentCode: string,
@@ -118,32 +114,19 @@ export function resolveEmployeeDisplayName(
 ): string {
   const code = String(agentCode || '').trim()
   const role = findRole(code, sources.roles)
-  const codeKey = normalizeEmployeeCodeKey(code)
 
-  // 1. role_name(原始岗位名)
-  const roleName = String(role?.role_name || '').trim()
-  if (roleName && !isGenericEmployeeLabel(roleName) && !isCollapsedJobTitle(roleName, code)) {
-    return roleName
-  }
+  const fromRoleAgent = usableName(String(role?.agent_name || ''), code)
+  if (fromRoleAgent) return fromRoleAgent
 
-  // 2. 父级 hint
-  const hint = String(sources.agentNameHint || '').trim()
-  if (hint && !isGenericEmployeeLabel(hint) && !isCollapsedJobTitle(hint, code)) {
-    return hint
-  }
+  const hint = usableName(String(sources.agentNameHint || ''), code)
+  if (hint) return hint
 
-  // 3. role.agent_name
-  const roleAgentName = String(role?.agent_name || '').trim()
-  if (roleAgentName && !isGenericEmployeeLabel(roleAgentName) && !isCollapsedJobTitle(roleAgentName, code)) {
-    return roleAgentName
-  }
-
-  // 4. /api/agents 列表
   const agent = findAgent(code, sources.agents)
-  const agentName = String(agent?.agent_name || '').trim()
-  if (agentName && !isGenericEmployeeLabel(agentName) && !isCollapsedJobTitle(agentName, code)) {
-    return agentName
-  }
+  const fromAgents = usableName(String(agent?.agent_name || ''), code)
+  if (fromAgents) return fromAgents
+
+  const fromRoleName = usableName(String(role?.role_name || ''), code)
+  if (fromRoleName) return fromRoleName
 
   return ''
 }
@@ -175,8 +158,8 @@ export function enrichRolesWithAgentNames<
   const codeToName = new Map<string, string>()
   if (Array.isArray(agents)) {
     for (const a of agents) {
-      const code = normalizeEmployeeCodeKey(a.agent_code || '')
-      const name = String(a.agent_name || '').trim()
+      const code = normalizeEmployeeCodeKey((a as AgentMetaLike).agent_code || '')
+      const name = String((a as AgentMetaLike).agent_name || '').trim()
       if (code && name && !codeToName.has(code)) codeToName.set(code, name)
     }
   }

@@ -1,4 +1,4 @@
-"""Multi-provider ASR registry (Volcengine default; Whisper fallback)."""
+"""Multi-provider ASR registry (Volcengine default; DashScope / Whisper)."""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ logger = logging.getLogger("evoflow.speech.asr_registry")
 
 ASR_PROVIDERS: list[dict[str, Any]] = [
     {"id": "volcengine", "label": "火山引擎", "streaming": True},
+    {"id": "dashscope", "label": "阿里 DashScope（Paraformer）", "streaming": True},
     {"id": "whisper", "label": "本地 Whisper", "streaming": True},
 ]
 
@@ -19,7 +20,12 @@ ASR_PROVIDER_REQUIREMENTS: dict[str, dict[str, Any]] = {
     "volcengine": {
         "label": "火山引擎",
         "groups": [{"keys": ["volcengineSpeechApiKey", "volcengineApiKey"], "label": "语音 API Key"}],
-        "guide": "请在 设置 → 模型 → 创意媒体 → 火山 TTS/ASR 填写语音 API Key。",
+        "guide": "请在 设置 → 模型 → 语音 → 火山语音 填写语音 API Key。",
+    },
+    "dashscope": {
+        "label": "阿里 DashScope",
+        "groups": [{"keys": ["dashscopeApiKey"], "label": "DashScope API Key"}],
+        "guide": "请在 设置 → 模型 → 语音 → 阿里云语音 填写 DashScope API Key（与通义万相共用）。",
     },
     "whisper": {
         "label": "本地 Whisper",
@@ -40,6 +46,7 @@ class AsrSession(Protocol):
 
 
 def list_asr_providers() -> list[dict[str, Any]]:
+    from app.gateway.speech.providers.dashscope_asr_session import dashscope_asr_available
     from app.gateway.speech.volcengine_speech import speech_streaming_asr_available
     from app.gateway.speech.whisper_manager import is_available as whisper_available
 
@@ -48,6 +55,8 @@ def list_asr_providers() -> list[dict[str, Any]]:
         configured = False
         if p["id"] == "volcengine":
             configured = speech_streaming_asr_available()
+        elif p["id"] == "dashscope":
+            configured = dashscope_asr_available()
         elif p["id"] == "whisper":
             configured = whisper_available()
         rows.append({**p, "configured": configured})
@@ -61,7 +70,7 @@ def validate_asr_config(provider: str | None = None) -> dict[str, Any]:
         return {
             "ok": False,
             "provider": prov,
-            "guide": f"未知 ASR 服务商：{provider or '空'}。请选择 volcengine 或 whisper。",
+            "guide": f"未知 ASR 服务商：{provider or '空'}。请选择 volcengine / dashscope / whisper。",
         }
     if prov == "volcengine":
         from app.gateway.speech.volcengine_speech import speech_streaming_asr_available
@@ -71,6 +80,16 @@ def validate_asr_config(provider: str | None = None) -> dict[str, Any]:
                 "ok": False,
                 "provider": prov,
                 "missing": ["语音 API Key"],
+                "guide": req["guide"],
+            }
+    if prov == "dashscope":
+        from app.gateway.speech.providers.dashscope_asr_session import dashscope_asr_available
+
+        if not dashscope_asr_available():
+            return {
+                "ok": False,
+                "provider": prov,
+                "missing": ["DashScope API Key"],
                 "guide": req["guide"],
             }
     if prov == "whisper":
@@ -96,6 +115,10 @@ async def create_asr_session(
         from app.gateway.speech.providers.volcengine_asr_session import VolcengineAsrSession
 
         return VolcengineAsrSession(on_transcript=on_transcript, on_error=on_error)
+    if prov == "dashscope":
+        from app.gateway.speech.providers.dashscope_asr_session import DashscopeAsrSession
+
+        return DashscopeAsrSession(on_transcript=on_transcript, on_error=on_error)
     if prov == "whisper":
         from app.gateway.speech.providers.whisper_asr_session import WhisperAsrSession
 

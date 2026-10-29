@@ -267,6 +267,20 @@ def _load_model_sync(model_id: str, device: str) -> object:
     return model
 
 
+def _note_local_usage(model_id: str, texts: list[str]) -> None:
+    try:
+        from evoflow.knowledge.embedding.usage_meter import note_embedding_call
+
+        note_embedding_call(
+            model=model_id,
+            provider="local",
+            texts=texts,
+            is_local=True,
+        )
+    except Exception:
+        logger.debug("local embedding usage meter failed", exc_info=True)
+
+
 class LocalEmbeddingProvider(EmbeddingProvider):
     """Embedding via local sentence-transformers (CPU/GPU, offline after first download)."""
 
@@ -303,7 +317,7 @@ class LocalEmbeddingProvider(EmbeddingProvider):
             encode_timeout_s = 30.0
         encode_timeout_s = max(1.0, encode_timeout_s)
         try:
-            return await asyncio.wait_for(
+            vectors = await asyncio.wait_for(
                 asyncio.to_thread(_encode),
                 timeout=encode_timeout_s,
             )
@@ -316,6 +330,8 @@ class LocalEmbeddingProvider(EmbeddingProvider):
             raise
         except Exception as exc:
             raise EmbeddingError(f"Local embedding inference failed for '{model_id}': {exc}") from exc
+        _note_local_usage(model_id, texts)
+        return vectors
 
     def embed_batch_sync(self, texts: list[str]) -> list[list[float]]:
         """Synchronous batch embedding — bypasses ``asyncio.to_thread``.
@@ -334,7 +350,9 @@ class LocalEmbeddingProvider(EmbeddingProvider):
             normalize_embeddings=True,
             convert_to_numpy=True,
         )
-        return [list(map(float, row)) for row in embs]
+        vectors = [list(map(float, row)) for row in embs]
+        _note_local_usage(model_id, texts)
+        return vectors
 
     def embed_sync(self, text: str) -> list[float]:
         """Synchronous single-text embedding — bypasses ``asyncio.to_thread``."""

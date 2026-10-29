@@ -18,6 +18,7 @@ import { publishPlatformFromAgUiResult } from './publish-platform-from-agui-resu
 import {
   platformRunEntriesFromChatArtifacts,
   latestPlatformRunEntryId,
+  tryEagerAutoOpenPlatformFromArgs,
 } from '../../../lib/right-stage/platform-feedback.js'
 import { showRightStageFilePreview } from '../../../lib/right-stage/open-right-stage-file.js'
 import { isProgressStageKind } from '../../../lib/right-stage/open-progress-from-panel-set.js'
@@ -282,6 +283,8 @@ export function createChatWsOnEventHandler(ctx: ChatWsOnEventCtx) {
     suppressedGoalProposalKeysRef,
     syncAgUiCompatProjection,
     syncBrowserPanelFromAgUiEvent,
+    syncCuaGlowFromAgUiEvent,
+    hideCuaGlowOverlayForced,
     syncEmployeesRosterFromToolResult,
     syncPlanPanelImmediateFromTools,
     syncStreamMediaAssetsFromTools,
@@ -1880,6 +1883,27 @@ export function createChatWsOnEventHandler(ctx: ChatWsOnEventCtx) {
           ) {
             changed = true
           }
+          // Computer Use 屏边蓝光：与 browser panel 同热路径，按 args 识别 computerUse。
+          syncCuaGlowFromAgUiEvent?.(aguiEvent, S.aguiTurn?.toolCalls)
+          // 平台员工/待办等：args 一完整就抢先开右栏，别等 TOOL_CALL_RESULT
+          // （须在 applyAgUiWireEvent 之后，才能读到本帧合并后的 argsText）
+          if (
+            evToolName === 'platform' &&
+            !(isBackground && !isXiaomiVoiceRightStageForeground(eventSk)) &&
+            (aguiEvent.type === 'TOOL_CALL_ARGS' ||
+              aguiEvent.type === 'TOOL_CALL_END' ||
+              aguiEvent.type === EventType.TOOL_CALL_ARGS ||
+              aguiEvent.type === EventType.TOOL_CALL_END)
+          ) {
+            const tc = evToolCallId ? S.aguiTurn?.toolCalls?.get(evToolCallId) : undefined
+            const argsText = typeof tc?.argsText === 'string' ? tc.argsText : undefined
+            if (argsText) {
+              tryEagerAutoOpenPlatformFromArgs(argsText, {
+                toolCallId: evToolCallId,
+                toolName: 'platform',
+              })
+            }
+          }
           changed = true
         }
         // panel_set 前后台统一走同一条路径：applyStageSetPayload 按归属路由——
@@ -2081,7 +2105,13 @@ export function createChatWsOnEventHandler(ctx: ChatWsOnEventCtx) {
             aguiEvent.type === EventType.REASONING_MESSAGE_START ||
             aguiEvent.type === EventType.REASONING_START,
         })
-        if (aguiEvent.type === 'RUN_FINISHED' || aguiEvent.type === 'RUN_ERROR') {
+          if (aguiEvent.type === 'RUN_FINISHED' || aguiEvent.type === 'RUN_ERROR') {
+          // Computer Use 顶栏：只在 RUN_ERROR 强制收起（中间 RUN_FINISHED 会闪灭）。
+          // 正常 turn 收尾靠 gateway 30s grace + glow-status poll，对齐 ZCode AUTO_HIDE。
+          if (aguiEvent.type === 'RUN_ERROR') {
+            hideCuaGlowOverlayForced?.()
+            void import('../../../lib/cua-glow-poll.js').then((m) => m.clearCuaGlowStatusRemote?.())
+          }
           // 兜底：drain 仅在 TOOL_CALL_START 触发（ChatApp.tsx#10127 shouldReleaseAgUiBufferBeforeToolStart），
           // 但每个 run 最后一轮完成后没有新 TOOL_CALL_START，那批 done 工具就永远滞留在 aguiTurn 里，
           // 落库时 row.tools 只看到中间 drain 出的 N-1 批，最后一批被吞。表现为「UI 只显示前 4 个工具」。

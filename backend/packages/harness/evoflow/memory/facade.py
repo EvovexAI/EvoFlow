@@ -360,7 +360,7 @@ def _try_embed_sync(text: str) -> list[float] | None:
         from evoflow.knowledge.embedding.registry import get_embedding
 
         async def _run() -> list[float]:
-            return list(await get_embedding(text))
+            return list(await get_embedding(text, purpose="other"))
 
         try:
             loop = asyncio.get_running_loop()

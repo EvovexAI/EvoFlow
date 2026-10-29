@@ -40,7 +40,7 @@ Delegate in order via **`subagent`**. Wait for each step to finish; **`read_file
 2. Summarize user goal in one message, then start **step 1** (do not skip writer for full narrated videos).
 3. Each `subagent` prompt must include: **用户意图（原文摘要）**、paths from prior steps、aspect ratio、provider **`jimeng`**；并强调 **贴题、克制、镜头与口播前后衔接**（见下节）。
 4. After each subagent: verify expected files exist; if missing, retry **same** subagent once with clearer prompt.
-5. Final delivery: cite `@@outputs/…@@` in reply from **media-post** or producer after reading final path.
+5. Final delivery: cite Markdown `[name](path relative to the workspace)` or a short backtick path in reply from **media-post** or producer after reading final path.
 
 ### 创意质量标准（委派时务必写入 prompt）
 

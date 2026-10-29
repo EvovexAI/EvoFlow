@@ -136,9 +136,9 @@ async def run_parse_index(
 
     pieces = split_text(
         text,
-        chunk_size=int(base_d.get("chunk_size") or 2048),
-        chunk_overlap=int(base_d.get("chunk_overlap") or 256),
-        strategy=str(base_d.get("chunk_strategy") or "recursive"),
+        chunk_size=int(base_d.get("chunk_size") or 4096),
+        chunk_overlap=int(base_d.get("chunk_overlap") or 512),
+        strategy=str(base_d.get("chunk_strategy") or "auto"),
     )
 
     with db_for_kb(kb_id) as conn:
@@ -297,7 +297,13 @@ async def run_parse_index(
                 "message": f"嵌入 {done_n}/{total} 块",
             },
         )
-        part = await get_embeddings(batch, mc, batch_size=len(batch))
+        part = await get_embeddings(
+            batch,
+            mc,
+            batch_size=len(batch),
+            purpose="index",
+            kb_id=kb_id,
+        )
         vectors.extend(part)
 
     if not vectors or len(vectors) != len(chunk_ids):

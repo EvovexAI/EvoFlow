@@ -101,8 +101,10 @@ _OPTIONAL_TOOL_NAMES: frozenset[str] = frozenset(
     }
 )
 
-# Agent 模式系统必带：``platform``（平台行政 + 右侧面板 ui.show/hide）。
+# Agent 模式系统工具：``platform``（平台行政 + 右侧面板 ui.show/hide）。
 # 原独立 ``panel_set`` 已并入 platform ``ui.*``，不再单独挂载。
+# 自动挂载范围见 ``should_auto_mount_agent_mode_system_tools``：
+#   main / 小V 默认带；普通员工与其它角色默认不带（``mount_platform_tools`` opt-in）。
 AGENT_MODE_SYSTEM_TOOL_NAMES: frozenset[str] = frozenset({"platform"})
 
 # 中间件注入工具：不在原生工具注册表（get_available_tools）里，由 agent 中间件在
@@ -161,13 +163,68 @@ def is_goal_mode_system_tool(name: str | None) -> bool:
 
 
 def is_agent_mode_system_tool(name: str | None) -> bool:
-    """True for agent-mode required tools (``platform``, includes ui.* panels)."""
+    """True for agent-mode system tools (``platform``, includes ui.* panels)."""
     return normalize_tool_name(name) in AGENT_MODE_SYSTEM_TOOL_NAMES
 
 
+def should_auto_mount_agent_mode_system_tools(
+    agent_name: str | None,
+    *,
+    mount_platform_tools: bool = False,
+) -> bool:
+    """Whether ``platform`` should be auto-injected (no tools[] checkbox needed).
+
+    - ``main`` (and legacy lead aliases): always
+    - 小V (``xiaomi``): always (also force-merged in xiaomi tool_policy)
+    - employees / custom / subagent: only when ``mount_platform_tools=True``
+      (or when ``platform`` is explicitly checked in ``agent.tools`` — see callers)
+    """
+    if mount_platform_tools:
+        return True
+    code = str(agent_name or "").strip().lower()
+    if code in {"main", "lead_agent", "default"}:
+        return True
+    try:
+        from evoflow.agents.xiaomi.identity import is_xiaomi_agent
+
+        if is_xiaomi_agent(agent_name):
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def tools_whitelist_requests_platform(tools: list[str] | tuple[str, ...] | None) -> bool:
+    """True when role ``tools[]`` explicitly includes ``platform`` (opt-in for employees)."""
+    if not tools:
+        return False
+    return any(is_agent_mode_system_tool(x) for x in tools)
+
+
+def should_mount_platform_tool(
+    agent_name: str | None,
+    *,
+    mount_platform_tools: bool = False,
+    tools_whitelist: list[str] | tuple[str, ...] | None = None,
+) -> bool:
+    """Runtime: mount ``platform`` for main/小V, kb opt-in, or explicit tools[] check."""
+    if should_auto_mount_agent_mode_system_tools(
+        agent_name,
+        mount_platform_tools=mount_platform_tools,
+    ):
+        return True
+    return tools_whitelist_requests_platform(tools_whitelist)
+
+
 def is_mode_managed_tool(name: str | None) -> bool:
-    """True when runtime/mode injects the tool — excluded from role editor & whitelist."""
-    if is_session_system_tool(name) or is_goal_mode_system_tool(name) or is_agent_mode_system_tool(name):
+    """True when runtime/mode injects the tool — excluded from role editor & whitelist.
+
+    ``platform`` is **not** mode-managed for the editor: employees can opt-in via
+    the tools checklist; auto-mount remains main/小V only.
+    """
+    if is_agent_mode_system_tool(name):
+        return False
+    if is_session_system_tool(name) or is_goal_mode_system_tool(name):
         return True
     tier = resolve_tool_tier(name)
     return tier in ("runtime", "core", "plan", "goal", "retired")
@@ -175,6 +232,8 @@ def is_mode_managed_tool(name: str | None) -> bool:
 
 def is_role_editor_configurable_tool(name: str | None) -> bool:
     """True when a tool may appear in the agent role editor checklist."""
+    if is_agent_mode_system_tool(name):
+        return True
     if is_mode_managed_tool(name):
         return False
     tier = resolve_tool_tier(name)
@@ -214,8 +273,7 @@ def resolve_tool_tier(name: str | None) -> ToolTier:
     if n in GOAL_MODE_SYSTEM_TOOL_NAMES:
         return "goal"
     if n in AGENT_MODE_SYSTEM_TOOL_NAMES:
-        # Agent-mode required tools (platform): workspace tier for catalog
-        # labels, but mode-managed so they stay out of the role editor checklist.
+        # platform：workspace 分组，可勾选；默认不自动挂（main/小V 除外）
         return "workspace"
     if n in MIDDLEWARE_TOOL_NAMES:
         # Middleware-injected (todo_write): workspace tier so it shows in the role

@@ -158,6 +158,11 @@ class ViewImageMiddleware(AgentMiddleware[ViewImageMiddlewareState]):
 
                 loaded = self._load_staged_image_bytes(image_ref, image_data)
                 if not loaded:
+                    logger.warning(
+                        "[ViewImageMiddleware] staged ref has no pixels (load/resize failed) ref=%r path=%r",
+                        image_ref,
+                        path_hint,
+                    )
                     continue
                 img_bytes, out_mime = loaded
                 content_blocks.append(
@@ -169,48 +174,74 @@ class ViewImageMiddleware(AgentMiddleware[ViewImageMiddlewareState]):
 
         return content_blocks
 
-    def _should_inject_image_message(self, state: ViewImageMiddlewareState) -> bool:
+    def _should_inject_image_message(self, state: ViewImageMiddlewareState) -> tuple[bool, str]:
         messages = state.get("messages", [])
         if not messages:
-            return False
+            return False, "no_messages"
 
         last_assistant_msg = self._get_last_assistant_message(messages)
         if not last_assistant_msg:
-            return False
+            return False, "no_assistant"
 
         # ``view_image`` staging requires the tool call in the last assistant
         # message; ``auto`` staging (node_repl screenshots) is one-shot and
         # injects regardless, as long as the tools of this turn have settled.
-        if not self._has_view_image_tool(last_assistant_msg) and not self._has_auto_images(state):
-            return False
+        has_manual = self._has_view_image_tool(last_assistant_msg)
+        has_auto = self._has_auto_images(state)
+        if not has_manual and not has_auto:
+            return False, "no_read_image_tool_and_no_auto"
 
         if not self._all_tools_completed(messages, last_assistant_msg):
-            return False
+            return False, "tools_incomplete"
 
         assistant_idx = messages.index(last_assistant_msg)
         for msg in messages[assistant_idx + 1 :]:
             if isinstance(msg, HumanMessage):
                 content_str = str(msg.content)
                 if "Here are the images you've viewed" in content_str or "Here are the details of the images you've viewed" in content_str or "Here are the latest screen captures" in content_str:
-                    return False
+                    return False, "already_injected_this_turn"
 
-        return True
+        return True, "ok"
 
     def _inject_image_message(self, state: ViewImageMiddlewareState, runtime: Runtime) -> dict | None:
+        viewed_images = state.get("viewed_images", {}) or {}
+        staged_n = len(viewed_images)
+
         if not main_model_supports_vision(runtime):
-            viewed_images = state.get("viewed_images", {})
             if viewed_images:
-                logger.debug("Skipping image injection — main model does not support vision")
+                logger.info(
+                    "[ViewImageMiddleware] SKIP inject reason=no_vision staged=%s refs=%s",
+                    staged_n,
+                    list(viewed_images.keys())[:5],
+                )
                 return {"viewed_images": {}}
             return None
 
-        if not self._should_inject_image_message(state):
+        should, reason = self._should_inject_image_message(state)
+        if not should:
+            if staged_n:
+                logger.info(
+                    "[ViewImageMiddleware] SKIP inject reason=%s staged=%s refs=%s",
+                    reason,
+                    staged_n,
+                    list(viewed_images.keys())[:5],
+                )
             return None
 
         image_content = self._create_image_details_message(state)
+        pixel_n = sum(
+            1
+            for b in image_content
+            if isinstance(b, dict) and b.get("type") == "image_url"
+        )
         human_msg = HumanMessage(content=image_content)
 
-        logger.debug("Injecting staged view_image paths as ephemeral multimodal blocks")
+        logger.info(
+            "[ViewImageMiddleware] INJECT ok staged=%s pixels=%s refs=%s",
+            staged_n,
+            pixel_n,
+            list(viewed_images.keys())[:5],
+        )
 
         return {"messages": [human_msg], "viewed_images": {}}
 

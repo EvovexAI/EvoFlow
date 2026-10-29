@@ -46,18 +46,49 @@ function planWebSearchBannerHtml() {
   const tier = String(plan.tier_id || '').trim()
   const tierText = tier ? ` · 档位 ${tier.toUpperCase()}` : ''
   const needsKey = !!plan.needs_search_key
-  const statusLine = needsKey
-    ? '<p class="ws-plan-status ws-plan-status--warn">状态：套餐权益已识别，还差「联网搜索 API Key」。</p>'
-    : '<p class="ws-plan-status ws-plan-status--ok">状态：已填豆包联网 Key，web_search 优先走豆包。</p>'
+  const wired = !!plan.wired_from_plan
+  const ready = !!plan.ready
+  const guide = _snap?.assistant_guide
+  let statusLine = ''
+  if (needsKey) {
+    statusLine =
+      '<p class="ws-plan-status ws-plan-status--warn">状态：套餐权益已识别，套餐 Key 尚未接通到豆包搜索。重新保存绑定，或手动粘贴套餐 Key。</p>'
+  } else if (wired || ready) {
+    statusLine =
+      '<p class="ws-plan-status ws-plan-status--ok">状态：套餐 Key 已自动接通豆包搜索，web_search 优先走豆包。</p>'
+  } else {
+    statusLine =
+      '<p class="ws-plan-status ws-plan-status--ok">状态：Agent Plan 联网搜索可用。</p>'
+  }
+  const harnessHint = plan.harness_required
+    ? `<p class="ws-plan-hint">请确认火山控制台 <a href="${escAttr(plan.harness_console_url || '#')}" target="_blank" rel="noopener noreferrer">Harness</a> 已开启「豆包搜索」抵扣；官方用套餐专属 Key（与对话同一把）。${
+        plan.docs_url
+          ? ` <a href="${escAttr(plan.docs_url)}" target="_blank" rel="noopener noreferrer">官方说明</a>`
+          : ''
+      }</p>`
+    : ''
+  const metaBits = [
+    guide?.online_capable || ready ? '可联网：是' : needsKey ? '可联网：否' : null,
+    guide?.configured || wired || !needsKey ? '已配置：是' : '已配置：待接通',
+    plan.doubao_key_source ? `Key 来源：${plan.doubao_key_source === 'agent_plan' ? '套餐自动写入' : plan.doubao_key_source}` : null,
+  ].filter(Boolean)
+  const metaLine = metaBits.length
+    ? `<p class="ws-plan-meta">${metaBits.map((b) => escHtml(b)).join(' · ')}</p>`
+    : ''
   return `<div class="ws-plan-banner" role="status">
     <strong>${escHtml(plan.title || plan.label || 'Agent Plan')}</strong>${escHtml(tierText)}
     ${statusLine}
+    ${metaLine}
+    ${harnessHint}
   </div>`
 }
 
-function statusBadge(available, { planSourced = false, planNeedsKey = false } = {}) {
+function statusBadge(available, { planSourced = false, planNeedsKey = false, planWired = false } = {}) {
   if (planSourced && planNeedsKey) {
-    return '<span class="ws-badge ws-badge--warn">套餐权益 · 待填 Key</span>'
+    return '<span class="ws-badge ws-badge--warn">套餐 · 待接通 Key</span>'
+  }
+  if (planSourced && planWired) {
+    return '<span class="ws-badge ws-badge--ok">套餐 Key 已接通</span>'
   }
   if (planSourced && available) {
     return '<span class="ws-badge ws-badge--ok">套餐路径 · 可用</span>'
@@ -214,6 +245,7 @@ function providerCardsHtml() {
       const plan = _snap?.agent_plan_web_search
       const planSourced = id === 'doubao' && !!providerRow?.plan_sourced
       const planNeedsKey = planSourced && !!(providerRow?.plan_needs_key ?? plan?.needs_search_key)
+      const planWired = planSourced && !!(providerRow?.plan_key_wired ?? plan?.wired_from_plan)
       const available = avail.has(id) ? avail.get(id) : false
       const secretField = p.secretField || ''
       const urlField = p.urlField || ''
@@ -221,21 +253,25 @@ function providerCardsHtml() {
       const secretPh = hint
         ? `已保存 ${hint}`
         : planSourced
-          ? '粘贴控制台领取的联网搜索 Key'
+          ? planWired
+            ? '已用套餐 Key 接通（留空不改）'
+            : '粘贴 Agent Plan 专属 Key（与对话同一把）'
           : '粘贴 API Key'
       const urlVal = urlField && !String(settings[urlField] || '').includes('*')
         ? String(settings[urlField] || '')
         : String(settings[urlField] || '')
 
-      const cardTitle = planSourced ? `${p.label || id}（Agent Plan 赠送）` : p.label || id
+      const cardTitle = planSourced ? `${p.label || id}（Agent Plan）` : p.label || id
       let cardHint = p.hint || ''
       if (planSourced) {
-        cardHint = '套餐赠送额度，别填 ark- 对话 Key。'
+        cardHint = planWired
+          ? '已用套餐专属 Key 自动接通；也可改填独立 SearchInfinity Key。'
+          : '官方：用 Agent Plan 专属 Key（与对话同一把）；绑定后会自动写入。'
       }
 
       const secretRow = secretField
         ? `<label class="ws-field">
-            <span>${planSourced ? '联网搜索 Key' : 'API Key'}</span>
+            <span>${planSourced ? (planWired ? '豆包搜索 Key（套餐已接通）' : '豆包搜索 Key') : 'API Key'}</span>
             <input class="cron-input" type="password" autocomplete="off" spellcheck="false"
               data-ws-secret="${escAttr(secretField)}"
               placeholder="${escAttr(secretPh)}" />
@@ -267,7 +303,7 @@ function providerCardsHtml() {
       let signupLabel = '开通地址'
       if (planSourced && plan?.harness_console_url) {
         signup = plan.harness_console_url
-        signupLabel = '领取 Key'
+        signupLabel = 'Harness 抵扣'
       }
       const signupBlock = signup
         ? `<div class="ws-signup">
@@ -288,7 +324,7 @@ function providerCardsHtml() {
           <div class="ws-card-head">
             <div>
               <strong>${escHtml(cardTitle)}</strong>
-              ${statusBadge(available, { planSourced, planNeedsKey })}
+              ${statusBadge(available, { planSourced, planNeedsKey, planWired })}
             </div>
             <div class="ws-card-actions">
               ${docs}
@@ -351,6 +387,26 @@ function panelHtml() {
     <div class="ws-active-row">
       <div>当前生效：<strong id="ws-active-backend">${escHtml(active)}</strong>
         <span class="form-hint" style="display:inline;margin-left:6px">来源：${escHtml(source)}</span>
+        ${(() => {
+          const g = _snap?.assistant_guide || {}
+          const chips = []
+          chips.push(
+            g.configured || (plan && !plan.needs_search_key)
+              ? '<span class="ws-chip ws-chip--ok">已配置</span>'
+              : '<span class="ws-chip ws-chip--off">未配置</span>',
+          )
+          chips.push(
+            g.online_capable || (plan && plan.ready)
+              ? '<span class="ws-chip ws-chip--ok">可联网</span>'
+              : '<span class="ws-chip ws-chip--off">不可联网</span>',
+          )
+          if (plan?.wired_from_plan) {
+            chips.push('<span class="ws-chip ws-chip--ok">套餐 Key 已接通</span>')
+          } else if (plan?.needs_search_key) {
+            chips.push('<span class="ws-chip ws-chip--warn">待接通套餐 Key</span>')
+          }
+          return `<span class="ws-chips">${chips.join('')}</span>`
+        })()}
       </div>
     </div>
     <div class="ws-pref-row">
@@ -388,6 +444,18 @@ function panelHtml() {
     .ws-plan-status { margin: 6px 0 0; font-size: 12px; font-weight: 600; }
     .ws-plan-status--ok { color: #16a34a; }
     .ws-plan-status--warn { color: #ca8a04; }
+    .ws-plan-meta { margin: 4px 0 0; font-size: 12px; color: var(--text-muted, #888); }
+    .ws-plan-hint { margin: 6px 0 0; font-size: 12px; line-height: 1.45; color: var(--text-secondary, #666); }
+    .ws-plan-hint a { color: var(--accent, #6366f1); }
+    .ws-chips { display: inline-flex; gap: 6px; margin-left: 10px; flex-wrap: wrap; vertical-align: middle; }
+    .ws-chip {
+      display: inline-flex; align-items: center;
+      padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 600;
+      border: 1px solid transparent;
+    }
+    .ws-chip--ok { color: #15803d; background: color-mix(in srgb, #22c55e 14%, transparent); border-color: color-mix(in srgb, #22c55e 35%, transparent); }
+    .ws-chip--warn { color: #a16207; background: color-mix(in srgb, #eab308 16%, transparent); border-color: color-mix(in srgb, #eab308 40%, transparent); }
+    .ws-chip--off { color: var(--text-muted, #888); background: color-mix(in srgb, var(--text-muted, #888) 10%, transparent); border-color: color-mix(in srgb, var(--text-muted, #888) 25%, transparent); }
     .ws-pref-row { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
     .ws-cards { display: grid; gap: 12px; }
     .ws-card { border: 1px solid var(--border-color, #333); border-radius: 8px; padding: 12px 14px; }

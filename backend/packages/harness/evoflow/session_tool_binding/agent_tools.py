@@ -108,16 +108,30 @@ def _cached_agent_tool_names(
     model_name: str | None,
     tools_whitelist_key: tuple[str, ...] | None,
     disallowed_key: tuple[str, ...] | None,
-    mcp_skill_mode: bool,
+    mcp_servers_key: tuple[str, ...] | None,
+    mount_platform_tools: bool = False,
 ) -> frozenset[str]:
     del model_name  # get_available_tools caches by model; keep signature for cache key stability
-    del mcp_skill_mode  # native-style: MCP always native in tool catalog
+    # mcp_servers_key: None = unrestricted; () = explicitly none; ("srv",…) = bound servers
     try:
         load_agent_config(agent_id)
     except Exception:
         pass
 
     from evoflow.tools import get_available_tools
+    from evoflow.tools.tool_aliases import canonical_tool_name
+    from evoflow.tools.tool_catalog import (
+        AGENT_MODE_SYSTEM_TOOL_NAMES,
+        normalize_tool_name,
+        should_mount_platform_tool,
+    )
+
+    platform_names = {canonical_tool_name(n) for n in AGENT_MODE_SYSTEM_TOOL_NAMES}
+    mount_platform = should_mount_platform_tool(
+        agent_id,
+        mount_platform_tools=bool(mount_platform_tools),
+        tools_whitelist=list(tools_whitelist_key) if tools_whitelist_key is not None else None,
+    )
 
     try:
         tools = get_available_tools(
@@ -129,30 +143,69 @@ def _cached_agent_tool_names(
         logger.warning("[AgentTools] get_available_tools failed agent=%s: %s", agent_id, exc)
         return frozenset()
 
-    if tools_whitelist_key is not None:
-        from evoflow.tools.tool_aliases import canonical_tool_name
-        from evoflow.tools.tool_catalog import normalize_tool_name
+    from evoflow.mcp.binding import (
+        filter_tools_by_mcp_servers,
+        is_mcp_tool_name,
+        mcp_server_from_tool_name,
+        mount_agent_mcp_tools,
+    )
 
+    # Snapshot MCP before tools allowlist drops mcp__* (optional tier).
+    mcp_catalog = [t for t in tools if is_mcp_tool_name(str(getattr(t, "name", "") or ""))]
+
+    if tools_whitelist_key is not None:
         # Configs still use legacy names (read_file); runtime catalog is host-direct (read).
         whitelist = {canonical_tool_name(normalize_tool_name(x)) for x in tools_whitelist_key if str(x or "").strip()}
         whitelist.discard("")
         # terminal/rg/find alias to bash. Background control ships with the shell.
         if "bash" in whitelist:
             whitelist.update({"taskoutput", "taskstop"})
-        # Explicit agent.tools = allowlist. ``tool_search`` + agent-mode system tools
-        # (platform / panel_set) may bypass; ask_clarification is NOT auto-injected.
-        from evoflow.tools.tool_catalog import AGENT_MODE_SYSTEM_TOOL_NAMES
-
-        tools = [t for t in tools if ((name := canonical_tool_name(normalize_tool_name(getattr(t, "name", None)))) and (name in whitelist or name == "tool_search" or name in AGENT_MODE_SYSTEM_TOOL_NAMES))]
+        # Explicit agent.tools = allowlist. ``tool_search`` 可旁路；``platform`` 靠勾选或 main/小V。
+        # Bound MCP is remounted below from mcp_servers — do not require mcp__ in tools[].
+        tools = [
+            t
+            for t in tools
+            if (
+                (name := canonical_tool_name(normalize_tool_name(getattr(t, "name", None))))
+                and (
+                    name in whitelist
+                    or name == "tool_search"
+                    or (name in platform_names and mount_platform)
+                )
+            )
+        ]
     if disallowed_key:
-        from evoflow.tools.tool_aliases import canonical_tool_name
-        from evoflow.tools.tool_catalog import AGENT_MODE_SYSTEM_TOOL_NAMES, normalize_tool_name
-
         blocked = {canonical_tool_name(normalize_tool_name(x)) for x in disallowed_key if str(x or "").strip()}
         blocked.discard("")
-        # Agent-mode system tools cannot be banned via disallowed_tools.
-        blocked -= {canonical_tool_name(n) for n in AGENT_MODE_SYSTEM_TOOL_NAMES}
+        # main/小V（或已勾选）的 platform 不可被 disallowed 摘掉
+        if mount_platform:
+            blocked -= platform_names
         tools = [t for t in tools if canonical_tool_name(normalize_tool_name(getattr(t, "name", None))) not in blocked]
+
+    # tools=None（继承全量）时：员工未勾选也不自动带 platform
+    if not mount_platform and platform_names:
+        tools = [
+            t
+            for t in tools
+            if canonical_tool_name(normalize_tool_name(getattr(t, "name", None))) not in platform_names
+        ]
+
+    mcp_cfg = None if mcp_servers_key is None else list(mcp_servers_key)
+    mcp_source = filter_tools_by_mcp_servers(mcp_catalog, mcp_cfg)
+    if mcp_servers_key is None:
+        remount_servers = sorted(
+            {
+                str(mcp_server_from_tool_name(str(getattr(t, "name", "") or "")) or "")
+                for t in mcp_source
+            }
+            - {""}
+        )
+        if remount_servers:
+            tools = mount_agent_mcp_tools(tools, mcp_source, remount_servers)
+    elif mcp_servers_key:
+        tools = mount_agent_mcp_tools(tools, mcp_source, list(mcp_servers_key))
+    else:
+        tools = [t for t in tools if not is_mcp_tool_name(str(getattr(t, "name", "") or ""))]
 
     names = {str(getattr(t, "name", "") or "").strip().lower() for t in tools}
     names.discard("")
@@ -179,9 +232,20 @@ def resolve_agent_tool_names_for_agent(
     except Exception:
         agent_config = None
 
-    mcp_skill_mode = _agent_mcp_skill_mode_enabled(agent_config)
+    _agent_mcp_skill_mode_enabled(agent_config)  # legacy env warn only
     whitelist_key = tuple(sorted(str(t).strip() for t in agent_config.tools if str(t or "").strip())) if agent_config and agent_config.tools is not None else None
     disallowed_key = tuple(sorted(str(t).strip() for t in agent_config.disallowed_tools if str(t or "").strip())) if agent_config and agent_config.disallowed_tools else None
+    if agent_config is None or agent_config.mcp_servers is None:
+        mcp_servers_key: tuple[str, ...] | None = None
+    else:
+        mcp_servers_key = tuple(sorted(str(s).strip() for s in agent_config.mcp_servers if str(s).strip()))
+    mount_platform = False
+    try:
+        from evoflow.config.agents_config import get_agent_kb_injection_config
+
+        mount_platform = bool(get_agent_kb_injection_config(aid).mount_platform_tools)
+    except Exception:
+        mount_platform = False
     names = _cached_agent_tool_names(
         aid,
         subagent_enabled,
@@ -189,7 +253,8 @@ def resolve_agent_tool_names_for_agent(
         model_name,
         whitelist_key,
         disallowed_key,
-        mcp_skill_mode,
+        mcp_servers_key,
+        mount_platform,
     )
     # 小V：白名单含 bash + 全量 MCP；前台 xiaomi_* / platform 不在 catalog 里，强制并入。
     try:

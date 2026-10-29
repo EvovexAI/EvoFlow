@@ -5,6 +5,7 @@
   "description": "EvoFlow wake-word KWS child process (sherpa-onnx in Node)",
   "main": "kws-process.cjs",
   "dependencies": {
+    "evopanel": "file:..",
     "sherpa-onnx": "1.12.15"
   }
 }

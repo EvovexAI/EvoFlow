@@ -1,6 +1,6 @@
 """EvoFlow ASR providers as a Pipecat STTService.
 
-Wraps ``create_asr_session`` (volcengine / whisper) so recognition, mute, and
+Wraps ``create_asr_session`` (volcengine / dashscope / whisper) so recognition, mute, and
 TTFB metrics reuse Pipecat's STT base class instead of a hand-rolled processor.
 
 Volcengine streaming ASR times out if no PCM arrives (~数秒). We therefore:

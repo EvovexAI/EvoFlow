@@ -23,6 +23,8 @@ let _poll = null
 let _mountGen = 0
 /** 打开应用时自动折叠了侧栏 → 离开时恢复原状 */
 let _autoCollapsedSidebar = false
+/** 挂进 #tauri-main-chrome 的导航条清理 */
+let _cleanupUiextChrome = null
 
 /** restart = stop + start */
 async function restartService(id) {
@@ -33,6 +35,74 @@ async function restartService(id) {
     /* ignore */
   }
   return uiExtensionServiceStart(id)
+}
+
+function unmountUiextNavFromChrome() {
+  if (typeof _cleanupUiextChrome === 'function') {
+    try {
+      _cleanupUiextChrome()
+    } catch {
+      /* ignore */
+    }
+    _cleanupUiextChrome = null
+  }
+  const chrome = document.getElementById('tauri-main-chrome')
+  if (chrome) chrome.classList.remove('tauri-main-chrome--uiext')
+}
+
+/**
+ * 把返回/标题/操作挂进全局顶栏，与其它页面同一条 chrome（可拖窗）。
+ * @param {HTMLElement} page
+ * @param {string} id
+ */
+function mountUiextNavToChrome(page, id) {
+  unmountUiextNavFromChrome()
+  const chrome = document.getElementById('tauri-main-chrome')
+  const nav = page.querySelector('.uiext-shell-nav')
+  if (!chrome || !nav) return
+
+  const actions = chrome.querySelector('.tauri-main-chrome-actions')
+  chrome.classList.add('tauri-main-chrome--uiext')
+  if (actions) chrome.insertBefore(nav, actions)
+  else chrome.appendChild(nav)
+
+  void import('../lib/tauri-titlebar.js')
+    .then((m) => m.refreshTauriMainChromeVisibility?.())
+    .catch(() => {})
+
+  const onNavClick = async (e) => {
+    const btn = e.target.closest?.('[data-act]')
+    if (!btn || !nav.contains(btn)) return
+    const act = btn.dataset.act
+    if (act === 'back') {
+      navigate('/chat')
+      return
+    }
+    if (act === 'manage') {
+      navigate('/extensions')
+      return
+    }
+    if (act === 'restart') {
+      try {
+        toast('重启中…', 'info')
+        await restartService(id)
+        await mountFrame(page, id)
+        toast('已重启', 'success')
+      } catch (err) {
+        toast(String(err?.message || err), 'error')
+      }
+    }
+  }
+  nav.addEventListener('click', onNavClick)
+
+  _cleanupUiextChrome = () => {
+    nav.removeEventListener('click', onNavClick)
+    // 把 nav 挪回 page，避免路由切走后残留在 chrome 里
+    if (nav.parentElement === chrome) {
+      page.prepend(nav)
+    }
+    chrome.classList.remove('tauri-main-chrome--uiext')
+  }
 }
 function esc(s) {
   return String(s || '')
@@ -61,6 +131,7 @@ export function cleanup() {
     clearInterval(_poll)
     _poll = null
   }
+  unmountUiextNavFromChrome()
   // 离开应用壳：把自动折叠的侧栏还原成进入前的状态
   if (_autoCollapsedSidebar && !stillInShellRoute()) {
     _autoCollapsedSidebar = false
@@ -92,25 +163,17 @@ export async function render() {
     }
   }
 
+  // 不另起顶栏：操作挂进全局 #tauri-main-chrome，拖窗与其它页面同一条。
   page.innerHTML = `
-    <div class="uiext-shell-chrome uiext-shell-chrome--left" id="uiext-shell-chrome-left">
-      <header class="uiext-shell-bar" id="uiext-shell-bar">
-        <button type="button" class="btn btn-ghost btn-sm" data-act="back" title="返回">←</button>
-        <div class="uiext-shell-title">
-          <strong class="uiext-shell-title-text" id="uiext-shell-name">加载中…</strong>
-          <span class="uiext-shell-status" id="uiext-shell-status">—</span>
-        </div>
-        <div class="uiext-shell-ops">
-          <button type="button" class="btn btn-secondary btn-sm" data-act="restart">重启服务</button>
-          <button type="button" class="btn btn-ghost btn-sm" data-act="manage">管理</button>
-        </div>
-      </header>
-    </div>
-    <div class="uiext-shell-chrome uiext-shell-chrome--right" id="uiext-shell-chrome-right" hidden>
-      <div class="uiext-shell-win" id="uiext-shell-win">
-        <button type="button" class="ep-window-controls-btn ep-window-controls-btn--min" data-act="win-min" title="最小化">−</button>
-        <button type="button" class="ep-window-controls-btn ep-window-controls-btn--max" data-act="win-max" title="最大化">□</button>
-        <button type="button" class="ep-window-controls-btn ep-window-controls-btn--close" data-act="win-close" title="关闭">×</button>
+    <div class="uiext-shell-nav" data-tauri-no-drag>
+      <button type="button" class="btn btn-ghost btn-sm" data-act="back" title="返回">←</button>
+      <div class="uiext-shell-title">
+        <strong class="uiext-shell-title-text" id="uiext-shell-name">加载中…</strong>
+        <span class="uiext-shell-status" id="uiext-shell-status">—</span>
+      </div>
+      <div class="uiext-shell-ops">
+        <button type="button" class="btn btn-secondary btn-sm" data-act="restart">重启服务</button>
+        <button type="button" class="btn btn-ghost btn-sm" data-act="manage">管理</button>
       </div>
     </div>
     <div class="uiext-shell-body" id="uiext-shell-body">
@@ -128,48 +191,8 @@ export async function render() {
     </div>
   `
 
-  if (window.__TAURI_INTERNALS__) {
-    const winChrome = page.querySelector('#uiext-shell-chrome-right')
-    if (winChrome) winChrome.hidden = false
-  }
-
-  page.addEventListener('click', async (e) => {
-    const btn = e.target.closest('[data-act]')
-    if (!btn) return
-    const act = btn.dataset.act
-    if (act === 'back') {
-      navigate('/chat')
-      return
-    }
-    if (act === 'manage') {
-      navigate('/extensions')
-      return
-    }
-    if (act === 'win-min' || act === 'win-max' || act === 'win-close') {
-      try {
-        const { getCurrentWindow } = await import('@tauri-apps/api/window')
-        const win = getCurrentWindow()
-        if (act === 'win-min') void win.minimize()
-        else if (act === 'win-max') void win.toggleMaximize()
-        else void win.close()
-      } catch {
-        /* ignore */
-      }
-      return
-    }
-    if (act === 'restart') {
-      try {
-        toast('重启中…', 'info')
-        await restartService(id)
-        await mountFrame(page, id)
-        toast('已重启', 'success')
-      } catch (err) {
-        toast(String(err?.message || err), 'error')
-      }
-    }
-  })
-
   queueMicrotask(() => {
+    mountUiextNavToChrome(page, id)
     void mountFrame(page, id)
   })
 
@@ -236,8 +259,11 @@ function paintFrame(body, { title, entry, sandbox }) {
 
 async function mountFrame(page, id) {
   const body = page.querySelector('#uiext-shell-body')
-  const nameEl = page.querySelector('#uiext-shell-name')
-  const stEl = page.querySelector('#uiext-shell-status')
+  // nav 已挂进 #tauri-main-chrome，不能只在 page 里查
+  const nameEl =
+    page.querySelector('#uiext-shell-name') || document.getElementById('uiext-shell-name')
+  const stEl =
+    page.querySelector('#uiext-shell-status') || document.getElementById('uiext-shell-status')
   if (!body) return
 
   const gen = ++_mountGen

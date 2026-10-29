@@ -11,6 +11,8 @@ import type { CodeCommentLabels } from "@/components/ui/code-viewer.js";
 import { MarkdownPreviewContent } from "@/previewPaneMarkdownContent.js";
 import { CodeContent } from "@/previewPaneCodeContent.js";
 import { ImagePreviewContent, SvgPreviewContent } from "@/previewPaneImageContent.js";
+import { HtmlPreviewContent } from "@/previewPaneHtmlContent.js";
+import { isHtmlPreviewPath } from "@/lib/htmlPreview.js";
 import { PreviewPaneMediaContent } from "@/previewPaneMediaContent.js";
 import { PdfPreviewContent } from "@/previewPanePdfContent.js";
 import { PptxPreviewContent } from "@/previewPanePptxContent.js";
@@ -61,6 +63,7 @@ interface PreviewPaneContentProps {
   onOpenBrowserUrl?: (url: string) => void;
   markdownSelectionTarget?: MarkdownSelectionTarget;
   markdownViewMode: "preview" | "code";
+  htmlViewMode: "preview" | "code";
   svgViewMode: "preview" | "code";
   wrapLongLines: boolean;
   codeComments: readonly CodeCommentPreview[];
@@ -79,6 +82,10 @@ interface PreviewPaneContentProps {
 
 function isSvgPath(path?: string): boolean {
   return path?.toLowerCase().endsWith(".svg") ?? false;
+}
+
+function isHtmlPath(path?: string): boolean {
+  return isHtmlPreviewPath(path);
 }
 
 function getPreviewPaneErrorTextClass(
@@ -121,6 +128,7 @@ export function PreviewPaneContent({
   onOpenBrowserUrl,
   markdownSelectionTarget,
   markdownViewMode,
+  htmlViewMode,
   svgViewMode,
   wrapLongLines,
   codeComments,
@@ -412,6 +420,7 @@ export function PreviewPaneContent({
       ? resolveCodeReviewContentProjection(source, filePreview.content)
       : null;
   const isMarkdownFile = fileLanguage === "markdown";
+  const isHtmlFile = isHtmlPath(source.path);
   const isSvgFile = isSvgPath(source.path);
   if (source.type !== "code-review" && isMarkdownFile && markdownViewMode === "preview") {
     return (
@@ -423,6 +432,15 @@ export function PreviewPaneContent({
         content={filePreview.content}
         workspacePath={workspacePath}
         onOpenBrowserUrl={onOpenBrowserUrl}
+      />
+    );
+  }
+
+  if (source.type !== "code-review" && isHtmlFile && htmlViewMode === "preview") {
+    return (
+      <HtmlPreviewContent
+        title={source.title || source.path || "HTML"}
+        htmlContent={filePreview.content}
       />
     );
   }

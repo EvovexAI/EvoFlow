@@ -20,7 +20,6 @@ import {
 } from './agents-shared.js'
 import {
   attachRoleEvents,
-  closeAgentDetailDrawer,
   preloadRoleToolsMeta,
   renderRoleCards,
   renderRoleSkeleton,
@@ -250,7 +249,6 @@ function setView(page, state, view) {
   state.view = view
   state.page = 1
   updateChromeForView(page, state, view)
-  closeAgentDetailDrawer(page)
   // 切到市场时关闭更多筛选弹层
   const morePanel = page.querySelector('#roles-more-panel')
   if (morePanel) morePanel.hidden = true
@@ -515,24 +513,6 @@ export async function render() {
 
     <div class="role-grid" id="roles-list"></div>
     <div class="role-list-pager-wrap" id="roles-list-pager"></div>
-
-    <div class="ef-side-drawer-root role-drawer-root" id="roleDrawer" hidden>
-      <div class="ef-side-drawer-mask role-drawer-mask" data-action="close-drawer"></div>
-      <aside class="ef-side-drawer role-drawer" role="dialog" aria-label="智能体详情">
-        <header class="ef-side-drawer__head role-drawer__head">
-          <div class="ef-side-drawer__brand">
-            <span class="ef-side-drawer__mark" aria-hidden="true">员</span>
-            <div class="ef-side-drawer__heading">
-              <h2 class="ef-side-drawer__title role-drawer__title" id="roleDrawerTitle">智能体详情</h2>
-              <div class="ef-side-drawer__meta role-drawer__subtitle" id="roleDrawerSubtitle"></div>
-            </div>
-          </div>
-          <button type="button" class="ef-side-drawer__close role-drawer__close" data-action="close-drawer" aria-label="关闭">×</button>
-        </header>
-        <div class="ef-side-drawer__body role-drawer__body" id="roleDrawerBody"></div>
-        <footer class="ef-side-drawer__foot role-drawer__foot" id="roleDrawerFoot"></footer>
-      </aside>
-    </div>
   `
 
   const state = {
@@ -566,12 +546,24 @@ export async function render() {
     renderRoleSkeleton(listEl)
     try {
       const { takeNavWarm } = await import('../lib/nav-panel-prefetch.js')
-      const [agents, rolesRes, apps, automations] = await Promise.all([
-        takeNavWarm('expert:agents') || api.listAgents(),
-        takeNavWarm('expert:roles') || api.proactiveListRoles().catch(() => ({ roles: [] })),
-        takeNavWarm('expert:apps') || api.listApps().catch(() => []),
-        takeNavWarm('expert:automations') || api.automationList().catch(() => ({ automations: [] })),
-      ])
+      // 网关被聊天/右栏打满时个别请求可能挂死；整包限时，避免骨架永远转
+      const soft = (p, ms, label) =>
+        Promise.race([
+          p,
+          new Promise((_, rej) => setTimeout(() => rej(new Error(`${label} 超时`)), ms)),
+        ])
+      const [agents, rolesRes, apps, automations] = await soft(
+        Promise.all([
+          takeNavWarm('expert:agents') || soft(api.listAgents(), 20000, '智能体列表'),
+          takeNavWarm('expert:roles') ||
+            soft(api.proactiveListRoles(), 15000, '员工列表').catch(() => ({ roles: [] })),
+          takeNavWarm('expert:apps') || soft(api.listApps(), 15000, '应用列表').catch(() => []),
+          takeNavWarm('expert:automations') ||
+            soft(api.automationList(), 15000, '自动化列表').catch(() => ({ automations: [] })),
+        ]),
+        25000,
+        '智能体页数据',
+      )
       state.agents = sortAgents(Array.isArray(agents) ? agents : [])
       const roles = rolesRes?.roles || []
       state.hiredCodes = new Set(
@@ -728,17 +720,20 @@ export async function render() {
   if (ro && mineToolbar) ro.observe(mineToolbar)
 
   attachRoleEvents(page, state)
-  await preloadRoleToolsMeta(state)
   updateChromeForView(page, state, state.view)
   syncFilterControls(page, state)
-  await reload()
-  try {
-    if (sessionStorage.getItem('evopanel_pending_agent_create') === '1') {
-      sessionStorage.removeItem('evopanel_pending_agent_create')
-      void showCreateRoleDialog(page, state)
+  // 不阻塞路由：列表/工具元数据后台拉。网关忙时若 await，会撞上 30s 页面渲染超时并整页失败。
+  void preloadRoleToolsMeta(state)
+  void reload().then(() => {
+    if (!page.isConnected) return
+    try {
+      if (sessionStorage.getItem('evopanel_pending_agent_create') === '1') {
+        sessionStorage.removeItem('evopanel_pending_agent_create')
+        void showCreateRoleDialog(page, state)
+      }
+    } catch {
+      /* ignore */
     }
-  } catch {
-    /* ignore */
-  }
+  })
   return page
 }

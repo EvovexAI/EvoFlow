@@ -395,16 +395,21 @@ def touch_session_workspace(
 
 
 def remove_workspace_path_everywhere(path: str) -> None:
-    """Remove workspace catalog row and cascade global/session history (path variants match)."""
-    from evoflow.persistence.session_context_fields import (
-        normalize_workspace_group_key,
-        normalize_workspace_root_for_storage,
-    )
+    """Remove workspace catalog row and cascade global/session history (path variants match).
 
+    Also rebuilds global history without this path, so侧栏「已注册空目录」不会在
+    DELETE 后因汇总刷新再次冒出来。
+    """
     p = normalize_workspace_root_for_storage(path)
     if not p:
         return
     target_key = normalize_workspace_group_key(p)
+    # 先记下删后应保留的全局历史，避免只靠 CASCADE 后仍被其它写入带回
+    kept_global = [
+        x
+        for x in list_global_workspace_paths(limit=_GLOBAL_HISTORY_LIMIT)
+        if normalize_workspace_group_key(x) != target_key
+    ]
     conn = get_db()
     rows = conn.execute("SELECT id, workspace_path FROM evoflow_workspaces").fetchall()
     ids_to_delete: list[int] = []
@@ -413,9 +418,24 @@ def remove_workspace_path_everywhere(path: str) -> None:
         wp = str(row[1] or "")
         if normalize_workspace_group_key(wp) == target_key:
             ids_to_delete.append(wid)
-    for wid in ids_to_delete:
-        conn.execute("DELETE FROM evoflow_workspaces WHERE id = ?", (wid,))
-    conn.commit()
+    if ids_to_delete:
+        placeholders = ",".join("?" for _ in ids_to_delete)
+        # 显式清历史（兼容旧库未开 CASCADE 的情况）
+        conn.execute(
+            f"DELETE FROM evoflow_workspace_global_history WHERE workspace_id IN ({placeholders})",
+            ids_to_delete,
+        )
+        conn.execute(
+            f"DELETE FROM evoflow_session_workspace_history WHERE workspace_id IN ({placeholders})",
+            ids_to_delete,
+        )
+        conn.execute(
+            f"DELETE FROM evoflow_workspaces WHERE id IN ({placeholders})",
+            ids_to_delete,
+        )
+        conn.commit()
+    # 按保留列表重写全局历史，保证 list_global 与侧栏注册目录一致
+    set_global_workspace_paths(kept_global, limit=_GLOBAL_HISTORY_LIMIT)
     # ws-{hash} → path 的进程内缓存随注册行一起失效，解绑后不再写回旧项目目录
     try:
         from evoflow.assets.paths import invalidate_workspace_path_cache

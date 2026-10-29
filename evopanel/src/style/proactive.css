@@ -5,8 +5,89 @@
   --pro-teal-soft: var(--accent-muted, color-mix(in srgb, var(--accent, #0f766e) 12%, transparent));
   --pro-accent: var(--accent, #2563eb);
   --pro-slate-line: var(--border-primary, rgba(0, 0, 0, 0.08));
+  --pro-stage-width: min(440px, 42vw);
   color: var(--text-primary);
   box-sizing: border-box;
+  min-height: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 名册 | 工作过程右栏（对齐任务中心 td-split） */
+.proactive-page .pro-shell {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.proactive-page.pro-with-right-stage .pro-shell {
+  flex-direction: row;
+  align-items: stretch;
+}
+.proactive-page .pro-detail-pane {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.proactive-page.pro-with-right-stage .pro-detail-pane {
+  flex: 1 1 52%;
+}
+.proactive-page .pro-stage-pane {
+  display: none;
+  flex: 0 0 var(--pro-stage-width);
+  width: var(--pro-stage-width);
+  max-width: 56%;
+  min-width: 300px;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg-primary, var(--bg-secondary, #fff));
+  border-left: 1px solid var(--pro-slate-line);
+}
+.proactive-page.pro-with-right-stage .pro-stage-pane:not([hidden]) {
+  display: flex;
+  flex-direction: column;
+}
+.proactive-page .pro-right-stage-react-host,
+.proactive-page .pro-right-stage {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+.proactive-page .pro-right-stage .react-chat-right-stage-panel,
+.proactive-page .pro-right-stage .react-chat-right-stage-shell {
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+}
+.proactive-page .pro-right-stage .v4-employee-process-panel {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+@media (max-width: 900px) {
+  .proactive-page.pro-with-right-stage .pro-shell {
+    flex-direction: column;
+  }
+  .proactive-page .pro-stage-pane {
+    flex: 0 0 min(48vh, 420px);
+    width: 100%;
+    max-width: none;
+    min-width: 0;
+    border-left: none;
+    border-top: 1px solid var(--pro-slate-line);
+  }
 }
 
 [data-theme="dark"] .proactive-page {
@@ -558,17 +639,44 @@
   z-index: 30;
   min-width: 148px;
   padding: 4px;
-  border: 1px solid var(--pro-slate-line);
+  border: 1px solid var(--border-primary, var(--pro-slate-line));
   border-radius: 8px;
-  background: var(--bg-secondary);
-  box-shadow: 0 8px 22px color-mix(in srgb, #000 12%, transparent);
+  /* Hard opaque popover — must not inherit glass / translucent surfaces. */
+  background-color: #ffffff;
+  background-image: none;
+  color: var(--text-primary, #0f172a);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--border-primary, #e2e8f0) 70%, transparent),
+    0 10px 28px color-mix(in srgb, #000 18%, transparent);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  isolation: isolate;
+  opacity: 1;
 }
 
-.pro-role-more-menu.is-fixed {
+html[data-theme='dark'] .pro-role-more-menu {
+  background-color: #141820;
+  color: var(--text-primary, #e2e8f0);
+}
+
+.pro-role-more-menu.is-fixed,
+body > .pro-role-more-menu.is-fixed,
+body > .pro-role-more-menu[data-pro-more-host] {
   position: fixed;
   right: auto;
   /* Above roster cards / glass surfaces; keep below modal-overlay (~1000010). */
   z-index: 10050;
+  background-color: #ffffff;
+  background-image: none;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  opacity: 1 !important;
+}
+
+html[data-theme='dark'] .pro-role-more-menu.is-fixed,
+html[data-theme='dark'] body > .pro-role-more-menu.is-fixed,
+html[data-theme='dark'] body > .pro-role-more-menu[data-pro-more-host] {
+  background-color: #141820;
 }
 
 .pro-role-more-sep {
@@ -932,9 +1040,8 @@
 html:not(.evopanel-macos-titlebar) .pro-employee-page--nav-in-chrome > .pro-page-nav {
   position: fixed;
   top: 0;
-  /* left = 壳侧栏宽 + 内容区左边距，与下方页面内容左对齐
-     注意：当前主导航是 #app-shell-aside（252px），不是旧 #sidebar（220px） */
-  left: calc(var(--shell-aside-width, 252px) + var(--space-lg));
+  /* left 由 proactive-nav-chrome.js 按 #main-col 实测写入，避免折叠/悬停展开时盖住侧栏 */
+  left: calc(var(--shell-aside-width, 240px) + var(--space-lg));
   right: 176px; /* 指南 40px + 3个窗口按钮 44*3 = 132px + 余量 4px */
   height: 56px;
   z-index: 25; /* 在标题栏之上，但低于弹窗 */
@@ -966,18 +1073,10 @@ html:not(.evopanel-macos-titlebar) .pro-employee-page--nav-in-chrome > .pro-page
   height: 32px;
   font-size: 13px;
 }
-/* 壳侧栏折叠为 icon rail 时，left 相应缩小 */
-html:not(.evopanel-macos-titlebar)
-  #app-shell-aside.shell-aside-host.collapsed
-  ~ #main-col
-  .pro-employee-page--nav-in-chrome
-  > .pro-page-nav {
-  left: calc(var(--shell-aside-collapsed, 60px) + var(--space-lg));
-}
 /* 移动端侧栏为抽屉（不占主列宽度），操作栏贴主列左缘 */
 @media (max-width: 768px) {
   html:not(.evopanel-macos-titlebar) .pro-employee-page--nav-in-chrome > .pro-page-nav {
-    left: var(--space-lg);
+    left: var(--space-lg) !important;
   }
 }
 /* 页面内容顶部不需要额外 padding（标题栏本身已占位） */
@@ -4951,7 +5050,7 @@ html.evopanel-macos-titlebar .pro-employee-page--nav-in-chrome {
 }
 
 /* ── Edit role sections ── */
-.hire-sheet.hire-sheet--edit { width: min(760px, 96vw); max-width: 96vw; }
+.hire-sheet.hire-sheet--edit { width: min(820px, 96vw); max-width: 96vw; }
 .hire-edit-layout {
   display: grid;
   grid-template-columns: 148px minmax(0, 1fr);
@@ -4959,6 +5058,20 @@ html.evopanel-macos-titlebar .pro-employee-page--nav-in-chrome {
   min-height: 420px;
   align-items: stretch;
 }
+.hire-edit-panel--agent {
+  min-height: 360px;
+}
+.hire-textarea--agent-prompt,
+.hire-textarea--agent-soul {
+  flex: 1;
+  min-height: 140px;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  font-size: 12.5px;
+  font-weight: 450;
+  line-height: 1.55;
+  resize: vertical;
+}
+.hire-textarea--agent-prompt { min-height: 180px; }
 .hire-edit-nav {
   display: flex;
   flex-direction: column;

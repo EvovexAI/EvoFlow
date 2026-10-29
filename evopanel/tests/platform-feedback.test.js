@@ -352,6 +352,61 @@ describe('V4 platform_ui progress display', () => {
   })
 })
 
+describe('tryEagerAutoOpenPlatformFromArgs', () => {
+  it('employees.list args 即可拉开员工名册，不必等 RESULT', async () => {
+    const { tryEagerAutoOpenPlatformFromArgs } = await import(
+      '../src/lib/right-stage/platform-feedback.ts'
+    )
+    const { rightStageStore } = await import('../src/lib/right-stage/right-stage-store.ts')
+    rightStageStore.hideAll()
+    const diag = tryEagerAutoOpenPlatformFromArgs(
+      JSON.stringify({ action: 'employees.list' }),
+      { toolCallId: 'eager-emp-list-1', toolName: 'platform' },
+    )
+    expect(diag.opened).toBe(true)
+    expect(diag.action).toBe('employees.list')
+    const snap = rightStageStore.getSnapshot()
+    expect(snap.collapsed).toBe(false)
+    expect(snap.tabs.some((t) => t.kind === 'shell-page')).toBe(true)
+    // 同 toolCallId 不重复开
+    expect(
+      tryEagerAutoOpenPlatformFromArgs(JSON.stringify({ action: 'employees.list' }), {
+        toolCallId: 'eager-emp-list-1',
+        toolName: 'platform',
+      }).reason,
+    ).toBe('already-eager')
+  })
+
+  it('employees.wake args 拉开 employeeProcess', async () => {
+    const { tryEagerAutoOpenPlatformFromArgs } = await import(
+      '../src/lib/right-stage/platform-feedback.ts'
+    )
+    const { rightStageStore } = await import('../src/lib/right-stage/right-stage-store.ts')
+    rightStageStore.hideAll()
+    const diag = tryEagerAutoOpenPlatformFromArgs(
+      JSON.stringify({ action: 'employees.wake', agent_code: 'clerk' }),
+      { toolCallId: 'eager-wake-1', toolName: 'platform' },
+    )
+    expect(diag.opened).toBe(true)
+    expect(rightStageStore.getSnapshot().tabs.some((t) => t.kind === 'employeeProcess')).toBe(
+      true,
+    )
+  })
+
+  it('incomplete JSON / 无关 action 不开栏', async () => {
+    const { tryEagerAutoOpenPlatformFromArgs } = await import(
+      '../src/lib/right-stage/platform-feedback.ts'
+    )
+    expect(tryEagerAutoOpenPlatformFromArgs('{"action":"employees.li').opened).toBe(false)
+    expect(
+      tryEagerAutoOpenPlatformFromArgs(JSON.stringify({ action: 'agents.list' }), {
+        toolCallId: 'eager-agents',
+        toolName: 'platform',
+      }).reason,
+    ).toBe('not-eager-action')
+  })
+})
+
 describe('workflow.run autoOpen 右栏', () => {
   it('tools-scan 首见也拉开 collab-workflow（不依赖 AG-UI RESULT）', async () => {
     const { rightStageStore } = await import('../src/lib/right-stage/right-stage-store.ts')

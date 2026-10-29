@@ -1,10 +1,10 @@
 {
-  "version": "1.1.8",
-  "minAppVersion": "1.1.8",
+  "version": "1.1.9",
+  "minAppVersion": "1.1.9",
   "updateKind": "full",
   "assetKind": "installer",
   "hash": "",
-  "url": "https://github.com/EvovexAI/EvoFlow/releases/download/v1.1.8/EvoFlow_1.1.8_x64-setup.exe",
+  "url": "https://github.com/EvovexAI/EvoFlow/releases/download/v1.1.9/EvoFlow_1.1.9_x64-setup.exe",
   "size": 0,
-  "changelog": "EvoFlow 1.1.8（相对 1.1.7）：媒体生成接入即梦、万相 2.7、可灵、MiniMax 视频与 OpenAI 图像等多个渠道，统一为 provider 工厂并在生成面板可选；语音与唤醒 / 打断链路加固、本地识别与打断模型随包内置；任务整包重写改乐观并发、过期提交直接拒绝；弹层与切页动效统一、消除路由白屏闪变；设置新增系统状态页，向量模型支持云端 / 本机双模式安装；另修聊天页整页打不开、任务中心点击无反应、工作流鉴权越权、自动化单复活、孤儿待办单、市场目录卡顿与多处系统阻塞点。前后端同一版本号，覆盖安装即可。"
+  "changelog": "EvoFlow 1.1.9（相对 1.1.8）：语音接入 DashScope ASR/TTS 音色选择与唤醒词 KWS 原生 sidecar；媒体生成接入用量账本记账；新增 OpenAI 兼容 chat/completions 网关与 CLI；MCP 工具按角色 mcp_servers 绑定重构、移除系统提示词注入；组织名册 / 协作提示词拆分并接雇佣通知与飞书回执按角色账号路由；任务新增运行时健康度（live/interrupted/idle），转交审核三处提醒；Computer Use 屏边蓝光提示；UI 扩展外壳页与顶栏、toast 定位统一；修复编排长跑 renderer OOM、浏览器冷启动空白页、网关日志 500、工作区历史删除、聊天空草稿闪跳。前后端同一版本号，覆盖安装即可。"
 }

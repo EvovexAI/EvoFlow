@@ -36,7 +36,7 @@ Run plan ``validation`` when all Steps done. Do not ``create_subtasks`` again.
 
 _DELIVERABLE_SECTION = """## 6 Deliverables
 
-Files/images/videos/links: wrap cited file paths in the reply body with a pair of `@@` (absolute path or ``outputs/…``) so they render clickable. Otherwise state the conclusion in chat."""
+Files/images/videos/links: cite with Markdown `[file name](path relative to the workspace)` or a short backtick path so the UI shows preview cards (same as `<artifact_display>`). Otherwise state the conclusion in chat."""
 
 _PLAN_DISPATCH_SUMMARY = """UI「开始执行」auto-dispatches wave 1. You monitor/remediate: ``monitor_execution_step`` / ``get_status``; failures → ``retry_subtask`` / ``continue_subtask_session`` (same subtask_id); call ``start_execution`` only if wave 1 never started. Later DAG waves: backend auto follow-up."""
 

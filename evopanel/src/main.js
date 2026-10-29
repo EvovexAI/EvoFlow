@@ -528,6 +528,7 @@ async function boot() {
   registerRoute('/models', () => import('./pages/models.js'))
   registerRoute('/agents', createAgentsRedirectModule)
   registerRoute('/agents/team/:code', createAgentsRedirectModule)
+  registerRoute('/agents/:code', () => import('./pages/agent-detail.js'))
   registerRoute('/assets', () => import('./pages/assets.js'))
   registerRoute('/memory', () => import('./pages/assets.js'))
   registerRoute('/memory/atoms', () => import('./pages/assets.js'))
@@ -637,6 +638,13 @@ async function boot() {
       })
     } catch (e) {
       console.warn('[boot] mountGlobalAssistant failed', e)
+    }
+    // 转交审核：全局轮询 → 左下角芯片 + 侧栏角标 + 桌面通知（不依赖打开员工页）
+    try {
+      const { startProactiveApprovalNotify } = await import('./lib/proactive-approval-notify.js')
+      startProactiveApprovalNotify()
+    } catch (e) {
+      console.warn('[boot] startProactiveApprovalNotify failed', e)
     }
   }
 

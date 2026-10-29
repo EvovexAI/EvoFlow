@@ -117,19 +117,23 @@ async function playSpeakerPreview(voiceType, btn, presets) {
   const gen = _previewGen
   const ac = new AbortController()
   _previewAbort = ac
+  const provider =
+    group?.getAttribute('data-tts-provider')?.trim().toLowerCase() || 'volcengine'
   try {
-    const configured = await fetchSpeechConfigured()
-    if (gen !== _previewGen) return
-    if (!configured) {
-      stopPreview()
-      toast('请先在设置中配置火山 TTS API Key，或前往豆包语音控制台试听', 'info')
-      window.open(VOLCENGINE_TTS_SPEAKER_TRIAL_URL, '_blank', 'noopener,noreferrer')
-      return
+    if (provider === 'volcengine' || provider === 'doubao') {
+      const configured = await fetchSpeechConfigured()
+      if (gen !== _previewGen) return
+      if (!configured) {
+        stopPreview()
+        toast('请先在设置中配置火山 TTS API Key，或前往豆包语音控制台试听', 'info')
+        window.open(VOLCENGINE_TTS_SPEAKER_TRIAL_URL, '_blank', 'noopener,noreferrer')
+        return
+      }
     }
     const { audio, speakerUsed, digest } = await previewSpeechTts(
       previewTextForSpeaker(voice, presets),
       voice,
-      { signal: ac.signal },
+      { signal: ac.signal, provider },
     )
     if (gen !== _previewGen) {
       audio.pause()

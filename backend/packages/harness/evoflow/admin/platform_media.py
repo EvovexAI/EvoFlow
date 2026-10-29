@@ -658,7 +658,15 @@ def generate_video(
             media_kind="video",
             status="succeeded",
             remote_url=url,
-            meta={"mode": effective_mode, "immediate": True},
+            meta={
+                "mode": effective_mode,
+                "immediate": True,
+                "model": model,
+                "duration": duration,
+                "aspect_ratio": aspect,
+                "resolution": resolution,
+                "prompt": prompt,
+            },
         )
         return _enrich_preview(
             _parse_tool_json(
@@ -683,6 +691,9 @@ def generate_video(
             "mode": effective_mode,
             "duration": duration,
             "aspect_ratio": aspect,
+            "resolution": resolution,
+            "model": model,
+            "prompt": prompt,
             "first_frame_url": resolved_first,
             "resolve_notes": resolve_notes,
         },
@@ -724,6 +735,7 @@ def task_wait(
         _unique_media_save_prefix,
         _path_for_display,
         _media_image_reply_hint,
+        _media_deliverable_reply_hint,
     )
 
     task_id = str(args.get("task_id") or args.get("taskId") or "").strip()
@@ -793,7 +805,7 @@ def task_wait(
     if media_kind == "image" and ap:
         next_action = _media_image_reply_hint(ap)
     elif local_paths:
-        next_action = "Share absolute path in chat as @@/abs/path@@ (no relative @@outputs/…@@)."
+        next_action = _media_deliverable_reply_hint(ap)
     else:
         next_action = "Retry media.task_wait or check provider dashboard."
     msg = f"Saved: {ap}" if ap else ("Task finished." if urls else f"Task status={status}; no download URL yet.")

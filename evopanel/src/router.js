@@ -73,6 +73,7 @@ function resolveLoader(path) {
   if (/^\/apps\/[^/]+\/history$/.test(path) && routes['/apps/:id/history']) return routes['/apps/:id/history']
   if (/^\/apps\/[^/]+$/.test(path) && routes['/apps/:id']) return routes['/apps/:id']
   if (/^\/agents\/team\/[^/]+$/.test(path) && routes['/agents/team/:code']) return routes['/agents/team/:code']
+  if (/^\/agents\/[^/]+$/.test(path) && routes['/agents/:code']) return routes['/agents/:code']
   if (/^\/runs\/[^/]+$/.test(path) && routes['/runs/:runId']) return routes['/runs/:runId']
   return null
 }
@@ -245,6 +246,7 @@ function updateNavActive(routePath) {
     if (!active && r === '/tasks' && routePath.startsWith('/task/')) active = true
     if (!active && r === '/projects' && routePath.startsWith('/project/')) active = true
     if (!active && r === '/agents' && routePath.startsWith('/agents/team/')) active = true
+    if (!active && r === '/expert' && /^\/agents\/[^/]+$/.test(routePath) && !routePath.startsWith('/agents/team/')) active = true
     if (!active && r === '/proactive' && (routePath.startsWith('/proactive/') || routePath.startsWith('/runs/'))) active = true
     if (!active && r === '/expert' && ['/agents','/skills','/tools','/tasks','/cron','/automation'].some(p => routePath === p || routePath.startsWith(p + '/'))) active = true
     if (!active && r === '/knowledge' && (routePath === '/knowledge' || routePath === '/knowledge/vaults' || routePath.startsWith('/knowledge/owned'))) active = true

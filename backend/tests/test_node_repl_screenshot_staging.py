@@ -194,7 +194,7 @@ class TestAutoImageInjection:
         }
         mw = ViewImageMiddleware()
         assert mw._has_auto_images(state) is True
-        assert mw._should_inject_image_message(state) is True
+        assert mw._should_inject_image_message(state) == (True, "ok")
 
         update = mw._inject_image_message(state, runtime=None)
         assert update is not None
@@ -215,7 +215,7 @@ class TestAutoImageInjection:
             "viewed_images": {str(img_path): {"path": str(img_path), "mime_type": "image/png"}},
         }
         mw = ViewImageMiddleware()
-        assert mw._should_inject_image_message(state) is False
+        assert mw._should_inject_image_message(state) == (False, "no_read_image_tool_and_no_auto")
 
     def test_mixed_manual_and_auto_sections(self, tmp_path: Path, vision_enabled):
         manual_path = tmp_path / "manual.png"

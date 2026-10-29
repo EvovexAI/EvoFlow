@@ -67,7 +67,7 @@ export const TAB_META = {
   api: { title: 'WebUI 远程访问', desc: '启用后，手机、平板或远程浏览器可以访问 EvoPanel。' },
   users: { title: '用户与权限', desc: '组织管理员管理用户目录、管理员角色与 ACL 模式。' },
   sso: { title: '企业 SSO', desc: '配置 OpenID Connect，让 Web 与桌面客户端使用企业 IdP 单点登录。' },
-  usage: { title: '使用统计', desc: 'Token 与费用账本：按日趋势、类型与模型拆分。' },
+  usage: { title: '使用统计', desc: 'Token / 生图 / 生视频费用账本：按日趋势、类型与模型拆分。' },
   resources: {
     title: '资源中心',
     desc: '获取资源(市场 / 本地导入)→ 管理已装 → 打包分享,三步管好资源包。',

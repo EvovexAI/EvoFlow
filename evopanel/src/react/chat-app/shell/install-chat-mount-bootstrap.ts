@@ -98,6 +98,10 @@ export function runChatMountBootstrapEffect(ctx: RunChatMountBootstrapEffectCtx)
     }
     connectShellPanel()
     document.addEventListener('visibilitychange', onShellPanelVisibility)
+
+    // ZCode 对齐：轮询 /api/cua/glow-status，电脑控制时顶栏「正在操作电脑」。
+    // 不依赖 panel-stream / AG-UI（V4 下更稳）；日志进 plugin-control.log [cua-glow]。
+    void import('../../../lib/cua-glow-poll.js').then((m) => m.startCuaGlowStatusPoll())
     
     // 监听会话名称更新事件
     const onNameUpdate = (ev?: Event) => {
