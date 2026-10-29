@@ -439,7 +439,8 @@ function renderToolCheckRow(t, { checked = false, readonly = false } = {}) {
       <span class="re-check-ok">✓</span>
     </div>`
   }
-  return `<label class="re-check" data-search="${escapeAttr(searchKey)}">
+  const tip = t.desc ? ` title="${escapeAttr(`${t.label}：${t.desc}`)}"` : ''
+  return `<label class="re-check" data-search="${escapeAttr(searchKey)}"${tip}>
     <input type="checkbox" name="tools" value="${escapeAttr(t.value)}" ${checked ? 'checked' : ''}>
     <span class="re-ci-icon">${t.icon || '⚙'}</span>
     <span class="re-ci-text">

@@ -632,20 +632,23 @@
 }
 
 .pro-role-more-menu {
-  position: absolute;
-  bottom: calc(100% + 6px);
-  top: auto;
-  right: 0;
+  --pro-more-bg: #ffffff;
+  --pro-more-fg: #0f172a;
+  --pro-more-hover: #f1f5f9;
+  --pro-more-danger-hover: #fee2e2;
   z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
   min-width: 148px;
   padding: 4px;
   border: 1px solid var(--border-primary, var(--pro-slate-line));
   border-radius: 8px;
   /* Hard opaque popover — must not inherit glass / translucent surfaces. */
-  background: #ffffff !important;
-  background-color: #ffffff !important;
+  background: var(--pro-more-bg) !important;
+  background-color: var(--pro-more-bg) !important;
   background-image: none !important;
-  color: #0f172a !important;
+  color: var(--pro-more-fg) !important;
   box-shadow:
     0 0 0 1px color-mix(in srgb, var(--border-primary, #e2e8f0) 70%, transparent),
     0 10px 28px color-mix(in srgb, #000 18%, transparent);
@@ -655,23 +658,41 @@
   opacity: 1 !important;
 }
 
+/* In-card absolute popover only — never apply bottom/top anchors to the body portal. */
+.pro-role-more-menu:not(.is-fixed):not([data-pro-more-host]) {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  top: auto;
+  right: 0;
+}
+
 html[data-theme='dark'] .pro-role-more-menu {
-  background: #1a2030 !important;
-  background-color: #1a2030 !important;
-  color: #e2e8f0 !important;
+  --pro-more-bg: #1a2030;
+  --pro-more-fg: #e2e8f0;
+  --pro-more-hover: #243044;
+  --pro-more-danger-hover: #3f1d1d;
+  background: var(--pro-more-bg) !important;
+  background-color: var(--pro-more-bg) !important;
+  color: var(--pro-more-fg) !important;
 }
 
 .pro-role-more-menu.is-fixed,
 body > .pro-role-more-menu.is-fixed,
 body > .pro-role-more-menu[data-pro-more-host] {
-  position: fixed;
-  right: auto;
+  position: fixed !important;
+  top: auto;
+  right: auto !important;
+  bottom: auto !important;
+  left: auto;
+  max-height: min(70vh, calc(100vh - 16px));
+  overflow-x: hidden;
+  overflow-y: auto;
   /* Above #app (z-index:1) / glass surfaces; keep below modal-overlay (~1000010). */
   z-index: 100050;
-  background: #ffffff !important;
-  background-color: #ffffff !important;
+  background: var(--pro-more-bg, #ffffff) !important;
+  background-color: var(--pro-more-bg, #ffffff) !important;
   background-image: none !important;
-  color: #0f172a !important;
+  color: var(--pro-more-fg, #0f172a) !important;
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
   opacity: 1 !important;
@@ -683,24 +704,36 @@ body > .pro-role-more-menu[data-pro-more-host] {
 html[data-theme='dark'] .pro-role-more-menu.is-fixed,
 html[data-theme='dark'] body > .pro-role-more-menu.is-fixed,
 html[data-theme='dark'] body > .pro-role-more-menu[data-pro-more-host] {
-  background: #1a2030 !important;
-  background-color: #1a2030 !important;
-  color: #e2e8f0 !important;
+  --pro-more-bg: #1a2030;
+  --pro-more-fg: #e2e8f0;
+  background: var(--pro-more-bg) !important;
+  background-color: var(--pro-more-bg) !important;
+  color: var(--pro-more-fg) !important;
 }
 
 body > .pro-role-more-menu .pro-role-more-item,
 .pro-role-more-menu.is-fixed .pro-role-more-item {
   color: inherit !important;
+  background-color: var(--pro-more-bg, #ffffff) !important;
+}
+body > .pro-role-more-menu .pro-role-more-item:hover,
+.pro-role-more-menu.is-fixed .pro-role-more-item:hover {
+  background-color: var(--pro-more-hover, #f1f5f9) !important;
 }
 body > .pro-role-more-menu .pro-role-more-item--danger,
 .pro-role-more-menu.is-fixed .pro-role-more-item--danger {
   color: var(--error, #dc2626) !important;
 }
+body > .pro-role-more-menu .pro-role-more-item--danger:hover,
+.pro-role-more-menu.is-fixed .pro-role-more-item--danger:hover {
+  background-color: var(--pro-more-danger-hover, #fee2e2) !important;
+}
 
 .pro-role-more-sep {
   height: 1px;
   margin: 4px 6px;
-  background: var(--pro-slate-line);
+  flex-shrink: 0;
+  background: var(--pro-slate-line, #e2e8f0);
 }
 
 .pro-role-more-item {
@@ -711,15 +744,18 @@ body > .pro-role-more-menu .pro-role-more-item--danger,
   padding: 0 10px;
   border: 0;
   border-radius: 6px;
-  background: transparent;
-  color: var(--text-primary);
+  /* Opaque row fill — transparent rows leaked glass at the menu foot. */
+  background: var(--pro-more-bg, #ffffff);
+  background-color: var(--pro-more-bg, #ffffff);
+  color: var(--pro-more-fg, var(--text-primary));
   font-size: 12px;
   text-align: left;
   cursor: pointer;
 }
 
 .pro-role-more-item:hover {
-  background: color-mix(in srgb, var(--pro-teal) 10%, transparent);
+  background: var(--pro-more-hover, #f1f5f9);
+  background-color: var(--pro-more-hover, #f1f5f9);
 }
 
 .pro-role-more-item--danger {
@@ -727,7 +763,8 @@ body > .pro-role-more-menu .pro-role-more-item--danger,
 }
 
 .pro-role-more-item--danger:hover {
-  background: color-mix(in srgb, var(--error, #dc2626) 10%, transparent);
+  background: var(--pro-more-danger-hover, #fee2e2);
+  background-color: var(--pro-more-danger-hover, #fee2e2);
 }
 
 .pro-role-more-item[hidden] {
@@ -5033,25 +5070,12 @@ html.evopanel-macos-titlebar .pro-employee-page--nav-in-chrome {
 }
 .pro-page-nav-actions .pro-role-more { position: relative; }
 /* 顶栏 ⋯ 在页面顶部：向下展开，避免 bottom:100% 弹到视口外 */
-.pro-page-nav-actions .pro-role-more-menu {
+.pro-page-nav-actions .pro-role-more-menu:not(.is-fixed):not([data-pro-more-host]) {
   top: calc(100% + 6px);
   bottom: auto;
 }
 .pro-role-more-menu[hidden] { display: none !important; }
-.pro-role-more-item {
-  display: block;
-  width: 100%;
-  text-align: left;
-  border: 0;
-  background: transparent;
-  padding: 8px 10px;
-  border-radius: 8px;
-  font-size: 13px;
-  color: var(--text-primary);
-  cursor: pointer;
-}
-.pro-role-more-item:hover { background: var(--bg-tertiary); }
-.pro-role-more-item--danger { color: var(--danger, #ef4444); }
+/* Item chrome is defined once above (.pro-role-more-item) — do not reset to transparent here. */
 
 /* ── Kanban board/list + drawer ── */
 .pro-kanban-viewtabs {

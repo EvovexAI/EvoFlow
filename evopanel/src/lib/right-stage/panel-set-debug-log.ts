@@ -77,18 +77,36 @@ function safeJson(detail: Record<string, unknown>): string {
   }
 }
 
+function isTauriRuntime(): boolean {
+  try {
+    return typeof window !== 'undefined' && !!(window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__
+  } catch {
+    return false
+  }
+}
+
 function appendFileLine(line: string): void {
   if (!fileEnabled()) return
+  // Web / incomplete IPC: never touch @tauri-apps — avoids
+  // "Cannot read properties of undefined (reading 'invoke')" noise.
+  if (!isTauriRuntime()) return
   fileQueue = fileQueue
     .then(async () => {
       try {
-        const { invoke } = await import('@tauri-apps/api/core')
+        const mod = await import('@tauri-apps/api/core')
+        const invoke = mod?.invoke
+        if (typeof invoke !== 'function') return
         await invoke('append_right_stage_log', { message: line.slice(0, 15_500) })
       } catch (err) {
+        // Boot race / missing command: warn once, never throw into UI paths.
         if (!fileWarned) {
           fileWarned = true
           try {
-            console.warn(TAG, 'file log unavailable', err)
+            const msg = err instanceof Error ? err.message : String(err || '')
+            // Expected when IPC bridge is mid-init; keep quiet unless unexpected.
+            if (!/invoke|undefined|not allowed|command/i.test(msg)) {
+              console.warn(TAG, 'file log unavailable', err)
+            }
           } catch {
             /* ignore */
           }

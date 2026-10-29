@@ -207,13 +207,13 @@
   width: 100%;
 }
 
-/* Toast 通知：屏幕正中（需高于设置弹窗 overlay=1000001；运行时 toast.js 会抬到 1000010） */
+/* Toast 通知：水平居中、偏上（勿落屏幕正中挡主内容；需高于设置弹窗 overlay=1000001；运行时 toast.js 会抬到 1000010） */
 .toast-container {
   position: fixed;
-  top: 50%;
+  top: max(72px, 16vh);
   left: 50%;
   right: auto;
-  transform: translate(-50%, -50%);
+  transform: translateX(-50%);
   z-index: 13000;
   display: flex;
   flex-direction: column;
@@ -225,10 +225,10 @@
 
 .toast-container.toast-container--modal-open,
 .toast-container.toast-container--elevated {
-  /* 弹窗打开时同样居中，仅保证层级由 JS 抬升 */
-  top: 50%;
+  /* 弹窗打开时同样偏上居中，仅保证层级由 JS 抬升 */
+  top: max(72px, 16vh);
   left: 50%;
-  transform: translate(-50%, -50%);
+  transform: translateX(-50%);
   align-items: center;
 }
 

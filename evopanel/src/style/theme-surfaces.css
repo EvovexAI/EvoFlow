@@ -2103,6 +2103,10 @@ html[data-translucent-ui='1'] .proactive-page .pro-role-more.is-open .pro-role-m
 html[data-translucent-ui='1'] .proactive-page .pro-role-more-menu,
 html[data-translucent-ui='1'] body > .pro-role-more-menu[data-pro-more-host],
 html[data-translucent-ui='1'] .pro-role-more-menu.is-fixed {
+  --pro-more-bg: #ffffff;
+  --pro-more-fg: #0f172a;
+  --pro-more-hover: #f1f5f9;
+  --pro-more-danger-hover: #fee2e2;
   background: #ffffff !important;
   background-color: #ffffff !important;
   background-image: none !important;
@@ -2116,12 +2120,61 @@ html[data-translucent-ui='1'] .pro-role-more-menu.is-fixed {
     0 12px 32px color-mix(in srgb, #000 22%, transparent) !important;
 }
 
+html[data-translucent-ui='1'] .proactive-page .pro-role-more-menu .pro-role-more-item,
+html[data-translucent-ui='1'] body > .pro-role-more-menu[data-pro-more-host] .pro-role-more-item,
+html[data-translucent-ui='1'] .pro-role-more-menu.is-fixed .pro-role-more-item {
+  background: #ffffff !important;
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+}
+html[data-translucent-ui='1'] .proactive-page .pro-role-more-menu .pro-role-more-item:hover,
+html[data-translucent-ui='1'] body > .pro-role-more-menu[data-pro-more-host] .pro-role-more-item:hover,
+html[data-translucent-ui='1'] .pro-role-more-menu.is-fixed .pro-role-more-item:hover {
+  background: #f1f5f9 !important;
+  background-color: #f1f5f9 !important;
+}
+html[data-translucent-ui='1'] .proactive-page .pro-role-more-menu .pro-role-more-item--danger,
+html[data-translucent-ui='1'] body > .pro-role-more-menu[data-pro-more-host] .pro-role-more-item--danger,
+html[data-translucent-ui='1'] .pro-role-more-menu.is-fixed .pro-role-more-item--danger {
+  color: var(--error, #dc2626) !important;
+}
+html[data-translucent-ui='1'] .proactive-page .pro-role-more-menu .pro-role-more-item--danger:hover,
+html[data-translucent-ui='1'] body > .pro-role-more-menu[data-pro-more-host] .pro-role-more-item--danger:hover,
+html[data-translucent-ui='1'] .pro-role-more-menu.is-fixed .pro-role-more-item--danger:hover {
+  background: #fee2e2 !important;
+  background-color: #fee2e2 !important;
+}
+
 html[data-theme='dark'][data-translucent-ui='1'] .proactive-page .pro-role-more-menu,
 html[data-theme='dark'][data-translucent-ui='1'] body > .pro-role-more-menu[data-pro-more-host],
 html[data-theme='dark'][data-translucent-ui='1'] .pro-role-more-menu.is-fixed {
+  --pro-more-bg: #1a2030;
+  --pro-more-fg: #e2e8f0;
+  --pro-more-hover: #243044;
+  --pro-more-danger-hover: #3f1d1d;
   background: #1a2030 !important;
   background-color: #1a2030 !important;
   color: #e2e8f0 !important;
+}
+
+html[data-theme='dark'][data-translucent-ui='1'] .proactive-page .pro-role-more-menu .pro-role-more-item,
+html[data-theme='dark'][data-translucent-ui='1'] body > .pro-role-more-menu[data-pro-more-host] .pro-role-more-item,
+html[data-theme='dark'][data-translucent-ui='1'] .pro-role-more-menu.is-fixed .pro-role-more-item {
+  background: #1a2030 !important;
+  background-color: #1a2030 !important;
+  color: #e2e8f0 !important;
+}
+html[data-theme='dark'][data-translucent-ui='1'] .proactive-page .pro-role-more-menu .pro-role-more-item:hover,
+html[data-theme='dark'][data-translucent-ui='1'] body > .pro-role-more-menu[data-pro-more-host] .pro-role-more-item:hover,
+html[data-theme='dark'][data-translucent-ui='1'] .pro-role-more-menu.is-fixed .pro-role-more-item:hover {
+  background: #243044 !important;
+  background-color: #243044 !important;
+}
+html[data-theme='dark'][data-translucent-ui='1'] .proactive-page .pro-role-more-menu .pro-role-more-item--danger:hover,
+html[data-theme='dark'][data-translucent-ui='1'] body > .pro-role-more-menu[data-pro-more-host] .pro-role-more-item--danger:hover,
+html[data-theme='dark'][data-translucent-ui='1'] .pro-role-more-menu.is-fixed .pro-role-more-item--danger:hover {
+  background: #3f1d1d !important;
+  background-color: #3f1d1d !important;
 }
 
 html[data-translucent-ui='1'] .proactive-page .pro-employee-tabs {
@@ -2248,6 +2301,8 @@ html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .proactive-page .pro-
 html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .proactive-page .pro-role-more-menu,
 html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] body > .pro-role-more-menu[data-pro-more-host],
 html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .pro-role-more-menu.is-fixed {
+  --pro-more-bg: #ffffff;
+  --pro-more-fg: #0f172a;
   background: #ffffff !important;
   background-color: #ffffff !important;
   background-image: none !important;
@@ -2257,13 +2312,30 @@ html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .pro-role-more-menu.i
   opacity: 1 !important;
 }
 
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .proactive-page .pro-role-more-menu .pro-role-more-item,
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] body > .pro-role-more-menu[data-pro-more-host] .pro-role-more-item,
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .pro-role-more-menu.is-fixed .pro-role-more-item {
+  background: #ffffff !important;
+  background-color: #ffffff !important;
+}
+
 html[data-theme='dark'][data-translucent-ui='1'][data-liquid-glass-webgl='1'] .proactive-page .pro-role-more-menu,
 html[data-theme='dark'][data-translucent-ui='1'][data-liquid-glass-webgl='1'] body > .pro-role-more-menu[data-pro-more-host],
 html[data-theme='dark'][data-translucent-ui='1'][data-liquid-glass-webgl='1'] .pro-role-more-menu.is-fixed {
+  --pro-more-bg: #1a2030;
+  --pro-more-fg: #e2e8f0;
   background: #1a2030 !important;
   background-color: #1a2030 !important;
   color: #e2e8f0 !important;
   opacity: 1 !important;
+}
+
+html[data-theme='dark'][data-translucent-ui='1'][data-liquid-glass-webgl='1'] .proactive-page .pro-role-more-menu .pro-role-more-item,
+html[data-theme='dark'][data-translucent-ui='1'][data-liquid-glass-webgl='1'] body > .pro-role-more-menu[data-pro-more-host] .pro-role-more-item,
+html[data-theme='dark'][data-translucent-ui='1'][data-liquid-glass-webgl='1'] .pro-role-more-menu.is-fixed .pro-role-more-item {
+  background: #1a2030 !important;
+  background-color: #1a2030 !important;
+  color: #e2e8f0 !important;
 }
 
 html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] :is(.hire-overlay, .role-editor-overlay) :is(
