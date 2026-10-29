@@ -86,7 +86,10 @@ def test_build_human_input_attaches_context_files():
     ]
     out = _build_human_input(_inbound(files=files, text="帮我看看"))
     msg = out["messages"][0]
-    assert msg["content"] == "帮我看看"
+    assert "帮我看看" in msg["content"]
+    assert "[渠道附件本地路径 · wecom]" in msg["content"]
+    assert "Path: /tmp/cache/abc.png" in msg["content"]
+    assert "Path: /tmp/cache/doc.pdf" in msg["content"]
     ctx = msg["additional_kwargs"]["context_files"]
     assert len(ctx) == 2
 
@@ -113,6 +116,9 @@ def test_build_human_input_skips_malformed_entries():
         {"path": "/tmp/ok.png", "filename": "ok.png"},
     ]
     out = _build_human_input(_inbound(files=files, text=""))
+    content = out["messages"][0]["content"]
+    assert "Path: /tmp/x.png" in content
+    assert "Path: /tmp/ok.png" in content
     ctx = out["messages"][0]["additional_kwargs"]["context_files"]
     assert len(ctx) == 2
     assert ctx[0]["name"] == "x.png"
@@ -236,6 +242,7 @@ def _make_wecom(bus: _FakeBus) -> WecomChannel:
     channel.name = "wecom"
     channel.bus = bus
     channel._account_id = ""
+    channel._bot_id = ""
     channel._pending_text_batches = {}
     channel._pending_text_batch_tasks = {}
     channel._temp_media_paths = set()

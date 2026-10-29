@@ -464,6 +464,8 @@ def _display_status(*, direction: str, status: str, event: str) -> str:
     d = str(direction or "").strip().lower()
     ev = str(event or "").strip().lower()
     if st in ("error", "failed"):
+        if d == "outbound" or ev in ("send_failed", "dropped"):
+            return "发送失败"
         return "失败"
     if st in ("pending", "sending"):
         return "发送中"
@@ -476,30 +478,58 @@ def _display_status(*, direction: str, status: str, event: str) -> str:
     return st or "未知"
 
 
-def _attachment_info(payload: Any) -> tuple[int, list[str]]:
-    """Return (count, preview paths) from inbound files / outbound attachments."""
+def _attachment_items(payload: Any) -> list[dict[str, str]]:
+    """Normalize inbound/outbound file descriptors for ops UI + model audit.
+
+    Prefer durable local ``path`` so ops can preview/open and agents see where
+    the file lives (``{EVOFLOW_HOME}/channel-messages/...``).
+    """
     if not isinstance(payload, dict):
-        return 0, []
-    items: list[Any] = []
-    files = payload.get("files")
-    if isinstance(files, list):
-        items.extend(files)
-    atts = payload.get("attachments")
-    if isinstance(atts, list):
-        items.extend(atts)
-    arts = payload.get("artifacts")
-    if isinstance(arts, list):
-        items.extend(arts)
-    previews: list[str] = []
-    for it in items[:8]:
+        return []
+    raw_items: list[Any] = []
+    for key in ("files", "attachments", "artifacts"):
+        block = payload.get(key)
+        if isinstance(block, list):
+            raw_items.extend(block)
+    out: list[dict[str, str]] = []
+    for it in raw_items[:16]:
         if isinstance(it, str) and it.strip():
-            previews.append(it.strip()[:120])
-        elif isinstance(it, dict):
-            for k in ("name", "filename", "virtual_path", "path", "url"):
-                v = str(it.get(k) or "").strip()
-                if v:
-                    previews.append(v[:120])
-                    break
+            s = it.strip()
+            out.append(
+                {
+                    "filename": s.replace("\\", "/").rsplit("/", 1)[-1][:120],
+                    "path": s[:500],
+                    "mime": "",
+                }
+            )
+            continue
+        if not isinstance(it, dict):
+            continue
+        path = str(it.get("path") or it.get("virtual_path") or it.get("url") or "").strip()
+        filename = (
+            str(it.get("filename") or it.get("name") or "").strip()
+            or (path.replace("\\", "/").rsplit("/", 1)[-1] if path else "")
+            or "attachment"
+        )
+        mime = str(it.get("mime") or it.get("content_type") or "").strip()
+        # Always keep a display string; path preferred for open/preview.
+        if not path and not filename:
+            continue
+        out.append(
+            {
+                "filename": filename[:160],
+                "path": (path or filename)[:500],
+                "mime": mime[:80],
+            }
+        )
+    return out
+
+
+def _attachment_info(payload: Any) -> tuple[int, list[str]]:
+    """Return (count, preview labels) — prefer local paths over bare filenames."""
+    items = _attachment_items(payload)
+    previews = [str(it.get("path") or it.get("filename") or "").strip()[:240] for it in items[:8]]
+    previews = [p for p in previews if p]
     return len(items), previews
 
 
@@ -540,6 +570,7 @@ def _row_to_dict(row: Any, *, enrich: bool = False) -> dict[str, Any]:
         if isinstance(payload, dict):
             msg_type_raw = str(payload.get("msg_type") or "").strip()
             thread_id = str(payload.get("thread_id") or "").strip()
+        att_items = _attachment_items(payload)
         att_count, att_preview = _attachment_info(payload)
         kind = out["kind"]
         kind_label = _KIND_LABEL_ZH.get(kind, kind or "通道消息")
@@ -562,6 +593,7 @@ def _row_to_dict(row: Any, *, enrich: bool = False) -> dict[str, Any]:
         out["thread_id"] = thread_id
         out["attachment_count"] = att_count
         out["attachments"] = att_preview
+        out["attachment_items"] = att_items
         out["display_status"] = _display_status(
             direction=out["direction"],
             status=out["status"],

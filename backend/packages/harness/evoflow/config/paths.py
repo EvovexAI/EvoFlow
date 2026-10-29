@@ -28,6 +28,8 @@ class Paths:
         │   ├── org/<org_id>/{skills,agents,files,memory}/
         │   ├── personal/<user_id>/...
         │   └── group/<group_id>/...
+        ├── channel-messages/          <-- IM inbound media (feishu/wecom/…)
+        │   └── {channel}/{YYYY}/{MM}/{filename}
         ├── memory.json                     <-- legacy hint only
         ├── agents/                         <-- optional legacy; agent config in SQLite
         └── threads/
@@ -237,6 +239,22 @@ class Paths:
         Sandbox: `/mnt/user-data/`
         """
         return self.thread_dir(thread_id) / "user-data"
+
+    def channel_messages_dir(self, channel: str = "", *, year: int | None = None, month: int | None = None) -> Path:
+        """IM inbound media root: ``{base_dir}/channel-messages[/{channel}[/{YYYY}/{MM}]]``."""
+        from datetime import datetime
+
+        root = self.base_dir / "channel-messages"
+        ch = str(channel or "").strip().lower()
+        if not ch:
+            return root
+        folder = root / ch
+        if year is None and month is None:
+            return folder
+        now = datetime.now().astimezone()
+        y = int(year if year is not None else now.year)
+        m = int(month if month is not None else now.month)
+        return folder / f"{y:04d}" / f"{m:02d}"
 
     def ensure_thread_dirs(self, thread_id: str) -> None:
         """Create all standard sandbox directories for a thread.

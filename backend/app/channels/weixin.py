@@ -14,7 +14,6 @@ import mimetypes
 import os
 import secrets
 import struct
-import tempfile
 import time
 import uuid
 from pathlib import Path
@@ -764,16 +763,28 @@ class WeixinChannel(Channel):
         return raw
 
     def _cache_bytes(self, data: bytes, suffix: str) -> str:
-        """Write bytes to a temp file and return the path."""
-        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as f:
-            f.write(data)
-            path = f.name
+        """Write bytes under ``{EVOFLOW_HOME}/channel-messages/weixin/{YYYY}/{MM}/``."""
+        from app.channels.inbound_media_store import write_inbound_media_bytes
+
+        ext = str(suffix or ".bin").strip() or ".bin"
+        if not ext.startswith("."):
+            ext = f".{ext}"
+        filename = f"weixin-media{ext}"
+        path = write_inbound_media_bytes(
+            data,
+            channel="weixin",
+            filename=filename,
+        )
         self._temp_media_paths.add(path)
         return path
 
     async def _cleanup_temp_paths(self, paths: list[str]) -> None:
+        from app.channels.inbound_media_store import is_under_channel_messages
+
         for path in paths:
             self._temp_media_paths.discard(path)
+            if is_under_channel_messages(path):
+                continue
             try:
                 os.unlink(path)  # async-block-ok: 单个临时文件 unlink，微秒级
             except OSError as exc:

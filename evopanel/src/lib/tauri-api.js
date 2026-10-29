@@ -3048,7 +3048,14 @@ export const api = {
     gatewayProxy('PUT', `/proactive/departments/${encodeURIComponent(String(id || ''))}/members`, {
       agent_codes: Array.isArray(agentCodes) ? agentCodes : [],
     }),
-  proactiveGetRole: async (code) => gatewayProxy('GET', `/proactive/roles/${code}`),
+  proactiveGetRole: async (code, options = null) =>
+    gatewayProxy(
+      'GET',
+      `/proactive/roles/${encodeURIComponent(String(code || '').trim())}`,
+      null,
+      null,
+      options,
+    ),
   proactiveCreateRole: async (payload) => gatewayProxy('POST', '/proactive/roles', payload),
   /** One-step employee create (capability pack + duty). Prefer over createAgent+createRole. */
   proactiveCreateEmployee: async (payload) => gatewayProxy('POST', '/proactive/employees', payload || {}),

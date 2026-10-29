@@ -544,6 +544,7 @@ class _MirrorState:
     """本轮文件变更聚合 path → {additions, deletions}（写类工具 RESULT 时累计，
     RUN_FINISHED 时写入 turnHeader.fileChanges——ZCode 轮尾「N 个文件已更改」卡片）。"""
     user_text: str = ""
+    user_attachments: list[dict[str, Any]] = field(default_factory=list)
     last_turn_id: str = ""
     """最近一个开过的 turnId（RUN_STARTED 时记录，轮尾不清）。task_* 事件晚到时
     subagent 行仍能挂回宿主轮，配对（parentToolCallId + turnId）不因轮已结算而断。"""
@@ -691,17 +692,29 @@ class V4Mirror:
 
     # -- 入口 ---------------------------------------------------------------
 
-    def note_user_input(self, thread_id: str, text: str) -> None:
-        """POST 路径解析到用户文本后先记下（RUN_STARTED 时落 userInput 行）。"""
+    def note_user_input(
+        self,
+        thread_id: str,
+        text: str,
+        *,
+        attachments: list[dict[str, Any]] | None = None,
+    ) -> None:
+        """POST / channel 路径解析到用户输入后先记下（RUN_STARTED 时落 userInput 行）。
+
+        ``attachments`` 为 V4 ``AttachmentRef`` 列表（飞书等 IM 入站媒体），可与
+        空文本并存（纯图/纯文件回合）。
+        """
         tid = str(thread_id or "").strip()
         raw = str(text or "").strip()
-        if not tid or not raw:
+        atts = [a for a in (attachments or []) if isinstance(a, dict) and str(a.get("ref") or "").strip()]
+        if not tid or (not raw and not atts):
             return
         # 工具审批内部标记（批准/续流）在旧面板不展示；镜像也不落 userInput。
-        if _is_hidden_tool_approval_user_text(raw):
+        if raw and _is_hidden_tool_approval_user_text(raw) and not atts:
             return
         st = self._state(tid)
         st.user_text = raw
+        st.user_attachments = atts[:16]
 
     def feed_wire(self, thread_id: str, frames: list[bytes] | list[str]) -> int:
         """解析 AG-UI SSE wire 帧 → feed_events。返回消费的事件数。"""
@@ -818,20 +831,24 @@ class V4Mirror:
                 },
             )
             user_text = st.user_text
+            user_atts = list(st.user_attachments or [])
             st.user_text = ""
-            if user_text and not _is_hidden_tool_approval_user_text(user_text):
-                self._hub.author_append_row(
-                    tid,
-                    {
-                        "rowId": self._next_row_id(tid),
-                        "turnId": st.turn_id,
-                        "kind": "userInput",
-                        "text": user_text,
-                        "origin": "realUser",
-                        "createdAt": now_ms,
-                        "createdAtSeq": self._seq_now(tid),
-                    },
-                )
+            st.user_attachments = []
+            if (user_text or user_atts) and not (
+                user_text and _is_hidden_tool_approval_user_text(user_text) and not user_atts
+            ):
+                user_row: dict[str, Any] = {
+                    "rowId": self._next_row_id(tid),
+                    "turnId": st.turn_id,
+                    "kind": "userInput",
+                    "text": user_text or "",
+                    "origin": "realUser",
+                    "createdAt": now_ms,
+                    "createdAtSeq": self._seq_now(tid),
+                }
+                if user_atts:
+                    user_row["attachments"] = user_atts
+                self._hub.author_append_row(tid, user_row)
             self._patch_control(tid, _running_control(now_ms=now_ms))
             return
 
@@ -1291,12 +1308,17 @@ def _get_mirror() -> V4Mirror:
 _MIRROR: V4Mirror | None = None
 
 
-def mirror_note_user_input(thread_id: str, text: str) -> None:
-    """生产路径入口：记录本轮用户输入文本。"""
+def mirror_note_user_input(
+    thread_id: str,
+    text: str,
+    *,
+    attachments: list[dict[str, Any]] | None = None,
+) -> None:
+    """生产路径入口：记录本轮用户输入文本（及可选附件）。"""
     if _MIRROR_DISABLED:
         return
     try:
-        _get_mirror().note_user_input(thread_id, text)
+        _get_mirror().note_user_input(thread_id, text, attachments=attachments)
     except Exception:
         logger.exception("[v4-mirror] note_user_input failed thread=%s", thread_id)
 

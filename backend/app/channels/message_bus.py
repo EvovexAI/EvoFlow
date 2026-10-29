@@ -219,74 +219,82 @@ class MessageBus:
 
     @staticmethod
     async def _invoke_outbound_callback(callback: OutboundCallback, msg: OutboundMessage) -> None:
-        try:
-            await callback(msg)
-        except Exception:
-            logger.exception("Error in outbound callback for channel=%s", msg.channel_name)
+        """Invoke a channel/listener callback; re-raise so callers can audit failure."""
+        await callback(msg)
 
     def has_outbound(self, channel_name: str, account_id: str = "") -> bool:
         """True when a channel instance is registered for this outbound slot."""
         return (str(channel_name or ""), str(account_id or "")) in self._outbound_by_account
 
+    @staticmethod
+    def _record_outbound_push(
+        msg: OutboundMessage,
+        *,
+        status: str,
+        event: str,
+        error: str = "",
+        delivery: str = "",
+    ) -> None:
+        """Write one ops row for a final outbound. Never raises into the send path."""
+        if not msg.is_final:
+            return
+        with contextlib.suppress(Exception):
+            from evoflow.persistence.channel_push_repositories import safe_record_push
+
+            _meta = msg.metadata if isinstance(msg.metadata, dict) else {}
+            _kind = str(_meta.get("kind") or "im_message").strip() or "im_message"
+            _rtype = str(_meta.get("receive_id_type") or "chat_id").strip() or "chat_id"
+            _triggered = str(_meta.get("triggered_by") or "agent").strip() or "agent"
+            _title = str(_meta.get("title") or "").strip()
+            _task_id = str(_meta.get("task_id") or "").strip()
+            _role = str(_meta.get("role_agent_code") or "").strip()
+            _sender = str(msg.account_id or "").strip() or str(_meta.get("account_id") or "").strip()
+            payload: dict[str, Any] = {
+                "thread_id": str(msg.thread_id or ""),
+                "topic_id": str(msg.topic_id or ""),
+                "is_final": True,
+                "artifacts": list(msg.artifacts or [])[:8],
+                "attachments": [
+                    getattr(a, "virtual_path", str(a)) if not isinstance(a, str) else a
+                    for a in (msg.attachments or [])
+                ][:8],
+                "msg_type": "interactive" if _meta.get("proactive_markdown") else None,
+                "source": "message_bus",
+                "metadata": {k: _meta[k] for k in list(_meta.keys())[:12]},
+            }
+            if delivery:
+                payload["delivery"] = delivery
+            safe_record_push(
+                direction="outbound",
+                channel=str(msg.channel_name or "").strip() or "im",
+                kind=_kind,
+                event=event,
+                transport="im_event",
+                task_id=_task_id,
+                role_agent_code=_role,
+                sender_account_id=_sender,
+                external_message_id=str(msg.thread_ts or ""),
+                receive_id=str(msg.chat_id or ""),
+                receive_id_type=_rtype,
+                title=_title,
+                content_summary=str(msg.text or "")[:800],
+                payload=payload,
+                status=status,
+                error=str(error or "")[:400],
+                triggered_by=_triggered,
+            )
+
     async def publish_outbound(self, msg: OutboundMessage) -> None:
-        """Dispatch an outbound message to the channel handler and optional listeners."""
+        """Dispatch an outbound message to the channel handler and optional listeners.
+
+        Ops audit for ``is_final`` runs **after** the channel callback attempt so
+        「成功已回复」means the handler ran without raising — not merely that the
+        bus accepted the message. Missing handlers / send exceptions are logged
+        as ``status=error`` (event ``send_failed`` / ``dropped``).
+        """
         from app.channels.channel_io_log import log_channel_outbound
 
         log_channel_outbound(msg)
-        # Channel-audit: every outbound that flows through the bus (any IM channel
-        # whose channel.subscribe_outbound has been registered, including
-        # feishu / wecom / weixin / dingtalk / telegram / slack) must leave a
-        # trail in evoflow_channel_push_log. Internal EvoPanel replies do not
-        # flow through this bus, so this single hook captures "external IM
-        # outbound" only. Failures here must never break delivery.
-        #
-        # Callers may stamp kind / receive_id_type / triggered_by / title /
-        # task_id / role_agent_code on ``msg.metadata`` (proactive markdown,
-        # self-intro, …). Defaults keep the historic reply-path shape.
-        # Stream patches (is_final=False) are not user-visible "messages" —
-        # logging them produced ops rows with a single streamed character.
-        if msg.is_final:
-            with contextlib.suppress(Exception):
-                from evoflow.persistence.channel_push_repositories import safe_record_push
-
-                _meta = msg.metadata if isinstance(msg.metadata, dict) else {}
-                _kind = str(_meta.get("kind") or "im_message").strip() or "im_message"
-                _rtype = str(_meta.get("receive_id_type") or "chat_id").strip() or "chat_id"
-                _triggered = str(_meta.get("triggered_by") or "agent").strip() or "agent"
-                _title = str(_meta.get("title") or "").strip()
-                _task_id = str(_meta.get("task_id") or "").strip()
-                _role = str(_meta.get("role_agent_code") or "").strip()
-                _sender = str(msg.account_id or "").strip() or str(_meta.get("account_id") or "").strip()
-                safe_record_push(
-                    direction="outbound",
-                    channel=str(msg.channel_name or "").strip() or "im",
-                    kind=_kind,
-                    event="sent",
-                    transport="im_event",
-                    task_id=_task_id,
-                    role_agent_code=_role,
-                    sender_account_id=_sender,
-                    external_message_id=str(msg.thread_ts or ""),
-                    receive_id=str(msg.chat_id or ""),
-                    receive_id_type=_rtype,
-                    title=_title,
-                    content_summary=str(msg.text or "")[:800],
-                    payload={
-                        "thread_id": str(msg.thread_id or ""),
-                        "topic_id": str(msg.topic_id or ""),
-                        "is_final": True,
-                        "artifacts": list(msg.artifacts or [])[:8],
-                        "attachments": [
-                            getattr(a, "virtual_path", str(a)) if not isinstance(a, str) else a
-                            for a in (msg.attachments or [])
-                        ][:8],
-                        "msg_type": "interactive" if _meta.get("proactive_markdown") else None,
-                        "source": "message_bus",
-                        "metadata": {k: _meta[k] for k in list(_meta.keys())[:12]},
-                    },
-                    status="ok",
-                    triggered_by=_triggered,
-                )
         # Route by (channel_name, account_id) so the reply lands on the same
         # channel instance that received the inbound. Empty account_id means
         # "primary bot" and is its own slot — it no longer catches replies
@@ -306,29 +314,97 @@ class MessageBus:
         key = (msg.channel_name, str(msg.account_id or "").strip())
         aid = str(msg.account_id or "").strip()
         channel_cb = self._outbound_by_account.get(key)
+        delivery_via = "exact"
+        # Employee inbound (Feishu nested WS / bootstrap tag) stamps account_id=emp-…
+        # while the multiplexed primary only registered slot "". Without this
+        # fallback replies are audited as dropped and never reach Feishu.
+        if channel_cb is None and aid:
+            primary_cb = self._outbound_by_account.get((msg.channel_name, ""))
+            if primary_cb is not None:
+                channel_cb = primary_cb
+                delivery_via = "primary_fallback"
+                logger.warning(
+                    "[Bus] outbound slot missing for %s/%s — falling back to primary slot "
+                    "(registered=%s)",
+                    msg.channel_name,
+                    aid,
+                    sorted(
+                        f"{ch}:{a or '-'}"
+                        for (ch, a) in self._outbound_by_account
+                        if ch == msg.channel_name
+                    ),
+                )
         listener_count = (1 if channel_cb else 0) + len(self._outbound_listeners)
         logger.info(
-            "[Bus] outbound dispatching: channel=%s account_id=%s chat_id=%s listeners=%d text_len=%d",
+            "[Bus] outbound dispatching: channel=%s account_id=%s chat_id=%s listeners=%d "
+            "via=%s text_len=%d",
             msg.channel_name,
             aid,
             msg.chat_id,
             listener_count,
+            delivery_via,
             len(msg.text),
         )
+        deliver_error = ""
+        delivery = "ok"
         if channel_cb is not None:
-            logger.info("[Bus] invoking channel callback for %s/%s", msg.channel_name, aid or "-")
-            await self._invoke_outbound_callback(channel_cb, msg)
             logger.info(
-                "[Bus] channel callback completed for %s/%s (text_len=%d)",
+                "[Bus] invoking channel callback for %s/%s via=%s",
                 msg.channel_name,
                 aid or "-",
-                len(msg.text),
+                delivery_via,
             )
+            try:
+                await self._invoke_outbound_callback(channel_cb, msg)
+                logger.info(
+                    "[Bus] channel callback completed for %s/%s (text_len=%d via=%s)",
+                    msg.channel_name,
+                    aid or "-",
+                    len(msg.text),
+                    delivery_via,
+                )
+            except Exception as exc:
+                deliver_error = str(exc)[:400]
+                delivery = "callback_error"
+                logger.exception(
+                    "[Bus] outbound callback failed channel=%s account_id=%s chat_id=%s",
+                    msg.channel_name,
+                    aid,
+                    msg.chat_id,
+                )
         else:
+            delivery = "no_callback"
+            registered = sorted(
+                f"{ch}:{a or '-'}" for (ch, a) in self._outbound_by_account if ch == msg.channel_name
+            )
+            deliver_error = (
+                f"no outbound callback for channel={msg.channel_name} account_id={aid or '-'}"
+                f" registered={registered}"
+            )
             logger.warning(
-                "[Bus] no outbound callback registered for channel=%s account_id=%s — message dropped",
+                "[Bus] no outbound callback registered for channel=%s account_id=%s "
+                "registered=%s — message dropped",
                 msg.channel_name,
                 aid,
+                registered,
             )
         for callback in self._outbound_listeners:
-            await self._invoke_outbound_callback(callback, msg)
+            try:
+                await self._invoke_outbound_callback(callback, msg)
+            except Exception:
+                logger.exception(
+                    "Error in outbound listener for channel=%s", msg.channel_name
+                )
+        # Channel-audit AFTER dispatch: ops 「成功已回复」 must not lie when the
+        # Feishu/WeCom handler never ran or raised. Stream patches stay unaudited.
+        if msg.is_final:
+            if delivery == "ok":
+                self._record_outbound_push(msg, status="ok", event="sent", delivery=delivery)
+            else:
+                self._record_outbound_push(
+                    msg,
+                    status="error",
+                    event="send_failed" if delivery == "callback_error" else "dropped",
+                    error=deliver_error,
+                    delivery=delivery,
+                )

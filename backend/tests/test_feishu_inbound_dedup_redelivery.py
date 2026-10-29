@@ -29,6 +29,29 @@ def test_same_msg_id_within_memory_is_duplicate():
     )
 
 
+def test_same_msg_id_different_account_is_duplicate():
+    """Stale + winner WS for one app_id must not both dispatch the same om_…"""
+    d = _FeishuInboundDeduper(id_ttl=86_400.0, content_ttl=20.0)
+    assert (
+        d.is_duplicate(
+            account_id="douyin-blogger-analyst",
+            msg_id="om_shared",
+            chat_id="oc_chat",
+            text="这是啥",
+        )
+        is False
+    )
+    assert (
+        d.is_duplicate(
+            account_id="ecommerce-content-operator",
+            msg_id="om_shared",
+            chat_id="oc_chat",
+            text="这是啥",
+        )
+        is True
+    )
+
+
 def test_durable_push_log_blocks_after_memory_ttl_expiry():
     """Simulates: first handle → TTL purged memory → Feishu redelivers same om_…"""
     d = _FeishuInboundDeduper(id_ttl=0.01, content_ttl=0.01)

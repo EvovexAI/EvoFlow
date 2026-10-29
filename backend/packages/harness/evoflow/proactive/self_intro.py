@@ -60,6 +60,54 @@ def has_intro_been_sent(agent_code: str, *, receive_id: str, receive_id_type: st
         return False
 
 
+def should_skip_first_mention_intro(
+    agent_code: str,
+    *,
+    chat_id: str,
+    peer_open_id: str = "",
+    chat_type: str = "",
+) -> bool:
+    """Whether Feishu first-message intro should be skipped for this chat.
+
+    Bind flow already pushes to the scanner's ``open_id``. The same private chat
+    later arrives as ``chat_id=oc_…`` — without this check we re-spam the intro
+    on the first user message (e.g. sending an image).
+    """
+    code = str(agent_code or "").strip()
+    cid = str(chat_id or "").strip()
+    if not code or not cid:
+        return True
+    if has_intro_been_sent(code, receive_id=cid, receive_id_type="chat_id"):
+        return True
+    ct = str(chat_type or "").strip().lower()
+    # Group first-@ must still get a one-time intro even if QR-bind already
+    # greeted the binder's open_id. Only private chats alias open_id ↔ oc_.
+    if ct in {"group", "public"}:
+        return False
+    peer = str(peer_open_id or "").strip()
+    if peer and has_intro_been_sent(code, receive_id=peer, receive_id_type="open_id"):
+        return True
+    # p2p / private (or unknown type): any prior open_id intro means QR-bind
+    # already covered this private conversation.
+    if ct in {"p2p", "private", ""}:
+        try:
+            from evoflow.proactive.repositories import ProactiveRepository
+
+            role = ProactiveRepository.get_role(code)
+            cfg = getattr(role, "config", None) if role else None
+            if cfg is not None:
+                if str(getattr(cfg, "feishu_intro_sent_at", "") or "").strip():
+                    return True
+                sent = getattr(cfg, "feishu_intro_sent", None) or {}
+                if isinstance(sent, dict) and any(
+                    str(k).startswith("open_id:") and str(v or "").strip() for k, v in sent.items()
+                ):
+                    return True
+        except Exception:
+            logger.debug("self_intro: should_skip_first_mention failed code=%s", code, exc_info=True)
+    return False
+
+
 def mark_intro_sent(agent_code: str, *, receive_id: str, receive_id_type: str = "chat_id") -> None:
     """Persist intro delivery marker on the role config (idempotent)."""
     code = str(agent_code or "").strip()

@@ -91,6 +91,109 @@ def _persist_feishu_accounts(accounts: dict[str, Any], *, ensure_enabled: bool =
         logger.debug("feishu_binding: sync ChannelService memory skipped", exc_info=True)
 
 
+def _clear_role_feishu_credentials(role: Any) -> None:
+    """Wipe Feishu fields on a role config (does not touch channel accounts)."""
+    cfg = role.config
+    cfg.feishu_app_id = ""
+    cfg.feishu_app_secret = ""
+    cfg.feishu_open_id = ""
+    cfg.feishu_bound_at = ""
+    cfg.feishu_intro_sent_at = ""
+    cfg.feishu_intro_sent = {}
+    role.config = cfg
+
+
+def find_agent_code_for_feishu_app_id(app_id: str) -> str:
+    """Return the employee ``agent_code`` that currently owns this Feishu app_id.
+
+    Used to remap inbound events when a stale WebSocket is still tagged with a
+    previous employee after QR re-bind / steal.
+    """
+    aid = str(app_id or "").strip()
+    if not aid:
+        return ""
+    try:
+        for role in ProactiveRepository.list_roles():
+            code = str(getattr(role, "agent_code", "") or "").strip()
+            cfg = getattr(role, "config", None)
+            if not code or cfg is None:
+                continue
+            if str(getattr(cfg, "feishu_app_id", "") or "").strip() == aid:
+                return code
+    except Exception:
+        logger.debug("feishu_binding: find owner for app_id failed", exc_info=True)
+    try:
+        from evoflow.persistence.config_repositories import get_bot_binding
+
+        row = get_bot_binding("feishu", aid)
+        if row:
+            return str(row.get("agent_code") or "").strip()
+    except Exception:
+        logger.debug("feishu_binding: bot_bindings owner lookup failed", exc_info=True)
+    return ""
+
+
+def steal_feishu_app_id_from_other_roles(app_id: str, *, keep_agent_code: str) -> list[str]:
+    """Auto-unbind every other employee that still holds this Feishu ``app_id``.
+
+    One Feishu bot (cli_…) may only map to one employee. Re-scanning onto the
+    correct role must clear the mistaken prior binding so inbound routing and
+    WS clients do not fight over the same credentials.
+    """
+    aid = str(app_id or "").strip()
+    keep = str(keep_agent_code or "").strip()
+    if not aid or not keep:
+        return []
+
+    cleared: list[str] = []
+    try:
+        roles = ProactiveRepository.list_roles()
+    except Exception:
+        logger.debug("feishu_binding: list_roles for steal failed", exc_info=True)
+        return []
+
+    for other in roles:
+        other_code = str(getattr(other, "agent_code", "") or "").strip()
+        if not other_code or other_code == keep:
+            continue
+        cfg = getattr(other, "config", None)
+        if cfg is None:
+            continue
+        if str(getattr(cfg, "feishu_app_id", "") or "").strip() != aid:
+            continue
+        try:
+            _clear_role_feishu_credentials(other)
+            ProactiveRepository.save_role(other)
+            remove_role_account_from_channel(other_code)
+            cleared.append(other_code)
+            logger.info(
+                "feishu_binding: stole app_id=%s from agent=%s → keep=%s",
+                aid,
+                other_code,
+                keep,
+            )
+        except Exception:
+            logger.warning(
+                "feishu_binding: failed to clear stolen binding from %s",
+                other_code,
+                exc_info=True,
+            )
+
+    # Flat table (ops / migration path): same bot_id may still point at the loser.
+    try:
+        from evoflow.persistence.config_repositories import delete_bot_binding, get_bot_binding
+
+        row = get_bot_binding("feishu", aid)
+        if row is not None:
+            owner = str(row.get("agent_code") or "").strip()
+            if owner and owner != keep:
+                delete_bot_binding("feishu", aid)
+    except Exception:
+        logger.debug("feishu_binding: bot_bindings steal cleanup skipped", exc_info=True)
+
+    return cleared
+
+
 def sync_role_account_to_channel(
     agent_code: str,
     *,
@@ -99,7 +202,11 @@ def sync_role_account_to_channel(
     open_id: str = "",
     role_name: str = "",
 ) -> dict[str, Any]:
-    """Upsert ``channels.feishu.accounts[agent_code]`` for this employee bot."""
+    """Upsert ``channels.feishu.accounts[agent_code]`` for this employee bot.
+
+    Also drops any other account slots that still carry the same ``app_id``
+    (stale JSON after a mistaken bind).
+    """
     code = str(agent_code or "").strip()
     if not code:
         raise ValueError("agent_code is required")
@@ -111,6 +218,17 @@ def sync_role_account_to_channel(
     channels = _channels_section()
     feishu = dict(channels.get("feishu") or {})
     accounts = dict(feishu.get("accounts") or {}) if isinstance(feishu.get("accounts"), dict) else {}
+    # Drop duplicate app_id slots before writing the winner.
+    for other_code, acc in list(accounts.items()):
+        if other_code == code or not isinstance(acc, dict):
+            continue
+        if str(acc.get("app_id") or "").strip() == aid:
+            del accounts[other_code]
+            logger.info(
+                "feishu_binding: removed duplicate accounts[%s] for app_id=%s",
+                other_code,
+                aid,
+            )
     accounts[code] = {
         "app_id": aid,
         "app_secret": secret,
@@ -120,22 +238,55 @@ def sync_role_account_to_channel(
         "session": {"assistant_id": code},
     }
     _persist_feishu_accounts(accounts, ensure_enabled=True)
+
+    # Keep flat table in sync so ChannelService 1-row-per-bot_id path cannot
+    # resurrect a stale employee WS after steal / re-bind.
+    try:
+        from evoflow.persistence.config_repositories import upsert_bot_binding
+
+        upsert_bot_binding(
+            platform="feishu",
+            bot_id=aid,
+            agent_code=code,
+            bot_secret=secret,
+            workspace_root="",
+            session_config={"assistant_id": code},
+            enabled=True,
+            bound_at=utc_now_iso_z(),
+        )
+    except Exception:
+        logger.debug("feishu_binding: upsert bot_bindings skipped", exc_info=True)
+
     return accounts[code]
 
 
 def remove_role_account_from_channel(agent_code: str) -> bool:
-    """Remove employee account from ``channels.feishu.accounts``."""
+    """Remove employee account from ``channels.feishu.accounts`` (+ flat table)."""
     code = str(agent_code or "").strip()
     if not code:
         return False
     channels = _channels_section()
     feishu = dict(channels.get("feishu") or {})
     accounts = dict(feishu.get("accounts") or {}) if isinstance(feishu.get("accounts"), dict) else {}
-    if code not in accounts:
-        return False
-    del accounts[code]
-    _persist_feishu_accounts(accounts, ensure_enabled=bool(accounts) or bool(feishu.get("enabled")))
-    return True
+    removed = False
+    stale_app = ""
+    if code in accounts:
+        acc = accounts.get(code) if isinstance(accounts.get(code), dict) else {}
+        stale_app = str((acc or {}).get("app_id") or "").strip()
+        del accounts[code]
+        _persist_feishu_accounts(accounts, ensure_enabled=bool(accounts) or bool(feishu.get("enabled")))
+        removed = True
+    try:
+        from evoflow.persistence.config_repositories import delete_bot_binding, get_bot_binding_by_agent
+
+        row = get_bot_binding_by_agent("feishu", code)
+        bid = str((row or {}).get("bot_id") or stale_app or "").strip()
+        if bid:
+            delete_bot_binding("feishu", bid)
+            removed = True
+    except Exception:
+        logger.debug("feishu_binding: delete bot_bindings skipped", exc_info=True)
+    return removed
 
 
 async def restart_feishu_channel_if_possible() -> bool:
@@ -159,14 +310,21 @@ async def apply_registration_to_role(
     app_secret: str,
     open_id: str = "",
 ) -> dict[str, Any]:
-    """Persist binding on the role and sync/restart the Feishu channel."""
+    """Persist binding on the role and sync/restart the Feishu channel.
+
+    If this ``app_id`` was previously bound to another employee (wrong QR),
+    that prior binding is cleared automatically (steal / 抢绑).
+    """
     code = str(agent_code or "").strip()
     role = ProactiveRepository.get_role(code)
     if role is None:
         raise LookupError(f"Role '{code}' not found")
 
+    aid = str(app_id or "").strip()
+    stolen_from = steal_feishu_app_id_from_other_roles(aid, keep_agent_code=code)
+
     cfg = role.config
-    cfg.feishu_app_id = str(app_id or "").strip()
+    cfg.feishu_app_id = aid
     cfg.feishu_app_secret = str(app_secret or "").strip()
     cfg.feishu_open_id = str(open_id or "").strip()
     cfg.feishu_bound_at = utc_now_iso_z()
@@ -215,6 +373,7 @@ async def apply_registration_to_role(
         "binding": feishu_binding_public(cfg),
         "app_id": str(cfg.feishu_app_id or "").strip(),
         "role_name": str(role.role_name or code).strip() or code,
+        "stolen_from": stolen_from,
     }
 
 
@@ -225,14 +384,8 @@ async def unbind_role_feishu(agent_code: str) -> dict[str, Any]:
     if role is None:
         raise LookupError(f"Role '{code}' not found")
 
+    _clear_role_feishu_credentials(role)
     cfg = role.config
-    cfg.feishu_app_id = ""
-    cfg.feishu_app_secret = ""
-    cfg.feishu_open_id = ""
-    cfg.feishu_bound_at = ""
-    cfg.feishu_intro_sent_at = ""
-    cfg.feishu_intro_sent = {}
-    role.config = cfg
     ProactiveRepository.save_role(role)
 
     remove_role_account_from_channel(code)

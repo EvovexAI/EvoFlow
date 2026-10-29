@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -285,7 +286,11 @@ async def test_coalesce_command_flushes_pending_then_publishes():
 
 
 @pytest.mark.asyncio
-async def test_media_cache_materialize_writes_temp(tmp_path, monkeypatch):
+async def test_media_cache_materialize_writes_channel_messages(tmp_path, monkeypatch):
+    monkeypatch.setenv("EVOFLOW_HOME", str(tmp_path))
+    from evoflow.config.paths import reset_paths_cache
+
+    reset_paths_cache()
     png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 16
     file_obj = MagicMock()
     file_obj.read.return_value = png
@@ -299,8 +304,40 @@ async def test_media_cache_materialize_writes_temp(tmp_path, monkeypatch):
             assert request.type == "image"
             return response
 
+    class _BuiltReq:
+        def __init__(self) -> None:
+            self.message_id = ""
+            self.file_key = ""
+            self.type = ""
+
+    class _ReqBuilder:
+        def __init__(self) -> None:
+            self._req = _BuiltReq()
+
+        def message_id(self, v):  # noqa: ANN001
+            self._req.message_id = v
+            return self
+
+        def file_key(self, v):  # noqa: ANN001
+            self._req.file_key = v
+            return self
+
+        def type(self, v):  # noqa: ANN001
+            self._req.type = v
+            return self
+
+        def build(self):
+            return self._req
+
+    class _Req:
+        @staticmethod
+        def builder():
+            return _ReqBuilder()
+
     client = SimpleNamespace(im=SimpleNamespace(v1=SimpleNamespace(message_resource=_Resource())))
     cache = FeishuInboundMediaCache(client_resolver=lambda _aid: client)
+    cache._GetMessageResourceRequest = _Req
+    monkeypatch.setattr(cache, "_ensure_sdk", lambda: True)
 
     from app.channels.feishu_inbound_parse import FeishuMediaRef
 
@@ -311,5 +348,13 @@ async def test_media_cache_materialize_writes_temp(tmp_path, monkeypatch):
     assert files[0]["mime"] == "image/png"
     assert len(owned) == 1
     assert owned[0] == files[0]["path"]
-
+    path = Path(files[0]["path"])
+    assert path.exists()
+    # {EVOFLOW_HOME}/channel-messages/feishu/{YYYY}/{MM}/…
+    parts = path.parts
+    assert "channel-messages" in parts
+    assert "feishu" in parts
+    # Durable: cleanup must not delete channel-messages files.
     await cache.cleanup_all()
+    assert path.exists()
+    reset_paths_cache()

@@ -165,7 +165,9 @@ class Channel(ABC):
             except Exception as exc:
                 self._diag_outbound_done(msg, ok=False, error=str(exc))
                 logger.exception("Failed to send outbound message on channel %s", self.name)
-                return  # Do not attempt file uploads when the text message failed
+                # Re-raise so MessageBus can audit status=error instead of
+                # falsely logging 「成功已回复」 when Feishu/WeCom send failed.
+                raise
 
             failed_names: list[str] = []
             for attachment in msg.attachments:

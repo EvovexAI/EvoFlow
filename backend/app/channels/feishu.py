@@ -101,10 +101,11 @@ class _FeishuInboundDeduper:
         now = time.time()
         self._cleanup(self._by_msg_id, now, self._id_ttl)
         self._cleanup(self._by_content, now, self._content_ttl)
-        aid = str(account_id or "").strip() or "primary"
+        # msg_id is global across account stamps: duplicate WS clients for the
+        # same Feishu app_id used to key by account and both process one event.
         mid = str(msg_id or "").strip()
         if mid:
-            id_key = f"{aid}:{mid}"
+            id_key = mid
             if id_key in self._by_msg_id:
                 return True
             if self._durable_seen(msg_id=mid, chat_id=chat_id):
@@ -112,8 +113,11 @@ class _FeishuInboundDeduper:
                 self._by_msg_id[id_key] = now
                 return True
             self._by_msg_id[id_key] = now
-        # Same bot + chat + normalized body within a short window — covers rare
+        # Same chat + normalized body within a short window — covers rare
         # redeliveries that arrive with a new message_id after the first reply.
+        # Still include account_id so two real bots in one group can say the
+        # same phrase without false-colliding.
+        aid = str(account_id or "").strip() or "primary"
         body = re.sub(r"\s+", " ", str(text or "").strip())
         body = re.sub(r"@_user_\d+\s*", "", body).strip()
         if body:
@@ -1064,6 +1068,31 @@ class FeishuChannel(Channel):
         self.bus.subscribe_outbound(
             self._on_outbound, channel_name=self.name, account_id=outbound_slot
         )
+        # Nested / bootstrap-tagged employee WS stamps inbound account_id=emp-…
+        # Register the same callback under those slots so replies are not dropped
+        # when ChannelService never started a dedicated feishu:<emp> instance
+        # (e.g. table_bindings-only path that ignored config.accounts).
+        self._outbound_alias_slots: list[str] = []
+        if not self._instance_account_id:
+            alias_ids: set[str] = set()
+            if bootstrap_account_id:
+                alias_ids.add(str(bootstrap_account_id).strip())
+            for account_id in accounts:
+                aid = str(account_id or "").strip()
+                if aid:
+                    alias_ids.add(aid)
+            for aid in sorted(alias_ids):
+                if aid == outbound_slot:
+                    continue
+                self.bus.subscribe_outbound(
+                    self._on_outbound, channel_name=self.name, account_id=aid
+                )
+                self._outbound_alias_slots.append(aid)
+            if self._outbound_alias_slots:
+                logger.info(
+                    "[Feishu] outbound aliases registered for nested/bootstrap accounts: %s",
+                    self._outbound_alias_slots,
+                )
 
         if ws_enabled:
             # Dedicated thread: WS connect/retry must not block gateway lifespan.
@@ -1166,10 +1195,16 @@ class FeishuChannel(Channel):
         When inbound stamped ``metadata.account_id`` (including empty primary), trust it.
         Never fall back to ``_chat_account`` in that case — a prior @小V in the same
         group would otherwise steal EvoFlow助手 replies.
+
+        Also honor top-level ``msg.account_id`` (bus routing key) so primary-slot
+        fallback after a missing employee callback still picks the right app.
         """
         meta = msg.metadata if isinstance(msg.metadata, dict) else {}
         if "account_id" in meta:
             return str(meta.get("account_id") or "").strip()
+        top = str(getattr(msg, "account_id", None) or "").strip()
+        if top:
+            return top
         # Legacy proactive cards with no account stamp: last inbound bot for this chat.
         return str(self._chat_account.get(str(msg.chat_id or ""), "") or "").strip()
 
@@ -1181,6 +1216,45 @@ class FeishuChannel(Channel):
                 continue
             return str(c).strip()
         return ""
+
+    def _ws_app_id(self) -> str:
+        """Feishu app_id this channel instance's WebSocket authenticates as."""
+        return str((self.config or {}).get("app_id") or "").strip()
+
+    def _canonicalize_inbound_account_id(self, stamped: str) -> str:
+        """Map stale WS account tags onto the employee that currently owns this app_id."""
+        aid = str(stamped or self._instance_account_id or "").strip()
+        app_id = self._ws_app_id()
+        if not app_id:
+            return aid
+        try:
+            from evoflow.proactive.feishu_binding import find_agent_code_for_feishu_app_id
+
+            owner = str(find_agent_code_for_feishu_app_id(app_id) or "").strip()
+        except Exception:
+            logger.debug("feishu: owner lookup for inbound remap failed", exc_info=True)
+            return aid
+        if not owner:
+            return aid
+        if aid and aid != owner:
+            logger.warning(
+                "[Feishu] remap inbound account %s → %s (app_id=%s; stale WS after rebind/steal)",
+                aid,
+                owner,
+                app_id,
+            )
+            try:
+                from app.channels.feishu_inbound_trace_log import log_feishu_inbound_trace
+
+                log_feishu_inbound_trace(
+                    "账号重映射",
+                    account_id=owner,
+                    from_account=aid,
+                    app_id=app_id,
+                )
+            except Exception:
+                pass
+        return owner
 
     @staticmethod
     async def _lark_ws_connect_exclusive(client: Any) -> None:
@@ -1324,6 +1398,9 @@ class FeishuChannel(Channel):
         self.bus.unsubscribe_outbound(
             channel_name=self.name, account_id=self._instance_account_id
         )
+        for aid in list(getattr(self, "_outbound_alias_slots", []) or []):
+            self.bus.unsubscribe_outbound(channel_name=self.name, account_id=aid)
+        self._outbound_alias_slots = []
         with contextlib.suppress(Exception):
             await self._inbound_coalescer.flush_all()
         with contextlib.suppress(Exception):
@@ -3249,25 +3326,46 @@ class FeishuChannel(Channel):
         )
         # First-@ self-introduction for a dedicated employee bot (account_id set),
         # once per chat. Primary personal-assistant bot is excluded on purpose.
+        # Skip when QR-bind already intro'd the same private peer (open_id vs oc_…).
         if account_id:
-            self._maybe_send_first_mention_intro(account_id=account_id, chat_id=chat_id)
+            peer = str(getattr(inbound, "user_id", "") or "").strip()
+            chat_type = str(meta.get("chat_type") or "").strip()
+            self._maybe_send_first_mention_intro(
+                account_id=account_id,
+                chat_id=chat_id,
+                peer_open_id=peer,
+                chat_type=chat_type,
+            )
         await self.bus.publish_inbound(inbound)
 
-    def _maybe_send_first_mention_intro(self, *, account_id: str, chat_id: str) -> None:
+    def _maybe_send_first_mention_intro(
+        self,
+        *,
+        account_id: str,
+        chat_id: str,
+        peer_open_id: str = "",
+        chat_type: str = "",
+    ) -> None:
         """Fire-and-forget self-intro for a freshly bound employee bot's first @."""
         key = f"{account_id}::{chat_id}"
         if key in self._intro_sent_keys or not chat_id:
             return
-        self._intro_sent_keys.add(key)
         try:
             from evoflow.proactive.self_intro import (
                 build_employee_self_intro,
-                has_intro_been_sent,
                 mark_intro_sent,
+                should_skip_first_mention_intro,
             )
 
-            # Durable skip across Gateway restarts (memory set alone is not enough).
-            if has_intro_been_sent(account_id, receive_id=chat_id, receive_id_type="chat_id"):
+            # Durable skip: same chat_id, or private chat already intro'd via open_id
+            # after QR bind (otherwise image/text → second「自我介绍」).
+            if should_skip_first_mention_intro(
+                account_id,
+                chat_id=chat_id,
+                peer_open_id=peer_open_id,
+                chat_type=chat_type,
+            ):
+                self._intro_sent_keys.add(key)
                 return
             text = build_employee_self_intro(account_id)
             if not text:
@@ -3275,6 +3373,8 @@ class FeishuChannel(Channel):
         except Exception:
             logger.debug("feishu: self-intro text build failed account=%s", account_id, exc_info=True)
             return
+
+        self._intro_sent_keys.add(key)
 
         async def _send() -> None:
             try:
@@ -3318,6 +3418,9 @@ class FeishuChannel(Channel):
             msg_id = message.message_id
             sender_id = event.event.sender.sender_id.open_id
             account_id = str(account_id or "").strip()
+            # Stale WS after QR steal/rebind can still be tagged with the old
+            # employee while using the winner's app credentials. Remap by app_id.
+            account_id = self._canonicalize_inbound_account_id(account_id)
             if chat_id:
                 # Always refresh ("" = primary) so a prior @小V does not stick on this chat.
                 self._chat_account[str(chat_id)] = account_id

@@ -660,7 +660,7 @@ export function trendsToTimePoints(trends: Record<string, unknown> | null): Time
 function mapChannelDisplayToStatus(display: string, raw: string): ChannelMessageRecord['status'] {
   const d = String(display || '').trim()
   const s = String(raw || '').trim().toLowerCase()
-  if (d === '失败' || s === 'error' || s === 'failed') return 'failed'
+  if (d === '失败' || d === '发送失败' || s === 'error' || s === 'failed') return 'failed'
   if (d === '发送中' || s === 'pending' || s === 'sending') return 'warning'
   return 'success'
 }
@@ -712,6 +712,15 @@ export function apiChannelMessageToRecord(row: Record<string, unknown>): Channel
   const displayStatus = String(row.display_status || row.status || '')
   const statusRaw = String(row.status || '')
   const atts = Array.isArray(row.attachments) ? row.attachments.map((a) => String(a)) : []
+  const rawItems = Array.isArray(row.attachment_items) ? row.attachment_items : []
+  const attachmentItems = rawItems
+    .filter((it): it is Record<string, unknown> => !!it && typeof it === 'object')
+    .map((it) => ({
+      filename: String(it.filename || '').trim() || 'attachment',
+      path: String(it.path || '').trim(),
+      mime: String(it.mime || '').trim(),
+    }))
+    .filter((it) => it.path || it.filename)
   const channelRaw = String(row.channel_raw || row.channel || '')
   const channelLabel =
     String(row.channel_label || '').trim() ||
@@ -739,7 +748,8 @@ export function apiChannelMessageToRecord(row: Record<string, unknown>): Channel
     kindLabel: String(row.kind_label || row.kind || '—'),
     content: String(row.content_summary || row.title || '').slice(0, 200),
     attachmentCount: Number(row.attachment_count || 0),
-    attachments: atts,
+    attachments: atts.length ? atts : attachmentItems.map((it) => it.path || it.filename),
+    attachmentItems,
     receiveId: String(row.receive_id || ''),
     senderAccountId: String(row.sender_account_id || ''),
     agentCode: String(row.agent_code || row.role_agent_code || row.sender_account_id || ''),

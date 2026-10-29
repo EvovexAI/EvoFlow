@@ -306,20 +306,94 @@ def _persist_channel_session_index(
         )
 
 
+def _context_files_from_inbound(files: list[Any] | None) -> list[dict[str, Any]]:
+    """Normalize ``InboundMessage.files`` into desktop-compatible ``contextFiles``."""
+    out: list[dict[str, Any]] = []
+    for entry in list(files or [])[:16]:
+        if not isinstance(entry, dict):
+            continue
+        path = str(entry.get("path") or "").strip()
+        if not path:
+            continue
+        name = (
+            str(entry.get("filename") or entry.get("name") or "").strip()
+            or Path(path).name
+            or "attachment"
+        )
+        mime = str(entry.get("mime") or "").strip()
+        if not mime:
+            guessed, _ = mimetypes.guess_type(name)
+            mime = (guessed or "").split(";", 1)[0].strip()
+        item: dict[str, Any] = {"path": path, "name": name}
+        if mime:
+            item["mime"] = mime
+        kind = str(entry.get("kind") or "").strip()
+        if kind:
+            item["kind"] = kind
+        size = entry.get("size")
+        if isinstance(size, (int, float)) and size > 0:
+            item["size"] = int(size)
+        out.append(item)
+    return out
+
+
+def _v4_attachments_from_context_files(files: list[Any] | None) -> list[dict[str, Any]]:
+    """Map ``contextFiles`` → V4 ``AttachmentRef`` shape for hydrate / live mirror."""
+    out: list[dict[str, Any]] = []
+    for entry in list(files or [])[:16]:
+        if not isinstance(entry, dict):
+            continue
+        path = str(entry.get("path") or entry.get("ref") or "").strip()
+        if not path:
+            continue
+        name = (
+            str(entry.get("name") or entry.get("fileName") or entry.get("filename") or "").strip()
+            or Path(path).name
+            or "attachment"
+        )
+        mime = str(entry.get("mime") or "").strip()
+        if not mime:
+            guessed, _ = mimetypes.guess_type(name)
+            mime = (guessed or "").split(";", 1)[0].strip() or "application/octet-stream"
+        bytes_n = entry.get("size")
+        if not isinstance(bytes_n, (int, float)) or bytes_n < 0:
+            bytes_n = 0
+            try:
+                bytes_n = max(0, int(Path(path).stat().st_size))
+            except OSError:
+                bytes_n = 0
+        out.append(
+            {
+                "ref": path,
+                "fileName": name,
+                "mime": mime,
+                "bytes": int(bytes_n),
+            }
+        )
+    return out
+
+
 def _persist_channel_user_transcript_turn(
     session_key: str,
     thread_id: str,
     text: str,
+    *,
+    files: list[Any] | None = None,
 ) -> str:
     """Persist IM user message + mark run active (same as EvoPanel ``chatSend``).
 
     Uses the sync ``append_message_and_touch_session`` path. Do **not** call
     async ``persist_user_message`` without awaiting — that silently drops rows
     and leaves SessionTranscriptHydrationMiddleware on stale history.
+
+    When the inbound carries media, store ``contextFiles`` in ``content_json``
+    (desktop ``chatSend`` shape) so V4 hydration can project ``attachments``.
+    Image-/file-only turns still persist even when ``text`` is empty.
     """
     sk = str(session_key or "").strip()
     tid = str(thread_id or "").strip()
     body = str(text or "").strip()
+    ctx_files = _context_files_from_inbound(files)
     run_id = str(uuid.uuid4())
     if not sk or not tid:
         return run_id
@@ -328,20 +402,41 @@ def _persist_channel_user_transcript_turn(
         from evoflow.session_execution.lifecycle import start_session_turn
 
         start_session_turn(session_key=sk, thread_id=tid, run_id=run_id, source="channel")
-        if body:
+        if body or ctx_files:
+            content_json: dict[str, Any] = {"content": body}
+            if ctx_files:
+                content_json["contextFiles"] = ctx_files
             chat_svc.append_message_and_touch_session(
                 sk,
                 role="user",
                 content=body,
+                content_json=content_json,
                 run_id=run_id,
                 thread_id=tid,
             )
+            # Live V4 panel (if open on this thread): seed userInput + attachments
+            # before RUN_STARTED so the bubble isn't text-only / missing.
+            try:
+                from app.gateway.v4.agui_mirror import mirror_note_user_input
+
+                mirror_note_user_input(
+                    tid,
+                    body,
+                    attachments=_v4_attachments_from_context_files(ctx_files) if ctx_files else None,
+                )
+            except Exception:
+                logger.debug(
+                    "[Manager] mirror_note_user_input skipped session_key=%s",
+                    sk,
+                    exc_info=True,
+                )
         logger.info(
-            "[Manager] channel user transcript persisted session_key=%s thread_id=%s run_id=%s text_len=%d",
+            "[Manager] channel user transcript persisted session_key=%s thread_id=%s run_id=%s text_len=%d files=%d",
             sk,
             tid,
             run_id,
             len(body),
+            len(ctx_files),
         )
     except Exception:
         logger.warning(
@@ -410,11 +505,11 @@ def _build_human_input(
     LangChain-style payload the SDK already understands.
     """
     content = msg.text or ""
-    message: dict[str, Any] = {"role": "human", "content": content}
     files = list(msg.files or [])
     has_context_files = False
+    context_files: list[dict[str, Any]] = []
+    path_lines: list[str] = []
     if files:
-        context_files: list[dict[str, Any]] = []
         for entry in files:
             if not isinstance(entry, dict):
                 continue
@@ -440,9 +535,24 @@ def _build_human_input(
             if url:
                 cf_entry["url"] = url
             context_files.append(cf_entry)
+            path_lines.append(f"- {name}\n  Path: {path}")
         if context_files:
-            message["additional_kwargs"] = {"context_files": context_files}
             has_context_files = True
+        # Surface durable local paths in the human turn text so the model always
+        # sees where channel media lives (ContextFilesMiddleware also injects
+        # <context_files>, but text paths survive even when vision/native fails).
+        if path_lines:
+            channel = str(msg.channel_name or "im").strip() or "im"
+            footer = (
+                f"\n\n[渠道附件本地路径 · {channel}]\n"
+                + "\n".join(path_lines)
+                + "\n这些是本机已落盘的文件地址；读写请用上述 Path。"
+            )
+            content = f"{content.rstrip()}{footer}" if content.strip() else footer.strip()
+
+    message: dict[str, Any] = {"role": "human", "content": content}
+    if context_files:
+        message["additional_kwargs"] = {"context_files": context_files}
 
     # The authoritative model lives in run_config.configurable.model_name (lead_agent
     # reads it via cfg.get("model_name")). Vision fallback overrides only run_context["model_name"].
@@ -1711,16 +1821,23 @@ class ChannelManager:
                 _files = list(msg.files or [])[:8]
                 _summary = str(msg.text or "").strip()
                 if _files:
-                    _names: list[str] = []
+                    _labels: list[str] = []
                     for _f in _files:
                         if isinstance(_f, dict):
-                            _n = str(_f.get("filename") or _f.get("name") or _f.get("path") or "").strip()
+                            _path = str(_f.get("path") or "").strip()
+                            _n = str(_f.get("filename") or _f.get("name") or "").strip()
+                            if not _n and _path:
+                                _n = _path.replace("\\", "/").rsplit("/", 1)[-1]
+                            if _path:
+                                _labels.append(f"{_n or 'attachment'} → {_path}"[:200])
+                            elif _n:
+                                _labels.append(_n[:80])
                         else:
-                            _n = str(_f or "").strip()
-                        if _n:
-                            _names.append(_n.split("/")[-1].split("\\")[-1][:80])
-                    if _names:
-                        _att = "、".join(_names[:4])
+                            _s = str(_f or "").strip()
+                            if _s:
+                                _labels.append(_s[:120])
+                    if _labels:
+                        _att = "；".join(_labels[:4])
                         _summary = f"{_summary} [附件：{_att}]".strip() if _summary else f"[附件：{_att}]"
                 safe_record_push(
                     direction="inbound",
@@ -2067,7 +2184,12 @@ class ChannelManager:
                 _persist_channel_session_index(session_key, thread_id, msg, title=pretty)
         except Exception:
             logger.debug("[Manager] refresh weak IM session title skipped", exc_info=True)
-        channel_run_id = _persist_channel_user_transcript_turn(session_key, thread_id, msg.text or "")
+        channel_run_id = _persist_channel_user_transcript_turn(
+            session_key,
+            thread_id,
+            msg.text or "",
+            files=list(msg.files or []),
+        )
         _enrich_channel_run_context(run_context, session_key, msg, channel_run_id)
         send_shortcut_hint = msg.channel_name in IM_CHANNEL_NAMES and not self._im_shortcut_hint_sent(msg) and not _im_should_omit_shortcut_hint(run_context, msg)
         if self._channel_supports_streaming(msg.channel_name):

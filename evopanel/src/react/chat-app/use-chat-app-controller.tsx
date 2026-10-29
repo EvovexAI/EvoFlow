@@ -2857,8 +2857,9 @@ export function useChatAppController() {
         parseProactiveSessionKey,
         selectedSessionAgentId,
         resolveSessionAgentCodeForUi,
+        agents,
       }),
-    [selectedSessionKey, roleUiNonce, selectedSessionAgentId],
+    [selectedSessionKey, roleUiNonce, selectedSessionAgentId, agents],
   )
 
   /** 对话气泡 AI 头：纯显示名（不含标签前缀） */
@@ -2968,18 +2969,32 @@ export function useChatAppController() {
 
   const employeeSessionAgentCode = useMemo(() => {
     if (!isProactiveEmployeeSession) return ''
-    return String(parseProactiveSessionKey(String(selectedSessionKey || '')).agentCode || '')
+    const fromKey = String(parseProactiveSessionKey(String(selectedSessionKey || '')).agentCode || '')
       .trim()
       .toLowerCase()
-  }, [isProactiveEmployeeSession, selectedSessionKey])
+    const fromRow = String(selectedSessionAgentId || '').trim().toLowerCase()
+    if (!fromKey) return fromRow && fromRow !== 'main' ? fromRow : ''
+    // Orphan key (e.g. proactive:employee_a after rename/delete): prefer flat agentId
+    // when it points at a known employee / agent, otherwise keep key for soft 404.
+    const codeKnown = (code: string) => {
+      if (!code || code === 'main') return false
+      if (agents.some((a) => String(a?.agent_code || '').trim().toLowerCase() === code)) return true
+      if (proactiveRoles.some((r) => String(r?.agent_code || '').trim().toLowerCase() === code)) return true
+      return false
+    }
+    if (codeKnown(fromKey)) return fromKey
+    if (fromRow && fromRow !== fromKey && codeKnown(fromRow)) return fromRow
+    return fromKey
+  }, [isProactiveEmployeeSession, selectedSessionKey, selectedSessionAgentId, agents, proactiveRoles])
 
   const [employeeRoleDetail, setEmployeeRoleDetail] = useState<EmployeeRailInfo | null>(null)
   useEffect(() => {
     return runLoadEmployeeRoleDetailEffect({
       employeeSessionAgentCode,
+      fallbackAgentCode: selectedSessionAgentId,
       setEmployeeRoleDetail,
     })
-  }, [employeeSessionAgentCode, roleUiNonce])
+  }, [employeeSessionAgentCode, selectedSessionAgentId, roleUiNonce])
 
   /** 进入员工会话时按 session_key 同步 workspace_kind，不再用底栏「只聊天/派任务」模式条 */
   useEffect(() => {
