@@ -183,13 +183,16 @@ def _resolve_entity(
     return resolve_memory_entity(agent_name=agent)
 
 
-def _normalize_asset_rel(path: str) -> str:
-    """Accept common LLM shortcuts: ``_inbox/...`` → ``memory/_inbox/...``."""
+def _normalize_asset_rel(path: str, entity=None) -> str:
+    """Accept LLM shortcuts: ``_inbox/...`` → ``memory/_inbox/...``; bare ``foo.md`` → entity path."""
+    if entity is not None:
+        from evoflow.assets.paths import resolve_asset_rel
+
+        return resolve_asset_rel(entity, path)
     rel = str(path or "").strip().replace("\\", "/").lstrip("/")
     if rel.startswith("_inbox/") or rel == "_inbox":
         return f"memory/{rel}"
     return rel
-
 
 def _slug(text: str, *, fallback: str = "note") -> str:
     s = _SLUG_RE.sub("-", str(text or "").strip()).strip("-_")[:48]
@@ -250,7 +253,7 @@ def assets_tool(
         action: search | read | list | note | profile
         query: Search keywords (comma-separated ok). Required for search.
                When action=profile, use append (default) or replace.
-        path: Relative path for read/list, or profile dimension for action=profile
+        path: Filename or entity-relative path for read/list (basename is enough), or profile dimension for action=profile
               (basic-info.md, preferences, persona, …).
         kinds: Comma-separated asset kinds for search (facts,episodic,journal,craft,standing,handbook,all).
         content: Note body for action=note; markdown snippet for action=profile.
@@ -292,7 +295,7 @@ def assets_tool(
             res = search_entity_assets(
                 entity,
                 q,
-                path=_normalize_asset_rel(path) or None,
+                path=_normalize_asset_rel(path, entity) or None,
                 kinds=str(kinds or "").strip() or None,
                 max_results=max(1, min(int(max_results or 12), 50)),
                 context_lines=1,
@@ -335,7 +338,7 @@ def assets_tool(
             return json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False)
 
     if act == "read":
-        rel = _normalize_asset_rel(path)
+        rel = _normalize_asset_rel(path, entity)
         if not rel:
             return json.dumps({"ok": False, "error": "path_required"}, ensure_ascii=False)
         try:
@@ -365,7 +368,7 @@ def assets_tool(
             return json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False)
 
     if act == "list":
-        rel = _normalize_asset_rel(path)
+        rel = _normalize_asset_rel(path, entity)
         if not rel:
             # Prefer memory/ when listing root — mirrors progressive disclosure
             rel = "memory"

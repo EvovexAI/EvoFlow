@@ -9,7 +9,7 @@ Source of truth for durable know-how is the Asset Hub tree, **not** `agents.syst
 |-------|------|-------------|------|
 | **L0 job** | `<agent_system_prompt>` / soul | every turn | Duty skeleton only: role, I/O shape, hard gates, tool allow-hints |
 | **L1 standing** | `memory/standing.md` (capped) | every turn | Prefs, tips, **What's in Memory** routing pointers |
-| **L2 catalog** | short titles under craft/facts/episodic/journal + `MEMORY.md` | every turn | Discoverability — filenames / one-line labels (no body) |
+| **L2 catalog** | filenames under craft/facts/episodic/journal headings + `MEMORY.md` | every turn | Discoverability — basename + one-line label (no dir prefix, no body) |
 | **L3 body** | full md under craft / MEMORY / facts / … | on demand | Details via `assets` `read` / `search` |
 | **L4 inbox** | `_inbox/notes` pending | until Phase2 | Fresh notes not yet consolidated |
 
@@ -26,8 +26,9 @@ If the same rule exists in both job prompt and assets, **assets win for details*
 
 ## Catalog policy
 
-- Short titles only; **no row cap** for now (labels are cheap).
-- Bodies stay on disk; model opens paths when the turn needs them.
+- Kind heading + **basename only** (no `craft/` / `memory/facts/` prefix on every row — filenames are unique enough within an entity; `assets read` resolves basename).
+- Short titles/labels; **no row cap** for now (labels are cheap).
+- Bodies stay on disk; model opens by filename when the turn needs them.
 - Overflow / missing detail → `assets` search/read, not “stuff into system_prompt”.
 
 ## Turn-tail Hub Recall (why assets “feel empty” otherwise)

@@ -8,7 +8,7 @@
 |---|---|---|
 | **岗位** `system_prompt` | 常驻 | **只**职责骨架、输出格式、硬闸门——禁止塞经验全文 |
 | **standing** | 常驻摘要 | 偏好 / Tips / **What's in Memory** 指针 |
-| **catalog** | 常驻短标题 | craft / facts / episodic / journal 全量文件名（正文不灌） |
+| **catalog** | 常驻短标题 | 按类（craft/facts/episodic/journal）列**文件名**（不拼完整相对路径；正文不灌） |
 | **正文** | 按需 | `assets` read/search 打开详情 |
 | **inbox** | 未合并预览 | Phase2 前的新笔记 |
 
@@ -19,8 +19,8 @@
 - 刚 `assets note` 写完 → 同一任务后续步骤仍要按该笔记执行；不要写完当没写过。
 - 回合尾可能自动附带「ASSET HUB RECALL」短摘；有则优先照做，不够再 read 全文。
 
-- Tier-0：standing 短摘要 + catalog 短标题全量索引；正文不整份灌入（靠召回片段 + 按需 read）。
-- 读：先看下方 catalog 选目标，再 `assets(action="read", path=…)` 打开；单次读取超长会自动截断。
+- Tier-0：standing 短摘要 + catalog 文件名全量索引（分类只做标题，行内不带 `memory/facts/` 等前缀）；正文不整份灌入（靠召回片段 + 按需 read）。
+- 读：先看下方 catalog 选目标，再 `assets(action="read", path="文件名.md")` 打开（工具按文件名解析；也可传完整相对路径）；单次读取超长会自动截断。
 - 检索：`assets(action="search", query="关键词", kinds="facts,episodic,journal,craft,standing,handbook,all")`；不要整目录盲读。
 - 写：统一 `assets(action="note", content="…")` → 落 `memory/_inbox/notes`，由 Phase 2 整合进 standing / MEMORY / facts / craft。首行可带标签：`[experience]` / `[process]` / `[reflection]` / `[preference]`。
   - 稳定的偏好 / 习惯 / 事实：同一轮直接写，不必等用户说「记住」。

@@ -80,31 +80,34 @@ def _catalog_title_rows(entity: EntityRef) -> list[tuple[str, str]]:
         # Prefer human title; keep name/path stem in haystack via _title_haystack(path, …)
         return " · ".join(dict.fromkeys(bits)) if bits else ""
 
+    def _name(p: str) -> str:
+        return p.replace("\\", "/").rsplit("/", 1)[-1] if p else p
+
     try:
         for r in list_craft_catalog(entity):
             path = str(r.get("path") or "").strip()
-            title = _label(r.get("description"), r.get("name"), path)
+            # Label uses basename only — full dir stays off the prompt; haystack still has path.
+            title = _label(r.get("description"), r.get("name"), _name(path))
             if path:
-                rows.append((path, title or path))
+                rows.append((path, title or _name(path)))
         for r in list_fact_catalog(entity):
             path = str(r.get("path") or "").strip()
-            title = _label(r.get("title"), r.get("summary"), path)
+            title = _label(r.get("title"), r.get("summary"), _name(path))
             if path:
-                rows.append((path, title or path))
+                rows.append((path, title or _name(path)))
         for r in list_episode_catalog(entity):
             path = str(r.get("path") or "").strip()
-            title = _label(r.get("title"), r.get("summary"), path)
+            title = _label(r.get("title"), r.get("summary"), _name(path))
             if path:
-                rows.append((path, title or path))
+                rows.append((path, title or _name(path)))
         for r in list_journal_catalog(entity):
             path = str(r.get("path") or "").strip()
-            title = _label(r.get("title"), r.get("summary"), path)
+            title = _label(r.get("title"), r.get("summary"), _name(path))
             if path:
-                rows.append((path, title or path))
+                rows.append((path, title or _name(path)))
     except Exception:
         logger.debug("hub recall: catalog list failed", exc_info=True)
     return rows
-
 
 def _score_title(haystack: str, needles: list[str]) -> int:
     """Higher = more needle hits; 0 = no match. First needle (whole query) weighs more."""
@@ -149,13 +152,15 @@ def format_hub_asset_recall(
     picked = scored[: max(1, int(top_k))]
 
     lines: list[str] = [
-        "<!-- ASSET HUB RECALL — title match only; read these paths if relevant -->",
-        "下列资产标题与本轮用户话匹配。需要细节 → `assets read` 该 path（勿凭空编）。",
+        "<!-- ASSET HUB RECALL — title match only; read these filenames if relevant -->",
+        "下列资产标题与本轮用户话匹配。需要细节 → `assets read` 该文件名（勿凭空编）。",
     ]
     used = 0
     budget = max(120, int(max_chars))
     for _sc, path, title in picked:
-        block = f"- `{path}` · {title}".rstrip()
+        # Catalog / recall inject basename only; assets read resolves under the entity.
+        name = path.replace("\\", "/").rsplit("/", 1)[-1] if path else path
+        block = f"- `{name}` · {title}".rstrip()
         if used + len(block) > budget and used > 0:
             break
         lines.append(block)

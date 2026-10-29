@@ -17,7 +17,7 @@ TIER0_SYSTEM_CHARS = 500
 # several pointer lines; full experience/reflection bodies stay on-demand via assets.
 TIER0_STANDING_CHARS = 1200
 TIER0_USER_PROFILE_CHARS = 400
-# Prompt catalog: filenames/short titles only — **no row cap for now**.
+# Prompt catalog: basenames under kind headings (no dir prefix) — **no row cap for now**.
 # (Was TIER0_CATALOG_PER_KIND=10; short labels are cheap, let the model see the full index.)
 # 0 / None-like: list_* treats <=0 as unlimited.
 TIER0_CATALOG_PER_KIND = 0

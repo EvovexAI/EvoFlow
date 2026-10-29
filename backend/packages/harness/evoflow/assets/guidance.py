@@ -203,7 +203,7 @@ def _entity_label(entity: EntityRef) -> str:
 def build_read_path_entity_block(entity: EntityRef, *, standing: str | None = None) -> str:
     """Per-entity block: 锚点(heading) + 已存在的资产索引(catalog) + standing 摘要。
 
-    资产索引由 ``format_entity_catalog_lines`` 渲染(一行一文件,无 XML 包裹、无 registry 元数据),
+    资产索引由 ``format_entity_catalog_lines`` 渲染(按类列文件名,无目录前缀、无 XML、无 registry 元数据),
     让模型一眼能看到"我有哪些资产可用",不用盲读。
 
     asset-hub 模式下 standing 为空占位符时直接返回空串(不要空骨架)。
