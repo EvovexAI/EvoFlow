@@ -645,6 +645,81 @@ def settings_delete_model(args: dict[str, Any]) -> dict[str, Any]:
     return {"ok": True, **models_admin.delete_model(name)}
 
 
+def settings_invoke_model(args: dict[str, Any]) -> dict[str, Any]:
+    """Single-shot chat via configured models (mirrors ``evoflow models invoke``)."""
+    from evoflow.admin import models as models_admin
+
+    result = models_admin.invoke_model(args if isinstance(args, dict) else {})
+    return {"ok": True, "action": "settings.invoke_model", **result}
+
+
+def openai_models(_args: dict[str, Any]) -> dict[str, Any]:
+    """List configured models in OpenAI ``/v1/models`` shape (``evoflow openai models``)."""
+    from evoflow.models.openai_compat_invoke import list_configured_models_openai
+
+    listed = list_configured_models_openai()
+    return {"ok": True, "action": "openai.models", **listed}
+
+
+def openai_chat(args: dict[str, Any]) -> dict[str, Any]:
+    """Single chat completion (``evoflow openai chat`` / models invoke)."""
+    from evoflow.admin import models as models_admin
+
+    payload: dict[str, Any] = dict(args) if isinstance(args, dict) else {}
+    # CLI-style aliases → admin.invoke_model
+    if not payload.get("model_name") and not payload.get("model"):
+        m = _arg_str(payload, "modelName", "name")
+        if m:
+            payload["model_name"] = m
+    result = models_admin.invoke_model(payload)
+    return {"ok": True, "action": "openai.chat", **result}
+
+
+def openai_vision(args: dict[str, Any]) -> dict[str, Any]:
+    """Describe / ask about one image (``evoflow openai vision``)."""
+    from evoflow.admin.errors import NotFoundError
+    from evoflow.models.openai_compat_invoke import (
+        OpenAICompatError,
+        invoke_chat_completion,
+        vision_messages,
+    )
+
+    image = _arg_str(args, "image", "image_url", "imageUrl", "path", "file")
+    prompt = _arg_str(args, "message", "prompt", "question", "text")
+    if not image:
+        raise ValidationError("image is required（本地路径 / https / data: URL）")
+    if not prompt:
+        raise ValidationError("message is required（对图片的问题或指令）")
+
+    model = _arg_str(args, "model", "model_name", "modelName", "name") or None
+    system = _arg_str(args, "system") or None
+    temperature = args.get("temperature")
+    messages = vision_messages(prompt=prompt, image=image, system=system)
+    try:
+        result = invoke_chat_completion(
+            model=model,
+            messages=messages,
+            temperature=float(temperature) if temperature is not None else None,
+            record_usage=True,
+        )
+    except OpenAICompatError as e:
+        if e.status_code == 404:
+            raise NotFoundError(e.message) from e
+        raise ValidationError(e.message) from e
+
+    text = ""
+    try:
+        text = str((((result.get("choices") or [{}])[0].get("message") or {}).get("content")) or "")
+    except Exception:
+        text = ""
+    return {
+        "ok": True,
+        "action": "openai.vision",
+        "content": text,
+        "openai": result,
+    }
+
+
 def assets_get_profile(args: dict[str, Any]) -> dict[str, Any]:
     from evoflow.admin import profile as profile_admin
 

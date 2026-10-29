@@ -4,7 +4,7 @@
 默认 pretty JSON；脚本加 `--compact`。写 JSON：**`--file <路径>` 或 `--stdin`**（禁止把 JSON 字符串塞进 `--file`）。  
 **参数以 `evoflow <组> <子命令> -h` 为准。** 选组先读 [`00-concept-routing.md`](00-concept-routing.md)。
 
-顶层组（19）：`models` `skills` `agents` `employees` `org` `approvals` `mcp` `memory` `assets` `knowledge` `automation` `profile` `sessions` `tasks` `workflow` `items` `workspace` `eval` `logs`
+顶层组（20）：`models` `openai` `skills` `agents` `employees` `org` `approvals` `mcp` `memory` `assets` `knowledge` `automation` `profile` `sessions` `tasks` `workflow` `items` `workspace` `eval` `logs`
 
 ---
 
@@ -23,7 +23,18 @@ evoflow models invoke --file examples/model-invoke.json
 evoflow models list-remote --file examples/model-list-remote.json
 ```
 
-`create` 必填：`name` `model` `base_url`；常用：`api_key` `vendor` `display_name` `supports_vision` `max_tokens` `context_length`。
+`create` 必填：`name` `model` `base_url`；常用：`api_key` `vendor` `display_name` `supports_vision` `max_tokens` `context_length`。  
+platform：`settings.*`；单次文本 invoke → `settings.invoke_model`（confirm=true）。
+
+### openai — 单次 chat / vision（对齐 platform `openai.*`）
+
+```bash
+evoflow openai models
+evoflow openai chat -m "…" [-M model] [--system …]
+evoflow openai vision -i <path|url> -m "…" [-M vision-model]
+```
+
+platform：`openai.models` / `openai.chat` / `openai.vision`（后两者 confirm=true）。生图生视频走 platform `media.*`。
 
 ---
 

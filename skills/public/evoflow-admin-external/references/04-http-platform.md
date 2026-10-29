@@ -17,11 +17,13 @@ Content-Type: application/json
 
 ### 全量 action（与代码 registry 对齐）
 
-> 计数：`len(get_registry())` = **153**（21 域）。已退役不计：`experience.*`(4)、`memory.*`(4)、`verification.list`、`appearance.get`。
+> 计数：`len(get_registry())` = **179**（24 域）。已退役不计：`experience.*`(4)、`memory.*`(4)、`verification.list`、`appearance.get`。
 
 **knowledge：** `list` `search` `create` `enable` `ingest` `notes` `note_get` `note_delete` `delete` `requeue` `reindex`  
 **workflow：** `list` `schema` `get` `create` `generate` `update` `duplicate` `publish` `unpublish` `delete` `revisions` `restore_revision` `run` `stop` `resume` `run_status` `list_runs`  
-**settings：** `list_models` `get_default_model` `set_default_model` `get_model` `create_model` `update_model` `delete_model` `get_web_search` `patch_web_search` `test_web_search`  
+**settings：** `list_models` `get_default_model` `set_default_model` `get_model` `create_model` `update_model` `delete_model` `invoke_model` `get_web_search` `patch_web_search` `test_web_search`  
+**openai：** `models` `chat` `vision`（对齐 `evoflow openai …` / 单次文本·视觉分析）  
+**media：** `catalog` `status` `generate_image` `generate_video` `task_wait`（生图/生视频）  
 **assets：** `get_profile` `update_profile` `init` `migrate` `export` `import`（画像 + Asset Hub pack）  
 **appearance：** `patch`（读外观走面板 HTTP，非 platform）  
 **agents：** `list` `get` `bindings` `create` `update` `delete`（绑工具/技能/MCP/知识库前先 `bindings`；省略 `tools`/`knowledge_vault_ids`→空，勿默认全开）  
