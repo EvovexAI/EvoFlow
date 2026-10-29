@@ -96,6 +96,72 @@ describe('workspace path normalization', () => {
     )
   })
 
+  it('compares windows workspace paths case-insensitively for tree focus', async () => {
+    const {
+      areWorkspaceFilePathsEqual,
+      isWorkspaceFilePathInside,
+    } = await import('../src/zcode-ui/workspace-file-tree/model.ts')
+    const root = 'D:/dev/github/knowledge-library/ai漫剧工具包'
+    const clicked =
+      'D:/dev/github/knowledge-library/ai漫剧工具包/projects/凌不渡VS盲僧-30秒-20261029'
+    const onDisk =
+      'D:/dev/github/knowledge-library/ai漫剧工具包/projects/凌不渡vs盲僧-30秒-20261029'
+    expect(areWorkspaceFilePathsEqual(clicked, onDisk)).toBe(true)
+    expect(isWorkspaceFilePathInside(root, clicked)).toBe(true)
+    expect(isWorkspaceFilePathInside(root, onDisk)).toBe(true)
+  })
+
+  it('compares windows workspace paths case-insensitively for tree focus', async () => {
+    const {
+      areWorkspaceFilePathsEqual,
+      isWorkspaceFilePathInside,
+    } = await import('../src/zcode-ui/workspace-file-tree/model.ts')
+    const root = 'D:/dev/github/knowledge-library/ai漫剧工具包'
+    const clicked =
+      'D:/dev/github/knowledge-library/ai漫剧工具包/projects/凌不渡VS盲僧-30秒-20261029'
+    const onDisk =
+      'D:/dev/github/knowledge-library/ai漫剧工具包/projects/凌不渡vs盲僧-30秒-20261029'
+    expect(areWorkspaceFilePathsEqual(clicked, onDisk)).toBe(true)
+    expect(isWorkspaceFilePathInside(root, clicked)).toBe(true)
+    expect(isWorkspaceFilePathInside(root, onDisk)).toBe(true)
+  })
+
+  it('classifies extensionless project folders as directory browse targets', async () => {
+    const { looksLikeWorkspaceDirectoryPath } = await import(
+      '../src/lib/right-stage/open-right-stage-file.ts'
+    )
+    expect(
+      looksLikeWorkspaceDirectoryPath(
+        'D:/dev/github/knowledge-library/ai漫剧工具包/projects/凌不渡VS盲僧-30秒-20261029',
+      ),
+    ).toBe(true)
+    expect(looksLikeWorkspaceDirectoryPath('projects/foo/', 'directory')).toBe(true)
+    expect(
+      looksLikeWorkspaceDirectoryPath(
+        'projects/凌不渡vs盲僧-30秒-20261029/outputs/segment1_0-10s.mp4',
+      ),
+    ).toBe(false)
+    expect(looksLikeWorkspaceDirectoryPath('.env')).toBe(false)
+  })
+
+  it('joins workspace-relative half paths onto the bound root', async () => {
+    const { setChatWorkspaceRoot } = await import('../src/lib/chat-workspace-context.js')
+    const { resolveWorkspaceRelativeHostPath } = await import('../src/lib/workspace-abs-path.js')
+    const root = 'D:/dev/github/workspace'
+    setChatWorkspaceRoot(root)
+    expect(
+      resolveWorkspaceRelativeHostPath(
+        'projects\\凌不渡vs盲僧-30秒-20261029\\outputs\\segment1_0-10s.mp4',
+        root,
+      ),
+    ).toBe('D:/dev/github/workspace/projects/凌不渡vs盲僧-30秒-20261029/outputs/segment1_0-10s.mp4')
+    expect(resolveWorkspaceRelativeHostPath('outputs/clip.mp4', 'D:\\ws')).toBe(
+      'D:\\ws\\outputs\\clip.mp4',
+    )
+    expect(resolveWorkspaceRelativeHostPath('D:/already/abs.mp4', root)).toBe('D:/already/abs.mp4')
+    setChatWorkspaceRoot('')
+  })
+
   it('heals drive-stripped Windows absolute paths instead of joining root', async () => {
     const { setChatWorkspaceRoot } = await import('../src/lib/chat-workspace-context.js')
     const { healStrippedAbsolutePath } = await import('../src/lib/workspace-abs-path.js')

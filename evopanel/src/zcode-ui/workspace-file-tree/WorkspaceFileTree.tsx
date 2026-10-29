@@ -289,7 +289,14 @@ export function WorkspaceFileTree({
     }
     let disposed = false;
     const ancestorDirectories = getWorkspaceFileAncestorDirectories(workspacePath, previewPath);
-    const directoryPathsToExpand = revealPath?.trim()
+    // revealPath：定位到目录/文件并展开路径本身；activePreviewPath 默认只展祖先（给文件预览用）。
+    // 末段无扩展名时按目录处理，也要把自身加入展开列表，否则只能停在父级看不到选中态。
+    const leaf = previewPath.replace(/\\/g, "/").replace(/\/+$/, "").split("/").pop() || "";
+    const treatAsDirectoryReveal =
+      Boolean(revealPath?.trim()) ||
+      /[\\/]$/.test(previewPath) ||
+      (Boolean(leaf) && !/^\.[^.\\/]+$/.test(leaf) && !/\.[a-zA-Z0-9]{1,12}$/.test(leaf));
+    const directoryPathsToExpand = treatAsDirectoryReveal
       ? [...ancestorDirectories, previewPath]
       : ancestorDirectories;
     pendingActivePreviewRevealPathRef.current = previewPath;
@@ -336,10 +343,15 @@ export function WorkspaceFileTree({
       areWorkspaceFilePathsEqual(row.path, previewPath),
     );
     if (activeRowIndex >= 0) {
-      rowVirtualizer.scrollToIndex(activeRowIndex, { align: "auto" });
+      // 用 readdir 返回的真实大小写回写选中，避免 VS/vs 导致高亮对不上
+      const canonicalPath = visibleRows[activeRowIndex]?.path;
+      if (canonicalPath && canonicalPath !== selectedPath) {
+        setSelectedPath(canonicalPath);
+      }
+      rowVirtualizer.scrollToIndex(activeRowIndex, { align: "center" });
       pendingActivePreviewRevealPathRef.current = null;
     }
-  }, [activePreviewPath, revealPath, rowVirtualizer, visibleRows, workspacePath]);
+  }, [activePreviewPath, revealPath, rowVirtualizer, selectedPath, visibleRows, workspacePath]);
 
   useEffect(() => {
     const revealDirectoryPath = pendingSearchDirectoryRevealPathRef.current;

@@ -166,6 +166,8 @@ export function V4EmployeeProcessPane(props: V4EmployeeProcessPaneProps) {
 
   const code = String(agentCode || '').trim()
   const [threadId, setThreadId] = useState('')
+  /** 岗位绑定 workspace；会话 context 尚未灌入时仍能拼相对路径。 */
+  const [roleWorkspacePath, setRoleWorkspacePath] = useState('')
   const [employeeSessionKey, setEmployeeSessionKey] = useState(() =>
     employeeOwnedSessionKey(employeeSessionKeyHint, agentCode),
   )
@@ -338,6 +340,33 @@ export function V4EmployeeProcessPane(props: V4EmployeeProcessPaneProps) {
   useEffect(() => {
     setDisplayRole(resolveEmployeeProcessTabTitle({ title, roleName, agentCode: code }))
   }, [title, roleName, code])
+
+  // 员工绑定工作空间：相对产出路径要拼这个前缀才能点开
+  useEffect(() => {
+    if (!code) {
+      setRoleWorkspacePath('')
+      return
+    }
+    let cancelled = false
+    void (async () => {
+      try {
+        const { api } = await import('../../../lib/tauri-api.js')
+        const res = await api.proactiveGetRole?.(code)
+        if (cancelled) return
+        const role = res?.role || res
+        const cfg =
+          role && typeof role === 'object' && role.config && typeof role.config === 'object'
+            ? role.config
+            : {}
+        setRoleWorkspacePath(String(cfg.workspace_path || '').trim())
+      } catch {
+        if (!cancelled) setRoleWorkspacePath('')
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [code])
 
   // 岗位名缺失或只剩 agent_code 时，拉 proactiveGetRole / agents 补中文名
   useEffect(() => {
@@ -690,6 +719,7 @@ export function V4EmployeeProcessPane(props: V4EmployeeProcessPaneProps) {
             connecting={!loaded}
             sessionKey={fileOwnerSessionKey}
             evoflowSessionKey={bridgeSessionKey}
+            workspacePath={roleWorkspacePath || undefined}
             bottomDock={composerDock}
           />
         ) : (

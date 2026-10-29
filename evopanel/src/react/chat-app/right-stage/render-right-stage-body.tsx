@@ -336,6 +336,13 @@ export function renderRightStageBody(
     // （虚拟化/吸顶/搜索/只看已更改/Git 着色/watcher）；'write' 写入预览与
     // 无本地工作区根（thread 沙箱树）的会话仍走 kv 树。
     if (!writePreviewMode && String(effectiveWorkspaceRoot || '').trim()) {
+      const browseData = surface.data || {}
+      const focusPath = String(
+        browseData.focusPath || browseData.path || browseData.activePreviewPath || '',
+      ).trim()
+      const browseRoot =
+        String(browseData.workspaceRoot || effectiveWorkspaceRoot || '').trim() ||
+        effectiveWorkspaceRoot
       return sidePanelHeavyMount ? (
         <aside
           className="react-chat-workspace-panel react-chat-right-stage-panel is-tree-browse-mode"
@@ -343,8 +350,9 @@ export function renderRightStageBody(
           aria-label="工作区文件"
         >
           <V4WorkspaceFileTreePane
-            workspacePath={effectiveWorkspaceRoot}
+            workspacePath={browseRoot}
             threadId={wsClient.getSessionThreadId(selectedSessionKey || '') || undefined}
+            activePreviewPath={focusPath || undefined}
             onClose={() => closeWorkspacePanel()}
             onOpenCodeViewer={(nextSource) => {
               openRightStageForCodeViewerSource(nextSource, {

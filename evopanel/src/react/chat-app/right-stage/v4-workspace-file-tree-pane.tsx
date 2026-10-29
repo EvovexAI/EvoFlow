@@ -164,6 +164,8 @@ export function V4WorkspaceFileTreePane(props: {
               <TooltipProvider>
                 <WorkspaceFileTree
                   workspacePath={workspacePath}
+                  // 对话点目录：用 revealPath 展开祖先+自身并滚动选中；不要只靠 activePreviewPath（那是文件预览定位）
+                  revealPath={activePreviewPath ?? undefined}
                   activePreviewPath={activePreviewPath ?? undefined}
                   onClose={onClose}
                   onOpenPreview={(source) => onOpenCodeViewer?.(source)}
