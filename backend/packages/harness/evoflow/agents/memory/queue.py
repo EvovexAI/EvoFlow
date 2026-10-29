@@ -186,6 +186,7 @@ class MemoryUpdateQueue:
                 # runtime-aligned Asset Hub Phase1: extract → _inbox + episodic
                 try:
                     from evoflow.assets.guidance import resolve_session_entity
+                    from evoflow.assets.memory_runs import record_asset_phase_run
                     from evoflow.assets.phase1 import run_phase1_extract
 
                     pid1 = str(context.principal_id or "").strip() or None
@@ -201,6 +202,15 @@ class MemoryUpdateQueue:
                         model_name=context.model_name,
                         entity=p1_entity,
                     )
+                    record_asset_phase_run(
+                        phase="phase1",
+                        trigger="queue",
+                        result=p1,
+                        entity=p1_entity,
+                        thread_id=context.thread_id,
+                        agent_name=context.agent_name or "",
+                        principal_id=pid1 or "",
+                    )
                     if p1.get("ok") and not p1.get("skipped"):
                         logger.info(
                             "[资产Phase1] 完成 thread=%s paths=%s",
@@ -215,10 +225,32 @@ class MemoryUpdateQueue:
                         )
                 except Exception as e:
                     logger.error("[资产Phase1] 异常 thread=%s: %s", context.thread_id, e)
+                    try:
+                        from evoflow.assets.guidance import resolve_session_entity
+                        from evoflow.assets.memory_runs import record_asset_phase_run
+
+                        pid_err = str(context.principal_id or "").strip()
+                        ent_err = resolve_session_entity(
+                            agent_name=context.agent_name,
+                            principal_id=pid_err,
+                        )
+                        record_asset_phase_run(
+                            phase="phase1",
+                            trigger="queue",
+                            result=None,
+                            entity=ent_err,
+                            thread_id=context.thread_id,
+                            agent_name=context.agent_name or "",
+                            principal_id=pid_err,
+                            error=str(e),
+                        )
+                    except Exception:
+                        pass
 
                 # Phase2: merge pending inbox → standing / MEMORY / craft (entity lock)
                 try:
                     from evoflow.assets.guidance import resolve_session_entity
+                    from evoflow.assets.memory_runs import record_asset_phase_run
                     from evoflow.assets.phase2 import run_phase2_consolidate
 
                     pid = str(context.principal_id or "").strip() or None
@@ -230,6 +262,15 @@ class MemoryUpdateQueue:
                         agent_name=context.agent_name,
                         model_name=context.model_name,
                         entity=p2_entity,
+                    )
+                    record_asset_phase_run(
+                        phase="phase2",
+                        trigger="queue",
+                        result=p2,
+                        entity=p2_entity,
+                        thread_id=context.thread_id,
+                        agent_name=context.agent_name or "",
+                        principal_id=pid or "",
                     )
                     if p2.get("ok") and not p2.get("skipped"):
                         logger.info(
@@ -245,6 +286,27 @@ class MemoryUpdateQueue:
                         )
                 except Exception as e:
                     logger.error("[资产Phase2] 异常 thread=%s: %s", context.thread_id, e)
+                    try:
+                        from evoflow.assets.guidance import resolve_session_entity
+                        from evoflow.assets.memory_runs import record_asset_phase_run
+
+                        pid_err = str(context.principal_id or "").strip()
+                        ent_err = resolve_session_entity(
+                            agent_name=context.agent_name,
+                            principal_id=pid_err,
+                        )
+                        record_asset_phase_run(
+                            phase="phase2",
+                            trigger="queue",
+                            result=None,
+                            entity=ent_err,
+                            thread_id=context.thread_id,
+                            agent_name=context.agent_name or "",
+                            principal_id=pid_err,
+                            error=str(e),
+                        )
+                    except Exception:
+                        pass
 
                 # Workspace-scoped project memory (structured facts only)
                 if context.workspace_path:

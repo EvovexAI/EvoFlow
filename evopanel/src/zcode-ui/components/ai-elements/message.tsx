@@ -87,8 +87,13 @@ import {
   parseMarkdownFileLinkTarget,
   resolveMarkdownFileLink,
 } from "@/lib/markdownFileLink.js";
+import {
+  getAssistantPreviewFileTypeDefinition,
+  isPlausibleAssistantFilePathCandidate,
+  resolveAssistantRawFilePath,
+} from "@/lib/assistantFileReferences.js";
 import { stripBalancedAssistantPathQuotes } from "@/lib/assistantPathQuotes.js";
-import { getPathLeaf } from "@/lib/path.js";
+import { getPathLeaf, isAbsoluteFilePath } from "@/lib/path.js";
 import { getWorkspaceFileRelativePath } from "@/workspace-file-tree/model.js";
 import { resolveWorkspaceEditorSelection } from "@/lib/workspaceEditorSelection.js";
 import { sortInstalledEditorsForFileTree } from "@/workspace-file-tree/helpers.js";
@@ -968,6 +973,24 @@ function isExplicitDirectoryMarkdownLink(path: string, href: string): boolean {
   return /[\\/]$/.test(trimmedHref) || /[\\/]$/.test(path);
 }
 
+function leafPathSegment(path: string): string {
+  const parts = String(path || "")
+    .replace(/\\/g, "/")
+    .split("/")
+    .filter(Boolean);
+  return parts[parts.length - 1] || "";
+}
+
+/** 无扩展名末段更像目录（projects/foo-20261029）；`.env` / `a.mp4` 仍当文件。 */
+function looksLikeDirectoryPathHint(path: string, href: string): boolean {
+  if (isExplicitDirectoryMarkdownLink(path, href)) return true;
+  const leaf = leafPathSegment(path);
+  if (!leaf || leaf === "." || leaf === "..") return true;
+  if (/^\.[^.\\/]+$/.test(leaf)) return false;
+  if (/\.[a-zA-Z0-9]{1,12}$/.test(leaf)) return false;
+  return true;
+}
+
 export function buildMessageFileLinkTarget(input: {
   href: string;
   label: string;
@@ -976,9 +999,8 @@ export function buildMessageFileLinkTarget(input: {
   workspaceIdentity?: string;
   workspaceRemoteSessionId?: string;
 }): MessageFileLinkTarget {
-  // 文件名是否带扩展名不能代表文件系统类型；env、hosts、config 等无扩展名文件
-  // 过去会被误判为目录。这里只保留显式尾随斜杠作为图标提示，打开方式必须再 stat。
-  const pathKind = isExplicitDirectoryMarkdownLink(input.path, input.href)
+  // 尾随斜杠或无扩展名末段 → 目录图标；真正打开时宿主还会按目录走文件树。
+  const pathKind = looksLikeDirectoryPathHint(input.path, input.href)
     ? ("directory" as const)
     : undefined;
   return {
@@ -1483,9 +1505,13 @@ export const MessageResponse = memo(
         }: ComponentProps<"a"> & { node?: unknown }) => {
           const resolvedHref =
             typeof href === "string" ? stripBalancedAssistantPathQuotes(href) : "";
-          const fileLink = resolveMarkdownFileLink(workspacePath, resolvedHref, {
-            homePath: workspaceHomePath,
-          });
+          // 文档/模板假路径（segment<N>.txt、带空格的目录说明）不做成可点 pill
+          const fileLink =
+            resolvedHref && isPlausibleAssistantFilePathCandidate(resolvedHref)
+              ? resolveMarkdownFileLink(workspacePath, resolvedHref, {
+                  homePath: workspaceHomePath,
+                })
+              : null;
 
           if (fileLink && (onOpenFileLink || onOpenCodeViewer)) {
             const descriptor = resolveFileDisplayDescriptor(fileLink.path);
@@ -1591,6 +1617,62 @@ export const MessageResponse = memo(
           const isBlockCode = "data-block" in codeProps;
 
           if (!isBlockCode) {
+            // AI 常把半路径包在行内 code 里（非 markdown 链接）。有 workspace 前缀时
+            // 拼成绝对路径并渲染成可点击 pill，避免「看得见路径却点不开」。
+            const inlineText = stripBalancedAssistantPathQuotes(
+              extractCodeText(children).trim(),
+            );
+            const looksLikeFilePath =
+              Boolean(inlineText) &&
+              isPlausibleAssistantFilePathCandidate(inlineText) &&
+              (inlineText.includes("/") ||
+                inlineText.includes("\\") ||
+                /^\.{1,2}[\\/]/.test(inlineText) ||
+                isAbsoluteFilePath(inlineText) ||
+                Boolean(getAssistantPreviewFileTypeDefinition(inlineText)));
+            const resolvedPath = looksLikeFilePath
+              ? resolveAssistantRawFilePath(workspacePath || "", inlineText, {
+                  homePath: workspaceHomePath,
+                })
+              : null;
+            if (resolvedPath && (onOpenFileLink || onOpenCodeViewer)) {
+              const descriptor = resolveFileDisplayDescriptor(resolvedPath);
+              const fileName = descriptor.fileName || getPathLeaf(resolvedPath);
+              const fileLinkTarget = buildMessageFileLinkTarget({
+                href: inlineText,
+                path: resolvedPath,
+                label: fileName,
+                workspacePath,
+                workspaceIdentity,
+                workspaceRemoteSessionId,
+              });
+              const fileIconSrc =
+                fileLinkTarget.pathKind === "directory"
+                  ? FOLDER_FILE_ICON_SRC
+                  : descriptor.fileIconSrc;
+              return (
+                <MessageFileLink
+                  className={codeClassName}
+                  fileIconSrc={fileIconSrc}
+                  fileLink={fileLinkTarget}
+                  onOpen={() => {
+                    if (onOpenFileLink) {
+                      onOpenFileLink(fileLinkTarget);
+                      return;
+                    }
+                    onOpenCodeViewer?.({
+                      type: "file",
+                      title: getPathLeaf(resolvedPath),
+                      path: resolvedPath,
+                      workspacePath,
+                      workspaceIdentity,
+                      workspaceRemoteSessionId,
+                    });
+                  }}
+                />
+              );
+            }
+
             return (
               <code
                 className={cn(

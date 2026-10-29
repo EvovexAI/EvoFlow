@@ -966,7 +966,11 @@ _MEDIA_PREVIEW_ACTIONS = frozenset({
 
 
 def _media_preview_items(result: dict[str, Any]) -> list[dict[str, Any]]:
-    """Inline image/video preview payloads for V4 platform tool card."""
+    """Inline image/video preview payloads for V4 platform tool card.
+
+    Uses normalized ``preview`` / paths first; falls back to shared vendor URL
+    extract + ``evoflow_media_assets`` so MiniMax / Wan / Kling quirks still render.
+    """
     items: list[dict[str, Any]] = []
     preview = _as_dict(result.get("preview"))
     kind = _first_str(preview.get("kind"), result.get("media_kind"), "image").lower()
@@ -981,8 +985,49 @@ def _media_preview_items(result: dict[str, Any]) -> list[dict[str, Any]]:
     )
     if not src and isinstance(result.get("urls"), list) and result["urls"]:
         src = _first_str(result["urls"][0])
+    remote = _first_str(result.get("url"), preview.get("url"))
+    local = _first_str(result.get("absolute_path"), result.get("local_path"), preview.get("absolute_path"))
+
+    if not src:
+        try:
+            from evoflow.community.media_generation.url_extract import (
+                extract_media_urls,
+                guess_media_kind,
+            )
+
+            for cand in extract_media_urls(result):
+                src = cand
+                kind = guess_media_kind(cand, default=kind)
+                if cand.lower().startswith(("http://", "https://", "data:")):
+                    remote = remote or cand
+                else:
+                    local = local or cand
+                break
+        except Exception:
+            pass
+
+    if not src:
+        try:
+            from evoflow.persistence.media_assets import get_media_asset_by_task
+
+            row = get_media_asset_by_task(
+                provider=_first_str(result.get("provider")) or "",
+                task_id=_first_str(result.get("task_id"), result.get("taskId")) or "",
+            )
+            if isinstance(row, dict):
+                src = _first_str(row.get("local_path"), row.get("result_url"), row.get("remote_url"))
+                remote = remote or _first_str(row.get("remote_url"))
+                local = local or _first_str(row.get("local_path"))
+                mk = _first_str(row.get("media_kind"))
+                if mk in {"image", "video"}:
+                    kind = mk
+        except Exception:
+            pass
+
     if not src:
         return items
+    if kind not in {"image", "video"}:
+        kind = "video" if src.lower().endswith((".mp4", ".webm", ".mov", ".mkv", ".m4v")) else "image"
     mime = _first_str(preview.get("mimeType"), preview.get("mime_type"))
     if not mime:
         mime = "video/mp4" if kind == "video" else "image/png"
@@ -991,8 +1036,8 @@ def _media_preview_items(result: dict[str, Any]) -> list[dict[str, Any]]:
             "kind": kind,
             "mimeType": mime,
             "artifactUri": src,
-            "absolutePath": _first_str(result.get("absolute_path"), result.get("local_path")) or None,
-            "url": _first_str(result.get("url")) or None,
+            "absolutePath": local or None,
+            "url": remote or None,
         }
     )
     return items

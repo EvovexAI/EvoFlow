@@ -6,14 +6,19 @@
  *
  * 分流：
  * - 话术 Markdown 路径 pill / 普通文件 → `file`（WorkspaceFilePreviewPanel）
+ * - 目录 / 无扩展名路径 → `workspace-browse`（文件树并定位）
  * - patch / diff / pptx / pdf / 多媒体 → `codeViewer`（PreviewPane）
  */
 import { getChatWorkspaceRoot } from '../chat-workspace-context.js'
-import { healStrippedAbsolutePath, isAbsoluteHostPath } from '../workspace-abs-path.js'
+import {
+  isAbsoluteHostPath,
+  resolveWorkspaceRelativeHostPath,
+} from '../workspace-abs-path.js'
 import { rightStageStore } from './right-stage-store.js'
 import { logPanelSet } from './panel-set-debug-log.js'
 import { getCurrentRightStageSessionKey } from './right-stage-scope.js'
 import { isRightStageTabVisibleForSession } from './right-stage-session-visibility.js'
+import { defaultTitleForKind } from './right-stage-types.js'
 
 /**
  * 接受 ZCode CodeViewerSource（联合类型）及任意带 path/title 的预览源。
@@ -50,6 +55,27 @@ function basename(path: string): string {
 
 function normalizePathId(path: string): string {
   return String(path || '').replace(/\\/g, '/')
+}
+
+/**
+ * 对话路径是否更像目录（应开文件树），而不是可读文件预览。
+ * - 显式 pathKind=directory / 尾随斜杠
+ * - 末段没有常见文件扩展名（projects/foo-20261029）
+ */
+export function looksLikeWorkspaceDirectoryPath(
+  path: string,
+  pathKind?: string | null,
+): boolean {
+  if (String(pathKind || '').trim() === 'directory') return true
+  const raw = String(path || '').trim()
+  if (!raw) return false
+  if (/[\\/]$/.test(raw)) return true
+  const leaf = basename(raw)
+  if (!leaf || leaf === '.' || leaf === '..') return true
+  // `.gitignore` / `.env` 当文件；`foo.mp4` / `a.tsx` 当文件
+  if (/^\.[^.\\/]+$/.test(leaf)) return false
+  if (/\.[a-zA-Z0-9]{1,12}$/.test(leaf)) return false
+  return true
 }
 
 export type OpenRightStageCodeViewerOpts = {
@@ -94,10 +120,19 @@ export function openRightStageForCodeViewerSource(
   if (source?.type === 'file') {
     const path = String(source.path || '').trim()
     if (path) {
+      const workspaceRoot = String(source.workspacePath || '').trim() || undefined
+      if (looksLikeWorkspaceDirectoryPath(path)) {
+        return showRightStageWorkspaceBrowse({
+          focusPath: path,
+          workspaceRoot,
+          sessionKey: opts?.sessionKey,
+        })
+      }
       return showRightStageFilePreview(path, {
         name: String(opts?.name || source.title || '').trim() || undefined,
         sessionKey: opts?.sessionKey,
         layout: opts?.layout,
+        workspaceRoot,
       })
     }
   }
@@ -135,15 +170,18 @@ export function showRightStageFilePreview(
   path: string,
   opts?: OpenRightStageFilePreviewOpts,
 ): string {
-  // 修复被剥掉盘符的 Windows 绝对路径（``/dev/proj/x`` → ``D:/dev/proj/x``）。
-  // 否则右栏会用错误路径去读文件，表现为「文件预览打不开」。
+  // 修复被剥掉盘符的 Windows 绝对路径，并把半路径（projects\\…\\x.mp4）
+  // 拼到会话 / 员工绑定的 workspace 根上，否则右栏读文件失败或对话里点不开。
   const rawPath = String(path || '').trim()
-  const healed = healStrippedAbsolutePath(rawPath, getChatWorkspaceRoot() || '')
-  const id = normalizePathId(isAbsoluteHostPath(healed) ? healed : rawPath)
+  const workspaceRoot =
+    String(opts?.workspaceRoot || '').trim() || String(getChatWorkspaceRoot() || '').trim() || undefined
+  const resolved = resolveWorkspaceRelativeHostPath(rawPath, workspaceRoot || '')
+  const id = normalizePathId(
+    isAbsoluteHostPath(resolved) ? resolved : rawPath,
+  )
   const name = String(opts?.name || '').trim() || basename(id)
   const key = `file:${id}`
   const sessionKey = String(opts?.sessionKey || '').trim() || undefined
-  const workspaceRoot = String(opts?.workspaceRoot || '').trim() || undefined
   const layout = opts?.layout || 'half'
   logPanelSet('③ showRightStageFilePreview → store.show', {
     path: id,
@@ -192,14 +230,57 @@ export function showRightStageFilePreview(
   return key
 }
 
+export type OpenRightStageWorkspaceBrowseOpts = {
+  sessionKey?: string | null
+  /** 展开并定位到的目录/文件绝对路径（或已拼好的 workspace 内路径）。 */
+  focusPath?: string | null
+  workspaceRoot?: string | null
+  title?: string | null
+}
+
+/** 右栏「工作区文件」树；可带 focusPath 展开到对话里点的那一层目录。 */
+export function showRightStageWorkspaceBrowse(
+  opts?: OpenRightStageWorkspaceBrowseOpts,
+): string {
+  const workspaceRoot =
+    String(opts?.workspaceRoot || '').trim() || String(getChatWorkspaceRoot() || '').trim() || undefined
+  const focusRaw = String(opts?.focusPath || '').trim()
+  const focusPath = focusRaw
+    ? normalizePathId(resolveWorkspaceRelativeHostPath(focusRaw, workspaceRoot || ''))
+    : ''
+  const id = focusPath ? `focus:${focusPath}` : 'root'
+  const key = `workspace-browse:${id}`
+  const title =
+    String(opts?.title || '').trim() ||
+    (focusPath ? basename(focusPath) : defaultTitleForKind('workspace-browse'))
+  logPanelSet('③ showRightStageWorkspaceBrowse → store.show', {
+    focusPath: focusPath || '(根)',
+    workspaceRoot: workspaceRoot || '(空)',
+    sessionKey: String(opts?.sessionKey || '').trim() || '(空)',
+  })
+  rightStageStore.show({
+    kind: 'workspace-browse',
+    id,
+    title,
+    layout: 'workspace-browse',
+    sessionKey: String(opts?.sessionKey || '').trim() || undefined,
+    data: {
+      ...(workspaceRoot ? { workspaceRoot } : {}),
+      ...(focusPath ? { focusPath } : {}),
+    },
+  })
+  return key
+}
+
 /**
- * Markdown 文件链接 / 目录提示 → 右栏「文件」预览区（非 codeViewer / 非全屏 modal）。
- * 目录仍按文件预览打开（stat 失败时面板会给出可读错误）；调用方若要树浏览可另分流。
+ * Markdown 文件链接 / 目录提示 → 右栏。
+ * 目录（或无扩展名路径）开文件树并定位；普通文件走预览。
  */
 export function showRightStageFromFileLink(
   target: {
     path: string
     label?: string
+    pathKind?: string
     workspacePath?: string
     workspaceIdentity?: string
     workspaceRemoteSessionId?: string
@@ -207,11 +288,20 @@ export function showRightStageFromFileLink(
   opts?: OpenRightStageCodeViewerOpts,
 ): string {
   const path = String(target.path || '').trim()
+  const workspaceRoot = String(target.workspacePath || '').trim() || undefined
+  if (looksLikeWorkspaceDirectoryPath(path, target.pathKind)) {
+    return showRightStageWorkspaceBrowse({
+      focusPath: path,
+      workspaceRoot,
+      sessionKey: opts?.sessionKey,
+      title: String(target.label || '').trim() || basename(path),
+    })
+  }
   return showRightStageFilePreview(path, {
     name: String(target.label || '').trim() || basename(path),
     sessionKey: opts?.sessionKey,
     layout: opts?.layout,
     // 对话 Markdown 路径 pill 带上 workspace，预览读文件才能带 root=…
-    workspaceRoot: String(target.workspacePath || '').trim() || undefined,
+    workspaceRoot,
   })
 }

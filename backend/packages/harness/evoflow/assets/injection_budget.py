@@ -1,4 +1,10 @@
-"""Tier 0/1 prompt injection budgets for Entity Asset Hub (see entity-asset-hub.md §8)."""
+"""Tier 0/1 prompt injection budgets for Entity Asset Hub.
+
+Layer model (see ``assets/prompts/memories/injection_layers.md``):
+  L0 job skeleton → L1 standing (capped) → L2 catalog (short titles, uncapped) →
+  L3 bodies on-demand via ``assets`` → L4 pending inbox.
+Know-how SoT is the asset tree; ``system_prompt`` must stay a thin duty skeleton.
+"""
 
 from __future__ import annotations
 
@@ -7,11 +13,18 @@ import os
 # Tier 0 Pin (frozen standing) — asset-related slices
 TIER0_SOUL_SUMMARY_CHARS = 400
 TIER0_SYSTEM_CHARS = 500
-TIER0_STANDING_CHARS = 320
+# standing = always-on index (prefs + "What's in Memory" pointers). Keep room for
+# several pointer lines; full experience/reflection bodies stay on-demand via assets.
+TIER0_STANDING_CHARS = 1200
 TIER0_USER_PROFILE_CHARS = 400
-TIER0_SKILLS_MAX_ITEMS = 8
-TIER0_EPISODE_MAX_ITEMS = 4
-TIER0_CATALOG_MAX_ROWS = 10
+# Prompt catalog: filenames/short titles only — **no row cap for now**.
+# (Was TIER0_CATALOG_PER_KIND=10; short labels are cheap, let the model see the full index.)
+# 0 / None-like: list_* treats <=0 as unlimited.
+TIER0_CATALOG_PER_KIND = 0
+TIER0_SKILLS_MAX_ITEMS = 0
+TIER0_EPISODE_MAX_ITEMS = 0
+# Legacy alias kept for call sites that still import the name.
+TIER0_CATALOG_MAX_ROWS = 0
 TIER0_SKILL_DESC_CHARS = 160
 # Overall budget for the <skill_system> catalog. Beyond it the catalog degrades
 # stepwise — full descriptions → sentence-capped descriptions → names-only —

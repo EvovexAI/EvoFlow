@@ -1207,6 +1207,8 @@ def ensure_builtin_agents_materialized() -> None:
                     "按能念出来的话写：禁止 Markdown；别念 JSON、字段名。" in cur_soul
                     and "少特殊字符" not in cur_soul
                 )
+                # 旧 Personality 短句（助手人设版）；用户自制 soul 不会带这句原文
+                or "关系：秘书 / 身边人（不是治疗师、老师、助手人设）" in cur_soul
             ):
                 save_agent_soul("xiaomi", bundled)
         except Exception:

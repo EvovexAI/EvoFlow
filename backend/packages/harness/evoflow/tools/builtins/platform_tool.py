@@ -83,12 +83,13 @@ def _bind_runtime_identity(runtime: ToolRuntime[ContextT, dict] | None) -> None:
 
 _PLATFORM_TOOL_DESCRIPTION = """\
 Platform admin: catalog/help → pick action → confirm writes (confirm=true).
-action format: domain.op (knowledge.*, workflow.*, settings.*, assets.*, agents.*, employees.*, tasks.*, items.*, skills.*, mcp, automation.*, approvals.*, sessions.*, diagnostics.*, appearance.*, ui.*, media.*, verification.*). Long-term memory → assets tool / evoflow-admin assets-contract (not platform memory.*).
+action format: domain.op (knowledge.*, workflow.*, settings.*, openai.*, assets.*, agents.*, employees.*, tasks.*, items.*, skills.*, mcp, automation.*, approvals.*, sessions.*, diagnostics.*, appearance.*, ui.*, media.*, verification.*). Long-term memory → assets tool / evoflow-admin assets-contract (not platform memory.*).
 catalog: pass domain via tool arg ``domain`` or args_json {\"domain\":\"mcp\"}; summary mode args_json {\"summary\":true}.
 items.* = user notes; tasks.* = collab ledger (prefer tasks tool on duty); todo = chat checklist only.
 Reusable craft/experience → assets tool (not platform experience.*).
 sessions.status = current conversation run/context usage; sessions.compact (confirm=true) = manually compress context (same as /compact; applies to later turns).
 Right panel: ui.show kind+data (collab-workflow / collabSubtaskTranscript / employeeProcess / web-embed / artifacts…); ui.hide to close. Read-risk, no confirm. Only when user should watch progress — not after every write.
+OpenAI-compat analysis (CLI evoflow openai / models invoke): openai.models → openai.chat (confirm=true) for text; openai.vision (confirm=true, image+message) for vision; settings.invoke_model also covers text invoke.
 Media: media.catalog → media.generate_image (confirm=true, sync poll) / media.generate_video (confirm=true, async) → media.task_wait. Default Volcengine jimeng (Agent Plan Seedream/Seedance). Do not call retired media_* tool names. UI shows image/video preview from absolute_path — do not paste ![markdown] again.
 When result has assistant_guide.say_to_user: tell the user that text.
 employees.create/hire → relay say_to_user; bind channel with employees.bind_channel_begin (not channels.registration_*; not ui.show/artifacts QR png; not Markdown ![](url)). UI renders QR under the tool result.

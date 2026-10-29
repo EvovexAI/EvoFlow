@@ -399,23 +399,96 @@ def media_status() -> dict[str, Any]:
     }
 
 
+def _lookup_asset_paths(
+    *,
+    provider: str | None,
+    task_id: str | None,
+) -> tuple[str | None, str | None]:
+    """Fall back to evoflow_media_assets when tool JSON omitted path/url."""
+    prov = str(provider or "").strip()
+    tid = str(task_id or "").strip()
+    if not prov or not tid:
+        return None, None
+    try:
+        from evoflow.persistence.media_assets import get_media_asset_by_task
+
+        row = get_media_asset_by_task(provider=prov, task_id=tid)
+    except Exception:
+        logger.debug("media asset lookup skipped", exc_info=True)
+        return None, None
+    if not isinstance(row, dict):
+        return None, None
+    local = _path_display(row.get("local_path") or row.get("result_url"))
+    remote = str(row.get("remote_url") or "").strip() or None
+    # result_url may be local when remote missing
+    if not remote:
+        cand = str(row.get("result_url") or "").strip()
+        if cand.lower().startswith(("http://", "https://")):
+            remote = cand
+        elif not local and cand:
+            local = _path_display(cand)
+    return local, remote
+
+
 def _enrich_preview(blob: dict[str, Any], *, media_kind: str) -> dict[str, Any]:
+    """Normalize absolute_path / url / preview for chat inline media.
+
+    Priority: local path → explicit url/urls → deep vendor extract → media_assets row.
+    """
+    from evoflow.community.media_generation.url_extract import extract_media_urls, guess_media_kind
+
     ap = _path_display(blob.get("absolute_path") or blob.get("local_path"))
     url = str(blob.get("url") or "").strip()
-    urls = blob.get("urls") if isinstance(blob.get("urls"), list) else []
-    remote = url or (str(urls[0]).strip() if urls else "")
+    urls_raw = blob.get("urls") if isinstance(blob.get("urls"), list) else []
+    urls = [str(u).strip() for u in urls_raw if str(u).strip()]
+    remote = url or (urls[0] if urls else "")
+
+    if not ap or not remote:
+        from evoflow.community.media_generation.url_extract import (
+            is_httpish_media_ref,
+            is_local_media_path,
+        )
+
+        extracted = extract_media_urls(blob)
+        for cand in extracted:
+            if not remote and is_httpish_media_ref(cand):
+                remote = cand
+            elif not ap and is_local_media_path(cand):
+                ap = _path_display(cand)
+            if ap and remote:
+                break
+
+    if not ap or not remote:
+        asset_local, asset_remote = _lookup_asset_paths(
+            provider=str(blob.get("provider") or "") or None,
+            task_id=str(blob.get("task_id") or blob.get("taskId") or "") or None,
+        )
+        if not ap and asset_local:
+            ap = asset_local
+        if not remote and asset_remote:
+            remote = asset_remote
+
+    kind = media_kind
+    preview_src = ap or remote
+    if preview_src and kind not in {"image", "video"}:
+        kind = guess_media_kind(preview_src, default="image")
+
     out = dict(blob)
-    out["media_kind"] = media_kind
+    out["media_kind"] = kind
     if ap:
         out["absolute_path"] = ap
-    preview_src = ap or remote
+        out["local_path"] = ap
+    if remote:
+        out["url"] = remote
+        if not urls:
+            out["urls"] = [remote]
     if preview_src:
         out["preview"] = {
-            "kind": media_kind,
+            "kind": kind,
             "src": preview_src,
             "absolute_path": ap,
             "url": remote or None,
-            "mimeType": "image/png" if media_kind == "image" else "video/mp4",
+            "mimeType": "image/png" if kind == "image" else "video/mp4",
         }
     return out
 

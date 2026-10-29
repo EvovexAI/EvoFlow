@@ -15,13 +15,21 @@ from evoflow.assets.pipeline_config import asset_startup_phase2_enabled
 logger = logging.getLogger(__name__)
 
 
-def scan_and_run_phase2_on_startup(*, max_entities: int = 24) -> dict[str, Any]:
+def scan_and_run_phase2_on_startup(
+    *,
+    max_entities: int = 24,
+    principal_id: str = "",
+) -> dict[str, Any]:
     """Run Phase2 for every entity that has pending inbox files.
 
     Safe to call from a background thread. Skips when Phase2 or this hook is off.
+
+    ``principal_id``: optional 操作人 (runtime identity). Empty for boot scan;
+    Asset Center 「全库扫描」应传入当前登录用户.
     """
     if not asset_startup_phase2_enabled():
         return {"ok": False, "skipped": "disabled"}
+    operator = str(principal_id or "").strip()
 
     from evoflow.assets.hub import list_entities
     from evoflow.assets.paths import EntityRef
@@ -74,6 +82,19 @@ def scan_and_run_phase2_on_startup(*, max_entities: int = 24) -> dict[str, Any]:
         try:
             out = run_phase2_consolidate(entity=ent)
             ran += 1
+            try:
+                from evoflow.assets.memory_runs import record_asset_phase_run
+
+                record_asset_phase_run(
+                    phase="phase2",
+                    trigger="startup_scan",
+                    result=out,
+                    entity=ent,
+                    principal_id=operator,
+                    detail={"pending": len(pending)},
+                )
+            except Exception:
+                logger.debug("startup phase2: run log skipped", exc_info=True)
             results.append(
                 {
                     "entityType": et,
@@ -94,6 +115,20 @@ def scan_and_run_phase2_on_startup(*, max_entities: int = 24) -> dict[str, Any]:
             )
         except Exception as exc:
             logger.exception("[资产Phase2] 启动扫描失败 entity=%s:%s", et, eid)
+            try:
+                from evoflow.assets.memory_runs import record_asset_phase_run
+
+                record_asset_phase_run(
+                    phase="phase2",
+                    trigger="startup_scan",
+                    result=None,
+                    entity=ent,
+                    principal_id=operator,
+                    error=str(exc),
+                    detail={"pending": len(pending)},
+                )
+            except Exception:
+                pass
             results.append(
                 {
                     "entityType": et,

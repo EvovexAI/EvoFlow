@@ -2751,6 +2751,15 @@ export const api = {
   orgMarketCatalog: async () => gatewayProxy('GET', '/organizations/market/catalog'),
   assetsUsageStats: async ({ entityType, entityId, topN = 12 } = {}) =>
     gatewayProxy('GET', '/assets/stats', null, { entityType, entityId, topN }),
+  /** Asset Hub Phase1/Phase2 processing run log (verification). */
+  assetsMemoryRuns: async ({ entityType, entityId, threadId, phase, limit = 30 } = {}) =>
+    gatewayProxy('GET', '/assets/memory-runs', null, {
+      entityType,
+      entityId,
+      threadId,
+      phase,
+      limit,
+    }),
   assetsPhase2Scan: async ({ maxEntities = 24 } = {}) =>
     gatewayProxy('POST', `/assets/phase2/scan?maxEntities=${encodeURIComponent(maxEntities)}`),
   assetsPhase2Consolidate: async ({ entityType, entityId } = {}) =>

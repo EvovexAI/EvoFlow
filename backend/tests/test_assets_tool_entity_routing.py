@@ -38,8 +38,9 @@ def test_employee_note_uses_employee_tree_even_with_principal() -> None:
 
         real_is_emp = guidance.is_employee_agent_name
         guidance.is_employee_agent_name = lambda name: str(name or "").lower() == "douyin-analyst"
-        ent = _resolve_entity(runtime, action="note")
-        assert ent == EntityRef("employee", "douyin-analyst").normalized()
+        for act in ("note", "read", "search", "list"):
+            ent = _resolve_entity(runtime, action=act)
+            assert ent == EntityRef("employee", "douyin-analyst").normalized(), act
     finally:
         if real_is_emp is not None:
             from evoflow.assets import guidance

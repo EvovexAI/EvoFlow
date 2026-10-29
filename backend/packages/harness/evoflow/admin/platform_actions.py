@@ -25,6 +25,7 @@ PLATFORM_DOMAINS = (
     "knowledge",
     "workflow",
     "settings",
+    "openai",
     "assets",
     "agents",
     "employees",
@@ -63,12 +64,28 @@ DOMAIN_GUIDES: dict[str, dict[str, str]] = {
     "settings": {
         "title": "设置（模型/联网搜索）",
         "when": (
-            "改默认模型、增删/更新模型配置；或帮用户配置/测通「联网搜索」"
+            "改默认模型、增删/更新模型配置；单次文本推理用 settings.invoke_model（对齐 evoflow models invoke）；"
+            "或帮用户配置/测通「联网搜索」"
             "（Agent Plan 官方用套餐专属 Key 调豆包搜索并自动接通；也可独立豆包/博查/Tavily）。"
             "用户说设置页太复杂、不会配搜索、豆包搜不通、Plan 联网怎么填时，优先在此域用对话代配；"
             "查系统是否已配置/可联网时也可读 diagnostics.status 的 web_search 段。"
         ),
-        "not": "不是用户画像（用 assets.*_profile / 资产中心）；不是 IM 渠道（用 channels）；不是临时搜一句网页（那用 web_search）；配好后搜网页仍用 web_search",
+        "not": (
+            "看图/视觉理解用 openai.vision；OpenAI 形态 chat 也可用 openai.chat；"
+            "不是用户画像（用 assets.*_profile / 资产中心）；不是 IM 渠道（用 channels）；"
+            "不是临时搜一句网页（那用 web_search）；配好后搜网页仍用 web_search"
+        ),
+    },
+    "openai": {
+        "title": "OpenAI 兼容推理（chat / vision）",
+        "when": (
+            "要对已配置模型做单次文本分析（openai.chat）或看图理解（openai.vision）时；"
+            "先 openai.models 看可用模型。对齐 CLI：evoflow openai models|chat|vision。"
+        ),
+        "not": (
+            "改模型配置用 settings.*；生图/生视频用 media.*；"
+            "对话主模型本身已在跑，勿用本域替代正常对话回复"
+        ),
     },
     "assets": {
         "title": "资产中心",
@@ -184,8 +201,12 @@ DOMAIN_GUIDES: dict[str, dict[str, str]] = {
             "用户要生成图片或视频时：先 media.catalog 看可用厂商与 Agent Plan 档位，"
             "再 media.generate_image / media.generate_video（写操作 confirm=true）；"
             "视频提交后用 media.task_wait 等结果。默认火山方舟 jimeng（Seedream/Seedance）。"
+            "与 CLI / 技能侧 wan·kling 等媒体脚本同一套 provider factory。"
         ),
-        "not": "不是改媒体 API Key（设置页）；不是朗读/语音输入（创意媒体 TTS/ASR）；不要再调已退役的 media_* 独立工具名",
+        "not": (
+            "不是看图理解（用 openai.vision）；不是改媒体 API Key（设置页）；"
+            "不是朗读/语音输入（创意媒体 TTS/ASR）；不要再调已退役的 media_* 独立工具名"
+        ),
     },
     "eval": {
         "title": "评测中心",
@@ -350,6 +371,45 @@ def _build_registry() -> dict[str, PlatformAction]:
             "改一下模型的 base_url",
         ),
         _A("settings.delete_model", "settings", "删除模型配置", "destructive", "model", H.settings_delete_model, "删掉不用的模型"),
+        _A(
+            "settings.invoke_model",
+            "settings",
+            "单次调用已配置模型做文本分析（对齐 evoflow models invoke）",
+            "write",
+            "message|prompt|messages, model?/model_name?, system?, temperature?",
+            H.settings_invoke_model,
+            "用默认模型一句话总结这段文案",
+            "指定 model=glm-5.2 分析这段口播",
+        ),
+        _A(
+            "openai.models",
+            "openai",
+            "列出已配置模型（OpenAI /v1/models 形态；对齐 evoflow openai models）",
+            "read",
+            "无",
+            H.openai_models,
+            "现在能调哪些 chat/vision 模型",
+        ),
+        _A(
+            "openai.chat",
+            "openai",
+            "单次文本 chat completion（对齐 evoflow openai chat）",
+            "write",
+            "message|prompt|messages, model?, system?, temperature?",
+            H.openai_chat,
+            "用普通模型分析这段脚本结构",
+            "指定 model 润色这段提示词",
+        ),
+        _A(
+            "openai.vision",
+            "openai",
+            "视觉理解：对一张图提问/描述（对齐 evoflow openai vision）",
+            "write",
+            "image（路径/https/data:）, message, model?, system?, temperature?",
+            H.openai_vision,
+            "看这张关键帧里主体在干什么",
+            "描述这张参考图的构图与光影",
+        ),
         _A(
             "assets.get_profile",
             "assets",

@@ -16,6 +16,7 @@ import {
   showRightStageFromFileLink,
 } from '../../lib/right-stage/open-right-stage-file.js'
 import { showRightStageBrowserUrl } from '../../lib/right-stage/open-right-stage-browser.js'
+import { readSessionWorkspacePath } from '../lib/session-workspace-path.js'
 import { toast } from '../../components/toast.js'
 
 /** 小V 会话当前绑定的 LangGraph threadId（无则空串）。 */
@@ -27,14 +28,7 @@ export function readXiaomiThreadId(sessionKey: string): string {
 
 /** 小V 会话工作区根（工具卡里的文件路径要相对化到这里）。 */
 export function readXiaomiWorkspacePath(sessionKey: string): string {
-  const sk = String(sessionKey || '').trim()
-  if (!sk) return ''
-  try {
-    const ctx = wsClient.getSessionContext?.(sk) || {}
-    return String(ctx.local_workspace_root || ctx.localWorkspaceRoot || '').trim()
-  } catch {
-    return ''
-  }
+  return readSessionWorkspacePath(sessionKey)
 }
 
 export type XiaomiChatActions = {

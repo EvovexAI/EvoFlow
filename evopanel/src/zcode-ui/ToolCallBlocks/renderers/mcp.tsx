@@ -179,16 +179,16 @@ export function McpToolCallBlock(context: ToolCallBlockRenderContext) {
   const isSummaryOnlyLifecycle = toolCall.status === "pending" || toolCall.status === "stopped";
   const stoppedSummaryStatus =
     toolCall.status === "stopped" ? (
-      <span className="inline-flex items-center gap-2">
+      <span className="inline-flex shrink-0 items-center gap-2">
         <span className="text-foreground-subtlest">·</span>
-        <span>{context.statusLabel}</span>
+        <span className="whitespace-nowrap">{context.statusLabel}</span>
       </span>
     ) : undefined;
   const failedSummaryStatus =
     toolCall.status === "failed" ? (
-      <span className="inline-flex items-center gap-2">
+      <span className="inline-flex shrink-0 items-center gap-2">
         <span className="text-foreground-subtlest">·</span>
-        <span>{context.statusLabel}</span>
+        <span className="whitespace-nowrap">{context.statusLabel}</span>
       </span>
     ) : undefined;
   const handleLoadFullToolCallFields = context.onLoadFullToolCallFields;

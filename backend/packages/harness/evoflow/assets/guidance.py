@@ -230,6 +230,7 @@ def build_read_path_entity_block(entity: EntityRef, *, standing: str | None = No
             include_facts=True,
             include_episodes=True,
             include_craft=True,
+            include_journal=True,
         )
         if not catalog_lines:
             catalog_lines = ["(尚无 asset 文件;按 inbox 路径写入新笔记即可)"]
@@ -256,7 +257,8 @@ def build_read_path_entity_block(entity: EntityRef, *, standing: str | None = No
             entity_root=base,
             base_dir=base_dir_str,
             workspace_context_block=workspace_context_block,
-            catalog_lines="\n".join(f"- {ln}" for ln in catalog_lines),
+            # format_entity_catalog_lines already emits bullets + per-kind headings
+            catalog_lines="\n".join(catalog_lines),
             memory_summary=summary or "（尚无站立摘要）",
             tail_block=tail_block,
         ).strip()

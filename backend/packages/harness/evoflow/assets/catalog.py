@@ -8,6 +8,7 @@ from typing import Any
 
 from evoflow.assets.injection_budget import (
     TIER0_CATALOG_MAX_ROWS,
+    TIER0_CATALOG_PER_KIND,
     TIER0_EPISODE_MAX_ITEMS,
     TIER0_SKILLS_MAX_ITEMS,
     TIER0_STANDING_CHARS,
@@ -17,7 +18,13 @@ from evoflow.assets.paths import EntityRef, entity_root, resolve_entity_file
 
 _FRONTMATTER_RE = re.compile(r"\A---\s*\n(.*?)\n---\s*\n?", re.DOTALL)
 _CATALOG_DESC_CHARS = 24
-_KIND_TAG = {"standing": "summary", "fact": "fact", "episode": "episode", "craft": "craft"}
+_KIND_TAG = {
+    "standing": "summary",
+    "fact": "fact",
+    "episode": "episode",
+    "craft": "craft",
+    "journal": "journal",
+}
 _CLOSURE_SOURCES = frozenset({"goal_complete", "task_complete"})
 _CLOSURE_TITLE_MARKERS = ("Goal「", "任务「", "已完成")
 
@@ -83,6 +90,11 @@ def _usage_sort_key(path: Path, meta: dict[str, str]) -> float:
     return usage_recency_score(meta, path)
 
 
+def _catalog_limit_reached(n: int, limit: int) -> bool:
+    """True when ``limit`` is a positive cap and ``n`` already hit it. ``<=0`` = unlimited."""
+    return int(limit or 0) > 0 and n >= int(limit)
+
+
 def list_fact_catalog(entity: EntityRef, *, limit: int = TIER0_SKILLS_MAX_ITEMS) -> list[dict[str, Any]]:
     root = entity_root(entity.normalized()) / "memory" / "facts"
     if not root.is_dir():
@@ -110,7 +122,7 @@ def list_fact_catalog(entity: EntityRef, *, limit: int = TIER0_SKILLS_MAX_ITEMS)
         scored.append((_usage_sort_key(path, meta), path, meta, title))
     scored.sort(key=lambda t: t[0], reverse=True)
     for _score, path, meta, title in scored:
-        if len(rows) >= limit:
+        if _catalog_limit_reached(len(rows), limit):
             break
         summary = cap_text_chars(
             (meta.get("summary") or meta.get("description") or title).strip(),
@@ -146,7 +158,7 @@ def list_episode_catalog(entity: EntityRef, *, limit: int = TIER0_EPISODE_MAX_IT
         scored.append((_usage_sort_key(path, meta), path, meta, title))
     scored.sort(key=lambda t: t[0], reverse=True)
     for _score, path, meta, title in scored:
-        if len(rows) >= limit:
+        if _catalog_limit_reached(len(rows), limit):
             break
         summary = cap_text_chars(
             (meta.get("summary") or title).strip(),
@@ -177,7 +189,7 @@ def list_craft_catalog(entity: EntityRef, *, limit: int = TIER0_SKILLS_MAX_ITEMS
         reverse=True,
     )
     for craft_file in files:
-        if len(rows) >= limit:
+        if _catalog_limit_reached(len(rows), limit):
             break
         try:
             text = craft_file.read_text(encoding="utf-8")
@@ -191,6 +203,51 @@ def list_craft_catalog(entity: EntityRef, *, limit: int = TIER0_SKILLS_MAX_ITEMS
         )
         rel = f"craft/{craft_file.name}"
         rows.append({"kind": "craft", "id": name, "name": name, "description": desc, "path": rel})
+    return rows
+
+
+def list_journal_catalog(entity: EntityRef, *, limit: int = TIER0_CATALOG_PER_KIND) -> list[dict[str, Any]]:
+    """Journal/reflection day files for Tier-0 catalog (filenames only; limit<=0 = all)."""
+    root = entity_root(entity.normalized()) / "memory" / "journal"
+    if not root.is_dir():
+        return []
+    rows: list[dict[str, Any]] = []
+    files = sorted(
+        (p for p in root.glob("*.md") if p.is_file() and p.name.upper() != "README.MD"),
+        key=_mtime_sort_key,
+        reverse=True,
+    )
+    for path in files:
+        if _catalog_limit_reached(len(rows), limit):
+            break
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        meta, body = parse_frontmatter(text)
+        title = (meta.get("title") or meta.get("summary") or "").strip()
+        if not title:
+            for line in body.splitlines():
+                if line.startswith("#"):
+                    title = line.lstrip("# ").strip()
+                    break
+        if not title:
+            title = path.stem[:40]
+        summary = cap_text_chars(
+            (meta.get("summary") or title).strip(),
+            _CATALOG_DESC_CHARS,
+        )
+        rel = f"memory/journal/{path.name}"
+        rows.append(
+            {
+                "kind": "journal",
+                "id": title,
+                "title": title,
+                "summary": summary,
+                "date": (meta.get("date") or "").strip(),
+                "path": rel,
+            }
+        )
     return rows
 
 
@@ -230,6 +287,8 @@ def catalog_has_content(entity: EntityRef) -> bool:
     if list_episode_catalog(entity, limit=1):
         return True
     if list_craft_catalog(entity, limit=1):
+        return True
+    if list_journal_catalog(entity, limit=1):
         return True
     standing = read_standing_text(entity)
     if standing_is_placeholder(standing):
@@ -286,6 +345,19 @@ def _read_memory_index_label(entity: EntityRef) -> tuple[str, int, list[str]]:
     )
 
 
+def _format_kind_section_lines(
+    *,
+    heading: str,
+    rows: list[tuple[str, str]],
+) -> list[str]:
+    """Render one kind block: heading + all filename rows (no row cap)."""
+    if not rows:
+        return []
+    out = [f"{heading}:"]
+    out.extend(f"- {p} · {lbl}".rstrip() for p, lbl in rows)
+    return out
+
+
 def format_entity_catalog_xml(
     entity: EntityRef,
     *,
@@ -293,25 +365,15 @@ def format_entity_catalog_xml(
     include_facts: bool = True,
     include_episodes: bool = True,
     include_craft: bool = True,
+    include_journal: bool = True,
     tag: str = "catalog",
 ) -> str:
     """Build a compact catalog block — one line per entity asset.
 
     Line format: ``<kind> <path> — <label>``
 
-    - ``<kind>``: ``summary`` / ``fact`` / ``episode`` / ``craft`` (full word, not single-letter)
-    - ``<path>``: relative to entity root (``memory/standing.md``, ``memory/MEMORY.md``,
-      ``memory/facts/<file>.md``, ``memory/episodic/<file>.md``, ``memory/journal/<file>.md``,
-      ``craft/<name>.md``)
-    - ``<label>``: title or summary, capped at ``_CATALOG_DESC_CHARS`` chars (no trailing ellipsis)
-
-    **MEMORY.md is always pinned** as the first catalog row (after the standing summary) and
-    is exempt from the row cap: it is the registry, not a content file, and the model needs
-    it as the search anchor when the catalog grows beyond the cap.
-
-    The standing summary is preserved verbatim (using the same `MEMORY_SUMMARY BEGIN/END`
-    fence as `read_path_entity.md`) so the model can skim full standing, then `read` any
-    specific path on demand.
+    Filenames/short titles only; **no per-kind row cap** (``TIER0_CATALOG_PER_KIND<=0``).
+    MEMORY.md is pinned. Full bodies stay on-demand via ``assets`` read/search.
     """
     sections: list[str] = []
     if include_standing:
@@ -323,34 +385,51 @@ def format_entity_catalog_xml(
                 "========= MEMORY_SUMMARY ENDS ========="
             )
 
-    pinned_rows: list[tuple[str, str, str]] = []
-    # MEMORY.md is the registry — always shown, never capped.
+    body_lines: list[str] = []
     label, _n, _names = _read_memory_index_label(entity)
-    pinned_rows.append(("summary", "memory/MEMORY.md", label))
+    body_lines.append(f"summary memory/MEMORY.md — {label}")
 
-    rows: list[tuple[str, str, str]] = []
-    if include_facts:
-        for r in list_fact_catalog(entity):
-            rows.append(("fact", r["path"], _catalog_cell(r["title"])))
-    if include_episodes:
-        for r in list_episode_catalog(entity):
-            rows.append(("episode", r["path"], _catalog_cell(r["title"])))
+    kind_buckets: list[tuple[str, list[tuple[str, str, str]]]] = []
     if include_craft:
-        for r in list_craft_catalog(entity):
-            rows.append(("craft", r["path"], _catalog_cell(r["name"])))
-
-    if pinned_rows or rows:
-        cap = max(1, int(TIER0_CATALOG_MAX_ROWS))
-        # Pin rows (MEMORY.md) are exempt from the cap; capped rows are the rest.
-        capped = rows[:cap]
-        body_lines = [
-            f"{_KIND_TAG.get(k, k)} {p} — {lbl}".rstrip() for k, p, lbl in pinned_rows + capped
-        ]
-        if len(rows) > cap:
-            body_lines.append(
-                f"… +{len(rows) - cap} more (run `read <root>/memory/facts/` or "
-                "`memory/episodic/` on demand)"
+        kind_buckets.append(
+            (
+                "craft",
+                [("craft", r["path"], _catalog_cell(r["name"])) for r in list_craft_catalog(entity)],
             )
+        )
+    if include_facts:
+        kind_buckets.append(
+            (
+                "fact",
+                [("fact", r["path"], _catalog_cell(r["title"])) for r in list_fact_catalog(entity)],
+            )
+        )
+    if include_episodes:
+        kind_buckets.append(
+            (
+                "episode",
+                [
+                    ("episode", r["path"], _catalog_cell(r["title"]))
+                    for r in list_episode_catalog(entity)
+                ],
+            )
+        )
+    if include_journal:
+        kind_buckets.append(
+            (
+                "journal",
+                [
+                    ("journal", r["path"], _catalog_cell(r["title"]))
+                    for r in list_journal_catalog(entity)
+                ],
+            )
+        )
+
+    for _kind, rows in kind_buckets:
+        for k, p, lbl in rows:
+            body_lines.append(f"{_KIND_TAG.get(k, k)} {p} — {lbl}".rstrip())
+
+    if body_lines:
         body = "\n".join(body_lines)
         sections.append(f"<{tag}>\n{body}\n</{tag}>")
 
@@ -365,36 +444,41 @@ def format_entity_catalog_lines(
     include_facts: bool = True,
     include_episodes: bool = True,
     include_craft: bool = True,
+    include_journal: bool = True,
 ) -> list[str]:
-    """Flat catalog rows for system-prompt embedding (no XML wrapper, no registry metadata).
+    """Catalog lines for system-prompt: all short titles, grouped by kind (no row cap).
 
-    每条一行:`<path> · <label>`。``memory/MEMORY.md`` 永远置顶(模型把它当 search 锚点)。
-
-    与 ``format_entity_catalog_xml`` 的差别:
-    - 不含 standing (由 ``read_path_entity.md`` 的 ``memory_summary`` 单独承载)
-    - 不含 MEMORY.md 的 "(registry — N task groups)" 描述 (那是 standing 信息,每轮重复浪费)
-    - 不带 ``<catalog>`` 包裹 (调用方直接内嵌 markdown 列表)
+    ``memory/MEMORY.md`` 置顶。craft / facts / episodic / journal 全量文件名索引；
+    正文仍不注入——需要细节再用 ``assets`` read/search。
     """
-    rows: list[tuple[str, str]] = []
-    if include_facts:
-        for r in list_fact_catalog(entity):
-            rows.append((r["path"], _catalog_cell(r["title"])))
-    if include_episodes:
-        for r in list_episode_catalog(entity):
-            rows.append((r["path"], _catalog_cell(r["title"])))
-    if include_craft:
-        for r in list_craft_catalog(entity):
-            rows.append((r["path"], _catalog_cell(r["name"])))
+    lines: list[str] = ["- memory/MEMORY.md · (search primary · 索引)"]
 
-    cap = max(1, int(TIER0_CATALOG_MAX_ROWS))
-    pinned = ["memory/MEMORY.md · (search primary)"]
-    # 按类配额填充:craft(可复用经验)最容易被数量占优的 facts 挤出目录,
-    # 排序改为 craft → facts → 其余(episodic 等),再按 cap 截断。
-    craft_rows = [r for r in rows if r[0].startswith("craft/")]
-    facts_rows = [r for r in rows if r[0].startswith("memory/facts/")]
-    rest_rows = [r for r in rows if r not in craft_rows and r not in facts_rows]
-    ordered = craft_rows + facts_rows + rest_rows
-    body = [f"{p} · {lbl}".rstrip() for p, lbl in ordered[:cap]]
-    if len(ordered) > cap:
-        body.append(f"… +{len(ordered) - cap} more (`read <root>/memory/<subdir>/`)")
-    return pinned + body
+    craft_rows = (
+        [(r["path"], _catalog_cell(r["name"])) for r in list_craft_catalog(entity)]
+        if include_craft
+        else []
+    )
+    facts_rows = (
+        [(r["path"], _catalog_cell(r["title"])) for r in list_fact_catalog(entity)]
+        if include_facts
+        else []
+    )
+    episode_rows = (
+        [(r["path"], _catalog_cell(r["title"])) for r in list_episode_catalog(entity)]
+        if include_episodes
+        else []
+    )
+    journal_rows = (
+        [(r["path"], _catalog_cell(r["title"])) for r in list_journal_catalog(entity)]
+        if include_journal
+        else []
+    )
+
+    for heading, rows in (
+        ("craft · 经验/做法", craft_rows),
+        ("facts · 事实", facts_rows),
+        ("episodic · 过程复盘", episode_rows),
+        ("journal · 反思", journal_rows),
+    ):
+        lines.extend(_format_kind_section_lines(heading=heading, rows=rows))
+    return lines

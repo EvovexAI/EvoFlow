@@ -107,6 +107,25 @@ type UsageStatsPayload = {
   stale?: UsageStatsRow[];
 };
 
+type MemoryRunRow = {
+  id?: string;
+  createdAt?: string;
+  finishedAt?: string;
+  phase?: string;
+  trigger?: string;
+  threadId?: string;
+  agentName?: string;
+  /** 操作人 = 运行时身份 principal_id */
+  principalId?: string;
+  operatorId?: string;
+  entityType?: string;
+  entityId?: string;
+  status?: string;
+  skipReason?: string;
+  errorMessage?: string;
+  paths?: string[];
+};
+
 const ASSET_TABS: { id: AssetTab; label: string; icon: React.ReactNode }[] = [
   { id: "overview", label: "总览", icon: <LayoutDashboard size={16} strokeWidth={1.6} /> },
   { id: "profile", label: "画像", icon: <UserRound size={16} strokeWidth={1.6} /> },
@@ -396,6 +415,7 @@ export default function AssetCenterContent() {
   const [exportHint, setExportHint] = useState("");
   const [memoryKind, setMemoryKind] = useState<MemoryKind>(initialMemoryKind);
   const [usageStats, setUsageStats] = useState<UsageStatsPayload | null>(null);
+  const [memoryRuns, setMemoryRuns] = useState<MemoryRunRow[]>([]);
   const [statsBusy, setStatsBusy] = useState(false);
   const pendingOpenPath = useRef(initialOpenPath());
 
@@ -529,8 +549,16 @@ export default function AssetCenterContent() {
     try {
       const data = await api.assetsUsageStats({ ...currentEntity, topN: 12 });
       setUsageStats((data as UsageStatsPayload) || null);
+      try {
+        const runsOut = await api.assetsMemoryRuns({ ...currentEntity, limit: 20 });
+        const rows = Array.isArray(runsOut?.runs) ? runsOut.runs : [];
+        setMemoryRuns(rows as MemoryRunRow[]);
+      } catch {
+        setMemoryRuns([]);
+      }
     } catch (e: unknown) {
       setUsageStats(null);
+      setMemoryRuns([]);
       toast.error(String((e as { message?: string })?.message || e));
     } finally {
       setStatsBusy(false);
@@ -992,6 +1020,7 @@ export default function AssetCenterContent() {
                 exportHint={exportHint}
                 busy={statsBusy}
                 stats={usageStats}
+                memoryRuns={memoryRuns}
                 onRefreshStats={() => void loadUsageStats()}
                 onQuickFact={() => setFactOpen(true)}
                 onImportPack={() => setImportOpen(true)}
@@ -1647,6 +1676,7 @@ function ManageWorkspace({
   exportHint,
   busy,
   stats,
+  memoryRuns,
   onRefreshStats,
   onQuickFact,
   onImportPack,
@@ -1669,6 +1699,7 @@ function ManageWorkspace({
   exportHint: string;
   busy: boolean;
   stats: UsageStatsPayload | null;
+  memoryRuns: MemoryRunRow[];
   onRefreshStats: () => void;
   onQuickFact: () => void;
   onImportPack: () => void;
@@ -1734,7 +1765,14 @@ function ManageWorkspace({
             全库扫描
           </button>
         </ManageSectionHead>
-        <StatsBody stats={stats} busy={busy} entityType={entityType} entityId={entityId} onConsolidate={onConsolidate} />
+        <StatsBody
+          stats={stats}
+          memoryRuns={memoryRuns}
+          busy={busy}
+          entityType={entityType}
+          entityId={entityId}
+          onConsolidate={onConsolidate}
+        />
       </div>
 
       {/* 导入 */}
@@ -1876,15 +1914,33 @@ function ManageSectionHead({
   );
 }
 
+function memoryRunStatusLabel(status: string): string {
+  const s = String(status || "").toLowerCase();
+  if (s === "ok") return "成功";
+  if (s === "skipped") return "跳过";
+  if (s === "error") return "失败";
+  return s || "—";
+}
+
+function memoryRunTriggerLabel(trigger: string): string {
+  const t = String(trigger || "").toLowerCase();
+  if (t === "queue") return "对话队列";
+  if (t === "startup_scan") return "启动扫描";
+  if (t === "manual") return "手动整合";
+  return t || "—";
+}
+
 function StatsBody({
   busy,
   stats,
+  memoryRuns = [],
   entityType,
   entityId,
   onConsolidate,
 }: {
   busy: boolean;
   stats: UsageStatsPayload | null;
+  memoryRuns?: MemoryRunRow[];
   entityType: string;
   entityId: string;
   onConsolidate: () => void | Promise<void>;
@@ -1896,6 +1952,7 @@ function StatsBody({
   const inbox = Number(totals.inboxPending || 0);
   const totalUses = Number(totals.totalUses ?? 0);
   const totalCites = Number(totals.totalCites ?? 0);
+  const runs = Array.isArray(memoryRuns) ? memoryRuns : [];
 
   return (
     <div className="ac-stats-wrap">
@@ -2005,6 +2062,48 @@ function StatsBody({
           </button>
         </div>
       ) : null}
+
+      <div className="ac-stats-block ac-memory-runs">
+        <h3 className="ac-stats-block__title">最近处理记录</h3>
+        <p className="ac-stats-empty ac-memory-runs__hint">
+          Phase1 抽取 / Phase2 整合的落库记录（对话队列、启动扫描、手动）。用来确认员工记忆是否真正跑过。
+        </p>
+        {runs.length ? (
+          <ul className="ac-memory-runs__list">
+            {runs.map((row) => {
+              const status = String(row.status || "");
+              const detail =
+                status === "skipped"
+                  ? row.skipReason || ""
+                  : status === "error"
+                    ? row.errorMessage || ""
+                    : Array.isArray(row.paths) && row.paths.length
+                      ? row.paths.slice(0, 3).join(", ")
+                      : "";
+              return (
+                <li key={row.id || `${row.createdAt}-${row.phase}-${row.status}`} className="ac-memory-runs__row">
+                  <div className="ac-memory-runs__main">
+                    <span className={`ac-memory-runs__status is-${status}`}>{memoryRunStatusLabel(status)}</span>
+                    <span className="ac-memory-runs__phase">{row.phase === "phase1" ? "Phase1" : "Phase2"}</span>
+                    <span className="ac-memory-runs__trigger">{memoryRunTriggerLabel(String(row.trigger || ""))}</span>
+                    <span className="ac-memory-runs__time">{formatRelativeTime(row.createdAt || "")}</span>
+                  </div>
+                  <div className="ac-memory-runs__meta">
+                    {(() => {
+                      const op = String(row.operatorId || row.principalId || "").trim();
+                      return op ? <span title={op}>操作人 · {op.length > 24 ? `${op.slice(0, 22)}…` : op}</span> : null;
+                    })()}
+                    {row.threadId ? <span title={row.threadId}>thread · {row.threadId.slice(0, 10)}…</span> : null}
+                    {detail ? <span className="ac-memory-runs__detail" title={detail}>{detail}</span> : null}
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        ) : (
+          <p className="ac-stats-empty">暂无处理记录。与该实体对话并等待防抖后，或点「立即整合 / 全库扫描」会出现在此。</p>
+        )}
+      </div>
     </div>
   );
 }

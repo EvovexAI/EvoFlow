@@ -79,6 +79,35 @@ export function healStrippedAbsolutePath(path, workspaceRoot) {
   return raw
 }
 
+/**
+ * 对话 / 产出里常出现半路径（``projects\\out\\a.mp4``）。先 heal 盘符剥落，
+ * 仍非绝对路径时拼到会话或员工绑定的 workspace 根上。
+ * @param {string} path
+ * @param {string} [workspaceRoot]
+ * @returns {string}
+ */
+export function resolveWorkspaceRelativeHostPath(path, workspaceRoot) {
+  const raw = cleanHostPath(path)
+  if (!raw) return ''
+  const rootHint = cleanHostPath(workspaceRoot || getChatWorkspaceRoot() || '')
+  const healed = healStrippedAbsolutePath(raw, rootHint)
+  if (isAbsoluteHostPath(healed)) return healed
+  if (!rootHint) return healed || raw
+
+  // ``../`` 会逃逸 workspace，保持原样交给下游报错，不擅自拼接。
+  const posixRel = raw.replace(/\\/g, '/')
+  if (posixRel === '..' || posixRel.startsWith('../')) return healed || raw
+
+  const rel = posixRel.replace(/^\.\/+/, '').replace(/^\/+/, '')
+  if (!rel) return rootHint
+
+  const useBackslash = rootHint.includes('\\') && !rootHint.includes('/')
+  const sep = useBackslash ? '\\' : '/'
+  const normalizedRoot = rootHint.replace(/[/\\]+$/, '')
+  const normalizedRel = rel.replace(/[/\\]+/g, sep)
+  return `${normalizedRoot}${sep}${normalizedRel}`
+}
+
 /** Native OS separators for shell / explorer (Windows needs backslashes). */
 export function toNativeHostPath(path) {
   const s = cleanHostPath(path)

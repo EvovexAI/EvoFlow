@@ -88,6 +88,29 @@ export function cleanAssistantFilePathCandidate(candidate: string): string {
     .replace(/:\d+(?::\d+)?$/, "");
 }
 
+/**
+ * 过滤「看起来像路径、其实是文档/模板」的字符串，避免拼上 workspace 后点开 File not found。
+ * 例：`segment&lt;N&gt;.txt`、`meta（含changelog）/ global / … 五块结构`、`shots[]`。
+ */
+export function isPlausibleAssistantFilePathCandidate(candidate: string): boolean {
+  const cleaned = cleanAssistantFilePathCandidate(candidate);
+  if (!cleaned) return false;
+  // 模板占位：segment<N>.txt、<project>/out
+  if (/[<>]/.test(cleaned)) return false;
+  // schema / 数组记号：shots[]、files{}
+  if (/[\[\]{}]/.test(cleaned)) return false;
+  // 斜杠两侧带空格 → 多半是目录说明，不是真实路径
+  if (/\s+[\\/]|[\\/]\s+/.test(cleaned)) return false;
+  // 路径段里夹说明性括号：meta（含changelog）
+  if (/[（(][^）)]*(?:含|包括|changelog|说明|备注)[^）)]*[）)]/i.test(cleaned)) return false;
+  // 中文说明 + 冒号（排除 Windows 盘符 D:）
+  if (/[\u4e00-\u9fff]/.test(cleaned) && /：/.test(cleaned)) return false;
+  if (/[\u4e00-\u9fff]/.test(cleaned) && /(?<![a-zA-Z]):/.test(cleaned)) return false;
+  // 空格过多：像散文而不像 `my file name.mp4`
+  if ((cleaned.match(/\s/g) || []).length >= 2) return false;
+  return true;
+}
+
 export function getAssistantPreviewFileTypeDefinition(
   path: string,
 ): AssistantPreviewFileTypeDefinition | null {
@@ -128,6 +151,9 @@ export function resolveAssistantRawFilePath(
 
   const cleanedPath = cleanAssistantFilePathCandidate(rawPath);
   if (!cleanedPath || cleanedPath.startsWith("http://") || cleanedPath.startsWith("https://")) {
+    return null;
+  }
+  if (!isPlausibleAssistantFilePathCandidate(cleanedPath)) {
     return null;
   }
   // `~` 是 Home-relative 语义；Host Home 尚未注入或使用了 `~other` 时必须失败关闭，

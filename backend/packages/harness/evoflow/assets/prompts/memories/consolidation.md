@@ -596,6 +596,13 @@ Treat it as a dense routing/index layer, not a mini-handbook:
 - preserve enough specificity to route into the right `memory/MEMORY.md` block quickly.
 - keep topic descriptions brief; delete stale, duplicated, or low-signal topics even if they
   existed in the previous summary.
+- **Required for reusable playbooks**: when a topic has a matching `craft/*.md`, the topic
+  `desc` (or learnings) MUST name that path (e.g. `craft/video-prompt-five-block.md`) so
+  Tier-0 standing can route without opening MEMORY first.
+- **Never** instruct future agents to copy consolidated know-how into `agents.system_prompt`
+  / soul. Job prompt = duty skeleton only; Asset Hub is SoT for experience/process/craft.
+  If inbox notes say 「已写入 system_prompt」, still consolidate into MEMORY/craft/standing
+  and treat the system_prompt copy as legacy debt (do not deepen the dual-write).
 
 Topic selection and quality rules:
 

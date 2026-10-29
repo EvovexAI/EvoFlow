@@ -1757,6 +1757,91 @@ html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .assets-center-root .
   color: var(--ac-text-faint);
 }
 
+.assets-center-root .ac-memory-runs {
+  margin-top: 4px;
+}
+
+.assets-center-root .ac-memory-runs__hint {
+  margin: -4px 0 10px;
+}
+
+.assets-center-root .ac-memory-runs__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.assets-center-root .ac-memory-runs__row {
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--ac-surface);
+  border: 1px solid var(--ac-border-subtle);
+}
+
+.assets-center-root .ac-memory-runs__main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.assets-center-root .ac-memory-runs__status {
+  font-weight: 650;
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--ac-surface-2);
+  color: var(--ac-text-muted);
+}
+
+.assets-center-root .ac-memory-runs__status.is-ok {
+  color: #059669;
+  background: rgba(5, 150, 105, 0.1);
+}
+
+.assets-center-root .ac-memory-runs__status.is-skipped {
+  color: #d97706;
+  background: rgba(217, 119, 6, 0.1);
+}
+
+.assets-center-root .ac-memory-runs__status.is-error {
+  color: #dc2626;
+  background: rgba(220, 38, 38, 0.1);
+}
+
+.assets-center-root .ac-memory-runs__phase,
+.assets-center-root .ac-memory-runs__trigger {
+  color: var(--ac-text);
+  font-weight: 550;
+}
+
+.assets-center-root .ac-memory-runs__time {
+  margin-left: auto;
+  color: var(--ac-text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.assets-center-root .ac-memory-runs__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--ac-text-faint);
+}
+
+.assets-center-root .ac-memory-runs__detail {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+  color: var(--ac-text-muted);
+}
+
 /* ── Editor ────────────────────────────────────────────────────── */
 
 .assets-center-root .ac-mono {

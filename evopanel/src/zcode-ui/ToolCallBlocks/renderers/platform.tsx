@@ -254,11 +254,59 @@ export function readPlatformMediaPreview(
   }
 
   const preview = isPlainRecord(blob.preview) ? blob.preview : null;
-  const src =
+  let src =
     readTrimmedString(preview?.src) ||
     readTrimmedString(blob.absolute_path) ||
     readTrimmedString(blob.local_path) ||
     readTrimmedString(blob.url);
+  if (!src && Array.isArray(blob.urls) && blob.urls.length) {
+    src = readTrimmedString(blob.urls[0]);
+  }
+  // Cold / vendor-shaped payloads: walk common URL keys before giving up.
+  if (!src) {
+    const queue: unknown[] = [blob];
+    const seen = new Set<unknown>();
+    const KEYS = [
+      "download_url",
+      "video_url",
+      "image_url",
+      "content_url",
+      "file_url",
+      "result_url",
+      "url",
+      "src",
+      "absolute_path",
+      "local_path",
+    ];
+    while (queue.length && !src) {
+      const node = queue.shift();
+      if (!node || seen.has(node)) continue;
+      seen.add(node);
+      if (typeof node === "string") {
+        const s = node.trim();
+        if (/^(https?:|data:|file:)/i.test(s) || /\.(png|jpe?g|gif|webp|mp4|webm|mov)(\?|$)/i.test(s)) {
+          src = s;
+        }
+        continue;
+      }
+      if (Array.isArray(node)) {
+        for (const item of node.slice(0, 20)) queue.push(item);
+        continue;
+      }
+      if (!isPlainRecord(node)) continue;
+      for (const key of KEYS) {
+        const v = node[key];
+        if (typeof v === "string" && v.trim()) {
+          src = v.trim();
+          break;
+        }
+      }
+      if (src) break;
+      for (const nest of ["data", "output", "content", "result", "task", "file", "preview"]) {
+        if (node[nest] != null) queue.push(node[nest]);
+      }
+    }
+  }
   if (!src) return [];
   const kind =
     readTrimmedString(preview?.kind) ||

@@ -49,6 +49,15 @@ function normalizeForRelativePath(path: string): string {
   return path.replace(/\\/g, "/").replace(/\/+$/, "");
 }
 
+/** Windows 盘符 / UNC 路径按大小写不敏感比较（对话里常写出 VS，磁盘是 vs）。 */
+function normalizeForPathCompare(path: string): string {
+  const normalized = normalizeForRelativePath(path);
+  if (/^[a-zA-Z]:\//.test(normalized) || normalized.startsWith("//")) {
+    return normalized.toLowerCase();
+  }
+  return normalized;
+}
+
 function normalizeForGitStatusPath(path: string): string {
   return normalizeForRelativePath(path);
 }
@@ -210,26 +219,55 @@ export function addDeletedGitStatusRowsToWorkspaceFileTree(params: {
 export function getWorkspaceFileRelativePath(workspacePath: string, filePath: string): string {
   const normalizedWorkspacePath = normalizeForRelativePath(workspacePath);
   const normalizedFilePath = normalizeForRelativePath(filePath);
+  const compareWorkspacePath = normalizeForPathCompare(workspacePath);
+  const compareFilePath = normalizeForPathCompare(filePath);
 
-  if (normalizedWorkspacePath === normalizedFilePath) {
+  if (compareWorkspacePath === compareFilePath) {
     return ".";
   }
 
-  const workspacePrefix = `${normalizedWorkspacePath}/`;
-  if (normalizedFilePath.startsWith(workspacePrefix)) {
-    return normalizedFilePath.slice(workspacePrefix.length);
+  const workspacePrefix = `${compareWorkspacePath}/`;
+  if (compareFilePath.startsWith(workspacePrefix)) {
+    // 相对路径保留 filePath 原有大小写（仅裁掉 workspace 前缀长度）
+    return normalizedFilePath.slice(normalizedWorkspacePath.length).replace(/^\//, "");
   }
 
   return getPathLeaf(filePath);
 }
 
 export function areWorkspaceFilePathsEqual(leftPath: string, rightPath: string): boolean {
-  return normalizeForRelativePath(leftPath) === normalizeForRelativePath(rightPath);
+  return normalizeForPathCompare(leftPath) === normalizeForPathCompare(rightPath);
+}
+
+/** expandedPaths / loaded 等 Set 的大小写不敏感成员判断（Windows 对话路径常与磁盘大小写不一致）。 */
+export function workspaceFilePathSetHas(
+  paths: ReadonlySet<string> | null | undefined,
+  path: string,
+): boolean {
+  if (!paths || paths.size === 0) return false;
+  if (paths.has(path)) return true;
+  for (const item of paths) {
+    if (areWorkspaceFilePathsEqual(item, path)) return true;
+  }
+  return false;
+}
+
+/** childrenByDirectory 等 Map 的大小写不敏感取值。 */
+export function workspaceFilePathMapGet<T>(
+  map: ReadonlyMap<string, T> | null | undefined,
+  path: string,
+): T | undefined {
+  if (!map || map.size === 0) return undefined;
+  if (map.has(path)) return map.get(path);
+  for (const [key, value] of map) {
+    if (areWorkspaceFilePathsEqual(key, path)) return value;
+  }
+  return undefined;
 }
 
 export function isWorkspaceFilePathInside(workspacePath: string, filePath: string): boolean {
-  const normalizedWorkspacePath = normalizeForRelativePath(workspacePath);
-  const normalizedFilePath = normalizeForRelativePath(filePath);
+  const normalizedWorkspacePath = normalizeForPathCompare(workspacePath);
+  const normalizedFilePath = normalizeForPathCompare(filePath);
   return (
     normalizedFilePath === normalizedWorkspacePath ||
     normalizedFilePath.startsWith(`${normalizedWorkspacePath}/`)
@@ -240,26 +278,35 @@ export function getWorkspaceFileAncestorDirectories(
   workspacePath: string,
   filePath: string,
 ): string[] {
-  const normalizedWorkspacePath = normalizeForRelativePath(workspacePath);
-  const normalizedFilePath = normalizeForRelativePath(filePath);
-  const workspacePrefix = `${normalizedWorkspacePath}/`;
+  const compareWorkspacePath = normalizeForPathCompare(workspacePath);
+  const compareFilePath = normalizeForPathCompare(filePath);
+  const workspacePrefix = `${compareWorkspacePath}/`;
 
   if (
     !isWorkspaceFilePathInside(workspacePath, filePath) ||
-    normalizedFilePath === normalizedWorkspacePath
+    compareFilePath === compareWorkspacePath
   ) {
     return [];
   }
 
-  const relativePath = normalizedFilePath.slice(workspacePrefix.length);
+  const relativePath = compareFilePath.slice(workspacePrefix.length);
   const relativeSegments = relativePath.split("/").filter(Boolean);
   if (relativeSegments.length <= 1) {
     return [];
   }
 
+  // 祖先路径尽量沿用 filePath 的分隔符与段字面量，便于和 readdir 结果对上；
+  // 最终选中/展开仍靠 areWorkspaceFilePathsEqual 做大小写不敏感匹配。
   const separator = filePath.includes("\\") && !filePath.includes("/") ? "\\" : "/";
   const basePath = workspacePath.replace(/[\\/]+$/, "");
-  const ancestorSegments = relativeSegments.slice(0, -1);
+  const literalSegments = normalizeForRelativePath(filePath)
+    .slice(normalizeForRelativePath(workspacePath).length)
+    .replace(/^\//, "")
+    .split("/")
+    .filter(Boolean);
+  const ancestorSegments = (
+    literalSegments.length === relativeSegments.length ? literalSegments : relativeSegments
+  ).slice(0, -1);
   const ancestors: string[] = [];
   let currentPath = basePath;
 
@@ -404,11 +451,12 @@ export function flattenWorkspaceFileTreeRows(params: {
     let currentNode = node;
 
     while (
-      params.loadedDirectoryPaths.has(currentNode.path) &&
-      !params.loadingDirectoryPaths.has(currentNode.path) &&
-      !params.errorByDirectory.has(currentNode.path)
+      workspaceFilePathSetHas(params.loadedDirectoryPaths, currentNode.path) &&
+      !workspaceFilePathSetHas(params.loadingDirectoryPaths, currentNode.path) &&
+      !workspaceFilePathMapGet(params.errorByDirectory, currentNode.path)
     ) {
-      const children = params.childrenByDirectory.get(currentNode.path) ?? [];
+      const children =
+        workspaceFilePathMapGet(params.childrenByDirectory, currentNode.path) ?? [];
       if (children.length !== 1 || !isWorkspaceFileTreeAutoFlattenableDirectory(children[0])) {
         break;
       }
@@ -433,20 +481,23 @@ export function flattenWorkspaceFileTreeRows(params: {
   }
 
   function visit(directoryPath: string, depthOffset = 0) {
-    const children = params.childrenByDirectory.get(directoryPath) ?? [];
+    const children =
+      workspaceFilePathMapGet(params.childrenByDirectory, directoryPath) ?? [];
     for (const child of children) {
       const compacted = compactDirectoryNode({
         ...child,
         depth: child.depth - depthOffset,
       });
       const representedPaths = compacted.compactedPaths ?? [compacted.node.path];
-      const expanded = representedPaths.some((path) => params.expandedPaths.has(path));
+      const expanded = representedPaths.some((path) =>
+        workspaceFilePathSetHas(params.expandedPaths, path),
+      );
       rows.push({
         ...compacted.node,
         expanded,
-        loaded: params.loadedDirectoryPaths.has(compacted.node.path),
-        loading: params.loadingDirectoryPaths.has(compacted.node.path),
-        error: params.errorByDirectory.get(compacted.node.path) ?? null,
+        loaded: workspaceFilePathSetHas(params.loadedDirectoryPaths, compacted.node.path),
+        loading: workspaceFilePathSetHas(params.loadingDirectoryPaths, compacted.node.path),
+        error: workspaceFilePathMapGet(params.errorByDirectory, compacted.node.path) ?? null,
         ...(compacted.compactedPaths ? { compactedPaths: compacted.compactedPaths } : {}),
       });
 

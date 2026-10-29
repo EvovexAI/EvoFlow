@@ -260,6 +260,24 @@ CREATE TABLE IF NOT EXISTS evoflow_artifacts (
     PRIMARY KEY (session_key, thread_id, artifact_id)
 );
 
+CREATE TABLE IF NOT EXISTS evoflow_asset_memory_runs (
+    id TEXT PRIMARY KEY,
+    created_at TEXT NOT NULL,
+    finished_at TEXT NOT NULL DEFAULT '',
+    phase TEXT NOT NULL,
+    trigger TEXT NOT NULL DEFAULT '',
+    thread_id TEXT NOT NULL DEFAULT '',
+    agent_name TEXT NOT NULL DEFAULT '',
+    principal_id TEXT NOT NULL DEFAULT '',
+    entity_type TEXT NOT NULL DEFAULT '',
+    entity_id TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT '',
+    skip_reason TEXT NOT NULL DEFAULT '',
+    error_message TEXT NOT NULL DEFAULT '',
+    paths_json TEXT NOT NULL DEFAULT '[]',
+    detail_json TEXT NOT NULL DEFAULT '{}'
+);
+
 CREATE TABLE IF NOT EXISTS "evoflow_automation_runs" (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     task_id TEXT NOT NULL,
@@ -2002,6 +2020,12 @@ CREATE INDEX IF NOT EXISTS idx_proactive_roles_position ON evoflow_proactive_rol
 CREATE INDEX IF NOT EXISTS idx_proactive_roles_reports_to
             ON evoflow_proactive_roles(reports_to);
 
+CREATE INDEX IF NOT EXISTS idx_asset_memory_runs_entity
+    ON evoflow_asset_memory_runs(entity_type, entity_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_asset_memory_runs_thread
+    ON evoflow_asset_memory_runs(thread_id, created_at DESC);
+
 CREATE INDEX IF NOT EXISTS idx_sandbox_audit_event ON evoflow_sandbox_audit(event_type);
 
 CREATE INDEX IF NOT EXISTS idx_sandbox_audit_session ON evoflow_sandbox_audit(session_key);
@@ -2455,11 +2479,45 @@ def _ensure_duty_runs_table(conn: sqlite3.Connection) -> None:
     logger.info("schema: created evoflow_duty_runs (duty trail index)")
 
 
+def _ensure_asset_memory_runs_table(conn: sqlite3.Connection) -> None:
+    """Idempotent: Asset Hub Phase1/Phase2 processing run log (post-baseline)."""
+    if _table_exists(conn, "evoflow_asset_memory_runs"):
+        return
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS evoflow_asset_memory_runs (
+            id TEXT PRIMARY KEY,
+            created_at TEXT NOT NULL,
+            finished_at TEXT NOT NULL DEFAULT '',
+            phase TEXT NOT NULL,
+            trigger TEXT NOT NULL DEFAULT '',
+            thread_id TEXT NOT NULL DEFAULT '',
+            agent_name TEXT NOT NULL DEFAULT '',
+            principal_id TEXT NOT NULL DEFAULT '',
+            entity_type TEXT NOT NULL DEFAULT '',
+            entity_id TEXT NOT NULL DEFAULT '',
+            status TEXT NOT NULL DEFAULT '',
+            skip_reason TEXT NOT NULL DEFAULT '',
+            error_message TEXT NOT NULL DEFAULT '',
+            paths_json TEXT NOT NULL DEFAULT '[]',
+            detail_json TEXT NOT NULL DEFAULT '{}'
+        );
+        CREATE INDEX IF NOT EXISTS idx_asset_memory_runs_entity
+            ON evoflow_asset_memory_runs(entity_type, entity_id, created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_asset_memory_runs_thread
+            ON evoflow_asset_memory_runs(thread_id, created_at DESC);
+        """
+    )
+    conn.commit()
+    logger.info("schema: created evoflow_asset_memory_runs (Phase1/2 run log)")
+
+
 def ensure_app_schema(conn: sqlite3.Connection) -> None:
     """Ensure ``evoflow.db`` matches the public baseline schema."""
     version = int(conn.execute("PRAGMA user_version").fetchone()[0] or 0)
     if version == 0:
         _apply_baseline(conn)
+        _ensure_asset_memory_runs_table(conn)
         _ensure_timing_schema(conn)
         _ensure_media_assets_schema(conn)
         return
@@ -2469,16 +2527,19 @@ def ensure_app_schema(conn: sqlite3.Connection) -> None:
         # the full baseline on every connection open.
         if int(conn.execute("PRAGMA user_version").fetchone()[0] or 0) == APP_SCHEMA_VERSION:
             _ensure_duty_runs_table(conn)
+            _ensure_asset_memory_runs_table(conn)
             _ensure_timing_schema(conn)
             _ensure_media_assets_schema(conn)
             return
         _apply_baseline(conn)
         _ensure_duty_runs_table(conn)
+        _ensure_asset_memory_runs_table(conn)
         _ensure_timing_schema(conn)
         _ensure_media_assets_schema(conn)
         return
     # version == APP_SCHEMA_VERSION: already current — still ensure post-baseline tables.
     _ensure_duty_runs_table(conn)
+    _ensure_asset_memory_runs_table(conn)
     _ensure_automation_slot_claims(conn)
     # Timing columns shipped after the baseline epoch, so a DB already stamped
     # with APP_SCHEMA_VERSION still needs them. Idempotent and cheap (a
