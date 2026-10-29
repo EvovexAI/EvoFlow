@@ -1595,9 +1595,8 @@ async function showRoleDetailDialog(id, page, state) {
         <div class="re-body">
           <nav class="re-nav">${navHtml}</nav>
           <main class="re-main">
-            <div class="re-panel-head">
+            <div class="re-panel-head re-panel-head--compact">
               <h3 id="detail-panel-title">基本信息</h3>
-              <p id="detail-panel-desc">一眼看清它是谁、能做什么</p>
             </div>
             <div class="re-panels">
 
@@ -1668,7 +1667,7 @@ async function showRoleDetailDialog(id, page, state) {
     `
 
     document.body.appendChild(overlay)
-    mountRoleCardAvatars(overlay, [agent], 56)
+    mountRoleCardAvatars(overlay, [agent], 40)
 
     const closeFn = () => overlay.remove()
     // header × 与 footer「关闭」同为 data-action=close，须全部绑定（querySelector 只会命中第一个）
@@ -1702,8 +1701,10 @@ async function showRoleDetailDialog(id, page, state) {
         overlay.querySelectorAll('.re-panel').forEach(p => p.toggleAttribute('hidden', p.dataset.panel !== tid))
         const m = tabMeta[tid]
         if (m) {
-          overlay.querySelector('#detail-panel-title').textContent = m.label
-          overlay.querySelector('#detail-panel-desc').textContent = _getDetailPanelDesc(tid)
+          const titleEl = overlay.querySelector('#detail-panel-title')
+          const descEl = overlay.querySelector('#detail-panel-desc')
+          if (titleEl) titleEl.textContent = m.label
+          if (descEl) descEl.textContent = _getDetailPanelDesc(tid)
         }
       }
     })
@@ -1822,9 +1823,8 @@ export async function showCreateRoleDialog(page, state) {
       <div class="re-body">
         <nav class="re-nav">${navHtml}</nav>
         <main class="re-main">
-          <div class="re-panel-head">
+          <div class="re-panel-head re-panel-head--compact">
             <h3 id="editor-panel-title">基本信息</h3>
-            <p id="editor-panel-desc">填写标识与名称，可选系统默认头像；左侧可切换工具与人格</p>
           </div>
           <div class="re-panels">
             <section class="re-panel" data-panel="basic">
@@ -1977,8 +1977,10 @@ export async function showCreateRoleDialog(page, state) {
     overlay.querySelectorAll('.re-panel').forEach((p) => p.toggleAttribute('hidden', p.dataset.panel !== tid))
     const meta = tabMeta[tid]
     if (meta) {
-      overlay.querySelector('#editor-panel-title').textContent = meta.label
-      overlay.querySelector('#editor-panel-desc').textContent = _getPanelDesc(tid)
+      const titleEl = overlay.querySelector('#editor-panel-title')
+      const descEl = overlay.querySelector('#editor-panel-desc')
+      if (titleEl) titleEl.textContent = meta.label
+      if (descEl) descEl.textContent = _getPanelDesc(tid)
     }
   })
 
@@ -2263,25 +2265,22 @@ export async function showEditRoleDialog(page, state, id) {
     </button>
   `).join('')
 
+  const editName = String(agent.agent_name || id || '').trim() || id
   overlay.innerHTML = `
     <div class="role-editor-modal role-editor-modal--wide">
       <header class="re-header">
         <div class="re-header-left">
           <span class="re-header-dot" style="background:#0f766e"></span>
           <strong>编辑智能体</strong>
+          <span class="re-header-meta" title="${escapeAttr(id)}">${escapeHtml(editName)}<code>${escapeHtml(id)}</code></span>
         </div>
         <button type="button" class="re-close" data-action="close" aria-label="关闭">&times;</button>
       </header>
-      ${renderAgentSheetHero(agent, id, {
-        hired: (state.hiredCodes instanceof Set ? state.hiredCodes : new Set()).has(String(id || '').trim()),
-        stats: capabilityStatLabels(agent, state),
-      })}
       <div class="re-body">
         <nav class="re-nav">${navHtml}</nav>
         <main class="re-main">
-          <div class="re-panel-head">
+          <div class="re-panel-head re-panel-head--compact">
             <h3 id="editor-panel-title">基本信息</h3>
-            <p id="editor-panel-desc">配置名称、描述、工具、MCP 与技能，左侧可切换</p>
           </div>
           <div class="re-panels">
 
@@ -2341,7 +2340,6 @@ export async function showEditRoleDialog(page, state, id) {
   `
 
   document.body.appendChild(overlay)
-  mountRoleCardAvatars(overlay, [agent], 56)
   bindTagEditor(overlay)
 
   const avatarPickerState = {
@@ -2387,8 +2385,10 @@ export async function showEditRoleDialog(page, state, id) {
       overlay.querySelectorAll('.re-panel').forEach(p => p.toggleAttribute('hidden', p.dataset.panel !== tid))
       const meta = tabMeta[tid]
       if (meta) {
-        overlay.querySelector('#editor-panel-title').textContent = meta.label
-        overlay.querySelector('#editor-panel-desc').textContent = _getPanelDesc(tid)
+        const titleEl = overlay.querySelector('#editor-panel-title')
+        const descEl = overlay.querySelector('#editor-panel-desc')
+        if (titleEl) titleEl.textContent = meta.label
+        if (descEl) descEl.textContent = _getPanelDesc(tid)
       }
     }
   })

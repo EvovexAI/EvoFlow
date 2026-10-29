@@ -46,7 +46,6 @@ export function renderChatSummaryPanel(
     sessionArtifacts,
     sessionPlatformEntries,
     sessions,
-    setBottomRoleOpen,
     setChatPanelDisplayMode,
     sharedCollabSubtasks,
     sidebarActiveView,
@@ -90,9 +89,7 @@ export function renderChatSummaryPanel(
       }
       onPatchCapabilities={patchCurrentAgentCapabilities}
       capabilityBusy={capabilityPatchBusy}
-      onSwitchAgent={
-        isProactiveEmployeeSession ? undefined : () => setBottomRoleOpen(true)
-      }
+      onSwitchAgent={undefined}
       onEditAgent={currentRoleCodeForUi || employeeSessionAgentCode ? openCurrentAgentEditor : undefined}
       onAssetQuickAction={handleAssetQuickAction}
       assetQuickBusy={assetQuickBusy}

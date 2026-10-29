@@ -61,7 +61,6 @@ import {
   normalizeModelCatalogRows,
   type ModelCatalogEntry,
 } from '../lib/model-catalog.js'
-import { type AgentPickerRow } from '../lib/agent-tags.js'
 import {
   useHomeDashboardData,
   type HomeBadgeTone,
@@ -75,7 +74,6 @@ import {
   openHomeLiveItem,
   type HomeLiveKind,
 } from '../lib/home-live-activity.js'
-import { AgentPickerModal } from './AgentPickerModal.js'
 import { ChartSizeGate } from './ChartSizeGate.js'
 import { ModelCatalogMenu } from './ModelCatalogMenu.js'
 import { PluginQuickPanel } from './PluginQuickPanel.js'
@@ -123,15 +121,6 @@ const QUICK_ACTIONS = [
   { id: 'kb', icon: Database, label: '连接知识库' },
   { id: 'model', icon: Sparkles, label: '配置模型' },
 ] as const
-
-/** 首页「更多 · 创意」快捷提示（与主会话底栏同源风格） */
-const HOME_MORE_QUICK_PROMPTS: Array<{ label: string; prompt: string }> = [
-  { label: '开始创作', prompt: '开始创作：给我一个可直接执行的第一步方案，并附上下一步行动清单。' },
-  { label: '写作', prompt: '撰写一篇关于[主题]的博客文章' },
-  { label: '深入研究', prompt: '深入浅出的研究一下[主题]，并总结发现。' },
-  { label: '学习', prompt: '帮我学习[主题]：先给学习路线，再出练习题并批改。' },
-  { label: '创建角色', prompt: '我想新建一个能长期用的[类型]角色。' },
-]
 
 const KPI_ICONS: Record<string, typeof CheckCircle2> = {
   pending: CheckCircle2,
@@ -304,11 +293,7 @@ export function EvoFlowHomeDashboard({ onPrompt, workspaceLabel = '', workspaceP
   })
   const [chips, setChips] = useState<Array<{ id: string; label: string }>>([])
   const [drawer, setDrawer] = useState<DrawerKind>(null)
-  const [agentOpen, setAgentOpen] = useState(false)
   const [skillOpen, setSkillOpen] = useState(false)
-  const [agents, setAgents] = useState<AgentPickerRow[]>([])
-  const [agentsLoading, setAgentsLoading] = useState(false)
-  const [selectedAgent, setSelectedAgent] = useState<string | null>(null)
   const [skills, setSkills] = useState<SkillPickerItem[]>([])
   const [skillsLoading, setSkillsLoading] = useState(false)
   const [selectedSkills, setSelectedSkills] = useState<SkillSelection[]>([])
@@ -358,29 +343,6 @@ export function EvoFlowHomeDashboard({ onPrompt, workspaceLabel = '', workspaceP
   useEffect(() => {
     if (data.error) toast(data.error, 'error')
   }, [data.error])
-
-  useEffect(() => {
-    let cancelled = false
-    setAgentsLoading(true)
-    void (async () => {
-      try {
-        const res = await api.listAgents()
-        if (cancelled) return
-        const list = Array.isArray(res) ? res : res?.agents || []
-        setAgents(Array.isArray(list) ? list : [])
-      } catch (e) {
-        if (!cancelled) {
-          setAgents([])
-          toast(`智能体列表加载失败：${(e as Error)?.message || e}`, 'error')
-        }
-      } finally {
-        if (!cancelled) setAgentsLoading(false)
-      }
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [])
 
   useEffect(() => {
     setSkillsLoading(true)
@@ -790,7 +752,7 @@ export function EvoFlowHomeDashboard({ onPrompt, workspaceLabel = '', workspaceP
         new CustomEvent('evopanel:home-send', {
           detail: {
             text,
-            agentCode: selectedAgent || '',
+            agentCode: '',
             skills: selectedSkills,
             plugins: selectedPlugins,
             modelName: selectedModel || '',
@@ -814,7 +776,7 @@ export function EvoFlowHomeDashboard({ onPrompt, workspaceLabel = '', workspaceP
     } finally {
       setActionBusy(null)
     }
-  }, [chips, draft, selectedAgent, selectedModel, selectedSkills, selectedPlugins, pendingFiles, pendingContextFiles])
+  }, [chips, draft, selectedModel, selectedSkills, selectedPlugins, pendingFiles, pendingContextFiles])
 
   const runQuick = useCallback(
     async (id: string) => {
@@ -1293,23 +1255,6 @@ export function EvoFlowHomeDashboard({ onPrompt, workspaceLabel = '', workspaceP
                 >
                   <Paperclip className="evo-home-ic" />
                   附件
-                </button>
-                <button
-                  type="button"
-                  className="evo-home-btn evo-home-btn--chip"
-                  onClick={() => {
-                    closePluginPanel()
-                    setAgentOpen(true)
-                  }}
-                >
-                  <Bot className="evo-home-ic" />
-                  {selectedAgent
-                    ? agents.find(
-                        (a) =>
-                          String(a.agent_code || '').trim().toLowerCase() ===
-                          selectedAgent.toLowerCase(),
-                      )?.agent_name || '智能体'
-                    : '智能体'}
                 </button>
                 <button
                   type="button"
@@ -1960,8 +1905,7 @@ export function EvoFlowHomeDashboard({ onPrompt, workspaceLabel = '', workspaceP
         </div>
       </HomeDrawer>
 
-      {/* 「+」快捷面板：与主对话同款；员工→智能体选择，预设角色/Agent 模式在首页无对应概念故隐藏，
-          记忆/创意（原「更多」下拉独有项）经注入区段保留 */}
+      {/* 「+」快捷面板：与主对话同款；员工→智能体选择；主对话不切换预设角色；记忆经注入保留 */}
       <PluginQuickPanel
         open={pluginPanelOpen}
         onClose={() => setPluginPanelOpen(false)}
@@ -1974,16 +1918,17 @@ export function EvoFlowHomeDashboard({ onPrompt, workspaceLabel = '', workspaceP
         onPickImages={pickHomeImages}
         onOpenSkillPicker={() => setSkillOpen(true)}
         onOpenGoal={openGoalPanel}
-        onOpenRolePicker={() => setAgentOpen(true)}
         onOpenLegacyMenu={() => setPluginPanelOpen(false)}
         onInsertText={(text) => setDraft((d) => `${d}${text}`)}
         showVoice
         voiceOn={voiceReplyEnabled}
         onToggleVoice={() => void toggleHomeVoiceReply()}
-        showRole={false}
         showLegacyMenu={false}
         showHintBar={false}
-        onPickEmployee={() => setAgentOpen(true)}
+        onPickEmployee={() => {
+          navigateHash('#/proactive')
+          toast('其他 Agent 请在智能体员工里对话', 'info')
+        }}
         extraAbilityRows={[
           {
             key: 'memory',
@@ -2003,44 +1948,6 @@ export function EvoFlowHomeDashboard({ onPrompt, workspaceLabel = '', workspaceP
             ),
           },
         ]}
-        extraSections={[
-          {
-            title: '创意',
-            rows: HOME_MORE_QUICK_PROMPTS.map((p) => ({
-              key: `creative-${p.label}`,
-              label: p.label,
-              run: () => {
-                setPluginPanelOpen(false)
-                setDraft((d) => (d.trim() ? `${d.trim()}\n${p.prompt}` : p.prompt))
-                inputRef.current?.focus()
-              },
-            })),
-          },
-        ]}
-      />
-
-      <AgentPickerModal
-        open={agentOpen}
-        onClose={() => setAgentOpen(false)}
-        agents={agents}
-        loading={agentsLoading}
-        selected={selectedAgent}
-        onConfirm={(code) => {
-          const row = agents.find(
-            (a) =>
-              String(a.agent_code || '').trim().toLowerCase() ===
-              String(code || '').trim().toLowerCase(),
-          )
-          const name = String(row?.agent_name || code || '').trim() || code
-          setSelectedAgent(code)
-          setAgentOpen(false)
-          setChips((prev) => {
-            const rest = prev.filter((c) => !c.id.startsWith('agent-'))
-            return [...rest, { id: `agent-${code}`, label: `@${name}` }]
-          })
-          inputRef.current?.focus()
-          toast(`已选择智能体「${name}」`, 'success')
-        }}
       />
 
       <SkillPickerModal

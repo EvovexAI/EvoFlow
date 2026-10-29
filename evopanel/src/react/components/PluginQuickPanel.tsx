@@ -9,14 +9,14 @@ import type { PluginPickerItem } from './PluginPickerModal.js'
  * 聊天「+」快捷面板 — ZCode ChatPromptActionMenu 排版复刻（EvoFlow 品牌）：
  *   「添加」节：附件 / 图片；
  *   「插件」节：小图标 + 名称 + 内联描述的窄行（即点即存）；
- *   「能力」节：技能 / 目标 / 员工 / 预设角色 / 语音播报 / Agent 模式等原有功能；
+ *   「能力」节：技能 / 目标 / 员工 / 语音播报 / 思考与记忆等；
  *   底部提示条：@ 添加上下文 · / 选择能力 · $ 选择技能。
  */
 
 interface RowAction {
   key: string
   label: string
-  /** 可省略：省略时不渲染图标占位（用于纯文案行，如「创意」提示词） */
+  /** 可省略：省略时不渲染图标占位（用于纯文案行） */
   icon?: ReactNode
   run: () => void
   trailing?: ReactNode
@@ -46,7 +46,7 @@ export function PluginQuickPanel({
   showVoice,
   voiceOn,
   onToggleVoice,
-  showRole = true,
+  showRole = false,
   showLegacyMenu = true,
   showHintBar = true,
   onPickEmployee,
@@ -64,15 +64,16 @@ export function PluginQuickPanel({
   onPickImages: () => void
   onOpenSkillPicker: () => void
   onOpenGoal: () => void
-  onOpenRolePicker: () => void
+  /** 仅 showRole 时需要；主对话默认不展示预设角色 */
+  onOpenRolePicker?: () => void
   onOpenLegacyMenu: () => void
   onInsertText: (text: string) => void
   showVoice: boolean
   voiceOn: boolean
   onToggleVoice: () => void
-  /** 「预设角色」行开关（首页无角色概念时隐藏） */
+  /** 「预设角色」行开关（主对话固定主智能体，默认隐藏；其他 Agent 走员工会话） */
   showRole?: boolean
-  /** 「Agent 模式与思考…」行开关（首页无会话模式时隐藏） */
+  /** 「思考与记忆…」遗留更多菜单行开关（首页可隐藏） */
   showLegacyMenu?: boolean
   /** 底部 @ / / / $ 提示条开关（首页输入框无这些触发器时隐藏） */
   showHintBar?: boolean
@@ -80,7 +81,7 @@ export function PluginQuickPanel({
   onPickEmployee?: () => void
   /** 追加进「能力」节的行（如首页的「记忆」开关） */
   extraAbilityRows?: RowAction[]
-  /** 「能力」之后追加的独立区段（如首页的「创意」提示词） */
+  /** 「能力」之后追加的独立区段 */
   extraSections?: PluginQuickPanelExtraSection[]
 }) {
   useEffect(() => {
@@ -181,7 +182,7 @@ export function PluginQuickPanel({
                 <path d="M4 21v-1a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v1" />
               </svg>
             ),
-            run: () => { onClose(); onOpenRolePicker() },
+            run: () => { onClose(); onOpenRolePicker?.() },
           } as RowAction,
         ]
       : []),
@@ -207,7 +208,7 @@ export function PluginQuickPanel({
       ? [
           {
             key: 'legacy',
-            label: 'Agent 模式与思考…',
+            label: '思考与记忆…',
             icon: (
               <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
                 <circle cx="5" cy="12" r="1" />
@@ -353,7 +354,7 @@ export function PluginQuickPanel({
           })),
         )}
 
-        {/* ── 宿主注入区段（如首页「创意」） ── */}
+        {/* ── 宿主注入区段 ── */}
         {(extraSections || []).map((section) =>
           renderSection(
             section.title,

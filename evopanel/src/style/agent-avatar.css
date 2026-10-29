@@ -236,9 +236,9 @@
 }
 
 .agent-sheet-hero-avatar.role-avatar-mount {
-  width: 56px;
-  height: 56px;
-  border-radius: 14px;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
 }
 
 .react-chat-bottom-dropdown-item {
