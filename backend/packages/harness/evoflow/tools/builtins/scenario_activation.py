@@ -74,7 +74,7 @@ def get_scenario_key_enum_description() -> str:
 
 class _ModeSetInput(BaseModel):
     action: Literal["activate", "deactivate"] = Field(
-        description="activate：激活模式（ask 清空；plan 独占）；deactivate：停用指定模式。",
+        description="activate：激活模式（仅 agent；Plan 已下线）；deactivate：停用指定模式。",
     )
     mode: ScenarioKeyLiteral = Field(
         description=get_scenario_key_enum_description(),
@@ -656,6 +656,22 @@ def mode_set(action: str, mode: str, reason: str = "") -> str:
     scenario_key = normalize_scenario_key(mode)
 
     if action_normalized == "activate":
+        if scenario_key == "plan":
+            return json.dumps(
+                {
+                    "status": "error",
+                    "action": "activate",
+                    "scenario_key": "plan",
+                    "reason": reason,
+                    "all_active_scenarios": get_activated_scenarios(),
+                    "message": (
+                        "Plan 模式已下线，不能 activate plan。"
+                        "请保持 agent：文件搜索用 glob/grep，写方案用 plan 工具，勿切模式。"
+                    ),
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
         if scenario_key == "ask":
             previous = get_activated_scenarios()
             reset_activated_scenario()
@@ -668,7 +684,7 @@ def mode_set(action: str, mode: str, reason: str = "") -> str:
                     "all_active_scenarios": [],
                     **build_scenario_tools_payload([], session_key=_resolve_chat_session_key()),
                     "previous_scenarios": previous or ["none"],
-                    "message": ("已切换日常对话：先前模式已解除，本回合仅绑定核心工具（" + "、".join(CORE_TOOL_NAMES) + "）。若用户下一步要改文件、联网等，请再 activate 对应模式（agent / plan），或对单个工具使用 tool_search。"),
+                    "message": ("已切换日常对话：先前模式已解除，本回合仅绑定核心工具（" + "、".join(CORE_TOOL_NAMES) + "）。若用户下一步要改文件、联网等，请再 activate agent，或对单个工具使用 tool_search。"),
                 },
                 ensure_ascii=False,
                 indent=2,

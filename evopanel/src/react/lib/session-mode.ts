@@ -1,5 +1,5 @@
 /**
- * Agent / Plan 会话模式（Ask 已下线）：与后端 intent_tool_profile、Gateway session-modes 对齐。
+ * Agent 会话模式（Ask / Plan 已下线）：与后端 intent_tool_profile、Gateway session-modes 对齐。
  */
 
 import {
@@ -36,7 +36,7 @@ export const DEFAULT_SESSION_MODES: SessionModeDefinition[] = [
   { value: 'auto', label: 'Auto', visible: false, scenario: null },
   { value: 'ask', label: 'Ask', visible: false, scenario: 'ask' },
   { value: 'agent', label: 'Agent', visible: true, scenario: 'agent' },
-  { value: 'plan', label: 'Plan', visible: true, scenario: 'plan' },
+  { value: 'plan', label: 'Plan', visible: false, scenario: 'plan' },
   { value: 'flash', label: '闪速', visible: false, scenario: null },
   { value: 'thinking', label: '思考', visible: false, scenario: null },
   { value: 'pro', label: 'Pro', visible: false, scenario: null },
@@ -48,7 +48,8 @@ export const SESSION_MODES: Array<{ value: SessionMode; label: string }> = DEFAU
   label: m.label,
 }))
 
-export const SHOW_SESSION_MODE_COLLAB_UI = true
+/** Plan 模式已下线：不再展示协作 Plan 入口 */
+export const SHOW_SESSION_MODE_COLLAB_UI = false
 
 export const VALID_SESSION_MODES: SessionMode[] = [
   'flash',
@@ -65,8 +66,8 @@ const STORAGE_SESSION_META_KEY = 'evopanel-chat-session-meta'
 
 const LEGACY_SPEED_SESSION_MODES: SessionMode[] = ['flash', 'thinking', 'pro', 'ultra']
 
-/** 已下线的 UI 模式（含 Ask），展示与选择器统一回落到 Agent */
-const LEGACY_DEPRECATED_SESSION_MODES: SessionMode[] = ['auto', 'ask', ...LEGACY_SPEED_SESSION_MODES]
+/** 已下线的 UI 模式（Ask / Plan），展示与选择器统一回落到 Agent */
+const LEGACY_DEPRECATED_SESSION_MODES: SessionMode[] = ['auto', 'ask', 'plan', ...LEGACY_SPEED_SESSION_MODES]
 
 function safeReadSessionMetaMap(): Record<string, unknown> {
   try {
@@ -93,14 +94,14 @@ export function normalizeSessionModeForUi(mode: SessionMode): SessionMode {
 
 export function resolveChatSceneId(raw: string | null | undefined): ChatSceneId {
   const v = normalizeScenarioKeyForUi(String(raw || ''))
-  if (v === 'agent' || v === 'plan') return v
-  // Ask 已下线：遗留 ask / 空值统一按 Agent
+  // Plan / Ask 已下线：遗留值统一按 Agent
+  if (v === 'agent' || v === 'plan' || v === 'ask') return 'agent'
   return 'agent'
 }
 
 export function chatSceneToSessionMode(scene: string | null | undefined): SessionMode | null {
   const id = resolveChatSceneId(scene)
-  if (id === 'ask' || id === 'agent' || id === 'plan') return id
+  if (id === 'agent') return 'agent'
   return null
 }
 
@@ -126,8 +127,8 @@ export function getSessionModeFromMeta(sessionKey: string): SessionMode {
   if (raw === 'think') return 'thinking'
   if (raw === 'deep') return 'ultra'
   if (raw === 'agent') return 'agent'
-  if (raw === 'agent_plan') return 'plan'
-  if (raw === 'question') return 'ask'
+  if (raw === 'agent_plan') return 'agent' // Plan 已下线
+  if (raw === 'question') return 'agent'
   if (raw && VALID_SESSION_MODES.includes(raw as SessionMode)) {
     return normalizeSessionModeForUi(raw as SessionMode)
   }
@@ -164,7 +165,7 @@ export function setSessionModeInMeta(sessionKey: string, mode: SessionMode) {
 
 /**
  * Inverse of {@link sessionModeFromActivatedScenarios}: derive the active
- * scenario list from a session mode. `plan`→['plan'], `agent`→['agent'],
+ * scenario list from a session mode. Plan 已下线：`plan`/`agent`→['agent']，
  * everything else (including `ask`/legacy speed modes)→[].
  *
  * This is the single source of truth on the frontend after the backend
@@ -175,8 +176,7 @@ export function activatedScenariosFromSessionMode(mode: SessionMode | string | n
   const m = String(mode || '')
     .trim()
     .toLowerCase()
-  if (m === 'plan') return ['plan']
-  if (m === 'agent') return ['agent']
+  if (m === 'plan' || m === 'agent') return ['agent']
   return []
 }
 
@@ -243,8 +243,7 @@ export function sessionModeFromActivatedScenarios(scenarios: string[]): SessionM
   const norm = scenarios
     .map((s) => normalizeScenarioKeyForUi(String(s || '')))
     .filter((x): x is string => !!x)
-  if (norm.includes('plan')) return 'plan'
-  if (norm.includes('agent')) return 'agent'
+  if (norm.includes('plan') || norm.includes('agent')) return 'agent'
   return null
 }
 
@@ -265,7 +264,7 @@ export function resolveSessionModeForSession(
         .toLowerCase()
       if (sm && VALID_SESSION_MODES.includes(sm as SessionMode)) {
         const ui = normalizeSessionModeForUi(sm as SessionMode)
-        if (ui === 'ask' || ui === 'agent' || ui === 'plan') return ui
+        if (ui === 'agent') return ui
       }
     } catch {
       /* ignore */
@@ -276,14 +275,14 @@ export function resolveSessionModeForSession(
     .toLowerCase()
   if (fromRowMode && VALID_SESSION_MODES.includes(fromRowMode as SessionMode)) {
     const ui = normalizeSessionModeForUi(fromRowMode as SessionMode)
-    if (ui === 'ask' || ui === 'agent' || ui === 'plan') return ui
+    if (ui === 'agent') return ui
   }
   const fromRowCtx = String((row?.context?.session_mode as string) || '')
     .trim()
     .toLowerCase()
   if (fromRowCtx && VALID_SESSION_MODES.includes(fromRowCtx as SessionMode)) {
     const ui = normalizeSessionModeForUi(fromRowCtx as SessionMode)
-    if (ui === 'ask' || ui === 'agent' || ui === 'plan') return ui
+    if (ui === 'agent') return ui
   }
   const scenarios = resolvedActivatedScenariosForOpenSession(row, sessionKey)
   const derived = sessionModeFromActivatedScenarios(scenarios)

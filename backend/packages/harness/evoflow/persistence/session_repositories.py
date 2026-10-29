@@ -204,12 +204,11 @@ def _parse_session_tool_names_json(raw: Any) -> list[str]:
 def _scenarios_from_session_mode(mode: str | None) -> list[str]:
     """Derive the active-scenario list from ``session_mode``.
 
-    Inverse of ``derive_session_mode``: plan→['plan'], agent→['agent'], else→[].
+    Inverse of ``derive_session_mode``: agent→['agent'], else→[].
+    Plan 模式已下线：遗留 ``session_mode=plan`` 按 agent 回落。
     """
     m = str(mode or "").strip().lower()
-    if m == "plan":
-        return ["plan"]
-    if m == "agent":
+    if m in {"plan", "agent"}:
         return ["agent"]
     return []
 
@@ -251,7 +250,8 @@ def get_session_mode(session_key: str) -> str:
 def derive_session_mode(scenarios: list[str]) -> str:
     """Derive ``session_mode`` from activated scenario keys.
 
-    Canonical mapping: plan→plan, agent→agent, empty/ask→auto.
+    Canonical mapping: agent→agent, empty/ask→auto.
+    Plan 模式已下线：即便场景列表含 plan，也回落为 agent。
     Legacy aliases (web/workspace/file/execute/…) are normalized first via
     :func:`normalize_scenario_key` so that e.g. ``["web"]`` maps to ``agent``.
     This is the **single source of truth** for scenario→mode derivation —
@@ -260,9 +260,7 @@ def derive_session_mode(scenarios: list[str]) -> str:
     from evoflow.agents.lead_agent.intent_tool_profile import normalize_scenario_key
 
     norm = [normalize_scenario_key(s) for s in (scenarios or []) if str(s or "").strip()]
-    if "plan" in norm:
-        return "plan"
-    if "agent" in norm:
+    if "plan" in norm or "agent" in norm:
         return "agent"
     return "auto"
 

@@ -115,7 +115,6 @@ import type { PluginSelection } from '../components/PluginPickerModal.js'
 
 import { PluginPillIcon } from '../components/PluginPillIcon.js'
 import { ShareSessionModal } from '../components/ShareSessionModal.js'
-import { AgentPickerModal } from '../components/AgentPickerModal.js'
 import { PlanExecConfirm } from '../components/PlanExecConfirmDock.js'
 import { ClarificationConfirmDock } from '../components/ClarificationConfirmDock.js'
 import type { PlanExecConfirmAnchor } from '../components/ToolCallList.js'
@@ -851,7 +850,6 @@ import {
   isDesktopTauriRuntime,
   TAURI_HEADER_CELL_DRAG_PROPS,
   THREAD_STATE_EXPIRY_MS,
-  QUICK_PROMPTS,
 } from './utils/desktop-workspace.js'
 import {
   resolveSessionAgentCodeForUi,
@@ -2609,7 +2607,7 @@ export function useChatAppController() {
     setSessionArtifactsRef.current = setSessionArtifacts
   })
   /** 更多下拉内展开的子菜单 key */
-  const [moreSubOpen, setMoreSubOpen] = useState<'mode' | 'employee' | 'memory' | 'creative' | 'thinking' | null>(null)
+  const [moreSubOpen, setMoreSubOpen] = useState<'employee' | 'memory' | 'thinking' | null>(null)
   const [bottomWorkspaceOpen, setBottomWorkspaceOpen] = useState(false)
   const [useVirtualPaths] = useState<boolean>(() => getUseVirtualPaths())
   const [workspaceIndexWatchEnabled, setWorkspaceIndexWatchEnabledState] = useState<boolean>(() =>
@@ -6296,7 +6294,6 @@ export function useChatAppController() {
     prefetchSessionHistoryFromShell,
     proactiveRoles,
     proactiveRolesDisplay,
-    QUICK_PROMPTS,
     removeSelectedPlugin,
     removeSelectedSkill,
     renderBottomControlsLoggedRef,

@@ -4892,7 +4892,8 @@ export function normalizeScenarioKeyForUi(raw) {
   if (['trae', 'trae_window', 'trae-runtime', 'trae_runtime'].includes(r)) return 'ask'
   if (['evolve', 'evolution', 'self_evolve', 'self-improve', 'self_improve', 'improve', 'optimize'].includes(r))
     return 'ask'
-  if (['work', 'do', 'task', 'execute', 'plan'].includes(r)) return 'plan'
+  // Plan 模式已下线：旧 plan 别名一律按 agent 展示
+  if (['work', 'do', 'task', 'execute', 'plan'].includes(r)) return 'agent'
   if (['agent', 'workspace', 'workspaces', 'file', 'files', 'file_ops', 'filesystem', 'edit_file'].includes(r)) return 'agent'
   if (['web', 'search', 'research', 'browse'].includes(r)) return 'agent'
   if (['manage', 'admin', 'govern'].includes(r)) return 'ask'
@@ -4912,7 +4913,7 @@ export function normalizeScenarioKeyForUi(raw) {
       'general',
     ].includes(r)
   )
-    return 'plan'
+    return 'agent'
   return null
 }
 

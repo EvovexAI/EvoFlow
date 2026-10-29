@@ -100,9 +100,8 @@ SESSION_MODE_POLICY_BLOCK = """<session_mode_policy>
 当前模式：{active_modes}
 
 - **调用前自检**：非核心工具须在本回合 `tools`/`activated_tools` 中；否则先 `tool_search`。
-- **工具→模式（路由）**：代码读写改查/命令/web_search→agent；plan/supervisor→plan；子任务委派→subagent（读 evoflow-subagent-delegation）；平台行政→`platform`（细则见 `<platform_tool>`）；复杂脚本化治理再读 evoflow-admin 技能 + terminal。
-- **模式切换**：勿调用 mode_set/scenario；需要 Plan 时请用户在界面切换模式。当前 `session_mode` 由界面决定。
-- **Plan 进行中**：主任务未 completed/failed/cancelled 前勿建议半途改走 Agent；须先取消或置失败当前 Plan。
+- **工具路由**：代码读写改查/命令/web_search/glob/grep→直接用（agent）；写方案→`plan` 工具；子任务委派→subagent；平台行政→`platform`（细则见 `<platform_tool>`）。
+- **无 Plan 模式**：勿调用 mode_set/scenario，勿 activate plan；没有也不需要「切 Plan」。
 </session_mode_policy>
 """
 

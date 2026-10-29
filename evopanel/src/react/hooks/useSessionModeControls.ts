@@ -108,43 +108,27 @@ export function useSessionModeControls(opts: {
   const applySessionModePreset = useCallback(
     async (sessionKey: string, mode: SessionMode) => {
       const api = await getApi()
-      const scenario = MODE_TO_SCENARIO[mode] ?? null
-      // 通过场景接口设置 activated_scenarios（chat/workspace/plan/null=auto）
+      // Plan / Ask 已下线：一律落 Agent（mode 形参保留兼容）
+      void mode
+      const effectiveMode: SessionMode = 'agent'
+      const scenario = MODE_TO_SCENARIO.agent ?? 'agent'
       await api.setSessionScenario(sessionKey, scenario)
-      // 兼容旧 context 字段：同步 session_mode（后端中间件仍可能读取）；思考由后端 AUTO 决策，不传 thinking_enabled
       const contextUpdate: Record<string, any> = {
-        session_mode: mode,
+        session_mode: effectiveMode,
         thinking_type: 'auto',
         thinking_enabled: null,
         reasoning_effort: null,
+        is_plan_mode: false,
+        subagent_enabled: false,
       }
-      // 切换模式时重置思考等级为自动
       setThinkingLevel('auto')
       setThinkingLevelInMeta(sessionKey, 'auto')
-      // 同步本地 ws-client session context
       wsClient.updateSessionContext(sessionKey, contextUpdate)
-      if (mode === 'plan') {
-        contextUpdate.is_plan_mode = true
-        contextUpdate.subagent_enabled = true
-        contextUpdate.collab_phase = 'planning'
-      } else {
-        contextUpdate.is_plan_mode = false
-        contextUpdate.subagent_enabled = false
-      }
       await api.chatUpdateContext(sessionKey, contextUpdate)
-      // plan 模式需要同步协作状态
-      if (mode === 'plan') {
-        if (!getSessionCollabModeFromMeta(sessionKey)) {
-          setSessionCollabModeInMeta(sessionKey, true)
-          setCollabOn(true)
-        }
-        await applyCollabServerPatch(sessionKey, true)
-      } else {
-        if (getSessionCollabModeFromMeta(sessionKey)) {
-          setSessionCollabModeInMeta(sessionKey, false)
-          setCollabOn(false)
-          await applyCollabServerPatch(sessionKey, false)
-        }
+      if (getSessionCollabModeFromMeta(sessionKey)) {
+        setSessionCollabModeInMeta(sessionKey, false)
+        setCollabOn(false)
+        await applyCollabServerPatch(sessionKey, false)
       }
       await reconcileCollabWithMode(sessionKey)
     },
@@ -199,17 +183,18 @@ export function useSessionModeControls(opts: {
 
   const setSessionModeAndApply = useCallback(
     async (mode: SessionMode) => {
-      if (mode === sessionMode) return
-      setSessionMode(mode)
+      const effectiveMode: SessionMode = 'agent'
+      if (effectiveMode === sessionMode && mode !== 'plan' && mode !== 'ask') return
+      setSessionMode(effectiveMode)
       const key = sessionRef.current || selectedSessionKey
       if (!key) {
-        toast(`已切换为：${modeLabel(mode, dynamicModes || DEFAULT_SESSION_MODES)}`, 'success')
+        toast(`已切换为：${modeLabel(effectiveMode, dynamicModes || DEFAULT_SESSION_MODES)}`, 'success')
         return
       }
-      setSessionModeInMeta(key, mode)
+      setSessionModeInMeta(key, effectiveMode)
       try {
-        await applySessionModePreset(key, mode)
-        toast(`已切换为：${modeLabel(mode, dynamicModes || DEFAULT_SESSION_MODES)}`, 'success')
+        await applySessionModePreset(key, effectiveMode)
+        toast(`已切换为：${modeLabel(effectiveMode, dynamicModes || DEFAULT_SESSION_MODES)}`, 'success')
       } catch (e) {
         toast(`切换模式失败: ${String((e as Error)?.message || e)}`, 'error')
       }
