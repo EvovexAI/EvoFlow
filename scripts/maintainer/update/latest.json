@@ -1,10 +1,10 @@
 {
-  "version": "1.1.9",
-  "minAppVersion": "1.1.9",
+  "version": "1.2.0",
+  "minAppVersion": "1.2.0",
   "updateKind": "full",
   "assetKind": "installer",
   "hash": "",
-  "url": "https://github.com/EvovexAI/EvoFlow/releases/download/v1.1.9/EvoFlow_1.1.9_x64-setup.exe",
+  "url": "https://github.com/EvovexAI/EvoFlow/releases/download/v1.2.0/EvoFlow_1.2.0_x64-setup.exe",
   "size": 0,
-  "changelog": "EvoFlow 1.1.9（相对 1.1.8）：语音接入 DashScope ASR/TTS 音色选择与唤醒词 KWS 原生 sidecar；媒体生成接入用量账本记账；新增 OpenAI 兼容 chat/completions 网关与 CLI；MCP 工具按角色 mcp_servers 绑定重构、移除系统提示词注入；组织名册 / 协作提示词拆分并接雇佣通知与飞书回执按角色账号路由；任务新增运行时健康度（live/interrupted/idle），转交审核三处提醒；Computer Use 屏边蓝光提示；UI 扩展外壳页与顶栏、toast 定位统一；修复编排长跑 renderer OOM、浏览器冷启动空白页、网关日志 500、工作区历史删除、聊天空草稿闪跳。前后端同一版本号，覆盖安装即可。"
+  "changelog": "EvoFlow 1.2.0（相对 1.1.9）：自托管知识库分块/格式/去重与同步预览、嵌入调用按用途记账并出日报；资产 Hub 明确 L0-L4 注入分层并新增标题召回与记忆运行台账；全智能体情感统一为激素轴、镜像 affect.md 并入资产中心（员工可编 SOUL）；飞书入站解析/合并/媒体三层管线；技能支持文件夹原地登记(bound)；新增 Agent 详情页、OpenAI 兼容 openai.chat/vision 与 settings.invoke_model；MiniMax 视频 provider 与厂商 URL 提取兜底；Computer Use 屏边蓝光改后端权威状态；员工会话按绑定 MCP 自动开右栏工作台；Plan 会话模式下线仅保留 Agent；平台工具 main/小V 默认挂载、员工 opt-in；产物交付引用统一为 Markdown；另修渲染进程 OOM、macOS 12 工作台空白、后台 bash 保活、工作区路径自愈、浏览器冷启动空白页等。前后端同一版本号，覆盖安装即可。"
 }
