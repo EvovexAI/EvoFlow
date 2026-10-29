@@ -6,6 +6,12 @@
  *   #/proactive/:code/work/:taskId   （岗位工作项 Task）
  */
 import { api, getGatewayBaseUrl } from '../lib/tauri-api.js'
+import {
+  annotateMcpHealth,
+  listBoundMcpServers,
+  openEmployeeMcpWorkbenchInRightStage,
+  openMcpWorkbenchInRightStage,
+} from '../lib/mcp-workbench-link.js'
 import { toast } from '../components/toast.js'
 import { showConfirm } from '../components/modal.js'
 import { navigate, getCurrentRoute } from '../router.js'
@@ -1178,6 +1184,7 @@ async function renderEmployeePage(code, { autoPatrol = false, autoLive = false, 
       busy,
       agent: capability.agent,
       capabilityChips: capability.chips,
+      mcpHealthRows: capability.mcpHealthRows || [],
       memory,
       cost,
       performance,
@@ -1187,6 +1194,7 @@ async function renderEmployeePage(code, { autoPatrol = false, autoLive = false, 
       knowledgeVaults: Array.isArray(knowledgeVaults) ? knowledgeVaults : [],
       schedulePreview,
     })
+    page._mcpServers = listBoundMcpServers(capability.agent?.mcp_servers)
     // 供右栏 shell-page 标签回写真实岗位名（勿用 agent_code / path）
     page.dataset.shellPageTitle = String(
       role?.role_name || role?.agent_name || capability?.agent?.agent_name || '',
@@ -1427,12 +1435,16 @@ async function loadAgentCapability(code) {
       chips.push({ label: `工具 ${agent.tools.length}`, tip: '内置工具：员工能用的内置能力。' })
     }
 
-    const mcpN = Array.isArray(agent.mcp_servers)
-      ? agent.mcp_servers.length
+    const boundMcps = listBoundMcpServers(agent.mcp_servers)
+    const mcpN = boundMcps.length
+      ? boundMcps.length
       : (meta?.mcp_servers || []).filter((s) => s.enabled !== false).length
     chips.push({
       label: `${mcpN} MCP`,
-      tip: 'MCP 服务：通过 Model Context Protocol 连接的外部工具，比如数据库、第三方 API 等。\n简单说：让员工能调用外部系统。',
+      tip: boundMcps.length
+        ? `已绑定：${boundMcps.join('、')}\n点击下方「打开工作台」可在右侧看实时面板与健康状态。`
+        : 'MCP 服务：通过 Model Context Protocol 连接的外部工具。\n未单独绑定则跟随全局启用列表。',
+      kind: 'mcp',
     })
 
     const skillsN = Array.isArray(agent.skills) ? agent.skills.length : 0
@@ -1449,7 +1461,13 @@ async function loadAgentCapability(code) {
     } else if (Array.isArray(agent.tools)) {
       chips.push({ label: `工具 ${agent.tools.length}`, tip: '内置工具' })
     }
-    if (Array.isArray(agent.mcp_servers)) chips.push({ label: `${agent.mcp_servers.length} MCP`, tip: 'MCP 服务' })
+    if (Array.isArray(agent.mcp_servers)) {
+      chips.push({
+        label: `${agent.mcp_servers.length} MCP`,
+        tip: 'MCP 服务',
+        kind: 'mcp',
+      })
+    }
     if (Array.isArray(agent.skills)) {
       chips.push({
         label: agent.skills.length > 0 ? `${agent.skills.length} 技能` : '无技能',
@@ -1457,13 +1475,67 @@ async function loadAgentCapability(code) {
       })
     }
   }
-  return { agent, chips }
+
+  let mcpHealthRows = []
+  const bound = listBoundMcpServers(agent?.mcp_servers)
+  if (bound.length) {
+    try {
+      const cfg = await api.getMCPConfig()
+      mcpHealthRows = annotateMcpHealth(bound, cfg?.server_status || cfg?.servers || {})
+    } catch {
+      mcpHealthRows = annotateMcpHealth(bound, {})
+    }
+  }
+  return { agent, chips, mcpHealthRows }
+}
+
+function mcpHealthLabel(health) {
+  if (health === 'ready') return { text: '已连接', cls: 'pro-badge--ok' }
+  if (health === 'pending') return { text: '连接中', cls: 'pro-badge--warn' }
+  if (health === 'error') return { text: '异常', cls: 'pro-badge--err' }
+  if (health === 'disabled') return { text: '已禁用', cls: 'pro-badge--muted' }
+  return { text: '未知', cls: 'pro-badge--muted' }
+}
+
+function renderMcpWorkbenchPanel(mcpHealthRows = []) {
+  const rows = Array.isArray(mcpHealthRows) ? mcpHealthRows : []
+  if (!rows.length) return ''
+  return `<div class="pro-mcp-workbench" data-role="mcp-workbench" aria-label="MCP 工作台">
+    <div class="pro-mcp-workbench-head">
+      <strong>MCP 工作台</strong>
+      <span class="pro-item-muted">跟他聊时会自动在右侧打开</span>
+    </div>
+    <ul class="pro-mcp-workbench-list">
+      ${rows
+        .map((row) => {
+          const badge = mcpHealthLabel(row.health)
+          const tip = row.error
+            ? row.error
+            : row.hasWorkbench
+              ? '点击在右侧打开对应网站，查看实时状态'
+              : '暂无关联工作台 URL'
+          return `<li class="pro-mcp-workbench-item">
+            <div class="pro-mcp-workbench-meta">
+              <code title="${esc(tip)}">${esc(row.name)}</code>
+              <span class="pro-badge ${badge.cls}">${esc(badge.text)}</span>
+              ${row.toolCount ? `<span class="pro-item-muted">${row.toolCount} 工具</span>` : ''}
+            </div>
+            ${
+              row.hasWorkbench
+                ? `<button type="button" class="btn btn-sm btn-outline" data-act="open-mcp-workbench" data-mcp="${esc(row.name)}" title="${esc(tip)}">打开工作台</button>`
+                : `<span class="pro-item-muted">无面板</span>`
+            }
+          </li>`
+        })
+        .join('')}
+    </ul>
+  </div>`
 }
 
 function renderRoleProfile(
   role,
   initiatives,
-  { busy = false, agent = null, capabilityChips = [], memory = null, cost = null, performance = null, schedulePreview = null } = {},
+  { busy = false, agent = null, capabilityChips = [], memory = null, cost = null, performance = null, schedulePreview = null, mcpHealthRows = [] } = {},
 ) {
   const code = role.agent_code
   const cfg = role.config || {}
@@ -1611,6 +1683,7 @@ function renderRoleProfile(
               )
               .join('')}
           </div>
+          ${renderMcpWorkbenchPanel(mcpHealthRows)}
         </div>
       </div>
 
@@ -2225,6 +2298,7 @@ function renderEmployeeShell(
     busy = false,
     agent = null,
     capabilityChips = [],
+    mcpHealthRows = [],
     memory = null,
     cost = null,
     performance = null,
@@ -2308,7 +2382,7 @@ function renderEmployeeShell(
     </div>
 
     <div data-role-profile>
-      ${renderRoleProfile(role, initiatives, { busy, agent, capabilityChips, memory, cost, performance, schedulePreview })}
+      ${renderRoleProfile(role, initiatives, { busy, agent, capabilityChips, mcpHealthRows, memory, cost, performance, schedulePreview })}
     </div>
 
     <div class="pro-employee-alerts" data-role="employee-alerts">
@@ -4245,6 +4319,7 @@ function bindEmployeePage(page, role, initiatives) {
     if (!code) return
     const stamp = new Date().toISOString().replace(/[:/\\]/g, '-')
     const sk = `proactive:${code}:chat:${stamp}`
+    const mcpServers = Array.isArray(page._mcpServers) ? page._mcpServers : []
     try {
       sessionStorage.setItem('evopanel_pending_shell_session', sk)
       sessionStorage.removeItem('evopanel_pending_shell_processed')
@@ -4258,7 +4333,22 @@ function bindEmployeePage(page, role, initiatives) {
     } catch {
       /* ignore */
     }
+    // 先开右侧工作台，再进聊天，边聊边看 MCP 对应网站
+    if (mcpServers.length) {
+      void openEmployeeMcpWorkbenchInRightStage({ mcpServers, sessionKey: sk }).catch(() => {})
+    }
     window.location.hash = '#/chat'
+  })
+  page.querySelectorAll('[data-act="open-mcp-workbench"]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const mcp = String(btn.getAttribute('data-mcp') || '').trim()
+      if (!mcp) return
+      void openMcpWorkbenchInRightStage(mcp)
+        .then((ok) => {
+          if (!ok) toast('未找到对应工作台地址', 'warning')
+        })
+        .catch((e) => toast(e?.message || '打开工作台失败', 'error'))
+    })
   })
   ;['edit', 'feishu-bind', 'feishu-unbind', 'bind-im', 'im-unbind', 'refresh', 'archive', 'delete', 'dispatch', 'heartbeat', 'stop-work'].forEach((act) => {
     page.querySelectorAll(`[data-act="${act}"]`).forEach((el) => {
