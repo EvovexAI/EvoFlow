@@ -674,6 +674,7 @@ def delete_text_file(entity: EntityRef, rel_path: str) -> dict[str, Any]:
         "profile/identity.md",
         "profile/system.md",
         "profile/soul-summary.md",
+        "profile/affect.md",
     }
     if rel in protected:
         raise ValueError(f"protected profile file cannot be deleted: {rel}")

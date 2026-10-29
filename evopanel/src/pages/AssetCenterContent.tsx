@@ -33,6 +33,7 @@ import {
   DatabaseBackup,
   ChevronRight,
   CornerDownLeft,
+  Heart,
 } from "lucide-react";
 import { api } from "../lib/tauri-api.js";
 import { toast } from "../components/toast.js";
@@ -47,7 +48,14 @@ import {
 
 /* ── Types ───────────────────────────────────────────────────────── */
 
-type AssetTab = "overview" | "profile" | "memory" | "experience" | "journal" | "manage";
+type AssetTab =
+  | "overview"
+  | "profile"
+  | "affect"
+  | "memory"
+  | "experience"
+  | "journal"
+  | "manage";
 
 type TreeTab = "memory" | "experience" | "journal";
 
@@ -68,15 +76,12 @@ type SearchHit = {
   matchedQueries?: string[];
 };
 
+/** 用户画像字段标签（仅 user 实体「画像」Tab）。员工无画像 Tab。 */
 const PROFILE_LABELS: Record<string, string> = {
   "basic-info.md": "基本信息",
   "preferences.md": "偏好与爱好",
   "persona.md": "画像与行为",
-  "identity.md": "身份边界",
-  "SOUL.md": "人格 SOUL",
-  "affect.md": "情感",
-  "system.md": "系统提示词",
-  "soul-summary.md": "人格摘要（自动生成）",
+  "README.md": "说明",
 };
 
 type UsageStatsRow = {
@@ -130,6 +135,7 @@ type MemoryRunRow = {
 const ASSET_TABS: { id: AssetTab; label: string; icon: React.ReactNode }[] = [
   { id: "overview", label: "总览", icon: <LayoutDashboard size={16} strokeWidth={1.6} /> },
   { id: "profile", label: "画像", icon: <UserRound size={16} strokeWidth={1.6} /> },
+  { id: "affect", label: "情感", icon: <Heart size={16} strokeWidth={1.6} /> },
   { id: "memory", label: "记忆", icon: <BrainCircuit size={16} strokeWidth={1.6} /> },
   { id: "experience", label: "经验", icon: <Sparkles size={16} strokeWidth={1.6} /> },
   { id: "journal", label: "反思", icon: <MessageCircleMore size={16} strokeWidth={1.6} /> },
@@ -147,24 +153,30 @@ const ENTITY_GROUPS: { key: string; label: string; types: string[] }[] = [
   { key: "employee", label: "员工", types: ["employee"] },
 ];
 
-/** Agent entities hold profile/SOUL only — memory lives under user/. */
+/**
+ * Tab IA:
+ * - 画像：仅「我」(user)。员工共享用户画像，不设画像 Tab。
+ * - 情感：仅员工（每人独立 affect.md / person_affect）。
+ */
 function assetTabsForEntity(entityType: string): typeof ASSET_TABS {
   const et = String(entityType || "").trim().toLowerCase();
-  if (et === "agent") {
-    return ASSET_TABS.filter((t) => t.id === "overview" || t.id === "profile" || t.id === "manage");
+  if (et === "user") {
+    return ASSET_TABS.filter((t) => t.id !== "affect");
+  }
+  if (et === "employee") {
+    return ASSET_TABS.filter((t) => t.id !== "profile");
   }
   // Workspaces are memory vaults.
   if (et === "workspace") {
     return ASSET_TABS.filter((t) => t.id === "overview" || t.id === "memory" || t.id === "manage");
   }
-  // Employees: include profile so SOUL + affect.md are editable in Asset Center.
-  if (et === "employee") {
-    return ASSET_TABS;
+  // Bare agent (rare in UI): 情感独立，无用户画像。
+  if (et === "agent") {
+    return ASSET_TABS.filter(
+      (t) => t.id === "overview" || t.id === "affect" || t.id === "manage",
+    );
   }
-  if (et !== "user") {
-    return ASSET_TABS.filter((t) => t.id !== "profile");
-  }
-  return ASSET_TABS;
+  return ASSET_TABS.filter((t) => t.id !== "profile" && t.id !== "affect");
 }
 
 /* ── Helpers ─────────────────────────────────────────────────────── */
@@ -257,6 +269,7 @@ function treeRootForTab(tab: AssetTab): string | null {
 
 function workspaceTitle(tab: AssetTab): string {
   if (tab === "profile") return "用户画像";
+  if (tab === "affect") return "情感";
   if (tab === "memory") return "记忆目录";
   if (tab === "experience") return "经验目录";
   if (tab === "journal") return "反思日志";
@@ -265,6 +278,7 @@ function workspaceTitle(tab: AssetTab): string {
 
 function workspacePath(tab: AssetTab, treePath?: string): string {
   if (tab === "profile") return "profile/";
+  if (tab === "affect") return "profile/affect.md";
   if (treePath) return `${treePath}/`;
   if (tab === "memory") return "memory/";
   if (tab === "experience") return "craft/";
@@ -333,11 +347,14 @@ function initialTab(): AssetTab {
   if (t === "journal" || t === "reflect" || t === "reflection") return "journal";
   if (t === "skill" || t === "skills") return "experience";
   if (t === "profile") return "profile";
+  if (t === "affect" || t === "emotion" || t === "mood") return "affect";
   if (t === "overview" || t === "home") return "overview";
   if (ASSET_TABS.some((x) => x.id === t)) return t as AssetTab;
   const path = String(q.path || "").replace(/\\/g, "/");
   if (path.startsWith("craft/")) return "experience";
   if (path.startsWith("memory/journal/")) return "journal";
+  // 情感镜像：员工专属；勿把整棵 profile/ 当成用户画像
+  if (path === "profile/affect.md" || path.endsWith("/affect.md")) return "affect";
   if (path.startsWith("profile/")) return "profile";
   if (path.startsWith("memory/")) return "memory";
   // 无深链参数时落在总览,给新用户一条清晰的动线
@@ -399,6 +416,8 @@ export default function AssetCenterContent() {
   const [profileFields, setProfileFields] = useState<Record<string, string | null>>({});
   const [profileField, setProfileField] = useState("basic-info.md");
   const [profileDirty, setProfileDirty] = useState(false);
+  const [affectContent, setAffectContent] = useState("");
+  const [affectDirty, setAffectDirty] = useState(false);
 
   const [treeRoot, setTreeRoot] = useState("");
   const [treePath, setTreePath] = useState("");
@@ -470,11 +489,24 @@ export default function AssetCenterContent() {
 
   const loadProfile = useCallback(async () => {
     const data = await api.assetsGetProfile(currentEntity);
-    const fields = data?.fields || {};
-    setProfileFields(fields);
-    const keys = Object.keys(fields);
+    const fields = (data?.fields || {}) as Record<string, string | null>;
+    // 画像 Tab 仅用户：过滤掉员工侧 SOUL/affect 等字段名
+    const userKeys = new Set(Object.keys(PROFILE_LABELS));
+    const useFields = Object.fromEntries(
+      Object.entries(fields).filter(([k]) => userKeys.has(k)),
+    );
+    setProfileFields(useFields);
+    const keys = Object.keys(useFields);
     setProfileField((prev) => (keys.includes(prev) ? prev : keys[0] || "basic-info.md"));
     setProfileDirty(false);
+  }, [currentEntity]);
+
+  /** 员工独立情感镜像（profile/affect.md）；真源仍是 evoflow_person_affect。 */
+  const loadAffect = useCallback(async () => {
+    const data = await api.assetsGetProfile(currentEntity);
+    const fields = (data?.fields || {}) as Record<string, string | null>;
+    setAffectContent(String(fields["affect.md"] ?? ""));
+    setAffectDirty(false);
   }, [currentEntity]);
 
   const prefetchFile = useCallback(
@@ -582,6 +614,12 @@ export default function AssetCenterContent() {
           setSelectedFile("");
           setEditorContent("");
           setFileLoading(false);
+        } else if (tab === "affect") {
+          await loadAffect();
+          fileLoadSeq.current += 1;
+          setSelectedFile("");
+          setEditorContent("");
+          setFileLoading(false);
         } else if (tab === "memory") {
           await applyMemoryKind(memoryKind);
         } else if (tab === "experience" || tab === "journal") {
@@ -606,7 +644,7 @@ export default function AssetCenterContent() {
         setTabLoading(false);
       }
     },
-    [loadProfile, loadTree, applyMemoryKind, memoryKind],
+    [loadProfile, loadAffect, loadTree, applyMemoryKind, memoryKind],
   );
 
   const refreshTab = useCallback(() => loadTabData(activeTab), [loadTabData, activeTab]);
@@ -694,7 +732,14 @@ export default function AssetCenterContent() {
   useEffect(() => {
     const allowed = assetTabsForEntity(entityType).map((t) => t.id);
     if (!allowed.includes(activeTab)) {
-      setActiveTab(allowed[0] || "overview");
+      // 切换「我 ↔ 员工」时：画像 ↔ 情感 对位，避免直接掉回总览
+      if (activeTab === "profile" && allowed.includes("affect")) {
+        setActiveTab("affect");
+      } else if (activeTab === "affect" && allowed.includes("profile")) {
+        setActiveTab("profile");
+      } else {
+        setActiveTab(allowed[0] || "overview");
+      }
     }
     const currentEntityRec = entities.find((e) => e.entityType === entityType && e.entityId === entityId);
     if (!currentEntityRec && entities.length > 0) {
@@ -723,7 +768,14 @@ export default function AssetCenterContent() {
 
   // 目录树加载完成后，自动选中第一个文件；并预取首屏若干文档（悬停点击可秒开）
   useEffect(() => {
-    if (tabLoading || activeTab === "profile" || activeTab === "overview" || activeTab === "manage") return;
+    if (
+      tabLoading ||
+      activeTab === "profile" ||
+      activeTab === "affect" ||
+      activeTab === "overview" ||
+      activeTab === "manage"
+    )
+      return;
     const pending = pendingOpenPath.current;
     if (pending) {
       pendingOpenPath.current = "";
@@ -838,6 +890,7 @@ export default function AssetCenterContent() {
       let tab: AssetTab = "memory";
       if (rel.startsWith("craft/")) tab = "experience";
       else if (rel.startsWith("memory/journal/")) tab = "journal";
+      else if (rel === "profile/affect.md" || rel.endsWith("/affect.md")) tab = "affect";
       else if (rel.startsWith("profile/")) tab = "profile";
       else if (rel.startsWith("memory/")) {
         tab = "memory";
@@ -947,7 +1000,13 @@ export default function AssetCenterContent() {
   const profileContent = String(profileFields[profileField] ?? "");
   const profileReadonly = profileField === "soul-summary.md";
   const lineCount = Math.max(
-    (activeTab === "profile" ? profileContent : editorContent).split("\n").length,
+    (
+      activeTab === "profile"
+        ? profileContent
+        : activeTab === "affect"
+          ? affectContent
+          : editorContent
+    ).split("\n").length,
     1,
   );
   const canJournal = entityType === "user" || entityType === "employee";
@@ -1168,6 +1227,36 @@ export default function AssetCenterContent() {
                   />
                 }
               />
+            ) : activeTab === "affect" ? (
+              <div className="ac-affect-pane flex min-h-0 flex-1 flex-col">
+                <div className="ac-affect-banner px-4 py-2 text-[12px] leading-snug opacity-70">
+                  每位员工独立的心境镜像（真源在运行时情感库）。用户画像在「我 → 画像」，员工不设画像。
+                </div>
+                <EditorPanel
+                  pathLabel="情感 · profile/affect.md"
+                  content={affectContent}
+                  readonly={false}
+                  saved={!affectDirty}
+                  lineCount={lineCount}
+                  onChange={(v) => {
+                    setAffectContent(v);
+                    setAffectDirty(true);
+                  }}
+                  onSave={async () => {
+                    try {
+                      await api.assetsPutProfile({
+                        ...currentEntity,
+                        field: "affect.md",
+                        content: affectContent || "",
+                      });
+                      toast.success("已保存");
+                      setAffectDirty(false);
+                    } catch (e: unknown) {
+                      toast.error(String((e as { message?: string })?.message || e));
+                    }
+                  }}
+                />
+              </div>
             ) : (
               <TreeWorkspace
                 tab={activeTab as TreeTab}
@@ -1311,7 +1400,7 @@ function AssetHeader({
           </span>
           <div className="ac-brand-text">
             <h1 className="ac-title">资产中心</h1>
-            <p className="ac-brand-sub">AI 的笔记本 · 画像 / 记忆 / 经验 / 反思</p>
+            <p className="ac-brand-sub">AI 的笔记本 · 用户画像 / 员工情感 / 记忆 / 经验</p>
           </div>
         </div>
 

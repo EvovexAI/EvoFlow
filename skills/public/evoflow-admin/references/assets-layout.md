@@ -59,7 +59,8 @@ profile/
 ## Employee 根:`<base_dir>/assets/employees/{code}/`
 
 与用户根同构的记忆树（standing / MEMORY / facts / episodic / journal / craft / _inbox）。  
-`profile/` 同 Agent（含 `SOUL.md` / `affect.md`）。  
+资产中心 IA：**画像只属于用户**；员工共享用户画像，不设画像 Tab。  
+员工 `profile/affect.md` 是**每人独立**的情感镜像（真源 `evoflow_person_affect`）；SOUL/system 仍落盘供运行时，但不在资产中心「画像」里编辑。  
 运行时注入：L1 standing + L2 catalog 短标题 + **此刻心境**自然语言摘要；正文 L3 按需 `assets` read。  
 `agents.system_prompt` = L0 岗位骨架，**不是**经验库。
 
