@@ -83,6 +83,10 @@ def _status_from_response(data: dict[str, Any]) -> tuple[str, str | None, list[s
                         u = item.get("url") or item.get("video_url") or item.get("image_url")
                         if u:
                             urls.append(str(u))
+    if not urls:
+        from evoflow.community.media_generation.url_extract import extract_media_urls
+
+        urls = extract_media_urls(inner, also_scan_text=False)
     primary = urls[0] if urls else None
     if status in ("succeed", "succeeded", "success", "completed"):
         status = "succeeded"

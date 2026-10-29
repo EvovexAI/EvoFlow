@@ -150,6 +150,11 @@ def _extract_urls_from_output(out: Any) -> list[str]:
         if isinstance(vu, str) and vu.startswith(("http", "data:")):
             urls.append(vu)
 
+    if not urls:
+        from evoflow.community.media_generation.url_extract import extract_media_urls
+
+        urls.extend(extract_media_urls(out, also_scan_text=False))
+
     # Dedupe preserve order
     seen: set[str] = set()
     uniq: list[str] = []

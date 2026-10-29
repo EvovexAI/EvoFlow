@@ -135,7 +135,11 @@ def _extract_urls(data: dict[str, Any]) -> list[str]:
         for key in ("url", "image_url", "video_url"):
             if isinstance(data.get(key), str):
                 urls.append(data[key])
-    return urls
+    if not urls:
+        from evoflow.community.media_generation.url_extract import extract_media_urls
+
+        urls = extract_media_urls(data, also_scan_text=False)
+    return list(dict.fromkeys(urls))
 
 
 def submit_image(

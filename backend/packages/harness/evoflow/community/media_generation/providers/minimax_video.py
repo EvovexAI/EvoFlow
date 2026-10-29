@@ -502,6 +502,10 @@ def _poll_openai_videos(task_id: str) -> tuple[str, str | None, list[str]]:
             video_url = str(nested.get(key) or "").strip()
             if video_url.startswith("http"):
                 break
+    if not video_url:
+        from evoflow.community.media_generation.url_extract import primary_media_url
+
+        video_url = primary_media_url(data) or ""
 
     if status == "succeeded" and not video_url:
         local = _download_openai_content(task_id)
@@ -570,6 +574,10 @@ def _poll_h3(task_id: str) -> tuple[str, str | None, list[str]]:
         status = "processing"
     content = task.get("content") if isinstance(task.get("content"), dict) else {}
     video_url = str(content.get("url") or task.get("video_url") or task.get("download_url") or "").strip()
+    if not video_url:
+        from evoflow.community.media_generation.url_extract import primary_media_url
+
+        video_url = primary_media_url(data) or ""
     urls = [video_url] if video_url else []
     return status, urls[0] if urls else None, urls
 
@@ -595,6 +603,10 @@ def _poll_hailuo_legacy(task_id: str) -> tuple[str, str | None, list[str]]:
     urls: list[str] = []
     if video_url:
         urls.append(video_url)
+    if not urls:
+        from evoflow.community.media_generation.url_extract import extract_media_urls
+
+        urls.extend(extract_media_urls(data, also_scan_text=False))
     if not urls and file_id and status == "succeeded":
         dl = _download_url_for_file(str(file_id))
         if dl:
