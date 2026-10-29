@@ -27,8 +27,11 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 from app.channels.base import Channel
+from app.channels.feishu_inbound_coalesce import FeishuInboundCoalescer
+from app.channels.feishu_inbound_media import FeishuInboundMediaCache
+from app.channels.feishu_inbound_parse import FeishuMediaRef, parse_feishu_message
 from app.channels.feishu_message_format import feishu_outbound_text
-from app.channels.message_bus import InboundMessageType, MessageBus, OutboundMessage, ResolvedAttachment
+from app.channels.message_bus import InboundMessage, InboundMessageType, MessageBus, OutboundMessage, ResolvedAttachment
 
 logger = logging.getLogger(__name__)
 
@@ -917,6 +920,20 @@ class FeishuChannel(Channel):
         self._CreateFileRequestBody = None
         self._CreateImageRequest = None
         self._CreateImageRequestBody = None
+        # Inbound media: download → temp files → manager context_files.
+        self._inbound_media = FeishuInboundMediaCache(
+            client_resolver=self._api_client_for,
+            account_id=self._instance_account_id,
+        )
+        coalesce_delay = config.get("inbound_coalesce_seconds", 0.6)
+        try:
+            coalesce_delay_f = float(coalesce_delay)
+        except (TypeError, ValueError):
+            coalesce_delay_f = 0.6
+        self._inbound_coalescer = FeishuInboundCoalescer(
+            delay_seconds=coalesce_delay_f,
+            publish=self._publish_coalesced_inbound,
+        )
 
     @staticmethod
     def _stop_ctx_from_outbound(msg: OutboundMessage) -> dict[str, Any] | None:
@@ -1295,6 +1312,10 @@ class FeishuChannel(Channel):
         self.bus.unsubscribe_outbound(
             channel_name=self.name, account_id=self._instance_account_id
         )
+        with contextlib.suppress(Exception):
+            await self._inbound_coalescer.flush_all()
+        with contextlib.suppress(Exception):
+            await self._inbound_media.cleanup_all()
         for key in list(self._stream_state_ts):
             self._clear_stream_state(key)
         for task in list(self._background_tasks):
@@ -1314,6 +1335,13 @@ class FeishuChannel(Channel):
         self._running_card_chat_ids.clear()
         self._running_card_account_ids.clear()
         logger.info("Feishu channel stopped")
+
+    def release_owned_temp_paths(self, paths: list[str] | None) -> None:
+        """Manager hook after inbound processing — unlink cached media temps."""
+        self._inbound_media.release_owned_temp_paths(paths)
+
+    async def _publish_coalesced_inbound(self, inbound: InboundMessage, source_message_id: str) -> None:
+        await self._prepare_inbound(source_message_id, inbound)
 
     async def send(self, msg: OutboundMessage, *, _max_retries: int = 3) -> None:
         account_id = self._resolve_outbound_account_id(msg)
@@ -3278,51 +3306,50 @@ class FeishuChannel(Channel):
             # to one agent thread.
             root_id = getattr(message, "root_id", None) or None
 
-            # Parse message content
-            content = json.loads(message.content)
-
-            if "text" in content:
-                # Handle plain text messages
-                text = content["text"]
-            elif "content" in content and isinstance(content["content"], list):
-                # Handle rich-text messages with a top-level "content" list (e.g., topic groups/posts)
-                text_paragraphs: list[str] = []
-                for paragraph in content["content"]:
-                    if isinstance(paragraph, list):
-                        paragraph_text_parts: list[str] = []
-                        for element in paragraph:
-                            if isinstance(element, dict):
-                                # Include both normal text and @ mentions
-                                if element.get("tag") in ("text", "at"):
-                                    text_value = element.get("text", "")
-                                    if text_value:
-                                        paragraph_text_parts.append(text_value)
-                        if paragraph_text_parts:
-                            # Join text segments within a paragraph with spaces to avoid "helloworld"
-                            text_paragraphs.append(" ".join(paragraph_text_parts))
-
-                # Join paragraphs with blank lines to preserve paragraph boundaries
-                text = "\n\n".join(text_paragraphs)
-            else:
-                text = ""
-            raw = text.strip().strip("\ufeff\u200b\u200c\u200d")
-
-            if not raw:
-                logger.info("[Feishu] empty text, ignoring message")
+            feishu_msg_type = str(
+                getattr(message, "message_type", None)
+                or getattr(message, "msg_type", None)
+                or ""
+            ).strip().lower()
+            try:
+                content_raw = message.content
+            except Exception:
+                content_raw = ""
+            parsed = parse_feishu_message(
+                message_type=feishu_msg_type,
+                content=content_raw,
+                message_id=str(msg_id or ""),
+            )
+            if parsed.unsupported:
+                logger.info(
+                    "[Feishu] skip unsupported message_type=%s msg_id=%s",
+                    parsed.unsupported,
+                    msg_id,
+                )
                 return
 
+            raw = (parsed.text or "").strip().strip("\ufeff\u200b\u200c\u200d")
+            if not raw and not parsed.refs:
+                logger.info(
+                    "[Feishu] empty inbound (no text/media), ignoring message_type=%s",
+                    parsed.message_type or feishu_msg_type or "?",
+                )
+                return
+
+            dedup_text = raw or f"[{parsed.message_type}:{','.join(r.file_key[:8] for r in parsed.refs)}]"
             if self._inbound_dedup.is_duplicate(
                 account_id=account_id,
                 msg_id=str(msg_id or ""),
                 chat_id=str(chat_id or ""),
-                text=raw,
+                text=dedup_text,
             ):
                 logger.info(
-                    "[Feishu] skip duplicate inbound: account=%s msg_id=%s chat_id=%s text_len=%d",
+                    "[Feishu] skip duplicate inbound: account=%s msg_id=%s chat_id=%s text_len=%d refs=%d",
                     account_id or "primary",
                     msg_id,
                     chat_id,
                     len(raw),
+                    len(parsed.refs),
                 )
                 return
 
@@ -3353,14 +3380,17 @@ class FeishuChannel(Channel):
                 reply_anchor_message_id = str(msg_id)
 
             logger.info(
-                "[Feishu] parsed message: chat_id=%s, msg_id=%s, root_id=%s, reply_anchor=%s, sender=%s, chat_type=%s, text_len=%d",
+                "[Feishu] parsed message: chat_id=%s, msg_id=%s, root_id=%s, reply_anchor=%s, "
+                "sender=%s, chat_type=%s, feishu_type=%s, text_len=%d, refs=%d",
                 chat_id,
                 msg_id,
                 root_id,
                 reply_anchor_message_id,
                 sender_id,
                 chat_type or "?",
-                len(raw) if raw else 0,
+                parsed.message_type or feishu_msg_type or "?",
+                len(raw),
+                len(parsed.refs),
             )
 
             # Audit log: every accepted inbound IM message must leave a trail so we
@@ -3380,48 +3410,108 @@ class FeishuChannel(Channel):
                     receive_id=str(chat_id or ""),
                     receive_id_type="chat_id",
                     title="",
-                    content_summary=str(raw or "")[:800],
+                    content_summary=(raw or f"[{parsed.message_type}]")[:800],
                     payload={
                         "chat_type": chat_type,
                         "root_id": str(root_id or ""),
                         "reply_anchor": reply_anchor_message_id,
                         "msg_type": str(getattr(msg_type, "value", msg_type) or ""),
+                        "feishu_message_type": parsed.message_type or feishu_msg_type,
+                        "media_refs": len(parsed.refs),
                         "account_id": account_id,
                     },
                     status="ok",
                     triggered_by="user",
                 )
 
-            inbound = self._make_inbound(
-                chat_id=chat_id,
-                user_id=sender_id,
-                text=text,
-                msg_type=msg_type,
-                thread_ts=reply_anchor_message_id,
-                account_id=account_id,
-                metadata={
-                    "message_id": msg_id,
-                    "root_id": root_id,
-                    "reply_anchor_message_id": reply_anchor_message_id,
-                    **({"chat_type": chat_type} if chat_type else {}),
-                    **({"account_id": account_id} if account_id else {}),
-                },
-            )
-            inbound.topic_id = topic_id
-
-            # Schedule on the async event loop
+            # Schedule download + coalesce on the async event loop (lark WS thread → loop).
             if self._main_loop and self._main_loop.is_running() and not self._main_loop.is_closed():
-                inbound_text = (inbound.text or "")[:200]
-                logger.info(
-                    "[Feishu] inbound type=%s msg_id=%s chat_id=%s text=%.200s",
-                    msg_type.value,
-                    msg_id,
-                    str(inbound.chat_id or "")[:12],
-                    inbound_text if inbound_text else "(no text)",
+                fut = asyncio.run_coroutine_threadsafe(
+                    self._ingest_inbound(
+                        chat_id=str(chat_id or ""),
+                        sender_id=str(sender_id or ""),
+                        text=text,
+                        msg_type=msg_type,
+                        msg_id=str(msg_id or ""),
+                        reply_anchor_message_id=reply_anchor_message_id,
+                        root_id=str(root_id or "") if root_id else None,
+                        topic_id=topic_id,
+                        account_id=account_id,
+                        chat_type=chat_type,
+                        refs=list(parsed.refs),
+                    ),
+                    self._main_loop,
                 )
-                fut = asyncio.run_coroutine_threadsafe(self._prepare_inbound(msg_id, inbound), self._main_loop)
-                fut.add_done_callback(lambda f, mid=msg_id: self._log_future_error(f, "prepare_inbound", mid))
+                fut.add_done_callback(lambda f, mid=msg_id: self._log_future_error(f, "ingest_inbound", mid))
             else:
                 logger.warning("[Feishu] main loop not running, cannot publish inbound message")
         except Exception:
             logger.exception("[Feishu] error processing message")
+
+    async def _ingest_inbound(
+        self,
+        *,
+        chat_id: str,
+        sender_id: str,
+        text: str,
+        msg_type: InboundMessageType,
+        msg_id: str,
+        reply_anchor_message_id: str,
+        root_id: str | None,
+        topic_id: str | None,
+        account_id: str,
+        chat_type: str,
+        refs: list[FeishuMediaRef],
+    ) -> None:
+        """Download media (if any), build InboundMessage, coalesce, then prepare/publish."""
+        files: list[dict[str, Any]] = []
+        owned_paths: list[str] = []
+        if refs:
+            files, owned_paths = await self._inbound_media.materialize(refs, account_id=account_id)
+            if refs and not files:
+                logger.warning(
+                    "[Feishu] media download produced no files (refs=%d msg_id=%s)",
+                    len(refs),
+                    msg_id,
+                )
+
+        if not (text or "").strip() and not files:
+            logger.info("[Feishu] ingest dropped: no text and no cached files msg_id=%s", msg_id)
+            if owned_paths:
+                self._inbound_media.release_owned_temp_paths(owned_paths)
+            return
+
+        metadata: dict[str, Any] = {
+            "message_id": msg_id,
+            "message_ids": [msg_id] if msg_id else [],
+            "root_id": root_id,
+            "reply_anchor_message_id": reply_anchor_message_id,
+        }
+        if chat_type:
+            metadata["chat_type"] = chat_type
+        if account_id:
+            metadata["account_id"] = account_id
+        if owned_paths:
+            metadata["_owned_temp_paths"] = list(owned_paths)
+
+        inbound = self._make_inbound(
+            chat_id=chat_id,
+            user_id=sender_id,
+            text=text,
+            msg_type=msg_type,
+            thread_ts=reply_anchor_message_id,
+            files=files,
+            account_id=account_id,
+            metadata=metadata,
+        )
+        inbound.topic_id = topic_id
+
+        logger.info(
+            "[Feishu] inbound type=%s msg_id=%s chat_id=%s text=%.200s files=%d",
+            msg_type.value,
+            msg_id,
+            str(inbound.chat_id or "")[:12],
+            (inbound.text or "")[:200] or "(no text)",
+            len(files),
+        )
+        await self._inbound_coalescer.accept(inbound, source_message_id=msg_id)
