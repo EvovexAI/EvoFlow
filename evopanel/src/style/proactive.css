@@ -966,6 +966,57 @@ body > .pro-role-more-menu .pro-role-more-item--danger,
   overflow: hidden;
 }
 
+/* 员工页：MCP 健康 + 一键打开对应工作台（右侧浏览器） */
+.pro-mcp-workbench {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border, rgba(15, 23, 42, 0.08));
+  background: color-mix(in srgb, var(--bg-secondary, #f8fafc) 88%, transparent);
+}
+.pro-mcp-workbench-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: 12px;
+}
+.pro-mcp-workbench-head strong {
+  font-size: 12px;
+  font-weight: 750;
+  color: var(--text, #0f172a);
+}
+.pro-mcp-workbench-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.pro-mcp-workbench-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 32px;
+}
+.pro-mcp-workbench-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+.pro-mcp-workbench-meta code {
+  font-size: 11px;
+  font-weight: 650;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .pro-role-tags--empty {
   visibility: hidden;
 }
