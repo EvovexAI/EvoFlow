@@ -193,10 +193,21 @@ export function clipVoiceSpeechForPlayback(rawBody, opts = {}) {
   const maxSentences = Math.max(1, Number(opts.maxSentences) || 6)
   if (plain.length <= maxChars) return plain
 
-  const parts = plain
-    .split(/(?<=[。！？!?；;])/)
-    .map((s) => s.trim())
-    .filter(Boolean)
+  // COMPAT(macOS12-JSC): no lookbehind — split after sentence punctuation, keep delimiter.
+  const parts = []
+  {
+    const ends = '。！？!?；;'
+    let start = 0
+    for (let i = 0; i < plain.length; i++) {
+      if (ends.includes(plain[i])) {
+        const part = plain.slice(start, i + 1).trim()
+        if (part) parts.push(part)
+        start = i + 1
+      }
+    }
+    const tail = plain.slice(start).trim()
+    if (tail) parts.push(tail)
+  }
   if (!parts.length) return plain.slice(0, maxChars)
 
   let out = ''

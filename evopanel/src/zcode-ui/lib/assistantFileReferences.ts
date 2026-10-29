@@ -105,7 +105,8 @@ export function isPlausibleAssistantFilePathCandidate(candidate: string): boolea
   if (/[（(][^）)]*(?:含|包括|changelog|说明|备注)[^）)]*[）)]/i.test(cleaned)) return false;
   // 中文说明 + 冒号（排除 Windows 盘符 D:）
   if (/[\u4e00-\u9fff]/.test(cleaned) && /：/.test(cleaned)) return false;
-  if (/[\u4e00-\u9fff]/.test(cleaned) && /(?<![a-zA-Z]):/.test(cleaned)) return false;
+  // COMPAT(macOS12-JSC): no lookbehind — reject ':' not after an ASCII letter (not Windows drive).
+  if (/[\u4e00-\u9fff]/.test(cleaned) && /(?:^|[^a-zA-Z]):/.test(cleaned)) return false;
   // 空格过多：像散文而不像 `my file name.mp4`
   if ((cleaned.match(/\s/g) || []).length >= 2) return false;
   return true;

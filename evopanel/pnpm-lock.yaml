@@ -8,6 +8,7 @@ overrides:
   mermaid: 11.15.0
 
 patchedDependencies:
+  '@pierre/diffs@1.1.22': 26c6af50f93d02abd01db3ca64934dc8e25ac10d9ad0e0111a0a39645b8abef4
   '@tanstack/virtual-core@3.14.0': 6ba50136a96ecaaa921e041393d01eec1bc02df580de22cc77fd55d1a2384b2e
 
 importers:
@@ -55,7 +56,7 @@ importers:
         version: 1.2.1
       '@pierre/diffs':
         specifier: ^1.1.22
-        version: 1.1.22(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
+        version: 1.1.22(patch_hash=26c6af50f93d02abd01db3ca64934dc8e25ac10d9ad0e0111a0a39645b8abef4)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
       '@radix-ui/react-dialog':
         specifier: ^1.1.16
         version: 1.1.16(@types/react-dom@19.3.0(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
@@ -7537,7 +7538,7 @@ snapshots:
 
   '@opentelemetry/api@1.9.0': {}
 
-  '@pierre/diffs@1.1.22(react-dom@19.2.6(react@19.2.6))(react@19.2.6)':
+  '@pierre/diffs@1.1.22(patch_hash=26c6af50f93d02abd01db3ca64934dc8e25ac10d9ad0e0111a0a39645b8abef4)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)':
     dependencies:
       '@pierre/theme': 0.0.28
       '@shikijs/transformers': 3.23.0

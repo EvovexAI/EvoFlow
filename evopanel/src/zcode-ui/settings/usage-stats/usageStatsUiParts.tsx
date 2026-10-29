@@ -26,7 +26,8 @@ export function formatSummaryCompactTokenUsage(locale: string, value: number): s
   const formatted = formatCompactTokenUsage(locale, value);
 
   // 通用紧凑格式会把中文单位直接贴在数字后；摘要卡片与相邻的时长、天数指标统一保留单位间距。
-  return locale.startsWith("zh") ? formatted.replace(/(?<=\d)(?=[万亿])/u, " ") : formatted;
+  // COMPAT(macOS12-JSC): no lookbehind — insert space between digit and 万/亿.
+  return locale.startsWith("zh") ? formatted.replace(/(\d)([万亿])/gu, "$1 $2") : formatted;
 }
 
 export function formatPercent(locale: string, value: number): string {

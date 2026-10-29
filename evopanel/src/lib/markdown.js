@@ -262,8 +262,17 @@ export function renderMarkdown(text) {
   html = html.replace(/\\\[([\s\S]+?)\\\]/g, (_, tex) => mathToken(tex, true))
   html = html.replace(/\$\$([\s\S]+?)\$\$/g, (_, tex) => mathToken(tex, true))
   html = html.replace(/\\\(([\s\S]+?)\\\)/g, (_, tex) => mathToken(tex, false))
-  // 行内 $...$：避免货币场景——开定界符前不能是空白/反斜杠/$，闭定界符前不能是空白，后继不能是数字
-  html = html.replace(/(?<!\\)\$(?!\s)(?!\d)([^\n$]+?)(?<![\s\\])\$(?!\d)/g, (_, tex) => mathToken(tex, false))
+  // 行内 $...$：避免货币场景——开定界符前不能是反斜杠，后不能是空白/数字；闭定界符前不能是空白/反斜杠，后继不能是数字
+  // COMPAT(macOS12-JSC): no lookbehind — filter neighbors in the replace callback.
+  html = html.replace(/\$([^\n$]+?)\$/g, (full, tex, offset, str) => {
+    const before = offset > 0 ? str[offset - 1] : ''
+    const afterClose = str[offset + full.length] ?? ''
+    if (before === '\\') return full
+    if (/^[\s\d]/.test(tex)) return full
+    if (/[\s\\]$/.test(tex)) return full
+    if (/\d/.test(afterClose)) return full
+    return mathToken(tex, false)
+  })
 
   // Protect evoflow-file links before inline-code pass (belt-and-suspenders if
   // a stray backtick still wraps a linkify result).
