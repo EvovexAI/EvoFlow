@@ -1,6 +1,8 @@
 /**
  * EvoFlow 桌面端入口
  */
+// COMPAT(macOS12-JSC): must evaluate before any chunk that may call new RegExp(lookbehind).
+import './boot/0-polyfills.js'
 import { registerRoute, initRouter, navigate, setDefaultRoute, removeBootSplash, isAuthRoute } from './router.js'
 import { initShellAside, openMobileShellAside } from './components/shell-aside.js'
 import { initTheme, attachSystemThemeListener } from './lib/theme.js'

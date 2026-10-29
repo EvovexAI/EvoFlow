@@ -21,9 +21,9 @@ ScenarioKey = str
 def normalize_scenario_key(value: str | None) -> ScenarioKey:
     """Normalize any legacy intent/scenario hint into current mode key (ask / agent / plan).
 
-    Mode keys (canonical, match UI Agent / Plan; Ask is legacy-hidden):
+    Mode keys (canonical; UI 仅 Agent；Ask / Plan 已下线):
       - agent: 默认对话与落地执行（本地代码检索、读写改删、命令执行、联网检索）
-      - plan: 规划与调度执行（`plan` 提交正文 + `supervisor` 编排）
+      - plan: 仅内部协作流水线保留（不可由 UI / mode_set 切入）
       - ask: 遗留纯问答键（UI 已隐藏；显式 ask 仍可识别，未知/空别名落到 agent）
 
       Legacy aliases ``chat`` / ``workspace`` / ``web`` are still accepted.
@@ -35,8 +35,11 @@ def normalize_scenario_key(value: str | None) -> ScenarioKey:
         return "agent"
     if raw in {"evolve", "evolution", "self_evolve", "self-improve", "self_improve", "improve", "optimize"}:
         return "agent"
-    if raw in {"work", "do", "task", "execute", "plan"}:
+    # 字面 plan 仍识别（内部 collab）；其它旧别名一律落到 agent，避免误切入 Plan 模式
+    if raw == "plan":
         return "plan"
+    if raw in {"work", "do", "task", "execute"}:
+        return "agent"
     if raw in {"agent", "workspace", "workspaces", "file", "files", "file_ops", "filesystem", "edit_file"}:
         return "agent"
     if raw in {"web", "search", "research", "browse"}:
@@ -49,7 +52,7 @@ def normalize_scenario_key(value: str | None) -> ScenarioKey:
     if raw in {"creative", "media", "video", "image", "art", "design", "short_video", "short-video"}:
         return "agent"
     if raw in {"planning", "debug", "debugging", "troubleshoot", "implement", "coding", "code", "edit", "review", "audit", "general"}:
-        return "plan"
+        return "agent"
     return "agent"
 
 
@@ -456,11 +459,11 @@ TASK_SCENARIO_PROFILES: dict[str, TaskScenarioProfile] = {
         zh_description="**Ask**（已下线，遗留）：问答与轻量对话；仅核心工具。新会话默认 Agent。",
         tool_groups=("entity_assets",),
         signals="概念解释、普通问答、非执行型交流（勿主动切换到此模式）。",
-        boundaries="Ask 已从 UI 移除；需要落地执行用 agent，需要规划用 plan。",
+        boundaries="Ask 已从 UI 移除；落地执行一律用 agent。",
     ),
     "plan": TaskScenarioProfile(
         key="plan",
-        zh_description="**Plan**：`plan` 落库并经执行确认后，再用 `supervisor` 编排；文件只读。",
+        zh_description="**Plan**（已下线，仅内部协作保留）：勿 activate；日常用 agent + `plan` 工具写方案。",
         tool_groups=("plan_orchestration", "file_ops_read_present", "hosted_panel", "entity_assets"),
         extra_tool_names=(
             "read",
@@ -469,8 +472,8 @@ TASK_SCENARIO_PROFILES: dict[str, TaskScenarioProfile] = {
             "peer_read",
             "peer_reply",
         ),
-        signals="先规划后执行、多子任务编排与监督推进。",
-        boundaries=("plan 独占（激活会清 agent）。全流程 done 后系统自动切 agent。卡壳或用户要换模式：须先 supervisor 取消/失败主任务，勿半途 bypass。Gateway 定时 automation 不是 plan，用 tool_search 后直接调，勿 activate plan。"),
+        signals="（已下线）勿主动 activate plan。",
+        boundaries="Plan 模式已下线；勿 mode_set/scenario activate plan。写方案用 agent 下的 `plan` 工具。",
     ),
     "agent": TaskScenarioProfile(
         key="agent",
@@ -478,7 +481,7 @@ TASK_SCENARIO_PROFILES: dict[str, TaskScenarioProfile] = {
         tool_groups=("workspace_baseline", "file_ops", "web_research", "entity_assets"),
         extra_tool_names=("tasks", "platform"),
         signals="改文件、跑命令、查代码、联网调研或任何项目仓库落地操作。",
-        boundaries="任务编排优先 plan；无 agent 时禁止代码操作与 web_search/web_fetch。",
+        boundaries="无 agent 时禁止代码操作与 web_search/web_fetch；勿再切换 Plan 模式。",
     ),
 }
 
@@ -486,10 +489,10 @@ TASK_SCENARIO_PROFILES: dict[str, TaskScenarioProfile] = {
 def format_scenario_key_enum_description() -> str:
     """Per-enum descriptions for ``mode_set`` tool ``mode`` JSON schema field."""
     lines: list[str] = [
-        "模式键 ask / agent / plan（与 UI 一致；plan 独占；以每次返回的 activated_tools 为准）。",
+        "模式键仅 agent（Plan / Ask 已下线，勿 activate plan）。以每次返回的 activated_tools 为准。",
         "",
     ]
-    for key in ACTIVATABLE_SCENARIO_KEYS:
+    for key in USER_ACTIVATABLE_SCENARIO_KEYS:
         profile = TASK_SCENARIO_PROFILES[key]
         names = resolve_tools_for_scenarios([key])
         extra = [f"`{t}`" for t in names if t not in CORE_TOOL_NAMES]
@@ -501,18 +504,18 @@ def format_scenario_key_enum_description() -> str:
         if profile.boundaries:
             lines.append(f"  边界：{profile.boundaries}")
         lines.append("")
-    lines.append("按下一步要用的工具 activate 对应键；细则见 workspace-code-workflow / evoflow-plan-workflow 等技能。")
+    lines.append("默认保持 agent；勿 activate plan。细则见 workspace-code-workflow 等技能。")
     return "\n".join(lines)
 
 
 def format_scenario_tool_description() -> str:
     """Short ``mode_set`` tool description; details live in ``mode`` enum."""
     return (
-        "激活或停用 Ask / Agent / Plan 对话模式（非 platform ui.* 右侧面板）。"
-        "未激活时非核心工具返回 ScenarioNotActivated，须先 activate 再重试。"
-        "activate ask 清空其它模式；plan 独占。返回 JSON：all_active_scenarios、activated_tools（已绑 schema）、"
+        "激活或停用 Agent 对话模式（Plan 已下线；非 platform ui.* 右侧面板）。"
+        "未激活时非核心工具返回 ScenarioNotActivated，须先 activate agent 再重试。"
+        "activate ask 清空其它模式。返回 JSON：all_active_scenarios、activated_tools（已绑 schema）、"
         "deferred_tools、all_granted_tools（模式授权全量）。"
-        "各模式工具、启用信号与边界见参数 mode 枚举。"
+        "勿 activate plan。"
     )
 
 
@@ -594,8 +597,11 @@ def resolve_tools_for_scenarios(scenarios: list[str]) -> list[str]:
     return sorted(out)
 
 
-# 与 ``scenario`` 工具 ``scenario_key`` 枚举一致（ask 为默认回退，不可 activate）
+# 与 TASK_SCENARIO_PROFILES 非 ask 键对齐（内部 collab 仍可注入 plan）；对外 mode_set 拒绝 activate plan
 ACTIVATABLE_SCENARIO_KEYS: tuple[str, ...] = ("plan", "agent")
+
+# 对外可 activate 的键（Plan 模式已下线）
+USER_ACTIVATABLE_SCENARIO_KEYS: tuple[str, ...] = ("agent",)
 
 
 @functools.lru_cache(maxsize=1)
@@ -627,20 +633,19 @@ _PLAN_ORCHESTRATION_TOOL_NAMES = frozenset({"plan", "supervisor"})
 
 
 def recommended_scenario_for_tool(tool_name: str, candidate_scenarios: list[str] | None) -> str:
-    """Pick the scenario to suggest when a tool is not activated (may differ from profile declaration order)."""
+    """Pick the scenario to suggest when a tool is not activated (may differ from profile declaration order).
+
+    Plan 模式已下线：一律建议 agent（含 plan/supervisor 工具）。
+    """
     scenarios = ordered_scenario_keys_for_display(candidate_scenarios or [])
     if not scenarios:
         return "agent"
     n = str(tool_name or "").strip().lower()
     preference: tuple[str, ...]
-    if n in _PLAN_ORCHESTRATION_TOOL_NAMES:
-        preference = ("plan", "agent")
-    elif n in _WORKSPACE_FILE_TOOL_NAMES:
-        preference = ("agent", "plan")
-    elif n in _WEB_TOOL_NAMES:
+    if n in _PLAN_ORCHESTRATION_TOOL_NAMES or n in _WORKSPACE_FILE_TOOL_NAMES or n in _WEB_TOOL_NAMES:
         preference = ("agent",)
     else:
-        preference = tuple(scenarios)
+        preference = tuple(k for k in scenarios if k != "plan") or ("agent",)
     for key in preference:
         if key in scenarios:
             return key

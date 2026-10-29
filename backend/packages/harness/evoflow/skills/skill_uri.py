@@ -34,7 +34,11 @@ def parse_skill_uri(path: str) -> tuple[str, str] | None:
 
 
 def resolve_skill_uri(path: str, *, default_file: str = "SKILL.md", require_enabled: bool = True) -> Path | None:
-    """Resolve ``skill:`` path to an absolute file path, or None if missing / traversal / policy."""
+    """Resolve ``skill:`` path to an absolute **file** path, or None if missing / traversal / policy.
+
+    For shell commands that may target a directory (``ls skill:<name>/scripts``), use
+    :func:`resolve_skill_path_for_command` instead.
+    """
     parsed = parse_skill_uri(path)
     if parsed is None:
         return None
@@ -57,6 +61,34 @@ def resolve_skill_uri(path: str, *, default_file: str = "SKILL.md", require_enab
     if not target.is_file():
         return None
     return target
+
+
+def resolve_skill_path_for_command(path: str, *, require_enabled: bool = False) -> Path | None:
+    """Resolve ``skill:<key>`` / ``skill:<key>/<rel>`` to a host file **or directory** for ``bash``.
+
+    Bare ``skill:<key>`` maps to the skill root directory (not SKILL.md), so
+    ``ls skill:foo`` / ``python skill:foo/scripts/x.py`` both rewrite correctly.
+    """
+    parsed = parse_skill_uri(path)
+    if parsed is None:
+        return None
+    key, rel = parsed
+    from evoflow.skills.loader import find_skill_directory
+
+    skill_dir = find_skill_directory(key, require_enabled=require_enabled)
+    if skill_dir is None or not skill_dir.is_dir():
+        return None
+    base = skill_dir.resolve()
+    if not rel:
+        return base
+    cand = (base / rel).resolve()
+    try:
+        cand.relative_to(base)
+    except ValueError:
+        return None
+    if cand.is_file() or cand.is_dir():
+        return cand
+    return None
 
 
 def _sample_enabled_skill_names(limit: int = 12) -> list[str]:
@@ -98,14 +130,24 @@ def format_skill_uri_error(path: str, *, require_enabled: bool = True) -> str:
     except ValueError:
         return f"Error: Skill path escapes skill root: {raw}"
     if cand.is_dir():
-        return f"Error: '{raw}' is a directory, not a file. Use terminal (e.g. dir / ls) on skill:{key} to browse, or read_file(\"skill:{key}/SKILL.md\")."
+        return (
+            f"Error: '{raw}' is a directory, not a file. "
+            f'Use bash(command="ls skill:{key}") to browse, or read("skill:{key}/SKILL.md").'
+        )
     if not cand.is_file():
-        return f"Error: File not found under skill '{key}': {rel}. Use terminal (e.g. dir / ls) on skill:{key} to browse; do not guess paths like scripts/."
+        return (
+            f"Error: File not found under skill '{key}': {rel}. "
+            f'Use bash(command="ls skill:{key}") to browse; do not guess paths like scripts/.'
+        )
     return f"Error: Unknown, disabled, or invalid skill path: {raw}"
 
 
 def resolve_skill_workdir(workdir: str, *, require_enabled: bool = True) -> Path | None:
-    """Resolve ``skill:<key>`` (no subpath) to the skill root directory for ``terminal`` / ``process`` workdir."""
+    """Resolve ``skill:<key>`` (no subpath) to the skill root directory.
+
+    Prefer putting ``skill:<key>/…`` inside the ``bash`` command (path rewrite).
+    Legacy ``terminal`` / ``process`` workdir still uses this helper.
+    """
     parsed = parse_skill_uri(workdir)
     if parsed is None:
         return None

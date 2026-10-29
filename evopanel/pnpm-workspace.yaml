@@ -10,3 +10,6 @@ overrides:
   mermaid: 11.15.0
 patchedDependencies:
   '@tanstack/virtual-core@3.14.0': patches/@tanstack__virtual-core@3.14.0.patch
+  # COMPAT(macOS12-JSC): @pierre/diffs top-level /(?<=\n)/ crashes WKWebView < Safari 16.4
+  # (issue #95). Feature-detect + newline-preserving fallback; see patch header.
+  '@pierre/diffs@1.1.22': patches/@pierre__diffs@1.1.22.patch

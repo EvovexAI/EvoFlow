@@ -32,8 +32,15 @@ function createDirectiveStartPattern(
   // code-comment 等协议也会被意外兼容。opt-in 时同时拒绝从连续冒号中间起匹配。
   const minimumColonCount = options.allowSingleColon ? 1 : 2;
   const maximumColonCount = options.allowTripleColon ? 3 : 2;
-  const prefix = `(?<!:):{${minimumColonCount},${maximumColonCount}}`;
+  // COMPAT(macOS12-JSC): no lookbehind — group1 is "" at ^ or the preceding non-colon char.
+  const prefix = `(^|[^:]):{${minimumColonCount},${maximumColonCount}}`;
   return new RegExp(`${prefix}${escapeRegExp(directiveName)}\\s*\\{`, "g");
+}
+
+function directiveMatchStart(match: RegExpMatchArray): number {
+  const matchStart = match.index ?? 0;
+  const prefixLen = match[1] ? match[1].length : 0;
+  return matchStart + prefixLen;
 }
 
 interface DirectiveQuoteState {
@@ -173,9 +180,10 @@ export function extractAssistantDirectives(
   const directives: ParsedAssistantDirective[] = [];
   let consumedUntil = 0;
   for (const match of content.matchAll(startPattern)) {
-    const start = match.index ?? 0;
+    const matchStart = match.index ?? 0;
+    const start = directiveMatchStart(match);
     if (start < consumedUntil) continue;
-    const openBraceIndex = start + (match[0]?.lastIndexOf("{") ?? -1);
+    const openBraceIndex = matchStart + (match[0]?.lastIndexOf("{") ?? -1);
     if (openBraceIndex < start) continue;
 
     const closingBraceIndex = findDirectiveClosingBrace(content, openBraceIndex, options);
@@ -280,8 +288,9 @@ export function findUnclosedAssistantDirectiveStart(
   const startPattern = createDirectiveStartPattern(directiveName, options);
   let unclosedStart: number | null = null;
   for (const match of content.matchAll(startPattern)) {
-    const start = match.index ?? 0;
-    const openBraceIndex = start + (match[0]?.lastIndexOf("{") ?? -1);
+    const matchStart = match.index ?? 0;
+    const start = directiveMatchStart(match);
+    const openBraceIndex = matchStart + (match[0]?.lastIndexOf("{") ?? -1);
     if (
       openBraceIndex < start ||
       overlapsAssistantTextRanges(start, openBraceIndex + 1, protectedRanges)

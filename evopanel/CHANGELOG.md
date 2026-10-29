@@ -6,6 +6,49 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-10-29
+
+相对 **1.1.9** 以来的增量发布：知识库与资产 Hub 分层重构、统一情感基底、飞书入站管线、技能原地登记、OpenAI 兼容网关与 MCP 工作台联动、界面与稳定性修复（前后端同一版本号）。
+GitHub Release 正文见 `scripts/maintainer/windows/release-notes/PRODUCT-NOTES-1.2.0.md`；升级横幅见 `scripts/maintainer/update/latest.json`。
+
+### Added
+
+- **自托管知识库**：分块 / 格式 / 去重与同步预览，嵌入调用按用途记账并在用量页出日报明细
+- **资产 Hub 注入分层**：明确 L0 岗位骨架 → L1 standing → L2 catalog → L3 按需正文 → L4 pending inbox；新增 hub 标题召回；资产记忆运行台账（memory-runs）在资产中心可查
+- **统一情感基底**：全智能体（小V + 员工）情感统一为激素轴，镜像 `profile/affect.md`，资产中心新增情感页，员工可编 SOUL
+- **飞书入站**：解析 / 合并 / 媒体三层管线，图片、文件、音视频统一归一处理
+- **技能原地登记（bound）**：可选择含 SKILL.md 的文件夹原地登记，技能留原目录、`skill:` URI 直连，与 zip 导入并存
+- **Agent 详情页**：新增 `/agents/:code` 路由与 hero 布局（来源 / 模型 / lastRun）
+- **OpenAI 兼容网关**：新增 `openai.chat` / `openai.vision` 平台动作与 `settings.invoke_model`
+- **媒体增强**：共享厂商 URL / 路径提取兜底，MiniMax 视频 provider 接入，平台媒体预览补全
+- **Computer Use 屏边蓝光**：执行时屏边蓝光提示，改后端权威状态 + `/glow-status` 轮询
+- **MCP 工作台联动**：员工会话按绑定 MCP 自动在右栏打开对应工作台（Agent 应用 / 本地兜底 URL）
+- **HTML 预览与 knowledge 工具渲染器**：预览面板支持 HTML 预览 / 源码切换
+
+### Changed
+
+- **Plan 会话模式下线**：会话仅保留 Agent（旧 plan 数据自动回落），写方案改用 `plan` 工具
+- **平台工具挂载策略**：main / 小V 默认挂载，其它员工 opt-in
+- **产物交付引用**：统一为 Markdown 链接 / 反引号（zcode artifact_display），兼容旧 `@@path@@`
+- **员工提示词**：按 `system_prompt` 组装，岗位块只留职责骨架（经验走资产 Hub）
+- **展示名与小V 人设**：展示名统一 `agent_name` 优先；小V 口头语 / 边界约束细化
+- **界面**：UI 扩展外壳页并入全局顶栏、toast 定位统一、首页快捷面板精简、角色详情身份条紧凑
+
+### Fixed
+
+- **渲染进程 OOM**：封顶会话 rows 与流式缓冲；dev 环境清理 React 19.2 渲染追踪
+- **macOS 12 工作台空白**：修复正则 lookbehind 崩溃
+- **后台任务保活**：TaskOutput 阻塞期间脉冲心跳，避免后台 bash 被误判僵尸回收
+- **工作区路径自愈**：打开前探测并按文件名找回真实路径，音视频走同一流式播放链路
+- **浏览器**：冷启动空白页加固，本地文件路径转 `file://` 归一化
+- **bash 环境**：识别 WSL / Store stub bash 并回退；网关兼容 Title-Case 响应头
+- **其它**：Minimax 视频协议对齐、MCP host plugin kernel 工具随插件启停、嵌入探测 purpose 标记、proactive 角色菜单纯色、侧栏历史筛选搜索框定位、聊天空草稿闪跳、CUA glow 窗口改自包含 HTML
+
+### Notes
+
+- 发版说明与版本线对齐 **1.2.0**（面板 + Gateway / harness 同一号）
+- 建议从 **1.1.9** 覆盖安装至 **1.2.0**；无数据迁移
+
 ## [1.1.9] - 2026-10-28
 
 相对 **1.1.8** 以来的增量发布：语音与唤醒链路（DashScope ASR/TTS、KWS 唤醒词 sidecar）、媒体生成渠道与用量记账、OpenAI 兼容网关、MCP 工具绑定重构、组织协作与任务健康度、Computer Use 屏边蓝光提示、界面统一与渲染稳定性修复（前后端同一版本号）。

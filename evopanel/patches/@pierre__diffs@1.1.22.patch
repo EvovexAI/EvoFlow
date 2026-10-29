@@ -1,0 +1,162 @@
+diff --git a/dist/constants.js b/dist/constants.js
+index c9fad48..2d28419 100644
+--- a/dist/constants.js
++++ b/dist/constants.js
+@@ -5,7 +5,15 @@ const GIT_DIFF_FILE_BREAK_REGEX = /(?=^diff --git)/gm;
+ const UNIFIED_DIFF_FILE_BREAK_REGEX = /(?=^---\s+\S)/gm;
+ const FILE_CONTEXT_BLOB = /(?=^@@ )/gm;
+ const HUNK_HEADER = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(?: (.*))?/m;
+-const SPLIT_WITH_NEWLINES = /(?<=\n)/;
++// COMPAT(macOS12-JSC): was /(?<=\n)/. Lookbehind is unsupported on macOS 12's
++// JavaScriptCore (< Safari 16.4); esbuild does not transpile regexes.
++const SPLIT_WITH_NEWLINES = (() => {
++	try {
++		return new RegExp("(?<=\\n)");
++	} catch {
++		return null;
++	}
++})();
+ const FILENAME_HEADER_REGEX = /^(---|\+\+\+)\s+([^\t\r\n]+)/;
+ const FILENAME_HEADER_REGEX_GIT = /^(---|\+\+\+)\s+[ab]\/([^\t\r\n]+)/;
+ const ALTERNATE_FILE_NAMES_GIT = /^diff --git (?:"a\/(.+?)"|a\/(.+?)) (?:"b\/(.+?)"|b\/(.+?))$/;
+diff --git a/dist/utils/parsePatchFiles.js b/dist/utils/parsePatchFiles.js
+index 778a238..5d482fd 100644
+--- a/dist/utils/parsePatchFiles.js
++++ b/dist/utils/parsePatchFiles.js
+@@ -1,6 +1,7 @@
+ import { ALTERNATE_FILE_NAMES_GIT, COMMIT_METADATA_SPLIT, FILENAME_HEADER_REGEX, FILENAME_HEADER_REGEX_GIT, FILE_CONTEXT_BLOB, GIT_DIFF_FILE_BREAK_REGEX, HUNK_HEADER, INDEX_LINE_METADATA, SPLIT_WITH_NEWLINES, UNIFIED_DIFF_FILE_BREAK_REGEX } from "../constants.js";
+ import { cleanLastNewline } from "./cleanLastNewline.js";
+ import { parseLineType } from "./parseLineType.js";
++import { splitFileContents } from "./splitFileContents.js";
+ 
+ //#region src/utils/parsePatchFiles.ts
+ function processPatch(data, cacheKeyPrefix, throwOnError = false) {
+@@ -40,7 +41,7 @@ function processFile(fileDiffString, { cacheKey, isGitDiff = GIT_DIFF_FILE_BREAK
+ 	let deletionLineIndex = 0;
+ 	let additionLineIndex = 0;
+ 	for (const hunk of hunks) {
+-		const lines = hunk.split(SPLIT_WITH_NEWLINES);
++		const lines = splitFileContents(hunk);
+ 		const firstLine = lines.shift();
+ 		if (firstLine == null) {
+ 			if (throwOnError) throw Error("parsePatchContent: invalid hunk");
+@@ -63,8 +64,8 @@ function processFile(fileDiffString, { cacheKey, isGitDiff = GIT_DIFF_FILE_BREAK
+ 				splitLineCount: 0,
+ 				unifiedLineCount: 0,
+ 				isPartial,
+-				additionLines: !isPartial && oldFile != null && newFile != null ? newFile.contents.split(SPLIT_WITH_NEWLINES) : [],
+-				deletionLines: !isPartial && oldFile != null && newFile != null ? oldFile.contents.split(SPLIT_WITH_NEWLINES) : [],
++				additionLines: !isPartial && oldFile != null && newFile != null ? splitFileContents(newFile.contents) : [],
++				deletionLines: !isPartial && oldFile != null && newFile != null ? splitFileContents(oldFile.contents) : [],
+ 				cacheKey
+ 			};
+ 			if (currentFile.additionLines.length === 1 && newFile?.contents === "") currentFile.additionLines.length = 0;
+diff --git a/dist/utils/splitFileContents.js b/dist/utils/splitFileContents.js
+index 07fe419..102fc57 100644
+--- a/dist/utils/splitFileContents.js
++++ b/dist/utils/splitFileContents.js
+@@ -9,7 +9,19 @@ import { SPLIT_WITH_NEWLINES } from "../constants.js";
+ * @returns Array of lines with newlines preserved
+ */
+ function splitFileContents(contents) {
+-	return contents !== "" ? contents.split(SPLIT_WITH_NEWLINES) : [];
++	if (contents === "") return [];
++	if (SPLIT_WITH_NEWLINES != null) return contents.split(SPLIT_WITH_NEWLINES);
++	// Keeps trailing newlines on each line - same as split(/(?<=\\n)/).
++	const lines = [];
++	let lineStart = 0;
++	for (let i = 0; i < contents.length; i++) {
++		if (contents.charCodeAt(i) === 10 /* \n */) {
++			lines.push(contents.slice(lineStart, i + 1));
++			lineStart = i + 1;
++		}
++	}
++	if (lineStart < contents.length) lines.push(contents.slice(lineStart));
++	return lines;
+ }
+ 
+ //#endregion
+diff --git a/dist/worker/worker-portable.js b/dist/worker/worker-portable.js
+index a7389cd..f6d6ddb 100644
+--- a/dist/worker/worker-portable.js
++++ b/dist/worker/worker-portable.js
+@@ -12139,7 +12139,15 @@ const GIT_DIFF_FILE_BREAK_REGEX = /(?=^diff --git)/gm;
+ const UNIFIED_DIFF_FILE_BREAK_REGEX = /(?=^---\s+\S)/gm;
+ const FILE_CONTEXT_BLOB = /(?=^@@ )/gm;
+ const HUNK_HEADER = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(?: (.*))?/m;
+-const SPLIT_WITH_NEWLINES = /(?<=\n)/;
++// COMPAT(macOS12-JSC): was /(?<=\n)/. Lookbehind is unsupported on macOS 12's
++// JavaScriptCore (< Safari 16.4); esbuild does not transpile regexes.
++const SPLIT_WITH_NEWLINES = (() => {
++	try {
++		return new RegExp("(?<=\\n)");
++	} catch {
++		return null;
++	}
++})();
+ const FILENAME_HEADER_REGEX = /^(---|\+\+\+)\s+([^\t\r\n]+)/;
+ const FILENAME_HEADER_REGEX_GIT = /^(---|\+\+\+)\s+[ab]\/([^\t\r\n]+)/;
+ const ALTERNATE_FILE_NAMES_GIT = /^diff --git (?:"a\/(.+?)"|a\/(.+?)) (?:"b\/(.+?)"|b\/(.+?))$/;
+@@ -15947,7 +15955,19 @@ function iterateOverFile({ lines, startingLine = 0, totalLines = Infinity, callb
+ * @returns Array of lines with newlines preserved
+ */
+ function splitFileContents(contents) {
+-	return contents !== "" ? contents.split(SPLIT_WITH_NEWLINES) : [];
++	if (contents === "") return [];
++	if (SPLIT_WITH_NEWLINES != null) return contents.split(SPLIT_WITH_NEWLINES);
++	// Keeps trailing newlines on each line - same as split(/(?<=\\n)/).
++	const lines = [];
++	let lineStart = 0;
++	for (let i = 0; i < contents.length; i++) {
++		if (contents.charCodeAt(i) === 10 /* \n */) {
++			lines.push(contents.slice(lineStart, i + 1));
++			lineStart = i + 1;
++		}
++	}
++	if (lineStart < contents.length) lines.push(contents.slice(lineStart));
++	return lines;
+ }
+ 
+ //#endregion
+diff --git a/dist/worker/worker.js b/dist/worker/worker.js
+index 302373c..cf051a9 100644
+--- a/dist/worker/worker.js
++++ b/dist/worker/worker.js
+@@ -5,7 +5,15 @@ import { diffChars, diffWordsWithSpace } from "diff";
+ import { transformerStyleToClass } from "@shikijs/transformers";
+ 
+ //#region src/constants.ts
+-const SPLIT_WITH_NEWLINES = /(?<=\n)/;
++// COMPAT(macOS12-JSC): was /(?<=\n)/. Lookbehind is unsupported on macOS 12's
++// JavaScriptCore (< Safari 16.4); esbuild does not transpile regexes.
++const SPLIT_WITH_NEWLINES = (() => {
++	try {
++		return new RegExp("(?<=\\n)");
++	} catch {
++		return null;
++	}
++})();
+ const DEFAULT_THEMES = {
+ 	dark: "pierre-dark",
+ 	light: "pierre-light"
+@@ -1423,7 +1431,19 @@ function iterateOverFile({ lines, startingLine = 0, totalLines = Infinity, callb
+ * @returns Array of lines with newlines preserved
+ */
+ function splitFileContents(contents) {
+-	return contents !== "" ? contents.split(SPLIT_WITH_NEWLINES) : [];
++	if (contents === "") return [];
++	if (SPLIT_WITH_NEWLINES != null) return contents.split(SPLIT_WITH_NEWLINES);
++	// Keeps trailing newlines on each line - same as split(/(?<=\\n)/).
++	const lines = [];
++	let lineStart = 0;
++	for (let i = 0; i < contents.length; i++) {
++		if (contents.charCodeAt(i) === 10 /* \n */) {
++			lines.push(contents.slice(lineStart, i + 1));
++			lineStart = i + 1;
++		}
++	}
++	if (lineStart < contents.length) lines.push(contents.slice(lineStart));
++	return lines;
+ }
+ 
+ //#endregion

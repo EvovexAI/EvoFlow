@@ -4,7 +4,6 @@
  */
 import { useState, useEffect, type ReactNode, type MouseEvent as ReactMouseEvent } from 'react'
 import type { DisplayRow } from '../../chat-types.js'
-import type { SessionMode } from '../../lib/session-mode.js'
 import { ModelCatalogMenu } from '../../components/ModelCatalogMenu.js'
 import { ShellSessionListHost } from '../../components/ShellSessionListHost.js'
 import { ChatMessageStreamPane } from '../../components/ChatMessageStreamPane.js'
@@ -32,7 +31,6 @@ import { SkillPickerModal, type SkillSelection } from '../../components/SkillPic
 import { PluginQuickPanel } from '../../components/PluginQuickPanel.js'
 import { PluginPillIcon } from '../../components/PluginPillIcon.js'
 import { ShareSessionModal } from '../../components/ShareSessionModal.js'
-import { AgentPickerModal } from '../../components/AgentPickerModal.js'
 import { PlanExecConfirm } from '../../components/PlanExecConfirmDock.js'
 import { ClarificationConfirmDock } from '../../components/ClarificationConfirmDock.js'
 import {
@@ -70,7 +68,6 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
     bottomMoreTriggerRef,
     bottomPermissionOpen,
     bottomPluginPanelOpen,
-    bottomRoleOpen,
     bottomSkillOpen,
     bottomWorkspaceOpen,
     browserToggleButton,
@@ -87,11 +84,7 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
     currentPermissionPillLabel,
     currentPermissionPresetId,
     currentRoleAgent,
-    currentRoleCodeForUi,
-    currentRoleLabel,
-    DEFAULT_SESSION_MODES,
     displayContextUsage,
-    dynamicModes,
     effectiveModelName,
     effectiveModelSupportsThinking,
     effectiveModelSupportsVision,
@@ -174,7 +167,6 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
     memoryEnabled,
     memoryRecallRefreshKey,
     mobileChatPane,
-    modeLabel,
     modelCatalog,
     modelConnNameMap,
     modelPillLabel,
@@ -214,7 +206,6 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
     prefetchSessionHistoryFromShell,
     proactiveRoles,
     proactiveRolesDisplay,
-    QUICK_PROMPTS,
     removeSelectedPlugin,
     removeSelectedSkill,
     renderBottomControlsLoggedRef,
@@ -231,7 +222,6 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
     rightStageLauncherItems,
     rightStageOpen,
     rightStageRecentClosed,
-    roleSwitchBusy,
     rows,
     runningSessionMap,
     selectedPlugins,
@@ -244,7 +234,6 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
     selectedTurnBusy,
     selectSessionFromShell,
     sessionFilter,
-    sessionMode,
     sessionNamesTick,
     sessionRef,
     sessions,
@@ -256,7 +245,6 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
     setBottomRoleOpen,
     setBottomSkillOpen,
     setBottomWorkspaceOpen,
-    setCollabPhaseForSession,
     setContextImagePreviewIndex,
     setMemoryEnabled,
     setMobileChatPane,
@@ -270,7 +258,6 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
     setSelectedPlugins,
     setSelectedSkills,
     setSessionFilter,
-    setSessionModeAndApply,
     setSessions,
     setShareSessionOpen,
     setSubtaskTranscriptModal,
@@ -288,7 +275,6 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
     skillList,
     skillListLoading,
     speechEnabled,
-    startNewChatWithPresetAgent,
     STORAGE_MODEL_KEY,
     streamHealth,
     streamingWritePreview,
@@ -802,16 +788,6 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
               sessions.find((s) => String(s.sessionKey || '') === String(selectedSessionKey || ''))?.title,
             )}
           />
-          <AgentPickerModal
-            open={bottomRoleOpen}
-            onClose={() => setBottomRoleOpen(false)}
-            agents={agents}
-            loading={false}
-            selected={currentRoleCodeForUi}
-            onConfirm={(code) => {
-              void startNewChatWithPresetAgent(code)
-            }}
-          />
           {(() => {
             const bottomDockNode = (
           <div
@@ -1163,58 +1139,6 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
                       role="menu"
                       style={bottomMorePortalStyle || { display: 'none' }}
                     >
-                      {/* ── Agent 模式 ── */}
-                      <div className="react-chat-more-submenu-item">
-                        <button
-                          type="button"
-                          className={`react-chat-more-submenu-header${moreSubOpen === 'mode' ? ' react-chat-more-submenu-header--open' : ''}`}
-                          onClick={() => setMoreSubOpen((p) => (p === 'mode' ? null : 'mode'))}
-                        >
-                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true" style={{ width: 16, height: 16, flexShrink: 0 }}>
-                            <path d="M12 2l1.2 4.5L18 8l-4.8 1.5L12 14l-1.2-4.5L6 8l4.8-1.5L12 2z" />
-                            <path d="M19 14l.8 2.8L23 18l-3.2 1.2L19 22l-.8-2.8L15 18l3.2-1.2L19 14z" />
-                          </svg>
-                          <span className="react-chat-more-submenu-title">Agent 模式</span>
-                          <span className="react-chat-more-submenu-badge">{modeLabel(sessionMode, dynamicModes || DEFAULT_SESSION_MODES)}</span>
-                          <span className="react-chat-more-submenu-caret" aria-hidden>▸</span>
-                        </button>
-                        {moreSubOpen === 'mode' ? (
-                          <div className="react-chat-more-submenu-flyout" role="menu">
-                            {(dynamicModes || DEFAULT_SESSION_MODES).filter(m => m.visible).map((m) => (
-                              <button key={m.value} type="button" role="menuitem" className={`react-chat-bottom-dropdown-item${sessionMode === m.value ? ' react-chat-bottom-dropdown-item--active' : ''}`}
-                                onClick={() => { void setSessionModeAndApply(m.value as SessionMode); setBottomMoreOpen(false); setMoreSubOpen(null) }}
-                              >
-                                <span>{m.label}</span>
-                                {sessionMode === m.value ? <span className="react-chat-skill-item-check" aria-hidden>✓</span> : null}
-                              </button>
-                            ))}
-                            {SHOW_SESSION_MODE_COLLAB_UI && collabOn ? (
-                              <>
-                                <div className="react-chat-bottom-dropdown-divider" role="separator" />
-                                <button type="button" role="menuitem" className="react-chat-bottom-pill react-chat-bottom-mode-pill"
-                                  onClick={async () => { if (!selectedSessionKey) return; await setCollabPhaseForSession(selectedSessionKey, 'planning'); setThreadPanelState((prev) => ({ ...prev, collabPhase: 'planning' })); toast('已回到 Plan 阶段', 'success'); setBottomMoreOpen(false); setMoreSubOpen(null) }}
-                                >回到 Plan</button>
-                                <button type="button" role="menuitem" className="react-chat-bottom-pill react-chat-bottom-mode-pill"
-                                  onClick={async () => { if (!selectedSessionKey) return; await setCollabPhaseForSession(selectedSessionKey, 'executing'); setThreadPanelState((prev) => ({ ...prev, collabPhase: 'executing' })); toast('已授权执行', 'success'); setBottomMoreOpen(false); setMoreSubOpen(null) }}
-                                >Authorize 执行</button>
-                              </>
-                            ) : null}
-                          </div>
-                        ) : null}
-                      </div>
-
-                      {/* ── Agent/预设角色 ── */}
-                      {!isProactiveEmployeeSession ? (
-                        <button type="button" role="menuitem" className="react-chat-bottom-dropdown-item" disabled={roleSwitchBusy}
-                          onClick={() => { setBottomMoreOpen(false); setMoreSubOpen(null); setBottomRoleOpen(true) }}
-                        >
-                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ width: 16, height: 16, flexShrink: 0 }}>
-                            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" />
-                          </svg>
-                          <span>{roleSwitchBusy ? '…' : currentRoleLabel}</span>
-                        </button>
-                      ) : null}
-
                       {/* ── 技能 ── */}
                       <button type="button" role="menuitem" className="react-chat-bottom-dropdown-item"
                         onClick={() => { setBottomMoreOpen(false); setMoreSubOpen(null); setBottomSkillOpen(true) }}
@@ -1349,29 +1273,6 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
                         ) : null}
                       </div>
 
-                      {/* ── 创意 ── */}
-                      <div className="react-chat-more-submenu-item">
-                        <button type="button" className={`react-chat-more-submenu-header${moreSubOpen === 'creative' ? ' react-chat-more-submenu-header--open' : ''}`}
-                          onClick={() => setMoreSubOpen((p) => (p === 'creative' ? null : 'creative'))}
-                        >
-                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true" style={{ width: 16, height: 16, flexShrink: 0 }}>
-                            <path d="M12 2l1.2 4.5L18 8l-4.8 1.5L12 14l-1.2-4.5L6 8l4.8-1.5L12 2z" />
-                            <path d="M19 14l.8 2.8L23 18l-3.2 1.2L19 22l-.8-2.8L15 18l3.2-1.2L19 14z" />
-                          </svg>
-                          <span className="react-chat-more-submenu-title">创意</span>
-                          <span className="react-chat-more-submenu-caret" aria-hidden>▸</span>
-                        </button>
-                        {moreSubOpen === 'creative' ? (
-                          <div className="react-chat-more-submenu-flyout react-chat-more-submenu-flyout--scroll" role="menu">
-                            {QUICK_PROMPTS.map((p) => (
-                              <button key={p.label} type="button" role="menuitem" className="react-chat-bottom-dropdown-item"
-                                onClick={() => { setBottomMoreOpen(false); setMoreSubOpen(null); insertText(p.prompt) }}
-                              >{p.label}</button>
-                            ))}
-                          </div>
-                        ) : null}
-                      </div>
-
                       {/* ── 思考等级 ── */}
                       {effectiveModelSupportsThinking ? (
                         <div className="react-chat-more-submenu-item">
@@ -1440,7 +1341,6 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
                       onPickImages={() => void pickFiles()}
                       onOpenSkillPicker={() => setBottomSkillOpen(true)}
                       onOpenGoal={() => goal.goal.setPanelOpen(true)}
-                      onOpenRolePicker={() => setBottomRoleOpen(true)}
                       onOpenLegacyMenu={() => setBottomMoreOpen(true)}
                       onInsertText={(text) => insertText(text)}
                       showVoice={speechEnabled}

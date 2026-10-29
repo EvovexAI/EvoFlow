@@ -11,7 +11,7 @@ const TABS = [
 
 const PRIMARY_ACTIONS = {
   agents: { label: '新建智能体', title: '创建自定义智能体' },
-  skills: { label: '导入本地技能', title: '从本地 zip 导入技能' },
+  skills: { label: '导入本地技能', title: '选择含 SKILL.md 的文件夹（原地登记）或导入 zip' },
   mcp: { label: '添加连接器', title: '添加 MCP 连接器' },
 }
 

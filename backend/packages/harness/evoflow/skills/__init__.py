@@ -1,4 +1,9 @@
-from .installer import SkillAlreadyExistsError, install_skill_from_archive
+from .installer import (
+    SkillAlreadyExistsError,
+    install_skill_from_archive,
+    install_skill_from_directory,
+    register_skill_from_directory,
+)
 from .loader import find_skill_directory, get_skills_root_path, load_skills
 from .selection import extract_skill_mentions, select_skills_for_turn
 from .types import Skill
@@ -14,5 +19,7 @@ __all__ = [
     "ALLOWED_FRONTMATTER_PROPERTIES",
     "_validate_skill_frontmatter",
     "install_skill_from_archive",
+    "install_skill_from_directory",
+    "register_skill_from_directory",
     "SkillAlreadyExistsError",
 ]

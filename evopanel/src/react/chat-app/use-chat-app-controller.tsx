@@ -115,7 +115,6 @@ import type { PluginSelection } from '../components/PluginPickerModal.js'
 
 import { PluginPillIcon } from '../components/PluginPillIcon.js'
 import { ShareSessionModal } from '../components/ShareSessionModal.js'
-import { AgentPickerModal } from '../components/AgentPickerModal.js'
 import { PlanExecConfirm } from '../components/PlanExecConfirmDock.js'
 import { ClarificationConfirmDock } from '../components/ClarificationConfirmDock.js'
 import type { PlanExecConfirmAnchor } from '../components/ToolCallList.js'
@@ -362,6 +361,7 @@ import { syncPlanPanelImmediateFromTools as syncPlanPanelImmediateFromToolsImpl 
 import { collectPlanToolsForDetection as collectPlanToolsForDetectionImpl } from './plan-dock/collect-plan-tools.js'
 import { reconcileLastAssistantFromDb as reconcileLastAssistantFromDbImpl } from './utils/reconcile-last-assistant-from-db.js'
 import { openUiExtensionInStage as openUiExtensionInStageImpl } from './right-stage/open-ui-extension-in-stage.js'
+import { openEmployeeMcpWorkbenchInRightStage } from '../../lib/mcp-workbench-link.js'
 import { handleDispatchEmployee as handleDispatchEmployeeImpl } from './dispatch/handle-dispatch-employee.js'
 import { syncRemoteStageSet as syncRemoteStageSetImpl } from './right-stage/sync-remote-stage-set.js'
 import { handleEnhancePrompt as handleEnhancePromptImpl } from './composer/handle-enhance-prompt.js'
@@ -851,7 +851,6 @@ import {
   isDesktopTauriRuntime,
   TAURI_HEADER_CELL_DRAG_PROPS,
   THREAD_STATE_EXPIRY_MS,
-  QUICK_PROMPTS,
 } from './utils/desktop-workspace.js'
 import {
   resolveSessionAgentCodeForUi,
@@ -2609,7 +2608,7 @@ export function useChatAppController() {
     setSessionArtifactsRef.current = setSessionArtifacts
   })
   /** 更多下拉内展开的子菜单 key */
-  const [moreSubOpen, setMoreSubOpen] = useState<'mode' | 'employee' | 'memory' | 'creative' | 'thinking' | null>(null)
+  const [moreSubOpen, setMoreSubOpen] = useState<'employee' | 'memory' | 'thinking' | null>(null)
   const [bottomWorkspaceOpen, setBottomWorkspaceOpen] = useState(false)
   const [useVirtualPaths] = useState<boolean>(() => getUseVirtualPaths())
   const [workspaceIndexWatchEnabled, setWorkspaceIndexWatchEnabledState] = useState<boolean>(() =>
@@ -2938,6 +2937,28 @@ export function useChatAppController() {
     () => isProactiveSessionKey(selectedSessionKey),
     [selectedSessionKey],
   )
+
+  /** 跟员工聊时：按绑定 MCP 自动在右侧打开对应工作台（陪练面板 / 无限画布等） */
+  const employeeMcpWorkbenchKey = useMemo(() => {
+    if (!isProactiveEmployeeSession) return ''
+    const mcps = currentAgentCapabilities?.mcpServers
+    if (!Array.isArray(mcps) || !mcps.length) return ''
+    return `${String(selectedSessionKey || '').trim()}::${mcps.join(',')}`
+  }, [isProactiveEmployeeSession, selectedSessionKey, currentAgentCapabilities?.mcpServers])
+  const lastEmployeeMcpWorkbenchKeyRef = useRef('')
+  useEffect(() => {
+    if (!employeeMcpWorkbenchKey) return
+    if (lastEmployeeMcpWorkbenchKeyRef.current === employeeMcpWorkbenchKey) return
+    lastEmployeeMcpWorkbenchKeyRef.current = employeeMcpWorkbenchKey
+    const mcps = currentAgentCapabilities?.mcpServers
+    void openEmployeeMcpWorkbenchInRightStage({
+      mcpServers: mcps,
+      sessionKey: selectedSessionKey,
+      threadId: selectedThreadId || null,
+    }).catch(() => {
+      /* 扩展未装或服务未起时静默；用户仍可手动开 Agent应用 */
+    })
+  }, [employeeMcpWorkbenchKey, currentAgentCapabilities?.mcpServers, selectedSessionKey, selectedThreadId])
 
   useEffect(() => {
     if (!obsEnabled && infoRailTab === 'debug') {
@@ -6296,7 +6317,6 @@ export function useChatAppController() {
     prefetchSessionHistoryFromShell,
     proactiveRoles,
     proactiveRolesDisplay,
-    QUICK_PROMPTS,
     removeSelectedPlugin,
     removeSelectedSkill,
     renderBottomControlsLoggedRef,

@@ -12,19 +12,19 @@ logger = logging.getLogger(__name__)
 _DEFAULT_MAX_CHARS = 48_000
 
 _SKILL_EXECUTION_HINT_EN = (
-    "Skill execution (install dir is outside the user workspace — use skill: URIs, do not search workspace):\n"
+    "Skill execution (dir may be outside the user workspace — use skill: URIs, do not search workspace):\n"
     '- Read: read("skill:<name>/relative/file")\n'
-    '- Run script: terminal(command="python scripts/foo.py", workdir="skill:<name>") '
-    'or process(action="start", command=..., workdir="skill:<name>")\n'
-    '- List skill tree: terminal(command="ls" or "dir", workdir="skill:<name>")\n'
+    '- Run script: bash(command="python skill:<name>/scripts/foo.py") '
+    "(host rewrites skill: paths; long jobs → run_in_background=true + taskoutput)\n"
+    '- List skill tree: bash(command="ls skill:<name>" or "ls skill:<name>/scripts")\n'
 )
 
 _SKILL_EXECUTION_HINT_ZH = (
-    "技能执行（安装在 EvoFlow skills 目录，不在用户工作区 — 用 skill: URI，勿搜工作区）：\n"
+    "技能执行（目录可能不在用户工作区 — 用 skill: URI，勿搜工作区）：\n"
     '- 读文件：read("skill:<名>/相对路径")\n'
-    '- 跑脚本：terminal(command="python scripts/foo.py", workdir="skill:<名>") '
-    '或 process(action="start", command=..., workdir="skill:<名>")\n'
-    '- 列目录：terminal(command="ls" 或 "dir", workdir="skill:<名>")\n'
+    '- 跑脚本：bash(command="python skill:<名>/scripts/foo.py")'
+    "（宿主会改写 skill: 路径；长任务用 run_in_background=true + taskoutput）\n"
+    '- 列目录：bash(command="ls skill:<名>" 或 "ls skill:<名>/scripts")\n'
 )
 
 

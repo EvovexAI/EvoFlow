@@ -470,13 +470,20 @@ def install_organization(
                 if not rel:
                     continue
                 skill_dir = resolve_pack_rel(pack, rel)
-                # link=true: mount source dir (local/monorepo). Default false for portable zips.
-                skill_link = bool(ref.get("link"))
+                # link=true / mode=bound: register in place (DB only). Default copy for portable zips.
+                skill_mode = str(ref.get("mode") or "").strip().lower()
+                if not skill_mode:
+                    skill_mode = "bound" if bool(ref.get("link")) else "copy"
                 try:
-                    result = install_skill_from_directory(skill_dir, link=skill_link)
+                    result = install_skill_from_directory(skill_dir, mode=skill_mode)
                     sname = str(result.get("skill_name") or skill_dir.name)
                     artifacts["skills"].append(sname)
-                    if skill_link:
+                    if skill_mode == "bound":
+                        warnings.append(
+                            f"skill '{sname}' registered in place "
+                            f"(non-portable; source={skill_dir})"
+                        )
+                    elif skill_mode == "link":
                         warnings.append(
                             f"skill '{sname}' installed as folder-link "
                             f"(non-portable; source={skill_dir})"
@@ -508,7 +515,7 @@ def install_organization(
                                 skills_admin.delete_skill(sname)
                             except Exception:
                                 logger.debug("delete existing skill before replace failed name=%s", sname, exc_info=True)
-                            result = install_skill_from_directory(skill_dir, link=skill_link)
+                            result = install_skill_from_directory(skill_dir, mode=skill_mode)
                             sname = str(result.get("skill_name") or sname)
                             warnings.append(f"skill replaced: {sname}")
                         except Exception as re_e:

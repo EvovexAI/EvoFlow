@@ -449,6 +449,16 @@ def load_skills(
     except Exception:
         logger.debug("Plugin skill roots unavailable", exc_info=True)
 
+    # In-place (bound) registrations: absolute dirs from evoflow_skills, not under custom/.
+    try:
+        from evoflow.skills.bound import list_bound_skill_dirs
+
+        bound_roots = list_bound_skill_dirs()
+        if bound_roots:
+            extra_roots = [*(extra_roots or []), *bound_roots]
+    except Exception:
+        logger.debug("Bound skill roots unavailable", exc_info=True)
+
     if not skills_path.exists() and not scope_skill_roots and not extra_roots:
         return []
 
@@ -553,6 +563,13 @@ def load_skills(
     except Exception:
         logger.warning("SkillIndex.load failed; falling back to legacy scan", exc_info=True)
         skills = _legacy_scan_skills(skills_path) if skills_path.exists() else []
+
+    try:
+        from evoflow.skills.bound import merge_bound_skills
+
+        skills = merge_bound_skills(skills)
+    except Exception:
+        logger.debug("merge_bound_skills failed", exc_info=True)
 
     try:
         from evoflow.persistence import config_repositories as cfg_repo

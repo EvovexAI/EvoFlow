@@ -94,9 +94,8 @@ SESSION_MODE_POLICY_BLOCK = """<session_mode_policy>
 Active mode: {active_modes}
 
 - **Preflight**: Non-core tools must appear in request `tools` / `activated_tools`; otherwise `tool_search` first.
-- **Tool→mode (routing)**: code read/write/commands/web_search→agent; plan/supervisor→plan; delegate subtasks→subagent (read evoflow-subagent-delegation); platform admin→`platform` (see `<platform_tool>`); complex scripted ops→evoflow-admin skill + terminal.
-- **Mode switch**: Do not call mode_set/scenario; if Plan is needed, ask the user to switch mode in the UI. `session_mode` is UI-driven.
-- **Plan collab**: While the main task is not completed/failed/cancelled, do not suggest mid-flight agent bypass; cancel or fail the Plan first.
+- **Tool routing**: code read/write/commands/web_search/glob/grep→use directly (agent); write a plan doc→`plan` tool; delegate→subagent; platform admin→`platform` (see `<platform_tool>`).
+- **No Plan mode**: Do not call mode_set/scenario; never activate plan. There is no Plan mode to switch into.
 </session_mode_policy>
 """
 

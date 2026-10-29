@@ -92,15 +92,12 @@ def _pg_set_runtime_ctx(runtime: Any, **updates: Any) -> None:
 
 def session_allows_plan_scenario_activation(
     *,
-    session_mode: str | None = None,
+    session_mode: str | None = None,  # noqa: ARG001 — call-site compat; Plan UI mode retired
     collab_phase: Any = None,
     configurable: dict[str, Any] | None = None,
 ) -> bool:
-    """Auto / Plan UI 模式，或任务协作（collab 非 idle）可激活/沿用 plan 场景。"""
+    """仅任务协作（collab 非 idle）可沿用内部 plan 场景。Plan UI 模式已下线。"""
     conf: dict[str, Any] = dict(configurable or {}) or _runtime_configurable()
-    sm = str(session_mode or conf.get("session_mode") or "").strip().lower()
-    if sm in ("auto", "plan"):
-        return True
     phase = collab_phase if collab_phase is not None else conf.get("collab_phase")
     p = str(phase or "").strip().lower()
     return bool(p and p not in ("", "idle"))
@@ -112,7 +109,7 @@ def session_should_sync_plan_scenario_active(
     collab_phase: Any = None,
     configurable: dict[str, Any] | None = None,
 ) -> bool:
-    """任务协作（Plan）已开启时由程序注入 plan 场景与 plan 提示词，勿依赖模型 ``scenario(activate, plan)``。"""
+    """仅非 idle 协作由程序注入内部 plan 场景；勿因 session_mode/is_plan_mode 切入。"""
     if not session_allows_plan_scenario_activation(
         session_mode=session_mode,
         collab_phase=collab_phase,
@@ -122,12 +119,7 @@ def session_should_sync_plan_scenario_active(
     conf: dict[str, Any] = dict(configurable or {}) or _runtime_configurable()
     phase = collab_phase if collab_phase is not None else conf.get("collab_phase")
     p = str(phase or "").strip().lower()
-    if p and p not in ("", "idle"):
-        return True
-    sm = str(session_mode or conf.get("session_mode") or "").strip().lower()
-    if sm == "plan":
-        return True
-    return conf.get("is_plan_mode") is True
+    return bool(p and p not in ("", "idle"))
 
 
 def is_subagent_focus_mode(

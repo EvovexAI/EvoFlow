@@ -1881,23 +1881,28 @@ def skills_install(args: dict[str, Any]) -> dict[str, Any]:
     path = _arg_str(args, "path")
     slug = _arg_str(args, "slug")
     link = _arg_bool(args, "link", False)
+    mode = _arg_str(args, "mode") or None
     if path:
         p = Path(path)
         if p.is_dir():
+            # Folder install defaults to in-place register (bound). link=true → bound.
+            install_mode = (mode or "").strip().lower()
+            if not install_mode:
+                install_mode = "bound"
             try:
-                result = install_skill_from_directory(p, link=link)
+                result = install_skill_from_directory(p, mode=install_mode, link=link)
             except SkillAlreadyExistsError as e:
                 from evoflow.admin.errors import ConflictError
 
                 raise ConflictError(str(e)) from e
             clear_skills_cache()
             return {"ok": True, **result}
-        if link:
-            raise ValidationError("link=true only applies to a skill directory path, not a zip archive")
+        if link or (mode and mode.strip().lower() in ("bound", "link")):
+            raise ValidationError("mode=bound/link only applies to a skill directory path, not a zip archive")
         return {"ok": True, **skills_admin.install_skill(path)}
     if slug:
-        if link:
-            raise ValidationError("link=true is not supported for market slug installs")
+        if link or (mode and mode.strip().lower() in ("bound", "link")):
+            raise ValidationError("mode=bound/link is not supported for market slug installs")
         return {
             "ok": True,
             **skills_admin.install_skill_from_market(

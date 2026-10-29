@@ -802,7 +802,24 @@ export function parseTaskResultSections(text) {
   let conclusion = conclusionParts.join('\n').trim()
   if (!conclusion) {
     const flat = raw.replace(/\s+/g, ' ').trim()
-    const parts = flat.split(/(?<=[。！？.!?])\s*/).filter(Boolean)
+    // COMPAT(macOS12-JSC): no lookbehind — split after sentence end, drop following spaces.
+    const parts = []
+    {
+      const ends = '。！？.!?'
+      let start = 0
+      for (let i = 0; i < flat.length; i++) {
+        if (ends.includes(flat[i])) {
+          let end = i + 1
+          while (end < flat.length && /\s/.test(flat[end])) end += 1
+          const part = flat.slice(start, i + 1).trim()
+          if (part) parts.push(part)
+          start = end
+          i = end - 1
+        }
+      }
+      const tail = flat.slice(start).trim()
+      if (tail) parts.push(tail)
+    }
     conclusion = parts.slice(0, 2).join('')
     if (conclusion.length > 220) conclusion = `${conclusion.slice(0, 219)}…`
   } else if (conclusion.length > 360) {

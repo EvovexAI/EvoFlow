@@ -290,7 +290,8 @@ _SESSION_MODE_DEFINITIONS: list[dict[str, Any]] = [
     {
         "value": "plan",
         "label": "Plan",
-        "visible": True,
+        # Plan 已下线：对话仅 Agent；保留枚举兼容旧会话数据
+        "visible": False,
         "scenario": "plan",
     },
     # --- 隐藏模式（兼容旧数据，UI 不展示）---
@@ -323,7 +324,7 @@ class SetSessionScenarioBody(BaseModel):
     summary="Set activated mode for a session (ask / agent / plan / auto)",
 )
 async def set_session_scenario(request: Request, session_key: str, body: SetSessionScenarioBody) -> dict[str, Any]:
-    """用户从模式选择器手动切换模式。scenario=None 清除模式(回到 Auto)。"""
+    """用户从模式选择器手动切换模式。scenario=None 清除模式(回到 Auto)。Plan 已下线，一律落 agent。"""
     key = _require_session_access(request, session_key)
     key = session_key.strip()
     if not key:
@@ -336,13 +337,23 @@ async def set_session_scenario(request: Request, session_key: str, body: SetSess
         raise HTTPException(status_code=422, detail=f"invalid scenario: {raw}")
     from evoflow.agents.lead_agent.intent_tool_profile import normalize_scenario_key
 
+    # Plan / Ask 已下线：外部切换只保留 agent（空串仍表示 auto）
+    if raw in {"plan", "ask", "chat"}:
+        raw = "agent"
     norm = normalize_scenario_key(raw) if raw else ""
+    if norm == "plan":
+        norm = "agent"
     scenarios: list[str] = [norm] if norm and norm != "ask" else []
     # session_mode is the single source of truth after the v75 migration
     # (the legacy scenario JSON column was dropped).
-    sess_repo.set_session_mode(key, sess_repo.derive_session_mode(scenarios))
+    mode = sess_repo.derive_session_mode(scenarios)
+    if mode == "plan":
+        mode = "agent"
+    sess_repo.set_session_mode(key, mode)
     row = sess_repo.get_session_row_for_ui(key)
     out_scenario = norm if norm and norm != "ask" else "auto"
+    if out_scenario == "plan":
+        out_scenario = "agent"
     return {"ok": True, "sessionKey": key, "scenario": out_scenario, "session": row}
 
 

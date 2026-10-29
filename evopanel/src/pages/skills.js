@@ -51,7 +51,23 @@ function skillSourceLabel(src) {
   return SOURCE_OPTS.find((o) => o.key === src)?.label || '自定义'
 }
 
-function importLocalSkill(page) {
+async function pickSkillDirectory() {
+  try {
+    const open = window.__TAURI__?.dialog?.open
+    if (typeof open !== 'function') return null
+    const selected = await open({
+      directory: true,
+      multiple: false,
+      title: '选择技能文件夹（需含 SKILL.md）',
+    })
+    if (!selected) return null
+    return Array.isArray(selected) ? selected[0] : selected
+  } catch {
+    return null
+  }
+}
+
+function importZipSkill(page) {
   const fileInput = document.createElement('input')
   fileInput.type = 'file'
   fileInput.accept = '.zip'
@@ -71,6 +87,25 @@ function importLocalSkill(page) {
     }
   })
   fileInput.click()
+}
+
+async function importLocalSkill(page) {
+  // Desktop: pick a folder with SKILL.md and register in place (no copy to custom/).
+  const dir = await pickSkillDirectory()
+  if (dir) {
+    try {
+      toast('正在登记本地技能…', 'info')
+      const result = await api.installSkillFromPath(dir, { mode: 'bound' })
+      const where = result?.bound_path || dir
+      toast(`技能「${result.skill_name}」已原地登记：${where}`, 'success')
+      loadSkills(page, { force: true })
+    } catch (e) {
+      toast('登记失败: ' + (e?.message || e), 'error')
+    }
+    return
+  }
+  // Web / cancelled folder dialog: fall back to zip upload (copy into custom/).
+  importZipSkill(page)
 }
 
 export async function render() {

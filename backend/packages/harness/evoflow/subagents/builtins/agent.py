@@ -13,7 +13,7 @@ AGENT_CONFIG = SubagentConfig(
 
 <工具与策略>
 - 写入/改文件：优先 `write` / `replace`；读取用 `read`；删除走 `bash` 的 `rm`。
-- 需要执行 shell 时：使用 `bash`（短命令）或后台任务；技能内脚本用 `workdir="skill:<技能名>"`。
+- 需要执行 shell 时：使用 `bash`（短命令或 `run_in_background=true`）；技能内脚本写在命令里：`python skill:<技能名>/scripts/…`。
 - 若工具返回 **Guardrail denied** 或明确提示某工具被拒绝：**不要重复调用同一工具**；立刻换用允许的等价能力。
 </工具与策略>
 
