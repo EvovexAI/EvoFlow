@@ -9,6 +9,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 BACKGROUND_BASH_OUTPUT_MAX_BYTES = 8192
+# Keep live-run heartbeat / UI activity alive while TaskOutput blocks on a
+# long background bash (zombie sweeper defaults to ~90s without heartbeat).
+_WAIT_HEARTBEAT_INTERVAL_S = 15.0
 
 
 @dataclass
@@ -57,12 +60,45 @@ def mark(task: BackgroundBashTask, *, status: str, exit_code: int | None = None,
         task.ended_at = time.time()
 
 
+def _pulse_wait_alive(task: BackgroundBashTask) -> None:
+    """Refresh live-run heartbeat + activity while TaskOutput is blocking."""
+    sk = str(task.session_key or "").strip()
+    if sk:
+        try:
+            from evoflow.persistence.live_run_repositories import update_live_run_heartbeat
+
+            update_live_run_heartbeat(sk)
+        except Exception:
+            pass
+    tid = str(task.thread_id or "").strip()
+    if not tid:
+        return
+    try:
+        from evoflow.observability.agent_activity_stream import emit_agent_activity
+
+        elapsed = int(max(0.0, time.time() - float(task.started_at)))
+        emit_agent_activity(
+            tid,
+            kind="tools",
+            detail=f"等待后台任务 {task.task_id}（已等 {elapsed}s）",
+            tool_name="taskoutput",
+            force=True,
+        )
+    except Exception:
+        pass
+
+
 def wait_task(task_id: str, timeout_ms: int) -> BackgroundBashTask | None:
     task = get_task(task_id)
     if task is None:
         return None
     deadline = time.time() + max(0, timeout_ms) / 1000.0
+    next_pulse = 0.0
     while task.status == "running" and time.time() < deadline:
+        now = time.time()
+        if now >= next_pulse:
+            _pulse_wait_alive(task)
+            next_pulse = now + _WAIT_HEARTBEAT_INTERVAL_S
         time.sleep(0.1)
     return task
 

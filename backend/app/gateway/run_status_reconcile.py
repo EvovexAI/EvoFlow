@@ -352,6 +352,32 @@ def _run_has_active_client(thread_id: str) -> bool:
     return _thread_has_active_proxy(thread_id)
 
 
+def _thread_has_running_background_bash(thread_id: str) -> bool:
+    """True when this thread still owns an in-process background bash task.
+
+    TaskOutput often blocks for minutes while the bash keeps running. Live-run
+    heartbeats can go quiet during that wait; without this guard the zombie
+    sweeper treats the chat run as stale and cancels mid-poll.
+    """
+    tid = str(thread_id or "").strip()
+    if not tid:
+        return False
+    try:
+        from evoflow.tools.zcode_port.background import list_tasks
+
+        return any(
+            str(t.thread_id or "").strip() == tid and t.status == "running"
+            for t in list_tasks(running_only=True)
+        )
+    except Exception:
+        logger.debug(
+            "reconcile: background bash probe failed thread=%s",
+            tid,
+            exc_info=True,
+        )
+        return False
+
+
 async def _cancel_stale_active_run(session_key: str, thread_id: str) -> None:
     """Cancel a stale active run (best-effort, fast path for startup reconcile).
 
@@ -437,13 +463,22 @@ async def reconcile_session_run_row(
                 return "healed"
 
             # Stale active run: cancel only if the run is genuinely idle.
-            # Three-tier check to avoid killing long-running but healthy tasks:
+            # Four-tier check to avoid killing long-running but healthy tasks:
             #   1. Active stream proxy (client connected) → alive, skip
-            #   2. Live-run snapshot with recent heartbeat → alive, skip
-            #   3. No snapshot + updatedAt is old → stale, cancel
+            #   2. In-process background bash still running for this thread
+            #      (TaskOutput may be blocking; heartbeats can go quiet)
+            #   3. Live-run snapshot with recent heartbeat → alive, skip
+            #   4. No snapshot + updatedAt is old → stale, cancel
             if _run_has_active_client(tid):
                 logger.debug(
                     "reconcile: skip stale cancel — active stream proxy session=%s thread=%s",
+                    sk,
+                    tid,
+                )
+                return "kept"
+            if _thread_has_running_background_bash(tid):
+                logger.info(
+                    "reconcile: skip stale cancel — running background bash session=%s thread=%s",
                     sk,
                     tid,
                 )
