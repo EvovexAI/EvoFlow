@@ -51,14 +51,16 @@ profile/
   system.md           # 系统提示覆盖（薄；勿塞经验全文）
   identity.md
   soul-summary.md     # 自动生成摘要
+  affect.md           # 情感镜像（DB evoflow_person_affect 为真源；统一激素心境）
 ```
 
-**注意**：普通 agent（含 main）**没有独立记忆树**——对话记忆走用户根。
+**注意**：普通 agent（含 main）**没有独立记忆树**——对话记忆走用户根。情感状态按 `agent_code` 存在 DB，全员统一框架。
 
 ## Employee 根:`<base_dir>/assets/employees/{code}/`
 
 与用户根同构的记忆树（standing / MEMORY / facts / episodic / journal / craft / _inbox）。  
-运行时注入：L1 standing + L2 catalog 短标题；正文 L3 按需 `assets` read。  
+`profile/` 同 Agent（含 `SOUL.md` / `affect.md`）。  
+运行时注入：L1 standing + L2 catalog 短标题 + **此刻心境**自然语言摘要；正文 L3 按需 `assets` read。  
 `agents.system_prompt` = L0 岗位骨架，**不是**经验库。
 
 ## 工作区根:`<local_workspace>/.evoflow/`

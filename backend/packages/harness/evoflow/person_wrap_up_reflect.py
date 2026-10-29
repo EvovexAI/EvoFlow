@@ -367,23 +367,14 @@ def _apply_affect_deltas(agent_code: str, deltas: dict[str, float]) -> None:
     code = str(agent_code or "").strip().lower()
     if not code:
         return
-    cur = rel_repo.get_affect(code)
-    axes = {
-        k: float(cur.get(k, 0.5))
-        for k in (
-            "curiosity",
-            "confidence",
-            "pressure",
-            "connection",
-            "frustration",
-            "energy",
-        )
-    }
-    for k, d in (deltas or {}).items():
-        if k not in axes:
-            continue
-        axes[k] = max(0.0, min(1.0, axes[k] + float(d)))
-    rel_repo.save_affect(code, axes, meta={"last_event": "llm_wrap_up"})
+    # Legacy wrap-up keys (curiosity/…) map onto unified hormones inside apply_affect_deltas.
+    rel_repo.apply_affect_deltas(
+        code,
+        deltas,
+        significant=True,
+        source="llm_wrap_up",
+        clamp_each=0.12,
+    )
 
 
 def apply_llm_wrap_up_result(

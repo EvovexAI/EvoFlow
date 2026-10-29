@@ -1100,6 +1100,10 @@ CREATE TABLE IF NOT EXISTS evoflow_person_affect (
             connection REAL NOT NULL DEFAULT 0.5,
             frustration REAL NOT NULL DEFAULT 0.15,
             energy REAL NOT NULL DEFAULT 0.65,
+            oxytocin REAL NOT NULL DEFAULT 0.55,
+            dopamine REAL NOT NULL DEFAULT 0.45,
+            serotonin REAL NOT NULL DEFAULT 0.55,
+            cortisol REAL NOT NULL DEFAULT 0.25,
             updated_at TEXT NOT NULL,
             meta_json TEXT NOT NULL DEFAULT '{}'
         );
@@ -2512,12 +2516,58 @@ def _ensure_asset_memory_runs_table(conn: sqlite3.Connection) -> None:
     logger.info("schema: created evoflow_asset_memory_runs (Phase1/2 run log)")
 
 
+def _ensure_person_affect_hormones(conn: sqlite3.Connection) -> None:
+    """Add unified hormone columns to evoflow_person_affect; backfill from legacy axes."""
+    if not _table_exists(conn, "evoflow_person_affect"):
+        return
+    existing = _existing_columns(conn, "evoflow_person_affect")
+    added: list[str] = []
+    for col_name, col_def, default in (
+        ("oxytocin", "REAL NOT NULL DEFAULT 0.55", 0.55),
+        ("dopamine", "REAL NOT NULL DEFAULT 0.45", 0.45),
+        ("serotonin", "REAL NOT NULL DEFAULT 0.55", 0.55),
+        ("cortisol", "REAL NOT NULL DEFAULT 0.25", 0.25),
+    ):
+        if col_name in existing:
+            continue
+        conn.execute(f"ALTER TABLE evoflow_person_affect ADD COLUMN {col_name} {col_def}")
+        added.append(col_name)
+        _ = default
+    if added:
+        # One-shot: derive hormones from legacy workplace axes when present.
+        try:
+            conn.execute(
+                """
+                UPDATE evoflow_person_affect SET
+                    oxytocin = CASE
+                        WHEN connection IS NOT NULL THEN MAX(0.0, MIN(1.0, connection))
+                        ELSE oxytocin END,
+                    dopamine = CASE
+                        WHEN curiosity IS NOT NULL THEN MAX(0.0, MIN(1.0, curiosity))
+                        ELSE dopamine END,
+                    serotonin = CASE
+                        WHEN confidence IS NOT NULL THEN MAX(0.0, MIN(1.0,
+                            confidence - COALESCE(frustration, 0) * 0.25))
+                        ELSE serotonin END,
+                    cortisol = CASE
+                        WHEN pressure IS NOT NULL THEN MAX(0.0, MIN(1.0,
+                            pressure + COALESCE(frustration, 0) * 0.35))
+                        ELSE cortisol END
+                """
+            )
+        except Exception:
+            logger.debug("schema: person_affect hormone backfill skipped", exc_info=True)
+        conn.commit()
+        logger.info("schema: added person_affect hormone column(s): %s", ", ".join(added))
+
+
 def ensure_app_schema(conn: sqlite3.Connection) -> None:
     """Ensure ``evoflow.db`` matches the public baseline schema."""
     version = int(conn.execute("PRAGMA user_version").fetchone()[0] or 0)
     if version == 0:
         _apply_baseline(conn)
         _ensure_asset_memory_runs_table(conn)
+        _ensure_person_affect_hormones(conn)
         _ensure_timing_schema(conn)
         _ensure_media_assets_schema(conn)
         return
@@ -2528,18 +2578,21 @@ def ensure_app_schema(conn: sqlite3.Connection) -> None:
         if int(conn.execute("PRAGMA user_version").fetchone()[0] or 0) == APP_SCHEMA_VERSION:
             _ensure_duty_runs_table(conn)
             _ensure_asset_memory_runs_table(conn)
+            _ensure_person_affect_hormones(conn)
             _ensure_timing_schema(conn)
             _ensure_media_assets_schema(conn)
             return
         _apply_baseline(conn)
         _ensure_duty_runs_table(conn)
         _ensure_asset_memory_runs_table(conn)
+        _ensure_person_affect_hormones(conn)
         _ensure_timing_schema(conn)
         _ensure_media_assets_schema(conn)
         return
     # version == APP_SCHEMA_VERSION: already current — still ensure post-baseline tables.
     _ensure_duty_runs_table(conn)
     _ensure_asset_memory_runs_table(conn)
+    _ensure_person_affect_hormones(conn)
     _ensure_automation_slot_claims(conn)
     # Timing columns shipped after the baseline epoch, so a DB already stamped
     # with APP_SCHEMA_VERSION still needs them. Idempotent and cheap (a

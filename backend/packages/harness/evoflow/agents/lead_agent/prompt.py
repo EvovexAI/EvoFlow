@@ -1900,6 +1900,20 @@ def get_agent_soul(agent_name: str | None, *, include_employee_posting: bool = F
             )
     if soul_block:
         parts.append(soul_block)
+    # Unified affect brief (all coded agents: xiaomi + employees + named agents).
+    try:
+        code = str(agent_name or "").strip().lower()
+        if code and code not in {"main", "lead_agent", "user", "default"}:
+            from evoflow.person_affect import AFFECT_DISCIPLINE_PROMPT
+            from evoflow.person_kernel import format_affect_brief
+
+            brief = format_affect_brief(code)
+            if brief:
+                parts.append(
+                    f"\n<affect>\n{brief}\n\n{AFFECT_DISCIPLINE_PROMPT.strip()}\n</affect>\n"
+                )
+    except Exception:
+        logger.debug("get_agent_soul: affect inject skipped", exc_info=True)
     # ``<person_presence>`` / 站立摘要是智能体员工值班话术（班次、本轮、收工）。
     # 主会话 Agent 对话不要注入；值班路径在 proactive/prompt.py 里 ``for_duty=True`` 单独加。
     return "".join(parts)

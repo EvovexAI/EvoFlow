@@ -74,6 +74,7 @@ const PROFILE_LABELS: Record<string, string> = {
   "persona.md": "画像与行为",
   "identity.md": "身份边界",
   "SOUL.md": "人格 SOUL",
+  "affect.md": "情感",
   "system.md": "系统提示词",
   "soul-summary.md": "人格摘要（自动生成）",
 };
@@ -156,7 +157,10 @@ function assetTabsForEntity(entityType: string): typeof ASSET_TABS {
   if (et === "workspace") {
     return ASSET_TABS.filter((t) => t.id === "overview" || t.id === "memory" || t.id === "manage");
   }
-  // Profile (画像) is user-only; employees don't need it.
+  // Employees: include profile so SOUL + affect.md are editable in Asset Center.
+  if (et === "employee") {
+    return ASSET_TABS;
+  }
   if (et !== "user") {
     return ASSET_TABS.filter((t) => t.id !== "profile");
   }
