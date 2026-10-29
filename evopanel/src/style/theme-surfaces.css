@@ -2099,13 +2099,14 @@ html[data-translucent-ui='1'] .proactive-page .pro-role-more.is-open .pro-role-m
   box-shadow: none !important;
 }
 
-/* 员工卡 ⋯ 菜单：硬实底（半透明护肤下也不能透底） */
+/* 员工卡 ⋯ 菜单：硬实底（半透明护肤下也不能透底；含 body portal） */
 html[data-translucent-ui='1'] .proactive-page .pro-role-more-menu,
 html[data-translucent-ui='1'] body > .pro-role-more-menu[data-pro-more-host],
 html[data-translucent-ui='1'] .pro-role-more-menu.is-fixed {
   background: #ffffff !important;
   background-color: #ffffff !important;
   background-image: none !important;
+  color: #0f172a !important;
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
   opacity: 1 !important;
@@ -2118,8 +2119,9 @@ html[data-translucent-ui='1'] .pro-role-more-menu.is-fixed {
 html[data-theme='dark'][data-translucent-ui='1'] .proactive-page .pro-role-more-menu,
 html[data-theme='dark'][data-translucent-ui='1'] body > .pro-role-more-menu[data-pro-more-host],
 html[data-theme='dark'][data-translucent-ui='1'] .pro-role-more-menu.is-fixed {
-  background: #141820 !important;
-  background-color: #141820 !important;
+  background: #1a2030 !important;
+  background-color: #1a2030 !important;
+  color: #e2e8f0 !important;
 }
 
 html[data-translucent-ui='1'] .proactive-page .pro-employee-tabs {
@@ -2249,15 +2251,19 @@ html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .pro-role-more-menu.i
   background: #ffffff !important;
   background-color: #ffffff !important;
   background-image: none !important;
+  color: #0f172a !important;
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
+  opacity: 1 !important;
 }
 
 html[data-theme='dark'][data-translucent-ui='1'][data-liquid-glass-webgl='1'] .proactive-page .pro-role-more-menu,
 html[data-theme='dark'][data-translucent-ui='1'][data-liquid-glass-webgl='1'] body > .pro-role-more-menu[data-pro-more-host],
 html[data-theme='dark'][data-translucent-ui='1'][data-liquid-glass-webgl='1'] .pro-role-more-menu.is-fixed {
-  background: #141820 !important;
-  background-color: #141820 !important;
+  background: #1a2030 !important;
+  background-color: #1a2030 !important;
+  color: #e2e8f0 !important;
+  opacity: 1 !important;
 }
 
 html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] :is(.hire-overlay, .role-editor-overlay) :is(
