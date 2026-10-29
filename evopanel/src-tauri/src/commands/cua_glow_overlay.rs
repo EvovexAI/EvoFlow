@@ -11,7 +11,16 @@ use std::time::Duration;
 
 use tauri::{LogicalPosition, LogicalSize, Manager, WebviewUrl, WebviewWindow};
 
+#[cfg(target_os = "windows")]
 use crate::commands::browser_cdp_server;
+
+/// Non-Windows: keep `glow_log` compiling when `browser_cdp_server` is Windows-only.
+#[cfg(not(target_os = "windows"))]
+mod browser_cdp_server {
+    pub fn log_line(s: &str) {
+        eprintln!("{s}");
+    }
+}
 
 const OVERLAY_LABEL: &str = "cua-glow-0";
 /// 对齐 ZCode indicatorWindowSize（中文 234 卡宽 + shadow inset）。
@@ -151,10 +160,13 @@ fn log_overlay_state(window: &WebviewWindow, phase: &str) {
         .outer_position()
         .map(|p| format!("({},{})", p.x, p.y))
         .unwrap_or_else(|e| format!("<{e}>"));
+    #[cfg(target_os = "windows")]
     let hwnd = window
         .hwnd()
         .map(|h| format!("{:?}", h))
         .unwrap_or_else(|e| format!("<{e}>"));
+    #[cfg(not(target_os = "windows"))]
+    let hwnd = String::from("n/a");
     glow_log(format!(
         "{phase} visible={visible} size={size} pos={pos} hwnd={hwnd}"
     ));
