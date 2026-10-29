@@ -502,8 +502,8 @@ def _release_channel_owned_paths(msg: InboundMessage) -> None:
     release until the manager is done — this function is called from the
     ``finally`` of ``_handle_message``.
 
-    Other channels (feishu / weixin / …) that don't yet cache files are a
-    no-op here.
+    Channels that never cache inbound media (e.g. weixin today) are a no-op
+    here; Feishu/WeCom implement ``release_owned_temp_paths``.
     """
     meta = msg.metadata if isinstance(msg.metadata, dict) else {}
     raw_paths = meta.get("_owned_temp_paths")

@@ -28,8 +28,8 @@
 |------|--------|------|
 | **当前登录用户** | `assets/users/<id>/` | 用户对话记忆、偏好、人设（id 通常是用户名/工号，必要时 sha256 兜底） |
 | **共享用户（未登录/本地）** | `assets/user/` | 单机本地默认；多数情况下与登录用户根等价 |
-| **agent 自身（lead/main）** | `assets/agents/main/profile/` | 只读 SOUL / system；agent 自己**没有独立记忆树** |
-| **employee（员工 agent）** | `assets/employees/<code>/` | 员工值班的记忆 + SOUL |
+| **agent 自身（lead/main）** | `assets/agents/main/profile/` | SOUL / system / **affect**；agent 自己**没有独立记忆树** |
+| **employee（员工 agent）** | `assets/employees/<code>/` | 员工值班的记忆 + SOUL + **affect**（全员统一情感基板） |
 | **绑定工作区（项目）** | `<workspace>/.evoflow/` | **项目知识**；与用户记忆隔离 |
 
 **判断方法**：系统提示中 `principal_id` 字段表示当前用户；`agent_name` 表示员工/agent 角色。
@@ -165,6 +165,7 @@ slug 取自标题：转小写、`_` 替代非字母数字、不超过 48 字符�
 | `profile/basic-info.md` | 称呼、职业、语言、时区 | 用户透露身份信息时**必须**写 |
 | `profile/preferences.md` | 沟通风格、技术偏好、工具栈 | 用户表达稳定偏好时 |
 | `profile/persona.md` | 沟通习惯画像（结论先行 / 先诊后改） | 多轮对话总结出稳定行为模式时 |
+| `profile/affect.md`（agent/employee） | 情感镜像；真源 `evoflow_person_affect`（五激素） | 显著触动 / wrap-up / 衰减后自动镜像；勿每轮手改 |
 
 **画像缺口策略**（强制）：
 

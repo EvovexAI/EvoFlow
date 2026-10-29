@@ -378,9 +378,67 @@ export function createEvoflowPartialServices(
       },
     },
     mediaPreviewService: {
-      // 直接给 serve-file 原始 URL：video/audio 走流式播放（FileResponse 支持 Range）。
+      // serve-file 流式播放（Range）。对话常给错相对路径：先探测，失败则按文件名在工作区找回再播。
       async prepare(params: { path: string; expectedKind?: string }) {
-        return { url: await serveFileUrl(params.path) };
+        const original = String(params?.path || "").trim();
+        const tryUrl = async (path: string) => {
+          const url = await serveFileUrl(path);
+          const probe = await fetch(url, { headers: { Range: "bytes=0-1" } });
+          if (probe.status === 404) return null;
+          if (!probe.ok && probe.status !== 206) return null;
+          const ct = (probe.headers.get("content-type") || "").toLowerCase();
+          if (ct.includes("text/html")) return null;
+          // 丢弃探测 body，避免占缓冲
+          try {
+            await probe.arrayBuffer();
+          } catch {
+            /* ignore */
+          }
+          return url;
+        };
+
+        let url = original ? await tryUrl(original) : null;
+        if (!url && original && boundRoot) {
+          try {
+            const { api } = await import("../../lib/tauri-api.js");
+            const leaf = original.replace(/\\/g, "/").split("/").filter(Boolean).pop() || "";
+            if (leaf) {
+              const found = await api.searchWorkspaceFiles(boundRoot, leaf, 8, sessionId || undefined);
+              const files = Array.isArray(found?.files) ? found.files : [];
+              const hit = files.find(
+                (f: { name?: string; path?: string }) =>
+                  String(f?.name || "").toLowerCase() === leaf.toLowerCase(),
+              ) || files[0];
+              const rel = String(hit?.path || "").trim();
+              if (rel) {
+                const abs = /^[a-zA-Z]:[\\/]/.test(rel) || rel.startsWith("/")
+                  ? rel
+                  : `${boundRoot.replace(/[\\/]+$/, "")}/${rel.replace(/^\/+/, "")}`;
+                url = await tryUrl(abs.replace(/\\/g, "/"));
+              }
+            }
+          } catch {
+            /* keep failing below */
+          }
+        }
+        if (!url) {
+          // 最后兜底：整档拉成 blob（大文件会慢，但比「不支持播放」可恢复）
+          try {
+            const preview = await readMediaPreview({ path: original });
+            const mediaType =
+              preview.mediaType && preview.mediaType !== "application/octet-stream"
+                ? preview.mediaType
+                : params?.expectedKind === "audio"
+                  ? "audio/mpeg"
+                  : "video/mp4";
+            return { mediaType, dataBase64: preview.dataBase64 };
+          } catch (err) {
+            throw new Error(
+              `media not playable: ${original} (${err instanceof Error ? err.message : String(err)})`,
+            );
+          }
+        }
+        return { url };
       },
       async release() {},
     },

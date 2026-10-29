@@ -930,7 +930,7 @@ _AFFECT_EVENTS: dict[str, dict[str, float]] = {
 
 
 def update_affect_from_event(agent_code: str, event: str) -> dict[str, Any]:
-    """Apply small workplace affect deltas. Never dramatic; axes stay in [0,1]."""
+    """Apply small affect deltas on the unified hormone substrate."""
     from evoflow.persistence import person_relations_repositories as rel_repo
 
     code = str(agent_code or "").strip().lower()
@@ -940,22 +940,15 @@ def update_affect_from_event(agent_code: str, event: str) -> dict[str, Any]:
     deltas = _AFFECT_EVENTS.get(str(event or "").strip(), {})
     if not deltas:
         return {"ok": True, "skipped": True, "affect": cur}
-    axes = {
-        k: float(cur.get(k, 0.5))
-        for k in (
-            "curiosity",
-            "confidence",
-            "pressure",
-            "connection",
-            "frustration",
-            "energy",
-        )
-    }
-    for k, d in deltas.items():
-        if k in axes:
-            axes[k] = float(axes[k]) + float(d)
-    rel_repo.save_affect(code, axes, meta={"last_event": event})
-    return {"ok": True, "affect": rel_repo.get_affect(code), "event": event}
+    out = rel_repo.apply_affect_deltas(
+        code,
+        deltas,
+        significant=False,
+        source=str(event or "event"),
+        clamp_each=0.12,
+    )
+    out["event"] = event
+    return out
 
 
 def on_handoff_dispatched(
@@ -1083,8 +1076,29 @@ def on_peer_wake(*, from_agent: str, to_agent: str, source: str = "") -> dict[st
     return {"ok": True}
 
 
+def format_affect_brief(agent_code: str | None) -> str:
+    """Natural-language affect inject (no hormone floats for the model to recite)."""
+    from evoflow.persistence import person_relations_repositories as rel_repo
+    from evoflow.person_affect import format_affect_prose
+
+    code = str(agent_code or "").strip().lower()
+    if not code:
+        return ""
+    try:
+        aff = rel_repo.ensure_affect_row(code)
+    except Exception:
+        aff = rel_repo.get_affect(code)
+    try:
+        from evoflow.assets.affect_mirror import maybe_mirror_affect_file
+
+        maybe_mirror_affect_file(code, aff)
+    except Exception:
+        pass
+    return format_affect_prose(aff)
+
+
 def format_affect_and_commitments_block(agent_code: str | None) -> str:
-    """Short duty-brief inject: affect axes + open commitment count."""
+    """Duty-brief inject: prose affect + open commitment count."""
     from evoflow.persistence import person_relations_repositories as rel_repo
 
     code = str(agent_code or "").strip().lower()
@@ -1092,17 +1106,9 @@ def format_affect_and_commitments_block(agent_code: str | None) -> str:
         return ""
     aff = rel_repo.get_affect(code)
     opens = rel_repo.list_open_commitments(code, as_to=True, limit=5)
-    axes = (
-        f"好奇 {aff.get('curiosity', 0.5):.2f} · "
-        f"把握 {aff.get('confidence', 0.5):.2f} · "
-        f"压力 {aff.get('pressure', 0.3):.2f} · "
-        f"连结 {aff.get('connection', 0.5):.2f} · "
-        f"受挫 {aff.get('frustration', 0.15):.2f} · "
-        f"精力 {aff.get('energy', 0.65):.2f}"
-    )
     lines = [
-        "\n### 职场情绪态与开放承诺（内部）",
-        axes,
+        "\n### 此刻心境与开放承诺（内部）",
+        format_affect_brief(code) or "此刻心境：平稳。",
     ]
     if opens:
         lines.append(f"开放承诺 {len(opens)} 条（优先兑现，勿遗忘上游交工）：")
@@ -1113,12 +1119,12 @@ def format_affect_and_commitments_block(agent_code: str | None) -> str:
             lines.append(f"- 欠 {fr} · {kind}" + (f" · task `{child}`" if child else ""))
     else:
         lines.append("开放承诺：无")
-    pressure = float(aff.get("pressure") or 0.3)
+    cortisol = float(aff.get("cortisol") or aff.get("pressure") or 0.25)
     energy = float(aff.get("energy") or 0.65)
-    if pressure >= 0.7:
-        lines.append("提示：压力偏高 → 本轮聚焦最高优先级事项，必要时向上游澄清。")
+    if cortisol >= 0.7:
+        lines.append("提示：偏紧 → 本轮聚焦最高优先级事项，必要时向上游澄清。")
     if energy <= 0.35:
-        lines.append("提示：精力偏低 → 控制范围，优先收口与汇报，勿新开大项。")
+        lines.append("提示：偏倦 → 控制范围，优先收口与汇报，勿新开大项。")
     return "\n".join(lines) + "\n"
 
 
@@ -1141,9 +1147,15 @@ def desensitized_person_brief(agent_code: str) -> dict[str, Any]:
 
     return {
         "affect_summary": {
-            "pressure": _bucket(float(aff.get("pressure") or 0.3)),
+            "mood": str(aff.get("mood_label") or "平稳"),
+            "connection": _bucket(float(aff.get("oxytocin") or aff.get("connection") or 0.55)),
+            "drive": _bucket(float(aff.get("dopamine") or aff.get("curiosity") or 0.45)),
+            "steadiness": _bucket(float(aff.get("serotonin") or aff.get("confidence") or 0.55)),
+            "tension": _bucket(float(aff.get("cortisol") or aff.get("pressure") or 0.25)),
             "energy": _bucket(float(aff.get("energy") or 0.65)),
-            "confidence": _bucket(float(aff.get("confidence") or 0.55)),
+            # Legacy keys kept for older UI readers.
+            "pressure": _bucket(float(aff.get("cortisol") or aff.get("pressure") or 0.25)),
+            "confidence": _bucket(float(aff.get("serotonin") or aff.get("confidence") or 0.55)),
             "frustration": _bucket(float(aff.get("frustration") or 0.15)),
         },
         "open_commitment_count": opens,

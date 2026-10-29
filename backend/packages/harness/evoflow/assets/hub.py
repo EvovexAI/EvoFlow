@@ -61,6 +61,15 @@ def ensure_entity_tree(entity: EntityRef) -> Path:
     if e.entity_type != "workspace":
         profile_dir(e).mkdir(parents=True, exist_ok=True)
 
+    # Unified affect mirror for agent + employee (profile/affect.md).
+    if e.entity_type in ("agent", "employee"):
+        try:
+            from evoflow.assets.affect_mirror import ensure_default_affect_md
+
+            ensure_default_affect_md(e)
+        except Exception:
+            logger.debug("ensure affect.md skipped", exc_info=True)
+
     # Agents are config shells — no memory/craft tree (dialogue memory lives under user/).
     if e.entity_type == "agent":
         return root

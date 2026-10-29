@@ -5,10 +5,12 @@
  * 会盖住主对话。主对话、小V、工具卡、产出卡共用本入口。
  *
  * 分流：
- * - 话术 Markdown 路径 pill / 普通文件 → `file`（WorkspaceFilePreviewPanel）
+ * - 话术 Markdown 路径 pill / 普通文件 → `file`（WorkspaceFilePreviewPanel / V4PreviewPane）
  * - 目录 / 无扩展名路径 → `workspace-browse`（文件树并定位）
- * - patch / diff / pptx / pdf / 多媒体 → `codeViewer`（PreviewPane）
+ * - mp4/音视频 → `codeViewer` type:media（与文件树同一条流式播放链路）
+ * - patch / diff / pptx / pdf → `codeViewer`（PreviewPane）
  */
+import { getMediaPreviewFormat } from '@zcode/shared'
 import { getChatWorkspaceRoot } from '../chat-workspace-context.js'
 import {
   isAbsoluteHostPath,
@@ -85,6 +87,40 @@ export type OpenRightStageCodeViewerOpts = {
   layout?: 'half' | 'wide' | 'narrow' | 'workspace-write'
 }
 
+/** 音视频：与文件树 createCodeViewerSourceForWorkspaceFile 同构，走流式 serve-file。 */
+export function buildRightStageMediaSource(
+  path: string,
+  opts?: {
+    title?: string | null
+    workspacePath?: string | null
+    workspaceIdentity?: string | null
+    workspaceRemoteSessionId?: string | null
+  },
+): RightStageCodeViewerSourceInput | null {
+  const raw = String(path || '').trim()
+  if (!raw) return null
+  const format = getMediaPreviewFormat(raw)
+  if (!format) return null
+  const workspacePath = String(opts?.workspacePath || '').trim() || undefined
+  const resolved = normalizePathId(
+    resolveWorkspaceRelativeHostPath(raw, workspacePath || getChatWorkspaceRoot() || ''),
+  )
+  return {
+    type: 'media',
+    title: String(opts?.title || '').trim() || basename(resolved || raw),
+    path: isAbsoluteHostPath(resolved) ? resolved : raw,
+    kind: format.kind,
+    mediaType: format.mediaType,
+    ...(workspacePath ? { workspacePath } : {}),
+    ...(String(opts?.workspaceIdentity || '').trim()
+      ? { workspaceIdentity: String(opts?.workspaceIdentity).trim() }
+      : {}),
+    ...(String(opts?.workspaceRemoteSessionId || '').trim()
+      ? { workspaceRemoteSessionId: String(opts?.workspaceRemoteSessionId).trim() }
+      : {}),
+  }
+}
+
 /** ZCode CodeViewerSource → 右栏 codeViewer 标签。 */
 export function showRightStageCodeViewer(
   source: RightStageCodeViewerSourceInput,
@@ -94,6 +130,10 @@ export function showRightStageCodeViewer(
   // id 不含 kind 前缀：tabKey = `${kind}:${id}` = `codeViewer:<path>`
   const id = normalizePathId(pathOrTitle) || 'diff'
   const key = `codeViewer:${id}`
+  const workspaceRoot =
+    String(source.workspacePath || '').trim() ||
+    String(getChatWorkspaceRoot() || '').trim() ||
+    undefined
   rightStageStore.show({
     kind: 'codeViewer',
     id,
@@ -104,6 +144,7 @@ export function showRightStageCodeViewer(
       // 原样透传，PreviewPane 需要完整联合成员字段（patch / media 等）
       source: source as RightStageCodeViewerSource,
       threadId: String(opts?.threadId || '').trim(),
+      ...(workspaceRoot ? { workspaceRoot } : {}),
     },
   })
   return key
@@ -128,11 +169,21 @@ export function openRightStageForCodeViewerSource(
           sessionKey: opts?.sessionKey,
         })
       }
+      const mediaSource = buildRightStageMediaSource(path, {
+        title: opts?.name || source.title,
+        workspacePath: workspaceRoot,
+        workspaceIdentity: source.workspaceIdentity,
+        workspaceRemoteSessionId: source.workspaceRemoteSessionId,
+      })
+      if (mediaSource) {
+        return showRightStageCodeViewer(mediaSource, opts)
+      }
       return showRightStageFilePreview(path, {
         name: String(opts?.name || source.title || '').trim() || undefined,
         sessionKey: opts?.sessionKey,
         layout: opts?.layout,
         workspaceRoot,
+        threadId: opts?.threadId,
       })
     }
   }
@@ -155,6 +206,7 @@ export function showRightStageCodeViewers(
 
 export type OpenRightStageFilePreviewOpts = {
   sessionKey?: string | null
+  threadId?: string | null
   name?: string
   /** 任务中心 / 员工页预览时带上，避免宿主读文件时 workspaceRoot 为空。 */
   workspaceRoot?: string | null
@@ -165,7 +217,7 @@ export type OpenRightStageFilePreviewOpts = {
   layout?: 'half' | 'wide' | 'narrow' | 'workspace-write'
 }
 
-/** 工作区文件路径 → 右栏 file 标签（WorkspaceFilePreviewPanel）。 */
+/** 工作区文件路径 → 右栏 file 标签（WorkspaceFilePreviewPanel）。音视频改走 media。 */
 export function showRightStageFilePreview(
   path: string,
   opts?: OpenRightStageFilePreviewOpts,
@@ -180,6 +232,17 @@ export function showRightStageFilePreview(
     isAbsoluteHostPath(resolved) ? resolved : rawPath,
   )
   const name = String(opts?.name || '').trim() || basename(id)
+  const mediaSource = buildRightStageMediaSource(id, {
+    title: name,
+    workspacePath: workspaceRoot,
+  })
+  if (mediaSource) {
+    return showRightStageCodeViewer(mediaSource, {
+      sessionKey: opts?.sessionKey,
+      threadId: opts?.threadId,
+      layout: opts?.layout,
+    })
+  }
   const key = `file:${id}`
   const sessionKey = String(opts?.sessionKey || '').trim() || undefined
   const layout = opts?.layout || 'half'
@@ -201,6 +264,9 @@ export function showRightStageFilePreview(
       path: id,
       name,
       ...(workspaceRoot ? { workspaceRoot } : {}),
+      ...(String(opts?.threadId || '').trim()
+        ? { threadId: String(opts?.threadId).trim() }
+        : {}),
       poll: !!opts?.poll,
       focusLine: opts?.focusLine,
       focusEndLine: opts?.focusEndLine,
@@ -275,6 +341,7 @@ export function showRightStageWorkspaceBrowse(
 /**
  * Markdown 文件链接 / 目录提示 → 右栏。
  * 目录（或无扩展名路径）开文件树并定位；普通文件走预览。
+ * 音视频先开一版，再异步 heal 真实路径（对话常漏 projects/…/outputs/）。
  */
 export function showRightStageFromFileLink(
   target: {
@@ -297,11 +364,64 @@ export function showRightStageFromFileLink(
       title: String(target.label || '').trim() || basename(path),
     })
   }
-  return showRightStageFilePreview(path, {
+  const mediaSource = buildRightStageMediaSource(path, {
+    title: target.label,
+    workspacePath: workspaceRoot,
+    workspaceIdentity: target.workspaceIdentity,
+    workspaceRemoteSessionId: target.workspaceRemoteSessionId,
+  })
+  if (mediaSource) {
+    // 与文件树点 mp4 同一条：codeViewer + type:media + serve-file 流式播放
+    const key = showRightStageCodeViewer(mediaSource, opts)
+    void (async () => {
+      try {
+        const { healWorkspaceOpenPath } = await import('./heal-workspace-open-path.js')
+        const healed = await healWorkspaceOpenPath(mediaSource.path || path, {
+          workspaceRoot,
+          threadId: opts?.threadId,
+        })
+        if (!healed || normalizePathId(healed) === normalizePathId(mediaSource.path || '')) {
+          return
+        }
+        const next = buildRightStageMediaSource(healed, {
+          title: target.label || mediaSource.title,
+          workspacePath: workspaceRoot,
+          workspaceIdentity: target.workspaceIdentity,
+          workspaceRemoteSessionId: target.workspaceRemoteSessionId,
+        })
+        if (next) showRightStageCodeViewer(next, opts)
+      } catch {
+        /* keep first open */
+      }
+    })()
+    return key
+  }
+  const fileKey = showRightStageFilePreview(path, {
     name: String(target.label || '').trim() || basename(path),
     sessionKey: opts?.sessionKey,
+    threadId: opts?.threadId,
     layout: opts?.layout,
     // 对话 Markdown 路径 pill 带上 workspace，预览读文件才能带 root=…
     workspaceRoot,
   })
+  void (async () => {
+    try {
+      const { healWorkspaceOpenPath } = await import('./heal-workspace-open-path.js')
+      const healed = await healWorkspaceOpenPath(path, {
+        workspaceRoot,
+        threadId: opts?.threadId,
+      })
+      if (!healed || normalizePathId(healed) === normalizePathId(path)) return
+      showRightStageFilePreview(healed, {
+        name: String(target.label || '').trim() || basename(healed),
+        sessionKey: opts?.sessionKey,
+        threadId: opts?.threadId,
+        layout: opts?.layout,
+        workspaceRoot,
+      })
+    } catch {
+      /* keep first open */
+    }
+  })()
+  return fileKey
 }

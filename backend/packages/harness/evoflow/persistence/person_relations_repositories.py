@@ -9,12 +9,24 @@ from typing import Any
 from evoflow.persistence.db import get_db, run_db_transaction
 from evoflow.timeutil import utc_now_iso_z
 
+# Legacy workplace axes (dual-written for wrap-up / old readers).
+# Legacy workplace axes (dual-written for wrap-up / old readers).
 _AFFECT_AXES = (
     "curiosity",
     "confidence",
     "pressure",
     "connection",
     "frustration",
+    "energy",
+)
+_HORMONE_EXTRA = ("oxytocin", "dopamine", "serotonin", "cortisol")
+
+# Unified hormone substrate (SoT). ``energy`` is shared with legacy.
+_HORMONE_AXES = (
+    "oxytocin",
+    "dopamine",
+    "serotonin",
+    "cortisol",
     "energy",
 )
 
@@ -272,27 +284,41 @@ def count_open_commitments(agent_code: str) -> int:
         return 0
 
 
-def get_affect(agent_code: str) -> dict[str, Any]:
-    code = str(agent_code or "").strip().lower()
-    defaults = {k: 0.5 for k in _AFFECT_AXES}
-    defaults.update(
-        {
-            "curiosity": 0.5,
-            "confidence": 0.55,
-            "pressure": 0.3,
-            "connection": 0.5,
-            "frustration": 0.15,
-            "energy": 0.65,
-        }
+def _default_affect_row(agent_code: str = "") -> dict[str, Any]:
+    from evoflow.person_affect import HORMONE_DEFAULTS, default_hormones, legacy_from_hormones
+
+    hormones = default_hormones()
+    legacy = legacy_from_hormones(hormones)
+    return {
+        "agent_code": agent_code,
+        **legacy,
+        **hormones,
+        "updated_at": "",
+        "meta": {},
+    }
+
+
+def get_affect(agent_code: str, *, apply_decay: bool = True) -> dict[str, Any]:
+    """Load affect; hormones are SoT. Optionally decay toward setpoints on read."""
+    from evoflow.person_affect import (
+        HORMONE_AXES,
+        HORMONE_DEFAULTS,
+        apply_idle_longing,
+        decay_hormones_toward_setpoint,
+        hormones_from_legacy,
+        legacy_from_hormones,
     )
+
+    code = str(agent_code or "").strip().lower()
     if not code:
-        return {"agent_code": "", **defaults, "updated_at": ""}
+        return _default_affect_row("")
+    cols = ", ".join(_AFFECT_AXES + _HORMONE_EXTRA)
     try:
         row = (
             get_db()
             .execute(
                 f"""
-                SELECT agent_code, {", ".join(_AFFECT_AXES)}, updated_at, meta_json
+                SELECT agent_code, {cols}, updated_at, meta_json
                 FROM evoflow_person_affect WHERE agent_code = ?
                 """,
                 (code,),
@@ -300,27 +326,123 @@ def get_affect(agent_code: str) -> dict[str, Any]:
             .fetchone()
         )
     except Exception:
-        return {"agent_code": code, **defaults, "updated_at": ""}
+        # Pre-migration DB without hormone columns — fall back to legacy select.
+        try:
+            row = (
+                get_db()
+                .execute(
+                    f"""
+                    SELECT agent_code, {", ".join(_AFFECT_AXES)}, updated_at, meta_json
+                    FROM evoflow_person_affect WHERE agent_code = ?
+                    """,
+                    (code,),
+                )
+                .fetchone()
+            )
+        except Exception:
+            return _default_affect_row(code)
     if not row:
-        return {"agent_code": code, **defaults, "updated_at": ""}
+        return _default_affect_row(code)
     d = _row_dict(row)
-    d["meta"] = _loads(d.pop("meta_json", None)) or {}
-    return d
+    meta = _loads(d.pop("meta_json", None)) or {}
+    if not isinstance(meta, dict):
+        meta = {}
+    # Prefer hormone columns when present; else migrate from legacy once in-memory.
+    has_hormones = any(d.get(k) is not None for k in _HORMONE_EXTRA)
+    if has_hormones:
+        hormones = {
+            k: _clamp01(float(d.get(k, HORMONE_DEFAULTS[k]) or HORMONE_DEFAULTS[k]))
+            for k in HORMONE_AXES
+        }
+        # energy lives in legacy column name too.
+        hormones["energy"] = _clamp01(float(d.get("energy", HORMONE_DEFAULTS["energy"]) or 0.65))
+    else:
+        hormones = hormones_from_legacy(d)
+    updated_at = str(d.get("updated_at") or "")
+    if apply_decay:
+        hormones = decay_hormones_toward_setpoint(hormones, updated_at=updated_at)
+        hormones = apply_idle_longing(
+            hormones,
+            last_significant_at=str(meta.get("last_significant_at") or ""),
+        )
+    legacy = legacy_from_hormones(hormones)
+    out = {
+        "agent_code": code,
+        **legacy,
+        **hormones,
+        "updated_at": updated_at,
+        "meta": meta,
+        "mood_label": None,
+    }
+    try:
+        from evoflow.person_affect import mood_label
+
+        out["mood_label"] = mood_label(hormones)
+    except Exception:
+        out["mood_label"] = "平稳"
+    return out
 
 
-def save_affect(agent_code: str, axes: dict[str, float], *, meta: dict[str, Any] | None = None) -> None:
+def save_affect(
+    agent_code: str,
+    axes: dict[str, float],
+    *,
+    meta: dict[str, Any] | None = None,
+    significant: bool = False,
+    source: str = "",
+) -> None:
+    """Persist hormones (+ dual-write legacy). ``axes`` may use hormone or legacy keys."""
+    from evoflow.person_affect import (
+        HORMONE_AXES,
+        HORMONE_DEFAULTS,
+        hormones_from_legacy,
+        legacy_from_hormones,
+    )
+
     code = str(agent_code or "").strip().lower()
     if not code:
         return
     now = utc_now_iso_z()
-    vals = {k: _clamp01(axes.get(k, 0.5)) for k in _AFFECT_AXES}
+    # Absolute values if any hormone/legacy present as absolute; else treat as full state.
+    # Callers historically pass absolute axis maps. Deltas go through apply_hormone_deltas.
+    incoming = {str(k).lower(): float(v) for k, v in (axes or {}).items() if v is not None}
+    hormone_keys = set(HORMONE_AXES)
+    if any(k in hormone_keys for k in incoming):
+        hormones = {k: _clamp01(float(incoming.get(k, HORMONE_DEFAULTS[k]))) for k in HORMONE_AXES}
+        # Fill missing hormones from mapped legacy if provided.
+        if any(k in incoming for k in ("curiosity", "confidence", "pressure", "connection", "frustration")):
+            from_leg = hormones_from_legacy(incoming)
+            for k in HORMONE_AXES:
+                if k not in incoming:
+                    hormones[k] = from_leg[k]
+    else:
+        hormones = hormones_from_legacy(incoming or {})
+    legacy = legacy_from_hormones(hormones)
+
+    prev_meta: dict[str, Any] = {}
+    try:
+        prev = get_affect(code, apply_decay=False)
+        prev_meta = dict(prev.get("meta") or {}) if isinstance(prev.get("meta"), dict) else {}
+    except Exception:
+        prev_meta = {}
+    merged_meta = dict(prev_meta)
+    if meta:
+        merged_meta.update(meta)
+    if source:
+        merged_meta["source"] = str(source)[:64]
+    if significant:
+        merged_meta["last_significant_at"] = now
+    merged_meta.setdefault("last_event", merged_meta.get("last_event") or source or "save")
 
     def _write(db: Any) -> None:
         db.execute(
-            f"""
+            """
             INSERT INTO evoflow_person_affect (
-                agent_code, {", ".join(_AFFECT_AXES)}, updated_at, meta_json
-            ) VALUES (?,?,?,?,?,?,?,?,?)
+                agent_code,
+                curiosity, confidence, pressure, connection, frustration, energy,
+                oxytocin, dopamine, serotonin, cortisol,
+                updated_at, meta_json
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
             ON CONFLICT(agent_code) DO UPDATE SET
                 curiosity=excluded.curiosity,
                 confidence=excluded.confidence,
@@ -328,23 +450,100 @@ def save_affect(agent_code: str, axes: dict[str, float], *, meta: dict[str, Any]
                 connection=excluded.connection,
                 frustration=excluded.frustration,
                 energy=excluded.energy,
+                oxytocin=excluded.oxytocin,
+                dopamine=excluded.dopamine,
+                serotonin=excluded.serotonin,
+                cortisol=excluded.cortisol,
                 updated_at=excluded.updated_at,
                 meta_json=excluded.meta_json
             """,
             (
                 code,
-                vals["curiosity"],
-                vals["confidence"],
-                vals["pressure"],
-                vals["connection"],
-                vals["frustration"],
-                vals["energy"],
+                legacy["curiosity"],
+                legacy["confidence"],
+                legacy["pressure"],
+                legacy["connection"],
+                legacy["frustration"],
+                legacy["energy"],
+                hormones["oxytocin"],
+                hormones["dopamine"],
+                hormones["serotonin"],
+                hormones["cortisol"],
                 now,
-                _dumps(meta or {}),
+                _dumps(merged_meta),
             ),
         )
 
     try:
         run_db_transaction(_write)
     except Exception:
-        pass
+        # Hormone columns may be missing on very old connections — try legacy-only write.
+        try:
+
+            def _write_legacy(db: Any) -> None:
+                db.execute(
+                    f"""
+                    INSERT INTO evoflow_person_affect (
+                        agent_code, {", ".join(_AFFECT_AXES)}, updated_at, meta_json
+                    ) VALUES (?,?,?,?,?,?,?,?,?)
+                    ON CONFLICT(agent_code) DO UPDATE SET
+                        curiosity=excluded.curiosity,
+                        confidence=excluded.confidence,
+                        pressure=excluded.pressure,
+                        connection=excluded.connection,
+                        frustration=excluded.frustration,
+                        energy=excluded.energy,
+                        updated_at=excluded.updated_at,
+                        meta_json=excluded.meta_json
+                    """,
+                    (
+                        code,
+                        legacy["curiosity"],
+                        legacy["confidence"],
+                        legacy["pressure"],
+                        legacy["connection"],
+                        legacy["frustration"],
+                        legacy["energy"],
+                        now,
+                        _dumps(merged_meta),
+                    ),
+                )
+
+            run_db_transaction(_write_legacy)
+        except Exception:
+            pass
+
+
+def apply_affect_deltas(
+    agent_code: str,
+    deltas: dict[str, float] | None,
+    *,
+    significant: bool = True,
+    source: str = "delta",
+    clamp_each: float | None = 0.12,
+) -> dict[str, Any]:
+    """Apply hormone/legacy deltas onto current state and persist."""
+    from evoflow.person_affect import apply_hormone_deltas
+
+    code = str(agent_code or "").strip().lower()
+    if not code:
+        return {"ok": False, "error": "missing agent_code"}
+    cur = get_affect(code, apply_decay=True)
+    hormones = apply_hormone_deltas(cur, deltas, clamp_each=clamp_each)
+    save_affect(code, hormones, significant=significant, source=source, meta={"last_event": source})
+    return {"ok": True, "affect": get_affect(code, apply_decay=False)}
+
+
+def ensure_affect_row(agent_code: str) -> dict[str, Any]:
+    """INSERT defaults when missing; return current affect."""
+    code = str(agent_code or "").strip().lower()
+    if not code:
+        return _default_affect_row("")
+    cur = get_affect(code, apply_decay=False)
+    if cur.get("updated_at"):
+        return get_affect(code, apply_decay=True)
+    # No row / empty — persist defaults.
+    from evoflow.person_affect import default_hormones
+
+    save_affect(code, default_hormones(), significant=False, source="ensure", meta={"source": "ensure"})
+    return get_affect(code, apply_decay=True)

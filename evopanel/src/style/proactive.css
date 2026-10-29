@@ -642,21 +642,23 @@
   border: 1px solid var(--border-primary, var(--pro-slate-line));
   border-radius: 8px;
   /* Hard opaque popover — must not inherit glass / translucent surfaces. */
-  background-color: #ffffff;
-  background-image: none;
-  color: var(--text-primary, #0f172a);
+  background: #ffffff !important;
+  background-color: #ffffff !important;
+  background-image: none !important;
+  color: #0f172a !important;
   box-shadow:
     0 0 0 1px color-mix(in srgb, var(--border-primary, #e2e8f0) 70%, transparent),
     0 10px 28px color-mix(in srgb, #000 18%, transparent);
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
   isolation: isolate;
-  opacity: 1;
+  opacity: 1 !important;
 }
 
 html[data-theme='dark'] .pro-role-more-menu {
-  background-color: #141820;
-  color: var(--text-primary, #e2e8f0);
+  background: #1a2030 !important;
+  background-color: #1a2030 !important;
+  color: #e2e8f0 !important;
 }
 
 .pro-role-more-menu.is-fixed,
@@ -664,19 +666,35 @@ body > .pro-role-more-menu.is-fixed,
 body > .pro-role-more-menu[data-pro-more-host] {
   position: fixed;
   right: auto;
-  /* Above roster cards / glass surfaces; keep below modal-overlay (~1000010). */
-  z-index: 10050;
-  background-color: #ffffff;
-  background-image: none;
+  /* Above #app (z-index:1) / glass surfaces; keep below modal-overlay (~1000010). */
+  z-index: 100050;
+  background: #ffffff !important;
+  background-color: #ffffff !important;
+  background-image: none !important;
+  color: #0f172a !important;
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
   opacity: 1 !important;
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--border-primary, #e2e8f0) 70%, transparent),
+    0 12px 32px color-mix(in srgb, #000 22%, transparent) !important;
 }
 
 html[data-theme='dark'] .pro-role-more-menu.is-fixed,
 html[data-theme='dark'] body > .pro-role-more-menu.is-fixed,
 html[data-theme='dark'] body > .pro-role-more-menu[data-pro-more-host] {
-  background-color: #141820;
+  background: #1a2030 !important;
+  background-color: #1a2030 !important;
+  color: #e2e8f0 !important;
+}
+
+body > .pro-role-more-menu .pro-role-more-item,
+.pro-role-more-menu.is-fixed .pro-role-more-item {
+  color: inherit !important;
+}
+body > .pro-role-more-menu .pro-role-more-item--danger,
+.pro-role-more-menu.is-fixed .pro-role-more-item--danger {
+  color: var(--error, #dc2626) !important;
 }
 
 .pro-role-more-sep {
@@ -4963,6 +4981,11 @@ html.evopanel-macos-titlebar .pro-employee-page--nav-in-chrome {
   color: var(--text-tertiary);
 }
 .pro-page-nav-actions .pro-role-more { position: relative; }
+/* 顶栏 ⋯ 在页面顶部：向下展开，避免 bottom:100% 弹到视口外 */
+.pro-page-nav-actions .pro-role-more-menu {
+  top: calc(100% + 6px);
+  bottom: auto;
+}
 .pro-role-more-menu[hidden] { display: none !important; }
 .pro-role-more-item {
   display: block;

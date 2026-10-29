@@ -96,19 +96,58 @@ describe('workspace path normalization', () => {
     )
   })
 
-  it('compares windows workspace paths case-insensitively for tree focus', async () => {
-    const {
-      areWorkspaceFilePathsEqual,
-      isWorkspaceFilePathInside,
-    } = await import('../src/zcode-ui/workspace-file-tree/model.ts')
+  it('heals bare media filenames to projects/outputs paths', async () => {
+    const { setChatWorkspaceRoot } = await import('../src/lib/chat-workspace-context.js')
+    const { healWorkspaceOpenPath } = await import(
+      '../src/lib/right-stage/heal-workspace-open-path.ts'
+    )
     const root = 'D:/dev/github/knowledge-library/ai漫剧工具包'
-    const clicked =
-      'D:/dev/github/knowledge-library/ai漫剧工具包/projects/凌不渡VS盲僧-30秒-20261029'
-    const onDisk =
-      'D:/dev/github/knowledge-library/ai漫剧工具包/projects/凌不渡vs盲僧-30秒-20261029'
-    expect(areWorkspaceFilePathsEqual(clicked, onDisk)).toBe(true)
-    expect(isWorkspaceFilePathInside(root, clicked)).toBe(true)
-    expect(isWorkspaceFilePathInside(root, onDisk)).toBe(true)
+    setChatWorkspaceRoot(root)
+    // mock gateway: resolve fails, find-files returns real relative path
+    const apiMod = await import('../src/lib/tauri-api.js')
+    const api = apiMod.api
+    const origResolve = api.resolveWorkspaceTarget
+    const origSearch = api.searchWorkspaceFiles
+    api.resolveWorkspaceTarget = async () => ({ exists: false, resolved: '' })
+    api.searchWorkspaceFiles = async () => ({
+      files: [
+        {
+          name: '凌不渡vs盲僧_30秒成片_v2场记链版.mp4',
+          path: 'projects/凌不渡vs盲僧-30秒-20261029/outputs/凌不渡vs盲僧_30秒成片_v2场记链版.mp4',
+        },
+      ],
+    })
+    try {
+      const healed = await healWorkspaceOpenPath(`${root}/凌不渡vs盲僧_30秒成片_v2场记链版.mp4`, {
+        workspaceRoot: root,
+      })
+      expect(healed.replace(/\\/g, '/')).toContain(
+        'projects/凌不渡vs盲僧-30秒-20261029/outputs/凌不渡vs盲僧_30秒成片_v2场记链版.mp4',
+      )
+    } finally {
+      api.resolveWorkspaceTarget = origResolve
+      api.searchWorkspaceFiles = origSearch
+      setChatWorkspaceRoot('')
+    }
+  })
+
+  it('opens chat media paths as type:media like the file tree', async () => {
+    const { buildRightStageMediaSource } = await import(
+      '../src/lib/right-stage/open-right-stage-file.ts'
+    )
+    const src = buildRightStageMediaSource(
+      'outputs/凌不渡vs盲僧_30秒成片_v2场记链版.mp4',
+      { workspacePath: 'D:/dev/github/knowledge-library/ai漫剧工具包', title: '成片' },
+    )
+    expect(src).toMatchObject({
+      type: 'media',
+      kind: 'video',
+      mediaType: 'video/mp4',
+      title: '成片',
+    })
+    expect(src?.path).toContain('凌不渡vs盲僧_30秒成片_v2场记链版.mp4')
+    expect(src?.workspacePath).toBe('D:/dev/github/knowledge-library/ai漫剧工具包')
+    expect(buildRightStageMediaSource('readme.md')).toBeNull()
   })
 
   it('compares windows workspace paths case-insensitively for tree focus', async () => {

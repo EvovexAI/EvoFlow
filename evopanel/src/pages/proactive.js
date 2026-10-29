@@ -3255,10 +3255,46 @@ function prettyRrule(rrule) {
   return roleScheduleSummary({ heartbeat_schedule: rrule, schedule_summary: '' }) || '未设周期'
 }
 
+function proRoleMoreSolidColors() {
+  const dark = document.documentElement.getAttribute('data-theme') === 'dark'
+  return dark
+    ? { bg: '#1a2030', fg: '#e2e8f0' }
+    : { bg: '#ffffff', fg: '#0f172a' }
+}
+
+function applyProRoleMoreSolidSurface(menu) {
+  if (!menu) return
+  const { bg, fg } = proRoleMoreSolidColors()
+  // Inline !important beats translucent / liquid-glass theme washes on portaled menus.
+  menu.style.setProperty('background', bg, 'important')
+  menu.style.setProperty('background-color', bg, 'important')
+  menu.style.setProperty('background-image', 'none', 'important')
+  menu.style.setProperty('color', fg, 'important')
+  menu.style.setProperty('opacity', '1', 'important')
+  menu.style.setProperty('backdrop-filter', 'none', 'important')
+  menu.style.setProperty('-webkit-backdrop-filter', 'none', 'important')
+  menu.style.setProperty('z-index', '100050', 'important')
+}
+
+function clearProRoleMoreSolidSurface(menu) {
+  if (!menu) return
+  ;[
+    'background',
+    'background-color',
+    'background-image',
+    'color',
+    'opacity',
+    'backdrop-filter',
+    '-webkit-backdrop-filter',
+    'z-index',
+  ].forEach((prop) => menu.style.removeProperty(prop))
+}
+
 function positionRoleMoreMenu(btn, menu) {
   if (!btn || !menu) return
   const r = btn.getBoundingClientRect()
-  // Portal to body so sibling cards (backdrop-filter / opacity stacking) cannot cover it.
+  // Portal to body so sibling cards (backdrop-filter / opacity stacking) cannot cover it,
+  // and so it sits above #app (z-index:1) under translucent / liquid-glass themes.
   if (menu.parentElement !== document.body) {
     menu.dataset.proMoreHost = '1'
     menu._proMoreHost = menu.parentElement
@@ -3268,6 +3304,7 @@ function positionRoleMoreMenu(btn, menu) {
   menu.style.position = 'fixed'
   menu.style.top = `${Math.round(r.bottom + 4)}px`
   menu.style.right = 'auto'
+  applyProRoleMoreSolidSurface(menu)
   menu.hidden = false
   const w = menu.offsetWidth || 148
   let left = Math.round(r.right - w)
@@ -3288,7 +3325,7 @@ function closeAllRoleMoreMenus(root = document) {
     const btn = wrap.querySelector('.pro-role-more-btn')
     let menu = wrap.querySelector('.pro-role-more-menu')
     if (!menu) {
-      menu = [...document.body.querySelectorAll('.pro-role-more-menu.is-fixed')].find(
+      menu = [...document.body.querySelectorAll(':scope > .pro-role-more-menu.is-fixed')].find(
         (m) => m._proMoreHost === wrap,
       )
     }
@@ -3300,6 +3337,7 @@ function closeAllRoleMoreMenus(root = document) {
       menu.style.top = ''
       menu.style.left = ''
       menu.style.right = ''
+      clearProRoleMoreSolidSurface(menu)
       const host = menu._proMoreHost
       if (host && menu.parentElement === document.body) {
         host.appendChild(menu)
