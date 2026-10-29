@@ -38,6 +38,27 @@
 
 ---
 
+## 1.1 运行时注入分层（员工 / 用户 Asset Hub）
+
+> 实现细节：`backend/.../assets/prompts/memories/injection_layers.md`
+
+| 层 | 每轮注入 | 真源 / 用途 |
+|----|----------|-------------|
+| **L0 岗位** | `system_prompt` / soul | **只**职责骨架、输出格式、硬闸门 |
+| **L1 standing** | `memory/standing.md` 摘要（约 1200 字） | 偏好、Tips、**What's in Memory** 指针 |
+| **L2 catalog** | craft / facts / episodic / journal **短标题全量** + `MEMORY.md` | 发现用；不灌正文 |
+| **L3 正文** | 不默认注入 | `assets` read/search 按需打开 |
+| **L4 inbox** | 未合并 notes 预览 | Phase2 前可见 |
+
+**禁止双写**：制度 / 踩坑 / 可复用做法 → `assets` note → Phase2 → craft/MEMORY/standing。  
+**禁止**再 `agents.update` 把经验全文塞进 `system_prompt`（与资产漂移）。岗位说明书里最多一行指针：「详见 craft/…」。
+
+改员工配置：职责骨架用 `agents.update` 的 `system_prompt`；经验沉淀只用 `assets`。
+
+**为何「写了资产却像没进上下文」**：L3 正文默认不灌 system；靠 (1) catalog 标题 (2) 回合尾 **Hub Recall**（只匹配标题/文件名，不搜正文；`EVOFLOW_HUB_RECALL` 默认开）(3) 模型 `assets read`。关掉 Hub Recall 或模型不读，资产就会「起不了作用」。
+
+---
+
 ## 2. 四类资产布局（每个根下都长这样）
 
 | 路径 | 用途 | 写入规则 |

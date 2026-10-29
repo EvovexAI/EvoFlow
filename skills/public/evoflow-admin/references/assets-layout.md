@@ -43,17 +43,23 @@ craft/
 
 与登录用户根布局一致；未登录或本地默认走这里。
 
-## Agent / Employee 根:`<base_dir>/assets/agents/{code}/` 或 `<base_dir>/assets/employees/{code}/`
+## Agent 根:`<base_dir>/assets/agents/{code}/`
 
 ```
 profile/
   SOUL.md             # 人格 / 价值观
-  system.md           # 系统提示覆盖
+  system.md           # 系统提示覆盖（薄；勿塞经验全文）
   identity.md
   soul-summary.md     # 自动生成摘要
 ```
 
-**注意**：agent 自身**没有独立记忆树**——它的对话记忆走用户根。
+**注意**：普通 agent（含 main）**没有独立记忆树**——对话记忆走用户根。
+
+## Employee 根:`<base_dir>/assets/employees/{code}/`
+
+与用户根同构的记忆树（standing / MEMORY / facts / episodic / journal / craft / _inbox）。  
+运行时注入：L1 standing + L2 catalog 短标题；正文 L3 按需 `assets` read。  
+`agents.system_prompt` = L0 岗位骨架，**不是**经验库。
 
 ## 工作区根:`<local_workspace>/.evoflow/`
 

@@ -27,7 +27,9 @@ description: EvoFlow 产品自介绍 + 系统治理 + 资产库契约 + 对话�
 |-------------|--------|------|
 | `knowledge.*` | `evoflow knowledge …` | vaults / create / enable / list / get / remember / recall / delete；platform 用 `ingest`/`notes`/`search` 等同义名 |
 | `workflow.*` | `evoflow workflow …` | CLI：**仅** list / get / run / stop / status。创建/发布/复制/版本/resume/list_runs → **只用 platform** 或 `POST /api/apps` |
-| `settings.*`（模型+联网搜索） | `evoflow models …` | 含 `update_model`；联网搜索暂无 CLI，用 `platform`：`settings.get/patch/test_web_search` |
+| `settings.*`（模型+联网搜索） | `evoflow models …` | 含 `update_model` / `invoke_model`；联网搜索暂无 CLI，用 `platform`：`settings.get/patch/test_web_search` |
+| `openai.*`（单次 chat/vision） | `evoflow openai …` | `models` / `chat` / `vision`；文本也可用 `settings.invoke_model` |
+| `media.*`（生图/生视频） | （技能 CLI / provider；无独立顶层 `evoflow media`） | `catalog` → `generate_image` / `generate_video` → `task_wait` |
 | `appearance.*` | （暂无 CLI） | 主题/背景/液态玻璃：只用 `platform` |
 | `agents.*` | `evoflow agents …` | CLI 另有 `check`；**无** `agents seed` |
 | `employees.*` | `evoflow employees …` | 含 wake / migrate；CLI 另有 dispatch |
@@ -107,6 +109,28 @@ echo '{"base_url":"...","api_key":"...","model_id":"..."}' | evoflow models test
 echo '{"model":"primary","messages":[{"role":"user","content":"hi"}]}' | evoflow models invoke --stdin
 echo '{"base_url":"...","api_key":"..."}' | evoflow models list-remote --stdin
 ```
+
+等价 platform：`settings.list_models|get_model|…`；单次文本分析 `settings.invoke_model`（confirm=true）。
+
+### OpenAI 兼容 chat / vision
+
+```bash
+evoflow openai models
+evoflow openai chat -m "一句话总结这段文案" [-M <model>]
+evoflow openai vision -i <图路径或URL> -m "描述画面" [-M <vision-model>]
+```
+
+等价 platform（写操作 confirm=true）：
+
+```text
+platform action=openai.models
+platform action=openai.chat confirm=true
+  args_json={"message":"…","model":"…"}
+platform action=openai.vision confirm=true
+  args_json={"image":"C:/path/frame.png","message":"图里有什么"}
+```
+
+生图/生视频用已有 `media.catalog` → `media.generate_image` / `media.generate_video` → `media.task_wait`。
 
 ### 联网搜索（platform only）
 

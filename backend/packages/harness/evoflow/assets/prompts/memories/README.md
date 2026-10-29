@@ -5,9 +5,9 @@ Provenance: upstream memory-template patterns, path-mapped to EvoFlow
 
 | File | Role | When used |
 |------|------|-----------|
-| `read_path.md` | Shared Entity-assets procedure (once per turn) | Tier 0; composed with entity blocks |
-| `read_path_entity.md` | Per-root layout + MEMORY_SUMMARY | Tier 0; one block per user/workspace/… |
-
+| `injection_layers.md` | L0–L4 SoT + anti dual-write (canonical) | Docs / admin; rules mirrored in `read_path.md` |
+| `read_path.md` | Shared Entity-assets procedure + layer rules | Tier 0; composed with entity blocks |
+| `read_path_entity.md` | Per-root catalog + standing summary | Tier 0; one block per user/employee/… |
 | `stage_one_system.md` | Phase 1 extract system | Background worker after idle session |
 | `stage_one_input.md` | Phase 1 user/input wrapper | Same |
 | `consolidation.md` | Phase 2 consolidate system | Background worker on entity lock |

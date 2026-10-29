@@ -173,8 +173,25 @@ class MemoryLiveFooterMiddleware(AgentMiddleware[AgentState]):
         preview = (standing or "").strip()
         if len(preview) > 400:
             preview = preview[:400] + "…"
+
+        # Asset Hub recall: default ON — written craft/facts must reach the turn
+        # without relying on the model to voluntarily ``assets read``.
+        hub_block = ""
+        try:
+            from evoflow.assets.guidance import resolve_memory_entity
+            from evoflow.assets.hub_recall import format_hub_asset_recall, hub_recall_enabled
+
+            if hub_recall_enabled() and query:
+                hub_ent = resolve_memory_entity(
+                    agent_name=agent_name,
+                    principal_id=principal_id,
+                )
+                hub_block = format_hub_asset_recall(hub_ent, query)
+        except Exception:
+            logger.debug("MemoryLiveFooter: hub recall skipped", exc_info=True)
+
         recall_on = _query_recall_enabled()
-        recall = (
+        legacy_block = (
             build_memory_query_recall_sections(
                 agent_name=agent_name,
                 query=query,
@@ -184,13 +201,7 @@ class MemoryLiveFooterMiddleware(AgentMiddleware[AgentState]):
             if recall_on and query
             else ""
         )
-        if not recall_on:
-            # Still strip any prior recall messages so a flip mid-session doesn't leave stale hints
-            if len(messages) != len(_messages_from_request(request)):
-                return request.override(messages=messages)
-            return request
         if not query and tid and standing:
-            # Still record standing-only snapshot so chip can show Core was injected
             try:
                 from evoflow.memory.recall_snapshot import record_thread_recall
 
@@ -203,8 +214,10 @@ class MemoryLiveFooterMiddleware(AgentMiddleware[AgentState]):
                 )
             except Exception:
                 pass
-        if recall.strip() and messages:
-            hint = HumanMessage(content=recall.strip(), name=_MEMORY_RECALL_MESSAGE_NAME)
+
+        recall = "\n\n".join(p for p in (hub_block, legacy_block) if str(p or "").strip()).strip()
+        if recall and messages:
+            hint = HumanMessage(content=recall, name=_MEMORY_RECALL_MESSAGE_NAME)
             return request.override(messages=[*messages, hint])
 
         if len(messages) != len(_messages_from_request(request)):
