@@ -316,11 +316,30 @@ def _upsert_binding_snapshot(
 
 
 def repair_session_tool_state(session_key: str) -> dict[str, Any]:
-    """Align ``evoflow_chat_sessions`` active/pending tool columns with mode cache."""
+    """Align ``evoflow_chat_sessions`` active/pending tool columns with mode cache.
+
+    Also rewrites the current-mode scenario binding ``eager_tools`` from the live
+    agent whitelist so mid-session tool binds show up without a new chat.
+    (Must not call ``ensure_session_binding_record`` — that path re-enters here.)
+    """
     sk = str(session_key or "").strip()
     if not sk:
         return {}
     mode = resolve_persisted_binding_mode(sk)
+    try:
+        eager = _default_eager_for_session(sk, mode)
+        existing = repo.get_scenario_binding(sk, mode) or {}
+        deferred = filter_loaded_for_agent_mode(sk, mode, list(existing.get("loaded_deferred") or []))
+        _upsert_binding_snapshot(
+            sk,
+            mode,
+            eager_tools=eager,
+            loaded_deferred=deferred,
+            event_type="capability_refresh",
+            update_current_state=False,
+        )
+    except Exception:
+        logger.debug("[SessionToolBinding] force binding refresh skipped sk=%s", sk, exc_info=True)
     return _refresh_session_tool_state(sk, mode)
 
 

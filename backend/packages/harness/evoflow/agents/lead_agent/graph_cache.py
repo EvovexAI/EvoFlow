@@ -61,8 +61,10 @@ class LeadAgentGraphCacheKey:
     credentials_fp: str = ""
     # Bound MCP tool names present at build time (empty → full when MCP cache warms).
     mcp_tools_fp: tuple[str, ...] = ()
+    # ``evoflow_agents.updated_at`` — tools/MCP/skills edits from Gateway process.
+    capability_fp: str = ""
     # Bump when compile-time prompt binding changes (invalidates graphs built with placeholders).
-    schema_version: int = 16
+    schema_version: int = 17
 
     def as_tuple(self) -> tuple[Any, ...]:
         """All fields in definition order — new fields auto-included via dataclasses.astuple."""

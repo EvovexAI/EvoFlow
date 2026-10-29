@@ -76,3 +76,69 @@ def test_update_role_request_accepts_kb_injection():
     assert req.knowledge_vault_ids == ["kb_a"]
     assert req.kb_injection is not None
     assert req.kb_injection.get("mode") == "auto"
+
+
+def test_refresh_agent_config_if_stale_detects_cross_process_edit(monkeypatch):
+    """LangGraph worker must drop TTL caches when Gateway bumps evoflow_agents.updated_at."""
+    from evoflow.config import agents_config as ac
+
+    ac._agent_capability_rev.clear()
+    ac._agent_config_cache.clear()
+    calls: list[str] = []
+    stamps = {"duty_clerk": "t1"}
+
+    monkeypatch.setattr(
+        ac,
+        "probe_agent_capability_revision",
+        lambda code: stamps.get(str(code or "").strip().lower(), ""),
+    )
+    monkeypatch.setattr(
+        "evoflow.session_tool_binding.agent_tools.invalidate_agent_tool_names_cache",
+        lambda code=None: calls.append(f"tools:{code}"),
+    )
+    monkeypatch.setattr(
+        "evoflow.agents.lead_agent.graph_cache.clear_lead_agent_graph_cache",
+        lambda: calls.append("graph_clear"),
+    )
+
+    assert ac.refresh_agent_config_if_stale("duty_clerk") == "t1"
+    assert calls == []  # first sighting — just record stamp
+
+    stamps["duty_clerk"] = "t2"
+    assert ac.refresh_agent_config_if_stale("duty_clerk") == "t2"
+    assert "tools:duty_clerk" in calls
+    assert "graph_clear" in calls
+
+    calls.clear()
+    assert ac.refresh_agent_config_if_stale("duty_clerk") == "t2"
+    assert calls == []  # unchanged stamp — no thrash
+
+
+def test_lead_agent_graph_cache_key_includes_capability_fp():
+    from evoflow.agents.lead_agent.graph_cache import LeadAgentGraphCacheKey
+
+    base = dict(
+        model_name="m",
+        agent_name="duty_clerk",
+        thinking_enabled=False,
+        reasoning_effort=None,
+        session_mode="agent",
+        is_plan_mode=False,
+        subagent_enabled=False,
+        max_concurrent_subagents=1,
+        include_search=True,
+        use_virtual_paths=False,
+        tools_mode=None,
+        tool_whitelist=("bash",),
+        mcp_servers_unrestricted=False,
+        mcp_servers=(),
+        skills=(),
+        custom_system_prompt_hash="",
+        summarization_enabled=False,
+        token_usage_enabled=False,
+        mission_state_middleware=False,
+        is_bootstrap=False,
+    )
+    a = LeadAgentGraphCacheKey(**base, capability_fp="t1")
+    b = LeadAgentGraphCacheKey(**base, capability_fp="t2")
+    assert a.as_tuple() != b.as_tuple()

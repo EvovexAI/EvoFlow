@@ -1,12 +1,18 @@
 """Build the self-introduction text for a freshly Feishu-bound employee bot.
 
 A newly hired/bound employee has no chat context yet, so we compose a short
-standard intro from what we already know: the role/agent identity, its duties,
-its tool allowlist, and a few example commands. Used by:
+standard intro from role/agent identity + duties + how-to-use examples.
+Tool allowlist is only used as a Chinese capability hint when the role has no
+written duties — raw English wire names are never dumped into IM.
+
+Used by:
 
 * ``apply_registration_to_role`` — proactive push to the scanner's private chat
   right after a successful QR binding.
 * ``FeishuChannel._on_message`` — first-``@`` fallback inside a group/p2p chat.
+
+Outbound intros go through ``FeishuChannel.send_proactive_markdown`` (the
+markdown outbound gate), which audits ``evoflow_channel_push_log`` once.
 """
 
 from __future__ import annotations
@@ -86,43 +92,44 @@ def mark_intro_sent(agent_code: str, *, receive_id: str, receive_id_type: str = 
         logger.debug("self_intro: mark_intro_sent failed code=%s", code, exc_info=True)
 
 
-# Wire name → short Chinese label for the capability list. Unknown tools fall
-# back to their wire name (still readable).
+# Wire name → short Chinese capability label. Unknown / unmapped tools are
+# **skipped** (never dump raw English wire names like ``platform`` / ``rg`` into IM).
 _TOOL_LABEL_ZH = {
-    "read": "读取文件",
-    "read_file": "读取文件",
-    "write": "写入文件",
-    "write_file": "写入文件",
-    "replace": "编辑文件",
-    "delete": "删除文件",
-    "find": "查找文件",
-    "rg": "内容搜索",
-    "search_code_index": "工作区搜索",
-    "read_lints": "代码诊断",
-    "terminal": "终端命令",
-    "process": "进程管理",
-    "tasks": "任务看板",
-    "platform": "平台管理",
-    "knowledge": "知识库",
-    "web_search": "网络搜索",
-    "fetch_url": "网页抓取",
-    "web_extract": "网页提取",
-    "view_image": "查看图片",
-    "mind_map": "思维导图",
+    "read": "读文件",
+    "read_file": "读文件",
+    "write": "写文件",
+    "write_file": "写文件",
+    "replace": "改文件",
+    "delete": "删文件",
+    "find": "找文件",
+    "rg": "搜内容",
+    "search_code_index": "搜工作区",
+    "read_lints": "查代码问题",
+    "terminal": "跑命令",
+    "process": "管进程",
+    "tasks": "看任务看板",
+    "platform": "管平台配置",
+    "knowledge": "查知识库",
+    "web_search": "上网搜索",
+    "fetch_url": "抓网页",
+    "web_extract": "提取网页",
+    "view_image": "看图片",
+    "mind_map": "画思维导图",
     "ask_clarification": "向你确认",
-    "subagent": "委派子智能体",
-    "plan": "制定计划",
-    "todo": "会话清单",
-    "tool_search": "查找工具",
-    "mode_set": "模式切换",
-    "send_message": "发送消息",
+    "subagent": "叫同事帮忙",
+    "plan": "定计划",
+    "todo": "列清单",
+    "tool_search": "找能力",
+    "mode_set": "切模式",
+    "send_message": "发消息",
 }
 
 _MAX_DUTIES = 4
-_MAX_TOOLS = 12
+_MAX_TOOLS = 6
 
 
 def _tool_labels(agent_code: str) -> list[str]:
+    """Return Chinese capability labels only; drop unmapped wire names."""
     try:
         from evoflow.session_tool_binding.agent_tools import resolve_agent_tool_names_for_agent
 
@@ -136,8 +143,12 @@ def _tool_labels(agent_code: str) -> list[str]:
         n = str(raw or "").strip().lower()
         if not n or n in seen:
             continue
+        label = _TOOL_LABEL_ZH.get(n)
+        if not label:
+            continue  # skip English wire names
         seen.add(n)
-        labels.append(_TOOL_LABEL_ZH.get(n, n))
+        if label not in labels:
+            labels.append(label)
     return labels
 
 
@@ -194,8 +205,9 @@ def build_employee_self_intro(agent_code: str) -> str:
     if duties:
         joined = "；".join(duties[:_MAX_DUTIES])
         lines.append(f"**职责**：{joined}。")
-    if labels:
-        lines.append("**我能做的事**：" + "、".join(labels[:_MAX_TOOLS]) + "。")
+    elif labels:
+        # No written duties — fall back to a short capability hint (Chinese only).
+        lines.append("**我能帮你**：" + "、".join(labels[:_MAX_TOOLS]) + "。")
     lines.append("")
     lines.append("你可以这样使唤我：")
     lines.append(f"1. 在群里 @{role_name} 直接说需求，例如「@{role_name} 帮我查一下这个报错」。")
@@ -238,7 +250,16 @@ async def push_employee_self_intro(
             if channel is not None and getattr(channel, "is_running", False):
                 send = getattr(channel, "send_proactive_markdown", None)
                 if callable(send):
-                    await send(rid, text, receive_id_type=receive_id_type, account_id=code)
+                    await send(
+                        rid,
+                        text,
+                        receive_id_type=receive_id_type,
+                        account_id=code,
+                        kind="self_intro",
+                        role_agent_code=code,
+                        title="员工自我介绍",
+                        triggered_by="system",
+                    )
                     mark_intro_sent(code, receive_id=rid, receive_id_type=receive_id_type)
                     logger.info("self_intro: pushed for agent=%s receive=%s", code, rid[:16])
                     return True

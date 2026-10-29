@@ -1283,7 +1283,17 @@ def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None
             _setup_phase("hydrate_scenarios_from_disk_ms", _t0, skipped="flash")
 
     agent_config = None
+    _agent_capability_fp = ""
     if not is_bootstrap and agent_name is not None:
+        # Cross-process: Gateway may have saved new tools while this LangGraph
+        # worker still holds a TTL-cached AgentConfig + compiled graph.
+        try:
+            from evoflow.config.agents_config import refresh_agent_config_if_stale
+
+            _agent_capability_fp = refresh_agent_config_if_stale(agent_name)
+        except Exception:
+            logger.debug("refresh_agent_config_if_stale skipped", exc_info=True)
+            _agent_capability_fp = ""
         try:
             agent_config = load_agent_config(agent_name)
         except FileNotFoundError:
@@ -1807,6 +1817,7 @@ def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None
         tool_search_enabled=bool(_tool_search_enabled),
         has_tool_search_tool=any(str(getattr(t, "name", "") or "").strip() == "tool_search" for t in all_tools),
         credentials_fp=_model_credentials_fp(str(model_name or "")),
+        capability_fp=str(_agent_capability_fp or ""),
     )
 
     def _build_lead_graph() -> Any:
