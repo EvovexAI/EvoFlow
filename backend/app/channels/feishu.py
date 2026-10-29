@@ -930,8 +930,20 @@ class FeishuChannel(Channel):
             coalesce_delay_f = float(coalesce_delay)
         except (TypeError, ValueError):
             coalesce_delay_f = 0.6
+        text_grace = config.get("inbound_text_grace_seconds", 4.0)
+        try:
+            text_grace_f = float(text_grace)
+        except (TypeError, ValueError):
+            text_grace_f = 4.0
+        sticky = config.get("inbound_sticky_seconds", 6.0)
+        try:
+            sticky_f = float(sticky)
+        except (TypeError, ValueError):
+            sticky_f = 6.0
         self._inbound_coalescer = FeishuInboundCoalescer(
             delay_seconds=coalesce_delay_f,
+            text_grace_seconds=text_grace_f,
+            sticky_seconds=sticky_f,
             publish=self._publish_coalesced_inbound,
         )
 
@@ -1353,6 +1365,27 @@ class FeishuChannel(Channel):
         prev_client = self._api_client
         self._api_client = api_client
         try:
+            meta = msg.metadata if isinstance(msg.metadata, dict) else {}
+            # Proactive markdown (self-intro / tree_receipt / …): create a fresh
+            # card with the stamped receive_id_type. Bus already audited — do not
+            # fall into stream-reply / stream_card logging.
+            if meta.get("proactive_markdown"):
+                rtype = str(meta.get("receive_id_type") or "chat_id").strip() or "chat_id"
+                logger.info(
+                    "[Feishu] proactive markdown: receive=%s type=%s account=%s text_len=%d",
+                    msg.chat_id,
+                    rtype,
+                    account_id or "primary",
+                    len(msg.text or ""),
+                )
+                await self._create_card(
+                    str(msg.chat_id or "").strip(),
+                    feishu_outbound_text(msg.text),
+                    receive_id_type=rtype,
+                    account_id=account_id,
+                )
+                return
+
             logger.info(
                 "[Feishu] sending reply: chat_id=%s, account=%s, thread_ts=%s, is_final=%s, text_len=%d",
                 msg.chat_id,
@@ -1732,18 +1765,57 @@ class FeishuChannel(Channel):
         *,
         receive_id_type: str = "chat_id",
         account_id: str = "",
+        kind: str = "im_message",
+        role_agent_code: str = "",
+        task_id: str = "",
+        title: str = "",
+        triggered_by: str = "system",
     ) -> None:
-        """Send an interactive markdown card without an inbound user message (e.g. cron digest)."""
-        api_client = self._api_client_for(account_id)
-        if not self._running or not api_client:
+        """Send a proactive markdown card via MessageBus (single outbound funnel).
+
+        Must not call Feishu APIs directly — publish to the bus so audit +
+        dispatch share the same exit as conversation replies. Callers only
+        stamp ``kind`` / routing fields; they do not write push-log themselves.
+        """
+        if not self._running:
             raise RuntimeError("Feishu channel is not running or has no API client")
         if not (receive_id or "").strip() or not (text or "").strip():
             raise ValueError("receive_id and text must be non-empty")
-        await self._create_card(
-            receive_id.strip(),
-            text,
-            receive_id_type=receive_id_type,
-            account_id=account_id,
+        rid = receive_id.strip()
+        rtype = str(receive_id_type or "chat_id").strip() or "chat_id"
+        aid = str(account_id or "").strip()
+        push_kind = str(kind or "im_message").strip() or "im_message"
+        if not self._api_client_for(aid):
+            raise RuntimeError("Feishu channel is not running or has no API client")
+
+        meta: dict[str, Any] = {
+            "proactive_markdown": True,
+            # Always stamp so credential resolve works on primary multiplex slot.
+            "account_id": aid,
+            "receive_id_type": rtype,
+            "kind": push_kind,
+            "role_agent_code": str(role_agent_code or aid).strip(),
+            "task_id": str(task_id or "").strip(),
+            "title": str(title or "").strip(),
+            "triggered_by": str(triggered_by or "system").strip() or "system",
+        }
+        # Prefer the dedicated employee outbound slot; fall back to primary ""
+        # with metadata.account_id so multiplexed primary can still send.
+        slot = aid if (aid and self.bus.has_outbound(self.name, aid)) else ""
+        if not self.bus.has_outbound(self.name, slot):
+            raise RuntimeError(
+                f"Feishu outbound slot not registered (channel={self.name}, account={slot or '-'})"
+            )
+        await self.bus.publish_outbound(
+            OutboundMessage(
+                channel_name=self.name,
+                chat_id=rid,
+                thread_id="",
+                text=text,
+                account_id=slot,
+                is_final=True,
+                metadata=meta,
+            )
         )
 
     async def send_proactive_approval_card(
@@ -2923,44 +2995,7 @@ class FeishuChannel(Channel):
                 await self._send_card_message_locked(msg, source_message_id)
         finally:
             self._send_card_locks_idle[lock_key] = time.monotonic()
-        # Audit log: every outbound card (running patch, final reply, new thread)
-        # must leave a trail so we can later reconstruct the full agent stream.
-        # Failures here must never break the send path — wrap in suppress.
-        with contextlib.suppress(Exception):
-            from evoflow.persistence.channel_push_repositories import safe_record_push
-
-            outbound_text = str(msg.text or "")
-            summary = outbound_text[:800]
-            event = "sent" if msg.is_final else "card_patched"
-            kind = "stream_card"
-            title = ""
-            try:
-                if msg.is_final and not outbound_text:
-                    kind = "stream_empty"
-                    title = "(空消息)"
-            except Exception:
-                pass
-            safe_record_push(
-                direction="outbound",
-                channel="feishu",
-                kind=kind,
-                event=event,
-                transport="interactive_card",
-                sender_account_id=str(msg.account_id or ""),
-                receive_id=str(msg.chat_id or ""),
-                receive_id_type="chat_id",
-                external_message_id=str(msg.thread_ts or ""),
-                title=title,
-                content_summary=summary,
-                payload={
-                    "thread_id": str(msg.thread_id or ""),
-                    "is_final": bool(msg.is_final),
-                    "topic_id": str(msg.topic_id or ""),
-                    "text_len": len(outbound_text),
-                },
-                status="ok",
-                triggered_by="system",
-            )
+        # Outbound audit lives on MessageBus.publish_outbound (finals only).
 
     def _touch_stream_state(self, source_message_id: str) -> None:
         self._stream_state_ts[source_message_id] = time.monotonic()
@@ -3243,7 +3278,16 @@ class FeishuChannel(Channel):
 
         async def _send() -> None:
             try:
-                await self.send_proactive_markdown(chat_id, text, receive_id_type="chat_id", account_id=account_id)
+                await self.send_proactive_markdown(
+                    chat_id,
+                    text,
+                    receive_id_type="chat_id",
+                    account_id=account_id,
+                    kind="self_intro",
+                    role_agent_code=account_id,
+                    title="员工自我介绍",
+                    triggered_by="system",
+                )
                 mark_intro_sent(account_id, receive_id=chat_id, receive_id_type="chat_id")
             except Exception:
                 logger.debug("feishu: first-@ self-intro send failed account=%s", account_id, exc_info=True)
@@ -3326,6 +3370,18 @@ class FeishuChannel(Channel):
                     parsed.unsupported,
                     msg_id,
                 )
+                try:
+                    from app.channels.feishu_inbound_trace_log import log_feishu_inbound_trace
+
+                    log_feishu_inbound_trace(
+                        "跳过不支持类型",
+                        account_id=str(account_id or ""),
+                        chat_id=str(chat_id or ""),
+                        msg_id=str(msg_id or ""),
+                        feishu_type=parsed.unsupported,
+                    )
+                except Exception:
+                    pass
                 return
 
             raw = (parsed.text or "").strip().strip("\ufeff\u200b\u200c\u200d")
@@ -3334,6 +3390,18 @@ class FeishuChannel(Channel):
                     "[Feishu] empty inbound (no text/media), ignoring message_type=%s",
                     parsed.message_type or feishu_msg_type or "?",
                 )
+                try:
+                    from app.channels.feishu_inbound_trace_log import log_feishu_inbound_trace
+
+                    log_feishu_inbound_trace(
+                        "跳过空消息",
+                        account_id=str(account_id or ""),
+                        chat_id=str(chat_id or ""),
+                        msg_id=str(msg_id or ""),
+                        feishu_type=parsed.message_type or feishu_msg_type or "?",
+                    )
+                except Exception:
+                    pass
                 return
 
             dedup_text = raw or f"[{parsed.message_type}:{','.join(r.file_key[:8] for r in parsed.refs)}]"
@@ -3351,6 +3419,19 @@ class FeishuChannel(Channel):
                     len(raw),
                     len(parsed.refs),
                 )
+                try:
+                    from app.channels.feishu_inbound_trace_log import log_feishu_inbound_trace
+
+                    log_feishu_inbound_trace(
+                        "跳过重复",
+                        account_id=str(account_id or ""),
+                        chat_id=str(chat_id or ""),
+                        msg_id=str(msg_id or ""),
+                        text_len=len(raw),
+                        refs=len(parsed.refs),
+                    )
+                except Exception:
+                    pass
                 return
 
             # Commands: first line must start with / (Feishu may add BOM or @ 前缀); merge
@@ -3392,37 +3473,46 @@ class FeishuChannel(Channel):
                 len(raw),
                 len(parsed.refs),
             )
+            try:
+                from app.channels.feishu_inbound_trace_log import log_feishu_inbound_trace
 
-            # Audit log: every accepted inbound IM message must leave a trail so we
-            # can later reconstruct who said what to which bot. Failures here must
-            # never block the message path, so we go through safe_record_push.
-            with contextlib.suppress(Exception):
-                from evoflow.persistence.channel_push_repositories import safe_record_push
-
-                safe_record_push(
-                    direction="inbound",
-                    channel="feishu",
-                    kind="im_message",
-                    event="callback",
-                    transport="im_event",
-                    sender_account_id=str(sender_id or ""),
-                    external_message_id=str(msg_id or ""),
-                    receive_id=str(chat_id or ""),
-                    receive_id_type="chat_id",
-                    title="",
-                    content_summary=(raw or f"[{parsed.message_type}]")[:800],
-                    payload={
-                        "chat_type": chat_type,
-                        "root_id": str(root_id or ""),
-                        "reply_anchor": reply_anchor_message_id,
-                        "msg_type": str(getattr(msg_type, "value", msg_type) or ""),
-                        "feishu_message_type": parsed.message_type or feishu_msg_type,
-                        "media_refs": len(parsed.refs),
-                        "account_id": account_id,
-                    },
-                    status="ok",
-                    triggered_by="user",
+                content_keys: list[str] = []
+                content_preview = ""
+                try:
+                    if isinstance(content_raw, dict):
+                        content_keys = sorted(str(k) for k in content_raw.keys())[:24]
+                        content_preview = json.dumps(content_raw, ensure_ascii=False, default=str)[:500]
+                    elif isinstance(content_raw, str) and content_raw.strip():
+                        content_preview = content_raw.strip()[:500]
+                        parsed_body = json.loads(content_raw)
+                        if isinstance(parsed_body, dict):
+                            content_keys = sorted(str(k) for k in parsed_body.keys())[:24]
+                except Exception:
+                    content_preview = str(content_raw or "")[:500]
+                log_feishu_inbound_trace(
+                    "收包解析",
+                    account_id=str(account_id or ""),
+                    chat_id=str(chat_id or ""),
+                    msg_id=str(msg_id or ""),
+                    feishu_type=parsed.message_type or feishu_msg_type or "?",
+                    text_preview=raw[:120],
+                    text_len=len(raw),
+                    refs=len(parsed.refs),
+                    ref_names=[
+                        str(getattr(r, "filename", "") or getattr(r, "file_key", "") or "")[:80]
+                        for r in (parsed.refs or [])[:6]
+                    ],
+                    content_keys=content_keys,
+                    content_preview=content_preview,
+                    chat_type=chat_type or "",
+                    sender=str(sender_id or "")[:40],
                 )
+            except Exception:
+                pass
+
+            # Inbound IM audit is owned by ChannelManager (bus consumer) so
+            # sender_account_id stays the bot slot, not the human open_id.
+            # Logging here previously wrote ou_… into the employee column.
 
             # Schedule download + coalesce on the async event loop (lark WS thread → loop).
             if self._main_loop and self._main_loop.is_running() and not self._main_loop.is_closed():
@@ -3466,17 +3556,90 @@ class FeishuChannel(Channel):
         """Download media (if any), build InboundMessage, coalesce, then prepare/publish."""
         files: list[dict[str, Any]] = []
         owned_paths: list[str] = []
+        download_failed_names: list[str] = []
         if refs:
+            try:
+                from app.channels.feishu_inbound_trace_log import log_feishu_inbound_trace
+
+                log_feishu_inbound_trace(
+                    "开始下载附件",
+                    account_id=str(account_id or ""),
+                    chat_id=str(chat_id or ""),
+                    msg_id=str(msg_id or ""),
+                    refs=len(refs),
+                    ref_names=[
+                        str(getattr(r, "filename", "") or getattr(r, "file_key", "") or "")[:80]
+                        for r in refs[:6]
+                    ],
+                )
+            except Exception:
+                pass
             files, owned_paths = await self._inbound_media.materialize(refs, account_id=account_id)
             if refs and not files:
+                download_failed_names = [
+                    str(getattr(r, "filename", "") or getattr(r, "file_key", "") or "附件").strip()
+                    or "附件"
+                    for r in refs
+                ]
                 logger.warning(
-                    "[Feishu] media download produced no files (refs=%d msg_id=%s)",
+                    "[Feishu] media download produced no files (refs=%d msg_id=%s names=%s)",
                     len(refs),
                     msg_id,
+                    download_failed_names[:4],
                 )
+                try:
+                    from app.channels.feishu_inbound_trace_log import log_feishu_inbound_trace
+
+                    log_feishu_inbound_trace(
+                        "附件下载失败",
+                        level=logging.WARNING,
+                        account_id=str(account_id or ""),
+                        chat_id=str(chat_id or ""),
+                        msg_id=str(msg_id or ""),
+                        refs=len(refs),
+                        failed_names=download_failed_names[:6],
+                    )
+                except Exception:
+                    pass
+                # Keep a visible trail: previously file-only failed downloads were
+                # dropped entirely, so ops/DB never recorded the Word/PDF at all.
+                failed_label = "、".join(download_failed_names[:4])
+                note = f"[附件未下载成功：{failed_label}]"
+                text = f"{(text or '').strip()}\n{note}".strip() if (text or "").strip() else note
+            else:
+                try:
+                    from app.channels.feishu_inbound_trace_log import log_feishu_inbound_trace
+
+                    log_feishu_inbound_trace(
+                        "附件下载完成",
+                        account_id=str(account_id or ""),
+                        chat_id=str(chat_id or ""),
+                        msg_id=str(msg_id or ""),
+                        files=len(files),
+                        filenames=[
+                            str((f or {}).get("filename") or (f or {}).get("path") or "")[:80]
+                            for f in files[:6]
+                            if isinstance(f, dict)
+                        ],
+                    )
+                except Exception:
+                    pass
 
         if not (text or "").strip() and not files:
             logger.info("[Feishu] ingest dropped: no text and no cached files msg_id=%s", msg_id)
+            try:
+                from app.channels.feishu_inbound_trace_log import log_feishu_inbound_trace
+
+                log_feishu_inbound_trace(
+                    "ingest丢弃",
+                    level=logging.WARNING,
+                    account_id=str(account_id or ""),
+                    chat_id=str(chat_id or ""),
+                    msg_id=str(msg_id or ""),
+                    reason="no_text_no_files",
+                )
+            except Exception:
+                pass
             if owned_paths:
                 self._inbound_media.release_owned_temp_paths(owned_paths)
             return

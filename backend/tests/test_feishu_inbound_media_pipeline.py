@@ -65,6 +65,27 @@ def test_parse_post_with_embedded_image():
     assert parsed.refs[0].file_key == "img_in_post"
 
 
+def test_parse_post_attachment_zone_files():
+    """Client text+Word often arrives as post with top-level files[], not msg_type=file."""
+    content = {
+        "zh_cn": {
+            "title": "",
+            "content": [[{"tag": "text", "text": "这是啥"}]],
+        },
+        "files": [
+            {"key": "file_v2_word_abc", "file_name": "report.docx"},
+            {"file_key": "file_v2_pdf_xyz", "filename": "notes.pdf"},
+        ],
+    }
+    parsed = parse_feishu_message(message_type="post", content=content, message_id="om_attach")
+    assert parsed.text == "这是啥"
+    assert len(parsed.refs) == 2
+    assert parsed.refs[0].kind == "file"
+    assert parsed.refs[0].file_key == "file_v2_word_abc"
+    assert parsed.refs[0].filename == "report.docx"
+    assert parsed.refs[1].file_key == "file_v2_pdf_xyz"
+
+
 def test_parse_post_locale_wrapper():
     content = {
         "zh_cn": {
@@ -102,7 +123,7 @@ async def test_coalesce_merges_image_then_text():
     async def _publish(msg: InboundMessage, mid: str) -> None:
         published.append((msg, mid))
 
-    coalescer = FeishuInboundCoalescer(delay_seconds=0.05, publish=_publish)
+    coalescer = FeishuInboundCoalescer(delay_seconds=0.05, text_grace_seconds=0.05, publish=_publish)
 
     img = InboundMessage(
         channel_name="feishu",
@@ -133,6 +154,106 @@ async def test_coalesce_merges_image_then_text():
     assert len(out.files) == 1
     assert out.metadata["_owned_temp_paths"] == ["/tmp/a.jpg"]
     assert out.metadata["message_ids"] == ["om_img", "om_txt"]
+
+
+@pytest.mark.asyncio
+async def test_coalesce_holds_text_for_late_file():
+    """Text-first + slow file download must still merge (ops saw text-only before)."""
+    published: list[tuple[InboundMessage, str]] = []
+
+    async def _publish(msg: InboundMessage, mid: str) -> None:
+        published.append((msg, mid))
+
+    coalescer = FeishuInboundCoalescer(
+        delay_seconds=0.05,
+        text_grace_seconds=0.25,
+        sticky_seconds=0.0,
+        publish=_publish,
+    )
+    text = InboundMessage(
+        channel_name="feishu",
+        chat_id="oc_1",
+        user_id="ou_1",
+        text="这是啥",
+        files=[],
+        metadata={"message_id": "om_txt", "message_ids": ["om_txt"]},
+        account_id="analyst",
+    )
+    doc = InboundMessage(
+        channel_name="feishu",
+        chat_id="oc_1",
+        user_id="ou_1",
+        text="",
+        files=[{"path": "/tmp/a.docx", "kind": "file", "filename": "report.docx"}],
+        metadata={
+            "message_id": "om_file",
+            "message_ids": ["om_file"],
+            "_owned_temp_paths": ["/tmp/a.docx"],
+        },
+        account_id="analyst",
+    )
+    await coalescer.accept(text, source_message_id="om_txt")
+    # Short delay: text would have flushed under old 0.6s-only policy once media
+    # download lagged; grace keeps the batch open.
+    await asyncio.sleep(0.08)
+    assert published == []
+    await coalescer.accept(doc, source_message_id="om_file")
+    await asyncio.sleep(0.12)
+
+    assert len(published) == 1
+    out, primary = published[0]
+    assert primary == "om_txt"
+    assert out.text == "这是啥"
+    assert len(out.files) == 1
+    assert out.files[0]["filename"] == "report.docx"
+    assert out.metadata["message_ids"] == ["om_txt", "om_file"]
+
+
+@pytest.mark.asyncio
+async def test_coalesce_sticky_reattaches_caption_after_text_flush():
+    """Image event arriving after text already flushed still gets the caption."""
+    published: list[tuple[InboundMessage, str]] = []
+
+    async def _publish(msg: InboundMessage, mid: str) -> None:
+        published.append((msg, mid))
+
+    coalescer = FeishuInboundCoalescer(
+        delay_seconds=0.05,
+        text_grace_seconds=0.05,
+        sticky_seconds=1.0,
+        publish=_publish,
+    )
+    text = InboundMessage(
+        channel_name="feishu",
+        chat_id="oc_1",
+        user_id="ou_1",
+        text="这是什么图片",
+        files=[],
+        metadata={"message_id": "om_txt", "message_ids": ["om_txt"]},
+        account_id="analyst",
+    )
+    img = InboundMessage(
+        channel_name="feishu",
+        chat_id="oc_1",
+        user_id="ou_1",
+        text="",
+        files=[{"path": "/tmp/a.jpg", "kind": "image", "filename": "a.jpg"}],
+        metadata={"message_id": "om_img", "message_ids": ["om_img"], "_owned_temp_paths": ["/tmp/a.jpg"]},
+        account_id="analyst",
+    )
+    await coalescer.accept(text, source_message_id="om_txt")
+    await asyncio.sleep(0.12)
+    assert len(published) == 1
+    assert published[0][0].text == "这是什么图片"
+    assert not published[0][0].files
+
+    await coalescer.accept(img, source_message_id="om_img")
+    await asyncio.sleep(0.12)
+    assert len(published) == 2
+    out, _ = published[1]
+    assert out.text == "这是什么图片"
+    assert len(out.files) == 1
+    assert out.metadata.get("sticky_text_from") == "om_txt"
 
 
 @pytest.mark.asyncio
