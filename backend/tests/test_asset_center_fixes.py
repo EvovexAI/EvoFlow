@@ -69,16 +69,22 @@ def test_journal_concurrent_append_keeps_all_entries(asset_home: Path) -> None:
     ent = EntityRef("user", "user")
     n = 6
     threads = [
-        threading.Thread(target=lambda i=i: write_journal(ent, f"第{i}条内容", date="2026-01-01"))
+        threading.Thread(
+            target=lambda i=i: write_journal(
+                ent, f"第{i}条内容", title="并发追加反思", date="2026-01-01"
+            )
+        )
         for i in range(n)
     ]
     for t in threads:
         t.start()
     for t in threads:
         t.join()
-    text = (entity_root(ent) / "memory" / "journal" / "20260101.md").read_text(encoding="utf-8")
+    text = (entity_root(ent) / "memory" / "journal" / "并发追加反思.md").read_text(encoding="utf-8")
     for i in range(n):
         assert f"第{i}条内容" in text
+    # Filename is topic slug — not a calendar date.
+    assert not (entity_root(ent) / "memory" / "journal" / "20260101.md").exists()
 
 
 # ── 对话工具层隔离 ──────────────────────────────────────────────────

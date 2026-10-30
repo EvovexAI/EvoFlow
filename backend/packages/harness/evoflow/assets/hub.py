@@ -466,7 +466,7 @@ _SLUG_CJK_RE = None
 def _slug_cjk(text: str, *, max_len: int = 48, fallback: str = "note") -> str:
     """CJK-aware slug — 记忆标题多为中文，文件名保持可读。
 
-    仅用于**内容文件**名（facts/episodic/craft 的 .md）；实体桶与目录名仍是
+    仅用于**内容文件**名（facts/episodic/journal/craft 的 .md）；实体桶与目录名仍是
     ASCII 约定。非法字符折叠为 ``-``，ASCII 保留小写。
     """
     import re
@@ -564,13 +564,15 @@ def write_journal(
     entity: EntityRef,
     content: str,
     *,
+    title: str = "",
     date: str = "",
     append: bool = True,
     summary: str = "",
 ) -> dict[str, Any]:
-    """Create or append ``memory/journal/{YYYY-MM-DD}.md`` with catalog frontmatter.
+    """Create or append ``memory/journal/{slug}.md`` with catalog frontmatter.
 
-    Always keeps/updates YAML ``summary`` so Tier0/1 can list journals without full text.
+    Filename is the reflection **topic slug** (no YYYY/MM/DD in the name).
+    ``date`` only goes into YAML frontmatter. Summary stays short for Tier0/1 catalog.
     """
     body = str(content or "").strip()
     if not body:
@@ -583,11 +585,17 @@ def write_journal(
         day = datetime.now(UTC).astimezone().date().isoformat()
     else:
         date_cls.fromisoformat(day)
-    day_filename = day.replace("-", "")
 
-    one_liner = (str(summary or "").strip() or body.split("\n", 1)[0].lstrip("# ").strip())[:30]
+    heading = (
+        str(title or "").strip()
+        or str(summary or "").strip()
+        or body.split("\n", 1)[0].lstrip("# ").strip()[:60]
+    )
+    one_liner = (str(summary or "").strip() or heading)[:30]
+    slug = _slug_cjk(heading, fallback="reflection")
+
     ensure_entity_tree(entity)
-    rel = f"memory/journal/{day_filename}.md"
+    rel = f"memory/journal/{slug}.md"
     e = entity.normalized()
     target = resolve_entity_file(e, rel)
     # 读-改-写全程持锁：并发追加（员工写反思 + UI 编辑）不再互相丢内容
@@ -606,9 +614,9 @@ def write_journal(
                 parts = raw.split("---", 2)
                 if len(parts) >= 3:
                     raw = parts[2].lstrip("\n")
-            fm = f"---\ndate: {day}\nsummary: {one_liner}\n---\n\n"
+            fm = f"---\ntitle: {heading}\ndate: {day}\nsummary: {one_liner}\n---\n\n"
             if not raw.lstrip().startswith("#"):
-                raw = f"# {day_filename}\n\n{raw}"
+                raw = f"# {heading}\n\n{raw}"
             return fm + raw.rstrip() + "\n"
 
         if existing and append:
@@ -622,9 +630,9 @@ def write_journal(
             merged = raw.rstrip() + f"\n\n## {stamp}\n\n{body}\n"
             text = _with_frontmatter(merged)
         elif existing and not append:
-            text = _with_frontmatter(body if body.lstrip().startswith("#") else f"# {day_filename}\n\n{body}\n")
+            text = _with_frontmatter(body if body.lstrip().startswith("#") else f"# {heading}\n\n{body}\n")
         else:
-            text = _with_frontmatter(f"# {day_filename}\n\n{body}\n")
+            text = _with_frontmatter(f"# {heading}\n\n{body}\n")
         atomic_write_text(target, text)
     return read_text_file(e, rel)
 

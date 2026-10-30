@@ -8,7 +8,11 @@ import {
   isV4DisplayAuthoritative,
   publishV4DisplayAuthority,
 } from '../src/react/v4/v4Gate.ts'
-import type { ConversationRow } from '@zcode/shared/zcode-protocol-v4'
+import {
+  buildConversationTurnRenderUnits,
+  tryAppendTrailingUserInputUnit,
+} from '../src/zcode-ui/v4/conversationTurnRenderUnits.ts'
+import type { ConversationRow, UserInputRow } from '@zcode/shared/zcode-protocol-v4'
 
 const base = {
   v4Phase: 'connecting' as const,
@@ -187,6 +191,28 @@ describe('optimistic userInput（发送瞬间不切老面板）', () => {
     expect(next).toHaveLength(2)
     expect(next[1]).toMatchObject({ kind: 'userInput', text: 'new' })
     expect(mergeOptimisticUserInputRow(rows, 'old')).toBe(rows)
+  })
+
+  it('tryAppendTrailingUserInputUnit 复用前缀 units（send 乐观快路径）', () => {
+    const asUser = (text: string, rowId: number, turnId?: string): UserInputRow => ({
+      rowId,
+      turnId: turnId || `t-${rowId}`,
+      kind: 'userInput',
+      text,
+      origin: 'realUser',
+      createdAt: rowId,
+      createdAtSeq: 0,
+    })
+    const base: ConversationRow[] = [asUser('hello', 1), asUser('world', 2)]
+    const prevUnits = buildConversationTurnRenderUnits(base)
+    const next = [...base, asUser('搞定了吗', 3, 'optimistic-1')]
+    const appended = tryAppendTrailingUserInputUnit(prevUnits, base, next)
+    expect(appended).not.toBeNull()
+    expect(appended!).toHaveLength(prevUnits.length + 1)
+    for (let i = 0; i < prevUnits.length - 1; i++) {
+      expect(appended![i]).toBe(prevUnits[i])
+    }
+    expect(appended!.at(-1)?.visibleUserInputs[0]?.text).toBe('搞定了吗')
   })
 })
 

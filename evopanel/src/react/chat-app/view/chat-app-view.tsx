@@ -224,6 +224,7 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
     rightStageOpen,
     rightStageRecentClosed,
     rows,
+    pendingOptimisticUserText,
     runningSessionMap,
     selectedPlugins,
     selectedResumeAttach,
@@ -587,23 +588,26 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
               >
                 {(v4Payload, v4Phase) => {
                   /* 发送瞬间：在 V4 时间线尾部注入乐观 userInput，绝不整树切老面板。
-                     闲置切历史 turnLive=false，不会 hold，避免字墙。 */
+                     优先用 pendingOptimisticUserText（不经 setRows 全量历史），避免 flushSync 卡主线程。
+                     闲置切历史 turnLive=false 且无 pending，不会 hold，避免字墙。 */
                   const v4RowCount = v4Payload?.snapshot?.rows.totalCount ?? 0
                   const v4SessionMatched =
                     !!v4Payload &&
                     String(v4Payload.sessionId || '').trim() ===
                       String(selectedThreadId || '').trim()
                   const turnLive = selectedTurnBusy || selectedSessionLive
+                  const pendingOpt = String(pendingOptimisticUserText || '').trim()
                   const lastLocal =
                     Array.isArray(rows) && rows.length > 0 ? rows[rows.length - 1] : null
                   const lastLocalUserText =
                     lastLocal && String(lastLocal.role || '') === 'user'
                       ? String(lastLocal.text || '').trim()
                       : ''
+                  const optimisticNeedle = pendingOpt || lastLocalUserText
                   const awaitingV4UserEcho =
-                    turnLive &&
-                    !!lastLocalUserText &&
-                    !v4WindowHasUserText(v4Payload?.snapshot?.rows?.window, lastLocalUserText)
+                    (turnLive || !!pendingOpt) &&
+                    !!optimisticNeedle &&
+                    !v4WindowHasUserText(v4Payload?.snapshot?.rows?.window, optimisticNeedle)
                   const localOptimisticHold =
                     awaitingV4UserEcho &&
                     (v4Phase === 'ready'
@@ -611,9 +615,10 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
                       : v4Phase === 'connecting' ||
                         v4Phase === 'no-thread' ||
                         v4Phase === 'failed')
-                  const localHasRows = Array.isArray(rows) && rows.length > 0
+                  const localHasRows =
+                    (Array.isArray(rows) && rows.length > 0) || !!pendingOpt
                   const v4HasRows = v4SessionMatched && v4RowCount > 0
-                  const optimisticUserText = localOptimisticHold ? lastLocalUserText : null
+                  const optimisticUserText = localOptimisticHold ? optimisticNeedle : null
                   let knownEmptyDraft = false
                   try {
                     knownEmptyDraft =

@@ -14,7 +14,7 @@ export type SessionHistoryFetchResult = {
 type ChatHistoryApi = (
   sessionKey: string,
   limit: number,
-  opts?: { all?: boolean; beforeSeq?: number },
+  opts?: { all?: boolean; beforeSeq?: number; bypassCache?: boolean },
 ) => Promise<{
   messages?: unknown[]
   hasMore?: boolean
@@ -50,10 +50,12 @@ function normalizeResult(result: {
 export async function fetchSessionHistoryMessages(
   api: ChatHistoryApi,
   sessionKey: string,
-  opts?: { limit?: number },
+  opts?: { limit?: number; bypassCache?: boolean },
 ): Promise<SessionHistoryFetchResult> {
   const lim = Math.max(1, Math.min(200, Number(opts?.limit) || HISTORY_OPEN_PAGE_SIZE))
-  const result = await api(sessionKey, lim, {})
+  const result = await api(sessionKey, lim, {
+    ...(opts?.bypassCache ? { bypassCache: true } : {}),
+  })
   return normalizeResult(result)
 }
 

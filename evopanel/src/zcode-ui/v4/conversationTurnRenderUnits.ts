@@ -496,3 +496,38 @@ export function buildConversationTurnRenderUnits(
     normalizeRenderUnitPosition(unit, index, keptUnits.length, options),
   );
 }
+
+/**
+ * 发送乐观气泡：rows 仅尾部多一行同引用前缀的 userInput 时，复用既有 units，
+ * 只 materialize 新 turn，避免整窗 rebuild（主因 ~300ms send longtask）。
+ */
+export function tryAppendTrailingUserInputUnit(
+  prevUnits: readonly ConversationTurnRenderUnit[],
+  prevRows: readonly ConversationRow[],
+  nextRows: readonly ConversationRow[],
+  options: BuildConversationTurnRenderUnitsOptions = {},
+): ConversationTurnRenderUnit[] | null {
+  if (nextRows.length !== prevRows.length + 1) return null;
+  for (let i = 0; i < prevRows.length; i++) {
+    if (prevRows[i] !== nextRows[i]) return null;
+  }
+  const added = nextRows[nextRows.length - 1];
+  if (!added || !isUserInputRow(added)) return null;
+
+  const draft = createDraftUnit(added.turnId);
+  draft.userInputs.push(added);
+  draft.orderedRows.push(added);
+  const total = prevUnits.length + 1;
+  const rawNew = materializeDraftUnit(draft, prevUnits.length, total, options);
+  if (!shouldKeepRenderUnit(rawNew)) return null;
+  const newUnit = normalizeRenderUnitPosition(rawNew, prevUnits.length, total, options);
+
+  if (prevUnits.length === 0) return [newUnit];
+
+  const out: ConversationTurnRenderUnit[] = new Array(total);
+  for (let i = 0; i < prevUnits.length; i++) {
+    out[i] = normalizeRenderUnitPosition(prevUnits[i]!, i, total, options);
+  }
+  out[prevUnits.length] = newUnit;
+  return out;
+}

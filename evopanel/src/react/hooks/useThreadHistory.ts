@@ -24,8 +24,9 @@ import {
   HISTORY_OPEN_PAGE_SIZE,
 } from './fetchSessionHistory.js'
 import { awaitSessionHistoryWarm } from '../lib/warm-session-history-prefetch.js'
-import { isEvoflowChatV4Enabled } from '../v4/v4Gate.js'
+import { isEvoflowChatV4Enabled, isV4DisplayAuthoritative } from '../v4/v4Gate.js'
 import { logV4Life } from '../lib/v4-lifecycle-log.js'
+import { wsClient } from '../../lib/ws-client.js'
 
 export type ThreadHistoryLiveOpts = {
   isHot: boolean
@@ -535,6 +536,85 @@ export function useThreadHistory(sessionKey: string | null, liveOpts: ThreadHist
       // warming; onBackendReadyChange reloads once the latch opens.
       let deferLoadingClear = false
       try {
+        // 同会话已绑定 / idle 已有行 / V4 已权威：勿再打慢 /messages。
+        // V4 上屏不依赖 host rows；bypassCache / dbOnly 仍强制拉库对账。
+        const tidEarly = String(wsClient.getSessionThreadId?.(sessionKey) || '').trim()
+        const hostHasRows = Array.isArray(rowsRef.current) && rowsRef.current.length > 0
+        const alreadyBoundSoft =
+          soft &&
+          historyBoundSessionKeyRef.current === sessionKey &&
+          hostHasRows
+        // idle 已画行但 bind 被切会话清掉：仍应跳过，勿再冷拉
+        const softPaintedUnbound = soft && hostHasRows
+        if (!dbOnly && !opt?.bypassCache && (alreadyBoundSoft || softPaintedUnbound)) {
+          setLoading(false)
+          setError(null)
+          if (historyBoundSessionKeyRef.current !== sessionKey) {
+            setHistoryBoundSessionKey(sessionKey)
+          }
+          logV4Life({
+            event: 'legacy_history_fetch',
+            sessionKey,
+            threadId: tidEarly || undefined,
+            level: 'info',
+            zh: '旧历史 /messages 跳过：同会话已有行（软重开复用；V4 上屏不依赖它）。',
+            detail: {
+              skipped: true,
+              reason: alreadyBoundSoft ? 'already_bound_soft' : 'soft_painted_unbound',
+            },
+            skipDedupe: true,
+          })
+          return {
+            transcriptAnchor: buildTranscriptResumeAnchorFromDisplayRows(rowsRef.current, {
+              runId: String(opt?.anchorRunId || meta?.currentRunId || '').trim() || null,
+            }),
+          }
+        }
+        // V4 已权威（或短等后权威）：冷开也不 await /messages，避免与 send 抢 SQLite。
+        if (
+          !dbOnly &&
+          !opt?.bypassCache &&
+          isEvoflowChatV4Enabled() &&
+          tidEarly
+        ) {
+          let v4Owns = isV4DisplayAuthoritative(tidEarly)
+          if (!v4Owns) {
+            const waitUntil = Date.now() + 450
+            while (Date.now() < waitUntil) {
+              await new Promise<void>((r) => {
+                window.setTimeout(r, 40)
+              })
+              if (epoch !== historyFetchEpochRef.current) {
+                return { transcriptAnchor: null }
+              }
+              if (isV4DisplayAuthoritative(tidEarly)) {
+                v4Owns = true
+                break
+              }
+            }
+          }
+          if (v4Owns) {
+            setLoading(false)
+            setError(null)
+            setHistoryBoundSessionKey(sessionKey)
+            logV4Life({
+              event: 'legacy_history_fetch',
+              sessionKey,
+              threadId: tidEarly,
+              level: 'info',
+              zh: '旧历史 /messages 跳过：V4 已权威上屏（冷开也不拉；副作用可闲时对账）。',
+              detail: { skipped: true, reason: 'v4_authoritative' },
+              skipDedupe: true,
+            })
+            return {
+              transcriptAnchor: hostHasRows
+                ? buildTranscriptResumeAnchorFromDisplayRows(rowsRef.current, {
+                    runId: String(opt?.anchorRunId || meta?.currentRunId || '').trim() || null,
+                  })
+                : null,
+            }
+          }
+        }
         const { api, isGatewayWarming, isBackendReady } = await import('../../lib/tauri-api.js')
         if (
           !dbOnly &&
@@ -579,11 +659,16 @@ export function useThreadHistory(sessionKey: string | null, liveOpts: ThreadHist
           })
         }
         const histStarted = Date.now()
+        const histThreadId =
+          String(wsClient.getSessionThreadId?.(sessionKey) || '').trim() || undefined
         const result = await Promise.race([
           fetchSessionHistoryMessages(
             (sk, limit, opts) => api.chatHistory(sk, limit, opts),
             sessionKey,
-            { limit: HISTORY_OPEN_PAGE_SIZE },
+            {
+              limit: HISTORY_OPEN_PAGE_SIZE,
+              ...(opt?.bypassCache ? { bypassCache: true } : {}),
+            },
           ),
           new Promise<null>((resolve) => {
             window.setTimeout(() => resolve(null), HISTORY_FETCH_TIMEOUT_MS)
@@ -591,11 +676,45 @@ export function useThreadHistory(sessionKey: string | null, liveOpts: ThreadHist
         ])
         if (epoch !== historyFetchEpochRef.current) return { transcriptAnchor: null }
         const histMs = Math.max(0, Date.now() - histStarted)
+        // 请求期间 V4 已接管：丢弃重结果，勿 buildHistoryView/setRows（主线程 longtask）
+        const tidNow =
+          histThreadId ||
+          String(wsClient.getSessionThreadId?.(sessionKey) || '').trim() ||
+          undefined
+        if (
+          result &&
+          !dbOnly &&
+          !opt?.bypassCache &&
+          isEvoflowChatV4Enabled() &&
+          tidNow &&
+          isV4DisplayAuthoritative(tidNow)
+        ) {
+          setLoading(false)
+          setError(null)
+          setHistoryBoundSessionKey(sessionKey)
+          const n = Array.isArray(result.messages) ? result.messages.length : 0
+          logV4Life({
+            event: 'legacy_history_fetch',
+            sessionKey,
+            threadId: tidNow,
+            level: 'info',
+            zh: `旧历史 /messages 已返回但丢弃应用：V4 已权威（${histMs}ms / ${n} 条；避免落地 longtask）。`,
+            detail: {
+              histMs,
+              messageCount: n,
+              discarded: true,
+              reason: 'v4_authoritative_after_fetch',
+            },
+            skipDedupe: true,
+          })
+          return { transcriptAnchor: null }
+        }
         if (result) {
           const n = Array.isArray(result.messages) ? result.messages.length : 0
           logV4Life({
             event: 'legacy_history_fetch',
             sessionKey,
+            threadId: histThreadId,
             level: histMs >= 1500 ? 'warn' : 'info',
             zh:
               histMs >= 1500
@@ -608,6 +727,7 @@ export function useThreadHistory(sessionKey: string | null, liveOpts: ThreadHist
           logV4Life({
             event: 'legacy_history_fetch',
             sessionKey,
+            threadId: histThreadId,
             level: 'warn',
             zh: `旧历史 /messages 超时或未返回（等了约 ${histMs}ms，上限 ${HISTORY_FETCH_TIMEOUT_MS}ms）。V4 仍可凭首帧上屏。`,
             detail: { histMs, timedOut: true },
@@ -726,7 +846,18 @@ export function useThreadHistory(sessionKey: string | null, liveOpts: ThreadHist
         // Soft reopen: skip setRows when transcript is visually unchanged — avoids virtualizer
         // remount / scrollTop reset that looks like a top→bottom jump on a few sessions.
         const rowsUnchanged = soft && displayRowsEquivalent(rowsRef.current, mergedRows)
-        if (!rowsUnchanged) {
+        // V4 已权威显示：host setRows 只喂副作用，整页重渲会砸出 longtask；等价或已有行则跳过。
+        const v4OwnsDisplay =
+          isEvoflowChatV4Enabled() &&
+          isV4DisplayAuthoritative(wsClient.getSessionThreadId?.(sessionKey) || null)
+        const skipHostSetRows =
+          rowsUnchanged ||
+          (v4OwnsDisplay &&
+            !dbOnly &&
+            Array.isArray(rowsRef.current) &&
+            rowsRef.current.length > 0 &&
+            (soft || displayRowsEquivalent(rowsRef.current, mergedRows)))
+        if (!skipHostSetRows) {
           setRows(mergedRows)
         }
         paintedFromIdleCacheRef.current = false

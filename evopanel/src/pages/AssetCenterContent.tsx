@@ -286,12 +286,18 @@ function workspacePath(tab: AssetTab, treePath?: string): string {
   return "";
 }
 
-function todayJournalPath(): string {
-  const d = new Date();
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `memory/journal/${y}-${m}-${day}.md`;
+/** Topic slug for journal files — no calendar date in the filename. */
+function journalSlugFromTitle(title: string): string {
+  const raw = String(title || "")
+    .trim()
+    .replace(/[^\w\u4e00-\u9fff-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 48);
+  return raw || "reflection";
+}
+
+function journalPathFromTitle(title: string): string {
+  return `memory/journal/${journalSlugFromTitle(title)}.md`;
 }
 
 function assetsHrefForPath(
@@ -913,12 +919,13 @@ export default function AssetCenterContent() {
   );
 
   const createTodayJournal = useCallback(async () => {
-    const path = todayJournalPath();
-    const stamp = fileBaseName(path).replace(".md", "");
-    const stub = `# 反思 ${stamp}\n\n## 今日做了什么\n\n\n## 学到什么\n\n\n## 下次注意\n\n`;
+    const title = String(window.prompt("反思标题（文件名用这个，不要带年月日）", "") || "").trim();
+    if (!title) return;
+    const path = journalPathFromTitle(title);
+    const stub = `# ${title}\n\n## 做了什么\n\n\n## 学到什么\n\n\n## 下次注意\n\n`;
     try {
       await api.assetsPutFile({ ...currentEntity, path, content: stub });
-      toast.success("已创建今日反思");
+      toast.success("已创建反思");
       if (activeTab === "journal") {
         await loadTree("memory/journal");
         await loadFile(path);
@@ -2263,7 +2270,7 @@ function TreeWorkspace({
     },
     journal: {
       title: "还没有反思",
-      desc: "每天一篇反思日志，记录「做了什么 / 学到什么 / 下次注意」。",
+      desc: "按主题写反思（文件名用内容标题，不带年月日），记录「做了什么 / 学到什么 / 下次注意」。",
     },
   };
   const isEmpty = files.length === 0 && !fileSearch.trim();
@@ -2277,7 +2284,7 @@ function TreeWorkspace({
     ) : tab === "journal" ? (
       <button type="button" className="ac-btn-ghost" onClick={onNewJournal}>
         <PenLine size={13} strokeWidth={1.8} />
-        新建今日反思
+        新建反思
       </button>
     ) : (
       <a className="ac-btn-ghost" href="#/skills/market">
@@ -2350,7 +2357,7 @@ function TreeWorkspace({
                 ) : tab === "journal" ? (
                   <button type="button" className="ac-cta" onClick={onNewJournal}>
                     <PenLine size={15} strokeWidth={1.8} />
-                    新建今日反思
+                    新建反思
                   </button>
                 ) : (
                   <a className="ac-cta" href="#/skills/market">

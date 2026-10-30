@@ -202,7 +202,7 @@ export function logChatTurnSendWire(opts: {
   const sinceDesc = since != null ? `距点击 ${since}ms` : '无点击锚点'
   const level = since != null && since >= SLOW_FIRST_MS ? 'warn' : 'info'
   emit(
-    `消息已上线（chatSend）：${sinceDesc}${since != null && since >= SLOW_FIRST_MS ? ' —— 发送准备偏慢（context/abort/beforeWire）' : ''}`,
+    `消息已上线（chatSend）：${sinceDesc}${since != null && since >= SLOW_FIRST_MS ? ' —— 发送准备偏慢（paint/context/abort/beforeWire）' : ''}`,
     {
       event: 'send_wire',
       sessionKey: sessionKey || sendTrace.sessionKey || undefined,

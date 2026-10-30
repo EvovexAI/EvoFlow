@@ -596,7 +596,10 @@ def mirror_wrap_up_to_asset_hub(
         if state:
             bits.append(f"**站立摘要**：{state}")
         summary = (str(parsed.get("state_summary") or "").strip() or body.split("\n", 1)[0])[:30]
-        jres = write_journal(entity, "\n\n".join(bits), summary=summary)
+        jtitle = (str(parsed.get("state_summary") or "").strip() or "值班反思")[:60]
+        jres = write_journal(
+            entity, "\n\n".join(bits), title=jtitle, summary=summary
+        )
         out["journal"] = jres
 
     craft = parsed.get("craft")

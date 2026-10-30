@@ -1276,6 +1276,11 @@ export function useChatAppController() {
   /** 本会话本轮是否曾展示过消息；用于防止误进首页藏掉底部输入框 */
   const [sessionHadContent, setSessionHadContent] = useState(false)
   /**
+   * 发送瞬间轻量乐观气泡文案（不经 setRows 全量历史）。
+   * V4 用它 mergeOptimisticUserInputRow；host rows 在 paint 后再同步。
+   */
+  const [pendingOptimisticUserText, setPendingOptimisticUserText] = useState('')
+  /**
    * 显式打开工作台仪表盘（侧栏「工作台」/ shell-open-home）。
    * V4 下「新对话」空草稿不再自动进首页；只有 preferHomeDashboard 才挂 EvoFlowHomeDashboard。
    * 点工作台只切首页、不 createSession；发消息时才 ensureChatSessionKey。
@@ -1289,6 +1294,7 @@ export function useChatAppController() {
   }, [rows])
   useLayoutEffect(() => {
     setSessionHadContent(false)
+    setPendingOptimisticUserText('')
   }, [selectedSessionKey])
   useEffect(() => {
     if (Array.isArray(rows) && rows.length > 0) {
@@ -5766,6 +5772,7 @@ export function useChatAppController() {
       setPlatformFocusEntryId,
       setPluginComposerPillsVisible,
       setPreferHomeDashboard,
+      setPendingOptimisticUserText,
       setRoleUiNonce,
       setRows,
       setSessionHadContent,
@@ -6477,6 +6484,8 @@ export function useChatAppController() {
     sessionNamesTick,
     sessionRef,
     sessions,
+    pendingOptimisticUserText,
+    setPendingOptimisticUserText,
     sessionSidebarOpen,
     setBottomModelOpen,
     setBottomMoreOpen,

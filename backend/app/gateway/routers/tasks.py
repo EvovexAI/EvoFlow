@@ -768,6 +768,8 @@ def _list_tasks_catalog_sync(
     from evoflow.persistence.repositories import list_root_task_summaries
 
     mid = str(project_id or "").strip() or None
+    # Full root scan (read pool only — must not take get_db write lock). Authz /
+    # hide_noise / status filters need the full set for correct totals.
     raw_tasks = list_root_task_summaries(main_task_id=mid)
     all_tasks: list[dict[str, Any]] = []
     for task in raw_tasks:

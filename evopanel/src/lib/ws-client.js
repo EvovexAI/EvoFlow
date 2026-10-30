@@ -503,6 +503,9 @@ let _legacyWorkspaceMigrated = false
 let _pendingLegacyWorkspace = null
 /** 同会话并发 messages / workspace hydrate 合并为单次请求 */
 const _chatHistoryInflight = new Map()
+/** 短 TTL 结果缓存：避免同会话软重开 / heal / ready-kick 连续打慢 /messages */
+const _chatHistoryResultCache = new Map()
+const CHAT_HISTORY_RESULT_TTL_MS = 20_000
 const _sessionWorkspaceHistoryInflight = new Map()
 /** 同 sessionKey 并发 ensure-thread 合并为单次 POST */
 const _ensureThreadInflight = new Map()
@@ -8259,6 +8262,13 @@ export class WsClient {
     const flightKey = all
       ? `${key}:all`
       : `${key}:${lim}:${beforeSeq != null && Number.isFinite(beforeSeq) ? beforeSeq : ''}`
+    const bypassCache = !!opts?.bypassCache
+    if (!bypassCache) {
+      const cached = _chatHistoryResultCache.get(flightKey)
+      if (cached && Date.now() - cached.at < CHAT_HISTORY_RESULT_TTL_MS) {
+        return cached.value
+      }
+    }
     const inflight = _chatHistoryInflight.get(flightKey)
     if (inflight) return inflight
 
@@ -8299,7 +8309,11 @@ export class WsClient {
     })()
     _chatHistoryInflight.set(flightKey, promise)
     try {
-      return await promise
+      const value = await promise
+      if (value && Array.isArray(value.messages)) {
+        _chatHistoryResultCache.set(flightKey, { at: Date.now(), value })
+      }
+      return value
     } finally {
       if (_chatHistoryInflight.get(flightKey) === promise) {
         _chatHistoryInflight.delete(flightKey)

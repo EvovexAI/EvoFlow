@@ -33,6 +33,7 @@ import { usePdfViewerLabels, usePptxViewerLabels } from "@/hooks/usePreviewViewe
 import {
   FILE_VIEWER_MAX_TEXT_BYTES,
   createDiffSourceFilePreviewSource,
+  inferCodeLanguage,
   inferImageMediaType,
   inferMediaPreview,
   isPdfPreviewPath,
@@ -405,6 +406,45 @@ function isPlainCodeSource(source: CodeViewerSource | null): boolean {
   return false;
 }
 
+/**
+ * 「纯文本类」预览：无语法高亮的段落文本（.txt / .log / .md 源码 / text 源）。
+ *
+ * 这类内容在右侧面板里按代码处理会让长行横向滚动、每行都很宽，用户在窄面板里读不到
+ * 句尾。默认给它们软换行（配合纵向滚动），代码文件仍维持不换行以保留缩进对齐。
+ * 菜单里的「自动换行」仍可手动覆盖本默认值。
+ */
+export function isPlainTextLikeSource(source: CodeViewerSource | null): boolean {
+  if (!source) {
+    return false;
+  }
+
+  if (source.type === "text") {
+    // 已明确标注语言（json / python …）的 text 源按代码对待，不算纯文本。
+    return source.language === "log";
+  }
+
+  if (source.type !== "file") {
+    return false;
+  }
+
+  const path = source.path;
+  if (!path) {
+    return false;
+  }
+  if (isMarkdownFilePath(path) || isHtmlFilePath(path) || isSvgFilePath(path)) {
+    return false;
+  }
+  if (
+    getFileImageMediaType(path) ||
+    isPdfPreviewPath(path) ||
+    getOfficeFilePreviewKind(path) ||
+    isPptxPreviewPath(path)
+  ) {
+    return false;
+  }
+  return inferCodeLanguage(path, "") === "log";
+}
+
 function getPreviewPaneDisplayOptions(
   source: CodeViewerSource | null,
   viewModes: {
@@ -643,7 +683,10 @@ export function PreviewPane({
   const selectedEditor = editorSelection.selectedEditor;
   const canOpenInEditor = Boolean(source?.path && selectedEditor);
   const canOpenDiffFilePreview = Boolean(diffFilePreviewSource && onOpenCodeViewer);
-  const wrapLongLines = wrapLongLinesOverride ?? codePreviewSettings.wrapLongLines;
+  // 纯文本类（.txt / 无语法日志 / text 源）默认软换行：右侧面板窄，长行横向滚动读不到内容。
+  // 代码类保持默认不换行（缩进对齐更重要），仍可在菜单里手动开。
+  const wrapLongLines =
+    wrapLongLinesOverride ?? (isPlainTextLikeSource(source) || codePreviewSettings.wrapLongLines);
   const canCreateCodeComment = Boolean(
     source?.type !== "code-review" && source?.path && sourceWorkspacePath,
   );

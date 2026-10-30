@@ -1,6 +1,7 @@
 /**
  * One-click asset deposit prompts (episode / craft / journal).
- * Extracted from ChatApp.tsx (P33).
+ * Aligned with Entity Asset Hub: assets(action="note") → memory/_inbox/notes/
+ * (Phase2 consolidates to episodic / craft / journal). Extracted from ChatApp.tsx (P33).
  */
 import { toast } from '../../../components/toast.js'
 
@@ -39,28 +40,31 @@ export async function handleAssetQuickAction(
     ? `写入智能体员工「${empCode}」自己的资产目录（employees/${empCode}/，与用户同级），不要写到用户「我」的资产目录（assets/${myUserRoot}/）。`
     : `写入用户「我」的资产目录（assets/${myUserRoot}/，多用户安装里形如 assets/users/<id>/）。`
 
+  const writeRule =
+    '落盘方式（强制）：只用 `assets(action="note", content="…")`，首行带对应标签；工具会写入 `memory/_inbox/notes/<slug>.md`，由 Phase2 合并到正式目录。禁止直写 `memory/episodic/`、`memory/journal/`、`craft/`，禁止 `craft/<name>/SKILL.md`（已改为扁平 `craft/<name>.md`）。'
+
   const messages = {
     episode: [
-      '请根据刚才整段对话，把「这次对话的过程」整理成一篇过程记录，写入资产（memory/episodic/{日期}-{slug}.md）。',
+      '请根据刚才整段对话，把「这次对话的过程」整理成一篇过程记录并沉淀到资产。',
       ownerLine,
-      '用途：给人以后回顾这段对话走过了什么、结论/约定是什么；不是沉淀经验（怎么做），也不是反思（日结/判断）。',
-      '文件必须带 YAML frontmatter：title + summary（短描述 10～30 字，能辨认即可，勿写长）+ 可选 tags；正文按时间线或要点写清过程。',
-      '落盘前自检：soul 块内容若与 system_prompt 高度重叠，去重后再写——避免下一次注入时同义反复。',
-      '不要再问我要写什么；自行总结并保存。',
+      writeRule,
+      '标签用 `[process]`。用途：给人以后回顾这段对话走过了什么、结论/约定是什么；不是沉淀经验（怎么做），也不是反思（日结/判断）。',
+      'content 示例首行：`[process] 短标题`；正文按时间线或要点写清过程；标题旁可加一句 10～30 字摘要。',
+      '不要再问我要写什么；自行总结并用 assets note 保存。',
     ].join('\n'),
     journal: [
-      '请根据刚才的对话，直接写一段今日反思并沉淀到资产（memory/journal/{今天}.md）。',
+      '请根据刚才的对话，直接写一段今日反思并沉淀到资产。',
       ownerLine,
-      '文件必须带 YAML frontmatter：date + summary（短描述 10～30 字，能辨认即可，勿写长）+ 可选 tags；正文再写详细反思。',
-      '落盘前自检：soul 块内容若与 system_prompt 高度重叠，去重后再写——避免下一次注入时同义反复。',
-      '不要再问我要写什么；自行总结并保存。',
+      writeRule,
+      '标签用 `[reflection]`。content 示例首行：`[reflection] 短标题`（短标题即主题，Phase2 后正式文件名也用主题 slug，**不要**带年月日）；正文写判断、教训与下次注意点；可附一句 10～30 字摘要。',
+      '不要再问我要写什么；自行总结并用 assets note 保存。',
     ].join('\n'),
     craft: [
-      '请把刚才对话里可复用的做法，直接沉淀成一条经验（craft/{name}/SKILL.md）。',
+      '请把刚才对话里可复用的做法，直接沉淀成一条经验。',
       ownerLine,
-      'SKILL.md 必须带 frontmatter：name + description（短描述 10～30 字，能辨认即可，勿写长）；正文再写步骤/结论。',
-      '落盘前自检：soul 块内容若与 system_prompt 高度重叠，去重后再写——避免下一次注入时同义反复。',
-      '不要再问我要标题或正文；自行总结并保存。',
+      writeRule,
+      '标签用 `[experience]`。content 示例首行：`[experience] 短标题`；正文写适用场景、关键步骤、反例/避坑；可附一句 10～30 字描述。',
+      '不要再问我要标题或正文；自行总结并用 assets note 保存。',
     ].join('\n'),
   } as const
 

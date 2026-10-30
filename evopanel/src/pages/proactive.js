@@ -374,18 +374,35 @@ export async function render() {
             <p class="page-desc">加人、排班、组织编制；有事项等你拍板时优先处理，进度全貌看「工作项」</p>
           </div>
           <div class="page-actions">
-            <div class="pro-feishu-toolbar" id="pro-feishu-toolbar" hidden>
-              <span class="pro-feishu-toolbar-label" id="pro-feishu-toolbar-label" title=""></span>
-              <button type="button" class="btn btn-sm btn-primary" id="pro-feishu-bind-next">扫码绑定</button>
-            </div>
-            <div class="pro-duty-card" id="pro-switch-card">
-              <span class="pro-switch-dot" id="pro-switch-dot" aria-hidden="true"></span>
-              <span class="pro-switch-text" id="pro-switch-text">加载中…</span>
-              <span class="pro-switch-meta" id="pro-switch-meta"></span>
-              <button type="button" class="btn btn-xs" id="pro-switch-btn" disabled>—</button>
+            <div class="pro-actions-state">
+              <div class="pro-duty-card" id="pro-switch-card">
+                <span class="pro-switch-dot" id="pro-switch-dot" aria-hidden="true"></span>
+                <span class="pro-switch-text" id="pro-switch-text">自动上班</span>
+                <span class="pro-switch-meta" id="pro-switch-meta"></span>
+                <button
+                  type="button"
+                  class="pro-switch"
+                  id="pro-switch-btn"
+                  role="switch"
+                  aria-checked="false"
+                  aria-label="全员自动上班"
+                  disabled
+                >
+                  <span class="pro-switch-knob" aria-hidden="true"></span>
+                </button>
+              </div>
+              <div class="pro-feishu-toolbar" id="pro-feishu-toolbar" hidden>
+                <span class="pro-feishu-toolbar-label" id="pro-feishu-toolbar-label" title=""></span>
+                <button type="button" class="pro-feishu-bind" id="pro-feishu-bind-next">绑定</button>
+              </div>
             </div>
             <button type="button" class="btn btn-primary btn-sm" id="pro-hire">加人</button>
-            <button type="button" class="btn btn-secondary btn-sm" id="pro-refresh">刷新</button>
+            <button type="button" class="pro-icon-btn" id="pro-refresh" aria-label="刷新" title="刷新">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M21 12a9 9 0 1 1-2.64-6.36"/>
+                <path d="M21 3v6h-6"/>
+              </svg>
+            </button>
           </div>
         </div>
 
@@ -1263,8 +1280,9 @@ async function loadStatus(page) {
 
     card?.classList.toggle('pro-duty-card--on', !!running)
     card?.classList.toggle('pro-duty-card--off', !running)
+    card?.classList.remove('pro-duty-card--error')
     dot.className = 'pro-switch-dot' + (running ? ' pro-switch-dot--on' : ' pro-switch-dot--off')
-    text.textContent = running ? '自动上班已开启' : '自动上班已关闭'
+    text.textContent = '自动上班'
     card?.setAttribute(
       'title',
       running
@@ -1272,7 +1290,7 @@ async function loadStatus(page) {
         : '全员自动上班已关闭：员工不会自动巡检，可手动「现在开始工作」',
     )
 
-    const parts = []
+    const parts = [running ? '已开启' : '已关闭']
     if (st.active_roles != null) parts.push(`${st.active_roles} 人在岗`)
     if (_busyCodes.size) parts.push(`${_busyCodes.size} 人工作中`)
     const pendingN = Number(st.pending_approvals || 0)
@@ -1290,29 +1308,34 @@ async function loadStatus(page) {
     })
 
     btn.disabled = false
-    btn.textContent = running ? '关闭' : '开启'
+    btn.setAttribute('aria-checked', running ? 'true' : 'false')
+    btn.classList.toggle('is-on', !!running)
     btn.title = running ? '关闭全员自动上班（在途巡检会停掉）' : '开启全员自动上班'
-    btn.className = 'btn btn-xs ' + (running ? 'btn-danger' : 'btn-primary')
+    btn.setAttribute(
+      'aria-label',
+      running ? '全员自动上班已开启，点此关闭' : '全员自动上班已关闭，点此开启',
+    )
     btn.onclick = () => toggleEngine(page, running)
 
     // Always refresh busy/running badge without remounting cards
     if (_currentTab === 'roles') patchRoleBusyUi(page)
   } catch (_e) {
     card?.classList.remove('pro-duty-card--on')
-    card?.classList.add('pro-duty-card--off')
+    card?.classList.add('pro-duty-card--off', 'pro-duty-card--error')
     dot.className = 'pro-switch-dot pro-switch-dot--off'
-    text.textContent = '无法连接员工服务'
-    meta.textContent = '请确认后端已启动'
+    text.textContent = '自动上班'
+    meta.textContent = '服务未连接'
     meta.classList.remove('is-empty')
     btn.disabled = true
-    btn.textContent = '—'
+    btn.setAttribute('aria-checked', 'false')
+    btn.classList.remove('is-on')
   }
 }
 
 async function toggleEngine(page, currentlyRunning) {
   const btn = page.querySelector('#pro-switch-btn')
   btn.disabled = true
-  btn.textContent = '处理中…'
+  btn.classList.add('is-busy')
   try {
     if (currentlyRunning) {
       await api.proactiveDisable()

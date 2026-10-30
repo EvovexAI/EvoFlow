@@ -118,30 +118,29 @@
   color: var(--text-secondary);
 }
 
-/* ── 值班开关（页头内联胶囊：状态 · 在岗/待批 · 开关） ── */
+/* ── 自动上班开关（页头扁平行内控件，不占独立一行） ── */
 .pro-duty-card {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
+  gap: 8px;
   flex: 0 0 auto;
-  padding: 2px 3px 2px 9px;
-  border-radius: 999px;
-  border: 1px solid var(--pro-slate-line);
-  background: var(--bg-secondary);
-  font-size: var(--ef-text-sm);
+  height: 28px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: var(--font-size-xs);
   line-height: 1;
   white-space: nowrap;
-  transition: border-color var(--dur-base), background var(--dur-base);
 }
 
-.pro-duty-card--on {
-  border-color: color-mix(in srgb, var(--pro-teal) 38%, var(--pro-slate-line));
-  background: color-mix(in srgb, var(--pro-teal) 9%, var(--bg-secondary));
-}
-
+.pro-duty-card--on,
 .pro-duty-card--off {
-  border-color: var(--pro-slate-line);
-  background: var(--bg-secondary);
+  border: 0;
+  background: none;
+}
+
+.pro-duty-card--error .pro-switch-text {
+  color: var(--text-tertiary);
 }
 
 /* ── 待你拍板置顶条 ── */
@@ -233,15 +232,33 @@
   justify-content: flex-end;
 }
 
-.pro-feishu-toolbar {
+/* 页头操作按钮：比通用 32px 再小一号，与刷新图标按钮同高 */
+.proactive-page .page-actions .btn {
+  height: 28px;
+  min-height: 28px;
+  padding: 0 10px;
+  font-size: var(--font-size-xs);
+  border-radius: 7px;
+}
+
+/* 状态区：值班开关 + IM 提示，扁平行内，不做卡片、不套盒子 */
+.pro-actions-state {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  max-width: min(100%, 280px);
-  padding: 4px 6px 4px 10px;
-  border-radius: var(--radius-md);
-  border: 1px solid color-mix(in srgb, var(--pro-teal, #0d9488) 32%, var(--pro-slate-line, var(--border)));
-  background: color-mix(in srgb, var(--pro-teal, #0d9488) 10%, var(--bg-secondary));
+  min-height: 28px;
+  min-width: 0;
+}
+
+.pro-feishu-toolbar {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding-left: 10px;
+  border-left: 1px solid var(--pro-slate-line);
+  font-size: var(--ef-text-xs);
+  color: var(--text-tertiary);
+  white-space: nowrap;
 }
 
 .pro-feishu-toolbar[hidden] {
@@ -249,20 +266,68 @@
 }
 
 .pro-feishu-toolbar-label {
-  font-size: var(--ef-text-sm) ;
+  font-size: var(--ef-text-xs);
   font-weight: 600;
-  color: var(--pro-teal, #0d9488);
+  color: var(--text-tertiary);
   white-space: nowrap;
   cursor: help;
 }
 
-.pro-feishu-toolbar .btn {
-  flex-shrink: 0;
-  border-radius: var(--radius-md);
+/* IM 绑定：文字按钮（该行唯一可点文字），避免再出现第二个实心 CTA */
+.pro-feishu-bind {
+  appearance: none;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  background: none;
+  font: inherit;
+  font-size: var(--ef-text-xs);
+  font-weight: 650;
+  color: var(--pro-teal);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
-/* 值班胶囊内部：状态点 · 状态文案 · meta · 开关按钮 */
+.pro-feishu-bind:hover {
+  color: var(--text-primary);
+}
+
+/* 刷新：28×28 图标按钮，与同排小按钮等高 */
+.pro-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  padding: 0;
+  border: 1px solid var(--border-primary);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out-soft), color var(--dur-fast) var(--ease-out-soft),
+    border-color var(--dur-fast) var(--ease-out-soft);
+}
+
+.pro-icon-btn:hover {
+  background: var(--bg-hover, var(--bg-tertiary));
+  color: var(--text-primary);
+}
+
+.pro-icon-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.pro-icon-btn svg {
+  display: block;
+}
+
+/* 值班开关内部：状态点 · 状态文案 · meta · 拨动开关 */
 .pro-switch-text {
+  font-size: var(--font-size-xs);
   font-weight: 600;
   color: var(--text-primary);
 }
@@ -295,7 +360,7 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-size: var(--ef-text-xs);
+  font-size: var(--font-size-xs);
   color: var(--text-tertiary);
   font-variant-numeric: tabular-nums;
 }
@@ -314,9 +379,50 @@
   text-decoration: underline;
 }
 
-.pro-duty-card .btn {
+/* 自动上班开关：34×18 拨动开关，和整条工具条等高对齐 */
+.pro-switch {
+  position: relative;
+  width: 34px;
+  height: 18px;
   flex-shrink: 0;
+  padding: 0;
+  border: 1px solid var(--pro-slate-line);
   border-radius: 999px;
+  background: var(--bg-tertiary);
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out-soft),
+    border-color var(--dur-fast) var(--ease-out-soft);
+}
+
+.pro-switch:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--text-tertiary) 45%, var(--pro-slate-line));
+}
+
+.pro-switch.is-on {
+  border-color: color-mix(in srgb, var(--pro-teal) 70%, transparent);
+  background: color-mix(in srgb, var(--pro-teal) 78%, var(--bg-tertiary));
+}
+
+.pro-switch:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.pro-switch-knob {
+  position: absolute;
+  top: 50%;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  margin-top: -6px;
+  border-radius: 50%;
+  background: var(--bg-secondary, #fff);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+  transition: transform var(--dur-fast) var(--ease-out-soft);
+}
+
+.pro-switch.is-on .pro-switch-knob {
+  transform: translateX(16px);
 }
 
 /* 兼容旧 id 容器 */

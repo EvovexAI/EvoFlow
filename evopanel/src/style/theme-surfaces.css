@@ -2030,7 +2030,6 @@ html[data-translucent-ui='1'] .proactive-page .pro-page-nav :is(
   .btn-ghost,
   .pro-dispatch-btn
 ),
-html[data-translucent-ui='1'] .proactive-page .pro-duty-card .btn,
 html[data-translucent-ui='1'] .proactive-page .pro-decide-strip .btn,
 html[data-translucent-ui='1'] .proactive-page .pro-role-card .btn {
   background: transparent !important;
@@ -2080,12 +2079,6 @@ html[data-translucent-ui='1'] .proactive-page .pro-page-nav :is(
   background: color-mix(in srgb, var(--accent) 10%, transparent) !important;
   color: var(--text-primary) !important;
   transform: none !important;
-}
-
-html[data-translucent-ui='1'] .proactive-page .pro-feishu-toolbar {
-  background: transparent !important;
-  border: 1px solid color-mix(in srgb, var(--accent) 32%, var(--border-primary)) !important;
-  box-shadow: none !important;
 }
 
 html[data-translucent-ui='1'] .proactive-page .pro-role-more-btn,

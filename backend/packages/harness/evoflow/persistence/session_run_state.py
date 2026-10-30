@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from evoflow.persistence.db import get_db, run_db_transaction
+from evoflow.persistence.db import get_db, run_db_read, run_db_transaction
 from evoflow.persistence.session_repositories import find_session_key_by_thread_id
 from evoflow.timeutil import utc_now_iso_z
 
@@ -356,11 +356,16 @@ def add_session_token_usage(
 
 
 def list_all_active_sessions(*, limit: int = 500) -> list[dict[str, Any]]:
-    """All sessions marked running/pending in SQLite (for startup reconciliation / home live strip)."""
+    """All sessions marked running/pending in SQLite (for startup reconciliation / home live strip).
+
+    Uses the read pool — must not touch ``get_db()`` write lock. Task-center
+    catalog enrich runs this from ``asyncio.to_thread``; a write-locked scan
+    freezes the event loop and IM streams time out as opaque「处理请求时出错」.
+    """
     lim = max(1, min(int(limit or 500), 2000))
-    rows = (
-        get_db()
-        .execute(
+
+    def _query(conn: Any) -> list[Any]:
+        return conn.execute(
             """
         SELECT session_key, thread_id, current_run_id, run_status,
                title, agent_id, updated_at, collab_task_id
@@ -371,9 +376,9 @@ def list_all_active_sessions(*, limit: int = 500) -> list[dict[str, Any]]:
         LIMIT ?
         """,
             (lim,),
-        )
-        .fetchall()
-    )
+        ).fetchall()
+
+    rows = run_db_read(_query)
     out: list[dict[str, Any]] = []
     for row in rows:
         sk = str(row[0] or "").strip()
@@ -407,9 +412,9 @@ def list_active_sessions_for_keys(session_keys: list[str]) -> list[dict[str, Any
     if not keys:
         return []
     placeholders = ",".join("?" * len(keys))
-    rows = (
-        get_db()
-        .execute(
+
+    def _query(conn: Any) -> list[Any]:
+        return conn.execute(
             f"""
         SELECT session_key, thread_id, current_run_id, run_status
         FROM evoflow_chat_sessions
@@ -418,9 +423,9 @@ def list_active_sessions_for_keys(session_keys: list[str]) -> list[dict[str, Any
           AND run_status IN ('running', 'pending')
         """,
             keys,
-        )
-        .fetchall()
-    )
+        ).fetchall()
+
+    rows = run_db_read(_query)
     out: list[dict[str, Any]] = []
     for row in rows:
         sk = str(row[0] or "").strip()

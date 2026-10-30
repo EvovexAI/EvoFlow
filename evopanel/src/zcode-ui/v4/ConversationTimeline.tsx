@@ -45,6 +45,7 @@ import {
 } from "@/v4/conversationLayout.js";
 import {
   buildConversationTurnRenderUnits,
+  tryAppendTrailingUserInputUnit,
   type ConversationTurnRenderUnit,
 } from "@/v4/conversationTurnRenderUnits.js";
 import {
@@ -415,14 +416,37 @@ function ConversationTimelineImpl({
     return () => observer.disconnect();
   }, [hasHeaderSlot]);
   const [liveNowMs, setLiveNowMs] = useState(() => Date.now());
-  const renderUnits = useMemo(
-    () =>
-      buildConversationTurnRenderUnits(rows, {
-        nowMs: liveNowMs,
-        sessionPhase,
-      }),
-    [liveNowMs, rows, sessionPhase],
-  );
+  /** 乐观追加：复用上帧 units，避免整窗 rebuild（send 路径 ~300ms longtask）。 */
+  const renderUnitsCacheRef = useRef<{
+    rows: readonly ConversationRow[];
+    liveNowMs: number;
+    sessionPhase: SessionPhase | undefined;
+    units: ConversationTurnRenderUnit[];
+  } | null>(null);
+  const renderUnits = useMemo(() => {
+    const options = { nowMs: liveNowMs, sessionPhase };
+    const cached = renderUnitsCacheRef.current;
+    if (
+      cached &&
+      cached.liveNowMs === liveNowMs &&
+      cached.sessionPhase === sessionPhase &&
+      cached.rows !== rows
+    ) {
+      const appended = tryAppendTrailingUserInputUnit(cached.units, cached.rows, rows, options);
+      if (appended) {
+        renderUnitsCacheRef.current = {
+          rows,
+          liveNowMs,
+          sessionPhase,
+          units: appended,
+        };
+        return appended;
+      }
+    }
+    const built = buildConversationTurnRenderUnits(rows, options);
+    renderUnitsCacheRef.current = { rows, liveNowMs, sessionPhase, units: built };
+    return built;
+  }, [liveNowMs, rows, sessionPhase]);
   const { virtualizedUnits, liveUnit, liveUnitIndex } = useMemo(
     () => splitConversationTimelineLiveTail(renderUnits),
     [renderUnits],

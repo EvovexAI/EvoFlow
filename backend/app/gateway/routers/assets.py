@@ -197,6 +197,7 @@ class JournalBody(BaseModel):
     entityType: Literal["user", "agent", "employee", "workspace"] = "user"
     entityId: str = Field(default="user", min_length=1, max_length=128)
     content: str = Field(..., min_length=1)
+    title: str = ""
     date: str = ""
     append: bool = True
     summary: str = ""
@@ -252,7 +253,7 @@ async def write_episode(request: Request, body: EpisodeBody):
 
 @router.post("/journal")
 async def write_journal(request: Request, body: JournalBody):
-    """Create or append ``memory/journal/{date}.md`` (with catalog ``summary``)."""
+    """Create or append ``memory/journal/{slug}.md`` (topic name; date only in frontmatter)."""
     from evoflow.assets.hub import write_journal as hub_write_journal
 
     entity = _entity(request, body.entityType, body.entityId)
@@ -260,6 +261,7 @@ async def write_journal(request: Request, body: JournalBody):
         return hub_write_journal(
             entity,
             body.content,
+            title=body.title,
             date=body.date,
             append=body.append,
             summary=body.summary,

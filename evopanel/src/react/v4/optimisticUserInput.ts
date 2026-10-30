@@ -1,6 +1,9 @@
 /**
  * 发送瞬间：本地乐观用户气泡尚未进 V4 投影时，在时间线尾部补一行合成 userInput，
  * 避免为等 echo 整树切回老面板（会闪出整段本地历史用户消息）。
+ *
+ * 文案优先来自 host 的 pendingOptimisticUserText（轻量 flushSync），
+ * 不要依赖同帧 setRows(全量历史)——那会重建 ConversationTimeline。
  */
 import type {
   ConversationRow,

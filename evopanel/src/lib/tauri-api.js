@@ -2704,11 +2704,12 @@ export const api = {
     summary = '',
   } = {}) =>
     gatewayProxy('POST', '/assets/episode', { entityType, entityId, content, title, summary }),
-  /** 写/追加 memory/journal/{date}.md（带 catalog summary） */
+  /** 写/追加 memory/journal/{topic-slug}.md（文件名用主题，日期只在 frontmatter） */
   assetsJournal: async ({
     entityType = 'user',
     entityId = 'user',
     content,
+    title = '',
     date = '',
     append = true,
     summary = '',
@@ -2717,11 +2718,12 @@ export const api = {
       entityType,
       entityId,
       content,
+      title,
       date,
       append,
       summary,
     }),
-  /** 直接写 craft/{slug}/SKILL.md */
+  /** 直接写 craft/{slug}.md（扁平文件；成熟后再 promote 成技能包） */
   assetsCraftSave: async ({
     entityType = 'user',
     entityId = 'user',

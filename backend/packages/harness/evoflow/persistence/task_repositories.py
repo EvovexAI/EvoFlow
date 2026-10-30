@@ -683,20 +683,14 @@ def list_root_task_summaries(
     from evoflow.persistence.db import run_db_read
 
     # Schema migrations run on the write connection at startup (get_db); read pool is query-only.
-    cols = """
+    # NEVER call get_db() here — catalog sync runs in asyncio.to_thread and holding the
+    # process write lock during PRAGMA/list starves the event loop (IM stream timeouts).
+    base_cols = """
         main_task_id, task_id, name, description, status, parent_id, assigned_to,
         error_text, created_at, started_at, completed_at, progress, execution_authorized,
         thread_id, authorized_at, authorized_by, extra_json, sort_order, updated_at,
         plan_goal, plan_open_questions, plan_bound_at
     """
-    # Append ownership cols when present (v139+).
-    try:
-        have = {str(r[1]) for r in get_db().execute("PRAGMA table_info(evoflow_collab_tasks)").fetchall()}
-        for c in ("org_id", "owner_scope_id", "created_by"):
-            if c in have:
-                cols = cols.rstrip() + f", {c}"
-    except Exception:
-        pass
     mid = str(main_task_id or "").strip()
 
     # NULL-safe: an empty-string updated_at must not sort as "newest".
@@ -706,6 +700,15 @@ def list_root_task_summaries(
         page_sql = "\n                LIMIT ? OFFSET ?"
 
     def _query(conn: Any) -> list[dict[str, Any]]:
+        cols = base_cols
+        # Append ownership cols when present (v139+) — probe on the same read conn.
+        try:
+            have = {str(r[1]) for r in conn.execute("PRAGMA table_info(evoflow_collab_tasks)").fetchall()}
+            for c in ("org_id", "owner_scope_id", "created_by"):
+                if c in have:
+                    cols = cols.rstrip() + f", {c}"
+        except Exception:
+            pass
         if mid:
             params: list[Any] = [mid]
             if page_sql:

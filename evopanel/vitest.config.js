@@ -73,6 +73,7 @@ export default defineConfig({
       'tests/workspace-html-preview.test.js',
       'tests/preview-view-mode.test.js',
       'tests/preview-doc-parsers.test.js',
+      'tests/preview-pane-text-wrap-default.test.ts',
       'tests/workspace-recent-sections.test.js',
       'tests/zcode-theme-host-scope.test.ts',
       'tests/workspace-file-preview-view-toggle.test.tsx',

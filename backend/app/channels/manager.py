@@ -744,6 +744,46 @@ def _is_startup_gate_error(exc: BaseException | None) -> bool:
     )
 
 
+def _is_transient_stream_error(exc: BaseException | None) -> bool:
+    """Timeouts / dropped HTTP streams that often clear after a short backoff.
+
+    Event-loop stalls (e.g. SQLite write-lock starvation from catalog scans)
+    surface here as ReadTimeout / RemoteProtocolError with an empty IM reply.
+    """
+    if exc is None:
+        return False
+    if _is_startup_gate_error(exc) or _is_thread_busy_error(exc):
+        return False
+    name = type(exc).__name__
+    if name in (
+        "ReadTimeout",
+        "WriteTimeout",
+        "PoolTimeout",
+        "ConnectTimeout",
+        "TimeoutException",
+        "RemoteProtocolError",
+        "LocalProtocolError",
+        "ReadError",
+        "WriteError",
+        "NetworkError",
+    ):
+        return True
+    msg = _exception_message_text(exc).lower()
+    compact = msg.replace(" ", "")
+    return (
+        "readtimeout" in compact
+        or "writetimeout" in compact
+        or "connecttimeout" in compact
+        or "pooltimeout" in compact
+        or "timed out" in msg
+        or "read operation timed out" in msg
+        or "connection reset" in msg
+        or "server disconnected" in msg
+        or "remoteprotocolerror" in compact
+        or "incomplete chunked read" in msg
+    )
+
+
 def _exception_message_text(exc: BaseException) -> str:
     parts = [str(exc)]
     notes = getattr(exc, "__notes__", None)
@@ -3023,6 +3063,18 @@ class ChannelManager:
                     )
                     await asyncio.sleep(delay_sec)
                     continue
+                if _is_transient_stream_error(exc) and attempt < 2:
+                    delay_sec = 0.6 * (2 ** attempt)
+                    logger.warning(
+                        "[Manager] stream transient error, retrying in %.1fs: thread_id=%s attempt=%d/%d error=%s",
+                        delay_sec,
+                        active_thread_id,
+                        attempt + 1,
+                        2,
+                        str(exc)[:160],
+                    )
+                    await asyncio.sleep(delay_sec)
+                    continue
                 if _is_thread_busy_error(exc):
                     # Stale / overlapping LangGraph run still marked running —
                     # cancel it and retry so IM users are not stuck on
@@ -3096,7 +3148,18 @@ class ChannelManager:
             elif _is_startup_gate_error(stream_error):
                 response_text = "🔄 服务正在启动，请稍后重试。"
             elif not (response_text or "").strip():
-                response_text = (latest_text or "").strip() or "处理请求时出错，请稍后重试。"
+                partial = (latest_text or "").strip()
+                if msg.channel_name in IM_CHANNEL_NAMES:
+                    response_text = partial or self._im_rich_error_body(msg, exc=stream_error)
+                else:
+                    response_text = partial or "处理请求时出错，请稍后重试。"
+            # Previously stream failures were swallowed with a generic Feishu line
+            # and never landed in im_channel_errors — un-debuggable in Session Debug.
+            self._record_im_channel_failure(
+                msg,
+                exc=stream_error,
+                user_visible=(response_text or "")[:1200],
+            )
             attachments = []
             artifacts = []
         elif not response_text:

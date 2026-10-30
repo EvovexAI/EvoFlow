@@ -326,7 +326,11 @@ def build_employee_self_intro(agent_code: str) -> str:
 
     # Universal greeting — avoid product pitches (EvoPanel / 工作台) and
     # bug-fix examples; duties stay role-specific when configured.
-    lines: list[str] = [f"你好，我是「{display_name}」。"]
+    # /new sits above the hello so users see how to start a fresh thread.
+    lines: list[str] = [
+        "想开新对话，发 /new 就行。",
+        f"你好，我是「{display_name}」。",
+    ]
     if duties:
         joined = "；".join(duties[:_MAX_DUTIES])
         lines.append(f"职责：{joined}。")
