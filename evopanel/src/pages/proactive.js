@@ -378,29 +378,15 @@ export async function render() {
               <span class="pro-feishu-toolbar-label" id="pro-feishu-toolbar-label" title=""></span>
               <button type="button" class="btn btn-sm btn-primary" id="pro-feishu-bind-next">扫码绑定</button>
             </div>
+            <div class="pro-duty-card" id="pro-switch-card">
+              <span class="pro-switch-dot" id="pro-switch-dot" aria-hidden="true"></span>
+              <span class="pro-switch-text" id="pro-switch-text">加载中…</span>
+              <span class="pro-switch-meta" id="pro-switch-meta"></span>
+              <button type="button" class="btn btn-xs" id="pro-switch-btn" disabled>—</button>
+            </div>
             <button type="button" class="btn btn-primary btn-sm" id="pro-hire">加人</button>
             <button type="button" class="btn btn-secondary btn-sm" id="pro-refresh">刷新</button>
           </div>
-        </div>
-
-        <div class="pro-duty-card" id="pro-switch-card">
-          <div class="pro-duty-left">
-            <div class="pro-duty-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8">
-                <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/>
-                <circle cx="9" cy="7" r="4"/>
-                <path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/>
-              </svg>
-            </div>
-            <div class="pro-switch-info">
-              <div class="pro-switch-status">
-                <span class="pro-switch-dot" id="pro-switch-dot"></span>
-                <span id="pro-switch-text">加载中…</span>
-              </div>
-              <div class="pro-switch-meta" id="pro-switch-meta"></div>
-            </div>
-          </div>
-          <button type="button" class="btn btn-sm" id="pro-switch-btn" disabled>—</button>
         </div>
 
         <div class="pro-decide-strip" id="pro-decide-strip" hidden></div>
@@ -1279,6 +1265,12 @@ async function loadStatus(page) {
     card?.classList.toggle('pro-duty-card--off', !running)
     dot.className = 'pro-switch-dot' + (running ? ' pro-switch-dot--on' : ' pro-switch-dot--off')
     text.textContent = running ? '自动上班已开启' : '自动上班已关闭'
+    card?.setAttribute(
+      'title',
+      running
+        ? '全员自动上班已开启：员工按各自排班巡检；关闭后到期巡检不再跑'
+        : '全员自动上班已关闭：员工不会自动巡检，可手动「现在开始工作」',
+    )
 
     const parts = []
     if (st.active_roles != null) parts.push(`${st.active_roles} 人在岗`)
@@ -1288,10 +1280,9 @@ async function loadStatus(page) {
       parts.push(
         `<button type="button" class="pro-meta-link" data-act="goto-approvals">${pendingN} 项待批</button>`,
       )
-    } else if (st.pending_approvals != null) {
-      parts.push(`0 项待批`)
     }
     meta.innerHTML = parts.join(' · ')
+    meta.classList.toggle('is-empty', !parts.length)
     meta.querySelector('[data-act="goto-approvals"]')?.addEventListener('click', (e) => {
       e.preventDefault()
       e.stopPropagation()
@@ -1299,8 +1290,9 @@ async function loadStatus(page) {
     })
 
     btn.disabled = false
-    btn.textContent = running ? '关闭自动上班' : '开启自动上班'
-    btn.className = 'btn btn-sm ' + (running ? 'btn-danger' : 'btn-primary')
+    btn.textContent = running ? '关闭' : '开启'
+    btn.title = running ? '关闭全员自动上班（在途巡检会停掉）' : '开启全员自动上班'
+    btn.className = 'btn btn-xs ' + (running ? 'btn-danger' : 'btn-primary')
     btn.onclick = () => toggleEngine(page, running)
 
     // Always refresh busy/running badge without remounting cards
@@ -1311,6 +1303,7 @@ async function loadStatus(page) {
     dot.className = 'pro-switch-dot pro-switch-dot--off'
     text.textContent = '无法连接员工服务'
     meta.textContent = '请确认后端已启动'
+    meta.classList.remove('is-empty')
     btn.disabled = true
     btn.textContent = '—'
   }

@@ -1151,7 +1151,7 @@ def _build_registry() -> dict[str, PlatformAction]:
             "channels",
             "向当前会话的 IM 来源通道推送文本/图片/文件（自动沿用进线机器人，无需自选）",
             "write",
-            "text?, paths?/files?, title?, confirm=true",
+            "text?, paths?/files?/image_url?/file_path?, title?, confirm=true",
             H.channels_send_message,
             "把这张图发回飞书",
         ),

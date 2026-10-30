@@ -118,35 +118,36 @@
   color: var(--text-secondary);
 }
 
-/* ── 值班台 ── */
+/* ── 值班开关（页头内联胶囊：状态 · 在岗/待批 · 开关） ── */
 .pro-duty-card {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 16px 18px;
-  margin-bottom: 22px;
-  background: var(--bg-secondary);
+  gap: 7px;
+  flex: 0 0 auto;
+  padding: 2px 3px 2px 9px;
+  border-radius: 999px;
   border: 1px solid var(--pro-slate-line);
-  border-radius: var(--radius-lg, 12px);
-  border-left: 3px solid var(--text-tertiary);
+  background: var(--bg-secondary);
+  font-size: var(--ef-text-sm);
+  line-height: 1;
+  white-space: nowrap;
   transition: border-color var(--dur-base), background var(--dur-base);
 }
 
 .pro-duty-card--on {
-  border-left-color: var(--pro-teal);
-  background:
-    linear-gradient(105deg, var(--pro-teal-soft), transparent 42%),
-    var(--bg-secondary);
+  border-color: color-mix(in srgb, var(--pro-teal) 38%, var(--pro-slate-line));
+  background: color-mix(in srgb, var(--pro-teal) 9%, var(--bg-secondary));
 }
 
 .pro-duty-card--off {
-  border-left-color: var(--text-tertiary);
+  border-color: var(--pro-slate-line);
+  background: var(--bg-secondary);
 }
 
 /* ── 待你拍板置顶条 ── */
 .pro-decide-strip {
-  margin: -8px 0 18px;
+  /* 页头后接管原值班卡下方的间距（hero 自身已带 10px） */
+  margin: 4px 0 18px;
   padding: 14px 16px;
   border: 1px solid color-mix(in srgb, var(--warning, #b45309) 35%, var(--pro-slate-line));
   border-radius: var(--radius-lg, 12px);
@@ -260,44 +261,15 @@
   border-radius: var(--radius-md);
 }
 
-.pro-duty-left {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  min-width: 0;
-}
-
-.pro-duty-icon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 42px;
-  height: 42px;
-  flex-shrink: 0;
-  border-radius: 10px;
-  color: var(--pro-teal);
-  background: var(--pro-teal-soft);
-}
-
-.pro-switch-info {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 0;
-}
-
-.pro-switch-status {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 15px;
-  font-weight: 650;
+/* 值班胶囊内部：状态点 · 状态文案 · meta · 开关按钮 */
+.pro-switch-text {
+  font-weight: 600;
   color: var(--text-primary);
 }
 
 .pro-switch-dot {
-  width: 9px;
-  height: 9px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
   flex-shrink: 0;
   background: var(--text-tertiary);
@@ -306,7 +278,7 @@
 
 .pro-switch-dot--on {
   background: var(--success, #16a34a);
-  box-shadow: 0 0 0 3px var(--success-muted, rgba(22, 163, 74, 0.15));
+  box-shadow: 0 0 0 2.5px var(--success-muted, rgba(22, 163, 74, 0.15));
   animation: pro-pulse 2.2s ease-in-out infinite;
 }
 
@@ -320,8 +292,31 @@
 }
 
 .pro-switch-meta {
-  font-size: var(--ef-text-sm) ;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--ef-text-xs);
   color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+.pro-switch-meta.is-empty {
+  display: none;
+}
+
+.pro-duty-card .pro-switch-meta > .pro-meta-link {
+  font-size: inherit;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.pro-duty-card .pro-switch-meta > .pro-meta-link:hover {
+  text-decoration: underline;
+}
+
+.pro-duty-card .btn {
+  flex-shrink: 0;
+  border-radius: 999px;
 }
 
 /* 兼容旧 id 容器 */
@@ -3731,13 +3726,17 @@ html.evopanel-macos-titlebar .pro-employee-page--nav-in-chrome {
     grid-template-columns: 1fr;
   }
 
-  .pro-duty-card {
-    flex-direction: column;
-    align-items: stretch;
+  /* 窄屏：胶囊内部改为可换行，不撑成全宽卡片 */
+  .proactive-page .page-actions {
+    justify-content: flex-start;
   }
 
-  .pro-duty-card .btn {
-    width: 100%;
+  .pro-duty-card {
+    flex-wrap: wrap;
+    max-width: 100%;
+    white-space: normal;
+    border-radius: var(--radius-md);
+    padding: 4px 4px 4px 9px;
   }
 }
 

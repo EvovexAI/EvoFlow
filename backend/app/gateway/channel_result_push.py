@@ -341,6 +341,113 @@ def resolve_inbound_origin_from_session(session_key: str) -> dict[str, Any] | No
     }
 
 
+
+def _is_remote_media_url(raw: str) -> bool:
+    s = str(raw or "").strip().lower()
+    return s.startswith("http://") or s.startswith("https://")
+
+
+def _materialize_remote_attachment(url: str):
+    """Download an http(s) image/file URL into a temp file for IM upload.
+
+    Feishu/WeCom upload APIs need a local path; agents often pass jimeng/TOS
+    HTTPS links via ``image_url``. Returns ``ResolvedAttachment`` or None.
+    """
+    import mimetypes
+    import tempfile
+    import uuid
+    from pathlib import Path
+    from urllib.parse import unquote, urlparse
+
+    cleaned = str(url or "").strip()
+    if not _is_remote_media_url(cleaned):
+        return None
+
+    path_part = unquote(urlparse(cleaned).path or "")
+    name = Path(path_part).name or "attachment.bin"
+    name = name.split("?")[0].strip() or "attachment.bin"
+    suffix = Path(name).suffix.lower()
+    image_exts = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"}
+    if not suffix:
+        name = f"{name}.jpg"
+        suffix = ".jpg"
+
+    try:
+        import httpx
+    except Exception:
+        logger.warning("push_to_inbound_origin: httpx missing; cannot fetch %s", cleaned[:80])
+        return None
+
+    dest_dir = Path(tempfile.gettempdir()) / "evoflow-im-push"
+    try:
+        dest_dir.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        return None
+    dest = dest_dir / f"{uuid.uuid4().hex[:12]}_{name}"
+
+    ctype = ""
+    data = b""
+    try:
+        with httpx.Client(timeout=60.0, follow_redirects=True) as client:
+            resp = client.get(cleaned)
+            resp.raise_for_status()
+            data = resp.content
+            if not data:
+                return None
+            if len(data) > 30 * 1024 * 1024:
+                logger.warning(
+                    "push_to_inbound_origin: remote attachment too large url=%s",
+                    cleaned[:80],
+                )
+                return None
+            dest.write_bytes(data)
+            ctype = str(resp.headers.get("content-type") or "").split(";")[0].strip()
+    except Exception:
+        logger.warning(
+            "push_to_inbound_origin: download failed url=%s",
+            cleaned[:120],
+            exc_info=True,
+        )
+        try:
+            dest.unlink(missing_ok=True)
+        except OSError:
+            pass
+        return None
+
+    mime, _ = mimetypes.guess_type(str(dest))
+    if ctype and ctype != "application/octet-stream":
+        mime = ctype
+    mime = mime or "application/octet-stream"
+    if mime.startswith("image/") or suffix in image_exts:
+        is_image = True
+        if not mime.startswith("image/"):
+            mime = {
+                ".png": "image/png",
+                ".jpg": "image/jpeg",
+                ".jpeg": "image/jpeg",
+                ".gif": "image/gif",
+                ".webp": "image/webp",
+                ".bmp": "image/bmp",
+            }.get(suffix, "image/jpeg")
+    else:
+        is_image = mime.startswith("image/")
+
+    from app.channels.message_bus import ResolvedAttachment
+
+    try:
+        size = int(dest.stat().st_size)
+    except OSError:
+        size = len(data)
+    return ResolvedAttachment(
+        virtual_path=cleaned,
+        actual_path=dest,
+        filename=name,
+        mime_type=mime,
+        size=size,
+        is_image=bool(is_image),
+    )
+
+
 async def push_to_inbound_origin(
     *,
     session_key: str,
@@ -396,24 +503,31 @@ async def push_to_inbound_origin(
     unresolved: list[str] = []
     if path_list:
         try:
-            from app.channels.manager import _resolve_attachments
+            from app.channels.manager import _resolve_attachments, _resolve_one_attachment
+            from pathlib import Path as _P
 
-            attachments = _resolve_attachments(thread_id, path_list) if thread_id else []
+            local_paths = [p for p in path_list if not _is_remote_media_url(p)]
+            remote_urls = [p for p in path_list if _is_remote_media_url(p)]
+
+            attachments = _resolve_attachments(thread_id, local_paths) if thread_id else []
             resolved_names = {a.filename.lower() for a in attachments}
-            for p in path_list:
-                from pathlib import Path as _P
+            for p in local_paths:
+                if _P(str(p).replace(chr(92), "/")).name.lower() in resolved_names:
+                    continue
+                # Absolute path fallback (sandbox miss or missing thread_id).
+                att = _resolve_one_attachment(thread_id or "", p)
+                if att is not None:
+                    attachments.append(att)
+                    resolved_names.add(att.filename.lower())
+                else:
+                    unresolved.append(p)
 
-                if _P(str(p).replace("\\", "/")).name.lower() not in resolved_names:
-                    # Absolute path fallback without thread sandbox when thread_id missing
-                    att = None
-                    if not thread_id:
-                        from app.channels.manager import _resolve_one_attachment
-
-                        att = _resolve_one_attachment("", p)
-                    if att is not None:
-                        attachments.append(att)
-                    else:
-                        unresolved.append(p)
+            for url in remote_urls:
+                att = _materialize_remote_attachment(url)
+                if att is not None:
+                    attachments.append(att)
+                else:
+                    unresolved.append(url)
         except Exception as exc:
             logger.warning("push_to_inbound_origin: resolve attachments failed: %s", exc, exc_info=True)
             unresolved = list(path_list)

@@ -153,6 +153,7 @@ The reply body is where the user sees deliverables; follow these conventions so 
 # Keep this block itself plain-text (no ## / | tables) so the model does not mirror
 # Markdown from the instruction into the user-visible IM reply.
 IM_CHANNEL_REPLY_BLOCK = """<im_channel>
+If you already greeted, do not re-introduce yourself every turn—talk like a familiar chat, not a receptionist.
 [HIGHEST PRIORITY — overrides other format habits] You are replying in Feishu/WeCom/etc. IM.
 User-visible body must be plain text. This block overrides communication_style / soul / role
 prompt advice about bold, tables, headings, or Markdown.
