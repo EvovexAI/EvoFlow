@@ -15,7 +15,7 @@ from evoflow.observability.tables import ObservabilityTable
 logger = logging.getLogger(__name__)
 
 # Single migration script — bump ``PRAGMA user_version`` when changing schema.
-_SCHEMA_VERSION = 9
+_SCHEMA_VERSION = 10
 _STORED_MODEL_JSON_LIMIT = 512 * 1024
 
 
@@ -191,7 +191,9 @@ CREATE TABLE IF NOT EXISTS {ObservabilityTable.MODEL_INVOCATIONS} (
     thinking_budget_tokens INTEGER,
     session_mode TEXT,
     agent_code TEXT,
-    position_code TEXT
+    position_code TEXT,
+    message_count INTEGER,
+    response_summary_json TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_evo_obs_model_thread_time
     ON {ObservabilityTable.MODEL_INVOCATIONS}(thread_id, requested_at);
@@ -321,6 +323,15 @@ def _upgrade_obs_schema(conn: sqlite3.Connection) -> None:
                     conn.execute(f"ALTER TABLE {tbl} ADD COLUMN {col} TEXT")
         conn.execute(f"CREATE INDEX IF NOT EXISTS idx_evo_obs_model_agent_time ON {ObservabilityTable.MODEL_INVOCATIONS}(agent_code, requested_at)")
         conn.execute(f"CREATE INDEX IF NOT EXISTS idx_evo_obs_tool_agent_time ON {ObservabilityTable.TOOL_INVOCATIONS}(agent_code, ended_at)")
+    if ver < 10:
+        # List projection: avoid SELECT of request_json/response_json (≤512KiB each).
+        cols = {str(r[1]) for r in conn.execute(f"PRAGMA table_info({ObservabilityTable.MODEL_INVOCATIONS})")}
+        if "message_count" not in cols:
+            conn.execute(f"ALTER TABLE {ObservabilityTable.MODEL_INVOCATIONS} ADD COLUMN message_count INTEGER")
+        if "response_summary_json" not in cols:
+            conn.execute(
+                f"ALTER TABLE {ObservabilityTable.MODEL_INVOCATIONS} ADD COLUMN response_summary_json TEXT"
+            )
     conn.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
     conn.commit()
 
@@ -682,6 +693,14 @@ class ObservabilitySqliteStore:
             thinking_budget_tokens=thinking_budget_tokens,
             session_mode=session_mode,
         )
+        req_stored = _truncate_stored_json(request_json)
+        resp_stored = _truncate_stored_json(response_json)
+        from evoflow.observability.model_list_projection import compute_model_list_projection
+
+        list_msg_count, list_summary_json = compute_model_list_projection(
+            request_json=req_stored,
+            response_json=resp_stored,
+        )
         with self._lock:
             conn = self._connection()
             conn.execute(
@@ -692,8 +711,8 @@ class ObservabilitySqliteStore:
                     usage_json, cache_read_tokens, cache_creation_tokens, cache_miss_tokens,
                     collab_phase, checkpoint_id, invocation_kind,
                     thinking_enabled, reasoning_effort, thinking_type, thinking_budget_tokens, session_mode,
-                    agent_code, position_code
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    agent_code, position_code, message_count, response_summary_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     row_id,
@@ -707,8 +726,8 @@ class ObservabilitySqliteStore:
                     requested_at,
                     latency_ms,
                     first_token_latency_ms,
-                    _truncate_stored_json(request_json),
-                    _truncate_stored_json(response_json),
+                    req_stored,
+                    resp_stored,
                     usage_json,
                     cache_read_tokens,
                     cache_creation_tokens,
@@ -719,6 +738,8 @@ class ObservabilitySqliteStore:
                     *think_vals,
                     (agent_code or "").strip() or None,
                     (position_code or "").strip() or None,
+                    list_msg_count,
+                    list_summary_json,
                 ),
             )
             conn.commit()
@@ -766,6 +787,10 @@ class ObservabilitySqliteStore:
             thinking_budget_tokens=thinking_budget_tokens,
             session_mode=session_mode,
         )
+        req_stored = _truncate_stored_json(request_json)
+        from evoflow.observability.model_list_projection import compute_model_list_projection
+
+        list_msg_count, _ = compute_model_list_projection(request_json=req_stored, response_json=None)
         with self._lock:
             conn = self._connection()
             conn.execute(
@@ -775,8 +800,8 @@ class ObservabilitySqliteStore:
                     requested_at, started_at, status,
                     request_json, collab_phase, checkpoint_id, invocation_kind,
                     thinking_enabled, reasoning_effort, thinking_type, thinking_budget_tokens, session_mode,
-                    agent_code, position_code
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    agent_code, position_code, message_count
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     row_id,
@@ -790,13 +815,14 @@ class ObservabilitySqliteStore:
                     requested_at,
                     requested_at,  # started_at ≈ requested_at at pending time
                     "running",
-                    _truncate_stored_json(request_json),
+                    req_stored,
                     (collab_phase or "").strip() or None,
                     (checkpoint_id or "").strip() or None,
                     (invocation_kind or "").strip() or None,
                     *think_vals,
                     (agent_code or "").strip() or None,
                     (position_code or "").strip() or None,
+                    list_msg_count,
                 ),
             )
             conn.commit()
@@ -838,8 +864,24 @@ class ObservabilitySqliteStore:
             thinking_budget_tokens=thinking_budget_tokens,
             session_mode=session_mode,
         )
+        req_stored = _truncate_stored_json(request_json)
+        resp_stored = _truncate_stored_json(response_json)
+        from evoflow.observability.model_list_projection import compute_model_list_projection
+
         with self._lock:
             conn = self._connection()
+            req_for_proj = req_stored
+            if req_for_proj is None:
+                existing = conn.execute(
+                    f"SELECT request_json FROM {ObservabilityTable.MODEL_INVOCATIONS} WHERE id = ?",
+                    (row_id,),
+                ).fetchone()
+                if existing is not None:
+                    req_for_proj = existing[0]
+            list_msg_count, list_summary_json = compute_model_list_projection(
+                request_json=req_for_proj,
+                response_json=resp_stored,
+            )
             cur = conn.execute(
                 f"""
                 UPDATE {ObservabilityTable.MODEL_INVOCATIONS}
@@ -856,24 +898,28 @@ class ObservabilitySqliteStore:
                     reasoning_effort = COALESCE(?, reasoning_effort),
                     thinking_type = COALESCE(?, thinking_type),
                     thinking_budget_tokens = COALESCE(?, thinking_budget_tokens),
-                    session_mode = COALESCE(?, session_mode)
+                    session_mode = COALESCE(?, session_mode),
+                    message_count = COALESCE(?, message_count),
+                    response_summary_json = ?
                 WHERE id = ?
                 """,
                 (
                     latency_ms,
                     first_token_latency_ms,
-                    _truncate_stored_json(response_json),
+                    resp_stored,
                     usage_json,
                     cache_read_tokens,
                     cache_creation_tokens,
                     cache_miss_tokens,
                     status,
-                    _truncate_stored_json(request_json),
+                    req_stored,
                     think_vals[0],
                     think_vals[1],
                     think_vals[2],
                     think_vals[3],
                     think_vals[4],
+                    list_msg_count,
+                    list_summary_json,
                     row_id,
                 ),
             )

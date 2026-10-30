@@ -3,11 +3,148 @@
 from __future__ import annotations
 
 import json
+import re
+from pathlib import Path
 from typing import Any
+
+_MD_IMAGE_RE = re.compile(r"!\[([^\]]*)\]\(([^)]+)\)")
 
 
 def _as_str(v: Any) -> str:
     return str(v).strip() if v is not None else ""
+
+
+def strip_markdown_images(text: str) -> str:
+    """Drop ``![...](...)`` from IM body — same rule as Feishu card/plain send."""
+    t = _MD_IMAGE_RE.sub("", text or "")
+    return re.sub(r"\n{3,}", "\n\n", t).strip()
+
+
+def _attachment_kind_label(*, is_image: bool, filename: str, mime: str) -> str:
+    mime_l = (mime or "").lower()
+    name_l = (filename or "").lower()
+    if is_image or mime_l.startswith("image/") or name_l.endswith(
+        (".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".ico")
+    ):
+        return "图片"
+    if mime_l.startswith("audio/") or name_l.endswith((".mp3", ".wav", ".ogg", ".opus", ".m4a")):
+        return "语音"
+    if mime_l.startswith("video/") or name_l.endswith((".mp4", ".mov", ".mkv", ".webm")):
+        return "视频"
+    return "文件"
+
+
+def build_outbound_ops_delivery(
+    text: str,
+    *,
+    attachments: list[Any] | None = None,
+    proactive_markdown: bool = False,
+    wire_msg_type: str = "",
+    attachments_failed: list[str] | None = None,
+) -> dict[str, Any]:
+    """Build ops audit fields that mirror what the user likely saw on IM.
+
+    Bus text can differ from Feishu wire (ask_clarification rewrite, markdown
+    images stripped, files sent as separate messages). Ops should summarize the
+    delivered shape, not only the raw agent blob.
+    """
+    wire = feishu_outbound_text(text or "")
+    body = strip_markdown_images(wire)
+    md_images = [(m.group(1) or "", m.group(2) or "") for m in _MD_IMAGE_RE.finditer(wire or "")]
+
+    att_items: list[dict[str, str]] = []
+    for raw in list(attachments or [])[:16]:
+        if isinstance(raw, str) and raw.strip():
+            s = raw.strip()
+            name = s.replace("\\", "/").rsplit("/", 1)[-1]
+            kind = _attachment_kind_label(is_image=False, filename=name, mime="")
+            att_items.append({"filename": name[:160], "path": s[:500], "mime": "", "kind": kind})
+            continue
+        filename = _as_str(getattr(raw, "filename", None) or (raw.get("filename") if isinstance(raw, dict) else "") or "")
+        path = _as_str(
+            getattr(raw, "actual_path", None)
+            or getattr(raw, "virtual_path", None)
+            or (raw.get("path") if isinstance(raw, dict) else "")
+            or (raw.get("virtual_path") if isinstance(raw, dict) else "")
+            or ""
+        )
+        if isinstance(path, Path):
+            path = str(path)
+        mime = _as_str(
+            getattr(raw, "mime_type", None)
+            or getattr(raw, "mime", None)
+            or (raw.get("mime") if isinstance(raw, dict) else "")
+            or (raw.get("mime_type") if isinstance(raw, dict) else "")
+            or ""
+        )
+        is_image = bool(getattr(raw, "is_image", False))
+        if not filename and path:
+            filename = path.replace("\\", "/").rsplit("/", 1)[-1]
+        if not filename and not path:
+            continue
+        kind = _attachment_kind_label(is_image=is_image, filename=filename, mime=mime)
+        att_items.append(
+            {
+                "filename": (filename or "attachment")[:160],
+                "path": (path or filename)[:500],
+                "mime": mime[:80],
+                "kind": kind,
+            }
+        )
+
+    failed = [str(x).strip() for x in (attachments_failed or []) if str(x).strip()]
+    parts: list[str] = []
+    if body:
+        parts.append(body)
+    if att_items:
+        labels = [f"{it['kind']}：{it['filename']}" for it in att_items]
+        parts.append("【实发附件】" + "；".join(labels))
+    elif md_images:
+        # Markdown images were stripped from the bubble and never attached.
+        dangling = []
+        for alt, url in md_images[:6]:
+            tip = (alt or url.replace("\\", "/").rsplit("/", 1)[-1] or "image").strip()
+            dangling.append(tip[:80])
+        parts.append("【正文 markdown 图已剥离、未作为附件发出】" + "；".join(dangling))
+    if failed:
+        parts.append("【附件发送失败】" + "；".join(failed[:8]))
+
+    summary = "\n".join(parts).strip()
+    if not summary:
+        summary = "(空消息)"
+
+    image_n = sum(1 for it in att_items if it.get("kind") == "图片")
+    file_n = len(att_items) - image_n
+    # Channel may stamp wire_msg_type=text/interactive before attachments upload;
+    # upgrade to composite types when files actually went out.
+    base_type = str(wire_msg_type or "").strip().lower()
+    if proactive_markdown and not base_type:
+        base_type = "interactive"
+    if image_n and body:
+        inferred = "text+image"
+    elif file_n and body:
+        inferred = "text+file"
+    elif image_n and not body:
+        inferred = "image"
+    elif file_n and not body:
+        inferred = "file"
+    elif base_type in {"text", "interactive", "post"}:
+        inferred = base_type
+    elif base_type:
+        inferred = base_type
+    else:
+        inferred = "text"
+
+    return {
+        "content_summary": summary[:800],
+        "wire_text": body[:4000],
+        "wire_msg_type": inferred,
+        "attachments": att_items,
+        "attachments_failed": failed[:8],
+        "markdown_images_stripped": [
+            {"alt": (a or "")[:80], "url": (u or "")[:240]} for a, u in md_images[:8]
+        ],
+    }
 
 
 def _option_label(item: Any) -> str:

@@ -285,14 +285,23 @@ class ChannelService:
         self._running = False
         logger.info("ChannelService stopped")
 
+    async def _stop_channel_family(self, name: str) -> None:
+        """Stop primary ``name`` and all dedicated ``name:<account_id>`` instances."""
+        keys = [
+            key
+            for key in list(self._channels)
+            if key == name or key.startswith(f"{name}:")
+        ]
+        for key in keys:
+            try:
+                await self._channels[key].stop()
+            except Exception:
+                logger.exception("Error stopping channel %s", key)
+            self._channels.pop(key, None)
+
     async def restart_channel(self, name: str) -> bool:
         """Restart a specific channel. Returns True if successful."""
-        if name in self._channels:
-            try:
-                await self._channels[name].stop()
-            except Exception:
-                logger.exception("Error stopping channel %s for restart", name)
-            del self._channels[name]
+        await self._stop_channel_family(name)
 
         config = self._config.get(name)
         if not config or not isinstance(config, dict):
@@ -316,12 +325,14 @@ class ChannelService:
             return False
 
         # If channel is currently running, restart it with new enabled state
-        if enabled and name not in self._channels:
+        family_running = any(
+            key == name or key.startswith(f"{name}:") for key in self._channels
+        )
+        if enabled and not family_running:
             return await self._start_channel(name, config)
-        elif not enabled and name in self._channels:
+        elif not enabled and family_running:
             try:
-                await self._channels[name].stop()
-                del self._channels[name]
+                await self._stop_channel_family(name)
             except Exception:
                 logger.exception("Error stopping channel %s", name)
                 return False
@@ -355,18 +366,83 @@ class ChannelService:
         if not self._persist_channels_db():
             return False
 
-        # Restart or start channel when enabled
-        if name in self._channels:
-            try:
-                await self._channels[name].stop()
-            except Exception:
-                logger.exception("Error stopping channel %s for config update", name)
-            del self._channels[name]
+        # Restart or start channel when enabled (primary + per-account slots)
+        await self._stop_channel_family(name)
 
         if config.get("enabled", False):
             return await self._start_channel(name, config)
 
         return True
+
+    @staticmethod
+    def _account_bot_id(platform: str, acc: dict[str, Any]) -> str:
+        if not isinstance(acc, dict):
+            return ""
+        if platform == "feishu":
+            return str(acc.get("app_id") or acc.get("bot_id") or "").strip()
+        return str(acc.get("bot_id") or acc.get("app_id") or "").strip()
+
+    @staticmethod
+    def _account_bot_secret(platform: str, acc: dict[str, Any]) -> str:
+        if not isinstance(acc, dict):
+            return ""
+        if platform == "feishu":
+            return str(acc.get("app_secret") or acc.get("secret") or "").strip()
+        return str(acc.get("secret") or acc.get("app_secret") or "").strip()
+
+    def _dedupe_accounts_by_bot_id(
+        self,
+        platform: str,
+        accounts: list[tuple[str, dict[str, Any]]],
+    ) -> list[tuple[str, dict[str, Any]]]:
+        """Keep a single channel instance per bot/app id (prefer role that owns it)."""
+        if len(accounts) <= 1:
+            return accounts
+        owners: dict[str, str] = {}
+        if platform == "feishu":
+            try:
+                from evoflow.proactive.feishu_binding import find_agent_code_for_feishu_app_id
+
+                for _code, acc in accounts:
+                    bid = self._account_bot_id(platform, acc)
+                    if not bid or bid in owners:
+                        continue
+                    owner = str(find_agent_code_for_feishu_app_id(bid) or "").strip()
+                    if owner:
+                        owners[bid] = owner
+            except Exception:
+                logger.debug("[ChannelService] feishu owner map for dedupe failed", exc_info=True)
+
+        chosen: dict[str, tuple[str, dict[str, Any]]] = {}
+        passthrough: list[tuple[str, dict[str, Any]]] = []
+        for code, acc in accounts:
+            bid = self._account_bot_id(platform, acc)
+            if not bid:
+                passthrough.append((code, acc))
+                continue
+            prefer = str(owners.get(bid) or "").strip()
+            if bid not in chosen:
+                chosen[bid] = (code, acc)
+                continue
+            prev_code, _prev_acc = chosen[bid]
+            if prefer and code == prefer and prev_code != prefer:
+                logger.warning(
+                    "[ChannelService] %s: drop duplicate bot_id=%s account=%s (keep owner=%s)",
+                    platform,
+                    bid,
+                    prev_code,
+                    code,
+                )
+                chosen[bid] = (code, acc)
+            else:
+                logger.warning(
+                    "[ChannelService] %s: drop duplicate bot_id=%s account=%s (keep=%s)",
+                    platform,
+                    bid,
+                    code,
+                    prev_code,
+                )
+        return list(chosen.values()) + passthrough
 
     def _migrate_legacy_accounts_to_table(self, platform: str, legacy_accounts: dict[str, Any]) -> None:
         """One-time migration: copy legacy JSON accounts → evoflow_bot_bindings table."""
@@ -378,14 +454,17 @@ class ChannelService:
             existing = {r["bot_id"] for r in list_bot_bindings(platform)}
             count = 0
             for agent_code, acc in legacy_accounts.items():
-                bid = str(acc.get("bot_id") or "").strip()
+                if not isinstance(acc, dict):
+                    continue
+                bid = self._account_bot_id(platform, acc)
+                secret = self._account_bot_secret(platform, acc)
                 if not bid or bid in existing:
                     continue
                 upsert_bot_binding(
                     platform=platform,
                     bot_id=bid,
                     agent_code=str(agent_code or "").strip(),
-                    bot_secret=str(acc.get("secret") or "").strip(),
+                    bot_secret=secret,
                     workspace_root="",
                     session_config=acc.get("session") or {},
                     enabled=bool(acc.get("enabled", True)),
@@ -430,36 +509,67 @@ class ChannelService:
 
         accounts: list[tuple[str, dict[str, Any]]] = []
 
-        # New path: load from evoflow_bot_bindings (flat table).
-        # Fall back to legacy JSON in config only if the table has no rows.
+        # New path: load from evoflow_bot_bindings (flat table), then merge any
+        # leftover legacy config.accounts that the table does not cover yet.
+        # (Table-only load used to drop config.accounts when ecommerce was bound
+        # but douyin-analyst still lived only in JSON — inbound tagged emp-…
+        # while no feishu:emp instance registered outbound.)
         if name in PER_EMPLOYEE_ACCOUNT_CHANNELS:
             from evoflow.persistence.config_repositories import list_bot_bindings
 
             table_bindings = list_bot_bindings(name)
+            seen_codes: set[str] = set()
+            seen_bot_ids: set[str] = set()
             if table_bindings:
                 for row in table_bindings:
-                    accounts.append((row["agent_code"], {
+                    code = str(row.get("agent_code") or "").strip()
+                    bid = str(row.get("bot_id") or "").strip()
+                    accounts.append((code, {
                         "bot_id": row["bot_id"],
                         "secret": row["bot_secret"],
+                        "app_id": row["bot_id"] if name == "feishu" else "",
+                        "app_secret": row["bot_secret"] if name == "feishu" else "",
                         "enabled": row["enabled"],
                         "session": row.get("session_config") or {},
                     }))
+                    if code:
+                        seen_codes.add(code)
+                    if bid:
+                        seen_bot_ids.add(bid)
                 logger.info(
                     "[ChannelService] %s: loaded %d bot binding(s) from evoflow_bot_bindings",
                     name, len(accounts),
                 )
-            else:
-                # No rows in the new table yet — try legacy JSON and migrate.
-                accounts_cfg = config.get("accounts") if isinstance(config, dict) else None
-                if isinstance(accounts_cfg, dict):
-                    for aid, entry in accounts_cfg.items():
-                        aid_str = str(aid or "").strip()
-                        if not aid_str or not isinstance(entry, dict):
-                            continue
-                        accounts.append((aid_str, entry))
-                # Migrate any legacy accounts to the new table on startup.
-                if accounts:
+            accounts_cfg = config.get("accounts") if isinstance(config, dict) else None
+            if isinstance(accounts_cfg, dict):
+                merged_legacy = 0
+                for aid, entry in accounts_cfg.items():
+                    aid_str = str(aid or "").strip()
+                    if not aid_str or not isinstance(entry, dict):
+                        continue
+                    bid = self._account_bot_id(name, entry)
+                    if aid_str in seen_codes or (bid and bid in seen_bot_ids):
+                        continue
+                    accounts.append((aid_str, entry))
+                    seen_codes.add(aid_str)
+                    if bid:
+                        seen_bot_ids.add(bid)
+                    merged_legacy += 1
+                if merged_legacy:
+                    logger.info(
+                        "[ChannelService] %s: merged %d legacy config.accounts not in table",
+                        name,
+                        merged_legacy,
+                    )
+                # Migrate any legacy accounts still missing from the table.
+                if not table_bindings and accounts:
                     self._migrate_legacy_accounts_to_table(name, dict(accounts_cfg or {}))
+                elif merged_legacy:
+                    self._migrate_legacy_accounts_to_table(name, dict(accounts_cfg or {}))
+            # One Feishu/WeCom bot_id may only drive one WS. Duplicate slots (wrong
+            # QR bind left stale JSON / table rows) would load-balance events across
+            # employees and look like 串台 with empty bot_id in ops.
+            accounts = self._dedupe_accounts_by_bot_id(name, accounts)
             # Also start the primary bot if it has credentials.
             if _channel_has_primary_credentials(name, config):
                 await self._start_channel_instance(name, channel_cls, config, account_id="", instance_key=name)

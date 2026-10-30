@@ -109,6 +109,7 @@ function SelectContent({
         position={position}
         align={align}
         {...props}
+        data-above-native-embed=""
       >
         <SelectScrollUpButton />
         <SelectPrimitive.Viewport

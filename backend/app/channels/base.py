@@ -149,6 +149,39 @@ class Channel(ABC):
             account_id=aid,
         )
 
+    def _stamp_ops_delivery(
+        self,
+        msg: OutboundMessage,
+        *,
+        attachments_ok: list[Any] | None = None,
+        attachments_failed: list[str] | None = None,
+    ) -> None:
+        """Write IM-shaped delivery summary onto ``msg.metadata`` for ops audit.
+
+        MessageBus records ``content_summary`` after this callback returns; without
+        a stamp it only sees raw agent ``msg.text`` (often unrelated to the Feishu
+        bubble + separate image messages the user actually got).
+        """
+        try:
+            from app.channels.feishu_message_format import build_outbound_ops_delivery
+
+            meta = msg.metadata if isinstance(msg.metadata, dict) else {}
+            if not isinstance(msg.metadata, dict):
+                msg.metadata = meta
+            prior = meta.get("ops_delivery") if isinstance(meta.get("ops_delivery"), dict) else {}
+            wire_msg_type = str(prior.get("wire_msg_type") or meta.get("wire_msg_type") or "").strip()
+            delivery = build_outbound_ops_delivery(
+                msg.text or "",
+                attachments=list(attachments_ok if attachments_ok is not None else (msg.attachments or [])),
+                proactive_markdown=bool(meta.get("proactive_markdown")),
+                wire_msg_type=wire_msg_type,
+                attachments_failed=list(attachments_failed or []),
+            )
+            meta["ops_delivery"] = delivery
+            meta["wire_msg_type"] = delivery.get("wire_msg_type") or wire_msg_type
+        except Exception:
+            logger.debug("[%s] ops_delivery stamp failed", self.name, exc_info=True)
+
     async def _on_outbound(self, msg: OutboundMessage) -> None:
         """Outbound callback registered with the bus.
 
@@ -165,18 +198,29 @@ class Channel(ABC):
             except Exception as exc:
                 self._diag_outbound_done(msg, ok=False, error=str(exc))
                 logger.exception("Failed to send outbound message on channel %s", self.name)
-                return  # Do not attempt file uploads when the text message failed
+                # Re-raise so MessageBus can audit status=error instead of
+                # falsely logging 「成功已回复」 when Feishu/WeCom send failed.
+                raise
 
             failed_names: list[str] = []
+            sent_attachments: list[Any] = []
             for attachment in msg.attachments:
                 try:
                     success = await self.send_file(msg, attachment)
                     if not success:
                         logger.warning("[%s] file upload skipped for %s", self.name, attachment.filename)
                         failed_names.append(attachment.filename)
+                    else:
+                        sent_attachments.append(attachment)
                 except Exception:
                     logger.exception("[%s] failed to upload file %s", self.name, attachment.filename)
                     failed_names.append(attachment.filename)
+
+            self._stamp_ops_delivery(
+                msg,
+                attachments_ok=sent_attachments,
+                attachments_failed=failed_names,
+            )
 
             if failed_names:
                 notice = replace(

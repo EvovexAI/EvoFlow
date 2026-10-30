@@ -467,8 +467,14 @@ async function _startXiaomiFramePipelineInner(opts = {}) {
       }
       const peeled = _peelCommittedAsrPrefix(raw)
       _partial = peeled
-      if (_softBargeProbing && peeled && peeled.trim().length >= 4) {
-        _confirmSoftBargeWithUserSpeech(peeled)
+      // 「停止/退出」仅 2 字：旧门槛 ≥4 导致软打断永远确认不了
+      if (peeled && peeled.trim().length >= 2) {
+        if (_softBargeProbing || isXiaomiFrameSoftPaused()) {
+          if (peeled.trim().length >= 4) _confirmSoftBargeWithUserSpeech(peeled)
+          else _tryConfirmSoftBargeExitCommand(peeled)
+        } else if (isXiaomiFramePlaying() || getVoicePhase() === 'speaking') {
+          _tryConfirmSoftBargeExitCommand(peeled)
+        }
       }
       // 上屏字 + 上屏时间走面板日志（updateVoicePartialText → noteVoicePanelDisplay）
       void import('../background-voice-bridge.js').then((b) => {
@@ -1235,11 +1241,12 @@ const LOCAL_BARGE_WARMUP_MS = 700
 const LOCAL_BARGE_ECHO_MARGIN = 0.035
 const LOCAL_BARGE_HARD_VOL = 0.2
 const LOCAL_DUCK_TRIGGER = 3
-const LOCAL_DUCK_SUSTAIN = 10
+/** duck 后立刻软暂停（旧值 10 帧常因先验变冷卡在「音量变小但不停」） */
+const LOCAL_DUCK_SUSTAIN = 1
 const LOCAL_DUCK_DECAY = 6
 const LOCAL_DUCK_MAX_MS = 1500
 /** 软打断后无有效 ASR → 续播（先验门控后假阳下降，缩短假暂停窗） */
-const LOCAL_SOFT_BARGE_RESUME_MS = 2500
+const LOCAL_SOFT_BARGE_RESUME_MS = 3200
 
 /** @type {number} */
 let _lastMicPeak = 0
@@ -1304,8 +1311,48 @@ function _confirmSoftBargeWithUserSpeech(text = '') {
   void _abortModelRunForBargeIn()
   _awaitingReply = false
   _heardBodySpeak = false
+  // 「停止/退出」须走本地口令闸：否则只停播一下又继续生成/续播
+  if (t) {
+    void import('../xiaomi-voice-close.js')
+      .then((m) => m.tryHandleXiaomiVoiceLocalCommand?.(t, { source: 'soft-barge-asr' }))
+      .catch(() => {})
+  }
   _scheduleListenUnmute('local_vol_barge_confirm')
   _refreshTray()
+  return true
+}
+
+/**
+ * 播报/软暂停探测期：短口令「停止/退出」立刻确认（不必等 ≥4 字 partial）。
+ * @param {string} text
+ * @returns {boolean}
+ */
+function _tryConfirmSoftBargeExitCommand(text = '') {
+  const t = String(text || '').trim()
+  if (!t) return false
+  if (!_softBargeProbing && !isXiaomiFrameSoftPaused() && !isXiaomiFramePlaying()) return false
+  // 动态 import 同步不了；用已加载的闭包检测会更好——此处先粗判再确认
+  void Promise.all([
+    import('../xiaomi-voice-close.js'),
+    import('../voice-listen-control.js'),
+  ])
+    .then(([closeMod, listenMod]) => {
+      const exit =
+        closeMod.isXiaomiVoiceExitCommand?.(t) || listenMod.isStopTtsOnlyCommand?.(t)
+      if (!exit) return
+      if (!_softBargeProbing && !isXiaomiFrameSoftPaused()) {
+        // 仍在 duck/播报：先软暂停再走口令
+        try {
+          pauseXiaomiFrameLocalPlayback({ reason: 'exit-cmd-heard' })
+        } catch {
+          /* ignore */
+        }
+        _softBargeProbing = true
+      }
+      voiceFeLog('打断', `播报期短口令确认 →「${t.slice(0, 40)}」`)
+      _confirmSoftBargeWithUserSpeech(t)
+    })
+    .catch(() => {})
   return true
 }
 
@@ -1372,22 +1419,37 @@ function _onLocalBargePeak(peak) {
     if (cand) {
       if (++_localBargeFrames >= LOCAL_DUCK_TRIGGER) {
         _localBargeFrames = 0
-        _localDuckActive = true
-        _localDuckStart = Date.now()
-        _localDuckHigh = 0
-        _localDuckLow = 0
         const prior = getSpeechPriorDebug()
+        // 旧路径：先 duck 再等 sustain → 常卡在「音量变小但不停」。
+        // 现：先验热 + 能量够 → 直接软暂停并放麦听口令/抢话。
+        _localBargeBusy = true
+        _resetLocalBarge()
         duckXiaomiFramePlayback(0.22)
         voiceFeLog(
           '打断',
-          `本地音量 duck（peak=${peak.toFixed(3)} floor=${_ttsEchoFloor.toFixed(3)} priorScore=${prior.score.toFixed(2)} zcr=${prior.zcr.toFixed(3)}）`,
+          `本地先验确认 → 软暂停探测 ASR peak=${peak.toFixed(3)} floor=${_ttsEchoFloor.toFixed(3)} priorScore=${prior.score.toFixed(2)} zcr=${prior.zcr.toFixed(3)}`,
         )
+        try {
+          pauseXiaomiFrameLocalPlayback({ reason: 'local-vol-soft-barge' })
+        } catch {
+          /* ignore */
+        }
+        setXiaomiPcmUplinkHold(false, 'soft_barge_probe')
+        try {
+          sendXiaomiClientListening({ force: true, purpose: 'exit_listen' })
+        } catch {
+          /* ignore */
+        }
+        _armSoftBargeResumeWatch()
+        _refreshTray()
+        _localBargeBusy = false
       }
     } else {
       _localBargeFrames = 0
     }
     return
   }
+  // 兼容：若仍处 duck 态（旧路径残留），下一帧能量够就进软暂停
   const elapsed = Date.now() - _localDuckStart
   if (cand) {
     _localDuckHigh += 1
@@ -1398,14 +1460,13 @@ function _onLocalBargePeak(peak) {
       const prior = getSpeechPriorDebug()
       voiceFeLog(
         '打断',
-        `本地先验确认 → 软暂停探测 ASR peak=${peak.toFixed(3)} priorScore=${prior.score.toFixed(2)} zcr=${prior.zcr.toFixed(3)}`,
+        `本地 duck 续确认 → 软暂停探测 ASR peak=${peak.toFixed(3)} priorScore=${prior.score.toFixed(2)}`,
       )
       try {
         pauseXiaomiFrameLocalPlayback({ reason: 'local-vol-soft-barge' })
       } catch {
         /* ignore */
       }
-      // 短暂放行上行，看有没有真用户话；无则续播
       setXiaomiPcmUplinkHold(false, 'soft_barge_probe')
       try {
         sendXiaomiClientListening({ force: true, purpose: 'exit_listen' })

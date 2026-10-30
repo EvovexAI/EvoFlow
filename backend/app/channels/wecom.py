@@ -1028,17 +1028,27 @@ class WecomChannel(Channel):
         return path, content_type, filename, size, source_url
 
     def _cache_bytes(self, data: bytes, suffix: str) -> str:
-        import tempfile
+        from app.channels.inbound_media_store import write_inbound_media_bytes
 
-        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as f:
-            f.write(data)
-            path = f.name
+        ext = str(suffix or ".bin").strip() or ".bin"
+        if not ext.startswith("."):
+            ext = f".{ext}"
+        filename = f"wecom-media{ext}"
+        path = write_inbound_media_bytes(
+            data,
+            channel="wecom",
+            filename=filename,
+        )
         self._temp_media_paths.add(path)
         return path
 
     async def _cleanup_temp_paths(self, paths: list[str]) -> None:
+        from app.channels.inbound_media_store import is_under_channel_messages
+
         for path in paths:
             self._temp_media_paths.discard(path)
+            if is_under_channel_messages(path):
+                continue
             try:
                 os.unlink(path)  # async-block-ok: 单个临时文件 unlink，微秒级
             except OSError as exc:

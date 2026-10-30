@@ -31,7 +31,16 @@ def test_channel_push_list_paginated_enrich(ops_db):
         kind="im_message",
         event="callback",
         content_summary="hello inbound",
-        payload={"msg_type": "text", "files": ["a.png"]},
+        payload={
+            "msg_type": "text",
+            "files": [
+                {
+                    "filename": "a.png",
+                    "path": "D:/evoflow/channel-messages/feishu/2026/10/a.png",
+                    "mime": "image/png",
+                }
+            ],
+        },
         status="ok",
         triggered_by="user",
     )
@@ -90,6 +99,9 @@ def test_channel_push_list_paginated_enrich(ops_db):
     inbound = next(i for i in items if i["direction"] == "inbound" and i["content_summary"] == "hello inbound")
     assert inbound["msg_type"] == "文本"
     assert inbound["attachment_count"] >= 1
+    assert inbound["attachment_items"][0]["path"].endswith("a.png")
+    assert inbound["attachment_items"][0]["filename"] == "a.png"
+    assert "channel-messages" in inbound["attachments"][0]
     decision = next(i for i in items if i["kind"] == "approval_decision")
     assert decision["msg_type"] == "审批回执"
     assert decision["kind_label"] == "审批回执"

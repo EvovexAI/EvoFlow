@@ -99,6 +99,11 @@ import {
   projectAssistantCodeComments,
   type AssistantCodeCommentCard,
 } from "@/lib/assistantCodeComment.js";
+import {
+  extractEvoAssetCitations,
+  isDisplayableAssetCitationPath,
+} from "../../react/lib/evo-asset-citation.js";
+import { AssetCitationChips } from "../../react/components/AssetCitationChips.js";
 import { resolveProviderLabel } from "@/lib/registryProviderView.js";
 import type { LexicalChatInputHandle } from "@/LexicalChatInput.js";
 import { ChatPromptEditor } from "@/prompt-editor/ChatPromptEditor.js";
@@ -1505,13 +1510,20 @@ const AssistantTextRowView = memo(function AssistantTextRowView({
   const isOfficeMode = useIsOfficeMode();
   const codeCommentCardsEnabled = useAssistantCodeCommentFeatureEnabled();
   const projectsCodeComments = codeCommentCardsEnabled && codeCommentProjectionEnabled === true;
-  const visibleText = useMemo(
-    () =>
-      projectsCodeComments
-        ? projectAssistantCodeComments(row.text, { streaming }).visibleText
-        : row.text,
-    [projectsCodeComments, row.text, streaming],
-  );
+  const assetCitation = useMemo(() => {
+    // 未闭合 XML 不会被 RE 匹配（需成对标签）；松散泄漏行一旦成行即剥，避免闪现元数据。
+    const projected = projectsCodeComments
+      ? projectAssistantCodeComments(row.text, { streaming }).visibleText
+      : row.text;
+    const parsed = extractEvoAssetCitations(projected);
+    return {
+      text: parsed.text,
+      entries: streaming
+        ? []
+        : parsed.entries.filter((e) => isDisplayableAssetCitationPath(e.path)),
+    };
+  }, [projectsCodeComments, row.text, streaming]);
+  const visibleText = assetCitation.text;
   // 与 ReasoningRowView 一致：START 后、首 token 前不占位，避免工具卡连环中间夹空缝。
   if (streaming && visibleText.length === 0) {
     return null;
@@ -1543,6 +1555,11 @@ const AssistantTextRowView = memo(function AssistantTextRowView({
           {visibleText}
         </MessageResponse>
       </div>
+      {!streaming && assetCitation.entries.length > 0 ? (
+        <div className="mt-2">
+          <AssetCitationChips entries={assetCitation.entries} />
+        </div>
+      ) : null}
       {codeCommentCardsEnabled && codeCommentCards && codeCommentCards.length > 0 ? (
         <div className="mt-3">
           <AssistantCodeCommentCards

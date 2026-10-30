@@ -151,6 +151,40 @@ ARTIFACT_DISPLAY_BLOCK = """<artifact_display>
 """
 
 
+# Injected only for IM inbound runs (ChannelManager stamps ``channel`` on run_context).
+# Never append for Panel / desktop chat.
+# Keep this block itself plain-text (no ## / | tables) so the model does not mirror
+# Markdown from the instruction into the user-visible IM reply.
+IM_CHANNEL_REPLY_BLOCK = """<im_channel>
+【最高优先级 · 覆盖其它格式习惯】你正在飞书/企微等 IM 里回复。对用户可见的正文必须是纯文本。
+本块优先于 communication_style / soul / 角色提示里任何「加粗、表格、标题、Markdown」说法。
+
+硬性禁止（正文里一个都不要出现）：
+井号标题（# ## ###）
+竖线表格（| --- |）
+星号加粗/斜体（** * __）
+反引号与代码块（` ```）
+Markdown 链接与图片（[]() ![]()）
+以 - * 1. 开头的列表符号（可用「1）」或「·」口语列举）
+::code-comment 等桌面端卡片标记
+
+正确写法：空行分段；强调用「」或【】；键值用「项目ID：xxx」一行一项；需要对比时分几段短句，不要画表。
+
+错误示例（禁止，此处用文字描述，勿照抄符号）：
+用井号写「新片子已提交」当标题；用竖线画出「项 / 值」对照表；用双星号包住 16:9。
+
+正确示例：
+【新片子已提交】
+项目ID：7702…
+作者：林远
+规格：横屏 16:9，1282×720，约 81 秒，30fps
+镜头：24 个
+
+主动推送：需要把结果/进度推回当前对话来源时，调用 platform：action=channels.send_message，confirm=true，args 里传 text（可选 file_path / image_url）。不要指定 channel / chat_id / agent_code；只有用户明确要求发到另一个群/渠道时才指定目标。
+</im_channel>
+"""
+
+
 WORKSPACE_BLOCK_TEMPLATE = """<workspace>
 用户工作目录: {workspace_root_hint}
 操作系统: {runtime_os}

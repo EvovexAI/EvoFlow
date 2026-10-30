@@ -90,9 +90,13 @@ def _already_native_viewed(runtime: ToolRuntime[ContextT, ThreadState], ref: str
 
 
 def _duplicate_native_read_error(image_ref: str) -> str:
-    """Hard-stop re-read loops: soft 'already attached' text is ignored by models."""
+    """Stop re-read loops without counting as a hard tool failure in observability.
+
+    Prefixed with OK so status stays success (obs noise was ToolReturnedError spam);
+    models still get an explicit do-not-retry instruction.
+    """
     return (
-        "Error: Image already in model context — do not call read/view_image again on this path. "
+        "OK: Image already in model context — do not call read/view_image again on this path. "
         f"path={image_ref}. Continue with your next non-read action "
         "(e.g. media.generate_video with first_frame_url set to this path)."
     )

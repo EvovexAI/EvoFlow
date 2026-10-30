@@ -79,6 +79,8 @@ export function showChatLightbox(src) {
   lb.className = 'chat-lightbox'
   lb.setAttribute('role', 'dialog')
   lb.setAttribute('aria-modal', 'true')
+  // 原生嵌入浏览器 HWND 盖在 HTML 之上；灯箱必须登记，否则右栏 WebView 会穿出图片预览。
+  lb.setAttribute('data-above-native-embed', '')
 
   const toolbar = el('di' + 'v')
   toolbar.className = 'chat-lightbox-toolbar'

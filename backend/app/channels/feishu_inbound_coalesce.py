@@ -45,22 +45,22 @@ class FeishuInboundCoalescer:
     def __init__(
         self,
         *,
-        delay_seconds: float = 0.6,
+        delay_seconds: float = 0.25,
         text_grace_seconds: float | None = None,
         sticky_seconds: float | None = None,
         publish: PublishFn | None = None,
     ) -> None:
-        self._delay_seconds = max(0.05, float(delay_seconds or 0.6))
-        # Text often arrives before the companion file event finishes downloading.
-        # Hold text-only batches longer so media can merge; once files are present
-        # we fall back to the short delay.
+        self._delay_seconds = max(0.05, float(delay_seconds if delay_seconds is not None else 0.25))
+        # Text-only flush uses the same short window as media batches. Holding
+        # text for seconds "just in case" an image follows made every chat laggy;
+        # late image/file events re-attach the caption via sticky instead.
         grace = text_grace_seconds
         if grace is None:
-            grace = max(self._delay_seconds, 4.0)
+            grace = self._delay_seconds
         self._text_grace_seconds = max(self._delay_seconds, float(grace or 0.0))
         sticky = sticky_seconds
         if sticky is None:
-            sticky = max(self._text_grace_seconds, 6.0)
+            sticky = max(4.0, self._text_grace_seconds)
         self._sticky_seconds = max(0.0, float(sticky or 0.0))
         self._publish = publish
         self._pending: dict[str, InboundMessage] = {}

@@ -60,6 +60,54 @@ def has_intro_been_sent(agent_code: str, *, receive_id: str, receive_id_type: st
         return False
 
 
+def should_skip_first_mention_intro(
+    agent_code: str,
+    *,
+    chat_id: str,
+    peer_open_id: str = "",
+    chat_type: str = "",
+) -> bool:
+    """Whether Feishu first-message intro should be skipped for this chat.
+
+    Bind flow already pushes to the scanner's ``open_id``. The same private chat
+    later arrives as ``chat_id=oc_…`` — without this check we re-spam the intro
+    on the first user message (e.g. sending an image).
+    """
+    code = str(agent_code or "").strip()
+    cid = str(chat_id or "").strip()
+    if not code or not cid:
+        return True
+    if has_intro_been_sent(code, receive_id=cid, receive_id_type="chat_id"):
+        return True
+    ct = str(chat_type or "").strip().lower()
+    # Group first-@ must still get a one-time intro even if QR-bind already
+    # greeted the binder's open_id. Only private chats alias open_id ↔ oc_.
+    if ct in {"group", "public"}:
+        return False
+    peer = str(peer_open_id or "").strip()
+    if peer and has_intro_been_sent(code, receive_id=peer, receive_id_type="open_id"):
+        return True
+    # p2p / private (or unknown type): any prior open_id intro means QR-bind
+    # already covered this private conversation.
+    if ct in {"p2p", "private", ""}:
+        try:
+            from evoflow.proactive.repositories import ProactiveRepository
+
+            role = ProactiveRepository.get_role(code)
+            cfg = getattr(role, "config", None) if role else None
+            if cfg is not None:
+                if str(getattr(cfg, "feishu_intro_sent_at", "") or "").strip():
+                    return True
+                sent = getattr(cfg, "feishu_intro_sent", None) or {}
+                if isinstance(sent, dict) and any(
+                    str(k).startswith("open_id:") and str(v or "").strip() for k, v in sent.items()
+                ):
+                    return True
+        except Exception:
+            logger.debug("self_intro: should_skip_first_mention failed code=%s", code, exc_info=True)
+    return False
+
+
 def mark_intro_sent(agent_code: str, *, receive_id: str, receive_id_type: str = "chat_id") -> None:
     """Persist intro delivery marker on the role config (idempotent)."""
     code = str(agent_code or "").strip()
@@ -201,6 +249,8 @@ def build_employee_self_intro(agent_code: str) -> str:
 
     labels = _tool_labels(code)
 
+    # Universal greeting — avoid product pitches (EvoPanel / 工作台) and
+    # bug-fix examples; duties stay role-specific when configured.
     lines: list[str] = [f"👋 你好，我是 **{display_name}**。"]
     if duties:
         joined = "；".join(duties[:_MAX_DUTIES])
@@ -209,9 +259,9 @@ def build_employee_self_intro(agent_code: str) -> str:
         # No written duties — fall back to a short capability hint (Chinese only).
         lines.append("**我能帮你**：" + "、".join(labels[:_MAX_TOOLS]) + "。")
     lines.append("")
-    lines.append("你可以这样使唤我：")
-    lines.append(f"1. 在群里 @{role_name} 直接说需求，例如「@{role_name} 帮我查一下这个报错」。")
-    lines.append("2. 也可以私聊我，或在 EvoPanel 里直接给我派任务。")
+    lines.append("有事直接找我就行：")
+    lines.append(f"1. 在群里 @{role_name} 说清楚你的需求，例如「@{role_name} 帮我处理一下这件事」。")
+    lines.append("2. 也可以私聊我，我会按职责尽力协助。")
     return "\n".join(lines)
 
 

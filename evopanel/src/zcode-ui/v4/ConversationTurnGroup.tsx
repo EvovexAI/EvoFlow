@@ -67,6 +67,7 @@ import {
   projectAssistantCodeComments,
   type AssistantCodeCommentCard,
 } from "@/lib/assistantCodeComment.js";
+import { stripEvoAssetCitations } from "../../react/lib/evo-asset-citation.js";
 import { useAssistantPreviewCardsForAssistantTextRow } from "@/v4/useAssistantPreviewCardsForRow.js";
 import { shouldShowTurnChatLoading } from "@/v4/chatLoadingVisibility.js";
 import {
@@ -1421,15 +1422,17 @@ function ConversationTurnGroupImpl({
     () => resolveAssistantCopyText(unit),
     [unit.assistantTextRows, unit.assistantWorkRows, unit.latestAssistantTextRow],
   );
-  const assistantCopyText = useMemo(
-    () =>
+  const assistantCopyText = useMemo(() => {
+    const projected =
       assistantCodeCommentProjectionEnabled && assistantRawCopyText !== undefined
         ? projectAssistantCodeComments(assistantRawCopyText, {
             streaming: unit.isRunning,
           }).visibleText
-        : assistantRawCopyText,
-    [assistantRawCopyText, assistantCodeCommentProjectionEnabled, unit.isRunning],
-  );
+        : assistantRawCopyText;
+    if (projected === undefined) return undefined;
+    // 复制内容与气泡一致：剥掉 evo-asset-citation / 松散 citation_entries 泄漏。
+    return stripEvoAssetCitations(projected);
+  }, [assistantRawCopyText, assistantCodeCommentProjectionEnabled, unit.isRunning]);
   const assistantCodeCommentCards = useMemo(
     () =>
       codeCommentCardsEnabled &&

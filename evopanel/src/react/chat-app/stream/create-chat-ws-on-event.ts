@@ -27,6 +27,10 @@ import { rightStageStore } from '../../../lib/right-stage/right-stage-store.js'
 import { isXiaomiVoiceRightStageForeground } from '../../../lib/xiaomi-voice/voice-right-stage-foreground.js'
 import { withAbsoluteArtifactPaths } from '../../../lib/artifact-absolute-path.js'
 import { capPersistedRowText, capPersistedToolOutput } from '../../lib/session-rows-cap.js'
+import {
+  logChatTurnFirstResponse,
+  logChatTurnRunStarted,
+} from '../../lib/chat-turn-timing-log.js'
 
 export type ChatWsOnEventCtx = Record<string, any>
 
@@ -801,6 +805,10 @@ export function createChatWsOnEventHandler(ctx: ChatWsOnEventCtx) {
       }
 
       if (state === 'run_started' && runId) {
+        logChatTurnRunStarted({
+          sessionKey: targetSk,
+          runId: String(runId || '').trim(),
+        })
         // 用户已停止：丢弃迟到的 run_started 帧，防止重新激活流式状态（与 rtIsStoppedRun 双重保险）。
         // 主动发送（outbound/live）不受 recovery cooldown 影响，否则 stop 后再发会被整轮丢弃。
         const intentionalOutbound =
@@ -1628,11 +1636,47 @@ export function createChatWsOnEventHandler(ctx: ChatWsOnEventCtx) {
         const v4ThreadId =
           String(wsClient.getSessionThreadId?.(targetSk) || '').trim() ||
           String((aguiEvent as { threadId?: string }).threadId || '').trim()
-        if (
+        const gatedByV4 =
           isEvoflowChatV4Enabled() &&
           isV4DisplayAuthoritative(v4ThreadId) &&
           isV4GatedAgUiEvent(aguiEvent)
-        ) {
+        // 首帧响应：须在 V4 闸门 return 之前打点（默认 V4 会丢掉 TEXT_* 热路径）
+        {
+          const evType = String(aguiEvent.type || '')
+          const delta = String((aguiEvent as { delta?: string }).delta || '')
+          if (evType === EventType.TEXT_MESSAGE_CONTENT && delta.trim()) {
+            logChatTurnFirstResponse({
+              sessionKey: targetSk,
+              kind: 'text',
+              preview: delta,
+              eventType: evType,
+              runId: String(runId || (aguiEvent as { runId?: string }).runId || ''),
+              gatedByV4,
+            })
+          } else if (evType === EventType.REASONING_MESSAGE_CONTENT && delta.trim()) {
+            logChatTurnFirstResponse({
+              sessionKey: targetSk,
+              kind: 'reasoning',
+              preview: delta,
+              eventType: evType,
+              runId: String(runId || (aguiEvent as { runId?: string }).runId || ''),
+              gatedByV4,
+            })
+          } else if (evType === EventType.TOOL_CALL_START) {
+            const toolName = String(
+              (aguiEvent as { toolCallName?: string }).toolCallName || '',
+            ).trim()
+            logChatTurnFirstResponse({
+              sessionKey: targetSk,
+              kind: 'tool',
+              preview: toolName ? `工具 ${toolName}` : '工具调用开始',
+              eventType: evType,
+              runId: String(runId || (aguiEvent as { runId?: string }).runId || ''),
+              gatedByV4: false,
+            })
+          }
+        }
+        if (gatedByV4) {
           return
         }
 
@@ -1647,6 +1691,12 @@ export function createChatWsOnEventHandler(ctx: ChatWsOnEventCtx) {
           /^run-[a-f0-9]+$/i.test(aguiRunId) &&
           (!activeRunId || !/^run-[a-f0-9]+$/i.test(activeRunId))
         if (wireRunTakeover || aguiEvent.type === EventType.RUN_STARTED) {
+          if (aguiEvent.type === EventType.RUN_STARTED) {
+            logChatTurnRunStarted({
+              sessionKey: targetSk,
+              runId: aguiRunId,
+            })
+          }
           const intentionalOutbound =
             rt.turnPhase === 'outbound' || rt.turnPhase === 'live'
           if (
@@ -2409,6 +2459,13 @@ export function createChatWsOnEventHandler(ctx: ChatWsOnEventCtx) {
             afterLiveOrStructuralBump(targetSk, S, { liveTextOnly: true, reasoning: true })
           } else if (ev.type === 'text_piece' && !(S as { firstVisibleTextBumpDone?: boolean }).firstVisibleTextBumpDone) {
             ;(S as { firstVisibleTextBumpDone?: boolean }).firstVisibleTextBumpDone = true
+            logChatTurnFirstResponse({
+              sessionKey: targetSk,
+              kind: 'text',
+              preview: String(ev.piece || ''),
+              eventType: 'text_piece',
+              runId: String(runId || ''),
+            })
             afterLiveOrStructuralBump(targetSk, S, { liveTextOnly: true, immediate: true })
           } else if (isStreamTurnLiveTextEvent(ev.type)) {
             afterLiveOrStructuralBump(targetSk, S, { liveTextOnly: true })

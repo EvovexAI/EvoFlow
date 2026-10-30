@@ -1997,7 +1997,15 @@ function loadSessionMap() {
   return {}
 }
 
-function notifySessionThreadRebound(sessionKey, oldThreadId, threadId) {
+/**
+ * @param {string} sessionKey
+ * @param {string} oldThreadId
+ * @param {string} threadId
+ * @param {{ force?: boolean, reason?: string }} [opts]
+ *   force=true：允许覆盖已有 lead（stream 404 / force_recreate）。
+ *   非 force 时 React 侧若已有不同 tid 会拒绝覆盖，避免打开历史时 thread 乱跳转圈。
+ */
+function notifySessionThreadRebound(sessionKey, oldThreadId, threadId, opts = {}) {
   const sk = String(sessionKey || '').trim()
   const tid = String(threadId || '').trim()
   const old = String(oldThreadId || '').trim()
@@ -2006,7 +2014,13 @@ function notifySessionThreadRebound(sessionKey, oldThreadId, threadId) {
   if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
     window.dispatchEvent(
       new CustomEvent('evopanel:session-thread-rebound', {
-        detail: { sessionKey: sk, oldThreadId: old, threadId: tid },
+        detail: {
+          sessionKey: sk,
+          oldThreadId: old,
+          threadId: tid,
+          force: !!opts.force,
+          reason: String(opts.reason || '').trim() || undefined,
+        },
       }),
     )
   }
@@ -5475,6 +5489,33 @@ export class WsClient {
   }
 
   /**
+   * 把侧栏/快照里已知的 lead thread 写入本地 map（仅在 map 为空时）。
+   * 避免「React 行有 tid、map 没有」时 ensure-thread 误以为无 thread 而去 mint。
+   */
+  noteSessionThreadId(sessionKey, threadId) {
+    const key = String(sessionKey || '').trim()
+    const tid = resolveLanggraphLeadThreadId(String(threadId || '').trim())
+    if (!key || !tid || !isLanggraphLeadThreadId(tid)) return false
+    const map = loadSessionMap()
+    const prev = map[key] && typeof map[key] === 'object' ? map[key] : {}
+    const existing = resolveLanggraphLeadThreadId(String(prev.threadId || '').trim())
+    if (existing) return existing === tid
+    map[key] = {
+      ...prev,
+      threadId: tid,
+      createdAt: Number(prev.createdAt) || nowTs(),
+      updatedAt: Number(prev.updatedAt) || nowTs(),
+      messageCount: Number(prev.messageCount) || 0,
+      context:
+        prev.context && typeof prev.context === 'object'
+          ? prev.context
+          : { ...buildDefaultSessionContext() },
+    }
+    saveSessionMap(map, { keys: [key] })
+    return true
+  }
+
+  /**
    * 本地 session map 中已绑定 LangGraph thread 的会话（飞书面板指令等多路 panel SSE 订阅用）。
    * @returns {Array<{ sessionKey: string, threadId: string }>}
    */
@@ -5740,8 +5781,9 @@ export class WsClient {
 
   async _ensureThreadOnce(sessionKey, opts = {}) {
     const key = sessionKey || MAIN_SESSION_KEY
+    const forceRecreate = !!(opts && opts.forceRecreate)
     try {
-      const qs = opts && opts.forceRecreate ? '?force_recreate=1' : ''
+      const qs = forceRecreate ? '?force_recreate=1' : ''
       const data = await fetchJson(
         `/api/chat/sessions/${encodeURIComponent(key)}/ensure-thread${qs}`,
         {
@@ -5764,11 +5806,61 @@ export class WsClient {
         context: prev.context && typeof prev.context === 'object' ? prev.context : { ...buildDefaultSessionContext() },
       }
       saveSessionMap(map, { keys: [key] })
-      notifySessionThreadRebound(key, prevThreadId, threadId)
+      notifySessionThreadRebound(key, prevThreadId, threadId, {
+        force: forceRecreate && prevThreadId !== threadId,
+        reason: forceRecreate ? 'force_recreate' : prevThreadId ? 'ensure_thread' : 'first_bind',
+      })
       return threadId
     } catch (primaryErr) {
       const map = loadSessionMap()
-      const prevThreadId = String(map[key]?.threadId || '').trim()
+      const prevThreadId = resolveLanggraphLeadThreadId(
+        String(map[key]?.threadId || '').trim(),
+      )
+      // 已有 lead：ensure 失败时绝不能 createThreadRobust 另开空话题，
+      // 否则同一 sessionKey 连跳多个 threadId，打开历史会反复转圈（见 [v4-life]）。
+      // stale 重建只走 force_recreate / stream 404 显式路径。
+      if (prevThreadId && isLanggraphLeadThreadId(prevThreadId) && !forceRecreate) {
+        console.warn(
+          '[evoflow] ensure-thread failed; keep existing lead thread (no remint)',
+          key,
+          prevThreadId,
+          primaryErr,
+        )
+        return prevThreadId
+      }
+      if (!forceRecreate) {
+        // 本地也没有 lead：再试一次 ensure（可能是瞬时超时），仍失败才允许 mint
+        try {
+          const retry = await fetchJson(
+            `/api/chat/sessions/${encodeURIComponent(key)}/ensure-thread`,
+            { method: 'POST', preferGatewayHttp: true },
+          )
+          const retryTid = extractThreadId(retry) || String(retry?.threadId || '').trim()
+          if (retryTid) {
+            const prev = map[key] && typeof map[key] === 'object' ? map[key] : {}
+            const oldTid = String(prev.threadId || '').trim()
+            map[key] = {
+              ...prev,
+              threadId: retryTid,
+              createdAt: Number(prev.createdAt) || nowTs(),
+              updatedAt: Number(prev.updatedAt) || Number(retry?.updatedAt) || nowTs(),
+              messageCount: Number(retry?.messageCount ?? prev.messageCount) || 0,
+              context:
+                prev.context && typeof prev.context === 'object'
+                  ? prev.context
+                  : { ...buildDefaultSessionContext() },
+            }
+            saveSessionMap(map, { keys: [key] })
+            notifySessionThreadRebound(key, oldTid, retryTid, {
+              force: false,
+              reason: 'ensure_thread_retry',
+            })
+            return retryTid
+          }
+        } catch (retryErr) {
+          console.warn('[evoflow] ensure-thread retry failed', key, retryErr)
+        }
+      }
       const created = await createThreadRobust(key)
       const threadId = extractThreadId(created)
       if (!threadId) {
@@ -5790,7 +5882,10 @@ export class WsClient {
         }
         saveSessionMap(map, { keys: [key] })
       }
-      notifySessionThreadRebound(key, prevThreadId, threadId)
+      notifySessionThreadRebound(key, prevThreadId || '', threadId, {
+        force: forceRecreate,
+        reason: forceRecreate ? 'force_recreate_mint' : 'ensure_fallback_mint',
+      })
       if (primaryErr) void primaryErr
       return threadId
     }
@@ -6796,7 +6891,10 @@ export class WsClient {
                   updatedAt: nowTs(),
                 }
                 saveSessionMap(map, { keys: [key] })
-                notifySessionThreadRebound(key, oldTid, newTid)
+                notifySessionThreadRebound(key, oldTid, newTid, {
+                  force: true,
+                  reason: 'stream_404_header',
+                })
                 transportLog('thread rebound by gateway 404-fallback', {
                   sessionKey: key,
                   oldThreadId: oldTid,

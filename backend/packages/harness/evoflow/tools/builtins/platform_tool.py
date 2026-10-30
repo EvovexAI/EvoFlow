@@ -97,12 +97,28 @@ settings.* also covers web-search setup (Agent Plan Doubao Harness key / Tavily 
 """
 
 
+def _coerce_args_json(args_json: Any) -> str:
+    """Models often pass a JSON object for args_json; schema wants a string.
+
+    Obs: ValidationError ``args_json: Input should be a valid string`` burns a turn
+    on scenario activate / media calls — coerce dict/list before dispatch.
+    """
+    if args_json is None:
+        return ""
+    if isinstance(args_json, (dict, list)):
+        try:
+            return json.dumps(args_json, ensure_ascii=False)
+        except Exception:
+            return str(args_json)
+    return str(args_json)
+
+
 @tool("platform", description=_PLATFORM_TOOL_DESCRIPTION, parse_docstring=False)
 def platform_tool(
     action: str,
     runtime: ToolRuntime[ContextT, dict],
     tool_call_id: Annotated[str, InjectedToolCallId],
-    args_json: str = "",
+    args_json: str | dict | list | None = "",
     domain: str = "",
     confirm: bool = False,
 ) -> str:
@@ -114,7 +130,7 @@ def platform_tool(
         sk, tid = _session_from_runtime(runtime)
         data = dispatch_platform_action(
             action,
-            args_json=args_json,
+            args_json=_coerce_args_json(args_json),
             domain=domain or None,
             confirm=bool(confirm),
             principal_id=_principal_from_runtime(runtime),

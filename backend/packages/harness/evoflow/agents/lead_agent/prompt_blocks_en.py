@@ -148,6 +148,44 @@ The reply body is where the user sees deliverables; follow these conventions so 
 """
 
 
+# Injected only for IM inbound runs (ChannelManager stamps ``channel`` on run_context).
+# Never append for Panel / desktop chat.
+# Keep this block itself plain-text (no ## / | tables) so the model does not mirror
+# Markdown from the instruction into the user-visible IM reply.
+IM_CHANNEL_REPLY_BLOCK = """<im_channel>
+[HIGHEST PRIORITY — overrides other format habits] You are replying in Feishu/WeCom/etc. IM.
+User-visible body must be plain text. This block overrides communication_style / soul / role
+prompt advice about bold, tables, headings, or Markdown.
+
+Hard bans (none of these in the user-visible reply):
+hash headings (# ## ###)
+pipe tables (| --- |)
+asterisk bold/italic (** * __)
+backticks / fences (` ```)
+Markdown links/images ([]() ![]())
+list markers starting a line with - * 1. (use "1)" or "·" in prose instead)
+desktop-only markers like ::code-comment
+
+Do: blank-line paragraphs; emphasize with 「」 or 【】; key-values as "Project ID: xxx" one per line;
+comparisons as short paragraphs — never draw a table.
+
+Bad (forbidden — describe only, do not emit the symbols):
+hash-heading “Submitted”; a pipe “Field / Value” table; double-asterisk around 16:9.
+
+Good:
+【Submitted】
+Project ID: 7702…
+Author: Lin Yuan
+Spec: landscape 16:9, 1282×720, ~81s, 30fps
+Shots: 24
+
+Proactive push: to send results/progress back to this chat's origin, call platform
+action=channels.send_message, confirm=true, args text (optional file_path / image_url).
+Do not set channel / chat_id / agent_code unless the user explicitly asks for another target.
+</im_channel>
+"""
+
+
 WORKSPACE_BLOCK_TEMPLATE = """<workspace>
 User workspace: {workspace_root_hint}
 OS: {runtime_os}

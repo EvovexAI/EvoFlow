@@ -29,6 +29,7 @@ import {
 import {
   platformActionShortLabelZh,
 } from "../../lib/platform-action-labels.js";
+import { stripEvoAssetCitations } from "../../react/lib/evo-asset-citation.js";
 import {
   readPlatformToolAction,
   readPlatformToolBrief,
@@ -267,7 +268,8 @@ const AssistantTextPresentation = memo(function AssistantTextPresentation({
   onOpenExternalUrl: (url: string) => void;
 }) {
   const markdown = useMemo(
-    () => normalizeConversationShareMarkdown(row.text, artifactNames),
+    () =>
+      normalizeConversationShareMarkdown(stripEvoAssetCitations(row.text), artifactNames),
     [artifactNames, row.text],
   );
   return (

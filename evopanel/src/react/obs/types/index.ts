@@ -49,7 +49,9 @@ export interface ChannelMessageRecord {
   kindLabel: string
   content: string
   attachmentCount: number
+  /** Prefer local absolute paths for open/preview */
   attachments: string[]
+  attachmentItems: Array<{ filename: string; path: string; mime: string }>
   receiveId: string
   senderAccountId: string
   /** Employee / agent code that owns the bot */

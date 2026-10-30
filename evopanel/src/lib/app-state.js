@@ -202,6 +202,10 @@ function _setGatewayRunning(val) {
 /** Sidecar child still owned by this panel (process-level, not HTTP). */
 async function _isSidecarProcessAlive() {
   if (!isTauri) return null
+  // External uvicorn (EVOFLOW_GATEWAY_URL) is operator-owned — Tauri has no
+  // child slot, so backendRunning is always false. Returning false here used
+  // to mark every transient HTTP stall as "process dead" after a UI refresh.
+  if (await _isExternalGateway()) return null
   try {
     const info = await _workspaceRuntimeInfo()
     if (info && typeof info.backendRunning === 'boolean') {

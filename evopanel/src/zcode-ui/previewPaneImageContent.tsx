@@ -1,9 +1,12 @@
-import type { CSSProperties, SyntheticEvent } from "react";
-import { useCallback, useMemo, useState } from "react";
+import type { SyntheticEvent } from "react";
+import { useCallback, useRef, useState } from "react";
+import { ImagePreviewDialog } from "@/components/ai-elements/image-preview-dialog.js";
+import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 
 interface ImagePreviewContentProps {
   title: string;
   imageSource: string;
+  /** @deprecated Always fits the pane; kept for call-site compatibility. */
   fitToContainer?: boolean;
   sourcePath?: string;
 }
@@ -17,81 +20,83 @@ interface ImageNaturalSize {
 const IMAGE_PREVIEW_CHECKERBOARD_CLASS =
   "[background-color:var(--color-background)] [background-image:linear-gradient(45deg,var(--color-surface)_25%,transparent_25%),linear-gradient(-45deg,var(--color-surface)_25%,transparent_25%),linear-gradient(45deg,transparent_75%,var(--color-surface)_75%),linear-gradient(-45deg,transparent_75%,var(--color-surface)_75%)] [background-position:0_0,0_4px,4px_-4px,-4px_0] [background-size:8px_8px]";
 
-function getImagePreviewPixelRatio(sourceName: string): number {
-  const fileName = sourceName.replace(/\\/g, "/").split("/").at(-1) ?? "";
-  const match = /@(\d+(?:\.\d+)?)x(?=(?:\.[^./\\]+)?$)/i.exec(fileName);
-  const ratio = match ? Number(match[1]) : 1;
-
-  return Number.isFinite(ratio) && ratio > 0 ? ratio : 1;
-}
-
 export function ImagePreviewContent({
   title,
-  fitToContainer = false,
   imageSource,
   sourcePath,
 }: ImagePreviewContentProps) {
+  const { intl } = useZCodeIntl();
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
   const [naturalSize, setNaturalSize] = useState<ImageNaturalSize | null>(null);
-  const pixelRatio = useMemo(
-    () => getImagePreviewPixelRatio(sourcePath ?? title),
-    [sourcePath, title],
-  );
-  const imageStyle = useMemo<CSSProperties | undefined>(() => {
-    if (
-      fitToContainer ||
-      pixelRatio <= 1 ||
-      naturalSize?.source !== imageSource ||
-      naturalSize.width <= 0 ||
-      naturalSize.height <= 0
-    ) {
-      return undefined;
-    }
+  const [previewOpen, setPreviewOpen] = useState(false);
 
-    return {
-      // Retina 文件名里的 @2x/@3x 表示物理像素倍率，预览时折算为 CSS 像素，避免素材被放大显示。
-      height: naturalSize.height / pixelRatio,
-      width: naturalSize.width / pixelRatio,
-    };
-  }, [fitToContainer, imageSource, naturalSize, pixelRatio]);
   const handleLoad = useCallback(
     (event: SyntheticEvent<HTMLImageElement>) => {
-      if (fitToContainer) {
-        return;
-      }
-
       const image = event.currentTarget;
-
       setNaturalSize({
         source: imageSource,
         width: image.naturalWidth,
         height: image.naturalHeight,
       });
     },
-    [fitToContainer, imageSource],
+    [imageSource],
   );
-  const imageClassName = fitToContainer
-    ? "h-full max-h-full w-full max-w-full object-contain"
-    : "h-auto max-h-full w-auto max-w-full object-contain";
+
+  const measured =
+    naturalSize?.source === imageSource &&
+    naturalSize.width > 0 &&
+    naturalSize.height > 0
+      ? naturalSize
+      : null;
 
   return (
-    <div
-      className={`flex h-full min-h-0 items-center justify-center overflow-hidden p-10 ${IMAGE_PREVIEW_CHECKERBOARD_CLASS}`}
-    >
-      <img
-        alt={title}
-        className={imageClassName}
-        onLoad={handleLoad}
-        src={imageSource}
-        style={imageStyle}
+    <>
+      <div
+        className={`flex h-full min-h-0 flex-1 items-center justify-center overflow-hidden p-10 ${IMAGE_PREVIEW_CHECKERBOARD_CLASS}`}
+      >
+        <button
+          ref={triggerRef}
+          type="button"
+          aria-label={intl.formatMessage({ id: "chat.attachments.preview.open" })}
+          className="flex h-full min-h-0 w-full min-w-0 cursor-zoom-in items-center justify-center border-0 bg-transparent p-0"
+          onClick={() => setPreviewOpen(true)}
+          title={intl.formatMessage({ id: "chat.attachments.preview.open" })}
+        >
+          <img
+            alt={title}
+            className="h-full max-h-full w-full max-w-full object-contain"
+            data-natural-height={measured?.height}
+            data-natural-width={measured?.width}
+            draggable={false}
+            onLoad={handleLoad}
+            src={imageSource}
+          />
+        </button>
+      </div>
+      <ImagePreviewDialog
+        initialIndex={0}
+        items={[
+          {
+            alt: title,
+            filename: sourcePath ?? title,
+            src: imageSource,
+          },
+        ]}
+        onOpenChange={(open) => {
+          setPreviewOpen(open);
+          if (!open) {
+            window.setTimeout(() => triggerRef.current?.focus(), 0);
+          }
+        }}
+        open={previewOpen}
       />
-    </div>
+    </>
   );
 }
 
 export function SvgPreviewContent({ title, svgContent }: { title: string; svgContent: string }) {
   return (
     <ImagePreviewContent
-      fitToContainer
       title={title}
       imageSource={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(svgContent)}`}
     />

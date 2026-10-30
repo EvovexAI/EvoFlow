@@ -26,7 +26,7 @@ _BUILTIN: list[dict[str, Any]] = [
         "subscribe_url": "https://www.volcengine.com/product/ark",
         "invite_code": "",
         "docs_url": "https://www.volcengine.com/docs/82379/2366394?lang=zh",
-        "promo_hint": "详见火山方舟官方产品页与活动说明（套餐概览更新于 2026-10-24）",
+        "promo_hint": "详见火山方舟官方产品页与活动说明（套餐概览更新于 2026-10-29；DeepSeek-V4.1-Flash 原生视觉）",
         "models_hint": [
             "DeepSeek-V4.1-Flash",
             "Kimi-K3.1-Pro",

@@ -68,6 +68,71 @@ def _text_from_message_content(content: Any) -> str:
     return ""
 
 
+def _attachments_from_user_payload(payload: Any) -> list[dict[str, Any]]:
+    """Project transcript ``contextFiles`` / ``image_url`` blocks → V4 AttachmentRef.
+
+    Channel IM inbound stores durable local paths in ``contextFiles`` (same shape
+    as desktop ``chatSend``). Desktop may also embed ``image_url`` content blocks.
+    """
+    import mimetypes
+    from pathlib import Path
+
+    if not isinstance(payload, dict):
+        return []
+    out: list[dict[str, Any]] = []
+    seen: set[str] = set()
+
+    def _push(*, ref: str, file_name: str = "", mime: str = "", size: int = 0) -> None:
+        path = str(ref or "").strip()
+        if not path or path in seen:
+            return
+        seen.add(path)
+        name = str(file_name or "").strip() or Path(path).name or "attachment"
+        mt = str(mime or "").strip()
+        if not mt:
+            guessed, _ = mimetypes.guess_type(name)
+            mt = (guessed or "").split(";", 1)[0].strip() or "application/octet-stream"
+        bytes_n = int(size) if isinstance(size, (int, float)) and size > 0 else 0
+        if bytes_n <= 0:
+            try:
+                bytes_n = max(0, int(Path(path).stat().st_size))
+            except OSError:
+                bytes_n = 0
+        out.append({"ref": path, "fileName": name, "mime": mt, "bytes": bytes_n})
+
+    for entry in payload.get("contextFiles") or payload.get("context_files") or []:
+        if isinstance(entry, str) and entry.strip():
+            _push(ref=entry.strip())
+            continue
+        if not isinstance(entry, dict):
+            continue
+        _push(
+            ref=str(entry.get("path") or entry.get("ref") or "").strip(),
+            file_name=str(entry.get("name") or entry.get("fileName") or entry.get("filename") or ""),
+            mime=str(entry.get("mime") or ""),
+            size=int(entry["size"]) if isinstance(entry.get("size"), (int, float)) else 0,
+        )
+
+    body = payload.get("content")
+    blocks = body if isinstance(body, list) else []
+    for block in blocks:
+        if not isinstance(block, dict):
+            continue
+        if str(block.get("type") or "").strip() != "image_url":
+            continue
+        image = block.get("image_url")
+        url = ""
+        if isinstance(image, dict):
+            url = str(image.get("url") or "").strip()
+        elif isinstance(image, str):
+            url = image.strip()
+        # Only durable / serve-able local paths — skip data: URLs (too large for ref).
+        if url and not url.lower().startswith("data:"):
+            _push(ref=url, mime="image/jpeg")
+
+    return out[:16]
+
+
 def _tool_status_from_payload(payload: Any) -> str:
     if isinstance(payload, dict):
         result = str(payload.get("result") or payload.get("status") or "success").strip().lower()
@@ -375,22 +440,25 @@ def hydrate_session_from_transcript(hub: Any, thread_id: str) -> int:
 
             if role == "user":
                 text = _text_from_message_content(payload)
-                if not text:
+                attachments = _attachments_from_user_payload(payload)
+                if not text and not attachments:
                     continue
                 # 工具审批内部标记不进可见 userInput（对齐旧面板 isHiddenToolApprovalUserMessage）
                 from app.gateway.v4.agui_mirror import _is_hidden_tool_approval_user_text
 
-                if _is_hidden_tool_approval_user_text(text):
+                if text and _is_hidden_tool_approval_user_text(text) and not attachments:
                     continue
                 row: dict[str, Any] = {
                     "rowId": next_row_id(),
                     "turnId": turn_id,
                     "kind": "userInput",
-                    "text": text,
+                    "text": text or "",
                     "origin": "realUser",
                     "createdAt": created_at,
                     "createdAtSeq": 0,
                 }
+                if attachments:
+                    row["attachments"] = attachments
                 if msg_id:
                     row["entityId"] = msg_id
                 rows.append(row)

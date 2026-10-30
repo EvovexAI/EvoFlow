@@ -633,6 +633,16 @@ def reload_models_from_db() -> AppConfig:
     global _app_config
     config = get_app_config()
     prev_fp = _models_credential_fingerprint(getattr(config, "models", None) or [])
+    # Heal stale Agent Plan vision flags (e.g. deepseek-v4.1-flash written before multimodal).
+    try:
+        from evoflow.plans.volc_agent_plan_models import sync_agent_plan_vision_from_catalog
+
+        sync_agent_plan_vision_from_catalog()
+    except Exception:
+        logging.getLogger(__name__).debug(
+            "reload_models_from_db: Agent Plan vision heal skipped",
+            exc_info=True,
+        )
     rows = cfg_repo.list_models()
     config.models = [ModelConfig.model_validate(sanitize_model_document(row)) for row in rows]
     pm = cfg_repo.get_app_setting("primary_model")

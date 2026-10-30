@@ -28,6 +28,8 @@ function DialogOverlay({
   return (
     <DialogPrimitive.Overlay
       data-slot="dialog-overlay"
+      // 原生 WebView2 HWND 不吃 CSS z-index；遮罩必须登记，surface 才会 park 嵌入页。
+      data-above-native-embed=""
       className={cn(
         // Linux 旧标题栏避让让模态遮罩从 48px 以下开始，窗口顶部仍保持高亮且 tooltip 可见。
         // renderer 自绘窗控位于同一窗口，模态态应与其它平台一致覆盖完整视口。
@@ -57,6 +59,8 @@ function DialogContent({
       {showOverlay ? <DialogOverlay className={overlayClassName} /> : null}
       <DialogPrimitive.Content
         data-slot="dialog-content"
+        // showOverlay=false 时仍需 park HWND；与 Overlay 同时存在会 +2/-2，计数仍平衡。
+        data-above-native-embed=""
         className={cn(
           // Electron 自绘标题栏下，弹窗可能会落进窗口顶部的 drag 区域。
           // 如果不把弹窗内容整体标成 no-drag，右上角关闭按钮这类交互会被窗口拖拽命中吞掉。

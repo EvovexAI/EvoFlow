@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { apiChannelMessageToRecord } from '../data/adapter'
 import {
   ObsBanner,
@@ -18,6 +19,240 @@ import { useObsContext } from '../hooks/ObsContext'
 import { useObsCachedFetch } from '../hooks/useObsCachedFetch'
 import type { ChannelMessageRecord } from '../types'
 
+type AttachmentItem = ChannelMessageRecord['attachmentItems'][number]
+
+function getObsModalRoot(): HTMLElement {
+  return document.getElementById('obs-fullscreen-root') ?? document.body
+}
+
+function isImagePath(item: AttachmentItem): boolean {
+  const mime = (item.mime || '').toLowerCase()
+  if (mime.startsWith('image/')) return true
+  return /\.(png|jpe?g|gif|webp|bmp|ico)$/i.test(item.path || item.filename || '')
+}
+
+function AttachmentViewerModal({
+  row,
+  onClose,
+}: {
+  row: ChannelMessageRecord
+  onClose: () => void
+}) {
+  const items =
+    row.attachmentItems.length > 0
+      ? row.attachmentItems
+      : row.attachments.map((p) => ({
+          filename: p.replace(/\\/g, '/').split('/').pop() || p,
+          path: p,
+          mime: '',
+        }))
+  const [previewUrls, setPreviewUrls] = useState<Record<string, string>>({})
+  const [actionHint, setActionHint] = useState('')
+
+  useEffect(() => {
+    let cancelled = false
+    const snapshot = items
+    ;(async () => {
+      try {
+        const { getGatewayBaseUrl } = await import('../../../lib/tauri-api.js')
+        const base = String((await getGatewayBaseUrl()) || '').replace(/\/+$/, '')
+        if (!base || cancelled) return
+        const next: Record<string, string> = {}
+        for (const it of snapshot) {
+          const abs = String(it.path || '').trim()
+          if (!abs || !isImagePath(it)) continue
+          next[abs] = `${base}/api/workspaces/serve-file?path=${encodeURIComponent(abs)}`
+        }
+        if (!cancelled) setPreviewUrls(next)
+      } catch {
+        /* preview optional */
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+    // Intentionally key off the row id — item arrays are rebuilt each render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [row.id])
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      document.body.style.overflow = prev
+    }
+  }, [onClose])
+
+  const openLocal = async (absPath: string) => {
+    const path = String(absPath || '').trim()
+    if (!path) return
+    try {
+      const { revealPathInFileManager } = await import('../../../lib/tauri-api.js')
+      await revealPathInFileManager(path)
+      setActionHint(`已请求打开：${path}`)
+    } catch (err) {
+      setActionHint(`无法打开本地路径：${err instanceof Error ? err.message : String(err)}`)
+    }
+  }
+
+  const copyPath = async (absPath: string) => {
+    try {
+      await navigator.clipboard.writeText(absPath)
+      setActionHint('路径已复制')
+    } catch {
+      setActionHint('复制失败')
+    }
+  }
+
+  return createPortal(
+    <div className="obs-json-modal" role="dialog" aria-modal="true" aria-label="查看附件">
+      <div className="obs-json-modal-backdrop" onClick={onClose} />
+      <div className="obs-json-modal-panel" style={{ width: 'min(960px, calc(100vw - 40px))', height: 'auto', maxHeight: 'min(90vh, 900px)' }}>
+        <div className="json-viewer-head">
+          <strong>查看附件 · {row.employeeName || row.agentCode || row.channelLabel}</strong>
+          <div className="json-viewer-actions">
+            <button type="button" className="obs-json-modal-close" onClick={onClose}>
+              关闭
+            </button>
+          </div>
+        </div>
+        <div className="obs-json-modal-body" style={{ display: 'grid', gap: 16 }}>
+          {actionHint ? <ObsBanner>{actionHint}</ObsBanner> : null}
+          {items.length === 0 ? (
+            <ObsBanner>没有可展示的附件路径</ObsBanner>
+          ) : (
+            items.map((it) => {
+              const abs = it.path || it.filename
+              const preview = previewUrls[abs]
+              return (
+                <div
+                  key={`${abs}-${it.filename}`}
+                  style={{
+                    border: '1px solid var(--border-strong, #334155)',
+                    borderRadius: 12,
+                    padding: 12,
+                    display: 'grid',
+                    gap: 10,
+                  }}
+                >
+                  <div style={{ fontWeight: 600 }}>{it.filename || 'attachment'}</div>
+                  <code style={{ fontSize: 12, wordBreak: 'break-all', opacity: 0.9 }}>{abs}</code>
+                  {preview ? (
+                    <img
+                      src={preview}
+                      alt={it.filename}
+                      style={{ maxWidth: '100%', maxHeight: 360, objectFit: 'contain', borderRadius: 8 }}
+                    />
+                  ) : null}
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    <button type="button" className="primary" onClick={() => void openLocal(abs)}>
+                      打开本地位置
+                    </button>
+                    <button type="button" onClick={() => void copyPath(abs)}>
+                      复制路径
+                    </button>
+                  </div>
+                </div>
+              )
+            })
+          )}
+        </div>
+      </div>
+    </div>,
+    getObsModalRoot(),
+  )
+}
+
+function ContentViewerModal({
+  row,
+  onClose,
+}: {
+  row: ChannelMessageRecord
+  onClose: () => void
+}) {
+  const [copyHint, setCopyHint] = useState('')
+  const text = String(row.content || '').trim() || '—'
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      document.body.style.overflow = prev
+    }
+  }, [onClose])
+
+  const copyContent = async () => {
+    try {
+      await navigator.clipboard.writeText(String(row.content || ''))
+      setCopyHint('内容已复制')
+    } catch {
+      setCopyHint('复制失败')
+    }
+  }
+
+  const meta = [row.time, row.channelLabel || row.channel, row.directionLabel, row.employeeName || row.agentCode]
+    .filter(Boolean)
+    .join(' · ')
+
+  return createPortal(
+    <div className="obs-json-modal" role="dialog" aria-modal="true" aria-label="查看消息内容">
+      <div className="obs-json-modal-backdrop" onClick={onClose} />
+      <div
+        className="obs-json-modal-panel"
+        style={{
+          width: 'min(960px, calc(100vw - 40px))',
+          // Opaque shell color — --obs-drawer-bg is translucent and looked see-through at the bottom.
+          background: 'var(--bg-shell, #ffffff)',
+        }}
+      >
+        <div className="json-viewer-head">
+          <strong>消息内容{meta ? ` · ${meta}` : ''}</strong>
+          <div className="json-viewer-actions">
+            <button type="button" onClick={() => void copyContent()}>
+              复制
+            </button>
+            <button type="button" className="obs-json-modal-close" onClick={onClose}>
+              关闭
+            </button>
+          </div>
+        </div>
+        <div className="obs-json-modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 12, minHeight: 0 }}>
+          {copyHint ? <ObsBanner>{copyHint}</ObsBanner> : null}
+          <pre
+            className="json-block"
+            style={{
+              margin: 0,
+              flex: 1,
+              minHeight: 0,
+              maxHeight: 'none',
+              whiteSpace: 'pre-wrap',
+              wordBreak: 'break-word',
+              fontFamily: 'inherit',
+              fontSize: 14,
+              lineHeight: 1.6,
+              overflow: 'auto',
+              background: 'var(--obs-json-bg, var(--obs-surface-muted, #f2f2f7))',
+            }}
+          >
+            {text}
+          </pre>
+        </div>
+      </div>
+    </div>,
+    getObsModalRoot(),
+  )
+}
+
 const PAGE_SIZE = 50
 
 type PageData = {
@@ -35,6 +270,8 @@ export function ChannelMessages() {
   const [status, setStatus] = useState<'all' | 'received' | 'replied' | 'failed' | 'pending'>('all')
   const [channel, setChannel] = useState('all')
   const [page, setPage] = useState(1)
+  const [attachmentRow, setAttachmentRow] = useState<ChannelMessageRecord | null>(null)
+  const [contentRow, setContentRow] = useState<ChannelMessageRecord | null>(null)
 
   const { data, loading, error } = useObsCachedFetch<PageData>({
     scope: 'channel-messages-list',
@@ -245,18 +482,64 @@ export function ChannelMessages() {
             {
               key: 'content',
               label: '内容',
-              render: (row) => (
-                <span title={row.content} style={{ maxWidth: 280, display: 'inline-block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {row.content || '—'}
-                </span>
-              ),
+              render: (row) => {
+                const text = row.content || '—'
+                if (!row.content) return '—'
+                return (
+                  <button
+                    type="button"
+                    title="点击查看完整内容"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setContentRow(row)
+                    }}
+                    style={{
+                      maxWidth: 280,
+                      display: 'inline-block',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                      border: 'none',
+                      background: 'transparent',
+                      color: 'inherit',
+                      padding: 0,
+                      cursor: 'pointer',
+                      textAlign: 'left',
+                      font: 'inherit',
+                      textDecoration: 'underline',
+                      textDecorationStyle: 'dotted',
+                      textUnderlineOffset: 3,
+                    }}
+                  >
+                    {text}
+                  </button>
+                )
+              },
             },
             {
               key: 'attachmentCount',
               label: '附件',
               render: (row) =>
                 row.attachmentCount > 0 ? (
-                  <span title={row.attachments.join('\n')}>{row.attachmentCount}</span>
+                  <button
+                    type="button"
+                    title={(row.attachments.length ? row.attachments : row.attachmentItems.map((a) => a.path)).join('\n')}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setAttachmentRow(row)
+                    }}
+                    style={{
+                      border: '1px solid var(--border-strong, #475569)',
+                      background: 'transparent',
+                      color: 'inherit',
+                      borderRadius: 8,
+                      padding: '2px 8px',
+                      cursor: 'pointer',
+                      fontSize: 12,
+                    }}
+                  >
+                    查看附件 · {row.attachmentCount}
+                  </button>
                 ) : (
                   '—'
                 ),
@@ -278,6 +561,12 @@ export function ChannelMessages() {
           ]}
         />
       </ObsPage>
+      {attachmentRow ? (
+        <AttachmentViewerModal row={attachmentRow} onClose={() => setAttachmentRow(null)} />
+      ) : null}
+      {contentRow ? (
+        <ContentViewerModal row={contentRow} onClose={() => setContentRow(null)} />
+      ) : null}
     </>
   )
 }

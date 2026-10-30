@@ -1055,6 +1055,44 @@ export function V4ZCodeTimeline(props: {
   // 审批列表变化时强制相关工具行重绘（rowContext 本身保持稳定，靠 tick 推一次）
   const approvalRenderKey = pendingApprovals.map((p) => p.toolCallId).join(",");
 
+  // 飞书/渠道入站附件：row.attachments.ref 多为本机绝对路径（channel-messages/…）。
+  // 用 serve-file 直出 URL，ConversationRowView 缩略图/打开走 {url, mediaType}。
+  const readAttachment = useCallback(
+    async (params: {
+      sessionId: string;
+      ref: string;
+      mediaType?: string;
+      signal?: AbortSignal;
+    }) => {
+      const ref = String(params.ref || "").trim();
+      if (!ref) throw new Error("empty attachment ref");
+      if (params.signal?.aborted) throw new DOMException("Aborted", "AbortError");
+      const q = new URLSearchParams({ path: ref });
+      const tid = String(params.sessionId || sessionId || "").trim();
+      if (tid) q.set("thread_id", tid);
+      const root = String(workspacePath || "").trim();
+      if (root) q.set("root", root);
+      const url = await apiUrlAsync(`/workspaces/serve-file?${q.toString()}`);
+      const mime =
+        String(params.mediaType || "").trim() ||
+        (/\.(png)$/i.test(ref)
+          ? "image/png"
+          : /\.(jpe?g)$/i.test(ref)
+            ? "image/jpeg"
+            : /\.(gif)$/i.test(ref)
+              ? "image/gif"
+              : /\.(webp)$/i.test(ref)
+                ? "image/webp"
+                : /\.(mp4|webm|mov)$/i.test(ref)
+                  ? "video/mp4"
+                  : /\.pdf$/i.test(ref)
+                    ? "application/pdf"
+                    : "application/octet-stream");
+      return { url, mediaType: mime };
+    },
+    [sessionId, workspacePath],
+  );
+
   const rowContext = useMemo<ConversationRowRenderContext>(
     () => ({
       workspacePath: workspacePath ?? "",
@@ -1082,11 +1120,12 @@ export function V4ZCodeTimeline(props: {
       // 对话中自动触发：预览卡终态批量打开（pptx 等）+ gate target 下发
       onAutoOpenAssistantPptx: onAutoOpenCodeViewers ? handleAutoOpenAssistantPptx : undefined,
       assistantPreviewPptxAutoOpenTarget,
+      readAttachment: sessionId ? readAttachment : undefined,
     }),
     // approvalRenderKey：仅在待审批集合变化时换 context，让工具行挂上/摘掉面板；
     // 不跟每帧 rows/snapshot 绑定，避免展开「文件已更改」时整区闪。
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: approvalRenderKey gates refresh
-    [sessionId, onOpenCodeViewer, onOpenFileLink, onOpenFileLinkProp, onOpenBrowserUrl, fetchFileChanges, renderToolCallApproval, workspacePath, approvalRenderKey, onAutoOpenCodeViewers, handleAutoOpenAssistantPptx, assistantPreviewPptxAutoOpenTarget, hostTheme],
+    [sessionId, onOpenCodeViewer, onOpenFileLink, onOpenFileLinkProp, onOpenBrowserUrl, fetchFileChanges, renderToolCallApproval, workspacePath, approvalRenderKey, onAutoOpenCodeViewers, handleAutoOpenAssistantPptx, assistantPreviewPptxAutoOpenTarget, hostTheme, readAttachment],
   );
 
   // stream-compare：页面画什么 → 同轮目录 v4-ui-display.log（排查发送后白屏/无回复）。

@@ -171,13 +171,12 @@ class ProactiveRoleConfig:
     feishu_app_secret: str = ""
     feishu_open_id: str = ""
     feishu_bound_at: str = ""
-    # Persist self-intro delivery so restarts / rebinds do not spam.
+    # Persist self-intro delivery so Gateway restarts do not spam.
     # Keys: "open_id:<id>" or "chat_id:<id>" → ISO timestamp of last successful send.
+    # Same-open_id QR re-bind keeps these markers; a different binder clears open_id keys.
     feishu_intro_sent: dict[str, str] = field(default_factory=dict)
     # Timestamp when the self-introduction was last sent to this employee's
-    # Feishu private chat (open_id). Empty = not yet sent. Non-empty = sent at
-    # that ISO timestamp; the value is updated on every successful send so a
-    # re-bind (same open_id) after an unbind will still send a fresh intro.
+    # Feishu private chat (open_id). Empty = not yet sent.
     feishu_intro_sent_at: str = ""
 
     # ── Per-employee WeCom (Enterprise WeChat) AI Bot binding (QR scan) ──

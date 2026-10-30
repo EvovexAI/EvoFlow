@@ -322,8 +322,14 @@ def _row_dict(row: Any) -> dict[str, Any]:
     return {k: row[k] for k in row.keys()}
 
 
-def _session_row_to_api(d: dict[str, Any]) -> dict[str, Any]:
-    """Sidebar / API row with flat workspace + model fields for display."""
+def _session_row_to_api(d: dict[str, Any], *, for_list: bool = False) -> dict[str, Any]:
+    """Sidebar / API row with flat workspace + model fields for display.
+
+    ``for_list=True`` (``GET /api/chat/sessions``): skip per-row tool derivation and
+    heavy effective-policy walks. Cold list used to cost multi-seconds (MCP/tool
+    bind per row × page size) and wedge Gateway under concurrent workspace polls.
+    Detail views still use ``for_list=False`` for live tool/policy accuracy.
+    """
     from evoflow.persistence.permission_preset_store import (
         effective_preset,
         get_session_preset_raw,
@@ -338,16 +344,24 @@ def _session_row_to_api(d: dict[str, Any]) -> dict[str, Any]:
     ctx = context_from_flat_row(d)
     raw_policy = d.get("tool_approval_policy")
     session_policy = normalize_policy(str(raw_policy)) if raw_policy is not None and str(raw_policy).strip() else None
-    try:
-        effective_tool_policy = effective_policy(sk) if sk else get_global_default_policy()
-    except Exception:
+    if for_list:
         effective_tool_policy = session_policy or get_global_default_policy()
-    try:
-        session_permission_preset = get_session_preset_raw(sk) if sk else None
-        effective_permission_preset = effective_preset(sk) if sk else None
-    except Exception:
-        session_permission_preset = None
-        effective_permission_preset = None
+        try:
+            session_permission_preset = get_session_preset_raw(sk) if sk else None
+        except Exception:
+            session_permission_preset = None
+        effective_permission_preset = session_permission_preset
+    else:
+        try:
+            effective_tool_policy = effective_policy(sk) if sk else get_global_default_policy()
+        except Exception:
+            effective_tool_policy = session_policy or get_global_default_policy()
+        try:
+            session_permission_preset = get_session_preset_raw(sk) if sk else None
+            effective_permission_preset = effective_preset(sk) if sk else None
+        except Exception:
+            session_permission_preset = None
+            effective_permission_preset = None
     from evoflow.persistence.session_run_state import normalize_run_status
 
     stored_active = _parse_session_tool_names_json(d.get("active_tools_json"))
@@ -355,18 +369,19 @@ def _session_row_to_api(d: dict[str, Any]) -> dict[str, Any]:
     active_tools = stored_active
     pending_tools = stored_pending
     # Prefer live agent∩mode derivation so UI/DB readers never trust a stale
-    # main-mode snapshot after an in-session role switch.
-    try:
-        from evoflow.persistence.session_tool_binding_repositories import _derive_tool_fields_for_mode
+    # main-mode snapshot after an in-session role switch — but never on list.
+    if not for_list:
+        try:
+            from evoflow.persistence.session_tool_binding_repositories import _derive_tool_fields_for_mode
 
-        mode = str(d.get("session_mode") or "agent").strip().lower() or "agent"
-        derived = _derive_tool_fields_for_mode(sk, mode) if sk else {}
-        if derived:
-            # Do not use ``or`` — empty pending [] is valid for narrow allowlists.
-            active_tools = list(derived.get("active_tools", stored_active))
-            pending_tools = list(derived.get("pending_tools", stored_pending))
-    except Exception:
-        pass
+            mode = str(d.get("session_mode") or "agent").strip().lower() or "agent"
+            derived = _derive_tool_fields_for_mode(sk, mode) if sk else {}
+            if derived:
+                # Do not use ``or`` — empty pending [] is valid for narrow allowlists.
+                active_tools = list(derived.get("active_tools", stored_active))
+                pending_tools = list(derived.get("pending_tools", stored_pending))
+        except Exception:
+            pass
 
     return {
         "sessionKey": sk,
@@ -1299,8 +1314,8 @@ def update_session_title(session_key: str, title: str, *, conn: Any = None) -> b
 def enrich_session_rows_collab_task_id(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Set ``collabTaskId`` for sidebar sessions.
 
-    Priority: current thread ``bound_task_id`` → session column ``collab_task_id`` →
-    session-scoped task lookup (any historical thread for the session).
+    Priority: current thread ``bound_task_id`` → session column ``collab_task_id``.
+    Expensive message-table fallback is intentionally omitted on this list path.
     """
     thread_ids = list(dict.fromkeys(str(row.get("threadId") or "").strip() for row in rows if str(row.get("threadId") or "").strip()))
     if not thread_ids:
@@ -1327,17 +1342,11 @@ def enrich_session_rows_collab_task_id(rows: list[dict[str, Any]]) -> list[dict[
     for i, row in enumerate(out):
         thread_id = str(row.get("threadId") or "").strip()
         session_task_id = str(row.get("collabTaskId") or "").strip()
+        # List hot path: bound_task_id / session column only.
+        # Do NOT call find_root_task_by_session_key here — it scans chat_messages
+        # per row and under concurrent /api/chat/sessions polls wedges SQLite +
+        # the Gateway event loop (multi-second lag / UI freeze).
         task_id = bound_map.get(thread_id) or session_task_id or ""
-        if not task_id:
-            sk = str(row.get("sessionKey") or row.get("key") or "").strip()
-            if sk:
-                try:
-                    from evoflow.persistence import task_repositories as task_repo
-
-                    found = task_repo.find_root_task_by_session_key(sk)
-                    task_id = str((found or {}).get("id") or "").strip()
-                except Exception:
-                    task_id = ""
         out[i]["collabTaskId"] = task_id or None
         if task_id:
             ctx = out[i].get("context")
@@ -1537,7 +1546,7 @@ def list_sessions_for_ui(
         if not d.get("primary_model_name") and primary:
             d = dict(d)
             d["primary_model_name"] = primary
-        out.append(_session_row_to_api(d))
+        out.append(_session_row_to_api(d, for_list=True))
     if primary:
         for row in out:
             if not row.get("primaryModelName"):
@@ -1590,7 +1599,7 @@ def search_sessions_for_ui(
         if not d.get("primary_model_name") and primary:
             d = dict(d)
             d["primary_model_name"] = primary
-        out.append(_session_row_to_api(d))
+        out.append(_session_row_to_api(d, for_list=True))
     if primary:
         for row in out:
             if not row.get("primaryModelName"):

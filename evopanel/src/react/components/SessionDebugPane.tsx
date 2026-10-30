@@ -53,7 +53,8 @@ async function fetchThreadModelCalls(threadId: string): Promise<RequestRecord[]>
 
 async function fetchThreadChatSeqByRun(threadId: string): Promise<Map<string, number>> {
   try {
-    const res = (await api.chatMessagesByThread(threadId, 2000)) as {
+    // Display API caps at 200; only need seq/role/run_id for turn titles — do not block list paint.
+    const res = (await api.chatMessagesByThread(threadId, 200)) as {
       messages?: unknown[]
     }
     return buildRunIdToChatSeq(Array.isArray(res?.messages) ? res.messages : [])
@@ -88,12 +89,14 @@ function SessionDebugPaneInner({
     if (!silent) setLoading(true)
     setError(null)
     try {
-      const [rows, seqMap] = await Promise.all([
-        fetchThreadModelCalls(tid),
-        fetchThreadChatSeqByRun(tid),
-      ])
+      // Model-call list is the critical path; chat seq mapping is nice-to-have for turn titles
+      // and used to drag a full transcript — never block the table on it.
+      const rows = await fetchThreadModelCalls(tid)
       setCalls(rows)
-      setRunIdToChatSeq(seqMap)
+      if (!silent) setLoading(false)
+      void fetchThreadChatSeqByRun(tid).then((seqMap) => {
+        setRunIdToChatSeq(seqMap)
+      })
     } catch (err) {
       const msg = String((err as Error)?.message || err || '加载失败')
       const status = Number((err as { status?: number })?.status) || 0
@@ -108,7 +111,6 @@ function SessionDebugPaneInner({
           ? '当前账号无法查看本会话的模型调用明细（需要会话可见权限）'
           : msg,
       )
-    } finally {
       if (!silent) setLoading(false)
     }
   }, [tid])

@@ -45,6 +45,7 @@ import {
   type ComposePathEntry,
 } from '../lib/compose-attach.js'
 import { ContextUsageRing } from './ContextUsageRing.js'
+import { logChatTurnSendClick } from '../lib/chat-turn-timing-log.js'
 
 export type { MentionEmployeeOption }
 
@@ -736,6 +737,11 @@ export const ChatComposer = memo(function ChatComposer({
         })
         return
       }
+      logChatTurnSendClick({
+        text: t,
+        attachmentCount: 0,
+        source: 'composer_queue_while_busy',
+      })
       onQueueWhileBusy(t)
       setTextAndNotify('')
       closeMention()
@@ -781,6 +787,11 @@ export const ChatComposer = memo(function ChatComposer({
       console.warn('[ChatComposer] attachment', e)
       return
     }
+    logChatTurnSendClick({
+      text: t,
+      attachmentCount: attachments.length,
+      source: 'composer_send_button',
+    })
     setTextAndNotify('')
     setPendingFiles([])
     closeMention()

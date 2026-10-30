@@ -556,6 +556,39 @@ def list_push_targets(*, limit: int = 200) -> list[dict[str, Any]] | None:
         return None
 
 
+def push_to_inbound_origin(
+    *,
+    session_key: str,
+    text: str = "",
+    paths: list[str] | None = None,
+    title: str = "",
+) -> dict[str, Any] | None:
+    """Sync wrapper: push to the IM chat/bot that originated ``session_key``."""
+    impl = get("channels.push_to_inbound_origin")
+    if impl is None:
+        return None
+    try:
+        import asyncio
+        import concurrent.futures
+
+        coro = impl(
+            session_key=session_key,
+            text=text,
+            paths=list(paths or []),
+            title=title,
+        )
+        try:
+            running = asyncio.get_running_loop()
+        except RuntimeError:
+            running = None
+        if running is not None and running.is_running():
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                return dict(pool.submit(asyncio.run, coro).result(timeout=120))
+        return dict(asyncio.run(coro))
+    except Exception as exc:
+        return {"ok": False, "error": f"push_failed:{exc}"}
+
+
 def get_weixin_registration_client() -> Any | None:
     return get("channels.weixin_registration_client")
 

@@ -22,11 +22,22 @@ export function resolveSelectedSessionAgentId(ctx: ResolveSessionRoleUiCtx): str
 export function resolveCurrentRoleCodeForUi(ctx: ResolveSessionRoleUiCtx): string {
   if (!ctx.selectedSessionKey) return 'main'
   // 员工会话：sessionKey 内 agent_code 优先于列表里可能过期的 agentId（常误为 main）。
+  // 若 key 是孤儿（如 proactive:employee_a 角色已删），改用 flat agentId。
   if (ctx.isProactiveSessionKey(ctx.selectedSessionKey)) {
-    const code = String(ctx.parseProactiveSessionKey(ctx.selectedSessionKey).agentCode || '')
+    const fromKey = String(ctx.parseProactiveSessionKey(ctx.selectedSessionKey).agentCode || '')
       .trim()
       .toLowerCase()
-    if (code) return code
+    const fromRow = String(ctx.selectedSessionAgentId || '').trim().toLowerCase()
+    const agents = Array.isArray(ctx.agents) ? ctx.agents : []
+    const known = (code: string) =>
+      Boolean(
+        code &&
+          code !== 'main' &&
+          agents.some((a: any) => String(a?.agent_code || '').trim().toLowerCase() === code),
+      )
+    if (fromKey && (known(fromKey) || !known(fromRow))) return fromKey
+    if (fromRow && fromRow !== 'main') return fromRow
+    if (fromKey) return fromKey
   }
   // DB/list agentId wins over stale local agent_name / sessionKey embedding.
   if (ctx.selectedSessionAgentId) return ctx.selectedSessionAgentId

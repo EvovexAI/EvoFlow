@@ -1,8 +1,12 @@
-"""Download Feishu inbound media into local temp files for the agent.
+"""Download Feishu inbound media into durable user-home files for the agent.
+
+Files land under::
+
+    {EVOFLOW_HOME}/channel-messages/feishu/{YYYY}/{MM}/{filename}
 
 Uses lark-oapi ``im.v1.message_resource.get`` (GetMessageResource). Downstream
-``ChannelManager`` forwards ``InboundMessage.files`` as ``context_files`` and
-calls ``release_owned_temp_paths`` when the run finishes.
+``ChannelManager`` may call ``release_owned_temp_paths`` when the run finishes;
+durable channel-messages paths are kept (not unlinked).
 """
 
 from __future__ import annotations
@@ -10,12 +14,11 @@ from __future__ import annotations
 import asyncio
 import logging
 import mimetypes
-import os
-import tempfile
 from pathlib import Path
 from typing import Any, Callable
 
 from app.channels.feishu_inbound_parse import FeishuMediaRef, is_downloadable_kind
+from app.channels.inbound_media_store import write_inbound_media_bytes
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +30,7 @@ _MAX_REFS_PER_MESSAGE = 12
 
 
 class FeishuInboundMediaCache:
-    """Cache Feishu message resources to temp paths owned by the channel."""
+    """Cache Feishu message resources under EVOFLOW_HOME channel-messages."""
 
     def __init__(
         self,
@@ -37,7 +40,7 @@ class FeishuInboundMediaCache:
     ) -> None:
         self._client_resolver = client_resolver
         self._account_id = str(account_id or "").strip()
-        self._temp_paths: set[str] = set()
+        self._tracked_paths: set[str] = set()
         self._GetMessageResourceRequest: Any = None
 
     def _ensure_sdk(self) -> bool:
@@ -58,7 +61,7 @@ class FeishuInboundMediaCache:
         *,
         account_id: str = "",
     ) -> tuple[list[dict[str, Any]], list[str]]:
-        """Download refs → ``(file_descriptors, owned_temp_paths)``."""
+        """Download refs → ``(file_descriptors, owned_paths)``."""
         if not refs:
             return [], []
         if not self._ensure_sdk():
@@ -176,35 +179,35 @@ class FeishuInboundMediaCache:
             ext = Path(filename).suffix or _ext_for_kind(ref.kind)
             filename = _ensure_ext(filename, ext)
 
-        path = self._cache_bytes(raw, Path(filename).suffix or ".bin")
+        hint = f"{(ref.message_id or '')[:12]}_{(ref.file_key or '')[:10]}".strip("_")
+        path = self._cache_bytes(raw, Path(filename).name, unique_hint=hint)
         return path, mime, Path(filename).name, size
 
-    def _cache_bytes(self, data: bytes, suffix: str) -> str:
-        if suffix and not suffix.startswith("."):
-            suffix = f".{suffix}"
-        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix or ".bin") as tmp:
-            tmp.write(data)
-            path = tmp.name
-        self._temp_paths.add(path)
+    def _cache_bytes(self, data: bytes, filename: str, *, unique_hint: str = "") -> str:
+        path = write_inbound_media_bytes(
+            data,
+            channel="feishu",
+            filename=filename,
+            unique_hint=unique_hint,
+        )
+        self._tracked_paths.add(path)
         return path
 
     def release_owned_temp_paths(self, paths: list[str] | None) -> None:
+        """Drop tracking only — never unlink.
+
+        Inbound media lives under ``channel-messages/`` (durable). Legacy TEMP
+        paths must also survive the agent turn: earlier we deleted ``%TEMP%\\tmp*``
+        after the run, so follow-up questions like「刚刚的看到了吗」hit File not found.
+        """
         if not paths:
             return
-        asyncio.create_task(self._cleanup_temp_paths(list(paths)))
-
-    async def _cleanup_temp_paths(self, paths: list[str]) -> None:
         for path in paths:
-            self._temp_paths.discard(path)
-            try:
-                os.unlink(path)
-            except OSError as exc:
-                logger.debug("[FeishuMedia] failed to remove temp %s: %s", path, exc)
+            self._tracked_paths.discard(str(path or ""))
 
     async def cleanup_all(self) -> None:
-        paths = list(self._temp_paths)
-        self._temp_paths.clear()
-        await self._cleanup_temp_paths(paths)
+        """Clear tracking on channel stop. Keep files on disk for ops / re-ask."""
+        self._tracked_paths.clear()
 
 
 def _default_filename(ref: FeishuMediaRef) -> str:

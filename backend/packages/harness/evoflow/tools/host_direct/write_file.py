@@ -56,10 +56,20 @@ def write_file_hd(
 
         # zcode Edit guard: overwriting (or appending to) an existing file
         # requires a current full Read on record. Creating a new file is exempt.
+        # EDIT_NOT_READ → auto-register one full disk read then proceed (same as replace).
+        auto_read_healed = False
         if p.exists():
-            from evoflow.tools.zcode_port.read_file_state import edit_guard_failure
+            from evoflow.tools.zcode_port.read_file_state import (
+                EDIT_NOT_READ_MESSAGE,
+                auto_register_full_read_for_edit,
+                edit_guard_failure,
+            )
 
             guard_err = edit_guard_failure(str(p))
+            if guard_err and EDIT_NOT_READ_MESSAGE in guard_err:
+                if auto_register_full_read_for_edit(str(p)):
+                    auto_read_healed = True
+                    guard_err = edit_guard_failure(str(p))
             if guard_err:
                 emit_write_progress(
                     tool_call_id=tool_call_id,
@@ -131,6 +141,8 @@ def write_file_hd(
 
         action = "appended to" if append else "wrote"
         result = f"OK: {action} {total_bytes} bytes to {label}"
+        if auto_read_healed:
+            result += " (auto-read before write: file was not in read state)"
 
         # Refresh read state so consecutive edits need no re-Read (zcode semantics).
         from evoflow.tools.zcode_port.read_file_state import note_write

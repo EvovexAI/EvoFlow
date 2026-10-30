@@ -401,6 +401,7 @@ def _paginate(
     where: str = "",
     params: tuple[Any, ...] = (),
     order_by: str = "ROWID DESC",
+    omit_columns: frozenset[str] | set[str] | None = None,
 ) -> dict[str, Any]:
     st = _store()
     if st is None:
@@ -408,11 +409,17 @@ def _paginate(
     conn = st._connection()  # noqa: SLF001
     conn.row_factory = sqlite3.Row
     w = f" WHERE {where}" if where else ""
+    select_sql = "*"
+    if omit_columns:
+        cols = [str(r[1]) for r in conn.execute(f"PRAGMA table_info({table})")]
+        kept = [c for c in cols if c not in omit_columns]
+        if kept:
+            select_sql = ", ".join(kept)
     try:
         total = conn.execute(f"SELECT COUNT(*) FROM {table}{w}", params).fetchone()[0]
         offset = max(0, (page - 1) * page_size)
         rows = conn.execute(
-            f"SELECT * FROM {table}{w} ORDER BY {order_by} LIMIT ? OFFSET ?",
+            f"SELECT {select_sql} FROM {table}{w} ORDER BY {order_by} LIMIT ? OFFSET ?",
             (*params, page_size, offset),
         ).fetchall()
     except sqlite3.OperationalError as exc:
@@ -428,6 +435,10 @@ def _paginate(
         "page_size": page_size,
         "pages": max(1, (int(total) + page_size - 1) // page_size),
     }
+
+
+# Model list must never pull request/response blobs (each up to 512 KiB stored).
+_MODEL_LIST_OMIT_COLUMNS = frozenset({"request_json", "response_json"})
 
 
 _GATEWAY_ORDER_BY = {
@@ -1214,28 +1225,27 @@ def list_model_invocations(
         where=where,
         params=tuple(params),
         order_by=order,
+        omit_columns=_MODEL_LIST_OMIT_COLUMNS,
     )
     if not out.get("enabled"):
         return out
     items = out.get("items")
     if isinstance(items, list):
+        from evoflow.observability.model_list_projection import parse_stored_response_summary
+
         for row in items:
             if not isinstance(row, dict):
                 continue
-            # Payload message count (vendor_request.messages length), not user-turn count.
-            # Prefer explicit message_count; tolerate truncated / non-JSON request_json.
-            row["message_count"] = _message_count_from_request_raw(row.get("request_json"))
-            enrich_model_row_thinking(row)
-            if row.get("provider") is not None or row.get("model") is not None:
-                row["provider"] = normalize_stored_provider(
-                    str(row.get("provider") or "").strip() or None,
-                    model=str(row.get("model") or "").strip() or None,
-                )
-            # Strip large JSON blobs from list — load on demand via detail endpoint
-            row.pop("request_json", None)
-            # Compute lightweight response_summary before stripping response_json
-            resp_raw = row.get("response_json")
-            if resp_raw:
+            # Prefer denormalized list columns written at insert/complete.
+            # Legacy rows (pre-schema v10) may lack them — leave summary empty rather than
+            # re-SELECT 512KiB blobs (detail endpoint still has full JSON).
+            if row.get("message_count") is None and row.get("request_json") is not None:
+                row["message_count"] = _message_count_from_request_raw(row.get("request_json"))
+            stored_summary = parse_stored_response_summary(row.pop("response_summary_json", None))
+            if stored_summary is not None:
+                row["response_summary"] = stored_summary
+            elif row.get("response_json") is not None:
+                resp_raw = row.get("response_json")
                 try:
                     resp_obj = json.loads(resp_raw) if isinstance(resp_raw, str) else resp_raw
                     row["response_summary"] = _summarize_response_for_list(resp_obj)
@@ -1243,6 +1253,14 @@ def list_model_invocations(
                     row["response_summary"] = None
             else:
                 row["response_summary"] = None
+            enrich_model_row_thinking(row)
+            if row.get("provider") is not None or row.get("model") is not None:
+                row["provider"] = normalize_stored_provider(
+                    str(row.get("provider") or "").strip() or None,
+                    model=str(row.get("model") or "").strip() or None,
+                )
+            # Never ship blobs on the list wire (omit_columns already skipped SELECT).
+            row.pop("request_json", None)
             row.pop("response_json", None)
             row["usage_json"] = _truncate_json_field(row.get("usage_json"))
 

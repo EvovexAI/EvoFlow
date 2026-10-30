@@ -9,6 +9,11 @@ import type { ContextFileEntry } from '../../components/WorkspaceFileTree.js'
 import type { SkillSelection } from '../../components/SkillPickerModal.js'
 import type { PluginSelection } from '../../components/PluginPickerModal.js'
 import type { PriorTurnStripBundle } from '../../lib/turn-text-isolation.js'
+import {
+  bindChatTurnSendSession,
+  logChatTurnSendClick,
+  logChatTurnSendWire,
+} from '../../lib/chat-turn-timing-log.js'
 
 export type HandleSendOpts = {
   voiceInitiated?: boolean
@@ -296,7 +301,9 @@ export async function handleSend(
       }
     }
 
-    // 智能体员工会话：按 session_key 轻量同步 context，之后走正常 chatSend
+    // 智能体员工会话：按 session_key 轻量同步 context，之后走正常 chatSend。
+    // 只 await 本地合并；Gateway PATCH 后台发。原先 await 网络会在 Gateway 忙/panel-stream
+    // 抖动时把「点击→上线」拖到数秒（回合计时里的 context/abort/beforeWire）。
     if (isProactiveSessionKey(sessionKey) && String(message || '').trim()) {
       const parsed = parseProactiveSessionKey(sessionKey)
       try {
@@ -314,7 +321,8 @@ export async function handleSend(
         } else if (parsed.kind === 'duty') {
           patch.workspace_kind = 'duty'
         }
-        await wsClient.updateSessionContext(sessionKey, patch)
+        await wsClient.updateSessionContext(sessionKey, patch, { localOnly: true })
+        void wsClient.updateSessionContext(sessionKey, patch).catch(() => {})
       } catch {
         /* ignore */
       }
@@ -465,7 +473,27 @@ export async function handleSend(
     // stop 后会 markSessionRecoveryCooldown；用户主动再发须清掉，否则 AG-UI run-* 接管被丢弃
     clearStreamReattachCooldown(sessionKey)
     resetStreamStopLogDedupe(sessionKey)
-    dispatchSessionTurnEvent(sessionKey, { type: 'SEND_STARTED', turnStartTs: Date.now() })
+    const turnStartTs = Date.now()
+    const attachCount = Array.isArray(attachments) ? attachments.length : 0
+    const bind = bindChatTurnSendSession({
+      sessionKey,
+      text: userMessage,
+      attachmentCount: attachCount,
+    })
+    // Composer 已记「点击发送」则只绑 session；目标/语音等入口在此补中文日志
+    if (!bind.sendClickAlreadyLogged) {
+      logChatTurnSendClick({
+        sessionKey,
+        text: userMessage,
+        attachmentCount: attachCount,
+        source: opts?.voiceInitiated
+          ? 'handle_send_voice'
+          : opts?.goalInitiated
+            ? 'handle_send_goal'
+            : 'handle_send',
+      })
+    }
+    dispatchSessionTurnEvent(sessionKey, { type: 'SEND_STARTED', turnStartTs })
     dispatchSessionTurnEvent(sessionKey, { type: 'WIRE_SOURCE', source: 'run' })
     // 修复：发送消息时，如果目标会话就是当前活跃会话（或当前没有活跃会话，如新建会话过程中），
     // 必须确保 streamRef 指向目标会话的 stream，避免流事件写入错误的 stream 导致串台
@@ -711,6 +739,8 @@ export async function handleSend(
               priorTurnStripBundle: priorStripBundle,
             }
           : undefined
+      // chatSend 会 await 整轮流结束；上线打点须在 await 之前（准备已完成：beforeWire/context/abort）
+      logChatTurnSendWire({ sessionKey })
       const r = await send(
         sessionKey,
         userMessage,

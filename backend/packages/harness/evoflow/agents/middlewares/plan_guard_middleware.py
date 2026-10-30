@@ -795,6 +795,61 @@ def _inject_blocked_tool_feedback(
     return {"messages": [last, *blocked_tool_messages]}
 
 
+def _try_auto_activate_agent_for_tool(request: ToolCallRequest, tool_name: str) -> bool:
+    """Heal ScenarioNotActivated: Plan UI is offline — auto-activate agent once and retry allow.
+
+    Only activates ``agent`` (never ``plan``): avoids flipping collab exclusivity. Returns
+    True when the tool is allowed after activation.
+    """
+    from evoflow.agents.lead_agent.intent_tool_profile import (
+        USER_ACTIVATABLE_SCENARIO_KEYS,
+        recommended_scenario_for_tool,
+        scenarios_granting_tool,
+    )
+
+    scenarios = scenarios_granting_tool(tool_name)
+    primary = recommended_scenario_for_tool(tool_name, scenarios)
+    if primary not in USER_ACTIVATABLE_SCENARIO_KEYS:
+        return False
+    # Respect plan/subagent locks that would reject an explicit activate.
+    blocked, _reason = strict_plan_lock_blocks_scenario_activate(primary)
+    if blocked:
+        return False
+    blocked, _reason = subagent_focus_blocks_scenario_activate(primary)
+    if blocked:
+        return False
+    try:
+        from evoflow.tools.builtins.scenario_activation import _add_scenario
+
+        _add_scenario(primary)
+    except Exception:
+        logger.debug(
+            "[plan_guard] auto-activate %s for tool=%s failed",
+            primary,
+            tool_name,
+            exc_info=True,
+        )
+        return False
+    if tool_name in _runtime_allowed_tool_names(request):
+        logger.info(
+            "[plan_guard] auto-activated scenario=%s for tool=%s (heal ScenarioNotActivated)",
+            primary,
+            tool_name,
+        )
+        try:
+            write_cycle_trace(
+                "plan_guard_auto_activate_scenario",
+                {
+                    "tool_name": tool_name,
+                    "scenario": primary,
+                },
+            )
+        except Exception:
+            pass
+        return True
+    return False
+
+
 def _gate_tool_without_required_scenario(request: ToolCallRequest) -> ToolMessage | None:
     """Return a synthetic tool result when a scenario-governed tool is called without activation."""
     from evoflow.agents.automation_runtime import is_unattended_automation
@@ -823,6 +878,10 @@ def _gate_tool_without_required_scenario(request: ToolCallRequest) -> ToolMessag
     if name not in all_scenario_governed_tool_names():
         return None
     if name in _runtime_allowed_tool_names(request):
+        return None
+
+    # Drop wasted ScenarioNotActivated turns when agent mode can cover the tool.
+    if _try_auto_activate_agent_for_tool(request, name):
         return None
 
     scenarios = scenarios_granting_tool(name)

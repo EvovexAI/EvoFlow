@@ -68,7 +68,19 @@ DEFAULT_RUN_CONTEXT: dict[str, Any] = {
     "subagent_enabled": False,
 }
 STREAM_UPDATE_MIN_INTERVAL_SECONDS = 0.0
-FEISHU_STREAM_UPDATE_MIN_INTERVAL_SECONDS = float(os.getenv("EVOFLOW_FEISHU_STREAM_INTERVAL", "0.2"))
+# Live Feishu card patches (is_final=False) are inherently flaky: rate limits drop
+# mid-stream updates and the card freezes on a half sentence. Default OFF — no
+# mid-stream Feishu publishes; final goes out as plain text (and Feishu skips the
+# 「正在回复」placeholder). Set EVOFLOW_FEISHU_LIVE_STREAM=1 to re-enable.
+FEISHU_LIVE_STREAM_PATCHES = os.getenv("EVOFLOW_FEISHU_LIVE_STREAM", "0").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
+# Only used when live stream patches are re-enabled.
+FEISHU_STREAM_UPDATE_MIN_INTERVAL_SECONDS = float(os.getenv("EVOFLOW_FEISHU_STREAM_INTERVAL", "1.0"))
+FEISHU_STREAM_MIN_PUBLISH_CHARS = int(os.getenv("EVOFLOW_FEISHU_STREAM_MIN_CHARS", "40"))
 THREAD_BUSY_MESSAGE = "当前会话还有请求在处理中，请稍候再发。"
 _IM_SHORTCUT_HINT_META_KEY = "im_shortcut_hint_sent"
 
@@ -306,20 +318,94 @@ def _persist_channel_session_index(
         )
 
 
+def _context_files_from_inbound(files: list[Any] | None) -> list[dict[str, Any]]:
+    """Normalize ``InboundMessage.files`` into desktop-compatible ``contextFiles``."""
+    out: list[dict[str, Any]] = []
+    for entry in list(files or [])[:16]:
+        if not isinstance(entry, dict):
+            continue
+        path = str(entry.get("path") or "").strip()
+        if not path:
+            continue
+        name = (
+            str(entry.get("filename") or entry.get("name") or "").strip()
+            or Path(path).name
+            or "attachment"
+        )
+        mime = str(entry.get("mime") or "").strip()
+        if not mime:
+            guessed, _ = mimetypes.guess_type(name)
+            mime = (guessed or "").split(";", 1)[0].strip()
+        item: dict[str, Any] = {"path": path, "name": name}
+        if mime:
+            item["mime"] = mime
+        kind = str(entry.get("kind") or "").strip()
+        if kind:
+            item["kind"] = kind
+        size = entry.get("size")
+        if isinstance(size, (int, float)) and size > 0:
+            item["size"] = int(size)
+        out.append(item)
+    return out
+
+
+def _v4_attachments_from_context_files(files: list[Any] | None) -> list[dict[str, Any]]:
+    """Map ``contextFiles`` → V4 ``AttachmentRef`` shape for hydrate / live mirror."""
+    out: list[dict[str, Any]] = []
+    for entry in list(files or [])[:16]:
+        if not isinstance(entry, dict):
+            continue
+        path = str(entry.get("path") or entry.get("ref") or "").strip()
+        if not path:
+            continue
+        name = (
+            str(entry.get("name") or entry.get("fileName") or entry.get("filename") or "").strip()
+            or Path(path).name
+            or "attachment"
+        )
+        mime = str(entry.get("mime") or "").strip()
+        if not mime:
+            guessed, _ = mimetypes.guess_type(name)
+            mime = (guessed or "").split(";", 1)[0].strip() or "application/octet-stream"
+        bytes_n = entry.get("size")
+        if not isinstance(bytes_n, (int, float)) or bytes_n < 0:
+            bytes_n = 0
+            try:
+                bytes_n = max(0, int(Path(path).stat().st_size))
+            except OSError:
+                bytes_n = 0
+        out.append(
+            {
+                "ref": path,
+                "fileName": name,
+                "mime": mime,
+                "bytes": int(bytes_n),
+            }
+        )
+    return out
+
+
 def _persist_channel_user_transcript_turn(
     session_key: str,
     thread_id: str,
     text: str,
+    *,
+    files: list[Any] | None = None,
 ) -> str:
     """Persist IM user message + mark run active (same as EvoPanel ``chatSend``).
 
     Uses the sync ``append_message_and_touch_session`` path. Do **not** call
     async ``persist_user_message`` without awaiting — that silently drops rows
     and leaves SessionTranscriptHydrationMiddleware on stale history.
+
+    When the inbound carries media, store ``contextFiles`` in ``content_json``
+    (desktop ``chatSend`` shape) so V4 hydration can project ``attachments``.
+    Image-/file-only turns still persist even when ``text`` is empty.
     """
     sk = str(session_key or "").strip()
     tid = str(thread_id or "").strip()
     body = str(text or "").strip()
+    ctx_files = _context_files_from_inbound(files)
     run_id = str(uuid.uuid4())
     if not sk or not tid:
         return run_id
@@ -328,20 +414,41 @@ def _persist_channel_user_transcript_turn(
         from evoflow.session_execution.lifecycle import start_session_turn
 
         start_session_turn(session_key=sk, thread_id=tid, run_id=run_id, source="channel")
-        if body:
+        if body or ctx_files:
+            content_json: dict[str, Any] = {"content": body}
+            if ctx_files:
+                content_json["contextFiles"] = ctx_files
             chat_svc.append_message_and_touch_session(
                 sk,
                 role="user",
                 content=body,
+                content_json=content_json,
                 run_id=run_id,
                 thread_id=tid,
             )
+            # Live V4 panel (if open on this thread): seed userInput + attachments
+            # before RUN_STARTED so the bubble isn't text-only / missing.
+            try:
+                from app.gateway.v4.agui_mirror import mirror_note_user_input
+
+                mirror_note_user_input(
+                    tid,
+                    body,
+                    attachments=_v4_attachments_from_context_files(ctx_files) if ctx_files else None,
+                )
+            except Exception:
+                logger.debug(
+                    "[Manager] mirror_note_user_input skipped session_key=%s",
+                    sk,
+                    exc_info=True,
+                )
         logger.info(
-            "[Manager] channel user transcript persisted session_key=%s thread_id=%s run_id=%s text_len=%d",
+            "[Manager] channel user transcript persisted session_key=%s thread_id=%s run_id=%s text_len=%d files=%d",
             sk,
             tid,
             run_id,
             len(body),
+            len(ctx_files),
         )
     except Exception:
         logger.warning(
@@ -383,6 +490,24 @@ def _enrich_channel_run_context(
     rid = str(run_id or "").strip()
     if rid:
         run_context["evf_channel_run_id"] = rid
+    # Stamp IM origin so prompt assembly can inject channel-only instructions
+    # (plain text / channels.send_message) without polluting Panel chats.
+    channel = str(msg.channel_name or "").strip().lower()
+    if channel:
+        run_context["channel"] = channel
+    chat_id = str(msg.chat_id or "").strip()
+    if chat_id:
+        run_context["channel_chat_id"] = chat_id
+    user_id = str(msg.user_id or "").strip()
+    if user_id:
+        run_context["channel_user_id"] = user_id
+    topic_id = str(msg.topic_id or "").strip()
+    if topic_id:
+        run_context["topic_id"] = topic_id
+    meta = msg.metadata if isinstance(msg.metadata, dict) else {}
+    account_id = str(meta.get("account_id") or "").strip()
+    if account_id:
+        run_context["account_id"] = account_id
     body = str(msg.text or "").strip()
     if body:
         run_context.setdefault("evf_user_question", body)
@@ -410,11 +535,11 @@ def _build_human_input(
     LangChain-style payload the SDK already understands.
     """
     content = msg.text or ""
-    message: dict[str, Any] = {"role": "human", "content": content}
     files = list(msg.files or [])
     has_context_files = False
+    context_files: list[dict[str, Any]] = []
+    path_lines: list[str] = []
     if files:
-        context_files: list[dict[str, Any]] = []
         for entry in files:
             if not isinstance(entry, dict):
                 continue
@@ -440,9 +565,24 @@ def _build_human_input(
             if url:
                 cf_entry["url"] = url
             context_files.append(cf_entry)
+            path_lines.append(f"- {name}\n  Path: {path}")
         if context_files:
-            message["additional_kwargs"] = {"context_files": context_files}
             has_context_files = True
+        # Surface durable local paths in the human turn text so the model always
+        # sees where channel media lives (ContextFilesMiddleware also injects
+        # <context_files>, but text paths survive even when vision/native fails).
+        if path_lines:
+            channel = str(msg.channel_name or "im").strip() or "im"
+            footer = (
+                f"\n\n[渠道附件本地路径 · {channel}]\n"
+                + "\n".join(path_lines)
+                + "\n这些是本机已落盘的文件地址；读写请用上述 Path。"
+            )
+            content = f"{content.rstrip()}{footer}" if content.strip() else footer.strip()
+
+    message: dict[str, Any] = {"role": "human", "content": content}
+    if context_files:
+        message["additional_kwargs"] = {"context_files": context_files}
 
     # The authoritative model lives in run_config.configurable.model_name (lead_agent
     # reads it via cfg.get("model_name")). Vision fallback overrides only run_context["model_name"].
@@ -1134,33 +1274,180 @@ def _accumulate_stream_text(
     return buffers[message_id], message_id
 
 
-def _extract_artifacts(result: dict | list) -> list[str]:
-    """Extract artifact paths from the last AI response cycle only.
+def _join_im_stream_buffers(buffers: dict[str, str]) -> str:
+    """Join every assistant buffer in this turn for **live** IM card display.
 
-    Collects zcode-style Markdown / backtick cites under ``outputs/`` or ``uploads/``,
-    plus legacy ``@@outputs/…@@`` / ``@@uploads/…@@``, after the last human message.
+    LangGraph emits a **new** message id after each tool call. Using only the
+    latest buffer makes Feishu cards regress to「这是一」/「![」and look stuck
+    while tools run. Keep prior segments visible; order follows insertion.
+
+    Do **not** use this for the final outbound bubble — that dumps the whole
+    mid-turn progress log into one Feishu message. Finals use
+    :func:`_latest_im_stream_buffer`.
     """
+    parts: list[str] = []
+    for text in buffers.values():
+        chunk = str(text or "").strip()
+        if chunk:
+            parts.append(chunk)
+    return "\n\n".join(parts)
+
+
+def _latest_im_stream_buffer(buffers: dict[str, str]) -> str:
+    """Last non-empty assistant stream buffer (insertion order).
+
+    Mid-turn status lines ("下载完成…", "等视觉理解跑完") each get their own
+    message id; the final user-visible IM reply should be only the latest.
+    """
+    last = ""
+    for text in buffers.values():
+        chunk = str(text or "").strip()
+        if chunk:
+            last = chunk
+    return last
+
+
+def _should_skip_im_stream_regression(previous: str, candidate: str) -> bool:
+    """True when publishing ``candidate`` would wipe a longer in-flight card.
+
+    New assistant messages after a tool call often restart with「这是一」/「![」
+    which is also a *prefix* of the previous long reply — so a naive
+    ``prev.startswith(cur)`` check would wrongly allow the wipe.
+    """
+    prev = str(previous or "")
+    cur = str(candidate or "")
+    if not prev or not cur:
+        return False
+    if len(cur) >= len(prev):
+        return False
+    if prev in cur:
+        return False
+    # Ignore tiny shrinks (stream corrections); block large regressions.
+    return len(cur) + 24 < len(prev)
+
+
+# Deliverable file types from AI reply body → IM upload. Source code / binaries
+# are intentionally excluded so random path cites are not exfiltrated.
+_DELIVERABLE_EXTS = frozenset(
+    {
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".gif",
+        ".webp",
+        ".bmp",
+        ".svg",
+        ".mp4",
+        ".mov",
+        ".webm",
+        ".mkv",
+        ".opus",
+        ".mp3",
+        ".wav",
+        ".m4a",
+        ".pdf",
+        ".doc",
+        ".docx",
+        ".xls",
+        ".xlsx",
+        ".ppt",
+        ".pptx",
+        ".csv",
+        ".txt",
+        ".md",
+        ".zip",
+        ".json",
+    }
+)
+
+_USER_DATA_VIRTUAL_PREFIX = "/mnt/user-data/"
+_USER_DATA_SHORT_ROOTS = ("outputs/", "uploads/", "workspace/")
+
+
+def _artifact_looks_deliverable(path: str) -> bool:
+    cleaned = str(path or "").strip().rstrip(").,;\"'")
+    if not cleaned or cleaned.lower().startswith(("http://", "https://", "data:")):
+        return False
+    # file:///C:/... or file:///home/...
+    if cleaned.lower().startswith("file:"):
+        cleaned = cleaned[5:].lstrip("/\\")
+        if cleaned.startswith("/") and len(cleaned) > 2 and cleaned[2] == ":":
+            # file:///C:/x → C:/x on Windows-style
+            cleaned = cleaned.lstrip("/")
+    suffix = Path(cleaned.replace("\\", "/")).suffix.lower()
+    return suffix in _DELIVERABLE_EXTS
+
+
+def _extract_artifacts_from_text(text: str) -> list[str]:
+    """Pull local deliverable paths out of one assistant reply body."""
     import re
 
+    if not text:
+        return []
+
+    # @@path@@ wrappers (legacy)
+    at_path_re = re.compile(r"@@([^@\n]+?)@@")
+    # Markdown image/link: ![x](path) or [x](path) — skip remote URLs later
+    md_link_re = re.compile(r"!\[[^\]]*\]\(([^)\s]+)\)|\[[^\]]*\]\(([^)\s]+)\)")
+    # Backtick / quoted paths
+    tick_path_re = re.compile(r"[`'\"]([^`'\"]+)[`'\"]")
+    # Absolute /mnt/user-data/... or Windows drive paths with deliverable suffix
+    ext_alt = "|".join(sorted({e.lstrip(".") for e in _DELIVERABLE_EXTS}))
+    abs_path_re = re.compile(
+        rf"(?:/mnt/user-data/[^\s`'\"<>|\]]+\.(?:{ext_alt})"
+        # Windows drive paths — reject URL schemes like https:// (would match s://)
+        rf"|[A-Za-z]:(?:\\[^\s`'\"<>|\]]+|/[^/\s`'\"<>|\]][^\s`'\"<>|\]]*)\.(?:{ext_alt})"
+        rf"|(?:outputs|uploads|workspace)/[^\s`'\"<>|\]]+\.(?:{ext_alt}))",
+        re.IGNORECASE,
+    )
+
+    artifacts: list[str] = []
+    seen: set[str] = set()
+
+    def _add(path: str) -> None:
+        cleaned = str(path or "").strip().strip("`'\"").rstrip(").,;")
+        if cleaned.lower().startswith("file:"):
+            cleaned = cleaned[5:]
+            if cleaned.startswith("///"):
+                cleaned = cleaned[3:]
+            elif cleaned.startswith("//"):
+                cleaned = cleaned[2:]
+            elif cleaned.startswith("/"):
+                cleaned = cleaned[1:]
+        cleaned = cleaned.strip().replace("\\", "/")
+        if not _artifact_looks_deliverable(cleaned):
+            return
+        key = cleaned.lower()
+        if key in seen:
+            return
+        seen.add(key)
+        artifacts.append(cleaned)
+
+    for m in at_path_re.finditer(text):
+        _add(m.group(1))
+    for m in md_link_re.finditer(text):
+        _add(m.group(1) or m.group(2) or "")
+    for m in tick_path_re.finditer(text):
+        _add(m.group(1))
+    for m in abs_path_re.finditer(text):
+        _add(m.group(0))
+    return artifacts
+
+
+def _extract_artifacts(result: dict | list, *, response_text: str = "") -> list[str]:
+    """Extract deliverable file paths from the last AI response cycle.
+
+    Reads whatever the model put in the body (markdown image/link, backticks,
+    ``@@…@@``, absolute /mnt or drive paths) — not limited to ``outputs/``.
+    Remote http(s) links stay in the text; only local-looking deliverables
+    become upload candidates.
+    """
     if isinstance(result, list):
         messages = result
     elif isinstance(result, dict):
         messages = result.get("messages", [])
     else:
-        return []
-
-    # Legacy EvoFlow wrappers
-    at_path_re = re.compile(r"@@((?:outputs|uploads)/[^@\n]+?)@@", re.IGNORECASE)
-    # zcode artifact_display: [label](outputs/…) or [label](uploads/…)
-    md_link_re = re.compile(
-        r"\[[^\]]*\]\(((?:outputs|uploads)/[^)\s]+)\)",
-        re.IGNORECASE,
-    )
-    # backtick / quoted short paths
-    tick_path_re = re.compile(
-        r"[`'\"]((?:outputs|uploads)/[^`'\"]+)[`'\"]",
-        re.IGNORECASE,
-    )
+        messages = []
 
     def _text_from_content(content) -> str:
         if isinstance(content, str):
@@ -1175,27 +1462,26 @@ def _extract_artifacts(result: dict | list) -> list[str]:
             return "\n".join(parts)
         return str(content or "")
 
-    def _add(path: str, *, seen: set[str], artifacts: list[str]) -> None:
-        cleaned = str(path or "").strip().replace("\\", "/")
-        if cleaned and cleaned not in seen:
-            seen.add(cleaned)
-            artifacts.append(cleaned)
-
-    artifacts: list[str] = []
-    seen: set[str] = set()
+    chunks: list[str] = []
     for msg in reversed(messages):
         if not isinstance(msg, dict):
             continue
         if msg.get("type") == "human":
             break
         if msg.get("type") == "ai":
-            text = _text_from_content(msg.get("content"))
-            for m in at_path_re.finditer(text):
-                _add(m.group(1), seen=seen, artifacts=artifacts)
-            for m in md_link_re.finditer(text):
-                _add(m.group(1), seen=seen, artifacts=artifacts)
-            for m in tick_path_re.finditer(text):
-                _add(m.group(1), seen=seen, artifacts=artifacts)
+            chunks.append(_text_from_content(msg.get("content")))
+    if response_text:
+        chunks.append(str(response_text))
+
+    artifacts: list[str] = []
+    seen: set[str] = set()
+    for chunk in chunks:
+        for path in _extract_artifacts_from_text(chunk):
+            key = path.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            artifacts.append(path)
     return artifacts
 
 
@@ -1209,55 +1495,202 @@ def _format_artifact_text(artifacts: list[str]) -> str:
     return "Created Files: 📎 " + "、".join(filenames)
 
 
-_OUTPUTS_VIRTUAL_PREFIX = "/mnt/user-data/outputs/"
+def _normalize_user_data_virtual_path(raw: str) -> str:
+    """Map short ``outputs|uploads|workspace/…`` cites onto ``/mnt/user-data/…``."""
+    cleaned = str(raw or "").strip().replace("\\", "/").strip("`'\"").strip()
+    if not cleaned:
+        return ""
+    if cleaned.startswith(_USER_DATA_VIRTUAL_PREFIX):
+        if ".." in cleaned.split("/"):
+            return ""
+        return cleaned
+    lowered = cleaned.lstrip("/")
+    for root in _USER_DATA_SHORT_ROOTS:
+        if lowered.lower().startswith(root):
+            rel = lowered[len(root) :]
+            if not rel or ".." in rel.split("/"):
+                return ""
+            return f"{_USER_DATA_VIRTUAL_PREFIX}{root}{rel}"
+    return ""
 
 
-def _resolve_attachments(thread_id: str, artifacts: list[str]) -> list[ResolvedAttachment]:
-    """Resolve virtual artifact paths to host filesystem paths with metadata.
+def _attachment_allowed_roots(thread_id: str) -> list[Path]:
+    """Host directories that IM outbound may read files from for this thread."""
+    from evoflow.config.paths import get_paths
 
-    Only paths under ``/mnt/user-data/outputs/`` are accepted; any other
-    virtual path is rejected with a warning to prevent exfiltrating uploads
-    or workspace files via IM channels.
+    paths = get_paths()
+    roots: list[Path] = []
+    for getter in (
+        paths.sandbox_user_data_dir,
+        paths.sandbox_outputs_dir,
+        paths.sandbox_uploads_dir,
+        paths.sandbox_work_dir,
+        paths.acp_workspace_dir,
+    ):
+        try:
+            root = getter(thread_id).resolve()
+        except Exception:
+            continue
+        roots.append(root)
+    # Deduplicate while preserving order
+    out: list[Path] = []
+    seen: set[str] = set()
+    for root in roots:
+        key = str(root).lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(root)
+    return out
 
-    Skips artifacts that cannot be resolved (missing files, invalid paths)
-    and logs warnings for them.
+
+def _path_under_roots(actual: Path, roots: list[Path]) -> bool:
+    try:
+        resolved = actual.resolve()
+    except OSError:
+        return False
+    for root in roots:
+        try:
+            resolved.relative_to(root)
+            return True
+        except ValueError:
+            continue
+    return False
+
+
+def _is_sensitive_host_path(actual: Path) -> bool:
+    """Reject obvious OS / secrets locations even for absolute body cites."""
+    try:
+        parts = [p.lower() for p in actual.resolve().parts]
+    except OSError:
+        return True
+    joined = "/".join(parts).replace("\\", "/").lower()
+    blocked = (
+        "windows/system32",
+        "windows/syswow64",
+        "program files",
+        "program files (x86)",
+        "/etc/",
+        "/usr/bin",
+        "/bin/",
+        "/sbin/",
+        "appdata/roaming/microsoft",
+        ".ssh",
+        ".gnupg",
+        "credentials",
+        "id_rsa",
+    )
+    return any(b in joined for b in blocked)
+
+
+def _resolve_one_attachment(thread_id: str, raw_path: str) -> ResolvedAttachment | None:
+    """Resolve one body cite to a host file under the thread allowlist.
+
+    Absolute host paths the model already cited (e.g. skill ``$PROJ`` frames
+    under knowledge-library) are also accepted when they exist, are deliverable,
+    and are not sensitive OS paths — otherwise IM finishes with text-only
+    ``file:///…`` cards that look stuck halfway.
     """
     from evoflow.config.paths import get_paths
 
-    attachments: list[ResolvedAttachment] = []
+    cleaned = str(raw_path or "").strip().strip("`'\"").rstrip(").,;")
+    if not cleaned or not _artifact_looks_deliverable(cleaned):
+        return None
+
     paths = get_paths()
-    outputs_dir = paths.sandbox_outputs_dir(thread_id).resolve()
-    for virtual_path in artifacts:
-        # Security: only allow files from the agent outputs directory
-        if not virtual_path.startswith(_OUTPUTS_VIRTUAL_PREFIX):
-            logger.warning("[Manager] rejected non-outputs artifact path: %s", virtual_path)
-            continue
+    roots = _attachment_allowed_roots(thread_id)
+    candidates: list[Path] = []
+
+    virtual = _normalize_user_data_virtual_path(cleaned)
+    if virtual:
         try:
-            actual = paths.resolve_virtual_path(thread_id, virtual_path)
-            # Verify the resolved path is actually under the outputs directory
-            # (guards against path-traversal even after prefix check)
-            try:
-                actual.resolve().relative_to(outputs_dir)
-            except ValueError:
-                logger.warning("[Manager] artifact path escapes outputs dir: %s -> %s", virtual_path, actual)
-                continue
-            if not actual.is_file():
-                logger.warning("[Manager] artifact not found on disk: %s -> %s", virtual_path, actual)
-                continue
-            mime, _ = mimetypes.guess_type(str(actual))
-            mime = mime or "application/octet-stream"
-            attachments.append(
-                ResolvedAttachment(
-                    virtual_path=virtual_path,
-                    actual_path=actual,
-                    filename=actual.name,
-                    mime_type=mime,
-                    size=actual.stat().st_size,
-                    is_image=mime.startswith("image/"),
-                )
-            )
+            candidates.append(paths.resolve_virtual_path(thread_id, virtual))
         except (ValueError, OSError) as exc:
-            logger.warning("[Manager] failed to resolve artifact %s: %s", virtual_path, exc)
+            logger.debug("[Manager] virtual resolve failed %s: %s", cleaned, exc)
+
+    # Absolute host path (Windows drive or POSIX)
+    hostish = cleaned.replace("\\", "/")
+    absolute_cite = bool(__import__("re").match(r"^[A-Za-z]:/", hostish)) or (
+        hostish.startswith("/") and not hostish.startswith("/mnt/user-data/")
+    )
+    if absolute_cite:
+        candidates.append(Path(cleaned))
+
+    # Relative basename / nested → try under each thread root
+    rel = hostish.lstrip("/")
+    if rel and not rel.startswith("mnt/user-data/"):
+        for root in roots:
+            candidates.append(root / Path(rel).name)
+            candidates.append(root / rel)
+            for sub in ("outputs", "uploads", "workspace"):
+                candidates.append(root / sub / Path(rel).name)
+                candidates.append(root / sub / rel)
+
+    seen_files: set[str] = set()
+    for candidate in candidates:
+        try:
+            actual = candidate.resolve()
+        except OSError:
+            continue
+        key = str(actual).lower()
+        if key in seen_files:
+            continue
+        seen_files.add(key)
+        if not actual.is_file():
+            continue
+        under_thread = _path_under_roots(actual, roots)
+        # Absolute cites from agent skill/project dirs are outside the thread
+        # sandbox — still deliver when clearly non-sensitive media/docs.
+        if not under_thread:
+            if not absolute_cite or _is_sensitive_host_path(actual):
+                logger.warning(
+                    "[Manager] rejected artifact outside thread allowlist: %s -> %s",
+                    cleaned,
+                    actual,
+                )
+                continue
+            try:
+                if actual.stat().st_size > 30 * 1024 * 1024:
+                    logger.warning("[Manager] rejected oversized absolute artifact: %s", actual)
+                    continue
+            except OSError:
+                continue
+            logger.info(
+                "[Manager] accepting absolute artifact outside thread sandbox: %s",
+                actual,
+            )
+        mime, _ = mimetypes.guess_type(str(actual))
+        mime = mime or "application/octet-stream"
+        return ResolvedAttachment(
+            virtual_path=virtual or cleaned,
+            actual_path=actual,
+            filename=actual.name,
+            mime_type=mime,
+            size=actual.stat().st_size,
+            is_image=mime.startswith("image/"),
+        )
+    logger.warning("[Manager] artifact not resolvable for IM delivery: %s", cleaned)
+    return None
+
+
+def _resolve_attachments(thread_id: str, artifacts: list[str]) -> list[ResolvedAttachment]:
+    """Resolve reply-body paths to host files under the thread allowlist.
+
+    Accepts outputs/uploads/workspace virtual paths **and** absolute host paths
+    that still live under this thread's user-data / workspace roots. Remote
+    URLs are never resolved here.
+    """
+    attachments: list[ResolvedAttachment] = []
+    seen: set[str] = set()
+    for raw_path in artifacts:
+        att = _resolve_one_attachment(thread_id, raw_path)
+        if att is None:
+            continue
+        key = str(att.actual_path.resolve()).lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        attachments.append(att)
     return attachments
 
 
@@ -1268,12 +1701,21 @@ def _prepare_artifact_delivery(
 ) -> tuple[str, list[ResolvedAttachment]]:
     """Resolve attachments and append filename fallbacks to the text response."""
     attachments: list[ResolvedAttachment] = []
-    if not artifacts:
+    # Also mine the outbound text itself — streaming paths may only appear there.
+    merged = list(artifacts or [])
+    for path in _extract_artifacts_from_text(response_text or ""):
+        if path not in merged:
+            merged.append(path)
+    if not merged:
         return response_text, attachments
 
-    attachments = _resolve_attachments(thread_id, artifacts)
-    resolved_virtuals = {attachment.virtual_path for attachment in attachments}
-    unresolved = [path for path in artifacts if path not in resolved_virtuals]
+    attachments = _resolve_attachments(thread_id, merged)
+    resolved_names = {a.filename.lower() for a in attachments}
+    unresolved = [
+        path
+        for path in merged
+        if Path(str(path).replace("\\", "/")).name.lower() not in resolved_names
+    ]
 
     if unresolved:
         artifact_text = _format_artifact_text(unresolved)
@@ -1282,7 +1724,7 @@ def _prepare_artifact_delivery(
     # Always include resolved attachment filenames as a text fallback so files
     # remain discoverable even when the upload is skipped or fails.
     if attachments:
-        resolved_text = _format_artifact_text([attachment.virtual_path for attachment in attachments])
+        resolved_text = _format_artifact_text([a.filename for a in attachments])
         response_text = (response_text + "\n\n" + resolved_text) if response_text else resolved_text
 
     return response_text, attachments
@@ -1339,6 +1781,41 @@ class ChannelManager:
         }
         return meta
 
+    async def _cancel_pending_runs_on_thread(self, client, thread_id: str) -> int:
+        """Cancel pending/running LangGraph runs on ``thread_id``. Returns count."""
+        tid = str(thread_id or "").strip()
+        if not tid:
+            return 0
+        cancelled = 0
+        try:
+            runs = await client.runs.list(thread_id=tid, limit=20)
+        except Exception:
+            logger.debug("[Manager] list runs for cancel failed thread=%s", tid, exc_info=True)
+            return 0
+        for run in runs or []:
+            run_id = str(
+                (run.get("run_id") if isinstance(run, dict) else getattr(run, "run_id", None))
+                or (run.get("id") if isinstance(run, dict) else getattr(run, "id", None))
+                or ""
+            ).strip()
+            status = str(
+                (run.get("status") if isinstance(run, dict) else getattr(run, "status", None))
+                or ""
+            ).strip().lower()
+            if not run_id or status not in ("pending", "running"):
+                continue
+            try:
+                await client.runs.cancel(thread_id=tid, run_id=run_id)
+                cancelled += 1
+            except Exception:
+                logger.debug(
+                    "[Manager] cancel im run failed thread=%s run=%s",
+                    tid,
+                    run_id,
+                    exc_info=True,
+                )
+        return cancelled
+
     async def cancel_active_im_run(
         self,
         *,
@@ -1361,27 +1838,11 @@ class ChannelManager:
             return {"ok": False, "error": "找不到进行中的会话", "cancelled": 0, "preview": preview}
 
         client = self._get_client()
-        cancelled = 0
         try:
-            runs = await client.runs.list(thread_id=tid, limit=20)
-            for run in runs or []:
-                run_id = str((run.get("run_id") if isinstance(run, dict) else getattr(run, "run_id", None)) or (run.get("id") if isinstance(run, dict) else getattr(run, "id", None)) or "").strip()
-                status = str((run.get("status") if isinstance(run, dict) else getattr(run, "status", None)) or "").strip().lower()
-                if not run_id or status not in ("pending", "running"):
-                    continue
-                try:
-                    await client.runs.cancel(thread_id=tid, run_id=run_id)
-                    cancelled += 1
-                except Exception:
-                    logger.debug(
-                        "[Manager] cancel im run failed thread=%s run=%s",
-                        tid,
-                        run_id,
-                        exc_info=True,
-                    )
+            cancelled = await self._cancel_pending_runs_on_thread(client, tid)
         except Exception as exc:
             logger.warning("[Manager] list/cancel im runs failed thread=%s: %s", tid, exc)
-            return {"ok": False, "error": str(exc)[:120], "cancelled": cancelled, "preview": preview}
+            return {"ok": False, "error": str(exc)[:120], "cancelled": 0, "preview": preview}
 
         tracked = dict(tracked)
         tracked["cancelled"] = True
@@ -1711,16 +2172,23 @@ class ChannelManager:
                 _files = list(msg.files or [])[:8]
                 _summary = str(msg.text or "").strip()
                 if _files:
-                    _names: list[str] = []
+                    _labels: list[str] = []
                     for _f in _files:
                         if isinstance(_f, dict):
-                            _n = str(_f.get("filename") or _f.get("name") or _f.get("path") or "").strip()
+                            _path = str(_f.get("path") or "").strip()
+                            _n = str(_f.get("filename") or _f.get("name") or "").strip()
+                            if not _n and _path:
+                                _n = _path.replace("\\", "/").rsplit("/", 1)[-1]
+                            if _path:
+                                _labels.append(f"{_n or 'attachment'} → {_path}"[:200])
+                            elif _n:
+                                _labels.append(_n[:80])
                         else:
-                            _n = str(_f or "").strip()
-                        if _n:
-                            _names.append(_n.split("/")[-1].split("\\")[-1][:80])
-                    if _names:
-                        _att = "、".join(_names[:4])
+                            _s = str(_f or "").strip()
+                            if _s:
+                                _labels.append(_s[:120])
+                    if _labels:
+                        _att = "；".join(_labels[:4])
                         _summary = f"{_summary} [附件：{_att}]".strip() if _summary else f"[附件：{_att}]"
                 safe_record_push(
                     direction="inbound",
@@ -2067,7 +2535,12 @@ class ChannelManager:
                 _persist_channel_session_index(session_key, thread_id, msg, title=pretty)
         except Exception:
             logger.debug("[Manager] refresh weak IM session title skipped", exc_info=True)
-        channel_run_id = _persist_channel_user_transcript_turn(session_key, thread_id, msg.text or "")
+        channel_run_id = _persist_channel_user_transcript_turn(
+            session_key,
+            thread_id,
+            msg.text or "",
+            files=list(msg.files or []),
+        )
         _enrich_channel_run_context(run_context, session_key, msg, channel_run_id)
         send_shortcut_hint = msg.channel_name in IM_CHANNEL_NAMES and not self._im_shortcut_hint_sent(msg) and not _im_should_omit_shortcut_hint(run_context, msg)
         if self._channel_supports_streaming(msg.channel_name):
@@ -2090,7 +2563,7 @@ class ChannelManager:
         )
         result: dict[str, Any] | list | None = None
         human_input = _build_human_input(msg, run_context, run_config)
-        for attempt in range(2):
+        for attempt in range(3):
             try:
                 result = await client.runs.wait(
                     thread_id,
@@ -2098,6 +2571,7 @@ class ChannelManager:
                     input=human_input,
                     config=run_config,
                     context=run_context,
+                    multitask_strategy="reject",
                 )
                 break
             except Exception as exc:
@@ -2111,6 +2585,16 @@ class ChannelManager:
                     if extra_context:
                         run_context.update(extra_context)
                     run_config, run_context = _langgraph_merge_configurable_into_context(run_config, run_context)
+                    continue
+                if _is_thread_busy_error(exc) and attempt < 2:
+                    n = await self._cancel_pending_runs_on_thread(client, thread_id)
+                    logger.warning(
+                        "[Manager] runs.wait thread busy — cancelled %d stale run(s), retrying: thread_id=%s attempt=%d",
+                        n,
+                        thread_id,
+                        attempt + 1,
+                    )
+                    await asyncio.sleep(0.35)
                     continue
                 raise
 
@@ -2257,7 +2741,7 @@ class ChannelManager:
             # below, which would send a second, confusing message to the user.
             return
         response_text = response_text or ""
-        artifacts = _extract_artifacts(result)
+        artifacts = _extract_artifacts(result, response_text=response_text or "")
         _mgr_diag("agent_response", channel=msg.channel_name, chat_id=msg.chat_id, text_len=len(response_text or ""), preview=(response_text or "")[:300])
 
         # Print to stderr so it shows up in the terminal even when EVOFLOW_LOGS_DIR is set
@@ -2386,7 +2870,12 @@ class ChannelManager:
                     if event in ("messages-tuple", "messages"):
                         accumulated_text, current_message_id = _accumulate_stream_text(streamed_buffers, current_message_id, data)
                         if accumulated_text:
-                            latest_text = accumulated_text
+                            # IM: show the whole turn (all assistant segments), not only
+                            # the newest message-id buffer — avoids card wipe after tools.
+                            if msg.channel_name in IM_CHANNEL_NAMES and len(streamed_buffers) > 1:
+                                latest_text = _join_im_stream_buffers(streamed_buffers) or accumulated_text
+                            else:
+                                latest_text = accumulated_text
                             saw_streaming_token_source = True
                             saw_messages_stream = True
                             logger.debug(
@@ -2435,6 +2924,39 @@ class ChannelManager:
                     if not latest_text or latest_text == last_published_text:
                         if latest_text == last_published_text and latest_text:
                             stream_skip_same_count += 1
+                        continue
+
+                    # Feishu/WeCom cards: never publish a mid-stream wipe that replaces
+                    # a long reply with a brand-new short assistant message ("这是一" /
+                    # "![") — keep the previous card until the new segment catches up
+                    # via joined buffers or the final outbound.
+                    if msg.channel_name in IM_CHANNEL_NAMES and _should_skip_im_stream_regression(
+                        last_published_text, latest_text
+                    ):
+                        stream_skip_same_count += 1
+                        continue
+
+                    # Feishu default: no live card patches — only accumulate text for
+                    # the final outbound. Avoids half-frozen「这是一张充满…」cards.
+                    if msg.channel_name == "feishu" and not FEISHU_LIVE_STREAM_PATCHES:
+                        tracked = self._active_im_runs.get(routing_key)
+                        if isinstance(tracked, dict):
+                            tracked["preview"] = latest_text[:800]
+                            tracked["thread_id"] = active_thread_id
+                            if tracked.get("cancelled"):
+                                logger.info(
+                                    "[Manager] stream stop requested mid-flight: thread_id=%s",
+                                    active_thread_id,
+                                )
+                                break
+                        continue
+
+                    if (
+                        msg.channel_name == "feishu"
+                        and not last_published_text
+                        and len(latest_text.strip()) < FEISHU_STREAM_MIN_PUBLISH_CHARS
+                    ):
+                        stream_skip_same_count += 1
                         continue
 
                     now = time.monotonic()
@@ -2502,7 +3024,23 @@ class ChannelManager:
                     await asyncio.sleep(delay_sec)
                     continue
                 if _is_thread_busy_error(exc):
-                    logger.warning("[Manager] thread busy (concurrent run rejected): thread_id=%s", active_thread_id)
+                    # Stale / overlapping LangGraph run still marked running —
+                    # cancel it and retry so IM users are not stuck on
+                    # 「请稍候再发」 after a previous turn hung or raced.
+                    if attempt < 2:
+                        n = await self._cancel_pending_runs_on_thread(client, active_thread_id)
+                        logger.warning(
+                            "[Manager] thread busy — cancelled %d stale run(s), retrying: thread_id=%s attempt=%d",
+                            n,
+                            active_thread_id,
+                            attempt + 1,
+                        )
+                        await asyncio.sleep(0.35)
+                        continue
+                    logger.warning(
+                        "[Manager] thread busy after cancel+retry: thread_id=%s",
+                        active_thread_id,
+                    )
                 else:
                     logger.exception("[Manager] streaming error: thread_id=%s", active_thread_id)
                 break
@@ -2515,7 +3053,7 @@ class ChannelManager:
 
         if values_synced:
             response_text = _extract_response_text(result)
-            artifacts = _extract_artifacts(result)
+            artifacts = _extract_artifacts(result, response_text=response_text or "")
         else:
             # Rejected/failed run often leaves checkpoint on the *previous* turn —
             # never resend that AI text as the reply to the new user message.
@@ -2528,6 +3066,18 @@ class ChannelManager:
                 len(tail_human or ""),
                 stream_error,
             )
+        # IM final bubble: prefer the *latest* assistant buffer only.
+        # Joining every mid-tool status line produced a progress-log dump on Feishu
+        # (download… / 抽帧… / 等视觉理解… glued onto the real answer).
+        if msg.channel_name in IM_CHANNEL_NAMES and streamed_buffers:
+            latest_buf = _latest_im_stream_buffer(streamed_buffers)
+            if latest_buf and (
+                not str(response_text or "").strip()
+                or len(latest_buf) >= len(str(response_text or "").strip())
+            ):
+                response_text = latest_buf
+                if not artifacts:
+                    artifacts = _extract_artifacts(result, response_text=response_text)
         response_text, attachments = _prepare_artifact_delivery(active_thread_id, response_text, artifacts)
 
         tracked_end = self._active_im_runs.pop(routing_key, None) or {}

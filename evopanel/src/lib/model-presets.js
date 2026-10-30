@@ -77,8 +77,16 @@ export const MODEL_PRESETS = {
     { id: 'claude-haiku-3-5-20241022', name: 'Claude Haiku 3.5', contextWindow: 200000 },
   ],
   deepseek: [
-    { id: 'deepseek-chat', name: 'DeepSeek V3', contextWindow: 64000 },
-    { id: 'deepseek-reasoner', name: 'DeepSeek R1', contextWindow: 64000, reasoning: true },
+    {
+      id: 'deepseek-flash',
+      name: 'DeepSeek V4.1 Flash（多模态）',
+      contextWindow: 1000000,
+      reasoning: true,
+      vision: true,
+      section: 'recommended',
+    },
+    { id: 'deepseek-chat', name: 'DeepSeek V3', contextWindow: 64000, section: 'more' },
+    { id: 'deepseek-reasoner', name: 'DeepSeek R1', contextWindow: 64000, reasoning: true, section: 'more' },
   ],
   moonshot: [
     {
@@ -122,6 +130,7 @@ export const MODEL_PRESETS = {
       name: 'Auto（ark-code-latest）',
       contextWindow: 256000,
       reasoning: true,
+      vision: true,
       section: 'recommended',
     },
     {

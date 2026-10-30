@@ -51,6 +51,15 @@ class LeadAgentRuntimeContext:
     created_by: str | None = None
     owner_scope_id: str | None = None
     org_id: str | None = None
+    # IM inbound (ChannelManager). Must be declared fields — LangGraph Agent Server
+    # filters context by schema before coerce; undeclared keys (e.g. channel) are dropped
+    # and never reach DynamicSystemPrompt / <im_channel> injection.
+    channel: str | None = None
+    channel_chat_id: str | None = None
+    channel_user_id: str | None = None
+    topic_id: str | None = None
+    account_id: str | None = None
+    evf_channel_run_id: str | None = None
     # 小V 侧栏：本轮发送时的页面快照（优先于 SQLite session context）
     xiaomi_page_context: dict[str, Any] | None = None
     goal_mode: bool | None = None
@@ -147,6 +156,12 @@ MODEL_REQUEST_CONTEXT_KEYS: tuple[str, ...] = (
     "created_by",
     "owner_scope_id",
     "org_id",
+    "channel",
+    "channel_chat_id",
+    "channel_user_id",
+    "topic_id",
+    "account_id",
+    "evf_channel_run_id",
     "xiaomi_page_context",
     "session_mode",
     "goal_mode",

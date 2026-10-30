@@ -24,6 +24,8 @@ import {
   HISTORY_OPEN_PAGE_SIZE,
 } from './fetchSessionHistory.js'
 import { awaitSessionHistoryWarm } from '../lib/warm-session-history-prefetch.js'
+import { isEvoflowChatV4Enabled } from '../v4/v4Gate.js'
+import { logV4Life } from '../lib/v4-lifecycle-log.js'
 
 export type ThreadHistoryLiveOpts = {
   isHot: boolean
@@ -448,7 +450,8 @@ export function useThreadHistory(sessionKey: string | null, liveOpts: ThreadHist
     setRows([])
     setTokenTotals(null)
     setRestoredScenarioScene(null)
-    setLoading(true)
+    // V4 主对话自管上屏：旧 /messages 只做后台对账，不要把 loading 拉成全屏转圈
+    setLoading(!isEvoflowChatV4Enabled())
   }, [sessionKey])
 
   const reload = useCallback(
@@ -521,7 +524,8 @@ export function useThreadHistory(sessionKey: string | null, liveOpts: ThreadHist
           setTokenTotals(null)
           setRestoredScenarioScene(null)
         }
-        setLoading(!preserveRows)
+        // V4 开启时绝不因旧历史 fetch 置 loading（遮罩会盖住已到的 V4 首帧）
+        setLoading(!preserveRows && !isEvoflowChatV4Enabled())
         setError(null)
       }
 
@@ -546,6 +550,7 @@ export function useThreadHistory(sessionKey: string | null, liveOpts: ThreadHist
           }
           setError(null)
           const keepSpinner =
+            !isEvoflowChatV4Enabled() &&
             !soft &&
             !liveRowsActive &&
             !(Array.isArray(rowsRef.current) && rowsRef.current.length > 0)
@@ -573,6 +578,7 @@ export function useThreadHistory(sessionKey: string | null, liveOpts: ThreadHist
             setHistoryInstantPaint(true)
           })
         }
+        const histStarted = Date.now()
         const result = await Promise.race([
           fetchSessionHistoryMessages(
             (sk, limit, opts) => api.chatHistory(sk, limit, opts),
@@ -584,6 +590,30 @@ export function useThreadHistory(sessionKey: string | null, liveOpts: ThreadHist
           }),
         ])
         if (epoch !== historyFetchEpochRef.current) return { transcriptAnchor: null }
+        const histMs = Math.max(0, Date.now() - histStarted)
+        if (result) {
+          const n = Array.isArray(result.messages) ? result.messages.length : 0
+          logV4Life({
+            event: 'legacy_history_fetch',
+            sessionKey,
+            level: histMs >= 1500 ? 'warn' : 'info',
+            zh:
+              histMs >= 1500
+                ? `旧历史 /messages 偏慢：${histMs}ms 拉到 ${n} 条（V4 上屏不依赖它；若仍觉转圈请确认未盖 history 遮罩）。`
+                : `旧历史 /messages 完成：${histMs}ms，${n} 条。`,
+            detail: { histMs, messageCount: n, pageSize: HISTORY_OPEN_PAGE_SIZE },
+            skipDedupe: true,
+          })
+        } else {
+          logV4Life({
+            event: 'legacy_history_fetch',
+            sessionKey,
+            level: 'warn',
+            zh: `旧历史 /messages 超时或未返回（等了约 ${histMs}ms，上限 ${HISTORY_FETCH_TIMEOUT_MS}ms）。V4 仍可凭首帧上屏。`,
+            detail: { histMs, timedOut: true },
+            skipDedupe: true,
+          })
+        }
         if (!result) {
           const stillCold =
             (typeof isGatewayWarming === 'function' && isGatewayWarming()) ||
@@ -598,7 +628,10 @@ export function useThreadHistory(sessionKey: string | null, liveOpts: ThreadHist
               return { transcriptAnchor: null }
             }
             setError(null)
-            if (!(Array.isArray(rowsRef.current) && rowsRef.current.length > 0)) {
+            if (
+              !isEvoflowChatV4Enabled() &&
+              !(Array.isArray(rowsRef.current) && rowsRef.current.length > 0)
+            ) {
               setLoading(true)
               deferLoadingClear = true
             }

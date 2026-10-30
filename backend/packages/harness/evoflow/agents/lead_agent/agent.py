@@ -1492,7 +1492,8 @@ def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None
     )
     _setup_phase("resolve_available_tools_ms", _t_tools)
 
-    # ``platform``：main/小V 默认挂；员工默认不挂，可在 tools[] 勾选或 mount_platform_tools。
+    # ``platform``：main/小V 默认挂；IM 进线强制挂（channels.send_message）；
+    # 员工默认不挂，可在 tools[] 勾选或 mount_platform_tools。
     _mount_platform = False
     try:
         from evoflow.config.agents_config import get_agent_kb_injection_config
@@ -1507,6 +1508,8 @@ def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None
             agent_name,
             mount_platform_tools=bool(kb_cfg.mount_platform_tools),
             tools_whitelist=list(_tool_whitelist) if _tool_whitelist is not None else None,
+            # ChannelManager stamps IM origin on run_context; Panel stays empty.
+            im_channel=str(cfg.get("channel") or "").strip() or None,
         )
         if not _mount_platform:
             drop = {canonical_tool_name(n) for n in AGENT_MODE_SYSTEM_TOOL_NAMES}
@@ -1849,6 +1852,8 @@ def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None
             mcp_skill_section="",
             thinking_enabled=bool(thinking_enabled),
             voice_mode=voice_mode,
+            # ChannelManager stamps IM ``channel`` (feishu/wecom/…); voice uses channel=voice — ignored.
+            im_channel=str(cfg.get("channel") or "").strip() or None,
             principal_id=str(cfg.get("principal_id") or cfg.get("created_by") or "").strip() or None,
             owner_scope_id=str(cfg.get("owner_scope_id") or cfg.get("scope_id") or "").strip() or None,
             inject_user_profile=_inject_user_profile,

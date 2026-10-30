@@ -12,8 +12,18 @@ import { rightStageStore } from './right-stage/right-stage-store.js'
 
 export const XW_VOICE_MODE_EVENT = 'xw-voice-mode-change'
 
-/** 与 CSS @keyframes xw-arc-expand 时长对齐 */
-const ENTER_ANIM_MS = 480
+/** 与 CSS @keyframes xw-arc-expand 时长对齐；进场重活（Frame/麦）须 defer 到此之后。 */
+export const XW_VOICE_ENTER_ANIM_MS = 480
+const ENTER_ANIM_MS = XW_VOICE_ENTER_ANIM_MS
+
+/** 进场动画进行中（data-xw-voice-anim=enter）。用于避免中途改右栏宽度造成卡顿。 */
+export function isXwVoiceEnterAnimating(): boolean {
+  try {
+    return document.documentElement.dataset.xwVoiceAnim === 'enter'
+  } catch {
+    return false
+  }
+}
 
 let enterAnimTimer = 0
 
@@ -125,13 +135,26 @@ function noteGate(
     .catch(() => {})
 }
 
-function afterXiaomiSessionAdopted(expandRight: boolean): void {
+/**
+ * 按进场意图锁住右栏开合。必须在 clip-path 动画开始前调用——动画中途
+ * expand/collapse 会改 .xw-voice-host 宽度，用户会感觉「弹到一半卡一下」。
+ */
+function lockRightStageForEnter(expandRight: boolean): void {
+  if (expandRight) rightStageStore.expand()
+  else rightStageStore.collapse()
+}
+
+function afterXiaomiSessionAdopted(
+  expandRight: boolean,
+  opts: { layoutLocked?: boolean } = {},
+): void {
+  const layoutLocked = opts.layoutLocked === true
   const snap = rightStageStore.getSnapshot()
   // adopt 已不带主对话 workspace 签；此处只认小V 自己会话里的非 xiaomi 签
   // （平台工具在语音域内新开的员工/任务），勿把主对话残留当成「该展开」。
   const sideContent = snap.tabs.find((t) => String(t.kind || '') !== 'xiaomi')
   if (expandRight) {
-    rightStageStore.expand()
+    if (!layoutLocked) rightStageStore.expand()
     // 左栏已是小V语音域：右栏若还停在小V文字签，切到同会话其它签（截图/文件/壳页）。
     if (String(snap.activeKey || '').startsWith('xiaomi:') && sideContent) {
       rightStageStore.activateTab(`${sideContent.kind}:${sideContent.id}`)
@@ -139,27 +162,38 @@ function afterXiaomiSessionAdopted(expandRight: boolean): void {
   } else if (sideContent) {
     // 唤醒 left-only 期间：仅当「本轮语音会话」里已有平台开签才展开；
     // 主对话缓存签不应再出现在这里（adopt carryWorkspace:false）。
+    // 进场动画中勿突然 expand——等动画结束后再补开。
+    if (isXwVoiceEnterAnimating()) {
+      window.setTimeout(() => {
+        if (!isXwVoiceMode()) return
+        rightStageStore.expand()
+        rightStageStore.activateTab(`${sideContent.kind}:${sideContent.id}`)
+      }, ENTER_ANIM_MS + 16)
+      return
+    }
     rightStageStore.expand()
     rightStageStore.activateTab(`${sideContent.kind}:${sideContent.id}`)
   } else {
     // 唤醒 left-only：必须收起右侧。否则对话列被 CSS 藏掉、语音域只剩左栏 440px，
     // 整窗几乎空白，用户会以为「面板没弹出来」。
     // 只用 store.collapse()，勿走 collapseRightStageShell（那条会 exit 语音模式）。
-    rightStageStore.collapse()
+    if (!layoutLocked) rightStageStore.collapse()
   }
 }
 
 /** 进入语音全屏模式：左栏小V语音域；可选展开右栏（若停在小V标签则切到别的标签，避免右侧重复显示小V）。 */
 export function enterXwVoiceMode(opts: EnterXwVoiceModeOpts = {}): void {
   const expandRight = opts.expandRightStage !== false
-  // 先占用小V 右栏会话表，再展开——避免主对话的浏览器/截图签留在右侧。
+  // ① 先锁右栏开合，再开 clip-path —— 避免 adopt 异步回来时改宽度把动画掐一下
+  lockRightStageForEnter(expandRight)
+  // ② 后台换小V 右栏会话表；布局已锁，adopt 后只切 tab、不再 expand/collapse 抖动
   void import('./right-stage/xiaomi-right-stage-session.js')
     .then(async (m) => {
       await m.adoptXiaomiRightStageSession()
-      afterXiaomiSessionAdopted(expandRight)
+      afterXiaomiSessionAdopted(expandRight, { layoutLocked: true })
     })
     .catch(() => {
-      afterXiaomiSessionAdopted(expandRight)
+      afterXiaomiSessionAdopted(expandRight, { layoutLocked: true })
     })
   // 进场 / 唤醒重进：prefer 小V + 会话强制关思考（语音要快回）
   void import('./xiaomi-voice-defaults.js')

@@ -23,10 +23,12 @@ from app.gateway.routers.errors import (
     create_error_response,
 )
 from app.gateway.hang_diagnostics import (
+    append_gateway_slow_log,
     register_inflight_request,
     unregister_inflight_request,
     update_inflight_request,
     is_event_loop_overloaded,
+    slow_log_threshold_s,
 )
 
 logger = logging.getLogger(__name__)
@@ -110,7 +112,23 @@ def _sampleable_content_type(content_type: str | None) -> bool:
 
 
 def _is_streaming_request_path(path: str) -> bool:
-    return "/runs/stream" in path or "/resume-stream" in path
+    """True for long-lived SSE / stream endpoints that must not enter hang inflight.
+
+    Mis-classifying panel-stream / v4 frames as REST caused false hang dumps
+    (wait=2000s+) and drowned the real stuck endpoints (git_status etc.).
+    """
+    p = str(path or "")
+    if "/runs/stream" in p or "/resume-stream" in p:
+        return True
+    if p.endswith("/panel-stream") or "/panel-stream?" in p:
+        return True
+    if "/conversation/frames" in p:
+        return True
+    if p.endswith("/stream") or "/stream?" in p:
+        # Catch-all for AG-UI / events SSE siblings without listing every route.
+        if "/api/events/" in p or "/api/v4/" in p or "/api/langgraph/" in p:
+            return True
+    return False
 
 
 def _skip_response_body(content_type: str | None, headers: Any) -> bool:
@@ -258,6 +276,24 @@ class GatewayRequestLoggingMiddleware:
                             method, path, duration_s,
                             _read_event_loop_lag(),
                         )
+                        append_gateway_slow_log(
+                            kind="stream_block_suspect",
+                            method=method,
+                            path=path,
+                            query=str(request_url.query or "") or None,
+                            duration_s=duration_s,
+                            status_code=status_code,
+                        )
+                # Dedicated slow file (default ≥1s) — next time Panel feels stuck, grep this first.
+                if not is_streaming and duration_s >= slow_log_threshold_s():
+                    append_gateway_slow_log(
+                        kind="http_done",
+                        method=method,
+                        path=path,
+                        query=str(request_url.query or "") or None,
+                        duration_s=duration_s,
+                        status_code=status_code,
+                    )
                 req_sample, req_truncated = _body_sample(bytes(request_body), request_content_type) if sample_request_body else (None, False)
                 resp_sample, resp_truncated = _body_sample(bytes(response_body), response_content_type) if sample_response_body else (None, False)
                 metadata = {

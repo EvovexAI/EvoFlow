@@ -131,13 +131,41 @@ export function runChatMountBootstrapEffect(ctx: RunChatMountBootstrapEffectCtx)
     window.addEventListener('session-name-updated', onNameUpdate)
 
     const onThreadRebound = (ev: Event) => {
-      const detail = (ev as CustomEvent<{ sessionKey?: string; threadId?: string }>).detail
+      const detail = (
+        ev as CustomEvent<{
+          sessionKey?: string
+          threadId?: string
+          oldThreadId?: string
+          force?: boolean
+          reason?: string
+        }>
+      ).detail
       const sk = String(detail?.sessionKey || '').trim()
       const tid = String(detail?.threadId || '').trim()
       if (!sk || !tid) return
-      setSessions((prev) =>
-        prev.map((s) => (String(s.sessionKey || '') === sk ? { ...s, threadId: tid } : s)),
-      )
+      const force = !!detail?.force
+      const reason = String(detail?.reason || '').trim()
+      setSessions((prev) => {
+        let changed = false
+        const next = prev.map((s) => {
+          if (String(s.sessionKey || '') !== sk) return s
+          const cur = String(s.threadId || '').trim()
+          // 已有不同 lead 且非强制：拒绝覆盖，避免打开历史时 V4 sessionId 连跳转圈
+          if (cur && cur !== tid && !force) {
+            console.warn('[v4] ignore thread rebound thrash', {
+              sessionKey: sk,
+              keep: cur,
+              ignored: tid,
+              reason: reason || 'unforced',
+            })
+            return s
+          }
+          if (cur === tid) return s
+          changed = true
+          return { ...s, threadId: tid }
+        })
+        return changed ? next : prev
+      })
     }
     window.addEventListener('evopanel:session-thread-rebound', onThreadRebound)
 

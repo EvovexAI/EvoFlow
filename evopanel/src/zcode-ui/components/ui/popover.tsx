@@ -31,6 +31,7 @@ function PopoverContent({
           className,
         )}
         {...props}
+        data-above-native-embed=""
       />
     </PopoverPrimitive.Portal>
   );

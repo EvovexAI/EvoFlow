@@ -719,7 +719,17 @@ def generate_video(
         task_id = _submit_video(prov, **submit_kwargs)
     except Exception as exc:
         logger.exception("platform media.generate_video failed")
-        return _parse_tool_json(error_response(str(exc), provider=prov))
+        msg = str(exc)
+        # Channel/catalog mismatches (obs: MiniMax-H3 → 503 model_not_found) — steer to working defaults.
+        low = msg.lower()
+        if "model_not_found" in low or "model_price_error" in low or "no available channel" in low:
+            msg = (
+                f"{msg}\n"
+                "hint: 当前渠道不可用该 model。请先 media.catalog 看可用视频模型；"
+                "默认改用 jimeng / doubao-seedance-2.5，或配置官方 MiniMax Key（api.minimax.cn）后再用 MiniMax-H3。"
+                "OpenAI Videos 网关请用 model=minimax-h3（小写）而非 MiniMax-H3。"
+            )
+        return _parse_tool_json(error_response(msg, provider=prov))
 
     if task_id.startswith("immediate:"):
         url = task_id[len("immediate:") :]

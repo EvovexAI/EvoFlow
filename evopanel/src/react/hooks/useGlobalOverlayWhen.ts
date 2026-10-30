@@ -1,9 +1,9 @@
-import { useEffect } from 'react'
+import { useLayoutEffect } from 'react'
 import { beginGlobalOverlay, endGlobalOverlay } from '../../lib/browser-embed-overlay.js'
 
-/** 全屏/半屏盖住聊天的 React 弹窗打开时隐藏原生浏览器 HWND。 */
+/** 盖住聊天的弹层/下拉打开时隐藏原生浏览器 HWND（须在 paint 前 begin，否则一帧内仍被 HWND 压住）。 */
 export function useGlobalOverlayWhen(open: boolean, reason: string) {
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!open) return
     beginGlobalOverlay(reason)
     return () => endGlobalOverlay(reason)

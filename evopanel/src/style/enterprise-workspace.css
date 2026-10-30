@@ -624,6 +624,11 @@ html.dark .msg-bind-employee-qr {
   text-align: center;
 }
 
+.emp-bind-channel-qr-status--applying {
+  color: var(--accent-hover, #4f53dd);
+  font-weight: 500;
+}
+
 .emp-bind-channel-qr-status--bound {
   color: var(--success, #26875a);
   font-weight: 600;

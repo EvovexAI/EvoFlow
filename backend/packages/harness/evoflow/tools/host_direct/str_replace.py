@@ -62,10 +62,22 @@ def str_replace_hd(
 
         # zcode Edit guard: refuse edits without a current full Read on record.
         # dry_run previews are read-only and skip the guard.
+        # EDIT_NOT_READ: auto-register one full read from disk then proceed — the
+        # replace already loads file bytes; forcing an extra model turn only burns
+        # latency (obs: ~70% of recent replace errors were this guard).
+        auto_read_healed = False
         if not dry_run:
-            from evoflow.tools.zcode_port.read_file_state import edit_guard_failure
+            from evoflow.tools.zcode_port.read_file_state import (
+                EDIT_NOT_READ_MESSAGE,
+                auto_register_full_read_for_edit,
+                edit_guard_failure,
+            )
 
             guard_err = edit_guard_failure(str(p))
+            if guard_err and EDIT_NOT_READ_MESSAGE in guard_err:
+                if auto_register_full_read_for_edit(str(p)):
+                    auto_read_healed = True
+                    guard_err = edit_guard_failure(str(p))
             if guard_err:
                 emit_write_progress(
                     tool_call_id=tool_call_id,
@@ -153,6 +165,8 @@ def str_replace_hd(
         match_line = content[:match_pos].count("\n") + 1 if match_pos >= 0 else 0
         loc_hint = f" at line {match_line}" if match_line else ""
         result = f"OK: Replaced {count} occurrence(s) in {path}{loc_hint} ({'+' if added >= 0 else ''}{added} chars)"
+        if auto_read_healed:
+            result += " (auto-read before edit: file was not in read state)"
 
         emit_write_progress(
             tool_call_id=tool_call_id,

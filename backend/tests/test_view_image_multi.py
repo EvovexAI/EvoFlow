@@ -195,5 +195,5 @@ def test_view_image_hard_blocks_duplicate_native_read(tmp_path: Path):
         )
 
     assert isinstance(out, str)
-    assert out.startswith("Error: Image already in model context")
+    assert out.startswith("OK: Image already in model context")
     assert "do not call read" in out.lower()
