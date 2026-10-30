@@ -3356,14 +3356,17 @@ export const api = {
   // ========== 多智能体协作任务 ==========
   // 任务管理（任务为中心）
   listAllTasks: async (query = null) => {
-    const q = query && typeof query === 'object' ? { ...query } : null
-    if (q) {
-      // Backend pages via page_size; older callers (compact shell) sent limit only.
-      if ((q.page_size == null || q.page_size === '' || Number(q.page_size) === 0) && q.limit != null && q.limit !== '') {
+    const q = query && typeof query === 'object' ? { ...query } : {}
+    // Backend page_size=0 returns the FULL catalog (~1MB+). Under load that alone
+    // wedges Gateway (sessions/health pile up behind it). Never leave it unbounded.
+    if (q.page_size == null || q.page_size === '' || Number(q.page_size) === 0) {
+      if (q.limit != null && q.limit !== '' && Number(q.limit) > 0) {
         q.page_size = q.limit
+      } else {
+        q.page_size = 100
       }
-      if (q.include_subtasks != null) delete q.include_subtasks
     }
+    if (q.include_subtasks != null) delete q.include_subtasks
     return gatewayProxy('GET', '/tasks', null, q, { preferGatewayHttp: true })
   },
   getTask: async (taskId) => gatewayProxy('GET', `/tasks/${taskId}`),

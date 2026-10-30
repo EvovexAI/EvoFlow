@@ -37,7 +37,10 @@ _inflight_requests: dict[int, dict[str, Any]] = {}
 
 _SLOW_REQUEST_LOG_THRESHOLD_S = 3.0
 _SLOW_REQUEST_DUMP_THRESHOLD_S = 5.0
+# Dedicated daily file — grep ``[SLOW]`` in ``logs/gateway-slow-YYYY-MM-DD.log``.
+# Populated independently of hang JSON dumps so "前端访问后端慢" is one path to check.
 _last_slow_request_log: dict[str, float] = {}  # throttled warn lines
+_slow_file_lock = threading.Lock()
 
 
 def _flag_enabled(name: str, default: str = "1") -> bool:
@@ -113,6 +116,74 @@ def _slow_request_summary_lines() -> list[str]:
     if len(long_waiting) > 8:
         lines.append(f"  ... and {len(long_waiting) - 8} more")
     return lines
+
+
+def slow_log_threshold_s() -> float:
+    """Seconds above which completed HTTP requests are appended to gateway-slow-*.log."""
+    return _float_env("EVOFLOW_GATEWAY_SLOW_LOG_SECONDS", 1.0, minimum=0.2)
+
+
+def _slow_log_path() -> Path:
+    """``~/.evoflow-dev/logs/gateway-slow-YYYY-MM-DD.log`` (or EVOFLOW_LOGS_DIR)."""
+    day = datetime.now().strftime("%Y-%m-%d")
+    return resolve_gateway_logs_dir() / f"gateway-slow-{day}.log"
+
+
+def append_gateway_slow_log(
+    *,
+    kind: str,
+    method: str = "",
+    path: str = "",
+    query: str | None = None,
+    duration_s: float | None = None,
+    wait_s: float | None = None,
+    status_code: int | None = None,
+    extra: str = "",
+) -> None:
+    """Append one line to the dedicated slow-API log (best-effort, never raises).
+
+    ``kind`` examples: ``http_done``, ``inflight``, ``event_loop_lag``, ``stream_block_suspect``.
+    """
+    try:
+        lag = get_event_loop_lag_seconds()
+        snap = snapshot_inflight_requests()
+        parts = [
+            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            f"[SLOW] kind={kind}",
+        ]
+        if method:
+            parts.append(f"method={method}")
+        if path:
+            parts.append(f"path={path}")
+        if query:
+            q = str(query)
+            if len(q) > 240:
+                q = q[:240] + "…"
+            parts.append(f"query={q}")
+        if duration_s is not None:
+            parts.append(f"duration_ms={round(duration_s * 1000)}")
+        if wait_s is not None:
+            parts.append(f"wait_ms={round(wait_s * 1000)}")
+        if status_code is not None:
+            parts.append(f"status={status_code}")
+        parts.append(f"lag_s={lag:.3f}")
+        parts.append(f"inflight={snap.get('count') or 0}")
+        long_waiting = snap.get("long_waiting") or []
+        if long_waiting:
+            top = long_waiting[0]
+            parts.append(
+                f"oldest={top.get('method')} {top.get('path')}@{top.get('wait_seconds')}s"
+            )
+        if extra:
+            parts.append(extra)
+        line = " ".join(parts) + "\n"
+        path_out = _slow_log_path()
+        with _slow_file_lock:
+            path_out.parent.mkdir(parents=True, exist_ok=True)
+            with path_out.open("a", encoding="utf-8") as f:
+                f.write(line)
+    except Exception:
+        logger.debug("append_gateway_slow_log failed", exc_info=True)
 
 
 def get_event_loop_lag_seconds() -> float:
@@ -401,6 +472,11 @@ async def _loop_heartbeat_monitor() -> None:
                     _last_slow_request_log[key] = now
                     for line in _slow_request_summary_lines() or [f"[event-loop-lag] lag={lag:.3f}s"]:
                         logger.warning(line)
+                    append_gateway_slow_log(
+                        kind="event_loop_lag",
+                        wait_s=lag,
+                        extra=f"threshold_s={lag_threshold}",
+                    )
     except asyncio.CancelledError:
         raise
     except Exception:
@@ -433,6 +509,14 @@ def _watchdog_loop() -> None:
                 )
             for line in _slow_request_summary_lines():
                 logger.warning(line)
+            for d in long_waiting[:6]:
+                append_gateway_slow_log(
+                    kind="inflight",
+                    method=str(d.get("method") or ""),
+                    path=str(d.get("path") or ""),
+                    query=str(d.get("query") or "") or None,
+                    wait_s=float(d.get("wait_seconds") or 0),
+                )
             if should_shed_best_effort():
                 logger.warning(
                     "[best-effort-shed] active — git_status/git_ignored_paths will fail soft "
@@ -476,8 +560,10 @@ def start_gateway_hang_diagnostics() -> Callable[[], None]:
 
 
 __all__ = [
+    "append_gateway_slow_log",
     "dump_gateway_diagnostics",
     "get_event_loop_lag_seconds",
+    "slow_log_threshold_s",
     "install_gateway_listen_socket_failure_handler",
     "is_event_loop_overloaded",
     "is_listen_socket_broken",

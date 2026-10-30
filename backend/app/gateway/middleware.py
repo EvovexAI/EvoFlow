@@ -23,10 +23,12 @@ from app.gateway.routers.errors import (
     create_error_response,
 )
 from app.gateway.hang_diagnostics import (
+    append_gateway_slow_log,
     register_inflight_request,
     unregister_inflight_request,
     update_inflight_request,
     is_event_loop_overloaded,
+    slow_log_threshold_s,
 )
 
 logger = logging.getLogger(__name__)
@@ -274,6 +276,24 @@ class GatewayRequestLoggingMiddleware:
                             method, path, duration_s,
                             _read_event_loop_lag(),
                         )
+                        append_gateway_slow_log(
+                            kind="stream_block_suspect",
+                            method=method,
+                            path=path,
+                            query=str(request_url.query or "") or None,
+                            duration_s=duration_s,
+                            status_code=status_code,
+                        )
+                # Dedicated slow file (default ≥1s) — next time Panel feels stuck, grep this first.
+                if not is_streaming and duration_s >= slow_log_threshold_s():
+                    append_gateway_slow_log(
+                        kind="http_done",
+                        method=method,
+                        path=path,
+                        query=str(request_url.query or "") or None,
+                        duration_s=duration_s,
+                        status_code=status_code,
+                    )
                 req_sample, req_truncated = _body_sample(bytes(request_body), request_content_type) if sample_request_body else (None, False)
                 resp_sample, resp_truncated = _body_sample(bytes(response_body), response_content_type) if sample_response_body else (None, False)
                 metadata = {
