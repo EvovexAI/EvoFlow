@@ -13,6 +13,7 @@ import {
   Settings2,
 } from 'lucide-react'
 
+import AppIconTile from '../AppIconTile.tsx'
 import { TauriWindowControls } from '../TauriWindowControls.tsx'
 
 const TAURI_DRAG_PROPS = { 'data-tauri-drag-region': '' } as const
@@ -26,7 +27,7 @@ function isDesktopTauriRuntime(): boolean {
 }
 
 type Props = {
-  appIcon?: string
+  appId?: string
   appName: string
   appStatus?: string
   dirty?: boolean
@@ -51,7 +52,8 @@ type Props = {
 }
 
 export function WorkflowToolbar({
-  appIcon = '◇',
+  appId = '',
+  appName = '',
   appStatus = 'draft',
   dirty,
   busy,
@@ -116,9 +118,7 @@ export function WorkflowToolbar({
         ) : null}
 
         <div className="wf-toolbar-brand">
-          <span className="wf-toolbar-app-icon" aria-hidden>
-            {appIcon || '◇'}
-          </span>
+          <AppIconTile app={{ id: appId, name: appName }} size="sm" />
           <div className="wf-toolbar-app-meta">
             <div className="wf-toolbar-title-row">
               <input

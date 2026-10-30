@@ -12,6 +12,7 @@ import {
   renderListPagerHtml,
   writeStoredPageSize,
 } from '../components/list-pager.js'
+import { appGlyphSvg, appIconTileHtml } from '../lib/app-icon.js'
 
 const APPS_PAGE_SIZE_KEY = 'evopanel_apps_page_size'
 
@@ -30,15 +31,15 @@ export async function render() {
           <button type="button" class="btn btn-primary" id="btn-new-app">新建工作流 ▾</button>
           <div class="apps-new-menu" hidden>
             <button type="button" class="apps-new-menu-item" data-act="blank">
-              <span class="apps-new-menu-icon">◇</span>
+              <span class="apps-new-menu-icon">${appGlyphSvg('workflow', 16)}</span>
               <span>空白工作流</span>
             </button>
             <button type="button" class="apps-new-menu-item" data-act="template">
-              <span class="apps-new-menu-icon">📋</span>
+              <span class="apps-new-menu-icon">${appGlyphSvg('fileText', 16)}</span>
               <span>从模板创建</span>
             </button>
             <button type="button" class="apps-new-menu-item" data-act="from-task">
-              <span class="apps-new-menu-icon">📦</span>
+              <span class="apps-new-menu-icon">${appGlyphSvg('package', 16)}</span>
               <span>从任务沉淀</span>
             </button>
           </div>
@@ -76,7 +77,7 @@ export async function render() {
       <div class="kb-list-pager-wrap" id="apps-list-pager"></div>
 
       <div id="apps-empty" class="apps-empty-state" style="display:none">
-        <div class="apps-empty-ico" aria-hidden="true">◇</div>
+        <div class="apps-empty-ico" aria-hidden="true">${appGlyphSvg('workflow', 30)}</div>
         <h3 data-role="empty-title">还没有工作流</h3>
         <p data-role="empty-desc">从模板快速创建，或从对话中沉淀</p>
         <div class="apps-empty-actions">
@@ -246,7 +247,7 @@ export async function render() {
             <button type="button" class="app-card-menu-item app-card-menu-item--danger" data-act="delete">删除</button>
           </div>
           <div class="app-card-top">
-            <div class="app-card-icon" aria-hidden="true">${app.icon || '◇'}</div>
+            ${appIconTileHtml(app)}
             <div class="app-card-heading">
               <div class="app-card-title-row">
                 <h3 class="app-card-name">${escHtml(app.name || '未命名工作流')}</h3>
@@ -414,12 +415,6 @@ export async function render() {
           rows: 3,
         },
         {
-          name: 'icon',
-          label: '图标（可选，一个字符或 emoji）',
-          value: app.icon || '',
-          placeholder: '◇',
-        },
-        {
           name: 'execution_mode',
           label: '执行方式',
           type: 'select',
@@ -441,7 +436,6 @@ export async function render() {
           await api.updateApp(app.id, {
             name,
             description: (result.description || '').trim(),
-            icon: (result.icon || '').trim() || '◇',
             execution_mode: result.execution_mode || 'workflow',
           })
           toast.success('已更新')
@@ -611,7 +605,6 @@ export async function render() {
         id: 'competitive-analysis',
         name: '竞品分析报告',
         desc: '联网调研指定领域的竞品，对比分析后输出 Word 报告',
-        icon: '🔍',
         goal: '针对「{{topic}}」做竞品调研、对比分析，并输出一份可下载的 Word 报告',
         skills: 'deep-research,md2word',
         parameters: [
@@ -648,7 +641,6 @@ export async function render() {
         id: 'code-review',
         name: '代码审查',
         desc: '对指定仓库/目录做质量检查，输出问题清单与修复建议',
-        icon: '📝',
         goal: '对「{{repo}}」做代码质量检查，识别潜在问题，输出审查报告与修复建议',
         skills: 'coding-agent,github',
         parameters: [
@@ -685,7 +677,6 @@ export async function render() {
         id: 'weekly-report',
         name: '周报生成',
         desc: '汇总本周工作要点，提炼成果并规划下周，生成结构化周报',
-        icon: '📊',
         goal: '把「{{highlights}}」汇总提炼成一份结构化周报，含本周成果、数据亮点、下周计划',
         skills: 'summarize,md2word',
         parameters: [
@@ -718,7 +709,7 @@ export async function render() {
           .map(
             (t) => `
           <div class="apps-template-card" data-template="${t.id}">
-            <div class="apps-template-icon">${t.icon}</div>
+            ${appIconTileHtml({ id: t.id, name: t.name })}
             <div class="apps-template-info">
               <h4>${t.name}</h4>
               <p>${t.desc}</p>

@@ -43,7 +43,6 @@ export function mountAppWorkflowCanvas(container, options = {}) {
         onOpenApiAccess: props.onOpenApiAccess,
         appName: props.appName || '',
         appStatus: props.appStatus || 'draft',
-        appIcon: props.appIcon || '◇',
         appParameters: props.appParameters || [],
         onBack: props.onBack,
         onRun: props.onRun,

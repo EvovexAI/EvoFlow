@@ -162,7 +162,6 @@ type Props = {
   onOpenApiAccess?: () => void
   appName?: string
   appStatus?: string
-  appIcon?: string
   /** App run-time parameter slots (for insert chips in step editor) */
   appParameters?: Array<{ name?: string; label?: string; type?: string; required?: boolean }>
   onBack?: () => void
@@ -472,7 +471,6 @@ export const AppWorkflowCanvas = forwardRef<AppWorkflowCanvasHandle, Props>(func
     onOpenApiAccess,
     appName = '',
     appStatus = 'draft',
-    appIcon = '◇',
     appParameters = [],
     onBack,
     onRun,
@@ -1233,7 +1231,7 @@ export const AppWorkflowCanvas = forwardRef<AppWorkflowCanvasHandle, Props>(func
         <div className="app-rf-root app-rf-root--fullscreen">
           <div className={`app-wf-studio${showConfig ? ' has-config' : ''}`}>
             <WorkflowToolbar
-              appIcon={appIcon}
+              appId={appId || ''}
               appName={appName}
               appStatus={appStatus}
               dirty={dirty}

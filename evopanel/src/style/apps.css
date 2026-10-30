@@ -315,21 +315,43 @@ html[data-theme='dark'] .app-settings-overlay {
   margin-bottom: 12px;
 }
 
-.app-card-icon {
+/* 工作流图标瓦片（C1）：浅色底 + 内描边 + 线性图标。
+ * 色相 --app-ico-h 由 lib/app-icon.js 从 app id 派生，同一条工作流恒定。
+ * 视觉重量对齐卡片内「已发布」徽章，不抢标题。 */
+.app-ico-tile {
   width: 44px;
   height: 44px;
   flex-shrink: 0;
   display: grid;
   place-items: center;
-  border-radius: 14px;
-  background: linear-gradient(
-    160deg,
-    color-mix(in srgb, var(--accent) 14%, var(--bg-secondary)),
-    var(--bg-secondary)
-  );
-  font-size: 22px;
-  line-height: 1;
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--border-primary) 50%, transparent);
+  border-radius: 13px;
+  background: hsl(var(--app-ico-h, 258) 80% 97%);
+  color: hsl(var(--app-ico-h, 258) 48% 44%);
+  box-shadow: inset 0 0 0 1px hsl(var(--app-ico-h, 258) 42% 90%);
+}
+
+.app-ico-tile .app-ico {
+  display: block;
+}
+
+/* 工具栏尺寸（36px），与 .wf-toolbar-app-icon 同规格 */
+.app-ico-tile--sm {
+  width: 36px;
+  height: 36px;
+  border-radius: 11px;
+}
+
+/* 运行页头部尺寸（40px） */
+.app-ico-tile--md {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+}
+
+html[data-theme='dark'] .app-ico-tile {
+  background: hsl(var(--app-ico-h, 258) 38% 16%);
+  color: hsl(var(--app-ico-h, 258) 60% 74%);
+  box-shadow: inset 0 0 0 1px hsl(var(--app-ico-h, 258) 34% 26%);
 }
 
 .app-card-title-row {
@@ -547,16 +569,15 @@ html[data-theme='dark'] .app-settings-overlay {
 
 .apps-template-card {
   display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 10px;
-  padding: 16px 12px;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px;
   border: 1px solid var(--border-primary);
   border-radius: 14px;
   background: var(--bg-secondary);
   cursor: pointer;
   transition: border-color var(--dur-fast) var(--ease-out-soft), box-shadow var(--dur-fast) var(--ease-out-soft), transform var(--dur-fast) var(--ease-out-soft);
-  text-align: center;
+  text-align: left;
 }
 
 .apps-template-card:hover {
@@ -568,6 +589,11 @@ html[data-theme='dark'] .app-settings-overlay {
 .apps-template-icon {
   font-size: 32px;
   line-height: 1;
+}
+
+/* 模板卡片里的图标瓦片：与列表卡片同规格 */
+.apps-template-card .app-ico-tile {
+  flex-shrink: 0;
 }
 
 .apps-template-info h4 {
@@ -673,6 +699,21 @@ html[data-theme='dark'] .app-settings-overlay {
   font-size: 24px;
   font-weight: 700;
   letter-spacing: -0.02em;
+}
+
+/* 标题行：图标瓦片 + 标题/副标题 */
+.app-run-title-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.app-run-icon {
+  margin-top: 2px;
+}
+
+.app-run-icon[hidden] {
+  display: none;
 }
 
 .app-run-page .apps-ops-guide {
@@ -2056,15 +2097,6 @@ html[data-theme='dark'] .apps-filter-search {
   background: var(--bg-secondary);
   border-color: var(--border-primary);
   color: var(--text-primary);
-}
-
-html[data-theme='dark'] .app-card-icon {
-  background: linear-gradient(
-    160deg,
-    color-mix(in srgb, var(--accent) 24%, var(--bg-tertiary)),
-    var(--bg-tertiary)
-  );
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 20%, var(--border-primary));
 }
 
 html[data-theme='dark'] .app-card-badge.is-draft {

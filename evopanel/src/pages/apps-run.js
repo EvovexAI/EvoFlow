@@ -14,6 +14,7 @@ import {
 } from '../lib/app-run-form.js'
 import { appRunControlFlags } from '../lib/app-run-controls.js'
 import { notifyDesktopCompletion } from '../lib/desktop-notification.js'
+import { appIconTileHtml } from '../lib/app-icon.js'
 
 let pollTimer = null
 let trackingToken = 0
@@ -59,8 +60,13 @@ export async function render() {
     <div class="page-header">
       <div>
         <button type="button" class="btn btn-ghost btn-sm" id="btn-back-apps" style="margin-bottom:8px">← 工作流列表</button>
-        <h1 class="page-title" id="app-run-title">加载中…</h1>
-        <p class="page-desc" id="app-run-desc"></p>
+        <div class="app-run-title-row">
+          <span id="app-run-icon" class="app-run-icon" hidden></span>
+          <div>
+            <h1 class="page-title" id="app-run-title">加载中…</h1>
+            <p class="page-desc" id="app-run-desc"></p>
+          </div>
+        </div>
       </div>
       <div class="page-actions">
         <button type="button" class="btn btn-secondary" id="btn-edit-flow">编辑流程</button>
@@ -111,6 +117,11 @@ export async function render() {
   }
 
   page.querySelector('#app-run-title').textContent = appData.name || '未命名工作流'
+  const iconHost = page.querySelector('#app-run-icon')
+  if (iconHost) {
+    iconHost.innerHTML = appIconTileHtml(appData, 'app-ico-tile--md')
+    iconHost.hidden = false
+  }
   const status = String(appData.status || 'draft').toLowerCase()
   page.querySelector('#app-run-desc').textContent =
     appData.description ||

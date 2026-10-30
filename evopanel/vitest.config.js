@@ -146,6 +146,7 @@ export default defineConfig({
       'tests/context-usage.test.js',
       'tests/agent-trace-compaction.test.js',
       'tests/agent-avatar.test.js',
+      'tests/app-icon.test.js',
       'tests/agent-tags.test.js',
       'tests/agent-source-options.test.js',
       'tests/ko-ask-model-badge.test.js',

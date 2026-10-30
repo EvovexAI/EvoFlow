@@ -290,9 +290,9 @@ html[data-translucent-ui='1'] .apps-page .apps-filter-search::placeholder {
   color: color-mix(in srgb, var(--text-primary) 62%, var(--text-tertiary));
 }
 
-html[data-translucent-ui='1'] .apps-page .app-card-icon {
-  background: color-mix(in srgb, var(--accent) 18%, var(--bg-tertiary)) !important;
-  box-shadow: inset 0 0 0 1px var(--ef-glass-border) !important;
+/* 工作流图标瓦片在半透明皮肤下：只保留玻璃描边，不接管色相底（色相来自 app id） */
+html[data-translucent-ui='1'] .apps-page .app-ico-tile {
+  box-shadow: inset 0 0 0 1px var(--ef-glass-border);
 }
 
 html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .apps-page .apps-tip,
@@ -416,16 +416,11 @@ html[data-translucent-ui='1'] .wf-drawer-agent-avatar .agent-custom-figure {
   background: var(--bg-tertiary);
 }
 
-html[data-theme='dark'] .app-card-icon,
-html[data-translucent-ui='1'] .apps-page .app-card-icon {
-  background: linear-gradient(
-    160deg,
-    color-mix(in srgb, var(--accent) 28%, var(--bg-tertiary)),
-    color-mix(in srgb, var(--accent) 10%, var(--bg-secondary))
-  ) !important;
-  box-shadow:
-    inset 0 0 0 1px color-mix(in srgb, var(--accent) 24%, var(--border-primary)),
-    0 2px 8px color-mix(in srgb, #000 18%, transparent) !important;
+/* 暗色：瓦片用自身色相的深底，避免被上面的品牌紫渐变覆盖 */
+html[data-theme='dark'] .app-ico-tile {
+  background: hsl(var(--app-ico-h, 258) 38% 16%);
+  color: hsl(var(--app-ico-h, 258) 60% 74%);
+  box-shadow: inset 0 0 0 1px hsl(var(--app-ico-h, 258) 34% 26%);
 }
 
 html[data-theme='dark']:not([data-translucent-ui='1']) #app.evopanel-app-studio-mode #content,
