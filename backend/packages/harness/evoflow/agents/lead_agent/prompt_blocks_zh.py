@@ -156,6 +156,7 @@ ARTIFACT_DISPLAY_BLOCK = """<artifact_display>
 # Keep this block itself plain-text (no ## / | tables) so the model does not mirror
 # Markdown from the instruction into the user-visible IM reply.
 IM_CHANNEL_REPLY_BLOCK = """<im_channel>
+已经打过招呼就别再自我介绍；像熟人聊天，别每轮报身份。
 【最高优先级 · 覆盖其它格式习惯】你正在飞书/企微等 IM 里回复。对用户可见的正文必须是纯文本。
 本块优先于 communication_style / soul / 角色提示里任何「加粗、表格、标题、Markdown」说法。
 

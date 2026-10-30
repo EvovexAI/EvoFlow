@@ -34,6 +34,64 @@ def intro_sent_key(*, receive_id: str, receive_id_type: str = "chat_id") -> str:
     return f"{rtype}:{rid}"
 
 
+
+def _audit_has_self_intro(agent_code: str, *, receive_id: str = "") -> bool:
+    """True when push_log already recorded a successful system self_intro.
+
+    Role-config markers can be wiped (unbind / partial credential clear) while the
+    Feishu account is still live — without this audit fallback, first-mention
+    re-spams the same private chat after bind.
+    """
+    code = str(agent_code or "").strip()
+    if not code:
+        return False
+    rid = str(receive_id or "").strip()
+    try:
+        from evoflow.persistence.db import get_db
+
+        db = get_db()
+        if rid:
+            row = db.execute(
+                """
+                SELECT 1 FROM evoflow_channel_push_log
+                WHERE kind = 'self_intro'
+                  AND status = 'ok'
+                  AND direction = 'outbound'
+                  AND (
+                    role_agent_code = ?
+                    OR sender_account_id = ?
+                  )
+                  AND receive_id = ?
+                LIMIT 1
+                """,
+                (code, code, rid),
+            ).fetchone()
+        else:
+            row = db.execute(
+                """
+                SELECT 1 FROM evoflow_channel_push_log
+                WHERE kind = 'self_intro'
+                  AND status = 'ok'
+                  AND direction = 'outbound'
+                  AND (
+                    role_agent_code = ?
+                    OR sender_account_id = ?
+                  )
+                LIMIT 1
+                """,
+                (code, code),
+            ).fetchone()
+        return row is not None
+    except Exception:
+        logger.debug(
+            "self_intro: audit_has_self_intro failed code=%s rid=%s",
+            code,
+            rid[:16] if rid else "-",
+            exc_info=True,
+        )
+        return False
+
+
 def has_intro_been_sent(agent_code: str, *, receive_id: str, receive_id_type: str = "chat_id") -> bool:
     """True when this role already pushed an intro to this destination."""
     code = str(agent_code or "").strip()
@@ -45,7 +103,8 @@ def has_intro_been_sent(agent_code: str, *, receive_id: str, receive_id_type: st
 
         role = ProactiveRepository.get_role(code)
         if role is None:
-            return False
+            # Still honor durable push_log even if the role row is missing.
+            return _audit_has_self_intro(code, receive_id=str(receive_id or "").strip())
         cfg = role.config
         sent = getattr(cfg, "feishu_intro_sent", None) or {}
         if isinstance(sent, dict) and str(sent.get(key) or "").strip():
@@ -54,10 +113,16 @@ def has_intro_been_sent(agent_code: str, *, receive_id: str, receive_id_type: st
         rtype = str(receive_id_type or "chat_id").strip().lower() or "chat_id"
         if rtype == "open_id" and not (isinstance(sent, dict) and sent) and str(getattr(cfg, "feishu_intro_sent_at", "") or "").strip():
             return True
+        # Audit fallback: markers wiped but intro already delivered once.
+        if _audit_has_self_intro(code, receive_id=str(receive_id or "").strip()):
+            return True
         return False
     except Exception:
         logger.debug("self_intro: has_intro_been_sent failed code=%s", code, exc_info=True)
-        return False
+        try:
+            return _audit_has_self_intro(code, receive_id=str(receive_id or "").strip())
+        except Exception:
+            return False
 
 
 def should_skip_first_mention_intro(
@@ -103,6 +168,11 @@ def should_skip_first_mention_intro(
                     str(k).startswith("open_id:") and str(v or "").strip() for k, v in sent.items()
                 ):
                     return True
+            # Markers wiped (e.g. credential clear) but bind intro already audited.
+            if peer and _audit_has_self_intro(code, receive_id=peer):
+                return True
+            if _audit_has_self_intro(code, receive_id=cid):
+                return True
         except Exception:
             logger.debug("self_intro: should_skip_first_mention failed code=%s", code, exc_info=True)
     return False
@@ -214,7 +284,12 @@ def _agent_display_name(agent_code: str, fallback: str) -> str:
 
 
 def build_employee_self_intro(agent_code: str) -> str:
-    """Compose the standard self-introduction for ``agent_code`` (Markdown)."""
+    """Compose the standard self-introduction for ``agent_code`` (plain text for IM).
+
+    Feishu/WeCom cards and plain replies do not render Markdown reliably; keep
+    the body free of ``**`` / ``#`` / pipe tables so the first message is not
+    littered with raw asterisks.
+    """
     code = str(agent_code or "").strip()
     if not code:
         return ""
@@ -251,17 +326,17 @@ def build_employee_self_intro(agent_code: str) -> str:
 
     # Universal greeting — avoid product pitches (EvoPanel / 工作台) and
     # bug-fix examples; duties stay role-specific when configured.
-    lines: list[str] = [f"👋 你好，我是 **{display_name}**。"]
+    lines: list[str] = [f"你好，我是「{display_name}」。"]
     if duties:
         joined = "；".join(duties[:_MAX_DUTIES])
-        lines.append(f"**职责**：{joined}。")
+        lines.append(f"职责：{joined}。")
     elif labels:
         # No written duties — fall back to a short capability hint (Chinese only).
-        lines.append("**我能帮你**：" + "、".join(labels[:_MAX_TOOLS]) + "。")
+        lines.append("我能帮你：" + "、".join(labels[:_MAX_TOOLS]) + "。")
     lines.append("")
     lines.append("有事直接找我就行：")
-    lines.append(f"1. 在群里 @{role_name} 说清楚你的需求，例如「@{role_name} 帮我处理一下这件事」。")
-    lines.append("2. 也可以私聊我，我会按职责尽力协助。")
+    lines.append(f"1）在群里 @{role_name} 说清楚你的需求，例如「@{role_name} 帮我处理一下这件事」。")
+    lines.append("2）也可以私聊我，我会按职责尽力协助。")
     return "\n".join(lines)
 
 

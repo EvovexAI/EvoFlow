@@ -3532,11 +3532,30 @@ def channels_send_message(args: dict[str, Any]) -> dict[str, Any]:
             if isinstance(item, str) and item.strip():
                 paths.append(item.strip())
             elif isinstance(item, dict):
-                p = str(item.get("path") or item.get("file") or item.get("url") or "").strip()
+                p = str(
+                    item.get("path")
+                    or item.get("file")
+                    or item.get("file_path")
+                    or item.get("image_url")
+                    or item.get("url")
+                    or ""
+                ).strip()
                 if p:
                     paths.append(p)
-    single = _arg_str(args, "path", "file", "image", "attachment")
-    if single:
+    # Prompt / agents commonly pass image_url or file_path (not only paths[]).
+    single = _arg_str(
+        args,
+        "path",
+        "file",
+        "file_path",
+        "filePath",
+        "image",
+        "image_url",
+        "imageUrl",
+        "attachment",
+        "url",
+    )
+    if single and single not in paths:
         paths.append(single)
 
     # Ignore any agent-supplied channel/account — origin session is authoritative.

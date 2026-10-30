@@ -2897,7 +2897,6 @@ html[data-scifi-ui='1'] #evopanel-app-wallpaper::after {
 :where(html[data-scifi-ui='1']) .kb-wiki-files .kb-wiki-doc-card,
 :where(html[data-scifi-ui='1']) .enterprise-workspace-card,
 :where(html[data-scifi-ui='1']) .proactive-page .pro-hero,
-:where(html[data-scifi-ui='1']) .proactive-page .pro-duty-card,
 :where(html[data-scifi-ui='1']) .proactive-page .pro-decide-strip,
 :where(html[data-scifi-ui='1']) .page.cron-page .cron-runs-panel,
 :where(html[data-scifi-ui='1']) .page.cron-page .cron-runs-table-wrap {

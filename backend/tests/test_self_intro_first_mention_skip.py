@@ -118,3 +118,44 @@ def test_self_intro_copy_is_generic_not_bug_or_panel(monkeypatch):
     assert "报错" not in text
     assert "EvoPanel" not in text
     assert "工作台" not in text
+    # IM plain text — no Markdown bold / headings for Feishu.
+    assert "**" not in text
+    assert "##" not in text
+
+def test_skip_p2p_when_push_log_has_self_intro(monkeypatch):
+    """Markers wiped, but push_log still proves bind intro already went out."""
+    from evoflow.proactive import self_intro as si
+
+    role = _role()  # empty markers
+    monkeypatch.setattr(
+        "evoflow.proactive.repositories.ProactiveRepository.get_role",
+        lambda _code: role,
+    )
+    monkeypatch.setattr(
+        si,
+        "_audit_has_self_intro",
+        lambda code, receive_id="": receive_id in {"ou_binder", "oc_private_chat"},
+    )
+    assert si.should_skip_first_mention_intro(
+        "xiaomi",
+        chat_id="oc_private_chat",
+        peer_open_id="ou_binder",
+        chat_type="p2p",
+    )
+
+
+def test_has_intro_falls_back_to_audit(monkeypatch):
+    from evoflow.proactive import self_intro as si
+
+    role = _role()
+    monkeypatch.setattr(
+        "evoflow.proactive.repositories.ProactiveRepository.get_role",
+        lambda _code: role,
+    )
+    monkeypatch.setattr(
+        si,
+        "_audit_has_self_intro",
+        lambda code, receive_id="": receive_id == "ou_x",
+    )
+    assert si.has_intro_been_sent("xiaomi", receive_id="ou_x", receive_id_type="open_id")
+
