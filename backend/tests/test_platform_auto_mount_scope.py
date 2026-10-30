@@ -23,6 +23,17 @@ def test_employee_does_not_auto_mount_platform():
     assert should_auto_mount_agent_mode_system_tools("writer") is False
 
 
+def test_im_inbound_force_mounts_platform_for_employee():
+    # Channel-bound employees need platform to call channels.send_message.
+    assert (
+        should_auto_mount_agent_mode_system_tools("duty_clerk", im_channel="feishu")
+        is True
+    )
+    assert should_mount_platform_tool("writer", im_channel="wecom") is True
+    assert should_mount_platform_tool("writer", im_channel="voice") is False
+    assert should_mount_platform_tool("writer", im_channel="") is False
+
+
 def test_employee_opt_in_via_mount_platform_tools():
     assert (
         should_auto_mount_agent_mode_system_tools(

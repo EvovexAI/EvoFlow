@@ -100,6 +100,7 @@ import {
 } from '../lib/session-list/workspace-groups.js'
 import { useCollabSubtasksFromApi } from '../hooks/useCollabSubtasksFromApi.js'
 import { skTail, ssLog } from '../../lib/session-list-debug.js'
+import { logV4Life } from '../lib/v4-lifecycle-log.js'
 import { ChatMessageStreamPane } from '../components/ChatMessageStreamPane.js'
 import { HistoryFetchSpinner } from '../components/HistoryFetchSpinner.js'
 import { ChatComposer, type WorkspaceMentionConfig, type MentionEmployeeOption } from '../components/ChatComposer.js'
@@ -996,13 +997,118 @@ export function useChatAppController() {
     sessionNamesTick,
   })
   const { enabled: obsEnabled } = useObsEnabled()
+  /**
+   * threadId 解析：
+   * - sessions 行有 lead → 永远以它为准（列表刷新 / force rebound 能推进，不会钉死错误 tid）
+   * - 仅 map 有值时钉住，防 ensure remint 连跳拆 V4 租约
+   */
+  const pinnedMapThreadRef = useRef<{ sk: string; tid: string } | null>(null)
   const selectedThreadId = useMemo(() => {
     const sk = String(selectedSessionKey || '').trim()
-    if (!sk) return ''
-    const fromSession = String(sessions.find((s) => String(s.sessionKey || '') === sk)?.threadId || '').trim()
-    if (fromSession && !fromSession.startsWith('agent:')) return fromSession
-    return String(wsClient.getSessionThreadId(sk) || '').trim()
+    if (!sk) {
+      pinnedMapThreadRef.current = null
+      return ''
+    }
+    const fromSession = String(
+      sessions.find((s) => String(s.sessionKey || '') === sk)?.threadId || '',
+    ).trim()
+    const fromMap = String(wsClient.getSessionThreadId(sk) || '').trim()
+    // sessions / map 任一有合法 UUID 即可；勿因 startsWith('agent:') 误伤
+    const candidate =
+      (fromSession && !fromSession.startsWith('agent:') ? fromSession : '') ||
+      (fromMap && !fromMap.startsWith('agent:') ? fromMap : '') ||
+      fromSession ||
+      fromMap ||
+      ''
+    if (!candidate) return ''
+    const pin = pinnedMapThreadRef.current
+    // sessions 行有 tid 时始终跟 sessions（列表权威）
+    if (fromSession && !fromSession.startsWith('agent:')) {
+      pinnedMapThreadRef.current = { sk, tid: fromSession }
+      return fromSession
+    }
+    if (pin && pin.sk === sk && pin.tid) return pin.tid
+    pinnedMapThreadRef.current = { sk, tid: candidate }
+    return candidate
   }, [selectedSessionKey, sessions])
+  // 侧栏/快照已有 tid 时灌进本地 map，堵住 ensure 误 mint
+  useEffect(() => {
+    const sk = String(selectedSessionKey || '').trim()
+    const tid = String(selectedThreadId || '').trim()
+    if (!sk || !tid) return
+    try {
+      wsClient.noteSessionThreadId?.(sk, tid)
+    } catch {
+      /* ignore */
+    }
+  }, [selectedSessionKey, selectedThreadId])
+  // 已选会话但还没有 threadId：主动 ensure，否则 V4 会停在 no-thread→「加载中…」
+  useEffect(() => {
+    const sk = String(selectedSessionKey || '').trim()
+    if (!sk) return
+    if (String(selectedThreadId || '').trim()) return
+    if (preferHomeDashboardRef.current && !sk) return
+    let cancelled = false
+    logV4Life({
+      event: 'ensure_thread_for_open',
+      sessionKey: sk,
+      zh: `打开会话时尚无 threadId，正在 ensure-thread（否则会一直「加载中」）。session=${sk}`,
+      skipDedupe: true,
+    })
+    void wsClient
+      .ensureChatThread(sk)
+      .then((tid) => {
+        if (cancelled) return
+        const next = String(tid || '').trim()
+        if (!next) {
+          logV4Life({
+            event: 'ensure_thread_for_open',
+            sessionKey: sk,
+            level: 'warn',
+            zh: `ensure-thread 未返回 threadId，历史无法挂 V4，界面会停在加载/空态。session=${sk}`,
+            skipDedupe: true,
+          })
+          return
+        }
+        logV4Life({
+          event: 'ensure_thread_for_open',
+          sessionKey: sk,
+          threadId: next,
+          zh: `ensure-thread 成功，已绑定 threadId=${next}，即将订阅首帧。`,
+          skipDedupe: true,
+        })
+        try {
+          wsClient.noteSessionThreadId?.(sk, next)
+        } catch {
+          /* ignore */
+        }
+        setSessions((prev) => {
+          let changed = false
+          const mapped = prev.map((s) => {
+            if (String(s.sessionKey || '') !== sk) return s
+            const cur = String(s.threadId || '').trim()
+            if (cur === next) return s
+            changed = true
+            return { ...s, threadId: next }
+          })
+          return changed ? mapped : prev
+        })
+      })
+      .catch((err) => {
+        if (cancelled) return
+        logV4Life({
+          event: 'ensure_thread_for_open',
+          sessionKey: sk,
+          level: 'warn',
+          zh: `ensure-thread 失败：${err instanceof Error ? err.message : String(err || '')}。打开历史会一直加载中。`,
+          detail: { err: String(err || '') },
+          skipDedupe: true,
+        })
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [selectedSessionKey, selectedThreadId, setSessions])
   const streamRef = useRef<StreamState>(emptyStream())
   /** 有后台 bash 在跑时才继续拉列表；空闲时由 background_work 事件再叫醒。 */
   const watchBackgroundBashRef = useRef<(() => void) | null>(null)
@@ -6356,6 +6462,7 @@ export function useChatAppController() {
     selectedResumeStreamHold,
     selectedSessionKey,
     selectedSessionLive,
+    selectedThreadId,
     selectedSkills,
     selectedStreamPriorTurnStrip,
     selectedTurnBusy,

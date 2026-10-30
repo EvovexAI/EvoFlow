@@ -16,8 +16,9 @@
  * 全局弹窗打开时隐藏 HWND，关掉后再按右栏状态贴回。
  *
  * 层级：WebView2 是主窗口子 HWND，不吃 CSS z-index。
- * 凡是要盖在它上面的 HTML（工具详情、审批、右栏菜单）都走同一条 overlay 计数：
- * - `.react-chat-modal-overlay` / `[data-above-native-embed]` 由文末观察器自动登记
+ * 凡是要盖在它上面的 HTML（工具详情、审批、右栏菜单、模型下拉、图片灯箱）都走同一条 overlay 计数：
+ * - `.react-chat-modal-overlay` / `.chat-lightbox` / `[data-above-native-embed]` 由文末观察器自动登记
+ * - 共享 Dialog/AlertDialog Overlay、Dropdown/Select/Popover/ContextMenu Content 已默认带 `data-above-native-embed`
  * - 还没进 DOM 的右栏 chrome 状态用 beginGlobalOverlay / useGlobalOverlayWhen
  */
 import {
@@ -86,6 +87,18 @@ let lastReportedSlotKey = ''
  * 否则「切到图片/折叠」之后仍在飞的 set_bounds 会把语音态大 HWND 又贴回屏上盖住新页。
  */
 let embedGateEpoch = 0
+/**
+ * 串行贴位：同时只跑一条 set_bounds；期间只保留最新槽位。
+ * 避免拖宽风暴里「后发先至」被更早 IPC 回写盖掉。
+ */
+type SlotReportJob = {
+  id: string
+  slot: EmbedSlot
+  force: boolean
+  epoch: number
+}
+let slotReportInflight: Promise<boolean> | null = null
+let slotReportQueued: SlotReportJob | null = null
 
 export function currentEmbedPlacement(): EmbedPlacement {
   return { stageId: visibleStageId, reason: lastPlacementKey, overlayDepth }
@@ -127,6 +140,8 @@ export function syncNativeEmbed(reason = 'right-stage') {
   visibleStageId = shownId
   // park / 换页后槽位必须重新上报，不能吃旧的 lastReportedSlotKey。
   lastReportedSlotKey = ''
+  // 丢掉尚未贴出的中间槽位，避免 park 后 worker 再 SetWindowPos 一次。
+  slotReportQueued = null
   const active = rightStageStore.getSnapshot().activeKey || '(none)'
   const line =
     `[browser-embed-surface] ${key} reason=${reason} active=${active} ` +
@@ -185,6 +200,92 @@ export function endGlobalOverlay(reason = 'overlay') {
   syncNativeEmbed(`overlay:${reason}:end`)
 }
 
+function slotReportKey(id: string, slot: EmbedSlot): string {
+  return `${id}:${slot.x},${slot.y},${slot.width}x${slot.height}:${slot.viewportWidth || 0}x${slot.viewportHeight || 0}`
+}
+
+/** 贴位成功后若队列里仍是同一矩形（rAF 重复上报），丢掉以免 worker 永不收工。 */
+function dropQueuedIfSameAs(id: string, key: string) {
+  const q = slotReportQueued
+  if (!q) return
+  if (q.id === id && slotReportKey(q.id, q.slot) === key) {
+    slotReportQueued = null
+  }
+}
+
+async function applyEmbedSlotJob(job: SlotReportJob): Promise<boolean> {
+  const { id, slot, force, epoch } = job
+  const key = slotReportKey(id, slot)
+  const stillFront = () =>
+    epoch === embedGateEpoch && id === visibleStageId && overlayDepth === 0
+  if (!stillFront()) {
+    lastReportedSlotKey = ''
+    return false
+  }
+  if (!force && key === lastReportedSlotKey) {
+    dropQueuedIfSameAs(id, key)
+    return true
+  }
+  lastReportedSlotKey = key
+  const applied = await browserEmbedSetBounds({
+    threadId: NATIVE_EMBED_THREAD_ID,
+    ...slot,
+    present: true,
+  })
+  if (!stillFront()) {
+    lastReportedSlotKey = ''
+    return false
+  }
+  // 排队期间又来了更新槽位：
+  // - 同一矩形：rAF/RO 重复投递 → 丢弃，本拍算成功（否则 Promise 永不 resolve，lastKey 锁不上，set_bounds 打满）。
+  // - 不同矩形：作废本拍结果，外层 loop 贴最新。
+  if (slotReportQueued) {
+    const qKey = slotReportKey(slotReportQueued.id, slotReportQueued.slot)
+    if (slotReportQueued.id === id && qKey === key) {
+      slotReportQueued = null
+      if (applied) return true
+    } else {
+      lastReportedSlotKey = ''
+      return false
+    }
+  }
+  if (applied) return true
+  // 失败后允许立刻重试，不要被上一次 key 卡住。
+  // （含：最大化 Moved 把 set_bounds defer 后返回 false）
+  lastReportedSlotKey = ''
+  blog('warn', `[browser-embed-surface] set-bounds missed stage=${id} — retry`)
+  await new Promise((r) => setTimeout(r, 250))
+  if (!stillFront()) return false
+  dropQueuedIfSameAs(id, key)
+  if (slotReportQueued) return false
+  const retried = await browserEmbedSetBounds({
+    threadId: NATIVE_EMBED_THREAD_ID,
+    ...slot,
+    present: true,
+  })
+  if (!stillFront()) {
+    lastReportedSlotKey = ''
+    return false
+  }
+  dropQueuedIfSameAs(id, key)
+  if (slotReportQueued) {
+    lastReportedSlotKey = ''
+    return false
+  }
+  if (retried) {
+    lastReportedSlotKey = key
+    return true
+  }
+  // Soft-decouple: do NOT recreate here. Panel place failures must not tear
+  // down the agent WebView (that made backend navigate/settle fail). Next
+  // panel-mount / ensureNativeEmbed can place the existing HWND.
+  blog(
+    'warn',
+    `[browser-embed-surface] set-bounds still missing stage=${id} — leave agent window alone`,
+  )
+  return false
+}
+
 /**
  * 槽位布局变了。只有这个 stageId 正是前台浏览器页且无全局遮罩时才贴位。
  * 窗口若已销毁（park/崩溃后），改走 ensure 重建，避免右侧空白。
@@ -196,52 +297,29 @@ export function reportEmbedSlot(
 ): Promise<boolean> {
   const id = String(stageId || '').trim()
   if (!id || id !== visibleStageId || overlayDepth > 0) return Promise.resolve(false)
-  const epoch = embedGateEpoch
-  const key = `${id}:${slot.x},${slot.y},${slot.width}x${slot.height}:${slot.viewportWidth || 0}x${slot.viewportHeight || 0}`
-  if (!opts?.force && key === lastReportedSlotKey) return Promise.resolve(true)
-  lastReportedSlotKey = key
-  return (async () => {
-    const stillFront = () =>
-      epoch === embedGateEpoch && id === visibleStageId && overlayDepth === 0
-    if (!stillFront()) {
-      lastReportedSlotKey = ''
-      return false
+  slotReportQueued = {
+    id,
+    slot: { ...slot },
+    force: Boolean(opts?.force),
+    epoch: embedGateEpoch,
+  }
+  // 已有 worker：只覆盖队列为最新槽位，共用同一 Promise（最终贴的是最后一次）。
+  if (slotReportInflight) return slotReportInflight
+  slotReportInflight = (async () => {
+    let ok = false
+    try {
+      // await 期间新来的槽位写进 queued；每轮只取最新一条，丢弃中间态。
+      while (slotReportQueued) {
+        const next = slotReportQueued
+        slotReportQueued = null
+        ok = await applyEmbedSlotJob(next)
+      }
+      return ok
+    } finally {
+      slotReportInflight = null
     }
-    const applied = await browserEmbedSetBounds({
-      threadId: NATIVE_EMBED_THREAD_ID,
-      ...slot,
-      present: true,
-    })
-    if (!stillFront()) {
-      lastReportedSlotKey = ''
-      return false
-    }
-    if (applied) return true
-    // 失败后允许立刻重试，不要被上一次 key 卡住。
-    // （含：最大化 Moved 把 set_bounds defer 后返回 false）
-    lastReportedSlotKey = ''
-    blog('warn', `[browser-embed-surface] set-bounds missed stage=${id} — retry`)
-    await new Promise((r) => setTimeout(r, 250))
-    if (!stillFront()) return false
-    const retried = await browserEmbedSetBounds({
-      threadId: NATIVE_EMBED_THREAD_ID,
-      ...slot,
-      present: true,
-    })
-    if (!stillFront()) return false
-    if (retried) {
-      lastReportedSlotKey = key
-      return true
-    }
-    // Soft-decouple: do NOT recreate here. Panel place failures must not tear
-    // down the agent WebView (that made backend navigate/settle fail). Next
-    // panel-mount / ensureNativeEmbed can place the existing HWND.
-    blog(
-      'warn',
-      `[browser-embed-surface] set-bounds still missing stage=${id} — leave agent window alone`,
-    )
-    return false
   })()
+  return slotReportInflight
 }
 
 /** 右栏还没量到槽位时的占位矩形。只用于把窗口建出来，不会在非浏览器页上显示。 */
@@ -408,7 +486,8 @@ syncNativeEmbed('boot')
  * 和右栏菜单同一关系：HTML 层出现就藏 HWND，消失再贴回。
  * 工具详情等 `.react-chat-modal-overlay` 不用各自记得调用 begin/end。
  */
-const ABOVE_NATIVE_SELECTOR = '.react-chat-modal-overlay, [data-above-native-embed]'
+const ABOVE_NATIVE_SELECTOR =
+  '.react-chat-modal-overlay, .chat-lightbox, [data-above-native-embed]'
 
 function nodeHostsAboveNative(node: Node): boolean {
   if (!(node instanceof Element)) return false
@@ -439,20 +518,35 @@ function installHtmlAboveNativeGate() {
     raf = requestAnimationFrame(reconcile)
   }
   const mo = new MutationObserver((records) => {
+    let sawAdd = false
+    let sawRemove = false
     for (const record of records) {
       for (const node of record.addedNodes) {
         if (nodeHostsAboveNative(node)) {
-          schedule()
-          return
+          sawAdd = true
+          break
         }
       }
+      if (sawAdd) break
       for (const node of record.removedNodes) {
         if (nodeHostsAboveNative(node)) {
-          schedule()
-          return
+          sawRemove = true
+          break
         }
       }
+      if (sawRemove) break
     }
+    // Park synchronously on open so the native HWND yields before the first
+    // paint of the dropdown (model picker etc.); defer closes to rAF to batch.
+    if (sawAdd) {
+      if (raf) {
+        cancelAnimationFrame(raf)
+        raf = 0
+      }
+      reconcile()
+      return
+    }
+    if (sawRemove) schedule()
   })
   const start = () => {
     if (!document.body) return

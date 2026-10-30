@@ -14,6 +14,7 @@ import {
   currentEmbedPlacement,
   ensureNativeEmbed,
   getEmbedGateEpoch,
+  getGlobalOverlayDepth,
   NATIVE_EMBED_THREAD_ID,
   reportEmbedSlot,
 } from '../../lib/browser-embed-surface.js'
@@ -1082,15 +1083,21 @@ function BrowserEmbedHost({
     let lastKey = ''
     let raf = 0
     let settleTimers: number[] = []
+    /** reportEmbedSlot.then 里排的 :after 对比；wake 必须清掉，否则旧 mount 闭包 bounds 假报警。 */
+    let afterCompareTimers: number[] = []
     let lastIpcAt = 0
     /** set_bounds 因主窗拖动/最大化被 defer 时退避，避免每帧打 IPC。 */
     let backoffUntil = 0
     let lastCompareAt = 0
     let compareInflight = false
+    /** 每次 applyCorners 自增；过期 IPC 回调不得锁 lastKey / 排 :after。 */
+    let applyGen = 0
 
     const clearSettles = () => {
       for (const t of settleTimers) window.clearTimeout(t)
       settleTimers = []
+      for (const t of afterCompareTimers) window.clearTimeout(t)
+      afterCompareTimers = []
     }
 
     const dumpCompare = (
@@ -1121,6 +1128,8 @@ function BrowserEmbedHost({
 
     const applyCorners = (force = false, reason = 'tick', withCompare = false) => {
       if (!surfaceActiveRef.current) return
+      // Model/dropdown overlays bump overlayDepth; do not fight park with rAF setBounds.
+      if (getGlobalOverlayDepth() > 0) return
       const bounds = readEmbedBounds(slotRef.current)
       if (!bounds) return
       const key =
@@ -1131,6 +1140,7 @@ function BrowserEmbedHost({
       if (!force && now < backoffUntil) return
       if (!force && now - lastIpcAt < 32) return
       lastIpcAt = now
+      const gen = ++applyGen
       if (withCompare) {
         const isSettleStep = /\+\d+ms$/.test(reason)
         dumpCompare(reason, bounds, {
@@ -1141,14 +1151,19 @@ function BrowserEmbedHost({
       // 只有贴位成功才锁 lastKey。最大化时 Moved 会 defer set_bounds 并返回 false，
       // 若此处先锁 key，HWND 停在旧左侧而右侧槽位已就位。
       void reportEmbedSlot(stageIdRef.current, bounds, { force: true }).then((ok) => {
+        if (gen !== applyGen) return
         if (ok) {
           lastKey = key
           backoffUntil = 0
           // 贴成功后再探一次：只在仍错位时打坐标（抓「IPC 成功但 HWND 没跟上」）。
-          if (/xw-voice|dock|defer|mount/i.test(reason)) {
-            window.setTimeout(
-              () => dumpCompare(`${reason}:after`, bounds, { onlyIfMisaligned: true }),
-              120,
+          // 对比必须现读槽位，不能闭包本次 bounds——拖宽后旧矩形会假报 Δ几百。
+          if (/xw-voice|dock|defer|mount|chat-layout/i.test(reason)) {
+            afterCompareTimers.push(
+              window.setTimeout(() => {
+                if (gen !== applyGen) return
+                const live = readEmbedBounds(slotRef.current)
+                dumpCompare(`${reason}:after`, live, { onlyIfMisaligned: true })
+              }, 120),
             )
           }
         } else {
@@ -1162,6 +1177,7 @@ function BrowserEmbedHost({
     const wake = (reason = 'wake') => {
       lastKey = ''
       backoffUntil = 0
+      applyGen++
       clearSettles()
       const isDock = /dock|xm-dock/i.test(reason)
       // 语音全屏进/出会改整窗 flex（左 440 + 右铺满 ↔ 普通分栏），立刻量会吃到半布局，
@@ -1755,7 +1771,16 @@ export const BrowserPanel = memo(function BrowserPanel({
     setRefreshBusy(true)
     try {
       let reloaded = false
-      if (preferEmbeddedBrowser && tid) {
+      // Prefer native WebView2 reload first — works even when Gateway thread id
+      // is missing (preview / shared HWND). ACL must allow browser_embed_reload.
+      if (embedSupported) {
+        const ok = await browserEmbedReload(NATIVE_EMBED_THREAD_ID)
+        if (ok) {
+          reloaded = true
+          dbgLog('[browser-panel] refresh via browser_embed_reload')
+        }
+      }
+      if (!reloaded && preferEmbeddedBrowser && tid) {
         // Embed path: reload the live WebView2 page (not the old screencast).
         const result = await sendBrowserCommand(tid, 'reload')
         if (result) {
@@ -1769,7 +1794,7 @@ export const BrowserPanel = memo(function BrowserPanel({
             canGoForward: result.canGoForward,
           })
         }
-      } else if (streamPath && tid) {
+      } else if (!reloaded && streamPath && tid) {
         setStreamStatus((prev) => (prev === 'live' ? 'reconnecting' : prev))
         try {
           await restartBrowserStream(tid)
@@ -1778,8 +1803,7 @@ export const BrowserPanel = memo(function BrowserPanel({
           dbgWarn(`[browser-panel] refresh restart failed ${String(err)}`)
         }
       }
-      // Gateway CDP 失败 / Tauri 未重编缺少 browser_embed_reload：再试 navigate 同 URL，
-      // 最后 upsert 强制贴页（避免刷新按钮可点但页面不动）。
+      // Gateway CDP 失败：再试 navigate 同 URL，最后 upsert 强制贴页。
       if (!reloaded && tid && effectivePageUrl && !effectivePageUrl.startsWith('about:')) {
         const nav = await sendBrowserCommand(tid, 'navigate', effectivePageUrl)
         if (nav) {
@@ -1794,20 +1818,17 @@ export const BrowserPanel = memo(function BrowserPanel({
           })
         }
       }
-      if (!reloaded && embedSupported) {
-        const ok = await browserEmbedReload(NATIVE_EMBED_THREAD_ID)
-        if (!ok && effectivePageUrl && !effectivePageUrl.startsWith('about:')) {
-          dbgWarn('[browser-panel] native embed reload missing; upsert re-nav fallback')
-          markUserNavigateIntent(effectivePageUrl)
-          await ensureNativeEmbed({
-            url: effectivePageUrl,
-            stageId,
-            reason: 'toolbar-refresh-fallback',
-            replace: true,
-          })
-        } else if (!ok) {
-          dbgWarn('[browser-panel] native embed reload failed')
-        }
+      if (!reloaded && embedSupported && effectivePageUrl && !effectivePageUrl.startsWith('about:')) {
+        dbgWarn('[browser-panel] native embed reload missing; upsert re-nav fallback')
+        markUserNavigateIntent(effectivePageUrl)
+        await ensureNativeEmbed({
+          url: effectivePageUrl,
+          stageId,
+          reason: 'toolbar-refresh-fallback',
+          replace: true,
+        })
+      } else if (!reloaded) {
+        dbgWarn('[browser-panel] refresh exhausted — no thread, no url, reload ACL denied?')
       }
       setRefreshNonce((n) => n + 1)
     } finally {

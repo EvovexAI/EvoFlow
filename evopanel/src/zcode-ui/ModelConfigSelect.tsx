@@ -46,6 +46,7 @@ import {
 } from "@/lib/pickerFocus.js";
 import { RollingToolbarLabel } from "@/chat-input-toolbar/RollingToolbarLabel.js";
 import { ModelInputCapabilityBadge } from "@/components/ModelInputCapabilityBadge.js";
+import { beginGlobalOverlay, endGlobalOverlay } from "../lib/browser-embed-overlay.js";
 
 export interface ModelSelectGroupItem {
   key: string;
@@ -246,15 +247,34 @@ export const ModelConfigSelect = memo(function ModelConfigSelectComponent({
     triggerLabelClassName: customTriggerLabelClassName,
   });
 
+  const nativeOverlayHeldRef = useRef(false);
+  const releaseNativeOverlay = useCallback(() => {
+    if (!nativeOverlayHeldRef.current) return;
+    nativeOverlayHeldRef.current = false;
+    endGlobalOverlay("model-config-select");
+  }, []);
+  const holdNativeOverlay = useCallback(() => {
+    if (nativeOverlayHeldRef.current) return;
+    nativeOverlayHeldRef.current = true;
+    beginGlobalOverlay("model-config-select");
+  }, []);
+
   const handlePopoverOpenChange = useCallback(
     (nextOpen: boolean) => {
+      // Native browser HWND sits above CSS; park as soon as the model menu opens
+      // (including multi-column provider → model submenus) so the last column is not covered.
+      if (nextOpen) holdNativeOverlay();
+      else releaseNativeOverlay();
       if (controlledOpen === undefined) {
         setUncontrolledOpen(nextOpen);
       }
       onOpenChange?.(nextOpen);
     },
-    [controlledOpen, onOpenChange],
+    [controlledOpen, holdNativeOverlay, onOpenChange, releaseNativeOverlay],
   );
+
+  // Unmount / session switch while open must still release the park refcount.
+  useEffect(() => () => releaseNativeOverlay(), [releaseNativeOverlay]);
 
   useEffect(() => {
     if (openRequestKey <= 0 || openRequestKey === lastOpenRequestKeyRef.current) {

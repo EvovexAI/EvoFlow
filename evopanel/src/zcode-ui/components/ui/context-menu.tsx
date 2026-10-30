@@ -29,6 +29,7 @@ function ContextMenuContent({
           className,
         )}
         {...props}
+        data-above-native-embed=""
       />
     </ContextMenuPrimitive.Portal>
   );
@@ -110,6 +111,7 @@ function ContextMenuSubContent({
         className,
       )}
       {...props}
+      data-above-native-embed=""
     />
   );
 }

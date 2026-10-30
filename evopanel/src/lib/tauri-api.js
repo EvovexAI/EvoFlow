@@ -1544,14 +1544,25 @@ export async function waitForExtendedReady(maxWaitMs = 120_000) {
 export async function checkBackendHealth() {
   if (isTauri) {
     try {
-      let ok = await _tauriHealthProbe('liveness', LIVENESS_TIMEOUT_MS)
+      // Prefer the already-resolved base (e.g. external :8070). Wiping the cache
+      // on every miss used to re-resolve storms while the event loop was briefly
+      // wedged after a page refresh — amplifying CONNECTION_REFUSED.
+      const resolved = String((await getGatewayBaseUrl().catch(() => '')) || '').trim()
+      let ok = false
+      if (resolved) {
+        ok = await _tauriHealthProbe('liveness', LIVENESS_TIMEOUT_MS, resolved).catch(() => false)
+      }
       if (!ok) {
-        clearGatewayBaseUrlCache()
+        ok = await _tauriHealthProbe('liveness', LIVENESS_TIMEOUT_MS).catch(() => false)
+      }
+      if (!ok) {
         const probePorts = await getProfileScopedProbePorts()
         const probed = await probeGatewayBaseUrl({ ports: probePorts, timeoutMs: 500 })
         if (probed) {
           setGatewayBaseUrlOverride(probed)
-          ok = await _tauriHealthProbe('liveness', LIVENESS_TIMEOUT_MS)
+          ok = await _tauriHealthProbe('liveness', LIVENESS_TIMEOUT_MS, probed).catch(() => false)
+        } else if (!resolved) {
+          clearGatewayBaseUrlCache()
         }
       }
       _setBackendOnline(ok)
@@ -1560,13 +1571,12 @@ export async function checkBackendHealth() {
       if (ok) kickAppServerPrewarm('liveness')
       return ok
     } catch {
-      clearGatewayBaseUrlCache()
       try {
         const probePorts = await getProfileScopedProbePorts()
         const probed = await probeGatewayBaseUrl({ ports: probePorts, timeoutMs: 500 })
         if (probed) {
           setGatewayBaseUrlOverride(probed)
-          const ok = await _tauriHealthProbe('liveness', LIVENESS_TIMEOUT_MS)
+          const ok = await _tauriHealthProbe('liveness', LIVENESS_TIMEOUT_MS, probed)
           _setBackendOnline(ok)
           if (!ok) noteGatewayProcessDown()
           if (ok) kickAppServerPrewarm('liveness-probe')

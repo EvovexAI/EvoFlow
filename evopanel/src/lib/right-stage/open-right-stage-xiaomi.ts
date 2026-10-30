@@ -204,30 +204,18 @@ export async function openXiaomiRightStage(opts: OpenXiaomiRightStageOpts = {}):
       void import('../xw-voice-mode.js')
         .then((m) => {
           m.enterXwVoiceMode({ expandRightStage: showRightStage })
-          // 再补一拍：navigate('/chat') 后 ChatApp 可能晚一帧才挂上订阅
+          // 仅当 ChatApp 尚未挂上、DOM 没标上语音态时再补一次；已在动画中勿再派发/重进
           window.setTimeout(() => {
-            if (!m.isXwVoiceMode()) {
-              m.enterXwVoiceMode({ expandRightStage: showRightStage })
-            } else {
-              window.dispatchEvent(
-                new CustomEvent(m.XW_VOICE_MODE_EVENT, { detail: { on: true } }),
-              )
-            }
-          }, 80)
+            if (m.isXwVoiceMode()) return
+            m.enterXwVoiceMode({ expandRightStage: showRightStage })
+          }, 120)
         })
         .catch((e) => console.warn('[xiaomi-stage] enter voice mode failed', e))
     }
-    if (showRightStage) {
-      // 等右栏 DOM 挂上再进语音全屏，弧形展开动画才有可裁切的主体
-      requestAnimationFrame(() => {
-        requestAnimationFrame(enter)
-      })
-    } else {
-      // left-only 也等两帧：collapse 右侧后 React 去掉 is-right-stage-open，再进语音态铺满
-      requestAnimationFrame(() => {
-        requestAnimationFrame(enter)
-      })
-    }
+    // 等右栏 / collapse 布局 commit 后再进语音全屏，弧形展开才有稳定可裁切主体
+    requestAnimationFrame(() => {
+      requestAnimationFrame(enter)
+    })
   }
 }
 

@@ -128,6 +128,10 @@ export const EmployeeBindChannelQr = memo(function EmployeeBindChannelQr({
           return
         }
         applyingRef.current = true
+        // Drop the QR as soon as registration completes — keeping it during
+        // apply made the code look stale after Feishu already notified success.
+        setImgSrc('')
+        setStatus('applying')
         setStatusText('扫码成功，正在绑定…')
         stopPoll()
         try {
@@ -161,17 +165,20 @@ export const EmployeeBindChannelQr = memo(function EmployeeBindChannelQr({
   }, [sessionId, agentCode, channel, label, data.entityLabel, data.bindStatus, compact, onBound])
 
   const size = compact ? 180 : 220
+  const showQr = status !== 'bound' && status !== 'applying' && Boolean(imgSrc || qrError || qrRaw)
 
   return (
     <div className={`emp-bind-channel-qr${compact ? ' emp-bind-channel-qr--compact' : ''}`}>
-      <div className="emp-bind-channel-qr-frame" aria-label={`${label}扫码`} style={{ width: size + 8, height: size + 8 }}>
-        {imgSrc ? (
-          <img className="emp-bind-channel-qr-img" src={imgSrc} alt={`${label}扫码`} width={size} height={size} />
-        ) : (
-          <div className="emp-bind-channel-qr-placeholder">{qrError || '二维码加载中…'}</div>
-        )}
-      </div>
-      {qrRaw ? (
+      {showQr ? (
+        <div className="emp-bind-channel-qr-frame" aria-label={`${label}扫码`} style={{ width: size + 8, height: size + 8 }}>
+          {imgSrc ? (
+            <img className="emp-bind-channel-qr-img" src={imgSrc} alt={`${label}扫码`} width={size} height={size} />
+          ) : (
+            <div className="emp-bind-channel-qr-placeholder">{qrError || '二维码加载中…'}</div>
+          )}
+        </div>
+      ) : null}
+      {showQr && qrRaw ? (
         <p className="emp-bind-channel-qr-link">
           <a href={qrRaw} target="_blank" rel="noopener noreferrer">
             用{label}打开扫码页

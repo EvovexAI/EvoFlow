@@ -32,7 +32,7 @@ _TIER_RANK = {"small": 0, "medium": 1, "large": 2, "max": 3}
 _DATED_ID = re.compile(r"-\d{6}$")
 _SKIP_SUBSTR = ("embedding", "seedream", "seedance", "tts", "asr", "voice")
 
-# Official 套餐概览 chat IDs（对齐 https://www.volcengine.com/docs/82379/2366394 ，2026-10-24）
+# Official 套餐概览 chat IDs（对齐 https://www.volcengine.com/docs/82379/2366394 ，2026-10-29）
 AGENT_PLAN_CHAT_MODELS: list[dict[str, Any]] = [
     {
         # Official Auto / latest alias for Agent & Coding Plan clients (not the literal id "auto").
@@ -40,11 +40,12 @@ AGENT_PLAN_CHAT_MODELS: list[dict[str, Any]] = [
         "label": "Auto（ark-code-latest）",
         "context_window": 256000,
         "max_output": 128000,
-        "vision": False,
+        # Auto 可路由到多模态目标（如 Kimi / Doubao）；识图场景再显式选 V4.1 Flash 更稳。
+        "vision": True,
         "reasoning": True,
         "min_tier": "small",
         "preferred_primary": True,
-        "notes": "控制台切换目标模型；配置文件写 ark-code-latest",
+        "notes": "控制台切换目标模型；配置文件写 ark-code-latest；可走多模态路由",
     },
     {
         "id": "doubao-seed-2.0-mini",
@@ -71,10 +72,11 @@ AGENT_PLAN_CHAT_MODELS: list[dict[str, Any]] = [
         "label": "DeepSeek V4 Flash",
         "context_window": 1024000,
         "max_output": 384000,
+        # 方舟套餐表仍按纯文本；识图请用 deepseek-v4.1-flash（原生多模态）。
         "vision": False,
         "reasoning": True,
         "min_tier": "small",
-        "notes": "文本生成（标准）",
+        "notes": "文本生成（标准）；识图请用 V4.1 Flash",
     },
     {
         "id": "glm-5.3-flash",
@@ -183,7 +185,7 @@ AGENT_PLAN_CHAT_MODELS: list[dict[str, Any]] = [
         "vision": True,
         "reasoning": True,
         "min_tier": "small",
-        "notes": "原生多模态视觉理解",
+        "notes": "原生多模态视觉理解（默认识图模型）",
     },
     {
         "id": "deepseek-v4.1-flash-economy",
@@ -193,7 +195,7 @@ AGENT_PLAN_CHAT_MODELS: list[dict[str, Any]] = [
         "vision": True,
         "reasoning": True,
         "min_tier": "small",
-        "notes": "与标准版同权重，更便宜、略慢",
+        "notes": "与标准版同权重（含视觉），更便宜、略慢",
     },
 ]
 
@@ -560,6 +562,48 @@ def _model_document(
     return doc
 
 
+def sync_agent_plan_vision_from_catalog() -> int:
+    """Align ``supports_vision`` on existing Agent Plan chat rows with catalog.
+
+    Older binds may still have DeepSeek V4.1 / Auto as vision=false; heal on
+    reload / rematerialize without requiring the user to re-paste the Key.
+    """
+    from evoflow.persistence import config_repositories as cfg_repo
+
+    want_by_id = {str(m["id"]): bool(m.get("vision")) for m in AGENT_PLAN_CHAT_MODELS}
+    fixed = 0
+    for row in list(cfg_repo.list_models() or []):
+        mid = str(row.get("model") or "").strip()
+        if mid not in want_by_id:
+            continue
+        vendor = str(row.get("vendor") or "").strip().lower()
+        base = str(row.get("base_url") or "").lower()
+        plan_type = str(row.get("plan_type") or "").strip().lower()
+        if vendor != VENDOR_KEY and "/api/plan/" not in base and plan_type != "volcengine_agent":
+            continue
+        want = want_by_id[mid]
+        if bool(row.get("supports_vision")) == want:
+            continue
+        doc = dict(row)
+        doc["supports_vision"] = want
+        # Keep display hints in sync when flipping vision on for known multimodal ids.
+        if want and mid in {"deepseek-v4.1-flash", "deepseek-v4.1-flash-economy", "ark-code-latest"}:
+            spec = next((m for m in AGENT_PLAN_CHAT_MODELS if str(m.get("id")) == mid), None)
+            if spec and spec.get("notes"):
+                doc["description"] = f"方舟 Agent Plan · {spec['notes']}"
+            if spec and spec.get("label"):
+                doc["display_name"] = str(spec["label"])
+        cfg_repo.upsert_model(doc)
+        fixed += 1
+        logger.info(
+            "Agent Plan vision heal: model=%s supports_vision %s -> %s",
+            mid,
+            bool(row.get("supports_vision")),
+            want,
+        )
+    return fixed
+
+
 def upsert_agent_plan_chat_models(
     *,
     api_key: str,
@@ -608,7 +652,8 @@ def upsert_agent_plan_chat_models(
                         break
             cfg_repo.set_app_setting("primary_model", pick or names[0])
 
-    return {"count": len(names), "source": source, "names": names}
+    healed = sync_agent_plan_vision_from_catalog()
+    return {"count": len(names), "source": source, "names": names, "vision_healed": healed}
 
 
 def list_agent_plan_embedding_specs(tier_id: str | None = None) -> list[dict[str, Any]]:

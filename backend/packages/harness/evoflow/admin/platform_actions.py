@@ -147,8 +147,12 @@ DOMAIN_GUIDES: dict[str, dict[str, str]] = {
     },
     "channels": {
         "title": "IM 渠道",
-        "when": "查看/配置/启停飞书·企微·钉钉·微信渠道，扫码注册，或查推送目标时",
-        "not": "不是模型/联网搜索（用 settings）；不是定时推送任务本身（用 automation）",
+        "when": (
+            "查看/配置/启停飞书·企微·钉钉·微信渠道，扫码注册，查推送目标；"
+            "在 IM 会话里主动推文本/图片/文件回用户通道用 channels.send_message"
+            "（自动走当前会话来源，无需自选机器人）"
+        ),
+        "not": "不是模型/联网搜索（用 settings）；不是定时推送任务本身（用 automation）；Panel 内跟岗对话用 employees.chat_send",
     },
     "automation": {
         "title": "定时自动化",
@@ -1141,6 +1145,15 @@ def _build_registry() -> dict[str, PlatformAction]:
             "limit?",
             H.channels_push_targets,
             "能往哪些群推结果",
+        ),
+        _A(
+            "channels.send_message",
+            "channels",
+            "向当前会话的 IM 来源通道推送文本/图片/文件（自动沿用进线机器人，无需自选）",
+            "write",
+            "text?, paths?/files?, title?, confirm=true",
+            H.channels_send_message,
+            "把这张图发回飞书",
         ),
         _A(
             "channels.registration_begin",

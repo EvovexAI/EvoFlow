@@ -641,20 +641,32 @@ html[data-xw-voice='1'] .react-chat-main-body.is-right-stage-open .xw-voice-host
  * 向左铺满主内容区。时长与 xw-voice-mode ENTER_ANIM_MS 对齐。
  */
 html[data-xw-voice='1'][data-xw-voice-anim='enter'] .react-chat-main-body {
-  animation: xw-arc-expand 480ms var(--ease-out-soft) both;
-  will-change: clip-path;
+  /* cubic-bezier：前段快露出来、后段减速贴满，避免中段「顿一下」 */
+  animation: xw-arc-expand 480ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  will-change: clip-path, opacity;
+  /* 动画中锁住绘制边界，降低子树重绘干扰 */
+  contain: paint;
 }
 html[data-xw-voice='1'][data-xw-voice-anim='enter'] .react-chat-conversation-frame {
   /* 展开过程中避免外框圆角裁切动画 */
   overflow: hidden;
 }
+html[data-xw-voice='1'][data-xw-voice-anim='enter'] .xw-voice-host {
+  /* 进场中禁止右栏异步 expand/collapse 再改宽度时的二次回流体感（JS 也会锁布局） */
+  contain: layout paint;
+}
 
 @keyframes xw-arc-expand {
   0% {
     clip-path: inset(34% 0 34% calc(100% - 34px) round 14px 0 0 14px);
-    opacity: 0.92;
+    opacity: 0.88;
   }
-  55% {
+  35% {
+    clip-path: inset(16% 0 16% 42% round 12px 0 0 12px);
+    opacity: 0.98;
+  }
+  70% {
+    clip-path: inset(4% 0 4% 10% round 6px 0 0 6px);
     opacity: 1;
   }
   100% {

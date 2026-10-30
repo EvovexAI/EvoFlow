@@ -179,6 +179,56 @@ function emitHit(keyword, asrRaw) {
   )
 }
 
+/** 播报中 Frame 麦被 hold：唤醒耳仍能听见「停止/退出」，须接到本地口令闸 */
+let lastExitCmdAt = 0
+const EXIT_CMD_COOLDOWN_MS = 1800
+
+/**
+ * @param {string} transcript
+ * @param {{ isFinal?: boolean }} [opts]
+ */
+function maybeHandleSpeakingExitCommand(transcript, opts = {}) {
+  const raw = String(transcript || '').trim()
+  if (!raw) return false
+  // 非 final 且很长：多半是 TTS 回声粘连，等 final / 短尾巴再判，降假阳
+  if (!opts.isFinal && raw.length > 24) return false
+  const now = Date.now()
+  if (now - lastExitCmdAt < EXIT_CMD_COOLDOWN_MS) return false
+
+  void Promise.all([
+    import('./xw-voice-mode.js'),
+    import('./xiaomi-voice/index.js'),
+    import('./xiaomi-voice-close.js'),
+    import('./voice-listen-control.js'),
+  ])
+    .then(([xw, frame, closeMod, listenMod]) => {
+      if (!xw.isXwVoiceMode?.()) return
+      const speaking =
+        frame.isXiaomiFramePlaying?.() ||
+        frame.isXiaomiFrameSoftPaused?.() ||
+        frame.getVoicePhase?.() === 'speaking'
+      if (!speaking && !frame.isXiaomiFramePipelineActive?.()) return
+
+      // 播报中：短句精确口令；长句只认尾巴/嵌套退出口令（与 close 闸一致）
+      const isExit = closeMod.isXiaomiVoiceExitCommand?.(raw)
+      const isStopTts = listenMod.isStopTtsOnlyCommand?.(raw)
+      if (!isExit && !isStopTts) return
+      // 未在播报且非软暂停：勿用唤醒耳误关（正常聆听交给 Frame turn_end）
+      if (!speaking) return
+
+      lastExitCmdAt = Date.now()
+      feLog(
+        '打断',
+        `唤醒耳播报期命中口令 →「${raw.slice(0, 40)}」isFinal=${!!opts.isFinal}`,
+      )
+      return closeMod.tryHandleXiaomiVoiceLocalCommand?.(raw, {
+        source: 'wake-webspeech-during-speak',
+      })
+    })
+    .catch(() => {})
+  return true
+}
+
 /**
  * @returns {Promise<boolean>}
  */
@@ -213,6 +263,8 @@ export async function startWebSpeechEar() {
             emitHit(hit, transcript)
             return
           }
+          // 播报中用户说「停止/退出」：Frame 上行 hold，靠唤醒耳接口令
+          maybeHandleSpeakingExitCommand(transcript, { isFinal })
         }
       }
     }

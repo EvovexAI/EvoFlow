@@ -272,25 +272,29 @@ export function PreviewPaneContent({
     }
 
     return (
-      <ImagePreviewContent
-        title={source.title}
-        imageSource={`data:${imagePreview.mediaType};base64,${imagePreview.dataBase64}`}
-        sourcePath={source.path}
-      />
+      <div className="min-h-0 flex-1">
+        <ImagePreviewContent
+          title={source.title}
+          imageSource={`data:${imagePreview.mediaType};base64,${imagePreview.dataBase64}`}
+          sourcePath={source.path}
+        />
+      </div>
     );
   }
 
   if (source.type === "media" && mediaSource) {
     return (
-      <PreviewPaneMediaContent
-        error={error}
-        labels={mediaLabels}
-        loading={loadingMediaPreview}
-        onMediaError={onMediaError}
-        onMediaLoadedMetadata={onMediaLoadedMetadata}
-        source={mediaSource}
-        url={mediaPreviewUrl}
-      />
+      <div className="min-h-0 flex-1">
+        <PreviewPaneMediaContent
+          error={error}
+          labels={mediaLabels}
+          loading={loadingMediaPreview}
+          onMediaError={onMediaError}
+          onMediaLoadedMetadata={onMediaLoadedMetadata}
+          source={mediaSource}
+          url={mediaPreviewUrl}
+        />
+      </div>
     );
   }
 

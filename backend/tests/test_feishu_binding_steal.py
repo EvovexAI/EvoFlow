@@ -158,6 +158,51 @@ async def test_apply_registration_returns_stolen_from(monkeypatch):
     assert winner.config.feishu_app_id == "cli_ecom"
 
 
+@pytest.mark.asyncio
+async def test_rebind_same_open_id_keeps_intro_markers(monkeypatch):
+    """Same binder scanning QR again must not wipe durable intro state."""
+    from evoflow.proactive import feishu_binding as fb
+
+    winner = _role("ecommerce", app_id="cli_ecom")
+    winner.config.feishu_open_id = "ou_same"
+    winner.config.feishu_intro_sent_at = "2026-10-30T10:00:00Z"
+    winner.config.feishu_intro_sent = {
+        "open_id:ou_same": "2026-10-30T10:00:00Z",
+        "chat_id:oc_private": "2026-10-30T10:01:00Z",
+    }
+    monkeypatch.setattr(
+        fb.ProactiveRepository,
+        "get_role",
+        staticmethod(lambda code: winner if code == "ecommerce" else None),
+    )
+    monkeypatch.setattr(fb.ProactiveRepository, "save_role", staticmethod(lambda _r: None))
+    monkeypatch.setattr(fb, "steal_feishu_app_id_from_other_roles", lambda *_a, **_k: [])
+    monkeypatch.setattr(fb, "sync_role_account_to_channel", lambda *_a, **_k: {})
+    monkeypatch.setattr(fb, "restart_feishu_channel_if_possible", lambda: _async_false())
+
+    pushed: list[str] = []
+
+    async def _intro(code, *, receive_id, receive_id_type="chat_id", **_k):
+        pushed.append(f"{receive_id_type}:{receive_id}")
+        return True
+
+    monkeypatch.setattr(
+        "evoflow.proactive.self_intro.push_employee_self_intro",
+        _intro,
+    )
+
+    await fb.apply_registration_to_role(
+        "ecommerce",
+        app_id="cli_ecom",
+        app_secret="sec",
+        open_id="ou_same",
+    )
+    assert winner.config.feishu_intro_sent_at == "2026-10-30T10:00:00Z"
+    assert winner.config.feishu_intro_sent["open_id:ou_same"] == "2026-10-30T10:00:00Z"
+    assert winner.config.feishu_intro_sent["chat_id:oc_private"] == "2026-10-30T10:01:00Z"
+    assert pushed == ["open_id:ou_same"]
+
+
 async def _async_false():
     return False
 

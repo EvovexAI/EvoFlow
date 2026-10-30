@@ -94,3 +94,27 @@ def test_fresh_p2p_without_prior_intro_does_not_skip(monkeypatch):
         peer_open_id="ou_new",
         chat_type="p2p",
     )
+
+
+def test_self_intro_copy_is_generic_not_bug_or_panel(monkeypatch):
+    from evoflow.proactive import self_intro as si
+
+    role = SimpleNamespace(
+        role_name="内容运营",
+        config=SimpleNamespace(responsibilities=["跟进内容节奏", "整理素材"]),
+    )
+    monkeypatch.setattr(
+        "evoflow.proactive.repositories.ProactiveRepository.get_role",
+        lambda _code: role,
+    )
+    monkeypatch.setattr(si, "_agent_display_name", lambda _code, fb: "小运")
+    monkeypatch.setattr(si, "_tool_labels", lambda _code: [])
+
+    text = si.build_employee_self_intro("content-ops")
+    assert "小运" in text
+    assert "跟进内容节奏" in text
+    assert "有事直接找我就行" in text
+    assert "帮我处理一下这件事" in text
+    assert "报错" not in text
+    assert "EvoPanel" not in text
+    assert "工作台" not in text

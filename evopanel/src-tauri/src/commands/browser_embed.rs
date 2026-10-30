@@ -230,8 +230,11 @@ static MAIN_DRAG_UNTIL_MS: AtomicU64 = AtomicU64::new(0);
 /// 否则 set_bounds 一直 defer，HWND 停在旧左侧（日志 Δscreen≈-1320）。
 static LAST_RESIZE_MS: AtomicU64 = AtomicU64::new(0);
 const RESIZE_GRACE_MS: u64 = 1200;
-/// 拖动期间 defer 的 set_bounds：拖完后按 EMBED_LAST_BOUNDS 真正贴一次。
-static BOUNDS_FLUSH_GEN: AtomicU64 = AtomicU64::new(0);
+/// 是否已有 drag-flush worker 在等拖动结束。
+/// 拖动时 `Moved` 由 WM_WINDOWPOSCHANGED 逐帧派发（60~120Hz）；旧实现每次都
+/// `thread::Builder::spawn`，等于每秒上百次 CreateThread/析构，全压在拖窗消息泵上，
+/// 表现为「拖顶部有点发涩」。这里去重：已有 worker 时 Moved 只续命 MAIN_DRAG_UNTIL_MS。
+static BOUNDS_FLUSH_ACTIVE: AtomicBool = AtomicBool::new(false);
 /// 缩放后的延迟贴位世代号：连发 Resized 只跑最后一次。
 static REPOSITION_GEN: AtomicU64 = AtomicU64::new(0);
 static STALL_PENDING: std::sync::LazyLock<Mutex<Vec<String>>> =
@@ -312,34 +315,38 @@ fn in_resize_grace() -> bool {
 
 /// 拖动/最大化动画期间 set_bounds 只能把矩形记进 map；拖完后真正 SetWindowPos，
 /// 并通知前端按槽位四角再量一次（双击最大化：Moved 标记拖动 → HWND 停在旧左侧）。
+///
+/// 单 worker 语义：拖动期间 Moved 只是「续命」，不会每次新建线程。等待上限
+/// (50ms×600≈30s) 足够覆盖任何手动拖拽；即便超时也照常 flush 一次（尽力贴位），
+/// 不再自我递归重排——递归会一直占着 ACTIVE 标志，把后续 Moved 全吞掉。
 fn schedule_bounds_flush_after_drag(app: &tauri::AppHandle) {
-    let gen = BOUNDS_FLUSH_GEN.fetch_add(1, Ordering::Relaxed) + 1;
+    if BOUNDS_FLUSH_ACTIVE.swap(true, Ordering::AcqRel) {
+        return;
+    }
     let app = app.clone();
-    let _ = std::thread::Builder::new()
+    let spawned = std::thread::Builder::new()
         .name("embed-bounds-flush".into())
         .spawn(move || {
-            // 等 Moved 拖动标记过期；最大化会连发 Moved，所以多等几拍。
-            for _ in 0..60 {
-                if BOUNDS_FLUSH_GEN.load(Ordering::Relaxed) != gen {
-                    return;
+            // 等拖动标记过期；双击最大化会连发 Moved，故最多再补等两轮。
+            for round in 0..3 {
+                let mut waited = 0u32;
+                while main_is_dragging() && waited < 600 {
+                    std::thread::sleep(Duration::from_millis(50));
+                    waited += 1;
                 }
+                std::thread::sleep(Duration::from_millis(100));
                 if !main_is_dragging() {
                     break;
                 }
-                std::thread::sleep(Duration::from_millis(50));
+                if round == 2 {
+                    browser_cdp_server::log_line(
+                        "[browser-embed] drag-flush still dragging after grace — flush anyway",
+                    );
+                }
             }
-            std::thread::sleep(Duration::from_millis(100));
-            if BOUNDS_FLUSH_GEN.load(Ordering::Relaxed) != gen {
-                return;
-            }
-            // 若仍在拖：再排一次，避免「sleep 时又被 Moved 续命 → flush 空跑 → 永远不贴」。
-            if main_is_dragging() {
-                browser_cdp_server::log_line(
-                    "[browser-embed] drag-flush still dragging — reschedule",
-                );
-                schedule_bounds_flush_after_drag(&app);
-                return;
-            }
+            // 先放开门闩再 flush：flush_embed_bounds_now 发现「又开拖」时会在内部
+            // 重新排期，门闩若仍占着会被去重吞掉，导致 HWND 停在旧位。
+            BOUNDS_FLUSH_ACTIVE.store(false, Ordering::Release);
             flush_embed_bounds_now(&app, "drag-flush");
             if let Some(main) = app.get_webview_window("main") {
                 let _ = main.emit(
@@ -348,6 +355,9 @@ fn schedule_bounds_flush_after_drag(app: &tauri::AppHandle) {
                 );
             }
         });
+    if spawned.is_err() {
+        BOUNDS_FLUSH_ACTIVE.store(false, Ordering::Release);
+    }
 }
 
 /// 按 EMBED_LAST_BOUNDS 把可见 embed 贴回登记槽位（须在非 window-event 栈上调用）。

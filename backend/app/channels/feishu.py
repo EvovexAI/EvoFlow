@@ -43,6 +43,14 @@ _FINAL_FINGERPRINT_TTL_SECONDS = 8.0
 _INBOUND_DEDUP_TTL_SECONDS = 86_400.0  # 24h in-process
 _INBOUND_DEDUP_MAX_ENTRIES = 50_000
 _INBOUND_CONTENT_DEDUP_TTL_SECONDS = 20.0
+# Must stay in sync with manager.FEISHU_LIVE_STREAM_PATCHES. When off (default),
+# skip the 「正在回复」placeholder — message.patch cannot reliably retire it.
+_FEISHU_LIVE_STREAM_PATCHES = os.getenv("EVOFLOW_FEISHU_LIVE_STREAM", "0").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
 
 
 class _FeishuInboundDeduper:
@@ -900,6 +908,7 @@ class FeishuChannel(Channel):
         self._Emoji = None
         self._PatchMessageRequest = None
         self._PatchMessageRequestBody = None
+        self._DeleteMessageRequest = None
         self._background_tasks: set[asyncio.Task] = set()
         self._running_card_ids: dict[str, str] = {}
         self._running_card_tasks: dict[str, asyncio.Task] = {}
@@ -929,21 +938,23 @@ class FeishuChannel(Channel):
             client_resolver=self._api_client_for,
             account_id=self._instance_account_id,
         )
-        coalesce_delay = config.get("inbound_coalesce_seconds", 0.6)
+        # Short debounce only — do not hold pure text for seconds waiting on a
+        # possible follow-up image. Late media re-attaches the caption via sticky.
+        coalesce_delay = config.get("inbound_coalesce_seconds", 0.25)
         try:
             coalesce_delay_f = float(coalesce_delay)
         except (TypeError, ValueError):
-            coalesce_delay_f = 0.6
-        text_grace = config.get("inbound_text_grace_seconds", 4.0)
+            coalesce_delay_f = 0.25
+        text_grace = config.get("inbound_text_grace_seconds", 0.25)
         try:
             text_grace_f = float(text_grace)
         except (TypeError, ValueError):
-            text_grace_f = 4.0
-        sticky = config.get("inbound_sticky_seconds", 6.0)
+            text_grace_f = 0.25
+        sticky = config.get("inbound_sticky_seconds", 4.0)
         try:
             sticky_f = float(sticky)
         except (TypeError, ValueError):
-            sticky_f = 6.0
+            sticky_f = 4.0
         self._inbound_coalescer = FeishuInboundCoalescer(
             delay_seconds=coalesce_delay_f,
             text_grace_seconds=text_grace_f,
@@ -989,6 +1000,7 @@ class FeishuChannel(Channel):
                 CreateMessageReactionRequestBody,
                 CreateMessageRequest,
                 CreateMessageRequestBody,
+                DeleteMessageRequest,
                 Emoji,
                 PatchMessageRequest,
                 PatchMessageRequestBody,
@@ -1009,6 +1021,7 @@ class FeishuChannel(Channel):
         self._Emoji = Emoji
         self._PatchMessageRequest = PatchMessageRequest
         self._PatchMessageRequestBody = PatchMessageRequestBody
+        self._DeleteMessageRequest = DeleteMessageRequest
         self._CreateFileRequest = CreateFileRequest
         self._CreateFileRequestBody = CreateFileRequestBody
         self._CreateImageRequest = CreateImageRequest
@@ -1548,15 +1561,53 @@ class FeishuChannel(Channel):
                 try:
                     await self._send_card_message(msg)
                 except Exception:
+                    # Frequency-limit / transient patch errors used to be dropped,
+                    # leaving the card frozen on an early fragment. One short
+                    # backoff + retry; if a newer delta arrived, prefer that.
                     logger.warning(
-                        "[Feishu] stream delta patch failed (ignored): thread_ts=%s, text_len=%d",
+                        "[Feishu] stream delta patch failed, retrying once: thread_ts=%s, text_len=%d",
                         msg.thread_ts,
                         len(msg.text or ""),
                         exc_info=True,
                     )
+                    await asyncio.sleep(0.7)
+                    if lock_key in self._pending_stream_updates:
+                        continue
+                    try:
+                        await self._send_card_message(msg)
+                    except Exception:
+                        logger.warning(
+                            "[Feishu] stream delta patch failed after retry (ignored): thread_ts=%s, text_len=%d",
+                            msg.thread_ts,
+                            len(msg.text or ""),
+                            exc_info=True,
+                        )
         finally:
             if self._stream_flush_tasks.get(lock_key) is me:
                 self._stream_flush_tasks.pop(lock_key, None)
+
+    @staticmethod
+    def _outbound_file_kinds(path, filename: str = "") -> tuple[str, str]:
+        """Return ``(upload_file_type, send_msg_type)`` for a non-image attachment.
+
+        Feishu requires upload ``file_type`` to match send ``msg_type`` for media:
+        mp4 → media, opus → audio; docs keep msg_type=file.
+        """
+        suffix = path.suffix.lower() if hasattr(path, "suffix") else ""
+        name_l = str(filename or "").lower()
+        if suffix in (".xls", ".xlsx", ".csv"):
+            return "xls", "file"
+        if suffix in (".ppt", ".pptx"):
+            return "ppt", "file"
+        if suffix == ".pdf":
+            return "pdf", "file"
+        if suffix in (".doc", ".docx"):
+            return "doc", "file"
+        if suffix == ".mp4" or name_l.endswith(".mp4"):
+            return "mp4", "media"
+        if suffix == ".opus" or name_l.endswith(".opus"):
+            return "opus", "audio"
+        return "stream", "file"
 
     async def send_file(self, msg: OutboundMessage, attachment: ResolvedAttachment) -> bool:
         if not self._api_client:
@@ -1584,8 +1635,12 @@ class FeishuChannel(Channel):
                 msg_type = "image"
                 content = json.dumps({"image_key": file_key})
             else:
-                file_key = await self._upload_file(attachment.actual_path, attachment.filename, client=client)
-                msg_type = "file"
+                _, msg_type = self._outbound_file_kinds(
+                    attachment.actual_path, attachment.filename
+                )
+                file_key = await self._upload_file(
+                    attachment.actual_path, attachment.filename, client=client
+                )
                 content = json.dumps({"file_key": file_key})
 
             if msg.thread_ts:
@@ -1622,17 +1677,7 @@ class FeishuChannel(Channel):
         same bot account that will send the message (avoids 230017 ownership error).
         """
         api_client = client or self._api_client
-        suffix = path.suffix.lower() if hasattr(path, "suffix") else ""
-        if suffix in (".xls", ".xlsx", ".csv"):
-            file_type = "xls"
-        elif suffix in (".ppt", ".pptx"):
-            file_type = "ppt"
-        elif suffix == ".pdf":
-            file_type = "pdf"
-        elif suffix in (".doc", ".docx"):
-            file_type = "doc"
-        else:
-            file_type = "stream"
+        file_type, _msg_type = self._outbound_file_kinds(path, filename)
 
         with open(str(path), "rb") as f:  # async-block-ok: 仅建句柄，读文件在 to_thread 的 SDK 内
             request = self._CreateFileRequest.builder().request_body(self._CreateFileRequestBody.builder().file_type(file_type).file_name(filename).file(f).build()).build()
@@ -1642,6 +1687,19 @@ class FeishuChannel(Channel):
         return response.data.file_key
 
     # -- message formatting ------------------------------------------------
+
+    _MD_IMAGE_RE = re.compile(r"!\[([^\]]*)\]\(([^)]+)\)")
+
+    @classmethod
+    def _card_body_text(cls, text: str) -> str:
+        """Drop markdown images from card body — real images go out as attachments.
+
+        Local ``file://`` / ``127.0.0.1`` image links often break Feishu's
+        markdown element and can leave the card looking empty / stuck.
+        """
+        t = cls._MD_IMAGE_RE.sub("", text or "")
+        t = re.sub(r"\n{3,}", "\n\n", t).strip()
+        return t
 
     @staticmethod
     def _build_card_content(text: str, *, stop_ctx: dict[str, Any] | None = None) -> str:
@@ -1655,7 +1713,7 @@ class FeishuChannel(Channel):
         # 单元素 markdown 过长会导致 reply/patch 失败且无明确提示
         max_md = 11000
         suffix = "\n\n…（内容过长，已在卡片内截断）"
-        t = text or ""
+        t = FeishuChannel._card_body_text(text)
         if len(t) > max_md:
             cut_at = max_md - len(suffix)
             window_start = max(0, cut_at - 80)
@@ -1742,6 +1800,82 @@ class FeishuChannel(Channel):
             logger.info("[Feishu] reaction '%s' added to message %s", emoji_type, message_id)
         except Exception:
             logger.exception("[Feishu] failed to add reaction '%s' to message %s", emoji_type, message_id)
+
+    async def _reply_plain_text(
+        self,
+        message_id: str,
+        text: str,
+        *,
+        chat_id: str = "",
+        account_id: str = "",
+    ) -> str | None:
+        """Reply with a plain text message (most reliable Feishu delivery).
+
+        Interactive card ``message.patch`` has been observed to return success
+        while the client keeps showing the running placeholder. Plain text
+        replies do not have that failure mode.
+        """
+        aid = str(account_id or self._running_card_account_ids.get(message_id, "") or "").strip()
+        cid = str(chat_id or self._running_card_chat_ids.get(message_id, "") or "").strip()
+        api_client = self._api_client_for(aid) or self._api_client
+        if not api_client or not self._ReplyMessageRequest:
+            return None
+
+        body = FeishuChannel._card_body_text(text) or (text or "").strip()
+        if not body:
+            body = "(空回复)"
+        # Keep a safe margin under Feishu text limits.
+        if len(body) > 12000:
+            body = body[:11900] + "\n\n…（内容过长，已截断）"
+        content = json.dumps({"text": body}, ensure_ascii=False)
+        request = (
+            self._ReplyMessageRequest.builder()
+            .message_id(message_id)
+            .request_body(
+                self._ReplyMessageRequestBody.builder()
+                .msg_type("text")
+                .content(content)
+                .reply_in_thread(self._reply_in_thread)
+                .build()
+            )
+            .build()
+        )
+        response = await asyncio.to_thread(api_client.im.v1.message.reply, request)
+        ok, err = self._lark_call_succeeded(response)
+        if ok:
+            response_data = getattr(response, "data", None)
+            mid = getattr(response_data, "message_id", None)
+            logger.info(
+                "[Feishu] plain text reply ok: root=%s message_id=%s text_len=%d account=%s",
+                message_id,
+                mid,
+                len(body),
+                aid or "primary",
+            )
+            return str(mid) if mid else None
+
+        logger.error("[Feishu] plain text reply failed: root=%s %s", message_id, err)
+        if cid and self._is_out_of_chat_error(err):
+            create_req = (
+                self._CreateMessageRequest.builder()
+                .receive_id_type("chat_id")
+                .request_body(
+                    self._CreateMessageRequestBody.builder()
+                    .receive_id(cid)
+                    .msg_type("text")
+                    .content(content)
+                    .build()
+                )
+                .build()
+            )
+            create_resp = await asyncio.to_thread(api_client.im.v1.message.create, create_req)
+            create_ok, create_err = self._lark_call_succeeded(create_resp)
+            if not create_ok:
+                raise RuntimeError(f"Feishu text message.create failed: {create_err}")
+            resp_data = getattr(create_resp, "data", None)
+            mid = getattr(resp_data, "message_id", None) if resp_data else None
+            return str(mid) if mid else None
+        raise RuntimeError(f"Feishu text message.reply failed: {err}")
 
     async def _reply_card(
         self,
@@ -2870,20 +3004,69 @@ class FeishuChannel(Channel):
         aid = str(account_id).strip()
         api_client = self._api_client_for(aid)
         if not api_client or not self._PatchMessageRequest:
-            return
+            raise RuntimeError(
+                f"Feishu message.patch unavailable: account={aid or 'primary'} "
+                f"client={bool(api_client)} patch_api={bool(self._PatchMessageRequest)}"
+            )
 
         content = self._build_card_content(text, stop_ctx=stop_ctx)
-        request = self._PatchMessageRequest.builder().message_id(message_id).request_body(self._PatchMessageRequestBody.builder().content(content).build()).build()
-        response = await asyncio.to_thread(api_client.im.v1.message.patch, request)
-        ok, err = self._lark_call_succeeded(response)
-        if not ok:
-            logger.error(
-                "[Feishu] message.patch failed: card=%s account=%s %s",
+        last_err = "unknown"
+        for attempt in range(3):
+            request = (
+                self._PatchMessageRequest.builder()
+                .message_id(message_id)
+                .request_body(self._PatchMessageRequestBody.builder().content(content).build())
+                .build()
+            )
+            response = await asyncio.to_thread(api_client.im.v1.message.patch, request)
+            ok, err = self._lark_call_succeeded(response)
+            if ok:
+                return
+            last_err = err
+            logger.warning(
+                "[Feishu] message.patch failed (attempt %d/3): card=%s account=%s %s",
+                attempt + 1,
                 message_id,
                 aid or "primary",
                 err,
             )
-            raise RuntimeError(f"Feishu message.patch failed: {err}")
+            if attempt < 2:
+                await asyncio.sleep(0.6 * (attempt + 1))
+        logger.error(
+            "[Feishu] message.patch failed: card=%s account=%s %s",
+            message_id,
+            aid or "primary",
+            last_err,
+        )
+        raise RuntimeError(f"Feishu message.patch failed: {last_err}")
+
+    async def _delete_message(self, message_id: str, *, account_id: str = "") -> bool:
+        """Recall/delete a bot message (used to remove the stuck 「正在回复」card)."""
+        mid = str(message_id or "").strip()
+        if not mid:
+            return False
+        aid = str(account_id).strip()
+        api_client = self._api_client_for(aid) or self._api_client
+        if not api_client or not self._DeleteMessageRequest:
+            logger.warning(
+                "[Feishu] message.delete unavailable: card=%s account=%s",
+                mid,
+                aid or "primary",
+            )
+            return False
+        request = self._DeleteMessageRequest.builder().message_id(mid).build()
+        response = await asyncio.to_thread(api_client.im.v1.message.delete, request)
+        ok, err = self._lark_call_succeeded(response)
+        if ok:
+            logger.info("[Feishu] message.delete ok: card=%s account=%s", mid, aid or "primary")
+            return True
+        logger.warning(
+            "[Feishu] message.delete failed: card=%s account=%s %s",
+            mid,
+            aid or "primary",
+            err,
+        )
+        return False
 
     def _track_background_task(self, task: asyncio.Task, *, name: str, msg_id: str) -> None:
         """Keep a strong reference to fire-and-forget tasks and surface errors."""
@@ -2980,7 +3163,7 @@ class FeishuChannel(Channel):
     def _ensure_running_card_started(
         self,
         source_message_id: str,
-        text: str = "Working on it...",
+        text: str = "⏳ 正在回复，请稍候…",
         *,
         stop_ctx: dict[str, Any] | None = None,
         chat_id: str = "",
@@ -3025,7 +3208,7 @@ class FeishuChannel(Channel):
     async def _ensure_running_card(
         self,
         source_message_id: str,
-        text: str = "Working on it...",
+        text: str = "⏳ 正在回复，请稍候…",
         *,
         stop_ctx: dict[str, Any] | None = None,
         chat_id: str = "",
@@ -3115,6 +3298,7 @@ class FeishuChannel(Channel):
         is_subtask = bool(meta.get("is_subtask"))
         if source_message_id:
             self._touch_stream_state(source_message_id)
+        dedup_key: str | None = None
         if source_message_id and msg.is_final and not is_subtask:
             now = time.monotonic()
             text_hash = hashlib.sha256((msg.text or "").encode()).hexdigest()[:16]
@@ -3133,7 +3317,9 @@ class FeishuChannel(Channel):
                 with contextlib.suppress(Exception):
                     await self._add_reaction(source_message_id, "DONE")
                 return
-            self._recent_final_fingerprint[dedup_key] = (text_hash, now)
+            # Do NOT fingerprint yet — a failed patch + outer retry used to hit
+            # this dedup, return "ok", then upload images while the placeholder
+            # card stayed on 「正在回复」forever.
 
         # Append session id to the end of the message (only for Claude mode)
         if msg.thread_id and msg.text:
@@ -3189,29 +3375,72 @@ class FeishuChannel(Channel):
                 account_id,
             )
 
-            if running_card_id:
+            delivered = False
+            # Final replies: NEVER rely on message.patch for the body. Feishu often
+            # returns success while the client keeps showing 「正在回复」. Deliver
+            # the answer as a plain text reply (same path as working image sends),
+            # then retire the placeholder card.
+            if msg.is_final:
+                logger.info(
+                    "[Feishu] final reply as plain text: source=%s running_card=%s text_len=%d",
+                    source_message_id,
+                    running_card_id,
+                    len(msg.text or ""),
+                )
+                new_mid = await self._reply_plain_text(
+                    source_message_id,
+                    msg.text or "",
+                    chat_id=str(msg.chat_id or ""),
+                    account_id=patch_aid or account_id,
+                )
+                if not new_mid:
+                    # Last resort: interactive card create (still better than patch).
+                    new_mid = await self._reply_card(
+                        source_message_id,
+                        msg.text,
+                        chat_id=str(msg.chat_id or ""),
+                        account_id=patch_aid or account_id,
+                    )
+                if not new_mid:
+                    raise RuntimeError(
+                        f"Feishu final reply returned no message_id for source={source_message_id}"
+                    )
+                delivered = True
+                if running_card_id and running_card_id != new_mid:
+                    # Patch is unreliable on Feishu clients — delete the placeholder.
+                    retired = await self._delete_message(
+                        running_card_id,
+                        account_id=patch_aid or account_id,
+                    )
+                    if not retired:
+                        with contextlib.suppress(Exception):
+                            await self._update_card(
+                                running_card_id,
+                                "✅ 完整回复见下方",
+                                stop_ctx=None,
+                                account_id=patch_aid or account_id,
+                            )
+            elif running_card_id:
                 patch_text = msg.text or ""
-                if not msg.is_final and self._last_stream_patch_text.get(source_message_id) == patch_text:
+                if self._last_stream_patch_text.get(source_message_id) == patch_text:
                     return
                 try:
-                    logger.debug(
-                        "[Feishu] patch running card: source=%s, card=%s, text_len=%d, is_final=%s",
+                    logger.info(
+                        "[Feishu] patch running card: source=%s, card=%s, text_len=%d, is_final=False",
                         source_message_id,
                         running_card_id,
                         len(patch_text),
-                        msg.is_final,
                     )
                     await self._update_card(
                         running_card_id,
                         patch_text,
-                        stop_ctx=None if msg.is_final else stop_ctx,
+                        stop_ctx=stop_ctx,
                         account_id=patch_aid,
                     )
-                    if not msg.is_final:
-                        self._last_stream_patch_text[source_message_id] = patch_text
+                    self._last_stream_patch_text[source_message_id] = patch_text
                 except Exception as exc:
                     not_sender = self._is_not_message_sender_error(exc)
-                    if not msg.is_final and not not_sender:
+                    if not not_sender:
                         logger.warning(
                             "[Feishu] patch running card failed (non-final): source=%s, card=%s",
                             source_message_id,
@@ -3220,19 +3449,17 @@ class FeishuChannel(Channel):
                         )
                         raise
                     logger.warning(
-                        "[Feishu] patch running card failed (%s), recreating card: source=%s card=%s err=%s",
-                        "not-sender" if not_sender else "final-fallback",
+                        "[Feishu] patch running card failed (not-sender), recreating: source=%s card=%s err=%s",
                         source_message_id,
                         running_card_id,
                         exc,
                     )
-                    # Drop stale card (wrong bot / invalid) and publish a fresh one.
                     self._running_card_ids.pop(source_message_id, None)
                     self._running_card_account_ids.pop(running_card_id, None)
                     new_card = await self._reply_card(
                         source_message_id,
                         msg.text,
-                        stop_ctx=None if msg.is_final else stop_ctx,
+                        stop_ctx=stop_ctx,
                         chat_id=str(msg.chat_id or ""),
                         account_id=patch_aid,
                     )
@@ -3243,18 +3470,7 @@ class FeishuChannel(Channel):
                             card_id=new_card,
                             account_id=patch_aid,
                         )
-                        if not msg.is_final:
-                            self._last_stream_patch_text[source_message_id] = patch_text
-                else:
-                    logger.info("[Feishu] running card updated: source=%s card=%s", source_message_id, running_card_id)
-            elif msg.is_final:
-                logger.info("[Feishu] no running card id, sending final reply card: source=%s", source_message_id)
-                await self._reply_card(
-                    source_message_id,
-                    msg.text,
-                    chat_id=str(msg.chat_id or ""),
-                    account_id=account_id,
-                )
+                        self._last_stream_patch_text[source_message_id] = patch_text
             elif awaited_running_card_task:
                 logger.warning(
                     "[Feishu] running card task finished without message_id for source=%s, skipping duplicate non-final creation",
@@ -3271,6 +3487,17 @@ class FeishuChannel(Channel):
                 )
 
             if msg.is_final and not is_subtask:
+                if not delivered:
+                    raise RuntimeError(
+                        f"Feishu final card was not delivered for source={source_message_id}"
+                    )
+                # Fingerprint only after a real successful write — so send() retries
+                # can still patch after a transient failure.
+                if dedup_key is not None:
+                    self._recent_final_fingerprint[dedup_key] = (
+                        hashlib.sha256((msg.text or "").encode()).hexdigest()[:16],
+                        time.monotonic(),
+                    )
                 # Subtask bridge (FeishuStreamBridge) also uses the same reply anchor thread_ts.
                 # Its is_final=True must not clear the main stream's running-card mapping, or the next
                 # main delta recreates a new card in a loop.
@@ -3318,12 +3545,15 @@ class FeishuChannel(Channel):
         self._track_background_task(reaction_task, name="add_reaction", msg_id=msg_id)
         # Running card / outbound replies must anchor to the same message_id passed to
         # im.v1.message.reply — in topic threads that is the thread root, not each reply.
+        # Default (live stream off): skip the placeholder card — finals go out as
+        # plain text, and Feishu often cannot retire 「正在回复」via patch.
         anchor = (inbound.thread_ts or msg_id) or msg_id
-        self._ensure_running_card_started(
-            anchor,
-            chat_id=chat_id,
-            account_id=account_id,
-        )
+        if _FEISHU_LIVE_STREAM_PATCHES:
+            self._ensure_running_card_started(
+                anchor,
+                chat_id=chat_id,
+                account_id=account_id,
+            )
         # First-@ self-introduction for a dedicated employee bot (account_id set),
         # once per chat. Primary personal-assistant bot is excluded on purpose.
         # Skip when QR-bind already intro'd the same private peer (open_id vs oc_…).
@@ -3357,14 +3587,21 @@ class FeishuChannel(Channel):
                 should_skip_first_mention_intro,
             )
 
-            # Durable skip: same chat_id, or private chat already intro'd via open_id
-            # after QR bind (otherwise image/text → second「自我介绍」).
+            # Durable skip (role.config.feishu_intro_sent): same chat_id, or
+            # private chat already intro'd via open_id after QR bind.
             if should_skip_first_mention_intro(
                 account_id,
                 chat_id=chat_id,
                 peer_open_id=peer_open_id,
                 chat_type=chat_type,
             ):
+                logger.info(
+                    "[Feishu] skip self-intro (already sent): account=%s chat=%s type=%s peer=%s",
+                    account_id,
+                    chat_id[:16],
+                    chat_type or "-",
+                    (peer_open_id or "")[:16] or "-",
+                )
                 self._intro_sent_keys.add(key)
                 return
             text = build_employee_self_intro(account_id)
@@ -3375,6 +3612,13 @@ class FeishuChannel(Channel):
             return
 
         self._intro_sent_keys.add(key)
+        logger.info(
+            "[Feishu] first-mention self-intro: account=%s chat=%s type=%s peer=%s",
+            account_id,
+            chat_id[:16],
+            chat_type or "-",
+            (peer_open_id or "")[:16] or "-",
+        )
 
         async def _send() -> None:
             try:
@@ -3389,8 +3633,23 @@ class FeishuChannel(Channel):
                     triggered_by="system",
                 )
                 mark_intro_sent(account_id, receive_id=chat_id, receive_id_type="chat_id")
+                # Also stamp open_id so restart + oc_↔ou alias skip keeps working
+                # even if QR-bind push never persisted.
+                if peer_open_id:
+                    mark_intro_sent(
+                        account_id,
+                        receive_id=peer_open_id,
+                        receive_id_type="open_id",
+                    )
             except Exception:
-                logger.debug("feishu: first-@ self-intro send failed account=%s", account_id, exc_info=True)
+                # Allow a later message to retry after a failed send.
+                self._intro_sent_keys.discard(key)
+                logger.warning(
+                    "[Feishu] first-@ self-intro send failed account=%s chat=%s",
+                    account_id,
+                    chat_id[:16],
+                    exc_info=True,
+                )
 
         task = asyncio.create_task(_send())
         self._track_background_task(task, name="first_mention_intro", msg_id="")

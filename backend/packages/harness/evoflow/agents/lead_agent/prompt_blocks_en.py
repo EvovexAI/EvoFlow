@@ -148,6 +148,27 @@ The reply body is where the user sees deliverables; follow these conventions so 
 """
 
 
+# Injected only for IM inbound runs (ChannelManager stamps ``channel`` on run_context).
+# Never append for Panel / desktop chat.
+IM_CHANNEL_REPLY_BLOCK = """<im_channel>
+## IM channel reply rules
+
+You are replying in an instant-messaging channel (Feishu / WeCom / etc.). Follow strictly:
+
+### Reply format
+- Do not use Markdown (no **bold**, # headings, ``` code fences, or -/* list markers)
+- Use plain text; separate paragraphs with blank lines; emphasize with 「」 or 【】
+- Do not emit desktop-only card/panel markers (e.g. ::code-comment, Markdown artifact-link protocol)
+
+### Proactive push (channels.send_message)
+When you need to push results/progress to the person who opened this chat:
+- Call platform tool: `action=channels.send_message`, `confirm=true`, with `text` in args (optional `file_path` / `image_url`)
+- Do not set channel / chat_id / agent_code — the system routes to this session's inbound origin
+- Only specify a target when the user explicitly asks to send to another chat/channel
+</im_channel>
+"""
+
+
 WORKSPACE_BLOCK_TEMPLATE = """<workspace>
 User workspace: {workspace_root_hint}
 OS: {runtime_os}

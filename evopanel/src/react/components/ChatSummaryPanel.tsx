@@ -59,6 +59,7 @@ import {
 } from '../lib/chat-summary-panel-prefs.js'
 import type { CollabSubtaskSnapshot, SubagentStreamTask, TerminalStreamTask } from '../chat-types.js'
 import type { AgentAvatarAgent } from '../lib/agent-avatar.js'
+import { logChatSummaryPanelShown } from '../lib/chat-turn-timing-log.js'
 
 type Props = {
   displayMode: ChatSummaryDisplayMode
@@ -640,8 +641,6 @@ function ChatSummaryPanelInner({
     }
   }, [wantExpanded, effectiveMode])
 
-  if (effectiveMode === 'hidden') return null
-
   const displayName =
     String(agentLabel || '').trim() || (isEmployeeSession ? '未选择员工' : '未选择 Agent')
   const editTitle = isEmployeeSession ? '点击编辑此员工' : '点击编辑此智能体'
@@ -651,6 +650,53 @@ function ChatSummaryPanelInner({
   const modelText = String(modelLabel || modelName || '').trim()
   const sessionTitleText = String(sessionTitle || '').trim()
   const bubbleTitle = summary.items.length ? summary.capsuleLabel : sessionTitleText || '状态'
+
+  // 右上角状态卡展开为 panel 时记中文前端日志（时间 + 展示内容）
+  useEffect(() => {
+    if (!wantExpanded || effectiveMode === 'hidden') return
+    const platformPreview = platformEntries[0]
+      ? String(
+          (platformEntries[0] as { title?: string; label?: string; action?: string }).title ||
+            (platformEntries[0] as { label?: string }).label ||
+            (platformEntries[0] as { action?: string }).action ||
+            '',
+        ).trim()
+      : ''
+    const artifactPreview = visibleArtifacts[0]
+      ? chatArtifactDisplayLabel(visibleArtifacts[0])
+      : ''
+    logChatSummaryPanelShown({
+      sessionKey,
+      mode: 'panel',
+      tab: effectivePanelTab,
+      agentLabel: displayName,
+      modelLabel: modelText,
+      sessionTitle: sessionTitleText,
+      runningCount: summary.running,
+      processCount: summary.items.length,
+      artifactCount: visibleArtifacts.length,
+      platformCount: platformEntries.length,
+      reason: displayMode === 'panel' ? 'displayMode=panel' : 'auto-expand',
+      contentPreview: platformPreview || artifactPreview || summary.capsuleLabel || bio.slice(0, 120),
+    })
+  }, [
+    wantExpanded,
+    effectiveMode,
+    effectivePanelTab,
+    sessionKey,
+    displayName,
+    modelText,
+    sessionTitleText,
+    summary.running,
+    summary.items.length,
+    summary.capsuleLabel,
+    visibleArtifacts,
+    platformEntries,
+    displayMode,
+    bio,
+  ])
+
+  if (effectiveMode === 'hidden') return null
 
   const CapsuleIcon =
     summary.capsuleState === 'running'

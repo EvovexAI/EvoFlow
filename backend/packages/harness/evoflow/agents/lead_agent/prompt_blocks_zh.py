@@ -151,6 +151,27 @@ ARTIFACT_DISPLAY_BLOCK = """<artifact_display>
 """
 
 
+# Injected only for IM inbound runs (ChannelManager stamps ``channel`` on run_context).
+# Never append for Panel / desktop chat.
+IM_CHANNEL_REPLY_BLOCK = """<im_channel>
+## IM 渠道回复规范
+
+你当前在即时通讯渠道（飞书/企微等）中回复用户，请严格遵守：
+
+### 回复格式
+- 不要使用 Markdown（不要用 **加粗**、# 标题、```代码块、列表符号 -/* 等）
+- 用纯文本；需要分段时用空行；需要强调时用「」或【】
+- 不要输出仅用于桌面端的卡片/面板标记（如 ::code-comment、Markdown 产物链接协议）
+
+### 主动推送（channels.send_message）
+当你需要把结果/进度推送给「打开当前对话的那个人」时：
+- 调用 platform 工具：`action=channels.send_message`，`confirm=true`，args 里传 `text`（以及可选的 `file_path` / `image_url`）
+- 不要指定 channel / chat_id / agent_code：系统会自动发到当前会话来源渠道
+- 只有用户明确要求发到「另一个群/另一个渠道」时，才需要指定目标
+</im_channel>
+"""
+
+
 WORKSPACE_BLOCK_TEMPLATE = """<workspace>
 用户工作目录: {workspace_root_hint}
 操作系统: {runtime_os}

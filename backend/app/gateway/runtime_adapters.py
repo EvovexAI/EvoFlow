@@ -170,9 +170,10 @@ def register_runtime_adapters() -> None:
         logger.debug("register channels.start/registry_status failed", exc_info=True)
 
     try:
-        from app.gateway.channel_result_push import list_push_targets
+        from app.gateway.channel_result_push import list_push_targets, push_to_inbound_origin
 
         ports.register("channels.list_push_targets", list_push_targets)
+        ports.register("channels.push_to_inbound_origin", push_to_inbound_origin)
     except Exception:
         logger.debug("register channels.list_push_targets failed", exc_info=True)
 

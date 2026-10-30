@@ -21,6 +21,7 @@ import { showRightStageBrowserUrl } from '../../../lib/right-stage/open-right-st
 import { isEvoflowChatV4Enabled } from '../../v4/v4Gate.js'
 import { v4WindowHasUserText } from '../../v4/optimisticUserInput.js'
 import { resolveChatPaneMode } from '../../lib/chat-pane-mode.js'
+import { logV4Life } from '../../lib/v4-lifecycle-log.js'
 import { SS_SHELL_EMPTY_DRAFT } from '../../components/ShellSessionList.js'
 import { HistoryFetchSpinner } from '../../components/HistoryFetchSpinner.js'
 import { ChatComposer, type WorkspaceMentionConfig, type MentionEmployeeOption } from '../../components/ChatComposer.js'
@@ -229,6 +230,7 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
     selectedResumeStreamHold,
     selectedSessionKey,
     selectedSessionLive,
+    selectedThreadId,
     selectedSkills,
     selectedStreamPriorTurnStrip,
     selectedTurnBusy,
@@ -311,6 +313,54 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
     workspaceSummaries,
     wsClient,
   } = ctx
+
+  // 无 threadId / 历史仍在拉：每 2s 落一条中文原因（有 tid 且 history 结束则停）
+  useEffect(() => {
+    if (isHomeSurface) return
+    const sk = String(selectedSessionKey || '').trim()
+    if (!sk) return
+    const tid0 = String(selectedThreadId || '').trim()
+    if (tid0 && !historyLoading) return
+    const tick = () => {
+      const tid = String(selectedThreadId || '').trim()
+      const mapTid = String(wsClient?.getSessionThreadId?.(sk) || '').trim()
+      const rowTid = String(
+        (sessions || []).find((s) => String(s?.sessionKey || '') === sk)?.threadId || '',
+      ).trim()
+      if (!tid) {
+        logV4Life({
+          event: 'loading_why',
+          sessionKey: sk,
+          level: 'warn',
+          zh: `界面「加载中」原因：当前会话没有可用 threadId（selected 空；sessions行=${rowTid || '空'}；map=${mapTid || '空'}）。V4 无法订阅首帧，会一直转圈。`,
+          detail: { rowTid: rowTid || null, mapTid: mapTid || null, historyLoading: !!historyLoading },
+          skipDedupe: true,
+        })
+        return
+      }
+      if (historyLoading) {
+        logV4Life({
+          event: 'loading_why',
+          sessionKey: sk,
+          threadId: tid,
+          zh: `界面「加载中」原因：threadId 已有（${tid}），但 historyLoading 仍为 true（旧历史接口未结束）。`,
+          detail: { rowTid: rowTid || null, mapTid: mapTid || null },
+          skipDedupe: true,
+        })
+      }
+    }
+    tick()
+    const id = window.setInterval(tick, 2_000)
+    return () => window.clearInterval(id)
+  }, [
+    isHomeSurface,
+    selectedSessionKey,
+    selectedThreadId,
+    historyLoading,
+    sessions,
+    wsClient,
+  ])
+
   return (
     <HoverBubbleProvider>
     <div
@@ -532,32 +582,17 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
               {/* V4：对话恒用 ConversationTimeline。ChatMessageStreamPane 仅工作台首页壳。 */}
               <V4StreamRowsBridge
                 enabled={isEvoflowChatV4Enabled() && !isHomeSurface}
-                sessionId={
-                  /* threadId 优先取服务端会话列表（纯打开历史时本地 session map 未登记，
-                  wsClient.getSessionThreadId 会拿空） */
-                  String(
-                    sessions.find(
-                      (s) => String(s.sessionKey || '') === String(selectedSessionKey || ''),
-                    )?.threadId || '',
-                  ).trim() ||
-                  String(wsClient?.getSessionThreadId?.(selectedSessionKey || '') || '') ||
-                  null
-                }
+                /* 用 controller 钉住的 selectedThreadId，避免 ensure remint 导致 sessionId 连跳拆租约 */
+                sessionId={String(selectedThreadId || '').trim() || null}
               >
                 {(v4Payload, v4Phase) => {
                   /* 发送瞬间：在 V4 时间线尾部注入乐观 userInput，绝不整树切老面板。
                      闲置切历史 turnLive=false，不会 hold，避免字墙。 */
-                  const selectedThreadId = String(
-                    sessions.find(
-                      (s) => String(s.sessionKey || '') === String(selectedSessionKey || ''),
-                    )?.threadId || '',
-                  ).trim() ||
-                    String(wsClient?.getSessionThreadId?.(selectedSessionKey || '') || '') ||
-                    ''
                   const v4RowCount = v4Payload?.snapshot?.rows.totalCount ?? 0
                   const v4SessionMatched =
                     !!v4Payload &&
-                    String(v4Payload.sessionId || '').trim() === selectedThreadId
+                    String(v4Payload.sessionId || '').trim() ===
+                      String(selectedThreadId || '').trim()
                   const turnLive = selectedTurnBusy || selectedSessionLive
                   const lastLocal =
                     Array.isArray(rows) && rows.length > 0 ? rows[rows.length - 1] : null
@@ -653,9 +688,9 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
                     <V4ZCodeTimeline
                       payload={v4Payload}
                       connecting={
-                        v4Phase === 'connecting' ||
-                        v4Phase === 'no-thread' ||
-                        v4Phase === 'failed'
+                        // no-thread 不能当永久「加载中」——否则无 tid 时转圈到死；
+                        // 交给 draftEmpty / 空态文案；connecting 只表示「已有 tid、等首帧」。
+                        v4Phase === 'connecting' || v4Phase === 'failed'
                       }
                       connectionFailed={v4Phase === 'failed'}
                       draftEmpty={draftEmpty}

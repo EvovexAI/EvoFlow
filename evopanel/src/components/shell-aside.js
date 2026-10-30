@@ -8,6 +8,8 @@ import { installSessionListDebugGlobal } from '../lib/session-list-debug.js'
 import { mountSessionNotify } from '../lib/mount-session-notify.js'
 import { mountShellAccount } from './shell-account.js'
 import { version as APP_VERSION } from '../../package.json'
+import { SCIFI_UI_EVENT } from '../lib/sci-fi-theme.js'
+import { hasShimmerGradient } from '../lib/aside-title-shimmer.js'
 
 /**
  * 侧栏图标:对齐 lucide-react 标准 (zcode 同款),14px / 1.5 stroke。
@@ -64,6 +66,7 @@ const ASIDE_TITLE_SHIMMER_DURATION_MS = 2600
 
 let _asideTitleShimmerCancel = null
 let _asideTitleShimmerIO = null
+let _asideTitleShimmerBound = false
 let _shellEl = null
 
 function _stopAsideTitleShimmer() {
@@ -75,6 +78,12 @@ function _stopAsideTitleShimmer() {
 
 function _startAsideTitleShimmerLoop(titleEl) {
   _stopAsideTitleShimmer()
+  // 没有可位移的渐变（默认主题 = background:none）：不启 rAF，
+  // 并清掉上一主题可能留下的内联值。判断逻辑见 lib/aside-title-shimmer.js。
+  if (!hasShimmerGradient(titleEl)) {
+    titleEl.style.backgroundPosition = ''
+    return
+  }
   titleEl.style.animation = 'none'
   titleEl.style.webkitAnimation = 'none'
   let cancelled = false
@@ -597,6 +606,22 @@ export function initShellAside(el) {
     void wsClient.hydrateGlobalWorkspaceHistoryOnce()
   })
   _startAsideTitleShimmer(el)
+  _bindAsideTitleShimmerThemeSync(el)
+}
+
+/** 主题切换（科技风开关/明暗切换）会改变标题是否带渐变：重判一次，避免 rAF 该停不停。 */
+function _bindAsideTitleShimmerThemeSync(containerEl) {
+  if (_asideTitleShimmerBound) return
+  _asideTitleShimmerBound = true
+  const resync = () => {
+    const titleEl = containerEl?.querySelector?.('.react-chat-aside-toolbar-title')
+    if (!titleEl) return
+    if (hasShimmerGradient(titleEl)) _startAsideTitleShimmerLoop(titleEl)
+    else _stopAsideTitleShimmer()
+  }
+  window.addEventListener(SCIFI_UI_EVENT, resync)
+  window.addEventListener('evopanel:panel-settings-changed', resync)
+  window.addEventListener('evopanel:panel-settings-loaded', resync)
 }
 
 /** Kept for callers after activate; premium menus stay always visible. */

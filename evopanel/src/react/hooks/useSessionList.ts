@@ -63,6 +63,8 @@ const SESSION_SNAPSHOT_MAX_ROWS = 300
 /** 精简版快照行 */
 type SnapshotRow = {
   sessionKey: string
+  /** 保留 lead thread：冷启动点开历史时可立刻挂 V4，避免 legacy:no-thread 闪圈 */
+  threadId?: string | null
   title?: string
   updatedAt?: number
   runStatus?: string
@@ -74,8 +76,10 @@ type SnapshotRow = {
 
 /** 从完整行提取快照字段 */
 function snapshotRowFromSessionRow(row: ChatSessionRow): SnapshotRow {
+  const threadId = String(row.threadId || '').trim()
   return {
     sessionKey: row.sessionKey,
+    ...(threadId ? { threadId } : {}),
     title: row.title,
     updatedAt: row.updatedAt,
     runStatus: row.runStatus,
@@ -89,8 +93,10 @@ function snapshotRowFromSessionRow(row: ChatSessionRow): SnapshotRow {
 /** 从快照行恢复为完整行 */
 function sessionRowFromSnapshotRow(snapshot: SnapshotRow, now: number): ChatSessionRow {
   const createdAt = snapshot.updatedAt || now
+  const threadId = String(snapshot.threadId || '').trim()
   return {
     sessionKey: snapshot.sessionKey,
+    ...(threadId ? { threadId } : {}),
     title: snapshot.title || '新对话',
     updatedAt: snapshot.updatedAt || now,
     createdAt,

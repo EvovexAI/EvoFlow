@@ -1299,8 +1299,8 @@ def update_session_title(session_key: str, title: str, *, conn: Any = None) -> b
 def enrich_session_rows_collab_task_id(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Set ``collabTaskId`` for sidebar sessions.
 
-    Priority: current thread ``bound_task_id`` → session column ``collab_task_id`` →
-    session-scoped task lookup (any historical thread for the session).
+    Priority: current thread ``bound_task_id`` → session column ``collab_task_id``.
+    Expensive message-table fallback is intentionally omitted on this list path.
     """
     thread_ids = list(dict.fromkeys(str(row.get("threadId") or "").strip() for row in rows if str(row.get("threadId") or "").strip()))
     if not thread_ids:
@@ -1327,17 +1327,11 @@ def enrich_session_rows_collab_task_id(rows: list[dict[str, Any]]) -> list[dict[
     for i, row in enumerate(out):
         thread_id = str(row.get("threadId") or "").strip()
         session_task_id = str(row.get("collabTaskId") or "").strip()
+        # List hot path: bound_task_id / session column only.
+        # Do NOT call find_root_task_by_session_key here — it scans chat_messages
+        # per row and under concurrent /api/chat/sessions polls wedges SQLite +
+        # the Gateway event loop (multi-second lag / UI freeze).
         task_id = bound_map.get(thread_id) or session_task_id or ""
-        if not task_id:
-            sk = str(row.get("sessionKey") or row.get("key") or "").strip()
-            if sk:
-                try:
-                    from evoflow.persistence import task_repositories as task_repo
-
-                    found = task_repo.find_root_task_by_session_key(sk)
-                    task_id = str((found or {}).get("id") or "").strip()
-                except Exception:
-                    task_id = ""
         out[i]["collabTaskId"] = task_id or None
         if task_id:
             ctx = out[i].get("context")

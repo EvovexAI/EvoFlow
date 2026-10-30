@@ -147,6 +147,24 @@ def edit_guard_failure(path: str | Path) -> str | None:
     return f"Error: {EDIT_STALE_MESSAGE}"
 
 
+def auto_register_full_read_for_edit(path: str | Path) -> bool:
+    """Register a full Read from disk so EDIT_NOT_READ can heal without a wasted turn.
+
+    Used by replace/write when the model edits without a prior Read: we still load
+    current bytes for the edit, so recording that view preserves the guard's intent
+    (edit against current content) while dropping a Scenario-style retry loop.
+
+    Returns True when state was refreshed; False when the file could not be read.
+    """
+    file_path = Path(path)
+    try:
+        text = file_path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+    note_read(str(file_path), full_read=True, content_hash=_content_hash(text))
+    return True
+
+
 def stale_read_hint() -> str:
     """Paths whose mtime moved since Read. Empty when nothing changed."""
     with _LOCK:

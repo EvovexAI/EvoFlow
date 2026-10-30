@@ -9,6 +9,10 @@ import type { ContextFileEntry } from '../../components/WorkspaceFileTree.js'
 import type { SkillSelection } from '../../components/SkillPickerModal.js'
 import type { PluginSelection } from '../../components/PluginPickerModal.js'
 import type { PriorTurnStripBundle } from '../../lib/turn-text-isolation.js'
+import {
+  bindChatTurnSendSession,
+  logChatTurnSendClick,
+} from '../../lib/chat-turn-timing-log.js'
 
 export type HandleSendOpts = {
   voiceInitiated?: boolean
@@ -465,7 +469,27 @@ export async function handleSend(
     // stop 后会 markSessionRecoveryCooldown；用户主动再发须清掉，否则 AG-UI run-* 接管被丢弃
     clearStreamReattachCooldown(sessionKey)
     resetStreamStopLogDedupe(sessionKey)
-    dispatchSessionTurnEvent(sessionKey, { type: 'SEND_STARTED', turnStartTs: Date.now() })
+    const turnStartTs = Date.now()
+    const attachCount = Array.isArray(attachments) ? attachments.length : 0
+    const bind = bindChatTurnSendSession({
+      sessionKey,
+      text: userMessage,
+      attachmentCount: attachCount,
+    })
+    // Composer 已记「点击发送」则只绑 session；目标/语音等入口在此补中文日志
+    if (!bind.sendClickAlreadyLogged) {
+      logChatTurnSendClick({
+        sessionKey,
+        text: userMessage,
+        attachmentCount: attachCount,
+        source: opts?.voiceInitiated
+          ? 'handle_send_voice'
+          : opts?.goalInitiated
+            ? 'handle_send_goal'
+            : 'handle_send',
+      })
+    }
+    dispatchSessionTurnEvent(sessionKey, { type: 'SEND_STARTED', turnStartTs })
     dispatchSessionTurnEvent(sessionKey, { type: 'WIRE_SOURCE', source: 'run' })
     // 修复：发送消息时，如果目标会话就是当前活跃会话（或当前没有活跃会话，如新建会话过程中），
     // 必须确保 streamRef 指向目标会话的 stream，避免流事件写入错误的 stream 导致串台

@@ -303,6 +303,161 @@ async def _push_with_retry(label: str, send) -> tuple[bool, str]:
     return False, last_err
 
 
+def resolve_inbound_origin_from_session(session_key: str) -> dict[str, Any] | None:
+    """Load IM origin (channel/chat/account/topic) stamped when the user messaged in.
+
+    Returns ``None`` when this is not an IM-backed session (no channel routing).
+    """
+    sk = str(session_key or "").strip()
+    if not sk:
+        return None
+    try:
+        from evoflow.persistence.session_repositories import (
+            get_session_context_for_run_config,
+            get_session_row_for_ui,
+        )
+    except Exception:
+        logger.debug("resolve_inbound_origin: session repos unavailable", exc_info=True)
+        return None
+
+    ctx = get_session_context_for_run_config(sk) or {}
+    if not isinstance(ctx, dict):
+        ctx = {}
+    channel = str(ctx.get("channel") or "").strip().lower()
+    chat_id = str(ctx.get("channel_chat_id") or "").strip()
+    if not channel or not chat_id:
+        return None
+    row = get_session_row_for_ui(sk) or {}
+    thread_id = str(row.get("threadId") or row.get("thread_id") or "").strip()
+    return {
+        "session_key": sk,
+        "channel": channel,
+        "chat_id": chat_id,
+        "account_id": str(ctx.get("account_id") or "").strip(),
+        "topic_id": str(ctx.get("topic_id") or "").strip() or None,
+        "user_id": str(ctx.get("user_id") or "").strip(),
+        "thread_id": thread_id,
+        "agent_code": str(ctx.get("agent_code") or ctx.get("agent_name") or "").strip(),
+    }
+
+
+async def push_to_inbound_origin(
+    *,
+    session_key: str,
+    text: str = "",
+    paths: list[str] | None = None,
+    title: str = "",
+) -> dict[str, Any]:
+    """Push text/files back to the same IM chat+bot that originated this session.
+
+    Does **not** accept a channel/account picker — routing is taken from the
+    session index written by ChannelManager on inbound.
+    """
+    origin = resolve_inbound_origin_from_session(session_key)
+    if origin is None:
+        return {
+            "ok": False,
+            "error": "not_im_session",
+            "hint": "当前会话没有 IM 来源（channel/channel_chat_id）。只在飞书/企微等通道会话里用 channels.send_message。",
+        }
+
+    body = str(text or "").strip()
+    title_s = str(title or "").strip()
+    if title_s and body:
+        body = f"**{title_s}**\n\n{body}"
+    elif title_s:
+        body = f"**{title_s}**"
+    if len(body) > _MAX_MARKDOWN:
+        body = body[: _MAX_MARKDOWN - 20] + "\n\n…（已截断）"
+
+    path_list = [str(p).strip() for p in (paths or []) if str(p or "").strip()]
+    if not body and not path_list:
+        return {"ok": False, "error": "empty_payload", "hint": "请提供 text 和/或 paths（文件路径）"}
+
+    channel = str(origin["channel"])
+    chat_id = str(origin["chat_id"])
+    account_id = str(origin.get("account_id") or "")
+    topic_id = origin.get("topic_id")
+    thread_id = str(origin.get("thread_id") or "")
+
+    from app.channels.message_bus import OutboundMessage
+    from app.channels.service import get_channel_service
+
+    service = get_channel_service()
+    if service is None or service.bus is None:
+        return {"ok": False, "error": "channel_service_unavailable"}
+
+    status = service.get_status()
+    ch_status = (status.get("channels") or {}).get(channel) or {}
+    if not ch_status.get("running"):
+        return {"ok": False, "error": f"{channel}_not_running", "channel": channel}
+
+    attachments = []
+    unresolved: list[str] = []
+    if path_list:
+        try:
+            from app.channels.manager import _resolve_attachments
+
+            attachments = _resolve_attachments(thread_id, path_list) if thread_id else []
+            resolved_names = {a.filename.lower() for a in attachments}
+            for p in path_list:
+                from pathlib import Path as _P
+
+                if _P(str(p).replace("\\", "/")).name.lower() not in resolved_names:
+                    # Absolute path fallback without thread sandbox when thread_id missing
+                    att = None
+                    if not thread_id:
+                        from app.channels.manager import _resolve_one_attachment
+
+                        att = _resolve_one_attachment("", p)
+                    if att is not None:
+                        attachments.append(att)
+                    else:
+                        unresolved.append(p)
+        except Exception as exc:
+            logger.warning("push_to_inbound_origin: resolve attachments failed: %s", exc, exc_info=True)
+            unresolved = list(path_list)
+
+    if not body and attachments:
+        body = "📎 " + "、".join(a.filename for a in attachments)
+
+    msg = OutboundMessage(
+        channel_name=channel,
+        chat_id=chat_id,
+        thread_id=thread_id,
+        text=body or "",
+        artifacts=[str(a.virtual_path or a.actual_path) for a in attachments],
+        attachments=list(attachments),
+        is_final=True,
+        topic_id=str(topic_id) if topic_id else None,
+        metadata={
+            "kind": "platform_channel_send",
+            "triggered_by": "platform",
+            "account_id": account_id,
+        },
+        account_id=account_id,
+    )
+
+    async def _send() -> tuple[bool, str]:
+        await service.bus.publish_outbound(msg)
+        return True, "ok"
+
+    ok, err = await _push_with_retry(f"{channel}/{account_id or 'primary'}", _send)
+    out: dict[str, Any] = {
+        "ok": bool(ok),
+        "channel": channel,
+        "chat_id": chat_id,
+        "account_id": account_id or "",
+        "topic_id": topic_id,
+        "text_len": len(body or ""),
+        "attachments": [a.filename for a in attachments],
+        "unresolved_paths": unresolved,
+    }
+    if not ok:
+        out["error"] = err
+    return out
+
+
 async def push_markdown_result(
     *,
     channel: str,

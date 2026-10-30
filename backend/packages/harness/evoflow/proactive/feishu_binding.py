@@ -324,13 +324,24 @@ async def apply_registration_to_role(
     stolen_from = steal_feishu_app_id_from_other_roles(aid, keep_agent_code=code)
 
     cfg = role.config
+    prev_open_id = str(getattr(cfg, "feishu_open_id", "") or "").strip()
+    new_open_id = str(open_id or "").strip()
+    same_binder = bool(new_open_id and new_open_id == prev_open_id)
+
     cfg.feishu_app_id = aid
     cfg.feishu_app_secret = str(app_secret or "").strip()
-    cfg.feishu_open_id = str(open_id or "").strip()
+    cfg.feishu_open_id = new_open_id
     cfg.feishu_bound_at = utc_now_iso_z()
-    # Reset intro flags on (re-)bind so a fresh intro is sent.
-    cfg.feishu_intro_sent_at = ""
-    cfg.feishu_intro_sent = {}
+    # Same scanner re-binding: keep intro markers so Gateway restart / next
+    # private message cannot re-spam 「自我介绍」. Only reset private-chat
+    # markers when the binder open_id actually changes.
+    if not same_binder:
+        sent = dict(getattr(cfg, "feishu_intro_sent", None) or {})
+        for key in list(sent.keys()):
+            if str(key).startswith("open_id:"):
+                sent.pop(key, None)
+        cfg.feishu_intro_sent = sent
+        cfg.feishu_intro_sent_at = ""
 
     # Ensure feishu stays in approval channels when bound.
     channels = list(cfg.approval_channels or [])

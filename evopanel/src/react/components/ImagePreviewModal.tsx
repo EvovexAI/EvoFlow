@@ -1,6 +1,5 @@
 import { createPortal } from 'react-dom'
 import { memo, useCallback, useEffect, useState } from 'react'
-import { useGlobalOverlayWhen } from '../hooks/useGlobalOverlayWhen.js'
 import { ObjectUrlImg } from './ObjectUrlImg.js'
 
 export type ImagePreviewItem = {
@@ -29,7 +28,7 @@ function ImagePreviewModalInner({
   const [current, setCurrent] = useState(index)
   const total = images.length
   const safeCurrent = total > 0 ? Math.min(current, total - 1) : 0
-  useGlobalOverlayWhen(total > 0, 'image-preview')
+  // 遮罩带 data-above-native-embed：MutationObserver 会 park 原生 WebView HWND
 
   const goPrev = useCallback(() => {
     setCurrent((c) => (c - 1 + total) % total)
@@ -62,6 +61,7 @@ function ImagePreviewModalInner({
   return createPortal(
     <div
       className="react-chat-image-preview-overlay"
+      data-above-native-embed=""
       role="dialog"
       aria-modal="true"
       aria-label="图片预览"

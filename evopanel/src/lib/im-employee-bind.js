@@ -387,13 +387,18 @@ async function _pollIMChannelScan({ agentCode, channel, onBound, offerNext, role
 
     if (result.status === 'completed') {
       const sessionId = _sessionId
-      cancelPoll()
-      if (!sessionId) return
+      if (!sessionId) {
+        cancelPoll()
+        return
+      }
+      // Feishu/WeCom already showed "绑定成功" on their side once registration
+      // completes. Close the QR immediately — do not keep it up through apply()
+      // and the optional "继续扫码" confirm (that lag looked like a stuck QR).
+      closeIMChannelScan()
       toast('扫码成功，正在绑定到该员工...', 'success')
       try {
         const apply = _applyRoleRegistrationApi(channel)
         const applyResult = await apply(agentCode, sessionId)
-        closeIMChannelScan()
         const roleLabel = String(applyResult?.role_name || roleName || agentCode).trim()
         const idTail = channel === 'feishu'
           ? applyResult?.app_id?.slice?.(-8) || ''
@@ -423,11 +428,6 @@ async function _pollIMChannelScan({ agentCode, channel, onBound, offerNext, role
           void offerBindNextUnboundIMChannel(channel, agentCode, { onBound })
         }
       } catch (e) {
-        if (statusEl) {
-          statusEl.removeAttribute('hidden')
-          statusEl.textContent = '保存失败: ' + (e.message || e)
-          statusEl.className = 'im-scan-status im-scan-status--error'
-        }
         toast('绑定失败: ' + e, 'error')
       }
       return

@@ -46,6 +46,9 @@ function DropdownMenuContent({
           className,
         )}
         {...props}
+        // Native WebView2 HWND ignores CSS z-index; park via browser-embed-surface
+        // while mounted. Keep after {...props} so callers cannot strip the marker.
+        data-above-native-embed=""
       />
     </DropdownMenuPrimitive.Portal>
   );
@@ -250,6 +253,7 @@ function DropdownMenuSubContent({
         className,
       )}
       {...props}
+      data-above-native-embed=""
     />
   );
 }

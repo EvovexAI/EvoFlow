@@ -249,6 +249,8 @@ def build_employee_self_intro(agent_code: str) -> str:
 
     labels = _tool_labels(code)
 
+    # Universal greeting — avoid product pitches (EvoPanel / 工作台) and
+    # bug-fix examples; duties stay role-specific when configured.
     lines: list[str] = [f"👋 你好，我是 **{display_name}**。"]
     if duties:
         joined = "；".join(duties[:_MAX_DUTIES])
@@ -257,9 +259,9 @@ def build_employee_self_intro(agent_code: str) -> str:
         # No written duties — fall back to a short capability hint (Chinese only).
         lines.append("**我能帮你**：" + "、".join(labels[:_MAX_TOOLS]) + "。")
     lines.append("")
-    lines.append("你可以这样使唤我：")
-    lines.append(f"1. 在群里 @{role_name} 直接说需求，例如「@{role_name} 帮我查一下这个报错」。")
-    lines.append("2. 也可以私聊我，或在 EvoPanel 里直接给我派任务。")
+    lines.append("有事直接找我就行：")
+    lines.append(f"1. 在群里 @{role_name} 说清楚你的需求，例如「@{role_name} 帮我处理一下这件事」。")
+    lines.append("2. 也可以私聊我，我会按职责尽力协助。")
     return "\n".join(lines)
 
 

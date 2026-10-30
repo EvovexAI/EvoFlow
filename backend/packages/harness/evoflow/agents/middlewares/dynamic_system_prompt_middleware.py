@@ -624,6 +624,8 @@ class DynamicSystemPromptOnScenarioMiddleware(AgentMiddleware[AgentState]):
                 loaded_deferred=loaded_deferred,
                 mcp_skill_section="",
                 thinking_enabled=bool(ctx.get("thinking_enabled")),
+                # ChannelManager stamps ``channel`` on IM inbound only — Panel stays empty.
+                im_channel=str(ctx.get("channel") or "").strip() or None,
             )
             record_phase(
                 "apply_prompt_template_ms",

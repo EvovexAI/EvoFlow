@@ -27,7 +27,12 @@ import { subscribeVoiceLevels } from '../../../lib/voice-capture-service.js'
 import { showRightStageBrowserUrl } from '../../../lib/right-stage/open-right-stage-browser.js'
 import { rightStageStore } from '../../../lib/right-stage/right-stage-store.js'
 import { notifyLayoutChromeChanged } from '../../../lib/layout-chrome.js'
-import { isXwVoiceMode, subscribeXwVoiceMode } from '../../../lib/xw-voice-mode.js'
+import {
+  isXwVoiceEnterAnimating,
+  isXwVoiceMode,
+  subscribeXwVoiceMode,
+  XW_VOICE_ENTER_ANIM_MS,
+} from '../../../lib/xw-voice-mode.js'
 import { XiaomiV4Timeline } from '../../components/XiaomiV4Timeline.js'
 import { VoicePlaybackDiagnostics } from '../../components/VoicePlaybackDiagnostics.js'
 import './xiaomi-voice-stage.css'
@@ -169,58 +174,77 @@ export function XiaomiVoiceStage() {
     setState((prev) => (prev === next ? prev : next))
   }, [])
 
-  useEffect(
-    () =>
-      subscribeXwVoiceMode((on) => {
-        setVisible(on)
-        if (on) {
-          setPreferXiaomiVoice(true)
-          let tries = 0
-          const tryStart = () => {
-            tries += 1
-            // starting 中也要跳过：否则 80ms 重派发会并行 start → 掐死共享 WS（readyState=-1）
-            void import('../../../lib/xiaomi-voice/pipeline-client.js').then((pipe) => {
-              if (!isXwVoiceMode()) return
-              if (isXiaomiFramePipelineActive() || pipe.isXiaomiFramePipelineStarting?.()) return
-              void toggleXiaomiFramePipeline({
-                onTrayState: (s: string) => {
-                  liveRef.current.tray = isXiaomiFramePipelineActive() ? s : ''
-                  derive()
-                },
-              }).then((ok) => {
-                if (!ok && tries < 3 && isXwVoiceMode()) window.setTimeout(tryStart, 900)
-              })
-            })
-          }
-          // 唤醒要快：两帧后即开 Frame（旧 560ms 人为拖慢）
-          requestAnimationFrame(() => {
-            requestAnimationFrame(() => {
-              void import('../../../lib/xiaomi-voice/voice-file-log.js')
-                .then((m) => m.noteWakeMilestone?.('stage_try_start_frame'))
-                .catch(() => {})
-              tryStart()
-            })
-          })
-        } else {
-          liveRef.current.tray = ''
-          liveRef.current.continuousListen = false
-          liveRef.current.speaking = false
-          // 退出全屏：停 Frame + continuous（exitXwVoiceMode 也会调；这里双保险）
-          void import('../../../lib/background-voice.js')
-            .then((m) => m.shutdownXiaomiVoiceRuntime?.())
-            .catch(() => {
-              if (isXiaomiFramePipelineActive()) stopXiaomiFramePipeline()
-            })
-          setTranscript('')
-          setLastUser('')
-          setReply('')
-          setHasInteracted(false)
-          setRecentSize('open')
-          setState('listen')
+  useEffect(() => {
+    let frameStartTimer = 0
+    let tries = 0
+    const tryStart = () => {
+      tries += 1
+      // starting 中也要跳过：否则重派发会并行 start → 掐死共享 WS
+      void import('../../../lib/xiaomi-voice/pipeline-client.js').then((pipe) => {
+        if (!isXwVoiceMode()) return
+        if (isXiaomiFramePipelineActive() || pipe.isXiaomiFramePipelineStarting?.()) return
+        void toggleXiaomiFramePipeline({
+          onTrayState: (s: string) => {
+            liveRef.current.tray = isXiaomiFramePipelineActive() ? s : ''
+            derive()
+          },
+        }).then((ok) => {
+          if (!ok && tries < 3 && isXwVoiceMode()) window.setTimeout(tryStart, 900)
+        })
+      })
+    }
+    const scheduleFrameStart = () => {
+      if (frameStartTimer) {
+        window.clearTimeout(frameStartTimer)
+        frameStartTimer = 0
+      }
+      setPreferXiaomiVoice(true)
+      const kick = () => {
+        if (!isXwVoiceMode()) return
+        void import('../../../lib/xiaomi-voice/voice-file-log.js')
+          .then((m) => m.noteWakeMilestone?.('stage_try_start_frame'))
+          .catch(() => {})
+        tryStart()
+      }
+      // 仅弧形展开中 defer；已在语音态重进立即开 Frame
+      if (isXwVoiceEnterAnimating()) {
+        frameStartTimer = window.setTimeout(kick, XW_VOICE_ENTER_ANIM_MS + 24)
+      } else {
+        kick()
+      }
+    }
+    // 组件常在 enter 事件之后才挂上：mount 时若已是语音态，主动开 Frame
+    if (isXwVoiceMode()) scheduleFrameStart()
+    const unsub = subscribeXwVoiceMode((on) => {
+      setVisible(on)
+      if (on) {
+        scheduleFrameStart()
+      } else {
+        if (frameStartTimer) {
+          window.clearTimeout(frameStartTimer)
+          frameStartTimer = 0
         }
-      }),
-    [derive],
-  )
+        liveRef.current.tray = ''
+        liveRef.current.continuousListen = false
+        liveRef.current.speaking = false
+        void import('../../../lib/background-voice.js')
+          .then((m) => m.shutdownXiaomiVoiceRuntime?.())
+          .catch(() => {
+            if (isXiaomiFramePipelineActive()) stopXiaomiFramePipeline()
+          })
+        setTranscript('')
+        setLastUser('')
+        setReply('')
+        setHasInteracted(false)
+        setRecentSize('open')
+        setState('listen')
+      }
+    })
+    return () => {
+      if (frameStartTimer) window.clearTimeout(frameStartTimer)
+      unsub()
+    }
+  }, [derive])
 
   useEffect(() => {
     const sync = () => setRightStageOpen(rightStageStore.isOpen)
@@ -434,6 +458,7 @@ export function XiaomiVoiceStage() {
     const N = 360
     // 主题观察器在 bootTimer 之外创建，才能在 effect cleanup 里断开。
     let themeObserverRef: MutationObserver | null = null
+    // 点阵 boot 略晚于进场动画，避免 360 点初始化 + ResizeObserver 与 clip-path 抢同一帧
     const bootTimer = window.setTimeout(() => {
       if (cancelled) return
       const pts: Array<{ x: number; y: number; z: number; sz: number; ph: number; cool: boolean; lv: number }> = []
@@ -593,7 +618,7 @@ export function XiaomiVoiceStage() {
         ctx.globalAlpha = 1
       }
       raf = requestAnimationFrame(frame)
-    }, 520)
+    }, XW_VOICE_ENTER_ANIM_MS + 40)
     return () => {
       cancelled = true
       window.clearTimeout(bootTimer)

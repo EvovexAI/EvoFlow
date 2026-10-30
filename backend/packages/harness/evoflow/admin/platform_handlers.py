@@ -3506,6 +3506,62 @@ def channels_push_targets(args: dict[str, Any]) -> dict[str, Any]:
     return {"ok": True, "targets": targets}
 
 
+def channels_send_message(args: dict[str, Any]) -> dict[str, Any]:
+    """Push text/files to the IM chat+bot that originated this session.
+
+    Routing is taken from ``evoflow_chat_sessions.context`` (channel /
+    channel_chat_id / account_id / topic_id). Callers must **not** pick a bot —
+    wrong-bot delivery is prevented by ignoring any channel/account overrides.
+    """
+    sk = _arg_str(args, "session_key", "sessionKey", "session")
+    if not sk:
+        raise ValidationError("session_key missing（平台会自动注入；请在 IM 会话中调用）")
+
+    text = _arg_str(args, "text", "message", "content", "markdown", "body")
+    title = _arg_str(args, "title")
+    raw_paths = args.get("paths")
+    if raw_paths is None:
+        raw_paths = args.get("files")
+    if raw_paths is None:
+        raw_paths = args.get("attachments")
+    paths: list[str] = []
+    if isinstance(raw_paths, str) and raw_paths.strip():
+        paths = [raw_paths.strip()]
+    elif isinstance(raw_paths, list):
+        for item in raw_paths:
+            if isinstance(item, str) and item.strip():
+                paths.append(item.strip())
+            elif isinstance(item, dict):
+                p = str(item.get("path") or item.get("file") or item.get("url") or "").strip()
+                if p:
+                    paths.append(p)
+    single = _arg_str(args, "path", "file", "image", "attachment")
+    if single:
+        paths.append(single)
+
+    # Ignore any agent-supplied channel/account — origin session is authoritative.
+    try:
+        from evoflow.runtime.ports import push_to_inbound_origin
+    except Exception as exc:
+        raise ValidationError(f"channel push port unavailable: {exc}") from exc
+
+    result = push_to_inbound_origin(
+        session_key=sk,
+        text=text,
+        paths=paths,
+        title=title,
+    )
+    if result is None:
+        raise ValidationError(
+            "channel push adapter not registered（请确认 Gateway 已启动并注册 channels.push_to_inbound_origin）"
+        )
+    if not result.get("ok"):
+        err = str(result.get("error") or "push_failed")
+        hint = str(result.get("hint") or "").strip()
+        raise ValidationError(f"{err}" + (f"：{hint}" if hint else ""))
+    return result
+
+
 def _registration_client(channel: str):
     """Return ``(client|None, normalized_channel)``.
 

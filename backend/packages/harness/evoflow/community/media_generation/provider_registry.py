@@ -138,16 +138,21 @@ def channel_video_models() -> list[dict[str, Any]]:
             "label": "MiniMax H3（官方）",
             "provider": "minimax",
             "min_tier": None,
-            "use_when": "官方 api.minimax.cn Key；图生视频传 first_frame_url；768P/2K · 4–15s",
+            "use_when": (
+                "仅官方 api.minimax.cn Key；勿在 OpenAI Videos 网关下使用此 id（会 503 model_not_found）。"
+                "图生视频传 first_frame_url；768P/2K · 4–15s。无官方 Key 时优先 Seedance/万相。"
+            ),
             "protocol": "minimax_h3_content",
+            "requires_official_key": True,
         },
         {
             "id": "MiniMax-H3-Max",
             "label": "MiniMax H3 Max（官方）",
             "provider": "minimax",
             "min_tier": None,
-            "use_when": "更快出片；480P/768P · 5–15s",
+            "use_when": "仅官方 Key；更快出片；480P/768P · 5–15s。网关请改用 minimax-h3。",
             "protocol": "minimax_h3_content",
+            "requires_official_key": True,
         },
         {
             "id": "minimax-h3",
@@ -158,7 +163,8 @@ def channel_video_models() -> list[dict[str, Any]]:
                 "Base URL 填网关 …/v1（如 hon-maas）；"
                 "multipart POST /videos + extra_params t2va/fl2va；"
                 "图生视频用 input_references + frame_indices；"
-                "渠道锁定可用 minimax-h3/QY3"
+                "渠道锁定可用 minimax-h3/QY3；"
+                "勿写成 MiniMax-H3（大小写不同路由）"
             ),
             "protocol": "openai_videos",
         },

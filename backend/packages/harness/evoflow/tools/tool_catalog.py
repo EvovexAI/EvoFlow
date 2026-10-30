@@ -104,8 +104,15 @@ _OPTIONAL_TOOL_NAMES: frozenset[str] = frozenset(
 # Agent 模式系统工具：``platform``（平台行政 + 右侧面板 ui.show/hide）。
 # 原独立 ``panel_set`` 已并入 platform ``ui.*``，不再单独挂载。
 # 自动挂载范围见 ``should_auto_mount_agent_mode_system_tools``：
-#   main / 小V 默认带；普通员工与其它角色默认不带（``mount_platform_tools`` opt-in）。
+#   main / 小V 默认带；普通员工与其它角色默认不带（``mount_platform_tools`` opt-in）；
+#   IM 进线（ChannelManager 打标 channel）强制带，否则无法 channels.send_message。
 AGENT_MODE_SYSTEM_TOOL_NAMES: frozenset[str] = frozenset({"platform"})
+
+# Keep in sync with app.channels.manager.IM_CHANNEL_NAMES /
+# evoflow.agents.lead_agent.prompt._IM_CHANNEL_NAMES.
+_IM_CHANNEL_NAMES_FOR_PLATFORM: frozenset[str] = frozenset(
+    {"feishu", "slack", "telegram", "weixin", "wecom", "dingtalk"}
+)
 
 # 中间件注入工具：不在原生工具注册表（get_available_tools）里，由 agent 中间件在
 # 建图时挂载。按角色白名单按需注入：勾选才挂（未配置白名单 = 全量继承时默认挂），
@@ -167,19 +174,29 @@ def is_agent_mode_system_tool(name: str | None) -> bool:
     return normalize_tool_name(name) in AGENT_MODE_SYSTEM_TOOL_NAMES
 
 
+def is_im_inbound_channel(channel: str | None) -> bool:
+    """True when ``channel`` is a stamped IM inbound origin (not Panel / voice)."""
+    return str(channel or "").strip().lower() in _IM_CHANNEL_NAMES_FOR_PLATFORM
+
+
 def should_auto_mount_agent_mode_system_tools(
     agent_name: str | None,
     *,
     mount_platform_tools: bool = False,
+    im_channel: str | None = None,
 ) -> bool:
     """Whether ``platform`` should be auto-injected (no tools[] checkbox needed).
 
     - ``main`` (and legacy lead aliases): always
     - 小V (``xiaomi``): always (also force-merged in xiaomi tool_policy)
+    - IM inbound (ChannelManager stamps ``channel``): always — need
+      ``channels.send_message`` to push text/files back to the origin chat
     - employees / custom / subagent: only when ``mount_platform_tools=True``
       (or when ``platform`` is explicitly checked in ``agent.tools`` — see callers)
     """
     if mount_platform_tools:
+        return True
+    if is_im_inbound_channel(im_channel):
         return True
     code = str(agent_name or "").strip().lower()
     if code in {"main", "lead_agent", "default"}:
@@ -206,11 +223,13 @@ def should_mount_platform_tool(
     *,
     mount_platform_tools: bool = False,
     tools_whitelist: list[str] | tuple[str, ...] | None = None,
+    im_channel: str | None = None,
 ) -> bool:
-    """Runtime: mount ``platform`` for main/小V, kb opt-in, or explicit tools[] check."""
+    """Runtime: mount ``platform`` for main/小V/IM inbound, kb opt-in, or tools[] check."""
     if should_auto_mount_agent_mode_system_tools(
         agent_name,
         mount_platform_tools=mount_platform_tools,
+        im_channel=im_channel,
     ):
         return True
     return tools_whitelist_requests_platform(tools_whitelist)

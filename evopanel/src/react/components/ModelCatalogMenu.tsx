@@ -12,6 +12,7 @@ import {
   modelDisplayLabel,
   type ModelCatalogEntry,
 } from '../lib/model-catalog.js'
+import { useGlobalOverlayWhen } from '../hooks/useGlobalOverlayWhen.js'
 
 export type ModelCatalogMenuProps = {
   open: boolean
@@ -86,6 +87,10 @@ export function ModelCatalogMenu({
   }
 
   const cascadePortal = portalFixed && !portalStack
+
+  // 原生浏览器 HWND 不吃 CSS z-index；菜单（含右侧模型级联）打开时先 park，
+  // 否则 flyout 会被右栏 webview 挡住（对齐 ModelConfigSelect / DropdownMenu）。
+  useGlobalOverlayWhen(open, 'model-catalog-menu')
 
   useEffect(() => {
     if (!open) {
@@ -296,6 +301,7 @@ export function ModelCatalogMenu({
           portalFixed ? ' react-chat-bottom-dropdown--model-portal' : ''
         }${portalStack ? ' is-portal-stack' : ''}${cascadePortal ? ' is-portal-cascade' : ''}`}
         role="menu"
+        data-above-native-embed=""
         style={portalFixed ? portalStyle || { display: 'none' } : undefined}
       >
         {catalog.length > 0 ? (
@@ -357,6 +363,7 @@ export function ModelCatalogMenu({
                           flyoutSide === 'left' ? ' is-left' : ''
                         }${cascadePortal ? ' is-portal-fixed react-chat-model-flyout-portal' : ''}`}
                         role="menu"
+                        data-above-native-embed=""
                         style={
                           cascadePortal
                             ? flyoutStyle || {

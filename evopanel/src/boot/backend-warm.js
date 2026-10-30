@@ -76,6 +76,7 @@ export function startBackendReadyPoll() {
   let attempts = 0
   let everHealthy = false
   let finishedReady = false
+  let tickInFlight = false
   const maxAttempts = 240 // ~120s at 500ms
   const WARMING_TIMEOUT_ATTEMPTS = 180 // ~90s at 500ms
   const finishReady = (source) => {
@@ -102,50 +103,59 @@ export function startBackendReadyPoll() {
     if (v) finishReady('ready-listener')
   })
   const tick = async () => {
+    // Serialize probes: a single checkBackendReady can take multiple seconds.
+    // Overlapping 500ms ticks stampede a wedged Gateway and fill the accept
+    // backlog (Windows then returns CONNECTION_REFUSED — looks like「断联」).
+    if (tickInFlight) return
+    tickInFlight = true
     attempts += 1
-    // Already unlocked (HTTP evidence / sticky) — clear「引擎加载中…」immediately.
-    if (isBackendReady() === true) {
-      finishReady('ready-sticky')
-      return
-    }
-    if (await checkBackendReady()) {
-      finishReady('ready-poll')
-      return
-    }
-    const healthOk = await checkBackendHealth()
-    if (healthOk) {
-      everHealthy = true
-      // 仍未 /ready：续冷启动 hold，避免 LG lifespan 卡事件循环时被 guardian 杀掉
-      void import('../lib/gateway-guardian-busy.js')
-        .then((m) => m.markGatewayColdStartHold?.(90_000))
-        .catch(() => {})
-      // Runtime: warm stdio as soon as alive; /ready stays async for send gate only.
-      void kickAppServerPrewarm('ready-poll-liveness').then((ok) => {
-        if (ok) bootMark('app-server prewarm ok (liveness)')
-      })
-      return
-    }
-    if (everHealthy) {
-      // 真故障（起过又挂了）
-      hideBackendWarmingBanner()
-      if (_backendReadyPollTimer) {
-        clearInterval(_backendReadyPollTimer)
-        _backendReadyPollTimer = null
+    try {
+      // Already unlocked (HTTP evidence / sticky) — clear「引擎加载中…」immediately.
+      if (isBackendReady() === true) {
+        finishReady('ready-sticky')
+        return
       }
-      showBackendDownOverlay()
-      return
-    }
-    if (attempts >= WARMING_TIMEOUT_ATTEMPTS) {
-      // 超时故障：从未健康过且超过 90s
-      hideBackendWarmingBanner()
-      if (_backendReadyPollTimer) {
-        clearInterval(_backendReadyPollTimer)
-        _backendReadyPollTimer = null
+      if (await checkBackendReady()) {
+        finishReady('ready-poll')
+        return
       }
-      bootMark('backend ready timeout (async poll)')
-      showBackendDownOverlay()
+      const healthOk = await checkBackendHealth()
+      if (healthOk) {
+        everHealthy = true
+        // 仍未 /ready：续冷启动 hold，避免 LG lifespan 卡事件循环时被 guardian 杀掉
+        void import('../lib/gateway-guardian-busy.js')
+          .then((m) => m.markGatewayColdStartHold?.(90_000))
+          .catch(() => {})
+        // Runtime: warm stdio as soon as alive; /ready stays async for send gate only.
+        void kickAppServerPrewarm('ready-poll-liveness').then((ok) => {
+          if (ok) bootMark('app-server prewarm ok (liveness)')
+        })
+        return
+      }
+      if (everHealthy) {
+        // 真故障（起过又挂了）
+        hideBackendWarmingBanner()
+        if (_backendReadyPollTimer) {
+          clearInterval(_backendReadyPollTimer)
+          _backendReadyPollTimer = null
+        }
+        showBackendDownOverlay()
+        return
+      }
+      if (attempts >= WARMING_TIMEOUT_ATTEMPTS) {
+        // 超时故障：从未健康过且超过 90s
+        hideBackendWarmingBanner()
+        if (_backendReadyPollTimer) {
+          clearInterval(_backendReadyPollTimer)
+          _backendReadyPollTimer = null
+        }
+        bootMark('backend ready timeout (async poll)')
+        showBackendDownOverlay()
+      }
+      // 其余：保持 warming 横幅继续轮询
+    } finally {
+      tickInFlight = false
     }
-    // 其余：保持 warming 横幅继续轮询
   }
   void tick()
   _backendReadyPollTimer = setInterval(tick, 500)

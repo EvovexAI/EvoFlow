@@ -24,6 +24,29 @@ from evoflow.config.paths import get_paths
 
 logger = logging.getLogger(__name__)
 
+# Keep in sync with app.channels.manager.IM_CHANNEL_NAMES.
+# Harness must not import app.* — duplicate the frozenset here for prompt gating.
+_IM_CHANNEL_NAMES = frozenset({"feishu", "slack", "telegram", "weixin", "wecom", "dingtalk"})
+
+
+def resolve_im_channel_for_prompt(
+    *,
+    im_channel: str | None = None,
+    session_key: str | None = None,
+) -> str:
+    """Return IM channel name when this run should get channel-only prompt rules.
+
+    Only trusts the stamped ``im_channel`` from ChannelManager run_context
+    (middleware passes ``ctx["channel"]``). No session-DB fallback — otherwise
+    opening an IM thread in Panel would incorrectly inject ``<im_channel>``.
+    ``session_key`` is accepted for call-site symmetry and ignored.
+    """
+    _ = session_key
+    ch = str(im_channel or "").strip().lower()
+    if ch in _IM_CHANNEL_NAMES:
+        return ch
+    return ""
+
 
 def _env_bool(name: str, default: bool) -> bool:
     raw = (os.getenv(name) or "").strip().lower()
@@ -808,10 +831,13 @@ def _assemble_system_prompt(
     mind_map_prompt_enabled: bool = False,
     xiaomi_mode: bool = False,
     xiaomi_page_context: dict | None = None,
+    im_channel: str = "",
 ) -> str:
     modules = _enabled_modules_for_scenario(scenario)
     pure_chat = _is_pure_chat_modules(modules)
     static = get_static_blocks(prompt_language)
+    im_ch = str(im_channel or "").strip().lower()
+    is_im = im_ch in _IM_CHANNEL_NAMES
 
     blocks: list[str] = []
 
@@ -847,6 +873,8 @@ def _assemble_system_prompt(
         # (soul's 语音轮 section is conditional and never activates on its own).
         if voice_mode and static.VOICE_MODE_BLOCK:
             blocks.append(static.VOICE_MODE_BLOCK.strip())
+        if is_im and getattr(static, "IM_CHANNEL_REPLY_BLOCK", "").strip():
+            blocks.append(static.IM_CHANNEL_REPLY_BLOCK.strip())
         return "\n\n".join([b for b in blocks if b]).strip() + "\n"
 
     # 统一裁决链：静态块（role/communication/entity_assets）是基础，
@@ -857,10 +885,11 @@ def _assemble_system_prompt(
     blocks.append((static.COMMUNICATION_STYLE_COMPACT_BLOCK if pure_chat else static.COMMUNICATION_STYLE_BLOCK).strip())
     # ENTITY_ASSETS retired — policy + recall live in ``<memory_assets>`` (MemoryLiveFooter /
     # build_memory_injection_sections), gated with the memory switch.
-    # 产物展示协议（Markdown/反引号文件交付 + ::code-comment 行内评论）：任何场景都可能引用工作区
-    # 文件或评审代码（agent/code 场景的模块映射也落在 chat），无条件注入。
-    blocks.append(static.ARTIFACT_DISPLAY_BLOCK.strip())
-    # 平台行政：main 默认；员工仅在挂载 platform 时注入（勾选 tools[] / mount_platform_tools）。
+    # 产物展示协议（Markdown/反引号文件交付 + ::code-comment 行内评论）：Panel 场景注入；
+    # IM 渠道改用 <im_channel>（纯文本），避免与「勿用 Markdown」冲突。
+    if not is_im:
+        blocks.append(static.ARTIFACT_DISPLAY_BLOCK.strip())
+    # 平台行政：main 默认；IM 进线强制；员工仅在挂载时注入（tools[] / mount_platform_tools）。
     # 标签 ``<platform_tool>``（勿用 ``<platform>``）。小V 走独立 duty，此分支不跑。
     if getattr(static, "PLATFORM_TOOL_BLOCK", "").strip():
         try:
@@ -878,9 +907,14 @@ def _assemble_system_prompt(
                 agent_name,
                 mount_platform_tools=bool(_kb.mount_platform_tools),
                 tools_whitelist=_wl,
+                im_channel=im_ch if is_im else None,
             )
         except Exception:
-            _show_platform = str(agent_name or "").strip().lower() in {"main", "lead_agent", "default"}
+            _show_platform = is_im or str(agent_name or "").strip().lower() in {
+                "main",
+                "lead_agent",
+                "default",
+            }
         if _show_platform:
             blocks.append(static.PLATFORM_TOOL_BLOCK.strip())
     # TOOL_CALLING_BLOCK：不再注入；工具 schema / 模型能力已够用。
@@ -978,6 +1012,9 @@ def _assemble_system_prompt(
             prompt_language=prompt_language,
         )
     )
+
+    if is_im and getattr(static, "IM_CHANNEL_REPLY_BLOCK", "").strip():
+        blocks.append(static.IM_CHANNEL_REPLY_BLOCK.strip())
 
     # Final join with blank lines
     return "\n\n".join([b for b in blocks if b]).strip() + "\n"
@@ -2029,6 +2066,8 @@ def apply_prompt_template(
     xiaomi_page_context: dict | None = None,
     principal_id: str | None = None,
     owner_scope_id: str | None = None,
+    # IM inbound only (ChannelManager stamps ``channel``). Empty → no <im_channel> block.
+    im_channel: str | None = None,
     # System prompt injection toggles (None = follow default / inject all)
     inject_user_profile: bool | None = None,
     inject_memory: bool | None = None,
@@ -2045,6 +2084,7 @@ def apply_prompt_template(
             mission_state = {**mission_state, "task_type": classify_task_type_heuristic(hint_text)}
     lang = resolve_prompt_language(prompt_language)
     dyn = get_prompt_dynamic(lang)
+    im_ch = resolve_im_channel_for_prompt(im_channel=im_channel, session_key=session_key)
     try:
         from evoflow.agents.middlewares.plan_guard_middleware import is_subagent_focus_mode
 
@@ -2230,6 +2270,10 @@ def apply_prompt_template(
             include_memory=include_memory,
             loaded_tool_names=loaded_tool_names,
         )
+        if im_ch:
+            im_block = getattr(get_static_blocks(lang), "IM_CHANNEL_REPLY_BLOCK", "").strip()
+            if im_block:
+                prompt = f"{prompt.rstrip()}\n\n{im_block}\n"
     else:
         prompt = _assemble_system_prompt(
             scenario=intent,
@@ -2271,6 +2315,7 @@ def apply_prompt_template(
             xiaomi_mode=_is_xiaomi_lead_run(agent_name),
             # Page UI → ephemeral HumanMessage (XiaomiUiContextLiveFooterMiddleware), not system.
             xiaomi_page_context=None,
+            im_channel=im_ch,
         )
 
     if not use_virtual_paths:
