@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-10-30
+
+相对 **1.2.0** 的稳定性补丁：修复打开内置知识库/工作区文件树时 git 探测卡住、其它页面访问不上的问题；顺带消除 Windows 下 git 子进程闪黑窗。
+GitHub Release 正文见 `scripts/maintainer/windows/release-notes/PRODUCT-NOTES-1.2.1.md`；升级横幅见 `scripts/maintainer/update/latest.json`。
+
+### Fixed
+
+- **Gateway 假死**：文件树 `git_status` / `git_ignored_paths` 在 Windows 上可卡死线程池，导致健康探针失败、其它 REST 像「访问不上」；改为独立线程池 + 硬超时强杀 + 过载甩载
+- **内置知识库误探测**：`builtin_knowledge_vaults`（如 user-guide）只读安装目录不再跑 git
+- **Hang 诊断刷屏**：`panel-stream` / V4 `frames` 长连接不再误登记为卡住的 REST
+- **Windows 黑窗**：git 子进程加 `CREATE_NO_WINDOW`，避免打开知识库时闪控制台
+
 ## [1.2.0] - 2026-10-29
 
 相对 **1.1.9** 以来的增量发布：知识库与资产 Hub 分层重构、统一情感基底、飞书入站管线、技能原地登记、OpenAI 兼容网关与 MCP 工作台联动、界面与稳定性修复（前后端同一版本号）。
