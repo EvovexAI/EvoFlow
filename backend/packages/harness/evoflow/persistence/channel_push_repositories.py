@@ -174,6 +174,8 @@ _MSG_TYPE_LABEL_ZH = {
     "share_user": "分享用户",
     "attachment": "附件",
     "media": "媒体",
+    "text+image": "文本+图片",
+    "text+file": "文本+文件",
 }
 
 _CHANNEL_LABEL_ZH = {

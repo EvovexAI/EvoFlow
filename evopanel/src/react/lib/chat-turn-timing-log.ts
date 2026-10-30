@@ -6,9 +6,14 @@
  * 2. 桌面端：`~/.evoflow/logs/frontend-YYYY-MM-DD.log`（`append_frontend_log`）
  *
  * 关闭：localStorage.setItem('EVOFLOW_TURN_TIMING_LOG', '0')
+ *
+ * 慢首帧拆解：看 sinceSendMs 在
+ * send_click → send_wire → run_started → first_response 之间的差。
  */
 const PREFIX = '[回合计时]'
 const LS_ENABLE_KEY = 'EVOFLOW_TURN_TIMING_LOG'
+const SLOW_FIRST_MS = 3_000
+const SEND_CLICK_BIND_MS = 12_000
 
 export type ChatTurnSendTrace = {
   sessionKey: string
@@ -18,13 +23,14 @@ export type ChatTurnSendTrace = {
   /** 中文「点击发送」是否已落盘（避免 Composer + handle-send 双记） */
   sendClickLogged?: boolean
   firstResponseLogged?: boolean
+  wireLogged?: boolean
+  runStartedLogged?: boolean
 }
 
 let sendTrace: ChatTurnSendTrace | null = null
 /** 同一会话状态卡展示去重，避免 effect 连打 */
 const summaryShownRecent = new Map<string, number>()
 const SUMMARY_DEDUPE_MS = 1_500
-const SEND_CLICK_BIND_MS = 8_000
 
 function enabled(): boolean {
   try {
@@ -48,6 +54,13 @@ function clipText(raw: unknown, max = 200): string {
   if (!s) return ''
   if (s.length <= max) return s
   return `${s.slice(0, max)}…(+${s.length - max})`
+}
+
+/** 语音转写常夹杂「呃/啊」等，绑定时忽略这些差异 */
+function normalizeSendText(raw: unknown): string {
+  return clipText(raw, 240)
+    .replace(/[呃啊嗯哦唔欸诶]+/g, '')
+    .replace(/\s+/g, '')
 }
 
 function persistToFrontendLog(level: 'info' | 'warn' | 'error', line: string): void {
@@ -97,17 +110,22 @@ export function bindChatTurnSendSession(opts: {
   const sessionKey = String(opts.sessionKey || '').trim()
   const textPreview = clipText(opts.text, 240)
   const attachmentCount = Math.max(0, Number(opts.attachmentCount) || 0)
+  const norm = normalizeSendText(textPreview)
   const canBind =
     !!sendTrace &&
     Date.now() - sendTrace.startedAt < SEND_CLICK_BIND_MS &&
-    (!textPreview || !sendTrace.textPreview || textPreview === sendTrace.textPreview)
+    (!norm ||
+      !sendTrace.textPreview ||
+      normalizeSendText(sendTrace.textPreview) === norm ||
+      normalizeSendText(sendTrace.textPreview).includes(norm) ||
+      norm.includes(normalizeSendText(sendTrace.textPreview)))
   if (canBind && sendTrace) {
+    // 只补绑 sessionKey，保留点击 startedAt；勿清 firstResponseLogged
     sendTrace = {
       ...sendTrace,
       sessionKey: sessionKey || sendTrace.sessionKey,
       textPreview: textPreview || sendTrace.textPreview,
       attachmentCount: attachmentCount || sendTrace.attachmentCount,
-      firstResponseLogged: false,
     }
     return { sendClickAlreadyLogged: !!sendTrace.sendClickLogged }
   }
@@ -118,6 +136,8 @@ export function bindChatTurnSendSession(opts: {
     attachmentCount,
     sendClickLogged: false,
     firstResponseLogged: false,
+    wireLogged: false,
+    runStartedLogged: false,
   }
   return { sendClickAlreadyLogged: false }
 }
@@ -125,7 +145,8 @@ export function bindChatTurnSendSession(opts: {
 export function chatTurnSinceSendMs(sessionKey?: string | null): number | null {
   if (!sendTrace) return null
   const sk = String(sessionKey || '').trim()
-  if (sk && sk !== sendTrace.sessionKey) return null
+  // Composer 点击时尚无 sessionKey 时 sendTrace.sessionKey 为空：允许用后续 sk 算耗时
+  if (sk && sendTrace.sessionKey && sk !== sendTrace.sessionKey) return null
   return Math.max(0, Date.now() - sendTrace.startedAt)
 }
 
@@ -149,6 +170,8 @@ export function logChatTurnSendClick(opts: {
     attachmentCount,
     sendClickLogged: true,
     firstResponseLogged: false,
+    wireLogged: false,
+    runStartedLogged: false,
   }
   const contentDesc = textPreview
     ? `内容「${textPreview}」`
@@ -163,6 +186,56 @@ export function logChatTurnSendClick(opts: {
     attachmentCount,
     source: opts.source || undefined,
   })
+}
+
+/** chatSend 真正发出（已过 context/abort 准备）：看「点发送→上线」卡了多久 */
+export function logChatTurnSendWire(opts: {
+  sessionKey?: string | null
+  runId?: string | null
+}): void {
+  if (!sendTrace || sendTrace.wireLogged) return
+  const sessionKey = String(opts.sessionKey || '').trim()
+  if (sessionKey && sendTrace.sessionKey && sessionKey !== sendTrace.sessionKey) return
+  if (sessionKey && !sendTrace.sessionKey) sendTrace.sessionKey = sessionKey
+  sendTrace.wireLogged = true
+  const since = chatTurnSinceSendMs(sessionKey || sendTrace.sessionKey)
+  const sinceDesc = since != null ? `距点击 ${since}ms` : '无点击锚点'
+  const level = since != null && since >= SLOW_FIRST_MS ? 'warn' : 'info'
+  emit(
+    `消息已上线（chatSend）：${sinceDesc}${since != null && since >= SLOW_FIRST_MS ? ' —— 发送准备偏慢（context/abort/beforeWire）' : ''}`,
+    {
+      event: 'send_wire',
+      sessionKey: sessionKey || sendTrace.sessionKey || undefined,
+      runId: String(opts.runId || '').trim() || undefined,
+      ...(since != null ? { sinceSendMs: since } : {}),
+    },
+    level,
+  )
+}
+
+/** AG-UI RUN_STARTED：服务端开始跑本轮 */
+export function logChatTurnRunStarted(opts: {
+  sessionKey?: string | null
+  runId?: string | null
+}): void {
+  if (!sendTrace || sendTrace.runStartedLogged) return
+  const sessionKey = String(opts.sessionKey || '').trim()
+  if (sessionKey && sendTrace.sessionKey && sessionKey !== sendTrace.sessionKey) return
+  if (sessionKey && !sendTrace.sessionKey) sendTrace.sessionKey = sessionKey
+  sendTrace.runStartedLogged = true
+  const since = chatTurnSinceSendMs(sessionKey || sendTrace.sessionKey)
+  const sinceDesc = since != null ? `距点击 ${since}ms` : '无点击锚点'
+  const level = since != null && since >= SLOW_FIRST_MS ? 'warn' : 'info'
+  emit(
+    `回合已开始（RUN_STARTED）：${sinceDesc}${since != null && since >= SLOW_FIRST_MS ? ' —— 等服务端开跑偏慢' : ''}`,
+    {
+      event: 'run_started',
+      sessionKey: sessionKey || sendTrace.sessionKey || undefined,
+      runId: String(opts.runId || '').trim() || undefined,
+      ...(since != null ? { sinceSendMs: since } : {}),
+    },
+    level,
+  )
 }
 
 /**
@@ -243,7 +316,7 @@ export type ChatTurnFirstResponseKind = 'text' | 'reasoning' | 'tool' | 'other'
 
 /**
  * ③ 首帧响应：距发送的毫秒 + 首段可见内容预览。
- * 同一轮发送只记一次（靠 markChatTurnSend 的 firstResponseLogged）。
+ * 同一轮发送只记一次。
  */
 export function logChatTurnFirstResponse(opts: {
   sessionKey?: string | null
@@ -258,6 +331,7 @@ export function logChatTurnFirstResponse(opts: {
     if (sessionKey && sendTrace.sessionKey && sessionKey !== sendTrace.sessionKey) return
     if (sendTrace.firstResponseLogged) return
     sendTrace.firstResponseLogged = true
+    if (sessionKey && !sendTrace.sessionKey) sendTrace.sessionKey = sessionKey
   }
   const since = chatTurnSinceSendMs(sessionKey || sendTrace?.sessionKey)
   const preview = clipText(opts.preview, 200)
@@ -272,7 +346,12 @@ export function logChatTurnFirstResponse(opts: {
   const previewDesc = preview ? `，内容预览「${preview}」` : ''
   const sinceDesc = since != null ? `，距发送 ${since}ms` : ''
   const gateDesc = opts.gatedByV4 ? '（V4 已闸显示热路径，仍记首包时刻）' : ''
-  emit(`首帧响应：类型=${kindLabel}${sinceDesc}${previewDesc}${gateDesc}`, {
+  const slow =
+    since != null && since >= SLOW_FIRST_MS
+      ? ` —— 偏慢：对照 send_wire / run_started 拆「准备 / 等模型 / 首 token」`
+      : ''
+  const level = since != null && since >= SLOW_FIRST_MS ? 'warn' : 'info'
+  emit(`首帧响应：类型=${kindLabel}${sinceDesc}${previewDesc}${gateDesc}${slow}`, {
     event: 'first_response',
     sessionKey: sessionKey || sendTrace?.sessionKey || undefined,
     kind: opts.kind,
@@ -281,5 +360,5 @@ export function logChatTurnFirstResponse(opts: {
     preview: preview || undefined,
     gatedByV4: opts.gatedByV4 || undefined,
     ...(since != null ? { sinceSendMs: since } : {}),
-  })
+  }, level)
 }

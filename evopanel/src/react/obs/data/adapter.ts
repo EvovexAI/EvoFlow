@@ -746,7 +746,8 @@ export function apiChannelMessageToRecord(row: Record<string, unknown>): Channel
     msgType: String(row.msg_type || '文本'),
     kind: String(row.kind || ''),
     kindLabel: String(row.kind_label || row.kind || '—'),
-    content: String(row.content_summary || row.title || '').slice(0, 200),
+    // Keep full API summary (backend already clips ~800). Table cell ellipsizes; modal needs full text.
+    content: String(row.content_summary || row.title || ''),
     attachmentCount: Number(row.attachment_count || 0),
     attachments: atts.length ? atts : attachmentItems.map((it) => it.path || it.filename),
     attachmentItems,

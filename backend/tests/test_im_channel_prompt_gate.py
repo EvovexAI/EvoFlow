@@ -7,6 +7,26 @@ from evoflow.agents.lead_agent.prompt import (
     resolve_im_channel_for_prompt,
 )
 from evoflow.agents.lead_agent.prompt_blocks import get_static_blocks
+from evoflow.agents.lead_agent.runtime_context import LeadAgentRuntimeContext
+
+
+def test_channel_survives_langgraph_context_coerce():
+    """LangGraph does context_schema(**dict); undeclared keys TypeError or get filtered."""
+    from langgraph.pregel.main import _coerce_context
+
+    ctx = _coerce_context(
+        LeadAgentRuntimeContext,
+        {
+            "agent_name": "duty_clerk",
+            "channel": "feishu",
+            "channel_chat_id": "oc_x",
+            "session_key": "proactive:duty_clerk:feishu:oc_x",
+        },
+    )
+    assert isinstance(ctx, LeadAgentRuntimeContext)
+    assert ctx.channel == "feishu"
+    assert ctx.channel_chat_id == "oc_x"
+    assert ctx.get("channel") == "feishu"
 
 
 def test_resolve_im_channel_from_stamped_name():
@@ -62,8 +82,13 @@ def test_assemble_skips_artifact_and_adds_im_block_when_im():
     assert "<artifact_display>" not in im
     assert "<im_channel>" in im
     assert "channels.send_message" in im
-    assert "不要使用 Markdown" in im
+    assert "竖线表格" in im
+    assert "井号标题" in im
+    assert "最高优先级" in im
     assert zh.IM_CHANNEL_REPLY_BLOCK.strip() in im
+    # Instruction block itself must not teach Markdown via ## / | tables.
+    assert "\n## " not in zh.IM_CHANNEL_REPLY_BLOCK
+    assert "|---|" not in zh.IM_CHANNEL_REPLY_BLOCK
 
 
 def test_assemble_en_im_block():
@@ -96,5 +121,7 @@ def test_assemble_en_im_block():
         im_channel="slack",
     )
     assert "<im_channel>" in prompt
-    assert "Do not use Markdown" in prompt
+    assert "pipe tables" in prompt
+    assert "HIGHEST PRIORITY" in prompt
     assert "<artifact_display>" not in prompt
+    assert "\n## " not in get_static_blocks("en").IM_CHANNEL_REPLY_BLOCK

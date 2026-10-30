@@ -202,13 +202,16 @@ def _system_prompt_structure_key(sig: str) -> str:
     """Fingerprint parts that require ``apply_prompt_template`` (exclude turn-tail).
 
     Layout: 0 thread, 1 scenario, 2 tools, 3 role_disk, 4 collab_phase, 5 collab_rt,
-    6 scenario_tool, 7 human_turn, 8 mission, 9 mcp.
+    6 scenario_tool, 7 human_turn, 8 mission, 9 mcp, 10 im_channel.
     Human turn + mission are turn-tail only (runtime keeps base instructions stable).
     """
     parts = _sig_parts(sig)
     if len(parts) < 10:
         return sig
-    return "::".join([*parts[0:7], parts[9]])
+    base = [*parts[0:7], parts[9]]
+    if len(parts) >= 11:
+        base.append(parts[10])
+    return "::".join(base)
 
 
 def _is_intra_turn_scenario_only_change(prev_sig: str | None, new_sig: str) -> bool:
@@ -223,7 +226,10 @@ def _is_intra_turn_scenario_only_change(prev_sig: str | None, new_sig: str) -> b
         return False
     if _system_prompt_structure_key(prev_sig) == _system_prompt_structure_key(new_sig):
         return False
-    for i in (0, 2, 3, 4, 5, 8, 9):
+    stable = [0, 2, 3, 4, 5, 8, 9]
+    if len(new) >= 11:
+        stable.append(10)  # im_channel
+    for i in stable:
         if prev[i] != new[i]:
             return False
     return prev[1] != new[1] or prev[6] != new[6]
@@ -353,6 +359,7 @@ class DynamicSystemPromptOnScenarioMiddleware(AgentMiddleware[AgentState]):
         human_turn_fp: str,
         mission_state_fp: str,
         mcp_fp: str,
+        im_channel_fp: str = "",
     ) -> str:
         cp = str(collab_phase_fp or "")
         crt = str(collab_rt or "")
@@ -360,7 +367,8 @@ class DynamicSystemPromptOnScenarioMiddleware(AgentMiddleware[AgentState]):
         ht = str(human_turn_fp or "")
         msf = str(mission_state_fp or "")
         mcp = str(mcp_fp or "")
-        return f"{thread_id}::{scenario_csv}::{'|'.join(tools_sorted)}::{role_disk}::{cp}::{crt}::{st}::{ht}::{msf}::{mcp}"
+        im = str(im_channel_fp or "").strip().lower()
+        return f"{thread_id}::{scenario_csv}::{'|'.join(tools_sorted)}::{role_disk}::{cp}::{crt}::{st}::{ht}::{msf}::{mcp}::{im}"
 
     def _apply_proactive_duty_system(self, request: ModelRequest, ctx: dict[str, Any]) -> ModelRequest:
         """Skip chat prompt templates; set self-contained duty brief + live status footer."""
@@ -491,6 +499,7 @@ class DynamicSystemPromptOnScenarioMiddleware(AgentMiddleware[AgentState]):
             mcp_fp = mcp_native_prompt_fingerprint(
                 mcp_binding if isinstance(mcp_binding, list) or mcp_binding is None else None
             )
+        im_channel_fp = str(ctx.get("channel") or "").strip().lower()
         sig = self._fingerprint(
             thread_id=tid,
             scenario_csv=scenario_csv,
@@ -502,6 +511,7 @@ class DynamicSystemPromptOnScenarioMiddleware(AgentMiddleware[AgentState]):
             human_turn_fp=human_turn_fp,
             mission_state_fp=mission_state_fp,
             mcp_fp=mcp_fp,
+            im_channel_fp=im_channel_fp,
         )
         with self._lock:
             prev_sig = _last_sig_by_thread.get(tid)

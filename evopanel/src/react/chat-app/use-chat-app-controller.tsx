@@ -4676,8 +4676,13 @@ export function useChatAppController() {
       el.classList.toggle('active', isHomeSurface)
     })
   }, [isHomeSurface])
-  /** Only while a real network fetch has no rows yet — never gate on scroll boot (historyViewReady). */
+  /**
+   * 旧 /messages 全屏遮罩：仅非 V4 对话需要。
+   * V4 主对话用自己的 connecting/首帧；若仍盖这层，会等慢的 chatHistory 才揭开，
+   * 即使 V4 snapshot 早已到（体感「转圈很久」）。
+   */
   const showHistoryFetchOverlay =
+    !(isEvoflowChatV4Enabled() && !isHomeSurface) &&
     renderRows.length === 0 &&
     historyLoading &&
     !selectedSessionLive &&

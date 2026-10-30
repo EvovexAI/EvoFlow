@@ -1275,11 +1275,15 @@ def _accumulate_stream_text(
 
 
 def _join_im_stream_buffers(buffers: dict[str, str]) -> str:
-    """Join every assistant buffer in this turn for IM card display.
+    """Join every assistant buffer in this turn for **live** IM card display.
 
     LangGraph emits a **new** message id after each tool call. Using only the
     latest buffer makes Feishu cards regress to「这是一」/「![」and look stuck
     while tools run. Keep prior segments visible; order follows insertion.
+
+    Do **not** use this for the final outbound bubble — that dumps the whole
+    mid-turn progress log into one Feishu message. Finals use
+    :func:`_latest_im_stream_buffer`.
     """
     parts: list[str] = []
     for text in buffers.values():
@@ -1287,6 +1291,20 @@ def _join_im_stream_buffers(buffers: dict[str, str]) -> str:
         if chunk:
             parts.append(chunk)
     return "\n\n".join(parts)
+
+
+def _latest_im_stream_buffer(buffers: dict[str, str]) -> str:
+    """Last non-empty assistant stream buffer (insertion order).
+
+    Mid-turn status lines ("下载完成…", "等视觉理解跑完") each get their own
+    message id; the final user-visible IM reply should be only the latest.
+    """
+    last = ""
+    for text in buffers.values():
+        chunk = str(text or "").strip()
+        if chunk:
+            last = chunk
+    return last
 
 
 def _should_skip_im_stream_regression(previous: str, candidate: str) -> bool:
@@ -3048,12 +3066,16 @@ class ChannelManager:
                 len(tail_human or ""),
                 stream_error,
             )
-        # IM (esp. Feishu final-only): prefer the full turn stream buffers when they
-        # carry more than the last AI message alone (tool → new message cycles).
+        # IM final bubble: prefer the *latest* assistant buffer only.
+        # Joining every mid-tool status line produced a progress-log dump on Feishu
+        # (download… / 抽帧… / 等视觉理解… glued onto the real answer).
         if msg.channel_name in IM_CHANNEL_NAMES and streamed_buffers:
-            joined = _join_im_stream_buffers(streamed_buffers)
-            if joined and len(joined) > len(response_text or ""):
-                response_text = joined
+            latest_buf = _latest_im_stream_buffer(streamed_buffers)
+            if latest_buf and (
+                not str(response_text or "").strip()
+                or len(latest_buf) >= len(str(response_text or "").strip())
+            ):
+                response_text = latest_buf
                 if not artifacts:
                     artifacts = _extract_artifacts(result, response_text=response_text)
         response_text, attachments = _prepare_artifact_delivery(active_thread_id, response_text, artifacts)

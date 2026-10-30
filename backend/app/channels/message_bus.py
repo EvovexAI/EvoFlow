@@ -249,18 +249,72 @@ class MessageBus:
             _task_id = str(_meta.get("task_id") or "").strip()
             _role = str(_meta.get("role_agent_code") or "").strip()
             _sender = str(msg.account_id or "").strip() or str(_meta.get("account_id") or "").strip()
+            # Prefer channel-stamped delivery (wire body + real attachments) over raw agent text.
+            ops_delivery = _meta.get("ops_delivery") if isinstance(_meta.get("ops_delivery"), dict) else {}
+            if not ops_delivery:
+                try:
+                    from app.channels.feishu_message_format import build_outbound_ops_delivery
+
+                    # Only claim attachments when send succeeded; failure path never uploaded them.
+                    att_for_summary = list(msg.attachments or []) if status == "ok" else []
+                    ops_delivery = build_outbound_ops_delivery(
+                        msg.text or "",
+                        attachments=att_for_summary,
+                        proactive_markdown=bool(_meta.get("proactive_markdown")),
+                        wire_msg_type=str(_meta.get("wire_msg_type") or "").strip(),
+                    )
+                except Exception:
+                    ops_delivery = {}
+            summary = str(ops_delivery.get("content_summary") or msg.text or "")[:800]
+            wire_msg_type = str(
+                ops_delivery.get("wire_msg_type")
+                or _meta.get("wire_msg_type")
+                or ("interactive" if _meta.get("proactive_markdown") else "")
+                or ""
+            ).strip() or None
+            att_payload = ops_delivery.get("attachments")
+            if not isinstance(att_payload, list) or not att_payload:
+                att_payload = []
+                for a in list(msg.attachments or [])[:8]:
+                    if isinstance(a, str):
+                        att_payload.append(a)
+                        continue
+                    att_payload.append(
+                        {
+                            "filename": str(getattr(a, "filename", "") or ""),
+                            "path": str(
+                                getattr(a, "actual_path", "")
+                                or getattr(a, "virtual_path", "")
+                                or ""
+                            ),
+                            "mime": str(getattr(a, "mime_type", "") or ""),
+                        }
+                    )
             payload: dict[str, Any] = {
                 "thread_id": str(msg.thread_id or ""),
                 "topic_id": str(msg.topic_id or ""),
                 "is_final": True,
                 "artifacts": list(msg.artifacts or [])[:8],
-                "attachments": [
-                    getattr(a, "virtual_path", str(a)) if not isinstance(a, str) else a
-                    for a in (msg.attachments or [])
-                ][:8],
-                "msg_type": "interactive" if _meta.get("proactive_markdown") else None,
+                "attachments": att_payload[:8],
+                "msg_type": wire_msg_type,
                 "source": "message_bus",
-                "metadata": {k: _meta[k] for k in list(_meta.keys())[:12]},
+                "ops_delivery": {
+                    k: ops_delivery[k]
+                    for k in (
+                        "wire_text",
+                        "wire_msg_type",
+                        "attachments_failed",
+                        "markdown_images_stripped",
+                    )
+                    if k in ops_delivery
+                }
+                if ops_delivery
+                else {},
+                "metadata": {
+                    k: _meta[k]
+                    for k in list(_meta.keys())[:12]
+                    if k not in {"ops_delivery"}
+                },
             }
             if delivery:
                 payload["delivery"] = delivery
@@ -277,7 +331,7 @@ class MessageBus:
                 receive_id=str(msg.chat_id or ""),
                 receive_id_type=_rtype,
                 title=_title,
-                content_summary=str(msg.text or "")[:800],
+                content_summary=summary,
                 payload=payload,
                 status=status,
                 error=str(error or "")[:400],
@@ -293,6 +347,16 @@ class MessageBus:
         as ``status=error`` (event ``send_failed`` / ``dropped``).
         """
         from app.channels.channel_io_log import log_channel_outbound
+        from app.channels.outbound_text import sanitize_channel_outbound_text
+
+        # One choke point for Feishu / WeCom / DingTalk / Slack / Telegram / …
+        # (finals and live stream patches). Keep citation protocol off the wire.
+        try:
+            cleaned = sanitize_channel_outbound_text(msg.text or "")
+            if cleaned != (msg.text or ""):
+                msg.text = cleaned
+        except Exception:
+            logger.debug("outbound citation sanitize failed", exc_info=True)
 
         log_channel_outbound(msg)
         # Route by (channel_name, account_id) so the reply lands on the same

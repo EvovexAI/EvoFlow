@@ -12,6 +12,7 @@ import type { PriorTurnStripBundle } from '../../lib/turn-text-isolation.js'
 import {
   bindChatTurnSendSession,
   logChatTurnSendClick,
+  logChatTurnSendWire,
 } from '../../lib/chat-turn-timing-log.js'
 
 export type HandleSendOpts = {
@@ -300,7 +301,9 @@ export async function handleSend(
       }
     }
 
-    // 智能体员工会话：按 session_key 轻量同步 context，之后走正常 chatSend
+    // 智能体员工会话：按 session_key 轻量同步 context，之后走正常 chatSend。
+    // 只 await 本地合并；Gateway PATCH 后台发。原先 await 网络会在 Gateway 忙/panel-stream
+    // 抖动时把「点击→上线」拖到数秒（回合计时里的 context/abort/beforeWire）。
     if (isProactiveSessionKey(sessionKey) && String(message || '').trim()) {
       const parsed = parseProactiveSessionKey(sessionKey)
       try {
@@ -318,7 +321,8 @@ export async function handleSend(
         } else if (parsed.kind === 'duty') {
           patch.workspace_kind = 'duty'
         }
-        await wsClient.updateSessionContext(sessionKey, patch)
+        await wsClient.updateSessionContext(sessionKey, patch, { localOnly: true })
+        void wsClient.updateSessionContext(sessionKey, patch).catch(() => {})
       } catch {
         /* ignore */
       }
@@ -735,6 +739,8 @@ export async function handleSend(
               priorTurnStripBundle: priorStripBundle,
             }
           : undefined
+      // chatSend 会 await 整轮流结束；上线打点须在 await 之前（准备已完成：beforeWire/context/abort）
+      logChatTurnSendWire({ sessionKey })
       const r = await send(
         sessionKey,
         userMessage,

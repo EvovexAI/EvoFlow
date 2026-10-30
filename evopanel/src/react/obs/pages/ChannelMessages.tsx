@@ -21,6 +21,10 @@ import type { ChannelMessageRecord } from '../types'
 
 type AttachmentItem = ChannelMessageRecord['attachmentItems'][number]
 
+function getObsModalRoot(): HTMLElement {
+  return document.getElementById('obs-fullscreen-root') ?? document.body
+}
+
 function isImagePath(item: AttachmentItem): boolean {
   const mime = (item.mime || '').toLowerCase()
   if (mime.startsWith('image/')) return true
@@ -160,7 +164,92 @@ function AttachmentViewerModal({
         </div>
       </div>
     </div>,
-    document.body,
+    getObsModalRoot(),
+  )
+}
+
+function ContentViewerModal({
+  row,
+  onClose,
+}: {
+  row: ChannelMessageRecord
+  onClose: () => void
+}) {
+  const [copyHint, setCopyHint] = useState('')
+  const text = String(row.content || '').trim() || '—'
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      document.body.style.overflow = prev
+    }
+  }, [onClose])
+
+  const copyContent = async () => {
+    try {
+      await navigator.clipboard.writeText(String(row.content || ''))
+      setCopyHint('内容已复制')
+    } catch {
+      setCopyHint('复制失败')
+    }
+  }
+
+  const meta = [row.time, row.channelLabel || row.channel, row.directionLabel, row.employeeName || row.agentCode]
+    .filter(Boolean)
+    .join(' · ')
+
+  return createPortal(
+    <div className="obs-json-modal" role="dialog" aria-modal="true" aria-label="查看消息内容">
+      <div className="obs-json-modal-backdrop" onClick={onClose} />
+      <div
+        className="obs-json-modal-panel"
+        style={{
+          width: 'min(960px, calc(100vw - 40px))',
+          // Opaque shell color — --obs-drawer-bg is translucent and looked see-through at the bottom.
+          background: 'var(--bg-shell, #ffffff)',
+        }}
+      >
+        <div className="json-viewer-head">
+          <strong>消息内容{meta ? ` · ${meta}` : ''}</strong>
+          <div className="json-viewer-actions">
+            <button type="button" onClick={() => void copyContent()}>
+              复制
+            </button>
+            <button type="button" className="obs-json-modal-close" onClick={onClose}>
+              关闭
+            </button>
+          </div>
+        </div>
+        <div className="obs-json-modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 12, minHeight: 0 }}>
+          {copyHint ? <ObsBanner>{copyHint}</ObsBanner> : null}
+          <pre
+            className="json-block"
+            style={{
+              margin: 0,
+              flex: 1,
+              minHeight: 0,
+              maxHeight: 'none',
+              whiteSpace: 'pre-wrap',
+              wordBreak: 'break-word',
+              fontFamily: 'inherit',
+              fontSize: 14,
+              lineHeight: 1.6,
+              overflow: 'auto',
+              background: 'var(--obs-json-bg, var(--obs-surface-muted, #f2f2f7))',
+            }}
+          >
+            {text}
+          </pre>
+        </div>
+      </div>
+    </div>,
+    getObsModalRoot(),
   )
 }
 
@@ -182,6 +271,7 @@ export function ChannelMessages() {
   const [channel, setChannel] = useState('all')
   const [page, setPage] = useState(1)
   const [attachmentRow, setAttachmentRow] = useState<ChannelMessageRecord | null>(null)
+  const [contentRow, setContentRow] = useState<ChannelMessageRecord | null>(null)
 
   const { data, loading, error } = useObsCachedFetch<PageData>({
     scope: 'channel-messages-list',
@@ -392,11 +482,39 @@ export function ChannelMessages() {
             {
               key: 'content',
               label: '内容',
-              render: (row) => (
-                <span title={row.content} style={{ maxWidth: 280, display: 'inline-block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {row.content || '—'}
-                </span>
-              ),
+              render: (row) => {
+                const text = row.content || '—'
+                if (!row.content) return '—'
+                return (
+                  <button
+                    type="button"
+                    title="点击查看完整内容"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setContentRow(row)
+                    }}
+                    style={{
+                      maxWidth: 280,
+                      display: 'inline-block',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                      border: 'none',
+                      background: 'transparent',
+                      color: 'inherit',
+                      padding: 0,
+                      cursor: 'pointer',
+                      textAlign: 'left',
+                      font: 'inherit',
+                      textDecoration: 'underline',
+                      textDecorationStyle: 'dotted',
+                      textUnderlineOffset: 3,
+                    }}
+                  >
+                    {text}
+                  </button>
+                )
+              },
             },
             {
               key: 'attachmentCount',
@@ -445,6 +563,9 @@ export function ChannelMessages() {
       </ObsPage>
       {attachmentRow ? (
         <AttachmentViewerModal row={attachmentRow} onClose={() => setAttachmentRow(null)} />
+      ) : null}
+      {contentRow ? (
+        <ContentViewerModal row={contentRow} onClose={() => setContentRow(null)} />
       ) : null}
     </>
   )

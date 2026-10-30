@@ -27,7 +27,10 @@ import { rightStageStore } from '../../../lib/right-stage/right-stage-store.js'
 import { isXiaomiVoiceRightStageForeground } from '../../../lib/xiaomi-voice/voice-right-stage-foreground.js'
 import { withAbsoluteArtifactPaths } from '../../../lib/artifact-absolute-path.js'
 import { capPersistedRowText, capPersistedToolOutput } from '../../lib/session-rows-cap.js'
-import { logChatTurnFirstResponse } from '../../lib/chat-turn-timing-log.js'
+import {
+  logChatTurnFirstResponse,
+  logChatTurnRunStarted,
+} from '../../lib/chat-turn-timing-log.js'
 
 export type ChatWsOnEventCtx = Record<string, any>
 
@@ -802,6 +805,10 @@ export function createChatWsOnEventHandler(ctx: ChatWsOnEventCtx) {
       }
 
       if (state === 'run_started' && runId) {
+        logChatTurnRunStarted({
+          sessionKey: targetSk,
+          runId: String(runId || '').trim(),
+        })
         // 用户已停止：丢弃迟到的 run_started 帧，防止重新激活流式状态（与 rtIsStoppedRun 双重保险）。
         // 主动发送（outbound/live）不受 recovery cooldown 影响，否则 stop 后再发会被整轮丢弃。
         const intentionalOutbound =
@@ -1684,6 +1691,12 @@ export function createChatWsOnEventHandler(ctx: ChatWsOnEventCtx) {
           /^run-[a-f0-9]+$/i.test(aguiRunId) &&
           (!activeRunId || !/^run-[a-f0-9]+$/i.test(activeRunId))
         if (wireRunTakeover || aguiEvent.type === EventType.RUN_STARTED) {
+          if (aguiEvent.type === EventType.RUN_STARTED) {
+            logChatTurnRunStarted({
+              sessionKey: targetSk,
+              runId: aguiRunId,
+            })
+          }
           const intentionalOutbound =
             rt.turnPhase === 'outbound' || rt.turnPhase === 'live'
           if (

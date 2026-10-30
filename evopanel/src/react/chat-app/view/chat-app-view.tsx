@@ -343,7 +343,7 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
           event: 'loading_why',
           sessionKey: sk,
           threadId: tid,
-          zh: `界面「加载中」原因：threadId 已有（${tid}），但 historyLoading 仍为 true（旧历史接口未结束）。`,
+          zh: `后台旧历史 /messages 仍在拉取（historyLoading=true，threadId=${tid}）。V4 首帧不依赖它；若仍全屏转圈，多半是旧遮罩或 V4 connecting。`,
           detail: { rowTid: rowTid || null, mapTid: mapTid || null },
           skipDedupe: true,
         })

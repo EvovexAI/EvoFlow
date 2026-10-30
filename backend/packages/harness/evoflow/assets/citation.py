@@ -13,6 +13,10 @@ _ENTRIES_RE = re.compile(
     r"<citation_entries>\s*(.*?)\s*</citation_entries>",
     re.DOTALL | re.IGNORECASE,
 )
+_ORPHAN_ENTRIES_RE = re.compile(
+    r"<citation_entries>\s*(.*?)\s*</citation_entries>",
+    re.DOTALL | re.IGNORECASE,
+)
 _ROLLOUT_IDS_RE = re.compile(
     r"<rollout_ids>\s*(.*?)\s*</rollout_ids>",
     re.DOTALL | re.IGNORECASE,
@@ -21,10 +25,13 @@ _THREAD_IDS_RE = re.compile(
     r"<thread_ids>\s*(.*?)\s*</thread_ids>",
     re.DOTALL | re.IGNORECASE,
 )
+# Tolerate spaces around ``|note=`` (models often insert them).
 _ENTRY_LINE_RE = re.compile(
-    r"^(?P<path>[^:\s][^:]*?)(?::(?P<start>\d+)-(?P<end>\d+))?"
-    r"(?:\|note=\[(?P<note>.*?)\])?\s*$"
+    r"^(?P<path>[^:\s|][^:|\n]*?)(?::(?P<start>\d+)-(?P<end>\d+))?"
+    r"(?:\s*\|\s*note\s*=\s*\[(?P<note>.*?)\])?\s*$",
+    re.IGNORECASE,
 )
+_LOOSE_ENTRIES_LABEL_RE = re.compile(r"^\s*citation_entries\s*:\s*(.*)$", re.IGNORECASE)
 
 
 def parse_rollout_ids(block_inner: str) -> list[str]:
@@ -47,6 +54,21 @@ def parse_rollout_ids(block_inner: str) -> list[str]:
     return ids
 
 
+def _parse_entry_line(line: str) -> dict[str, Any] | None:
+    em = _ENTRY_LINE_RE.match(line)
+    if not em:
+        return None
+    path = str(em.group("path") or "").strip()
+    if not path:
+        return None
+    return {
+        "path": path,
+        "lineStart": int(em.group("start")) if em.group("start") else None,
+        "lineEnd": int(em.group("end")) if em.group("end") else None,
+        "note": str(em.group("note") or "").strip(),
+    }
+
+
 def parse_citation_entries(block_inner: str) -> list[dict[str, Any]]:
     m = _ENTRIES_RE.search(str(block_inner or ""))
     body = m.group(1) if m else str(block_inner or "")
@@ -55,21 +77,59 @@ def parse_citation_entries(block_inner: str) -> list[dict[str, Any]]:
         line = raw_line.strip()
         if not line or line.startswith("<"):
             continue
-        em = _ENTRY_LINE_RE.match(line)
-        if not em:
-            continue
-        path = str(em.group("path") or "").strip()
-        if not path:
-            continue
-        entries.append(
-            {
-                "path": path,
-                "lineStart": int(em.group("start")) if em.group("start") else None,
-                "lineEnd": int(em.group("end")) if em.group("end") else None,
-                "note": str(em.group("note") or "").strip(),
-            }
-        )
+        parsed = _parse_entry_line(line)
+        if parsed:
+            entries.append(parsed)
     return entries
+
+
+def _strip_loose_citation_entry_leaks(raw: str) -> tuple[str, list[dict[str, Any]]]:
+    """Strip model-leaked ``citation_entries: …`` lines without XML wrapper."""
+    entries: list[dict[str, Any]] = []
+    lines = str(raw or "").splitlines()
+    out: list[str] = []
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        label = _LOOSE_ENTRIES_LABEL_RE.match(line)
+        if not label:
+            out.append(line)
+            i += 1
+            continue
+        rest = str(label.group(1) or "").strip()
+        if rest:
+            parsed = _parse_entry_line(rest)
+            if parsed:
+                entries.append(parsed)
+            i += 1
+            continue
+        i += 1
+        while i < len(lines):
+            next_line = lines[i].strip()
+            if not next_line or next_line.startswith("<"):
+                break
+            if _LOOSE_ENTRIES_LABEL_RE.match(next_line):
+                break
+            parsed = _parse_entry_line(next_line)
+            if not parsed:
+                break
+            entries.append(parsed)
+            i += 1
+    cleaned = "\n".join(out)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).rstrip()
+    return cleaned, entries
+
+
+def _dedupe_entries(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    seen: set[str] = set()
+    uniq: list[dict[str, Any]] = []
+    for e in entries:
+        key = f"{e.get('path')}|{e.get('note')}"
+        if key in seen:
+            continue
+        seen.add(key)
+        uniq.append(e)
+    return uniq
 
 
 def extract_evo_asset_citations(text: str) -> dict[str, Any]:
@@ -89,18 +149,23 @@ def extract_evo_asset_citations(text: str) -> dict[str, Any]:
         return ""
 
     cleaned = _CITATION_BLOCK_RE.sub(_repl, raw)
-    # Collapse trailing whitespace left by stripped block
-    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).rstrip() + ("\n" if raw.endswith("\n") and cleaned else "")
-    # Dedupe by path+note
-    seen: set[str] = set()
-    uniq: list[dict[str, Any]] = []
-    for e in entries:
-        key = f"{e.get('path')}|{e.get('note')}"
-        if key in seen:
-            continue
-        seen.add(key)
-        uniq.append(e)
-    return {"text": cleaned, "entries": uniq, "rollout_ids": rollout_ids}
+
+    def _orphan_repl(match: re.Match[str]) -> str:
+        entries.extend(parse_citation_entries(match.group(1)))
+        return ""
+
+    cleaned = _ORPHAN_ENTRIES_RE.sub(_orphan_repl, cleaned)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).rstrip()
+    if raw.endswith("\n") and cleaned:
+        cleaned = cleaned + "\n"
+
+    loose_text, loose_entries = _strip_loose_citation_entry_leaks(cleaned)
+    entries.extend(loose_entries)
+    return {
+        "text": loose_text,
+        "entries": _dedupe_entries(entries),
+        "rollout_ids": rollout_ids,
+    }
 
 
 def strip_evo_asset_citations(text: str) -> str:
@@ -143,6 +208,9 @@ def record_citations_from_messages(
         for entry in parsed.get("entries") or []:
             path = str(entry.get("path") or "").replace("\\", "/").lstrip("/")
             if not path or path in seen:
+                continue
+            # Skip bare knowledge-base ids — not asset paths.
+            if re.fullmatch(r"kb_[a-z0-9]+", path, re.IGNORECASE):
                 continue
             seen.add(path)
             paths.append(path)

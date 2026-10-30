@@ -248,6 +248,10 @@ def assets_tool(
 
     Citation: if memory files informed the reply, append one `<evo-asset-citation>` block last
     (`path:start-end|note=[brief]` per line under `citation_entries`).
+    Paths must be entity-relative asset files (e.g. memory/…); never bare kb_ ids or loose
+    `citation_entries:` prose — always wrap in the XML tags.
+    Paths must be entity-relative asset files (e.g. memory/…); never bare kb_ ids or loose
+    `citation_entries:` prose — always wrap in the XML tags.
 
     Args:
         action: search | read | list | note | profile

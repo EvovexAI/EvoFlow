@@ -1474,6 +1474,8 @@ class FeishuChannel(Channel):
                     receive_id_type=rtype,
                     account_id=account_id,
                 )
+                # Shared metadata dict — base._on_outbound stamps full ops_delivery after attachments.
+                meta["wire_msg_type"] = "interactive"
                 return
 
             logger.info(
@@ -3393,6 +3395,7 @@ class FeishuChannel(Channel):
                     chat_id=str(msg.chat_id or ""),
                     account_id=patch_aid or account_id,
                 )
+                wire_type = "text"
                 if not new_mid:
                     # Last resort: interactive card create (still better than patch).
                     new_mid = await self._reply_card(
@@ -3401,11 +3404,15 @@ class FeishuChannel(Channel):
                         chat_id=str(msg.chat_id or ""),
                         account_id=patch_aid or account_id,
                     )
+                    wire_type = "interactive"
                 if not new_mid:
                     raise RuntimeError(
                         f"Feishu final reply returned no message_id for source={source_message_id}"
                     )
                 delivered = True
+                # Stamp on shared metadata so MessageBus audit mirrors Feishu wire, not raw agent text alone.
+                if isinstance(msg.metadata, dict):
+                    msg.metadata["wire_msg_type"] = wire_type
                 if running_card_id and running_card_id != new_mid:
                     # Patch is unreliable on Feishu clients — delete the placeholder.
                     retired = await self._delete_message(
