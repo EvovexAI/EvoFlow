@@ -1,10 +1,10 @@
 {
-  "version": "1.2.1",
-  "minAppVersion": "1.2.1",
+  "version": "1.2.2",
+  "minAppVersion": "1.2.2",
   "updateKind": "full",
   "assetKind": "installer",
   "hash": "",
-  "url": "https://github.com/EvovexAI/EvoFlow/releases/download/v1.2.1/EvoFlow_1.2.1_x64-setup.exe",
+  "url": "https://github.com/EvovexAI/EvoFlow/releases/download/v1.2.2/EvoFlow_1.2.2_x64-setup.exe",
   "size": 0,
-  "changelog": "EvoFlow 1.2.1（相对 1.2.0）：修复打开内置知识库/文件树时 git 探测卡住导致其它页面访问不上；内置 vault 不再跑 git；消除 hang 诊断误报刷屏与 Windows git 黑窗。覆盖安装即可。"
+  "changelog": "EvoFlow 1.2.2（相对 1.2.1）：缓解侧栏会话列表拖慢整机；任务列表默认分页；新增慢请求日志便于排查。另含小游戏预览、会话恢复与渠道交付改进。覆盖安装即可。"
 }

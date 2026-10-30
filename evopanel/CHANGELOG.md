@@ -6,6 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.2.2] - 2026-10-30
+
+相对 **1.2.1**：缓解侧栏会话列表拖慢整机，并带上会话/渠道交付与小游戏预览等增量。
+GitHub Release 正文见 `scripts/maintainer/windows/release-notes/PRODUCT-NOTES-1.2.2.md`；升级横幅见 `scripts/maintainer/update/latest.json`。
+
+### Fixed
+
+- **侧栏卡顿 / Gateway 变慢**：`/api/chat/sessions` 列表冷路径去掉逐行工具与策略重算；`listAllTasks` 默认分页，避免全量任务目录拖垮其它接口
+- **慢请求排查**：Gateway 写入 `gateway-slow-*.log`，便于对照「前端访问后端慢」时的具体路径
+
+### Added
+
+- **小游戏预览**：游戏预览管线与界面入口
+
+### Changed
+
+- **会话与运行时**：会话/线程生命周期与失败恢复；生成工作流与历史压缩
+- **渠道出站**：交付摘要与引用清理；模型调用列表投影更精简
+
 ## [1.2.1] - 2026-10-30
 
 相对 **1.2.0** 的稳定性补丁：修复打开内置知识库/工作区文件树时 git 探测卡住、其它页面访问不上的问题；顺带消除 Windows 下 git 子进程闪黑窗。
