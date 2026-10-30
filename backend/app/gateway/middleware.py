@@ -110,7 +110,23 @@ def _sampleable_content_type(content_type: str | None) -> bool:
 
 
 def _is_streaming_request_path(path: str) -> bool:
-    return "/runs/stream" in path or "/resume-stream" in path
+    """True for long-lived SSE / stream endpoints that must not enter hang inflight.
+
+    Mis-classifying panel-stream / v4 frames as REST caused false hang dumps
+    (wait=2000s+) and drowned the real stuck endpoints (git_status etc.).
+    """
+    p = str(path or "")
+    if "/runs/stream" in p or "/resume-stream" in p:
+        return True
+    if p.endswith("/panel-stream") or "/panel-stream?" in p:
+        return True
+    if "/conversation/frames" in p:
+        return True
+    if p.endswith("/stream") or "/stream?" in p:
+        # Catch-all for AG-UI / events SSE siblings without listing every route.
+        if "/api/events/" in p or "/api/v4/" in p or "/api/langgraph/" in p:
+            return True
+    return False
 
 
 def _skip_response_body(content_type: str | None, headers: Any) -> bool:

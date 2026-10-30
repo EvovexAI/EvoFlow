@@ -136,6 +136,26 @@ def is_event_loop_overloaded(*, threshold_seconds: float | None = None) -> bool:
     return get_event_loop_lag_seconds() >= limit
 
 
+def should_shed_best_effort(*, min_slow: int | None = None, min_wait_s: float | None = None) -> bool:
+    """True when best-effort REST (git_status, tree probes) should fail soft.
+
+    Used so a slow workspace git probe cannot queue behind an overloaded loop
+    and make every other page look "unreachable". Triggers on event-loop lag
+    *or* several non-stream requests already waiting past the slow threshold.
+    """
+    if is_event_loop_overloaded():
+        return True
+    need = int(min_slow if min_slow is not None else _float_env("EVOFLOW_GATEWAY_SHED_MIN_SLOW", 2.0, minimum=1.0))
+    wait_need = float(
+        min_wait_s
+        if min_wait_s is not None
+        else _float_env("EVOFLOW_GATEWAY_SHED_MIN_WAIT_SECONDS", 5.0, minimum=1.0)
+    )
+    snap = snapshot_inflight_requests()
+    slow = [d for d in snap.get("long_waiting") or [] if float(d.get("wait_seconds") or 0) >= wait_need]
+    return len(slow) >= need
+
+
 def _mark_listen_socket_broken(reason: str) -> None:
     global _listen_socket_broken, _listen_socket_broken_at
     if _listen_socket_broken:
@@ -413,6 +433,11 @@ def _watchdog_loop() -> None:
                 )
             for line in _slow_request_summary_lines():
                 logger.warning(line)
+            if should_shed_best_effort():
+                logger.warning(
+                    "[best-effort-shed] active — git_status/git_ignored_paths will fail soft "
+                    "until lag/slow REST clears (avoids other pages looking unreachable)"
+                )
 
 
 def start_gateway_hang_diagnostics() -> Callable[[], None]:
@@ -458,6 +483,7 @@ __all__ = [
     "is_listen_socket_broken",
     "listen_socket_broken_detail",
     "register_inflight_request",
+    "should_shed_best_effort",
     "snapshot_inflight_requests",
     "start_gateway_hang_diagnostics",
     "unregister_inflight_request",

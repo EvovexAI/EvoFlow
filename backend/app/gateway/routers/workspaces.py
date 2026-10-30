@@ -1,13 +1,37 @@
 import asyncio
+import concurrent.futures
+import logging
 import mimetypes
 import os
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, TypeVar
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
+
+logger = logging.getLogger(__name__)
+_T = TypeVar("_T")
+
+# Dedicated pool so slow ``git status`` / ``check-ignore`` cannot starve the
+# default asyncio threadpool used by health + other REST (symptom: other pages
+# look unreachable while the file tree refreshes a large monorepo).
+_GIT_EXECUTOR = concurrent.futures.ThreadPoolExecutor(max_workers=2, thread_name_prefix="evoflow-git")
+_GIT_SLOT: asyncio.Semaphore | None = None
+_GIT_STATUS_WALL_S = 12.0
+_GIT_IGNORED_WALL_S = 10.0
+_GIT_PROBE_SUBPROCESS_S = 6.0
+_GIT_STATUS_SUBPROCESS_S = 8.0
+_GIT_IGNORE_SUBPROCESS_S = 6.0
+
+
+def _git_slot() -> asyncio.Semaphore:
+    """Lazy semaphore bound to the running loop (avoid import-time loop binding)."""
+    global _GIT_SLOT
+    if _GIT_SLOT is None:
+        _GIT_SLOT = asyncio.Semaphore(2)
+    return _GIT_SLOT
 
 from evoflow.authz.http_guard import require_workspace_path_visible, require_workspace_root_access
 from evoflow.authz.resource_visibility import stamp_kwargs_from_request
@@ -900,22 +924,76 @@ def _resolve_listdir_target(
     return base, resolved_dir
 
 
+def _is_packaged_non_git_workspace(base: Path) -> bool:
+    """Packaged read-only vaults (builtin user-guide etc.) must never spawn git.
+
+    Opening the built-in knowledge base binds the file tree to
+    ``.../builtin_knowledge_vaults/user-guide`` under the install tree. Probing
+    that path with git was the hang that made other pages look unreachable.
+    """
+    try:
+        text = base.resolve().as_posix().lower()
+    except OSError:
+        text = str(base).replace("\\", "/").lower()
+    return "builtin_knowledge_vaults" in text
+
+
+def _git_subprocess_run(argv: list[str], *, timeout: float, input_text: str | None = None):
+    """Run git with a hard wall timeout (Popen + kill) and no console flash.
+
+    ``subprocess.run(..., timeout=)`` on Windows can stick in
+    ``communicate`` → reader-thread ``join`` (seen wait=65s with timeout=10).
+    We kill the child on expiry and only briefly wait to reap.
+    """
+    import subprocess
+
+    from evoflow.utils.subprocess_platform import subprocess_hide_window_kwargs
+
+    hide = subprocess_hide_window_kwargs()
+    # stderr=DEVNULL: one less pipe reader thread that can block join on Windows.
+    proc = subprocess.Popen(
+        argv,
+        stdin=subprocess.PIPE if input_text is not None else subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        **hide,
+    )
+    try:
+        stdout, _stderr = proc.communicate(input=input_text, timeout=timeout)
+    except subprocess.TimeoutExpired as exc:
+        try:
+            proc.kill()
+        except OSError:
+            pass
+        try:
+            stdout, _stderr = proc.communicate(timeout=1.0)
+        except Exception:
+            stdout = getattr(exc, "stdout", None) or ""
+            try:
+                proc.wait(timeout=0.2)
+            except Exception:
+                pass
+        raise subprocess.TimeoutExpired(cmd=argv, timeout=timeout, output=stdout) from exc
+    return subprocess.CompletedProcess(argv, int(proc.returncode or 0), stdout or "", "")
+
+
 def _git_repo_probe(base: Path) -> tuple[str | None, bool, str]:
     """Return ``(git_exe, is_repository, repo_root)`` for *base*."""
     import shutil
     import subprocess
 
+    if _is_packaged_non_git_workspace(base):
+        return None, False, ""
     git_exe = shutil.which("git")
     if not git_exe:
         return None, False, ""
     try:
-        probe = subprocess.run(
+        probe = _git_subprocess_run(
             [git_exe, "-C", str(base), "rev-parse", "--is-inside-work-tree", "--show-toplevel"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-            encoding="utf-8",
-            errors="replace",
+            timeout=_GIT_PROBE_SUBPROCESS_S,
         )
     except (OSError, subprocess.TimeoutExpired):
         return git_exe, False, ""
@@ -924,6 +1002,43 @@ def _git_repo_probe(base: Path) -> tuple[str | None, bool, str]:
     lines = [ln for ln in probe.stdout.strip().splitlines() if ln.strip()]
     repo_root = lines[1].strip().replace("\\", "/") if len(lines) > 1 else str(base)
     return git_exe, True, repo_root
+
+
+def _empty_git_status(base: Path, *, git_available: bool = False) -> "GitStatusResponse":
+    summary = GitRepositorySummaryOut(
+        workspacePath=base.as_posix(),
+        repoRoot=base.as_posix(),
+        autoRefreshWatchPaths=[{"path": base.as_posix(), "recursive": True}],
+        isGitAvailable=git_available,
+        isRepository=False,
+    )
+    return GitStatusResponse(summary=summary)
+
+
+async def _run_git_bounded(fn: Callable[[], _T], *, wall_s: float, label: str) -> _T | None:
+    """Run *fn* on the git executor under a wall-clock budget; None on timeout/shed."""
+    try:
+        from app.gateway.hang_diagnostics import should_shed_best_effort
+
+        if should_shed_best_effort():
+            logger.warning("git best-effort shed before %s (gateway overloaded / slow REST)", label)
+            return None
+    except Exception:
+        pass
+
+    async def _body() -> _T:
+        async with _git_slot():
+            loop = asyncio.get_running_loop()
+            return await loop.run_in_executor(_GIT_EXECUTOR, fn)
+
+    try:
+        return await asyncio.wait_for(_body(), timeout=wall_s)
+    except asyncio.TimeoutError:
+        logger.warning("git best-effort timeout label=%s wall_s=%.1f", label, wall_s)
+        return None
+    except Exception:
+        logger.warning("git best-effort failed label=%s", label, exc_info=True)
+        return None
 
 
 @router.get("/listdir", response_model=WorkspaceListdirResponse)
@@ -960,62 +1075,15 @@ async def workspace_listdir(
     return WorkspaceListdirResponse(entries=entries)
 
 
-@router.get("/git_status", response_model=GitStatusResponse)
-async def workspace_git_status(
-    request: Request,
-    root: str | None = Query(None, description="Bound local workspace root (absolute path)"),
-    thread_id: str | None = Query(None, description="LangGraph thread id"),
-) -> GitStatusResponse:
-    """Git worktree status for the ZCode file tree's changed-only filter."""
-    import subprocess
-
-    require_workspace_root_access(request, root=root, thread_id=thread_id)
-    try:
-        base = resolve_under_workspace(_resolve_workspace_root(root, thread_id), ".")
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
-
+def _parse_git_status_stdout(base: Path, stdout: str) -> GitStatusResponse:
     summary = GitRepositorySummaryOut(
         workspacePath=base.as_posix(),
         repoRoot=base.as_posix(),
         autoRefreshWatchPaths=[{"path": base.as_posix(), "recursive": True}],
+        isGitAvailable=True,
+        isRepository=True,
     )
-    git_exe, is_repository, repo_root = await _run_git_repo_probe(base)
-    summary.isGitAvailable = git_exe is not None
-    summary.isRepository = is_repository
-    if not is_repository or not git_exe:
-        return GitStatusResponse(summary=summary)
-    summary.repoRoot = repo_root
-
-    def _collect() -> subprocess.CompletedProcess[str]:
-        return subprocess.run(
-            [
-                git_exe,
-                "-C",
-                str(base),
-                "status",
-                "--porcelain=v1",
-                "-z",
-                "--untracked-files=all",
-                "--branch",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=15,
-            encoding="utf-8",
-            errors="replace",
-        )
-
-    try:
-        proc = await asyncio.to_thread(_collect)
-    except (OSError, subprocess.TimeoutExpired):
-        summary.isRepository = False
-        return GitStatusResponse(summary=summary)
-    if proc.returncode != 0:
-        summary.isRepository = False
-        return GitStatusResponse(summary=summary)
-
-    records = proc.stdout.split("\0")
+    records = stdout.split("\0")
     staged: list[GitFileChangeOut] = []
     unstaged: list[GitFileChangeOut] = []
     index = 0
@@ -1040,9 +1108,7 @@ async def workspace_git_status(
         if len(rec) < 4 or rec[2] != " ":
             continue
         x, y, rel = rec[0], rec[1], rec[3:]
-        orig_rel = ""
         if x in ("R", "C") and index < len(records):
-            orig_rel = records[index]
             index += 1
         rel_posix = rel.replace("\\", "/")
         change_base = {
@@ -1081,17 +1147,101 @@ async def workspace_git_status(
                 )
             )
     summary.isDirty = bool(staged or unstaged)
-    return GitStatusResponse(
-        summary=summary,
-        unstagedChanges=unstaged,
-        stagedChanges=staged,
+    return GitStatusResponse(summary=summary, unstagedChanges=unstaged, stagedChanges=staged)
+
+
+def _collect_git_status_sync(base: Path) -> GitStatusResponse:
+    """Probe + porcelain status on the git thread (never on the event loop)."""
+    import subprocess
+
+    if _is_packaged_non_git_workspace(base):
+        return _empty_git_status(base, git_available=False)
+    git_exe, is_repository, repo_root = _git_repo_probe(base)
+    if not is_repository or not git_exe:
+        return _empty_git_status(base, git_available=git_exe is not None)
+    try:
+        # ``normal`` (not ``all``): avoid enumerating every file under untracked
+        # dirs on large monorepos — that was a multi-minute hang source.
+        proc = _git_subprocess_run(
+            [
+                git_exe,
+                "-C",
+                str(base),
+                "status",
+                "--porcelain=v1",
+                "-z",
+                "--untracked-files=normal",
+                "--branch",
+            ],
+            timeout=_GIT_STATUS_SUBPROCESS_S,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return _empty_git_status(base, git_available=True)
+    if proc.returncode != 0:
+        return _empty_git_status(base, git_available=True)
+    out = _parse_git_status_stdout(base, proc.stdout)
+    out.summary.repoRoot = repo_root
+    return out
+
+
+def _collect_git_ignored_sync(base: Path, paths: list[str]) -> list[str]:
+    """Resolve paths + ``git check-ignore`` entirely off the event loop."""
+    import subprocess
+
+    if _is_packaged_non_git_workspace(base):
+        return []
+    git_exe, is_repository, _ = _git_repo_probe(base)
+    if not git_exe or not is_repository:
+        return []
+    rel_by_abs: dict[str, str] = {}
+    for abs_path in paths[:2000]:
+        p = str(abs_path or "").strip()
+        if not p:
+            continue
+        try:
+            resolved = Path(p).resolve()
+            rel_by_abs[resolved.as_posix()] = resolved.relative_to(base).as_posix()
+        except (ValueError, OSError):
+            continue
+    if not rel_by_abs:
+        return []
+    try:
+        proc = _git_subprocess_run(
+            [git_exe, "-C", str(base), "check-ignore", "-z", "--stdin"],
+            timeout=_GIT_IGNORE_SUBPROCESS_S,
+            input_text="\0".join(rel_by_abs.values()),
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    rel_to_posix = {v: k for k, v in rel_by_abs.items()}
+    return [rel_to_posix[r] for r in proc.stdout.split("\0") if r and r.replace("\\", "/") in rel_to_posix]
+
+
+@router.get("/git_status", response_model=GitStatusResponse)
+async def workspace_git_status(
+    request: Request,
+    root: str | None = Query(None, description="Bound local workspace root (absolute path)"),
+    thread_id: str | None = Query(None, description="LangGraph thread id"),
+) -> GitStatusResponse:
+    """Git worktree status for the ZCode file tree's changed-only filter.
+
+    Best-effort: hard wall timeout + dedicated executor so a large repo cannot
+    block other Gateway REST (user symptom: other pages cannot reach backend).
+    """
+    require_workspace_root_access(request, root=root, thread_id=thread_id)
+    try:
+        base = resolve_under_workspace(_resolve_workspace_root(root, thread_id), ".")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+    result = await _run_git_bounded(
+        lambda: _collect_git_status_sync(base),
+        wall_s=_GIT_STATUS_WALL_S,
+        label="git_status",
     )
-
-
-async def _run_git_repo_probe(base: Path) -> tuple[str | None, bool, str]:
-    import asyncio
-
-    return await asyncio.to_thread(_git_repo_probe, base)
+    if result is None:
+        return _empty_git_status(base)
+    return result
 
 
 @router.post("/git_ignored_paths", response_model=GitIgnoredPathsResponse)
@@ -1101,47 +1251,24 @@ async def workspace_git_ignored_paths(
     root: str | None = Query(None, description="Bound local workspace root (absolute path)"),
     thread_id: str | None = Query(None, description="LangGraph thread id"),
 ) -> GitIgnoredPathsResponse:
-    """``git check-ignore`` batch probe for the file tree's dimmed-ignored rendering."""
-    import shutil
-    import subprocess
+    """``git check-ignore`` batch probe for the file tree's dimmed-ignored rendering.
 
+    Path.resolve for up to 2000 entries previously ran on the asyncio loop and
+    could stall the whole Gateway; now everything runs on the git executor.
+    """
     require_workspace_root_access(request, root=root, thread_id=thread_id)
     try:
         base = resolve_under_workspace(_resolve_workspace_root(root, thread_id), ".")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
-    git_exe, is_repository, _ = await _run_git_repo_probe(base)
-    if not git_exe or not is_repository:
-        return GitIgnoredPathsResponse(ignored=[])
-    rel_by_abs: dict[str, str] = {}
-    for abs_path in payload.paths[:2000]:
-        p = str(abs_path or "").strip()
-        if not p:
-            continue
-        try:
-            rel_by_abs[Path(p).resolve().as_posix()] = Path(p).resolve().relative_to(base).as_posix()
-        except (ValueError, OSError):
-            continue
-    if not rel_by_abs:
-        return GitIgnoredPathsResponse(ignored=[])
-    try:
-        proc = await asyncio.to_thread(
-            lambda: subprocess.run(
-                [git_exe, "-C", str(base), "check-ignore", "-z", "--stdin"],
-                input="\0".join(rel_by_abs.values()),
-                capture_output=True,
-                text=True,
-                timeout=10,
-                encoding="utf-8",
-                errors="replace",
-            )
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        return GitIgnoredPathsResponse(ignored=[])
-    rel_to_posix = {v: k for k, v in rel_by_abs.items()}
-    ignored = [rel_to_posix[r] for r in proc.stdout.split("\0") if r and r.replace("\\", "/") in rel_to_posix]
-    return GitIgnoredPathsResponse(ignored=ignored)
+    paths = list(payload.paths or [])
+    ignored = await _run_git_bounded(
+        lambda: _collect_git_ignored_sync(base, paths),
+        wall_s=_GIT_IGNORED_WALL_S,
+        label="git_ignored_paths",
+    )
+    return GitIgnoredPathsResponse(ignored=ignored or [])
 
 
 @router.get("/list_files", response_model=WorkspaceListFilesResponse)
