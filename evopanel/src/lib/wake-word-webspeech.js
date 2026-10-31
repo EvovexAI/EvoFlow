@@ -69,9 +69,23 @@ export function isWebSpeechWakeAvailable() {
   return !!getSpeechRecognitionCtor()
 }
 
+/** @type {((stage: string, message: string) => void) | null} */
+let _voiceFeLog = null
+
 function feLog(stage, message) {
+  if (_voiceFeLog) {
+    try {
+      _voiceFeLog(stage, message)
+    } catch {
+      /* ignore */
+    }
+    return
+  }
   void import('./xiaomi-voice/voice-file-log.js')
-    .then(({ voiceFeLog }) => voiceFeLog(stage, message))
+    .then(({ voiceFeLog }) => {
+      _voiceFeLog = voiceFeLog
+      voiceFeLog(stage, message)
+    })
     .catch(() => {})
 }
 
@@ -119,14 +133,21 @@ function logHear(transcript, { isFinal, altIndex, matched }) {
   const now = Date.now()
   const key = `${isFinal ? 'F' : 'I'}:${raw}`
   if (key === lastHearLogText && now - lastHearLogAt < HEAR_LOG_MIN_MS) return
-  // 中间结果：只记像唤醒的，避免闲聊刷屏；最终结果：全记（排查「叫了但 ASR 认成别的」）
+  // 中间结果：只记像唤醒的，避免闲聊刷屏
   if (!isFinal && !looksWakeIsh(raw) && !matched) return
+  // 最终闲聊听写：常驻耳会把旁白/回声整段吐出；全量 console+IPC 会叠出主线程 longtask
+  if (isFinal && !looksWakeIsh(raw) && !matched) {
+    if (now - lastHearLogAt < 3000) return
+  }
   lastHearLogText = key
   lastHearLogAt = now
   const kind = matched ? '命中候选' : looksWakeIsh(raw) ? '近失' : '听写'
   const finalTag = isFinal ? 'final' : 'interim'
   const alt = altIndex > 0 ? ` alt=${altIndex}` : ''
-  console.log(`[wake-word-webspeech] ${kind}:`, raw, finalTag)
+  // 命中/近失才打 console；纯闲聊 final 只写文件日志（且已节流）
+  if (matched || looksWakeIsh(raw) || !isFinal) {
+    console.log(`[wake-word-webspeech] ${kind}:`, raw, finalTag)
+  }
   feLog(
     '唤醒',
     `ASR${kind} ${finalTag}${alt} 「${raw.slice(0, 60)}」${matched ? ' → 将触发' : '（未匹配词表）'}`,
@@ -183,6 +204,24 @@ function emitHit(keyword, asrRaw) {
 let lastExitCmdAt = 0
 const EXIT_CMD_COOLDOWN_MS = 1800
 
+/** Cached modules for播报期口令 — avoid 4× dynamic import on every ASR final. */
+let _exitCmdModsPromise = null
+
+function loadExitCmdMods() {
+  if (!_exitCmdModsPromise) {
+    _exitCmdModsPromise = Promise.all([
+      import('./xw-voice-mode.js'),
+      import('./xiaomi-voice/index.js'),
+      import('./xiaomi-voice-close.js'),
+      import('./voice-listen-control.js'),
+    ]).catch((err) => {
+      _exitCmdModsPromise = null
+      throw err
+    })
+  }
+  return _exitCmdModsPromise
+}
+
 /**
  * @param {string} transcript
  * @param {{ isFinal?: boolean }} [opts]
@@ -190,17 +229,18 @@ const EXIT_CMD_COOLDOWN_MS = 1800
 function maybeHandleSpeakingExitCommand(transcript, opts = {}) {
   const raw = String(transcript || '').trim()
   if (!raw) return false
+  // Cheap sync gate：非小V语音全屏时旁白听写极多，勿对每句 final 拉模块/判口令
+  try {
+    if (document.documentElement.dataset.xwVoice !== '1') return false
+  } catch {
+    return false
+  }
   // 非 final 且很长：多半是 TTS 回声粘连，等 final / 短尾巴再判，降假阳
   if (!opts.isFinal && raw.length > 24) return false
   const now = Date.now()
   if (now - lastExitCmdAt < EXIT_CMD_COOLDOWN_MS) return false
 
-  void Promise.all([
-    import('./xw-voice-mode.js'),
-    import('./xiaomi-voice/index.js'),
-    import('./xiaomi-voice-close.js'),
-    import('./voice-listen-control.js'),
-  ])
+  void loadExitCmdMods()
     .then(([xw, frame, closeMod, listenMod]) => {
       if (!xw.isXwVoiceMode?.()) return
       const speaking =

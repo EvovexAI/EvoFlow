@@ -41,9 +41,9 @@ import { initDropdownSelectEnhancer } from './lib/ef-dropdown-select.js'
 // dev 调试时禁用，避免 DevTools Network 被刷屏
 if (import.meta.env.PROD) installConsoleFileLog()
 
-// React 19.2 dev 构建给每次组件渲染写 performance.measure（组件追踪）且 User Timing
-// 缓冲无上限——流式会话高频重渲染下内存以 GB/h 增长，dev 页面 renderer 会被 OOM 杀掉。
-// 仅 dev 看护：超过阈值清空 User Timing 缓冲（生产构建无此插桩，不受影响）。
+// React 19.2 dev 构建给每次组件渲染写 performance.measure（​ 前缀组件追踪）且 User Timing
+// 缓冲无上限——流式会话高频重渲染下内存以 GB/h 增长；扫/清 5万+ 条本身也会造成 ~1s longtask。
+// 仅 dev：过滤 React 埋点 + 低频廉价清空（生产构建无此插桩，不受影响）。
 if (import.meta.env.DEV) startUserTimingGuard()
 bootMark('main module eval')
 if (isTauri) initDesktopNotifications()
