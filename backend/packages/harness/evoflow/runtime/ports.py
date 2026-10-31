@@ -556,6 +556,14 @@ def list_push_targets(*, limit: int = 200) -> list[dict[str, Any]] | None:
         return None
 
 
+async def push_automation_run_terminal(task: dict[str, Any] | None) -> tuple[bool, str]:
+    """IM fan-out for workflow/app-run terminal status; no-op off-process."""
+    impl = get("channels.push_automation_run_terminal")
+    if impl is None:
+        return False, "adapter not registered"
+    return await impl(task)
+
+
 def push_to_inbound_origin(
     *,
     session_key: str,
@@ -654,6 +662,7 @@ def synthesize_speech_v3(
 
 # ---------------------------------------------------------------------------
 # diagnostics — Gateway event-loop health (app.gateway.hang_diagnostics)
+# + ready-state / runtime-status probes used by admin.system_status
 # ---------------------------------------------------------------------------
 
 
@@ -669,6 +678,46 @@ def is_listen_socket_broken() -> bool:
     if impl is None:
         return False
     return bool(impl())
+
+
+def listen_socket_broken_detail() -> str | None:
+    impl = get("diagnostics.listen_socket_broken_detail")
+    if impl is None:
+        return None
+    return impl()
+
+
+def is_event_loop_overloaded(*, threshold_seconds: float | None = None) -> bool:
+    impl = get("diagnostics.event_loop_overloaded")
+    if impl is None:
+        return False
+    if threshold_seconds is None:
+        return bool(impl())
+    return bool(impl(threshold_seconds=threshold_seconds))
+
+
+def probe_gateway_ready_state() -> dict[str, Any]:
+    """Gateway ``app.state`` readiness fields; empty when adapter missing/off-process."""
+    impl = get("diagnostics.gateway_ready_state")
+    if impl is None:
+        return {}
+    try:
+        out = impl()
+        return dict(out) if isinstance(out, dict) else {}
+    except Exception:
+        return {}
+
+
+def build_runtime_status_payload() -> dict[str, Any] | None:
+    """Observability runtime-status payload; None when adapter missing/off-process."""
+    impl = get("observability.build_runtime_status_payload")
+    if impl is None:
+        return None
+    try:
+        out = impl()
+        return dict(out) if isinstance(out, dict) else None
+    except Exception:
+        return None
 
 
 # ---------------------------------------------------------------------------

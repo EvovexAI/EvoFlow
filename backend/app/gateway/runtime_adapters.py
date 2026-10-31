@@ -170,10 +170,15 @@ def register_runtime_adapters() -> None:
         logger.debug("register channels.start/registry_status failed", exc_info=True)
 
     try:
-        from app.gateway.channel_result_push import list_push_targets, push_to_inbound_origin
+        from app.gateway.channel_result_push import (
+            list_push_targets,
+            push_automation_run_terminal,
+            push_to_inbound_origin,
+        )
 
         ports.register("channels.list_push_targets", list_push_targets)
         ports.register("channels.push_to_inbound_origin", push_to_inbound_origin)
+        ports.register("channels.push_automation_run_terminal", push_automation_run_terminal)
     except Exception:
         logger.debug("register channels.list_push_targets failed", exc_info=True)
 
@@ -257,8 +262,44 @@ def register_runtime_adapters() -> None:
 
         ports.register("diagnostics.event_loop_lag_seconds", _hd.get_event_loop_lag_seconds)
         ports.register("diagnostics.listen_socket_broken", _hd.is_listen_socket_broken)
+        ports.register("diagnostics.listen_socket_broken_detail", _hd.listen_socket_broken_detail)
+        ports.register("diagnostics.event_loop_overloaded", _hd.is_event_loop_overloaded)
     except Exception:
         logger.debug("register hang_diagnostics failed", exc_info=True)
+
+    try:
+        def _gateway_ready_state() -> dict:
+            from app.gateway import app as gateway_app_mod  # type: ignore
+
+            app = getattr(gateway_app_mod, "app", None) or getattr(gateway_app_mod, "_app", None)
+            state = getattr(app, "state", None) if app is not None else None
+            if state is None:
+                return {}
+            out: dict = {
+                "ready": bool(getattr(state, "startup_ready", False)),
+                "phase": str(getattr(state, "startup_phase", "") or "") or None,
+                "core_routers": bool(getattr(state, "routers_registered", False)),
+                "extended_routers": bool(getattr(state, "extended_routers_registered", False)),
+                "langgraph": bool(getattr(state, "langgraph_ready", False)),
+            }
+            err = getattr(state, "startup_error", None)
+            if err:
+                out["error"] = str(err)
+            app_port = getattr(state, "app_server_port", None)
+            if app_port:
+                out["app_server_port"] = app_port
+            return out
+
+        ports.register("diagnostics.gateway_ready_state", _gateway_ready_state)
+    except Exception:
+        logger.debug("register diagnostics.gateway_ready_state failed", exc_info=True)
+
+    try:
+        from app.gateway.routers.observability import _build_runtime_status_payload
+
+        ports.register("observability.build_runtime_status_payload", _build_runtime_status_payload)
+    except Exception:
+        logger.debug("register observability.build_runtime_status_payload failed", exc_info=True)
 
     try:
         from app.gateway import logging_setup as _ls

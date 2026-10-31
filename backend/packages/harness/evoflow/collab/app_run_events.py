@@ -148,7 +148,7 @@ def _fan_out_terminal_im_push(task: dict[str, Any], status: str) -> None:
 
     async def _push() -> None:
         try:
-            from app.gateway.channel_result_push import push_automation_run_terminal
+            from evoflow.runtime.ports import push_automation_run_terminal
 
             ok, msg = await push_automation_run_terminal(task)
             logger.info("app_run_events: terminal IM push run=%s status=%s ok=%s msg=%s", rid, status, ok, msg)
