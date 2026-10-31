@@ -77,12 +77,8 @@ export async function handleEditMessage(
       } catch {
         /* ignore */
       }
-      try {
-        const { refreshEvoflowV4Session } = await import('../../v4/V4StreamRowsBridge.js')
-        refreshEvoflowV4Session(newTid)
-      } catch {
-        /* ignore */
-      }
+      // Do not refreshEvoflowV4Session here: rebound already swaps V4 sessionId
+      // (cold open once). An extra recover/warm races the lease and flashes again.
     }
 
     // 同一会话内截掉该条及之后的 UI 行

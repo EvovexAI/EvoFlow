@@ -5688,6 +5688,10 @@ export class WsClient {
       context: mergeSessionContextFromApiRow(data, prev.context) || prev.context || {},
     }
     saveSessionMap(map, { keys: [key] })
+    // Truncate/edit rebinds lead UUID — must invalidate TTL cache or chatSend keeps
+    // posting /runs/stream to the deleted previous thread (404 → force remint → V4 flash).
+    _ensureThreadFailedAt.delete(key)
+    _ensureThreadCachedAt.set(key, { threadId: tid, ts: Date.now() })
     return data
   }
 
