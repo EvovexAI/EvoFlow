@@ -300,16 +300,39 @@ function journalPathFromTitle(title: string): string {
   return `memory/journal/${journalSlugFromTitle(title)}.md`;
 }
 
+function normalizeDeepLinkPath(path: string): string {
+  let p = String(path || "")
+    .replace(/\\/g, "/")
+    .trim();
+  p = p.replace(/^[-*+]\s+/, "");
+  p = p.replace(/^\d+[.)]\s+/, "");
+  return p.replace(/^\//, "").trim();
+}
+
+function parentAssetDir(relPath: string): string {
+  const parts = String(relPath || "")
+    .replace(/\\/g, "/")
+    .split("/")
+    .filter(Boolean);
+  parts.pop();
+  return parts.join("/");
+}
+
 function assetsHrefForPath(
   path: string,
   opts?: { entityType?: string; entityId?: string },
 ): string {
-  const rel = String(path || "").replace(/\\/g, "/").replace(/^\//, "");
+  const rel = normalizeDeepLinkPath(path);
   const params = new URLSearchParams();
-  params.set("tab", rel.startsWith("craft/") ? "experience" : "memory");
+  if (rel.startsWith("craft/")) params.set("tab", "experience");
+  else if (rel.startsWith("memory/journal/")) params.set("tab", "journal");
+  else if (rel === "profile/affect.md" || rel.endsWith("/affect.md")) params.set("tab", "affect");
+  else if (rel.startsWith("profile/")) params.set("tab", "profile");
+  else params.set("tab", "memory");
   if (rel.startsWith("memory/episodic/")) params.set("memoryKind", "episodic");
   else if (rel.startsWith("memory/facts/") || rel === "memory/MEMORY.md") params.set("memoryKind", "facts");
-  else if (rel.includes("standing")) params.set("memoryKind", "standing");
+  else if (/(^|\/)standing(\.md)?$/i.test(rel) || rel.includes("/standing."))
+    params.set("memoryKind", "standing");
   if (opts?.entityType) params.set("entityType", opts.entityType);
   if (opts?.entityId) params.set("entityId", opts.entityId);
   if (rel) params.set("path", rel);
@@ -356,7 +379,7 @@ function initialTab(): AssetTab {
   if (t === "affect" || t === "emotion" || t === "mood") return "affect";
   if (t === "overview" || t === "home") return "overview";
   if (ASSET_TABS.some((x) => x.id === t)) return t as AssetTab;
-  const path = String(q.path || "").replace(/\\/g, "/");
+  const path = normalizeDeepLinkPath(String(q.path || ""));
   if (path.startsWith("craft/")) return "experience";
   if (path.startsWith("memory/journal/")) return "journal";
   // 情感镜像：员工专属；勿把整棵 profile/ 当成用户画像
@@ -383,16 +406,17 @@ function initialMemoryKind(): MemoryKind {
   // legacy deep-link memoryKind=graph → facts (asset-hub memory graph UI removed)
   if (k === "graph") return "facts";
   if (k === "standing" || k === "facts" || k === "episodic") return k;
-  const path = String(q.path || "").replace(/\\/g, "/");
+  const path = normalizeDeepLinkPath(String(q.path || ""));
   if (path.startsWith("memory/episodic/")) return "episodic";
-  if (path.includes("standing")) return "standing";
+  if (/(^|\/)standing(\.md)?$/i.test(path) || path.includes("/standing.")) return "standing";
   if (path.startsWith("memory/facts/") || path === "memory/MEMORY.md") return "facts";
+  // _inbox 等非常规目录：仍用 facts 分段标签，真正目录由 pendingOpenPath 打开父级
   return "facts";
 }
 
 function initialOpenPath(): string {
   const q = parseHashQuery();
-  return String(q.path || "").replace(/\\/g, "/").replace(/^\//, "").trim();
+  return normalizeDeepLinkPath(String(q.path || ""));
 }
 
 function isTauriDesktop(): boolean {
@@ -447,6 +471,8 @@ export default function AssetCenterContent() {
   const [memoryRuns, setMemoryRuns] = useState<MemoryRunRow[]>([]);
   const [statsBusy, setStatsBusy] = useState(false);
   const pendingOpenPath = useRef(initialOpenPath());
+  /** Blocks auto-select-first-file while a deep-link browse+open is in flight. */
+  const openingDeepLinkRef = useRef("");
 
   const currentEntity = useMemo(() => ({ entityType, entityId }), [entityType, entityId]);
   const isUserEntity = entityType === "user";
@@ -785,8 +811,31 @@ export default function AssetCenterContent() {
     const pending = pendingOpenPath.current;
     if (pending) {
       pendingOpenPath.current = "";
-      void loadFile(pending);
-    } else if (!selectedFile) {
+      const rel = normalizeDeepLinkPath(pending);
+      const parent = parentAssetDir(rel);
+      const root = treeRootForTab(activeTab) || "";
+      // Deep-link：先切到文件所在目录（_inbox / craft 子路径），再打开文件；避免停在 facts 根却读别处。
+      const parentUnderRoot =
+        !!parent &&
+        (!root || parent === root || parent.startsWith(`${root}/`));
+      const needBrowse =
+        parentUnderRoot &&
+        parent !== treePath &&
+        !(
+          activeTab === "memory" &&
+          memoryKind === "standing" &&
+          (rel === "memory/standing.md" || rel.endsWith("/standing.md"))
+        );
+      openingDeepLinkRef.current = rel;
+      void (async () => {
+        try {
+          if (needBrowse) await loadTree(parent);
+          await loadFile(rel);
+        } finally {
+          if (openingDeepLinkRef.current === rel) openingDeepLinkRef.current = "";
+        }
+      })();
+    } else if (!selectedFile && !openingDeepLinkRef.current) {
       const first = treeEntries.find((e) => e.kind !== "dir");
       if (first) void loadFile(first.path);
     }
@@ -797,7 +846,17 @@ export default function AssetCenterContent() {
     if (filePaths.length) {
       void warmAssetFileBatch(currentEntity, filePaths, { limit: 8, concurrency: 2 });
     }
-  }, [treeEntries, selectedFile, activeTab, tabLoading, loadFile, memoryKind, currentEntity]);
+  }, [
+    treeEntries,
+    selectedFile,
+    activeTab,
+    tabLoading,
+    loadFile,
+    loadTree,
+    memoryKind,
+    currentEntity,
+    treePath,
+  ]);
 
   // 切换实体时清掉上一实体的文件缓存，避免串读
   useEffect(() => {
@@ -891,31 +950,57 @@ export default function AssetCenterContent() {
 
   const openPath = useCallback(
     (relPath: string) => {
-      const rel = String(relPath || "").replace(/\\/g, "/").replace(/^\//, "");
+      const rel = normalizeDeepLinkPath(relPath);
       if (!rel) return;
       let tab: AssetTab = "memory";
+      let nextKind: MemoryKind | null = null;
       if (rel.startsWith("craft/")) tab = "experience";
       else if (rel.startsWith("memory/journal/")) tab = "journal";
       else if (rel === "profile/affect.md" || rel.endsWith("/affect.md")) tab = "affect";
       else if (rel.startsWith("profile/")) tab = "profile";
       else if (rel.startsWith("memory/")) {
         tab = "memory";
-        if (rel.startsWith("memory/episodic/")) setMemoryKind("episodic");
-        else if (rel.includes("standing")) setMemoryKind("standing");
-        else setMemoryKind("facts");
+        if (rel.startsWith("memory/episodic/")) nextKind = "episodic";
+        else if (/(^|\/)standing(\.md)?$/i.test(rel) || rel.includes("/standing."))
+          nextKind = "standing";
+        else if (rel.startsWith("memory/facts/") || rel === "memory/MEMORY.md") nextKind = "facts";
+        // _inbox 等：保持当前/默认 facts 分段，靠 pendingOpenPath 打开真实父目录
+        else nextKind = "facts";
       } else return;
       if (tab === activeTab) {
-        if (tab === "memory") void applyMemoryKind(memoryKind).then(() => loadFile(rel));
-        else {
+        if (tab === "memory") {
+          const kind = nextKind || memoryKind;
+          if (kind !== memoryKind) setMemoryKind(kind);
+          const parent = parentAssetDir(rel);
+          const standardKindRoot =
+            kind === "episodic"
+              ? "memory/episodic"
+              : kind === "standing"
+                ? "memory"
+                : "memory/facts";
+          const browseParent =
+            !!parent &&
+            parent !== standardKindRoot &&
+            (parent === "memory" || parent.startsWith("memory/"));
+          void (async () => {
+            if (browseParent) {
+              await loadTree(parent);
+            } else {
+              await applyMemoryKind(kind);
+            }
+            await loadFile(rel);
+          })();
+        } else {
           pendingOpenPath.current = rel;
           void loadTabData(tab);
         }
       } else {
+        if (nextKind) setMemoryKind(nextKind);
         pendingOpenPath.current = rel;
         changeTab(tab);
       }
     },
-    [activeTab, memoryKind, applyMemoryKind, loadFile, loadTabData],
+    [activeTab, memoryKind, applyMemoryKind, loadFile, loadTabData, loadTree],
   );
 
   const createTodayJournal = useCallback(async () => {

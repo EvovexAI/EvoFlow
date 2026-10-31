@@ -18,6 +18,20 @@ const ENTRY_LINE_RE =
 /** Model leak: ``citation_entries: path | note=[…]`` (no XML wrapper). */
 const LOOSE_ENTRIES_LABEL_RE = /^\s*citation_entries\s*:\s*(.*)$/i
 
+/**
+ * Normalize a citation path for Asset Center deep-links.
+ * Models often emit markdown list markers (``- memory/…``) which must not become the path.
+ */
+export function normalizeAssetCitationPath(path: string): string {
+  let p = String(path || '')
+    .replace(/\\/g, '/')
+    .trim()
+  // Strip markdown list / ordered-list prefixes the model may glue onto the path.
+  p = p.replace(/^[-*+]\s+/, '')
+  p = p.replace(/^\d+[.)]\s+/, '')
+  return p.replace(/^\//, '').trim()
+}
+
 export function parseCitationEntries(blockInner: string): EvoAssetCitationEntry[] {
   const m = String(blockInner || '').match(ENTRIES_RE)
   const body = m ? m[1] : String(blockInner || '')
@@ -32,13 +46,26 @@ export function parseCitationEntries(blockInner: string): EvoAssetCitationEntry[
 }
 
 function parseEntryLine(line: string): EvoAssetCitationEntry | null {
-  const em = line.match(ENTRY_LINE_RE)
+  // Normalize before RE so ``- memory/foo.md | note=[…]`` still matches.
+  let cleaned = normalizeAssetCitationPath(line)
+  // Models sometimes write ``path.md — prose note`` instead of ``| note=[…]``.
+  let proseNote = ''
+  if (!/\|\s*note\s*=/i.test(cleaned)) {
+    const prose = cleaned.match(/^(.*?\.md(?::\d+-\d+)?)\s+[—–-]\s+(.+)$/u)
+    if (prose) {
+      cleaned = prose[1]!.trim()
+      proseNote = prose[2]!.trim()
+    }
+  }
+  const em = cleaned.match(ENTRY_LINE_RE)
   if (!em?.groups?.path) return null
+  const path = normalizeAssetCitationPath(em.groups.path)
+  if (!path) return null
   return {
-    path: em.groups.path.trim(),
+    path,
     lineStart: em.groups.start ? Number(em.groups.start) : null,
     lineEnd: em.groups.end ? Number(em.groups.end) : null,
-    note: String(em.groups.note || '').trim(),
+    note: String(em.groups.note || proseNote || '').trim(),
   }
 }
 
@@ -140,14 +167,40 @@ export function stripEvoAssetCitations(text: string): string {
 
 /** Paths that are safe to deep-link into Asset Center (not bare kb_/vault ids). */
 export function isDisplayableAssetCitationPath(path: string): boolean {
-  const p = String(path || '')
-    .replace(/\\/g, '/')
-    .replace(/^\//, '')
-    .trim()
+  const p = normalizeAssetCitationPath(path)
   if (!p) return false
   if (/^kb_[a-z0-9]+$/i.test(p)) return false
   if (/^[a-z]+_[a-f0-9]{16,}$/i.test(p) && !p.includes('/')) return false
   return true
+}
+
+/**
+ * Entity-vault relative path patterns (memory / craft / profile).
+ * Used to stop Markdown from joining these onto the chat workspace root.
+ */
+const ENTITY_ASSET_REL_RE =
+  /^(?:memory\/(?:_inbox|facts|episodic|journal)(?:\/|$)|memory\/(?:standing\.md|MEMORY\.md)$|craft\/[^/]+(?:\.md)?$|profile\/[^/]+\.md$)/i
+
+/** Absolute / workspace-joined path → peel trailing entity-asset suffix. */
+const ENTITY_ASSET_ABS_PEEL_RE =
+  /\/(memory\/(?:_inbox|facts|episodic|journal)\/.+|memory\/(?:standing\.md|MEMORY\.md)|craft\/[^/]+(?:\.md)?|profile\/[^/]+\.md)$/i
+
+/**
+ * If ``raw`` is (or ends with) an entity asset vault path, return the vault-relative path.
+ * Otherwise null — treat as a normal workspace file link.
+ */
+export function extractEntityAssetRelPath(raw: string): string | null {
+  const p = normalizeAssetCitationPath(raw).replace(/\\/g, '/')
+  if (!p) return null
+  if (ENTITY_ASSET_REL_RE.test(p)) return p
+  // Broader relative: memory/… craft/… profile/… (agents often omit the subtype folder)
+  if (/^(memory|craft|profile)\/.+\.[a-z0-9]{1,12}$/i.test(p)) return p
+  const peeled = p.match(ENTITY_ASSET_ABS_PEEL_RE)
+  if (peeled?.[1]) return peeled[1]
+  // Absolute with any memory|craft|profile segment after a drive/root
+  const loose = p.match(/\/((?:memory|craft|profile)\/.+)$/i)
+  if (loose?.[1] && /\.[a-z0-9]{1,12}$/i.test(loose[1])) return loose[1]
+  return null
 }
 
 /** Deep-link into Asset Center for a relative asset path. */
@@ -155,12 +208,19 @@ export function assetsHrefForPath(
   path: string,
   opts?: { entityType?: string; entityId?: string },
 ): string {
-  const rel = String(path || '').replace(/\\/g, '/').replace(/^\//, '')
+  const rel = normalizeAssetCitationPath(path)
   const params = new URLSearchParams()
-  params.set('tab', rel.startsWith('craft/') ? 'craft' : 'memory')
+  // Tab ids must match Asset Center IA (``experience`` owns craft/, not ``craft``).
+  if (rel.startsWith('craft/')) params.set('tab', 'experience')
+  else if (rel.startsWith('memory/journal/')) params.set('tab', 'journal')
+  else if (rel === 'profile/affect.md' || rel.endsWith('/affect.md')) params.set('tab', 'affect')
+  else if (rel.startsWith('profile/')) params.set('tab', 'profile')
+  else params.set('tab', 'memory')
   if (rel.startsWith('memory/episodic/')) params.set('memoryKind', 'episodic')
   else if (rel.startsWith('memory/facts/') || rel === 'memory/MEMORY.md') params.set('memoryKind', 'facts')
-  else if (rel.includes('standing')) params.set('memoryKind', 'standing')
+  else if (/(^|\/)standing(\.md)?$/i.test(rel) || rel.includes('/standing.'))
+    params.set('memoryKind', 'standing')
+  // memory/_inbox/… and other non-kind roots: omit memoryKind so the center can open the parent dir.
   if (opts?.entityType) params.set('entityType', opts.entityType)
   if (opts?.entityId) params.set('entityId', opts.entityId)
   if (rel) params.set('path', rel)

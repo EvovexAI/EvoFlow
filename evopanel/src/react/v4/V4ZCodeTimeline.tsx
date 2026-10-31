@@ -53,6 +53,7 @@ import type { IServiceAccessor } from "@zcode/services";
 import { packWorkspaceFileEntries } from "@zcode/shared/workspaceFileEntriesCodec";
 import type { V4TimelinePayload } from "./V4StreamRowsBridge.js";
 import type { ConversationRowRenderContext } from "@zcode/ui/v4/conversationRowContext.js";
+import { proactiveAgentCodeFromSessionKey } from "../lib/session-list/workspace-groups.js";
 import { getEvoflowV4Transport } from "./evoflowV4Transport.js";
 import { mergeOptimisticUserInputRow } from "./optimisticUserInput.js";
 import { V4QueuePanelBridge } from "./V4QueuePanelBridge.js";
@@ -1141,6 +1142,12 @@ export function V4ZCodeTimeline(props: {
     [sessionId, workspacePath],
   );
 
+  const assetEntity = useMemo(() => {
+    const code = proactiveAgentCodeFromSessionKey(evoflowSessionKey);
+    if (code) return { entityType: "employee", entityId: code };
+    return { entityType: "user", entityId: "user" };
+  }, [evoflowSessionKey]);
+
   const rowContext = useMemo<ConversationRowRenderContext>(
     () => ({
       workspacePath: workspacePath ?? "",
@@ -1169,11 +1176,14 @@ export function V4ZCodeTimeline(props: {
       onAutoOpenAssistantPptx: onAutoOpenCodeViewers ? handleAutoOpenAssistantPptx : undefined,
       assistantPreviewPptxAutoOpenTarget,
       readAttachment: sessionId ? readAttachment : undefined,
+      // 引用 chip → 资产中心：员工会话落到该员工 vault，其它落到「我」
+      assetEntityType: assetEntity.entityType,
+      assetEntityId: assetEntity.entityId,
     }),
     // approvalRenderKey：仅在待审批集合变化时换 context，让工具行挂上/摘掉面板；
     // 不跟每帧 rows/snapshot 绑定，避免展开「文件已更改」时整区闪。
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: approvalRenderKey gates refresh
-    [sessionId, onOpenCodeViewer, onOpenFileLink, onOpenFileLinkProp, onOpenBrowserUrl, fetchFileChanges, renderToolCallApproval, workspacePath, approvalRenderKey, onAutoOpenCodeViewers, handleAutoOpenAssistantPptx, assistantPreviewPptxAutoOpenTarget, hostTheme, readAttachment],
+    [sessionId, onOpenCodeViewer, onOpenFileLink, onOpenFileLinkProp, onOpenBrowserUrl, fetchFileChanges, renderToolCallApproval, workspacePath, approvalRenderKey, onAutoOpenCodeViewers, handleAutoOpenAssistantPptx, assistantPreviewPptxAutoOpenTarget, hostTheme, readAttachment, assetEntity.entityType, assetEntity.entityId],
   );
 
   // stream-compare：页面画什么 → 同轮目录 v4-ui-display.log（排查发送后白屏/无回复）。

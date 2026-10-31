@@ -54,18 +54,38 @@ def parse_rollout_ids(block_inner: str) -> list[str]:
     return ids
 
 
+def _normalize_citation_path(path: str) -> str:
+    """Strip markdown list markers models often glue onto citation paths."""
+    p = str(path or "").replace("\\", "/").strip()
+    p = re.sub(r"^[-*+]\s+", "", p)
+    p = re.sub(r"^\d+[.)]\s+", "", p)
+    return p.lstrip("/").strip()
+
+
+_PROSE_NOTE_RE = re.compile(
+    r"^(?P<head>.*?\.md(?::\d+-\d+)?)\s+[—–-]\s+(?P<note>.+)$",
+)
+
+
 def _parse_entry_line(line: str) -> dict[str, Any] | None:
-    em = _ENTRY_LINE_RE.match(line)
+    cleaned = _normalize_citation_path(line)
+    prose_note = ""
+    if not re.search(r"\|\s*note\s*=", cleaned, re.IGNORECASE):
+        prose = _PROSE_NOTE_RE.match(cleaned)
+        if prose:
+            cleaned = str(prose.group("head") or "").strip()
+            prose_note = str(prose.group("note") or "").strip()
+    em = _ENTRY_LINE_RE.match(cleaned)
     if not em:
         return None
-    path = str(em.group("path") or "").strip()
+    path = _normalize_citation_path(str(em.group("path") or ""))
     if not path:
         return None
     return {
         "path": path,
         "lineStart": int(em.group("start")) if em.group("start") else None,
         "lineEnd": int(em.group("end")) if em.group("end") else None,
-        "note": str(em.group("note") or "").strip(),
+        "note": str(em.group("note") or prose_note or "").strip(),
     }
 
 

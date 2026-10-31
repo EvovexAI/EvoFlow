@@ -36,6 +36,7 @@ const SESSION_SCOPED_KINDS = new Set<string>([
   'news-dashboard',
   'platform-feedback',
   'file',
+  'asset',
   'codeViewer',
   'terminal',
   'summary',
