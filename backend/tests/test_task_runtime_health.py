@@ -149,3 +149,44 @@ def test_resolve_live_by_active_background_executor(monkeypatch) -> None:
         "subtasks": [{"id": "s1", "status": "executing", "background_task_id": "SupervisorExec_x"}],
     }
     assert trh.resolve_task_runtime_health(task, active_index=idx, now_ts=1_000.0) == "live"
+
+
+def test_resolve_live_during_startup_before_lease_stamp() -> None:
+    """Phase 8 gap: dispatch→lease stamp is ~3.5s, so the first poll must not flash 已中断.
+
+    Real timeline (run 2610311720_4a89): started_at 17:20:47.14, lease stamped
+    17:20:50.77. ``tasks.get`` right after Run returned interrupted/live=false.
+    """
+    from datetime import datetime
+
+    from evoflow.collab.task_runtime_health import resolve_task_runtime_health
+
+    idx = {"by_task_id": set(), "by_thread_id": set()}
+    started = "2026-10-31T17:20:47.140532+08:00"
+    start_ts = datetime.fromisoformat(started).timestamp()
+    task = {
+        "id": "t-start",
+        "status": "executing",
+        "subtasks": [{"id": "s1", "status": "executing", "started_at": started}],
+    }
+    assert resolve_task_runtime_health(task, active_index=idx, now_ts=start_ts + 2.0) == "live"
+    # Past the grace window with no lease → genuinely suspicious.
+    assert resolve_task_runtime_health(task, active_index=idx, now_ts=start_ts + 30.0) == "interrupted"
+
+
+def test_recently_started_ignores_terminal_and_future_rows() -> None:
+    from datetime import datetime
+
+    from evoflow.collab.task_runtime_health import subtask_recently_started
+
+    now = datetime.now().timestamp()
+    recent = {"status": "executing", "started_at": datetime.fromtimestamp(now - 3).isoformat()}
+    assert subtask_recently_started(recent, now_ts=now) is True
+
+    done = {"status": "completed", "started_at": datetime.fromtimestamp(now - 3).isoformat()}
+    assert subtask_recently_started(done, now_ts=now) is False
+
+    future = {"status": "executing", "started_at": datetime.fromtimestamp(now + 600).isoformat()}
+    assert subtask_recently_started(future, now_ts=now) is False
+
+    assert subtask_recently_started({"status": "executing"}, now_ts=now) is False

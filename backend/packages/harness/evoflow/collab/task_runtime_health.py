@@ -15,6 +15,11 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+# A freshly dispatched step reads ``executing`` for a few seconds before the
+# worker stamps its lease. Treat that window as live instead of flapping to
+# 「已中断」 the moment the operator hits Run.
+_STARTUP_GRACE_SECONDS = 20.0
+
 _IN_FLIGHT = frozenset(
     {
         "executing",
@@ -123,6 +128,48 @@ def subtask_has_live_lease(row: dict[str, Any], *, now_ts: float | None = None) 
     return now <= lease_until + 15.0
 
 
+def subtask_recently_started(
+    row: dict[str, Any],
+    *,
+    now_ts: float | None = None,
+    grace_seconds: float = _STARTUP_GRACE_SECONDS,
+) -> bool:
+    """True when an in-flight subtask was dispatched within the grace window.
+
+    The worker stamps ``lease_until_ts`` a few seconds *after* the row is set to
+    ``executing`` (spawn → patch). Without this grace the first ~3s of every
+    step reads as ``interrupted`` — the exact window an operator polls right
+    after pressing Run, and the reason a healthy run got manually cancelled.
+    """
+    if not isinstance(row, dict):
+        return False
+    st = str(row.get("status") or "").strip().lower()
+    if st not in _IN_FLIGHT:
+        return False
+    started = row.get("started_at")
+    ts: float | None = None
+    if isinstance(started, (int, float)):
+        ts = float(started)
+    else:
+        text = str(started or "").strip()
+        if text:
+            try:
+                from datetime import datetime
+
+                if text.endswith("Z"):
+                    text = text[:-1] + "+00:00"
+                ts = datetime.fromisoformat(text).timestamp()
+            except Exception:
+                ts = None
+    if ts is None:
+        return False
+    now = float(now_ts if now_ts is not None else time.time())
+    if ts > now + 5.0:
+        # Clock skew guard — never treat a future stamp as "recently started".
+        return False
+    return (now - ts) <= max(0.0, float(grace_seconds))
+
+
 def has_active_background_executor(row: dict[str, Any]) -> bool:
     """True when this row's detached subagent task is still pending/running."""
     if not isinstance(row, dict):
@@ -179,12 +226,16 @@ def resolve_task_runtime_health(
         return "live"
     if has_active_background_executor(task):
         return "live"
+    if subtask_recently_started(task, now_ts=now_ts):
+        return "live"
     for st in task.get("subtasks") or []:
         if not isinstance(st, dict):
             continue
         if subtask_has_live_lease(st, now_ts=now_ts):
             return "live"
         if has_active_background_executor(st):
+            return "live"
+        if subtask_recently_started(st, now_ts=now_ts):
             return "live"
 
     return "interrupted"
@@ -213,4 +264,5 @@ __all__ = [
     "load_active_run_index",
     "resolve_task_runtime_health",
     "subtask_has_live_lease",
+    "subtask_recently_started",
 ]
