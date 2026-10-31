@@ -29,22 +29,55 @@ async function fetchWorkspaceFileText(
   threadId?: string,
   workspaceRoot?: string,
 ): Promise<string> {
+  const p = String(path || "").trim();
+  const isAbs =
+    /^[a-zA-Z]:[\\/]/.test(p) || (p.startsWith("/") && !p.startsWith("/mnt/"));
+  const tryLocal = async (): Promise<string | null> => {
+    if (!isAbs) return null;
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const text = await invoke<string>("assistant_read_file", { path: p });
+      return typeof text === "string" ? text : null;
+    } catch {
+      return null;
+    }
+  };
+
   const { apiUrlAsync } = await import("../../../lib/api-client.js");
-  const q = new URLSearchParams({ path });
+  const q = new URLSearchParams({ path: p });
   if (threadId) q.set("thread_id", threadId);
   const root = String(workspaceRoot || "").trim();
-  if (root) q.set("root", root);
-  const resp = await fetch(await apiUrlAsync(`/workspaces/serve-file?${q.toString()}`));
-  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-  const text = await resp.text();
-  // 相对 /api 打到 SPA 壳时会 200 返回 index.html；.md/.py 等不应当文件内容。
-  if (
-    !/\.html?$/i.test(path) &&
-    /^\s*<!DOCTYPE html/i.test(text)
-  ) {
-    throw new Error(`文件预览打到了页面壳而不是网关：${path}`);
+  if (root) {
+    q.set("root", root);
+  } else if (isAbs) {
+    const parent = p.replace(/\\/g, "/").replace(/\/+$/, "").replace(/\/[^/]+$/, "");
+    if (parent) q.set("root", parent);
   }
-  return text;
+  const url = await apiUrlAsync(`/workspaces/serve-file?${q.toString()}`);
+  const isTauri =
+    typeof window !== "undefined" &&
+    !!(window as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;
+  if (isTauri && url.startsWith("/api")) {
+    const local = await tryLocal();
+    if (local != null) return local;
+    throw new Error(`Gateway 未就绪，无法预览：${p}`);
+  }
+  try {
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const text = await resp.text();
+    // 相对 /api 打到 SPA 壳时会 200 返回 index.html；.md/.py 等不应当文件内容。
+    if (!/\.html?$/i.test(p) && /^\s*<!DOCTYPE html/i.test(text)) {
+      const local = await tryLocal();
+      if (local != null) return local;
+      throw new Error(`文件预览打到了页面壳而不是网关：${p}`);
+    }
+    return text;
+  } catch (err) {
+    const local = await tryLocal();
+    if (local != null) return local;
+    throw err;
+  }
 }
 
 export function V4CodeViewerSidePane(props: {
