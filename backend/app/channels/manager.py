@@ -1976,6 +1976,21 @@ class ChannelManager:
             logger.warning("[Manager] list/cancel im runs failed thread=%s: %s", tid, exc)
             return {"ok": False, "error": str(exc)[:120], "cancelled": 0, "preview": preview}
 
+        try:
+            from evoflow.subagents.executor import cancel_background_tasks_for_parent_thread
+
+            bg = cancel_background_tasks_for_parent_thread(tid, reason="im_run_cancelled")
+            if bg:
+                logger.info(
+                    "[Manager] cancelled im subagents=%d channel=%s chat=%s thread=%s",
+                    len(bg),
+                    channel_name,
+                    chat_id,
+                    tid,
+                )
+        except Exception:
+            logger.debug("[Manager] cancel im subagents failed thread=%s", tid, exc_info=True)
+
         tracked = dict(tracked)
         tracked["cancelled"] = True
         tracked["preview"] = preview

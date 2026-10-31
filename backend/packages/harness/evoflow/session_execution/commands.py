@@ -218,6 +218,30 @@ async def stop_session_execution(
                 _unregister_stream_proxy(tid)
                 cancelled, orphans = await sweep_langgraph_runs_until_idle(client, tid)
                 _reset_collab_on_stop(tid)
+                # Lead stop must also stop thread-pool subagents (they are not LangGraph runs).
+                try:
+                    from evoflow.subagents.executor import cancel_background_tasks_for_parent_thread
+
+                    bg_cancelled = cancel_background_tasks_for_parent_thread(
+                        tid,
+                        cancelled_by="user",
+                        reason=stop_reason or "parent_session_stopped",
+                    )
+                    if bg_cancelled:
+                        logger.info(
+                            "[STOP-TRACE] 3b.subagents-cancelled session=%s tid=%s count=%d ids=%s",
+                            key,
+                            tid,
+                            len(bg_cancelled),
+                            bg_cancelled,
+                        )
+                except Exception:
+                    logger.warning(
+                        "[STOP-TRACE] 3b.subagents-cancel-failed session=%s tid=%s",
+                        key,
+                        tid,
+                        exc_info=True,
+                    )
             else:
                 # chatSend 前置清理：只 cancel 当前/最新 run，不写 DB 终态、不 sweep 历史
                 cancelled = await cancel_langgraph_runs_before_send(

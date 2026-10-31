@@ -97,6 +97,7 @@ class SubagentResult:
         ai_messages: List of complete AI messages (as dicts) generated during execution.
         stream_messages: AI + Tool 消息按对话顺序（供 task_running 推送，含工具返回）。
         thread_id: Executor / LangGraph thread used for this run (V4 pane subscribe key).
+        parent_thread_id: Lead chat thread that spawned this worker (stop propagates here).
     """
 
     task_id: str
@@ -109,6 +110,7 @@ class SubagentResult:
     ai_messages: list[dict[str, Any]] | None = None
     stream_messages: list[dict[str, Any]] | None = None
     thread_id: str | None = None
+    parent_thread_id: str | None = None
 
     def __post_init__(self):
         """Initialize mutable defaults."""
@@ -121,6 +123,72 @@ class SubagentResult:
 # Global storage for background task results
 _background_tasks: dict[str, SubagentResult] = {}
 _background_tasks_lock = threading.Lock()
+
+_ACTIVE_BG_STATUSES = frozenset({SubagentStatus.PENDING, SubagentStatus.RUNNING})
+
+
+def _subagent_should_stop(result: SubagentResult) -> bool:
+    """True when this worker or its parent lead thread was cooperatively cancelled."""
+    if is_task_cancelled(result.task_id):
+        return True
+    parent = str(result.parent_thread_id or "").strip()
+    if parent and parent != result.task_id and is_task_cancelled(parent):
+        return True
+    return False
+
+
+def cancel_background_tasks_for_parent_thread(
+    parent_thread_id: str,
+    *,
+    cancelled_by: str = "user",
+    reason: str = "parent_session_stopped",
+) -> list[str]:
+    """Mark in-flight subagents spawned by a lead thread as cancelled.
+
+    Used when the main chat stops: LangGraph cancel alone does not stop
+    thread-pool subagents; they only exit after ``is_task_cancelled(task_id)``.
+    """
+    from evoflow.cancellation import mark_task_cancelled
+
+    parent = str(parent_thread_id or "").strip()
+    if not parent:
+        return []
+
+    # Belt-and-suspenders: children also poll parent thread cancel flag.
+    mark_task_cancelled(parent, cancelled_by, reason)
+
+    cancelled_ids: list[str] = []
+    with _background_tasks_lock:
+        candidates = list(_background_tasks.values())
+
+    for ent in candidates:
+        if ent.status not in _ACTIVE_BG_STATUSES:
+            continue
+        ent_parent = str(ent.parent_thread_id or "").strip()
+        ent_thread = str(ent.thread_id or "").strip()
+        # Match explicit parent linkage, or workers that reused the lead thread_id.
+        if ent_parent != parent and ent_thread != parent:
+            continue
+        tid = str(ent.task_id or "").strip()
+        if not tid:
+            continue
+        mark_task_cancelled(tid, cancelled_by, reason)
+        with _background_tasks_lock:
+            live = _background_tasks.get(tid)
+            if live is not None and live.status in _ACTIVE_BG_STATUSES:
+                live.status = SubagentStatus.CANCELLED
+                live.error = live.error or reason
+                live.completed_at = live.completed_at or datetime.now()
+        cancelled_ids.append(tid)
+
+    if cancelled_ids:
+        logger.info(
+            "Cancelled %d background subagent(s) for parent thread %s: %s",
+            len(cancelled_ids),
+            parent,
+            cancelled_ids,
+        )
+    return cancelled_ids
 
 # Transcript snapshots kept after cleanup_background_task removes the live entry.
 # Frontend SubagentTranscriptModal polls these by task_id long after the subagent
@@ -545,9 +613,10 @@ class SubagentExecutor:
                         context=context,
                         stream_mode=["values", "messages"],
                     ):
-                        # 取消检查点：每若干轮检查一次（含 token chunk，所以阈值放大避免频繁锁）
+                        # 取消检查点：每 values 事件检查；token chunk 每 10 次检查一次（含父会话 stop）
                         message_count += 1
-                        if message_count % 50 == 0 and is_task_cancelled(result.task_id):
+                        check_cancel = stream_type == "values" or message_count % 10 == 0
+                        if check_cancel and _subagent_should_stop(result):
                             logger.info(f"[trace={self.trace_id}] Subagent {self.config.name} detected cancellation, stopping")
                             raise TaskCancelledError(result.task_id, "Cancelled during execution")
 
@@ -750,12 +819,20 @@ class SubagentExecutor:
         if task_id is None:
             task_id = make_formatted_id("SubagentTask")
 
+        parent_tid = ""
+        if self.extra_context:
+            parent_tid = str(self.extra_context.get("parent_thread_id") or "").strip()
+        # Non-collab workers often reuse the lead thread_id; keep parent for stop fan-out.
+        if not parent_tid:
+            parent_tid = str(self.thread_id or "").strip()
+
         # Create initial pending result
         result = SubagentResult(
             task_id=task_id,
             trace_id=self.trace_id,
             status=SubagentStatus.PENDING,
             thread_id=str(self.thread_id or "").strip() or None,
+            parent_thread_id=parent_tid or None,
         )
 
         logger.info(f"[trace={self.trace_id}] Subagent {self.config.name} starting async execution, task_id={task_id}, timeout={self.config.timeout_seconds}s")
@@ -768,8 +845,10 @@ class SubagentExecutor:
 
         # Submit to scheduler pool
         def run_task():
-            # 【新增】开始时检查是否已被取消
-            if is_task_cancelled(task_id):
+            # 【新增】开始时检查是否已被取消（含父会话 stop）
+            with _background_tasks_lock:
+                pending = _background_tasks.get(task_id)
+            if pending is not None and _subagent_should_stop(pending):
                 logger.info(f"[trace={self.trace_id}] Subagent {self.config.name} task {task_id} already cancelled before starting")
                 with _background_tasks_lock:
                     _background_tasks[task_id].status = SubagentStatus.CANCELLED

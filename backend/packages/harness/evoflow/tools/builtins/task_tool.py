@@ -9,6 +9,7 @@ import sys
 import threading
 import time
 from dataclasses import replace
+from datetime import datetime
 from typing import Annotated, Any
 
 from langchain.tools import InjectedToolCallId, ToolRuntime, tool
@@ -46,7 +47,12 @@ from evoflow.collab.thread_collab import load_thread_collab_state
 from evoflow.config.agents_config import load_agent_config
 from evoflow.config.paths import get_paths
 from evoflow.sandbox.security import LOCAL_BASH_SUBAGENT_DISABLED_MESSAGE, is_host_bash_allowed
-from evoflow.subagents import SubagentExecutor, get_available_subagent_names, get_subagent_config
+from evoflow.subagents import (
+    SubagentExecutor,
+    get_available_subagent_names,
+    get_subagent_config,
+    resolve_subagent_type,
+)
 from evoflow.subagents.executor import SubagentResult, SubagentStatus, cleanup_background_task, get_background_task_result
 from evoflow.tools.builtins.subagent_tool_description import SUBAGENT_TOOL_DESCRIPTION
 
@@ -945,9 +951,19 @@ async def task_tool(
         elif outcome == "cancelled":
             await broadcast_collab_task_event(resolved_collab, "task:cancelled", {"task_id": tid, "error": (r.error or "")[:4000]})
 
-    effective_subagent_type = subagent_type
+    requested_subagent_type = str(subagent_type or "").strip()
     if profile_model and profile_model.base_subagent:
-        effective_subagent_type = str(profile_model.base_subagent).strip()
+        requested_subagent_type = str(profile_model.base_subagent).strip()
+
+    # Built-in default is the generic agent. Unknown names (often hallucinated from
+    # plugin/skill labels like computer-use) coerce instead of hard-failing.
+    effective_subagent_type = resolve_subagent_type(requested_subagent_type)
+    if effective_subagent_type != requested_subagent_type:
+        logger.info(
+            "subagent_type coerced %r -> %r",
+            requested_subagent_type,
+            effective_subagent_type,
+        )
 
     config = get_subagent_config(effective_subagent_type)
     if config is None:
@@ -1676,6 +1692,22 @@ async def task_tool(
                     minutes = max(1, int(config.timeout_seconds + 60) // 60)
                     return f"Task polling timed out after {minutes} minutes"
         except asyncio.CancelledError:
+            # Parent lead run was cancelled (user stop / preempt). Signal the
+            # background worker immediately — do not let it keep running.
+            try:
+                from evoflow.cancellation import mark_task_cancelled
+
+                mark_task_cancelled(task_id, "user", "parent_poll_cancelled")
+            except Exception:
+                logger.debug("task_tool: mark subagent cancelled on poll cancel failed", exc_info=True)
+            try:
+                bg = get_background_task_result(task_id)
+                if bg is not None and bg.status in {SubagentStatus.PENDING, SubagentStatus.RUNNING}:
+                    bg.status = SubagentStatus.CANCELLED
+                    bg.error = bg.error or "parent_poll_cancelled"
+                    bg.completed_at = bg.completed_at or datetime.now()
+            except Exception:
+                logger.debug("task_tool: flip subagent status on poll cancel failed", exc_info=True)
 
             async def cleanup_when_done() -> None:
                 max_cleanup_polls = max_poll_count

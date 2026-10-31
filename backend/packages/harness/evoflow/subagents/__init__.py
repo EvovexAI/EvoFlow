@@ -12,19 +12,26 @@ __all__ = [
     "SubagentConfig",
     "SubagentExecutor",
     "SubagentResult",
+    "cancel_background_tasks_for_parent_thread",
     "get_available_subagent_names",
     "get_subagent_config",
     "is_claude_code_subagent_type",
     "list_subagents",
+    "resolve_subagent_type",
 ]
 
 
 def __getattr__(name: str):
-    if name in {"SubagentExecutor", "SubagentResult"}:
-        from .executor import SubagentExecutor, SubagentResult
+    if name in {"SubagentExecutor", "SubagentResult", "cancel_background_tasks_for_parent_thread"}:
+        from . import executor as _executor
 
-        return SubagentExecutor if name == "SubagentExecutor" else SubagentResult
-    if name in {"get_available_subagent_names", "get_subagent_config", "list_subagents"}:
+        return getattr(_executor, name)
+    if name in {
+        "get_available_subagent_names",
+        "get_subagent_config",
+        "list_subagents",
+        "resolve_subagent_type",
+    }:
         from . import registry as _registry
 
         return getattr(_registry, name)
