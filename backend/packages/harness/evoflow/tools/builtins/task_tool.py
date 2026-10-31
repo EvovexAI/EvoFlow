@@ -681,6 +681,26 @@ async def task_tool(
     collab_sub_row: dict | None = None
     collab_lead_thread_id: str | None = None
     collab_main_task_row: dict[str, Any] | None = None
+    # Plain chat subagent (no collab): give a dedicated executor thread so the
+    # right-stage pane can V4-hydrate that thread (same {lead}__sub__{id} shape
+    # as collab). Reusing the lead thread_id would make V4SessionPaneBridge
+    # render the main conversation in the side panel — the raw「实时输出」fallback.
+    if not resolved_collab:
+        try:
+            import re
+
+            from evoflow.collab.thread_ids import (
+                collab_subtask_executor_thread_id,
+                normalize_lead_thread_id,
+            )
+
+            lead = normalize_lead_thread_id(thread_id) or str(thread_id or "").strip()
+            # Paths._SAFE_THREAD_ID_RE: alnum / hyphen / underscore only.
+            sid = re.sub(r"[^A-Za-z0-9_\-]+", "_", str(tool_call_id or "").strip()).strip("_")
+            if lead and sid:
+                execution_thread_id = collab_subtask_executor_thread_id(lead, sid)
+        except Exception:
+            logger.debug("task_tool: allocate chat-subagent executor thread failed", exc_info=True)
     if resolved_collab:
         collab_storage = get_project_storage()
         cm = find_main_task(collab_storage, resolved_collab)

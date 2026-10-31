@@ -1,20 +1,20 @@
 /**
- * 子代理输出面板（右栏）。
+ * 子代理输出面板（右栏）——对话体对齐主聊 V4（V4SessionPaneBridge → V4ZCodeTimeline）。
  *
- * 双通道展示，zcode 对齐：
- * 1. 实时流（运行中）：消费 threadPanelState.subagentTasks[taskId].liveOutput ——
- *    后端 task_* 帧在主对话流上捎带的增量，点击前就在积累，点击即现。
- * 2. 历史回放：2s 轮询 GET /api/tasks/subagent/{taskId}/transcript 的 messages
- *    （SubagentExecutor.stream_messages 内存快照），增量渲染并自动跟读。
- * 3. 仅当 transcript 解析出「非父线程」的 child thread（协作子任务）时才走
- *    V4SessionPaneBridge 订阅子会话 v4 流；普通 chat 子代理的 thread_id 是父
- *    线程（executor 继承主线程 id），桥接会错渲染主对话，必须排除。
+ * 1. 后端为 chat 子代理分配独立 `{lead}__sub__{toolCallId}` executor thread
+ *    （与协作子任务同形）；transcript 返回该 child thread_id 后挂 V4 桥。
+ * 2. 桥接前 / 无 child thread 时：用 liveOutput + transcript messages 作过渡兜底
+ *    （勿把父线程当 sessionId 桥接，否则会串主对话）。
+ * 3. 轮询 transcript 仅作 catch-up（live 已走主 SSE）；页签隐藏时跳过。
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { fetchSubagentTaskTranscript } from "../../../lib/fetch-subagent-transcript.js";
 import { V4SessionPaneBridge } from "../../v4/V4SessionPaneBridge.js";
 
-const POLL_INTERVAL_MS = 2000;
+// Was 2s — under a live run this hammered Gateway (~1–2s each) and made Task
+// Center / sessions wait 8–11s (slow log 2026-10-31). Live output already comes
+// via main stream; transcript poll is catch-up only.
+const POLL_INTERVAL_MS = 5000;
 const TERMINAL_STATUSES = new Set(["completed", "failed", "error", "cancelled", "timed_out", "success"]);
 
 export interface SubagentLiveTaskLike {
@@ -85,7 +85,7 @@ export function V4SubagentTranscriptPane(props: {
       const nextStatus = String(data?.status || fallbackStatus || "");
       setStatus(nextStatus);
       const tid = String(data?.thread_id || "").trim();
-      // 普通子代理继承父线程：thread_id === parentThreadId 不是子会话，不桥接
+      // Child executor thread（{lead}__sub__*）才桥接 V4；等于父线程则仍是旧路径，勿桥接。
       const isChildThread = !!tid && (!parentThreadId || tid !== parentThreadId);
       setChildThreadId(isChildThread ? tid : "");
       const nextMessages = Array.isArray(data?.messages) ? (data.messages as Array<Record<string, unknown>>) : [];
@@ -107,6 +107,7 @@ export function V4SubagentTranscriptPane(props: {
     void fetchOnce();
     pollRef.current = setInterval(() => {
       if (disposed) return;
+      if (typeof document !== "undefined" && document.hidden) return;
       if (terminal && loaded && (childThreadId || messages.length > 0 || resultText)) {
         if (pollRef.current) clearInterval(pollRef.current);
         pollRef.current = null;

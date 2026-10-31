@@ -135,10 +135,15 @@ def _attach_runtime_health(task: dict[str, Any]) -> dict[str, Any]:
     return task
 
 
-def _public_task_dict(task: dict[str, Any]) -> dict[str, Any]:
-    """Task-centric API: omit legacy project bundle fields from responses."""
+def _public_task_dict(task: dict[str, Any], *, for_list: bool = False) -> dict[str, Any]:
+    """Task-centric API: omit legacy project bundle fields from responses.
+
+    ``for_list=True`` (Task Center catalog): skip ``task_outputs_of`` /
+    ``task_input_refs_of`` / ``task_handlers_of``. Those walk the filesystem to
+    absolutize paths (~2s cold for a 40-row page) and the list path drops the
+    fields in ``_slim_task_for_list`` anyway.
+    """
     from evoflow.admin.tasks import task_summary_of
-    from evoflow.collab.task_outputs import task_outputs_of
     from evoflow.collab.task_source import normalize_task_source, task_source_zh
 
     out = task.copy()
@@ -171,12 +176,20 @@ def _public_task_dict(task: dict[str, Any]) -> dict[str, Any]:
     summary = task_summary_of(out)
     if summary:
         out["summary"] = str(out.get("summary") or "").strip() or summary
+    if for_list:
+        # Catalog cards only need summary/status/source — drop heavy handoff blobs
+        # before any filesystem absolutize. Detail views keep full enrichment.
+        for k in ("outputs", "input_refs", "handlers", "evidence_paths"):
+            out.pop(k, None)
+        return out
+
+    from evoflow.collab.task_outputs import task_input_refs_of, task_outputs_of
+
     outputs = task_outputs_of(out)
     if outputs:
         out["outputs"] = outputs
     elif "outputs" in out and not out.get("outputs"):
         out.pop("outputs", None)
-    from evoflow.collab.task_outputs import task_input_refs_of
 
     input_refs = task_input_refs_of(out)
     if input_refs:
@@ -765,26 +778,102 @@ async def list_tasks(
         except Exception:
             logger.debug("list_tasks shed check failed", exc_info=True)
 
-        payload = await asyncio.to_thread(
-            _list_tasks_catalog_sync,
-            status=status,
-            source=source,
-            search=search,
-            project_id=project_id,
-            sort=sort,
-            order=order,
-            page=page,
-            page_size=effective_page_size,
-            hide_noise=hide_noise,
-            has_role=has_role,
-            is_admin=bool(authz.get("is_admin")),
-            personal_scope=authz.get("personal_scope"),
-            org_scope=authz.get("org_scope"),
-            principal=authz.get("principal"),
-        )
+        import time as _time
+
+        from app.gateway.hang_diagnostics import append_gateway_slow_log
+        from app.gateway.traffic_lanes import tasks_catalog_slot
+
+        catalog_timeout_s = float(os.environ.get("EVOFLOW_TASKS_LIST_TIMEOUT_S", "10") or 10)
+        catalog_timeout_s = max(3.0, min(catalog_timeout_s, 30.0))
+        acquire_s = min(3.0, catalog_timeout_s)
+        slot = tasks_catalog_slot()
+        t_acq0 = _time.perf_counter()
+        try:
+            await asyncio.wait_for(slot.acquire(), timeout=acquire_s)
+        except TimeoutError:
+            logger.warning("list_tasks catalog slot busy (acquire>%.1fs)", acquire_s)
+            append_gateway_slow_log(
+                kind="tasks_catalog_slot_busy",
+                method="GET",
+                path="/api/tasks",
+                duration_s=_time.perf_counter() - t_acq0,
+                status_code=503,
+                extra=f"page_size={effective_page_size}",
+            )
+            raise HTTPException(status_code=503, detail="tasks list busy, retry shortly") from None
+        acquire_ms = (_time.perf_counter() - t_acq0) * 1000
+        try:
+            t_work0 = _time.perf_counter()
+            try:
+                payload = await asyncio.wait_for(
+                    asyncio.to_thread(
+                        _list_tasks_catalog_sync,
+                        status=status,
+                        source=source,
+                        search=search,
+                        project_id=project_id,
+                        sort=sort,
+                        order=order,
+                        page=page,
+                        page_size=effective_page_size,
+                        hide_noise=hide_noise,
+                        has_role=has_role,
+                        is_admin=bool(authz.get("is_admin")),
+                        personal_scope=authz.get("personal_scope"),
+                        org_scope=authz.get("org_scope"),
+                        principal=authz.get("principal"),
+                    ),
+                    timeout=catalog_timeout_s,
+                )
+            except TimeoutError:
+                logger.warning(
+                    "list_tasks catalog timed out after %.1fs page_size=%s acquire_ms=%.0f",
+                    catalog_timeout_s,
+                    effective_page_size,
+                    acquire_ms,
+                )
+                append_gateway_slow_log(
+                    kind="tasks_catalog_timeout",
+                    method="GET",
+                    path="/api/tasks",
+                    duration_s=catalog_timeout_s,
+                    status_code=503,
+                    extra=f"page_size={effective_page_size} acquire_ms={acquire_ms:.0f}",
+                )
+                raise HTTPException(
+                    status_code=503, detail="tasks list timed out, retry shortly"
+                ) from None
+            work_ms = (_time.perf_counter() - t_work0) * 1000
+            n_tasks = len((payload or {}).get("tasks") or []) if isinstance(payload, dict) else 0
+            total = (payload or {}).get("total") if isinstance(payload, dict) else None
+            if work_ms >= 200 or acquire_ms >= 100:
+                logger.info(
+                    "list_tasks catalog done work_ms=%.0f acquire_ms=%.0f page_size=%s n=%s total=%s shed=%s",
+                    work_ms,
+                    acquire_ms,
+                    effective_page_size,
+                    n_tasks,
+                    total,
+                    shed_applied,
+                )
+            if work_ms >= 1000:
+                append_gateway_slow_log(
+                    kind="tasks_catalog",
+                    method="GET",
+                    path="/api/tasks",
+                    duration_s=work_ms / 1000.0,
+                    extra=(
+                        f"acquire_ms={acquire_ms:.0f} page_size={effective_page_size} "
+                        f"n={n_tasks} total={total} shed={shed_applied}"
+                    ),
+                )
+        finally:
+            slot.release()
         if shed_applied and isinstance(payload, dict):
             payload = {**payload, "shed": True, "shed_page_size": effective_page_size}
         return {"success": True, "data": payload}
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception("list_tasks failed")
         raise_task_error(ErrorCode.INTERNAL_ERROR, f"获取任务列表失败: {str(e)}")
@@ -829,7 +918,7 @@ def _catalog_row_matches(
         search_lower = search.lower()
         if search_lower not in task_name and search_lower not in task_id:
             return None
-    task_data = _slim_task_for_list(_public_task_dict(task))
+    task_data = _slim_task_for_list(_public_task_dict(task, for_list=True))
     if hide_noise:
         from evoflow.collab.task_noise import is_task_center_noise
 
@@ -946,6 +1035,9 @@ def _list_tasks_catalog_sync(
     ``list_root_task_summaries()`` with no limit, filtered in Python, then sliced —
     so ``page_size=40`` still scanned every root and wedged Gateway during chat.
     """
+    import time as _time
+
+    t_sync0 = _time.perf_counter()
     mid = str(project_id or "").strip() or None
     requested = int(page_size or 0)
     if requested <= 0:
@@ -1004,6 +1096,7 @@ def _list_tasks_catalog_sync(
     # Fast path: default newest-first with no status/source filter → one SQL page
     # with overfetch, then Python refine. Avoids multi-window when drop-rate is low.
     use_single_window = sql_order_ok and not status and not source
+    t_sql0 = _time.perf_counter()
     if use_single_window:
         overfetch = max(size * 4, size + 20)
         # Pull enough SQL rows to cover prior pages + this page after filter drop.
@@ -1011,13 +1104,17 @@ def _list_tasks_catalog_sync(
         raw, sql_prefilters = _catalog_list_roots(limit=sql_limit, offset=0, **list_kwargs)
         scanned = len(raw)
         exhausted = scanned < sql_limit
+        t_sql_ms = (_time.perf_counter() - t_sql0) * 1000
+        t_match0 = _time.perf_counter()
         for task in raw:
             row = _match(task, prefiltered=sql_prefilters)
             if row is not None:
                 matched.append(row)
                 if len(matched) >= need:
                     break
+        t_match_ms = (_time.perf_counter() - t_match0) * 1000
     else:
+        t_match0 = _time.perf_counter()
         while len(matched) < need and scanned < max_scan:
             batch, sql_prefilters = _catalog_list_roots(limit=window, offset=scanned, **list_kwargs)
             if not batch:
@@ -1031,6 +1128,8 @@ def _list_tasks_catalog_sync(
             if len(batch) < window:
                 exhausted = True
                 break
+        t_match_ms = (_time.perf_counter() - t_match0) * 1000
+        t_sql_ms = t_match_ms  # multi-window interleaves SQL+match
 
     if not sql_order_ok:
         if sort_key == "name":
@@ -1092,12 +1191,28 @@ def _list_tasks_catalog_sync(
         page_tasks = matched[start : start + size]
 
     # Join SQLite session run_status — UI must not invent「已中断」via client probe.
+    t_enrich0 = _time.perf_counter()
     try:
         from evoflow.collab.task_runtime_health import enrich_tasks_runtime_health
 
         enrich_tasks_runtime_health(page_tasks)
     except Exception:
         logger.debug("list_tasks: runtime_health enrich failed", exc_info=True)
+    t_enrich_ms = (_time.perf_counter() - t_enrich0) * 1000
+    t_total_ms = (_time.perf_counter() - t_sync0) * 1000
+    if t_total_ms >= 200:
+        logger.info(
+            "list_tasks catalog_sync total_ms=%.0f sql_ms=%.0f match_ms=%.0f enrich_ms=%.0f "
+            "scanned=%s matched=%s page_n=%s page_size=%s",
+            t_total_ms,
+            t_sql_ms,
+            t_match_ms,
+            t_enrich_ms,
+            scanned,
+            len(matched),
+            len(page_tasks),
+            size,
+        )
 
     out: dict[str, Any] = {
         "tasks": page_tasks,
@@ -3037,29 +3152,29 @@ async def get_task_runtime(http_request: Request, task_id: str) -> dict:
     raise_task_error(ErrorCode.TASK_NOT_FOUND, f"任务 '{task_id}' 不存在")
 
 
-@router.get("/subagent/{task_id}/transcript", summary="Subagent Task Transcript")
-async def get_subagent_task_transcript(http_request: Request, task_id: str) -> dict:
-    """Return subagent execution transcript (AI messages) by background task ID.
+def _load_subagent_transcript_sync(task_id: str) -> dict[str, Any]:
+    """DB + memory snapshot for subagent transcript (run off the event loop).
 
-    Reads from the in-memory ``_background_tasks`` store maintained by
-    ``SubagentExecutor``; no database persistence layer needed.
-
-    Collab UIs may pass ``collab_subtask_id``; when the direct lookup misses,
-    resolve ``background_task_id`` from the subtask row and retry.
+    Slow log 2026-10-31: FE polled this every 2s at 1–2s each while Task Center
+    opened — sync collab storage on the loop starved /api/tasks + /sessions.
     """
     from evoflow.subagents.executor import get_background_task_result_or_snapshot
 
     lookup_id = str(task_id or "").strip()
     result = get_background_task_result_or_snapshot(lookup_id) if lookup_id else None
+    parent_thread: str | None = None
+
+    def _parent_from_result(r: Any) -> str | None:
+        # Prefer explicit parent_thread_id (chat subagents now use a dedicated
+        # {lead}__sub__{tool_call_id} executor thread — thread_id is the child).
+        p = str(getattr(r, "parent_thread_id", None) or "").strip() or None
+        if p:
+            return p
+        return str(getattr(r, "thread_id", None) or "").strip() or None
+
     if result is not None:
-        # 子代理 task_id ≡ tool_call_id（不在 tasks 表，task owner 链查不到 →
-        # require_task_visible 会误 404，前端面板因此永远拿不到 transcript）。
-        # 改按父线程鉴权：与主对话同一权限域（本地无凭据请求放行，同主聊天）。
-        parent_thread = str(getattr(result, "thread_id", None) or "").strip()
-        if parent_thread:
-            require_thread_visible(http_request, parent_thread)
+        parent_thread = _parent_from_result(result)
     else:
-        require_task_visible(http_request, task_id)
         try:
             from evoflow.collab.storage import find_subtask_row_by_id, get_project_storage
 
@@ -3071,10 +3186,10 @@ async def get_subagent_task_transcript(http_request: Request, task_id: str) -> d
                     result = get_background_task_result_or_snapshot(bg_id)
                     if result is not None:
                         lookup_id = bg_id
+                        parent_thread = _parent_from_result(result)
         except Exception:
             pass
 
-    # Prefer same store as main chat when memory snapshot is gone (collab worker rows).
     chat_messages: list = []
     thread_id: str | None = None
     try:
@@ -3090,35 +3205,31 @@ async def get_subagent_task_transcript(http_request: Request, task_id: str) -> d
             sid = str(st.get("id") or "").strip()
             if sid:
                 thread_id = resolve_subtask_transcript_thread(task, sid, subtask_row=st)
+                # Cap for poll path — UI does not need 2000 rows every few seconds.
                 chat_messages = list_subtask_conversation_ui_messages(
-                    task, sid, subtask_row=st, limit=2000
+                    task, sid, subtask_row=st, limit=200
                 )
     except Exception:
         pass
 
     if result is None:
-        if chat_messages:
-            return {
+        return {
+            "lookup_id": lookup_id,
+            "parent_thread": parent_thread,
+            "need_task_visible": True,
+            "payload": {
                 "task_id": task_id,
                 "status": "unknown",
                 "messages": chat_messages,
                 "thread_id": thread_id,
-                "empty": False,
-            }
-        return {
-            "task_id": task_id,
-            "status": "unknown",
-            "messages": [],
-            "thread_id": thread_id,
-            "empty": True,
+                "empty": not bool(chat_messages),
+            },
         }
 
     messages = list(result.stream_messages or [])
     result_thread = str(getattr(result, "thread_id", None) or "").strip() or None
     if not thread_id and result_thread:
         thread_id = result_thread
-    # Claude Code 等工作常把正文写在 result 字段，stream_messages 仅有薄包装 tool 行；
-    # 弹窗若只吃 messages 会空白，这里用 result/error 合成一条可展示 AI 消息。
     if not messages:
         if chat_messages:
             messages = chat_messages
@@ -3135,17 +3246,87 @@ async def get_subagent_task_transcript(http_request: Request, task_id: str) -> d
                 ]
 
     return {
-        "task_id": lookup_id,
-        "status": result.status.value if hasattr(result.status, "value") else str(result.status),
-        "result": result.result,
-        "error": result.error,
-        "started_at": result.started_at.isoformat() if result.started_at else None,
-        "completed_at": result.completed_at.isoformat() if result.completed_at else None,
-        "messages": messages,
-        "ai_messages": result.ai_messages or [],
-        "thread_id": thread_id,
-        "empty": not bool(messages),
+        "lookup_id": lookup_id,
+        "parent_thread": parent_thread or result_thread,
+        "need_task_visible": False,
+        "payload": {
+            "task_id": lookup_id,
+            "status": result.status.value if hasattr(result.status, "value") else str(result.status),
+            "result": result.result,
+            "error": result.error,
+            "started_at": result.started_at.isoformat() if result.started_at else None,
+            "completed_at": result.completed_at.isoformat() if result.completed_at else None,
+            "messages": messages,
+            "ai_messages": result.ai_messages or [],
+            "thread_id": thread_id,
+            "parent_thread_id": parent_thread or None,
+            "empty": not bool(messages),
+        },
     }
+
+
+@router.get("/subagent/{task_id}/transcript", summary="Subagent Task Transcript")
+async def get_subagent_task_transcript(http_request: Request, task_id: str) -> dict:
+    """Return subagent execution transcript (AI messages) by background task ID.
+
+    Best-effort lane: worker thread + concurrency slot + timeout so 2–5s polls
+    cannot starve Task Center catalog + session list on the Gateway event loop.
+    """
+    import asyncio
+    import time as _time
+
+    from app.gateway.hang_diagnostics import append_gateway_slow_log
+    from app.gateway.traffic_lanes import transcript_slot
+
+    timeout_s = float(os.environ.get("EVOFLOW_TRANSCRIPT_TIMEOUT_S", "6") or 6)
+    timeout_s = max(2.0, min(timeout_s, 20.0))
+    acquire_s = min(2.0, timeout_s)
+    slot = transcript_slot()
+    t0 = _time.perf_counter()
+    try:
+        await asyncio.wait_for(slot.acquire(), timeout=acquire_s)
+    except TimeoutError:
+        append_gateway_slow_log(
+            kind="transcript_slot_busy",
+            method="GET",
+            path=f"/api/tasks/subagent/{task_id}/transcript",
+            duration_s=_time.perf_counter() - t0,
+            status_code=503,
+        )
+        raise HTTPException(status_code=503, detail="transcript busy, retry shortly") from None
+    try:
+        try:
+            packed = await asyncio.wait_for(
+                asyncio.to_thread(_load_subagent_transcript_sync, str(task_id or "").strip()),
+                timeout=timeout_s,
+            )
+        except TimeoutError:
+            append_gateway_slow_log(
+                kind="transcript_timeout",
+                method="GET",
+                path=f"/api/tasks/subagent/{task_id}/transcript",
+                duration_s=timeout_s,
+                status_code=503,
+            )
+            raise HTTPException(
+                status_code=503, detail="transcript timed out, retry shortly"
+            ) from None
+        work_ms = (_time.perf_counter() - t0) * 1000
+        if work_ms >= 1500:
+            append_gateway_slow_log(
+                kind="transcript",
+                method="GET",
+                path=f"/api/tasks/subagent/{task_id}/transcript",
+                duration_s=work_ms / 1000.0,
+            )
+    finally:
+        slot.release()
+    parent_thread = str(packed.get("parent_thread") or "").strip()
+    if parent_thread:
+        require_thread_visible(http_request, parent_thread)
+    elif packed.get("need_task_visible"):
+        require_task_visible(http_request, task_id)
+    return packed["payload"]
 
 
 class SaveAsAppRequest(BaseModel):

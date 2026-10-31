@@ -7,7 +7,7 @@ import { fetchSubagentTaskTranscript } from '../../lib/fetch-subagent-transcript
 import { useModalEscapeClose } from '../hooks/useModalEscapeClose.js'
 import { V4SessionPaneBridge } from '../v4/V4SessionPaneBridge.js'
 
-const POLL_MS = 2000
+const POLL_MS = 5000
 const TERMINAL = new Set(['completed', 'failed', 'error', 'cancelled', 'timed_out'])
 
 function SubagentTranscriptModalInner({
@@ -54,6 +54,7 @@ function SubagentTranscriptModalInner({
     void fetchOnce()
     pollRef.current = setInterval(() => {
       if (disposed) return
+      if (typeof document !== 'undefined' && document.hidden) return
       if (TERMINAL.has(status.toLowerCase()) && loaded && threadId) {
         if (pollRef.current) clearInterval(pollRef.current)
         pollRef.current = null
