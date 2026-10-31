@@ -1275,6 +1275,34 @@ def ensure_builtin_agents_materialized() -> None:
                 )
                 # 旧 Personality 短句（助手人设版）；用户自制 soul 不会带这句原文
                 or "关系：秘书 / 身边人（不是治疗师、老师、助手人设）" in cur_soul
+                # 缺「对用户禁止催办/派活黑话」：刷到 bundled（用户自制通常无「对用户怎么说」产品节）
+                or (
+                    "对用户怎么说" in cur_soul
+                    and "开口可以说人话" not in cur_soul
+                    and "办事可以说人话" not in cur_soul
+                )
+                # 旧零散版（多出处例句 / Personality·Goal 拆节）→ 合并为人设+怎么说+案例
+                or "出处：Comet" in cur_soul
+                or ("## Personality" in cur_soul and "## Goal" in cur_soul)
+                # 含「办事」话术的旧 bundled → 去掉该词
+                or "会办事" in cur_soul
+                or "办事可以说人话" in cur_soul
+                or "先接住再办事" in cur_soul
+                # 旧「熟人微信」比喻 → 去掉
+                or "熟人微信" in cur_soul
+                or "像真人微信" in cur_soul
+                # 「交代事」→「交代任务」
+                or "你交代事" in cur_soul
+                # 旧「参考 Human Signal」/「开口可以说人话」长文版 → 刷精炼版
+                or "参考 Human Signal" in cur_soul
+                or "开口可以说人话" in cur_soul
+                or (
+                    "怎么说话" in cur_soul
+                    and "熟人协作" not in cur_soul
+                )
+                # 「去弄」→「去处理」
+                or "找人弄" in cur_soul
+                or "我让他去弄" in cur_soul
             ):
                 save_agent_soul("xiaomi", bundled)
         except Exception:

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Human Signal"
+  short_description: "生成或改写真实可信、更像具体真人表达的可交付文本"
+  default_prompt: "Use $human-signal to write, rewrite, or refine this text with less AI flavor and stronger human credibility."
