@@ -635,6 +635,11 @@ export function V4ZCodeTimeline(props: {
     attachments?: readonly AttachmentRef[],
     workspaceMode?: "preserve" | "rewind",
   ) => Promise<boolean | void> | boolean | void;
+  /**
+   * 与右下角停止按钮同源（selectedTurnBusy）。驱动末轮「工作中」齿轮，
+   * 避免飞书旁观时停按钮亮着、左下角齿轮熄灭。
+   */
+  sessionBusy?: boolean;
 }): React.JSX.Element {
   const {
     payload,
@@ -656,6 +661,7 @@ export function V4ZCodeTimeline(props: {
     onAutoOpenCodeViewers,
     surface = "default",
     onEdit,
+    sessionBusy = false,
   } = props;
 
   // 桥接主题：本组件自挂 .zcode-bridge-root，但不走 StoreProvider。
@@ -1266,6 +1272,8 @@ export function V4ZCodeTimeline(props: {
               onLoadOlder={payload?.onLoadOlder}
               onEdit={onEdit}
               bottomDock={dockWithQueue}
+              sessionBusy={sessionBusy}
+              sessionPhase={snapshot?.control?.phase}
               // 小V 窄栏：隐藏左侧轮次导航，把宽度留给正文（主对话不变）
               hideTurnNavigator={embedded}
               // 嵌入态 composer 在面板外：空态不要跟不存在的 dock 居中，否则发消息瞬间整栏跳布局。

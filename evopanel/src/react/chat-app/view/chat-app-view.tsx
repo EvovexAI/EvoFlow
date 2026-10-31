@@ -701,6 +701,8 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
                       draftEmpty={draftEmpty}
                       optimisticUserText={optimisticUserText}
                       evoflowSessionKey={selectedSessionKey}
+                      // 左下角齿轮 ↔ 右下角停止：同一 selectedTurnBusy
+                      sessionBusy={selectedTurnBusy}
                       onOpenFileLink={(target) => {
                         // 话术 Markdown 路径 pill → 右侧「文件」预览区（可关、半宽，不盖住对话）
                         showRightStageFromFileLink(target, {

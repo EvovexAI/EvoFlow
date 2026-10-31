@@ -4,6 +4,7 @@ import {
   shouldAutoStreamResume,
   shouldManualRefreshResumeStream,
   shouldSkipRefreshAttach,
+  shouldStartObserverHistoryWatch,
   shouldSuppressAutoReattach,
 } from '../src/react/lib/stream-resume-gate.ts'
 import {
@@ -122,6 +123,41 @@ describe('stream-resume-gate', () => {
         sessionKey: sk,
       }),
     ).toBe(false)
+  })
+
+  it('observerCatchup allows history-watch when busy without live POST wire', () => {
+    const sk = 'agent:main:observer-feishu'
+    clearSessionRuntime(sk)
+    dispatchSessionTurnEvent(sk, { type: 'SEND_STARTED' })
+    dispatchSessionTurnEvent(sk, { type: 'RUN_LIVE', runId: 'run-feishu-1' })
+    // Mirrored busy turn, but this client never opened POST /runs/stream
+    expect(
+      shouldSuppressAutoReattach({
+        sessionKey: sk,
+        observerCatchup: true,
+      }),
+    ).toBe(false)
+    expect(
+      shouldStartObserverHistoryWatch({
+        sessionKey: sk,
+        runStatus: 'running',
+      }),
+    ).toBe(true)
+    markSessionStreamWireSource(sk, 'run')
+    expect(
+      shouldStartObserverHistoryWatch({
+        sessionKey: sk,
+        runStatus: 'running',
+      }),
+    ).toBe(false)
+    expect(
+      shouldSuppressAutoReattach({
+        sessionKey: sk,
+        observerCatchup: true,
+      }),
+    ).toBe(true)
+    markSessionStreamWireSource(sk, null)
+    clearSessionRuntime(sk)
   })
 
   it('shouldSuppressAutoReattach still blocks live POST even with manualForce', () => {

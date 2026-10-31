@@ -1350,10 +1350,268 @@ def mirror_feed_agui_wire(thread_id: str, frames: list[bytes] | list[str]) -> in
         return 0
 
 
+def mirror_reset_thread(thread_id: str) -> None:
+    """Force-rehydrate / catchup 前清掉 per-thread 镜像状态，避免 rowId 指向已清空投影。"""
+    tid = str(thread_id or "").strip()
+    if not tid:
+        return
+    try:
+        mirror = _get_mirror()
+        mirror._states.pop(tid, None)  # noqa: SLF001 — 同模块协作
+    except Exception:
+        logger.debug("[v4-mirror] reset_thread skipped thread=%s", tid, exc_info=True)
+
+
+def mirror_thread_is_live(thread_id: str) -> bool:
+    """IM/频道本轮仍在往 hub 写（RUN_STARTED 未结算）——catchup 不得 wipe。"""
+    tid = str(thread_id or "").strip()
+    if not tid or _MIRROR_DISABLED:
+        return False
+    try:
+        st = _get_mirror()._states.get(tid)  # noqa: SLF001
+        return bool(st and st.run_started)
+    except Exception:
+        return False
+
+
+def _lg_message_type(msg: Any) -> str:
+    if not isinstance(msg, dict):
+        return ""
+    t = str(msg.get("type") or msg.get("role") or "").strip().lower()
+    return t
+
+
+def _lg_tool_calls(msg: dict[str, Any]) -> list[dict[str, Any]]:
+    raw = msg.get("tool_calls")
+    if not isinstance(raw, list):
+        return []
+    out: list[dict[str, Any]] = []
+    for tc in raw:
+        if not isinstance(tc, dict):
+            continue
+        tcid = str(tc.get("id") or tc.get("tool_call_id") or "").strip()
+        if not tcid:
+            continue
+        fn = tc.get("function") if isinstance(tc.get("function"), dict) else {}
+        name = str(tc.get("name") or fn.get("name") or "tool").strip() or "tool"
+        args = tc.get("args")
+        if args is None and isinstance(tc.get("function"), dict):
+            args = tc["function"].get("arguments")
+        if isinstance(args, dict):
+            try:
+                args_s = json.dumps(args, ensure_ascii=False)
+            except (TypeError, ValueError):
+                args_s = str(args)
+        else:
+            args_s = str(args or "")
+        out.append({"id": tcid, "name": name, "args": args_s})
+    return out
+
+
+def mirror_channel_run_started(thread_id: str, run_id: str) -> None:
+    """IM ``runs.stream`` 不开 AG-UI：合成 RUN_STARTED 让面板旁观看到本轮。"""
+    if _MIRROR_DISABLED:
+        return
+    tid = str(thread_id or "").strip()
+    rid = str(run_id or "").strip() or f"channel-{int(time.time() * 1000)}"
+    if not tid:
+        return
+    try:
+        mirror = _get_mirror()
+        st = mirror._state(tid)  # noqa: SLF001
+        if st.run_started and st.turn_id == rid:
+            return
+        mirror.feed_events(
+            tid,
+            [{"type": "RUN_STARTED", "runId": rid, "threadId": tid}],
+        )
+    except Exception:
+        logger.debug("[v4-mirror] channel_run_started skipped thread=%s", tid, exc_info=True)
+
+
+def mirror_channel_assistant_text(
+    thread_id: str,
+    text: str,
+    *,
+    run_id: str | None = None,
+    message_id: str | None = None,
+    final: bool = False,
+) -> None:
+    """把 IM 侧累计的 assistant 正文增量喂进 V4（TEXT_MESSAGE_*）。"""
+    if _MIRROR_DISABLED:
+        return
+    tid = str(thread_id or "").strip()
+    body = str(text or "")
+    if not tid:
+        return
+    mid = str(message_id or "").strip() or "channel-assistant"
+    try:
+        if run_id:
+            mirror_channel_run_started(tid, str(run_id))
+        mirror = _get_mirror()
+        st = mirror._state(tid)  # noqa: SLF001
+        if not st.run_started:
+            mirror_channel_run_started(tid, str(run_id or st.last_turn_id or mid))
+            st = mirror._state(tid)  # noqa: SLF001
+        events: list[dict[str, Any]] = []
+        prev = st.text_acc.get(mid, "")
+        if mid not in st.text_row_ids:
+            events.append({"type": "TEXT_MESSAGE_START", "messageId": mid, "role": "assistant"})
+            prev = ""
+        if body.startswith(prev):
+            delta = body[len(prev) :]
+            if delta:
+                events.append(
+                    {"type": "TEXT_MESSAGE_CONTENT", "messageId": mid, "delta": delta}
+                )
+        elif prev.startswith(body):
+            # IM 回归短文本：跳过，等追平
+            pass
+        else:
+            # 新段落（工具后换 buffer）：换 messageId
+            if mid in st.text_row_ids and prev:
+                events.append({"type": "TEXT_MESSAGE_END", "messageId": mid})
+            mid2 = f"{mid}-{len(st.text_row_ids) + 1}"
+            events.append({"type": "TEXT_MESSAGE_START", "messageId": mid2, "role": "assistant"})
+            if body:
+                events.append(
+                    {"type": "TEXT_MESSAGE_CONTENT", "messageId": mid2, "delta": body}
+                )
+            mid = mid2
+        if final and (mid in st.text_row_ids or any(e.get("messageId") == mid for e in events)):
+            events.append({"type": "TEXT_MESSAGE_END", "messageId": mid})
+        if events:
+            mirror.feed_events(tid, events)
+    except Exception:
+        logger.debug("[v4-mirror] channel_assistant_text skipped thread=%s", tid, exc_info=True)
+
+
+def mirror_channel_sync_lg_messages(
+    thread_id: str,
+    messages: list[Any] | None,
+    *,
+    run_id: str | None = None,
+) -> None:
+    """从 LangGraph ``values.messages`` 补工具行（IM 无 AG-UI TOOL_CALL_*）。"""
+    if _MIRROR_DISABLED or not messages:
+        return
+    tid = str(thread_id or "").strip()
+    if not tid:
+        return
+    try:
+        if run_id:
+            mirror_channel_run_started(tid, str(run_id))
+        mirror = _get_mirror()
+        st = mirror._state(tid)  # noqa: SLF001
+        if not st.run_started:
+            return
+        events: list[dict[str, Any]] = []
+        for msg in messages:
+            if not isinstance(msg, dict):
+                continue
+            mtype = _lg_message_type(msg)
+            if mtype in {"ai", "assistant", "aimessage", "aimessagechunk"}:
+                for tc in _lg_tool_calls(msg):
+                    tcid = tc["id"]
+                    if tcid in st.tool_row_ids:
+                        # args 可能后到：若仍空则补 ARGS
+                        if not st.tool_acc.get(tcid) and tc["args"]:
+                            events.append(
+                                {
+                                    "type": "TOOL_CALL_ARGS",
+                                    "toolCallId": tcid,
+                                    "delta": tc["args"],
+                                }
+                            )
+                            events.append({"type": "TOOL_CALL_END", "toolCallId": tcid})
+                        continue
+                    events.append(
+                        {
+                            "type": "TOOL_CALL_START",
+                            "toolCallId": tcid,
+                            "toolCallName": tc["name"],
+                        }
+                    )
+                    if tc["args"]:
+                        events.append(
+                            {
+                                "type": "TOOL_CALL_ARGS",
+                                "toolCallId": tcid,
+                                "delta": tc["args"],
+                            }
+                        )
+                    events.append({"type": "TOOL_CALL_END", "toolCallId": tcid})
+            elif mtype in {"tool", "toolmessage"}:
+                tcid = str(
+                    msg.get("tool_call_id") or msg.get("toolCallId") or msg.get("id") or ""
+                ).strip()
+                if not tcid or tcid not in st.tool_row_ids:
+                    # 结果先到：先补 START
+                    if tcid and tcid not in st.tool_row_ids:
+                        name = str(msg.get("name") or "tool").strip() or "tool"
+                        events.append(
+                            {
+                                "type": "TOOL_CALL_START",
+                                "toolCallId": tcid,
+                                "toolCallName": name,
+                            }
+                        )
+                        events.append({"type": "TOOL_CALL_END", "toolCallId": tcid})
+                    else:
+                        continue
+                content = msg.get("content")
+                if isinstance(content, list):
+                    try:
+                        content_s = json.dumps(content, ensure_ascii=False)
+                    except (TypeError, ValueError):
+                        content_s = str(content)
+                else:
+                    content_s = str(content or "")
+                events.append(
+                    {
+                        "type": "TOOL_CALL_RESULT",
+                        "toolCallId": tcid,
+                        "content": content_s,
+                        "status": "success",
+                    }
+                )
+        if events:
+            mirror.feed_events(tid, events)
+    except Exception:
+        logger.debug("[v4-mirror] channel_sync_lg_messages skipped thread=%s", tid, exc_info=True)
+
+
+def mirror_channel_run_finished(thread_id: str, *, error: bool = False) -> None:
+    """IM 流结束：结算 turnHeader。"""
+    if _MIRROR_DISABLED:
+        return
+    tid = str(thread_id or "").strip()
+    if not tid:
+        return
+    try:
+        mirror = _get_mirror()
+        st = mirror._state(tid)  # noqa: SLF001
+        if not st.run_started:
+            return
+        # 收尾未 END 的正文
+        for mid in list(st.text_row_ids.keys()):
+            mirror.feed_events(tid, [{"type": "TEXT_MESSAGE_END", "messageId": mid}])
+        et = "RUN_ERROR" if error else "RUN_FINISHED"
+        mirror.feed_events(tid, [{"type": et}])
+    except Exception:
+        logger.debug("[v4-mirror] channel_run_finished skipped thread=%s", tid, exc_info=True)
+
+
 __all__ = [
     "V4Mirror",
     "mirror_note_user_input",
     "mirror_feed_agui_wire",
+    "mirror_reset_thread",
+    "mirror_thread_is_live",
+    "mirror_channel_run_started",
+    "mirror_channel_assistant_text",
+    "mirror_channel_sync_lg_messages",
+    "mirror_channel_run_finished",
     "_split_evoflow_cua_display",
     "_cua_display_block",
     "_platform_ui_display_block",

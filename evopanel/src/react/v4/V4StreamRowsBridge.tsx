@@ -31,6 +31,7 @@ import {
 } from "../lib/v4-lifecycle-log.js";
 import { markStreamCompareSession } from "../lib/stream-compare-file-log.js";
 import { publishV4DisplayAuthority } from "./v4Gate.js";
+import { evoflowFetch } from "../../lib/ws-client.js";
 
 export interface V4TimelinePayload {
   sessionId: string;
@@ -116,32 +117,159 @@ export function warmEvoflowV4Session(
   }
 }
 
+/** In-flight + last catchup — coalesce observer 1.5s ticks. */
+const _catchupInFlight = new Set<string>();
+const _catchupStableAt = new Map<string, { at: number; reason: string }>();
+/** V4 已有投影时，旁观只做低频 soft reconcile；高频 catchup 会与 live mirror 对打（189↔351）。 */
+const CATCHUP_READY_SOFT_MS = 20_000;
+const CATCHUP_AFTER_REHYDRATE_MS = 12_000;
+const CATCHUP_STABLE_MS = 2_800;
+
+function _catchupCooldownMs(reason: string): number {
+  if (reason === "post-rehydrate" || reason === "rehydrated") return CATCHUP_AFTER_REHYDRATE_MS;
+  if (reason === "ready-soft") return CATCHUP_READY_SOFT_MS;
+  return CATCHUP_STABLE_MS;
+}
+
 /**
  * 员工执行过程等只读面板：主动拉一次最新投影（非流式）。
- * 已有租约时 recover → resync；尚未订阅则 warm 冷启动。
+ *
+ * - 面板已 ready 且有行：默认跳过（靠 SSE / channel mirror 增量）；每 ~20s soft 一次
+ * - POST /catchup 成功后禁止再 resync；rehydrate 后冷却，避免与 live recovery 对打
+ * - catchup 失败才回退 recoverFromStaleAuthority
  */
 export function refreshEvoflowV4Session(sessionId: string): void {
   const id = String(sessionId || "").trim();
   if (!id) return;
+  if (_catchupInFlight.has(id)) {
+    console.info("[observer-hw] v4 catchup skipped (in-flight)", { threadId: id });
+    return;
+  }
+  const stable = _catchupStableAt.get(id);
+  if (stable && Date.now() - stable.at < _catchupCooldownMs(stable.reason)) {
+    console.info("[observer-hw] v4 catchup skipped (cooldown)", {
+      threadId: id,
+      reason: stable.reason,
+      ageMs: Date.now() - stable.at,
+    });
+    return;
+  }
+
+  // 已有 V4 投影：旁观 tick 不要每 1.5s wipe；只低频 soft reconcile。
   try {
     const layer = getSharedLayer();
-    if (!layer.has(id)) {
-      warmEvoflowV4Session(id, { force: true });
-      return;
-    }
-    const lease = layer.acquire(id);
-    try {
-      lease.store.recoverFromStaleAuthority();
-    } finally {
+    if (layer.has(id)) {
+      const lease = layer.acquire(id);
       try {
-        lease.release();
-      } catch {
-        /* ignore */
+        const st = lease.store.getState();
+        const n =
+          st.snapshot?.rows?.totalCount ?? st.snapshot?.rows?.window?.length ?? 0;
+        if (st.snapshot && n > 0) {
+          const last = _catchupStableAt.get(id);
+          const softDue =
+            !last || Date.now() - last.at >= CATCHUP_READY_SOFT_MS;
+          if (!softDue) {
+            console.info("[observer-hw] v4 catchup skipped (ready)", {
+              threadId: id,
+              rows: n,
+              ageMs: last ? Date.now() - last.at : null,
+            });
+            return;
+          }
+        }
+      } finally {
+        try {
+          lease.release();
+        } catch {
+          /* ignore */
+        }
       }
     }
   } catch {
-    /* best effort */
+    /* fall through to catchup */
   }
+
+  _catchupInFlight.add(id);
+  void (async () => {
+    let catchupChanged = false;
+    let catchupOk = false;
+    let catchupReason = "";
+    try {
+      const resp = await evoflowFetch("/api/v4/conversation/catchup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionId: id }),
+      });
+      if (resp.ok) {
+        catchupOk = true;
+        try {
+          const body = (await resp.json()) as {
+            changed?: boolean;
+            rows?: number;
+            reason?: string;
+          };
+          catchupChanged = Boolean(body?.changed);
+          catchupReason = String(body?.reason || "");
+          console.info("[observer-hw] v4 catchup", {
+            threadId: id,
+            changed: catchupChanged,
+            rows: body?.rows,
+            reason: catchupReason,
+          });
+          _catchupStableAt.set(id, {
+            at: Date.now(),
+            reason: catchupChanged
+              ? "post-rehydrate"
+              : catchupReason || "ready-soft",
+          });
+        } catch {
+          /* ignore parse */
+        }
+      } else {
+        console.warn("[observer-hw] v4 catchup HTTP", resp.status, id);
+      }
+    } catch (err) {
+      console.warn("[observer-hw] v4 catchup failed", {
+        threadId: id,
+        error: String(err instanceof Error ? err.message : err),
+      });
+    } finally {
+      _catchupInFlight.delete(id);
+    }
+
+    try {
+      const layer = getSharedLayer();
+      if (!layer.has(id)) {
+        warmEvoflowV4Session(id, { force: true });
+        return;
+      }
+      // catchup HTTP 成功则禁止再 resync：
+      // - changed=true：服务端已广播 recovery
+      // - changed=false：投影未变 / live-mirror，再 resync 也会整页 recovery → 抖动
+      // 仅 catchup 失败时才 recoverFromStaleAuthority。
+      if (catchupOk) {
+        if (catchupChanged) {
+          console.info("[observer-hw] v4 skip resync (catchup already recovered)", {
+            threadId: id,
+            reason: catchupReason || "rehydrated",
+          });
+        }
+        return;
+      }
+      const lease = layer.acquire(id);
+      try {
+        lease.store.recoverFromStaleAuthority();
+      } finally {
+        try {
+          lease.release();
+        } catch {
+          /* ignore */
+        }
+      }
+    } catch {
+      /* best effort */
+    }
+  })();
 }
 
 function monotonicNowSafe(): number {

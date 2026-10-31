@@ -573,7 +573,7 @@ import {
   resolveSelectedResumeStreamHold,
   resolveSidebarHistory,
 } from './session/resolve-selected-session-live.js'
-import { isEvoflowChatV4Enabled } from '../v4/v4Gate.js'
+import { isEvoflowChatV4Enabled, isV4DisplayAuthoritative } from '../v4/v4Gate.js'
 import { runOpenGoalPanelListenerEffect } from './goal/install-open-goal-panel-listener.js'
 import {
   runChatOverlayDeferEffect,
@@ -752,6 +752,7 @@ import {
 } from '../lib/run-turn-gate.js'
 import {
   fetchSessionRuntimeStatus,
+  isSessionHistoryWatchActive,
   maybeClearTurnSendingState,
   seedSessionRuntimeStatusIdle,
   invalidateSessionRuntimeStatusCache,
@@ -772,9 +773,11 @@ import {
   resetStreamStopLogDedupe,
 } from '../lib/stream-stop-log.js'
 import {
+  decideObserverHistoryWatch,
   shouldManualRefreshResumeStream,
   shouldSuppressAutoReattach,
 } from '../lib/stream-resume-gate.js'
+import { ohwLog } from '../lib/observer-history-watch-debug.js'
 import {
   clearStreamReattachCooldown,
   isSessionRecoveryCooldownActive,
@@ -2436,6 +2439,9 @@ export function useChatAppController() {
           replaceSessionRuntimeRowsFromHistory,
           setRows,
           displayRowsEquivalent,
+          wsClient,
+          isEvoflowChatV4Enabled,
+          isV4DisplayAuthoritative,
         },
         opt,
       )
@@ -4279,6 +4285,47 @@ export function useChatAppController() {
       toast,
     })
   }, [listLoading, selectedSessionKey, sessions])
+
+  /**
+   * 外渠旁观（飞书 / IM / 员工值班等）：本机没有 POST /runs/stream，但会话在跑。
+   * 不要求流式；每隔 ~1.5s history-watch 拉库 + 刷 V4 投影，直到 idle。
+   * DevTools filter: ``[observer-hw]``
+   */
+  const observerWatchKickAtRef = useRef<{ key: string; at: number } | null>(null)
+  useEffect(() => {
+    const sk = String(selectedSessionKey || '').trim()
+    if (!sk) {
+      ohwLog('gate skip', { reason: 'no-session-key' })
+      return
+    }
+    if (listLoading) {
+      ohwLog('gate skip', { reason: 'list-loading', sessionKey: sk })
+      return
+    }
+    const row = sessions.find((s) => String(s.sessionKey || '').trim() === sk)
+    const decision = decideObserverHistoryWatch({
+      sessionKey: sk,
+      runStatus: row?.runStatus,
+      executingSessionKeys,
+    })
+    ohwLog('gate', decision)
+    if (!decision.start) return
+    if (isSessionHistoryWatchActive(sk)) {
+      ohwLog('gate kick skip — watch already active', { sessionKey: sk })
+      return
+    }
+    const prev = observerWatchKickAtRef.current
+    // Debounce probe-driven re-bumps while useStreamResume is still spinning up.
+    if (prev?.key === sk && Date.now() - prev.at < 2500) {
+      ohwLog('gate kick debounce', { sessionKey: sk, ageMs: Date.now() - prev.at })
+      return
+    }
+    observerWatchKickAtRef.current = { key: sk, at: Date.now() }
+    requestManualStreamResumeRef.current?.(sk, {
+      refreshSessions: false,
+      observerCatchup: true,
+    })
+  }, [listLoading, selectedSessionKey, sessions, executingSessionKeys])
 
   /**
    * visibilitychange / online: 后台切回前台或网络恢复后自动 reattach 活跃 run。

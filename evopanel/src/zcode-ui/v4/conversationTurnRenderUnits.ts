@@ -72,6 +72,11 @@ export interface ConversationTurnRenderUnit {
 interface BuildConversationTurnRenderUnitsOptions {
   nowMs?: number;
   sessionPhase?: SessionPhase;
+  /**
+   * 与右下角停止按钮同源（EvoFlow selectedTurnBusy / V4 control.canStop）。
+   * 旁观飞书时 turnHeader 可能已是 completed，但会话仍 busy——末轮须跟停止按钮一致亮齿轮。
+   */
+  sessionBusy?: boolean;
 }
 
 interface DraftTurnRenderUnit {
@@ -216,9 +221,26 @@ function isCompletionBlockingWorkRowRunning(row: AssistantWorkRow): boolean {
 function resolveTurnRunning(
   draft: DraftTurnRenderUnit,
   options: BuildConversationTurnRenderUnitsOptions,
+  isLastTurn: boolean,
 ): boolean {
+  if (draft.header?.executionKind === "controlOnly") return false;
+
+  // 末轮以宿主停止按钮（sessionBusy）为权威，避免：
+  // - 停按钮灭了、turnHeader 仍 running → 左下角齿轮空转
+  // - 停按钮亮着、header 已 completed → 齿轮熄灭
+  if (isLastTurn && options.sessionBusy === false) {
+    return false;
+  }
+  if (
+    isLastTurn &&
+    options.sessionBusy === true &&
+    draft.header?.state !== "failed" &&
+    draft.header?.state !== "completedInterrupted"
+  ) {
+    return true;
+  }
+
   if (draft.header) {
-    if (draft.header.executionKind === "controlOnly") return false;
     // turnHeader 是 projection 的权威轮次边界；已终态主轮不能被
     // 同轮仍在运行的 background tool/subagent 行重新推成 running。
     return draft.header.state === "running";
@@ -294,7 +316,7 @@ function materializeDraftUnit(
     : splitTurnTailRows(nonBrowserRows);
 
   const isLastTurn = index === total - 1;
-  const isRunning = resolveTurnRunning(draft, options);
+  const isRunning = resolveTurnRunning(draft, options, isLastTurn);
   const isInterrupted = draft.header
     ? draft.header.state === "completedInterrupted"
     : options.sessionPhase === "completedInterrupted";

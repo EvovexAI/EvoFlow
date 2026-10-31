@@ -321,6 +321,11 @@ interface ConversationTimelineProps {
   searchResultHighlightRequest?: ChatSearchResultHighlightRequest | null;
   onSearchResultHighlightDone?: (requestId: number) => void;
   sessionPhase?: SessionPhase;
+  /**
+   * 与右下角停止按钮同源（EvoFlow selectedTurnBusy）。
+   * 末轮「工作中」齿轮跟此信号对齐，避免停按钮亮着而左下角齿轮熄灭。
+   */
+  sessionBusy?: boolean;
   /** 宿主可调用的一次性“滚动到底部”动作；不持有 conversation 或跨 renderer 状态。 */
   scrollToBottomActionRef?: { current: (() => void) | null };
   /** 宿主可调用的一次性 query 定位动作；不改变分享面板 view。 */
@@ -383,6 +388,7 @@ function ConversationTimelineImpl({
   searchResultHighlightRequest,
   onSearchResultHighlightDone,
   sessionPhase,
+  sessionBusy = false,
   scrollToBottomActionRef,
   scrollToQueryActionRef,
   selectionActions,
@@ -421,15 +427,17 @@ function ConversationTimelineImpl({
     rows: readonly ConversationRow[];
     liveNowMs: number;
     sessionPhase: SessionPhase | undefined;
+    sessionBusy: boolean;
     units: ConversationTurnRenderUnit[];
   } | null>(null);
   const renderUnits = useMemo(() => {
-    const options = { nowMs: liveNowMs, sessionPhase };
+    const options = { nowMs: liveNowMs, sessionPhase, sessionBusy };
     const cached = renderUnitsCacheRef.current;
     if (
       cached &&
       cached.liveNowMs === liveNowMs &&
       cached.sessionPhase === sessionPhase &&
+      cached.sessionBusy === sessionBusy &&
       cached.rows !== rows
     ) {
       const appended = tryAppendTrailingUserInputUnit(cached.units, cached.rows, rows, options);
@@ -438,15 +446,16 @@ function ConversationTimelineImpl({
           rows,
           liveNowMs,
           sessionPhase,
+          sessionBusy,
           units: appended,
         };
         return appended;
       }
     }
     const built = buildConversationTurnRenderUnits(rows, options);
-    renderUnitsCacheRef.current = { rows, liveNowMs, sessionPhase, units: built };
+    renderUnitsCacheRef.current = { rows, liveNowMs, sessionPhase, sessionBusy, units: built };
     return built;
-  }, [liveNowMs, rows, sessionPhase]);
+  }, [liveNowMs, rows, sessionBusy, sessionPhase]);
   const { virtualizedUnits, liveUnit, liveUnitIndex } = useMemo(
     () => splitConversationTimelineLiveTail(renderUnits),
     [renderUnits],

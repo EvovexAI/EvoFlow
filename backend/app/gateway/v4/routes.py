@@ -266,6 +266,20 @@ async def v4_conversation_resync(body: dict[str, Any]) -> JSONResponse:
     return JSONResponse(result)
 
 
+@conversation_router.post("/catchup", summary="v4 conversation catchup from transcript")
+async def v4_conversation_catchup(body: dict[str, Any]) -> JSONResponse:
+    """飞书/IM 旁观：用 DB transcript 重建投影后再让客户端 resync。
+
+    频道 ``runs.stream`` 默认 ``ui_sse=0``，不走 AG-UI mirror；仅 resync 会反复下发
+    内存旧快照。本接口在指纹变化时 force-rehydrate 并广播 recovery snapshot。
+    """
+    session_id = str(body.get("sessionId") or body.get("threadId") or "").strip()
+    if not session_id:
+        raise HTTPException(status_code=422, detail="sessionId is required")
+    result = await asyncio.to_thread(V4_CONVERSATION_HUB.catchup_from_transcript, session_id)
+    return JSONResponse(result)
+
+
 @conversation_router.post("/file_changes", summary="v4 conversation per-turn file changes")
 async def v4_conversation_file_changes(body: dict[str, Any]) -> JSONResponse:
     """对齐 zcode ``conversationFileChangesV4``：按 turn row 展开文件摘要与只读 diff。"""

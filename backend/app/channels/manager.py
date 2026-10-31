@@ -2976,11 +2976,53 @@ class ChannelManager:
         stream_skip_throttle_count = 0
         event_counts: dict[str, int] = {}
         stream_params = _channel_stream_params(self._langgraph_url)
+        channel_run_id = str(
+            run_context.get("evf_channel_run_id") or run_context.get("run_id") or ""
+        ).strip()
+        last_v4_mirrored_text = ""
+        v4_mirror_started = False
+        current_message_id: str | None = None
+
+        def _mirror_v4_channel_progress(*, final: bool = False) -> None:
+            nonlocal last_v4_mirrored_text, v4_mirror_started
+            try:
+                from app.gateway.v4.agui_mirror import (
+                    mirror_channel_assistant_text,
+                    mirror_channel_run_started,
+                )
+
+                if not v4_mirror_started:
+                    mirror_channel_run_started(active_thread_id, channel_run_id or active_thread_id)
+                    v4_mirror_started = True
+                mid = str(current_message_id or "channel-assistant")
+                if latest_text and latest_text != last_v4_mirrored_text:
+                    mirror_channel_assistant_text(
+                        active_thread_id,
+                        latest_text,
+                        run_id=channel_run_id or active_thread_id,
+                        message_id=mid,
+                        final=final,
+                    )
+                    last_v4_mirrored_text = latest_text
+                elif final and last_v4_mirrored_text:
+                    mirror_channel_assistant_text(
+                        active_thread_id,
+                        last_v4_mirrored_text,
+                        run_id=channel_run_id or active_thread_id,
+                        message_id=mid,
+                        final=True,
+                    )
+            except Exception:
+                logger.debug(
+                    "[Manager] v4 channel mirror progress skipped thread=%s",
+                    active_thread_id,
+                    exc_info=True,
+                )
 
         # Allow more retries for startup-gate errors (max 3 attempts when startup issues detected)
         for attempt in range(3):
             streamed_buffers: dict[str, str] = {}
-            current_message_id: str | None = None
+            current_message_id = None
             custom_text = ""
             evf_state: dict[str, str] = {}
             saw_streaming_token_source = False
@@ -3045,6 +3087,22 @@ class ChannelManager:
                             snapshot_text = _extract_response_text(data)
                             if snapshot_text:
                                 latest_text = snapshot_text
+                        # Panel observer: IM 不走 AG-UI，用 values.messages 补工具行。
+                        if isinstance(msgs, list) and msgs:
+                            try:
+                                from app.gateway.v4.agui_mirror import mirror_channel_sync_lg_messages
+
+                                mirror_channel_sync_lg_messages(
+                                    active_thread_id,
+                                    msgs,
+                                    run_id=channel_run_id or active_thread_id,
+                                )
+                            except Exception:
+                                logger.debug(
+                                    "[Manager] v4 channel tool sync skipped thread=%s",
+                                    active_thread_id,
+                                    exc_info=True,
+                                )
                     elif event == "custom":
                         # Custom deltas help adapters without messages-tuple tokens. Once live
                         # assistant chunks exist, only accept custom text that is a compatible
@@ -3067,6 +3125,9 @@ class ChannelManager:
                                 "[Manager] evf stream chunk: text_len=%d",
                                 len(latest_text),
                             )
+
+                    if latest_text and latest_text != last_v4_mirrored_text:
+                        _mirror_v4_channel_progress()
 
                     if not latest_text or latest_text == last_published_text:
                         if latest_text == last_published_text and latest_text:
@@ -3224,6 +3285,30 @@ class ChannelManager:
                 len(inbound_turn),
                 len(tail_human or ""),
                 stream_error,
+            )
+        # Panel V4 observer: settle turn after IM stream (ui_sse=0 has no AG-UI RUN_FINISHED).
+        try:
+            if response_text and response_text != last_v4_mirrored_text:
+                latest_text = response_text
+                _mirror_v4_channel_progress(final=True)
+            elif last_v4_mirrored_text or v4_mirror_started:
+                _mirror_v4_channel_progress(final=True)
+            if isinstance(msgs_for_sync, list) and msgs_for_sync:
+                from app.gateway.v4.agui_mirror import mirror_channel_sync_lg_messages
+
+                mirror_channel_sync_lg_messages(
+                    active_thread_id,
+                    msgs_for_sync,
+                    run_id=channel_run_id or active_thread_id,
+                )
+            from app.gateway.v4.agui_mirror import mirror_channel_run_finished
+
+            mirror_channel_run_finished(active_thread_id, error=bool(stream_error))
+        except Exception:
+            logger.debug(
+                "[Manager] v4 channel mirror finish skipped thread=%s",
+                active_thread_id,
+                exc_info=True,
             )
         # IM final bubble: prefer the *latest* assistant buffer only.
         # Joining every mid-tool status line produced a progress-log dump on Feishu

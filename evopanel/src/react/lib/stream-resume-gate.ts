@@ -3,7 +3,7 @@
  * Local ``turnPhase`` is primary; DB ``run_status`` is cold-start bootstrap only.
  */
 import type { ChatSessionRow } from '../chat-types.js'
-import { isActiveRunStatus } from './session-reattach.js'
+import { isActiveRunStatus, isSessionHistoryWatchActive } from './session-reattach.js'
 import {
   isSessionRecoveryCooldownActive,
   isStreamReattachCooldownActive,
@@ -20,6 +20,12 @@ import {
 export function shouldSuppressAutoReattach(opts: {
   sessionKey: string
   manualForce?: boolean
+  /**
+   * Feishu / IM / other-channel observer: session is running on the server but
+   * this client never opened POST /runs/stream. Allow history-watch even when
+   * local turnPhase looks busy (mirrored status), as long as we don't own the wire.
+   */
+  observerCatchup?: boolean
   runtime?: SessionRuntime | null
   runId?: string | null
 }): boolean {
@@ -32,8 +38,13 @@ export function shouldSuppressAutoReattach(opts: {
   if (rt.streamWireSource === 'run') return true
   // Early AG-UI RUN_FINISHED already settled the UI; DB may stay ``running``
   // through checkpoint. Reattach would clear uiTurnSettled and bounce the list.
-  if (rt.uiTurnSettled && !opts.manualForce) return true
-  if (opts.manualForce) return false
+  if (rt.uiTurnSettled && !opts.manualForce && !opts.observerCatchup) return true
+  if (opts.manualForce || opts.observerCatchup) {
+    if (!opts.manualForce && isSessionRecoveryCooldownActive(key)) return true
+    const runId = String(opts.runId || rt.activeChatRunId || '').trim()
+    if (isStreamReattachCooldownActive(key, runId || null)) return true
+    return false
+  }
   if (isSessionRecoveryCooldownActive(key)) return true
   if (isTurnBusy(rt)) return true
   if (isSessionRuntimeLive(rt)) return true
@@ -43,6 +54,85 @@ export function shouldSuppressAutoReattach(opts: {
   }
   if (isStreamReattachCooldownActive(key, runId || null)) return true
   return false
+}
+
+export type ObserverHistoryWatchDecision = {
+  start: boolean
+  reason: string
+  sessionKey: string
+  streamWireSource: string | null
+  turnPhase: string
+  uiTurnSettled: boolean
+  historyWatchActive: boolean
+  runStatus: string
+  inExecutingSet: boolean
+  turnBusy: boolean
+  runtimeLive: boolean
+}
+
+/**
+ * Panel is watching a run it did not start (Feishu / IM / employee duty, etc.):
+ * no local POST stream → should history-poll until idle.
+ *
+ * Also treats local turnBusy / runtimeLive as "running" — stop button can light
+ * from mirrored AG-UI while sessions.runStatus / executing set still lag.
+ */
+export function decideObserverHistoryWatch(opts: {
+  sessionKey: string
+  runStatus?: string | null
+  executingSessionKeys?: Set<string>
+  runtime?: SessionRuntime | null
+}): ObserverHistoryWatchDecision {
+  const key = String(opts.sessionKey || '').trim()
+  const rt = opts.runtime ?? (key ? getSessionRuntime(key) : null)
+  const runStatus = String(opts.runStatus || '').trim().toLowerCase()
+  const inExecutingSet = Boolean(key && opts.executingSessionKeys?.has(key))
+  const turnBusy = isTurnBusy(rt)
+  const runtimeLive = isSessionRuntimeLive(rt)
+  const streamWireSource = rt?.streamWireSource ? String(rt.streamWireSource) : null
+  const turnPhase = String(rt?.turnPhase || 'idle')
+  const uiTurnSettled = Boolean(rt?.uiTurnSettled)
+  const historyWatchActive = key ? isSessionHistoryWatchActive(key) : false
+  const base = {
+    sessionKey: key,
+    streamWireSource,
+    turnPhase,
+    uiTurnSettled,
+    historyWatchActive,
+    runStatus: runStatus || '(empty)',
+    inExecutingSet,
+    turnBusy,
+    runtimeLive,
+  }
+  if (!key) return { ...base, start: false, reason: 'no-session-key' }
+  if (streamWireSource === 'run') {
+    return { ...base, start: false, reason: 'owns-live-post-stream' }
+  }
+  if (uiTurnSettled) return { ...base, start: false, reason: 'ui-turn-settled' }
+  if (historyWatchActive) return { ...base, start: false, reason: 'history-watch-already-active' }
+  if (
+    sessionLooksRunning({
+      sessionKey: key,
+      runStatus: opts.runStatus,
+      executingSessionKeys: opts.executingSessionKeys,
+    })
+  ) {
+    return { ...base, start: true, reason: 'db-or-executing-set-running' }
+  }
+  // Stop button / busy chrome can light from mirrored turn without DB row yet.
+  if (turnBusy || runtimeLive) {
+    return { ...base, start: true, reason: 'local-turn-busy-without-live-post' }
+  }
+  return { ...base, start: false, reason: 'not-running' }
+}
+
+export function shouldStartObserverHistoryWatch(opts: {
+  sessionKey: string
+  runStatus?: string | null
+  executingSessionKeys?: Set<string>
+  runtime?: SessionRuntime | null
+}): boolean {
+  return decideObserverHistoryWatch(opts).start
 }
 
 export function shouldAutoStreamResume(opts: {

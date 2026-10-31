@@ -297,6 +297,17 @@ def _load_raw_messages_by_thread(thread_id: str) -> list[dict[str, Any]]:
     return rows
 
 
+def _coerce_messages_run_ids(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Ensure assistant/tool share the preceding user run_id (IM channel vs LG hop ids)."""
+    try:
+        from evoflow.persistence.transcript_run_id import enrich_run_ids_in_order
+
+        return enrich_run_ids_in_order(list(messages or []))
+    except Exception:
+        logger.debug("[v4.hydration] enrich_run_ids skipped", exc_info=True)
+        return list(messages or [])
+
+
 def _load_messages(thread_id: str) -> list[dict[str, Any]]:
     """display 仓优先；为空时按 thread 直读 transcript 原始行。
 
@@ -310,32 +321,92 @@ def _load_messages(thread_id: str) -> list[dict[str, Any]]:
     from evoflow.persistence import session_repositories as sess_repo
 
     tid = str(thread_id or "").strip()
+    loaded: list[dict[str, Any]] = []
     if is_collab_executor_thread(tid):
         scoped = list(
             msg_repo.list_messages_for_thread_id(tid, limit=_HYDRATION_MAX_MESSAGES) or []
         )
         if scoped:
-            return scoped
-        archived = list(
-            msg_repo.conversation_archive_from_thread_id(tid, limit=_HYDRATION_MAX_MESSAGES)
-            or []
-        )
-        if archived:
-            return archived
-        return _load_raw_messages_by_thread(tid)
+            loaded = scoped
+        else:
+            archived = list(
+                msg_repo.conversation_archive_from_thread_id(tid, limit=_HYDRATION_MAX_MESSAGES)
+                or []
+            )
+            loaded = archived or _load_raw_messages_by_thread(tid)
+        return _coerce_messages_run_ids(loaded)
 
     sk = str(sess_repo.find_session_key_by_thread_id(tid) or "").strip()
     if sk and not sess_repo.is_session_deleted(sk):
         page = msg_repo.list_messages_for_display_all(sk, max_rows=_HYDRATION_MAX_MESSAGES)
         messages = list(page.get("messages") or [])
         if messages:
-            return messages
+            return _coerce_messages_run_ids(messages)
     archived = list(
         msg_repo.conversation_archive_from_thread_id(tid, limit=_HYDRATION_MAX_MESSAGES) or []
     )
     if archived:
-        return archived
-    return _load_raw_messages_by_thread(tid)
+        return _coerce_messages_run_ids(archived)
+    return _coerce_messages_run_ids(_load_raw_messages_by_thread(tid))
+
+
+def transcript_fingerprint(messages: list[Any] | None) -> str:
+    """Stable-ish fingerprint for observer catchup (count + tail id + tail content len)."""
+    msgs = list(messages or [])
+    if not msgs:
+        return "0:"
+    last = msgs[-1] if isinstance(msgs[-1], dict) else {}
+    mid = str(last.get("message_id") or last.get("id") or "").strip()
+    payload = last.get("content_json")
+    if isinstance(payload, dict):
+        content_len = len(str(payload.get("content") or ""))
+    elif isinstance(payload, str):
+        content_len = len(payload)
+    else:
+        content_len = len(str(last.get("content") or ""))
+    return f"{len(msgs)}:{mid}:{content_len}"
+
+
+def transcript_fingerprint_for_thread(thread_id: str) -> str:
+    tid = str(thread_id or "").strip()
+    if not tid:
+        return "0:"
+    return transcript_fingerprint(_load_messages(tid))
+
+
+def force_rehydrate_session_from_transcript(
+    hub: Any,
+    thread_id: str,
+    *,
+    fingerprint: str | None = None,
+    reset_mirror: bool = True,
+) -> int:
+    """清空现有投影后从 transcript 重建。飞书旁观 resync 不够时用（hydrate 遇非空会跳过）。
+
+    ``reset_mirror=False``：catchup 路径勿清 IM live mirror（否则 run_started 被清，
+    下一 tick 又 wipe，与 channel mirror 对打 → 189↔350 recovery 闪烁）。
+    """
+    tid = str(thread_id or "").strip()
+    if not tid or tid.startswith("v4-"):
+        return 0
+    if reset_mirror:
+        try:
+            from app.gateway.v4.agui_mirror import mirror_reset_thread
+
+            mirror_reset_thread(tid)
+        except Exception:
+            logger.debug("[v4.hydration] mirror_reset_thread skipped thread=%s", tid, exc_info=True)
+    try:
+        hub.clear_projection_for_rehydrate(tid)
+    except Exception:
+        logger.exception("[v4.hydration] clear_projection failed thread=%s", tid)
+        return 0
+    loaded = hydrate_session_from_transcript(hub, tid)
+    sess = hub.get_session(tid)
+    if sess is not None:
+        fp = fingerprint if fingerprint is not None else transcript_fingerprint_for_thread(tid)
+        sess.catchup_fp = fp
+    return loaded
 
 
 def hydrate_session_from_transcript(hub: Any, thread_id: str) -> int:
@@ -652,6 +723,9 @@ def hydrate_session_from_transcript(hub: Any, thread_id: str) -> int:
             row_count += 1
 
     sess_final = hub.get_session(tid)
+    if sess_final is not None and row_count > 0:
+        # 与 observer catchup 指纹对齐，避免首轮 catchup 无意义 force-wipe。
+        sess_final.catchup_fp = transcript_fingerprint(messages)
     logger.info(
         "[v4.hydration] thread=%s rows=%d messages=%d seq=%s",
         tid,
@@ -662,4 +736,9 @@ def hydrate_session_from_transcript(hub: Any, thread_id: str) -> int:
     return row_count
 
 
-__all__ = ["hydrate_session_from_transcript"]
+__all__ = [
+    "hydrate_session_from_transcript",
+    "force_rehydrate_session_from_transcript",
+    "transcript_fingerprint",
+    "transcript_fingerprint_for_thread",
+]

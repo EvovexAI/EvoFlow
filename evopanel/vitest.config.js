@@ -169,6 +169,7 @@ export default defineConfig({
       'tests/pick-session-row-title.test.js',
       'tests/chat-layout-bottom-dock.test.js',
       'tests/chat-pane-mode.test.ts',
+      'tests/conversation-turn-session-busy.test.ts',
       'tests/home-live-activity.test.ts',
       'tests/task-runtime-health.test.js',
       'tests/system-prompt-sections.test.js',

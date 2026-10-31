@@ -147,6 +147,8 @@ class _SessionState:
     # 权威 delta 日志：(seq, delta) 升序；保留窗淘汰后 floor = 淘汰段的最大 seq。
     delta_log: list[tuple[int, dict[str, Any]]] = field(default_factory=list)
     delta_log_floor: int = 0
+    """Observer catchup：上次 force-rehydrate 的 transcript 指纹（条数+尾消息）。"""
+    catchup_fp: str = ""
     # ── queue / 输入路由（对齐 ZCode v3.15.1 queue 命令组语义）────────────────
     queue_items: list[dict[str, Any]] = field(default_factory=list)
     """QueueItem intent 列表（vendored queueItemSchema 形状；FIFO 序即列表序）。"""
@@ -395,6 +397,186 @@ class V4ConversationHub:
                 "mode": "snapshot",
                 "logEpoch": sess.log_epoch,
             }
+        }
+
+    def broadcast_recovery_snapshot(self, session_id: str) -> int:
+        """向该 session 全部订阅者重投 recovery snapshot。返回通知的订阅数。"""
+        tid = str(session_id or "").strip()
+        if not tid:
+            return 0
+        with self._write_lock:
+            sess = self._sessions.get(tid)
+            if sess is None:
+                return 0
+            n = 0
+            for sub in self._subscriptions.values():
+                if sub.session_id != tid:
+                    continue
+                sub.logical_frame_ordinal += 1
+                self._cancel_flush(sub)
+                sub.pending_ops = []
+                sub.pending_bytes = 0
+                sub.overflowed = False
+                self._enqueue_snapshot_locked(sub, sess, delivery_kind="recovery")
+                n += 1
+            return n
+
+    def clear_projection_for_rehydrate(self, session_id: str) -> None:
+        """清空行与 delta 日志并 bump log_epoch，供 force rehydrate。保留 seq 单调。"""
+        tid = str(session_id or "").strip()
+        if not tid:
+            return
+        with self._write_lock:
+            sess = self._get_or_create_session(tid)
+            sess.rows.clear()
+            sess.delta_log.clear()
+            sess.delta_log_floor = max(sess.delta_log_floor, sess.seq)
+            sess.next_row_id = 1
+            sess.catchup_fp = ""
+            try:
+                sess.log_epoch = str(int(str(sess.log_epoch).strip() or "1") + 1)
+            except ValueError:
+                sess.log_epoch = f"{sess.log_epoch}+r"
+
+    def catchup_from_transcript(self, session_id: str) -> dict[str, Any]:
+        """飞书/IM 旁观：用 DB transcript 强制重建投影（hydrate 仅空 session 时会跳过）。
+
+        - 指纹未变 → no-op（避免无意义闪烁）
+        - 频道 live mirror 本轮仍在写 → 禁止 wipe（否则 240 行 live 被打回 ~130 行 DB）
+        """
+        tid = str(session_id or "").strip()
+        if not tid or tid.startswith("v4-"):
+            return {"ok": False, "changed": False, "reason": "bad-session-id"}
+        try:
+            from app.gateway.v4.hydration import (
+                force_rehydrate_session_from_transcript,
+                transcript_fingerprint_for_thread,
+            )
+            from app.gateway.v4.agui_mirror import mirror_thread_is_live
+        except Exception as exc:
+            logger.exception("[v4.catchup] import failed session=%s", tid)
+            return {"ok": False, "changed": False, "reason": str(exc)}
+
+        sess = self._get_or_create_session(tid)
+        try:
+            fp = transcript_fingerprint_for_thread(tid)
+        except Exception:
+            logger.exception("[v4.catchup] fingerprint failed session=%s", tid)
+            return {"ok": False, "changed": False, "reason": "fingerprint-failed"}
+
+        if fp and sess.catchup_fp == fp and sess.rows:
+            return {
+                "ok": True,
+                "changed": False,
+                "reason": "fingerprint-unchanged",
+                "rows": len(sess.rows),
+                "logEpoch": sess.log_epoch,
+                "fingerprint": fp,
+            }
+
+        # Same msg count + id, only tail content_len grew → DB streaming catch-up.
+        # Full rehydrate every ~1.5s would flicker; advance fp and leave projection.
+        if fp and sess.catchup_fp and sess.rows:
+            old_p = str(sess.catchup_fp).split(":")
+            new_p = str(fp).split(":")
+            if (
+                len(old_p) >= 3
+                and len(new_p) >= 3
+                and old_p[0] == new_p[0]
+                and old_p[1] == new_p[1]
+            ):
+                sess.catchup_fp = fp
+                return {
+                    "ok": True,
+                    "changed": False,
+                    "reason": "tail-growing",
+                    "rows": len(sess.rows),
+                    "logEpoch": sess.log_epoch,
+                    "fingerprint": fp,
+                }
+
+        # Live channel/AG-UI mirror owns the projection for this turn — wiping
+        # replaces a rich live snapshot with a lagging DB hydrate (UI jitter).
+        if mirror_thread_is_live(tid) or str(sess.phase or "") == "running":
+            return {
+                "ok": True,
+                "changed": False,
+                "reason": "live-mirror" if mirror_thread_is_live(tid) else "phase-running",
+                "rows": len(sess.rows),
+                "logEpoch": sess.log_epoch,
+                "fingerprint": fp,
+            }
+
+        prev_rows = len(sess.rows)
+        # Panel already subscribed: live SSE / channel mirror owns updates.
+        # Catchup wipe (DB ~190) fighting live (~350) → recovery thrash + raw JSON flash.
+        sub_n = sum(1 for s in self._subscriptions.values() if s.session_id == tid)
+        if prev_rows > 0 and sub_n > 0:
+            sess.catchup_fp = fp
+            return {
+                "ok": True,
+                "changed": False,
+                "reason": "hub-subscribed",
+                "rows": prev_rows,
+                "subscribers": sub_n,
+                "logEpoch": sess.log_epoch,
+                "fingerprint": fp,
+            }
+
+        # Probe hydrate on a throwaway hub first: never shrink a richer live/hybrid
+        # projection (common: live ~300 rows → DB hydrate ~160). Advance fp so we
+        # don't thrash every observer tick.
+        if prev_rows > 0:
+            try:
+                from app.gateway.v4.hydration import hydrate_session_from_transcript
+
+                probe = V4ConversationHub()
+                probe_loaded = hydrate_session_from_transcript(probe, tid)
+            except Exception:
+                logger.exception("[v4.catchup] probe hydrate failed session=%s", tid)
+                probe_loaded = -1
+            if (
+                probe_loaded > 0
+                and probe_loaded < int(prev_rows * 0.85)
+            ):
+                sess.catchup_fp = fp
+                logger.warning(
+                    "[v4.catchup] refuse shrink session=%s prev_rows=%s hydrate_rows=%s",
+                    tid,
+                    prev_rows,
+                    probe_loaded,
+                )
+                return {
+                    "ok": True,
+                    "changed": False,
+                    "reason": "refuse-shrink",
+                    "rows": prev_rows,
+                    "hydrateRows": probe_loaded,
+                    "logEpoch": sess.log_epoch,
+                    "fingerprint": fp,
+                }
+
+        # Catchup must not mirror_reset — that clears run_started mid-IM stream and
+        # lets the next tick wipe again.
+        loaded = force_rehydrate_session_from_transcript(
+            self, tid, fingerprint=fp, reset_mirror=False
+        )
+        notified = self.broadcast_recovery_snapshot(tid)
+        logger.info(
+            "[v4.catchup] session=%s rows=%s notified=%s fp=%s",
+            tid,
+            loaded,
+            notified,
+            fp,
+        )
+        return {
+            "ok": True,
+            "changed": True,
+            "reason": "rehydrated",
+            "rows": loaded,
+            "notified": notified,
+            "logEpoch": sess.log_epoch,
+            "fingerprint": fp,
         }
 
     # -- 订阅 ---------------------------------------------------------------

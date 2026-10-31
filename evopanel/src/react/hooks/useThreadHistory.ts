@@ -847,16 +847,16 @@ export function useThreadHistory(sessionKey: string | null, liveOpts: ThreadHist
         // remount / scrollTop reset that looks like a top→bottom jump on a few sessions.
         const rowsUnchanged = soft && displayRowsEquivalent(rowsRef.current, mergedRows)
         // V4 已权威显示：host setRows 只喂副作用，整页重渲会砸出 longtask；等价或已有行则跳过。
+        // 旁观 history-watch 用 dbOnly=true —— 以前 !dbOnly 把跳过关掉，每 1.5s setRows → 闪。
         const v4OwnsDisplay =
           isEvoflowChatV4Enabled() &&
           isV4DisplayAuthoritative(wsClient.getSessionThreadId?.(sessionKey) || null)
         const skipHostSetRows =
           rowsUnchanged ||
           (v4OwnsDisplay &&
-            !dbOnly &&
             Array.isArray(rowsRef.current) &&
             rowsRef.current.length > 0 &&
-            (soft || displayRowsEquivalent(rowsRef.current, mergedRows)))
+            (dbOnly || soft || displayRowsEquivalent(rowsRef.current, mergedRows)))
         if (!skipHostSetRows) {
           setRows(mergedRows)
         }
