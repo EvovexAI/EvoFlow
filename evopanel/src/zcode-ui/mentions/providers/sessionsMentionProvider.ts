@@ -19,7 +19,7 @@ import {
   type WorkspaceServiceResolverState,
 } from "@/lib/workspaceServiceResolver.js";
 import { useRemoteWorkspaceSessionStore } from "@/store/remoteWorkspaceSessionStore.js";
-import { useTabStore } from "@/store/TabStoreProvider.js";
+import { useOptionalTabStore } from "@/store/TabStoreProvider.js";
 import { isWorkspaceTab, type WorkspaceTabState } from "@/store/tabStore.js";
 import {
   useWorkspaceSessionsIndexItems,
@@ -197,7 +197,8 @@ export function useSessionsMentionProvider(
   title: string,
 ): MentionCategoryResult {
   const baseServices = useBaseWorkspaceServices();
-  const tabs = useTabStore((state) => state.tabs);
+  // EvoFlow V4 行内编辑 ChatPromptActionMenu 无 TabStoreProvider。
+  const tabs = useOptionalTabStore((state) => state.tabs);
   const workspaceTabs = useMemo(() => tabs.filter(isWorkspaceTab), [tabs]);
   const sessionsById = useRemoteWorkspaceSessionStore((state) => state.sessionsById);
   const sessionIdByWorkspaceIdentity = useRemoteWorkspaceSessionStore(

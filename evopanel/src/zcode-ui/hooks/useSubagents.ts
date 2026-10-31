@@ -4,7 +4,7 @@ import { useShallow } from "zustand/react/shallow";
 import { useServices } from "./useServices.js";
 import { useResolvedRemoteWorkspaceSessionId } from "@/hooks/useResolvedRemoteWorkspaceSessionId.js";
 import { shouldEnableWorkspaceRpc } from "@/lib/workspaceRpcAvailability.js";
-import { useTabStore } from "@/store/TabStoreProvider.js";
+import { useOptionalTabStore } from "@/store/TabStoreProvider.js";
 import { isWorkspaceTab, type WindowTabState, type WorkspaceTabState } from "@/store/tabStore.js";
 import { getSubagentsContextKey, useSubagentsContextStore } from "@/store/subagentsContextStore.js";
 import { useSubagentsStore } from "@/store/subagentsStore.js";
@@ -16,7 +16,8 @@ export function useSubagents(
 ) {
   const { subagentsService } = useServices();
   const explicitIdentity = explicitWorkspaceIdentity?.trim() || undefined;
-  const workspaceRpcTarget = useTabStore(
+  // EvoFlow V4 行内编辑挂 LexicalChatInput/SlashCommandPlugin，无 TabStoreProvider。
+  const workspaceRpcTarget = useOptionalTabStore(
     useShallow((state) => {
       if (!workspacePath) {
         return {
