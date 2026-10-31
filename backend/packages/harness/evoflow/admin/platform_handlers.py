@@ -3721,6 +3721,15 @@ def channels_send_message(args: dict[str, Any]) -> dict[str, Any]:
         title=title,
     )
     if result is None:
+        # LangGraph/harness process owns no ChannelService adapter — hop to the
+        # Gateway, which resolves origin chat+bot from the same session index.
+        result = _gateway_channels_http(
+            "POST",
+            "/push-to-origin",
+            json_body={"session_key": sk, "text": text, "paths": paths, "title": title},
+            timeout=60.0,
+        )
+    if result is None:
         raise ValidationError(
             "channel push adapter not registered（请确认 Gateway 已启动并注册 channels.push_to_inbound_origin）"
         )
