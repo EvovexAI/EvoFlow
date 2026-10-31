@@ -456,6 +456,8 @@ def hydrate_session_from_transcript(hub: Any, thread_id: str) -> int:
                     "origin": "realUser",
                     "createdAt": created_at,
                     "createdAtSeq": 0,
+                    # ZCode 行内「编辑」入口：canEdit + entityId（message_id）同时成立才展示。
+                    "actions": {"canEdit": True},
                 }
                 if attachments:
                     row["attachments"] = attachments

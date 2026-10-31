@@ -748,6 +748,17 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
                           threadId: wsClient?.getSessionThreadId?.(selectedSessionKey || '') || '',
                         })
                       }}
+                      onEdit={async (target, newText) => {
+                        // ZCode 行内编辑 UI → 既有 truncate+resend（entityId = message_id）
+                        const mid = String(target?.entityId || '').trim()
+                        if (!mid) return false
+                        try {
+                          await handleEditMessage(String(newText || ''), mid)
+                          return true
+                        } catch {
+                          return false
+                        }
+                      }}
                       toolApprovalUiDisabled={toolApprovalUiDisabled}
                       bottomDock={
                         <div

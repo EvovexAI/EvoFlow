@@ -47,7 +47,43 @@ export async function handleEditMessage(
 
   try {
     const { api } = await import('../../../lib/tauri-api.js')
-    await api.chatSessionsTruncate(key, { fromMessageId: mid })
+    const trunc = (await api.chatSessionsTruncate(key, { fromMessageId: mid })) as {
+      threadId?: string
+      previousThreadId?: string
+    } | null
+    // Truncate mints a new LangGraph thread — rebind local map + V4 subscription
+    // before handleSend, otherwise the send hits the deleted thread.
+    const newTid = String(trunc?.threadId || '').trim()
+    const oldTid = String(trunc?.previousThreadId || '').trim()
+    if (newTid) {
+      try {
+        const { wsClient } = await import('../../../lib/ws-client.js')
+        await wsClient.bindSessionThread(key, newTid)
+      } catch {
+        /* bind is best-effort; map may already match */
+      }
+      try {
+        window.dispatchEvent(
+          new CustomEvent('evopanel:session-thread-rebound', {
+            detail: {
+              sessionKey: key,
+              oldThreadId: oldTid,
+              threadId: newTid,
+              force: true,
+              reason: 'edit_truncate',
+            },
+          }),
+        )
+      } catch {
+        /* ignore */
+      }
+      try {
+        const { refreshEvoflowV4Session } = await import('../../v4/V4StreamRowsBridge.js')
+        refreshEvoflowV4Session(newTid)
+      } catch {
+        /* ignore */
+      }
+    }
 
     // 同一会话内截掉该条及之后的 UI 行
     const prev = ctx.rowsRef.current || []

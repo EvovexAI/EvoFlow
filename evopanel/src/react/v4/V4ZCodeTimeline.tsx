@@ -8,7 +8,7 @@
 // - 上下文：ZCodeIntlProvider + ConversationRowRenderContext；
 // - 布局：`@container/conversation` + sticky bottomDock；
 // - 分页：canLoadOlder/onLoadOlder。
-// connecting 时空态不回落老链路。编辑/重试/fork/反馈 v1 只读投影。
+// connecting 时空态不回落老链路。行内编辑经 onEdit → truncate+resend（对齐旧面板）。
 import {
   useCallback,
   useEffect,
@@ -18,6 +18,11 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import type {
+  AttachmentRef,
+  ConversationRowTarget,
+  ConversationSnapshot,
+} from "@zcode/shared/zcode-protocol-v4";
 import "@/styles-bridge.css";
 import { ZCodeIntlProvider } from "@zcode/ui/i18n/IntlProvider.js";
 import { ServiceProvider } from "@zcode/ui/hooks/useServices.js";
@@ -45,7 +50,6 @@ import { DEFAULT_CODE_PREVIEW_SETTINGS } from "@zcode/ui/lib/codePreviewSettings
 import { getPathLeaf } from "@zcode/ui/lib/path.js";
 import { logStreamCompareV4PanelDisplay } from "../lib/stream-compare-file-log.js";
 import type { IServiceAccessor } from "@zcode/services";
-import type { ConversationSnapshot } from "@zcode/shared/zcode-protocol-v4";
 import { packWorkspaceFileEntries } from "@zcode/shared/workspaceFileEntriesCodec";
 import type { V4TimelinePayload } from "./V4StreamRowsBridge.js";
 import type { ConversationRowRenderContext } from "@zcode/ui/v4/conversationRowContext.js";
@@ -620,6 +624,16 @@ export function V4ZCodeTimeline(props: {
    * 只换皮肤，不换渲染管线：轮分组 / 流式 / 工具卡全部是同一套 V4 实现。
    */
   surface?: "default" | "glass";
+  /**
+   * 用户气泡行内编辑（ZCode ConversationRowView）。宿主用 truncate+resend
+   * 实现；需 row.actions.canEdit + entityId（message_id）。
+   */
+  onEdit?: (
+    target: ConversationRowTarget,
+    newText: string,
+    attachments?: readonly AttachmentRef[],
+    workspaceMode?: "preserve" | "rewind",
+  ) => Promise<boolean | void> | boolean | void;
 }): React.JSX.Element {
   const {
     payload,
@@ -640,6 +654,7 @@ export function V4ZCodeTimeline(props: {
     onOpenSubagentTranscript,
     onAutoOpenCodeViewers,
     surface = "default",
+    onEdit,
   } = props;
 
   // 桥接主题：本组件自挂 .zcode-bridge-root，但不走 StoreProvider。
@@ -1239,6 +1254,7 @@ export function V4ZCodeTimeline(props: {
               canLoadOlder={snapshot ? hasOlderRows(snapshot) : false}
               loadingOlder={payload?.loadingOlder ?? false}
               onLoadOlder={payload?.onLoadOlder}
+              onEdit={onEdit}
               bottomDock={dockWithQueue}
               // 小V 窄栏：隐藏左侧轮次导航，把宽度留给正文（主对话不变）
               hideTurnNavigator={embedded}

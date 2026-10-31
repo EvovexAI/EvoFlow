@@ -17,6 +17,7 @@ from app.gateway.routers.langgraph_proxy import (
     UI_SSE_ENABLED,
     _extract_evf_prior_assistant_from_stream_body,
     _extract_use_claude_code_from_stream_body,
+    _extract_user_message_id_from_stream_body,
     _extract_user_text_from_stream_body,
 )
 from app.gateway.sse_ui_normalize import UiStreamNormalizer, _normalize_sse_buffer
@@ -312,7 +313,9 @@ class PostStreamUiTransform:
                 from app.gateway.v4.agui_mirror import mirror_note_user_input
 
                 mirror_note_user_input(
-                    self.thread_id, str(norm_kwargs.get("user_input") or "")
+                    self.thread_id,
+                    str(norm_kwargs.get("user_input") or ""),
+                    message_id=_extract_user_message_id_from_stream_body(body) or None,
                 )
             except Exception:
                 pass
