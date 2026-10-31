@@ -132,6 +132,36 @@ def test_build_human_input_drops_zero_size():
     assert "size" not in ctx
 
 
+def test_build_human_input_feishu_captions_images(tmp_path: Path, monkeypatch):
+    from app.channels.manager import _build_human_input as build
+    from app.channels.message_bus import InboundMessage, InboundMessageType
+
+    img = tmp_path / "shot.jpg"
+    img.write_bytes(b"\xff\xd8\xff\xe0" + b"\x00" * 32)
+
+    def _fake_analyze(raw, mime, **kwargs):
+        return {"analysis": "题目：1+1=?", "vision_model": "deepseek-v4-flash"}
+
+    monkeypatch.setattr(
+        "evoflow.tools.builtins.vision_analysis_core.analyze_image_bytes",
+        _fake_analyze,
+    )
+    msg = InboundMessage(
+        channel_name="feishu",
+        chat_id="c",
+        user_id="u",
+        text="安排人解决这个问题",
+        msg_type=InboundMessageType.CHAT,
+        files=[{"kind": "image", "path": str(img), "filename": "shot.jpg", "mime": "image/jpeg", "size": 40}],
+        metadata={},
+    )
+    out = build(msg)
+    content = out["messages"][0]["content"]
+    assert "[渠道图片识别]" in content
+    assert "题目：1+1=?" in content
+    assert out["messages"][0]["additional_kwargs"]["context_files"][0]["path"] == str(img)
+
+
 # ---------------------------------------------------------------------------
 # _release_channel_owned_paths
 # ---------------------------------------------------------------------------

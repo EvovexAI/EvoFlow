@@ -86,7 +86,7 @@ export async function fetchAssistantDashboard() {
       error = String(e?.message || e)
       return { roles: [] }
     }),
-    api.listAllTasks().catch((e) => {
+    api.listAllTasks({ page: 1, page_size: 40, hide_noise: true }).catch((e) => {
       partialUnavailable = true
       error = String(e?.message || e)
       return { tasks: [] }
@@ -312,7 +312,7 @@ export async function fetchEmployeeThread(agentCode, opts = {}) {
   const roleName = String(opts.roleName || '').trim()
 
   const [tasksRes, busyRes] = await Promise.all([
-    api.listAllTasks().catch(() => ({ tasks: [] })),
+    api.listAllTasks({ page: 1, page_size: 40, hide_noise: true }).catch(() => ({ tasks: [] })),
     api.proactiveRoleBusy(code).catch(() => ({})),
   ])
   const built = buildEmployeeThreadFromTasks(tasksFromRes(tasksRes), code, { roleName })

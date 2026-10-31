@@ -355,7 +355,8 @@ export function useSessionList(opts: UseSessionListOptions) {
         const { api } = await import('../../lib/tauri-api.js')
         // Cap concurrency — unbounded Promise.all of chatSessionsList floods the
         // desktop app-server stdio pipe and delays /messages history paint.
-        const CONCURRENCY = 3
+        // Keep at 2 so chat + workflow REST stay responsive during a live run.
+        const CONCURRENCY = 2
         const pages: Array<{
           key: string
           pageRows: ChatSessionRow[]
@@ -813,10 +814,15 @@ export function useSessionList(opts: UseSessionListOptions) {
                   reset: true,
                   silent: currentOpt?.silentReload ?? true,
                 })
-                // 仍展开着的目录：静默补拉（工作空间面板）
-                const expanded = [...loadExpandedWorkspaceKeys()].filter(
-                  (k) => k && !keysToLoad.includes(k) && k !== GLOBAL_RECENT_PAGINATION_KEY,
-                )
+                // 仍展开着的目录：静默补拉（工作空间面板）。
+                // Cap hard — hang dumps showed 6–10× sessions?workspace_key=… waiting
+                // 5–10s while a chat run + workflow open competed for Gateway.
+                const EXPANDED_SILENT_CAP = 2
+                const expanded = [...loadExpandedWorkspaceKeys()]
+                  .filter(
+                    (k) => k && !keysToLoad.includes(k) && k !== GLOBAL_RECENT_PAGINATION_KEY,
+                  )
+                  .slice(0, EXPANDED_SILENT_CAP)
                 if (expanded.length) {
                   void loadWorkspaceSessionsBatch(expanded, {
                     reset: true,
@@ -824,9 +830,10 @@ export function useSessionList(opts: UseSessionListOptions) {
                   }).catch(() => {})
                 }
               } else {
-                const expanded = [...loadExpandedWorkspaceKeys()].filter(
-                  (k) => k && k !== GLOBAL_RECENT_PAGINATION_KEY,
-                )
+                const EXPANDED_SILENT_CAP = 2
+                const expanded = [...loadExpandedWorkspaceKeys()]
+                  .filter((k) => k && k !== GLOBAL_RECENT_PAGINATION_KEY)
+                  .slice(0, EXPANDED_SILENT_CAP)
                 if (expanded.length) {
                   void loadWorkspaceSessionsBatch(expanded, {
                     reset: true,

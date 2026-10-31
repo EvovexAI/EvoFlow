@@ -35,10 +35,22 @@ def list_root_task_summaries(
     main_task_id: str | None = None,
     limit: int | None = None,
     offset: int = 0,
+    has_role: bool = False,
+    exclude_noise: bool = False,
+    owner_scope_ids: list[str] | None = None,
+    search: str | None = None,
 ) -> list[dict[str, Any]]:
     from evoflow.persistence import task_repositories as task_repo
 
-    return task_repo.list_root_task_summaries(main_task_id=main_task_id, limit=limit, offset=offset)
+    return task_repo.list_root_task_summaries(
+        main_task_id=main_task_id,
+        limit=limit,
+        offset=offset,
+        has_role=has_role,
+        exclude_noise=exclude_noise,
+        owner_scope_ids=owner_scope_ids,
+        search=search,
+    )
 
 
 def list_subtask_summaries(
@@ -52,11 +64,24 @@ def list_subtask_summaries(
     return task_repo.list_subtask_summaries(main_task_id=main_task_id, limit=limit, offset=offset)
 
 
-def count_root_task_summaries(*, main_task_id: str | None = None) -> int:
+def count_root_task_summaries(
+    *,
+    main_task_id: str | None = None,
+    has_role: bool = False,
+    exclude_noise: bool = False,
+    owner_scope_ids: list[str] | None = None,
+    search: str | None = None,
+) -> int:
     """Cheap COUNT of root tasks — pagination total without hydrating rows."""
     from evoflow.persistence import task_repositories as task_repo
 
-    return task_repo.count_root_task_summaries(main_task_id=main_task_id)
+    return task_repo.count_root_task_summaries(
+        main_task_id=main_task_id,
+        has_role=has_role,
+        exclude_noise=exclude_noise,
+        owner_scope_ids=owner_scope_ids,
+        search=search,
+    )
 
 
 def list_bundle_summaries(*, limit: int | None = None, offset: int = 0) -> list[dict[str, Any]]:

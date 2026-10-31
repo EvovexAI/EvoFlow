@@ -514,6 +514,79 @@ def _enrich_channel_run_context(
         run_context.setdefault("user_message", body)
 
 
+def _channel_image_entries(files: list[Any]) -> list[dict[str, Any]]:
+    """Return image-like inbound file dicts (kind/mime/suffix)."""
+    out: list[dict[str, Any]] = []
+    for entry in files:
+        if not isinstance(entry, dict):
+            continue
+        path = str(entry.get("path") or "").strip()
+        if not path:
+            continue
+        kind = str(entry.get("kind") or "").strip().lower()
+        mime = str(entry.get("mime") or "").strip().lower()
+        suffix = Path(path).suffix.lower()
+        is_image = (
+            kind == "image"
+            or mime.startswith("image/")
+            or suffix in {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"}
+        )
+        if is_image:
+            out.append(entry)
+    return out
+
+
+def _caption_channel_images_for_im(files: list[dict[str, Any]]) -> str:
+    """OCR / describe IM inbound images into plain text the main agent can use.
+
+    Native ``image_url`` injection is unreliable across providers (and agents often
+    fall through to ``platform.openai.vision`` which previously defaulted to a
+    rate-limited free model). Pre-caption with the configured vision model so the
+    turn always carries readable content even when pixels never reach the chat model.
+    """
+    from evoflow.tools.builtins.vision_analysis_core import analyze_image_bytes
+
+    blocks: list[str] = []
+    prompt = (
+        "请完整、逐字抄录图中全部文字（题目、选项、公式、标注、小字都要）；"
+        "若几乎无字则简要描述画面要点。不要寒暄，直接输出内容。"
+    )
+    for entry in files[:4]:
+        path = str(entry.get("path") or "").strip()
+        name = str(entry.get("filename") or entry.get("name") or Path(path).name or "image")
+        if not path or not Path(path).is_file():
+            blocks.append(f"- {name}: （文件不存在：{path or '∅'}）")
+            continue
+        try:
+            raw = Path(path).read_bytes()
+        except OSError as exc:
+            blocks.append(f"- {name}: （读取失败：{exc}）")
+            continue
+        mime = str(entry.get("mime") or "").strip() or "image/jpeg"
+        try:
+            result = analyze_image_bytes(
+                raw,
+                mime,
+                user_prompt=prompt,
+                source="channel_inbound_caption",
+                image_ref=path,
+            )
+        except Exception as exc:
+            logger.warning("[Manager] channel image caption failed path=%s: %s", path, exc)
+            blocks.append(f"- {name}: （识图异常：{exc}）")
+            continue
+        if result.get("error"):
+            blocks.append(f"- {name}: （识图失败：{result.get('error')}）")
+            continue
+        analysis = str(result.get("analysis") or "").strip()
+        model = str(result.get("vision_model") or "").strip()
+        header = f"- {name}" + (f" · model={model}" if model else "")
+        blocks.append(f"{header}\n{analysis}" if analysis else f"{header}\n（无文字）")
+    if not blocks:
+        return ""
+    return "[渠道图片识别]\n" + "\n\n".join(blocks)
+
+
 def _build_human_input(
     msg: InboundMessage,
     run_context: dict[str, Any] | None = None,
@@ -579,6 +652,25 @@ def _build_human_input(
                 + "\n这些是本机已落盘的文件地址；读写请用上述 Path。"
             )
             content = f"{content.rstrip()}{footer}" if content.strip() else footer.strip()
+
+        # IM: pre-caption images so the lead model can act without relying on
+        # native multimodal (or on platform.openai.vision hitting a free-tier 429).
+        if msg.channel_name in IM_CHANNEL_NAMES:
+            image_entries = _channel_image_entries(files)
+            if image_entries:
+                try:
+                    caption = _caption_channel_images_for_im(image_entries)
+                except Exception:
+                    logger.warning("[Manager] channel image caption skipped", exc_info=True)
+                    caption = ""
+                if caption:
+                    content = f"{content.rstrip()}\n\n{caption}" if content.strip() else caption
+                    _mgr_diag(
+                        "channel_image_caption",
+                        channel=msg.channel_name,
+                        images=len(image_entries),
+                        caption_len=len(caption),
+                    )
 
     message: dict[str, Any] = {"role": "human", "content": content}
     if context_files:

@@ -98,8 +98,20 @@ def _slim_task_for_list(task: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+# Default / hard caps for GET /api/tasks catalog. page_size=0 historically meant
+# "return every root" and forced a full-table hydrate even after SQL gained LIMIT —
+# that is what kept wedging Gateway under chat load. Never unbounded again.
+_TASKS_LIST_DEFAULT_PAGE = 40
+_TASKS_LIST_ALL_CAP = 200
+_TASKS_LIST_MAX_SCAN = 2500
+
+
 def _resolve_list_page_size(*, page_size: int, limit: int | None) -> int:
-    """``page_size`` wins; ``limit`` is a FE/compat alias when page_size is 0 (all)."""
+    """``page_size`` wins; ``limit`` is a FE/compat alias when page_size is 0 (all).
+
+    Returns 0 only when the caller explicitly asked for unbounded (legacy); the
+    catalog path clamps that to ``_TASKS_LIST_ALL_CAP`` so SQL always pages.
+    """
     size = int(page_size or 0)
     if size > 0:
         return size
@@ -604,10 +616,13 @@ async def list_tasks(
     order: str = Query("desc", description="Sort order: asc|desc"),
     page: int = Query(1, ge=1, description="Page number (1-based)"),
     page_size: int = Query(
-        0,
+        _TASKS_LIST_DEFAULT_PAGE,
         ge=0,
         le=500,
-        description="Page size; 0 = return all (backward compatible)",
+        description=(
+            f"Page size (default {_TASKS_LIST_DEFAULT_PAGE}). "
+            f"0 = capped catalog window ({_TASKS_LIST_ALL_CAP}), never unbounded."
+        ),
     ),
     limit: int | None = Query(
         None,
@@ -723,6 +738,33 @@ async def list_tasks(
         import asyncio
 
         effective_page_size = _resolve_list_page_size(page_size=page_size, limit=limit)
+        shed_applied = False
+        # Under Gateway overload (chat stream + sessions pile-up), unbounded or
+        # large catalogs wedge the thread pool and delay workflow open /messages.
+        # Cap hard instead of serving page_size=0 / 100+ while lag/slow REST is high.
+        try:
+            from app.gateway.hang_diagnostics import should_shed_best_effort
+
+            clamp_hint = False
+            try:
+                clamp_hint = bool(getattr(request.state, "traffic_lane_clamp", False))
+            except Exception:
+                clamp_hint = False
+            if clamp_hint or should_shed_best_effort(min_slow=2, min_wait_s=4.0):
+                shed_cap = int(os.environ.get("EVOFLOW_TASKS_LIST_SHED_PAGE_SIZE", "20") or 20)
+                shed_cap = max(5, min(shed_cap, 40))
+                if effective_page_size <= 0 or effective_page_size > shed_cap:
+                    logger.warning(
+                        "list_tasks shed: clamping page_size %s → %s (gateway overloaded clamp=%s)",
+                        effective_page_size or "all",
+                        shed_cap,
+                        clamp_hint,
+                    )
+                    effective_page_size = shed_cap
+                    shed_applied = True
+        except Exception:
+            logger.debug("list_tasks shed check failed", exc_info=True)
+
         payload = await asyncio.to_thread(
             _list_tasks_catalog_sync,
             status=status,
@@ -740,10 +782,145 @@ async def list_tasks(
             org_scope=authz.get("org_scope"),
             principal=authz.get("principal"),
         )
+        if shed_applied and isinstance(payload, dict):
+            payload = {**payload, "shed": True, "shed_page_size": effective_page_size}
         return {"success": True, "data": payload}
     except Exception as e:
         logger.exception("list_tasks failed")
         raise_task_error(ErrorCode.INTERNAL_ERROR, f"获取任务列表失败: {str(e)}")
+
+
+def _catalog_row_matches(
+    task: dict[str, Any],
+    *,
+    status: str | None,
+    source: str | None,
+    search: str | None,
+    has_role: bool,
+    hide_noise: bool,
+    is_admin: bool,
+    personal_scope: str | None,
+    org_scope: str | None,
+    principal: Any,
+) -> dict[str, Any] | None:
+    """Apply Python-side catalog filters; return slimmed row or None."""
+    from evoflow.authz.resource_visibility import owner_scope_visible_to_principal
+
+    if has_role and not str(task.get("assigned_role") or "").strip():
+        return None
+    if not owner_scope_visible_to_principal(
+        task.get("owner_scope_id"),
+        principal,
+        is_admin=is_admin,
+        personal_scope=personal_scope,
+        org_scope=org_scope,
+    ):
+        return None
+    if status and not _status_matches_filter(task, status):
+        return None
+    if source:
+        from evoflow.collab.task_source import sources_equal
+
+        if not sources_equal(task.get("source"), source):
+            return None
+    if search:
+        task_name = str(task.get("name") or "").lower()
+        task_id = str(task.get("id") or "").lower()
+        search_lower = search.lower()
+        if search_lower not in task_name and search_lower not in task_id:
+            return None
+    task_data = _slim_task_for_list(_public_task_dict(task))
+    if hide_noise:
+        from evoflow.collab.task_noise import is_task_center_noise
+
+        if is_task_center_noise(task_data):
+            return None
+    return task_data
+
+
+_CATALOG_SQL_PREFILTERS: bool | None = None
+
+
+def _catalog_list_roots(
+    *,
+    limit: int | None = None,
+    offset: int = 0,
+    main_task_id: str | None = None,
+    has_role: bool = False,
+    exclude_noise: bool = False,
+    owner_scope_ids: list[str] | None = None,
+    search: str | None = None,
+) -> tuple[list[dict[str, Any]], bool]:
+    """Call ``list_root_task_summaries`` with SQL prefilters when the harness supports them.
+
+    Packaged ``evoflow-gateway.exe`` may ship an older harness without
+    ``has_role`` / ``exclude_noise`` kwargs while ``app/gateway`` hot-reloads from
+    source — never 500 on TypeError; fall back to limit/offset only and let
+    Python filters finish the job. Returns ``(rows, sql_prefilters_applied)``.
+    """
+    global _CATALOG_SQL_PREFILTERS
+    from evoflow.persistence.repositories import list_root_task_summaries
+
+    base = {"main_task_id": main_task_id, "limit": limit, "offset": offset}
+    if _CATALOG_SQL_PREFILTERS is False:
+        return list_root_task_summaries(**base), False
+
+    rich = {
+        **base,
+        "has_role": bool(has_role),
+        "exclude_noise": bool(exclude_noise),
+        "owner_scope_ids": owner_scope_ids,
+        "search": str(search or "").strip() or None,
+    }
+    try:
+        rows = list_root_task_summaries(**rich)
+        _CATALOG_SQL_PREFILTERS = True
+        return rows, True
+    except TypeError as exc:
+        if "unexpected keyword" not in str(exc):
+            raise
+        _CATALOG_SQL_PREFILTERS = False
+        logger.warning(
+            "list_root_task_summaries missing SQL prefilter kwargs (%s); "
+            "using limit/offset only — rebuild gateway binary to pick up harness pushdown",
+            exc,
+        )
+        return list_root_task_summaries(**base), False
+
+
+def _catalog_count_roots(
+    *,
+    main_task_id: str | None = None,
+    has_role: bool = False,
+    exclude_noise: bool = False,
+    owner_scope_ids: list[str] | None = None,
+    search: str | None = None,
+) -> int | None:
+    """COUNT with prefilters when supported; None if harness is too old."""
+    from evoflow.persistence.repositories import count_root_task_summaries
+
+    if _CATALOG_SQL_PREFILTERS is False:
+        try:
+            return int(count_root_task_summaries(main_task_id=main_task_id))
+        except TypeError:
+            return None
+
+    rich = {
+        "main_task_id": main_task_id,
+        "has_role": bool(has_role),
+        "exclude_noise": bool(exclude_noise),
+        "owner_scope_ids": owner_scope_ids,
+        "search": str(search or "").strip() or None,
+    }
+    try:
+        return int(count_root_task_summaries(**rich))
+    except TypeError as exc:
+        if "unexpected keyword" not in str(exc):
+            raise
+        try:
+            return int(count_root_task_summaries(main_task_id=main_task_id))
+        except TypeError:
+            return None
 
 
 def _list_tasks_catalog_sync(
@@ -763,73 +940,156 @@ def _list_tasks_catalog_sync(
     org_scope: str | None = None,
     principal: Any = None,
 ) -> dict[str, Any]:
-    """Sync body for ``list_tasks`` catalog path (run via ``asyncio.to_thread``)."""
-    from evoflow.authz.resource_visibility import owner_scope_visible_to_principal
-    from evoflow.persistence.repositories import list_root_task_summaries
+    """Sync body for ``list_tasks`` catalog path (run via ``asyncio.to_thread``).
 
+    Critical: SQL ``LIMIT``/``OFFSET`` must be used. The old path called
+    ``list_root_task_summaries()`` with no limit, filtered in Python, then sliced —
+    so ``page_size=40`` still scanned every root and wedged Gateway during chat.
+    """
     mid = str(project_id or "").strip() or None
-    # Full root scan (read pool only — must not take get_db write lock). Authz /
-    # hide_noise / status filters need the full set for correct totals.
-    raw_tasks = list_root_task_summaries(main_task_id=mid)
-    all_tasks: list[dict[str, Any]] = []
-    for task in raw_tasks:
-        if has_role and not str(task.get("assigned_role") or "").strip():
-            continue
-        if not owner_scope_visible_to_principal(
-            task.get("owner_scope_id"),
-            principal,
+    requested = int(page_size or 0)
+    if requested <= 0:
+        size = int(os.environ.get("EVOFLOW_TASKS_LIST_ALL_CAP", str(_TASKS_LIST_ALL_CAP)) or _TASKS_LIST_ALL_CAP)
+        size = max(1, min(size, 500))
+        page_no = 1
+        unbounded_clamped = True
+    else:
+        size = requested
+        page_no = max(1, int(page or 1))
+        unbounded_clamped = False
+
+    owner_scopes: list[str] | None = None
+    if not is_admin:
+        owner_scopes = [s for s in (personal_scope, org_scope) if str(s or "").strip()]
+
+    # Coarse SQL prefilter (noise / role / scope / search). Status+source stay Python
+    # (alias groups). Sort other than updated_at also stays Python on the page window.
+    sort_key = str(sort or "updated_at").strip().lower()
+    reverse = str(order or "desc").lower() == "desc"
+    sql_order_ok = sort_key in {"", "updated_at"} and reverse
+
+    list_kwargs: dict[str, Any] = {
+        "main_task_id": mid,
+        "has_role": bool(has_role),
+        "exclude_noise": bool(hide_noise),
+        "owner_scope_ids": owner_scopes,
+        "search": str(search or "").strip() or None,
+    }
+
+    need = page_no * size
+    window = max(size * 3, 60)
+    max_scan = int(os.environ.get("EVOFLOW_TASKS_LIST_MAX_SCAN", str(_TASKS_LIST_MAX_SCAN)) or _TASKS_LIST_MAX_SCAN)
+    max_scan = max(size * 2, min(max_scan, 10_000))
+
+    matched: list[dict[str, Any]] = []
+    scanned = 0
+    exhausted = False
+    sql_prefilters = True
+
+    def _match(task: dict[str, Any], *, prefiltered: bool) -> dict[str, Any] | None:
+        # When harness SQL prefilters applied, skip duplicate has_role/search work.
+        return _catalog_row_matches(
+            task,
+            status=status,
+            source=source,
+            search=None if prefiltered else str(search or "").strip() or None,
+            has_role=False if prefiltered else bool(has_role),
+            hide_noise=hide_noise,
             is_admin=is_admin,
             personal_scope=personal_scope,
             org_scope=org_scope,
-        ):
-            continue
-        if status and not _status_matches_filter(task, status):
-            continue
-        if source:
-            from evoflow.collab.task_source import sources_equal
-
-            if not sources_equal(task.get("source"), source):
-                continue
-        if search:
-            task_name = str(task.get("name") or "").lower()
-            task_id = str(task.get("id") or "").lower()
-            search_lower = search.lower()
-            if search_lower not in task_name and search_lower not in task_id:
-                continue
-        task_data = _slim_task_for_list(_public_task_dict(task))
-        if hide_noise:
-            from evoflow.collab.task_noise import is_task_center_noise
-
-            if is_task_center_noise(task_data):
-                continue
-        all_tasks.append(task_data)
-
-    reverse = str(order or "desc").lower() == "desc"
-    sort_key = str(sort or "updated_at").strip().lower()
-    if sort_key == "name":
-        all_tasks.sort(key=lambda x: str(x.get("name") or "").lower(), reverse=reverse)
-    elif sort_key == "status":
-        all_tasks.sort(key=lambda x: str(x.get("status") or ""), reverse=reverse)
-    elif sort_key == "created_at":
-        all_tasks.sort(key=lambda x: str(x.get("created_at") or ""), reverse=reverse)
-    else:
-        all_tasks.sort(
-            key=lambda x: str(x.get("updated_at") or x.get("created_at") or ""),
-            reverse=reverse,
+            principal=principal,
         )
 
-    total = len(all_tasks)
-    size = int(page_size or 0)
-    if size > 0:
-        page_count = max(1, (total + size - 1) // size) if total else 0
-        page_no = max(1, min(int(page or 1), page_count or 1))
-        start = (page_no - 1) * size
-        page_tasks = all_tasks[start : start + size]
+    # Fast path: default newest-first with no status/source filter → one SQL page
+    # with overfetch, then Python refine. Avoids multi-window when drop-rate is low.
+    use_single_window = sql_order_ok and not status and not source
+    if use_single_window:
+        overfetch = max(size * 4, size + 20)
+        # Pull enough SQL rows to cover prior pages + this page after filter drop.
+        sql_limit = min(max_scan, need + overfetch)
+        raw, sql_prefilters = _catalog_list_roots(limit=sql_limit, offset=0, **list_kwargs)
+        scanned = len(raw)
+        exhausted = scanned < sql_limit
+        for task in raw:
+            row = _match(task, prefiltered=sql_prefilters)
+            if row is not None:
+                matched.append(row)
+                if len(matched) >= need:
+                    break
     else:
-        page_no = 1
-        page_count = 1 if total else 0
-        size = total
-        page_tasks = all_tasks
+        while len(matched) < need and scanned < max_scan:
+            batch, sql_prefilters = _catalog_list_roots(limit=window, offset=scanned, **list_kwargs)
+            if not batch:
+                exhausted = True
+                break
+            scanned += len(batch)
+            for task in batch:
+                row = _match(task, prefiltered=sql_prefilters)
+                if row is not None:
+                    matched.append(row)
+            if len(batch) < window:
+                exhausted = True
+                break
+
+    if not sql_order_ok:
+        if sort_key == "name":
+            matched.sort(key=lambda x: str(x.get("name") or "").lower(), reverse=reverse)
+        elif sort_key == "status":
+            matched.sort(key=lambda x: str(x.get("status") or ""), reverse=reverse)
+        elif sort_key == "created_at":
+            matched.sort(key=lambda x: str(x.get("created_at") or ""), reverse=reverse)
+        else:
+            matched.sort(
+                key=lambda x: str(x.get("updated_at") or x.get("created_at") or ""),
+                reverse=reverse,
+            )
+
+    start = (page_no - 1) * size
+    page_tasks = matched[start : start + size]
+
+    # Totals without a second full-table hydrate:
+    # - No status/source: SQL COUNT with the same coarse prefilters (may be slightly
+    #   higher than Python noise/authz — Task Center pager still works).
+    # - With status/source: count remaining matches in windows up to max_scan.
+    total_is_approximate = False
+    if not status and not source:
+        counted = _catalog_count_roots(**list_kwargs)
+        if counted is None:
+            total = len(matched) if exhausted else max(len(matched), need)
+            total_is_approximate = True
+        else:
+            total = counted
+            if exhausted and len(matched) < need:
+                total = len(matched)
+            elif total < len(matched):
+                total = len(matched)
+            total_is_approximate = True
+    else:
+        extra = 0
+        off = scanned
+        while off < max_scan:
+            batch, sql_prefilters = _catalog_list_roots(limit=window, offset=off, **list_kwargs)
+            if not batch:
+                exhausted = True
+                break
+            off += len(batch)
+            for task in batch:
+                row = _match(task, prefiltered=sql_prefilters)
+                if row is not None:
+                    extra += 1
+            if len(batch) < window:
+                exhausted = True
+                break
+        total = len(matched) + extra
+        if not exhausted and off >= max_scan:
+            total_is_approximate = True
+
+    page_count = max(1, (total + size - 1) // size) if total else 0
+    if page_no > (page_count or 1) and page_count:
+        page_no = page_count
+        start = (page_no - 1) * size
+        page_tasks = matched[start : start + size]
 
     # Join SQLite session run_status — UI must not invent「已中断」via client probe.
     try:
@@ -839,7 +1099,7 @@ def _list_tasks_catalog_sync(
     except Exception:
         logger.debug("list_tasks: runtime_health enrich failed", exc_info=True)
 
-    return {
+    out: dict[str, Any] = {
         "tasks": page_tasks,
         "total": total,
         "page": page_no,
@@ -852,6 +1112,11 @@ def _list_tasks_catalog_sync(
             "hide_noise": hide_noise,
         },
     }
+    if unbounded_clamped:
+        out["unbounded_clamped"] = True
+    if total_is_approximate:
+        out["total_is_approximate"] = True
+    return out
 
 
 def _task_row_plan_score(row: dict[str, Any], *, prefer_task_id: str = "") -> int:

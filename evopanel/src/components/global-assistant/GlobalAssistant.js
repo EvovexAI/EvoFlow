@@ -1359,10 +1359,12 @@ function setupVisibilityPause() {
 function schedulePoll() {
   if (_pollTimer) clearInterval(_pollTimer)
   const open = getState().isOpen && !getState().isMinimized
+  // Closed FAB: 90s — hang dumps show /api/tasks?page_size=… competing with chat
+  // + workflow open; dashboard badge does not need a sub-minute full catalog.
   _pollTimer = setInterval(() => {
     if (shouldHideAssistant()) return
     void refreshDashboard()
-  }, open ? 20_000 : 60_000)
+  }, open ? 30_000 : 90_000)
 }
 
 /** 与 proactive-approval-notify 同步：有新待审时立刻抬高 FAB 角标 */

@@ -83,7 +83,7 @@ export function renderListPagerHtml(opts) {
     <div class="ef-list-pager" data-ef-list-pager role="navigation" aria-label="列表分页">
       <span class="ef-list-pager-meta">共 ${total} ${unit} · 第 ${from}–${to} ${unit}</span>
       <label class="ef-list-pager-size">
-        每页
+        <span class="ef-list-pager-size-label">每页</span>
         <select data-ef-page-size aria-label="每页条数">
           ${sizeOptions
             .map((n) => `<option value="${n}"${n === pageSize ? ' selected' : ''}>${n}</option>`)

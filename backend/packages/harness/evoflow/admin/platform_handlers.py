@@ -684,7 +684,17 @@ def openai_vision(args: dict[str, Any]) -> dict[str, Any]:
         vision_messages,
     )
 
-    image = _arg_str(args, "image", "image_url", "imageUrl", "path", "file")
+    # Agents often pass image_path (view_image style) instead of image.
+    image = _arg_str(
+        args,
+        "image",
+        "image_url",
+        "imageUrl",
+        "image_path",
+        "imagePath",
+        "path",
+        "file",
+    )
     prompt = _arg_str(args, "message", "prompt", "question", "text")
     if not image:
         raise ValidationError("image is required（本地路径 / https / data: URL）")
@@ -692,6 +702,15 @@ def openai_vision(args: dict[str, Any]) -> dict[str, Any]:
         raise ValidationError("message is required（对图片的问题或指令）")
 
     model = _arg_str(args, "model", "model_name", "modelName", "name") or None
+    if not model:
+        # Never fall through to a free-tier primary (e.g. Agnes) that 429s on vision —
+        # pick an explicitly vision-capable model from Settings.
+        try:
+            from evoflow.tools.builtins.vision_analysis_core import resolve_vision_model_name
+
+            model = resolve_vision_model_name(source="platform.openai.vision") or None
+        except Exception:
+            model = None
     system = _arg_str(args, "system") or None
     temperature = args.get("temperature")
     messages = vision_messages(prompt=prompt, image=image, system=system)
@@ -716,6 +735,7 @@ def openai_vision(args: dict[str, Any]) -> dict[str, Any]:
         "ok": True,
         "action": "openai.vision",
         "content": text,
+        "model": model,
         "openai": result,
     }
 

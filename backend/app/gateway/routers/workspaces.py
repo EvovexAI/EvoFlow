@@ -25,6 +25,12 @@ _GIT_PROBE_SUBPROCESS_S = 6.0
 _GIT_STATUS_SUBPROCESS_S = 8.0
 _GIT_IGNORE_SUBPROCESS_S = 6.0
 
+# Large media via serve-file can hold HTTP connections for tens of seconds (Range
+# streaming). Cap concurrency so chat REST is not starved when preview + lightbox
+# both pull the same mp4 during a live run (hang dumps: serve-file @40–70s).
+_SERVE_FILE_LARGE_BYTES = 5 * 1024 * 1024
+_SERVE_FILE_LARGE_SLOT: asyncio.Semaphore | None = None
+
 
 def _git_slot() -> asyncio.Semaphore:
     """Lazy semaphore bound to the running loop (avoid import-time loop binding)."""
@@ -32,6 +38,13 @@ def _git_slot() -> asyncio.Semaphore:
     if _GIT_SLOT is None:
         _GIT_SLOT = asyncio.Semaphore(2)
     return _GIT_SLOT
+
+
+def _serve_file_large_slot() -> asyncio.Semaphore:
+    global _SERVE_FILE_LARGE_SLOT
+    if _SERVE_FILE_LARGE_SLOT is None:
+        _SERVE_FILE_LARGE_SLOT = asyncio.Semaphore(2)
+    return _SERVE_FILE_LARGE_SLOT
 
 from evoflow.authz.http_guard import require_workspace_path_visible, require_workspace_root_access
 from evoflow.authz.resource_visibility import stamp_kwargs_from_request
@@ -404,7 +417,7 @@ def _rel_under_root(root: Path, path: Path) -> str | None:
             return None
 
 
-def _fuzzy_locate_under_workspace(root: Path, rel_or_name: str, *, max_scan: int = 12_000) -> Path | None:
+def _fuzzy_locate_under_workspace(root: Path, rel_or_name: str, *, max_scan: int = 4_000) -> Path | None:
     """Cite omitted ``projects/<ep>/`` prefix: locate unique ``**/rel`` (or basename) under root."""
     norm = str(rel_or_name or "").replace("\\", "/").strip().strip("/")
     if not norm or not root.is_dir():
@@ -1311,6 +1324,64 @@ async def workspace_list_files(
     return WorkspaceListFilesResponse(root=base.as_posix(), paths=paths, truncated=truncated)
 
 
+def _looks_like_url_or_data(path: str) -> bool:
+    p = str(path or "").strip().lower()
+    return p.startswith(("http://", "https://", "data:", "blob:", "asset:"))
+
+
+def _should_attempt_path_heal(cited: str, target: Path) -> bool:
+    """Skip expensive os.walk heal for URLs, directories, and junk relative names.
+
+    Slow log 2026-10-30: serve-file with ``path=https://…`` or directory roots under
+    knowledge-library took 5–8s then 404 — heal walked thousands of files for nothing.
+    """
+    raw = str(cited or "").strip()
+    if not raw or _looks_like_url_or_data(raw):
+        return False
+    try:
+        if target.exists() and target.is_dir():
+            return False
+    except OSError:
+        pass
+    # Bare placeholder names from media probes (``/+audio.mp3``, ``/video.mp4``)
+    norm = raw.replace("\\", "/")
+    leaf = Path(norm).name
+    leaf_l = leaf.lower().lstrip("+")
+    if leaf_l in {"audio.mp3", "video.mp4", "video.webm", "audio.wav", "audio.ogg"}:
+        # Only a real nested path like ``outputs/clip/audio.mp3`` is worth healing.
+        parts = [p for p in norm.strip("/").split("/") if p and p != "+"]
+        if len(parts) <= 1 or "/+" in norm or leaf.startswith("+"):
+            return False
+    # No file extension → almost always a directory cite; do not walk the tree.
+    if not Path(leaf).suffix:
+        return False
+    return True
+
+
+def _resolve_target_sync(
+    *,
+    root: str | None,
+    thread_id: str | None,
+    rel: str,
+) -> tuple[str, str, bool, bool]:
+    """Worker-thread body for resolve-target (heal must not touch the event loop)."""
+    target = _resolve_workspace_file_target(root=root, thread_id=thread_id, rel=rel)
+    if not target.exists() and _should_attempt_path_heal(rel, target):
+        target = _heal_missing_workspace_file_target(
+            target, root=root, thread_id=thread_id, cited=rel
+        )
+    try:
+        resolved = str(target.resolve(strict=False))
+    except Exception:
+        resolved = str(target.absolute())
+    try:
+        exists = target.exists()
+        is_dir = target.is_dir() if exists else False
+    except OSError:
+        exists, is_dir = False, False
+    return rel, resolved, exists, is_dir
+
+
 @router.get("/resolve-target", response_model=ResolveWorkspaceTargetResponse)
 async def resolve_workspace_target(
     request: Request,
@@ -1320,50 +1391,60 @@ async def resolve_workspace_target(
 ) -> ResolveWorkspaceTargetResponse:
     """Resolve a workspace-relative path to an absolute host path (EvoPanel reveal in file manager)."""
     require_workspace_root_access(request, root=root, thread_id=thread_id)
+    if _looks_like_url_or_data(path):
+        raise HTTPException(status_code=400, detail="resolve-target does not accept URL paths")
     rel = _normalize_rel_path(path)
     if not rel:
         raise HTTPException(status_code=400, detail="path is required")
     try:
-        target = _resolve_workspace_file_target(root=root, thread_id=thread_id, rel=rel)
+        out_rel, resolved, exists, is_dir = await asyncio.to_thread(
+            _resolve_target_sync,
+            root=root,
+            thread_id=thread_id,
+            rel=rel,
+        )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
-    if not target.exists():
-        target = _heal_missing_workspace_file_target(
-            target, root=root, thread_id=thread_id, cited=rel
-        )
-    try:
-        resolved = str(target.resolve(strict=False))
-    except Exception:
-        resolved = str(target.absolute())
     return ResolveWorkspaceTargetResponse(
-        path=rel,
+        path=out_rel,
         resolved=resolved,
-        exists=target.exists(),
-        is_dir=target.is_dir() if target.exists() else False,
+        exists=exists,
+        is_dir=is_dir,
     )
 
 
-@router.get("/serve-file")
-async def serve_workspace_file(
-    request: Request,
-    root: str | None = Query(None, description="Bound workspace root directory"),
-    path: str = Query(..., description="Absolute or relative file path under workspace"),
-    thread_id: str | None = Query(None),
-) -> FileResponse:
-    """Serve a workspace binary (e.g. generated images) for EvoPanel inline preview."""
-    require_workspace_root_access(request, root=root, thread_id=thread_id)
+def _prepare_serve_file_target(
+    *,
+    root: str | None,
+    thread_id: str | None,
+    path: str,
+) -> tuple[Path, str | None, int]:
+    """Resolve + heal + size on a worker thread (os.walk heal must not block the loop)."""
+    raw = str(path or "").strip()
+    if _looks_like_url_or_data(raw):
+        # FE sometimes wraps remote image URLs into serve-file; fail fast (was 5s+ heal).
+        raise HTTPException(
+            status_code=400,
+            detail="serve-file expects a filesystem path, not an http(s)/data URL",
+        )
     try:
         target = _resolve_workspace_file_target(root=root, thread_id=thread_id, rel=path)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
+    try:
+        if target.exists() and target.is_dir():
+            raise HTTPException(status_code=404, detail="path is a directory, not a file")
+    except HTTPException:
+        raise
+    except OSError:
+        pass
     if not target.is_file():
-        target = _heal_missing_workspace_file_target(
-            target, root=root, thread_id=thread_id, cited=path
-        )
-    if not target.is_file():
-        raise HTTPException(status_code=404, detail="file not found")
-    # 显式带 media_type：中文文件名等场景下 guess 失败会变成 octet-stream，
-    # 对话里 <video> 会报「不支持播放这种媒体格式」，文件树同文件却能播。
+        if _should_attempt_path_heal(path, target):
+            target = _heal_missing_workspace_file_target(
+                target, root=root, thread_id=thread_id, cited=path
+            )
+        if not target.is_file():
+            raise HTTPException(status_code=404, detail="file not found")
     guessed, _ = mimetypes.guess_type(str(target))
     suffix = target.suffix.lower()
     media_type = guessed or {
@@ -1384,7 +1465,65 @@ async def serve_workspace_file(
         ".webp": "image/webp",
         ".svg": "image/svg+xml",
     }.get(suffix)
-    return FileResponse(target, media_type=media_type)
+    try:
+        size = int(target.stat().st_size)
+    except OSError:
+        size = 0
+    return target, media_type, size
+
+
+@router.get("/serve-file")
+async def serve_workspace_file(
+    request: Request,
+    root: str | None = Query(None, description="Bound workspace root directory"),
+    path: str = Query(..., description="Absolute or relative file path under workspace"),
+    thread_id: str | None = Query(None),
+) -> FileResponse:
+    """Serve a workspace binary (e.g. generated images) for EvoPanel inline preview."""
+    require_workspace_root_access(request, root=root, thread_id=thread_id)
+    # Path heal can ``os.walk`` (capped) — never on the event loop.
+    try:
+        target, media_type, size = await asyncio.to_thread(
+            _prepare_serve_file_target,
+            root=root,
+            thread_id=thread_id,
+            path=path,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("serve-file resolve failed path=%s", path)
+        raise HTTPException(status_code=500, detail=f"serve-file failed: {e}") from e
+
+    headers = {"Accept-Ranges": "bytes"}
+    if size >= _SERVE_FILE_LARGE_BYTES:
+        # Hang dumps (2026-10-30): two concurrent mp4 serves @43s/69s while a chat
+        # stream ran → event_loop_stall and /health/liveness timeouts. Queue extras.
+        slot = _serve_file_large_slot()
+        await slot.acquire()
+
+        async def _release_large_slot() -> None:
+            slot.release()
+
+        # Starlette FileResponse has no done-callback; wrap send to release on disconnect.
+        class _LargeFileResponse(FileResponse):
+            async def __call__(self, scope: Any, receive: Any, send: Any) -> None:  # type: ignore[override]
+                try:
+                    await super().__call__(scope, receive, send)
+                finally:
+                    await _release_large_slot()
+
+        logger.info(
+            "serve-file large media size_mb=%.1f path=%s range=%s",
+            size / (1024 * 1024),
+            target.name,
+            request.headers.get("range") or "-",
+        )
+        return _LargeFileResponse(target, media_type=media_type, headers=headers)
+
+    # 显式带 media_type：中文文件名等场景下 guess 失败会变成 octet-stream，
+    # 对话里 <video> 会报「不支持播放这种媒体格式」，文件树同文件却能播。
+    return FileResponse(target, media_type=media_type, headers=headers)
 
 
 @router.get("/read", response_model=WorkspaceReadResponse)

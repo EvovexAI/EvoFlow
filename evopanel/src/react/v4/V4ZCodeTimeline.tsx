@@ -115,7 +115,21 @@ export function createEvoflowPartialServices(
   // （Tauri=8382 等配置端口；web dev 返回相对路径，走 vite 代理）。
   const boundRoot = String(workspaceRoot || "").trim();
   const serveFileUrl = async (path: string): Promise<string> => {
-    const q = new URLSearchParams({ path });
+    const p = String(path || "").trim();
+    // Never wrap remote/data URLs into serve-file (slow log: https://… → 5s heal → 404).
+    if (/^https?:\/\//i.test(p) || p.startsWith("data:") || p.startsWith("blob:")) {
+      return p;
+    }
+    try {
+      const { convertFileSrc } = await import("@tauri-apps/api/core");
+      if (/^[a-zA-Z]:[\\/]/.test(p) || (p.startsWith("/") && !p.startsWith("/mnt/"))) {
+        const local = convertFileSrc(p);
+        if (local) return local;
+      }
+    } catch {
+      /* web / convert unavailable */
+    }
+    const q = new URLSearchParams({ path: p });
     if (sessionId) q.set("thread_id", sessionId);
     // 有绑定工作区时带 root，避免相对路径只靠 thread 沙箱解析到空目录 / 错文件
     if (boundRoot) q.set("root", boundRoot);
@@ -1067,12 +1081,31 @@ export function V4ZCodeTimeline(props: {
       const ref = String(params.ref || "").trim();
       if (!ref) throw new Error("empty attachment ref");
       if (params.signal?.aborted) throw new DOMException("Aborted", "AbortError");
-      const q = new URLSearchParams({ path: ref });
-      const tid = String(params.sessionId || sessionId || "").trim();
-      if (tid) q.set("thread_id", tid);
-      const root = String(workspacePath || "").trim();
-      if (root) q.set("root", root);
-      const url = await apiUrlAsync(`/workspaces/serve-file?${q.toString()}`);
+      let url: string;
+      if (/^https?:\/\//i.test(ref) || ref.startsWith("data:") || ref.startsWith("blob:")) {
+        url = ref;
+      } else {
+        try {
+          const { convertFileSrc } = await import("@tauri-apps/api/core");
+          if (/^[a-zA-Z]:[\\/]/.test(ref) || (ref.startsWith("/") && !ref.startsWith("/mnt/"))) {
+            const local = convertFileSrc(ref);
+            if (local) {
+              url = local;
+            } else {
+              throw new Error("no convertFileSrc");
+            }
+          } else {
+            throw new Error("not abs");
+          }
+        } catch {
+          const q = new URLSearchParams({ path: ref });
+          const tid = String(params.sessionId || sessionId || "").trim();
+          if (tid) q.set("thread_id", tid);
+          const root = String(workspacePath || "").trim();
+          if (root) q.set("root", root);
+          url = await apiUrlAsync(`/workspaces/serve-file?${q.toString()}`);
+        }
+      }
       const mime =
         String(params.mediaType || "").trim() ||
         (/\.(png)$/i.test(ref)

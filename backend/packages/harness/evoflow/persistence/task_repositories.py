@@ -663,11 +663,74 @@ def list_bundle_summaries(
     return run_db_read(_query)
 
 
+def _root_task_sql_filters(
+    *,
+    main_task_id: str | None = None,
+    has_role: bool = False,
+    exclude_noise: bool = False,
+    owner_scope_ids: list[str] | None = None,
+    search: str | None = None,
+    have_owner_col: bool = True,
+) -> tuple[str, list[Any]]:
+    """Build WHERE fragment + params for root catalog queries (shared by list/count)."""
+    mid = str(main_task_id or "").strip()
+    clauses: list[str] = []
+    params: list[Any] = []
+    if mid:
+        clauses.append("main_task_id = ? AND task_id = main_task_id")
+        params.append(mid)
+    else:
+        clauses.append("task_id = main_task_id")
+    if has_role:
+        # assigned_role lives in extra_json (merged at read time).
+        clauses.append(
+            "TRIM(COALESCE(json_extract(extra_json, '$.assigned_role'), '')) != ''"
+        )
+    if exclude_noise:
+        # Coarse SQL prefilter matching the common cases in ``is_task_center_noise``.
+        # Python still applies the full noise rules on hydrated rows.
+        clauses.append(
+            """
+            NOT (
+              LOWER(COALESCE(json_extract(extra_json, '$.source_channel'), ''))
+                IN ('status_check', 'upstream_receipt', 'proactive_patrol')
+              OR name LIKE '【巡检】%'
+              OR name LIKE '【值班】%'
+              OR name LIKE '[巡检]%'
+              OR name LIKE '[值班]%'
+              OR name LIKE '【下游回执】%'
+              OR name LIKE '巡检：%'
+              OR name LIKE '巡检:%'
+            )
+            """.strip()
+        )
+    scopes = [str(s).strip() for s in (owner_scope_ids or []) if str(s or "").strip()]
+    if scopes and have_owner_col:
+        placeholders = ", ".join("?" for _ in scopes)
+        # Include group/channel owners for Python membership checks; exclude empty
+        # (legacy unstamped = admin-only).
+        clauses.append(
+            f"(owner_scope_id IN ({placeholders}) "
+            f"OR owner_scope_id LIKE 'group:%' OR owner_scope_id LIKE 'channel:%')"
+        )
+        params.extend(scopes)
+    q = str(search or "").strip()
+    if q:
+        like = f"%{q.lower()}%"
+        clauses.append("(LOWER(COALESCE(name, '')) LIKE ? OR LOWER(COALESCE(task_id, '')) LIKE ?)")
+        params.extend([like, like])
+    return " AND ".join(clauses), params
+
+
 def list_root_task_summaries(
     *,
     main_task_id: str | None = None,
     limit: int | None = None,
     offset: int = 0,
+    has_role: bool = False,
+    exclude_noise: bool = False,
+    owner_scope_ids: list[str] | None = None,
+    search: str | None = None,
 ) -> list[dict[str, Any]]:
     """List root collaborative tasks with one SQL query (no full-bundle hydrate).
 
@@ -679,6 +742,9 @@ def list_root_task_summaries(
 
     ``limit`` / ``offset`` are pushed into SQL (``limit <= 0`` / ``None`` = all rows),
     so agent/CLI callers can page without materializing 1000+ rows in memory.
+
+    Optional ``has_role`` / ``exclude_noise`` / ``owner_scope_ids`` / ``search`` are
+    coarse SQL prefilters so Gateway catalog paging does not SELECT every root.
     """
     from evoflow.persistence.db import run_db_read
 
@@ -691,7 +757,6 @@ def list_root_task_summaries(
         thread_id, authorized_at, authorized_by, extra_json, sort_order, updated_at,
         plan_goal, plan_open_questions, plan_bound_at
     """
-    mid = str(main_task_id or "").strip()
 
     # NULL-safe: an empty-string updated_at must not sort as "newest".
     order_by = "ORDER BY COALESCE(NULLIF(updated_at, ''), NULLIF(created_at, ''), '') DESC"
@@ -701,40 +766,35 @@ def list_root_task_summaries(
 
     def _query(conn: Any) -> list[dict[str, Any]]:
         cols = base_cols
+        have_owner = False
         # Append ownership cols when present (v139+) — probe on the same read conn.
         try:
             have = {str(r[1]) for r in conn.execute("PRAGMA table_info(evoflow_collab_tasks)").fetchall()}
             for c in ("org_id", "owner_scope_id", "created_by"):
                 if c in have:
                     cols = cols.rstrip() + f", {c}"
+            have_owner = "owner_scope_id" in have
         except Exception:
             pass
-        if mid:
-            params: list[Any] = [mid]
-            if page_sql:
-                params += [int(limit), max(0, int(offset or 0))]
-            rows = conn.execute(
-                f"""
-                SELECT {cols}
-                FROM evoflow_collab_tasks
-                WHERE main_task_id = ? AND task_id = main_task_id
-                {order_by}{page_sql}
-                """,
-                tuple(params),
-            ).fetchall()
-        else:
-            params = []
-            if page_sql:
-                params += [int(limit), max(0, int(offset or 0))]
-            rows = conn.execute(
-                f"""
-                SELECT {cols}
-                FROM evoflow_collab_tasks
-                WHERE task_id = main_task_id
-                {order_by}{page_sql}
-                """,
-                tuple(params),
-            ).fetchall()
+        where_sql, params = _root_task_sql_filters(
+            main_task_id=main_task_id,
+            has_role=has_role,
+            exclude_noise=exclude_noise,
+            owner_scope_ids=owner_scope_ids,
+            search=search,
+            have_owner_col=have_owner,
+        )
+        if page_sql:
+            params = list(params) + [int(limit), max(0, int(offset or 0))]
+        rows = conn.execute(
+            f"""
+            SELECT {cols}
+            FROM evoflow_collab_tasks
+            WHERE {where_sql}
+            {order_by}{page_sql}
+            """,
+            tuple(params),
+        ).fetchall()
         out = []
         for r in rows:
             d = _row_dict(r)
@@ -749,22 +809,36 @@ def list_root_task_summaries(
     return run_db_read(_query)
 
 
-def count_root_task_summaries(*, main_task_id: str | None = None) -> int:
-    """COUNT root tasks (``task_id = main_task_id``) without hydrating rows."""
+def count_root_task_summaries(
+    *,
+    main_task_id: str | None = None,
+    has_role: bool = False,
+    exclude_noise: bool = False,
+    owner_scope_ids: list[str] | None = None,
+    search: str | None = None,
+) -> int:
+    """COUNT root tasks without hydrating rows (optional same coarse filters as list)."""
     from evoflow.persistence.db import run_db_read
 
-    mid = str(main_task_id or "").strip()
-
     def _query(conn: Any) -> int:
-        if mid:
-            row = conn.execute(
-                "SELECT COUNT(*) FROM evoflow_collab_tasks WHERE main_task_id = ? AND task_id = main_task_id",
-                (mid,),
-            ).fetchone()
-        else:
-            row = conn.execute(
-                "SELECT COUNT(*) FROM evoflow_collab_tasks WHERE task_id = main_task_id"
-            ).fetchone()
+        have_owner = False
+        try:
+            have = {str(r[1]) for r in conn.execute("PRAGMA table_info(evoflow_collab_tasks)").fetchall()}
+            have_owner = "owner_scope_id" in have
+        except Exception:
+            pass
+        where_sql, params = _root_task_sql_filters(
+            main_task_id=main_task_id,
+            has_role=has_role,
+            exclude_noise=exclude_noise,
+            owner_scope_ids=owner_scope_ids,
+            search=search,
+            have_owner_col=have_owner,
+        )
+        row = conn.execute(
+            f"SELECT COUNT(*) FROM evoflow_collab_tasks WHERE {where_sql}",
+            tuple(params),
+        ).fetchone()
         return int(row[0] or 0) if row else 0
 
     return run_db_read(_query)

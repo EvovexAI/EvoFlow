@@ -23,10 +23,20 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+/* 「每页」必须是独立 flex item 且不可压缩：裸文本节点在 flex 容器里会变成
+ * 匿名 item，空间紧张时被压到 0 宽，两个字就竖排了。 */
+.ef-list-pager-size-label {
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 .ef-list-pager-size select {
   height: 28px;
+  flex: 0 0 auto;
   border-radius: 8px;
   border: 1px solid var(--border-primary, rgba(0, 0, 0, 0.12));
   background: var(--bg-primary, #fff);

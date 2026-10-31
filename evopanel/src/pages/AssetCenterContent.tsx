@@ -142,10 +142,10 @@ const ASSET_TABS: { id: AssetTab; label: string; icon: React.ReactNode }[] = [
   { id: "manage", label: "管理", icon: <Settings2 size={16} strokeWidth={1.6} /> },
 ];
 
-const MEMORY_KINDS: { id: MemoryKind; label: string; hint: string }[] = [
-  { id: "facts", label: "事实", hint: "memory/facts/ · Agent 可检索的短事实" },
-  { id: "episodic", label: "过程记录", hint: "memory/episodic/ · 对话过程回顾" },
-  { id: "standing", label: "站立摘要", hint: "memory/standing.md · 自动生成的长期摘要" },
+const MEMORY_KINDS: { id: MemoryKind; label: string; hint: string; desc: string }[] = [
+  { id: "facts", label: "记事", hint: "memory/facts/", desc: "你让我记住的要点，一条一件，以后聊天自动参考。" },
+  { id: "episodic", label: "回顾", hint: "memory/episodic/", desc: "每次聊了什么、得出什么结论，系统自动记，事后来翻。" },
+  { id: "standing", label: "速览", hint: "memory/standing.md", desc: "每次聊天我都会先看的一页总结，自动更新，一般不用改。" },
 ];
 
 const ENTITY_GROUPS: { key: string; label: string; types: string[] }[] = [
@@ -1612,7 +1612,7 @@ function OverviewPanel({
           <div className="ac-hero-actions">
             <button type="button" className="ac-cta" onClick={onQuickFact}>
               <Plus size={15} strokeWidth={2} />
-              记住一条事实
+              记一条要点
             </button>
             <button type="button" className="ac-hero-btn" onClick={onImport}>
               <Download size={15} strokeWidth={1.8} />
@@ -2259,11 +2259,23 @@ function TreeWorkspace({
   onChangeContent: (v: string) => void;
   onSave: () => void;
 }) {
+  const activeKind = MEMORY_KINDS.find((k) => k.id === memoryKind);
   const emptyCopy: Record<TreeTab, { title: string; desc: string }> = {
-    memory: {
-      title: "还没有记忆",
-      desc: "在聊天里说「记住…」即可自动沉淀；也可以手动记一条事实，Agent 检索时会直接引用。",
-    },
+    memory:
+      memoryKind === "episodic"
+        ? {
+            title: "还没有回顾",
+            desc: "每次对话结束、空闲一会儿后，系统会自动写一篇回顾，不用你动手。",
+          }
+        : memoryKind === "standing"
+          ? {
+              title: "还没有速览",
+              desc: "系统整理记忆时会自动生成这一页总结；你也可以直接编辑它。",
+            }
+          : {
+              title: "还没有记事",
+              desc: "在聊天里说「记住…」，或点右上角「记一条」；以后聊天我会自动参考。",
+            },
     experience: {
       title: "还没有经验",
       desc: "经验（craft）来自对话中的沉淀与 Skills 市场安装，安装后可在此查看与修改。",
@@ -2279,7 +2291,7 @@ function TreeWorkspace({
     tab === "memory" ? (
       <button type="button" className="ac-btn-ghost" onClick={onQuickFact}>
         <Plus size={13} strokeWidth={1.8} />
-        记住事实
+        记一条
       </button>
     ) : tab === "journal" ? (
       <button type="button" className="ac-btn-ghost" onClick={onNewJournal}>
@@ -2315,6 +2327,9 @@ function TreeWorkspace({
               );
             })}
           </div>
+          <p className="ac-seg-desc" data-testid="memory-kind-desc">
+            {activeKind?.desc || ""}
+          </p>
           <div className="ac-toolbar-right">{toolbarRight}</div>
         </div>
       ) : null}
@@ -2352,7 +2367,7 @@ function TreeWorkspace({
                 tab === "memory" ? (
                   <button type="button" className="ac-cta" onClick={onQuickFact}>
                     <Plus size={15} strokeWidth={2} />
-                    记住一条事实
+                    记一条要点
                   </button>
                 ) : tab === "journal" ? (
                   <button type="button" className="ac-cta" onClick={onNewJournal}>
@@ -2794,7 +2809,7 @@ function QuickFactModal({
         title: title.trim(),
         summary: "",
       });
-      toast.success("已记入事实记忆");
+      toast.success("已记下这条要点");
       onSaved();
       onClose();
     } catch (e: unknown) {
@@ -2806,8 +2821,8 @@ function QuickFactModal({
 
   return (
     <ModalShell
-      title="记住一条事实"
-      desc={`将写入 ${entityName} 的事实记忆（memory/facts/），Agent 检索时会直接引用。`}
+      title="记一条要点"
+      desc={`这条会记进「${entityName}」的记事里，以后聊天我会自动参考；随时可以打开改掉。`}
       onClose={onClose}
       footer={
         <>

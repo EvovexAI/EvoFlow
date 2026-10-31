@@ -27,3 +27,9 @@
 - 规范：[`.codebasewiki/meta/agent-prompt-architecture.md`](./.codebasewiki/meta/agent-prompt-architecture.md)
 - 审计：`.claude/skills/prompt-audit/SKILL.md`(或 `python .claude/skills/prompt-audit/scripts/prompt_audit.py`)
 - 适用：任何 Agent 提示词栈(system_prompt + AGENTS.md + .mdc rules)的结构化诊断
+
+## Gateway 三车道（可用性）
+桌面单进程 Gateway：**Control / Data / Best-effort**（见 `backend/app/gateway/traffic_lanes.py`）。
+- **未知 `/api/*` 默认 DATA**，禁止默认进 Control——新慢接口也要被隔离，不能等 hang 再打补丁。
+- Best-effort（catalog、serve-file、git、browser/log…）过载时由 `TrafficLaneMiddleware` **503 shed**。
+- 本机媒体优先 Tauri `convertFileSrc`，勿默认经 Gateway 拉大 mp4。

@@ -334,6 +334,17 @@ html[data-theme='dark'] .app-settings-overlay {
   display: block;
 }
 
+/* 卡片顶行是 flex-start：瓦片盒顶与标题盒顶齐平，但 44px 瓦片内字形居中、
+ * 16px 标题只有 20.8px 高，视觉重心比标题低约 2px；加上徽章把标题行往上提，
+ * 看上去就是图标"沉下去"。这里做一次视觉补正，要微调只改 --app-ico-lift。 */
+.app-card-top {
+  --app-ico-lift: 3px;
+}
+
+.app-card-top .app-ico-tile {
+  margin-top: calc(var(--app-ico-lift) * -1);
+}
+
 /* 工具栏尺寸（36px），与 .wf-toolbar-app-icon 同规格 */
 .app-ico-tile--sm {
   width: 36px;

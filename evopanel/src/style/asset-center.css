@@ -723,6 +723,19 @@ html[data-translucent-ui='1'] #content > .assets-center-outlet {
   box-shadow: 0 0 0 2px var(--ac-primary-ring);
 }
 
+/* 记忆分类的一句话说明：常显，别让人靠 hover 猜 */
+.assets-center-root .ac-seg-desc {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--ac-text-faint);
+}
+
 /* ── Buttons ───────────────────────────────────────────────────── */
 
 .assets-center-root .ac-cta {
