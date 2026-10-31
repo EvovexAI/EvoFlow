@@ -108,3 +108,34 @@ def test_tasks_cleanup_defaults_dry_run() -> None:
     out = dispatch_platform_action("tasks.cleanup_noise", confirm=True)
     assert out.get("ok") is True
     assert out.get("dry_run") is True
+
+
+def test_redact_channel_secrets_masks_nested_bot_credentials() -> None:
+    """channels.get must never echo app_secret; it used to leak every bound bot."""
+    from evoflow.admin.platform_handlers import _redact_channel_secrets
+
+    cfg = {
+        "enabled": True,
+        "accounts": {
+            "bot-a": {"app_id": "cli_x", "app_secret": "supersecret123", "open_id": "ou_1"},
+            "bot-b": {"appSecret": "another-secret", "name": "bot"},
+        },
+    }
+    out = _redact_channel_secrets(cfg)
+
+    assert out["accounts"]["bot-a"]["app_secret"] == "su****23"
+    assert out["accounts"]["bot-b"]["appSecret"] == "an****et"
+    # non-secret fields survive untouched
+    assert out["accounts"]["bot-a"]["app_id"] == "cli_x"
+    assert out["accounts"]["bot-a"]["open_id"] == "ou_1"
+    assert out["enabled"] is True
+    # original mapping must not be mutated
+    assert cfg["accounts"]["bot-a"]["app_secret"] == "supersecret123"
+
+
+def test_redact_channel_secrets_handles_empty_and_short() -> None:
+    from evoflow.admin.platform_handlers import _redact_channel_secrets
+
+    assert _redact_channel_secrets({}) == {}
+    assert _redact_channel_secrets({"secret": ""}) == {"secret": ""}
+    assert _redact_channel_secrets({"secret": "abc"}) == {"secret": "****"}

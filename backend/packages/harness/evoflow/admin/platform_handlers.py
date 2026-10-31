@@ -3388,6 +3388,47 @@ def _channels_ensure_service():
         return None
 
 
+def _gateway_channels_http(
+    method: str,
+    path: str,
+    *,
+    json_body: dict[str, Any] | None = None,
+    timeout: float = 20.0,
+) -> dict[str, Any] | None:
+    """Call the Gateway ``/api/channels`` HTTP API when this process owns no ChannelService.
+
+    The platform tool also runs inside the LangGraph process, where
+    ``channels.service`` / ``channels.start_service`` ports are never registered
+    (adapters are installed by ``create_app()`` in the Gateway). Without this
+    fallback every channel action reported "service 未运行" even while Feishu was
+    happily delivering messages — and ``feishu_not_running`` got stamped into
+    push logs, degrading employee work reports to desktop-only.
+
+    Returns ``None`` when the Gateway is unreachable / not configured, so callers
+    keep their existing offline behaviour.
+    """
+    try:
+        import httpx
+
+        from evoflow.gateway_http import resolve_gateway_base_url
+
+        base = resolve_gateway_base_url(allow_legacy_default=True)
+        if not base:
+            return None
+        url = f"{base.rstrip('/')}/api/channels{path}"
+        with httpx.Client(timeout=timeout) as client:
+            resp = client.request(method, url, json=json_body)
+        if resp.status_code == 503:
+            # Gateway alive but channel service genuinely down.
+            return None
+        if resp.status_code >= 400:
+            return None
+        data = resp.json()
+        return data if isinstance(data, dict) else None
+    except Exception:
+        return None
+
+
 def channels_list(_args: dict[str, Any]) -> dict[str, Any]:
     service = _channels_ensure_service()
     if service is not None:
@@ -3401,6 +3442,9 @@ def channels_list(_args: dict[str, Any]) -> dict[str, Any]:
             return {"ok": True, **status}
     except Exception:
         pass
+    http_status = _gateway_channels_http("GET", "")
+    if http_status:
+        return {"ok": True, **http_status}
     from evoflow.persistence import config_repositories as cfg_repo
 
     configs = cfg_repo.get_all_channel_configs()
@@ -3428,6 +3472,24 @@ def channels_get(args: dict[str, Any]) -> dict[str, Any]:
             "running": running,
             "config": config or {},
         }
+    http_status = _gateway_channels_http("GET", "")
+    if http_status:
+        entry = (http_status.get("channels") or {}).get(name)
+        if isinstance(entry, dict):
+            # Gateway ``get_status`` only exposes enabled/running/bound_accounts —
+            # it deliberately omits credentials. Pair it with the persisted config
+            # so callers still see account wiring, but never echo app_secret.
+            from evoflow.persistence import config_repositories as cfg_repo
+
+            cfg = cfg_repo.get_all_channel_configs().get(name) or {}
+            return {
+                "ok": True,
+                "name": name,
+                "enabled": bool(entry.get("enabled")),
+                "running": bool(entry.get("running")),
+                "bound_accounts": entry.get("bound_accounts") or [],
+                "config": _redact_channel_secrets(cfg),
+            }
     from evoflow.admin.errors import NotFoundError
     from evoflow.persistence import config_repositories as cfg_repo
 
@@ -3442,6 +3504,52 @@ def channels_get(args: dict[str, Any]) -> dict[str, Any]:
         "config": cfg,
         "hint": "Channel service 未运行；仅返回持久化配置",
     }
+
+
+def _redact_channel_secrets(cfg: dict[str, Any]) -> dict[str, Any]:
+    """Mask credential fields before echoing channel config to a model/CLI caller.
+
+    ``channels.list`` / ``channels.get`` previously returned Feishu ``app_secret``
+    in plaintext for every bound bot — that value lands in transcripts, tool
+    results and logs. Mask in place on a copy; keep the key so callers can see
+    "configured" without ever seeing the secret.
+    """
+    if not isinstance(cfg, dict):
+        return {}
+    secret_keys = {
+        "app_secret",
+        "appsecret",
+        "secret",
+        "token",
+        "password",
+        "api_key",
+        "apikey",
+        "corp_secret",
+        "encoding_aes_key",
+    }
+
+    def _mask(value: Any) -> Any:
+        text = str(value or "")
+        if not text:
+            return value
+        if len(text) <= 4:
+            return "****"
+        return f"{text[:2]}****{text[-2:]}"
+
+    def _walk(node: Any) -> Any:
+        if isinstance(node, dict):
+            out: dict[str, Any] = {}
+            for k, v in node.items():
+                if str(k).strip().lower() in secret_keys and not isinstance(v, (dict, list)):
+                    out[k] = _mask(v)
+                else:
+                    out[k] = _walk(v)
+            return out
+        if isinstance(node, list):
+            return [_walk(v) for v in node]
+        return node
+
+    return _walk(cfg)
 
 
 def channels_set_config(args: dict[str, Any]) -> dict[str, Any]:
@@ -3486,6 +3594,15 @@ def channels_enable(args: dict[str, Any]) -> dict[str, Any]:
     enabled = _arg_bool(args, "enabled", True)
     service = _channels_ensure_service()
     if service is None:
+        http_res = _gateway_channels_http("POST", f"/{name}/enable", json_body={"enabled": enabled})
+        if http_res is not None:
+            return {
+                "ok": bool(http_res.get("success")),
+                "name": name,
+                "enabled": enabled,
+                "success": bool(http_res.get("success")),
+                "message": http_res.get("message"),
+            }
         # Persist enabled flag even if runtime is down.
         from evoflow.persistence import config_repositories as cfg_repo
 
@@ -3509,6 +3626,15 @@ def channels_restart(args: dict[str, Any]) -> dict[str, Any]:
         raise ValidationError("name is required")
     service = _channels_ensure_service()
     if service is None:
+        http_res = _gateway_channels_http("POST", f"/{name}/restart")
+        if http_res is not None:
+            return {
+                "ok": bool(http_res.get("success")),
+                "name": name,
+                "success": bool(http_res.get("success")),
+                "restarted": bool(http_res.get("success")),
+                "message": http_res.get("message"),
+            }
         raise ValidationError("Channel service is not running（请先启动 Gateway）")
     ok = bool(_run_coro_sync(service.restart_channel(name)))
     return {"ok": ok, "name": name, "success": ok, "restarted": ok}
@@ -3521,6 +3647,10 @@ def channels_push_targets(args: dict[str, Any]) -> dict[str, Any]:
         targets = list_push_targets(limit=int(args.get("limit") or 200))
     except Exception as exc:
         raise ValidationError(f"push targets unavailable: {exc}") from exc
+    if targets is None:
+        http_res = _gateway_channels_http("GET", "/push-targets")
+        if http_res is not None:
+            targets = http_res.get("targets") or []
     if targets is None:
         raise ValidationError("push targets unavailable: channel push adapter not registered")
     return {"ok": True, "targets": targets}

@@ -90,3 +90,62 @@ def test_enrich_stamps_fields(monkeypatch) -> None:
     assert rows[0]["runtime_health"] == "live" and rows[0]["run_alive"] is True
     assert rows[1]["runtime_health"] == "interrupted" and rows[1]["run_alive"] is False
     assert rows[2]["runtime_health"] == "idle"
+
+
+def test_resolve_live_by_subtask_lease_between_waves() -> None:
+    """A worker inside a slow tool holds a lease but the session row may still read done.
+
+    Regression: the first workflow smoke run showed ``interrupted`` ~25s in while
+    Step 1 was still executing (it finished at 63s); the operator then stopped a
+    perfectly healthy run.
+    """
+    from evoflow.collab.task_runtime_health import resolve_task_runtime_health
+
+    idx = {"by_task_id": set(), "by_thread_id": set()}
+    now = 1_000.0
+    task = {
+        "id": "t-live",
+        "status": "executing",
+        "subtasks": [
+            {
+                "id": "s1",
+                "status": "executing",
+                "lease_until_ts": now + 240.0,
+            }
+        ],
+    }
+    assert resolve_task_runtime_health(task, active_index=idx, now_ts=now) == "live"
+
+
+def test_resolve_interrupted_when_lease_expired() -> None:
+    from evoflow.collab.task_runtime_health import resolve_task_runtime_health
+
+    idx = {"by_task_id": set(), "by_thread_id": set()}
+    now = 1_000.0
+    task = {
+        "id": "t-dead",
+        "status": "executing",
+        "subtasks": [{"id": "s1", "status": "executing", "lease_until_ts": now - 60.0}],
+    }
+    assert resolve_task_runtime_health(task, active_index=idx, now_ts=now) == "interrupted"
+
+
+def test_resolve_ignores_lease_on_terminal_subtask() -> None:
+    from evoflow.collab.task_runtime_health import subtask_has_live_lease
+
+    now = 1_000.0
+    assert subtask_has_live_lease({"status": "completed", "lease_until_ts": now + 999}, now_ts=now) is False
+    assert subtask_has_live_lease({"status": "executing"}, now_ts=now) is False
+
+
+def test_resolve_live_by_active_background_executor(monkeypatch) -> None:
+    from evoflow.collab import task_runtime_health as trh
+
+    monkeypatch.setattr(trh, "has_active_background_executor", lambda row: bool(row.get("background_task_id")))
+    idx = {"by_task_id": set(), "by_thread_id": set()}
+    task = {
+        "id": "t-bg",
+        "status": "executing",
+        "subtasks": [{"id": "s1", "status": "executing", "background_task_id": "SupervisorExec_x"}],
+    }
+    assert trh.resolve_task_runtime_health(task, active_index=idx, now_ts=1_000.0) == "live"
