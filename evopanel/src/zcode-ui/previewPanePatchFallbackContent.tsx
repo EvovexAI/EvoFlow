@@ -11,6 +11,8 @@ interface PatchFallbackContentProps {
   resolvedTheme: "light" | "dark";
   sourcePath?: string;
   sourceTitle?: string;
+  /** 右侧窄面板默认应软换行；由 PreviewPane 传入。 */
+  wrapLongLines?: boolean;
 }
 
 export function PatchFallbackContent({
@@ -19,6 +21,7 @@ export function PatchFallbackContent({
   resolvedTheme,
   sourcePath,
   sourceTitle,
+  wrapLongLines = true,
 }: PatchFallbackContentProps) {
   const plainTextFallbackLines = useMemo(() => getPlainTextPatchFallbackLines(patch), [patch]);
   const highlightPath = sourcePath ?? sourceTitle;
@@ -28,6 +31,10 @@ export function PatchFallbackContent({
   );
   const highlightTheme =
     resolvedTheme === "dark" ? codePreviewSettings.darkTheme : codePreviewSettings.lightTheme;
+  const previewSettings = useMemo(
+    () => ({ ...codePreviewSettings, wrapLongLines }),
+    [codePreviewSettings, wrapLongLines],
+  );
 
   if (plainTextFallbackLines) {
     // @pierre/diffs 的 PatchDiff 只支持单文件 patch。日志里出现过多文件
@@ -37,7 +44,7 @@ export function PatchFallbackContent({
     return (
       <HighlightedLightweightDiffPreview
         className="h-full"
-        codePreviewSettings={codePreviewSettings}
+        codePreviewSettings={previewSettings}
         data-patch-plain-text-preview
         language={highlightLanguage}
         lines={plainTextFallbackLines}
@@ -55,6 +62,7 @@ export function PatchFallbackContent({
       lightTheme={codePreviewSettings.lightTheme}
       darkTheme={codePreviewSettings.darkTheme}
       themeType={resolvedTheme}
+      wrapLongLines={wrapLongLines}
     />
   );
 }

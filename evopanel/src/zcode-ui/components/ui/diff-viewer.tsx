@@ -17,7 +17,12 @@ type DiffViewerStyle = CSSProperties & {
   "--diffs-font-size"?: string;
 };
 
-const DIFF_VIEWER_UNSAFE_CSS = ``;
+const DIFF_VIEWER_UNSAFE_CSS = [
+  // wrap：代码列用 minmax(0,1fr)，关掉横向滚动；否则长行 min-content 会撑破窄侧栏。
+  "[data-overflow=wrap][data-diff],[data-overflow=wrap] [data-diff]{--diffs-code-grid:var(--diffs-grid-number-column-width) minmax(0,1fr);}",
+  "[data-overflow=wrap] [data-code]{overflow-x:hidden;}",
+  "[data-overflow=wrap] [data-line],[data-overflow=wrap] [data-annotation-content]{overflow-wrap:anywhere;word-break:break-word;}",
+].join("");
 
 type DiffViewerPatchInput = {
   patch: string;
@@ -40,6 +45,8 @@ export type DiffViewerProps = Omit<HTMLAttributes<HTMLDivElement>, "children"> &
     lightTheme?: BundledTheme;
     darkTheme?: BundledTheme;
     themeType?: "light" | "dark";
+    /** 长行软换行（右侧窄面板默认应开，避免只能横拖）。 */
+    wrapLongLines?: boolean;
     selectedLines?: DiffViewerSelectedLineRange | null;
   };
 
@@ -59,6 +66,7 @@ function DiffViewerComponent(props: DiffViewerProps) {
     themeType,
     diffClassName,
     fontSizePx = 12,
+    wrapLongLines = false,
     selectedLines,
     className,
     style,
@@ -84,7 +92,7 @@ function DiffViewerComponent(props: DiffViewerProps) {
       // 使用 simple 避免展示无法点击展开的 “unmodified lines”；MultiFileDiff 保留可展开提示。
       hunkSeparators: rendersPatch ? "simple" : "line-info",
       lineDiffType: "word-alt",
-      overflow: "scroll",
+      overflow: wrapLongLines ? "wrap" : "scroll",
       unsafeCSS: DIFF_VIEWER_UNSAFE_CSS,
       // @pierre/diffs 的 code 节点在 Shadow DOM 内，外层 Tailwind class 无法命中；
       // 需要覆盖其内部样式时走 unsafeCSS 注入，且只做最小覆盖，不做大范围样式重写。
@@ -99,7 +107,7 @@ function DiffViewerComponent(props: DiffViewerProps) {
       preferredHighlighter: DIFFS_PREFERRED_HIGHLIGHTER,
       ...optionsOverride,
     }),
-    [darkTheme, lightTheme, optionsOverride, rendersPatch, themeType],
+    [darkTheme, lightTheme, optionsOverride, rendersPatch, themeType, wrapLongLines],
   );
 
   const diffNode = rendersPatch ? (
@@ -127,7 +135,11 @@ function DiffViewerComponent(props: DiffViewerProps) {
 
   return (
     <div
-      className={cn("h-full w-full overflow-auto", className)}
+      className={cn(
+        "h-full w-full min-w-0",
+        wrapLongLines ? "overflow-x-hidden overflow-y-auto" : "overflow-auto",
+        className,
+      )}
       data-diff-viewer=""
       style={viewerStyle}
       {...divProps}
@@ -155,6 +167,7 @@ function omitPatchDiffProps({
   lightTheme: _lightTheme,
   darkTheme: _darkTheme,
   themeType: _themeType,
+  wrapLongLines: _wrapLongLines,
   selectedLines: _selectedLines,
   className: _className,
   style: _style,
@@ -173,6 +186,7 @@ function omitMultiFileDiffProps({
   lightTheme: _lightTheme,
   darkTheme: _darkTheme,
   themeType: _themeType,
+  wrapLongLines: _wrapLongLines,
   selectedLines: _selectedLines,
   className: _className,
   style: _style,

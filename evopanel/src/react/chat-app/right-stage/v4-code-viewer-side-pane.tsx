@@ -181,7 +181,11 @@ export function V4CodeViewerSidePane(props: {
             ) : (
               <HighlightedLightweightDiffPreview
                 className="h-full bg-card"
-                codePreviewSettings={DEFAULT_CODE_PREVIEW_SETTINGS}
+                codePreviewSettings={{
+                  ...DEFAULT_CODE_PREVIEW_SETTINGS,
+                  // 右侧窄面板：长行折行竖滚，避免 diff 只能横拖。
+                  wrapLongLines: true,
+                }}
                 language={inferCodeLanguage(source.path ?? source.title, patchForPreview)}
                 lines={patchLines}
                 path={source.path ?? source.title}

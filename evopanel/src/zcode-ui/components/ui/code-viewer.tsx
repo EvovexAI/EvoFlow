@@ -134,6 +134,11 @@ const DEFAULT_CODE_COMMENT_LABELS: CodeCommentLabels = {
 const CODE_VIEWER_UNSAFE_CSS = [
   "[data-gutter-utility-slot]{left:auto;right:4px;justify-content:flex-end;align-items:center;}",
   "[data-utility-button]{margin-left:0;margin-right:0;}",
+  // wrap：把代码列收成 minmax(0,1fr)，关掉横向滚动；否则 1fr=minmax(auto,1fr)
+  // 会被超长「整行」的 min-content 撑破，右侧面板看起来宽很长、只能横拖。
+  "[data-overflow=wrap][data-file],[data-overflow=wrap] [data-file]{--diffs-code-grid:var(--diffs-grid-number-column-width) minmax(0,1fr);}",
+  "[data-overflow=wrap] [data-code]{overflow-x:hidden;}",
+  "[data-overflow=wrap] [data-line],[data-overflow=wrap] [data-annotation-content]{overflow-wrap:anywhere;word-break:break-word;}",
   "@media (hover:hover) and (pointer:fine){",
   "[data-utility-button]::after{content:var(--code-comment-add-tooltip);position:absolute;left:calc(100% + 6px);top:50%;transform:translateY(-50%);max-width:16rem;white-space:nowrap;pointer-events:none;opacity:0;z-index:5;border:1px solid var(--color-border);border-radius:8px;background:var(--color-tooltip);color:var(--color-tooltip-foreground);padding:4px 8px;font-family:var(--diffs-header-font-family,var(--diffs-header-font-fallback));font-size:12px;line-height:16px;box-shadow:0 4px 12px rgb(0 0 0 / 0.14);}",
   "[data-utility-button]:hover::after,[data-utility-button]:focus-visible::after{opacity:1;}",
@@ -784,7 +789,12 @@ export function CodeViewer({
   return (
     <div
       ref={assignCodeViewerScrollContainerRef}
-      className={cn("h-full w-full overflow-auto", className)}
+      className={cn(
+        "h-full w-full min-w-0",
+        // 软换行：只允许竖向滚，避免长行把面板撑出横向条。
+        wrapLongLines ? "overflow-x-hidden overflow-y-auto" : "overflow-auto",
+        className,
+      )}
       data-language={language}
       style={viewerStyle}
       {...props}

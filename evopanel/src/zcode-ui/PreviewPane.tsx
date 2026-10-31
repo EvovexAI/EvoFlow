@@ -399,7 +399,7 @@ function isPlainCodeSource(source: CodeViewerSource | null): boolean {
 
   if (source.type === "media") return false;
 
-  if (source.type === "code-review") {
+  if (source.type === "code-review" || source.type === "patch" || source.type === "multi-file-diff") {
     return true;
   }
 
@@ -683,10 +683,14 @@ export function PreviewPane({
   const selectedEditor = editorSelection.selectedEditor;
   const canOpenInEditor = Boolean(source?.path && selectedEditor);
   const canOpenDiffFilePreview = Boolean(diffFilePreviewSource && onOpenCodeViewer);
-  // 纯文本类（.txt / 无语法日志 / text 源）默认软换行：右侧面板窄，长行横向滚动读不到内容。
-  // 代码类保持默认不换行（缩进对齐更重要），仍可在菜单里手动开。
+  // 纯文本 / patch·diff：右侧窄面板默认软换行（只竖滚）；普通代码文件默认不换行。
+  // 菜单「自动换行」仍可手动覆盖。
   const wrapLongLines =
-    wrapLongLinesOverride ?? (isPlainTextLikeSource(source) || codePreviewSettings.wrapLongLines);
+    wrapLongLinesOverride ??
+    (isPlainTextLikeSource(source) ||
+      source?.type === "patch" ||
+      source?.type === "multi-file-diff" ||
+      codePreviewSettings.wrapLongLines);
   const canCreateCodeComment = Boolean(
     source?.type !== "code-review" && source?.path && sourceWorkspacePath,
   );
@@ -1623,7 +1627,7 @@ export function PreviewPane({
   return (
     <aside
       data-testid={TID_PREVIEW_PANE}
-      className="flex h-full flex-col overflow-hidden bg-background"
+      className="flex h-full min-w-0 flex-col overflow-hidden bg-background"
     >
       <div
         className={cn(
@@ -1886,7 +1890,7 @@ export function PreviewPane({
           </Button>
         </div>
       </div>
-      <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
+      <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         {renderHeavyContent ? (
           <PreviewPaneContent
             source={pptxSource ?? imageSource ?? pdfSource ?? mediaSource ?? source}

@@ -58,11 +58,16 @@ export const EditInlineDiffContent = memo(function EditInlineDiffContent({
     () => resolveInlineDiffHighlightTheme(theme, codePreviewSettings),
     [codePreviewSettings, theme],
   );
+  // 对话内联 diff 卡很窄：强制软换行，避免长行只能横拖。
+  const previewSettings = useMemo(
+    () => ({ ...codePreviewSettings, wrapLongLines: true }),
+    [codePreviewSettings],
+  );
 
   return (
     <div className="space-y-3">
       <div
-        className="mb-2 max-h-60 overflow-auto rounded-xl border border-border bg-card"
+        className="mb-2 max-h-60 overflow-x-hidden overflow-y-auto rounded-xl border border-border bg-card"
         data-inline-diff-preview
       >
         {/* 聊天内联 diff 展开时直接挂载 @pierre/diffs 会把高亮和 Shadow DOM 汇总渲染压到主线程，
@@ -70,7 +75,7 @@ export const EditInlineDiffContent = memo(function EditInlineDiffContent({
         之前只保留纯文本会让 session 里的 diff 永久失去语法高亮。 */}
         <HighlightedLightweightDiffPreview
           className="h-full bg-card"
-          codePreviewSettings={codePreviewSettings}
+          codePreviewSettings={previewSettings}
           data-inline-diff-highlight-language={highlightLanguage}
           data-inline-diff-highlight-theme={highlightTheme}
           language={highlightLanguage}
