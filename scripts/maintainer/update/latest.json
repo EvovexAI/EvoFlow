@@ -1,10 +1,10 @@
 {
-  "version": "1.2.2",
-  "minAppVersion": "1.2.2",
+  "version": "1.2.3",
+  "minAppVersion": "1.2.3",
   "updateKind": "full",
   "assetKind": "installer",
   "hash": "",
-  "url": "https://github.com/EvovexAI/EvoFlow/releases/download/v1.2.2/EvoFlow_1.2.2_x64-setup.exe",
+  "url": "https://github.com/EvovexAI/EvoFlow/releases/download/v1.2.3/EvoFlow_1.2.3_x64-setup.exe",
   "size": 0,
-  "changelog": "EvoFlow 1.2.2（相对 1.2.1）：缓解侧栏会话列表拖慢整机；任务列表默认分页；新增慢请求日志便于排查。另含小游戏预览、会话恢复与渠道交付改进。覆盖安装即可。"
+  "changelog": "EvoFlow 1.2.3（相对 1.2.2）：任务中心打开不再做逐行磁盘探测；会话/任务列表与子代理 transcript 分槽限流，避免互相拖死；子代理侧栏走独立线程与 V4 转录。覆盖安装即可。"
 }

@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.2.3] - 2026-10-31
+
+相对 **1.2.2**：修任务中心打开慢、聊天与任务列表互相拖死，并加固子代理侧栏与会话列表隔离。
+GitHub Release 正文见 `scripts/maintainer/windows/release-notes/PRODUCT-NOTES-1.2.3.md`；升级横幅见 `scripts/maintainer/update/latest.json`。
+
+### Fixed
+
+- **任务中心打开慢**：任务列表不再对每行做交付物路径磁盘探测；打开列表从数秒降到毫秒级
+- **聊天与任务中心互相卡**：会话列表、任务目录、子代理 transcript 分槽限流并加超时，避免一边卡住拖死另一边
+- **子代理侧栏**：聊天子代理落到独立线程，侧栏走 V4 转录面板；未知子代理类型默认按 agent 处理
+
 ## [1.2.2] - 2026-10-30
 
 相对 **1.2.1**：缓解侧栏会话列表拖慢整机，并带上会话/渠道交付与小游戏预览等增量。
