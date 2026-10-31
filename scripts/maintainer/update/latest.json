@@ -6,5 +6,5 @@
   "hash": "",
   "url": "https://github.com/EvovexAI/EvoFlow/releases/download/v1.2.3/EvoFlow_1.2.3_x64-setup.exe",
   "size": 0,
-  "changelog": "EvoFlow 1.2.3（相对 1.2.2）：任务中心打开不再做逐行磁盘探测；会话/任务列表与子代理 transcript 分槽限流，避免互相拖死；子代理侧栏走独立线程与 V4 转录。覆盖安装即可。"
+  "changelog": "EvoFlow 1.2.3（相对 1.2.2）：飞书/渠道图片可收可发并减少自介刷屏；聊天发送更跟手；任务中心与侧栏不再拖死对话；子代理侧栏与停止行为修好；工作流改为稳定 SVG 图标。覆盖安装即可。"
 }
