@@ -128,8 +128,9 @@ async function warmAppsData() {
   warmKey('apps:list', () => api.listApps())
 }
 
-/** Cap hover-warm + first paint; full dump (~700 roots / 1MB+) freezes Task Center. */
-export const TASKS_CATALOG_FETCH_CAP = 200
+/** Cap hover-warm + first paint. 200 still took ~2.5s under a live run (slow log
+ * 2026-10-31 10:03) and competed with sessions; keep aligned with listAllTasks default. */
+export const TASKS_CATALOG_FETCH_CAP = 40
 
 async function warmTasksData() {
   const { api } = await import('./tauri-api.js')

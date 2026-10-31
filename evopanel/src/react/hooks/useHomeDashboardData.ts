@@ -455,7 +455,7 @@ export function useHomeDashboardData(opts?: { rangeDays?: number }): HomeDashboa
         // Cap task payload — unbounded /api/tasks can be >1MB and freeze the
         // home surface while JSON.parse runs.
         const settled = await Promise.allSettled([
-          api.listAllTasks({ page_size: 200 }),
+          api.listAllTasks({ page: 1, page_size: 40, hide_noise: true }),
           api.listUserItems({ include_done: false }),
           api.automationList(),
           api.listApps(),

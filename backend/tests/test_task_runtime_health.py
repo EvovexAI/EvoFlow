@@ -37,6 +37,42 @@ def test_resolve_interrupted_when_no_session() -> None:
     assert resolve_task_runtime_health({"id": "orphan", "status": "executing"}, active_index=idx) == "interrupted"
 
 
+def test_task_id_from_proactive_session_key() -> None:
+    from evoflow.collab.task_runtime_health import _task_id_from_proactive_session_key
+
+    assert (
+        _task_id_from_proactive_session_key("proactive:evoflow-fa29011c:task:2610310957_f0dc")
+        == "2610310957_f0dc"
+    )
+    assert _task_id_from_proactive_session_key("proactive:code:duty:round-1") is None
+    assert _task_id_from_proactive_session_key("agent:main:foo") is None
+
+
+def test_load_active_run_index_heals_proactive_task_session_key(monkeypatch) -> None:
+    from evoflow.collab import task_runtime_health as trh
+
+    monkeypatch.setattr(
+        "evoflow.persistence.session_run_state.list_all_active_sessions",
+        lambda limit=2000: [
+            {
+                "session_key": "proactive:evoflow-fa29011c:task:2610310957_f0dc",
+                "thread_id": "bdcaa13f-2eac-44c9-b1c6-50da36984f54",
+                "collab_task_id": None,
+            }
+        ],
+    )
+    idx = trh.load_active_run_index()
+    assert "2610310957_f0dc" in idx["by_task_id"]
+    assert "bdcaa13f-2eac-44c9-b1c6-50da36984f54" in idx["by_thread_id"]
+    assert (
+        trh.resolve_task_runtime_health(
+            {"id": "2610310957_f0dc", "status": "executing"},
+            active_index=idx,
+        )
+        == "live"
+    )
+
+
 def test_enrich_stamps_fields(monkeypatch) -> None:
     from evoflow.collab import task_runtime_health as trh
 

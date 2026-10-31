@@ -322,13 +322,22 @@ def _row_dict(row: Any) -> dict[str, Any]:
     return {k: row[k] for k in row.keys()}
 
 
-def _session_row_to_api(d: dict[str, Any], *, for_list: bool = False) -> dict[str, Any]:
+def _session_row_to_api(
+    d: dict[str, Any],
+    *,
+    for_list: bool = False,
+    list_default_tool_policy: str | None = None,
+) -> dict[str, Any]:
     """Sidebar / API row with flat workspace + model fields for display.
 
     ``for_list=True`` (``GET /api/chat/sessions``): skip per-row tool derivation and
     heavy effective-policy walks. Cold list used to cost multi-seconds (MCP/tool
     bind per row × page size) and wedge Gateway under concurrent workspace polls.
     Detail views still use ``for_list=False`` for live tool/policy accuracy.
+
+    ``list_default_tool_policy``: when set (list path), reuse one global default
+    instead of ``get_global_default_policy()`` per row. Preset comes from the
+    already-selected ``permission_preset`` column — no N+1 ``get_session_preset_raw``.
     """
     from evoflow.persistence.permission_preset_store import (
         effective_preset,
@@ -345,10 +354,21 @@ def _session_row_to_api(d: dict[str, Any], *, for_list: bool = False) -> dict[st
     raw_policy = d.get("tool_approval_policy")
     session_policy = normalize_policy(str(raw_policy)) if raw_policy is not None and str(raw_policy).strip() else None
     if for_list:
-        effective_tool_policy = session_policy or get_global_default_policy()
-        try:
-            session_permission_preset = get_session_preset_raw(sk) if sk else None
-        except Exception:
+        effective_tool_policy = session_policy or (
+            list_default_tool_policy
+            if list_default_tool_policy is not None
+            else get_global_default_policy()
+        )
+        # Row already selected ``permission_preset`` — avoid per-row SQLite round-trip.
+        raw_pp = d.get("permission_preset")
+        if raw_pp is not None and str(raw_pp).strip():
+            try:
+                from evoflow.execution_security.permission_preset import normalize_preset_id
+
+                session_permission_preset = normalize_preset_id(str(raw_pp))
+            except Exception:
+                session_permission_preset = str(raw_pp).strip() or None
+        else:
             session_permission_preset = None
         effective_permission_preset = session_permission_preset
     else:
@@ -1522,6 +1542,8 @@ def list_sessions_for_ui(
     acl_params: tuple[Any, ...] = (),
 ) -> list[dict[str, Any]]:
     """Rows for ``GET /api/chat/sessions`` (sole session-list source)."""
+    from evoflow.persistence.tool_approval_policy import get_global_default_policy
+
     lim = max(1, int(limit))
     off = max(0, int(offset))
     extra_sql, extra_params = _workspace_filter_sql(workspace_key)
@@ -1541,12 +1563,15 @@ def list_sessions_for_ui(
     )
     out: list[dict[str, Any]] = []
     primary = resolve_primary_model_name()
+    default_policy = get_global_default_policy()
     for row in rows:
         d = _row_dict(row)
         if not d.get("primary_model_name") and primary:
             d = dict(d)
             d["primary_model_name"] = primary
-        out.append(_session_row_to_api(d, for_list=True))
+        out.append(
+            _session_row_to_api(d, for_list=True, list_default_tool_policy=default_policy)
+        )
     if primary:
         for row in out:
             if not row.get("primaryModelName"):
@@ -1567,6 +1592,8 @@ def search_sessions_for_ui(
     sessions matching ``evoflow_chat_sessions.title``, so the sidebar search
     box can find sessions that haven't been paged into the client yet.
     """
+    from evoflow.persistence.tool_approval_policy import get_global_default_policy
+
     q = str(query or "").strip()
     if not q:
         return []
@@ -1594,12 +1621,15 @@ def search_sessions_for_ui(
 
     out: list[dict[str, Any]] = []
     primary = resolve_primary_model_name()
+    default_policy = get_global_default_policy()
     for row in rows:
         d = _row_dict(row)
         if not d.get("primary_model_name") and primary:
             d = dict(d)
             d["primary_model_name"] = primary
-        out.append(_session_row_to_api(d, for_list=True))
+        out.append(
+            _session_row_to_api(d, for_list=True, list_default_tool_policy=default_policy)
+        )
     if primary:
         for row in out:
             if not row.get("primaryModelName"):

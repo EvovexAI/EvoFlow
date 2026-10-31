@@ -89,6 +89,8 @@ _BEST_EFFORT_CONTAINS = (
     "/browser-log",
     "/plugins/overview",
     "/skills",  # catalog list used by idle panels
+    "/subagent/",  # transcript polls every few seconds while a run is open
+    "/transcript",
 )
 
 _BEST_EFFORT_EXACT = frozenset(
@@ -187,6 +189,9 @@ def refine_tasks_list_lane(*, path: str, query: str | None) -> LaneDecision | No
 
 _data_slot: asyncio.Semaphore | None = None
 _best_slot: asyncio.Semaphore | None = None
+_sessions_list_slot: asyncio.Semaphore | None = None
+_transcript_slot: asyncio.Semaphore | None = None
+_tasks_catalog_slot: asyncio.Semaphore | None = None
 
 
 def data_lane_slot() -> asyncio.Semaphore:
@@ -201,6 +206,40 @@ def best_effort_lane_slot() -> asyncio.Semaphore:
     if _best_slot is None:
         _best_slot = asyncio.Semaphore(_env_int("EVOFLOW_LANE_BEST_CONCURRENCY", 2))
     return _best_slot
+
+
+def sessions_list_slot() -> asyncio.Semaphore:
+    """Cap concurrent ``GET /api/chat/sessions`` (workspace fan-out) so SQLite + DB
+    thread pool stay responsive for control-plane chat/stream work.
+    """
+    global _sessions_list_slot
+    if _sessions_list_slot is None:
+        _sessions_list_slot = asyncio.Semaphore(
+            _env_int("EVOFLOW_SESSIONS_LIST_CONCURRENCY", 2, maximum=8)
+        )
+    return _sessions_list_slot
+
+
+def tasks_catalog_slot() -> asyncio.Semaphore:
+    """Cap concurrent Task Center ``GET /api/tasks`` catalogs (not point lookups)."""
+    global _tasks_catalog_slot
+    if _tasks_catalog_slot is None:
+        _tasks_catalog_slot = asyncio.Semaphore(
+            _env_int("EVOFLOW_TASKS_CATALOG_CONCURRENCY", 2, maximum=6)
+        )
+    return _tasks_catalog_slot
+
+
+def transcript_slot() -> asyncio.Semaphore:
+    """Cap subagent transcript polls — must NOT share the catalog slot or Task
+    Center open waits behind 2–5s transcript polls (and vice versa).
+    """
+    global _transcript_slot
+    if _transcript_slot is None:
+        _transcript_slot = asyncio.Semaphore(
+            _env_int("EVOFLOW_TRANSCRIPT_CONCURRENCY", 2, maximum=6)
+        )
+    return _transcript_slot
 
 
 def overload_action(lane: Lane) -> str:
@@ -240,5 +279,8 @@ __all__ = [
     "data_lane_slot",
     "overload_action",
     "refine_tasks_list_lane",
+    "sessions_list_slot",
     "shed_response_body",
+    "tasks_catalog_slot",
+    "transcript_slot",
 ]

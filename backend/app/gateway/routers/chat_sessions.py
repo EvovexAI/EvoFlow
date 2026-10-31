@@ -444,21 +444,87 @@ async def list_chat_sessions(
         description="Filter by workspace folder: __unbound__, __virtual__, or bound local path",
     ),
 ) -> SessionListResponse:
+    """Sidebar / workspace session list.
+
+    Hard-isolated from the Gateway event loop: dedicated concurrency slot +
+    ``run_db`` thread pool + wall-clock timeout. Concurrent workspace_key polls
+    must not starve chat stream / control endpoints when SQLite is busy.
+    """
+    import asyncio
+    import os
+
+    from app.gateway.traffic_lanes import sessions_list_slot
+
     acl_kw = _session_acl_kwargs(request)
     q = str(search or "").strip()
-    if q:
-        rows = await run_db(sess_repo.search_sessions_for_ui, q, limit=max(limit, 50), **acl_kw)
-        return SessionListResponse(
-            source="evoflow_chat_sessions",
-            sessions=[SessionRowResponse(**r) for r in rows],
+    effective_limit = int(limit)
+
+    # Under overload (lane clamp or hang gate), shrink page so list finishes fast.
+    try:
+        from app.gateway.hang_diagnostics import should_shed_best_effort
+
+        clamp_hint = bool(getattr(request.state, "traffic_lane_clamp", False))
+        if clamp_hint or should_shed_best_effort(min_slow=2, min_wait_s=4.0):
+            shed_cap = int(os.environ.get("EVOFLOW_SESSIONS_LIST_SHED_LIMIT", "20") or 20)
+            shed_cap = max(5, min(shed_cap, 40))
+            if effective_limit > shed_cap:
+                logger.warning(
+                    "list_chat_sessions shed: clamping limit %s → %s (clamp=%s)",
+                    effective_limit,
+                    shed_cap,
+                    clamp_hint,
+                )
+                effective_limit = shed_cap
+    except Exception:
+        logger.debug("list_chat_sessions shed check failed", exc_info=True)
+
+    timeout_s = float(os.environ.get("EVOFLOW_SESSIONS_LIST_TIMEOUT_S", "8") or 8)
+    timeout_s = max(2.0, min(timeout_s, 30.0))
+    acquire_s = min(3.0, timeout_s)
+
+    slot = sessions_list_slot()
+    try:
+        await asyncio.wait_for(slot.acquire(), timeout=acquire_s)
+    except TimeoutError:
+        logger.warning(
+            "list_chat_sessions slot busy (acquire>%.1fs) workspace_key=%s",
+            acquire_s,
+            workspace_key,
         )
-    rows = await run_db(
-        sess_repo.list_sessions_for_ui,
-        limit=limit,
-        offset=offset,
-        workspace_key=workspace_key,
-        **acl_kw,
-    )
+        raise HTTPException(status_code=503, detail="sessions list busy, retry shortly") from None
+
+    try:
+        async def _fetch() -> list[dict[str, Any]]:
+            if q:
+                return await run_db(
+                    sess_repo.search_sessions_for_ui,
+                    q,
+                    limit=max(effective_limit, 50),
+                    **acl_kw,
+                )
+            return await run_db(
+                sess_repo.list_sessions_for_ui,
+                limit=effective_limit,
+                offset=offset,
+                workspace_key=workspace_key,
+                **acl_kw,
+            )
+
+        try:
+            rows = await asyncio.wait_for(_fetch(), timeout=timeout_s)
+        except TimeoutError:
+            logger.warning(
+                "list_chat_sessions timed out after %.1fs workspace_key=%s limit=%s",
+                timeout_s,
+                workspace_key,
+                effective_limit,
+            )
+            raise HTTPException(
+                status_code=503, detail="sessions list timed out, retry shortly"
+            ) from None
+    finally:
+        slot.release()
+
     # run_status reconcile moved off list hot path — use GET .../execution/state or startup sweep
     return SessionListResponse(
         source="evoflow_chat_sessions",

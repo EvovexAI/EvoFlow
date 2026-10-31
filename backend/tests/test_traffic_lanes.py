@@ -43,3 +43,24 @@ def test_chat_mutation_is_control() -> None:
 
 def test_browser_log_is_best_effort() -> None:
     assert classify_path("/api/browser/log", method="POST").lane == Lane.BEST_EFFORT
+
+
+def test_subagent_transcript_is_best_effort() -> None:
+    assert (
+        classify_path("/api/tasks/subagent/call_abc/transcript", method="GET").lane
+        == Lane.BEST_EFFORT
+    )
+
+
+def test_sessions_list_slot_reusable() -> None:
+    from app.gateway.traffic_lanes import sessions_list_slot
+
+    a = sessions_list_slot()
+    b = sessions_list_slot()
+    assert a is b
+
+
+def test_catalog_and_transcript_slots_are_independent() -> None:
+    from app.gateway.traffic_lanes import tasks_catalog_slot, transcript_slot
+
+    assert tasks_catalog_slot() is not transcript_slot()

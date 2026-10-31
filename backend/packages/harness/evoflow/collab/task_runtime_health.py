@@ -59,6 +59,19 @@ def _lifecycle_in_flight(status: Any) -> bool:
     return st in _IN_FLIGHT
 
 
+def _task_id_from_proactive_session_key(session_key: str) -> str | None:
+    """Parse ``proactive:{code}:task:{task_id}`` — heals rows that never stamped collab_task_id."""
+    sk = str(session_key or "").strip()
+    if not sk.startswith("proactive:"):
+        return None
+    parts = sk.split(":")
+    # proactive / code / task / task_id
+    if len(parts) < 4 or parts[2] != "task":
+        return None
+    tid = str(parts[3] or "").strip()
+    return tid or None
+
+
 def load_active_run_index() -> dict[str, set[str]]:
     """Maps for join: ``by_task_id`` / ``by_thread_id`` of sessions with run_status running|pending."""
     by_task: set[str] = set()
@@ -69,6 +82,9 @@ def load_active_run_index() -> dict[str, set[str]]:
         for row in list_all_active_sessions(limit=2000):
             cid = str(row.get("collab_task_id") or "").strip()
             tid = str(row.get("thread_id") or "").strip()
+            if not cid:
+                # Legacy proactive task sessions only had related_task_id in context_json.
+                cid = _task_id_from_proactive_session_key(str(row.get("session_key") or "")) or ""
             if cid:
                 by_task.add(cid)
             if tid:

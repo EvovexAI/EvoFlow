@@ -437,6 +437,9 @@ def prepare_proactive_chat_session(
             ctx["proactive_initiative_id"] = str(initiative_id)
         if related_task:
             ctx["related_task_id"] = related_task
+            # Flat column used by Task Center runtime_health join (live / 已中断).
+            # related_task_id alone lives only in context_json extras and never joins.
+            ctx["collab_task_id"] = related_task
 
         # 员工绑定工作空间优先：会话 context 写入 role.config.workspace_path，
         # 前端会话显示层即可优先取员工绑定的 workspace（而非默认/上次选择）。
@@ -462,6 +465,32 @@ def prepare_proactive_chat_session(
             context=ctx,
             session_status=sess_repo.SESSION_STATUS_ACTIVE,
         )
+        # Second join key for runtime_health: fill empty task.thread_id once.
+        if related_task and tid:
+            try:
+                from evoflow.persistence.db import get_db, run_db_with_retry
+
+                def _bind_task_thread() -> None:
+                    conn = get_db()
+                    conn.execute(
+                        """
+                        UPDATE evoflow_collab_tasks
+                        SET thread_id = ?
+                        WHERE task_id = ?
+                          AND (thread_id IS NULL OR TRIM(thread_id) = '')
+                        """,
+                        (tid, related_task),
+                    )
+                    conn.commit()
+
+                run_db_with_retry(_bind_task_thread)
+            except Exception:
+                logger.debug(
+                    "proactive_chat_session: bind task.thread_id failed task=%s thread=%s",
+                    related_task,
+                    tid,
+                    exc_info=True,
+                )
         identity: dict = {}
         try:
             from evoflow.authz.runtime_identity import (
