@@ -1704,9 +1704,9 @@ fn spawn_langgraph_runtime_child(
         .env("EVOFLOW_GATEWAY_PORT", gateway_port.to_string())
         .env("INTERNAL_EVENTS_SECRET", internal_secret)
         // Concurrent chats: langgraph_api.run_server defaults n_jobs to 1 unless
-        // kwargs/env are set. Python run_server_kwargs() also forces 10; set env
-        // here so logs/banners match even before that module loads.
-        .env("N_JOBS_PER_WORKER", std::env::var("N_JOBS_PER_WORKER").unwrap_or_else(|_| "10".into()))
+        // kwargs/env are set. Prefer process env, then Settings→通用
+        // (`evopanel.json` langgraphMaxConcurrent), else 10.
+        .env("N_JOBS_PER_WORKER", super::configured_n_jobs_per_worker())
         .env(
             "EVOFLOW_FORCE_BG_JOB_ISOLATED_LOOPS",
             std::env::var("EVOFLOW_FORCE_BG_JOB_ISOLATED_LOOPS").unwrap_or_else(|_| "1".into()),

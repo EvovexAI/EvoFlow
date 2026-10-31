@@ -164,7 +164,7 @@ const GENERAL_INNER_HTML = `
   <div class="settings-group">
     <div class="settings-group-header">
       <div class="settings-group-title">智能体行为</div>
-      <div class="settings-group-desc">记忆、思维导图与视觉模型的默认策略</div>
+      <div class="settings-group-desc">记忆、并发、思维导图与视觉模型的默认策略</div>
     </div>
     <div class="config-section">
       <div class="config-section-title">记忆与上下文</div>
@@ -174,6 +174,23 @@ const GENERAL_INNER_HTML = `
         <span class="switch-slider"></span>
       </label>
       <p class="form-hint">关闭后，新会话仍可在聊天输入栏旁单独打开记忆；已打开会话的开关存在本机会话列表中。</p>
+    </div>
+    <div class="config-section">
+      <div class="config-section-title">智能体并发数</div>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <input
+          id="general-langgraph-concurrent"
+          class="form-input"
+          type="number"
+          min="1"
+          max="64"
+          step="1"
+          style="max-width:120px"
+          aria-label="智能体并发数"
+        />
+        <button type="button" id="general-langgraph-concurrent-apply" class="btn btn-secondary">应用</button>
+      </div>
+      <p class="form-hint">同时可运行的对话/任务槽位数（默认 10）。本地小模型建议设为 2–4，避免排队挤爆。应用后会重启 Agent Runtime 生效；也可设环境变量 N_JOBS_PER_WORKER 覆盖。</p>
     </div>
     <div class="config-section">
       <div class="config-section-title">思维导图</div>
@@ -275,6 +292,7 @@ export async function mountGeneralInto(container) {
     renderPathMode(root)
     renderMemoryDefaultToggle(root)
     renderKnowledgeMapToggle(root)
+    renderLanggraphConcurrent(root)
   }
   window.addEventListener('evopanel:panel-settings-loaded', _panelSettingsListener)
   window.addEventListener('evopanel:panel-settings-changed', _panelSettingsListener)
@@ -285,6 +303,7 @@ export async function mountGeneralInto(container) {
   renderPathMode(root)
   renderMemoryDefaultToggle(root)
   renderKnowledgeMapToggle(root)
+  renderLanggraphConcurrent(root)
   renderNotificationToggles(root)
   void renderXiaomiFabToggle(root)
   void renderVisionModelSelector(root)
@@ -303,6 +322,10 @@ export async function mountGeneralInto(container) {
     if (!(target instanceof Element)) return
     if (target.closest('#general-clear-chat-cache')) {
       void handleEmergencyChatCleanup()
+      return
+    }
+    if (target.closest('#general-langgraph-concurrent-apply')) {
+      void applyLanggraphConcurrent(root)
       return
     }
     if (target.closest('#general-data-workspace-pick')) {
@@ -523,6 +546,58 @@ function renderMemoryDefaultToggle(root) {
   const el = root.querySelector('#general-memory-default-toggle')
   if (!(el instanceof HTMLInputElement)) return
   el.checked = getPanelSetting('memoryEnabledDefault', true) !== false
+}
+
+const DEFAULT_LANGGRAPH_MAX_CONCURRENT = 10
+const MIN_LANGGRAPH_MAX_CONCURRENT = 1
+const MAX_LANGGRAPH_MAX_CONCURRENT = 64
+
+function clampLanggraphConcurrent(raw) {
+  const n = Number.parseInt(String(raw ?? ''), 10)
+  if (!Number.isFinite(n)) return DEFAULT_LANGGRAPH_MAX_CONCURRENT
+  return Math.min(MAX_LANGGRAPH_MAX_CONCURRENT, Math.max(MIN_LANGGRAPH_MAX_CONCURRENT, n))
+}
+
+function renderLanggraphConcurrent(root) {
+  const el = root.querySelector('#general-langgraph-concurrent')
+  if (!(el instanceof HTMLInputElement)) return
+  const cur = clampLanggraphConcurrent(getPanelSetting('langgraphMaxConcurrent', DEFAULT_LANGGRAPH_MAX_CONCURRENT))
+  el.value = String(cur)
+}
+
+async function applyLanggraphConcurrent(root) {
+  const el = root.querySelector('#general-langgraph-concurrent')
+  if (!(el instanceof HTMLInputElement)) return
+  const n = clampLanggraphConcurrent(el.value)
+  el.value = String(n)
+  try {
+    await patchPanelSettings({ langgraphMaxConcurrent: n })
+    try {
+      const cfg = (await api.readPanelConfig()) || {}
+      const next = { ...(typeof cfg === 'object' && cfg ? cfg : {}), langgraphMaxConcurrent: n }
+      await api.writePanelConfig(next)
+    } catch {
+      /* Web / 无桌面配置文件时仅靠 panel.ui */
+    }
+    let reloaded = false
+    try {
+      if (typeof api.reloadLanggraphRuntime === 'function') {
+        await api.reloadLanggraphRuntime()
+        reloaded = true
+      }
+    } catch (err) {
+      console.warn('[general] reloadLanggraphRuntime failed', err)
+    }
+    toast(
+      reloaded
+        ? `并发数已设为 ${n}，Agent Runtime 已重启`
+        : `并发数已设为 ${n}；请重启应用或 Agent Runtime 后生效`,
+      'success',
+    )
+  } catch (err) {
+    toast(String(err?.message || err || '保存并发数失败'), 'error')
+    renderLanggraphConcurrent(root)
+  }
 }
 
 function renderKnowledgeMapToggle(root) {

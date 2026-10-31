@@ -266,6 +266,48 @@ fn read_panel_config_value() -> Option<serde_json::Value> {
     serde_json::from_str(&content).ok()
 }
 
+fn parse_positive_concurrency(raw: &serde_json::Value) -> Option<u32> {
+    let n = if let Some(u) = raw.as_u64() {
+        u
+    } else if let Some(i) = raw.as_i64() {
+        if i <= 0 {
+            return None;
+        }
+        i as u64
+    } else if let Some(s) = raw.as_str() {
+        s.trim().parse::<u64>().ok()?
+    } else {
+        return None;
+    };
+    if (1..=64).contains(&n) {
+        Some(n as u32)
+    } else {
+        None
+    }
+}
+
+/// LangGraph `N_JOBS_PER_WORKER`: process env → `evopanel.json` `langgraphMaxConcurrent` → 10.
+pub fn configured_n_jobs_per_worker() -> String {
+    if let Ok(v) = std::env::var("N_JOBS_PER_WORKER") {
+        let t = v.trim();
+        if !t.is_empty() {
+            if let Ok(n) = t.parse::<u32>() {
+                if (1..=64).contains(&n) {
+                    return n.to_string();
+                }
+            }
+        }
+    }
+    if let Some(n) = read_panel_config_value()
+        .as_ref()
+        .and_then(|v| v.get("langgraphMaxConcurrent"))
+        .and_then(parse_positive_concurrency)
+    {
+        return n.to_string();
+    }
+    "10".into()
+}
+
 /// `developer.enableDevtools` in ~/.evoflow/evopanel.json — 托盘「开发者工具」与调试构建自动开 DevTools。
 /// 未设置时：debug 构建默认开启，release 默认关闭（安装包不暴露调试入口）。
 pub fn panel_developer_enable_devtools() -> bool {
