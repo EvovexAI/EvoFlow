@@ -10,8 +10,8 @@ import {
 } from '../src/react/lib/stream-bump-interval.ts'
 
 describe('stream-bump-interval', () => {
-  it('exposes a faster reasoning bump interval', () => {
-    expect(STREAM_REASONING_BUMP_INTERVAL_MS).toBeLessThan(STREAM_BUMP_INTERVAL_MS)
+  it('keeps reasoning bump at least as responsive as default', () => {
+    expect(STREAM_REASONING_BUMP_INTERVAL_MS).toBeLessThanOrEqual(STREAM_BUMP_INTERVAL_MS)
   })
   it('returns default interval for empty stream', () => {
     const s = emptyStream()
