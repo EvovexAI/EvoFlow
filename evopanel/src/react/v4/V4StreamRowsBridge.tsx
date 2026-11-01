@@ -125,11 +125,19 @@ const CATCHUP_READY_SOFT_MS = 20_000;
 const CATCHUP_AFTER_REHYDRATE_MS = 12_000;
 const CATCHUP_STABLE_MS = 2_800;
 
-function _catchupCooldownMs(reason: string): number {
+function _catchupCooldownMs(reason: string, softIntervalMs = CATCHUP_READY_SOFT_MS): number {
   if (reason === "post-rehydrate" || reason === "rehydrated") return CATCHUP_AFTER_REHYDRATE_MS;
-  if (reason === "ready-soft") return CATCHUP_READY_SOFT_MS;
+  if (reason === "ready-soft") return softIntervalMs;
   return CATCHUP_STABLE_MS;
 }
+
+export type RefreshEvoflowV4Opts = {
+  /**
+   * 已有投影行时的 soft reconcile 最短间隔。
+   * 默认 20s（飞书旁观防与 live mirror 对打）；工作流节点右栏无本机流式时可传 ~2–3s。
+   */
+  softIntervalMs?: number;
+};
 
 /**
  * 员工执行过程等只读面板：主动拉一次最新投影（非流式）。
@@ -138,19 +146,27 @@ function _catchupCooldownMs(reason: string): number {
  * - POST /catchup 成功后禁止再 resync；rehydrate 后冷却，避免与 live recovery 对打
  * - catchup 失败才回退 recoverFromStaleAuthority
  */
-export function refreshEvoflowV4Session(sessionId: string): void {
+export function refreshEvoflowV4Session(
+  sessionId: string,
+  opts?: RefreshEvoflowV4Opts,
+): void {
   const id = String(sessionId || "").trim();
   if (!id) return;
+  const softIntervalMs = Math.max(
+    500,
+    Number(opts?.softIntervalMs) > 0 ? Number(opts?.softIntervalMs) : CATCHUP_READY_SOFT_MS,
+  );
   if (_catchupInFlight.has(id)) {
     console.info("[observer-hw] v4 catchup skipped (in-flight)", { threadId: id });
     return;
   }
   const stable = _catchupStableAt.get(id);
-  if (stable && Date.now() - stable.at < _catchupCooldownMs(stable.reason)) {
+  if (stable && Date.now() - stable.at < _catchupCooldownMs(stable.reason, softIntervalMs)) {
     console.info("[observer-hw] v4 catchup skipped (cooldown)", {
       threadId: id,
       reason: stable.reason,
       ageMs: Date.now() - stable.at,
+      softIntervalMs,
     });
     return;
   }
@@ -166,13 +182,13 @@ export function refreshEvoflowV4Session(sessionId: string): void {
           st.snapshot?.rows?.totalCount ?? st.snapshot?.rows?.window?.length ?? 0;
         if (st.snapshot && n > 0) {
           const last = _catchupStableAt.get(id);
-          const softDue =
-            !last || Date.now() - last.at >= CATCHUP_READY_SOFT_MS;
+          const softDue = !last || Date.now() - last.at >= softIntervalMs;
           if (!softDue) {
             console.info("[observer-hw] v4 catchup skipped (ready)", {
               threadId: id,
               rows: n,
               ageMs: last ? Date.now() - last.at : null,
+              softIntervalMs,
             });
             return;
           }
@@ -270,6 +286,64 @@ export function refreshEvoflowV4Session(sessionId: string): void {
       /* best effort */
     }
   })();
+}
+
+function _rowActivityMs(row: {
+  kind?: string;
+  createdAt?: number;
+  startedAt?: number;
+  endedAt?: number;
+}): number {
+  const ended = typeof row.endedAt === "number" && Number.isFinite(row.endedAt) ? row.endedAt : 0;
+  const started =
+    typeof row.startedAt === "number" && Number.isFinite(row.startedAt) ? row.startedAt : 0;
+  const created =
+    typeof row.createdAt === "number" && Number.isFinite(row.createdAt) ? row.createdAt : 0;
+  // 工具行优先 endedAt/startedAt（最新调用时刻）；其它行用 createdAt。
+  if (row.kind === "toolCall" || row.kind === "subagent" || row.kind === "hookInvocation") {
+    return Math.max(ended, started, created);
+  }
+  return Math.max(created, ended, started);
+}
+
+/**
+ * 读当前 V4 投影窗口的最近活动时间（Unix ms）。无快照 / 无行则 null。
+ * 用于右栏标题旁的弱提示（如节点进度「最近工具时间」）。
+ */
+export function peekEvoflowV4LastActivityAt(sessionId: string): number | null {
+  const id = String(sessionId || "").trim();
+  if (!id) return null;
+  try {
+    const layer = getSharedLayer();
+    if (!layer.has(id)) return null;
+    const lease = layer.acquire(id);
+    try {
+      const window = lease.store.getState().snapshot?.rows?.window;
+      if (!Array.isArray(window) || window.length === 0) return null;
+      let best = 0;
+      // 从末尾扫：最近工具优先，否则取窗口内最大活动时间。
+      for (let i = window.length - 1; i >= 0; i--) {
+        const row = window[i] as {
+          kind?: string;
+          createdAt?: number;
+          startedAt?: number;
+          endedAt?: number;
+        };
+        const ms = _rowActivityMs(row);
+        if (ms > best) best = ms;
+        if (row.kind === "toolCall" && ms > 0) break;
+      }
+      return best > 0 ? best : null;
+    } finally {
+      try {
+        lease.release();
+      } catch {
+        /* ignore */
+      }
+    }
+  } catch {
+    return null;
+  }
 }
 
 function monotonicNowSafe(): number {
