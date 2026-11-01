@@ -1513,6 +1513,30 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
                 onReopenClosedTab={reopenRightStageTab}
                 onCollapse={handleCollapseRightStage}
                 launcherItems={rightStageLauncherItems}
+                employeeChatRoles={proactiveRolesDisplay}
+                onPickEmployeeChat={(role) => {
+                  const code = String(role.agent_code || '').trim()
+                  if (!code) return
+                  const roleName =
+                    String(role.agent_name || '').trim() ||
+                    String(role.role_name || '').trim() ||
+                    code
+                  void import('../../../lib/right-stage/open-employee-process-stage.js').then((m) => {
+                    m.openEmployeeProcessInRightStage(
+                      {
+                        taskId: `live:${code}`,
+                        agentCode: code,
+                        roleName,
+                        title: roleName,
+                        busy: false,
+                      },
+                      {
+                        sessionKey: String(selectedSessionKey || '').trim() || undefined,
+                        layout: 'wide',
+                      },
+                    )
+                  })
+                }}
                 renderContent={renderRightStageBody}
               />
             ) : null}

@@ -8,10 +8,21 @@
  * - 已完成：不再定时刷
  * - 打开后宽限内继续刷，避免首轮误绑旧 done 会话就停死
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from 'react'
 import type { ChatAttachment } from '../../chat-types.js'
 import { ChatComposer } from '../../components/ChatComposer.js'
+import { PluginQuickPanel } from '../../components/PluginQuickPanel.js'
+import { SkillPickerModal } from '../../components/SkillPickerModal.js'
 import { mintEmployeeChatEpisodeId } from '../../components/EmployeeTalkModeBar.js'
+import { useComposerSkillPluginSelection } from '../../hooks/useComposerSkillPluginSelection.js'
 import {
   isProactiveSessionKey,
   parseProactiveSessionKey,
@@ -183,12 +194,79 @@ export function V4EmployeeProcessPane(props: V4EmployeeProcessPaneProps) {
   const [loaded, setLoaded] = useState(false)
   const [sending, setSending] = useState(false)
   const [draftVersion, setDraftVersion] = useState(0)
+  const [histOpen, setHistOpen] = useState(false)
+  const [histLoading, setHistLoading] = useState(false)
+  const [histSessions, setHistSessions] = useState<
+    Array<{ key: string; title: string; kind?: string; updatedAt?: string; runStatus?: string }>
+  >([])
   const draftRef = useRef('')
+  const moreTriggerRef = useRef<HTMLButtonElement | null>(null)
+  const pickFilesRef = useRef<() => void>(() => {})
+  const pickDocFilesRef = useRef<() => void>(() => {})
+  const histMenuRef = useRef<HTMLDivElement | null>(null)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const settleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const wasRunningRef = useRef(false)
   const settledRef = useRef(false)
   const openedAtRef = useRef(Date.now())
+
+  const pluginSessionKey =
+    employeeOwnedSessionKey(employeeSessionKey, code) ||
+    employeeOwnedSessionKey(employeeSessionKeyHint, code) ||
+    ''
+  const plugins = useComposerSkillPluginSelection({ selectedSessionKey: pluginSessionKey })
+  const {
+    bottomPluginPanelOpen,
+    setBottomPluginPanelOpen,
+    pluginPanelStyle,
+    setPluginPanelStyle,
+    pluginList,
+    pluginListLoading,
+    selectedPlugins,
+    setSelectedPlugins,
+    persistSelectedPlugins,
+    bottomSkillOpen,
+    setBottomSkillOpen,
+    skillList,
+    skillListLoading,
+    selectedSkills,
+    setSelectedSkills,
+    persistSelectedSkills,
+  } = plugins
+
+  // 「+」面板锚定加号按钮上方（与主聊 / 小V 同款）
+  useLayoutEffect(() => {
+    if (!bottomPluginPanelOpen || typeof window === 'undefined') {
+      setPluginPanelStyle(null)
+      return
+    }
+    const update = () => {
+      const btn = moreTriggerRef.current
+      if (!btn) return
+      const r = btn.getBoundingClientRect()
+      const gap = 10
+      const sidePad = 10
+      const width = 420
+      const left = Math.max(sidePad, Math.min(r.left, window.innerWidth - sidePad - width))
+      const bottom = Math.max(sidePad, window.innerHeight - r.top + gap)
+      const maxH = Math.max(160, Math.min(window.innerHeight * 0.62, r.top - gap - sidePad))
+      setPluginPanelStyle({
+        position: 'fixed',
+        left,
+        bottom,
+        top: 'auto',
+        maxHeight: maxH,
+        zIndex: 10060,
+      } satisfies CSSProperties)
+    }
+    update()
+    window.addEventListener('resize', update)
+    window.addEventListener('scroll', update, true)
+    return () => {
+      window.removeEventListener('resize', update)
+      window.removeEventListener('scroll', update, true)
+    }
+  }, [bottomPluginPanelOpen, setPluginPanelStyle])
 
   useEffect(() => {
     logRightStagePane('employeeProcess.mount', {
@@ -628,6 +706,124 @@ export function V4EmployeeProcessPane(props: V4EmployeeProcessPaneProps) {
     draftRef.current = value
   }, [])
 
+  const insertComposerText = useCallback((text: string) => {
+    const cur = String(draftRef.current || '')
+    draftRef.current = `${cur}${text}`
+    setDraftVersion((v) => v + 1)
+  }, [])
+
+  /** 切到该员工的另一条会话 / 新开对话：换 employeeSessionKey，重绑 V4。 */
+  const switchEmployeeSession = useCallback(
+    (nextKey: string) => {
+      const sk = employeeOwnedSessionKey(nextKey, code)
+      if (!sk || sk === String(employeeSessionKey || '').trim()) {
+        setHistOpen(false)
+        return
+      }
+      setEmployeeSessionKey(sk)
+      setThreadId('')
+      setLoaded(false)
+      setRunStatus('')
+      openedAtRef.current = Date.now()
+      wasRunningRef.current = false
+      settledRef.current = false
+      draftRef.current = ''
+      setDraftVersion((v) => v + 1)
+      setHistOpen(false)
+      const tabKey = employeeProcessStageTabKey(taskId, sessionKey, code)
+      if (tabKey) {
+        try {
+          rightStageStore.patchTab(tabKey, { data: { employeeSessionKey: sk } })
+        } catch {
+          /* ignore */
+        }
+      }
+    },
+    [code, employeeSessionKey, taskId, sessionKey],
+  )
+
+  const refreshEmployeeHistory = useCallback(async () => {
+    if (!code) {
+      setHistSessions([])
+      return
+    }
+    setHistLoading(true)
+    try {
+      const { api } = await import('../../../lib/tauri-api.js')
+      const res = await api.proactiveListConversations?.(code, { limit: 40 })
+      const list = Array.isArray(res?.conversations) ? res.conversations : []
+      const rows = list
+        .map((c: any) => {
+          const key = String(c?.session_key || '').trim()
+          if (!key || !employeeOwnedSessionKey(key, code)) return null
+          const kind = String(c?.kind || '').trim().toLowerCase()
+          const title =
+            String(c?.title || c?.task_id || '').trim() ||
+            (kind === 'chat' ? '对话' : kind === 'duty' ? '值班' : kind === 'task' ? '任务' : key)
+          return {
+            key,
+            title,
+            kind,
+            updatedAt: String(c?.updated_at || '').trim() || undefined,
+            runStatus: String(c?.run_status || '').trim() || undefined,
+          }
+        })
+        .filter(Boolean) as Array<{
+        key: string
+        title: string
+        kind?: string
+        updatedAt?: string
+        runStatus?: string
+      }>
+      // 对话优先，其余按列表顺序跟在后面
+      rows.sort((a, b) => {
+        const ak = a.kind === 'chat' ? 0 : 1
+        const bk = b.kind === 'chat' ? 0 : 1
+        if (ak !== bk) return ak - bk
+        return String(b.updatedAt || '').localeCompare(String(a.updatedAt || ''))
+      })
+      setHistSessions(rows)
+    } catch {
+      setHistSessions([])
+    } finally {
+      setHistLoading(false)
+    }
+  }, [code])
+
+  const onToggleHistory = useCallback(async () => {
+    const next = !histOpen
+    setHistOpen(next)
+    if (next) await refreshEmployeeHistory()
+  }, [histOpen, refreshEmployeeHistory])
+
+  const onNewEmployeeChat = useCallback(() => {
+    if (!code) return
+    const sk = mintEmployeeChatSessionKey(code)
+    if (!sk) return
+    switchEmployeeSession(sk)
+    toast('已新开对话', 'success')
+  }, [code, switchEmployeeSession])
+
+  // 点历史菜单外关闭
+  useEffect(() => {
+    if (!histOpen) return
+    const onDown = (e: MouseEvent) => {
+      const t = e.target instanceof Element ? e.target : null
+      if (!t) return
+      if (histMenuRef.current?.contains(t)) return
+      setHistOpen(false)
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setHistOpen(false)
+    }
+    document.addEventListener('mousedown', onDown)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [histOpen])
+
   const composerDock = useMemo(
     () => (
       <div
@@ -650,6 +846,15 @@ export function V4EmployeeProcessPane(props: V4EmployeeProcessPaneProps) {
               : '输入消息，继续与该员工对话…'
           }
           speechEnabled={false}
+          bottomMoreTriggerRef={moreTriggerRef}
+          onOpenAttachmentMenu={() => {
+            setBottomPluginPanelOpen((prev) => !prev)
+          }}
+          renderBottomControls={({ pickFiles, pickDocFiles }) => {
+            pickFilesRef.current = pickFiles
+            pickDocFilesRef.current = pickDocFiles
+            return null
+          }}
         />
       </div>
     ),
@@ -661,6 +866,7 @@ export function V4EmployeeProcessPane(props: V4EmployeeProcessPaneProps) {
       handleSend,
       handleAbort,
       displayRole,
+      setBottomPluginPanelOpen,
     ],
   )
 
@@ -677,7 +883,7 @@ export function V4EmployeeProcessPane(props: V4EmployeeProcessPaneProps) {
   if (!code) return null
 
   return (
-    <div className="v4-employee-process flex h-full min-h-0 flex-col bg-card">
+    <div className="v4-employee-process relative flex h-full min-h-0 flex-col bg-card">
       <div className="flex h-10 shrink-0 items-center gap-2 border-b border-border px-3">
         <EmployeeStageAvatar
           agentCode={code}
@@ -700,6 +906,108 @@ export function V4EmployeeProcessPane(props: V4EmployeeProcessPaneProps) {
             : STATUS_LABEL[statusLow] || runStatus || (loaded ? '可对话' : '加载中')}
         </span>
         <div className="flex-1" />
+        <div className="relative flex shrink-0 items-center gap-0.5" ref={histMenuRef}>
+          <button
+            type="button"
+            className="rounded p-1.5 text-foreground-subtle hover:bg-hover hover:text-foreground"
+            onClick={() => void onToggleHistory()}
+            title="历史对话"
+            aria-label="历史对话"
+            aria-expanded={histOpen}
+          >
+            <svg
+              viewBox="0 0 24 24"
+              width="16"
+              height="16"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+              <path d="M3 3v5h5" />
+              <path d="M12 7v5l4 2" />
+            </svg>
+          </button>
+          {histOpen ? (
+            <div
+              className="absolute right-0 top-full z-50 mt-1 max-h-72 w-64 overflow-auto rounded-md border border-border bg-card py-1 shadow-md"
+              role="menu"
+              aria-label="历史对话"
+            >
+              <div className="px-3 py-1.5 text-[11px] font-medium text-foreground-subtlest">
+                历史对话
+              </div>
+              {histLoading ? (
+                <div className="px-3 py-4 text-center text-ui-sm text-foreground-subtlest">
+                  加载中…
+                </div>
+              ) : histSessions.length ? (
+                histSessions.map((s) => {
+                  const kindTag =
+                    s.kind === 'chat'
+                      ? '对话'
+                      : s.kind === 'duty'
+                        ? '值班'
+                        : s.kind === 'task'
+                          ? '任务'
+                          : ''
+                  const active = s.key === timelineSessionKey
+                  return (
+                    <button
+                      key={s.key}
+                      type="button"
+                      role="menuitem"
+                      className={
+                        'flex w-full flex-col gap-0.5 px-3 py-2 text-left text-ui-sm hover:bg-hover ' +
+                        (active ? 'bg-selected text-foreground' : 'text-foreground')
+                      }
+                      onClick={() => {
+                        switchEmployeeSession(s.key)
+                        toast('已切换会话', 'success')
+                      }}
+                    >
+                      <span className="min-w-0 truncate font-medium">
+                        {kindTag ? `[${kindTag}] ` : ''}
+                        {s.title}
+                      </span>
+                      {s.runStatus ? (
+                        <span className="text-[11px] text-foreground-subtlest">{s.runStatus}</span>
+                      ) : null}
+                    </button>
+                  )
+                })
+              ) : (
+                <div className="px-3 py-4 text-center text-ui-sm text-foreground-subtlest">
+                  暂无历史对话
+                </div>
+              )}
+            </div>
+          ) : null}
+          <button
+            type="button"
+            className="rounded p-1.5 text-foreground-subtle hover:bg-hover hover:text-foreground"
+            onClick={onNewEmployeeChat}
+            title="新开对话"
+            aria-label="新开对话"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              width="16"
+              height="16"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              aria-hidden="true"
+            >
+              <path d="M5 12h14" />
+              <path d="M12 5v14" />
+            </svg>
+          </button>
+        </div>
         {onClose ? (
           <button
             type="button"
@@ -737,6 +1045,71 @@ export function V4EmployeeProcessPane(props: V4EmployeeProcessPaneProps) {
           </div>
         )}
       </div>
+
+      <PluginQuickPanel
+        open={bottomPluginPanelOpen}
+        onClose={() => setBottomPluginPanelOpen(false)}
+        style={pluginPanelStyle}
+        plugins={pluginList}
+        loading={pluginListLoading}
+        selected={selectedPlugins}
+        onToggle={(item) => {
+          setSelectedPlugins((prev) => {
+            const next = prev.some((p) => p.id === item.id)
+              ? prev.filter((p) => p.id !== item.id)
+              : [
+                  ...prev,
+                  {
+                    id: item.id,
+                    label: item.label || item.name,
+                    iconUrl: item.iconUrl,
+                  },
+                ]
+            void persistSelectedPlugins(String(pluginSessionKey || ''), next)
+            return next
+          })
+        }}
+        onPickDocs={() => {
+          setBottomPluginPanelOpen(false)
+          pickDocFilesRef.current?.()
+        }}
+        onPickImages={() => {
+          setBottomPluginPanelOpen(false)
+          pickFilesRef.current?.()
+        }}
+        onOpenSkillPicker={() => {
+          setBottomPluginPanelOpen(false)
+          setBottomSkillOpen(true)
+        }}
+        onOpenGoal={() => {
+          setBottomPluginPanelOpen(false)
+          window.dispatchEvent(new CustomEvent('evopanel:open-goal-panel', { detail: { open: true } }))
+        }}
+        onOpenLegacyMenu={() => setBottomPluginPanelOpen(false)}
+        onInsertText={(text) => insertComposerText(text)}
+        showVoice={false}
+        voiceOn={false}
+        onToggleVoice={() => {}}
+        showLegacyMenu={false}
+        showHintBar={false}
+        onPickEmployee={() => {
+          setBottomPluginPanelOpen(false)
+          toast('当前已是员工对话标签', 'info')
+        }}
+      />
+
+      <SkillPickerModal
+        open={bottomSkillOpen}
+        onClose={() => setBottomSkillOpen(false)}
+        skills={skillList}
+        loading={skillListLoading}
+        selected={selectedSkills}
+        onConfirm={(next) => {
+          setSelectedSkills(next)
+          void persistSelectedSkills(String(pluginSessionKey || ''), next)
+          setBottomSkillOpen(false)
+        }}
+      />
     </div>
   )
 }

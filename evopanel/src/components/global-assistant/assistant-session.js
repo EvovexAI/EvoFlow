@@ -1272,7 +1272,7 @@ export async function sendXiaomiChat(text, ctx = {}) {
   /** @type {Record<string, string>} */
   const merged = { ...live }
   for (const [k, v] of Object.entries(ctx)) {
-    if (k === 'voiceInitiated' || k === 'onSubmitted') continue
+    if (k === 'voiceInitiated' || k === 'onSubmitted' || k === 'attachments') continue
     const s = v == null ? '' : String(v).trim()
     if (s) merged[k] = s
   }
@@ -1343,7 +1343,8 @@ export async function sendXiaomiChat(text, ctx = {}) {
 
   try {
     const voiceReply = speak
-    await wsClient.chatSend(key, raw, [], [], {
+    const attachments = Array.isArray(ctx.attachments) ? ctx.attachments : []
+    await wsClient.chatSend(key, raw, attachments, [], {
       messageId: userMsgId,
       ...(voiceHot ? { voiceInitiated: true } : {}),
       ...(voiceReply ? { voiceReply: true } : {}),
