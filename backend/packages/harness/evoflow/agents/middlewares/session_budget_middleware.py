@@ -1,13 +1,10 @@
-"""Per-user-turn tool budget, LangGraph recursion soft-land, and delegate cooldown.
+"""Session tool/recursion budgets (opt-in) and delegate cooldown.
 
-Tool-call hard/warn limits apply since the latest real user HumanMessage
-(not cumulative across the whole sidebar session). Delegate cooldown remains
-session-scoped.
+Tool-count warn/block and recursion soft-land (收尾交班 nudges) are **off by
+default** — they starved long remake runs and left the model silent. Opt in with
+``EVOFLOW_SESSION_TOOL_BUDGET=1`` / ``EVOFLOW_RECURSION_SOFT_LAND=1``.
 
-LangGraph ``recursion_limit`` is a hard ceiling (default 7500). Without a soft
-budget the run dies as ``GraphRecursionError`` with no user-facing wrap-up.
-This middleware injects 收尾 nudges while steps remain, then blocks non-readonly
-tools near the floor so the model must speak instead of polling forever.
+Delegate cooldown after a subagent hits ``STEP_LIMIT_REACHED`` remains on.
 """
 
 from __future__ import annotations
@@ -40,17 +37,18 @@ logger = logging.getLogger(__name__)
 
 _WARN_TOOL_COUNT = int(os.environ.get("EVOFLOW_SESSION_TOOL_BUDGET_WARN", "300") or 300)
 _HARD_TOOL_COUNT = int(os.environ.get("EVOFLOW_SESSION_TOOL_BUDGET_HARD", "500") or 500)
-_BUDGET_ENABLED = str(os.environ.get("EVOFLOW_SESSION_TOOL_BUDGET", "1")).strip().lower() not in {
-    "0",
-    "false",
-    "no",
-    "off",
+# Off by default: numeric + wrap-up nudges caused silent stalls on long chat runs.
+_BUDGET_ENABLED = str(os.environ.get("EVOFLOW_SESSION_TOOL_BUDGET", "0")).strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
 }
-_RECURSION_SOFT_ENABLED = str(os.environ.get("EVOFLOW_RECURSION_SOFT_LAND", "1")).strip().lower() not in {
-    "0",
-    "false",
-    "no",
-    "off",
+_RECURSION_SOFT_ENABLED = str(os.environ.get("EVOFLOW_RECURSION_SOFT_LAND", "0")).strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
 }
 # Remaining LangGraph super-steps → soft warn / hard block non-readonly tools.
 _RECURSION_SOFT_REMAINING = max(20, int(os.environ.get("EVOFLOW_RECURSION_SOFT_REMAINING", "120") or 120))
@@ -233,7 +231,7 @@ def _user_turn_token(messages: list[Any] | None) -> str:
 
 
 class SessionBudgetMiddleware(AgentMiddleware[AgentState]):
-    """Cap per-user-turn tool volume; soft-land before LangGraph recursion hard kill."""
+    """Delegate cooldown; optional tool/recursion budgets when env-enabled."""
 
     def __init__(self) -> None:
         super().__init__()
