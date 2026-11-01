@@ -354,24 +354,51 @@ export function noteVoiceModeGate(phase, opts = {}) {
  * @param {string} message
  * @param {{ detail?: string, trace?: string }} [opts]
  */
+/** 合并上报：≥1s 一批，打断「每条 ASR 错误立刻 POST /speech/log」自激 */
+const VOICE_LOG_FLUSH_MS = 1200
+const VOICE_LOG_FLUSH_BATCH = 24
+/** 同 stage+message 短时去重，避免 audio-capture 风暴撑爆队列 */
+let _lastDedupeKey = ''
+let _lastDedupeAt = 0
+let _dedupeSuppressed = 0
+
 export function voiceFeLog(stage, message, opts = {}) {
   try {
+    const stageClip = clip(stage, 32) || '过程'
+    const msgClip = clip(message, 1200)
+    const now = Date.now()
+    const dedupeKey = `${stageClip}|${msgClip}`
+    if (dedupeKey === _lastDedupeKey && now - _lastDedupeAt < 4000) {
+      _dedupeSuppressed += 1
+      return
+    }
+    if (_dedupeSuppressed > 0) {
+      queue.push({
+        ts: new Date().toISOString(),
+        source: '前端',
+        stage: '唤醒',
+        message: `（合并省略重复日志 ${_dedupeSuppressed} 条）`,
+      })
+      _dedupeSuppressed = 0
+    }
+    _lastDedupeKey = dedupeKey
+    _lastDedupeAt = now
     const trace = String(opts.trace || _traceId || '').trim()
     queue.push({
       ts: new Date().toISOString(),
       source: '前端',
-      stage: clip(stage, 32) || '过程',
-      message: clip(message, 1200),
+      stage: stageClip,
+      message: msgClip,
       ...(trace ? { trace } : {}),
       ...(opts.detail != null ? { detail: clip(opts.detail, 600) } : {}),
     })
-    if (queue.length >= 8) {
+    if (queue.length >= VOICE_LOG_FLUSH_BATCH) {
       void flushVoiceFeLog()
     } else if (!timer) {
       timer = setTimeout(() => {
         timer = null
         void flushVoiceFeLog()
-      }, 250)
+      }, VOICE_LOG_FLUSH_MS)
     }
   } catch {
     /* never throw */
@@ -478,16 +505,33 @@ export function voiceFeMirror(stage, ...args) {
 
 export async function flushVoiceFeLog() {
   if (!queue.length) return
+  if (timer) {
+    clearTimeout(timer)
+    timer = null
+  }
+  if (_dedupeSuppressed > 0) {
+    queue.push({
+      ts: new Date().toISOString(),
+      source: '前端',
+      stage: '唤醒',
+      message: `（合并省略重复日志 ${_dedupeSuppressed} 条）`,
+    })
+    _dedupeSuppressed = 0
+  }
   const batch = queue.splice(0, queue.length)
   try {
     const url = apiUrl('/speech/log')
+    const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null
+    const kill = ctrl ? setTimeout(() => ctrl.abort(), 4000) : null
     await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'same-origin',
       body: JSON.stringify({ source: '前端', entries: batch }),
       keepalive: true,
+      ...(ctrl ? { signal: ctrl.signal } : {}),
     })
+    if (kill) clearTimeout(kill)
   } catch {
     // 丢弃本批；调试日志不可阻断语音
   }

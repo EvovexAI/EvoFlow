@@ -43,6 +43,7 @@ def test_chat_mutation_is_control() -> None:
 
 def test_browser_log_is_best_effort() -> None:
     assert classify_path("/api/browser/log", method="POST").lane == Lane.BEST_EFFORT
+    assert classify_path("/api/speech/log", method="POST").lane == Lane.BEST_EFFORT
 
 
 def test_subagent_transcript_is_best_effort() -> None:

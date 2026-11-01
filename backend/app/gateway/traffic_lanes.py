@@ -87,6 +87,7 @@ _BEST_EFFORT_CONTAINS = (
     "/observability",
     "/browser/log",
     "/browser-log",
+    "/speech/log",  # voice debug append — high volume, never block chat
     "/plugins/overview",
     "/skills",  # catalog list used by idle panels
     "/subagent/",  # transcript polls every few seconds while a run is open
