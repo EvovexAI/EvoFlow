@@ -312,6 +312,7 @@ export function XiaomiRightStagePane() {
           sessionKey={sessionKey}
           optimisticUserText={optimisticUserText}
           bottomDock={composerDock}
+          sessionBusy={turnBusy}
         />
       </div>
     </div>

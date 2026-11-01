@@ -721,6 +721,7 @@ export function V4EmployeeProcessPane(props: V4EmployeeProcessPaneProps) {
             evoflowSessionKey={bridgeSessionKey}
             workspacePath={roleWorkspacePath || undefined}
             embedded
+            sessionBusy={turnBusy}
             bottomDock={composerDock}
           />
         ) : (

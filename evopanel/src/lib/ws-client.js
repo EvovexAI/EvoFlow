@@ -8050,18 +8050,37 @@ export class WsClient {
         }
          
         console.warn('[evoflow] chat stream ended with no assistant output', diag)
-        if (!opts?.__emptyStreamRetry && !_userStopSessionKeys.has(key)) {
+        // 仅在「已连上 SSE、有帧但无正文」时自动重试一次（误杀/空 final）。
+        // sseBytes=0 / Failed to fetch：LangGraph 或链路未通，重试只会再 POST 一轮 →
+        // 双 userInput、双计费风险，且用户日志里每次失败都叠一次。
+        const emptyRetryEligible =
+          !opts?.__emptyStreamRetry &&
+          !_userStopSessionKeys.has(key) &&
+          sseBytesReceived > 0 &&
+          (sseFrameCount > 0 || (evfLane.deltaCount || 0) > 0 || !!evfLane.evfRunEndSeen)
+        if (emptyRetryEligible) {
           try {
             cancelPrepAbort.abort()
           } catch {
             /* ignore */
           }
           this._abortByRunId.delete(runId)
-          console.warn('[evoflow] empty stream — auto-retry send once', { sessionKey: key, runId })
+          console.warn('[evoflow] empty stream — auto-retry send once', {
+            sessionKey: key,
+            runId,
+            sseBytesReceived,
+            sseFrameCount,
+          })
           return this.chatSend(sessionKey, message, attachments, contextFiles, {
             ...opts,
             __emptyStreamRetry: true,
             skipTranscriptAppend: true,
+          })
+        }
+        if (!opts?.__emptyStreamRetry && sseBytesReceived === 0) {
+          console.warn('[evoflow] empty stream — skip auto-retry (no SSE bytes)', {
+            sessionKey: key,
+            runId,
           })
         }
         this._emitEvent('chat', {
@@ -8082,12 +8101,14 @@ export class WsClient {
         isUserInterruptStreamError('', evfLane.lastError)
       ) {
         // 用户点停止：正常 aborted。非用户 interrupt 且无正文：视为误杀，自动重试一次。
+        // 仍要求本轮收过 SSE，避免「根本没连上」时再打一枪扣费/叠气泡。
         const userStop = _userStopSessionKeys.has(key)
         if (
           !userStop &&
           !finalTextTrim &&
           (evfLane.deltaCount || 0) === 0 &&
-          !opts?.__emptyStreamRetry
+          !opts?.__emptyStreamRetry &&
+          sseBytesReceived > 0
         ) {
           try {
             cancelPrepAbort.abort()
@@ -8098,6 +8119,7 @@ export class WsClient {
           console.warn('[evoflow] spurious interrupt with no output — auto-retry send once', {
             sessionKey: key,
             runId,
+            sseBytesReceived,
           })
           return this.chatSend(sessionKey, message, attachments, contextFiles, {
             ...opts,

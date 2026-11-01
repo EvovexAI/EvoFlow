@@ -167,7 +167,8 @@ export function buildContextUsageTitle(
   const used = formatContextTokenCount(snap.usedTokens)
   const window = formatContextTokenCount(snap.windowTokens)
   const pct = snap.windowTokens > 0 ? ((snap.usedTokens / snap.windowTokens) * 100).toFixed(1) : '0'
-  let head = `模型上下文  ${used} / ${window} tok · ${pct}%`
+  // 上下文占用 ≠ 计费消耗：失败回合也可能仍显示窗口填充（本地估算 / 上次占用）。
+  let head = `上下文占用  ${used} / ${window} tok · ${pct}%`
   if (snap.messageCount != null && snap.messageCount > 0) {
     head += ` · ${snap.messageCount} 条消息`
   }
@@ -185,7 +186,7 @@ export function buildContextUsageTitle(
 /** Session cumulative token + prompt-cache breakdown for header hover bubble. */
 export function buildSessionTokenBubbleText(stats: SessionTokenStats): string {
   const lines: string[] = [
-    `会话累计  输入 ${formatTokenCountDisplay(stats.input)} · 输出 ${formatTokenCountDisplay(stats.output)}`,
+    `会话累计（厂商返回）  输入 ${formatTokenCountDisplay(stats.input)} · 输出 ${formatTokenCountDisplay(stats.output)}`,
   ]
   const hit = Math.max(0, Number(stats.cacheRead) || 0)
   const miss = Math.max(0, Number(stats.cacheMiss) || 0)

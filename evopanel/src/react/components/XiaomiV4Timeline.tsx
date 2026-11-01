@@ -23,6 +23,8 @@ export type XiaomiV4TimelineProps = {
   optimisticUserText?: string | null
   /** 底部输入区（主聊同款 ChatComposer sticky dock）。 */
   bottomDock?: ReactNode
+  /** 与停止按钮同源：驱动末轮工作中齿轮。 */
+  sessionBusy?: boolean
 }
 
 export function XiaomiV4Timeline(props: XiaomiV4TimelineProps) {
@@ -32,6 +34,7 @@ export function XiaomiV4Timeline(props: XiaomiV4TimelineProps) {
     embedded = false,
     optimisticUserText = null,
     bottomDock,
+    sessionBusy = false,
   } = props
   const { threadId, workspacePath, localMsgCount } = useXiaomiThreadBinding(sessionKey)
   const actions = useXiaomiChatActions(sessionKey)
@@ -59,6 +62,7 @@ export function XiaomiV4Timeline(props: XiaomiV4TimelineProps) {
       localMsgCount={localMsgCount}
       optimisticUserText={optimisticUserText}
       bottomDock={bottomDock}
+      sessionBusy={sessionBusy}
       onToolApproval={actions.onToolApproval}
     />
   )

@@ -50,6 +50,11 @@ export type V4SessionPaneBridgeProps = {
     toolCallId?: string,
     hint?: { tool_name?: string; summary?: string; args?: Record<string, unknown> },
   ) => void | Promise<void>;
+  /**
+   * 与底栏停止按钮同源。驱动末轮「工作中」齿轮（ChatLoading）；
+   * 主聊传 selectedTurnBusy，小V/员工侧栏应传同一套 turnBusy。
+   */
+  sessionBusy?: boolean;
 };
 
 export function V4SessionPaneBridge(props: V4SessionPaneBridgeProps): React.JSX.Element {
@@ -66,6 +71,7 @@ export function V4SessionPaneBridge(props: V4SessionPaneBridgeProps): React.JSX.
     draftEmpty: draftEmptyProp,
     optimisticUserText = null,
     onToolApproval,
+    sessionBusy = false,
   } = props;
   const enabled = Boolean(sessionId);
   const sk = String(sessionKey || "").trim() || undefined;
@@ -151,6 +157,7 @@ export function V4SessionPaneBridge(props: V4SessionPaneBridgeProps): React.JSX.
             bottomDock={bottomDock}
             workspacePath={resolvedWorkspacePath || undefined}
             onToolApproval={onToolApproval}
+            sessionBusy={sessionBusy}
             onOpenFileLink={onOpenFileLink}
             onOpenCodeViewer={onOpenCodeViewer}
             onOpenBrowserUrl={onOpenBrowserUrl}

@@ -9,10 +9,13 @@ export function XiaomiChatThread({
   sessionKey = '',
   optimisticUserText = null,
   bottomDock,
+  sessionBusy = false,
 }: {
   sessionKey?: string
   optimisticUserText?: string | null
   bottomDock?: ReactNode
+  /** 与停止按钮同源：驱动末轮工作中齿轮。 */
+  sessionBusy?: boolean
 }) {
   return (
     <div className="xm-react-thread xm-react-thread--v4" data-xm-chat-panel="v4">
@@ -21,6 +24,7 @@ export function XiaomiChatThread({
         embedded
         optimisticUserText={optimisticUserText}
         bottomDock={bottomDock}
+        sessionBusy={sessionBusy}
       />
     </div>
   )
