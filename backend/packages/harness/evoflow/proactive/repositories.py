@@ -28,6 +28,68 @@ from evoflow.timeutil import utc_now_iso_z
 
 logger = logging.getLogger(__name__)
 
+
+def _list_channel_sessions_for_employee(agent_code: str, *, limit: int = 200) -> list[str]:
+    """Session keys created by IM channel instances owned by ``agent_code``.
+
+    Covers the ``agent:{code}:{channel}:{chat}`` family that
+    ``list_employee_conversation_sessions`` (``proactive:`` only) misses.
+    """
+    code = str(agent_code or "").strip()
+    if not code:
+        return []
+    esc = code.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    try:
+        rows = (
+            get_db()
+            .execute(
+                """
+                SELECT session_key
+                FROM evoflow_chat_sessions
+                WHERE session_key LIKE ? ESCAPE '\\'
+                ORDER BY updated_at DESC
+                LIMIT ?
+                """,
+                (f"agent:{esc}:%", max(1, min(int(limit), 500))),
+            )
+            .fetchall()
+        )
+    except Exception:
+        logger.debug("_list_channel_sessions_for_employee failed code=%s", code, exc_info=True)
+        return []
+    out: list[str] = []
+    for row in rows:
+        try:
+            sk = str(row["session_key"] or "").strip()
+        except Exception:
+            sk = str(row[0] or "").strip()
+        if sk:
+            out.append(sk)
+    return out
+
+
+def _run_coro_blocking(coro_factory: Any, *, timeout_s: float = 30.0) -> Any:
+    """Run ``coro_factory()`` to completion from sync code, even inside a live loop.
+
+    A running event loop means we cannot ``asyncio.run`` here. Deletion ordering
+    matters (sessions must be gone before the role row), so instead of the old
+    fire-and-forget ``ensure_future`` we drain the coroutine on a private loop in
+    a worker thread and wait for it.
+    """
+    import asyncio
+    import concurrent.futures
+
+    def _runner() -> Any:
+        return asyncio.run(coro_factory())
+
+    try:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            return pool.submit(_runner).result(timeout=timeout_s)
+    except Exception:
+        logger.debug("_run_coro_blocking failed", exc_info=True)
+        return None
+
+
 _ROLE_COLS = """
     agent_code, role_name, position_code, department, config_json, reports_to,
     heartbeat_rrule, heartbeat_schedule, status, last_heartbeat_at, next_heartbeat_at,
@@ -405,13 +467,20 @@ class ProactiveRepository:
             )
             raise
 
-        # 4. Clean chat session data under ``proactive:{code}`` (+ duty/task/chat children).
+        # 4. Clean chat session data for this employee.
+        #
+        # Two key families must be covered (2026-11-01 regression): employee-panel
+        # runs use ``proactive:{code}[:kind:...]`` while IM chats through a shared /
+        # primary bot use ``agent:{code}:{channel}:{chat}``. Sweeping only the
+        # ``proactive:`` family left deleted employees' Feishu chats visible in the
+        # sidebar forever.
+        #
         # 批量路径：一次事务清所有会话表 + 一次 LG bulk prune；替代旧版
         # N×delete_session_full（每 session 全表 load_session_map + 自环 HTTP，曾把
         # 事件循环饿死十几秒，表现为删除后所有页面刷新都卡）。
         try:
-            from evoflow.persistence.chat_session_service import delete_sessions_bulk
             from evoflow.proactive.chat_session import (
+                employee_session_key_like_patterns,
                 list_employee_conversation_sessions,
                 proactive_session_key,
             )
@@ -424,9 +493,14 @@ class ProactiveRepository:
                 k = str(crow.get("session_key") or "").strip()
                 if k and k not in wipe_keys:
                     wipe_keys.append(k)
+            for k in _list_channel_sessions_for_employee(code):
+                if k and k not in wipe_keys:
+                    wipe_keys.append(k)
 
             if wipe_keys:
                 import asyncio
+
+                from evoflow.persistence.chat_session_service import delete_sessions_bulk
 
                 async def _wipe_sessions_bulk() -> None:
                     try:
@@ -440,9 +514,11 @@ class ProactiveRepository:
                             len(wipe_keys),
                         )
 
+                # Must finish BEFORE the role row disappears: an in-flight duty
+                # round otherwise recreates ``proactive:{code}:duty:...`` after the
+                # wipe (observed 2026-11-01, session resurrected ~35 min later).
                 try:
                     asyncio.get_running_loop()
-                    asyncio.ensure_future(_wipe_sessions_bulk())
                 except RuntimeError:
                     try:
                         asyncio.run(_wipe_sessions_bulk())
@@ -451,6 +527,22 @@ class ProactiveRepository:
                             "proactive.role.delete session wipe sync failed",
                             exc_info=True,
                         )
+                else:
+                    # Inside a running loop (API / MCP handler): schedule and wait
+                    # via a nested loop-free drain so ordering still holds.
+                    try:
+                        _run_coro_blocking(_wipe_sessions_bulk, timeout_s=30.0)
+                    except Exception:
+                        logger.debug(
+                            "proactive.role.delete session wipe blocking drain failed",
+                            exc_info=True,
+                        )
+            logger.info(
+                "proactive.role.delete: session cleanup code=%s sessions=%d patterns=%s",
+                code,
+                len(wipe_keys),
+                employee_session_key_like_patterns(code),
+            )
         except Exception:
             logger.warning(
                 "proactive.role.delete chat session cleanup skipped code=%s",

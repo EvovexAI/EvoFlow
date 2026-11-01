@@ -173,6 +173,82 @@ def is_proactive_session_key(session_key: str | None) -> bool:
     return str(session_key or "").strip().startswith("proactive:")
 
 
+# Session keys owned by an IM channel instance look like ``agent:{code}:{channel}:{chat}``
+# (shared/primary bot) while employee-panel runs use ``proactive:{code}:...``.
+# Employee deletion must sweep BOTH, otherwise Feishu chats of a deleted employee
+# survive and keep showing up in the sidebar (2026-11-01 regression).
+_AGENT_SCOPED_PREFIX = "agent:"
+
+# Codes that are agent names but never employee roles — never treat as orphans.
+_NON_EMPLOYEE_SESSION_CODES = frozenset({"main", "executor", "lead_agent", "agent"})
+
+
+def employee_code_from_session_key(session_key: str | None) -> str:
+    """Best-effort employee code that owns ``session_key``.
+
+    Returns ``""`` for keys that cannot belong to a duty employee (e.g. plain
+    ``agent:main:new-xxxx`` user chats are returned as ``main`` so callers can
+    filter them out by membership in ``_NON_EMPLOYEE_SESSION_CODES``).
+    """
+    sk = str(session_key or "").strip()
+    if not sk:
+        return ""
+    if sk.startswith("proactive:"):
+        return proactive_agent_code_from_session_key(sk)
+    if sk.startswith(_AGENT_SCOPED_PREFIX):
+        rest = sk[len(_AGENT_SCOPED_PREFIX) :]
+        code, _sep, _tail = rest.partition(":")
+        return code.strip()
+    return ""
+
+
+def employee_session_key_like_patterns(agent_code: str) -> list[str]:
+    """SQL ``LIKE`` patterns covering every session_key shape one employee owns."""
+    code = str(agent_code or "").strip()
+    if not code:
+        return []
+    esc = code.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return [f"proactive:{esc}", f"proactive:{esc}:%", f"agent:{esc}:%"]
+
+
+def is_non_employee_session_code(code: str | None) -> bool:
+    c = str(code or "").strip()
+    if not c:
+        return True
+    if c in _NON_EMPLOYEE_SESSION_CODES:
+        return True
+    # IM identity keys (``ou_...`` open_ids) are not employees.
+    return c.startswith("ou_")
+
+
+def _employee_code_accepts_sessions(agent_code: str) -> bool:
+    """False when ``agent_code`` is a duty-role code that no longer exists.
+
+    Non-employee codes (``main``, ``executor``, IM open_ids, unknown agents) are
+    always allowed through — this guard exists solely to stop a deleting
+    employee's in-flight round from resurrecting its wiped sessions.
+    """
+    code = str(agent_code or "").strip()
+    if not code or is_non_employee_session_code(code):
+        return True
+    try:
+        from evoflow.persistence.db import get_db
+
+        row = (
+            get_db()
+            .execute(
+                "SELECT 1 FROM evoflow_proactive_roles WHERE agent_code = ? LIMIT 1",
+                (code,),
+            )
+            .fetchone()
+        )
+    except Exception:
+        # Fail open: never drop legitimate writes because a probe failed.
+        logger.debug("_employee_code_accepts_sessions probe failed code=%s", code, exc_info=True)
+        return True
+    return row is not None
+
+
 def resolve_work_session_key(
     *,
     agent_code: str,
@@ -403,6 +479,19 @@ def prepare_proactive_chat_session(
         task_id=task_id,
     )
     if not sk:
+        return None
+
+    # A duty round can still be finishing while its employee is being deleted.
+    # Without this guard the round recreates ``proactive:{code}:duty:...`` after
+    # the delete cascade already wiped it (2026-11-01 regression: session came
+    # back ~35 min later and lingered in the sidebar). Skip writes for codes that
+    # are no longer duty roles.
+    if not _employee_code_accepts_sessions(code):
+        logger.info(
+            "proactive_chat_session: skip prepare for deleted employee code=%s session_key=%s",
+            code,
+            sk,
+        )
         return None
 
     try:

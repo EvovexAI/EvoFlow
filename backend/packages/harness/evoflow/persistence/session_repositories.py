@@ -1388,6 +1388,35 @@ _SESSION_ACTIVE_WHERE = f"""
       AND COALESCE(hidden_from_list, 0) = 0
 """
 
+# Employee-scoped session key shapes: ``proactive:{code}[:kind:...]`` and
+# ``agent:{code}:{channel}:{chat}``. Extracting the owner code in SQL lets the
+# sidebar hide sessions of employees that no longer exist, even when a historic
+# delete missed the transcript (2026-11-01 regression).
+_SESSION_OWNER_CODE_SQL = """
+    CASE
+      WHEN session_key LIKE 'proactive:%' THEN
+        CASE WHEN instr(substr(session_key, 11), ':') > 0
+             THEN substr(substr(session_key, 11), 1, instr(substr(session_key, 11), ':') - 1)
+             ELSE substr(session_key, 11) END
+      WHEN session_key LIKE 'agent:%' THEN
+        CASE WHEN instr(substr(session_key, 7), ':') > 0
+             THEN substr(substr(session_key, 7), 1, instr(substr(session_key, 7), ':') - 1)
+             ELSE substr(session_key, 7) END
+      ELSE ''
+    END
+"""
+
+# Keep rows that are not employee-scoped, or whose owning code is not an
+# employee-shaped code, or still has a live duty role.
+_ORPHAN_EMPLOYEE_SESSION_FILTER = f"""
+      AND (
+        (session_key NOT LIKE 'proactive:%' AND session_key NOT LIKE 'agent:%')
+        OR ({_SESSION_OWNER_CODE_SQL}) IN ('', 'main', 'executor', 'lead_agent', 'agent')
+        OR ({_SESSION_OWNER_CODE_SQL}) LIKE 'ou\\_%' ESCAPE '\\'
+        OR ({_SESSION_OWNER_CODE_SQL}) IN (SELECT agent_code FROM evoflow_proactive_roles)
+      )
+"""
+
 
 def _workspace_filter_sql(workspace_key: str | None) -> tuple[str, list[Any]]:
     key = str(workspace_key or "").strip()
@@ -1432,7 +1461,7 @@ def summarize_sessions_by_workspace_for_ui() -> list[dict[str, Any]]:
           COUNT(*) AS session_count,
           MAX(updated_at) AS max_updated_at
         FROM evoflow_chat_sessions
-        WHERE {_SESSION_ACTIVE_WHERE}
+        WHERE {_SESSION_ACTIVE_WHERE}{_ORPHAN_EMPLOYEE_SESSION_FILTER}
         GROUP BY workspace_key
         ORDER BY max_updated_at DESC
         """
@@ -1553,7 +1582,7 @@ def list_sessions_for_ui(
             f"""
         SELECT {_SESSION_SELECT}
         FROM evoflow_chat_sessions
-        WHERE {_SESSION_ACTIVE_WHERE}{extra_sql}{acl_sql}
+        WHERE {_SESSION_ACTIVE_WHERE}{_ORPHAN_EMPLOYEE_SESSION_FILTER}{extra_sql}{acl_sql}
         ORDER BY COALESCE(is_pinned, 0) DESC, COALESCE(pin_order, 0) ASC, created_at DESC
         LIMIT ? OFFSET ?
         """,
@@ -1612,6 +1641,7 @@ def search_sessions_for_ui(
           AND session_key NOT LIKE 'agent:executor:%'
           AND COALESCE(hidden_from_list, 0) = 0
           AND title LIKE ? ESCAPE '\\'
+          {_ORPHAN_EMPLOYEE_SESSION_FILTER}
           {acl_sql}
         ORDER BY COALESCE(is_pinned, 0) DESC, COALESCE(pin_order, 0) ASC, created_at DESC
         LIMIT ?
