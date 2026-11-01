@@ -179,10 +179,16 @@ describe('optimistic userInput（发送瞬间不切老面板）', () => {
     }
   }
 
-  it('v4WindowHasUserText 只认窗口尾部 userInput', () => {
+  it('v4WindowHasUserText 只认窗口尾部非空 userInput', () => {
     const rows = [userRow('hello'), userRow('world', 2)]
     expect(v4WindowHasUserText(rows, 'world')).toBe(true)
     expect(v4WindowHasUserText(rows, 'hello')).toBe(false)
+  })
+
+  it('v4WindowHasUserText 跳过尾部空 userInput，避免误判未 echo', () => {
+    const rows = [userRow('hello'), userRow('', 2)]
+    expect(v4WindowHasUserText(rows, 'hello')).toBe(true)
+    expect(mergeOptimisticUserInputRow(rows, 'hello')).toBe(rows)
   })
 
   it('mergeOptimisticUserInputRow 缺 echo 时追加，已有则复用原数组', () => {

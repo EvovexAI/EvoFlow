@@ -2,11 +2,11 @@
  * 小V 会话的「右栏动作」共享层。
  *
  * 小V 的对话正文有两处宿主：
- * - 右栏小V标签页（XiaomiChatThread）
- * - 语音全屏右上角回复区（XiaomiVoiceStage 的 .xws-recent）
+ * - 右栏小V标签页（XiaomiChatThread → V4SessionPaneBridge）
+ * - 语音全屏右上角回复区（XiaomiVoiceStage → 同桥）
  *
- * 两处都走同一套 V4 时间线（V4ZCodeTimeline），因此工具审批 / 文件预览 /
- * 浏览器打开这些副作用必须用同一份绑定，否则一边能点、一边不能。
+ * 两处都走统一侧栏桥，因此工具审批必须同一份绑定。
+ * 文件/浏览器打开已由 V4SessionPaneBridge 默认处理；本文件主要提供审批。
  * 本文件只提供绑定与读取，不含任何渲染。
  */
 import { useCallback, useMemo } from 'react'

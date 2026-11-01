@@ -1,19 +1,14 @@
 /**
- * 小V 对话正文 = 主对话同一套 V4（V4StreamRowsBridge → ConversationTimeline）。
+ * 小V 对话正文 = 侧栏同一套 V4SessionPaneBridge → V4ZCodeTimeline。
  *
- * 三个宿主共用本组件，保证「同一条会话、同一份渲染、同一套右栏副作用」：
+ * 两个宿主共用：
  * - 右栏小V标签页（XiaomiRightStagePane）
  * - 语音全屏右上角回复区（XiaomiVoiceStage）
  *
- * 差异只在 skin：
- * - surface="default"：主对话同款（zcode token 卡片）
- * - surface="glass"：语音浮层皮肤（宿主明暗 + 玻璃底 + 更紧行距）
- *
- * 渲染管线完全一致 —— 轮分组 / live tail 流式 / 工具卡 / 贴底跟随都由
- * zcode-ui/v4 负责，这里只做数据与宿主副作用装配。
+ * 本组件只做 sessionKey → thread 绑定 + 审批副作用，渲染交给统一桥。
  */
-import { V4StreamRowsBridge } from '../v4/V4StreamRowsBridge.js'
-import { V4ZCodeTimeline } from '../v4/V4ZCodeTimeline.js'
+import type { ReactNode } from 'react'
+import { V4SessionPaneBridge } from '../v4/V4SessionPaneBridge.js'
 import { useXiaomiChatActions } from './xiaomiChatActions.js'
 import { useXiaomiThreadBinding } from './useXiaomiThreadBinding.js'
 
@@ -26,42 +21,45 @@ export type XiaomiV4TimelineProps = {
   embedded?: boolean
   /** 发送瞬间的乐观用户文本（V4 尚未 echo 时补一行）。 */
   optimisticUserText?: string | null
+  /** 底部输入区（主聊同款 ChatComposer sticky dock）。 */
+  bottomDock?: ReactNode
 }
 
 export function XiaomiV4Timeline(props: XiaomiV4TimelineProps) {
-  const { sessionKey, surface = 'default', embedded = false, optimisticUserText = null } = props
+  const {
+    sessionKey,
+    surface = 'default',
+    embedded = false,
+    optimisticUserText = null,
+    bottomDock,
+  } = props
   const { threadId, workspacePath, localMsgCount } = useXiaomiThreadBinding(sessionKey)
   const actions = useXiaomiChatActions(sessionKey)
 
-  const sessionId = threadId || null
+  const sessionId = String(threadId || '').trim()
+  if (!sessionId) {
+    return (
+      <div className="flex h-full min-h-0 flex-col">
+        <div className="flex min-h-0 flex-1 items-center justify-center px-4 text-ui-sm text-foreground-subtlest">
+          {localMsgCount > 0 ? '正在连接会话…' : '准备就绪，在下方输入开始对话'}
+        </div>
+        {bottomDock}
+      </div>
+    )
+  }
 
   return (
-    <V4StreamRowsBridge enabled={!!sessionId} sessionId={sessionId}>
-      {(v4Payload, v4Phase) => {
-        const v4RowCount = v4Payload?.snapshot?.rows.totalCount ?? 0
-        // 仅 V4 ready 且确认无行才草稿问候；connecting 不算（对齐主对话）
-        const isDraft = localMsgCount === 0 && v4Phase === 'ready' && v4RowCount === 0
-        return (
-          <V4ZCodeTimeline
-            payload={v4Payload}
-            connecting={
-              v4Phase === 'connecting' ||
-              v4Phase === 'no-thread' ||
-              (!sessionId && localMsgCount > 0)
-            }
-            draftEmpty={isDraft}
-            evoflowSessionKey={sessionKey}
-            embedded={embedded}
-            surface={surface}
-            optimisticUserText={optimisticUserText}
-            onToolApproval={actions.onToolApproval}
-            workspacePath={actions.workspacePath || workspacePath || undefined}
-            onOpenFileLink={actions.onOpenFileLink}
-            onOpenCodeViewer={actions.onOpenCodeViewer}
-            onOpenBrowserUrl={actions.onOpenBrowserUrl}
-          />
-        )
-      }}
-    </V4StreamRowsBridge>
+    <V4SessionPaneBridge
+      sessionId={sessionId}
+      sessionKey={sessionKey}
+      evoflowSessionKey={sessionKey}
+      workspacePath={actions.workspacePath || workspacePath || undefined}
+      embedded={embedded}
+      surface={surface}
+      localMsgCount={localMsgCount}
+      optimisticUserText={optimisticUserText}
+      bottomDock={bottomDock}
+      onToolApproval={actions.onToolApproval}
+    />
   )
 }

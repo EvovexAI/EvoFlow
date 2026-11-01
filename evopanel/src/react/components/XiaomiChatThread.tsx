@@ -1,16 +1,27 @@
+import type { ReactNode } from 'react'
 import { XiaomiV4Timeline } from './XiaomiV4Timeline.js'
 
 /**
- * 小V 对话正文 = 主对话同一套 V4（V4StreamRowsBridge → ConversationTimeline）。
- * 窄栏 embedded：隐藏 turn navigator；接上审批 / 工作区 / 代码预览，缩小与主对话差距。
- *
- * 实现细节已收敛到 XiaomiV4Timeline：右栏小V标签页与语音全屏右上角回复区
- * 共用同一份装配，保证两处看到的是同一条会话、同一套工具卡行为。
+ * 小V 对话正文 = 主对话 / 侧栏员工同一套 V4（V4SessionPaneBridge → ConversationTimeline）。
+ * 窄栏 embedded：隐藏 turn navigator；可挂 bottomDock（ChatComposer）。
  */
-export function XiaomiChatThread({ sessionKey = '' }: { sessionKey?: string }) {
+export function XiaomiChatThread({
+  sessionKey = '',
+  optimisticUserText = null,
+  bottomDock,
+}: {
+  sessionKey?: string
+  optimisticUserText?: string | null
+  bottomDock?: ReactNode
+}) {
   return (
     <div className="xm-react-thread xm-react-thread--v4" data-xm-chat-panel="v4">
-      <XiaomiV4Timeline sessionKey={sessionKey} embedded />
+      <XiaomiV4Timeline
+        sessionKey={sessionKey}
+        embedded
+        optimisticUserText={optimisticUserText}
+        bottomDock={bottomDock}
+      />
     </div>
   )
 }
