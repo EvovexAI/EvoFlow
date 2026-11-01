@@ -282,6 +282,7 @@ export function V4CollabSubtaskTranscriptPane(props: V4CollabSubtaskTranscriptPa
             sessionId={resolvedThreadId}
             connecting={!loaded}
             sessionKey={sessionKey || undefined}
+            embedded
           />
         ) : (
           <div className="flex h-full items-center justify-center px-4 text-ui-sm text-foreground-subtlest">

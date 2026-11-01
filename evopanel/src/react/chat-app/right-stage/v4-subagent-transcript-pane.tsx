@@ -186,6 +186,7 @@ export function V4SubagentTranscriptPane(props: {
             sessionId={childThreadId}
             connecting={!loaded}
             sessionKey={sessionKey || undefined}
+            embedded
           />
         ) : (
           <div

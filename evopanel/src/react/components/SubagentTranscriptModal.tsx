@@ -97,6 +97,7 @@ function SubagentTranscriptModalInner({
               sessionId={threadId}
               connecting={!loaded}
               sessionKey={sessionKey || undefined}
+              embedded
             />
           ) : (
             <div className="flex h-full flex-col items-center justify-center gap-2 px-4 text-ui-sm text-foreground-subtlest">

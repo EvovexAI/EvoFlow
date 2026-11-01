@@ -293,6 +293,7 @@ export function renderRightStageBody(
         sessionId={childSessionId}
         connecting={!!data.connecting}
         sessionKey={String(surface.sessionKey || selectedSessionKey || '') || undefined}
+        embedded
       />
     ) : (
       <SidePanelBootShell title={surface.title || '子会话'} />

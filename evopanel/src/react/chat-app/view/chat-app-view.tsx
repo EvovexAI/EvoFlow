@@ -2,7 +2,12 @@
 /**
  * ChatApp main JSX tree. Extracted from ChatApp.tsx (P89).
  */
-import { useState, useEffect, type ReactNode, type MouseEvent as ReactMouseEvent } from 'react'
+import {
+  useState,
+  useEffect,
+  type ReactNode,
+  type MouseEvent as ReactMouseEvent,
+} from 'react'
 import type { DisplayRow } from '../../chat-types.js'
 import { ModelCatalogMenu } from '../../components/ModelCatalogMenu.js'
 import { ShellSessionListHost } from '../../components/ShellSessionListHost.js'
@@ -46,6 +51,21 @@ import { TauriWindowControls } from '../../components/TauriWindowControls.js'
 import { HoverBubble, HoverBubbleProvider } from '../../components/HoverBubble.js'
 
 export type ChatAppViewCtx = Record<string, any>
+
+/** V4 权威窗口已出现同文案 userInput 时清掉 pending，避免乐观气泡叠第二次。 */
+function ClearPendingOptimisticOnV4Echo(props: {
+  pendingText: string
+  windowRows: ReadonlyArray<{ kind?: string; text?: string }> | null | undefined
+  onClear: (() => void) | undefined
+}) {
+  const { pendingText, windowRows, onClear } = props
+  useEffect(() => {
+    const needle = String(pendingText || '').trim()
+    if (!needle || typeof onClear !== 'function') return
+    if (v4WindowHasUserText(windowRows, needle)) onClear()
+  }, [pendingText, windowRows, onClear])
+  return null
+}
 
 export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
   /* 语音全屏模式：html[data-xw-voice='1'] 时由 CSS 接管整窗（左语音域/右标签区） */
@@ -225,6 +245,7 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
     rightStageRecentClosed,
     rows,
     pendingOptimisticUserText,
+    setPendingOptimisticUserText,
     runningSessionMap,
     selectedPlugins,
     selectedResumeAttach,
@@ -597,17 +618,22 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
                       String(selectedThreadId || '').trim()
                   const turnLive = selectedTurnBusy || selectedSessionLive
                   const pendingOpt = String(pendingOptimisticUserText || '').trim()
+                  const v4Window = v4Payload?.snapshot?.rows?.window
                   const lastLocal =
                     Array.isArray(rows) && rows.length > 0 ? rows[rows.length - 1] : null
                   const lastLocalUserText =
                     lastLocal && String(lastLocal.role || '') === 'user'
                       ? String(lastLocal.text || '').trim()
                       : ''
-                  const optimisticNeedle = pendingOpt || lastLocalUserText
+                  // pending 优先；turn 进行中才回退 lastLocal，避免 echo 清 pending 后
+                  // 闲置/重连再用 host 尾行把乐观气泡叠回权威消息上。
+                  const optimisticNeedle =
+                    pendingOpt || (turnLive ? lastLocalUserText : '')
+                  const hasV4UserEcho =
+                    !!optimisticNeedle && v4WindowHasUserText(v4Window, optimisticNeedle)
+                  // pending 仅在「尚未 echo」时续命；echo 后由 ClearPending… 清掉。
                   const awaitingV4UserEcho =
-                    (turnLive || !!pendingOpt) &&
-                    !!optimisticNeedle &&
-                    !v4WindowHasUserText(v4Payload?.snapshot?.rows?.window, optimisticNeedle)
+                    (turnLive || !!pendingOpt) && !!optimisticNeedle && !hasV4UserEcho
                   const localOptimisticHold =
                     awaitingV4UserEcho &&
                     (v4Phase === 'ready'
@@ -637,7 +663,18 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
                     localOptimisticHold,
                     knownEmptyDraft,
                   })
-                  return useLegacyPane ? (
+                  return (
+                    <>
+                      <ClearPendingOptimisticOnV4Echo
+                        pendingText={pendingOpt}
+                        windowRows={v4Window}
+                        onClear={
+                          typeof setPendingOptimisticUserText === 'function'
+                            ? () => setPendingOptimisticUserText('')
+                            : undefined
+                        }
+                      />
+                      {useLegacyPane ? (
               /* LEGACY：仅 isHomeSurface — 勿在此恢复主对话 ToolCallList */
               <ChatMessageStreamPane
                 rows={renderRows}
@@ -770,6 +807,8 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
                         />
                       }
                     />
+                      )}
+                    </>
                   )
                 }}
               </V4StreamRowsBridge>

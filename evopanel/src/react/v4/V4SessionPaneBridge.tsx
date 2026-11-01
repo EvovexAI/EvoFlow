@@ -1,6 +1,6 @@
-// V4SessionPaneBridge — 右侧面板子会话时间线（ZCode drilldown 同机制）。
-// 子会话流已被网关镜像进 v4 投影；本组件按 sessionId 订阅。
-// 可挂 bottomDock（如员工过程页的 ChatComposer），与主聊同轴 sticky 底栏。
+// V4SessionPaneBridge — 侧栏 / 小V / 子会话共用的 embedded 时间线桥。
+// 正文一律：V4StreamRowsBridge → V4ZCodeTimeline（与主聊同一套）。
+// 可挂 bottomDock（ChatComposer），与主聊同轴 sticky 底栏。
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { V4StreamRowsBridge, type V4TimelinePayload } from "./V4StreamRowsBridge.js";
 import { V4ZCodeTimeline } from "./V4ZCodeTimeline.js";
@@ -13,7 +13,7 @@ import { resolveTimelineWorkspacePath } from "../lib/session-workspace-path.js";
 import type { MessageFileLinkTarget } from "@zcode/ui/components/ai-elements/message.js";
 import type { CodeViewerSource } from "@zcode/ui/lib/codeViewer.js";
 
-export function V4SessionPaneBridge(props: {
+export type V4SessionPaneBridgeProps = {
   sessionId: string;
   connecting?: boolean;
   /** 归属主会话：文件/预览 tab 挂到同一 sessionKey，避免切会话丢签。 */
@@ -31,8 +31,42 @@ export function V4SessionPaneBridge(props: {
   workspacePath?: string | null;
   /** 底部输入区（主聊同款 sticky dock）；缺省则只读时间线。 */
   bottomDock?: ReactNode;
-}): React.JSX.Element {
-  const { sessionId, connecting, sessionKey, evoflowSessionKey, workspacePath, bottomDock } = props;
+  /** 窄栏嵌入（隐藏 turn navigator、空态不居中）。小V / 右栏默认应开。 */
+  embedded?: boolean;
+  /** 显示面皮肤：default=主聊同款；glass=语音浮层。 */
+  surface?: "default" | "glass";
+  /**
+   * 本地消息条数（小V assistant-store）。与 phase 一起推 draftEmpty；
+   * 不传则不据此推断草稿空态。
+   */
+  localMsgCount?: number;
+  /** 显式草稿空态；优先于 localMsgCount 推断。 */
+  draftEmpty?: boolean;
+  /** 发送瞬间的乐观用户文本（V4 尚未 echo 时补一行）。 */
+  optimisticUserText?: string | null;
+  /** 行内工具审批（approve / deny / grant_all …）。 */
+  onToolApproval?: (
+    action: "approve" | "approve_all" | "deny" | "grant_all" | "approve_remember",
+    toolCallId?: string,
+    hint?: { tool_name?: string; summary?: string; args?: Record<string, unknown> },
+  ) => void | Promise<void>;
+};
+
+export function V4SessionPaneBridge(props: V4SessionPaneBridgeProps): React.JSX.Element {
+  const {
+    sessionId,
+    connecting,
+    sessionKey,
+    evoflowSessionKey,
+    workspacePath,
+    bottomDock,
+    embedded = false,
+    surface = "default",
+    localMsgCount,
+    draftEmpty: draftEmptyProp,
+    optimisticUserText = null,
+    onToolApproval,
+  } = props;
   const enabled = Boolean(sessionId);
   const sk = String(sessionKey || "").trim() || undefined;
   const evoSk = String(evoflowSessionKey || sessionKey || "").trim() || undefined;
@@ -93,18 +127,36 @@ export function V4SessionPaneBridge(props: {
 
   return (
     <V4StreamRowsBridge enabled={enabled} sessionId={sessionId}>
-      {(payload: V4TimelinePayload | null) => (
-        <V4ZCodeTimeline
-          payload={payload}
-          connecting={connecting || !payload}
-          evoflowSessionKey={evoSk}
-          bottomDock={bottomDock}
-          workspacePath={resolvedWorkspacePath || undefined}
-          onOpenFileLink={onOpenFileLink}
-          onOpenCodeViewer={onOpenCodeViewer}
-          onOpenBrowserUrl={onOpenBrowserUrl}
-        />
-      )}
+      {(payload: V4TimelinePayload | null, phase) => {
+        const v4RowCount = payload?.snapshot?.rows.totalCount ?? 0;
+        const isDraft =
+          typeof draftEmptyProp === "boolean"
+            ? draftEmptyProp
+            : typeof localMsgCount === "number"
+              ? localMsgCount === 0 && phase === "ready" && v4RowCount === 0
+              : false;
+        const phaseConnecting =
+          phase === "connecting" ||
+          phase === "no-thread" ||
+          (!sessionId && (localMsgCount ?? 0) > 0);
+        return (
+          <V4ZCodeTimeline
+            payload={payload}
+            connecting={Boolean(connecting) || phaseConnecting || (!payload && !isDraft)}
+            draftEmpty={isDraft}
+            evoflowSessionKey={evoSk}
+            embedded={embedded}
+            surface={surface}
+            optimisticUserText={optimisticUserText}
+            bottomDock={bottomDock}
+            workspacePath={resolvedWorkspacePath || undefined}
+            onToolApproval={onToolApproval}
+            onOpenFileLink={onOpenFileLink}
+            onOpenCodeViewer={onOpenCodeViewer}
+            onOpenBrowserUrl={onOpenBrowserUrl}
+          />
+        );
+      }}
     </V4StreamRowsBridge>
   );
 }
