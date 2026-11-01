@@ -794,6 +794,74 @@ class V4Mirror:
             or "tool"
         )
 
+    def _fail_open_turn_header(
+        self, tid: str, st: _MirrorState, *, now_ms: int, reason: str
+    ) -> None:
+        """上一轮未收到 FINISHED 就被新 RUN 顶掉时，先把旧 turnHeader 收成 failed。"""
+        header_rid = int(st.turn_header_row_id or 0)
+        turn_id = str(st.turn_id or "").strip()
+        if header_rid <= 0 or not turn_id:
+            return
+        self._hub.author_upsert_row(
+            tid,
+            {
+                "rowId": header_rid,
+                "turnId": turn_id,
+                "entityId": turn_id,
+                "kind": "turnHeader",
+                "origin": "userInput",
+                "state": "failed",
+                "startedAt": st.turn_started_at_ms or now_ms,
+                "endedAt": now_ms,
+                "createdAt": st.turn_started_at_ms or now_ms,
+                "createdAtSeq": self._seq_now(tid),
+                "error": {
+                    "code": "superseded_by_new_run",
+                    "message": reason[:500],
+                },
+            },
+        )
+
+    def _find_reusable_user_input_row(
+        self,
+        tid: str,
+        *,
+        user_mid: str,
+        user_text: str,
+        prev_turn_id: str,
+    ) -> dict[str, Any] | None:
+        """空流自动重试会再 note + RUN_STARTED；复用已落盘的同 message_id / 同轮 userInput。"""
+        sess = self._hub.get_session(tid)
+        if sess is None or not sess.rows:
+            return None
+        rows = sorted(
+            (r for r in sess.rows.values() if isinstance(r, dict)),
+            key=lambda r: int(r.get("rowId") or 0),
+            reverse=True,
+        )
+        mid = str(user_mid or "").strip()
+        text = str(user_text or "").strip()
+        prev = str(prev_turn_id or "").strip()
+        if mid:
+            for row in rows:
+                if str(row.get("kind") or "") != "userInput":
+                    continue
+                if str(row.get("origin") or "") != "realUser":
+                    continue
+                if str(row.get("entityId") or "").strip() == mid:
+                    return row
+        if prev and text:
+            for row in rows:
+                if str(row.get("kind") or "") != "userInput":
+                    continue
+                if str(row.get("origin") or "") != "realUser":
+                    continue
+                if str(row.get("turnId") or "").strip() != prev:
+                    continue
+                if str(row.get("text") or "").strip() == text:
+                    return row
+        return None
+
     def _feed_one(self, tid: str, st: _MirrorState, ev: dict[str, Any]) -> None:
         et = str(ev.get("type") or "").strip()
         now_ms = _now_ms()
@@ -802,15 +870,25 @@ class V4Mirror:
             new_turn_id = (
                 str(ev.get("runId") or ev.get("threadId") or "").strip() or f"run-{now_ms}"
             )
+            prior_reset = False
+            prev_turn_id = ""
             if st.run_started:
                 # 同 runId 重复 START：去重。不同 runId：上一轮 FINISHED 漏清闩锁，强制开新轮。
                 if new_turn_id == st.turn_id:
                     return
+                prior_reset = True
+                prev_turn_id = str(st.turn_id or "").strip()
                 logger.warning(
                     "[v4-mirror] RUN_STARTED while prior turn open; reset thread=%s prev=%s next=%s",
                     tid,
-                    st.turn_id,
+                    prev_turn_id,
                     new_turn_id,
+                )
+                self._fail_open_turn_header(
+                    tid,
+                    st,
+                    now_ms=now_ms,
+                    reason=f"superseded by {new_turn_id}",
                 )
                 self._reset_turn_ephemeral(st)
             st.run_started = True
@@ -844,21 +922,41 @@ class V4Mirror:
             if (user_text or user_atts) and not (
                 user_text and _is_hidden_tool_approval_user_text(user_text) and not user_atts
             ):
-                user_row: dict[str, Any] = {
-                    "rowId": self._next_row_id(tid),
-                    "turnId": st.turn_id,
-                    "kind": "userInput",
-                    "text": user_text or "",
-                    "origin": "realUser",
-                    "createdAt": now_ms,
-                    "createdAtSeq": self._seq_now(tid),
-                    "actions": {"canEdit": True},
-                }
-                if user_mid:
-                    user_row["entityId"] = user_mid
-                if user_atts:
-                    user_row["attachments"] = user_atts
-                self._hub.author_append_row(tid, user_row)
+                reusable = self._find_reusable_user_input_row(
+                    tid,
+                    user_mid=user_mid,
+                    user_text=user_text,
+                    prev_turn_id=prev_turn_id if prior_reset else "",
+                )
+                if reusable is not None:
+                    # 空流 auto-retry：同一条用户消息只保留一颗气泡，挂到新 turn。
+                    reused = dict(reusable)
+                    reused["turnId"] = st.turn_id
+                    reused["createdAtSeq"] = self._seq_now(tid)
+                    if user_mid:
+                        reused["entityId"] = user_mid
+                    if user_atts:
+                        reused["attachments"] = user_atts
+                    elif "attachments" in reused and not user_atts:
+                        # 保留原附件；重试 body 常再次带上同一批
+                        pass
+                    self._hub.author_upsert_row(tid, reused)
+                else:
+                    user_row: dict[str, Any] = {
+                        "rowId": self._next_row_id(tid),
+                        "turnId": st.turn_id,
+                        "kind": "userInput",
+                        "text": user_text or "",
+                        "origin": "realUser",
+                        "createdAt": now_ms,
+                        "createdAtSeq": self._seq_now(tid),
+                        "actions": {"canEdit": True},
+                    }
+                    if user_mid:
+                        user_row["entityId"] = user_mid
+                    if user_atts:
+                        user_row["attachments"] = user_atts
+                    self._hub.author_append_row(tid, user_row)
             self._patch_control(tid, _running_control(now_ms=now_ms))
             return
 
