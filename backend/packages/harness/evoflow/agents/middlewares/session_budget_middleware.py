@@ -1,8 +1,13 @@
-"""Per-user-turn tool budget and delegate cooldown middleware.
+"""Per-user-turn tool budget, LangGraph recursion soft-land, and delegate cooldown.
 
 Tool-call hard/warn limits apply since the latest real user HumanMessage
 (not cumulative across the whole sidebar session). Delegate cooldown remains
-session-scoped. Repeated same-target failures are not blocked here.
+session-scoped.
+
+LangGraph ``recursion_limit`` is a hard ceiling (default 7500). Without a soft
+budget the run dies as ``GraphRecursionError`` with no user-facing wrap-up.
+This middleware injects 收尾 nudges while steps remain, then blocks non-readonly
+tools near the floor so the model must speak instead of polling forever.
 """
 
 from __future__ import annotations
@@ -29,6 +34,7 @@ from langgraph.runtime import Runtime
 from langgraph.types import Command
 
 from evoflow.agents.lead_agent.runtime_context import runtime_context_mapping
+from evoflow.runtime.long_run_limits import LONG_RUN_RECURSION_LIMIT
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +46,21 @@ _BUDGET_ENABLED = str(os.environ.get("EVOFLOW_SESSION_TOOL_BUDGET", "1")).strip(
     "no",
     "off",
 }
+_RECURSION_SOFT_ENABLED = str(os.environ.get("EVOFLOW_RECURSION_SOFT_LAND", "1")).strip().lower() not in {
+    "0",
+    "false",
+    "no",
+    "off",
+}
+# Remaining LangGraph super-steps → soft warn / hard block non-readonly tools.
+_RECURSION_SOFT_REMAINING = max(20, int(os.environ.get("EVOFLOW_RECURSION_SOFT_REMAINING", "120") or 120))
+_RECURSION_HARD_REMAINING = max(
+    8,
+    min(
+        _RECURSION_SOFT_REMAINING - 1,
+        int(os.environ.get("EVOFLOW_RECURSION_HARD_REMAINING", "40") or 40),
+    ),
+)
 _DELEGATE_COOLDOWN_SEC = 60.0
 
 _READONLY_TOOLS = frozenset(
@@ -55,15 +76,31 @@ _READONLY_TOOLS = frozenset(
         "list_skills_catalog",
         "list_agents",
         "list_assignable_tools",
+        "knowledge",
     }
 )
 
 # Injected by this middleware — must not count as a new user turn.
 _BUDGET_MSG_PREFIX = "[会话工具预算"
+_RECURSION_MSG_PREFIX = "[会话步数预算"
 
 _WARN_MSG = f"{_BUDGET_MSG_PREFIX}] 自用户本轮消息起工具调用已超过 {_WARN_TOOL_COUNT} 次。请收口总结、减少重复探索，优先用已有结果完成回答。"
 _BLOCK_MSG = f"{_BUDGET_MSG_PREFIX}·已拦截] 自用户本轮消息起工具调用已达 {_HARD_TOOL_COUNT} 次上限，非只读工具本次未执行。请根据已有结果输出结论，或向用户说明仍需的信息。"
 _DELEGATE_COOLDOWN_MSG = "[子智能体冷却] 上次委派触达步数上限，60 秒内不再启动新子任务。请根据已有子智能体结果直接总结，不要重复 task/subagent。"
+_RECURSION_SOFT_MSG = (
+    f"{_RECURSION_MSG_PREFIX}·请收尾] 本轮图执行步数即将用尽（软预算）。"
+    "请立刻用自然语言向用户说明：当前进展、未完成原因（例如后台任务/限流仍在跑）、"
+    "建议用户下一步怎么做；停止 sleep/轮询式 bash；不要空转等结果。"
+)
+_RECURSION_HARD_MSG = (
+    f"{_RECURSION_MSG_PREFIX}·强制收尾] 本轮图执行步数已接近硬上限，非只读工具已停用。"
+    "请只输出文字结论给用户（进展/阻塞/如何续跑），禁止再调用工具；"
+    "若后台任务仍在跑，明确告诉用户可稍后再查，不要继续 sleep 等待。"
+)
+_RECURSION_BLOCK_MSG = (
+    f"{_RECURSION_MSG_PREFIX}·已拦截] 步数接近硬上限，非只读工具未执行。"
+    "请根据已有结果用文字向用户收尾说明。"
+)
 
 _TURN_LIMIT_MARKER = "STEP_LIMIT_REACHED"
 
@@ -134,7 +171,43 @@ def _human_content_str(message: Any) -> str:
 
 
 def _is_budget_injected_human(message: Any) -> bool:
-    return _human_content_str(message).lstrip().startswith(_BUDGET_MSG_PREFIX)
+    body = _human_content_str(message).lstrip()
+    return body.startswith(_BUDGET_MSG_PREFIX) or body.startswith(_RECURSION_MSG_PREFIX)
+
+
+def _langgraph_step_budget() -> tuple[int | None, int]:
+    """Return ``(current_step, recursion_limit)`` from the active LangGraph config.
+
+    ``langgraph_step`` is 0-based in metadata on current LangGraph builds; treat
+    missing step as unknown (``None``) so we do not false-trigger soft land.
+    """
+    limit = int(LONG_RUN_RECURSION_LIMIT)
+    step: int | None = None
+    try:
+        from langgraph.config import get_config
+
+        cfg = get_config() or {}
+        if not isinstance(cfg, dict):
+            return None, limit
+        raw_lim = cfg.get("recursion_limit")
+        if raw_lim is not None:
+            try:
+                limit = max(1, int(raw_lim))
+            except (TypeError, ValueError):
+                pass
+        meta = cfg.get("metadata") if isinstance(cfg.get("metadata"), dict) else {}
+        raw_step = meta.get("langgraph_step")
+        if raw_step is None:
+            # Older / alternate keys seen in dumps
+            raw_step = meta.get("step")
+        if raw_step is not None:
+            try:
+                step = max(0, int(raw_step))
+            except (TypeError, ValueError):
+                step = None
+    except Exception:
+        return None, limit
+    return step, limit
 
 
 def _user_turn_token(messages: list[Any] | None) -> str:
@@ -160,7 +233,7 @@ def _user_turn_token(messages: list[Any] | None) -> str:
 
 
 class SessionBudgetMiddleware(AgentMiddleware[AgentState]):
-    """Cap per-user-turn tool volume; throttle rapid re-delegation after step limits."""
+    """Cap per-user-turn tool volume; soft-land before LangGraph recursion hard kill."""
 
     def __init__(self) -> None:
         super().__init__()
@@ -168,6 +241,8 @@ class SessionBudgetMiddleware(AgentMiddleware[AgentState]):
         self._tool_counts: dict[str, int] = defaultdict(int)
         self._turn_tokens: dict[str, str] = {}
         self._warned: set[str] = set()
+        self._recursion_soft_warned: set[str] = set()
+        self._recursion_hard_warned: set[str] = set()
         self._delegate_cooldown_until: dict[str, float] = {}
 
     def _budget_key_from_request(self, request: ToolCallRequest) -> str:
@@ -177,8 +252,8 @@ class SessionBudgetMiddleware(AgentMiddleware[AgentState]):
         return _effective_budget_key(runtime)
 
     def _sync_user_turn(self, state: AgentState, runtime: Runtime) -> None:
-        """Reset tool budget when the user sends a new message."""
-        if not _BUDGET_ENABLED:
+        """Reset tool / recursion soft-land flags when the user sends a new message."""
+        if not _BUDGET_ENABLED and not _RECURSION_SOFT_ENABLED:
             return
         budget_key = self._budget_key_from_runtime(runtime)
         if not budget_key:
@@ -196,15 +271,23 @@ class SessionBudgetMiddleware(AgentMiddleware[AgentState]):
             self._turn_tokens[budget_key] = turn
             self._tool_counts[budget_key] = 0
             self._warned.discard(budget_key)
+            self._recursion_soft_warned.discard(budget_key)
+            self._recursion_hard_warned.discard(budget_key)
             if prev:
                 logger.info(
                     "Session tool budget reset for new user turn",
                     extra={"budget_key": budget_key, "turn": turn},
                 )
 
-    def _maybe_block(self, request: ToolCallRequest) -> ToolMessage | None:
-        if not _BUDGET_ENABLED:
+    def _recursion_remaining(self) -> int | None:
+        if not _RECURSION_SOFT_ENABLED:
             return None
+        step, limit = _langgraph_step_budget()
+        if step is None:
+            return None
+        return max(0, int(limit) - int(step))
+
+    def _maybe_block(self, request: ToolCallRequest) -> ToolMessage | None:
         tc = request.tool_call if isinstance(request.tool_call, dict) else {}
         tool_name = str(tc.get("name") or "").strip()
         tool_call_id = str(tc.get("id") or "").strip()
@@ -224,9 +307,21 @@ class SessionBudgetMiddleware(AgentMiddleware[AgentState]):
                 name=tool_name,
                 status="error",
             )
-        if count >= _HARD_TOOL_COUNT and tool_name not in _READONLY_TOOLS:
+        if _BUDGET_ENABLED and count >= _HARD_TOOL_COUNT and tool_name not in _READONLY_TOOLS:
             return ToolMessage(
                 content=_BLOCK_MSG,
+                tool_call_id=tool_call_id,
+                name=tool_name,
+                status="error",
+            )
+        remaining = self._recursion_remaining()
+        if (
+            remaining is not None
+            and remaining <= _RECURSION_HARD_REMAINING
+            and tool_name not in _READONLY_TOOLS
+        ):
+            return ToolMessage(
+                content=_RECURSION_BLOCK_MSG,
                 tool_call_id=tool_call_id,
                 name=tool_name,
                 status="error",
@@ -265,23 +360,77 @@ class SessionBudgetMiddleware(AgentMiddleware[AgentState]):
         )
         return {"messages": [HumanMessage(content=_WARN_MSG)]}
 
+    def _recursion_soft_land(self, state: AgentState, runtime: Runtime) -> dict | None:
+        """Nudge (then force) wrap-up before GraphRecursionError kills the run silently."""
+        if not _RECURSION_SOFT_ENABLED:
+            return None
+        self._sync_user_turn(state, runtime)
+        budget_key = self._budget_key_from_runtime(runtime)
+        if not budget_key:
+            return None
+        remaining = self._recursion_remaining()
+        if remaining is None:
+            return None
+        step, limit = _langgraph_step_budget()
+        if remaining <= _RECURSION_HARD_REMAINING:
+            with self._lock:
+                if budget_key in self._recursion_hard_warned:
+                    return None
+                self._recursion_hard_warned.add(budget_key)
+                self._recursion_soft_warned.add(budget_key)
+            logger.warning(
+                "Session recursion hard soft-land (force wrap-up)",
+                extra={
+                    "budget_key": budget_key,
+                    "remaining": remaining,
+                    "step": step,
+                    "limit": limit,
+                },
+            )
+            return {"messages": [HumanMessage(content=_RECURSION_HARD_MSG)]}
+        if remaining <= _RECURSION_SOFT_REMAINING:
+            with self._lock:
+                if budget_key in self._recursion_soft_warned:
+                    return None
+                self._recursion_soft_warned.add(budget_key)
+            logger.warning(
+                "Session recursion soft budget warning",
+                extra={
+                    "budget_key": budget_key,
+                    "remaining": remaining,
+                    "step": step,
+                    "limit": limit,
+                },
+            )
+            return {"messages": [HumanMessage(content=_RECURSION_SOFT_MSG)]}
+        return None
+
+    def _after_model_nudges(self, state: AgentState, runtime: Runtime) -> dict | None:
+        # Prefer recursion soft-land over tool-count warn when both fire.
+        rec = self._recursion_soft_land(state, runtime)
+        if rec is not None:
+            return rec
+        return self._budget_warning(state, runtime)
+
     @override
     def before_model(self, state: AgentState, runtime: Runtime) -> dict | None:
         self._sync_user_turn(state, runtime)
-        return None
+        # Inject before the next model call so the model sees the wrap-up ask
+        # even if the previous after_model slot was skipped.
+        return self._recursion_soft_land(state, runtime)
 
     @override
     async def abefore_model(self, state: AgentState, runtime: Runtime) -> dict | None:
         self._sync_user_turn(state, runtime)
-        return None
+        return self._recursion_soft_land(state, runtime)
 
     @override
     def after_model(self, state: AgentState, runtime: Runtime) -> dict | None:
-        return self._budget_warning(state, runtime)
+        return self._after_model_nudges(state, runtime)
 
     @override
     async def aafter_model(self, state: AgentState, runtime: Runtime) -> dict | None:
-        return self._budget_warning(state, runtime)
+        return self._after_model_nudges(state, runtime)
 
     @override
     def wrap_tool_call(
