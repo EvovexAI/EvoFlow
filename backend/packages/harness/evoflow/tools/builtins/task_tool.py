@@ -600,11 +600,18 @@ async def _finalize_collab_subtask_terminal(
         )
 
     sys_outcome = ex if ex in {"failed", "timed_out", "cancelled", "blocked"} else "failed"
+    # ``failed`` without any error text almost always means "the subagent ended its
+    # turn / hit the step cap without calling done" — not a crash. Saying 异常结束
+    # there makes a healthy run look broken in the task panel.
+    if sys_outcome == "failed" and not err and not draft:
+        fallback_summary = "子智能体回合结束但未上报结果（未调用 done）"
+    else:
+        fallback_summary = f"子智能体异常结束 ({sys_outcome})"
     await apply_subtask_system_outcome(
         main_task_id=resolved_collab,
         subtask_id=resolved_subtask,
         outcome=sys_outcome,
-        summary=draft or err or f"子智能体异常结束 ({sys_outcome})",
+        summary=draft or err or fallback_summary,
         error=err or None,
     )
     if sys_outcome == "timed_out":

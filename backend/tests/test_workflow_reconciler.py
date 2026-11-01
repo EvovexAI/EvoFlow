@@ -123,3 +123,86 @@ def test_cross_process_epoch_mismatch_is_zombie_when_epoch_boot_scoped(monkeypat
         "lease_until_ts": time.time() + 9999,
     }
     assert is_zombie_executing_subtask(st_same, reason="tick") is False
+
+
+# ── Requeue must not leave the previous failure text on the row ─────────────
+#
+# Regression: Step 2 reported 「子智能体异常结束 (failed)」, the reconciler
+# requeued it, and the panel kept rendering that error while the retry was
+# already writing thousands of lines — the row looked crashed but was alive,
+# and ``is_subtask_outcome_reported()`` still returned True for a pending row.
+
+
+def _failed_row() -> dict:
+    return {
+        "id": "s2",
+        "status": "failed",
+        "summary": "子智能体异常结束 (failed)",
+        "error": "子智能体异常结束 (failed)",
+        "error_kind": "business",
+        "task_report": "attempt-1 report",
+        "result": "attempt-1 result",
+        "outcome_reported_at": "2026-10-31T22:24:56Z",
+        "outcome_reported_by": "system",
+        "failed_at": "2026-10-31T22:24:56Z",
+        "completed_at": "2026-10-31T22:24:56Z",
+        "auto_retry_count": 0,
+    }
+
+
+def test_failed_retry_clears_previous_outcome_residue(monkeypatch):
+    from evoflow.collab import workflow_reconciler
+
+    monkeypatch.setenv("EVOFLOW_SUBTASK_AUTO_RETRY_MAX", "3")
+    st = _failed_row()
+    healed = workflow_reconciler._heal_subtasks(
+        {"subtasks": [st]}, reason="tick", now_ts=time.time()
+    )
+
+    assert [h["why"] for h in healed] == ["failed_retry"]
+    assert st["status"] == "pending"
+    for key in (
+        "outcome_reported_at",
+        "outcome_reported_by",
+        "task_report",
+        "summary",
+        "result",
+        "failed_at",
+        "completed_at",
+    ):
+        assert key not in st, f"{key} should be cleared before re-dispatch"
+    assert st["error"].startswith("reconcile:tick:retry_failed")
+    assert st["auto_retry_count"] == 1
+
+    from evoflow.collab.subtask_outcome import is_subtask_outcome_reported
+
+    assert is_subtask_outcome_reported(st) is False
+
+
+def test_zombie_heal_clears_previous_outcome_residue():
+    from evoflow.collab import workflow_reconciler
+
+    st = _failed_row() | {"status": "executing", "lease_until_ts": time.time() - 10}
+    healed = workflow_reconciler._heal_subtasks(
+        {"subtasks": [st]}, reason="tick", now_ts=time.time()
+    )
+
+    assert [h["why"] for h in healed] == ["zombie_executing"]
+    assert st["status"] == "pending"
+    assert "task_report" not in st
+    assert "outcome_reported_at" not in st
+
+
+def test_retry_budget_exhausted_keeps_failure_text(monkeypatch):
+    """No retry left ⇒ row stays failed and must keep its report for the user."""
+    from evoflow.collab import workflow_reconciler
+
+    monkeypatch.setenv("EVOFLOW_SUBTASK_AUTO_RETRY_MAX", "1")
+    st = _failed_row() | {"auto_retry_count": 1}
+    healed = workflow_reconciler._heal_subtasks(
+        {"subtasks": [st]}, reason="tick", now_ts=time.time()
+    )
+
+    assert healed == []
+    assert st["status"] == "failed"
+    assert st["task_report"] == "attempt-1 report"
