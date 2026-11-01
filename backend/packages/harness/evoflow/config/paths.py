@@ -50,7 +50,7 @@ class Paths:
     production uses .evoflow), set the EVOFLOW_HOME environment variable:
 
         # Windows PowerShell
-        [System.Environment]::SetEnvironmentVariable("EVOFLOW_HOME", "$env:USERPROFILE\.evoflow-dev", "User")
+        [System.Environment]::SetEnvironmentVariable("EVOFLOW_HOME", (Join-Path $env:USERPROFILE ".evoflow-dev"), "User")
 
         # Linux/macOS
         export EVOFLOW_HOME=~/.evoflow-dev
