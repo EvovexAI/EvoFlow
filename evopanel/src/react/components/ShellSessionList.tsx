@@ -17,6 +17,12 @@ import {
   loadPinnedWorkspaceKeys,
   savePinnedWorkspaceKeys,
 } from '../lib/session-list/pinned-workspaces-storage.js'
+import {
+  loadFocusedEmployeeCode,
+  loadShellSidebarViewMode,
+  saveFocusedEmployeeCode,
+  saveShellSidebarViewMode,
+} from '../lib/session-list/shell-sidebar-chrome-storage.js'
 import type { ShellSidebarSyncRow, ShellWorkspaceGroup } from '../lib/session-list/types.js'
 import type { ResolvedLiveStreamActivity } from '../lib/resolve-live-stream-activity.js'
 import type { RunningSessionSummary } from '../hooks/useRunningSessionSummaries.js'
@@ -30,6 +36,7 @@ import {
   WORKSPACE_GROUP_PROACTIVE_LABEL,
   WORKSPACE_GROUP_UNBOUND,
   WORKSPACE_GROUP_VIRTUAL,
+  isProactiveSessionKey,
   isSpecialWorkspaceGroupKey,
   normalizeWorkspacePathKey,
   proactiveAgentCodeFromSessionKey,
@@ -302,17 +309,22 @@ export function ShellSessionList({
   const [refreshing, setRefreshing] = useState(false)
   const [wsMenuOpen, setWsMenuOpen] = useState(false)
   /** chats = 普通对话；employees = 智能体员工会话 */
-  const [listTab, setListTab] = useState<'chats' | 'employees'>('chats')
+  const [listTab, setListTab] = useState<'chats' | 'employees'>(() =>
+    loadShellSidebarViewMode() === 'project' ? 'employees' : 'chats',
+  )
   /** 视图切换：grouped = 分组视图（普通对话）；project = 项目视图（员工对话） */
-  const [viewMode, setViewMode] = useState<'grouped' | 'project'>('grouped')
+  const [viewMode, setViewMode] = useState<'grouped' | 'project'>(() => loadShellSidebarViewMode())
 
-  // viewMode 和 listTab 联动
+  // viewMode 和 listTab 联动；持久化跨刷新对齐上次关闭态
   useEffect(() => {
     setListTab(viewMode === 'grouped' ? 'chats' : 'employees')
+    saveShellSidebarViewMode(viewMode)
   }, [viewMode])
   const [focusedWorkspaceKey, setFocusedWorkspaceKey] = useState<string | null>(null)
   /** 员工 Tab：下拉选中的员工 code；空 = 全部员工 */
-  const [focusedEmployeeCode, setFocusedEmployeeCode] = useState<string | null>(null)
+  const [focusedEmployeeCode, setFocusedEmployeeCode] = useState<string | null>(() =>
+    loadFocusedEmployeeCode(),
+  )
   const [empMenuOpen, setEmpMenuOpen] = useState(false)
   /** 工作空间下拉内的模糊搜索词（仅过滤下拉面板，不影响会话列表搜索） */
   const [wsMenuQuery, setWsMenuQuery] = useState('')
@@ -342,6 +354,8 @@ export function ShellSessionList({
   const empMenuSearchRef = useRef<HTMLInputElement>(null)
   const loadMoreLockRef = useRef<Record<string, boolean>>({})
   const autoTabForSessionRef = useRef('')
+  const focusedEmployeeCodeRef = useRef(focusedEmployeeCode)
+  focusedEmployeeCodeRef.current = focusedEmployeeCode
   const onWorkspaceExpandRef = useRef(onWorkspaceExpand)
   onWorkspaceExpandRef.current = onWorkspaceExpand
 
@@ -435,15 +449,35 @@ export function ShellSessionList({
     setDutyFoldOpen(false)
   }, [isEmployeesTab, focusedEmployeeCode])
 
-  /** 选中会话变化时对齐 Tab；不覆盖用户手动点 Tab */
+  /**
+   * 选中会话为员工会话时对齐到「员工」Tab（用 key 形态，不依赖 rows 是否已 hydrate）。
+   * 旧逻辑先写 ref 再等 row hit：冷启动时常因 rows 尚未到位就标记已处理，
+   * 导致永远停在「任务」Tab，员工会话被过滤掉（右侧已恢复会话、左侧像初始化）。
+   * 非员工会话不强制切回「任务」，以免覆盖用户上次停在员工列表的偏好。
+   * 只在 displaySelectedKey 变化时跑一次，不覆盖用户之后手动点 Tab。
+   */
   useEffect(() => {
     if (!displaySelectedKey) return
     if (autoTabForSessionRef.current === displaySelectedKey) return
     autoTabForSessionRef.current = displaySelectedKey
-    const hit = rows.find((r) => String(r.sessionKey || '') === displaySelectedKey)
-    if (!hit) return
-    setListTab(hit.workspaceKey === WORKSPACE_GROUP_PROACTIVE ? 'employees' : 'chats')
-  }, [displaySelectedKey, rows])
+    if (!isProactiveSessionKey(displaySelectedKey)) return
+    setViewMode('project')
+  }, [displaySelectedKey])
+
+  /**
+   * 冷启动 / 切到员工会话：若员工筛选与当前选中会话岗位不一致，清到「全部员工」，
+   * 避免右侧已打开某员工会话、左侧因筛选隐藏该行。运行时点选会话不改写筛选（见下方注释）。
+   */
+  useEffect(() => {
+    if (!displaySelectedKey || !isProactiveSessionKey(displaySelectedKey)) return
+    const focused = focusedEmployeeCodeRef.current
+    if (!focused) return
+    const code = proactiveAgentCodeFromSessionKey(displaySelectedKey)
+    if (!code) return
+    if (focused.toLowerCase() === code.toLowerCase()) return
+    setFocusedEmployeeCode(null)
+    saveFocusedEmployeeCode(null)
+  }, [displaySelectedKey])
 
   /** 进入员工 Tab：已有数据则静默补拉，避免再亮一次底部 loading */
   useEffect(() => {
@@ -945,7 +979,9 @@ export function ShellSessionList({
   }, [rows, pinnedKeySet, focusedWorkspaceKey, isEmployeesTab, employeeSessionRows])
 
   const selectEmployeeFilter = useCallback((code: string | null) => {
-    setFocusedEmployeeCode(code ? String(code).trim() || null : null)
+    const next = code ? String(code).trim() || null : null
+    setFocusedEmployeeCode(next)
+    saveFocusedEmployeeCode(next)
     setEmpMenuQuery('')
     setEmpMenuOpen(false)
     setDutyFoldOpen(false)
