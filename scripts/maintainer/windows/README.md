@@ -37,9 +37,10 @@ Or piece-wise via `local-publish.ps1`:
 | Script | Role |
 |--------|------|
 | `republish-public-release.ps1` | Upload Release assets + public `update/latest.json` |
-| `push-public-latest-json.ps1` | Refresh draft + push public `update/latest.json` (CI + repair) |
+| `push-public-latest-json.ps1` | Refresh draft + push `update/latest.json` to GitHub **and Gitee** (CI + repair) |
 | `upload-release-assets-only.ps1` | Windows asset upload (called by republish) |
 | `prune-public-github-releases.ps1` | Keep newest N public releases |
 | `public-release-body.txt` | Footer under PRODUCT-NOTES in Release body |
 
-Updater draft: `../update/latest.json` (never commit a fake root `update/` before the installer is ready). Live channel is Contents-API-pushed to `main/update/latest.json`; clients prefer jsDelivr.
+Updater draft: `../update/latest.json`（安装包未就绪前不要往公仓塞假 `update/`）。  
+现行：GitHub Actions 打包装 GitHub Releases；清单推双仓；客户端 **优先 Gitee** 检查更新，下载用 ghfast 镜像。

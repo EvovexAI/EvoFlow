@@ -1,17 +1,19 @@
 #requires -Version 5.1
 <#
 .SYNOPSIS
-  Build scripts/maintainer/update/latest.json from a Windows Release asset and
-  push it to the public channel path update/latest.json on EvovexAI/EvoFlow.
+  After GitHub Actions (or local) publishes a Windows installer, refresh
+  scripts/maintainer/update/latest.json and push update/latest.json to both
+  GitHub and Gitee.
 
-  Clients poll (Gitee first — domestic; then jsDelivr / GitHub raw):
+  Default path (current product):
+  - Installer lives on GitHub Releases (CI builds it)
+  - Primary download URL = ghfast mirror of that GitHub asset
+  - Clients check for updates via Gitee latest.json first
+
+  Clients poll manifests in order:
     https://gitee.com/evovexai/EvoFlow/raw/main/update/latest.json
     https://cdn.jsdelivr.net/gh/EvovexAI/EvoFlow@main/update/latest.json
     https://raw.githubusercontent.com/EvovexAI/EvoFlow/main/update/latest.json
-
-  Draft stays under scripts/maintainer/update/ (source tree). Live channel files:
-  - Gitee: git push of update/latest.json (preferred for CN)
-  - GitHub: Contents API to update/latest.json (jsDelivr / overseas)
 
 .PARAMETER SkipGitee
   Do not push to gitee.com/evovexai/EvoFlow.
@@ -32,6 +34,15 @@
 .PARAMETER DryRun
   Write local draft only; do not push to the public repo.
 
+.PARAMETER PrimaryUrl
+  Override the primary installer download URL written into latest.json (e.g. CDN
+  URL used by an independent Gitee Windows build).
+
+.PARAMETER InstallerHost
+  github (default): primary URL prefers ghfast mirror of GitHub Releases.
+  gitee: independent Gitee build — primary URL is PrimaryUrl / CN CDN; do not
+  pretend Gitee Releases hosts the ~380MB setup.exe.
+
 .EXAMPLE
   powershell -NoProfile -ExecutionPolicy Bypass -File scripts\maintainer\windows\push-public-latest-json.ps1 -Tag v1.2.3
 #>
@@ -40,6 +51,9 @@ param(
     [string] $Tag,
     [string] $NsisDir = "",
     [string] $Changelog = "",
+    [string] $PrimaryUrl = "",
+    [ValidateSet('github', 'gitee')]
+    [string] $InstallerHost = 'github',
     [switch] $DryRun,
     [switch] $SkipGitee,
     [switch] $SkipGithub
@@ -126,7 +140,7 @@ function Resolve-ChangelogLine {
     return "EvoFlow $Version"
 }
 
-$headers = Get-AuthHeaders
+$headers = $null
 $api = "https://api.github.com/repos/$owner/$repo"
 $releasedAt = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
 $changelogLine = Resolve-ChangelogLine -Version $semVer -Override $Changelog
@@ -135,6 +149,12 @@ $hash = ""
 $size = 0
 $assetName = "EvoFlow_${semVer}_x64-setup.exe"
 $platforms = $null
+
+# GitHub token only when we need Release metadata or will push to GitHub.
+$needGithubAuth = (-not $SkipGithub) -or (-not ($NsisDir -and $NsisDir.Trim().Length -gt 0))
+if ($needGithubAuth) {
+    $headers = Get-AuthHeaders
+}
 
 if ($NsisDir -and $NsisDir.Trim().Length -gt 0) {
     if (-not (Test-Path -LiteralPath $NsisDir)) { throw "NsisDir not found: $NsisDir" }
@@ -152,10 +172,15 @@ if ($NsisDir -and $NsisDir.Trim().Length -gt 0) {
         $sigPath = "$($nsisZip.FullName).sig"
         if (Test-Path -LiteralPath $sigPath) {
             $sig = (Get-Content -LiteralPath $sigPath -Raw -Encoding UTF8).Trim()
+            $zipUrl = "https://github.com/$owner/$repo/releases/download/$tagName/$($nsisZip.Name)"
+            if ($InstallerHost -eq 'gitee' -and $PrimaryUrl -and $PrimaryUrl.Trim().Length -gt 0) {
+                # Same CDN directory as setup.exe (replace filename).
+                $zipUrl = (($PrimaryUrl.Trim() -replace '/[^/]+$', '') + '/' + $nsisZip.Name)
+            }
             $platforms = @{
                 "windows-x86_64" = @{
                     signature = $sig
-                    url       = "https://github.com/$owner/$repo/releases/download/$tagName/$($nsisZip.Name)"
+                    url       = $zipUrl
                 }
             }
             Write-Host "  updater bundle: $($nsisZip.Name) (+ signature)" -ForegroundColor DarkGray
@@ -225,10 +250,25 @@ $giteeOwner = if ($env:GITEE_OWNER) { $env:GITEE_OWNER.Trim() } else { "evovexai
 $giteeRepo = if ($env:GITEE_REPO) { $env:GITEE_REPO.Trim() } else { "EvoFlow" }
 $urlGithub = "https://github.com/$owner/$repo/releases/download/$tagName/$assetName"
 # Gitee Releases attach_files hard-caps ~100MB — cannot host ~380MB setup.exe.
-# CN download uses a GitHub release mirror; Gitee only hosts update/latest.json (small).
+$urlGiteeRelease = "https://gitee.com/$giteeOwner/$giteeRepo/releases/download/$tagName/$assetName"
 $urlCnMirror = "https://ghfast.top/$urlGithub"
-$urlGitee = "https://gitee.com/$giteeOwner/$giteeRepo/releases/download/$tagName/$assetName"
-$primaryUrl = $urlCnMirror
+$urlGitee = $urlGiteeRelease
+if ($InstallerHost -eq 'gitee') {
+    # Independent Gitee build: binary lives on CDN (EVOFLOW_CN_INSTALLER_BASE_URL), not Gitee attach_files.
+    if (-not $PrimaryUrl -or $PrimaryUrl.Trim().Length -eq 0) {
+        throw "InstallerHost=gitee requires -PrimaryUrl (CDN HTTPS URL for setup.exe)"
+    }
+    $primaryUrl = $PrimaryUrl.Trim()
+    $urlGitee = $primaryUrl
+    $urlCnMirror = $primaryUrl
+}
+elseif ($PrimaryUrl -and $PrimaryUrl.Trim().Length -gt 0) {
+    $primaryUrl = $PrimaryUrl.Trim()
+}
+else {
+    # GitHub-built package: CN clients use ghfast mirror of GitHub Releases.
+    $primaryUrl = $urlCnMirror
+}
 
 # Build UTF-8 JSON via Node (PS 5.1 ConvertTo-Json mangles CJK / em-dashes).
 $draftPath = Join-Path $RepoRoot "scripts\maintainer\update\latest.json"
@@ -266,7 +306,11 @@ try {
             if ($platCopy.'windows-x86_64' -and $platCopy.'windows-x86_64'.url) {
                 $zipName = [IO.Path]::GetFileName([string]$platCopy.'windows-x86_64'.url)
                 if ($zipName) {
-                    $platCopy.'windows-x86_64'.urlGitee = "https://gitee.com/$giteeOwner/$giteeRepo/releases/download/$tagName/$zipName"
+                    if ($InstallerHost -eq 'gitee') {
+                        $platCopy.'windows-x86_64'.urlGitee = [string]$platCopy.'windows-x86_64'.url
+                    } else {
+                        $platCopy.'windows-x86_64'.urlGitee = "https://gitee.com/$giteeOwner/$giteeRepo/releases/download/$tagName/$zipName"
+                    }
                 }
             }
         } catch { }
@@ -470,6 +514,10 @@ if (-not $SkipGitee) {
 
 Write-Host "Manifest (CN): https://gitee.com/$giteeOwner/$giteeRepo/raw/main/update/latest.json" -ForegroundColor DarkGray
 Write-Host "Manifest FO:   https://cdn.jsdelivr.net/gh/$owner/$repo@main/update/latest.json" -ForegroundColor DarkGray
-Write-Host "Installer CN:  $urlCnMirror" -ForegroundColor DarkGray
-Write-Host "Installer GH:  $urlGithub" -ForegroundColor DarkGray
-Write-Host "Note: Gitee Releases cannot host the ~380MB setup.exe (100MB attach limit). CI builds once on GitHub; CN clients use ghfast mirror + Gitee latest.json." -ForegroundColor Yellow
+Write-Host "Installer primary: $primaryUrl" -ForegroundColor DarkGray
+Write-Host "Installer GH:      $urlGithub" -ForegroundColor DarkGray
+if ($InstallerHost -eq 'gitee') {
+    Write-Host "Note: Gitee-independent build — setup.exe on CDN ($primaryUrl); Gitee Releases only hold notes/checksums (100MB attach limit)." -ForegroundColor Yellow
+} else {
+    Write-Host "Note: Gitee Releases cannot host ~380MB setup.exe. GitHub-built packages use ghfast mirror; Gitee hosts latest.json." -ForegroundColor Yellow
+}
