@@ -48,6 +48,7 @@ export default defineConfig({
       'tests/aside-title-shimmer.test.js',
       'tests/chat-summary-panel.test.js',
       'tests/compose-attach.test.js',
+      'tests/tts-speaker-custom-toggle.test.js',
       'tests/web-embed-url.test.js',
       'tests/global-assistant.test.js',
       'tests/proactive-approval-notify.test.js',
