@@ -1342,20 +1342,14 @@ export function renderAppearanceBar(page) {
     <div class="settings-appearance-group settings-appearance-group--range">
       <div class="settings-appearance-label">界面缩放</div>
       <div class="settings-font-size-control">
-        <div class="settings-font-size-row" style="align-items:center;gap:10px">
+        <div class="settings-ui-zoom-row">
           <button type="button" id="general-ui-zoom-minus" class="btn btn-secondary" style="width:36px" aria-label="缩小界面">−</button>
           <span id="general-ui-zoom-value" class="settings-font-size-value">${Math.round(getUiZoom() * 100)}%</span>
           <button type="button" id="general-ui-zoom-plus" class="btn btn-secondary" style="width:36px" aria-label="放大界面">＋</button>
           <button type="button" id="general-ui-zoom-reset" class="btn btn-secondary">复位 100%</button>
         </div>
-        <div class="settings-font-size-ticks" aria-hidden="true">
-          <span>80%</span>
-          <span>100%</span>
-          <span>200%</span>
-        </div>
+        <p class="form-hint" style="margin-top:2px">整个界面等比缩放（含布局），范围 80%–200%，独立于字体大小。快捷键：Ctrl+= / Ctrl+- / Ctrl+0，或按住 Ctrl 滚轮。</p>
       </div>
-      <div class="form-hint" style="margin-top:6px">整个界面等比缩放（含布局），独立于字体大小。快捷键：Ctrl+= / Ctrl+- / Ctrl+0，或按住 Ctrl 滚轮。</div>
     </div>
-    <p class="form-hint" style="margin-top:var(--space-xs)">外观设置会保存为你的偏好，并立即应用到整个客户端。</p>
   `
 }

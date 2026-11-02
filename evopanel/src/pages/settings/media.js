@@ -1171,6 +1171,9 @@ function bindAutosave(panel) {
   panel.addEventListener('change', (e) => {
     const t = e.target
     if (!(t instanceof HTMLElement)) return
+    if (t.matches('[data-tts-speaker-custom-mode]')) {
+      return // 音色「自定义」勾选框是 UI 模式切换,不改数据;真正的值变化由 input/blur 触发保存
+    }
     if (t.closest('[data-xiaomi-voice-providers], [data-xiaomi-asr-provider], [data-xiaomi-tts-provider]')) {
       return // Xiaomi channel prefs persist locally; not media.credentials
     }
