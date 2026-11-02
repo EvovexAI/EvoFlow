@@ -16,7 +16,7 @@ function mockDataTransfer(partial) {
   const data = partial.data || {}
   return {
     files: partial.files || [],
-    items: [],
+    items: partial.items || [],
     types: Object.keys(data),
     getData: (type) => data[type] || '',
     setData: () => {},
@@ -25,6 +25,11 @@ function mockDataTransfer(partial) {
     dropEffect: 'none',
     effectAllowed: 'all',
   }
+}
+
+/** Simulate a real clipboard file item: getAsFile() materializes a fresh File-like object. */
+function mockFileItem(file) {
+  return { kind: 'file', type: file.type || '', getAsFile: () => ({ ...file }) }
 }
 
 describe('compose-attach', () => {
@@ -131,5 +136,33 @@ describe('compose-attach', () => {
       currentTarget: { value: 'hi', selectionStart: 2, selectionEnd: 2 },
     })
     expect(synced).toBe('hi there')
+  })
+
+  // 根因回归:Chromium 对同一剪贴板图片,dt.files 与 dt.items.getAsFile() 各自物化
+  // File 对象,lastModified 是创建时刻(毫秒级),跨毫秒即失配。
+  // 实测 E2E:files[0].lastModified=...560,items.getAsFile().lastModified=...561,
+  // 旧去重键 name:size:lastModified 不匹配 → 一次 Ctrl+V 出现两张相同图片。
+  it('paste image: files + items both populated dedupe to one blob (lastModified is unstable)', () => {
+    const dt = mockDataTransfer({
+      files: [{ name: 'image.png', size: 1099, lastModified: 1793588500560, type: 'image/png' }],
+      items: [
+        mockFileItem({ name: 'image.png', size: 1099, lastModified: 1793588500561, type: 'image/png' }),
+      ],
+    })
+    const result = parseComposeDataTransfer(dt, { fromPaste: true })
+    expect(result.blobFiles).toHaveLength(1)
+    expect(result.handled).toBe(true)
+  })
+
+  // 拖放真实文件保持旧语义:mtime 不同的同名同大小文件仍视为两个不同附件。
+  it('drop two same-name same-size files with different mtime stay separate', () => {
+    const dt = mockDataTransfer({
+      files: [
+        { name: 'a.bin', size: 100, lastModified: 1000 },
+        { name: 'a.bin', size: 100, lastModified: 2000 },
+      ],
+    })
+    const result = parseComposeDataTransfer(dt, { fromPaste: false })
+    expect(result.blobFiles).toHaveLength(2)
   })
 })

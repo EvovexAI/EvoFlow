@@ -183,7 +183,14 @@ export function parseComposeDataTransfer(
   const seenBlobKeys = new Set<string>()
   const pushBlob = (file: File) => {
     if (opts?.fromPaste && isSpuriousClipboardFile(file)) return
-    const key = `${file.name}:${file.size}:${file.lastModified}`
+    // 根因:剪贴板 File 的 lastModified 是对象物化时刻(毫秒级),不是稳定属性。
+    // Chromium 下 dt.files 与 dt.items.getAsFile() 各自物化 File,跨毫秒即失配
+    // (实测同一截图 ...560 vs ...561),旧键 name:size:lastModified 会把一张图
+    // 当成两个附件。粘贴场景只按 name:size 判同一性;拖放是真实文件,mtime
+    // 稳定,保留旧键以区分同名同大小的不同文件。
+    const key = opts?.fromPaste
+      ? `${file.name}:${file.size}`
+      : `${file.name}:${file.size}:${file.lastModified}`
     if (seenBlobKeys.has(key)) return
     seenBlobKeys.add(key)
     blobFiles.push(file)
