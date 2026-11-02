@@ -307,6 +307,39 @@ async def list_channel_push_targets(request: Request, limit: int = 200) -> dict[
     return {"targets": list_push_targets(limit=limit)}
 
 
+class _PushToOriginRequest(BaseModel):
+    """Body for ``POST /api/channels/push-to-origin``."""
+
+    session_key: str = Field(..., min_length=1, description="IM session_key whose origin chat/bot should receive the push")
+    text: str = Field(default="", description="Markdown body")
+    paths: list[str] = Field(default_factory=list, description="Local files/images to attach")
+    title: str = Field(default="", description="Optional bold title prepended to the body")
+
+
+@router.post("/push-to-origin")
+async def push_to_origin(body: _PushToOriginRequest) -> dict[str, Any]:
+    """Bridge for processes that own no ChannelService (LangGraph / harness tools).
+
+    ``channels.send_message`` runs inside the agent process, where the
+    ``channels.push_to_inbound_origin`` runtime port is never registered (the
+    adapter is installed by ``create_app()`` in the Gateway). Without this route
+    the tool answered "channel push adapter not registered" and nothing was sent,
+    even with Feishu healthy.
+
+    Routing stays authoritative on the Gateway: the session index written on
+    inbound decides chat + bot, so callers still cannot pick a bot.
+    """
+    from app.gateway.channel_result_push import push_to_inbound_origin
+
+    result = await push_to_inbound_origin(
+        session_key=body.session_key,
+        text=body.text,
+        paths=list(body.paths or []),
+        title=body.title,
+    )
+    return result if isinstance(result, dict) else {"ok": False, "error": "push_failed"}
+
+
 @router.get("/messages")
 async def list_channel_messages(
     request: Request,

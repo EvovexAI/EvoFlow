@@ -167,6 +167,14 @@ _nc2.txt
 _nodecheck.txt
 *.code-workspace
 
+# Agent / local one-shot scratch (never commit)
+/list-terminals.ps1
+/monitor-log.ps1
+/@AutomationLog.txt
+/scifi_composer_design.png
+evopanel/src-tauri/find_fns.ps1
+evopanel/src-tauri/splice.ps1
+
 # Rust build artifacts
 target/
 

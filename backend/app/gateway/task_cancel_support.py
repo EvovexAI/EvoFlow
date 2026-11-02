@@ -90,6 +90,15 @@ async def _cancel_plan_worker(thread_id: str | None) -> None:
                     logger.debug("Failed to cancel run %s on thread %s: %s", tid, run_id, e)
     except Exception as e:
         logger.warning("Failed to cancel LangGraph runs for thread %s: %s", tid, e)
+    # 3. Thread-pool subagents are not LangGraph runs — mark them cancelled too.
+    try:
+        from evoflow.subagents.executor import cancel_background_tasks_for_parent_thread
+
+        bg = cancel_background_tasks_for_parent_thread(tid, reason="plan_worker_cancelled")
+        if bg:
+            logger.info("Cancelled %d background subagent(s) for thread %s", len(bg), tid)
+    except Exception as e:
+        logger.debug("Failed to cancel background subagents for thread %s: %s", tid, e)
 
 
 async def _cancel_supervisor_monitor(task_id: str) -> None:

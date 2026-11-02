@@ -2704,11 +2704,12 @@ export const api = {
     summary = '',
   } = {}) =>
     gatewayProxy('POST', '/assets/episode', { entityType, entityId, content, title, summary }),
-  /** 写/追加 memory/journal/{date}.md（带 catalog summary） */
+  /** 写/追加 memory/journal/{topic-slug}.md（文件名用主题，日期只在 frontmatter） */
   assetsJournal: async ({
     entityType = 'user',
     entityId = 'user',
     content,
+    title = '',
     date = '',
     append = true,
     summary = '',
@@ -2717,11 +2718,12 @@ export const api = {
       entityType,
       entityId,
       content,
+      title,
       date,
       append,
       summary,
     }),
-  /** 直接写 craft/{slug}/SKILL.md */
+  /** 直接写 craft/{slug}.md（扁平文件；成熟后再 promote 成技能包） */
   assetsCraftSave: async ({
     entityType = 'user',
     entityId = 'user',
@@ -3359,11 +3361,13 @@ export const api = {
     const q = query && typeof query === 'object' ? { ...query } : {}
     // Backend page_size=0 returns the FULL catalog (~1MB+). Under load that alone
     // wedges Gateway (sessions/health pile up behind it). Never leave it unbounded.
+    // Default 40: hang dumps showed page_size=100 often waiting 10–49s while chat runs;
+    // opening workflow then queues behind this catalog scan.
     if (q.page_size == null || q.page_size === '' || Number(q.page_size) === 0) {
       if (q.limit != null && q.limit !== '' && Number(q.limit) > 0) {
         q.page_size = q.limit
       } else {
-        q.page_size = 100
+        q.page_size = 40
       }
     }
     if (q.include_subtasks != null) delete q.include_subtasks

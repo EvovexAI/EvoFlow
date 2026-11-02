@@ -853,10 +853,11 @@ function AssistantHistoryStatus({
     intl,
     locale,
   );
+  const running = segment.workStatus?.state === "running";
   const label =
     segment.workStatus?.state === "interrupted"
       ? intl.formatMessage({ id: "chat.history.stopped" })
-      : segment.workStatus?.state === "running"
+      : running
         ? intl.formatMessage({ id: "chat.history.workingFor" }, { duration: durationLabel ?? "" })
         : durationLabel
           ? intl.formatMessage({ id: "chat.history.workedFor" }, { duration: durationLabel })
@@ -871,6 +872,7 @@ function AssistantHistoryStatus({
           data-history-open={String(open)}
           className="group/history-message inline-flex max-w-full items-center gap-2 text-left text-ui-base text-foreground-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-input-border-focused)]"
         >
+          {/* running 进度转圈只留回合末尾 ChatLoading（TurnChatLoadingSlot），此处勿再挂 Loader。 */}
           <span className="truncate">{label}</span>
           {!segment.assistantHistoryDefaultOpen ? (
             <ChevronRightIcon
@@ -1040,6 +1042,7 @@ function ConversationWorkSegmentFlow({
       {shouldShowHistoryStatus && firstAssistantFlowItemIndex < 0 ? (
         <AssistantHistoryStatus segment={segment} open={open} />
       ) : null}
+      {/* 运行中转圈：仅父级 TurnChatLoadingSlot / ChatLoading，勿在此重复挂 Loader。 */}
     </Collapsible>
   );
 }

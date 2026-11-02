@@ -9,6 +9,7 @@ import sys
 import threading
 import time
 from dataclasses import replace
+from datetime import datetime
 from typing import Annotated, Any
 
 from langchain.tools import InjectedToolCallId, ToolRuntime, tool
@@ -46,7 +47,12 @@ from evoflow.collab.thread_collab import load_thread_collab_state
 from evoflow.config.agents_config import load_agent_config
 from evoflow.config.paths import get_paths
 from evoflow.sandbox.security import LOCAL_BASH_SUBAGENT_DISABLED_MESSAGE, is_host_bash_allowed
-from evoflow.subagents import SubagentExecutor, get_available_subagent_names, get_subagent_config
+from evoflow.subagents import (
+    SubagentExecutor,
+    get_available_subagent_names,
+    get_subagent_config,
+    resolve_subagent_type,
+)
 from evoflow.subagents.executor import SubagentResult, SubagentStatus, cleanup_background_task, get_background_task_result
 from evoflow.tools.builtins.subagent_tool_description import SUBAGENT_TOOL_DESCRIPTION
 
@@ -594,11 +600,18 @@ async def _finalize_collab_subtask_terminal(
         )
 
     sys_outcome = ex if ex in {"failed", "timed_out", "cancelled", "blocked"} else "failed"
+    # ``failed`` without any error text almost always means "the subagent ended its
+    # turn / hit the step cap without calling done" — not a crash. Saying 异常结束
+    # there makes a healthy run look broken in the task panel.
+    if sys_outcome == "failed" and not err and not draft:
+        fallback_summary = "子智能体回合结束但未上报结果（未调用 done）"
+    else:
+        fallback_summary = f"子智能体异常结束 ({sys_outcome})"
     await apply_subtask_system_outcome(
         main_task_id=resolved_collab,
         subtask_id=resolved_subtask,
         outcome=sys_outcome,
-        summary=draft or err or f"子智能体异常结束 ({sys_outcome})",
+        summary=draft or err or fallback_summary,
         error=err or None,
     )
     if sys_outcome == "timed_out":
@@ -675,6 +688,26 @@ async def task_tool(
     collab_sub_row: dict | None = None
     collab_lead_thread_id: str | None = None
     collab_main_task_row: dict[str, Any] | None = None
+    # Plain chat subagent (no collab): give a dedicated executor thread so the
+    # right-stage pane can V4-hydrate that thread (same {lead}__sub__{id} shape
+    # as collab). Reusing the lead thread_id would make V4SessionPaneBridge
+    # render the main conversation in the side panel — the raw「实时输出」fallback.
+    if not resolved_collab:
+        try:
+            import re
+
+            from evoflow.collab.thread_ids import (
+                collab_subtask_executor_thread_id,
+                normalize_lead_thread_id,
+            )
+
+            lead = normalize_lead_thread_id(thread_id) or str(thread_id or "").strip()
+            # Paths._SAFE_THREAD_ID_RE: alnum / hyphen / underscore only.
+            sid = re.sub(r"[^A-Za-z0-9_\-]+", "_", str(tool_call_id or "").strip()).strip("_")
+            if lead and sid:
+                execution_thread_id = collab_subtask_executor_thread_id(lead, sid)
+        except Exception:
+            logger.debug("task_tool: allocate chat-subagent executor thread failed", exc_info=True)
     if resolved_collab:
         collab_storage = get_project_storage()
         cm = find_main_task(collab_storage, resolved_collab)
@@ -945,9 +978,19 @@ async def task_tool(
         elif outcome == "cancelled":
             await broadcast_collab_task_event(resolved_collab, "task:cancelled", {"task_id": tid, "error": (r.error or "")[:4000]})
 
-    effective_subagent_type = subagent_type
+    requested_subagent_type = str(subagent_type or "").strip()
     if profile_model and profile_model.base_subagent:
-        effective_subagent_type = str(profile_model.base_subagent).strip()
+        requested_subagent_type = str(profile_model.base_subagent).strip()
+
+    # Built-in default is the generic agent. Unknown names (often hallucinated from
+    # plugin/skill labels like computer-use) coerce instead of hard-failing.
+    effective_subagent_type = resolve_subagent_type(requested_subagent_type)
+    if effective_subagent_type != requested_subagent_type:
+        logger.info(
+            "subagent_type coerced %r -> %r",
+            requested_subagent_type,
+            effective_subagent_type,
+        )
 
     config = get_subagent_config(effective_subagent_type)
     if config is None:
@@ -1676,6 +1719,22 @@ async def task_tool(
                     minutes = max(1, int(config.timeout_seconds + 60) // 60)
                     return f"Task polling timed out after {minutes} minutes"
         except asyncio.CancelledError:
+            # Parent lead run was cancelled (user stop / preempt). Signal the
+            # background worker immediately — do not let it keep running.
+            try:
+                from evoflow.cancellation import mark_task_cancelled
+
+                mark_task_cancelled(task_id, "user", "parent_poll_cancelled")
+            except Exception:
+                logger.debug("task_tool: mark subagent cancelled on poll cancel failed", exc_info=True)
+            try:
+                bg = get_background_task_result(task_id)
+                if bg is not None and bg.status in {SubagentStatus.PENDING, SubagentStatus.RUNNING}:
+                    bg.status = SubagentStatus.CANCELLED
+                    bg.error = bg.error or "parent_poll_cancelled"
+                    bg.completed_at = bg.completed_at or datetime.now()
+            except Exception:
+                logger.debug("task_tool: flip subagent status on poll cancel failed", exc_info=True)
 
             async def cleanup_when_done() -> None:
                 max_cleanup_polls = max_poll_count

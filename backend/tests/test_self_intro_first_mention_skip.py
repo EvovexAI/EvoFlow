@@ -115,6 +115,8 @@ def test_self_intro_copy_is_generic_not_bug_or_panel(monkeypatch):
     assert "跟进内容节奏" in text
     assert "有事直接找我就行" in text
     assert "帮我处理一下这件事" in text
+    assert text.startswith("想开新对话，发 /new 就行。")
+    assert "/new" in text.split("你好，我是", 1)[0]
     assert "报错" not in text
     assert "EvoPanel" not in text
     assert "工作台" not in text

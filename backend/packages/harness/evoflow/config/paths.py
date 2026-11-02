@@ -50,7 +50,7 @@ class Paths:
     production uses .evoflow), set the EVOFLOW_HOME environment variable:
 
         # Windows PowerShell
-        [System.Environment]::SetEnvironmentVariable("EVOFLOW_HOME", "$env:USERPROFILE\.evoflow-dev", "User")
+        [System.Environment]::SetEnvironmentVariable("EVOFLOW_HOME", (Join-Path $env:USERPROFILE ".evoflow-dev"), "User")
 
         # Linux/macOS
         export EVOFLOW_HOME=~/.evoflow-dev
@@ -60,6 +60,7 @@ class Paths:
 
     def __init__(self, base_dir: str | Path | None = None) -> None:
         self._base_dir = Path(base_dir).resolve() if base_dir is not None else None
+        self._resolved_base_dir: Path | None = self._base_dir
 
     @property
     def host_base_dir(self) -> Path:
@@ -78,28 +79,51 @@ class Paths:
 
     @property
     def base_dir(self) -> Path:
-        """Root directory for all application data."""
-        logger.info("[EVOFLOW_DEBUG] === base_dir resolution started ===")
-        
+        """Root directory for all application data (resolved once, then cached)."""
+        if self._resolved_base_dir is not None:
+            return self._resolved_base_dir
+
+        debug = (os.getenv("EVOFLOW_DEBUG_PATHS") or "").strip().lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
+        if debug:
+            logger.info("[EVOFLOW_DEBUG] === base_dir resolution started ===")
+
         if self._base_dir is not None:
-            logger.info(f"[EVOFLOW_DEBUG] Using explicit _base_dir: {self._base_dir}")
-            return self._base_dir
+            if debug:
+                logger.info("[EVOFLOW_DEBUG] Using explicit _base_dir: %s", self._base_dir)
+            self._resolved_base_dir = self._base_dir
+            return self._resolved_base_dir
 
         env_home = os.getenv("EVOFLOW_HOME")
-        logger.info(f"[EVOFLOW_DEBUG] EVOFLOW_HOME env var: '{env_home}'")
-        
+        if debug:
+            logger.info("[EVOFLOW_DEBUG] EVOFLOW_HOME env var: %r", env_home)
+
         if env_home:
             from evoflow.config.data_paths import normalize_evoflow_base_dir
+
             result = normalize_evoflow_base_dir(Path(env_home))
-            logger.info(f"[EVOFLOW_DEBUG] Using EVOFLOW_HOME path: {result}")
+            if debug:
+                logger.info("[EVOFLOW_DEBUG] Using EVOFLOW_HOME path: %s", result)
+            self._resolved_base_dir = result
             return result
 
         # Prefer existing data dir before loading AppConfig (opening evoflow.db must not take 30s+).
         home_dir = Path.home() / ".evoflow"
-        logger.info(f"[EVOFLOW_DEBUG] EVOFLOW_HOME not set, checking default: {home_dir} (exists={home_dir.exists()})")
-        
+        if debug:
+            logger.info(
+                "[EVOFLOW_DEBUG] EVOFLOW_HOME not set, checking default: %s (exists=%s)",
+                home_dir,
+                home_dir.exists(),
+            )
+
         if home_dir.exists():
-            logger.info(f"[EVOFLOW_DEBUG] Returning default home_dir: {home_dir}")
+            if debug:
+                logger.info("[EVOFLOW_DEBUG] Returning default home_dir: %s", home_dir)
+            self._resolved_base_dir = home_dir
             return home_dir
 
         # Config-driven base_dir (written to config.yaml by EvoPanel)
@@ -112,7 +136,8 @@ class Paths:
             if isinstance(paths_cfg, dict):
                 raw = paths_cfg.get("base_dir") or paths_cfg.get("baseDir")
                 if isinstance(raw, str) and raw.strip():
-                    return Path(raw.strip()).resolve()
+                    self._resolved_base_dir = Path(raw.strip()).resolve()
+                    return self._resolved_base_dir
         except Exception:
             # Keep base_dir resolution robust; fall through to cwd/home logic.
             pass
@@ -120,8 +145,10 @@ class Paths:
         # Local dev fallback: only when $HOME/.evoflow does not exist yet
         cwd = Path.cwd()
         if cwd.name == "backend" or (cwd / "pyproject.toml").exists():
-            return cwd / ".evoflow"
+            self._resolved_base_dir = cwd / ".evoflow"
+            return self._resolved_base_dir
 
+        self._resolved_base_dir = home_dir
         return home_dir
 
     @property

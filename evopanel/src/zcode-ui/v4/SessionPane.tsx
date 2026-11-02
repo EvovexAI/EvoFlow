@@ -4803,6 +4803,9 @@ export function SessionPane({
               searchResultHighlightRequest={isDraft ? null : searchResultHighlightRequest}
               onSearchResultHighlightDone={onSearchResultHighlightDone}
               sessionPhase={isDraft ? undefined : snapshot?.control.phase}
+              sessionBusy={
+                !isDraft && Boolean(snapshot?.control.canStop || snapshot?.control.phase === "running")
+              }
               shareSelection={
                 shareActive && shareInSelectionStage && shareDraft?.view === "timeline" && sessionId
                   ? {

@@ -2,7 +2,9 @@
 
 Converts source files (PDF, DOCX, PPTX, XLSX, TXT, MD) to plain text using
 ``markitdown`` (already a dependency in ``pyproject.toml``). For ``.txt`` /
-``.md`` files, content is read directly without conversion.
+``.md`` files, content is read directly without conversion. When markitdown is
+missing or returns empty text, Office/PDF formats fall back to lighter
+extractors (pdfplumber / openpyxl / zip+XML for DOCX and PPTX).
 
 .. note::
     Some ``markitdown`` converter sub-modules (e.g. PDF/DOCX readers) reference
@@ -17,11 +19,16 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import traceback
+import zipfile
 from pathlib import Path
-from typing import Any
+from xml.etree import ElementTree
 
 logger = logging.getLogger(__name__)
+
+_PPTX_SLIDE_RE = re.compile(r"^ppt/slides/slide(\d+)\.xml$")
+_DRAWINGML_NS = "http://schemas.openxmlformats.org/drawingml/2006/main"
 
 # Extensions handled by markitdown (binary / rich formats)
 _MARKITDOWN_EXTENSIONS = {".pdf", ".doc", ".docx", ".ppt", ".pptx", ".xls", ".xlsx"}
@@ -110,12 +117,17 @@ def _convert_with_markitdown(
 ) -> str:
     """Convert a file to text, with lightweight fallbacks for common formats.
 
-    Catches ``NameError`` from converter sub-modules (a known hazard when a
-    third-party converter forgets to ``import os`` in a sub-scope) and re-raises
-    a ``RuntimeError`` that keeps the original traceback so the worker can
-    surface a useful message instead of a bare ``name 'os' is not defined``.
+    Prefer ``markitdown`` when available. On empty output / import / converter
+    failures (including the known ``NameError: os is not defined`` hazard in
+    some markitdown sub-modules), fall back to format-specific extractors:
+    pdfplumber for PDF, openpyxl for XLSX, zip+XML for DOCX/PPTX.
+
+    ``NameError`` no longer aborts before fallback — Office/PDF files can still
+    be recovered via stdlib / lighter deps (important when markitdown is missing
+    from a frozen desktop build).
     """
     ctx = _format_context(doc_id=doc_id, kb_id=kb_id, path=p)
+    markitdown_exc: BaseException | None = None
     try:
         from markitdown import MarkItDown
 
@@ -126,39 +138,73 @@ def _convert_with_markitdown(
         logger.warning("markitdown returned empty content for %s; trying fallback", p.name)
     except NameError as exc:
         # e.g. ``name 'os' is not defined`` from a converter sub-module.
-        tb = traceback.format_exc()
+        markitdown_exc = exc
         logger.error(
             "markitdown NameError for %s: %s\n%s",
             p.name,
             exc,
-            tb,
+            traceback.format_exc(),
         )
-        raise RuntimeError(
-            f"无法解析 {p.name}：markitdown 转换器缺少依赖（{exc}）。"
-            f"({ctx})"
-        ) from exc
     except Exception as exc:
+        markitdown_exc = exc
         logger.warning("markitdown failed for %s: %s; trying fallback", p.name, exc)
 
     try:
-        if p.suffix.lower() == ".pdf":
-            import pdfplumber
-
-            with pdfplumber.open(str(p)) as pdf:
-                return "\n\n".join((page.extract_text() or "") for page in pdf.pages).strip()
-        if p.suffix.lower() in {".docx", ".xlsx"}:
-            return _convert_office_fallback(p)
+        fallback = _try_format_fallback(p)
+        if fallback.strip():
+            return fallback.strip()
     except ImportError as exc:
         raise RuntimeError(f"无法解析 {p.name}：缺少文档解析依赖（{exc.name}）({ctx})") from exc
     except Exception as exc:
         raise RuntimeError(f"无法解析 {p.name}：{exc} ({ctx})") from exc
 
+    if isinstance(markitdown_exc, NameError):
+        raise RuntimeError(
+            f"无法解析 {p.name}：markitdown 转换器缺少依赖（{markitdown_exc}）。({ctx})"
+        ) from markitdown_exc
     raise RuntimeError(f"无法解析 {p.name}：MarkItDown 未提取到正文 ({ctx})")
+
+
+def _try_format_fallback(p: Path) -> str:
+    """Return extracted text for known formats, or '' when unsupported/empty."""
+    ext = p.suffix.lower()
+    if ext == ".pdf":
+        import pdfplumber
+
+        with pdfplumber.open(str(p)) as pdf:
+            return "\n\n".join((page.extract_text() or "") for page in pdf.pages).strip()
+    if ext in {".docx", ".xlsx", ".pptx"}:
+        return _convert_office_fallback(p)
+    return ""
+
+
+def _fallback_pptx(p: Path) -> str:
+    """Slide text via zipfile + ElementTree on ppt/slides/*.xml (stdlib only)."""
+    slides: list[tuple[int, str]] = []
+    with zipfile.ZipFile(p) as zf:
+        for name in zf.namelist():
+            m = _PPTX_SLIDE_RE.match(name)
+            if not m:
+                continue
+            with zf.open(name) as fh:
+                root = ElementTree.parse(fh).getroot()
+            texts = [node.text or "" for node in root.iter(f"{{{_DRAWINGML_NS}}}t")]
+            body = "\n".join(t.strip() for t in texts if t.strip())
+            slides.append((int(m.group(1)), body))
+    slides.sort()
+    parts: list[str] = []
+    for num, body in slides:
+        parts.append(f"<!-- Slide number: {num} -->")
+        if body:
+            parts.append(body)
+        parts.append("")
+    return "\n".join(parts).strip()
 
 
 def _convert_office_fallback(p: Path) -> str:
     """Extract basic text when optional MarkItDown converters are unavailable."""
-    if p.suffix.lower() == ".xlsx":
+    ext = p.suffix.lower()
+    if ext == ".xlsx":
         from openpyxl import load_workbook
 
         book = load_workbook(p, read_only=True, data_only=True)
@@ -166,15 +212,18 @@ def _convert_office_fallback(p: Path) -> str:
             rows = []
             for sheet in book.worksheets:
                 rows.append(f"## {sheet.title}")
-                rows.extend(" | ".join("" if value is None else str(value) for value in row) for row in sheet.iter_rows(values_only=True))
+                rows.extend(
+                    " | ".join("" if value is None else str(value) for value in row)
+                    for row in sheet.iter_rows(values_only=True)
+                )
             return "\n".join(rows).strip()
         finally:
             book.close()
 
-    from zipfile import ZipFile
-    from xml.etree import ElementTree
+    if ext == ".pptx":
+        return _fallback_pptx(p)
 
-    with ZipFile(p) as archive:
+    with zipfile.ZipFile(p) as archive:
         xml = archive.read("word/document.xml")
     root = ElementTree.fromstring(xml)
     return "\n".join(node.text or "" for node in root.iter() if node.tag.endswith("}t")).strip()

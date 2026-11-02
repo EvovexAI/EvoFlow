@@ -15,6 +15,7 @@ import type { CodePreviewSettings } from "@/lib/codePreviewSettings.js";
 import type { TaskChatToolCallTreeNode } from "@/lib/toolCallTree.js";
 import type { ToolDisplayModel, ToolInlinePreview } from "@/lib/toolDisplay.js";
 import type { Theme } from "@/useTheme.js";
+import { resolveWorkspaceRelMediaSrc } from "../../lib/chat-image-src.js";
 
 export function ToolCallBody({
   childToolList,
@@ -146,9 +147,12 @@ function InlineMediaContent({
   preview: MediaCodeViewerSource;
   workspacePath: string;
 }) {
-  // serve-file 流式直出（video 支持Range），不走 base64——大视频会撑爆内存。
+  // Prefer Tauri asset / resolved local URL; Gateway serve-file only as fallback.
   const mediaUrl = useMemo(() => {
-    if (!workspacePath || !preview.path) return "";
+    if (!preview.path) return "";
+    const local = resolveWorkspaceRelMediaSrc(workspacePath || "", preview.path);
+    if (local) return local;
+    if (!workspacePath) return "";
     const q = new URLSearchParams({
       root: workspacePath,
       path: preview.path,

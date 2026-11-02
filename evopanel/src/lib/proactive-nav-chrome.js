@@ -8,7 +8,12 @@
  *
  * left 不再写死 --shell-aside-width：折叠 / 悬停展开 / 动画途中都按 #main-col
  * 实测左缘 + 内容 padding 对齐，避免盖住侧栏按钮。
+ *
+ * CSS zoom 回退路径下 getBoundingClientRect 与 fixed left 坐标系不一致，
+ * 需按 clientToLayoutScale 换算（与 pro-role-more-menu 同一套）。
  */
+
+import { clientToLayoutScale } from './pro-role-more-menu.js'
 
 /** macOS 原生标题栏模式由 tauri-titlebar.js 置位（html.evopanel-macos-titlebar） */
 function isMacNativeTitlebar() {
@@ -43,7 +48,10 @@ export function syncEmployeeNavInset(page) {
   }
   const mainCol = document.getElementById('main-col')
   if (!mainCol) return
-  const left = Math.max(0, Math.round(mainCol.getBoundingClientRect().left + readSpaceLgPx()))
+  const scale = clientToLayoutScale()
+  const mainLeft = mainCol.getBoundingClientRect().left
+  const leftCss = scale === 1 ? mainLeft : mainLeft / scale
+  const left = Math.max(0, Math.round(leftCss + readSpaceLgPx()))
   nav.style.left = `${left}px`
 }
 

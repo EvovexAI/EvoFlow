@@ -1122,7 +1122,7 @@
   },
   "usage": {
     "title": "用量统计",
-    "desc": "查看 Token 消耗、API 费用和模型使用统计",
+    "desc": "按厂商返回的 usage 记账（非上下文占用估算）；失败且无官方用量的回合不计入",
     "tabOverview": "概览",
     "tabModels": "模型用量",
     "tabTools": "工具用量",

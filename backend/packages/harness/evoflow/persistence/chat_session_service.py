@@ -748,6 +748,17 @@ async def ensure_session_thread(
     new_tid = await create_langgraph_thread(sk)
     if not new_tid:
         raise RuntimeError("Failed to create LangGraph thread")
+    # Keep transcript rows pointing at the live lead (truncate + stream-404 remint).
+    try:
+        if msg_repo.count_messages(sk) > 0:
+            msg_repo.remap_session_messages_thread_id(sk, new_tid)
+    except Exception:
+        logger.debug(
+            "ensure_session_thread remap messages failed sk=%s new_tid=%s",
+            sk,
+            new_tid,
+            exc_info=True,
+        )
     now = _now_ms()
     merged_ctx = dict(existing.get("context") if isinstance(existing.get("context"), dict) else {})
     # 侧栏「员工新建对话」只造 session_key，首次 ensure-thread 才落库：补默认 Agent 上下文
@@ -1160,6 +1171,35 @@ async def truncate_session_from_message(
     new_tid = await create_langgraph_thread(sk)
     if not new_tid:
         raise RuntimeError("Failed to create LangGraph thread after truncate")
+
+    # HTTP create + Gateway /api/langgraph proxy can briefly disagree; pin via SDK
+    # so the immediate POST /runs/stream after edit does not 404 → force_recreate
+    # (that second remint is what makes the V4 timeline flash twice).
+    try:
+        from langgraph_sdk import get_client
+
+        from evoflow.langgraph_run_config import (
+            default_langgraph_thread_metadata,
+            ensure_langgraph_thread_exists,
+            resolve_langgraph_base_url,
+        )
+
+        client = get_client(url=resolve_langgraph_base_url())
+        await ensure_langgraph_thread_exists(
+            client,
+            new_tid,
+            metadata=default_langgraph_thread_metadata(
+                source="chat_session_truncate",
+                session_key=sk,
+            ),
+        )
+    except Exception:
+        logger.debug(
+            "truncate_session ensure_langgraph_thread_exists failed sk=%s tid=%s",
+            sk,
+            new_tid,
+            exc_info=True,
+        )
 
     if remaining > 0:
         msg_repo.remap_session_messages_thread_id(sk, new_tid)

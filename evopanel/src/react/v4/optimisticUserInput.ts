@@ -1,13 +1,19 @@
 /**
  * 发送瞬间：本地乐观用户气泡尚未进 V4 投影时，在时间线尾部补一行合成 userInput，
  * 避免为等 echo 整树切回老面板（会闪出整段本地历史用户消息）。
+ *
+ * 文案优先来自 host 的 pendingOptimisticUserText（轻量 flushSync），
+ * 不要依赖同帧 setRows(全量历史)——那会重建 ConversationTimeline。
+ *
+ * 权威投影一旦出现同文案 userInput，必须清掉 pendingOptimisticUserText，
+ * 否则 turn 结束后 pending 仍在，空 stub / 重连窗口会让乐观行再次叠上去 → 双份气泡。
  */
 import type {
   ConversationRow,
   UserInputRow,
 } from '@zcode/shared/zcode-protocol-v4'
 
-/** 与 chat-app-view 的 echo 判定一致：只看窗口尾部最近一条 userInput。 */
+/** 与 chat-app-view 的 echo 判定一致：只看窗口尾部最近一条非空 userInput。 */
 export function v4WindowHasUserText(
   rows: ReadonlyArray<{ kind?: string; text?: string }> | null | undefined,
   text: string,
@@ -18,7 +24,8 @@ export function v4WindowHasUserText(
     const row = rows[i]
     if (String(row?.kind || '') !== 'userInput') continue
     const t = String(row?.text || '').trim()
-    if (!t) return false
+    // 空 userInput（纯附件占位 / 未填完 stub）不能否决 echo，否则乐观气泡会叠在真消息上。
+    if (!t) continue
     return t === needle || t.endsWith(needle) || needle.endsWith(t)
   }
   return false

@@ -59,6 +59,14 @@ let lastHearLogText = ''
 let lastRestartLogAt = 0
 let restartCount = 0
 let lastBenignErrorLogAt = 0
+/** audio-capture / network 等硬失败：退避续听，超限直接停耳（避免 16/s 刷屏卡死） */
+let captureFailStreak = 0
+let lastCaptureFailLogAt = 0
+let captureBackoffUntil = 0
+const CAPTURE_FAIL_LOG_MIN_MS = 5000
+const CAPTURE_FAIL_STOP_AFTER = 8
+const CAPTURE_BACKOFF_BASE_MS = 3000
+const CAPTURE_BACKOFF_MAX_MS = 30000
 
 function getSpeechRecognitionCtor() {
   if (typeof window === 'undefined') return null
@@ -69,9 +77,23 @@ export function isWebSpeechWakeAvailable() {
   return !!getSpeechRecognitionCtor()
 }
 
+/** @type {((stage: string, message: string) => void) | null} */
+let _voiceFeLog = null
+
 function feLog(stage, message) {
+  if (_voiceFeLog) {
+    try {
+      _voiceFeLog(stage, message)
+    } catch {
+      /* ignore */
+    }
+    return
+  }
   void import('./xiaomi-voice/voice-file-log.js')
-    .then(({ voiceFeLog }) => voiceFeLog(stage, message))
+    .then(({ voiceFeLog }) => {
+      _voiceFeLog = voiceFeLog
+      voiceFeLog(stage, message)
+    })
     .catch(() => {})
 }
 
@@ -119,14 +141,21 @@ function logHear(transcript, { isFinal, altIndex, matched }) {
   const now = Date.now()
   const key = `${isFinal ? 'F' : 'I'}:${raw}`
   if (key === lastHearLogText && now - lastHearLogAt < HEAR_LOG_MIN_MS) return
-  // 中间结果：只记像唤醒的，避免闲聊刷屏；最终结果：全记（排查「叫了但 ASR 认成别的」）
+  // 中间结果：只记像唤醒的，避免闲聊刷屏
   if (!isFinal && !looksWakeIsh(raw) && !matched) return
+  // 最终闲聊听写：常驻耳会把旁白/回声整段吐出；全量 console+IPC 会叠出主线程 longtask
+  if (isFinal && !looksWakeIsh(raw) && !matched) {
+    if (now - lastHearLogAt < 3000) return
+  }
   lastHearLogText = key
   lastHearLogAt = now
   const kind = matched ? '命中候选' : looksWakeIsh(raw) ? '近失' : '听写'
   const finalTag = isFinal ? 'final' : 'interim'
   const alt = altIndex > 0 ? ` alt=${altIndex}` : ''
-  console.log(`[wake-word-webspeech] ${kind}:`, raw, finalTag)
+  // 命中/近失才打 console；纯闲聊 final 只写文件日志（且已节流）
+  if (matched || looksWakeIsh(raw) || !isFinal) {
+    console.log(`[wake-word-webspeech] ${kind}:`, raw, finalTag)
+  }
   feLog(
     '唤醒',
     `ASR${kind} ${finalTag}${alt} 「${raw.slice(0, 60)}」${matched ? ' → 将触发' : '（未匹配词表）'}`,
@@ -183,6 +212,24 @@ function emitHit(keyword, asrRaw) {
 let lastExitCmdAt = 0
 const EXIT_CMD_COOLDOWN_MS = 1800
 
+/** Cached modules for播报期口令 — avoid 4× dynamic import on every ASR final. */
+let _exitCmdModsPromise = null
+
+function loadExitCmdMods() {
+  if (!_exitCmdModsPromise) {
+    _exitCmdModsPromise = Promise.all([
+      import('./xw-voice-mode.js'),
+      import('./xiaomi-voice/index.js'),
+      import('./xiaomi-voice-close.js'),
+      import('./voice-listen-control.js'),
+    ]).catch((err) => {
+      _exitCmdModsPromise = null
+      throw err
+    })
+  }
+  return _exitCmdModsPromise
+}
+
 /**
  * @param {string} transcript
  * @param {{ isFinal?: boolean }} [opts]
@@ -190,17 +237,18 @@ const EXIT_CMD_COOLDOWN_MS = 1800
 function maybeHandleSpeakingExitCommand(transcript, opts = {}) {
   const raw = String(transcript || '').trim()
   if (!raw) return false
+  // Cheap sync gate：非小V语音全屏时旁白听写极多，勿对每句 final 拉模块/判口令
+  try {
+    if (document.documentElement.dataset.xwVoice !== '1') return false
+  } catch {
+    return false
+  }
   // 非 final 且很长：多半是 TTS 回声粘连，等 final / 短尾巴再判，降假阳
   if (!opts.isFinal && raw.length > 24) return false
   const now = Date.now()
   if (now - lastExitCmdAt < EXIT_CMD_COOLDOWN_MS) return false
 
-  void Promise.all([
-    import('./xw-voice-mode.js'),
-    import('./xiaomi-voice/index.js'),
-    import('./xiaomi-voice-close.js'),
-    import('./voice-listen-control.js'),
-  ])
+  void loadExitCmdMods()
     .then(([xw, frame, closeMod, listenMod]) => {
       if (!xw.isXwVoiceMode?.()) return
       const speaking =
@@ -279,11 +327,47 @@ export async function startWebSpeechEar() {
           lastBenignErrorLogAt = now
           feLog('唤醒', `ASR onerror=${err}（常见，会自动续听；已节流）`)
         }
-      } else if (err === 'not-allowed' || err === 'service-not-allowed') {
+        return
+      }
+      if (err === 'not-allowed' || err === 'service-not-allowed') {
         console.warn('[wake-word-webspeech] mic/permission denied:', err)
         feLog('唤醒', `麦克风/权限拒绝 onerror=${err} → 停耳`)
         stopWebSpeechEar()
-      } else {
+        return
+      }
+      // 无麦 / 设备被占：Chrome 会连打 audio-capture + onend 续听 → 主线程与 /speech/log 自激
+      if (err === 'audio-capture' || err === 'network') {
+        captureFailStreak += 1
+        const now = Date.now()
+        const backoff = Math.min(
+          CAPTURE_BACKOFF_MAX_MS,
+          CAPTURE_BACKOFF_BASE_MS * Math.min(captureFailStreak, 8),
+        )
+        captureBackoffUntil = now + backoff
+        if (now - lastCaptureFailLogAt >= CAPTURE_FAIL_LOG_MIN_MS) {
+          lastCaptureFailLogAt = now
+          console.warn(
+            '[wake-word-webspeech] onerror:',
+            err,
+            `streak=${captureFailStreak} backoff=${backoff}ms`,
+          )
+          feLog(
+            '唤醒',
+            `ASR onerror=${err} streak=${captureFailStreak} → 退避 ${Math.round(backoff / 1000)}s（已去重）`,
+          )
+        }
+        if (captureFailStreak >= CAPTURE_FAIL_STOP_AFTER) {
+          feLog(
+            '唤醒',
+            `麦克风采集连续失败 ${captureFailStreak} 次 → 停用唤醒耳（无麦/被占用）`,
+          )
+          stopWebSpeechEar()
+        }
+        return
+      }
+      const now = Date.now()
+      if (now - lastBenignErrorLogAt > 8000) {
+        lastBenignErrorLogAt = now
         console.warn('[wake-word-webspeech] onerror:', err)
         feLog('唤醒', `ASR onerror=${err || '?'}`)
       }
@@ -293,25 +377,45 @@ export async function startWebSpeechEar() {
       if (!running) return
       restartCount += 1
       const now = Date.now()
-      // Chrome stops after silence — restart the ear.
+      const waitMs = Math.max(0, captureBackoffUntil - now)
+      // Chrome stops after silence — restart the ear（采集失败时退避，勿立刻狂重启）
       if (now - lastRestartLogAt > 8000) {
         lastRestartLogAt = now
-        feLog('唤醒', `ASR onend → 自动续听（累计 restart=${restartCount}）`)
+        feLog(
+          '唤醒',
+          `ASR onend → 自动续听（累计 restart=${restartCount}${waitMs ? ` wait=${waitMs}ms` : ''}）`,
+        )
       }
-      try {
-        rec.start()
-      } catch {
-        setTimeout(() => {
-          if (!running) return
-          try {
-            rec.start()
-          } catch (e) {
-            feLog(
-              '唤醒',
-              `续听失败：${e instanceof Error ? e.message : String(e)}`,
-            )
+      const tryStart = () => {
+        if (!running) return
+        try {
+          rec.start()
+          // 成功续听后清采集失败计数
+          if (captureFailStreak > 0 && Date.now() >= captureBackoffUntil) {
+            captureFailStreak = 0
           }
-        }, 400)
+        } catch {
+          setTimeout(() => {
+            if (!running) return
+            try {
+              rec.start()
+            } catch (e) {
+              const t = Date.now()
+              if (t - lastCaptureFailLogAt >= CAPTURE_FAIL_LOG_MIN_MS) {
+                lastCaptureFailLogAt = t
+                feLog(
+                  '唤醒',
+                  `续听失败：${e instanceof Error ? e.message : String(e)}`,
+                )
+              }
+            }
+          }, Math.max(400, waitMs || CAPTURE_BACKOFF_BASE_MS))
+        }
+      }
+      if (waitMs > 0) {
+        setTimeout(tryStart, waitMs)
+      } else {
+        tryStart()
       }
     }
 
@@ -322,6 +426,9 @@ export async function startWebSpeechEar() {
     lastRestartLogAt = 0
     lastHearLogAt = 0
     lastHearLogText = ''
+    captureFailStreak = 0
+    captureBackoffUntil = 0
+    lastCaptureFailLogAt = 0
     rec.start()
     armDeafWatch()
     console.log('[wake-word-webspeech] Ear listening for', WAKE_WORD_LABEL)

@@ -8,7 +8,11 @@ from unittest.mock import AsyncMock
 import pytest
 from langgraph_sdk.errors import ConflictError
 
-from app.channels.manager import ChannelManager, _is_thread_busy_error
+from app.channels.manager import (
+    ChannelManager,
+    _is_thread_busy_error,
+    _is_transient_stream_error,
+)
 
 
 def test_is_thread_busy_error_detects_conflict() -> None:
@@ -19,6 +23,17 @@ def test_is_thread_busy_error_detects_conflict() -> None:
     assert _is_thread_busy_error(_Busy())
     assert _is_thread_busy_error(RuntimeError("Thread already running a task"))
     assert not _is_thread_busy_error(RuntimeError("timeout"))
+
+
+def test_is_transient_stream_error_detects_timeouts() -> None:
+    class ReadTimeout(Exception):
+        pass
+
+    assert _is_transient_stream_error(ReadTimeout("httpx.ReadTimeout"))
+    assert _is_transient_stream_error(RuntimeError("The read operation timed out"))
+    assert _is_transient_stream_error(RuntimeError("server disconnected without sending a response"))
+    assert not _is_transient_stream_error(RuntimeError("already running a task"))
+    assert not _is_transient_stream_error(None)
 
 
 @pytest.mark.asyncio

@@ -1,7 +1,7 @@
 import type { ZCodeProvider } from "@zcode/shared";
 import { selectWorkspaceZCodeState, useZCodeSessionStore } from "@/store/zcodeSessionStore.js";
 import type { WorkspaceZCodeUIState } from "@/store/zcodeSessionStoreTypes.js";
-import { useTabStore } from "@/store/TabStoreProvider.js";
+import { useOptionalTabStore } from "@/store/TabStoreProvider.js";
 import { isWorkspaceTab } from "@/store/tabStore.js";
 
 function resolveChatViewActiveTaskProvider(
@@ -33,7 +33,9 @@ export function useChatViewActiveTaskProvider(
   workspacePath: string,
   workspaceIdentity?: string,
 ) {
-  const activeTabWorkspaceIdentity = useTabStore((state) => {
+  // EvoFlow V4 时间线（含行内编辑 ChatPromptEditor）无 TabStoreProvider；
+  // 硬用 useTabStore 会在点编辑时炸掉。有 Root 时仍可读 active tab identity。
+  const activeTabWorkspaceIdentity = useOptionalTabStore((state) => {
     if (!state.activeTabId) {
       return undefined;
     }

@@ -17,6 +17,7 @@ from app.gateway.routers.langgraph_proxy import (
     UI_SSE_ENABLED,
     _extract_evf_prior_assistant_from_stream_body,
     _extract_use_claude_code_from_stream_body,
+    _extract_user_message_id_from_stream_body,
     _extract_user_text_from_stream_body,
 )
 from app.gateway.sse_ui_normalize import UiStreamNormalizer, _normalize_sse_buffer
@@ -312,7 +313,9 @@ class PostStreamUiTransform:
                 from app.gateway.v4.agui_mirror import mirror_note_user_input
 
                 mirror_note_user_input(
-                    self.thread_id, str(norm_kwargs.get("user_input") or "")
+                    self.thread_id,
+                    str(norm_kwargs.get("user_input") or ""),
+                    message_id=_extract_user_message_id_from_stream_body(body) or None,
                 )
             except Exception:
                 pass
@@ -715,7 +718,7 @@ class PostStreamUiTransform:
                 for frame in close_inject:
                     for out_msg in self._asgi_body_messages(frame, more_body=True):
                         yield out_msg
-        if self._mirror_lane_owned and not self._run_end_emitted:
+        if not self._run_end_emitted:
             if await _should_defer_run_finished_async(self.thread_id):
                 logger.info(
                     "【流式UI】close_stream 延迟 RUN_FINISHED thread=%s（仍有 pending 或 resume 中）",
@@ -726,5 +729,16 @@ class PostStreamUiTransform:
                 for frame in finish_frames:
                     for out_msg in self._asgi_body_messages(frame, more_body=True):
                         yield out_msg
+        # 非 lane-owned 路径若仍未结算镜像，补一刀，避免空流后闩锁粘住。
+        if self.thread_id:
+            try:
+                from app.gateway.v4.agui_mirror import mirror_channel_run_finished, mirror_thread_is_live
+
+                if mirror_thread_is_live(self.thread_id):
+                    mirror_channel_run_finished(self.thread_id, error=True)
+            except Exception:
+                logger.debug(
+                    "close_stream mirror seal failed thread=%s", self.thread_id, exc_info=True
+                )
         self._stream_closed = True
         yield {"type": "http.response.body", "body": b"", "more_body": False}

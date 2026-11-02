@@ -29,6 +29,8 @@ DEFAULT_PANEL_SETTINGS: dict[str, Any] = {
     "workspaceIndexWatchEnabled": False,
     "defaultVisionModel": "",
     "imageInputMode": "auto",
+    # LangGraph concurrent job slots (N_JOBS_PER_WORKER); default 10
+    "langgraphMaxConcurrent": 10,
     "keyboardShortcuts": {},
     "writeStreamMode": "off",
     "accentPalette": "default",

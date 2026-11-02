@@ -28,25 +28,39 @@ def resolve_run_id_for_transcript(
     thread_id: str | None = None,
     raw: dict[str, Any] | None = None,
 ) -> str | None:
-    """Bind a row to the active LangGraph run or the user turn that started it."""
+    """Bind a row to the active user turn (channel / panel), not per-hop LangGraph ids.
+
+    Feishu/IM ``start_session_turn`` stamps ``evf_channel_run_id`` into session state.
+    Prefer that over ``configurable.run_id`` so assistant/tool rows share the user
+    bubble's run_id — otherwise V4 hydrate splits one IM turn into user-only +
+    assistant-only turns (右边用户气泡对不上左边回复，看起来像合并进旧历史).
+    """
     from evoflow.persistence.chat_message_repositories import latest_user_run_id
     from evoflow.persistence.session_run_state import peek_current_run_id
 
     rid = str(run_id or "").strip()
     if not rid and isinstance(raw, dict):
         rid = str(raw.get("run_id") or raw.get("runId") or "").strip()
+    r = str(role or "").strip().lower()
+    peeked = str(peek_current_run_id(session_key=session_key, thread_id=thread_id) or "").strip()
+    # Stable session turn wins over LangGraph hop run_id.
+    if peeked and r in ("user", "assistant", "tool", ""):
+        return peeked
     if not rid:
         rid = run_id_from_langgraph_config() or ""
-    r = str(role or "").strip().lower()
     if not rid and r in ("user", "assistant", "tool"):
-        rid = str(peek_current_run_id(session_key=session_key, thread_id=thread_id) or "").strip()
+        rid = peeked
     if not rid and r in ("assistant", "tool"):
         rid = str(latest_user_run_id(session_key, thread_id=thread_id) or "").strip()
     return rid or None
 
 
 def enrich_run_ids_in_order(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Turn-based forward-fill: assistant/tool rows inherit the preceding user's run_id."""
+    """Turn-based forward-fill: assistant/tool rows inherit the preceding user's run_id.
+
+    If an assistant/tool row already carries a different LangGraph hop id, rewrite it
+    to the open user-turn id so V4 hydration keeps one product turn (user + reply).
+    """
     if not rows:
         return rows
     current: str | None = None
@@ -60,7 +74,14 @@ def enrich_run_ids_in_order(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 current = rid
             elif current:
                 item["run_id"] = current
+        elif role in ("assistant", "tool", "ai", "aimessage", "toolmessage"):
+            if current:
+                item["run_id"] = current
+            elif rid:
+                current = rid
+                item["run_id"] = rid
         elif rid:
+            # Unknown role with an id: advance the open turn (legacy rows).
             current = rid
             item["run_id"] = rid
         elif current:

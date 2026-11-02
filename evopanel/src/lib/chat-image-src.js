@@ -114,10 +114,16 @@ export function inferWorkspaceRootFromFilePath(filePath) {
   return _parentDir(norm)
 }
 
-/** Pick serve-file root + optional Tauri asset URL for a host absolute path. */
+/** Pick local media URL: Tauri asset first (keeps Gateway event loop free), serve-file fallback. */
 function _resolveAbsoluteLocalSrc(absPath) {
   const u = String(absPath || '').trim()
   if (!u) return ''
+
+  // Desktop: never pull large local mp4/png through Gateway serve-file while a
+  // chat stream is running — that was wedging :8070 (hang dumps 40–70s).
+  const tauriFirst = _tryConvertFileSrc(u)
+  if (tauriFirst) return tauriFirst
+
   const chatRoot = String(getChatWorkspaceRoot() || '').trim()
   const inferred = inferWorkspaceRootFromFilePath(u)
 
@@ -126,19 +132,10 @@ function _resolveAbsoluteLocalSrc(absPath) {
   else if (inferred) serveRoot = inferred
   else if (chatRoot) serveRoot = chatRoot
 
-  // Outside bound workspace: prefer Tauri asset protocol when available.
-  if (chatRoot && !_pathUnderRoot(chatRoot, u)) {
-    const tauri = _tryConvertFileSrc(u)
-    if (tauri) return tauri
-  }
-
   if (serveRoot) {
     const url = _serveFileUrl(serveRoot, u)
     if (url) return url
   }
-
-  const tauri = _tryConvertFileSrc(u)
-  if (tauri) return tauri
 
   // Last resort: parent dir as root (never return bare host path as img src).
   const parent = _parentDir(u)

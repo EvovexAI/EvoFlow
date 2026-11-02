@@ -2043,9 +2043,7 @@ def list_messages_for_display_all(
     if not sk:
         return {"messages": [], "has_more": False, "oldest_seq": None, "round_id": rid}
     lead_rows = _list_lead_chat_rows(sk, limit=cap, max_want=cap, round_id=rid)
-    if sk and any(not str(r.get("run_id") or "").strip() for r in lead_rows):
-        _backfill_missing_run_ids_in_session_safe(sk)
-        lead_rows = _list_lead_chat_rows(sk, limit=cap, max_want=cap, round_id=rid)
+    # 同 paginated：显示路径不做 on-read 全表 backfill（抢 SQLite 锁）。
     lead_rows = _enrich_run_ids_for_display_rows(lead_rows)
     if not include_hidden:
         lead_rows = [r for r in lead_rows if not _is_hidden_context_user_transcript_row(r)]
@@ -2074,12 +2072,8 @@ def list_messages_for_display_paginated(
     has_more = len(lead_rows) > lim
     if has_more:
         lead_rows = lead_rows[-lim:]
-    if sk and before_seq is None and any(not str(r.get("run_id") or "").strip() for r in lead_rows):
-        _backfill_missing_run_ids_in_session_safe(sk)
-        lead_rows = _list_lead_chat_rows(sk, limit=lim + 1, before_seq=before_seq)
-        has_more = len(lead_rows) > lim
-        if has_more:
-            lead_rows = lead_rows[-lim:]
+    # 显示列表路径禁止 on-read 全表 UPDATE backfill：会在共享 SQLite 锁上拖到数秒，
+    # 与 chatSend / RUN_STARTED 抢锁。缺 run_id 只做内存 enrich；持久化另走后台任务。
     lead_rows = _enrich_run_ids_for_display_rows(lead_rows)
     lead_rows = [r for r in lead_rows if not _is_hidden_context_user_transcript_row(r)]
     lead_rows = _align_display_page_to_user_turn(sk, lead_rows, page_limit=lim)

@@ -37,6 +37,42 @@ def test_resolve_interrupted_when_no_session() -> None:
     assert resolve_task_runtime_health({"id": "orphan", "status": "executing"}, active_index=idx) == "interrupted"
 
 
+def test_task_id_from_proactive_session_key() -> None:
+    from evoflow.collab.task_runtime_health import _task_id_from_proactive_session_key
+
+    assert (
+        _task_id_from_proactive_session_key("proactive:evoflow-fa29011c:task:2610310957_f0dc")
+        == "2610310957_f0dc"
+    )
+    assert _task_id_from_proactive_session_key("proactive:code:duty:round-1") is None
+    assert _task_id_from_proactive_session_key("agent:main:foo") is None
+
+
+def test_load_active_run_index_heals_proactive_task_session_key(monkeypatch) -> None:
+    from evoflow.collab import task_runtime_health as trh
+
+    monkeypatch.setattr(
+        "evoflow.persistence.session_run_state.list_all_active_sessions",
+        lambda limit=2000: [
+            {
+                "session_key": "proactive:evoflow-fa29011c:task:2610310957_f0dc",
+                "thread_id": "bdcaa13f-2eac-44c9-b1c6-50da36984f54",
+                "collab_task_id": None,
+            }
+        ],
+    )
+    idx = trh.load_active_run_index()
+    assert "2610310957_f0dc" in idx["by_task_id"]
+    assert "bdcaa13f-2eac-44c9-b1c6-50da36984f54" in idx["by_thread_id"]
+    assert (
+        trh.resolve_task_runtime_health(
+            {"id": "2610310957_f0dc", "status": "executing"},
+            active_index=idx,
+        )
+        == "live"
+    )
+
+
 def test_enrich_stamps_fields(monkeypatch) -> None:
     from evoflow.collab import task_runtime_health as trh
 
@@ -54,3 +90,103 @@ def test_enrich_stamps_fields(monkeypatch) -> None:
     assert rows[0]["runtime_health"] == "live" and rows[0]["run_alive"] is True
     assert rows[1]["runtime_health"] == "interrupted" and rows[1]["run_alive"] is False
     assert rows[2]["runtime_health"] == "idle"
+
+
+def test_resolve_live_by_subtask_lease_between_waves() -> None:
+    """A worker inside a slow tool holds a lease but the session row may still read done.
+
+    Regression: the first workflow smoke run showed ``interrupted`` ~25s in while
+    Step 1 was still executing (it finished at 63s); the operator then stopped a
+    perfectly healthy run.
+    """
+    from evoflow.collab.task_runtime_health import resolve_task_runtime_health
+
+    idx = {"by_task_id": set(), "by_thread_id": set()}
+    now = 1_000.0
+    task = {
+        "id": "t-live",
+        "status": "executing",
+        "subtasks": [
+            {
+                "id": "s1",
+                "status": "executing",
+                "lease_until_ts": now + 240.0,
+            }
+        ],
+    }
+    assert resolve_task_runtime_health(task, active_index=idx, now_ts=now) == "live"
+
+
+def test_resolve_interrupted_when_lease_expired() -> None:
+    from evoflow.collab.task_runtime_health import resolve_task_runtime_health
+
+    idx = {"by_task_id": set(), "by_thread_id": set()}
+    now = 1_000.0
+    task = {
+        "id": "t-dead",
+        "status": "executing",
+        "subtasks": [{"id": "s1", "status": "executing", "lease_until_ts": now - 60.0}],
+    }
+    assert resolve_task_runtime_health(task, active_index=idx, now_ts=now) == "interrupted"
+
+
+def test_resolve_ignores_lease_on_terminal_subtask() -> None:
+    from evoflow.collab.task_runtime_health import subtask_has_live_lease
+
+    now = 1_000.0
+    assert subtask_has_live_lease({"status": "completed", "lease_until_ts": now + 999}, now_ts=now) is False
+    assert subtask_has_live_lease({"status": "executing"}, now_ts=now) is False
+
+
+def test_resolve_live_by_active_background_executor(monkeypatch) -> None:
+    from evoflow.collab import task_runtime_health as trh
+
+    monkeypatch.setattr(trh, "has_active_background_executor", lambda row: bool(row.get("background_task_id")))
+    idx = {"by_task_id": set(), "by_thread_id": set()}
+    task = {
+        "id": "t-bg",
+        "status": "executing",
+        "subtasks": [{"id": "s1", "status": "executing", "background_task_id": "SupervisorExec_x"}],
+    }
+    assert trh.resolve_task_runtime_health(task, active_index=idx, now_ts=1_000.0) == "live"
+
+
+def test_resolve_live_during_startup_before_lease_stamp() -> None:
+    """Phase 8 gap: dispatch→lease stamp is ~3.5s, so the first poll must not flash 已中断.
+
+    Real timeline (run 2610311720_4a89): started_at 17:20:47.14, lease stamped
+    17:20:50.77. ``tasks.get`` right after Run returned interrupted/live=false.
+    """
+    from datetime import datetime
+
+    from evoflow.collab.task_runtime_health import resolve_task_runtime_health
+
+    idx = {"by_task_id": set(), "by_thread_id": set()}
+    started = "2026-10-31T17:20:47.140532+08:00"
+    start_ts = datetime.fromisoformat(started).timestamp()
+    task = {
+        "id": "t-start",
+        "status": "executing",
+        "subtasks": [{"id": "s1", "status": "executing", "started_at": started}],
+    }
+    assert resolve_task_runtime_health(task, active_index=idx, now_ts=start_ts + 2.0) == "live"
+    # Past the grace window with no lease → genuinely suspicious.
+    assert resolve_task_runtime_health(task, active_index=idx, now_ts=start_ts + 30.0) == "interrupted"
+
+
+def test_recently_started_ignores_terminal_and_future_rows() -> None:
+    from datetime import datetime
+
+    from evoflow.collab.task_runtime_health import subtask_recently_started
+
+    now = datetime.now().timestamp()
+    recent = {"status": "executing", "started_at": datetime.fromtimestamp(now - 3).isoformat()}
+    assert subtask_recently_started(recent, now_ts=now) is True
+
+    done = {"status": "completed", "started_at": datetime.fromtimestamp(now - 3).isoformat()}
+    assert subtask_recently_started(done, now_ts=now) is False
+
+    future = {"status": "executing", "started_at": datetime.fromtimestamp(now + 600).isoformat()}
+    assert subtask_recently_started(future, now_ts=now) is False
+
+    assert subtask_recently_started({"status": "executing"}, now_ts=now) is False

@@ -3656,50 +3656,7 @@ html[data-translucent-ui='1'] .xm-stage-pane {
   overflow: hidden;
 }
 
-.xm-stage-composer {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  flex: 0 0 auto;
-  padding: 10px 12px 12px;
-  border-top: 1px solid color-mix(in srgb, var(--xm-stage-border, var(--border, #e5e7eb)) 80%, transparent);
-}
-
-.xm-stage-composer-input {
-  width: 100%;
-  resize: none;
-  border: 1px solid color-mix(in srgb, var(--xm-stage-border, var(--border, #e5e7eb)) 90%, transparent);
-  border-radius: 10px;
-  padding: 8px 10px;
-  font: inherit;
-  font-size: 13px;
-  line-height: 1.4;
-  /* 勿用未定义的 --bg（会落到 #fff）；对齐 dock 版 .xm-composer-input */
-  background: var(--surface-raised-bg, var(--bg-elevated, var(--bg-card, #fff)));
-  color: var(--xm-stage-fg, var(--text-primary, inherit));
-  outline: none;
-}
-
-.xm-stage-composer-input:focus {
-  border-color: color-mix(in srgb, var(--accent, #6366f1) 55%, transparent);
-}
-
-.xm-stage-composer-input::placeholder {
-  color: var(--text-tertiary, #9ca3af);
-  opacity: 1;
-}
-
-html[data-theme='dark'] .xm-stage-composer-input,
-html.dark .xm-stage-composer-input {
-  background: var(--surface-raised-bg, var(--bg-elevated, #1f1f24));
-  border-color: var(--xm-stage-border, var(--border, #2e2e35));
-  color: var(--xm-stage-fg, var(--text-primary, #e8e8ea));
-}
-
-html[data-theme='dark'] .xm-stage-composer-input::placeholder,
-html.dark .xm-stage-composer-input::placeholder {
-  color: var(--text-tertiary, #a1a1aa);
-}
+/* 小V 输入区已改挂主聊 ChatComposer（V4 bottomDock），旧 xm-stage-composer* 已移除 */
 
 html[data-theme='dark'] .xm-stage-hist-menu,
 html.dark .xm-stage-hist-menu {
@@ -3754,33 +3711,3 @@ html.dark .xm-stage-toolbar {
   color: var(--xm-stage-fg, #f0f2f5);
 }
 
-html[data-theme='dark'] .xm-stage-composer,
-html.dark .xm-stage-composer {
-  border-top-color: color-mix(in srgb, var(--xm-stage-border, #2e2e35) 80%, transparent);
-}
-
-.xm-stage-composer-bar {
-  display: flex;
-  justify-content: flex-end;
-}
-
-.xm-stage-send {
-  appearance: none;
-  border: none;
-  border-radius: 8px;
-  padding: 7px 14px;
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-  background: var(--accent, #6366f1);
-  color: var(--text-inverse, #fff);
-}
-
-.xm-stage-send:disabled {
-  opacity: 0.45;
-  cursor: default;
-}
-
-.xm-stage-send.is-stop {
-  background: color-mix(in srgb, #ef4444 88%, #000);
-}

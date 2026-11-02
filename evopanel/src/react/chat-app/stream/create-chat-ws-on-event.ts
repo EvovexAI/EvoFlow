@@ -3655,6 +3655,10 @@ export function createChatWsOnEventHandler(ctx: ChatWsOnEventCtx) {
         } else if (!isBackground) {
           voiceReplyPendingRef.current = false
         }
+        // 失败回合没有厂商 usage 入账；清掉本轮 live token，避免顶栏仍显示「本轮消耗」。
+        if (!isBackground) {
+          setLiveTurnTokens(null)
+        }
         flushPendingSessionTitle()
         const rawErr = String(
           payload.errorMessage ||

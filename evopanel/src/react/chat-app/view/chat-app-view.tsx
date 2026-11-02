@@ -2,7 +2,12 @@
 /**
  * ChatApp main JSX tree. Extracted from ChatApp.tsx (P89).
  */
-import { useState, useEffect, type ReactNode, type MouseEvent as ReactMouseEvent } from 'react'
+import {
+  useState,
+  useEffect,
+  type ReactNode,
+  type MouseEvent as ReactMouseEvent,
+} from 'react'
 import type { DisplayRow } from '../../chat-types.js'
 import { ModelCatalogMenu } from '../../components/ModelCatalogMenu.js'
 import { ShellSessionListHost } from '../../components/ShellSessionListHost.js'
@@ -46,6 +51,21 @@ import { TauriWindowControls } from '../../components/TauriWindowControls.js'
 import { HoverBubble, HoverBubbleProvider } from '../../components/HoverBubble.js'
 
 export type ChatAppViewCtx = Record<string, any>
+
+/** V4 权威窗口已出现同文案 userInput 时清掉 pending，避免乐观气泡叠第二次。 */
+function ClearPendingOptimisticOnV4Echo(props: {
+  pendingText: string
+  windowRows: ReadonlyArray<{ kind?: string; text?: string }> | null | undefined
+  onClear: (() => void) | undefined
+}) {
+  const { pendingText, windowRows, onClear } = props
+  useEffect(() => {
+    const needle = String(pendingText || '').trim()
+    if (!needle || typeof onClear !== 'function') return
+    if (v4WindowHasUserText(windowRows, needle)) onClear()
+  }, [pendingText, windowRows, onClear])
+  return null
+}
 
 export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
   /* 语音全屏模式：html[data-xw-voice='1'] 时由 CSS 接管整窗（左语音域/右标签区） */
@@ -224,6 +244,8 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
     rightStageOpen,
     rightStageRecentClosed,
     rows,
+    pendingOptimisticUserText,
+    setPendingOptimisticUserText,
     runningSessionMap,
     selectedPlugins,
     selectedResumeAttach,
@@ -587,23 +609,31 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
               >
                 {(v4Payload, v4Phase) => {
                   /* 发送瞬间：在 V4 时间线尾部注入乐观 userInput，绝不整树切老面板。
-                     闲置切历史 turnLive=false，不会 hold，避免字墙。 */
+                     优先用 pendingOptimisticUserText（不经 setRows 全量历史），避免 flushSync 卡主线程。
+                     闲置切历史 turnLive=false 且无 pending，不会 hold，避免字墙。 */
                   const v4RowCount = v4Payload?.snapshot?.rows.totalCount ?? 0
                   const v4SessionMatched =
                     !!v4Payload &&
                     String(v4Payload.sessionId || '').trim() ===
                       String(selectedThreadId || '').trim()
                   const turnLive = selectedTurnBusy || selectedSessionLive
+                  const pendingOpt = String(pendingOptimisticUserText || '').trim()
+                  const v4Window = v4Payload?.snapshot?.rows?.window
                   const lastLocal =
                     Array.isArray(rows) && rows.length > 0 ? rows[rows.length - 1] : null
                   const lastLocalUserText =
                     lastLocal && String(lastLocal.role || '') === 'user'
                       ? String(lastLocal.text || '').trim()
                       : ''
+                  // pending 优先；turn 进行中才回退 lastLocal，避免 echo 清 pending 后
+                  // 闲置/重连再用 host 尾行把乐观气泡叠回权威消息上。
+                  const optimisticNeedle =
+                    pendingOpt || (turnLive ? lastLocalUserText : '')
+                  const hasV4UserEcho =
+                    !!optimisticNeedle && v4WindowHasUserText(v4Window, optimisticNeedle)
+                  // pending 仅在「尚未 echo」时续命；echo 后由 ClearPending… 清掉。
                   const awaitingV4UserEcho =
-                    turnLive &&
-                    !!lastLocalUserText &&
-                    !v4WindowHasUserText(v4Payload?.snapshot?.rows?.window, lastLocalUserText)
+                    (turnLive || !!pendingOpt) && !!optimisticNeedle && !hasV4UserEcho
                   const localOptimisticHold =
                     awaitingV4UserEcho &&
                     (v4Phase === 'ready'
@@ -611,9 +641,10 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
                       : v4Phase === 'connecting' ||
                         v4Phase === 'no-thread' ||
                         v4Phase === 'failed')
-                  const localHasRows = Array.isArray(rows) && rows.length > 0
+                  const localHasRows =
+                    (Array.isArray(rows) && rows.length > 0) || !!pendingOpt
                   const v4HasRows = v4SessionMatched && v4RowCount > 0
-                  const optimisticUserText = localOptimisticHold ? lastLocalUserText : null
+                  const optimisticUserText = localOptimisticHold ? optimisticNeedle : null
                   let knownEmptyDraft = false
                   try {
                     knownEmptyDraft =
@@ -632,7 +663,18 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
                     localOptimisticHold,
                     knownEmptyDraft,
                   })
-                  return useLegacyPane ? (
+                  return (
+                    <>
+                      <ClearPendingOptimisticOnV4Echo
+                        pendingText={pendingOpt}
+                        windowRows={v4Window}
+                        onClear={
+                          typeof setPendingOptimisticUserText === 'function'
+                            ? () => setPendingOptimisticUserText('')
+                            : undefined
+                        }
+                      />
+                      {useLegacyPane ? (
               /* LEGACY：仅 isHomeSurface — 勿在此恢复主对话 ToolCallList */
               <ChatMessageStreamPane
                 rows={renderRows}
@@ -696,6 +738,8 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
                       draftEmpty={draftEmpty}
                       optimisticUserText={optimisticUserText}
                       evoflowSessionKey={selectedSessionKey}
+                      // 左下角齿轮 ↔ 右下角停止：同一 selectedTurnBusy
+                      sessionBusy={selectedTurnBusy}
                       onOpenFileLink={(target) => {
                         // 话术 Markdown 路径 pill → 右侧「文件」预览区（可关、半宽，不盖住对话）
                         showRightStageFromFileLink(target, {
@@ -743,6 +787,17 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
                           threadId: wsClient?.getSessionThreadId?.(selectedSessionKey || '') || '',
                         })
                       }}
+                      onEdit={async (target, newText) => {
+                        // ZCode 行内编辑 UI → 既有 truncate+resend（entityId = message_id）
+                        const mid = String(target?.entityId || '').trim()
+                        if (!mid) return false
+                        try {
+                          await handleEditMessage(String(newText || ''), mid)
+                          return true
+                        } catch {
+                          return false
+                        }
+                      }}
                       toolApprovalUiDisabled={toolApprovalUiDisabled}
                       bottomDock={
                         <div
@@ -752,6 +807,8 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
                         />
                       }
                     />
+                      )}
+                    </>
                   )
                 }}
               </V4StreamRowsBridge>
@@ -1456,6 +1513,30 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
                 onReopenClosedTab={reopenRightStageTab}
                 onCollapse={handleCollapseRightStage}
                 launcherItems={rightStageLauncherItems}
+                employeeChatRoles={proactiveRolesDisplay}
+                onPickEmployeeChat={(role) => {
+                  const code = String(role.agent_code || '').trim()
+                  if (!code) return
+                  const roleName =
+                    String(role.agent_name || '').trim() ||
+                    String(role.role_name || '').trim() ||
+                    code
+                  void import('../../../lib/right-stage/open-employee-process-stage.js').then((m) => {
+                    m.openEmployeeProcessInRightStage(
+                      {
+                        taskId: `live:${code}`,
+                        agentCode: code,
+                        roleName,
+                        title: roleName,
+                        busy: false,
+                      },
+                      {
+                        sessionKey: String(selectedSessionKey || '').trim() || undefined,
+                        layout: 'wide',
+                      },
+                    )
+                  })
+                }}
                 renderContent={renderRightStageBody}
               />
             ) : null}

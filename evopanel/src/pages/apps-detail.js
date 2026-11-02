@@ -333,7 +333,6 @@ export async function render() {
     workflowCanvas?.setAppMeta?.({
       appName: appData.name || '',
       appStatus: appData.status || 'draft',
-      appIcon: appData.icon || '◇',
       appParameters: Array.isArray(appData.parameters) ? appData.parameters : [],
     })
   }
@@ -350,7 +349,6 @@ export async function render() {
       canvas: plan.canvas || appData.canvas || null,
       appName: appData.name || '',
       appStatus: appData.status || 'draft',
-      appIcon: appData.icon || '◇',
       appParameters: Array.isArray(appData.parameters) ? appData.parameters : [],
       appId,
       runId: debugSession?.runId || undefined,

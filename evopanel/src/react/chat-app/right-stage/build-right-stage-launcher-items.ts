@@ -12,6 +12,8 @@ export function buildChatRightStageLauncherItems(ctx: BuildRightStageLauncherIte
         m.openXiaomiRightStage({ navigateToChat: false }),
       )
     },
+    // 实际开签由 RightStagePanel 选员工后走 onPickEmployeeChat
+    onOpenEmployeeChat: () => {},
     onOpenBrowser: () => {
       const manualTid = String(
         ctx.wsClient.getSessionThreadId(ctx.selectedSessionKey || '') || '',

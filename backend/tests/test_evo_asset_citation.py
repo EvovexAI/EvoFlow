@@ -45,3 +45,20 @@ def test_tolerate_spaces_around_note():
     parsed = extract_evo_asset_citations(raw)
     assert parsed["entries"][0]["path"] == "craft/x.md"
     assert parsed["entries"][0]["note"] == "简要"
+
+
+def test_strips_markdown_list_markers_on_paths():
+    raw = (
+        "<evo-asset-citation>\n"
+        "<citation_entries>\n"
+        "- memory/_inbox/notes/experience-foo.md | note=[本轮新沉淀]\n"
+        "* craft/continuity-report-chain.md|note=[场记]\n"
+        "</citation_entries>\n"
+        "</evo-asset-citation>"
+    )
+    parsed = extract_evo_asset_citations(raw)
+    assert [e["path"] for e in parsed["entries"]] == [
+        "memory/_inbox/notes/experience-foo.md",
+        "craft/continuity-report-chain.md",
+    ]
+    assert parsed["entries"][0]["note"] == "本轮新沉淀"

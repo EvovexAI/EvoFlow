@@ -13,12 +13,14 @@ import { CSS } from '@dnd-kit/utilities'
 import {
   BotIcon,
   ChevronsDownIcon,
+  ChevronLeftIcon,
   FolderIcon,
   GlobeIcon,
   NetworkIcon,
   PanelRightCloseIcon,
   PanelRightIcon,
   PlusIcon,
+  UsersIcon,
   WorkflowIcon,
   XIcon,
   type LucideIcon,
@@ -52,6 +54,7 @@ import { getRightStageKind, UnknownStageKind } from '../../lib/right-stage/right
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover.js'
 import { KindTabIcon } from './RightStageTabIcon.js'
 import { XiaomiStageAvatar } from './XiaomiStageAvatar.js'
+import { EmployeeStageAvatar } from './EmployeeStageAvatar.js'
 import { RightStageTabOverview } from './RightStageTabOverview.js'
 import {
   resolveStageTabsOverflow,
@@ -94,6 +97,7 @@ const FORCE_MOUNT_KINDS = new Set([
 
 export type RightStageLauncherItemId =
   | 'xiaomi'
+  | 'employee-chat'
   | 'browser'
   | 'workspace'
   | 'workflow'
@@ -108,6 +112,14 @@ export type RightStageLauncherItem = {
   /** 有则优先于 Lucide icon（如小V 用角色头像）。 */
   iconNode?: ReactNode
   onOpen: () => void
+}
+
+/** 「员工对话」选择器里的一行。 */
+export type RightStageEmployeeChatOption = {
+  agent_code: string
+  role_name?: string
+  agent_name?: string
+  department?: string
 }
 
 type StageTabContextMenu = {
@@ -315,6 +327,10 @@ export type RightStagePanelProps = {
   /** 折叠侧栏（保留 tabs 缓存），不是 hideAll。 */
   onCollapse: () => void
   launcherItems: RightStageLauncherItem[]
+  /** 「员工对话」可选员工列表；缺省或空则点该项时 toast/提示由 onPick 侧处理。 */
+  employeeChatRoles?: RightStageEmployeeChatOption[]
+  /** 选中员工后打开 employeeProcess 标签。 */
+  onPickEmployeeChat?: (role: RightStageEmployeeChatOption) => void
   renderContent?: (surface: RightStageSurface) => ReactNode
 }
 
@@ -330,11 +346,14 @@ export const RightStagePanel = memo(function RightStagePanel({
   onReopenClosedTab,
   onCollapse,
   launcherItems,
+  employeeChatRoles = [],
+  onPickEmployeeChat,
   renderContent,
 }: RightStagePanelProps) {
   const [draggingKey, setDraggingKey] = useState<string | null>(null)
   const [overviewOpen, setOverviewOpen] = useState(false)
   const [addMenuOpen, setAddMenuOpen] = useState(false)
+  const [pickEmployeeOpen, setPickEmployeeOpen] = useState(false)
   const [tabCtx, setTabCtx] = useState<StageTabContextMenu | null>(null)
   const viewportRef = useRef<HTMLDivElement | null>(null)
   const [viewportWidth, setViewportWidth] = useState(0)
@@ -368,9 +387,71 @@ export const RightStagePanel = memo(function RightStagePanel({
   }, [])
 
   /** 菜单/拖拽进行中强制露出标签条，避免 Portal 弹出后 mouseleave 把条收回去。 */
-  const chromeForcedOpen = overviewOpen || addMenuOpen || !!tabCtx || !!draggingKey
+  const chromeForcedOpen =
+    overviewOpen || addMenuOpen || pickEmployeeOpen || !!tabCtx || !!draggingKey
   // 原生 WebView2 不吃 CSS z-index；下拉/总览打开时先藏 HWND，否则菜单被网页挡住。
   useGlobalOverlayWhen(chromeForcedOpen, 'right-stage-chrome')
+
+  const openLauncherItem = useCallback(
+    (item: RightStageLauncherItem) => {
+      if (item.id === 'employee-chat') {
+        setAddMenuOpen(false)
+        setPickEmployeeOpen(true)
+        return
+      }
+      setPickEmployeeOpen(false)
+      item.onOpen()
+    },
+    [],
+  )
+
+  const pickEmployeeRole = useCallback(
+    (role: RightStageEmployeeChatOption) => {
+      setPickEmployeeOpen(false)
+      onPickEmployeeChat?.(role)
+    },
+    [onPickEmployeeChat],
+  )
+
+  const employeePickList = (
+    <div className="react-chat-stage-open-tab-list" role="listbox" aria-label="选择员工">
+      {employeeChatRoles.length ? (
+        employeeChatRoles.map((role) => {
+          const code = String(role.agent_code || '').trim()
+          if (!code) return null
+          const title =
+            String(role.agent_name || '').trim() ||
+            String(role.role_name || '').trim() ||
+            code
+          const sub = String(role.role_name || '').trim()
+          return (
+            <button
+              key={code}
+              type="button"
+              role="option"
+              data-side-pane-employee-pick={code}
+              className="react-chat-stage-open-tab-button"
+              onClick={() => pickEmployeeRole(role)}
+            >
+              <span className="react-chat-stage-launcher-avatar shrink-0" aria-hidden>
+                <EmployeeStageAvatar agentCode={code} title={title} size={16} />
+              </span>
+              <span className="min-w-0 flex-1 truncate text-left">
+                <span className="block truncate">{title}</span>
+                {sub && sub !== title ? (
+                  <span className="block truncate text-[11px] text-foreground-subtlest">{sub}</span>
+                ) : null}
+              </span>
+            </button>
+          )
+        })
+      ) : (
+        <div className="px-3 py-6 text-center text-ui-sm text-foreground-subtlest">
+          暂无可用员工，请先在智能体员工页添加
+        </div>
+      )}
+    </div>
+  )
 
   const visibleActiveKey = useMemo(() => {
     if (activeKey && tabs.some((t) => tabKeyOf(t) === activeKey)) return activeKey
@@ -504,10 +585,7 @@ export const RightStagePanel = memo(function RightStagePanel({
                 role="menuitem"
                 data-side-pane-add-item={item.id}
                 className="react-chat-stage-add-item"
-                onClick={() => {
-                  setAddMenuOpen(false)
-                  item.onOpen()
-                }}
+                onClick={() => openLauncherItem(item)}
               >
                 {item.iconNode ? (
                   <span className="react-chat-stage-launcher-avatar shrink-0" aria-hidden>
@@ -530,33 +608,55 @@ export const RightStagePanel = memo(function RightStagePanel({
     <div className="react-chat-stage-open-tab-shell">
       <div className="react-chat-stage-open-tab-body">
         <div className="react-chat-stage-open-tab-content">
-          <div className="react-chat-stage-open-tab-copy">
-            <h2 className="react-chat-stage-open-tab-title">打开标签</h2>
-            <p className="react-chat-stage-open-tab-desc">在右侧查看浏览器、工作区文件或工作流。</p>
-          </div>
-          <div className="react-chat-stage-open-tab-list">
-            {launcherItems.map((item) => {
-              const Icon = item.icon
-              return (
+          {pickEmployeeOpen ? (
+            <>
+              <div className="react-chat-stage-open-tab-copy">
                 <button
-                  key={item.id}
                   type="button"
-                  data-side-pane-open-tab-item={item.id}
-                  className="react-chat-stage-open-tab-button"
-                  onClick={item.onOpen}
+                  className="mb-2 inline-flex items-center gap-1 text-ui-sm text-foreground-subtle hover:text-foreground"
+                  onClick={() => setPickEmployeeOpen(false)}
                 >
-                  {item.iconNode ? (
-                    <span className="react-chat-stage-launcher-avatar shrink-0" aria-hidden>
-                      {item.iconNode}
-                    </span>
-                  ) : (
-                    <Icon className="size-4 shrink-0 opacity-70" aria-hidden />
-                  )}
-                  <span className="min-w-0 flex-1 truncate text-left">{item.label}</span>
+                  <ChevronLeftIcon className="size-3.5" aria-hidden />
+                  返回
                 </button>
-              )
-            })}
-          </div>
+                <h2 className="react-chat-stage-open-tab-title">选择员工</h2>
+                <p className="react-chat-stage-open-tab-desc">在右侧打开与该员工的对话标签。</p>
+              </div>
+              {employeePickList}
+            </>
+          ) : (
+            <>
+              <div className="react-chat-stage-open-tab-copy">
+                <h2 className="react-chat-stage-open-tab-title">打开标签</h2>
+                <p className="react-chat-stage-open-tab-desc">
+                  在右侧查看浏览器、工作区文件、工作流，或与员工对话。
+                </p>
+              </div>
+              <div className="react-chat-stage-open-tab-list">
+                {launcherItems.map((item) => {
+                  const Icon = item.icon
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      data-side-pane-open-tab-item={item.id}
+                      className="react-chat-stage-open-tab-button"
+                      onClick={() => openLauncherItem(item)}
+                    >
+                      {item.iconNode ? (
+                        <span className="react-chat-stage-launcher-avatar shrink-0" aria-hidden>
+                          {item.iconNode}
+                        </span>
+                      ) : (
+                        <Icon className="size-4 shrink-0 opacity-70" aria-hidden />
+                      )}
+                      <span className="min-w-0 flex-1 truncate text-left">{item.label}</span>
+                    </button>
+                  )
+                })}
+              </div>
+            </>
+          )}
         </div>
       </div>
     </div>
@@ -576,7 +676,7 @@ export const RightStagePanel = memo(function RightStagePanel({
 
   return (
     <aside
-      className="zcode-bridge-root react-chat-right-stage-panel react-chat-right-stage-shell"
+      className="zcode-bridge-root react-chat-right-stage-panel react-chat-right-stage-shell relative"
       role="region"
       aria-label="右侧面板"
     >
@@ -728,6 +828,35 @@ export const RightStagePanel = memo(function RightStagePanel({
 
       <div className="react-chat-right-stage-bodies">{tabs.map(renderTabBody)}</div>
 
+      {pickEmployeeOpen ? (
+        <div
+          className="absolute inset-0 z-[40] flex flex-col bg-card/95 backdrop-blur-sm"
+          role="dialog"
+          aria-label="选择员工"
+          data-tauri-no-drag
+        >
+          <div className="react-chat-stage-open-tab-shell flex min-h-0 flex-1 flex-col">
+            <div className="react-chat-stage-open-tab-body min-h-0 flex-1 overflow-auto">
+              <div className="react-chat-stage-open-tab-content">
+                <div className="react-chat-stage-open-tab-copy">
+                  <button
+                    type="button"
+                    className="mb-2 inline-flex items-center gap-1 text-ui-sm text-foreground-subtle hover:text-foreground"
+                    onClick={() => setPickEmployeeOpen(false)}
+                  >
+                    <ChevronLeftIcon className="size-3.5" aria-hidden />
+                    取消
+                  </button>
+                  <h2 className="react-chat-stage-open-tab-title">选择员工</h2>
+                  <p className="react-chat-stage-open-tab-desc">在右侧打开与该员工的对话标签。</p>
+                </div>
+                {employeePickList}
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {tabCtx && typeof document !== 'undefined'
         ? createPortal(
             <div
@@ -783,6 +912,8 @@ export const RightStagePanel = memo(function RightStagePanel({
 /** 默认启动项工厂：ChatApp 注入真实 open 回调。 */
 export function buildDefaultRightStageLauncherItems(handlers: {
   onOpenXiaomi?: () => void
+  /** 点「员工对话」进选择器；实际开签由 RightStagePanel.onPickEmployeeChat 完成。 */
+  onOpenEmployeeChat?: () => void
   onOpenBrowser: () => void
   onOpenWorkspace: () => void
   onOpenWorkflow: () => void
@@ -799,6 +930,15 @@ export function buildDefaultRightStageLauncherItems(handlers: {
       icon: BotIcon,
       iconNode: <XiaomiStageAvatar size={16} />,
       onOpen: handlers.onOpenXiaomi,
+    })
+  }
+  if (handlers.onOpenEmployeeChat) {
+    items.push({
+      id: 'employee-chat',
+      label: '员工对话',
+      description: '选员工开聊',
+      icon: UsersIcon,
+      onOpen: handlers.onOpenEmployeeChat,
     })
   }
   items.push(

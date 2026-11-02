@@ -13,6 +13,10 @@ export function usePluginStoreOrder(enabled = true) {
   const generation = useRef(0);
   const refresh = useCallback(
     async (forceRefresh = false) => {
+      // EvoFlow V4 只挂 partial Services（无 clientConfigService）；行内编辑 Mention 仍会挂到这里。
+      if (!service?.getSnapshot) {
+        return;
+      }
       const current = ++generation.current;
       try {
         const { pluginStoreOrder: order } = await service.getSnapshot({ forceRefresh });
@@ -33,5 +37,9 @@ export function usePluginStoreOrder(enabled = true) {
     };
   }, [enabled, refresh]);
 
-  return { order: snapshot?.service === service ? snapshot.order : null, refresh };
+  // 不可写成 `snapshot?.service === service ? snapshot.order`：service 与 snapshot
+  // 同为 undefined 时三元为真，再读 snapshot.order 会炸（V4 行内编辑路径）。
+  const order =
+    snapshot != null && service != null && snapshot.service === service ? snapshot.order : null;
+  return { order, refresh };
 }

@@ -72,7 +72,7 @@ export function V4PreviewPane(props: {
             {/* zcode-bridge-root：styles-bridge 的 token / 暗色主题 / 滚动条作用域都收窄在此容器，
                 缺了它 @theme 变量解析不出来（面包屑、代码块、diff 背景会整块发黑），
                 同时 applyTheme 也靠它定位挂载目标，避免把整站切成暗色。 */}
-            <div className="zcode-bridge-root flex h-full min-h-0 flex-col">
+            <div className="zcode-bridge-root flex h-full min-h-0 min-w-0 flex-col">
             {/* TooltipProvider：PreviewPane/CodeViewer 头部按钮用 ControlHintTooltip，
                 缺 Provider 时渲染即抛错把整块预览打崩（14:04:05 前端日志实锤）。 */}
             <TooltipProvider>

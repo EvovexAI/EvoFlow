@@ -112,6 +112,7 @@ import { createZCodeFileCitationRemarkPlugin } from "@/lib/zcodeFileCitationRema
 import { windowsFileLinkEscapeRemarkPlugin } from "@/lib/windowsFileLinkEscapeRemarkPlugin.js";
 import { projectZCodeFileCitations } from "@/lib/zcodeFileCitation.js";
 import { rewriteMarkdownArtifactImageSources } from "@zcode/shared";
+import { extractEntityAssetRelPath } from "../../../react/lib/evo-asset-citation.js";
 
 export type MessageProps = HTMLAttributes<HTMLDivElement> & {
   from: UIMessage["role"];
@@ -394,6 +395,12 @@ export type MessageResponseProps = {
   onOpenExternalUrl?: (url: string) => void;
   /** 仅 Assistant 正文开启：把完整 zcode-file-citation 投影为现有文件链接。 */
   renderZCodeFileCitations?: boolean;
+  /**
+   * Entity asset vault owner for inline memory/craft/profile pills.
+   * Employee proactive sessions → that employee; otherwise user.
+   */
+  assetEntityType?: string;
+  assetEntityId?: string;
 };
 
 export interface MessageFileLinkTarget {
@@ -405,6 +412,13 @@ export interface MessageFileLinkTarget {
   workspacePath?: string;
   workspaceIdentity?: string;
   workspaceRemoteSessionId?: string;
+  /**
+   * Entity vault relative path (memory/… craft/… profile/…).
+   * When set, open right-stage asset preview — do not read as workspace file.
+   */
+  assetPath?: string;
+  assetEntityType?: string;
+  assetEntityId?: string;
 }
 
 // @streamdown/math 默认不解析 `$...$` 行内公式，导致客户消息里块级 `$$...$$`
@@ -445,6 +459,9 @@ const messageLinkClassName =
 // 改为由文字子项提供真实 baseline；图标只在链接自身行盒内居中，桌面和移动 Web 共用同一语义。
 const messageFileLinkClassName =
   "inline-flex max-w-full items-baseline gap-1 align-baseline text-icon-blue text-ui-base no-underline decoration-dotted underline-offset-4 hover:underline";
+/** Entity-asset pill: distinct from workspace file links (teal + 资产 badge semantics via title). */
+const messageAssetLinkClassName =
+  "inline-flex max-w-full items-baseline gap-1 align-baseline text-emerald-600 dark:text-emerald-400 text-ui-base no-underline decoration-dotted underline-offset-4 hover:underline";
 // Markdown 之前继承紧凑 UI 字号，正文、标题、链接和表格缺少独立的阅读层级。
 // 这里显式定义字号层级，并让标题跟随 UI 字号 Token 缩放，确保聊天、预览和工具面板复用 MessageResponse 时保持一致。
 const messageMarkdownHeadingClassNames = {
@@ -998,6 +1015,9 @@ export function buildMessageFileLinkTarget(input: {
   workspacePath?: string;
   workspaceIdentity?: string;
   workspaceRemoteSessionId?: string;
+  assetPath?: string;
+  assetEntityType?: string;
+  assetEntityId?: string;
 }): MessageFileLinkTarget {
   // 尾随斜杠或无扩展名末段 → 目录图标；真正打开时宿主还会按目录走文件树。
   const pathKind = looksLikeDirectoryPathHint(input.path, input.href)
@@ -1013,6 +1033,33 @@ export function buildMessageFileLinkTarget(input: {
     workspacePath: input.workspacePath,
     workspaceIdentity: input.workspaceIdentity,
     workspaceRemoteSessionId: input.workspaceRemoteSessionId,
+    ...(input.assetPath
+      ? {
+          assetPath: input.assetPath,
+          assetEntityType: input.assetEntityType || "user",
+          assetEntityId: input.assetEntityId || "user",
+        }
+      : {}),
+  };
+}
+
+/** Build a MessageFileLinkTarget for entity-vault paths (never workspace-join). */
+export function buildMessageAssetLinkTarget(input: {
+  href: string;
+  label: string;
+  assetEntityType?: string;
+  assetEntityId?: string;
+}): MessageFileLinkTarget | null {
+  const assetPath = extractEntityAssetRelPath(input.href);
+  if (!assetPath) return null;
+  const leaf = getPathLeaf(assetPath) || assetPath;
+  return {
+    path: assetPath,
+    label: input.label || leaf,
+    relativePath: assetPath,
+    assetPath,
+    assetEntityType: input.assetEntityType || "user",
+    assetEntityId: input.assetEntityId || "user",
   };
 }
 
@@ -1154,8 +1201,12 @@ const MessageFileLinkButton = forwardRef<HTMLButtonElement, MessageFileLinkButto
       <button
         ref={ref}
         type="button"
-        className={cn(messageFileLinkClassName, "cursor-pointer", className)}
-        title={fileLink.path}
+        className={cn(
+          fileLink.assetPath ? messageAssetLinkClassName : messageFileLinkClassName,
+          "cursor-pointer",
+          className,
+        )}
+        title={fileLink.assetPath ? `资产 · ${fileLink.assetPath}` : fileLink.path}
         onClick={onOpen}
         {...props}
       >
@@ -1264,6 +1315,20 @@ function MessageFileLink({ className, fileIconSrc, fileLink, onOpen }: MessageFi
       });
   };
 
+  // Entity assets live in the vault API — no third-party editor / workspace path actions.
+  if (fileLink.assetPath) {
+    return (
+      <MessageFileLinkButton
+        className={className}
+        fileIconSrc={fileIconSrc}
+        fileLink={fileLink}
+        onOpen={onOpen}
+      >
+        {fileLink.label}
+      </MessageFileLinkButton>
+    );
+  }
+
   return (
     <ContextMenu onOpenChange={(open) => open && void loadEditors()}>
       <ContextMenuTrigger asChild>
@@ -1367,6 +1432,8 @@ export const messageResponsePropsAreEqual = (
   nextProps.sessionId === prevProps.sessionId &&
   nextProps.readAttachment === prevProps.readAttachment &&
   nextProps.renderZCodeFileCitations === prevProps.renderZCodeFileCitations &&
+  nextProps.assetEntityType === prevProps.assetEntityType &&
+  nextProps.assetEntityId === prevProps.assetEntityId &&
   nextProps.theme === prevProps.theme &&
   nextProps.codePreviewSettings === prevProps.codePreviewSettings &&
   nextProps.onOpenCodeViewer === prevProps.onOpenCodeViewer &&
@@ -1388,6 +1455,8 @@ export const MessageResponse = memo(
     workspaceRemoteSessionId,
     sessionId,
     readAttachment,
+    assetEntityType,
+    assetEntityId,
     theme = "system",
     codePreviewSettings = DEFAULT_CODE_PREVIEW_SETTINGS,
     children,
@@ -1473,9 +1542,13 @@ export const MessageResponse = memo(
           workspaceIdentity,
           workspaceRemoteSessionId,
           wrapLongLines,
-        }) + (forceCodeWrap ? ":wrap-locked" : "")
+        }) +
+        (forceCodeWrap ? ":wrap-locked" : "") +
+        `:asset:${assetEntityType || ""}:${assetEntityId || ""}`
       );
     }, [
+      assetEntityId,
+      assetEntityType,
       codeBlockTheme,
       codePreviewSettings.fontSizePx,
       wrapLongLines,
@@ -1505,6 +1578,38 @@ export const MessageResponse = memo(
         }: ComponentProps<"a"> & { node?: unknown }) => {
           const resolvedHref =
             typeof href === "string" ? stripBalancedAssistantPathQuotes(href) : "";
+          const labelTextEarly = extractLinkLabelText(children);
+          // Entity asset vault paths → special pill; never join onto workspace root.
+          const assetLinkTarget =
+            resolvedHref && (onOpenFileLink || onOpenCodeViewer)
+              ? buildMessageAssetLinkTarget({
+                  href: resolvedHref,
+                  label: labelTextEarly || getPathLeaf(resolvedHref) || resolvedHref,
+                  assetEntityType,
+                  assetEntityId,
+                })
+              : null;
+          if (assetLinkTarget) {
+            const descriptor = resolveFileDisplayDescriptor(assetLinkTarget.path);
+            return (
+              <MessageFileLink
+                className={linkClassName}
+                fileIconSrc={descriptor.fileIconSrc}
+                fileLink={assetLinkTarget}
+                onOpen={() => {
+                  if (onOpenFileLink) {
+                    onOpenFileLink(assetLinkTarget);
+                    return;
+                  }
+                  onOpenCodeViewer?.({
+                    type: "file",
+                    title: assetLinkTarget.label,
+                    path: assetLinkTarget.path,
+                  });
+                }}
+              />
+            );
+          }
           // 文档/模板假路径（segment<N>.txt、带空格的目录说明）不做成可点 pill
           const fileLink =
             resolvedHref && isPlausibleAssistantFilePathCandidate(resolvedHref)
@@ -1514,9 +1619,37 @@ export const MessageResponse = memo(
               : null;
 
           if (fileLink && (onOpenFileLink || onOpenCodeViewer)) {
+            // Absolute path wrongly joined under workspace that is really an asset.
+            const peeledAsset = buildMessageAssetLinkTarget({
+              href: fileLink.path,
+              label: labelTextEarly || getPathLeaf(fileLink.path) || fileLink.path,
+              assetEntityType,
+              assetEntityId,
+            });
+            if (peeledAsset) {
+              const descriptor = resolveFileDisplayDescriptor(peeledAsset.path);
+              return (
+                <MessageFileLink
+                  className={linkClassName}
+                  fileIconSrc={descriptor.fileIconSrc}
+                  fileLink={peeledAsset}
+                  onOpen={() => {
+                    if (onOpenFileLink) {
+                      onOpenFileLink(peeledAsset);
+                      return;
+                    }
+                    onOpenCodeViewer?.({
+                      type: "file",
+                      title: peeledAsset.label,
+                      path: peeledAsset.path,
+                    });
+                  }}
+                />
+              );
+            }
             const descriptor = resolveFileDisplayDescriptor(fileLink.path);
             const fileName = descriptor.fileName || getPathLeaf(fileLink.path);
-            const labelText = extractLinkLabelText(children) || fileName;
+            const labelText = labelTextEarly || fileName;
             const fileLinkTarget = buildMessageFileLinkTarget({
               href: resolvedHref,
               path: fileLink.path,
@@ -1630,12 +1763,70 @@ export const MessageResponse = memo(
                 /^\.{1,2}[\\/]/.test(inlineText) ||
                 isAbsoluteFilePath(inlineText) ||
                 Boolean(getAssistantPreviewFileTypeDefinition(inlineText)));
+            // Asset vault paths in inline code → asset pill (before workspace join).
+            const inlineAssetTarget =
+              looksLikeFilePath && (onOpenFileLink || onOpenCodeViewer)
+                ? buildMessageAssetLinkTarget({
+                    href: inlineText,
+                    label: getPathLeaf(inlineText) || inlineText,
+                    assetEntityType,
+                    assetEntityId,
+                  })
+                : null;
+            if (inlineAssetTarget) {
+              const descriptor = resolveFileDisplayDescriptor(inlineAssetTarget.path);
+              return (
+                <MessageFileLink
+                  className={codeClassName}
+                  fileIconSrc={descriptor.fileIconSrc}
+                  fileLink={inlineAssetTarget}
+                  onOpen={() => {
+                    if (onOpenFileLink) {
+                      onOpenFileLink(inlineAssetTarget);
+                      return;
+                    }
+                    onOpenCodeViewer?.({
+                      type: "file",
+                      title: inlineAssetTarget.label,
+                      path: inlineAssetTarget.path,
+                    });
+                  }}
+                />
+              );
+            }
             const resolvedPath = looksLikeFilePath
               ? resolveAssistantRawFilePath(workspacePath || "", inlineText, {
                   homePath: workspaceHomePath,
                 })
               : null;
             if (resolvedPath && (onOpenFileLink || onOpenCodeViewer)) {
+              const peeledAsset = buildMessageAssetLinkTarget({
+                href: resolvedPath,
+                label: getPathLeaf(resolvedPath) || resolvedPath,
+                assetEntityType,
+                assetEntityId,
+              });
+              if (peeledAsset) {
+                const descriptor = resolveFileDisplayDescriptor(peeledAsset.path);
+                return (
+                  <MessageFileLink
+                    className={codeClassName}
+                    fileIconSrc={descriptor.fileIconSrc}
+                    fileLink={peeledAsset}
+                    onOpen={() => {
+                      if (onOpenFileLink) {
+                        onOpenFileLink(peeledAsset);
+                        return;
+                      }
+                      onOpenCodeViewer?.({
+                        type: "file",
+                        title: peeledAsset.label,
+                        path: peeledAsset.path,
+                      });
+                    }}
+                  />
+                );
+              }
               const descriptor = resolveFileDisplayDescriptor(resolvedPath);
               const fileName = descriptor.fileName || getPathLeaf(resolvedPath);
               const fileLinkTarget = buildMessageFileLinkTarget({
@@ -1725,6 +1916,8 @@ export const MessageResponse = memo(
         ul: MarkdownUnorderedList,
       }),
       [
+        assetEntityId,
+        assetEntityType,
         codeBlockTheme,
         codePreviewSettings.fontSizePx,
         wrapLongLines,

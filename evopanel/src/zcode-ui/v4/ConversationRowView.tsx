@@ -1551,13 +1551,19 @@ const AssistantTextRowView = memo(function AssistantTextRowView({
           onOpenExternalUrl={context.onOpenBrowserUrl}
           sessionId={context.sessionId ?? undefined}
           readAttachment={context.readAttachment}
+          assetEntityType={context.assetEntityType}
+          assetEntityId={context.assetEntityId}
         >
           {visibleText}
         </MessageResponse>
       </div>
       {!streaming && assetCitation.entries.length > 0 ? (
         <div className="mt-2">
-          <AssetCitationChips entries={assetCitation.entries} />
+          <AssetCitationChips
+            entries={assetCitation.entries}
+            entityType={context.assetEntityType}
+            entityId={context.assetEntityId}
+          />
         </div>
       ) : null}
       {codeCommentCardsEnabled && codeCommentCards && codeCommentCards.length > 0 ? (

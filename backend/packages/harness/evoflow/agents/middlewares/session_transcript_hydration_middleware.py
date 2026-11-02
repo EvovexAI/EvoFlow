@@ -13,6 +13,7 @@ import logging
 import os
 import threading
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 try:
@@ -252,7 +253,10 @@ def _session_key_from_runtime(runtime: Runtime, thread_id: str = "") -> str:
 def _payload_for_row(row: dict[str, Any]) -> dict[str, Any]:
     if isinstance(row.get("payload"), dict):
         return row["payload"]
-    return loads_payload(str(row.get("content_json") or ""))
+    cj = row.get("content_json")
+    if isinstance(cj, dict):
+        return cj
+    return loads_payload(str(cj or ""))
 
 
 def _content_for_lc(row: dict[str, Any]) -> Any:
@@ -281,20 +285,38 @@ def lead_transcript_rows_to_lc_messages(rows: list[dict[str, Any]]) -> list[Base
         content = _content_for_lc(row)
         mid = str(row.get("message_id") or "").strip() or None
         if role == "user":
-            if not content and content != 0:
+            ctx_files = payload.get("contextFiles") or payload.get("context_files")
+            normalized_files: list[dict] = []
+            if isinstance(ctx_files, list) and ctx_files:
+                normalized_files = [
+                    x for x in ctx_files if isinstance(x, dict) and str(x.get("path") or "").strip()
+                ]
+            # Image-/file-only IM turns persist content="" + contextFiles. Keep them so
+            # ContextFilesMiddleware can inject native vision / paths (dropping these
+            # made Feishu images "invisible" and forced a failing read_file).
+            has_attachments = bool(normalized_files)
+            if not content and content != 0 and not has_attachments:
                 continue
             # Skip empty OpenAI-style parts: ``[{type:text,text:""}]`` (truthy list, no text).
-            if not _content_blocks_have_text(content) and not _human_has_non_text_parts(content):
+            if (
+                not has_attachments
+                and not _content_blocks_have_text(content)
+                and not _human_has_non_text_parts(content)
+            ):
                 continue
             uname = str(row.get("tool_name") or "").strip() or None
-            kwargs: dict[str, Any] = {"content": content, "id": mid}
+            # Empty body with attachments still needs a non-null content for LC messages.
+            msg_content: Any = content if (content or content == 0) else ""
+            if has_attachments and not str(msg_content or "").strip() and not _human_has_non_text_parts(msg_content):
+                # Placeholder so the turn is not dropped later; real pixels come from
+                # ContextFilesMiddleware via additional_kwargs.context_files.
+                names = ", ".join(str(x.get("name") or Path(str(x.get("path") or "")).name) for x in normalized_files[:4])
+                msg_content = f"[附件] {names}" if names else "[附件]"
+            kwargs: dict[str, Any] = {"content": msg_content, "id": mid}
             if uname:
                 kwargs["name"] = uname
-            ctx_files = payload.get("contextFiles") or payload.get("context_files")
-            if isinstance(ctx_files, list) and ctx_files:
-                normalized = [x for x in ctx_files if isinstance(x, dict) and str(x.get("path") or "").strip()]
-                if normalized:
-                    kwargs["additional_kwargs"] = {"context_files": normalized}
+            if normalized_files:
+                kwargs["additional_kwargs"] = {"context_files": normalized_files}
             out.append(HumanMessage(**kwargs))
             continue
         if role == "assistant":

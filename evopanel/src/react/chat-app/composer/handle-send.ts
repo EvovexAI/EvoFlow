@@ -3,7 +3,7 @@
  * Composer send turn. Extracted from ChatApp.tsx (P80).
  * Body moved wholesale; outer deps via ctx destructure (host whitelist).
  */
-import { flushSync } from 'react-dom'
+import { startTransition } from 'react'
 import type { ChatAttachment, DisplayRow } from '../../chat-types.js'
 import type { ContextFileEntry } from '../../components/WorkspaceFileTree.js'
 import type { SkillSelection } from '../../components/SkillPickerModal.js'
@@ -124,6 +124,7 @@ export async function handleSend(
     setPluginComposerPillsVisible,
     setRoleUiNonce,
     setPreferHomeDashboard,
+    setPendingOptimisticUserText,
     setRows,
     setSessionHadContent,
     setSessions,
@@ -301,33 +302,6 @@ export async function handleSend(
       }
     }
 
-    // 智能体员工会话：按 session_key 轻量同步 context，之后走正常 chatSend。
-    // 只 await 本地合并；Gateway PATCH 后台发。原先 await 网络会在 Gateway 忙/panel-stream
-    // 抖动时把「点击→上线」拖到数秒（回合计时里的 context/abort/beforeWire）。
-    if (isProactiveSessionKey(sessionKey) && String(message || '').trim()) {
-      const parsed = parseProactiveSessionKey(sessionKey)
-      try {
-        const patch: Record<string, unknown> = {
-          source: 'proactive',
-          proactive_agent_code: parsed.agentCode || null,
-          employee_talk_mode: 'chat',
-        }
-        if (parsed.kind === 'task' && parsed.taskId) {
-          patch.workspace_kind = 'task'
-          patch.related_task_id = parsed.taskId
-        } else if (parsed.kind === 'chat') {
-          patch.workspace_kind = 'chat'
-          patch.related_task_id = null
-        } else if (parsed.kind === 'duty') {
-          patch.workspace_kind = 'duty'
-        }
-        await wsClient.updateSessionContext(sessionKey, patch, { localOnly: true })
-        void wsClient.updateSessionContext(sessionKey, patch).catch(() => {})
-      } catch {
-        /* ignore */
-      }
-    }
-
     const imageAttachments = (attachments || []).filter((a) => {
       const mime = String(a?.mimeType || '').toLowerCase()
       if (mime.startsWith('image/')) return true
@@ -357,7 +331,6 @@ export async function handleSend(
     setPluginComposerPillsVisible(false)
     const preserveCollabOnSend = isUserExecutionStartIntent(message)
 
-    // 与输入框发送一致：先立刻展示用户消息 + 处理中，再跑 context/abort/chatSend（避免点「开始执行」长时间无反馈）
     lastActivityRef.current[sessionKey] = Date.now()
     let optimisticMessageId: string
     try {
@@ -369,6 +342,71 @@ export async function handleSend(
     } catch {
       optimisticMessageId = `user-${Date.now()}-${sendSeq}`
     }
+    const turnStartTs = Date.now()
+    const attachCount = Array.isArray(attachments) ? attachments.length : 0
+    const bind = bindChatTurnSendSession({
+      sessionKey,
+      text: userMessage,
+      attachmentCount: attachCount,
+    })
+    if (!bind.sendClickAlreadyLogged) {
+      logChatTurnSendClick({
+        sessionKey,
+        text: userMessage,
+        attachmentCount: attachCount,
+        source: opts?.voiceInitiated
+          ? 'handle_send_voice'
+          : opts?.goalInitiated
+            ? 'handle_send_goal'
+            : 'handle_send',
+      })
+    }
+
+    // ① 先只推乐观文案（不 flushSync、不 SEND_STARTED、不 setRows）。
+    //    事件 handler 在 await 处让出后 React 提交；ConversationTimeline 走尾部 append 快路径。
+    const activeSk = String(sessionRef.current || '').trim()
+    const isCurrentSession = activeSk === sessionKey
+    const noActiveSession = !activeSk
+    if (isCurrentSession || noActiveSession) {
+      if (noActiveSession) sessionRef.current = sessionKey
+      setPendingOptimisticUserText?.(userMessage)
+      setSessionHadContent(true)
+      if (opts?.leaveHomeOnPaint) setPreferHomeDashboard?.(false)
+    } else if (opts?.leaveHomeOnPaint) {
+      setSessionHadContent(true)
+      setPreferHomeDashboard?.(false)
+    }
+
+    // ② 等一帧：乐观气泡先上屏，再做 runtime 重置 / context / wire
+    await new Promise<void>((resolve) => {
+      requestAnimationFrame(() => resolve())
+    })
+
+    // 智能体员工：paint 后再本地合并 context（勿挡首帧）
+    if (isProactiveSessionKey(sessionKey) && String(message || '').trim()) {
+      const parsed = parseProactiveSessionKey(sessionKey)
+      try {
+        const patch: Record<string, unknown> = {
+          source: 'proactive',
+          proactive_agent_code: parsed.agentCode || null,
+          employee_talk_mode: 'chat',
+        }
+        if (parsed.kind === 'task' && parsed.taskId) {
+          patch.workspace_kind = 'task'
+          patch.related_task_id = parsed.taskId
+        } else if (parsed.kind === 'chat') {
+          patch.workspace_kind = 'chat'
+          patch.related_task_id = null
+        } else if (parsed.kind === 'duty') {
+          patch.workspace_kind = 'duty'
+        }
+        await wsClient.updateSessionContext(sessionKey, patch, { localOnly: true })
+        void wsClient.updateSessionContext(sessionKey, patch).catch(() => {})
+      } catch {
+        /* ignore */
+      }
+    }
+
     const userRow: DisplayRow = {
       role: 'user',
       text: userMessage,
@@ -397,7 +435,6 @@ export async function handleSend(
       timestamp: Date.now(),
     }
     const rtSend = getSessionRuntime(sessionKey)
-    const activeSk = String(sessionRef.current || '').trim()
     // 发送消息时，消息历史的基准行必须以当前目标会话的 runtime 为准。
     // React rows 可能是上一会话的残留（切换后 history 尚未 bound）；此时不得当作本会话历史。
     const historyReadyForSend =
@@ -457,10 +494,6 @@ export async function handleSend(
     writeStreamDismissedRef.current = false
     turnRunArtifactsRef.current = []
     turnPlatformEntriesRef.current = []
-    setTurnPlatformEntries([])
-    setPlatformFocusEntryId('')
-    setTurnArtifacts([])
-    setArtifactFocusId('')
     if (rightStageHintTimerRef.current) {
       clearTimeout(rightStageHintTimerRef.current)
       rightStageHintTimerRef.current = 0
@@ -473,77 +506,35 @@ export async function handleSend(
     // stop 后会 markSessionRecoveryCooldown；用户主动再发须清掉，否则 AG-UI run-* 接管被丢弃
     clearStreamReattachCooldown(sessionKey)
     resetStreamStopLogDedupe(sessionKey)
-    const turnStartTs = Date.now()
-    const attachCount = Array.isArray(attachments) ? attachments.length : 0
-    const bind = bindChatTurnSendSession({
-      sessionKey,
-      text: userMessage,
-      attachmentCount: attachCount,
-    })
-    // Composer 已记「点击发送」则只绑 session；目标/语音等入口在此补中文日志
-    if (!bind.sendClickAlreadyLogged) {
-      logChatTurnSendClick({
-        sessionKey,
-        text: userMessage,
-        attachmentCount: attachCount,
-        source: opts?.voiceInitiated
-          ? 'handle_send_voice'
-          : opts?.goalInitiated
-            ? 'handle_send_goal'
-            : 'handle_send',
-      })
-    }
-    dispatchSessionTurnEvent(sessionKey, { type: 'SEND_STARTED', turnStartTs })
-    dispatchSessionTurnEvent(sessionKey, { type: 'WIRE_SOURCE', source: 'run' })
-    // 修复：发送消息时，如果目标会话就是当前活跃会话（或当前没有活跃会话，如新建会话过程中），
-    // 必须确保 streamRef 指向目标会话的 stream，避免流事件写入错误的 stream 导致串台
-    // 这在新建会话后立即发送消息的竞态场景下尤其重要（createSessionForChat 的 setState 可能还没生效）
-    // activeSk 已在第 9321 行声明，直接复用
-    const isCurrentSession = activeSk === sessionKey
-    const noActiveSession = !activeSk
+
     if (isCurrentSession || noActiveSession) {
       streamRef.current = rtSend.stream
       streamRefKeyRef.current = sessionKey
-      // 如果当前没有活跃会话但我们正在发送消息，立即同步 sessionRef 到目标会话
-      // 这确保后续流事件能正确路由
-      if (noActiveSession) {
-        sessionRef.current = sessionKey
-      }
-      // flushSync：用户气泡同帧出现；首页发送时同帧离开工作台，避免空草稿居中闪一下
-      flushSync(() => {
-        setSessionHadContent(true)
-        if (opts?.leaveHomeOnPaint) {
-          setPreferHomeDashboard?.(false)
-        }
-        setRows([...rtSend.rows])
-        setSessions((prev) =>
-          prev.map((s) =>
-            String(s.sessionKey || '') === sessionKey
-              ? {
-                  ...s,
-                  runStatus: 'running',
-                  currentRunId: null,
-                  currentTurnStartedAt: turnStartedIso,
-                  currentTurnEndedAt: null,
-                  ...(provisionalTitle && isReplaceableSessionTitle(s.title)
-                    ? { title: provisionalTitle }
-                    : {}),
-                }
-              : s,
-          ),
-        )
-        setLiveTurnAssistantRunId(null)
-        setLiveTurnTokens(null)
-      })
-      seenRunIdsRef.current = new Set()
-      activeChatRunIdRef.current = null
-    } else if (opts?.leaveHomeOnPaint) {
-      // 目标会话不是当前活跃会话时仍须离开首页，否则会卡在工作台
-      flushSync(() => {
-        setSessionHadContent(true)
-        setPreferHomeDashboard?.(false)
-      })
     }
+    // busy / sessions：paint 后更新；V4 显示已由 pendingOptimistic 撑住
+    dispatchSessionTurnEvent(sessionKey, { type: 'SEND_STARTED', turnStartTs })
+    dispatchSessionTurnEvent(sessionKey, { type: 'WIRE_SOURCE', source: 'run' })
+    setSessions((prev) =>
+      prev.map((s) =>
+        String(s.sessionKey || '') === sessionKey
+          ? {
+              ...s,
+              runStatus: 'running',
+              currentRunId: null,
+              currentTurnStartedAt: turnStartedIso,
+              currentTurnEndedAt: null,
+              ...(provisionalTitle && isReplaceableSessionTitle(s.title)
+                ? { title: provisionalTitle }
+                : {}),
+            }
+          : s,
+      ),
+    )
+    setLiveTurnAssistantRunId(null)
+    setLiveTurnTokens(null)
+    seenRunIdsRef.current = new Set()
+    activeChatRunIdRef.current = null
+
     const keepPlanDetectionCache =
       preserveCollabOnSend ||
       (collabOn &&
@@ -556,48 +547,71 @@ export async function handleSend(
       resetPlanStreamSession()
     }
     planResolveInFlightRef.current = false
-    setStreamingWritePreview(null)
     lastStreamWritePathRef.current = null
     resetStreamMirrorDedupe()
     activeChatRunIdRef.current = null
     setExpectedChatRunId(sessionKey, null)
-    scheduleBump({ immediate: true })
-
-    setSubagentDockTasks({})
     if (streamRef.current.subagentTasks) streamRef.current.subagentTasks = {}
     if (streamRef.current.terminalStreams) streamRef.current.terminalStreams = {}
     parentTaskToSubtaskRef.current = {}
-    if (!preserveCollabOnSend) {
-      setSidebarTaskViews({})
-      setSidebarSelectedTaskId(null)
-    }
-    setThreadPanelState((prev) => {
-      const keepTaskId = String(prev.collabTask?.taskId || prev.boundTaskId || '').trim()
-      if (preserveCollabOnSend && keepTaskId) {
-        queueMicrotask(() => setSidebarSelectedTaskId((cur) => cur || keepTaskId))
+
+    // host rows / 侧栏：低优先级；V4 权威投影，勿在发送热路径抢主线程。
+    // runtime 已写 rtSend.rows；host setRows 仅供副作用对账，延后一帧再 transition。
+    startTransition(() => {
+      if (isCurrentSession || noActiveSession) {
+        // 与当前画面等价则跳过，避免发送瞬间第二 longtask
+        const prev = Array.isArray(rows) ? rows : []
+        const next = rtSend.rows
+        const sameLen = prev.length === next.length
+        const tailSame =
+          sameLen &&
+          prev.length > 0 &&
+          String(prev[prev.length - 1]?.messageId || '') ===
+            String(next[next.length - 1]?.messageId || '') &&
+          String(prev[prev.length - 1]?.text || '') === String(next[next.length - 1]?.text || '')
+        if (!tailSame) setRows([...next])
       }
-      return {
-        ...prev,
-        activityKind: preserveCollabOnSend ? 'thinking' : 'idle',
-        activityDetail: preserveCollabOnSend ? '正在启动执行…' : '',
-        reasoningPreview: null,
-        subagentTasks: {},
-        clarification: null,
-        goalProposal: null,
-        ...(preserveCollabOnSend
-          ? {
-              collabPhase:
-                prev.collabPhase === 'plan_ready' || !prev.collabPhase ? 'awaiting_exec' : prev.collabPhase,
-            }
-          : {
-              supervisorSteps: [],
-              collabSubtasks: [],
-              collabTask: null,
-              collabPhase: null,
-              boundTaskId: null,
-            }),
+      setTurnPlatformEntries([])
+      setPlatformFocusEntryId('')
+      setTurnArtifacts([])
+      setArtifactFocusId('')
+      setStreamingWritePreview(null)
+      setSubagentDockTasks({})
+      if (!preserveCollabOnSend) {
+        setSidebarTaskViews({})
+        setSidebarSelectedTaskId(null)
       }
+      setThreadPanelState((prev) => {
+        const keepTaskId = String(prev.collabTask?.taskId || prev.boundTaskId || '').trim()
+        if (preserveCollabOnSend && keepTaskId) {
+          queueMicrotask(() => setSidebarSelectedTaskId((cur) => cur || keepTaskId))
+        }
+        return {
+          ...prev,
+          activityKind: preserveCollabOnSend ? 'thinking' : 'idle',
+          activityDetail: preserveCollabOnSend ? '正在启动执行…' : '',
+          reasoningPreview: null,
+          subagentTasks: {},
+          clarification: null,
+          goalProposal: null,
+          ...(preserveCollabOnSend
+            ? {
+                collabPhase:
+                  prev.collabPhase === 'plan_ready' || !prev.collabPhase
+                    ? 'awaiting_exec'
+                    : prev.collabPhase,
+              }
+            : {
+                supervisorSteps: [],
+                collabSubtasks: [],
+                collabTask: null,
+                collabPhase: null,
+                boundTaskId: null,
+              }),
+        }
+      })
     })
+    scheduleBump()
 
     const { api } = await import('../../../lib/tauri-api.js')
 
@@ -781,6 +795,7 @@ export async function handleSend(
         dispatchSessionTurnEvent(sessionKey, { type: 'SEND_FAILED' })
         dispatchSessionRunEnded(sessionKey)
         clearSessionExecutionStateForEnded(sessionKey)
+        setPendingOptimisticUserText?.('')
         if (String(sessionRef.current || '').trim() === sessionKey) {
           streamRef.current = rtSend.stream
           streamRefKeyRef.current = sessionKey

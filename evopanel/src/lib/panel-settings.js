@@ -31,6 +31,8 @@ export const DEFAULT_PANEL_SETTINGS = {
   defaultProjectWorkspaceRoot: '',
   workspaceIndexWatchEnabled: false,
   defaultVisionModel: '',
+  /** LangGraph 同时可跑的会话/任务槽（N_JOBS_PER_WORKER）；默认 10 */
+  langgraphMaxConcurrent: 10,
   keyboardShortcuts: {},
   /** 用户已选择「本版本不再提示」的版本号；匹配时不再弹出更新横幅 */
   dismissedUpdateVersion: '',

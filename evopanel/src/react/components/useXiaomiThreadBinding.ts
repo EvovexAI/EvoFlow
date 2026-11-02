@@ -1,9 +1,8 @@
 /**
  * 小V 会话 → V4 thread 绑定（threadId + 工作区根）。
  *
- * 小V 对话有两处宿主（右栏小V标签页、语音全屏右上角回复区），
- * 两者必须订阅同一个 LangGraph thread，否则两处看到的不是同一轮对话。
- * 本 hook 只负责「把 sessionKey 解析成 threadId」，不碰渲染。
+ * 右栏小V / 语音浮层都经 XiaomiV4Timeline → V4SessionPaneBridge，
+ * 必须订阅同一个 LangGraph thread。本 hook 只解析 sessionKey → threadId。
  */
 import { useEffect, useState } from 'react'
 import { getState, subscribe } from '../../components/global-assistant/assistant-store.js'

@@ -30,6 +30,7 @@ import {
 import { setWorkspaceIndexWatchEnabled } from '../../../lib/workspace-index-watch.js'
 import { TerminalStagePanel } from '../../components/TerminalStagePanel.js'
 import { WorkspaceFilePreviewPanel } from '../../components/WorkspaceFilePreviewPanel.js'
+import { AssetFilePreviewPanel } from '../../components/AssetFilePreviewPanel.js'
 import { RightStageTabErrorBoundary } from './right-stage-tab-error-boundary.js'
 import { SidePanelBootShell } from '../../components/SidePanelBootShell.js'
 import { WorkspaceFileTree } from '../../components/WorkspaceFileTree.js'
@@ -182,6 +183,27 @@ export function renderRightStageBody(
       />
     )
   }
+  if (kind === 'asset') {
+    const data = surface.data || {}
+    const path = String(data.assetPath || data.path || '').trim()
+    const name = String(data.name || surface.title || '').trim()
+    const entityType = String(data.entityType || 'user').trim() || 'user'
+    const entityId = String(data.entityId || 'user').trim() || 'user'
+    if (!path) return null
+    return sidePanelHeavyMount ? (
+      <RightStageTabErrorBoundary title={name || '资产'}>
+        <AssetFilePreviewPanel
+          entityType={entityType}
+          entityId={entityId}
+          path={path}
+          name={name || undefined}
+          onClose={() => rightStageStore.closeTab(tabKeyOf(surface))}
+        />
+      </RightStageTabErrorBoundary>
+    ) : (
+      <SidePanelBootShell title={name || '资产'} className="react-chat-workspace-preview-stage" />
+    )
+  }
   if (kind === 'file') {
     const data = surface.data || {}
     const path = String(data.path || surface.id || '').trim()
@@ -271,6 +293,7 @@ export function renderRightStageBody(
         sessionId={childSessionId}
         connecting={!!data.connecting}
         sessionKey={String(surface.sessionKey || selectedSessionKey || '') || undefined}
+        embedded
       />
     ) : (
       <SidePanelBootShell title={surface.title || '子会话'} />

@@ -2,7 +2,13 @@
 
 from __future__ import annotations
 
-from app.gateway.routers.tasks import _resolve_list_page_size, _slim_task_for_list
+from app.gateway.routers.tasks import (
+    _TASKS_LIST_ALL_CAP,
+    _TASKS_LIST_DEFAULT_PAGE,
+    _resolve_list_page_size,
+    _slim_task_for_list,
+)
+from evoflow.persistence.task_repositories import _root_task_sql_filters
 
 
 def test_resolve_list_page_size_prefers_page_size() -> None:
@@ -10,6 +16,20 @@ def test_resolve_list_page_size_prefers_page_size() -> None:
     assert _resolve_list_page_size(page_size=0, limit=40) == 40
     assert _resolve_list_page_size(page_size=0, limit=None) == 0
     assert _resolve_list_page_size(page_size=0, limit=0) == 0
+
+
+def test_tasks_list_defaults_are_bounded() -> None:
+    assert _TASKS_LIST_DEFAULT_PAGE == 40
+    assert _TASKS_LIST_ALL_CAP == 200
+    assert _TASKS_LIST_ALL_CAP >= _TASKS_LIST_DEFAULT_PAGE
+
+
+def test_root_task_sql_filters_exclude_noise_and_role() -> None:
+    where, params = _root_task_sql_filters(exclude_noise=True, has_role=True)
+    assert "task_id = main_task_id" in where
+    assert "assigned_role" in where
+    assert "proactive_patrol" in where
+    assert params == []
 
 
 def test_slim_task_for_list_drops_heavy_fields() -> None:

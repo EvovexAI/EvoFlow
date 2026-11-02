@@ -80,7 +80,10 @@ def mount_langgraph_in_process() -> Starlette:
     except Exception:
         logger.debug("multi-session runtime banner skipped", exc_info=True)
     os.environ.setdefault("LANGGRAPH_DISABLE_FILE_PERSISTENCE", "false")
-    os.environ.setdefault("N_JOBS_PER_WORKER", "10")
+    from evoflow.langgraph_runtime_env import _resolve_n_jobs_per_worker
+
+    # Prefer env / Settings→通用 (langgraphMaxConcurrent); default 10.
+    os.environ["N_JOBS_PER_WORKER"] = str(_resolve_n_jobs_per_worker())
     if checkpointer:
         os.environ.setdefault("LANGGRAPH_CHECKPOINTER", json.dumps(checkpointer))
     # Durable EvoFlow checkpointer already persists graph state — keep the

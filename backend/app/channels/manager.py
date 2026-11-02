@@ -514,6 +514,79 @@ def _enrich_channel_run_context(
         run_context.setdefault("user_message", body)
 
 
+def _channel_image_entries(files: list[Any]) -> list[dict[str, Any]]:
+    """Return image-like inbound file dicts (kind/mime/suffix)."""
+    out: list[dict[str, Any]] = []
+    for entry in files:
+        if not isinstance(entry, dict):
+            continue
+        path = str(entry.get("path") or "").strip()
+        if not path:
+            continue
+        kind = str(entry.get("kind") or "").strip().lower()
+        mime = str(entry.get("mime") or "").strip().lower()
+        suffix = Path(path).suffix.lower()
+        is_image = (
+            kind == "image"
+            or mime.startswith("image/")
+            or suffix in {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"}
+        )
+        if is_image:
+            out.append(entry)
+    return out
+
+
+def _caption_channel_images_for_im(files: list[dict[str, Any]]) -> str:
+    """OCR / describe IM inbound images into plain text the main agent can use.
+
+    Native ``image_url`` injection is unreliable across providers (and agents often
+    fall through to ``platform.openai.vision`` which previously defaulted to a
+    rate-limited free model). Pre-caption with the configured vision model so the
+    turn always carries readable content even when pixels never reach the chat model.
+    """
+    from evoflow.tools.builtins.vision_analysis_core import analyze_image_bytes
+
+    blocks: list[str] = []
+    prompt = (
+        "请完整、逐字抄录图中全部文字（题目、选项、公式、标注、小字都要）；"
+        "若几乎无字则简要描述画面要点。不要寒暄，直接输出内容。"
+    )
+    for entry in files[:4]:
+        path = str(entry.get("path") or "").strip()
+        name = str(entry.get("filename") or entry.get("name") or Path(path).name or "image")
+        if not path or not Path(path).is_file():
+            blocks.append(f"- {name}: （文件不存在：{path or '∅'}）")
+            continue
+        try:
+            raw = Path(path).read_bytes()
+        except OSError as exc:
+            blocks.append(f"- {name}: （读取失败：{exc}）")
+            continue
+        mime = str(entry.get("mime") or "").strip() or "image/jpeg"
+        try:
+            result = analyze_image_bytes(
+                raw,
+                mime,
+                user_prompt=prompt,
+                source="channel_inbound_caption",
+                image_ref=path,
+            )
+        except Exception as exc:
+            logger.warning("[Manager] channel image caption failed path=%s: %s", path, exc)
+            blocks.append(f"- {name}: （识图异常：{exc}）")
+            continue
+        if result.get("error"):
+            blocks.append(f"- {name}: （识图失败：{result.get('error')}）")
+            continue
+        analysis = str(result.get("analysis") or "").strip()
+        model = str(result.get("vision_model") or "").strip()
+        header = f"- {name}" + (f" · model={model}" if model else "")
+        blocks.append(f"{header}\n{analysis}" if analysis else f"{header}\n（无文字）")
+    if not blocks:
+        return ""
+    return "[渠道图片识别]\n" + "\n\n".join(blocks)
+
+
 def _build_human_input(
     msg: InboundMessage,
     run_context: dict[str, Any] | None = None,
@@ -579,6 +652,25 @@ def _build_human_input(
                 + "\n这些是本机已落盘的文件地址；读写请用上述 Path。"
             )
             content = f"{content.rstrip()}{footer}" if content.strip() else footer.strip()
+
+        # IM: pre-caption images so the lead model can act without relying on
+        # native multimodal (or on platform.openai.vision hitting a free-tier 429).
+        if msg.channel_name in IM_CHANNEL_NAMES:
+            image_entries = _channel_image_entries(files)
+            if image_entries:
+                try:
+                    caption = _caption_channel_images_for_im(image_entries)
+                except Exception:
+                    logger.warning("[Manager] channel image caption skipped", exc_info=True)
+                    caption = ""
+                if caption:
+                    content = f"{content.rstrip()}\n\n{caption}" if content.strip() else caption
+                    _mgr_diag(
+                        "channel_image_caption",
+                        channel=msg.channel_name,
+                        images=len(image_entries),
+                        caption_len=len(caption),
+                    )
 
     message: dict[str, Any] = {"role": "human", "content": content}
     if context_files:
@@ -741,6 +833,46 @@ def _is_startup_gate_error(exc: BaseException | None) -> bool:
         or "gateway starting up" in msg
         or "agent engine" in msg
         or "extension module" in msg
+    )
+
+
+def _is_transient_stream_error(exc: BaseException | None) -> bool:
+    """Timeouts / dropped HTTP streams that often clear after a short backoff.
+
+    Event-loop stalls (e.g. SQLite write-lock starvation from catalog scans)
+    surface here as ReadTimeout / RemoteProtocolError with an empty IM reply.
+    """
+    if exc is None:
+        return False
+    if _is_startup_gate_error(exc) or _is_thread_busy_error(exc):
+        return False
+    name = type(exc).__name__
+    if name in (
+        "ReadTimeout",
+        "WriteTimeout",
+        "PoolTimeout",
+        "ConnectTimeout",
+        "TimeoutException",
+        "RemoteProtocolError",
+        "LocalProtocolError",
+        "ReadError",
+        "WriteError",
+        "NetworkError",
+    ):
+        return True
+    msg = _exception_message_text(exc).lower()
+    compact = msg.replace(" ", "")
+    return (
+        "readtimeout" in compact
+        or "writetimeout" in compact
+        or "connecttimeout" in compact
+        or "pooltimeout" in compact
+        or "timed out" in msg
+        or "read operation timed out" in msg
+        or "connection reset" in msg
+        or "server disconnected" in msg
+        or "remoteprotocolerror" in compact
+        or "incomplete chunked read" in msg
     )
 
 
@@ -1844,6 +1976,21 @@ class ChannelManager:
             logger.warning("[Manager] list/cancel im runs failed thread=%s: %s", tid, exc)
             return {"ok": False, "error": str(exc)[:120], "cancelled": 0, "preview": preview}
 
+        try:
+            from evoflow.subagents.executor import cancel_background_tasks_for_parent_thread
+
+            bg = cancel_background_tasks_for_parent_thread(tid, reason="im_run_cancelled")
+            if bg:
+                logger.info(
+                    "[Manager] cancelled im subagents=%d channel=%s chat=%s thread=%s",
+                    len(bg),
+                    channel_name,
+                    chat_id,
+                    tid,
+                )
+        except Exception:
+            logger.debug("[Manager] cancel im subagents failed thread=%s", tid, exc_info=True)
+
         tracked = dict(tracked)
         tracked["cancelled"] = True
         tracked["preview"] = preview
@@ -2829,11 +2976,53 @@ class ChannelManager:
         stream_skip_throttle_count = 0
         event_counts: dict[str, int] = {}
         stream_params = _channel_stream_params(self._langgraph_url)
+        channel_run_id = str(
+            run_context.get("evf_channel_run_id") or run_context.get("run_id") or ""
+        ).strip()
+        last_v4_mirrored_text = ""
+        v4_mirror_started = False
+        current_message_id: str | None = None
+
+        def _mirror_v4_channel_progress(*, final: bool = False) -> None:
+            nonlocal last_v4_mirrored_text, v4_mirror_started
+            try:
+                from app.gateway.v4.agui_mirror import (
+                    mirror_channel_assistant_text,
+                    mirror_channel_run_started,
+                )
+
+                if not v4_mirror_started:
+                    mirror_channel_run_started(active_thread_id, channel_run_id or active_thread_id)
+                    v4_mirror_started = True
+                mid = str(current_message_id or "channel-assistant")
+                if latest_text and latest_text != last_v4_mirrored_text:
+                    mirror_channel_assistant_text(
+                        active_thread_id,
+                        latest_text,
+                        run_id=channel_run_id or active_thread_id,
+                        message_id=mid,
+                        final=final,
+                    )
+                    last_v4_mirrored_text = latest_text
+                elif final and last_v4_mirrored_text:
+                    mirror_channel_assistant_text(
+                        active_thread_id,
+                        last_v4_mirrored_text,
+                        run_id=channel_run_id or active_thread_id,
+                        message_id=mid,
+                        final=True,
+                    )
+            except Exception:
+                logger.debug(
+                    "[Manager] v4 channel mirror progress skipped thread=%s",
+                    active_thread_id,
+                    exc_info=True,
+                )
 
         # Allow more retries for startup-gate errors (max 3 attempts when startup issues detected)
         for attempt in range(3):
             streamed_buffers: dict[str, str] = {}
-            current_message_id: str | None = None
+            current_message_id = None
             custom_text = ""
             evf_state: dict[str, str] = {}
             saw_streaming_token_source = False
@@ -2898,6 +3087,22 @@ class ChannelManager:
                             snapshot_text = _extract_response_text(data)
                             if snapshot_text:
                                 latest_text = snapshot_text
+                        # Panel observer: IM 不走 AG-UI，用 values.messages 补工具行。
+                        if isinstance(msgs, list) and msgs:
+                            try:
+                                from app.gateway.v4.agui_mirror import mirror_channel_sync_lg_messages
+
+                                mirror_channel_sync_lg_messages(
+                                    active_thread_id,
+                                    msgs,
+                                    run_id=channel_run_id or active_thread_id,
+                                )
+                            except Exception:
+                                logger.debug(
+                                    "[Manager] v4 channel tool sync skipped thread=%s",
+                                    active_thread_id,
+                                    exc_info=True,
+                                )
                     elif event == "custom":
                         # Custom deltas help adapters without messages-tuple tokens. Once live
                         # assistant chunks exist, only accept custom text that is a compatible
@@ -2920,6 +3125,9 @@ class ChannelManager:
                                 "[Manager] evf stream chunk: text_len=%d",
                                 len(latest_text),
                             )
+
+                    if latest_text and latest_text != last_v4_mirrored_text:
+                        _mirror_v4_channel_progress()
 
                     if not latest_text or latest_text == last_published_text:
                         if latest_text == last_published_text and latest_text:
@@ -3023,6 +3231,18 @@ class ChannelManager:
                     )
                     await asyncio.sleep(delay_sec)
                     continue
+                if _is_transient_stream_error(exc) and attempt < 2:
+                    delay_sec = 0.6 * (2 ** attempt)
+                    logger.warning(
+                        "[Manager] stream transient error, retrying in %.1fs: thread_id=%s attempt=%d/%d error=%s",
+                        delay_sec,
+                        active_thread_id,
+                        attempt + 1,
+                        2,
+                        str(exc)[:160],
+                    )
+                    await asyncio.sleep(delay_sec)
+                    continue
                 if _is_thread_busy_error(exc):
                     # Stale / overlapping LangGraph run still marked running —
                     # cancel it and retry so IM users are not stuck on
@@ -3066,6 +3286,30 @@ class ChannelManager:
                 len(tail_human or ""),
                 stream_error,
             )
+        # Panel V4 observer: settle turn after IM stream (ui_sse=0 has no AG-UI RUN_FINISHED).
+        try:
+            if response_text and response_text != last_v4_mirrored_text:
+                latest_text = response_text
+                _mirror_v4_channel_progress(final=True)
+            elif last_v4_mirrored_text or v4_mirror_started:
+                _mirror_v4_channel_progress(final=True)
+            if isinstance(msgs_for_sync, list) and msgs_for_sync:
+                from app.gateway.v4.agui_mirror import mirror_channel_sync_lg_messages
+
+                mirror_channel_sync_lg_messages(
+                    active_thread_id,
+                    msgs_for_sync,
+                    run_id=channel_run_id or active_thread_id,
+                )
+            from app.gateway.v4.agui_mirror import mirror_channel_run_finished
+
+            mirror_channel_run_finished(active_thread_id, error=bool(stream_error))
+        except Exception:
+            logger.debug(
+                "[Manager] v4 channel mirror finish skipped thread=%s",
+                active_thread_id,
+                exc_info=True,
+            )
         # IM final bubble: prefer the *latest* assistant buffer only.
         # Joining every mid-tool status line produced a progress-log dump on Feishu
         # (download… / 抽帧… / 等视觉理解… glued onto the real answer).
@@ -3096,7 +3340,18 @@ class ChannelManager:
             elif _is_startup_gate_error(stream_error):
                 response_text = "🔄 服务正在启动，请稍后重试。"
             elif not (response_text or "").strip():
-                response_text = (latest_text or "").strip() or "处理请求时出错，请稍后重试。"
+                partial = (latest_text or "").strip()
+                if msg.channel_name in IM_CHANNEL_NAMES:
+                    response_text = partial or self._im_rich_error_body(msg, exc=stream_error)
+                else:
+                    response_text = partial or "处理请求时出错，请稍后重试。"
+            # Previously stream failures were swallowed with a generic Feishu line
+            # and never landed in im_channel_errors — un-debuggable in Session Debug.
+            self._record_im_channel_failure(
+                msg,
+                exc=stream_error,
+                user_visible=(response_text or "")[:1200],
+            )
             attachments = []
             artifacts = []
         elif not response_text:

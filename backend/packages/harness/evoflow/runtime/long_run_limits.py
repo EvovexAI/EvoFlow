@@ -12,7 +12,9 @@ LONG_RUN_WALL_MS = LONG_RUN_WALL_SECONDS * 1000
 LONG_RUN_STREAM_READ_SECONDS = float(os.getenv("EVOFLOW_LONG_RUN_STREAM_READ_SECONDS", str(LONG_RUN_WALL_SECONDS)))
 
 # Lead / Plan main graph super-step cap (not LLM turn count).
-LONG_RUN_RECURSION_LIMIT = max(500, int(os.getenv("EVOFLOW_LONG_RUN_RECURSION_LIMIT", "7500")))
+# Default is intentionally huge: 7500 hard-killed long AIGC remake chats with no reply.
+# Override down via EVOFLOW_LONG_RUN_RECURSION_LIMIT if needed.
+LONG_RUN_RECURSION_LIMIT = max(500, int(os.getenv("EVOFLOW_LONG_RUN_RECURSION_LIMIT", "100000")))
 
 # Subagent graphs: derived from max_turns unless explicit; ceiling for long project roles.
 MAX_SUBAGENT_RECURSION_LIMIT = max(

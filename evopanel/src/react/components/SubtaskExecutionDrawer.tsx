@@ -236,7 +236,7 @@ function DrawerBody({
     return (
       <div className="react-chat-modal-body react-chat-subtask-modal-body flex min-h-0 flex-col">
         <div className="min-h-0 flex-1 overflow-hidden">
-          <V4SessionPaneBridge sessionId={v4Tid} sessionKey={sessionKey || undefined} />
+          <V4SessionPaneBridge sessionId={v4Tid} sessionKey={sessionKey || undefined} embedded />
         </div>
         {composeFooter}
       </div>

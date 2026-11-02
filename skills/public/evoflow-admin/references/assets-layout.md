@@ -33,10 +33,10 @@ memory/
   episodic/
     <task-slug>-<YYYY-MM-DD>.md   # 流程复盘
   journal/
-    reflection-<YYYY-MM-DD>.md    # 反思
+    <topic-slug>.md               # 反思（文件名=内容主题，不带年月日；日期只在 frontmatter）
 
 craft/
-  <name>/SKILL.md     # 可复用做法（小型 skill）
+  <name>.md           # 可复用做法（扁平文件；成熟后可 promote 成技能包）
 ```
 
 ## 共享用户:`<base_dir>/assets/user/`
@@ -78,15 +78,15 @@ memory/standing.md    # 项目启动摘要
 
 ## 写入路径速查
 
-> 表中路径是相对 entity root 的简写。**写入时**用 `read('<absolute_path>')` / `write('<absolute_path>', ...)`(绝对路径以 entity block 注入的 `entity_root_abs` / `inbox_path_abs` 为准)。
+> 表中路径是相对 entity root 的简写。**对话沉淀**一律 `assets(action="note")`（落 inbox）；读用 `assets(action="read|search|list")`。资产中心 / Gateway 可对正式目录直写；Agent 不要绕过 inbox 手改 `episodic`/`journal`/`craft`/`standing`/`MEMORY`。
 
 | 写什么 | 写到哪里(相对 entity root) | 格式 |
 |--------|---------|------|
 | 用户身份信息 | `profile/basic-info.md` | 直接写 |
 | 用户偏好 | `profile/preferences.md` | 直接写 |
-| 流程复盘 | `memory/episodic/<slug>-YYYY-MM-DD.md` | Phase2 或手动 |
-| 反思 | `memory/journal/reflection-YYYY-MM-DD.md` | Phase2 或手动 |
-| 可复用做法 | `craft/<name>/SKILL.md` | Phase2 或手动 |
-| 任何新记忆(先入) | `memory/_inbox/notes/<slug>.md` | 首行 `[experience]` 等；`created` 在 frontmatter |
+| 流程复盘 | `memory/episodic/<slug>.md` | Phase2 合并后；对话勿直写 |
+| 反思 | `memory/journal/<topic-slug>.md` | Phase2 或 hub 直写；文件名用主题，不带年月日；对话勿直写 |
+| 可复用做法 | `craft/<name>.md` | Phase2 合并后；对话勿直写 |
+| 任何新记忆(先入) | `memory/_inbox/notes/<slug>.md` | `assets action=note`；首行 `[experience]`/`[process]`/`[reflection]`/`[preference]`；`created` 在 frontmatter |
 | 项目模块 | `<workspace>/.evoflow/module/<name>.md` | 直接写 |
 | 项目踩坑 | `<workspace>/.evoflow/gotcha/<pitfall>.md` | 直接写 |

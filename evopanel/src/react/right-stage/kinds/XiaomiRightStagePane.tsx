@@ -1,9 +1,23 @@
 /**
  * 小V = right-stage 普通标签页（与 browser / file / workflow 同级）。
- * 文字形态宿主；「语音」进入全局语音全屏模式（lib/xw-voice-mode.ts，接管整窗布局）。
+ * 对话体 + 输入区对齐主聊 / 员工侧栏（V4 + ChatComposer）；
+ * 「+」快捷面板复用主聊 PluginQuickPanel；页面上下文 / 语音模式仍是小V 专属。
  */
-import { useCallback, useEffect, useState, type FormEvent, type KeyboardEvent } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from 'react'
 import { XiaomiChatThread } from '../../components/XiaomiChatThread.js'
+import { ChatComposer } from '../../components/ChatComposer.js'
+import { PluginQuickPanel } from '../../components/PluginQuickPanel.js'
+import { SkillPickerModal } from '../../components/SkillPickerModal.js'
+import { useComposerSkillPluginSelection } from '../../hooks/useComposerSkillPluginSelection.js'
+import type { ChatAttachment } from '../../chat-types.js'
 import {
   getState,
   subscribe,
@@ -30,7 +44,7 @@ type HistRow = { key: string; title: string; updatedAt?: number; messageCount?: 
 export function XiaomiRightStagePane() {
   const st0 = getState()
   const [sessionKey, setSessionKey] = useState(() => String(st0.sessionKey || ''))
-  const [draft, setDraft] = useState(() => String(st0.draft || ''))
+  const [draftVersion, setDraftVersion] = useState(0)
   const [streaming, setStreaming] = useState(() => !!st0.streaming)
   const [busy, setBusy] = useState(false)
   const [histOpen, setHistOpen] = useState(false)
@@ -38,6 +52,32 @@ export function XiaomiRightStagePane() {
     Array.isArray(st0.xiaomiSessions) ? st0.xiaomiSessions : [],
   )
   const [histLoading, setHistLoading] = useState(false)
+  const [optimisticUserText, setOptimisticUserText] = useState<string | null>(null)
+  const draftRef = useRef(String(st0.draft || ''))
+  const sessionKeyRef = useRef(sessionKey)
+  const moreTriggerRef = useRef<HTMLButtonElement | null>(null)
+  const pickFilesRef = useRef<() => void>(() => {})
+  const pickDocFilesRef = useRef<() => void>(() => {})
+
+  const plugins = useComposerSkillPluginSelection({ selectedSessionKey: sessionKey })
+  const {
+    bottomPluginPanelOpen,
+    setBottomPluginPanelOpen,
+    pluginPanelStyle,
+    setPluginPanelStyle,
+    pluginList,
+    pluginListLoading,
+    selectedPlugins,
+    setSelectedPlugins,
+    persistSelectedPlugins,
+    bottomSkillOpen,
+    setBottomSkillOpen,
+    skillList,
+    skillListLoading,
+    selectedSkills,
+    setSelectedSkills,
+    persistSelectedSkills,
+  } = plugins
 
   useEffect(() => {
     void (async () => {
@@ -52,37 +92,105 @@ export function XiaomiRightStagePane() {
     })()
     const unsub = subscribe(() => {
       const s = getState()
-      setSessionKey(String(s.sessionKey || ''))
-      setDraft(String(s.draft || ''))
+      const nextKey = String(s.sessionKey || '')
+      const nextDraft = String(s.draft || '')
+      if (nextKey !== sessionKeyRef.current) {
+        sessionKeyRef.current = nextKey
+        setSessionKey(nextKey)
+        draftRef.current = nextDraft
+        setDraftVersion((v) => v + 1)
+        setOptimisticUserText(null)
+      } else if (nextDraft !== draftRef.current) {
+        // 外部写 draft（快捷 chip 清空等）时同步进 ChatComposer
+        draftRef.current = nextDraft
+        setDraftVersion((v) => v + 1)
+      }
       setStreaming(!!s.streaming)
       setSessions(Array.isArray(s.xiaomiSessions) ? s.xiaomiSessions : [])
       setHistLoading(!!s.xiaomiSessionsLoading)
+      if (!s.streaming) {
+        setOptimisticUserText(null)
+      }
     })
     return () => {
       unsub()
     }
   }, [])
 
+  // 「+」面板定位：锚定加号按钮上方（右栏底栏同主聊）
+  useLayoutEffect(() => {
+    if (!bottomPluginPanelOpen || typeof window === 'undefined') {
+      setPluginPanelStyle(null)
+      return
+    }
+    const update = () => {
+      const btn = moreTriggerRef.current
+      if (!btn) return
+      const r = btn.getBoundingClientRect()
+      const gap = 10
+      const sidePad = 10
+      const width = 420
+      const left = Math.max(sidePad, Math.min(r.left, window.innerWidth - sidePad - width))
+      const bottom = Math.max(sidePad, window.innerHeight - r.top + gap)
+      const maxH = Math.max(160, Math.min(window.innerHeight * 0.62, r.top - gap - sidePad))
+      setPluginPanelStyle({
+        position: 'fixed',
+        left,
+        bottom,
+        top: 'auto',
+        maxHeight: maxH,
+        zIndex: 10060,
+      } satisfies CSSProperties)
+    }
+    update()
+    window.addEventListener('resize', update)
+    window.addEventListener('scroll', update, true)
+    return () => {
+      window.removeEventListener('resize', update)
+      window.removeEventListener('scroll', update, true)
+    }
+  }, [bottomPluginPanelOpen, setPluginPanelStyle])
+
   const onDraftChange = useCallback((value: string) => {
-    setDraft(value)
+    draftRef.current = value
     setContactDraft('xiaomi', value, { silent: true })
   }, [])
 
-  const onSend = useCallback(async () => {
-    const text = String(draft || '').trim()
-    if (!text || streaming || busy) return
-    setBusy(true)
-    try {
-      await sendXiaomiChat(text)
-      onDraftChange('')
-    } catch (e) {
-      toast(String((e as Error)?.message || e || '发送失败'), 'error')
-    } finally {
-      setBusy(false)
-    }
-  }, [draft, streaming, busy, onDraftChange])
+  const insertComposerText = useCallback(
+    (text: string) => {
+      const cur = String(draftRef.current || '')
+      const next = `${cur}${text}`
+      draftRef.current = next
+      setContactDraft('xiaomi', next, { silent: true })
+      setDraftVersion((v) => v + 1)
+    },
+    [],
+  )
 
-  const onStop = useCallback(async () => {
+  const handleSend = useCallback(
+    async (message: string, attachments?: ChatAttachment[]) => {
+      const text = String(message || '').trim()
+      const files = Array.isArray(attachments) ? attachments : []
+      if ((!text && !files.length) || streaming || busy) return
+      setBusy(true)
+      setOptimisticUserText(text || (files.length ? `（${files.length} 个附件）` : ''))
+      try {
+        // assistant-session.js：ctx.attachments → chatSend 第三参
+        await sendXiaomiChat(text || '请查看附件', { attachments: files } as never)
+        draftRef.current = ''
+        setContactDraft('xiaomi', '', { silent: true })
+        setDraftVersion((v) => v + 1)
+      } catch (e) {
+        setOptimisticUserText(null)
+        toast(String((e as Error)?.message || e || '发送失败'), 'error')
+      } finally {
+        setBusy(false)
+      }
+    },
+    [streaming, busy],
+  )
+
+  const handleAbort = useCallback(async () => {
     try {
       await stopXiaomiChat()
     } catch {
@@ -136,35 +244,83 @@ export function XiaomiRightStagePane() {
     async (prompt: string) => {
       const text = String(prompt || '').trim()
       if (!text || streaming || busy) return
-      onDraftChange('')
+      draftRef.current = ''
+      setContactDraft('xiaomi', '', { silent: true })
+      setDraftVersion((v) => v + 1)
       setBusy(true)
+      setOptimisticUserText(text)
       try {
         await sendXiaomiChat(text)
       } catch (e) {
+        setOptimisticUserText(null)
         toast(String((e as Error)?.message || e || '发送失败'), 'error')
       } finally {
         setBusy(false)
       }
     },
-    [streaming, busy, onDraftChange],
+    [streaming, busy],
   )
 
-  const onSubmit = useCallback(
-    (e: FormEvent) => {
-      e.preventDefault()
-      void onSend()
-    },
-    [onSend],
-  )
+  const turnBusy = streaming || busy
 
-  const onKeyDown = useCallback(
-    (e: KeyboardEvent<HTMLTextAreaElement>) => {
-      if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault()
-        void onSend()
-      }
-    },
-    [onSend],
+  const composerDock = useMemo(
+    () => (
+      <div
+        className="v4-xiaomi-composer border-t border-border bg-card px-2 pb-2 pt-1"
+        data-v4-xiaomi-composer-host="true"
+      >
+        <ChatComposer
+          // sendXiaomiChat 内会 ensureSession；勿因 key 尚未回写而锁死输入
+          sessionReady
+          engineReady
+          initialDraft={draftRef.current}
+          draftVersion={draftVersion}
+          onDraftChange={onDraftChange}
+          sending={turnBusy}
+          streaming={turnBusy}
+          onSend={handleSend}
+          onAbort={handleAbort}
+          placeholder="问进度、查知识、安排任务…"
+          speechEnabled={false}
+          bottomMoreTriggerRef={moreTriggerRef}
+          onOpenAttachmentMenu={() => {
+            setBottomPluginPanelOpen((prev) => !prev)
+          }}
+          renderBottomControls={({ pickFiles, pickDocFiles }) => {
+            pickFilesRef.current = pickFiles
+            pickDocFilesRef.current = pickDocFiles
+            return null
+          }}
+          renderTrailingControls={() => (
+            <button
+              type="button"
+              className="react-chat-icon-attach-btn"
+              onClick={() => enterXwVoiceMode()}
+              title="进入语音模式"
+              aria-label="进入语音模式"
+            >
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" aria-hidden="true">
+                <rect x="9" y="3" width="6" height="11" rx="3" fill="currentColor" />
+                <path
+                  d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M9 21h6"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                />
+              </svg>
+            </button>
+          )}
+        />
+      </div>
+    ),
+    [
+      draftVersion,
+      onDraftChange,
+      turnBusy,
+      handleSend,
+      handleAbort,
+      setBottomPluginPanelOpen,
+    ],
   )
 
   return (
@@ -211,9 +367,14 @@ export function XiaomiRightStagePane() {
               className="xm-stage-icon-btn"
               onClick={() => void onToggleHistory()}
               title="历史对话"
+              aria-label="历史对话"
               aria-expanded={histOpen}
             >
-              ⏱
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+                <path d="M3 3v5h5" />
+                <path d="M12 7v5l4 2" />
+              </svg>
             </button>
             {histOpen ? (
               <div className="xm-stage-hist-menu" role="menu">
@@ -250,47 +411,82 @@ export function XiaomiRightStagePane() {
         </div>
       </div>
       <div className="xm-stage-thread">
-        <XiaomiChatThread sessionKey={sessionKey} />
-      </div>
-      <form className="xm-stage-composer" onSubmit={onSubmit}>
-        <textarea
-          className="xm-stage-composer-input"
-          rows={2}
-          value={draft}
-          placeholder="问进度、查知识、安排任务…"
-          onChange={(e) => onDraftChange(e.target.value)}
-          onKeyDown={onKeyDown}
-          disabled={busy && !streaming}
+        <XiaomiChatThread
+          sessionKey={sessionKey}
+          optimisticUserText={optimisticUserText}
+          bottomDock={composerDock}
+          sessionBusy={turnBusy}
         />
-        <div className="xm-stage-composer-bar">
-          <button
-            type="button"
-            className="xws-composer-mic"
-            onClick={() => enterXwVoiceMode()}
-            title="语音模式"
-            aria-label="进入语音模式"
-          >
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" aria-hidden="true">
-              <rect x="9" y="3" width="6" height="11" rx="3" fill="currentColor" />
-              <path
-                d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M9 21h6"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-              />
-            </svg>
-          </button>
-          {streaming ? (
-            <button type="button" className="xm-stage-send is-stop" onClick={() => void onStop()}>
-              停止
-            </button>
-          ) : (
-            <button type="submit" className="xm-stage-send" disabled={!draft.trim() || busy}>
-              发送
-            </button>
-          )}
-        </div>
-      </form>
+      </div>
+
+      <PluginQuickPanel
+        open={bottomPluginPanelOpen}
+        onClose={() => setBottomPluginPanelOpen(false)}
+        style={pluginPanelStyle}
+        plugins={pluginList}
+        loading={pluginListLoading}
+        selected={selectedPlugins}
+        onToggle={(item) => {
+          setSelectedPlugins((prev) => {
+            const next = prev.some((p) => p.id === item.id)
+              ? prev.filter((p) => p.id !== item.id)
+              : [
+                  ...prev,
+                  {
+                    id: item.id,
+                    label: item.label || item.name,
+                    iconUrl: item.iconUrl,
+                  },
+                ]
+            void persistSelectedPlugins(String(sessionKey || ''), next)
+            return next
+          })
+        }}
+        onPickDocs={() => {
+          setBottomPluginPanelOpen(false)
+          pickDocFilesRef.current?.()
+        }}
+        onPickImages={() => {
+          setBottomPluginPanelOpen(false)
+          pickFilesRef.current?.()
+        }}
+        onOpenSkillPicker={() => {
+          setBottomPluginPanelOpen(false)
+          setBottomSkillOpen(true)
+        }}
+        onOpenGoal={() => {
+          setBottomPluginPanelOpen(false)
+          window.dispatchEvent(new CustomEvent('evopanel:open-goal-panel', { detail: { open: true } }))
+        }}
+        onOpenLegacyMenu={() => setBottomPluginPanelOpen(false)}
+        onInsertText={(text) => insertComposerText(text)}
+        showVoice
+        voiceOn={false}
+        onToggleVoice={() => {
+          setBottomPluginPanelOpen(false)
+          enterXwVoiceMode()
+        }}
+        showLegacyMenu={false}
+        showHintBar={false}
+        onPickEmployee={() => {
+          setBottomPluginPanelOpen(false)
+          navigate('/proactive')
+          toast('其他 Agent 请在智能体员工里对话', 'info')
+        }}
+      />
+
+      <SkillPickerModal
+        open={bottomSkillOpen}
+        onClose={() => setBottomSkillOpen(false)}
+        skills={skillList}
+        loading={skillListLoading}
+        selected={selectedSkills}
+        onConfirm={(next) => {
+          setSelectedSkills(next)
+          void persistSelectedSkills(String(sessionKey || ''), next)
+          setBottomSkillOpen(false)
+        }}
+      />
     </div>
   )
 }

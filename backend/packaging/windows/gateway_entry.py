@@ -275,7 +275,13 @@ def _parse_args() -> argparse.Namespace:
         choices=["gateway", "langgraph", "cli", "app-server"],
         help="Operating mode",
     )
-    parser.add_argument("--host", default="127.0.0.1", help="Gateway bind host")
+    # ``GATEWAY_HOST`` is the documented override (see app/gateway/config.py); honour it
+    # when no explicit ``--host`` is passed, otherwise the env var was silently ignored.
+    parser.add_argument(
+        "--host",
+        default=(os.environ.get("GATEWAY_HOST") or "").strip() or "127.0.0.1",
+        help="Gateway bind host (default: GATEWAY_HOST env or 127.0.0.1)",
+    )
     parser.add_argument("--port", default=8012, type=int, help="Gateway bind port")
     parser.add_argument("--langgraph-port", default=2024, type=int, help="LangGraph bind port (langgraph mode)")
     parser.add_argument(
@@ -375,7 +381,12 @@ def main() -> None:
             )
 
     bind_host = args.host
-    if bind_host in ("127.0.0.1", "localhost", "::1"):
+    # Explicit operator pin wins over every implicit rewrite below. Without this the
+    # WebUI-enabled auto-bind silently turned a loopback-only Gateway into 0.0.0.0.
+    _pinned = (os.environ.get("EVOFLOW_GATEWAY_BIND_HOST") or "").strip()
+    if _pinned and _pinned == bind_host:
+        logging.info("EVOFLOW_GATEWAY_BIND_HOST=%s — keeping pinned Gateway bind", _pinned)
+    elif bind_host in ("127.0.0.1", "localhost", "::1"):
         # Never block listen on SQLite: under lock contention `_load_webui_enabled`
         # previously stalled ~60–90s before uvicorn bound → Vite ECONNREFUSED :8070.
         # Desktop stdio keeps loopback; WebUI 0.0.0.0 bind can be forced via env.
@@ -390,6 +401,11 @@ def main() -> None:
             "on",
         ):
             logging.debug("desktop stdio mode — keep Gateway bind %s (skip WebUI DB bind rewrite)", bind_host)
+        elif _pinned:
+            logging.info(
+                "EVOFLOW_GATEWAY_BIND_HOST=%s — keeping loopback bind (skip WebUI-wide rewrite)",
+                _pinned,
+            )
         else:
             try:
                 import threading

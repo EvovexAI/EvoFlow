@@ -177,13 +177,24 @@ async def speech_playback_note(body: PlaybackNoteRequest) -> dict:
 
 @router.post("/log")
 async def speech_log_append(batch: SpeechLogBatch) -> dict:
-    """Frontend appends lines into 语音播报/前端-*.log."""
+    """Frontend appends lines into 语音播报/前端-*.log.
+
+    Best-effort debug sink: sync disk IO off the event loop so a log storm
+    cannot stall chat / tasks (see gateway-slow speech/log 60s hang).
+    """
     from app.gateway.speech.voice_file_log import voice_log_batch
 
-    count = voice_log_batch(
-        [e.model_dump() for e in (batch.entries or [])],
-        default_source=str(batch.source or "前端"),
-    )
+    entries = [e.model_dump() for e in (batch.entries or [])]
+    source = str(batch.source or "前端")
+    try:
+        count = await asyncio.wait_for(
+            asyncio.to_thread(voice_log_batch, entries, default_source=source),
+            timeout=3.0,
+        )
+    except TimeoutError:
+        return {"ok": False, "count": 0, "error": "log_write_timeout"}
+    except Exception:
+        return {"ok": False, "count": 0, "error": "log_write_failed"}
     return {"ok": True, "count": count}
 
 

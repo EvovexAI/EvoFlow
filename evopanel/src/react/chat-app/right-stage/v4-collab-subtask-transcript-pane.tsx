@@ -1,6 +1,10 @@
 /**
  * 协作节点进度：对话体只走主聊同一套 V4（V4SessionPaneBridge → V4ZCodeTimeline）。
  * 旧 SubtaskModalMessageRow / modal-rows 已退役，不再作兜底。
+ *
+ * 进度策略（本机通常无该子会话 SSE）：
+ * - 执行中 / 尚无 thread：约 2s 拉 meta + V4 catchup 心跳
+ * - 已完成：停刷；标题旁保留最近活动时间
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
@@ -14,9 +18,18 @@ import {
   isTaskCancellableStatus,
 } from '../../../lib/task-status-label.js'
 import type { CollabSubtaskStageOutcome } from '../../../lib/right-stage/open-collab-subtask-stage.js'
+import { formatTrailRowClock } from '../../components/SubtaskExecutionDrawer.js'
+import {
+  peekEvoflowV4LastActivityAt,
+  refreshEvoflowV4Session,
+} from '../../v4/V4StreamRowsBridge.js'
 import { V4SessionPaneBridge } from '../../v4/V4SessionPaneBridge.js'
 
 const POLL_MS = 2000
+/** 右栏观察无 live mirror：soft catchup 与 meta 同频 */
+const V4_SOFT_MS = POLL_MS
+/** 标题时钟：投影更新后本地再扫一遍 store */
+const ACTIVITY_PEEK_MS = 1000
 
 export type V4CollabSubtaskTranscriptPaneProps = {
   mainTaskId: string
@@ -53,12 +66,22 @@ export function V4CollabSubtaskTranscriptPane(props: V4CollabSubtaskTranscriptPa
   const [status, setStatus] = useState(String(statusProp || ''))
   const [resolvedThreadId, setResolvedThreadId] = useState(() => String(subtaskThreadId || '').trim())
   const [loaded, setLoaded] = useState(() => !!String(subtaskThreadId || '').trim() || !!initialOutcome)
+  const [lastActivityAt, setLastActivityAt] = useState<number | null>(null)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const outcomeRef = useRef<CollabSubtaskStageOutcome | null | undefined>(initialOutcome)
 
   const running = isTaskRunningStatus(status) || isTaskPlanningStatus(status)
   // pending/queued 也要继续心跳，否则等依赖放行时永远拿不到 thread_id / 状态跳变
   const keepMetaPoll = !loaded || isTaskCancellableStatus(status) || running
+
+  const syncLastActivity = useCallback((threadId: string) => {
+    const tid = String(threadId || '').trim()
+    if (!tid) return
+    const at = peekEvoflowV4LastActivityAt(tid)
+    if (at != null) {
+      setLastActivityAt((prev) => (prev != null && prev >= at ? prev : at))
+    }
+  }, [])
 
   const fetchMeta = useCallback(async () => {
     const mid = String(mainTaskId || '').trim()
@@ -109,6 +132,12 @@ export function V4CollabSubtaskTranscriptPane(props: V4CollabSubtaskTranscriptPa
       else if (nextOutcome && typeof nextOutcome === 'object' && nextOutcome.status) {
         setStatus(String(nextOutcome.status))
       }
+      // 本机无子会话流式时，靠 catchup 心跳拉最新工具/正文投影
+      const tid = nextThread || String(resolvedThreadId || '').trim()
+      if (tid) {
+        refreshEvoflowV4Session(tid, { softIntervalMs: V4_SOFT_MS })
+        syncLastActivity(tid)
+      }
       setLoaded(true)
     } catch {
       setLoaded(true)
@@ -123,6 +152,7 @@ export function V4CollabSubtaskTranscriptPane(props: V4CollabSubtaskTranscriptPa
     assignedAgent,
     subtaskThreadId,
     resolvedThreadId,
+    syncLastActivity,
   ])
 
   useEffect(() => {
@@ -140,6 +170,7 @@ export function V4CollabSubtaskTranscriptPane(props: V4CollabSubtaskTranscriptPa
     }
     pollRef.current = setInterval(() => {
       if (disposed) return
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
       void fetchMeta()
     }, POLL_MS)
     return () => {
@@ -149,9 +180,37 @@ export function V4CollabSubtaskTranscriptPane(props: V4CollabSubtaskTranscriptPa
     }
   }, [fetchMeta, keepMetaPoll])
 
+  // 投影 catchup / SSE 入账后，标题时钟跟最新工具时间
+  useEffect(() => {
+    const tid = String(resolvedThreadId || '').trim()
+    if (!tid) return
+    syncLastActivity(tid)
+    if (!keepMetaPoll && !running) return
+    const timer = window.setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
+      syncLastActivity(tid)
+    }, ACTIVITY_PEEK_MS)
+    return () => window.clearInterval(timer)
+  }, [resolvedThreadId, keepMetaPoll, running, syncLastActivity])
+
+  // 刚结束：再收一帧投影，避免最后一次工具调用停在旧快照
+  useEffect(() => {
+    if (keepMetaPoll || running) return
+    const tid = String(resolvedThreadId || '').trim()
+    if (!tid) return
+    refreshEvoflowV4Session(tid, { softIntervalMs: V4_SOFT_MS })
+    const timer = window.setTimeout(() => syncLastActivity(tid), 800)
+    return () => window.clearTimeout(timer)
+  }, [keepMetaPoll, running, resolvedThreadId, syncLastActivity])
+
   useEffect(() => {
     setStatus(String(statusProp || ''))
   }, [statusProp])
+
+  const lastActivityLabel = useMemo(
+    () => (lastActivityAt != null ? formatTrailRowClock(lastActivityAt) : ''),
+    [lastActivityAt],
+  )
 
   const outcomeSummary = useMemo(
     () => summarizeOutcome(outcome as Record<string, unknown> | null),
@@ -186,6 +245,14 @@ export function V4CollabSubtaskTranscriptPane(props: V4CollabSubtaskTranscriptPa
         <span className="min-w-0 truncate text-ui-sm font-medium text-foreground">
           {title || '节点进度'}
         </span>
+        {lastActivityLabel ? (
+          <span
+            className="shrink-0 tabular-nums text-[11px] text-foreground-subtlest"
+            title={`最近活动 ${lastActivityLabel}`}
+          >
+            {lastActivityLabel}
+          </span>
+        ) : null}
         <span
           className={
             'rounded px-1.5 py-0.5 text-[11px] ' +
@@ -215,6 +282,7 @@ export function V4CollabSubtaskTranscriptPane(props: V4CollabSubtaskTranscriptPa
             sessionId={resolvedThreadId}
             connecting={!loaded}
             sessionKey={sessionKey || undefined}
+            embedded
           />
         ) : (
           <div className="flex h-full items-center justify-center px-4 text-ui-sm text-foreground-subtlest">

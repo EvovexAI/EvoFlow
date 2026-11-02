@@ -71,6 +71,40 @@ def _is_explicit_host_filesystem_path(path: str) -> bool:
     return False
 
 
+def _channel_messages_root() -> Path | None:
+    """``{EVOFLOW_HOME}/channel-messages`` — durable IM inbound media (Feishu/WeCom/…)."""
+    try:
+        from evoflow.config.paths import get_paths
+
+        return get_paths().channel_messages_dir().resolve()
+    except Exception:
+        return None
+
+
+def _is_channel_messages_path(path: str) -> bool:
+    """True when *path* resolves under the durable channel-messages tree (read-only allow)."""
+    raw = str(path or "").strip()
+    if not raw:
+        return False
+    root = _channel_messages_root()
+    if root is None:
+        return False
+    try:
+        from evoflow.utils.bundled_tools import from_bash_posix_path
+
+        p = Path(from_bash_posix_path(os.path.expanduser(os.path.expandvars(raw)))).resolve()
+        p.relative_to(root)
+        return True
+    except Exception:
+        return False
+
+
+def _resolve_channel_messages_path(path: str) -> str:
+    from evoflow.utils.bundled_tools import from_bash_posix_path
+
+    return str(Path(from_bash_posix_path(os.path.expanduser(os.path.expandvars(path)))).resolve())
+
+
 _DEFAULT_SKILLS_CONTAINER_PATH = "/mnt/skills"
 _ACP_WORKSPACE_VIRTUAL_PATH = "/mnt/acp-workspace"
 
@@ -624,6 +658,23 @@ def validate_local_tool_path(
             raise PermissionError(reason)
         return
 
+    # IM inbound media (Feishu/WeCom/…) — durable under EVOFLOW_HOME/channel-messages.
+    # Always readable so agents can open images the channel already materialised;
+    # never writable through sandbox tools (channel owns the tree).
+    if _is_channel_messages_path(path):
+        if not read_only:
+            reason = f"Write access to channel-messages path is not allowed: {path}"
+            _audit_path_rejection(
+                event_type="path_denied",
+                path=path,
+                reason=reason,
+                runtime=runtime,
+                tool_name=tool_name,
+                tool_call_id=tool_call_id,
+            )
+            raise PermissionError(reason)
+        return
+
     # User-data paths
     if path.startswith(f"{VIRTUAL_PATH_PREFIX}/"):
         return
@@ -632,7 +683,10 @@ def validate_local_tool_path(
     if read_only and _local_host_reads_enabled() and _is_explicit_host_filesystem_path(path):
         return
 
-    reason = f"Only paths under {VIRTUAL_PATH_PREFIX}/, {_get_skills_container_path()}/, or {_ACP_WORKSPACE_VIRTUAL_PATH}/ are allowed"
+    reason = (
+        f"Only paths under {VIRTUAL_PATH_PREFIX}/, {_get_skills_container_path()}/, "
+        f"{_ACP_WORKSPACE_VIRTUAL_PATH}/, or channel-messages/ are allowed"
+    )
     _audit_path_rejection(
         event_type="path_denied",
         path=path,
@@ -743,6 +797,9 @@ def _resolve_sandbox_path(
             tid = _extract_thread_id_from_thread_data(thread_data)
             return _resolve_acp_workspace_path(path, tid), thread_data
 
+        if _is_channel_messages_path(path):
+            return _resolve_channel_messages_path(path), thread_data
+
         # Local-host mode + explicit host path (opt-in)
         if (not _use_virtual_paths(runtime)) or (_local_host_reads_enabled() and _is_explicit_host_filesystem_path(path)):
             from evoflow.utils.bundled_tools import from_bash_posix_path
@@ -795,6 +852,11 @@ def validate_local_bash_command_paths(command: str, thread_data: ThreadDataState
 
         # Allow ACP workspace path (path-traversal check only)
         if _is_acp_workspace_path(absolute_path):
+            _reject_path_traversal(absolute_path)
+            continue
+
+        # Allow durable IM inbound media (read by bash/ls for channel attachments)
+        if _is_channel_messages_path(absolute_path):
             _reject_path_traversal(absolute_path)
             continue
 
@@ -1344,6 +1406,18 @@ def read_file_tool(
             thread_data = get_thread_data(runtime) if is_local_sandbox(runtime) else None
         else:
             path, thread_data = _resolve_sandbox_path(path, runtime, read_only=True)
+        # Images: text channel can't OCR — route to view_image (same as host_direct ``read``).
+        # Critical for Feishu/WeCom channel-messages JPEGs the model otherwise
+        # ``Permission denied``'d or treated as binary garbage.
+        if str(path).lower().endswith((".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp")):
+            from evoflow.tools.builtins.view_image_tool import run_view_image_refs
+
+            tool_call_id = str(getattr(runtime, "tool_call_id", "") or "").strip()
+            return run_view_image_refs(
+                runtime=runtime,
+                tool_call_id=tool_call_id,
+                refs=[str(path)],
+            )
         # PDF is binary: reading it through the text channel yields garbage;
         # steer the model to parse it with code inside the sandbox instead.
         if str(path).lower().endswith(".pdf"):

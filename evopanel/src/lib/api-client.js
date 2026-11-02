@@ -107,7 +107,17 @@ export async function apiUrlAsync(path) {
   if (isTauri) {
     await _refreshTauriGatewayBase()
     const base = _cachedTauriGatewayBase || envGatewayBaseUrl()
-    return base ? `${base}/api${p}` : `/api${p}`
+    // 无 Gateway base 时绝不能退回相对 `/api`：打包 webview 是 tauri.localhost，
+    // 会 200 返回 SPA index.html，文件预览误判成「页面壳」。
+    if (!base) {
+      await _refreshTauriGatewayBase()
+      const again = _cachedTauriGatewayBase || envGatewayBaseUrl()
+      if (again) return `${again}/api${p}`
+      // 仍无 base：返回带占位 host 的绝对 URL，调用方 fetch 会失败并可走本地兜底；
+      // 切勿返回相对 /api（会静默吃到 SPA）。
+      return `http://127.0.0.1:0/api${p}`
+    }
+    return `${base}/api${p}`
   }
   try {
     if (import.meta && import.meta.env && import.meta.env.DEV) return `/api${p}`

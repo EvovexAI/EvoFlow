@@ -185,6 +185,7 @@ export function PreviewPaneContent({
         resolvedTheme={resolvedTheme}
         sourcePath={source.path}
         sourceTitle={source.title}
+        wrapLongLines={wrapLongLines}
       />
     );
   }
@@ -199,6 +200,7 @@ export function PreviewPaneContent({
         lightTheme={codePreviewSettings.lightTheme}
         darkTheme={codePreviewSettings.darkTheme}
         themeType={resolvedTheme}
+        wrapLongLines={wrapLongLines}
       />
     );
   }

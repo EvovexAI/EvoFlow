@@ -1829,7 +1829,10 @@ export default function KnowledgeOwnedPage() {
     [docs, selectedDocId]
   );
 
-  /** Bound local folder for V4 WorkspaceFileTree (same component as chat workspace-browse). */
+  /**
+   * Bound local folder → V4 WorkspaceFileTree (same as chat workspace-browse).
+   * No sync source → CatalogTreeNodes from KB folderPath/fileName (imported / hand-written docs).
+   */
   const localTreeRoot = useMemo(
     () => String(selected?.syncSourcePath || "").trim(),
     [selected?.syncSourcePath],
@@ -3190,43 +3193,71 @@ export default function KnowledgeOwnedPage() {
                     workspacePath={localTreeRoot}
                   />
                 ) : (
-                  <div className="ko-catalog-bind" data-testid="ko-doc-list">
-                    <div className="ko-catalog-bind__card">
-                      <strong>侧栏使用 V4 文件树</strong>
-                      <p>
-                        需要先绑定本机文件夹（与对话右侧工作区文件树同一套组件）。当前库还没有同步源，所以不会显示旧版目录树。
-                      </p>
-                      <button
-                        className="ko-btn primary"
-                        disabled={busy}
-                        onClick={() => void pickAndImportLocalFolder()}
-                        type="button"
+                  <div className="ko-catalog-tree" data-testid="ko-doc-list">
+                    {filteredDocs.length || folders.length ? (
+                      <CatalogTreeNodes
+                        dragDocId={dragDocId}
+                        dragFolderPath={dragFolderPath}
+                        expanded={expandedFolders}
+                        level={0}
+                        node={docTree}
+                        onCreateSubfolder={createFolderAt}
+                        onDeleteFolder={deleteFolderAt}
+                        onDropDoc={handleDropDoc}
+                        onDropFolder={handleDropFolder}
+                        onMoveDoc={moveDocToFolder}
+                        onRenameFolder={renameFolderAt}
+                        onSelectDoc={(id) => {
+                          setSelectedDocId(id);
+                          setTab("docs");
+                          setRightMode("reader");
+                        }}
+                        onToggle={toggleFolder}
+                        selectedDocId={selectedDocId}
+                        setDragDocId={setDragDocId}
+                        setDragFolderPath={setDragFolderPath}
+                      />
+                    ) : (
+                      <div className="ko-catalog-bind" style={{ padding: 10 }}>
+                        <div className="ko-catalog-bind__card">
+                          <strong>暂无文档</strong>
+                          <p>
+                            本库还没有入库文件。可绑定本机文件夹导入，或用上方「新建文件夹 / 手写笔记」先搭目录。
+                          </p>
+                          <button
+                            className="ko-btn primary"
+                            disabled={busy}
+                            onClick={() => void pickAndImportLocalFolder()}
+                            type="button"
+                          >
+                            选择本地文件夹
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                    {filteredDocs.length || folders.length ? (
+                      <div
+                        className="ko-tree-root-drop"
+                        onDragOver={(e) => {
+                          e.preventDefault();
+                          e.dataTransfer.dropEffect = "move";
+                          e.currentTarget.classList.add("is-drop");
+                        }}
+                        onDragLeave={(e) => e.currentTarget.classList.remove("is-drop")}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          e.currentTarget.classList.remove("is-drop");
+                          const folderFrom =
+                            e.dataTransfer.getData("text/ko-folder-path") || dragFolderPath;
+                          if (folderFrom) {
+                            handleDropFolder({ fromPath: folderFrom, parentPath: "" });
+                            return;
+                          }
+                          const id = e.dataTransfer.getData("text/ko-doc-id") || dragDocId;
+                          if (id) handleDropDoc({ docId: id, folderPath: "" });
+                        }}
                       >
-                        选择本地文件夹
-                      </button>
-                    </div>
-                    {filteredDocs.length ? (
-                      <div className="ko-catalog-bind__list" aria-label="已入库文档（绑定前临时列表）">
-                        <div className="ko-catalog-bind__list-head">已入库 · {filteredDocs.length}</div>
-                        {filteredDocs.map((doc) => {
-                          const active = doc.id === selectedDocId;
-                          const title = docDisplayName(doc);
-                          return (
-                            <button
-                              key={doc.id}
-                              className={`ko-catalog-bind__row${active ? " is-active" : ""}`}
-                              onClick={() => {
-                                setSelectedDocId(doc.id);
-                                setTab("docs");
-                                setRightMode("reader");
-                              }}
-                              title={title}
-                              type="button"
-                            >
-                              {title}
-                            </button>
-                          );
-                        })}
+                        拖到此处移到根目录
                       </div>
                     ) : null}
                   </div>

@@ -1,7 +1,7 @@
 /**
  * 小V 语音全屏：干净三块 —— 聆听状态 / 最新用户输入 / AI 回复；
- * 右上角「对话」区复用主对话 V4 时间线（同一套轮分组 / 流式 / 工具卡）。
- * 全屏由 lib/xw-voice-mode.ts 驱动。
+ * 右上角「对话」区走统一桥 V4SessionPaneBridge（与主聊 / 侧栏员工同一套）。
+ * 全屏由 lib/xw-voice-mode.ts 驱动；surface=glass 仅皮肤差异。
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react'
 import { getState, subscribe } from '../../../components/global-assistant/assistant-store.js'

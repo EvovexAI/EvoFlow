@@ -376,7 +376,7 @@ def _recommendations(d: _AuditData) -> list[str]:
     if d.journal_vs_episodic_ratio < 0.15 and d.counts.get("episodic", 0) >= 3:
         out.append(
             "4. **从最新 episodic 提炼 1 个 reflection** — "
-            "读最新 episodic 提炼「踩坑 → 教训」写到 `memory/journal/reflection-YYYY-MM-DD.md`。"
+            "读最新 episodic 提炼「踩坑 → 教训」，用 `assets note` 写 `[reflection] <主题>`（正式文件 `memory/journal/<topic-slug>.md`，文件名不要年月日）。"
         )
     if d.inbox_pending:
         out.append(

@@ -57,6 +57,34 @@ def test_openai_vision_handler_builds_messages():
     assert any(m.get("role") == "user" for m in msgs)
 
 
+def test_openai_vision_accepts_image_path_and_defaults_vision_model():
+    reset_registry_cache()
+    fake = {
+        "id": "chatcmpl-test",
+        "choices": [{"message": {"role": "assistant", "content": "一行字"}}],
+    }
+    with patch(
+        "evoflow.models.openai_compat_invoke.invoke_chat_completion",
+        return_value=fake,
+    ) as inv:
+        with patch(
+            "evoflow.models.openai_compat_invoke.normalize_image_url",
+            return_value="data:image/jpeg;base64,xxx",
+        ):
+            with patch(
+                "evoflow.tools.builtins.vision_analysis_core.resolve_vision_model_name",
+                return_value="deepseek-v4-flash",
+            ):
+                out = dispatch_platform_action(
+                    "openai.vision",
+                    args_json='{"image_path":"C:/tmp/a.jpg","message":"抄录文字"}',
+                    confirm=True,
+                )
+    assert out.get("ok") is True
+    assert out.get("content") == "一行字"
+    assert inv.call_args.kwargs.get("model") == "deepseek-v4-flash"
+
+
 def test_settings_invoke_model_handler():
     reset_registry_cache()
     with patch(

@@ -11,7 +11,23 @@ export async function reloadHistoryFromDb(
 ): Promise<any> {
   const sk = String(ctx.selectedSessionKey || '').trim()
   const dbOnly = Boolean(opt?.dbOnly)
-  if (dbOnly && sk) {
+  // V4 时间线不渲染 host rows：旁观 dbOnly 清 live + bump + setRows 只会整页闪。
+  let v4SkipHostPaint = false
+  try {
+    const tid = String(ctx.wsClient?.getSessionThreadId?.(sk) || '').trim()
+    v4SkipHostPaint = Boolean(
+      dbOnly &&
+        sk &&
+        typeof ctx.isEvoflowChatV4Enabled === 'function' &&
+        ctx.isEvoflowChatV4Enabled() &&
+        tid &&
+        typeof ctx.isV4DisplayAuthoritative === 'function' &&
+        ctx.isV4DisplayAuthoritative(tid),
+    )
+  } catch {
+    v4SkipHostPaint = false
+  }
+  if (dbOnly && sk && !v4SkipHostPaint) {
     // 旧 endLiveStreamSession 已删：live-stream-store 没了
     ctx.resetSessionLiveStreamDisplay(sk, ctx.streamRef)
     ctx.deleteLiveRunSnapshotBestEffort(sk)
@@ -28,7 +44,7 @@ export async function reloadHistoryFromDb(
     ctx.srLog('reloadHistoryFromDb cleared live stream + header activity', { sessionKey: sk })
   }
   const result = await ctx.reload({ ...opt, dbOnly })
-  if (dbOnly && sk && Array.isArray(result?.rows)) {
+  if (dbOnly && sk && Array.isArray(result?.rows) && !v4SkipHostPaint) {
     const rt = ctx.getSessionRuntime(sk)
     const localRows = rt.rows.length ? rt.rows : ctx.rowsRef.current
     const lastAsst = [...localRows].reverse().find((r) => r?.role === 'assistant')

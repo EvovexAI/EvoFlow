@@ -36,3 +36,31 @@ def test_run_server_kwargs_honors_env_override(monkeypatch, tmp_path) -> None:
 
     kwargs = run_server_kwargs()
     assert kwargs.get("n_jobs_per_worker") == 4
+
+
+def test_resolve_honors_evopanel_json_when_env_unset(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("EVOFLOW_HOME", str(tmp_path))
+    monkeypatch.delenv("N_JOBS_PER_WORKER", raising=False)
+    (tmp_path / "evopanel.json").write_text(
+        '{"langgraphMaxConcurrent": 4}',
+        encoding="utf-8",
+    )
+    _patch_stdio_side_effects(monkeypatch)
+
+    from evoflow.langgraph_runtime_env import _resolve_n_jobs_per_worker
+
+    assert _resolve_n_jobs_per_worker() == 4
+
+
+def test_resolve_env_overrides_evopanel_json(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("EVOFLOW_HOME", str(tmp_path))
+    monkeypatch.setenv("N_JOBS_PER_WORKER", "2")
+    (tmp_path / "evopanel.json").write_text(
+        '{"langgraphMaxConcurrent": 8}',
+        encoding="utf-8",
+    )
+    _patch_stdio_side_effects(monkeypatch)
+
+    from evoflow.langgraph_runtime_env import _resolve_n_jobs_per_worker
+
+    assert _resolve_n_jobs_per_worker() == 2

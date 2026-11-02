@@ -197,6 +197,12 @@ export interface ConversationRowRenderContext {
    * 缺席则不渲染；不要用底部浮层代替，避免「乱弹」脱离对应命令行。
    */
   renderToolCallApproval?: (toolCallId: string) => ReactNode;
+  /**
+   * Asset Center deep-link for ``<evo-asset-citation>`` chips.
+   * Employee proactive sessions → that employee vault; otherwise user vault.
+   */
+  assetEntityType?: string;
+  assetEntityId?: string;
 }
 
 export interface ConversationFileChangesRequestOptions {

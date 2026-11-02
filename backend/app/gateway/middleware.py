@@ -206,6 +206,105 @@ def _occurred_at() -> str:
         return ""
 
 
+class TrafficLaneMiddleware:
+    """Classify every HTTP request into a traffic lane; shed best-effort under overload.
+
+    Unknown ``/api/*`` paths default to DATA (see ``traffic_lanes.classify_path``) so
+    newly added slow endpoints are isolated without waiting for another hang dump.
+    """
+
+    def __init__(self, app: Any) -> None:
+        self.app = app
+
+    async def __call__(self, scope: dict[str, Any], receive: Callable, send: Callable) -> None:
+        if scope.get("type") != "http":
+            await self.app(scope, receive, send)
+            return
+
+        path = str(scope.get("path") or "")
+        method = str(scope.get("method") or "").upper()
+        query = str(URL(scope=scope).query or "") or None
+
+        from app.gateway.traffic_lanes import (
+            Lane,
+            classify_path,
+            overload_action,
+            refine_tasks_list_lane,
+            shed_response_body,
+        )
+
+        decision = classify_path(path, method=method)
+        refined = refine_tasks_list_lane(path=path, query=query)
+        if refined is not None:
+            decision = refined
+
+        # Prefer plain scope keys — ``state`` may be a Starlette State object.
+        scope["evoflow_traffic_lane"] = decision.lane.value
+        scope["evoflow_traffic_lane_reason"] = decision.reason
+        try:
+            state = scope.setdefault("state", {})
+            state["traffic_lane"] = decision.lane.value
+            state["traffic_lane_reason"] = decision.reason
+        except Exception:
+            pass
+
+        action = overload_action(decision.lane)
+        scope["evoflow_traffic_lane_action"] = action
+        try:
+            scope.setdefault("state", {})["traffic_lane_action"] = action
+        except Exception:
+            pass
+
+        if action == "shed" and decision.lane == Lane.BEST_EFFORT:
+            from app.gateway.hang_diagnostics import append_gateway_slow_log
+
+            logger.warning(
+                "[lane-shed] method=%s path=%s reason=%s",
+                method,
+                path,
+                decision.reason,
+            )
+            try:
+                append_gateway_slow_log(
+                    kind="lane_shed",
+                    method=method,
+                    path=path,
+                    query=query,
+                    duration_s=0.0,
+                    status_code=503,
+                )
+            except Exception:
+                pass
+            body = json.dumps(
+                shed_response_body(lane=decision.lane, path=path),
+                ensure_ascii=False,
+            ).encode("utf-8")
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 503,
+                    "headers": [
+                        (b"content-type", b"application/json; charset=utf-8"),
+                        (b"content-length", str(len(body)).encode("ascii")),
+                        (b"x-evoflow-lane", decision.lane.value.encode("ascii")),
+                        (b"x-evoflow-shed", b"1"),
+                        (b"retry-after", b"2"),
+                    ],
+                }
+            )
+            await send({"type": "http.response.body", "body": body, "more_body": False})
+            return
+
+        if action == "clamp":
+            scope["evoflow_traffic_lane_clamp"] = True
+            try:
+                scope.setdefault("state", {})["traffic_lane_clamp"] = True
+            except Exception:
+                pass
+
+        await self.app(scope, receive, send)
+
+
 class GatewayRequestLoggingMiddleware:
     def __init__(self, app: Any) -> None:
         self.app = app
@@ -230,12 +329,20 @@ class GatewayRequestLoggingMiddleware:
         # Stream requests are intentionally excluded — they are expected to be
         # long-lived and would otherwise drown the registry.
         is_streaming = _is_streaming_request_path(path)
+        lane = scope.get("evoflow_traffic_lane")
+        if not lane:
+            try:
+                st = scope.get("state")
+                lane = st.get("traffic_lane") if st is not None else None
+            except Exception:
+                lane = None
         if not is_streaming:
             register_inflight_request(
                 scope_id=scope_id,
                 method=method,
                 path=path,
                 query=str(URL(scope=scope).query or "") or None,
+                lane=str(lane) if lane else None,
             )
 
         started = time.perf_counter()
@@ -544,6 +651,9 @@ def setup_middleware(app: FastAPI) -> None:
     )
 
     app.add_middleware(GatewayRequestLoggingMiddleware)
+    # Inside logging so shed responses are still observable; outside StartupGate so
+    # liveness stays Control and overload shed does not fight boot gate.
+    app.add_middleware(TrafficLaneMiddleware)
 
     from app.gateway.startup_gate import StartupGateMiddleware
 

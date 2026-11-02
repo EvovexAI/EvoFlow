@@ -72,6 +72,11 @@ export interface ConversationTurnRenderUnit {
 interface BuildConversationTurnRenderUnitsOptions {
   nowMs?: number;
   sessionPhase?: SessionPhase;
+  /**
+   * 与右下角停止按钮同源（EvoFlow selectedTurnBusy / V4 control.canStop）。
+   * 旁观飞书时 turnHeader 可能已是 completed，但会话仍 busy——末轮须跟停止按钮一致亮齿轮。
+   */
+  sessionBusy?: boolean;
 }
 
 interface DraftTurnRenderUnit {
@@ -216,9 +221,26 @@ function isCompletionBlockingWorkRowRunning(row: AssistantWorkRow): boolean {
 function resolveTurnRunning(
   draft: DraftTurnRenderUnit,
   options: BuildConversationTurnRenderUnitsOptions,
+  isLastTurn: boolean,
 ): boolean {
+  if (draft.header?.executionKind === "controlOnly") return false;
+
+  // 末轮以宿主停止按钮（sessionBusy）为权威，避免：
+  // - 停按钮灭了、turnHeader 仍 running → 左下角齿轮空转
+  // - 停按钮亮着、header 已 completed → 齿轮熄灭
+  if (isLastTurn && options.sessionBusy === false) {
+    return false;
+  }
+  if (
+    isLastTurn &&
+    options.sessionBusy === true &&
+    draft.header?.state !== "failed" &&
+    draft.header?.state !== "completedInterrupted"
+  ) {
+    return true;
+  }
+
   if (draft.header) {
-    if (draft.header.executionKind === "controlOnly") return false;
     // turnHeader 是 projection 的权威轮次边界；已终态主轮不能被
     // 同轮仍在运行的 background tool/subagent 行重新推成 running。
     return draft.header.state === "running";
@@ -294,7 +316,7 @@ function materializeDraftUnit(
     : splitTurnTailRows(nonBrowserRows);
 
   const isLastTurn = index === total - 1;
-  const isRunning = resolveTurnRunning(draft, options);
+  const isRunning = resolveTurnRunning(draft, options, isLastTurn);
   const isInterrupted = draft.header
     ? draft.header.state === "completedInterrupted"
     : options.sessionPhase === "completedInterrupted";
@@ -495,4 +517,39 @@ export function buildConversationTurnRenderUnits(
   return keptUnits.map((unit, index) =>
     normalizeRenderUnitPosition(unit, index, keptUnits.length, options),
   );
+}
+
+/**
+ * 发送乐观气泡：rows 仅尾部多一行同引用前缀的 userInput 时，复用既有 units，
+ * 只 materialize 新 turn，避免整窗 rebuild（主因 ~300ms send longtask）。
+ */
+export function tryAppendTrailingUserInputUnit(
+  prevUnits: readonly ConversationTurnRenderUnit[],
+  prevRows: readonly ConversationRow[],
+  nextRows: readonly ConversationRow[],
+  options: BuildConversationTurnRenderUnitsOptions = {},
+): ConversationTurnRenderUnit[] | null {
+  if (nextRows.length !== prevRows.length + 1) return null;
+  for (let i = 0; i < prevRows.length; i++) {
+    if (prevRows[i] !== nextRows[i]) return null;
+  }
+  const added = nextRows[nextRows.length - 1];
+  if (!added || !isUserInputRow(added)) return null;
+
+  const draft = createDraftUnit(added.turnId);
+  draft.userInputs.push(added);
+  draft.orderedRows.push(added);
+  const total = prevUnits.length + 1;
+  const rawNew = materializeDraftUnit(draft, prevUnits.length, total, options);
+  if (!shouldKeepRenderUnit(rawNew)) return null;
+  const newUnit = normalizeRenderUnitPosition(rawNew, prevUnits.length, total, options);
+
+  if (prevUnits.length === 0) return [newUnit];
+
+  const out: ConversationTurnRenderUnit[] = new Array(total);
+  for (let i = 0; i < prevUnits.length; i++) {
+    out[i] = normalizeRenderUnitPosition(prevUnits[i]!, i, total, options);
+  }
+  out[prevUnits.length] = newUnit;
+  return out;
 }

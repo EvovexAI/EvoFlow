@@ -105,9 +105,21 @@ def _agent_config_to_subagent_config(agent_cfg) -> SubagentConfig | None:
 
 def get_subagent_config(name: str) -> SubagentConfig | None:
     """Get a subagent configuration by name, with config.yaml overrides applied."""
+    raw = str(name or "").strip()
+    if not raw:
+        return None
+
+    # Legacy aliases (e.g. general-purpose → agent) before lookup.
+    try:
+        from evoflow.collab.agent_assignment import canonical_agent_code
+
+        lookup = canonical_agent_code(raw) or raw
+    except Exception:
+        lookup = raw
+
     # 1) Filesystem agents: custom + subagent (see list_custom_agents), keyed by agent_code
     for agent_cfg in list_custom_agents():
-        if agent_cfg.agent_code != name:
+        if agent_cfg.agent_code != lookup and agent_cfg.agent_code != raw:
             continue
         subagent_cfg = _agent_config_to_subagent_config(agent_cfg)
         if not subagent_cfg:
@@ -115,11 +127,11 @@ def get_subagent_config(name: str) -> SubagentConfig | None:
 
         # Apply timeout override from config.yaml
         app_config = get_subagents_app_config()
-        effective_timeout = _timeout_for_subagent(app_config, name, agent_cfg.agent_code)
+        effective_timeout = _timeout_for_subagent(app_config, lookup, agent_cfg.agent_code)
         if effective_timeout != subagent_cfg.timeout_seconds:
             logger.debug(
                 "Subagent '%s': timeout overridden by config.yaml (%ss -> %ss)",
-                name,
+                lookup,
                 subagent_cfg.timeout_seconds,
                 effective_timeout,
             )
@@ -127,15 +139,42 @@ def get_subagent_config(name: str) -> SubagentConfig | None:
         return subagent_cfg
 
     # 2) Fallback to built-in subagents (so registry works even without filesystem configs)
-    if name in BUILTIN_SUBAGENTS:
-        cfg = BUILTIN_SUBAGENTS[name]
+    if lookup in BUILTIN_SUBAGENTS:
+        cfg = BUILTIN_SUBAGENTS[lookup]
         app_config = get_subagents_app_config()
-        effective_timeout = _timeout_for_subagent(app_config, name, name)
+        effective_timeout = _timeout_for_subagent(app_config, lookup, lookup)
         if effective_timeout != cfg.timeout_seconds:
             cfg = replace(cfg, timeout_seconds=effective_timeout)
         return cfg
 
     return None
+
+
+def resolve_subagent_type(name: str | None) -> str:
+    """Resolve a requested ``subagent_type`` to a registered worker name.
+
+    Unknown / empty / plugin-skill lookalikes (e.g. ``computer-use``) coerce to the
+    built-in generic ``agent`` so the ``subagent`` tool does not hard-fail when the
+    model invents a type from a skill or MCP plugin name.
+    """
+    from evoflow.collab.agent_assignment import DEFAULT_ASSIGNEE_CODE, canonical_agent_code
+
+    raw = str(name or "").strip()
+    if not raw:
+        return DEFAULT_ASSIGNEE_CODE
+
+    candidate = canonical_agent_code(raw) or raw
+    if get_subagent_config(candidate) is not None:
+        return candidate
+    if candidate != raw and get_subagent_config(raw) is not None:
+        return raw
+
+    logger.warning(
+        "Unknown subagent type %r; falling back to built-in %r",
+        raw,
+        DEFAULT_ASSIGNEE_CODE,
+    )
+    return DEFAULT_ASSIGNEE_CODE
 
 
 def list_subagents() -> list[SubagentConfig]:

@@ -366,6 +366,18 @@ def _extract_user_text_from_stream_body(body: bytes) -> str:
     return ""
 
 
+def _extract_user_message_id_from_stream_body(body: bytes) -> str:
+    """Stable client transcript id on the latest human message (``id`` / ``message_id``)."""
+    for m in reversed(_extract_messages_for_mission_bootstrap(body)):
+        role = str(m.get("role") or m.get("type") or "").strip().lower()
+        if role not in {"user", "human"}:
+            continue
+        mid = str(m.get("id") or m.get("message_id") or m.get("messageId") or "").strip()
+        if mid:
+            return mid
+    return ""
+
+
 def _extract_evf_prior_assistant_from_stream_body(body: bytes) -> tuple[str, str]:
     """UI 封存的上轮 assistant（停后继续），用于 Gateway 按 message_id 剥离重放。"""
     try:

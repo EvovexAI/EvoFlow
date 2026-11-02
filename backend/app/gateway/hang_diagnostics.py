@@ -62,16 +62,26 @@ def diagnostics_enabled() -> bool:
     return _flag_enabled("EVOFLOW_GATEWAY_HANG_DIAGNOSTICS", "1")
 
 
-def register_inflight_request(*, scope_id: int, method: str, path: str, query: str | None) -> None:
+def register_inflight_request(
+    *,
+    scope_id: int,
+    method: str,
+    path: str,
+    query: str | None,
+    lane: str | None = None,
+) -> None:
     """Middleware call when it accepts a new HTTP request; tracked for hang dumps."""
     with _inflight_requests_lock:
-        _inflight_requests[scope_id] = {
+        entry: dict[str, Any] = {
             "method": method,
             "path": path,
             "query": query,
             "started_mono": time.monotonic(),
             "started_wall": datetime.now(UTC).isoformat(),
         }
+        if lane:
+            entry["lane"] = str(lane)
+        _inflight_requests[scope_id] = entry
 
 
 def update_inflight_request(scope_id: int, **fields: Any) -> None:
@@ -95,8 +105,13 @@ def snapshot_inflight_requests() -> dict[str, Any]:
             wait = now - entry.get("started_mono", now)
             items.append({"scope_id": scope_id, **entry, "wait_seconds": round(wait, 3)})
     items.sort(key=lambda d: d["started_mono"])
+    by_lane: dict[str, int] = {}
+    for d in items:
+        key = str(d.get("lane") or "unknown")
+        by_lane[key] = by_lane.get(key, 0) + 1
     return {
         "count": len(items),
+        "by_lane": by_lane,
         "long_waiting": [d for d in items if d["wait_seconds"] >= _SLOW_REQUEST_LOG_THRESHOLD_S],
         "all": items,
     }
@@ -110,8 +125,9 @@ def _slow_request_summary_lines() -> list[str]:
         return []
     lines = [f"[slow-requests] currently waiting >={_SLOW_REQUEST_LOG_THRESHOLD_S:.1f}s count={len(long_waiting)}"]
     for d in long_waiting[:8]:
+        lane = d.get("lane") or "?"
         lines.append(
-            f"  - {d['method']:6s} {d['path']} wait={d['wait_seconds']:.2f}s started={d['started_wall']}"
+            f"  - [{lane}] {d['method']:6s} {d['path']} wait={d['wait_seconds']:.2f}s started={d['started_wall']}"
         )
     if len(long_waiting) > 8:
         lines.append(f"  ... and {len(long_waiting) - 8} more")

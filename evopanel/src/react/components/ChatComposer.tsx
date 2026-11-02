@@ -1562,10 +1562,15 @@ export const ChatComposer = memo(function ChatComposer({
               ref={bottomMoreTriggerRef}
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => {
-                console.log('[ChatComposer] 加号按钮点击', { onOpenAttachmentMenu: !!onOpenAttachmentMenu });
-                onOpenAttachmentMenu?.();
+                if (onOpenAttachmentMenu) {
+                  onOpenAttachmentMenu()
+                  return
+                }
+                void import('../../components/toast.js').then(({ toast }) => {
+                  toast('当前面板未接上「+」快捷菜单', 'info')
+                })
               }}
-              title="更多功能（技能 / 目标 / 员工…）"
+              title="更多功能（插件 / 技能 / 附件…）"
               aria-label="更多"
             >
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="18" height="18" aria-hidden="true">

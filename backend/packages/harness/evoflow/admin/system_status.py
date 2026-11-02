@@ -233,25 +233,27 @@ def _probe_service_health() -> dict[str, Any]:
         "pid": os.getpid(),
     }
     try:
-        from app.gateway.hang_diagnostics import (
-            get_event_loop_lag_seconds,
-            is_event_loop_overloaded,
-            is_listen_socket_broken,
-            listen_socket_broken_detail,
-        )
+        from evoflow.runtime import ports as runtime_ports
 
-        if is_listen_socket_broken():
+        # Off-process (CLI / harness tests): adapters are absent — same as the
+        # legacy soft-import miss, report process identity without pretending healthy.
+        if not runtime_ports.is_registered("diagnostics.event_loop_lag_seconds"):
+            body["status"] = "running"
+            body["note"] = "hang_diagnostics unavailable: adapter not registered"
+            return body
+
+        if runtime_ports.is_listen_socket_broken():
             body.update(
                 {
                     "status": "unhealthy",
                     "reason": "listen_socket_broken",
-                    "detail": listen_socket_broken_detail(),
+                    "detail": runtime_ports.listen_socket_broken_detail(),
                 }
             )
             return body
-        lag = get_event_loop_lag_seconds()
+        lag = runtime_ports.get_event_loop_lag_seconds()
         body["event_loop_lag_seconds"] = round(lag, 3)
-        if is_event_loop_overloaded():
+        if runtime_ports.is_event_loop_overloaded():
             body.update({"status": "degraded", "reason": "event_loop_overloaded"})
             return body
         body["status"] = "healthy"
@@ -264,37 +266,19 @@ def _probe_service_health() -> dict[str, Any]:
 
 def _probe_ready_state() -> dict[str, Any]:
     """Best-effort startup readiness from live Gateway app state (if present)."""
-    out: dict[str, Any] = {}
-    try:
-        # Soft import — only populated when running inside the Gateway process.
-        from app.gateway import app as gateway_app_mod  # type: ignore
+    from evoflow.runtime.ports import probe_gateway_ready_state
 
-        app = getattr(gateway_app_mod, "app", None) or getattr(gateway_app_mod, "_app", None)
-        state = getattr(app, "state", None) if app is not None else None
-        if state is None:
-            return out
-        out["ready"] = bool(getattr(state, "startup_ready", False))
-        out["phase"] = str(getattr(state, "startup_phase", "") or "") or None
-        out["core_routers"] = bool(getattr(state, "routers_registered", False))
-        out["extended_routers"] = bool(getattr(state, "extended_routers_registered", False))
-        out["langgraph"] = bool(getattr(state, "langgraph_ready", False))
-        err = getattr(state, "startup_error", None)
-        if err:
-            out["error"] = str(err)
-        app_port = getattr(state, "app_server_port", None)
-        if app_port:
-            out["app_server_port"] = app_port
-    except Exception:
-        pass
-    return out
+    return probe_gateway_ready_state()
 
 
 def _probe_runtime_summary() -> dict[str, Any]:
-    """Reuse observability runtime-status summary when Gateway modules are importable."""
+    """Reuse observability runtime-status summary when Gateway adapters are registered."""
     try:
-        from app.gateway.routers.observability import _build_runtime_status_payload
+        from evoflow.runtime.ports import build_runtime_status_payload
 
-        payload = _build_runtime_status_payload()
+        payload = build_runtime_status_payload()
+        if not isinstance(payload, dict):
+            return {"error": "runtime status adapter not registered"}
         summary = payload.get("summary") if isinstance(payload, dict) else None
         if not isinstance(summary, dict):
             summary = {}

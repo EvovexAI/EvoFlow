@@ -11,6 +11,7 @@ import {
   isTurnBusy,
 } from './session-runtime-store.js'
 import { srLog, srWarn } from './stream-resume-debug.js'
+import { ohwLog, ohwWarn } from './observer-history-watch-debug.js'
 import { shouldSuppressAutoReattach } from './stream-resume-gate.js'
 import { isSessionRecoveryCooldownActive, isStreamReattachCooldownActive } from './stream-reattach-cooldown.js'
 
@@ -28,6 +29,14 @@ export function abortSessionHistoryWatch(sessionKey: string): void {
     /* ignore */
   }
   historyWatchAbortBySession.delete(key)
+}
+
+/** True while history-watch poll loop is active for this session. */
+export function isSessionHistoryWatchActive(sessionKey: string): boolean {
+  const key = String(sessionKey || '').trim()
+  if (!key) return false
+  const ctrl = historyWatchAbortBySession.get(key)
+  return Boolean(ctrl && !ctrl.signal.aborted)
 }
 
 function sleepAbortable(ms: number, signal?: AbortSignal): Promise<void> {
@@ -286,9 +295,22 @@ export async function reattachRunningSessionIfNeeded(opts: {
     manualForce,
     mode: 'history-watch',
   })
+  ohwLog('reattach enter', {
+    sessionKey: key,
+    rowRunStatus: opts.sessionRow?.runStatus ?? null,
+    rowRunId: opts.sessionRow?.currentRunId ?? null,
+    rowThreadId: opts.sessionRow?.threadId ?? null,
+    manualForce,
+    localTurnPhase: getSessionRuntime(key).turnPhase,
+    localWire: getSessionRuntime(key).streamWireSource ?? null,
+  })
 
   if (shouldSuppressAutoReattach({ sessionKey: key, manualForce })) {
     srLog('reattach skipped — live POST stream', { sessionKey: key })
+    ohwWarn('reattach skipped — suppress (owns live POST?)', {
+      sessionKey: key,
+      streamWireSource: getSessionRuntime(key).streamWireSource ?? null,
+    })
     return 'skipped'
   }
 
@@ -297,6 +319,7 @@ export async function reattachRunningSessionIfNeeded(opts: {
   let runId = String(row?.currentRunId || '').trim() || null
   if (runId && isStreamReattachCooldownActive(key, runId)) {
     srLog('reattach skipped — cooldown', { sessionKey: key, runId })
+    ohwWarn('reattach skipped — cooldown', { sessionKey: key, runId })
     return 'skipped'
   }
   let status = String(row?.runStatus || '').trim().toLowerCase()
@@ -315,6 +338,16 @@ export async function reattachRunningSessionIfNeeded(opts: {
       langgraphActive: runtimeStatus.langgraphActive,
       manualForce,
     })
+    ohwLog('runtime-status', {
+      sessionKey: key,
+      runStatus: runtimeStatus.runStatus ?? null,
+      runId: runtimeStatus.runId ?? null,
+      threadId: runtimeStatus.threadId ?? null,
+      executing: runtimeStatus.executing ?? null,
+      phase: runtimeStatus.phase ?? null,
+      langgraphActive: runtimeStatus.langgraphActive ?? null,
+      goalActive: runtimeStatus.goalActive ?? runtimeStatus.hostedActive ?? null,
+    })
     if (!threadId) threadId = String(runtimeStatus.threadId || '').trim() || null
     if (!runId) runId = String(runtimeStatus.runId || '').trim() || null
     if (!status || status === 'idle') {
@@ -325,9 +358,22 @@ export async function reattachRunningSessionIfNeeded(opts: {
         sessionKey: key,
         runStatus: status,
       })
+      ohwWarn('reattach idle — DB not active', {
+        sessionKey: key,
+        runStatus: status,
+        localTurnPhase: getSessionRuntime(key).turnPhase,
+        turnBusy: isTurnBusy(getSessionRuntime(key)),
+      })
       dispatchSessionTurnEvent(key, { type: 'TURN_IDLE' })
       return 'idle'
     }
+  } else {
+    ohwWarn('runtime-status fetch returned null', {
+      sessionKey: key,
+      rowStatus: status || '(empty)',
+      rowRunId: runId,
+      rowThreadId: threadId,
+    })
   }
 
   if (!threadId) {
@@ -345,6 +391,13 @@ export async function reattachRunningSessionIfNeeded(opts: {
       threadId,
       runId,
       status,
+    })
+    ohwWarn('reattach idle — missing ids or not active', {
+      sessionKey: key,
+      threadId,
+      runId,
+      status,
+      localTurnPhase: getSessionRuntime(key).turnPhase,
     })
     dispatchSessionTurnEvent(key, { type: 'TURN_IDLE' })
     return 'idle'
@@ -376,6 +429,13 @@ export async function reattachRunningSessionIfNeeded(opts: {
     runId,
     threadId,
     reason: opts.resumeReason ?? null,
+  })
+  ohwLog('history-watch loop start', {
+    sessionKey: key,
+    runId,
+    threadId,
+    reason: opts.resumeReason ?? null,
+    pollMs: opts.historyPollIntervalMs ?? 1500,
   })
   dispatchSessionTurnEvent(key, {
     type: 'REATTACH_STARTED',

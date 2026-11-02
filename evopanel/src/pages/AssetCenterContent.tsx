@@ -142,10 +142,10 @@ const ASSET_TABS: { id: AssetTab; label: string; icon: React.ReactNode }[] = [
   { id: "manage", label: "管理", icon: <Settings2 size={16} strokeWidth={1.6} /> },
 ];
 
-const MEMORY_KINDS: { id: MemoryKind; label: string; hint: string }[] = [
-  { id: "facts", label: "事实", hint: "memory/facts/ · Agent 可检索的短事实" },
-  { id: "episodic", label: "过程记录", hint: "memory/episodic/ · 对话过程回顾" },
-  { id: "standing", label: "站立摘要", hint: "memory/standing.md · 自动生成的长期摘要" },
+const MEMORY_KINDS: { id: MemoryKind; label: string; hint: string; desc: string }[] = [
+  { id: "facts", label: "记事", hint: "memory/facts/", desc: "你让我记住的要点，一条一件，以后聊天自动参考。" },
+  { id: "episodic", label: "回顾", hint: "memory/episodic/", desc: "每次聊了什么、得出什么结论，系统自动记，事后来翻。" },
+  { id: "standing", label: "速览", hint: "memory/standing.md", desc: "每次聊天我都会先看的一页总结，自动更新，一般不用改。" },
 ];
 
 const ENTITY_GROUPS: { key: string; label: string; types: string[] }[] = [
@@ -286,24 +286,53 @@ function workspacePath(tab: AssetTab, treePath?: string): string {
   return "";
 }
 
-function todayJournalPath(): string {
-  const d = new Date();
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `memory/journal/${y}-${m}-${day}.md`;
+/** Topic slug for journal files — no calendar date in the filename. */
+function journalSlugFromTitle(title: string): string {
+  const raw = String(title || "")
+    .trim()
+    .replace(/[^\w\u4e00-\u9fff-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 48);
+  return raw || "reflection";
+}
+
+function journalPathFromTitle(title: string): string {
+  return `memory/journal/${journalSlugFromTitle(title)}.md`;
+}
+
+function normalizeDeepLinkPath(path: string): string {
+  let p = String(path || "")
+    .replace(/\\/g, "/")
+    .trim();
+  p = p.replace(/^[-*+]\s+/, "");
+  p = p.replace(/^\d+[.)]\s+/, "");
+  return p.replace(/^\//, "").trim();
+}
+
+function parentAssetDir(relPath: string): string {
+  const parts = String(relPath || "")
+    .replace(/\\/g, "/")
+    .split("/")
+    .filter(Boolean);
+  parts.pop();
+  return parts.join("/");
 }
 
 function assetsHrefForPath(
   path: string,
   opts?: { entityType?: string; entityId?: string },
 ): string {
-  const rel = String(path || "").replace(/\\/g, "/").replace(/^\//, "");
+  const rel = normalizeDeepLinkPath(path);
   const params = new URLSearchParams();
-  params.set("tab", rel.startsWith("craft/") ? "experience" : "memory");
+  if (rel.startsWith("craft/")) params.set("tab", "experience");
+  else if (rel.startsWith("memory/journal/")) params.set("tab", "journal");
+  else if (rel === "profile/affect.md" || rel.endsWith("/affect.md")) params.set("tab", "affect");
+  else if (rel.startsWith("profile/")) params.set("tab", "profile");
+  else params.set("tab", "memory");
   if (rel.startsWith("memory/episodic/")) params.set("memoryKind", "episodic");
   else if (rel.startsWith("memory/facts/") || rel === "memory/MEMORY.md") params.set("memoryKind", "facts");
-  else if (rel.includes("standing")) params.set("memoryKind", "standing");
+  else if (/(^|\/)standing(\.md)?$/i.test(rel) || rel.includes("/standing."))
+    params.set("memoryKind", "standing");
   if (opts?.entityType) params.set("entityType", opts.entityType);
   if (opts?.entityId) params.set("entityId", opts.entityId);
   if (rel) params.set("path", rel);
@@ -350,7 +379,7 @@ function initialTab(): AssetTab {
   if (t === "affect" || t === "emotion" || t === "mood") return "affect";
   if (t === "overview" || t === "home") return "overview";
   if (ASSET_TABS.some((x) => x.id === t)) return t as AssetTab;
-  const path = String(q.path || "").replace(/\\/g, "/");
+  const path = normalizeDeepLinkPath(String(q.path || ""));
   if (path.startsWith("craft/")) return "experience";
   if (path.startsWith("memory/journal/")) return "journal";
   // 情感镜像：员工专属；勿把整棵 profile/ 当成用户画像
@@ -377,16 +406,17 @@ function initialMemoryKind(): MemoryKind {
   // legacy deep-link memoryKind=graph → facts (asset-hub memory graph UI removed)
   if (k === "graph") return "facts";
   if (k === "standing" || k === "facts" || k === "episodic") return k;
-  const path = String(q.path || "").replace(/\\/g, "/");
+  const path = normalizeDeepLinkPath(String(q.path || ""));
   if (path.startsWith("memory/episodic/")) return "episodic";
-  if (path.includes("standing")) return "standing";
+  if (/(^|\/)standing(\.md)?$/i.test(path) || path.includes("/standing.")) return "standing";
   if (path.startsWith("memory/facts/") || path === "memory/MEMORY.md") return "facts";
+  // _inbox 等非常规目录：仍用 facts 分段标签，真正目录由 pendingOpenPath 打开父级
   return "facts";
 }
 
 function initialOpenPath(): string {
   const q = parseHashQuery();
-  return String(q.path || "").replace(/\\/g, "/").replace(/^\//, "").trim();
+  return normalizeDeepLinkPath(String(q.path || ""));
 }
 
 function isTauriDesktop(): boolean {
@@ -441,6 +471,8 @@ export default function AssetCenterContent() {
   const [memoryRuns, setMemoryRuns] = useState<MemoryRunRow[]>([]);
   const [statsBusy, setStatsBusy] = useState(false);
   const pendingOpenPath = useRef(initialOpenPath());
+  /** Blocks auto-select-first-file while a deep-link browse+open is in flight. */
+  const openingDeepLinkRef = useRef("");
 
   const currentEntity = useMemo(() => ({ entityType, entityId }), [entityType, entityId]);
   const isUserEntity = entityType === "user";
@@ -779,8 +811,31 @@ export default function AssetCenterContent() {
     const pending = pendingOpenPath.current;
     if (pending) {
       pendingOpenPath.current = "";
-      void loadFile(pending);
-    } else if (!selectedFile) {
+      const rel = normalizeDeepLinkPath(pending);
+      const parent = parentAssetDir(rel);
+      const root = treeRootForTab(activeTab) || "";
+      // Deep-link：先切到文件所在目录（_inbox / craft 子路径），再打开文件；避免停在 facts 根却读别处。
+      const parentUnderRoot =
+        !!parent &&
+        (!root || parent === root || parent.startsWith(`${root}/`));
+      const needBrowse =
+        parentUnderRoot &&
+        parent !== treePath &&
+        !(
+          activeTab === "memory" &&
+          memoryKind === "standing" &&
+          (rel === "memory/standing.md" || rel.endsWith("/standing.md"))
+        );
+      openingDeepLinkRef.current = rel;
+      void (async () => {
+        try {
+          if (needBrowse) await loadTree(parent);
+          await loadFile(rel);
+        } finally {
+          if (openingDeepLinkRef.current === rel) openingDeepLinkRef.current = "";
+        }
+      })();
+    } else if (!selectedFile && !openingDeepLinkRef.current) {
       const first = treeEntries.find((e) => e.kind !== "dir");
       if (first) void loadFile(first.path);
     }
@@ -791,7 +846,17 @@ export default function AssetCenterContent() {
     if (filePaths.length) {
       void warmAssetFileBatch(currentEntity, filePaths, { limit: 8, concurrency: 2 });
     }
-  }, [treeEntries, selectedFile, activeTab, tabLoading, loadFile, memoryKind, currentEntity]);
+  }, [
+    treeEntries,
+    selectedFile,
+    activeTab,
+    tabLoading,
+    loadFile,
+    loadTree,
+    memoryKind,
+    currentEntity,
+    treePath,
+  ]);
 
   // 切换实体时清掉上一实体的文件缓存，避免串读
   useEffect(() => {
@@ -885,40 +950,67 @@ export default function AssetCenterContent() {
 
   const openPath = useCallback(
     (relPath: string) => {
-      const rel = String(relPath || "").replace(/\\/g, "/").replace(/^\//, "");
+      const rel = normalizeDeepLinkPath(relPath);
       if (!rel) return;
       let tab: AssetTab = "memory";
+      let nextKind: MemoryKind | null = null;
       if (rel.startsWith("craft/")) tab = "experience";
       else if (rel.startsWith("memory/journal/")) tab = "journal";
       else if (rel === "profile/affect.md" || rel.endsWith("/affect.md")) tab = "affect";
       else if (rel.startsWith("profile/")) tab = "profile";
       else if (rel.startsWith("memory/")) {
         tab = "memory";
-        if (rel.startsWith("memory/episodic/")) setMemoryKind("episodic");
-        else if (rel.includes("standing")) setMemoryKind("standing");
-        else setMemoryKind("facts");
+        if (rel.startsWith("memory/episodic/")) nextKind = "episodic";
+        else if (/(^|\/)standing(\.md)?$/i.test(rel) || rel.includes("/standing."))
+          nextKind = "standing";
+        else if (rel.startsWith("memory/facts/") || rel === "memory/MEMORY.md") nextKind = "facts";
+        // _inbox 等：保持当前/默认 facts 分段，靠 pendingOpenPath 打开真实父目录
+        else nextKind = "facts";
       } else return;
       if (tab === activeTab) {
-        if (tab === "memory") void applyMemoryKind(memoryKind).then(() => loadFile(rel));
-        else {
+        if (tab === "memory") {
+          const kind = nextKind || memoryKind;
+          if (kind !== memoryKind) setMemoryKind(kind);
+          const parent = parentAssetDir(rel);
+          const standardKindRoot =
+            kind === "episodic"
+              ? "memory/episodic"
+              : kind === "standing"
+                ? "memory"
+                : "memory/facts";
+          const browseParent =
+            !!parent &&
+            parent !== standardKindRoot &&
+            (parent === "memory" || parent.startsWith("memory/"));
+          void (async () => {
+            if (browseParent) {
+              await loadTree(parent);
+            } else {
+              await applyMemoryKind(kind);
+            }
+            await loadFile(rel);
+          })();
+        } else {
           pendingOpenPath.current = rel;
           void loadTabData(tab);
         }
       } else {
+        if (nextKind) setMemoryKind(nextKind);
         pendingOpenPath.current = rel;
         changeTab(tab);
       }
     },
-    [activeTab, memoryKind, applyMemoryKind, loadFile, loadTabData],
+    [activeTab, memoryKind, applyMemoryKind, loadFile, loadTabData, loadTree],
   );
 
   const createTodayJournal = useCallback(async () => {
-    const path = todayJournalPath();
-    const stamp = fileBaseName(path).replace(".md", "");
-    const stub = `# 反思 ${stamp}\n\n## 今日做了什么\n\n\n## 学到什么\n\n\n## 下次注意\n\n`;
+    const title = String(window.prompt("反思标题（文件名用这个，不要带年月日）", "") || "").trim();
+    if (!title) return;
+    const path = journalPathFromTitle(title);
+    const stub = `# ${title}\n\n## 做了什么\n\n\n## 学到什么\n\n\n## 下次注意\n\n`;
     try {
       await api.assetsPutFile({ ...currentEntity, path, content: stub });
-      toast.success("已创建今日反思");
+      toast.success("已创建反思");
       if (activeTab === "journal") {
         await loadTree("memory/journal");
         await loadFile(path);
@@ -1605,7 +1697,7 @@ function OverviewPanel({
           <div className="ac-hero-actions">
             <button type="button" className="ac-cta" onClick={onQuickFact}>
               <Plus size={15} strokeWidth={2} />
-              记住一条事实
+              记一条要点
             </button>
             <button type="button" className="ac-hero-btn" onClick={onImport}>
               <Download size={15} strokeWidth={1.8} />
@@ -2252,18 +2344,30 @@ function TreeWorkspace({
   onChangeContent: (v: string) => void;
   onSave: () => void;
 }) {
+  const activeKind = MEMORY_KINDS.find((k) => k.id === memoryKind);
   const emptyCopy: Record<TreeTab, { title: string; desc: string }> = {
-    memory: {
-      title: "还没有记忆",
-      desc: "在聊天里说「记住…」即可自动沉淀；也可以手动记一条事实，Agent 检索时会直接引用。",
-    },
+    memory:
+      memoryKind === "episodic"
+        ? {
+            title: "还没有回顾",
+            desc: "每次对话结束、空闲一会儿后，系统会自动写一篇回顾，不用你动手。",
+          }
+        : memoryKind === "standing"
+          ? {
+              title: "还没有速览",
+              desc: "系统整理记忆时会自动生成这一页总结；你也可以直接编辑它。",
+            }
+          : {
+              title: "还没有记事",
+              desc: "在聊天里说「记住…」，或点右上角「记一条」；以后聊天我会自动参考。",
+            },
     experience: {
       title: "还没有经验",
       desc: "经验（craft）来自对话中的沉淀与 Skills 市场安装，安装后可在此查看与修改。",
     },
     journal: {
       title: "还没有反思",
-      desc: "每天一篇反思日志，记录「做了什么 / 学到什么 / 下次注意」。",
+      desc: "按主题写反思（文件名用内容标题，不带年月日），记录「做了什么 / 学到什么 / 下次注意」。",
     },
   };
   const isEmpty = files.length === 0 && !fileSearch.trim();
@@ -2272,12 +2376,12 @@ function TreeWorkspace({
     tab === "memory" ? (
       <button type="button" className="ac-btn-ghost" onClick={onQuickFact}>
         <Plus size={13} strokeWidth={1.8} />
-        记住事实
+        记一条
       </button>
     ) : tab === "journal" ? (
       <button type="button" className="ac-btn-ghost" onClick={onNewJournal}>
         <PenLine size={13} strokeWidth={1.8} />
-        新建今日反思
+        新建反思
       </button>
     ) : (
       <a className="ac-btn-ghost" href="#/skills/market">
@@ -2308,6 +2412,9 @@ function TreeWorkspace({
               );
             })}
           </div>
+          <p className="ac-seg-desc" data-testid="memory-kind-desc">
+            {activeKind?.desc || ""}
+          </p>
           <div className="ac-toolbar-right">{toolbarRight}</div>
         </div>
       ) : null}
@@ -2345,12 +2452,12 @@ function TreeWorkspace({
                 tab === "memory" ? (
                   <button type="button" className="ac-cta" onClick={onQuickFact}>
                     <Plus size={15} strokeWidth={2} />
-                    记住一条事实
+                    记一条要点
                   </button>
                 ) : tab === "journal" ? (
                   <button type="button" className="ac-cta" onClick={onNewJournal}>
                     <PenLine size={15} strokeWidth={1.8} />
-                    新建今日反思
+                    新建反思
                   </button>
                 ) : (
                   <a className="ac-cta" href="#/skills/market">
@@ -2787,7 +2894,7 @@ function QuickFactModal({
         title: title.trim(),
         summary: "",
       });
-      toast.success("已记入事实记忆");
+      toast.success("已记下这条要点");
       onSaved();
       onClose();
     } catch (e: unknown) {
@@ -2799,8 +2906,8 @@ function QuickFactModal({
 
   return (
     <ModalShell
-      title="记住一条事实"
-      desc={`将写入 ${entityName} 的事实记忆（memory/facts/），Agent 检索时会直接引用。`}
+      title="记一条要点"
+      desc={`这条会记进「${entityName}」的记事里，以后聊天我会自动参考；随时可以打开改掉。`}
       onClose={onClose}
       footer={
         <>

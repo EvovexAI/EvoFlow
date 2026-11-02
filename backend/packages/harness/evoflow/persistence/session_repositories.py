@@ -322,13 +322,22 @@ def _row_dict(row: Any) -> dict[str, Any]:
     return {k: row[k] for k in row.keys()}
 
 
-def _session_row_to_api(d: dict[str, Any], *, for_list: bool = False) -> dict[str, Any]:
+def _session_row_to_api(
+    d: dict[str, Any],
+    *,
+    for_list: bool = False,
+    list_default_tool_policy: str | None = None,
+) -> dict[str, Any]:
     """Sidebar / API row with flat workspace + model fields for display.
 
     ``for_list=True`` (``GET /api/chat/sessions``): skip per-row tool derivation and
     heavy effective-policy walks. Cold list used to cost multi-seconds (MCP/tool
     bind per row × page size) and wedge Gateway under concurrent workspace polls.
     Detail views still use ``for_list=False`` for live tool/policy accuracy.
+
+    ``list_default_tool_policy``: when set (list path), reuse one global default
+    instead of ``get_global_default_policy()`` per row. Preset comes from the
+    already-selected ``permission_preset`` column — no N+1 ``get_session_preset_raw``.
     """
     from evoflow.persistence.permission_preset_store import (
         effective_preset,
@@ -345,10 +354,21 @@ def _session_row_to_api(d: dict[str, Any], *, for_list: bool = False) -> dict[st
     raw_policy = d.get("tool_approval_policy")
     session_policy = normalize_policy(str(raw_policy)) if raw_policy is not None and str(raw_policy).strip() else None
     if for_list:
-        effective_tool_policy = session_policy or get_global_default_policy()
-        try:
-            session_permission_preset = get_session_preset_raw(sk) if sk else None
-        except Exception:
+        effective_tool_policy = session_policy or (
+            list_default_tool_policy
+            if list_default_tool_policy is not None
+            else get_global_default_policy()
+        )
+        # Row already selected ``permission_preset`` — avoid per-row SQLite round-trip.
+        raw_pp = d.get("permission_preset")
+        if raw_pp is not None and str(raw_pp).strip():
+            try:
+                from evoflow.execution_security.permission_preset import normalize_preset_id
+
+                session_permission_preset = normalize_preset_id(str(raw_pp))
+            except Exception:
+                session_permission_preset = str(raw_pp).strip() or None
+        else:
             session_permission_preset = None
         effective_permission_preset = session_permission_preset
     else:
@@ -1368,6 +1388,35 @@ _SESSION_ACTIVE_WHERE = f"""
       AND COALESCE(hidden_from_list, 0) = 0
 """
 
+# Employee-scoped session key shapes: ``proactive:{code}[:kind:...]`` and
+# ``agent:{code}:{channel}:{chat}``. Extracting the owner code in SQL lets the
+# sidebar hide sessions of employees that no longer exist, even when a historic
+# delete missed the transcript (2026-11-01 regression).
+_SESSION_OWNER_CODE_SQL = """
+    CASE
+      WHEN session_key LIKE 'proactive:%' THEN
+        CASE WHEN instr(substr(session_key, 11), ':') > 0
+             THEN substr(substr(session_key, 11), 1, instr(substr(session_key, 11), ':') - 1)
+             ELSE substr(session_key, 11) END
+      WHEN session_key LIKE 'agent:%' THEN
+        CASE WHEN instr(substr(session_key, 7), ':') > 0
+             THEN substr(substr(session_key, 7), 1, instr(substr(session_key, 7), ':') - 1)
+             ELSE substr(session_key, 7) END
+      ELSE ''
+    END
+"""
+
+# Keep rows that are not employee-scoped, or whose owning code is not an
+# employee-shaped code, or still has a live duty role.
+_ORPHAN_EMPLOYEE_SESSION_FILTER = f"""
+      AND (
+        (session_key NOT LIKE 'proactive:%' AND session_key NOT LIKE 'agent:%')
+        OR ({_SESSION_OWNER_CODE_SQL}) IN ('', 'main', 'executor', 'lead_agent', 'agent')
+        OR ({_SESSION_OWNER_CODE_SQL}) LIKE 'ou\\_%' ESCAPE '\\'
+        OR ({_SESSION_OWNER_CODE_SQL}) IN (SELECT agent_code FROM evoflow_proactive_roles)
+      )
+"""
+
 
 def _workspace_filter_sql(workspace_key: str | None) -> tuple[str, list[Any]]:
     key = str(workspace_key or "").strip()
@@ -1412,7 +1461,7 @@ def summarize_sessions_by_workspace_for_ui() -> list[dict[str, Any]]:
           COUNT(*) AS session_count,
           MAX(updated_at) AS max_updated_at
         FROM evoflow_chat_sessions
-        WHERE {_SESSION_ACTIVE_WHERE}
+        WHERE {_SESSION_ACTIVE_WHERE}{_ORPHAN_EMPLOYEE_SESSION_FILTER}
         GROUP BY workspace_key
         ORDER BY max_updated_at DESC
         """
@@ -1522,6 +1571,8 @@ def list_sessions_for_ui(
     acl_params: tuple[Any, ...] = (),
 ) -> list[dict[str, Any]]:
     """Rows for ``GET /api/chat/sessions`` (sole session-list source)."""
+    from evoflow.persistence.tool_approval_policy import get_global_default_policy
+
     lim = max(1, int(limit))
     off = max(0, int(offset))
     extra_sql, extra_params = _workspace_filter_sql(workspace_key)
@@ -1531,7 +1582,7 @@ def list_sessions_for_ui(
             f"""
         SELECT {_SESSION_SELECT}
         FROM evoflow_chat_sessions
-        WHERE {_SESSION_ACTIVE_WHERE}{extra_sql}{acl_sql}
+        WHERE {_SESSION_ACTIVE_WHERE}{_ORPHAN_EMPLOYEE_SESSION_FILTER}{extra_sql}{acl_sql}
         ORDER BY COALESCE(is_pinned, 0) DESC, COALESCE(pin_order, 0) ASC, created_at DESC
         LIMIT ? OFFSET ?
         """,
@@ -1541,12 +1592,15 @@ def list_sessions_for_ui(
     )
     out: list[dict[str, Any]] = []
     primary = resolve_primary_model_name()
+    default_policy = get_global_default_policy()
     for row in rows:
         d = _row_dict(row)
         if not d.get("primary_model_name") and primary:
             d = dict(d)
             d["primary_model_name"] = primary
-        out.append(_session_row_to_api(d, for_list=True))
+        out.append(
+            _session_row_to_api(d, for_list=True, list_default_tool_policy=default_policy)
+        )
     if primary:
         for row in out:
             if not row.get("primaryModelName"):
@@ -1567,6 +1621,8 @@ def search_sessions_for_ui(
     sessions matching ``evoflow_chat_sessions.title``, so the sidebar search
     box can find sessions that haven't been paged into the client yet.
     """
+    from evoflow.persistence.tool_approval_policy import get_global_default_policy
+
     q = str(query or "").strip()
     if not q:
         return []
@@ -1585,6 +1641,7 @@ def search_sessions_for_ui(
           AND session_key NOT LIKE 'agent:executor:%'
           AND COALESCE(hidden_from_list, 0) = 0
           AND title LIKE ? ESCAPE '\\'
+          {_ORPHAN_EMPLOYEE_SESSION_FILTER}
           {acl_sql}
         ORDER BY COALESCE(is_pinned, 0) DESC, COALESCE(pin_order, 0) ASC, created_at DESC
         LIMIT ?
@@ -1594,12 +1651,15 @@ def search_sessions_for_ui(
 
     out: list[dict[str, Any]] = []
     primary = resolve_primary_model_name()
+    default_policy = get_global_default_policy()
     for row in rows:
         d = _row_dict(row)
         if not d.get("primary_model_name") and primary:
             d = dict(d)
             d["primary_model_name"] = primary
-        out.append(_session_row_to_api(d, for_list=True))
+        out.append(
+            _session_row_to_api(d, for_list=True, list_default_tool_policy=default_policy)
+        )
     if primary:
         for row in out:
             if not row.get("primaryModelName"):

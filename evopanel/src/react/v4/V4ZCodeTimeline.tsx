@@ -8,7 +8,7 @@
 // - 上下文：ZCodeIntlProvider + ConversationRowRenderContext；
 // - 布局：`@container/conversation` + sticky bottomDock；
 // - 分页：canLoadOlder/onLoadOlder。
-// connecting 时空态不回落老链路。编辑/重试/fork/反馈 v1 只读投影。
+// connecting 时空态不回落老链路。行内编辑经 onEdit → truncate+resend（对齐旧面板）。
 import {
   useCallback,
   useEffect,
@@ -18,6 +18,11 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import type {
+  AttachmentRef,
+  ConversationRowTarget,
+  ConversationSnapshot,
+} from "@zcode/shared/zcode-protocol-v4";
 import "@/styles-bridge.css";
 import { ZCodeIntlProvider } from "@zcode/ui/i18n/IntlProvider.js";
 import { ServiceProvider } from "@zcode/ui/hooks/useServices.js";
@@ -45,10 +50,10 @@ import { DEFAULT_CODE_PREVIEW_SETTINGS } from "@zcode/ui/lib/codePreviewSettings
 import { getPathLeaf } from "@zcode/ui/lib/path.js";
 import { logStreamCompareV4PanelDisplay } from "../lib/stream-compare-file-log.js";
 import type { IServiceAccessor } from "@zcode/services";
-import type { ConversationSnapshot } from "@zcode/shared/zcode-protocol-v4";
 import { packWorkspaceFileEntries } from "@zcode/shared/workspaceFileEntriesCodec";
 import type { V4TimelinePayload } from "./V4StreamRowsBridge.js";
 import type { ConversationRowRenderContext } from "@zcode/ui/v4/conversationRowContext.js";
+import { proactiveAgentCodeFromSessionKey } from "../lib/session-list/workspace-groups.js";
 import { getEvoflowV4Transport } from "./evoflowV4Transport.js";
 import { mergeOptimisticUserInputRow } from "./optimisticUserInput.js";
 import { V4QueuePanelBridge } from "./V4QueuePanelBridge.js";
@@ -106,6 +111,33 @@ function shouldRejectHtmlShell(path: string, buf: ArrayBuffer, contentType: stri
   return looksLikeSpaHtmlShell(buf);
 }
 
+function isAbsHostFsPath(path: string): boolean {
+  const p = String(path || "").trim();
+  return /^[a-zA-Z]:[\\/]/.test(p) || (p.startsWith("/") && !p.startsWith("/mnt/"));
+}
+
+function parentDirOfPath(path: string): string {
+  const n = String(path || "")
+    .trim()
+    .replace(/\\/g, "/")
+    .replace(/\/+$/, "");
+  const i = n.lastIndexOf("/");
+  return i > 0 ? n.slice(0, i) : "";
+}
+
+/** 桌面端本机绝对路径：Gateway 未起时用 Rust 直读，避免 /api 落到 tauri.localhost SPA 壳。 */
+async function readLocalAbsFileBuffer(path: string): Promise<ArrayBuffer | null> {
+  if (!isAbsHostFsPath(path)) return null;
+  try {
+    const { invoke } = await import("@tauri-apps/api/core");
+    const text = await invoke<string>("assistant_read_file", { path });
+    if (typeof text !== "string") return null;
+    return new TextEncoder().encode(text).buffer;
+  } catch {
+    return null;
+  }
+}
+
 export function createEvoflowPartialServices(
   sessionId: string,
   workspaceRoot?: string,
@@ -114,29 +146,110 @@ export function createEvoflowPartialServices(
   // 裸相对 fetch 永远到不了网关。必须走 apiUrlAsync 解析真实网关 base
   // （Tauri=8382 等配置端口；web dev 返回相对路径，走 vite 代理）。
   const boundRoot = String(workspaceRoot || "").trim();
+  const isTauriHost =
+    typeof window !== "undefined" && !!(window as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;
   const serveFileUrl = async (path: string): Promise<string> => {
-    const q = new URLSearchParams({ path });
+    const p = String(path || "").trim();
+    // Never wrap remote/data URLs into serve-file (slow log: https://… → 5s heal → 404).
+    if (/^https?:\/\//i.test(p) || p.startsWith("data:") || p.startsWith("blob:")) {
+      return p;
+    }
+    // 文本预览走 Gateway / 本地 invoke，不优先 convertFileSrc：
+    // Gateway base 缺失时若再退回相对 /api，会打到 tauri.localhost 的 index.html（DOCTYPE 壳）。
+    const q = new URLSearchParams({ path: p });
     if (sessionId) q.set("thread_id", sessionId);
-    // 有绑定工作区时带 root，避免相对路径只靠 thread 沙箱解析到空目录 / 错文件
+    // 有绑定工作区时带 root；绝对路径在工作区外时用父目录作 root（profiles/default/*.md）
     if (boundRoot) q.set("root", boundRoot);
-    return apiUrlAsync(`/workspaces/serve-file?${q.toString()}`);
+    else if (isAbsHostFsPath(p)) {
+      const parent = parentDirOfPath(p);
+      if (parent) q.set("root", parent);
+    }
+    const url = await apiUrlAsync(`/workspaces/serve-file?${q.toString()}`);
+    if (isTauriHost && url.startsWith("/api")) {
+      throw new Error("EVOFLOW_GATEWAY_BASE_MISSING");
+    }
+    return url;
   };
   const readServeFileBuffer = async (
     path: string,
     init?: RequestInit,
   ): Promise<{ resp: Response; buf: ArrayBuffer }> => {
-    const resp = await fetch(await serveFileUrl(path), init);
-    if (resp.status === 404) throw new Error(`file not found: ${path}`);
-    if (resp.status === 416) return { resp, buf: new ArrayBuffer(0) };
-    if (!resp.ok) throw new Error(`read failed: HTTP ${resp.status}`);
-    const buf = await resp.arrayBuffer();
-    const ct = resp.headers.get("content-type") || "";
-    if (shouldRejectHtmlShell(path, buf, ct)) {
-      throw new Error(
-        `文件预览打到了页面壳（<!DOCTYPE html>）而不是网关文件内容：${path}。请确认 Gateway 已就绪。`,
+    const p = String(path || "").trim();
+    const tryLocal = async (): Promise<{ resp: Response; buf: ArrayBuffer } | null> => {
+      const local = await readLocalAbsFileBuffer(p);
+      if (!local) return null;
+      const range = String(
+        (init?.headers &&
+          (init.headers instanceof Headers
+            ? init.headers.get("Range")
+            : (init.headers as Record<string, string>).Range ||
+              (init.headers as Record<string, string>).range)) ||
+          "",
       );
+      const m = /bytes=(\d+)-(\d*)/i.exec(range);
+      if (!m) {
+        return {
+          resp: new Response(local, {
+            status: 200,
+            headers: { "content-type": "application/octet-stream" },
+          }),
+          buf: local,
+        };
+      }
+      const start = Math.max(0, Number.parseInt(m[1] || "0", 10) || 0);
+      const end =
+        m[2] === "" || m[2] == null
+          ? local.byteLength - 1
+          : Math.min(local.byteLength - 1, Number.parseInt(m[2], 10) || 0);
+      if (start >= local.byteLength) {
+        return { resp: new Response(null, { status: 416 }), buf: new ArrayBuffer(0) };
+      }
+      const sliced = local.slice(start, end + 1);
+      return {
+        resp: new Response(sliced, {
+          status: 206,
+          headers: {
+            "content-type": "application/octet-stream",
+            "content-range": `bytes ${start}-${start + sliced.byteLength - 1}/${local.byteLength}`,
+          },
+        }),
+        buf: sliced,
+      };
+    };
+
+    try {
+      const resp = await fetch(await serveFileUrl(path), init);
+      if (resp.status === 404) throw new Error(`file not found: ${path}`);
+      if (resp.status === 416) return { resp, buf: new ArrayBuffer(0) };
+      if (!resp.ok) throw new Error(`read failed: HTTP ${resp.status}`);
+      const buf = await resp.arrayBuffer();
+      const ct = resp.headers.get("content-type") || "";
+      if (shouldRejectHtmlShell(path, buf, ct)) {
+        const localHit = await tryLocal();
+        if (localHit) return localHit;
+        throw new Error(
+          `文件预览打到了页面壳（<!DOCTYPE html>）而不是网关文件内容：${path}。请确认 Gateway 已就绪。`,
+        );
+      }
+      return { resp, buf };
+    } catch (err) {
+      const msg = String((err as Error)?.message || err || "");
+      if (
+        msg.includes("EVOFLOW_GATEWAY_BASE_MISSING") ||
+        msg.includes("Failed to fetch") ||
+        msg.includes("NetworkError") ||
+        msg.includes("页面壳")
+      ) {
+        const localHit = await tryLocal();
+        if (localHit) return localHit;
+      }
+      if (msg.includes("EVOFLOW_GATEWAY_BASE_MISSING")) {
+        throw new Error(
+          `Gateway 未就绪，无法预览：${path}。请确认 Gateway 已启动（本机绝对路径在桌面端会优先尝试本地读取）。`,
+        );
+      }
+      throw err;
     }
-    return { resp, buf };
   };
   // IFileService.stat({ path }) —— PreviewPane 传对象；兼容误传裸字符串。
   // Range 探测：从 Content-Range 取总大小；服务端不支持 Range 时退 blob.size。
@@ -606,6 +719,21 @@ export function V4ZCodeTimeline(props: {
    * 只换皮肤，不换渲染管线：轮分组 / 流式 / 工具卡全部是同一套 V4 实现。
    */
   surface?: "default" | "glass";
+  /**
+   * 用户气泡行内编辑（ZCode ConversationRowView）。宿主用 truncate+resend
+   * 实现；需 row.actions.canEdit + entityId（message_id）。
+   */
+  onEdit?: (
+    target: ConversationRowTarget,
+    newText: string,
+    attachments?: readonly AttachmentRef[],
+    workspaceMode?: "preserve" | "rewind",
+  ) => Promise<boolean | void> | boolean | void;
+  /**
+   * 与右下角停止按钮同源（selectedTurnBusy）。驱动末轮「工作中」齿轮，
+   * 避免飞书旁观时停按钮亮着、左下角齿轮熄灭。
+   */
+  sessionBusy?: boolean;
 }): React.JSX.Element {
   const {
     payload,
@@ -626,6 +754,8 @@ export function V4ZCodeTimeline(props: {
     onOpenSubagentTranscript,
     onAutoOpenCodeViewers,
     surface = "default",
+    onEdit,
+    sessionBusy = false,
   } = props;
 
   // 桥接主题：本组件自挂 .zcode-bridge-root，但不走 StoreProvider。
@@ -1067,12 +1197,31 @@ export function V4ZCodeTimeline(props: {
       const ref = String(params.ref || "").trim();
       if (!ref) throw new Error("empty attachment ref");
       if (params.signal?.aborted) throw new DOMException("Aborted", "AbortError");
-      const q = new URLSearchParams({ path: ref });
-      const tid = String(params.sessionId || sessionId || "").trim();
-      if (tid) q.set("thread_id", tid);
-      const root = String(workspacePath || "").trim();
-      if (root) q.set("root", root);
-      const url = await apiUrlAsync(`/workspaces/serve-file?${q.toString()}`);
+      let url: string;
+      if (/^https?:\/\//i.test(ref) || ref.startsWith("data:") || ref.startsWith("blob:")) {
+        url = ref;
+      } else {
+        try {
+          const { convertFileSrc } = await import("@tauri-apps/api/core");
+          if (/^[a-zA-Z]:[\\/]/.test(ref) || (ref.startsWith("/") && !ref.startsWith("/mnt/"))) {
+            const local = convertFileSrc(ref);
+            if (local) {
+              url = local;
+            } else {
+              throw new Error("no convertFileSrc");
+            }
+          } else {
+            throw new Error("not abs");
+          }
+        } catch {
+          const q = new URLSearchParams({ path: ref });
+          const tid = String(params.sessionId || sessionId || "").trim();
+          if (tid) q.set("thread_id", tid);
+          const root = String(workspacePath || "").trim();
+          if (root) q.set("root", root);
+          url = await apiUrlAsync(`/workspaces/serve-file?${q.toString()}`);
+        }
+      }
       const mime =
         String(params.mediaType || "").trim() ||
         (/\.(png)$/i.test(ref)
@@ -1092,6 +1241,12 @@ export function V4ZCodeTimeline(props: {
     },
     [sessionId, workspacePath],
   );
+
+  const assetEntity = useMemo(() => {
+    const code = proactiveAgentCodeFromSessionKey(evoflowSessionKey);
+    if (code) return { entityType: "employee", entityId: code };
+    return { entityType: "user", entityId: "user" };
+  }, [evoflowSessionKey]);
 
   const rowContext = useMemo<ConversationRowRenderContext>(
     () => ({
@@ -1121,11 +1276,14 @@ export function V4ZCodeTimeline(props: {
       onAutoOpenAssistantPptx: onAutoOpenCodeViewers ? handleAutoOpenAssistantPptx : undefined,
       assistantPreviewPptxAutoOpenTarget,
       readAttachment: sessionId ? readAttachment : undefined,
+      // 引用 chip → 资产中心：员工会话落到该员工 vault，其它落到「我」
+      assetEntityType: assetEntity.entityType,
+      assetEntityId: assetEntity.entityId,
     }),
     // approvalRenderKey：仅在待审批集合变化时换 context，让工具行挂上/摘掉面板；
     // 不跟每帧 rows/snapshot 绑定，避免展开「文件已更改」时整区闪。
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: approvalRenderKey gates refresh
-    [sessionId, onOpenCodeViewer, onOpenFileLink, onOpenFileLinkProp, onOpenBrowserUrl, fetchFileChanges, renderToolCallApproval, workspacePath, approvalRenderKey, onAutoOpenCodeViewers, handleAutoOpenAssistantPptx, assistantPreviewPptxAutoOpenTarget, hostTheme, readAttachment],
+    [sessionId, onOpenCodeViewer, onOpenFileLink, onOpenFileLinkProp, onOpenBrowserUrl, fetchFileChanges, renderToolCallApproval, workspacePath, approvalRenderKey, onAutoOpenCodeViewers, handleAutoOpenAssistantPptx, assistantPreviewPptxAutoOpenTarget, hostTheme, readAttachment, assetEntity.entityType, assetEntity.entityId],
   );
 
   // stream-compare：页面画什么 → 同轮目录 v4-ui-display.log（排查发送后白屏/无回复）。
@@ -1206,7 +1364,10 @@ export function V4ZCodeTimeline(props: {
               canLoadOlder={snapshot ? hasOlderRows(snapshot) : false}
               loadingOlder={payload?.loadingOlder ?? false}
               onLoadOlder={payload?.onLoadOlder}
+              onEdit={onEdit}
               bottomDock={dockWithQueue}
+              sessionBusy={sessionBusy}
+              sessionPhase={snapshot?.control?.phase}
               // 小V 窄栏：隐藏左侧轮次导航，把宽度留给正文（主对话不变）
               hideTurnNavigator={embedded}
               // 嵌入态 composer 在面板外：空态不要跟不存在的 dock 居中，否则发消息瞬间整栏跳布局。

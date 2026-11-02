@@ -6,6 +6,8 @@ import {
   getSessionRuntime,
   isSessionRuntimeLive,
 } from '../../lib/session-runtime-store.js'
+import { isEvoflowChatV4Enabled, isV4DisplayAuthoritative } from '../../v4/v4Gate.js'
+import { wsClient } from '../../../lib/ws-client.js'
 
 export type InstallShellSessionHealCtx = {
   sessionRef: { current: string }
@@ -41,6 +43,11 @@ export function installShellSessionHeal(ctx: InstallShellSessionHealCtx): () => 
         rt.streamWireSource === 'run'
       ) {
         return
+      }
+      // V4 已权威上屏：60s/focus heal 勿再 bypassCache 拉旧 /messages（3–7s + setRows longtask）
+      if (isEvoflowChatV4Enabled()) {
+        const tid = String(wsClient.getSessionThreadId?.(sel) || '').trim()
+        if (tid && isV4DisplayAuthoritative(tid)) return
       }
     } catch {
       /* store 不可达时按原行为刷新 */

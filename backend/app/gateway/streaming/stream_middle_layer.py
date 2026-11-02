@@ -1025,6 +1025,15 @@ class StreamMiddleLayer:
             await flush_mirror_batch_for_thread(self.thread_id, run_id=self.run_id)
         except Exception:
             logger.debug("stream mirror flush on finish failed thread=%s", self.thread_id, exc_info=True)
+        # 空流 / 客户端断连时可能没走到 RUN_FINISHED：强制收掉 V4 镜像闩锁，
+        # 否则下一轮 RUN_STARTED while prior open → 用户气泡重复。
+        try:
+            from app.gateway.v4.agui_mirror import mirror_channel_run_finished, mirror_thread_is_live
+
+            if mirror_thread_is_live(self.thread_id):
+                mirror_channel_run_finished(self.thread_id, error=bool(run_failed))
+        except Exception:
+            logger.debug("v4 mirror seal on finish failed thread=%s", self.thread_id, exc_info=True)
         # 先 mark idle 再广播：前端收到 panel:run_ended 时 DB 已是 idle
         await self._broadcast_run_ended()
         with _LOCK:

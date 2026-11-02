@@ -119,16 +119,22 @@ export function LightweightDiffPreview({
 }: LightweightDiffPreviewProps) {
   const { intl } = useZCodeIntl();
 
+  const wrapLongLines = codePreviewSettings.wrapLongLines;
+
   return (
     <div
-      className={cn("w-full min-w-0 overflow-auto bg-background", className)}
+      className={cn(
+        "w-full min-w-0 bg-background",
+        wrapLongLines ? "overflow-x-hidden overflow-y-auto" : "overflow-auto",
+        className,
+      )}
       data-lightweight-diff-preview
       {...props}
     >
       <div
         className={cn(
-          "min-w-full font-mono leading-relaxed text-foreground",
-          !codePreviewSettings.wrapLongLines && "w-max",
+          "font-mono leading-relaxed text-foreground",
+          wrapLongLines ? "w-full min-w-0" : "min-w-full w-max",
         )}
         data-lightweight-diff-scroll-content
         style={{ fontSize: codePreviewSettings.fontSizePx }}
@@ -151,7 +157,11 @@ export function LightweightDiffPreview({
           const lineStyles = getLightweightDiffLineStyles(lineParts.kind);
 
           return (
-            <div className="flex min-w-full w-full" key={index} style={lineStyles.rowStyle}>
+            <div
+              className={cn("flex w-full", wrapLongLines ? "min-w-0" : "min-w-full")}
+              key={index}
+              style={lineStyles.rowStyle}
+            >
               {/* 不换行时由内层滚动面统一计算 max-content 宽度。
               如果每行各自 w-max，横向滚动到右侧时短行背景会提前结束，产生黑色断层。 */}
               {codePreviewSettings.showLineNumbers ? (
@@ -168,9 +178,9 @@ export function LightweightDiffPreview({
               ) : null}
               <code
                 className={cn(
-                  "block flex-1 px-3",
-                  codePreviewSettings.wrapLongLines
-                    ? "whitespace-pre-wrap break-words"
+                  "block min-w-0 flex-1 px-3",
+                  wrapLongLines
+                    ? "whitespace-pre-wrap break-words [overflow-wrap:anywhere]"
                     : "whitespace-pre",
                 )}
               >

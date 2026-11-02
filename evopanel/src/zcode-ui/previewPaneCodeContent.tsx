@@ -99,7 +99,7 @@ export function CodeContent({
       onDeleteCodeComment={onDeleteCodeComment}
       onScroll={onScroll}
       scrollContainerRef={scrollContainerRef}
-      className={className}
+      className={cn("min-w-0", className)}
     />
   );
 }

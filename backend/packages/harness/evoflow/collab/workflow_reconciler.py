@@ -104,6 +104,26 @@ def is_zombie_executing_subtask(
     return False
 
 
+# A requeued row is no longer "reported": keeping these would make the panel show
+# the previous attempt's failure text (e.g. 「子智能体异常结束 (failed)」) while the
+# retry is already running, and would make ``is_subtask_outcome_reported()`` lie.
+_TERMINAL_OUTCOME_RESIDUE_KEYS = (
+    "outcome_reported_at",
+    "outcome_reported_by",
+    "task_report",
+    "summary",
+    "result",
+    "failed_at",
+    "completed_at",
+)
+
+
+def _clear_terminal_outcome_residue(st: dict[str, Any]) -> None:
+    """Drop the previous attempt's terminal report before re-dispatching."""
+    for _key in _TERMINAL_OUTCOME_RESIDUE_KEYS:
+        st.pop(_key, None)
+
+
 def _heal_subtasks(
     task: dict[str, Any],
     *,
@@ -129,6 +149,7 @@ def _heal_subtasks(
             if not ok:
                 st["status"] = "pending"
                 why = why or "forced_pending"
+            _clear_terminal_outcome_residue(st)
             st["error"] = f"reconcile:{reason}:zombie_executing"
             st["error_kind"] = "reconcile"
             st["updated_at"] = now_iso
@@ -170,6 +191,9 @@ def _heal_subtasks(
             )
             if not ok:
                 st["status"] = "pending"
+            # Retrying: the old failure text must not outlive the requeue,
+            # otherwise the row keeps showing 「子智能体异常结束」 while it re-runs.
+            _clear_terminal_outcome_residue(st)
             st["auto_retry_count"] = auto_n + 1
             st["retry_count"] = int(st.get("retry_count") or 0) + 1
             st["error"] = f"reconcile:{reason}:retry_failed"

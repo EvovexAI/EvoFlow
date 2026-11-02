@@ -12,6 +12,11 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { mountEmployeeNavToChrome, unmountEmployeeNavFromChrome } from '../src/lib/proactive-nav-chrome.js'
+import {
+  clientToLayoutScale,
+  closeProRoleMoreMenu,
+  openProRoleMoreMenu,
+} from '../src/lib/pro-role-more-menu.js'
 
 function makeDom({ macos }) {
   document.body.innerHTML = ''
@@ -60,5 +65,47 @@ describe('proactive employee nav → titlebar chrome', () => {
 
     unmountEmployeeNavFromChrome(page)
     expect(page.classList.contains('pro-employee-page--nav-in-chrome')).toBe(false)
+  })
+})
+
+describe('pro-role-more menu positioning', () => {
+  afterEach(() => {
+    document.documentElement.style.zoom = ''
+    document.body.innerHTML = ''
+    document.body.querySelectorAll(':scope > .pro-role-more-menu').forEach((el) => el.remove())
+  })
+
+  it('clientToLayoutScale reads CSS zoom used by ui-zoom fallback', () => {
+    expect(clientToLayoutScale()).toBe(1)
+    document.documentElement.style.zoom = '1.25'
+    expect(clientToLayoutScale()).toBe(1.25)
+  })
+
+  it('portals menu with both top and left set (no static-position flash coords)', () => {
+    const wrap = document.createElement('div')
+    wrap.className = 'pro-role-more'
+    wrap.innerHTML = `
+      <button type="button" class="pro-role-more-btn">⋯</button>
+      <div class="pro-role-more-menu" role="menu" hidden>
+        <button type="button" class="pro-role-more-item">工作过程</button>
+      </div>`
+    document.body.appendChild(wrap)
+    const btn = wrap.querySelector('.pro-role-more-btn')
+    const menu = wrap.querySelector('.pro-role-more-menu')
+    btn.getBoundingClientRect = () =>
+      ({ top: 80, bottom: 112, left: 200, right: 232, width: 32, height: 32, x: 200, y: 80, toJSON() {} })
+
+    openProRoleMoreMenu(wrap, btn, menu, { placement: 'below' })
+
+    expect(menu.parentElement).toBe(document.body)
+    expect(menu.classList.contains('is-fixed')).toBe(true)
+    expect(menu.hidden).toBe(false)
+    expect(menu.style.top).toMatch(/px$/)
+    expect(menu.style.left).toMatch(/px$/)
+    expect(menu.style.visibility).toBe('')
+
+    closeProRoleMoreMenu(wrap)
+    expect(menu.parentElement).toBe(wrap)
+    expect(menu.hidden).toBe(true)
   })
 })

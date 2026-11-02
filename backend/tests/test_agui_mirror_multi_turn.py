@@ -31,6 +31,43 @@ def mirror_session(monkeypatch: pytest.MonkeyPatch) -> str:
     return sid
 
 
+def test_empty_stream_retry_does_not_duplicate_user_input(mirror_session: str) -> None:
+    """空流 auto-retry：同 message_id 再 note + RUN_STARTED 不得叠第二颗用户气泡。
+
+    用户日志（EvoFlow-logs-20261101-180035）：模型无 SSE → empty stream auto-retry
+    → RUN_STARTED while prior turn open → 界面出现两次「你好」。
+    """
+    tid = mirror_session + "-empty-retry"
+    if tid in getattr(HUB, "_sessions", {}):
+        del HUB._sessions[tid]  # noqa: SLF001
+    mirror = V4Mirror(HUB)
+
+    mirror.note_user_input(tid, "你好", message_id="user-msg-1")
+    mirror.feed_events(
+        tid,
+        [{"type": "RUN_STARTED", "threadId": tid, "runId": "run-first"}],
+    )
+    # 无 RUN_FINISHED：闩锁仍开（空流 / Failed to fetch）
+    mirror.note_user_input(tid, "你好", message_id="user-msg-1")
+    mirror.feed_events(
+        tid,
+        [{"type": "RUN_STARTED", "threadId": tid, "runId": "run-retry"}],
+    )
+
+    users = [r for r in _rows(tid) if r.get("kind") == "userInput"]
+    assert len(users) == 1, users
+    assert users[0]["text"] == "你好"
+    assert users[0]["entityId"] == "user-msg-1"
+    assert users[0]["turnId"] == "run-retry"
+
+    headers = _headers(tid)
+    assert len(headers) == 2
+    assert headers[0]["turnId"] == "run-first"
+    assert headers[0]["state"] == "failed"
+    assert headers[1]["turnId"] == "run-retry"
+    assert headers[1]["state"] == "running"
+
+
 def test_second_run_gets_fresh_running_turn_header(mirror_session: str) -> None:
     tid = mirror_session
     mirror = V4Mirror(HUB)

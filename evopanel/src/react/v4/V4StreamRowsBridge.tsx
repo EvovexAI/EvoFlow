@@ -31,6 +31,7 @@ import {
 } from "../lib/v4-lifecycle-log.js";
 import { markStreamCompareSession } from "../lib/stream-compare-file-log.js";
 import { publishV4DisplayAuthority } from "./v4Gate.js";
+import { evoflowFetch } from "../../lib/ws-client.js";
 
 export interface V4TimelinePayload {
   sessionId: string;
@@ -116,22 +117,223 @@ export function warmEvoflowV4Session(
   }
 }
 
+/** In-flight + last catchup — coalesce observer 1.5s ticks. */
+const _catchupInFlight = new Set<string>();
+const _catchupStableAt = new Map<string, { at: number; reason: string }>();
+/** V4 已有投影时，旁观只做低频 soft reconcile；高频 catchup 会与 live mirror 对打（189↔351）。 */
+const CATCHUP_READY_SOFT_MS = 20_000;
+const CATCHUP_AFTER_REHYDRATE_MS = 12_000;
+const CATCHUP_STABLE_MS = 2_800;
+
+function _catchupCooldownMs(reason: string, softIntervalMs = CATCHUP_READY_SOFT_MS): number {
+  if (reason === "post-rehydrate" || reason === "rehydrated") return CATCHUP_AFTER_REHYDRATE_MS;
+  if (reason === "ready-soft") return softIntervalMs;
+  return CATCHUP_STABLE_MS;
+}
+
+export type RefreshEvoflowV4Opts = {
+  /**
+   * 已有投影行时的 soft reconcile 最短间隔。
+   * 默认 20s（飞书旁观防与 live mirror 对打）；工作流节点右栏无本机流式时可传 ~2–3s。
+   */
+  softIntervalMs?: number;
+};
+
 /**
  * 员工执行过程等只读面板：主动拉一次最新投影（非流式）。
- * 已有租约时 recover → resync；尚未订阅则 warm 冷启动。
+ *
+ * - 面板已 ready 且有行：默认跳过（靠 SSE / channel mirror 增量）；每 ~20s soft 一次
+ * - POST /catchup 成功后禁止再 resync；rehydrate 后冷却，避免与 live recovery 对打
+ * - catchup 失败才回退 recoverFromStaleAuthority
  */
-export function refreshEvoflowV4Session(sessionId: string): void {
+export function refreshEvoflowV4Session(
+  sessionId: string,
+  opts?: RefreshEvoflowV4Opts,
+): void {
   const id = String(sessionId || "").trim();
   if (!id) return;
+  const softIntervalMs = Math.max(
+    500,
+    Number(opts?.softIntervalMs) > 0 ? Number(opts?.softIntervalMs) : CATCHUP_READY_SOFT_MS,
+  );
+  if (_catchupInFlight.has(id)) {
+    console.info("[observer-hw] v4 catchup skipped (in-flight)", { threadId: id });
+    return;
+  }
+  const stable = _catchupStableAt.get(id);
+  if (stable && Date.now() - stable.at < _catchupCooldownMs(stable.reason, softIntervalMs)) {
+    console.info("[observer-hw] v4 catchup skipped (cooldown)", {
+      threadId: id,
+      reason: stable.reason,
+      ageMs: Date.now() - stable.at,
+      softIntervalMs,
+    });
+    return;
+  }
+
+  // 已有 V4 投影：旁观 tick 不要每 1.5s wipe；只低频 soft reconcile。
   try {
     const layer = getSharedLayer();
-    if (!layer.has(id)) {
-      warmEvoflowV4Session(id, { force: true });
-      return;
+    if (layer.has(id)) {
+      const lease = layer.acquire(id);
+      try {
+        const st = lease.store.getState();
+        const n =
+          st.snapshot?.rows?.totalCount ?? st.snapshot?.rows?.window?.length ?? 0;
+        if (st.snapshot && n > 0) {
+          const last = _catchupStableAt.get(id);
+          const softDue = !last || Date.now() - last.at >= softIntervalMs;
+          if (!softDue) {
+            console.info("[observer-hw] v4 catchup skipped (ready)", {
+              threadId: id,
+              rows: n,
+              ageMs: last ? Date.now() - last.at : null,
+              softIntervalMs,
+            });
+            return;
+          }
+        }
+      } finally {
+        try {
+          lease.release();
+        } catch {
+          /* ignore */
+        }
+      }
     }
+  } catch {
+    /* fall through to catchup */
+  }
+
+  _catchupInFlight.add(id);
+  void (async () => {
+    let catchupChanged = false;
+    let catchupOk = false;
+    let catchupReason = "";
+    try {
+      const resp = await evoflowFetch("/api/v4/conversation/catchup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionId: id }),
+      });
+      if (resp.ok) {
+        catchupOk = true;
+        try {
+          const body = (await resp.json()) as {
+            changed?: boolean;
+            rows?: number;
+            reason?: string;
+          };
+          catchupChanged = Boolean(body?.changed);
+          catchupReason = String(body?.reason || "");
+          console.info("[observer-hw] v4 catchup", {
+            threadId: id,
+            changed: catchupChanged,
+            rows: body?.rows,
+            reason: catchupReason,
+          });
+          _catchupStableAt.set(id, {
+            at: Date.now(),
+            reason: catchupChanged
+              ? "post-rehydrate"
+              : catchupReason || "ready-soft",
+          });
+        } catch {
+          /* ignore parse */
+        }
+      } else {
+        console.warn("[observer-hw] v4 catchup HTTP", resp.status, id);
+      }
+    } catch (err) {
+      console.warn("[observer-hw] v4 catchup failed", {
+        threadId: id,
+        error: String(err instanceof Error ? err.message : err),
+      });
+    } finally {
+      _catchupInFlight.delete(id);
+    }
+
+    try {
+      const layer = getSharedLayer();
+      if (!layer.has(id)) {
+        warmEvoflowV4Session(id, { force: true });
+        return;
+      }
+      // catchup HTTP 成功则禁止再 resync：
+      // - changed=true：服务端已广播 recovery
+      // - changed=false：投影未变 / live-mirror，再 resync 也会整页 recovery → 抖动
+      // 仅 catchup 失败时才 recoverFromStaleAuthority。
+      if (catchupOk) {
+        if (catchupChanged) {
+          console.info("[observer-hw] v4 skip resync (catchup already recovered)", {
+            threadId: id,
+            reason: catchupReason || "rehydrated",
+          });
+        }
+        return;
+      }
+      const lease = layer.acquire(id);
+      try {
+        lease.store.recoverFromStaleAuthority();
+      } finally {
+        try {
+          lease.release();
+        } catch {
+          /* ignore */
+        }
+      }
+    } catch {
+      /* best effort */
+    }
+  })();
+}
+
+function _rowActivityMs(row: {
+  kind?: string;
+  createdAt?: number;
+  startedAt?: number;
+  endedAt?: number;
+}): number {
+  const ended = typeof row.endedAt === "number" && Number.isFinite(row.endedAt) ? row.endedAt : 0;
+  const started =
+    typeof row.startedAt === "number" && Number.isFinite(row.startedAt) ? row.startedAt : 0;
+  const created =
+    typeof row.createdAt === "number" && Number.isFinite(row.createdAt) ? row.createdAt : 0;
+  // 工具行优先 endedAt/startedAt（最新调用时刻）；其它行用 createdAt。
+  if (row.kind === "toolCall" || row.kind === "subagent" || row.kind === "hookInvocation") {
+    return Math.max(ended, started, created);
+  }
+  return Math.max(created, ended, started);
+}
+
+/**
+ * 读当前 V4 投影窗口的最近活动时间（Unix ms）。无快照 / 无行则 null。
+ * 用于右栏标题旁的弱提示（如节点进度「最近工具时间」）。
+ */
+export function peekEvoflowV4LastActivityAt(sessionId: string): number | null {
+  const id = String(sessionId || "").trim();
+  if (!id) return null;
+  try {
+    const layer = getSharedLayer();
+    if (!layer.has(id)) return null;
     const lease = layer.acquire(id);
     try {
-      lease.store.recoverFromStaleAuthority();
+      const window = lease.store.getState().snapshot?.rows?.window;
+      if (!Array.isArray(window) || window.length === 0) return null;
+      let best = 0;
+      // 从末尾扫：最近工具优先，否则取窗口内最大活动时间。
+      for (let i = window.length - 1; i >= 0; i--) {
+        const row = window[i] as {
+          kind?: string;
+          createdAt?: number;
+          startedAt?: number;
+          endedAt?: number;
+        };
+        const ms = _rowActivityMs(row);
+        if (ms > best) best = ms;
+        if (row.kind === "toolCall" && ms > 0) break;
+      }
+      return best > 0 ? best : null;
     } finally {
       try {
         lease.release();
@@ -140,7 +342,7 @@ export function refreshEvoflowV4Session(sessionId: string): void {
       }
     }
   } catch {
-    /* best effort */
+    return null;
   }
 }
 

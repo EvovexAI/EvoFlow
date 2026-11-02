@@ -8,5 +8,5 @@ export const LONG_RUN_WALL_MS = LONG_RUN_WALL_SECONDS * 1000
 /** Max idle time between SSE events before graceful detach + reattach (1h). */
 export const FRONTEND_STREAM_IDLE_TIMEOUT_MS = 3_600_000
 
-/** LangGraph main graph recursion_limit (super-steps, not chat turns). */
-export const LONG_RUN_RECURSION_LIMIT = 7500
+/** LangGraph main graph recursion_limit (super-steps, not chat turns). Keep in sync with backend long_run_limits. */
+export const LONG_RUN_RECURSION_LIMIT = 100_000

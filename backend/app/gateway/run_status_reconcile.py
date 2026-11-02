@@ -28,7 +28,14 @@ STREAM_RESUME_INACTIVE_MS = int(os.getenv("EVOFLOW_STREAM_RESUME_INACTIVE_MS", "
 _RUNS_PROBE_CACHE_TTL_S = float(os.getenv("EVOFLOW_RUNS_PROBE_CACHE_TTL_S", "4") or "4")
 _RUNS_PROBE_IDLE_TTL_S = float(os.getenv("EVOFLOW_RUNS_PROBE_IDLE_TTL_S", "12") or "12")
 _RUNS_PROBE_CACHE_MAX = 256
-_ACTIVE_RUN_STATUSES = frozenset({"pending", "running", "interrupted"})
+# LangGraph run statuses that mean the graph is still executing tokens/tools.
+_LG_EXECUTING_STATUSES = frozenset({"pending", "running"})
+# ``interrupted`` is resumable (tool-approval / human interrupt) — NOT "still
+# spinning". Treating it as always-active left SQLite ``run_status=running``
+# forever after cancel/GraphRecursionError (UI gear never stops).
+_LG_RESUMABLE_STATUSES = frozenset({"interrupted"})
+# Backward-compat alias used by cancel/list helpers that still cancel interrupted.
+_ACTIVE_RUN_STATUSES = frozenset(_LG_EXECUTING_STATUSES | _LG_RESUMABLE_STATUSES)
 # Sessions whose active run has been running longer than this threshold (seconds)
 # are considered stale and will be cancelled during startup reconciliation.
 # Set to 0 to disable stale-run cancellation (legacy behaviour).
@@ -91,6 +98,25 @@ def _runs_probe_cache_key(thread_id: str, run_id: str | None) -> str:
     return f"{tid}:{rid}"
 
 
+def _lg_status_is_live_for_ui(status: str, *, thread_id: str) -> bool:
+    """True when this LangGraph status should keep chat UI / SQLite as executing.
+
+    ``pending`` / ``running`` → live.
+    ``interrupted`` → live only while a stream proxy or collab phase still owns
+    the thread (tool-approval resume / human interrupt). Bare interrupted with
+    no attach is a finished cancel — must clear sticky ``run_status``.
+    """
+    st = str(status or "").strip().lower()
+    if st in _LG_EXECUTING_STATUSES:
+        return True
+    if st in _LG_RESUMABLE_STATUSES:
+        tid = str(thread_id or "").strip()
+        if not tid:
+            return False
+        return _thread_has_active_proxy(tid) or _collab_phase_is_active(tid)
+    return False
+
+
 def invalidate_runs_probe_cache(*, thread_id: str | None = None) -> None:
     """Drop cached LangGraph runs probes after run-idle / terminal reconcile."""
     tid = str(thread_id or "").strip()
@@ -147,13 +173,13 @@ async def _langgraph_has_active_run(
                 if rid is None or str(rid) != rid_pref:
                     continue
                 st = str(r.get("status") or "").strip().lower()
-                if st in _ACTIVE_RUN_STATUSES:
+                if _lg_status_is_live_for_ui(st, thread_id=thread_id):
                     result = True
                     break
         if not result:
             for r in items:
                 st = str(r.get("status") or "").strip().lower()
-                if st in _ACTIVE_RUN_STATUSES:
+                if _lg_status_is_live_for_ui(st, thread_id=thread_id):
                     result = True
                     break
 
@@ -169,7 +195,11 @@ async def discover_active_run_id(
     *,
     preferred_run_id: str | None = None,
 ) -> str | None:
-    """Return the newest pending/running run id for a thread (if any)."""
+    """Return the newest pending/running run id for a thread (if any).
+
+    Does not treat bare ``interrupted`` as discoverable — that would re-stick
+    SQLite ``run_status=running`` after cancel (heal idle→running loop).
+    """
     tid = str(thread_id or "").strip()
     if not tid:
         return None
@@ -186,7 +216,8 @@ async def discover_active_run_id(
     active_runs: list[dict[str, Any]] = []
     for r in items:
         st = str(r.get("status") or "").strip().lower()
-        if st not in _ACTIVE_RUN_STATUSES:
+        # Only executing statuses — interrupted alone must not re-heal DB.
+        if st not in _LG_EXECUTING_STATUSES:
             continue
         rid = str(r.get("run_id") or r.get("runId") or "").strip()
         if rid:

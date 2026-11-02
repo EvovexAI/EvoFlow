@@ -29,8 +29,59 @@ def langgraph_api_data_dir(home: Path | None = None) -> Path:
     return d
 
 
+_DEFAULT_N_JOBS_PER_WORKER = 10
+_MAX_N_JOBS_PER_WORKER = 64
+
+
+def _clamp_n_jobs(n: int) -> int | None:
+    if 1 <= n <= _MAX_N_JOBS_PER_WORKER:
+        return n
+    return None
+
+
+def _n_jobs_from_value(raw: Any) -> int | None:
+    if raw is None or isinstance(raw, bool):
+        return None
+    try:
+        if isinstance(raw, str):
+            n = int(raw.strip())
+        else:
+            n = int(raw)
+    except (TypeError, ValueError):
+        return None
+    return _clamp_n_jobs(n)
+
+
+def _n_jobs_from_evopanel_json() -> int | None:
+    """Settings→通用 writes ``langgraphMaxConcurrent`` into profile ``evopanel.json``."""
+    path = resolve_evoflow_home() / "evopanel.json"
+    try:
+        if not path.is_file():
+            return None
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        logger.debug("read evopanel.json for langgraphMaxConcurrent failed", exc_info=True)
+        return None
+    if not isinstance(data, dict):
+        return None
+    return _n_jobs_from_value(data.get("langgraphMaxConcurrent"))
+
+
+def _n_jobs_from_panel_settings() -> int | None:
+    try:
+        from evoflow.persistence.panel_settings import get_panel_settings
+
+        return _n_jobs_from_value(get_panel_settings().get("langgraphMaxConcurrent"))
+    except Exception:
+        logger.debug("read panel settings langgraphMaxConcurrent failed", exc_info=True)
+        return None
+
+
 def _resolve_n_jobs_per_worker() -> int:
     """Match in-process Gateway mount (``lazy_langgraph`` default 10).
+
+    Precedence: process env ``N_JOBS_PER_WORKER`` → panel / ``evopanel.json``
+    ``langgraphMaxConcurrent`` → 10.
 
     ``langgraph_api.cli.run_server`` forces ``N_JOBS_PER_WORKER=1`` when the
     ``n_jobs_per_worker`` kwarg is omitted — that serializes *all* agent runs
@@ -38,13 +89,17 @@ def _resolve_n_jobs_per_worker() -> int:
     """
     raw = (os.environ.get("N_JOBS_PER_WORKER") or "").strip()
     if raw:
-        try:
-            n = int(raw)
-            if n > 0:
-                return n
-        except ValueError:
-            logger.warning("invalid N_JOBS_PER_WORKER=%r; using 10", raw)
-    return 10
+        n = _n_jobs_from_value(raw)
+        if n is not None:
+            return n
+        logger.warning(
+            "invalid N_JOBS_PER_WORKER=%r; falling back to panel/default",
+            raw,
+        )
+    for candidate in (_n_jobs_from_evopanel_json(), _n_jobs_from_panel_settings()):
+        if candidate is not None:
+            return candidate
+    return _DEFAULT_N_JOBS_PER_WORKER
 
 
 def _apply_multi_session_concurrency_env() -> None:

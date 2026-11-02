@@ -72,6 +72,12 @@ import {
   renderListPagerHtml,
   writeStoredPageSize,
 } from '../components/list-pager.js'
+import {
+  clientToLayoutScale,
+  closeAllProRoleMoreMenus,
+  findProRoleMoreMenu,
+  openProRoleMoreMenu,
+} from '../lib/pro-role-more-menu.js'
 
 const ROLES_PAGE_SIZE_KEY = 'evopanel_proactive_roles_page_size'
 
@@ -374,18 +380,35 @@ export async function render() {
             <p class="page-desc">加人、排班、组织编制；有事项等你拍板时优先处理，进度全貌看「工作项」</p>
           </div>
           <div class="page-actions">
-            <div class="pro-feishu-toolbar" id="pro-feishu-toolbar" hidden>
-              <span class="pro-feishu-toolbar-label" id="pro-feishu-toolbar-label" title=""></span>
-              <button type="button" class="btn btn-sm btn-primary" id="pro-feishu-bind-next">扫码绑定</button>
-            </div>
-            <div class="pro-duty-card" id="pro-switch-card">
-              <span class="pro-switch-dot" id="pro-switch-dot" aria-hidden="true"></span>
-              <span class="pro-switch-text" id="pro-switch-text">加载中…</span>
-              <span class="pro-switch-meta" id="pro-switch-meta"></span>
-              <button type="button" class="btn btn-xs" id="pro-switch-btn" disabled>—</button>
+            <div class="pro-actions-state">
+              <div class="pro-duty-card" id="pro-switch-card">
+                <span class="pro-switch-dot" id="pro-switch-dot" aria-hidden="true"></span>
+                <span class="pro-switch-text" id="pro-switch-text">自动上班</span>
+                <span class="pro-switch-meta" id="pro-switch-meta"></span>
+                <button
+                  type="button"
+                  class="pro-switch"
+                  id="pro-switch-btn"
+                  role="switch"
+                  aria-checked="false"
+                  aria-label="全员自动上班"
+                  disabled
+                >
+                  <span class="pro-switch-knob" aria-hidden="true"></span>
+                </button>
+              </div>
+              <div class="pro-feishu-toolbar" id="pro-feishu-toolbar" hidden>
+                <span class="pro-feishu-toolbar-label" id="pro-feishu-toolbar-label" title=""></span>
+                <button type="button" class="pro-feishu-bind" id="pro-feishu-bind-next">绑定</button>
+              </div>
             </div>
             <button type="button" class="btn btn-primary btn-sm" id="pro-hire">加人</button>
-            <button type="button" class="btn btn-secondary btn-sm" id="pro-refresh">刷新</button>
+            <button type="button" class="pro-icon-btn" id="pro-refresh" aria-label="刷新" title="刷新">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M21 12a9 9 0 1 1-2.64-6.36"/>
+                <path d="M21 3v6h-6"/>
+              </svg>
+            </button>
           </div>
         </div>
 
@@ -596,10 +619,14 @@ function bindHireDropdown(overlay, { role, onPick, labelFor } = {}) {
     trigger.setAttribute('aria-expanded', 'false')
   }
   const open = () => {
+    const scale = clientToLayoutScale()
     const r = trigger.getBoundingClientRect()
-    menu.style.top = `${Math.round(r.bottom + 6)}px`
-    menu.style.left = `${Math.round(r.left)}px`
-    menu.style.width = `${Math.round(r.width)}px`
+    const top = scale === 1 ? r.bottom + 6 : (r.bottom + 6) / scale
+    const left = scale === 1 ? r.left : r.left / scale
+    const width = scale === 1 ? r.width : r.width / scale
+    menu.style.top = `${Math.round(top)}px`
+    menu.style.left = `${Math.round(left)}px`
+    menu.style.width = `${Math.round(width)}px`
     menu.classList.add('is-fixed')
     menu.hidden = false
     dd.classList.add('is-open')
@@ -1263,8 +1290,9 @@ async function loadStatus(page) {
 
     card?.classList.toggle('pro-duty-card--on', !!running)
     card?.classList.toggle('pro-duty-card--off', !running)
+    card?.classList.remove('pro-duty-card--error')
     dot.className = 'pro-switch-dot' + (running ? ' pro-switch-dot--on' : ' pro-switch-dot--off')
-    text.textContent = running ? '自动上班已开启' : '自动上班已关闭'
+    text.textContent = '自动上班'
     card?.setAttribute(
       'title',
       running
@@ -1272,7 +1300,7 @@ async function loadStatus(page) {
         : '全员自动上班已关闭：员工不会自动巡检，可手动「现在开始工作」',
     )
 
-    const parts = []
+    const parts = [running ? '已开启' : '已关闭']
     if (st.active_roles != null) parts.push(`${st.active_roles} 人在岗`)
     if (_busyCodes.size) parts.push(`${_busyCodes.size} 人工作中`)
     const pendingN = Number(st.pending_approvals || 0)
@@ -1290,29 +1318,34 @@ async function loadStatus(page) {
     })
 
     btn.disabled = false
-    btn.textContent = running ? '关闭' : '开启'
+    btn.setAttribute('aria-checked', running ? 'true' : 'false')
+    btn.classList.toggle('is-on', !!running)
     btn.title = running ? '关闭全员自动上班（在途巡检会停掉）' : '开启全员自动上班'
-    btn.className = 'btn btn-xs ' + (running ? 'btn-danger' : 'btn-primary')
+    btn.setAttribute(
+      'aria-label',
+      running ? '全员自动上班已开启，点此关闭' : '全员自动上班已关闭，点此开启',
+    )
     btn.onclick = () => toggleEngine(page, running)
 
     // Always refresh busy/running badge without remounting cards
     if (_currentTab === 'roles') patchRoleBusyUi(page)
   } catch (_e) {
     card?.classList.remove('pro-duty-card--on')
-    card?.classList.add('pro-duty-card--off')
+    card?.classList.add('pro-duty-card--off', 'pro-duty-card--error')
     dot.className = 'pro-switch-dot pro-switch-dot--off'
-    text.textContent = '无法连接员工服务'
-    meta.textContent = '请确认后端已启动'
+    text.textContent = '自动上班'
+    meta.textContent = '服务未连接'
     meta.classList.remove('is-empty')
     btn.disabled = true
-    btn.textContent = '—'
+    btn.setAttribute('aria-checked', 'false')
+    btn.classList.remove('is-on')
   }
 }
 
 async function toggleEngine(page, currentlyRunning) {
   const btn = page.querySelector('#pro-switch-btn')
   btn.disabled = true
-  btn.textContent = '处理中…'
+  btn.classList.add('is-busy')
   try {
     if (currentlyRunning) {
       await api.proactiveDisable()
@@ -3248,123 +3281,8 @@ function prettyRrule(rrule) {
   return roleScheduleSummary({ heartbeat_schedule: rrule, schedule_summary: '' }) || '未设周期'
 }
 
-function proRoleMoreSolidColors() {
-  const dark = document.documentElement.getAttribute('data-theme') === 'dark'
-  return dark
-    ? { bg: '#1a2030', fg: '#e2e8f0' }
-    : { bg: '#ffffff', fg: '#0f172a' }
-}
-
-function applyProRoleMoreSolidSurface(menu) {
-  if (!menu) return
-  const { bg, fg } = proRoleMoreSolidColors()
-  const dark = document.documentElement.getAttribute('data-theme') === 'dark'
-  const hover = dark ? '#243044' : '#f1f5f9'
-  const dangerHover = dark ? '#3f1d1d' : '#fee2e2'
-  // Inline !important beats translucent / liquid-glass theme washes on portaled menus.
-  menu.style.setProperty('--pro-more-bg', bg)
-  menu.style.setProperty('--pro-more-fg', fg)
-  menu.style.setProperty('--pro-more-hover', hover)
-  menu.style.setProperty('--pro-more-danger-hover', dangerHover)
-  menu.style.setProperty('background', bg, 'important')
-  menu.style.setProperty('background-color', bg, 'important')
-  menu.style.setProperty('background-image', 'none', 'important')
-  menu.style.setProperty('color', fg, 'important')
-  menu.style.setProperty('opacity', '1', 'important')
-  menu.style.setProperty('backdrop-filter', 'none', 'important')
-  menu.style.setProperty('-webkit-backdrop-filter', 'none', 'important')
-  menu.style.setProperty('z-index', '100050', 'important')
-}
-
-function clearProRoleMoreSolidSurface(menu) {
-  if (!menu) return
-  ;[
-    '--pro-more-bg',
-    '--pro-more-fg',
-    '--pro-more-hover',
-    '--pro-more-danger-hover',
-    'background',
-    'background-color',
-    'background-image',
-    'color',
-    'opacity',
-    'backdrop-filter',
-    '-webkit-backdrop-filter',
-    'z-index',
-  ].forEach((prop) => menu.style.removeProperty(prop))
-}
-
-function positionRoleMoreMenu(btn, menu) {
-  if (!btn || !menu) return
-  const r = btn.getBoundingClientRect()
-  // Portal to body so sibling cards (backdrop-filter / opacity stacking) cannot cover it,
-  // and so it sits above #app (z-index:1) under translucent / liquid-glass themes.
-  if (menu.parentElement !== document.body) {
-    menu.dataset.proMoreHost = '1'
-    menu._proMoreHost = menu.parentElement
-    document.body.appendChild(menu)
-  }
-  menu.classList.add('is-fixed')
-  menu.style.setProperty('position', 'fixed', 'important')
-  // Never leave absolute-mode `bottom` on a fixed portal (top+bottom → ~0 height).
-  menu.style.setProperty('bottom', 'auto', 'important')
-  menu.style.setProperty('right', 'auto', 'important')
-  menu.style.setProperty('top', `${Math.round(r.bottom + 4)}px`, 'important')
-  applyProRoleMoreSolidSurface(menu)
-  menu.hidden = false
-  const w = menu.offsetWidth || 148
-  let left = Math.round(r.right - w)
-  left = Math.max(8, Math.min(left, window.innerWidth - w - 8))
-  menu.style.setProperty('left', `${left}px`, 'important')
-  const pad = 8
-  const maxH = Math.max(160, window.innerHeight - pad * 2)
-  const spaceBelow = Math.max(120, window.innerHeight - r.bottom - pad)
-  const spaceAbove = Math.max(120, r.top - pad)
-  // Measure natural height with a temporary uncapped max-height.
-  menu.style.setProperty('max-height', 'none', 'important')
-  const mh = menu.scrollHeight || menu.offsetHeight || 0
-  if (mh > spaceBelow && spaceAbove > spaceBelow) {
-    const capped = Math.min(maxH, spaceAbove)
-    menu.style.setProperty('max-height', `${capped}px`, 'important')
-    menu.style.setProperty('top', `${Math.max(pad, Math.round(r.top - 4 - Math.min(mh, capped)))}px`, 'important')
-  } else {
-    const capped = Math.min(maxH, spaceBelow)
-    menu.style.setProperty('max-height', `${capped}px`, 'important')
-    if (r.bottom + 4 + Math.min(mh, capped) > window.innerHeight - pad) {
-      menu.style.setProperty('top', `${Math.max(pad, window.innerHeight - pad - Math.min(mh, capped))}px`, 'important')
-    }
-  }
-}
-
 function closeAllRoleMoreMenus(root = document) {
-  // Menus may be portaled to document.body; always scan open wraps globally,
-  // but only act on wraps under `root` (or all when root === document).
-  document.querySelectorAll('.pro-role-more.is-open').forEach((wrap) => {
-    if (root !== document && !root.contains(wrap)) return
-    wrap.classList.remove('is-open')
-    const btn = wrap.querySelector('.pro-role-more-btn')
-    let menu = wrap.querySelector('.pro-role-more-menu')
-    if (!menu) {
-      menu = [...document.body.querySelectorAll(':scope > .pro-role-more-menu.is-fixed')].find(
-        (m) => m._proMoreHost === wrap,
-      )
-    }
-    if (btn) btn.setAttribute('aria-expanded', 'false')
-    if (menu) {
-      menu.hidden = true
-      menu.classList.remove('is-fixed')
-      ;['position', 'top', 'left', 'right', 'bottom', 'max-height'].forEach((prop) => {
-        menu.style.removeProperty(prop)
-      })
-      clearProRoleMoreSolidSurface(menu)
-      const host = menu._proMoreHost
-      if (host && menu.parentElement === document.body) {
-        host.appendChild(menu)
-      }
-      menu._proMoreHost = null
-      delete menu.dataset.proMoreHost
-    }
-  })
+  closeAllProRoleMoreMenus(root)
 }
 
 function bindRoles(container) {
@@ -3405,15 +3323,11 @@ function bindRoles(container) {
 
       if (action === 'more') {
         const wrap = btn.closest('.pro-role-more')
-        const menu = wrap?.querySelector('.pro-role-more-menu')
+        const menu = findProRoleMoreMenu(wrap)
         if (!wrap || !menu) return
         const willOpen = menu.hidden
         closeAllRoleMoreMenus(container)
-        if (willOpen) {
-          wrap.classList.add('is-open')
-          btn.setAttribute('aria-expanded', 'true')
-          positionRoleMoreMenu(btn, menu)
-        }
+        if (willOpen) openProRoleMoreMenu(wrap, btn, menu)
         return
       }
 
@@ -3628,7 +3542,8 @@ function bindRoles(container) {
     container._proMoreOutsideBound = true
     document.addEventListener('click', (e) => {
       if (!(e.target instanceof Element)) return
-      if (e.target.closest('.pro-role-more')) return
+      // Portaled menus live under body, not .pro-role-more — still treat as inside.
+      if (e.target.closest('.pro-role-more') || e.target.closest('.pro-role-more-menu')) return
       closeAllRoleMoreMenus(container)
     })
   }

@@ -12,6 +12,7 @@
  */
 import { getMediaPreviewFormat } from '@zcode/shared'
 import { getChatWorkspaceRoot } from '../chat-workspace-context.js'
+import { extractEntityAssetRelPath } from '../../react/lib/evo-asset-citation.js'
 import {
   isAbsoluteHostPath,
   resolveWorkspaceRelativeHostPath,
@@ -338,9 +339,60 @@ export function showRightStageWorkspaceBrowse(
   return key
 }
 
+export type OpenRightStageAssetPreviewOpts = {
+  sessionKey?: string | null
+  entityType?: string | null
+  entityId?: string | null
+  name?: string | null
+  layout?: 'half' | 'wide' | 'narrow' | 'workspace-write'
+}
+
+/**
+ * Entity asset vault file → 右栏 ``asset`` 标签（走 assets API，不拼工作区根）。
+ */
+export function showRightStageAssetPreview(
+  assetPath: string,
+  opts?: OpenRightStageAssetPreviewOpts,
+): string {
+  const path = String(assetPath || '')
+    .replace(/\\/g, '/')
+    .replace(/^\//, '')
+    .trim()
+  const entityType = String(opts?.entityType || 'user').trim() || 'user'
+  const entityId = String(opts?.entityId || 'user').trim() || 'user'
+  const name = String(opts?.name || '').trim() || basename(path)
+  const id = `${entityType}:${entityId}:${path}`
+  const key = `asset:${id}`
+  const sessionKey = String(opts?.sessionKey || '').trim() || undefined
+  const layout = opts?.layout || 'half'
+  logPanelSet('③ showRightStageAssetPreview → store.show', {
+    path,
+    entityType,
+    entityId,
+    key,
+    sessionKey: sessionKey || '(空)',
+  })
+  rightStageStore.show({
+    kind: 'asset',
+    id,
+    title: name,
+    layout,
+    sessionKey,
+    data: {
+      path,
+      name,
+      entityType,
+      entityId,
+      assetPath: path,
+    },
+  })
+  return key
+}
+
 /**
  * Markdown 文件链接 / 目录提示 → 右栏。
  * 目录（或无扩展名路径）开文件树并定位；普通文件走预览。
+ * 实体资产（memory/craft/profile）走 ``asset`` 标签，不拼工作区。
  * 音视频先开一版，再异步 heal 真实路径（对话常漏 projects/…/outputs/）。
  */
 export function showRightStageFromFileLink(
@@ -351,9 +403,34 @@ export function showRightStageFromFileLink(
     workspacePath?: string
     workspaceIdentity?: string
     workspaceRemoteSessionId?: string
+    /** Entity vault relative path — set by MessageResponse for asset pills. */
+    assetPath?: string
+    assetEntityType?: string
+    assetEntityId?: string
   },
   opts?: OpenRightStageCodeViewerOpts,
 ): string {
+  const assetPath = String(target.assetPath || '').trim()
+  if (assetPath) {
+    return showRightStageAssetPreview(assetPath, {
+      sessionKey: opts?.sessionKey,
+      entityType: target.assetEntityType,
+      entityId: target.assetEntityId,
+      name: target.label,
+      layout: opts?.layout,
+    })
+  }
+  // Fallback: peel wrongly workspace-joined absolute paths that are really vault files.
+  const peeled = extractEntityAssetRelPath(String(target.path || ''))
+  if (peeled) {
+    return showRightStageAssetPreview(peeled, {
+      sessionKey: opts?.sessionKey,
+      entityType: target.assetEntityType,
+      entityId: target.assetEntityId,
+      name: target.label,
+      layout: opts?.layout,
+    })
+  }
   const path = String(target.path || '').trim()
   const workspaceRoot = String(target.workspacePath || '').trim() || undefined
   if (looksLikeWorkspaceDirectoryPath(path, target.pathKind)) {

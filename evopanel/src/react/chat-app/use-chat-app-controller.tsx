@@ -573,7 +573,7 @@ import {
   resolveSelectedResumeStreamHold,
   resolveSidebarHistory,
 } from './session/resolve-selected-session-live.js'
-import { isEvoflowChatV4Enabled } from '../v4/v4Gate.js'
+import { isEvoflowChatV4Enabled, isV4DisplayAuthoritative } from '../v4/v4Gate.js'
 import { runOpenGoalPanelListenerEffect } from './goal/install-open-goal-panel-listener.js'
 import {
   runChatOverlayDeferEffect,
@@ -752,6 +752,7 @@ import {
 } from '../lib/run-turn-gate.js'
 import {
   fetchSessionRuntimeStatus,
+  isSessionHistoryWatchActive,
   maybeClearTurnSendingState,
   seedSessionRuntimeStatusIdle,
   invalidateSessionRuntimeStatusCache,
@@ -772,9 +773,11 @@ import {
   resetStreamStopLogDedupe,
 } from '../lib/stream-stop-log.js'
 import {
+  decideObserverHistoryWatch,
   shouldManualRefreshResumeStream,
   shouldSuppressAutoReattach,
 } from '../lib/stream-resume-gate.js'
+import { ohwLog } from '../lib/observer-history-watch-debug.js'
 import {
   clearStreamReattachCooldown,
   isSessionRecoveryCooldownActive,
@@ -1276,6 +1279,11 @@ export function useChatAppController() {
   /** 本会话本轮是否曾展示过消息；用于防止误进首页藏掉底部输入框 */
   const [sessionHadContent, setSessionHadContent] = useState(false)
   /**
+   * 发送瞬间轻量乐观气泡文案（不经 setRows 全量历史）。
+   * V4 用它 mergeOptimisticUserInputRow；host rows 在 paint 后再同步。
+   */
+  const [pendingOptimisticUserText, setPendingOptimisticUserText] = useState('')
+  /**
    * 显式打开工作台仪表盘（侧栏「工作台」/ shell-open-home）。
    * V4 下「新对话」空草稿不再自动进首页；只有 preferHomeDashboard 才挂 EvoFlowHomeDashboard。
    * 点工作台只切首页、不 createSession；发消息时才 ensureChatSessionKey。
@@ -1289,6 +1297,7 @@ export function useChatAppController() {
   }, [rows])
   useLayoutEffect(() => {
     setSessionHadContent(false)
+    setPendingOptimisticUserText('')
   }, [selectedSessionKey])
   useEffect(() => {
     if (Array.isArray(rows) && rows.length > 0) {
@@ -2430,6 +2439,9 @@ export function useChatAppController() {
           replaceSessionRuntimeRowsFromHistory,
           setRows,
           displayRowsEquivalent,
+          wsClient,
+          isEvoflowChatV4Enabled,
+          isV4DisplayAuthoritative,
         },
         opt,
       )
@@ -4275,6 +4287,47 @@ export function useChatAppController() {
   }, [listLoading, selectedSessionKey, sessions])
 
   /**
+   * 外渠旁观（飞书 / IM / 员工值班等）：本机没有 POST /runs/stream，但会话在跑。
+   * 不要求流式；每隔 ~1.5s history-watch 拉库 + 刷 V4 投影，直到 idle。
+   * DevTools filter: ``[observer-hw]``
+   */
+  const observerWatchKickAtRef = useRef<{ key: string; at: number } | null>(null)
+  useEffect(() => {
+    const sk = String(selectedSessionKey || '').trim()
+    if (!sk) {
+      ohwLog('gate skip', { reason: 'no-session-key' })
+      return
+    }
+    if (listLoading) {
+      ohwLog('gate skip', { reason: 'list-loading', sessionKey: sk })
+      return
+    }
+    const row = sessions.find((s) => String(s.sessionKey || '').trim() === sk)
+    const decision = decideObserverHistoryWatch({
+      sessionKey: sk,
+      runStatus: row?.runStatus,
+      executingSessionKeys,
+    })
+    ohwLog('gate', decision)
+    if (!decision.start) return
+    if (isSessionHistoryWatchActive(sk)) {
+      ohwLog('gate kick skip — watch already active', { sessionKey: sk })
+      return
+    }
+    const prev = observerWatchKickAtRef.current
+    // Debounce probe-driven re-bumps while useStreamResume is still spinning up.
+    if (prev?.key === sk && Date.now() - prev.at < 2500) {
+      ohwLog('gate kick debounce', { sessionKey: sk, ageMs: Date.now() - prev.at })
+      return
+    }
+    observerWatchKickAtRef.current = { key: sk, at: Date.now() }
+    requestManualStreamResumeRef.current?.(sk, {
+      refreshSessions: false,
+      observerCatchup: true,
+    })
+  }, [listLoading, selectedSessionKey, sessions, executingSessionKeys])
+
+  /**
    * visibilitychange / online: 后台切回前台或网络恢复后自动 reattach 活跃 run。
    *
    * 浏览器后台标签会断开 SSE 连接（POST /runs/stream 的 fetch body stream），
@@ -5766,6 +5819,7 @@ export function useChatAppController() {
       setPlatformFocusEntryId,
       setPluginComposerPillsVisible,
       setPreferHomeDashboard,
+      setPendingOptimisticUserText,
       setRoleUiNonce,
       setRows,
       setSessionHadContent,
@@ -6477,6 +6531,8 @@ export function useChatAppController() {
     sessionNamesTick,
     sessionRef,
     sessions,
+    pendingOptimisticUserText,
+    setPendingOptimisticUserText,
     sessionSidebarOpen,
     setBottomModelOpen,
     setBottomMoreOpen,

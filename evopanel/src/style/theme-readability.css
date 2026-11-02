@@ -899,7 +899,7 @@ html[data-theme='dark'][data-custom-bg='1']:not([data-liquid-glass='1']) .wf-dra
 }
 
 /* ══════════════════════════════════════════════════════════
-   Reminders 风：冷灰蓝 chrome + 白色大圆角浮层（顶/左/右/下均留缝）
+   Reminders 风：冷灰蓝 chrome + 白色浮层（右/下留缝圆角；左侧与侧栏直角竖交接）
    ══════════════════════════════════════════════════════════ */
 
 html:not([data-translucent-ui='1']) body .react-chat-session-aside,
@@ -958,7 +958,8 @@ html[data-theme='dark']:not([data-translucent-ui='1']) body .react-chat-header.r
 
 html:not([data-translucent-ui='1']) body .react-chat-main-body {
   margin: 0 var(--chat-sheet-gap, 8px) var(--chat-sheet-gap, 8px);
-  border-radius: var(--chat-sheet-radius, 16px);
+  /* 左侧与侧栏交接：直角竖边；右侧/底保留圆角浮层 */
+  border-radius: 0 var(--chat-sheet-radius, 16px) var(--chat-sheet-radius, 16px) 0;
   overflow: hidden;
   background: var(--chat-canvas, #ffffff) !important;
   box-shadow:
@@ -1368,7 +1369,8 @@ html:not([data-translucent-ui='1']) body #app:not(.evopanel-auth-mode) #content 
 html:not([data-translucent-ui='1']) body #app:not(.evopanel-auth-mode) #content > [class*='-outlet'],
 html:not([data-translucent-ui='1']) body #app:not(.evopanel-auth-mode) #content > [class$='-page'] {
   background: var(--page-canvas, var(--surface-base-bg, var(--bg-surface, #ffffff))) !important;
-  border-radius: var(--page-sheet-radius, 16px);
+  /* 左侧与侧栏交接：直角竖边；右侧/底保留圆角 */
+  border-radius: 0 var(--page-sheet-radius, 16px) var(--page-sheet-radius, 16px) 0;
   box-shadow:
     0 0 0 1px color-mix(in srgb, var(--text-primary, #0f172a) 4%, transparent),
     0 1px 2px color-mix(in srgb, var(--text-primary, #0f172a) 3%, transparent);
@@ -1399,7 +1401,7 @@ html:not([data-translucent-ui='1']) body #app.evopanel-kv-detail-mode #content {
 
 html:not([data-translucent-ui='1']) body #app.evopanel-app-studio-mode #content > *,
 html:not([data-translucent-ui='1']) body #app.evopanel-kv-detail-mode #content > * {
-  border-radius: var(--page-sheet-radius, 16px);
+  border-radius: 0 var(--page-sheet-radius, 16px) var(--page-sheet-radius, 16px) 0;
   background: var(--page-canvas, #ffffff) !important;
   overflow: hidden;
 }

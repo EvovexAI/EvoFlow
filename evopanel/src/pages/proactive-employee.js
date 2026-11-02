@@ -39,6 +39,12 @@ import {
   unmountEmployeeNavFromChrome,
 } from '../lib/proactive-nav-chrome.js'
 import {
+  closeProRoleMoreMenu,
+  findProRoleMoreMenu,
+  isProRoleMoreEventTarget,
+  openProRoleMoreMenu,
+} from '../lib/pro-role-more-menu.js'
+import {
   taskSummaryText,
   parseTaskResultSections,
   resolveTaskOutputItems,
@@ -1157,7 +1163,7 @@ async function renderEmployeePage(code, { autoPatrol = false, autoLive = false, 
       ]
     } else {
       // Fallback for older gateways
-      const tasksRes = await api.listAllTasks().catch(() => null)
+      const tasksRes = await api.listAllTasks({ page: 1, page_size: 40, hide_noise: true }).catch(() => null)
       tasks = tasksFromListResponse(tasksRes)
       initiatives = tasksAsWorklogItems(tasks)
     }
@@ -3582,7 +3588,7 @@ async function refreshEmployeeWorkLog(page, role, highlightRoundId = '') {
       ...tasksAsWorklogItems(tasks),
     ]
   } else {
-    const tasksRes = await api.listAllTasks().catch(() => null)
+    const tasksRes = await api.listAllTasks({ page: 1, page_size: 40, hide_noise: true }).catch(() => null)
     tasks = tasksFromListResponse(tasksRes)
     initiatives = tasksAsWorklogItems(tasks)
   }
@@ -3865,7 +3871,7 @@ async function runPatrol(page, role, { focus = '' } = {}) {
         ...tasksAsWorklogItems(tasks),
       ]
     } else {
-      const tasksRes = await api.listAllTasks().catch(() => null)
+      const tasksRes = await api.listAllTasks({ page: 1, page_size: 40, hide_noise: true }).catch(() => null)
       tasks = tasksFromListResponse(tasksRes)
       initiatives = tasksAsWorklogItems(tasks)
     }
@@ -3993,28 +3999,31 @@ function bindEmployeePage(page, role, initiatives) {
 
   const moreRoot = page.querySelector('[data-role="employee-more"]')
   const moreBtn = moreRoot?.querySelector('[data-act="more-toggle"]')
-  const moreMenu = moreRoot?.querySelector('.pro-role-more-menu')
   const closeMore = () => {
-    if (!moreMenu || !moreBtn) return
-    moreMenu.hidden = true
-    moreBtn.setAttribute('aria-expanded', 'false')
-    moreRoot?.classList.remove('is-open')
+    if (moreRoot) closeProRoleMoreMenu(moreRoot)
   }
   moreBtn?.addEventListener('click', (e) => {
     e.preventDefault()
     e.stopPropagation()
+    if (!moreRoot || !moreBtn) return
+    const moreMenu = findProRoleMoreMenu(moreRoot)
     if (!moreMenu) return
-    const open = moreMenu.hidden
-    moreMenu.hidden = !open
-    moreBtn.setAttribute('aria-expanded', open ? 'true' : 'false')
-    moreRoot?.classList.toggle('is-open', open)
+    if (moreMenu.hidden) {
+      // Top chrome ⋯：始终向下展开，避免 bottom:100% 顶到视口外 / 漂到内容区。
+      openProRoleMoreMenu(moreRoot, moreBtn, moreMenu, { placement: 'below' })
+    } else {
+      closeMore()
+    }
   })
   const onDocClick = (e) => {
     if (!moreRoot || !(e.target instanceof Element)) return
-    if (!moreRoot.contains(e.target)) closeMore()
+    if (!isProRoleMoreEventTarget(moreRoot, e.target)) closeMore()
   }
   document.addEventListener('click', onDocClick, { capture: true })
-  page._employeeMoreDocClose = () => document.removeEventListener('click', onDocClick, { capture: true })
+  page._employeeMoreDocClose = () => {
+    closeMore()
+    document.removeEventListener('click', onDocClick, { capture: true })
+  }
 
   page.querySelectorAll('[data-act="employee-tab"]').forEach((btn) => {
     btn.addEventListener('click', () => {
