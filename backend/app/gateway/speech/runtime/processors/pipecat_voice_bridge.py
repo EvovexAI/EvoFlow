@@ -30,6 +30,7 @@ from pipecat.frames.frames import (
 from pipecat.frames.frames import (
     BotStartedSpeakingFrame as PipeBotStartedSpeakingFrame,
     BotStoppedSpeakingFrame as PipeBotStoppedSpeakingFrame,
+    ErrorFrame as PipeErrorFrame,
     InputAudioRawFrame,
     InterimTranscriptionFrame,
     InterruptionFrame as PipeInterruptionFrame,
@@ -66,6 +67,7 @@ from app.gateway.speech.runtime.frames import (
     BotStartedSpeakingFrame,
     BotStoppedSpeakingFrame,
     EndFrame,
+    ErrorFrame,
     Frame,
     InterruptionFrame,
     LLMResponseEndFrame,
@@ -293,6 +295,7 @@ class _CaptureSink(PipeFrameProcessor):
                 VADUserStartedSpeakingFrame,
                 VADUserStoppedSpeakingFrame,
                 PipeInterruptionFrame,
+                PipeErrorFrame,
             ),
         ):
             await self._out_q.put(frame)
@@ -1062,6 +1065,13 @@ class PipecatVoiceBridge(FrameProcessor):
                 return
             voice_log("打断", "Pipecat 管线内打断（VAD barge-in）→ 通知前端停播")
             await self.push_downstream(InterruptionFrame(reason="vad_barge_in"))
+            return
+
+        if isinstance(frame, PipeErrorFrame):
+            msg = str(getattr(frame, "error", None) or getattr(frame, "message", "") or "")
+            if msg:
+                voice_log("错误", f"管线 ErrorFrame → 前端：{msg[:200]}")
+                await self.push_downstream(ErrorFrame(message=msg, code="asr_auth"))
             return
 
         if isinstance(frame, TTSStartedFrame):

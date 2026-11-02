@@ -24,6 +24,7 @@ from loguru import logger
 
 from pipecat.frames.frames import (
     EndFrame,
+    ErrorFrame,
     Frame,
     InputAudioRawFrame,
     InterimTranscriptionFrame,
@@ -52,6 +53,22 @@ _UNMUTE_HOLD_SAFETY_S = 120.0
 # mute 期环形缓冲：仅 barge 打断时回灌（抢话字头）。
 # 正常 client_listening 放麦若回灌，缓冲里多是喇叭尾音 →「AI 最后一句被当作用户说」。
 _MUTE_PCM_MAX_BYTES = 16000 * 2 * 2  # ≈2s
+# 鉴权失败再狂重建只会刷 401，把日志打爆且 UI 永远「聆听中」。
+_AUTH_ERROR_MARKERS = (
+    "AuthenticationError",
+    "401",
+    "Unauthorized",
+    "invalid api key",
+    "api key or ak/sk",
+    "missing or invalid",
+)
+
+
+def _is_asr_auth_error(msg: str) -> bool:
+    text = str(msg or "").lower()
+    if not text:
+        return False
+    return any(m.lower() in text for m in _AUTH_ERROR_MARKERS)
 
 
 class EvoSTTService(STTService):
@@ -91,6 +108,9 @@ class EvoSTTService(STTService):
         # interim 冲成 finalized，让 0.9s SpeechTimeout 能收口。
         self._last_interim_text = ""
         self._finalized_this_utt = False
+        # 鉴权失败后停止重建；避免 401 风暴
+        self._auth_fatal = False
+        self._auth_error_notified = False
 
     def set_provider(self, provider: str | None) -> None:
         if provider:
@@ -342,6 +362,8 @@ class EvoSTTService(STTService):
             return
 
     def _schedule_rebuild(self) -> None:
+        if self._auth_fatal:
+            return
         if self._rebuild_task and not self._rebuild_task.done():
             return
         try:
@@ -366,12 +388,28 @@ class EvoSTTService(STTService):
             fut.add_done_callback(_done)
 
     async def _rebuild_session(self) -> None:
+        if self._auth_fatal:
+            return
         if self._session and not self._session_dead:
             return
         voice_log("管线", "ASR 会话已死 → 立即重建（保证下一轮能识别）")
         await self._close_session()
         await self._ensure_session()
         await self._ensure_keepalive()
+
+    async def _notify_auth_fatal(self, msg: str) -> None:
+        if self._auth_error_notified:
+            return
+        self._auth_error_notified = True
+        friendly = (
+            "语音识别鉴权失败（火山 ASR 401）。请到「设置 → 模型 → 创意媒体」"
+            "检查火山语音 API Key（ark- 方舟 Key 需开通 Agent Plan 语音抵扣）。"
+        )
+        voice_log("语音转文字", f"ASR 鉴权失败 → 停止重建并通知前端：{msg}")
+        try:
+            await self.push_frame(ErrorFrame(error=friendly))
+        except Exception as e:
+            logger.warning(f"{self} push ASR auth ErrorFrame failed: {e}")
 
     async def _ensure_unmute_safety(self) -> None:
         await self._cancel_unmute_safety()
@@ -407,9 +445,20 @@ class EvoSTTService(STTService):
         self._session_dead = True
         self._session = None
         voice_log("语音转文字", f"ASR 错误 provider={self._provider}：{msg}")
+        if _is_asr_auth_error(msg):
+            self._auth_fatal = True
+            try:
+                loop = self._loop or asyncio.get_running_loop()
+            except RuntimeError:
+                loop = None
+            if loop is not None and loop.is_running():
+                loop.create_task(self._notify_auth_fatal(str(msg)))
+            return
         self._schedule_rebuild()
 
     async def _ensure_session(self) -> None:
+        if self._auth_fatal:
+            return
         if self._session:
             return
         from app.gateway.speech.asr_registry import create_asr_session

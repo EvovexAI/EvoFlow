@@ -127,6 +127,14 @@ class UserBotLatencyFrame(SystemFrame):
 
 
 @dataclass(slots=True)
+class ErrorFrame(SystemFrame):
+    """Pipeline / ASR / TTS fatal error → FE toast（勿静默重连）。"""
+
+    message: str = ""
+    code: str = ""
+
+
+@dataclass(slots=True)
 class LLMTextFrame(Frame):
     text: str = ""
     turn: int = 0

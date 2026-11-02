@@ -711,7 +711,7 @@ async function onWakeWordHit(ev) {
       // 此处只 toast，避免与 getUserMedia 抢跑。
       try {
         const { toast } = await import('../components/toast.js')
-        toast('小V在听，请说…', 'info')
+        toast('小V已唤醒，请说…', 'info', { position: 'top-right', key: 'xiaomi-wake' })
       } catch {
         /* ignore */
       }
@@ -776,7 +776,10 @@ async function acknowledgeWakeHit(opts = {}) {
   const spoken = opts.spoken !== false
   try {
     const { toast } = await import('../components/toast.js')
-    toast(spoken ? '小V在听，请说…' : '小V在听', 'info')
+    toast(spoken ? '小V已唤醒，请说…' : '小V已唤醒', 'info', {
+      position: 'top-right',
+      key: 'xiaomi-wake',
+    })
   } catch {
     /* ignore */
   }

@@ -31,6 +31,7 @@ from app.gateway.speech.runtime.frames import (
     AudioRawFrame,
     BotStartedSpeakingFrame,
     BotStoppedSpeakingFrame,
+    ErrorFrame,
     Frame,
     InterruptionFrame,
     StartFrame,
@@ -608,6 +609,21 @@ class SpeechSession:
                         pass
                     # 关闭前端还开着的播放器，避免残句卡在播放队列里。
                     await self._close_open_tts_seqs()
+                return
+            if isinstance(frame, ErrorFrame):
+                msg = str(getattr(frame, "message", "") or "").strip()
+                if not msg:
+                    return
+                try:
+                    await self._ws.send_json(
+                        {
+                            "type": "error",
+                            "message": msg,
+                            "code": str(getattr(frame, "code", "") or ""),
+                        }
+                    )
+                except Exception:
+                    pass
                 return
         except Exception as e:
             logger.debug("pipeline output send failed: %s", e)
