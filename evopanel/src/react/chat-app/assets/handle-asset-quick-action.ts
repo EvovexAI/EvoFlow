@@ -48,8 +48,8 @@ export async function handleAssetQuickAction(
       '请根据刚才整段对话，把「这次对话的过程」整理成一篇过程记录并沉淀到资产。',
       ownerLine,
       writeRule,
-      '标签用 `[process]`。用途：给人以后回顾这段对话走过了什么、结论/约定是什么；不是沉淀经验（怎么做），也不是反思（日结/判断）。',
-      'content 示例首行：`[process] 短标题`；正文按时间线或要点写清过程；标题旁可加一句 10～30 字摘要。',
+      '标签用 `[process]`。落点是「过程」记录（memory/episodic）：这段对话走过了什么、结论/约定是什么；不是条目（preference）、不是经验（怎么做）、也不是反思（日结/判断）。',
+      'content 示例首行：`[process] 短标题`；正文按时间线或分条写清过程；标题旁可加一句 10～30 字摘要。',
       '不要再问我要写什么；自行总结并用 assets note 保存。',
     ].join('\n'),
     journal: [

@@ -60,6 +60,10 @@ import { V4QueuePanelBridge } from "./V4QueuePanelBridge.js";
 import { evoflowStubPlatform } from "../../pages/settings/evoflow-bridge-services.js";
 import { apiUrlAsync } from "../../lib/api-client.js";
 import {
+  isAbsoluteHostPath,
+  resolveWorkspaceRelativeHostPath,
+} from "../../lib/workspace-abs-path.js";
+import {
   ToolApprovalPanel,
   type ToolApprovalChoice,
 } from "../components/ToolApprovalPanel.js";
@@ -213,8 +217,18 @@ export function createEvoflowPartialServices(
   const boundRoot = String(workspaceRoot || "").trim();
   const isTauriHost =
     typeof window !== "undefined" && !!(window as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;
+  /** 与 showRightStageFromFileLink 同一套：相对路径先拼到会话 root，再 serve-file。 */
+  const resolveServePath = (path: string): string => {
+    const raw = String(path || "").trim();
+    if (!raw || /^https?:\/\//i.test(raw) || raw.startsWith("data:") || raw.startsWith("blob:")) {
+      return raw;
+    }
+    if (!boundRoot) return raw;
+    const joined = String(resolveWorkspaceRelativeHostPath(raw, boundRoot) || "").trim();
+    return joined || raw;
+  };
   const serveFileUrl = async (path: string): Promise<string> => {
-    const p = String(path || "").trim();
+    const p = resolveServePath(path);
     // Never wrap remote/data URLs into serve-file (slow log: https://… → 5s heal → 404).
     if (/^https?:\/\//i.test(p) || p.startsWith("data:") || p.startsWith("blob:")) {
       return p;
@@ -225,7 +239,7 @@ export function createEvoflowPartialServices(
     if (sessionId) q.set("thread_id", sessionId);
     // 有绑定工作区时带 root；绝对路径在工作区外时用父目录作 root（profiles/default/*.md）
     if (boundRoot) q.set("root", boundRoot);
-    else if (isAbsHostFsPath(p)) {
+    else if (isAbsHostFsPath(p) || isAbsoluteHostPath(p)) {
       const parent = parentDirOfPath(p);
       if (parent) q.set("root", parent);
     }
@@ -239,7 +253,7 @@ export function createEvoflowPartialServices(
     path: string,
     init?: RequestInit,
   ): Promise<{ resp: Response; buf: ArrayBuffer }> => {
-    const p = String(path || "").trim();
+    const p = resolveServePath(path);
     const tryLocal = async (): Promise<{ resp: Response; buf: ArrayBuffer } | null> => {
       const local = await readLocalAbsFileBuffer(p);
       if (!local) return null;

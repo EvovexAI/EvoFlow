@@ -3,11 +3,13 @@ import { RightStageStore, hideRightStageIfKind, rightStageStore } from '../src/l
 import { switchRightStageSession } from '../src/lib/right-stage/right-stage-session-memory.js'
 import { setCurrentRightStageSessionKey } from '../src/lib/right-stage/right-stage-scope.js'
 import {
+  resolveFileLinkOpenPath,
   showRightStageCodeViewer,
   showRightStageCodeViewers,
   showRightStageFilePreview,
   showRightStageFromFileLink,
 } from '../src/lib/right-stage/open-right-stage-file.js'
+import { setChatWorkspaceRoot } from '../src/lib/chat-workspace-context.js'
 
 describe('RightStageStore multi-tab', () => {
   beforeEach(() => {
@@ -178,6 +180,50 @@ describe('open-right-stage-file (side pane, not fullscreen modal)', () => {
     expect(snap.tabs[0]?.kind).toBe('file')
     expect(snap.tabs[0]?.data?.path).toBe('D:/proj/readme.md')
     expect(snap.tabs[0]?.data?.name).toBe('readme.md')
+  })
+
+  it('resolveFileLinkOpenPath joins workspace-relative cite onto session root', () => {
+    const opened = resolveFileLinkOpenPath(
+      {
+        path: 'outputs/clip.mp4',
+        relativePath: 'outputs/clip.mp4',
+        workspacePath: 'D:/ws',
+      },
+      'D:/ws',
+    )
+    expect(opened.workspaceRoot).toBe('D:/ws')
+    expect(opened.path.replace(/\\/g, '/')).toBe('D:/ws/outputs/clip.mp4')
+  })
+
+  it('relativePath wins over stale absolute path when re-basing', () => {
+    const opened = resolveFileLinkOpenPath(
+      {
+        path: 'D:/old-root/outputs/clip.mp4',
+        relativePath: 'outputs/clip.mp4',
+        workspacePath: 'D:/new-root',
+      },
+      'D:/new-root',
+    )
+    expect(opened.path.replace(/\\/g, '/')).toBe('D:/new-root/outputs/clip.mp4')
+  })
+
+  it('markdown relative cite opens under session workspace root', () => {
+    setChatWorkspaceRoot('D:/session-ws')
+    showRightStageFromFileLink(
+      {
+        path: 'outputs/report.md',
+        relativePath: 'outputs/report.md',
+        label: 'report.md',
+      },
+      { sessionKey: 'sess-rel' },
+    )
+    const snap = rightStageStore.getSnapshot()
+    expect(snap.tabs[0]?.kind).toBe('file')
+    expect(String(snap.tabs[0]?.data?.path || '').replace(/\\/g, '/')).toBe(
+      'D:/session-ws/outputs/report.md',
+    )
+    expect(snap.tabs[0]?.data?.workspaceRoot).toBe('D:/session-ws')
+    setChatWorkspaceRoot('')
   })
 
   it('hide() default primary must not close active collab-workflow (RUN_FINISHED bug)', () => {

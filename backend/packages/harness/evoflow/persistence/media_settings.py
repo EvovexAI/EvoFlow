@@ -43,6 +43,9 @@ DEFAULT_MEDIA_CREDENTIALS: dict[str, Any] = {
     "jimengImageModel": "doubao-seedream-5-0-pro",
     "jimengVideoModel": "doubao-seedance-2.5",
     "jimengVideoBaseUrl": "",
+    # Empty = auto: first usable among preferred default + configured channels.
+    "preferredImageProvider": "",
+    "preferredVideoProvider": "",
     "volcengineTtsAppId": "",
     "volcengineTtsAccessToken": "",
     "volcengineSpeechApiKey": "",
@@ -231,7 +234,14 @@ def _deep_merge_defaults(raw: Any) -> dict[str, Any]:
                     merged[ek] = bool(ev)
             base["enabledVendors"] = merged
             continue
-        if k in base or k in SECRET_FIELDS or k.endswith("Url") or k.endswith("Endpoint") or k.endswith("Model"):
+        if (
+            k in base
+            or k in SECRET_FIELDS
+            or k.endswith("Url")
+            or k.endswith("Endpoint")
+            or k.endswith("Model")
+            or k.endswith("Provider")
+        ):
             base[k] = v if v is not None else ""
     return base
 

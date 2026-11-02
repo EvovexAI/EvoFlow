@@ -1,4 +1,8 @@
-"""Ad-hoc inbox notes: slug filename; created timestamp lives in frontmatter."""
+"""Ad-hoc inbox notes: slug filename; created timestamp lives in frontmatter.
+
+If the model omits a visible time in the Markdown body, ``ensure_body_recorded_at``
+adds a ``记录时间：`` line (local clock). Frontmatter ``created`` is always set.
+"""
 
 from __future__ import annotations
 
@@ -15,6 +19,55 @@ _SLUG_MAX_BYTES = 80
 _SLUG_RE = re.compile(r"[^a-zA-Z0-9\u4e00-\u9fff-]+")
 # Legacy writes used YYYY-MM-DDTHH-MM-SS-<slug>.md — still accepted when reading.
 _LEGACY_TS_PREFIX_LEN = len("YYYY-MM-DDTHH-MM-SS-")
+_TAG_LINE_RE = re.compile(
+    r"^\[(preference|process|experience|reflection|project)\]\s*",
+    re.IGNORECASE,
+)
+# Body already stamped by model or a prior ensure pass.
+_BODY_HAS_TIME_RE = re.compile(
+    r"(记录时间|记下时间|发生时间|日期\s*[:：]|created(?:_at)?\s*[:：]|"
+    r"recorded(?:_at)?\s*[:：]|\b\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2})?)",
+    re.IGNORECASE,
+)
+
+
+def ensure_body_recorded_at(content: str, *, when: datetime | None = None) -> str:
+    """If Markdown body has no visible time, insert ``记录时间：YYYY-MM-DD HH:MM``.
+
+    Keeps optional first-line ``[tag] …`` above the stamp. Idempotent when a date
+    or ``记录时间`` already appears in the body (frontmatter ignored for the check).
+    """
+    raw = str(content or "")
+    if not raw.strip():
+        return raw
+
+    fm = ""
+    body = raw
+    if body.lstrip().startswith("---"):
+        parts = body.split("---", 2)
+        if len(parts) >= 3:
+            fm = f"---{parts[1]}---\n"
+            body = parts[2].lstrip("\n")
+
+    if _BODY_HAS_TIME_RE.search(body):
+        return raw
+
+    stamp_dt = when or datetime.now().astimezone()
+    stamp = stamp_dt.strftime("%Y-%m-%d %H:%M")
+    line = f"记录时间：{stamp}"
+
+    lines = body.splitlines()
+    if lines and _TAG_LINE_RE.match(lines[0].strip()):
+        rest = "\n".join(lines[1:]).lstrip("\n")
+        stamped = f"{lines[0].rstrip()}\n{line}\n" + (f"\n{rest}" if rest else "")
+    elif lines and lines[0].lstrip().startswith("#"):
+        rest = "\n".join(lines[1:]).lstrip("\n")
+        stamped = f"{lines[0].rstrip()}\n\n{line}\n" + (f"\n{rest}" if rest else "")
+    else:
+        stamped = f"{line}\n\n{body.lstrip()}"
+
+    out = (fm + stamped).rstrip() + "\n"
+    return out
 
 
 def normalize_ad_hoc_slug(text: str, *, fallback: str = "note") -> str:
@@ -121,6 +174,7 @@ def write_ad_hoc_note(
         raise ValueError("empty_content")
     if len(text) > 4000:
         text = text[:3999] + "…"
+    text = ensure_body_recorded_at(text).strip()
     ensure_entity_tree(entity)
     filename = build_ad_hoc_filename(slug_hint=slug_hint or text.splitlines()[0][:40])
     err = validate_ad_hoc_filename(filename)
@@ -132,6 +186,34 @@ def write_ad_hoc_note(
     return write_text_file(entity, rel, body)
 
 
+def format_live_pending_inbox_for_agent(
+    *,
+    agent_name: str | None = None,
+    principal_id: str = "",
+    limit: int = 6,
+    max_chars: int = 900,
+) -> str:
+    """Resolve the dialogue memory entity and return pending-inbox preview text.
+
+    Used every model turn (outside standing freeze) so ``assets note`` takes effect
+    on the next turn without waiting for Phase2 or a new session.
+    """
+    try:
+        from evoflow.assets.guidance import resolve_memory_entity
+
+        entity = resolve_memory_entity(
+            agent_name=agent_name,
+            principal_id=principal_id,
+        )
+    except Exception:
+        return ""
+    return format_pending_inbox_notes_for_prompt(
+        entity,
+        limit=limit,
+        max_chars=max_chars,
+    )
+
+
 def format_pending_inbox_notes_for_prompt(
     entity: EntityRef,
     *,
@@ -140,7 +222,8 @@ def format_pending_inbox_notes_for_prompt(
 ) -> str:
     """Inject pending ``_inbox/notes`` until Phase2 consolidates them into standing/craft.
 
-    Without this, a note written mid-chat is invisible until consolidation finishes.
+    Must be applied **live each turn** (not frozen with standing): otherwise a note
+    written mid-chat stays invisible until freeze invalidation / new session.
 
     每条 note 单独过 prompt-injection 扫描器：note 正文是不可信内容（对话里
     可以种），一条中毒只屏蔽那一条，不拖累整块。

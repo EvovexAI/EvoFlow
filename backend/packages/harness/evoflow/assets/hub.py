@@ -525,13 +525,16 @@ def record_fact(
 ) -> dict[str, Any]:
     """Write a fact note to ``memory/facts/{slug}.md`` with catalog frontmatter.
 
-    Catalog disclosure uses ``title`` + ``summary`` (same model as craft/journal).
+    Product IA: 「条目」— durable prefs / short facts (detail lines, not the standing summary).
+    Catalog uses ``title`` + ``summary`` (same model as craft/journal).
     """
-    body = str(content or "").strip()
+    from evoflow.assets.ad_hoc_note import ensure_body_recorded_at
+    from datetime import datetime
+
+    body = ensure_body_recorded_at(str(content or "").strip()).strip()
     if not body:
         raise ValueError("content is required")
     ensure_entity_tree(entity)
-    from datetime import datetime
 
     heading = str(title or "").strip() or body.split("\n", 1)[0].lstrip("# ").strip()[:60]
     one_liner = (str(summary or "").strip() or heading)[:30]
@@ -557,14 +560,16 @@ def write_episode(
 ) -> dict[str, Any]:
     """Write a conversation-process note to ``memory/episodic/{date}-{slug}.md``.
 
-    Product intent: record this dialogue's process so a human can review it later.
-    Not 「沉淀记忆」— catalog uses ``title`` + ``summary`` (10–30 chars).
+    Product IA: 「过程」— what this dialogue did / concluded (human review later).
+    Not 「条目」facts and not 「记忆摘要」standing. Catalog uses ``title`` + ``summary`` (10–30 chars).
     """
-    body = str(content or "").strip()
+    from evoflow.assets.ad_hoc_note import ensure_body_recorded_at
+    from datetime import datetime
+
+    body = ensure_body_recorded_at(str(content or "").strip()).strip()
     if not body:
         raise ValueError("content is required")
     ensure_entity_tree(entity)
-    from datetime import datetime
 
     heading = str(title or "").strip() or body.split("\n", 1)[0].lstrip("# ").strip()[:60]
     one_liner = (str(summary or "").strip() or heading)[:30]
@@ -592,11 +597,13 @@ def write_journal(
     Filename is the reflection **topic slug** (no YYYY/MM/DD in the name).
     ``date`` only goes into YAML frontmatter. Summary stays short for Tier0/1 catalog.
     """
-    body = str(content or "").strip()
-    if not body:
-        raise ValueError("content is required")
+    from evoflow.assets.ad_hoc_note import ensure_body_recorded_at
     from datetime import date as date_cls
     from datetime import datetime
+
+    body = ensure_body_recorded_at(str(content or "").strip()).strip()
+    if not body:
+        raise ValueError("content is required")
 
     day = str(date or "").strip()
     if not day:

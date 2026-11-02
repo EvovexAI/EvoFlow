@@ -8,18 +8,21 @@ Source of truth for durable know-how is the Asset Hub tree, **not** `agents.syst
 | Layer | What | When loaded | Owns |
 |-------|------|-------------|------|
 | **L0 job** | `<agent_system_prompt>` / soul | every turn | Duty skeleton only: role, I/O shape, hard gates, tool allow-hints |
-| **L1 standing** | `memory/standing.md` (capped) | every turn | Prefs, tips, **What's in Memory** routing pointers |
+| **L1 standing** | `memory/standing.md` (capped) | every turn | Prefs, tips, **What's in Memory** routing pointers — **derived summary**, not a third content kind |
 | **L2 catalog** | filenames under craft/facts/episodic/journal headings + `MEMORY.md` | every turn | Discoverability — basename + one-line label (no dir prefix, no body) |
 | **L3 body** | full md under craft / MEMORY / facts / … | on demand | Details via `assets` `read` / `search` |
 | **L4 inbox** | `_inbox/notes` pending | until Phase2 | Fresh notes not yet consolidated |
+
+**Product IA:** `facts/` = 条目 (detail lines: prefs/facts); `episodic/` = 过程 (dialogue recaps); `standing.md` = 记忆摘要 (overall derived page, not a third content kind). Dialogue write/load policy SoT: `read_path.md` decision table.
 
 ## Write rules (anti dual-write)
 
 | Content | Write to | Never write to |
 |---------|----------|----------------|
-| Stable prefs / habits | standing (via Phase2) or profile | `system_prompt` |
-| Process / experience / reflection | `assets` `note` → inbox → Phase2 | `system_prompt` / soul |
-| Reusable playbook | `craft/*.md` | paste into job prompt |
+| Stable prefs / habits | `assets note` `[preference]` → Phase2 → facts (+ standing rewrite) or `profile` | `system_prompt`; direct `standing.md` |
+| Process recap | `assets note` `[process]` → Phase2 → episodic | `system_prompt` / soul |
+| Experience / reflection | `assets note` `[experience]` / `[reflection]` → Phase2 → craft / journal | `system_prompt` / soul |
+| Reusable playbook | `craft/*.md` (via Phase2) | paste into job prompt |
 | Job duty / output contract | `system_prompt` (short) | duplicate into every craft file |
 
 If the same rule exists in both job prompt and assets, **assets win for details**; slim the job prompt to a one-line pointer (“详见 craft/… / MEMORY …”).

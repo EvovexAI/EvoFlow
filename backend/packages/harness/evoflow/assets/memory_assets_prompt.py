@@ -68,6 +68,8 @@ def build_memory_assets_block(
         )
         parts.append(f"{label}\n{person_mem}")
 
+    # Prefer MemoryLiveFooter live injection (every turn, not frozen). Keeping this
+    # path for callers that opt in without the footer (e.g. compact duty assemble).
     if include_pending_inbox and code:
         try:
             from evoflow.assets.ad_hoc_note import format_pending_inbox_notes_for_prompt

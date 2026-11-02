@@ -237,6 +237,7 @@ export function assetsHrefForPath(
   else if (rel.startsWith('profile/')) params.set('tab', 'profile')
   else params.set('tab', 'memory')
   if (rel.startsWith('memory/episodic/')) params.set('memoryKind', 'episodic')
+  else if (rel.startsWith('memory/_inbox')) params.set('memoryKind', 'inbox')
   else if (rel.startsWith('memory/facts/') || rel === 'memory/MEMORY.md') params.set('memoryKind', 'facts')
   else if (/(^|\/)standing(\.md)?$/i.test(rel) || rel.includes('/standing.'))
     params.set('memoryKind', 'standing')

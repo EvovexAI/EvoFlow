@@ -215,41 +215,49 @@ def assets_tool(
 ) -> str:
     """Search, read, list, note, or update profile Entity Asset Hub files.
 
-    **One tool for all durable knowledge families** — same Markdown + frontmatter:
+    **One tool for all durable knowledge families** — same Markdown + frontmatter.
 
-    - profile/basic-info.md · preferences.md · persona.md — user identity (Tier-0)
-    - memory/facts/ — preferences & short facts
-    - memory/episodic/ — process / rollout recaps
-    - memory/journal/ — reflections
-    - craft/<name>.md — reusable experience / procedures (flat files; mature
-      crafts can be promoted to skill packages via Asset Center)
-    - memory/MEMORY.md + memory/standing.md — registry & standing (read only in dialogue)
+    Content kinds (product IA — two memory bodies + peers):
+    - memory/facts/ — 条目：one-line durable prefs & short facts (detail list)
+    - memory/episodic/ — 过程：dialogue / rollout recaps
+    - memory/journal/ — 反思；craft/<name>.md — 经验 / procedures
+    - profile/* — user identity (Tier-0)
+    - memory/standing.md — 记忆摘要（overall derived page；every-turn L1；read-only in dialogue；Phase2 rewrites）
+    - memory/MEMORY.md — handbook / registry（read-only in dialogue）
 
     Prefer this over legacy ``experience_*``, ``memory_remember``, or direct file edits.
 
-    High-weight families: craft / journal / episodic — reuse when relevant (not decoration).
-
-    Deposit policy:
-      - Stable prefs/habits → note/profile in the same turn (no need to wait for "remember").
-      - Valuable workflow / valuable process / recurring mistakes → MUST ask the user first
-        whether to save as [experience] / [process] / [reflection]; write only after consent.
-      - Skip chitchat and one-off noise.
+    Decision table (dialogue):
+      WHEN (prefer write without waiting for consent — users dislike extra replies):
+            stable pref/habit/fact → note same turn;
+            solved-problem takeaways, routine procedures, high-signal process/experience
+            → note same turn; optional one-line "已记下…" (do not block on reply);
+            chitchat / one-off noise / unverified guesses → skip;
+            ask first ONLY if sensitive/ambiguous (privacy, rejected brainstorm, unclear boundary).
+      WHAT: evidence that changes future behavior (prefs, constraints, conclusions,
+            reusable steps, failure shields). No secrets / huge tool dumps / generic advice.
+      WRITE: only ``assets note`` → memory/_inbox/notes/ with tag
+            [preference]|[process]|[experience]|[reflection]. Never write facts/,
+            episodic/, craft/, standing.md, MEMORY.md directly.
+      UPDATE formal files: Phase2 only (inbox → facts/episodic/craft/journal + standing).
+            Use ``profile`` for identity dims.
+      LOAD: standing (L1) + catalog (L2) every turn; pending _inbox notes injected live
+            next turn after note (no wait for Phase2 / new session); body via read/search
+            (L3, search includes inbox); Hub Recall matches formal + pending titles.
 
     Actions:
-      - search: substring search (kinds=facts,episodic,journal,craft,handbook,all)
+      - search: substring search (kinds=facts,episodic,journal,craft,standing,handbook,all)
       - read: read one relative path
       - list: list directory (default memory/)
-      - note: ad-hoc write → memory/_inbox/notes/ (Phase2 merges to facts/journal/craft/standing)
+      - note: ad-hoc write → memory/_inbox/notes/ (Phase2 merges to facts/episodic/journal/craft/standing)
       - profile: update user profile dimension (basic-info | preferences | persona).
         Default mode append (query=append). Use query=replace for full rewrite.
         When user shares stable identity/prefs/habits, update profile proactively.
 
-    For action=note, start content with optional tags: [preference], [reflection], [experience], [process].
+    For action=note, start content with optional tags: [preference], [process], [experience], [reflection].
 
     Citation: if memory files informed the reply, append one `<evo-asset-citation>` block last
     (`path:start-end|note=[brief]` per line under `citation_entries`).
-    Paths must be entity-relative asset files (e.g. memory/…); never bare kb_ ids or loose
-    `citation_entries:` prose — always wrap in the XML tags.
     Paths must be entity-relative asset files (e.g. memory/…); never bare kb_ ids or loose
     `citation_entries:` prose — always wrap in the XML tags.
 
@@ -416,12 +424,28 @@ def assets_tool(
             from evoflow.assets.ad_hoc_note import write_ad_hoc_note
 
             data = write_ad_hoc_note(note_entity, text, slug_hint=str(path or "").strip())
+            # Next turn must see pending inbox + refreshed standing/catalog when freeze lifts.
+            try:
+                from evoflow.agents.memory.standing_freeze import invalidate_standing_memory
+
+                tid = _ctx_get(getattr(runtime, "context", None), "thread_id")
+                if not tid:
+                    cfg = getattr(runtime, "config", None) or {}
+                    if isinstance(cfg, dict):
+                        conf = cfg.get("configurable") if isinstance(cfg.get("configurable"), dict) else {}
+                        tid = str(conf.get("thread_id") or "").strip()
+                invalidate_standing_memory(tid or None)
+            except Exception:
+                logger.debug("assets note: standing invalidate skipped", exc_info=True)
             return json.dumps(
                 {
                     "ok": True,
                     "action": "note",
                     "path": data.get("path"),
-                    "hint": "Note queued in _inbox; Phase2 consolidates. Do not edit standing/MEMORY directly.",
+                    "hint": (
+                        "已写入 memory/_inbox/notes/：下一轮起会自动带上（待整合预览）；"
+                        "Phase2 空闲后合进正式条目/过程/经验。勿直改 standing/MEMORY。"
+                    ),
                 },
                 ensure_ascii=False,
             )

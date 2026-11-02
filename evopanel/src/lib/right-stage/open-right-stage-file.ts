@@ -61,6 +61,63 @@ function normalizePathId(path: string): string {
 }
 
 /**
+ * zcode 契约：会话 workspace 根是打开文件的唯一真相。
+ * target.workspacePath → 全局 chat root；相对 cite（relativePath）优先于可能过期的绝对 path。
+ */
+export function resolveFileLinkWorkspaceRoot(
+  workspacePath?: string | null,
+): string | undefined {
+  return (
+    String(workspacePath || '').trim() ||
+    String(getChatWorkspaceRoot() || '').trim() ||
+    undefined
+  )
+}
+
+/** 是否像可拼到 workspace 上的相对路径（排除纯展示文案）。 */
+function looksLikeWorkspaceRelativeCite(rel: string): boolean {
+  const s = String(rel || '')
+    .replace(/\\/g, '/')
+    .trim()
+  if (!s || s === '.' || s === '..' || s.startsWith('../')) return false
+  if (isAbsoluteHostPath(s)) return false
+  // `outputs/a.mp4` / `./foo.ts` / 裸 `report.md`
+  if (s.includes('/')) return true
+  return /\.[a-zA-Z0-9]{1,12}$/.test(s)
+}
+
+/**
+ * Markdown / 工具卡打开前的统一路径解析：相对 cite + session root → 宿主绝对路径。
+ */
+export function resolveFileLinkOpenPath(
+  target: {
+    path?: string | null
+    relativePath?: string | null
+    workspacePath?: string | null
+  },
+  workspaceRoot?: string | null,
+): { path: string; workspaceRoot?: string } {
+  const root = resolveFileLinkWorkspaceRoot(
+    workspaceRoot ?? target.workspacePath,
+  )
+  const rawPath = String(target.path || '').trim()
+  const rel = String(target.relativePath || '')
+    .replace(/\\/g, '/')
+    .trim()
+  const cite =
+    root && looksLikeWorkspaceRelativeCite(rel)
+      ? rel.replace(/^\.\//, '')
+      : rawPath
+  const resolved = normalizePathId(
+    resolveWorkspaceRelativeHostPath(cite || rawPath, root || ''),
+  )
+  return {
+    path: resolved || rawPath,
+    ...(root ? { workspaceRoot: root } : {}),
+  }
+}
+
+/**
  * 对话路径是否更像目录（应开文件树），而不是可读文件预览。
  * - 显式 pathKind=directory / 尾随斜杠
  * - 末段没有常见文件扩展名（projects/foo-20261029）
@@ -160,9 +217,16 @@ export function openRightStageForCodeViewerSource(
   opts?: OpenRightStageCodeViewerOpts & { name?: string },
 ): string {
   if (source?.type === 'file') {
-    const path = String(source.path || '').trim()
+    const opened = resolveFileLinkOpenPath(
+      {
+        path: source.path,
+        workspacePath: source.workspacePath,
+      },
+      source.workspacePath,
+    )
+    const path = opened.path
     if (path) {
-      const workspaceRoot = String(source.workspacePath || '').trim() || undefined
+      const workspaceRoot = opened.workspaceRoot
       if (looksLikeWorkspaceDirectoryPath(path)) {
         return showRightStageWorkspaceBrowse({
           focusPath: path,
@@ -187,6 +251,11 @@ export function openRightStageForCodeViewerSource(
         threadId: opts?.threadId,
       })
     }
+  }
+  // 非 file：仍把会话 root 补进 source，避免 PreviewPane serve-file 丢 root
+  const workspaceRoot = resolveFileLinkWorkspaceRoot(source?.workspacePath)
+  if (workspaceRoot && !String(source?.workspacePath || '').trim()) {
+    return showRightStageCodeViewer({ ...source, workspacePath: workspaceRoot }, opts)
   }
   return showRightStageCodeViewer(source, opts)
 }
@@ -400,6 +469,7 @@ export function showRightStageFromFileLink(
     path: string
     label?: string
     pathKind?: string
+    relativePath?: string
     workspacePath?: string
     workspaceIdentity?: string
     workspaceRemoteSessionId?: string
@@ -431,8 +501,10 @@ export function showRightStageFromFileLink(
       layout: opts?.layout,
     })
   }
-  const path = String(target.path || '').trim()
-  const workspaceRoot = String(target.workspacePath || '').trim() || undefined
+  // 统一契约：相对 cite + 会话 root → 绝对路径；root 缺省回落 getChatWorkspaceRoot
+  const opened = resolveFileLinkOpenPath(target, target.workspacePath)
+  const path = opened.path
+  const workspaceRoot = opened.workspaceRoot
   if (looksLikeWorkspaceDirectoryPath(path, target.pathKind)) {
     return showRightStageWorkspaceBrowse({
       focusPath: path,

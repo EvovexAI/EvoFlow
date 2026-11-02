@@ -145,7 +145,9 @@ def save_craft_from_experience(data: dict[str, Any]) -> dict[str, Any]:
     tags = data.get("tags") or []
     if not isinstance(tags, list):
         tags = []
-    body = experience_to_skill_body(data)
+    from evoflow.assets.ad_hoc_note import ensure_body_recorded_at
+
+    body = ensure_body_recorded_at(experience_to_skill_body(data)).strip()
     description = str(data.get("description") or problem_summary(data) or title)[:500]
     meta = {
         "origin": str(data.get("origin") or "migrated_experience"),

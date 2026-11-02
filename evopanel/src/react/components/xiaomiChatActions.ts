@@ -82,24 +82,39 @@ export function useXiaomiChatActions(sessionKey: string): XiaomiChatActions {
     [sk],
   )
 
+  const workspacePath = useMemo(() => readXiaomiWorkspacePath(sk), [sk])
+
   const onOpenFileLink = useCallback(
     (target: import('@zcode/ui/components/ai-elements/message.js').MessageFileLinkTarget) => {
-      showRightStageFromFileLink(target, {
-        sessionKey: sk,
-        threadId: readXiaomiThreadId(sk),
-      })
+      // 与 V4SessionPaneBridge 对齐：小V 会话 root 必须进 target
+      showRightStageFromFileLink(
+        {
+          ...target,
+          workspacePath: target.workspacePath || workspacePath || undefined,
+        },
+        {
+          sessionKey: sk,
+          threadId: readXiaomiThreadId(sk),
+        },
+      )
     },
-    [sk],
+    [sk, workspacePath],
   )
 
   const onOpenCodeViewer = useCallback(
     (source: import('@zcode/ui/lib/codeViewer.js').CodeViewerSource) => {
-      openRightStageForCodeViewerSource(source, {
-        sessionKey: sk,
-        threadId: readXiaomiThreadId(sk),
-      })
+      openRightStageForCodeViewerSource(
+        {
+          ...source,
+          workspacePath: source.workspacePath || workspacePath || undefined,
+        },
+        {
+          sessionKey: sk,
+          threadId: readXiaomiThreadId(sk),
+        },
+      )
     },
-    [sk],
+    [sk, workspacePath],
   )
 
   const onOpenBrowserUrl = useCallback(
@@ -111,8 +126,6 @@ export function useXiaomiChatActions(sessionKey: string): XiaomiChatActions {
     },
     [sk],
   )
-
-  const workspacePath = useMemo(() => readXiaomiWorkspacePath(sk), [sk])
 
   return {
     onToolApproval,

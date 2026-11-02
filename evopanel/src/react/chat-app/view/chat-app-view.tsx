@@ -742,17 +742,34 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
                       sessionBusy={selectedTurnBusy}
                       onOpenFileLink={(target) => {
                         // 话术 Markdown 路径 pill → 右侧「文件」预览区（可关、半宽，不盖住对话）
-                        showRightStageFromFileLink(target, {
-                          sessionKey: selectedSessionKey,
-                          threadId: wsClient?.getSessionThreadId?.(selectedSessionKey || '') || '',
-                        })
+                        // 与 V4SessionPaneBridge 对齐：会话 root 必须进 target，相对路径才能拼对
+                        showRightStageFromFileLink(
+                          {
+                            ...target,
+                            workspacePath:
+                              target.workspacePath || effectiveWorkspaceRoot || undefined,
+                          },
+                          {
+                            sessionKey: selectedSessionKey,
+                            threadId:
+                              wsClient?.getSessionThreadId?.(selectedSessionKey || '') || '',
+                          },
+                        )
                       }}
                       onOpenCodeViewer={(source) => {
                         // type:file → 文件区；patch/pptx/pdf 等 → PreviewPane
-                        openRightStageForCodeViewerSource(source, {
-                          sessionKey: selectedSessionKey,
-                          threadId: wsClient?.getSessionThreadId?.(selectedSessionKey || '') || '',
-                        })
+                        openRightStageForCodeViewerSource(
+                          {
+                            ...source,
+                            workspacePath:
+                              source.workspacePath || effectiveWorkspaceRoot || undefined,
+                          },
+                          {
+                            sessionKey: selectedSessionKey,
+                            threadId:
+                              wsClient?.getSessionThreadId?.(selectedSessionKey || '') || '',
+                          },
+                        )
                       }}
                       onOpenBrowserUrl={(url) => {
                         // 助手预览卡「网站」→ 右侧内置浏览器（localhost / HTML）

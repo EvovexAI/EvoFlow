@@ -1,7 +1,9 @@
 """Inject frozen standing memory into system; query recall as HumanMessage turn-tail.
 
 Standing MEMORY/USER/workspace blocks are frozen per thread (prefix-cache stable).
-Person/craft recall is query-keyed and must not rewrite system mid-session.
+Pending ``_inbox/notes`` and user profile are appended **fresh each turn** so
+``assets note`` / profile edits take effect without waiting for Phase2 or a new session.
+Person/craft archival recall is query-keyed and must not rewrite system mid-session.
 """
 
 from __future__ import annotations
@@ -152,8 +154,21 @@ class MemoryLiveFooterMiddleware(AgentMiddleware[AgentState]):
             )
         except Exception:
             profile_footer = ""
-        if profile_footer:
-            standing = f"{standing}\n\n{profile_footer}".strip() if standing else profile_footer
+        # Fresh each turn — note written mid-chat must be visible next turn.
+        pending_footer = ""
+        try:
+            from evoflow.assets.ad_hoc_note import format_live_pending_inbox_for_agent
+
+            pending_footer = format_live_pending_inbox_for_agent(
+                agent_name=agent_name,
+                principal_id=principal_id,
+            ).strip()
+        except Exception:
+            logger.debug("MemoryLiveFooter: pending inbox skipped", exc_info=True)
+        live_bits = [b for b in (profile_footer, pending_footer) if b]
+        if live_bits:
+            live = "\n\n".join(live_bits)
+            standing = f"{standing}\n\n{live}".strip() if standing else live
         base = strip_memory_xml_blocks(str(getattr(sm, "content", "") or "")).rstrip()
         if standing:
             merged = f"{base}\n\n{standing}".strip() if base else standing
