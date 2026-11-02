@@ -17,6 +17,8 @@ import {
 } from "./knowledge-owned-reader.jsx";
 import {
   findOwnedDocByWorkspacePath,
+  isKnowledgeBinaryOriginal,
+  KnowledgeOriginalFilePreview,
   KnowledgeV4FileTree,
   KnowledgeV4Markdown,
 } from "./knowledge-v4-preview.jsx";
@@ -298,10 +300,6 @@ function jobErrorHeadline(raw) {
     return "处理失败：任务多次超时，已停止重试";
   }
   return s.split("\n[traceback] ")[0] || s;
-}
-
-function isPdfName(name) {
-  return /\.pdf$/i.test(String(name || ""));
 }
 
 const ASK_HINTS = ["总结当前文档要点", "这份知识库讲了什么？", "有哪些关键结论或数据？"];
@@ -1150,8 +1148,14 @@ export default function KnowledgeOwnedPage() {
   const [docContent, setDocContent] = useState(null);
   const [docContentLoading, setDocContentLoading] = useState(false);
   const [docContentEpoch, setDocContentEpoch] = useState(0);
-  const [pdfObjectUrl, setPdfObjectUrl] = useState("");
-  const [pdfLoadFailed, setPdfLoadFailed] = useState(false);
+  /** 树点击命中磁盘文件但未入库时，右侧提示（不只 toast） */
+  const [treeMissPath, setTreeMissPath] = useState("");
+  /**
+   * 阅读格式：
+   * - 二进制：original（原件预览）| md（解析 MD）
+   * - 文本/MD：preview（渲染预览）| original（源码/原文件）
+   */
+  const [readerFormat, setReaderFormat] = useState("preview");
   const [relatedDocs, setRelatedDocs] = useState([]);
   const [summaryBusy, setSummaryBusy] = useState(false);
   const [rightMode, setRightMode] = useState("reader"); // reader | ask
@@ -1859,11 +1863,26 @@ export default function KnowledgeOwnedPage() {
     if (hit?.id) {
       // Tree already highlighted the row — skip activePreviewPath expand/scan.
       setTreeRevealPath(null);
-      setSelectedDocId(hit.id);
+      setTreeMissPath("");
       setTab("docs");
       setRightMode("reader");
+      if (hit.id === selectedDocId) {
+        // 同一文档再点：给反馈并强制刷新正文
+        setDocContentEpoch((n) => n + 1);
+        return;
+      }
+      // 立刻清旧正文，避免 PDF↔MD 切换时用上一份 fileName 误开原件预览
+      setDocContent(null);
+      setDocContentLoading(true);
+      setSelectedDocId(hit.id);
       return;
     }
+    const miss = String(absPath || "").replace(/\\/g, "/");
+    setTreeMissPath(miss);
+    setSelectedDocId("");
+    setDocContent(null);
+    setTab("docs");
+    setRightMode("reader");
     notify("该文件尚未入库索引；可在上方「再同步」后重试");
   }
 
@@ -1889,17 +1908,18 @@ export default function KnowledgeOwnedPage() {
   useEffect(() => {
     if (!selectedDocId) {
       setDocContent(null);
-      setPdfObjectUrl("");
-      setPdfLoadFailed(false);
+      setDocContentLoading(false);
       setRelatedDocs([]);
       setDocLinks(null);
       setBodyEditing(false);
       setEditDirty(false);
       return undefined;
     }
+    setTreeMissPath("");
     setBodyEditing(false);
     setEditDirty(false);
     setDocLinks(null);
+    setDocContent(null);
     let cancelled = false;
     setDocContentLoading(true);
     (async () => {
@@ -1945,59 +1965,56 @@ export default function KnowledgeOwnedPage() {
     prevParseStatusRef.current = st;
   }, [selectedDocId, selectedDoc?.parseStatus]);
 
-  const activeFileName = (docContent || selectedDoc)?.fileName || "";
-  const activeIsPdf = isPdfName(activeFileName);
+  // 以列表元数据为准（切文档瞬间 docContent 仍可能是上一份）
+  const activeFileName =
+    selectedDoc?.fileName || docContent?.fileName || "";
+  const activeIsBinaryOriginal = isKnowledgeBinaryOriginal(activeFileName);
+  const activeIsTextDoc = !activeIsBinaryOriginal;
   const canEditBody = useMemo(() => {
     const name = String(activeFileName || "").toLowerCase();
     const source = String(docContent?.source || "");
-    if (activeIsPdf) return false;
-    if (/\.(docx?|pptx?|xlsx?)$/i.test(name)) return false;
+    if (activeIsBinaryOriginal) return false;
     return source === "raw" || /\.(md|markdown|mdx|txt)$/i.test(name);
-  }, [activeFileName, activeIsPdf, docContent?.source]);
+  }, [activeFileName, activeIsBinaryOriginal, docContent?.source]);
+
+  const hasMdContent = !!(docContent?.content || (canEditBody && bodyEditing));
+  // 二进制：原件预览；文本：源码视图也叫 original
+  const showBinaryOriginalPane = readerFormat === "original" && activeIsBinaryOriginal;
+  const showTextSourcePane = activeIsTextDoc && (readerFormat === "original" || bodyEditing);
+  const showTextPreviewPane = activeIsTextDoc && readerFormat === "preview" && !bodyEditing;
+  const showParsedMdPane = activeIsBinaryOriginal && readerFormat === "md";
 
   const readerMarkdown = bodyEditing ? editDraft : docContent?.content || "";
   const docHeadings = useMemo(
     () => parseMarkdownHeadings(readerMarkdown),
     [readerMarkdown]
   );
-  useReaderMarkdownEnhance(readerBodyRef, `${selectedDocId}:${readerMarkdown.length}:${bodyEditing}`);
+  useReaderMarkdownEnhance(
+    readerBodyRef,
+    `${selectedDocId}:${readerMarkdown.length}:${bodyEditing}:${readerFormat}`,
+  );
 
   useEffect(() => {
     setTocFloatOpen(false);
     setActiveHeading("");
+    setBodyEditing(false);
+    setEditDirty(false);
   }, [selectedDocId]);
 
+  // 换文档时按类型设默认：文本→预览，二进制→原文件
   useEffect(() => {
-    if (!selectedDocId || !activeIsPdf) {
-      setPdfObjectUrl("");
-      setPdfLoadFailed(false);
-      return undefined;
+    if (!selectedDocId) return;
+    setReaderFormat(activeIsBinaryOriginal ? "original" : "preview");
+  }, [selectedDocId, activeIsBinaryOriginal]);
+
+  useEffect(() => {
+    // 文本切回预览、或二进制离开源码编辑态时，退出编辑
+    if (bodyEditing && activeIsTextDoc && readerFormat === "preview") {
+      setBodyEditing(false);
+      setEditDirty(false);
+      setEditDraft(docContent?.content || "");
     }
-    let cancelled = false;
-    let created = "";
-    setPdfLoadFailed(false);
-    (async () => {
-      try {
-        const url = await api.fetchOwnedKnowledgeDocumentFileObjectUrl(selectedDocId);
-        if (cancelled) {
-          URL.revokeObjectURL(url);
-          return;
-        }
-        created = url;
-        setPdfObjectUrl(url);
-      } catch {
-        if (!cancelled) {
-          setPdfObjectUrl("");
-          setPdfLoadFailed(true);
-        }
-      }
-    })();
-    return () => {
-      cancelled = true;
-      if (created) URL.revokeObjectURL(created);
-      setPdfObjectUrl("");
-    };
-  }, [selectedDocId, activeIsPdf]);
+  }, [readerFormat, bodyEditing, activeIsTextDoc, docContent?.content]);
 
   // Poll document while summary is generating
   useEffect(() => {
@@ -3293,6 +3310,77 @@ export default function KnowledgeOwnedPage() {
                                 );
                               })()
                             : null}
+                          {rightMode === "reader" ? (
+                            <div
+                              className="ko-format-toggle"
+                              role="group"
+                              aria-label="文档显示格式"
+                              data-testid="ko-format-toggle"
+                            >
+                              {activeIsTextDoc ? (
+                                <>
+                                  <button
+                                    className={`ko-format-toggle__btn${
+                                      readerFormat === "preview" && !bodyEditing
+                                        ? " is-active"
+                                        : ""
+                                    }`}
+                                    data-testid="ko-format-preview"
+                                    disabled={docContentLoading && !hasMdContent}
+                                    onClick={() => {
+                                      setBodyEditing(false);
+                                      setReaderFormat("preview");
+                                    }}
+                                    title="渲染预览"
+                                    type="button"
+                                  >
+                                    预览
+                                  </button>
+                                  <button
+                                    className={`ko-format-toggle__btn${
+                                      readerFormat === "original" || bodyEditing
+                                        ? " is-active"
+                                        : ""
+                                    }`}
+                                    data-testid="ko-format-original"
+                                    disabled={docContentLoading && !hasMdContent}
+                                    onClick={() => setReaderFormat("original")}
+                                    title="查看原文件源码"
+                                    type="button"
+                                  >
+                                    原文件
+                                  </button>
+                                </>
+                              ) : (
+                                <>
+                                  <button
+                                    className={`ko-format-toggle__btn${
+                                      readerFormat === "original" ? " is-active" : ""
+                                    }`}
+                                    data-testid="ko-format-original"
+                                    disabled={docContentLoading}
+                                    onClick={() => setReaderFormat("original")}
+                                    title="查看原文件预览"
+                                    type="button"
+                                  >
+                                    原文件
+                                  </button>
+                                  <button
+                                    className={`ko-format-toggle__btn${
+                                      readerFormat === "md" ? " is-active" : ""
+                                    }`}
+                                    data-testid="ko-format-md"
+                                    disabled={docContentLoading && !hasMdContent}
+                                    onClick={() => setReaderFormat("md")}
+                                    title="查看转换后的 Markdown"
+                                    type="button"
+                                  >
+                                    MD
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          ) : null}
                           <button
                             className="ko-icon-btn"
                             onClick={() => setChunksPanelOpen(true)}
@@ -3334,8 +3422,9 @@ export default function KnowledgeOwnedPage() {
                                   setEditDraft(docContent?.content || "");
                                   setEditDirty(false);
                                   setBodyEditing(true);
+                                  setReaderFormat("original");
                                 }}
-                                title="编辑"
+                                title="编辑原文件"
                                 type="button"
                               >
                                 <IconPencil />
@@ -3355,32 +3444,24 @@ export default function KnowledgeOwnedPage() {
 
                       {rightMode === "reader" ? (
                         <>
-                          {docContentLoading ? (
+                          {docContentLoading && !showBinaryOriginalPane ? (
                             <div className="ko-empty">加载正文…</div>
-                          ) : activeIsPdf && pdfObjectUrl && !pdfLoadFailed ? (
-                            <article className="ko-page-body ko-page-body--pdf" data-testid="ko-pdf-frame">
-                              <object
-                                className="ko-pdf-iframe"
-                                data={pdfObjectUrl}
-                                type="application/pdf"
-                                title={(docContent || selectedDoc)?.title || "PDF"}
-                              >
-                                <iframe
-                                  className="ko-pdf-iframe"
-                                  src={pdfObjectUrl}
-                                  title={(docContent || selectedDoc)?.title || "PDF"}
-                                />
-                              </object>
-                            </article>
-                          ) : docContent?.content || (canEditBody && bodyEditing) ? (
+                          ) : showBinaryOriginalPane && selectedDocId ? (
+                            <KnowledgeOriginalFilePreview
+                              docId={selectedDocId}
+                              fileName={activeFileName}
+                              title={
+                                (docContent || selectedDoc)?.title ||
+                                (docContent || selectedDoc)?.fileName ||
+                                ""
+                              }
+                            />
+                          ) : showTextSourcePane && hasMdContent ? (
                             <article
                               className="ko-page-body ko-page-body--v4"
-                              data-testid="ko-md-reader"
+                              data-testid="ko-md-source"
                               ref={readerBodyRef}
                             >
-                              {activeIsPdf && pdfLoadFailed ? (
-                                <p className="ko-meta ko-pdf-fallback">PDF 预览失败，已显示解析正文。</p>
-                              ) : null}
                               {canEditBody && bodyEditing ? (
                                 <textarea
                                   className="ko-md-edit"
@@ -3394,41 +3475,61 @@ export default function KnowledgeOwnedPage() {
                                   value={editDraft}
                                 />
                               ) : (
-                                <KnowledgeV4Markdown content={docContent?.content || ""} />
+                                <pre className="ko-md-source" data-testid="ko-md-source-pre">
+                                  {docContent?.content || ""}
+                                </pre>
                               )}
+                            </article>
+                          ) : (showTextPreviewPane || showParsedMdPane) && hasMdContent ? (
+                            <article
+                              className="ko-page-body ko-page-body--v4"
+                              data-testid="ko-md-reader"
+                              ref={readerBodyRef}
+                            >
                               {docHeadings.length ? (
-                                <div className={`ko-toc-float${tocFloatOpen ? " is-open" : ""}`}>
-                                  <button
-                                    aria-expanded={tocFloatOpen}
-                                    className="ko-toc-float__toggle"
-                                    onClick={() => setTocFloatOpen((v) => !v)}
-                                    title={tocFloatOpen ? "收起大纲" : "展开大纲"}
-                                    type="button"
-                                  >
-                                    大纲
-                                    <span aria-hidden="true">{tocFloatOpen ? " ›" : " ‹"}</span>
-                                  </button>
-                                  {tocFloatOpen ? (
-                                    <div className="ko-toc-float__panel" role="navigation" aria-label="文档大纲">
-                                      <DocumentToc
-                                        activeText={activeHeading}
-                                        headings={docHeadings}
-                                        onJump={(text) => {
-                                          setActiveHeading(text);
-                                          scrollToHeading(readerBodyRef.current, text);
-                                        }}
-                                      />
-                                    </div>
-                                  ) : null}
+                                <div className="ko-toc-float-sticky" aria-hidden={!tocFloatOpen}>
+                                  <div className={`ko-toc-float${tocFloatOpen ? " is-open" : ""}`}>
+                                    <button
+                                      aria-expanded={tocFloatOpen}
+                                      className="ko-toc-float__toggle"
+                                      onClick={() => setTocFloatOpen((v) => !v)}
+                                      title={tocFloatOpen ? "收起大纲" : "展开大纲"}
+                                      type="button"
+                                    >
+                                      大纲
+                                      <span aria-hidden="true">{tocFloatOpen ? " ›" : " ‹"}</span>
+                                    </button>
+                                    {tocFloatOpen ? (
+                                      <div className="ko-toc-float__panel" role="navigation" aria-label="文档大纲">
+                                        <DocumentToc
+                                          activeText={activeHeading}
+                                          headings={docHeadings}
+                                          onJump={(text) => {
+                                            setActiveHeading(text);
+                                            scrollToHeading(readerBodyRef.current, text);
+                                          }}
+                                        />
+                                      </div>
+                                    ) : null}
+                                  </div>
                                 </div>
                               ) : null}
+                              <KnowledgeV4Markdown content={docContent?.content || ""} />
                             </article>
                           ) : (
                             <div className="ko-empty">
                               {selectedDoc?.parseStatus === "processing" ||
                               selectedDoc?.parseStatus === "pending"
-                                ? "文档仍在解析，完成后可查看解析正文（PDF/Office）。"
-                                : "暂无正文。文本类可检查原文件；Office/PDF 需解析完成。"}
+                                ? activeIsBinaryOriginal
+                                  ? readerFormat === "md"
+                                    ? "文档仍在解析，完成后可查看 Markdown 正文。"
+                                    : "文档仍在解析；原文件可先预览，解析完成后可切到 MD。"
+                                  : "文档仍在加载…"
+                                : activeIsBinaryOriginal
+                                  ? readerFormat === "md"
+                                    ? "暂无 Markdown 正文。Office/PDF 需解析完成。"
+                                    : "暂无原文件预览，可切换到 MD 查看解析正文。"
+                                  : "暂无正文。"}
                             </div>
                           )}
                         </>
@@ -3483,6 +3584,16 @@ export default function KnowledgeOwnedPage() {
                       effectiveChatModel={kbGlobalSettings?.effectiveChatModel || ""}
                       selectedTitle=""
                     />
+                  ) : treeMissPath ? (
+                    <div className="ko-empty" data-testid="ko-tree-miss">
+                      <p>该文件尚未入库索引</p>
+                      <p className="ko-meta" style={{ wordBreak: "break-all" }}>
+                        {treeMissPath}
+                      </p>
+                      <p className="ko-meta">
+                        左侧树是磁盘文件；未同步、改名或过大被跳过的文件点不开。请点上方「再同步」后重试。
+                      </p>
+                    </div>
                   ) : (
                     <KnowledgeHome
                       base={selected}

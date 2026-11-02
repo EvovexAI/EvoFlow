@@ -643,11 +643,12 @@
   position: absolute;
   right: 10px;
   top: 52px;
-  z-index: 6;
+  z-index: 20;
   min-width: 138px;
   padding: 4px;
   border-radius: 10px;
-  background: var(--bg-secondary, #fff);
+  /* 实底：菜单会溢出卡片外，透明主题下不能继承卡片的 glass 透明 */
+  background: var(--bg-elevated, var(--bg-secondary, #fff));
   border: 1px solid var(--border-primary);
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.14), 0 2px 6px rgba(0, 0, 0, 0.05);
 }

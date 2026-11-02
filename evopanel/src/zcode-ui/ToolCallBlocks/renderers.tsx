@@ -96,7 +96,9 @@ export function renderFileChip({
         }}
       >
         <FileDisplayIcon src={descriptor.fileIconSrc} size={16} className="size-4 shrink-0" />
-        <span className="min-w-0 truncate text-foreground-subtle">{getPathLeaf(summary.path)}</span>
+        <span className="max-w-full shrink-0 truncate text-foreground-subtle">
+          {getPathLeaf(summary.path)}
+        </span>
       </button>
     );
   }
@@ -107,7 +109,7 @@ export function renderFileChip({
       title={chipTitle}
     >
       <FileDisplayIcon src={descriptor.fileIconSrc} size={16} className="size-4 shrink-0" />
-      <span className="min-w-0 truncate">{getPathLeaf(summary.path)}</span>
+      <span className="max-w-full shrink-0 truncate">{getPathLeaf(summary.path)}</span>
     </span>
   );
 }
@@ -118,9 +120,11 @@ export function renderFilePath(path: string | null | undefined, basePath?: strin
   }
 
   return (
-    <span className="min-w-0 truncate text-foreground-subtlest @max-[360px]/conversation:hidden">
-      {/* 窄会话流里父目录会与文件名争抢空间，Read/Edit 最终只剩动作标签和省略号。
-          小容器隐藏次要路径，让文件名继续承担主识别信息。 */}
+    <span
+      className="min-w-0 truncate text-foreground-subtlest @max-[640px]/conversation:hidden"
+      title={getFileDisplayPath(path, basePath)}
+    >
+      {/* 父路径次要：宽栏才显示；窄栏隐藏，避免把文件名挤成 sp_... */}
       {getFileDisplayPath(path, basePath)}
     </span>
   );

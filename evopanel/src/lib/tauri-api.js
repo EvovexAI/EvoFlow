@@ -2075,7 +2075,7 @@ export const api = {
     gatewayProxy('GET', `/knowledge/owned/documents/${encodeURIComponent(String(docId || ''))}`),
   getOwnedKnowledgeDocumentContent: async (docId) =>
     gatewayProxy('GET', `/knowledge/owned/documents/${encodeURIComponent(String(docId || ''))}/content`),
-  fetchOwnedKnowledgeDocumentFileObjectUrl: async (docId) => {
+  fetchOwnedKnowledgeDocumentFileBlob: async (docId) => {
     const { getAuthToken } = await import('./webui-remote.js')
     const token = getAuthToken()
     const headers = {}
@@ -2084,7 +2084,10 @@ export const api = {
     const url = `${baseUrl}/api/knowledge/owned/documents/${encodeURIComponent(String(docId || ''))}/file`
     const resp = await fetch(url, { headers })
     if (!resp.ok) throw new Error(`Document file fetch failed: ${resp.status}`)
-    const blob = await resp.blob()
+    return resp.blob()
+  },
+  fetchOwnedKnowledgeDocumentFileObjectUrl: async (docId) => {
+    const blob = await api.fetchOwnedKnowledgeDocumentFileBlob(docId)
     return URL.createObjectURL(blob)
   },
   enqueueOwnedKnowledgeDocumentSummary: async (docId, { force } = {}) =>

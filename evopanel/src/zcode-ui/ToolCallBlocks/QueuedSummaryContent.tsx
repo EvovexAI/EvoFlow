@@ -223,11 +223,13 @@ export function QueuedSummaryContent({
 
   if (!shouldAnimate) {
     return (
-      <>
-        {primaryText}
-        {secondaryText}
+      <span className="inline-flex min-w-0 max-w-full items-center gap-2">
+        <span className="inline-flex min-w-0 max-w-full shrink-0 items-center">{primaryText}</span>
+        {secondaryText ? (
+          <span className="min-w-0 flex-1 overflow-hidden">{secondaryText}</span>
+        ) : null}
         {trailingText}
-      </>
+      </span>
     );
   }
 
@@ -242,8 +244,12 @@ export function QueuedSummaryContent({
           exit={{ y: "-0.8em", opacity: 0 }}
           transition={SUMMARY_ROLL_TRANSITION}
         >
-          {displayedContent.primaryText}
-          {displayedContent.secondaryText}
+          <span className="inline-flex min-w-0 max-w-full shrink-0 items-center">
+            {displayedContent.primaryText}
+          </span>
+          {displayedContent.secondaryText ? (
+            <span className="min-w-0 flex-1 overflow-hidden">{displayedContent.secondaryText}</span>
+          ) : null}
         </motion.span>
       </AnimatePresence>
       {/* Changes 的 diff count 必须与文件摘要属于同一排队快照，

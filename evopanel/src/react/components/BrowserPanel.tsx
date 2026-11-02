@@ -164,10 +164,20 @@ function BrowserPanelIcon({ className }: { className?: string }) {
 
 function ExternalLinkIcon() {
   return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
-      <path d="M14 5h5v5" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M10 14L19 5" strokeLinecap="round" />
-      <path d="M19 14v5H5V5h5" strokeLinecap="round" strokeLinejoin="round" />
+    <svg
+      viewBox="0 0 24 24"
+      width="14"
+      height="14"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M14 5h5v5" />
+      <path d="M10 14L19 5" />
+      <path d="M19 14v5H5V5h5" />
     </svg>
   )
 }

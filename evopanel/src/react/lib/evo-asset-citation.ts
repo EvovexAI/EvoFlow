@@ -32,6 +32,15 @@ export function normalizeAssetCitationPath(path: string): string {
   return p.replace(/^\//, '').trim()
 }
 
+/** Align with backend ``_SAFE_REL_PATH`` — reject ``note=[…]`` etc. as paths. */
+const SAFE_ASSET_REL_PATH_RE = /^[\w./\-]+$/u
+const NOTE_ONLY_LINE_RE = /^note\s*=\s*\[.*\]\s*$/i
+
+export function isSafeAssetRelPath(path: string): boolean {
+  const p = normalizeAssetCitationPath(path)
+  return Boolean(p) && SAFE_ASSET_REL_PATH_RE.test(p)
+}
+
 export function parseCitationEntries(blockInner: string): EvoAssetCitationEntry[] {
   const m = String(blockInner || '').match(ENTRIES_RE)
   const body = m ? m[1] : String(blockInner || '')
@@ -48,6 +57,15 @@ export function parseCitationEntries(blockInner: string): EvoAssetCitationEntry[
 function parseEntryLine(line: string): EvoAssetCitationEntry | null {
   // Normalize before RE so ``- memory/foo.md | note=[…]`` still matches.
   let cleaned = normalizeAssetCitationPath(line)
+  // Models sometimes emit bare ``note=[brief]`` with no path — never treat as path.
+  if (NOTE_ONLY_LINE_RE.test(cleaned)) return null
+  // Tolerate missing pipe: ``memory/foo.md note=[brief]``.
+  if (!/\|\s*note\s*=/i.test(cleaned)) {
+    const spacedNote = cleaned.match(/^(.*?)\s+note\s*=\s*\[(?<note>.*)\]\s*$/i)
+    if (spacedNote?.[1] && spacedNote.groups?.note != null) {
+      cleaned = `${spacedNote[1].trim()}|note=[${spacedNote.groups.note}]`
+    }
+  }
   // Models sometimes write ``path.md — prose note`` instead of ``| note=[…]``.
   let proseNote = ''
   if (!/\|\s*note\s*=/i.test(cleaned)) {
@@ -60,7 +78,7 @@ function parseEntryLine(line: string): EvoAssetCitationEntry | null {
   const em = cleaned.match(ENTRY_LINE_RE)
   if (!em?.groups?.path) return null
   const path = normalizeAssetCitationPath(em.groups.path)
-  if (!path) return null
+  if (!path || /^note\s*=/i.test(path) || !isSafeAssetRelPath(path)) return null
   return {
     path,
     lineStart: em.groups.start ? Number(em.groups.start) : null,
@@ -169,6 +187,8 @@ export function stripEvoAssetCitations(text: string): string {
 export function isDisplayableAssetCitationPath(path: string): boolean {
   const p = normalizeAssetCitationPath(path)
   if (!p) return false
+  // Reject note-only / illegal chars (``note=[…]`` used to become the path).
+  if (/^note\s*=/i.test(p) || !isSafeAssetRelPath(p)) return false
   if (/^kb_[a-z0-9]+$/i.test(p)) return false
   if (/^[a-z]+_[a-f0-9]{16,}$/i.test(p) && !p.includes('/')) return false
   return true

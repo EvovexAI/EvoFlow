@@ -9,12 +9,16 @@
  * 插件桥接页使用真实的 EvoflowPluginManagementClient（/api/plugins）。
  */
 
-import type { IPlatformService } from "@zcode/shared";
+import type { EditorInfo, IPlatformService } from "@zcode/shared";
 import type {
   IMcpSyncService,
   ISettingsSyncService,
 } from "@zcode/services";
-import { gatewayProxy } from "../../lib/tauri-api.js";
+import { api, gatewayProxy } from "../../lib/tauri-api.js";
+import {
+  isAbsoluteHostPath,
+  resolveWorkspaceRelativeHostPath,
+} from "../../lib/workspace-abs-path.js";
 
 // ---------------------------------------------------------------------------
 // Gateway HTTP helpers
@@ -195,3 +199,68 @@ export const evoflowStubPlatform: IPlatformService = {
   openInFileManager: async () => ({ success: false, error: "stub" }),
   openExternal: async () => {},
 } as unknown as IPlatformService;
+
+function localFileManagerEditor(): EditorInfo {
+  const isMac =
+    typeof navigator !== "undefined" && /mac/i.test(String(navigator.platform || ""));
+  return {
+    id: isMac ? "finder" : "explorer",
+    name: isMac ? "访达" : "资源管理器",
+    iconDataUrl: "",
+  };
+}
+
+function resolveRevealTarget(path: string, workspaceRoot?: string): string {
+  const raw = String(path || "").trim();
+  if (!raw) return "";
+  if (isAbsoluteHostPath(raw)) return raw;
+  const root = String(workspaceRoot || "").trim();
+  if (!root) return raw;
+  return String(resolveWorkspaceRelativeHostPath(raw, root) || raw).trim();
+}
+
+async function revealLocalPath(
+  path: string,
+  workspaceRoot?: string,
+): Promise<{ success: boolean; error?: string }> {
+  const target = resolveRevealTarget(path, workspaceRoot);
+  if (!target) return { success: false, error: "路径为空" };
+  if (!isAbsoluteHostPath(target)) {
+    return { success: false, error: "需要本机绝对路径" };
+  }
+  try {
+    await api.revealPathInFileManager(target);
+    return { success: true };
+  } catch (e: unknown) {
+    return {
+      success: false,
+      error: String((e as { message?: string })?.message || e || "打开失败"),
+    };
+  }
+}
+
+export type EvoflowLocalRevealPlatformOpts = {
+  /** Join relative PreviewPane paths onto this workspace root before reveal. */
+  workspaceRoot?: string | null;
+};
+
+/**
+ * PreviewPane / 文件树「打开」→ 本机资源管理器定位。
+ * stub 返回空 editors 会把按钮永久 disabled；表格/PDF/代码预览都依赖这里。
+ */
+export function createEvoflowLocalRevealPlatform(
+  opts?: EvoflowLocalRevealPlatformOpts,
+): IPlatformService {
+  const editor = localFileManagerEditor();
+  const workspaceRoot = String(opts?.workspaceRoot || "").trim() || undefined;
+  return {
+    ...evoflowStubPlatform,
+    getInstalledEditors: async () => [editor],
+    openInEditor: async (_editorId: string, path: string) =>
+      revealLocalPath(path, workspaceRoot),
+    openInFileManager: async (path: string) => revealLocalPath(path, workspaceRoot),
+  } as unknown as IPlatformService;
+}
+
+/** Shared singleton when no workspace root is needed (absolute paths only). */
+export const evoflowLocalRevealPlatform: IPlatformService = createEvoflowLocalRevealPlatform();

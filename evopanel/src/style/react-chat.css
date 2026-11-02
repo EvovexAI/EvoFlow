@@ -5600,7 +5600,8 @@ html.dark .react-chat-context-ring-track {
   position: absolute;
   top: calc(100% + 8px);
   right: 0;
-  z-index: 80;
+  /* 高于右栏 stage chrome(30) / stage popover(90)；portal 宿主另有 12050 */
+  z-index: 12050;
   box-sizing: border-box;
   width: 264px;
   padding: 12px;
@@ -22288,6 +22289,9 @@ html[data-custom-bg='1'] .react-chat-main-col--home {
   box-sizing: border-box;
   padding: 12px 20px 28px;
   color: var(--text-primary);
+  /* 按工作台内容区宽度响应（右侧小V打开时视口仍宽，媒体查询不够） */
+  container-type: inline-size;
+  container-name: evo-home;
 }
 
 .evo-home-dashboard__inner {
@@ -22689,6 +22693,7 @@ html[data-custom-bg='1'] .react-chat-main-col--home {
   gap: 10px;
   box-sizing: border-box;
   width: 100%;
+  min-width: 0;
   min-height: 96px;
   height: 96px;
   padding: 10px 12px;
@@ -22699,6 +22704,7 @@ html[data-custom-bg='1'] .react-chat-main-col--home {
   text-align: left;
   cursor: pointer;
   transition: box-shadow var(--transition-fast), border-color var(--transition-fast);
+  overflow: hidden;
 }
 
 .evo-home-kpi:has(.evo-home-kpi__hint) {
@@ -22777,12 +22783,17 @@ html[data-custom-bg='1'] .react-chat-main-col--home {
 
 .evo-home-kpi__meta {
   min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
 }
 
 .evo-home-kpi__label {
   font-size: var(--ef-text-sm);
   font-weight: 500;
   color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .evo-home-kpi__value {
@@ -22792,12 +22803,18 @@ html[data-custom-bg='1'] .react-chat-main-col--home {
   letter-spacing: -0.02em;
   color: var(--text-primary);
   line-height: 1.15;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .evo-home-kpi__delta {
   margin-top: 2px;
   font-size: 11px;
   color: var(--text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .evo-home-kpi__delta.is-up {
@@ -23778,6 +23795,7 @@ html[data-custom-bg='1'] .react-chat-main-col--home {
   color: var(--text-secondary);
 }
 
+/* 视口断点：窄窗 / 无 container 支持时的兜底 */
 @media (max-width: 1180px) {
   .evo-home-row {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
@@ -23804,9 +23822,7 @@ html[data-custom-bg='1'] .react-chat-main-col--home {
   }
 
   .evo-home-kpi-grid {
-    grid-template-columns: repeat(5, minmax(140px, 1fr));
-    overflow-x: auto;
-    padding-bottom: 4px;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .evo-home-row {
@@ -23821,6 +23837,72 @@ html[data-custom-bg='1'] .react-chat-main-col--home {
 
   .evo-home-quick-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 560px) {
+  .evo-home-kpi-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/*
+ * 内容区断点：右侧小V / right-stage 打开后中间变窄，
+ * 视口仍可能 >1180，必须按 dashboard 实际宽度收列。
+ */
+@container evo-home (max-width: 1100px) {
+  .evo-home-kpi-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .evo-home-row {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .evo-home-card--todos,
+  .evo-home-card--apps {
+    grid-column: 1 / -1;
+    min-width: 0;
+  }
+
+  .evo-home-kpi__arrow {
+    display: none;
+  }
+}
+
+@container evo-home (max-width: 720px) {
+  .evo-home-kpi-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .evo-home-row {
+    grid-template-columns: 1fr;
+  }
+
+  .evo-home-card--todos,
+  .evo-home-card--apps {
+    grid-column: auto;
+    min-width: 0;
+  }
+
+  .evo-home-quick-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .evo-home-kpi {
+    gap: 8px;
+    padding: 10px;
+  }
+
+  .evo-home-kpi__icon {
+    width: 32px;
+    height: 32px;
+  }
+}
+
+@container evo-home (max-width: 420px) {
+  .evo-home-kpi-grid {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
@@ -34248,9 +34330,9 @@ html[data-theme='dark'] .react-chat-browser-panel .browser-panel-nav-error {
 .react-chat-browser-panel .browser-panel-menu-item {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   width: 100%;
-  padding: 5px 8px;
+  padding: 7px 10px;
   border: none;
   border-radius: 6px;
   background: transparent;
@@ -34261,6 +34343,11 @@ html[data-theme='dark'] .react-chat-browser-panel .browser-panel-nav-error {
   text-align: left;
   text-decoration: none;
   box-sizing: border-box;
+}
+.react-chat-browser-panel .browser-panel-menu-item > svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
 }
 .react-chat-browser-panel .browser-panel-menu-item:disabled {
   opacity: 0.45;

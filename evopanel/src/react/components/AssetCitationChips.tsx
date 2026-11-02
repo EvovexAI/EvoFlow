@@ -1,4 +1,8 @@
-import { assetsHrefForPath, type EvoAssetCitationEntry } from '../lib/evo-asset-citation.js'
+import {
+  assetsHrefForPath,
+  isDisplayableAssetCitationPath,
+  type EvoAssetCitationEntry,
+} from '../lib/evo-asset-citation.js'
 import { showRightStageAssetPreview } from '../../lib/right-stage/open-right-stage-file.js'
 import { getCurrentRightStageSessionKey } from '../../lib/right-stage/right-stage-scope.js'
 
@@ -10,15 +14,16 @@ type Props = {
 
 /** Compact chips under an assistant bubble for ``<evo-asset-citation>`` entries. */
 export function AssetCitationChips({ entries, entityType, entityId }: Props) {
-  if (!entries?.length) return null
-  const n = entries.length
+  const visible = (entries || []).filter((e) => isDisplayableAssetCitationPath(e.path))
+  if (!visible.length) return null
+  const n = visible.length
   const label = n === 1 ? '引用了 1 条资产' : `引用了 ${n} 条资产`
 
   return (
     <div className="asset-citation-chips" aria-label={label}>
       <span className="asset-citation-chips__label">{label}</span>
       <ul className="asset-citation-chips__list">
-        {entries.map((e) => {
+        {visible.map((e) => {
           const name = e.path.split('/').pop() || e.path
           const title = e.note ? `${e.path} — ${e.note}` : e.path
           const href = assetsHrefForPath(e.path, { entityType, entityId })
@@ -34,6 +39,7 @@ export function AssetCitationChips({ entries, entityType, entityId }: Props) {
                     return
                   }
                   ev.preventDefault()
+                  if (!isDisplayableAssetCitationPath(e.path)) return
                   showRightStageAssetPreview(e.path, {
                     entityType,
                     entityId,

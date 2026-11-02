@@ -197,7 +197,10 @@ function computeAssistantBodyBundle(
 import { buildDisplayTimeline } from '../lib/message-row-timeline.js'
 import { omitWorkerParentWhenExpanded, prepareWorkerToolsForDisplayRow } from '../worker-file-tools.js'
 import { visibleAssistantText, visibleExploringInnerText } from '../lib/message-row-visible-text.js'
-import { extractEvoAssetCitations } from '../lib/evo-asset-citation.js'
+import {
+  extractEvoAssetCitations,
+  isDisplayableAssetCitationPath,
+} from '../lib/evo-asset-citation.js'
 import { AssetCitationChips } from './AssetCitationChips.js'
 import { AssistantSelectionMenu } from './AssistantSelectionMenu.js'
 import {
@@ -1002,7 +1005,9 @@ function MessageRowInner({
           />
           {!isStreamingEffective
             ? (() => {
-                const cites = extractEvoAssetCitations(String(displayRow.text || '')).entries
+                const cites = extractEvoAssetCitations(String(displayRow.text || '')).entries.filter(
+                  (e) => isDisplayableAssetCitationPath(e.path),
+                )
                 return cites.length ? <AssetCitationChips entries={cites} /> : null
               })()
             : null}

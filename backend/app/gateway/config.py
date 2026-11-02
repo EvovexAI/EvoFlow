@@ -31,7 +31,10 @@ def get_gateway_config() -> GatewayConfig:
                 "http://localhost:1421",
                 "http://127.0.0.1:1521",
                 "http://localhost:1521",
+                # Tauri 2 WebView2 常用 https://tauri.localhost；缺了会导致 fetch Range
+                # 探测失败或媒体跨域异常，右栏 PreviewPane 报「不支持播放这种媒体格式」。
                 "http://tauri.localhost",
+                "https://tauri.localhost",
                 "tauri://localhost",
             ]
         _gateway_config = GatewayConfig(

@@ -385,8 +385,24 @@ def read_text_file(entity: EntityRef, rel_path: str) -> dict[str, Any]:
         target = resolve_entity_file(entity, rel_path)
     if not target.is_file():
         raise FileNotFoundError(rel_path)
+    rel = str(rel_path).replace("\\", "/").lstrip("/")
+    abs_path = str(target.resolve())
+    # 图片/音视频：只回 absolutePath，供桌面 PreviewPane convertFileSrc；
+    # 勿强制走文本读（否则右栏「打开」直接失败 / 报不支持播放）。
     if target.suffix.lower() not in _TEXT_SUFFIXES:
-        raise ValueError("only text assets can be read via API")
+        try:
+            size = int(target.stat().st_size)
+        except OSError:
+            size = 0
+        return {
+            "entityType": entity.normalized().entity_type,
+            "entityId": entity.normalized().entity_id,
+            "path": rel,
+            "absolutePath": abs_path,
+            "content": "",
+            "binary": True,
+            "size": size,
+        }
     try:
         content = target.read_text(encoding="utf-8")
     except OSError as exc:
@@ -394,7 +410,9 @@ def read_text_file(entity: EntityRef, rel_path: str) -> dict[str, Any]:
     return {
         "entityType": entity.normalized().entity_type,
         "entityId": entity.normalized().entity_id,
-        "path": str(rel_path).replace("\\", "/").lstrip("/"),
+        "path": rel,
+        # Desktop reveal / open-in-explorer needs a real filesystem path.
+        "absolutePath": abs_path,
         "content": content,
         "size": len(content.encode("utf-8")),
     }

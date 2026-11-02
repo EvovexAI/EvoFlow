@@ -1,0 +1,43 @@
+# Gitee Go — Windows desktop release (independent of GitHub Actions).
+#
+# Gitee cloud runners are Linux-only and cannot produce a native Tauri NSIS
+# installer. This pipeline runs on a self-hosted Windows host group.
+#
+# Before first run:
+#   1. Gitee → 管理 → 主机管理 → create host group id `evoflow-win-builders`
+#   2. Register a Windows builder (Node 22+, Rust, Python 3.12, pnpm/uv, WebView2)
+#   3. Authorize this repo to use that host group
+#   4. On the builder, set secrets/env (see scripts/maintainer/gitee/README.md):
+#        GITEE_REPO_TOKEN
+#        EVOFLOW_CN_INSTALLER_BASE_URL   (public HTTPS base for ~380MB setup.exe)
+#        EVOFLOW_CN_INSTALLER_DIR       (optional: local/UNC dir the CDN reads)
+#        TAURI_SIGNING_PRIVATE_KEY      (optional in-app updater)
+#
+# Trigger: push tag v* (same convention as GitHub) or manual run on Gitee Go UI.
+version: "1.0"
+name: evoflow-release-windows
+displayName: EvoFlow Windows 发版（Gitee 独立构建）
+triggers:
+  push:
+    tags:
+      prefix:
+        - v
+stages:
+  - stage: build
+    displayName: Windows 构建与发布
+    strategy: naturally
+    trigger: auto
+    steps:
+      - step: shell@agent
+        name: release_windows
+        displayName: 构建 NSIS 并发布
+        hostGroupID: evoflow-win-builders
+        script: |
+          set -e
+          echo "GITEE_BRANCH=${GITEE_BRANCH} GITEE_COMMIT=${GITEE_COMMIT} TAG_HINT=${GITEE_COMMIT_MESSAGE}"
+          # Agent working directory is the cloned repo root when clone is enabled.
+          if [ ! -f scripts/maintainer/gitee/ci-release-windows.ps1 ]; then
+            echo "Repo root not found; pwd=$(pwd); ls -la"
+            exit 1
+          fi
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/maintainer/gitee/ci-release-windows.ps1

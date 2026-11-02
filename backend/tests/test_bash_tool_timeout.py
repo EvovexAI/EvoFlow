@@ -92,6 +92,41 @@ def test_timeout_was_explicit() -> None:
     assert bt._timeout_was_explicit("15000") is True
 
 
+@pytest.mark.parametrize(
+    ("command", "expect_lo"),
+    [
+        ("python xlsx.py recalc report.xlsx", True),
+        ("python skills/.../xlsx.py chart-verify a.xlsx", True),
+        ("soffice --headless macro:///Standard.Module1.RecalculateAndSave()", True),
+        ("git status --short", False),
+        ("npm install", False),
+    ],
+)
+def test_libreoffice_risk_command_detection(command: str, expect_lo: bool) -> None:
+    assert bt._is_libreoffice_risk_command(command) is expect_lo
+
+
+def test_force_kill_active_bash_sweeps_lo_only_for_risk_commands(monkeypatch) -> None:
+    sweeps: list[bool] = []
+    monkeypatch.setattr(bt, "_kill_libreoffice_orphans", lambda: sweeps.append(True))
+    monkeypatch.setattr(bt, "_kill_process_tree", lambda *_a, **_k: None)
+
+    class _FakeProc:
+        pid = 99
+
+        def poll(self):
+            return None
+
+    bt._ACTIVE_BASH_PROCS.clear()
+    bt._register_active_bash("t1", _FakeProc(), "git status")
+    assert bt.force_kill_active_bash(tool_call_id="t1") == 1
+    assert sweeps == []
+
+    bt._register_active_bash("t2", _FakeProc(), "python xlsx.py recalc a.xlsx")
+    assert bt.force_kill_active_bash(tool_call_id="t2") == 1
+    assert sweeps == [True]
+
+
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows tree-kill path")
 def test_kill_process_tree_invokes_taskkill() -> None:
     with patch("evoflow.tools.zcode_port.bash_tool.subprocess.run") as run:

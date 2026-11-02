@@ -404,7 +404,6 @@ scripts/maintainer/windows/trigger-release.ps1
 scripts/maintainer/windows/trigger-release.bat
 scripts/maintainer/windows/init-public-mirror.bat
 scripts/maintainer/windows/upload-release-dmg-only.ps1
-scripts/maintainer/windows/publish-gitee-release.ps1
 scripts/maintainer/windows/setup-updater-once.bat
 scripts/maintainer/windows/setup-updater-once.ps1
 scripts/maintainer/windows/verify-updater-signing-key.ps1

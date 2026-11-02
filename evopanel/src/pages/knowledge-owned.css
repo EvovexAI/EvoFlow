@@ -1922,6 +1922,59 @@ html.evopanel-tauri-frameless .ko-topbar--immersive {
   flex-shrink: 0;
 }
 
+.ko-format-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  margin-right: 2px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--ko-muted, #94a3b8) 12%, transparent);
+  flex-shrink: 0;
+}
+
+.ko-format-toggle__btn {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ko-muted, #64748b);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.ko-format-toggle__btn:hover:not(:disabled) {
+  color: var(--ko-ink, var(--text-primary));
+  background: color-mix(in srgb, var(--ko-muted, #94a3b8) 16%, transparent);
+}
+
+.ko-format-toggle__btn.is-active {
+  background: var(--bg-elevated, var(--ko-card, #fff));
+  color: var(--ko-ink, var(--text-primary));
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
+.ko-format-toggle__btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.ko-page-body--original {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  padding: 0 !important;
+  overflow: auto;
+}
+
 .ko-page-view__actions .ko-btn {
   border-radius: 4px;
 }
@@ -3815,11 +3868,17 @@ button.ko-tag.is-active {
   flex-shrink: 0;
 }
 
-.knowledge-owned-page .ko-page-view > .ko-page-body:not(.ko-page-body--pdf) {
+.knowledge-owned-page .ko-page-view > .ko-page-body:not(.ko-page-body--pdf):not(.ko-page-body--original) {
   flex: 0 0 auto;
   min-height: auto;
   overflow: visible;
   height: auto;
+}
+
+.knowledge-owned-page .ko-page-view > .ko-page-body--original {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .knowledge-owned-page .ko-page-view .ko-md-doc.md-doc-view,
@@ -3845,39 +3904,63 @@ button.ko-tag.is-active {
   overflow: visible;
 }
 
+.knowledge-owned-page .ko-md-doc,
+.knowledge-owned-page .ko-v4-md {
+  /* 压过 Streamdown / msg-text 的 --ef-text-base，整体略收一档 */
+  --ef-text-base: 12.5px;
+  --ui-font-size: 12.5px;
+}
+
+.knowledge-owned-page .ko-v4-md__inner {
+  padding: 16px 24px 40px;
+  max-width: min(820px, 100%);
+  font-size: 12.5px;
+  line-height: 1.62;
+  color: var(--kb-text-primary, var(--text-primary));
+}
+
+.knowledge-owned-page .ko-v4-md__inner .text-ui-base,
+.knowledge-owned-page .ko-v4-md__inner [class*="text-ui-base"] {
+  font-size: 12.5px;
+}
+
 .knowledge-owned-page .ko-md-doc .md-doc-preview,
-.knowledge-owned-page .ko-md-doc .markdown-body {
+.knowledge-owned-page .ko-md-doc .markdown-body,
+.knowledge-owned-page .ko-md-doc .md-doc-preview.msg-text {
   color: var(--kb-text-primary);
   background: transparent;
   padding: 0;
   max-width: min(860px, 100%);
   margin: 0 auto;
-  font-size: 14px;
-  line-height: 1.68;
+  font-size: 12.5px;
+  line-height: 1.62;
 }
 
-.knowledge-owned-page .ko-md-doc .markdown-body h1 {
+.knowledge-owned-page .ko-md-doc .markdown-body h1,
+.knowledge-owned-page .ko-md-doc .md-doc-preview.msg-text h1 {
   margin: 0 0 0.5em;
-  color: var(--kb-text-primary);
-  font-size: 22px;
-  font-weight: 700;
-  border: 0;
-}
-
-.knowledge-owned-page .ko-md-doc .markdown-body h2 {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin: 28px 0 10px;
-  padding: 0;
   color: var(--kb-text-primary);
   font-size: 18px;
   font-weight: 700;
   border: 0;
 }
 
-.knowledge-owned-page .ko-md-doc .markdown-body h2::before {
+.knowledge-owned-page .ko-md-doc .markdown-body h2,
+.knowledge-owned-page .ko-md-doc .md-doc-preview.msg-text h2 {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 22px 0 8px;
+  padding: 0;
+  color: var(--kb-text-primary);
+  font-size: 15px;
+  font-weight: 700;
+  border: 0;
+}
+
+.knowledge-owned-page .ko-md-doc .markdown-body h2::before,
+.knowledge-owned-page .ko-md-doc .md-doc-preview.msg-text h2::before {
   content: "";
   width: 3px;
   height: 1.1em;
@@ -3886,10 +3969,11 @@ button.ko-tag.is-active {
   background: var(--kb-blue);
 }
 
-.knowledge-owned-page .ko-md-doc .markdown-body h3 {
-  margin: 1.15em 0 0.4em;
+.knowledge-owned-page .ko-md-doc .markdown-body h3,
+.knowledge-owned-page .ko-md-doc .md-doc-preview.msg-text h3 {
+  margin: 1.05em 0 0.35em;
   color: var(--kb-text-primary);
-  font-size: 15px;
+  font-size: 13px;
   font-weight: 650;
   border: 0;
 }
@@ -5491,9 +5575,32 @@ html[data-theme="light"] .ko-catalog {
   font: 13px / 1.65 ui-monospace, "SF Mono", Consolas, Menlo, monospace;
 }
 
+.ko-md-source {
+  display: block;
+  margin: 0;
+  padding: 20px 28px 48px;
+  max-width: 920px;
+  box-sizing: border-box;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--ko-ink, var(--text-primary));
+  font: 13px / 1.65 ui-monospace, "SF Mono", Consolas, Menlo, monospace;
+  background: transparent;
+}
+
+/* sticky 宿主：贴着 .ko-page-view 滚动视口顶部，大纲不随正文滚走 */
+.ko-toc-float-sticky {
+  position: sticky;
+  top: 12px;
+  z-index: 6;
+  height: 0;
+  margin: 0;
+  pointer-events: none;
+}
+
 .ko-toc-float {
   position: absolute;
-  top: 16px;
+  top: 0;
   right: 12px;
   z-index: 5;
   display: flex;
