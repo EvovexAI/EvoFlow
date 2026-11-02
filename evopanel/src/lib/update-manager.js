@@ -36,6 +36,22 @@ export function isAutoDownloadUpdatesEnabled() {
 }
 
 /**
+ * Prefer Gitee installer URL for CN; fall back to GitHub / generic url.
+ * @param {Record<string, unknown> | null | undefined} manifest
+ */
+function pickInstallerUrl(manifest) {
+  const gitee = String(manifest?.urlGitee || '').trim()
+  const primary = String(manifest?.url || '').trim()
+  const github = String(manifest?.urlGithub || '').trim()
+  // If primary already points at gitee, keep it; else prefer explicit urlGitee.
+  if (primary.includes('gitee.com/')) return primary
+  if (gitee) return gitee
+  if (primary) return primary
+  if (github) return github
+  return 'https://gitee.com/evovexai/EvoFlow/releases'
+}
+
+/**
  * @param {Record<string, unknown> | null | undefined} manifest
  * @param {string} ver
  * @returns {UpdateOffer}
@@ -44,7 +60,7 @@ function manualInstallerOffer(manifest, ver) {
   return {
     ver,
     changelog: String(manifest?.changelog || manifest?.notes || ''),
-    manualUrl: String(manifest?.url || 'https://github.com/EvovexAI/EvoFlow/releases'),
+    manualUrl: pickInstallerUrl(manifest),
     oneClick: false,
     kind: 'manual',
     update: null,

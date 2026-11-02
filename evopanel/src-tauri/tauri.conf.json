@@ -100,6 +100,7 @@
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IERFOUQxRDI2MENGRUU0ODEKUldTQjVQNE1KaDJkM25Na3RLMjVualJiMUdPdVlENHQ1SE83YmQzQzZhcGNxRXgzaW9uanlYd3oK",
       "endpoints": [
+        "https://gitee.com/evovexai/EvoFlow/raw/main/update/latest.json",
         "https://cdn.jsdelivr.net/gh/EvovexAI/EvoFlow@main/update/latest.json",
         "https://raw.githubusercontent.com/EvovexAI/EvoFlow/main/update/latest.json"
       ],

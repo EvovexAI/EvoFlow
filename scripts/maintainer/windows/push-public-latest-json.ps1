@@ -4,12 +4,20 @@
   Build scripts/maintainer/update/latest.json from a Windows Release asset and
   push it to the public channel path update/latest.json on EvovexAI/EvoFlow.
 
-  Clients poll (jsDelivr first, raw fallback):
+  Clients poll (Gitee first — domestic; then jsDelivr / GitHub raw):
+    https://gitee.com/evovexai/EvoFlow/raw/main/update/latest.json
     https://cdn.jsdelivr.net/gh/EvovexAI/EvoFlow@main/update/latest.json
     https://raw.githubusercontent.com/EvovexAI/EvoFlow/main/update/latest.json
 
-  Draft stays under scripts/maintainer/update/ (source tree). The public path is
-  written via GitHub Contents API so it does not need a normal source commit.
+  Draft stays under scripts/maintainer/update/ (source tree). Live channel files:
+  - Gitee: git push of update/latest.json (preferred for CN)
+  - GitHub: Contents API to update/latest.json (jsDelivr / overseas)
+
+.PARAMETER SkipGitee
+  Do not push to gitee.com/evovexai/EvoFlow.
+
+.PARAMETER SkipGithub
+  Do not push via GitHub Contents API.
 
 .PARAMETER Tag
   Release tag, e.g. v1.2.3 or 1.2.3.
@@ -32,7 +40,9 @@ param(
     [string] $Tag,
     [string] $NsisDir = "",
     [string] $Changelog = "",
-    [switch] $DryRun
+    [switch] $DryRun,
+    [switch] $SkipGitee,
+    [switch] $SkipGithub
 )
 
 $ErrorActionPreference = "Stop"
@@ -211,6 +221,13 @@ else {
 if (-not $hash) { throw "hash is empty" }
 if ($size -le 0) { throw "size must be > 0 (got $size)" }
 
+$giteeOwner = if ($env:GITEE_OWNER) { $env:GITEE_OWNER.Trim() } else { "evovexai" }
+$giteeRepo = if ($env:GITEE_REPO) { $env:GITEE_REPO.Trim() } else { "EvoFlow" }
+$urlGithub = "https://github.com/$owner/$repo/releases/download/$tagName/$assetName"
+$urlGitee = "https://gitee.com/$giteeOwner/$giteeRepo/releases/download/$tagName/$assetName"
+# Prefer Gitee for CN clients; keep GitHub as explicit fallback field.
+$primaryUrl = $urlGitee
+
 # Build UTF-8 JSON via Node (PS 5.1 ConvertTo-Json mangles CJK / em-dashes).
 $draftPath = Join-Path $RepoRoot "scripts\maintainer\update\latest.json"
 $draftDir = Split-Path -Parent $draftPath
@@ -229,7 +246,9 @@ try {
         updateKind    = "full"
         assetKind     = "installer"
         hash          = "sha256:$hash"
-        url           = "https://github.com/$owner/$repo/releases/download/$tagName/$assetName"
+        url           = $primaryUrl
+        urlGitee      = $urlGitee
+        urlGithub     = $urlGithub
         size          = [int64]$size
         releasedAt    = $releasedAt
         pub_date      = $releasedAt
@@ -238,7 +257,17 @@ try {
     }
     if ($platforms) {
         $platformsPath = Join-Path ([IO.Path]::GetTempPath()) ("evoflow-latest-plat-" + [guid]::NewGuid().ToString("n") + ".json")
-        ($platforms | ConvertTo-Json -Depth 8 -Compress) | Set-Content -LiteralPath $platformsPath -Encoding ascii
+        # Also expose Gitee mirror URL for the signed updater zip when present.
+        $platCopy = $platforms
+        try {
+            if ($platCopy.'windows-x86_64' -and $platCopy.'windows-x86_64'.url) {
+                $zipName = [IO.Path]::GetFileName([string]$platCopy.'windows-x86_64'.url)
+                if ($zipName) {
+                    $platCopy.'windows-x86_64'.urlGitee = "https://gitee.com/$giteeOwner/$giteeRepo/releases/download/$tagName/$zipName"
+                }
+            }
+        } catch { }
+        ($platCopy | ConvertTo-Json -Depth 8 -Compress) | Set-Content -LiteralPath $platformsPath -Encoding ascii
         $meta.platformsPath = $platformsPath
     }
     ($meta | ConvertTo-Json -Compress -Depth 5) | Set-Content -LiteralPath $metaPath -Encoding ascii
@@ -255,6 +284,8 @@ const out = {
   assetKind: meta.assetKind,
   hash: meta.hash,
   url: meta.url,
+  urlGitee: meta.urlGitee,
+  urlGithub: meta.urlGithub,
   size: meta.size,
   changelog,
   notes: changelog,
@@ -287,42 +318,152 @@ if ($DryRun) {
     exit 0
 }
 
-$contentPath = "update/latest.json"
-$contentApi = "$api/contents/$contentPath"
-$bytes = [System.IO.File]::ReadAllBytes($draftPath)
-$b64 = [Convert]::ToBase64String($bytes)
-$bodyObj = @{
-    message = "chore: update latest.json for $tagName"
-    content = $b64
-}
-try {
-    $existing = Invoke-RestMethod -Uri $contentApi -Headers $headers -Method Get -ErrorAction Stop
-    if ($existing.sha) { $bodyObj.sha = $existing.sha }
-}
-catch {
-    $code = $null
-    if ($_.Exception.Response) { $code = [int]$_.Exception.Response.StatusCode }
-    if ($code -ne 404) { throw }
+function Push-GithubLatestJson {
+    param([string]$JsonPath, [string]$TagName, [hashtable]$Headers, [string]$Owner, [string]$Repo)
+    $contentPath = "update/latest.json"
+    $contentApi = "https://api.github.com/repos/$Owner/$Repo/contents/$contentPath"
+    $bytes = [System.IO.File]::ReadAllBytes($JsonPath)
+    $b64 = [Convert]::ToBase64String($bytes)
+    $bodyObj = @{
+        message = "chore: update latest.json for $TagName"
+        content = $b64
+    }
+    try {
+        $existing = Invoke-RestMethod -Uri $contentApi -Headers $Headers -Method Get -ErrorAction Stop
+        if ($existing.sha) { $bodyObj.sha = $existing.sha }
+    }
+    catch {
+        $code = $null
+        if ($_.Exception.Response) { $code = [int]$_.Exception.Response.StatusCode }
+        if ($code -ne 404) { throw }
+    }
+    $putPath = Join-Path ([IO.Path]::GetTempPath()) ("evoflow-latest-put-" + [guid]::NewGuid().ToString("n") + ".json")
+    try {
+        $putAscii = @{ message = $bodyObj.message; content = $bodyObj.content }
+        if ($bodyObj.sha) { $putAscii.sha = $bodyObj.sha }
+        ($putAscii | ConvertTo-Json -Compress) | Set-Content -LiteralPath $putPath -Encoding ascii
+        $putBody = [System.IO.File]::ReadAllText($putPath, [System.Text.Encoding]::ASCII)
+        $null = Invoke-RestMethod -Uri $contentApi -Headers $Headers -Method Put -Body $putBody -ContentType "application/json; charset=utf-8"
+    }
+    finally {
+        Remove-Item -LiteralPath $putPath -Force -ErrorAction SilentlyContinue
+    }
+    Write-Host "Pushed $contentPath to GitHub $Owner/$Repo" -ForegroundColor Green
+    try {
+        $purgeUrl = "https://purge.jsdelivr.net/gh/$Owner/$Repo@main/update/latest.json"
+        $null = Invoke-WebRequest -Uri $purgeUrl -UseBasicParsing -TimeoutSec 15
+        Write-Host "Requested jsDelivr purge for @main/update/latest.json" -ForegroundColor DarkGray
+    } catch {
+        Write-Warning "jsDelivr purge failed (cache may lag): $($_.Exception.Message)"
+    }
 }
 
-$putPath = Join-Path ([IO.Path]::GetTempPath()) ("evoflow-latest-put-" + [guid]::NewGuid().ToString("n") + ".json")
-try {
-    $putAscii = @{ message = $bodyObj.message; content = $bodyObj.content }
-    if ($bodyObj.sha) { $putAscii.sha = $bodyObj.sha }
-    ($putAscii | ConvertTo-Json -Compress) | Set-Content -LiteralPath $putPath -Encoding ascii
-    $putBody = [System.IO.File]::ReadAllText($putPath, [System.Text.Encoding]::ASCII)
-    $null = Invoke-RestMethod -Uri $contentApi -Headers $headers -Method Put -Body $putBody -ContentType "application/json; charset=utf-8"
+function Push-GiteeLatestJson {
+    param(
+        [string]$JsonPath,
+        [string]$TagName,
+        [string]$GiteeOwner,
+        [string]$GiteeRepo
+    )
+    # Prefer Contents API when token is set; else shallow-clone + commit + push (uses git credential).
+    $tok = $env:GITEE_REPO_TOKEN
+    if (-not $tok) { $tok = $env:GITEE_TOKEN }
+    if (-not $tok) { $tok = $env:GITEE_PRIVATE_TOKEN }
+    $contentPath = "update/latest.json"
+    $commitMsg = "chore: update latest.json for $TagName"
+
+    if ($tok -and $tok.Trim().Length -gt 0) {
+        $api = "https://gitee.com/api/v5/repos/$GiteeOwner/$GiteeRepo/contents/$contentPath"
+        $bytes = [System.IO.File]::ReadAllBytes($JsonPath)
+        $b64 = [Convert]::ToBase64String($bytes)
+        $sha = $null
+        try {
+            $existing = Invoke-RestMethod -Uri "$api`?access_token=$([uri]::EscapeDataString($tok.Trim()))&ref=main" -Method Get -ErrorAction Stop
+            if ($existing.sha) { $sha = $existing.sha }
+        } catch {
+            $code = $null
+            if ($_.Exception.Response) { $code = [int]$_.Exception.Response.StatusCode }
+            if ($code -ne 404) { throw }
+        }
+        $form = @{
+            access_token = $tok.Trim()
+            content      = $b64
+            message      = $commitMsg
+            branch       = "main"
+        }
+        if ($sha) { $form.sha = $sha }
+        if ($sha) {
+            $null = Invoke-RestMethod -Uri $api -Method Put -Body $form -ContentType "application/x-www-form-urlencoded"
+        } else {
+            $null = Invoke-RestMethod -Uri $api -Method Post -Body $form -ContentType "application/x-www-form-urlencoded"
+        }
+        Write-Host "Pushed $contentPath to Gitee $GiteeOwner/$GiteeRepo (API)" -ForegroundColor Green
+        return
+    }
+
+    if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
+        throw "GITEE_REPO_TOKEN not set and git not available — cannot push to Gitee"
+    }
+    $work = Join-Path ([IO.Path]::GetTempPath()) ("evoflow-gitee-latest-" + [guid]::NewGuid().ToString("n"))
+    New-Item -ItemType Directory -Path $work -Force | Out-Null
+    try {
+        $remote = "https://gitee.com/$GiteeOwner/$GiteeRepo.git"
+        Write-Host "Cloning $remote (depth 1) to push update/latest.json ..." -ForegroundColor DarkGray
+        & git clone --depth 1 --branch main $remote $work
+        if ($LASTEXITCODE -ne 0) { throw "git clone gitee failed (exit $LASTEXITCODE)" }
+        $destDir = Join-Path $work "update"
+        if (-not (Test-Path -LiteralPath $destDir)) {
+            New-Item -ItemType Directory -Path $destDir -Force | Out-Null
+        }
+        Copy-Item -LiteralPath $JsonPath -Destination (Join-Path $destDir "latest.json") -Force
+        Push-Location $work
+        try {
+            & git add --force -- update/latest.json
+            & git -c user.name="EvoFlow Updater" -c user.email="updater@evovexai.com" commit -m $commitMsg
+            if ($LASTEXITCODE -ne 0) {
+                # nothing to commit is ok if identical
+                $status = (& git status --porcelain)
+                if (-not $status) {
+                    Write-Host "Gitee update/latest.json already up to date" -ForegroundColor DarkGray
+                    return
+                }
+                throw "git commit on gitee worktree failed"
+            }
+            & git push origin HEAD:main
+            if ($LASTEXITCODE -ne 0) { throw "git push to gitee failed (exit $LASTEXITCODE)" }
+        }
+        finally {
+            Pop-Location
+        }
+        Write-Host "Pushed $contentPath to Gitee $GiteeOwner/$GiteeRepo (git)" -ForegroundColor Green
+    }
+    finally {
+        Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue
+    }
 }
-finally {
-    Remove-Item -LiteralPath $putPath -Force -ErrorAction SilentlyContinue
+
+if (-not $SkipGithub) {
+    try {
+        Push-GithubLatestJson -JsonPath $draftPath -TagName $tagName -Headers $headers -Owner $owner -Repo $repo
+    } catch {
+        Write-Warning "GitHub push failed: $($_.Exception.Message)"
+        if ($SkipGitee) { throw }
+    }
+} else {
+    Write-Host "Skip GitHub push (-SkipGithub)" -ForegroundColor DarkGray
 }
-Write-Host "Pushed $contentPath to $owner/$repo (clients poll this file)" -ForegroundColor Green
-Write-Host "Primary: https://cdn.jsdelivr.net/gh/$owner/$repo@main/update/latest.json" -ForegroundColor DarkGray
-Write-Host "Fallback: https://raw.githubusercontent.com/$owner/$repo/main/update/latest.json" -ForegroundColor DarkGray
-try {
-    $purgeUrl = "https://purge.jsdelivr.net/gh/$owner/$repo@main/update/latest.json"
-    $null = Invoke-WebRequest -Uri $purgeUrl -UseBasicParsing -TimeoutSec 15
-    Write-Host "Requested jsDelivr purge for @main/update/latest.json" -ForegroundColor DarkGray
-} catch {
-    Write-Warning "jsDelivr purge failed (cache may lag up to hours): $($_.Exception.Message)"
+
+if (-not $SkipGitee) {
+    try {
+        Push-GiteeLatestJson -JsonPath $draftPath -TagName $tagName -GiteeOwner $giteeOwner -GiteeRepo $giteeRepo
+    } catch {
+        Write-Warning "Gitee push failed: $($_.Exception.Message)"
+        if ($SkipGithub) { throw }
+    }
+} else {
+    Write-Host "Skip Gitee push (-SkipGitee)" -ForegroundColor DarkGray
 }
+
+Write-Host "Primary (CN): https://gitee.com/$giteeOwner/$giteeRepo/raw/main/update/latest.json" -ForegroundColor DarkGray
+Write-Host "Fallback:     https://cdn.jsdelivr.net/gh/$owner/$repo@main/update/latest.json" -ForegroundColor DarkGray
+Write-Host "Installer URL prefers Gitee Releases — upload $assetName to Gitee tag $tagName if not yet mirrored." -ForegroundColor Yellow

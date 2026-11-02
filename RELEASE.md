@@ -71,20 +71,24 @@ git push origin v1.1.0
 
 ## 4. 装包后刷新升级通道
 
-客户端轮询公仓（**jsDelivr 优先**，raw 回退）：
+客户端轮询（**Gitee 优先**，适合国内；再 jsDelivr / GitHub raw）：
 
+- `https://gitee.com/evovexai/EvoFlow/raw/main/update/latest.json`
 - `https://cdn.jsdelivr.net/gh/EvovexAI/EvoFlow@main/update/latest.json`
 - `https://raw.githubusercontent.com/EvovexAI/EvoFlow/main/update/latest.json`
 
-**Windows CI（`release-windows-public.yml`）发完安装包后会自动推这份文件。** 本地/补推：
+安装包下载链接默认写 **Gitee Releases**（`url` / `urlGitee`），`urlGithub` 作海外回退。  
+**务必把同名 `setup.exe` 也传到 Gitee 对应 tag**，否则国内点更新会下不到包。
+
+**Windows CI（`release-windows-public.yml`）发完安装包后会自动推清单。** 本地/补推：
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/maintainer/windows/push-public-latest-json.ps1 -Tag v1.2.3
-# 或带本机 NSIS 产物（含 nsis.zip+.sig 时会写 platforms，供一键更新）：
-# ... -Tag v1.2.3 -NsisDir evopanel\src-tauri\target\release\bundle\nsis
+# 只推国内：加 -SkipGithub
+# 带本机 NSIS（含 nsis.zip+.sig 时写 platforms）：-NsisDir evopanel\src-tauri\target\release\bundle\nsis
 ```
 
-也可用 `republish-public-release.ps1 -UpdateLatestJson`（会重传安装包并推清单）。
+也可用 `republish-public-release.ps1 -UpdateLatestJson`（重传安装包并推清单；设 `GITEE_REPO_TOKEN` 可同步 Gitee Release 资产）。
 
 草稿在 `scripts/maintainer/update/latest.json`；**不要**在安装包未就绪时往公仓根目录塞假的 `update/`。
 

@@ -12,8 +12,9 @@ pub fn update_dir() -> PathBuf {
 }
 
 /// 更新清单 URL（公共仓库 `update/latest.json`）。
-/// 国内常见 raw.githubusercontent.com 劫持/不可达，优先 jsDelivr，再回退 raw。
+/// 国内优先 Gitee；再 jsDelivr / GitHub raw（后者在国内常被劫持或不可达）。
 const LATEST_JSON_URLS: &[&str] = &[
+    "https://gitee.com/evovexai/EvoFlow/raw/main/update/latest.json",
     "https://cdn.jsdelivr.net/gh/EvovexAI/EvoFlow@main/update/latest.json",
     "https://raw.githubusercontent.com/EvovexAI/EvoFlow/main/update/latest.json",
 ];
