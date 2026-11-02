@@ -10457,6 +10457,16 @@ html[data-theme='dark'] .models-sort-dropdown-panel {
   line-height: 1.2;
 }
 
+/* 界面缩放行是「−/+ 按钮 + 数值」步进器，不是滑杆；
+   不能复用 settings-font-size-row 的两列 grid（minmax(160px,1fr) 48px），
+   否则 4 个子元素被 2×2 自动排布错位。 */
+.settings-ui-zoom-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
 .settings-theme-btn {
   padding: 8px 16px;
   border-radius: var(--radius-md);
