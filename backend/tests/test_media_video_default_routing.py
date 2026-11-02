@@ -39,54 +39,33 @@ def test_resolve_video_falls_through_to_minimax_when_plan_small():
 
 
 def test_default_video_model_minimax_gateway():
-    class _Fake:
-        DEFAULT_GATEWAY_VIDEO_MODEL = "minimax-h3"
-        DEFAULT_MINIMAX_VIDEO_MODEL = "MiniMax-H3"
-
-        @staticmethod
-        def uses_openai_videos_api(model=None):
-            return True
-
-    with patch.dict(
-        "sys.modules",
-        {"evoflow.community.media_generation.providers.minimax_video": _Fake()},
-    ):
-        # Import path uses `from ... import minimax_video as mv`
-        with patch(
+    with (
+        patch(
             "evoflow.community.media_generation.providers.minimax_video.uses_openai_videos_api",
             return_value=True,
-        ), patch(
+        ),
+        patch(
             "evoflow.community.media_generation.providers.minimax_video.DEFAULT_GATEWAY_VIDEO_MODEL",
             "minimax-h3",
-        ), patch(
-            "evoflow.community.media_generation.providers.minimax_video.DEFAULT_MINIMAX_VIDEO_MODEL",
-            "MiniMax-H3",
-        ):
-            assert ch.default_video_model_for_provider("minimax") == "minimax-h3"
+        ),
+    ):
+        assert ch.default_video_model_for_provider("minimax") == "minimax-h3"
 
 
 def test_preferred_video_provider_from_settings():
-    with patch(
-        "evoflow.persistence.media_settings.get_media_credentials",
-        return_value={"preferredVideoProvider": "minimax"},
+    with (
+        patch.object(ch, "_tool_extra", return_value={}),
+        patch.dict("os.environ", {"MEDIA_DEFAULT_VIDEO_PROVIDER": ""}, clear=False),
+        patch(
+            "evoflow.persistence.media_settings.get_media_credentials",
+            return_value={"preferredVideoProvider": "minimax"},
+        ),
     ):
         assert ch.default_video_provider() == "minimax"
 
 
 def test_media_catalog_defaults_follow_resolved_minimax():
     from evoflow.admin import platform_media as pm
-
-    fake_plan = {
-        "bound": True,
-        "tier_id": "small",
-        "capabilities": ["image", "chat"],
-        "image_entitled": True,
-        "video_entitled": False,
-        "notes": "Small 不含视频",
-        "docs_url": "",
-        "catalog_id": "volcengine.agent_plan",
-        "default_models": {},
-    }
 
     with (
         patch(
@@ -115,31 +94,73 @@ def test_media_catalog_defaults_follow_resolved_minimax():
             "_video_model_guide",
             return_value=[{"id": "doubao-seedance-2.5", "label": "Seedance 2.5"}],
         ),
+        patch(
+            "evoflow.plans.bindings.find_active_binding",
+            return_value={
+                "status": "active",
+                "tier_id": "small",
+                "bound_capabilities": ["image", "chat"],
+                "catalog_id": "volcengine.agent_plan",
+            },
+        ),
+        patch(
+            "evoflow.plans.volc_agent_plan_models.default_media_models_for_tier",
+            return_value={},
+        ),
+        patch(
+            "evoflow.plans.volc_agent_plan_models.media_capability_items",
+            side_effect=lambda cap: (
+                [{"id": "doubao-seedream-5-0-pro", "label": "Pro", "min_tier": "small"}]
+                if cap == "image"
+                else [{"id": "doubao-seedance-2.5", "label": "S", "min_tier": "large"}]
+            ),
+        ),
+        patch(
+            "evoflow.community.media_generation.provider_registry.channel_video_models",
+            return_value=[
+                {"id": "minimax-h3", "label": "minimax-h3", "provider": "minimax"},
+            ],
+        ),
+        patch(
+            "evoflow.community.media_generation.provider_registry.channel_image_models",
+            return_value=[],
+        ),
+        patch(
+            "evoflow.community.media_generation.provider_registry.credential_sources",
+            return_value=[],
+        ),
+        patch(
+            "evoflow.community.media_generation.provider_registry.input_image_formats",
+            return_value={},
+        ),
+        patch(
+            "evoflow.community.media_generation.provider_registry.key_routing_summary",
+            return_value="",
+        ),
     ):
-        # Bypass live plan lookup by forcing the try-block path via bindings mock
-        with patch("evoflow.plans.bindings.find_active_binding", return_value={
-            "status": "active",
-            "tier_id": "small",
-            "bound_capabilities": ["image", "chat"],
-            "catalog_id": "volcengine.agent_plan",
-        }):
-            with patch(
-                "evoflow.plans.volc_agent_plan_models.default_media_models_for_tier",
-                return_value={},
-            ), patch(
-                "evoflow.plans.volc_agent_plan_models.media_capability_items",
-                side_effect=lambda cap: (
-                    [{"id": "doubao-seedream-5-0-pro", "label": "Pro", "min_tier": "small"}]
-                    if cap == "image"
-                    else [{"id": "doubao-seedance-2.5", "label": "S", "min_tier": "large"}]
-                ),
-            ):
-                cat = pm.media_catalog()
+        cat = pm.media_catalog()
 
     assert cat["defaults"]["video_provider"] == "minimax"
     assert cat["defaults"]["video_model"] == "minimax-h3"
     seedance = next(m for m in cat["models"]["video"] if m.get("id") == "doubao-seedance-2.5")
     assert seedance.get("available") is False
-    assert "MiniMax" in cat["assistant_guide"]["say_to_user"] or "minimax" in cat["assistant_guide"]["say_to_user"].lower()
-    # silence unused
-    _ = fake_plan
+    guide = cat["assistant_guide"]["say_to_user"].lower()
+    assert "minimax" in guide or "seedance" in guide
+    assert cat["models"]["video"][0]["id"] == "minimax-h3"
+
+
+def test_media_status_ready_with_minimax_even_if_plan_lacks_video():
+    from evoflow.admin import platform_media as pm
+
+    with patch.object(
+        pm,
+        "media_catalog",
+        return_value={
+            "providers": {"image": ["jimeng"], "video": ["minimax"], "voice": []},
+            "agent_plan": {"bound": True, "video_entitled": False, "image_entitled": True},
+            "defaults": {"video_provider": "minimax", "video_model": "minimax-h3"},
+        },
+    ):
+        st = pm.media_status()
+    assert st["video_ready"] is True
+    assert st["image_ready"] is True

@@ -42,16 +42,83 @@ def _check_env() -> dict[str, Any]:
         "EVOFLOW_GATEWAY_URL",
         "EVOFLOW_SQLITE_BUSY_TIMEOUT_MS",
     ]
+    detail: dict[str, Any] = {
+        "python": sys.version.split()[0],
+        "executable": str(sys.executable),
+        "frozen": bool(getattr(sys, "frozen", False)),
+        "envs": {k: os.getenv(k, "") for k in relevant},
+    }
+    try:
+        from evoflow.config.data_paths import prefer_profile_base_dir, resolve_active_profile_id
+        from evoflow.config.paths import get_paths
+
+        paths = get_paths()
+        shared = Path.home() / ".evoflow"
+        detail["resolved_base_dir"] = str(paths.base_dir)
+        detail["active_profile"] = resolve_active_profile_id(shared) if shared.is_dir() else None
+        detail["profile_aware_home"] = str(prefer_profile_base_dir(shared)) if shared.is_dir() else None
+        if not (os.getenv("EVOFLOW_HOME") or "").strip() and shared.is_dir():
+            root_db = shared / "data" / "app" / "evoflow.db"
+            profile_home = Path(str(detail["profile_aware_home"] or ""))
+            if profile_home.is_dir() and paths.base_dir.resolve() != profile_home.resolve():
+                detail["home_mismatch"] = {
+                    "cli_base": str(paths.base_dir),
+                    "panel_profile": str(profile_home),
+                    "root_db_exists": root_db.is_file(),
+                }
+    except Exception as exc:
+        detail["resolve_error"] = str(exc)
     return {
         "name": "env",
         "ok": True,
-        "detail": {
-            "python": sys.version.split()[0],
-            "executable": str(sys.executable),
-            "frozen": bool(getattr(sys, "frozen", False)),
-            "envs": {k: os.getenv(k, "") for k in relevant},
-        },
+        "detail": detail,
     }
+
+
+def _check_media_credentials() -> dict[str, Any]:
+    """Surface whether panel MiniMax/etc. credentials are visible to this process."""
+    try:
+        from evoflow.community.media_generation.config_helpers import available_media_providers
+        from evoflow.config.paths import get_paths
+        from evoflow.persistence.db import resolve_evolflow_db_path
+        from evoflow.persistence.media_settings import get_enabled_vendors, get_media_credentials
+
+        creds = get_media_credentials()
+        enabled = get_enabled_vendors()
+        mk = str(creds.get("minimaxMediaApiKey") or "").strip()
+        detail = {
+            "db_path": str(resolve_evolflow_db_path()),
+            "base_dir": str(get_paths().base_dir),
+            "enabledVendors": {
+                k: bool(enabled.get(k))
+                for k in ("volcengine", "minimax", "dashscope", "openai-image", "kling")
+            },
+            "has_minimaxMediaApiKey": bool(mk),
+            "minimaxMediaBaseUrl": str(creds.get("minimaxMediaBaseUrl") or ""),
+            "preferredVideoProvider": str(creds.get("preferredVideoProvider") or ""),
+            "available_providers": available_media_providers(),
+        }
+        ok = True
+        hint = None
+        if enabled.get("minimax") and not mk:
+            ok = False
+            hint = "MiniMax 已启用但未读到 API Key：确认 CLI 的 base_dir 与面板 profile 一致（见 env.resolved_base_dir）"
+        elif not enabled.get("minimax") and not (detail["available_providers"].get("video") or []):
+            hint = (
+                "当前进程看不到可用视频渠道。若面板已配置 MiniMax，请确认 "
+                "EVOFLOW_HOME 指向 ~/.evoflow/profiles/<id>（或升级后让 CLI 自动解析 profile）"
+            )
+        out: dict[str, Any] = {"name": "media_credentials", "ok": ok, "detail": detail}
+        if hint:
+            out["hint"] = hint
+        return out
+    except Exception as exc:
+        return {
+            "name": "media_credentials",
+            "ok": False,
+            "detail": {"error": str(exc)},
+            "hint": "无法读取 media.credentials；检查 EVOFLOW_HOME / 数据库路径",
+        }
 
 
 def _probe_sidecar_locks(db_path: Path) -> list[str]:
@@ -208,7 +275,12 @@ def _find_gateway_runtime() -> dict[str, Any]:
 
 
 def _run(args: argparse.Namespace) -> dict[str, Any]:
-    checks: list[dict[str, Any]] = [_check_env(), _check_database(), _check_skills()]
+    checks: list[dict[str, Any]] = [
+        _check_env(),
+        _check_database(),
+        _check_media_credentials(),
+        _check_skills(),
+    ]
     proc_check = _count_stale_python_processes()
     if proc_check is not None:
         if not proc_check["ok"]:

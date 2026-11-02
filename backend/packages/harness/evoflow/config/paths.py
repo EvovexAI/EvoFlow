@@ -42,8 +42,14 @@ class Paths:
     BaseDir resolution (in priority order):
         1. Constructor argument `base_dir`
         2. EVOFLOW_HOME environment variable  <-- Use this for development (.evoflow-dev)
-        3. Local dev fallback: cwd/.evoflow  (when cwd is the backend/ dir)
-        4. Default: $HOME/.evoflow
+           Desktop sets this to ``…/profiles/<id>`` so panel settings land there.
+        3. When EVOFLOW_HOME unset: ``$HOME/.evoflow/profiles/<active>`` if that
+           desktop profile layout exists (same DB as the installed panel / CLI parity)
+        4. Local dev fallback: cwd/.evoflow  (when cwd is the backend/ dir)
+        5. Default: $HOME/.evoflow
+
+    Active profile id (when auto-resolving): EVOFLOW_PROFILE → current-profile file
+    → sole profiles/* dir → ``default``.
 
     === Development Environment Setup ===
     To use a separate data directory for development (e.g., .evoflow-dev while
@@ -112,19 +118,25 @@ class Paths:
             return result
 
         # Prefer existing data dir before loading AppConfig (opening evoflow.db must not take 30s+).
-        home_dir = Path.home() / ".evoflow"
+        # Desktop stores settings under profiles/<id>/; bare CLI must follow or MiniMax/etc. look "missing".
+        from evoflow.config.data_paths import prefer_profile_base_dir, shared_evoflow_roots
+
+        roots = shared_evoflow_roots()
+        home_dir = roots[0] if roots else (Path.home() / ".evoflow")
         if debug:
             logger.info(
-                "[EVOFLOW_DEBUG] EVOFLOW_HOME not set, checking default: %s (exists=%s)",
+                "[EVOFLOW_DEBUG] EVOFLOW_HOME not set, checking shared roots=%s home=%s (exists=%s)",
+                [str(r) for r in roots],
                 home_dir,
                 home_dir.exists(),
             )
 
         if home_dir.exists():
+            resolved = prefer_profile_base_dir(home_dir)
             if debug:
-                logger.info("[EVOFLOW_DEBUG] Returning default home_dir: %s", home_dir)
-            self._resolved_base_dir = home_dir
-            return home_dir
+                logger.info("[EVOFLOW_DEBUG] Returning resolved home (profile-aware): %s", resolved)
+            self._resolved_base_dir = resolved
+            return resolved
 
         # Config-driven base_dir (written to config.yaml by EvoPanel)
         try:
