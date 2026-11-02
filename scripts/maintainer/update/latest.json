@@ -3,8 +3,11 @@
   "minAppVersion": "1.2.3",
   "updateKind": "full",
   "assetKind": "installer",
-  "hash": "",
+  "hash": "sha256:e4329395856dd6ef8824eff4564c4afd463ed3b1cf1d33567ccb885bf92c7d22",
   "url": "https://github.com/EvovexAI/EvoFlow/releases/download/v1.2.3/EvoFlow_1.2.3_x64-setup.exe",
-  "size": 0,
-  "changelog": "EvoFlow 1.2.3（相对 1.2.2）：飞书/渠道图片可收可发并减少自介刷屏；聊天发送更跟手；任务中心与侧栏不再拖死对话；子代理侧栏与停止行为修好；工作流改为稳定 SVG 图标。覆盖安装即可。"
+  "size": 398325223,
+  "changelog": "**EvoFlow v1.2.3 — 飞书图片可通，聊天与任务中心不再互相拖死**",
+  "notes": "**EvoFlow v1.2.3 — 飞书图片可通，聊天与任务中心不再互相拖死**",
+  "releasedAt": "2026-11-02T03:15:44Z",
+  "pub_date": "2026-11-02T03:15:44Z"
 }
