@@ -1351,6 +1351,5 @@ export function renderAppearanceBar(page) {
         <p class="form-hint" style="margin-top:2px">整个界面等比缩放（含布局），范围 80%–200%，独立于字体大小。快捷键：Ctrl+= / Ctrl+- / Ctrl+0，或按住 Ctrl 滚轮。</p>
       </div>
     </div>
-    <p class="form-hint" style="margin-top:var(--space-xs)">外观设置会保存为你的偏好，并立即应用到整个客户端。</p>
   `
 }
