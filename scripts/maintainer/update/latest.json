@@ -1,12 +1,12 @@
 {
-  "version": "1.2.4",
-  "minAppVersion": "1.2.4",
+  "version": "1.2.5",
+  "minAppVersion": "1.2.5",
   "updateKind": "full",
   "assetKind": "installer",
   "hash": "",
-  "url": "https://ghfast.top/https://github.com/EvovexAI/EvoFlow/releases/download/v1.2.4/EvoFlow_1.2.4_x64-setup.exe",
-  "urlCnMirror": "https://ghfast.top/https://github.com/EvovexAI/EvoFlow/releases/download/v1.2.4/EvoFlow_1.2.4_x64-setup.exe",
-  "urlGithub": "https://github.com/EvovexAI/EvoFlow/releases/download/v1.2.4/EvoFlow_1.2.4_x64-setup.exe",
+  "url": "https://ghfast.top/https://github.com/EvovexAI/EvoFlow/releases/download/v1.2.5/EvoFlow_1.2.5_x64-setup.exe",
+  "urlCnMirror": "https://ghfast.top/https://github.com/EvovexAI/EvoFlow/releases/download/v1.2.5/EvoFlow_1.2.5_x64-setup.exe",
+  "urlGithub": "https://github.com/EvovexAI/EvoFlow/releases/download/v1.2.5/EvoFlow_1.2.5_x64-setup.exe",
   "size": 0,
-  "changelog": "EvoFlow 1.2.4（相对 1.2.3）：修好国内检查更新通道（Gitee 清单 + ghfast 下载）；V4 可改已发消息、流式/空流重试更稳；语音 ASR 刷屏不再拖死聊天；知识库无本地目录也能看目录树；中断运行不再卡在 running；协作子任务心跳与租约修复；通用设置可限制 LangGraph 并发。覆盖安装即可。"
+  "changelog": "EvoFlow 1.2.5（相对 1.2.4）：修复命令行工具超时后占用执行锁、拖垮下一轮的问题；知识库自有目录与右栏预览、资产引用更稳；预览面板改用本机「在资源管理器中显示」并放行 tauri.localhost，修好媒体播放报错；上下文用量浮层不再被右栏 WebView 压住；新增 Gitee 独立发版链路。覆盖安装即可。"
 }

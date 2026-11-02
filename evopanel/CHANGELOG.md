@@ -6,6 +6,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.2.5] - 2026-11-02
+
+相对 **1.2.4**：工具卡超时不再拖死下一轮；知识库自有目录与右栏预览/资产引用更稳；补齐 Gitee 独立发版链路。
+GitHub Release 正文见 `scripts/maintainer/windows/release-notes/PRODUCT-NOTES-1.2.5.md`；升级横幅见 `scripts/maintainer/update/latest.json`。
+
+### Fixed
+
+- **工具超时**：bash / LibreOffice 等命令超时后强制结束进程树，并给被丢弃的 worker 一个短暂窗口释放 bash 执行锁，避免下一轮看起来卡住
+- **知识库自有目录**：文件夹/文件名大小写与斜杠规范化后再匹配，目录树、文档预览与文件 Blob 打开更可靠
+- **右栏预览**：`PreviewPane` 默认使用本机「在资源管理器中显示」平台（不再被永久 disabled 的 stub 挡住）；Gateway 允许 `https://tauri.localhost`，修复媒体 Range 探测与跨域导致的「不支持播放这种媒体格式」
+- **上下文用量环**：浮层打开时 park 原生浏览器窗口，不再被右栏 WebView 压住一截
+- **资产引用**：模型引用的 `note=[...]` 与路径更稳地解析，深链到右栏预览
+- **界面细节**：浏览器面板外链图标、工具卡文件路径渲染、MessageRow 与主题 token 微调
+
+### Added
+
+- **Gitee 独立发版**：新增 Gitee Go Windows 构建管线（`.workflow/`）与 `publish-gitee-release.ps1` / `ci-release-windows.ps1`
+
+### Changed
+
+- **发版脚本**：重写 `push-public-latest-json.ps1`，公仓 `update/latest.json` 的 hash/size/镜像地址刷新流程整理
+
 ## [1.2.4] - 2026-11-02
 
 相对 **1.2.3**：修好国内桌面检查更新；V4 编辑/流式、语音 ASR、知识库目录、中断运行、协作子任务与并发设置等稳定性补丁。
