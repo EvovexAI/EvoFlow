@@ -806,8 +806,45 @@ function buildVolcengineCreativeHeader() {
     </header>`
 }
 
+function planLacksVideo() {
+  if (!isVolcPlanActive()) return false
+  const caps = _volcPlanBinding?.bound_capabilities || _volcPlanBinding?.boundCapabilities || []
+  return !caps.map(String).includes('video')
+}
+
+function preferredVideoProviderHtml(creds) {
+  const cur = String(creds.preferredVideoProvider || '')
+  const opts = [
+    { value: '', label: '自动（按已配置渠道；无 Seedance 权时会落到 MiniMax/万相）' },
+    { value: 'jimeng', label: '火山 Seedance（需套餐含视频或按量 Key）' },
+    { value: 'minimax', label: 'MiniMax 视频' },
+    { value: 'wan', label: '通义万相' },
+    { value: 'kling', label: '可灵' },
+  ]
+  const options = opts
+    .map(
+      (o) =>
+        `<option value="${escAttr(o.value)}"${o.value === cur ? ' selected' : ''}>${escHtml(o.label)}</option>`,
+    )
+    .join('')
+  return `
+    <label class="form-field">
+      <span class="form-label">默认视频渠道</span>
+      <select class="form-input" data-media-field="preferredVideoProvider">${options}</select>
+      <span class="form-hint">Agent / media.catalog 未指定 provider 时使用。配置 MiniMax 后可选手动指定。</span>
+    </label>`
+}
+
+function planVideoGateHintHtml() {
+  if (!planLacksVideo()) return ''
+  const tier = String(_volcPlanBinding?.tier_id || _volcPlanBinding?.tierId || '当前档').trim()
+  return `<p class="form-hint media-plan-video-hint">当前套餐（${escHtml(tier)}）不含 Seedance 视频。启用 MiniMax / 万相并保存 Key 后，默认会走这些渠道，catalog 不再把 Seedance 当可用默认。</p>`
+}
+
 function buildVolcengineCreativeFieldsHtml(creds) {
   return `
+    ${planVideoGateHintHtml()}
+    ${preferredVideoProviderHtml(creds)}
     ${secretFieldHtml('volcengineApiKey', 'Ark API Key（可选）', creds)}
     <p class="form-hint">有 Agent Plan 时可留空。自定义 Key 用于按量 / 兼容网关，保存后与套餐并行：运行时优先套餐 Key。</p>
     ${textFieldHtml(
@@ -882,9 +919,11 @@ function buildDetailHtml(vendorKey, creds) {
       break
     case 'minimax':
       fields = `
+        ${planVideoGateHintHtml()}
+        ${preferredVideoProviderHtml(creds)}
         ${secretFieldHtml('minimaxMediaApiKey', 'API Key', creds)}
         ${textFieldHtml('minimaxMediaBaseUrl', 'Base URL（可选）', 'https://api.minimax.cn', creds)}
-        <p class="form-hint">官方默认 https://api.minimax.cn（模型 MiniMax-H3）。第三方网关（hon-maas）填 https://…/v1（勿多加 /videos），模型用 minimax-h3 或 minimax-h3/QY3。与 TTS Key 分开。</p>
+        <p class="form-hint">官方默认 https://api.minimax.cn（模型 MiniMax-H3）。第三方网关（hon-maas）填 https://…/v1（勿多加 /videos），模型用 minimax-h3 或 minimax-h3/QY3。与 TTS Key 分开。启用后若套餐无 Seedance，Agent 会自动默认本渠道。</p>
       `
       break
     case 'kling':

@@ -104,8 +104,10 @@ def media_catalog(*, tier_hint: str | None = None) -> dict[str, Any]:
     """
     from evoflow.community.media_generation.config_helpers import (
         available_media_providers,
-        jimeng_image_model,
-        jimeng_video_model,
+        default_image_model_for_provider,
+        default_video_model_for_provider,
+        resolve_image_provider,
+        resolve_video_provider,
     )
     from evoflow.community.media_generation.provider_registry import (
         channel_image_models,
@@ -173,30 +175,91 @@ def media_catalog(*, tier_hint: str | None = None) -> dict[str, Any]:
         logger.info("media.catalog plan lookup skipped: %s", exc)
         plan = {"bound": False, "error": str(exc)}
 
-    default_image = jimeng_image_model()
-    default_video = jimeng_video_model()
+    # Resolved defaults follow credentials + Plan entitlements (not hard-jimeng).
+    img_prov, _ = resolve_image_provider(None)
+    vid_prov, _ = resolve_video_provider(None)
+    default_image = default_image_model_for_provider(img_prov)
+    default_video = default_video_model_for_provider(vid_prov)
+
+    video_entitled = bool(plan.get("video_entitled")) if isinstance(plan, dict) else True
+    plan_bound = bool(plan.get("bound")) if isinstance(plan, dict) else False
+    if plan_bound and not video_entitled:
+        blocked = (
+            str((plan or {}).get("notes") or "").strip()
+            or "当前套餐档位不含 Seedance 视频；请用已配置渠道（如 MiniMax）或升级 Large/Max。"
+        )
+        for m in video_models:
+            m["available"] = False
+            m["blocked_reason"] = blocked
+            m.setdefault("provider", "jimeng")
+
+    channel_vids = channel_video_models()
+    configured_video = set(avail.get("video") or [])
+    # Prefer models whose provider is actually configured; Seedance list stays for discovery.
+    ready_channel = [m for m in channel_vids if m.get("provider") in configured_video]
+    other_channel = [m for m in channel_vids if m.get("provider") not in configured_video]
+    ordered_video = ready_channel + video_models + other_channel
+
+    channel_imgs = channel_image_models()
+    configured_image = set(avail.get("image") or [])
+    ready_img = [m for m in channel_imgs if m.get("provider") in configured_image]
+    other_img = [m for m in channel_imgs if m.get("provider") not in configured_image]
+    ordered_image = ready_img + image_models + other_img
+
+    default_vid_hint = default_video
+    if vid_prov == "minimax":
+        pipeline_hint = (
+            f"当前默认视频渠道 minimax（model={default_vid_hint}）。"
+            "可直接 media.generate_video；图生视频传 first_frame_url。"
+        )
+        recommended = [
+            "1. media.catalog（确认 defaults.video_provider / video_model）",
+            f"2. media.generate_video(confirm=true, provider=minimax, model={default_vid_hint}, …)",
+            "3. media.task_wait(task_id=…)",
+        ]
+        say = (
+            "先 media.catalog 看 defaults；当前套餐若无 Seedance，默认会走已配置的 MiniMax/万相等渠道。"
+            f"生视频用 defaults.video_model（现为 {default_vid_hint}），勿硬套 doubao-seedance。"
+        )
+    else:
+        pipeline_hint = (
+            "火山 jimeng：推荐先 Seedream 生图再 Seedance image2video。"
+            f"默认 model={default_vid_hint}。"
+        )
+        recommended = [
+            "1. media.catalog（看 models / params / 档位有无视频）",
+            "2. media.generate_image(confirm=true, model=Seedream…)",
+            f"3. media.generate_video(confirm=true, mode=image2video, model={default_vid_hint}, first_frame_url=上一步路径)",
+            "4. media.task_wait(task_id=…)",
+        ]
+        say = (
+            "先 media.catalog 看生图/生视频模型与参数；"
+            "不确定时用 defaults.image_model / defaults.video_model；"
+            "可显式传 model（Seedream / Seedance / gpt-image / MiniMax / wan）。"
+        )
 
     return {
         "ok": True,
         "how_to_discover": (
             "调用本 action（media.catalog）即可。返回 models + params + examples。"
             "生图/生视频前先读 catalog；再带 confirm=true 调 generate_*。"
-            "不确定模型时用 defaults.image_model / defaults.video_model。"
+            "不确定模型时用 defaults.image_model / defaults.video_model（已按已配置渠道解析）。"
         ),
         "providers": avail,
         "defaults": {
-            "image_provider": _DEFAULT_IMAGE_PROVIDER,
-            "video_provider": _DEFAULT_VIDEO_PROVIDER,
+            "image_provider": img_prov,
+            "video_provider": vid_prov,
             "image_model": default_image,
             "video_model": default_video,
         },
         "models": {
-            "image": image_models + channel_image_models(),
-            "video": video_models + channel_video_models(),
+            "image": ordered_image,
+            "video": ordered_video,
         },
         "input_image_formats": input_image_formats(),
         "credentials": credential_sources(),
         "key_routing": key_routing_summary(),
+        "pipeline_hint": pipeline_hint,
         "interfaces": {
             "image": {
                 "pattern": "sync_poll",
@@ -235,18 +298,19 @@ def media_catalog(*, tier_hint: str | None = None) -> dict[str, Any]:
                     },
                     "provider": {
                         "required": False,
-                        "default": "jimeng",
+                        "default": img_prov,
                         "enum_hint": ["jimeng", "wan", "openai", "kling"],
                     },
                     "max_wait_seconds": {"required": False, "type": "int", "default": 300},
                 },
                 "examples": [
                     {
-                        "title": "文生图（默认 Pro）",
+                        "title": "文生图（跟 defaults）",
                         "action": "media.generate_image",
                         "args": {
                             "prompt": "暗色极简房间，人物背对发光屏幕；蓝紫轮廓光；16:9 中景科技广告风",
                             "model": default_image,
+                            "provider": img_prov,
                             "aspect_ratio": "16:9",
                         },
                     },
@@ -266,9 +330,13 @@ def media_catalog(*, tier_hint: str | None = None) -> dict[str, Any]:
                 "pattern": "async_task",
                 "summary": (
                     "media.generate_video 只提交任务；再用 media.task_wait 轮询落盘。"
-                    "推荐流水线：generate_image → generate_video(mode=image2video, first_frame_url=...) → task_wait。"
+                    + pipeline_hint
                 ),
-                "endpoint_hint": "POST {ark}/api/plan/v3/contents/generations/tasks（Seedance）",
+                "endpoint_hint": (
+                    "MiniMax OpenAI Videos：POST {base}/videos"
+                    if vid_prov == "minimax"
+                    else "POST {ark}/api/plan/v3/contents/generations/tasks（Seedance）"
+                ),
                 "docs_hint": "https://www.volcengine.com/docs/82379/ （创建视频生成任务 API）",
                 "params": {
                     "prompt": {
@@ -279,9 +347,11 @@ def media_catalog(*, tier_hint: str | None = None) -> dict[str, Any]:
                     "model": {
                         "required": False,
                         "type": "string",
-                        "desc": "Seedance 模型 ID；省略则用 defaults.video_model。Agent Plan Large/Max 才有视频。",
-                        "enum_hint": [m["id"] for m in video_models]
-                        + [m["id"] for m in channel_video_models()],
+                        "desc": (
+                            "省略则用 defaults.video_model。"
+                            "Seedance 需套餐 Large/Max；hon-maas MiniMax 用 minimax-h3 / minimax-h3/QY3。"
+                        ),
+                        "enum_hint": [m["id"] for m in ordered_video],
                     },
                     "mode": {
                         "required": False,
@@ -328,56 +398,41 @@ def media_catalog(*, tier_hint: str | None = None) -> dict[str, Any]:
                     },
                     "watermark": {"required": False, "type": "bool", "default": False},
                     "seed": {"required": False, "type": "int", "desc": "随机种子；相同 seed 结果更接近"},
-                    "provider": {"required": False, "default": "jimeng"},
+                    "provider": {
+                        "required": False,
+                        "default": vid_prov,
+                        "enum_hint": ["jimeng", "wan", "minimax", "kling"],
+                    },
                 },
                 "examples": [
                     {
-                        "title": "图生视频（首帧 + 口播）",
-                        "steps": [
-                            "media.generate_image → 记下 absolute_path / url",
-                            "media.generate_video(confirm=true)",
-                            "media.task_wait(task_id=...)",
-                        ],
+                        "title": "跟 defaults 生视频",
+                        "steps": recommended,
                         "action": "media.generate_video",
                         "args": {
-                            "prompt": "镜头缓推向发光屏幕；口播：「智能，如流而动。」",
-                            "mode": "image2video",
-                            "model": default_video,
-                            "first_frame_url": "<上一张图 absolute_path 或 url>",
-                            "duration": 5,
-                            "resolution": "720p",
-                            "generate_audio": True,
-                        },
-                    },
-                    {
-                        "title": "首尾帧图生视频",
-                        "action": "media.generate_video",
-                        "args": {
-                            "prompt": "镜头从森林入口平滑移动到湖边",
-                            "mode": "image2video",
-                            "model": "doubao-seedance-2.5",
-                            "first_frame_url": "<首帧路径>",
-                            "last_frame_url": "<尾帧路径>",
-                            "duration": 8,
-                            "resolution": "720p",
+                            k: v
+                            for k, v in {
+                                "prompt": "镜头缓推向发光屏幕；口播：「智能，如流而动。」",
+                                "mode": "image2video" if vid_prov == "jimeng" else "text2video",
+                                "model": default_video,
+                                "provider": vid_prov,
+                                "first_frame_url": (
+                                    "<上一张图 absolute_path 或 url>" if vid_prov == "jimeng" else ""
+                                ),
+                                "duration": 5,
+                                "resolution": "720p",
+                                "generate_audio": vid_prov == "jimeng",
+                            }.items()
+                            if v != ""
                         },
                     },
                 ],
             },
         },
         "agent_plan": plan,
-        "recommended_pipeline": [
-            "1. media.catalog（看 models / params / 档位有无视频）",
-            "2. media.generate_image(confirm=true, model=Seedream…)",
-            "3. media.generate_video(confirm=true, mode=image2video, model=Seedance…, first_frame_url=上一步路径)",
-            "4. media.task_wait(task_id=…)",
-        ],
+        "recommended_pipeline": recommended,
         "assistant_guide": {
-            "say_to_user": (
-                "先 media.catalog 看生图/生视频模型与参数；"
-                "生图 media.generate_image；生视频推荐「先出图再 image2video」后 media.task_wait。"
-                "可显式传 model（如 doubao-seedream-5-0-pro / doubao-seedance-2.5 / gpt-image-2.5-sunburst / MiniMax-H3）。"
-            ),
+            "say_to_user": say,
         },
     }
 
@@ -387,8 +442,10 @@ def media_status() -> dict[str, Any]:
     cat = media_catalog()
     avail = cat.get("providers") or {}
     plan = cat.get("agent_plan") or {}
-    image_ok = bool((avail.get("image") or []) and (not plan.get("bound") or plan.get("image_entitled")))
-    video_ok = bool((avail.get("video") or []) and (not plan.get("bound") or plan.get("video_entitled")))
+    # Image/video ready = any configured provider that can actually run
+    # (jimeng already omitted from providers.video when Plan lacks video).
+    image_ok = bool(avail.get("image") or [])
+    video_ok = bool(avail.get("video") or [])
     return {
         "ok": True,
         "image_ready": image_ok,
