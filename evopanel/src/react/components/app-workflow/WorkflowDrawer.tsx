@@ -17,6 +17,7 @@ import {
 } from 'lucide-react'
 import {
   STEP_FIELD_MAP,
+  isMissingStepTaskName,
   type AppWorkflowStep,
   type StepNodeData,
 } from '../../lib/app-workflow-plan.ts'
@@ -116,10 +117,10 @@ function DrawerPanel({ title, children }: { title: string; children: ReactNode }
   )
 }
 
-function FieldBadge({ kind }: { kind: 'suggest' | 'optional' }) {
+function FieldBadge({ kind }: { kind: 'required' | 'suggest' | 'optional' }) {
   return (
     <span className={`wf-field-badge wf-field-badge--${kind}`}>
-      {kind === 'suggest' ? '建议填' : '可选'}
+      {kind === 'required' ? '必填' : kind === 'suggest' ? '建议填' : '可选'}
     </span>
   )
 }
@@ -223,7 +224,6 @@ export function WorkflowDrawer({
   const { agents, skills, tools, mcpServers, loading } = useWorkflowResources(open)
   const [agentOpen, setAgentOpen] = useState(false)
   const [capOpen, setCapOpen] = useState(false)
-  const [libSearch, setLibSearch] = useState('')
   const [agentSearch, setAgentSearch] = useState('')
   /** 本智能体自带能力区域折叠 */
   const [capsFold, setCapsFold] = useState(true)
@@ -231,6 +231,18 @@ export function WorkflowDrawer({
   const [capSectionOpen, setCapSectionOpen] = useState(true)
   /** 高级设置折叠区（默认收起，新手基本不用） */
   const [advancedOpen, setAdvancedOpen] = useState(false)
+
+  // 新建/选中缺任务名的步骤时，自动聚焦「任务名称」，逼着先起名
+  useEffect(() => {
+    if (tab !== 'config' || !selectedStep) return
+    if (!isMissingStepTaskName(selectedStep.name)) return
+    const t = window.setTimeout(() => {
+      const el = document.getElementById('wf-drawer-step-name') as HTMLInputElement | null
+      el?.focus()
+      el?.select()
+    }, 60)
+    return () => window.clearTimeout(t)
+  }, [tab, selectedStep?.ref, selectedStep?.name])
 
   const agentSummary = useMemo(() => {
     if (!selectedStep?.assigned_agent) return '未选 · 点此选择谁执行本步'
@@ -370,9 +382,8 @@ export function WorkflowDrawer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedId])
 
-  const libNodes = useMemo(() => {
-    const q = libSearch.trim().toLowerCase()
-    const items = [
+  const libNodes = useMemo(
+    () => [
       {
         id: 'start',
         title: '流程开始',
@@ -393,20 +404,20 @@ export function WorkflowDrawer({
       },
       {
         id: 'agent',
-        title: '智能体步骤',
-        desc: '选员工并写本步要做什么',
+        title: '任务步骤',
+        desc: '先起任务名称，再选执行者、写做什么',
         tone: 'action' as const,
         icon: <Workflow size={16} />,
         onClick: onAddStep,
         draggable: true,
         dragKind: 'agent-step',
       },
-    ]
-    return q ? items.filter((i) => i.title.toLowerCase().includes(q) || i.desc.toLowerCase().includes(q)) : items
-  }, [libSearch, onAddStep, onAddAnswer])
+    ],
+    [onAddStep, onAddAnswer],
+  )
 
   const filteredAgents = useMemo<AgentPickerRow[]>(() => {
-    const q = (agentSearch || libSearch).trim().toLowerCase()
+    const q = agentSearch.trim().toLowerCase()
     if (!q) return agents
     return agents.filter((a) => {
       const code = String(a.agent_code || '').toLowerCase()
@@ -415,7 +426,7 @@ export function WorkflowDrawer({
       const tagText = normalizeAgentTags(a.tags).join(' ').toLowerCase()
       return code.includes(q) || name.includes(q) || desc.includes(q) || tagText.includes(q)
     })
-  }, [agents, agentSearch, libSearch])
+  }, [agents, agentSearch])
 
   const isStart = selectedId === START_NODE_ID
   const isAnswer = selectedId === ANSWER_NODE_ID
@@ -454,16 +465,6 @@ export function WorkflowDrawer({
       <div className="wf-drawer-body">
         {tab === 'library' ? (
           <>
-            <div className="wf-drawer-search-wrap">
-              <Search size={15} className="wf-drawer-search-icon" aria-hidden />
-              <input
-                className="wf-drawer-search"
-                placeholder="搜索节点或智能体…"
-                value={libSearch}
-                onChange={(e) => setLibSearch(e.target.value)}
-              />
-            </div>
-
             <div className="wf-drawer-section">
               <div className="wf-drawer-section-head">
                 <span className="wf-drawer-section-title">系统节点</span>
@@ -520,6 +521,7 @@ export function WorkflowDrawer({
                   {libNodes.filter((n) => n.tone === 'action').length}
                 </span>
               </div>
+              <p className="wf-drawer-section-hint">空白步骤：点或拖到画布后，先填写任务名称</p>
               {libNodes
                 .filter((n) => n.tone === 'action')
                 .map((n) => (
@@ -528,6 +530,7 @@ export function WorkflowDrawer({
                     type="button"
                     className="wf-drawer-lib-card wf-drawer-lib-row"
                     draggable
+                    title="点击添加，或拖到画布"
                     onDragStart={(e) => {
                       e.dataTransfer.setData(dndType, 'agent-step')
                       e.dataTransfer.effectAllowed = 'copy'
@@ -550,12 +553,12 @@ export function WorkflowDrawer({
 
             <div className="wf-drawer-section wf-drawer-section--agents">
               <div className="wf-drawer-section-head">
-                <span className="wf-drawer-section-title">智能体</span>
+                <span className="wf-drawer-section-title">添加智能体节点</span>
                 <span className="wf-drawer-section-badge">
                   {filteredAgents.length}
                 </span>
               </div>
-              <p className="wf-drawer-section-hint">拖到画布直接创建对应智能体的步骤</p>
+              <p className="wf-drawer-section-hint">点一下或拖进画布均可 · 自动带上该执行者，再补任务名称</p>
               <div className="wf-drawer-agent-search-wrap">
                 <Search size={13} className="wf-drawer-agent-search-icon" aria-hidden />
                 <input
@@ -585,6 +588,7 @@ export function WorkflowDrawer({
                         type="button"
                         className="wf-drawer-lib-card wf-drawer-lib-row wf-drawer-agent-item"
                         draggable
+                        title={`${name} — 点击添加，或拖到画布`}
                         onDragStart={(e) => {
                           e.dataTransfer.setData(dndType, `agent:${code}`)
                           e.dataTransfer.effectAllowed = 'copy'
@@ -599,14 +603,13 @@ export function WorkflowDrawer({
                             })
                           }
                         }}
-                        title={name}
                       >
                         <span className="wf-drawer-agent-avatar" aria-hidden>
                           <AssignedAgentAvatar agentCode={code} agents={agents} size={32} />
                         </span>
                         <div className="wf-drawer-lib-copy">
                           <div className="wf-drawer-lib-title-row">
-                            <span className="wf-drawer-lib-name" title={name}>
+                            <span className="wf-drawer-lib-name" title={`${name}（${code}）`}>
                               {name}
                             </span>
                             {tags.length > 0 ? (
@@ -633,7 +636,9 @@ export function WorkflowDrawer({
                             ) : null}
                           </div>
                           <span className="wf-drawer-lib-desc">
-                            {caps.description || code}
+                            {caps.description
+                              ? `${code} · ${caps.description}`
+                              : `编码 ${code} · 点或拖到画布`}
                           </span>
                         </div>
                         <span className="wf-drawer-lib-add" aria-hidden>
@@ -656,7 +661,7 @@ export function WorkflowDrawer({
                   <Sparkles size={20} />
                 </div>
                 <p>在画布点选一个节点进行配置</p>
-                <span>智能体步骤：谁来做、做什么</span>
+                <span>智能体步骤：任务名、谁来做、做什么</span>
               </div>
             ) : null}
 
@@ -708,9 +713,30 @@ export function WorkflowDrawer({
                 ) : null}
 
                 <DrawerPanel title="基础信息">
+                  <div className="wf-drawer-field">
+                    <label className="wf-drawer-label" htmlFor="wf-drawer-step-name">
+                      1. 任务名称
+                      <FieldBadge kind="required" />
+                    </label>
+                    <input
+                      id="wf-drawer-step-name"
+                      className={`wf-drawer-control${
+                        isMissingStepTaskName(selectedStep.name) ? ' is-invalid' : ''
+                      }`}
+                      type="text"
+                      value={selectedStep.name || ''}
+                      placeholder="必填，如「收集竞品资料」"
+                      onChange={(e) => onStepChange({ name: e.target.value })}
+                    />
+                    <p className="wf-drawer-tip" style={{ margin: '6px 0 0' }}>
+                      {isMissingStepTaskName(selectedStep.name)
+                        ? '先起个短名——画布节点标题和发布检查都会用到。'
+                        : '画布节点主标题显示此名称。'}
+                    </p>
+                  </div>
                   <ResourceRow
                     icon={<Bot size={15} />}
-                    label="1. 谁来做"
+                    label="2. 谁来做"
                     summary={agentSummary}
                     badge="suggest"
                     onClick={() => setAgentOpen(true)}
@@ -797,7 +823,7 @@ export function WorkflowDrawer({
                         className="wf-drawer-text-btn"
                         onClick={() => setAgentOpen(true)}
                       >
-                        更换员工 / 查看完整列表
+                        更换执行者 / 查看完整列表
                       </button>
                       <p className="wf-drawer-tip" style={{ margin: '6px 0 0' }}>
                         「可选」里另挂的技能/工具是本步额外覆盖，不会替换上面的默认能力。
@@ -805,13 +831,13 @@ export function WorkflowDrawer({
                     </div>
                   ) : (
                     <p className="wf-drawer-tip" style={{ marginTop: 8 }}>
-                      先点上方选一个智能体，即可在此查看自带技能与工具。
+                      先点上方选一个员工或通用 Agent，即可在此查看自带技能与工具。
                     </p>
                   )}
 
                   <div className="wf-drawer-field" style={{ marginTop: 14 }}>
                     <label className="wf-drawer-label" htmlFor="wf-drawer-task">
-                      2. 做什么
+                      3. 做什么
                       <FieldBadge kind="suggest" />
                     </label>
                     <SlashVarTextarea

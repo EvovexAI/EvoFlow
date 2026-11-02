@@ -1559,7 +1559,7 @@
 }
 
 .app-rf-flow-wrap.is-drag-over::before {
-  content: '??????????';
+  content: '释放以添加 Agent 步骤';
   position: absolute;
   z-index: 20;
   left: 50%;
@@ -2555,6 +2555,11 @@
   vertical-align: middle;
 }
 
+.wf-field-badge--required {
+  background: color-mix(in srgb, #dc2626 12%, transparent);
+  color: #dc2626;
+}
+
 .wf-field-badge--suggest {
   background: color-mix(in srgb, var(--accent) 14%, transparent);
   color: var(--accent);
@@ -2563,6 +2568,11 @@
 .wf-field-badge--optional {
   background: var(--bg-secondary);
   color: var(--text-tertiary);
+}
+
+.wf-drawer-control.is-invalid {
+  border-color: color-mix(in srgb, #dc2626 55%, var(--border-primary));
+  box-shadow: 0 0 0 1px color-mix(in srgb, #dc2626 22%, transparent);
 }
 
 .wf-drawer-field-hint {
@@ -2917,6 +2927,20 @@
 .wf-agent-picker {
   width: min(880px, 96vw);
   max-height: min(78vh, 760px);
+}
+
+/* 工作流弹窗用 button 承载 chip，清掉默认 button 样式以免挤成一坨纯文字 */
+.wf-agent-picker .react-chat-skill-tag-bar {
+  max-height: 88px;
+  overflow-y: auto;
+}
+
+.wf-agent-picker button.react-chat-skill-tag-chip {
+  appearance: none;
+  font: inherit;
+  line-height: inherit;
+  margin: 0;
+  font-family: inherit;
 }
 
 .wf-agent-picker-tag-n {
@@ -6151,9 +6175,11 @@ body:has(.app-wf-canvas-host) .react-chat-skill-modal-list {
 .wf-drawer-agent-item .wf-drawer-lib-name {
   flex: 1 1 auto;
   min-width: 0;
-  font-size: 13px;
-  font-weight: 600;
-  line-height: 1.35;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 1.3;
+  color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

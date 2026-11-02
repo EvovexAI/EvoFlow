@@ -358,7 +358,7 @@ export function WorkflowNodeInspector({
                 </span>
               ) : (
                 <span className="wf-inspector-meta-chip wf-inspector-meta-chip--muted">
-                  <Bot size={11} /> 未选择员工
+                  <Bot size={11} /> 未选择执行者
                 </span>
               )}
               {selectedStep.model ? (

@@ -671,8 +671,26 @@ async function _startXiaomiFramePipelineInner(opts = {}) {
       console.info('[xiaomi-frame] user_to_bot_ms=', m.user_to_bot_ms, anchor)
     }
     if (type === 'error') {
-      voiceFeLog('错误', String(m.message || '未知错误'))
-      console.warn('[xiaomi-frame]', m.message)
+      const errMsg = String(m.message || m.error || '未知错误')
+      const code = String(m.code || '')
+      voiceFeLog('错误', errMsg)
+      console.warn('[xiaomi-frame]', errMsg)
+      // ASR 鉴权失败时后端会停重建；这里必须 toast，否则 UI 永远卡在「聆听」
+      if (
+        code === 'asr_auth' ||
+        /鉴权|AuthenticationError|401|API Key|api key/i.test(errMsg)
+      ) {
+        void import('../background-voice.js').then((bv) => {
+          void bv.setVoiceTrayState?.('idle')
+        })
+        void import('../../components/toast.js').then(({ toast }) => {
+          toast(errMsg.slice(0, 160), 'warning', {
+            duration: 8000,
+            position: 'top-right',
+            key: 'xiaomi-asr-auth',
+          })
+        })
+      }
     }
   })
 

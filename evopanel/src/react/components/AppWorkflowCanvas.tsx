@@ -70,6 +70,7 @@ import {
   nextStepRef,
   normalizeSteps,
   stepToNodeData,
+  isMissingStepTaskName,
   stepsToExport,
   wouldCreateCycle,
   type AppWorkflowPlan,
@@ -995,7 +996,20 @@ export const AppWorkflowCanvas = forwardRef<AppWorkflowCanvasHandle, Props>(func
       problems.push('工作流目标为空 — 请在左上角填写这个工作流要做什么')
     }
 
-    // 3. 每个步骤都要有执行 Agent
+    // 3. 每个步骤必须有真实任务短名（不能空着或留「步骤 N」）
+    const noNameSteps = stepNodes.filter((n) => isMissingStepTaskName(n.data?.name))
+    if (noNameSteps.length > 0) {
+      const labels = noNameSteps
+        .map((n) => n.data?.name?.trim() || n.data?.goal?.trim() || `节点 ${n.id}`)
+        .slice(0, 3)
+        .join('、')
+      const more = noNameSteps.length > 3 ? ` 等 ${noNameSteps.length} 个` : ''
+      problems.push(
+        `${noNameSteps.length} 个步骤还没写任务名称：${labels}${more} — 选中节点后在右侧填写「任务名称」`,
+      )
+    }
+
+    // 4. 每个步骤都要有执行 Agent
     const noAgentSteps = stepNodes.filter((n) => !n.data?.assigned_agent?.trim())
     if (noAgentSteps.length > 0) {
       const names = noAgentSteps
@@ -1004,17 +1018,17 @@ export const AppWorkflowCanvas = forwardRef<AppWorkflowCanvasHandle, Props>(func
         .join('、')
       const more = noAgentSteps.length > 3 ? ` 等 ${noAgentSteps.length} 个` : ''
       problems.push(
-        `${noAgentSteps.length} 个步骤还没选执行员工：${names}${more} — 选中节点后在右侧配置「执行员工」`,
+        `${noAgentSteps.length} 个步骤还没选执行者：${names}${more} — 选中节点后在右侧配置「谁来做」`,
       )
     }
 
-    // 4. 最终答案要有连线（只有 1 个步骤时可选提示，不强制）
+    // 5. 最终答案要有连线（只有 1 个步骤时可选提示，不强制）
     const hasAnswerEdge = edges.some((e) => e.target === ANSWER_NODE_ID)
     if (stepNodes.length > 0 && !hasAnswerEdge) {
       problems.push('还没设置「最终答案」— 从某个步骤节点拖一条线到「最终答案」，指定哪一步的结果作为输出')
     }
 
-    // 5. 检查孤立节点（没有任何入边也没有出边的步骤）
+    // 6. 检查孤立节点（没有任何入边也没有出边的步骤）
     const realEdges = edges.filter((e) => e.source !== START_NODE_ID && e.target !== ANSWER_NODE_ID)
     const orphanSteps = stepNodes.filter((n) => {
       const hasIn = realEdges.some((e) => e.target === n.id) || edges.some((e) => e.source === START_NODE_ID && e.target === n.id)

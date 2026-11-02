@@ -2,7 +2,7 @@ import { memo, useMemo } from 'react'
 import { type NodeProps } from '@xyflow/react'
 import NodeCardShell from './NodeCardShell.tsx'
 import { WorkflowStepAgentHead, resolveWorkflowAgent } from './WorkflowStepAgentHead.tsx'
-import type { StepNodeData } from '../../lib/app-workflow-plan.ts'
+import { isMissingStepTaskName, type StepNodeData } from '../../lib/app-workflow-plan.ts'
 import { parseCsvField } from '../../lib/workflow-step-csv.ts'
 import { useWorkflowStudioOptional } from './WorkflowStudioContext.tsx'
 
@@ -24,15 +24,21 @@ function StepNode({ id, data, selected }: NodeProps & { data: StepNodeData }) {
     : undefined
   const execStatus = data.ref ? studio?.execByRef?.[String(data.ref)] : undefined
 
-  const goalText = data.goal?.trim() || data.description?.trim() || ''
-  let subtitle = !hasAgent
-    ? '点击选择员工'
-    : goalText || (selected ? '在右侧面板写本步要做什么' : '待写步骤说明')
+  const missingName = isMissingStepTaskName(data.name)
+  const taskName = data.name?.trim() || ''
+  const goalPreview = (data.goal?.trim() || data.description?.trim() || '').split(/\r?\n/)[0] || ''
+  const title = missingName ? '填写任务名称' : taskName
+  const titleMuted = missingName
+
+  let subtitle = hasAgent ? agentLabel : '点击头像选择执行者'
+  if (hasAgent && goalPreview) {
+    subtitle = `${agentLabel} · ${goalPreview}`
+  }
   if (hasAgent && stepOverrideTotal > 0 && selected) {
     subtitle = `${subtitle} · 另挂 ${stepOverrideTotal}`
   }
 
-  // 画布节点只保留「谁 + 做什么」摘要；技能/工具统一在右侧配置面板展示
+  // 主标题 = 任务短名；执行者 / 说明缩在副行。技能工具仍在右侧面板。
   return (
     <NodeCardShell
       selected={selected}
@@ -47,12 +53,12 @@ function StepNode({ id, data, selected }: NodeProps & { data: StepNodeData }) {
           showLabel={false}
         />
       }
-      title={agentLabel}
-      titleMuted={!hasAgent}
+      title={title}
+      titleMuted={titleMuted}
       subtitle={subtitle}
       onClose={studio?.deleteNode ? () => studio.deleteNode(id) : undefined}
       onAgentPick={execStatus ? undefined : openAgentPicker}
-      agentPickMode={hasAgent ? 'avatar' : 'row'}
+      agentPickMode="avatar"
       execStatus={execStatus}
     />
   )

@@ -1769,12 +1769,12 @@ textarea.app-run-prompt-input {
 }
 
 .app-settings-mode-card.is-selected .app-settings-mode-title::before {
-  content: '??';
+  content: '✓ ';
   color: var(--app-studio-link);
 }
 
 .app-settings-mode-card:not(.is-selected) .app-settings-mode-title::before {
-  content: '??';
+  content: '○ ';
   color: var(--app-studio-fg-weak);
 }
 

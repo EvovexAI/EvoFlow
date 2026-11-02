@@ -67,7 +67,10 @@ type RoleRow = {
   status?: string
 }
 
-/** Prefer hired employees for workflow assignment; fall back to raw agents. */
+/**
+ * 员工优先、通用兜底：有在编员工则排在前面并标「员工」；
+ * 未被雇佣的通用 Agent 仍保留在列表（标「通用」），按步可选。
+ */
 function mergeEmployeesIntoAgents(
   agents: AgentPickerRow[],
   rolesRaw: unknown,
@@ -82,10 +85,17 @@ function mergeEmployeesIntoAgents(
     const st = String(r?.status || '').trim()
     return st !== 'archived' && String(r?.agent_code || '').trim()
   })
-  if (!hired.length) return agents
+  if (!hired.length) {
+    return agents.map((a) => ({
+      ...a,
+      tags: Array.from(
+        new Set([...(Array.isArray(a.tags) ? a.tags.map(String) : []), '通用']),
+      ),
+    }))
+  }
 
   const byCode = new Map(agents.map((a) => [String(a.agent_code || '').trim(), a]))
-  return hired.map((r) => {
+  const employeeRows: AgentPickerRow[] = hired.map((r) => {
     const code = String(r.agent_code || '').trim()
     const base = byCode.get(code) || ({ agent_code: code } as AgentPickerRow)
     const roleName = String(r.role_name || '').trim()
@@ -107,6 +117,16 @@ function mergeEmployeesIntoAgents(
       ),
     }
   })
+  const hiredCodes = new Set(employeeRows.map((r) => String(r.agent_code || '').trim()))
+  const genericRows = agents
+    .filter((a) => !hiredCodes.has(String(a.agent_code || '').trim()))
+    .map((a) => ({
+      ...a,
+      tags: Array.from(
+        new Set([...(Array.isArray(a.tags) ? a.tags.map(String) : []), '通用']),
+      ),
+    }))
+  return [...employeeRows, ...genericRows]
 }
 
 export function useWorkflowResources(_open: boolean) {

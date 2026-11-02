@@ -59,11 +59,12 @@ export type StepFieldDef = {
   placeholder?: string
 }
 
-/** 与 plan 模式 / PlanStepInput 对齐的可编辑字段（步骤名称由连线顺序自动生成，不在 UI 编辑） */
+/** 与 plan 模式 / PlanStepInput 对齐的可编辑字段（name = 画布主标题：本步任务短名） */
 export const STEP_INSPECTOR_FIELDS: StepFieldDef[] = [
+  { key: 'name', label: '任务名称', placeholder: '本步要完成的事，如「收集竞品资料」' },
   { key: 'description', label: '描述', multiline: true, placeholder: '补充备注' },
   { key: 'goal', label: '步骤说明', multiline: true, placeholder: '这一步要完成什么' },
-  { key: 'assigned_agent', label: '执行员工', placeholder: '员工编码' },
+  { key: 'assigned_agent', label: '执行者', placeholder: '员工或通用 Agent 编码' },
   {
     key: 'inputs',
     label: '输入说明（给本步 Agent）',
@@ -95,7 +96,7 @@ export const STEP_INSPECTOR_GROUPS: StepInspectorGroup[] = [
   {
     id: 'basic',
     label: '基础配置',
-    keys: ['description', 'goal', 'assigned_agent'],
+    keys: ['name', 'description', 'goal', 'assigned_agent'],
   },
   {
     id: 'io',
@@ -293,7 +294,7 @@ function stepFromRaw(step: Record<string, unknown>, i: number): AppWorkflowStep 
   const canvas = (step.canvas as { x?: number; y?: number } | undefined) || defaultNodePosition(i)
   return {
     ref,
-    name: pickStr(step.name),
+    name: pickStr(step.name) || pickStr(step.title) || pickStr(step.step_name) || pickStr(step.label),
     description: pickStr(step.description),
     goal: pickStr(step.goal) || undefined,
     inputs: pickStr(step.inputs) || undefined,
@@ -360,7 +361,22 @@ function stepOrderFromDependsOn(steps: AppWorkflowStep[]): Map<string, number> {
   return order
 }
 
-function exportStepName(_step: AppWorkflowStep, orderIndex: number): string {
+/** 空名或系统占位「步骤 N」——发布前应要求用户改成真实任务短名 */
+export function isMissingStepTaskName(name?: string | null): boolean {
+  const named = String(name || '').trim()
+  if (!named) return true
+  return /^步骤\s*\d+$/u.test(named)
+}
+
+function exportStepName(step: AppWorkflowStep, orderIndex: number): string {
+  const named = String(step.name || '').trim()
+  if (named && !isMissingStepTaskName(named)) return named
+  if (named) return named
+  const fromGoal = String(step.goal || '')
+    .trim()
+    .split(/\r?\n/)[0]
+    ?.trim()
+  if (fromGoal) return fromGoal.slice(0, 40)
   return `步骤 ${orderIndex + 1}`
 }
 

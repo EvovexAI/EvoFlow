@@ -16628,11 +16628,11 @@ html[data-theme='dark'] .memory-agent-dropdown-panel {
 .tasks-status-panel summary::-webkit-details-marker { display: none; }
 .tasks-more-filters summary::before,
 .tasks-status-panel summary::before {
-  content: '? ';
+  content: '▸ ';
   color: var(--text-tertiary);
 }
 .tasks-more-filters[open] summary::before,
-.tasks-status-panel[open] summary::before { content: '? '; }
+.tasks-status-panel[open] summary::before { content: '▾ '; }
 .tasks-more-filters-body {
   display: flex;
   align-items: center;

@@ -800,6 +800,12 @@ class PipecatVoiceBridge(FrameProcessor):
             )
         )
         self._stt = EvoSTTService(provider=self._asr_provider, sample_rate=16000)
+
+        async def _on_stt_fatal(message: str) -> None:
+            # 直达 Evo 输出队列，避免 ErrorFrame 被中游吞掉后前端永远「聆听中」
+            await self._out_q.put(ErrorFrame(message=str(message or ""), code="asr_auth"))
+
+        self._stt.set_fatal_error_handler(_on_stt_fatal)
         turn_strategies, turn_mode = _build_user_turn_strategies(
             silence_s=self._silence_s, host=self
         )
@@ -1000,6 +1006,10 @@ class PipecatVoiceBridge(FrameProcessor):
                         await self.push_downstream(
                             UserBotLatencyFrame(user_to_bot_ms=ms, source="pipecat")
                         )
+                        continue
+                    # STT 鉴权致命错误：已是 Evo ErrorFrame，直推下游
+                    if isinstance(item, ErrorFrame):
+                        await self.push_downstream(item)
                         continue
                     await self._emit_pipe_frame(item)
                 except Exception:

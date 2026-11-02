@@ -17,7 +17,7 @@ from __future__ import annotations
 import asyncio
 import time
 from collections import deque
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Awaitable, Callable
 from typing import Any
 
 from loguru import logger
@@ -40,6 +40,10 @@ from pipecat.services.stt_service import STTService
 from pipecat.transcriptions.language import Language
 from pipecat.utils.time import time_now_iso8601
 
+from app.gateway.speech.runtime.asr_errors import (
+    asr_auth_error_user_message,
+    is_asr_auth_error,
+)
 from app.gateway.speech.voice_file_log import voice_log
 
 # 16kHz mono s16le · ~200ms ticks keep Volc ASR session warm
@@ -53,22 +57,6 @@ _UNMUTE_HOLD_SAFETY_S = 120.0
 # mute 期环形缓冲：仅 barge 打断时回灌（抢话字头）。
 # 正常 client_listening 放麦若回灌，缓冲里多是喇叭尾音 →「AI 最后一句被当作用户说」。
 _MUTE_PCM_MAX_BYTES = 16000 * 2 * 2  # ≈2s
-# 鉴权失败再狂重建只会刷 401，把日志打爆且 UI 永远「聆听中」。
-_AUTH_ERROR_MARKERS = (
-    "AuthenticationError",
-    "401",
-    "Unauthorized",
-    "invalid api key",
-    "api key or ak/sk",
-    "missing or invalid",
-)
-
-
-def _is_asr_auth_error(msg: str) -> bool:
-    text = str(msg or "").lower()
-    if not text:
-        return False
-    return any(m.lower() in text for m in _AUTH_ERROR_MARKERS)
 
 
 class EvoSTTService(STTService):
@@ -111,6 +99,13 @@ class EvoSTTService(STTService):
         # 鉴权失败后停止重建；避免 401 风暴
         self._auth_fatal = False
         self._auth_error_notified = False
+        # 可选：宿主直接收致命错误（比 ErrorFrame 穿整条 Pipecat 管线更稳）
+        self._on_fatal_error: Callable[[str], Awaitable[None] | None] | None = None
+
+    def set_fatal_error_handler(
+        self, handler: Callable[[str], Awaitable[None] | None] | None
+    ) -> None:
+        self._on_fatal_error = handler
 
     def set_provider(self, provider: str | None) -> None:
         if provider:
@@ -401,11 +396,16 @@ class EvoSTTService(STTService):
         if self._auth_error_notified:
             return
         self._auth_error_notified = True
-        friendly = (
-            "语音识别鉴权失败（火山 ASR 401）。请到「设置 → 模型 → 创意媒体」"
-            "检查火山语音 API Key（ark- 方舟 Key 需开通 Agent Plan 语音抵扣）。"
-        )
+        friendly = asr_auth_error_user_message()
         voice_log("语音转文字", f"ASR 鉴权失败 → 停止重建并通知前端：{msg}")
+        handler = self._on_fatal_error
+        if handler is not None:
+            try:
+                maybe = handler(friendly)
+                if maybe is not None and asyncio.iscoroutine(maybe):
+                    await maybe
+            except Exception as e:
+                logger.warning(f"{self} ASR auth fatal handler failed: {e}")
         try:
             await self.push_frame(ErrorFrame(error=friendly))
         except Exception as e:
@@ -445,7 +445,7 @@ class EvoSTTService(STTService):
         self._session_dead = True
         self._session = None
         voice_log("语音转文字", f"ASR 错误 provider={self._provider}：{msg}")
-        if _is_asr_auth_error(msg):
+        if is_asr_auth_error(msg):
             self._auth_fatal = True
             try:
                 loop = self._loop or asyncio.get_running_loop()
