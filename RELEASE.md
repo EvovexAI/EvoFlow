@@ -71,13 +71,24 @@ git push origin v1.1.0
 
 ## 4. 装包后刷新升级通道
 
-CI / 本地打出 `EvoFlow_x.y.z_x64-setup.exe` 并上传 Release 后：
+客户端轮询公仓（**jsDelivr 优先**，raw 回退）：
 
-- 用 `scripts/maintainer/windows/republish-public-release.ps1 -UpdateLatestJson`  
-  把真实 `hash` / `size` 写入公仓客户端轮询的 `update/latest.json`  
-- 细节：[`scripts/maintainer/update/README.md`](scripts/maintainer/update/README.md)
+- `https://cdn.jsdelivr.net/gh/EvovexAI/EvoFlow@main/update/latest.json`
+- `https://raw.githubusercontent.com/EvovexAI/EvoFlow/main/update/latest.json`
+
+**Windows CI（`release-windows-public.yml`）发完安装包后会自动推这份文件。** 本地/补推：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/maintainer/windows/push-public-latest-json.ps1 -Tag v1.2.3
+# 或带本机 NSIS 产物（含 nsis.zip+.sig 时会写 platforms，供一键更新）：
+# ... -Tag v1.2.3 -NsisDir evopanel\src-tauri\target\release\bundle\nsis
+```
+
+也可用 `republish-public-release.ps1 -UpdateLatestJson`（会重传安装包并推清单）。
 
 草稿在 `scripts/maintainer/update/latest.json`；**不要**在安装包未就绪时往公仓根目录塞假的 `update/`。
+
+一键应用内更新还需要 CI secrets `TAURI_SIGNING_PRIVATE_KEY`（+ 可选 password），否则 Release 只有 `setup.exe`，清单无 `platforms`，客户端提示「下载安装包」。
 
 ---
 

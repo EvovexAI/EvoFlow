@@ -37,8 +37,9 @@ Or piece-wise via `local-publish.ps1`:
 | Script | Role |
 |--------|------|
 | `republish-public-release.ps1` | Upload Release assets + public `update/latest.json` |
+| `push-public-latest-json.ps1` | Refresh draft + push public `update/latest.json` (CI + repair) |
 | `upload-release-assets-only.ps1` | Windows asset upload (called by republish) |
 | `prune-public-github-releases.ps1` | Keep newest N public releases |
 | `public-release-body.txt` | Footer under PRODUCT-NOTES in Release body |
 
-Updater draft: `../update/latest.json` (never reintroduce root `update/`).
+Updater draft: `../update/latest.json` (never commit a fake root `update/` before the installer is ready). Live channel is Contents-API-pushed to `main/update/latest.json`; clients prefer jsDelivr.

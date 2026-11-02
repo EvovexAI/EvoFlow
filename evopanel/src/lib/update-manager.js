@@ -36,74 +36,91 @@ export function isAutoDownloadUpdatesEnabled() {
 }
 
 /**
+ * @param {Record<string, unknown> | null | undefined} manifest
+ * @param {string} ver
+ * @returns {UpdateOffer}
+ */
+function manualInstallerOffer(manifest, ver) {
+  return {
+    ver,
+    changelog: String(manifest?.changelog || manifest?.notes || ''),
+    manualUrl: String(manifest?.url || 'https://github.com/EvovexAI/EvoFlow/releases'),
+    oneClick: false,
+    kind: 'manual',
+    update: null,
+    manifest: manifest || undefined,
+  }
+}
+
+/**
  * @returns {Promise<UpdateOffer | null>}
  */
 export async function resolveUpdateOffer() {
-  if (isTauri) {
+  /** @type {{ hasUpdate?: boolean, latestVersion?: string, manifest?: Record<string, unknown> } | null} */
+  let manifestRes = null
+  try {
+    manifestRes = await api.checkFrontendUpdate()
+  } catch {
+    manifestRes = null
+  }
+
+  const manifest = manifestRes?.manifest || null
+  const hasManifestUpdate = Boolean(manifestRes?.hasUpdate)
+  const verFromManifest = String(manifestRes?.latestVersion || manifest?.version || '')
+
+  if (isTauri && hasManifestUpdate && isFrontendOnlyManifest(manifest)) {
     try {
-      const manifestRes = await api.checkFrontendUpdate()
-      const manifest = manifestRes?.manifest || {}
-      if (manifestRes?.hasUpdate && isFrontendOnlyManifest(manifest)) {
-        const hot = await checkFrontendHotUpdate()
-        if (hot.available) {
-          return {
-            ver: hot.version || '',
-            changelog: hot.changelog || '',
-            manualUrl: '',
-            oneClick: true,
-            kind: 'frontend-only',
-            update: null,
-            manifest: hot.manifest,
-          }
+      const hot = await checkFrontendHotUpdate()
+      if (hot.available) {
+        return {
+          ver: hot.version || verFromManifest,
+          changelog: hot.changelog || '',
+          manualUrl: '',
+          oneClick: true,
+          kind: 'frontend-only',
+          update: null,
+          manifest: hot.manifest,
         }
       }
     } catch {
-      /* continue */
+      /* fall through to full / manual */
     }
+  }
 
+  if (isTauri) {
     try {
       const desktop = await checkDesktopAppUpdate()
       if (desktop.available && desktop.update) {
         return {
-          ver: desktop.version || '',
-          changelog: desktop.notes || '',
-          manualUrl: '',
+          ver: desktop.version || verFromManifest,
+          changelog: desktop.notes || String(manifest?.changelog || manifest?.notes || ''),
+          manualUrl: String(manifest?.url || ''),
           oneClick: true,
           kind: 'full',
           update: desktop.update,
+          manifest: manifest || undefined,
         }
       }
     } catch {
-      /* fall through */
+      /* no signed updater bundle — fall back to installer link */
     }
   }
 
-  const info = await api.checkFrontendUpdate()
-  if (!info.hasUpdate) return null
-  const ver = info.latestVersion || info.manifest?.version || ''
-  if (!ver) return null
+  if (!hasManifestUpdate || !verFromManifest) return null
 
-  if (isTauri && isFrontendOnlyManifest(info.manifest) && info.manifest?.frontendUrl) {
+  if (isTauri && isFrontendOnlyManifest(manifest) && manifest?.frontendUrl) {
     return {
-      ver,
-      changelog: info.manifest?.changelog || info.manifest?.notes || '',
+      ver: verFromManifest,
+      changelog: String(manifest?.changelog || manifest?.notes || ''),
       manualUrl: '',
       oneClick: true,
       kind: 'frontend-only',
       update: null,
-      manifest: info.manifest,
+      manifest,
     }
   }
 
-  return {
-    ver,
-    changelog: info.manifest?.changelog || info.manifest?.notes || '',
-    manualUrl: info.manifest?.url || 'https://github.com/EvovexAI/EvoFlow/releases',
-    oneClick: false,
-    kind: 'manual',
-    update: null,
-    manifest: info.manifest,
-  }
+  return manualInstallerOffer(manifest, verFromManifest)
 }
 
 /**
