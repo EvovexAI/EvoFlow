@@ -1,0 +1,15 @@
+{
+  "version": "1.2.3",
+  "minAppVersion": "1.2.3",
+  "updateKind": "full",
+  "assetKind": "installer",
+  "hash": "sha256:e4329395856dd6ef8824eff4564c4afd463ed3b1cf1d33567ccb885bf92c7d22",
+  "url": "https://gitee.com/evovexai/EvoFlow/releases/download/v1.2.3/EvoFlow_1.2.3_x64-setup.exe",
+  "urlGitee": "https://gitee.com/evovexai/EvoFlow/releases/download/v1.2.3/EvoFlow_1.2.3_x64-setup.exe",
+  "urlGithub": "https://github.com/EvovexAI/EvoFlow/releases/download/v1.2.3/EvoFlow_1.2.3_x64-setup.exe",
+  "size": 398325223,
+  "changelog": "**EvoFlow v1.2.3 — 飞书图片可通，聊天与任务中心不再互相拖死**",
+  "notes": "**EvoFlow v1.2.3 — 飞书图片可通，聊天与任务中心不再互相拖死**",
+  "releasedAt": "2026-11-02T03:32:08Z",
+  "pub_date": "2026-11-02T03:32:08Z"
+}
