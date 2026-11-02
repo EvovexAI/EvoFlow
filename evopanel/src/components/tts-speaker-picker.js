@@ -348,6 +348,11 @@ function bindOneTtsSpeakerField(group, presets) {
 
   bindPreviewButtons(group, presets)
 
+  // 「自定义音色」勾选框是 UI 模式切换(预设选择器 ↔ 手动输入),不是数据字段:
+  // 进入自定义模式不得立即用空输入覆盖已配置音色(曾配合面板自动保存把预设音色
+  // 清空落盘);取消勾选时恢复进入前的值。hidden 只在用户真正输入时更新。
+  let valueBeforeCustom = null
+
   const syncCustomMode = () => {
     const custom = !!customToggle?.checked
     const triggerRow = group.querySelector('.media-tts-speaker-trigger-row')
@@ -356,8 +361,11 @@ function bindOneTtsSpeakerField(group, presets) {
       else customInput.setAttribute('hidden', '')
     }
     if (triggerRow) triggerRow.hidden = custom
-    if (custom && customInput) {
-      hidden.value = customInput.value.trim()
+    if (custom) {
+      if (valueBeforeCustom === null) valueBeforeCustom = hidden?.value || ''
+    } else if (valueBeforeCustom !== null && hidden) {
+      hidden.value = valueBeforeCustom
+      valueBeforeCustom = null
     }
   }
 
@@ -403,7 +411,9 @@ export function readTtsSpeakerDraft(panel) {
     const customInput = group.querySelector(`[data-media-tts-speaker-custom="${CSS.escape(fieldId)}"]`)
     const hidden = group.querySelector(`[data-media-tts-speaker-value="${CSS.escape(fieldId)}"]`)
     if (customToggle?.checked) {
-      out[fieldId] = customInput?.value.trim() || ''
+      // 自定义输入为空 = 用户还没真正输入;回落到当前值(可能是预设),
+      // 不能把空串交给自动保存,否则已配置音色被清空。
+      out[fieldId] = customInput?.value.trim() || hidden?.value.trim() || ''
     } else {
       out[fieldId] = hidden?.value.trim() || ''
     }
