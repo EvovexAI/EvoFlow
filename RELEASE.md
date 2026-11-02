@@ -77,8 +77,8 @@ git push origin v1.1.0
 - `https://cdn.jsdelivr.net/gh/EvovexAI/EvoFlow@main/update/latest.json`
 - `https://raw.githubusercontent.com/EvovexAI/EvoFlow/main/update/latest.json`
 
-安装包下载链接默认写 **Gitee Releases**（`url` / `urlGitee`），`urlGithub` 作海外回退。  
-**务必把同名 `setup.exe` 也传到 Gitee 对应 tag**，否则国内点更新会下不到包。
+安装包由 **GitHub Actions 打 tag 后自己打包上传**（不要手工从 GitHub 再镜像到 Gitee）。  
+Gitee 附件上限约 **100MB**，装不下 ~380MB 的 `setup.exe`：清单推 Gitee，下载链接用 `ghfast.top` 镜像 GitHub Release（`url` / `urlCnMirror`），`urlGithub` 为直连回退。
 
 **Windows CI（`release-windows-public.yml`）发完安装包后会自动推清单。** 本地/补推：
 

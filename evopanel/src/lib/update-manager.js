@@ -36,19 +36,22 @@ export function isAutoDownloadUpdatesEnabled() {
 }
 
 /**
- * Prefer Gitee installer URL for CN; fall back to GitHub / generic url.
+ * Prefer CN-reachable installer URL (ghfast mirror / explicit urlCnMirror).
+ * Gitee Releases cannot host the ~380MB setup.exe (100MB attach limit).
  * @param {Record<string, unknown> | null | undefined} manifest
  */
 function pickInstallerUrl(manifest) {
-  const gitee = String(manifest?.urlGitee || '').trim()
   const primary = String(manifest?.url || '').trim()
+  const cnMirror = String(manifest?.urlCnMirror || '').trim()
   const github = String(manifest?.urlGithub || '').trim()
-  // If primary already points at gitee, keep it; else prefer explicit urlGitee.
-  if (primary.includes('gitee.com/')) return primary
+  const gitee = String(manifest?.urlGitee || '').trim()
+  if (primary.includes('ghfast.top/') || primary.includes('ghproxy')) return primary
+  if (cnMirror) return cnMirror
+  if (primary && !primary.includes('gitee.com/')) return primary
+  if (github) return `https://ghfast.top/${github}`
   if (gitee) return gitee
   if (primary) return primary
-  if (github) return github
-  return 'https://gitee.com/evovexai/EvoFlow/releases'
+  return 'https://github.com/EvovexAI/EvoFlow/releases'
 }
 
 /**

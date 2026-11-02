@@ -224,9 +224,11 @@ if ($size -le 0) { throw "size must be > 0 (got $size)" }
 $giteeOwner = if ($env:GITEE_OWNER) { $env:GITEE_OWNER.Trim() } else { "evovexai" }
 $giteeRepo = if ($env:GITEE_REPO) { $env:GITEE_REPO.Trim() } else { "EvoFlow" }
 $urlGithub = "https://github.com/$owner/$repo/releases/download/$tagName/$assetName"
+# Gitee Releases attach_files hard-caps ~100MB — cannot host ~380MB setup.exe.
+# CN download uses a GitHub release mirror; Gitee only hosts update/latest.json (small).
+$urlCnMirror = "https://ghfast.top/$urlGithub"
 $urlGitee = "https://gitee.com/$giteeOwner/$giteeRepo/releases/download/$tagName/$assetName"
-# Prefer Gitee for CN clients; keep GitHub as explicit fallback field.
-$primaryUrl = $urlGitee
+$primaryUrl = $urlCnMirror
 
 # Build UTF-8 JSON via Node (PS 5.1 ConvertTo-Json mangles CJK / em-dashes).
 $draftPath = Join-Path $RepoRoot "scripts\maintainer\update\latest.json"
@@ -247,6 +249,7 @@ try {
         assetKind     = "installer"
         hash          = "sha256:$hash"
         url           = $primaryUrl
+        urlCnMirror   = $urlCnMirror
         urlGitee      = $urlGitee
         urlGithub     = $urlGithub
         size          = [int64]$size
@@ -284,6 +287,7 @@ const out = {
   assetKind: meta.assetKind,
   hash: meta.hash,
   url: meta.url,
+  urlCnMirror: meta.urlCnMirror,
   urlGitee: meta.urlGitee,
   urlGithub: meta.urlGithub,
   size: meta.size,
@@ -464,6 +468,8 @@ if (-not $SkipGitee) {
     Write-Host "Skip Gitee push (-SkipGitee)" -ForegroundColor DarkGray
 }
 
-Write-Host "Primary (CN): https://gitee.com/$giteeOwner/$giteeRepo/raw/main/update/latest.json" -ForegroundColor DarkGray
-Write-Host "Fallback:     https://cdn.jsdelivr.net/gh/$owner/$repo@main/update/latest.json" -ForegroundColor DarkGray
-Write-Host "Installer URL prefers Gitee Releases — upload $assetName to Gitee tag $tagName if not yet mirrored." -ForegroundColor Yellow
+Write-Host "Manifest (CN): https://gitee.com/$giteeOwner/$giteeRepo/raw/main/update/latest.json" -ForegroundColor DarkGray
+Write-Host "Manifest FO:   https://cdn.jsdelivr.net/gh/$owner/$repo@main/update/latest.json" -ForegroundColor DarkGray
+Write-Host "Installer CN:  $urlCnMirror" -ForegroundColor DarkGray
+Write-Host "Installer GH:  $urlGithub" -ForegroundColor DarkGray
+Write-Host "Note: Gitee Releases cannot host the ~380MB setup.exe (100MB attach limit). CI builds once on GitHub; CN clients use ghfast mirror + Gitee latest.json." -ForegroundColor Yellow

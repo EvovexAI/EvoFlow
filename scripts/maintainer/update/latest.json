@@ -1,15 +1,12 @@
 {
-  "version": "1.2.3",
-  "minAppVersion": "1.2.3",
+  "version": "1.2.4",
+  "minAppVersion": "1.2.4",
   "updateKind": "full",
   "assetKind": "installer",
-  "hash": "sha256:e4329395856dd6ef8824eff4564c4afd463ed3b1cf1d33567ccb885bf92c7d22",
-  "url": "https://gitee.com/evovexai/EvoFlow/releases/download/v1.2.3/EvoFlow_1.2.3_x64-setup.exe",
-  "urlGitee": "https://gitee.com/evovexai/EvoFlow/releases/download/v1.2.3/EvoFlow_1.2.3_x64-setup.exe",
-  "urlGithub": "https://github.com/EvovexAI/EvoFlow/releases/download/v1.2.3/EvoFlow_1.2.3_x64-setup.exe",
-  "size": 398325223,
-  "changelog": "**EvoFlow v1.2.3 — 飞书图片可通，聊天与任务中心不再互相拖死**",
-  "notes": "**EvoFlow v1.2.3 — 飞书图片可通，聊天与任务中心不再互相拖死**",
-  "releasedAt": "2026-11-02T03:32:08Z",
-  "pub_date": "2026-11-02T03:32:08Z"
+  "hash": "",
+  "url": "https://ghfast.top/https://github.com/EvovexAI/EvoFlow/releases/download/v1.2.4/EvoFlow_1.2.4_x64-setup.exe",
+  "urlCnMirror": "https://ghfast.top/https://github.com/EvovexAI/EvoFlow/releases/download/v1.2.4/EvoFlow_1.2.4_x64-setup.exe",
+  "urlGithub": "https://github.com/EvovexAI/EvoFlow/releases/download/v1.2.4/EvoFlow_1.2.4_x64-setup.exe",
+  "size": 0,
+  "changelog": "EvoFlow 1.2.4（相对 1.2.3）：修好国内检查更新通道（Gitee 清单 + ghfast 下载）；V4 可改已发消息、流式/空流重试更稳；语音 ASR 刷屏不再拖死聊天；知识库无本地目录也能看目录树；中断运行不再卡在 running；协作子任务心跳与租约修复；通用设置可限制 LangGraph 并发。覆盖安装即可。"
 }

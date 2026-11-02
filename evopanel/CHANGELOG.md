@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.2.4] - 2026-11-02
+
+相对 **1.2.3**：修好国内桌面检查更新；V4 编辑/流式、语音 ASR、知识库目录、中断运行、协作子任务与并发设置等稳定性补丁。
+GitHub Release 正文见 `scripts/maintainer/windows/release-notes/PRODUCT-NOTES-1.2.4.md`；升级横幅见 `scripts/maintainer/update/latest.json`。
+
+### Fixed
+
+- **桌面更新**：恢复公仓/Gitee `update/latest.json`；客户端优先 Gitee 拉清单，安装包下载走 ghfast 镜像（Gitee 无法托管超 100MB 的 setup.exe）
+- **V4 聊天**：改已发消息；编辑截断不再双开线程；空流重试；飞书旁观更新与重复 spinner
+- **语音 ASR**：错误/日志风暴不再拖死聊天
+- **知识库**：无本地同步目录仍显示目录树；markitdown 失败回退轻量抽取
+- **Gateway / 运行态**：中断 run 不再粘 running；渠道工具经 Gateway HTTP + live 租约
+- **协作子任务**：派发/重入队/心跳与终态残留
+- **预览与资产**：窄栏代码可读；引用深链右栏；删除员工清 IM 会话
+
+### Changed
+
+- **设置**：通用页可限制 LangGraph 并发
+- **Agent**：递归软着陆；wrap-up / recursion 预算调整
+- **小V / 主题 / 性能**：人声与 Human Signal；可读性 token；流式 bump 与 User Timing 收敛
+
 ## [1.2.3] - 2026-10-31
 
 相对 **1.2.2**：飞书/渠道图片可收可发、聊天发送更跟手；任务中心与侧栏不再拖死聊天；子代理侧栏与停止行为修好；工作流列表换成稳定 SVG 图标。
