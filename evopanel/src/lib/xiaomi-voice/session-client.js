@@ -89,7 +89,7 @@ function _ensurePhaseWire() {
 
 function _sendStartIfNeeded(reason = 'ready') {
   if (_startSent || !_pendingStart || !isXiaomiFrameSessionActive()) return
-  const { asr, tts, speaker, tid } = _pendingStart
+  const { asr, tts, speaker, tid, silenceMs } = _pendingStart
   _startSent = true
   try {
     _ws.send(
@@ -99,11 +99,14 @@ function _sendStartIfNeeded(reason = 'ready') {
         tts_provider: tts,
         trace_id: tid,
         speaker,
+        ...(silenceMs ? { silence_ms: silenceMs } : {}),
       }),
     )
     voiceFeLog(
       '会话',
-      `发送 start（${reason}）ASR=${asr} TTS=${tts} 音色=${speaker} TRACE=${tid}`,
+      `发送 start（${reason}）ASR=${asr} TTS=${tts} 音色=${speaker}` +
+        (silenceMs ? ` 判停=${silenceMs}ms` : '') +
+        ` TRACE=${tid}`,
     )
   } catch (e) {
     _startSent = false
@@ -201,7 +204,11 @@ export async function connectXiaomiFrameSession() {
       const speaker = resolveXiaomiTtsSpeaker()
       if (!getXiaomiTtsSpeaker()) setXiaomiTtsSpeaker(speaker)
       const tid = getVoiceTrace() || beginVoiceTrace({ reason: 'frame-session-start' })
-      _pendingStart = { asr, tts, speaker, tid }
+      // 判停静默窗口：默认 900（后端默认），可用 localStorage 调参
+      const silenceRaw = Number(localStorage.getItem('evoflow-voice-turn-silence-ms'))
+      const silenceMs =
+        Number.isFinite(silenceRaw) && silenceRaw >= 300 ? Math.min(silenceRaw, 2000) : null
+      _pendingStart = { asr, tts, speaker, tid, silenceMs }
       voiceFeLog(
         '会话',
         `WebSocket 已连接，等待 ready 再 start ASR=${asr} TTS=${tts} 音色=${speaker} TRACE=${tid}`,
@@ -1115,6 +1122,22 @@ export function sendXiaomiAssistantEnd() {
       '',
       `assistant_end → Frame（冲刷残句） TRACE=${getVoiceTrace() || '-'}`,
     )
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * 直接播一句提示语（走后端 speak op → TTS → 既有播放队列）。
+ * 用于「没听清」等非 agent 回复的语音反馈。
+ */
+export function sendXiaomiSpeak(text, { seq } = {}) {
+  const t = String(text || '').trim()
+  if (!isXiaomiFrameSessionActive() || !t) return false
+  try {
+    _ws.send(JSON.stringify({ type: 'speak', text: t, seq: Number(seq) || 0 }))
+    voiceFeLog('播报', `直接播报提示语：「${t.slice(0, 40)}」`)
     return true
   } catch {
     return false

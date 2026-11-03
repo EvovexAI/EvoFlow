@@ -22,6 +22,7 @@ import {
   flushXiaomiClientListeningIfIdle,
   sendXiaomiClientListening,
   sendXiaomiClientPhase,
+  sendXiaomiSpeak,
   forceXiaomiOpenMic,
   adoptXiaomiFrameSocket,
   isXiaomiFrameSoftPaused,
@@ -123,8 +124,16 @@ let _lastCommittedTurn = ''
 let _lastCommittedAtMs = 0
 /** 「在呢」播完前 / 刚播完的宽限期，丢弃回声 turn_end */
 let _wakeAckUntilMs = 0
-/** ASR 连推间隔内合并（ms） */
-const USER_TURN_COALESCE_MS = 900
+/**
+ * ASR 连推间隔内合并（ms）。turn_end 到达前后端已判停静默 ≥900ms，这里只需兜住
+ * ASR 粘连/越听越长的快速补发；900ms 是在「后端 900ms 判停」之外的纯加层等待
+ * （说完→发送 ≈1.8s 的主因之一）。500ms + dedup/延长句丢弃已够。
+ * 调参：localStorage['evoflow-voice-coalesce-ms']
+ */
+const USER_TURN_COALESCE_MS = (() => {
+  const raw = Number(localStorage.getItem('evoflow-voice-coalesce-ms'))
+  return Number.isFinite(raw) && raw >= 200 ? Math.min(raw, 2000) : 500
+})()
 /** 已发问后，延长/近义句静默窗口（ms） */
 const USER_TURN_DEDUP_MS = 12000
 
@@ -598,6 +607,10 @@ async function _startXiaomiFramePipelineInner(opts = {}) {
       }
       // 不在这里切 recording —— 等本地播完 idle
       _refreshTray()
+    }
+    if (type === 'asr_empty') {
+      _noteAsrEmpty()
+      return
     }
     if (type === 'interrupted') {
       const reason = String(m.reason || '')
@@ -1246,12 +1259,13 @@ let _listenUnmuteTimer = 0
 let _listenGraceUntilMs = 0
 /**
  * 放麦：最短宽限 + 能量门控（麦峰落到回声基线下才 unmute），封顶避免拖死。
- * 宽限内仍 hold PCM 上行。
+ * 宽限内仍 hold PCM 上行。旧 MIN=1200ms 是播完→能追问的最大拖累之一
+ * （浏览器 AEC + 后端 wait_for_transcript 已兜底回声，700ms 够 echo 余韵衰减）。
  */
-const LISTEN_UNMUTE_MIN_MS = 1200
+const LISTEN_UNMUTE_MIN_MS = 700
 const LISTEN_UNMUTE_MAX_MS = 2800
 const LISTEN_QUIET_PEAK = 0.045
-const LISTEN_QUIET_NEED = 3
+const LISTEN_QUIET_NEED = 2
 
 // ─── 播报期本地音量打断（PCM 上行 hold 时 VAD 听不见，改看麦峰） ───
 const LOCAL_BARGE_THRESHOLD = 0.09
@@ -1263,8 +1277,8 @@ const LOCAL_DUCK_TRIGGER = 3
 const LOCAL_DUCK_SUSTAIN = 1
 const LOCAL_DUCK_DECAY = 6
 const LOCAL_DUCK_MAX_MS = 1500
-/** 软打断后无有效 ASR → 续播（先验门控后假阳下降，缩短假暂停窗） */
-const LOCAL_SOFT_BARGE_RESUME_MS = 3200
+/** 软打断后无有效 ASR → 续播（先验门控后假阳下降；旧 3200ms 假暂停体感「卡了一下」） */
+const LOCAL_SOFT_BARGE_RESUME_MS = 2200
 
 /** @type {number} */
 let _lastMicPeak = 0
@@ -1564,6 +1578,45 @@ function _inListenGrace() {
  * 思考期（等模型 / 确认句已播完、正文未到）专门放麦听「退出/停止」。
  * 不改 phase、不开正常聆听；后端 purpose=exit_listen，播报中仍 mute。
  */
+/**
+ * 连续「没听清」（后端判停但 ASR 无字）：60s 内第 2 次起播语音提示，
+ * 避免用户说了话却零反馈、以为应用聋了。第 1 次只记日志/HUD 事件。
+ */
+let _asrEmptyCount = 0
+let _asrEmptyWindowStart = 0
+const ASR_EMPTY_WINDOW_MS = 60000
+
+function _noteAsrEmpty() {
+  const now = Date.now()
+  if (now - _asrEmptyWindowStart > ASR_EMPTY_WINDOW_MS) {
+    _asrEmptyWindowStart = now
+    _asrEmptyCount = 0
+  }
+  _asrEmptyCount += 1
+  voiceDecisionLog('asr_empty', {
+    count: _asrEmptyCount,
+    phase: getVoicePhase(),
+    playing: isXiaomiFramePlaying(),
+  })
+  voiceFeLog('对话', `没听清（判停但 ASR 无字）连续 ${_asrEmptyCount} 次`)
+  try {
+    window.dispatchEvent(
+      new CustomEvent('xiaomi-voice-hint', {
+        detail: { kind: 'asr-empty', count: _asrEmptyCount },
+      }),
+    )
+  } catch {
+    /* ignore */
+  }
+  if (_asrEmptyCount >= 2) {
+    _asrEmptyCount = 0
+    _asrEmptyWindowStart = 0
+    if (_running && !isXiaomiFramePlaying() && getVoicePhase() !== 'speaking') {
+      sendXiaomiSpeak('没听清，请再说一遍？')
+    }
+  }
+}
+
 function _armExitListenWhileThinking(reason = 'think') {
   if (!_running || !_awaitingReply) return
   if (isXiaomiFramePlaying() || getVoicePhase() === 'speaking') return

@@ -672,6 +672,36 @@ function buildVolcengineTtsHeader() {
     </header>`
 }
 
+const VOICE_TURN_SILENCE_KEY = 'evoflow-voice-turn-silence-ms'
+const VOICE_COALESCE_KEY = 'evoflow-voice-coalesce-ms'
+
+/** 即写 localStorage（不走凭据 autosave）；空/非法 = 恢复默认 */
+function applyVoiceTuning(key, raw) {
+  const v = Math.round(Number(raw))
+  const min = key === VOICE_COALESCE_KEY ? 200 : 300
+  if (Number.isFinite(v) && v >= min && v <= 2000) {
+    localStorage.setItem(key, String(v))
+  } else {
+    localStorage.removeItem(key)
+  }
+}
+
+function voiceTuningFieldsHtml() {
+  const silence = String(localStorage.getItem(VOICE_TURN_SILENCE_KEY) || '')
+  const coalesce = String(localStorage.getItem(VOICE_COALESCE_KEY) || '')
+  return `
+    <div class="form-field">
+      <label class="form-label">判停静默窗口（ms）</label>
+      <input type="number" class="form-input" min="300" max="2000" step="50" placeholder="默认 800（填空恢复默认）" value="${escAttr(silence)}" data-voice-turn-silence />
+      <p class="form-hint">用户说完等多久判定一句话结束；越小回复越快，太小容易把犹豫切断。下次语音会话生效。</p>
+    </div>
+    <div class="form-field">
+      <label class="form-label">录入合并窗口（ms）</label>
+      <input type="number" class="form-input" min="200" max="2000" step="50" placeholder="默认 500（填空恢复默认）" value="${escAttr(coalesce)}" data-voice-coalesce />
+      <p class="form-hint">连续识别结果合并成一句的等待；越小发问越快。下次语音会话生效。</p>
+    </div>`
+}
+
 function buildXiaomiProviderFieldsHtml() {
   return `
     <div class="form-field" data-xiaomi-voice-providers>
@@ -784,6 +814,7 @@ function buildVolcengineTtsFieldsHtml(creds) {
     <div class="media-advanced-group" data-media-advanced-group hidden>
       ${textFieldHtml('volcengineTtsResourceId', 'TTS 模型', 'seed-tts-2.0', creds)}
       <p class="form-hint">小V 语音全屏走 Frame 运行时（/api/speech/session）；切句与打断由后端编排。</p>
+      ${voiceTuningFieldsHtml()}
     </div>`
 }
 
@@ -1210,6 +1241,15 @@ function bindAutosave(panel) {
   panel.addEventListener('change', (e) => {
     const t = e.target
     if (!(t instanceof HTMLElement)) return
+    // 语音调参：即写 localStorage，与凭据 autosave 无关
+    if (t.matches('[data-voice-turn-silence]')) {
+      applyVoiceTuning(VOICE_TURN_SILENCE_KEY, t.value)
+      return
+    }
+    if (t.matches('[data-voice-coalesce]')) {
+      applyVoiceTuning(VOICE_COALESCE_KEY, t.value)
+      return
+    }
     if (t.matches('[data-tts-speaker-custom-mode]')) {
       return // 音色「自定义」勾选框是 UI 模式切换,不改数据;真正的值变化由 input/blur 触发保存
     }
