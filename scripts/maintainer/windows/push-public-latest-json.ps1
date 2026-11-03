@@ -1,4 +1,4 @@
-#requires -Version 5.1
+﻿#requires -Version 5.1
 <#
 .SYNOPSIS
   After GitHub Actions (or local) publishes a Windows installer, refresh

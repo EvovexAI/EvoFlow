@@ -1,4 +1,4 @@
-#requires -Version 5.1
+﻿#requires -Version 5.1
 <#
 .SYNOPSIS
   Gitee Go Windows agent entry: build NSIS independently, publish Gitee Release
