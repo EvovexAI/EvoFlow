@@ -6,6 +6,35 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.2.7] - 2026-11-04
+
+相对 **1.2.6**：新增部门群聊协作（群管家小V、@ 点名唤醒 / 接力、消息落库）；首页新增组织指挥台与总览全屏影院；启动页改深色极简并新增中枢控制台；设置中心收纳「技能 / 连接器」，能力配置统一到员工编辑；值班开场去重；小V 形象与桌宠 Skill 更新。
+GitHub Release 正文见 `scripts/maintainer/windows/release-notes/PRODUCT-NOTES-1.2.7.md`；升级横幅见 `scripts/maintainer/update/latest.json`。
+
+### Added
+
+- **部门群聊**：首页组织指挥台与部门群聊面板（`HomeOrgCommandBoard` / `HomeDeptGroupChat` / `DeptGroupChatMain`）；群管家小V 入名单、@ 点名唤醒队列（同人串行、短窗合并）与 @ 接力（handlers 镜像）；部门浮层右缘空间不足自动翻到左侧
+- **部门群时间线**：消息按 `message_id` upsert 落库、流式定稿复用同一气泡；`dept:*:chat` 放开前端直接落 user/assistant；读取 `bypassCache` 并写 localStorage 备份
+- **启动层**：启动页改深色极简；新增 `public/console` 中枢控制台（canvas 2D 巡游），随启动页淡出停机
+- **首页总览全屏影院**：右上角放大/缩小显式切换；「正在处理」卡片可折叠（空闲自动收起、有任务展开）；部门卡片可浮出信息卡直达群聊
+- **设置中心**：新增「技能」「连接器」嵌入页（迁入「数据与资源」）；员工编辑补齐内置工具 / MCP / 技能能力勾选
+- **小V 形象**：语音舞台新增敲键盘坐姿与聆听动作；新增 `desktop-pet-character` 技能
+
+### Changed
+
+- **智能体中心入口收敛**：侧栏「更多」与移动端首页移除「智能体」入口，`/tools`、`/skills/market` 重定向到设置「连接器 / 技能」；帮助与平台反馈 CTA 同步
+- **值班会话**：full brief 不再落入可见用户气泡，值班节拍改为左对齐系统开场且不可编辑；同轮重复正文去重
+- **工作区与加载**：任务工具新增 `workspace_root`，工作流每步固定同一绝对工作目录；路由模块按 pattern 归一化缓存 key 并合并并发加载，慢加载文案区分模块 / 渲染阶段
+- **样式与主题**：`react-chat` / `proactive` / `pages` / `theme-surfaces` 等收敛
+- **语音**：原生 KWS 降级改 console 日志（不再 toast）
+
+### Fixed
+
+- **小V 宠物渲染**：显示坐标缩放不再随素材尺寸漂移；思考态不再摇摆 / 点头，仅空闲踱步
+- **Observability**：run 装配时序落盘修复；语音报表新增 agent 往返锚点
+- **交接审批**：新增 `runtime.handoff_approval` 总开关（默认 true），可关闭用户 / 小V 派单的人工确认
+- **日志降噪**：404 `/cancel` 与 `langgraph_runtime_inmem.ops` 降级
+
 ## [1.2.6] - 2026-11-03
 
 相对 **1.2.5**：新增桌面资源管理器与日志导出；日志统一到单一根目录并按日归档（调试轨迹需显式开启）；语音唤醒/ASR 与播报体验优化；工作流画布与保存工作流打磨。

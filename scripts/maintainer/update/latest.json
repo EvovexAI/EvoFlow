@@ -1,12 +1,12 @@
 {
-  "version": "1.2.6",
-  "minAppVersion": "1.2.6",
+  "version": "1.2.7",
+  "minAppVersion": "1.2.7",
   "updateKind": "full",
   "assetKind": "installer",
   "hash": "",
-  "url": "https://ghfast.top/https://github.com/EvovexAI/EvoFlow/releases/download/v1.2.6/EvoFlow_1.2.6_x64-setup.exe",
-  "urlCnMirror": "https://ghfast.top/https://github.com/EvovexAI/EvoFlow/releases/download/v1.2.6/EvoFlow_1.2.6_x64-setup.exe",
-  "urlGithub": "https://github.com/EvovexAI/EvoFlow/releases/download/v1.2.6/EvoFlow_1.2.6_x64-setup.exe",
+  "url": "https://ghfast.top/https://github.com/EvovexAI/EvoFlow/releases/download/v1.2.7/EvoFlow_1.2.7_x64-setup.exe",
+  "urlCnMirror": "https://ghfast.top/https://github.com/EvovexAI/EvoFlow/releases/download/v1.2.7/EvoFlow_1.2.7_x64-setup.exe",
+  "urlGithub": "https://github.com/EvovexAI/EvoFlow/releases/download/v1.2.7/EvoFlow_1.2.7_x64-setup.exe",
   "size": 0,
-  "changelog": "EvoFlow 1.2.6（相对 1.2.5）：新增桌面资源管理器与「导出日志」；日志统一到单一根目录并按日归档、保留 14 天（调试轨迹默认不写）；语音唤醒/ASR 与播报体验优化，新增语音时延报表；工作流画布与保存工作流打磨；修复粘贴截图重复、自定义音色自动保存。覆盖安装即可。"
+  "changelog": "EvoFlow 1.2.7（相对 1.2.6）：新增部门群聊协作（群管家小V、@ 点名唤醒与接力、消息落库）；首页新增组织指挥台与总览全屏影院；启动页更简洁；技能 / 连接器并入「设置」，能力配置统一到员工编辑；值班开场去重；小V 形象与桌宠 Skill 更新。覆盖安装即可。"
 }
