@@ -762,6 +762,12 @@ function _advanceAfterSeq(seq) {
 }
 
 /** 本地是否仍有待播 / 在播 */
+/** 最近一次 _teardownAllAudio 丢弃的音频句数（打断汇总行用） */
+let _lastTeardownCount = 0
+export function xiaomiFrameLastTeardownCount() {
+  return _lastTeardownCount
+}
+
 export function isXiaomiFramePlaying() {
   return _playingSeq != null || _playOrder.length > 0 || _play.size > 0
 }
@@ -977,6 +983,8 @@ function _finishPlayer(seq, cancelled) {
 }
 
 function _teardownAllAudio() {
+  // 打断汇总行用：本次 teardown 被丢弃的音频句数（含未起播的排队句）
+  _lastTeardownCount = _playOrder.length + _play.size
   _playingSeq = null
   _playOrder.length = 0
   _finishedSeqs.clear()

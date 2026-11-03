@@ -30,6 +30,14 @@ ANCHORS: dict[str, re.Pattern[str]] = {
     # agent 往返（agent 内化收益评估的依据；仅语音发问路径打点）
     "fe_send_prep_ms": re.compile(r"chatSend 准备 .*prep=\+(\d+)ms"),
     "fe_send_total_ms": re.compile(r"chatSend 已提交 .*total=\+(\d+)ms"),
+    # 录入→回复全链（FE 时效汇总行）
+    "fe_commit_delay_ms": re.compile(r"录入→提交 (\d+) ms"),
+    "fe_first_delta_ms": re.compile(r"提交→首个正文 (\d+) ms"),
+    "fe_reply_gen_ms": re.compile(r"正文生成耗时 (\d+) ms"),
+    "fe_play_total_ms": re.compile(r"本轮播报总时长 (\d+) ms"),
+    "fe_barge_after_ms": re.compile(r"打断汇总 .*播报进行 (\d+) ms"),
+    # 用户回合时长（判停误切率观察，后端）
+    "be_turn_speech_ms": re.compile(r"用户回合时长 (\d+) ms"),
 }
 
 

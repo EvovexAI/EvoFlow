@@ -5,6 +5,7 @@
 import {
   bargeInXiaomiFrame,
   connectXiaomiFrameSession,
+  xiaomiFrameLastTeardownCount,
   duckXiaomiFramePlayback,
   flushXiaomiAsr,
   isXiaomiFramePlaying,
@@ -104,6 +105,13 @@ let _turnEndAt = 0
 let _turnEndWall = ''
 /** text of the turn awaiting first playback */
 let _turnAwaitingPlay = ''
+/** 本轮提交/首个正文/首播时间锚点（性能汇总行用） */
+let _turnCommitAt = 0
+let _turnFirstDeltaAt = 0
+let _turnFirstPlayAt = 0
+/** 麦克风静默检测（listening 相位上行连续无能量） */
+let _micSilentSince = 0
+let _micSilenceLogged = false
 /** assistant_end 后等 TTS 入队的短延迟（正文常晚于 end 数百 ms） */
 let _endFlushTimer = 0
 /** @type {(() => void) | null} */
@@ -403,6 +411,7 @@ async function _startXiaomiFramePipelineInner(opts = {}) {
   })
 
   setXiaomiFirstLocalPlayHandler(({ seq, at }) => {
+    _turnFirstPlayAt = at
     // 确认句开播 ≠ 正文结束：保持 _awaitingReply，tray 进播报
     _setTray('speaking')
     _syncPhase('first_local_play')
@@ -430,6 +439,13 @@ async function _startXiaomiFramePipelineInner(opts = {}) {
       _setTray('speaking')
       _syncPhase('playback_active')
       return
+    }
+    if (_turnFirstPlayAt) {
+      voiceFeLog(
+        '时效',
+        `本轮播报总时长 ${Math.round(performance.now() - _turnFirstPlayAt)} ms（首播→队列空）`,
+      )
+      _turnFirstPlayAt = 0
     }
     // 本地听完 → 才回聆听；恢复 continuous ASR（若仍开着）
     void import('../background-voice.js')
@@ -626,6 +642,10 @@ async function _startXiaomiFramePipelineInner(opts = {}) {
     if (type === 'interrupted') {
       const reason = String(m.reason || '')
       voiceFeLog('打断', `前端收到 interrupted（reason=${reason}），已停播`)
+      voiceFeLog(
+        '打断',
+        `打断汇总 reason=${reason || '-'} 播报进行 ${_localBargeSpeakSince ? Math.max(0, Date.now() - _localBargeSpeakSince) : 0} ms 被取消句数=${xiaomiFrameLastTeardownCount()}`,
+      )
       // 相位门控：非 speaking 的 vad_barge 一律忽略（思考/聆听误触不 abort）
       const phaseBlockVad =
         reason === 'vad_barge_in' && !canAcceptVadBarge()
@@ -774,6 +794,26 @@ async function _startXiaomiFramePipelineInner(opts = {}) {
       i16[i] = s < 0 ? s * 0x8000 : s * 0x7fff
     }
     _lastMicPeak = peak
+    // 录入健康：listening 相位上行连续无能量 → 显式告警（否则「说了话没反应」无法归因）
+    if (!_awaitingReply && !isXiaomiFramePlaying() && getVoicePhase() === 'listening') {
+      if (peak > 0.01) {
+        _micSilentSince = 0
+        _micSilenceLogged = false
+      } else {
+        if (!_micSilentSince) _micSilentSince = Date.now()
+        const silentMs = Date.now() - _micSilentSince
+        if (silentMs > 8000 && !_micSilenceLogged) {
+          _micSilenceLogged = true
+          voiceFeLog(
+            '会话',
+            `麦克风静默 ${Math.round(silentMs / 1000)}s（listening 相位上行无能量——查设备/权限/被占用）`,
+          )
+        }
+      }
+    } else {
+      _micSilentSince = 0
+      _micSilenceLogged = false
+    }
     try {
       updateSpeechPrior(input, _actx?.sampleRate || 16000)
     } catch {
@@ -1084,6 +1124,14 @@ async function _sendTurn(text) {
   }
   _lastCommittedTurn = String(text || '').trim()
   _lastCommittedAtMs = Date.now()
+  if (_turnEndAt) {
+    voiceFeLog(
+      '时效',
+      `录入→提交 ${Math.round(performance.now() - _turnEndAt)} ms（含判停后合并窗口）`,
+    )
+  }
+  _turnCommitAt = performance.now()
+  _turnFirstDeltaAt = 0
   if (_endFlushTimer) {
     window.clearTimeout(_endFlushTimer)
     _endFlushTimer = 0
@@ -1795,6 +1843,13 @@ export function feedXiaomiFrameAssistant(fullText, { final = false } = {}) {
     const delta = body.slice(_assistantPlain.length)
     _assistantPlain = body
     if (delta) {
+      if (!_turnFirstDeltaAt && _turnCommitAt) {
+        _turnFirstDeltaAt = performance.now()
+        voiceFeLog(
+          '时效',
+          `提交→首个正文 ${Math.round(_turnFirstDeltaAt - _turnCommitAt)} ms（agent 首 token 客户端视角）`,
+        )
+      }
       // 细粒度增量由后端记；前端记首包与较长块，避免刷屏
       if (wasEmpty || delta.length >= 24) {
         voicePlaybackMark('流式正文', delta, '推送 Frame（增量）')
@@ -1847,6 +1902,12 @@ export function feedXiaomiFrameAssistant(fullText, { final = false } = {}) {
         : '助手回复：（空）',
       { detail: `len=${plain.length}` },
     )
+    if (_turnFirstDeltaAt) {
+      voiceFeLog(
+        '时效',
+        `正文生成耗时 ${Math.round(performance.now() - _turnFirstDeltaAt)} ms（自提交 ${Math.round(performance.now() - _turnCommitAt)} ms，${plain.length} 字）`,
+      )
+    }
     voicePlaybackMark(
       '流式正文',
       plain.slice(0, 400),
