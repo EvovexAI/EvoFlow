@@ -318,6 +318,8 @@ export function HomeDeptGroupChat({
   const wakeQueueRef = useRef<DeptGroupWakeQueue | null>(null)
   const bubbleByJobRef = useRef(new Map<string, string>())
   const [wakeJobs, setWakeJobs] = useState<WakeJobSnapshot[]>([])
+  /** 成员资料卡：点头像弹身份信息（过程/对话/编辑收进卡内动作） */
+  const [profile, setProfile] = useState<{ person: HomeCmdPerson; x: number; y: number } | null>(null)
 
   membersRef.current = members
   rosterRef.current = roster
@@ -484,6 +486,40 @@ export function HomeDeptGroupChat({
     },
     [dept.id, shellSessionKey],
   )
+
+  /** 点头像/名字 → 资料卡；roster 里没有的（如流式新面孔）兜底合成一份 */
+  const openProfile = useCallback(
+    (
+      person: HomeCmdPerson | { agent_code: string; role_name?: string; busy?: boolean },
+      x: number,
+      y: number,
+    ) => {
+      const code = String(person.agent_code || '').trim()
+      if (!code) return
+      const known = rosterRef.current.find((m) => m.agent_code === code)
+      const p: HomeCmdPerson =
+        known || {
+          agent_code: code,
+          role_name: String(person.role_name || '').trim() || code,
+          department: '',
+          reports_to: '',
+          status: '',
+          busy: !!person.busy,
+          summary: '',
+        }
+      setProfile({ person: p, x, y })
+    },
+    [],
+  )
+
+  useEffect(() => {
+    if (!profile) return
+    const onKey = (e: Event) => {
+      if ((e as globalThis.KeyboardEvent).key === 'Escape') setProfile(null)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [profile])
 
   const loadThread = useCallback(
     async (code: string) => {
@@ -943,6 +979,15 @@ export function HomeDeptGroupChat({
 
   const isMain = variant === 'main'
 
+  /* 主区输入框单行起步、随内容增高（上限走 CSS max-height） */
+  useEffect(() => {
+    if (!isMain) return
+    const el = inputRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${el.scrollHeight}px`
+  }, [draft, isMain])
+
   return (
     <div
       className={`evo-home-cmd__gc-wrap${!isMain && threadPerson ? ' has-thread' : ''}${
@@ -990,12 +1035,21 @@ export function HomeDeptGroupChat({
                     onDoubleClick={() => void loadThread(m.agent_code)}
                     title={`${m.role_name} · ${steward ? '群管家' : personDutyLabel(m)}`}
                   >
-                    <EmployeeStageAvatar
-                      agentCode={m.agent_code}
-                      title={m.role_name}
-                      size={22}
-                      busy={!!m.busy}
-                    />
+                    <span
+                      className="evo-home-cmd__gc-chip-avatar"
+                      title={`${m.role_name} · 资料`}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        openProfile(m, e.clientX, e.clientY)
+                      }}
+                    >
+                      <EmployeeStageAvatar
+                        agentCode={m.agent_code}
+                        title={m.role_name}
+                        size={22}
+                        busy={!!m.busy}
+                      />
+                    </span>
                     <span className="evo-home-cmd__gc-chip-name">{m.role_name}</span>
                     <span className="evo-home-cmd__gc-chip-state">
                       {steward ? '群管家' : personDutyLabel(m)}
@@ -1043,14 +1097,19 @@ export function HomeDeptGroupChat({
                         <button
                           type="button"
                           className="dept-im__avatar-btn"
-                          title={`查看 ${agentName} 过程`}
-                          aria-label={`打开 ${agentName} 的执行过程`}
+                          title={`${agentName} · 资料`}
+                          aria-label={`查看 ${agentName} 资料`}
                           onClick={(e) => {
                             e.stopPropagation()
-                            openEmployeeProcess({
-                              agent_code: msg.agentCode!,
-                              role_name: agentName,
-                            })
+                            openProfile(
+                              {
+                                agent_code: msg.agentCode!,
+                                role_name: agentName,
+                                busy: !!msg.streaming,
+                              },
+                              e.clientX,
+                              e.clientY,
+                            )
                           }}
                         >
                           <EmployeeStageAvatar
@@ -1066,7 +1125,24 @@ export function HomeDeptGroupChat({
                         <div className="dept-im__head-line">
                           {msg.kind === 'agent' ? (
                             <>
-                              <span className="dept-im__head-name">{agentName}</span>
+                              {msg.agentCode ? (
+                                <span
+                                  className="dept-im__head-name is-clickable"
+                                  title={`${agentName} · 资料`}
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    openProfile(
+                                      { agent_code: msg.agentCode!, role_name: agentName },
+                                      e.clientX,
+                                      e.clientY,
+                                    )
+                                  }}
+                                >
+                                  {agentName}
+                                </span>
+                              ) : (
+                                <span className="dept-im__head-name">{agentName}</span>
+                              )}
                               {msg.streaming ? (
                                 <span className="dept-im__head-state">回复中</span>
                               ) : null}
@@ -1079,7 +1155,6 @@ export function HomeDeptGroupChat({
                               {timeLabel ? (
                                 <span className="dept-im__head-time">{timeLabel}</span>
                               ) : null}
-                              <span className="dept-im__head-name">你</span>
                             </>
                           )}
                         </div>
@@ -1201,7 +1276,7 @@ export function HomeDeptGroupChat({
             <textarea
               ref={inputRef}
               className={isMain ? 'dept-im__composer-input' : 'evo-home-cmd__gc-input'}
-              rows={isMain ? 3 : 2}
+              rows={isMain ? 1 : 2}
               value={draft}
               placeholder={
                 isMain
@@ -1291,6 +1366,82 @@ export function HomeDeptGroupChat({
             打开员工页跟进 →
           </button>
         </aside>
+      ) : null}
+
+      {/* 成员资料卡：头像/名字点击 → 身份信息；过程、@、编辑收进卡内动作 */}
+      {profile ? (
+        <div className="dept-im__profile-mask" onMouseDown={() => setProfile(null)}>
+          <div
+            className="dept-im__profile"
+            style={{
+              left: Math.max(8, Math.min(profile.x + 8, window.innerWidth - 296)),
+              top: Math.max(8, Math.min(profile.y + 8, window.innerHeight - 288)),
+            }}
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <header className="dept-im__profile-head">
+              <EmployeeStageAvatar
+                agentCode={profile.person.agent_code}
+                title={profile.person.role_name}
+                size={44}
+                busy={!!profile.person.busy}
+              />
+              <div className="dept-im__profile-titles">
+                <div className="dept-im__profile-name">
+                  {profile.person.role_name}
+                  {isDeptGroupStewardCode(profile.person.agent_code) ? (
+                    <span className="dept-im__profile-badge">群管家</span>
+                  ) : null}
+                </div>
+                <div className="dept-im__profile-state">
+                  <span
+                    className={`dept-im__profile-dot${profile.person.busy ? ' is-busy' : ''}`}
+                    aria-hidden
+                  />
+                  {profile.person.busy ? '忙碌' : personDutyLabel(profile.person)}
+                  {profile.person.department ? (
+                    <span className="dept-im__profile-dept">{profile.person.department}</span>
+                  ) : null}
+                </div>
+              </div>
+            </header>
+            {profile.person.summary ? (
+              <p className="dept-im__profile-summary">{profile.person.summary}</p>
+            ) : null}
+            <footer className="dept-im__profile-actions">
+              <button
+                type="button"
+                className="dept-im__profile-btn"
+                onClick={() => {
+                  setProfile(null)
+                  openEmployeeProcess(profile.person)
+                }}
+              >
+                实时过程
+              </button>
+              <button
+                type="button"
+                className="dept-im__profile-btn"
+                onClick={() => {
+                  setProfile(null)
+                  insertMention(profile.person)
+                }}
+              >
+                @点名
+              </button>
+              <button
+                type="button"
+                className="dept-im__profile-btn"
+                onClick={() => {
+                  setProfile(null)
+                  onOpenEmployeePage(profile.person.agent_code)
+                }}
+              >
+                编辑资料
+              </button>
+            </footer>
+          </div>
+        </div>
       ) : null}
     </div>
   )
