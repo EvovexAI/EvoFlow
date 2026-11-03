@@ -17,6 +17,7 @@ Release helpers for the public repo. Not needed for day-to-day contribute.
 | `windows/push-public-latest-json.ps1` | Refresh `update/latest.json`（GitHub + Gitee；默认 ghfast 下载链） |
 | `update/` | Updater draft → publish after installer ready |
 | `gitee/` | Gitee 说明（现行：清单优先；独立打包未启用） |
+| `voice_latency_report.py` | 小V 语音时延报表：解析 voice 日志四锚点 → p50/p95/max（`python scripts/maintainer/voice_latency_report.py --days 7`） |
 
 Desktop CI（现行）：`.github/workflows/release-desktop-public.yml`  
 检查更新：客户端优先 Gitee `update/latest.json`。
