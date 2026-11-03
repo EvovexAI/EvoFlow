@@ -166,6 +166,42 @@ class UpsertMessageByMessageIdTest(unittest.TestCase):
         )
         self.assertEqual(msg_repo.count_messages(sk), 2)
 
+    def test_http_flat_kwargs_message_id_stripped_before_service(self) -> None:
+        """Mirrors chat_sessions.append: _flat_append_kwargs includes message_id."""
+        from evoflow.persistence import chat_message_repositories as msg_repo
+        from evoflow.persistence import chat_session_service as chat_svc
+        from evoflow.persistence.session_repositories import upsert_session_row
+
+        sk = "dept:rd:chat"
+        mid = "bubble-http-1"
+        upsert_session_row(sk, title="研发群", context={"dept_group_id": "rd"})
+        flat = {
+            "message_id": mid,
+            "content_json": {
+                "content": "from panel",
+                "dept_group": {"msg_kind": "user", "dept_id": "rd", "stream_state": "final"},
+            },
+            "tool_call_id": None,
+            "tool_name": None,
+            "model_name": None,
+            "input_tokens": None,
+            "output_tokens": None,
+            "total_tokens": None,
+        }
+        flat.pop("message_id", None)
+        flat.pop("messageId", None)
+        result = chat_svc.upsert_message_and_touch_session(
+            sk,
+            role="user",
+            message_id=mid,
+            content="from panel",
+            turn_state="final",
+            **flat,
+        )
+        self.assertIsNotNone(result)
+        self.assertEqual(int(result.get("messageCount") or 0), 1)
+        self.assertEqual(msg_repo.count_messages(sk), 1)
+
 
 if __name__ == "__main__":
     unittest.main()

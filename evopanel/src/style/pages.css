@@ -13714,11 +13714,35 @@ html[data-theme='dark'] .memory-agent-dropdown-panel {
 }
 
 .settings-modal-pane--usage.settings-embed-wrap,
-.settings-modal-pane--code-index.settings-embed-wrap {
+.settings-modal-pane--code-index.settings-embed-wrap,
+.settings-modal-pane--skills.settings-embed-wrap,
+.settings-modal-pane--mcp-connectors.settings-embed-wrap {
   max-width: none;
   width: 100%;
   box-sizing: border-box;
   padding: 8px 20px 28px 4px;
+}
+
+.settings-expert-embed {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.settings-expert-embed-head {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings-expert-embed-body {
+  min-width: 0;
+}
+
+.settings-expert-embed-body > .page {
+  padding: 0;
 }
 
 .settings-code-index-page {

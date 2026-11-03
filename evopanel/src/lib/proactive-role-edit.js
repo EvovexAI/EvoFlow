@@ -499,6 +499,9 @@ export function mergeDutyIntoSystemPrompt(systemPrompt, responsibilities) {
   return sp ? `${sp}\n\n${block}` : block
 }
 
+/** 与智能体编辑器一致：仅 workspace / optional 可勾选 */
+const ROLE_EDITOR_CONFIGURABLE_TIERS = new Set(['workspace', 'optional'])
+
 /**
  * 列表接口不含 soul；编辑前拉单条，与智能体页一致。
  * @param {string} code
@@ -508,26 +511,187 @@ export function mergeDutyIntoSystemPrompt(systemPrompt, responsibilities) {
  *   description: string,
  *   system_prompt: string,
  *   soul: string,
+ *   tools: string[]|null,
+ *   mcp_servers: string[]|null,
+ *   skills: string[]|null,
+ *   requires_external_cli: boolean,
+ *   front_desk: boolean,
  * }>}
  */
 async function loadAgentDetailForEdit(code) {
   const c = String(code || '').trim()
-  if (!c) {
-    return { code: '', agent_name: '', description: '', system_prompt: '', soul: '' }
+  const empty = {
+    code: '',
+    agent_name: '',
+    description: '',
+    system_prompt: '',
+    soul: '',
+    tools: null,
+    mcp_servers: null,
+    skills: null,
+    requires_external_cli: false,
+    front_desk: false,
   }
+  if (!c) return empty
   try {
     const a = await api.getAgent(c)
+    const codeOut = String(a?.agent_code || a?.name || c).trim() || c
     return {
-      code: String(a?.agent_code || a?.name || c).trim() || c,
+      code: codeOut,
       agent_name: String(a?.agent_name || a?.name || c).trim() || c,
       description: String(a?.description || '').trim(),
       system_prompt: String(a?.system_prompt || ''),
       soul: String(a?.soul || ''),
+      tools: Array.isArray(a?.tools) ? a.tools.map(String) : null,
+      mcp_servers: Array.isArray(a?.mcp_servers) ? a.mcp_servers.map(String) : null,
+      skills: Array.isArray(a?.skills) ? a.skills.map(String) : null,
+      requires_external_cli: a?.requires_external_cli === true,
+      front_desk: codeOut.toLowerCase() === 'xiaomi',
     }
   } catch (e) {
     toast('加载智能体详情失败: ' + (e?.message || e), 'warning')
-    return { code: c, agent_name: c, description: '', system_prompt: '', soul: '' }
+    return {
+      ...empty,
+      code: c,
+      agent_name: c,
+      front_desk: c.toLowerCase() === 'xiaomi',
+    }
   }
+}
+
+/**
+ * @returns {Promise<{
+ *   tools: Array<{value:string,label:string,desc:string}>,
+ *   mcp: Array<{value:string,label:string}>,
+ *   skills: Array<{value:string,label:string,desc:string}>,
+ * }>}
+ */
+async function loadAgentCapabilityCatalog() {
+  /** @type {Array<{value:string,label:string,desc:string}>} */
+  let tools = []
+  /** @type {Array<{value:string,label:string}>} */
+  let mcp = []
+  /** @type {Array<{value:string,label:string,desc:string}>} */
+  let skills = []
+
+  try {
+    const meta = await api.getToolsMetadata()
+    tools = (meta?.tools || [])
+      .filter((t) => ROLE_EDITOR_CONFIGURABLE_TIERS.has(String(t?.tool_type || 'optional')))
+      .map((t) => ({
+        value: String(t.name || '').trim(),
+        label: String(t.label || t.name || '').trim(),
+        desc: String(t.description || '').trim(),
+      }))
+      .filter((t) => t.value)
+    if (Array.isArray(meta?.skills) && meta.skills.length) {
+      skills = meta.skills.map((s) => ({
+        value: String(s.name || '').trim(),
+        label: String(s.label || s.name || '').trim(),
+        desc: String(s.description || '').trim(),
+      })).filter((s) => s.value)
+    }
+  } catch {
+    /* ignore */
+  }
+
+  try {
+    const mcpConfig = await api.getMCPConfig()
+    if (mcpConfig?.mcp_servers) {
+      for (const [name, cfg] of Object.entries(mcpConfig.mcp_servers)) {
+        if (cfg?.enabled === false) continue
+        mcp.push({ value: name, label: String(cfg?.description || name) })
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+  if (!mcp.length) {
+    try {
+      const meta = await api.getToolsMetadata()
+      mcp = (meta?.mcp_servers || [])
+        .filter((s) => s.enabled !== false)
+        .map((s) => ({
+          value: String(s.value || s.name || '').trim(),
+          label: String(s.label || s.name || '').trim(),
+        }))
+        .filter((s) => s.value)
+    } catch {
+      /* ignore */
+    }
+  }
+
+  if (!skills.length) {
+    try {
+      const list = await api.loadSkills()
+      skills = (Array.isArray(list) ? list : [])
+        .filter((s) => s.enabled !== false)
+        .map((s) => ({
+          value: String(s.name || '').trim(),
+          label: String(s.name || '').trim(),
+          desc: String(s.description || '').trim(),
+        }))
+        .filter((s) => s.value)
+    } catch {
+      /* ignore */
+    }
+  }
+
+  const dedupe = (rows) => {
+    const seen = new Set()
+    const out = []
+    for (const r of rows) {
+      if (!r.value || seen.has(r.value)) continue
+      seen.add(r.value)
+      out.push(r)
+    }
+    return out
+  }
+  return { tools: dedupe(tools), mcp: dedupe(mcp), skills: dedupe(skills) }
+}
+
+function resolveSelectedCapability(stored, catalogValues, { defaultAll = false } = {}) {
+  const catalog = catalogValues || []
+  if (!Array.isArray(stored)) {
+    return defaultAll ? [...catalog] : []
+  }
+  const allowed = new Set(catalog)
+  return stored.map(String).filter((v) => allowed.has(v))
+}
+
+function renderCapabilityChecklist({
+  name,
+  items,
+  selected,
+  emptyLabel,
+  searchPlaceholder,
+} = {}) {
+  const selectedSet = new Set(selected || [])
+  const rows = (items || [])
+    .map((it) => {
+      const checked = selectedSet.has(it.value) ? 'checked' : ''
+      const search = `${it.value} ${it.label} ${it.desc || ''}`.toLowerCase()
+      return `<label class="hire-cap-check" data-search="${esc(search)}">
+        <input type="checkbox" data-cap-group="${esc(name)}" value="${esc(it.value)}" ${checked}>
+        <span class="hire-cap-check__body">
+          <strong>${esc(it.label || it.value)}</strong>
+          ${it.desc ? `<em>${esc(it.desc)}</em>` : ''}
+        </span>
+      </label>`
+    })
+    .join('')
+  return `
+    <div class="hire-cap-block" data-cap-block="${esc(name)}">
+      <div class="hire-cap-toolbar">
+        <input class="hire-input hire-cap-search" type="search" placeholder="${esc(searchPlaceholder || '搜索…')}" data-cap-filter="${esc(name)}" autocomplete="off">
+        <span class="hire-cap-count"><em data-cap-count="${esc(name)}">${selectedSet.size}</em> / ${(items || []).length}</span>
+        <button type="button" class="btn btn-sm btn-secondary" data-cap-all="${esc(name)}">全选</button>
+        <button type="button" class="btn btn-sm btn-secondary" data-cap-none="${esc(name)}">清空</button>
+      </div>
+      <div class="hire-cap-list" data-cap-list="${esc(name)}">
+        ${rows || `<p class="hire-chip-hint">${esc(emptyLabel || '暂无可用项')}</p>`}
+      </div>
+    </div>`
 }
 
 function renderAgentNativePanel(detail) {
@@ -539,7 +703,7 @@ function renderAgentNativePanel(detail) {
     soul: '',
   }
   return `
-    <p class="hire-chip-hint">名称与系统提示词以智能体为准（聊天与上班共用）。旧「岗位职责」若仍存在，已合并进下方提示词。</p>
+    <p class="hire-chip-hint">名称与系统提示词以智能体为准（聊天与上班共用）。旧「岗位职责」若仍存在，已合并进下方提示词。工具 / MCP / 技能请用左侧对应分区配置。</p>
     <label class="hire-field">
       <span>名称</span>
       <input class="hire-input" data-name="agent_display_name" value="${esc(d.agent_name)}" placeholder="例如：创意广告负责人、AIGC 编剧">
@@ -557,8 +721,7 @@ function renderAgentNativePanel(detail) {
       <span>人格 SOUL</span>
       <p class="hire-chip-hint">个性、行为边界、输出风格。是否注入见「能力与工作」里的 SOUL 开关（勾选=强制；未勾=跟随默认）。</p>
       <textarea class="hire-input hire-textarea hire-textarea--agent-soul" data-name="agent_soul" rows="8" placeholder="例：语气干脆；不确定时先问；不编造事实">${esc(d.soul)}</textarea>
-    </label>
-    <p class="hire-chip-hint">工具 / MCP / 技能仍请到「智能体」页配置。</p>`
+    </label>`
 }
 
 function readAgentNativeFields(overlay) {
@@ -570,10 +733,109 @@ function readAgentNativeFields(overlay) {
   }
 }
 
-function fillAgentNativePanel(overlay, detail) {
+function readCapabilitySelection(overlay, group) {
+  return [...overlay.querySelectorAll(`input[data-cap-group="${group}"]:checked`)].map((el) => el.value)
+}
+
+function syncCapabilityCount(overlay, group) {
+  const el = overlay.querySelector(`[data-cap-count="${group}"]`)
+  if (!el) return
+  el.textContent = String(overlay.querySelectorAll(`input[data-cap-group="${group}"]:checked`).length)
+}
+
+function bindCapabilityPanels(overlay) {
+  overlay.querySelectorAll('[data-cap-filter]').forEach((input) => {
+    input.addEventListener('input', () => {
+      const group = input.getAttribute('data-cap-filter')
+      const kw = String(input.value || '').trim().toLowerCase()
+      overlay.querySelectorAll(`[data-cap-list="${group}"] .hire-cap-check`).forEach((row) => {
+        const hit = !kw || String(row.getAttribute('data-search') || '').includes(kw)
+        row.hidden = !hit
+      })
+    })
+  })
+  overlay.querySelectorAll('[data-cap-all]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const group = btn.getAttribute('data-cap-all')
+      overlay.querySelectorAll(`input[data-cap-group="${group}"]`).forEach((cb) => {
+        cb.checked = true
+      })
+      syncCapabilityCount(overlay, group)
+    })
+  })
+  overlay.querySelectorAll('[data-cap-none]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const group = btn.getAttribute('data-cap-none')
+      overlay.querySelectorAll(`input[data-cap-group="${group}"]`).forEach((cb) => {
+        cb.checked = false
+      })
+      syncCapabilityCount(overlay, group)
+    })
+  })
+  overlay.querySelectorAll('input[data-cap-group]').forEach((cb) => {
+    cb.addEventListener('change', () => syncCapabilityCount(overlay, cb.getAttribute('data-cap-group')))
+  })
+}
+
+function fillCapabilityPanels(overlay, detail, catalog) {
+  const locked = !!(detail?.requires_external_cli || detail?.front_desk)
+  const toolValues = (catalog?.tools || []).map((t) => t.value)
+  const mcpValues = (catalog?.mcp || []).map((t) => t.value)
+  const skillValues = (catalog?.skills || []).map((t) => t.value)
+  const selectedTools = locked
+    ? []
+    : resolveSelectedCapability(detail?.tools, toolValues, { defaultAll: true })
+  const selectedMcp = locked
+    ? []
+    : resolveSelectedCapability(detail?.mcp_servers, mcpValues, { defaultAll: true })
+  const selectedSkills = locked
+    ? []
+    : resolveSelectedCapability(detail?.skills, skillValues, { defaultAll: false })
+
+  const toolsPanel = overlay.querySelector('.hire-edit-panel[data-section="tools"]')
+  const mcpPanel = overlay.querySelector('.hire-edit-panel[data-section="mcp"]')
+  const skillsPanel = overlay.querySelector('.hire-edit-panel[data-section="skills"]')
+  if (toolsPanel) {
+    toolsPanel.innerHTML = locked
+      ? '<p class="hire-chip-hint">此外挂 / 系统前台不在面板配置内置工具（由运行时提供）。</p>'
+      : renderCapabilityChecklist({
+          name: 'tools',
+          items: catalog?.tools || [],
+          selected: selectedTools,
+          emptyLabel: '暂无可配置内置工具',
+          searchPlaceholder: '搜索内置工具…',
+        })
+  }
+  if (mcpPanel) {
+    mcpPanel.innerHTML = locked
+      ? '<p class="hire-chip-hint">此外挂 / 系统前台不在面板配置 MCP。</p>'
+      : `${renderCapabilityChecklist({
+          name: 'mcp',
+          items: catalog?.mcp || [],
+          selected: selectedMcp,
+          emptyLabel: '暂无 MCP；请先到设置 → 连接器 添加',
+          searchPlaceholder: '搜索 MCP…',
+        })}`
+  }
+  if (skillsPanel) {
+    skillsPanel.innerHTML = locked
+      ? '<p class="hire-chip-hint">此外挂 / 系统前台不在面板配置技能。</p>'
+      : `${renderCapabilityChecklist({
+          name: 'skills',
+          items: catalog?.skills || [],
+          selected: selectedSkills,
+          emptyLabel: '暂无已安装技能；请先到设置 → 技能 安装',
+          searchPlaceholder: '搜索技能…',
+        })}`
+  }
+  if (!locked) bindCapabilityPanels(overlay)
+}
+
+function fillAgentNativePanel(overlay, detail, catalog) {
   const panel = overlay.querySelector('.hire-edit-panel[data-section="agent"]')
   if (!panel) return
   panel.innerHTML = renderAgentNativePanel(detail)
+  if (catalog) fillCapabilityPanels(overlay, detail, catalog)
 }
 
 /**
@@ -626,8 +888,16 @@ export async function showEditRoleModal(role, {
   const injectSkills = cfg.inject_skills
   const injectKb = cfg.inject_kb
   const injectSoul = cfg.inject_soul
-  const [workspacePaths, chatModels, available, peerRoles, knowledgeVaults, departments, agentDetail] =
-    await Promise.all([
+  const [
+    workspacePaths,
+    chatModels,
+    available,
+    peerRoles,
+    knowledgeVaults,
+    departments,
+    agentDetail,
+    capabilityCatalog,
+  ] = await Promise.all([
       loadWorkspacePaths(),
       loadChatModels(),
       loadRebindableAgents(role.agent_code),
@@ -638,6 +908,7 @@ export async function showEditRoleModal(role, {
       loadKnowledgeVaults(),
       loadDepartmentCatalog(),
       loadAgentDetailForEdit(role.agent_code),
+      loadAgentCapabilityCatalog(),
     ])
   if (!available.length) {
     toast('没有可绑定的智能体', 'warning')
@@ -689,15 +960,18 @@ export async function showEditRoleModal(role, {
       </div>`
 
   const basicAgentBlock = allowAgentRebind
-    ? `<p class="hire-chip-hint">可改绑智能体。名称与系统提示词在左侧「智能体」分区统一编辑；工具 / MCP / 技能仍请到「智能体」页。</p>
+    ? `<p class="hire-chip-hint">可改绑智能体。名称、提示词、工具 / MCP / 技能均在左侧分区统一编辑。</p>
               ${renderAgentPickField(available, selected.code)}
               ${renderAgentCard()}`
-    : `<p class="hire-chip-hint">当前绑定智能体。名称与系统提示词在左侧「智能体」分区统一编辑；工具 / MCP / 技能仍请到「智能体」页。</p>
+    : `<p class="hire-chip-hint">当前绑定智能体。名称、提示词、工具 / MCP / 技能均在左侧分区统一编辑。</p>
               ${renderAgentCard()}
               <input type="hidden" data-name="agent_code" value="${esc(selected.code)}">`
 
   const sections = [
     { key: 'agent', label: '智能体' },
+    { key: 'tools', label: '内置工具' },
+    { key: 'mcp', label: 'MCP' },
+    { key: 'skills', label: '技能' },
     { key: 'basic', label: '组织编制' },
     { key: 'knowledge', label: '知识库' },
     { key: 'capability', label: '能力与工作' },
@@ -731,6 +1005,9 @@ export async function showEditRoleModal(role, {
             <div class="hire-edit-panel hire-edit-panel--agent" data-section="agent">
               ${renderAgentNativePanel(boundAgent)}
             </div>
+            <div class="hire-edit-panel" data-section="tools" hidden></div>
+            <div class="hire-edit-panel" data-section="mcp" hidden></div>
+            <div class="hire-edit-panel" data-section="skills" hidden></div>
 
             <div class="hire-edit-panel" data-section="basic" hidden>
               ${basicAgentBlock}
@@ -854,6 +1131,7 @@ export async function showEditRoleModal(role, {
   `
   document.body.appendChild(overlay)
   mountEditAvatars(overlay, 48, agentByCode)
+  fillCapabilityPanels(overlay, boundAgent, capabilityCatalog)
 
   const close = () => overlay.remove()
   overlay.addEventListener('click', (e) => {
@@ -898,7 +1176,7 @@ export async function showEditRoleModal(role, {
         const detail = await loadAgentDetailForEdit(code)
         boundAgent = detail
         agentBaseline = { ...detail }
-        fillAgentNativePanel(overlay, detail)
+        fillAgentNativePanel(overlay, detail, capabilityCatalog)
       },
     })
   }
@@ -945,8 +1223,38 @@ export async function showEditRoleModal(role, {
     const agentPromptChanged =
       String(agentFields.system_prompt || '') !== String(agentBaseline.system_prompt || '')
     const agentSoulChanged = String(agentFields.soul || '') !== String(agentBaseline.soul || '')
+    const capLocked = !!(boundAgent?.requires_external_cli || boundAgent?.front_desk)
+    const toolValues = (capabilityCatalog?.tools || []).map((t) => t.value)
+    const mcpValues = (capabilityCatalog?.mcp || []).map((t) => t.value)
+    const skillValues = (capabilityCatalog?.skills || []).map((t) => t.value)
+    const nextTools = capLocked ? [] : readCapabilitySelection(overlay, 'tools')
+    const nextMcp = capLocked ? [] : readCapabilitySelection(overlay, 'mcp')
+    const nextSkills = capLocked ? [] : readCapabilitySelection(overlay, 'skills')
+    const baseTools = capLocked
+      ? []
+      : resolveSelectedCapability(agentBaseline.tools, toolValues, { defaultAll: true })
+    const baseMcp = capLocked
+      ? []
+      : resolveSelectedCapability(agentBaseline.mcp_servers, mcpValues, { defaultAll: true })
+    const baseSkills = capLocked
+      ? []
+      : resolveSelectedCapability(agentBaseline.skills, skillValues, { defaultAll: false })
+    const sameList = (a, b) => {
+      if (a.length !== b.length) return false
+      const sb = new Set(b)
+      return a.every((x) => sb.has(x))
+    }
+    const toolsChanged = !sameList(nextTools, baseTools)
+    const mcpChanged = !sameList(nextMcp, baseMcp)
+    const skillsChanged = !sameList(nextSkills, baseSkills)
+    const agentCapabilityChanged = toolsChanged || mcpChanged || skillsChanged
     const agentNativeChanged =
-      agentNameChanged || agentDescChanged || agentPromptChanged || agentSoulChanged || needsDutyMerge
+      agentNameChanged ||
+      agentDescChanged ||
+      agentPromptChanged ||
+      agentSoulChanged ||
+      agentCapabilityChanged ||
+      needsDutyMerge
     const roleNameOutOfSync =
       role_name !== String(role.role_name || '').trim() &&
       role_name !== String(role.agent_name || '').trim()
@@ -1012,6 +1320,9 @@ export async function showEditRoleModal(role, {
       agentChanges.push(needsDutyMerge && !agentPromptChanged ? '岗位职责已合并进系统提示词' : '系统提示词已修改')
     }
     if (agentSoulChanged) agentChanges.push('人格 SOUL 已修改')
+    if (toolsChanged) agentChanges.push('内置工具已修改')
+    if (mcpChanged) agentChanges.push('MCP 勾选已修改')
+    if (skillsChanged) agentChanges.push('技能勾选已修改')
 
     const changes = [...roleChanges, ...agentChanges]
     const syncNameOrClearDuties = needsDutyMerge || roleNameOutOfSync || agentNameChanged
@@ -1091,12 +1402,34 @@ export async function showEditRoleModal(role, {
       }
       if (agentNativeChanged && agentTargetCode) {
         // Always send soul as string (incl. "") so clear persists; null is ignored by API.
-        await api.updateAgent(agentTargetCode, {
+        // tools/mcp: null = 全量（与智能体编辑器一致）；skills 始终显式列表。
+        const isAllTools =
+          !capLocked &&
+          nextTools.length === toolValues.length &&
+          toolValues.length > 0 &&
+          nextTools.every((v) => toolValues.includes(v))
+        const isAllMcp =
+          !capLocked &&
+          nextMcp.length === mcpValues.length &&
+          mcpValues.length > 0 &&
+          nextMcp.every((v) => mcpValues.includes(v))
+        /** @type {Record<string, unknown>} */
+        const agentPatch = {
           agent_name: agentFields.agent_name || null,
           description: agentFields.description,
           system_prompt: agentFields.system_prompt,
           soul: String(agentFields.soul ?? ''),
-        })
+        }
+        if (capLocked && boundAgent?.front_desk) {
+          agentPatch.tools = []
+          agentPatch.mcp_servers = []
+          agentPatch.skills = []
+        } else if (!capLocked && agentCapabilityChanged) {
+          agentPatch.tools = isAllTools ? null : nextTools
+          agentPatch.mcp_servers = isAllMcp ? null : nextMcp
+          agentPatch.skills = nextSkills
+        }
+        await api.updateAgent(agentTargetCode, agentPatch)
       }
       let updated = role
       if (roleConfigChanged || agentNativeChanged) {

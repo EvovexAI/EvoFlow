@@ -5,14 +5,15 @@
 
 const TABS = [
   { id: 'agents', label: '智能体' },
-  { id: 'skills', label: '技能' },
-  { id: 'mcp', label: '连接器' },
+  // 技能 / 连接器已迁到设置「数据与资源」（与插件同组）；保留 loader 便于深链或回滚
+  // { id: 'skills', label: '技能' },
+  // { id: 'mcp', label: '连接器' },
 ]
 
 const PRIMARY_ACTIONS = {
   agents: { label: '新建智能体', title: '创建自定义智能体' },
-  skills: { label: '导入本地技能', title: '选择含 SKILL.md 的文件夹（原地登记）或导入 zip' },
-  mcp: { label: '添加连接器', title: '添加 MCP 连接器' },
+  // skills: { label: '导入本地技能', title: '选择含 SKILL.md 的文件夹（原地登记）或导入 zip' },
+  // mcp: { label: '添加连接器', title: '添加 MCP 连接器' },
 }
 
 /** 字面量 import()，供 Vite/Rollup 静态分析并生成正确 chunk（勿用变量路径） */
@@ -22,7 +23,7 @@ const TAB_LOADERS = {
   mcp: () => import('./tools.js'),
 }
 
-let _activeTab = 'agents'
+let _activeTab = TABS.some((t) => t.id === 'agents') ? 'agents' : TABS[0]?.id || 'agents'
 let _pageEl = null
 let _contentEl = null
 let _cleanupFn = null
@@ -130,9 +131,11 @@ export async function render() {
       <div class="expert-head-row">
         <div class="expert-title-block">
           <h1 class="expert-page-title">智能体中心</h1>
-          <p class="expert-page-desc">配置可复用能力包；日常加人、排班、工作流指派请到「员工」</p>
+          <p class="expert-page-desc">管理可复用能力模板；工具 / 技能 / MCP 请在「员工」配置，技能与连接器安装请到「设置」</p>
         </div>
-        <div class="expert-seg" id="expert-tabs" role="tablist" aria-label="模块导航">
+        ${
+          TABS.length > 1
+            ? `<div class="expert-seg" id="expert-tabs" role="tablist" aria-label="模块导航">
           ${TABS.map(
             (t) => `
             <button
@@ -143,7 +146,9 @@ export async function render() {
               aria-selected="${t.id === _activeTab ? 'true' : 'false'}"
             >${t.label}</button>`,
           ).join('')}
-        </div>
+        </div>`
+            : '<div id="expert-tabs" hidden></div>'
+        }
         <button
           type="button"
           class="btn btn-primary"

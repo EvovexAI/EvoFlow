@@ -203,7 +203,8 @@ export async function loadDeptGroupMessages(
   const sk = deptChatSessionKey(deptId)
   if (!sk) return []
   try {
-    const hist = await api.chatHistory(sk, limit)
+    // bypassCache：刚写入后 20s 内 remount 不能吃到空历史缓存
+    const hist = await api.chatHistory(sk, limit, { bypassCache: true })
     const rows = Array.isArray(hist?.messages)
       ? hist.messages
       : Array.isArray(hist)
@@ -218,13 +219,30 @@ export async function loadDeptGroupMessages(
         if (!before.streaming) continue
         const after = cleaned.find((m) => m.id === before.id)
         if (after?.error) {
-          void finalizeDeptGroupMessage(after, { deptId, deptName }).catch(() => {})
+          void finalizeDeptGroupMessage(after, { deptId, deptName }).catch((err) => {
+            console.warn('[dept-group] finalize stale failed', after.id, err)
+          })
         }
       }
     }
     return cleaned
-  } catch {
+  } catch (err) {
+    console.warn('[dept-group] load messages failed', deptId, err)
     return []
+  }
+}
+
+/** Write-through local backup so restart can migrate if DB write failed. */
+export function writeLocalDeptChatBackup(deptId: string, msgs: DeptGroupTimelineMsg[]): void {
+  const id = String(deptId || '').trim()
+  if (!id) return
+  try {
+    const stable = (Array.isArray(msgs) ? msgs : [])
+      .filter((m) => m && m.id && !m.streaming)
+      .slice(-400)
+    localStorage.setItem(lsKey(id), JSON.stringify(stable))
+  } catch {
+    /* quota / private mode */
   }
 }
 
@@ -237,6 +255,17 @@ export async function upsertDeptGroupMessage(
   const streamState: DeptGroupStreamState =
     opts.streamState ||
     (msg.error ? 'error' : msg.streaming ? 'streaming' : 'final')
+  // 定稿才写 LS；流式占位不占备份
+  if (streamState !== 'streaming') {
+    try {
+      const prev = readLocalDeptChatBackup(opts.deptId)
+      const next = [...prev.filter((m) => m.id !== msg.id), { ...msg, streaming: false }]
+      writeLocalDeptChatBackup(opts.deptId, next)
+    } catch {
+      /* ignore */
+    }
+  }
+  await ensureDeptGroupSession({ deptId: opts.deptId, deptName: opts.deptName })
   const role = msg.kind === 'agent' ? 'assistant' : 'user'
   const contentJson = buildDeptGroupContentJson(msg, {
     deptId: opts.deptId,
@@ -313,21 +342,26 @@ export async function migrateLocalDeptChatIfNeeded(opts: {
     deptName: opts.deptName,
     finalizeStale: true,
   })
-  if (fromDb.length) return fromDb
+  if (fromDb.length) {
+    // DB 已有权威副本，清掉可能过期的 LS
+    clearLocalDeptChatBackup(deptId)
+    return fromDb
+  }
   const local = readLocalDeptChatBackup(deptId)
   if (!local.length) return []
   for (const m of local.slice(-400)) {
     try {
       await appendDeptGroupMessage(m, opts)
-    } catch {
-      /* continue */
+    } catch (err) {
+      console.warn('[dept-group] migrate local msg failed', m?.id, err)
     }
   }
-  clearLocalDeptChatBackup(deptId)
-  return loadDeptGroupMessages(deptId, {
+  const after = await loadDeptGroupMessages(deptId, {
     deptName: opts.deptName,
     finalizeStale: false,
   })
+  if (after.length) clearLocalDeptChatBackup(deptId)
+  return after
 }
 
 export function workSessionKeyForSpeaker(deptId: string, agentCode: string): string {

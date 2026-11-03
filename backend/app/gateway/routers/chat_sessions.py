@@ -1243,6 +1243,9 @@ async def append_session_message(request: Request, session_key: str, body: Appen
     try:
         if body.upsertByMessageId and str(body.messageId or "").strip():
             flat = _flat_append_kwargs(body)
+            # message_id is a dedicated kwarg — must not also land in **flat
+            flat.pop("message_id", None)
+            flat.pop("messageId", None)
             if body.contentJson is not None:
                 flat["content_json"] = body.contentJson
             result = chat_svc.upsert_message_and_touch_session(

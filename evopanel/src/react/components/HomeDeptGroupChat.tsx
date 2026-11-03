@@ -22,7 +22,6 @@ import { resolveDeptGroupWakeTargets } from '../lib/dept-group-steward.js'
 import {
   extractMentionGoal,
   findMentionSpans,
-  hasUnresolvedAtMentions,
   parseMentions,
   stripLeadingMentions,
 } from '../lib/dept-group-mentions.js'
@@ -318,20 +317,24 @@ export function HomeDeptGroupChat({
       const state =
         streamState ||
         (msg.error ? 'error' : msg.streaming ? 'streaming' : 'final')
-      // 流式中间态只留本地，定稿/错误/首条占位才写库
+      // 流式中间态只留内存；空占位 / 定稿 / 错误才写库
       if (state === 'streaming' && !msg.text) {
         void upsertDeptGroupMessage(msg as DeptGroupTimelineMsg, {
           deptId: dept.id,
           deptName: dept.name,
           streamState: 'streaming',
-        }).catch(() => {})
+        }).catch((err) => {
+          console.warn('[dept-group] persist streaming placeholder failed', msg.id, err)
+        })
         return
       }
       if (state === 'streaming') return
       void finalizeDeptGroupMessage(msg as DeptGroupTimelineMsg, {
         deptId: dept.id,
         deptName: dept.name,
-      }).catch(() => {})
+      }).catch((err) => {
+        console.warn('[dept-group] persist finalize failed', msg.id, err)
+      })
     },
     [dept.id, dept.name],
   )
@@ -626,18 +629,6 @@ export function HomeDeptGroupChat({
         const nestedFromAt = parseMentions(finalText, roster).filter(
           (x) => x.agent_code !== person.agent_code,
         )
-        if (!nestedFromAt.length && hasUnresolvedAtMentions(finalText, roster)) {
-          appendMsg({
-            id: `sys-at-miss-${Date.now()}`,
-            kind: 'system',
-            text: `${person.role_name} 写了 @，但没对上本群花名册（可能还在用旧称呼）。本群可 @：${roster
-              .map((m) => m.role_name)
-              .filter(Boolean)
-              .slice(0, 8)
-              .join('、')}`,
-            ts: Date.now(),
-          })
-        }
         const woken = new Set(nestedFromAt.map((x) => x.agent_code))
         const nested: Array<{ person: HomeCmdPerson; goal: string }> = nestedFromAt.map(
           (next) => ({
@@ -1190,7 +1181,7 @@ export function HomeDeptGroupChat({
             <textarea
               ref={inputRef}
               className={isMain ? 'dept-im__composer-input' : 'evo-home-cmd__gc-input'}
-              rows={isMain ? 1 : 2}
+              rows={isMain ? 3 : 2}
               value={draft}
               placeholder={
                 isMain

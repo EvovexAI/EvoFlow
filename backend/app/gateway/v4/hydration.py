@@ -37,11 +37,43 @@ logger = logging.getLogger(__name__)
 
 _HYDRATION_MAX_MESSAGES = 2000
 
+# 与 chat_message_repositories._HIDDEN_CONTEXT_USER_NAMES 对齐（避免 raw 回落路径漏滤）。
+_HIDDEN_CONTEXT_USER_TOOL_NAMES = frozenset(
+    {
+        "goal",
+        "goal_controller",
+        "hosted_autofollow",
+        "task_autofollow",
+        "tool_approval_resume",
+        "tool_approval_command",
+        "proactive_duty_brief",
+        "xiaomi_ui_context",
+    }
+)
+
 # 写类工具名（与 agui_mirror._WRITE_TOOL_NAMES 一致；历史行补 file_diff display 用）。
 _WRITE_TOOL_NAMES = {
     "write", "write_file", "write_to_file", "edit", "edit_file",
     "replace", "str_replace", "replace_in_file", "multi_edit", "apply_patch",
 }
+
+
+def _is_hidden_context_user_tool_name(tool_name: str | None) -> bool:
+    return str(tool_name or "").strip() in _HIDDEN_CONTEXT_USER_TOOL_NAMES
+
+
+def _is_hidden_duty_brief_text(text: str) -> bool:
+    """Live mirror 曾把值班 full brief 记成 userInput；正文嗅探兜底（无 tool_name 时）。"""
+    head = str(text or "").lstrip()[:240]
+    if not head:
+        return False
+    if head.startswith("# 值班") or head.startswith("# 值班 ·"):
+        return True
+    if "## 本轮行动" in head and ("对照职责" in head or "不要空建单" in head):
+        return True
+    if "<proactive_duty_brief" in head:
+        return True
+    return False
 
 
 def _text_from_message_content(content: Any) -> str:
@@ -519,6 +551,23 @@ def hydrate_session_from_transcript(hub: Any, thread_id: str) -> int:
 
                 if text and _is_hidden_tool_approval_user_text(text) and not attachments:
                     continue
+                # Duty brief / goal injects etc.：display_all 已滤，raw 回落路径仍要挡。
+                tool_name = str(msg.get("tool_name") or msg.get("toolName") or "").strip()
+                if tool_name and _is_hidden_context_user_tool_name(tool_name):
+                    continue
+                if text and _is_hidden_duty_brief_text(text) and not attachments:
+                    continue
+                # 同轮连续相同正文（brief/beat 镜像 + transcript 双写）只留一条。
+                if (
+                    text
+                    and rows
+                    and rows[-1].get("kind") == "userInput"
+                    and str(rows[-1].get("text") or "").strip() == text.strip()
+                    and not attachments
+                ):
+                    continue
+                # 值班节拍不可编辑（系统开场，非真人输入）。
+                can_edit = tool_name != "proactive_duty_beat"
                 row: dict[str, Any] = {
                     "rowId": next_row_id(),
                     "turnId": turn_id,
@@ -528,7 +577,7 @@ def hydrate_session_from_transcript(hub: Any, thread_id: str) -> int:
                     "createdAt": created_at,
                     "createdAtSeq": 0,
                     # ZCode 行内「编辑」入口：canEdit + entityId（message_id）同时成立才展示。
-                    "actions": {"canEdit": True},
+                    "actions": {"canEdit": can_edit},
                 }
                 if attachments:
                     row["attachments"] = attachments

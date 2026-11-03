@@ -1507,6 +1507,9 @@ def upsert_message_and_touch_session(
                 logger.debug("stamp_session_ownership on upsert failed sk=%s", sk, exc_info=True)
         if content_json is not None:
             flat_fields["content_json"] = content_json
+        # Dedicated kwargs — strip duplicates that HTTP flat-kwargs may reintroduce
+        flat_fields.pop("message_id", None)
+        flat_fields.pop("messageId", None)
         upsert_result = msg_repo.upsert_message_by_message_id(
             sk,
             role=role,

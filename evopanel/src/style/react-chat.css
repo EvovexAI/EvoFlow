@@ -1165,8 +1165,8 @@ html.dark .shell-view-tab.is-active {
   height: 100%;
   width: 100%;
   gap: 0;
-  /* 相对左侧壳层略灰一档，避免内容区和顶栏/侧栏糊成一片 */
-  background: color-mix(in srgb, var(--text-primary, #0f172a) 4%, var(--bg-primary, #fff));
+  /* 相对左侧壳层再灰一档，浅色才分得清内容面 */
+  background: color-mix(in srgb, var(--text-primary, #0f172a) 7%, var(--bg-primary, #fff));
 }
 
 html[data-theme='dark'] .evo-home-cmd__gc-wrap.evo-home-cmd__gc-wrap--main,
@@ -1464,17 +1464,28 @@ html.dark .evo-home-cmd__gc-wrap.evo-home-cmd__gc-wrap--main {
 }
 
 .dept-im__bubble--user {
-  background: color-mix(in srgb, var(--accent, #6366f1) 16%, #fff);
+  background: color-mix(in srgb, var(--accent, #6366f1) 18%, #fff);
+  border: 1px solid color-mix(in srgb, var(--accent, #6366f1) 22%, transparent);
   border-bottom-right-radius: 4px;
+  color: #0f172a;
 }
 
 .dept-im__bubble--agent {
-  background: #f1f5f9;
+  background: #e8eef6;
+  border: 1px solid rgba(15, 23, 42, 0.08);
   border-bottom-left-radius: 4px;
+  color: #0f172a;
+}
+
+.dept-im__bubble--system {
+  background: color-mix(in srgb, #64748b 8%, #fff);
+  border: 1px dashed rgba(15, 23, 42, 0.18);
+  color: #475569;
 }
 
 .dept-im__row.is-error .dept-im__bubble {
-  background: color-mix(in srgb, #ef4444 10%, #fff);
+  background: color-mix(in srgb, #ef4444 12%, #fff);
+  border: 1px solid color-mix(in srgb, #ef4444 28%, transparent);
 }
 
 .dept-im__bubble-meta {
@@ -1505,7 +1516,12 @@ html.dark .evo-home-cmd__gc-wrap.evo-home-cmd__gc-wrap--main {
   line-height: 1.5;
   white-space: pre-wrap;
   word-break: break-word;
-  color: var(--text-primary, #0f172a);
+  color: inherit;
+}
+
+.dept-im__bubble--user .dept-im__bubble-text,
+.dept-im__bubble--agent .dept-im__bubble-text {
+  color: #0f172a;
 }
 
 .dept-im__stack {
@@ -1545,7 +1561,7 @@ html.dark .evo-home-cmd__gc-wrap.evo-home-cmd__gc-wrap--main {
 .dept-im__head-name {
   font-size: 12px;
   font-weight: 500;
-  color: #737a87;
+  color: #475569;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1580,19 +1596,29 @@ html.dark .dept-im__head-state {
 html[data-theme='dark'] .dept-im__bubble--user,
 html.dark .dept-im__bubble--user {
   background: color-mix(in srgb, var(--accent, #818cf8) 28%, #1e2433);
+  border-color: color-mix(in srgb, var(--accent, #818cf8) 28%, transparent);
   color: #e8ecf4;
 }
 
 html[data-theme='dark'] .dept-im__bubble--agent,
 html.dark .dept-im__bubble--agent {
   background: #232a38;
+  border-color: rgba(255, 255, 255, 0.08);
   color: #e8ecf4;
 }
 
 html[data-theme='dark'] .dept-im__bubble--system,
 html.dark .dept-im__bubble--system {
   background: color-mix(in srgb, #64748b 18%, #1a2030);
+  border-color: rgba(255, 255, 255, 0.14);
   color: #b0b8c8;
+}
+
+html[data-theme='dark'] .dept-im__bubble--user .dept-im__bubble-text,
+html[data-theme='dark'] .dept-im__bubble--agent .dept-im__bubble-text,
+html.dark .dept-im__bubble--user .dept-im__bubble-text,
+html.dark .dept-im__bubble--agent .dept-im__bubble-text {
+  color: #e8ecf4;
 }
 
 html[data-theme='dark'] .dept-im__row.is-error .dept-im__bubble,
@@ -1768,8 +1794,16 @@ html.dark .dept-im__dispatch-chip {
   position: relative;
   display: block;
   border-radius: 14px;
-  background: var(--bg-secondary, #f8fafc);
-  border: 1px solid var(--border-primary, rgba(15, 23, 42, 0.1));
+  background: #fff;
+  border: 1px solid rgba(15, 23, 42, 0.16);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+html[data-theme='dark'] .dept-im__composer-box,
+html.dark .dept-im__composer-box {
+  background: var(--bg-secondary, #1a2030);
+  border-color: var(--border-primary, rgba(255, 255, 255, 0.12));
+  box-shadow: none;
 }
 
 .dept-im__composer-box:focus-within {
@@ -1782,8 +1816,8 @@ html.dark .dept-im__dispatch-chip {
   display: block;
   width: 100% !important;
   min-width: 0;
-  min-height: 44px;
-  max-height: 120px;
+  min-height: 76px;
+  max-height: 160px;
   resize: none;
   box-sizing: border-box !important;
   border: 0 !important;
@@ -1792,10 +1826,10 @@ html.dark .dept-im__dispatch-chip {
   background: transparent !important;
   background-image: none !important;
   box-shadow: none !important;
-  padding: 12px 44px 12px 14px !important;
+  padding: 14px 48px 36px 16px !important;
   font: inherit;
   font-size: 14px;
-  line-height: 1.45;
+  line-height: 1.5;
   color: var(--text-primary, #0f172a) !important;
   caret-color: var(--text-primary, #0f172a);
 }
@@ -1868,7 +1902,18 @@ html.theme-dark .dept-im__composer .evo-home-cmd__gc-mention-list {
 .dept-im .evo-home-cmd__gc-empty {
   text-align: center;
   padding: 48px 16px;
-  color: var(--text-secondary, #64748b);
+  color: #64748b;
+  font-size: 13px;
+}
+
+.dept-im__composer-input::placeholder {
+  color: #94a3b8 !important;
+  opacity: 1;
+}
+
+html[data-theme='dark'] .dept-im__composer-input::placeholder,
+html.dark .dept-im__composer-input::placeholder {
+  color: #7a8494 !important;
 }
 
 .dept-im .evo-home-cmd__gc-mention-list button {
@@ -23389,9 +23434,9 @@ html[data-custom-bg='1'] .react-chat-main-col--home {
   background: transparent;
 }
 
-/* 部门群主列：内容面相对侧栏顶栏再压一点灰 */
+/* 部门群主列：浅色内容面再灰一点，和侧栏/顶栏分开 */
 .react-chat-main-col--dept {
-  background: color-mix(in srgb, var(--text-primary, #0f172a) 3.5%, var(--bg-primary, #fff));
+  background: color-mix(in srgb, var(--text-primary, #0f172a) 6.5%, var(--bg-primary, #fff));
 }
 
 html[data-theme='dark'] .react-chat-main-col--dept,
@@ -24491,7 +24536,8 @@ html.dark .evo-home-cmd__dept-tree.is-selected .evo-home-cmd__dept-kpi {
   position: absolute;
   left: 0;
   top: 0;
-  bottom: 0;
+  /* 停在最后一片叶子垂直中线附近（叶卡约 48px 高），勿再往下空拖 */
+  bottom: 24px;
   width: 2px;
   background: var(--branch-line);
   box-shadow: 0 0 10px color-mix(in srgb, var(--card-accent) 40%, transparent);
@@ -24523,18 +24569,7 @@ html.dark .evo-home-cmd__dept-tree.is-selected .evo-home-cmd__dept-kpi {
   z-index: 1;
 }
 
-/* 竖干在最后一片叶子中线收口，不再往下空拖 */
-.evo-home-cmd__dept-leaves > li:last-child::after {
-  content: '';
-  position: absolute;
-  left: -20px;
-  top: calc(50% + 1px);
-  bottom: 0;
-  width: 6px;
-  background: var(--cmd-bg, #0a0a0a);
-  z-index: 2;
-  pointer-events: none;
-}
+/* 旧做法用 cmd-bg 色块盖住竖干下半截；画布色一不对齐就会多出一截浅/深色条，已改为竖干 bottom 收口 */
 
 .evo-home-cmd__people-empty {
   font-size: 11px;
@@ -25209,11 +25244,19 @@ html.dark .evo-home-cmd__detail {
 
 .evo-home-cmd__gc-msg--system {
   align-self: stretch;
-  background: transparent;
+  background: color-mix(in srgb, #64748b 8%, #fff);
   border-style: dashed;
-  border-color: var(--cmd-border);
-  color: var(--cmd-text-secondary);
+  border-color: rgba(15, 23, 42, 0.2);
+  color: #475569;
   font-size: 11px;
+}
+
+html[data-theme='dark'] .evo-home-cmd__gc-msg--system,
+html.dark .evo-home-cmd__gc-msg--system,
+html.theme-dark .evo-home-cmd__gc-msg--system {
+  background: color-mix(in srgb, #64748b 14%, transparent);
+  border-color: rgba(255, 255, 255, 0.16);
+  color: var(--cmd-text-secondary, #a1a1aa);
 }
 
 .evo-home-cmd__gc-msg--agent {
@@ -25684,12 +25727,65 @@ html.evo-home-overview-cinema .shell-aside-expand-btn {
 /*
  * 全屏一底：主题里 html[data-theme] body .react-chat-main-body !important
  * 会盖掉普通选择器，先改 --chat-canvas，再用更高优先级选择器硬刷。
+ *
+ * 影院态始终用深色指挥台色板——即使应用是浅色主题，也不能再留
+ * --cmd-panel:#fff，否则黑底上飘一排白卡。
+ * 非影院的浅色总览仍走 .evo-home-cmd 默认纸面 token（#f3f6fb / 白卡）。
  */
 html.evo-home-overview-cinema {
   --chat-canvas: #0a0a0a !important;
   --page-canvas: #0a0a0a !important;
   --bg-primary: #0a0a0a !important;
   --cmd-bg: #0a0a0a !important;
+  --cmd-panel: #121212 !important;
+  --cmd-panel-soft: #181818 !important;
+  --cmd-border: rgba(255, 255, 255, 0.1) !important;
+  --cmd-text: #f1f5f9 !important;
+  --cmd-text-secondary: #a1a1aa !important;
+  --cmd-text-muted: #71717a !important;
+  --cmd-line: rgba(248, 250, 252, 0.35) !important;
+  --cmd-cyan: #22d3ee !important;
+  --cmd-cyan-soft: #67e8f9 !important;
+  --cmd-orange: #f97316 !important;
+  --cmd-orange-soft: #fdba74 !important;
+  --cmd-green: #39ff88 !important;
+  --cmd-glow-cyan: transparent !important;
+  --cmd-glow-orange: rgba(249, 115, 22, 0.28) !important;
+  --cmd-glow-green: rgba(57, 255, 136, 0.35) !important;
+  --cmd-pulse: #f8fafc !important;
+  --cmd-pulse-soft: rgba(248, 250, 252, 0.28) !important;
+  --cmd-neon-cyan:
+    0 0 0 1px rgba(103, 232, 249, 0.45),
+    0 0 12px rgba(34, 211, 238, 0.22) !important;
+  --cmd-neon-green:
+    0 0 0 1px rgba(57, 255, 136, 0.7),
+    0 0 16px rgba(57, 255, 136, 0.45),
+    0 0 34px rgba(57, 255, 136, 0.22) !important;
+}
+
+/* 影院态：部门卡不要再吃浅色 #fff 兜底；与 data-theme=dark 规则对齐 */
+html.evo-home-overview-cinema .evo-home-cmd__dept-node {
+  background: #111 !important;
+  border-color: rgba(255, 255, 255, 0.1) !important;
+  color: var(--cmd-text) !important;
+}
+
+html.evo-home-overview-cinema .evo-home-cmd__dept-node.is-selected,
+html.evo-home-overview-cinema .evo-home-cmd__dept-node.is-path {
+  background: #0e0e0e !important;
+  border-color: color-mix(in srgb, var(--cmd-green) 85%, #fff) !important;
+}
+
+html.evo-home-overview-cinema .evo-home-cmd__you {
+  background:
+    linear-gradient(145deg, color-mix(in srgb, var(--cmd-orange) 14%, transparent), transparent 55%),
+    var(--cmd-panel) !important;
+  color: var(--cmd-text) !important;
+}
+
+html.evo-home-overview-cinema .evo-home-cmd__steward {
+  background: var(--cmd-panel) !important;
+  color: var(--cmd-text) !important;
 }
 
 html.evo-home-overview-cinema body .chat-react-full,
@@ -26415,6 +26511,10 @@ html.theme-dark .evo-home-dashboard--overview .evo-home-tabseg__btn.is-active {
   padding: 12px 14px 6px;
 }
 
+.evo-home-card.is-collapsed .evo-home-card__head {
+  padding-bottom: 12px;
+}
+
 .evo-home-card__title {
   margin: 0;
   font-size: var(--ef-text-base) ;
@@ -26422,8 +26522,42 @@ html.theme-dark .evo-home-dashboard--overview .evo-home-tabseg__btn.is-active {
   color: var(--text-primary);
 }
 
+.evo-home-card__title-btn {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  color: inherit;
+  min-width: 0;
+}
+
+.evo-home-card__title-btn:hover .evo-home-card__title {
+  color: var(--accent, #5b5fef);
+}
+
+.evo-home-card__chev {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  color: var(--text-tertiary, #94a3b8);
+  transition: transform 0.15s ease;
+}
+
+.evo-home-card__chev.is-collapsed {
+  transform: rotate(-90deg);
+}
+
 .evo-home-card__body {
   padding: 6px 14px 14px;
+}
+
+.evo-home-card--live.is-collapsed {
+  margin-bottom: 10px;
 }
 
 .evo-home-legend {

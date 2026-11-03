@@ -4,6 +4,7 @@ import {
   AppWindow,
   Bot,
   CheckCircle2,
+  ChevronDown,
   ChevronRight,
   CircleDot,
   Clock3,
@@ -204,20 +205,44 @@ function SectionCard({
   children,
   className = '',
   style,
+  collapsible = false,
+  collapsed = false,
+  onToggleCollapse,
 }: {
   title: string
   action?: ReactNode
   children: ReactNode
   className?: string
   style?: CSSProperties
+  collapsible?: boolean
+  collapsed?: boolean
+  onToggleCollapse?: () => void
 }) {
   return (
-    <section className={`evo-home-card ${className}`.trim()} style={style}>
+    <section
+      className={`evo-home-card ${collapsed ? 'is-collapsed' : ''} ${className}`.trim()}
+      style={style}
+    >
       <div className="evo-home-card__head">
-        <h2 className="evo-home-card__title">{title}</h2>
+        {collapsible ? (
+          <button
+            type="button"
+            className="evo-home-card__title-btn"
+            aria-expanded={!collapsed}
+            onClick={onToggleCollapse}
+          >
+            <ChevronDown
+              className={`evo-home-card__chev ${collapsed ? 'is-collapsed' : ''}`}
+              aria-hidden
+            />
+            <h2 className="evo-home-card__title">{title}</h2>
+          </button>
+        ) : (
+          <h2 className="evo-home-card__title">{title}</h2>
+        )}
         {action}
       </div>
-      <div className="evo-home-card__body">{children}</div>
+      {collapsed ? null : <div className="evo-home-card__body">{children}</div>}
     </section>
   )
 }
@@ -327,6 +352,11 @@ export function EvoFlowHomeDashboard({ onPrompt, workspaceLabel = '', workspaceP
   const [memoryEnabled, setMemoryEnabled] = useState(true)
   const [goalActive, setGoalActive] = useState(false)
   const [trendTip, setTrendTip] = useState<HomeTrendPoint | null>(null)
+  /** 正在处理：有任务时可折叠；空闲默认收起，不占空态文案 */
+  const [liveCollapsed, setLiveCollapsed] = useState(true)
+  const liveCount = (data.liveNow || []).length
+  const liveHasItems = liveCount > 0
+  const prevLiveHasItemsRef = useRef(false)
   const [actionBusy, setActionBusy] = useState<string | null>(null)
   const [pendingFiles, setPendingFiles] = useState<File[]>([])
   const [imagePreviewIndex, setImagePreviewIndex] = useState<number | null>(null)
@@ -347,6 +377,14 @@ export function EvoFlowHomeDashboard({ onPrompt, workspaceLabel = '', workspaceP
       /* ignore */
     }
   }, [draft])
+
+  // 从空闲 → 有任务：自动展开；回到空闲：收起，避免「没有任务」空态占位
+  useEffect(() => {
+    const prev = prevLiveHasItemsRef.current
+    prevLiveHasItemsRef.current = liveHasItems
+    if (liveHasItems && !prev) setLiveCollapsed(false)
+    if (!liveHasItems && prev) setLiveCollapsed(true)
+  }, [liveHasItems])
 
   // 总览全屏：藏左侧壳 + 顶栏。ChatApp 常驻——跳到任务中心等只会 hidden 宿主，
   // 若不在此清掉 cinema class，其它页面左侧菜单会一直被 CSS 压成 0 宽（像卡死）。
@@ -1538,23 +1576,29 @@ export function EvoFlowHomeDashboard({ onPrompt, workspaceLabel = '', workspaceP
           <SectionCard
             title="正在处理"
             className="evo-home-card--live"
+            collapsible
+            collapsed={liveCollapsed}
+            onToggleCollapse={() => setLiveCollapsed((v) => !v)}
             action={
               <div className="evo-home-live__actions">
                 <span className="evo-home-live__count">
-                  {(data.liveNow || []).length > 0 ? `${(data.liveNow || []).length} 项` : '空闲'}
+                  {liveHasItems ? `${liveCount} 项` : '空闲'}
                 </span>
                 <button
                   type="button"
                   className="evo-home-btn evo-home-btn--chip"
                   title="刷新运行态"
-                  onClick={() => data.refresh()}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    data.refresh()
+                  }}
                 >
                   <RefreshCw className="evo-home-ic" />
                 </button>
               </div>
             }
           >
-            {(data.liveNow || []).length > 0 ? (
+            {liveHasItems ? (
               <div className="evo-home-list evo-home-list--live">
                 {(data.liveNow || []).slice(0, Math.min(Math.max(prefs.listLimit, 6), 10)).map((item) => {
                   const Icon = LIVE_KIND_ICON[item.kind] || PlayCircle

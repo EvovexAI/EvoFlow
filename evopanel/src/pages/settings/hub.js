@@ -302,6 +302,26 @@ async function ensurePanelMounted(rootEl, tab) {
           _tabCleanups.set('mcp-server-management', () => mod.cleanup())
           break
         }
+        case 'mcp-connectors': {
+          const mod = await import('./mcp-connectors.js')
+          if (!inner.isConnected) return
+          const pane = document.createElement('div')
+          pane.className = 'settings-modal-pane settings-modal-pane--mcp-connectors settings-embed-wrap'
+          inner.appendChild(pane)
+          await mod.mountMcpConnectorsInto(pane)
+          _tabCleanups.set('mcp-connectors', () => mod.cleanup())
+          break
+        }
+        case 'skill-management': {
+          const mod = await import('./skill-management.js')
+          if (!inner.isConnected) return
+          const pane = document.createElement('div')
+          pane.className = 'settings-modal-pane settings-modal-pane--skills settings-embed-wrap'
+          inner.appendChild(pane)
+          await mod.mountSkillManagementInto(pane)
+          _tabCleanups.set('skill-management', () => mod.cleanup())
+          break
+        }
         case 'plugin-management': {
           const mod = await import('./plugin-management.tsx')
           if (!inner.isConnected) return

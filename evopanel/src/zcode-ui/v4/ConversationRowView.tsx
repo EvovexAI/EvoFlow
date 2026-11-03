@@ -853,6 +853,13 @@ const UserInputAttachmentList = memo(function UserInputAttachmentList({
   );
 });
 
+/** 值班开场节拍（proactive_duty_beat），非真人气泡。 */
+const DUTY_BEAT_USER_TEXT_RE = /^(?:本轮值班开始|开始执行)\s*·/;
+
+function isDutyBeatUserText(text: string): boolean {
+  return DUTY_BEAT_USER_TEXT_RE.test(String(text || "").trim());
+}
+
 const UserInputRowView = memo(function UserInputRowView({
   row,
   context,
@@ -1047,6 +1054,32 @@ const UserInputRowView = memo(function UserInputRowView({
       <FileClockIcon className="size-4" />
     </Button>
   );
+
+  // 值班节拍：左对齐系统开场（hooks 已全部跑完后再早退）。
+  if (
+    !editing &&
+    isDutyBeatUserText(bodyText) &&
+    epilogue === undefined &&
+    !(row.attachments?.length)
+  ) {
+    const lines = bodyText
+      .split(/\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+    const head = lines[0] || bodyText;
+    const rest = lines.slice(1).join(" ");
+    return (
+      <RowShell rowId={row.rowId} className="flex w-full flex-col items-start">
+        <div
+          data-v4-duty-beat="true"
+          className="flex max-w-full flex-col gap-0.5 rounded-md border border-border/60 bg-muted/40 px-3 py-2 text-ui-sm text-foreground-subtle"
+        >
+          <span className="font-medium text-foreground">{head}</span>
+          {rest ? <span className="text-foreground-subtlest">{rest}</span> : null}
+        </div>
+      </RowShell>
+    );
+  }
 
   if (editing) {
     return (

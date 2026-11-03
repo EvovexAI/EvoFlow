@@ -639,6 +639,12 @@
   color: var(--text-primary);
 }
 
+/* 菜单打开时抬高整张卡，避免被网格下一张卡盖住（transform/hover 会造层叠上下文，z-index:20 的菜单逃不出去） */
+.extensions-page .uiext-app:has(.uiext-app-more.is-open),
+.extensions-page .uiext-app:has(.uiext-app-menu:not([hidden])) {
+  z-index: 40;
+}
+
 .extensions-page .uiext-app-menu {
   position: absolute;
   right: 10px;
@@ -647,10 +653,17 @@
   min-width: 138px;
   padding: 4px;
   border-radius: 10px;
-  /* 实底：菜单会溢出卡片外，透明主题下不能继承卡片的 glass 透明 */
-  background: var(--bg-elevated, var(--bg-secondary, #fff));
+  /* 实底：菜单会溢出卡片外；半透明主题下卡片被刷成 transparent，菜单必须自己不透，否则后半段字会飘在空白上 */
+  background: #ffffff;
   border: 1px solid var(--border-primary);
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.14), 0 2px 6px rgba(0, 0, 0, 0.05);
+}
+
+html[data-theme='dark'] .extensions-page .uiext-app-menu,
+html.dark .extensions-page .uiext-app-menu {
+  background: #303030;
+  border-color: rgba(255, 255, 255, 0.12);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45), 0 2px 6px rgba(0, 0, 0, 0.2);
 }
 
 .extensions-page .uiext-app-menu[hidden] {
