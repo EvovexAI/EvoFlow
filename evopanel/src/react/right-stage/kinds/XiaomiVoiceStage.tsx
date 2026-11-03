@@ -23,7 +23,6 @@ import {
   interruptXiaomiFrame,
 } from '../../../lib/xiaomi-voice/index.js'
 import { onSpeakingChange } from '../../../lib/speech-client.js'
-import { subscribeVoiceLevels } from '../../../lib/voice-capture-service.js'
 import { showRightStageBrowserUrl } from '../../../lib/right-stage/open-right-stage-browser.js'
 import { rightStageStore } from '../../../lib/right-stage/right-stage-store.js'
 import { notifyLayoutChromeChanged } from '../../../lib/layout-chrome.js'
@@ -64,55 +63,6 @@ const STATE_COLOR: Record<StageState, string> = {
   speak: 'var(--xws-state-speak, #5568a0)',
 }
 
-/** 点阵球默认配色（浅色主题蓝灰）；深色由 CSS 变量覆盖。 */
-const DOT_MAIN = '#5b7aa8'
-const DOT_COOL = '#6b8ab0'
-const DOT_CORE = '#3d5a80'
-const DOT_COOL_CORE = '#4a6a90'
-const LEVEL_BINS = 32
-
-/**
- * 读面板上的主题令牌（点阵球要跟随明暗，canvas 画不出来 CSS 变量）。
- * 令牌写在 .xws-root 上：--xws-dot / --xws-dot-core / --xws-dot-cool / --xws-dot-cool-core。
- */
-function isHostDarkTheme(): boolean {
-  if (typeof document === 'undefined') return false
-  const root = document.documentElement
-  return root.dataset.theme === 'dark' || root.classList.contains('dark')
-}
-
-function readDotColors(el: Element | null): {
-  main: string
-  mainCore: string
-  cool: string
-  coolCore: string
-  /** 浅色底点阵要更不透明，否则几乎看不见 */
-  alphaBoost: number
-} {
-  const fallback = {
-    main: DOT_MAIN,
-    mainCore: DOT_CORE,
-    cool: DOT_COOL,
-    coolCore: DOT_COOL_CORE,
-    alphaBoost: 1.35,
-  }
-  if (!el || typeof window === 'undefined') return fallback
-  try {
-    const cs = window.getComputedStyle(el)
-    const pick = (name: string, fb: string) => String(cs.getPropertyValue(name) || '').trim() || fb
-    const dark = isHostDarkTheme()
-    return {
-      main: pick('--xws-dot', fallback.main),
-      mainCore: pick('--xws-dot-core', fallback.mainCore),
-      cool: pick('--xws-dot-cool', fallback.cool),
-      coolCore: pick('--xws-dot-cool-core', fallback.coolCore),
-      alphaBoost: dark ? 1 : 1.45,
-    }
-  } catch {
-    return fallback
-  }
-}
-
 function extractUrl(reply: string): string {
   const m = String(reply || '').match(/https?:\/\/[^\s，。；、）)】\]"'）]+/i)
   return m ? m[0] : ''
@@ -147,8 +97,6 @@ export function XiaomiVoiceStage() {
   })
   const stateSinceRef = useRef(0)
   const stateRef = useRef<StageState>('listen')
-  const levelsRef = useRef<number[]>(new Array(LEVEL_BINS).fill(0))
-  const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const parsedReplyRef = useRef('')
   const liveUserTextRef = useRef<HTMLParagraphElement | null>(null)
   const liveAiTextRef = useRef<HTMLParagraphElement | null>(null)
@@ -417,219 +365,6 @@ export function XiaomiVoiceStage() {
     }
   }, [derive])
 
-  useEffect(
-    () =>
-      subscribeVoiceLevels((levels: number[]) => {
-        if (!Array.isArray(levels) || !levels.length) return
-        const arr = levelsRef.current
-        for (let i = 0; i < arr.length; i++) {
-          const v = Number(levels[Math.floor((i / arr.length) * levels.length)])
-          if (Number.isFinite(v)) arr[i] += (Math.max(0, Math.min(1, v)) - arr[i]) * 0.35
-        }
-      }),
-    [],
-  )
-
-  /* 球面点阵（装饰） */
-  useEffect(() => {
-    if (!visible) return
-    const canvas = canvasRef.current
-    const box = canvas?.parentElement
-    if (!canvas || !box) return
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return
-    let cancelled = false
-    let raf = 0
-    let dpr = Math.min(2, window.devicePixelRatio || 1)
-    const resize = () => {
-      dpr = Math.min(2, window.devicePixelRatio || 1)
-      const w = box.clientWidth
-      const h = box.clientHeight
-      if (w > 0 && h > 0) {
-        canvas.width = Math.round(w * dpr)
-        canvas.height = Math.round(h * dpr)
-        canvas.style.width = `${w}px`
-        canvas.style.height = `${h}px`
-      }
-    }
-    resize()
-    const ro = new ResizeObserver(resize)
-    ro.observe(box)
-    const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches === true
-    const N = 360
-    // 主题观察器在 bootTimer 之外创建，才能在 effect cleanup 里断开。
-    let themeObserverRef: MutationObserver | null = null
-    // 点阵 boot 略晚于进场动画，避免 360 点初始化 + ResizeObserver 与 clip-path 抢同一帧
-    const bootTimer = window.setTimeout(() => {
-      if (cancelled) return
-      const pts: Array<{ x: number; y: number; z: number; sz: number; ph: number; cool: boolean; lv: number }> = []
-      const GA = Math.PI * (3 - Math.sqrt(5))
-      for (let i = 0; i < N; i++) {
-        const y0 = 1 - (2 * (i + 0.5)) / N
-        const r0 = Math.sqrt(Math.max(0, 1 - y0 * y0))
-        const phi = i * GA
-        pts.push({
-          x: Math.cos(phi) * r0,
-          y: y0,
-          z: Math.sin(phi) * r0,
-          sz: 0.8 + Math.random() * 0.9,
-          ph: Math.random() * Math.PI * 2,
-          cool: Math.random() < 0.16,
-          lv: Math.floor(Math.random() * LEVEL_BINS),
-        })
-      }
-      const sprites = new Map<string, HTMLCanvasElement>()
-      // 点阵球配色跟随明暗：canvas 画不出 CSS 变量，这里从面板读取。
-      let dotColors = readDotColors(box)
-      const sprite = (color: string, coreColor: string) => {
-        const key = `${color}|${coreColor}`
-        let cv = sprites.get(key)
-        if (!cv) {
-          cv = document.createElement('canvas')
-          cv.width = 12
-          cv.height = 12
-          const g = cv.getContext('2d')
-          if (g) {
-            const rg = g.createRadialGradient(6, 6, 0, 6, 6, 6)
-            rg.addColorStop(0, coreColor)
-            rg.addColorStop(0.35, color)
-            rg.addColorStop(1, 'transparent')
-            g.fillStyle = rg
-            g.beginPath()
-            g.arc(6, 6, 6, 0, Math.PI * 2)
-            g.fill()
-          }
-          sprites.set(key, cv)
-        }
-        return cv
-      }
-      // 语音全屏开着时用户仍可能切主题 → 观察宿主 data-theme / class，
-      // 变了就重读令牌并清空 sprite 缓存（canvas 里画死的颜色不会自动跟随 CSS）。
-      const themeObserver = new MutationObserver(() => {
-        const next = readDotColors(box)
-        if (
-          next.main === dotColors.main &&
-          next.cool === dotColors.cool &&
-          next.mainCore === dotColors.mainCore &&
-          next.coolCore === dotColors.coolCore &&
-          next.alphaBoost === dotColors.alphaBoost
-        ) {
-          return
-        }
-        dotColors = next
-        sprites.clear()
-      })
-      themeObserver.observe(document.documentElement, {
-        attributes: true,
-        attributeFilter: ['class', 'data-theme'],
-      })
-      themeObserverRef = themeObserver
-      let energy = 0.06
-      let mouth = 0
-      let rotY = 0
-      let rotX = -0.22
-      let last = performance.now()
-      const frame = (t: number) => {
-        if (cancelled) return
-        raf = requestAnimationFrame(frame)
-        const dt = Math.min(50, t - (last || t))
-        last = t
-        const W = canvas.width
-        const H = canvas.height
-        if (!W || !H) return
-        const st = stateRef.current
-        const levels = levelsRef.current
-        const motionScale = reduceMotion ? 0.35 : 1
-        let target: number
-        if (st === 'listen') {
-          let sum = 0
-          for (let i = 0; i < levels.length; i++) sum += levels[i]
-          target = 0.3 + (sum / levels.length) * 0.8
-        } else if (st === 'think') target = 0.32 + 0.12 * Math.sin(t * 0.004)
-        else target = 0.28 + 0.06 * Math.abs(Math.sin(t * 0.0038)) // speak
-        energy += (target - energy) * 0.07
-        // 播报：慢呼吸起伏，不要旧的「嘴型」ripple（球面被撕开很难受）
-        if (st === 'speak') {
-          const breath = 0.5 + 0.5 * Math.sin(t * 0.0032)
-          mouth += (breath - mouth) * 0.045
-        } else mouth += (0 - mouth) * 0.12
-
-        ctx.globalCompositeOperation = 'destination-out'
-        ctx.fillStyle = st === 'speak' ? 'rgba(0,0,0,.28)' : 'rgba(0,0,0,.4)'
-        ctx.fillRect(0, 0, W, H)
-        ctx.globalCompositeOperation = 'source-over'
-
-        const cx = W / 2
-        const cy = H * 0.42
-        const R = Math.min(W, H) * 0.22
-        const rotSpd =
-          st === 'think'
-            ? 0.00058
-            : st === 'speak'
-              ? 0.00008
-              : st === 'listen'
-                ? 0.00014 + energy * 0.00014
-                : 0.00005
-        rotY += rotSpd * dt * motionScale
-        const tiltBase =
-          st === 'think'
-            ? Math.sin(t * 0.0012) * 0.42 - 0.2
-            : st === 'speak'
-              ? Math.sin(t * 0.0004) * 0.06 - 0.2
-              : Math.sin(t * 0.00032) * 0.16 - 0.22
-        rotX += (tiltBase - rotX) * 0.05
-        const cosY = Math.cos(rotY)
-        const sinY = Math.sin(rotY)
-        const cosX = Math.cos(rotX)
-        const sinX = Math.sin(rotX)
-        const F = 3.2
-        const LX = -0.48
-        const LY = -0.68
-        const LZ = -0.55
-        const spMain = sprite(dotColors.main, dotColors.mainCore)
-        const spCool = sprite(dotColors.cool, dotColors.coolCore)
-        // 播报：整体轻柔缩放，不做按纬度的嘴型变形
-        const speakScale = st === 'speak' ? 1 + mouth * 0.035 : 1
-        for (let i = 0; i < pts.length; i++) {
-          const p = pts[i]
-          const theta = Math.acos(Math.max(-1, Math.min(1, p.y)))
-          let r = 1
-          if (st === 'speak') r = speakScale
-          else if (st === 'listen') r += (levels[p.lv] || 0) * 0.06 + Math.sin(t * 0.005 + p.ph) * 0.012
-          else if (st === 'think') r = 0.72 + Math.sin(theta * 3 + t * 0.003) * 0.05
-          else r += Math.sin(t * 0.0012) * 0.025
-          const rr = r * R
-          const x1 = p.x * cosY + p.z * sinY
-          const z1 = -p.x * sinY + p.z * cosY
-          const y2 = p.y * cosX - z1 * sinX
-          const z2 = p.y * sinX + z1 * cosX
-          const bright = Math.max(0, x1 * LX + y2 * LY + z2 * LZ)
-          const shade = 0.18 + 0.82 * bright
-          const persp = F / (F + z2 * r)
-          const X = cx + x1 * rr * persp
-          const Y = cy + y2 * rr * persp
-          const frontness = Math.max(0, Math.min(1, (persp - 0.72) / 0.8))
-          const sz = p.sz * dpr * (0.72 + 0.42 * frontness) * (dotColors.alphaBoost > 1 ? 1.08 : 1)
-          let al = (0.16 + 0.52 * frontness) * shade * dotColors.alphaBoost
-          if (st === 'speak') al = Math.min(0.92, al + mouth * 0.06)
-          else if (st === 'listen') al = Math.min(0.98, al + energy * 0.16)
-          ctx.globalAlpha = Math.min(0.98, al)
-          ctx.drawImage(p.cool ? spCool : spMain, X - sz, Y - sz, sz * 2, sz * 2)
-        }
-        ctx.globalAlpha = 1
-      }
-      raf = requestAnimationFrame(frame)
-    }, XW_VOICE_ENTER_ANIM_MS + 40)
-    return () => {
-      cancelled = true
-      window.clearTimeout(bootTimer)
-      cancelAnimationFrame(raf)
-      ro.disconnect()
-      themeObserverRef?.disconnect()
-      themeObserverRef = null
-    }
-  }, [visible])
-
   const onTopbarDoubleClick = useCallback((e: ReactMouseEvent<HTMLElement>) => {
     if ((e.target as HTMLElement).closest('[data-tauri-no-drag],button')) return
     void import('@tauri-apps/api/window').then(({ getCurrentWindow }) => void getCurrentWindow().toggleMaximize())
@@ -846,7 +581,6 @@ export function XiaomiVoiceStage() {
       ) : null}
 
       <div className="xws-stage" onClick={onInterrupt} title={state === 'speak' ? '点击打断' : undefined}>
-        <canvas ref={canvasRef} className="xws-canvas" aria-hidden="true" />
         <XiaoxiStagePet mode={petMode} />
       </div>
 
