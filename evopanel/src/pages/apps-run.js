@@ -5,6 +5,7 @@
 import { api } from '../lib/tauri-api.js'
 import { toast } from '../components/toast.js'
 import { navigate, getCurrentRoute } from '../router.js'
+import { restoreAppsStudioAside, syncAppsStudioAside } from './apps-studio-aside.js'
 import { showConfirm } from '../components/modal.js'
 import {
   previewRenderText,
@@ -15,6 +16,7 @@ import {
 import { appRunControlFlags } from '../lib/app-run-controls.js'
 import { notifyDesktopCompletion } from '../lib/desktop-notification.js'
 import { appIconTileHtml } from '../lib/app-icon.js'
+import { RUN_STATUS } from '../lib/app-run-inspect.js'
 
 let pollTimer = null
 let trackingToken = 0
@@ -25,6 +27,7 @@ export function cleanup() {
     clearInterval(pollTimer)
     pollTimer = null
   }
+  restoreAppsStudioAside()
 }
 
 function escHtml(s) {
@@ -55,6 +58,7 @@ export async function render() {
       '<div style="padding:40px;text-align:center;color:var(--text-tertiary)">无效的工作流 ID，<a href="#/apps">返回工作流列表</a></div>'
     return page
   }
+  syncAppsStudioAside(true)
 
   page.innerHTML = `
     <div class="page-header">
@@ -69,6 +73,7 @@ export async function render() {
         </div>
       </div>
       <div class="page-actions">
+        <button type="button" class="btn btn-ghost" id="btn-run-history">历史</button>
         <button type="button" class="btn btn-secondary" id="btn-edit-flow">编辑流程</button>
       </div>
     </div>
@@ -77,10 +82,11 @@ export async function render() {
         <ol style="margin:0;padding-left:1.2em">
           <li>填好下方参数 → 点「运行」→ 查看结果</li>
           <li>可暂停 / 继续 / 取消；需要改流程请点「编辑流程」</li>
+          <li>历次跑次在右上角「历史」</li>
         </ol>
         <details style="margin-top:8px;font-size:12px;color:var(--text-tertiary)">
-          <summary style="cursor:pointer">开发者：API 调用</summary>
-          <p style="margin:6px 0 0">发布后可在画布「API」创建 Key，按 OpenAPI 兼容接口调用。</p>
+          <summary style="cursor:pointer">开发者：API / 自动化</summary>
+          <p style="margin:6px 0 0">回画布打开「怎么用」：可建 API Key，或挂到自动化定时跑。</p>
         </details>
       </div>
       <div id="app-run-body">
@@ -105,6 +111,9 @@ export async function render() {
 
   page.querySelector('#btn-back-apps').addEventListener('click', () => navigate('/apps'))
   page.querySelector('#btn-edit-flow').addEventListener('click', () => navigate(`/apps/${appId}`))
+  page.querySelector('#btn-run-history')?.addEventListener('click', () =>
+    navigate(`/apps/${appId}/history`),
+  )
 
   let appData = null
 
@@ -129,12 +138,12 @@ export async function render() {
 
   const body = page.querySelector('#app-run-body')
 
-  // 填参运行页是对外消费面：仅已发布可跑（画布内调试仍允许草稿）
+  // 填参运行页是对外消费面：仅已发布可跑（画布「试跑」仍允许草稿）
   if (status !== 'published') {
     body.innerHTML = `
       <div style="padding:20px 0;color:var(--text-secondary);line-height:1.6">
         <p style="margin:0 0 12px">当前为<strong>${status === 'archived' ? '已归档' : '草稿'}</strong>，填参运行页仅开放已发布工作流。</p>
-        <p style="margin:0 0 16px;font-size:13px;color:var(--text-tertiary)">可在画布内调试；确认流程后点「发布」，再回本页或列表「运行」。</p>
+        <p style="margin:0 0 16px;font-size:13px;color:var(--text-tertiary)">可先在画布「试跑」；确认流程后点「发布」，再回本页或列表「▶ 运行」。</p>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
           <button type="button" class="btn btn-primary" id="btn-goto-editor">去画布发布</button>
           <button type="button" class="btn btn-ghost" id="btn-back-list">返回列表</button>
@@ -221,14 +230,17 @@ export async function render() {
         <div style="display:flex;gap:8px;margin-top:16px;align-items:center;flex-wrap:wrap">
           <button type="submit" class="btn btn-primary" id="btn-start-run">运行</button>
           <button type="button" class="btn btn-secondary" id="btn-dry-run">预览最终计划</button>
-          <label class="form-hint" style="display:flex;align-items:center;gap:6px;margin:0 0 0 auto">
+        </div>
+        <details style="margin-top:10px;font-size:12px;color:var(--text-tertiary)">
+          <summary style="cursor:pointer">高级</summary>
+          <label class="form-hint" style="display:flex;align-items:center;gap:6px;margin-top:8px">
             运行性质
             <select class="form-input" id="run-kind-select" style="width:auto;padding:2px 8px">
-              <option value="production" selected>正式</option>
-              <option value="debug">调试</option>
+              <option value="production" selected>正式（对外/自动化同款）</option>
+              <option value="debug">试跑标记（便于历史区分）</option>
             </select>
           </label>
-        </div>
+        </details>
         <div data-role="dry-run-result" hidden style="margin-top:12px"></div>
       </form>
     `
@@ -419,9 +431,10 @@ function startTracking(page, appData, result) {
       if (!status) return
       // S6: await 返回后再次校验 token，防止竞态窗口内页面已切换
       if (myToken !== trackingToken) return
-      const overall = status.status || 'running'
+      const overall = String(status.status || 'running').toLowerCase()
       const progress = Math.min(100, Math.max(0, status.progress || 0))
-      if (labelEl) labelEl.textContent = overall
+      const statusMeta = RUN_STATUS[overall] || { label: overall || '未知' }
+      if (labelEl) labelEl.textContent = statusMeta.label
       if (pctEl) pctEl.textContent = `${progress}%`
       if (barEl) barEl.style.width = `${progress}%`
       renderActions(overall)

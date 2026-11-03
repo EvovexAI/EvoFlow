@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../lib/tauri-api.js";
+import { showConfirm } from "../components/modal.js";
 import {
   folderPathFromRelative,
   shouldSkipKnowledgeDir,
@@ -1377,7 +1378,7 @@ export default function KnowledgeOwnedPage() {
     const name = typeof base === "string" ? "" : base?.name || "";
     if (
       nextHidden &&
-      !window.confirm(`停用「${name || kbId}」？停用后不在列表中显示，可随时在「显示已停用」中恢复。`)
+      !(await showConfirm(`停用「${name || kbId}」？停用后不在列表中显示，可随时在「显示已停用」中恢复。`))
     ) {
       return;
     }
@@ -2205,7 +2206,7 @@ export default function KnowledgeOwnedPage() {
     const summaryChanged = settingsSummary !== Boolean(base?.summaryEnabled);
 
     if (embChanged) {
-      const ok = window.confirm(
+      const ok = await showConfirm(
         `更换向量模型将清空现有向量并按「${next}」整库重建索引，是否继续？`,
       );
       if (!ok) return;
@@ -2258,7 +2259,7 @@ export default function KnowledgeOwnedPage() {
       notify("当前知识库尚未绑定向量模型，请先在下方选择模型并保存。");
       return;
     }
-    const ok = window.confirm(
+    const ok = await showConfirm(
       base?.embeddingDim
         ? `将按当前模型「${current}」清空并整库重建索引（不更换模型），是否继续？`
         : `将按当前模型「${current}」为该库建立索引，是否继续？`,
@@ -2288,7 +2289,7 @@ export default function KnowledgeOwnedPage() {
       notify("系统内置知识库不可删除");
       return;
     }
-    if (!window.confirm(`删除知识库「${name || kbId}」？文档与索引将一并移除。`)) return;
+    if (!(await showConfirm(`删除知识库「${name || kbId}」？文档与索引将一并移除。`))) return;
     setBusy(true);
     try {
       await api.deleteOwnedKnowledgeBase(kbId);
@@ -2493,7 +2494,7 @@ export default function KnowledgeOwnedPage() {
   }
 
   async function removeDoc(docId) {
-    if (!window.confirm("删除该文档？")) return;
+    if (!(await showConfirm("删除该文档？"))) return;
     try {
       await api.deleteOwnedKnowledgeDocument(docId);
       await loadDocs(selectedId);
@@ -2559,11 +2560,11 @@ export default function KnowledgeOwnedPage() {
 
   async function deleteFolderAt(path) {
     if (!selectedId || !path) return;
-    const moveUp = window.confirm(
+    const moveUp = await showConfirm(
       `删除文件夹「${path}」？\n\n确定：文档上移到父级\n取消：再问是否连文档一起删`
     );
     if (!moveUp) {
-      const wipe = window.confirm(`是否连同「${path}」内文档一并删除？不可恢复。`);
+      const wipe = await showConfirm(`是否连同「${path}」内文档一并删除？不可恢复。`);
       if (!wipe) return;
       try {
         await api.deleteOwnedKnowledgeFolder(selectedId, path, "delete_docs");
@@ -2771,9 +2772,9 @@ export default function KnowledgeOwnedPage() {
                       className="ko-btn"
                       disabled={reindexingAll}
                       onClick={async () => {
-                        if (!window.confirm(
+                        if (!(await showConfirm(
                           "将对当前知识库全部文档重新触发索引，可能耗时较长，确定继续？",
-                        )) return;
+                        ))) return;
                         setReindexingAll(true);
                         try {
                           const res = await api.reindexOwnedKnowledgeBase(selectedId, { force: true });

@@ -250,6 +250,10 @@ def _format_upstream_context(
         output = data.get("output") or {}
         artifacts = data.get("artifacts") if isinstance(data.get("artifacts"), list) else []
         entry_lines = [f"- 上游步骤 #{ref}:"]
+        # F-2：结构化输出优先且给独立配额（此前与摘要共享 500 字上限，字段被截掉）
+        if output:
+            formatted = json_for_handoff_prompt(output, max_chars=2000)
+            entry_lines.append(f"  输出（结构化，以此为准）: {formatted}")
         if summary:
             entry_lines.append(f"  摘要: {summary}")
         artifact_paths = [str(a.get("value") or "").strip() for a in artifacts if isinstance(a, dict) and str(a.get("value") or "").strip()]
@@ -257,9 +261,6 @@ def _format_upstream_context(
             entry_lines.append("  产出路径:")
             for p in artifact_paths[:12]:
                 entry_lines.append(f"    - `{p}`")
-        if output:
-            formatted = json_for_handoff_prompt(output, max_chars=max_summary_len)
-            entry_lines.append(f"  输出: {formatted}")
         lines.append("\n".join(entry_lines))
     return "\n".join(lines)
 

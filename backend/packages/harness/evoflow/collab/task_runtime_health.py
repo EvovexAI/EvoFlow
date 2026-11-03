@@ -93,6 +93,13 @@ def load_active_run_index() -> dict[str, set[str]]:
                 cid = _task_id_from_proactive_session_key(str(row.get("session_key") or "")) or ""
             if cid:
                 by_task.add(cid)
+            # Workflow executor sessions carry main_task_id in context; workflow
+            # main task rows have thread_id=None and a different collab_task_id
+            # (subtask id at most), so without this key they always read as
+            # 「已中断」 — the structural false positive from the 2026-10-25 run.
+            mtid = str(row.get("main_task_id") or "").strip()
+            if mtid:
+                by_task.add(mtid)
             if tid:
                 by_thread.add(tid)
     except Exception:

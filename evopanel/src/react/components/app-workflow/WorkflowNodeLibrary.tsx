@@ -1,5 +1,5 @@
-import { useMemo, useState, type DragEvent, type ReactNode } from 'react'
-import { MessageSquareText, Play, Search, Trash2, Workflow } from 'lucide-react'
+import { useMemo, type DragEvent, type ReactNode } from 'react'
+import { Bot, MessageSquareText, Trash2 } from 'lucide-react'
 import WorkflowNodeAvatar from './WorkflowNodeAvatar.tsx'
 
 type PaletteNode = {
@@ -7,8 +7,8 @@ type PaletteNode = {
   title: string
   tone: 'trigger' | 'action' | 'system'
   icon: ReactNode
-  static?: boolean
   onClick?: () => void
+  dragKind: string
 }
 
 type Props = {
@@ -22,136 +22,82 @@ function PaletteRow({
   title,
   tone,
   icon,
-  static: isStatic,
   onClick,
-  draggable,
   onDragStart,
-}: Omit<PaletteNode, 'id'> & {
-  draggable?: boolean
+}: Omit<PaletteNode, 'id' | 'dragKind'> & {
   onDragStart?: (e: DragEvent) => void
 }) {
-  const Tag = isStatic ? 'div' : 'button'
   return (
-    <Tag
-      type={isStatic ? undefined : 'button'}
-      className={`wf-palette-row${isStatic ? ' wf-palette-row--static' : ''}`}
+    <button
+      type="button"
+      className="wf-palette-row"
       onClick={onClick}
       title={title}
-      draggable={!!draggable}
+      draggable
       onDragStart={onDragStart}
     >
       <WorkflowNodeAvatar tone={tone} size="sm">
         {icon}
       </WorkflowNodeAvatar>
       <span className="wf-palette-row-title">{title}</span>
-    </Tag>
+    </button>
   )
 }
 
+/** 遗留侧栏调色板；主路径已改用 WorkflowDrawer 节点库 */
 export function WorkflowNodeLibrary({
   onAddStep,
   onAddAnswer,
   onDeleteSelected,
   hasSelection,
 }: Props) {
-  const [search, setSearch] = useState('')
   const dndType = 'application/evoflow-wf-node'
 
   const nodes = useMemo<PaletteNode[]>(
     () => [
       {
-        id: 'start',
-        title: '流程开始',
-        tone: 'trigger',
-        icon: <Play size={15} strokeWidth={2.2} />,
-        static: true,
+        id: 'agent-step',
+        title: 'Agent 节点',
+        tone: 'action',
+        icon: <Bot size={14} strokeWidth={2.2} />,
+        onClick: onAddStep,
+        dragKind: 'agent-step',
       },
       {
         id: 'answer',
         title: '最终答案',
         tone: 'trigger',
-        icon: <MessageSquareText size={15} strokeWidth={2.2} />,
+        icon: <MessageSquareText size={14} strokeWidth={2.2} />,
         onClick: onAddAnswer,
-      },
-      {
-        id: 'agent-step',
-        title: '智能体步骤',
-        tone: 'action',
-        icon: <Workflow size={15} strokeWidth={2.2} />,
-        onClick: onAddStep,
+        dragKind: 'answer',
       },
     ],
     [onAddStep, onAddAnswer],
   )
 
-  const q = search.trim().toLowerCase()
-  const systemNodes = nodes.filter((n) => n.tone === 'trigger' && (!q || n.title.toLowerCase().includes(q)))
-  const agentNodes = nodes.filter((n) => n.tone === 'action' && (!q || n.title.toLowerCase().includes(q)))
-
   return (
     <aside className="app-wf-sidebar app-wf-sidebar--left">
       <div className="app-wf-sidebar-head app-wf-sidebar-head--stack">
-        <h3>选择节点</h3>
-        <p className="app-wf-sidebar-desc">点击或拖拽到画布</p>
-      </div>
-
-      <div className="wf-palette-search-wrap">
-        <Search size={15} className="wf-palette-search-icon" aria-hidden />
-        <input
-          type="search"
-          className="wf-palette-search"
-          placeholder="搜索节点"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
+        <h3>添加节点</h3>
+        <p className="app-wf-sidebar-desc">拖到画布 · 执行者在节点上选</p>
       </div>
 
       <div className="app-wf-node-palette">
-        {systemNodes.length > 0 ? (
-          <section className="wf-palette-group">
-            <h4 className="wf-palette-group-title">系统节点</h4>
-            <div className="wf-palette-grid wf-palette-grid--1">
-              {systemNodes.map((node) => (
-                <PaletteRow
-                  key={node.id}
-                  {...node}
-                  draggable={node.id === 'answer'}
-                  onDragStart={
-                    node.id === 'answer'
-                      ? (e) => {
-                          e.dataTransfer.setData(dndType, 'answer')
-                          e.dataTransfer.effectAllowed = 'copy'
-                        }
-                      : undefined
-                  }
-                />
-              ))}
-            </div>
-          </section>
-        ) : null}
-
-        {agentNodes.length > 0 ? (
-          <section className="wf-palette-group">
-            <h4 className="wf-palette-group-title">Agent</h4>
-            <div className="wf-palette-grid">
-              {agentNodes.map((node) => (
-                <PaletteRow
-                  key={node.id}
-                  {...node}
-                  draggable
-                  onDragStart={(e) => {
-                    e.dataTransfer.setData(dndType, 'agent-step')
-                    e.dataTransfer.effectAllowed = 'copy'
-                  }}
-                />
-              ))}
-            </div>
-          </section>
-        ) : null}
-
-        {systemNodes.length === 0 && agentNodes.length === 0 ? (
-          <div className="wf-palette-empty">没有匹配的节点</div>
-        ) : null}
+        <section className="wf-palette-group">
+          <div className="wf-palette-grid wf-palette-grid--1">
+            {nodes.map((node) => (
+              <PaletteRow
+                key={node.id}
+                {...node}
+                onDragStart={(e) => {
+                  e.dataTransfer.setData(dndType, node.dragKind)
+                  e.dataTransfer.setData('text/plain', `evoflow-wf:${node.dragKind}`)
+                  e.dataTransfer.effectAllowed = 'copy'
+                }}
+              />
+            ))}
+          </div>
+        </section>
       </div>
 
       <div className="app-wf-sidebar-foot">

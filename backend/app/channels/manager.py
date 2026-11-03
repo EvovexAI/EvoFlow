@@ -28,20 +28,29 @@ from evoflow.runtime.long_run_limits import LONG_RUN_RECURSION_LIMIT
 
 logger = logging.getLogger(__name__)
 
-_MGR_DIAG_PATH = Path(
-    os.environ.get("EVOFLOW_MGR_DIAG_LOG", r"C:\Users\admin\.evoflow-dev\logs\manager-diag.log")
-)
+def _mgr_diag_path() -> Path | None:
+    from evoflow.runtime.log_policy import env_flag, resolve_debug_logs_dir
+
+    explicit = (os.environ.get("EVOFLOW_MGR_DIAG_LOG") or "").strip()
+    if explicit:
+        return Path(explicit).expanduser()
+    if not env_flag("EVOFLOW_CHANNEL_DIAG_LOG", default=False):
+        return None
+    return resolve_debug_logs_dir() / "manager-diag.log"
 
 
 def _mgr_diag(event: str, **fields: Any) -> None:
     try:
-        _MGR_DIAG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        path = _mgr_diag_path()
+        if path is None:
+            return
+        path.parent.mkdir(parents=True, exist_ok=True)
         line = json.dumps(
             {"ts": time.time(), "pid": os.getpid(), "event": event, **fields},
             ensure_ascii=False,
             default=str,
         )
-        with open(_MGR_DIAG_PATH, "a", encoding="utf-8") as fp:
+        with open(path, "a", encoding="utf-8") as fp:
             fp.write(line + "\n")
         print(line, file=sys.stderr, flush=True)
     except Exception:

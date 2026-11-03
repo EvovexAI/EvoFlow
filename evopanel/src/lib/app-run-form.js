@@ -270,7 +270,7 @@ export async function promptAndRunApp(app, opts = {}) {
 
   if (params.length === 0) {
     const ok = await showConfirm(
-      `工作流「${appName}」无需填写参数，确认立即调试？\n执行方式：${modeLabel}`,
+      `工作流「${appName}」无需填写参数，确认立即试跑？\n执行方式：${modeLabel}`,
     )
     if (!ok) return null
     return doRun({})
@@ -290,8 +290,8 @@ export async function promptAndRunApp(app, opts = {}) {
     const goalNeedsFold = goalShort.length > 96
 
     const overlay = showContentModal({
-      title: '调试运行',
-      subtitle: '填写运行参数并确认本次调试内容',
+      title: '试跑',
+      subtitle: '填写运行参数并确认本次试跑内容',
       width: 680,
       className: 'app-run-prompt-modal',
       overlayClass: 'app-run-prompt-overlay',
@@ -329,7 +329,7 @@ export async function promptAndRunApp(app, opts = {}) {
       `,
       buttons: [
         {
-          label: '开始调试',
+          label: '开始试跑',
           className: 'btn btn-primary btn-sm',
           id: 'btn-app-run-confirm',
         },
@@ -341,8 +341,8 @@ export async function promptAndRunApp(app, opts = {}) {
     const syncConfirmLabel = () => {
       if (!confirmBtn) return
       confirmBtn.textContent = saveDefaultsEl?.checked
-        ? '保存参数并开始调试'
-        : '开始调试'
+        ? '保存参数并开始试跑'
+        : '开始试跑'
     }
     saveDefaultsEl?.addEventListener('change', syncConfirmLabel)
     syncConfirmLabel()

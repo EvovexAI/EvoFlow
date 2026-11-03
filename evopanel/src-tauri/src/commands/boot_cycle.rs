@@ -1,12 +1,10 @@
 //! End-to-end boot cycle timeline: open app → sidecar → Gateway → UI engineReady.
 //!
-//! Single file: ``~/.evoflow/logs/boot-cycle.log``
+//! Daily file: ``~/.evoflow/logs/boot-cycle-YYYY-MM-DD.log``
 //! Grep: ``[BOOT-CYCLE]``
 //! Disable: ``EVOFLOW_BOOT_CYCLE=0``
 
 use serde_json::json;
-use std::fs;
-use std::io::Write;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::OnceLock;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -36,7 +34,8 @@ fn unix_ms_now() -> u64 {
 }
 
 fn log_path() -> std::path::PathBuf {
-    super::evoflow_dir().join("logs").join("boot-cycle.log")
+    let dir = super::evoflow_dir().join("logs");
+    super::log_files::daily_log_path(&dir, "boot-cycle")
 }
 
 fn elapsed_ms() -> u64 {
@@ -49,13 +48,8 @@ fn write_line(line: &str) {
     if !ENABLED.load(Ordering::Relaxed) {
         return;
     }
-    let path = log_path();
-    if let Some(parent) = path.parent() {
-        let _ = fs::create_dir_all(parent);
-    }
-    if let Ok(mut f) = fs::OpenOptions::new().create(true).append(true).open(&path) {
-        let _ = writeln!(f, "{line}");
-    }
+    let dir = super::evoflow_dir().join("logs");
+    let _ = super::log_files::append_daily_log_line(&dir, "boot-cycle", &format!("{line}\n"));
 }
 
 /// Start a new desktop boot cycle (call once at process setup).

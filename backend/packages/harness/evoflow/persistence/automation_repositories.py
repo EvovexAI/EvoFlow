@@ -7,7 +7,7 @@ import time
 from datetime import datetime
 from typing import Any
 
-from evoflow.persistence.db import get_db, run_db_transaction
+from evoflow.persistence.db import get_db, run_db_transaction, run_db_with_retry
 from evoflow.persistence.row_mappers import (
     automation_doc_to_row,
     automation_row_to_doc,
@@ -54,63 +54,68 @@ def load_automation(task_id: str) -> dict[str, Any] | None:
 def save_automation(task_id: str, document: dict[str, Any]) -> None:
     r = automation_doc_to_row(task_id, document)
     now = utc_now_iso_z()
-    get_db().execute(
-        f"""
-        INSERT INTO evoflow_automations ({_AUTOMATION_COLS.strip()})
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-        ON CONFLICT(task_id) DO UPDATE SET
-            name = excluded.name,
-            prompt = excluded.prompt,
-            schedule = excluded.schedule,
-            rrule = excluded.rrule,
-            scheduled_at = excluded.scheduled_at,
-            status = excluded.status,
-            schedule_type = excluded.schedule_type,
-            workspace = excluded.workspace,
-            valid_from = excluded.valid_from,
-            valid_until = excluded.valid_until,
-            max_duration_minutes = excluded.max_duration_minutes,
-            feishu_push_enabled = excluded.feishu_push_enabled,
-            langgraph_run = excluded.langgraph_run,
-            langgraph_thread_mode = excluded.langgraph_thread_mode,
-            langgraph_thread_id = excluded.langgraph_thread_id,
-            langgraph_timeout_seconds = excluded.langgraph_timeout_seconds,
-            once_fired = excluded.once_fired,
-            created_at = excluded.created_at,
-            last_run = excluded.last_run,
-            last_status = excluded.last_status,
-            run_count = excluded.run_count,
-            extra_json = excluded.extra_json,
-            updated_at = excluded.updated_at
-        """,
-        (
-            r["task_id"],
-            r["name"],
-            r["prompt"],
-            r["schedule"],
-            r["rrule"],
-            r["scheduled_at"],
-            r["status"],
-            r["schedule_type"],
-            r["workspace"],
-            r["valid_from"],
-            r["valid_until"],
-            r["max_duration_minutes"],
-            r["feishu_push_enabled"],
-            r["langgraph_run"],
-            r["langgraph_thread_mode"],
-            r["langgraph_thread_id"],
-            r["langgraph_timeout_seconds"],
-            r["once_fired"],
-            r["created_at"],
-            r["last_run"],
-            r["last_status"],
-            r["run_count"],
-            r["extra_json"],
-            now,
-        ),
-    )
-    get_db().commit()
+
+    def _write() -> None:
+        get_db().execute(
+            f"""
+            INSERT INTO evoflow_automations ({_AUTOMATION_COLS.strip()})
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            ON CONFLICT(task_id) DO UPDATE SET
+                name = excluded.name,
+                prompt = excluded.prompt,
+                schedule = excluded.schedule,
+                rrule = excluded.rrule,
+                scheduled_at = excluded.scheduled_at,
+                status = excluded.status,
+                schedule_type = excluded.schedule_type,
+                workspace = excluded.workspace,
+                valid_from = excluded.valid_from,
+                valid_until = excluded.valid_until,
+                max_duration_minutes = excluded.max_duration_minutes,
+                feishu_push_enabled = excluded.feishu_push_enabled,
+                langgraph_run = excluded.langgraph_run,
+                langgraph_thread_mode = excluded.langgraph_thread_mode,
+                langgraph_thread_id = excluded.langgraph_thread_id,
+                langgraph_timeout_seconds = excluded.langgraph_timeout_seconds,
+                once_fired = excluded.once_fired,
+                created_at = excluded.created_at,
+                last_run = excluded.last_run,
+                last_status = excluded.last_status,
+                run_count = excluded.run_count,
+                extra_json = excluded.extra_json,
+                updated_at = excluded.updated_at
+            """,
+            (
+                r["task_id"],
+                r["name"],
+                r["prompt"],
+                r["schedule"],
+                r["rrule"],
+                r["scheduled_at"],
+                r["status"],
+                r["schedule_type"],
+                r["workspace"],
+                r["valid_from"],
+                r["valid_until"],
+                r["max_duration_minutes"],
+                r["feishu_push_enabled"],
+                r["langgraph_run"],
+                r["langgraph_thread_mode"],
+                r["langgraph_thread_id"],
+                r["langgraph_timeout_seconds"],
+                r["once_fired"],
+                r["created_at"],
+                r["last_run"],
+                r["last_status"],
+                r["run_count"],
+                r["extra_json"],
+                now,
+            ),
+        )
+        get_db().commit()
+
+    # Startup sync of many employee shadow rows can collide with other writers.
+    run_db_with_retry(_write)
 
 
 def delete_automation(task_id: str) -> bool:

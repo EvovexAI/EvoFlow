@@ -60,12 +60,28 @@ export function installConsoleFileLog() {
   }
 
   window.addEventListener('error', (ev) => {
-    void writeLine('error', `[uncaught] ${ev.message} @ ${ev.filename || '?'}:${ev.lineno || '?'}`)
+    const msg = String(ev.message || '')
+    // Benign browser quirk; not actionable and flooded ERROR logs.
+    if (msg.includes('ResizeObserver loop')) {
+      void writeLine('debug', `[uncaught] ${msg}`)
+      return
+    }
+    void writeLine('error', `[uncaught] ${msg} @ ${ev.filename || '?'}:${ev.lineno || '?'}`)
   })
 
   window.addEventListener('unhandledrejection', (ev) => {
     const r = ev.reason
     const msg = r instanceof Error ? r.stack || r.message : String(r ?? '')
+    // Gateway recycle / page teardown — Expected Failed to fetch noise.
+    if (/Failed to fetch/i.test(msg) && /obs-dashboard|gateway_direct|AbortError/i.test(msg)) {
+      void writeLine('warn', `[unhandledrejection] ${msg}`)
+      return
+    }
+    // Native confirm routed via dialog plugin before ACL was complete.
+    if (/plugin:dialog\|confirm not allowed by ACL/i.test(msg)) {
+      void writeLine('warn', `[unhandledrejection] ${msg}`)
+      return
+    }
     void writeLine('error', `[unhandledrejection] ${msg}`)
   })
 }

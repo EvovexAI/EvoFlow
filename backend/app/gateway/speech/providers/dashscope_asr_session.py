@@ -64,9 +64,11 @@ class DashscopeAsrSession:
         self._closed = False
 
     async def start(self) -> None:
-        if self._task:
+        if self._task and not self._task.done():
             return
+        await self._drain_finished_task()
         self._closed = False
+        self._queue = asyncio.Queue()
         self._task = asyncio.create_task(self._run(), name="dashscope-asr-session")
 
     async def send_pcm(self, pcm: bytes) -> None:
@@ -82,14 +84,58 @@ class DashscopeAsrSession:
         await self._queue.put(("flush", None))
 
     async def close(self) -> None:
+        """Stop the session and always await/cancel the worker (no pending-task spam)."""
         self._closed = True
-        await self._queue.put(("stop", None))
-        if self._task:
+        task = self._task
+        self._task = None
+        if task is None:
+            return
+        if not task.done():
             try:
-                await asyncio.wait_for(self._task, timeout=5.0)
-            except (TimeoutError, asyncio.TimeoutError, asyncio.CancelledError):
-                self._task.cancel()
-            self._task = None
+                self._queue.put_nowait(("stop", None))
+            except Exception:
+                pass
+            try:
+                await asyncio.wait_for(task, timeout=5.0)
+            except (TimeoutError, asyncio.TimeoutError):
+                task.cancel()
+                try:
+                    await task
+                except (asyncio.CancelledError, Exception):
+                    pass
+            except asyncio.CancelledError:
+                task.cancel()
+                try:
+                    await task
+                except (asyncio.CancelledError, Exception):
+                    pass
+            except Exception:
+                logger.debug("dashscope asr session ended with error on close", exc_info=True)
+        else:
+            await self._retrieve_task_exception(task)
+
+    async def _drain_finished_task(self) -> None:
+        task = self._task
+        self._task = None
+        if task is None:
+            return
+        if not task.done():
+            task.cancel()
+            try:
+                await task
+            except (asyncio.CancelledError, Exception):
+                pass
+            return
+        await self._retrieve_task_exception(task)
+
+    @staticmethod
+    async def _retrieve_task_exception(task: asyncio.Task[None]) -> None:
+        try:
+            exc = task.exception()
+            if exc is not None:
+                logger.debug("dashscope asr session prior error: %s", exc)
+        except (asyncio.CancelledError, asyncio.InvalidStateError):
+            pass
 
     async def _run(self) -> None:
         try:

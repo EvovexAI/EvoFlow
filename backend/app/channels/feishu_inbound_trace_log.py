@@ -41,12 +41,9 @@ def _clip(text: Any, *, max_len: int = 240) -> str:
 
 
 def _disabled() -> bool:
-    return os.environ.get("EVOFLOW_FEISHU_INBOUND_TRACE_LOG", "").strip().lower() in (
-        "0",
-        "false",
-        "no",
-        "off",
-    )
+    from evoflow.runtime.log_policy import env_flag
+
+    return not env_flag("EVOFLOW_FEISHU_INBOUND_TRACE_LOG", default=False)
 
 
 def _console_mirror() -> bool:
@@ -59,35 +56,12 @@ def _console_mirror() -> bool:
 
 
 def _resolve_logs_dir() -> Path:
-    for env in (
-        "EVOFLOW_FEISHU_INBOUND_TRACE_LOG_DIR",
-        "EVOFLOW_LOGS_DIR",
-        "EVOFLOW_LOG_DIR",
-    ):
-        raw = os.environ.get(env, "").strip()
-        if raw:
-            return Path(raw).expanduser().resolve()
-    # Prefer EVOFLOW_HOME (dev: ~/.evoflow-dev) so traces sit next to wecom-diag /
-    # channel-diag — not under whichever cwd the backend process happened to use.
-    home = os.environ.get("EVOFLOW_HOME", "").strip()
-    if home:
-        base = Path(home).expanduser().resolve()
-        # EVOFLOW_HOME may already be …/data; logs live at sibling or under home.
-        if base.name.lower() == "data":
-            return (base.parent / "logs").resolve()
-        return (base / "logs").resolve()
-    for candidate in (
-        Path.home() / ".evoflow-dev" / "logs",
-        Path.home() / ".evoflow" / "logs",
-    ):
-        if candidate.is_dir() or candidate.parent.is_dir():
-            return candidate.resolve()
-    for base in (Path.cwd(), Path.cwd().parent, Path.cwd().parent.parent):
-        if (base / "logs").is_dir():
-            return (base / "logs").resolve()
-        if (base / "Makefile").is_file() and (base / "backend").is_dir():
-            return (base / "logs").resolve()
-    return (Path.cwd() / "logs").resolve()
+    raw = os.environ.get("EVOFLOW_FEISHU_INBOUND_TRACE_LOG_DIR", "").strip()
+    if raw:
+        return Path(raw).expanduser().resolve()
+    from evoflow.runtime.log_policy import resolve_debug_logs_dir
+
+    return resolve_debug_logs_dir()
 
 
 def feishu_inbound_trace_log_path() -> Path:

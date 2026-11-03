@@ -1,5 +1,5 @@
 ﻿/**
- * 应用工作流编辑器 - 全屏画布（FastGPT 式：点击应用直接进入编排）
+ * 应用工作流编辑器：画布编排（左侧全局菜单收成图标栏，与知识库详情同款）。
  * 「运行」= 同页填参 + 画布节点执行态 + 右侧运行结果（字段行 + 只读执行记录）。
  * `#/apps/:id/run` 留给外部入口。
  */
@@ -8,6 +8,7 @@ import { toast } from '../components/toast.js'
 import { showModal, showConfirm, showContentModal } from '../components/modal.js'
 import { showCelebrateDialog } from '../components/celebrate-dialog.js'
 import { navigate, getCurrentRoute } from '../router.js'
+import { restoreAppsStudioAside, syncAppsStudioAside } from './apps-studio-aside.js'
 import { mountAppWorkflowCanvas } from '../components/app-workflow-canvas.js'
 import { mountAppStepTranscript } from '../components/app-step-transcript.js'
 import {
@@ -222,6 +223,7 @@ export function cleanup() {
     workflowCanvas = null
     canvasMountEl = null
   }
+  restoreAppsStudioAside()
 }
 
 function stopExecSession({ clearNodes = false } = {}) {
@@ -264,6 +266,7 @@ export async function render() {
   }
 
   cleanup()
+  syncAppsStudioAside(true)
 
   const page = document.createElement('div')
   page.className = 'page app-editor-page app-editor-page--bare'
@@ -353,9 +356,9 @@ export async function render() {
       appId,
       runId: debugSession?.runId || undefined,
       parameters: {},
-      onBack: () => {
+      onBack: async () => {
         if (workflowCanvas?.isDirty?.()) {
-          if (!window.confirm('有未保存的修改，确定离开？')) return
+          if (!(await showConfirm('有未保存的修改，确定离开？'))) return
         }
         navigate('/apps')
       },
@@ -376,13 +379,21 @@ export async function render() {
       onOpenAppSettings: () => showSettingsModal(),
       onOpenHistory: () => navigate(`/apps/${appId}/history`),
       onOpenVersions: () => showRevisionsModal(),
-      onOpenApiAccess: () => showApiAccessModal(),
+      onOpenAudit: () => showAuditModal(),
+      onOpenHowToUse: () => showHowToUseModal('panel'),
+      onOpenApiAccess: () => showHowToUseModal('api'),
       onSave: async (exported) => {
         const wasPublished = String(appData?.status || '').toLowerCase() === 'published'
+        if (wasPublished) {
+          const ok = await showConfirm(
+            '当前工作流已发布。\n保存后将立即更新线上定义，列表运行 / API / 自动化都会用新流程。\n确定保存？',
+          )
+          if (!ok) return false
+        }
         await persistPlan(exported)
         toast.success(
           wasPublished
-            ? '已保存 · 仍为已发布（旧 API Key 不受影响）'
+            ? '已保存并更新线上定义（立即生效）'
             : '已保存为草稿',
         )
         appData = await api.getApp(appId)
@@ -409,17 +420,21 @@ export async function render() {
     })
   }
 
-  /** 发布成功：引导填参运行或创建 API（celebrate dialog） */
+  /** 发布成功：引导「怎么用」 */
   function showPublishNextModal() {
     showCelebrateDialog({
       title: '发布成功',
       descHtml:
-        '<p>工作流已对外可用。可以 <b>填参运行</b> 启动，或 <b>创建 API Key</b> 供外部系统调用。</p>',
+        '<p>工作流已对外可用。下一步看 <b>怎么用</b>：面板填参、API 调用或挂自动化。</p>',
       heroCaption: '已对外可用',
       icon: 'rocket',
       actions: [
-        { label: '填参运行', variant: 'primary', onClick: () => navigate(`/apps/${appId}/run`) },
-        { label: '创建 API Key', variant: 'secondary', onClick: () => showApiAccessModal() },
+        { label: '怎么用', variant: 'primary', onClick: () => showHowToUseModal('panel') },
+        {
+          label: '打开填参运行',
+          variant: 'secondary',
+          onClick: () => navigate(`/apps/${appId}/run`),
+        },
       ],
     })
   }
@@ -435,7 +450,7 @@ export async function render() {
   async function runFromEditor() {
     if (!appData) return
     if (workflowCanvas?.isDirty?.()) {
-      const ok = await showConfirm('有未保存的修改，运行前先保存草稿？')
+      const ok = await showConfirm('有未保存的修改，试跑前先保存？')
       if (!ok) return
       try {
         await workflowCanvas.saveDraft()
@@ -745,7 +760,7 @@ export async function render() {
                 <span class="wf-debug-dock-pulse" data-role="pulse" aria-hidden></span>
                 <div class="wf-debug-hero-text">
                   <div class="wf-debug-hero-title-row">
-                    <span class="wf-debug-hero-kicker" data-role="hero-title">调试运行</span>
+                    <span class="wf-debug-hero-kicker" data-role="hero-title">试跑</span>
                     <span class="wf-debug-dock-status" data-role="status-line">准备中</span>
                   </div>
                   <span class="wf-debug-hero-meta" data-role="hero-meta">等待启动…</span>
@@ -897,7 +912,7 @@ export async function render() {
     const titleEl = debugDockEl.querySelector('[data-role="hero-title"]')
     if (titleEl) {
       const appName = String(appData?.name || '').trim()
-      titleEl.textContent = appName ? `调试运行 / ${appName}` : '调试运行'
+      titleEl.textContent = appName ? `试跑 / ${appName}` : '试跑'
     }
     const footerEl = debugDockEl.querySelector('[data-role="dock-footer"]')
     const overall = String(status.status || '').toLowerCase()
@@ -1049,8 +1064,8 @@ export async function render() {
       const phase = currentPhaseText(appData?.plan?.steps || [], status.subtask_status || {}, overall)
 
       if (statusLineEl) {
-        if (overall === 'completed') statusLineEl.textContent = '✓ 调试完成'
-        else if (overall === 'failed') statusLineEl.textContent = '调试失败'
+        if (overall === 'completed') statusLineEl.textContent = '✓ 试跑完成'
+        else if (overall === 'failed') statusLineEl.textContent = '试跑失败'
         else if (overall === 'paused') statusLineEl.textContent = 'Ⅱ 已暂停'
         else if (running >= 2) statusLineEl.textContent = `● 并行执行中 · ${running} 个节点正在运行`
         else statusLineEl.textContent = `● ${meta.label}`
@@ -1132,7 +1147,7 @@ export async function render() {
           if (!notifiedTerminal) {
             notifiedTerminal = true
             if (overall === 'completed') {
-              toast.success('运行完成 · 可在调试工作台查看结果')
+              toast.success('运行完成 · 可在试跑工作台查看结果')
               void notifyDesktopCompletion({
                 title: '工作流运行完成',
                 body: appData?.name || '工作流',
@@ -1160,15 +1175,21 @@ export async function render() {
     execPollTimer = setInterval(pollStatus, 2500)
   }
 
-  // ─── API 访问（OpenAI 兼容）───
+  // ─── 怎么用：面板运行 / API / 自动化 ───
 
-  async function showApiAccessModal() {
+  /** @param {'panel' | 'api' | 'cron'} [initialTab] */
+  async function showHowToUseModal(initialTab = 'panel') {
+    await showApiAccessModal(initialTab)
+  }
+
+  /** @param {'panel' | 'api' | 'cron'} [initialTab] */
+  async function showApiAccessModal(initialTab = 'api') {
     const overlay = document.createElement('div')
     overlay.className = 'modal-overlay'
     overlay.innerHTML = `
-      <div class="wf-history-panel wf-api-access-panel" role="dialog" aria-label="API 访问">
+      <div class="wf-history-panel wf-api-access-panel" role="dialog" aria-label="怎么用">
         <div class="wf-history-panel-head">
-          <h3 class="wf-history-panel-title">API 访问</h3>
+          <h3 class="wf-history-panel-title">怎么用</h3>
           <button type="button" class="wf-history-close" aria-label="关闭">✕</button>
         </div>
         <div class="wf-history-panel-body" data-role="api-body">
@@ -1183,6 +1204,8 @@ export async function render() {
     overlay.addEventListener('click', (e) => {
       if (e.target === overlay) closeFn()
     })
+    /** @type {'panel' | 'api' | 'cron'} */
+    let activeTab = initialTab === 'cron' || initialTab === 'panel' ? initialTab : 'api'
 
     const copyText = async (text) => {
       try {
@@ -1312,7 +1335,47 @@ EVOFLOW_OPENAI_MODEL=${appId}
       const respJson = JSON.stringify(exampleResp, null, 2)
       const contractJson = JSON.stringify(buildResponseContractSummary(), null, 2)
 
+      const tabBtn = (id, label) =>
+        `<button type="button" class="wf-howto-tab${activeTab === id ? ' is-active' : ''}" data-howto-tab="${id}">${label}</button>`
+
       body.innerHTML = `
+        <div class="wf-howto-tabs" role="tablist" aria-label="怎么用">
+          ${tabBtn('panel', '面板运行')}
+          ${tabBtn('api', 'API 调用')}
+          ${tabBtn('cron', '自动化')}
+        </div>
+
+        <div class="wf-howto-pane" data-howto-pane="panel" ${activeTab === 'panel' ? '' : 'hidden'}>
+          <div class="wf-howto-card">
+            <h4>在面板里填参运行</h4>
+            <p>适合人工点一次就跑。打开填参页填写运行参数，点「运行」后可在「历史」看状态与结果。</p>
+            <button type="button" class="btn btn-primary btn-sm" data-role="goto-run" ${
+              isPublished ? '' : 'disabled title="请先发布"'
+            }>打开填参运行</button>
+            ${
+              isPublished
+                ? ''
+                : '<p style="margin:10px 0 0;font-size:12px;color:var(--text-tertiary)">草稿需先点工具栏「发布」，列表「▶ 运行」才会开放。</p>'
+            }
+          </div>
+          <div class="wf-howto-card">
+            <h4>画布里先试跑</h4>
+            <p>编排阶段用工具栏「试跑」即可验证流程，不必发布。</p>
+            <button type="button" class="btn btn-secondary btn-sm" data-role="goto-try">关闭并去试跑</button>
+          </div>
+        </div>
+
+        <div class="wf-howto-pane" data-howto-pane="cron" ${activeTab === 'cron' ? '' : 'hidden'}>
+          <div class="wf-howto-card">
+            <h4>挂到自动化（定时/闹钟）</h4>
+            <p>到「自动化」新建规则，执行对象选<strong>已发布工作流</strong>，再选本工作流并填默认参数。</p>
+            <button type="button" class="btn btn-primary btn-sm" data-role="goto-cron" ${
+              isPublished ? '' : 'disabled title="请先发布"'
+            }>打开自动化</button>
+          </div>
+        </div>
+
+        <div class="wf-howto-pane" data-howto-pane="api" ${activeTab === 'api' ? '' : 'hidden'}>
         <p class="wf-api-access-hint">
           发布后用 App Key 调 <code>/v1/chat/completions</code>（兼容壳，非完整 OpenAI）。
           多 Agent 读 <code>responseData[].assigned_agent</code>。
@@ -1444,7 +1507,39 @@ EVOFLOW_OPENAI_MODEL=${appId}
           <code>evoflow.example_response</code> /
           <code>evoflow.response_contract</code>。
         </p>
+        </div>
       `
+
+      const applyHowtoTab = (tab) => {
+        activeTab = tab
+        body.querySelectorAll('[data-howto-tab]').forEach((btn) => {
+          btn.classList.toggle('is-active', btn.getAttribute('data-howto-tab') === tab)
+        })
+        body.querySelectorAll('[data-howto-pane]').forEach((pane) => {
+          const id = pane.getAttribute('data-howto-pane')
+          if (id === tab) pane.removeAttribute('hidden')
+          else pane.setAttribute('hidden', '')
+        })
+      }
+
+      body.querySelectorAll('[data-howto-tab]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const tab = btn.getAttribute('data-howto-tab')
+          if (tab === 'panel' || tab === 'api' || tab === 'cron') applyHowtoTab(tab)
+        })
+      })
+      body.querySelector('[data-role="goto-run"]')?.addEventListener('click', () => {
+        closeFn()
+        navigate(`/apps/${appId}/run`)
+      })
+      body.querySelector('[data-role="goto-try"]')?.addEventListener('click', () => {
+        closeFn()
+        void runFromEditor()
+      })
+      body.querySelector('[data-role="goto-cron"]')?.addEventListener('click', () => {
+        closeFn()
+        navigate(`/cron?create=1&app=${encodeURIComponent(appId)}`)
+      })
 
       const syncPreviews = () => {
         const next = currentBody()
@@ -1702,6 +1797,96 @@ EVOFLOW_OPENAI_MODEL=${appId}
       })
     } catch (e) {
       body.innerHTML = `<div class="wf-history-empty wf-history-empty--error">加载失败: ${escHtml(e.message)}</div>`
+    }
+  }
+
+  // ─── 操作记录面板（审计日志 · 本工作流）───
+
+  const AUDIT_ACTION_LABELS = {
+    'app.create': '创建',
+    'app.update': '修改定义',
+    'app.publish': '发布',
+    'app.delete': '删除',
+    'app.run': '运行',
+    'app.restore_revision': '恢复版本',
+    'app.key.create': '创建 API Key',
+    'app.key.revoke': '吊销 API Key',
+  }
+
+  function auditDetailSummary(action, detail) {
+    const d = detail || {}
+    if (action === 'app.publish') return `版本 v${d.version ?? '?'}`
+    if (action === 'app.update') {
+      const keys = Array.isArray(d.changed_keys) ? d.changed_keys.join('、') : ''
+      return `${d.structural ? '结构变更' : '元信息'}：${keys || '无字段变更'}`
+    }
+    if (action === 'app.run') {
+      const kind = d.run_kind === 'debug' ? '调试' : d.run_kind === 'scheduled' ? '定时' : '正式'
+      return `${kind}运行${d.run_id ? ` · run ${d.run_id}` : ''}`
+    }
+    if (action === 'app.restore_revision') return `恢复到 v${d.version ?? '?'}`
+    if (action === 'app.key.create') return `「${d.name || 'default'}」pin v${d.pinned_version ?? '?'}`
+    if (action === 'app.key.revoke') return `token ${(d.token_hash || '').slice(0, 12)}…`
+    if (action === 'app.create') return `${d.name || ''}`
+    if (action === 'app.delete') return `${d.mode === 'soft' ? '可恢复删除' : ''} ${d.name || ''}`.trim()
+    return ''
+  }
+
+  async function showAuditModal() {
+    const overlay = document.createElement('div')
+    overlay.className = 'modal-overlay'
+    overlay.innerHTML = `
+      <div class="wf-history-panel" role="dialog" aria-label="操作记录">
+        <div class="wf-history-panel-head">
+          <h3 class="wf-history-panel-title">操作记录</h3>
+          <button type="button" class="wf-history-close" aria-label="关闭">✕</button>
+        </div>
+        <div class="wf-history-panel-body" data-role="audit-body">
+          <div class="wf-history-empty">加载中…</div>
+        </div>
+      </div>
+    `
+    document.body.appendChild(overlay)
+
+    const closeFn = () => overlay.remove()
+    overlay.querySelector('.wf-history-close').addEventListener('click', closeFn)
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) closeFn() })
+    const body = overlay.querySelector('[data-role="audit-body"]')
+
+    try {
+      const { items } = await api.listAuditActions({ resource_type: 'app', resource_id: appId, limit: 100 })
+      if (!items.length) {
+        body.innerHTML = `<div class="wf-history-empty"><p>暂无操作记录</p></div>`
+        return
+      }
+      body.innerHTML = items.map((row) => {
+        const time = row.created_at ? new Date(row.created_at).toLocaleString('zh-CN') : ''
+        const actor = row.actor_label || row.actor_id || '本地'
+        const action = AUDIT_ACTION_LABELS[row.action] || row.action
+        const summary = escHtml(auditDetailSummary(row.action, row.detail))
+        const runId = row.action === 'app.run' ? String(row.detail?.run_id || '') : ''
+        return `
+          <div class="wf-history-item" style="cursor:default">
+            <span class="wf-history-status ${row.action === 'app.delete' ? 'failed' : row.action === 'app.publish' || row.action === 'app.run' ? 'completed' : 'pending'}">${escHtml(action)}</span>
+            <div class="wf-history-item-main">
+              <div class="wf-history-item-params">${escHtml(time)}</div>
+              <div class="wf-history-item-meta">${summary || '&nbsp;'}</div>
+            </div>
+            <div class="wf-history-item-actions">
+              <span class="wf-history-item-meta">${escHtml(actor)}</span>
+              ${runId ? `<button type="button" class="btn btn-xs btn-ghost wf-audit-run" data-run="${escHtml(runId)}">查看运行</button>` : ''}
+            </div>
+          </div>
+        `
+      }).join('')
+      body.querySelectorAll('.wf-audit-run').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          closeFn()
+          navigate(`/apps/${appId}/history?run=${encodeURIComponent(btn.dataset.run)}`)
+        })
+      })
+    } catch (e) {
+      body.innerHTML = `<div class="wf-history-empty wf-history-empty--error">加载操作记录失败: ${escHtml(e.message)}</div>`
     }
   }
 

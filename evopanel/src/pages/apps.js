@@ -56,7 +56,7 @@ export async function render() {
             <strong>什么时候用？</strong>同一类活隔三差五就要干，流程已经固定，每次只是换换参数。
           </div>
           <div class="apps-tip-detail">
-            <strong>怎么用？</strong>① 点卡片进画布编排流程 → ② 发布 → ③ 点「···」→「填参运行」。
+            <strong>怎么用？</strong>① 点卡片进画布编排 → ② 试跑 → ③ 发布 → ④ 详情页「打开填参运行」，或画布「怎么用」。
           </div>
         </div>
       </div>
@@ -199,7 +199,7 @@ export async function render() {
         if (title) title.textContent = '还没有工作流'
         if (desc) {
           desc.textContent =
-            '点下方创建 → 在画布选智能体、写步骤 → 点「调试」试跑 → 满意再发布。'
+            '点下方创建 → 在画布写任务名、选执行者 → 点「试跑」→ 满意再「发布」。'
         }
         if (emptyBtn) emptyBtn.style.display = ''
       }
@@ -221,17 +221,11 @@ export async function render() {
       const badgeLabel = published ? '已发布' : archived ? '已归档' : '草稿'
       const stepN = appStepCount(app)
       const paramN = appParamCount(app)
+      // 元信息一行放下：步数/参数 + 更新时间，卡片不再另设底栏，做减法。
       const metaBits = [
         stepN && paramN ? `${stepN} 步 · ${paramN} 参数` : stepN ? `${stepN} 步` : paramN ? `${paramN} 参数` : null,
+        formatAppTime(app.updated_at || app.created_at) || null,
       ].filter(Boolean)
-      const desc = String(app.description || '').trim()
-      const descFallback = archived
-        ? '点击查看编排；菜单可恢复为草稿'
-        : '点击打开画布编排'
-      const updatedAt = formatAppTime(app.updated_at || app.created_at)
-      const menuRun = published
-        ? `<button type="button" class="app-card-menu-item" data-act="run">填参运行</button>`
-        : ''
       const menuArchive = archived
         ? `<button type="button" class="app-card-menu-item" data-act="unarchive">恢复为草稿</button>`
         : `<button type="button" class="app-card-menu-item" data-act="archive">归档</button>`
@@ -241,7 +235,6 @@ export async function render() {
             <span aria-hidden="true">···</span>
           </button>
           <div class="app-card-menu" hidden data-menu-for="${escHtml(app.id)}">
-            ${menuRun}
             <button type="button" class="app-card-menu-item" data-act="edit">编辑信息</button>
             ${menuArchive}
             <button type="button" class="app-card-menu-item app-card-menu-item--danger" data-act="delete">删除</button>
@@ -250,22 +243,12 @@ export async function render() {
             ${appIconTileHtml(app)}
             <div class="app-card-heading">
               <div class="app-card-title-row">
-                <h3 class="app-card-name">${escHtml(app.name || '未命名工作流')}</h3>
+                <h3 class="app-card-name" title="${escHtml(app.name || '未命名工作流')}">${escHtml(app.name || '未命名工作流')}</h3>
                 <span class="app-card-badge ${badgeClass}">${badgeLabel}</span>
               </div>
               <p class="app-card-meta">${escHtml(metaBits.join(' · '))}</p>
             </div>
           </div>
-          <p class="app-card-desc">${escHtml(desc || descFallback)}</p>
-          ${
-            published
-              ? `<div class="app-card-actions">
-                  <button type="button" class="btn btn-primary btn-sm app-card-run-btn" data-act="run">▶ 运行</button>
-                  <button type="button" class="btn btn-ghost btn-sm app-card-edit-btn" data-act="edit-flow">编辑流程</button>
-                </div>`
-              : ''
-          }
-          ${updatedAt ? `<div class="app-card-footer"><time class="app-card-time">${escHtml(updatedAt)}</time></div>` : ''}
         </article>
       `
     }).join('')
@@ -306,40 +289,15 @@ export async function render() {
     listEl.querySelectorAll('.app-card').forEach(card => {
       const open = () => navigate(`/apps/${card.dataset.appId}`)
       card.addEventListener('click', (e) => {
-        if (
-          e.target.closest('.app-card-more') ||
-          e.target.closest('.app-card-menu') ||
-          e.target.closest('.app-card-actions')
-        )
-          return
+        if (e.target.closest('.app-card-more') || e.target.closest('.app-card-menu')) return
         closeAllMenus()
         open()
       })
       card.addEventListener('keydown', (e) => {
         if (e.key === 'Enter' || e.key === ' ') {
-          if (
-            e.target.closest('.app-card-more') ||
-            e.target.closest('.app-card-menu') ||
-            e.target.closest('.app-card-actions')
-          )
-            return
+          if (e.target.closest('.app-card-more') || e.target.closest('.app-card-menu')) return
           e.preventDefault()
           open()
-        }
-      })
-    })
-
-    // 卡片底部主操作：运行 / 编辑流程（不触发卡片整卡点击）
-    listEl.querySelectorAll('.app-card-actions [data-act]').forEach((btn) => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation()
-        const card = btn.closest('.app-card')
-        const appId = card?.dataset.appId
-        if (!appId) return
-        if (btn.dataset.act === 'run') {
-          navigate(`/apps/${appId}/run`)
-        } else if (btn.dataset.act === 'edit-flow') {
-          navigate(`/apps/${appId}`)
         }
       })
     })
@@ -816,9 +774,9 @@ export async function render() {
 
           try {
             toast.info('正在从任务创建工作流…')
-            const created = await api.createApp({
-              source: 'from_task',
-              source_task_id: taskId,
+            // 必须走 /tasks/{id}/save-as-app：带 auto_extract 的计划抽取只在那里实现；
+            // 走 POST /apps 会建出只有占位步骤的空壳（CreateAppRequest 不收 auto_extract）。
+            const created = await api.saveTaskAsApp(taskId, {
               name: (task.name || task.title || '从任务沉淀') + ' - 工作流',
               execution_mode: 'workflow',
               auto_extract: true,

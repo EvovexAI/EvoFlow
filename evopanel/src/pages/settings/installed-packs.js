@@ -5,6 +5,7 @@
 import '../../style/settings-resources.css'
 import { api } from '../../lib/tauri-api.js'
 import { toast } from '../../components/toast.js'
+import { showConfirm } from '../../components/modal.js'
 
 /** @type {HTMLElement | null} */
 let _root = null
@@ -318,7 +319,7 @@ async function uninstall(orgId) {
   if (!orgId) return
   const cached = _items.find((x) => x.org_instance_id === orgId)
   const label = cached ? packTitle(cached) : orgId
-  const ok = window.confirm(
+  const ok = await showConfirm(
     `卸载资源包「${label}」？\n将移除其员工与工作流；默认保留工作区文件。`,
   )
   if (!ok) return

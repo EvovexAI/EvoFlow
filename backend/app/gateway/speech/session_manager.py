@@ -76,6 +76,10 @@ class SpeechSession:
         self._tts_provider = "volcengine"
         # 判停静默窗口（ms）；可由 start 载荷覆盖（前端 localStorage）。800=短问句少等 100ms，犹豫语速仍安全。
         self._silence_ms = 800.0
+        # 用量入账：PCM 累计字节（ASR 秒数按 turn 结算）+ TTS 按句字数
+        self._pcm_bytes_total = 0
+        self._pcm_bytes_billed = 0
+        self._asr_turn_seq = 0
         self._last_barge_at = 0.0
         self._last_barge_reason = ""
         self._barge_suppressed = 0
@@ -264,6 +268,7 @@ class SpeechSession:
             # 用户说完即开新 TRACE（若前端稍后 assistant_begin 带自己的 id 会覆盖对齐）
             tid = new_voice_trace("vt")
             self._bind_trace(tid)
+            self._record_asr_usage()
             voice_log("对话", f"用户输入 → turn_end：「{text}」 TRACE={tid}")
             try:
                 await self._ws.send_json(
@@ -354,6 +359,7 @@ class SpeechSession:
         await self._ensure_pipeline()
 
     async def _on_pcm(self, pcm: bytes) -> None:
+        self._pcm_bytes_total += len(pcm or b"")
         await self._ensure_pipeline()
         if self._worker:
             await self._worker.push(AudioRawFrame(audio=pcm, sample_rate=16000))
@@ -428,6 +434,47 @@ class SpeechSession:
         except Exception:
             logger.debug("playback ack ledger failed", exc_info=True)
 
+    def _record_asr_usage(self) -> None:
+        """turn 完成 → 本段 PCM 秒数入账（16k mono PCM16 = 32000 B/s）。"""
+        try:
+            delta = self._pcm_bytes_total - self._pcm_bytes_billed
+            self._pcm_bytes_billed = self._pcm_bytes_total
+            seconds = delta / 32000.0
+            if seconds < 0.5:
+                return
+            self._asr_turn_seq += 1
+            from evoflow.persistence.usage_ledger import record_voice_usage
+
+            record_voice_usage(
+                event_id=f"voice:asr:{self._sid}:{self._asr_turn_seq}",
+                kind="asr",
+                provider=self._asr_provider,
+                quantity=round(seconds, 2),
+                trace_id=self._trace_id or "",
+                meta={"sid": self._sid},
+            )
+        except Exception:
+            logger.debug("asr usage record failed", exc_info=True)
+
+    def _record_tts_usage(self, seq: int, text: str, bytes_n: int) -> None:
+        """一句音频下发完毕 → 合成字数入账（cancelled 不计）。"""
+        try:
+            chars = len((text or "").replace(" ", ""))
+            if chars <= 0:
+                return
+            from evoflow.persistence.usage_ledger import record_voice_usage
+
+            record_voice_usage(
+                event_id=f"voice:tts:{self._trace_id or self._sid}:{int(seq)}",
+                kind="tts",
+                provider=self._tts_provider,
+                quantity=chars,
+                trace_id=self._trace_id or "",
+                meta={"sid": self._sid, "bytes": int(bytes_n), "speaker": self._default_speaker or ""},
+            )
+        except Exception:
+            logger.debug("tts usage record failed", exc_info=True)
+
     def _ledger_note_ready(self, seq: int, text: str) -> None:
         try:
             from app.gateway.speech.playback_ledger import note_ready
@@ -447,6 +494,8 @@ class SpeechSession:
     def _ledger_note_wire_end(self, seq: int, text: str, *, cancelled: bool = False) -> None:
         buf = self._tts_audio_buf.pop(int(seq), None)
         raw = bytes(buf) if buf else b""
+        if not cancelled:
+            self._record_tts_usage(int(seq), text, len(raw))
         try:
             from app.gateway.speech.playback_ledger import make_utterance_id, note_wire_end
 

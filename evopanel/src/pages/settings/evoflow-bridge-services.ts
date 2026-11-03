@@ -184,6 +184,17 @@ export function createEvoflowSettingsSyncService(): ISettingsSyncService {
 // Stub platform
 // ---------------------------------------------------------------------------
 
+async function openEvoflowResourceManager(): Promise<unknown> {
+  try {
+    const { openResourceManagerOverlay } = await import("../../lib/resource-manager-overlay.js");
+    await openResourceManagerOverlay();
+    return true;
+  } catch (e) {
+    console.error("[resource-manager]", e);
+    throw e;
+  }
+}
+
 export const evoflowStubPlatform: IPlatformService = {
   selectDirectory: async () => null,
   selectFile: async () => null,
@@ -198,6 +209,12 @@ export const evoflowStubPlatform: IPlatformService = {
   openInEditor: async () => ({ success: false, error: "stub" }),
   openInFileManager: async () => ({ success: false, error: "stub" }),
   openExternal: async () => {},
+  executeDesktopCommand: async (command: string) => {
+    if (command === "openResourceManager") {
+      return openEvoflowResourceManager();
+    }
+    return undefined;
+  },
 } as unknown as IPlatformService;
 
 function localFileManagerEditor(): EditorInfo {

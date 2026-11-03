@@ -84,14 +84,18 @@ def _find_subtask_by_ref(subtasks: list[dict[str, Any]], ref: str) -> dict[str, 
 
 
 def _step_task_report(st: dict[str, Any]) -> str:
-    """Best-effort task report / result text for one subtask row."""
+    """Best-effort task report / result text for one subtask row.
+
+    F-2 结果契约：薄委托到全仓唯一读取入口 ``get_subtask_result_text``。
+    """
     if not isinstance(st, dict):
         return ""
-    for key in ("task_report", "result_summary", "result_text", "result", "summary", "output_summary"):
-        val = str(st.get(key) or "").strip()
-        if val:
-            return val
-    return ""
+    try:
+        from evoflow.collab.subtask_outcome import get_subtask_result_text
+
+        return get_subtask_result_text(st)
+    except Exception:
+        return ""
 
 
 def _step_outputs(st: dict[str, Any]) -> list[dict[str, str]]:

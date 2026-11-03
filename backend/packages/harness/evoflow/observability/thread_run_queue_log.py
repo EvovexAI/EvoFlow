@@ -29,22 +29,21 @@ _SLOW_CLAIM_MS = 2_000.0
 
 
 def _file_logging_disabled() -> bool:
-    raw = (os.getenv("EVOFLOW_THREAD_RUN_QUEUE_LOG") or "").strip().lower()
-    return raw in {"0", "false", "off", "no"}
+    from evoflow.runtime.log_policy import env_flag
+
+    return not env_flag("EVOFLOW_THREAD_RUN_QUEUE_LOG", default=False)
 
 
 def _resolve_log_path() -> Path:
     override = (os.getenv("EVOFLOW_THREAD_RUN_QUEUE_LOG_FILE") or "").strip()
     if override:
         return Path(override).expanduser()
-    for key in ("EVOFLOW_THREAD_RUN_QUEUE_LOG_DIR", "EVOFLOW_LOGS_DIR"):
-        d = (os.getenv(key) or "").strip()
-        if d:
-            return Path(d).expanduser() / "thread-run-queue.log"
-    home = (os.getenv("EVOFLOW_HOME") or "").strip()
-    if home:
-        return Path(home).expanduser() / "logs" / "thread-run-queue.log"
-    return Path.home() / ".evoflow" / "logs" / "thread-run-queue.log"
+    d = (os.getenv("EVOFLOW_THREAD_RUN_QUEUE_LOG_DIR") or "").strip()
+    if d:
+        return Path(d).expanduser() / "thread-run-queue.log"
+    from evoflow.runtime.log_policy import resolve_debug_logs_dir
+
+    return resolve_debug_logs_dir() / "thread-run-queue.log"
 
 
 def _ensure_logger() -> logging.Logger:

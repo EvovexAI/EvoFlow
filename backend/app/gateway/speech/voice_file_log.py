@@ -1,8 +1,10 @@
 """小V语音播报专用日志。
 
-落盘目录：``{logs_dir}/语音播报/``
-  - ``前端-YYYY-MM-DD.log``
-  - ``后端-YYYY-MM-DD.log``
+落盘目录：``{logs_dir}/voice/``
+  - ``voice-frontend-YYYY-MM-DD.log``
+  - ``voice-backend-YYYY-MM-DD.log``
+
+兼容旧目录 ``语音播报/前端|后端-*.log``（只读迁移不强制删除）。
 
 每行带 ``[TRACE=vt-…]``：一轮用户提问→助手播报共用同一 TRACE，前后端文件可交叉 grep。
 
@@ -27,8 +29,9 @@ from typing import Any
 from app.gateway.logging_setup import prune_old_daily_logs, resolve_gateway_logs_dir
 
 _LOCK = threading.RLock()
-_DIR_NAME = "语音播报"
-_streams: dict[str, Any] = {}  # "前端"|"后端" → file handle
+_DIR_NAME = "voice"
+_LEGACY_DIR_NAME = "语音播报"
+_streams: dict[str, Any] = {}  # "frontend"|"backend" → file handle
 _dates: dict[str, str] = {}
 # 同文去重
 _last_line_key: str | None = None
@@ -67,6 +70,13 @@ def clear_voice_trace() -> None:
     _trace_var.set("")
 
 
+def _normalize_voice_source(source: str) -> str:
+    raw = str(source or "")
+    if "前" in raw or "front" in raw.lower():
+        return "frontend"
+    return "backend"
+
+
 def voice_playback_dir() -> Path:
     d = resolve_gateway_logs_dir() / _DIR_NAME
     d.mkdir(parents=True, exist_ok=True)
@@ -74,8 +84,8 @@ def voice_playback_dir() -> Path:
 
 
 def voice_log_path_today(source: str = "后端") -> Path:
-    src = "前端" if "前" in str(source or "") else "后端"
-    return voice_playback_dir() / f"{src}-{datetime.now().strftime('%Y-%m-%d')}.log"
+    src = _normalize_voice_source(source)
+    return voice_playback_dir() / f"voice-{src}-{datetime.now().strftime('%Y-%m-%d')}.log"
 
 
 def voice_log_paths_today() -> dict[str, str]:
@@ -83,13 +93,13 @@ def voice_log_paths_today() -> dict[str, str]:
     day = datetime.now().strftime("%Y-%m-%d")
     return {
         "dir": str(d),
-        "frontend": str(d / f"前端-{day}.log"),
-        "backend": str(d / f"后端-{day}.log"),
+        "frontend": str(d / f"voice-frontend-{day}.log"),
+        "backend": str(d / f"voice-backend-{day}.log"),
     }
 
 
 def _ensure_stream(source: str):
-    src = "前端" if "前" in str(source or "") else "后端"
+    src = _normalize_voice_source(source)
     today = datetime.now().strftime("%Y-%m-%d")
     if _dates.get(src) == today and _streams.get(src) is not None:
         return src
@@ -103,15 +113,21 @@ def _ensure_stream(source: str):
             except OSError:
                 pass
         log_dir = voice_playback_dir()
-        prune_old_daily_logs(log_dir, "前端")
-        prune_old_daily_logs(log_dir, "后端")
-        path = log_dir / f"{src}-{today}.log"
+        prune_old_daily_logs(log_dir, "voice-frontend")
+        prune_old_daily_logs(log_dir, "voice-backend")
+        # Also prune legacy Chinese names if still present under old dir
+        legacy = resolve_gateway_logs_dir() / _LEGACY_DIR_NAME
+        if legacy.is_dir():
+            prune_old_daily_logs(legacy, "前端")
+            prune_old_daily_logs(legacy, "后端")
+        path = log_dir / f"voice-{src}-{today}.log"
         fh = path.open("a", encoding="utf-8", newline="\n")
         _streams[src] = fh
         _dates[src] = today
         if path.stat().st_size == 0:
+            label = "前端" if src == "frontend" else "后端"
             fh.write(
-                f"# 小V语音播报日志（{src}） path={path}\n"
+                f"# 小V语音播报日志（{label}/{src}） path={path}\n"
                 f"# 目录：{log_dir}\n"
                 f"# 列：时间 [来源] [阶段] [TRACE=…] 说明\n"
                 f"# TRACE：一轮提问→播报共用；grep TRACE=vt-xxx 可串起前后端\n"
@@ -141,7 +157,8 @@ def voice_log(
     global _last_line_key, _last_line_at, _dup_count
     try:
         ts = (at or "").strip() or datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
-        src_label = "前端" if "前" in str(source or "") else "后端"
+        src_key = _normalize_voice_source(source)
+        src_label = "前端" if src_key == "frontend" else "后端"
         st = _clip(stage, 24) or "过程"
         msg = _clip(message, 1200)
         if detail:
@@ -154,7 +171,7 @@ def voice_log(
             if key == _last_line_key and now - _last_line_at < 0.4:
                 _dup_count += 1
                 return
-            src = _ensure_stream(src_label)
+            src = _ensure_stream(src_key)
             fh = _streams.get(src)
             if fh is None:
                 return

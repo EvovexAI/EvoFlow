@@ -1,19 +1,17 @@
-import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import {
   Bot,
+  Braces,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
   ChevronUp,
   Layers,
   MessageSquareText,
-  Play,
   Plus,
-  Search,
   Settings2,
   Sparkles,
   Trash2,
-  Workflow,
 } from 'lucide-react'
 import {
   STEP_FIELD_MAP,
@@ -23,12 +21,7 @@ import {
 } from '../../lib/app-workflow-plan.ts'
 import { ANSWER_NODE_ID, START_NODE_ID } from '../../lib/app-workflow-flow.ts'
 import { parseCsvField, joinCsvField } from '../../lib/workflow-step-csv.ts'
-import {
-  agentCapabilitySummary,
-  normalizeAgentTags,
-  tagMetaForLabel,
-  type AgentPickerRow,
-} from '../../lib/agent-tags.ts'
+import { agentCapabilitySummary } from '../../lib/agent-tags.ts'
 import { labelSkills, resolveAgentToolsDisplay } from '../../lib/agent-caps-display.ts'
 import { useWorkflowResources } from '../../hooks/useWorkflowResources.ts'
 import { type SkillSelection } from '../SkillPickerModal.tsx'
@@ -38,9 +31,15 @@ import InsertChipBar from './InsertChipBar.tsx'
 import { SlashVarTextarea, type SlashVarItem } from './SlashVarTextarea.tsx'
 import { WorkspaceFolderInput } from './WorkspaceFolderInput.tsx'
 import { RunVarsPanel } from './RunVarsPanel.tsx'
-import AssignedAgentAvatar from '../AssignedAgentAvatar.tsx'
 import WorkflowNodeAvatar from './WorkflowNodeAvatar.tsx'
 import { resolveWorkflowAgent } from './WorkflowStepAgentHead.tsx'
+import {
+  beginPaletteDrag,
+  consumePaletteDragClickGuard,
+  endPaletteDrag,
+  markPaletteDragMoved,
+  type PaletteDragKind,
+} from './palette-dnd.ts'
 
 type TabId = 'library' | 'config'
 /** library = 左侧节点库；config = 右侧上下文配置（无 Tab） */
@@ -73,6 +72,8 @@ type Props = {
   onStepChange: (patch: Partial<AppWorkflowStep>) => void
   onAddStep: () => void
   onAddStepWithAgent?: (agentCode: string) => void
+  /** 模板变换节点：确定性文本变换，不占 LLM worker（F-1）。 */
+  onAddTemplateStep?: () => void
   onAddAnswer?: () => void
   onDeleteSelected: () => void
   hasSelection: boolean
@@ -209,7 +210,8 @@ export function WorkflowDrawer({
   onWorkflowGoalChange,
   onStepChange,
   onAddStep,
-  onAddStepWithAgent,
+  onAddStepWithAgent: _onAddStepWithAgent,
+  onAddTemplateStep,
   onAddAnswer,
   onDeleteSelected,
   hasSelection,
@@ -224,7 +226,6 @@ export function WorkflowDrawer({
   const { agents, skills, tools, mcpServers, loading } = useWorkflowResources(open)
   const [agentOpen, setAgentOpen] = useState(false)
   const [capOpen, setCapOpen] = useState(false)
-  const [agentSearch, setAgentSearch] = useState('')
   /** 本智能体自带能力区域折叠 */
   const [capsFold, setCapsFold] = useState(true)
   /** 能力配置折叠区（默认展开，相对常用） */
@@ -385,48 +386,35 @@ export function WorkflowDrawer({
   const libNodes = useMemo(
     () => [
       {
-        id: 'start',
-        title: '流程开始',
-        desc: '固定触发节点',
-        tone: 'trigger' as const,
-        icon: <Play size={16} />,
-        static: true,
+        id: 'agent',
+        title: 'Agent 节点',
+        desc: '拖到画布 · 再点节点选执行者',
+        tone: 'action' as const,
+        icon: <Bot size={14} />,
+        onClick: onAddStep,
+        dragKind: 'agent-step',
+      },
+      {
+        id: 'template-step',
+        title: '模板变换',
+        desc: '确定性文本变换 · 不消耗 LLM',
+        tone: 'system' as const,
+        icon: <Braces size={14} />,
+        onClick: onAddTemplateStep,
+        dragKind: 'template-step',
       },
       {
         id: 'answer',
         title: '最终答案',
-        desc: '指定哪一步结果给用户看',
+        desc: '拖到画布 · 指定哪一步给用户看',
         tone: 'trigger' as const,
-        icon: <MessageSquareText size={16} />,
+        icon: <MessageSquareText size={14} />,
         onClick: onAddAnswer,
-        draggable: true,
         dragKind: 'answer',
       },
-      {
-        id: 'agent',
-        title: '任务步骤',
-        desc: '先起任务名称，再选执行者、写做什么',
-        tone: 'action' as const,
-        icon: <Workflow size={16} />,
-        onClick: onAddStep,
-        draggable: true,
-        dragKind: 'agent-step',
-      },
     ],
-    [onAddStep, onAddAnswer],
+    [onAddStep, onAddTemplateStep, onAddAnswer],
   )
-
-  const filteredAgents = useMemo<AgentPickerRow[]>(() => {
-    const q = agentSearch.trim().toLowerCase()
-    if (!q) return agents
-    return agents.filter((a) => {
-      const code = String(a.agent_code || '').toLowerCase()
-      const name = String(a.agent_name || '').toLowerCase()
-      const desc = String(a.description || '').toLowerCase()
-      const tagText = normalizeAgentTags(a.tags).join(' ').toLowerCase()
-      return code.includes(q) || name.includes(q) || desc.includes(q) || tagText.includes(q)
-    })
-  }, [agents, agentSearch])
 
   const isStart = selectedId === START_NODE_ID
   const isAnswer = selectedId === ANSWER_NODE_ID
@@ -464,193 +452,54 @@ export function WorkflowDrawer({
     <>
       <div className="wf-drawer-body">
         {tab === 'library' ? (
-          <>
-            <div className="wf-drawer-section">
-              <div className="wf-drawer-section-head">
-                <span className="wf-drawer-section-title">系统节点</span>
-                <span className="wf-drawer-section-badge">
-                  {libNodes.filter((n) => n.tone === 'trigger').length}
-                </span>
-              </div>
-              {libNodes
-                .filter((n) => n.tone === 'trigger')
-                .map((n) =>
-                  n.static ? (
-                    <div key={n.id} className="wf-drawer-lib-card wf-drawer-lib-row wf-drawer-lib-card--static">
-                      <WorkflowNodeAvatar tone={n.tone} size="md">
-                        {n.icon}
-                      </WorkflowNodeAvatar>
-                      <div className="wf-drawer-lib-copy">
-                        <span className="wf-drawer-lib-name">{n.title}</span>
-                        <span className="wf-drawer-lib-desc">{n.desc}</span>
-                      </div>
-                      <span className="wf-drawer-lib-tag">固定</span>
-                    </div>
-                  ) : (
-                    <button
-                      key={n.id}
-                      type="button"
-                      className="wf-drawer-lib-card wf-drawer-lib-row"
-                      draggable={!!n.draggable}
-                      onDragStart={(e) => {
-                        if (!n.dragKind) return
-                        e.dataTransfer.setData(dndType, n.dragKind)
-                        e.dataTransfer.effectAllowed = 'copy'
-                      }}
-                      onClick={n.onClick}
-                    >
-                      <WorkflowNodeAvatar tone={n.tone} size="md">
-                        {n.icon}
-                      </WorkflowNodeAvatar>
-                      <div className="wf-drawer-lib-copy">
-                        <span className="wf-drawer-lib-name">{n.title}</span>
-                        <span className="wf-drawer-lib-desc">{n.desc}</span>
-                      </div>
-                      <span className="wf-drawer-lib-add" aria-hidden>
-                        <Plus size={14} />
-                      </span>
-                    </button>
-                  ),
-                )}
-            </div>
-
-            <div className="wf-drawer-section">
-              <div className="wf-drawer-section-head">
-                <span className="wf-drawer-section-title">可执行步骤</span>
-                <span className="wf-drawer-section-badge">
-                  {libNodes.filter((n) => n.tone === 'action').length}
-                </span>
-              </div>
-              <p className="wf-drawer-section-hint">空白步骤：点或拖到画布后，先填写任务名称</p>
-              {libNodes
-                .filter((n) => n.tone === 'action')
-                .map((n) => (
-                  <button
-                    key={n.id}
-                    type="button"
-                    className="wf-drawer-lib-card wf-drawer-lib-row"
-                    draggable
-                    title="点击添加，或拖到画布"
-                    onDragStart={(e) => {
-                      e.dataTransfer.setData(dndType, 'agent-step')
-                      e.dataTransfer.effectAllowed = 'copy'
-                    }}
-                    onClick={n.onClick}
-                  >
-                    <WorkflowNodeAvatar tone={n.tone} size="md">
-                      {n.icon}
-                    </WorkflowNodeAvatar>
-                    <div className="wf-drawer-lib-copy">
-                      <span className="wf-drawer-lib-name">{n.title}</span>
-                      <span className="wf-drawer-lib-desc">{n.desc}</span>
-                    </div>
-                    <span className="wf-drawer-lib-add" aria-hidden>
-                      <Plus size={14} />
-                    </span>
-                  </button>
-                ))}
-            </div>
-
-            <div className="wf-drawer-section wf-drawer-section--agents">
-              <div className="wf-drawer-section-head">
-                <span className="wf-drawer-section-title">添加智能体节点</span>
-                <span className="wf-drawer-section-badge">
-                  {filteredAgents.length}
-                </span>
-              </div>
-              <p className="wf-drawer-section-hint">点一下或拖进画布均可 · 自动带上该执行者，再补任务名称</p>
-              <div className="wf-drawer-agent-search-wrap">
-                <Search size={13} className="wf-drawer-agent-search-icon" aria-hidden />
-                <input
-                  className="wf-drawer-agent-search"
-                  placeholder="搜索智能体…"
-                  value={agentSearch}
-                  onChange={(e) => setAgentSearch(e.target.value)}
-                  aria-label="搜索智能体"
-                />
-              </div>
-              {loading ? (
-                <div className="wf-drawer-lib-empty">智能体加载中…</div>
-              ) : filteredAgents.length === 0 ? (
-                <div className="wf-drawer-lib-empty">
-                  {agentSearch.trim() ? `未找到「${agentSearch.trim()}」` : '没有匹配的智能体'}
+          <div className="wf-drawer-section wf-drawer-section--basics">
+            <p className="wf-drawer-section-hint">
+              拖到画布或点一下添加。执行者在节点上再选，不用在这里翻列表。
+            </p>
+            {libNodes.map((n) => (
+              <div
+                key={n.id}
+                role="button"
+                tabIndex={0}
+                className="wf-drawer-lib-card wf-drawer-lib-row"
+                draggable
+                title="拖到画布，或点击添加"
+                onDragStart={(e) => {
+                  beginPaletteDrag(n.dragKind as PaletteDragKind)
+                  try {
+                    e.dataTransfer.setData(dndType, n.dragKind)
+                    e.dataTransfer.setData('text/plain', `evoflow-wf:${n.dragKind}`)
+                    e.dataTransfer.effectAllowed = 'copy'
+                  } catch {
+                    /* WebView 偶发 setData 失败，仍靠模块状态 */
+                  }
+                }}
+                onDrag={() => markPaletteDragMoved()}
+                onDragEnd={() => endPaletteDrag()}
+                onClick={() => {
+                  if (consumePaletteDragClickGuard()) return
+                  n.onClick?.()
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault()
+                    n.onClick?.()
+                  }
+                }}
+              >
+                <WorkflowNodeAvatar tone={n.tone} size="sm">
+                  {n.icon}
+                </WorkflowNodeAvatar>
+                <div className="wf-drawer-lib-copy">
+                  <span className="wf-drawer-lib-name">{n.title}</span>
+                  <span className="wf-drawer-lib-desc">{n.desc}</span>
                 </div>
-              ) : (
-                <div className="wf-drawer-agent-list">
-                  {filteredAgents.map((a) => {
-                    const code = String(a.agent_code || '')
-                    const name = String(a.agent_name || code)
-                    const caps = agentCapabilitySummary(a, 3)
-                    const tags = normalizeAgentTags(a.tags).slice(0, 1)
-                    return (
-                      <button
-                        key={code}
-                        type="button"
-                        className="wf-drawer-lib-card wf-drawer-lib-row wf-drawer-agent-item"
-                        draggable
-                        title={`${name} — 点击添加，或拖到画布`}
-                        onDragStart={(e) => {
-                          e.dataTransfer.setData(dndType, `agent:${code}`)
-                          e.dataTransfer.effectAllowed = 'copy'
-                        }}
-                        onClick={() => {
-                          if (onAddStepWithAgent) {
-                            onAddStepWithAgent(code)
-                          } else {
-                            onAddStep()
-                            requestAnimationFrame(() => {
-                              onStepChange({ assigned_agent: code })
-                            })
-                          }
-                        }}
-                      >
-                        <span className="wf-drawer-agent-avatar" aria-hidden>
-                          <AssignedAgentAvatar agentCode={code} agents={agents} size={32} />
-                        </span>
-                        <div className="wf-drawer-lib-copy">
-                          <div className="wf-drawer-lib-title-row">
-                            <span className="wf-drawer-lib-name" title={`${name}（${code}）`}>
-                              {name}
-                            </span>
-                            {tags.length > 0 ? (
-                              <span className="react-chat-skill-item-tags wf-drawer-lib-tags">
-                                {tags.map((label) => {
-                                  const meta = tagMetaForLabel(label)
-                                  return (
-                                    <span
-                                      key={label}
-                                      className="react-chat-skill-item-tag"
-                                      style={
-                                        {
-                                          ['--tag-color' as string]: meta.color || '#64748b',
-                                        } as CSSProperties
-                                      }
-                                      title={label}
-                                    >
-                                      {meta.icon ? `${meta.icon} ` : ''}
-                                      {label}
-                                    </span>
-                                  )
-                                })}
-                              </span>
-                            ) : null}
-                          </div>
-                          <span className="wf-drawer-lib-desc">
-                            {caps.description
-                              ? `${code} · ${caps.description}`
-                              : `编码 ${code} · 点或拖到画布`}
-                          </span>
-                        </div>
-                        <span className="wf-drawer-lib-add" aria-hidden>
-                          <Plus size={14} />
-                        </span>
-                      </button>
-                    )
-                  })}
-                </div>
-              )}
-            </div>
-          </>
+                <span className="wf-drawer-lib-add" aria-hidden>
+                  <Plus size={12} />
+                </span>
+              </div>
+            ))}
+          </div>
         ) : null}
 
         {tab === 'config' ? (
@@ -688,18 +537,20 @@ export function WorkflowDrawer({
             )}
 
             {isStart ? (
-              <p className="wf-drawer-tip">从「流程开始」连到第一个智能体步骤。步骤说明里输入 / 可插入上面的用户输入项。</p>
+              <p className="wf-drawer-tip">
+                「入口」只标触发与入参，不用当步骤添加。多个并行任务可同时从这里出发；要汇总结果时，再加一个任务步骤接两边，最后连到「最终答案」。
+              </p>
             ) : null}
 
             {isAnswer ? (
               <DrawerPanel title="最终答案">
                 <p className="wf-drawer-tip" style={{ margin: 0 }}>
-                  把某一个 <strong>智能体步骤</strong> 的输出连到本节点。运行页与对外接口返回的答案都会取该步结果。
+                  只连<strong>一步</strong>作为用户看到的输出。并行两边若要汇总，先用任务步骤合并，再接到这里。
                 </p>
                 <p className="wf-drawer-tip" style={{ marginTop: 10 }}>
                   {answerSourceRef
                     ? `当前取自步骤 ${answerSourceRef}`
-                    : '尚未连入步骤 — 从步骤右侧拖线到「最终答案」'}
+                    : '尚未连入 — 从步骤右侧拖线到「最终答案」'}
                 </p>
               </DrawerPanel>
             ) : null}
@@ -1090,12 +941,10 @@ export function WorkflowDrawer({
               <Settings2 size={15} />
               <span>
                 {isStart
-                  ? '开始节点'
+                  ? '入口'
                   : isAnswer
-                    ? '输出节点'
-                    : isStep
-                      ? '节点配置'
-                      : '节点配置'}
+                    ? '最终答案'
+                    : '节点配置'}
               </span>
             </div>
           )}

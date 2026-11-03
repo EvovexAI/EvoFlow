@@ -25,7 +25,7 @@ import { buildAssistantDomView } from '../src/react/lib/assistant-dom-view.ts'
 import { emptyAgUiTurnState, applyAgUiEvent } from '../src/react/lib/agui-turn-reducer.ts'
 import type { DisplayRow } from '../src/react/chat-types.ts'
 
-function setLsDefaultOn() {
+function setLsDefaultOff() {
   try {
     localStorage.removeItem('EVOFLOW_STREAM_COMPARE_LOG')
   } catch {
@@ -35,7 +35,7 @@ function setLsDefaultOn() {
 
 function setLs(on: boolean) {
   try {
-    if (on) localStorage.removeItem('EVOFLOW_STREAM_COMPARE_LOG') // 默认 ON
+    if (on) localStorage.setItem('EVOFLOW_STREAM_COMPARE_LOG', '1') // 默认 OFF，测试显式打开
     else localStorage.setItem('EVOFLOW_STREAM_COMPARE_LOG', '0')
   } catch {
     /* jsdom */
@@ -43,7 +43,8 @@ function setLs(on: boolean) {
 }
 
 beforeEach(() => {
-  setLsDefaultOn()
+  setLsDefaultOff()
+  setLs(true)
   // 清理内存缓冲
   const w = window as Window & { __evoflowStreamCompare?: { sessions?: Record<string, unknown>; activeSessionLogId?: string } }
   if (w.__evoflowStreamCompare) delete w.__evoflowStreamCompare
@@ -73,20 +74,8 @@ describe('v5.8 双日志：sse-recv + ui-display，按 sessionKey/runId 隔离',
     )
   })
 
-  it('v5.8 默认开启：未设 localStorage 即落盘；显式 0 才 no-op', () => {
-    // v5.8 起默认 ON（不再需要手动 setItem 1）
-    expect(isStreamCompareFileLogOn()).toBe(true)
-    markStreamCompareSession('lc_run:abc')
-    markStreamCompareRun('lc_run:abc', 'run-1')
-    logStreamCompareSseRecv({
-      sessionKey: 'lc_run:abc',
-      runId: 'run-1',
-      data: { type: 'TEXT_MESSAGE_CONTENT', delta: 'hi' },
-    })
-    const on = dumpStreamCompareBuffers('lc_run:abc', 'run-1')
-    expect(on.sseRecv.length).toBeGreaterThanOrEqual(1)
-    // 显式 setItem '0' 关闭
-    setLs(false)
+  it('默认关闭：未设 localStorage 不落盘；显式 1 才写，显式 0 仍关', () => {
+    setLsDefaultOff()
     expect(isStreamCompareFileLogOn()).toBe(false)
     markStreamCompareSession('lc_run:off')
     markStreamCompareRun('lc_run:off', 'run-off')
@@ -98,6 +87,21 @@ describe('v5.8 双日志：sse-recv + ui-display，按 sessionKey/runId 隔离',
     const off = dumpStreamCompareBuffers('lc_run:off', 'run-off')
     expect(off.sseRecv.length).toBe(0)
     expect(off.uiDisplay.length).toBe(0)
+
+    setLs(true)
+    expect(isStreamCompareFileLogOn()).toBe(true)
+    markStreamCompareSession('lc_run:abc')
+    markStreamCompareRun('lc_run:abc', 'run-1')
+    logStreamCompareSseRecv({
+      sessionKey: 'lc_run:abc',
+      runId: 'run-1',
+      data: { type: 'TEXT_MESSAGE_CONTENT', delta: 'hi' },
+    })
+    const on = dumpStreamCompareBuffers('lc_run:abc', 'run-1')
+    expect(on.sseRecv.length).toBeGreaterThanOrEqual(1)
+
+    setLs(false)
+    expect(isStreamCompareFileLogOn()).toBe(false)
   })
 
   it('开启后：SSE 每帧落 sse-recv，UI 渲染落 ui-display，2 文件物理隔离', () => {

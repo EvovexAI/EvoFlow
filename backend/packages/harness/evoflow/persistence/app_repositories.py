@@ -116,6 +116,30 @@ def load_revision(app_id: str, version: int) -> dict[str, Any] | None:
     return doc
 
 
+_DEFINITION_SNAPSHOT_KEYS = frozenset(_snapshot_from_document({})) - {"status"}
+
+
+def definition_changed_since_revision(
+    app_id: str,
+    version: int,
+    document: dict[str, Any],
+) -> bool:
+    """True when ``document``'s definition slice differs from revision ``version``.
+
+    ``status`` excluded — publish/archive flip is not a definition change. A
+    missing / unreadable old snapshot conservatively reports True (caller bumps).
+    """
+    try:
+        rev = load_revision(app_id, int(version))
+    except Exception:
+        return True
+    snap = rev.get("snapshot") if isinstance(rev, dict) else None
+    if not isinstance(snap, dict):
+        return True
+    doc_snap = _snapshot_from_document(document)
+    return any(doc_snap.get(key) != snap.get(key) for key in _DEFINITION_SNAPSHOT_KEYS)
+
+
 def list_revisions(app_id: str, limit: int = 50) -> list[dict[str, Any]]:
     conn = get_db()
     cur = conn.execute(
@@ -475,11 +499,17 @@ def list_apps(
     limit: int = 100,
     *,
     summary: bool = True,
+    viewer: dict[str, str] | None = None,
 ) -> list[dict[str, Any]]:
     """List applications with optional filtering.
 
     ``summary=True`` (default): omit canvas / heavy text fields so list endpoints
     stay small. Use ``summary=False`` only when callers need full definitions.
+
+    ``viewer``: ``{principal_id, personal_scope, org_id}`` — pushes visibility
+    (own personal / org shared / group+channel membership) into the SQL WHERE so
+    LIMIT applies *after* the visibility filter, not before. ``None`` = no
+    filtering (admin / local single-user callers).
     """
     conn = get_db()
     params: list[Any] = []
@@ -487,12 +517,32 @@ def list_apps(
     if status:
         where.append("status = ?")
         params.append(status)
+    else:
+        # 默认视图排除软删行；显式 status='deleted' 才能查到（管理端用）
+        where.append("status != 'deleted'")
     if category:
         where.append("category = ?")
         params.append(category)
     if search:
         where.append("(name LIKE ? OR description LIKE ?)")
         params.extend([f"%{search}%", f"%{search}%"])
+    if viewer:
+        pid = str(viewer.get("principal_id") or "").strip()
+        personal = str(viewer.get("personal_scope") or "").strip()
+        org = str(viewer.get("org_scope") or "").strip()
+        org_id = str(viewer.get("org_id") or "").strip()
+        if pid and (personal or org):
+            # Same shape as session_ownership.session_visibility_sql: own personal
+            # scope, org scope, or any group/channel the principal is a member of.
+            where.append(
+                "(owner_scope_id = ? OR owner_scope_id = ? OR owner_scope_id IN "
+                "(SELECT scope_id FROM evoflow_scope_members WHERE org_id = ? AND principal_id = ?))"
+            )
+            params.extend([personal, org, org_id, pid])
+        else:
+            # No resolvable principal identity: fail closed (only admin passes at
+            # the endpoint layer; here return nothing rather than everything).
+            return []
     where_clause = f"WHERE {' AND '.join(where)}" if where else ""
     table_cols = _evoflow_apps_columns()
     if summary:
@@ -577,7 +627,11 @@ def list_apps(
 
 
 def delete_app(app_id: str) -> bool:
-    """Delete an application and its associated run/revision history."""
+    """Hard-delete an application and its associated run/revision history.
+
+    普通删除入口已改走 :func:`soft_delete_app`（治理要求：runs/revisions 可追溯）。
+    本函数保留给管理端 purge / 数据清理。
+    """
     conn = get_db()
     conn.execute("DELETE FROM evoflow_app_runs WHERE app_id = ?", (app_id,))
     try:
@@ -585,6 +639,20 @@ def delete_app(app_id: str) -> bool:
     except Exception:
         pass
     cur = conn.execute("DELETE FROM evoflow_apps WHERE id = ?", (app_id,))
+    conn.commit()
+    return cur.rowcount > 0
+
+
+def soft_delete_app(app_id: str) -> bool:
+    """Soft-delete: flip status to ``deleted``; runs / revisions / ownership stay.
+
+    列表默认排除 deleted（见 :func:`list_apps`）；恢复 = 把 status 改回 draft。
+    """
+    conn = get_db()
+    cur = conn.execute(
+        "UPDATE evoflow_apps SET status = 'deleted', updated_at = ? WHERE id = ? AND status != 'deleted'",
+        (utc_now_iso_z(), app_id),
+    )
     conn.commit()
     return cur.rowcount > 0
 

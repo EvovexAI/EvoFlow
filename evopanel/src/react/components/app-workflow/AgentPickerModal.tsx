@@ -323,23 +323,21 @@ export function AgentPickerModal({
           </div>
         </div>
 
-        <div className="react-chat-modal-footer">
+        <div className="react-chat-modal-actions react-chat-skill-modal-actions">
           <span className="react-chat-skill-modal-footer-count">
             {draft ? `已选：${draftLabel}` : '未选择'}
           </span>
-          <div className="react-chat-modal-footer-actions">
-            <button type="button" className="btn btn-secondary btn-sm" onClick={onClose}>
-              取消
-            </button>
-            <button
-              type="button"
-              className="btn btn-primary btn-sm"
-              disabled={!draft}
-              onClick={() => confirm(draft)}
-            >
-              确定
-            </button>
-          </div>
+          <button type="button" className="react-chat-modal-btn react-chat-modal-btn--ghost" onClick={onClose}>
+            取消
+          </button>
+          <button
+            type="button"
+            className="react-chat-modal-btn react-chat-modal-btn--primary"
+            disabled={!draft}
+            onClick={() => confirm(draft)}
+          >
+            确定
+          </button>
         </div>
       </div>
     </div>,

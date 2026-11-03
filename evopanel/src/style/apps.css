@@ -201,20 +201,20 @@ html[data-theme='dark'] .app-settings-overlay {
 
 .apps-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 14px;
+  grid-template-columns: repeat(auto-fill, minmax(228px, 1fr));
+  gap: 12px;
 }
 
+/* 卡面 = 头部一行（图标 + 名字/徽章 + 元信息）+ hover 的 ···，无描述、无底栏 */
 .app-card {
   position: relative;
   display: flex;
   flex-direction: column;
   gap: 0;
   min-height: 0;
-  padding: 16px;
-  padding-bottom: 44px;
+  padding: 12px 14px;
   border: 1px solid color-mix(in srgb, var(--border-primary) 70%, transparent);
-  border-radius: 18px;
+  border-radius: 14px;
   background: var(--bg-secondary, #ffffff);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
   cursor: pointer;
@@ -232,10 +232,12 @@ html[data-theme='dark'] .app-settings-overlay {
     0 2px 6px rgba(0, 0, 0, 0.03);
 }
 
+/* ··· 移到右上角，平时隐藏（hover / 键盘聚焦 / 打开时浮现），不与标题徽章重叠：
+ * 标题行右侧预留 30px（见 .app-card-title-row）。 */
 .app-card-more {
   position: absolute;
   right: 10px;
-  bottom: 10px;
+  top: 10px;
   z-index: 2;
   width: 30px;
   height: 30px;
@@ -250,7 +252,7 @@ html[data-theme='dark'] .app-settings-overlay {
   letter-spacing: 0.5px;
   line-height: 1;
   cursor: pointer;
-  opacity: 0.55;
+  opacity: 0;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
   transition: opacity var(--dur-fast) var(--ease-out-soft), background var(--dur-fast) var(--ease-out-soft), color var(--dur-fast) var(--ease-out-soft), border-color var(--dur-fast) var(--ease-out-soft);
 }
@@ -272,7 +274,7 @@ html[data-theme='dark'] .app-settings-overlay {
 .app-card-menu {
   position: absolute;
   right: 10px;
-  bottom: 44px;
+  top: 44px;
   z-index: 20;
   min-width: 124px;
   padding: 4px;
@@ -312,13 +314,25 @@ html[data-theme='dark'] .app-settings-overlay {
 .app-card-top {
   display: flex;
   align-items: flex-start;
-  gap: 12px;
-  margin-bottom: 12px;
+  gap: 10px;
+  margin-bottom: 0;
 }
 
 /* 工作流图标瓦片（C1）：浅色底 + 内描边 + 线性图标。
  * 色相 --app-ico-h 由 lib/app-icon.js 从 app id 派生，同一条工作流恒定。
- * 视觉重量对齐卡片内「已发布」徽章，不抢标题。 */
+ * 视觉重量对齐卡片内「已发布」徽章，不抢标题。
+ * 列表卡走紧凑档：36px 瓦片 + 18px 字形（模板弹窗 / 详情页仍用默认 44px）。 */
+.app-card .app-ico-tile {
+  width: 36px;
+  height: 36px;
+  border-radius: 11px;
+}
+
+.app-card .app-ico-tile .app-ico {
+  width: 18px;
+  height: 18px;
+}
+
 .app-ico-tile {
   width: 44px;
   height: 44px;
@@ -335,11 +349,10 @@ html[data-theme='dark'] .app-settings-overlay {
   display: block;
 }
 
-/* 卡片顶行是 flex-start：瓦片盒顶与标题盒顶齐平，但 44px 瓦片内字形居中、
- * 16px 标题只有 20.8px 高，视觉重心比标题低约 2px；加上徽章把标题行往上提，
- * 看上去就是图标"沉下去"。这里做一次视觉补正，要微调只改 --app-ico-lift。 */
+/* 卡片顶行是 flex-start：瓦片盒顶与标题盒顶齐平，瓦片内字形居中、视觉重心
+ * 比标题低约 2px，看上去就是图标"沉下去"。做一次视觉补正，微调只改 --app-ico-lift。 */
 .app-card-top {
-  --app-ico-lift: 3px;
+  --app-ico-lift: 2px;
 }
 
 .app-card-top .app-ico-tile {
@@ -371,11 +384,13 @@ html[data-theme='dark'] .app-ico-tile {
   align-items: center;
   gap: 8px;
   min-width: 0;
+  /* 右侧给 hover 浮现的 ··· 按钮留位，避免徽章被盖住 */
+  padding-right: 30px;
 }
 
 .app-card-name {
   margin: 0;
-  font-size: 16px;
+  font-size: 14px;
   font-weight: 650;
   letter-spacing: -0.02em;
   color: var(--text-primary);
@@ -427,68 +442,6 @@ html[data-theme='dark'] .app-ico-tile {
   font-size: 11px;
   line-height: 1.35;
   color: var(--text-primary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.app-card-desc {
-  margin: 0;
-  font-size: 13px;
-  line-height: 1.55;
-  color: var(--text-primary);
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-/* ??????????????????????????*/
-.app-card-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 12px;
-  padding-top: 12px;
-  border-top: 1px solid color-mix(in srgb, var(--border-primary) 65%, transparent);
-}
-
-.app-card-actions .btn {
-  border-radius: 999px;
-  height: 30px;
-  padding: 0 14px;
-  font-size: var(--ef-text-sm) ;
-  font-weight: 600;
-  box-shadow: none;
-}
-
-.app-card-actions .app-card-run-btn {
-  box-shadow: 0 2px 8px color-mix(in srgb, var(--primary, var(--accent)) 22%, transparent);
-}
-
-.app-card-actions .app-card-edit-btn {
-  margin-left: auto;
-}
-
-.app-card-actions {
-  display: none;
-}
-
-/* ????????????????????���?????*/
-.app-card-footer {
-  position: absolute;
-  left: 16px;
-  bottom: 14px;
-  max-width: calc(100% - 52px);
-  pointer-events: none;
-}
-
-.app-card-time {
-  display: block;
-  font-size: 11px;
-  line-height: 1.35;
-  color: var(--text-tertiary);
-  font-variant-numeric: tabular-nums;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

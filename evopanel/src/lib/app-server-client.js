@@ -10,26 +10,23 @@ import { transportLog } from './transport-log-gate.js'
 
 const APP_SERVER_EVENT = 'evoflow://app-server'
 
-// === DEBUG: write SSE lifecycle to a per-process file (Node fs sync append) ===
-// Browser-side fallback: POST to /__evoflow-log on the gateway (no fs in browser).
-// Path: $EVOFLOW_FE_LOG or "D:/dev/github/EvoFlow/temp/evoflow-fe.log"
+// === DEBUG（默认关）：显式 window.__EVOFLOW_FE_LOG_ENABLED__=true 或 localStorage evoflow-enable-fe-log=1 ===
 let _feDebugWrite = null
 const _FE_LOG_RING = [] // browser-side ring buffer (max 200 lines), exported via __dumpEvoflowFELog
-const _FE_LOG_FILE = 'D:/dev/github/EvoFlow/temp/evoflow-fe.log'
-try {
-  if (typeof window === 'undefined' || !window.__EVOFLOW_FE_LOG_DISABLED__) {
-    const fs = (() => { try { return require('node:fs') } catch { return null } })()
-    if (fs) {
-      _feDebugWrite = (msg) => {
-        try { fs.appendFileSync(_FE_LOG_FILE, `[t=${(Date.now()/1000).toFixed(3)}s] ${msg}\n`) } catch {}
-      }
-    }
+function _feLogEnabled() {
+  try {
+    if (typeof window !== 'undefined' && window.__EVOFLOW_FE_LOG_ENABLED__) return true
+    if (typeof window !== 'undefined' && window.__EVOFLOW_FE_LOG_DISABLED__) return false
+    const ls = window?.localStorage?.getItem?.('evoflow-enable-fe-log')
+    return ls === '1' || ls === 'true'
+  } catch {
+    return false
   }
-} catch {}
+}
 function _feLog(msg) {
+  if (!_feLogEnabled()) return
   const line = `[t=${(Date.now()/1000).toFixed(3)}s] ${msg}`
   if (_feDebugWrite) { _feDebugWrite(msg); return }
-  // Browser fallback: in-memory + POST to gateway /__evoflow-log
   _FE_LOG_RING.push(line)
   if (_FE_LOG_RING.length > 200) _FE_LOG_RING.shift()
   try { localStorage.setItem('evoflow-fe-log', _FE_LOG_RING.slice(-200).join('\n')) } catch {}

@@ -1,4 +1,4 @@
-/// 日志读取与前端控制台落盘（按日轮转，默认保留 7 天）
+/// 日志读取与前端控制台落盘（按日轮转，默认保留 14 天）
 use chrono::Local;
 use std::fs;
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
@@ -11,19 +11,27 @@ fn log_dir() -> PathBuf {
     evoflow_dir().join("logs")
 }
 
-fn log_prefix(log_name: &str) -> &'static str {
+/// Candidate daily prefixes for a UI source id (first existing wins).
+fn log_prefix_candidates(log_name: &str) -> &'static [&'static str] {
     match log_name {
-        "gateway" => "evoflow-gateway",
-        "gateway-err" => "evoflow-gateway",
-        "langgraph" => "langgraph",
-        "langgraph-err" => "langgraph",
-        "frontend" => "frontend",
-        "guardian" => "guardian",
-        "guardian-backup" => "guardian-backup",
-        "config-audit" => "config-audit",
-        "startup" => "startup",
-        "right-stage" => "right-stage",
-        _ => "evoflow-gateway",
+        "gateway" => &["gateway", "gateway-stderr", "evoflow-gateway"],
+        "gateway-err" | "gateway-stderr" => &["gateway-stderr", "evoflow-gateway"],
+        // LangGraph sidecar only writes stderr daily files in practice
+        "langgraph" => &["langgraph-stderr", "langgraph", "evoflow-langgraph"],
+        "langgraph-err" | "langgraph-stderr" => &["langgraph-stderr", "evoflow-langgraph"],
+        "frontend" => &["frontend"],
+        "guardian" => &["guardian"],
+        "guardian-backup" => &["guardian-backup"],
+        "startup" | "evopanel-startup" => &["evopanel-startup"],
+        "right-stage" => &["right-stage"],
+        "plugin-control" => &["plugin-control"],
+        "boot-cycle" => &["boot-cycle"],
+        "assistant-audit" => &["assistant-audit"],
+        "browser-cdp-bridge" => &["browser-cdp-bridge"],
+        "gateway-slow" => &["gateway-slow"],
+        "voice-frontend" => &["voice-frontend", "前端"],
+        "voice-backend" => &["voice-backend", "后端"],
+        _ => &["gateway"],
     }
 }
 
@@ -32,15 +40,78 @@ fn resolve_log_path(log_name: &str) -> PathBuf {
     if log_name == "config-audit" {
         return dir.join("config-audit.jsonl");
     }
-    if log_name == "startup" {
-        return dir.join("evopanel-startup.log");
+    // Fixed legacy forever-files (pre-daily)
+    for legacy in [
+        ("plugin-control", "plugin-control.log"),
+        ("boot-cycle", "boot-cycle.log"),
+        ("assistant-audit", "assistant-audit.log"),
+        ("browser-cdp-bridge", "browser-cdp-bridge.log"),
+        ("startup", "evopanel-startup.log"),
+        ("evopanel-startup", "evopanel-startup.log"),
+    ] {
+        if log_name == legacy.0 {
+            let p = dir.join(legacy.1);
+            // Prefer daily if present
+            for prefix in log_prefix_candidates(log_name) {
+                let today = daily_log_path(&dir, prefix);
+                if today.is_file() {
+                    return today;
+                }
+                if let Some(latest) = latest_daily_log_path(&dir, prefix) {
+                    return latest;
+                }
+            }
+            if p.is_file() {
+                return p;
+            }
+        }
     }
-    let prefix = log_prefix(log_name);
-    let today = daily_log_path(&dir, prefix);
-    if today.is_file() {
-        return today;
+    // Voice may live under voice/ or 语音播报/
+    if matches!(log_name, "voice-frontend" | "voice-backend") {
+        let sub_names = if log_name == "voice-frontend" {
+            ["voice-frontend", "前端"]
+        } else {
+            ["voice-backend", "后端"]
+        };
+        for sub in ["voice", "语音播报"] {
+            let subdir = dir.join(sub);
+            for prefix in sub_names {
+                let today = daily_log_path(&subdir, prefix);
+                if today.is_file() {
+                    return today;
+                }
+                if let Some(p) = latest_daily_log_path(&subdir, prefix) {
+                    return p;
+                }
+            }
+        }
     }
-    latest_daily_log_path(&dir, prefix).unwrap_or(today)
+    for prefix in log_prefix_candidates(log_name) {
+        let today = daily_log_path(&dir, prefix);
+        if today.is_file() {
+            return today;
+        }
+        if let Some(p) = latest_daily_log_path(&dir, prefix) {
+            return p;
+        }
+    }
+    // In-process / external Gateway: LangGraph shares gateway-*.log — don't leave UI empty.
+    if matches!(log_name, "langgraph" | "langgraph-err" | "langgraph-stderr") {
+        for prefix in ["gateway", "gateway-stderr", "evoflow-gateway"] {
+            let today = daily_log_path(&dir, prefix);
+            if today.is_file() {
+                return today;
+            }
+            if let Some(p) = latest_daily_log_path(&dir, prefix) {
+                return p;
+            }
+        }
+    }
+    let primary = log_prefix_candidates(log_name)
+        .first()
+        .copied()
+        .unwrap_or("gateway");
+    daily_log_path(&dir, primary)
 }
 
 #[tauri::command]
@@ -52,8 +123,51 @@ pub async fn read_log_tail(log_name: String, lines: Option<u32>) -> Result<Strin
         .map_err(|e| format!("read_log_tail join failed: {e}"))?
 }
 
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InspectLogResult {
+    pub ok: bool,
+    pub log_name: String,
+    pub path: String,
+    pub exists: bool,
+    pub size: u64,
+    pub content: String,
+    pub line_count: usize,
+}
+
+#[tauri::command]
+pub async fn inspect_log(log_name: String, lines: Option<u32>) -> Result<InspectLogResult, String> {
+    tauri::async_runtime::spawn_blocking(move || inspect_log_impl(log_name, lines))
+        .await
+        .map_err(|e| format!("inspect_log join failed: {e}"))?
+}
+
+fn inspect_log_impl(log_name: String, lines: Option<u32>) -> Result<InspectLogResult, String> {
+    let path = resolve_log_path(&log_name);
+    let exists = path.is_file();
+    let size = if exists {
+        fs::metadata(&path).map(|m| m.len()).unwrap_or(0)
+    } else {
+        0
+    };
+    let content = if exists {
+        read_log_tail_impl(log_name.clone(), lines)?
+    } else {
+        String::new()
+    };
+    let line_count = content.lines().filter(|l| !l.is_empty()).count();
+    Ok(InspectLogResult {
+        ok: true,
+        log_name,
+        path: path.to_string_lossy().into_owned(),
+        exists,
+        size,
+        content,
+        line_count,
+    })
+}
+
 fn read_log_tail_impl(log_name: String, lines: Option<u32>) -> Result<String, String> {
-    
     let lines = lines.unwrap_or(200) as usize;
     let path = resolve_log_path(&log_name);
     if !path.exists() {
@@ -102,7 +216,6 @@ pub async fn search_log(log_name: String, query: String, max_results: Option<u32
         .map_err(|e| format!("search_log join failed: {e}"))?
 }
 
-#[tauri::command]
 fn search_log_impl(
     log_name: String,
     query: String,
@@ -186,7 +299,6 @@ pub async fn append_plugin_control_log(source: String, level: String, message: S
         .map_err(|e| format!("append_plugin_control_log join failed: {e}"))?
 }
 
-#[tauri::command]
 fn append_plugin_control_log_impl(
     source: String,
     level: String,
@@ -214,11 +326,7 @@ fn append_plugin_control_log_impl(
         format!("{lvl}:{msg}")
     };
     let line = format!("{ts} [{src}] {body}\n");
-    let path = log_dir().join("plugin-control.log");
-    if let Some(parent) = path.parent() {
-        let _ = fs::create_dir_all(parent);
-    }
-    super::log_files::append_log_file_line(&path, &line)
+    super::log_files::append_daily_log_line(&log_dir(), "plugin-control", &line)
 }
 
 /// 流式对比日志：``{sessionKey}/{YYYYMMDDHHmmss}_{runId}/sse-recv.log`` + ``v4-recv.log``

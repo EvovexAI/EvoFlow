@@ -55,12 +55,13 @@ class StdioAppServer:
 
     def _mark_abort(self, turn_id: str | None = None) -> None:
         import os as _os_a, time as _time_a
-        _a_log = _os_a.environ.get("EVOFLOW_PSS_LOG", "").strip() or "D:/dev/github/EvoFlow/temp/evoflow-pss.log"
-        try:
-            with open(_a_log, "a", encoding="utf-8") as _a_f:
-                _a_f.write(f"[t={_time_a.time():.3f}s pid={_os_a.getpid()} rpc] _mark_abort turn_id={turn_id!r} active_before={sorted(self._active_turn_ids)}\n")
-        except Exception:
-            pass
+        _a_log = _os_a.environ.get("EVOFLOW_PSS_LOG", "").strip()
+        if _a_log:
+            try:
+                with open(_a_log, "a", encoding="utf-8") as _a_f:
+                    _a_f.write(f"[t={_time_a.time():.3f}s pid={_os_a.getpid()} rpc] _mark_abort turn_id={turn_id!r} active_before={sorted(self._active_turn_ids)}\n")
+            except Exception:
+                pass
         tid = str(turn_id or "").strip()
         if tid:
             self._aborted_turns.add(tid)

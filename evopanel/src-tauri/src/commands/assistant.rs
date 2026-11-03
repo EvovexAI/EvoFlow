@@ -10,15 +10,9 @@ use std::path::PathBuf;
 /// 审计日志：记录 AI 助手的敏感操作（exec / read / write）
 fn audit_log(action: &str, detail: &str) {
     let log_dir = super::evoflow_dir().join("logs");
-    let _ = std::fs::create_dir_all(&log_dir);
-    let log_path = log_dir.join("assistant-audit.log");
     let ts = chrono::Local::now().format("%Y-%m-%d %H:%M:%S");
     let line = format!("[{ts}] [{action}] {detail}\n");
-    let _ = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&log_path)
-        .and_then(|mut f| std::io::Write::write_all(&mut f, line.as_bytes()));
+    let _ = super::log_files::append_daily_log_line(&log_dir, "assistant-audit", &line);
 }
 
 /// EvoFlow 数据目录（~/.evoflow/evopanel/）

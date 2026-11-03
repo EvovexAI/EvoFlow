@@ -58,9 +58,10 @@ def _delete_older_than(conn: sqlite3.Connection, table: str, time_col: str, cuto
 
 
 def prune_gateway_logs(log_dir: Path, *, days: int) -> int:
-    from evoflow.runtime.ports import prune_old_daily_logs
+    """Prune all ``{prefix}-YYYY-MM-DD.log`` under the real product logs root."""
+    from evoflow.runtime.log_policy import prune_all_daily_logs
 
-    return prune_old_daily_logs(log_dir, "gateway", days=days)
+    return prune_all_daily_logs(log_dir, days=days)
 
 
 def _observability_db_bytes(obs_path: Path) -> int:
@@ -727,10 +728,16 @@ def run_data_retention(
     try:
         log_path = logs_dir
         if log_path is None:
-            from evoflow.config.data_paths import logs_dir as canonical_logs_dir
+            # Prefer EVOFLOW_LOGS_DIR (desktop SSOT); fall back to data_paths layout.
+            from evoflow.runtime.log_policy import resolve_product_logs_dir
 
-            log_path = canonical_logs_dir(base_dir)
+            log_path = resolve_product_logs_dir()
         result.logs_removed = prune_gateway_logs(log_path, days=cfg.logs_days)
+        try:
+            debug_removed = prune_gateway_logs(log_path / "debug", days=min(3, int(cfg.logs_days)))
+            result.logs_removed += debug_removed
+        except Exception:
+            pass
     except Exception as exc:
         result.errors.append(f"logs: {exc}")
         logger.warning("retention: log prune failed", exc_info=True)

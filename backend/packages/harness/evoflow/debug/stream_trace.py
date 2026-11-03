@@ -54,14 +54,10 @@ def get_current_thread_id() -> str | None:
 
 
 def _is_stream_trace_enabled() -> bool:
-    """Stream tracing is always enabled.
+    """Opt-in only. Set ``EVOFLOW_STREAM_TRACE=1`` to enable (release-safe default off)."""
+    from evoflow.runtime.log_policy import env_flag
 
-    Set ``EVOFLOW_STREAM_TRACE=0`` to disable.
-    """
-    raw = os.environ.get("EVOFLOW_STREAM_TRACE", "").strip().lower()
-    if raw in ("0", "false", "no", "off"):
-        return False
-    return True
+    return env_flag("EVOFLOW_STREAM_TRACE", default=False)
 
 
 def _normalize_thread_id(thread_id: str | None) -> str:
@@ -73,8 +69,13 @@ def _normalize_thread_id(thread_id: str | None) -> str:
 
 
 def _stream_trace_root() -> Path:
-    """Get the root directory for stream traces."""
-    return debug_log_root() / "logs" / "stream_trace"
+    """Get the root directory for stream traces under product ``logs/debug``."""
+    try:
+        from evoflow.runtime.log_policy import resolve_debug_logs_dir
+
+        return resolve_debug_logs_dir() / "stream_trace"
+    except Exception:
+        return debug_log_root() / "logs" / "debug" / "stream_trace"
 
 
 class _StreamTraceWriter:

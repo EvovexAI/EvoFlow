@@ -174,10 +174,16 @@ export async function startNativeEar() {
       .catch(() => {})
     return true
   } catch (e) {
-    console.warn('[wake-word-native] Failed to start:', e?.message || e)
+    const detail = e?.message || String(e)
+    // Sidecar missing / exited is common in web/dev — keep console quiet after first note.
+    if (/sidecar exited|not found|os error/i.test(detail)) {
+      console.debug('[wake-word-native] KWS unavailable:', detail)
+    } else {
+      console.warn('[wake-word-native] Failed to start:', detail)
+    }
     void import('./xiaomi-voice/voice-file-log.js')
       .then(({ voiceFeMirror }) =>
-        voiceFeMirror('会话', '唤醒耳启动失败 backend=native-kws', e?.message || String(e)),
+        voiceFeMirror('会话', '唤醒耳启动失败 backend=native-kws', detail),
       )
       .catch(() => {})
     await stopNativeEar()

@@ -18,6 +18,16 @@ from typing import Any
 from evoflow.collab.app_engine import render_plan
 from evoflow.persistence import app_repositories
 
+
+def get_subtask_result_text_safe(st: dict[str, Any]) -> str:
+    """F-2 结果契约唯一入口的导入安全包装（subtask_outcome 缺失时退 task_report）。"""
+    try:
+        from evoflow.collab.subtask_outcome import get_subtask_result_text
+
+        return get_subtask_result_text(st)
+    except Exception:
+        return str(st.get("task_report") or st.get("result") or "") if isinstance(st, dict) else ""
+
 logger = logging.getLogger(__name__)
 
 
@@ -341,7 +351,8 @@ def debug_run_from_step(
                             if st_status in ("completed", "done", "success"):
                                 upstream_results[st_ref] = {
                                     "structured_output": st.get("structured_output"),
-                                    "task_report": st.get("task_report") or st.get("result") or "",
+                                    # F-2：唯一读取入口（done 报告 → 固定 fallback）
+                                    "task_report": get_subtask_result_text_safe(st),
                                     "outputs": st.get("outputs") or [],
                                 }
             except Exception:

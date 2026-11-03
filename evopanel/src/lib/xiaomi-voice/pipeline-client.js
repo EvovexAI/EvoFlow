@@ -608,6 +608,17 @@ async function _startXiaomiFramePipelineInner(opts = {}) {
       // 不在这里切 recording —— 等本地播完 idle
       _refreshTray()
     }
+    if (type === 'session_reconnecting') {
+      voiceFeLog('会话', `语音会话断线，自动重连中（第 ${m.attempt || '?'} 次）…`)
+      return
+    }
+    if (type === 'session_lost') {
+      voiceFeLog('会话', `语音会话重连失败已放弃（${m.attempts || '?'} 次）`)
+      void import('../../components/toast.js')
+        .then(({ toast }) => toast('语音会话连接已断开，请重新进入语音模式', 'warning'))
+        .catch(() => {})
+      return
+    }
     if (type === 'asr_empty') {
       _noteAsrEmpty()
       return

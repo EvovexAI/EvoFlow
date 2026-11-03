@@ -34,14 +34,14 @@ LOG_SOURCES: tuple[LogSource, ...] = (
     LogSource(
         id="gateway",
         title="Gateway",
-        prefixes=("evoflow-gateway", "gateway"),
+        prefixes=("gateway", "gateway-stderr", "evoflow-gateway"),
         when="启动失败、后端连不上、任务/模型调用报错",
     ),
     LogSource(
         id="langgraph",
         title="LangGraph",
-        prefixes=("langgraph",),
-        when="图执行 / Agent 运行时异常",
+        prefixes=("langgraph-stderr", "langgraph", "evoflow-langgraph"),
+        when="图执行 / Agent 运行时（sidecar stderr）",
     ),
     LogSource(
         id="frontend",
@@ -52,15 +52,48 @@ LOG_SOURCES: tuple[LogSource, ...] = (
     LogSource(
         id="startup",
         title="Panel startup",
-        prefixes=(),
+        prefixes=("evopanel-startup",),
         exact_names=("evopanel-startup.log",),
         when="桌面端拉起 sidecar / 端口探测失败",
+    ),
+    LogSource(
+        id="plugin-control",
+        title="Plugin / Browser",
+        prefixes=("plugin-control",),
+        exact_names=("plugin-control.log",),
+        when="嵌入浏览器 / CDP / 插件控制",
+    ),
+    LogSource(
+        id="boot-cycle",
+        title="Boot cycle",
+        prefixes=("boot-cycle",),
+        exact_names=("boot-cycle.log",),
+        when="打开应用 → sidecar → Gateway → UI 就绪时间线",
+    ),
+    LogSource(
+        id="gateway-slow",
+        title="Gateway slow",
+        prefixes=("gateway-slow",),
+        when="慢请求 / 事件循环卡顿",
+    ),
+    LogSource(
+        id="right-stage",
+        title="Right stage",
+        prefixes=("right-stage",),
+        when="右栏 / 工作流侧栏",
+    ),
+    LogSource(
+        id="assistant-audit",
+        title="Assistant audit",
+        prefixes=("assistant-audit",),
+        exact_names=("assistant-audit.log",),
+        when="助手敏感操作审计",
     ),
     LogSource(
         id="guardian",
         title="Guardian",
         prefixes=("guardian", "guardian-backup"),
-        when="守护/备份进程异常",
+        when="守护进程",
     ),
     LogSource(
         id="config-audit",
@@ -68,6 +101,18 @@ LOG_SOURCES: tuple[LogSource, ...] = (
         prefixes=(),
         exact_names=("config-audit.jsonl",),
         when="配置变更审计轨迹",
+    ),
+    LogSource(
+        id="voice-frontend",
+        title="Voice frontend",
+        prefixes=("voice-frontend", "前端"),
+        when="语音播报前端",
+    ),
+    LogSource(
+        id="voice-backend",
+        title="Voice backend",
+        prefixes=("voice-backend", "后端"),
+        when="语音播报后端",
     ),
 )
 
@@ -127,10 +172,30 @@ def resolve_logs_dir() -> Path:
     return home_logs
 
 
+def _match_dated_or_exact(entry: Path, source: LogSource, *, cutoff_date) -> bool:
+    name = entry.name
+    if name in source.exact_names:
+        return True
+    m = _DATE_FILE_RE.match(name)
+    if m:
+        if m.group("prefix") not in source.prefixes:
+            return False
+        try:
+            file_day = datetime.strptime(m.group("date"), "%Y-%m-%d").date()
+        except ValueError:
+            return False
+        return file_day >= cutoff_date
+    for prefix in source.prefixes:
+        if name == f"{prefix}.log" or name.startswith(f"{prefix}."):
+            return True
+    return False
+
+
 def _iter_source_files(logs_dir: Path, source: LogSource, *, hours: int) -> list[Path]:
     if not logs_dir.is_dir():
         return []
     cutoff = datetime.now() - timedelta(hours=max(1, hours))
+    cutoff_date = cutoff.date()
     out: list[Path] = []
 
     for name in source.exact_names:
@@ -138,31 +203,25 @@ def _iter_source_files(logs_dir: Path, source: LogSource, *, hours: int) -> list
         if path.is_file():
             out.append(path)
 
-    if source.prefixes:
-        for entry in logs_dir.iterdir():
+    scan_dirs = [logs_dir]
+    # One-level subdirs used by voice / legacy Chinese voice folder
+    for sub in ("voice", "语音播报", "debug"):
+        p = logs_dir / sub
+        if p.is_dir():
+            scan_dirs.append(p)
+
+    for folder in scan_dirs:
+        try:
+            entries = list(folder.iterdir())
+        except OSError:
+            continue
+        for entry in entries:
             if not entry.is_file():
                 continue
-            name = entry.name
-            m = _DATE_FILE_RE.match(name)
-            if m:
-                prefix = m.group("prefix")
-                if prefix not in source.prefixes:
-                    continue
-                try:
-                    file_day = datetime.strptime(m.group("date"), "%Y-%m-%d")
-                except ValueError:
-                    continue
-                # Keep file if day overlaps lookback window (same calendar day or newer).
-                if file_day.date() >= cutoff.date():
+            if _match_dated_or_exact(entry, source, cutoff_date=cutoff_date):
+                if entry not in out:
                     out.append(entry)
-                continue
-            # Undated prefix.log fallback (dev)
-            for prefix in source.prefixes:
-                if name == f"{prefix}.log" or name.startswith(f"{prefix}."):
-                    out.append(entry)
-                    break
 
-    # Prefer newer mtime when reading
     out.sort(key=lambda p: p.stat().st_mtime if p.exists() else 0, reverse=True)
     return out
 
@@ -320,6 +379,100 @@ def list_sources(*, hours: int = 72) -> dict[str, Any]:
         "sources_with_errors": with_errors,
         "error_source_count": len(with_errors),
     }
+
+
+def read_source_tail(
+    source_id: str,
+    *,
+    lines: int = 400,
+    hours: int = 72,
+) -> dict[str, Any]:
+    """Return raw text tail for one known source (for panel「选哪个看哪个」)."""
+    sid = str(source_id or "").strip().lower()
+    src = _SOURCE_BY_ID.get(sid)
+    logs_dir = resolve_logs_dir()
+    if src is None:
+        return {
+            "ok": False,
+            "error": f"unknown source: {sid}",
+            "log_name": sid,
+            "path": "",
+            "exists": False,
+            "content": "",
+            "line_count": 0,
+            "logs_dir": str(logs_dir),
+        }
+    files = _iter_source_files(logs_dir, src, hours=max(1, hours))
+    fallback_hint = ""
+    if not files and sid == "langgraph":
+        # In-process LG: no langgraph-stderr; show gateway file so UI is not blank.
+        gw = _SOURCE_BY_ID.get("gateway")
+        if gw is not None:
+            files = _iter_source_files(logs_dir, gw, hours=max(1, hours))
+            if files:
+                fallback_hint = (
+                    "未找到独立 LangGraph 文件；当前为进程内/外部 Gateway，"
+                    "以下回退显示 gateway 日志（重启 Gateway 后会写 langgraph-日期.log）。"
+                )
+    if not files:
+        return {
+            "ok": True,
+            "log_name": sid,
+            "title": src.title,
+            "path": "",
+            "exists": False,
+            "content": "",
+            "line_count": 0,
+            "logs_dir": str(logs_dir),
+            "hint": f"未找到 {src.title} 日志文件（前缀 {', '.join(src.prefixes) or 'exact'}）",
+        }
+    path = files[0]
+    max_lines = max(50, min(int(lines or 400), 5000))
+    max_bytes = 2 * 1024 * 1024
+    try:
+        size = path.stat().st_size
+        with path.open("rb") as f:
+            if size > max_bytes:
+                f.seek(size - max_bytes)
+                raw = f.read()
+                nl = raw.find(b"\n")
+                if nl >= 0:
+                    raw = raw[nl + 1 :]
+            else:
+                raw = f.read()
+        text = raw.decode("utf-8", errors="replace")
+        if text.startswith("\ufeff"):
+            text = text.lstrip("\ufeff")
+        all_lines = text.splitlines()
+        if len(all_lines) > max_lines:
+            all_lines = all_lines[-max_lines:]
+        content = "\n".join(all_lines)
+        out = {
+            "ok": True,
+            "log_name": sid,
+            "title": src.title,
+            "path": str(path),
+            "exists": True,
+            "size": size,
+            "content": content,
+            "line_count": len([l for l in all_lines if l.strip()]),
+            "logs_dir": str(logs_dir),
+            "files": [_file_meta(p) for p in files[:5]],
+        }
+        if fallback_hint:
+            out["hint"] = fallback_hint
+        return out
+    except OSError as exc:
+        return {
+            "ok": False,
+            "error": str(exc),
+            "log_name": sid,
+            "path": str(path),
+            "exists": True,
+            "content": "",
+            "line_count": 0,
+            "logs_dir": str(logs_dir),
+        }
 
 
 def scan_errors(

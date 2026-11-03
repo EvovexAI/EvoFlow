@@ -1,10 +1,12 @@
-import type { MouseEvent } from 'react'
+import { useEffect, useRef, useState, type MouseEvent } from 'react'
 import {
   Bug,
   ChevronLeft,
   Clock,
+  Ellipsis,
   History,
-  KeyRound,
+  ClipboardList,
+  BookOpen,
   Layers,
   LayoutGrid,
   Play,
@@ -44,10 +46,13 @@ type Props = {
   onOpenSettings?: () => void
   onOpenHistory?: () => void
   onOpenVersions?: () => void
+  onOpenAudit?: () => void
+  /** 发布后怎么用：面板运行 / API / 自动化 */
+  onOpenHowToUse?: () => void
+  /** @deprecated 使用 onOpenHowToUse */
   onOpenApiAccess?: () => void
   onOpenDebug?: () => void
   debugActive?: boolean
-  /** 预留：自动整理画布；无复杂布局算法时由父级回调 fitView */
   onAutoArrange?: () => void
 }
 
@@ -69,12 +74,15 @@ export function WorkflowToolbar({
   onOpenSettings,
   onOpenHistory,
   onOpenVersions,
+  onOpenAudit,
+  onOpenHowToUse,
   onOpenApiAccess,
   onOpenDebug,
   debugActive,
   onAutoArrange,
 }: Props) {
   const status = String(appStatus || 'draft').toLowerCase()
+  const isPublished = status === 'published'
   const statusLabel =
     status === 'published' ? '已发布' : status === 'archived' ? '已归档' : '草稿'
   const statusClass =
@@ -84,6 +92,29 @@ export function WorkflowToolbar({
         ? 'is-archived'
         : 'is-draft'
   const isTauri = isDesktopTauriRuntime()
+  const openHowTo = onOpenHowToUse || onOpenApiAccess
+
+  const [moreOpen, setMoreOpen] = useState(false)
+  const moreWrapRef = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    if (!moreOpen) return
+    const onDoc = (e: Event) => {
+      const t = e.target as Node | null
+      if (moreWrapRef.current && t && !moreWrapRef.current.contains(t)) {
+        setMoreOpen(false)
+      }
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setMoreOpen(false)
+    }
+    document.addEventListener('mousedown', onDoc)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDoc)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [moreOpen])
 
   const onTitlebarDblClick = (event: MouseEvent<HTMLElement>) => {
     if (!isTauri) return
@@ -99,6 +130,79 @@ export function WorkflowToolbar({
     )
   }
 
+  const moreItems: Array<{
+    id: string
+    label: string
+    title?: string
+    icon: typeof Clock
+    active?: boolean
+    onClick?: () => void
+  }> = [
+    onOpenHistory
+      ? {
+          id: 'history',
+          label: '历史',
+          title: '查看运行历史与状态',
+          icon: Clock,
+          onClick: onOpenHistory,
+        }
+      : null,
+    // 草稿时「怎么用」仍放更多；已发布提到一级按钮
+    !isPublished && openHowTo
+      ? {
+          id: 'howto',
+          label: '怎么用',
+          title: '发布后可面板运行 · API · 自动化',
+          icon: BookOpen,
+          onClick: openHowTo,
+        }
+      : null,
+    onOpenVersions
+      ? {
+          id: 'versions',
+          label: '版本',
+          title: '版本快照',
+          icon: History,
+          onClick: onOpenVersions,
+        }
+      : null,
+    onOpenAudit
+      ? {
+          id: 'audit',
+          label: '操作记录',
+          title: '发布 / 修改 / 运行等操作审计',
+          icon: ClipboardList,
+          onClick: onOpenAudit,
+        }
+      : null,
+    onOpenDebug
+      ? {
+          id: 'debug',
+          label: '单步验证',
+          title: '单步运行 / 从此处重跑 / Trace（开发者）',
+          icon: Bug,
+          active: debugActive,
+          onClick: onOpenDebug,
+        }
+      : null,
+    onAutoArrange
+      ? {
+          id: 'arrange',
+          label: '整理视图',
+          title: '自适应画布',
+          icon: LayoutGrid,
+          onClick: onAutoArrange,
+        }
+      : null,
+  ].filter(Boolean) as Array<{
+    id: string
+    label: string
+    title?: string
+    icon: typeof Clock
+    active?: boolean
+    onClick?: () => void
+  }>
+
   return (
     <header
       className={`wf-studio-toolbar${isTauri ? ' wf-studio-toolbar--tauri-chrome' : ''}`}
@@ -113,7 +217,7 @@ export function WorkflowToolbar({
       <div className="wf-studio-toolbar-left" {...(isTauri ? { 'data-tauri-no-drag': '' } : {})}>
         {onBack ? (
           <button type="button" className="wf-toolbar-back" onClick={onBack} title="返回工作流列表">
-            <ChevronLeft size={20} strokeWidth={2.25} />
+            <ChevronLeft size={16} strokeWidth={2.25} />
           </button>
         ) : null}
 
@@ -136,11 +240,11 @@ export function WorkflowToolbar({
               <span
                 className={`wf-toolbar-status-badge ${statusClass}`}
                 title={
-                  status === 'published'
-                    ? '已发布：列表可填参运行，可创建 API Key'
+                  isPublished
+                    ? '已发布：可填参运行、API、自动化'
                     : status === 'archived'
                       ? '已归档：不可新开运行'
-                      : '草稿：可在画布调试，发布后才能列表运行 / API'
+                      : '草稿：可试跑，发布后才能对外调用'
                 }
               >
                 {statusLabel}
@@ -162,7 +266,7 @@ export function WorkflowToolbar({
           onClick={onToggleDrawer}
           title={drawerOpen ? '收起节点库' : '打开节点库'}
         >
-          <Layers size={16} strokeWidth={2} />
+          <Layers size={14} strokeWidth={2} />
           <span className="wf-toolbar-icon-label">节点</span>
         </button>
 
@@ -171,71 +275,62 @@ export function WorkflowToolbar({
             type="button"
             className="wf-toolbar-icon-btn"
             onClick={onOpenSettings}
-            title="工作流设置与运行参数"
+            title="工作流目标、执行方式与运行参数"
           >
-            <Settings2 size={16} strokeWidth={2} />
-            <span className="wf-toolbar-icon-label">参数</span>
+            <Settings2 size={14} strokeWidth={2} />
+            <span className="wf-toolbar-icon-label">设置</span>
           </button>
         ) : null}
 
-        {onOpenHistory ? (
+        {isPublished && openHowTo ? (
           <button
             type="button"
             className="wf-toolbar-icon-btn"
-            onClick={onOpenHistory}
-            title="运行历史"
+            onClick={openHowTo}
+            title="面板运行 · API · 自动化"
           >
-            <Clock size={16} strokeWidth={2} />
-            <span className="wf-toolbar-icon-label">历史</span>
+            <BookOpen size={14} strokeWidth={2} />
+            <span className="wf-toolbar-icon-label">怎么用</span>
           </button>
         ) : null}
 
-        {onOpenVersions ? (
-          <button
-            type="button"
-            className="wf-toolbar-icon-btn"
-            onClick={onOpenVersions}
-            title="版本快照"
-          >
-            <History size={16} strokeWidth={2} />
-            <span className="wf-toolbar-icon-label">版本</span>
-          </button>
-        ) : null}
-
-        {onOpenApiAccess ? (
-          <button
-            type="button"
-            className="wf-toolbar-icon-btn"
-            onClick={onOpenApiAccess}
-            title="API 访问（发布后对外调用）"
-          >
-            <KeyRound size={16} strokeWidth={2} />
-            <span className="wf-toolbar-icon-label">API</span>
-          </button>
-        ) : null}
-
-        {onOpenDebug ? (
-          <button
-            type="button"
-            className={`wf-toolbar-icon-btn${debugActive ? ' is-active' : ''}`}
-            onClick={onOpenDebug}
-            title="调试器：单步运行 / 从此处重跑 / 查看 Trace"
-          >
-            <Bug size={16} strokeWidth={2} />
-            <span className="wf-toolbar-icon-label">调试器</span>
-          </button>
-        ) : null}
-
-        {onAutoArrange ? (
-          <button
-            type="button"
-            className="wf-toolbar-icon-btn"
-            onClick={onAutoArrange}
-            title="整理视图（自适应画布）"
-          >
-            <LayoutGrid size={16} strokeWidth={2} />
-            <span className="wf-toolbar-icon-label">整理</span>
-          </button>
+        {moreItems.length ? (
+          <div className="wf-toolbar-more" ref={moreWrapRef}>
+            <button
+              type="button"
+              className={`wf-toolbar-icon-btn${moreOpen ? ' is-active' : ''}`}
+              aria-expanded={moreOpen}
+              aria-haspopup="menu"
+              title="更多"
+              onClick={() => setMoreOpen((v) => !v)}
+            >
+              <Ellipsis size={14} strokeWidth={2} />
+              <span className="wf-toolbar-icon-label">更多</span>
+            </button>
+            {moreOpen ? (
+              <div className="wf-toolbar-more-menu" role="menu">
+                {moreItems.map((item) => {
+                  const Icon = item.icon
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      role="menuitem"
+                      className={`wf-toolbar-more-item${item.active ? ' is-active' : ''}`}
+                      title={item.title || item.label}
+                      onClick={() => {
+                        setMoreOpen(false)
+                        item.onClick?.()
+                      }}
+                    >
+                      <Icon size={15} strokeWidth={2} />
+                      <span>{item.label}</span>
+                    </button>
+                  )
+                })}
+              </div>
+            ) : null}
+          </div>
         ) : null}
       </div>
 
@@ -250,9 +345,13 @@ export function WorkflowToolbar({
             className={`wf-toolbar-action wf-toolbar-action--ghost${dirty ? ' is-dirty' : ''}`}
             disabled={!!busy}
             onClick={onSave}
-            title="保存草稿（不影响已发布线上版本）"
+            title={
+              isPublished
+                ? '保存并更新已发布定义（线上立即生效）'
+                : '保存草稿'
+            }
           >
-            <Save size={14} strokeWidth={2.1} />
+            <Save size={12} strokeWidth={2.1} />
             <span>{busy === 'save' ? '保存中…' : '保存'}</span>
             {dirty && busy !== 'save' ? <i className="wf-toolbar-dirty-dot" aria-hidden /> : null}
           </button>
@@ -261,10 +360,12 @@ export function WorkflowToolbar({
             className="wf-toolbar-action wf-toolbar-action--brand"
             disabled={!!busy}
             onClick={onPublish}
-            title="发布后，列表「填参运行」与 API Key 才可用"
+            title={isPublished ? '重新发布（刷新对外可用版本）' : '发布后可填参运行、API、自动化'}
           >
-            <Send size={14} strokeWidth={2.1} />
-            <span>{busy === 'publish' ? '发布中…' : '发布'}</span>
+            <Send size={12} strokeWidth={2.1} />
+            <span>
+              {busy === 'publish' ? '发布中…' : isPublished ? '更新发布' : '发布'}
+            </span>
           </button>
           {onRun ? (
             <button
@@ -273,8 +374,8 @@ export function WorkflowToolbar({
               onClick={onRun}
               title="在画布内填参试跑（草稿也可）"
             >
-              <Play size={13} strokeWidth={2.4} fill="currentColor" />
-              <span>调试</span>
+              <Play size={11} strokeWidth={2.4} fill="currentColor" />
+              <span>试跑</span>
             </button>
           ) : null}
         </div>

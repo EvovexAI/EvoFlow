@@ -8,6 +8,7 @@
  * Fallback join keys against GET /langgraph/active-sessions:
  *   - task.thread_id === session.thread_id
  *   - task.id === session.collab_task_id
+ *   - task.id === session.main_task_id (workflow main task; thread_id is None there)
  */
 
 import {
@@ -45,8 +46,12 @@ export function buildActiveSessionIndex(sessions) {
   for (const s of Array.isArray(sessions) ? sessions : []) {
     const tid = String(s?.thread_id || s?.threadId || '').trim()
     const taskId = String(s?.collab_task_id || s?.collabTaskId || '').trim()
+    // Workflow executor sessions carry main_task_id in context; workflow main
+    // task rows have thread_id=None, so this is their only join key.
+    const mainTaskId = String(s?.main_task_id || s?.mainTaskId || '').trim()
     if (tid) byThread.set(tid, s)
     if (taskId) byTaskId.set(taskId, s)
+    if (mainTaskId) byTaskId.set(mainTaskId, s)
   }
   return { byThread, byTaskId }
 }

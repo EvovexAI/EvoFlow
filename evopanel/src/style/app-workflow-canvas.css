@@ -7,9 +7,9 @@
   --wf-edge: color-mix(in srgb, var(--text-tertiary) 55%, transparent);
   --wf-grid: color-mix(in srgb, var(--text-tertiary) 38%, var(--border-primary));
   --wf-minimap-mask: color-mix(in srgb, var(--bg-primary) 82%, transparent);
-  --wf-grad-trigger: linear-gradient(180deg, rgba(62, 217, 170, 0.22) 0%, transparent 100%);
-  --wf-grad-action: linear-gradient(180deg, rgba(104, 192, 255, 0.22) 0%, transparent 100%);
-  --wf-grad-system: linear-gradient(180deg, rgba(136, 136, 136, 0.18) 0%, transparent 100%);
+  --wf-grad-trigger: linear-gradient(180deg, color-mix(in srgb, #22a06b 10%, transparent) 0%, transparent 100%);
+  --wf-grad-action: linear-gradient(180deg, color-mix(in srgb, var(--text-primary) 6%, transparent) 0%, transparent 100%);
+  --wf-grad-system: linear-gradient(180deg, color-mix(in srgb, var(--text-primary) 5%, transparent) 0%, transparent 100%);
   --wf-sidebar-hover: color-mix(in srgb, var(--text-primary) 5%, var(--bg-card));
   --wf-control-bg: color-mix(in srgb, var(--text-primary) 4%, var(--bg-primary));
 }
@@ -18,9 +18,12 @@
 .app-editor-page.page {
   max-width: none !important;
   width: 100% !important;
-  height: calc(100vh - var(--header-height, 52px));
-  min-height: calc(100vh - var(--header-height, 52px));
-  padding: var(--space-md) var(--space-lg) !important;
+  /* 非全屏：吃满 #content 剩余高度（左侧保留图标栏） */
+  flex: 1 1 auto;
+  height: auto !important;
+  min-height: 0;
+  max-height: 100%;
+  padding: 0 !important;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -29,15 +32,19 @@
 
 .app-editor-page--bare.page {
   padding: 0 !important;
-  height: calc(100vh - var(--header-height, 52px));
 }
 
-/* ??????????????????? */
 #app.evopanel-app-studio-mode .app-editor-page.page,
 #app.evopanel-app-studio-mode .app-editor-page--bare.page {
   height: 100% !important;
   min-height: 0 !important;
   max-height: 100%;
+}
+
+#content:has(> .app-editor-page),
+#content:has(> .app-run-page),
+#content:has(> .apps-history-page) {
+  overflow: hidden;
 }
 
 .app-editor-page--bare .app-wf-page-body {
@@ -374,13 +381,13 @@
 }
 
 .wf-node-avatar--trigger {
-  background: color-mix(in srgb, #3ed9aa 18%, var(--bg-card));
-  color: #0d9f75;
+  background: color-mix(in srgb, var(--text-tertiary) 12%, var(--bg-card));
+  color: var(--text-secondary);
 }
 
 .wf-node-avatar--action {
-  background: color-mix(in srgb, #68c0ff 20%, var(--bg-card));
-  color: #2b8fd9;
+  background: color-mix(in srgb, var(--text-tertiary) 12%, var(--bg-card));
+  color: var(--text-secondary);
 }
 
 .wf-node-avatar--agent {
@@ -1104,19 +1111,19 @@
    ??????????????????????????????????????????????????????????? */
 .wf-node {
   position: relative;
-  width: 300px;
+  width: 240px;
   font-family: var(--font-sans);
 }
 
 .wf-node:has(.wf-node-inline) {
-  width: 360px;
+  width: 300px;
 }
 
 .wf-node-card {
   position: relative;
   overflow: hidden;
-  min-height: 88px;
-  border-radius: 12px;
+  min-height: 84px;
+  border-radius: 10px;
   background: var(--bg-card);
   border: 1px solid var(--border-primary);
   box-shadow: 0 24px 40px rgba(0, 0, 0, 0.05);
@@ -1203,7 +1210,7 @@
   top: 0;
   left: 0;
   right: 0;
-  height: 56px;
+  height: 40px;
   pointer-events: none;
   z-index: 0;
 }
@@ -1219,7 +1226,7 @@
 .wf-node-body {
   position: relative;
   z-index: 1;
-  padding: 14px 16px 16px;
+  padding: 10px 12px 12px;
 }
 
 .wf-node-head {
@@ -1340,17 +1347,24 @@
 }
 
 .wf-node-head .wf-node-avatar {
-  width: 24px;
-  height: 24px;
-  border-radius: 4px;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+}
+
+.wf-node-head .wf-node-avatar--agent {
+  width: auto;
+  height: auto;
+  min-width: 28px;
+  min-height: 28px;
 }
 
 .wf-node-title {
   flex: 1;
   min-width: 0;
-  font-size: 16px;
-  font-weight: 500;
-  line-height: 1.35;
+  font-size: 12.5px;
+  font-weight: 650;
+  line-height: 1.3;
   color: var(--text-primary);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1370,8 +1384,8 @@
 }
 
 .wf-step-agent-label {
-  font-size: 16px;
-  font-weight: 500;
+  font-size: 12.5px;
+  font-weight: 650;
   color: var(--text-primary);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1394,10 +1408,10 @@
 }
 
 .wf-node-intro {
-  margin-top: 4px;
-  padding-left: 32px;
-  font-size: 13px;
-  line-height: 1.45;
+  margin-top: 2px;
+  padding-left: 28px;
+  font-size: 11px;
+  line-height: 1.35;
   color: var(--text-tertiary);
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -1406,9 +1420,9 @@
 }
 
 .wf-node-extra {
-  margin-top: var(--space-sm);
-  padding-left: 32px;
-  font-size: var(--ef-text-sm) ;
+  margin-top: 6px;
+  padding-left: 28px;
+  font-size: 11px;
   color: var(--text-secondary);
 }
 
@@ -1559,7 +1573,7 @@
 }
 
 .app-rf-flow-wrap.is-drag-over::before {
-  content: '释放以添加 Agent 步骤';
+  content: '松开以放到画布';
   position: absolute;
   z-index: 20;
   left: 50%;
@@ -1731,6 +1745,107 @@
   font-weight: 600;
   line-height: 1;
   letter-spacing: 0.01em;
+}
+
+.wf-toolbar-more {
+  position: relative;
+}
+
+.wf-toolbar-more-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 40;
+  min-width: 168px;
+  padding: 6px;
+  border-radius: 12px;
+  border: 1px solid var(--border-primary);
+  background: var(--bg-card, #fff);
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.14);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.wf-toolbar-more-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 550;
+  text-align: left;
+  cursor: pointer;
+}
+
+.wf-toolbar-more-item:hover {
+  background: color-mix(in srgb, var(--text-primary) 6%, transparent);
+}
+
+.wf-toolbar-more-item.is-active {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.wf-howto-tabs {
+  display: flex;
+  gap: 6px;
+  margin: 0 0 14px;
+  flex-wrap: wrap;
+}
+
+.wf-howto-tab {
+  appearance: none;
+  border: 1px solid var(--border-primary);
+  background: var(--bg-secondary, #fff);
+  color: var(--text-secondary);
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.wf-howto-tab.is-active {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border-primary));
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
+}
+
+.wf-howto-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.wf-howto-card {
+  padding: 14px 16px;
+  border-radius: 12px;
+  border: 1px solid var(--border-primary);
+  background: var(--bg-secondary, #fff);
+}
+
+.wf-howto-card h4 {
+  margin: 0 0 6px;
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.wf-howto-card p {
+  margin: 0 0 12px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+.wf-howto-card .btn {
+  align-self: flex-start;
 }
 
 .wf-toolbar-brand {
@@ -2162,30 +2277,15 @@
   padding: 4px 12px 12px;
 }
 
-/* 节点库：上方固定区块，智能体列表吃满下方剩余高度 */
+/* 节点库：仅两类节点，短列表 */
 .wf-drawer--library {
   align-self: stretch;
   min-height: 0;
 }
 
 .wf-drawer--library .wf-drawer-body {
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
+  overflow-y: auto;
   padding-bottom: 8px;
-}
-
-.wf-drawer--library .wf-drawer-search-wrap,
-.wf-drawer--library .wf-drawer-section:not(.wf-drawer-section--agents) {
-  flex-shrink: 0;
-}
-
-.wf-drawer-section--agents {
-  flex: 1 1 auto;
-  min-height: 0;
-  margin-bottom: 0;
-  display: flex;
-  flex-direction: column;
 }
 
 .wf-drawer-search-wrap {
@@ -2929,25 +3029,90 @@
   max-height: min(78vh, 760px);
 }
 
+.wf-agent-picker .react-chat-modal-header {
+  padding: 8px 12px !important;
+}
+
+.wf-agent-picker .react-chat-modal-title {
+  font-size: 14px !important;
+}
+
+.wf-agent-picker .react-chat-modal-desc {
+  font-size: 11px !important;
+  line-height: 1.35 !important;
+  color: var(--text-tertiary) !important;
+}
+
+.wf-agent-picker .react-chat-skill-modal-body {
+  gap: 8px !important;
+  padding: 10px 12px !important;
+}
+
+.wf-agent-picker .react-chat-skill-dropdown-search-input {
+  height: 30px !important;
+  font-size: 12px !important;
+  padding: 0 10px !important;
+  border-radius: 7px !important;
+}
+
 /* 工作流弹窗用 button 承载 chip，清掉默认 button 样式以免挤成一坨纯文字 */
 .wf-agent-picker .react-chat-skill-tag-bar {
-  max-height: 88px;
+  max-height: 56px;
   overflow-y: auto;
+  gap: 4px !important;
+  padding: 0 0 4px !important;
 }
 
 .wf-agent-picker button.react-chat-skill-tag-chip {
   appearance: none;
   font: inherit;
-  line-height: inherit;
+  line-height: 1.2;
   margin: 0;
   font-family: inherit;
+  height: 22px;
+  padding: 0 7px !important;
+  gap: 2px !important;
+  border-radius: 5px !important;
+  font-size: 11px !important;
+  font-weight: 500 !important;
+  color: var(--text-secondary) !important;
+  background: var(--bg-tertiary) !important;
+  border: 1px solid var(--border-primary) !important;
+  box-shadow: none !important;
+  white-space: nowrap;
+}
+
+.wf-agent-picker button.react-chat-skill-tag-chip:hover {
+  color: var(--text-primary) !important;
+  border-color: color-mix(in srgb, var(--text-primary) 18%, var(--border-primary)) !important;
+}
+
+.wf-agent-picker button.react-chat-skill-tag-chip.active {
+  color: var(--text-primary) !important;
+  background: color-mix(in srgb, var(--text-primary) 6%, var(--bg-card)) !important;
+  border-color: color-mix(in srgb, var(--text-primary) 22%, var(--border-primary)) !important;
+  font-weight: 600 !important;
 }
 
 .wf-agent-picker-tag-n {
-  margin-left: 4px;
-  font-size: var(--ef-text-xs) ;
+  margin-left: 2px;
+  font-size: 10px;
   font-weight: 500;
   opacity: 0.55;
+}
+
+.wf-agent-picker .react-chat-modal-actions {
+  padding: 8px 12px 10px !important;
+  gap: 8px !important;
+  border-top: 1px solid var(--border-primary);
+  align-items: center;
+}
+
+.wf-agent-picker .react-chat-modal-btn {
+  height: 28px !important;
+  padding: 0 12px !important;
+  border-radius: 6px !important;
+  font-size: 12px !important;
 }
 
 .wf-agent-picker-grid {
@@ -5547,12 +5712,13 @@ body:has(.app-wf-canvas-host) .react-chat-skill-modal-list {
   --wf-node-border: #e2e5ee;
   --wf-node-title: #25283a;
   --wf-node-desc: #73798d;
-  --wf-select: var(--accent, #5b5fef);
-  --wf-grad-start: linear-gradient(180deg, rgba(34, 160, 107, 0.18) 0%, transparent 100%);
-  --wf-grad-agent: linear-gradient(180deg, color-mix(in srgb, var(--accent, #5b5fef) 16%, transparent) 0%, transparent 100%);
-  --wf-grad-tool: linear-gradient(180deg, rgba(59, 130, 246, 0.16) 0%, transparent 100%);
-  --wf-grad-condition: linear-gradient(180deg, rgba(234, 140, 42, 0.18) 0%, transparent 100%);
-  --wf-grad-answer: linear-gradient(180deg, rgba(139, 144, 160, 0.16) 0%, transparent 100%);
+  --wf-select: var(--text-primary);
+  /* 轻量顶条：能区分类型，不花哨 */
+  --wf-grad-start: linear-gradient(180deg, color-mix(in srgb, #22a06b 10%, transparent) 0%, transparent 100%);
+  --wf-grad-agent: linear-gradient(180deg, color-mix(in srgb, var(--text-primary) 6%, transparent) 0%, transparent 100%);
+  --wf-grad-tool: linear-gradient(180deg, color-mix(in srgb, var(--text-primary) 6%, transparent) 0%, transparent 100%);
+  --wf-grad-condition: linear-gradient(180deg, color-mix(in srgb, var(--text-primary) 6%, transparent) 0%, transparent 100%);
+  --wf-grad-answer: linear-gradient(180deg, color-mix(in srgb, var(--text-primary) 5%, transparent) 0%, transparent 100%);
 }
 
 .app-wf-studio {
@@ -5573,16 +5739,16 @@ body:has(.app-wf-canvas-host) .react-chat-skill-modal-list {
   background: var(--wf-studio-bg);
 }
 
-/* ?????? 296px */
+/* 节点库：仅两类节点，尽量窄 */
 .wf-drawer.wf-drawer--library.is-open {
-  width: 296px !important;
+  width: 200px !important;
   box-shadow: none;
 }
 
 .wf-drawer.wf-drawer--config.is-open,
 .wf-drawer.wf-drawer--config.is-open.is-config {
-  width: 336px !important;
-  max-width: 336px;
+  width: 300px !important;
+  max-width: 300px;
   border-right: none;
   border-left: 1px solid var(--wf-node-border);
   background: var(--bg-secondary);
@@ -5606,14 +5772,20 @@ body:has(.app-wf-canvas-host) .react-chat-skill-modal-list {
 }
 
 .wf-drawer-lib-row {
-  min-height: 56px;
-  max-height: 64px;
-  padding: 10px 12px !important;
-  gap: 12px !important;
+  min-height: 42px;
+  max-height: 52px;
+  padding: 7px 9px !important;
+  gap: 8px !important;
   width: 100%;
   text-align: left;
   cursor: grab;
+  -webkit-user-drag: element;
+  user-select: none;
   transition: background var(--dur-fast) var(--ease-out-soft), border-color var(--dur-fast) var(--ease-out-soft);
+}
+
+.wf-drawer-lib-row:active {
+  cursor: grabbing;
 }
 
 .wf-drawer-lib-row:hover {
@@ -5622,16 +5794,20 @@ body:has(.app-wf-canvas-host) .react-chat-skill-modal-list {
 }
 
 .wf-drawer-lib-row .wf-drawer-lib-name {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--wf-node-title);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  writing-mode: horizontal-tb;
 }
 
 .wf-drawer-lib-row .wf-drawer-lib-desc {
-  font-size: 11.5px;
+  font-size: 10.5px;
   color: var(--wf-node-desc);
   display: -webkit-box;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 1;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
@@ -5641,9 +5817,9 @@ body:has(.app-wf-canvas-host) .react-chat-skill-modal-list {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 26px;
-  height: 26px;
-  border-radius: 8px;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
   background: color-mix(in srgb, var(--wf-select) 10%, transparent);
   color: var(--wf-select);
   flex-shrink: 0;
@@ -5658,15 +5834,15 @@ body:has(.app-wf-canvas-host) .react-chat-skill-modal-list {
   display: none;
 }
 
-/* ???? 58px ???? */
 .wf-studio-toolbar {
-  height: 58px !important;
-  padding: 0 16px 0 10px !important;
+  height: 36px !important;
+  min-height: 36px !important;
+  padding: 0 8px 0 6px !important;
   background: var(--bg-secondary) !important;
   border-bottom: 1px solid var(--wf-node-border) !important;
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
-  gap: 16px !important;
+  gap: 8px !important;
 }
 
 .wf-studio-toolbar-left,
@@ -5713,84 +5889,143 @@ body:has(.app-wf-canvas-host) .react-chat-skill-modal-list {
 .wf-toolbar-status-badge {
   display: inline-flex;
   align-items: center;
-  height: 22px;
-  padding: 0 8px;
-  border-radius: 999px;
-  font-size: 11px;
-  font-weight: 650;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 600;
   flex-shrink: 0;
-  border: 1px solid transparent;
-}
-
-.wf-toolbar-status-badge.is-published {
-  color: #15803d;
-  background: color-mix(in srgb, #22a06b 12%, #fff);
-  border-color: color-mix(in srgb, #22a06b 28%, transparent);
-}
-
-.wf-toolbar-status-badge.is-draft {
+  border: 1px solid var(--wf-node-border);
   color: var(--text-tertiary);
   background: var(--bg-tertiary);
-  border-color: var(--wf-node-border);
 }
 
+.wf-toolbar-status-badge.is-published,
+.wf-toolbar-status-badge.is-draft,
 .wf-toolbar-status-badge.is-archived {
-  color: #9a3412;
-  background: color-mix(in srgb, #ea8c2a 12%, #fff);
-  border-color: color-mix(in srgb, #ea8c2a 28%, transparent);
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  border-color: var(--wf-node-border);
 }
 
 .wf-toolbar-icon-btn {
   background: transparent !important;
   box-shadow: none !important;
+  width: auto !important;
+  min-width: 0 !important;
+  height: 26px !important;
+  padding: 0 6px !important;
+  gap: 3px !important;
+  border-radius: 6px !important;
+  white-space: nowrap !important;
+  flex-shrink: 0;
+}
+
+.wf-toolbar-icon-label {
+  white-space: nowrap !important;
+  writing-mode: horizontal-tb !important;
+  font-size: 11px !important;
 }
 
 .wf-toolbar-icon-btn.is-active {
-  color: var(--wf-select) !important;
-  background: color-mix(in srgb, var(--wf-select) 8%, transparent) !important;
+  color: var(--text-primary) !important;
+  background: color-mix(in srgb, var(--text-primary) 6%, transparent) !important;
 }
 
 .wf-toolbar-action--ghost {
   background: transparent !important;
   border: 1px solid var(--wf-node-border) !important;
-  color: var(--wf-node-title) !important;
-}
-
-.wf-toolbar-action--brand {
-  background: color-mix(in srgb, var(--wf-select) 14%, var(--bg-tertiary)) !important;
-  border: 1px solid color-mix(in srgb, var(--wf-select) 35%, transparent) !important;
-  color: var(--wf-select) !important;
-}
-
-.wf-toolbar-action--brand:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--wf-select) 22%, var(--bg-tertiary)) !important;
-}
-
-.wf-toolbar-action--run {
-  background: var(--wf-select) !important;
-  border: 1px solid var(--wf-select) !important;
-  color: #fff !important;
+  color: var(--text-secondary) !important;
   box-shadow: none !important;
 }
 
-.wf-toolbar-action--primary {
-  /* legacy alias ?? brand */
-  background: color-mix(in srgb, var(--wf-select) 14%, var(--bg-tertiary)) !important;
-  border: 1px solid color-mix(in srgb, var(--wf-select) 35%, transparent) !important;
-  color: var(--wf-select) !important;
+.wf-toolbar-action--brand {
+  background: transparent !important;
+  border: 1px solid var(--wf-node-border) !important;
+  color: var(--text-primary) !important;
+  box-shadow: none !important;
 }
 
-/* ???? */
+.wf-toolbar-action--brand:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--text-primary) 5%, transparent) !important;
+}
+
+.wf-toolbar-action--run {
+  background: var(--text-primary) !important;
+  border: 1px solid var(--text-primary) !important;
+  color: var(--bg-card, #fff) !important;
+  box-shadow: none !important;
+}
+
+.wf-toolbar-action--run:hover:not(:disabled) {
+  opacity: 0.88 !important;
+  transform: none !important;
+}
+
+.wf-toolbar-action--primary {
+  background: transparent !important;
+  border: 1px solid var(--wf-node-border) !important;
+  color: var(--text-primary) !important;
+}
+
+.wf-toolbar-action {
+  height: 26px !important;
+  min-height: 26px !important;
+  padding: 0 9px !important;
+  border-radius: 6px !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  gap: 4px !important;
+  white-space: nowrap !important;
+  box-shadow: none !important;
+}
+
+.wf-toolbar-back {
+  width: 26px !important;
+  height: 26px !important;
+  min-height: 26px !important;
+  border-radius: 6px !important;
+}
+
+.wf-toolbar-app-title {
+  font-size: 12.5px !important;
+  height: 22px !important;
+  padding: 0 2px !important;
+}
+
+.wf-toolbar-app-icon,
+.wf-toolbar-brand .app-icon-tile {
+  width: 22px !important;
+  height: 22px !important;
+  border-radius: 5px !important;
+}
+
+.wf-toolbar-actions {
+  gap: 4px !important;
+}
+
 .wf-node {
-  width: 260px !important;
+  width: 240px !important;
 }
 
 .wf-node-card {
-  min-height: 108px !important;
-  border-radius: 12px !important;
+  min-height: 84px !important;
+  border-radius: 10px !important;
   background: var(--bg-card) !important;
   border: 1px solid var(--wf-node-border) !important;
-  box-shadow: 0 1px 2px rgba(37, 40, 58, 0.04), 0 8px 20px rgba(37, 40, 58, 0.04) !important;
+  box-shadow: 0 1px 2px rgba(37, 40, 58, 0.04), 0 6px 14px rgba(37, 40, 58, 0.04) !important;
+}
+
+.wf-node--start {
+  width: 188px !important;
+}
+
+.wf-node--start .wf-node-card {
+  min-height: 64px !important;
+}
+
+.wf-node--answer {
+  width: 220px !important;
 }
 
 .wf-node:hover .wf-node-card {
@@ -5798,51 +6033,94 @@ body:has(.app-wf-canvas-host) .react-chat-skill-modal-list {
 }
 
 .wf-node.is-selected .wf-node-card {
-  border-color: var(--wf-select) !important;
-  outline: 2px solid color-mix(in srgb, var(--wf-select) 28%, transparent) !important;
-  outline-offset: 1px !important;
-  box-shadow: 0 2px 8px color-mix(in srgb, var(--accent, #5b5fef) 10%, transparent) !important;
+  border-color: var(--text-primary) !important;
+  outline: 1px solid color-mix(in srgb, var(--text-primary) 18%, transparent) !important;
+  outline-offset: 0 !important;
+  box-shadow: 0 1px 3px rgba(37, 40, 58, 0.06) !important;
 }
 
 .wf-node-title {
   color: var(--wf-node-title) !important;
-  font-size: 13.5px !important;
+  font-size: 12.5px !important;
   font-weight: 650 !important;
 }
 
 .wf-node-intro {
   color: var(--wf-node-desc) !important;
-  font-size: var(--ef-text-sm) !important;
+  font-size: 11px !important;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
-  line-height: 1.4;
+  line-height: 1.35;
+}
+
+.wf-node-body {
+  padding: 10px 12px 10px !important;
+}
+
+.wf-drawer-section {
+  margin-bottom: 10px !important;
+}
+
+.wf-drawer-section-hint {
+  margin: 0 0 6px !important;
+  font-size: 10.5px !important;
+  line-height: 1.35 !important;
+}
+
+.wf-drawer-body {
+  padding: 2px 8px 8px !important;
+}
+
+.wf-drawer-top {
+  padding: 8px 8px 6px !important;
+}
+
+.wf-drawer-agent-avatar {
+  width: 26px !important;
+  height: 26px !important;
+}
+
+.wf-node-gradient {
+  height: 40px !important;
 }
 
 .wf-node-gradient--start,
 .wf-node-gradient--trigger {
   background: var(--wf-grad-start) !important;
 }
+
 .wf-node-gradient--agent,
 .wf-node-gradient--action {
   background: var(--wf-grad-agent) !important;
 }
+
 .wf-node-gradient--tool {
   background: var(--wf-grad-tool) !important;
 }
+
 .wf-node-gradient--condition {
   background: var(--wf-grad-condition) !important;
 }
+
 .wf-node-gradient--answer {
   background: var(--wf-grad-answer) !important;
+}
+
+.wf-node-agent-avatar-hit {
+  border-radius: 8px !important;
+}
+
+.wf-node-agent-avatar-hit:hover {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--text-primary) 14%, transparent) !important;
 }
 
 .wf-node-foot {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 0 12px 10px;
+  gap: 6px;
+  padding: 0 10px 8px !important;
   flex-wrap: wrap;
 }
 
@@ -5860,23 +6138,17 @@ body:has(.app-wf-canvas-host) .react-chat-skill-modal-list {
 }
 
 .wf-node-type-tag--start {
-  color: #15803d;
-  background: color-mix(in srgb, #22a06b 12%, #fff);
+  color: #3f7a5a;
+  background: color-mix(in srgb, #22a06b 10%, var(--bg-tertiary));
 }
-.wf-node-type-tag--agent {
-  color: var(--accent, #4338ca);
-  background: color-mix(in srgb, var(--accent, #5b5fef) 12%, #fff);
-}
-.wf-node-type-tag--tool {
-  color: #1d4ed8;
-  background: color-mix(in srgb, #3b82f6 12%, #fff);
-}
+.wf-node-type-tag--agent,
+.wf-node-type-tag--tool,
 .wf-node-type-tag--condition {
-  color: #c2410c;
-  background: color-mix(in srgb, #ea8c2a 12%, #fff);
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
 }
 .wf-node-type-tag--answer {
-  color: var(--text-secondary);
+  color: var(--text-tertiary);
   background: var(--bg-tertiary);
 }
 
@@ -5905,23 +6177,23 @@ body:has(.app-wf-canvas-host) .react-chat-skill-modal-list {
 }
 
 .wf-node.is-selected .wf-handle--in {
-  border-color: var(--wf-select) !important;
+  border-color: var(--text-secondary) !important;
 }
 
 .wf-node.is-selected .wf-handle--out {
-  background: var(--wf-select) !important;
-  border-color: var(--wf-select) !important;
+  background: var(--text-secondary) !important;
+  border-color: var(--text-secondary) !important;
 }
 
 .app-rf-flow-wrap .react-flow__edge-path {
   stroke: var(--wf-edge) !important;
-  stroke-width: 2px !important;
+  stroke-width: 1.5px !important;
 }
 
 .app-rf-flow-wrap .react-flow__edge.selected .react-flow__edge-path,
 .app-rf-flow-wrap .react-flow__edge:hover .react-flow__edge-path {
-  stroke: var(--wf-edge-active) !important;
-  stroke-width: 2.25px !important;
+  stroke: var(--text-secondary) !important;
+  stroke-width: 1.75px !important;
 }
 
 .wf-minimap {
@@ -6132,9 +6404,9 @@ body:has(.app-wf-canvas-host) .react-chat-skill-modal-list {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
-  border-radius: 9px;
+  width: 26px !important;
+  height: 26px !important;
+  border-radius: 7px;
   overflow: hidden;
 }
 
@@ -6144,9 +6416,9 @@ body:has(.app-wf-canvas-host) .react-chat-skill-modal-list {
   min-height: 0;
   height: auto;
   align-items: flex-start !important;
-  gap: 10px !important;
-  padding: 12px 12px !important;
-  border-radius: 12px;
+  gap: 8px !important;
+  padding: 8px 9px !important;
+  border-radius: 9px;
   border-color: color-mix(in srgb, var(--border-primary) 70%, transparent);
   background: var(--bg-card);
 }
@@ -6280,7 +6552,7 @@ html[data-theme='dark'] .wf-drawer-lib-empty {
 }
 
 html[data-theme='dark'] .wf-drawer-lib-row:hover {
-  background: color-mix(in srgb, var(--accent) 8%, var(--bg-card));
+  background: color-mix(in srgb, var(--text-primary) 6%, var(--bg-card));
 }
 
 html[data-theme='dark'] .wf-node-avatar--system {
@@ -6288,12 +6560,10 @@ html[data-theme='dark'] .wf-node-avatar--system {
   color: var(--text-primary);
 }
 
-html[data-theme='dark'] .wf-node-avatar--trigger {
-  color: #6ee7b7;
-}
-
+html[data-theme='dark'] .wf-node-avatar--trigger,
 html[data-theme='dark'] .wf-node-avatar--action {
-  color: #93c5fd;
+  color: var(--text-secondary);
+  background: color-mix(in srgb, var(--text-secondary) 14%, var(--bg-card));
 }
 
 html[data-theme='dark'] .wf-palette-group-title {

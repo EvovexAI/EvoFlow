@@ -27,9 +27,11 @@ class VolcengineAsrSession:
         self._closed = False
 
     async def start(self) -> None:
-        if self._task:
+        if self._task and not self._task.done():
             return
+        await self._drain_finished_task()
         self._closed = False
+        self._queue = asyncio.Queue()
         self._task = asyncio.create_task(self._run(), name="volc-asr-session")
 
     async def send_pcm(self, pcm: bytes) -> None:
@@ -43,14 +45,60 @@ class VolcengineAsrSession:
         await self._queue.put(("flush", None))
 
     async def close(self) -> None:
+        """Stop the session and always await/cancel the worker (no pending-task spam)."""
         self._closed = True
-        await self._queue.put(("stop", None))
-        if self._task:
+        task = self._task
+        self._task = None
+        if task is None:
+            return
+        if not task.done():
             try:
-                await asyncio.wait_for(self._task, timeout=5.0)
-            except (TimeoutError, asyncio.TimeoutError, asyncio.CancelledError):
-                self._task.cancel()
-            self._task = None
+                self._queue.put_nowait(("stop", None))
+            except Exception:
+                pass
+            try:
+                await asyncio.wait_for(task, timeout=5.0)
+            except (TimeoutError, asyncio.TimeoutError):
+                task.cancel()
+                try:
+                    await task
+                except (asyncio.CancelledError, Exception):
+                    pass
+            except asyncio.CancelledError:
+                task.cancel()
+                try:
+                    await task
+                except (asyncio.CancelledError, Exception):
+                    pass
+            except Exception:
+                # Retrieve failure so asyncio does not log "never retrieved".
+                logger.debug("volc asr session ended with error on close", exc_info=True)
+        else:
+            await self._retrieve_task_exception(task)
+
+    async def _drain_finished_task(self) -> None:
+        task = self._task
+        self._task = None
+        if task is None:
+            return
+        if not task.done():
+            # Should not happen (start guards), but avoid leaking a live worker.
+            task.cancel()
+            try:
+                await task
+            except (asyncio.CancelledError, Exception):
+                pass
+            return
+        await self._retrieve_task_exception(task)
+
+    @staticmethod
+    async def _retrieve_task_exception(task: asyncio.Task[None]) -> None:
+        try:
+            exc = task.exception()
+            if exc is not None:
+                logger.debug("volc asr session prior error: %s", exc)
+        except (asyncio.CancelledError, asyncio.InvalidStateError):
+            pass
 
     async def _run(self) -> None:
         from app.gateway.speech.volcengine_asr_ws import (
@@ -141,10 +189,13 @@ class VolcengineAsrSession:
                             await self._on_error(str(e))
                         stop.set()
 
-                reader_task = asyncio.create_task(reader())
+                reader_task = asyncio.create_task(reader(), name="volc-asr-reader")
                 try:
                     while not stop.is_set() and not self._closed:
-                        kind, payload = await self._queue.get()
+                        try:
+                            kind, payload = await asyncio.wait_for(self._queue.get(), timeout=1.0)
+                        except TimeoutError:
+                            continue
                         if kind == "audio" and payload and not final_sent:
                             await upstream.send(
                                 _build_audio_only_request(seq, payload, is_last=False)
@@ -160,12 +211,18 @@ class VolcengineAsrSession:
                                 break
                 finally:
                     stop.set()
-                    reader_task.cancel()
+                    if not reader_task.done():
+                        reader_task.cancel()
                     try:
                         await reader_task
                     except (asyncio.CancelledError, Exception):
                         pass
+        except asyncio.CancelledError:
+            raise
         except Exception as e:
             logger.warning("volc asr session failed: %s", e)
             if self._on_error:
-                await self._on_error(str(e))
+                try:
+                    await self._on_error(str(e))
+                except Exception:
+                    pass

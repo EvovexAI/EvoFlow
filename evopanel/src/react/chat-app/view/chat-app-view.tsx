@@ -49,6 +49,7 @@ import { MemoryRecallChip } from '../../components/MemoryRecallChip.js'
 import { ImagePreviewModal, type ImagePreviewItem } from '../../components/ImagePreviewModal.js'
 import { TauriWindowControls } from '../../components/TauriWindowControls.js'
 import { HoverBubble, HoverBubbleProvider } from '../../components/HoverBubble.js'
+import { ChatHeaderHelpMenu } from './header-chrome.js'
 
 export type ChatAppViewCtx = Record<string, any>
 
@@ -487,6 +488,7 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
                     <div className="react-chat-header-action-group react-chat-header-action-group--global">
                       {browserToggleButton}
                       {infoRailHeaderToggle}
+                      <ChatHeaderHelpMenu />
                     </div>
                   </div>
                   )}
@@ -540,6 +542,7 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
                   <div className="react-chat-header-action-group react-chat-header-action-group--global">
                   {browserToggleButton}
                   {workspaceFolderToggleButton}
+                  <ChatHeaderHelpMenu />
                   </div>
                 </div>
                 )}

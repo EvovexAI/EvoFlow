@@ -39,6 +39,16 @@ def diagnostics_scan(
     return diag.scan_errors(hours=hours, sources=src_list, max_events=max_events)
 
 
+@router.get("/tail")
+def diagnostics_tail(
+    source: str = Query(..., description="Source id, e.g. langgraph / gateway / plugin-control"),
+    lines: int = Query(400, ge=50, le=5000),
+    hours: int = Query(72, ge=1, le=24 * 14),
+) -> dict:
+    """Raw log tail for one source — panel「选哪个日志看哪个」."""
+    return diag.read_source_tail(source, lines=lines, hours=hours)
+
+
 @router.get("/timeline")
 def diagnostics_timeline(
     hours: int = Query(24, ge=1, le=24 * 14),

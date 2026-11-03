@@ -7,6 +7,7 @@ import { api } from '../lib/tauri-api.js'
 import { toast } from '../components/toast.js'
 import { showConfirm } from '../components/modal.js'
 import { navigate, getCurrentRoute } from '../router.js'
+import { restoreAppsStudioAside, syncAppsStudioAside } from './apps-studio-aside.js'
 import { appRunControlFlags } from '../lib/app-run-controls.js'
 import { setAgentsDisplayCache } from '../lib/agents-display-cache.js'
 import {
@@ -42,6 +43,7 @@ export function cleanup() {
     /* ignore */
   }
   stepTranscript = null
+  restoreAppsStudioAside()
 }
 
 export async function render() {
@@ -55,6 +57,7 @@ export async function render() {
       '<div class="apps-history-empty">无效的工作流 ID，<a href="#/apps">返回工作流列表</a></div>'
     return page
   }
+  syncAppsStudioAside(true)
 
   page.innerHTML = `
     <div class="page-header apps-history-header">
@@ -247,7 +250,7 @@ export async function render() {
         listEl.innerHTML = `
           <div class="apps-history-empty">
             <p>暂无运行记录</p>
-            <p class="apps-history-empty-hint">在画布中点击「运行」后，记录会出现在这里</p>
+            <p class="apps-history-empty-hint">画布「试跑」或列表「▶ 运行」之后，记录会出现在这里</p>
             <button type="button" class="btn btn-primary btn-sm" id="btn-empty-back">返回画布</button>
           </div>`
         listEl.querySelector('#btn-empty-back')?.addEventListener('click', () => navigate(`/apps/${appId}`))

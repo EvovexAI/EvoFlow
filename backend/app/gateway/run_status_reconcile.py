@@ -14,6 +14,7 @@ from typing import Any
 
 import httpx
 
+from evoflow.collab.thread_ids import is_collab_executor_thread
 from evoflow.persistence.session_run_state import (
     is_run_status_active,
     is_user_stop_terminal_status,
@@ -145,7 +146,16 @@ async def _langgraph_has_active_run(
         if now - ts < ttl:
             return val
 
-    runs_url = f"{LANGGRAPH_BASE_URL}/threads/{thread_id}/runs"
+    tid = str(thread_id or "").strip()
+    # SubThread_* / {lead}__sub__{sid} are not valid LangGraph HTTP thread ids (422).
+    if not tid or is_collab_executor_thread(tid):
+        result: bool | None = False
+        _RUNS_PROBE_CACHE[cache_key] = (now, result)
+        while len(_RUNS_PROBE_CACHE) > _RUNS_PROBE_CACHE_MAX:
+            _RUNS_PROBE_CACHE.pop(next(iter(_RUNS_PROBE_CACHE)), None)
+        return result
+
+    runs_url = f"{LANGGRAPH_BASE_URL}/threads/{tid}/runs"
     try:
         resp = await client.get(runs_url, params={"limit": 20})
     except Exception as e:
@@ -154,7 +164,7 @@ async def _langgraph_has_active_run(
     # 404 = thread/run catalog gone → definitely not active (do NOT return None:
     # None means "probe failed, skip", which left sticky run_status forever).
     if resp.status_code == 404:
-        result: bool | None = False
+        result = False
         _RUNS_PROBE_CACHE[cache_key] = (now, result)
         while len(_RUNS_PROBE_CACHE) > _RUNS_PROBE_CACHE_MAX:
             _RUNS_PROBE_CACHE.pop(next(iter(_RUNS_PROBE_CACHE)), None)
@@ -201,7 +211,7 @@ async def discover_active_run_id(
     SQLite ``run_status=running`` after cancel (heal idle→running loop).
     """
     tid = str(thread_id or "").strip()
-    if not tid:
+    if not tid or is_collab_executor_thread(tid):
         return None
     runs_url = f"{LANGGRAPH_BASE_URL}/threads/{tid}/runs"
     try:

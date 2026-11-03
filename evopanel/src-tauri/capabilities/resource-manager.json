@@ -1,0 +1,10 @@
+{
+  "identifier": "resource-manager-capability",
+  "description": "资源管理器独立窗口：拉取 CPU/内存快照",
+  "windows": ["resource-manager"],
+  "permissions": [
+    "core:default",
+    "core:event:default",
+    "allow-resource-manager"
+  ]
+}

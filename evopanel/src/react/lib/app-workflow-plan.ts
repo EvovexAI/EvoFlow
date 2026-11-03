@@ -39,6 +39,10 @@ export type AppWorkflowStep = {
   model?: string
   project_path?: string
   assigned_agent?: string
+  /** 节点类型：缺省 llm（Agent 步）；'template' = 确定性模板变换（不烧 LLM，F-1）。 */
+  executor?: string
+  /** executor === 'template' 时的模板正文；支持 {{params.x}} / {{steps.N.output.y}}。 */
+  template?: string
   depends_on: string[]
   /** Input bindings: variable name -> expression (e.g. {{steps.1.output.companies}}). */
   input_bindings?: Record<string, string>
@@ -79,6 +83,12 @@ export const STEP_INSPECTOR_FIELDS: StepFieldDef[] = [
   },
   { key: 'acceptance', label: '验收标准', multiline: true },
   { key: 'failure', label: '失败处理', multiline: true },
+  {
+    key: 'template',
+    label: '模板内容',
+    multiline: true,
+    placeholder: '确定性文本变换，如：{{1.output.report}}\n支持 {{params.x}} / {{1.output.y}} / {{summary}}（步号直接引用，长形式 {{steps.N.output.y}} 也可）',
+  },
   { key: 'instruction', label: '补充指令', multiline: true },
   { key: 'tools', label: '工具', placeholder: '逗号分隔，如 read_file,write_file' },
   { key: 'skills', label: '技能', placeholder: '逗号分隔' },

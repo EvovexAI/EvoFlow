@@ -285,23 +285,29 @@ class WecomChannel(Channel):
         return f"[Wecom:{self._account_id or 'primary'}]"
 
     def _diag_log(self, event: str, **fields: Any) -> None:
-        """Write a diagnostic line to ~/.evoflow-dev/logs/wecom-diag.log.
-
-        Independent of uvicorn/logger pipeline so we always see traffic even
-        when the launcher drops stderr or root logger isn't configured.
-        """
+        """Opt-in wecom diag under ``logs/debug/`` (``EVOFLOW_CHANNEL_DIAG_LOG=1``)."""
         try:
             from pathlib import Path
             import json as _json
             import time as _time
-            log_dir = Path(os.environ.get("EVOFLOW_LOG_DIR", r"C:\Users\admin\.evoflow-dev\logs"))
-            log_dir.mkdir(parents=True, exist_ok=True)
+            from evoflow.runtime.log_policy import env_flag, resolve_debug_logs_dir
+
+            explicit = (os.environ.get("EVOFLOW_WECOM_DIAG_LOG") or os.environ.get("EVOFLOW_LOG_DIR") or "").strip()
+            if explicit:
+                log_path = Path(explicit).expanduser()
+                if log_path.suffix.lower() != ".log":
+                    log_path = log_path / "wecom-diag.log"
+            elif env_flag("EVOFLOW_CHANNEL_DIAG_LOG", default=False):
+                log_path = resolve_debug_logs_dir() / "wecom-diag.log"
+            else:
+                return
+            log_path.parent.mkdir(parents=True, exist_ok=True)
             line = _json.dumps(
                 {"ts": _time.time(), "pid": os.getpid(), "event": event, **fields},
                 ensure_ascii=False,
                 default=str,
             )
-            with open(log_dir / "wecom-diag.log", "a", encoding="utf-8") as fp:
+            with open(log_path, "a", encoding="utf-8") as fp:
                 fp.write(line + "\n")
         except Exception:
             pass

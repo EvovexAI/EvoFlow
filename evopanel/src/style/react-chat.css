@@ -35156,6 +35156,10 @@ html[data-theme='dark'] .react-chat-stage-tab.is-active {
   background: var(--bg-primary, #fff);
   box-shadow: 0 8px 24px rgba(15, 23, 42, 0.14);
 }
+.react-chat-header-menu--end {
+  left: auto;
+  right: 0;
+}
 .react-chat-header-menu-item {
   display: flex;
   align-items: center;
@@ -35177,6 +35181,11 @@ html[data-theme='dark'] .react-chat-stage-tab.is-active {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.react-chat-header-menu-sep {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--border, rgba(127, 127, 127, 0.28));
 }
 
 /* 窗控键：与动作键同尺寸的圆角方钮（ZCode 不做贴边长条） */
