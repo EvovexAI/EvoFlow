@@ -88,7 +88,7 @@ export function isAuthRoute(path) {
   return p === '/login' || p === '/qr-login' || p === '/auth/callback'
 }
 
-/** 进入某个应用（画布 / 填参 / 运行历史）时整端沉浸，应用列表 `/apps` 除外 */
+/** 工作流画布 / 填参 / 历史（列表 `/apps` 除外）。侧栏收成图标栏，不再整栏隐藏。 */
 export function isAppStudioRoute(path) {
   const p = String(path || '').split('?')[0]
   return /^\/apps\/[^/]+(?:\/(?:run|history))?$/.test(p)
@@ -106,9 +106,9 @@ export function isShareViewRoute(path) {
   return /^\/share\/[^/]+$/.test(p)
 }
 
-/** 需要藏全局壳的沉浸路由（应用工作室 / UI 扩展 / 分享查看） */
+/** 需要整栏藏全局壳的沉浸路由（UI 扩展 / 分享；工作流已改为图标栏） */
 export function isImmersiveShellRoute(path) {
-  return isAppStudioRoute(path) || isUiExtensionRoute(path) || isShareViewRoute(path)
+  return isUiExtensionRoute(path) || isShareViewRoute(path)
 }
 
 function setAuthShellMode(active) {

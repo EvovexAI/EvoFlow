@@ -40,6 +40,8 @@ export function mountAppWorkflowCanvas(container, options = {}) {
         onOpenAppSettings: props.onOpenAppSettings,
         onOpenHistory: props.onOpenHistory,
         onOpenVersions: props.onOpenVersions,
+        onOpenHowToUse: props.onOpenHowToUse || props.onOpenApiAccess,
+        onOpenHowToUse: props.onOpenHowToUse || props.onOpenApiAccess,
         onOpenApiAccess: props.onOpenApiAccess,
         appName: props.appName || '',
         appStatus: props.appStatus || 'draft',

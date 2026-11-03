@@ -1,10 +1,12 @@
 {
-  "version": "1.2.3",
-  "minAppVersion": "1.2.3",
+  "version": "1.2.6",
+  "minAppVersion": "1.2.6",
   "updateKind": "full",
   "assetKind": "installer",
   "hash": "",
-  "url": "https://github.com/EvovexAI/EvoFlow/releases/download/v1.2.3/EvoFlow_1.2.3_x64-setup.exe",
+  "url": "https://ghfast.top/https://github.com/EvovexAI/EvoFlow/releases/download/v1.2.6/EvoFlow_1.2.6_x64-setup.exe",
+  "urlCnMirror": "https://ghfast.top/https://github.com/EvovexAI/EvoFlow/releases/download/v1.2.6/EvoFlow_1.2.6_x64-setup.exe",
+  "urlGithub": "https://github.com/EvovexAI/EvoFlow/releases/download/v1.2.6/EvoFlow_1.2.6_x64-setup.exe",
   "size": 0,
-  "changelog": "EvoFlow 1.2.3（相对 1.2.2）：飞书/渠道图片可收可发并减少自介刷屏；聊天发送更跟手；任务中心与侧栏不再拖死对话；子代理侧栏与停止行为修好；工作流改为稳定 SVG 图标。覆盖安装即可。"
+  "changelog": "EvoFlow 1.2.6（相对 1.2.5）：新增桌面资源管理器与「导出日志」；日志统一到单一根目录并按日归档、保留 14 天（调试轨迹默认不写）；语音唤醒/ASR 与播报体验优化，新增语音时延报表；工作流画布与保存工作流打磨；修复粘贴截图重复、自定义音色自动保存。覆盖安装即可。"
 }

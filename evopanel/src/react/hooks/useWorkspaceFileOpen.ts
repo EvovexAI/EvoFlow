@@ -40,11 +40,19 @@ export function useWorkspaceFileOpen(opts: {
     (rawUrl: string, previewOpts?: OpenWorkspaceFilePreviewOpts) => {
       const target = resolveWorkspacePreviewTarget(rawUrl, { name: previewOpts?.name })
       if (!target?.path) return
+      const scope = workspaceOpenScopeRef.current
+      const root = String(scope.root || '').trim()
+      const tid = root
+        ? undefined
+        : wsClient.getSessionThreadId(scope.sessionKey || '') || undefined
       const fileId = String(target.path || '').replace(/\\/g, '/')
       const showFileTab = (path: string, name: string) => {
+        // 与 showRightStageFromFileLink 对齐：打开时带上会话 workspaceRoot + threadId
         showRightStageFilePreview(path, {
           name,
           sessionKey: rightStageSessionKeyRef.current,
+          workspaceRoot: root || undefined,
+          threadId: tid,
           poll: !!previewOpts?.poll,
           focusLine: previewOpts?.focusLine,
           focusEndLine: previewOpts?.focusEndLine,
@@ -54,11 +62,6 @@ export function useWorkspaceFileOpen(opts: {
       showFileTab(fileId, target.name)
       void (async () => {
         try {
-          const scope = workspaceOpenScopeRef.current
-          const root = scope.root
-          const tid = root
-            ? undefined
-            : wsClient.getSessionThreadId(scope.sessionKey || '') || undefined
           const openable = await resolveOpenableWorkspaceFile({
             workspaceRoot: root,
             path: target.path,

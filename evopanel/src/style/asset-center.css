@@ -736,6 +736,32 @@ html[data-translucent-ui='1'] #content > .assets-center-outlet {
   color: var(--ac-text-faint);
 }
 
+/* standing 不是第三种正文：降级成说明行里的次级入口 */
+.assets-center-root .ac-seg-secondary {
+  display: inline;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--ac-link);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.assets-center-root .ac-seg-secondary:hover {
+  color: var(--ac-primary);
+}
+
+.assets-center-root .ac-seg-secondary.is-active {
+  font-weight: 550;
+  text-decoration: none;
+  color: var(--ac-primary);
+}
+
 /* ── Buttons ───────────────────────────────────────────────────── */
 
 .assets-center-root .ac-cta {

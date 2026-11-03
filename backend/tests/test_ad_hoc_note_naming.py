@@ -6,8 +6,11 @@ from pathlib import Path
 
 import pytest
 
+from datetime import datetime
+
 from evoflow.assets.ad_hoc_note import (
     build_ad_hoc_filename,
+    ensure_body_recorded_at,
     format_pending_inbox_notes_for_prompt,
     validate_ad_hoc_filename,
     write_ad_hoc_note,
@@ -32,6 +35,35 @@ def test_filename_is_slug_only() -> None:
     assert validate_ad_hoc_filename("Bad Name.md") is not None
 
 
+def test_ensure_body_recorded_at_fills_when_missing() -> None:
+    when = datetime(2026, 3, 23, 16, 38)
+    out = ensure_body_recorded_at(
+        "[experience] 登录失败·token 过期\n\n先刷新 token 再重试。",
+        when=when,
+    )
+    assert out.startswith("[experience] 登录失败·token 过期\n记录时间：2026-03-23 16:38\n")
+    assert "先刷新 token" in out
+    # idempotent
+    again = ensure_body_recorded_at(out, when=when)
+    assert again.count("记录时间：") == 1
+
+
+def test_ensure_body_recorded_at_skips_when_model_wrote_date() -> None:
+    src = "[process] 周报\n\n日期：2026-03-20\n\n写完了。"
+    assert ensure_body_recorded_at(src) == src
+
+
+def test_live_pending_inbox_for_user_principal(asset_home: Path) -> None:
+    from evoflow.assets.ad_hoc_note import format_live_pending_inbox_for_agent
+
+    # Main-chat notes land in the user bucket; live helper must resolve via principal_id.
+    entity = EntityRef("user", "u_live_note")
+    write_ad_hoc_note(entity, "[process] mid-chat note\n\nbody", slug_hint="mid-chat-note")
+    block = format_live_pending_inbox_for_agent(principal_id="u_live_note")
+    assert "mid-chat-note.md" in block
+    assert "mid-chat note" in block or "body" in block
+
+
 def test_write_and_pending_injection(asset_home: Path) -> None:
     entity = EntityRef("employee", "douyin-analyst")
     data = write_ad_hoc_note(
@@ -41,7 +73,11 @@ def test_write_and_pending_injection(asset_home: Path) -> None:
     )
     rel = str(data.get("path") or "")
     assert Path(rel).name == "douyin-pipeline-image-post-fallback.md"
-    assert (entity_root(entity) / "memory" / "_inbox" / "notes" / "douyin-pipeline-image-post-fallback.md").is_file()
+    path = entity_root(entity) / "memory" / "_inbox" / "notes" / "douyin-pipeline-image-post-fallback.md"
+    assert path.is_file()
+    text = path.read_text(encoding="utf-8")
+    assert "created:" in text
+    assert "记录时间：" in text
 
     block = format_pending_inbox_notes_for_prompt(entity)
     assert "douyin-pipeline-image-post-fallback.md" in block

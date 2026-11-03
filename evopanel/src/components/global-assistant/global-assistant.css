@@ -2818,12 +2818,12 @@ html.is-xm-docked #main-col {
 }
 
 .xm-history-fold > summary::before {
-  content: '�?';
+  content: '▸ ';
   color: var(--xm-faint);
 }
 
 .xm-history-fold[open] > summary::before {
-  content: '�?';
+  content: '▾ ';
 }
 
 .xm-history-fold-body {

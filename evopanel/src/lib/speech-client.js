@@ -45,6 +45,25 @@ export function speechStreamingAsrCached() {
   return _streamingAsrCache
 }
 
+/**
+ * 语音链路启动自检（每次应用运行至多探一次）：/api/speech/health。
+ * 返回 { ok, degraded, tts, asr, runtime_deps, local_asr }；请求失败返回 null
+ * （自检绝不影响启动/使用）。
+ */
+let _healthProbed = false
+export async function probeSpeechHealthOnce() {
+  if (_healthProbed) return null
+  _healthProbed = true
+  const url = import.meta.env?.DEV ? '/api/speech/health' : apiUrl('/speech/health')
+  try {
+    const res = await fetch(url, { credentials: 'same-origin' })
+    if (!res.ok) return null
+    return await res.json().catch(() => null)
+  } catch {
+    return null
+  }
+}
+
 /** @param {unknown} detail */
 function _ttsErrorDetail(detail, status) {
   if (typeof detail === 'string' && detail.trim()) return detail

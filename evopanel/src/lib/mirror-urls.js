@@ -4,16 +4,15 @@
  */
 
 const GITHUB_ORG = 'https://github.com/EvovexAI'
-const GITEE_ORG = 'https://gitee.com/YT'
+const GITEE_ORG = 'https://gitee.com/evovexai'
 const GITHUB_RAW = 'https://raw.githubusercontent.com/EvovexAI'
-const GITEE_RAW = 'https://gitee.com/YT'
+const GITEE_RAW = 'https://gitee.com/evovexai'
 
 // 仓库名映射（GitHub → Gitee，名称不同时需映射）
 const REPO_MAP = {
-  EvoFlow: 'evopanel',
-  evopanel: 'evopanel',
-  evoflow: 'evoflow',
   EvoFlow: 'EvoFlow',
+  evopanel: 'EvoFlow',
+  evoflow: 'EvoFlow',
 }
 
 /**

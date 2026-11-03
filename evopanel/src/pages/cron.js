@@ -157,10 +157,24 @@ export async function render() {
     try {
       if (sessionStorage.getItem('evopanel_pending_cron_create') === '1') {
         sessionStorage.removeItem('evopanel_pending_cron_create')
-        void openCreateModal()
+        const pendingApp = String(
+          sessionStorage.getItem('evopanel_pending_cron_app_id') || '',
+        ).trim()
+        sessionStorage.removeItem('evopanel_pending_cron_app_id')
+        void openCreateModal(pendingApp ? { app_id: pendingApp } : null)
+        return
       }
     } catch {
       /* ignore */
+    }
+    if (boot.create || boot.app) {
+      void openCreateModal(boot.app ? { app_id: boot.app } : null)
+      // 清掉 create/app，避免刷新反复弹窗
+      writeCronQueryToHash({
+        tab: boot.tab,
+        date: boot.date,
+        task: boot.task,
+      })
     }
   })
   return page
@@ -188,9 +202,14 @@ function readCronQueryFromHash() {
     const tab = String(sp.get('tab') || 'tasks').trim() === 'runs' ? 'runs' : 'tasks'
     const date = normalizeRunsRange(sp.get('date') || sp.get('range') || '7d')
     const task = String(sp.get('task') || sp.get('automation') || '').trim()
-    return { tab, date, task }
+    const create =
+      sp.get('create') === '1' ||
+      sp.get('new') === '1' ||
+      String(sp.get('create') || '').toLowerCase() === 'true'
+    const app = String(sp.get('app') || sp.get('app_id') || '').trim()
+    return { tab, date, task, create, app }
   } catch {
-    return { tab: 'tasks', date: '7d', task: '' }
+    return { tab: 'tasks', date: '7d', task: '', create: false, app: '' }
   }
 }
 
@@ -1685,10 +1704,18 @@ async function openWorkspaceDirectoryPicker() {
   }
 }
 
-async function openCreateModal() {
+/** @param {{ app_id?: string, appId?: string, name?: string } | null} [seed] */
+async function openCreateModal(seed = null) {
   _editingId = null
   _scheduleCtrl = createSchedulePanel({ schedule: '0 9 * * 1-5', tone: 'task' })
-  await showModalForm('新建定时任务')
+  const appId = String(seed?.app_id || seed?.appId || '').trim()
+  const draft = appId
+    ? {
+        app_id: appId,
+        name: String(seed?.name || '').trim(),
+      }
+    : null
+  await showModalForm('新建定时任务', draft)
 }
 
 async function openEditModal(id) {
@@ -1738,6 +1765,7 @@ async function showModalForm(title, existing = null) {
   const existingAppParams = (existing?.app_parameters && typeof existing.app_parameters === 'object')
     ? existing.app_parameters
     : {}
+  // 从工作流「怎么用」带入 app_id 时，默认切到「已发布工作流」
   const execKind = existingAppId ? 'workflow' : 'prompt'
 
   // 加载员工名册（在编优先）与模型列表
@@ -1787,6 +1815,16 @@ async function showModalForm(title, existing = null) {
     if (!Array.isArray(publishedApps)) publishedApps = []
   } catch (_) { publishedApps = [] }
 
+  // 新建且从工作流跳转过来：任务名默认带上工作流名
+  let nameValue = String(name || '').trim()
+  if (!nameValue && existingAppId && !_editingId) {
+    const hit = publishedApps.find(
+      (a) => String(a.id || a.app_id || '').trim() === existingAppId,
+    )
+    const appName = String(hit?.name || '').trim()
+    if (appName) nameValue = `定时 · ${appName}`
+  }
+
   const appOptions = [
     `<option value="">选择已发布工作流…</option>`,
     ...publishedApps.map((a) => {
@@ -1810,7 +1848,7 @@ async function showModalForm(title, existing = null) {
             <h3 class="cron-form-section-title">基本信息</h3>
             <div class="cron-form-group">
               <label class="cron-label">\u4EFB\u52A1\u540D\u79F0 *</label>
-              <input class="cron-input" id="fName" value="${esc(name)}" placeholder="\u4F8B\uFF1A\u6BCF\u65E5\u5065\u5EB7\u68C0\u67E5" />
+              <input class="cron-input" id="fName" value="${esc(nameValue)}" placeholder="\u4F8B\uFF1A\u6BCF\u65E5\u5065\u5EB7\u68C0\u67E5" />
             </div>
             <div class="cron-form-group">
               <label class="cron-label">执行内容 *</label>

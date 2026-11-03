@@ -6,6 +6,74 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.2.6] - 2026-11-03
+
+相对 **1.2.5**：新增桌面资源管理器与日志导出；日志统一到单一根目录并按日归档（调试轨迹需显式开启）；语音唤醒/ASR 与播报体验优化；工作流画布与保存工作流打磨。
+GitHub Release 正文见 `scripts/maintainer/windows/release-notes/PRODUCT-NOTES-1.2.6.md`；升级横幅见 `scripts/maintainer/update/latest.json`。
+
+### Added
+
+- **桌面资源管理器**：独立浮层窗口（`resource-manager.html` + Tauri `resource_manager` 命令），用于浏览/管理本地资源
+- **日志导出**：新增「导出日志」命令（`export_logs.rs`）与系统日志页入口，便于排查时打包日志
+- **审计日志**：新增 `audit_log` 持久层与 `/audit` 路由
+
+### Changed
+
+- **日志策略**：统一磁盘日志到单一根目录、按日命名、保留 14 天；调试轨迹（stream/tool trace 等）改为**显式开启**才写（默认不写，导出时排除 `debug/`）
+- **语音**：桌面端唤醒与 ASR（DashScope / 火山引擎会话、`voice_file_log`）优化；小V 播报反机械感（voice 块节奏规则）；新增语音时延报表（四锚点 p50/p95/max）
+- **工作流画布**：节点/工具条/变量面板与拖拽调色板（`palette-dnd`）打磨；保存工作流分组与卡片整理
+- **渠道**：飞书 / 企业微信入站与 trace 日志收敛
+- **运行态与协作**：`run_status_reconcile`、会话运行状态、collab 任务运行时健康与子任务流轨迹、员工自动化、用量账本等稳定性修补
+- **设置与页面**：通用/外观/资源市场/已安装包/应用详情·运行·历史等页面与 `page-help` 文案微调
+
+### Fixed
+
+- **聊天**：粘贴截图不再出现两张相同图片；自定义音色勾选/取消触发自动保存
+- **更新通道**：恢复公仓 `latest.json` 通道（客户端优先 jsDelivr，再回退 raw）
+
+## [1.2.5] - 2026-11-02
+
+相对 **1.2.4**：工具卡超时不再拖死下一轮；知识库自有目录与右栏预览/资产引用更稳；补齐 Gitee 独立发版链路。
+GitHub Release 正文见 `scripts/maintainer/windows/release-notes/PRODUCT-NOTES-1.2.5.md`；升级横幅见 `scripts/maintainer/update/latest.json`。
+
+### Fixed
+
+- **工具超时**：bash / LibreOffice 等命令超时后强制结束进程树，并给被丢弃的 worker 一个短暂窗口释放 bash 执行锁，避免下一轮看起来卡住
+- **知识库自有目录**：文件夹/文件名大小写与斜杠规范化后再匹配，目录树、文档预览与文件 Blob 打开更可靠
+- **右栏预览**：`PreviewPane` 默认使用本机「在资源管理器中显示」平台（不再被永久 disabled 的 stub 挡住）；Gateway 允许 `https://tauri.localhost`，修复媒体 Range 探测与跨域导致的「不支持播放这种媒体格式」
+- **上下文用量环**：浮层打开时 park 原生浏览器窗口，不再被右栏 WebView 压住一截
+- **资产引用**：模型引用的 `note=[...]` 与路径更稳地解析，深链到右栏预览
+- **界面细节**：浏览器面板外链图标、工具卡文件路径渲染、MessageRow 与主题 token 微调
+
+### Added
+
+- **Gitee 独立发版**：新增 Gitee Go Windows 构建管线（`.workflow/`）与 `publish-gitee-release.ps1` / `ci-release-windows.ps1`
+
+### Changed
+
+- **发版脚本**：重写 `push-public-latest-json.ps1`，公仓 `update/latest.json` 的 hash/size/镜像地址刷新流程整理
+
+## [1.2.4] - 2026-11-02
+
+相对 **1.2.3**：修好国内桌面检查更新；V4 编辑/流式、语音 ASR、知识库目录、中断运行、协作子任务与并发设置等稳定性补丁。
+GitHub Release 正文见 `scripts/maintainer/windows/release-notes/PRODUCT-NOTES-1.2.4.md`；升级横幅见 `scripts/maintainer/update/latest.json`。
+
+### Fixed
+
+- **桌面更新**：恢复公仓/Gitee `update/latest.json`；客户端优先 Gitee 拉清单，安装包下载走 ghfast 镜像（Gitee 无法托管超 100MB 的 setup.exe）
+- **V4 聊天**：改已发消息；编辑截断不再双开线程；空流重试；飞书旁观更新与重复 spinner
+- **语音 ASR**：错误/日志风暴不再拖死聊天
+- **知识库**：无本地同步目录仍显示目录树；markitdown 失败回退轻量抽取
+- **Gateway / 运行态**：中断 run 不再粘 running；渠道工具经 Gateway HTTP + live 租约
+- **协作子任务**：派发/重入队/心跳与终态残留
+- **预览与资产**：窄栏代码可读；引用深链右栏；删除员工清 IM 会话
+
+### Changed
+
+- **设置**：通用页可限制 LangGraph 并发
+- **Agent**：递归软着陆；wrap-up / recursion 预算调整
+- **小V / 主题 / 性能**：人声与 Human Signal；可读性 token；流式 bump 与 User Timing 收敛
+
 ## [1.2.3] - 2026-10-31
 
 相对 **1.2.2**：飞书/渠道图片可收可发、聊天发送更跟手；任务中心与侧栏不再拖死聊天；子代理侧栏与停止行为修好；工作流列表换成稳定 SVG 图标。

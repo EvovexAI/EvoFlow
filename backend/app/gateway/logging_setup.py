@@ -1,4 +1,4 @@
-"""Gateway / LangGraph file logging: daily files, 7-day retention, full uvicorn + app output."""
+"""Gateway / LangGraph file logging: daily files, 14-day retention, full uvicorn + app output."""
 
 from __future__ import annotations
 
@@ -8,79 +8,32 @@ import re
 import sys
 import threading
 import time
-from datetime import UTC, datetime, timedelta
+from datetime import datetime
 from logging import Filter, Handler, LogRecord
 from pathlib import Path
+
+from evoflow.runtime.log_policy import (
+    DEFAULT_RETENTION_DAYS,
+    prune_all_daily_logs,
+    prune_old_daily_logs as _policy_prune_old_daily_logs,
+    resolve_product_logs_dir,
+    retention_days,
+)
 
 _CONFIGURED: dict[str, bool] = {}
 _LOG_DIR: Path | None = None
 
-DEFAULT_RETENTION_DAYS = 7
 _DATE_SUFFIX_RE = re.compile(r"^(.+)-(\d{4}-\d{2}-\d{2})\.log$")
 
 
 def resolve_gateway_logs_dir() -> Path:
-    """Resolve directory for log files.
-
-    Priority:
-        1. ``EVOFLOW_LOGS_DIR``
-        2. ``<EVOFLOW_HOME>/logs``
-        3. ``<repo-root>/logs`` (config.example.yaml or Makefile + backend/)
-        4. ``<cwd>/logs``
-    """
-    raw = (os.getenv("EVOFLOW_LOGS_DIR") or "").strip()
-    if raw:
-        return Path(raw).expanduser().resolve()
-
-    evoflow_home = (os.getenv("EVOFLOW_HOME") or "").strip()
-    if evoflow_home:
-        from evoflow.config.data_paths import logs_dir, resolve_data_base_dir
-
-        return logs_dir(resolve_data_base_dir())
-
-    cwd = Path.cwd().resolve()
-    for base in (cwd, cwd.parent, cwd.parent.parent, cwd.parent.parent.parent):
-        if (base / "config.example.yaml").is_file():
-            return (base / "logs").resolve()
-        if (base / "Makefile").is_file() and (base / "backend").is_dir():
-            return (base / "logs").resolve()
-    return (cwd / "logs").resolve()
-
-
-def retention_days() -> int:
-    raw = (os.getenv("EVOFLOW_LOG_RETENTION_DAYS") or "").strip()
-    if not raw:
-        return DEFAULT_RETENTION_DAYS
-    try:
-        return max(1, int(raw))
-    except ValueError:
-        return DEFAULT_RETENTION_DAYS
+    """Resolve directory for log files — delegates to unified product logs root."""
+    return resolve_product_logs_dir()
 
 
 def prune_old_daily_logs(log_dir: Path, base_name: str, *, days: int | None = None) -> int:
-    """Delete ``{base_name}-YYYY-MM-DD.log`` older than ``days`` (default 7). Returns removed count."""
-    keep = days if days is not None else retention_days()
-    cutoff = datetime.now(UTC).date() - timedelta(days=keep)
-    removed = 0
-    if not log_dir.is_dir():
-        return 0
-    for path in log_dir.iterdir():
-        if not path.is_file():
-            continue
-        m = _DATE_SUFFIX_RE.match(path.name)
-        if not m or m.group(1) != base_name:
-            continue
-        try:
-            file_date = datetime.strptime(m.group(2), "%Y-%m-%d").date()
-        except ValueError:
-            continue
-        if file_date < cutoff:
-            try:
-                path.unlink()
-                removed += 1
-            except OSError:
-                pass
-    return removed
+    """Delete ``{base_name}-YYYY-MM-DD.log`` older than retention. Returns removed count."""
+    return _policy_prune_old_daily_logs(log_dir, base_name, days=days)
 
 
 def _log_flush_interval_s() -> float:
@@ -220,14 +173,66 @@ class LangGraphPollNoiseFilter(Filter):
             return True
         if os.getenv("EVOFLOW_SHOW_LANGGRAPH_POLL_LOGS", "").strip().lower() in {"1", "true", "yes", "on"}:
             return True
-        if record.name != "langgraph_api.server" or record.levelno > logging.INFO:
+        if record.name != "langgraph_api.server":
             return True
-        message = record.getMessage()
+        try:
+            message = record.getMessage()
+        except Exception:
+            return True
+        # Legacy SubThread_* probes → 422; source fixed in reconcile, keep filter as backstop.
+        if record.levelno == logging.WARNING and "422" in message and "SubThread_" in message:
+            return False
+        if record.levelno > logging.INFO:
+            return True
         if " 200 " not in message:
             return True
         if "GET /threads/" not in message:
             return True
         return not ("/state " in message or "/runs " in message)
+
+
+class AsyncioShutdownNoiseFilter(Filter):
+    """Drop volc-asr pending-task spam during session recycle / shutdown."""
+
+    _DROP_SNIPPETS = (
+        "Task was destroyed but it is pending",
+        "Task exception was never retrieved",
+        "Unhandled error in exception handler",
+    )
+
+    def filter(self, record: LogRecord) -> bool:
+        if record.name != "asyncio" or record.levelno < logging.ERROR:
+            return True
+        if os.getenv("EVOFLOW_SHOW_ASYNCIO_TASK_ERRORS", "").strip().lower() in {"1", "true", "yes", "on"}:
+            return True
+        try:
+            message = record.getMessage()
+        except Exception:
+            return True
+        if not any(s in message for s in self._DROP_SNIPPETS):
+            return True
+        # Prefer dropping known speech-session recycle noise; keep unknown asyncio errors.
+        extra = " ".join(
+            str(x)
+            for x in (
+                message,
+                getattr(record, "msg", ""),
+                getattr(record, "args", ""),
+            )
+        )
+        # Also inspect attached exception / task repr from logging args
+        try:
+            if record.exc_info and record.exc_info[1] is not None:
+                extra += f" {record.exc_info[1]!r}"
+        except Exception:
+            pass
+        lowered = extra.lower()
+        if "volc-asr" in lowered or "volcengineasr" in lowered or "evo-asr-keepalive" in lowered:
+            return False
+        # Bare "Task was destroyed" without context is almost always ASR/session recycle here.
+        if "Task was destroyed but it is pending" in message:
+            return False
+        return True
 
 
 # Panel / ChatApp high-frequency polls — hide successful GETs (set EVOFLOW_SHOW_PANEL_POLL_LOGS=1 to keep).
@@ -277,6 +282,8 @@ def _attach_noise_filters(root: logging.Logger) -> None:
             handler.addFilter(LangGraphPollNoiseFilter())
         if not _has_filter(handler, PanelPollAccessNoiseFilter):
             handler.addFilter(PanelPollAccessNoiseFilter())
+        if not _has_filter(handler, AsyncioShutdownNoiseFilter):
+            handler.addFilter(AsyncioShutdownNoiseFilter())
     # Logger-level filters survive uvicorn re-attaching StreamHandlers.
     for name in ("uvicorn.access", "langgraph_api.server"):
         lg = logging.getLogger(name)
@@ -285,6 +292,9 @@ def _attach_noise_filters(root: logging.Logger) -> None:
         for handler in lg.handlers:
             if not _has_filter(handler, PanelPollAccessNoiseFilter):
                 handler.addFilter(PanelPollAccessNoiseFilter())
+    asyncio_lg = logging.getLogger("asyncio")
+    if not _has_filter(asyncio_lg, AsyncioShutdownNoiseFilter):
+        asyncio_lg.addFilter(AsyncioShutdownNoiseFilter())
 
 
 def _wire_logger_tree(root: logging.Logger, level: int) -> None:
@@ -339,7 +349,7 @@ def configure_gateway_file_logging(
 ) -> Path:
     """Attach daily file + console handlers to the root logger (idempotent per ``base_name``).
 
-    Creates ``{log_dir}/{base}-YYYY-MM-DD.log`` and deletes files older than 7 days.
+    Creates ``{log_dir}/{base}-YYYY-MM-DD.log`` and deletes files older than retention (default 14 days).
     ``log_name`` stem becomes the daily file prefix (e.g. ``gateway.log`` → ``gateway-2026-05-17.log``).
     """
     global _LOG_DIR
@@ -349,6 +359,7 @@ def configure_gateway_file_logging(
 
     log_dir = (log_dir or resolve_gateway_logs_dir()).resolve()
     log_dir.mkdir(parents=True, exist_ok=True)
+    prune_all_daily_logs(log_dir, days=retention_days())
     _LOG_DIR = log_dir
 
     level_name = (os.getenv("EVOFLOW_GATEWAY_LOG_LEVEL") or os.getenv("LOG_LEVEL") or "INFO").upper()
@@ -404,6 +415,105 @@ def configure_gateway_file_logging(
         "File logging enabled: %s (retention=%sd)",
         log_dir / f"{base_name}-{today}.log",
         retention_days(),
+    )
+    _CONFIGURED[base_name] = True
+    # In-process LangGraph shares this process — also mirror to langgraph-YYYY-MM-DD.log
+    # so the panel「LangGraph」source is not empty when there is no sidecar stderr file.
+    if base_name == "gateway":
+        configure_langgraph_file_logging(log_dir=log_dir, force=force)
+    return log_dir
+
+
+_LANGGRAPH_LOGGER_NAMES = (
+    "langgraph",
+    "langgraph_api",
+    "langgraph_runtime",
+    "langgraph_runtime_inmem",
+    "evoflow.langgraph_runtime_env",
+    "evoflow.langgraph_deployment",
+    "evoflow.langchain_agenerate_cancel_patch",
+    "app.gateway.lazy_langgraph",
+    "app.gateway.routers.langgraph_proxy",
+)
+
+
+class _LangGraphNameFilter(Filter):
+    """Allow records from LangGraph / agent-runtime namespaces into the dedicated file."""
+
+    def filter(self, record: LogRecord) -> bool:  # noqa: A003
+        name = (record.name or "").lower()
+        if name.startswith("langgraph"):
+            return True
+        if "langgraph" in name:
+            return True
+        if name.startswith("evoflow.agents") or name.startswith("evoflow.collab"):
+            return True
+        if name.startswith("app.gateway.lazy_langgraph"):
+            return True
+        if name.startswith("app.gateway.routers.langgraph"):
+            return True
+        return False
+
+
+def configure_langgraph_file_logging(
+    *,
+    log_dir: Path | None = None,
+    force: bool = False,
+) -> Path:
+    """Write ``langgraph-YYYY-MM-DD.log`` for in-process / split Agent Runtime logs."""
+    base_name = "langgraph"
+    if _CONFIGURED.get(base_name) and not force:
+        return (_LOG_DIR or resolve_gateway_logs_dir()).resolve()
+
+    log_dir = (log_dir or resolve_gateway_logs_dir()).resolve()
+    log_dir.mkdir(parents=True, exist_ok=True)
+
+    fmt = logging.Formatter(
+        "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+    # Drop previous langgraph daily handlers on force / reconfigure
+    root = logging.getLogger()
+    if force:
+        for h in list(root.handlers):
+            if _same_daily_handler(h, log_dir, base_name):
+                root.removeHandler(h)
+                try:
+                    h.close()
+                except Exception:
+                    pass
+        for name in _LANGGRAPH_LOGGER_NAMES:
+            lg = logging.getLogger(name)
+            for h in list(lg.handlers):
+                if _same_daily_handler(h, log_dir, base_name):
+                    lg.removeHandler(h)
+                    try:
+                        h.close()
+                    except Exception:
+                        pass
+
+    has_file = any(_same_daily_handler(h, log_dir, base_name) for h in root.handlers)
+    if not has_file:
+        fh = DailyNamedFileHandler(log_dir, base_name, retention_days=retention_days())
+        fh.setLevel(logging.INFO)
+        fh.setFormatter(fmt)
+        fh.addFilter(_LangGraphNameFilter())
+        root.addHandler(fh)
+        # Also attach directly so QUIET parent levels don't starve the file
+        for name in _LANGGRAPH_LOGGER_NAMES:
+            lg = logging.getLogger(name)
+            if not any(_same_daily_handler(h, log_dir, base_name) for h in lg.handlers):
+                lg.addHandler(fh)
+            if lg.level == logging.NOTSET or lg.getEffectiveLevel() > logging.INFO:
+                # Keep file informative even when console is quieted
+                if name.startswith("langgraph_runtime"):
+                    continue
+                lg.setLevel(logging.INFO)
+
+    today = datetime.now().strftime("%Y-%m-%d")
+    logging.getLogger(__name__).info(
+        "LangGraph file logging enabled: %s",
+        log_dir / f"{base_name}-{today}.log",
     )
     _CONFIGURED[base_name] = True
     return log_dir

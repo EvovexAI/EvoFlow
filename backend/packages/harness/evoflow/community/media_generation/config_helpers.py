@@ -38,15 +38,36 @@ def _tool_extra(tool_name: str) -> dict[str, Any]:
     return dict(cfg.model_extra or {})
 
 
+def _preferred_provider_from_settings(kind: str) -> str:
+    """User override from 设置 → 创意媒体（preferredImageProvider / preferredVideoProvider）."""
+    field = "preferredImageProvider" if kind == "image" else "preferredVideoProvider"
+    try:
+        from evoflow.persistence.media_settings import get_media_credentials
+
+        return str(get_media_credentials().get(field) or "").strip().lower()
+    except Exception:
+        return ""
+
+
 def default_image_provider(tool_name: str = "media_image_generate") -> ImageProvider:
-    raw = str(_tool_extra(tool_name).get("default_provider") or os.getenv("MEDIA_DEFAULT_IMAGE_PROVIDER") or "jimeng")
+    raw = str(
+        _tool_extra(tool_name).get("default_provider")
+        or os.getenv("MEDIA_DEFAULT_IMAGE_PROVIDER")
+        or _preferred_provider_from_settings("image")
+        or "jimeng"
+    )
     if raw in ("jimeng", "kling", "wan", "openai"):
         return raw  # type: ignore[return-value]
     return "jimeng"
 
 
 def default_video_provider(tool_name: str = "media_video_generate") -> VideoProvider:
-    raw = str(_tool_extra(tool_name).get("default_provider") or os.getenv("MEDIA_DEFAULT_VIDEO_PROVIDER") or "jimeng")
+    raw = str(
+        _tool_extra(tool_name).get("default_provider")
+        or os.getenv("MEDIA_DEFAULT_VIDEO_PROVIDER")
+        or _preferred_provider_from_settings("video")
+        or "jimeng"
+    )
     if raw in ("jimeng", "kling", "wan", "minimax"):
         return raw  # type: ignore[return-value]
     return "jimeng"
@@ -238,6 +259,41 @@ def is_jimeng_configured() -> bool:
         return False
 
 
+def jimeng_plan_video_entitled() -> bool | None:
+    """Plan video gate for jimeng.
+
+    Returns:
+      - True: active Agent Plan includes video (or no binding → not gated here)
+      - False: active Agent Plan is bound but tier/caps exclude video (Seedance unusable)
+      - None: could not inspect bindings (treat as not gated)
+    """
+    try:
+        from evoflow.plans import bindings as bindings_store
+
+        binding = bindings_store.find_active_binding(
+            vendor="volcengine",
+            plan_family="agent_plan",
+            capability=None,
+            mask_key=True,
+        )
+    except Exception:
+        return None
+    if not isinstance(binding, dict) or not binding:
+        return True
+    caps = {str(c).strip() for c in (binding.get("bound_capabilities") or []) if str(c).strip()}
+    return "video" in caps
+
+
+def is_jimeng_video_configured() -> bool:
+    """Jimeng usable for *video*: needs Ark credentials AND Plan video entitlement when bound."""
+    if not is_jimeng_configured():
+        return False
+    entitled = jimeng_plan_video_entitled()
+    if entitled is False:
+        return False
+    return True
+
+
 def is_wan_configured() -> bool:
     try:
         from evoflow.persistence.media_settings import vendor_has_usable_credentials
@@ -364,7 +420,39 @@ def _image_provider_has_credentials(provider: str) -> bool:
 def _video_provider_has_credentials(provider: str) -> bool:
     if provider == "minimax":
         return is_minimax_media_configured()
+    if provider == "jimeng":
+        return is_jimeng_video_configured()
     return _image_provider_has_credentials(provider)
+
+
+def default_video_model_for_provider(provider: str | None = None) -> str:
+    """Model id for catalog / agent defaults when caller omits ``model``."""
+    p = str(provider or "").strip().lower() or default_video_provider()
+    if p == "minimax":
+        try:
+            from evoflow.community.media_generation.providers import minimax_video as mv
+
+            if mv.uses_openai_videos_api():
+                return mv.DEFAULT_GATEWAY_VIDEO_MODEL
+            return mv.DEFAULT_MINIMAX_VIDEO_MODEL
+        except Exception:
+            return "minimax-h3"
+    if p == "wan":
+        return "wan2.7-i2v"
+    if p == "kling":
+        return "kling-v2-master"
+    return jimeng_video_model()
+
+
+def default_image_model_for_provider(provider: str | None = None) -> str:
+    p = str(provider or "").strip().lower() or default_image_provider()
+    if p == "wan":
+        return "wan2.7-image"
+    if p == "openai":
+        return "gpt-image-2.5-sunburst"
+    if p == "kling":
+        return "kling-v2"
+    return jimeng_image_model()
 
 
 def is_image_provider_configured(provider: str) -> bool:

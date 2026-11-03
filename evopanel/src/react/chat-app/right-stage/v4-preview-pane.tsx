@@ -11,8 +11,9 @@ import { PlatformProvider } from "@zcode/ui/hooks/usePlatform.js";
 import { ServiceProvider } from "@zcode/ui/hooks/useServices.js";
 import { TooltipProvider } from "@zcode/ui/components/ui/tooltip.js";
 import type { IBroadcastService, BroadcastMessage } from "@zcode/services";
+import type { IPlatformService } from "@zcode/shared";
 import type { CodeViewerSource } from "@zcode/ui/lib/codeViewer.js";
-import { evoflowStubPlatform } from "../../../pages/settings/evoflow-bridge-services.js";
+import { createEvoflowLocalRevealPlatform } from "../../../pages/settings/evoflow-bridge-services.js";
 import { createEvoflowPartialServices } from "../../v4/V4ZCodeTimeline.js";
 
 /**
@@ -50,11 +51,13 @@ export function V4PreviewPane(props: {
   threadId?: string;
   /** 会话工作区根（绝对路径）：面包屑/相对路径显示与文件解析依赖它。 */
   workspacePath?: string;
+  /** Override default local-reveal platform if needed. */
+  platform?: IPlatformService;
   onClose: () => void;
   /** 面板内部再次跳转（code-review 卡/引用/多文件列表）→ 换 tab 打开。 */
   onOpenCodeViewer?: (source: CodeViewerSource) => void;
 }): React.JSX.Element {
-  const { source, threadId, workspacePath, onClose, onOpenCodeViewer } = props;
+  const { source, threadId, workspacePath, platform, onClose, onOpenCodeViewer } = props;
   const sourceKey = codeViewerSourceKey(source);
   // 同 path/内容只保留上一份 source 引用，父级重渲染不再触发 PreviewPane 重拉。
   // eslint-disable-next-line react-hooks/exhaustive-deps -- 故意用语义 key，不用对象引用
@@ -64,10 +67,15 @@ export function V4PreviewPane(props: {
     () => createEvoflowPartialServices(threadId ?? "", workspacePath),
     [threadId, workspacePath],
   );
+  // 默认本机资源管理器（表格/PDF/代码/资产预览共用）；勿再用 stub（会永久 disabled）。
+  const resolvedPlatform = useMemo(
+    () => platform || createEvoflowLocalRevealPlatform({ workspaceRoot: workspacePath }),
+    [platform, workspacePath],
+  );
   return (
     <ZCodeIntlProvider initialLocale="zh-CN">
       <StoreProvider broadcastService={NOOP_BROADCAST}>
-        <PlatformProvider platform={evoflowStubPlatform}>
+        <PlatformProvider platform={resolvedPlatform}>
           <ServiceProvider services={partialServices}>
             {/* zcode-bridge-root：styles-bridge 的 token / 暗色主题 / 滚动条作用域都收窄在此容器，
                 缺了它 @theme 变量解析不出来（面包屑、代码块、diff 背景会整块发黑），

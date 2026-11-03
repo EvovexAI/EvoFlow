@@ -58,6 +58,54 @@ async def get_speech_status() -> SpeechStatusResponse:
     )
 
 
+@router.get("/health")
+async def get_speech_health() -> dict:
+    """语音链路启动自检（企业级：坏了要能被知道，而不是静默降级数周）。
+
+    探测四件套：TTS 凭据 / ASR 凭据 / Frame 运行时依赖（pipecat+onnxruntime）/
+    本地兜底 whisper。全部只读轻量检查（find_spec 不触发重 import）。
+    """
+    from importlib.util import find_spec
+
+    from app.gateway.speech.asr_registry import validate_asr_config
+    from app.gateway.speech.tts_registry import validate_tts_config
+
+    try:
+        tts = validate_tts_config("volcengine")
+    except Exception as e:  # noqa: BLE001
+        tts = {"ok": False, "guide": f"validate_tts_config error: {e}"}
+    try:
+        asr = validate_asr_config("volcengine")
+    except Exception as e:  # noqa: BLE001
+        asr = {"ok": False, "guide": f"validate_asr_config error: {e}"}
+
+    deps: dict[str, bool] = {}
+    for mod in ("pipecat", "onnxruntime"):
+        try:
+            deps[mod] = find_spec(mod) is not None
+        except Exception:  # noqa: BLE001
+            deps[mod] = False
+
+    degraded: list[str] = []
+    if not tts.get("ok"):
+        degraded.append("tts_credentials")
+    if not asr.get("ok"):
+        degraded.append("asr_credentials")
+    if not deps.get("pipecat"):
+        degraded.append("pipecat_missing")
+    if not deps.get("onnxruntime"):
+        degraded.append("onnxruntime_missing")
+
+    return {
+        "ok": not degraded,
+        "degraded": degraded,
+        "tts": {"ok": bool(tts.get("ok")), "guide": tts.get("guide") or ""},
+        "asr": {"ok": bool(asr.get("ok")), "guide": asr.get("guide") or ""},
+        "runtime_deps": deps,
+        "local_asr": whisper_available(),
+    }
+
+
 @router.get("/asr/providers")
 async def speech_asr_providers() -> dict:
     """ASR provider catalog for Xiaomi voice settings."""

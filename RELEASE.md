@@ -5,6 +5,22 @@
 
 ---
 
+## 现行路径（就这一套）
+
+| 环节 | 怎么做 |
+|------|--------|
+| **打安装包** | 推 `v*` tag → **GitHub Actions** 自己编，挂到 **GitHub Releases** |
+| **检查有无更新** | 客户端 **优先拉 Gitee** 上的 `update/latest.json`，再 jsDelivr / GitHub raw |
+| **下载安装包** | 清单里的地址：国内用 `ghfast.top` 镜像 GitHub Release；海外可直连 GitHub |
+| **刷新清单** | 装包上传后跑 `push-public-latest-json.ps1`（写 hash/size，推 GitHub + Gitee） |
+
+Gitee **不能**托管 ~380MB 的 `setup.exe`（附件上限约 100MB），所以正式包不走 Gitee Releases。  
+Gitee 只负责：**代码镜像** + **升级清单（小文件）**，让国内「检查更新」能通。
+
+（曾探索过 Gitee Go 自建机 + 对象存储独立打包，**当前不启用**；见 [`scripts/maintainer/gitee/README.md`](scripts/maintainer/gitee/README.md)。）
+
+---
+
 ## 1. 改版本号（一条命令）
 
 单一版本源：`evopanel/VERSION`。
@@ -47,7 +63,7 @@ npm run version:set -- 1.1.0
 
 ---
 
-## 3. 提交与打 tag
+## 3. 提交与打 tag（GitHub 打包）
 
 ```bash
 git add evopanel/VERSION evopanel/package.json evopanel/package-lock.json \
@@ -59,25 +75,39 @@ git add evopanel/VERSION evopanel/package.json evopanel/package-lock.json \
 
 git commit -m "chore(release): x.y.z"
 git push origin HEAD
+# 可选：同步代码到 Gitee（不影响打包）
+# git push gitee HEAD:main
 
-# 标签触发桌面发版 CI（.github/workflows/release-desktop-public.yml）
+# 标签触发 GitHub 桌面发版 CI
 git tag v1.1.0
 git push origin v1.1.0
 ```
 
-也可在 GitHub Actions 里对 `release-desktop-public` 做 `workflow_dispatch`（需当前 `main` 上版本与说明已齐）。
+CI：`.github/workflows/release-desktop-public.yml`（也可 `workflow_dispatch`）。
 
 ---
 
 ## 4. 装包后刷新升级通道
 
-CI / 本地打出 `EvoFlow_x.y.z_x64-setup.exe` 并上传 Release 后：
+客户端轮询清单（**国内优先 Gitee**）：
 
-- 用 `scripts/maintainer/windows/republish-public-release.ps1 -UpdateLatestJson`  
-  把真实 `hash` / `size` 写入公仓客户端轮询的 `update/latest.json`  
-- 细节：[`scripts/maintainer/update/README.md`](scripts/maintainer/update/README.md)
+1. `https://gitee.com/evovexai/EvoFlow/raw/main/update/latest.json`
+2. `https://cdn.jsdelivr.net/gh/EvovexAI/EvoFlow@main/update/latest.json`
+3. `https://raw.githubusercontent.com/EvovexAI/EvoFlow/main/update/latest.json`
+
+GitHub Release 上传完成后：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/maintainer/windows/push-public-latest-json.ps1 -Tag v1.2.4
+```
+
+会写入真实 `hash` / `size`，`url` 默认用 `ghfast` 镜像 GitHub 安装包，并推到 **GitHub + Gitee** 的 `update/latest.json`。
+
+也可 `republish-public-release.ps1 -UpdateLatestJson`。
 
 草稿在 `scripts/maintainer/update/latest.json`；**不要**在安装包未就绪时往公仓根目录塞假的 `update/`。
+
+一键应用内更新还需要 CI secrets `TAURI_SIGNING_PRIVATE_KEY`（+ 可选 password），否则只有「下载安装包」通道，清单无 `platforms`。
 
 ---
 
@@ -90,6 +120,7 @@ CI / 本地打出 `EvoFlow_x.y.z_x64-setup.exe` 并上传 Release 后：
 - [ ] `latest.json` 的 `version` / `url` / `changelog` 都是本版
 - [ ] 已推送提交；将打的 `vX.Y.Z` tag 指向含上述文件的 commit
 - [ ] GitHub Latest Release 版本号与安装包文件名一致
+- [ ] 装包后已跑 `push-public-latest-json.ps1`（Gitee 清单也能查到新版本）
 
 ---
 
@@ -100,5 +131,6 @@ CI / 本地打出 `EvoFlow_x.y.z_x64-setup.exe` 并上传 Release 后：
 | 本文 `RELEASE.md` | **升版要改什么（清单）** |
 | [`scripts/maintainer/README.md`](scripts/maintainer/README.md) | 维护者脚本索引 |
 | [`scripts/maintainer/windows/README.md`](scripts/maintainer/windows/README.md) | 本地一键发 Windows 包 |
+| [`scripts/maintainer/update/README.md`](scripts/maintainer/update/README.md) | 升级通道草稿与客户端轮询 |
 | [`MAINTAINERS.md`](MAINTAINERS.md) | 谁负责发版 |
 | [`.github/workflows/release-desktop-public.yml`](.github/workflows/release-desktop-public.yml) | 桌面 CI 入口 |

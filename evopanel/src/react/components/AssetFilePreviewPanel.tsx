@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { api } from '../../lib/tauri-api.js'
 import { assetsHrefForPath } from '../lib/evo-asset-citation.js'
 import { V4PreviewPane } from '../chat-app/right-stage/v4-preview-pane.js'
-import { inferCodeLanguage } from '@zcode/ui/lib/codeViewer.js'
+import { inferCodeLanguage, inferImageMediaType, inferMediaPreview } from '@zcode/ui/lib/codeViewer.js'
 
 type Props = {
   entityType: string
@@ -42,6 +42,7 @@ export function AssetFilePreviewPanel({
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [content, setContent] = useState('')
+  const [absolutePath, setAbsolutePath] = useState('')
 
   useEffect(() => {
     if (!path) {
@@ -52,6 +53,7 @@ export function AssetFilePreviewPanel({
     const ticket = ++ticketRef.current
     setLoading(true)
     setError(null)
+    setAbsolutePath('')
     void (async () => {
       try {
         const data = await api.assetsReadFile({
@@ -61,10 +63,12 @@ export function AssetFilePreviewPanel({
         })
         if (ticket !== ticketRef.current) return
         setContent(String(data?.content ?? ''))
+        setAbsolutePath(String(data?.absolutePath || '').trim())
         setLoading(false)
       } catch (e: unknown) {
         if (ticket !== ticketRef.current) return
         setContent('')
+        setAbsolutePath('')
         setError(String((e as { message?: string })?.message || e || '读取失败'))
         setLoading(false)
       }
@@ -112,11 +116,39 @@ export function AssetFilePreviewPanel({
     )
   }
 
+  // PreviewPane「打开」需要本机绝对路径；相对 vault path 无法交给资源管理器。
+  const openPath = absolutePath || path
+  const mediaPreview = inferMediaPreview(path)
+  const imageMediaType = inferImageMediaType(path)
+  // 资产里的图片/音视频不能再当 type:text 塞进 PreviewPane，否则右栏会报不支持播放。
+  const previewSource = mediaPreview
+    ? {
+        type: 'media' as const,
+        title: name,
+        path: openPath,
+        kind: mediaPreview.kind,
+        mediaType: mediaPreview.mediaType,
+      }
+    : imageMediaType
+      ? {
+          type: 'image' as const,
+          title: name,
+          path: openPath,
+          mediaType: imageMediaType,
+        }
+      : {
+          type: 'text' as const,
+          title: name,
+          path: openPath,
+          content,
+          language: inferCodeLanguage(path, content),
+        }
+
   return (
     <div className="react-chat-asset-preview-panel flex h-full min-h-0 flex-col">
       <header className="react-chat-asset-preview-head">
         <span className="react-chat-asset-preview-badge">资产</span>
-        <span className="min-w-0 truncate" title={path}>
+        <span className="min-w-0 truncate" title={absolutePath || path}>
           {name}
         </span>
         <a
@@ -129,13 +161,7 @@ export function AssetFilePreviewPanel({
       </header>
       <div className="min-h-0 flex-1">
         <V4PreviewPane
-          source={{
-            type: 'text',
-            title: name,
-            path,
-            content,
-            language: inferCodeLanguage(path, content),
-          }}
+          source={previewSource}
           onClose={onClose || (() => {})}
         />
       </div>

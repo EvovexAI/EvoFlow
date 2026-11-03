@@ -255,6 +255,37 @@ pub fn owns_backend_sidecar() -> bool {
             .unwrap_or(false)
 }
 
+/// 本桌面实例的资源归属标记（profile 维度）。生产/开发两套客户端互不吞对方进程。
+pub fn instance_resource_marker() -> String {
+    format!("efinst-{}", super::current_profile_id())
+}
+
+/// 资源管理器只认这些根 PID：本进程 + 本进程拉起的 Gateway / LangGraph。
+pub fn owned_resource_root_pids() -> Vec<u32> {
+    let mut roots = vec![std::process::id()];
+    if let Ok(guard) = backend_child_slot().lock() {
+        if let Some(child) = guard.as_ref() {
+            roots.push(child.id());
+        }
+    }
+    if let Ok(guard) = langgraph_child_slot().lock() {
+        if let Some(child) = guard.as_ref() {
+            roots.push(child.id());
+        }
+    }
+    roots.sort_unstable();
+    roots.dedup();
+    roots
+}
+
+/// 给子进程打上实例标记（环境变量；采样时再按 PID 树归属）。
+pub fn apply_instance_resource_marker(cmd: &mut Command) {
+    let marker = instance_resource_marker();
+    cmd.env("EVOFLOW_INSTANCE_ID", super::current_profile_id())
+        .env("EVOFLOW_INSTANCE_MARKER", &marker)
+        .env("EVOFLOW_OWNER_PID", std::process::id().to_string());
+}
+
 fn runtime_dir() -> PathBuf {
     // Profile-scoped: each profile's sidecar writes to its own directory so two
     // profiles never observe each other's `backend-runtime.json` (and never
@@ -531,14 +562,14 @@ fn append_startup_log(message: &str) {
     } else {
         format!("[{ts}] {message}\n")
     };
-    let _ = fs::create_dir_all(logs_dir());
-    if let Ok(mut f) = fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(logs_dir().join("evopanel-startup.log"))
-    {
-        let _ = f.write_all(line.as_bytes());
-    }
+    let dir = logs_dir();
+    let _ = fs::create_dir_all(&dir);
+    let _ = super::log_files::prune_all_daily_logs(&dir);
+    let _ = super::log_files::prune_debug_logs_dir(
+        &super::log_files::debug_logs_dir(&dir),
+        super::log_files::DEFAULT_EXPORT_LOOKBACK_DAYS,
+    );
+    let _ = super::log_files::append_daily_log_line(&dir, "evopanel-startup", &line);
 }
 
 fn write_runtime_state_full(
@@ -1303,7 +1334,7 @@ fn ensure_backend_sidecar_inner(app: &tauri::AppHandle) -> Result<(), String> {
     ));
 
     fs::create_dir_all(logs_dir()).map_err(|e| format!("创建日志目录失败: {e}"))?;
-    let stderr_log = super::log_files::open_daily_log(&logs_dir(), "evoflow-gateway")?;
+    let stderr_log = super::log_files::open_daily_log(&logs_dir(), "gateway-stderr")?;
     let work_dir = super::runtime_data_dir();
     fs::create_dir_all(&work_dir).map_err(|e| format!("创建数据目录失败: {e}"))?;
     fs::create_dir_all(&work_dir).map_err(|e| format!("创建后端工作目录失败: {e}"))?;
@@ -1414,6 +1445,7 @@ fn ensure_backend_sidecar_inner(app: &tauri::AppHandle) -> Result<(), String> {
         .stdout(Stdio::piped())
         .stderr(Stdio::from(stderr_log))
         .env("INTERNAL_EVENTS_SECRET", &internal_secret);
+    apply_instance_resource_marker(&mut cmd);
 
     if use_external_lg {
         cmd.env("EVOFLOW_LANGGRAPH_URL", &lg_url)
@@ -1660,7 +1692,7 @@ fn spawn_langgraph_runtime_child(
         }
     }
 
-    let stderr_log = super::log_files::open_daily_log(&logs_dir(), "evoflow-langgraph")?;
+    let stderr_log = super::log_files::open_daily_log(&logs_dir(), "langgraph-stderr")?;
     let mut cmd = if let Some(ref exe) = backend_exe {
         let mut c = Command::new(exe);
         c.arg("--mode")
@@ -1715,6 +1747,7 @@ fn spawn_langgraph_runtime_child(
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::from(stderr_log));
+    apply_instance_resource_marker(&mut cmd);
 
     if let Some((_, ref backend_dir, _)) = python_launch {
         apply_pythonpath_for_backend(&mut cmd, backend_dir);

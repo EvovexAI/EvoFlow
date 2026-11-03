@@ -121,12 +121,9 @@ def compaction_trace_now_str() -> str:
 
 
 def _file_logging_disabled() -> bool:
-    return os.environ.get("EVOFLOW_COMPACTION_TRACE_LOG", "").strip().lower() in (
-        "0",
-        "false",
-        "no",
-        "off",
-    )
+    from evoflow.runtime.log_policy import env_flag
+
+    return not env_flag("EVOFLOW_COMPACTION_TRACE_LOG", default=False)
 
 
 def _console_mirror_enabled() -> bool:
@@ -141,22 +138,12 @@ def _console_mirror_enabled() -> bool:
 def _resolve_logs_dir() -> str:
     from pathlib import Path
 
-    for env in ("EVOFLOW_COMPACTION_TRACE_LOG_DIR", "EVOFLOW_LOGS_DIR"):
-        raw = os.environ.get(env, "").strip()
-        if raw:
-            return str(Path(raw).expanduser().resolve())
-    try:
-        from evoflow.config.paths import get_paths
+    raw = os.environ.get("EVOFLOW_COMPACTION_TRACE_LOG_DIR", "").strip()
+    if raw:
+        return str(Path(raw).expanduser().resolve())
+    from evoflow.runtime.log_policy import resolve_debug_logs_dir
 
-        return str((get_paths().base_dir / "logs").resolve())
-    except Exception:
-        pass
-    for base in (Path.cwd(), Path.cwd().parent, Path.cwd().parent.parent):
-        if (base / "logs").is_dir():
-            return str((base / "logs").resolve())
-        if (base / "Makefile").is_file() and (base / "backend").is_dir():
-            return str((base / "logs").resolve())
-    return str((Path.cwd() / "logs").resolve())
+    return str(resolve_debug_logs_dir())
 
 
 def compaction_trace_log_path() -> str:

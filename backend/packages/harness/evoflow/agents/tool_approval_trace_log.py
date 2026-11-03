@@ -38,12 +38,9 @@ def clip_trace_text(text: str | None, *, max_len: int = 600) -> str:
 
 
 def _file_logging_disabled() -> bool:
-    return os.environ.get("EVOFLOW_TOOL_APPROVAL_TRACE_LOG", "").strip().lower() in (
-        "0",
-        "false",
-        "no",
-        "off",
-    )
+    from evoflow.runtime.log_policy import env_flag
+
+    return not env_flag("EVOFLOW_TOOL_APPROVAL_TRACE_LOG", default=False)
 
 
 def _console_mirror_enabled() -> bool:
@@ -56,16 +53,13 @@ def _console_mirror_enabled() -> bool:
 
 
 def _resolve_logs_dir() -> Path:
-    for env in ("EVOFLOW_TOOL_APPROVAL_TRACE_LOG_DIR", "EVOFLOW_LOGS_DIR"):
+    for env in ("EVOFLOW_TOOL_APPROVAL_TRACE_LOG_DIR",):
         raw = os.environ.get(env, "").strip()
         if raw:
             return Path(raw).expanduser().resolve()
-    for base in (Path.cwd(), Path.cwd().parent, Path.cwd().parent.parent):
-        if (base / "logs").is_dir():
-            return (base / "logs").resolve()
-        if (base / "Makefile").is_file() and (base / "backend").is_dir():
-            return (base / "logs").resolve()
-    return (Path.cwd() / "logs").resolve()
+    from evoflow.runtime.log_policy import resolve_debug_logs_dir
+
+    return resolve_debug_logs_dir()
 
 
 def tool_approval_trace_log_path() -> Path:

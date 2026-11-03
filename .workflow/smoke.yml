@@ -1,0 +1,29 @@
+# Gitee Go — lightweight smoke (Linux cloud runner). Not a desktop packager.
+version: "1.0"
+name: evoflow-smoke
+displayName: EvoFlow 冒烟检查
+triggers:
+  push:
+    branches:
+      precise:
+        - main
+stages:
+  - stage: smoke
+    displayName: 冒烟
+    strategy: naturally
+    trigger: auto
+    steps:
+      - step: build@nodejs
+        name: smoke_check
+        displayName: 仓库冒烟检查
+        nodeVersion: 15.12.0
+        commands:
+          - echo "commit=${GITEE_COMMIT} branch=${GITEE_BRANCH}"
+          - test -f evopanel/VERSION
+          - test -f RELEASE.md
+          - test -d .github/workflows
+          - test -f .workflow/release-windows.yml
+          - test -f scripts/maintainer/gitee/ci-release-windows.ps1
+          - cat evopanel/VERSION
+          - node -v
+          - echo smoke_ok

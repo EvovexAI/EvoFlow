@@ -263,6 +263,15 @@ const GENERAL_INNER_HTML = `
       <div class="settings-group-title">维护</div>
       <div class="settings-group-desc">缓存清理与故障恢复</div>
     </div>
+    <div class="config-section" id="general-resource-manager-section">
+      <div class="config-section-title">资源管理器（CPU / 内存）</div>
+      <p class="form-hint">在当前窗口打开进程与资源占用面板。路径：设置 → 通用 → 维护。</p>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px">
+        <button type="button" class="cron-btn" id="general-open-resource-manager">
+          打开 CPU / 内存监控
+        </button>
+      </div>
+    </div>
     <div class="config-section">
       <div class="config-section-title">缓存清理</div>
       <p class="form-hint">当对话记录过多导致页面卡顿/无响应时，可以清理本地缓存并重载。</p>
@@ -322,6 +331,10 @@ export async function mountGeneralInto(container) {
     if (!(target instanceof Element)) return
     if (target.closest('#general-clear-chat-cache')) {
       void handleEmergencyChatCleanup()
+      return
+    }
+    if (target.closest('#general-open-resource-manager')) {
+      void openResourceManagerWindow()
       return
     }
     if (target.closest('#general-langgraph-concurrent-apply')) {
@@ -691,6 +704,16 @@ async function handleEmergencyChatCleanup() {
         /* ignore */
       }
     }, 2000)
+  }
+}
+
+async function openResourceManagerWindow() {
+  try {
+    const { openResourceManagerOverlay } = await import('../lib/resource-manager-overlay.js')
+    await openResourceManagerOverlay()
+  } catch (e) {
+    console.error('[resource-manager]', e)
+    toast(`无法打开资源管理器：${e?.message || e}`, 'error')
   }
 }
 

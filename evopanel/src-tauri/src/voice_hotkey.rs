@@ -26,13 +26,22 @@ pub fn sync_voice_hotkey(app: AppHandle, shortcut: Option<String>) -> Result<(),
     }
 
     let parsed: Shortcut = raw.parse().map_err(|e| format!("无效快捷键: {raw} ({e})"))?;
-    gs.on_shortcut(parsed.clone(), move |handle, _shortcut, event| {
+    match gs.on_shortcut(parsed.clone(), move |handle, _shortcut, event| {
         match event.state() {
             ShortcutState::Pressed => emit_voice_event(handle, "voice-push-down"),
             ShortcutState::Released => emit_voice_event(handle, "voice-push-up"),
         }
-    })
-    .map_err(|e| format!("注册全局热键失败: {e}"))?;
+    }) {
+        Ok(()) => {}
+        // App reload / double sync often hits "already registered" — treat as success.
+        Err(e) => {
+            let msg = e.to_string();
+            let lower = msg.to_ascii_lowercase();
+            if !(lower.contains("already registered") || lower.contains("already exists")) {
+                return Err(format!("注册全局热键失败: {msg}"));
+            }
+        }
+    }
 
     if let Ok(mut guard) = CURRENT_SHORTCUT.lock() {
         *guard = Some(parsed);

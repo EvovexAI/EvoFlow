@@ -6,7 +6,11 @@ import {
   normalizeCanvasRaw,
   stripStepCanvas,
 } from '../src/react/lib/app-workflow-canvas-json.ts'
-import { normalizeSteps, stepsToExport } from '../src/react/lib/app-workflow-plan.ts'
+import {
+  isMissingStepTaskName,
+  normalizeSteps,
+  stepsToExport,
+} from '../src/react/lib/app-workflow-plan.ts'
 import { flowToSteps, START_NODE_ID } from '../src/react/lib/app-workflow-flow.ts'
 
 describe('app-workflow-canvas-json', () => {
@@ -55,6 +59,21 @@ describe('app-workflow-canvas-json', () => {
     expect(plan.steps.every((s) => !s.canvas)).toBe(true)
     expect(plan.steps.find((s) => s.ref === '2')?.depends_on).toContain('1')
     expect(plan.canvas?.viewport?.zoom).toBe(1.1)
+  })
+
+  it('stepsToExport keeps user step names and falls back when empty', () => {
+    const steps = normalizeSteps([
+      { ref: '1', name: '收集竞品', goal: '长说明', depends_on: [] },
+      { ref: '2', name: '', goal: '清洗数据并入库\n第二行', depends_on: ['1'] },
+      { ref: '3', name: '  ', depends_on: ['2'] },
+    ])
+    const plan = stepsToExport('goal', steps)
+    expect(plan.steps.find((s) => s.ref === '1')?.name).toBe('收集竞品')
+    expect(plan.steps.find((s) => s.ref === '2')?.name).toBe('清洗数据并入库')
+    expect(plan.steps.find((s) => s.ref === '3')?.name).toBe('步骤 3')
+    expect(isMissingStepTaskName('收集竞品')).toBe(false)
+    expect(isMissingStepTaskName('步骤 1')).toBe(true)
+    expect(isMissingStepTaskName('')).toBe(true)
   })
 
   it('normalizeCanvasRaw rejects empty / invalid payloads', () => {

@@ -64,13 +64,23 @@ pub(crate) fn log_line(s: &str) {
         let spawned = std::thread::Builder::new()
             .name("browser-log".into())
             .spawn(move || {
+                let mut current_path = plugin_control_log_path();
                 let mut file = std::fs::OpenOptions::new()
                     .create(true)
                     .append(true)
-                    .open(plugin_control_log_path())
+                    .open(&current_path)
                     .ok();
                 loop {
                     let Ok(first) = rx.recv() else { break };
+                    let next_path = plugin_control_log_path();
+                    if next_path != current_path {
+                        current_path = next_path;
+                        file = std::fs::OpenOptions::new()
+                            .create(true)
+                            .append(true)
+                            .open(&current_path)
+                            .ok();
+                    }
                     if let Some(f) = file.as_mut() {
                         write_log_line(f, &first);
                         // 把队列里已有的行一次写完再 flush：突发风暴合并成一次落盘。
@@ -100,11 +110,12 @@ pub(crate) fn log_line(s: &str) {
     }
 }
 
-/// `{evoflow_dir}/logs/plugin-control.log` — English name under logs/ (was root-level Chinese).
+/// `{evoflow_dir}/logs/plugin-control-YYYY-MM-DD.log` (daily; was forever `plugin-control.log`).
 fn plugin_control_log_path() -> std::path::PathBuf {
     let logs = evoflow_dir().join("logs");
     let _ = std::fs::create_dir_all(&logs);
-    logs.join("plugin-control.log")
+    let date = chrono::Local::now().format("%Y-%m-%d");
+    logs.join(format!("plugin-control-{date}.log"))
 }
 
 fn write_log_line(f: &mut std::fs::File, s: &str) {

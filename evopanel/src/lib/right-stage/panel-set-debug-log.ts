@@ -5,8 +5,8 @@
  * - 落盘文件：`{evoflow}/logs/right-stage-YYYY-MM-DD.log`（Tauri `append_right_stage_log`）
  *   读尾：`search_log` / `read_log_tail` 的 logName=`right-stage`
  *
- * 可选：`localStorage.setItem('ef.debug.rightStage','0')` 关控制台；落盘默认仍开。
- * 关落盘：`localStorage.setItem('ef.debug.rightStage.file','0')`
+ * 控制台：`localStorage.setItem('ef.debug.rightStage','0')` 关闭（默认开控制台）。
+ * 落盘：默认关；开启 `localStorage.setItem('ef.debug.rightStage.file','1')`
  */
 const TAG = '[EvoFlow:right-stage]'
 
@@ -27,11 +27,11 @@ function consoleEnabled(): boolean {
 function fileEnabled(): boolean {
   try {
     const v = String(globalThis?.localStorage?.getItem?.('ef.debug.rightStage.file') ?? '').trim()
-    if (v === '0' || v === 'false' || v === 'off') return false
+    return v === '1' || v === 'true' || v === 'on'
   } catch {
     /* ignore */
   }
-  return true
+  return false
 }
 
 function snapTabs(storeLike?: {

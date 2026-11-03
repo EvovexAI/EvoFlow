@@ -9,7 +9,6 @@ import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { ToolLayout } from "../ToolLayout.js";
 import { ToolSnapshotFieldNotice } from "@/ToolCallBlocks/ToolSnapshotFieldNotice.js";
 import type { ToolCallBlockRenderContext } from "../shared.js";
-import { renderFilePath } from "../shared.js";
 
 const READ_TOOL_ICON = <SearchIcon className="size-4 shrink-0 text-foreground-subtle" />;
 
@@ -235,18 +234,19 @@ export function ReadFileChip({
         }}
       >
         <FileDisplayIcon src={summary.fileIconSrc} size={16} className="size-4 shrink-0" />
-        <span className="min-w-0 truncate">{summary.fileName}</span>
+        {/* 文件名优先完整展示；完整路径放 title，避免与次要路径抢宽被截成 sp_... */}
+        <span className="max-w-full shrink-0 truncate">{summary.fileName}</span>
       </button>
     );
   }
 
   return (
     <span
-      className="inline-flex min-w-0 text-foreground-subtle max-w-full items-center gap-1.5"
+      className="inline-flex min-w-0 max-w-full items-center gap-1.5 text-foreground-subtle"
       title={summary.path}
     >
       <FileDisplayIcon src={summary.fileIconSrc} size={16} className="size-4 shrink-0" />
-      <span className="min-w-0 truncate">{summary.fileName}</span>
+      <span className="max-w-full shrink-0 truncate">{summary.fileName}</span>
     </span>
   );
 }
@@ -291,7 +291,8 @@ export function ReadToolCallBlock(context: ToolCallBlockRenderContext) {
         sourceLabel={context.sourceLabel}
         primaryText={primaryText}
         prioritizePrimaryText
-        secondaryText={summary ? renderFilePath(summary.filePath) : undefined}
+        // 窄栏里父路径常被截成半截且挤掉文件名；完整路径改挂 chip title。
+        secondaryText={undefined}
         statusLabel={statusLabel}
         statusTooltip={toolCall.status === "failed" ? errorText : undefined}
         showFailureStatus={toolCall.status === "failed"}

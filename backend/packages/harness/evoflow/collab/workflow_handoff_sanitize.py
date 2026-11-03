@@ -189,7 +189,12 @@ def format_upstream_subtask_handoff(
     dep_name: str,
     dep_id: str,
 ) -> str:
-    """Path-first upstream handoff block (no inline file/base64 payloads)."""
+    """Path-first upstream handoff block (no inline file/base64 payloads).
+
+    F-2：``structured_output``（done 时经 output_schema 校验）优先注入——下游
+    程序化取用以此为准；散文摘要降为补充（有结构化输出时压缩到 600 字，
+    避免同一 handoff 双份长文本）。
+    """
     from evoflow.collab.subtask_outcome import build_subtask_outcome_snapshot
 
     snap = build_subtask_outcome_snapshot(dep)
@@ -211,7 +216,13 @@ def format_upstream_subtask_handoff(
         lines.append("  - 产出路径（请 read/terminal 读取，勿假定内容已在上下文中）：")
         for p in paths[:20]:
             lines.append(f"    - `{p}`")
-    summary = sanitize_string_for_handoff(str(snap.get("task_report") or ""), _DEFAULT_SUMMARY_MAX)
+    structured = dep.get("structured_output")
+    structured = structured if isinstance(structured, dict) and structured else None
+    if structured:
+        lines.append("  - 结构化输出（发布 schema 已校验；程序化取用以此为准）：")
+        lines.append("    " + json_for_handoff_prompt(structured, max_chars=4000))
+    summary_cap = 600 if structured else _DEFAULT_SUMMARY_MAX
+    summary = sanitize_string_for_handoff(str(snap.get("task_report") or ""), summary_cap)
     if summary:
         lines.append(f"  - 摘要: {summary}")
     return "\n".join(lines)

@@ -8,7 +8,7 @@ class DataRetentionConfig(BaseModel):
 
     enabled: bool = Field(default=True, description="Run retention on Gateway startup and on interval")
     interval_hours: int = Field(default=24, ge=1, le=168, description="Hours between scheduled runs")
-    logs_days: int = Field(default=7, ge=1, le=365, description="Gateway daily log file retention")
+    logs_days: int = Field(default=14, ge=1, le=365, description="Gateway daily log file retention (ZCode-aligned)")
     observability_days: int = Field(default=90, ge=1, le=3650, description="evoflow_obs_* row retention")
     gateway_requests_days: int = Field(
         default=7,

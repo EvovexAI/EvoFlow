@@ -103,7 +103,16 @@ async def _dispatch(job: dict[str, Any]) -> None:
         # stores) and append the last traceback line so the UI can show *where* it
         # failed without dumping the whole stack into a toast.
         combined = f"{str(exc)[:1500]}\n[traceback] {last_line}"[:2000]
-        logger.exception("owned kb job failed: %s", job.get("id"))
+        msg = str(exc)
+        # Quota / rate-limit is expected ops noise — don't dump full stack as ERROR.
+        if "429" in msg or "rate limit" in msg.lower() or "usage quota" in msg.lower():
+            logger.warning(
+                "owned kb job deferred (embedding quota/rate-limit): %s — %s",
+                job.get("id"),
+                msg[:300],
+            )
+        else:
+            logger.exception("owned kb job failed: %s", job.get("id"))
         jobs.complete(job["id"], error=combined)
 
 

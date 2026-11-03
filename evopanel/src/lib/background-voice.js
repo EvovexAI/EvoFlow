@@ -211,6 +211,9 @@ async function syncGlobalHotkey() {
     const { invoke } = await import('@tauri-apps/api/core')
     await invoke('sync_voice_hotkey', { shortcut })
   } catch (e) {
+    const msg = String(e?.message || e || '')
+    // Hot-reload / double boot: key already held by previous registration.
+    if (/already registered|already exists/i.test(msg)) return
     console.warn('[background-voice] sync hotkey', e)
   }
 }
@@ -443,12 +446,52 @@ export async function initBackgroundVoice() {
   } catch {
     // Settings not ready yet — wake word can be enabled later via toggle
   }
+
+  // 启动自检：语音链路坏要素要能被看见（而不是静默降级数周没人发现）
+  void _probeAndNotifyHealth()
+}
+
+/** 每次应用运行只提醒一次；自检失败/降级都不挡启动 */
+let _healthNoticeShown = false
+async function _probeAndNotifyHealth() {
+  try {
+    const { probeSpeechHealthOnce } = await import('./speech-client.js')
+    const h = await probeSpeechHealthOnce()
+    if (!h || h.ok || _healthNoticeShown) return
+    const parts = []
+    if (h.tts && h.tts.ok === false) parts.push('语音合成')
+    if (h.asr && h.asr.ok === false) parts.push('语音识别')
+    if (
+      Array.isArray(h.degraded) &&
+      (h.degraded.includes('pipecat_missing') || h.degraded.includes('onnxruntime_missing'))
+    ) {
+      parts.push('语音运行时')
+    }
+    if (!parts.length) return
+    _healthNoticeShown = true
+    const { toast } = await import('../components/toast.js')
+    toast(`语音自检：${parts.join('、')}不可用，请到「设置 → 模型 → 语音」检查`, 'warning')
+  } catch {
+    /* 自检绝不影响启动 */
+  }
 }
 
 // ─── Wake word ───
 
 /** @type {'native-kws' | 'kws' | 'webspeech' | null} */
 let wakeWordBackend = null
+
+/** 原生 KWS 每次应用运行只提醒一次（静默降级是客诉之源） */
+let _kwsDownWarned = false
+function _warnNativeKwsDown() {
+  if (_kwsDownWarned) return
+  _kwsDownWarned = true
+  void import('../components/toast.js')
+    .then(({ toast }) =>
+      toast('唤醒词引擎未启动，已改用浏览器识别兜底（重启应用可重试）', 'warning'),
+    )
+    .catch(() => {})
+}
 
 /**
  * Toggle wake word detection (「小V小V」).
@@ -473,9 +516,18 @@ export async function toggleWakeWord(enable) {
           console.log('[background-voice] Wake word ear ON (native KWS sidecar · 小V小V)')
           return true
         }
+        // 桌面环境原生 KWS 本应可用：失败要被看见，否则静默降级数周没人发现
+        _warnNativeKwsDown()
       }
     } catch (e) {
       console.warn('[background-voice] native KWS wake start failed:', e?.message)
+      // 桌面环境走到 catch 说明原生耳启动链路本身抛了错——同样要被看见
+      try {
+        const { isNativeKwsAvailable } = await import('./wake-word-native.js')
+        if (await isNativeKwsAvailable()) _warnNativeKwsDown()
+      } catch {
+        /* ignore */
+      }
     }
 
     try {
@@ -711,7 +763,7 @@ async function onWakeWordHit(ev) {
       // 此处只 toast，避免与 getUserMedia 抢跑。
       try {
         const { toast } = await import('../components/toast.js')
-        toast('小V在听，请说…', 'info')
+        toast('小V已唤醒，请说…', 'info', { position: 'top-right', key: 'xiaomi-wake' })
       } catch {
         /* ignore */
       }
@@ -776,7 +828,10 @@ async function acknowledgeWakeHit(opts = {}) {
   const spoken = opts.spoken !== false
   try {
     const { toast } = await import('../components/toast.js')
-    toast(spoken ? '小V在听，请说…' : '小V在听', 'info')
+    toast(spoken ? '小V已唤醒，请说…' : '小V已唤醒', 'info', {
+      position: 'top-right',
+      key: 'xiaomi-wake',
+    })
   } catch {
     /* ignore */
   }

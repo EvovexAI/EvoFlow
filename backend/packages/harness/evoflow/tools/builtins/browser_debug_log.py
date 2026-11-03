@@ -24,26 +24,33 @@ import threading
 from datetime import datetime
 from pathlib import Path
 
-# English name under logs/ (was historically root-level ``插件控制日志.log``).
-_FILE_NAME = "plugin-control.log"
-_LEGACY_ROOT_NAMES = ("插件控制日志.log", "browser-debug.log")
+# Daily ``plugin-control-YYYY-MM-DD.log`` under logs/ (was forever plugin-control.log).
+_LEGACY_ROOT_NAMES = ("插件控制日志.log", "browser-debug.log", "plugin-control.log")
 _WRITE_LOCK = threading.Lock()
 
 
 def _evoflow_dir() -> Path:
-    env = os.environ.get("EVOFLOW_CONFIG_DIR")
+    env = os.environ.get("EVOFLOW_CONFIG_DIR") or os.environ.get("EVOFLOW_LOGS_DIR")
     if env:
-        return Path(env)
-    home = Path(os.path.expanduser("~"))
-    debug_dir = home / ".evoflow-dev"
-    # Same probe order as browser_engine._resolve_evoflow_dir:
-    # debug desktop builds write ~/.evoflow-dev, release writes ~/.evoflow.
-    return debug_dir if debug_dir.is_dir() else home / ".evoflow"
+        p = Path(env)
+        # EVOFLOW_LOGS_DIR already points at …/logs
+        if p.name.lower() == "logs":
+            return p.parent
+        return p
+    try:
+        from evoflow.runtime.log_policy import resolve_product_logs_dir
+
+        return resolve_product_logs_dir().parent
+    except Exception:
+        home = Path(os.path.expanduser("~"))
+        debug_dir = home / ".evoflow-dev"
+        return debug_dir if debug_dir.is_dir() else home / ".evoflow"
 
 
 def unified_log_path() -> Path:
-    """``{evoflow_dir}/logs/plugin-control.log`` (creates ``logs/`` as needed)."""
-    return _evoflow_dir() / "logs" / _FILE_NAME
+    """``{evoflow_dir}/logs/plugin-control-YYYY-MM-DD.log``."""
+    day = datetime.now().strftime("%Y-%m-%d")
+    return _evoflow_dir() / "logs" / f"plugin-control-{day}.log"
 
 
 def _migrate_legacy_log(dest: Path) -> None:

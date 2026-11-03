@@ -1,7 +1,10 @@
 /**
  * Toast 通知组件
  */
+/** @type {HTMLElement | null} */
 let _container = null
+/** @type {HTMLElement | null} */
+let _containerTopRight = null
 /** @type {Map<string, HTMLElement>} */
 const _toastsByKey = new Map()
 
@@ -10,7 +13,16 @@ const SETTINGS_ERROR_ATTR = 'data-settings-modal-error'
 /** Above `.react-chat-modal-overlay` (1000001) so toasts remain visible in Settings. */
 const TOAST_ABOVE_MODAL_Z = '1000010'
 
-function ensureContainer() {
+/** @param {'top-center' | 'top-right'} [position] */
+function ensureContainer(position = 'top-center') {
+  if (position === 'top-right') {
+    if (!_containerTopRight) {
+      _containerTopRight = document.createElement('div')
+      _containerTopRight.className = 'toast-container toast-container--top-right'
+      document.body.appendChild(_containerTopRight)
+    }
+    return _containerTopRight
+  }
   if (!_container) {
     _container = document.createElement('div')
     _container.className = 'toast-container'
@@ -24,17 +36,16 @@ function isSettingsModalOpen() {
 }
 
 function syncToastLayer() {
-  const container = ensureContainer()
   const settingsOpen = isSettingsModalOpen()
   const modalOpen =
     !!document.querySelector('.modal-overlay') ||
     !!document.querySelector('.react-chat-modal-overlay')
-  container.classList.toggle('toast-container--modal-open', settingsOpen)
-  container.classList.toggle('toast-container--elevated', modalOpen)
-  if (modalOpen || settingsOpen) {
-    container.style.zIndex = TOAST_ABOVE_MODAL_Z
-  } else {
-    container.style.zIndex = ''
+  const elevate = modalOpen || settingsOpen
+  for (const container of [_container, _containerTopRight]) {
+    if (!container) continue
+    container.classList.toggle('toast-container--modal-open', settingsOpen)
+    container.classList.toggle('toast-container--elevated', modalOpen)
+    container.style.zIndex = elevate ? TOAST_ABOVE_MODAL_Z : ''
   }
 }
 
@@ -108,21 +119,24 @@ function scheduleToastRemove(el, duration, key) {
 /**
  * @param {string} message
  * @param {'info'|'success'|'warning'|'error'} [type]
- * @param {{ duration?: number, action?: HTMLElement, key?: string }} [options]
+ * @param {{ duration?: number, action?: HTMLElement, key?: string, position?: 'top-center'|'top-right' }} [options]
  *   key: 相同 key 只保留一条（更新文案并重置计时），避免写入过程刷屏
+ *   position: 默认 top-center；唤醒等旁路提示用 top-right，避免挡屏幕正中
  */
 export function toast(message, type = 'info', options = {}) {
   const duration = options.duration || 3000
   const action = options.action // 可选的操作按钮（DOM 元素）
   const key = typeof options.key === 'string' && options.key ? options.key : ''
+  const position = options.position === 'top-right' ? 'top-right' : 'top-center'
 
+  // 确保默认容器也存在，便于统一抬升层级
+  ensureContainer('top-center')
+  const container = ensureContainer(position)
   syncToastLayer()
 
   if ((type === 'error' || type === 'warning') && isSettingsModalOpen()) {
     showSettingsErrorBanner(message)
   }
-
-  const container = ensureContainer()
 
   if (key) {
     const existing = _toastsByKey.get(key)

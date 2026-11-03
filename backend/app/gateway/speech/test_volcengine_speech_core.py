@@ -189,21 +189,21 @@ class TestLoadCredentials:
 
 
 class TestSpeechConfigured:
-    @patch("app.gateway.speech.volcengine_speech.get_enabled_vendors")
+    @patch("evoflow.persistence.media_settings.get_enabled_vendors")
     @patch("app.gateway.speech.volcengine_speech._load_credentials")
     def test_configured_returns_true(self, mock_load, mock_vendors):
         mock_vendors.return_value = {"volcengine-tts": True}
         mock_load.return_value = ("ark-key", "r", "s", "a", True)
         assert speech_configured() is True
 
-    @patch("app.gateway.speech.volcengine_speech.get_enabled_vendors")
+    @patch("evoflow.persistence.media_settings.get_enabled_vendors")
     @patch("app.gateway.speech.volcengine_speech._load_credentials")
     def test_disabled_vendor_returns_false(self, mock_load, mock_vendors):
         mock_vendors.return_value = {"volcengine-tts": False}
         mock_load.return_value = ("ark-key", "r", "s", "a", True)
         assert speech_configured() is False
 
-    @patch("app.gateway.speech.volcengine_speech.get_enabled_vendors")
+    @patch("evoflow.persistence.media_settings.get_enabled_vendors")
     @patch("app.gateway.speech.volcengine_speech._load_credentials")
     def test_missing_key_returns_false(self, mock_load, mock_vendors):
         mock_vendors.return_value = {"volcengine-tts": True}
@@ -212,12 +212,12 @@ class TestSpeechConfigured:
 
 
 class TestGetEnabledVendorsSafe:
-    @patch("app.gateway.speech.volcengine_speech.get_enabled_vendors")
+    @patch("evoflow.persistence.media_settings.get_enabled_vendors")
     def test_enabled(self, mock_vendors):
         mock_vendors.return_value = {"volcengine-tts": True}
         assert get_enabled_vendors_safe() is True
 
-    @patch("app.gateway.speech.volcengine_speech.get_enabled_vendors")
+    @patch("evoflow.persistence.media_settings.get_enabled_vendors")
     def test_disabled(self, mock_vendors):
         mock_vendors.return_value = {"volcengine-tts": False}
         assert get_enabled_vendors_safe() is False
@@ -427,11 +427,12 @@ class TestParseTtsNdjson:
         with pytest.raises(RuntimeError, match="empty audio"):
             _parse_tts_ndjson("[DONE]")
 
-    def test_non_json_line_skipped(self):
+    def test_non_json_line_raises(self):
+        """非 JSON 行（[DONE] 以外）= 响应损坏，宁报错勿静默跳过。"""
         chunk = json.dumps({"code": 0, "data": "AQID"})
         body = "not json\n" + chunk
-        result = _parse_tts_ndjson(body)
-        assert result == b"\x01\x02\x03"
+        with pytest.raises(RuntimeError, match="invalid NDJSON"):
+            _parse_tts_ndjson(body)
 
 
 # =============================================================================

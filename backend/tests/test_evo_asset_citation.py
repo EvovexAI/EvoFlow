@@ -27,6 +27,26 @@ def test_strip_loose_citation_entries_kb_leak():
     assert parsed["entries"][0]["path"] == "kb_ed4de5d2768e4a398753533ea7ed5234"
 
 
+def test_rejects_bare_note_only_lines():
+    raw = (
+        "<evo-asset-citation>\n"
+        "<citation_entries>\n"
+        "note=[SKILL.md 格式与加载机制]\n"
+        "note=[Codex 对照矩阵与定位，无 ZCode 章节]\n"
+        "memory/facts/foo.md|note=[有效]\n"
+        "craft/bar.md note=[缺管道符]\n"
+        "</citation_entries>\n"
+        "</evo-asset-citation>"
+    )
+    parsed = extract_evo_asset_citations(raw)
+    assert [e["path"] for e in parsed["entries"]] == [
+        "memory/facts/foo.md",
+        "craft/bar.md",
+    ]
+    assert parsed["entries"][0]["note"] == "有效"
+    assert parsed["entries"][1]["note"] == "缺管道符"
+
+
 def test_strip_orphan_citation_entries():
     raw = "正文\n\n<citation_entries>\nmemory/a.md|note=[x]\n</citation_entries>"
     parsed = extract_evo_asset_citations(raw)

@@ -17,13 +17,14 @@ from __future__ import annotations
 import asyncio
 import time
 from collections import deque
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Awaitable, Callable
 from typing import Any
 
 from loguru import logger
 
 from pipecat.frames.frames import (
     EndFrame,
+    ErrorFrame,
     Frame,
     InputAudioRawFrame,
     InterimTranscriptionFrame,
@@ -39,6 +40,10 @@ from pipecat.services.stt_service import STTService
 from pipecat.transcriptions.language import Language
 from pipecat.utils.time import time_now_iso8601
 
+from app.gateway.speech.runtime.asr_errors import (
+    asr_auth_error_user_message,
+    is_asr_auth_error,
+)
 from app.gateway.speech.voice_file_log import voice_log
 
 # 16kHz mono s16le · ~200ms ticks keep Volc ASR session warm
@@ -91,6 +96,16 @@ class EvoSTTService(STTService):
         # interim 冲成 finalized，让 0.9s SpeechTimeout 能收口。
         self._last_interim_text = ""
         self._finalized_this_utt = False
+        # 鉴权失败后停止重建；避免 401 风暴
+        self._auth_fatal = False
+        self._auth_error_notified = False
+        # 可选：宿主直接收致命错误（比 ErrorFrame 穿整条 Pipecat 管线更稳）
+        self._on_fatal_error: Callable[[str], Awaitable[None] | None] | None = None
+
+    def set_fatal_error_handler(
+        self, handler: Callable[[str], Awaitable[None] | None] | None
+    ) -> None:
+        self._on_fatal_error = handler
 
     def set_provider(self, provider: str | None) -> None:
         if provider:
@@ -342,6 +357,8 @@ class EvoSTTService(STTService):
             return
 
     def _schedule_rebuild(self) -> None:
+        if self._auth_fatal:
+            return
         if self._rebuild_task and not self._rebuild_task.done():
             return
         try:
@@ -366,12 +383,33 @@ class EvoSTTService(STTService):
             fut.add_done_callback(_done)
 
     async def _rebuild_session(self) -> None:
+        if self._auth_fatal:
+            return
         if self._session and not self._session_dead:
             return
         voice_log("管线", "ASR 会话已死 → 立即重建（保证下一轮能识别）")
         await self._close_session()
         await self._ensure_session()
         await self._ensure_keepalive()
+
+    async def _notify_auth_fatal(self, msg: str) -> None:
+        if self._auth_error_notified:
+            return
+        self._auth_error_notified = True
+        friendly = asr_auth_error_user_message()
+        voice_log("语音转文字", f"ASR 鉴权失败 → 停止重建并通知前端：{msg}")
+        handler = self._on_fatal_error
+        if handler is not None:
+            try:
+                maybe = handler(friendly)
+                if maybe is not None and asyncio.iscoroutine(maybe):
+                    await maybe
+            except Exception as e:
+                logger.warning(f"{self} ASR auth fatal handler failed: {e}")
+        try:
+            await self.push_frame(ErrorFrame(error=friendly))
+        except Exception as e:
+            logger.warning(f"{self} push ASR auth ErrorFrame failed: {e}")
 
     async def _ensure_unmute_safety(self) -> None:
         await self._cancel_unmute_safety()
@@ -407,9 +445,20 @@ class EvoSTTService(STTService):
         self._session_dead = True
         self._session = None
         voice_log("语音转文字", f"ASR 错误 provider={self._provider}：{msg}")
+        if is_asr_auth_error(msg):
+            self._auth_fatal = True
+            try:
+                loop = self._loop or asyncio.get_running_loop()
+            except RuntimeError:
+                loop = None
+            if loop is not None and loop.is_running():
+                loop.create_task(self._notify_auth_fatal(str(msg)))
+            return
         self._schedule_rebuild()
 
     async def _ensure_session(self) -> None:
+        if self._auth_fatal:
+            return
         if self._session:
             return
         from app.gateway.speech.asr_registry import create_asr_session

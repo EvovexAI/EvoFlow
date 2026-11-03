@@ -34,11 +34,13 @@ DEFAULT_ASR_RESOURCE_ID = "volc.bigasr.auc_turbo"
 DEFAULT_AGENT_PLAN_ASR_RESOURCE_ID = "volc.seedasr.sauc.duration"
 
 
-def _tts_audio_params() -> dict:
+def _tts_audio_params(tone: dict | None = None) -> dict:
+    from app.gateway.speech.runtime.emotion import tone_speech_rate
+
     return {
         "format": "mp3",
         "sample_rate": 24000,
-        "speech_rate": DEFAULT_TTS_SPEECH_RATE,
+        "speech_rate": tone_speech_rate(DEFAULT_TTS_SPEECH_RATE, tone),
     }
 
 SPEECH_CONSOLE_URL = "https://console.volcengine.com/speech/service/8"
@@ -279,6 +281,10 @@ def _parse_tts_ndjson(body: str) -> bytes:
             idx += 1
         if idx >= len(raw):
             break
+        # [DONE] 哨兵行：流式路径同样跳过；其余非 JSON 仍视为损坏响应报错
+        if raw.startswith("[DONE]", idx):
+            idx += 6
+            continue
         try:
             obj, end = decoder.raw_decode(raw, idx)
         except json.JSONDecodeError as e:
@@ -413,6 +419,7 @@ async def synthesize_speech_v3_stream(
     speaker: str | None = None,
     preview: bool = False,
     session_uid: str | None = None,
+    tone: dict | None = None,
 ):
     """Streaming version of synthesize_speech_v3 — yields audio chunks as they arrive.
 
@@ -433,16 +440,22 @@ async def synthesize_speech_v3_stream(
     req_params: dict = {
         "text": text[:4000],
         "speaker": use_speaker,
-        "audio_params": _tts_audio_params(),
+        "audio_params": _tts_audio_params(tone=tone),
     }
+    additions: dict = {}
     if preview:
-        req_params["additions"] = _json.dumps(
+        additions.update(
             {
                 "cache_config": {"text_type": 1, "use_cache": False},
                 "section_id": str(uuid.uuid4()),
-            },
-            ensure_ascii=False,
+            }
         )
+    # 情绪：音色不支持时服务端忽略该参数（文档：需音色本身支持情感）
+    if tone and tone.get("emotion"):
+        additions["emotion"] = str(tone["emotion"])
+        additions["emotion_scale"] = int(tone.get("emotion_scale") or 4)
+    if additions:
+        req_params["additions"] = _json.dumps(additions, ensure_ascii=False)
     uid = (session_uid or "").strip() or (
         f"evoflow-{'preview' if preview else 'chat'}-{uuid.uuid4().hex[:12]}"
     )
@@ -546,7 +559,8 @@ def _parse_asr_flash_response(resp: httpx.Response) -> str:
         return text
     utterances = result.get("utterances")
     if isinstance(utterances, list):
-        parts = [str(u.get("text") or "").strip() for u in utterances if isinstance(u, dict)]
+        # 只去行首空白、保留行尾：英文「hello 」+「world」拼出空格，中文「你」+「好」仍紧连
+        parts = [str(u.get("text") or "").lstrip() for u in utterances if isinstance(u, dict)]
         joined = "".join(p for p in parts if p)
         if joined:
             return joined

@@ -45,10 +45,12 @@
 | 层 | 每轮注入 | 真源 / 用途 |
 |----|----------|-------------|
 | **L0 岗位** | `system_prompt` / soul | **只**职责骨架、输出格式、硬闸门 |
-| **L1 standing** | `memory/standing.md` 摘要（约 1200 字） | 偏好、Tips、**What's in Memory** 指针 |
+| **L1 standing** | `memory/standing.md` 摘要（约 1200 字） | 偏好、Tips、**What's in Memory** 指针（产品名「记忆摘要」——总览派生页，非第三种正文） |
 | **L2 catalog** | craft / facts / episodic / journal **短标题全量** + `MEMORY.md` | 发现用；不灌正文 |
 | **L3 正文** | 不默认注入 | `assets` read/search 按需打开 |
 | **L4 inbox** | 未合并 notes 预览 | Phase2 前可见 |
+
+产品 IA：**记忆摘要** standing＝总览；正文两类——**条目** `facts/`（明细）、**过程** `episodic/`。对话 when/what/write/update/load 决策表见 `read_path.md`。
 
 **禁止双写**：制度 / 踩坑 / 可复用做法 → `assets` note → Phase2 → craft/MEMORY/standing。  
 **禁止**再 `agents.update` 把经验全文塞进 `system_prompt`（与资产漂移）。岗位说明书里最多一行指针：「详见 craft/…」。
@@ -64,10 +66,10 @@
 | 路径 | 用途 | 写入规则 |
 |------|------|---------|
 | `profile/` | 身份、偏好、人设 | `assets(action="profile")`；默认 append，`query=replace` 全量重写 |
-| `memory/standing.md` | 启动摘要（≥2 字符） | Phase2 自动生成，**禁止直接写** |
+| `memory/standing.md` | 记忆摘要 / 启动总览（≥2 字符） | Phase2 自动生成，**禁止直接写** |
 | `memory/MEMORY.md` | 索引（指针 + 标签 + 日期） | Phase2 维护；对话**禁止**手改 |
-| `memory/facts/` | 稳定事实、命名约定、配置 | Phase2 合并；对话用 `[preference]` note |
-| `memory/episodic/` | 流程复盘（某次具体任务） | Phase2 合并后；对话 inbox 标签 `[process]` |
+| `memory/facts/` | 条目：稳定事实、偏好、命名约定（明细） | Phase2 合并；对话用 `[preference]` note |
+| `memory/episodic/` | 过程：某次对话/任务复盘 | Phase2 合并后；对话 inbox 标签 `[process]` |
 | `memory/journal/` | 反思、教训、错误回顾 | Phase2 / hub；对话 inbox 标签 `[reflection]`；正式文件 `memory/journal/<topic-slug>.md`（**文件名不要年月日**，日期只写 frontmatter） |
 | `memory/_inbox/notes/` | **写入入口**（4 类标签） | 一律 `assets note` 先入 inbox，**Phase 2 合并** |
 | `memory/_inbox/_done/` | Phase2 合并后归档（从未销毁） | Phase2 自动写入，**不要手动编辑** |
@@ -85,7 +87,7 @@
 | step | 工具 | 路径 | 首行 tag |
 |------|------|------|---------|
 | 1. 选 type | —— | —— | `experience` / `process` / `reflection` / `preference` |
-| 2. 问用户 | （口头一句即可） | —— | （见 §4 沉淀邀约；用户已点「沉淀」按钮则跳过） |
+| 2. 高信号直接写 | —— | —— | 解法 / 常规流程 / 偏好默认**不问**（见 §4）；仅敏感/边界不清才问 |
 | 3. 写 inbox | `assets` `action=note` | 实体根 `memory/_inbox/notes/<slug>.md` | `[type]` |
 | 4. 索引 / standing | —— | Phase2 自动更新 `MEMORY.md` / `standing.md` | **禁止**对话里手改 |
 
@@ -127,30 +129,27 @@
 
 ---
 
-## 4. 沉淀邀约（写之前先问）
+## 4. 何时记（默认直写，少打扰）
 
-只有当你确信这段知识有复用价值时，**先简短问用户一句**，同意再写：
+用户往往不想多回复确认。**高信号内容默认同轮直写**，写完可用一句话告知「已记下…」，**不要卡着等用户点头**。
 
-| 触发场景 | 推荐类型 |
-|---------|---------|
-| 同一踩坑出现 ≥2 次 / 用户反复纠正 | `[experience]` |
-| 形成可复用做事流程（多步、有输入输出） | `[process]` |
-| 对自身行为/决策的反思 | `[reflection]` |
-| 用户稳定偏好（语言/风格/工具栈） | `[preference]` note，或 `assets(action="profile", path="preferences")` |
-
-**绕过询问的明确情形**（用户已经说了）：
-
-- 用户说「以后就这样」「记住这个」「这是我的偏好」 → 直接 `assets note` / `profile`，无需再问。
-- 用户主动说「记下来」「写一下笔记」或点了侧栏「记录过程 / 沉淀经验 / 反思」 → 直接写。
+| 触发场景 | 推荐类型 | 是否先问 |
+|---------|---------|---------|
+| 用户稳定偏好（语言/风格/工具栈） | `[preference]` 或 `assets profile` | **不问**，同轮写 |
+| 本轮已跑通的解法、踩坑→修复、可复用常规流程 | `[experience]` / `[process]` | **不问**，同轮写 |
+| 本轮高信号过程摘要（结论/约定） | `[process]` | **不问**，同轮写 |
+| 有复用价值的短反思 | `[reflection]` | **不问**；若偏隐私/评判用户本人则先问 |
+| 敏感边界、未采纳脑暴、用户刚否定过的内容 | 视情况 | **先问一句** |
+| 用户说「记住 / 记下来」或点了侧栏沉淀按钮 | 对应标签 | **不问**，立刻写 |
 
 **禁止沉淀**：
 
 - 一次性测试输出、调试流水
 - 会话碎片（"刚才我说的那句…"）
 - UI 微调结果、空泛闲聊
-- 用户**未确认**的猜测或推论
+- 未经证据的猜测或推论
 
-**写法**：用户同意后，**立刻** `assets(action="note", content="[experience] …")` + 一句话确认（「已写入 `[experience] …`」），**不要**长篇解释写盘机制。
+**写法**：高信号时**立刻** `assets(action="note", content="[experience] …")`，回复里可带一句「已记下…」；**不要**长篇解释写盘机制，也**不要**为常规解法/流程专门开一轮确认问答。
 
 ---
 
@@ -236,10 +235,9 @@
 ```
 场景：用户问「为什么这两次登录都失败」→ 你排查出是因为 token 过期
 
-1. 识别：反复出错点 → 更宜 [experience]（可复用避坑）或 [reflection]
-2. 询问：「这是否要沉淀成经验，避免下次重蹈覆辙？」
-3. 用户同意 → assets(action="note", content="[experience] 登录失败·token 过期\n\n…")
-   （Phase2 合并；不要手改 MEMORY.md）
+1. 识别：已跑通的解法 / 可复用避坑 → [experience]（不问用户）
+2. 同轮 assets(action="note", content="[experience] 登录失败·token 过期\n\n…")
+3. 回复里一句「已记下这条避坑」即可（Phase2 合并；不要手改 MEMORY.md）
 ```
 
 ---

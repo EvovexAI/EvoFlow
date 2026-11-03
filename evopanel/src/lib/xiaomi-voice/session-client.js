@@ -76,6 +76,56 @@ let _phaseUnsub = null
 let _lastSentPhase = ''
 /** 是否已向当前 WS 发送过 start（等 ready 后再发，避免 start 建管线失败直接掐连接） */
 let _startSent = false
+/**
+ * 断线自愈：意外断开时自动重连（指数退避，最多 5 次）。
+ * 用户主动 stopXiaomiFrameSession 置 _suppressReconnect，绝不抢连。
+ */
+let _reconnectAttempts = 0
+let _reconnectTimer = 0
+let _suppressReconnect = false
+const RECONNECT_MAX_ATTEMPTS = 5
+const RECONNECT_BASE_MS = 800
+
+function _emitSessionEvent(ev) {
+  try {
+    _onEvent?.(ev)
+  } catch {
+    /* ignore */
+  }
+}
+
+function _clearReconnectTimer() {
+  if (_reconnectTimer) {
+    window.clearTimeout(_reconnectTimer)
+    _reconnectTimer = 0
+  }
+}
+
+function _scheduleReconnectIfNeeded(hadSession) {
+  if (!hadSession) return
+  if (_suppressReconnect) {
+    _clearReconnectTimer()
+    return
+  }
+  if (_reconnectAttempts >= RECONNECT_MAX_ATTEMPTS) {
+    voiceFeLog('会话', `断线重连 ${_reconnectAttempts} 次未成功 → 放弃（语音会话已丢失）`)
+    _emitSessionEvent({ type: 'session_lost', attempts: _reconnectAttempts })
+    return
+  }
+  const delay = Math.min(8000, RECONNECT_BASE_MS * 2 ** _reconnectAttempts)
+  _reconnectAttempts += 1
+  voiceFeLog(
+    '会话',
+    `断线 → ${delay}ms 后自动重连（第 ${_reconnectAttempts}/${RECONNECT_MAX_ATTEMPTS} 次）`,
+  )
+  _emitSessionEvent({ type: 'session_reconnecting', attempt: _reconnectAttempts })
+  _clearReconnectTimer()
+  _reconnectTimer = window.setTimeout(() => {
+    _reconnectTimer = 0
+    if (_suppressReconnect || isXiaomiFrameSessionActive() || _connecting) return
+    void connectXiaomiFrameSession()
+  }, delay)
+}
 /** @type {{ asr: string, tts: string, speaker: string, tid: string } | null} */
 let _pendingStart = null
 
@@ -89,7 +139,7 @@ function _ensurePhaseWire() {
 
 function _sendStartIfNeeded(reason = 'ready') {
   if (_startSent || !_pendingStart || !isXiaomiFrameSessionActive()) return
-  const { asr, tts, speaker, tid } = _pendingStart
+  const { asr, tts, speaker, tid, silenceMs } = _pendingStart
   _startSent = true
   try {
     _ws.send(
@@ -99,11 +149,14 @@ function _sendStartIfNeeded(reason = 'ready') {
         tts_provider: tts,
         trace_id: tid,
         speaker,
+        ...(silenceMs ? { silence_ms: silenceMs } : {}),
       }),
     )
     voiceFeLog(
       '会话',
-      `发送 start（${reason}）ASR=${asr} TTS=${tts} 音色=${speaker} TRACE=${tid}`,
+      `发送 start（${reason}）ASR=${asr} TTS=${tts} 音色=${speaker}` +
+        (silenceMs ? ` 判停=${silenceMs}ms` : '') +
+        ` TRACE=${tid}`,
     )
   } catch (e) {
     _startSent = false
@@ -136,6 +189,8 @@ async function _sessionUrl() {
 export async function connectXiaomiFrameSession() {
   if (isXiaomiFrameSessionActive()) return _ws
   if (_connecting) return _connecting
+  _suppressReconnect = false
+  _reconnectAttempts = 0
   _connecting = (async () => {
     try {
       const url = await _sessionUrl()
@@ -165,10 +220,12 @@ export async function connectXiaomiFrameSession() {
           '会话',
           `Frame WS onclose code=${ev?.code ?? '?'} reason=${ev?.reason || '-'} wasClean=${ev?.wasClean ? 1 : 0} startSent=${_startSent ? 1 : 0}`,
         )
+        const hadSession = _startSent
         if (_ws === ws) _ws = null
         _active = false
         _startSent = false
         _teardownAllAudio()
+        _scheduleReconnectIfNeeded(hadSession)
       }
       ws.onerror = () => {
         voiceFeLog('会话', 'Frame WS onerror（随后通常有 onclose）')
@@ -201,7 +258,11 @@ export async function connectXiaomiFrameSession() {
       const speaker = resolveXiaomiTtsSpeaker()
       if (!getXiaomiTtsSpeaker()) setXiaomiTtsSpeaker(speaker)
       const tid = getVoiceTrace() || beginVoiceTrace({ reason: 'frame-session-start' })
-      _pendingStart = { asr, tts, speaker, tid }
+      // 判停静默窗口：默认 900（后端默认），可用 localStorage 调参
+      const silenceRaw = Number(localStorage.getItem('evoflow-voice-turn-silence-ms'))
+      const silenceMs =
+        Number.isFinite(silenceRaw) && silenceRaw >= 300 ? Math.min(silenceRaw, 2000) : null
+      _pendingStart = { asr, tts, speaker, tid, silenceMs }
       voiceFeLog(
         '会话',
         `WebSocket 已连接，等待 ready 再 start ASR=${asr} TTS=${tts} 音色=${speaker} TRACE=${tid}`,
@@ -247,6 +308,10 @@ function _handleJson(m) {
       voiceFeLog('会话', `Frame ready SID=${sid}`)
     }
     if (type === 'ready') {
+      if (_reconnectAttempts) {
+        voiceFeLog('会话', `断线重连成功（第 ${_reconnectAttempts} 次）`)
+        _reconnectAttempts = 0
+      }
       voiceFeLog('会话', `收到 session ready SID=${sid || '-'} → 发送 start`)
       _sendStartIfNeeded('session_ready')
     }
@@ -1121,6 +1186,22 @@ export function sendXiaomiAssistantEnd() {
   }
 }
 
+/**
+ * 直接播一句提示语（走后端 speak op → TTS → 既有播放队列）。
+ * 用于「没听清」等非 agent 回复的语音反馈。
+ */
+export function sendXiaomiSpeak(text, { seq } = {}) {
+  const t = String(text || '').trim()
+  if (!isXiaomiFrameSessionActive() || !t) return false
+  try {
+    _ws.send(JSON.stringify({ type: 'speak', text: t, seq: Number(seq) || 0 }))
+    voiceFeLog('播报', `直接播报提示语：「${t.slice(0, 40)}」`)
+    return true
+  } catch {
+    return false
+  }
+}
+
 /** @type {number} */
 let _lastBargeAt = 0
 /** @type {string} */
@@ -1193,6 +1274,8 @@ export function bargeInXiaomiFrame(opts = {}) {
 
 export function stopXiaomiFrameSession() {
   if (_active) voiceFeLog('会话', '关闭 Frame session')
+  _suppressReconnect = true
+  _clearReconnectTimer()
   bargeInXiaomiFrame()
   try {
     _ws?.send(JSON.stringify({ type: 'stop' }))

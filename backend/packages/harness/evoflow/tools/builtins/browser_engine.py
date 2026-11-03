@@ -944,7 +944,9 @@ class BrowserEngine:
         """Dispatch one ZCode-style browser command.  See :mod:`browser_contract`."""
         started = time.time()
         method = str(command.get("method") or "")
-        logger.info(
+        # tabList is polled by the panel every few seconds — keep at DEBUG.
+        _exec_log = logger.debug if method in {"tabList", "tabs", "listTabs"} else logger.info
+        _exec_log(
             "browser_engine.execute thread=%s method=%s timeout=%s",
             thread_id,
             method,

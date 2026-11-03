@@ -48,6 +48,41 @@ def strip_markdown_light(text: str) -> str:
     return s.strip()
 
 
+# TTS 念 URL/邮箱是「一长串英文字母」——语音场景最廉价感的瞬间；合成前口语化。
+_URL_RE = re.compile(r"(?:https?://|www\.)\S+", re.IGNORECASE)
+_EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
+_LONG_ASCII_RUN_RE = re.compile(r"[A-Za-z0-9_./\\:-]{18,}")
+# LLM 内联语气标记（[[tone:gentle]]）— 解析消费留待 agent prompt 侧启用，先剥防念出来
+_TONE_MARK_RE = re.compile(r"\[\[\s*tone\s*:\s*[^\]]*\]\]", re.IGNORECASE)
+# 书面腔确定性改写（模型漏网的机械感；只做高置信替换，宁少勿滥）
+_BOOKISH_CONNECTIVE_RE = re.compile(r"(?:首先|其次|再者|此外|另外|总之|综上(?:所述)?|总的?[来讲]说|一般来[说讲])，\s*")
+_VERB_DONE_RE = re.compile(r"进行了(处理|检查|确认|沟通|修改|更新|优化|调整|测试|部署)")
+_VERB_TODO_RE = re.compile(r"进行(?=处理|检查|确认|沟通|修改|更新|优化|调整|测试|部署)")
+_BOOKISH_PHRASE_RE = re.compile(r"如果需要的话|如果需要可|如有需要")
+_CHINESE_COLON_RE = re.compile(r"([\u4e00-\u9fff])：")
+
+
+def _spokenize(text: str) -> str:
+    """书面腔 → 口语（TTS 兜底润色）。"""
+    s = _BOOKISH_CONNECTIVE_RE.sub("", text)
+    s = _VERB_DONE_RE.sub(r"\1了", s)
+    s = _VERB_TODO_RE.sub("", s)
+    s = _BOOKISH_PHRASE_RE.sub("要的话", s)
+    # 中文冒号后接内容时念着生硬 → 逗号（时间 3：30 不受影响，仅限中文冒号）
+    s = _CHINESE_COLON_RE.sub(r"\1，", s)
+    return s
+
+
+def normalize_for_tts(text: str) -> str:
+    """口语化改写不适合朗读的 token（URL/邮箱/超长 ASCII 串），供 TTS 前调用。"""
+    s = _TONE_MARK_RE.sub("", str(text or ""))
+    s = _URL_RE.sub("链接", s)
+    s = _EMAIL_RE.sub("邮箱地址", s)
+    # 兜底：剩余超长 ASCII（路径/哈希/代码标识符）——念出来没人听得懂
+    s = _LONG_ASCII_RUN_RE.sub("标识符", s)
+    return _spokenize(s)
+
+
 class SentenceAggregator(FrameProcessor):
     """Accumulate LLMTextFrame → emit TTSRequestFrame per sentence."""
 

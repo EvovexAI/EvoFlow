@@ -259,11 +259,111 @@ def _model_stream(text: str) -> tuple[str, bool]:
     return _persisted_output_envelope(raw, path), True
 
 
-def _kill_process_tree(pid: int) -> None:
+# LibreOffice ``soffice`` often detaches from the bash→python parent on Windows.
+# Killing only the tool PID leaves orphan soffice.bin holding the .xlsx lock and
+# blocking the next turn — look like "runtime stopped".
+_LIBREOFFICE_RISK_RE = re.compile(
+    r"(?i)(?:\bsoffice(?:\.bin|\.exe|\.com)?\b|\blibreoffice\b|"
+    r"xlsx\.py\s+(?:recalc|chart-verify)|RecalculateAndSave)"
+)
+
+# tool_call_id / invocation → live Popen + command (so middleware timeout can hard-kill).
+_ACTIVE_BASH_PROCS: dict[str, tuple[subprocess.Popen, str]] = {}
+_ACTIVE_BASH_PROCS_LOCK = threading.Lock()
+
+
+def _is_libreoffice_risk_command(command: str) -> bool:
+    return bool(_LIBREOFFICE_RISK_RE.search(str(command or "")))
+
+
+def _kill_libreoffice_orphans() -> None:
+    """Force-kill detached LibreOffice processes (Windows + Unix best-effort)."""
+    if sys.platform == "win32":
+        for name in ("soffice.bin", "soffice.exe", "soffice.com"):
+            try:
+                subprocess.run(
+                    ["taskkill", "/F", "/IM", name],
+                    capture_output=True,
+                    timeout=8,
+                    **_no_window(),
+                )
+            except Exception:
+                pass
+        return
+    for name in ("soffice.bin", "soffice", "libreoffice"):
+        try:
+            subprocess.run(["pkill", "-9", "-f", name], capture_output=True, timeout=5)
+        except Exception:
+            pass
+
+
+def _register_active_bash(key: str, proc: subprocess.Popen, command: str = "") -> None:
+    kid = str(key or "").strip()
+    if not kid:
+        return
+    with _ACTIVE_BASH_PROCS_LOCK:
+        _ACTIVE_BASH_PROCS[kid] = (proc, str(command or ""))
+
+
+def _unregister_active_bash(key: str, proc: subprocess.Popen | None = None) -> None:
+    kid = str(key or "").strip()
+    if not kid:
+        return
+    with _ACTIVE_BASH_PROCS_LOCK:
+        cur = _ACTIVE_BASH_PROCS.get(kid)
+        if cur is None:
+            return
+        if proc is not None and cur[0] is not proc:
+            return
+        _ACTIVE_BASH_PROCS.pop(kid, None)
+
+
+def force_kill_active_bash(
+    *,
+    reason: str = "",
+    tool_call_id: str | None = None,
+    sweep_libreoffice: bool | None = None,
+) -> int:
+    """Hard-kill live bash pops (and LibreOffice orphans when the command was LO-risk).
+
+    Returns number of process trees signalled. LibreOffice orphan sweep defaults to
+    only when a killed command matched soffice/xlsx recalc — avoids nuking a user's
+    open Calc window on unrelated bash timeouts.
+    """
+    del reason  # logged by caller
+    killed = 0
+    lo_sweep = False
+    with _ACTIVE_BASH_PROCS_LOCK:
+        if tool_call_id:
+            items = [(tool_call_id, _ACTIVE_BASH_PROCS.get(str(tool_call_id)))]
+        else:
+            items = list(_ACTIVE_BASH_PROCS.items())
+    for key, entry in items:
+        if entry is None:
+            continue
+        proc, command = entry
+        if _is_libreoffice_risk_command(command):
+            lo_sweep = True
+        try:
+            if proc.poll() is None and proc.pid:
+                _kill_process_tree(int(proc.pid), also_libreoffice=False)
+                killed += 1
+        except Exception:
+            pass
+        _unregister_active_bash(str(key), proc)
+    if sweep_libreoffice is None:
+        sweep_libreoffice = lo_sweep
+    if sweep_libreoffice:
+        _kill_libreoffice_orphans()
+    return killed
+
+
+def _kill_process_tree(pid: int, *, also_libreoffice: bool = False) -> None:
     """Best-effort kill of *pid* and descendants.
 
     Git Bash spawns ``git.exe`` children. On Windows, ``Popen.kill()`` only stops the
     shell; children keep stdout pipes open and ``communicate()`` hangs past timeout.
+    LibreOffice additionally detaches — pass ``also_libreoffice=True`` on tool timeout.
     """
     if pid <= 0:
         return
@@ -280,6 +380,8 @@ def _kill_process_tree(pid: int) -> None:
                 os.kill(pid, 9)
             except OSError:
                 pass
+        if also_libreoffice:
+            _kill_libreoffice_orphans()
         return
     try:
         os.killpg(pid, 9)
@@ -288,6 +390,8 @@ def _kill_process_tree(pid: int) -> None:
             os.kill(pid, 9)
         except OSError:
             pass
+    if also_libreoffice:
+        _kill_libreoffice_orphans()
 
 
 def _is_windows_wsl_or_store_bash(path: Path | str) -> bool:
@@ -774,38 +878,47 @@ def _run_foreground(
     timed_out = False
     stdout = ""
     stderr = ""
+    lo_risk = _is_libreoffice_risk_command(command)
+    _register_active_bash(invocation, proc, command)
     try:
-        stdout, stderr = proc.communicate(timeout=blocking_ms / 1000.0)
-    except subprocess.TimeoutExpired as exc:
-        if blocking_ms < timeout_ms:
-            return _promote_to_background(
-                proc,
-                command=command,
-                cwd=cwd,
-                tool_call_id=tool_call_id,
-                description=description,
-                thread_id=thread_id,
-                session_key=session_key,
-                partial_stdout=exc.stdout if isinstance(exc.stdout, str) else "",
-                partial_stderr=exc.stderr if isinstance(exc.stderr, str) else "",
-            )
-        timed_out = True
-        _kill_process_tree(proc.pid)
         try:
-            leftover = proc.communicate(timeout=2.0)
-            stdout = leftover[0] or ""
-            stderr = leftover[1] or ""
-        except Exception:
+            stdout, stderr = proc.communicate(timeout=blocking_ms / 1000.0)
+        except subprocess.TimeoutExpired as exc:
+            # Soft assistant budget normally backgrounds long commands. LibreOffice
+            # detaches from the process tree — backgrounding leaves orphan soffice
+            # holding the .xlsx lock and poisons the next turn. Soft-land as timeout.
+            if blocking_ms < timeout_ms and not lo_risk:
+                _unregister_active_bash(invocation, proc)
+                return _promote_to_background(
+                    proc,
+                    command=command,
+                    cwd=cwd,
+                    tool_call_id=tool_call_id,
+                    description=description,
+                    thread_id=thread_id,
+                    session_key=session_key,
+                    partial_stdout=exc.stdout if isinstance(exc.stdout, str) else "",
+                    partial_stderr=exc.stderr if isinstance(exc.stderr, str) else "",
+                )
+            timed_out = True
+            _kill_process_tree(int(proc.pid or 0), also_libreoffice=lo_risk)
             try:
-                proc.kill()
-            except OSError:
-                pass
-            try:
-                leftover = proc.communicate(timeout=1.0)
+                leftover = proc.communicate(timeout=2.0)
                 stdout = leftover[0] or ""
                 stderr = leftover[1] or ""
             except Exception:
-                stdout, stderr = "", ""
+                try:
+                    proc.kill()
+                except OSError:
+                    pass
+                try:
+                    leftover = proc.communicate(timeout=1.0)
+                    stdout = leftover[0] or ""
+                    stderr = leftover[1] or ""
+                except Exception:
+                    stdout, stderr = "", ""
+    finally:
+        _unregister_active_bash(invocation, proc)
 
     if timed_out:
         _emit("stdout", invocation_id=invocation, tool_call_id=tool_call_id, text=stdout)

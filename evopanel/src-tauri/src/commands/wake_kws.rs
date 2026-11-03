@@ -217,6 +217,41 @@ fn spawn_reader(app: AppHandle, stdout: std::process::ChildStdout, ready_tx: std
     .ok();
 }
 
+fn spawn_stderr_capture(
+  stderr: std::process::ChildStderr,
+  tail: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
+) {
+  thread::Builder::new()
+    .name("wake-kws-stderr".into())
+    .spawn(move || {
+      let reader = BufReader::new(stderr);
+      for line in reader.lines() {
+        let Ok(line) = line else { break };
+        let line = line.trim().to_string();
+        if line.is_empty() {
+          continue;
+        }
+        eprintln!("[wake-kws][sidecar] {line}");
+        if let Ok(mut buf) = tail.lock() {
+          buf.push(line);
+          // 只留最后 20 行，够定位崩溃即可
+          let len = buf.len();
+          if len > 20 {
+            buf.drain(..len - 20);
+          }
+        }
+      }
+    })
+    .ok();
+}
+
+fn stderr_tail(tail: &std::sync::Arc<std::sync::Mutex<Vec<String>>>) -> String {
+  match tail.lock() {
+    Ok(buf) if !buf.is_empty() => buf.join(" | "),
+    _ => String::new(),
+  }
+}
+
 fn stop_session_locked(slot: &mut Option<WakeKwsSession>) {
   let Some(mut sess) = slot.take() else {
     return;
@@ -264,8 +299,12 @@ pub fn wake_kws_start(
     .current_dir(&sidecar_dir)
     .stdin(Stdio::piped())
     .stdout(Stdio::piped())
-    .stderr(Stdio::inherit())
+    // GUI 进程（windows_subsystem）下 inherit 会把无效 stdio 句柄传给子进程，
+    // node/libuv 拿到非法句柄会启动即崩（症状：exited before ready，~100ms）。
+    // 必须用管道给 node 合法句柄；顺带捕获 stderr 用于诊断。
+    .stderr(Stdio::piped())
     .env("PATH", enhanced_path());
+  crate::commands::backend::apply_instance_resource_marker(&mut cmd);
   apply_windows_stdio_env(&mut cmd);
   #[cfg(target_os = "windows")]
   {
@@ -285,9 +324,16 @@ pub fn wake_kws_start(
     .stdout
     .take()
     .ok_or_else(|| "kws-sidecar stdout unavailable".to_string())?;
+  let stderr = child
+    .stderr
+    .take()
+    .ok_or_else(|| "kws-sidecar stderr unavailable".to_string())?;
 
   let (ready_tx, ready_rx) = std::sync::mpsc::channel();
   spawn_reader(app.clone(), stdout, ready_tx);
+  let stderr_log: std::sync::Arc<std::sync::Mutex<Vec<String>>> =
+    std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+  spawn_stderr_capture(stderr, stderr_log.clone());
 
   let mut init = serde_json::json!({
     "type": "init",
@@ -307,14 +353,21 @@ pub fn wake_kws_start(
       Ok(Ok(())) => break true,
       Ok(Err(e)) => {
         let _ = child.kill();
-        let _ = child.wait();
-        return Err(e);
+        let status = child.wait();
+        let code = status.ok().and_then(|s| s.code()).map(|c| c.to_string());
+        let tail = stderr_tail(&stderr_log);
+        return Err(format!(
+          "{e} (exit={} tail={})",
+          code.as_deref().unwrap_or("?"),
+          if tail.is_empty() { "<stderr 空>" } else { &tail }
+        ));
       }
       Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
         if started.elapsed() > READY_TIMEOUT {
           let _ = child.kill();
           let _ = child.wait();
-          return Err("kws-sidecar ready timeout".into());
+          let tail = stderr_tail(&stderr_log);
+          return Err(format!("kws-sidecar ready timeout tail={tail}"));
         }
       }
       Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {

@@ -70,11 +70,17 @@ import {
   nextStepRef,
   normalizeSteps,
   stepToNodeData,
+  isMissingStepTaskName,
   stepsToExport,
   wouldCreateCycle,
   type AppWorkflowPlan,
   type AppWorkflowStep,
 } from '../lib/app-workflow-plan.ts'
+import {
+  endPaletteDrag,
+  getPaletteDragKind,
+  isPaletteDragKind,
+} from './app-workflow/palette-dnd.ts'
 
 const nodeTypes = { stepNode: StepNode, startNode: StartNode, answerNode: AnswerNode }
 const edgeTypes = { wfEdge: DeletableSmoothStepEdge, smoothstep: DeletableSmoothStepEdge }
@@ -152,13 +158,16 @@ type Props = {
   goal: string
   steps: Array<Record<string, unknown>>
   canvas?: AppCanvasJson | Record<string, unknown> | null
-  onSave: (plan: AppWorkflowPlan) => Promise<void>
+  /** Return false to abort (e.g. user cancelled published-save confirm). */
+  onSave: (plan: AppWorkflowPlan) => Promise<void | boolean>
   /** Return false to abort (e.g. user dismissed soft publish warnings). */
   onPublish: (plan: AppWorkflowPlan) => Promise<void | boolean>
   variant?: 'default' | 'fullscreen'
   onOpenAppSettings?: () => void
   onOpenHistory?: () => void
   onOpenVersions?: () => void
+  onOpenAudit?: () => void
+  onOpenHowToUse?: () => void
   onOpenApiAccess?: () => void
   appName?: string
   appStatus?: string
@@ -249,6 +258,7 @@ function FlowInner({
   runAction,
   onDropAgent,
   onDropAnswer,
+  onDropTemplate,
   dragOver,
   setDragOver,
   arrangeActionRef,
@@ -274,8 +284,9 @@ function FlowInner({
   deleteSelected: () => void
   busy: 'save' | 'publish' | null
   runAction: (kind: 'save' | 'publish') => void
-  onDropAgent: (pos: { x: number; y: number }) => void
+  onDropAgent: (pos: { x: number; y: number }, agentCode?: string) => void
   onDropAnswer: (pos: { x: number; y: number }) => void
+  onDropTemplate: (pos: { x: number; y: number }) => void
   dragOver: boolean
   setDragOver: (v: boolean) => void
   arrangeActionRef?: React.MutableRefObject<(() => void) | null>
@@ -286,38 +297,65 @@ function FlowInner({
 }) {
   const { screenToFlowPosition } = useReactFlow()
 
-  const onDragOver = useCallback((e: React.DragEvent) => {
-    if (![...e.dataTransfer.types].includes(PALETTE_DND_TYPE)) return
-    e.preventDefault()
-    e.dataTransfer.dropEffect = 'copy'
-    setDragOver(true)
-  }, [setDragOver])
+  const readPaletteKind = (dt: DataTransfer): string => {
+    const fromMem = getPaletteDragKind()
+    if (fromMem) return fromMem
+    const custom = dt.getData(PALETTE_DND_TYPE).trim()
+    if (custom) return custom
+    const plain = dt.getData('text/plain').trim()
+    if (plain.startsWith('evoflow-wf:')) return plain.slice('evoflow-wf:'.length)
+    return ''
+  }
 
-  const onDragLeave = useCallback(() => setDragOver(false), [setDragOver])
+  const onDragOver = useCallback(
+    (e: React.DragEvent) => {
+      // 以模块状态为准；勿依赖 dataTransfer.types（WebView 常为空）
+      if (!getPaletteDragKind()) return
+      e.preventDefault()
+      e.stopPropagation()
+      e.dataTransfer.dropEffect = 'copy'
+      setDragOver(true)
+    },
+    [setDragOver],
+  )
+
+  const onDragLeave = useCallback(
+    (e: React.DragEvent) => {
+      // 进入子节点会冒泡 leave，只在真正离开画布容器时清状态
+      const next = e.relatedTarget as EventTarget | null
+      if (next instanceof globalThis.Node && e.currentTarget.contains(next)) return
+      setDragOver(false)
+    },
+    [setDragOver],
+  )
 
   const onDrop = useCallback(
     (e: React.DragEvent) => {
+      const kind = readPaletteKind(e.dataTransfer)
       setDragOver(false)
-      const kind = e.dataTransfer.getData(PALETTE_DND_TYPE)
-      if (kind !== 'agent-step' && kind !== 'answer' && !kind.startsWith('agent:')) return
+      endPaletteDrag()
+      if (!isPaletteDragKind(kind)) return
       e.preventDefault()
+      e.stopPropagation()
       const raw = screenToFlowPosition({ x: e.clientX, y: e.clientY })
       const pos = {
         x: Math.round(raw.x / 20) * 20,
         y: Math.round(raw.y / 20) * 20,
       }
       if (kind === 'answer') onDropAnswer?.(pos)
+      else if (kind === 'template-step') onDropTemplate?.(pos)
+      else if (kind.startsWith('agent:')) onDropAgent?.(pos, kind.slice('agent:'.length))
       else onDropAgent?.(pos)
     },
-    [onDropAgent, onDropAnswer, screenToFlowPosition, setDragOver],
+    [onDropAgent, onDropAnswer, onDropTemplate, screenToFlowPosition, setDragOver],
   )
 
   return (
     <div
       className={`app-rf-flow-wrap${dragOver ? ' is-drag-over' : ''}`}
-      onDragOver={onDragOver}
+      onDragOverCapture={onDragOver}
       onDragLeave={onDragLeave}
-      onDrop={onDrop}
+      onDropCapture={onDrop}
     >
       <ReactFlow
         nodes={nodes}
@@ -468,6 +506,8 @@ export const AppWorkflowCanvas = forwardRef<AppWorkflowCanvasHandle, Props>(func
     onOpenAppSettings,
     onOpenHistory,
     onOpenVersions,
+    onOpenAudit,
+    onOpenHowToUse,
     onOpenApiAccess,
     appName = '',
     appStatus = 'draft',
@@ -790,7 +830,7 @@ export const AppWorkflowCanvas = forwardRef<AppWorkflowCanvasHandle, Props>(func
   )
 
   const addStepAt = useCallback(
-    (position?: { x: number; y: number }, dependsOnPrev = true) => {
+    (position?: { x: number; y: number }, dependsOnPrev = true, kind: 'agent' | 'template' = 'agent') => {
       const steps = flowToSteps(nodes, edges)
       const refId = nextStepRef(steps)
       const prevRef = dependsOnPrev && steps.length ? steps[steps.length - 1].ref : null
@@ -800,12 +840,22 @@ export const AppWorkflowCanvas = forwardRef<AppWorkflowCanvasHandle, Props>(func
         (prevNode
           ? { x: prevNode.position.x + 348, y: prevNode.position.y }
           : defaultNodePosition(steps.length))
-      const newStep: AppWorkflowStep = {
-        ref: refId,
-        name: '',
-        description: '',
-        depends_on: prevRef ? [prevRef] : [],
-      }
+      const newStep: AppWorkflowStep =
+        kind === 'template'
+          ? {
+              ref: refId,
+              name: '',
+              description: '',
+              executor: 'template',
+              template: '',
+              depends_on: prevRef ? [prevRef] : [],
+            }
+          : {
+              ref: refId,
+              name: '',
+              description: '',
+              depends_on: prevRef ? [prevRef] : [],
+            }
       const newNode: Node<StepNodeData> = {
         id: refId,
         type: 'stepNode',
@@ -837,6 +887,11 @@ export const AppWorkflowCanvas = forwardRef<AppWorkflowCanvasHandle, Props>(func
 
   const addStep = useCallback(() => {
     addStepAt(undefined, true)
+  }, [addStepAt])
+
+  /** 模板变换节点：确定性文本变换，不占 LLM worker（F-1）。 */
+  const addTemplateStep = useCallback(() => {
+    addStepAt(undefined, true, 'template')
   }, [addStepAt])
 
   /**
@@ -981,6 +1036,13 @@ export const AppWorkflowCanvas = forwardRef<AppWorkflowCanvasHandle, Props>(func
     [addAnswerAt],
   )
 
+  const onDropTemplate = useCallback(
+    (pos: { x: number; y: number }) => {
+      addStepAt(pos, false, 'template')
+    },
+    [addStepAt],
+  )
+
   const validatePublish = useCallback((): string[] => {
     const problems: string[] = []
     const stepNodes = nodes.filter((n) => n.type === 'stepNode')
@@ -995,8 +1057,35 @@ export const AppWorkflowCanvas = forwardRef<AppWorkflowCanvasHandle, Props>(func
       problems.push('工作流目标为空 — 请在左上角填写这个工作流要做什么')
     }
 
-    // 3. 每个步骤都要有执行 Agent
-    const noAgentSteps = stepNodes.filter((n) => !n.data?.assigned_agent?.trim())
+    // 3. 每个步骤必须有真实任务短名（不能空着或留「步骤 N」）
+    const noNameSteps = stepNodes.filter((n) => isMissingStepTaskName(n.data?.name))
+    if (noNameSteps.length > 0) {
+      const labels = noNameSteps
+        .map((n) => n.data?.name?.trim() || n.data?.goal?.trim() || `节点 ${n.id}`)
+        .slice(0, 3)
+        .join('、')
+      const more = noNameSteps.length > 3 ? ` 等 ${noNameSteps.length} 个` : ''
+      problems.push(
+        `${noNameSteps.length} 个步骤还没写任务名称：${labels}${more} — 选中节点后在右侧填写「任务名称」`,
+      )
+    }
+
+    // 4. 每个步骤都要有执行 Agent（模板变换步除外：不占 LLM worker，但必须有模板内容）
+    const noAgentSteps = stepNodes.filter(
+      (n) => n.data?.executor !== 'template' && !n.data?.assigned_agent?.trim(),
+    )
+    const emptyTemplateSteps = stepNodes.filter(
+      (n) => n.data?.executor === 'template' && !String(n.data?.template || '').trim(),
+    )
+    if (emptyTemplateSteps.length > 0) {
+      const names = emptyTemplateSteps
+        .map((n) => n.data?.name || `步骤 ${n.id}`)
+        .slice(0, 3)
+        .join('、')
+      problems.push(
+        `${emptyTemplateSteps.length} 个模板节点还没写模板内容：${names} — 选中节点后在右侧填写「模板内容」`,
+      )
+    }
     if (noAgentSteps.length > 0) {
       const names = noAgentSteps
         .map((n) => n.data?.name || n.data?.goal || `步骤 ${n.id}`)
@@ -1004,17 +1093,17 @@ export const AppWorkflowCanvas = forwardRef<AppWorkflowCanvasHandle, Props>(func
         .join('、')
       const more = noAgentSteps.length > 3 ? ` 等 ${noAgentSteps.length} 个` : ''
       problems.push(
-        `${noAgentSteps.length} 个步骤还没选执行员工：${names}${more} — 选中节点后在右侧配置「执行员工」`,
+        `${noAgentSteps.length} 个步骤还没选执行者：${names}${more} — 选中节点后在右侧配置「谁来做」`,
       )
     }
 
-    // 4. 最终答案要有连线（只有 1 个步骤时可选提示，不强制）
+    // 5. 最终答案要有连线（只有 1 个步骤时可选提示，不强制）
     const hasAnswerEdge = edges.some((e) => e.target === ANSWER_NODE_ID)
     if (stepNodes.length > 0 && !hasAnswerEdge) {
       problems.push('还没设置「最终答案」— 从某个步骤节点拖一条线到「最终答案」，指定哪一步的结果作为输出')
     }
 
-    // 5. 检查孤立节点（没有任何入边也没有出边的步骤）
+    // 6. 检查孤立节点（没有任何入边也没有出边的步骤）
     const realEdges = edges.filter((e) => e.source !== START_NODE_ID && e.target !== ANSWER_NODE_ID)
     const orphanSteps = stepNodes.filter((n) => {
       const hasIn = realEdges.some((e) => e.target === n.id) || edges.some((e) => e.source === START_NODE_ID && e.target === n.id)
@@ -1062,14 +1151,11 @@ export const AppWorkflowCanvas = forwardRef<AppWorkflowCanvasHandle, Props>(func
           const ok = await onPublish(plan)
           if (ok === false) return
         } else {
-          await onSave(plan)
+          const ok = await onSave(plan)
+          if (ok === false) return
         }
         setDirty(false)
-        if (kind === 'publish') {
-          toast.success('发布成功！', { duration: 2000 })
-        } else {
-          toast.success('已保存', { duration: 1500 })
-        }
+        // 成功提示由页面宿主负责（保存 toast / 发布庆祝），避免重复弹两层
       } catch (e) {
         // P0.5 Final Closure: Show the actual error message (including
         // validator errors from 422 responses) instead of a generic label.
@@ -1194,6 +1280,7 @@ export const AppWorkflowCanvas = forwardRef<AppWorkflowCanvasHandle, Props>(func
         runAction={runAction}
         onDropAgent={onDropAgent}
         onDropAnswer={onDropAnswer}
+        onDropTemplate={onDropTemplate}
         dragOver={dragOver}
         setDragOver={setDragOver}
         arrangeActionRef={arrangeActionRef}
@@ -1214,6 +1301,7 @@ export const AppWorkflowCanvas = forwardRef<AppWorkflowCanvasHandle, Props>(func
     onStepChange: updateSelectedStep,
     onAddStep: addStep,
     onAddStepWithAgent: addStepWithAgent,
+    onAddTemplateStep: addTemplateStep,
     onAddAnswer: addAnswer,
     onDeleteSelected: deleteSelected,
     hasSelection: hasStepSelection || selectedId === ANSWER_NODE_ID || selectedId === START_NODE_ID,
@@ -1248,6 +1336,8 @@ export const AppWorkflowCanvas = forwardRef<AppWorkflowCanvasHandle, Props>(func
               onOpenSettings={onOpenAppSettings}
               onOpenHistory={onOpenHistory}
               onOpenVersions={onOpenVersions}
+              onOpenAudit={onOpenAudit}
+              onOpenHowToUse={onOpenHowToUse || onOpenApiAccess}
               onOpenApiAccess={onOpenApiAccess}
               onOpenDebug={() => setDebugPanelOpen((v) => !v)}
               debugActive={debugPanelOpen}

@@ -399,6 +399,12 @@
           "markdownDescription": "Lets the embed guest answer Runtime.evaluate via invoke."
         },
         {
+          "description": "Allow the resource-manager window to sample CPU/memory snapshots.",
+          "type": "string",
+          "const": "allow-resource-manager",
+          "markdownDescription": "Allow the resource-manager window to sample CPU/memory snapshots."
+        },
+        {
           "description": "Default core plugins set.\n#### This default permission set includes:\n\n- `core:path:default`\n- `core:event:default`\n- `core:window:default`\n- `core:webview:default`\n- `core:app:default`\n- `core:image:default`\n- `core:resources:default`\n- `core:menu:default`\n- `core:tray:default`",
           "type": "string",
           "const": "core:default",

@@ -387,34 +387,14 @@ def _coerce_text_blob(value: Any) -> str:
 
 
 def _subtask_result_text(st: dict[str, Any]) -> str:
-    """Prefer official task_report; fall back to result / summaries / last output."""
+    """F-2 结果契约：薄委托到全仓唯一读取入口 ``get_subtask_result_text``。"""
     try:
-        from evoflow.collab.subtask_outcome import get_subtask_task_report
+        from evoflow.collab.subtask_outcome import get_subtask_result_text
 
-        report = get_subtask_task_report(st)
-        if report:
-            return report
+        return get_subtask_result_text(st)
     except Exception:
         pass
-    for key in (
-        "task_report",
-        "result_summary",
-        "result_text",
-        "output_summary",
-        "result",
-        "summary",
-        "last_assistant_text",
-        "final_answer",
-    ):
-        text = _coerce_text_blob(st.get(key))
-        if text:
-            return text
-    extra = st.get("extra") if isinstance(st.get("extra"), dict) else {}
-    for key in ("result_summary", "task_report", "summary", "output"):
-        text = _coerce_text_blob(extra.get(key))
-        if text:
-            return text
-    return ""
+    return _coerce_text_blob(st.get("task_report"))
 
 
 def _resolve_subtask_ref(st: dict[str, Any], *, index: int, plan_steps: list[dict[str, Any]]) -> str:

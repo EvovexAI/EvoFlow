@@ -329,57 +329,10 @@ else {
 
 if ($UpdateLatestJson -and $Platform -eq 'windows') {
     Write-Host "`n=== [3/3] Update latest.json (local + public mirror) ===" -ForegroundColor Cyan
-    $verMark = [regex]::Escape($semVer)
-    $exe = Get-ChildItem -LiteralPath $NsisDir -Filter "*.exe" -File | Where-Object { $_.Name -match $verMark } | Select-Object -First 1
-    if (-not $exe) { throw "No installer .exe for $semVer under $NsisDir" }
-    $hash = (Get-FileHash -LiteralPath $exe.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
-    $assetName = $exe.Name
-    $changelogLine = ($productMd -split "`n" | Where-Object { $_.Trim().Length -gt 0 } | Select-Object -First 1)
-    if (-not $changelogLine) { $changelogLine = "v${semVer}" }
-    $releasedAt = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
-    $payload = @{
-        version       = $semVer
-        minAppVersion = $semVer
-        updateKind    = "full"
-        assetKind     = "installer"
-        hash          = "sha256:$hash"
-        url           = "https://github.com/$owner/$repo/releases/download/$tagName/$assetName"
-        size          = [int]$exe.Length
-        changelog     = $changelogLine.Trim()
-        notes         = $changelogLine.Trim()
-        releasedAt    = $releasedAt
-        pub_date      = $releasedAt
-    }
-    $nsisZip = Get-ChildItem -LiteralPath $NsisDir -Filter "*.nsis.zip" -File -ErrorAction SilentlyContinue |
-        Where-Object { $_.Name -match $verMark } | Select-Object -First 1
-    if ($nsisZip) {
-        $sigPath = "$($nsisZip.FullName).sig"
-        if (-not (Test-Path -LiteralPath $sigPath)) {
-            Write-Warning "Missing updater signature: $sigPath (build with TAURI_SIGNING_PRIVATE_KEY)"
-        } else {
-            $sig = (Get-Content -LiteralPath $sigPath -Raw -Encoding UTF8).Trim()
-            $zipName = $nsisZip.Name
-            $payload.platforms = @{
-                "windows-x86_64" = @{
-                    signature = $sig
-                    url       = "https://github.com/$owner/$repo/releases/download/$tagName/$zipName"
-                }
-            }
-            Write-Host "  updater bundle: $zipName (+ signature)" -ForegroundColor DarkGray
-        }
-    } else {
-        Write-Warning "No *.nsis.zip under $NsisDir - one-click in-app update will not work until signed build is uploaded"
-    }
-    $json = ($payload | ConvertTo-Json -Depth 5)
-    $draftPath = Join-Path $RepoRoot "scripts/maintainer/update/latest.json"
-    $dir = Split-Path -Parent $draftPath
-    if ($dir -and -not (Test-Path -LiteralPath $dir)) {
-        New-Item -ItemType Directory -Path $dir -Force | Out-Null
-    }
-    [System.IO.File]::WriteAllText($draftPath, $json + "`n", [System.Text.UTF8Encoding]::new($false))
-    Write-Host "  wrote $draftPath" -ForegroundColor DarkGray
-    # Clients poll public update/latest.json only — never reintroduce root update/ in the OSS tree.
-    Push-PublicLatestJsonManifest -Headers $headers -Owner $owner -Repo $repo -JsonPath $draftPath -CommitMessage "chore: update latest.json for $tagName"
+    $pushScript = Join-Path $PSScriptRoot "push-public-latest-json.ps1"
+    if (-not (Test-Path -LiteralPath $pushScript)) { throw "Missing $pushScript" }
+    & powershell -NoProfile -ExecutionPolicy Bypass -File $pushScript -Tag $tagName -NsisDir $NsisDir -Changelog (($productMd -split "`n" | Where-Object { $_.Trim().Length -gt 0 } | Select-Object -First 1))
+    if ($LASTEXITCODE -ne 0) { throw "push-public-latest-json.ps1 failed" }
 }
 elseif ($UpdateLatestJson -and $Platform -eq 'macos') {
     Write-Host "`n=== [3/3] Skip latest.json on macOS (Windows-only manifest) ===" -ForegroundColor DarkGray

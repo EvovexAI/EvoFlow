@@ -328,6 +328,40 @@ def record_llm_chat_usage_in_txn(
     )
 
 
+def record_voice_usage(
+    *,
+    event_id: str,
+    kind: str,
+    provider: str = "",
+    quantity: float,
+    trace_id: str = "",
+    session_key: str | None = None,
+    meta: dict[str, Any] | None = None,
+) -> bool:
+    """语音 ASR/TTS 用量入账（category=voice，使用统计可见）。
+
+    kind: 'asr'（unit=seconds，音频秒数）/ 'tts'（unit=chars，合成字数）。
+    幂等键由调用方保证（如 voice:tts:{trace}:{seq} / voice:asr:{sid}:{n}）。
+    金额暂不估算（各厂商语音计价差异大），只记量；计价接入走 rate card 后补。
+    """
+    kind_n = _s(kind).lower()
+    if kind_n not in ("asr", "tts"):
+        return False
+    m = dict(meta or {})
+    if trace_id:
+        m.setdefault("trace_id", _s(trace_id))
+    return record_usage_event(
+        event_id=event_id,
+        category="voice",
+        unit="seconds" if kind_n == "asr" else "chars",
+        quantity=quantity,
+        subcategory=kind_n,
+        provider=provider,
+        session_key=session_key,
+        meta=m,
+    )
+
+
 def _media_rate_usd(*, media_kind: str, provider: str, duration_seconds: float = 0) -> tuple[float, str]:
     """Return (amount_usd, pricing_source) from the built-in media rate card."""
     kind = _s(media_kind, "image") or "image"

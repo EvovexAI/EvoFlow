@@ -5,6 +5,7 @@
 import '../../style/settings-resources.css'
 import { api } from '../../lib/tauri-api.js'
 import { toast } from '../../components/toast.js'
+import { showConfirm } from '../../components/modal.js'
 
 /** @type {HTMLElement | null} */
 let _root = null
@@ -225,7 +226,7 @@ async function afterInstalled(res) {
 async function onInstall() {
   try {
     const source = sourcePayload()
-    const ok = window.confirm('确认安装该资源包?同名 Agent / 员工已存在时将中止。')
+    const ok = await showConfirm('确认安装该资源包?同名 Agent / 员工已存在时将中止。')
     if (!ok) return
     toast('安装中…')
     const res = await api.orgInstall({
@@ -317,7 +318,7 @@ async function refreshCatalog() {
 async function onInstallMarket(packPath) {
   const path = String(packPath || '').trim()
   if (!path) return
-  const ok = window.confirm(`从市场安装「${path}」?\n将下载 GitHub 仓库中该目录并安装。`)
+  const ok = await showConfirm(`从市场安装「${path}」?\n将下载 GitHub 仓库中该目录并安装。`)
   if (!ok) return
   try {
     toast('正在从市场下载并安装…')

@@ -471,29 +471,38 @@ def _collect_thread_stream_status(thread_id: str) -> dict:
     except Exception as e:
         logger.debug("[events.stream_status] collab_phase_query_failed thread_id=%s err=%s", thread_id, e)
 
-    # 2. 再查询 LangGraph API
+    # 2. 再查询 LangGraph API（跳过 SubThread_* / collab executor —— LG 会 422）
     LANGGRAPH_BASE_URL = "http://127.0.0.1:8070/api/langgraph"
     logger.debug("[events.stream_status] query_langgraph thread_id=%s base_url=%s", thread_id, LANGGRAPH_BASE_URL)
 
+    skip_lg_http = False
     try:
-        with httpx.Client(timeout=5.0) as client:
-            resp = client.get(f"{LANGGRAPH_BASE_URL}/threads/{thread_id}/runs", params={"limit": 1, "status": "running"})
-            logger.debug("[events.stream_status] langgraph_runs status=%s thread_id=%s", resp.status_code, thread_id)
-            if resp.status_code == 200:
-                runs = resp.json()
-                if isinstance(runs, list) and len(runs) > 0:
-                    result["is_stream_active"] = True
-                    result["source"] = "langgraph_api"
-                else:
-                    pass
-            else:
-                logger.debug("[events.stream_status] langgraph_runs_error thread_id=%s body=%s", thread_id, resp.text[:200])
-    except Exception as e:
-        logger.debug("[events.stream_status] langgraph_query_failed thread_id=%s err=%s", thread_id, e)
+        from evoflow.collab.thread_ids import is_collab_executor_thread
 
-    # 3. 补查 recently-completed runs（如果当前没有活跃 run）
-    if not result["is_stream_active"]:
-        _check_recently_completed(thread_id, result)
+        skip_lg_http = is_collab_executor_thread(thread_id)
+    except Exception:
+        skip_lg_http = str(thread_id or "").startswith("SubThread_")
+
+    if not skip_lg_http:
+        try:
+            with httpx.Client(timeout=5.0) as client:
+                resp = client.get(f"{LANGGRAPH_BASE_URL}/threads/{thread_id}/runs", params={"limit": 1, "status": "running"})
+                logger.debug("[events.stream_status] langgraph_runs status=%s thread_id=%s", resp.status_code, thread_id)
+                if resp.status_code == 200:
+                    runs = resp.json()
+                    if isinstance(runs, list) and len(runs) > 0:
+                        result["is_stream_active"] = True
+                        result["source"] = "langgraph_api"
+                    else:
+                        pass
+                else:
+                    logger.debug("[events.stream_status] langgraph_runs_error thread_id=%s body=%s", thread_id, resp.text[:200])
+        except Exception as e:
+            logger.debug("[events.stream_status] langgraph_query_failed thread_id=%s err=%s", thread_id, e)
+
+        # 3. 补查 recently-completed runs（如果当前没有活跃 run）
+        if not result["is_stream_active"]:
+            _check_recently_completed(thread_id, result)
 
     # 4. 查询 DB 中的 run_completed 状态（持久化补偿，不依赖 LangGraph API）
     if not result["run_completed"]:

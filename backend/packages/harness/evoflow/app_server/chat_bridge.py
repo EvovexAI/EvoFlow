@@ -217,9 +217,11 @@ async def proxy_turn_stream(
     Returns a small summary for the JSON-RPC result (after the stream completes).
     """
     import os as _os_pt, time as _time_pt
-    _pt_log_path = _os_pt.environ.get("EVOFLOW_PSS_LOG", "").strip() or "D:/dev/github/EvoFlow/temp/evoflow-pss.log"
+    _pt_log_path = _os_pt.environ.get("EVOFLOW_PSS_LOG", "").strip()
     _pt_t0 = _time_pt.time()
     def _pt_log(msg):
+        if not _pt_log_path:
+            return
         try:
             with open(_pt_log_path, "a", encoding="utf-8") as f:
                 f.write(f"[t={_time_pt.time()-_pt_t0:.3f}s pid={_os_pt.getpid()} turn] {msg}\n")
@@ -331,10 +333,12 @@ async def proxy_sse_stream(
 
     frames = 0
     status_code = 0
-    import os as _os_dbg, sys as _sys_dbg, time as _time_dbg
-    _pss_log_path = _os_dbg.environ.get("EVOFLOW_PSS_LOG", "").strip() or "D:/dev/github/EvoFlow/temp/evoflow-pss.log"
+    import os as _os_dbg, time as _time_dbg
+    _pss_log_path = _os_dbg.environ.get("EVOFLOW_PSS_LOG", "").strip()
     _pss_t0 = _time_dbg.time()
     def _pss_log(msg):
+        if not _pss_log_path:
+            return
         try:
             with open(_pss_log_path, "a", encoding="utf-8") as f:
                 f.write(f"[t={_time_dbg.time()-_pss_t0:.3f}s pid={_os_dbg.getpid()}] {msg}\n")

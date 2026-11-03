@@ -11,9 +11,41 @@ pub fn update_dir() -> PathBuf {
         .join("web-update")
 }
 
-/// 更新清单 URL（公共仓库 `update/latest.json`，由 Windows 发版 `-UpdateLatestJson` 推送）
-const LATEST_JSON_URL: &str =
-    "https://raw.githubusercontent.com/EvovexAI/EvoFlow/main/update/latest.json";
+/// 更新清单 URL（公共仓库 `update/latest.json`）。
+/// 国内优先 Gitee；再 jsDelivr / GitHub raw（后者在国内常被劫持或不可达）。
+const LATEST_JSON_URLS: &[&str] = &[
+    "https://gitee.com/evovexai/EvoFlow/raw/main/update/latest.json",
+    "https://cdn.jsdelivr.net/gh/EvovexAI/EvoFlow@main/update/latest.json",
+    "https://raw.githubusercontent.com/EvovexAI/EvoFlow/main/update/latest.json",
+];
+
+async fn fetch_latest_manifest(
+    client: &reqwest::Client,
+) -> Result<(Value, &'static str), String> {
+    let mut last_err = String::from("未尝试任何更新清单 URL");
+    for url in LATEST_JSON_URLS {
+        match client.get(*url).send().await {
+            Ok(resp) => {
+                if !resp.status().is_success() {
+                    last_err = format!("{url} → HTTP {}", resp.status());
+                    continue;
+                }
+                match resp.json::<Value>().await {
+                    Ok(manifest) => return Ok((manifest, *url)),
+                    Err(e) => {
+                        last_err = format!("{url} → 解析失败: {e}");
+                        continue;
+                    }
+                }
+            }
+            Err(e) => {
+                last_err = format!("{url} → 请求失败: {e}");
+                continue;
+            }
+        }
+    }
+    Err(last_err)
+}
 
 /// 检查是否有新版本可用
 #[tauri::command]
@@ -22,17 +54,7 @@ pub async fn check_frontend_update() -> Result<Value, String> {
     let client = super::build_http_client(std::time::Duration::from_secs(10), Some(&ua))
         .map_err(|e| format!("HTTP 客户端错误: {e}"))?;
 
-    let resp = client
-        .get(LATEST_JSON_URL)
-        .send()
-        .await
-        .map_err(|e| format!("请求失败: {e}"))?;
-
-    if !resp.status().is_success() {
-        return Err(format!("服务器返回 {}", resp.status()));
-    }
-
-    let manifest: Value = resp.json().await.map_err(|e| format!("解析失败: {e}"))?;
+    let (manifest, _source) = fetch_latest_manifest(&client).await?;
 
     let latest = manifest
         .get("version")

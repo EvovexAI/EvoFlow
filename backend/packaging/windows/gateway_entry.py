@@ -305,9 +305,13 @@ def _parse_args() -> argparse.Namespace:
 
 def _run_langgraph(port: int) -> None:
     """Run standalone LangGraph server on the given port."""
+    from app.gateway.logging_setup import configure_gateway_file_logging
     from langgraph_api.cli import run_server
 
     from evoflow.langgraph_runtime_env import run_server_kwargs
+
+    # Whole process is Agent Runtime → daily ``langgraph-YYYY-MM-DD.log`` (+ Tauri stderr tee).
+    configure_gateway_file_logging(log_name="langgraph.log", force=True)
 
     kwargs = run_server_kwargs()
     kwargs["port"] = port

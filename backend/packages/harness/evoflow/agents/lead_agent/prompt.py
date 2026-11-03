@@ -1472,12 +1472,13 @@ def build_memory_injection_sections(
     employee = bool(is_employee_agent_name(agent_name)) and not _is_xiaomi
     scope = "employee" if employee else ("compact" if compact else "main")
     code = str(agent_name or "").strip() if employee else ""
+    # Pending inbox is injected live each turn in MemoryLiveFooter (not frozen here).
     return build_memory_assets_block(
         scope=scope,  # type: ignore[arg-type]
         agent_code=code,
         prompt_language=prompt_language,
         extra_body_parts=sections or None,
-        include_pending_inbox=employee,
+        include_pending_inbox=False,
         include_policy=True,
     )
 

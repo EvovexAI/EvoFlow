@@ -61,6 +61,62 @@ def get_subtask_task_report(row: dict[str, Any] | None) -> str:
     return str(row.get("result") or "").strip()
 
 
+# F-2 结果契约：全仓唯一的结果文本 fallback 链。仅服务 legacy 行 / 未走 done 的
+# 历史数据——``apply_subtask_outcome_report`` 现已把四个文本字段（task_report /
+# result_summary / summary / result）一次写全，新行永远命中第一优先级。
+# 需要取子任务结果时一律用本函数；调用方自建 key 链视为 review 阻断项。
+_RESULT_FALLBACK_KEYS: tuple[str, ...] = (
+    "task_report",
+    "result_summary",
+    "result_text",
+    "output_summary",
+    "result",
+    "summary",
+    "last_assistant_text",
+    "final_answer",
+)
+
+
+def _coerce_result_text(value: Any) -> str:
+    if isinstance(value, dict):
+        text = value.get("text")
+        if isinstance(text, str) and text.strip():
+            return text.strip()
+        try:
+            import json
+
+            return json.dumps(value, ensure_ascii=False)
+        except Exception:
+            return str(value).strip()
+    if isinstance(value, (list, tuple)):
+        parts = [_coerce_result_text(x) for x in value]
+        return "\n".join(p for p in parts if p).strip()
+    return str(value or "").strip()
+
+
+def get_subtask_result_text(row: dict[str, Any] | None) -> str:
+    """唯一的结果文本读取入口（F-2）。
+
+    优先级：done 官方报告（``get_subtask_task_report``）→ 固定 fallback 链 →
+    ``extra.*``。返回空串表示确实无结果，调用方不应再自行猜别的 key。
+    """
+    if not row or not isinstance(row, dict):
+        return ""
+    report = get_subtask_task_report(row)
+    if report:
+        return report
+    for key in _RESULT_FALLBACK_KEYS:
+        text = _coerce_result_text(row.get(key))
+        if text:
+            return text
+    extra = row.get("extra") if isinstance(row.get("extra"), dict) else {}
+    for key in ("result_summary", "task_report", "summary", "output"):
+        text = _coerce_result_text(extra.get(key))
+        if text:
+            return text
+    return ""
+
+
 def build_subtask_outcome_snapshot(row: dict[str, Any] | None) -> dict[str, Any]:
     """Canonical handoff payload from ``done`` (not task memory / conversation)."""
     if not row or not isinstance(row, dict):
@@ -285,7 +341,10 @@ async def apply_subtask_outcome_report(
         "outcome_reported_at": now,
         "outcome_reported_by": reported_by,
         "updated_at": now,
+        # F-2 结果契约：四个文本字段一次写全，读方（get_subtask_result_text）
+        # 无论从哪个 key 进来都命中同一份内容，不再各层兜底。
         "task_report": report_text,
+        "result_summary": report_text,
         "summary": report_text,
         "result": report_text if out in _SUCCESS else (st.get("result") or report_text),
     }
@@ -538,6 +597,7 @@ __all__ = [
     "is_subtask_outcome_reported",
     "is_upstream_subtask_dependency_met",
     "get_subtask_task_report",
+    "get_subtask_result_text",
     "build_subtask_outcome_snapshot",
     "get_subtask_execution_preview",
     "format_subtask_outcome_mandate_block",

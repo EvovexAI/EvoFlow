@@ -27,6 +27,27 @@ router = APIRouter(
 )
 
 
+def _audit_actor(request: Request) -> dict[str, Any]:
+    """Resolve {actor_id, actor_label, org_id} for audit rows (best-effort, never raises)."""
+    try:
+        from evoflow.authz.context import resolve_request_principal
+
+        p = resolve_request_principal(request) or {}
+        return {
+            "actor_id": str(p.get("principal_id") or ""),
+            "actor_label": str(p.get("display_name") or p.get("name") or ""),
+            "org_id": str(p.get("org_id") or ""),
+        }
+    except Exception:
+        return {}
+
+
+def _audit(request: Request, action: str, app_id: str, detail: dict[str, Any] | None = None) -> None:
+    from evoflow.persistence.audit_log import record_action
+
+    record_action(action, "app", str(app_id or ""), actor=_audit_actor(request), detail=detail)
+
+
 # ───────────────────────────────── Request Models ─────────────────────────────────
 
 
@@ -192,38 +213,16 @@ def list_apps_endpoint(
         description="Omit canvas and heavy step text; use false only when full definitions are required.",
     ),
 ) -> list[dict[str, Any]]:
-    """List applications with ownership isolation."""
-    apps = app_repositories.list_apps(
-        status=status,
-        category=category,
-        search=search,
-        limit=limit,
-        summary=summary,
-    )
+    """List applications with ownership isolation.
+
+    Visibility is pushed into SQL (viewer=…) so LIMIT applies after the filter;
+    the per-app Python check below stays as defense-in-depth.
+    """
     try:
         from evoflow.authz.context import resolve_request_authz
         from evoflow.authz.scope import org_scope, personal_scope
 
         ctx = resolve_request_authz(request)
-        p = ctx.get("principal") or {}
-        pid = str(p.get("principal_id") or "")
-        is_admin = bool(ctx.get("is_org_admin"))
-        p_scope = personal_scope(pid) if pid else None
-        o_scope = org_scope(str(ctx.get("org_id") or "local"))
-        apps = [
-            a
-            for a in apps
-            if isinstance(a, dict)
-            and app_repositories.app_visible_to_principal(
-                str(a.get("id") or ""),
-                pid,
-                is_admin=is_admin,
-                personal_scope=p_scope,
-                org_scope=o_scope,
-                principal=p,
-                owner_scope_id=a.get("owner_scope_id"),
-            )
-        ]
     except Exception:
         # Fail-closed: resolve_request_authz already falls back to local admin
         # for local/no-JWT requests, so an exception here means the authz
@@ -231,6 +230,49 @@ def list_apps_endpoint(
         # full unfiltered app list (roadmap P0-1).
         logger.exception("list_apps: authz resolution failed — failing closed")
         raise HTTPException(status_code=503, detail="Authorization unavailable") from None
+
+    p = ctx.get("principal") or {}
+    pid = str(p.get("principal_id") or "")
+    is_admin = bool(ctx.get("is_org_admin"))
+    oid = str(ctx.get("org_id") or "local")
+    viewer = None
+    if not is_admin:
+        if not pid:
+            # Non-admin with no principal identity: nothing is visible.
+            return []
+        viewer = {
+            "principal_id": pid,
+            "personal_scope": personal_scope(pid),
+            "org_scope": org_scope(oid),
+            "org_id": oid,
+        }
+
+    apps = app_repositories.list_apps(
+        status=status,
+        category=category,
+        search=search,
+        limit=limit,
+        summary=summary,
+        viewer=viewer,
+    )
+    # Defense-in-depth: re-check each row (SQL clause is a superset — membership
+    # rows don't re-validate principal active status, and legacy unstamped rows
+    # must stay admin-only).
+    if viewer is not None:
+        apps = [
+            a
+            for a in apps
+            if isinstance(a, dict)
+            and app_repositories.app_visible_to_principal(
+                str(a.get("id") or ""),
+                pid,
+                is_admin=False,
+                personal_scope=viewer["personal_scope"],
+                org_scope=viewer["org_scope"],
+                principal=p,
+                owner_scope_id=a.get("owner_scope_id"),
+            )
+        ]
     run_counts = app_repositories.count_runs_batch([a.get("id") for a in apps if a])
     for a in apps:
         if not isinstance(a, dict):
@@ -281,6 +323,7 @@ def create_app_endpoint(request: Request, body: CreateAppRequest) -> dict[str, A
     created = app_repositories.load_app(app_id)
     if created is None:
         raise HTTPException(status_code=500, detail="Failed to create application")
+    _audit(request, "app.create", app_id, {"name": str(document.get("name") or "")})
     return _decorate_app_response(created)
 
 
@@ -339,7 +382,7 @@ def update_app_endpoint(http_request: Request, app_id: str, request: UpdateAppRe
 
     require_app_visible(http_request, app_id)
     existing = app_repositories.load_app(app_id)
-    if existing is None:
+    if existing is None or str(existing.get("status") or "") == "deleted":
         raise HTTPException(status_code=404, detail=f"Application not found: {app_id}")
 
     # Merge update with existing
@@ -374,17 +417,37 @@ def update_app_endpoint(http_request: Request, app_id: str, request: UpdateAppRe
     result = app_repositories.load_app(app_id)
     if result is None:
         raise HTTPException(status_code=500, detail="Failed to update application")
+    _audit(
+        request,
+        "app.update",
+        app_id,
+        {
+            "changed_keys": sorted(update_data.keys()),
+            "structural": has_structural_change,
+            "version": result.get("version"),
+        },
+    )
     return _decorate_app_response(result)
 
 
 @router.delete("/{app_id}")
 def delete_app_endpoint(request: Request, app_id: str) -> dict[str, bool]:
-    """Delete an application and its associated run history."""
+    """Soft-delete an application (governance: runs/revisions preserved, recoverable).
+
+    与 pause/resume/cancel 一致：不存在 → 404。硬删（连 runs+revisions 一并清除）
+    收敛到管理端 purge，普通删除不再物理清数据。
+    """
     from evoflow.authz.http_guard import require_app_visible
 
     require_app_visible(request, app_id)
-    success = app_repositories.delete_app(app_id)
-    return {"success": success}
+    existing = app_repositories.load_app(app_id)
+    if existing is None or str(existing.get("status") or "") == "deleted":
+        raise HTTPException(status_code=404, detail=f"Application not found: {app_id}")
+    success = app_repositories.soft_delete_app(app_id)
+    if not success:
+        raise HTTPException(status_code=404, detail=f"Application not found: {app_id}")
+    _audit(request, "app.delete", app_id, {"name": str(existing.get("name") or ""), "mode": "soft"})
+    return {"success": True}
 
 
 @router.post("/{app_id}/publish")
@@ -399,7 +462,7 @@ def publish_app_endpoint(request: Request, app_id: str) -> dict[str, Any]:
 
     require_app_visible(request, app_id)
     existing = app_repositories.load_app(app_id)
-    if existing is None:
+    if existing is None or str(existing.get("status") or "") == "deleted":
         raise HTTPException(status_code=404, detail=f"Application not found: {app_id}")
 
     # P0.5-4: Pre-publish static validation
@@ -417,8 +480,20 @@ def publish_app_endpoint(request: Request, app_id: str) -> dict[str, Any]:
         )
 
     existing["status"] = "published"
-    existing["version"] = existing.get("version", 1) + 1
+    # Version = 定义版本：发布本身不是内容变更。仅当定义与当前版本快照不同
+    # （如已发布态下直接改了结构）才 bump；纯状态翻转沿用原版本，快照 note
+    # 由 save_app 在同版本上覆写为 publish（去掉「编辑 v2 → 发布 v3」双 bump）。
+    try:
+        changed = app_repositories.definition_changed_since_revision(
+            app_id, int(existing.get("version") or 1), existing
+        )
+    except Exception:
+        logger.exception("publish: revision comparison failed for %s — bumping", app_id)
+        changed = True
+    if changed:
+        existing["version"] = int(existing.get("version") or 1) + 1
     app_repositories.save_app(app_id, existing)
+    _audit(request, "app.publish", app_id, {"version": existing.get("version")})
 
     result = app_repositories.load_app(app_id)
     if result is None:
@@ -468,6 +543,7 @@ def create_app_key_endpoint(http_request: Request, app_id: str, request: CreateA
     record = token_repository.verify_token(plaintext)
     if record is None:
         raise HTTPException(status_code=500, detail="Failed to create API key")
+    _audit(request, "app.key.create", app_id, {"name": name, "pinned_version": pinned_version})
     return {
         "token": plaintext,
         "token_hash": record["token_hash"],
@@ -494,6 +570,7 @@ def revoke_app_key_endpoint(request: Request, app_id: str, token_hash: str) -> d
     if match is None:
         raise HTTPException(status_code=404, detail="API key not found for this application")
     revoked = token_repository.revoke_token(token_hash)
+    _audit(request, "app.key.revoke", app_id, {"token_hash": token_hash, "revoked": bool(revoked)})
     return {"revoked": revoked, "token_hash": token_hash}
 
 
@@ -512,6 +589,9 @@ async def run_app_endpoint(http_request: Request, app_id: str, request: RunAppRe
     from evoflow.authz.http_guard import require_app_visible
 
     require_app_visible(http_request, app_id)
+    app_row = app_repositories.load_app(app_id)
+    if app_row is None or str(app_row.get("status") or "") == "deleted":
+        raise HTTPException(status_code=404, detail=f"Application not found: {app_id}")
     try:
         from evoflow.authz.agent_actor import resolve_invoker_stamp
         from evoflow.authz.context import resolve_request_principal
@@ -533,7 +613,8 @@ async def run_app_endpoint(http_request: Request, app_id: str, request: RunAppRe
             parameters=request.parameters,
             execution_mode=request.execution_mode,
             thread_id=request.thread_id,
-            run_kind=request.run_kind or "debug",
+            # 与模型默认（F-4：manual 默认 production）对齐；显式 debug 由调试面板传。
+            run_kind=request.run_kind or "production",
             trigger_kind=request.trigger_kind or "manual",
             raised_by=invoker.get("raised_by"),
             created_by=invoker.get("created_by"),
@@ -545,6 +626,18 @@ async def run_app_endpoint(http_request: Request, app_id: str, request: RunAppRe
             from evoflow.collab.app_runner import apply_workflow_dispatch_async
 
             result = await apply_workflow_dispatch_async(result)
+        _audit(
+            http_request,
+            "app.run",
+            app_id,
+            {
+                "run_id": str((result or {}).get("run_id") or (result or {}).get("id") or ""),
+                "run_kind": request.run_kind or "production",
+                "trigger_kind": request.trigger_kind or "manual",
+                "execution_mode": str((result or {}).get("execution_mode") or ""),
+                "parameter_keys": sorted((request.parameters or {}).keys()),
+            },
+        )
         return result
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
@@ -647,6 +740,7 @@ def restore_app_revision_endpoint(request: Request, app_id: str, version: int) -
         msg = str(e)
         code = 404 if "not found" in msg.lower() else 400
         raise HTTPException(status_code=code, detail=msg) from e
+    _audit(request, "app.restore_revision", app_id, {"version": int(version)})
     return _decorate_app_response(restored)
 
 

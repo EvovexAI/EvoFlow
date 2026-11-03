@@ -107,6 +107,31 @@ def _catalog_title_rows(entity: EntityRef) -> list[tuple[str, str]]:
                 rows.append((path, title or _name(path)))
     except Exception:
         logger.debug("hub recall: catalog list failed", exc_info=True)
+
+    # Pending inbox notes (pre-Phase2) — so mid-chat ``assets note`` can match next turn.
+    try:
+        from evoflow.assets.catalog import parse_frontmatter
+        from evoflow.assets.paths import entity_root
+
+        notes_dir = entity_root(entity.normalized()) / "memory" / "_inbox" / "notes"
+        if notes_dir.is_dir():
+            files = sorted(
+                (p for p in notes_dir.glob("*.md") if p.is_file() and p.name.lower() != "readme.md"),
+                key=lambda p: p.stat().st_mtime,
+                reverse=True,
+            )[:12]
+            for path in files:
+                try:
+                    raw = path.read_text(encoding="utf-8", errors="replace")
+                except OSError:
+                    continue
+                _meta, body = parse_frontmatter(raw)
+                preview_lines = [ln.strip() for ln in str(body or "").splitlines() if ln.strip()]
+                title = " ".join(preview_lines)[:80] if preview_lines else path.stem
+                rel = f"memory/_inbox/notes/{path.name}"
+                rows.append((rel, title))
+    except Exception:
+        logger.debug("hub recall: inbox notes skipped", exc_info=True)
     return rows
 
 def _score_title(haystack: str, needles: list[str]) -> int:

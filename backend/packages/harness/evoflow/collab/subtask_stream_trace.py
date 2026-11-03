@@ -26,8 +26,9 @@ _banner_logged = False
 
 
 def _enabled() -> bool:
-    raw = os.getenv("EVOFLOW_SUBTASK_STREAM_TRACE", "1").strip().lower()
-    return raw not in ("0", "false", "no", "off")
+    from evoflow.runtime.log_policy import env_flag
+
+    return env_flag("EVOFLOW_SUBTASK_STREAM_TRACE", default=False)
 
 
 def subtask_stream_trace_path() -> Path:
@@ -35,12 +36,13 @@ def subtask_stream_trace_path() -> Path:
     if raw:
         return Path(raw).expanduser().resolve()
     try:
-        from evoflow.config.paths import get_paths
+        from evoflow.runtime.log_policy import resolve_debug_logs_dir
 
-        return (get_paths().base_dir / "logs" / "subtask-stream.trace.log").resolve()
+        return (resolve_debug_logs_dir() / "subtask-stream.trace.log").resolve()
     except Exception:
-        home = Path(os.getenv("EVOFLOW_HOME") or Path.home() / ".evoflow")
-        return (home / "logs" / "subtask-stream.trace.log").resolve()
+        from evoflow.runtime.log_policy import resolve_product_logs_dir
+
+        return (resolve_product_logs_dir() / "debug" / "subtask-stream.trace.log").resolve()
 
 
 def _write(level: str, msg: str, *args: object, prefix: str = _PREFIX) -> None:

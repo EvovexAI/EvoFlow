@@ -49,6 +49,29 @@ describe('evo-asset-citation', () => {
     expect(parsed.entries[0]).toMatchObject({ path: 'craft/x.md', note: '简要' })
   })
 
+  it('rejects bare note=[…] lines (must not become path)', () => {
+    const parsed = extractEvoAssetCitations(
+      [
+        '<evo-asset-citation>',
+        '<citation_entries>',
+        'note=[SKILL.md 格式与加载机制]',
+        'note=[Codex 对照矩阵与定位，无 ZCode 章节]',
+        'memory/facts/foo.md|note=[有效]',
+        'craft/bar.md note=[缺管道符]',
+        '</citation_entries>',
+        '</evo-asset-citation>',
+      ].join('\n'),
+    )
+    expect(parsed.entries.map((e) => e.path)).toEqual([
+      'memory/facts/foo.md',
+      'craft/bar.md',
+    ])
+    expect(parsed.entries[0]?.note).toBe('有效')
+    expect(parsed.entries[1]?.note).toBe('缺管道符')
+    expect(isDisplayableAssetCitationPath('note=[SKILL.md 格式与加载机制]')).toBe(false)
+    expect(isDisplayableAssetCitationPath('memory/facts/foo.md')).toBe(true)
+  })
+
   it('strips markdown list markers glued onto citation paths', () => {
     const parsed = extractEvoAssetCitations(
       [

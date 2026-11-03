@@ -451,9 +451,22 @@ fn call_cdp_locked(
         .get_webview_window(label)
         .ok_or_else(|| format!("embedded webview '{label}' not found"))?;
 
-    let trace_path = crate::commands::evoflow_dir().join("browser-cdp-trace.log");
-    crate::commands::browser_cdp_server::log_line(&format!("[browser-cdp] TRACE_FILE={}", trace_path.display()));
-    crate::commands::browser_cdp_server::log_line(&format!("[browser-cdp] call {method} params={}", truncate(params_json, 400)));
+    let trace_path = crate::commands::log_files::debug_logs_dir(
+        &crate::commands::evoflow_dir().join("logs"),
+    )
+    .join("browser-cdp-trace.log");
+    let cdp_file_trace = crate::commands::log_files::env_flag_enabled("EVOFLOW_CDP_TRACE_LOG")
+        || cfg!(debug_assertions);
+    if cdp_file_trace {
+        crate::commands::browser_cdp_server::log_line(&format!(
+            "[browser-cdp] TRACE_FILE={}",
+            trace_path.display()
+        ));
+    }
+    crate::commands::browser_cdp_server::log_line(&format!(
+        "[browser-cdp] call {method} params={}",
+        truncate(params_json, 400)
+    ));
 
     // Native fast-paths — these are the browser-use bootstrap commands and must
     // not depend on CallDevToolsProtocolMethod (historically hung on child HWND).
@@ -625,6 +638,15 @@ fn write_cdp_trace(
     method: &str,
     outcome: &Result<String, String>,
 ) {
+    // 正式包默认不落 CDP 全量 trace；调试包或 EVOFLOW_CDP_TRACE_LOG=1 才写。
+    if !(crate::commands::log_files::env_flag_enabled("EVOFLOW_CDP_TRACE_LOG")
+        || cfg!(debug_assertions))
+    {
+        return;
+    }
+    if let Some(parent) = trace_path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
     if let Ok(mut f) = std::fs::OpenOptions::new()
         .create(true)
         .append(true)

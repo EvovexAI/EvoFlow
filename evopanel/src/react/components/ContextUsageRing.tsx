@@ -1,5 +1,5 @@
 import { createPortal } from 'react-dom'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
   contextUsageLevel,
   contextUsageRatio,
@@ -7,6 +7,7 @@ import {
 } from '../lib/context-usage.js'
 import type { TokenTotals } from '../chat-types.js'
 import { cn } from '../lib/utils.js'
+import { useGlobalOverlayWhen } from '../hooks/useGlobalOverlayWhen.js'
 
 type Props = {
   usage: ContextUsageSnapshot | null
@@ -165,6 +166,7 @@ export function ContextUsageRing({
   const [displayRatio, setDisplayRatio] = useState(0)
   const [open, setOpen] = useState(false)
   const [portalRoot, setPortalRoot] = useState<HTMLElement | null>(null)
+  const [panelStyle, setPanelStyle] = useState<React.CSSProperties>({})
   const rootRef = useRef<HTMLSpanElement | null>(null)
   const prevUsedRef = useRef(0)
   const closeTimerRef = useRef<number | null>(null)
@@ -182,10 +184,15 @@ export function ContextUsageRing({
     }, 120)
   }, [clearCloseTimer])
 
+  // 打开时 park 原生浏览器 HWND，否则右栏 WebView 会压住 HTML 浮层一截。
+  useGlobalOverlayWhen(open, 'context-usage-ring')
+
   // Create / destroy a dedicated div in document.body for the portal panel
   useEffect(() => {
     const host = document.createElement('div')
     host.setAttribute('data-context-usage-ring-portal', 'true')
+    host.style.position = 'relative'
+    host.style.zIndex = '12050'
     document.body.appendChild(host)
     setPortalRoot(host)
     return () => {
@@ -224,6 +231,42 @@ export function ContextUsageRing({
 
   useEffect(() => () => clearCloseTimer(), [clearCloseTimer])
 
+  // Anchor above the trigger; clamp so the card stays left of the right-stage edge.
+  useLayoutEffect(() => {
+    if (!open || !rootRef.current) return
+    const rect = rootRef.current.getBoundingClientRect()
+    const panelWidth = 256
+    const margin = 8
+    const stage = document.querySelector(
+      '.react-chat-main-body > .react-chat-right-stage-panel, .react-chat-main-body.is-right-stage-open > .react-chat-right-stage-panel',
+    ) as HTMLElement | null
+    const stageLeft =
+      stage && !stage.hasAttribute('hidden')
+        ? stage.getBoundingClientRect().left
+        : Number.POSITIVE_INFINITY
+    const maxRight = Math.min(window.innerWidth - margin, stageLeft - margin)
+    let left = rect.left
+    if (left + panelWidth > maxRight) {
+      left = Math.max(margin, maxRight - panelWidth)
+    }
+    setPanelStyle({
+      position: 'fixed',
+      left,
+      top: rect.top - 6,
+      transform: 'translateY(-100%)',
+      zIndex: 12050,
+    })
+  }, [open, usage?.usedTokens, usage?.windowTokens])
+
+  const percentFormatter = useMemo(
+    () =>
+      new Intl.NumberFormat(undefined, {
+        maximumFractionDigits: 1,
+        style: 'percent',
+      }),
+    [],
+  )
+
   if (!available || !usage) return null
 
   const level = contextUsageLevel(displayRatio)
@@ -235,7 +278,7 @@ export function ContextUsageRing({
   const compactSummaryLabel = `${formatCompact(usedTokens)} / ${formatCompact(contextWindow)} (${pctLabel}%)`
 
   // Breakdown segments (from ZCode breakdown or legacy fallback)
-  const breakdownSegments = useMemo(() => {
+  const breakdownSegments = (() => {
     if (usage.breakdown && usage.breakdown.length > 0) {
       return buildContextUsageBreakdownSegments(usage.breakdown)
     }
@@ -252,7 +295,7 @@ export function ContextUsageRing({
     return [...charsBySource.entries()]
       .map(([source, chars]) => ({ chars, percent: chars / total, source }))
       .sort((a, b) => b.chars - a.chars || BREAKDOWN_SOURCE_ORDER[a.source] - BREAKDOWN_SOURCE_ORDER[b.source])
-  }, [usage])
+  })()
 
   // Cache hit rate
   const cacheHitRate = usage.cache?.hitRate ?? null
@@ -286,27 +329,6 @@ export function ContextUsageRing({
     }
     if (usage.compacted) return '上下文已压缩'
     return null
-  })()
-
-  const percentFormatter = useMemo(
-    () =>
-      new Intl.NumberFormat(undefined, {
-        maximumFractionDigits: 1,
-        style: 'percent',
-      }),
-    [],
-  )
-
-  // Compute portal panel position: anchored above the button
-  const panelStyle = (() => {
-    if (!rootRef.current) return {}
-    const rect = rootRef.current.getBoundingClientRect()
-    return {
-      position: 'fixed' as const,
-      left: rect.left,
-      top: rect.top - 6,
-      transform: 'translateY(-100%)',
-    }
   })()
 
   const panel = open && portalRoot ? (

@@ -385,8 +385,24 @@ def read_text_file(entity: EntityRef, rel_path: str) -> dict[str, Any]:
         target = resolve_entity_file(entity, rel_path)
     if not target.is_file():
         raise FileNotFoundError(rel_path)
+    rel = str(rel_path).replace("\\", "/").lstrip("/")
+    abs_path = str(target.resolve())
+    # 图片/音视频：只回 absolutePath，供桌面 PreviewPane convertFileSrc；
+    # 勿强制走文本读（否则右栏「打开」直接失败 / 报不支持播放）。
     if target.suffix.lower() not in _TEXT_SUFFIXES:
-        raise ValueError("only text assets can be read via API")
+        try:
+            size = int(target.stat().st_size)
+        except OSError:
+            size = 0
+        return {
+            "entityType": entity.normalized().entity_type,
+            "entityId": entity.normalized().entity_id,
+            "path": rel,
+            "absolutePath": abs_path,
+            "content": "",
+            "binary": True,
+            "size": size,
+        }
     try:
         content = target.read_text(encoding="utf-8")
     except OSError as exc:
@@ -394,7 +410,9 @@ def read_text_file(entity: EntityRef, rel_path: str) -> dict[str, Any]:
     return {
         "entityType": entity.normalized().entity_type,
         "entityId": entity.normalized().entity_id,
-        "path": str(rel_path).replace("\\", "/").lstrip("/"),
+        "path": rel,
+        # Desktop reveal / open-in-explorer needs a real filesystem path.
+        "absolutePath": abs_path,
         "content": content,
         "size": len(content.encode("utf-8")),
     }
@@ -507,13 +525,16 @@ def record_fact(
 ) -> dict[str, Any]:
     """Write a fact note to ``memory/facts/{slug}.md`` with catalog frontmatter.
 
-    Catalog disclosure uses ``title`` + ``summary`` (same model as craft/journal).
+    Product IA: 「条目」— durable prefs / short facts (detail lines, not the standing summary).
+    Catalog uses ``title`` + ``summary`` (same model as craft/journal).
     """
-    body = str(content or "").strip()
+    from evoflow.assets.ad_hoc_note import ensure_body_recorded_at
+    from datetime import datetime
+
+    body = ensure_body_recorded_at(str(content or "").strip()).strip()
     if not body:
         raise ValueError("content is required")
     ensure_entity_tree(entity)
-    from datetime import datetime
 
     heading = str(title or "").strip() or body.split("\n", 1)[0].lstrip("# ").strip()[:60]
     one_liner = (str(summary or "").strip() or heading)[:30]
@@ -539,14 +560,16 @@ def write_episode(
 ) -> dict[str, Any]:
     """Write a conversation-process note to ``memory/episodic/{date}-{slug}.md``.
 
-    Product intent: record this dialogue's process so a human can review it later.
-    Not 「沉淀记忆」— catalog uses ``title`` + ``summary`` (10–30 chars).
+    Product IA: 「过程」— what this dialogue did / concluded (human review later).
+    Not 「条目」facts and not 「记忆摘要」standing. Catalog uses ``title`` + ``summary`` (10–30 chars).
     """
-    body = str(content or "").strip()
+    from evoflow.assets.ad_hoc_note import ensure_body_recorded_at
+    from datetime import datetime
+
+    body = ensure_body_recorded_at(str(content or "").strip()).strip()
     if not body:
         raise ValueError("content is required")
     ensure_entity_tree(entity)
-    from datetime import datetime
 
     heading = str(title or "").strip() or body.split("\n", 1)[0].lstrip("# ").strip()[:60]
     one_liner = (str(summary or "").strip() or heading)[:30]
@@ -574,11 +597,13 @@ def write_journal(
     Filename is the reflection **topic slug** (no YYYY/MM/DD in the name).
     ``date`` only goes into YAML frontmatter. Summary stays short for Tier0/1 catalog.
     """
-    body = str(content or "").strip()
-    if not body:
-        raise ValueError("content is required")
+    from evoflow.assets.ad_hoc_note import ensure_body_recorded_at
     from datetime import date as date_cls
     from datetime import datetime
+
+    body = ensure_body_recorded_at(str(content or "").strip()).strip()
+    if not body:
+        raise ValueError("content is required")
 
     day = str(date or "").strip()
     if not day:

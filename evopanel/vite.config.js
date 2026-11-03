@@ -388,6 +388,7 @@ export default defineConfig(({ mode }) => {
           agentTrace: path.resolve(__dirname, 'agent-trace.html'),
           voiceOverlay: path.resolve(__dirname, 'voice-overlay.html'),
           cuaGlowOverlay: path.resolve(__dirname, 'cua-glow-overlay.html'),
+          resourceManager: path.resolve(__dirname, 'resource-manager.html'),
         },
         output: {
           // React 全家桶拆为稳定 vendor chunk：main/agent-trace/voice-overlay 三入口共享，

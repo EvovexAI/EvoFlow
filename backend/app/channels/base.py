@@ -16,27 +16,32 @@ from app.channels.message_bus import InboundMessage, InboundMessageType, Message
 
 logger = logging.getLogger(__name__)
 
-_DIAG_LOG_PATH = Path(
-    os.environ.get("EVOFLOW_DIAG_LOG", r"C:\Users\admin\.evoflow-dev\logs\channel-diag.log")
-)
+def _diag_log_path() -> Path | None:
+    """Opt-in channel diag under ``logs/debug/``. Unset = disabled (no hardcoded user path)."""
+    from evoflow.runtime.log_policy import env_flag, resolve_debug_logs_dir
+
+    explicit = (os.environ.get("EVOFLOW_DIAG_LOG") or "").strip()
+    if explicit:
+        return Path(explicit).expanduser()
+    if not env_flag("EVOFLOW_CHANNEL_DIAG_LOG", default=False):
+        return None
+    return resolve_debug_logs_dir() / "channel-diag.log"
 
 
 def _diag_write(channel: str, event: str, **fields: Any) -> None:
-    """Append a JSON line to the channel diagnostic log.
-
-    Independent of uvicorn/logger pipeline so we can see traffic even when the
-    launcher drops stderr or the root logger isn't configured for the channel.
-    """
+    """Append a JSON line to the channel diagnostic log (opt-in)."""
     try:
-        _DIAG_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        path = _diag_log_path()
+        if path is None:
+            return
+        path.parent.mkdir(parents=True, exist_ok=True)
         line = json.dumps(
             {"ts": time.time(), "pid": os.getpid(), "channel": channel, "event": event, **fields},
             ensure_ascii=False,
             default=str,
         )
-        with open(_DIAG_LOG_PATH, "a", encoding="utf-8") as fp:
+        with open(path, "a", encoding="utf-8") as fp:
             fp.write(line + "\n")
-        # Also print to stderr so it shows up in the terminal
         print(line, file=sys.stderr, flush=True)
     except Exception:
         pass

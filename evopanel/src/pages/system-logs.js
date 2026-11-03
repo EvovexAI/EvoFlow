@@ -1,7 +1,6 @@
 /**
- * 系统日志 — 专业运维模块
- * 数据优先 Gateway /api/diagnostics（与 platform diagnostics.* 同源）；
- * Gateway 不可用时用 Tauri read_log_tail / search_log 兜底。
+ * 系统日志 — 选哪个源就能看哪个全文；异常扫描为辅。
+ * 数据优先 Gateway /api/diagnostics；不可用时用 Tauri inspect_log / read_log_tail。
  */
 import { api } from '../lib/tauri-api.js'
 import { toast } from '../components/toast.js'
@@ -10,11 +9,18 @@ const isTauri = !!window.__TAURI_INTERNALS__
 
 const SOURCE_META = [
   { id: 'gateway', title: 'Gateway', when: '启动失败、后端连不上、任务/模型报错' },
-  { id: 'langgraph', title: 'LangGraph', when: '图执行 / Agent 运行时' },
+  { id: 'langgraph', title: 'LangGraph', when: '图执行 / Agent 运行时（stderr）' },
   { id: 'frontend', title: 'Frontend', when: '界面 / console' },
   { id: 'startup', title: 'Startup', when: '面板拉起 sidecar' },
+  { id: 'plugin-control', title: 'Plugin / Browser', when: '嵌入浏览器 / CDP' },
+  { id: 'boot-cycle', title: 'Boot cycle', when: '启动时间线' },
+  { id: 'gateway-slow', title: 'Gateway slow', when: '慢请求' },
+  { id: 'right-stage', title: 'Right stage', when: '右栏 / 工作流' },
+  { id: 'assistant-audit', title: 'Assistant audit', when: '助手审计' },
   { id: 'guardian', title: 'Guardian', when: '守护进程' },
   { id: 'config-audit', title: 'Config audit', when: '配置变更审计' },
+  { id: 'voice-frontend', title: 'Voice frontend', when: '语音播报前端' },
+  { id: 'voice-backend', title: 'Voice backend', when: '语音播报后端' },
 ]
 
 const ANOMALY_RE =
@@ -31,13 +37,16 @@ const esc = (s) =>
 
 let _pageEl = null
 let _hours = 24
-let _sourceFilter = '' // '' = all with preference to error sources
+let _sourceFilter = '' // '' = all anomalies; non-empty = raw viewer for that source
 let _levelFilter = new Set(['ERROR', 'CRITICAL', 'WARN'])
 let _sourcesPayload = null
 let _events = []
 let _timelineMd = ''
-let _mode = 'gateway' // gateway | tauri-fallback
+let _mode = 'gateway'
 let _loadSeq = 0
+let _rawView = null // { path, content, exists, lineCount, hint, title }
+let _rawSeq = 0
+let _viewMode = 'anomaly' // anomaly | raw
 
 function q(sel) {
   return _pageEl ? _pageEl.querySelector(sel) : null
@@ -57,14 +66,17 @@ function parseTs(line) {
 }
 
 async function loadViaGateway() {
-  const sources = await api.diagnosticsSources(_hours, { silent: true, timeoutMs: 8000 })
-  const scanQ = { hours: _hours, limit: 300 }
+  const opts = { silent: true, timeoutMs: 4000 }
+  const scanQ = { hours: _hours, limit: 200 }
   if (_sourceFilter) scanQ.sources = _sourceFilter
-  const scan = await api.diagnosticsScan(scanQ, { silent: true, timeoutMs: 12000 })
-  const tl = await api.diagnosticsTimeline(
-    { hours: _hours, sources: _sourceFilter || undefined, format: 'both', limit: 80 },
-    { silent: true, timeoutMs: 12000 },
-  )
+  const [sources, scan, tl] = await Promise.all([
+    api.diagnosticsSources(_hours, opts),
+    api.diagnosticsScan(scanQ, opts),
+    api.diagnosticsTimeline(
+      { hours: _hours, sources: _sourceFilter || undefined, format: 'both', limit: 80 },
+      opts,
+    ),
+  ])
   return {
     mode: 'gateway',
     sources,
@@ -76,17 +88,34 @@ async function loadViaGateway() {
 }
 
 async function loadViaTauriFallback() {
+  // Parallel inspect — sequential was too slow and tripped route render timeout.
+  const results = await Promise.all(
+    SOURCE_META.map(async (meta) => {
+      let text = ''
+      let exists = false
+      let path = ''
+      try {
+        const insp = await api.inspectLog(meta.id, 80)
+        text = insp?.content || ''
+        exists = !!insp?.exists
+        path = insp?.path || ''
+      } catch {
+        try {
+          text = (await api.readLogTail(meta.id, 80)) || ''
+          exists = String(text).trim().length > 0
+        } catch {
+          /* empty */
+        }
+      }
+      return { meta, text, exists, path }
+    }),
+  )
+
   const sourcesOut = []
   const events = []
   const withErrors = []
 
-  for (const meta of SOURCE_META) {
-    let text = ''
-    try {
-      text = (await api.readLogTail(meta.id, 400)) || ''
-    } catch {
-      text = ''
-    }
+  for (const { meta, text, exists } of results) {
     const lines = String(text)
       .split(/\r?\n/)
       .map((l) => l.trimEnd())
@@ -106,13 +135,12 @@ async function loadViaTauriFallback() {
         count: 1,
       })
     }
-    const exists = lines.length > 0
     if (hits.length) withErrors.push(meta.id)
     sourcesOut.push({
       id: meta.id,
       title: meta.title,
       when: meta.when,
-      exists,
+      exists: exists || lines.length > 0,
       has_errors: hits.length > 0,
       error_count: hits.length,
       latest_error_at: hits.length ? hits[hits.length - 1].ts : null,
@@ -125,22 +153,6 @@ async function loadViaTauriFallback() {
     }
   }
 
-  const mdLines = [
-    '### EvoFlow 异常时间线',
-    `- 范围：最近（Tauri 兜底，约末尾若干行）`,
-    `- 模式：桌面兜底（Gateway 不可用）`,
-    `- 有报错的源：${withErrors.length ? withErrors.join(', ') : '无'}`,
-    '',
-    '| 时间 | 来源 | 级别 | 摘要 |',
-    '|---|---|---|---|',
-  ]
-  for (const ev of events.slice(0, 80)) {
-    mdLines.push(
-      `| ${ev.ts || '—'} | ${ev.source} | ${ev.level} | ${String(ev.summary || '').replace(/\|/g, '\\|')} |`,
-    )
-  }
-  if (!events.length) mdLines.push('| — | — | — | 未匹配到异常行 |')
-
   return {
     mode: 'tauri-fallback',
     sources: {
@@ -152,42 +164,123 @@ async function loadViaTauriFallback() {
       error_source_count: withErrors.length,
     },
     events,
-    timelineMd: mdLines.join('\n'),
+    timelineMd: '### EvoFlow 异常时间线（本地兜底）\n',
     logsDir: '~/.evoflow/logs',
     withErrors,
   }
+}
+
+async function loadRawForSource(sourceId) {
+  const seq = ++_rawSeq
+  const meta = SOURCE_META.find((m) => m.id === sourceId)
+  const title = meta?.title || sourceId
+  try {
+    let data = null
+    try {
+      data = await api.diagnosticsTail(sourceId, 800, Math.max(_hours, 72), {
+        silent: true,
+        timeoutMs: 10000,
+      })
+    } catch {
+      data = null
+    }
+    if ((!data || data.ok === false) && isTauri) {
+      const insp = await api.inspectLog(sourceId, 800)
+      data = {
+        ok: true,
+        exists: !!insp?.exists,
+        path: insp?.path || '',
+        content: insp?.content || '',
+        line_count: insp?.lineCount ?? insp?.line_count ?? 0,
+        hint: insp?.exists ? '' : `未找到 ${title} 日志文件`,
+        title,
+      }
+    }
+    if (seq !== _rawSeq) return
+    _rawView = {
+      title: data?.title || title,
+      path: data?.path || '',
+      exists: !!data?.exists,
+      content: data?.content || '',
+      lineCount: data?.line_count || data?.lineCount || 0,
+      hint: data?.hint || data?.error || '',
+    }
+  } catch (e) {
+    if (seq !== _rawSeq) return
+    _rawView = {
+      title,
+      path: '',
+      exists: false,
+      content: '',
+      lineCount: 0,
+      hint: e?.message || String(e),
+    }
+  }
+  renderBody()
 }
 
 async function refresh() {
   const seq = ++_loadSeq
   const status = q('[data-role="status"]')
   if (status) status.textContent = '加载中…'
+  // Paint chips immediately so route doesn't sit blank
+  if (!_sourcesPayload) {
+    _sourcesPayload = {
+      sources: SOURCE_META.map((m) => ({ ...m, exists: true, has_errors: false })),
+    }
+    renderBody()
+  }
   try {
     let data
-    try {
+    if (isTauri) {
+      // Desktop: local files first (fast), then optionally enrich via Gateway
+      try {
+        data = await loadViaTauriFallback()
+      } catch (e) {
+        try {
+          data = await loadViaGateway()
+        } catch {
+          throw e
+        }
+      }
+      // Soft enrich from Gateway (don't block / don't toast if it fails)
+      void loadViaGateway()
+        .then((gw) => {
+          if (seq !== _loadSeq) return
+          if (gw?.sources?.sources?.length) {
+            _sourcesPayload = gw.sources
+            _events = gw.events || _events
+            _timelineMd = gw.timelineMd || _timelineMd
+            _mode = 'gateway'
+            renderBody()
+          }
+        })
+        .catch(() => {})
+    } else {
       data = await loadViaGateway()
-    } catch (e) {
-      if (!isTauri) throw e
-      data = await loadViaTauriFallback()
-      toast('Gateway 不可用，已用本地日志兜底', 'warn')
     }
     if (seq !== _loadSeq) return
     _mode = data.mode
     _sourcesPayload = data.sources
     _events = data.events || []
     _timelineMd = data.timelineMd || ''
-    renderBody()
+    if (_sourceFilter && _viewMode === 'raw') {
+      void loadRawForSource(_sourceFilter)
+    } else {
+      renderBody()
+    }
     if (status) {
       const n = filteredEvents().length
       const errN = (data.withErrors || []).length
       status.textContent =
-        `${data.mode === 'gateway' ? 'Gateway' : '本地兜底'} · ${data.logsDir || ''} · ` +
-        `${errN ? `${errN} 个源有异常` : '暂无异常'} · 展示 ${n} 条`
+        `${data.mode === 'gateway' ? '本地/Gateway' : '本地兜底'} · ${data.logsDir || ''} · ` +
+        `${errN ? `${errN} 个源有异常` : '暂无异常扫描命中'} · 异常表 ${n} 条`
     }
   } catch (e) {
     if (seq !== _loadSeq) return
     if (status) status.textContent = `加载失败：${e?.message || e}`
     toast(`系统日志加载失败：${e?.message || e}`, 'error')
+    renderBody()
   }
 }
 
@@ -204,13 +297,22 @@ function filteredEvents() {
 }
 
 function renderSourceChips() {
-  const list = _sourcesPayload?.sources || SOURCE_META.map((m) => ({ ...m, has_errors: false, exists: false }))
-  return list
+  const fromApi = _sourcesPayload?.sources
+  const list =
+    Array.isArray(fromApi) && fromApi.length
+      ? fromApi
+      : SOURCE_META.map((m) => ({ ...m, has_errors: false, exists: false }))
+  // Merge titles for known ids missing from API older builds
+  const byId = new Map(list.map((s) => [s.id, s]))
+  for (const m of SOURCE_META) {
+    if (!byId.has(m.id)) byId.set(m.id, { ...m, exists: false, has_errors: false })
+  }
+  return [...byId.values()]
     .map((s) => {
       const active = _sourceFilter === s.id ? ' is-active' : ''
       const bad = s.has_errors ? ' has-errors' : ''
       const count = s.error_count ? `<span class="syslog-chip-count">${s.error_count}</span>` : ''
-      const miss = !s.exists ? ' is-missing' : ''
+      const miss = s.exists === false ? ' is-missing' : ''
       return `<button type="button" class="syslog-chip${active}${bad}${miss}" data-source="${esc(s.id)}" title="${esc(s.when || '')}">
         <span class="syslog-chip-title">${esc(s.title || s.id)}</span>${count}
       </button>`
@@ -221,7 +323,7 @@ function renderSourceChips() {
 function renderEvents() {
   const rows = filteredEvents()
   if (!rows.length) {
-    return `<div class="syslog-empty">当前筛选下没有 ERROR / WARN 记录。可换时间窗、换日志源，或点「刷新」。</div>`
+    return `<div class="syslog-empty">当前筛选下没有 ERROR / WARN。点上方某个日志源可切换到「全文」查看完整内容（含 INFO）。</div>`
   }
   return `<div class="syslog-table-wrap"><table class="syslog-table">
     <thead><tr><th>时间</th><th>来源</th><th>级别</th><th>次数</th><th>摘要</th></tr></thead>
@@ -244,15 +346,49 @@ function renderEvents() {
   </table></div>`
 }
 
+function renderRawPanel() {
+  const v = _rawView
+  if (!v) {
+    return `<div class="syslog-empty">正在加载全文…</div>`
+  }
+  const meta = `${esc(v.title || '')} · ${v.exists ? `${v.lineCount} 行` : '无文件'} · <code class="syslog-path">${esc(v.path || '—')}</code>`
+  const hint = v.hint
+    ? `<div class="syslog-empty" style="margin-bottom:8px;padding:10px;text-align:left">${esc(v.hint)}</div>`
+    : ''
+  if (!v.exists) {
+    return `<div class="syslog-raw-meta">${meta}</div>
+      <div class="syslog-empty">${esc(v.hint || '该日志源当前没有文件。进程内 LangGraph 请先重启 Gateway 以生成 langgraph-日期.log；或查看 Gateway。')}</div>`
+  }
+  return `<div class="syslog-raw-meta">${meta}</div>${hint}
+    <pre class="syslog-raw-pre" data-role="raw-pre">${esc(v.content || '')}</pre>`
+}
+
 function renderBody() {
   const chips = q('[data-role="chips"]')
   const events = q('[data-role="events"]')
   const mode = q('[data-role="mode"]')
-  if (chips) chips.innerHTML = `
-    <button type="button" class="syslog-chip${!_sourceFilter ? ' is-active' : ''}" data-source="">全部</button>
+  const viewToggle = q('[data-role="view-toggle"]')
+  if (chips) {
+    chips.innerHTML = `
+    <button type="button" class="syslog-chip${!_sourceFilter ? ' is-active' : ''}" data-source="">全部（异常）</button>
     ${renderSourceChips()}
   `
-  if (events) events.innerHTML = renderEvents()
+  }
+  if (viewToggle) {
+    viewToggle.innerHTML = _sourceFilter
+      ? `<button type="button" class="syslog-level-btn${_viewMode === 'raw' ? ' is-active' : ''}" data-act="set-view" data-view="raw">全文</button>
+         <button type="button" class="syslog-level-btn${_viewMode === 'anomaly' ? ' is-active' : ''}" data-act="set-view" data-view="anomaly">仅异常</button>`
+      : `<span class="syslog-hint">点选日志源 → 默认看全文；或切「仅异常」</span>`
+  }
+  if (events) {
+    if (_sourceFilter && _viewMode === 'raw') {
+      events.innerHTML = renderRawPanel()
+      const pre = events.querySelector('[data-role="raw-pre"]')
+      if (pre) pre.scrollTop = pre.scrollHeight
+    } else {
+      events.innerHTML = renderEvents()
+    }
+  }
   if (mode) mode.textContent = _mode === 'gateway' ? '在线' : '本地兜底'
 }
 
@@ -261,13 +397,30 @@ function bind(page) {
     const chip = e.target.closest('[data-source]')
     if (chip) {
       _sourceFilter = chip.getAttribute('data-source') || ''
-      renderBody()
+      if (_sourceFilter) {
+        _viewMode = 'raw'
+        void loadRawForSource(_sourceFilter)
+      } else {
+        _viewMode = 'anomaly'
+        _rawView = null
+        renderBody()
+      }
       return
     }
     const act = e.target.closest('[data-act]')?.getAttribute('data-act')
     if (!act) return
     if (act === 'refresh') void refresh()
     if (act === 'copy-timeline') void copyTimeline()
+    if (act === 'copy-raw') void copyRaw()
+    if (act === 'set-view') {
+      const v = e.target.closest('[data-act]')?.getAttribute('data-view')
+      if (v === 'raw' || v === 'anomaly') {
+        _viewMode = v
+        if (_viewMode === 'raw' && _sourceFilter) void loadRawForSource(_sourceFilter)
+        else renderBody()
+      }
+      return
+    }
     if (act === 'toggle-level') {
       const lv = e.target.closest('[data-act]')?.getAttribute('data-level')
       if (!lv) return
@@ -284,6 +437,20 @@ function bind(page) {
     _hours = Math.max(1, Number(e.target.value) || 24)
     void refresh()
   })
+}
+
+async function copyRaw() {
+  const text = _rawView?.content
+  if (!text) {
+    toast('暂无全文可复制', 'warn')
+    return
+  }
+  try {
+    await navigator.clipboard.writeText(text)
+    toast('日志全文已复制', 'success')
+  } catch {
+    toast('复制失败', 'error')
+  }
 }
 
 async function copyTimeline() {
@@ -317,15 +484,18 @@ export async function render() {
   page.className = 'page syslog-page'
   _pageEl = page
   _sourceFilter = ''
+  _viewMode = 'anomaly'
+  _rawView = null
   _levelFilter = new Set(['ERROR', 'CRITICAL', 'WARN'])
   page.innerHTML = `
     <div class="page-header syslog-header">
       <div>
         <h1 class="page-title">系统日志</h1>
-        <p class="page-desc">ERROR / WARN / 异常扫描 · 与助手 <code>diagnostics.*</code> 同源 · 可导出异常时间线</p>
+        <p class="page-desc">点选日志源查看全文；异常扫描（ERROR/WARN）为辅 · 与 diagnostics.* 同源</p>
       </div>
       <div class="syslog-header-actions">
-        <label class="syslog-hours">近
+        <label class="syslog-hours">
+          <span class="syslog-hours-label">近</span>
           <select data-role="hours">
             <option value="6">6 小时</option>
             <option value="24" selected>24 小时</option>
@@ -335,6 +505,7 @@ export async function render() {
         </label>
         <span class="syslog-mode" data-role="mode">—</span>
         <button type="button" class="btn btn-secondary btn-sm" data-act="refresh">刷新</button>
+        <button type="button" class="btn btn-secondary btn-sm" data-act="copy-raw">复制全文</button>
         <button type="button" class="btn btn-primary btn-sm" data-act="copy-timeline">复制异常时间线</button>
       </div>
     </div>
@@ -344,13 +515,16 @@ export async function render() {
         <button type="button" class="syslog-level-btn is-active" data-act="toggle-level" data-level="WARN">WARN</button>
         <button type="button" class="syslog-level-btn is-active" data-act="toggle-level" data-level="CRITICAL">CRITICAL</button>
       </div>
+      <div class="syslog-view-toggle" data-role="view-toggle"></div>
       <div class="syslog-status" data-role="status">准备加载…</div>
     </div>
     <div class="syslog-chips" data-role="chips"></div>
     <div class="syslog-events" data-role="events"></div>
   `
   bind(page)
-  await refresh()
+  // Must return shell immediately — awaiting diagnostics here caused「页面渲染超时」.
+  renderBody()
+  void refresh()
   return page
 }
 
@@ -359,4 +533,5 @@ export function cleanup() {
   _sourcesPayload = null
   _events = []
   _timelineMd = ''
+  _rawView = null
 }

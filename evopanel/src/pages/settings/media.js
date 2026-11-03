@@ -672,6 +672,36 @@ function buildVolcengineTtsHeader() {
     </header>`
 }
 
+const VOICE_TURN_SILENCE_KEY = 'evoflow-voice-turn-silence-ms'
+const VOICE_COALESCE_KEY = 'evoflow-voice-coalesce-ms'
+
+/** 即写 localStorage（不走凭据 autosave）；空/非法 = 恢复默认 */
+function applyVoiceTuning(key, raw) {
+  const v = Math.round(Number(raw))
+  const min = key === VOICE_COALESCE_KEY ? 200 : 300
+  if (Number.isFinite(v) && v >= min && v <= 2000) {
+    localStorage.setItem(key, String(v))
+  } else {
+    localStorage.removeItem(key)
+  }
+}
+
+function voiceTuningFieldsHtml() {
+  const silence = String(localStorage.getItem(VOICE_TURN_SILENCE_KEY) || '')
+  const coalesce = String(localStorage.getItem(VOICE_COALESCE_KEY) || '')
+  return `
+    <div class="form-field">
+      <label class="form-label">判停静默窗口（ms）</label>
+      <input type="number" class="form-input" min="300" max="2000" step="50" placeholder="默认 800（填空恢复默认）" value="${escAttr(silence)}" data-voice-turn-silence />
+      <p class="form-hint">用户说完等多久判定一句话结束；越小回复越快，太小容易把犹豫切断。下次语音会话生效。</p>
+    </div>
+    <div class="form-field">
+      <label class="form-label">录入合并窗口（ms）</label>
+      <input type="number" class="form-input" min="200" max="2000" step="50" placeholder="默认 500（填空恢复默认）" value="${escAttr(coalesce)}" data-voice-coalesce />
+      <p class="form-hint">连续识别结果合并成一句的等待；越小发问越快。下次语音会话生效。</p>
+    </div>`
+}
+
 function buildXiaomiProviderFieldsHtml() {
   return `
     <div class="form-field" data-xiaomi-voice-providers>
@@ -784,6 +814,7 @@ function buildVolcengineTtsFieldsHtml(creds) {
     <div class="media-advanced-group" data-media-advanced-group hidden>
       ${textFieldHtml('volcengineTtsResourceId', 'TTS 模型', 'seed-tts-2.0', creds)}
       <p class="form-hint">小V 语音全屏走 Frame 运行时（/api/speech/session）；切句与打断由后端编排。</p>
+      ${voiceTuningFieldsHtml()}
     </div>`
 }
 
@@ -806,8 +837,45 @@ function buildVolcengineCreativeHeader() {
     </header>`
 }
 
+function planLacksVideo() {
+  if (!isVolcPlanActive()) return false
+  const caps = _volcPlanBinding?.bound_capabilities || _volcPlanBinding?.boundCapabilities || []
+  return !caps.map(String).includes('video')
+}
+
+function preferredVideoProviderHtml(creds) {
+  const cur = String(creds.preferredVideoProvider || '')
+  const opts = [
+    { value: '', label: '自动（按已配置渠道；无 Seedance 权时会落到 MiniMax/万相）' },
+    { value: 'jimeng', label: '火山 Seedance（需套餐含视频或按量 Key）' },
+    { value: 'minimax', label: 'MiniMax 视频' },
+    { value: 'wan', label: '通义万相' },
+    { value: 'kling', label: '可灵' },
+  ]
+  const options = opts
+    .map(
+      (o) =>
+        `<option value="${escAttr(o.value)}"${o.value === cur ? ' selected' : ''}>${escHtml(o.label)}</option>`,
+    )
+    .join('')
+  return `
+    <label class="form-field">
+      <span class="form-label">默认视频渠道</span>
+      <select class="form-input" data-media-field="preferredVideoProvider">${options}</select>
+      <span class="form-hint">Agent / media.catalog 未指定 provider 时使用。配置 MiniMax 后可选手动指定。</span>
+    </label>`
+}
+
+function planVideoGateHintHtml() {
+  if (!planLacksVideo()) return ''
+  const tier = String(_volcPlanBinding?.tier_id || _volcPlanBinding?.tierId || '当前档').trim()
+  return `<p class="form-hint media-plan-video-hint">当前套餐（${escHtml(tier)}）不含 Seedance 视频。启用 MiniMax / 万相并保存 Key 后，默认会走这些渠道，catalog 不再把 Seedance 当可用默认。</p>`
+}
+
 function buildVolcengineCreativeFieldsHtml(creds) {
   return `
+    ${planVideoGateHintHtml()}
+    ${preferredVideoProviderHtml(creds)}
     ${secretFieldHtml('volcengineApiKey', 'Ark API Key（可选）', creds)}
     <p class="form-hint">有 Agent Plan 时可留空。自定义 Key 用于按量 / 兼容网关，保存后与套餐并行：运行时优先套餐 Key。</p>
     ${textFieldHtml(
@@ -882,9 +950,11 @@ function buildDetailHtml(vendorKey, creds) {
       break
     case 'minimax':
       fields = `
+        ${planVideoGateHintHtml()}
+        ${preferredVideoProviderHtml(creds)}
         ${secretFieldHtml('minimaxMediaApiKey', 'API Key', creds)}
         ${textFieldHtml('minimaxMediaBaseUrl', 'Base URL（可选）', 'https://api.minimax.cn', creds)}
-        <p class="form-hint">官方默认 https://api.minimax.cn（模型 MiniMax-H3）。第三方网关（hon-maas）填 https://…/v1（勿多加 /videos），模型用 minimax-h3 或 minimax-h3/QY3。与 TTS Key 分开。</p>
+        <p class="form-hint">官方默认 https://api.minimax.cn（模型 MiniMax-H3）。第三方网关（hon-maas）填 https://…/v1（勿多加 /videos），模型用 minimax-h3 或 minimax-h3/QY3。与 TTS Key 分开。启用后若套餐无 Seedance，Agent 会自动默认本渠道。</p>
       `
       break
     case 'kling':
@@ -1171,6 +1241,15 @@ function bindAutosave(panel) {
   panel.addEventListener('change', (e) => {
     const t = e.target
     if (!(t instanceof HTMLElement)) return
+    // 语音调参：即写 localStorage，与凭据 autosave 无关
+    if (t.matches('[data-voice-turn-silence]')) {
+      applyVoiceTuning(VOICE_TURN_SILENCE_KEY, t.value)
+      return
+    }
+    if (t.matches('[data-voice-coalesce]')) {
+      applyVoiceTuning(VOICE_COALESCE_KEY, t.value)
+      return
+    }
     if (t.matches('[data-tts-speaker-custom-mode]')) {
       return // 音色「自定义」勾选框是 UI 模式切换,不改数据;真正的值变化由 input/blur 触发保存
     }

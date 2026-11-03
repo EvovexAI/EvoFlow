@@ -117,19 +117,35 @@ def upsert_employee_automation(role: Any) -> str | None:
     task_id = employee_automation_task_id(code)
     doc = build_employee_automation_doc(role)
     try:
+        import sqlite3
+        import time
+
         from evoflow.persistence import automation_repositories as auto_repo
 
-        existing = auto_repo.load_automation(task_id)
-        if existing:
-            # Preserve created_at / last_run counters from prior row.
-            for keep in ("created_at", "last_run", "last_status", "run_count", "once_fired"):
-                if existing.get(keep) not in (None, ""):
-                    doc[keep] = existing[keep]
-            # Never let operators' manual edits to name/prompt stick for managed rows —
-            # schedule + status always come from the role.
-            doc["name"] = f"员工上班 · {str(getattr(role, 'role_name', '') or '').strip() or code}"
-        auto_repo.save_automation(task_id, doc)
-        return task_id
+        last_err: BaseException | None = None
+        for attempt in range(5):
+            try:
+                existing = auto_repo.load_automation(task_id)
+                if existing:
+                    # Preserve created_at / last_run counters from prior row.
+                    for keep in ("created_at", "last_run", "last_status", "run_count", "once_fired"):
+                        if existing.get(keep) not in (None, ""):
+                            doc[keep] = existing[keep]
+                    # Never let operators' manual edits to name/prompt stick for managed rows —
+                    # schedule + status always come from the role.
+                    doc["name"] = (
+                        f"员工上班 · {str(getattr(role, 'role_name', '') or '').strip() or code}"
+                    )
+                auto_repo.save_automation(task_id, doc)
+                return task_id
+            except sqlite3.OperationalError as e:
+                last_err = e
+                if "locked" not in str(e).lower() and "busy" not in str(e).lower():
+                    raise
+                time.sleep(min(0.05 * (2**attempt), 1.0))
+        if last_err:
+            raise last_err
+        return None
     except Exception:
         logger.exception("employee_automation: upsert failed agent=%s", code)
         return None

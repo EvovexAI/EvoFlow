@@ -76,6 +76,11 @@ export function useSavedWorkflowGlobalGroup({
   const [moveEntry, setMoveEntry] = useState<ZCodeSavedWorkflowEntry | null>(null);
   const [busyName, setBusyName] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
+  // 相对时间（「3 分钟前」）不依赖刷新动作，停留页面时也要走表。
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   const refresh = useCallback(
     async (options: { bypassCache?: boolean } = {}) => {

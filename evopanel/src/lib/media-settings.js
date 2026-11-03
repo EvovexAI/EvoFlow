@@ -53,6 +53,8 @@ export const DEFAULT_MEDIA_CREDENTIALS = {
   minimaxTtsVoice: 'male-qn-qingse',
   minimaxMediaApiKey: '',
   minimaxMediaBaseUrl: 'https://api.minimax.cn',
+  preferredImageProvider: '',
+  preferredVideoProvider: '',
   aliyunAccessKeyId: '',
   aliyunAccessKeySecret: '',
   aliyunOssBucket: '',

@@ -60,6 +60,10 @@ import { V4QueuePanelBridge } from "./V4QueuePanelBridge.js";
 import { evoflowStubPlatform } from "../../pages/settings/evoflow-bridge-services.js";
 import { apiUrlAsync } from "../../lib/api-client.js";
 import {
+  isAbsoluteHostPath,
+  resolveWorkspaceRelativeHostPath,
+} from "../../lib/workspace-abs-path.js";
+import {
   ToolApprovalPanel,
   type ToolApprovalChoice,
 } from "../components/ToolApprovalPanel.js";
@@ -125,6 +129,71 @@ function parentDirOfPath(path: string): string {
   return i > 0 ? n.slice(0, i) : "";
 }
 
+/** Tauri convertFileSrc → asset.localhost / asset:；勿把 Gateway serve-file 误判成本地可播 URL。 */
+function isTauriAssetMediaUrl(url: string): boolean {
+  const u = String(url || "").trim();
+  if (!u) return false;
+  if (/^asset:/i.test(u)) return true;
+  if (/^https?:\/\/asset\.localhost\b/i.test(u)) return true;
+  if (/^https?:\/\/[^/]*\.asset\.localhost\b/i.test(u)) return true;
+  return false;
+}
+
+function joinWorkspaceMediaPath(workspaceRoot: string, path: string): string {
+  const raw = String(path || "").trim();
+  if (!raw) return "";
+  if (isAbsHostFsPath(raw) || /^https?:\/\//i.test(raw) || raw.startsWith("data:") || raw.startsWith("blob:")) {
+    return raw.replace(/\\/g, "/");
+  }
+  const root = String(workspaceRoot || "")
+    .trim()
+    .replace(/\\/g, "/")
+    .replace(/\/+$/, "");
+  if (!root) return raw.replace(/\\/g, "/");
+  return `${root}/${raw.replace(/^\/+/, "").replace(/\\/g, "/")}`;
+}
+
+/**
+ * 桌面端音视频/图片优先 convertFileSrc（与文件树、ToolCallBody 同路）。
+ * 正文「打开」若只走 Gateway serve-file，易出现 MIME/跨域/HTML 壳 →「不支持播放这种媒体格式」。
+ */
+async function tryConvertFileSrcMediaUrl(
+  path: string,
+  workspaceRoot?: string,
+): Promise<string | null> {
+  const abs = joinWorkspaceMediaPath(workspaceRoot || "", path);
+  if (!abs || !isAbsHostFsPath(abs)) return null;
+  try {
+    const { convertFileSrc } = await import("@tauri-apps/api/core");
+    const url = convertFileSrc(abs);
+    if (typeof url === "string" && isTauriAssetMediaUrl(url)) return url;
+  } catch {
+    /* web / convert 不可用 */
+  }
+  return null;
+}
+
+function guessBinaryMediaType(path: string, expectedKind?: string): string {
+  const lower = String(path || "")
+    .replace(/\\/g, "/")
+    .toLowerCase();
+  if (lower.endsWith(".png")) return "image/png";
+  if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";
+  if (lower.endsWith(".gif")) return "image/gif";
+  if (lower.endsWith(".webp")) return "image/webp";
+  if (lower.endsWith(".bmp")) return "image/bmp";
+  if (lower.endsWith(".mp3")) return "audio/mpeg";
+  if (lower.endsWith(".wav")) return "audio/wav";
+  if (lower.endsWith(".m4a")) return "audio/mp4";
+  if (lower.endsWith(".ogg") || lower.endsWith(".opus")) return "audio/ogg";
+  if (lower.endsWith(".webm")) return "video/webm";
+  if (lower.endsWith(".mov")) return "video/quicktime";
+  if (lower.endsWith(".m4v") || lower.endsWith(".mp4")) return "video/mp4";
+  if (expectedKind === "audio") return "audio/mpeg";
+  if (expectedKind === "video") return "video/mp4";
+  return "application/octet-stream";
+}
+
 /** 桌面端本机绝对路径：Gateway 未起时用 Rust 直读，避免 /api 落到 tauri.localhost SPA 壳。 */
 async function readLocalAbsFileBuffer(path: string): Promise<ArrayBuffer | null> {
   if (!isAbsHostFsPath(path)) return null;
@@ -148,8 +217,18 @@ export function createEvoflowPartialServices(
   const boundRoot = String(workspaceRoot || "").trim();
   const isTauriHost =
     typeof window !== "undefined" && !!(window as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;
+  /** 与 showRightStageFromFileLink 同一套：相对路径先拼到会话 root，再 serve-file。 */
+  const resolveServePath = (path: string): string => {
+    const raw = String(path || "").trim();
+    if (!raw || /^https?:\/\//i.test(raw) || raw.startsWith("data:") || raw.startsWith("blob:")) {
+      return raw;
+    }
+    if (!boundRoot) return raw;
+    const joined = String(resolveWorkspaceRelativeHostPath(raw, boundRoot) || "").trim();
+    return joined || raw;
+  };
   const serveFileUrl = async (path: string): Promise<string> => {
-    const p = String(path || "").trim();
+    const p = resolveServePath(path);
     // Never wrap remote/data URLs into serve-file (slow log: https://… → 5s heal → 404).
     if (/^https?:\/\//i.test(p) || p.startsWith("data:") || p.startsWith("blob:")) {
       return p;
@@ -160,7 +239,7 @@ export function createEvoflowPartialServices(
     if (sessionId) q.set("thread_id", sessionId);
     // 有绑定工作区时带 root；绝对路径在工作区外时用父目录作 root（profiles/default/*.md）
     if (boundRoot) q.set("root", boundRoot);
-    else if (isAbsHostFsPath(p)) {
+    else if (isAbsHostFsPath(p) || isAbsoluteHostPath(p)) {
       const parent = parentDirOfPath(p);
       if (parent) q.set("root", parent);
     }
@@ -174,7 +253,7 @@ export function createEvoflowPartialServices(
     path: string,
     init?: RequestInit,
   ): Promise<{ resp: Response; buf: ArrayBuffer }> => {
-    const p = String(path || "").trim();
+    const p = resolveServePath(path);
     const tryLocal = async (): Promise<{ resp: Response; buf: ArrayBuffer } | null> => {
       const local = await readLocalAbsFileBuffer(p);
       if (!local) return null;
@@ -296,13 +375,42 @@ export function createEvoflowPartialServices(
     return dataUrl.split(",")[1] ?? "";
   };
   const readMediaPreview = async (params: { path: string; maxBytes?: number }) => {
-    const { resp, buf } = await readServeFileBuffer(params.path);
-    const blob = new Blob([buf], {
-      type: resp.headers.get("content-type") || "application/octet-stream",
-    });
+    const path = String(params.path || "").trim();
+    // 图片预览也优先 asset URL：避免 Gateway 丢包 / 文本 invoke 把二进制读坏。
+    const assetUrl = await tryConvertFileSrcMediaUrl(path, boundRoot);
+    if (assetUrl) {
+      try {
+        const resp = await fetch(assetUrl);
+        if (resp.ok) {
+          const buf = await resp.arrayBuffer();
+          const ct = resp.headers.get("content-type") || "";
+          if (!shouldRejectHtmlShell(path, buf, ct)) {
+            const mediaType =
+              (ct && !ct.includes("application/octet-stream") ? ct : "") ||
+              guessBinaryMediaType(path);
+            const blob = new Blob([buf], { type: mediaType });
+            return {
+              path,
+              mediaType: blob.type || mediaType,
+              dataBase64: await blobToBase64(blob),
+              totalBytes: blob.size,
+            };
+          }
+        }
+      } catch {
+        /* fall through to serve-file */
+      }
+    }
+    const { resp, buf } = await readServeFileBuffer(path);
+    const headerCt = (resp.headers.get("content-type") || "").toLowerCase();
+    const mediaType =
+      headerCt && !headerCt.includes("application/octet-stream") && !headerCt.includes("text/html")
+        ? headerCt
+        : guessBinaryMediaType(path);
+    const blob = new Blob([buf], { type: mediaType });
     return {
-      path: params.path,
-      mediaType: blob.type || "application/octet-stream",
+      path,
+      mediaType: blob.type || mediaType,
       dataBase64: await blobToBase64(blob),
       totalBytes: blob.size,
     };
@@ -491,22 +599,31 @@ export function createEvoflowPartialServices(
       },
     },
     mediaPreviewService: {
-      // serve-file 流式播放（Range）。对话常给错相对路径：先探测，失败则按文件名在工作区找回再播。
+      // 优先 Tauri convertFileSrc（与文件树同路）；再 serve-file Range；最后整档 blob。
+      // 正文 Preview Card「打开」过去只走 serve-file，易报「不支持播放这种媒体格式」。
       async prepare(params: { path: string; expectedKind?: string }) {
         const original = String(params?.path || "").trim();
+        const localAsset = original
+          ? await tryConvertFileSrcMediaUrl(original, boundRoot)
+          : null;
+        if (localAsset) {
+          return { url: localAsset };
+        }
+
         const tryUrl = async (path: string) => {
           const url = await serveFileUrl(path);
-          const probe = await fetch(url, { headers: { Range: "bytes=0-1" } });
+          const probe = await fetch(url, { headers: { Range: "bytes=0-255" } });
           if (probe.status === 404) return null;
           if (!probe.ok && probe.status !== 206) return null;
           const ct = (probe.headers.get("content-type") || "").toLowerCase();
-          if (ct.includes("text/html")) return null;
-          // 丢弃探测 body，避免占缓冲
+          let head: ArrayBuffer | null = null;
           try {
-            await probe.arrayBuffer();
+            head = await probe.arrayBuffer();
           } catch {
             /* ignore */
           }
+          // CT 或魔数任一像 SPA 壳就拒绝，避免 <video> 报「不支持播放这种媒体格式」
+          if (shouldRejectHtmlShell(path, head || new ArrayBuffer(0), ct)) return null;
           return url;
         };
 
@@ -527,7 +644,10 @@ export function createEvoflowPartialServices(
                 const abs = /^[a-zA-Z]:[\\/]/.test(rel) || rel.startsWith("/")
                   ? rel
                   : `${boundRoot.replace(/[\\/]+$/, "")}/${rel.replace(/^\/+/, "")}`;
-                url = await tryUrl(abs.replace(/\\/g, "/"));
+                const healedAbs = abs.replace(/\\/g, "/");
+                const healedAsset = await tryConvertFileSrcMediaUrl(healedAbs, boundRoot);
+                if (healedAsset) return { url: healedAsset };
+                url = await tryUrl(healedAbs);
               }
             }
           } catch {
@@ -541,9 +661,7 @@ export function createEvoflowPartialServices(
             const mediaType =
               preview.mediaType && preview.mediaType !== "application/octet-stream"
                 ? preview.mediaType
-                : params?.expectedKind === "audio"
-                  ? "audio/mpeg"
-                  : "video/mp4";
+                : guessBinaryMediaType(original, params?.expectedKind);
             return { mediaType, dataBase64: preview.dataBase64 };
           } catch (err) {
             throw new Error(

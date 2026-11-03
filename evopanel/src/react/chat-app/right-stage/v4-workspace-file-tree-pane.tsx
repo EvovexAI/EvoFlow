@@ -12,7 +12,7 @@ import { ServiceProvider } from "@zcode/ui/hooks/useServices.js";
 import { TooltipProvider } from "@zcode/ui/components/ui/tooltip.js";
 import type { IBroadcastService, BroadcastMessage } from "@zcode/services";
 import type { CodeViewerSource } from "@zcode/ui/lib/codeViewer.js";
-import { evoflowStubPlatform } from "../../../pages/settings/evoflow-bridge-services.js";
+import { createEvoflowLocalRevealPlatform } from "../../../pages/settings/evoflow-bridge-services.js";
 import { createEvoflowPartialServices } from "../../v4/V4ZCodeTimeline.js";
 
 /** 同 V4PreviewPane：Web 端 no-op 广播（createZCodeStore 明确 Web 可传 no-op）。 */
@@ -154,10 +154,14 @@ export function V4WorkspaceFileTreePane(props: {
       },
     };
   }, [threadId, workspacePath, acceptFileName, acceptDirectoryName, hideEmptyDirectories]);
+  const revealPlatform = useMemo(
+    () => createEvoflowLocalRevealPlatform({ workspaceRoot: workspacePath }),
+    [workspacePath],
+  );
   return (
     <ZCodeIntlProvider initialLocale="zh-CN">
       <StoreProvider broadcastService={NOOP_BROADCAST}>
-        <PlatformProvider platform={evoflowStubPlatform}>
+        <PlatformProvider platform={revealPlatform}>
           <ServiceProvider services={partialServices}>
             {/* zcode-bridge-root：styles-bridge 的 token / 暗色主题 / 滚动条作用域都收窄在此容器。 */}
             <div className="zcode-bridge-root h-full min-h-0">

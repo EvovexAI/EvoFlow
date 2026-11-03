@@ -1,0 +1,7 @@
+[[permission]]
+identifier = "allow-resource-manager"
+description = "Allow the resource-manager window to sample CPU/memory snapshots."
+commands.allow = [
+  "get_resource_usage_snapshot",
+  "set_resource_usage_sampling_active",
+]

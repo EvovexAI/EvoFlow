@@ -12,6 +12,9 @@ pub const TRAY_ID: &str = "main-tray";
 
 pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     let show = MenuItemBuilder::with_id("show", "显示主窗口").build(app)?;
+    let resource_manager =
+        MenuItemBuilder::with_id("resource_manager", "资源管理器").build(app)?;
+    let export_logs = MenuItemBuilder::with_id("export_logs", "导出日志").build(app)?;
     let quit = MenuItemBuilder::with_id("quit", "退出 EvoFlow").build(app)?;
 
     let menu = if commands::panel_developer_enable_devtools() {
@@ -20,6 +23,8 @@ pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
         let separator2 = PredefinedMenuItem::separator(app)?;
         MenuBuilder::new(app)
             .item(&show)
+            .item(&resource_manager)
+            .item(&export_logs)
             .item(&devtools)
             .item(&separator1)
             .item(&separator2)
@@ -29,6 +34,8 @@ pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
         let separator1 = PredefinedMenuItem::separator(app)?;
         MenuBuilder::new(app)
             .item(&show)
+            .item(&resource_manager)
+            .item(&export_logs)
             .item(&separator1)
             .item(&quit)
             .build()?
@@ -65,6 +72,23 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
                 let _ = window.unminimize();
                 let _ = window.set_focus();
             }
+        }
+        "resource_manager" => {
+            // 通知主窗口前端打开遮罩（eval 即可，避免 Emitter trait 未导入）
+            if let Some(main) = app.get_webview_window("main") {
+                let _ = main.show();
+                let _ = main.unminimize();
+                let _ = main.set_focus();
+                let _ = main.eval(
+                    "window.dispatchEvent(new CustomEvent('evoflow:open-resource-manager'))",
+                );
+            }
+        }
+        "export_logs" => {
+            let app2 = app.clone();
+            tauri::async_runtime::spawn(async move {
+                let _ = commands::export_logs::export_logs(app2).await;
+            });
         }
         "devtools" => {
             let _ = toggle_devtools(app.clone());

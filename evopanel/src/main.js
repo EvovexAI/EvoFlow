@@ -39,7 +39,20 @@ import { initDropdownSelectEnhancer } from './lib/ef-dropdown-select.js'
 
 // 仅在 production build 时开启 console 落盘（release 包调试用）
 // dev 调试时禁用，避免 DevTools Network 被刷屏
-if (import.meta.env.PROD) installConsoleFileLog()
+// 控制台镜像落盘：仅开发构建默认开；正式包需 ?efFileLog=1 或 localStorage 显式开
+if (import.meta.env.DEV) {
+  installConsoleFileLog()
+} else {
+  try {
+    const q = new URLSearchParams(window.location.search || '')
+    const ls = window.localStorage?.getItem?.('evoflow-enable-file-log')
+    if (q.get('efFileLog') === '1' || ls === '1' || ls === 'true') {
+      installConsoleFileLog()
+    }
+  } catch {
+    /* ignore */
+  }
+}
 
 // React 19.2 dev 构建给每次组件渲染写 performance.measure（​ 前缀组件追踪）且 User Timing
 // 缓冲无上限——流式会话高频重渲染下内存以 GB/h 增长；扫/清 5万+ 条本身也会造成 ~1s longtask。
@@ -503,6 +516,16 @@ async function ensureChatAppMounted() {
 
 async function boot() {
   bootMark('boot() enter')
+  // 托盘 / 设置共用：打开资源管理器遮罩
+  try {
+    window.addEventListener('evoflow:open-resource-manager', () => {
+      void import('./lib/resource-manager-overlay.js')
+        .then((m) => m.openResourceManagerOverlay())
+        .catch((e) => console.warn('[resource-manager] open failed', e))
+    })
+  } catch (e) {
+    console.warn('[boot] resource-manager listener failed', e)
+  }
   // 早启动全局服务健康 banner（vanilla DOM；与 ChatApp banner 并存，UI 不冲突）
   try { installGlobalServiceBanner() } catch (e) {
     try { console.warn('[boot] install global service banner failed', e) } catch {}

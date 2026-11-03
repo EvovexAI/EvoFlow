@@ -126,10 +126,18 @@ class VolcengineTTSService(TTSService):
         # 同会话复用 uid，减轻厂商侧音色/韵律漂移
         self._session_uid = f"evoflow-chat-{uuid.uuid4().hex[:12]}"
         self._bg_tasks: set[asyncio.Task] = set()
+        # 每句语气（emotion/语速微调）：bridge 在 queue_frame 前 set_tone，
+        # _speak_text 按句捕获到 context（合成并发时不会串句）。
+        self._pending_tone: dict | None = None
+        self._ctx_tone: dict[str, dict] = {}
         self._text_aggregator = FastFirstSentenceAggregator(
             aggregation_type=self._text_aggregation_mode,
             language=self._text_aggregator.language,
         )
+
+    def set_tone(self, tone: dict | None) -> None:
+        """设置下一句的语气（emotion/语速增量）；见 runtime/emotion.py。"""
+        self._pending_tone = tone
 
     def set_provider(self, provider: str | None) -> None:
         if provider:
@@ -151,6 +159,8 @@ class VolcengineTTSService(TTSService):
         for t in list(self._bg_tasks):
             t.cancel()
         self._bg_tasks.clear()
+        self._ctx_tone.clear()
+        self._pending_tone = None
         self.refresh_session()
         await super()._handle_interruption(frame, direction)
 
@@ -186,6 +196,10 @@ class VolcengineTTSService(TTSService):
         context = self._tts_contexts.setdefault(
             context_id, TTSContext(interruptible=src_frame.interruptible)
         )
+        # 按句捕获语气：bridge FIFO set_tone → 这里落到 context，合成并发不串
+        if self._pending_tone is not None:
+            self._ctx_tone[context_id] = self._pending_tone
+            self._pending_tone = None
         await self._announce_text(src_frame, context_id)
         await self._call_event_handler("on_tts_request", context_id, prepared_text)
         # 先占坑保播放顺序，TTSStarted 延到 run_tts 首包音频。
@@ -271,6 +285,7 @@ class VolcengineTTSService(TTSService):
                 provider=self._provider,
                 speaker=self._speaker,
                 session_uid=self._session_uid,
+                tone=self._ctx_tone.pop(context_id, None),
             ):
                 if not isinstance(chunk, (bytes, bytearray, memoryview)):
                     continue

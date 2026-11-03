@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
 import AssignedAgentAvatar from '../AssignedAgentAvatar.tsx'
 import {
+  BUILTIN_AGENT_TAGS,
   agentCapabilitySummary,
   buildTagPickerEntries,
   filterAgentsByTag,
@@ -63,7 +64,23 @@ export function AgentPickerModal({
     return () => window.clearTimeout(t)
   }, [open])
 
-  const tagEntries = useMemo(() => buildTagPickerEntries(agents), [agents])
+  // 与聊天侧 AgentPicker 共用 chip 样式；员工/通用/内置类优先，长尾标签截断防刷屏
+  const tagEntries = useMemo(() => {
+    const all = buildTagPickerEntries(agents)
+    const priority = new Map<string, number>([
+      ['员工', 0],
+      ['通用', 1],
+      ...BUILTIN_AGENT_TAGS.map((t, i) => [t.label, i + 2] as const),
+    ])
+    return [...all]
+      .sort((a, b) => {
+        const pa = priority.has(a.label) ? (priority.get(a.label) as number) : 1000
+        const pb = priority.has(b.label) ? (priority.get(b.label) as number) : 1000
+        if (pa !== pb) return pa - pb
+        return b.agent_count - a.agent_count || a.label.localeCompare(b.label, 'zh')
+      })
+      .slice(0, 18)
+  }, [agents])
 
   const filtered = useMemo(() => {
     const byTag = filterAgentsByTag(agents, tagFilter)
@@ -112,7 +129,7 @@ export function AgentPickerModal({
       className="react-chat-modal-overlay"
       role="dialog"
       aria-modal="true"
-      aria-label="选择员工"
+      aria-label="选择执行者"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose()
       }}
@@ -123,9 +140,9 @@ export function AgentPickerModal({
       >
         <div className="react-chat-modal-header">
           <div>
-            <span className="react-chat-modal-title">选择员工</span>
+            <span className="react-chat-modal-title">选择执行者</span>
             <p className="react-chat-modal-desc" style={{ margin: '4px 0 0' }}>
-              为本步骤指定在编员工 · 查看岗位与能力 · 双击可直接确认
+              优先复用在编员工；没有合适的可用通用 Agent · 双击可直接确认
             </p>
           </div>
           <button type="button" className="react-chat-modal-close" onClick={onClose} aria-label="关闭">
@@ -133,20 +150,25 @@ export function AgentPickerModal({
           </button>
         </div>
 
-        <div className="react-chat-modal-body">
-          <input
-            ref={searchRef}
-            className="react-chat-skill-modal-search"
-            placeholder="搜索名称、编码、标签…"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-          />
+        <div className="react-chat-modal-body react-chat-skill-modal-body">
+          <div className="react-chat-skill-dropdown-search">
+            <input
+              ref={searchRef}
+              type="search"
+              className="react-chat-skill-dropdown-search-input"
+              placeholder="搜索名称、编码、标签…"
+              value={query}
+              aria-label="搜索执行者"
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => e.stopPropagation()}
+            />
+          </div>
 
           {tagEntries.length ? (
-            <div className="react-chat-skill-modal-tags" role="tablist">
+            <div className="react-chat-skill-tag-bar" role="tablist" aria-label="按标签筛选">
               <button
                 type="button"
-                className={`react-chat-skill-tag${!tagFilter ? ' is-active' : ''}`}
+                className={`react-chat-skill-tag-chip${!tagFilter ? ' active' : ''}`}
                 onClick={() => setTagFilter(null)}
               >
                 全部
@@ -155,10 +177,15 @@ export function AgentPickerModal({
                 <button
                   key={t.key}
                   type="button"
-                  className={`react-chat-skill-tag${tagFilter === t.label ? ' is-active' : ''}`}
-                  onClick={() => setTagFilter(t.label)}
+                  className={`react-chat-skill-tag-chip${tagFilter === t.label ? ' active' : ''}`}
+                  style={{ ['--tag-color' as string]: t.color || '#64748b' } as CSSProperties}
+                  onClick={() => setTagFilter((prev) => (prev === t.label ? null : t.label))}
                 >
+                  {t.icon ? `${t.icon} ` : ''}
                   {t.label}
+                  {t.agent_count > 0 ? (
+                    <span className="wf-agent-picker-tag-n">{t.agent_count}</span>
+                  ) : null}
                 </button>
               ))}
             </div>
@@ -296,23 +323,21 @@ export function AgentPickerModal({
           </div>
         </div>
 
-        <div className="react-chat-modal-footer">
+        <div className="react-chat-modal-actions react-chat-skill-modal-actions">
           <span className="react-chat-skill-modal-footer-count">
             {draft ? `已选：${draftLabel}` : '未选择'}
           </span>
-          <div className="react-chat-modal-footer-actions">
-            <button type="button" className="btn btn-secondary btn-sm" onClick={onClose}>
-              取消
-            </button>
-            <button
-              type="button"
-              className="btn btn-primary btn-sm"
-              disabled={!draft}
-              onClick={() => confirm(draft)}
-            >
-              确定
-            </button>
-          </div>
+          <button type="button" className="react-chat-modal-btn react-chat-modal-btn--ghost" onClick={onClose}>
+            取消
+          </button>
+          <button
+            type="button"
+            className="react-chat-modal-btn react-chat-modal-btn--primary"
+            disabled={!draft}
+            onClick={() => confirm(draft)}
+          >
+            确定
+          </button>
         </div>
       </div>
     </div>,

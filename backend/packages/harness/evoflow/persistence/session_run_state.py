@@ -9,6 +9,7 @@ not ``idle``. ``idle`` is legacy read-only and normalized to ``done``.
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any
 
@@ -368,7 +369,7 @@ def list_all_active_sessions(*, limit: int = 500) -> list[dict[str, Any]]:
         return conn.execute(
             """
         SELECT session_key, thread_id, current_run_id, run_status,
-               title, agent_id, updated_at, collab_task_id
+               title, agent_id, updated_at, collab_task_id, context_json
         FROM evoflow_chat_sessions
         WHERE is_deleted = 0
           AND run_status IN ('running', 'pending')
@@ -391,6 +392,17 @@ def list_all_active_sessions(*, limit: int = 500) -> list[dict[str, Any]]:
         agent_id = str(row[5] or "").strip() or None
         updated_at = str(row[6] or "").strip() or None
         collab_task_id = str(row[7] or "").strip() or None
+        # Workflow executor sessions carry main_task_id in context (R-4 dedicated
+        # sessions); the workflow main task row has thread_id=None and a different
+        # collab_task_id, so this is the only join key that finds them.
+        main_task_id: str | None = None
+        try:
+            ctx = json.loads(row[8]) if row[8] else None
+            if isinstance(ctx, dict):
+                mtid = str(ctx.get("main_task_id") or "").strip()
+                main_task_id = mtid or None
+        except Exception:
+            main_task_id = None
         out.append(
             {
                 "session_key": sk,
@@ -401,6 +413,7 @@ def list_all_active_sessions(*, limit: int = 500) -> list[dict[str, Any]]:
                 "agent_id": agent_id,
                 "updated_at": updated_at,
                 "collab_task_id": collab_task_id,
+                "main_task_id": main_task_id,
             }
         )
     return out

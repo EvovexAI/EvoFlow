@@ -69,7 +69,7 @@ export function RunVarsPanel({ vars, onManage, compact }: Props) {
           ))}
         </ul>
       ) : (
-        <div className="wf-run-vars-empty">还没有变量。添加后会出现在「流程开始」与各步骤的 / 引用列表中。</div>
+        <div className="wf-run-vars-empty">还没有变量。添加后会出现在入口与各步骤的 / 引用列表中。</div>
       )}
     </div>
   )

@@ -16628,11 +16628,11 @@ html[data-theme='dark'] .memory-agent-dropdown-panel {
 .tasks-status-panel summary::-webkit-details-marker { display: none; }
 .tasks-more-filters summary::before,
 .tasks-status-panel summary::before {
-  content: '? ';
+  content: '▸ ';
   color: var(--text-tertiary);
 }
 .tasks-more-filters[open] summary::before,
-.tasks-status-panel[open] summary::before { content: '? '; }
+.tasks-status-panel[open] summary::before { content: '▾ '; }
 .tasks-more-filters-body {
   display: flex;
   align-items: center;
@@ -19543,11 +19543,11 @@ html[data-custom-bg='1'] .task-detail-page .task-obs-panel {
   position: absolute;
   right: 12px;
   bottom: 40px;
-  z-index: 6;
+  z-index: 20;
   min-width: 132px;
   padding: 4px;
   border-radius: 10px;
-  background: var(--bg-secondary, #ffffff);
+  background: var(--bg-elevated, var(--bg-secondary, #ffffff));
   border: 1px solid var(--border-primary);
   box-shadow: 0 10px 28px rgba(0, 0, 0, 0.12), 0 2px 6px rgba(0, 0, 0, 0.04);
 }
@@ -19788,8 +19788,21 @@ html[data-custom-bg='1'] .task-detail-page .task-obs-panel {
   align-items: center;
   gap: 8px;
 }
+/* 「近」+ select 必须同行：flex 子项里裸文本易竖排；scifi 全局 select{width:100%!important} 也会把下拉挤到下一行 */
+.syslog-hours {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+  white-space: nowrap;
+  font-size: var(--ef-text-sm);
+  color: var(--text-secondary);
+}
 .syslog-hours select {
-  margin-left: 4px;
+  width: auto !important;
+  min-width: 5.5em;
+  flex: 0 0 auto;
+  margin: 0;
   padding: 4px 8px;
   border-radius: var(--radius-sm, 6px);
   border: 1px solid var(--border);
@@ -19872,6 +19885,41 @@ html[data-custom-bg='1'] .task-detail-page .task-obs-panel {
   color: var(--text-tertiary);
   border: 1px dashed var(--border);
   border-radius: var(--radius-md, 8px);
+}
+.syslog-view-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.syslog-hint {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+.syslog-raw-meta {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+  word-break: break-all;
+}
+.syslog-path {
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+.syslog-raw-pre {
+  margin: 0;
+  max-height: min(70vh, 720px);
+  overflow: auto;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 8px);
+  background: var(--bg-secondary, #0f1115);
+  color: var(--text-primary);
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 .syslog-table-wrap {
   overflow: auto;

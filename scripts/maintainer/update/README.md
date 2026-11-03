@@ -2,14 +2,29 @@
 
 升版本总清单见仓库根 [RELEASE.md](../../../RELEASE.md)。本目录只放升级通道草稿。
 
-Private draft for the desktop updater. **Not** part of the product source tree.
+## 现行路径
 
-- Local draft: `scripts/maintainer/update/latest.json` (this directory)
-- Public channel (clients poll this):  
-  `https://raw.githubusercontent.com/EvovexAI/EvoFlow/main/update/latest.json`
+| 东西 | 放哪 | 谁做 |
+|------|------|------|
+| `setup.exe` / DMG | **GitHub Releases** | 打 `v*` tag → GitHub Actions 自打包 |
+| `update/latest.json` | **Gitee + GitHub**（同一内容） | `push-public-latest-json.ps1` / CI |
+| 国内「有没有更新」 | 先读 Gitee 上的清单 | 客户端写死优先顺序 |
+| 国内「下载安装包」 | `ghfast.top` 镜像 GitHub Release URL | 写进清单的 `url` / `urlCnMirror` |
 
-`npm run version:set` bumps the draft here. After the Windows installer is uploaded, `republish-public-release.ps1 -UpdateLatestJson` writes real `hash` / `size` / `platforms` and pushes **only** to the public repo path `update/latest.json`.
+Gitee Releases **挂不下** ~380MB 安装包（附件约 100MB 上限）。不要把 GitHub 打好的包再上传到 Gitee。
 
-Do **not** put a root `update/` directory back into the public source tree before the installer is ready.
+## 客户端怎么拉清单（国内优先）
 
-Public source-available releases start at **1.0.0**; fill `changelog` / `releasedAt` on the first ship.
+1. `https://gitee.com/evovexai/EvoFlow/raw/main/update/latest.json` ← **优先**
+2. `https://cdn.jsdelivr.net/gh/EvovexAI/EvoFlow@main/update/latest.json`
+3. `https://raw.githubusercontent.com/EvovexAI/EvoFlow/main/update/latest.json`
+
+## 维护者怎么推清单
+
+GitHub Release 上传完成后：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/maintainer/windows/push-public-latest-json.ps1 -Tag v1.2.4
+```
+
+默认：`InstallerHost=github`，`url` = ghfast 镜像；同时推 GitHub 与 Gitee 上的 `update/latest.json`。

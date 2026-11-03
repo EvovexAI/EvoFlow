@@ -62,24 +62,48 @@ def _normalize_citation_path(path: str) -> str:
     return p.lstrip("/").strip()
 
 
+# Keep in sync with ``paths._SAFE_REL_PATH`` (and frontend ``isSafeAssetRelPath``).
+_SAFE_ASSET_REL_PATH_RE = re.compile(r"^[\w./\-]+$", re.UNICODE)
+_NOTE_ONLY_LINE_RE = re.compile(r"^note\s*=\s*\[.*\]\s*$", re.IGNORECASE)
+_SPACED_NOTE_RE = re.compile(
+    r"^(?P<head>.*?)\s+note\s*=\s*\[(?P<note>.*)\]\s*$",
+    re.IGNORECASE,
+)
 _PROSE_NOTE_RE = re.compile(
     r"^(?P<head>.*?\.md(?::\d+-\d+)?)\s+[—–-]\s+(?P<note>.+)$",
 )
 
 
+def _is_safe_asset_rel_path(path: str) -> bool:
+    p = _normalize_citation_path(path)
+    return bool(p) and bool(_SAFE_ASSET_REL_PATH_RE.match(p))
+
+
 def _parse_entry_line(line: str) -> dict[str, Any] | None:
     cleaned = _normalize_citation_path(line)
+    # Bare ``note=[brief]`` (no path) must not become path=``note=[…]``.
+    if _NOTE_ONLY_LINE_RE.match(cleaned):
+        return None
     prose_note = ""
     if not re.search(r"\|\s*note\s*=", cleaned, re.IGNORECASE):
-        prose = _PROSE_NOTE_RE.match(cleaned)
-        if prose:
-            cleaned = str(prose.group("head") or "").strip()
-            prose_note = str(prose.group("note") or "").strip()
+        # Tolerate missing pipe: ``memory/foo.md note=[brief]``.
+        spaced = _SPACED_NOTE_RE.match(cleaned)
+        if spaced and str(spaced.group("head") or "").strip():
+            cleaned = (
+                f"{str(spaced.group('head')).strip()}|note=[{spaced.group('note')}]"
+            )
+        else:
+            prose = _PROSE_NOTE_RE.match(cleaned)
+            if prose:
+                cleaned = str(prose.group("head") or "").strip()
+                prose_note = str(prose.group("note") or "").strip()
     em = _ENTRY_LINE_RE.match(cleaned)
     if not em:
         return None
     path = _normalize_citation_path(str(em.group("path") or ""))
-    if not path:
+    if not path or re.match(r"^note\s*=", path, re.IGNORECASE):
+        return None
+    if not _is_safe_asset_rel_path(path):
         return None
     return {
         "path": path,
@@ -231,6 +255,8 @@ def record_citations_from_messages(
                 continue
             # Skip bare knowledge-base ids — not asset paths.
             if re.fullmatch(r"kb_[a-z0-9]+", path, re.IGNORECASE):
+                continue
+            if not _is_safe_asset_rel_path(path):
                 continue
             seen.add(path)
             paths.append(path)

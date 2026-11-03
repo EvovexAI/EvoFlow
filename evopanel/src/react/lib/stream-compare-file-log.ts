@@ -1,5 +1,5 @@
 ﻿/**
- * 流式对比日志（默认开启，按会话 + 轮次分目录）：
+ * 流式对比日志（默认关闭；按会话 + 轮次分目录）：
  *
  *   ~/.evoflow/logs/stream-compare/{sessionKey}/{YYYYMMDDHHmmss}_{runId}/sse-recv.log
  *   ~/.evoflow/logs/stream-compare/{sessionKey}/{YYYYMMDDHHmmss}_{runId}/v4-recv.log
@@ -20,7 +20,7 @@
  *
  * 每轮 RUN_STARTED 写入 `======== TURN n | run=... | dir=... ========` 分隔头。
  *
- * 关闭：localStorage.setItem('EVOFLOW_STREAM_COMPARE_LOG', '0')
+ * 正式包默认关闭。开启：localStorage.setItem('EVOFLOW_STREAM_COMPARE_LOG', '1')
  *
  * ui-display.log 含 [timeline]、[chunks/layout]、[agui-order]、[compacted] 等段，便于排查工具/思考顺序。
  */
@@ -44,15 +44,15 @@ const LS_KEY = 'EVOFLOW_STREAM_COMPARE_LOG'
 const MAX_LINE = 48_000
 const UI_SNAPSHOT_CLOSE_MS = 48
 
-/** v5.8 起默认开启；localStorage='0' / 'false' 时关闭；未设值时按 ON 走 */
+/** 默认关闭（正式包友好）；localStorage='1'/'true' 时开启 */
 export function isStreamCompareFileLogOn(): boolean {
   try {
-    if (typeof localStorage === 'undefined') return true
+    if (typeof localStorage === 'undefined') return false
     const v = localStorage.getItem(LS_KEY)
-    if (v == null) return true
-    return v !== '0' && v !== 'false'
+    if (v == null) return false
+    return v === '1' || v === 'true' || v === 'on'
   } catch {
-    return true
+    return false
   }
 }
 
@@ -439,7 +439,7 @@ function showEnableBannerOnce(): void {
     : 'window.__evoflowStreamCompare.sessions（非 Tauri）'
 
   console.log(
-    `[stream-compare] 默认已开启，每轮独立目录（时间前缀）→ ${home}；关闭：localStorage.setItem('${LS_KEY}','0')`,
+    `[stream-compare] 默认已关闭；开启：localStorage.setItem('${LS_KEY}','1') → ${home}`,
   )
 }
 

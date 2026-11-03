@@ -1,4 +1,4 @@
-import { Workflow, Bot, Cpu, Wrench, Sparkles, Target, Plus, Trash2, ArrowRight } from 'lucide-react'
+import { Workflow, Bot, Braces, Cpu, Wrench, Sparkles, Target, Plus, Trash2, ArrowRight } from 'lucide-react'
 import {
   STEP_FIELD_MAP,
   STEP_INSPECTOR_GROUPS,
@@ -132,7 +132,7 @@ function InputBindingsEditor({
           <input
             className="wf-inspector-control wf-binding-value"
             value={value}
-            placeholder="{{steps.1.output.x}}"
+            placeholder="{{1.output.x}}"
             onChange={(e) => updateValue(key, e.target.value)}
           />
           <button
@@ -339,6 +339,8 @@ export function WorkflowNodeInspector({
 }: Props) {
   const isStart = selectedId === START_NODE_ID
   const isStep = !!selectedStep && !isStart
+  // 模板变换步（executor=template）：确定性文本变换，无执行者；模板正文替代 Agent 配置。
+  const isTemplateStep = isStep && selectedStep?.executor === 'template'
 
   return (
     <aside className="app-wf-sidebar app-wf-sidebar--right">
@@ -352,13 +354,17 @@ export function WorkflowNodeInspector({
             <div className="wf-inspector-node-id">#{selectedStep.ref}</div>
             {/* Meta chips: agent / model / tools / skills */}
             <div className="wf-inspector-node-meta">
-              {selectedStep.assigned_agent ? (
+              {selectedStep.executor === 'template' ? (
+                <span className="wf-inspector-meta-chip wf-inspector-meta-chip--muted">
+                  <Braces size={11} /> 模板变换 · 不消耗 LLM
+                </span>
+              ) : selectedStep.assigned_agent ? (
                 <span className="wf-inspector-meta-chip wf-inspector-meta-chip--agent">
                   <Bot size={11} /> {selectedStep.assigned_agent}
                 </span>
               ) : (
                 <span className="wf-inspector-meta-chip wf-inspector-meta-chip--muted">
-                  <Bot size={11} /> 未选择员工
+                  <Bot size={11} /> 未选择执行者
                 </span>
               )}
               {selectedStep.model ? (
@@ -388,7 +394,7 @@ export function WorkflowNodeInspector({
         </div>
       ) : (
         <div className="app-wf-sidebar-head">
-          <h3>{isStart ? '流程开始' : '工作流配置'}</h3>
+          <h3>{isStart ? '入口' : '工作流配置'}</h3>
         </div>
       )}
 
@@ -441,21 +447,32 @@ export function WorkflowNodeInspector({
               </section>
             ) : null}
 
-            {STEP_INSPECTOR_GROUPS.map((group) => (
-              <section key={group.id} className="wf-inspector-block">
-                <h4 className="wf-inspector-block-title">{group.label}</h4>
-                <div className="wf-inspector-fields">
-                  {group.keys.map((key) => (
-                    <InspectorField
-                      key={key}
-                      fieldKey={key}
-                      value={String(selectedStep[key as keyof StepNodeData] ?? '')}
-                      onChange={onStepChange}
-                    />
-                  ))}
-                </div>
-              </section>
-            ))}
+            {STEP_INSPECTOR_GROUPS.map((group) => {
+              // 模板步：执行者字段换成模板内容（basic 组内紧跟 goal）
+              const keys =
+                isTemplateStep && group.id === 'basic'
+                  ? [...group.keys.filter((k) => k !== 'assigned_agent'), 'template' as const]
+                  : group.keys.filter((k) => !(isTemplateStep && k === 'template'))
+              if (keys.length === 0) return null
+              return (
+                <section key={group.id} className="wf-inspector-block">
+                  <h4 className="wf-inspector-block-title">
+                    {group.label}
+                    {isTemplateStep && group.id === 'basic' ? '（模板变换）' : ''}
+                  </h4>
+                  <div className="wf-inspector-fields">
+                    {keys.map((key) => (
+                      <InspectorField
+                        key={key}
+                        fieldKey={key}
+                        value={String(selectedStep[key as keyof StepNodeData] ?? '')}
+                        onChange={onStepChange}
+                      />
+                    ))}
+                  </div>
+                </section>
+              )
+            })}
 
             {/* ── Data Bindings: input_schema + input_bindings + output_schema + schema_enforcement ── */}
             <section className="wf-inspector-block">

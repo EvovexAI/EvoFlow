@@ -100,8 +100,9 @@ interface SavedWorkflowCardProps {
 }
 
 /**
- * 与定时任务卡同一张网格（132px 行、rounded-xl、p-3）：标题行 = 名字 + 右上「运行」与 ⋯；
- * 两行说明；底栏左 = 上次运行徽标、右 = 实参名芯片（最多 3 个 + `+N`）。整卡可点进详情。
+ * 与定时任务卡同一张网格（132px 行、rounded-xl、p-3）：标题行 = 名字（右上「运行」与 ⋯
+ * 仅 hover / 聚焦时浮现）；两行说明（空缺降级 whenToUse，皆空则不占位）；底栏左 = 上次
+ * 运行徽标、右 = 实参名芯片（最多 3 个 + `+N`，title 里给全量）。整卡可点进详情。
  */
 export const SavedWorkflowCard = memo(function SavedWorkflowCard({
   entry,
@@ -121,6 +122,8 @@ export const SavedWorkflowCard = memo(function SavedWorkflowCard({
   const hiddenArgCount = argNames.length - visibleArgs.length;
   const runLabel = intl.formatMessage({ id: "workflows.hub.card.run" });
   const menuLabel = intl.formatMessage({ id: "workflows.hub.card.menu" });
+  // 说明空缺时降级用 whenToUse；两者都空就不渲染说明段，不占位。
+  const summary = entry.description.trim() ? entry.description : (entry.whenToUse ?? "");
 
   return (
     <div
@@ -138,18 +141,30 @@ export const SavedWorkflowCard = memo(function SavedWorkflowCard({
       className="group relative flex h-full min-h-0 cursor-pointer gap-3 overflow-hidden rounded-xl border border-card-border bg-background p-3 text-left transition-colors hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-input-border-focused"
     >
       <div className="flex h-full min-w-0 flex-1 flex-col gap-3">
-        <span className="block truncate pr-28 text-ui-base font-medium leading-5 text-foreground">
+        <span
+          className="block truncate text-ui-base font-medium leading-5 text-foreground"
+          title={entry.name}
+        >
           {entry.name}
         </span>
-        <p className="text-wrap-phrase line-clamp-2 h-10 text-ui-base font-normal leading-5 text-foreground-subtle">
-          {entry.description}
-        </p>
+        {summary.trim() ? (
+          <p
+            className="text-wrap-phrase line-clamp-2 text-ui-base font-normal leading-5 text-foreground-subtle"
+            title={summary}
+          >
+            {summary}
+          </p>
+        ) : null}
         <div className="mt-auto flex h-6 min-w-0 items-center gap-2 text-ui-base leading-5">
           <div className="flex min-w-0 flex-1 items-center">
             <SavedWorkflowLastRunBadge run={lastRun} now={now} />
           </div>
           {argNames.length === 0 ? null : (
-            <div className="flex shrink-0 items-center gap-1" data-workflow-args="true">
+            <div
+              className="flex shrink-0 items-center gap-1"
+              data-workflow-args="true"
+              title={argNames.join(", ")}
+            >
               {visibleArgs.map((argName) => (
                 <span
                   key={argName}
@@ -171,9 +186,10 @@ export const SavedWorkflowCard = memo(function SavedWorkflowCard({
         </div>
       </div>
 
-      {/* 卡面动作与整卡点击分层：按钮 stopPropagation，键盘上也不会把 Enter 冒泡成「打开详情」。 */}
+      {/* 卡面动作与整卡点击分层：按钮 stopPropagation，键盘上也不会把 Enter 冒泡成「打开详情」。
+          按钮组平时隐藏（名字可占满整行），hover / 键盘聚焦时浮现。 */}
       <div
-        className="absolute right-3 top-3 flex items-center gap-1"
+        className="absolute right-3 top-3 flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
         onClick={(event) => event.stopPropagation()}
         onKeyDown={(event) => event.stopPropagation()}
       >

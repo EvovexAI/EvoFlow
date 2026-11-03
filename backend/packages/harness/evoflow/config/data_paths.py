@@ -8,11 +8,20 @@ Development Environment:
     from development experiments and testing.
 
     See :func:`evoflow.config.paths.Paths` for full documentation.
+
+Desktop vs CLI:
+    The installed panel always sets ``EVOFLOW_HOME`` to
+    ``~/.evoflow/profiles/<id>`` (or a workspace ``data/profiles/<id>``).
+    Bare CLI with no env used to fall back to ``~/.evoflow`` itself — a
+    different SQLite DB — so panel settings (e.g. MiniMax media keys) looked
+    "configured but not working". When ``EVOFLOW_HOME`` is unset we now
+    auto-resolve the active profile directory when ``profiles/`` exists.
 """
 
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 
 # Relative config defaults (resolved under base_dir).
@@ -25,6 +34,83 @@ DEFAULT_LOGS_REL = "data/logs"
 LEGACY_APP_DB = "evoflow.db"
 LEGACY_OBS_DB = "evoflow_observability.db"
 LEGACY_CHECKPOINTS_DB = "checkpoints.db"
+
+_SAFE_PROFILE_ID_RE = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
+
+
+def is_safe_profile_id(profile_id: str) -> bool:
+    return bool(_SAFE_PROFILE_ID_RE.match(str(profile_id or "").strip()))
+
+
+def shared_evoflow_roots() -> list[Path]:
+    """Candidate install-wide roots (not per-profile).
+
+    Prefer ``~/.evoflow`` (installed panel). ``~/.evoflow-dev`` is only used when
+    ``~/.evoflow`` is absent — set ``EVOFLOW_HOME`` explicitly for day-to-day dev.
+    """
+    home = Path.home()
+    roots: list[Path] = []
+    for name in (".evoflow", ".evoflow-dev"):
+        p = (home / name).resolve()
+        if p.is_dir() and p not in roots:
+            roots.append(p)
+    return roots
+
+
+def resolve_active_profile_id(shared_home: Path) -> str:
+    """Match desktop profile selection when ``EVOFLOW_HOME`` is unset.
+
+    Order: ``EVOFLOW_PROFILE`` → ``{shared}/current-profile`` → sole profile dir
+    → ``default`` if present → ``default``.
+    """
+    env = (os.getenv("EVOFLOW_PROFILE") or "").strip()
+    if env and is_safe_profile_id(env):
+        return env
+    persisted = shared_home / "current-profile"
+    try:
+        if persisted.is_file():
+            raw = persisted.read_text(encoding="utf-8").strip()
+            if raw and is_safe_profile_id(raw):
+                return raw
+    except OSError:
+        pass
+    profiles = shared_home / "profiles"
+    if profiles.is_dir():
+        try:
+            names = sorted(
+                p.name
+                for p in profiles.iterdir()
+                if p.is_dir() and is_safe_profile_id(p.name) and not p.name.startswith(".")
+            )
+        except OSError:
+            names = []
+        if len(names) == 1:
+            return names[0]
+        if "default" in names:
+            return "default"
+    return "default"
+
+
+def resolve_profile_home(shared_home: Path | None = None) -> Path | None:
+    """Return ``{shared}/profiles/<active>`` when the desktop profile layout exists."""
+    if shared_home is None:
+        roots = shared_evoflow_roots()
+        shared_home = roots[0] if roots else (Path.home() / ".evoflow")
+    root = Path(shared_home).resolve()
+    profiles_root = root / "profiles"
+    if not profiles_root.is_dir():
+        return None
+    pid = resolve_active_profile_id(root)
+    candidate = profiles_root / pid
+    if candidate.is_dir():
+        return candidate.resolve()
+    return None
+
+
+def prefer_profile_base_dir(shared_home: Path) -> Path:
+    """Prefer active profile dir over the shared install root (CLI/panel parity)."""
+    profile = resolve_profile_home(shared_home)
+    return profile if profile is not None else Path(shared_home).resolve()
 
 
 def data_root(base_dir: Path) -> Path:
@@ -67,7 +153,8 @@ def resolve_data_base_dir() -> Path:
 
         return get_paths().base_dir
     except Exception:
-        return (Path.home() / ".evoflow").resolve()
+        shared = Path.home() / ".evoflow"
+        return prefer_profile_base_dir(shared)
 
 
 def normalize_evoflow_base_dir(home: Path) -> Path:

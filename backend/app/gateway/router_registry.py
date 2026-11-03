@@ -149,6 +149,7 @@ def register_extended_routers(app: FastAPI) -> None:
     _extended = (
         ("app.gateway.routers.automation_scheduler", "automation_scheduler", {}),
         ("app.gateway.routers.apps", "apps", {}),
+        ("app.gateway.routers.audit", "audit", {}),
         ("app.gateway.routers.organizations", "organizations", {}),
         ("app.gateway.routers.collab", "collab", {}),
         ("app.gateway.routers.mcp", "mcp", {}),

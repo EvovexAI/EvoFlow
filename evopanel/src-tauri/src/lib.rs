@@ -7,7 +7,8 @@ mod voice_hotkey;
 
 use commands::{
     app_server, assistant, backend, boot_cycle, browser_embed, browser_embed_bridge, config,
-    cua_glow_overlay, gateway, logs, mcp_market, ui_extensions, update, voice_overlay, wake_kws,
+    cua_glow_overlay, export_logs, gateway, logs, mcp_market, resource_manager, ui_extensions,
+    update, voice_overlay, wake_kws,
 };
 /// Windows-only: expose WebView2 CDP commands directly to Python over HTTP invoke.
 #[cfg(target_os = "windows")]
@@ -194,27 +195,40 @@ pub fn run() {
                 })
                 .map_err(|e| format!("启动内置后端线程失败: {e}"))?;
 
-            // 流式对比日志（stream-compare）保留策略：
-            // 布局 {session}/{YYYYMMDDHHmmss}_{runId}/*.log；默认 2 天前的 run 目录
-            // 会被整目录清掉，避免默认开启时日志目录一直涨。
-            // 启动时先跑一次，之后每 6 小时跑一次。失败仅日志，不影响启动。
+            // 日志保留：日切 14 天 + stream-compare 短窗 + debug/ 3 天。
+            // 启动先跑一次，之后每 6 小时；失败仅日志，不影响启动。
             std::thread::Builder::new()
-                .name("stream-compare-pruner".into())
+                .name("log-pruner".into())
                 .spawn(|| {
-                    use commands::log_files::prune_stream_compare_logs;
+                    use commands::log_files::{
+                        debug_logs_dir, prune_all_daily_logs, prune_debug_logs_dir,
+                        prune_stream_compare_logs, DEFAULT_EXPORT_LOOKBACK_DAYS,
+                    };
                     use std::time::Duration;
-                    let root = commands::evoflow_dir()
-                        .join("logs")
-                        .join("stream-compare");
+                    let logs = commands::evoflow_dir().join("logs");
+                    let stream_root = logs.join("stream-compare");
+                    let debug_root = debug_logs_dir(&logs);
                     let tick = || {
-                        match prune_stream_compare_logs(&root) {
+                        match prune_all_daily_logs(&logs) {
+                            Ok(removed) if removed > 0 => {
+                                eprintln!("[log-pruner] 清理 {removed} 个过期日切日志")
+                            }
+                            Ok(_) => {}
+                            Err(e) => eprintln!("[log-pruner] 日切清理失败: {e}"),
+                        }
+                        match prune_stream_compare_logs(&stream_root) {
                             Ok(removed) if removed > 0 => eprintln!(
-                                "[stream-compare-pruner] 清理 {removed} 个过期 run 目录"
+                                "[log-pruner] 清理 {removed} 个过期 stream-compare run 目录"
                             ),
                             Ok(_) => {}
-                            Err(e) => eprintln!(
-                                "[stream-compare-pruner] 清理失败: {e}"
-                            ),
+                            Err(e) => eprintln!("[log-pruner] stream-compare 清理失败: {e}"),
+                        }
+                        match prune_debug_logs_dir(&debug_root, DEFAULT_EXPORT_LOOKBACK_DAYS) {
+                            Ok(removed) if removed > 0 => {
+                                eprintln!("[log-pruner] 清理 {removed} 个过期 debug 日志项")
+                            }
+                            Ok(_) => {}
+                            Err(e) => eprintln!("[log-pruner] debug 清理失败: {e}"),
                         }
                     };
                     tick();
@@ -223,7 +237,7 @@ pub fn run() {
                         tick();
                     }
                 })
-                .map_err(|e| format!("启动 stream-compare 清理线程失败: {e}"))?;
+                .map_err(|e| format!("启动 log-pruner 清理线程失败: {e}"))?;
             voice_hotkey::init_global_shortcut_plugin(app.handle())?;
             tray::setup_tray(app.handle())?;
             commands::boot_cycle::mark("desktop", "app.setup.done", None);
@@ -237,21 +251,19 @@ pub fn run() {
             #[cfg(target_os = "windows")]
             {
                 fn log_boot(s: &str) {
-                    use std::io::Write as _;
                     let logs = commands::evoflow_dir().join("logs");
-                    let _ = std::fs::create_dir_all(&logs);
-                    if let Some(mut f) = std::fs::OpenOptions::new()
-                        .create(true)
-                        .append(true)
-                        .open(logs.join("browser-cdp-bridge.log"))
-                        .ok()
-                    {
-                        let _ = writeln!(f, "ts:{} {s}", std::time::SystemTime::now()
+                    let line = format!(
+                        "ts:{} {s}\n",
+                        std::time::SystemTime::now()
                             .duration_since(std::time::UNIX_EPOCH)
                             .map(|d| d.as_secs())
-                            .unwrap_or(0));
-                        let _ = f.flush();
-                    }
+                            .unwrap_or(0)
+                    );
+                    let _ = commands::log_files::append_daily_log_line(
+                        &logs,
+                        "browser-cdp-bridge",
+                        &line,
+                    );
                 }
                 log_boot("[boot] spawning browser-cdp-http-bridge thread");
                 let bridge_app = app.handle().clone();
@@ -339,6 +351,7 @@ pub fn run() {
             app_server::app_server_is_warm,
             // 日志
             logs::read_log_tail,
+            logs::inspect_log,
             logs::search_log,
             logs::append_frontend_log,
             logs::append_plugin_control_log,
@@ -406,6 +419,10 @@ pub fn run() {
             voice_overlay::voice_overlay_processing,
             voice_overlay::voice_overlay_hide,
             voice_overlay::voice_overlay_set_complete,
+            resource_manager::open_resource_manager,
+            resource_manager::set_resource_usage_sampling_active,
+            resource_manager::get_resource_usage_snapshot,
+            export_logs::export_logs,
             cua_glow_overlay::cua_glow_overlay_show,
             cua_glow_overlay::cua_glow_overlay_hide,
             wake_kws::wake_kws_start,

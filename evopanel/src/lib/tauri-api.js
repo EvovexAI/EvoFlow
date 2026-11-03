@@ -2075,7 +2075,7 @@ export const api = {
     gatewayProxy('GET', `/knowledge/owned/documents/${encodeURIComponent(String(docId || ''))}`),
   getOwnedKnowledgeDocumentContent: async (docId) =>
     gatewayProxy('GET', `/knowledge/owned/documents/${encodeURIComponent(String(docId || ''))}/content`),
-  fetchOwnedKnowledgeDocumentFileObjectUrl: async (docId) => {
+  fetchOwnedKnowledgeDocumentFileBlob: async (docId) => {
     const { getAuthToken } = await import('./webui-remote.js')
     const token = getAuthToken()
     const headers = {}
@@ -2084,7 +2084,10 @@ export const api = {
     const url = `${baseUrl}/api/knowledge/owned/documents/${encodeURIComponent(String(docId || ''))}/file`
     const resp = await fetch(url, { headers })
     if (!resp.ok) throw new Error(`Document file fetch failed: ${resp.status}`)
-    const blob = await resp.blob()
+    return resp.blob()
+  },
+  fetchOwnedKnowledgeDocumentFileObjectUrl: async (docId) => {
+    const blob = await api.fetchOwnedKnowledgeDocumentFileBlob(docId)
     return URL.createObjectURL(blob)
   },
   enqueueOwnedKnowledgeDocumentSummary: async (docId, { force } = {}) =>
@@ -2254,6 +2257,13 @@ export const api = {
     // 桌面端走 Tauri；Web/Vite 开发态走 dev-api（本机 Node 开资源管理器）
     return invoke('reveal_path_in_file_manager', { path: String(absolutePath || '').trim() })
   },
+  /** 打开 EvoFlow 资源管理器（CPU / 内存 / 相关进程）。仅桌面端。 */
+  openResourceManager: () => invoke('open_resource_manager'),
+  getResourceUsageSnapshot: () => invoke('get_resource_usage_snapshot'),
+  setResourceUsageSamplingActive: (active) =>
+    invoke('set_resource_usage_sampling_active', { active: !!active }),
+  /** 打包本机日志为 zip 并另存（对齐 ZCode 导出日志）。 */
+  exportLogs: () => invoke('export_logs'),
   buildCodeIndex: async (root, force = false, threadId = undefined) => {
     const body = { force: !!force }
     const r = String(root || '').trim()
@@ -2627,6 +2637,8 @@ export const api = {
 
   // 日志（短缓存）
   readLogTail: (logName, lines = 100) => cachedInvoke('read_log_tail', { logName, lines }, 5000),
+  /** 选源看全文：返回 path / exists / content */
+  inspectLog: (logName, lines = 400) => invoke('inspect_log', { logName, lines }),
   searchLog: (logName, query, maxResults = 50) => invoke('search_log', { logName, query, maxResults }),
 
   /** 系统日志诊断（Gateway /api/diagnostics；与 platform diagnostics.* 同源） */
@@ -2648,6 +2660,9 @@ export const api = {
     if (query.format) out.format = query.format
     return gatewayProxy('GET', '/diagnostics/timeline', null, out, options)
   },
+  /** 选源看全文（Gateway /api/diagnostics/tail） */
+  diagnosticsTail: (source, lines = 400, hours = 72, options = null) =>
+    gatewayProxy('GET', '/diagnostics/tail', null, { source, lines, hours }, options),
 
   // 资产中心 API（~/.evoflow/assets/）
   assetsInit: async () => gatewayProxy('POST', '/assets/init'),
@@ -3647,6 +3662,18 @@ export const api = {
   saveTaskAsApp: async (taskId, payload = {}) =>
     gatewayProxy('POST', `/tasks/${encodeURIComponent(String(taskId || ''))}/save-as-app`, payload),
   generateApp: async (payload) => gatewayProxy('POST', '/apps/generate', payload),
+  /** 操作审计（单资源：对 app 可见即可读；全局列表 admin 专属） */
+  listAuditActions: async (query = {}) => {
+    const qs = new URLSearchParams()
+    for (const [k, v] of Object.entries(query)) {
+      if (v !== undefined && v !== null && String(v).trim() !== '') qs.set(k, String(v))
+    }
+    const data = await gatewayProxy('GET', '/audit/actions', null, Object.fromEntries(qs))
+    return {
+      items: Array.isArray(data?.items) ? data.items : [],
+      count: Number(data?.count) || 0,
+    }
+  },
 
   /** 会话调试 Agent trace（默认开启；EVOFLOW_DEBUG_TRACE_UI=0 可关闭） */
   agentTraceRecentThreads: (limit = 80, options = null) =>

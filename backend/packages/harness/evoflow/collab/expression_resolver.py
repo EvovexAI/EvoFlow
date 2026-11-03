@@ -3,14 +3,17 @@
 Parses and resolves reference expressions like::
 
     {{params.topic}}
-    {{steps.1.output.companies}}
+    {{steps.1.output.companies}}      # 长形式（完全兼容）
+    {{1.output.companies}}            # 短形式：步号直接当源，等价上行
     {{steps.2.summary}}
+    {{1.summary}}
     {{steps.1.artifacts[0].path}}
     {{steps.1.artifacts.report.path}}
 
 Supported sources:
     - ``params``   – run-time parameters filled by the user / API
     - ``steps``    – upstream step results: ``.output`` (structured), ``.summary`` (text), ``.artifacts``
+    - ``{ref}``    – 短形式：源 token 是上游步号（steps_output 里的 key）时按 steps 解析
     - ``trigger``  – trigger metadata (reserved for future use)
     - ``env``      – environment variables (reserved for future use)
 
@@ -136,6 +139,13 @@ def _resolve_single(
             # Just the step root – return everything
             return True, step_data
         return _traverse(step_data, rest[1:])
+    elif source in steps_output:
+        # 短形式 {{1.output.x}}：源 token 是上游步号 → 等价 {{steps.1.output.x}}。
+        # 放在 params 兜底之前——已完成的步号优先于同名参数。
+        step_data = steps_output[source]
+        if not rest:
+            return True, step_data
+        return _traverse(step_data, rest)
     elif source == "env" and env is not None:
         return _traverse(env, rest)
     elif source == "trigger" and trigger is not None:
@@ -297,13 +307,18 @@ def build_steps_output_from_subtasks(
         elif not isinstance(structured, dict):
             structured = {}
 
-        # Summary text
-        summary = ""
-        for key in ("task_report", "result_summary", "result_text", "result", "summary"):
-            val = str(st.get(key) or "").strip()
-            if val:
-                summary = val
-                break
+        # Summary text — F-2 结果契约：走全仓唯一读取入口（done 报告 → 固定 fallback）
+        try:
+            from evoflow.collab.subtask_outcome import get_subtask_result_text
+
+            summary = get_subtask_result_text(st)
+        except Exception:
+            summary = ""
+            for key in ("task_report", "result_summary", "result_text", "result", "summary"):
+                val = str(st.get(key) or "").strip()
+                if val:
+                    summary = val
+                    break
 
         # Artifacts – use the existing task_outputs normalizer
         artifacts_raw = st.get("outputs")
