@@ -24689,11 +24689,16 @@ html.dark .evo-home-cmd__dept-tree.is-selected .evo-home-cmd__leaf-meta {
   color: color-mix(in srgb, var(--cmd-green) 70%, #fff);
 }
 
-/* 悬浮详情贴在选中部门右侧（参考构图） */
+/* 悬浮详情贴在选中部门右侧（参考构图）；右缘不够时由 .is-dock-left 翻到左侧 */
+.evo-home-cmd__dept-tree.has-float {
+  z-index: 28;
+}
+
 .evo-home-cmd__dept-tree.has-float > .evo-home-cmd__detail--dock {
   --card-accent: var(--cmd-green);
   position: absolute;
   left: calc(100% + 14px);
+  right: auto;
   top: 0;
   width: 276px;
   min-height: 300px;
@@ -24705,6 +24710,22 @@ html.dark .evo-home-cmd__dept-tree.is-selected .evo-home-cmd__leaf-meta {
     0 18px 48px rgba(0, 0, 0, 0.6),
     0 0 0 1px color-mix(in srgb, var(--cmd-green) 32%, transparent),
     0 0 28px rgba(57, 255, 136, 0.16);
+}
+
+.evo-home-cmd__dept-tree.has-float.is-dock-left > .evo-home-cmd__detail--dock {
+  left: auto;
+  right: calc(100% + 14px);
+}
+
+/* 部门浮层伸出列外：放开首页横向裁剪，避免右列详情被砍半 */
+.react-chat-main-col--home:has(.evo-home-cmd__dept-tree.has-float) .react-chat-messages-wrap,
+.react-chat-main-col--home:has(.evo-home-cmd__dept-tree.has-float) .react-chat-messages-body,
+.react-chat-main-col--home:has(.evo-home-cmd__dept-tree.has-float) .chat-messages-inner--home {
+  overflow-x: visible;
+}
+
+.react-chat-main-col--home:has(.evo-home-cmd__dept-tree.has-float) .chat-messages-inner--home {
+  overflow-y: auto;
 }
 
 .evo-home-cmd__dept-tree.has-float > .evo-home-cmd__detail--dock .evo-home-cmd__detail-link {
@@ -25963,9 +25984,11 @@ html.theme-dark .evo-home-dashboard--overview .evo-home-tabseg__btn.is-active {
     box-shadow: none;
     margin-top: 4px;
   }
-  .evo-home-cmd__dept-tree.has-float > .evo-home-cmd__detail--dock {
+  .evo-home-cmd__dept-tree.has-float > .evo-home-cmd__detail--dock,
+  .evo-home-cmd__dept-tree.has-float.is-dock-left > .evo-home-cmd__detail--dock {
     position: static;
     left: auto;
+    right: auto;
     width: auto;
     max-height: none;
     margin-top: 10px;

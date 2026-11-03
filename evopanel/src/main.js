@@ -382,6 +382,20 @@ async function createAgentsRedirectModule() {
   }
 }
 
+/** 技能 / 连接器已迁入设置中心 */
+function createSettingsTabRedirectModule(tabId) {
+  return async () => {
+    window.location.hash = `/settings?tab=${encodeURIComponent(tabId)}`
+    return {
+      render() {
+        const el = document.createElement('div')
+        el.hidden = true
+        return el
+      },
+    }
+  }
+}
+
 async function createOperationsRedirectModule() {
   navigate('/observability')
   return {
@@ -558,12 +572,12 @@ async function boot() {
   registerRoute('/memory', () => import('./pages/assets.js'))
   registerRoute('/memory/atoms', () => import('./pages/assets.js'))
   registerRoute('/skills', () => import('./pages/assets.js'))
-  registerRoute('/skills/market', () => import('./pages/skills.js'))
+  registerRoute('/skills/market', createSettingsTabRedirectModule('skill-management'))
   // Owned KB is the only knowledge source.
   registerRoute('/knowledge', () => import('./pages/knowledge-owned.js'))
   registerRoute('/knowledge/owned', () => import('./pages/knowledge-owned.js'))
   registerRoute('/knowledge/owned/:id', () => import('./pages/knowledge-owned.js'))
-  registerRoute('/tools', () => import('./pages/tools.js'))
+  registerRoute('/tools', createSettingsTabRedirectModule('mcp-connectors'))
   registerRoute('/expert', () => import('./pages/expert.js'))
   registerRoute('/about', () =>
     Promise.resolve({

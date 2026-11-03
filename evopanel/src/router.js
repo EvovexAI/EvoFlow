@@ -335,7 +335,7 @@ function updateNavActive(routePath) {
     if (!active && r === '/agents' && routePath.startsWith('/agents/team/')) active = true
     if (!active && r === '/expert' && /^\/agents\/[^/]+$/.test(routePath) && !routePath.startsWith('/agents/team/')) active = true
     if (!active && r === '/proactive' && (routePath.startsWith('/proactive/') || routePath.startsWith('/runs/'))) active = true
-    if (!active && r === '/expert' && ['/agents','/skills','/tools','/tasks','/cron','/automation'].some(p => routePath === p || routePath.startsWith(p + '/'))) active = true
+    if (!active && r === '/expert' && (routePath === '/agents' || routePath.startsWith('/agents/'))) active = true
     if (!active && r === '/knowledge' && (routePath === '/knowledge' || routePath === '/knowledge/vaults' || routePath.startsWith('/knowledge/owned'))) active = true
     if (!active && r === '/extensions' && (routePath === '/extensions' || routePath.startsWith('/extensions/'))) active = true
     item.classList.toggle('active', active)

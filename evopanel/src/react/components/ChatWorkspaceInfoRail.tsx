@@ -14,6 +14,10 @@ import {
 } from '../lib/dept-chat-session.js'
 import { deptMemberWorkSessionKey } from '../lib/dept-member-work-session.js'
 import {
+  isDeptGroupStewardCode,
+  withDeptGroupSteward,
+} from '../lib/dept-group-steward.js'
+import {
   ArtifactContextMenuPortal,
   type ArtifactContextMenuState,
 } from './ArtifactContextMenuPortal.js'
@@ -1426,6 +1430,22 @@ export function DeptGroupPane({ sessionKey }: { sessionKey: string }) {
   const members = meta?.members || []
   const deptName = String(meta?.name || '').trim() || '部门群聊'
   const headCode = String(meta?.head_agent_code || '').trim()
+  // 小V 是群管家，不在部门员工表里；名单置顶，否则过程面板点不进去
+  const roster = useMemo(
+    () =>
+      withDeptGroupSteward(
+        members.map((m) => ({
+          agent_code: String(m.agent_code || '').trim(),
+          role_name: String(m.role_name || '').trim() || String(m.agent_code || '').trim(),
+          department: m.department,
+          reports_to: m.reports_to,
+          status: m.status || 'active',
+          busy: !!m.busy,
+        })),
+        deptName,
+      ),
+    [members, deptName],
+  )
 
   const openMember = (code: string, roleName: string) => {
     const agentCode = String(code || '').trim()
@@ -1457,24 +1477,25 @@ export function DeptGroupPane({ sessionKey }: { sessionKey: string }) {
         <h2 className="react-chat-dept-pane-title" title={deptName}>
           {deptName}
         </h2>
-        <span className="react-chat-dept-pane-count">{members.length} 人</span>
+        <span className="react-chat-dept-pane-count">{roster.length} 人</span>
       </header>
       <p className="react-chat-dept-pane-hint">点成员打开右侧过程；群里用 @ 点名派活</p>
       <ul className="react-chat-dept-pane-roster" role="list" aria-label="群成员">
-        {members.map((m) => {
+        {roster.map((m) => {
           const code = String(m.agent_code || '').trim()
           if (!code) return null
           const name = String(m.role_name || '').trim() || code
-          const onDuty = deptMemberOnDuty(m)
-          const state = m.busy ? '忙碌' : deptMemberDutyLabel(m)
-          const isHead = headCode && headCode === code
+          const isSteward = isDeptGroupStewardCode(code)
+          const onDuty = isSteward ? true : deptMemberOnDuty(m)
+          const state = m.busy ? '忙碌' : isSteward ? '群管家' : deptMemberDutyLabel(m)
+          const isHead = !isSteward && headCode && headCode === code
           return (
             <li key={code}>
               <button
                 type="button"
                 className={`react-chat-dept-pane-row${m.busy ? ' is-busy' : ''}${
                   onDuty ? ' is-on-duty' : ' is-off-duty'
-                }`}
+                }${isSteward ? ' is-steward' : ''}`}
                 onClick={() => openMember(code, name)}
                 title={`${name} · ${state} · 打开右侧对话`}
               >
@@ -1487,7 +1508,11 @@ export function DeptGroupPane({ sessionKey }: { sessionKey: string }) {
                 <span className="react-chat-dept-pane-meta">
                   <span className="react-chat-dept-pane-name">
                     {name}
-                    {isHead ? <span className="react-chat-dept-pane-head-tag">负责人</span> : null}
+                    {isSteward ? (
+                      <span className="react-chat-dept-pane-head-tag">群管家</span>
+                    ) : isHead ? (
+                      <span className="react-chat-dept-pane-head-tag">负责人</span>
+                    ) : null}
                   </span>
                   <span className="react-chat-dept-pane-state">{state}</span>
                 </span>
@@ -1496,7 +1521,7 @@ export function DeptGroupPane({ sessionKey }: { sessionKey: string }) {
           )
         })}
       </ul>
-      {!members.length ? (
+      {!roster.length ? (
         <p className="react-chat-dept-pane-empty">暂无成员</p>
       ) : null}
     </div>

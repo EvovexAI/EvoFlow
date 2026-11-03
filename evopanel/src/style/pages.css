@@ -13726,15 +13726,8 @@ html[data-theme='dark'] .memory-agent-dropdown-panel {
 .settings-expert-embed {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 0;
   min-width: 0;
-}
-
-.settings-expert-embed-head {
-  display: flex;
-  justify-content: flex-end;
-  align-items: center;
-  gap: 8px;
 }
 
 .settings-expert-embed-body {
@@ -13743,6 +13736,36 @@ html[data-theme='dark'] .memory-agent-dropdown-panel {
 
 .settings-expert-embed-body > .page {
   padding: 0;
+}
+
+/* 已安装/市场 + 主操作同一行，压掉原先独立顶栏高度 */
+.settings-expert-embed-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 8px;
+  min-height: 0;
+}
+
+.settings-expert-embed-toolbar .ec-subtabs,
+.settings-expert-embed-toolbar .role-subtabs {
+  margin: 0;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.settings-expert-embed-toolbar #expert-primary-action {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.settings-expert-embed .ec-module-page .ec-subtabs {
+  margin-top: 0;
+}
+
+.settings-expert-embed .ec-toolbar {
+  margin-top: 8px;
 }
 
 .settings-code-index-page {

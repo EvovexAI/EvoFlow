@@ -1041,10 +1041,10 @@ function buildActions(action: string, domain: string, entityId: string): Platfor
     return [{ label: '查看智能体', route: '/agents' }]
   }
   if (domain === 'skills') {
-    return [{ label: '打开技能', route: '/skills' }]
+    return [{ label: '打开技能', route: '/settings?tab=skill-management' }]
   }
   if (domain === 'mcp') {
-    return [{ label: '打开 MCP', route: '/tools' }]
+    return [{ label: '打开 MCP', route: '/settings?tab=mcp-connectors' }]
   }
   if (domain === 'automation') {
     return [{ label: '打开自动化', route: '/automation' }]

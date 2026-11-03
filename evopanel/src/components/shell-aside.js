@@ -308,7 +308,7 @@ function _syncNavActive() {
     const target = btn.dataset.shellNav || ''
     let active = routePath === target
     if (target === '/chat' && (routePath === '/chat' || routePath === '/chat-react')) active = true
-    if (target === '/expert' && ['/skills', '/tools', '/agents'].some(p => routePath === p || routePath.startsWith(p + '/'))) active = true
+    if (target === '/expert' && (routePath === '/agents' || routePath.startsWith('/agents/'))) active = true
     if (target === '/tasks' && (routePath === '/tasks' || routePath.startsWith('/task/'))) active = true
     if (target === '/apps' && (routePath === '/apps' || routePath.startsWith('/apps/'))) active = true
     if (target === '/cron' && (routePath === '/cron' || routePath === '/automation')) active = true
@@ -548,10 +548,13 @@ export function initShellAside(el) {
           <span class="shell-aside-nav-more-line" aria-hidden="true"></span>
         </button>
         <div class="shell-aside-nav-more-body" id="shell-nav-more-body" role="group" aria-label="更多导航">
+          <!-- 智能体中心入口已收敛：能力配置进员工，技能/连接器进设置；路由 #/expert 仍可直达 -->
+          <!--
           <button type="button" class="react-chat-aside-nav-item" data-shell-nav="/expert" title="智能体 · 能力模板">
             <span class="react-chat-aside-nav-ic" aria-hidden>${_lucide('bot')}</span>
             <span class="react-chat-aside-nav-label">智能体</span>
           </button>
+          -->
           <button type="button" class="react-chat-aside-nav-item" data-shell-nav="/cron" title="自动化">
             <span class="react-chat-aside-nav-ic" aria-hidden>${_lucide('clock')}</span>
             <span class="react-chat-aside-nav-label">自动化</span>

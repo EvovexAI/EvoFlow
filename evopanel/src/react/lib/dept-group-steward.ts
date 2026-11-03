@@ -34,14 +34,33 @@ export function deptGroupStewardPerson(deptName?: string): DeptGroupStewardPerso
 }
 
 /**
- * 用户消息点名目标：有 @ → 那些人；无 @ → 默认小V。
+ * 群花名册展示 / @ 选人：小V 常驻置顶（部门员工表里本来没有她）。
+ */
+export function withDeptGroupSteward<T extends { agent_code: string; role_name: string }>(
+  members: T[],
+  deptName?: string,
+): T[] {
+  const list = Array.isArray(members) ? members.slice() : []
+  const idx = list.findIndex((m) => isDeptGroupStewardCode(m.agent_code))
+  if (idx === 0) return list
+  if (idx > 0) {
+    const [steward] = list.splice(idx, 1)
+    return [steward, ...list]
+  }
+  return [deptGroupStewardPerson(deptName) as unknown as T, ...list]
+}
+
+/**
+ * 用户消息点名目标：有 @ 员工 → 那些人；无 @ 或只 @ 小V → 默认小V 管家。
  */
 export function resolveDeptGroupWakeTargets<T extends { agent_code: string; role_name: string }>(
   mentioned: T[],
   deptName?: string,
 ): { targets: T[]; viaSteward: boolean } {
-  if (Array.isArray(mentioned) && mentioned.length > 0) {
-    return { targets: mentioned, viaSteward: false }
+  const hits = Array.isArray(mentioned) ? mentioned : []
+  const employees = hits.filter((m) => !isDeptGroupStewardCode(m.agent_code))
+  if (employees.length > 0) {
+    return { targets: employees, viaSteward: false }
   }
   return {
     targets: [deptGroupStewardPerson(deptName) as unknown as T],

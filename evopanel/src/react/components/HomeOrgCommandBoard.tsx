@@ -663,6 +663,8 @@ function DeptColumn({
   onCloseFloat: () => void
   onOpenChat: () => void
 }) {
+  const rootRef = useRef<HTMLDivElement>(null)
+  const [dockLeft, setDockLeft] = useState(false)
   const selected = selectedDeptId === dept.id
   const personInDept = !!selectedPersonCode && dept.members.some((m) => m.agent_code === selectedPersonCode)
   /** 参考 UI：未点开只露父卡；点开（或选中其下员工）才挂子节点 */
@@ -673,13 +675,55 @@ function DeptColumn({
   const lastAt = deptLastActivityClock(dept.members)
   const shown = dept.members.slice(0, 10)
   const more = Math.max(0, total - shown.length)
+
+  /** 右缘不够放下 276px 浮层时翻到左侧，避免被首页 scroller / 右栏裁半 */
+  useLayoutEffect(() => {
+    if (!showFloat) {
+      setDockLeft(false)
+      return
+    }
+    const el = rootRef.current
+    if (!el) return
+
+    const DOCK_W = 276
+    const GAP = 14
+    const need = DOCK_W + GAP
+
+    const measure = () => {
+      const rect = el.getBoundingClientRect()
+      const clip =
+        el.closest('.chat-messages-inner--home') ||
+        el.closest('.react-chat-messages-wrap') ||
+        el.closest('.evo-home-cmd__stage') ||
+        document.documentElement
+      const bounds = clip.getBoundingClientRect()
+      const spaceRight = bounds.right - rect.right
+      const spaceLeft = rect.left - bounds.left
+      if (spaceRight >= need) {
+        setDockLeft(false)
+        return
+      }
+      setDockLeft(spaceLeft >= need || spaceLeft > spaceRight)
+    }
+
+    measure()
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measure) : null
+    ro?.observe(el)
+    window.addEventListener('resize', measure)
+    return () => {
+      ro?.disconnect()
+      window.removeEventListener('resize', measure)
+    }
+  }, [showFloat, expanded, dept.id])
+
   return (
     <div
+      ref={rootRef}
       className={`evo-home-cmd__dept-tree evo-home-cmd__dept-tree--${dept.accent}${
         selected || personInDept ? ' is-selected' : ''
       }${dept.busyCount ? ' is-busy' : ''}${onPath ? ' is-path' : ''}${
         expanded ? ' is-expanded' : ''
-      }${showFloat ? ' has-float' : ''}`}
+      }${showFloat ? ' has-float' : ''}${dockLeft ? ' is-dock-left' : ''}`}
     >
       <button
         type="button"

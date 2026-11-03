@@ -45,7 +45,7 @@ const NAV_ITEMS_FULL = [
     items: [
       { route: '/apps', label: '工作流', icon: 'dashboard' },
       { route: '/tasks', label: '任务中心', icon: 'projects' },
-      { route: '/expert', label: '智能体', icon: 'agents' },
+      // { route: '/expert', label: '智能体', icon: 'agents' }, // 入口已收敛；#/expert 仍可直达
     ]
   },
   {

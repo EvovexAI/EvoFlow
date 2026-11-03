@@ -5,6 +5,7 @@ import {
   deptGroupStewardPerson,
   isDeptGroupStewardCode,
   resolveDeptGroupWakeTargets,
+  withDeptGroupSteward,
 } from '../src/react/lib/dept-group-steward.ts'
 
 describe('dept-group-steward', () => {
@@ -21,6 +22,29 @@ describe('dept-group-steward', () => {
     expect(p.department).toBe('研发部')
   })
 
+  it('prepends steward to roster when missing', () => {
+    const roster = withDeptGroupSteward(
+      [{ agent_code: 'dev-a', role_name: '全栈' }],
+      '研发部',
+    )
+    expect(roster).toHaveLength(2)
+    expect(roster[0].agent_code).toBe('xiaomi')
+    expect(roster[0].role_name).toBe('小V')
+    expect(roster[1].agent_code).toBe('dev-a')
+  })
+
+  it('does not duplicate steward already in roster', () => {
+    const roster = withDeptGroupSteward(
+      [
+        { agent_code: 'dev-a', role_name: '全栈' },
+        { agent_code: 'xiaomi', role_name: '小V' },
+      ],
+      '研发部',
+    )
+    expect(roster).toHaveLength(2)
+    expect(roster[0].agent_code).toBe('xiaomi')
+  })
+
   it('routes empty mentions to steward', () => {
     const { targets, viaSteward } = resolveDeptGroupWakeTargets([], '研发部')
     expect(viaSteward).toBe(true)
@@ -29,7 +53,17 @@ describe('dept-group-steward', () => {
     expect(targets[0].role_name).toBe('小V')
   })
 
-  it('keeps explicit @ targets without steward', () => {
+  it('routes @小V-only to steward mode', () => {
+    const { targets, viaSteward } = resolveDeptGroupWakeTargets(
+      [{ agent_code: 'xiaomi', role_name: '小V' }],
+      '研发部',
+    )
+    expect(viaSteward).toBe(true)
+    expect(targets).toHaveLength(1)
+    expect(targets[0].agent_code).toBe('xiaomi')
+  })
+
+  it('keeps explicit @ employee targets without steward', () => {
     const mentioned = [
       { agent_code: 'dev-a', role_name: '后端' },
       { agent_code: 'dev-b', role_name: '前端' },

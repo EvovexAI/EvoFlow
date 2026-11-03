@@ -665,17 +665,20 @@ function renderCapabilityChecklist({
   selected,
   emptyLabel,
   searchPlaceholder,
+  /** 内置工具等：只展示名称，不跟长描述 */
+  nameOnly = false,
 } = {}) {
   const selectedSet = new Set(selected || [])
   const rows = (items || [])
     .map((it) => {
       const checked = selectedSet.has(it.value) ? 'checked' : ''
-      const search = `${it.value} ${it.label} ${it.desc || ''}`.toLowerCase()
-      return `<label class="hire-cap-check" data-search="${esc(search)}">
+      const title = it.label || it.value
+      const search = `${it.value} ${it.label} ${nameOnly ? '' : it.desc || ''}`.toLowerCase()
+      return `<label class="hire-cap-check${nameOnly ? ' hire-cap-check--name' : ''}" data-search="${esc(search)}">
         <input type="checkbox" data-cap-group="${esc(name)}" value="${esc(it.value)}" ${checked}>
         <span class="hire-cap-check__body">
-          <strong>${esc(it.label || it.value)}</strong>
-          ${it.desc ? `<em>${esc(it.desc)}</em>` : ''}
+          <strong>${esc(title)}</strong>
+          ${!nameOnly && it.desc ? `<em>${esc(it.desc)}</em>` : ''}
         </span>
       </label>`
     })
@@ -804,6 +807,7 @@ function fillCapabilityPanels(overlay, detail, catalog) {
           selected: selectedTools,
           emptyLabel: '暂无可配置内置工具',
           searchPlaceholder: '搜索内置工具…',
+          nameOnly: true,
         })
   }
   if (mcpPanel) {

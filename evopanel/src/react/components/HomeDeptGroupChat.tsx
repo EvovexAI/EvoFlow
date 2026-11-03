@@ -18,7 +18,11 @@ import {
   runDeptMemberWorkTurn,
 } from '../lib/dept-member-work-session.js'
 import { deptChatSessionKey } from '../lib/dept-chat-session.js'
-import { resolveDeptGroupWakeTargets } from '../lib/dept-group-steward.js'
+import {
+  isDeptGroupStewardCode,
+  resolveDeptGroupWakeTargets,
+  withDeptGroupSteward,
+} from '../lib/dept-group-steward.js'
 import {
   extractMentionGoal,
   findMentionSpans,
@@ -290,6 +294,11 @@ export function HomeDeptGroupChat({
   shellSessionKey,
 }: HomeDeptGroupChatProps) {
   const members = dept.members
+  /** 含小V：@ 选人 / 侧栏芯片；员工表本身没有群管家 */
+  const roster = useMemo(
+    () => withDeptGroupSteward(members, dept.name),
+    [members, dept.name],
+  )
   const [msgs, setMsgs] = useState<GroupChatMsg[]>([])
   const [draft, setDraft] = useState('')
   const [sending, setSending] = useState(false)
@@ -303,6 +312,7 @@ export function HomeDeptGroupChat({
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const mentionListRef = useRef<HTMLUListElement>(null)
   const membersRef = useRef(members)
+  const rosterRef = useRef(roster)
   const msgsRef = useRef<GroupChatMsg[]>([])
   const aliveRef = useRef(true)
   const wakeQueueRef = useRef<DeptGroupWakeQueue | null>(null)
@@ -310,6 +320,7 @@ export function HomeDeptGroupChat({
   const [wakeJobs, setWakeJobs] = useState<WakeJobSnapshot[]>([])
 
   membersRef.current = members
+  rosterRef.current = roster
   msgsRef.current = msgs
 
   const persistMsg = useCallback(
@@ -371,21 +382,21 @@ export function HomeDeptGroupChat({
   }, [msgs])
 
   const threadPerson = useMemo(
-    () => members.find((m) => m.agent_code === threadCode) || null,
-    [members, threadCode],
+    () => roster.find((m) => m.agent_code === threadCode) || null,
+    [roster, threadCode],
   )
 
   const mentionCandidates = useMemo(() => {
     const q = mentionFilter.trim().toLowerCase()
-    // 无关键字 = 全员列表，不必靠打字匹配才能选
-    if (!q) return members
-    const filtered = members.filter(
+    // 无关键字 = 全员（含小V），不必靠打字匹配才能选
+    if (!q) return roster
+    const filtered = roster.filter(
       (m) =>
         m.role_name.toLowerCase().includes(q) ||
         m.agent_code.toLowerCase().includes(q),
     )
-    return filtered.length ? filtered : members
-  }, [members, mentionFilter])
+    return filtered.length ? filtered : roster
+  }, [roster, mentionFilter])
 
   useEffect(() => {
     if (!mentionOpen) return
@@ -479,6 +490,7 @@ export function HomeDeptGroupChat({
       // 主对话区改走 V4 右栏，不再塞内嵌详情轨
       if (variant === 'main') {
         const person =
+          rosterRef.current.find((m) => m.agent_code === code) ||
           membersRef.current.find((m) => m.agent_code === code) || {
             agent_code: code,
             role_name: code,
@@ -549,6 +561,7 @@ export function HomeDeptGroupChat({
       signal: { aborted: boolean }
     }) => {
       const person: HomeCmdPerson =
+        rosterRef.current.find((m) => m.agent_code === input.agentCode) ||
         membersRef.current.find((m) => m.agent_code === input.agentCode) || {
           agent_code: input.agentCode,
           role_name: input.roleName,
@@ -625,9 +638,12 @@ export function HomeDeptGroupChat({
           : await streamBodyIntoBubble(bubbleId, reply)
 
         if (input.depth >= MAX_NEST_DEPTH) return {}
-        const roster = membersRef.current
-        const nestedFromAt = parseMentions(finalText, roster).filter(
-          (x) => x.agent_code !== person.agent_code,
+        // 嵌套接力只叫醒部门员工，避免 @小V 自循环
+        const nestRoster = membersRef.current.filter(
+          (m) => !isDeptGroupStewardCode(m.agent_code),
+        )
+        const nestedFromAt = parseMentions(finalText, nestRoster).filter(
+          (x) => x.agent_code !== person.agent_code && !isDeptGroupStewardCode(x.agent_code),
         )
         const woken = new Set(nestedFromAt.map((x) => x.agent_code))
         const nested: Array<{ person: HomeCmdPerson; goal: string }> = nestedFromAt.map(
@@ -642,7 +658,8 @@ export function HomeDeptGroupChat({
           if (!h.agentCode || h.agentCode === person.agent_code || woken.has(h.agentCode)) {
             continue
           }
-          const next = roster.find((m) => m.agent_code === h.agentCode)
+          if (isDeptGroupStewardCode(h.agentCode)) continue
+          const next = nestRoster.find((m) => m.agent_code === h.agentCode)
           if (!next) continue
           woken.add(h.agentCode)
           nested.push({
@@ -819,7 +836,7 @@ export function HomeDeptGroupChat({
   const handleSend = async () => {
     const text = draft.trim()
     if (!text || sending) return
-    const mentioned = parseMentions(text, members)
+    const mentioned = parseMentions(text, roster)
     const goal = stripLeadingMentions(text, mentioned)
     const { targets, viaSteward } = resolveDeptGroupWakeTargets(mentioned, dept.name)
     const now = Date.now()
@@ -947,8 +964,8 @@ export function HomeDeptGroupChat({
                 <div className="evo-home-cmd__detail-title-row">
                   <h3 className="evo-home-cmd__detail-title">
                     {dept.name}
-                    {members.length ? (
-                      <span className="evo-home-cmd__gc-badge">{members.length} 人</span>
+                    {roster.length ? (
+                      <span className="evo-home-cmd__gc-badge">{roster.length} 人</span>
                     ) : null}
                   </h3>
                 </div>
@@ -958,19 +975,20 @@ export function HomeDeptGroupChat({
               </button>
             </header>
             <div className="evo-home-cmd__gc-members" aria-label="成员">
-              {members.map((m) => {
-                const onDuty = isPersonOnDuty(m)
+              {roster.map((m) => {
+                const steward = isDeptGroupStewardCode(m.agent_code)
+                const onDuty = steward ? true : isPersonOnDuty(m)
                 return (
                   <button
                     key={m.agent_code}
                     type="button"
                     className={`evo-home-cmd__gc-chip${threadCode === m.agent_code ? ' is-active' : ''}${
                       m.busy ? ' is-busy' : ''
-                    }${onDuty ? ' is-on-duty' : ' is-off-duty'}`}
+                    }${onDuty ? ' is-on-duty' : ' is-off-duty'}${steward ? ' is-steward' : ''}`}
                     onMouseDown={(e) => e.preventDefault()}
                     onClick={() => insertMention(m)}
                     onDoubleClick={() => void loadThread(m.agent_code)}
-                    title={`${m.role_name} · ${personDutyLabel(m)}`}
+                    title={`${m.role_name} · ${steward ? '群管家' : personDutyLabel(m)}`}
                   >
                     <EmployeeStageAvatar
                       agentCode={m.agent_code}
@@ -979,11 +997,13 @@ export function HomeDeptGroupChat({
                       busy={!!m.busy}
                     />
                     <span className="evo-home-cmd__gc-chip-name">{m.role_name}</span>
-                    <span className="evo-home-cmd__gc-chip-state">{personDutyLabel(m)}</span>
+                    <span className="evo-home-cmd__gc-chip-state">
+                      {steward ? '群管家' : personDutyLabel(m)}
+                    </span>
                   </button>
                 )
               })}
-              {!members.length ? <span className="evo-home-cmd__gc-empty-hint">暂无成员</span> : null}
+              {!roster.length ? <span className="evo-home-cmd__gc-empty-hint">暂无成员</span> : null}
             </div>
           </>
         )}
@@ -1080,7 +1100,7 @@ export function HomeDeptGroupChat({
                             {msg.streaming && !msg.text ? (
                               <span className="evo-home-cmd__gc-thinking">正在回复…</span>
                             ) : (
-                              renderTextWithMentions(msg.text, members)
+                              renderTextWithMentions(msg.text, roster)
                             )}
                             {msg.streaming && msg.text ? (
                               <span className="evo-home-cmd__gc-caret" aria-hidden />
@@ -1090,7 +1110,7 @@ export function HomeDeptGroupChat({
                         {!msg.streaming && msg.text ? (
                           <MentionDispatchStrip
                             text={msg.text}
-                            members={members}
+                            members={roster}
                             wakeJobs={wakeJobs}
                             sourceMsgId={msg.id}
                           />
@@ -1127,7 +1147,7 @@ export function HomeDeptGroupChat({
                       {msg.streaming && !msg.text ? (
                         <span className="evo-home-cmd__gc-thinking">正在回复…</span>
                       ) : (
-                        renderTextWithMentions(msg.text, members, 'evo-home-cmd__gc-mention')
+                        renderTextWithMentions(msg.text, roster, 'evo-home-cmd__gc-mention')
                       )}
                       {msg.streaming && msg.text ? (
                         <span className="evo-home-cmd__gc-caret" aria-hidden />
@@ -1136,7 +1156,7 @@ export function HomeDeptGroupChat({
                     {!msg.streaming && msg.text ? (
                       <MentionDispatchStrip
                         text={msg.text}
-                        members={members}
+                        members={roster}
                         wakeJobs={wakeJobs}
                         sourceMsgId={msg.id}
                       />

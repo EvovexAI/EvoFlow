@@ -18,14 +18,14 @@ const LINKS = [
   { path: '/settings', title: '设置', desc: '外观、模型、远程访问等' },
   { path: '/proactive', title: '智能体员工', desc: '值班岗位与工作日志' },
   { path: '/apps', title: '工作流', desc: '编排与填参运行' },
-  { path: '/expert', title: '智能体', desc: '角色与专家能力' },
+  // { path: '/expert', title: '智能体', desc: '角色与专家能力' }, // 入口已收敛；#/expert 仍可直达
   { path: '/cron', title: '自动化', desc: '定时与规则' },
   { path: '/extensions', title: 'Agent应用', desc: '安装的Agent应用入口' },
   { path: '/models', title: '模型', desc: '模型目录与连接' },
   { path: '/assets', title: '资产中心', desc: '画像 / 记忆 / 经验 / 反思 / 专长' },
   { path: '/memory', title: '记忆', desc: '用户偏好记忆' },
-  { path: '/skills', title: '技能', desc: '技能目录' },
-  { path: '/tools', title: '工具', desc: '工具与 MCP' },
+  { path: '/settings?tab=skill-management', title: '技能', desc: '技能安装与管理' },
+  { path: '/settings?tab=mcp-connectors', title: '连接器', desc: 'MCP 连接器' },
 ]
 
 function esc(s) {

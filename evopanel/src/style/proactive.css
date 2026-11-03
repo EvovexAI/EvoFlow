@@ -5378,6 +5378,20 @@ html.evopanel-macos-titlebar .pro-employee-page--nav-in-chrome {
   line-height: 1.4;
   color: var(--text-tertiary, #888);
 }
+.hire-cap-check--name {
+  align-items: center;
+  padding: 6px 10px;
+}
+.hire-cap-check--name input {
+  margin-top: 0;
+}
+.hire-cap-list--tools,
+.hire-cap-block[data-cap-block="tools"] .hire-cap-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 6px;
+  max-height: min(52vh, 420px);
+}
 .hire-field--grow {
   flex: 1;
   min-height: 0;
