@@ -6,6 +6,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.2.6] - 2026-11-03
+
+相对 **1.2.5**：新增桌面资源管理器与日志导出；日志统一到单一根目录并按日归档（调试轨迹需显式开启）；语音唤醒/ASR 与播报体验优化；工作流画布与保存工作流打磨。
+GitHub Release 正文见 `scripts/maintainer/windows/release-notes/PRODUCT-NOTES-1.2.6.md`；升级横幅见 `scripts/maintainer/update/latest.json`。
+
+### Added
+
+- **桌面资源管理器**：独立浮层窗口（`resource-manager.html` + Tauri `resource_manager` 命令），用于浏览/管理本地资源
+- **日志导出**：新增「导出日志」命令（`export_logs.rs`）与系统日志页入口，便于排查时打包日志
+- **审计日志**：新增 `audit_log` 持久层与 `/audit` 路由
+
+### Changed
+
+- **日志策略**：统一磁盘日志到单一根目录、按日命名、保留 14 天；调试轨迹（stream/tool trace 等）改为**显式开启**才写（默认不写，导出时排除 `debug/`）
+- **语音**：桌面端唤醒与 ASR（DashScope / 火山引擎会话、`voice_file_log`）优化；小V 播报反机械感（voice 块节奏规则）；新增语音时延报表（四锚点 p50/p95/max）
+- **工作流画布**：节点/工具条/变量面板与拖拽调色板（`palette-dnd`）打磨；保存工作流分组与卡片整理
+- **渠道**：飞书 / 企业微信入站与 trace 日志收敛
+- **运行态与协作**：`run_status_reconcile`、会话运行状态、collab 任务运行时健康与子任务流轨迹、员工自动化、用量账本等稳定性修补
+- **设置与页面**：通用/外观/资源市场/已安装包/应用详情·运行·历史等页面与 `page-help` 文案微调
+
+### Fixed
+
+- **聊天**：粘贴截图不再出现两张相同图片；自定义音色勾选/取消触发自动保存
+- **更新通道**：恢复公仓 `latest.json` 通道（客户端优先 jsDelivr，再回退 raw）
+
 ## [1.2.5] - 2026-11-02
 
 相对 **1.2.4**：工具卡超时不再拖死下一轮；知识库自有目录与右栏预览/资产引用更稳；补齐 Gitee 独立发版链路。
