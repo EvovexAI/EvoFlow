@@ -48,6 +48,14 @@ async def run_asr_stream_proxy(
             "result_type": "full",
         },
     }
+    try:
+        from app.gateway.speech.providers.volcengine_asr_session import _volc_asr_boosting_table_id
+
+        _boosting = _volc_asr_boosting_table_id()
+        if _boosting:
+            full_payload["request"]["corpus"] = {"boosting_table_id": _boosting}
+    except Exception:
+        pass
 
     try:
         import websockets

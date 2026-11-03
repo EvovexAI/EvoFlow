@@ -230,9 +230,12 @@ def _build_user_turn_strategies(
     """判停策略（对齐 Pipecat，按产品场景选型）。
 
     - 默认 **SpeechTimeout**：中文口语停顿多，SmartTurn 易「没说完就 COMPLETE」。
-      ``user_speech_timeout`` ≈ 0.9s（Pipecat 文档常用 0.6；中文略放宽），
+      ``user_speech_timeout`` ≈ 0.8s（Pipecat 文档常用 0.6；中文略放宽），
       且 ``wait_for_transcript=True``（没字不发）。
     - 可选 SmartTurn：环境变量 ``EVOFLOW_VOICE_SMART_TURN=1``（仍保留 transcript 门闩）。
+      SmartTurn 的代价是静默窗口（pipecat 默认 STOP_SECS=3s，比 SpeechTimeout 还慢）——
+      必须把 ``stop_secs`` 压到 ~0.5s 才有意义（``EVOFLOW_VOICE_SMART_TURN_STOP_SECS`` 可调）。
+      误切率靠「用户回合时长」打点观察（见 XiaomiHook turn 日志）。
 
     FilterIncomplete（LLM ●/◐ 门闩）需要 LLM 在 Pipecat 管线内，我们 LLM 在
     前端小V，无法直接套用；用更稳的 timeout + 语音路径 abort-then-send 代替。
@@ -253,18 +256,27 @@ def _build_user_turn_strategies(
             from pipecat.audio.turn.smart_turn.base_smart_turn import SmartTurnParams
             from pipecat.turns.user_stop import TurnAnalyzerUserTurnStopStrategy
 
+            # stop_secs：喂给分析器的静默窗口。旧值 max(3.0, …) 是 pipecat 库默认，
+            # 比 SpeechTimeout(0.8s) 还慢一倍——SmartTurn 等于永远输。压到 0.5s 起跑。
+            try:
+                smart_stop_secs = float(
+                    os.getenv("EVOFLOW_VOICE_SMART_TURN_STOP_SECS") or "0.5"
+                )
+            except ValueError:
+                smart_stop_secs = 0.5
+            smart_stop_secs = min(2.0, max(0.2, smart_stop_secs))
             strategies = UserTurnStrategies(
                 start=start,
                 stop=[
                     TurnAnalyzerUserTurnStopStrategy(
                         turn_analyzer=LocalSmartTurnAnalyzerV3(
-                            params=SmartTurnParams(stop_secs=max(3.0, timeout_s + 2.0)),
+                            params=SmartTurnParams(stop_secs=smart_stop_secs),
                         ),
                         wait_for_transcript=True,
                     )
                 ],
             )
-            return strategies, "SmartTurn-v3"
+            return strategies, f"SmartTurn-v3(stop={smart_stop_secs:.2f}s)"
         except Exception as e:  # noqa: BLE001
             logger.warning("SmartTurn unavailable, fallback SpeechTimeout: %s", e)
 
@@ -366,6 +378,8 @@ class _XiaomiHook(PipeFrameProcessor):
         self._auto_ack = auto_ack
         self._host = host
         self._last_text = ""
+        # 用户开口时间锚点：回合时长打点（判停误切率观察依据）
+        self._speech_started_at: float | None = None
 
     def set_turn_handler(self, handler: TurnHandler | None) -> None:
         self._on_user_turn = handler
@@ -373,6 +387,11 @@ class _XiaomiHook(PipeFrameProcessor):
     async def process_frame(self, frame, direction):  # noqa: ANN001
         await super().process_frame(frame, direction)
         if direction != PipeDirection.DOWNSTREAM:
+            await self.push_frame(frame, direction)
+            return
+
+        if isinstance(frame, PipeUserStartedSpeakingFrame):
+            self._speech_started_at = time.monotonic()
             await self.push_frame(frame, direction)
             return
 
@@ -397,6 +416,13 @@ class _XiaomiHook(PipeFrameProcessor):
         if isinstance(frame, PipeUserStoppedSpeakingFrame):
             text = (self._last_text or "").strip()
             self._last_text = ""
+            if self._speech_started_at:
+                _dur_ms = (time.monotonic() - self._speech_started_at) * 1000.0
+                self._speech_started_at = None
+                voice_log(
+                    "对话",
+                    f"用户回合时长 {_dur_ms:.0f} ms（判停 mode={getattr(self._host, '_turn_mode', '?')}）",
+                )
             if _is_junk_turn(text):
                 # 嗯/哦/哈哈 这类纯语气词：VAD 误触发常见，发进模型只会白耗一轮还答非所问
                 voice_log("对话", f"丢弃语气词回合：「{text}」（不进 agent）")
