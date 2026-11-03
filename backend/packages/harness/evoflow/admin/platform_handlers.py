@@ -309,10 +309,12 @@ def workflow_run(args: dict[str, Any]) -> dict[str, Any]:
     run_id = str(run.get("run_id") or data.get("run_id") or data.get("runId") or "")
     task_id = str(run.get("task_id") or data.get("task_id") or data.get("taskId") or "").strip()
     out = {"ok": True, **data}
+    # Always hoist ids for platform_ui (右栏 collab-workflow + 避免落到 /apps 菜单)
+    out["appId"] = app_id
+    out["app_id"] = app_id
     if run_id:
         out["runId"] = run_id
         out["run_id"] = run_id
-    # Hoist for platform_ui openStage (右栏工作流需要 mainTaskId)
     if task_id:
         out["task_id"] = task_id
         out["taskId"] = task_id

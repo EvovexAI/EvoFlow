@@ -28,7 +28,7 @@ export async function render() {
       </div>
       <div class="page-actions">
         <div class="apps-new-dropdown">
-          <button type="button" class="btn btn-primary" id="btn-new-app">新建工作流 ▾</button>
+          <button type="button" class="btn btn-primary btn-sm" id="btn-new-app">新建工作流 ▾</button>
           <div class="apps-new-menu" hidden>
             <button type="button" class="apps-new-menu-item" data-act="blank">
               <span class="apps-new-menu-icon">${appGlyphSvg('workflow', 16)}</span>
@@ -44,20 +44,17 @@ export async function render() {
             </button>
           </div>
         </div>
-        <button type="button" class="btn btn-ghost" id="btn-refresh">刷新</button>
+        <button type="button" class="btn btn-ghost btn-sm" id="btn-refresh">刷新</button>
       </div>
     </div>
 
     <div class="page-content">
       <div class="apps-tip">
         <span class="apps-tip-dot" aria-hidden="true"></span>
-        <div class="apps-tip-content">
-          <div class="apps-tip-main">
-            <strong>什么时候用？</strong>同一类活隔三差五就要干，流程已经固定，每次只是换换参数。
-          </div>
-          <div class="apps-tip-detail">
-            <strong>怎么用？</strong>① 点卡片进画布编排 → ② 试跑 → ③ 发布 → ④ 详情页「打开填参运行」，或画布「怎么用」。
-          </div>
+        <div class="apps-tip-content apps-tip-content--inline">
+          <span class="apps-tip-main"><strong>何时用</strong> 固定流程、换参复跑</span>
+          <span class="apps-tip-sep" aria-hidden="true">·</span>
+          <span class="apps-tip-detail"><strong>怎么用</strong> 编排 → 试跑 → 发布 → 填参运行</span>
         </div>
       </div>
 
@@ -244,7 +241,7 @@ export async function render() {
             <div class="app-card-heading">
               <div class="app-card-title-row">
                 <h3 class="app-card-name" title="${escHtml(app.name || '未命名工作流')}">${escHtml(app.name || '未命名工作流')}</h3>
-                <span class="app-card-badge ${badgeClass}">${badgeLabel}</span>
+                <span class="app-card-status ${badgeClass}" title="${escHtml(badgeLabel)}"><i class="app-card-status-dot" aria-hidden="true"></i>${badgeLabel}</span>
               </div>
               <p class="app-card-meta">${escHtml(metaBits.join(' · '))}</p>
             </div>

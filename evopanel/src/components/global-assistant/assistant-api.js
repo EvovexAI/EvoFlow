@@ -430,6 +430,8 @@ export async function mentionMeeting(meetingId, agentCode, text, contextSummary 
   const ctx = String(contextSummary || '').trim()
   if (ctx) body.context_summary = ctx
   if (opts && opts.allowTools) body.allow_tools = true
+  const mode = String(opts?.mode || '').trim()
+  if (mode) body.mode = mode
   return gatewayProxy('POST', `/meetings/${encodeURIComponent(meetingId)}/mention`, body)
 }
 

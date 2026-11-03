@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EV-07 结构剖解终端 · CyberJet</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<canvas id="gl"></canvas>
+<canvas id="glow"></canvas>
+<div id="scan"></div>
+<div id="vignette"></div>
+
+<div id="ui">
+
+  <header id="top">
+    <div class="brand">
+      <span class="mark"></span>
+      <div class="brand-txt">
+        <b>EV-07</b>
+        <i>STRUCTURAL CUTAWAY TERMINAL</i>
+      </div>
+    </div>
+    <div class="top-meta">
+      <span class="tag" id="modeTag">剖解模式 · 待机</span>
+      <span class="sep"></span>
+      <span class="stat"><i>HULL</i><b>STANDBY</b></span>
+      <span class="stat"><i>FPS</i><b id="fps">--</b></span>
+    </div>
+  </header>
+
+  <aside id="parts">
+    <div class="panel-head">
+      <span>部件索引</span>
+      <em id="partCount">00</em>
+    </div>
+    <div id="partList" class="part-list"></div>
+    <div class="panel-foot">
+      <span class="dot"></span> 点击部件 · 相机自动对位
+    </div>
+  </aside>
+
+  <section id="info" class="idle">
+    <div class="info-head">
+      <span class="code" id="infoCode">EV07-00</span>
+      <span class="en" id="infoEn">NO SELECTION</span>
+    </div>
+    <h1 id="infoName">选择左侧部件</h1>
+    <div class="specs" id="infoSpecs"></div>
+    <p class="desc" id="infoDesc">
+      整套结构扫描已完成。拖动旋转机体，滚轮推拉视角，或从左侧索引中选择一个部件，查看它的剖面构成与参数。
+    </p>
+    <div class="info-foot">
+      <span id="infoIdx">-- / --</span>
+    </div>
+  </section>
+
+  <footer id="deck">
+    <div class="ctl" id="ctlOpen">
+      <label>剖开蒙皮<em id="openVal">0%</em></label>
+      <input type="range" id="openRange" min="0" max="100" value="0">
+    </div>
+
+    <div class="ctl-row">
+      <button id="btnXray" class="tog"><span class="box"></span>X 光透视</button>
+      <button id="btnScan" class="tog"><span class="box"></span>扫描光幕</button>
+      <button id="btnTour" class="tog"><span class="box"></span>自动讲解</button>
+    </div>
+
+    <div class="ctl-row views">
+      <button data-view="hero">等轴</button>
+      <button data-view="side">侧视</button>
+      <button data-view="top">俯视</button>
+      <button data-view="front">前视</button>
+      <button data-view="reset" class="reset">复位</button>
+    </div>
+  </footer>
+
+  <div id="hint">拖动旋转 · 滚轮缩放 · 数字键 1-9 切换部件 · 空格 自动讲解</div>
+
+  <div class="corner tl"></div>
+  <div class="corner tr"></div>
+  <div class="corner bl"></div>
+  <div class="corner br"></div>
+</div>
+
+<script src="vendor/three.min.js"></script>
+<script src="js/data.js"></script>
+<script src="js/interior.js"></script>
+<script src="js/ship.js"></script>
+<script src="js/scene.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>

@@ -196,8 +196,23 @@ def is_agent_busy(agent_code: str) -> bool:
     return agent_code in busy
 
 
-def meeting_speak_mode(topic: str) -> str:
-    """Classify meeting turn: proposal debate vs work sync."""
+_VALID_SPEAK_MODES = frozenset({"chat", "sync", "proposal", "rebuttal"})
+
+
+def normalize_meeting_speak_mode(mode: str | None) -> str:
+    m = str(mode or "").strip().lower()
+    return m if m in _VALID_SPEAK_MODES else ""
+
+
+def meeting_speak_mode(topic: str, *, forced_mode: str | None = None) -> str:
+    """Classify turn: free chat / proposal debate / work sync.
+
+    Unclassified short questions (e.g. 「你能干嘛」) must be **chat**, not sync —
+    otherwise the model dumps near-20 task memory as if asked for a status report.
+    """
+    forced = normalize_meeting_speak_mode(forced_mode)
+    if forced:
+        return forced
     t = str(topic or "").strip()
     if "【第二轮" in t or "碰撞" in t[:80]:
         return "rebuttal"
@@ -217,16 +232,18 @@ def meeting_speak_mode(topic: str) -> str:
         "风险",
         "设计",
         "讨论",
-        "能力",
         "功能",
     )
     sync_hits = sum(1 for k in sync_keys if k in t)
     proposal_hits = sum(1 for k in proposal_keys if k in t)
     if sync_hits > proposal_hits and sync_hits > 0:
         return "sync"
-    if proposal_hits > 0 or len(t) >= 36:
+    if proposal_hits > 0:
         return "proposal"
-    return "sync"
+    # Long free-form briefs still go proposal (round-table style).
+    if len(t) >= 80:
+        return "proposal"
+    return "chat"
 
 
 def meeting_speak_max_chars(mode: str) -> int:
@@ -234,14 +251,42 @@ def meeting_speak_max_chars(mode: str) -> int:
         return 140
     if mode == "proposal":
         return 280
+    if mode == "chat":
+        return 1200
     return 160
 
 
-def build_meeting_speak_goal(message_text: str, context_summary: str = "") -> str:
-    """Prompt for a short round-table oral turn (sync and/or proposal review)."""
+def build_meeting_speak_goal(
+    message_text: str,
+    context_summary: str = "",
+    *,
+    forced_mode: str | None = None,
+) -> str:
+    """Prompt for a meeting/group-chat turn (chat / sync / proposal / rebuttal)."""
     topic = message_text.strip()
-    mode = meeting_speak_mode(topic)
+    mode = meeting_speak_mode(topic, forced_mode=forced_mode)
     max_chars = meeting_speak_max_chars(mode)
+    if mode == "chat":
+        parts = [
+            "【部门群聊 · 正常对话】",
+            "用户在群里 @ 了你。按对方真实问题直接回答，像本职员工真人回话。",
+            "不要当成工作同步会：除非对方明确问进度/任务量，否则禁止主动汇报完成数、未结数、近20条任务清单。",
+            f"篇幅：说清楚即可，优先 80～400 字，最多约 {max_chars} 字；可分段，别注水。",
+            "禁止套话：「没卡点」「随时能接新活」「挺顺的」「随时待命」「手头都稳」。",
+            "排版：像微信群聊只输出纯文字；禁止 Markdown（# 标题、* **、表格、代码块）。",
+            "",
+            f"用户说：{topic}",
+        ]
+        if context_summary.strip():
+            parts.extend(
+                [
+                    "",
+                    "--- 群里近期上下文（可参考，勿复读）---",
+                    context_summary.strip()[:2800],
+                ]
+            )
+        return "\n".join(parts)
+
     parts = [
         "【AI员工聊天室 · 圆桌发言】",
         "你在会议室轮到说话了：像真人开会，直接说，别念稿、别套【立场】【风险】标签。",
@@ -305,7 +350,12 @@ def _message_content_to_text(content: Any) -> str:
     return str(content).strip()
 
 
-def sanitize_meeting_reply(text: str, *, max_chars: int | None = None) -> str:
+def sanitize_meeting_reply(
+    text: str,
+    *,
+    max_chars: int | None = None,
+    keep_newlines: bool = False,
+) -> str:
     """Drop duty/feishu wrap-up noise so the meeting UI only shows oral report."""
     raw = str(text or "").strip()
     if not raw:
@@ -330,9 +380,14 @@ def sanitize_meeting_reply(text: str, *, max_chars: int | None = None) -> str:
         raw = "\n".join(kept).strip()
     # Strip rigid label scaffolds that make speeches sound like forms
     raw = re.sub(r"【\s*(立场|风险|建议|收敛|结论)\s*】", "", raw)
-    # 聊天室发言：压成连贯口语（允许多句；空白压掉，超出则截断）
-    one_line = re.sub(r"\s+", "", raw)
     limit = int(max_chars) if max_chars and max_chars > 0 else 280
+    if keep_newlines:
+        cleaned = re.sub(r"\n{3,}", "\n\n", raw).strip()
+        if len(cleaned) > limit:
+            cleaned = cleaned[: max(0, limit - 1)] + "…"
+        return cleaned
+    # 圆桌发言：压成连贯口语（允许多句；空白压掉，超出则截断）
+    one_line = re.sub(r"\s+", "", raw)
     if len(one_line) > limit:
         one_line = one_line[: max(0, limit - 1)] + "…"
     return one_line
@@ -344,11 +399,12 @@ async def _llm_meeting_speak(
     topic: str,
     context_summary: str,
     allow_tools: bool = False,
+    forced_mode: str | None = None,
 ) -> str:
-    """One-shot LLM oral report — no duty cycle, no role busy lock.
+    """One-shot LLM oral/chat turn — no duty cycle, no role busy lock.
 
     When ``allow_tools`` is True, a short read-only tool loop may run before the
-    final oral line (lookup tasks / search assets / read asset).
+    final reply (lookup tasks / search assets / read asset).
     """
     from evoflow.context.internal_model_invoke import ainvoke_internal_chat_model
     from evoflow.models import create_chat_model
@@ -358,13 +414,13 @@ async def _llm_meeting_speak(
     cfg = getattr(role, "config", None)
     responsibilities = list(getattr(cfg, "responsibilities", None) or [])[:8]
     resp_line = "、".join(str(x) for x in responsibilities if str(x).strip()) or "本职工作"
-    mode = meeting_speak_mode(topic)
+    mode = meeting_speak_mode(topic, forced_mode=forced_mode)
     max_chars = meeting_speak_max_chars(mode)
-    # Proposal debate must not bleed duty task lists into the room.
-    use_task_memory = mode == "sync" or allow_tools
+    # Only sync (or explicit tool lookup) should preload the near-20 task board.
+    use_task_memory = mode == "sync" or (allow_tools and mode == "sync")
 
     task_memory = ""
-    if use_task_memory:
+    if use_task_memory or (allow_tools and mode != "chat"):
         try:
             from evoflow.proactive.work_items import (
                 format_meeting_task_memory_for_prompt,
@@ -375,7 +431,17 @@ async def _llm_meeting_speak(
         except Exception:
             task_memory = ""
 
-    if mode == "rebuttal":
+    if mode == "chat":
+        system = (
+            f"你是「{role_name}」，职责：{resp_line}。\n"
+            "用户在部门群聊里 @ 了你。按对方真实问题回答，像本职员工真人对话。\n"
+            f"篇幅适度：优先 80～400 字，硬上限约 {max_chars} 字。可分段。\n"
+            "除非对方明确问进度/任务量/手头活，否则禁止主动汇报完成数、未结数或近20条任务清单。\n"
+            "禁止套话：「没卡点」「随时能接新活」「挺顺的」「随时待命」「手头都稳」。\n"
+            "排版：像微信群聊只输出纯文字；禁止 Markdown（# 标题、* **、表格、代码块）。\n"
+            "需要时可用工具查证后再答；不要把工具原文整段贴给用户。\n"
+        )
+    elif mode == "rebuttal":
         system = (
             f"你是「{role_name}」，职责：{resp_line}。\n"
             "第二轮碰撞：只回应会上分歧，点名同意/反对谁，给出你拍板的一点。\n"
@@ -403,24 +469,27 @@ async def _llm_meeting_speak(
             "禁止：专业术语、条目式长列表、长分析、值班交班/工作汇报摘要、飞书模板、JSON、工具说明、新建任务。\n"
         )
     if allow_tools:
-        system += "本轮允许查证：需要证据时可调用 lookup_my_tasks / search_my_assets / read_my_asset（只读）。查完后必须给出最终口头发言；不要把工具原文贴给用户；最多查 2～3 次。\n"
+        system += (
+            "本轮允许工具：lookup_my_tasks / search_my_assets / read_my_asset（只读）。"
+            "需要证据时再调用；查完必须给出最终答复；不要贴工具原文；最多查 2～3 次。\n"
+        )
     elif mode == "sync":
         system += "系统已自动加载你近 20 条任务记忆（含未结与已完成/失败状态、更新时间）。据此直接回答，不要说还要去查；没有记忆就如实说这周暂无登记任务。\n"
     if task_memory and mode == "sync" and not allow_tools:
         system += f"\n{task_memory}"
-    elif task_memory and allow_tools:
+    elif task_memory and allow_tools and mode != "chat":
         system += f"\n（任务概况预览，可再查）\n{task_memory[:800]}"
 
-    user = build_meeting_speak_goal(topic, context_summary)
+    user = build_meeting_speak_goal(topic, context_summary, forced_mode=mode)
     if allow_tools:
-        user += "\n\n如需查证再发言；最终只输出口语表态。"
+        user += "\n\n如需查证可先用工具；最终只输出对用户的答复。"
 
     model_name = str(getattr(cfg, "model_name", None) or "").strip() or None
     try:
         model = create_chat_model(
             name=model_name,
             thinking_enabled=False,
-            temperature=0.75 if mode in ("proposal", "rebuttal") else 0.7,
+            temperature=0.75 if mode in ("proposal", "rebuttal", "chat") else 0.7,
             invocation_kind="a2a_meeting",
         )
     except Exception:
@@ -448,7 +517,11 @@ async def _llm_meeting_speak(
                         ),
                         timeout=timeout_s,
                     )
-                    text = sanitize_meeting_reply(raw_text, max_chars=max_chars)
+                    text = sanitize_meeting_reply(
+                        raw_text,
+                        max_chars=max_chars,
+                        keep_newlines=(mode == "chat"),
+                    )
                 else:
                     messages = [
                         {"role": "system", "content": system},
@@ -461,9 +534,14 @@ async def _llm_meeting_speak(
                     text = sanitize_meeting_reply(
                         _message_content_to_text(getattr(response, "content", response)),
                         max_chars=max_chars,
+                        keep_newlines=(mode == "chat"),
                     )
                 if not text:
-                    text = f"关于「{topic[:40]}」，我这边暂无更多细节可补充，建议会后再对齐具体阻塞点。"
+                    text = (
+                        f"关于「{topic[:40]}」，我先按本职职责说明：{resp_line}。你具体想让我做哪一块？"
+                        if mode == "chat"
+                        else f"关于「{topic[:40]}」，我这边暂无更多细节可补充，建议会后再对齐具体阻塞点。"
+                    )
                 return text
             except Exception as exc:
                 last_exc = exc
@@ -499,14 +577,16 @@ async def speak_in_meeting(
     context_summary: str = "",
     meeting_id: str = "",
     allow_tools: bool = False,
+    mode: str | None = None,
 ) -> dict[str, Any]:
-    """Meeting oral report: one-shot LLM, persist to evoflow_a2a_tasks.
+    """Meeting / group-chat turn: one-shot LLM, persist to evoflow_a2a_tasks.
 
     Does **not** call ``dispatch_task`` / duty cycle / ``create_role_work_item``,
     so it won't collide with patrol busy locks, won't scrape stale wrap_up
     summaries, and won't flood the task center with identical oral-report titles.
 
     ``allow_tools`` enables a short read-only verify loop (tasks/assets) before speaking.
+    ``mode`` forces speak style: chat | sync | proposal | rebuttal (empty = auto).
     """
     import uuid
 
@@ -518,7 +598,8 @@ async def speak_in_meeting(
     if not topic:
         return {"error": "topic is required"}
 
-    goal = build_meeting_speak_goal(topic, context_summary)
+    forced = normalize_meeting_speak_mode(mode)
+    goal = build_meeting_speak_goal(topic, context_summary, forced_mode=forced or None)
     if allow_tools:
         goal = "【查证模式】\n" + goal
     task_id = f"a2a_{uuid.uuid4().hex[:12]}"
@@ -538,6 +619,7 @@ async def speak_in_meeting(
             topic=topic,
             context_summary=context_summary,
             allow_tools=bool(allow_tools),
+            forced_mode=forced or None,
         )
         _update_a2a_task_state(task_id, "completed", result_text=reply)
         return {
@@ -581,6 +663,7 @@ async def send_task(
     from_agent: str = "meeting_orchestrator",
     meeting_id: str = "",
     allow_tools: bool = False,
+    mode: str | None = None,
 ) -> dict[str, Any]:
     """Meeting / A2A send: prefer lightweight ``speak_in_meeting``.
 
@@ -595,6 +678,7 @@ async def send_task(
         context_summary=context_summary,
         meeting_id=meeting_id,
         allow_tools=bool(allow_tools),
+        mode=mode,
     )
 
 

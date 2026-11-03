@@ -174,10 +174,21 @@ async function loadRawForSource(sourceId) {
   const seq = ++_rawSeq
   const meta = SOURCE_META.find((m) => m.id === sourceId)
   const title = meta?.title || sourceId
+  // Clear stale content immediately so chip switches don't look "stuck" on the previous source.
+  _rawView = {
+    title,
+    path: '',
+    exists: false,
+    content: '',
+    lineCount: 0,
+    hint: '',
+    loading: true,
+  }
+  if (_viewMode === 'raw') renderBody()
   try {
     let data = null
     try {
-      data = await api.diagnosticsTail(sourceId, 800, Math.max(_hours, 72), {
+      data = await api.diagnosticsTail(sourceId, 1200, Math.max(_hours, 72), {
         silent: true,
         timeoutMs: 10000,
       })
@@ -185,7 +196,7 @@ async function loadRawForSource(sourceId) {
       data = null
     }
     if ((!data || data.ok === false) && isTauri) {
-      const insp = await api.inspectLog(sourceId, 800)
+      const insp = await api.inspectLog(sourceId, 1200)
       data = {
         ok: true,
         exists: !!insp?.exists,
@@ -204,6 +215,7 @@ async function loadRawForSource(sourceId) {
       content: data?.content || '',
       lineCount: data?.line_count || data?.lineCount || 0,
       hint: data?.hint || data?.error || '',
+      loading: false,
     }
   } catch (e) {
     if (seq !== _rawSeq) return
@@ -214,6 +226,7 @@ async function loadRawForSource(sourceId) {
       content: '',
       lineCount: 0,
       hint: e?.message || String(e),
+      loading: false,
     }
   }
   renderBody()
@@ -323,7 +336,11 @@ function renderSourceChips() {
 function renderEvents() {
   const rows = filteredEvents()
   if (!rows.length) {
-    return `<div class="syslog-empty">当前筛选下没有 ERROR / WARN。点上方某个日志源可切换到「全文」查看完整内容（含 INFO）。</div>`
+    return `<div class="syslog-empty">${
+      _sourceFilter
+        ? '该来源在当前时间窗内没有 ERROR / WARN。可切到「全文」查看完整日志。'
+        : '当前筛选下没有 ERROR / WARN。点上方某个日志源可单独查看该源。'
+    }</div>`
   }
   return `<div class="syslog-table-wrap"><table class="syslog-table">
     <thead><tr><th>时间</th><th>来源</th><th>级别</th><th>次数</th><th>摘要</th></tr></thead>
@@ -346,12 +363,23 @@ function renderEvents() {
   </table></div>`
 }
 
+function colorizeRawLine(line) {
+  const raw = String(line || '')
+  const u = raw.toUpperCase()
+  let cls = ''
+  if (u.includes('CRITICAL') || u.includes('FATAL')) cls = 'syslog-line--crit'
+  else if (u.includes('ERROR') || u.includes('TRACEBACK') || u.includes('EXCEPTION')) cls = 'syslog-line--err'
+  else if (/\bWARN(?:ING)?\b/.test(u)) cls = 'syslog-line--warn'
+  if (!cls) return esc(raw)
+  return `<span class="${cls}">${esc(raw)}</span>`
+}
+
 function renderRawPanel() {
   const v = _rawView
-  if (!v) {
-    return `<div class="syslog-empty">正在加载全文…</div>`
+  if (!v || v.loading) {
+    return `<div class="syslog-empty">正在加载「${esc(v?.title || _sourceFilter || '日志')}」全文…</div>`
   }
-  const meta = `${esc(v.title || '')} · ${v.exists ? `${v.lineCount} 行` : '无文件'} · <code class="syslog-path">${esc(v.path || '—')}</code>`
+  const meta = `<strong>${esc(v.title || '')}</strong> · ${v.exists ? `${v.lineCount} 行` : '无文件'} · <code class="syslog-path">${esc(v.path || '—')}</code>`
   const hint = v.hint
     ? `<div class="syslog-empty" style="margin-bottom:8px;padding:10px;text-align:left">${esc(v.hint)}</div>`
     : ''
@@ -359,8 +387,12 @@ function renderRawPanel() {
     return `<div class="syslog-raw-meta">${meta}</div>
       <div class="syslog-empty">${esc(v.hint || '该日志源当前没有文件。进程内 LangGraph 请先重启 Gateway 以生成 langgraph-日期.log；或查看 Gateway。')}</div>`
   }
+  const body = String(v.content || '')
+    .split(/\r?\n/)
+    .map(colorizeRawLine)
+    .join('\n')
   return `<div class="syslog-raw-meta">${meta}</div>${hint}
-    <pre class="syslog-raw-pre" data-role="raw-pre">${esc(v.content || '')}</pre>`
+    <pre class="syslog-raw-pre" data-role="raw-pre">${body}</pre>`
 }
 
 function renderBody() {
@@ -396,15 +428,37 @@ function bind(page) {
   page.addEventListener('click', (e) => {
     const chip = e.target.closest('[data-source]')
     if (chip) {
-      _sourceFilter = chip.getAttribute('data-source') || ''
-      if (_sourceFilter) {
-        _viewMode = 'raw'
-        void loadRawForSource(_sourceFilter)
-      } else {
+      e.preventDefault()
+      e.stopPropagation()
+      const next = chip.getAttribute('data-source') || ''
+      // Re-clicking the active source is a no-op (keeps scroll / view mode).
+      if (next === _sourceFilter && next) {
+        renderBody()
+        return
+      }
+      _sourceFilter = next
+      const status = q('[data-role="status"]')
+      if (!_sourceFilter) {
         _viewMode = 'anomaly'
         _rawView = null
+        if (status) status.textContent = '全部来源 · 异常扫描'
         renderBody()
+        return
       }
+      // Click a source → show that source's anomalies first (badge counts are actionable).
+      // Switch to「全文」for the complete file. Preload raw so the toggle is instant.
+      const hasErr = chip.classList.contains('has-errors')
+      _viewMode = hasErr ? 'anomaly' : 'raw'
+      _rawView = null
+      if (status) {
+        const title = SOURCE_META.find((m) => m.id === _sourceFilter)?.title || _sourceFilter
+        status.textContent =
+          _viewMode === 'anomaly'
+            ? `来源：${title} · 仅异常（可切「全文」）`
+            : `来源：${title} · 加载全文…`
+      }
+      renderBody()
+      void loadRawForSource(_sourceFilter)
       return
     }
     const act = e.target.closest('[data-act]')?.getAttribute('data-act')
@@ -491,7 +545,7 @@ export async function render() {
     <div class="page-header syslog-header">
       <div>
         <h1 class="page-title">系统日志</h1>
-        <p class="page-desc">点选日志源查看全文；异常扫描（ERROR/WARN）为辅 · 与 diagnostics.* 同源</p>
+        <p class="page-desc">点上方芯片切换日志源：有红点数字的先看「仅异常」，再切「全文」· 与 diagnostics.* 同源</p>
       </div>
       <div class="syslog-header-actions">
         <label class="syslog-hours">

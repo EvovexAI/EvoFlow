@@ -325,10 +325,12 @@ def test_workflow_run_open_stage_auto_open():
     }
     ui = build_platform_ui_feedback(entry, {"appId": "App_x"}, result)
     assert ui is not None
-    progress = next(a for a in ui["actions"] if a.get("label") == "查看进度")
+    progress = next(a for a in ui["actions"] if a.get("label") == "打开工作流")
     assert progress["autoOpen"] is True
     assert progress["openStage"]["kind"] == "collab-workflow"
     assert progress["openStage"]["data"]["mainTaskId"] == "mt-app-run"
+    # 有进度 CTA 时不得再挂 /apps 菜单（Info Rail 曾优先点 route 跳错）
+    assert not any(str(a.get("route") or "").rstrip("/") == "/apps" for a in ui["actions"])
 
 
 def test_tasks_list_shell_page_auto_open():

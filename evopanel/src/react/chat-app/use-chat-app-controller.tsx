@@ -64,6 +64,7 @@ import { defaultModelFromCatalog } from '../lib/model-catalog.js'
 import { setChatWorkspaceRoot } from '../../lib/chat-workspace-context.js'
 import { effectiveLocalWorkspaceRoot } from '../../lib/workspace-api-scope.js'
 import { useThreadHistory, markResumeAnchorAssistantIncomplete } from '../hooks/useThreadHistory.js'
+import { isDeptChatSessionKey } from '../lib/dept-chat-session.js'
 import { useSessionList } from '../hooks/useSessionList.js'
 import { ShellSessionListHost } from '../components/ShellSessionListHost.js'
 import { getActivityHint } from '../lib/activity-hints.js'
@@ -1046,9 +1047,11 @@ export function useChatAppController() {
     }
   }, [selectedSessionKey, selectedThreadId])
   // 已选会话但还没有 threadId：主动 ensure，否则 V4 会停在 no-thread→「加载中…」
+  // 部门群聊是本地 IM 面（dept:{id}:chat），不要 ensure-thread / 建假会话，否则会卡住导航。
   useEffect(() => {
     const sk = String(selectedSessionKey || '').trim()
     if (!sk) return
+    if (isDeptChatSessionKey(sk)) return
     if (String(selectedThreadId || '').trim()) return
     if (preferHomeDashboardRef.current && !sk) return
     let cancelled = false
@@ -4720,8 +4723,12 @@ export function useChatAppController() {
    */
   const preferHomeDraftActive =
     preferHomeDashboard && !String(selectedSessionKey || '').trim()
+  /** 部门群聊是独立主区表面，绝不能再挂工作台仪表盘（否则点侧栏部门「没反应」） */
+  const isDeptChatSurface = isDeptChatSessionKey(selectedSessionKey)
   const isHomeSurface =
-    emptyHomeEligible && (!isEvoflowChatV4Enabled() || preferHomeDraftActive)
+    !isDeptChatSurface &&
+    emptyHomeEligible &&
+    (!isEvoflowChatV4Enabled() || preferHomeDraftActive)
   isHomeSurfaceRef.current = isHomeSurface
 
   useEffect(() => {
@@ -5139,6 +5146,7 @@ export function useChatAppController() {
         handleStopProcessItem,
         headerTokenTotals,
         isProactiveEmployeeSession,
+        isDeptChatSurface,
         liveProcessSnapshot,
         manualContextCompacting,
         modelPillLabel,
@@ -5369,13 +5377,14 @@ export function useChatAppController() {
   // V4 正文在 Timeline，旧 rows 可能仍空；sessionHadContent 由产物/消息侧置位
   const conversationHasContent =
     (Array.isArray(rows) && rows.length > 0) || selectedTurnBusy || sessionHadContent
+  // 部门群聊主区无旧 rows，也要挂摘要（成员名单在「群聊」tab）
   const showChatSummaryFloat =
     chatPanelMode !== 'hidden' &&
     !rightStageOpen &&
     !isHomeSurface &&
     !isMobileChat &&
     !!selectedSessionKey &&
-    conversationHasContent
+    (conversationHasContent || isDeptChatSurface)
 
   const infoRailHeaderToggle = renderInfoRailHeaderToggle({
     rightStageOpen,
@@ -6243,6 +6252,7 @@ export function useChatAppController() {
           setSelectedSessionKey,
           setMobileChatPane,
           setPreferHomeDashboard,
+          preferHomeDashboardRef,
         },
         sessionKey,
       )
@@ -6435,6 +6445,7 @@ export function useChatAppController() {
     homeWorkspaceLabel,
     infoRailHeaderToggle,
     isDesktopTauriRuntime,
+    isDeptChatSurface,
     isHomeSurface,
     isImagePathLike,
     isMobileChat,

@@ -10,6 +10,7 @@ import { isSessionRecoveryCooldownActive } from '../stream-reattach-cooldown.js'
 import { STORAGE_SESSION_NAMES_KEY } from './constants.js'
 import { getSessionNames, isPlaceholderSessionTitle, pickSessionRowTitle } from './display.js'
 import { resolveMergedSessionPin } from './session-pin-pending.js'
+import { isDeptChatSessionKey } from '../dept-chat-session.js'
 
 export function isDefaultMainSessionKey(sessionKey: string | null | undefined): boolean {
   return String(sessionKey || '').trim() === CHAT_MAIN_SESSION_KEY
@@ -420,6 +421,16 @@ export function resolveSessionReselectAfterRefresh(opts: {
       reason: 'home-draft',
     })
     return { type: 'none', reason: 'home-draft' }
+  }
+
+  // 部门群聊是合成 key，不在 sessions API 列表里；刷新绝不能清掉/改选。
+  if (isDeptChatSessionKey(selectedAfter) || isDeptChatSessionKey(curSelectable)) {
+    ssLog('refresh.skip', {
+      refreshId,
+      reason: 'dept-chat-surface',
+      selected: skTail(selectedAfter || curSelectable),
+    })
+    return { type: 'none', reason: 'dept-chat-surface' }
   }
 
   if (selectedAfter && keys.has(selectedAfter)) {

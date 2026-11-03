@@ -1,16 +1,16 @@
 /**
- * 侧栏「任务 / 员工」视图与员工筛选的持久化（跨刷新 / 冷启动对齐上次关闭态）。
+ * 侧栏「任务 / 员工 / 部门」视图与员工筛选的持久化（跨刷新 / 冷启动对齐上次关闭态）。
  */
 
 export const LS_SHELL_SIDEBAR_VIEW_MODE = 'evopanel_shell_sidebar_view_mode'
 export const LS_SHELL_FOCUSED_EMPLOYEE = 'evopanel_shell_focused_employee'
 
-export type ShellSidebarViewMode = 'grouped' | 'project'
+export type ShellSidebarViewMode = 'grouped' | 'project' | 'depts'
 
 export function loadShellSidebarViewMode(): ShellSidebarViewMode {
   try {
     const raw = String(localStorage.getItem(LS_SHELL_SIDEBAR_VIEW_MODE) || '').trim()
-    if (raw === 'project' || raw === 'grouped') return raw
+    if (raw === 'project' || raw === 'grouped' || raw === 'depts') return raw
   } catch {
     /* ignore */
   }

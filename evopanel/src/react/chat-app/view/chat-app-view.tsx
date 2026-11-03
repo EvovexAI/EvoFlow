@@ -28,6 +28,8 @@ import { v4WindowHasUserText } from '../../v4/optimisticUserInput.js'
 import { resolveChatPaneMode } from '../../lib/chat-pane-mode.js'
 import { logV4Life } from '../../lib/v4-lifecycle-log.js'
 import { SS_SHELL_EMPTY_DRAFT } from '../../components/ShellSessionList.js'
+import { DeptGroupChatMain } from '../../components/DeptGroupChatMain.js'
+import { isDeptChatSessionKey } from '../../lib/dept-chat-session.js'
 import { HistoryFetchSpinner } from '../../components/HistoryFetchSpinner.js'
 import { ChatComposer, type WorkspaceMentionConfig, type MentionEmployeeOption } from '../../components/ChatComposer.js'
 import { PendingSteersStrip } from '../../components/PendingSteersStrip.js'
@@ -337,9 +339,14 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
     wsClient,
   } = ctx
 
+  const isDeptChatSurface =
+    typeof ctx.isDeptChatSurface === 'boolean'
+      ? ctx.isDeptChatSurface
+      : isDeptChatSessionKey(selectedSessionKey)
+
   // 无 threadId / 历史仍在拉：每 2s 落一条中文原因（有 tid 且 history 结束则停）
   useEffect(() => {
-    if (isHomeSurface) return
+    if (isHomeSurface || isDeptChatSurface) return
     const sk = String(selectedSessionKey || '').trim()
     if (!sk) return
     const tid0 = String(selectedThreadId || '').trim()
@@ -377,6 +384,7 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
     return () => window.clearInterval(id)
   }, [
     isHomeSurface,
+    isDeptChatSurface,
     selectedSessionKey,
     selectedThreadId,
     historyLoading,
@@ -404,7 +412,11 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
               : ''
           }`}
         >
-        <div className={`chat-main react-chat-main-col${isHomeSurface ? ' react-chat-main-col--home' : ''}`}>
+        <div
+          className={`chat-main react-chat-main-col${
+            isHomeSurface ? ' react-chat-main-col--home' : ''
+          }${isDeptChatSurface ? ' react-chat-main-col--dept' : ''}`}
+        >
           <header
             className={`react-chat-header${isDesktopTauriRuntime() ? ' react-chat-header--tauri-chrome' : ''}${
               isMobileChat ? ' react-chat-header--mobile' : ''
@@ -566,7 +578,7 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
             {xwVoiceOn ? <XiaomiVoiceStage /> : null}
             <div
               className={`react-chat-conversation-col${
-                isEvoflowChatV4Enabled() ? ' is-v4-unified-scroll' : ''
+                isEvoflowChatV4Enabled() && !isDeptChatSurface ? ' is-v4-unified-scroll' : ''
               }`}
               ref={conversationColRef}
               onDragOver={handleConversationComposeDragOver}
@@ -589,10 +601,12 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
           ) : null}
           <div
             className={`react-chat-messages-wrap chat-messages-wrap${
-              showHistoryFetchOverlay ? ' react-chat-messages-wrap--history-loading' : ''
+              showHistoryFetchOverlay && !isDeptChatSurface
+                ? ' react-chat-messages-wrap--history-loading'
+                : ''
             }`}
           >
-            {showHistoryFetchOverlay ? (
+            {showHistoryFetchOverlay && !isDeptChatSurface ? (
               <div className="react-chat-history-fetch-overlay" aria-busy="true" aria-live="polite">
                 <HistoryFetchSpinner />
                 <div className="page-loader-text">加载中...</div>
@@ -604,7 +618,11 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
               </div>
             ) : null}
             <div className="react-chat-messages-body">
+              {isDeptChatSurface ? (
+                <DeptGroupChatMain sessionKey={String(selectedSessionKey || '')} />
+              ) : null}
               {/* V4：对话恒用 ConversationTimeline。ChatMessageStreamPane 仅工作台首页壳。 */}
+              {!isDeptChatSurface ? (
               <V4StreamRowsBridge
                 enabled={isEvoflowChatV4Enabled() && !isHomeSurface}
                 /* 用 controller 钉住的 selectedThreadId，避免 ensure remint 导致 sessionId 连跳拆租约 */
@@ -832,8 +850,10 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
                   )
                 }}
               </V4StreamRowsBridge>
+              ) : null}
             </div>
           </div>
+          {!isDeptChatSurface ? (
           <SessionSidebar
             state={threadPanelState}
             taskHistory={sidebarHistory}
@@ -865,6 +885,9 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
             sessionStreamConnected={streamHealth !== 'disconnected'}
             onSubmitClarification={handleSubmitClarification}
           />
+          ) : null}
+          {!isDeptChatSurface ? (
+          <>
           <GoalModePanel
             panelOpen={goal.goal.panelOpen}
             setPanelOpen={goal.goal.setPanelOpen}
@@ -1503,6 +1526,8 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
             }
             return bottomDockNode
           })()}
+          </>
+          ) : null}
             </div>
             {showChatSummaryFloat
               ? renderChatSummaryPanel(chatPanelMode === 'capsule' ? 'capsule' : 'panel')

@@ -125,7 +125,9 @@ function WorkflowNode({
 
   const showLiveTicker = running || (livePreview.hasLiveContent && !terminal)
 
-  const fullTitle = `${agentName} · ${title}`
+  // 任务名在前：节点主标题是步骤/任务，执行者只作次要信息
+  const fullTitle =
+    agentName && agentName !== '未分配' ? `${title} · ${agentName}` : title
   const obsLine = useMemo(() => formatSubtaskObsLine(obsMetrics), [obsMetrics])
 
   const handleOpen = () => {
@@ -163,17 +165,14 @@ function WorkflowNode({
         style={{ left: layout.x, top: layout.y, width: layout.w, height: layout.h }}
         onClick={handleOpen}
       >
-        <div className="collab-wf-node-agent-row">
+        <div className="collab-wf-node-title-row">
           <HoverBubble text={statusLabel} side="top" align="center" maxWidth={200} asChild>
             <span
               className={`react-chat-subtask-status-light ${statusClass}`}
               aria-label={statusLabel}
             />
           </HoverBubble>
-          <span className="collab-wf-node-agent-ico" aria-hidden>
-            <AssignedAgentAvatar agentCode={code} agents={agents} size={16} busy={running} />
-          </span>
-          <span className="collab-wf-node-agent-name">{agentName}</span>
+          <span className="collab-wf-node-task-title">{title}</span>
         </div>
         {progressPct != null ? (
           <div className="collab-wf-node-status-row">
@@ -186,7 +185,12 @@ function WorkflowNode({
         ) : refLabel ? (
           <span className="collab-wf-node-ref">#{refLabel}</span>
         ) : null}
-        <div className="collab-wf-node-task-text">{title}</div>
+        <div className="collab-wf-node-agent-row">
+          <span className="collab-wf-node-agent-ico" aria-hidden>
+            <AssignedAgentAvatar agentCode={code} agents={agents} size={14} busy={running} />
+          </span>
+          <span className="collab-wf-node-agent-name">{agentName}</span>
+        </div>
         {obsLine ? (
           <HoverBubble text="该子任务线程的模型/工具/Token 统计" side="top" align="start" maxWidth={280}>
             <div className="collab-wf-node-obs">{obsLine}</div>

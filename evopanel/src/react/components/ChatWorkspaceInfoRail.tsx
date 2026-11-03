@@ -3,7 +3,16 @@ import { Pencil } from 'lucide-react'
 import type { ContextUsageSnapshot } from '../lib/context-usage.js'
 import type { CollabTaskSnapshot, TokenTotals } from '../chat-types.js'
 import AgentAvatar from './AgentAvatar.js'
+import { EmployeeStageAvatar } from './EmployeeStageAvatar.js'
 import type { AgentAvatarAgent } from '../lib/agent-avatar.js'
+import {
+  deptChatSessionKey,
+  deptIdFromSessionKey,
+  getDeptChatMeta,
+  subscribeDeptChatMeta,
+  type DeptChatMeta,
+} from '../lib/dept-chat-session.js'
+import { deptMemberWorkSessionKey } from '../lib/dept-member-work-session.js'
 import {
   ArtifactContextMenuPortal,
   type ArtifactContextMenuState,
@@ -1377,6 +1386,118 @@ export function EmployeePane({
 
       {onAssetQuickAction ? (
         <AssetQuickActions onAction={onAssetQuickAction} busy={assetQuickBusy} />
+      ) : null}
+    </div>
+  )
+}
+
+function deptMemberOnDuty(p: { status?: string; busy?: boolean }): boolean {
+  if (p.busy) return true
+  const st = String(p.status || 'active').trim().toLowerCase()
+  return !st || st === 'active'
+}
+
+function deptMemberDutyLabel(p: { status?: string; busy?: boolean }): string {
+  if (p.busy) return '执行中'
+  return deptMemberOnDuty(p) ? '在岗' : '不在岗'
+}
+
+/**
+ * 部门群聊摘要：「群聊」Tab 内容 = 部门名 + 成员名单（点开右侧员工过程）。
+ * 与员工会话 EmployeePane / 普通对话能力卡并列，不另开主区成员轨。
+ */
+export function DeptGroupPane({ sessionKey }: { sessionKey: string }) {
+  const deptId = useMemo(() => deptIdFromSessionKey(sessionKey), [sessionKey])
+  const [meta, setMeta] = useState<DeptChatMeta | null>(() =>
+    deptId ? getDeptChatMeta(deptId) : null,
+  )
+
+  useEffect(() => {
+    if (!deptId) {
+      setMeta(null)
+      return
+    }
+    setMeta(getDeptChatMeta(deptId))
+    return subscribeDeptChatMeta(() => {
+      setMeta(getDeptChatMeta(deptId))
+    })
+  }, [deptId])
+
+  const members = meta?.members || []
+  const deptName = String(meta?.name || '').trim() || '部门群聊'
+  const headCode = String(meta?.head_agent_code || '').trim()
+
+  const openMember = (code: string, roleName: string) => {
+    const agentCode = String(code || '').trim()
+    if (!agentCode) return
+    const name = String(roleName || '').trim() || agentCode
+    const employeeSk = deptMemberWorkSessionKey(deptId, agentCode)
+    const ownerSk = String(sessionKey || '').trim() || deptChatSessionKey(deptId)
+    void import('../../lib/right-stage/open-employee-process-stage.js').then((m) => {
+      m.openEmployeeProcessInRightStage(
+        {
+          taskId: `live:${agentCode}`,
+          agentCode,
+          roleName: name,
+          title: name,
+          busy: false,
+          employeeSessionKey: employeeSk || undefined,
+        },
+        {
+          sessionKey: ownerSk || undefined,
+          layout: 'wide',
+        },
+      )
+    })
+  }
+
+  return (
+    <div className="react-chat-agent-pane react-chat-dept-pane">
+      <header className="react-chat-dept-pane-head">
+        <h2 className="react-chat-dept-pane-title" title={deptName}>
+          {deptName}
+        </h2>
+        <span className="react-chat-dept-pane-count">{members.length} 人</span>
+      </header>
+      <p className="react-chat-dept-pane-hint">点成员打开右侧过程；群里用 @ 点名派活</p>
+      <ul className="react-chat-dept-pane-roster" role="list" aria-label="群成员">
+        {members.map((m) => {
+          const code = String(m.agent_code || '').trim()
+          if (!code) return null
+          const name = String(m.role_name || '').trim() || code
+          const onDuty = deptMemberOnDuty(m)
+          const state = m.busy ? '忙碌' : deptMemberDutyLabel(m)
+          const isHead = headCode && headCode === code
+          return (
+            <li key={code}>
+              <button
+                type="button"
+                className={`react-chat-dept-pane-row${m.busy ? ' is-busy' : ''}${
+                  onDuty ? ' is-on-duty' : ' is-off-duty'
+                }`}
+                onClick={() => openMember(code, name)}
+                title={`${name} · ${state} · 打开右侧对话`}
+              >
+                <span className="react-chat-dept-pane-avatar" aria-hidden>
+                  <EmployeeStageAvatar agentCode={code} title={name} size={28} busy={!!m.busy} />
+                  <span
+                    className={`react-chat-dept-pane-dot${m.busy ? ' is-busy' : onDuty ? ' is-on' : ''}`}
+                  />
+                </span>
+                <span className="react-chat-dept-pane-meta">
+                  <span className="react-chat-dept-pane-name">
+                    {name}
+                    {isHead ? <span className="react-chat-dept-pane-head-tag">负责人</span> : null}
+                  </span>
+                  <span className="react-chat-dept-pane-state">{state}</span>
+                </span>
+              </button>
+            </li>
+          )
+        })}
+      </ul>
+      {!members.length ? (
+        <p className="react-chat-dept-pane-empty">暂无成员</p>
       ) : null}
     </div>
   )

@@ -400,7 +400,9 @@ function _bindNavPanelPrefetch(el) {
     const path = btn.dataset.shellNav
     if (!path || path === '/chat') return
     const warm = () => warmPath(path)
+    // pointerdown fires before click — covers fast taps that skip hover warm.
     btn.addEventListener('pointerenter', warm, { passive: true })
+    btn.addEventListener('pointerdown', warm, { passive: true })
     btn.addEventListener('focusin', warm)
   })
   const moreToggle = el.querySelector('[data-shell-nav-more-toggle]')
@@ -411,6 +413,7 @@ function _bindNavPanelPrefetch(el) {
         .catch(() => {})
     }
     moreToggle.addEventListener('pointerenter', warmMore, { passive: true })
+    moreToggle.addEventListener('pointerdown', warmMore, { passive: true })
     moreToggle.addEventListener('focusin', warmMore)
   }
 }

@@ -62,3 +62,8 @@ tokio = { version = "1", features = ["process", "time", "net", "io-util", "sync"
 webview2-com = "0.38"
 windows-core = "0.61"
 windows = { version = "0.61", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_System_Threading"] }
+
+# Used by pid_is_live_desktop_owner on macOS/Linux (kill(pid, 0) + path probe)
+# so stale sidecar.lock after crash/reboot does not block relaunch forever.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

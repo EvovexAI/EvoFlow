@@ -109,6 +109,17 @@ export type HomeDashboardData = {
   todoSummary: HomeTodoSummary
   /** 我的待办（用户事项表；兼容旧 inbox） */
   myTodos: HomeListItem[]
+  /** 需你处理总数（未按列表截断；基于本页任务快照） */
+  attentionTotal: number
+  /** 我的事项未完成总数（未按列表截断） */
+  myTodosTotal: number
+  /** 智能员工待你拍板（proactive approvals pending） */
+  pendingApprovals: number
+  /**
+   * 指挥台「等你 N 件」：我的待办 + 需你处理任务 + 员工审批。
+   * 与工作台两档待办合计对齐，避免总览显示 0、工作台却有数。
+   */
+  waitForYou: number
   recentRuns: HomeListItem[]
   apps: HomeAppItem[]
   autoStats: HomeAutoStats
@@ -116,6 +127,10 @@ export type HomeDashboardData = {
   liveNow: HomeLiveItem[]
   /** 昨日完成任务数（欢迎语摘要用；来自有界任务快照） */
   yesterdayDone: number
+  /** 在岗角色（组织指挥台） */
+  roles: any[]
+  /** 员工 busy 快照 agent_code → { busy, current_session_key, … } */
+  roleBusyByCode: Record<string, any>
   refresh: () => void
 }
 
@@ -407,6 +422,7 @@ export function useHomeDashboardData(opts?: { rangeDays?: number }): HomeDashboa
   const [roles, setRoles] = useState<any[]>(() => initialCache?.roles ?? [])
   const [activeSessions, setActiveSessions] = useState<any[]>([])
   const [roleBusyByCode, setRoleBusyByCode] = useState<Record<string, any>>({})
+  const [pendingApprovals, setPendingApprovals] = useState(0)
   const [tick, setTick] = useState(0)
   const [liveTick, setLiveTick] = useState(0)
 
@@ -460,9 +476,10 @@ export function useHomeDashboardData(opts?: { rangeDays?: number }): HomeDashboa
           api.automationList(),
           api.listApps(),
           api.proactiveListRoles('active'),
+          api.proactiveListApprovals('pending'),
         ])
         if (cancelled) return
-        const label = ['tasks', 'items', 'automation', 'apps', 'roles']
+        const label = ['tasks', 'items', 'automation', 'apps', 'roles', 'approvals']
         const fails = settled
           .map((r, i) =>
             r.status === 'rejected'
@@ -482,6 +499,7 @@ export function useHomeDashboardData(opts?: { rangeDays?: number }): HomeDashboa
           settled[2].status === 'fulfilled' ? settled[2].value : { automations: [] }
         const appsRes = settled[3].status === 'fulfilled' ? settled[3].value : []
         const rolesRes = settled[4].status === 'fulfilled' ? settled[4].value : []
+        const approvalsRes = settled[5].status === 'fulfilled' ? settled[5].value : null
         const nextTasks = asArray(tasksRes)
         const nextItems = Array.isArray(itemsRes?.items) ? itemsRes.items : asArray(itemsRes)
         const nextAutos = Array.isArray(autoRes?.automations) ? autoRes.automations : asArray(autoRes)
@@ -491,11 +509,20 @@ export function useHomeDashboardData(opts?: { rangeDays?: number }): HomeDashboa
           : Array.isArray(rolesRes?.roles)
             ? rolesRes.roles
             : asArray(rolesRes)
+        const approvalRows = Array.isArray(approvalsRes?.approvals)
+          ? approvalsRes.approvals
+          : asArray(approvalsRes)
+        const approvalCountRaw = Number(approvalsRes?.count)
         setTasks(nextTasks)
         setUserItems(nextItems)
         setAutomations(nextAutos)
         setAppsRaw(nextApps)
         setRoles(nextRoles)
+        setPendingApprovals(
+          Number.isFinite(approvalCountRaw) && approvalCountRaw >= 0
+            ? approvalCountRaw
+            : approvalRows.length,
+        )
         writeHomeDashboardCache({
           tasks: nextTasks,
           userItems: nextItems,
@@ -789,8 +816,8 @@ export function useHomeDashboardData(opts?: { rangeDays?: number }): HomeDashboa
         }
       })
 
-    const itemTodos: HomeListItem[] = [...userItems]
-      .filter((it) => String(it.status || '') !== 'done')
+    const openUserItems = [...userItems].filter((it) => itemStatusKey(it.status) !== 'done')
+    const itemTodos: HomeListItem[] = openUserItems
       .sort((a, b) => {
         const ta = parseTime(a.updated_at || a.created_at)?.getTime() || 0
         const tb = parseTime(b.updated_at || b.created_at)?.getTime() || 0
@@ -842,6 +869,9 @@ export function useHomeDashboardData(opts?: { rangeDays?: number }): HomeDashboa
       })
 
     const myTodos: HomeListItem[] = itemTodos.length ? itemTodos : legacyInboxTodos
+    const myTodosTotal = openUserItems.length ? openUserItems.length : inboxTasks.length
+    const attentionTotal = attentionTasks.length
+    const waitForYou = myTodosTotal + attentionTotal + pendingApprovals
 
     const recentRuns: HomeListItem[] = [...tasks]
       .sort((a, b) => {
@@ -924,11 +954,17 @@ export function useHomeDashboardData(opts?: { rangeDays?: number }): HomeDashboa
       todos,
       todoSummary,
       myTodos,
+      attentionTotal,
+      myTodosTotal,
+      pendingApprovals,
+      waitForYou,
       recentRuns,
       apps,
       autoStats,
       liveNow,
       yesterdayDone: completedYesterday.length,
+      roles,
+      roleBusyByCode,
       refresh,
     }
   }, [
@@ -937,6 +973,7 @@ export function useHomeDashboardData(opts?: { rangeDays?: number }): HomeDashboa
     automations,
     error,
     loading,
+    pendingApprovals,
     rangeDays,
     refresh,
     roleBusyByCode,

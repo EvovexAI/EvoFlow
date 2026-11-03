@@ -30,6 +30,12 @@ from evoflow.proactive.employee_prompting.assemble import (
     build_employee_chat_system_prompt,
 )
 from evoflow.proactive.employee_prompting.collab_rules import build_employee_collab_block
+from evoflow.proactive.employee_prompting.dept_group_im import (
+    build_dept_group_im_block,
+    is_dept_group_im_context,
+    is_dept_group_steward_context,
+    resolve_dept_group_im_from_session,
+)
 from evoflow.proactive.employee_prompting.identity import (
     is_employee_chat_session,
     load_role_for_code,
@@ -77,7 +83,11 @@ __all__ = [
     "build_employee_chat_framing",
     "build_employee_chat_system_prompt",
     "build_employee_collab_block",
+    "build_dept_group_im_block",
     "build_employee_communication_block",
+    "is_dept_group_im_context",
+    "is_dept_group_steward_context",
+    "resolve_dept_group_im_from_session",
     "build_employee_contract_block",
     "build_employee_habits_block",
     "build_employee_identity_block",

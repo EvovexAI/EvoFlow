@@ -164,6 +164,8 @@ _QUIET_LOGGER_LEVELS: dict[str, int] = {
     "langgraph_api.auth.custom": logging.WARNING,
     "langgraph_api.models": logging.WARNING,
     "langgraph_api.models.run": logging.WARNING,
+    # Cancel-on-interrupted spam ("Attempted to cancel non-pending run")
+    "langgraph_runtime_inmem.ops": logging.ERROR,
 }
 
 
@@ -181,6 +183,14 @@ class LangGraphPollNoiseFilter(Filter):
             return True
         # Legacy SubThread_* probes → 422; source fixed in reconcile, keep filter as backstop.
         if record.levelno == logging.WARNING and "422" in message and "SubThread_" in message:
+            return False
+        # Stop-button / reconcile often POST /cancel on already-finished runs → LG 404 WARNING spam.
+        if (
+            record.levelno == logging.WARNING
+            and "404" in message
+            and "/cancel" in message
+            and "/runs/" in message
+        ):
             return False
         if record.levelno > logging.INFO:
             return True

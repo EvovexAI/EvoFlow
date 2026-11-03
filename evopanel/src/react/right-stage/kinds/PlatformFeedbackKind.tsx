@@ -102,7 +102,17 @@ function PlatformFeedbackKindInner({
                 type="button"
                 className="react-chat-platform-feedback-action"
                 onClick={() => {
-                  if (!activatePlatformFeedbackAction(action)) onClose?.()
+                  if (
+                    !activatePlatformFeedbackAction(action, {
+                      domain: data.domain,
+                      action: data.action,
+                      entityId: data.entityId,
+                      entityLabel: data.entityLabel,
+                      title: data.title,
+                    })
+                  ) {
+                    onClose?.()
+                  }
                 }}
               >
                 {action.label}

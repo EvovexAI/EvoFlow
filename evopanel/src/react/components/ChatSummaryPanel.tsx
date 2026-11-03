@@ -116,6 +116,9 @@ type Props = {
   isEmployeeSession?: boolean
   employeePane?: ReactNode
   taskPane?: ReactNode
+  /** 部门群聊：deptPane 取代身份卡，首 tab 为「群聊」成员名单 */
+  isDeptChatSession?: boolean
+  deptPane?: ReactNode
 }
 
 const PROCESS_STATE_ICON: Record<ProcessState, LucideIcon> = {
@@ -407,6 +410,8 @@ function ChatSummaryPanelInner({
   isEmployeeSession = false,
   employeePane,
   taskPane,
+  isDeptChatSession = false,
+  deptPane,
 }: Props) {
   const [policy, setPolicy] = useState<ChatSummaryExpandPolicy>('auto-expand')
   const [policyOpen, setPolicyOpen] = useState(false)
@@ -565,6 +570,7 @@ function ChatSummaryPanelInner({
     () =>
       buildVisibleSummaryPanelTabs({
         isEmployeeSession,
+        isDeptChatSession,
         processCount: summary.items.length,
         artifactCount: visibleArtifacts.length,
         platformCount: platformEntries.length,
@@ -578,6 +584,7 @@ function ChatSummaryPanelInner({
       visibleArtifacts.length,
       platformEntries.length,
       isEmployeeSession,
+      isDeptChatSession,
       taskPane,
       obsEnabled,
     ],
@@ -641,14 +648,20 @@ function ChatSummaryPanelInner({
     }
   }, [wantExpanded, effectiveMode])
 
+  const sessionTitleText = String(sessionTitle || '').trim()
   const displayName =
-    String(agentLabel || '').trim() || (isEmployeeSession ? '未选择员工' : '未选择 Agent')
+    String(agentLabel || '').trim() ||
+    (isDeptChatSession
+      ? sessionTitleText || '部门群聊'
+      : isEmployeeSession
+        ? '未选择员工'
+        : '未选择 Agent')
   const editTitle = isEmployeeSession ? '点击编辑此员工' : '点击编辑此智能体'
-  // 员工会话固定当前岗位，不提供切换入口（避免误当成选其他员工）
-  const canSwitchAgent = Boolean(onSwitchAgent) && !isEmployeeSession
+  // 员工 / 群聊会话固定当前上下文，不提供切换入口
+  const canSwitchAgent =
+    Boolean(onSwitchAgent) && !isEmployeeSession && !isDeptChatSession
   const bio = String(agentDescription || '').trim()
   const modelText = String(modelLabel || modelName || '').trim()
-  const sessionTitleText = String(sessionTitle || '').trim()
   const bubbleTitle = summary.items.length ? summary.capsuleLabel : sessionTitleText || '状态'
 
   // 右上角状态卡展开为 panel 时记中文前端日志（时间 + 展示内容）
@@ -785,7 +798,11 @@ function ChatSummaryPanelInner({
 
           <div className="chat-summary-panel-scroll">
             {effectivePanelTab === 'agent' ? (
-              isEmployeeSession && employeePane ? (
+              isDeptChatSession && deptPane ? (
+                <div className="chat-summary-agent-body chat-summary-dept-body">
+                  {deptPane}
+                </div>
+              ) : isEmployeeSession && employeePane ? (
                 <div className="chat-summary-agent-body chat-summary-employee-body">
                   {employeePane}
                 </div>

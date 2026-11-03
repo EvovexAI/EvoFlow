@@ -126,7 +126,7 @@ const GUIDE = {
       {
         title: '登记一条事项',
         desc: '切到「我的事项」→「+ 新建事项」→ 写标题（可加截止、优先级、标签、责任意向）→ 保存。状态：待办 / 进行中 / 处理中 / 完成 / 搁置。\n\n**示例**：标题「周五交季度报告」+ 截止周五 18:00 → 先记下不丢。',
-        tip: '责任意向不等于已派发；要点卡片上的「派发」',
+        tip: '新建时选了责任人会立刻开工；只想备忘就先不选人',
       },
       {
         title: '协作任务从哪来',
@@ -135,7 +135,7 @@ const GUIDE = {
       },
       {
         title: '派给员工（可选）',
-        desc: '事项卡片点「派发」，或协作任务未派发行点「派给员工」。之后进度主要在「协作任务」里看。',
+        desc: '事项卡片点「派发」，或协作任务未派发行点「派给员工」→ 选人后立刻开工，不必再单独叫醒。补充说明可稍后在详情里改。之后进度主要在「协作任务」里看。',
         tip: '还没员工？先去侧栏「员工」点「加人」',
       },
       {
@@ -1932,61 +1932,13 @@ function _closePanel() {
 // ─── 顶栏按钮注入 ───────────────────────────────────────────
 
 /**
- * 在内容区页面顶栏右侧注入「使用指南」按钮
+ * 曾在内容区页头注入「使用指南」按钮；顶部 chrome / 侧栏已有 ? 入口，不再注入，只清残留。
  * @param {ParentNode | null | undefined} root
  */
 export function injectPageUsageGuide(root) {
   const host = root || document.getElementById('content')
   if (!host || !(host instanceof Element)) return
-
-  const tryInject = () => {
-    host.querySelectorAll('[data-page-usage-guide]').forEach((el) => el.remove())
-
-    const header = host.querySelector('.page-header')
-    if (!header) return false
-
-    let actions = header.querySelector('.page-actions')
-    if (!actions) {
-      actions = document.createElement('div')
-      actions.className = 'page-actions'
-      header.appendChild(actions)
-    }
-
-    const btn = document.createElement('button')
-    btn.type = 'button'
-    btn.className = 'page-usage-guide-btn'
-    btn.dataset.pageUsageGuide = '1'
-    btn.title = '当前页使用指南（按 ? 查看）'
-    btn.setAttribute('aria-label', '使用指南')
-    btn.innerHTML = `
-    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-      <circle cx="12" cy="12" r="10"/>
-      <path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3"/>
-      <line x1="12" y1="17" x2="12.01" y2="17"/>
-    </svg>
-    <span>使用指南</span>
-  `
-    btn.addEventListener('click', (e) => {
-      e.preventDefault()
-      e.stopPropagation()
-      showPageHelpPanel()
-    })
-    actions.appendChild(btn)
-    return true
-  }
-
-  // 先试一次
-  if (tryInject()) return
-
-  // React 页面可能还没渲染完，重试几次
-  let attempts = 0
-  const maxAttempts = 10
-  const interval = setInterval(() => {
-    attempts++
-    if (tryInject() || attempts >= maxAttempts) {
-      clearInterval(interval)
-    }
-  }, 200)
+  host.querySelectorAll('[data-page-usage-guide]').forEach((el) => el.remove())
 }
 
 // ─── Onboarding 自动弹出 ────────────────────────────────────

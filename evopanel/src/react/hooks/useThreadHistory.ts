@@ -27,6 +27,7 @@ import { awaitSessionHistoryWarm } from '../lib/warm-session-history-prefetch.js
 import { isEvoflowChatV4Enabled, isV4DisplayAuthoritative } from '../v4/v4Gate.js'
 import { logV4Life } from '../lib/v4-lifecycle-log.js'
 import { wsClient } from '../../lib/ws-client.js'
+import { isDeptChatSessionKey } from '../lib/dept-chat-session.js'
 
 export type ThreadHistoryLiveOpts = {
   isHot: boolean
@@ -421,6 +422,17 @@ export function useThreadHistory(sessionKey: string | null, liveOpts: ThreadHist
       setLoading(false)
       return
     }
+    // 部门群聊：本地时间线，不走 /messages / ensure-thread
+    if (isDeptChatSessionKey(sessionKey)) {
+      paintedFromKnownEmptyRef.current = true
+      setRows([])
+      setTokenTotals(null)
+      setRestoredScenarioScene(null)
+      setLoading(false)
+      setHistoryInstantPaint(true)
+      setHistoryBoundSessionKey(sessionKey)
+      return
+    }
     const meta = liveRef.current
     const liveFromStore = meta?.getLive?.() ?? null
     const liveRows = liveFromStore?.live && liveFromStore.rows.length ? liveFromStore.rows : null
@@ -471,6 +483,18 @@ export function useThreadHistory(sessionKey: string | null, liveOpts: ThreadHist
         setHistoryOldestSeq(null)
         setLoading(false)
         setError(null)
+        return { transcriptAnchor: null }
+      }
+      if (isDeptChatSessionKey(sessionKey)) {
+        setRows([])
+        setTokenTotals(null)
+        setRestoredScenarioScene(null)
+        setHistoryHasMore(false)
+        setHistoryOldestSeq(null)
+        setLoading(false)
+        setError(null)
+        setHistoryBoundSessionKey(sessionKey)
+        setHistoryInstantPaint(true)
         return { transcriptAnchor: null }
       }
       const epoch = ++historyFetchEpochRef.current
@@ -907,6 +931,7 @@ export function useThreadHistory(sessionKey: string | null, liveOpts: ThreadHist
 
   const loadOlder = useCallback(async () => {
     if (!sessionKey) return { ok: false as const }
+    if (isDeptChatSessionKey(sessionKey)) return { ok: false as const }
     if (!historyHasMoreRef.current || loadingOlderRef.current) return { ok: false as const }
     const beforeSeq = historyOldestSeqRef.current
     if (beforeSeq == null || beforeSeq < 1) return { ok: false as const }
@@ -974,6 +999,7 @@ export function useThreadHistory(sessionKey: string | null, liveOpts: ThreadHist
   // 不能再 early-return，否则会一直停在空态或超时横幅（会话列表同理会 kick）。
   useEffect(() => {
     if (!sessionKey) return
+    if (isDeptChatSessionKey(sessionKey)) return
     let unsub: (() => void) | null = null
     let cancelled = false
     let readyKickTimer: number | null = null

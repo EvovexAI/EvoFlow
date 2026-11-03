@@ -2271,6 +2271,24 @@ def apply_prompt_template(
             include_memory=include_memory,
             loaded_tool_names=loaded_tool_names,
         )
+        # 部门群聊：系统提示强制「正文 @ 才叫醒」——与前端群编排对齐
+        try:
+            from evoflow.proactive.employee_prompting.dept_group_im import (
+                build_dept_group_im_block,
+                resolve_dept_group_im_from_session,
+            )
+
+            _dg_on, _dg_name, _dg_steward = resolve_dept_group_im_from_session(
+                prompt_session_key or session_key
+            )
+            if _dg_on:
+                _dg_block = build_dept_group_im_block(
+                    dept_name=_dg_name, steward=_dg_steward
+                ).strip()
+                if _dg_block:
+                    prompt = f"{prompt.rstrip()}\n\n{_dg_block}\n"
+        except Exception:
+            pass
         if im_ch:
             im_block = getattr(get_static_blocks(lang), "IM_CHANNEL_REPLY_BLOCK", "").strip()
             if im_block:

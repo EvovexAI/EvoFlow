@@ -906,7 +906,7 @@ html:not([data-translucent-ui='1']) body .react-chat-session-aside,
 html:not([data-translucent-ui='1']) body #app-shell-aside.shell-aside-host,
 html:not([data-translucent-ui='1']) body .shell-aside-host {
   background: var(--chrome-bg, #e8edf2) !important;
-  border-right-color: transparent !important;
+  border-right: none !important;
 }
 
 html[data-theme='dark']:not([data-translucent-ui='1']) body .react-chat-session-aside,
@@ -947,7 +947,9 @@ html:not([data-translucent-ui='1']) body .react-chat-header.react-chat-header--t
   position: relative;
   z-index: 40;
   background: var(--chrome-bg, #e8edf2) !important;
-  border-bottom: none !important;
+  /* 顶栏与内容区需要一条细线，否则深色下两块糊在一起 */
+  border-bottom: 1px solid color-mix(in srgb, var(--text-primary, #0f172a) 8%, transparent) !important;
+  border-radius: 0 !important;
 }
 
 html[data-theme='dark']:not([data-translucent-ui='1']) body .react-chat-main-col,
@@ -956,15 +958,36 @@ html[data-theme='dark']:not([data-translucent-ui='1']) body .react-chat-header.r
   background: var(--chrome-bg, #05070c) !important;
 }
 
+html[data-theme='dark']:not([data-translucent-ui='1']) body .react-chat-header,
+html[data-theme='dark']:not([data-translucent-ui='1']) body .react-chat-header.react-chat-header--tauri-chrome {
+  border-bottom-color: rgba(255, 255, 255, 0.1) !important;
+}
+
+/* 会话主栈：左侧贴齐侧栏，禁止任何左上圆角/左边线（箭头指向的弯角） */
+html:not([data-translucent-ui='1']) body #chat-persistent-host,
+html:not([data-translucent-ui='1']) body .chat-react-full,
+html:not([data-translucent-ui='1']) body .react-chat-workspace,
+html:not([data-translucent-ui='1']) body .react-chat-conversation-frame,
+html:not([data-translucent-ui='1']) body .react-chat-main-col {
+  border-radius: 0 !important;
+  border-left: none !important;
+  margin-left: 0 !important;
+}
+
+html:not([data-translucent-ui='1']) body .react-chat-conversation-frame.is-rounded {
+  /* 右栏打开时也只圆右侧，左侧保持直角贴齐 */
+  border-radius: 0 var(--radius-xl, 12px) var(--radius-xl, 12px) 0 !important;
+  border-left: none !important;
+}
+
 html:not([data-translucent-ui='1']) body .react-chat-main-body {
-  margin: 0 var(--chat-sheet-gap, 8px) var(--chat-sheet-gap, 8px);
-  /* 左侧与侧栏交接：直角竖边；右侧/底保留圆角浮层 */
-  border-radius: 0 var(--chat-sheet-radius, 16px) var(--chat-sheet-radius, 16px) 0;
+  /* 对话主区铺满，不再做左侧留缝浮层（浮层圆角会造成侧栏交接弯角） */
+  margin: 0 !important;
+  border-radius: 0 !important;
   overflow: hidden;
   background: var(--chat-canvas, #ffffff) !important;
-  box-shadow:
-    0 0 0 1px rgba(15, 23, 42, 0.04),
-    0 1px 2px rgba(15, 23, 42, 0.03);
+  box-shadow: none;
+  border-left: none !important;
 }
 
 html:not([data-translucent-ui='1']) body .react-chat-info-rail {
@@ -973,7 +996,7 @@ html:not([data-translucent-ui='1']) body .react-chat-info-rail {
 
 html[data-theme='dark']:not([data-translucent-ui='1']) body .react-chat-main-body {
   background: var(--chat-canvas, #070a11) !important;
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.06);
+  box-shadow: none;
 }
 
 html[data-theme='dark']:not([data-translucent-ui='1']) body .react-chat-info-rail {
@@ -1346,8 +1369,18 @@ html[data-theme='dark']:not([data-translucent-ui='1']) body .ep-window-controls-
 
 html:not([data-translucent-ui='1']) body #app:not(.evopanel-auth-mode) #content {
   background: var(--chrome-bg, #e8edf2) !important;
-  padding: var(--page-sheet-gap, 8px) !important;
+  /* 左侧贴齐侧栏，只留上/右/底缝 */
+  padding: var(--page-sheet-gap, 8px) var(--page-sheet-gap, 8px) var(--page-sheet-gap, 8px) 0 !important;
   box-sizing: border-box !important;
+}
+
+/* 有 Tauri 顶栏时去掉内容区上内边距，避免顶栏下再多一条缝 */
+html.evopanel-tauri-frameless:not([data-translucent-ui='1'])
+  body
+  #app:not(.evopanel-auth-mode)
+  #main-col:has(> .tauri-main-chrome:not(.tauri-main-chrome--hidden))
+  #content {
+  padding-top: 0 !important;
 }
 
 /* 各模块内容根：白卡片浮层 */
@@ -1369,11 +1402,9 @@ html:not([data-translucent-ui='1']) body #app:not(.evopanel-auth-mode) #content 
 html:not([data-translucent-ui='1']) body #app:not(.evopanel-auth-mode) #content > [class*='-outlet'],
 html:not([data-translucent-ui='1']) body #app:not(.evopanel-auth-mode) #content > [class$='-page'] {
   background: var(--page-canvas, var(--surface-base-bg, var(--bg-surface, #ffffff))) !important;
-  /* 左侧与侧栏交接：直角竖边；右侧/底保留圆角 */
+  /* 左侧直角贴齐；右侧可留圆角 */
   border-radius: 0 var(--page-sheet-radius, 16px) var(--page-sheet-radius, 16px) 0;
-  box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--text-primary, #0f172a) 4%, transparent),
-    0 1px 2px color-mix(in srgb, var(--text-primary, #0f172a) 3%, transparent);
+  box-shadow: none;
   box-sizing: border-box;
   min-height: 100%;
   color: var(--region-content-fg, var(--text-primary));
@@ -1390,7 +1421,7 @@ html[data-theme='dark']:not([data-translucent-ui='1']) body #app:not(.evopanel-a
 html[data-theme='dark']:not([data-translucent-ui='1']) body #app:not(.evopanel-auth-mode) #content > [class*='-outlet'],
 html[data-theme='dark']:not([data-translucent-ui='1']) body #app:not(.evopanel-auth-mode) #content > [class$='-page'] {
   background: var(--page-canvas, var(--chat-canvas, #070a11)) !important;
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.06);
+  box-shadow: none;
 }
 
 /* 全屏编辑 / 详情：少留缝或取消圆角，避免工具台被裁切 */

@@ -19861,15 +19861,32 @@ html[data-custom-bg='1'] .task-detail-page .task-obs-panel {
   padding: 6px 10px;
   font-size: 13px;
   cursor: pointer;
+  user-select: none;
+  transition: border-color 0.12s ease, background 0.12s ease, color 0.12s ease, opacity 0.12s ease;
+}
+.syslog-chip:hover {
+  border-color: color-mix(in srgb, var(--accent, #3b82f6) 45%, var(--border));
+  color: var(--text-primary);
 }
 .syslog-chip.is-active {
   border-color: var(--accent, #3b82f6);
   color: var(--text-primary);
+  background: color-mix(in srgb, var(--accent, #3b82f6) 16%, var(--bg-secondary));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent, #3b82f6) 35%, transparent);
+  font-weight: 600;
 }
 .syslog-chip.has-errors {
   border-color: color-mix(in srgb, var(--error, #ef4444) 55%, var(--border));
 }
-.syslog-chip.is-missing { opacity: 0.55; }
+.syslog-chip.has-errors.is-active {
+  border-color: var(--error, #ef4444);
+  background: color-mix(in srgb, var(--error, #ef4444) 12%, var(--bg-secondary));
+}
+.syslog-chip.is-missing { opacity: 0.7; }
+.syslog-chip.is-missing:hover { opacity: 1; }
+.syslog-line--err { color: var(--error, #ef4444); }
+.syslog-line--warn { color: var(--warning, #d97706); }
+.syslog-line--crit { color: #a855f7; font-weight: 600; }
 .syslog-chip-count {
   min-width: 1.25rem;
   text-align: center;

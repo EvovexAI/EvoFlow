@@ -1,13 +1,24 @@
 import { memo, useMemo } from 'react'
 import {
-  navigatePlatformFeedbackRoute,
+  activatePlatformFeedbackAction,
   platformDomainLabel,
+  type PlatformFeedbackAction,
   type PlatformRunEntry,
 } from '../../lib/right-stage/platform-feedback.js'
 import {
   formatInfoRailTime,
   type InfoRailScope,
 } from '../lib/info-rail-format.js'
+
+/** 优先右栏 openStage（工作流本次运行），勿只挑带 route 的 CTA（会跳到 /apps 菜单）。 */
+function pickPrimaryPlatformAction(entry: PlatformRunEntry): PlatformFeedbackAction | null {
+  const actions = Array.isArray(entry.actions) ? entry.actions : []
+  if (!actions.length) return null
+  const withStage = actions.find((a) => a?.openStage && String(a.openStage.kind || '').trim())
+  if (withStage) return withStage
+  const withRoute = actions.find((a) => a?.route)
+  return withRoute || actions[0] || null
+}
 
 function scopeForEntry(
   entry: PlatformRunEntry,
@@ -83,16 +94,24 @@ function PlatformRunCard({
   scope: InfoRailScope
   active: boolean
 }) {
-  const primaryAction = entry.actions?.find((a) => a.route)
+  const primaryAction = pickPrimaryPlatformAction(entry)
   const status = entry.kind === 'warning' ? 'warning' : entry.kind === 'error' ? 'error' : 'success'
   const domain = platformDomainLabel(entry.domain)
   const timeStr = formatInfoRailTime(entry.appliedAt)
-  const canOpen = Boolean(primaryAction?.route)
+  const canOpen = Boolean(
+    primaryAction?.openStage?.kind || primaryAction?.route,
+  )
   const actionLabel = primaryAction?.label || '查看'
 
   const openEntry = () => {
-    const route = primaryAction?.route
-    if (route) navigatePlatformFeedbackRoute(route)
+    if (!primaryAction) return
+    activatePlatformFeedbackAction(primaryAction, {
+      domain: entry.domain,
+      action: entry.action,
+      entityId: entry.entityId,
+      entityLabel: entry.entityLabel,
+      title: entry.title,
+    })
   }
 
   return (

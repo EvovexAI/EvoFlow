@@ -82,6 +82,11 @@ import { SkillPickerModal, type SkillPickerItem, type SkillSelection } from './S
 import { loadPluginCatalog, subscribePluginCatalog } from '../../lib/plugin-catalog.js'
 import { resolvePluginIconSource } from '../../zcode-ui/lib/pluginIconSource.js'
 import { PluginPillIcon } from './PluginPillIcon.js'
+import { HomeOrgCommandBoard, HomeOrgPulseStrip } from './HomeOrgCommandBoard.js'
+import {
+  getShellAsideCollapsed,
+  setShellAsideCollapsed,
+} from '../../components/shell-aside.js'
 
 type Props = {
   onPrompt?: (text: string) => void
@@ -92,6 +97,7 @@ type Props = {
 }
 
 type DrawerKind = 'settings' | null
+type HomeTab = 'workbench' | 'overview'
 
 const STORAGE_MODEL_KEY = 'evopanel-chat-selected-model'
 
@@ -293,6 +299,9 @@ export function EvoFlowHomeDashboard({ onPrompt, workspaceLabel = '', workspaceP
   })
   const [chips, setChips] = useState<Array<{ id: string; label: string }>>([])
   const [drawer, setDrawer] = useState<DrawerKind>(null)
+  const [homeTab, setHomeTab] = useState<HomeTab>('workbench')
+  /** 进总览前侧栏折叠态；null=未接管 */
+  const asideBeforeOverviewRef = useRef<boolean | null>(null)
   const [skillOpen, setSkillOpen] = useState(false)
   const [skills, setSkills] = useState<SkillPickerItem[]>([])
   const [skillsLoading, setSkillsLoading] = useState(false)
@@ -334,6 +343,86 @@ export function EvoFlowHomeDashboard({ onPrompt, workspaceLabel = '', workspaceP
       /* ignore */
     }
   }, [draft])
+
+  // 总览影院：默认藏左侧壳 + 顶栏，贴边悬停再浮出；离开总览还原
+  useEffect(() => {
+    const root = document.documentElement
+    const clearCinema = () => {
+      root.classList.remove('evo-home-overview-cinema', 'evo-cinema-peek')
+    }
+
+    if (homeTab !== 'overview') {
+      clearCinema()
+      if (asideBeforeOverviewRef.current === null) return
+      const prev = asideBeforeOverviewRef.current
+      asideBeforeOverviewRef.current = null
+      try {
+        setShellAsideCollapsed(prev)
+      } catch {
+        /* ignore */
+      }
+      return
+    }
+
+    if (asideBeforeOverviewRef.current === null) {
+      asideBeforeOverviewRef.current = getShellAsideCollapsed()
+    }
+    // 浮出时要能看见完整导航文案
+    try {
+      setShellAsideCollapsed(false)
+    } catch {
+      /* ignore */
+    }
+    root.classList.add('evo-home-overview-cinema')
+
+    const EDGE = 20
+    const HIDE_MS = 420
+    let hideT: number | null = null
+
+    const clearTimer = () => {
+      if (hideT != null) {
+        window.clearTimeout(hideT)
+        hideT = null
+      }
+    }
+
+    /** 顶栏 + 左侧一起出/一起收，避免各露各的 */
+    const setPeek = (on: boolean) => {
+      if (on) {
+        clearTimer()
+        root.classList.add('evo-cinema-peek')
+        return
+      }
+      clearTimer()
+      hideT = window.setTimeout(() => {
+        root.classList.remove('evo-cinema-peek')
+        hideT = null
+      }, HIDE_MS)
+    }
+
+    const onMove = (e: PointerEvent) => {
+      const t = e.target as Element | null
+      const overChrome = !!t?.closest?.(
+        '#app-shell-aside, #tauri-main-chrome, .react-chat-header, .evo-home-header, .evo-home-cinema-top, .evo-home-cinema-hot-left, .evo-home-cinema-hot-top',
+      )
+      setPeek(e.clientX <= EDGE || e.clientY <= EDGE || overChrome)
+    }
+
+    window.addEventListener('pointermove', onMove, { passive: true })
+    return () => {
+      window.removeEventListener('pointermove', onMove)
+      clearTimer()
+      clearCinema()
+      if (asideBeforeOverviewRef.current === null) return
+      const prev = asideBeforeOverviewRef.current
+      asideBeforeOverviewRef.current = null
+      try {
+        setShellAsideCollapsed(prev)
+      } catch {
+        /* ignore */
+      }
+    }
+  }, [homeTab])
 
   const totalTasks = useMemo(
     () => data.sourceData.reduce((sum, item) => sum + item.value, 0),
@@ -585,8 +674,9 @@ export function EvoFlowHomeDashboard({ onPrompt, workspaceLabel = '', workspaceP
     () => data.recentRuns.slice(0, prefs.listLimit),
     [data.recentRuns, prefs.listLimit],
   )
-  const todosTotal = data.todos.length
-  const myTodosTotal = (data.myTodos || []).length
+  const todosTotal = data.attentionTotal ?? data.todos.length
+  const myTodosTotal = data.myTodosTotal ?? (data.myTodos || []).length
+  const waitForYou = data.waitForYou ?? todosTotal
   const todos = useMemo(() => data.todos.slice(0, HOME_TODO_LIMIT), [data.todos])
   const myTodos = useMemo(
     () => (data.myTodos || []).slice(0, HOME_TODO_LIMIT),
@@ -898,33 +988,95 @@ export function EvoFlowHomeDashboard({ onPrompt, workspaceLabel = '', workspaceP
   }, [data.yesterdayDone])
 
   return (
-    <div className="evo-home-dashboard" data-loading={data.loading ? '1' : undefined}>
+    <div
+      className={`evo-home-dashboard${homeTab === 'overview' ? ' evo-home-dashboard--overview' : ''}`}
+      data-loading={data.loading ? '1' : undefined}
+    >
+      {homeTab === 'overview' ? (
+        <>
+          <div className="evo-home-cinema-hot-left" aria-hidden />
+          <div className="evo-home-cinema-hot-top" aria-hidden />
+        </>
+      ) : null}
       <div className="evo-home-dashboard__inner">
-        <header className="evo-home-header">
-          <div className="evo-home-header__text">
-            <div className="evo-home-eyebrow">
-              <Sparkles className="evo-home-ic" />
-              工作台
+        <header
+          className={`evo-home-header evo-home-cinema-top${
+            homeTab === 'overview' ? ' evo-home-header--compact' : ''
+          }`}
+        >
+          {homeTab === 'overview' ? (
+            <div className="evo-home-header__compact">
+              <h1 className="evo-home-title evo-home-title--sm">组织指挥台</h1>
+              <span className="evo-home-header__meta" aria-live="polite">
+                <span className="evo-home-cmd__pulse-dot" aria-hidden />
+                {
+                  (data.roles || []).filter((r) => {
+                    const code = String(r?.agent_code || r?.code || '').trim()
+                    if (!code || code === 'main') return false
+                    const b = data.roleBusyByCode?.[code]
+                    return !!(b?.busy || b?.is_busy)
+                  }).length
+                }
+                /
+                {
+                  (data.roles || []).filter((r) => {
+                    const code = String(r?.agent_code || r?.code || '').trim()
+                    return code && code !== 'main' && !r?.is_bridge
+                  }).length
+                }{' '}
+                在岗 · 待你处理 {waitForYou}
+              </span>
             </div>
-            <h1 className="evo-home-title">{greeting}</h1>
-            <p className="evo-home-subtitle">
-              {data.yesterdayDone > 0
-                ? `昨天完成了 ${data.yesterdayDone} 个任务。描述今天想做的事，EvoFlow 将为你规划并高效推进。`
-                : '描述你的任务，EvoFlow 将为你规划并高效推进工作。'}
-            </p>
+          ) : (
+            <div className="evo-home-header__text">
+              <div className="evo-home-eyebrow">
+                <Sparkles className="evo-home-ic" />
+                工作台
+              </div>
+              <h1 className="evo-home-title">{greeting}</h1>
+              <p className="evo-home-subtitle">
+                {data.yesterdayDone > 0
+                  ? `昨天完成了 ${data.yesterdayDone} 个任务。描述今天想做的事，EvoFlow 将为你规划并高效推进。`
+                  : '描述你的任务，EvoFlow 将为你规划并高效推进工作。'}
+              </p>
+            </div>
+          )}
+          <div className="evo-home-header__actions">
+            <div className="evo-home-tabseg" role="tablist" aria-label="首页分段">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={homeTab === 'workbench'}
+                className={`evo-home-tabseg__btn${homeTab === 'workbench' ? ' is-active' : ''}`}
+                onClick={() => setHomeTab('workbench')}
+              >
+                工作台
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={homeTab === 'overview'}
+                className={`evo-home-tabseg__btn${homeTab === 'overview' ? ' is-active' : ''}`}
+                onClick={() => setHomeTab('overview')}
+              >
+                总览
+              </button>
+            </div>
+            {homeTab === 'workbench' ? (
+              <button
+                type="button"
+                className="evo-home-btn evo-home-btn--outline"
+                onClick={() => {
+                  setPrefsDraft(loadHomeWorkbenchPrefs())
+                  setDrawer('settings')
+                  toast('已打开工作台设置', 'info')
+                }}
+              >
+                工作台设置
+                <Settings2 className="evo-home-ic" />
+              </button>
+            ) : null}
           </div>
-          <button
-            type="button"
-            className="evo-home-btn evo-home-btn--outline"
-            onClick={() => {
-              setPrefsDraft(loadHomeWorkbenchPrefs())
-              setDrawer('settings')
-              toast('已打开工作台设置', 'info')
-            }}
-          >
-            工作台设置
-            <Settings2 className="evo-home-ic" />
-          </button>
         </header>
 
         {data.error ? (
@@ -936,7 +1088,33 @@ export function EvoFlowHomeDashboard({ onPrompt, workspaceLabel = '', workspaceP
           </div>
         ) : null}
 
-        {prefs.modules.composer ? (
+        {homeTab === 'overview' ? (
+          <HomeOrgCommandBoard
+            roles={data.roles || []}
+            roleBusyByCode={data.roleBusyByCode || {}}
+            waitForYou={waitForYou}
+            loading={data.loading}
+          />
+        ) : null}
+
+        {homeTab === 'workbench' ? (
+          <HomeOrgPulseStrip
+            busyCount={(data.roles || []).filter((r) => {
+              const code = String(r?.agent_code || r?.code || '').trim()
+              if (!code || code === 'main') return false
+              const b = data.roleBusyByCode?.[code]
+              return !!(b?.busy || b?.is_busy)
+            }).length}
+            totalCount={(data.roles || []).filter((r) => {
+              const code = String(r?.agent_code || r?.code || '').trim()
+              return code && code !== 'main' && !r?.is_bridge
+            }).length}
+            waitCount={waitForYou}
+            onOpenOverview={() => setHomeTab('overview')}
+          />
+        ) : null}
+
+        {homeTab === 'workbench' && prefs.modules.composer ? (
           <section
             className="evo-home-composer"
             onDragOver={handleDragOver}
@@ -1309,7 +1487,7 @@ export function EvoFlowHomeDashboard({ onPrompt, workspaceLabel = '', workspaceP
           </section>
         ) : null}
 
-        {prefs.modules.kpis ? (
+        {homeTab === 'workbench' && prefs.modules.kpis ? (
           <section className="evo-home-kpi-grid">
             {data.kpis.map((item) => {
               const Icon = KPI_ICONS[item.id] || CheckCircle2
@@ -1336,7 +1514,7 @@ export function EvoFlowHomeDashboard({ onPrompt, workspaceLabel = '', workspaceP
           </section>
         ) : null}
 
-        {prefs.modules.live !== false ? (
+        {homeTab === 'workbench' && prefs.modules.live !== false ? (
           <SectionCard
             title="正在处理"
             className="evo-home-card--live"
@@ -1390,6 +1568,8 @@ export function EvoFlowHomeDashboard({ onPrompt, workspaceLabel = '', workspaceP
           </SectionCard>
         ) : null}
 
+        {homeTab === 'workbench' ? (
+          <>
         <section className="evo-home-row evo-home-row--top">
           {prefs.modules.trend ? (
             <SectionCard
@@ -1823,6 +2003,8 @@ export function EvoFlowHomeDashboard({ onPrompt, workspaceLabel = '', workspaceP
             </SectionCard>
           ) : null}
         </section>
+          </>
+        ) : null}
       </div>
 
       <HomeDrawer open={drawer === 'settings'} title="工作台设置" onClose={() => setDrawer(null)} footer={

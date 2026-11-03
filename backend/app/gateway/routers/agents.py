@@ -1320,6 +1320,8 @@ def _get_skill_metadata() -> list[SkillInfo]:
         "video-generation": "🎬",
         "image-generation": "🖼️",
         "ppt-generation": "📊",
+        "dynamic-wallpaper": "🖥️",
+        "cyber-cutaway": "🛩️",
         # "browser": "🌐",  # tool unregistered — see agent-browser skill (CLI/MCP)
         "github-deep-research": "💻",
         "consulting-analysis": "📋",

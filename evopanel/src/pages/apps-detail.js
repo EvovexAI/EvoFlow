@@ -1906,8 +1906,8 @@ EVOFLOW_OPENAI_MODEL=${appId}
     const descOpen = Boolean(descInit)
     const overlay = showContentModal({
       title: '工作流设置',
-      subtitle: '配置工作流目标、执行方式和运行参数',
-      width: 740,
+      subtitle: '目标 · 执行方式 · 运行参数',
+      width: 640,
       className: 'app-settings-modal',
       overlayClass: 'app-settings-overlay',
       content: `
@@ -1916,7 +1916,7 @@ EVOFLOW_OPENAI_MODEL=${appId}
             <h3 class="app-settings-section-title">基础信息</h3>
             <div class="app-settings-field">
               <label class="app-settings-label" for="app-settings-goal">工作流目标 <span class="app-settings-req">*</span></label>
-              <textarea class="form-input app-settings-input" id="app-settings-goal" data-name="goal" rows="3" maxlength="500" placeholder="用一句话说明这个工作流要完成什么">${escHtml(goalInit)}</textarea>
+              <textarea class="form-input app-settings-input" id="app-settings-goal" data-name="goal" rows="2" maxlength="500" placeholder="用一句话说明这个工作流要完成什么">${escHtml(goalInit)}</textarea>
               <div class="app-settings-counter"><span data-role="goal-count">${String(goalInit).length}</span> / 500</div>
             </div>
             <div class="app-settings-fold" data-role="desc-fold"${descOpen ? ' data-open="1"' : ''}>
@@ -1925,7 +1925,7 @@ EVOFLOW_OPENAI_MODEL=${appId}
                 <span data-role="desc-toggle-label">${descOpen ? '详细描述' : '添加详细描述'}</span>
               </button>
               <div class="app-settings-fold-body" data-role="desc-body"${descOpen ? '' : ' hidden'}>
-                <textarea class="form-input app-settings-input" data-name="description" rows="3" placeholder="补充说明、使用场景或注意事项（可选）">${escHtml(descInit)}</textarea>
+                <textarea class="form-input app-settings-input" data-name="description" rows="2" placeholder="补充说明、使用场景或注意事项（可选）">${escHtml(descInit)}</textarea>
                 <div class="app-settings-desc-actions">
                   <button type="button" class="btn btn-ghost btn-xs" data-act="gen-desc">根据工作流目标自动生成</button>
                   <button type="button" class="btn btn-ghost btn-xs" data-act="regen-desc">重新生成</button>

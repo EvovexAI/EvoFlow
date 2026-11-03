@@ -1058,6 +1058,14 @@ async function onWatchLiveClick(page, role) {
 
 let _currentPage = null
 
+/** In-place remount: swap DOM and keep router cleanup pointed at the live page. */
+function adoptEmployeePage(oldPage, nextPage) {
+  if (!oldPage || !nextPage) return
+  oldPage._fillAborted = true
+  oldPage.replaceWith(nextPage)
+  if (_currentPage === oldPage) _currentPage = nextPage
+}
+
 /**
  * 右栏 shell-page 挂载员工详情（不改 hash，与菜单同款页面模块）。
  * @returns {{ destroy: () => void, title?: string }}
@@ -1066,7 +1074,8 @@ export async function mountEmployeePageInto(container, { code, onClose } = {}) {
   const host = container
   const agentCode = String(code || '').trim()
   if (!host || !agentCode) return { destroy: () => {} }
-  const page = await renderEmployeePage(agentCode, {})
+  // Right-stage mount is outside router timeout — wait for title/content.
+  const page = await renderEmployeePage(agentCode, { waitForFill: true })
   page.classList.add('shell-page-embed')
   const back = page.querySelector('[data-act="back"]')
   if (back) {
@@ -1097,6 +1106,7 @@ export async function render() {
   const route = parseRoute()
   let page
   if (route.kind === 'work') {
+    // Shell first — gateway busy must not hit router 30s「页面渲染超时」.
     page = await renderWorkItemPage(route.code, route.taskId, { from: route.from })
   } else if (route.kind === 'item') {
     page = await renderItemPage(route.code, route.itemId)
@@ -1118,7 +1128,16 @@ export async function render() {
 
 // ── Employee work log page ────────────────────────────────
 
-async function renderEmployeePage(code, { autoPatrol = false, autoLive = false, dispatchGoal = '' } = {}) {
+/**
+ * @param {string} code
+ * @param {{ autoPatrol?: boolean, autoLive?: boolean, dispatchGoal?: string, waitForFill?: boolean }} [opts]
+ * Router path: return shell immediately (data fills in background).
+ * Remount / right-stage: pass waitForFill so callers get a painted page.
+ */
+async function renderEmployeePage(
+  code,
+  { autoPatrol = false, autoLive = false, dispatchGoal = '', waitForFill = false } = {},
+) {
   const page = document.createElement('div')
   page.className = 'page proactive-page pro-employee-page'
   page.innerHTML = `
@@ -1129,6 +1148,14 @@ async function renderEmployeePage(code, { autoPatrol = false, autoLive = false, 
   `
   page.querySelector('[data-act="back"]')?.addEventListener('click', () => navigate('/proactive'))
 
+  const fill = fillEmployeePage(page, code, { autoPatrol, autoLive, dispatchGoal })
+  page._fillPromise = fill
+  if (waitForFill) await fill
+  else void fill
+  return page
+}
+
+async function fillEmployeePage(page, code, { autoPatrol = false, autoLive = false, dispatchGoal = '' } = {}) {
   try {
     const [roleRes, boardRes, busyRes, capability, memRes, costRes, perfRes, dashRes, apprRes, journalRes, knowledgeVaults] =
       await Promise.all([
@@ -1146,12 +1173,15 @@ async function renderEmployeePage(code, { autoPatrol = false, autoLive = false, 
           .catch(() => ({ initiatives: [] })),
         loadKnowledgeVaults().catch(() => []),
       ])
+    // Drop fill if this shell was already replaced or cleaned up.
+    if (page._fillAborted) return
     const role = roleRes
     const schedulePreview = await loadRoleSchedulePreview(role).catch(() => ({
       schedule: '',
       summary: '',
       next_runs: [],
     }))
+    if (page._fillAborted) return
     let tasks = []
     let initiatives = []
     if (boardRes && (boardRes.rounds || boardRes.tasks || boardRes.initiatives)) {
@@ -1250,6 +1280,7 @@ async function renderEmployeePage(code, { autoPatrol = false, autoLive = false, 
       })
     }
   } catch (e) {
+    if (page._fillAborted) return
     page.innerHTML = `
       <div class="pro-page-nav">
         <button type="button" class="btn btn-ghost btn-sm" data-act="back">← 返回员工名册</button>
@@ -1258,7 +1289,6 @@ async function renderEmployeePage(code, { autoPatrol = false, autoLive = false, 
     `
     page.querySelector('[data-act="back"]')?.addEventListener('click', () => navigate('/proactive'))
   }
-  return page
 }
 
 /**
@@ -4139,13 +4169,13 @@ function bindEmployeePage(page, role, initiatives) {
     const keepView = page._worklogView === 'list' ? 'list' : 'diary'
     const keepListStatus = String(page._worklogListStatus || 'all')
     const keepTab = String(page._employeeTab || 'rounds')
-    const next = await renderEmployeePage(role.agent_code)
+    const next = await renderEmployeePage(role.agent_code, { waitForFill: true })
     if (next) {
       next._worklogDay = keepDay || WORKLOG_RECENT2
       next._worklogView = keepView
       next._worklogListStatus = keepListStatus
       next._employeeTab = keepTab === 'metrics' || keepTab === 'config' ? keepTab : 'rounds'
-      page.replaceWith(next)
+      adoptEmployeePage(page, next)
       setEmployeeTab(next, role, next._employeeTab)
     }
   })
@@ -4161,13 +4191,13 @@ function bindEmployeePage(page, role, initiatives) {
         const keepView = page._worklogView === 'list' ? 'list' : 'diary'
         const keepListStatus = String(page._worklogListStatus || 'all')
         const keepTab = String(page._employeeTab || 'rounds')
-        const next = await renderEmployeePage(role.agent_code)
+        const next = await renderEmployeePage(role.agent_code, { waitForFill: true })
         if (next) {
           next._worklogDay = keepDay || WORKLOG_RECENT2
           next._worklogView = keepView
           next._worklogListStatus = keepListStatus
           next._employeeTab = keepTab === 'metrics' || keepTab === 'config' ? keepTab : 'rounds'
-          page.replaceWith(next)
+          adoptEmployeePage(page, next)
           setEmployeeTab(next, role, next._employeeTab)
         }
       },
@@ -4178,11 +4208,11 @@ function bindEmployeePage(page, role, initiatives) {
       roleName: role.role_name || role.agent_name || role.agent_code,
       onBound: async () => {
         const keepDay = String(page._worklogDay || WORKLOG_RECENT2)
-        const next = await renderEmployeePage(role.agent_code)
+        const next = await renderEmployeePage(role.agent_code, { waitForFill: true })
         if (next) {
           next._worklogDay = keepDay || WORKLOG_RECENT2
           paintEmployeeWorkBody(next, role, next._initiatives || [], {})
-          page.replaceWith(next)
+          adoptEmployeePage(page, next)
         }
       },
     })
@@ -4203,11 +4233,11 @@ function bindEmployeePage(page, role, initiatives) {
       roleName,
       onBound: async () => {
         const keepDay = String(page._worklogDay || WORKLOG_RECENT2)
-        const next = await renderEmployeePage(role.agent_code)
+        const next = await renderEmployeePage(role.agent_code, { waitForFill: true })
         if (next) {
           next._worklogDay = keepDay || WORKLOG_RECENT2
           paintEmployeeWorkBody(next, role, next._initiatives || [], {})
-          page.replaceWith(next)
+          adoptEmployeePage(page, next)
         }
       },
     })
@@ -4224,11 +4254,11 @@ function bindEmployeePage(page, role, initiatives) {
       await unbindIMChannel(ch, role.agent_code, {
         onUnbound: async () => {
           const keepDay = String(page._worklogDay || WORKLOG_RECENT2)
-          const next = await renderEmployeePage(role.agent_code)
+          const next = await renderEmployeePage(role.agent_code, { waitForFill: true })
           if (next) {
             next._worklogDay = keepDay || WORKLOG_RECENT2
             paintEmployeeWorkBody(next, role, next._initiatives || [], {})
-            page.replaceWith(next)
+            adoptEmployeePage(page, next)
           }
         },
       })
@@ -4242,11 +4272,11 @@ function bindEmployeePage(page, role, initiatives) {
     await unbindFeishuEmployee(role.agent_code, {
       onUnbound: async () => {
         const keepDay = String(page._worklogDay || WORKLOG_RECENT2)
-        const next = await renderEmployeePage(role.agent_code)
+        const next = await renderEmployeePage(role.agent_code, { waitForFill: true })
         if (next) {
           next._worklogDay = keepDay || WORKLOG_RECENT2
           paintEmployeeWorkBody(next, role, next._initiatives || [], {})
-          page.replaceWith(next)
+          adoptEmployeePage(page, next)
         }
       },
     })
@@ -4418,6 +4448,7 @@ function workItemFromParam() {
 
 async function renderWorkItemPage(code, taskId, opts = {}) {
   const from = String(opts.from || workItemFromParam() || '').trim()
+  const waitForFill = !!opts.waitForFill
   const back = resolveWorkItemBack(code, from)
   const page = document.createElement('div')
   page.className = 'page proactive-page pro-item-page pro-work-item-page task-detail-page'
@@ -4430,6 +4461,14 @@ async function renderWorkItemPage(code, taskId, opts = {}) {
   `
   page.querySelector('[data-act="back"]')?.addEventListener('click', () => navigate(back.href))
 
+  const fill = fillWorkItemPage(page, code, taskId, { from, back })
+  page._fillPromise = fill
+  if (waitForFill) await fill
+  else void fill
+  return page
+}
+
+async function fillWorkItemPage(page, code, taskId, { from, back }) {
   try {
     const [roleRes, taskRaw, approvalsRes, rolesRes] = await Promise.all([
       api.proactiveGetRole(code).catch(() => ({ agent_code: code, role_name: code })),
@@ -4437,6 +4476,7 @@ async function renderWorkItemPage(code, taskId, opts = {}) {
       api.proactiveListApprovals('pending').catch(() => ({ approvals: [] })),
       api.proactiveListRoles().catch(() => ({ roles: [] })),
     ])
+    if (page._fillAborted) return
     const role = roleRes?.agent_code ? roleRes : { agent_code: code, role_name: code, ...roleRes }
     const roster = Array.isArray(rolesRes?.roles) ? rolesRes.roles : []
     const tid = String(taskRaw?.id || taskRaw?.task_id || taskId).trim()
@@ -4445,6 +4485,7 @@ async function renderWorkItemPage(code, taskId, opts = {}) {
     let task = { ...taskRaw, id: tid, task_id: tid }
     if (parentId && !task.parent) {
       const parentTask = await api.getTask(parentId).catch(() => null)
+      if (page._fillAborted) return
       if (parentTask) {
         task = {
           ...task,
@@ -4465,6 +4506,7 @@ async function renderWorkItemPage(code, taskId, opts = {}) {
     page.innerHTML = renderWorkItemDetail(role, task, { pendingApproval, roster, from })
     bindWorkItemDetail(page, role, task, { from, roster })
   } catch (e) {
+    if (page._fillAborted) return
     page.innerHTML = `
       <div class="pro-page-nav">
         <button type="button" class="btn btn-ghost btn-sm" data-act="back">${esc(back.label)}</button>
@@ -4473,7 +4515,6 @@ async function renderWorkItemPage(code, taskId, opts = {}) {
     `
     page.querySelector('[data-act="back"]')?.addEventListener('click', () => navigate(back.href))
   }
-  return page
 }
 
 /**
@@ -5084,8 +5125,8 @@ function bindWorkItemDetail(page, role, task, opts = {}) {
       const kind = String(btn.dataset.approveKind || '')
       toast(kind === 'handoff' ? '已同意派发' : '已同意', 'success')
       void import('../lib/proactive-approval-notify.js').then((m) => m.refreshProactiveApprovalNotify())
-      const next = await renderWorkItemPage(code, tid, { from })
-      page.replaceWith(next)
+      const next = await renderWorkItemPage(code, tid, { from, waitForFill: true })
+      adoptEmployeePage(page, next)
     } catch (err) {
       toast('审批失败: ' + err, 'error')
       btn.disabled = false
@@ -5118,8 +5159,8 @@ function bindWorkItemDetail(page, role, task, opts = {}) {
       await api.proactiveApprove(tid, 'rejected', 'user', reason, reason)
       toast('已驳回', 'info')
       void import('../lib/proactive-approval-notify.js').then((m) => m.refreshProactiveApprovalNotify())
-      const next = await renderWorkItemPage(code, tid, { from })
-      page.replaceWith(next)
+      const next = await renderWorkItemPage(code, tid, { from, waitForFill: true })
+      adoptEmployeePage(page, next)
     } catch (err) {
       toast('操作失败: ' + err, 'error')
       btn.disabled = false
@@ -5161,8 +5202,8 @@ function bindWorkItemDetail(page, role, task, opts = {}) {
         navigate('/tasks')
         return
       }
-      const next = await renderWorkItemPage(code, tid, { from })
-      page.replaceWith(next)
+      const next = await renderWorkItemPage(code, tid, { from, waitForFill: true })
+      adoptEmployeePage(page, next)
     } catch (err) {
       toast('操作失败: ' + err, 'error')
     }
@@ -5295,7 +5336,8 @@ function bindWorkItemDetail(page, role, task, opts = {}) {
 
 // ── Initiative detail page ────────────────────────────────
 
-async function renderItemPage(code, itemId) {
+async function renderItemPage(code, itemId, opts = {}) {
+  const waitForFill = !!opts.waitForFill
   const page = document.createElement('div')
   page.className = 'page proactive-page pro-item-page'
   page.innerHTML = `
@@ -5308,18 +5350,28 @@ async function renderItemPage(code, itemId) {
     navigate(`/proactive/${encodeURIComponent(code)}`),
   )
 
+  const fill = fillItemPage(page, code, itemId)
+  page._fillPromise = fill
+  if (waitForFill) await fill
+  else void fill
+  return page
+}
+
+async function fillItemPage(page, code, itemId) {
   try {
     const [roleRes, initiative, rolesRes] = await Promise.all([
       api.proactiveGetRole(code).catch(() => ({ agent_code: code, role_name: code })),
       api.proactiveGetInitiative(itemId),
       api.proactiveListRoles().catch(() => ({ roles: [] })),
     ])
+    if (page._fillAborted) return
     const role = roleRes?.agent_code ? roleRes : { agent_code: code, role_name: code, ...roleRes }
     if (!initiative?.id) throw new Error('事项不存在或已删除')
     const roster = rolesRes?.roles || rolesRes || []
     page.innerHTML = renderItemDetail(role, initiative, roster)
     bindItemDetail(page, role, initiative)
   } catch (e) {
+    if (page._fillAborted) return
     page.innerHTML = `
       <div class="pro-page-nav">
         <button type="button" class="btn btn-ghost btn-sm" data-act="back">← 返回员工</button>
@@ -5330,7 +5382,6 @@ async function renderItemPage(code, itemId) {
       navigate(`/proactive/${encodeURIComponent(code)}`),
     )
   }
-  return page
 }
 
 function approvalDecisionStatus(initOrApproval) {
@@ -5584,8 +5635,8 @@ function bindItemDetail(page, role, init) {
     try {
       await api.proactiveApprove(init.id, 'approved', 'user', '')
       toast('已同意，开始执行', 'success')
-      const next = await renderItemPage(code, init.id)
-      page.replaceWith(next)
+      const next = await renderItemPage(code, init.id, { waitForFill: true })
+      adoptEmployeePage(page, next)
     } catch (err) {
       toast('审批失败: ' + err, 'error')
       btn.disabled = false
@@ -5617,8 +5668,8 @@ function bindItemDetail(page, role, init) {
     try {
       await api.proactiveApprove(init.id, 'rejected', 'user', reason, reason)
       toast('已驳回', 'info')
-      const next = await renderItemPage(code, init.id)
-      page.replaceWith(next)
+      const next = await renderItemPage(code, init.id, { waitForFill: true })
+      adoptEmployeePage(page, next)
     } catch (err) {
       toast('操作失败: ' + err, 'error')
       btn.disabled = false
@@ -5644,6 +5695,7 @@ function bindItemDetail(page, role, init) {
 
 export function cleanup() {
   if (_currentPage) {
+    _currentPage._fillAborted = true
     try {
       _currentPage._employeeMoreDocClose?.()
     } catch {

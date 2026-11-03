@@ -639,8 +639,15 @@ async def task_tool(
     collab_subtask_id: str | None = None,
     detach: bool = False,
     stream: bool = True,
+    workspace_root: str | None = None,
 ) -> str:
-    """Delegate work to a specialized subagent (policy in tool description)."""
+    """Delegate work to a specialized subagent (policy in tool description).
+
+    ``workspace_root`` pins the subagent working directory. Workflow runs pass the
+    run-level ``project_path`` here so every step writes relative paths to the same
+    absolute location; without it each worker inherits whatever cwd the host process
+    happened to have.
+    """
     available_subagent_names = get_available_subagent_names()
 
     thread_id = None
@@ -1026,6 +1033,11 @@ async def task_tool(
             from evoflow.tools.host_direct.workspace_context import load_local_workspace_root_for_thread
 
             parent_local_workspace_root = load_local_workspace_root_for_thread(thread_id) or None
+        # Explicit caller pin wins: workflow runs stamp the run-level project_path so
+        # every step shares one absolute working directory (see run_app_workflow).
+        pinned_root = str(workspace_root or "").strip()
+        if pinned_root:
+            parent_local_workspace_root = pinned_root
         project_workspace_path = parent_local_workspace_root
 
         # 日志：记录从 runtime 获取工作空间路径的过程

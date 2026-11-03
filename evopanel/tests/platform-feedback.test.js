@@ -282,6 +282,49 @@ describe('parsePlatformUiFeedback', () => {
     expect(entries[0]?.actions?.[0]?.label).toBe('查看事项')
     expect(entries[1]?.title).toBe('创建 A')
   })
+
+  it('restores workflow openStage from platform artifact (Info Rail CTA)', async () => {
+    const { normalizeChatArtifact } = await import('../src/react/lib/chat-artifact.ts')
+    const { rightStageStore } = await import('../src/lib/right-stage/right-stage-store.ts')
+    const { activatePlatformFeedbackAction, platformRunEntriesFromChatArtifacts } = await import(
+      '../src/lib/right-stage/platform-feedback.ts'
+    )
+    const raw = {
+      id: 'platform:tc-wf-open',
+      type: 'platform',
+      label: '已启动工作流「demo」',
+      platformAction: 'workflow.run',
+      platformDomain: 'workflow',
+      platformEntityId: 'mt-open-1',
+      platformSubtitle: '可在工作流/应用页查看运行',
+      platformActions: [
+        {
+          label: '打开工作流',
+          autoOpen: true,
+          openStage: { kind: 'collab-workflow', data: { mainTaskId: 'mt-open-1' } },
+        },
+      ],
+    }
+    const normalized = normalizeChatArtifact(raw)
+    expect(normalized?.platformActions?.[0]?.openStage?.kind).toBe('collab-workflow')
+    expect(normalized?.platformActions?.[0]?.openStage?.data?.mainTaskId).toBe('mt-open-1')
+    expect(normalized?.platformEntityId).toBe('mt-open-1')
+
+    const entries = platformRunEntriesFromChatArtifacts([normalized])
+    expect(entries[0]?.actions?.[0]?.openStage?.kind).toBe('collab-workflow')
+    expect(entries[0]?.entityId).toBe('mt-open-1')
+
+    rightStageStore.hideAll()
+    expect(
+      activatePlatformFeedbackAction(entries[0].actions[0], {
+        domain: entries[0].domain,
+        action: entries[0].action,
+        entityId: entries[0].entityId,
+        title: entries[0].title,
+      }),
+    ).toBe(true)
+    expect(rightStageStore.getSnapshot().tabs.some((t) => t.kind === 'collab-workflow')).toBe(true)
+  })
 })
 
 describe('publishArtifacts — panel_set artifacts 必须能强制打开状态卡', () => {
@@ -404,6 +447,44 @@ describe('tryEagerAutoOpenPlatformFromArgs', () => {
         toolName: 'platform',
       }).reason,
     ).toBe('not-eager-action')
+  })
+})
+
+describe('workflow.run CTA 升级右栏', () => {
+  it('旧 route=/apps 升成 collab-workflow，不整窗跳菜单', async () => {
+    const { parsePlatformUiFeedback, activatePlatformFeedbackAction } = await import(
+      '../src/lib/right-stage/platform-feedback.ts'
+    )
+    const { rightStageStore } = await import('../src/lib/right-stage/right-stage-store.ts')
+    rightStageStore.hideAll()
+    const ui = parsePlatformUiFeedback(
+      JSON.stringify({
+        ok: true,
+        action: 'workflow.run',
+        task_id: 'mt-apps-legacy-1',
+        ui: {
+          kind: 'success',
+          title: '已启动工作流',
+          domain: 'workflow',
+          action: 'workflow.run',
+          entityId: 'mt-apps-legacy-1',
+          actions: [{ label: '打开工作流', route: '/apps' }],
+        },
+      }),
+    )
+    expect(ui?.actions?.[0]?.openStage?.kind).toBe('collab-workflow')
+    expect(ui?.actions?.[0]?.openStage?.data?.mainTaskId).toBe('mt-apps-legacy-1')
+    expect(ui?.actions?.[0]?.route).toBeFalsy()
+    expect(
+      activatePlatformFeedbackAction(ui.actions[0], {
+        domain: 'workflow',
+        action: 'workflow.run',
+        entityId: 'mt-apps-legacy-1',
+      }),
+    ).toBe(true)
+    const snap = rightStageStore.getSnapshot()
+    expect(snap.tabs.some((t) => t.kind === 'collab-workflow')).toBe(true)
+    expect(String(snap.surface?.data?.mainTaskId || '')).toBe('mt-apps-legacy-1')
   })
 })
 

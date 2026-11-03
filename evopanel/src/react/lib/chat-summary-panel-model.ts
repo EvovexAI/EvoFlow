@@ -221,6 +221,8 @@ export type SummaryActivityTab = 'process' | 'artifacts' | 'platform'
  */
 export function buildVisibleSummaryPanelTabs(input: {
   isEmployeeSession?: boolean
+  /** 部门群聊：首 tab 用「群聊」成员名单，与员工/普通对话摘要并列 */
+  isDeptChatSession?: boolean
   processCount: number
   artifactCount: number
   platformCount: number
@@ -229,8 +231,13 @@ export function buildVisibleSummaryPanelTabs(input: {
   withCount?: (n: number, label: string) => string
 }): Array<{ id: string; label: string }> {
   const withCount = input.withCount || ((n, label) => (n > 0 ? `${label} ${n}` : label))
+  const agentLabel = input.isDeptChatSession
+    ? '群聊'
+    : input.isEmployeeSession
+      ? '员工'
+      : '智能体'
   const list: Array<{ id: string; label: string }> = [
-    { id: 'agent', label: input.isEmployeeSession ? '员工' : '智能体' },
+    { id: 'agent', label: agentLabel },
     { id: 'process', label: withCount(input.processCount, '进程') },
     { id: 'artifacts', label: withCount(input.artifactCount, '产物') },
     { id: 'platform', label: withCount(input.platformCount, '平台') },
