@@ -348,7 +348,8 @@ export function EvoFlowHomeDashboard({ onPrompt, workspaceLabel = '', workspaceP
     }
   }, [draft])
 
-  // 总览全屏：藏左侧壳 + 顶栏；不再贴边展开，只靠右上角「缩小」退出
+  // 总览全屏：藏左侧壳 + 顶栏。ChatApp 常驻——跳到任务中心等只会 hidden 宿主，
+  // 若不在此清掉 cinema class，其它页面左侧菜单会一直被 CSS 压成 0 宽（像卡死）。
   useEffect(() => {
     const root = document.documentElement
     const clearCinema = () => {
@@ -366,26 +367,58 @@ export function EvoFlowHomeDashboard({ onPrompt, workspaceLabel = '', workspaceP
       }
     }
 
-    if (homeTab !== 'overview' || !overviewCinema) {
-      clearCinema()
-      if (homeTab !== 'overview') restoreAside()
-      return
+    const isChatHostVisible = () => {
+      try {
+        const host = document.getElementById('chat-persistent-host')
+        if (!host || host.hidden) return false
+        if (host.style.display === 'none') return false
+        return true
+      } catch {
+        return false
+      }
     }
 
-    if (asideBeforeOverviewRef.current === null) {
-      asideBeforeOverviewRef.current = getShellAsideCollapsed()
+    const syncCinema = () => {
+      const want = homeTab === 'overview' && overviewCinema && isChatHostVisible()
+      if (!want) {
+        clearCinema()
+        restoreAside()
+        return
+      }
+      if (asideBeforeOverviewRef.current === null) {
+        asideBeforeOverviewRef.current = getShellAsideCollapsed()
+      }
+      try {
+        setShellAsideCollapsed(false)
+      } catch {
+        /* ignore */
+      }
+      root.classList.add('evo-home-overview-cinema')
+      root.classList.remove('evo-cinema-peek')
     }
+
+    syncCinema()
+
+    const onRouteOrHost = () => syncCinema()
+    window.addEventListener('hashchange', onRouteOrHost)
+    window.addEventListener('evopanel:chat-route-shown', onRouteOrHost)
+    let mo: MutationObserver | null = null
     try {
-      setShellAsideCollapsed(false)
+      const host = document.getElementById('chat-persistent-host')
+      if (host) {
+        mo = new MutationObserver(onRouteOrHost)
+        mo.observe(host, { attributes: true, attributeFilter: ['hidden', 'style'] })
+      }
     } catch {
       /* ignore */
     }
-    root.classList.add('evo-home-overview-cinema')
-    root.classList.remove('evo-cinema-peek')
 
     return () => {
+      window.removeEventListener('hashchange', onRouteOrHost)
+      window.removeEventListener('evopanel:chat-route-shown', onRouteOrHost)
+      mo?.disconnect()
       clearCinema()
-      if (homeTab !== 'overview') restoreAside()
+      restoreAside()
     }
   }, [homeTab, overviewCinema])
 

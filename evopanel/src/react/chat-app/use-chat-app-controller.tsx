@@ -4736,6 +4736,19 @@ export function useChatAppController() {
       el.classList.toggle('active', isHomeSurface)
     })
   }, [isHomeSurface])
+
+  // 离开工作台时兜底清掉总览影院 class，避免侧栏被永久藏住
+  useEffect(() => {
+    if (isHomeSurface) return
+    try {
+      document.documentElement.classList.remove(
+        'evo-home-overview-cinema',
+        'evo-cinema-peek',
+      )
+    } catch {
+      /* ignore */
+    }
+  }, [isHomeSurface])
   /**
    * 旧 /messages 全屏遮罩：仅非 V4 对话需要。
    * V4 主对话用自己的 connecting/首帧；若仍盖这层，会等慢的 chatHistory 才揭开，

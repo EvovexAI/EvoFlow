@@ -493,7 +493,14 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
                 <div className="react-chat-header-title-drag" {...TAURI_HEADER_CELL_DRAG_PROPS} />
                 <div className="react-chat-header-tauri-drag-gap" aria-hidden="true" {...TAURI_HEADER_CELL_DRAG_PROPS} />
                 <div className="react-chat-header-right" {...TAURI_HEADER_CELL_DRAG_PROPS}>
-                  {isHomeSurface ? null : (
+                  {isHomeSurface ? (
+                    /* 首页默认藏产品动作；右栏已开时仍露出收起，避免关不掉 */
+                    rightStageOpen ? (
+                      <div className="react-chat-header-product-actions" data-tauri-no-drag>
+                        {infoRailHeaderToggle}
+                      </div>
+                    ) : null
+                  ) : (
                   <div className="react-chat-header-product-actions" data-tauri-no-drag>
                     {workspaceFolderGroup}
                     <span className="react-chat-header-action-sep" aria-hidden />
@@ -545,7 +552,15 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
                 {isHomeSurface ? null : collabVerifyingBadge}
               </div>
               <div className="react-chat-header-right">
-                {isHomeSurface ? null : (
+                {isHomeSurface ? (
+                  rightStageOpen ? (
+                    <div className="react-chat-header-product-actions">
+                      <div className="react-chat-header-action-group react-chat-header-action-group--panels">
+                        {infoRailHeaderToggle}
+                      </div>
+                    </div>
+                  ) : null
+                ) : (
                 <div className="react-chat-header-product-actions">
                   <div className="react-chat-header-action-group react-chat-header-action-group--panels">
                   {infoRailHeaderToggle}

@@ -535,19 +535,21 @@ export const RightStagePanel = memo(function RightStagePanel({
     [onCloseTab, renderContent, visibleActiveKey],
   )
 
-  // 换装 ZCode：尾部收起钮 = WorkspaceSidePaneToggleButton 同款（ghost icon-md + PanelRightClose）。
+  // 换装 ZCode：尾部收起钮 = WorkspaceSidePaneToggleButton 同款（ghost + PanelRightClose）。
+  // 带「收起」文案，避免首页影院 FAB「缩小」抢视觉后用户找不到关栏入口。
   const collapseButton = (
     <Button
       type="button"
       variant="ghost"
-      size="icon-md"
-      className="text-foreground hover:bg-hover hover:text-foreground"
+      size="sm"
+      className="gap-1 px-2 text-foreground hover:bg-hover hover:text-foreground"
       data-tauri-no-drag
-      title="收起侧栏面板"
-      aria-label="收起侧栏面板"
+      title="收起右侧面板"
+      aria-label="收起右侧面板"
       onClick={onCollapse}
     >
       <PanelRightCloseIcon className="size-4" />
+      <span className="text-ui-sm">收起</span>
     </Button>
   )
 

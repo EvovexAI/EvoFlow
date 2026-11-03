@@ -131,10 +131,11 @@ function drawEyes(
   const [hw, hh] = eyeHalf
   const b = Math.min(1, blink)
   for (const [ex, ey] of eyes) {
-    const cx = left + ex * k * sx
-    const cy = topY + ey * k * sy
-    const rx = hw * k * sx * 1.06
-    const ry = hh * k * sy * 1.12
+    // 显示坐标用 sx/sy（840 口径 → 设计空间）；k 只用于源像素换算，二者相乘会随素材尺寸漂移
+    const cx = left + ex * sx
+    const cy = topY + ey * sy
+    const rx = hw * sx * 1.06
+    const ry = hh * sy * 1.12
 
     if (b >= 0.03) {
       const g = ctx.createLinearGradient(0, cy - ry, 0, cy + ry)
@@ -748,10 +749,10 @@ export function drawPetFrame(
   // ── 头层：绕脖子转 ──
   const base =
     mode === 'thinking' ? -4.2 : mode === 'listening' ? 5.2 : mode === 'answering' ? -1.4 : 0
-  const sway = mode === 'idle' ? Math.sin(t * 0.9) * 1.7 : Math.sin(t * 1.6) * 0.9
+  // 思考态保持歪头但不摇摆（思考时不要来回动）；仅空闲缓慢摆动
+  const sway = mode === 'idle' ? Math.sin(t * 0.9) * 1.7 : 0
   let nod = 0
   if (mode === 'answering') nod = Math.sin(t * 9.7) * 1.9 + Math.sin(t * 3.4) * 1.1
-  else if (mode === 'thinking') nod = -Math.sin(t * 1.2)
   const rot = base + sway + nod
 
   const neck = topY + NECK_Y * sy + bob
@@ -770,10 +771,10 @@ export function drawPetFrame(
   for (const [bx, by] of BLUSH) {
     drawBlush(
       ctx,
-      left + bx * k * sx,
-      hy + by * k * sy,
-      BLUSH_HALF[0] * k * sx,
-      BLUSH_HALF[1] * k * sy,
+      left + bx * sx,
+      hy + by * sy,
+      BLUSH_HALF[0] * sx,
+      BLUSH_HALF[1] * sy,
       blush,
     )
   }
@@ -792,10 +793,10 @@ export function drawPetFrame(
   )
   drawMouth(
     ctx,
-    left + MOUTH[0] * k * sx,
-    hy + MOUTH[1] * k * sy,
-    MOUTH_HALF[0] * k * sx,
-    MOUTH_HALF[1] * k * sy,
+    left + MOUTH[0] * sx,
+    hy + MOUTH[1] * sy,
+    MOUTH_HALF[0] * sx,
+    MOUTH_HALF[1] * sy,
     mode,
     t,
   )
@@ -807,5 +808,5 @@ export function drawPetFrame(
 
   if (mode === 'thinking') drawDots(ctx, t)
   else if (mode === 'listening') drawArcs(ctx, 150, 74, t, '#7FC8FF', 3, 8, 6.4, 72)
-  else if (mode === 'answering') drawArcs(ctx, 126, 96, t, '#A6DCFF', 3, 6.4, 5.4, 54)
+  else if (mode === 'answering') drawArcs(ctx, 137, 88, t, '#A6DCFF', 3, 6.4, 5.4, 54)
 }

@@ -12040,7 +12040,9 @@ html.evopanel-tauri .react-chat-main-col .msg-ai-ask-inline-md {
   padding: 0;
 }
 
-/* Composer: 圆角边框包 textarea + 工具栏 (v4-style 双层布局) */
+/* Composer: 圆角边框包 textarea + 工具栏 (v4-style 双层布局)
+ * 注意：员工执行过程右栏等场景不在 .react-chat-bottom-dock 内，
+ * 不能依赖 dock 透明覆盖；shell 本身必须跟主题走。 */
 .react-chat-composer-shell {
   position: relative;
   display: flex;
@@ -12050,7 +12052,7 @@ html.evopanel-tauri .react-chat-main-col .msg-ai-ask-inline-md {
   padding: 8px 12px 8px;
   border-radius: 18px;
   border: 1px solid var(--input-border, rgba(148, 163, 184, 0.28));
-  background: var(--input-bg, rgba(248, 250, 252, 0.85));
+  background: var(--input-bg, var(--bg-secondary, #f4f6f8));
   box-sizing: border-box;
   overflow: visible;
   max-height: 100%;
@@ -12065,7 +12067,24 @@ html.evopanel-tauri .react-chat-main-col .msg-ai-ask-inline-md {
 
 .react-chat-composer-shell:focus-within {
   border-color: var(--input-border-focused, rgba(59, 130, 246, 0.7));
-  background: var(--input-bg-focused, rgba(255, 255, 255, 0.95));
+  background: var(--input-bg-focused, var(--bg-elevated, #ffffff));
+}
+
+html[data-theme='dark'] .react-chat-composer-shell,
+html.dark .react-chat-composer-shell {
+  border-color: rgba(255, 255, 255, 0.12);
+  background: var(--input-bg, var(--bg-secondary, #242424));
+}
+
+html[data-theme='dark'] .react-chat-composer-shell:hover,
+html.dark .react-chat-composer-shell:hover {
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+html[data-theme='dark'] .react-chat-composer-shell:focus-within,
+html.dark .react-chat-composer-shell:focus-within {
+  border-color: color-mix(in srgb, var(--accent, #7b74ff) 55%, transparent);
+  background: var(--input-bg-focused, var(--bg-elevated, #303030));
 }
 
 /* shell 内：input-wrap 占据剩余空间，让 textarea 撑满 */
@@ -24350,7 +24369,8 @@ html.dark .evo-home-cmd__dept-tree {
   width: 100%;
   border: 1px solid var(--cmd-border);
   border-radius: 14px;
-  background: #111;
+  /* 浅色：白卡片；深色在下方覆盖为黑卡 */
+  background: var(--cmd-panel, #fff);
   box-shadow: none;
   text-align: left;
   cursor: pointer;
@@ -24376,8 +24396,16 @@ html.dark .evo-home-cmd__dept-node {
 
 .evo-home-cmd__dept-node.is-selected,
 .evo-home-cmd__dept-node.is-path {
-  border-color: color-mix(in srgb, var(--cmd-green) 85%, #fff);
+  border-color: color-mix(in srgb, var(--cmd-green) 55%, var(--cmd-border));
   box-shadow: var(--cmd-neon-green);
+  background: color-mix(in srgb, var(--cmd-green) 6%, var(--cmd-panel, #fff));
+}
+
+html[data-theme='dark'] .evo-home-cmd__dept-node.is-selected,
+html[data-theme='dark'] .evo-home-cmd__dept-node.is-path,
+html.dark .evo-home-cmd__dept-node.is-selected,
+html.dark .evo-home-cmd__dept-node.is-path {
+  border-color: color-mix(in srgb, var(--cmd-green) 85%, #fff);
   background: #0e0e0e;
 }
 
@@ -24412,13 +24440,24 @@ html.dark .evo-home-cmd__dept-node {
   font-size: 26px;
   font-weight: 850;
   letter-spacing: -0.03em;
-  color: #f8fafc;
+  color: var(--cmd-text, #0f172a);
   font-variant-numeric: tabular-nums;
   line-height: 1.05;
   text-shadow: none;
 }
 
+html[data-theme='dark'] .evo-home-cmd__dept-kpi,
+html.dark .evo-home-cmd__dept-kpi {
+  color: #f8fafc;
+}
+
 .evo-home-cmd__dept-tree.is-selected .evo-home-cmd__dept-kpi {
+  color: color-mix(in srgb, var(--cmd-green) 55%, var(--cmd-text, #0f172a));
+  text-shadow: none;
+}
+
+html[data-theme='dark'] .evo-home-cmd__dept-tree.is-selected .evo-home-cmd__dept-kpi,
+html.dark .evo-home-cmd__dept-tree.is-selected .evo-home-cmd__dept-kpi {
   color: #ecfdf5;
   text-shadow: 0 0 12px rgba(57, 255, 136, 0.35);
 }
@@ -24512,8 +24551,8 @@ html.dark .evo-home-cmd__dept-node {
 .evo-home-cmd__leaf {
   appearance: none;
   width: 100%;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  background: #0c0c0c;
+  border: 1px solid var(--cmd-border);
+  background: var(--cmd-panel-soft, #f8fafc);
   border-radius: 11px;
   padding: 9px 10px;
   display: grid;
@@ -24527,6 +24566,12 @@ html.dark .evo-home-cmd__dept-node {
     border-color 0.15s ease,
     background 0.15s ease,
     box-shadow 0.15s ease;
+}
+
+html[data-theme='dark'] .evo-home-cmd__leaf,
+html.dark .evo-home-cmd__leaf {
+  border-color: rgba(255, 255, 255, 0.08);
+  background: #0c0c0c;
 }
 
 .evo-home-cmd__leaf-dot {
@@ -24552,6 +24597,11 @@ html.dark .evo-home-cmd__dept-node {
 
 .evo-home-cmd__leaf:hover {
   border-color: color-mix(in srgb, var(--card-accent) 45%, transparent);
+  background: color-mix(in srgb, var(--card-accent) 8%, var(--cmd-panel-soft, #f8fafc));
+}
+
+html[data-theme='dark'] .evo-home-cmd__leaf:hover,
+html.dark .evo-home-cmd__leaf:hover {
   background: color-mix(in srgb, var(--card-accent) 7%, #0c0c0c);
 }
 
@@ -24585,12 +24635,22 @@ html.dark .evo-home-cmd__dept-node {
 .evo-home-cmd__leaf-meta {
   font-size: 11px;
   font-weight: 700;
-  color: #cbd5e1;
+  color: var(--cmd-text-secondary, #475569);
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
 
+html[data-theme='dark'] .evo-home-cmd__leaf-meta,
+html.dark .evo-home-cmd__leaf-meta {
+  color: #cbd5e1;
+}
+
 .evo-home-cmd__dept-tree.is-selected .evo-home-cmd__leaf-meta {
+  color: color-mix(in srgb, var(--cmd-green) 55%, var(--cmd-text, #0f172a));
+}
+
+html[data-theme='dark'] .evo-home-cmd__dept-tree.is-selected .evo-home-cmd__leaf-meta,
+html.dark .evo-home-cmd__dept-tree.is-selected .evo-home-cmd__leaf-meta {
   color: color-mix(in srgb, var(--cmd-green) 70%, #fff);
 }
 
@@ -24652,9 +24712,14 @@ html.dark .evo-home-cmd__dept-node {
 .evo-home-cmd__dept-kpi-side {
   font-size: 15px;
   font-weight: 750;
-  color: color-mix(in srgb, var(--card-accent) 80%, #fff);
+  color: color-mix(in srgb, var(--card-accent, #64748b) 72%, var(--cmd-text, #0f172a));
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+
+html[data-theme='dark'] .evo-home-cmd__dept-kpi-side,
+html.dark .evo-home-cmd__dept-kpi-side {
+  color: color-mix(in srgb, var(--card-accent) 80%, #fff);
 }
 
 .evo-home-cmd__dept-kpi-side small {
@@ -25567,6 +25632,16 @@ html.evo-home-overview-cinema.evo-cinema-peek
   cursor: pointer;
   backdrop-filter: blur(8px);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+/* 右栏打开时勿盖住标签条「收起」：FAB 挪到右栏左侧；标签条抬到 FAB 之上可点 */
+html.evo-home-overview-cinema:has(.react-chat-main-body.is-right-stage-open) .evo-home-cinema-fab {
+  right: calc(var(--chat-right-panel-width, 380px) + 20px);
+}
+
+html.evo-home-overview-cinema .react-chat-stage-chrome {
+  position: relative;
+  z-index: 1210;
 }
 
 .evo-home-cinema-fab:hover {
@@ -30429,10 +30504,11 @@ html.dark .react-chat-collab-exec-panel {
   color: var(--text-secondary, #6b7280);
 }
 
-/* 空白态：正文居中，不画标题栏底线和画布点阵 */
+/* 空白态：正文居中；标题栏仍保留关闭，避免用户关不掉右栏 */
 .react-chat-collab-exec-panel:has(.react-chat-collab-exec-panel-body > .collab-exec-dag-empty:only-child) > .react-chat-collab-exec-panel-header,
 .react-chat-knowledge-map-panel:has(.km-panel-body > .collab-exec-dag-empty:only-child) > .react-chat-collab-exec-panel-header {
-  display: none;
+  border-bottom: none;
+  background: transparent;
 }
 .react-chat-collab-exec-panel-body:has(> .collab-exec-dag-empty:only-child),
 .km-panel-body:has(> .collab-exec-dag-empty:only-child) {
@@ -36662,6 +36738,19 @@ html[data-theme='dark'] .react-chat-browser-panel .browser-panel-chrome {
   transform: none !important;
 }
 
+/* 深色：发送钮改为浅底深字，避免落在深色 shell 上几乎看不见 */
+html[data-theme='dark'] .react-chat-composer-toolbar .react-chat-icon-send-btn:not(:disabled),
+html.dark .react-chat-composer-toolbar .react-chat-icon-send-btn:not(:disabled) {
+  background: #ececec !important;
+  color: #0a0a0a !important;
+}
+
+html[data-theme='dark'] .react-chat-composer-toolbar .react-chat-icon-send-btn:hover:not(:disabled),
+html.dark .react-chat-composer-toolbar .react-chat-icon-send-btn:hover:not(:disabled) {
+  background: #fff !important;
+  color: #0a0a0a !important;
+}
+
 .react-chat-composer-toolbar .react-chat-icon-send-btn:disabled {
   background: var(--bg-tertiary, rgba(127, 127, 127, 0.12)) !important;
   color: var(--text-tertiary, #9ca3af) !important;
@@ -38152,6 +38241,46 @@ html.dark .react-chat-stage-popover {
 .react-chat-right-stage-body > .react-chat-screenshot-panel {
   height: 100%;
   min-height: 0;
+}
+
+/* 员工执行过程：底部「继续对话」composer 不在 bottom-dock 内，单独对齐深色表面 */
+.v4-employee-process-composer {
+  background: var(--bg-card, var(--bg-primary, #ffffff));
+  border-top-color: var(--border-primary, rgba(15, 23, 42, 0.1));
+}
+
+html[data-theme='dark'] .v4-employee-process-composer,
+html.dark .v4-employee-process-composer {
+  background: var(--bg-card, #2a2a2a);
+  border-top-color: rgba(255, 255, 255, 0.1);
+}
+
+.v4-employee-process-composer .react-chat-composer-shell {
+  background: var(--bg-secondary, #f4f6f8);
+  border-color: var(--border-primary, rgba(15, 23, 42, 0.1));
+}
+
+html[data-theme='dark'] .v4-employee-process-composer .react-chat-composer-shell,
+html.dark .v4-employee-process-composer .react-chat-composer-shell {
+  background: var(--bg-secondary, #242424) !important;
+  border-color: rgba(255, 255, 255, 0.12) !important;
+}
+
+html[data-theme='dark'] .v4-employee-process-composer .react-chat-composer-shell:focus-within,
+html.dark .v4-employee-process-composer .react-chat-composer-shell:focus-within {
+  background: var(--bg-elevated, #303030) !important;
+  border-color: color-mix(in srgb, var(--accent, #7b74ff) 55%, transparent) !important;
+}
+
+html[data-theme='dark'] .v4-employee-process-composer .react-chat-input,
+html.dark .v4-employee-process-composer .react-chat-input {
+  color: var(--text-primary, #ececec) !important;
+  caret-color: var(--text-primary, #ececec);
+}
+
+html[data-theme='dark'] .v4-employee-process-composer .react-chat-input::placeholder,
+html.dark .v4-employee-process-composer .react-chat-input::placeholder {
+  color: var(--text-tertiary, #8a8a8a) !important;
 }
 
 

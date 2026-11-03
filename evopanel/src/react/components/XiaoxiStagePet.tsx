@@ -3,7 +3,7 @@
  *
  * 渲染逻辑全在 xiaoxi-pet-render.ts（纯 canvas，可单独跑）；这里只负责：
  * 加载立绘（站姿 + 坐姿两张）、按舞台尺寸算位置（把「脚」落在 72% 高度，避开底部字幕区）、
- * 按帧循环、眨眼计时，以及活动区域内的踱步（思考/空闲时慢慢走两步，其余状态站定）。
+ * 按帧循环、眨眼计时，以及活动区域内的踱步（仅空闲时慢慢走两步，其余状态站定）。
  */
 import { useEffect, useRef } from 'react'
 import {
@@ -21,8 +21,8 @@ export type { PetMode }
 /** 眨眼：闭合 0.15s，间隔 2.2~6.5s（与桌面宠物一致） */
 const BLINK_DUR = 0.15
 
-/** 会踱步的状态：思考时来回走两步、纯空闲时溜达；说话/聆听要稳，坐姿本来就固定 */
-const WANDER_MODES: ReadonlySet<PetMode> = new Set<PetMode>(['idle', 'thinking'])
+/** 会踱步的状态：纯空闲时溜达；思考/说话/聆听都要稳（思考站定，坐姿本来就固定） */
+const WANDER_MODES: ReadonlySet<PetMode> = new Set<PetMode>(['idle'])
 /** 活动区域：以舞台中心为原点，左右各占 canvas 宽度的比例 */
 const WANDER_RANGE = 0.42
 /** 踱步速度（canvas 像素/秒，按 canvas 实际宽度折算） */
