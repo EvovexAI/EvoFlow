@@ -556,7 +556,7 @@ function drawKbLights(
   ctx.restore()
 }
 
-/** 坐姿双手：直接从坐姿立绘抠手区域贴回（真手形），随节奏点按，先画拖影再画实手。 */
+/** 坐姿双手：直接从坐姿立绘抠手区域贴回（真手形）。实手以腕为轴抬起/压扁随节拍敲击，先拖影再实手。 */
 function drawTypingHands(
   ctx: CanvasRenderingContext2D,
   img: CanvasImageSource,
@@ -577,20 +577,32 @@ function drawTypingHands(
     const hit = Math.max(0, Math.sin(ph)) ** 2
     const tap = Math.max(0, Math.sin(ph * 0.5 + 0.7)) ** 2
     const k = Math.min(1, hit * 0.72 + tap * 0.28)
-    const dy = -k * 11 * s
+    // 抬起：指尖以腕为轴离键（纵向收）；落下：压扁加宽（击键的力道感）
+    const dy = -k * 3.2
+    const hNow = ry * 2 * (1 - 0.16 * k)
+    const wNow = rx * 2 * (1 + 0.05 * k)
     const dx = Math.sin(t * 17.3 + i * 2.4) * s * 2
-    const hNow = ry * 2 * (1 - 0.07 * k)
     const sx0 = (hx - hw) * dk
     const sy0 = (hy - hh) * dk
     const sw = hw * 2 * dk
     const sh = hh * 2 * dk
 
-    // 拖影：上一瞬的手，随节奏收放
-    ctx.globalAlpha = 0.04 + 0.4 * k
-    ctx.drawImage(img, sx0, sy0, sw, sh, bx + dx - rx, by + dy - hNow / 2, rx * 2, hNow)
-    // 实手盖回去
+    // 拖影：贴着手部区域的运动模糊（不能抬进袖口，否则会复制出矩形色块）
+    ctx.globalAlpha = 0.06 + 0.38 * k
+    ctx.drawImage(
+      img,
+      sx0,
+      sy0,
+      sw,
+      sh,
+      bx + dx - wNow * 0.48,
+      by + dy - 2.6 - hNow * 0.44,
+      wNow * 0.96,
+      hNow * 0.88,
+    )
+    // 实手：在动位置盖回去（抬到最高时露出原位烙手 ~3px，天然是接触阴影）
     ctx.globalAlpha = 0.97
-    ctx.drawImage(img, sx0, sy0, sw, sh, bx - rx, by - ry, rx * 2, ry * 2)
+    ctx.drawImage(img, sx0, sy0, sw, sh, bx - wNow / 2, by + dy - hNow / 2, wNow, hNow)
     ctx.globalAlpha = 1
   }
 }
@@ -609,7 +621,8 @@ function drawDeskFrame(
   const top = D_BOTTOM - D_IMG_H * s
 
   const tap = tapEnergy(t)
-  const bodyDy = -tap * 1.5
+  // 身体只做慢呼吸起伏 + 极轻的击键下沉——大幅快抖会变成"胳膊在动"
+  const bodyDy = -(0.5 + 0.5 * Math.sin(t * 1.9)) * 1.1 - tap * 0.5
 
   // 桌面落地的影子
   let g = ctx.createRadialGradient(100, 195, 0, 100, 195, 96)

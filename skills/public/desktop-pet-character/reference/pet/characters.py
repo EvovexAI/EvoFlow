@@ -1793,22 +1793,25 @@ class GirlArt(Girl):
             patch = self._hand_patch(i)
             base = QRectF(left + (hx - hw) * s, top + (hy - hh) * s, hw * 2 * s, hh * 2 * s)
 
-            # 1) 先画上一层"上一毫秒的手"：随节奏收放的拖影（约 5.5 次/秒）
+            # 1) 先画上一层"上一毫秒的手"：比实手再高一截的残影，随抬手变浓
+            #    （约 5.5 次/秒）——这是"手指在动"的主视觉
             ph = t * 34.5 + i * 1.9
             hit = max(0.0, math.sin(ph)) ** 2
             tap = max(0.0, math.sin(ph * 0.5 + 0.7)) ** 2
             k = min(1.0, hit * 0.72 + tap * 0.28)
-            dy = -k * lift * 0.55
-            h_ = hh * 2 * s * (1.0 - 0.07 * k)      # 以手腕为轴收一下 = 手指抬起
+            dy = -k * lift * 0.8
+            h_ = hh * 2 * s * (1.0 - 0.16 * k)      # 以手腕为轴收一下 = 手指抬起
+            w_ = hw * 2 * s * (1.0 + 0.05 * k)      # 落下时压扁加宽 = 击键力道
             dx = math.sin(t * 17.3 + i * 2.4) * s * 2.0
-            dst = QRectF(base.x() + dx, base.y() + dy, hw * 2 * s, h_)
-            p.setOpacity(alpha * (0.04 + 0.40 * k))
+            dst = QRectF(base.x() + dx, base.y() + dy - 2.6 * s - h_ * 0.44,
+                         w_ * 0.96, h_ * 0.88)
+            p.setOpacity(alpha * (0.06 + 0.38 * k))
             p.drawPixmap(dst, patch, QRectF(patch.rect()))
 
-            # 2) 再把清晰的手盖回去（从左到右都是"实手 + 身后拖影"，不会变成两只手）
+            # 2) 实手画在动位置：抬起时露出原位烙手 ~3px，天然是接触阴影
+            dst2 = QRectF(base.x(), base.y() + dy, w_, h_)
             p.setOpacity(alpha * 0.97)
-            p.drawPixmap(base, patch, QRectF(patch.rect()))
-        p.setOpacity(alpha)
+            p.drawPixmap(dst2, patch, QRectF(patch.rect()))
         p.setOpacity(alpha)
 
     def _hand_on_ear(self, p: QPainter, sx: float, sy: float,
@@ -1962,9 +1965,9 @@ class GirlArt(Girl):
         p.setBrush(QBrush(sh))
         p.drawEllipse(QPointF(100, 195), 96, 9.0)
 
-        # 敲击的节奏：肩背跟着键点一顿一顿（键盘在身体层里，所以一起走）
+        # 敲击的节奏：身体只做慢呼吸起伏 + 极轻的击键下沉（大幅快抖会变成"胳膊在动"）
         tap = self._tap_energy(t)
-        body_dy = -tap * 1.5
+        body_dy = -(0.5 + 0.5 * math.sin(t * 1.9)) * 1.1 - tap * 0.5
         by = top + (self.D_NECK_Y - self.D_OVERLAP) * s + body_dy
         p.setRenderHint(QPainter.SmoothPixmapTransform, True)
         p.drawPixmap(QRectF(left, by, w, body.height() * s), body, QRectF(body.rect()))
