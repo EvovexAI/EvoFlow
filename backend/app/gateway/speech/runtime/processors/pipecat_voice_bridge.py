@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import random
 import re
 import time
@@ -61,7 +62,8 @@ from pipecat.turns.user_turn_processor import UserTurnProcessor
 from pipecat.turns.user_turn_strategies import UserTurnStrategies
 from pipecat.workers.runner import WorkerRunner
 
-from app.gateway.speech.runtime.aggregators import strip_markdown_light
+from app.gateway.speech.runtime.aggregators import normalize_for_tts, strip_markdown_light
+from app.gateway.speech.runtime.emotion import infer_tone
 from app.gateway.speech.runtime.frames import (
     AudioRawFrame,
     BotStartedSpeakingFrame,
@@ -79,6 +81,7 @@ from app.gateway.speech.runtime.frames import (
     TTSSpeakFrame,
     UserBotLatencyFrame,
     UserTurnCompleteFrame,
+    UserTurnEmptyFrame,
 )
 from app.gateway.speech.runtime.pipecat_volc_stt import EvoSTTService
 from app.gateway.speech.runtime.pipecat_volc_tts import VolcengineTTSService
@@ -95,10 +98,37 @@ _ACK_POOL = ("好的", "收到")
 # Pipecat 推荐默认；STT p99 表按 0.2 标定
 _VAD_STOP_SECS = 0.2
 _VAD_START_SECS = 0.2
+# 流式分句：强标点即整句；首句逗号快切；超长按软标点硬切
+_STREAM_SENT_END_RE = re.compile(r"[。！？!?；;…\n]")
+_STREAM_SOFT_END_RE = re.compile(r"[，,、：:\s]")
+_STREAM_HARD_CUT = 64
+# 纯语气词/拟声：VAD 误触发或随口哼声，不值得一轮模型（完整句含这些字不受影响）
+_INTERJECTION_TOKENS = {
+    "嗯", "嗯嗯", "嗯呐", "啊", "啊啊", "啊哈", "哦", "哦哦", "噢", "喔", "呃", "呃呃",
+    "诶", "欸", "唉", "哎", "哈", "哈哈", "哈哈哈", "嘿", "呀", "哇", "唔", "哟",
+}
+# 语音播报预算：超过后停止播正文，改播收尾提示（长回复干听是「不丝滑」的最大来源；
+# 完整文本仍在上屏/聊天区）。约 25s 语音。
+_VOICE_SPEAK_MAX_CHARS = 120
+_VOICE_SPEAK_TRIM_NOTICE = "详细内容我发到聊天里了。"
 
 
 def _has_readable(text: str) -> bool:
     return bool(_READABLE.search(text or ""))
+
+
+def _readable_len(text: str) -> int:
+    return len(_READABLE.findall(text or ""))
+
+
+def _is_junk_turn(text: str) -> bool:
+    """纯语气词/无实义单字/纯标点 → 不进 agent。"""
+    t = (text or "").strip()
+    if not t or not _has_readable(t):
+        return True
+    if t in _INTERJECTION_TOKENS:
+        return True
+    return _readable_len(t) < 2 and len(t) <= 2
 
 
 # 厂商单次合成长度软上限；超过才按句号切开（仍避免逗号/36 字碎切）
@@ -367,10 +397,16 @@ class _XiaomiHook(PipeFrameProcessor):
         if isinstance(frame, PipeUserStoppedSpeakingFrame):
             text = (self._last_text or "").strip()
             self._last_text = ""
+            if _is_junk_turn(text):
+                # 嗯/哦/哈哈 这类纯语气词：VAD 误触发常见，发进模型只会白耗一轮还答非所问
+                voice_log("对话", f"丢弃语气词回合：「{text}」（不进 agent）")
+                await self.push_frame(frame, direction)
+                return
             if text:
                 self._host._ignore_assistant = False
                 self._host._turn += 1
                 turn = self._host._turn
+                self._host._turn_stopped_at = time.monotonic()
                 voice_log("对话", f"用户输入（完整）：「{text}」 turn={turn}")
                 if self._auto_ack:
                     ack = random.choice(_ACK_POOL)
@@ -384,11 +420,13 @@ class _XiaomiHook(PipeFrameProcessor):
                 # Surface turn text to Evo session (WS turn_end / final)
                 await self._host._out_q.put(("user_turn", text, turn))
             else:
-                # Stop 策略判完但 ASR 无字：常见于第二轮 ASR 已死 —— 必须打日志
+                # Stop 策略判完但 ASR 无字：常见于第二轮 ASR 已死 —— 必须打日志，
+                # 并通知前端（否则用户说了话没任何反馈，只会觉得「聋」）
                 voice_log(
                     "对话",
-                    "用户输入为空（ASR 可能已断/仍 mute）→ 本轮不发送",
+                    "用户输入为空（ASR 可能已断/仍 mute）→ 本轮不发送，回 asr_empty",
                 )
+                await self._host._out_q.put(("user_turn_empty", self._host._turn))
             await self.push_frame(frame, direction)
             return
 
@@ -405,7 +443,7 @@ class PipecatVoiceBridge(FrameProcessor):
         tts_provider: str | None = "volcengine",
         speaker: str | None = None,
         on_user_turn: TurnHandler | None = None,
-        silence_ms: float = 900.0,
+        silence_ms: float = 800.0,
         auto_ack: bool = False,
     ) -> None:
         super().__init__(name="PipecatVoiceBridge")
@@ -451,8 +489,18 @@ class PipecatVoiceBridge(FrameProcessor):
         self._end_fallback_task: asyncio.Task[None] | None = None
         # FE VoicePhase：idle|listening|thinking|speaking（unmute/barge 门控）
         self._client_phase = "listening"
-        # True：攒齐正文再 TTS；合成走 TTSSpeak 整段一次（仅超长按句号切），避免碎切拼接
-        self._hold_body_tts_until_end = True
+        # False：正文流式分句（不等全文，首句逗号快切）。env=1 回退旧「攒齐整段」。
+        self._hold_body_tts_until_end = (
+            (os.getenv("EVOFLOW_VOICE_HOLD_BODY_TTS") or "").strip().lower()
+            in {"1", "true", "yes", "on"}
+        )
+        # 流式分句的未发送缓冲（仅流式模式使用）
+        self._stream_buf = ""
+        # 用户说完（turn 判定）的 monotonic 锚点；首句合成请求时打时延
+        self._turn_stopped_at: float | None = None
+        # 播报预算：本轮已播正文字数 / 是否已截断改播收尾提示
+        self._turn_spoken_chars = 0
+        self._turn_trimmed = False
 
     # ── public API used by SpeechSession ───────────────────────────────
 
@@ -481,8 +529,11 @@ class PipecatVoiceBridge(FrameProcessor):
     async def begin_assistant_turn(self) -> None:
         self._ignore_assistant = False
         self._assistant_plain = ""
+        self._stream_buf = ""
         self._turn_tts_count = 0
         self._turn_spoken_texts = []
+        self._turn_spoken_chars = 0
+        self._turn_trimmed = False
         self._cancel_end_fallback()
         self._turn += 1
         # 上轮 End 与分句竞态时，残句会留在 aggregator，混进下一轮（日志：turn2 先合成「更细的…」）
@@ -492,13 +543,72 @@ class PipecatVoiceBridge(FrameProcessor):
         if self._ignore_assistant or not text:
             return
         self._assistant_plain = (self._assistant_plain or "") + text
-        # 默认：只攒正文，等 End 整段播。流式分句曾在 End 竞态下少播尾句
-        # （日志 19:01:44 只播到「飞书还开着呢」，丢了「你想让我点哪儿？」）。
         if self._hold_body_tts_until_end:
             return
-        await self.queue_frame(
-            LLMTextFrame(text=text, turn=self._turn), FrameDirection.DOWNSTREAM
+        # 流式：delta 进缓冲，整句（或首句逗号）即送合成 — 不等全文。
+        # 旧聚合器路径曾因 End 竞态少播尾句，这里由自身缓冲保证 End 后确定性冲尾。
+        self._stream_buf += text
+        await self._flush_stream_sentences(force=False)
+
+    async def _flush_stream_sentences(self, *, force: bool) -> None:
+        """从缓冲切出可合成的句段（强标点/首句快切/超长硬切），推 TTS。
+
+        超出播报预算后停止播正文（完整文本仍在上屏/聊天区），改播一句收尾提示。
+        """
+        buf = self._stream_buf
+        if not buf or not _has_readable(buf):
+            return
+        if self._turn_trimmed:
+            # 已截断：剩余正文只留日志，不再进 TTS
+            self._stream_buf = ""
+            return
+        if self._turn_spoken_chars >= _VOICE_SPEAK_MAX_CHARS:
+            # 预算已用完且后面还有实质内容 → 截断 + 收尾提示
+            self._turn_trimmed = True
+            self._stream_buf = ""
+            dropped = len(_READABLE.findall(buf))
+            voice_log(
+                "播报",
+                f"长回复播报截断 turn={self._turn} 已播={self._turn_spoken_chars}字 "
+                f"后续≈{dropped}字 → 改播收尾提示",
+            )
+            await self._push_hold_body_to_tts(_VOICE_SPEAK_TRIM_NOTICE)
+            return
+        cut = -1
+        for m in _STREAM_SENT_END_RE.finditer(buf):
+            cut = m.end()
+        if cut > 0 and _readable_len(buf[:cut]) >= (1 if force else 2):
+            pass
+        else:
+            cut = -1
+            if self._turn_tts_count == 0:
+                # 首句快切：本轮还没出声，逗号/顿号就先发，用户第一时间听到第一个字
+                for m in _STREAM_SOFT_END_RE.finditer(buf):
+                    cut = m.end()
+                if cut > 0 and (_readable_len(buf[:cut]) < 2 or len(buf[:cut].strip()) < 4):
+                    cut = -1
+            if cut < 0 and len(buf.strip()) >= _STREAM_HARD_CUT:
+                for m in _STREAM_SOFT_END_RE.finditer(buf):
+                    cut = m.end()
+                if cut <= 0:
+                    cut = len(buf)
+            if cut < 0 and force and _has_readable(buf):
+                cut = len(buf)
+        if cut <= 0:
+            return
+        chunk, self._stream_buf = buf[:cut], buf[cut:]
+        if not _has_readable(chunk):
+            return
+        body = strip_markdown_light(chunk).strip()
+        if not body or not _has_readable(body):
+            return
+        voice_log(
+            "分句",
+            f"流式切句 turn={self._turn} len={len(body)}：「{body[:60]}」"
+            + ("…" if len(body) > 60 else ""),
         )
+        await self._push_hold_body_to_tts(body)
+        self._turn_spoken_chars += len(body)
 
     async def inject_assistant_end(self) -> None:
         plain = (self._assistant_plain or "").strip()
@@ -524,24 +634,37 @@ class PipecatVoiceBridge(FrameProcessor):
             # 清空，避免 text-end 后再来空 End / feed(final) 用旧 plain 重推一遍
             self._assistant_plain = ""
             return
-        await self.queue_frame(
-            LLMResponseEndFrame(turn=turn), FrameDirection.DOWNSTREAM
-        )
-        # 禁止同步 flush aggregator（与 pipe 内 aggregate 竞态会截断）。
-        # 若 EndFrame 因 _in_llm_turn 竞态未进 pipe / flush 空转，本轮会完全无合成
-        # （日志 14:19：有完整正文却无「切出完整句」）。延迟兜底整段。
-        if plain and _has_readable(plain) and not self._ignore_assistant:
-            self._schedule_end_tts_fallback(plain, turn)
+        # 流式：End = 确定性冲尾句（缓冲里剩下的不足一句的部分），无聚合器竞态
+        if not self._ignore_assistant:
+            await self._flush_stream_sentences(force=True)
+        if self._turn_trimmed:
+            tail = self._stream_buf
+            if _has_readable(tail):
+                voice_log(
+                    "播报",
+                    f"长回复截断收尾 turn={self._turn} 未播尾段 {len(tail)}字（全文在上屏）：「{tail[:60]}」",
+                )
+        self._assistant_plain = ""
+        self._stream_buf = ""
+        await self._close_llm_turn_and_drop_residual(reason="assistant_end_stream")
 
     async def _push_hold_body_to_tts(self, body: str) -> None:
-        """Hold 模式：整段一次 TTSSpeak（尽量单 seq），超长才按句号切开。"""
+        """正文合成的唯一咽喉点：流式切句/hold 整段/截断提示都走这里。
+
+        先做 TTS 口语化（URL/邮箱/长 ASCII 念出来没人听得懂），再整段一次
+        TTSSpeak（尽量单 seq），超长才按句号切开。
+        """
         await self._ensure_pipecat()
         if not self._pipe_worker or not self._ready:
             return
+        body = normalize_for_tts(body)
         chunks = _split_hold_body_for_oneshot_tts(body)
         for i, chunk in enumerate(chunks):
             if not chunk or not _has_readable(chunk):
                 continue
+            # 每句语气（含 None=默认）：显式置空防上句语气串到本句
+            if self._tts is not None and hasattr(self._tts, "set_tone"):
+                self._tts.set_tone(infer_tone(chunk))
             if len(chunks) > 1:
                 voice_log(
                     "分句",
@@ -555,39 +678,6 @@ class PipecatVoiceBridge(FrameProcessor):
         self._end_fallback_task = None
         if t and not t.done():
             t.cancel()
-
-    def _schedule_end_tts_fallback(self, plain: str, turn: int) -> None:
-        """Streaming-mode only: if nothing body-sized was synthesized, push once."""
-        self._cancel_end_fallback()
-
-        async def _run() -> None:
-            try:
-                await asyncio.sleep(1.2)
-                if self._ignore_assistant or turn != self._turn:
-                    return
-                if not self._pipe_worker or not self._ready:
-                    return
-                # 仅「完全没进正文合成」才兜底；勿按覆盖率补段（易与在途切句重复）
-                body_hit = any(
-                    len(_norm_tts_cover(t)) >= 8 for t in (self._turn_spoken_texts or [])
-                )
-                if body_hit:
-                    return
-                missing = strip_markdown_light(plain).strip()
-                if not missing or not _has_readable(missing):
-                    return
-                voice_log(
-                    "分句",
-                    f"End 后仍无正文合成 → 兜底整段 turn={turn}：「{missing[:80]}」"
-                    + ("…" if len(missing) > 80 else ""),
-                )
-                await self._push_hold_body_to_tts(missing)
-            except asyncio.CancelledError:
-                return
-            except Exception:
-                logger.exception("end TTS fallback failed")
-
-        self._end_fallback_task = asyncio.create_task(_run())
 
     async def _close_llm_turn_and_drop_residual(self, *, reason: str) -> None:
         """Close dangling LLM turn and discard leftover aggregator text (no speak)."""
@@ -627,13 +717,14 @@ class PipecatVoiceBridge(FrameProcessor):
 
     async def release_stt_unmute_hold(self, *, reason: str = "client_listening") -> None:
         """FE local playback drained — allow STT to unmute for the next turn."""
-        # speaking：暂缓（防回声）；thinking：仅 barge / exit_listen 放行
+        # speaking：暂缓（防回声）——但 exit_listen（软暂停探测，本地已 pause、喇叭
+        # 无声，无回声风险）放行；thinking：仅 barge / exit_listen 放行
         # （确认句播完后的长思考若不放麦，用户喊「退出/停止」永远进不了 ASR）
         phase = self._client_phase or "listening"
         reason_s = str(reason or "")
         is_barge_release = reason_s.startswith("barge:")
         is_exit_listen = reason_s == "exit_listen" or reason_s.startswith("exit_listen")
-        if phase == "speaking" and not is_barge_release:
+        if phase == "speaking" and not is_barge_release and not is_exit_listen:
             voice_log(
                 "决策",
                 f"暂缓 unmute hold 释放 phase=speaking reason={reason_s}",
@@ -770,6 +861,8 @@ class PipecatVoiceBridge(FrameProcessor):
             if not text or not _has_readable(text):
                 return
             await self._ensure_pipecat()
+            if self._tts is not None and hasattr(self._tts, "set_tone"):
+                self._tts.set_tone(infer_tone(text))
             seq = getattr(frame, "seq", None)
             voice_log("分句", f"直接播报句 seq={seq}：「{text}」")
             await self._pipe_worker.queue_frame(PipeTTSSpeakFrame(text=text))
@@ -828,6 +921,12 @@ class PipecatVoiceBridge(FrameProcessor):
         @self._tts.event_handler("on_tts_request")
         async def _on_tts_request(_svc, context_id: str, text: str):
             self._turn_tts_count += 1
+            if self._turn_tts_count == 1 and self._turn_stopped_at:
+                ms = (time.monotonic() - self._turn_stopped_at) * 1000.0
+                voice_log(
+                    "延迟",
+                    f"turn 判定→首句合成请求 {ms:.0f} ms turn={self._turn}：「{str(text or '')[:40]}」",
+                )
             if text:
                 self._turn_spoken_texts.append(str(text))
             # 仅当本轮正文已被覆盖时取消兜底；确认短句 on_tts 不应吃掉 End 补播
@@ -1000,6 +1099,10 @@ class PipecatVoiceBridge(FrameProcessor):
                     if isinstance(item, tuple) and item and item[0] == "user_turn":
                         _, text, _turn = item
                         await self.push_downstream(UserTurnCompleteFrame(text=text))
+                        continue
+                    if isinstance(item, tuple) and item and item[0] == "user_turn_empty":
+                        _, empty_turn = item
+                        await self.push_downstream(UserTurnEmptyFrame(turn=int(empty_turn or 0)))
                         continue
                     if isinstance(item, tuple) and item and item[0] == "latency":
                         ms = float(item[1] or 0.0)

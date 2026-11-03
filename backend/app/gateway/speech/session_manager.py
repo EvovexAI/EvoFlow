@@ -1,7 +1,7 @@
 """Speech session — PipelineWorker host for Xiaomi Frame voice runtime.
 
 Protocol (C→S / S→C):
-  C→S {"type":"start","speaker":"...","asr_provider":"volcengine","tts_provider":"volcengine"}
+  C→S {"type":"start","speaker":"...","asr_provider":"volcengine","tts_provider":"volcengine","silence_ms":900}
   C→S binary PCM16LE @16kHz mono
   C→S {"type":"flush"} | {"type":"barge_in"} | {"type":"stop"}
   C→S {"type":"speak","seq":1,"text":"..."}          # legacy / imperative TTS
@@ -12,6 +12,7 @@ Protocol (C→S / S→C):
   S→C {"type":"trace","trace_id":"vt-…","sid":"vs-…"}
   S→C {"type":"partial"|"final","text":"..."}
   S→C {"type":"turn_end","text":"..."}
+  S→C {"type":"asr_empty","turn":n}          # 判停但无文本 → FE「没听清」反馈
   S→C {"type":"tts_start","seq":n,"text":"...","trace_id":"…"} → binary → tts_end
   S→C {"type":"interrupted"} | {"type":"error","message":"..."}
   S→C {"type":"metrics","user_to_bot_ms":...}
@@ -40,6 +41,7 @@ from app.gateway.speech.runtime.frames import (
     TTSSpeakFrame,
     UserBotLatencyFrame,
     UserTurnCompleteFrame,
+    UserTurnEmptyFrame,
 )
 from app.gateway.speech.runtime.worker import PipelineWorker
 from app.gateway.speech.runtime.xiaomi_pipeline import build_xiaomi_voice_pipeline
@@ -72,6 +74,8 @@ class SpeechSession:
         self._default_speaker: str | None = None
         self._asr_provider = "volcengine"
         self._tts_provider = "volcengine"
+        # 判停静默窗口（ms）；可由 start 载荷覆盖（前端 localStorage）。800=短问句少等 100ms，犹豫语速仍安全。
+        self._silence_ms = 800.0
         self._last_barge_at = 0.0
         self._last_barge_reason = ""
         self._barge_suppressed = 0
@@ -212,8 +216,9 @@ class SpeechSession:
                     await self._on_playback_ack(data)
                 elif op == "client_listening":
                     # FE 本地播完（队列空）→ 释放 STT unmute hold，下一轮才能识别
-                    # 相位门控：listening/idle 正常放麦；speaking 一律挡；
-                    # thinking 仅允许 purpose=exit_listen（否则确认句后思考期喊「退出」进不了 ASR）
+                    # 相位门控：listening/idle 正常放麦；thinking 仅允许 exit_listen；
+                    # speaking 允许 exit_listen —— 软暂停探测（本地已 pause、喇叭无声，
+                    # 无回声风险）靠它放麦听抢话/退出口令，否则语音打断永远确认不了。
                     phase = ""
                     if self._bridge and hasattr(self._bridge, "client_phase"):
                         phase = str(getattr(self._bridge, "client_phase", "") or "")
@@ -222,7 +227,7 @@ class SpeechSession:
                     exit_listen = purpose == "exit_listen" or (
                         force and purpose in ("", "exit_listen")
                     )
-                    if phase == "speaking":
+                    if phase == "speaking" and not exit_listen:
                         voice_log(
                             "决策",
                             f"忽略 client_listening（phase=speaking，播报中不放麦）purpose={purpose or '-'}",
@@ -272,6 +277,7 @@ class SpeechSession:
             tts_provider=self._tts_provider,
             speaker=self._default_speaker,
             on_user_turn=on_user_turn,
+            silence_ms=self._silence_ms,
         )
         self._bridge = bridge
         self._asr = asr  # PipecatVoiceBridge (flush_asr)
@@ -302,6 +308,12 @@ class SpeechSession:
         self._default_speaker = speaker or DEFAULT_TTS_SPEAKER
         self._asr_provider = str(data.get("asr_provider") or self._asr_provider).strip() or "volcengine"
         self._tts_provider = str(data.get("tts_provider") or self._tts_provider).strip() or "volcengine"
+        try:
+            silence_ms = float(data.get("silence_ms") or self._silence_ms)
+        except (TypeError, ValueError):
+            silence_ms = self._silence_ms
+        # 过短易把犹豫当句完；过长拖响应。500–2000ms 夹紧。
+        self._silence_ms = min(2000.0, max(500.0, silence_ms))
         try:
             from app.gateway.speech.tts_registry import validate_tts_config
 
@@ -528,6 +540,13 @@ class SpeechSession:
                 await self._ws.send_json(
                     {"type": "final", "text": frame.text, "is_final": True, "turn": True}
                 )
+                return
+            if isinstance(frame, UserTurnEmptyFrame):
+                # 判停了但 ASR 无字：让前端给「没听清」反馈，别冷场
+                try:
+                    await self._ws.send_json({"type": "asr_empty", "turn": frame.turn})
+                except Exception:
+                    pass
                 return
             if isinstance(frame, UserBotLatencyFrame):
                 # Pipecat UserBotLatencyObserver 权威值

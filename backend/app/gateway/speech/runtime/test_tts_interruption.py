@@ -34,7 +34,7 @@ class CollectProcessor(FrameProcessor):
         return out
 
 
-def _fake_synth(text: str, *, provider: str | None = None, speaker: str | None = None):
+def _fake_synth(text: str, **kwargs):
     async def gen():
         # Even-length payload so AudioContextManager alignment never pads.
         payload = text.encode("utf-8")
@@ -67,7 +67,7 @@ async def test_interruption_cancels_running_synthesis(monkeypatch: pytest.Monkey
 
     started = asyncio.Event()
 
-    async def slow_synth(text: str, *, provider: str | None = None, speaker: str | None = None):
+    async def slow_synth(text: str, **kwargs):
         started.set()
         try:
             while True:
@@ -88,9 +88,11 @@ async def test_interruption_cancels_running_synthesis(monkeypatch: pytest.Monkey
     await tts.queue_frame(TTSRequestFrame(text="第一句", seq=1, turn=1), FrameDirection.DOWNSTREAM)
     await asyncio.wait_for(started.wait(), timeout=5.0)
 
-    await tts.queue_frame(InterruptionFrame(reason="barge_in"), FrameDirection.DOWNSTREAM)
-    await asyncio.sleep(0.2)
-    await tts.stop()
+    try:
+        await tts.queue_frame(InterruptionFrame(reason="barge_in"), FrameDirection.DOWNSTREAM)
+        await asyncio.sleep(0.2)
+    finally:
+        await tts.stop()
 
     assert tts._min_turn >= 1
 
@@ -117,7 +119,7 @@ async def test_sentences_are_spoken_in_request_order(
     """Two sentences must not overlap: the second waits for the first to finish."""
     import app.gateway.speech.tts_registry as registry
 
-    async def synth(text: str, *, provider: str | None = None, speaker: str | None = None):
+    async def synth(text: str, **kwargs):
         delay = 0.2 if text == "第一句" else 0.0
         await asyncio.sleep(delay)
         payload = text.encode("utf-8")

@@ -380,8 +380,13 @@ async def synthesize_tts_stream(
     preview: bool = False,
     creds: dict[str, Any] | None = None,
     session_uid: str | None = None,
+    tone: dict[str, Any] | None = None,
 ) -> AsyncGenerator[bytes, None]:
-    """Streaming TTS — yields audio chunks as they arrive from the provider."""
+    """Streaming TTS — yields audio chunks as they arrive from the provider.
+
+    ``tone``（runtime/emotion.infer_tone 产物）仅火山 seed-tts 支持时生效
+    （additions.emotion / speech_rate 增量）；其它 provider 忽略。
+    """
     prov = _resolve_provider(provider)
     creds = creds if creds is not None else _get_creds()
     _preflight_or_raise(prov, creds)
@@ -395,6 +400,7 @@ async def synthesize_tts_stream(
             speaker=voice or None,
             preview=preview,
             session_uid=session_uid,
+            tone=tone,
         ):
             yield chunk
         return

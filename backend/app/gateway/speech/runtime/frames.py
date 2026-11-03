@@ -119,6 +119,13 @@ class UserTurnCompleteFrame(ControlFrame):
 
 
 @dataclass(slots=True)
+class UserTurnEmptyFrame(SystemFrame):
+    """用户回合判定完成但 ASR 无文本（VAD 误触发/麦聋）→ 前端反馈「没听清」。"""
+
+    turn: int = 0
+
+
+@dataclass(slots=True)
 class UserBotLatencyFrame(SystemFrame):
     """Pipecat-aligned: 用户落静音 → 机器人开口（ms）。"""
 
