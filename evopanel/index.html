@@ -7,7 +7,8 @@
   <link rel="icon" href="/icons/assistant.svg" type="image/svg+xml">
   <!-- 修复依据：Google Fonts 外链会让 WebView 首帧等待 DNS/请求（弱网、离线时更久甚至超时），
        与「首帧零外部依赖」的启动目标冲突；改用系统字体栈，骨架屏与应用内字体随之回退。 -->
-  <!-- 首帧即生效：不依赖 JS 与 variables.css；浅色底与默认主题、WebView backgroundColor 一致 -->
+  <!-- 首帧即生效：不依赖 JS 与 variables.css。背景说明：WebView 原生底为启动页深色
+       (#05040f，见 tauri.conf.json)，本文件浅色底只在启动页移除后作为主界面背景露出。 -->
   <style>
     html, body { margin: 0; min-height: 100%; background: #f4f5fb; }
     #boot-splash {

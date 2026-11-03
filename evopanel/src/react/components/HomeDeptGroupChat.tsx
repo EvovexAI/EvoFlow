@@ -1001,7 +1001,7 @@ export function HomeDeptGroupChat({
           {!msgs.length ? (
             <div className="evo-home-cmd__gc-empty">
               {isMain
-                ? `直接说事，小V会接住；或 @${dept.head_role_name || members[0]?.role_name || '技术总监'} 点名`
+                ? `直接说事，小V会回复、帮你解决问题；或 @${dept.head_role_name || members[0]?.role_name || '技术总监'} 点名`
                 : `直接说事交给小V，或 @${dept.head_role_name || members[0]?.role_name || '技术总监'} 点名`}
             </div>
           ) : (
@@ -1194,7 +1194,7 @@ export function HomeDeptGroupChat({
               value={draft}
               placeholder={
                 isMain
-                  ? '直接说事，小V会接住；或 @成员点名…'
+                  ? '直接说事，小V会回复；或 @成员点名…'
                   : '直接说事交给小V，或 @ 选人…'
               }
               onChange={(e) => onDraftChange(e.target.value)}

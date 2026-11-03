@@ -21,7 +21,7 @@
         "minHeight": 540,
         "decorations": false,
         "resizable": true,
-        "backgroundColor": "#f8f9fb",
+        "backgroundColor": "#05040f",
         "additionalBrowserArgs": "--use-fake-ui-for-media-stream --enable-features=MediaSession"
       }
     ],

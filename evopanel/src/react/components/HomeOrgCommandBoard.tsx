@@ -102,6 +102,20 @@ export function personDutyLabel(p: { status?: string; busy?: boolean }): string 
   return isPersonOnDuty(p) ? '在岗' : '不在岗'
 }
 
+function deptLastActivityClock(members: HomeCmdPerson[]): string {
+  let best = 0
+  let label = ''
+  for (const m of members) {
+    const raw = m.busy_started_at || m.last_heartbeat_at
+    if (!raw) continue
+    const t = new Date(raw).getTime()
+    if (Number.isNaN(t) || t <= best) continue
+    best = t
+    label = formatCmdClock(raw)
+  }
+  return label || '—'
+}
+
 function resolveXiaomi(roles: any[], roleBusyByCode: Record<string, any>): HomeCmdPerson {
   const hit = (Array.isArray(roles) ? roles : []).find((r) => roleCode(r).toLowerCase() === XIAOMI_CODE)
   const busySnap = roleBusyByCode?.[XIAOMI_CODE] || roleBusyByCode?.[hit ? roleCode(hit) : ''] || {}
@@ -573,8 +587,31 @@ export function HomeOrgCommandBoard({
                       selectedPersonCode={selectedPerson?.agent_code || null}
                       selectedDeptId={selectedDept?.id || null}
                       onPath={litDeptId === dept.id}
+                      showFloat={
+                        !selectedPerson &&
+                        deptPanel === 'info' &&
+                        selectedDept?.id === dept.id
+                      }
                       onSelectDept={() => openDept(dept.id)}
                       onSelectPerson={openPerson}
+                      onCloseFloat={() => setSelectedKey(null)}
+                      onOpenChat={() => {
+                        try {
+                          rememberDeptChatMeta(dept)
+                        } catch {
+                          /* ignore */
+                        }
+                        const sk = deptChatSessionKey(dept.id)
+                        if (!sk) {
+                          setDeptPanel('chat')
+                          return
+                        }
+                        window.dispatchEvent(
+                          new CustomEvent('evopanel:shell-select-session', {
+                            detail: { sessionKey: sk },
+                          }),
+                        )
+                      }}
                     />
                   ))}
                 </div>
@@ -599,30 +636,6 @@ export function HomeOrgCommandBoard({
               window.location.hash = `#/proactive/${encodeURIComponent(code)}`
             }}
           />
-        ) : selectedDept ? (
-          <DeptDetail
-            dept={selectedDept}
-            onClose={() => setSelectedKey(null)}
-            onSelectPerson={openPerson}
-            onOpenChat={() => {
-              // 跳到主区部门群聊（与侧栏「部门」同路径），不要只在工作台侧栏里开一小窗
-              try {
-                rememberDeptChatMeta(selectedDept)
-              } catch {
-                /* ignore */
-              }
-              const sk = deptChatSessionKey(selectedDept.id)
-              if (!sk) {
-                setDeptPanel('chat')
-                return
-              }
-              window.dispatchEvent(
-                new CustomEvent('evopanel:shell-select-session', {
-                  detail: { sessionKey: sk },
-                }),
-              )
-            }}
-          />
         ) : null}
       </div>
     </div>
@@ -634,15 +647,21 @@ function DeptColumn({
   selectedPersonCode,
   selectedDeptId,
   onPath = false,
+  showFloat = false,
   onSelectDept,
   onSelectPerson,
+  onCloseFloat,
+  onOpenChat,
 }: {
   dept: HomeCmdDept
   selectedPersonCode: string | null
   selectedDeptId: string | null
   onPath?: boolean
+  showFloat?: boolean
   onSelectDept: () => void
   onSelectPerson: (code: string) => void
+  onCloseFloat: () => void
+  onOpenChat: () => void
 }) {
   const selected = selectedDeptId === dept.id
   const personInDept = !!selectedPersonCode && dept.members.some((m) => m.agent_code === selectedPersonCode)
@@ -651,6 +670,7 @@ function DeptColumn({
   const total = dept.members.length
   const onDutyCount = dept.members.filter((m) => isPersonOnDuty(m)).length
   const busyCount = dept.members.filter((m) => m.busy).length
+  const lastAt = deptLastActivityClock(dept.members)
   const shown = dept.members.slice(0, 10)
   const more = Math.max(0, total - shown.length)
   return (
@@ -659,7 +679,7 @@ function DeptColumn({
         selected || personInDept ? ' is-selected' : ''
       }${dept.busyCount ? ' is-busy' : ''}${onPath ? ' is-path' : ''}${
         expanded ? ' is-expanded' : ''
-      }`}
+      }${showFloat ? ' has-float' : ''}`}
     >
       <button
         type="button"
@@ -677,23 +697,17 @@ function DeptColumn({
         </span>
         <span className="evo-home-cmd__dept-kpi-row">
           <span className="evo-home-cmd__dept-kpi">
-            {onDutyCount}
+            {busyCount}
+            <small> 执行中</small>
+          </span>
+          <span className="evo-home-cmd__dept-kpi-side">
+            {onDutyCount}/{total}
             <small> 在岗</small>
           </span>
-          {busyCount > 0 ? (
-            <span className="evo-home-cmd__dept-kpi-side">
-              +{busyCount}
-              <small> 执行</small>
-            </span>
-          ) : (
-            <span className="evo-home-cmd__dept-kpi-side">
-              {total}
-              <small> 编制</small>
-            </span>
-          )}
         </span>
         <span className="evo-home-cmd__dept-head-meta">
-          {dept.head_role_name ? `负责人 ${dept.head_role_name}` : `共 ${total} 人`}
+          {dept.head_role_name ? `${dept.head_role_name} · ` : ''}
+          上次 {lastAt}
         </span>
       </button>
 
@@ -701,30 +715,32 @@ function DeptColumn({
         <div className="evo-home-cmd__dept-branch">
           <ul className="evo-home-cmd__dept-leaves">
             {shown.length ? (
-              shown.map((p) => {
+              shown.map((p, idx) => {
                 const onDuty = isPersonOnDuty(p)
+                const clock =
+                  formatCmdClock(p.busy_started_at || p.last_heartbeat_at) || '—'
+                const kind = p.busy
+                  ? String(p.summary || '执行中')
+                  : onDuty
+                    ? '待命'
+                    : '已暂停'
                 return (
                   <li key={p.agent_code}>
                     <button
                       type="button"
-                      className={`evo-home-cmd__leaf${
+                      className={`evo-home-cmd__leaf evo-home-cmd__leaf--tone${(idx % 4) + 1}${
                         selectedPersonCode === p.agent_code ? ' is-selected' : ''
                       }${p.busy ? ' is-busy' : ''}${onDuty ? ' is-on-duty' : ' is-off-duty'}`}
                       title={personDutyLabel(p)}
                       aria-label={`${p.role_name}，${personDutyLabel(p)}`}
                       onClick={() => onSelectPerson(p.agent_code)}
                     >
-                      <span
-                        className={`evo-home-cmd__status${onDuty ? ' is-on' : ' is-off'}`}
-                        aria-hidden
-                      />
+                      <span className="evo-home-cmd__leaf-dot" aria-hidden />
                       <span className="evo-home-cmd__leaf-body">
                         <span className="evo-home-cmd__leaf-name">{p.role_name}</span>
-                        <span className="evo-home-cmd__leaf-kind">员工</span>
+                        <span className="evo-home-cmd__leaf-kind">{kind}</span>
                       </span>
-                      <span className="evo-home-cmd__leaf-meta">
-                        {p.busy ? '执行中' : onDuty ? '在岗' : '待命'}
-                      </span>
+                      <span className="evo-home-cmd__leaf-meta">{clock}</span>
                     </button>
                   </li>
                 )
@@ -736,6 +752,10 @@ function DeptColumn({
           </ul>
         </div>
       ) : null}
+
+      {showFloat ? (
+        <DeptDetail dept={dept} onClose={onCloseFloat} onOpenChat={onOpenChat} />
+      ) : null}
     </div>
   )
 }
@@ -743,30 +763,21 @@ function DeptColumn({
 function DeptDetail({
   dept,
   onClose,
-  onSelectPerson,
   onOpenChat,
 }: {
   dept: HomeCmdDept
   onClose: () => void
-  onSelectPerson: (code: string) => void
+  onSelectPerson?: (code: string) => void
   onOpenChat: () => void
 }) {
   const total = dept.members.length
   const onDutyCount = dept.members.filter((m) => isPersonOnDuty(m)).length
   const busyCount = dept.members.filter((m) => m.busy).length
   const offDutyCount = Math.max(0, total - onDutyCount)
-  /* 简易周对比条：参考 UI 的「上周/本周」视觉，数值用在岗/执行推导 */
-  const weekBars = [
-    Math.max(1, Math.round(onDutyCount * 0.55)),
-    Math.max(1, Math.round(onDutyCount * 0.7)),
-    Math.max(1, Math.round(onDutyCount * 0.45)),
-    Math.max(1, onDutyCount),
-    Math.max(1, Math.round(onDutyCount * 0.85) + busyCount),
-  ]
-  const weekMax = Math.max(...weekBars, 1)
+  const lastAt = deptLastActivityClock(dept.members)
   return (
     <aside
-      className={`evo-home-cmd__detail evo-home-cmd__detail--float evo-home-cmd__detail--${dept.accent}`}
+      className={`evo-home-cmd__detail evo-home-cmd__detail--float evo-home-cmd__detail--dock evo-home-cmd__detail--${dept.accent}`}
       aria-label={`${dept.name} 部门信息`}
     >
       <header className="evo-home-cmd__detail-head">
@@ -789,43 +800,34 @@ function DeptDetail({
         </button>
       </header>
 
-      <div className="evo-home-cmd__detail-chart" aria-hidden>
-        <div className="evo-home-cmd__detail-chart-head">
-          <span>上周</span>
-          <span className="is-now">本周</span>
-        </div>
-        <div className="evo-home-cmd__detail-chart-bars">
-          {weekBars.map((v, i) => (
-            <span
-              key={i}
-              className={i >= 3 ? 'is-now' : ''}
-              style={{ height: `${Math.max(18, Math.round((v / weekMax) * 100))}%` }}
-            />
-          ))}
-        </div>
+      <div className="evo-home-cmd__detail-snap">
+        <span>今日快照</span>
+        <strong>
+          在岗 {onDutyCount} · 执行 {busyCount} · 上次 {lastAt}
+        </strong>
       </div>
 
       <div className="evo-home-cmd__detail-stats">
         <div>
-          <strong>今天 {onDutyCount} 人</strong>
-          <span>在岗</span>
+          <strong>{onDutyCount}</strong>
+          <span>人在岗</span>
         </div>
         <div>
-          <strong>今天 {busyCount} 件</strong>
+          <strong>{busyCount}</strong>
           <span>执行中</span>
         </div>
         <div>
-          <strong>{offDutyCount} 人</strong>
+          <strong>{offDutyCount}</strong>
           <span>不在岗</span>
         </div>
         <div>
-          <strong>{dept.head_role_name || '—'}</strong>
-          <span>负责人</span>
+          <strong>{lastAt}</strong>
+          <span>上次活动</span>
         </div>
       </div>
 
       <button type="button" className="evo-home-cmd__detail-link" onClick={onOpenChat}>
-        点一下看细节 →
+        打开部门群聊 →
       </button>
     </aside>
   )

@@ -8,7 +8,9 @@ import {
   CircleDot,
   Clock3,
   Database,
+  Maximize2,
   MessageSquare,
+  Minimize2,
   Paperclip,
   PlayCircle,
   RefreshCw,
@@ -300,6 +302,8 @@ export function EvoFlowHomeDashboard({ onPrompt, workspaceLabel = '', workspaceP
   const [chips, setChips] = useState<Array<{ id: string; label: string }>>([])
   const [drawer, setDrawer] = useState<DrawerKind>(null)
   const [homeTab, setHomeTab] = useState<HomeTab>('workbench')
+  /** 总览影院全屏：右上角放大/缩小显式切换 */
+  const [overviewCinema, setOverviewCinema] = useState(true)
   /** 进总览前侧栏折叠态；null=未接管 */
   const asideBeforeOverviewRef = useRef<boolean | null>(null)
   const [skillOpen, setSkillOpen] = useState(false)
@@ -344,15 +348,14 @@ export function EvoFlowHomeDashboard({ onPrompt, workspaceLabel = '', workspaceP
     }
   }, [draft])
 
-  // 总览影院：默认藏左侧壳 + 顶栏，贴边悬停再浮出；离开总览还原
+  // 总览全屏：藏左侧壳 + 顶栏；不再贴边展开，只靠右上角「缩小」退出
   useEffect(() => {
     const root = document.documentElement
     const clearCinema = () => {
       root.classList.remove('evo-home-overview-cinema', 'evo-cinema-peek')
     }
 
-    if (homeTab !== 'overview') {
-      clearCinema()
+    const restoreAside = () => {
       if (asideBeforeOverviewRef.current === null) return
       const prev = asideBeforeOverviewRef.current
       asideBeforeOverviewRef.current = null
@@ -361,68 +364,30 @@ export function EvoFlowHomeDashboard({ onPrompt, workspaceLabel = '', workspaceP
       } catch {
         /* ignore */
       }
+    }
+
+    if (homeTab !== 'overview' || !overviewCinema) {
+      clearCinema()
+      if (homeTab !== 'overview') restoreAside()
       return
     }
 
     if (asideBeforeOverviewRef.current === null) {
       asideBeforeOverviewRef.current = getShellAsideCollapsed()
     }
-    // 浮出时要能看见完整导航文案
     try {
       setShellAsideCollapsed(false)
     } catch {
       /* ignore */
     }
     root.classList.add('evo-home-overview-cinema')
+    root.classList.remove('evo-cinema-peek')
 
-    const EDGE = 20
-    const HIDE_MS = 420
-    let hideT: number | null = null
-
-    const clearTimer = () => {
-      if (hideT != null) {
-        window.clearTimeout(hideT)
-        hideT = null
-      }
-    }
-
-    /** 顶栏 + 左侧一起出/一起收，避免各露各的 */
-    const setPeek = (on: boolean) => {
-      if (on) {
-        clearTimer()
-        root.classList.add('evo-cinema-peek')
-        return
-      }
-      clearTimer()
-      hideT = window.setTimeout(() => {
-        root.classList.remove('evo-cinema-peek')
-        hideT = null
-      }, HIDE_MS)
-    }
-
-    const onMove = (e: PointerEvent) => {
-      const t = e.target as Element | null
-      const overChrome = !!t?.closest?.(
-        '#app-shell-aside, #tauri-main-chrome, .react-chat-header, .evo-home-header, .evo-home-cinema-top, .evo-home-cinema-hot-left, .evo-home-cinema-hot-top',
-      )
-      setPeek(e.clientX <= EDGE || e.clientY <= EDGE || overChrome)
-    }
-
-    window.addEventListener('pointermove', onMove, { passive: true })
     return () => {
-      window.removeEventListener('pointermove', onMove)
-      clearTimer()
       clearCinema()
-      if (asideBeforeOverviewRef.current === null) return
-      const prev = asideBeforeOverviewRef.current
-      asideBeforeOverviewRef.current = null
-      try {
-        setShellAsideCollapsed(prev)
-      } catch {
-        /* ignore */
-      }
+      if (homeTab !== 'overview') restoreAside()
     }
-  }, [homeTab])
+  }, [homeTab, overviewCinema])
 
   const totalTasks = useMemo(
     () => data.sourceData.reduce((sum, item) => sum + item.value, 0),
@@ -992,11 +957,17 @@ export function EvoFlowHomeDashboard({ onPrompt, workspaceLabel = '', workspaceP
       className={`evo-home-dashboard${homeTab === 'overview' ? ' evo-home-dashboard--overview' : ''}`}
       data-loading={data.loading ? '1' : undefined}
     >
-      {homeTab === 'overview' ? (
-        <>
-          <div className="evo-home-cinema-hot-left" aria-hidden />
-          <div className="evo-home-cinema-hot-top" aria-hidden />
-        </>
+      {homeTab === 'overview' && overviewCinema ? (
+        <button
+          type="button"
+          className="evo-home-cinema-fab"
+          aria-label="退出全屏"
+          title="缩小"
+          onClick={() => setOverviewCinema(false)}
+        >
+          <Minimize2 className="evo-home-ic" />
+          <span>缩小</span>
+        </button>
       ) : null}
       <div className="evo-home-dashboard__inner">
         <header
@@ -1075,7 +1046,23 @@ export function EvoFlowHomeDashboard({ onPrompt, workspaceLabel = '', workspaceP
                 工作台设置
                 <Settings2 className="evo-home-ic" />
               </button>
-            ) : null}
+            ) : (
+              <button
+                type="button"
+                className="evo-home-btn evo-home-btn--outline evo-home-btn--cinema"
+                aria-pressed={overviewCinema}
+                aria-label={overviewCinema ? '退出全屏' : '全屏总览'}
+                title={overviewCinema ? '缩小（显示侧栏与顶栏）' : '全屏（沉浸指挥台）'}
+                onClick={() => setOverviewCinema((v) => !v)}
+              >
+                {overviewCinema ? '缩小' : '全屏'}
+                {overviewCinema ? (
+                  <Minimize2 className="evo-home-ic" />
+                ) : (
+                  <Maximize2 className="evo-home-ic" />
+                )}
+              </button>
+            )}
           </div>
         </header>
 
