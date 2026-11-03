@@ -875,6 +875,10 @@ def _assemble_system_prompt(
             blocks.append(static.VOICE_MODE_BLOCK.strip())
         if is_im and getattr(static, "IM_CHANNEL_REPLY_BLOCK", "").strip():
             blocks.append(static.IM_CHANNEL_REPLY_BLOCK.strip())
+        # 易变块靠后：心境放最后（UI context footer 由 middleware 在其后追加）
+        affect_block = get_agent_affect_block(agent_name)
+        if affect_block:
+            blocks.append(affect_block.strip())
         return "\n\n".join([b for b in blocks if b]).strip() + "\n"
 
     # 统一裁决链：静态块（role/communication/entity_assets）是基础，
@@ -1017,6 +1021,10 @@ def _assemble_system_prompt(
         blocks.append(static.IM_CHANNEL_REPLY_BLOCK.strip())
 
     # Final join with blank lines
+    # 易变块靠后：心境放最后（UI context footer 由 middleware 在其后追加）
+    affect_block = get_agent_affect_block(agent_name)
+    if affect_block:
+        blocks.append(affect_block.strip())
     return "\n\n".join([b for b in blocks if b]).strip() + "\n"
 
 
@@ -1938,7 +1946,21 @@ def get_agent_soul(agent_name: str | None, *, include_employee_posting: bool = F
             )
     if soul_block:
         parts.append(soul_block)
-    # Unified affect brief (all coded agents: xiaomi + employees + named agents).
+    # 心境（<affect>）不再内联在这里——它每轮微变，紧跟 soul 会把厂商前缀缓存从
+    # soul 位置整体击穿。统一由 _assemble_system_prompt 追加到提示词最末尾
+    # （get_agent_affect_block）。
+    # ``<person_presence>`` / 站立摘要是智能体员工值班话术（班次、本轮、收工）。
+    # 主会话 Agent 对话不要注入；值班路径在 proactive/prompt.py 里 ``for_duty=True`` 单独加。
+    return "".join(parts)
+
+
+def get_agent_affect_block(agent_name: str | None) -> str:
+    """心境（<affect>）块——供 _assemble_system_prompt 追加到提示词最末尾。
+
+    为什么放最后：心境 brief 每轮都可能微变，放提示词中段（旧：紧跟 soul）会让
+    厂商前缀缓存从 soul 位置开始整体失效（TTFT 与成本双输）。易变内容全部靠后，
+    前缀（role/communication/soul/duties/tools）保持逐字节稳定。
+    """
     try:
         code = str(agent_name or "").strip().lower()
         if code and code not in {"main", "lead_agent", "user", "default"}:
@@ -1947,15 +1969,10 @@ def get_agent_soul(agent_name: str | None, *, include_employee_posting: bool = F
 
             brief = format_affect_brief(code)
             if brief:
-                parts.append(
-                    f"\n<affect>\n{brief}\n\n{AFFECT_DISCIPLINE_PROMPT.strip()}\n</affect>\n"
-                )
+                return f"\n<affect>\n{brief}\\n{AFFECT_DISCIPLINE_PROMPT.strip()}\n</affect>\n"
     except Exception:
-        logger.debug("get_agent_soul: affect inject skipped", exc_info=True)
-    # ``<person_presence>`` / 站立摘要是智能体员工值班话术（班次、本轮、收工）。
-    # 主会话 Agent 对话不要注入；值班路径在 proactive/prompt.py 里 ``for_duty=True`` 单独加。
-    return "".join(parts)
-
+        logger.debug("get_agent_affect_block: inject skipped", exc_info=True)
+    return ""
 
 def _is_lead_agent_code(agent_name: str | None) -> bool:
     code = str(agent_name or "").strip().lower()
