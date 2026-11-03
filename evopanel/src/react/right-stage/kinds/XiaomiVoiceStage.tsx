@@ -35,6 +35,7 @@ import {
 } from '../../../lib/xw-voice-mode.js'
 import { XiaomiV4Timeline } from '../../components/XiaomiV4Timeline.js'
 import { VoicePlaybackDiagnostics } from '../../components/VoicePlaybackDiagnostics.js'
+import { XiaoxiStagePet, type PetMode } from '../../components/XiaoxiStagePet.js'
 import './xiaomi-voice-stage.css'
 
 /** 舞台只暴露三态：跟流式/播报接口对齐，别再拆「待命/识别/占用」。 */
@@ -668,7 +669,16 @@ export function XiaomiVoiceStage() {
   }, [visible, hasInteracted, state, sessionActive, transcript])
 
   const stColor = STATE_COLOR[state]
-  const stateWord = STATE_LABEL[state]
+  const stateWord = state === 'listen' && !hasInteracted ? '工作中' : STATE_LABEL[state]
+  /* 舞台中心的形象：还没开始对话时小V在敲代码干活；对话三态映射到表情/口型 */
+  const petMode: PetMode =
+    state === 'listen'
+      ? hasInteracted
+        ? 'listening'
+        : 'coding'
+      : state === 'think'
+        ? 'thinking'
+        : 'answering'
   const showRecent = hasInteracted
   /** 右侧关着 = 语音域已铺满整窗。 */
   const voiceExpanded = !rightStageOpen
@@ -837,6 +847,7 @@ export function XiaomiVoiceStage() {
 
       <div className="xws-stage" onClick={onInterrupt} title={state === 'speak' ? '点击打断' : undefined}>
         <canvas ref={canvasRef} className="xws-canvas" aria-hidden="true" />
+        <XiaoxiStagePet mode={petMode} />
       </div>
 
       <div className="xws-focus" data-tauri-no-drag="">

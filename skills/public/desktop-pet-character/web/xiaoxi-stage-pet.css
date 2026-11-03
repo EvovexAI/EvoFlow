@@ -1,4 +1,4 @@
-/* 语音舞台中心的小汐：canvas 由组件自己算尺寸与位置，这里只管层级与进场 */
+/* 语音舞台中心的小V：canvas 由组件自己算尺寸与位置，这里只管层级与进场 */
 .xws-pet {
   position: absolute;
   z-index: 1;

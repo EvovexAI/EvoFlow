@@ -786,13 +786,13 @@ class NinjaBlue(Ninja):
         (158, 146, 3.2, 4.8),
     )
 # --------------------------------------------------------------------------- #
-# 小汐 —— 语音对话形态（人物角色）
+# 小V —— 语音对话形态（人物角色）
 # --------------------------------------------------------------------------- #
 class Girl(Character):
     """Q 版小女孩：大脑袋 + 小身体，冰蓝色长直发 + 一袭素色长裙。四种对话状态靠姿势与表情区分。"""
 
-    name = "小汐"
-    desc = "桌面语音小助手，会思考、会敲代码、会听你说话。"
+    name = "小V"
+    desc = "桌面语音小助手，会思考、会敲代码、会扶着耳朵听你说话。"
     species = "human"
     ground_y = 188.0
     silhouette = [
@@ -1333,8 +1333,8 @@ class GirlArt(Girl):
     两套场景按 mode 交叉淡入，读起来像"她凑到桌前坐下了"。
     """
 
-    name = "小汐"
-    desc = "桌面语音小助手，会思考、会敲代码、会听你说话。"
+    name = "小V"
+    desc = "桌面语音小助手，会思考、会敲代码、会扶着耳朵听你说话。"
     species = "human"
     ground_y = 189.0
 
@@ -1811,6 +1811,58 @@ class GirlArt(Girl):
         p.setOpacity(alpha)
         p.setOpacity(alpha)
 
+    def _hand_on_ear(self, p: QPainter, sx: float, sy: float,
+                     left: float, top: float) -> None:
+        """listening：一只手举起来扶着耳朵——像在努力听清每一个字。
+
+        浅色袖子从身侧弯上来，腕口露一只竖长的手掌贴在头侧（耳朵被长发盖着，
+        手掌贴上去就是"扶耳"），指尖朝上微斜。画在头层坐标系里，跟着头一起转。
+        """
+        # 源坐标（840x1333）
+        q0 = QPointF(left + 706 * sx, top + 706 * sy)   # 臂根（藏进身体轮廓）
+        q1 = QPointF(left + 655 * sx, top + 470 * sy)   # 手腕
+        ang = -0.24                                     # 手掌微倾（指尖朝后上）
+
+        p.setRenderHint(QPainter.Antialiasing, True)
+
+        # 小臂袖子：从身侧弯上来的浅色粗线，比发色更白更实，读得出是手臂
+        sleeve = QPainterPath(q0)
+        sleeve.quadTo(QPointF(left + 716 * sx, top + 560 * sy), q1)
+        sg = QLinearGradient(q0, q1)
+        sg.setColorAt(0.0, QColor("#C7D6E2"))
+        sg.setColorAt(1.0, QColor("#F0F5FA"))
+        p.setPen(QPen(_rgba("#9FB4C6", 150), max(0.8, 2.4 * sx),
+                      Qt.SolidLine, Qt.RoundCap))
+        p.setBrush(QBrush(sg))
+        p.drawPath(sleeve)
+
+        # 腕口：袖子在手腕处收一道边
+        p.setPen(QPen(_rgba("#9FB4C6", 120), max(0.6, 1.8 * sx)))
+        p.setBrush(QColor("#EDF3F8"))
+        p.drawEllipse(QPointF(left + 652 * sx, top + 468 * sy),
+                      26 * sx, 17 * sy)
+
+        # 手掌：竖长椭圆（指朝上）+ 掌根，绕腕微转
+        p.save()
+        p.translate(left + 645 * sx, top + 420 * sy)
+        p.rotate(math.degrees(ang))
+        pg = QLinearGradient(0, -55 * sy, 0, 40 * sy)
+        pg.setColorAt(0.0, self.SKIN_HI)
+        pg.setColorAt(1.0, self.SKIN_LO)
+        p.setPen(QPen(_rgba("#D9A8A6", 140), max(0.7, 2.0 * sx)))
+        p.setBrush(QBrush(pg))
+        p.drawEllipse(QPointF(0, 0), 27 * sx, 56 * sy)     # 掌 + 并拢的四指
+        p.drawEllipse(QPointF(-24 * sx, 30 * sy), 11 * sx, 14 * sy)  # 拇指根
+
+        # 指缝：三道短线
+        p.setPen(QPen(_rgba("#D9A8A6", 130), max(0.5, 1.3 * sx)))
+        p.setBrush(Qt.NoBrush)
+        for dx in (-13, 0, 13):
+            f = QPainterPath(QPointF(dx * sx, -46 * sy))
+            f.quadTo(QPointF((dx + 2) * sx, -22 * sy), QPointF(dx * sx, 0))
+            p.drawPath(f)
+        p.restore()
+
     # ------------------------------------------------------------------ #
     # 站姿场景
     # ------------------------------------------------------------------ #
@@ -1873,6 +1925,9 @@ class GirlArt(Girl):
             self._mouth(p, left + mx * sx, hy + my * sy,
                         self.MOUTH_HALF[0] * sx, self.MOUTH_HALF[1] * sy,
                         mode, t, self.SKIN_HI, self.SKIN_LO)
+            if mode == "listening":
+                # 手扶着耳朵在听：画在五官之后，手掌盖在耳侧头发上
+                self._hand_on_ear(p, sx, sy, left, hy)
         p.restore()
 
         if mode == "thinking":

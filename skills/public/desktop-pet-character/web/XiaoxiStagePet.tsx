@@ -1,13 +1,15 @@
 /**
- * 语音舞台中心的小汐。
+ * 语音舞台中心的小V。
  *
  * 渲染逻辑全在 xiaoxi-pet-render.ts（纯 canvas，可单独跑）；这里只负责：
- * 加载立绘、按舞台尺寸算位置（把「脚」落在 72% 高度，避开底部字幕区）、按帧循环、眨眼计时。
+ * 加载立绘（站姿 + 坐姿两张）、按舞台尺寸算位置（把「脚」落在 72% 高度，避开底部字幕区）、
+ * 按帧循环、眨眼计时。
  */
 import { useEffect, useRef } from 'react'
 import {
   drawPetFrame,
   PET_DESIGN_SIZE,
+  PET_DESK_IMG_URL,
   PET_FOOT_Y,
   PET_IMG_URL,
   type PetMode,
@@ -56,6 +58,9 @@ export function XiaoxiStagePet({ mode }: { mode: PetMode }) {
     const img = new Image()
     img.decoding = 'async'
     img.src = PET_IMG_URL
+    const deskImg = new Image()
+    deskImg.decoding = 'async'
+    deskImg.src = PET_DESK_IMG_URL
 
     let t = 0
     let last = 0
@@ -88,7 +93,15 @@ export function XiaoxiStagePet({ mode }: { mode: PetMode }) {
 
       const scale = canvas.width / PET_DESIGN_SIZE || 1
       ctx.setTransform(scale, 0, 0, scale, 0, 0)
-      drawPetFrame(ctx, img, modeRef.current, t, blink, img.naturalWidth / 840)
+      drawPetFrame(
+        ctx,
+        img,
+        modeRef.current,
+        t,
+        blink,
+        img.naturalWidth / 840,
+        deskImg.complete && deskImg.naturalWidth > 0 ? deskImg : null,
+      )
     }
     raf = requestAnimationFrame(loop)
 

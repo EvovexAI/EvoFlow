@@ -1,18 +1,21 @@
 /**
- * 小汐立绘动画 —— 纯 canvas 2D 渲染，不依赖 React / DOM 框架。
+ * 小V立绘动画 —— 纯 canvas 2D 渲染，不依赖 React / DOM 框架。
  *
  * 移植自桌面宠物（PySide6）的「拆层立绘」做法，几何与配色一一对应：
  * - 立绘按脖子切成「头层 / 身体层」两个 srcRect，头绕脖子轴旋转，接缝被 OVERLAP 挡住
  * - 眨眼 = 取眼睛区域纵向压缩，先铺一层肤色再贴，压缩边缘不会露眼眶
  * - 说话 = 先铺肤色盖掉立绘自带的抿嘴，再按音节包络画「上宽下窄 + 嘴角上翘」的笑口
+ * - listening = 手扶着耳朵在听：袖子从身侧弯上来，竖掌贴在头侧
+ * - coding = 坐姿立绘（第二张图）敲键盘：键光连闪、双手点按、脑袋一顿一顿
  *
  * 所有绘制都在 200x200 的设计空间里完成，调用方负责设置 transform。
- * 源坐标按 840x1333 原始立绘量，运行时乘 K（实际图宽 / 840）换算，换图尺寸不影响。
+ * 源坐标按 840x1333（站姿）/ 1024x852（坐姿）原始立绘量，运行时乘 K（实际图宽 / 原图宽）换算。
  */
 
-export type PetMode = 'idle' | 'listening' | 'thinking' | 'answering'
+export type PetMode = 'idle' | 'listening' | 'thinking' | 'answering' | 'coding'
 
 export const PET_IMG_URL = '/assets/xiaoxi/girl.webp'
+export const PET_DESK_IMG_URL = '/assets/xiaoxi/girl_desk.webp'
 export const PET_DESIGN_SIZE = 200
 /** 脚底在设计空间里的 y：定位时用它把人物「站」在指定高度 */
 export const PET_FOOT_Y = 188
@@ -39,6 +42,33 @@ const BLUSH: ReadonlyArray<readonly [number, number]> = [
 const BLUSH_HALF: readonly [number, number] = [32, 22]
 const SKIN_HI = '#F2E0E0'
 const SKIN_LO = '#EFD9D8'
+
+/* ── 坐姿立绘几何（按 1024x852 原图量，与桌面端 D_* 一一对应） ── */
+const D_IMG_W = 1024
+const D_IMG_H = 852
+const D_WIDTH = 196 // 整张坐姿图在 200 设计空间里的宽度
+const D_BOTTOM = 197 // 图底边落点
+const D_NECK_Y = 492
+const D_OVERLAP = 120
+const D_EYES: ReadonlyArray<readonly [number, number]> = [
+  [430, 330],
+  [600, 325],
+]
+const D_EYE_HALF: readonly [number, number] = [56, 38]
+const D_MOUTH: readonly [number, number] = [505, 426]
+const D_MOUTH_HALF: readonly [number, number] = [17, 12]
+const D_BLUSH: ReadonlyArray<readonly [number, number]> = [
+  [430, 396],
+  [601, 392],
+]
+const D_HANDS: ReadonlyArray<readonly [number, number]> = [
+  [380, 700],
+  [585, 694],
+]
+const D_HAND_HALF: readonly [number, number] = [52, 40]
+const D_KB: readonly [number, number, number, number] = [467, 748, 386, 84]
+const D_SKIN_HI = '#E8E0E3'
+const D_SKIN_LO = '#E1D8DC'
 
 const RAD = Math.PI / 180
 const rgbCache = new Map<string, string>()
@@ -76,6 +106,7 @@ export function expression(mode: PetMode, t: number): [number, number, number] {
   if (mode === 'answering') return [0.72, syllable(t), 0.5 + 0.14 * Math.sin(t * 3.1)]
   if (mode === 'listening') return [0.82 + 0.07 * Math.sin(t * 2.1), 0.03, 0.3]
   if (mode === 'thinking') return [0.22, 0.05 + 0.04 * Math.abs(Math.sin(t * 1.4)), 0.1]
+  if (mode === 'coding') return [0.34, 0.62 * syllable(t * 0.55), 0.26]
   return [
     0.46 + 0.09 * Math.sin(t * 0.62) + 0.05 * Math.sin(t * 1.7),
     0,
@@ -91,13 +122,15 @@ function drawEyes(
   sy: number,
   left: number,
   topY: number,
+  eyes: ReadonlyArray<readonly [number, number]>,
+  eyeHalf: readonly [number, number],
   blink: number,
   smile: number,
 ): void {
   if (blink < 0.03 && smile < 0.4) return
-  const [hw, hh] = EYE_HALF
+  const [hw, hh] = eyeHalf
   const b = Math.min(1, blink)
-  for (const [ex, ey] of EYES) {
+  for (const [ex, ey] of eyes) {
     const cx = left + ex * k * sx
     const cy = topY + ey * k * sy
     const rx = hw * k * sx * 1.06
@@ -181,6 +214,8 @@ function drawMouth(
   hh: number,
   mode: PetMode,
   t: number,
+  hi: string = SKIN_HI,
+  lo: string = SKIN_LO,
 ): void {
   let [smile, opn] = expression(mode, t)
   smile = Math.max(0, Math.min(1, smile))
@@ -188,10 +223,10 @@ function drawMouth(
 
   // 盖掉立绘自带的抿嘴：范围刚好盖住原来那张小嘴，别在脸上留下亮斑
   const cov = ctx.createRadialGradient(cx, cy - hh * 0.05, 0, cx, cy - hh * 0.05, hw * 1.08)
-  cov.addColorStop(0, rgba(SKIN_HI, 1))
-  cov.addColorStop(0.55, rgba(SKIN_HI, 240))
-  cov.addColorStop(0.85, rgba(SKIN_HI, 90))
-  cov.addColorStop(1, rgba(SKIN_LO, 0))
+  cov.addColorStop(0, rgba(hi, 1))
+  cov.addColorStop(0.55, rgba(hi, 240))
+  cov.addColorStop(0.85, rgba(hi, 90))
+  cov.addColorStop(1, rgba(lo, 0))
   ctx.fillStyle = cov
   ctx.beginPath()
   ctx.ellipse(cx, cy - hh * 0.05, hw * 1.08, hh * 1.1, 0, 0, Math.PI * 2)
@@ -348,9 +383,317 @@ function drawDots(ctx: CanvasRenderingContext2D, phase: number): void {
   }
 }
 
+/** 聆听：一只手举起来扶着头侧——耳朵被长发盖着，掌心贴上去就是"扶耳"。 */
+function drawHandOnEar(
+  ctx: CanvasRenderingContext2D,
+  sx: number,
+  sy: number,
+  left: number,
+  topY: number,
+): void {
+  const P = (x: number, y: number): [number, number] => [left + x * sx, topY + y * sy]
+  const [ax, ay] = P(706, 706) // 臂根（藏进身体轮廓）
+  const [bx, by] = P(716, 560)
+  const [wx, wy] = P(655, 470) // 手腕
+
+  ctx.lineCap = 'round'
+  // 小臂袖子：先描边层再亮层，读得出是一条手臂
+  ctx.beginPath()
+  ctx.moveTo(ax, ay)
+  ctx.quadraticCurveTo(bx, by, wx, wy)
+  ctx.strokeStyle = rgba('#9FB4C6', 150)
+  ctx.lineWidth = 48 * sx
+  ctx.stroke()
+  const sg = ctx.createLinearGradient(ax, ay, wx, wy)
+  sg.addColorStop(0, '#C7D6E2')
+  sg.addColorStop(1, '#F0F5FA')
+  ctx.strokeStyle = sg
+  ctx.lineWidth = 43 * sx
+  ctx.stroke()
+
+  // 腕口
+  const [cx, cy] = P(652, 468)
+  ctx.fillStyle = '#EDF3F8'
+  ctx.strokeStyle = rgba('#9FB4C6', 120)
+  ctx.lineWidth = Math.max(0.6, 1.8 * sx)
+  ctx.beginPath()
+  ctx.ellipse(cx, cy, 26 * sx, 17 * sy, 0, 0, Math.PI * 2)
+  ctx.fill()
+  ctx.stroke()
+
+  // 手掌：竖长椭圆（指朝上）微转 + 拇指根 + 三道指缝
+  const [px, py] = P(645, 420)
+  ctx.save()
+  ctx.translate(px, py)
+  ctx.rotate(-0.24)
+  const pg = ctx.createLinearGradient(0, -55 * sy, 0, 40 * sy)
+  pg.addColorStop(0, SKIN_HI)
+  pg.addColorStop(1, SKIN_LO)
+  ctx.fillStyle = pg
+  ctx.strokeStyle = rgba('#D9A8A6', 140)
+  ctx.lineWidth = Math.max(0.7, 2.0 * sx)
+  ctx.beginPath()
+  ctx.ellipse(0, 0, 27 * sx, 56 * sy, 0, 0, Math.PI * 2)
+  ctx.fill()
+  ctx.stroke()
+  ctx.beginPath()
+  ctx.ellipse(-24 * sx, 30 * sy, 11 * sx, 14 * sy, 0, 0, Math.PI * 2)
+  ctx.fill()
+  ctx.stroke()
+  ctx.strokeStyle = rgba('#D9A8A6', 130)
+  ctx.lineWidth = Math.max(0.5, 1.3 * sx)
+  for (const dx of [-13, 0, 13]) {
+    ctx.beginPath()
+    ctx.moveTo(dx * sx, -46 * sy)
+    ctx.quadraticCurveTo((dx + 2) * sx, -22 * sy, dx * sx, 0)
+    ctx.stroke()
+  }
+  ctx.restore()
+}
+
+/** 两只手合成一个 0~1 的"正在敲"的强度，喂给键光和身体起伏。 */
+export function tapEnergy(t: number): number {
+  let e = 0
+  for (let i = 0; i < 2; i++) {
+    e = Math.max(e, Math.max(0, Math.sin(t * 34.5 + i * 1.9)) ** 2)
+  }
+  return e
+}
+
+/** 坐姿键盘光：AO → 冷蓝背光 → 前缘灯条 → 按键点亮 → 加色晕光。 */
+function drawKbLights(
+  ctx: CanvasRenderingContext2D,
+  s: number,
+  left: number,
+  top: number,
+  t: number,
+  energy: number,
+): void {
+  const [kx, ky, kw, kh] = D_KB
+  const cx = left + kx * s
+  const cy = top + ky * s
+  const w = kw * s
+  const h = kh * s
+  const rows = 4
+  const cols = 15
+
+  const keyPos = (r: number, c: number): [number, number, number] => {
+    const yy = cy - h * 0.26 + r * h * 0.175
+    const inset = w * (0.052 + 0.02 * r)
+    const span = w - inset * 2
+    return [cx - w / 2 + inset + (span * (c + 0.5)) / cols, yy, span / cols]
+  }
+
+  // 键盘压在桌面上的暗部
+  let g = ctx.createRadialGradient(cx, cy + h * 0.4, 0, cx, cy + h * 0.4, w * 0.5)
+  g.addColorStop(0, rgba('#2F4A66', 58))
+  g.addColorStop(1, rgba('#2F4A66', 0))
+  ctx.fillStyle = g
+  ctx.beginPath()
+  ctx.ellipse(cx, cy + h * 0.42, w * 0.5, h * 0.34, 0, 0, Math.PI * 2)
+  ctx.fill()
+
+  // 键帽常亮背光：整块键区罩冷蓝，白键帽先压暗，光才看得见
+  g = ctx.createLinearGradient(0, cy - h * 0.42, 0, cy + h * 0.46)
+  g.addColorStop(0, rgba('#2E5E8C', 96))
+  g.addColorStop(0.55, rgba('#2A5C8A', 74))
+  g.addColorStop(1, rgba('#20486E', 96))
+  ctx.fillStyle = g
+  ctx.beginPath()
+  ctx.roundRect(cx - w * 0.455, cy - h * 0.36, w * 0.91, h * 0.8, h * 0.12)
+  ctx.fill()
+
+  // 前缘灯条：一道实打实的青色亮边，随敲击节奏一明一暗
+  g = ctx.createLinearGradient(0, cy + h * 0.22, 0, cy + h * 0.5)
+  g.addColorStop(0, rgba('#7FE4FF', 0))
+  g.addColorStop(0.3, rgba('#5FDAFF', 140 + 110 * energy))
+  g.addColorStop(0.62, rgba('#22B6F0', 80 + 80 * energy))
+  g.addColorStop(1, rgba('#1272A8', 0))
+  ctx.fillStyle = g
+  ctx.fillRect(cx - w * 0.43, cy + h * 0.22, w * 0.86, h * 0.3)
+
+  // 被按下的键：每只手在自己掌下点亮
+  const hits: Array<[[number, number, number], number]> = []
+  for (let i = 0; i < 2; i++) {
+    const [hx] = D_HANDS[i]
+    const baseC = ((left + hx * s - (cx - w / 2)) / w) * cols
+    for (let j = 0; j < 3; j++) {
+      const tick = t * 9.5 + i * 1.7 + j * 0.33
+      const kk = Math.floor(tick)
+      const frac = tick - kk
+      if (frac > 0.72) continue
+      const c = Math.max(0, Math.min(cols - 1, Math.trunc(baseC + ((kk * 5 + j * 7 + i * 3) % 5) - 2)))
+      const r = (kk * 3 + j * 2 + i) % rows
+      hits.push([keyPos(r, c), (1 - frac / 0.72) ** 1.4])
+    }
+  }
+  for (const [[x, y, cell], a] of hits) {
+    ctx.fillStyle = rgba('#8FEBFF', 60 + 175 * a)
+    ctx.beginPath()
+    ctx.roundRect(x - cell * 0.34, y, cell * 0.68, h * 0.09, h * 0.03)
+    ctx.fill()
+  }
+
+  // 加色层：晕光 + 灯条外扩柔光
+  ctx.save()
+  ctx.globalCompositeOperation = 'lighter'
+  for (const [[x, y, cell], a] of hits) {
+    g = ctx.createRadialGradient(x, y + h * 0.04, 0, x, y + h * 0.04, cell * 1.35)
+    g.addColorStop(0, rgba('#6FE0FF', 120 * a))
+    g.addColorStop(0.4, rgba('#35A8FF', 56 * a))
+    g.addColorStop(1, rgba('#35A8FF', 0))
+    ctx.fillStyle = g
+    ctx.beginPath()
+    ctx.ellipse(x, y + h * 0.04, cell * 1.35, h * 0.17, 0, 0, Math.PI * 2)
+    ctx.fill()
+  }
+  g = ctx.createLinearGradient(0, cy + h * 0.1, 0, cy + h * 0.66)
+  g.addColorStop(0, rgba('#38B8FF', 0))
+  g.addColorStop(0.34, rgba('#38B8FF', 46 + 84 * energy))
+  g.addColorStop(1, rgba('#38B8FF', 0))
+  ctx.fillStyle = g
+  ctx.fillRect(cx - w * 0.48, cy + h * 0.1, w * 0.96, h * 0.56)
+  ctx.restore()
+}
+
+/** 坐姿双手：直接从坐姿立绘抠手区域贴回（真手形），随节奏点按，先画拖影再画实手。 */
+function drawTypingHands(
+  ctx: CanvasRenderingContext2D,
+  img: CanvasImageSource,
+  dk: number,
+  s: number,
+  left: number,
+  top: number,
+  t: number,
+): void {
+  const [hw, hh] = D_HAND_HALF
+  for (let i = 0; i < 2; i++) {
+    const [hx, hy] = D_HANDS[i]
+    const bx = left + hx * s
+    const by = top + hy * s
+    const rx = hw * s
+    const ry = hh * s
+    const ph = t * 34.5 + i * 1.9
+    const hit = Math.max(0, Math.sin(ph)) ** 2
+    const tap = Math.max(0, Math.sin(ph * 0.5 + 0.7)) ** 2
+    const k = Math.min(1, hit * 0.72 + tap * 0.28)
+    const dy = -k * 11 * s
+    const dx = Math.sin(t * 17.3 + i * 2.4) * s * 2
+    const hNow = ry * 2 * (1 - 0.07 * k)
+    const sx0 = (hx - hw) * dk
+    const sy0 = (hy - hh) * dk
+    const sw = hw * 2 * dk
+    const sh = hh * 2 * dk
+
+    // 拖影：上一瞬的手，随节奏收放
+    ctx.globalAlpha = 0.04 + 0.4 * k
+    ctx.drawImage(img, sx0, sy0, sw, sh, bx + dx - rx, by + dy - hNow / 2, rx * 2, hNow)
+    // 实手盖回去
+    ctx.globalAlpha = 0.97
+    ctx.drawImage(img, sx0, sy0, sw, sh, bx - rx, by - ry, rx * 2, ry * 2)
+    ctx.globalAlpha = 1
+  }
+}
+
+/** coding：坐姿敲键盘整帧（1024x852 立绘，几何与桌面端 D_* 一致）。 */
+function drawDeskFrame(
+  ctx: CanvasRenderingContext2D,
+  img: CanvasImageSource & { width?: number; naturalWidth?: number },
+  t: number,
+  blink: number,
+): void {
+  ctx.clearRect(0, 0, PET_DESIGN_SIZE, PET_DESIGN_SIZE)
+  const dk = ((img as HTMLImageElement).naturalWidth || D_IMG_W) / D_IMG_W
+  const s = D_WIDTH / D_IMG_W
+  const left = 100 - D_WIDTH / 2
+  const top = D_BOTTOM - D_IMG_H * s
+
+  const tap = tapEnergy(t)
+  const bodyDy = -tap * 1.5
+
+  // 桌面落地的影子
+  let g = ctx.createRadialGradient(100, 195, 0, 100, 195, 96)
+  g.addColorStop(0, rgba('#2E3B52', 60))
+  g.addColorStop(1, rgba('#2E3B52', 0))
+  ctx.fillStyle = g
+  ctx.beginPath()
+  ctx.ellipse(100, 195, 96, 9, 0, 0, Math.PI * 2)
+  ctx.fill()
+
+  // 身体层
+  const cut = D_NECK_Y - D_OVERLAP
+  ctx.drawImage(
+    img,
+    0,
+    cut * dk,
+    D_IMG_W * dk,
+    (D_IMG_H - cut) * dk,
+    left,
+    top + cut * s + bodyDy,
+    D_WIDTH,
+    (D_IMG_H - cut) * s,
+  )
+
+  drawKbLights(ctx, s, left, top, t, tap)
+  drawTypingHands(ctx, img, dk, s, left, top, t)
+
+  // 头层：跟着按键一顿一顿
+  const nod = Math.sin(t * 6.3) * 1.5 + Math.sin(t * 2.2) * 0.8
+  const neck = top + D_NECK_Y * s + bodyDy
+  ctx.save()
+  ctx.translate(100, neck)
+  ctx.rotate((-1.2 + nod * 0.55) * RAD)
+  ctx.translate(-100, -neck)
+
+  const hy = top + bodyDy * 1.05
+  ctx.drawImage(
+    img,
+    0,
+    0,
+    D_IMG_W * dk,
+    (D_NECK_Y + D_OVERLAP) * dk,
+    left,
+    hy,
+    D_WIDTH,
+    (D_NECK_Y + D_OVERLAP) * s,
+  )
+
+  const [smile, , blush] = expression('coding', t)
+  for (const [bx2, by2] of D_BLUSH) {
+    drawBlush(ctx, left + bx2 * s, hy + by2 * s, 32 * s, 22 * s, blush * 1.05)
+  }
+  drawEyes(ctx, img as HTMLImageElement, dk, s, s, left, hy, D_EYES, D_EYE_HALF, blink, smile)
+  drawMouth(
+    ctx,
+    left + D_MOUTH[0] * s,
+    hy + D_MOUTH[1] * s,
+    D_MOUTH_HALF[0] * s,
+    D_MOUTH_HALF[1] * s,
+    'coding',
+    t,
+    D_SKIN_HI,
+    D_SKIN_LO,
+  )
+  ctx.restore()
+
+  // 屏幕反光：从键盘方向打上来的一点冷光
+  ctx.save()
+  ctx.globalCompositeOperation = 'lighter'
+  const [kx, ky] = D_KB
+  g = ctx.createRadialGradient(left + kx * s, top + (ky - 190) * s, 0, left + kx * s, top + (ky - 190) * s, 100 * 0.44 * 2)
+  g.addColorStop(0, rgba('#5FB4FF', 22))
+  g.addColorStop(1, rgba('#5FB4FF', 0))
+  ctx.fillStyle = g
+  ctx.beginPath()
+  ctx.ellipse(left + (kx - 20) * s, top + (ky - 200) * s, 100 * 0.44 * 2, 100 * 0.3 * 2, 0, 0, Math.PI * 2)
+  ctx.fill()
+  ctx.restore()
+}
+
 /**
  * 画一帧。ctx 的 transform 需已把 200x200 设计空间映射到目标区域。
  * @param k 实际图宽 / 840（源坐标换算系数）
+ * @param deskImg 坐姿立绘（coding 态用），1024x852 口径
  */
 export function drawPetFrame(
   ctx: CanvasRenderingContext2D,
@@ -359,7 +702,12 @@ export function drawPetFrame(
   t: number,
   blink: number,
   k: number,
+  deskImg?: CanvasImageSource & { width?: number; naturalWidth?: number } | null,
 ): void {
+  if (mode === 'coding' && deskImg) {
+    drawDeskFrame(ctx, deskImg, t, blink)
+    return
+  }
   ctx.clearRect(0, 0, PET_DESIGN_SIZE, PET_DESIGN_SIZE)
 
   const sy = BODY_H / IMG_H
@@ -416,7 +764,19 @@ export function drawPetFrame(
       blush,
     )
   }
-  drawEyes(ctx, img as HTMLImageElement, k, sx, sy, left, hy, blink, smile)
+  drawEyes(
+    ctx,
+    img as HTMLImageElement,
+    k,
+    sx,
+    sy,
+    left,
+    hy,
+    EYES,
+    EYE_HALF,
+    blink,
+    smile,
+  )
   drawMouth(
     ctx,
     left + MOUTH[0] * k * sx,
@@ -426,6 +786,10 @@ export function drawPetFrame(
     mode,
     t,
   )
+  if (mode === 'listening') {
+    // 手扶着耳朵在听：画在五官之后，手掌盖在耳侧头发上
+    drawHandOnEar(ctx, sx, sy, left, hy)
+  }
   ctx.restore()
 
   if (mode === 'thinking') drawDots(ctx, t)
