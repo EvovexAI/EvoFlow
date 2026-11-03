@@ -1482,13 +1482,15 @@ class GirlArt(Girl):
     def _eyes(self, p: QPainter, art: QPixmap, sx: float, sy: float, left: float,
               top: float, eyes, half, st, hi: QColor, lo: QColor,
               smile: float = 0.0) -> None:
-        blink = max(getattr(st, "blink", 0.0), getattr(st, "blink_lid", 0.0) * 0.92)
+        asleep = getattr(st, "blink_lid", 0.0) >= 0.9
+        blink = 1.0 if asleep else max(getattr(st, "blink", 0.0),
+                                       getattr(st, "blink_lid", 0.0) * 0.92)
         if blink < 0.03 and smile < 0.12:
             return
         hw, hh = half
         k = min(1.0, blink)
         p.setRenderHint(QPainter.SmoothPixmapTransform, True)
-        for ex, ey in eyes:
+        for idx, (ex, ey) in enumerate(eyes):
             cx = left + ex * sx
             cy = top + ey * sy
             rx, ry = hw * sx * 1.06, hh * sy * 1.12
@@ -1500,6 +1502,29 @@ class GirlArt(Girl):
                 g.setColorAt(1.0, lo)
                 p.setBrush(QBrush(g))
                 p.drawEllipse(QPointF(cx, cy), rx, ry)
+
+                if asleep:
+                    # 熟睡：眼皮完全合上。弧线贴着原立绘上睫毛带的位置画——
+                    # 像睫毛垂下来，而不是凭空一条线；细一点才不会像涂鸦。
+                    p.setBrush(Qt.NoBrush)
+                    p.setPen(QPen(_rgba("#7A6472", 200), max(0.8, ry * 0.18),
+                                  Qt.SolidLine, Qt.RoundCap))
+                    lid = QPainterPath(QPointF(cx - rx * 0.95, cy - ry * 0.38))
+                    lid.quadTo(QPointF(cx, cy + ry * 0.10),
+                               QPointF(cx + rx * 0.95, cy - ry * 0.38))
+                    p.drawPath(lid)
+                    # 眼尾一根向上挑的小睫毛（外侧），别画成一坨
+                    sgn = -1.0 if idx == 0 else 1.0
+                    p.setPen(QPen(_rgba("#7A6472", 170), max(0.6, ry * 0.14),
+                                  Qt.SolidLine, Qt.RoundCap))
+                    lash = QPainterPath(
+                        QPointF(cx + sgn * rx * 0.95, cy - ry * 0.38))
+                    lash.quadTo(
+                        QPointF(cx + sgn * rx * 1.14, cy - ry * 0.48),
+                        QPointF(cx + sgn * rx * 1.22, cy - ry * 0.72))
+                    p.drawPath(lash)
+                    continue
+
                 h_now = ry * 2.0 * max(0.06, 1.0 - 0.94 * k)
                 p.drawPixmap(QRectF(cx - rx, cy - h_now / 2, rx * 2, h_now), art,
                              QRectF(ex - hw, ey - hh, hw * 2, hh * 2))
@@ -1513,7 +1538,7 @@ class GirlArt(Girl):
                     p.drawPath(lid)
 
             # 笑眼：眼尾一道极淡的上挑，只给一点点"眼睛在笑"的暗示
-            if smile > 0.40:
+            if smile > 0.40 and not asleep:
                 a = int(90 * min(1.0, (smile - 0.40) / 0.45))
                 p.setBrush(Qt.NoBrush)
                 p.setPen(QPen(_rgba("#D98E96", a), max(0.45, ry * 0.13),
