@@ -6,6 +6,7 @@ import {
   bargeInXiaomiFrame,
   connectXiaomiFrameSession,
   xiaomiFrameLastTeardownCount,
+  xiaomiFrameLastPlayingText,
   duckXiaomiFramePlayback,
   flushXiaomiAsr,
   isXiaomiFramePlaying,
@@ -644,7 +645,8 @@ async function _startXiaomiFramePipelineInner(opts = {}) {
       voiceFeLog('打断', `前端收到 interrupted（reason=${reason}），已停播`)
       voiceFeLog(
         '打断',
-        `打断汇总 reason=${reason || '-'} 播报进行 ${_localBargeSpeakSince ? Math.max(0, Date.now() - _localBargeSpeakSince) : 0} ms 被取消句数=${xiaomiFrameLastTeardownCount()}`,
+        `打断汇总 reason=${reason || '-'} 播报进行 ${_localBargeSpeakSince ? Math.max(0, Date.now() - _localBargeSpeakSince) : 0} ms 被取消句数=${xiaomiFrameLastTeardownCount()}` +
+          ` 正在播「${(xiaomiFrameLastPlayingText() || '').slice(0, 40)}」`,
       )
       // 相位门控：非 speaking 的 vad_barge 一律忽略（思考/聆听误触不 abort）
       const phaseBlockVad =

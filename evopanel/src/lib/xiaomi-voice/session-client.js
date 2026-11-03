@@ -50,6 +50,11 @@ const _playOrder = []
 /** 已推进完的 seq：迟到二进制不得再 _ensurePlayer 复活（否则截尾+重播=卡顿漏词） */
 /** @type {Set<number>} */
 const _finishedSeqs = new Set()
+/** seq → 正在播的文本（打断汇总「正在播哪句」用）；dispose 时清理 */
+/** @type {Map<number, string>} */
+const _seqTexts = new Map()
+/** 最近一次处于播放中的句子文本（teardown 后仍可读，供打断归因） */
+let _lastPlayingText = ''
 /** @type {number | null} */
 let _playingSeq = null
 /** @type {((msg: Record<string, unknown>) => void) | null} */
@@ -352,6 +357,7 @@ function _handleJson(m) {
         _notifyBgVoiceTts(true)
       }
       if (!_playOrder.includes(seq)) _playOrder.push(seq)
+      if (m.text) _seqTexts.set(seq, String(m.text))
       _ensurePlayer(seq)
       _kickSerialPlay()
     }
@@ -384,6 +390,21 @@ function _ensurePlayer(seq) {
   const objectUrl = URL.createObjectURL(ms)
   const audio = new Audio(objectUrl)
   _applyPlaybackDuck(audio)
+  // 播放器级卡顿实锤：waiting=buffer 断供（网络/合成跟不上），error=解码/源错误。
+  // 没有这两条，「播报不连贯」只能靠猜。
+  audio.addEventListener('waiting', () => {
+    voiceFeLog(
+      '播报',
+      '播放饥饿 seq=' + seq + ' pos=' + (audio.currentTime || 0).toFixed(1) + 's started=' + entry.started + '（buffer 断供）',
+    )
+  })
+  audio.addEventListener('stalled', () => {
+    voiceFeLog('播报', '播放停滞 seq=' + seq + ' pos=' + (audio.currentTime || 0).toFixed(1) + 's（网络停滞）')
+  })
+  audio.addEventListener('error', () => {
+    const code = audio.error && audio.error.code
+    voiceFeLog('错误', '播放器错误 seq=' + seq + ' code=' + (code != null ? code : '?') + '（解码/源错误）')
+  })
   /** @type {FramePlayEntry} */
   const entry = {
     audio,
@@ -523,6 +544,10 @@ function _kickSerialPlay() {
     _playingSeq = seq
     entry.started = true
     entry._playStartedAt = performance.now()
+    {
+      const t = _seqTexts.get(seq)
+      if (t) _lastPlayingText = t
+    }
     _sendPlaybackAck(seq, 'playing')
     try {
       _onPlaybackIdle?.(false)
@@ -688,6 +713,7 @@ function _armPlayWatchdog(seq, entry) {
 }
 
 function _disposeEntry(seq) {
+  _seqTexts.delete(seq)
   const entry = _play.get(seq)
   if (!entry) return
   try {
@@ -766,6 +792,11 @@ function _advanceAfterSeq(seq) {
 let _lastTeardownCount = 0
 export function xiaomiFrameLastTeardownCount() {
   return _lastTeardownCount
+}
+
+/** 最近一次播放中的句子文本（打断归因：「正在播哪句」） */
+export function xiaomiFrameLastPlayingText() {
+  return _lastPlayingText
 }
 
 export function isXiaomiFramePlaying() {
