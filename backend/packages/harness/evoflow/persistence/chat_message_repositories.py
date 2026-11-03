@@ -304,6 +304,170 @@ def message_id_exists(session_key: str, message_id: str, *, conn: Any | None = N
     return row is not None
 
 
+def upsert_message_by_message_id(
+    session_key: str,
+    *,
+    role: str,
+    message_id: str,
+    content: Any = None,
+    content_json: dict[str, Any] | str | None = None,
+    run_id: str | None = None,
+    thread_id: str | None = None,
+    turn_state: str | None = None,
+    conn: Any | None = None,
+    **flat_kwargs: Any,
+) -> dict[str, Any] | None:
+    """Insert or overwrite one transcript row keyed by ``(session_key, message_id)``.
+
+    Used by department group chat for streaming finalize (same bubble id → update body).
+    When the row already exists, keeps ``seq`` and updates ``content_json`` / ``role`` /
+    optional ``turn_state``. Does not run content-text dedupe (explicit id wins).
+    """
+    sk = str(session_key or "").strip()
+    mid = str(message_id or "").strip()
+    if not sk or not mid:
+        raise ValueError("session_key and message_id required")
+    raw = flat_kwargs.pop("raw", None) if isinstance(flat_kwargs, dict) else None
+    for _meta_key in ("thread_id", "threadId", "run_id", "runId", "seq", "round_id", "roundId", "message_id", "messageId"):
+        flat_kwargs.pop(_meta_key, None)
+    fields = pack_row_from_message(
+        role=role,
+        content=content,
+        raw=raw if isinstance(raw, dict) else None,
+        content_json=content_json,
+        message_id=mid,
+        tool_call_id=flat_kwargs.pop("tool_call_id", None) or flat_kwargs.pop("toolCallId", None),
+        tool_name=flat_kwargs.pop("tool_name", None) or flat_kwargs.pop("toolName", None),
+        model_name=flat_kwargs.pop("model_name", None) or flat_kwargs.pop("modelName", None),
+        input_tokens=flat_kwargs.pop("input_tokens", None) or flat_kwargs.pop("inputTokens", None),
+        output_tokens=flat_kwargs.pop("output_tokens", None) or flat_kwargs.pop("outputTokens", None),
+        total_tokens=flat_kwargs.pop("total_tokens", None) or flat_kwargs.pop("totalTokens", None),
+        cache_read_tokens=flat_kwargs.pop("cache_read_tokens", None) or flat_kwargs.pop("cacheReadTokens", None),
+        cache_creation_tokens=flat_kwargs.pop("cache_creation_tokens", None)
+        or flat_kwargs.pop("cacheCreationTokens", None),
+        cache_miss_tokens=flat_kwargs.pop("cache_miss_tokens", None) or flat_kwargs.pop("cacheMissTokens", None),
+        turn_started_at=flat_kwargs.pop("turn_started_at", None) or flat_kwargs.pop("turnStartedAt", None),
+        turn_duration_ms=flat_kwargs.pop("turn_duration_ms", None) or flat_kwargs.pop("turnDurationMs", None),
+    )
+    r = fields["role"]
+    if r not in ("user", "assistant", "tool"):
+        raise ValueError("role must be user|assistant|tool")
+    state = str(turn_state or flat_kwargs.pop("turn_state", None) or flat_kwargs.pop("turnState", None) or "").strip() or None
+    tid = str(thread_id or "").strip() or None
+    rid = str(run_id or "").strip() or None
+
+    def _upsert(db: Any) -> dict[str, Any]:
+        now = now_iso_z()
+        existing = db.execute(
+            """
+            SELECT seq FROM evoflow_chat_messages
+            WHERE session_key = ? AND message_id = ?
+            LIMIT 1
+            """,
+            (sk, mid),
+        ).fetchone()
+        if existing:
+            try:
+                seq = int(existing["seq"])
+            except Exception:
+                seq = int(existing[0])
+            db.execute(
+                """
+                UPDATE evoflow_chat_messages
+                SET role = ?, content_json = ?, tool_call_id = ?, tool_name = ?,
+                    model_name = ?, input_tokens = ?, output_tokens = ?, total_tokens = ?,
+                    cache_read_tokens = ?, cache_creation_tokens = ?, cache_miss_tokens = ?,
+                    turn_started_at = COALESCE(?, turn_started_at),
+                    turn_duration_ms = COALESCE(?, turn_duration_ms),
+                    turn_state = COALESCE(?, turn_state),
+                    run_id = COALESCE(?, run_id),
+                    thread_id = COALESCE(?, thread_id),
+                    updated_at = ?
+                WHERE session_key = ? AND message_id = ?
+                """,
+                (
+                    r,
+                    fields.get("content_json"),
+                    fields.get("tool_call_id"),
+                    fields.get("tool_name"),
+                    fields.get("model_name"),
+                    fields.get("input_tokens"),
+                    fields.get("output_tokens"),
+                    fields.get("total_tokens"),
+                    fields.get("cache_read_tokens"),
+                    fields.get("cache_creation_tokens"),
+                    fields.get("cache_miss_tokens"),
+                    fields.get("turn_started_at"),
+                    fields.get("turn_duration_ms"),
+                    state,
+                    rid,
+                    tid,
+                    now,
+                    sk,
+                    mid,
+                ),
+            )
+            return {
+                "session_key": sk,
+                "seq": seq,
+                "role": r,
+                "message_id": mid,
+                "updated": True,
+                "created_at_ms": iso_z_to_ms(now),
+            }
+        target_seq = _next_seq(sk, db)
+        parent_tid = resolve_parent_thread_id(tid, explicit=None)
+        db.execute(
+            """
+            INSERT INTO evoflow_chat_messages (
+                session_key, seq, role, run_id, thread_id, parent_thread_id,
+                created_at, updated_at,
+                message_id, content_json, tool_call_id, tool_name,
+                model_name, input_tokens, output_tokens, total_tokens,
+                cache_read_tokens, cache_creation_tokens, cache_miss_tokens,
+                round_id, turn_started_at, turn_duration_ms, turn_state
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                sk,
+                target_seq,
+                r,
+                rid,
+                tid,
+                parent_tid,
+                now,
+                now,
+                mid,
+                fields.get("content_json"),
+                fields.get("tool_call_id"),
+                fields.get("tool_name"),
+                fields.get("model_name"),
+                fields.get("input_tokens"),
+                fields.get("output_tokens"),
+                fields.get("total_tokens"),
+                fields.get("cache_read_tokens"),
+                fields.get("cache_creation_tokens"),
+                fields.get("cache_miss_tokens"),
+                None,
+                fields.get("turn_started_at"),
+                fields.get("turn_duration_ms"),
+                state,
+            ),
+        )
+        return {
+            "session_key": sk,
+            "seq": target_seq,
+            "role": r,
+            "message_id": mid,
+            "updated": False,
+            "created_at_ms": iso_z_to_ms(now),
+        }
+
+    if conn is not None:
+        return _upsert(conn)
+    return run_db_transaction(_upsert)
+
+
 def transcript_duplicate_exists(
     session_key: str,
     *,

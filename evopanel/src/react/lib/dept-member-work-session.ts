@@ -5,6 +5,7 @@
  * sessionKey 稳定为 ``proactive:{code}:chat:dept-{deptId}``，同一部门同一人始终续聊。
  */
 import { api } from '../../lib/tauri-api.js'
+import { deptChatSessionKey } from './dept-chat-session.js'
 import {
   extractDeptGroupHandoffs,
   type DeptGroupHandoff,
@@ -101,6 +102,8 @@ export async function runDeptMemberWorkTurn(
     dept_group_id: deptId,
     dept_group_name: deptName,
     dept_group_im: true,
+    // 反查群时间线 session
+    dept_group_timeline_session: deptChatSessionKey(deptId),
     // 每轮显式写，避免 sticky 会话残留上一轮管家旗标
     dept_group_steward: stewardMode,
   }

@@ -112,6 +112,8 @@ export function removeBootSplash() {
   if (!el || el.classList.contains('boot-splash--hide')) return
   bootMark('boot splash hide begin')
   el.classList.add('boot-splash--hide')
+  // 平台实况控制台随启动页停机（boot.js 监听，重复派发无副作用）
+  try { window.dispatchEvent(new CustomEvent('ef:console-stop')) } catch (_) {}
   const done = () => {
     try {
       el.remove()

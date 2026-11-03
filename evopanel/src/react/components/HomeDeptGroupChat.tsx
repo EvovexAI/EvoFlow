@@ -20,10 +20,24 @@ import {
 import { deptChatSessionKey } from '../lib/dept-chat-session.js'
 import { resolveDeptGroupWakeTargets } from '../lib/dept-group-steward.js'
 import {
+  extractMentionGoal,
+  findMentionSpans,
+  hasUnresolvedAtMentions,
+  parseMentions,
+  stripLeadingMentions,
+} from '../lib/dept-group-mentions.js'
+import {
   DeptGroupWakeQueue,
   isWakeBusyError,
   type WakeJobSnapshot,
 } from '../lib/dept-group-wake-queue.js'
+import {
+  finalizeDeptGroupMessage,
+  migrateLocalDeptChatIfNeeded,
+  upsertDeptGroupMessage,
+  workSessionKeyForSpeaker,
+  type DeptGroupTimelineMsg,
+} from '../lib/dept-group-transcript.js'
 import {
   isPersonOnDuty,
   personDutyLabel,
@@ -44,6 +58,8 @@ export type GroupChatMsg = {
   /** 由谁在群里 @ 过来的（嵌套接力） */
   fromAgentName?: string
   error?: boolean
+  workSessionKey?: string
+  wakeJobId?: string
 }
 
 type ThreadLine = {
@@ -53,34 +69,7 @@ type ThreadLine = {
   ts: number
 }
 
-const STORAGE_PREFIX = 'evo-home-dept-chat:'
 const MAX_NEST_DEPTH = 2
-
-function storageKey(deptId: string): string {
-  return `${STORAGE_PREFIX}${deptId}`
-}
-
-function loadMsgs(deptId: string): GroupChatMsg[] {
-  try {
-    const raw = localStorage.getItem(storageKey(deptId))
-    if (!raw) return []
-    const parsed = JSON.parse(raw)
-    if (!Array.isArray(parsed)) return []
-    // 不恢复未完成的流式气泡
-    return (parsed as GroupChatMsg[]).filter((m) => !m.streaming)
-  } catch {
-    return []
-  }
-}
-
-function saveMsgs(deptId: string, msgs: GroupChatMsg[]) {
-  try {
-    const durable = msgs.filter((m) => !m.streaming).slice(-400)
-    localStorage.setItem(storageKey(deptId), JSON.stringify(durable))
-  } catch {
-    /* ignore quota */
-  }
-}
 
 function formatClock(ts: number): string {
   const d = new Date(ts)
@@ -161,47 +150,8 @@ function extractTextFromMessage(m: any): string {
   return ''
 }
 
-function parseMentions(text: string, members: HomeCmdPerson[]): HomeCmdPerson[] {
-  const hits: HomeCmdPerson[] = []
-  const seen = new Set<string>()
-  const sorted = [...members].sort(
-    (a, b) => (b.role_name?.length || 0) - (a.role_name?.length || 0),
-  )
-  for (const m of sorted) {
-    const name = String(m.role_name || '').trim()
-    const code = String(m.agent_code || '').trim()
-    if (!code || seen.has(code)) continue
-    const patterns = [name, code].filter(Boolean)
-    for (const p of patterns) {
-      const re = new RegExp(`@${escapeReg(p)}(?=$|\\s|[，,。.!？?：:])`, 'i')
-      if (re.test(text)) {
-        hits.push(m)
-        seen.add(code)
-        break
-      }
-    }
-  }
-  return hits
-}
-
 function escapeReg(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-}
-
-function memberForMentionLabel(
-  label: string,
-  members: HomeCmdPerson[],
-): HomeCmdPerson | null {
-  const lab = String(label || '')
-    .replace(/^@/, '')
-    .trim()
-    .toLowerCase()
-  if (!lab) return null
-  return (
-    members.find((m) => String(m.role_name || '').trim().toLowerCase() === lab) ||
-    members.find((m) => String(m.agent_code || '').trim().toLowerCase() === lab) ||
-    null
-  )
 }
 
 /**
@@ -215,22 +165,18 @@ function renderTextWithMentions(
 ): ReactNode {
   const raw = String(text || '')
   if (!raw) return raw
-  const labels = [...members]
-    .flatMap((m) => [m.role_name, m.agent_code].map((x) => String(x || '').trim()).filter(Boolean))
-    .sort((a, b) => b.length - a.length)
-  if (!labels.length) return raw
-  const re = new RegExp(`(@(?:${labels.map(escapeReg).join('|')}))(?=$|\\s|[，,。.!？?：:；;])`, 'gi')
+  const spans = findMentionSpans(raw, members)
+  if (!spans.length) return raw
   const nodes: ReactNode[] = []
   let last = 0
-  let m: RegExpExecArray | null
   let i = 0
-  while ((m = re.exec(raw))) {
-    if (m.index > last) nodes.push(raw.slice(last, m.index))
-    const token = m[1]
-    const person = memberForMentionLabel(token, members)
-    const name = person?.role_name || token.replace(/^@/, '')
+  for (const sp of spans) {
+    if (sp.start > last) nodes.push(raw.slice(last, sp.start))
+    const person =
+      (sp.person && members.find((m) => m.agent_code === sp.person!.agent_code)) || null
+    const name = person?.role_name || sp.token.replace(/^@/, '')
     nodes.push(
-      <span key={`at-${i++}`} className={className} title={person ? `@${name}` : token}>
+      <span key={`at-${i++}`} className={className} title={person ? `@${name}` : sp.token}>
         <span className="dept-im__mention-at">@</span>
         {person ? (
           <EmployeeStageAvatar
@@ -243,7 +189,7 @@ function renderTextWithMentions(
         <span className="dept-im__mention-name">{name}</span>
       </span>,
     )
-    last = m.index + m[0].length
+    last = sp.end
   }
   if (last < raw.length) nodes.push(raw.slice(last))
   return nodes.length ? nodes : raw
@@ -306,27 +252,6 @@ function MentionDispatchStrip({
   )
 }
 
-function stripLeadingMentions(text: string, members: HomeCmdPerson[]): string {
-  let out = text
-  for (const m of members) {
-    for (const p of [m.role_name, m.agent_code].filter(Boolean)) {
-      out = out.replace(new RegExp(`^\\s*@${escapeReg(String(p))}\\s*`, 'i'), '')
-    }
-  }
-  return out.trim() || text.trim()
-}
-
-/** 从整段回复里抽出「@某人」后面的专属任务句（到下一个 @ 或结尾） */
-function extractMentionGoal(text: string, person: HomeCmdPerson): string {
-  for (const p of [person.role_name, person.agent_code].filter(Boolean)) {
-    const re = new RegExp(`@${escapeReg(String(p))}\\s*([\\s\\S]*?)(?=@\\S|$)`, 'i')
-    const m = text.match(re)
-    const chunk = String(m?.[1] || '').trim()
-    if (chunk) return chunk
-  }
-  return stripLeadingMentions(text, [person])
-}
-
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms))
 }
@@ -366,7 +291,7 @@ export function HomeDeptGroupChat({
   shellSessionKey,
 }: HomeDeptGroupChatProps) {
   const members = dept.members
-  const [msgs, setMsgs] = useState<GroupChatMsg[]>(() => loadMsgs(dept.id))
+  const [msgs, setMsgs] = useState<GroupChatMsg[]>([])
   const [draft, setDraft] = useState('')
   const [sending, setSending] = useState(false)
   const [mentionOpen, setMentionOpen] = useState(false)
@@ -379,31 +304,62 @@ export function HomeDeptGroupChat({
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const mentionListRef = useRef<HTMLUListElement>(null)
   const membersRef = useRef(members)
+  const msgsRef = useRef<GroupChatMsg[]>([])
   const aliveRef = useRef(true)
   const wakeQueueRef = useRef<DeptGroupWakeQueue | null>(null)
   const bubbleByJobRef = useRef(new Map<string, string>())
   const [wakeJobs, setWakeJobs] = useState<WakeJobSnapshot[]>([])
 
   membersRef.current = members
+  msgsRef.current = msgs
+
+  const persistMsg = useCallback(
+    (msg: GroupChatMsg, streamState?: 'streaming' | 'final' | 'error') => {
+      const state =
+        streamState ||
+        (msg.error ? 'error' : msg.streaming ? 'streaming' : 'final')
+      // 流式中间态只留本地，定稿/错误/首条占位才写库
+      if (state === 'streaming' && !msg.text) {
+        void upsertDeptGroupMessage(msg as DeptGroupTimelineMsg, {
+          deptId: dept.id,
+          deptName: dept.name,
+          streamState: 'streaming',
+        }).catch(() => {})
+        return
+      }
+      if (state === 'streaming') return
+      void finalizeDeptGroupMessage(msg as DeptGroupTimelineMsg, {
+        deptId: dept.id,
+        deptName: dept.name,
+      }).catch(() => {})
+    },
+    [dept.id, dept.name],
+  )
 
   useEffect(() => {
     aliveRef.current = true
     bubbleByJobRef.current = new Map()
     setWakeJobs([])
-    setMsgs(loadMsgs(dept.id))
+    setMsgs([])
     setDraft('')
     setThreadCode(null)
     setThreadLines([])
+    const deptId = dept.id
+    const deptName = dept.name
+    void migrateLocalDeptChatIfNeeded({ deptId, deptName })
+      .then((rows) => {
+        if (!aliveRef.current) return
+        setMsgs(rows as GroupChatMsg[])
+      })
+      .catch(() => {
+        /* keep empty */
+      })
     return () => {
       aliveRef.current = false
       wakeQueueRef.current?.dispose()
       wakeQueueRef.current = null
     }
-  }, [dept.id])
-
-  useEffect(() => {
-    saveMsgs(dept.id, msgs)
-  }, [dept.id, msgs])
+  }, [dept.id, dept.name])
 
   useEffect(() => {
     const el = listRef.current
@@ -441,13 +397,30 @@ export function HomeDeptGroupChat({
     el?.scrollIntoView({ block: 'nearest' })
   }, [mentionOpen, mentionHi])
 
-  const patchMsg = useCallback((id: string, patch: Partial<GroupChatMsg>) => {
-    setMsgs((prev) => prev.map((m) => (m.id === id ? { ...m, ...patch } : m)))
-  }, [])
+  const patchMsg = useCallback(
+    (id: string, patch: Partial<GroupChatMsg>) => {
+      setMsgs((prev) => {
+        const next = prev.map((m) => (m.id === id ? { ...m, ...patch } : m))
+        const hit = next.find((m) => m.id === id)
+        if (hit) {
+          const becameFinal =
+            (patch.streaming === false || patch.error === true) &&
+            (hit.error || !hit.streaming)
+          if (becameFinal) persistMsg(hit)
+        }
+        return next
+      })
+    },
+    [persistMsg],
+  )
 
-  const appendMsg = useCallback((msg: GroupChatMsg) => {
-    setMsgs((prev) => [...prev, msg])
-  }, [])
+  const appendMsg = useCallback(
+    (msg: GroupChatMsg) => {
+      setMsgs((prev) => [...prev, msg])
+      persistMsg(msg)
+    },
+    [persistMsg],
+  )
 
   /** 无实时流时：把完整正文打字机刷进气泡 */
   const streamBodyIntoBubble = useCallback(
@@ -582,6 +555,7 @@ export function HomeDeptGroupChat({
           busy: false,
           summary: '',
         }
+      const workSessionKey = workSessionKeyForSpeaker(dept.id, person.agent_code)
       let bubbleId = bubbleByJobRef.current.get(input.jobId)
       if (!bubbleId) {
         bubbleId = `agent-${person.agent_code}-${Date.now()}`
@@ -595,12 +569,16 @@ export function HomeDeptGroupChat({
           ts: Date.now(),
           streaming: true,
           fromAgentName: input.fromAgentName,
+          workSessionKey,
+          wakeJobId: input.jobId,
         })
       } else {
         patchMsg(bubbleId, {
           text: input.attempt > 1 ? '正忙，排队重试中…' : '',
           streaming: true,
           error: false,
+          workSessionKey,
+          wakeJobId: input.jobId,
         })
       }
 
@@ -648,6 +626,18 @@ export function HomeDeptGroupChat({
         const nestedFromAt = parseMentions(finalText, roster).filter(
           (x) => x.agent_code !== person.agent_code,
         )
+        if (!nestedFromAt.length && hasUnresolvedAtMentions(finalText, roster)) {
+          appendMsg({
+            id: `sys-at-miss-${Date.now()}`,
+            kind: 'system',
+            text: `${person.role_name} 写了 @，但没对上本群花名册（可能还在用旧称呼）。本群可 @：${roster
+              .map((m) => m.role_name)
+              .filter(Boolean)
+              .slice(0, 8)
+              .join('、')}`,
+            ts: Date.now(),
+          })
+        }
         const woken = new Set(nestedFromAt.map((x) => x.agent_code))
         const nested: Array<{ person: HomeCmdPerson; goal: string }> = nestedFromAt.map(
           (next) => ({
@@ -736,18 +726,22 @@ export function HomeDeptGroupChat({
           if (j.status !== 'failed') continue
           const bid = bubbleByJobRef.current.get(j.id)
           if (!bid) continue
-          setMsgs((prev) =>
-            prev.map((m) => {
+          setMsgs((prev) => {
+            let finalized: GroupChatMsg | null = null
+            const next = prev.map((m) => {
               if (m.id !== bid) return m
               if (!m.streaming && m.text && !/排队|正忙|重试/.test(m.text)) return m
-              return {
+              finalized = {
                 ...m,
                 text: `「${j.roleName}」持续忙碌，稍后再 @。${j.error ? `（${j.error}）` : ''}`,
                 streaming: false,
                 error: true,
               }
-            }),
-          )
+              return finalized
+            })
+            if (finalized) persistMsg(finalized)
+            return next
+          })
         }
       },
     })
@@ -756,7 +750,7 @@ export function HomeDeptGroupChat({
       q.dispose()
       if (wakeQueueRef.current === q) wakeQueueRef.current = null
     }
-  }, [dept.id])
+  }, [dept.id, persistMsg])
 
   const enqueueWake = useCallback(
     (opts: {
@@ -852,7 +846,7 @@ export function HomeDeptGroupChat({
 
     try {
       // 群近期发言作首轮提示；每人 sticky 会话自带多轮 harness 历史
-      const recentCtx = msgs
+      const recentCtx = msgsRef.current
         .filter((m) => m.kind !== 'system' && !m.streaming && String(m.text || '').trim())
         .slice(-8)
         .map((m) => {

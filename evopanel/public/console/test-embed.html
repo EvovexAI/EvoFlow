@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>boot-console embed test</title>
+<style>
+  html, body { margin: 0; min-height: 100%; background: #f4f5fb; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', sans-serif; }
+  .fake-splash { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; padding: 34px 20px 14px; overflow: hidden;
+    background: radial-gradient(ellipse 90% 55% at 50% 18%, rgba(99,102,241,.16), transparent 60%), linear-gradient(180deg,#fbfbff,#eef0f8); }
+  .brand { font-size: 26px; font-weight: 700; color: #4f46e5; margin: 6px 0 2px; }
+  .tagline { font-size: 13px; color: #71717a; margin: 0 0 8px; }
+  .bar { width: 140px; height: 4px; border-radius: 99px; background: rgba(99,102,241,.12); overflow: hidden; }
+  .bar span { display: block; width: 42%; height: 100%; background: linear-gradient(90deg,#6366f1,#a78bfa,#6366f1); }
+  .boot-console { position: relative; z-index: 2; width: 100%; max-width: 1180px; flex: 0 1 auto; height: min(56vh, 470px);
+    margin: 20px auto 0; border-radius: 16px; border: 1px solid rgba(18,22,48,.55); background: #05040f; overflow: hidden;
+    box-shadow: 0 18px 44px rgba(30,27,75,.35); display: flex; flex-direction: column; }
+  .boot-console__head { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 16px 8px;
+    background: linear-gradient(180deg, rgba(12,16,36,.95), rgba(12,16,36,.45)); flex: 0 0 auto; }
+  .live { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 10px; border-radius: 999px;
+    background: linear-gradient(90deg,#5b5fef,#7c3aed); color: #fff; font-size: 11px; font-weight: 700; }
+  .hint { color: rgba(150,180,220,.6); font-size: 11.5px; }
+  .boot-console__stage { position: relative; flex: 1 1 auto; min-height: 0; }
+  .boot-console__stage canvas { position: absolute; inset: 0; display: block; }
+  #bc-host .bc-tabs { position: absolute; left: 14px; right: 14px; bottom: 52px; display: flex; gap: 6px; flex-wrap: wrap; pointer-events: none; }
+  #bc-host .bc-tabs .tab { pointer-events: auto; }
+  #bc-host .bc-caption { position: absolute; left: 14px; right: 14px; bottom: 10px; display: flex; gap: 8px; align-items: center;
+    padding: 7px 12px; background: rgba(6,10,24,.82); border: 1px solid rgba(0,234,255,.28); border-radius: 6px; min-height: 34px; }
+  #bc-host .bc-prompt { color: #00eaff; font-weight: 700; }
+  #bc-host .bc-text { color: rgba(225,242,255,.95); font-size: 12.5px; }
+  #bc-host .bc-text.typing::after { content: '▌'; color: #00eaff; }
+  #bc-host .tab { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; background: rgba(10,14,30,.78);
+    border: 1px solid rgba(110,150,200,.22); border-radius: 4px; color: rgba(190,215,240,.85);
+    font: 500 11px/1.2 'Segoe UI','Microsoft YaHei',sans-serif; cursor: pointer; }
+  #bc-host .tab i { width: 6px; height: 6px; border-radius: 2px; display: inline-block; }
+  #bc-host .tab:hover { border-color: rgba(140,200,255,.55); color: #eaf6ff; }
+  #bc-host .tab.on { background: rgba(0,60,80,.5); border-color: rgba(0,234,255,.75); color: #e6fbff; box-shadow: 0 0 12px rgba(0,234,255,.25); }
+  #bc-host .tab-overview { margin-left: auto; }
+</style>
+</head>
+<body>
+<div class="fake-splash">
+  <div class="brand">EvoFlow</div>
+  <p class="tagline">用对话驱动工作：不会点界面也没关系，交给 AI 就行</p>
+  <div class="bar"><span></span></div>
+  <aside class="boot-console">
+    <div class="boot-console__head">
+      <span class="live">平台实况</span>
+      <span class="hint">自动巡游讲解 · 点击模块查看详情 · 对 AI 说「帮我记一条待办」即可开始</span>
+    </div>
+    <div class="boot-console__stage" id="bc-host"></div>
+  </aside>
+</div>
+<script defer src="./utils.js"></script>
+<script defer src="./engine.js"></script>
+<script defer src="./scene.js"></script>
+<script defer src="./ui.js"></script>
+<script defer src="./boot.js"></script>
+</body>
+</html>

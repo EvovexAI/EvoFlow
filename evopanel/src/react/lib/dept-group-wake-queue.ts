@@ -170,11 +170,9 @@ export class DeptGroupWakeQueue {
     const goal = String(input.goal || '').trim()
     if (!goal) return Promise.reject(new Error('缺少任务'))
 
-    if (input.chainKey) {
-      if (this.nestSeen.has(input.chainKey)) {
-        return Promise.resolve()
-      }
-      this.nestSeen.add(input.chainKey)
+    if (input.chainKey && this.nestSeen.has(input.chainKey)) {
+      // 同链已成功叫醒过 → 跳过；失败会从 nestSeen 剔除，允许再试
+      return Promise.resolve()
     }
 
     const norm = normalizeWakeGoal(goal)
@@ -255,6 +253,18 @@ export class DeptGroupWakeQueue {
 
   private async execute(job: InternalJob) {
     const signal = { aborted: this.aborted }
+    // 开始执行时占坑，防止并行重复叫醒；失败再释放
+    if (job.chainKey) {
+      if (this.nestSeen.has(job.chainKey)) {
+        job.status = 'done'
+        job.updatedAt = this.now()
+        this.emit()
+        job.resolve()
+        this.drop(job)
+        return
+      }
+      this.nestSeen.add(job.chainKey)
+    }
     while (!this.aborted) {
       job.status = 'running'
       job.attempts += 1
@@ -277,6 +287,7 @@ export class DeptGroupWakeQueue {
           signal,
         })
         if (this.aborted || signal.aborted) {
+          if (job.chainKey) this.nestSeen.delete(job.chainKey)
           job.status = 'failed'
           job.error = '已取消'
           job.updatedAt = this.now()
@@ -287,6 +298,7 @@ export class DeptGroupWakeQueue {
         }
         if (result?.busy) {
           if (job.attempts >= MAX_ATTEMPTS) {
+            if (job.chainKey) this.nestSeen.delete(job.chainKey)
             job.status = 'failed'
             job.error = result.error || '对方持续忙碌'
             job.updatedAt = this.now()
@@ -304,6 +316,7 @@ export class DeptGroupWakeQueue {
           continue
         }
         if (result?.error) {
+          if (job.chainKey) this.nestSeen.delete(job.chainKey)
           job.status = 'failed'
           job.error = result.error
           job.updatedAt = this.now()
@@ -320,6 +333,7 @@ export class DeptGroupWakeQueue {
         return
       } catch (e) {
         if (this.aborted) {
+          if (job.chainKey) this.nestSeen.delete(job.chainKey)
           job.status = 'failed'
           job.error = '已取消'
           job.updatedAt = this.now()
@@ -337,6 +351,7 @@ export class DeptGroupWakeQueue {
           await this.sleep(wait, signal)
           continue
         }
+        if (job.chainKey) this.nestSeen.delete(job.chainKey)
         job.status = 'failed'
         job.error = String((e as { message?: string })?.message || e || '失败')
         job.updatedAt = this.now()
