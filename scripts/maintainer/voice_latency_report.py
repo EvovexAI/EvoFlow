@@ -35,6 +35,7 @@ ANCHORS: dict[str, re.Pattern[str]] = {
 
 def parse_files(log_dir: Path, days: int | None) -> dict[str, list[int]]:
     samples: dict[str, list[int]] = {name: [] for name in ANCHORS}
+    samples["be_wire_gap_cross_turn"] = []
     files = sorted(log_dir.glob("voice-*.log"))
     if days:
         # 文件名 voice-frontend-YYYY-MM-DD.log；粗过滤最近 N 天
@@ -56,7 +57,12 @@ def parse_files(log_dir: Path, days: int | None) -> dict[str, list[int]]:
             for name, pat in ANCHORS.items():
                 m = pat.search(line)
                 if m:
-                    samples[name].append(int(m.group(1)))
+                    v = int(m.group(1))
+                    # wire_gap >5s 是跨轮空闲（handoff 锚点跨回合），单独计不进句间分布
+                    if name == "be_wire_gap" and v > 5000:
+                        samples["be_wire_gap_cross_turn"].append(v)
+                    else:
+                        samples[name].append(v)
     return samples
 
 
