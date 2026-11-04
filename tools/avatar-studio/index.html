@@ -70,7 +70,7 @@
     content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;
     background:radial-gradient(420px 260px at 50% 0%,rgba(255,255,255,.75),transparent 70%);
   }
-  #stage{width:100%;max-width:520px;display:block;border-radius:20px;overflow:hidden;
+  #stage{width:100%;max-width:540px;display:block;border-radius:20px;overflow:hidden;
     box-shadow:0 14px 40px rgba(120,90,120,.13);}
   #stage svg{display:block;width:100%;height:auto}
 
@@ -407,6 +407,12 @@ function shade(hex, amt){
   return `rgb(${f(r)},${f(g)},${f(b)})`;
 }
 function byId(list,id){ return list.find(x=>x.id===id) || list[0]; }
+function wpick(rng, pairs){
+  const total = pairs.reduce((a,b)=>a+b[1],0);
+  let r = rng()*total;
+  for(const [v,w] of pairs){ r -= w; if(r <= 0) return v; }
+  return pairs[pairs.length-1][0];
+}
 const FACE_INK = '#3A2E40';
 function star4(x,y,r,color,op){
   const k = r*0.24;
@@ -416,6 +422,9 @@ function star4(x,y,r,color,op){
 /* =========================================================================
    3. 状态
    ========================================================================= */
+const EYE_WEIGHTS = [['big',.40],['sparkle',.28],['gentle',.14],['wink',.11],['sleepy',.07]];
+const MOUTH_WEIGHTS = [['smile',.32],['cat',.24],['small',.20],['open',.15],['tongue',.09]];
+
 const DEFAULT = {
   pack:'cute', skin:'cream', hair:'cocoa', eye:'amber', bg:'sakura',
   hairStyle:'bob', bangs:'full', eyeStyle:'big', mouth:'smile', brow:'soft',
@@ -427,8 +436,10 @@ let miniSeeds = [];
 let selectedMini = -1;
 
 /* =========================================================================
-   4. 绘制
+   4. 绘制 —— 柔光 3D（皮克斯向）
    ========================================================================= */
+const DARK_BGS = new Set(['moon','forest','bloom','frost','void']);
+
 function buildAvatar(st, uid){
   uid = uid || 'a';
   const S = byId(SKINS, st.skin);
@@ -436,103 +447,168 @@ function buildAvatar(st, uid){
   const E = byId(EYES, st.eye);
   const B = byId(BGS, st.bg);
   const cloth = CLOTHES[st.clothes % CLOTHES.length];
-  const rng = mulberry32(st.seed || 1);
+  const rng = mulberry32((st.seed || 1) * 7919 + 13);
+  const isDark = DARK_BGS.has(B.id);
+  const skinDeep = shade(S.c, -.22);
+  const skinDark = shade(S.s, -.10);
 
   const defs = `
-    <defs>
-      <linearGradient id="${uid}-bg" x1="0" y1="0" x2="0.35" y2="1">
-        <stop offset="0" stop-color="${B.c1}"/>
-        <stop offset="1" stop-color="${B.c2}"/>
-      </linearGradient>
-      <radialGradient id="${uid}-halo" cx="0.5" cy="0.5" r="0.5">
-        <stop offset="0" stop-color="#fff" stop-opacity=".55"/>
-        <stop offset=".55" stop-color="${B.ac}" stop-opacity=".16"/>
-        <stop offset="1" stop-color="${B.ac}" stop-opacity="0"/>
-      </radialGradient>
-      <linearGradient id="${uid}-skin" x1="0.25" y1="0" x2="0.7" y2="1">
-        <stop offset="0" stop-color="${shade(S.c,.10)}"/>
-        <stop offset=".62" stop-color="${S.c}"/>
-        <stop offset="1" stop-color="${shade(S.s,.06)}"/>
-      </linearGradient>
-      <linearGradient id="${uid}-hair" x1="0.2" y1="0" x2="0.55" y2="1">
-        <stop offset="0" stop-color="${H.l}"/>
-        <stop offset=".42" stop-color="${H.c}"/>
-        <stop offset="1" stop-color="${H.d}"/>
-      </linearGradient>
-      <linearGradient id="${uid}-hair2" x1="0.3" y1="0" x2="0.5" y2="1">
-        <stop offset="0" stop-color="${H.c}"/>
-        <stop offset="1" stop-color="${shade(H.d,-.12)}"/>
-      </linearGradient>
-      <linearGradient id="${uid}-iris" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0" stop-color="${shade(E.c,-.34)}"/>
-        <stop offset=".5" stop-color="${E.c}"/>
-        <stop offset="1" stop-color="${shade(E.c,.40)}"/>
-      </linearGradient>
-      <radialGradient id="${uid}-blush" cx="0.5" cy="0.5" r="0.5">
-        <stop offset="0" stop-color="${S.b}" stop-opacity=".72"/>
-        <stop offset="1" stop-color="${S.b}" stop-opacity="0"/>
-      </radialGradient>
-      <radialGradient id="${uid}-glow" cx="0.5" cy="0.5" r="0.5">
-        <stop offset="0" stop-color="#fff" stop-opacity=".95"/>
-        <stop offset="1" stop-color="#fff" stop-opacity="0"/>
-      </radialGradient>
-    </defs>`;
+  <defs>
+    <radialGradient id="${uid}-bg" cx="0.5" cy="0.32" r="0.78">
+      <stop offset="0" stop-color="${B.c1}"/>
+      <stop offset="1" stop-color="${B.c2}"/>
+    </radialGradient>
+    <radialGradient id="${uid}-keylight" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#fff" stop-opacity=".55"/>
+      <stop offset=".6" stop-color="#fff" stop-opacity=".12"/>
+      <stop offset="1" stop-color="#fff" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="${uid}-vig" cx="0.5" cy="0.48" r="0.72">
+      <stop offset=".6" stop-color="#000" stop-opacity="0"/>
+      <stop offset="1" stop-color="#000" stop-opacity="${isDark ? .38 : .10}"/>
+    </radialGradient>
+    <radialGradient id="${uid}-skin" gradientUnits="userSpaceOnUse" cx="222" cy="176" r="212">
+      <stop offset="0" stop-color="${shade(S.c, .07)}"/>
+      <stop offset=".42" stop-color="${S.c}"/>
+      <stop offset=".74" stop-color="${shade(S.c, -.10)}"/>
+      <stop offset="1" stop-color="${shade(S.s, -.14)}"/>
+    </radialGradient>
+    <radialGradient id="${uid}-bounce" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="${S.b}" stop-opacity=".38"/>
+      <stop offset="1" stop-color="${S.b}" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="${uid}-hair" gradientUnits="userSpaceOnUse" x1="150" y1="80" x2="330" y2="470">
+      <stop offset="0" stop-color="${H.l}"/>
+      <stop offset=".34" stop-color="${H.c}"/>
+      <stop offset=".78" stop-color="${H.d}"/>
+      <stop offset="1" stop-color="${shade(H.d, -.22)}"/>
+    </linearGradient>
+    <linearGradient id="${uid}-gloss" x1="0" y1="0" x2="0.65" y2="1">
+      <stop offset="0" stop-color="#fff" stop-opacity=".62"/>
+      <stop offset="1" stop-color="#fff" stop-opacity="0"/>
+    </linearGradient>
+    <radialGradient id="${uid}-iris" cx="0.46" cy="0.74" r="0.66">
+      <stop offset="0" stop-color="${shade(E.c, .50)}"/>
+      <stop offset=".5" stop-color="${E.c}"/>
+      <stop offset=".86" stop-color="${shade(E.c, -.34)}"/>
+      <stop offset="1" stop-color="${shade(E.c, -.52)}"/>
+    </radialGradient>
+    <radialGradient id="${uid}-sclera" cx="0.5" cy="0.3" r="0.8">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset=".62" stop-color="#FAF5F9"/>
+      <stop offset="1" stop-color="#D8CBD8"/>
+    </radialGradient>
+    <linearGradient id="${uid}-cloth" x1="0.25" y1="0" x2="0.55" y2="1">
+      <stop offset="0" stop-color="${shade(cloth, .10)}"/>
+      <stop offset=".6" stop-color="${cloth}"/>
+      <stop offset="1" stop-color="${shade(cloth, -.14)}"/>
+    </linearGradient>
+    <radialGradient id="${uid}-eartip" gradientUnits="userSpaceOnUse" cx="108" cy="172" r="72">
+      <stop offset="0" stop-color="${S.b}" stop-opacity=".65"/>
+      <stop offset="1" stop-color="${S.b}" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="${uid}-blush" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="${S.b}" stop-opacity=".62"/>
+      <stop offset=".55" stop-color="${S.b}" stop-opacity=".30"/>
+      <stop offset="1" stop-color="${S.b}" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="${uid}-lip" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#C25566"/>
+      <stop offset="1" stop-color="#8E3443"/>
+    </linearGradient>
 
-  /* ---- 背景 ---- */
+    <filter id="${uid}-b4" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="4"/></filter>
+    <filter id="${uid}-b8" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="8"/></filter>
+    <filter id="${uid}-b16" x="-70%" y="-70%" width="240%" height="240%">
+      <feGaussianBlur stdDeviation="16"/></filter>
+    <filter id="${uid}-ds" x="-45%" y="-45%" width="190%" height="200%">
+      <feDropShadow dx="0" dy="12" stdDeviation="14" flood-color="#2A1B2E" flood-opacity="${isDark ? .45 : .22}"/>
+    </filter>
+    <clipPath id="${uid}-eyeL">
+      <ellipse cx="214" cy="258" rx="26.5" ry="28.5"/>
+    </clipPath>
+    <clipPath id="${uid}-eyeR">
+      <ellipse cx="298" cy="258" rx="26.5" ry="28.5"/>
+    </clipPath>
+  </defs>`;
+
+  /* ---------- 背景 ---------- */
   let bg = `<rect width="512" height="512" fill="url(#${uid}-bg)"/>`;
-  bg += decoLayer(B.deco, B.ac, rng);
+  bg += `<circle cx="256" cy="200" r="210" fill="url(#${uid}-keylight)"/>`;
+  bg += `<g filter="url(#${uid}-b16)">${decoLayer(B.deco, B.ac, rng)}</g>`;
+  bg += crispDeco(B.deco, B.ac, rng);
 
-  /* ---- 光环（精灵） ---- */
-  if(st.elfEars || st.pack === 'elf'){
-    bg += `<circle cx="256" cy="232" r="168" fill="url(#${uid}-halo)"/>`;
-    bg += `<circle cx="256" cy="232" r="150" fill="none" stroke="${B.ac}" stroke-opacity=".28" stroke-width="1.6"/>`;
+  /* ---------- 光环（精灵） ---------- */
+  if(st.elfEars){
+    bg += `<circle cx="256" cy="238" r="158" fill="none" stroke="${B.ac}" stroke-opacity=".30" stroke-width="1.4"/>`;
+    bg += `<circle cx="256" cy="238" r="172" fill="none" stroke="${B.ac}" stroke-opacity=".14" stroke-width="1"/>`;
   }
 
-  /* ---- 脖子（先画，压在肩膀下面） ---- */
-  const neck = `<path d="M228,320 L284,320 L284,372 C284,384 272,392 256,392 C240,392 228,384 228,372 Z" fill="${shade(S.s,-.05)}"/>
-    <path d="M228,340 C238,356 250,362 256,362 C262,362 274,356 284,340 L284,352 C274,368 262,374 256,374 C250,374 238,368 228,352 Z" fill="${shade(S.s,-.16)}" opacity=".55"/>`;
+  /* ---------- 脖子 ---------- */
+  const neck = `
+    <path d="M230,318 L282,318 L282,368 C282,382 271,390 256,390 C241,390 230,382 230,368 Z"
+          fill="${shade(S.c,-.10)}"/>
+    <ellipse cx="256" cy="382" rx="42" ry="18" fill="${shade(S.s,-.28)}" opacity=".30" filter="url(#${uid}-b8)"/>`;
 
-  /* ---- 身体（Q 版：肩线紧贴下颌） ---- */
+  /* ---------- 身体 ---------- */
   const body = `
-    <path d="M256,354 C302,354 338,370 360,392 C384,418 398,462 404,512 L108,512 C114,462 128,418 152,392 C174,370 210,354 256,354 Z" fill="${cloth}"/>
-    <path d="M256,376 C296,376 328,390 348,408 C332,430 296,442 256,442 C216,442 180,430 164,408 C184,390 216,376 256,376 Z" fill="${shade(cloth,-.09)}" opacity=".8"/>
-    <path d="M256,376 C270,376 282,382 288,392 C276,404 236,404 224,392 C230,382 242,376 256,376 Z" fill="${shade(S.s,.06)}"/>
-  `;
+    <path d="M256,344 C306,344 344,362 366,388 C392,418 406,462 412,512 L100,512 C106,462 120,418 146,388
+             C168,362 206,344 256,344 Z" fill="url(#${uid}-cloth)"/>
+    <path d="M256,344 C306,344 344,362 366,388 C392,418 406,462 412,512 L100,512 C106,462 120,418 146,388
+             C168,362 206,344 256,344 Z" fill="none" stroke="${shade(cloth,-.22)}" stroke-opacity=".25" stroke-width="1.4"/>
+    <ellipse cx="256" cy="358" rx="86" ry="28" fill="#3A2440" opacity=".22" filter="url(#${uid}-b16)"/>
+    <path d="M218,348 C224,384 238,398 256,398 C274,398 288,384 294,348 C284,341 228,341 218,348 Z"
+          fill="${shade(S.c,-.14)}"/>
+    <path d="M218,348 C224,384 238,398 256,398 C274,398 288,384 294,348" fill="none"
+          stroke="${shade(cloth,-.18)}" stroke-width="7" opacity=".85"/>
+    <path d="M218,348 C224,384 238,398 256,398 C274,398 288,384 294,348" fill="none"
+          stroke="#fff" stroke-width="2" opacity=".5"/>`;
 
-  /* ---- 耳朵（仅精灵耳；压在后层头发上，像把头发别到耳后） ---- */
+  /* ---------- 耳朵 ---------- */
   const ears = st.elfEars
     ? `<g>${elfEar(S, uid)}</g><g transform="translate(512,0) scale(-1,1)">${elfEar(S, uid)}</g>`
     : '';
 
-  /* ---- 头 ---- */
+  /* ---------- 头 ---------- */
   const head = `
     <path d="M256,112 C313,112 358,158 358,224 C358,278 340,318 312,342 C296,356 277,364 256,364
              C235,364 216,356 200,342 C172,318 154,278 154,224 C154,158 199,112 256,112 Z"
           fill="url(#${uid}-skin)"/>
-    <ellipse cx="256" cy="180" rx="86" ry="58" fill="#fff" opacity=".10"/>`;
+    <ellipse cx="248" cy="300" rx="96" ry="70" fill="url(#${uid}-bounce)"/>
+    <path d="M172,150 C160,178 154,206 155,234" fill="none" stroke="#fff" stroke-width="9"
+          stroke-linecap="round" opacity=".38" filter="url(#${uid}-b4)"/>
+    <path d="M340,296 C338,326 326,344 310,354" fill="none" stroke="${skinDeep}" stroke-width="16"
+          stroke-linecap="round" opacity=".26" filter="url(#${uid}-b8)"/>
+    <ellipse cx="256" cy="352" rx="70" ry="26" fill="${skinDeep}" opacity=".16" filter="url(#${uid}-b16)"/>`;
 
-  /* ---- 五官 ---- */
+  /* ---------- 五官 ---------- */
   const face = faceLayer(st, S, E, H, uid);
 
-  /* ---- 头发 ---- */
+  /* ---------- 头发 ---------- */
   const backHair = hairBack(st, H, uid);
   const frontHair = hairFront(st, H, uid);
 
-  /* ---- 配饰 ---- */
+  /* ---------- 配饰 ---------- */
   const acc = accLayer(st, H, S, uid);
 
-  /* ---- 光点 ---- */
+  /* ---------- 光点 ---------- */
   let fx = '';
   if(st.sparkle){
-    const pts = [[112,196,9],[400,236,7],[132,352,6],[386,376,8],[96,300,5],[418,318,5]];
-    pts.forEach((p,i)=>{
-      const jx = p[0] + (rng()-.5)*10, jy = p[1] + (rng()-.5)*10;
-      fx += star4(jx, jy, p[2]*(0.8+rng()*.5), '#fff', (.55+rng()*.35).toFixed(2));
+    const pts = [[104,206,10],[404,244,8],[128,362,7],[392,384,9],[92,308,6],[424,326,6],[352,96,7]];
+    pts.forEach(p=>{
+      const jx = p[0] + (rng()-.5)*12, jy = p[1] + (rng()-.5)*12, r = p[2]*(0.75+rng()*.55);
+      fx += `<circle cx="${jx.toFixed(1)}" cy="${jy.toFixed(1)}" r="${(r*1.8).toFixed(1)}" fill="#fff" opacity=".28" filter="url(#${uid}-b4)"/>`;
+      fx += star4(jx, jy, r, '#fff', (.62+rng()*.3).toFixed(2));
     });
   }
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
-    ${defs}${bg}${neck}${body}${backHair}${ears}${head}${face}${frontHair}${acc}${fx}
+    ${defs}${bg}
+    <g filter="url(#${uid}-ds)">${neck}${body}${backHair}${head}${ears}${face}${frontHair}${acc}</g>
+    ${fx}
+    <rect width="512" height="512" fill="url(#${uid}-vig)" pointer-events="none"/>
   </svg>`;
 }
 
@@ -540,133 +616,146 @@ function buildAvatar(st, uid){
 function decoLayer(kind, ac, rng){
   let s = '';
   if(kind === 'soft'){
-    s += `<circle cx="96" cy="120" r="120" fill="#fff" opacity=".38"/>`;
-    s += `<circle cx="430" cy="404" r="140" fill="#fff" opacity=".24"/>`;
-    s += `<circle cx="404" cy="90" r="52" fill="${ac}" opacity=".18"/>`;
-    // 小圆点弧
-    for(let i=0;i<7;i++){
-      const a = (-40 + i*16) * Math.PI/180;
-      s += `<circle cx="${256 + Math.cos(a)*196}" cy="${250 + Math.sin(a)*196}" r="3.2" fill="${ac}" opacity=".55"/>`;
-    }
+    s += `<circle cx="86" cy="120" r="118" fill="#fff" opacity=".45"/>`;
+    s += `<circle cx="436" cy="410" r="150" fill="#fff" opacity=".30"/>`;
+    s += `<circle cx="412" cy="96" r="58" fill="${ac}" opacity=".30"/>`;
   }
   if(kind === 'bokeh'){
-    const spots = [[70,90,46],[430,150,60],[120,420,54],[400,400,38],[300,60,26]];
-    spots.forEach(p=>{ s += `<circle cx="${p[0]}" cy="${p[1]}" r="${p[2]}" fill="#fff" opacity=".2"/>`; });
-    s += `<circle cx="452" cy="452" r="90" fill="${ac}" opacity=".14"/>`;
+    [[66,92,48],[436,148,64],[112,424,56],[404,398,42],[300,54,28]].forEach(p=>{
+      s += `<circle cx="${p[0]}" cy="${p[1]}" r="${p[2]}" fill="#fff" opacity=".38"/>`;
+    });
+    s += `<circle cx="452" cy="452" r="96" fill="${ac}" opacity=".26"/>`;
   }
   if(kind === 'dots'){
     for(let y=0;y<9;y++) for(let x=0;x<9;x++){
-      s += `<circle cx="${34+x*56}" cy="${34+y*56}" r="2.6" fill="${ac}" opacity=".22"/>`;
+      s += `<circle cx="${34+x*56}" cy="${34+y*56}" r="3.4" fill="${ac}" opacity=".22"/>`;
     }
-    s += `<circle cx="256" cy="256" r="200" fill="#fff" opacity=".22"/>`;
+    s += `<circle cx="256" cy="240" r="196" fill="#fff" opacity=".30"/>`;
   }
   if(kind === 'cloud'){
-    s += `<ellipse cx="110" cy="96" rx="86" ry="42" fill="#fff" opacity=".5"/>`;
-    s += `<ellipse cx="166" cy="80" rx="52" ry="34" fill="#fff" opacity=".45"/>`;
-    s += `<ellipse cx="404" cy="420" rx="94" ry="46" fill="#fff" opacity=".4"/>`;
-    s += `<circle cx="430" cy="96" r="44" fill="${ac}" opacity=".2"/>`;
+    s += `<ellipse cx="104" cy="100" rx="92" ry="46" fill="#fff" opacity=".55"/>`;
+    s += `<ellipse cx="168" cy="80" rx="56" ry="36" fill="#fff" opacity=".45"/>`;
+    s += `<ellipse cx="410" cy="418" rx="100" ry="48" fill="#fff" opacity=".42"/>`;
+    s += `<circle cx="434" cy="92" r="48" fill="${ac}" opacity=".28"/>`;
   }
   if(kind === 'stars'){
-    for(let i=0;i<16;i++){
-      const x = rng()*512, y = rng()*512, r = 2 + rng()*4;
-      s += `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${r.toFixed(1)}" fill="#fff" opacity="${(.25+rng()*.5).toFixed(2)}"/>`;
-    }
-    [[80,120,12],[420,180,10],[100,400,9],[400,420,11],[350,70,7]].forEach(p=>{
-      s += star4(p[0],p[1],p[2],'#fff',.75);
-    });
-    s += `<circle cx="256" cy="236" r="150" fill="${ac}" opacity=".10"/>`;
+    s += `<circle cx="256" cy="232" r="150" fill="${ac}" opacity=".20"/>`;
   }
   if(kind === 'fireflies'){
     for(let i=0;i<14;i++){
-      const x = rng()*512, y = rng()*512, r = 3 + rng()*5;
-      s += `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${(r*2.6).toFixed(1)}" fill="${ac}" opacity=".10"/>`;
+      const x = rng()*512, y = rng()*512, r = 5 + rng()*7;
       s += `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${r.toFixed(1)}" fill="${ac}" opacity=".55"/>`;
     }
-    s += `<circle cx="256" cy="250" r="168" fill="${ac}" opacity=".08"/>`;
+    s += `<circle cx="256" cy="250" r="170" fill="${ac}" opacity=".12"/>`;
   }
   if(kind === 'petals'){
     for(let i=0;i<12;i++){
-      const x = rng()*512, y = rng()*512, r = 5 + rng()*7, a = rng()*360;
-      s += `<ellipse cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" rx="${r.toFixed(1)}" ry="${(r*.55).toFixed(1)}"
-             fill="${ac}" opacity="${(.18+rng()*.3).toFixed(2)}" transform="rotate(${a.toFixed(0)} ${x.toFixed(1)} ${y.toFixed(1)})"/>`;
+      const x = rng()*512, y = rng()*512, r = 6 + rng()*8, a = rng()*360;
+      s += `<ellipse cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" rx="${r.toFixed(1)}" ry="${(r*.6).toFixed(1)}"
+             fill="${ac}" opacity="${(.30+rng()*.35).toFixed(2)}" transform="rotate(${a.toFixed(0)} ${x.toFixed(1)} ${y.toFixed(1)})"/>`;
     }
-    s += `<circle cx="256" cy="240" r="160" fill="${ac}" opacity=".07"/>`;
+    s += `<circle cx="256" cy="240" r="158" fill="${ac}" opacity=".10"/>`;
   }
   if(kind === 'ring'){
-    s += `<circle cx="256" cy="240" r="188" fill="none" stroke="${ac}" stroke-opacity=".35" stroke-width="1.6"/>`;
-    s += `<circle cx="256" cy="240" r="214" fill="none" stroke="${ac}" stroke-opacity=".16" stroke-width="1.2" stroke-dasharray="3 9"/>`;
-    s += `<circle cx="256" cy="240" r="150" fill="${ac}" opacity=".09"/>`;
+    s += `<circle cx="256" cy="240" r="190" fill="none" stroke="${ac}" stroke-opacity=".45" stroke-width="2"/>`;
+    s += `<circle cx="256" cy="240" r="150" fill="${ac}" opacity=".14"/>`;
+  }
+  return s;
+}
+function crispDeco(kind, ac, rng){
+  let s = '';
+  if(kind === 'stars'){
+    [[80,124,13],[420,182,10],[100,402,9],[402,424,11],[350,68,7],[176,60,6]].forEach(p=>{
+      s += star4(p[0],p[1],p[2],'#fff',.85);
+    });
+  }
+  if(kind === 'ring'){
+    s += `<circle cx="256" cy="240" r="212" fill="none" stroke="${ac}" stroke-opacity=".22" stroke-width="1.2" stroke-dasharray="3 10"/>`;
+  }
+  if(kind === 'dots'){
+    s += `<circle cx="256" cy="240" r="196" fill="none" stroke="${ac}" stroke-opacity=".22" stroke-width="1"/>`;
   }
   return s;
 }
 
-/* ---------- 耳朵 ---------- */
+/* ---------- 精灵耳 ---------- */
 function elfEar(S, uid){
-  return `<path d="M168,208 C142,198 114,190 98,181 C89,177 92,165 102,170
-                   C131,183 158,201 176,223 C183,241 177,259 166,268
-                   C157,275 146,269 149,260 C156,245 161,230 161,222 Z"
-                 fill="url(#${uid}-skin)" stroke="${shade(S.s,-.14)}" stroke-width="1.2" stroke-opacity=".4"/>
-          <path d="M158,238 C142,226 122,210 112,194" fill="none" stroke="${S.s}" stroke-width="3"
-                stroke-linecap="round" opacity=".45"/>
-          <path d="M120,196 C132,208 144,222 152,236" fill="none" stroke="#fff" stroke-width="2.4"
-                stroke-linecap="round" opacity=".35"/>`;
+  /* 尖梢 + 宽耳根（耳根线段藏进头部，靠同一套皮肤渐变做到无缝） */
+  const p = `M176,204 C152,192 124,178 104,168 C97,165 98,156 107,160
+             C127,188 152,224 180,264 Z`;
+  return `
+    <path d="${p}" fill="${shade(S.s,-.32)}" opacity=".35" transform="translate(7,9)" filter="url(#${uid}-b8)"/>
+    <path d="${p}" fill="url(#${uid}-skin)"/>
+    <path d="${p}" fill="url(#${uid}-eartip)" opacity=".5"/>
+    <path d="M158,226 C170,242 177,254 180,262" fill="none" stroke="${shade(S.s,-.18)}"
+          stroke-width="13" stroke-linecap="round" opacity=".25" filter="url(#${uid}-b4)"/>
+    <path d="M172,210 C176,232 179,250 181,262" fill="none" stroke="${shade(S.s,-.22)}"
+          stroke-width="9" stroke-linecap="round" opacity=".22" filter="url(#${uid}-b4)"/>
+    <path d="M170,200 C146,188 122,176 110,170" fill="none" stroke="#fff"
+          stroke-width="4.5" stroke-linecap="round" opacity=".55" filter="url(#${uid}-b4)"/>
+    <path d="M176,206 C150,196 124,182 106,170" fill="none" stroke="${shade(S.c,.14)}"
+          stroke-width="2.4" stroke-linecap="round" opacity=".45"/>`;
 }
 
 /* ---------- 头发：后层 ---------- */
 function hairBack(st, H, uid){
   const g = `url(#${uid}-hair)`;
   const style = st.hairStyle;
-  if(style === 'bob'){
-    return `<path d="M256,92 C332,92 382,148 382,220 C382,284 374,332 364,358 C354,384 334,394 310,394
-             C286,394 272,376 256,376 C240,376 226,394 202,394 C178,394 158,384 148,358
-             C138,332 130,284 130,220 C130,148 180,92 256,92 Z" fill="${g}"/>`;
-  }
+  const bobPath = `M256,86 C340,86 398,144 398,222 C398,292 392,344 380,372 C368,400 344,412 316,412
+             C288,412 274,380 256,380 C238,380 224,412 196,412 C168,412 144,400 132,372
+             C120,344 114,292 114,222 C114,144 172,86 256,86 Z`;
+  let main = '';
+  let extra = '';
+  if(style === 'bob'){ main = bobPath; }
   if(style === 'long'){
-    return `<path d="M256,94 C334,94 382,150 382,226 L382,404 C382,432 358,448 330,448 L182,448
-             C154,448 130,432 130,404 L130,226 C130,150 178,94 256,94 Z" fill="${g}"/>
-            <path d="M156,300 C150,360 152,410 158,438 L182,438 C176,404 174,352 180,300 Z" fill="${H.d}" opacity=".35"/>
-            <path d="M356,300 C362,360 360,410 354,438 L330,438 C336,404 338,352 332,300 Z" fill="${H.d}" opacity=".28"/>`;
+    main = `M256,86 C342,86 400,146 400,226 L400,408 C400,438 370,454 338,454 L174,454
+             C142,454 112,438 112,408 L112,226 C112,146 170,86 256,86 Z`;
+    extra = `<path d="M158,300 C152,362 154,412 160,440 L184,440 C178,404 176,352 182,300 Z" fill="${H.d}" opacity=".30"/>
+             <path d="M354,300 C360,362 358,412 352,440 L328,440 C334,404 336,352 330,300 Z" fill="${H.d}" opacity=".24"/>`;
   }
   if(style === 'twin'){
-    return `<path d="M256,92 C332,92 382,148 382,220 C382,284 374,332 364,358 C354,384 334,394 310,394
-             C286,394 272,376 256,376 C240,376 226,394 202,394 C178,394 158,384 148,358
-             C138,332 130,284 130,220 C130,148 180,92 256,92 Z" fill="${g}"/>
-            <path d="M146,256 C110,268 88,304 92,348 C95,384 116,404 140,398 C160,393 165,373 154,358
-                     C141,340 140,318 154,300 Z" fill="${g}"/>
-            <path d="M366,256 C402,268 424,304 420,348 C417,384 396,404 372,398 C352,393 347,373 358,358
-                     C371,340 372,318 358,300 Z" fill="${g}"/>
-            <ellipse cx="152" cy="262" rx="13" ry="9" fill="#FF8FB0" opacity=".9" transform="rotate(-20 152 262)"/>
-            <ellipse cx="360" cy="262" rx="13" ry="9" fill="#FF8FB0" opacity=".9" transform="rotate(20 360 262)"/>`;
+    main = bobPath;
+    extra = `<path d="M148,254 C112,266 90,302 94,346 C97,382 118,402 142,396 C162,391 167,371 156,356
+                      C143,338 142,316 156,298 Z" fill="${g}"/>
+             <path d="M364,254 C400,266 422,302 418,346 C415,382 394,402 370,396 C350,391 345,371 356,356
+                      C369,338 370,316 356,298 Z" fill="${g}"/>
+             <ellipse cx="150" cy="262" rx="14" ry="10" fill="#FF8FB0" transform="rotate(-22 150 262)"/>
+             <ellipse cx="362" cy="262" rx="14" ry="10" fill="#FF8FB0" transform="rotate(22 362 262)"/>`;
   }
   if(style === 'bun'){
-    return `<circle cx="256" cy="76" r="44" fill="${g}"/>
-            <path d="M256,92 C332,92 382,148 382,220 C382,284 374,332 364,358 C354,384 334,394 310,394
-             C286,394 272,376 256,376 C240,376 226,394 202,394 C178,394 158,384 148,358
-             C138,332 130,284 130,220 C130,148 180,92 256,92 Z" fill="${g}"/>
-            <ellipse cx="256" cy="112" rx="34" ry="12" fill="${H.d}" opacity=".45"/>`;
+    main = bobPath;
+    extra = `<circle cx="256" cy="72" r="46" fill="${g}"/>
+             <circle cx="240" cy="58" r="16" fill="#fff" opacity=".18" filter="url(#${uid}-b4)"/>
+             <ellipse cx="256" cy="112" rx="36" ry="13" fill="${shade(H.d,-.2)}" opacity=".45" filter="url(#${uid}-b4)"/>`;
   }
   if(style === 'pony'){
-    return `<path d="M256,92 C332,92 382,148 382,220 C382,284 374,332 364,358 C354,384 334,394 310,394
-             C286,394 272,376 256,376 C240,376 226,394 202,394 C178,394 158,384 148,358
-             C138,332 130,284 130,220 C130,148 180,92 256,92 Z" fill="${g}"/>
-            <path d="M368,246 C406,252 434,290 434,344 C434,392 412,424 384,420 C362,417 352,396 364,382
-                     C380,362 386,330 370,306 Z" fill="${g}"/>
-            <ellipse cx="372" cy="252" rx="14" ry="9" fill="#FF8FB0" opacity=".9" transform="rotate(18 372 252)"/>`;
+    main = bobPath;
+    extra = `<path d="M366,244 C406,250 436,290 436,344 C436,392 414,424 386,420 C364,417 354,396 366,382
+                      C382,362 388,330 372,306 Z" fill="${g}"/>
+             <ellipse cx="372" cy="250" rx="15" ry="10" fill="#FF8FB0" transform="rotate(18 372 250)"/>`;
   }
   if(style === 'curly'){
     let curls = '';
-    const pts = [[138,250,34],[128,310,32],[146,362,30],[374,250,34],[384,310,32],[366,362,30],
-                 [172,120,30],[340,120,30],[256,86,42],[108,368,26],[404,368,26]];
-    pts.forEach(p=>{ curls += `<circle cx="${p[0]}" cy="${p[1]}" r="${p[2]}" fill="${g}"/>`; });
-    return curls + `<path d="M256,92 C332,92 382,148 382,220 C382,284 374,332 364,358 C354,384 334,394 310,394
-             C286,394 272,376 256,376 C240,376 226,394 202,394 C178,394 158,384 148,358
-             C138,332 130,284 130,220 C130,148 180,92 256,92 Z" fill="${g}"/>`;
+    [[136,252,36],[126,312,34],[146,364,32],[376,252,36],[386,312,34],[366,364,32],
+     [174,118,32],[338,118,32],[256,82,44],[106,370,27],[406,370,27]].forEach(p=>{
+      curls += `<circle cx="${p[0]}" cy="${p[1]}" r="${p[2]}" fill="${g}"/>`;
+    });
+    main = curls + bobPath;
   }
-  // short
-  return `<path d="M256,96 C326,96 372,146 374,214 C375,246 368,272 358,288 C350,300 338,298 334,284
+  if(style === 'short'){
+    main = `M256,94 C326,94 372,146 374,214 C375,246 368,272 358,288 C350,300 338,298 334,284
            C328,262 318,246 304,240 C288,234 274,242 260,242 C242,242 228,232 212,236
            C194,240 184,256 180,280 C176,296 162,296 156,282 C148,264 146,240 146,212
-           C148,146 188,96 256,96 Z" fill="${g}"/>`;
+           C148,144 188,94 256,94 Z`;
+  }
+  // 统一的高光与轮廓光
+  const gloss = `<path d="M176,224 C170,170 204,118 250,106" fill="none" stroke="url(#${uid}-gloss)"
+                   stroke-width="22" stroke-linecap="round" opacity=".24" filter="url(#${uid}-b8)"/>
+                 <path d="M188,200 C190,160 214,130 244,118" fill="none" stroke="#fff"
+                   stroke-width="6" stroke-linecap="round" opacity=".24" filter="url(#${uid}-b4)"/>
+                 <path d="M338,158 C362,184 374,214 372,246" fill="none" stroke="#fff"
+                   stroke-width="8" stroke-linecap="round" opacity=".14" filter="url(#${uid}-b4)"/>`;
+  return `${main}${extra}${gloss}`;
 }
 
 /* ---------- 头发：前层（刘海） ---------- */
@@ -675,232 +764,264 @@ function hairFront(st, H, uid){
   const b = st.bangs;
   let out = '';
   if(b === 'full'){
-    out = `<path d="M150,242 C146,156 196,98 256,98 C316,98 366,156 362,242
-             C352,212 336,196 318,198 C300,200 288,212 280,226
-             C272,206 264,196 256,196 C248,196 240,206 232,226
-             C224,212 212,200 194,198 C176,196 160,212 150,242 Z" fill="${g}"/>`;
+    out = `<path d="M134,248 C130,150 188,88 256,88 C324,88 382,150 378,248
+             C368,222 344,204 310,204 C290,204 268,220 256,220
+             C244,220 222,204 202,204 C168,204 144,222 134,248 Z" fill="${g}"/>`;
   }
   if(b === 'part'){
-    out = `<path d="M150,240 C146,156 196,100 256,100 C247,148 234,192 214,224
-             C200,248 174,256 156,247 C153,245 151,242 150,240 Z" fill="${g}"/>
-           <g transform="translate(512,0) scale(-1,1)">
-             <path d="M150,240 C146,156 196,100 256,100 C247,148 234,192 214,224
-             C200,248 174,256 156,247 C153,245 151,242 150,240 Z" fill="${g}"/>
-           </g>`;
+    out = `<path d="M134,248 C130,150 188,88 256,88 C266,124 262,164 250,192
+             C242,216 222,232 200,238 C176,244 156,240 148,230 Z
+             M378,248 C382,150 324,88 256,88 C246,124 250,164 262,192
+             C270,216 290,232 312,238 C336,244 356,240 364,230 Z" fill="${g}"/>`;
   }
   if(b === 'side'){
-    out = `<path d="M150,242 C144,156 194,100 256,100 C318,100 366,156 362,242
-             C352,204 332,184 306,186 C280,188 258,208 236,228
-             C212,250 176,252 158,240 Z" fill="${g}"/>
-           <path d="M196,214 C214,236 236,250 260,254" fill="none" stroke="${H.l}" stroke-width="5"
-                 stroke-linecap="round" opacity=".38"/>`;
+    out = `<path d="M134,250 C128,152 186,90 256,90 C326,90 384,152 378,250
+             C352,204 332,182 306,184 C280,186 258,206 236,228
+             C212,252 176,254 158,242 Z" fill="${g}"/>`;
   }
   if(b === 'hime'){
-    out = `<path d="M150,240 C146,156 196,100 256,100 C316,100 366,156 362,240
-             L360,216 C334,206 296,202 256,202 C216,202 178,206 152,216 Z" fill="${g}"/>
-           <path d="M154,236 C150,286 154,326 164,350 C172,368 186,366 188,348
-             C190,326 184,286 178,246 Z" fill="${g}"/>
-           <path d="M358,236 C362,286 358,326 348,350 C340,368 326,366 324,348
-             C322,326 328,286 334,246 Z" fill="${g}"/>`;
+    out = `<path d="M134,248 C130,152 188,90 256,90 C324,90 382,152 378,248
+             C372,222 366,208 358,204 C334,196 296,194 256,194 C216,194 178,196 154,204
+             C146,208 140,222 134,248 Z" fill="${g}"/>
+           <path d="M134,214 C130,280 136,330 148,356 C156,374 172,370 173,350
+             C175,320 168,270 164,228 Z" fill="${g}"/>
+           <path d="M378,214 C382,280 376,330 364,356 C356,374 340,370 339,350
+             C337,320 344,270 348,228 Z" fill="${g}"/>`;
   }
   if(b === 'none'){
-    out = `<path d="M150,240 C146,156 196,100 256,100 C316,100 366,156 362,240
-             C354,206 338,184 316,176 C296,168 276,164 256,164
-             C236,164 216,168 196,176 C174,184 158,206 150,240 Z" fill="${g}"
-             opacity=".96"/>`;
+    out = `<path d="M134,248 C130,152 188,90 256,90 C324,90 382,152 378,248
+             C354,206 338,182 316,174 C296,166 276,162 256,162
+             C236,162 216,166 196,174 C174,182 158,206 150,242 Z" fill="${g}"/>`;
   }
-  // 高光
-  out += `<path d="M188,168 C206,140 236,124 268,124" fill="none" stroke="#fff" stroke-width="7"
-           stroke-linecap="round" opacity=".26"/>`;
+  // 发丝高光与走向
+  out += `<path d="M180,192 C198,150 228,126 262,120" fill="none" stroke="#fff" stroke-width="16"
+           stroke-linecap="round" opacity=".12" filter="url(#${uid}-b4)"/>
+          <path d="M186,186 C202,152 226,134 252,128" fill="none" stroke="#fff" stroke-width="4"
+           stroke-linecap="round" opacity=".26" filter="url(#${uid}-b4)"/>
+          <path d="M320,120 C346,146 364,178 372,214" fill="none" stroke="#fff" stroke-width="4"
+           stroke-linecap="round" opacity=".22" filter="url(#${uid}-b4)"/>
+          <path d="M238,116 C226,142 212,168 196,190" fill="none" stroke="#2A1B22" stroke-width="5"
+           stroke-linecap="round" opacity=".10" filter="url(#${uid}-b4)"/>`;
   return out;
 }
 
 /* ---------- 五官 ---------- */
 function faceLayer(st, S, E, H, uid){
-  const cy = 256, lx = 214, rx = 298;
+  const cy = 258, lx = 214, rx = 298;
   let s = '';
 
+  /* 眼窝阴影 */
+  s += `<ellipse cx="214" cy="236" rx="42" ry="22" fill="${shade(S.s,-.18)}" opacity=".10" filter="url(#${uid}-b8)"/>
+        <ellipse cx="298" cy="236" rx="42" ry="22" fill="${shade(S.s,-.18)}" opacity=".10" filter="url(#${uid}-b8)"/>`;
+
   /* 眉 */
-  const browY = 210;
+  const browY = 214;
   const browPaths = {
-    soft: `M-20,2 C-12,-7 12,-7 20,-1`,
-    straight: `M-20,0 C-12,-4 12,-4 20,0`,
-    up: `M-20,4 C-12,-9 12,-11 20,0`
+    soft:     `M-21,3 C-13,-8 13,-8 21,1`,
+    straight: `M-21,0 C-13,-5 13,-5 21,0`,
+    up:       `M-21,5 C-13,-11 13,-13 21,-1`
   };
   const bp = browPaths[st.brow] || browPaths.soft;
   [lx, rx].forEach(x=>{
     s += `<g transform="translate(${x},${browY})">
-            <path d="${bp}" fill="none" stroke="${H.d}" stroke-width="5" stroke-linecap="round" opacity=".8"/>
+            <path d="${bp}" fill="none" stroke="${shade(H.d,-.05)}" stroke-width="6" stroke-linecap="round"
+                  opacity=".40" filter="url(#${uid}-b4)"/>
+            <path d="${bp}" fill="none" stroke="${shade(H.d,.04)}" stroke-width="4.2" stroke-linecap="round" opacity=".82"/>
           </g>`;
   });
 
   /* 眼 */
-  const closedRight = st.eyeStyle === 'wink';
   const bothClosed = st.eyeStyle === 'sleepy';
-  s += eye(lx, cy, st.eyeStyle, E, uid, bothClosed);
-  s += eye(rx, cy, st.eyeStyle, E, uid, bothClosed || closedRight);
+  const closedRight = st.eyeStyle === 'wink';
+  s += eye(lx, cy, st.eyeStyle, E, uid, 'L', bothClosed);
+  s += eye(rx, cy, st.eyeStyle, E, uid, 'R', bothClosed || closedRight);
 
   /* 腮红 */
   if(st.blush){
-    s += `<ellipse cx="174" cy="300" rx="30" ry="18" fill="url(#${uid}-blush)"/>
-          <ellipse cx="338" cy="300" rx="30" ry="18" fill="url(#${uid}-blush)"/>`;
+    s += `<ellipse cx="172" cy="302" rx="34" ry="22" fill="url(#${uid}-blush)"/>
+          <ellipse cx="340" cy="302" rx="34" ry="22" fill="url(#${uid}-blush)"/>
+          <ellipse cx="166" cy="296" rx="7" ry="4" fill="#fff" opacity=".28" filter="url(#${uid}-b4)"/>`;
   }
 
   /* 精灵雀斑 */
   if(st.elfEars){
-    const dots = [[196,290],[210,300],[184,306],[322,290],[310,300],[330,306]];
-    dots.forEach(d=>{ s += `<circle cx="${d[0]}" cy="${d[1]}" r="1.9" fill="${S.s}" opacity=".55"/>`; });
+    [[198,292],[212,302],[186,308],[322,292],[310,302],[330,308]].forEach(d=>{
+      s += `<circle cx="${d[0]}" cy="${d[1]}" r="2" fill="${shade(S.s,-.30)}" opacity=".45"/>`;
+    });
   }
 
   /* 鼻子 */
-  s += `<path d="M251,290 C254,294 258,294 261,290" fill="none" stroke="${shade(S.s,-.18)}"
-         stroke-width="3" stroke-linecap="round" opacity=".65"/>`;
+  s += `<ellipse cx="256" cy="290" rx="13" ry="9" fill="${shade(S.s,-.06)}" opacity=".45" filter="url(#${uid}-b4)"/>
+        <ellipse cx="256" cy="291" rx="7.5" ry="5.5" fill="${S.s}" opacity=".55" filter="url(#${uid}-b4)"/>
+        <ellipse cx="252" cy="286" rx="5" ry="3.5" fill="#fff" opacity=".55" filter="url(#${uid}-b4)"/>`;
 
   /* 嘴 */
-  s += mouth(st.mouth);
+  s += `<ellipse cx="256" cy="330" rx="20" ry="9" fill="${shade(S.s,-.18)}" opacity=".22" filter="url(#${uid}-b4)"/>`;
+  s += mouth(st.mouth, uid);
   return s;
 }
 
-function eye(cx, cy, style, E, uid, closed){
+function eye(cx, cy, style, E, uid, side, closed){
   if(closed){
+    const d = side === 'L'
+      ? `M${cx-25},${cy+2} C${cx-15},${cy+18} ${cx+15},${cy+18} ${cx+25},${cy+2}`
+      : `M${cx-25},${cy+2} C${cx-15},${cy+18} ${cx+15},${cy+18} ${cx+25},${cy+2}`;
     return `<g>
-      <path d="M${cx-24},${cy+2} C${cx-14},${cy+18} ${cx+14},${cy+18} ${cx+24},${cy+2}"
-            fill="none" stroke="${FACE_INK}" stroke-width="6.5" stroke-linecap="round"/>
-      <path d="M${cx-28},${cy-4} C${cx-20},${cy+6} ${cx-12},${cy+8} ${cx-6},${cy+6}"
-            fill="none" stroke="${FACE_INK}" stroke-width="4" stroke-linecap="round" opacity=".55"/>
+      <path d="${d}" fill="none" stroke="#3A2E40" stroke-width="7" stroke-linecap="round" opacity=".92"/>
+      <path d="${d}" fill="none" stroke="#3A2E40" stroke-width="3" stroke-linecap="round" opacity=".35"
+            transform="translate(0,7)" filter="url(#${uid}-b4)"/>
+      <path d="M${cx-30},${cy-6} C${cx-22},${cy+4} ${cx-13},${cy+6} ${cx-6},${cy+4}" fill="none"
+            stroke="#3A2E40" stroke-width="4.5" stroke-linecap="round" opacity=".5"/>
     </g>`;
   }
-  const iris = `url(#${uid}-iris)`;
-  let g = `<ellipse cx="${cx}" cy="${cy}" rx="27" ry="29" fill="${iris}"
-            stroke="${FACE_INK}" stroke-width="3"/>`;
-  // 瞳孔
-  g += `<ellipse cx="${cx}" cy="${cy+2}" rx="11.5" ry="13.5" fill="#2A2130"/>`;
+  const clip = `url(#${uid}-eye${side})`;
+  let g = `<g clip-path="${clip}">
+      <ellipse cx="${cx}" cy="${cy}" rx="27" ry="29" fill="url(#${uid}-sclera)"/>
+      <circle cx="${cx}" cy="${cy+1}" r="24" fill="url(#${uid}-iris)"/>
+      <circle cx="${cx}" cy="${cy+1}" r="24" fill="none" stroke="${shade(E.c,-.6)}" stroke-opacity=".5" stroke-width="1.8"/>
+      <circle cx="${cx}" cy="${cy+3}" r="10.4" fill="#211A26"/>
+      <ellipse cx="${cx}" cy="${cy+14}" rx="13" ry="7" fill="${shade(E.c,.62)}" opacity=".4" filter="url(#${uid}-b4)"/>
+      <circle cx="${cx-8}" cy="${cy-10}" r="8.4" fill="#fff" opacity=".97"/>
+      <circle cx="${cx-11}" cy="${cy-13}" r="3" fill="#fff"/>
+      <circle cx="${cx+9}" cy="${cy+11}" r="3.6" fill="#fff" opacity=".72"/>
+      <ellipse cx="${cx}" cy="${cy-26}" rx="30" ry="13" fill="#5A4A5E" opacity=".28" filter="url(#${uid}-b4)"/>
+    </g>`;
   if(style === 'sparkle'){
-    g += `<path d="M${cx},${cy-11} L${cx+3.6},${cy-3.6} L${cx+11},${cy} L${cx+3.6},${cy+3.6}
-                  L${cx},${cy+11} L${cx-3.6},${cy+3.6} L${cx-11},${cy} L${cx-3.6},${cy-3.6} Z"
-            fill="#FFF6D8"/>`;
-    g += `<circle cx="${cx-10}" cy="${cy+9}" r="3.4" fill="#fff" opacity=".8"/>`;
-  } else {
-    g += `<circle cx="${cx-9}" cy="${cy-12}" r="8.6" fill="#fff" opacity=".95"/>`;
-    g += `<circle cx="${cx+10}" cy="${cy+11}" r="4.2" fill="#fff" opacity=".75"/>`;
-    g += `<circle cx="${cx-13}" cy="${cy+2}" r="2.4" fill="#fff" opacity=".55"/>`;
+    g += `<path d="M${cx},${cy-12} L${cx+4},${cy-4} L${cx+12},${cy} L${cx+4},${cy+4}
+                   L${cx},${cy+12} L${cx-4},${cy+4} L${cx-12},${cy} L${cx-4},${cy-4} Z"
+            fill="#FFF8DE"/>`;
   }
-  // 上睫毛
-  g += `<path d="M${cx-28},${cy-6} C${cx-24},${cy-34} ${cx+24},${cy-34} ${cx+28},${cy-6}"
-          fill="none" stroke="${FACE_INK}" stroke-width="7" stroke-linecap="round"/>`;
-  // 下眼睑
-  g += `<path d="M${cx-18},${cy+25} C${cx-8},${cy+31} ${cx+8},${cy+31} ${cx+18},${cy+25}"
-          fill="none" stroke="${FACE_INK}" stroke-width="2.6" stroke-linecap="round" opacity=".35"/>`;
+  // 睫毛（上眼睑）
+  g += `<path d="M${cx-27},${cy-6} C${cx-22},${cy-30} ${cx+22},${cy-30} ${cx+27},${cy-6}"
+          fill="none" stroke="#3A2E40" stroke-width="8" stroke-linecap="round"/>
+        <path d="M${cx-24},${cy-11} C${cx-18},${cy-29} ${cx+18},${cy-29} ${cx+24},${cy-11}"
+          fill="none" stroke="#6B5A6E" stroke-width="2.2" stroke-linecap="round" opacity=".45"/>
+        <path d="M${cx-16},${cy+27} C${cx-7},${cy+31} ${cx+7},${cy+31} ${cx+16},${cy+27}"
+          fill="none" stroke="#3A2E40" stroke-width="1.8" stroke-linecap="round" opacity=".14"/>`;
   return g;
 }
 
-function mouth(kind){
+function mouth(kind, uid){
   if(kind === 'smile'){
-    return `<path d="M243,314 C249,324 263,324 269,314" fill="none" stroke="#B24B57"
-             stroke-width="4.4" stroke-linecap="round"/>`;
+    return `<path d="M242,314 C248,326 264,326 270,314" fill="none" stroke="url(#${uid}-lip)"
+             stroke-width="5" stroke-linecap="round"/>
+            <path d="M247,320 C252,325 260,325 265,320" fill="none" stroke="#fff" stroke-width="1.8"
+             stroke-linecap="round" opacity=".45"/>`;
   }
   if(kind === 'open'){
-    return `<path d="M238,310 C238,334 274,334 274,310 C262,306 250,306 238,310 Z" fill="#9C3F4E"/>
-            <path d="M243,317 C247,325 265,325 269,317 C260,313 252,313 243,317 Z" fill="#F0859B"/>`;
+    return `<path d="M237,309 C237,336 275,336 275,309 C262,304 250,304 237,309 Z" fill="#7E2C3C"/>
+            <path d="M241,318 C245,328 267,328 271,318 C261,313 251,313 241,318 Z" fill="#EF8298"/>
+            <ellipse cx="256" cy="312" rx="12" ry="3.5" fill="#fff" opacity=".35"/>
+            <path d="M237,309 C250,314 262,314 275,309" fill="none" stroke="#5E1C28" stroke-width="2.5" opacity=".5"/>`;
   }
   if(kind === 'cat'){
-    return `<path d="M242,312 C247,320 252,320 256,313 C260,320 265,320 270,312" fill="none"
-             stroke="#B24B57" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>`;
+    return `<path d="M241,312 C246,321 252,321 256,313 C260,321 266,321 271,312" fill="none"
+             stroke="url(#${uid}-lip)" stroke-width="4.6" stroke-linecap="round" stroke-linejoin="round"/>`;
   }
   if(kind === 'small'){
-    return `<ellipse cx="256" cy="316" rx="7.5" ry="9" fill="#9C3F4E"/>
-            <ellipse cx="256" cy="319" rx="4" ry="4.4" fill="#F0859B" opacity=".9"/>`;
+    return `<ellipse cx="256" cy="316" rx="8" ry="9.5" fill="#7E2C3C"/>
+            <ellipse cx="256" cy="320" rx="4.4" ry="4.6" fill="#EF8298" opacity=".9"/>
+            <ellipse cx="253" cy="312" rx="3" ry="1.8" fill="#fff" opacity=".4"/>`;
   }
-  // tongue
-  return `<path d="M240,310 C240,330 272,330 272,310 Z" fill="#9C3F4E"/>
-          <path d="M250,320 C250,338 262,338 262,320 Z" fill="#F0859B"/>
-          <path d="M256,320 L256,332" stroke="#D26579" stroke-width="1.6"/>`;
+  return `<path d="M240,309 C240,331 272,331 272,309 Z" fill="#7E2C3C"/>
+          <path d="M251,320 C251,339 261,339 261,320 Z" fill="#EF8298"/>
+          <path d="M256,320 L256,332" stroke="#C25368" stroke-width="1.6"/>`;
 }
 
 /* ---------- 配饰 ---------- */
 function accLayer(st, H, S, uid){
   const a = st.acc;
+  const sh = `filter="url(#${uid}-b4)"`;
   if(a === 'none') return '';
   if(a === 'flower'){
-    const cx = 172, cy = 172, r = 13;
+    const cx = 172, cy = 172;
     let petals = '';
     for(let i=0;i<5;i++){
       const ang = i*72*Math.PI/180;
-      petals += `<ellipse cx="${(cx+Math.cos(ang)*13).toFixed(1)}" cy="${(cy+Math.sin(ang)*13).toFixed(1)}"
-                  rx="10" ry="13" fill="#fff" opacity=".95"
-                  transform="rotate(${i*72} ${(cx+Math.cos(ang)*13).toFixed(1)} ${(cy+Math.sin(ang)*13).toFixed(1)})"/>`;
+      const px = cx+Math.cos(ang)*13, py = cy+Math.sin(ang)*13;
+      petals += `<ellipse cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" rx="10" ry="13"
+                  fill="#FFFDF8" transform="rotate(${i*72} ${px.toFixed(1)} ${py.toFixed(1)})"/>
+                 <ellipse cx="${px.toFixed(1)}" cy="${(py-3).toFixed(1)}" rx="5" ry="6"
+                  fill="#fff" opacity=".9" transform="rotate(${i*72} ${px.toFixed(1)} ${py.toFixed(1)})"/>`;
     }
-    return `<g><circle cx="${cx}" cy="${cy}" r="${r+13}" fill="#fff" opacity=".18"/>${petals}
-             <circle cx="${cx}" cy="${cy}" r="7.5" fill="#FFC977"/>
-             <circle cx="${cx-2}" cy="${cy-2}" r="2.6" fill="#FFE3A8"/></g>`;
+    return `<g ${sh}><circle cx="${cx}" cy="${cy}" r="26" fill="#000" opacity=".05"/></g>
+             <g>${petals}
+             <circle cx="${cx}" cy="${cy}" r="8" fill="#FFC977"/>
+             <circle cx="${cx-2}" cy="${cy-2.5}" r="3" fill="#FFE9B5"/></g>`;
   }
   if(a === 'starClip'){
-    return `<g>${star4(186,164,22,'#FFD071',1)}${star4(186,164,11,'#FFF2C6',1)}
-             ${star4(206,186,8,'#FFF0BE',.85)}</g>`;
+    return `<g ${sh}>${star4(186,164,26,'#000',.10)}</g>
+            <g>${star4(186,164,22,'#FFD071',1)}${star4(186,164,11,'#FFF6D8',1)}
+            ${star4(206,188,8,'#FFE9AE',.9)}</g>`;
   }
   if(a === 'ribbon'){
     return `<g transform="translate(322,158) rotate(12)">
-      <path d="M0,0 C-26,-16 -40,-4 -36,12 C-32,26 -12,24 0,8 Z" fill="#FF8FB0"/>
-      <path d="M0,0 C26,-16 40,-4 36,12 C32,26 12,24 0,8 Z" fill="#FFA3C0"/>
-      <circle cx="0" cy="6" r="8" fill="#FFD9E5"/>
-      <circle cx="0" cy="6" r="3.6" fill="#FF9DBB"/>
+      <path d="M0,0 C-26,-18 -42,-4 -38,12 C-34,28 -12,26 0,8 Z" fill="#F97398"/>
+      <path d="M0,0 C-22,-13 -34,-4 -32,8 C-30,19 -12,18 0,6 Z" fill="#FF9DBB"/>
+      <path d="M0,0 C26,-18 42,-4 38,12 C34,28 12,26 0,8 Z" fill="#FFA9C4"/>
+      <path d="M0,0 C22,-13 34,-4 32,8 C30,19 12,18 0,6 Z" fill="#FFC2D6"/>
+      <circle cx="0" cy="6" r="8.5" fill="#FFDCE8"/>
+      <circle cx="0" cy="6" r="3.8" fill="#FF87AA"/>
     </g>`;
   }
   if(a === 'catEars'){
     return `<g>
-      <path d="M186,150 C178,124 184,100 200,104 C212,107 224,126 230,148 Z" fill="url(#${uid}-hair)"
-              stroke="${H.d}" stroke-width="2" stroke-opacity=".35"/>
-      <path d="M198,142 C194,126 197,114 206,118 C213,121 219,132 221,144 Z" fill="#FFB4C8"/>
-      <path d="M326,150 C334,124 328,100 312,104 C300,107 288,126 282,148 Z" fill="url(#${uid}-hair)"
-              stroke="${H.d}" stroke-width="2" stroke-opacity=".35"/>
-      <path d="M314,142 C318,126 315,114 306,118 C299,121 293,132 291,144 Z" fill="#FFB4C8"/>
+      <path d="M186,150 C178,124 184,100 200,104 C212,107 224,126 230,148 Z" fill="url(#${uid}-hair)"/>
+      <path d="M196,142 C192,126 196,114 205,118 C212,121 219,132 221,144 Z" fill="#FFB4C8"/>
+      <path d="M326,150 C334,124 328,100 312,104 C300,107 288,126 282,148 Z" fill="url(#${uid}-hair)"/>
+      <path d="M316,142 C320,126 316,114 307,118 C300,121 293,132 291,144 Z" fill="#FFB4C8"/>
+      <path d="M186,150 C178,124 184,100 200,104" fill="none" stroke="#fff" stroke-width="3" opacity=".3"/>
+      <path d="M326,150 C334,124 328,100 312,104" fill="none" stroke="#fff" stroke-width="3" opacity=".3"/>
     </g>`;
   }
   if(a === 'leafCrown'){
     let leaves = '';
-    const pts = [[174,186,-52],[198,166,-34],[224,152,-16],[256,148,0],[288,152,16],[314,166,34],[338,186,52]];
+    const pts = [[174,188,-54],[198,168,-36],[224,154,-17],[256,150,0],[288,154,17],[314,168,36],[338,188,54]];
     pts.forEach((p,i)=>{
       leaves += `<g transform="translate(${p[0]},${p[1]}) rotate(${p[2]})">
-                  <path d="M0,0 C-7,-12 0,-23 8,-23 C15,-23 17,-11 9,-2 Z" fill="${i%2?'#7FCBA2':'#63B78C'}"/>
-                  <path d="M0,0 C1,-8 5,-14 9,-17" stroke="#4E9B74" stroke-width="1.4" fill="none" opacity=".8"/>
+                  <path d="M0,0 C-8,-13 0,-25 9,-25 C17,-25 19,-12 10,-2 Z" fill="${i%2?'#7FCBA2':'#5FB489'}"/>
+                  <path d="M-2,-2 C-6,-12 0,-21 7,-21 C13,-21 15,-12 9,-4 Z" fill="#A8E0BE" opacity=".55"/>
+                  <path d="M0,0 C1,-8 5,-15 9,-18" stroke="#3E8A66" stroke-width="1.5" fill="none" opacity=".7"/>
                 </g>`;
     });
     return leaves;
   }
   if(a === 'gem'){
     return `<g>
-      <circle cx="256" cy="168" r="20" fill="#fff" opacity=".28"/>
-      <path d="M256,150 L270,168 L256,188 L242,168 Z" fill="#8FE3FF"/>
-      <path d="M256,150 L270,168 L256,168 Z" fill="#D9F7FF"/>
-      <path d="M256,168 L270,168 L256,188 Z" fill="#5FC2E8"/>
-      <circle cx="251" cy="161" r="3" fill="#fff" opacity=".9"/>
+      <circle cx="256" cy="168" r="26" fill="#8FE3FF" opacity=".28" ${sh}/>
+      <path d="M256,150 L270,168 L256,188 L242,168 Z" fill="#63CBEE"/>
+      <path d="M256,150 L270,168 L256,168 Z" fill="#CFF6FF"/>
+      <path d="M256,168 L270,168 L256,188 Z" fill="#3EA9D4"/>
+      <path d="M256,150 L242,168 L256,168 Z" fill="#9BE6FA"/>
+      <circle cx="251" cy="160" r="2.6" fill="#fff" opacity=".9"/>
     </g>`;
   }
   if(a === 'horns'){
     return `<g>
-      <path d="M198,126 C182,106 184,80 202,68 C204,86 210,104 220,118 Z" fill="#F3DFC0"
-              stroke="#D8BE99" stroke-width="1.6"/>
-      <path d="M314,126 C330,106 328,80 310,68 C308,86 302,104 292,118 Z" fill="#F3DFC0"
-              stroke="#D8BE99" stroke-width="1.6"/>
+      <path d="M198,126 C182,106 184,80 202,68 C204,86 210,104 220,118 Z" fill="#F6E5C8"/>
+      <path d="M198,126 C188,112 186,96 190,84 C196,96 204,108 214,116 Z" fill="#FFF7E8" opacity=".7"/>
+      <path d="M314,126 C330,106 328,80 310,68 C308,86 302,104 292,118 Z" fill="#F6E5C8"/>
+      <path d="M314,126 C324,112 326,96 322,84 C316,96 308,108 298,116 Z" fill="#FFF7E8" opacity=".7"/>
     </g>`;
   }
   if(a === 'headphones'){
     return `<g>
-      <path d="M146,232 C146,152 366,152 366,232" fill="none" stroke="#5B5470" stroke-width="13"
-              stroke-linecap="round"/>
-      <path d="M146,232 C146,152 366,152 366,232" fill="none" stroke="#8E86A6" stroke-width="5"
-              stroke-linecap="round" opacity=".8"/>
-      <rect x="128" y="220" width="42" height="56" rx="19" fill="#5B5470"/>
-      <rect x="134" y="226" width="30" height="44" rx="15" fill="#FF9DBB"/>
-      <rect x="342" y="220" width="42" height="56" rx="19" fill="#5B5470"/>
-      <rect x="348" y="226" width="30" height="44" rx="15" fill="#FF9DBB"/>
+      <path d="M142,230 C142,146 370,146 370,230" fill="none" stroke="#4E4763" stroke-width="14" stroke-linecap="round"/>
+      <path d="M142,230 C142,146 370,146 370,230" fill="none" stroke="#8E86A6" stroke-width="5" stroke-linecap="round" opacity=".85"/>
+      <path d="M150,214 C154,166 194,150 230,148" fill="none" stroke="#fff" stroke-width="3" opacity=".3" filter="url(#${uid}-b4)"/>
+      <rect x="124" y="216" width="46" height="60" rx="21" fill="#4E4763"/>
+      <rect x="131" y="223" width="32" height="46" rx="16" fill="#FF9DBB"/>
+      <rect x="138" y="230" width="14" height="26" rx="7" fill="#FFC6D9" opacity=".8"/>
+      <rect x="342" y="216" width="46" height="60" rx="21" fill="#4E4763"/>
+      <rect x="349" y="223" width="32" height="46" rx="16" fill="#FF9DBB"/>
+      <rect x="356" y="230" width="14" height="26" rx="7" fill="#FFC6D9" opacity=".8"/>
     </g>`;
   }
-  // crescent
   return `<g>
-    <circle cx="330" cy="168" r="24" fill="#FFE1A8" opacity=".35"/>
-    <path d="M338,148 a22,22 0 1 0 0,40 a17,17 0 1 1 0,-40 Z" fill="#FFD071"/>
-    ${star4(306,150,9,'#FFF0BE',.9)}
+    <circle cx="330" cy="168" r="26" fill="#FFE1A8" opacity=".34" ${sh}/>
+    <path d="M338,146 a24,24 0 1 0 0,44 a19,19 0 1 1 0,-44 Z" fill="#FFD071"/>
+    <path d="M338,152 a18,18 0 1 0 0,32 a14,14 0 1 1 0,-32 Z" fill="#FFE6AE"/>
+    ${star4(306,150,9,'#FFF6D8',.9)}
   </g>`;
 }
 
@@ -933,8 +1054,8 @@ function renderMinis(){
     s.acc  = P.accs[Math.floor(rng()*P.accs.length)];
     s.hairStyle = P.styles[Math.floor(rng()*P.styles.length)];
     s.bangs = P.bangs[Math.floor(rng()*P.bangs.length)];
-    s.eyeStyle = P.eyeStyles[Math.floor(rng()*P.eyeStyles.length)];
-    s.mouth = MOUTHS[Math.floor(rng()*MOUTHS.length)].id;
+    s.eyeStyle = wpick(rng, EYE_WEIGHTS);
+    s.mouth = wpick(rng, MOUTH_WEIGHTS);
     s.brow = BROWS[Math.floor(rng()*BROWS.length)].id;
     s.elfEars = pack === 'elf' ? true : rng() > .72;
     s.blush = rng() > .12;
@@ -959,8 +1080,8 @@ function renderMinis(){
         acc:  P.accs[Math.floor(rng()*P.accs.length)],
         hairStyle: P.styles[Math.floor(rng()*P.styles.length)],
         bangs: P.bangs[Math.floor(rng()*P.bangs.length)],
-        eyeStyle: P.eyeStyles[Math.floor(rng()*P.eyeStyles.length)],
-        mouth: MOUTHS[Math.floor(rng()*MOUTHS.length)].id,
+        eyeStyle: wpick(rng, EYE_WEIGHTS),
+        mouth: wpick(rng, MOUTH_WEIGHTS),
         brow: BROWS[Math.floor(rng()*BROWS.length)].id,
         elfEars: state.pack === 'elf' ? true : rng() > .72
       };
@@ -1130,8 +1251,8 @@ function applySeedAll(){
   state.acc  = P.accs[Math.floor(rng()*P.accs.length)];
   state.hairStyle = P.styles[Math.floor(rng()*P.styles.length)];
   state.bangs = P.bangs[Math.floor(rng()*P.bangs.length)];
-  state.eyeStyle = P.eyeStyles[Math.floor(rng()*P.eyeStyles.length)];
-  state.mouth = MOUTHS[Math.floor(rng()*MOUTHS.length)].id;
+  state.eyeStyle = wpick(rng, EYE_WEIGHTS);
+  state.mouth = wpick(rng, MOUTH_WEIGHTS);
   state.brow = BROWS[Math.floor(rng()*BROWS.length)].id;
   state.clothes = Math.floor(rng()*CLOTHES.length);
   state.elfEars = state.pack === 'elf' ? rng() > .2 : rng() > .75;
