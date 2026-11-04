@@ -6,6 +6,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.2.8] - 2026-11-04
+
+相对 **1.2.7**：语音链路（SmartTurn、ASR 热词、打断归因、性能汇总、报表分桶）与提示词体系（身份去重、soul/duty 拆分、workspace memory 退役、affect 块后置保缓存）双线打磨；新增员工角色设定条、聊天摘要面板重构、可观测性开关与小V 跳舞 / 讲解形象。
+GitHub Release 正文见 `scripts/maintainer/windows/release-notes/PRODUCT-NOTES-1.2.8.md`；升级横幅见 `scripts/maintainer/update/latest.json`。
+
+### Added
+
+- **语音**：ASR 热词表接入；SmartTurn 参数修正；打断 / 播报问题「原因」可归因；语音性能六条汇总行与报表锚点；`wire_gap` 分桶（>5s 视为跨轮空闲）
+- **员工角色设定条**：`AgentRolePrefs` 将思考 / 识图 / 提示词 / SOUL / 职责同框管理
+- **可观测性**：新增可观测性开关；OBS 请求 JSON 不再截断，面板 / 侧栏 / API 适配
+- **小V 形象**：新增跳舞 / 知识讲解状态（桌面 + Web），手臂改为带袖整臂贴图
+- **工具**：新增 `tools/avatar-studio` 头像工坊
+
+### Changed
+
+- **提示词分层**：`<role>` 作为唯一身份锚点，`<soul>` / `<agent_system_prompt>` 归一化后去重；main soul 与 duty 拆分；动态系统提示词支持角色修订；plan guard 自动激活
+- **缓存**：心境 `<affect>` 块移到系统提示词最末尾，保住厂商前缀缓存
+- **记忆**：workspace memory 注入退役（磁盘数据保留，不做归档 / 清理）
+- **聊天与员工**：聊天摘要面板重构；能力概览标签中文化；员工角色卡副标题去噪
+- **IM**：可见正文剥离 reasoning
+
+### Fixed
+
+- **Gateway**：CORS 暴露 `Range` 头，修复媒体 Range 探测
+- **界面**：用户友好错误、`ws-client`、toast、全局助手、资源管理器浮层等修补
+- **bootstrap**：SOUL 模板同步 soul/duty 拆分
+
 ## [1.2.7] - 2026-11-04
 
 相对 **1.2.6**：新增部门群聊协作（群管家小V、@ 点名唤醒 / 接力、消息落库）；首页新增组织指挥台与总览全屏影院；启动页改深色极简并新增中枢控制台；设置中心收纳「技能 / 连接器」，能力配置统一到员工编辑；值班开场去重；小V 形象与桌宠 Skill 更新。
