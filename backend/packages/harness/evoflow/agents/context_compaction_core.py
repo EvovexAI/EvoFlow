@@ -1808,7 +1808,7 @@ def strip_image_base64_from_messages(
     ``view_image_inject`` HumanMessage and leave only
     ``[Image … base64 data omitted to save context]`` (fault report Mode A).
     """
-    from evoflow.agents.message_analysis_utils import latest_real_user_index
+    from evoflow.agents.message_analysis_utils import is_real_user_message, latest_real_user_index
 
     if not messages:
         return messages
@@ -1837,6 +1837,32 @@ def strip_image_base64_from_messages(
     result: list[BaseMessage] | None = None
     for i in range(min(boundary, len(messages))):
         msg = messages[i]
+        # Never emit "[Image … base64 data omitted]" on view_image_inject rows.
+        # That placeholder is what Mode A agents mistook for a successful image
+        # delivery. Current-turn injects keep pixels; older injects collapse to
+        # an honest text stub (no fake image block).
+        if _is_view_image_inject_message(msg):
+            has_real_user_after = any(
+                is_real_user_message(messages[j]) for j in range(i + 1, len(messages))
+            )
+            if not has_real_user_after:
+                continue
+            stub = msg.model_copy(
+                update={
+                    "content": (
+                        "[Earlier image view removed from context to save tokens. "
+                        "Call read/view_image again if you need the pixels.]"
+                    ),
+                    "additional_kwargs": {
+                        **(getattr(msg, "additional_kwargs", None) or {}),
+                        "view_image_sources": [],
+                    },
+                }
+            )
+            if result is None:
+                result = list(messages)
+            result[i] = stub
+            continue
         content = getattr(msg, "content", None)
         msg_changed = False
         new_content: Any = content

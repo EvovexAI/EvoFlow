@@ -105,6 +105,14 @@ def test_refresh_agent_config_if_stale_detects_cross_process_edit(monkeypatch):
         "evoflow.agents.lead_agent.graph_cache.clear_lead_agent_graph_cache",
         lambda: calls.append("graph_clear"),
     )
+    monkeypatch.setattr(
+        "evoflow.agents.middlewares.dynamic_system_prompt_middleware.invalidate_dynamic_system_prompt_cache",
+        lambda **kwargs: calls.append(f"prompt:{kwargs.get('agent_code')}"),
+    )
+    monkeypatch.setattr(
+        "evoflow.skills.loader.clear_skills_cache",
+        lambda: calls.append("skills_clear"),
+    )
 
     assert ac.refresh_agent_config_if_stale("duty_clerk") == "t1"
     assert calls == []  # first sighting — just record stamp
@@ -113,10 +121,55 @@ def test_refresh_agent_config_if_stale_detects_cross_process_edit(monkeypatch):
     assert ac.refresh_agent_config_if_stale("duty_clerk") == "t2"
     assert "tools:duty_clerk" in calls
     assert "graph_clear" in calls
+    assert "prompt:duty_clerk" in calls
+    assert "skills_clear" in calls
 
     calls.clear()
     assert ac.refresh_agent_config_if_stale("duty_clerk") == "t2"
     assert calls == []  # unchanged stamp — no thrash
+
+
+def test_capability_extra_fingerprint_includes_kb_and_injection():
+    from evoflow.config.agents_config import _capability_extra_fingerprint
+
+    empty = _capability_extra_fingerprint("")
+    assert "kb=-" in empty
+    with_kb = _capability_extra_fingerprint(
+        '{"knowledge_vault_ids":["kb_b","kb_a"],"kb_injection":{"mode":"auto"}}'
+    )
+    assert "kb=kb_a,kb_b" in with_kb
+    assert "auto" in with_kb
+    unbound = _capability_extra_fingerprint('{"knowledge_vault_ids":[]}')
+    assert unbound != with_kb
+
+
+def test_refresh_agent_runtime_also_clears_skills(monkeypatch):
+    from evoflow.admin import agents as agents_admin
+
+    calls: list[str] = []
+    monkeypatch.setattr(
+        agents_admin,
+        "_refresh_sessions_tool_state_for_agent",
+        lambda code: calls.append(f"sessions:{code}") or 0,
+    )
+    monkeypatch.setattr(
+        "evoflow.config.agents_config.invalidate_agent_config_cache",
+        lambda code=None: calls.append(f"invalidate:{code}"),
+    )
+    monkeypatch.setattr(
+        "evoflow.agents.lead_agent.graph_cache.clear_lead_agent_graph_cache",
+        lambda: calls.append("graph_clear"),
+    )
+    monkeypatch.setattr(
+        "evoflow.agents.middlewares.dynamic_system_prompt_middleware.invalidate_dynamic_system_prompt_cache",
+        lambda **kwargs: calls.append(f"prompt_cache:{kwargs.get('agent_code')}"),
+    )
+    monkeypatch.setattr(
+        "evoflow.skills.loader.clear_skills_cache",
+        lambda: calls.append("skills_clear"),
+    )
+    agents_admin.refresh_agent_runtime_after_capability_change("duty_clerk")
+    assert "skills_clear" in calls
 
 
 def test_lead_agent_graph_cache_key_includes_capability_fp():

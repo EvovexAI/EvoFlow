@@ -41,23 +41,70 @@ def invalidate_agent_config_cache(agent_code: str | None = None) -> None:
         pass
 
 
+def _capability_extra_fingerprint(extra_json: str | None) -> str:
+    """Stable fingerprint of KB / kb_injection mirrors in ``extra_json``."""
+    raw = str(extra_json or "").strip()
+    if not raw:
+        return "kb=-|inj=-"
+    try:
+        extra = json.loads(raw)
+    except Exception:
+        return f"kb_raw={len(raw)}"
+    if not isinstance(extra, dict):
+        return "kb=-|inj=-"
+    vaults = extra.get("knowledge_vault_ids")
+    if isinstance(vaults, list):
+        vault_fp = ",".join(sorted(str(v).strip() for v in vaults if str(v).strip()))
+    elif vaults is None:
+        vault_fp = "-"
+    else:
+        vault_fp = str(vaults).strip() or "-"
+    inj = extra.get("kb_injection")
+    if isinstance(inj, dict) and inj:
+        try:
+            inj_fp = json.dumps(inj, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+        except Exception:
+            inj_fp = str(sorted(inj.keys()))
+    else:
+        inj_fp = "-"
+    return f"kb={vault_fp or '-'}|inj={inj_fp}"
+
+
 def probe_agent_capability_revision(agent_code: str | None) -> str:
-    """Cheap SQLite stamp for tools/MCP/skills/KB edits (cross-process hot reload)."""
+    """Cheap SQLite stamp for tools/MCP/skills/KB edits (cross-process hot reload).
+
+    Fingerprints:
+    - ``updated_at``
+    - list items: tools / mcp_servers / skills
+    - ``extra_json`` capability mirrors: knowledge_vault_ids / kb_injection
+
+    So a whitelist or KB bind change is visible even if ``updated_at`` collides.
+    """
     code = str(agent_code or "").strip().lower()
     if not code:
         return ""
     try:
         from evoflow.persistence.db import get_db
 
-        row = (
-            get_db()
-            .execute(
-                "SELECT COALESCE(updated_at, '') FROM evoflow_agents WHERE agent_code = ?",
-                (code,),
-            )
-            .fetchone()
-        )
-        return str(row[0] or "") if row else ""
+        db = get_db()
+        row = db.execute(
+            "SELECT COALESCE(updated_at, ''), COALESCE(extra_json, '') FROM evoflow_agents WHERE agent_code = ?",
+            (code,),
+        ).fetchone()
+        updated = str(row[0] or "") if row else ""
+        extra_fp = _capability_extra_fingerprint(str(row[1] or "") if row else "")
+        list_rows = db.execute(
+            """
+            SELECT list_kind, item_value
+            FROM evoflow_agent_list_items
+            WHERE agent_code = ? AND list_kind IN ('tools', 'mcp_servers', 'skills')
+            ORDER BY list_kind, sort_order, item_value
+            """,
+            (code,),
+        ).fetchall()
+        parts = [f"{r[0]}={r[1]}" for r in (list_rows or []) if r and r[0] is not None]
+        lists_fp = "|".join(parts) if parts else "-"
+        return f"{updated}#{lists_fp}#{extra_fp}"
     except Exception:
         logger.debug("agent capability revision probe failed agent=%s", code, exc_info=True)
         return ""
@@ -69,7 +116,7 @@ def refresh_agent_config_if_stale(agent_code: str | None) -> str:
     Gateway ``refresh_agent_runtime_after_capability_change`` only clears *this*
     process. Desktop / ``--mode langgraph`` runs the lead agent in a sibling
     process that would otherwise keep a 10s config TTL + compiled graph with the
-    old tool whitelist until restart or a new session.
+    old tools / MCP / skills / prompt meta until restart or a new session.
     """
     code = str(agent_code or "").strip().lower()
     if not code:
@@ -97,6 +144,24 @@ def refresh_agent_config_if_stale(agent_code: str | None) -> str:
             clear_lead_agent_graph_cache()
         except Exception:
             logger.debug("graph cache clear after agent capability change skipped", exc_info=True)
+        try:
+            # Same class of bug as SOUL: capability edit in Gateway, LangGraph worker
+            # keeps a per-thread assembled system (skills / tool catalog / MCP binding).
+            from evoflow.agents.middlewares.dynamic_system_prompt_middleware import (
+                invalidate_dynamic_system_prompt_cache,
+            )
+
+            invalidate_dynamic_system_prompt_cache(agent_code=code)
+        except Exception:
+            logger.debug("dynamic system prompt cache clear after capability change skipped", exc_info=True)
+        try:
+            # Skills section cache is keyed by allowlist names; clear so body/prompt
+            # text cannot stick across a bind/unbind on the next rebuild.
+            from evoflow.skills.loader import clear_skills_cache
+
+            clear_skills_cache()
+        except Exception:
+            logger.debug("skills cache clear after capability change skipped", exc_info=True)
     _agent_capability_rev[code] = rev
     return rev
 
@@ -1630,7 +1695,9 @@ def save_agent_soul(agent_code: str, soul_md: str) -> None:
         from evoflow.assets.paths import EntityRef
         from evoflow.assets.soul_summary import schedule_soul_summary_consolidate
 
-        schedule_soul_summary_consolidate(EntityRef("agent", code))
+        # Immediate pin refresh so the next turn does not wait on debounce;
+        # load path also re-extracts when SOUL.md is newer than soul-summary.md.
+        schedule_soul_summary_consolidate(EntityRef("agent", code), delay_s=0)
     except Exception:
         logger.debug("save_agent_soul: soul-summary schedule skipped", exc_info=True)
     try:

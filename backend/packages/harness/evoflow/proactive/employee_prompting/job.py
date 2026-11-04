@@ -1,12 +1,14 @@
-"""Job description block — one body; system_prompt wins over soul.
+"""Job + soul L0 blocks for employee prompts.
 
-Architecture: this block is **L0 job skeleton only**. Durable experience /
-process / reflection live in Asset Hub (standing + catalog + on-demand bodies).
-Do not dual-write know-how into ``system_prompt``.
+Architecture: L0 is **duty skeleton** (``system_prompt``) plus optional **style**
+(``SOUL.md``). Durable experience / process / reflection live in Asset Hub
+(standing + catalog + on-demand bodies). Do not dual-write know-how into
+``system_prompt``.
 """
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from evoflow.proactive.employee_prompting._scan import scan_prompt_piece, strip_soul_wrapper
@@ -55,18 +57,66 @@ def merge_duty_into_system_prompt(
     return f"{sp}\n\n{block}" if sp else block
 
 
-def build_employee_job_block(*, soul: str = "", custom_system_prompt: str = "") -> str:
-    """One job description. ``system_prompt`` wins; soul is only the fallback copy.
+def _strip_identity_wrappers(text: str) -> str:
+    t = strip_soul_wrapper(text)
+    raw = str(t or "").strip()
+    for tag in ("agent_system_prompt", "soul"):
+        open_t, close_t = f"<{tag}>", f"</{tag}>"
+        if raw.startswith(open_t) and raw.endswith(close_t):
+            raw = raw[len(open_t) : -len(close_t)].strip()
+    return raw
 
-    ``save_agent_config`` copies soul into ``system_prompt`` for the scheduler.
-    Never emits both, and never emits ``<habits>``.
-    """
-    extra = strip_soul_wrapper(custom_system_prompt)
-    bare_soul = strip_soul_wrapper(soul)
-    body = extra or bare_soul
-    body = scan_prompt_piece(body, source="custom_system_prompt")
-    if not body:
+
+def _normalize_job_body(text: str) -> str:
+    """Collapse markdown noise so mirrored soul/system_prompt dedupe correctly."""
+    t = _strip_identity_wrappers(text)
+    t = re.sub(r"^#+\s*", "", t, flags=re.MULTILINE)
+    t = t.replace("**", "").replace("__", "").replace("*", "")
+    return re.sub(r"\s+", " ", t).strip().casefold()
+
+
+def _with_job_footer(body: str) -> str:
+    text = str(body or "").strip()
+    if not text:
         return ""
-    if "【知识分层】" not in body:
-        body = body.rstrip() + _JOB_LAYER_FOOTER
-    return f"<agent_system_prompt>\n{body}\n</agent_system_prompt>"
+    if "【知识分层】" not in text:
+        text = text.rstrip() + _JOB_LAYER_FOOTER
+    return text
+
+
+def build_employee_job_block(*, soul: str = "", custom_system_prompt: str = "") -> str:
+    """Emit L0 layers: ``<agent_system_prompt>`` (duty) then ``<soul>`` (style).
+
+    - Distinct soul and system_prompt → both tags (duty first, soul below).
+    - Same / near-duplicate (scheduler often mirrors soul into system_prompt) → one
+      ``<agent_system_prompt>`` only.
+    - Only soul → ``<agent_system_prompt>`` with soul body (duty fallback).
+    - Never emits ``<habits>``.
+    """
+    bare_soul = _strip_identity_wrappers(soul)
+    bare_extra = _strip_identity_wrappers(custom_system_prompt)
+    safe_soul = scan_prompt_piece(bare_soul, source="soul") if bare_soul else ""
+    safe_extra = (
+        scan_prompt_piece(bare_extra, source="custom_system_prompt") if bare_extra else ""
+    )
+
+    parts: list[str] = []
+    same = bool(
+        safe_soul
+        and safe_extra
+        and (
+            safe_soul == safe_extra
+            or _normalize_job_body(safe_soul) == _normalize_job_body(safe_extra)
+        )
+    )
+
+    if safe_soul and safe_extra and not same:
+        duty = _with_job_footer(safe_extra)
+        parts.append(f"<agent_system_prompt>\n{duty}\n</agent_system_prompt>")
+        parts.append(f"<soul>\n{safe_soul}\n</soul>")
+    else:
+        body = _with_job_footer(safe_extra or safe_soul)
+        if body:
+            parts.append(f"<agent_system_prompt>\n{body}\n</agent_system_prompt>")
+
+    return "\n\n".join(parts)

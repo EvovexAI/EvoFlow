@@ -125,25 +125,23 @@ def mirror_memory_document(namespace: str, document: dict[str, Any]) -> int:
             ("近期关注", "topOfMind"),
         ]
         from evoflow.assets.paths import EntityRef
-        from evoflow.assets.user_profile_dims import ensure_user_profile_files
+        from evoflow.assets.user_profile_dims import USER_PROFILE_FILENAME, ensure_user_profile_files
 
         ensure_user_profile_files(EntityRef("user", "user"))
-        basic_parts: list[str] = []
-        pref_parts: list[str] = []
-        persona_parts: list[str] = []
+        profile_parts: list[str] = ["# 用户画像"]
+        newest_ts = ""
         for heading, key in mapping:
             block = user.get(key) if isinstance(user, dict) else None
             summary = ""
+            block_ts = ""
             if isinstance(block, dict):
                 summary = str(block.get("summary") or "").strip()
+                block_ts = str(block.get("updatedAt") or "").strip()
             if not summary:
                 continue
-            if key == "workContext":
-                basic_parts.append(f"## {heading}\n{summary}")
-            elif key == "personalContext":
-                pref_parts.append(f"## {heading}\n{summary}")
-            else:
-                persona_parts.append(f"## {heading}\n{summary}")
+            profile_parts.append(f"## {heading}\n{summary}")
+            if block_ts and block_ts > newest_ts:
+                newest_ts = block_ts
         history = document.get("history") or {}
         if isinstance(history, dict):
             for heading, key in [
@@ -153,24 +151,14 @@ def mirror_memory_document(namespace: str, document: dict[str, Any]) -> int:
             ]:
                 block = history.get(key)
                 if isinstance(block, dict) and str(block.get("summary") or "").strip():
-                    persona_parts.append(f"## {heading}\n{str(block.get('summary') or '').strip()}")
-        prof = root / "profile"
+                    profile_parts.append(
+                        f"## {heading}\n{str(block.get('summary') or '').strip()}"
+                    )
         # 新者胜：legacy 摘要不覆盖面板里更新的手工编辑（无 updatedAt 的块不覆盖）
-        if basic_parts:
-            target = prof / "basic-info.md"
-            if _should_overwrite(target, str((user.get("workContext") or {}).get("updatedAt") or "")):
-                _atomic_write(target, "\n".join(basic_parts).strip() + "\n")
-                written += 1
-        if pref_parts:
-            target = prof / "preferences.md"
-            if _should_overwrite(target, str((user.get("personalContext") or {}).get("updatedAt") or "")):
-                _atomic_write(target, "\n".join(pref_parts).strip() + "\n")
-                written += 1
-        if persona_parts:
-            target = prof / "persona.md"
-            block_ts = str((user.get("topOfMind") or {}).get("updatedAt") or "")
-            if _should_overwrite(target, block_ts):
-                _atomic_write(target, "\n".join(persona_parts).strip() + "\n")
+        if len(profile_parts) > 1:
+            target = root / "profile" / USER_PROFILE_FILENAME
+            if _should_overwrite(target, newest_ts):
+                _atomic_write(target, "\n\n".join(profile_parts).strip() + "\n")
                 written += 1
 
     facts = document.get("facts") or []

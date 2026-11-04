@@ -1,14 +1,20 @@
 """Middleware for injecting image details into conversation before LLM call."""
 
+from __future__ import annotations
+
 import logging
+from typing import Any
 
 try:
     from typing import NotRequired, override
 except ImportError:
-    from typing import NotRequired, override
+    from typing import NotRequired
+
+    from typing_extensions import override
 
 from langchain.agents import AgentState
 from langchain.agents.middleware import AgentMiddleware
+from langchain.agents.middleware.types import ModelCallResult, ModelRequest
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langgraph.runtime import Runtime
 
@@ -28,6 +34,8 @@ logger = logging.getLogger(__name__)
 # ``view_image`` tool, and ``read`` when its args reference image refs
 # (paths/URLs/snapshots) — ``read`` dispatches images to the same pipeline.
 _IMAGE_READ_EXTENSIONS = (".jpg", ".jpeg", ".png", ".webp")
+_VIEW_IMAGE_SOURCES_KEY = "view_image_sources"
+_OMITTED_MARKER = "base64 data omitted to save context"
 
 
 def _read_args_reference_image(args: object) -> bool:
@@ -46,6 +54,61 @@ def _read_args_reference_image(args: object) -> bool:
     return False
 
 
+def _is_view_image_inject(msg: object) -> bool:
+    if not isinstance(msg, HumanMessage):
+        return False
+    if str(getattr(msg, "name", None) or "").strip() == "view_image_inject":
+        return True
+    content = getattr(msg, "content", None)
+    text = str(content) if not isinstance(content, list) else ""
+    if isinstance(content, list):
+        parts: list[str] = []
+        for block in content:
+            if isinstance(block, dict) and isinstance(block.get("text"), str):
+                parts.append(block["text"])
+            elif isinstance(block, str):
+                parts.append(block)
+        text = "\n".join(parts)
+    return (
+        "Here are the images you've viewed" in text
+        or "Here are the details of the images you've viewed" in text
+        or "Here are the latest screen captures" in text
+    )
+
+
+def _has_live_image_url(msg: HumanMessage) -> bool:
+    content = getattr(msg, "content", None)
+    if not isinstance(content, list):
+        return False
+    for block in content:
+        if not isinstance(block, dict):
+            continue
+        if str(block.get("type") or "").lower() not in {"image_url", "image", "input_image"}:
+            continue
+        raw = block.get("image_url")
+        url = ""
+        if isinstance(raw, dict):
+            url = str(raw.get("url") or "")
+        elif isinstance(raw, str):
+            url = raw
+        if url.startswith("data:image") and _OMITTED_MARKER not in url:
+            return True
+    return False
+
+
+def _content_has_omitted_placeholder(msg: HumanMessage) -> bool:
+    content = getattr(msg, "content", None)
+    if isinstance(content, str):
+        return _OMITTED_MARKER in content
+    if isinstance(content, list):
+        for block in content:
+            if isinstance(block, dict) and _OMITTED_MARKER in str(block.get("text") or ""):
+                return True
+            if isinstance(block, str) and _OMITTED_MARKER in block:
+                return True
+    return False
+
+
 class ViewImageMiddlewareState(AgentState):
     """Compatible with the `ThreadState` schema."""
 
@@ -58,7 +121,9 @@ class ViewImageMiddleware(AgentMiddleware[ViewImageMiddlewareState]):
     Storage model (checkpoint-safe):
     - ``viewed_images`` holds **paths + mime only** (no base64 in graph state)
     - Bytes are read + resized here; base64 exists only in the injected ``HumanMessage``
-    - ``context_compaction`` strips image blocks at model-call time (not in checkpoint long-term)
+    - ``context_compaction`` must not blank current-turn injects; this middleware also
+      reattaches pixels in ``wrap_model_call`` (registered after compaction) if strip
+      or a stale checkpoint left an omitted placeholder
     - Observability / transcript store tool JSON metadata only
     """
 
@@ -123,12 +188,27 @@ class ViewImageMiddleware(AgentMiddleware[ViewImageMiddlewareState]):
         viewed_images = state.get("viewed_images", {}) or {}
         return any(self._is_auto(image_data) for image_data in viewed_images.values())
 
+    def _sources_from_viewed(self, viewed_images: dict[str, ViewedImageData]) -> list[dict[str, Any]]:
+        sources: list[dict[str, Any]] = []
+        for image_ref, image_data in viewed_images.items():
+            sources.append(
+                {
+                    "ref": str(image_ref),
+                    "path": str(image_data.get("path") or image_ref),
+                    "mime_type": str(image_data.get("mime_type") or "application/octet-stream"),
+                    "is_remote": bool(image_data.get("is_remote")) or is_http_image_ref(str(image_ref)),
+                    "auto": self._is_auto(image_data),
+                    "label": str(image_data.get("label") or "").strip(),
+                }
+            )
+        return sources
+
     def _create_image_details_message(
         self, state: ViewImageMiddlewareState
-    ) -> tuple[list[str | dict], list[str], list[str]]:
+    ) -> tuple[list[str | dict], list[str], list[str], list[dict[str, Any]]]:
         """Build multimodal blocks for staged images.
 
-        Returns ``(content_blocks, delivered_refs, failed_refs)``.
+        Returns ``(content_blocks, delivered_refs, failed_refs, sources)``.
         Never invents a "No images have been viewed" synthetic — callers must
         skip inject when ``viewed_images`` is empty (Mode B fault).
         """
@@ -136,7 +216,7 @@ class ViewImageMiddleware(AgentMiddleware[ViewImageMiddlewareState]):
         manual = {ref: data for ref, data in viewed_images.items() if not self._is_auto(data)}
         auto = {ref: data for ref, data in viewed_images.items() if self._is_auto(data)}
         if not viewed_images:
-            return [], [], []
+            return [], [], [], []
 
         content_blocks: list[str | dict] = []
         delivered_refs: list[str] = []
@@ -193,7 +273,7 @@ class ViewImageMiddleware(AgentMiddleware[ViewImageMiddlewareState]):
                 )
                 delivered_refs.append(image_ref)
 
-        return content_blocks, delivered_refs, failed_refs
+        return content_blocks, delivered_refs, failed_refs, self._sources_from_viewed(viewed_images)
 
     def _should_inject_image_message(self, state: ViewImageMiddlewareState) -> tuple[bool, str]:
         messages = state.get("messages", [])
@@ -217,10 +297,17 @@ class ViewImageMiddleware(AgentMiddleware[ViewImageMiddlewareState]):
 
         assistant_idx = messages.index(last_assistant_msg)
         for msg in messages[assistant_idx + 1 :]:
-            if isinstance(msg, HumanMessage):
-                content_str = str(msg.content)
-                if "Here are the images you've viewed" in content_str or "Here are the details of the images you've viewed" in content_str or "Here are the latest screen captures" in content_str:
-                    return False, "already_injected_this_turn"
+            if not isinstance(msg, HumanMessage):
+                continue
+            if not _is_view_image_inject(msg):
+                continue
+            # A prior inject with live pixels → skip. A stripped "omitted"
+            # placeholder must NOT block re-inject / wrap reattach.
+            if _has_live_image_url(msg):
+                return False, "already_injected_this_turn"
+            if _content_has_omitted_placeholder(msg):
+                return True, "ok_reattach_stripped"
+            return False, "already_injected_this_turn"
 
         return True, "ok"
 
@@ -255,9 +342,13 @@ class ViewImageMiddleware(AgentMiddleware[ViewImageMiddlewareState]):
                 )
             return None
 
-        image_content, delivered_refs, failed_refs = self._create_image_details_message(state)
+        image_content, delivered_refs, failed_refs, sources = self._create_image_details_message(state)
         pixel_n = len(delivered_refs)
-        human_msg = HumanMessage(content=image_content, name="view_image_inject")
+        human_msg = HumanMessage(
+            content=image_content,
+            name="view_image_inject",
+            additional_kwargs={_VIEW_IMAGE_SOURCES_KEY: sources},
+        )
 
         logger.info(
             "[ViewImageMiddleware] INJECT ok staged=%s pixels=%s failed=%s refs=%s",
@@ -273,6 +364,105 @@ class ViewImageMiddleware(AgentMiddleware[ViewImageMiddlewareState]):
             update["native_viewed_image_refs"] = list(delivered_refs)
         return update
 
+    def _reload_source(self, source: dict[str, Any]) -> tuple[bytes, str] | None:
+        image_data: ViewedImageData = {
+            "path": str(source.get("path") or source.get("ref") or ""),
+            "mime_type": str(source.get("mime_type") or "application/octet-stream"),
+            "is_remote": bool(source.get("is_remote")),
+            "auto": bool(source.get("auto")),
+            "label": str(source.get("label") or ""),
+        }
+        return self._load_staged_image_bytes(str(source.get("ref") or image_data["path"]), image_data)
+
+    def _rebuild_inject_with_pixels(self, msg: HumanMessage) -> HumanMessage | None:
+        """Rebuild inject content from ``view_image_sources`` when pixels were stripped."""
+        kwargs = dict(getattr(msg, "additional_kwargs", None) or {})
+        sources = kwargs.get(_VIEW_IMAGE_SOURCES_KEY)
+        if not isinstance(sources, list) or not sources:
+            return None
+
+        content_blocks: list[str | dict] = []
+        manual = [s for s in sources if isinstance(s, dict) and not s.get("auto")]
+        auto = [s for s in sources if isinstance(s, dict) and s.get("auto")]
+        if manual:
+            content_blocks.append({"type": "text", "text": "Here are the images you've viewed:"})
+        elif auto:
+            content_blocks.append(
+                {
+                    "type": "text",
+                    "text": "Here are the latest screen captures from your computer control actions:",
+                }
+            )
+        else:
+            return None
+
+        delivered = 0
+        for group, header in ((manual, None), (auto, "\nLatest screen captures:")):
+            if header is not None and group:
+                content_blocks.append({"type": "text", "text": header})
+            for source in group:
+                path_hint = str(source.get("path") or source.get("ref") or "")
+                mime_type = str(source.get("mime_type") or "unknown")
+                label = str(source.get("label") or "").strip()
+                ref = str(source.get("ref") or path_hint)
+                shown_ref = f"{ref} ({label})" if label else ref
+                content_blocks.append(
+                    {
+                        "type": "text",
+                        "text": f"\n- **{shown_ref}** ({mime_type})\n[Image attached at: {path_hint}]",
+                    }
+                )
+                loaded = self._reload_source(source)
+                if not loaded:
+                    content_blocks.append(
+                        {
+                            "type": "text",
+                            "text": (
+                                f"[pixels_delivered=false] Failed to reload image bytes for {path_hint}."
+                            ),
+                        }
+                    )
+                    continue
+                img_bytes, out_mime = loaded
+                content_blocks.append(
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": bytes_to_data_url(img_bytes, out_mime)},
+                    }
+                )
+                delivered += 1
+
+        if delivered <= 0:
+            return None
+        return msg.model_copy(update={"content": content_blocks, "additional_kwargs": kwargs})
+
+    def _reattach_pixels_on_request(self, request: ModelRequest) -> ModelRequest:
+        """After compaction strip: restore data-URIs on view_image_inject if blanked."""
+        messages = list(getattr(request, "messages", None) or [])
+        if not messages:
+            return request
+        changed = False
+        out: list[Any] = []
+        for msg in messages:
+            if not _is_view_image_inject(msg):
+                out.append(msg)
+                continue
+            if _has_live_image_url(msg) and not _content_has_omitted_placeholder(msg):
+                out.append(msg)
+                continue
+            rebuilt = self._rebuild_inject_with_pixels(msg)
+            if rebuilt is None:
+                out.append(msg)
+                continue
+            logger.info(
+                "[ViewImageMiddleware] REATTACH pixels after strip/omit on view_image_inject"
+            )
+            out.append(rebuilt)
+            changed = True
+        if not changed:
+            return request
+        return request.override(messages=out)
+
     @override
     def before_model(self, state: ViewImageMiddlewareState, runtime: Runtime) -> dict | None:
         return self._inject_image_message(state, runtime)
@@ -280,3 +470,11 @@ class ViewImageMiddleware(AgentMiddleware[ViewImageMiddlewareState]):
     @override
     async def abefore_model(self, state: ViewImageMiddlewareState, runtime: Runtime) -> dict | None:
         return self._inject_image_message(state, runtime)
+
+    @override
+    def wrap_model_call(self, request: ModelRequest, handler) -> ModelCallResult:
+        return handler(self._reattach_pixels_on_request(request))
+
+    @override
+    async def awrap_model_call(self, request: ModelRequest, handler) -> ModelCallResult:
+        return await handler(self._reattach_pixels_on_request(request))

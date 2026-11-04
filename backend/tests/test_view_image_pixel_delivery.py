@@ -49,18 +49,29 @@ def vision_enabled():
         yield
 
 
-def test_mode_a_strip_preserves_inject_when_no_real_user():
-    """Proactive runs have no real user; strip must not erase just-injected pixels."""
-    inject = HumanMessage(
+def _inject_with_pixels(payload: str = "AAAA") -> HumanMessage:
+    return HumanMessage(
         name="view_image_inject",
         content=[
             {"type": "text", "text": "Here are the images you've viewed:"},
             {
                 "type": "image_url",
-                "image_url": {"url": "data:image/png;base64,AAAA"},
+                "image_url": {"url": f"data:image/png;base64,{payload}"},
             },
         ],
     )
+
+
+def _has_image_url(msg: HumanMessage) -> bool:
+    content = msg.content
+    return isinstance(content, list) and any(
+        isinstance(b, dict) and b.get("type") == "image_url" for b in content
+    )
+
+
+def test_mode_a_strip_preserves_inject_when_no_real_user():
+    """Proactive runs have no real user; strip must not erase just-injected pixels."""
+    inject = _inject_with_pixels()
     messages = [
         AIMessage(content="ok"),
         ToolMessage(content="{}", tool_call_id="c1"),
@@ -68,8 +79,28 @@ def test_mode_a_strip_preserves_inject_when_no_real_user():
     ]
     out = strip_image_base64_from_messages(messages)
     assert out is messages or out[-1].content == inject.content
-    blocks = out[-1].content
-    assert any(isinstance(b, dict) and b.get("type") == "image_url" for b in blocks)
+    assert _has_image_url(out[-1])
+
+
+def test_mode_a_strip_preserves_inject_when_live_footer_follows():
+    """Live footers after ViewImage must not shift the strip boundary past inject."""
+    inject = _inject_with_pixels("PIXELS")
+    messages = [
+        HumanMessage(content="blindtest please describe the image"),
+        AIMessage(
+            content="",
+            tool_calls=[{"id": "c1", "name": "read", "args": {"path": "b1.png"}}],
+        ),
+        ToolMessage(content='{"pixels_delivered":false}', tool_call_id="c1"),
+        inject,
+        # Middleware order: ViewImage then Collab/Xiaomi footers append after inject.
+        HumanMessage(content="<collab_live>plan</collab_live>", name="session_collab_live"),
+        HumanMessage(content="<xiaomi>page</xiaomi>", name="xiaomi_ui_context"),
+    ]
+    out = strip_image_base64_from_messages(messages)
+    assert _has_image_url(out[3]), (
+        "inject pixels were stripped because a live footer was treated as the latest real user"
+    )
 
 
 def test_mode_a_strip_all_keeps_latest_inject():
@@ -155,3 +186,65 @@ def test_inject_marks_native_refs_only_when_pixels_delivered(tmp_path: Path, vis
     )
     assert update["native_viewed_image_refs"] == [str(img_path)]
     assert update["viewed_images"] == {}
+    sources = (update["messages"][0].additional_kwargs or {}).get("view_image_sources")
+    assert isinstance(sources, list) and sources and sources[0]["path"] == str(img_path)
+
+
+def test_mode_a_old_inject_collapses_to_stub_not_omitted_placeholder():
+    """Prior-turn injects must not become the misleading 'base64 omitted' image line."""
+    old_inject = _inject_with_pixels("OLD")
+    messages = [
+        HumanMessage(content="first turn"),
+        AIMessage(content="ok"),
+        old_inject,
+        HumanMessage(content="second turn — new question"),
+    ]
+    out = strip_image_base64_from_messages(messages)
+    collapsed = out[2]
+    assert isinstance(collapsed.content, str)
+    assert "base64 data omitted" not in collapsed.content
+    assert "removed from context" in collapsed.content
+
+
+def test_wrap_reattaches_pixels_after_omitted_placeholder(tmp_path: Path, vision_enabled):
+    """Compaction strip left omitted text; wrap_model_call must restore data-URIs."""
+    img_path = tmp_path / "reattach.png"
+    img_path.write_bytes(_png_bytes((40, 170, 70)))
+    path = str(img_path.resolve())
+
+    stripped = HumanMessage(
+        name="view_image_inject",
+        content=[
+            {"type": "text", "text": "Here are the images you've viewed:"},
+            {"type": "text", "text": f"\n- **{path}** (image/png)\n[Image attached at: {path}]"},
+            {
+                "type": "text",
+                "text": "[Image (image/png) — base64 data omitted to save context]",
+            },
+        ],
+        additional_kwargs={
+            "view_image_sources": [
+                {
+                    "ref": path,
+                    "path": path,
+                    "mime_type": "image/png",
+                    "is_remote": False,
+                    "auto": False,
+                    "label": "",
+                }
+            ]
+        },
+    )
+    request = MagicMock()
+    request.messages = [HumanMessage(content="look"), stripped]
+    request.override = lambda **kw: MagicMock(messages=kw["messages"])
+
+    mw = ViewImageMiddleware()
+    patched = mw._reattach_pixels_on_request(request)
+    rebuilt = patched.messages[-1]
+    assert _has_image_url(rebuilt)
+    assert not any(
+        isinstance(b, dict) and "base64 data omitted" in str(b.get("text") or "")
+        for b in rebuilt.content
+        if isinstance(b, dict)
+    )

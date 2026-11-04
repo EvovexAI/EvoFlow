@@ -46,11 +46,13 @@ def test_job_once_before_session_and_no_habits_or_platform() -> None:
     assert "<entity_assets>" not in text
 
 
-def test_different_soul_still_emits_system_prompt_only() -> None:
+def test_different_soul_emits_soul_and_system_prompt() -> None:
     text = _prompt(soul="短人设", custom_system_prompt="完整作业说明只此一份")
     assert "完整作业说明只此一份" in text
-    assert "短人设" not in text
+    assert "短人设" in text
+    assert text.count("<soul>") == 1
     assert text.count("<agent_system_prompt>") == 1
+    assert text.index("<agent_system_prompt>") < text.index("<soul>")
 
 
 def test_memory_assets_region_is_content_only() -> None:

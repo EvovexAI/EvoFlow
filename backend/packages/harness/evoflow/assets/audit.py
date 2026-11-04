@@ -77,12 +77,11 @@ def _is_indexable(path: Path) -> bool:
 
 
 def _profile_gaps(root: Path) -> list[str]:
-    """检查 profile 三件套是否齐全"""
+    """检查用户画像单文件是否齐全"""
     gaps = []
-    for f in ["basic-info.md", "preferences.md", "persona.md"]:
-        p = root / "profile" / f
-        if not p.exists() or p.stat().st_size < 80:
-            gaps.append(f"profile/{f}")
+    p = root / "profile" / "USER.md"
+    if not p.exists() or p.stat().st_size < 80:
+        gaps.append("profile/USER.md")
     return gaps
 
 

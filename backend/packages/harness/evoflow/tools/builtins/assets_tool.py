@@ -219,9 +219,10 @@ def assets_tool(
       - read: read one relative path
       - list: list directory (default memory/)
       - note: ad-hoc write → memory/_inbox/notes/ (Phase2 merges to facts/episodic/journal/craft/standing)
-      - profile: update user profile dimension (basic-info | preferences | persona).
+      - profile: update the single user profile doc (profile/USER.md).
         Default mode append (query=append). Use query=replace for full rewrite.
         When user shares stable identity/prefs/habits, update profile proactively.
+        ``path`` is optional (legacy basic-info/preferences/persona aliases still accepted).
 
     For action=note, start content with optional tags: [preference], [process], [experience], [reflection].
 
@@ -234,8 +235,8 @@ def assets_tool(
         action: search | read | list | note | profile
         query: Search keywords (comma-separated ok). Required for search.
                When action=profile, use append (default) or replace.
-        path: Filename or entity-relative path for read/list (basename is enough), or profile dimension for action=profile
-              (basic-info.md, preferences, persona, …).
+        path: Filename or entity-relative path for read/list (basename is enough), or optional for action=profile
+              (defaults to USER.md; legacy basic-info/preferences/persona aliases ok).
         kinds: Comma-separated asset kinds for search (facts,episodic,journal,craft,standing,handbook,all).
         content: Note body for action=note; markdown snippet for action=profile.
         entity_type: Optional user|agent|employee (default: session entity). Workspace/project memory is disabled.
@@ -412,16 +413,7 @@ def assets_tool(
             return json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False)
 
     if act == "profile":
-        dim = str(path or "").strip()
-        if not dim:
-            return json.dumps(
-                {
-                    "ok": False,
-                    "error": "path_required",
-                    "hint": "path=basic-info|preferences|persona (or *.md)",
-                },
-                ensure_ascii=False,
-            )
+        dim = str(path or "").strip() or "USER.md"
         if entity.normalized().entity_type != "user":
             return json.dumps(
                 {"ok": False, "error": "profile_only_for_user_entity"},

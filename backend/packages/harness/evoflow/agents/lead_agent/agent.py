@@ -786,8 +786,8 @@ def _build_middlewares(config: RunnableConfig, model_name: str | None, agent_nam
     # External memory plugin (Hermes-style): prefetch fence in before_model when configured
     middlewares.append(ExternalMemoryPluginMiddleware())
 
-    # view_image native: stage paths in state; inject ephemeral pixels before each LLM call.
-    middlewares.append(ViewImageMiddleware())
+    # view_image native is registered *after* ContextCompaction below so its
+    # wrap_model_call reattaches pixels after strip_image_base64 (Mode A fix).
 
     # Add DeferredToolFilterMiddleware to hide deferred tool schemas from model binding
     try:
@@ -910,6 +910,10 @@ def _build_middlewares(config: RunnableConfig, model_name: str | None, agent_nam
     # tokens match the wire payload (active tools + final system prompt).
     if compaction_middleware is not None:
         middlewares.append(compaction_middleware)
+    # AFTER compaction: before_model still injects; wrap_model_call reattaches
+    # data-URIs if strip left "base64 data omitted" (Mode A). Later in the list
+    # ⇒ inner wrap ⇒ runs after compaction's strip.
+    middlewares.append(ViewImageMiddleware())
     from evoflow.agents.middlewares.thinking_context_guard_middleware import ThinkingContextGuardMiddleware
 
     middlewares.append(ThinkingContextGuardMiddleware())

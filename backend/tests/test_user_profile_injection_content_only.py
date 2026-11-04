@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from evoflow.assets.user_profile_dims import (
+    USER_PROFILE_FILENAME,
     _strip_placeholder_body,
     build_user_profile_injection_block,
 )
@@ -18,19 +19,19 @@ use_count: 3
 
 - （本对话中用户尚未提供身份信息，待补：称呼、常用语言/时区/城市、职业角色）
 """
-    assert _strip_placeholder_body(raw, filename="basic-info.md") == ""
+    assert _strip_placeholder_body(raw, filename=USER_PROFILE_FILENAME) == ""
 
 
 def test_strip_keeps_real_name() -> None:
-    raw = """# 基本信息
+    raw = """# 用户画像
 
-## 称呼
+## 基本信息
 银泰
 
 ## 语言与时区
 中文；UTC+8 / 上海
 """
-    filled = _strip_placeholder_body(raw, filename="basic-info.md")
+    filled = _strip_placeholder_body(raw, filename=USER_PROFILE_FILENAME)
     assert "银泰" in filled
     assert "UTC+8" in filled
 
@@ -38,11 +39,7 @@ def test_strip_keeps_real_name() -> None:
 def test_injection_empty_when_only_scaffold(monkeypatch) -> None:
     monkeypatch.setattr(
         "evoflow.assets.user_profile_dims.read_user_profile_dimensions",
-        lambda **_: {
-            "basic-info.md": "",
-            "preferences.md": "",
-            "persona.md": "",
-        },
+        lambda **_: {USER_PROFILE_FILENAME: ""},
     )
     monkeypatch.setattr(
         "evoflow.assets.user_profile_dims.ensure_user_profile_files",
@@ -55,11 +52,7 @@ def test_injection_empty_when_only_scaffold(monkeypatch) -> None:
 def test_injection_content_only_no_meta(monkeypatch) -> None:
     monkeypatch.setattr(
         "evoflow.assets.user_profile_dims.read_user_profile_dimensions",
-        lambda **_: {
-            "basic-info.md": "## 称呼\n银泰",
-            "preferences.md": "",
-            "persona.md": "",
-        },
+        lambda **_: {USER_PROFILE_FILENAME: "## 基本信息\n银泰"},
     )
     monkeypatch.setattr(
         "evoflow.assets.user_profile_dims.ensure_user_profile_files",
@@ -68,7 +61,7 @@ def test_injection_content_only_no_meta(monkeypatch) -> None:
     text = build_user_profile_injection_block(scope="full")
     assert "<user_profile>" in text
     assert "银泰" in text
-    assert "<preferences>" not in text  # empty dim omitted
+    assert "<preferences>" not in text
     assert "员工上下文" not in text
     assert "profile_upkeep" not in text
     assert "agent_behavior" not in text

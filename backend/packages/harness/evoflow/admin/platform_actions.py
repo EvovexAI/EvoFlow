@@ -417,7 +417,7 @@ def _build_registry() -> dict[str, PlatformAction]:
         _A(
             "assets.get_profile",
             "assets",
-            "查看用户画像（资产中心：basic-info / preferences / persona）",
+            "查看用户画像（资产中心：profile/USER.md）",
             "read",
             "无",
             H.assets_get_profile,
@@ -428,7 +428,7 @@ def _build_registry() -> dict[str, PlatformAction]:
             "assets",
             "更新用户画像某一维度（资产中心）",
             "write",
-            "path=basic-info|preferences|persona, content, mode?=append|replace",
+            "content, mode?=append|replace（写入 profile/USER.md；path 可省略）",
             H.assets_update_profile,
             "记住我喜欢简洁回复",
             "把称呼改成老张",

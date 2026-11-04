@@ -68,7 +68,7 @@ def test_distinct_system_prompt_still_injected():
     assert "<soul>" in prompt
     assert "<agent_system_prompt>" in prompt
     assert "只做代码评审" in prompt
-    assert prompt.index("<soul>") < prompt.index("<agent_system_prompt>")
+    assert prompt.index("<agent_system_prompt>") < prompt.index("<soul>")
 
 
 def test_context_priority_says_memory_must_yield():

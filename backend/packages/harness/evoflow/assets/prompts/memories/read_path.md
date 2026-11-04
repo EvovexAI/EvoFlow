@@ -39,7 +39,7 @@
 - 读：先看下方 catalog 选目标，再 `assets(action="read", path="文件名.md")` 打开（工具按文件名解析；也可传完整相对路径）；单次读取超长会自动截断。
 - 检索：`assets(action="search", query="关键词", kinds="facts,episodic,journal,craft,standing,handbook,all")`；不要整目录盲读。
 - 写：见上方决策表；标签与落点：`[preference]` / `[process]` / `[experience]` / `[reflection]`。
-- 画像：`assets(action="profile", path="basic-info|preferences|persona", content="…")`，默认 append，`query="replace"` 全量重写。
+- 画像：`assets(action="profile", content="…")` → 单一 `profile/USER.md`（默认 append，`query="replace"` 全量重写；path 可省略）。
 - 不直写 `craft/`、`standing.md`、`MEMORY.md` —— 这些归 Phase 2 consolidation 管理。
 - 引用：回复内容来自资产文件时，在回复末尾附 `<evo-asset-citation>`（路径相对 entity 根）。
 - 找不到 → 停，不硬猜路径。

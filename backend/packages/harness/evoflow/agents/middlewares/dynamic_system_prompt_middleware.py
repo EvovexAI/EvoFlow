@@ -382,6 +382,19 @@ class DynamicSystemPromptOnScenarioMiddleware(AgentMiddleware[AgentState]):
         im = str(im_channel_fp or "").strip().lower()
         return f"{thread_id}::{scenario_csv}::{'|'.join(tools_sorted)}::{role_disk}::{cp}::{crt}::{st}::{ht}::{msf}::{mcp}::{im}"
 
+    @staticmethod
+    def _refresh_dept_group_im_system(text: str, session_key: str | None) -> str:
+        """Keep ``<dept_group_im>`` (roster / steward) current across cached system hits."""
+        try:
+            from evoflow.proactive.employee_prompting.dept_group_im import (
+                refresh_dept_group_im_in_prompt,
+            )
+
+            return refresh_dept_group_im_in_prompt(text, session_key)
+        except Exception:
+            logger.debug("dept_group_im system refresh skipped", exc_info=True)
+            return text
+
     def _apply_proactive_duty_system(self, request: ModelRequest, ctx: dict[str, Any]) -> ModelRequest:
         """Skip chat prompt templates; set self-contained duty brief + live status footer."""
         from langchain_core.messages import SystemMessage
@@ -512,6 +525,7 @@ class DynamicSystemPromptOnScenarioMiddleware(AgentMiddleware[AgentState]):
                 mcp_binding if isinstance(mcp_binding, list) or mcp_binding is None else None
             )
         im_channel_fp = str(ctx.get("channel") or "").strip().lower()
+        session_key_early = str(ctx.get("session_key") or "").strip() or None
         sig = self._fingerprint(
             thread_id=tid,
             scenario_csv=scenario_csv,
@@ -525,36 +539,55 @@ class DynamicSystemPromptOnScenarioMiddleware(AgentMiddleware[AgentState]):
             mcp_fp=mcp_fp,
             im_channel_fp=im_channel_fp,
         )
+
+        def _return_cached_system(raw: str) -> ModelRequest:
+            refreshed = self._refresh_dept_group_im_system(raw, session_key_early)
+            with self._lock:
+                _last_system_by_thread[tid] = refreshed
+            return request.override(system_message=SystemMessage(content=refreshed))
+
+        cached_hit = ""
+        reuse_kind = ""
         with self._lock:
             prev_sig = _last_sig_by_thread.get(tid)
             cached_system = _last_system_by_thread.get(tid) or ""
             if prev_sig == sig:
                 if cached_system:
-                    return request.override(system_message=SystemMessage(content=cached_system))
-                return request
-            # Runtime: new user turn does not rebuild base instructions — only structural
-            # changes (tools/scenario/role/collab/MCP) force apply_prompt_template.
-            # Re-apply the *cached assembled* system (memory/profile included), not the
-            # graph compile-time prompt.
-            if prev_sig and _system_prompt_structure_key(prev_sig) == _system_prompt_structure_key(sig):
-                _last_sig_by_thread[tid] = sig
-                if cached_system:
-                    logger.info(
-                        "DynamicSystemPromptOnScenario: reuse cached system (human/mission-only) thread=%s bytes=%d",
-                        tid,
-                        len(cached_system.encode("utf-8", errors="ignore")),
-                    )
-                    return request.override(system_message=SystemMessage(content=cached_system))
-                # No cache yet — fall through to full rebuild once.
-            if prev_sig and _is_intra_turn_scenario_only_change(prev_sig, sig):
-                _last_sig_by_thread[tid] = sig
-                if cached_system:
-                    logger.info(
-                        "DynamicSystemPromptOnScenario: skip full rebuild (intra-turn scenario) thread=%s",
-                        tid,
-                    )
-                    return request.override(system_message=SystemMessage(content=cached_system))
-            _last_sig_by_thread[tid] = sig
+                    cached_hit = cached_system
+                else:
+                    return request
+            else:
+                # Runtime: new user turn does not rebuild base instructions — only structural
+                # changes (tools/scenario/role/collab/MCP) force apply_prompt_template.
+                # Re-apply the *cached assembled* system (memory/profile included), not the
+                # graph compile-time prompt.
+                if prev_sig and _system_prompt_structure_key(prev_sig) == _system_prompt_structure_key(sig):
+                    _last_sig_by_thread[tid] = sig
+                    if cached_system:
+                        cached_hit = cached_system
+                        reuse_kind = "human"
+                    # No cache yet — fall through to full rebuild once.
+                if not cached_hit and prev_sig and _is_intra_turn_scenario_only_change(prev_sig, sig):
+                    _last_sig_by_thread[tid] = sig
+                    if cached_system:
+                        cached_hit = cached_system
+                        reuse_kind = "intra"
+                if not cached_hit:
+                    _last_sig_by_thread[tid] = sig
+
+        if cached_hit:
+            if reuse_kind == "human":
+                logger.info(
+                    "DynamicSystemPromptOnScenario: reuse cached system (human/mission-only) thread=%s bytes=%d",
+                    tid,
+                    len(cached_hit.encode("utf-8", errors="ignore")),
+                )
+            elif reuse_kind == "intra":
+                logger.info(
+                    "DynamicSystemPromptOnScenario: skip full rebuild (intra-turn scenario) thread=%s",
+                    tid,
+                )
+            return _return_cached_system(cached_hit)
 
         intent_hint = scenario_csv if scenario_csv else None
         collab_phase = ctx.get("collab_phase")
@@ -659,6 +692,7 @@ class DynamicSystemPromptOnScenarioMiddleware(AgentMiddleware[AgentState]):
             logger.exception("DynamicSystemPromptOnScenario: apply_prompt_template failed")
             return request
 
+        text = self._refresh_dept_group_im_system(text, session_key_early or session_key)
         new_sys = SystemMessage(content=text)
         with self._lock:
             _last_system_by_thread[tid] = text

@@ -141,12 +141,12 @@ def test_employee_profile_still_writes_user_bucket(asset_home: Path):
     out = _call_profile(rt, content="称呼：银泰")
     assert out.get("ok") is True, out
     assert out.get("entityType") == "user"
-    pref = asset_home / "assets" / "users" / "yin-tai" / "profile" / "preferences.md"
-    assert pref.is_file()
-    assert "银泰" in pref.read_text(encoding="utf-8")
-    emp_pref = asset_home / "assets" / "employees" / "douyin-analyst" / "profile" / "preferences.md"
-    if emp_pref.is_file():
-        assert "银泰" not in emp_pref.read_text(encoding="utf-8")
+    user_md = asset_home / "assets" / "users" / "yin-tai" / "profile" / "USER.md"
+    assert user_md.is_file()
+    assert "银泰" in user_md.read_text(encoding="utf-8")
+    emp_md = asset_home / "assets" / "employees" / "douyin-analyst" / "profile" / "USER.md"
+    if emp_md.is_file():
+        assert "银泰" not in emp_md.read_text(encoding="utf-8")
 
 
 def test_resolve_matrix_quick(asset_home: Path):

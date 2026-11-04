@@ -20,6 +20,20 @@ _SYNTHETIC_USER_NAMES = frozenset(
         "task_autofollow",
         # Ephemeral pixels from ViewImageMiddleware — not a genuine user turn.
         "view_image_inject",
+        # Live footers / injections appended *after* ViewImage inject in before_model.
+        # If these count as "real user", strip_image_base64 treats the inject as
+        # "old history" and replaces pixels with "base64 data omitted" (Mode A).
+        "session_collab_live",
+        "session_mission_state",
+        "session_memory_recall",
+        "session_context_refs",
+        "session_runtime_clock",
+        "session_mind_map",
+        "session_intent",
+        "xiaomi_ui_context",
+        "evf_kb_injection",
+        "evf_skill_injection",
+        "evf_plugin_injection",
     }
 )
 

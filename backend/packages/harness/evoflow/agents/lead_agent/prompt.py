@@ -752,8 +752,8 @@ def _inject_identity_layers(
         mirrors soul into that field).
       - On conflict: latest user message > ``<agent_system_prompt>`` > ``<soul>`` > ``<role>``.
 
-    ``override_first=True`` (xiaomi) puts the duty/constraint override before the
-    style soul — duties first, persona style layered underneath.
+    Default order is duty first, soul below (``override_first`` keeps that;
+    ``override_first=False`` only flips for rare callers that want style-first).
 
     Centralizing this avoids drift between the xiaomi-mode and the default-assemble
     branches (they previously inlined this logic with subtle wording differences).
@@ -813,12 +813,11 @@ def _inject_identity_layers(
             f"<agent_system_prompt>\n{safe_extra}\n</agent_system_prompt>"
         )
 
-    if override_first:
-        _append_override()
-        _append_soul()
-    else:
-        _append_soul()
-        _append_override()
+    # Duty (system_prompt) above; soul style below. ``override_first`` retained for
+    # call-site compat but no longer flips order — product wants system_prompt first.
+    _ = override_first
+    _append_override()
+    _append_soul()
 
 
 def _assemble_system_prompt(
@@ -2280,11 +2279,13 @@ def apply_prompt_template(
                 )
             except Exception:
                 emp_person_memory = ""
+        # inject_soul: None/True = load SOUL; False = 岗位显式关闭
+        emp_soul = "" if inject_soul is False else _load_agent_soul_text(agent_name)
         prompt = assemble_employee_system_prompt(
             mode="chat",
             identity=emp_identity,
             agent_code=str(emp_identity.get("code") or agent_name or ""),
-            soul=_load_agent_soul_text(agent_name),
+            soul=emp_soul,
             skills_section=skills_blob,
             workspace_root_hint=_resolve_workspace_root(local_workspace_root) or str(emp_identity.get("workspace_path") or ""),
             runtime_os=runtime_os,
@@ -2308,12 +2309,14 @@ def apply_prompt_template(
                 resolve_dept_group_im_from_session,
             )
 
-            _dg_on, _dg_name, _dg_steward = resolve_dept_group_im_from_session(
+            _dg_on, _dg_name, _dg_steward, _dg_roster = resolve_dept_group_im_from_session(
                 prompt_session_key or session_key
             )
             if _dg_on:
                 _dg_block = build_dept_group_im_block(
-                    dept_name=_dg_name, steward=_dg_steward
+                    dept_name=_dg_name,
+                    steward=_dg_steward,
+                    roster=_dg_roster,
                 ).strip()
                 if _dg_block:
                     prompt = f"{prompt.rstrip()}\n\n{_dg_block}\n"
@@ -2327,7 +2330,7 @@ def apply_prompt_template(
         prompt = _assemble_system_prompt(
             scenario=intent,
             agent_name=display_name,
-            soul=get_agent_soul(agent_name),
+            soul="" if inject_soul is False else get_agent_soul(agent_name),
             custom_system_prompt=(custom_system_prompt or "").strip(),
             memory_context=memory_context,
             workspace_memory_context=workspace_memory_context,

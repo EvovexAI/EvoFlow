@@ -755,15 +755,13 @@ def assets_update_profile(args: dict[str, Any]) -> dict[str, Any]:
     content = args.get("content")
     if content is None:
         content = args.get("text") or args.get("profile")
-    if not path:
-        raise ValidationError("path is required (basic-info | preferences | persona)")
     if content is None or not str(content).strip():
         raise ValidationError("content is required")
     mode = _arg_str(args, "mode") or "append"
     return {
         "ok": True,
         **profile_admin.update_user_profile_dimension(
-            path,
+            path or "USER.md",
             str(content),
             mode=mode,
             principal_id=_arg_str(args, "principal_id"),
