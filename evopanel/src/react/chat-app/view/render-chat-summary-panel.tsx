@@ -19,7 +19,9 @@ export function renderChatSummaryPanel(
 ): ReactNode {
   const {
     applySessionThinkingPref,
-    applySessionVisionPref,
+    applySessionMemoryPref,
+    memoryEnabled,
+    setMemoryEnabled,
     artifactFocusId,
     assetQuickBusy,
     capabilityPatchBusy,
@@ -30,7 +32,6 @@ export function renderChatSummaryPanel(
     displayContextUsage,
     effectiveModelName,
     effectiveModelSupportsThinking,
-    effectiveModelSupportsVision,
     employeeRoleDetail,
     employeeSessionAgentCode,
     getDisplayLabel,
@@ -56,7 +57,6 @@ export function renderChatSummaryPanel(
     sessionArtifacts,
     sessionPlatformEntries,
     sessionThinkingPref,
-    sessionVisionPref,
     sessions,
     setChatPanelDisplayMode,
     setRoleUiNonce,
@@ -119,11 +119,11 @@ export function renderChatSummaryPanel(
             : undefined
       }
       modelSupportsThinking={effectiveModelSupportsThinking}
-      modelSupportsVision={effectiveModelSupportsVision}
       sessionThinkingPref={sessionThinkingPref || 'follow'}
-      sessionVisionPref={sessionVisionPref || 'follow'}
+      sessionMemoryEnabled={memoryEnabled !== false}
       onApplySessionThinking={applySessionThinkingPref}
-      onApplySessionVision={applySessionVisionPref}
+      onApplySessionMemory={applySessionMemoryPref}
+      onMemoryEnabledChange={setMemoryEnabled}
       onAssetQuickAction={deptChat ? undefined : handleAssetQuickAction}
       assetQuickBusy={assetQuickBusy}
       artifacts={sessionArtifacts}
@@ -168,8 +168,8 @@ export function renderChatSummaryPanel(
             onAssetQuickAction={handleAssetQuickAction}
             assetQuickBusy={assetQuickBusy}
             modelSupportsThinking={effectiveModelSupportsThinking}
-            modelSupportsVision={effectiveModelSupportsVision}
             onRolePrefsSaved={refreshRolePrefs}
+            onMemoryEnabledChange={setMemoryEnabled}
             sessionKey={sessionKey}
           />
         ) : null

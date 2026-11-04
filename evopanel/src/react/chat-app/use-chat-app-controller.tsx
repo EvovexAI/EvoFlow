@@ -363,7 +363,6 @@ import { syncPlanPanelImmediateFromTools as syncPlanPanelImmediateFromToolsImpl 
 import { collectPlanToolsForDetection as collectPlanToolsForDetectionImpl } from './plan-dock/collect-plan-tools.js'
 import { reconcileLastAssistantFromDb as reconcileLastAssistantFromDbImpl } from './utils/reconcile-last-assistant-from-db.js'
 import { openUiExtensionInStage as openUiExtensionInStageImpl } from './right-stage/open-ui-extension-in-stage.js'
-import { openEmployeeMcpWorkbenchInRightStage } from '../../lib/mcp-workbench-link.js'
 import { handleDispatchEmployee as handleDispatchEmployeeImpl } from './dispatch/handle-dispatch-employee.js'
 import { syncRemoteStageSet as syncRemoteStageSetImpl } from './right-stage/sync-remote-stage-set.js'
 import { handleEnhancePrompt as handleEnhancePromptImpl } from './composer/handle-enhance-prompt.js'
@@ -861,9 +860,6 @@ import {
   resolveSessionAgentCodeForUi,
   getSessionCollabModeFromMeta,
   getThinkingLevelFromMeta,
-  getVisionPrefFromMeta,
-  setVisionPrefInMeta,
-  type SessionVisionPref,
 } from './utils/session-meta.js'
 import {
   comparableAssistantText,
@@ -1678,9 +1674,6 @@ export function useChatAppController() {
   /** 与 ws-client session context ``memory_enabled`` 对齐；默认开，仅显式 ``false`` 为关 */
   const [memoryEnabled, setMemoryEnabled] = useState(true)
   const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>(() => getThinkingLevelFromMeta(selectedSessionKey || ''))
-  const [visionPref, setVisionPref] = useState<SessionVisionPref>(() =>
-    getVisionPrefFromMeta(selectedSessionKey || ''),
-  )
   const [modeMenuOpen, setModeMenuOpen] = useState(false)
   /** 后端动态返回的模式列表（含 visible/scenario）；null 表示尚未加载 */
   const [dynamicModes, setDynamicModes] = useState<Array<{ value: string; label: string; visible: boolean; scenario: string | null }> | null>(null)
@@ -3066,28 +3059,6 @@ export function useChatAppController() {
     [selectedSessionKey],
   )
 
-  /** 跟员工聊时：按绑定 MCP 自动在右侧打开对应工作台（陪练面板 / 无限画布等） */
-  const employeeMcpWorkbenchKey = useMemo(() => {
-    if (!isProactiveEmployeeSession) return ''
-    const mcps = currentAgentCapabilities?.mcpServers
-    if (!Array.isArray(mcps) || !mcps.length) return ''
-    return `${String(selectedSessionKey || '').trim()}::${mcps.join(',')}`
-  }, [isProactiveEmployeeSession, selectedSessionKey, currentAgentCapabilities?.mcpServers])
-  const lastEmployeeMcpWorkbenchKeyRef = useRef('')
-  useEffect(() => {
-    if (!employeeMcpWorkbenchKey) return
-    if (lastEmployeeMcpWorkbenchKeyRef.current === employeeMcpWorkbenchKey) return
-    lastEmployeeMcpWorkbenchKeyRef.current = employeeMcpWorkbenchKey
-    const mcps = currentAgentCapabilities?.mcpServers
-    void openEmployeeMcpWorkbenchInRightStage({
-      mcpServers: mcps,
-      sessionKey: selectedSessionKey,
-      threadId: selectedThreadId || null,
-    }).catch(() => {
-      /* 扩展未装或服务未起时静默；用户仍可手动开 Agent应用 */
-    })
-  }, [employeeMcpWorkbenchKey, currentAgentCapabilities?.mcpServers, selectedSessionKey, selectedThreadId])
-
   useEffect(() => {
     if (!obsEnabled && infoRailTab === 'debug') {
       setInfoRailTab(isProactiveEmployeeSession ? 'task' : 'agent')
@@ -3121,6 +3092,7 @@ export function useChatAppController() {
       fallbackAgentCode: selectedSessionAgentId,
       selectedSessionKey,
       setEmployeeRoleDetail,
+      setMemoryEnabled,
     })
   }, [employeeSessionAgentCode, selectedSessionAgentId, selectedSessionKey, roleUiNonce])
 
@@ -3575,7 +3547,6 @@ export function useChatAppController() {
     queueMicrotask(() => {
       setSessionMode(mode ?? getSessionModeFromMeta(sk))
       setThinkingLevel(getThinkingLevelFromMeta(selectedSessionKey || ''))
-      setVisionPref(getVisionPrefFromMeta(selectedSessionKey || ''))
     })
   }, [selectedSessionKey, sessions, setRestoredScenarioScene])
 
@@ -3981,25 +3952,21 @@ export function useChatAppController() {
     [selectedSessionKey, applyThinkingLevel],
   )
 
-  /** 状态面板角色设定：图片识别三态 → 会话 meta + context */
-  const applySessionVisionPref = useCallback(
-    async (pref: SessionVisionPref) => {
+  /** 状态面板角色设定：记忆总闸 → 会话 context（注入 + assets 工具） */
+  const applySessionMemoryPref = useCallback(
+    async (pref: 'follow' | 'on' | 'off') => {
       const sk = String(selectedSessionKey || '').trim()
       if (!sk) return
-      setVisionPrefInMeta(sk, pref)
-      setVisionPref(pref)
-      const vision_enabled = pref === 'follow' ? null : pref === 'on'
-      wsClient.updateSessionContext(sk, { vision_enabled })
+      const memory_enabled = pref === 'off' ? false : true
+      setMemoryEnabled(memory_enabled)
+      wsClient.updateSessionContext(sk, { memory_enabled })
       try {
         const api = await getApi()
-        await api.chatUpdateContext(sk, { vision_enabled })
+        await api.chatUpdateContext(sk, { memory_enabled })
       } catch {
-        /* local meta already updated */
+        /* local state already updated */
       }
-      toast(
-        pref === 'follow' ? '图片识别：默认（本会话）' : pref === 'on' ? '已开启图片识别（本会话）' : '已关闭图片识别（本会话）',
-        'success',
-      )
+      toast(memory_enabled ? '已开启记忆（本会话）' : '已关闭记忆（本会话）', 'success')
     },
     [selectedSessionKey],
   )
@@ -5187,7 +5154,9 @@ export function useChatAppController() {
     renderChatSummaryPanelImpl(
       {
         applySessionThinkingPref,
-        applySessionVisionPref,
+        applySessionMemoryPref,
+        memoryEnabled,
+        setMemoryEnabled,
         artifactFocusId,
         assetQuickBusy,
         capabilityPatchBusy,
@@ -5198,7 +5167,6 @@ export function useChatAppController() {
         displayContextUsage,
         effectiveModelName,
         effectiveModelSupportsThinking,
-        effectiveModelSupportsVision,
         employeeRoleDetail,
         employeeSessionAgentCode,
         getDisplayLabel,
@@ -5224,7 +5192,6 @@ export function useChatAppController() {
         sessionArtifacts,
         sessionPlatformEntries,
         sessionThinkingPref,
-        sessionVisionPref: visionPref,
         sessions,
         setBottomRoleOpen,
         setChatPanelDisplayMode,

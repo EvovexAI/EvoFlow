@@ -747,7 +747,6 @@ function renderAgentNativePanel(detail) {
   const d = detail || {
     code: '',
     agent_name: '',
-    description: '',
     system_prompt: '',
     soul: '',
   }
@@ -757,10 +756,6 @@ function renderAgentNativePanel(detail) {
       <span>名称</span>
       <input class="hire-input" data-name="agent_display_name" value="${esc(d.agent_name)}" placeholder="例如：创意广告负责人、AIGC 编剧">
     </label>
-    <label class="hire-field">
-      <span>简介</span>
-      <textarea class="hire-input hire-textarea" data-name="agent_description" rows="2" placeholder="一句话说明这个智能体会什么">${esc(d.description)}</textarea>
-    </label>
     <label class="hire-field hire-field--grow">
       <span>系统提示词</span>
       <p class="hire-chip-hint">核心指令、行为规范与要主动推进的事，都写这里。</p>
@@ -768,7 +763,7 @@ function renderAgentNativePanel(detail) {
     </label>
     <label class="hire-field hire-field--grow">
       <span>人格 SOUL</span>
-      <p class="hire-chip-hint">个性、行为边界、输出风格。是否注入见「能力与工作」里的 SOUL 开关（勾选=强制；未勾=跟随默认）。</p>
+      <p class="hire-chip-hint">个性、行为边界、输出风格。是否注入见「工作设置」里的 SOUL 开关（勾选=强制；未勾=跟随默认）。</p>
       <textarea class="hire-input hire-textarea hire-textarea--agent-soul" data-name="agent_soul" rows="8" placeholder="例：语气干脆；不确定时先问；不编造事实">${esc(d.soul)}</textarea>
     </label>`
 }
@@ -776,7 +771,6 @@ function renderAgentNativePanel(detail) {
 function readAgentNativeFields(overlay) {
   return {
     agent_name: (overlay.querySelector('[data-name="agent_display_name"]')?.value || '').trim(),
-    description: (overlay.querySelector('[data-name="agent_description"]')?.value || '').trim(),
     system_prompt: overlay.querySelector('[data-name="agent_system_prompt"]')?.value ?? '',
     soul: overlay.querySelector('[data-name="agent_soul"]')?.value ?? '',
   }
@@ -882,9 +876,11 @@ function fillCapabilityPanels(overlay, detail, catalog) {
 }
 
 function fillAgentNativePanel(overlay, detail, catalog) {
-  const panel = overlay.querySelector('.hire-edit-panel[data-section="agent"]')
-  if (!panel) return
-  panel.innerHTML = renderAgentNativePanel(detail)
+  const host =
+    overlay.querySelector('[data-role="agent-native"]') ||
+    overlay.querySelector('.hire-edit-panel[data-section="agent"]')
+  if (!host) return
+  host.innerHTML = renderAgentNativePanel(detail)
   if (catalog) fillCapabilityPanels(overlay, detail, catalog)
 }
 
@@ -1013,21 +1009,20 @@ export async function showEditRoleModal(role, {
       </div>`
 
   const basicAgentBlock = allowAgentRebind
-    ? `<p class="hire-chip-hint">可改绑智能体。名称、提示词、工具 / MCP / 技能均在左侧分区统一编辑。</p>
+    ? `<p class="hire-chip-hint">可改绑智能体；改绑后下方名称与提示词会换成新智能体的配置。工具 / MCP / 技能用左侧对应分区。</p>
               ${renderAgentPickField(available, selected.code)}
               ${renderAgentCard()}`
-    : `<p class="hire-chip-hint">当前绑定智能体。名称、提示词、工具 / MCP / 技能均在左侧分区统一编辑。</p>
+    : `<p class="hire-chip-hint">当前绑定智能体。工具 / MCP / 技能用左侧对应分区。</p>
               ${renderAgentCard()}
               <input type="hidden" data-name="agent_code" value="${esc(selected.code)}">`
 
   const sections = [
     { key: 'agent', label: '智能体' },
+    { key: 'capability', label: '工作设置' },
     { key: 'tools', label: '内置工具' },
     { key: 'mcp', label: 'MCP' },
     { key: 'skills', label: '技能' },
-    { key: 'basic', label: '组织编制' },
     { key: 'knowledge', label: '知识库' },
-    { key: 'capability', label: '能力与工作' },
     { key: 'strategy', label: '工作策略' },
     { key: 'schedule', label: '成本预算' },
   ]
@@ -1056,13 +1051,6 @@ export async function showEditRoleModal(role, {
           </nav>
           <div class="hire-edit-panels">
             <div class="hire-edit-panel hire-edit-panel--agent" data-section="agent">
-              ${renderAgentNativePanel(boundAgent)}
-            </div>
-            <div class="hire-edit-panel" data-section="tools" hidden></div>
-            <div class="hire-edit-panel" data-section="mcp" hidden></div>
-            <div class="hire-edit-panel" data-section="skills" hidden></div>
-
-            <div class="hire-edit-panel" data-section="basic" hidden>
               ${basicAgentBlock}
               <label class="hire-field">
                 <span>部门</span>
@@ -1075,7 +1063,13 @@ export async function showEditRoleModal(role, {
                   ${managerOptions}
                 </select>
               </label>
+              <div data-role="agent-native">
+                ${renderAgentNativePanel(boundAgent)}
+              </div>
             </div>
+            <div class="hire-edit-panel" data-section="tools" hidden></div>
+            <div class="hire-edit-panel" data-section="mcp" hidden></div>
+            <div class="hire-edit-panel" data-section="skills" hidden></div>
 
             <div class="hire-edit-panel" data-section="knowledge" hidden>
               <p class="hire-chip-hint">两步：先勾库，再选怎么用。其余检索细节用系统默认即可。</p>
@@ -1285,7 +1279,6 @@ export async function showEditRoleModal(role, {
     const kb_injection = readKbInjectionConfig(overlay, existingKbInjection)
     const agentTargetCode = nextAgent || role.agent_code
     const agentNameChanged = agentFields.agent_name !== String(agentBaseline.agent_name || '')
-    const agentDescChanged = agentFields.description !== String(agentBaseline.description || '')
     const agentPromptChanged =
       String(agentFields.system_prompt || '') !== String(agentBaseline.system_prompt || '')
     const agentSoulChanged = String(agentFields.soul || '') !== String(agentBaseline.soul || '')
@@ -1316,7 +1309,6 @@ export async function showEditRoleModal(role, {
     const agentCapabilityChanged = toolsChanged || mcpChanged || skillsChanged
     const agentNativeChanged =
       agentNameChanged ||
-      agentDescChanged ||
       agentPromptChanged ||
       agentSoulChanged ||
       agentCapabilityChanged ||
@@ -1385,7 +1377,6 @@ export async function showEditRoleModal(role, {
 
     const agentChanges = []
     if (agentNameChanged) agentChanges.push('名称已修改')
-    if (agentDescChanged) agentChanges.push('简介已修改')
     if (agentPromptChanged || needsDutyMerge) {
       agentChanges.push(needsDutyMerge && !agentPromptChanged ? '岗位职责已合并进系统提示词' : '系统提示词已修改')
     }
@@ -1486,7 +1477,6 @@ export async function showEditRoleModal(role, {
         /** @type {Record<string, unknown>} */
         const agentPatch = {
           agent_name: agentFields.agent_name || null,
-          description: agentFields.description,
           system_prompt: agentFields.system_prompt,
           soul: String(agentFields.soul ?? ''),
         }

@@ -271,11 +271,8 @@ function _isMoreNavRoute(routePath) {
 }
 
 function _getNavMoreExpanded() {
-  try {
-    return localStorage.getItem(LS_SHELL_NAV_MORE) === '1'
-  } catch {
-    return false
-  }
+  // TEMP: 中间折叠线先隐藏，子项（自动化等）常显；恢复折叠时改回读 localStorage
+  return true
 }
 
 function _setNavMoreExpanded(expanded) {

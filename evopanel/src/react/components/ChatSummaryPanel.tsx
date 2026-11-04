@@ -28,7 +28,11 @@ import {
 } from 'lucide-react'
 import AgentAvatar from './AgentAvatar.js'
 import { AgentCapabilityTabs, type AgentCapabilityPatch } from './AgentCapabilityTabs.js'
-import { AgentRolePrefs, type ThinkingPref, type VisionPref } from './AgentRolePrefs.js'
+import {
+  AgentRolePrefs,
+  type MemoryPref,
+  type ThinkingPref,
+} from './AgentRolePrefs.js'
 import { AssetQuickActions, partitionArtifacts } from './ChatWorkspaceInfoRail.js'
 import { PlatformRunTable } from './PlatformRunTable.js'
 import { SessionDebugPane } from './SessionDebugPane.js'
@@ -94,13 +98,14 @@ type Props = {
   capabilityBusy?: boolean
   onSwitchAgent?: () => void
   onEditAgent?: () => void
-  /** 普通会话：角色设定条（思考 / 识图 / 提示词） */
+  /** 普通会话：角色设定条（思考 / 记忆 / 提示词；识图跟模型能力） */
   modelSupportsThinking?: boolean | null
-  modelSupportsVision?: boolean | null
   sessionThinkingPref?: ThinkingPref
-  sessionVisionPref?: VisionPref
+  /** 本会话记忆总闸；默认 true */
+  sessionMemoryEnabled?: boolean
   onApplySessionThinking?: (pref: ThinkingPref) => Promise<void>
-  onApplySessionVision?: (pref: VisionPref) => Promise<void>
+  onApplySessionMemory?: (pref: MemoryPref) => Promise<void>
+  onMemoryEnabledChange?: (on: boolean) => void
   /** 资产沉淀：记录过程 / 沉淀经验 / 反思 */
   onAssetQuickAction?: (kind: 'episode' | 'craft' | 'journal') => void
   assetQuickBusy?: boolean
@@ -404,11 +409,11 @@ function ChatSummaryPanelInner({
   onSwitchAgent,
   onEditAgent,
   modelSupportsThinking = null,
-  modelSupportsVision = null,
   sessionThinkingPref = 'follow',
-  sessionVisionPref = 'follow',
+  sessionMemoryEnabled = true,
   onApplySessionThinking,
-  onApplySessionVision,
+  onApplySessionMemory,
+  onMemoryEnabledChange,
   onAssetQuickAction,
   assetQuickBusy = false,
   artifacts = [],
@@ -902,13 +907,11 @@ function ChatSummaryPanelInner({
                     thinkingEnabled={
                       sessionThinkingPref === 'on' ? true : sessionThinkingPref === 'off' ? false : null
                     }
-                    visionEnabled={
-                      sessionVisionPref === 'on' ? true : sessionVisionPref === 'off' ? false : null
-                    }
+                    memoryEnabled={sessionMemoryEnabled !== false}
                     modelSupportsThinking={modelSupportsThinking}
-                    modelSupportsVision={modelSupportsVision}
                     onApplySessionThinking={onApplySessionThinking}
-                    onApplySessionVision={onApplySessionVision}
+                    onApplySessionMemory={onApplySessionMemory}
+                    onMemoryEnabledChange={onMemoryEnabledChange}
                   />
                   <AgentCapabilityTabs
                     skillNames={skillNames}

@@ -12,6 +12,11 @@ function mapRoleDetail(role: any, fallbackCode: string) {
   const think = String(cfg.think_mode || '').trim()
   const thinkingRaw = cfg.thinking_enabled
   const visionRaw = cfg.vision_enabled
+  const memoryRaw = cfg.memory_enabled
+  const injectMemoryOff = cfg.inject_memory === false || cfg.inject_assets === false
+  const suspended = Boolean(
+    role.auto_patrol_suspended || cfg.auto_patrol_suspended,
+  )
   return {
     agentCode: String(role.agent_code || fallbackCode).trim(),
     roleName: String(role.role_name || role.agent_code || fallbackCode).trim(),
@@ -27,9 +32,23 @@ function mapRoleDetail(role: any, fallbackCode: string) {
     thinkingEnabled:
       thinkingRaw === true || thinkingRaw === false ? thinkingRaw : null,
     visionEnabled: visionRaw === true || visionRaw === false ? visionRaw : null,
+    // 记忆默认开；显式 false / 遗留 inject_*=false → 关
+    memoryEnabled:
+      memoryRaw === true || memoryRaw === false
+        ? memoryRaw
+        : injectMemoryOff
+          ? false
+          : true,
     knowledgeVaultIds: Array.isArray(cfg.knowledge_vault_ids)
       ? cfg.knowledge_vault_ids.map((x: unknown) => String(x || '').trim()).filter(Boolean)
       : [],
+    heartbeatSchedule: String(
+      role.heartbeat_schedule || cfg.heartbeat_schedule || role.heartbeat_rrule || '',
+    ).trim(),
+    scheduleSummary: String(role.schedule_summary || '').trim(),
+    nextHeartbeatAt: String(role.next_heartbeat_at || '').trim(),
+    lastHeartbeatAt: String(role.last_heartbeat_at || '').trim(),
+    autoPatrolSuspended: suspended,
   }
 }
 
@@ -76,7 +95,7 @@ export function runLoadEmployeeRoleDetailEffect(
     .then(async (detail: any) => {
       if (cancelled) return
       ctx.setEmployeeRoleDetail(detail || null)
-      // 岗位偏好灌进当前员工会话，发图 / 思考门控与状态面板一致
+      // 岗位偏好灌进当前员工会话，发图 / 思考 / 记忆门控与状态面板一致
       const sk = String(ctx.selectedSessionKey || '').trim()
       if (!sk || !detail) return
       try {
@@ -90,6 +109,13 @@ export function runLoadEmployeeRoleDetailEffect(
         }
         if (detail.visionEnabled === true || detail.visionEnabled === false) {
           patch.vision_enabled = detail.visionEnabled
+        }
+        if (detail.memoryEnabled === true || detail.memoryEnabled === false) {
+          patch.memory_enabled = detail.memoryEnabled
+          // 与 handle-send 的 React memoryEnabled 对齐，避免下次发送把岗位偏好盖回去
+          if (typeof ctx.setMemoryEnabled === 'function') {
+            ctx.setMemoryEnabled(detail.memoryEnabled)
+          }
         }
         if (!Object.keys(patch).length) return
         wsClient.updateSessionContext(sk, patch)

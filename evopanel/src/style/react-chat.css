@@ -844,8 +844,9 @@ html[data-theme='dark'] .react-chat-aside-brand-logo {
 }
 
 .shell-aside-nav-more-toggle {
+  /* TEMP: 员工 ↔ 自动化之间的折叠线先隐藏；子项由 JS 常显 */
+  display: none !important;
   position: relative;
-  display: flex;
   align-items: center;
   gap: 6px;
   width: 100%;
@@ -10453,6 +10454,220 @@ html.dark .react-chat-current-task-expand,
   font-size: 11px;
   color: var(--text-tertiary, #94a3b8);
   font-style: italic;
+}
+
+/* —— 任务分组（紧凑） —— */
+.react-chat-current-task-pane.is-compact {
+  gap: 8px;
+}
+
+.react-chat-current-task-pane.is-compact .react-chat-current-task-card {
+  gap: 6px;
+  padding: 10px;
+}
+
+.react-chat-current-task-pane.is-compact .react-chat-current-task-title {
+  font-size: 14px;
+  -webkit-line-clamp: 1;
+}
+
+.react-chat-task-lanes {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.react-chat-task-lanes .react-chat-session-task-list {
+  gap: 2px;
+}
+
+.react-chat-task-lanes .react-chat-session-task-list-head {
+  font-size: 10.5px;
+  padding: 0;
+  cursor: pointer;
+  list-style: none;
+}
+
+.react-chat-task-lanes .react-chat-session-task-list-head::-webkit-details-marker {
+  display: none;
+}
+
+.react-chat-task-lanes .react-chat-session-task-item {
+  padding: 4px 6px;
+  border-radius: 6px;
+}
+
+.react-chat-task-lanes .react-chat-session-task-item-name {
+  font-size: 12px;
+}
+
+/* —— 当前任务备注（单行） —— */
+.react-chat-current-task-note {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-top: 2px;
+}
+
+.react-chat-current-task-note-save {
+  flex-shrink: 0;
+  padding: 3px 8px;
+  border-radius: 6px;
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.react-chat-current-task-note-save:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.react-chat-current-task-note-input {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border-subtle, #e2e8f0);
+  background: var(--bg-primary, #fff);
+  color: var(--text-primary, #0f172a);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.3;
+}
+
+.react-chat-current-task-note-input:focus {
+  outline: none;
+  border-color: color-mix(in srgb, var(--accent) 45%, #cbd5e1);
+}
+
+/* —— 员工摘要：自动上班（单行） —— */
+.react-chat-employee-schedule {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: var(--bg-secondary, #f8fafc);
+  border: 1px solid var(--border-subtle, #e2e8f0);
+}
+
+.react-chat-employee-schedule.is-warn {
+  border-color: #fde68a;
+  background: #fffbeb;
+}
+
+.react-chat-employee-schedule-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.react-chat-employee-schedule-main {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  align-items: baseline;
+  flex-wrap: nowrap;
+  gap: 4px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.react-chat-employee-schedule-kicker {
+  flex-shrink: 0;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--text-tertiary, #94a3b8);
+}
+
+.react-chat-employee-schedule-freq {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--text-primary, #0f172a);
+}
+
+.react-chat-employee-schedule-next,
+.react-chat-employee-schedule-warn {
+  flex-shrink: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 11px;
+  color: var(--text-secondary, #64748b);
+}
+
+.react-chat-employee-schedule-warn {
+  color: #b45309;
+  font-weight: 600;
+}
+
+.react-chat-employee-schedule-adjust {
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border-subtle, #e2e8f0);
+  background: var(--bg-primary, #fff);
+  color: var(--text-primary, #334155);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.react-chat-employee-schedule-adjust:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--accent) 35%, #cbd5e1);
+  color: var(--accent);
+}
+
+.react-chat-employee-schedule-adjust:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.react-chat-employee-schedule-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.react-chat-employee-schedule-chip {
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border-subtle, #e2e8f0);
+  background: var(--bg-primary, #fff);
+  color: var(--text-secondary, #475569);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.react-chat-employee-schedule-chip:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--accent) 40%, #cbd5e1);
+  color: var(--accent);
+}
+
+.react-chat-employee-schedule-chip.is-on {
+  border-color: color-mix(in srgb, var(--accent) 50%, transparent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.react-chat-employee-schedule-chip:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 /* —— 通知条 —— */

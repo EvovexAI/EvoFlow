@@ -1,20 +1,20 @@
 /**
  * 状态面板「智能体 / 员工」Tab：角色设定条
- * - 思考 / 图片识别：员工写岗位 config；普通会话写本会话 context
- * - 系统提示词 / SOUL / 职责：同一框内 Tab 切换（职责仅员工，可编辑）
+ * - 思考 / 记忆：员工写岗位 config；普通会话写本会话 context
+ * - 识图不在此勾选：跟当前模型视觉能力走
+ * - 记忆开：注入 memory/assets 上下文，并挂载 assets 工具（与「更多→记忆」同一闸）
+ * - 系统提示词 / SOUL：同一框内 Tab 切换
+ * - 员工职责已合并进 system_prompt（## 岗位职责），不再单独 Tab
  */
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { toast } from '../../components/toast.js'
 import { toUserFacingError } from '../../lib/user-facing-error.js'
-import {
-  applyDutyToSystemPrompt,
-  coerceDutyLines,
-  splitDutyFromSystemPrompt,
-} from '../../lib/proactive-role-edit.js'
 
 /** 对外仍兼容旧三态；本面板 UI 只暴露开/关，展示为「生效态」 */
 export type ThinkingPref = 'follow' | 'on' | 'off'
+/** @deprecated 识图跟模型能力，面板不再暴露；保留类型以免外部 import 断裂 */
 export type VisionPref = 'follow' | 'on' | 'off'
+export type MemoryPref = 'follow' | 'on' | 'off'
 
 export type AgentRolePrefsProps = {
   agentCode?: string
@@ -25,18 +25,18 @@ export type AgentRolePrefsProps = {
   isEmployee?: boolean
   /** 岗位/会话思考偏好；null=跟随默认（展示按模型能力推断生效态） */
   thinkingEnabled?: boolean | null
-  /** 岗位/会话识图偏好；null=跟随模型 */
-  visionEnabled?: boolean | null
+  /** 岗位/会话记忆总闸；null=默认开（注入记忆+资产 + assets 工具） */
+  memoryEnabled?: boolean | null
   /** 当前模型是否支持思考（null 未知时，跟随默认按开展示） */
   modelSupportsThinking?: boolean | null
-  /** 当前模型是否支持视觉 */
-  modelSupportsVision?: boolean | null
-  /** 员工：岗位职责条目（可与 system_prompt 内「## 岗位职责」互补） */
+  /** @deprecated 职责已并入系统提示词，忽略 */
   responsibilities?: string[]
   /** 普通会话：改思考 → 同步 session context */
   onApplySessionThinking?: (pref: ThinkingPref) => Promise<void>
-  /** 普通会话：改图片识别 → 同步 session context */
-  onApplySessionVision?: (pref: VisionPref) => Promise<void>
+  /** 普通会话：改记忆 → 同步 session context（memory_enabled） */
+  onApplySessionMemory?: (pref: MemoryPref) => Promise<void>
+  /** 本地 memoryEnabled 状态同步（发消息会写回 context，员工/主对话都要） */
+  onMemoryEnabledChange?: (on: boolean) => void
   /** 岗位保存后回调（刷新 employeeRoleDetail） */
   onRolePrefsSaved?: () => void
 }
@@ -52,27 +52,29 @@ export function effectiveThinkingOn(
   return modelSupportsThinking !== false
 }
 
+/** @deprecated 识图跟模型能力，面板不再用 */
 export function effectiveVisionOn(
   pref: boolean | null | undefined,
   modelSupportsVision?: boolean | null,
 ): boolean {
   if (pref === false) return false
   if (pref === true) return true
-  // 跟随：模型能识图则显示开
   return modelSupportsVision === true
 }
 
+/** 记忆默认开；仅显式 false 为关 */
+export function effectiveMemoryOn(pref: boolean | null | undefined): boolean {
+  return pref !== false
+}
+
 type PromptDraft = {
-  /** 员工：不含「## 岗位职责」的正文；普通会话：完整 system_prompt */
   systemPrompt: string
   soul: string
-  /** 员工职责，一行一条 */
-  duty: string
   loaded: boolean
   dirty: boolean
 }
 
-type PromptTab = 'system' | 'soul' | 'duty'
+type PromptTab = 'system' | 'soul'
 
 function ToggleSwitch({
   label,
@@ -111,32 +113,25 @@ export function AgentRolePrefs({
   sessionKey = '',
   isEmployee = false,
   thinkingEnabled,
-  visionEnabled,
+  memoryEnabled,
   modelSupportsThinking = null,
-  modelSupportsVision = null,
-  responsibilities,
   onApplySessionThinking,
-  onApplySessionVision,
+  onApplySessionMemory,
+  onMemoryEnabledChange,
   onRolePrefsSaved,
 }: AgentRolePrefsProps) {
   const code = String(agentCode || roleCode || '').trim()
   const dutyCode = String(roleCode || agentCode || '').trim()
   const sk = String(sessionKey || '').trim()
-  const showDutyTab = isEmployee
-  const responsibilitiesRef = useRef(responsibilities)
-  responsibilitiesRef.current = responsibilities
   const [tab, setTab] = useState<PromptTab>('system')
   const [thinkingOn, setThinkingOn] = useState(() =>
     effectiveThinkingOn(thinkingEnabled, modelSupportsThinking),
   )
-  const [visionOn, setVisionOn] = useState(() =>
-    effectiveVisionOn(visionEnabled, modelSupportsVision),
-  )
+  const [memoryOn, setMemoryOn] = useState(() => effectiveMemoryOn(memoryEnabled))
   const [busy, setBusy] = useState(false)
   const [draft, setDraft] = useState<PromptDraft>({
     systemPrompt: '',
     soul: '',
-    duty: '',
     loaded: false,
     dirty: false,
   })
@@ -146,16 +141,12 @@ export function AgentRolePrefs({
   }, [thinkingEnabled, modelSupportsThinking, dutyCode])
 
   useEffect(() => {
-    setVisionOn(effectiveVisionOn(visionEnabled, modelSupportsVision))
-  }, [visionEnabled, modelSupportsVision, dutyCode])
+    setMemoryOn(effectiveMemoryOn(memoryEnabled))
+  }, [memoryEnabled, dutyCode])
 
   useEffect(() => {
     setTab('system')
   }, [code, isEmployee])
-
-  useEffect(() => {
-    if (!showDutyTab && tab === 'duty') setTab('system')
-  }, [showDutyTab, tab])
 
   const loadPrompt = useCallback(async () => {
     if (!code) return
@@ -164,37 +155,24 @@ export function AgentRolePrefs({
       const row = await api.getAgent(code)
       const rawSp = String(row?.system_prompt || '')
       const soul = String(row?.soul || '')
-      if (isEmployee) {
-        const split = splitDutyFromSystemPrompt(rawSp)
-        const legacy = coerceDutyLines(responsibilitiesRef.current)
-        const duties = split.duties.length ? split.duties : legacy
-        setDraft({
-          systemPrompt: split.body,
-          soul,
-          duty: duties.join('\n'),
-          loaded: true,
-          dirty: false,
-        })
-      } else {
-        setDraft({
-          systemPrompt: rawSp,
-          soul,
-          duty: '',
-          loaded: true,
-          dirty: false,
-        })
-      }
+      // 员工：整段 system_prompt（含已合并的 ## 岗位职责）一起编辑
+      setDraft({
+        systemPrompt: rawSp,
+        soul,
+        loaded: true,
+        dirty: false,
+      })
     } catch (e) {
       toast(toUserFacingError((e as Error)?.message || e), 'error')
     }
-  }, [code, isEmployee])
+  }, [code])
 
   useEffect(() => {
-    setDraft({ systemPrompt: '', soul: '', duty: '', loaded: false, dirty: false })
+    setDraft({ systemPrompt: '', soul: '', loaded: false, dirty: false })
     void loadPrompt()
   }, [code, isEmployee, loadPrompt])
 
-  // 面板常驻时 DB 可能已被后端回填清空；未改脏时回前台再拉一次，避免旧「编排职责」稿卡在内存里
+  // 面板常驻时 DB 可能已被后端回填清空；未改脏时回前台再拉一次
   useEffect(() => {
     const refreshIfClean = () => {
       if (document.visibilityState !== 'visible') return
@@ -213,7 +191,7 @@ export function AgentRolePrefs({
   }, [loadPrompt])
 
   const saveRoleBoolPref = useCallback(
-    async (field: 'thinking_enabled' | 'vision_enabled', on: boolean) => {
+    async (field: 'thinking_enabled' | 'memory_enabled', on: boolean) => {
       if (!dutyCode) return
       const { api } = await import('../../lib/tauri-api.js')
       const { wsClient } = await import('../../lib/ws-client.js')
@@ -227,7 +205,7 @@ export function AgentRolePrefs({
                   thinking_type: 'manual',
                   reasoning_effort: on ? 'medium' : 'minimum',
                 }
-              : { vision_enabled: on }
+              : { memory_enabled: on }
           wsClient.updateSessionContext(sk, patch)
           await api.chatUpdateContext(sk, patch).catch(() => {})
         } catch {
@@ -262,28 +240,30 @@ export function AgentRolePrefs({
     }
   }, [thinkingOn, isEmployee, saveRoleBoolPref, onApplySessionThinking])
 
-  const onVisionToggle = useCallback(async () => {
-    const next = !visionOn
-    const prev = visionOn
-    setVisionOn(next)
+  const onMemoryToggle = useCallback(async () => {
+    const next = !memoryOn
+    const prev = memoryOn
+    setMemoryOn(next)
     setBusy(true)
     try {
       if (isEmployee) {
-        await saveRoleBoolPref('vision_enabled', next)
-        toast(next ? '已开启图片识别（岗位）' : '已关闭图片识别（岗位）', 'success')
-      } else if (onApplySessionVision) {
-        await onApplySessionVision(next ? 'on' : 'off')
+        await saveRoleBoolPref('memory_enabled', next)
+        onMemoryEnabledChange?.(next)
+        toast(next ? '已开启记忆（岗位）' : '已关闭记忆（岗位）', 'success')
+      } else if (onApplySessionMemory) {
+        await onApplySessionMemory(next ? 'on' : 'off')
+        onMemoryEnabledChange?.(next)
       } else {
-        toast('当前会话无法保存图片识别偏好', 'warning')
-        setVisionOn(prev)
+        toast('当前会话无法保存记忆偏好', 'warning')
+        setMemoryOn(prev)
       }
     } catch (e) {
-      setVisionOn(prev)
+      setMemoryOn(prev)
       toast(toUserFacingError((e as Error)?.message || e), 'error')
     } finally {
       setBusy(false)
     }
-  }, [visionOn, isEmployee, saveRoleBoolPref, onApplySessionVision])
+  }, [memoryOn, isEmployee, saveRoleBoolPref, onApplySessionMemory, onMemoryEnabledChange])
 
   const savePrompt = useCallback(async () => {
     if (!code || !draft.dirty) return
@@ -291,14 +271,11 @@ export function AgentRolePrefs({
     try {
       const { api } = await import('../../lib/tauri-api.js')
       const soul = draft.soul
-      const dutyLines = coerceDutyLines(draft.duty)
-      const system_prompt = isEmployee
-        ? applyDutyToSystemPrompt(draft.systemPrompt, dutyLines) || null
-        : draft.systemPrompt.trim() || null
+      const system_prompt = draft.systemPrompt.trim() || null
       await api.updateAgent(code, { system_prompt, soul })
       if (isEmployee && dutyCode) {
         try {
-          // 职责已写入 agent system_prompt；清空岗位遗留字段并镜像 SOUL
+          // 职责已在 system_prompt 内；清空岗位遗留 responsibilities 并镜像 SOUL
           await api.proactiveUpdateRole(dutyCode, {
             soul_md: soul,
             responsibilities: [],
@@ -310,12 +287,10 @@ export function AgentRolePrefs({
       }
       setDraft((d) => ({
         ...d,
-        systemPrompt: isEmployee ? splitDutyFromSystemPrompt(system_prompt || '').body : d.systemPrompt,
-        duty: dutyLines.join('\n'),
         dirty: false,
       }))
       toast(
-        isEmployee ? '系统提示词 / SOUL / 职责已保存（绑定本岗位智能体）' : '系统提示词 / SOUL 已保存',
+        isEmployee ? '系统提示词 / SOUL 已保存（绑定本岗位智能体）' : '系统提示词 / SOUL 已保存',
         'success',
       )
     } catch (e) {
@@ -334,22 +309,14 @@ export function AgentRolePrefs({
     : thinkingEnabled == null
       ? '跟随会话默认（当前生效中）'
       : '仅本会话'
-  const visionModelHint =
-    visionEnabled == null && modelSupportsVision === true
-      ? '跟随当前模型（已支持视觉）'
-      : modelSupportsVision === true
-        ? '当前模型支持视觉'
-        : modelSupportsVision === false
-          ? '当前模型不支持视觉，开了也会走识图回退'
-          : undefined
+  const memoryHint = isEmployee
+    ? '注入记忆/资产上下文，并挂载资产工具（写入本岗位）'
+    : '注入记忆/资产上下文，并挂载资产工具（仅本会话）'
 
   const tabs: Array<{ id: PromptTab; label: string }> = [
     { id: 'system', label: '系统提示词' },
     { id: 'soul', label: 'SOUL' },
-    ...(showDutyTab ? [{ id: 'duty' as const, label: '职责' }] : []),
   ]
-
-  const panelTabs: PromptTab[] = showDutyTab ? ['system', 'soul', 'duty'] : ['system', 'soul']
 
   const panelMeta: Record<
     PromptTab,
@@ -358,7 +325,7 @@ export function AgentRolePrefs({
     system: {
       value: draft.systemPrompt,
       placeholder: isEmployee
-        ? '该角色的核心指令与行为规范'
+        ? '该角色的核心指令与行为规范（含岗位职责可写在文末 ## 岗位职责）'
         : '可选，默认留空。有额外硬性要求再写；勿与 SOUL 重复，派岗/分诊交给小V',
       aria: '系统提示词',
     },
@@ -368,12 +335,6 @@ export function AgentRolePrefs({
         ? '个性、边界与输出风格'
         : '个性、边界与输出风格（气质习惯即可，不要写编排/派岗）',
       aria: 'SOUL',
-    },
-    duty: {
-      value: draft.duty,
-      placeholder:
-        '每行一条岗位职责，例如：\n汇总各岗未结 Task\n催办卡住的交接\n把阻塞事项派给对口员工',
-      aria: '岗位职责',
     },
   }
 
@@ -388,11 +349,11 @@ export function AgentRolePrefs({
           hint={thinkingHint}
         />
         <ToggleSwitch
-          label="图片识别"
-          on={visionOn}
+          label="记忆"
+          on={memoryOn}
           disabled={busy}
-          onToggle={() => void onVisionToggle()}
-          hint={visionModelHint}
+          onToggle={() => void onMemoryToggle()}
+          hint={memoryHint}
         />
       </div>
 
@@ -435,39 +396,29 @@ export function AgentRolePrefs({
             </button>
           </div>
         </div>
-
         <div className="chat-summary-role-pref-box-body">
-          {!draft.loaded ? (
-            <div className="chat-summary-role-pref-hint">加载中…</div>
-          ) : (
-            panelTabs.map((id) => {
-              const meta = panelMeta[id]
-              const active = tab === id
-              return (
-                <textarea
-                  key={`${code}:${id}`}
-                  id={`chat-summary-role-pref-${code}-${id}`}
-                  className="chat-summary-role-pref-textarea"
-                  rows={3}
-                  hidden={!active}
-                  // 常驻挂载 + hidden：避免 WebView 复用同一 textarea 导致切 Tab 文案不换
-                  aria-hidden={!active}
-                  value={meta.value}
-                  disabled={busy}
-                  placeholder={meta.placeholder}
-                  aria-label={meta.aria}
-                  onChange={(e) => {
-                    const value = e.target.value
-                    setDraft((d) => {
-                      if (id === 'soul') return { ...d, soul: value, dirty: true }
-                      if (id === 'duty') return { ...d, duty: value, dirty: true }
-                      return { ...d, systemPrompt: value, dirty: true }
-                    })
-                  }}
-                />
-              )
-            })
-          )}
+          {tabs.map((t) => {
+            const meta = panelMeta[t.id]
+            return (
+              <textarea
+                key={t.id}
+                className="chat-summary-role-pref-textarea"
+                hidden={tab !== t.id}
+                value={meta.value}
+                placeholder={meta.placeholder}
+                aria-label={meta.aria}
+                disabled={busy || !draft.loaded}
+                onChange={(e) => {
+                  const v = e.target.value
+                  setDraft((d) =>
+                    t.id === 'system'
+                      ? { ...d, systemPrompt: v, dirty: true }
+                      : { ...d, soul: v, dirty: true },
+                  )
+                }}
+              />
+            )
+          })}
         </div>
       </div>
     </section>

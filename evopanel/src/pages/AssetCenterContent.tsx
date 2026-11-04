@@ -45,6 +45,10 @@ import {
   warmAssetFile,
   warmAssetFileBatch,
 } from "../lib/assets-file-prefetch.js";
+import { ensureMeReady, userAvatarUrl } from "../lib/account-session.js";
+import AgentAvatar from "../react/components/AgentAvatar.js";
+import type { AgentAvatarAgent } from "../react/lib/agent-avatar.js";
+import { useGatewayBaseUrl } from "../react/hooks/useGatewayBaseUrl.js";
 
 /* ── Types ───────────────────────────────────────────────────────── */
 
@@ -76,13 +80,8 @@ type SearchHit = {
   matchedQueries?: string[];
 };
 
-/** 用户画像字段标签（仅 user 实体「画像」Tab）。员工无画像 Tab。 */
-const PROFILE_LABELS: Record<string, string> = {
-  "basic-info.md": "基本信息",
-  "preferences.md": "偏好与爱好",
-  "persona.md": "画像与行为",
-  "README.md": "说明",
-};
+/** 用户画像单文件（仅 user 实体「画像」Tab）。员工无画像 Tab。 */
+const USER_PROFILE_FIELD = "USER.md";
 
 type UsageStatsRow = {
   path: string;
@@ -431,6 +430,26 @@ function initialEntity(): { entityType: string; entityId: string } {
   return { entityType: "user", entityId: "user" };
 }
 
+function sameEntity(
+  a: { entityType?: string; entityId?: string },
+  b: { entityType?: string; entityId?: string },
+): boolean {
+  return (
+    String(a?.entityType || "").trim().toLowerCase() ===
+      String(b?.entityType || "").trim().toLowerCase() &&
+    String(a?.entityId || "").trim().toLowerCase() ===
+      String(b?.entityId || "").trim().toLowerCase()
+  );
+}
+
+/** Hash 深链是否显式指定了实体（有则禁止 init 回落到「我」/第一个员工）。 */
+function hashSpecifiesEntity(): boolean {
+  const q = parseHashQuery();
+  if (q.entityType && q.entityId) return true;
+  if (q.entity && String(q.entity).includes(":")) return true;
+  return false;
+}
+
 function initialMemoryKind(): MemoryKind {
   const q = parseHashQuery();
   const k = String(q.memoryKind || q.kind || "").trim().toLowerCase();
@@ -468,14 +487,17 @@ export default function AssetCenterContent() {
   const [fileSearch, setFileSearch] = useState("");
 
   const [entities, setEntities] = useState<Entity[]>([]);
+  const [agentRows, setAgentRows] = useState<AgentAvatarAgent[]>([]);
+  const [userMe, setUserMe] = useState<Record<string, unknown> | null>(null);
   const [entityType, setEntityType] = useState(initEnt.entityType);
   const [entityId, setEntityId] = useState(initEnt.entityId);
   const [vaultRoot, setVaultRoot] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const { baseUrl: gatewayBase } = useGatewayBaseUrl();
 
   const [profileFields, setProfileFields] = useState<Record<string, string | null>>({});
-  const [profileField, setProfileField] = useState("basic-info.md");
+  const [profileField, setProfileField] = useState(USER_PROFILE_FIELD);
   const [profileDirty, setProfileDirty] = useState(false);
   const [affectContent, setAffectContent] = useState("");
   const [affectDirty, setAffectDirty] = useState(false);
@@ -510,6 +532,20 @@ export default function AssetCenterContent() {
 
   const [tabLoading, setTabLoading] = useState(false);
   const initRanRef = useRef(false);
+
+  // 同页内改 hash（例如从员工摘要再点另一个员工）→ 同步实体 / tab / path
+  useEffect(() => {
+    const syncFromHash = () => {
+      const next = initialEntity();
+      setEntityType(next.entityType);
+      setEntityId(next.entityId);
+      setActiveTab(initialTab());
+      setMemoryKind(initialMemoryKind());
+      pendingOpenPath.current = initialOpenPath();
+    };
+    window.addEventListener("hashchange", syncFromHash);
+    return () => window.removeEventListener("hashchange", syncFromHash);
+  }, []);
 
   // 弹层:快速记事实 / 导入资产包
   const [factOpen, setFactOpen] = useState(false);
@@ -553,14 +589,17 @@ export default function AssetCenterContent() {
   const loadProfile = useCallback(async () => {
     const data = await api.assetsGetProfile(currentEntity);
     const fields = (data?.fields || {}) as Record<string, string | null>;
-    // 画像 Tab 仅用户：过滤掉员工侧 SOUL/affect 等字段名
-    const userKeys = new Set(Object.keys(PROFILE_LABELS));
-    const useFields = Object.fromEntries(
-      Object.entries(fields).filter(([k]) => userKeys.has(k)),
-    );
-    setProfileFields(useFields);
-    const keys = Object.keys(useFields);
-    setProfileField((prev) => (keys.includes(prev) ? prev : keys[0] || "basic-info.md"));
+    // 画像 Tab：单一 USER.md（兼容旧三件套字段名则取第一个有内容的）
+    const legacy = ["basic-info.md", "preferences.md", "persona.md"] as const;
+    let body = fields[USER_PROFILE_FIELD];
+    if (body == null || String(body).trim() === "") {
+      const parts = legacy
+        .map((k) => String(fields[k] || "").trim())
+        .filter(Boolean);
+      if (parts.length) body = parts.join("\n\n");
+    }
+    setProfileFields({ [USER_PROFILE_FIELD]: body ?? "" });
+    setProfileField(USER_PROFILE_FIELD);
     setProfileDirty(false);
   }, [currentEntity]);
 
@@ -746,15 +785,35 @@ export default function AssetCenterContent() {
             : "";
         setVaultRoot(String(data?.root || nestedRoot || ""));
 
-        const ok0 = list0.some((e) => e.entityType === entityType && e.entityId === entityId);
-        const currentGroup = list0.filter((e) => {
-          if (isUserEntity) return true;
-          return e.entityType === entityType;
-        });
-        if ((!ok0 || String(entityType).toLowerCase() === "agent") && currentGroup[0]) {
-          setEntityType(currentGroup[0].entityType);
-          setEntityId(currentGroup[0].entityId);
-        } else if (!ok0 && list0[0]) {
+        const wanted = { entityType, entityId };
+        const hit = list0.find((e) => sameEntity(e, wanted));
+        if (hit) {
+          // 对齐列表里的大小写 / 类型写法
+          if (hit.entityType !== entityType || hit.entityId !== entityId) {
+            setEntityType(hit.entityType);
+            setEntityId(hit.entityId);
+          }
+        } else if (String(entityType).toLowerCase() === "agent") {
+          // 旧 agent 类型：落到同名员工或同组首项
+          const asEmployee = list0.find(
+            (e) =>
+              String(e.entityType || "").toLowerCase() === "employee" &&
+              String(e.entityId || "").toLowerCase() === String(entityId || "").toLowerCase(),
+          );
+          if (asEmployee) {
+            setEntityType(asEmployee.entityType);
+            setEntityId(asEmployee.entityId);
+          } else {
+            const currentGroup = list0.filter((e) =>
+              String(e.entityType || "").toLowerCase() === "employee",
+            );
+            if (currentGroup[0]) {
+              setEntityType(currentGroup[0].entityType);
+              setEntityId(currentGroup[0].entityId);
+            }
+          }
+        } else if (!hashSpecifiesEntity() && list0[0]) {
+          // 无深链时才回落默认实体；深链指定的员工即使暂未出现在列表也保留，避免跳到别人
           setEntityType(list0[0].entityType);
           setEntityId(list0[0].entityId);
         }
@@ -762,13 +821,16 @@ export default function AssetCenterContent() {
         // init 完成后，骨架屏消失
         setLoading(false);
 
-        // 后台补中文名字，不阻塞渲染
+        // 后台补中文名字与头像元数据，不阻塞渲染
         void Promise.all([
           api.listAgents().catch(() => []),
           api.proactiveListRoles().catch(() => null),
-        ]).then(([agentRows, roleRes]) => {
+          ensureMeReady().catch(() => null),
+        ]).then(([agentList, roleRes, me]) => {
           if (cancelled) return;
-          const agents = Array.isArray(agentRows) ? agentRows : [];
+          const agents = Array.isArray(agentList) ? (agentList as AgentAvatarAgent[]) : [];
+          setAgentRows(agents);
+          if (me && typeof me === "object") setUserMe(me as Record<string, unknown>);
           const roleList = (roleRes as { roles?: unknown })?.roles;
           const roles = Array.isArray(roleList)
             ? (roleList as Array<{ agent_code?: string; role_name?: string; agent_name?: string }>)
@@ -806,17 +868,20 @@ export default function AssetCenterContent() {
         setActiveTab(allowed[0] || "overview");
       }
     }
-    const currentEntityRec = entities.find((e) => e.entityType === entityType && e.entityId === entityId);
-    if (!currentEntityRec && entities.length > 0) {
+    const currentEntityRec = entities.find((e) => sameEntity(e, { entityType, entityId }));
+    if (!currentEntityRec && entities.length > 0 && !hashSpecifiesEntity()) {
+      // 仅在无深链时自动切到同组首项；深链保留目标，避免点 A 员工却落到 B
       const targetGroup = entities.filter((e) =>
-        isUserEntity ? true : e.entityType === entityType
+        isUserEntity
+          ? true
+          : String(e.entityType || "").toLowerCase() === String(entityType || "").toLowerCase(),
       );
       if (targetGroup[0]) {
         setEntityType(targetGroup[0].entityType);
         setEntityId(targetGroup[0].entityId);
       }
     }
-  }, [entityType, activeTab, entities, isUserEntity]);
+  }, [entityType, entityId, activeTab, entities, isUserEntity]);
 
   // 切换实体 / tab 时重新加载对应数据
   useEffect(() => {
@@ -942,22 +1007,6 @@ export default function AssetCenterContent() {
     }, 350);
     return () => clearTimeout(timer);
   }, [globalSearch, currentEntity]);
-
-  const profileFiles = useMemo<FileItem[]>(() => {
-    const kw = fileSearch.trim().toLowerCase();
-    return Object.keys(profileFields)
-      .filter((k) => {
-        const label = PROFILE_LABELS[k] || k;
-        if (!kw) return true;
-        return label.toLowerCase().includes(kw) || k.toLowerCase().includes(kw);
-      })
-      .map((k) => ({
-        id: k,
-        name: PROFILE_LABELS[k] || k,
-        path: k,
-        type: "file" as const,
-      }));
-  }, [profileFields, fileSearch]);
 
   const treeFiles = useMemo(() => {
     const items = treeToFileItems(treeEntries);
@@ -1124,8 +1173,7 @@ export default function AssetCenterContent() {
     );
   }
 
-  const profileContent = String(profileFields[profileField] ?? "");
-  const profileReadonly = profileField === "soul-summary.md";
+  const profileContent = String(profileFields[USER_PROFILE_FIELD] ?? profileFields[profileField] ?? "");
   const lineCount = Math.max(
     (
       activeTab === "profile"
@@ -1174,6 +1222,33 @@ export default function AssetCenterContent() {
               <OverviewPanel
                 entityType={entityType}
                 entityId={entityId}
+                entityName={entityLabel(
+                  entities.find((e) => e.entityType === entityType && e.entityId === entityId) || {
+                    entityType,
+                    entityId,
+                  },
+                )}
+                avatarAgent={
+                  String(entityType || "").toLowerCase() === "user"
+                    ? null
+                    : agentRows.find(
+                        (a) =>
+                          String(a.agent_code || "").toLowerCase() ===
+                          String(entityId || "").toLowerCase(),
+                      ) || {
+                        agent_code: entityId,
+                        agent_name: entityLabel(
+                          entities.find(
+                            (e) => e.entityType === entityType && e.entityId === entityId,
+                          ) || { entityType, entityId },
+                        ),
+                      }
+                }
+                userAvatarSrc={
+                  String(entityType || "").toLowerCase() === "user"
+                    ? userAvatarUrl(userMe, gatewayBase)
+                    : ""
+                }
                 stats={usageStats}
                 busy={statsBusy}
                 canJournal={canJournal}
@@ -1311,49 +1386,35 @@ export default function AssetCenterContent() {
                 }}
               />
             ) : activeTab === "profile" ? (
-              <SplitShell
-                left={
-                  <FileSidebar
-                    title={workspaceTitle("profile")}
-                    pathHint="profile/"
-                    files={profileFiles}
-                    fileSearch={fileSearch}
-                    setFileSearch={setFileSearch}
-                    selectedId={profileField}
-                    onSelectFile={(id) => setProfileField(id)}
-                    onSelectFolder={() => {}}
-                    onRefresh={() => void loadProfile()}
-                    footer={<VaultInfo />}
-                  />
-                }
-                right={
-                  <EditorPanel
-                    pathLabel={`${PROFILE_LABELS[profileField] || profileField} · profile/${profileField}`}
-                    content={profileContent}
-                    readonly={profileReadonly}
-                    saved={!profileDirty}
-                    lineCount={lineCount}
-                    onChange={(v) => {
-                      setProfileFields((prev) => ({ ...prev, [profileField]: v }));
-                      setProfileDirty(true);
-                    }}
-                    onSave={async () => {
-                      if (profileReadonly) return;
-                      try {
-                        await api.assetsPutProfile({
-                          ...currentEntity,
-                          field: profileField,
-                          content: profileFields[profileField] || "",
-                        });
-                        toast.success("已保存");
-                        setProfileDirty(false);
-                      } catch (e: unknown) {
-                        toast.error(String((e as { message?: string })?.message || e));
-                      }
-                    }}
-                  />
-                }
-              />
+              <div className="ac-profile-pane flex min-h-0 flex-1 flex-col">
+                <div className="ac-affect-banner px-4 py-2 text-[12px] leading-snug opacity-70">
+                  用户画像合并为一份文档（profile/USER.md），写入后下一轮对话自动注入。
+                </div>
+                <EditorPane
+                  pathLabel="用户画像 · profile/USER.md"
+                  content={profileContent}
+                  readonly={false}
+                  saved={!profileDirty}
+                  lineCount={lineCount}
+                  onChange={(v) => {
+                    setProfileFields({ [USER_PROFILE_FIELD]: v });
+                    setProfileDirty(true);
+                  }}
+                  onSave={async () => {
+                    try {
+                      await api.assetsPutProfile({
+                        ...currentEntity,
+                        field: USER_PROFILE_FIELD,
+                        content: profileFields[USER_PROFILE_FIELD] || "",
+                      });
+                      toast.success("已保存");
+                      setProfileDirty(false);
+                    } catch (e: unknown) {
+                      toast.error(String((e as { message?: string })?.message || e));
+                    }
+                  }}
+                />
+              </div>
             ) : activeTab === "affect" ? (
               <div className="ac-affect-pane flex min-h-0 flex-1 flex-col">
                 <div className="ac-affect-banner px-4 py-2 text-[12px] leading-snug opacity-70">
@@ -1534,7 +1595,7 @@ function AssetHeader({
         <div className="ac-header-actions">
           {hasEntity || userItem ? (
             <label className="ac-entity-picker" title="选择资产归属对象">
-              <UserRound size={13} strokeWidth={1.7} className="shrink-0 text-[var(--ac-primary)]" />
+              <UserRound size={14} strokeWidth={1.7} aria-hidden />
               <select
                 className="ac-entity-select"
                 value={`${entityType}:${entityId}`}
@@ -1655,6 +1716,9 @@ function AssetHeader({
 function OverviewPanel({
   entityType,
   entityId,
+  entityName,
+  avatarAgent,
+  userAvatarSrc,
   stats,
   busy,
   canJournal,
@@ -1667,6 +1731,9 @@ function OverviewPanel({
 }: {
   entityType: string;
   entityId: string;
+  entityName: string;
+  avatarAgent: AgentAvatarAgent | null;
+  userAvatarSrc: string;
   stats: UsageStatsPayload | null;
   busy: boolean;
   canJournal: boolean;
@@ -1683,6 +1750,19 @@ function OverviewPanel({
   const staleRows = Array.isArray(stats?.stale) ? stats!.stale! : [];
   const inbox = Number(totals.inboxPending || 0);
   const stale = Number(totals.stale || 0);
+  const isMe = String(entityType || "").toLowerCase() === "user";
+  const owner =
+    String(entityName || "").trim() ||
+    (isMe ? "我" : String(entityId || "").trim() || "当前对象");
+  const heroKicker = owner;
+  const heroTitle = isMe ? "我的资产库" : `${owner}的资产库`;
+  const heroDesc = isMe
+    ? "画像、记忆、经验与反思都保存在本机资产库，Agent 对话时自动取用。这里负责翻看、修改、导入与备份。"
+    : `正在查看「${owner}」的情感、记忆、经验与反思。与该员工对话时会自动取用这份资产；可在此翻看与修改。`;
+  const [userImgFailed, setUserImgFailed] = useState(false);
+  useEffect(() => {
+    setUserImgFailed(false);
+  }, [userAvatarSrc]);
 
   const tiles: {
     key: string;
@@ -1722,28 +1802,52 @@ function OverviewPanel({
       {/* Hero */}
       <div className="ac-hero">
         <div className="ac-hero-glow" aria-hidden />
-        <div className="ac-hero-body">
-          <span className="ac-hero-kicker">资产中心</span>
-          <h2 className="ac-hero-title">让 AI 越用越懂你</h2>
-          <p className="ac-hero-desc">
-            画像、记忆、经验与反思都保存在本机资产库，Agent 对话时自动取用。
-            这里负责翻看、修改、导入与备份。
-          </p>
-          <div className="ac-hero-actions">
-            <button type="button" className="ac-cta" onClick={onQuickFact}>
-              <Plus size={15} strokeWidth={2} />
-              记一条
-            </button>
-            <button type="button" className="ac-hero-btn" onClick={onImport}>
-              <Download size={15} strokeWidth={1.8} />
-              导入资产包
-            </button>
-            {canJournal ? (
-              <button type="button" className="ac-hero-btn" onClick={onNewJournal}>
-                <PenLine size={15} strokeWidth={1.8} />
-                写今日反思
+        <div className="ac-hero-main">
+          <div className="ac-hero-avatar-wrap" aria-hidden>
+            {isMe ? (
+              userAvatarSrc && !userImgFailed ? (
+                <img
+                  className="ac-hero-avatar-img"
+                  src={userAvatarSrc}
+                  alt=""
+                  draggable={false}
+                  onError={() => setUserImgFailed(true)}
+                />
+              ) : (
+                <span className="ac-hero-avatar-fallback">
+                  <UserRound size={26} strokeWidth={1.6} />
+                </span>
+              )
+            ) : (
+              <AgentAvatar
+                agent={avatarAgent}
+                agentCode={entityId}
+                size={56}
+                title={owner}
+                className="ac-hero-agent-avatar"
+              />
+            )}
+          </div>
+          <div className="ac-hero-body">
+            <span className="ac-hero-kicker">{heroKicker}</span>
+            <h2 className="ac-hero-title">{heroTitle}</h2>
+            <p className="ac-hero-desc">{heroDesc}</p>
+            <div className="ac-hero-actions">
+              <button type="button" className="ac-cta" onClick={onQuickFact}>
+                <Plus size={15} strokeWidth={2} />
+                记一条
               </button>
-            ) : null}
+              <button type="button" className="ac-hero-btn" onClick={onImport}>
+                <Download size={15} strokeWidth={1.8} />
+                导入资产包
+              </button>
+              {canJournal ? (
+                <button type="button" className="ac-hero-btn" onClick={onNewJournal}>
+                  <PenLine size={15} strokeWidth={1.8} />
+                  写今日反思
+                </button>
+              ) : null}
+            </div>
           </div>
         </div>
         <div className="ac-hero-art" aria-hidden>

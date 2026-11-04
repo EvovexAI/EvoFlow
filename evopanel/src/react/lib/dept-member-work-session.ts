@@ -142,6 +142,10 @@ export async function runDeptMemberWorkTurn(
 
   const stewardMode = !!opts.stewardMode
   const roster = Array.isArray(opts.roster) ? opts.roster : []
+  const rosterNames = roster
+    .map((m) => String(m.role_name || m.agent_code || '').trim())
+    .filter(Boolean)
+    .slice(0, 40)
   const sessionCtx = {
     source: 'proactive',
     proactive_agent_code: code,
@@ -157,6 +161,8 @@ export async function runDeptMemberWorkTurn(
     dept_group_timeline_session: deptChatSessionKey(deptId),
     // 每轮显式写，避免 sticky 会话残留上一轮管家旗标
     dept_group_steward: stewardMode,
+    // 花名册进系统提示（dept_group_im）；勿再塞进用户消息
+    dept_group_roster: rosterNames,
   }
 
   try {
@@ -176,42 +182,9 @@ export async function runDeptMemberWorkTurn(
     /* optional */
   }
 
+  // 群身份 / 硬规则 / 花名册已由 sessionCtx → 系统提示 <dept_group_im> 注入。
+  // 用户消息只带本轮变化：群近期时间线 + 当前话（避免每轮全量复读规则）。
   const parts: string[] = []
-  if (stewardMode) {
-    const rosterLine = roster.length
-      ? roster
-          .map((m) => String(m.role_name || m.agent_code || '').trim())
-          .filter(Boolean)
-          .slice(0, 40)
-          .join('、')
-      : '（花名册暂空，仍可先回用户再想办法）'
-    parts.push(
-      [
-        `【部门群聊 · ${deptName} · 小V 群管家】`,
-        `你是小V，这个「${deptName}」常驻群的默认管家。用户没 @ 任何人时，话默认交给你。`,
-        `你清楚：当前是群聊、对象是「${deptName}」、群里有谁、事情推进到哪（看群近期）。像聪明的微信群管家：先接住、再判断、该自己答就答、该派人就 @ 派出去。`,
-        `本群可点名：${rosterLine}`,
-        `硬规则：`,
-        `1. 口语回群；不要问「要不要转到这儿」。`,
-        `2. 能直接答的（进度、协调、澄清、拍板建议）自己说清楚；需要专人干的，在同一条回复里写「@角色名 + 具体交代」叫醒对方（可一次 @ 多人，每人一段）。`,
-        `3. 不要把用户踢去「请你自己 @某某」——你就是来分流的。`,
-        `4. 可调工具查证/派工；工具派了人，正文仍要 @，群里才看得见。`,
-        `5. 【纯文本】像微信：禁止 Markdown（# * ** 表格 代码块）。`,
-      ].join('\n'),
-    )
-  } else {
-    parts.push(
-      [
-        `【部门群聊 · ${deptName} · 强制】你正在常驻部门群里被点名。`,
-        `硬规则（违反即协作中断）：`,
-        `1. 你的回复会出现在群时间线；请口语直接回群，不要问「要不要转到这儿」。`,
-        `2. 【关键】同事不会自动知道你要他干什么。要谁继续干，必须在回复正文里写「@角色名 + 具体交代」。系统只认正文 @ 才会叫醒对方；只建任务/只调转交工具、正文不 @ → 对方不会在本群出现。`,
-        `3. 可以正常调工具做实质工作；若工具里也派了下级，仍必须在同一条回复里 @ 对方，让群里看得见接力。`,
-        `4. 禁止只报任务号/派单号却不 @；禁止把群聊当成私聊收件箱。`,
-        `5. 【纯文本】群聊像微信：只输出普通文字。禁止 Markdown（不要 # 标题、* /** 加粗斜体、\` 代码、代码块、| 表格、清单符号）。列举用中文逗号或换行。`,
-      ].join('\n'),
-    )
-  }
   if (opts.fromAgentName) {
     parts.push(`（「${opts.fromAgentName}」在群里 @ 了你，请直接回群）`)
   }

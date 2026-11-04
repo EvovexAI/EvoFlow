@@ -56,6 +56,11 @@ import { getCurrentRightStageSessionKey } from "../../lib/right-stage/right-stag
 import { isRightStageTabVisibleForSession } from "../../lib/right-stage/right-stage-session-visibility.js";
 import { rightStageStore } from "../../lib/right-stage/right-stage-store.js";
 import { logRightStage } from "../../lib/right-stage/panel-set-debug-log.js";
+import {
+  hasMcpWorkbench,
+  mcpServerNameFromToolName,
+  openMcpWorkbenchInRightStage,
+} from "../../lib/mcp-workbench-link.js";
 import { buildNodeReplDisplayModel } from "@/lib/nodeReplToolDisplay.js";
 import { applyXiaomiVoiceReadAutoOpen } from "@/v4/xiaomiVoiceReadAutoOpen.js";
 import { toolCallRowToLegacyNode } from "@/v4/toolCallRowAdapter.js";
@@ -625,6 +630,51 @@ function applyV4PlatformProgressAutoOpen(rows: readonly AssistantWorkRow[]): voi
       const oldest = v4PlatformProgressAutoOpenedIds.values().next().value;
       if (oldest !== undefined) v4PlatformProgressAutoOpenedIds.delete(oldest);
     }
+  }
+}
+
+/**
+ * 【V4 权威】有页面绑定的 MCP 工具被调用时 → 右侧打开对应工作台。
+ * 进员工会话不再抢开；每个 toolCallId 只自动开一次；仅 live 尾轮，避免冷加载历史连开。
+ */
+const v4McpWorkbenchAutoOpenedIds = new Set<string>();
+
+function applyV4McpWorkbenchAutoOpen(rows: readonly AssistantWorkRow[]): void {
+  const sessionKey = getCurrentRightStageSessionKey() || undefined;
+  for (const row of rows) {
+    if (row.kind !== "toolCall") continue;
+    const toolCallId = String(row.toolCallId || row.rowId || "").trim();
+    if (!toolCallId || v4McpWorkbenchAutoOpenedIds.has(toolCallId)) continue;
+
+    const server = mcpServerNameFromToolName(row.toolName);
+    if (!server || !hasMcpWorkbench(server)) continue;
+
+    // 先记 seen，避免 effect 重入并发开多次；打开失败也不再抢
+    v4McpWorkbenchAutoOpenedIds.add(toolCallId);
+    if (v4McpWorkbenchAutoOpenedIds.size > 256) {
+      const oldest = v4McpWorkbenchAutoOpenedIds.values().next().value;
+      if (oldest !== undefined) v4McpWorkbenchAutoOpenedIds.delete(oldest);
+    }
+
+    void openMcpWorkbenchInRightStage(server, { sessionKey })
+      .then((ok) => {
+        logRightStage("V4 autoOpen:mcp workbench", {
+          toolCallId,
+          opened: ok,
+          mcpServer: server,
+          toolName: row.toolName,
+          sessionKey: sessionKey || "(空→stamp current)",
+        });
+      })
+      .catch((err: unknown) => {
+        logRightStage("V4 autoOpen:mcp workbench", {
+          toolCallId,
+          opened: false,
+          mcpServer: server,
+          toolName: row.toolName,
+          error: err instanceof Error ? err.message : String(err || ""),
+        });
+      });
   }
 }
 
@@ -1497,6 +1547,11 @@ function ConversationTurnGroupImpl({
   useEffect(() => {
     applyV4PlatformProgressAutoOpen(unit.assistantWorkRows);
   }, [unit.assistantWorkRows]);
+  // 【V4 权威】有页面的 MCP 工具调用时再开右侧工作台；仅 live 尾轮，进会话不抢开。
+  useEffect(() => {
+    if (!unit.isLastTurn || !unit.isRunning) return;
+    applyV4McpWorkbenchAutoOpen(unit.assistantWorkRows);
+  }, [unit.isLastTurn, unit.isRunning, unit.assistantWorkRows]);
   // 【V4 权威】轮尾截图同步开右栏大图；仅当前尾轮，避免冷加载历史连开多标签。
   useEffect(() => {
     if (!unit.isLastTurn) return;

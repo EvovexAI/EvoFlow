@@ -1,6 +1,7 @@
 /**
  * MCP 服务 ↔ Agent应用 / 本地工作台 URL。
- * 跟员工聊天时：按员工绑定的 mcp_servers 在右侧自动打开对应网站，便于边聊边看 MCP 健康与业务面板。
+ * 有页面绑定的 MCP：在工具真正被调用时再开右侧工作台（V4 ConversationTurnGroup），
+ * 不要在进入员工会话时抢开。员工详情页仍可手动「打开工作台」。
  */
 import { showRightStageBrowserUrl } from './right-stage/open-right-stage-browser.js'
 import { ensureUiExtensionReady, getUiExtension } from './ui-extensions.js'
@@ -28,6 +29,31 @@ export const MCP_WORKBENCH_FALLBACK_URL = Object.freeze({
 
 function normalizeMcpName(name) {
   return String(name || '').trim()
+}
+
+/**
+ * 从 `mcp__<server>__<tool...>` 拆出 server 名（可含连字符）。
+ * @param {unknown} toolName
+ * @returns {string}
+ */
+export function mcpServerNameFromToolName(toolName) {
+  const raw = String(toolName || '').trim()
+  if (!raw.startsWith('mcp__')) return ''
+  const rest = raw.slice('mcp__'.length)
+  const idx = rest.indexOf('__')
+  const server = idx < 0 ? rest : rest.slice(0, idx)
+  return normalizeMcpName(server)
+}
+
+/**
+ * 该 MCP 是否在工作台映射表里（扩展或兜底 URL）。
+ * @param {unknown} mcpName
+ * @returns {boolean}
+ */
+export function hasMcpWorkbench(mcpName) {
+  const name = normalizeMcpName(mcpName)
+  if (!name) return false
+  return Boolean(MCP_WORKBENCH_EXTENSION_BY_SERVER[name] || MCP_WORKBENCH_FALLBACK_URL[name])
 }
 
 /**

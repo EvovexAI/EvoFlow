@@ -9,7 +9,6 @@ import { api, getGatewayBaseUrl } from '../lib/tauri-api.js'
 import {
   annotateMcpHealth,
   listBoundMcpServers,
-  openEmployeeMcpWorkbenchInRightStage,
   openMcpWorkbenchInRightStage,
 } from '../lib/mcp-workbench-link.js'
 import { toast } from '../components/toast.js'
@@ -4358,7 +4357,6 @@ function bindEmployeePage(page, role, initiatives) {
     if (!code) return
     const stamp = new Date().toISOString().replace(/[:/\\]/g, '-')
     const sk = `proactive:${code}:chat:${stamp}`
-    const mcpServers = Array.isArray(page._mcpServers) ? page._mcpServers : []
     try {
       sessionStorage.setItem('evopanel_pending_shell_session', sk)
       sessionStorage.removeItem('evopanel_pending_shell_processed')
@@ -4372,10 +4370,8 @@ function bindEmployeePage(page, role, initiatives) {
     } catch {
       /* ignore */
     }
-    // 先开右侧工作台，再进聊天，边聊边看 MCP 对应网站
-    if (mcpServers.length) {
-      void openEmployeeMcpWorkbenchInRightStage({ mcpServers, sessionKey: sk }).catch(() => {})
-    }
+    // MCP 工作台改在工具真正调用时由 V4 再开；进聊不抢右栏。
+    // 员工详情页仍可点「打开工作台」手动开。
     window.location.hash = '#/chat'
   })
   page.querySelectorAll('[data-act="open-mcp-workbench"]').forEach((btn) => {
