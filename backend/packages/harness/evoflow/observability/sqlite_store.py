@@ -16,7 +16,21 @@ logger = logging.getLogger(__name__)
 
 # Single migration script — bump ``PRAGMA user_version`` when changing schema.
 _SCHEMA_VERSION = 10
-_STORED_MODEL_JSON_LIMIT = 512 * 1024
+# Default 0 = store full request/response JSON (ops/debug). Positive byte cap via
+# ``EVOFLOW_OBS_STORED_MODEL_JSON_LIMIT`` only when disk pressure requires it.
+_STORED_MODEL_JSON_LIMIT = 0
+
+
+def _stored_model_json_limit() -> int:
+    import os
+
+    raw = (os.environ.get("EVOFLOW_OBS_STORED_MODEL_JSON_LIMIT") or "").strip().lower()
+    if raw in ("", "0", "unlimited", "none", "off"):
+        return 0
+    try:
+        return max(8_192, int(raw))
+    except ValueError:
+        return 0
 
 
 def _is_system_role_message(msg: Any) -> bool:
@@ -47,18 +61,23 @@ def _tail_messages_preserve_system(messages: list[Any], keep: int) -> list[Any]:
     return system_msgs + other_msgs[-keep:]
 
 
-def _truncate_stored_json(value: str | None, *, limit: int = _STORED_MODEL_JSON_LIMIT) -> str | None:
-    """Cap stored JSON size without breaking JSON when possible.
+def _truncate_stored_json(value: str | None, *, limit: int | None = None) -> str | None:
+    """Optionally cap stored JSON size without breaking JSON when possible.
 
-    Prefer returning a valid JSON object that still exposes ``message_count`` /
-    ``messages_truncated``. Blind mid-string cuts make list parsers fail and the
-    Ops UI shows 「—」 for message count. Shrunk ``messages`` always keep
-    system/developer messages (system prompt tab depends on them).
+    Default is **no cap** (full ops/debug transcript). When an explicit positive
+    ``limit`` / env budget is set: prefer a valid JSON object that still exposes
+    ``message_count`` / ``messages_truncated``. Blind mid-string cuts make list
+    parsers fail and the Ops UI shows 「—」 for message count. Shrunk
+    ``messages`` always keep system/developer messages (system prompt tab).
     """
     if value is None:
         return None
-    cap = max(1024, int(limit))
+    if limit is None:
+        limit = _stored_model_json_limit()
     text = str(value)
+    if int(limit or 0) <= 0:
+        return text
+    cap = max(1024, int(limit))
     if len(text) <= cap:
         return text
     try:

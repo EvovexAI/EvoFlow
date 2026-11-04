@@ -170,8 +170,14 @@ export class DeptGroupWakeQueue {
     const goal = String(input.goal || '').trim()
     if (!goal) return Promise.reject(new Error('缺少任务'))
 
+    // 新一轮用户点名（depth=0）：清掉上一轮的嵌套防环，允许小V再次 @ 同一人
+    // （旧逻辑成功后 nestSeen 永不释放 → 正式包里第二次 @技术总监 完全没气泡）
+    if (Number(input.depth) === 0) {
+      this.nestSeen.clear()
+    }
+
     if (input.chainKey && this.nestSeen.has(input.chainKey)) {
-      // 同链已成功叫醒过 → 跳过；失败会从 nestSeen 剔除，允许再试
+      // 同轮内同链已叫醒过 → 跳过；失败会从 nestSeen 剔除，允许再试
       return Promise.resolve()
     }
 

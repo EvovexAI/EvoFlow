@@ -1864,6 +1864,28 @@ async function refreshXiaomiObsEnabled() {
   }
 }
 
+let _obsEnabledListenerBound = false
+function bindObsEnabledChangedListener() {
+  if (_obsEnabledListenerBound) return
+  _obsEnabledListenerBound = true
+  void import('../../react/obs/lib/obs-api.js')
+    .then((m) => {
+      window.addEventListener(m.OBS_ENABLED_CHANGED_EVENT, (ev) => {
+        const enabled = !!ev?.detail?.enabled
+        const cur = getState()
+        const patch = { obsEnabled: enabled }
+        if (!enabled && cur.activeView === 'debug') {
+          patch.activeView = 'chat'
+          patch.selectedContact = 'xiaomi'
+        }
+        patchState(patch, { silent: cur.obsEnabled === enabled && cur.activeView !== 'debug' })
+      })
+    })
+    .catch(() => {
+      _obsEnabledListenerBound = false
+    })
+}
+
 function renderTaskCard(t, { showProgress = false } = {}) {
   const pct = Math.max(0, Math.min(100, Number(t.progress) || 0))
   const body = t.summary || t.result || ''
@@ -3781,6 +3803,7 @@ export function mountGlobalAssistant() {
   _unsub = subscribe(renderForState)
 
   render()
+  bindObsEnabledChangedListener()
   void refreshXiaomiObsEnabled()
   schedulePoll()
   // 刷新后恢复会议室：后端会议仍在进行（meetingId 非空）时，重挂会议室并恢复轮询，

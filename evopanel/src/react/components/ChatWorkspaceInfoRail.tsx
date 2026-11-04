@@ -40,6 +40,7 @@ import {
   AgentCapabilityTabs,
   type AgentCapabilityPatch,
 } from './AgentCapabilityTabs.js'
+import { AgentRolePrefs } from './AgentRolePrefs.js'
 import { PlatformRunTable } from './PlatformRunTable.js'
 import { SessionDebugPane } from './SessionDebugPane.js'
 import {
@@ -70,6 +71,10 @@ export type EmployeeRailInfo = {
   modelName?: string
   autonomyLabel?: string
   thinkModeLabel?: string
+  /** null = 跟随默认 */
+  thinkingEnabled?: boolean | null
+  /** null = 跟随模型 */
+  visionEnabled?: boolean | null
   knowledgeVaultIds?: string[]
 }
 
@@ -1183,13 +1188,7 @@ export function TaskPane({
   )
 }
 
-const AUTONOMY_ZH: Record<string, string> = {
-  full_auto: '无需审核',
-  approval_for_risky: '有风险才审',
-  approval_for_all: '需要审核',
-}
-
-/** 员工对话身份卡（含职责/审批）—— 状态面板「员工」Tab 复用 */
+/** 员工对话身份卡（含职责）—— 状态面板「员工」Tab 复用 */
 export function EmployeePane({
   employeeInfo,
   sessionTitle: _sessionTitle,
@@ -1213,6 +1212,10 @@ export function EmployeePane({
   onEditAgent,
   onAssetQuickAction,
   assetQuickBusy = false,
+  modelSupportsThinking = null,
+  modelSupportsVision = null,
+  onRolePrefsSaved,
+  sessionKey = '',
 }: {
   employeeInfo?: EmployeeRailInfo | null
   sessionTitle: string
@@ -1236,8 +1239,11 @@ export function EmployeePane({
   onEditAgent?: () => void
   onAssetQuickAction?: (kind: 'episode' | 'craft' | 'journal') => void
   assetQuickBusy?: boolean
+  modelSupportsThinking?: boolean | null
+  modelSupportsVision?: boolean | null
+  onRolePrefsSaved?: () => void
+  sessionKey?: string
 }) {
-  const [dutyExpanded, setDutyExpanded] = useState(false)
   const code = String(employeeInfo?.agentCode || agentCode || '').trim()
   // 详见 evopanel/src/react/lib/employee-display.ts —— 优先 role_name,降级 agent_name,
   // 绝不显示「未命名岗位」字面量;空时让 UI 自己决定用 code 或「智能体员工」。
@@ -1258,19 +1264,10 @@ export function EmployeePane({
   const responsibilities = (employeeInfo?.responsibilities || [])
     .map((s) => String(s || '').trim())
     .filter(Boolean)
-  const workspacePath = String(employeeInfo?.workspacePath || '').trim()
   const roleModel = String(employeeInfo?.modelName || '').trim()
-  const thinkLabel = String(employeeInfo?.thinkModeLabel || '').trim()
-  const autonomyRaw = String(employeeInfo?.autonomyLabel || '').trim()
-  const autonomy = AUTONOMY_ZH[autonomyRaw] || autonomyRaw
   const kbIds = Array.isArray(employeeInfo?.knowledgeVaultIds)
     ? employeeInfo!.knowledgeVaultIds!
     : knowledgeVaultIds || []
-  const briefDuties = responsibilities.slice(0, 2)
-  const hasMoreDuties = responsibilities.length > 2
-  const hasExtraMeta = Boolean(autonomy || thinkLabel || workspacePath)
-  const anyTruncated = briefDuties.some((r) => r.length > 48)
-  const showDutyToggle = hasMoreDuties || hasExtraMeta || anyTruncated
 
   return (
     <div className="react-chat-agent-pane react-chat-employee-pane">
@@ -1339,43 +1336,18 @@ export function EmployeePane({
         ) : null}
       </header>
 
-      {(responsibilities.length || hasExtraMeta) ? (
-        <section className="react-chat-employee-meta" aria-label="岗位职责">
-          {responsibilities.length ? (
-            <div className="react-chat-employee-responsibilities">
-              <div className="react-chat-info-rail-row-label">职责</div>
-              <ul>
-                {(dutyExpanded ? responsibilities : briefDuties).map((r) => (
-                  <li key={r} title={r}>
-                    {dutyExpanded || r.length <= 48 ? r : `${r.slice(0, 48)}…`}
-                  </li>
-                ))}
-              </ul>
-              {!dutyExpanded && hasMoreDuties ? (
-                <div className="react-chat-employee-duty-more">
-                  另有 {responsibilities.length - briefDuties.length} 项…
-                </div>
-              ) : null}
-            </div>
-          ) : null}
-          {dutyExpanded && hasExtraMeta ? (
-            <div className="react-chat-employee-extra-meta">
-              {autonomy ? <Row label="交工审核" value={autonomy} /> : null}
-              {thinkLabel ? <Row label="工作方式" value={thinkLabel} /> : null}
-              {workspacePath ? <Row label="工作空间" value={workspacePath} /> : null}
-            </div>
-          ) : null}
-          {showDutyToggle ? (
-            <button
-              type="button"
-              className="react-chat-info-rail-action react-chat-employee-duty-toggle"
-              onClick={() => setDutyExpanded((v) => !v)}
-            >
-              {dutyExpanded ? '收起详情' : '查看详情'}
-            </button>
-          ) : null}
-        </section>
-      ) : null}
+      <AgentRolePrefs
+        agentCode={code}
+        roleCode={code}
+        sessionKey={sessionKey}
+        isEmployee
+        thinkingEnabled={employeeInfo?.thinkingEnabled}
+        visionEnabled={employeeInfo?.visionEnabled}
+        modelSupportsThinking={modelSupportsThinking}
+        modelSupportsVision={modelSupportsVision}
+        responsibilities={responsibilities}
+        onRolePrefsSaved={onRolePrefsSaved}
+      />
 
       <AgentCapabilityTabs
         skillNames={skillNames}

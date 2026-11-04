@@ -16,6 +16,13 @@ import { showConfirm } from '../components/modal.js'
 import { filterChatModels } from '../lib/model-classification.js'
 import { mountAgentAvatar } from '../lib/mount-agent-ui.js'
 import {
+  ROLE_DEPT_NONE,
+  roleDeptFacets,
+  roleDeptLabel,
+  roleDutyOneLiner,
+  roleMatchesDeptFilter,
+} from '../lib/proactive-role-card-meta.js'
+import {
   showEditRoleModal as openEditRoleModal,
   loadKnowledgeVaults,
   loadDepartmentCatalog,
@@ -185,22 +192,6 @@ function resolveEmployeePrimaryAction(r, { isDraft, isPaused, isBusy, pendingN }
   return { action: 'open', label: '打开', className: 'pro-role-cta pro-role-cta--ghost', code }
 }
 
-/** 卡片脸上一句简介（提示词/职责已并入智能体 system_prompt） */
-function roleDutyOneLiner(role) {
-  const desc = sanitizeRoleLabel(
-    role?.config?.extra_context?.agent_description || role?.agent_description,
-    '',
-  )
-  if (desc) return previewLine(desc, 88)
-  const resp = Array.isArray(role?.config?.responsibilities)
-    ? role.config.responsibilities.filter(Boolean)
-    : []
-  if (resp.length) return previewLine(resp.join(' · '), 88)
-  const dept = sanitizeRoleLabel(role?.department || role?.config?.department, '')
-  if (dept) return dept
-  return ''
-}
-
 function mountProactiveAvatars(root, defaultSize = 44) {
   if (!root) return
   void gatewayBaseForAvatars().then(async (baseUrl) => {
@@ -258,6 +249,8 @@ let _rolesPage = 1
 let _rolesPageSize = readStoredPageSize(ROLES_PAGE_SIZE_KEY)
 /** 员工 Tab 名称搜索（匹配岗位名 / 智能体名 / 代号） */
 let _rolesSearchQuery = ''
+/** 员工 Tab 部门筛选（空 = 全部部门；`ROLE_DEPT_NONE` = 未编部门） */
+let _rolesDeptFilter = ''
 
 function readProactiveHashQuery() {
   const raw = String(window.location.hash || '').replace(/^#/, '')
@@ -447,6 +440,10 @@ export async function render() {
               value=""
             />
           </label>
+          <label class="pro-roles-dept-filter" id="pro-roles-dept-filter-wrap" title="按部门筛选员工" hidden>
+            <span class="sr-only">部门筛选</span>
+            <select class="pro-roles-dept-filter-select" id="pro-roles-dept-filter"></select>
+          </label>
         </div>
 
         <div class="pro-tab-content" id="pro-tab-content">
@@ -498,9 +495,13 @@ function roleMatchesSearch(role, query) {
 }
 
 function filteredRolesList(roles = _rolesData) {
-  const q = _rolesSearchQuery
-  if (!String(q || '').trim()) return roles || []
-  return (roles || []).filter((r) => roleMatchesSearch(r, q))
+  const list = roles || []
+  const q = String(_rolesSearchQuery || '').trim()
+  return list.filter(
+    (r) =>
+      roleMatchesDeptFilter(r, _rolesDeptFilter) &&
+      (!q || roleMatchesSearch(r, q)),
+  )
 }
 
 function applyRolesSearch(page, raw) {
@@ -521,6 +522,41 @@ function applyRolesSearch(page, raw) {
   if (_currentTab === 'roles') {
     reRenderRolesTab(page)
   }
+}
+
+/** 部门筛选下拉：选项来自名册实际部门，切换只影响「员工」Tab */
+function renderRolesDeptFilter(page) {
+  const wrap = page.querySelector('#pro-roles-dept-filter-wrap')
+  const sel = page.querySelector('#pro-roles-dept-filter')
+  if (!wrap || !sel) return
+  const { depts, counts, total, noneCount } = roleDeptFacets(_rolesData)
+  // 只有一个部门（且没有未编员工）时下拉没意义，直接收起
+  const worthwhile = depts.length > 1 || (depts.length > 0 && noneCount > 0)
+  if (!worthwhile) {
+    _rolesDeptFilter = ''
+    wrap.setAttribute('hidden', '')
+    return
+  }
+  // 部门被删/改名后自动回到「全部部门」
+  if (_rolesDeptFilter && _rolesDeptFilter !== ROLE_DEPT_NONE && !counts.has(_rolesDeptFilter)) {
+    _rolesDeptFilter = ''
+  }
+  sel.innerHTML = [
+    `<option value="">全部部门（${total}）</option>`,
+    ...depts.map((d) => `<option value="${esc(d)}">${esc(d)}（${counts.get(d)}）</option>`),
+    noneCount ? `<option value="${ROLE_DEPT_NONE}">未编部门（${noneCount}）</option>` : '',
+  ].join('')
+  sel.value = _rolesDeptFilter
+  wrap.removeAttribute('hidden')
+}
+
+function applyRolesDeptFilter(page, raw) {
+  const next = String(raw || '').trim()
+  _rolesDeptFilter = next === ROLE_DEPT_NONE ? ROLE_DEPT_NONE : next
+  _rolesPage = 1
+  const sel = page.querySelector('#pro-roles-dept-filter')
+  if (sel && sel.value !== _rolesDeptFilter) sel.value = _rolesDeptFilter
+  if (_currentTab === 'roles') reRenderRolesTab(page)
 }
 
 function bindHeader(page) {
@@ -549,6 +585,9 @@ function bindHeader(page) {
       applyRolesSearch(page, '')
       searchInput.blur()
     }
+  })
+  page.querySelector('#pro-roles-dept-filter')?.addEventListener('change', (e) => {
+    applyRolesDeptFilter(page, e.target?.value)
   })
   page.querySelectorAll('.pro-tab').forEach(tab => {
     tab.addEventListener('click', () => {
@@ -1657,6 +1696,7 @@ function patchRoleBusyUi(page) {
 function reRenderRolesTab(page) {
   const container = page?.querySelector('#pro-tab-content')
   if (!container || _currentTab !== 'roles') return
+  renderRolesDeptFilter(page)
   container.innerHTML = renderRoles(filteredRolesList(_rolesData))
   bindRoles(container)
   mountProactiveAvatars(container, 44)
@@ -1665,17 +1705,22 @@ function reRenderRolesTab(page) {
 
 function renderTabContent(page) {
   const container = page.querySelector('#pro-tab-content')
+  const deptWrap = page.querySelector('#pro-roles-dept-filter-wrap')
   if (_currentTab === 'approvals') {
+    deptWrap?.setAttribute('hidden', '')
     container.innerHTML = renderApprovals(_approvalsData, _initiativesData)
     bindApprovals(container)
   } else if (_currentTab === 'health') {
+    deptWrap?.setAttribute('hidden', '')
     container.innerHTML = renderHealthDashboard(_dashboardData, _rolesData)
     bindHealth(container)
   } else if (_currentTab === 'org') {
+    deptWrap?.setAttribute('hidden', '')
     container.innerHTML = `<div class="pro-loading">加载组织架构…</div>`
     void loadAndRenderOrg(page)
   } else {
     _currentTab = 'roles'
+    renderRolesDeptFilter(page)
     container.innerHTML = renderRoles(filteredRolesList(_rolesData))
     bindRoles(container)
     mountProactiveAvatars(container, 44)
@@ -3113,11 +3158,16 @@ function updateFeishuToolbar(page) {
 
 function renderRoles(roles) {
   const q = String(_rolesSearchQuery || '').trim()
+  const dept = String(_rolesDeptFilter || '').trim()
+  const deptName = dept === ROLE_DEPT_NONE ? '未编部门' : dept
   if (!roles.length) {
-    if (q) {
+    if (q || dept) {
+      const hint = [q ? `「${esc(q)}」` : '', deptName ? esc(deptName) : '']
+        .filter(Boolean)
+        .join(' · ')
       return `<div class="pro-empty">
-        <p class="pro-empty-title">没有匹配「${esc(q)}」的员工</p>
-        <p class="pro-empty-desc">试试岗位名、智能体名或代号</p>
+        <p class="pro-empty-title">没有匹配 ${hint} 的员工</p>
+        <p class="pro-empty-desc">换个关键字，或把部门筛成「全部部门」</p>
       </div>`
     }
     return `<div class="pro-empty">
@@ -3159,6 +3209,7 @@ function renderRoles(roles) {
     const statusLabel = dutyBadge.label
     const statusCls = dutyBadge.cls
     const isIdle = !!dutyBadge.idle && !isBusy
+    const deptLabel = roleDeptLabel(r)
     const dutyLine = roleDutyOneLiner(r)
     const mine = _initiativesData.filter((i) => String(i.role_agent_code) === String(r.agent_code))
     const lastInit = mine[0]
@@ -3232,11 +3283,22 @@ function renderRoles(roles) {
             <span class="pro-badge ${statusCls}" data-role-status title="${esc(dutyBadge.tip || '')}">${esc(statusLabel)}</span>
           </div>
           ${
-            dutyLine
-              ? `<p class="pro-role-duty pro-role-duty--one">${esc(dutyLine)}</p>`
-              : isSystemFrontDesk
-                ? '<p class="pro-role-duty pro-role-duty--one">系统前台 · 催办全局待办</p>'
+            deptLabel || dutyLine || isSystemFrontDesk
+              ? `<div class="pro-role-meta-line">
+            ${
+              deptLabel
+                ? `<span class="pro-role-dept-chip" data-role-dept="${esc(deptLabel)}" title="部门：${esc(deptLabel)}">${esc(deptLabel)}</span>`
                 : ''
+            }
+            ${
+              dutyLine
+                ? `<p class="pro-role-duty pro-role-duty--one">${esc(dutyLine)}</p>`
+                : isSystemFrontDesk
+                  ? '<p class="pro-role-duty pro-role-duty--one">系统前台 · 催办全局待办</p>'
+                  : ''
+            }
+          </div>`
+              : ''
           }
         </div>
       </div>

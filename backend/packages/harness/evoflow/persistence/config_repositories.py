@@ -875,6 +875,32 @@ def get_agent_soul(agent_code: str) -> str | None:
     return text or None
 
 
+def get_agent_prompt_revision(agent_code: str) -> str:
+    """Cheap revision token for SOUL / system_prompt edits (mtime-less SQLite path).
+
+    Used by DynamicSystemPrompt fingerprint so same-session turns rebuild after
+    EvoPanel saves without relying only on on-disk ``system.md`` / ``SOUL.md``.
+    """
+    code = str(agent_code or "").strip().lower()
+    if not code:
+        return "0"
+    try:
+        row = (
+            get_db()
+            .execute(
+                "SELECT updated_at, length(coalesce(system_prompt, '')), length(coalesce(soul_md, '')) "
+                "FROM evoflow_agents WHERE agent_code = ?",
+                (code,),
+            )
+            .fetchone()
+        )
+    except Exception:
+        return "0"
+    if not row:
+        return "0"
+    return f"{row[0] or ''}:{int(row[1] or 0)}:{int(row[2] or 0)}"
+
+
 def save_agent_soul(agent_code: str, soul_md: str) -> None:
     code = agent_code.lower()
     if not agent_exists(code):

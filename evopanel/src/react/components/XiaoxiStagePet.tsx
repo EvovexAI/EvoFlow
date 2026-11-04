@@ -11,9 +11,7 @@ import {
   PET_DESIGN_SIZE,
   PET_DESK_IMG_URL,
   PET_FOOT_Y,
-  PET_HAND_URLS,
   PET_IMG_URL,
-  type PetHandImages,
   type PetMode,
 } from './xiaoxi-pet-render.js'
 import './xiaoxi-stage-pet.css'
@@ -70,25 +68,6 @@ export function XiaoxiStagePet({ mode }: { mode: PetMode }) {
     const deskImg = new Image()
     deskImg.decoding = 'async'
     deskImg.src = PET_DESK_IMG_URL
-    // 贴图手：三张一起加载，全好了才传给渲染器（没好就走程序化手掌回退）
-    const handImgs: Record<string, HTMLImageElement> = {}
-    for (const [name, url] of Object.entries(PET_HAND_URLS)) {
-      const h = new Image()
-      h.decoding = 'async'
-      h.src = url
-      handImgs[name] = h
-    }
-    const handsReady = (): PetHandImages | null => {
-      const out: PetHandImages = {}
-      let n = 0
-      for (const [name, h] of Object.entries(handImgs)) {
-        if (h.complete && h.naturalWidth > 0) {
-          out[name as keyof typeof PET_HAND_URLS] = h
-          n++
-        }
-      }
-      return n === Object.keys(handImgs).length ? out : null
-    }
 
     let t = 0
     let last = 0
@@ -166,7 +145,6 @@ export function XiaoxiStagePet({ mode }: { mode: PetMode }) {
         blink,
         img.naturalWidth / 840,
         deskImg.complete && deskImg.naturalWidth > 0 ? deskImg : null,
-        handsReady(),
       )
 
       // 位置/朝向：踱步偏移 + 翻面 + 走路时一点点摇摆，都走 transform，不碰布局

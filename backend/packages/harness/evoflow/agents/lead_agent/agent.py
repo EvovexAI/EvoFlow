@@ -777,7 +777,7 @@ def _build_middlewares(config: RunnableConfig, model_name: str | None, agent_nam
     # Add TitleMiddleware
     middlewares.append(TitleMiddleware())
 
-    # MemoryMiddleware: queue user/workspace memory after_model (once per user turn)
+    # MemoryMiddleware: queue user/employee Asset Hub memory after_model (once per user turn)
     middlewares.append(MemoryMiddleware(agent_name=agent_name))
     # MissionState：用户每条消息后、模型第一轮回复完成时异步分析主问题/子问题（EVOFLOW_MISSION_STATE_ENABLED=0 关闭）
     if MISSION_STATE_ENABLED:

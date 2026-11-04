@@ -159,6 +159,7 @@ class UpdateRoleRequest(BaseModel):
     soul_md: str | None = None
     think_mode: str | None = None
     thinking_enabled: bool | None = None  # None=跟随默认, True=启用思考, False=禁用思考
+    vision_enabled: bool | None = None  # None=跟随模型, True=启用识图, False=关闭识图
     model_name: str | None = None
     max_turns: int | None = None
     timeout_seconds: int | None = None
@@ -743,9 +744,12 @@ async def update_role(request: Request, agent_code: str, req: UpdateRoleRequest)
         cfg.soul_md = req.soul_md
     if req.think_mode is not None:
         cfg.think_mode = req.think_mode
-    # thinking_enabled: None=跟随默认, True=启用思考, False=禁用思考
-    if req.thinking_enabled is not None:
-        cfg.thinking_enabled = bool(req.thinking_enabled)
+    # thinking_enabled / vision_enabled: allow explicit null to clear back to「跟随」
+    fields_set_early = getattr(req, "model_fields_set", None) or set()
+    if "thinking_enabled" in fields_set_early:
+        cfg.thinking_enabled = None if req.thinking_enabled is None else bool(req.thinking_enabled)
+    if "vision_enabled" in fields_set_early:
+        cfg.vision_enabled = None if req.vision_enabled is None else bool(req.vision_enabled)
     if req.model_name is not None:
         cfg.model_name = str(req.model_name or "").strip()
     if req.max_turns is not None:
@@ -2639,6 +2643,7 @@ def _role_to_dict(role: ProactiveRole) -> dict[str, Any]:
             "reports_to": str(getattr(role.config, "reports_to", "") or "").strip(),
             "memory_enabled": bool(getattr(role.config, "memory_enabled", True)),
             "thinking_enabled": getattr(role.config, "thinking_enabled", None),
+            "vision_enabled": getattr(role.config, "vision_enabled", None),
             "inject_user_profile": getattr(role.config, "inject_user_profile", None),
             "inject_skills": getattr(role.config, "inject_skills", None),
             "inject_kb": getattr(role.config, "inject_kb", None),

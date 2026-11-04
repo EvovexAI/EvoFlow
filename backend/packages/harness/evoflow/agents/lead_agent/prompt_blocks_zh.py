@@ -246,7 +246,8 @@ VOICE_MODE_BLOCK = """<voice_mode>
 
 CONTEXT_PRIORITY_BLOCK = """<context_priority>
 优先级（高→低）：**最新用户消息** → **用户画像** → **本 Agent 经验(craft)/反思(journal)/过程(episodic)** → 站立摘要/facts/soul/工作空间。
-与最新用户消息冲突时以用户为准。岗位标签与 soul 经验不是站立任务——用户未点名则勿续跑旧验收/巡检。
+与最新用户消息冲突时以用户为准；`<memory_assets>` / standing / inbox 只是参考，不得用旧约束改写本轮意图。
+岗位标签与 soul 经验不是站立任务——用户未点名则勿续跑旧验收/巡检。
 </context_priority>
 """
 

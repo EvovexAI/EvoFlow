@@ -707,6 +707,32 @@ def _is_xiaomi_lead_run(agent_name: str | None) -> bool:
         return str(agent_name or "").strip().lower() in {"xiaomi", "小v", "小蜜", "xiaov"}
 
 
+def _strip_outer_identity_xml(text: str) -> str:
+    """Strip a single outer ``<soul>`` / ``<agent_system_prompt>`` wrapper if present."""
+    t = str(text or "").strip()
+    for tag in ("soul", "agent_system_prompt"):
+        open_t, close_t = f"<{tag}>", f"</{tag}>"
+        if t.startswith(open_t) and t.endswith(close_t):
+            return t[len(open_t) : -len(close_t)].strip()
+    return t
+
+
+def _normalize_prompt_body_for_dedupe(text: str) -> str:
+    """Normalize soul / system_prompt bodies so near-duplicates collapse.
+
+    Production often stores the same duty text twice with tiny diffs
+    (``# EvoFlow`` vs ``EvoFlow``, bold markers, blank lines). Exact-string
+    equality then injects both ``<soul>`` and ``<agent_system_prompt>`` —
+    the model hears the same identity three times with ``<role>``.
+    """
+    t = _strip_outer_identity_xml(text)
+    # Drop markdown headings / bold / italic noise; collapse whitespace.
+    t = re.sub(r"^#+\s*", "", t, flags=re.MULTILINE)
+    t = t.replace("**", "").replace("__", "").replace("*", "")
+    t = re.sub(r"\s+", " ", t).strip().casefold()
+    return t
+
+
 def _inject_identity_layers(
     blocks: list[str],
     *,
@@ -719,13 +745,12 @@ def _inject_identity_layers(
 
     Identity layering rules (kept in code so it stays in sync with the runtime behaviour):
 
-      - ``<soul>`` is the behavioral habit reference. The caller already wraps it
-        (e.g. ``get_agent_soul``), so we only sanitize here; never re-wrap.
-      - ``<agent_system_prompt>`` is the override layer that sits *above* role blocks
-        in the assembled prompt. It is the only place ``config.yaml system_prompt``
-        surfaces.
-      - These two layers coexist with the L1 ``<decision_chain>`` rule: on conflict,
-        ``<agent_system_prompt>`` outranks ``<soul>``, which outranks the base role block.
+      - ``<role>`` (assembled earlier) is the sole identity anchor — who the agent is.
+      - ``<soul>`` is the behavioral habit / tone reference. Do not restate identity here.
+      - ``<agent_system_prompt>`` is the duty/constraint override from ``config.yaml
+        system_prompt``. Skipped when it normalizes equal to soul (scheduler often
+        mirrors soul into that field).
+      - On conflict: latest user message > ``<agent_system_prompt>`` > ``<soul>`` > ``<role>``.
 
     ``override_first=True`` (xiaomi) puts the duty/constraint override before the
     style soul — duties first, persona style layered underneath.
@@ -733,6 +758,7 @@ def _inject_identity_layers(
     Centralizing this avoids drift between the xiaomi-mode and the default-assemble
     branches (they previously inlined this logic with subtle wording differences).
     """
+    _ = dyn
 
     def _append_soul() -> None:
         if soul.strip():
@@ -741,8 +767,7 @@ def _inject_identity_layers(
             # (e.g. via `get_agent_soul()` which XML-wraps for the employee chat path).
             # We re-wrap here ourselves, so strip any outer tag first to avoid stacking
             # two `<soul>` / `<agent_system_prompt>` blocks for the same content.
-            if safe_soul.startswith("<soul>") and safe_soul.endswith("</soul>"):
-                safe_soul = safe_soul[len("<soul>") : -len("</soul>")].strip()
+            safe_soul = _strip_outer_identity_xml(safe_soul)
             if safe_soul.strip():
                 blocks.append(f"<soul>\n{safe_soul}\n</soul>")
 
@@ -753,12 +778,15 @@ def _inject_identity_layers(
         # ``save_agent_config`` 把 soul 复制到 ``system_prompt`` 字段(调度器只看 system_prompt)。
         # 这里不要把同一份 SOUL 文本在 ``<soul>`` 和 ``<agent_system_prompt>`` 两个标签里重复显示——
         # 已是 soul 内容的 custom_system_prompt 由 ``<soul>`` 段承载,这里跳过注入。
-        bare_soul = soul.strip()
-        if bare_soul.startswith("<soul>") and bare_soul.endswith("</soul>"):
-            bare_soul = bare_soul[len("<soul>") : -len("</soul>")].strip()
-        if extra == bare_soul:
+        bare_soul = _strip_outer_identity_xml(soul)
+        bare_extra = _strip_outer_identity_xml(extra)
+        if bare_extra == bare_soul or (
+            bare_soul
+            and _normalize_prompt_body_for_dedupe(bare_extra)
+            == _normalize_prompt_body_for_dedupe(bare_soul)
+        ):
             return
-        safe_extra = scan_content(extra, source="custom_system_prompt")
+        safe_extra = scan_content(bare_extra, source="custom_system_prompt")
         # Strip stray "Lessons Learned" section + normalize legacy "Lessons" writes
         # (the legacy term is no longer a valid deposit target; the inbox flow owns writes).
         try:
@@ -1439,23 +1467,8 @@ def build_memory_injection_sections(
         except Exception:
             logger.debug("asset memory injection skipped", exc_info=True)
 
-    # Bound workspace: inject project catalog (compact asset-hub style).
-    # No procedure / no discipline block — already covered by user memory's read_path.md.
-    lw = str(local_workspace_root or "").strip()
-    if lw:
-        try:
-            from evoflow.agents.memory.workspace_memory import format_workspace_memory_context
-
-            ws_block = format_workspace_memory_context(
-                lw,
-                injection_profile=injection_profile,
-            ).strip()
-            if ws_block:
-                safe_ws = scan_content(ws_block, source="workspace_memory").strip()
-                if safe_ws:
-                    body_parts.append(safe_ws)
-        except Exception:
-            logger.debug("workspace memory injection skipped", exc_info=True)
+    # Workspace/project memory injection removed: employee/user Asset Hub is enough.
+    # Existing ``<workspace>/.evoflow/memory`` on disk is left untouched (no archive/cleanup).
 
     if body_parts:
         sections.extend(body_parts)

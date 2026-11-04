@@ -1,0 +1,1215 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>头像工坊 · Avatar Studio</title>
+<style>
+  :root{
+    --ink:#2C2431;
+    --ink-2:#5B4F63;
+    --muted:#9A8FA3;
+    --line:#F0E7EE;
+    --bg:#FFFBF9;
+    --card:#FFFFFF;
+    --accent:#FF6F91;
+    --accent-2:#FFB36B;
+    --accent-3:#A78BFA;
+    --shadow:0 10px 34px rgba(214,140,160,.12);
+    --shadow-sm:0 4px 14px rgba(214,140,160,.10);
+    --r-lg:26px;
+    --r-md:18px;
+    --r-sm:13px;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{height:100%}
+  body{
+    margin:0;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    color:var(--ink);
+    background:
+      radial-gradient(1100px 600px at 8% -10%, #FFE7EF 0%, rgba(255,231,239,0) 60%),
+      radial-gradient(900px 620px at 100% 0%, #EAF3FF 0%, rgba(234,243,255,0) 55%),
+      radial-gradient(900px 700px at 50% 110%, #FFF3E2 0%, rgba(255,243,226,0) 60%),
+      var(--bg);
+    min-height:100%;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1240px;margin:0 auto;padding:26px 24px 60px}
+
+  /* ---------- header ---------- */
+  header.top{display:flex;align-items:center;gap:14px;margin-bottom:22px;flex-wrap:wrap}
+  .logo{
+    width:46px;height:46px;border-radius:15px;flex:none;
+    background:linear-gradient(140deg,#FF8FB0,#FFB36B 55%,#B79BFB);
+    box-shadow:0 8px 20px rgba(255,143,176,.35);
+    display:grid;place-items:center;
+  }
+  .logo svg{width:26px;height:26px}
+  .titles h1{font-size:20px;margin:0;letter-spacing:.2px;font-weight:700}
+  .titles p{margin:3px 0 0;font-size:12.5px;color:var(--muted);letter-spacing:.3px}
+  .top-spacer{flex:1}
+  .badge{
+    font-size:12px;color:#B4638A;background:#FFF0F6;border:1px solid #FFDFEC;
+    padding:7px 13px;border-radius:999px;font-weight:600;letter-spacing:.2px;
+  }
+
+  /* ---------- layout ---------- */
+  .layout{display:grid;grid-template-columns:minmax(0,1fr) 402px;gap:22px;align-items:start}
+  @media(max-width:1000px){.layout{grid-template-columns:1fr}}
+
+  /* ---------- stage ---------- */
+  .stage{position:sticky;top:24px}
+  .canvas{
+    position:relative;border-radius:var(--r-lg);padding:18px;
+    background:linear-gradient(160deg,#FFFFFF,#FFF9FB 60%,#FFF6F0);
+    box-shadow:var(--shadow);border:1px solid #FBEEF3;
+    display:grid;place-items:center;overflow:hidden;
+  }
+  .canvas::after{
+    content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;
+    background:radial-gradient(420px 260px at 50% 0%,rgba(255,255,255,.75),transparent 70%);
+  }
+  #stage{width:100%;max-width:520px;display:block;border-radius:20px;overflow:hidden;
+    box-shadow:0 14px 40px rgba(120,90,120,.13);}
+  #stage svg{display:block;width:100%;height:auto}
+
+  .stage-bar{display:flex;gap:9px;margin-top:14px;flex-wrap:wrap}
+  .btn{
+    appearance:none;border:1px solid var(--line);background:#fff;color:var(--ink);
+    font-family:inherit;font-size:13.5px;font-weight:600;letter-spacing:.2px;
+    padding:11px 16px;border-radius:13px;cursor:pointer;transition:.16s ease;
+    display:inline-flex;align-items:center;gap:7px;box-shadow:var(--shadow-sm)
+  }
+  .btn:hover{transform:translateY(-1px);border-color:#F3D7E2;box-shadow:0 8px 20px rgba(214,140,160,.16)}
+  .btn:active{transform:translateY(0) scale(.985)}
+  .btn.primary{
+    border:none;color:#fff;
+    background:linear-gradient(135deg,#FF7C9E,#FF9E7A 55%,#FFB36B);
+    box-shadow:0 10px 24px rgba(255,124,158,.34);flex:1;justify-content:center;
+  }
+  .btn.primary:hover{box-shadow:0 14px 30px rgba(255,124,158,.42)}
+  .btn svg{width:16px;height:16px;flex:none;opacity:.9}
+  .btn.primary svg{opacity:1}
+
+  .seedbar{
+    margin-top:12px;display:flex;align-items:center;gap:10px;
+    font-size:12.5px;color:var(--muted);flex-wrap:wrap
+  }
+  .seedbar code{
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;
+    color:#7A6B85;background:#F8F2F6;border:1px solid #F1E5ED;
+    padding:5px 10px;border-radius:9px;letter-spacing:.4px
+  }
+  .link{color:#B4638A;cursor:pointer;text-decoration:none;font-weight:600;border-bottom:1px dashed #E8C4D6;padding-bottom:1px}
+  .link:hover{color:#8F3C68}
+
+  /* ---------- panel ---------- */
+  .panel{
+    background:var(--card);border-radius:var(--r-lg);border:1px solid #FBEEF3;
+    box-shadow:var(--shadow);padding:6px 18px 20px;
+    max-height:calc(100vh - 60px);overflow:auto;overscroll-behavior:contain;
+    scrollbar-width:thin;scrollbar-color:#F0DCE7 transparent;
+  }
+  .panel::-webkit-scrollbar{width:9px}
+  .panel::-webkit-scrollbar-thumb{background:#F3DFE9;border-radius:9px;border:2px solid #fff}
+  .panel::-webkit-scrollbar-track{background:transparent}
+
+  .sect{padding:15px 0;border-bottom:1px dashed #F6ECF2}
+  .sect:last-of-type{border-bottom:none}
+  .sect-head{display:flex;align-items:center;gap:8px;margin-bottom:12px}
+  .sect-head h3{
+    font-size:12px;font-weight:700;letter-spacing:1.4px;color:#A795AF;
+    margin:0;text-transform:uppercase
+  }
+  .sect-head .rule{flex:1;height:1px;background:linear-gradient(90deg,#F6EAF1,transparent)}
+
+  .seg{display:grid;grid-template-columns:1fr 1fr;gap:6px;background:#FAF3F7;padding:5px;border-radius:15px}
+  .seg button{
+    appearance:none;border:none;background:transparent;font-family:inherit;cursor:pointer;
+    padding:10px 8px;border-radius:11px;font-size:13.5px;font-weight:600;color:#9A8FA3;
+    transition:.18s ease;display:flex;align-items:center;justify-content:center;gap:6px
+  }
+  .seg button.on{background:#fff;color:var(--ink);box-shadow:0 3px 10px rgba(190,140,170,.16)}
+  .seg button span.ic{font-size:14px}
+
+  .row{display:flex;align-items:flex-start;gap:12px;margin-bottom:13px}
+  .row:last-child{margin-bottom:0}
+  .row > .lb{width:44px;flex:none;font-size:12.5px;color:#9A8FA3;padding-top:7px;letter-spacing:.3px}
+  .row > .ct{flex:1;display:flex;flex-wrap:wrap;gap:7px}
+
+  .sw{
+    width:27px;height:27px;border-radius:50%;cursor:pointer;border:none;padding:0;position:relative;
+    box-shadow:0 2px 6px rgba(120,90,110,.16);transition:.16s ease;
+  }
+  .sw:hover{transform:translateY(-2px) scale(1.06)}
+  .sw.on::after{
+    content:"";position:absolute;inset:-4px;border-radius:50%;
+    border:2px solid #FF8FB0;box-shadow:0 0 0 3px #FFF3F7
+  }
+
+  .chip{
+    appearance:none;font-family:inherit;cursor:pointer;font-size:12.5px;font-weight:600;
+    padding:7px 12px;border-radius:11px;border:1px solid var(--line);background:#fff;color:#7E7189;
+    transition:.16s ease;letter-spacing:.2px
+  }
+  .chip:hover{border-color:#F3D0DE;color:#B4638A;background:#FFF8FB}
+  .chip.on{background:linear-gradient(140deg,#FFEDF3,#FFF4EC);border-color:#FFC9DB;color:#C2537B;
+    box-shadow:0 3px 10px rgba(255,157,187,.18)}
+
+  .toggles{display:flex;gap:8px;flex-wrap:wrap}
+  .toggle{
+    display:flex;align-items:center;gap:8px;cursor:pointer;font-size:12.5px;font-weight:600;
+    color:#8D8096;padding:7px 12px 7px 9px;border-radius:12px;border:1px solid var(--line);
+    background:#fff;transition:.16s ease;user-select:none
+  }
+  .toggle .dot{
+    width:30px;height:17px;border-radius:99px;background:#EDE3EA;position:relative;transition:.2s ease;flex:none
+  }
+  .toggle .dot::after{
+    content:"";position:absolute;top:2.5px;left:2.5px;width:12px;height:12px;border-radius:50%;
+    background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.18);transition:.2s cubic-bezier(.3,1.4,.5,1)
+  }
+  .toggle.on{color:#C2537B;border-color:#FFD3E2;background:#FFFAFC}
+  .toggle.on .dot{background:linear-gradient(135deg,#FF8FB0,#FFB36B)}
+  .toggle.on .dot::after{left:15px}
+
+  /* ---------- gallery ---------- */
+  .gallery{margin-top:26px}
+  .g-head{display:flex;align-items:baseline;gap:12px;margin-bottom:14px;flex-wrap:wrap}
+  .g-head h2{font-size:15.5px;margin:0;font-weight:700;letter-spacing:.3px}
+  .g-head p{margin:0;font-size:12.5px;color:var(--muted)}
+  .g-head .spacer{flex:1}
+  .grid{
+    display:grid;grid-template-columns:repeat(6,1fr);gap:13px
+  }
+  @media(max-width:1000px){.grid{grid-template-columns:repeat(4,1fr)}}
+  @media(max-width:620px){.grid{grid-template-columns:repeat(3,1fr)}}
+  .mini{
+    appearance:none;border:none;padding:0;cursor:pointer;position:relative;
+    border-radius:18px;overflow:hidden;background:#fff;
+    box-shadow:0 6px 18px rgba(180,130,160,.13);transition:.2s cubic-bezier(.3,1.2,.5,1);
+    aspect-ratio:1/1
+  }
+  .mini svg{display:block;width:100%;height:100%}
+  .mini:hover{transform:translateY(-4px) scale(1.02);box-shadow:0 14px 30px rgba(180,130,160,.24)}
+  .mini::after{
+    content:"";position:absolute;inset:0;border-radius:inherit;
+    border:2px solid transparent;transition:.2s
+  }
+  .mini.on::after{border-color:#FF8FB0;box-shadow:inset 0 0 0 3px rgba(255,255,255,.7)}
+
+  .foot{margin-top:34px;text-align:center;font-size:12px;color:#BDAFBB;letter-spacing:.4px}
+  .toast{
+    position:fixed;left:50%;bottom:34px;transform:translate(-50%,20px);
+    background:#2C2431;color:#fff;font-size:13px;padding:11px 20px;border-radius:13px;
+    box-shadow:0 12px 30px rgba(0,0,0,.24);opacity:0;pointer-events:none;transition:.26s ease;z-index:99
+  }
+  .toast.show{opacity:1;transform:translate(-50%,0)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div class="logo">
+      <svg viewBox="0 0 24 24" fill="none">
+        <path d="M12 3.2 14.3 9l6.2.4-4.8 4 1.6 6-5.3-3.3L6.7 19.4l1.6-6-4.8-4L9.7 9 12 3.2Z" fill="#fff" opacity=".95"/>
+      </svg>
+    </div>
+    <div class="titles">
+      <h1>头像工坊 · Avatar Studio</h1>
+      <p>可爱系 / 精灵系 · 程序化生成的矢量头像</p>
+    </div>
+    <div class="top-spacer"></div>
+    <div class="badge">纯 SVG · 无限放大不糊</div>
+  </header>
+
+  <div class="layout">
+    <section class="stage">
+      <div class="canvas">
+        <div id="stage"></div>
+      </div>
+      <div class="stage-bar">
+        <button class="btn primary" id="btn-random">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg>
+          随机一个
+        </button>
+        <button class="btn" id="btn-png">PNG 1024</button>
+        <button class="btn" id="btn-svg">SVG</button>
+      </div>
+      <div class="seedbar">
+        <span>种子</span><code id="seed-txt">—</code>
+        <a class="link" id="btn-copy">复制</a>
+        <span style="color:#D9CBD4">·</span>
+        <span>空格键可快速随机</span>
+      </div>
+    </section>
+
+    <aside class="panel" id="panel"></aside>
+  </div>
+
+  <section class="gallery">
+    <div class="g-head">
+      <h2>灵感速览</h2>
+      <p>点一张直接替换，或继续微调</p>
+      <div class="spacer"></div>
+      <button class="btn" id="btn-refresh-mini" style="padding:8px 14px;font-size:12.5px">再抽一组</button>
+    </div>
+    <div class="grid" id="grid"></div>
+  </section>
+
+  <div class="foot">程序化绘制 · 无外部素材 · 所有元素可无限重绘</div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+/* =========================================================================
+   1. 色板与部件数据
+   ========================================================================= */
+const SKINS = [
+  {id:'cream', name:'奶油', c:'#FFEBDD', s:'#F4CDB9', b:'#FFA7B6'},
+  {id:'peach', name:'蜜桃', c:'#FFDCC2', s:'#F0B995', b:'#FF9AA6'},
+  {id:'honey', name:'蜂蜜', c:'#F6CFA6', s:'#DEA97A', b:'#F08E84'},
+  {id:'cocoa', name:'可可', c:'#D9A87C', s:'#B88256', b:'#D2766A'},
+  {id:'rose',  name:'樱粉', c:'#FFE3E8', s:'#F5C0CB', b:'#FF8CA6'},
+  {id:'moon',  name:'月白', c:'#EEEFF9', s:'#D2D4EB', b:'#C0A6EC'},
+  {id:'moss',  name:'苔绿', c:'#E4EDD2', s:'#C2D3A9', b:'#A8CE86'},
+  {id:'lilac', name:'雾紫', c:'#E8DDF4', s:'#CBB7E4', b:'#B58FE6'}
+];
+const HAIRS = [
+  {id:'cocoa',  name:'可可棕', c:'#6B4A3A', d:'#4E3427', l:'#8D6450'},
+  {id:'ink',    name:'墨黑',   c:'#3B3442', d:'#272231', l:'#544C60'},
+  {id:'honey',  name:'蜂蜜金', c:'#E9B662', d:'#C8933D', l:'#F8D492'},
+  {id:'sakura', name:'樱花粉', c:'#F2A2BE', d:'#D67E9E', l:'#FFC6DA'},
+  {id:'sky',    name:'雾蓝',   c:'#82A7D9', d:'#5C80B4', l:'#ABC8EE'},
+  {id:'mint',   name:'薄荷绿', c:'#8FCBB4', d:'#6BA791', l:'#B7E5D2'},
+  {id:'violet', name:'薰衣草', c:'#AC8FDA', d:'#8468B6', l:'#CCB4F2'},
+  {id:'silver', name:'月光银', c:'#D2D9E9', d:'#A6B1C8', l:'#F0F4FC'},
+  {id:'ember',  name:'落日橘', c:'#F08C5C', d:'#CB6A3F', l:'#FFB189'},
+  {id:'forest', name:'苔原绿', c:'#5F8C6B', d:'#426A4D', l:'#86AF90'}
+];
+const EYES = [
+  {id:'amber',  name:'琥珀', c:'#8B5A2B'},
+  {id:'teal',   name:'青碧', c:'#2F8477'},
+  {id:'indigo', name:'靛蓝', c:'#5B5FC7'},
+  {id:'rose',   name:'玫红', c:'#C2486B'},
+  {id:'ocean',  name:'海蓝', c:'#3F7BC4'},
+  {id:'olive',  name:'橄榄', c:'#6F8F35'},
+  {id:'copper', name:'赤铜', c:'#B25C22'},
+  {id:'orchid', name:'紫晶', c:'#8A4BA8'}
+];
+const BGS = [
+  {id:'sakura', name:'樱云', c1:'#FFF2F7', c2:'#FFD2E3', deco:'soft',      ac:'#FF9DBB'},
+  {id:'mint',   name:'薄荷', c1:'#EBFBF5', c2:'#C2EDDF', deco:'bokeh',     ac:'#77CFB7'},
+  {id:'cream',  name:'奶油', c1:'#FFF9EC', c2:'#FFE1B6', deco:'dots',      ac:'#FFC178'},
+  {id:'sky',    name:'晴空', c1:'#EDF7FF', c2:'#C5DDFF', deco:'cloud',     ac:'#8FBBF0'},
+  {id:'peach',  name:'蜜桃', c1:'#FFF2EA', c2:'#FFD1BA', deco:'soft',      ac:'#FFA98A'},
+  {id:'lilac',  name:'星夜', c1:'#F4EFFF', c2:'#D5C7FB', deco:'stars',     ac:'#B49BF5'},
+  {id:'moon',   name:'月泉', c1:'#20365C', c2:'#3E6695', deco:'stars',     ac:'#8FC5FF'},
+  {id:'forest', name:'森罗', c1:'#123A31', c2:'#2B6757', deco:'fireflies', ac:'#7FE0B8'},
+  {id:'bloom',  name:'花雾', c1:'#42244B', c2:'#7D4279', deco:'petals',    ac:'#F0A9DC'},
+  {id:'frost',  name:'霜蓝', c1:'#1C2F42', c2:'#3F6483', deco:'bokeh',     ac:'#A8D8F0'},
+  {id:'dawn',   name:'曦光', c1:'#FFEBCC', c2:'#EFBD8D', deco:'ring',      ac:'#FFB06B'},
+  {id:'void',   name:'秘境', c1:'#241C42', c2:'#4E3A80', deco:'ring',      ac:'#C0A6FF'}
+];
+const CLOTHES = ['#FFFFFF','#FDF0F4','#EAF4FF','#F3EFFF','#FFEFE4','#E9F7F1','#3E4A6B','#6E4E7A'];
+
+const HAIR_STYLES = [
+  {id:'bob',    name:'波波头'},
+  {id:'long',   name:'长直发'},
+  {id:'twin',   name:'双马尾'},
+  {id:'bun',    name:'丸子头'},
+  {id:'pony',   name:'侧马尾'},
+  {id:'curly',  name:'卷卷毛'},
+  {id:'short',  name:'短发'}
+];
+const BANGS = [
+  {id:'full',  name:'齐刘海'},
+  {id:'part',  name:'中分'},
+  {id:'side',  name:'侧分'},
+  {id:'hime',  name:'公主切'},
+  {id:'none',  name:'露额头'}
+];
+const EYE_STYLES = [
+  {id:'big',     name:'圆眼'},
+  {id:'sparkle', name:'星星眼'},
+  {id:'sleepy',  name:'瞌睡'},
+  {id:'wink',    name:'眨眼'},
+  {id:'gentle',  name:'温柔'}
+];
+const MOUTHS = [
+  {id:'smile', name:'微笑'},
+  {id:'open',  name:'大笑'},
+  {id:'cat',   name:'猫嘴'},
+  {id:'small', name:'小圆嘴'},
+  {id:'tongue',name:'吐舌'}
+];
+const BROWS = [
+  {id:'soft',   name:'柔和'},
+  {id:'straight',name:'平眉'},
+  {id:'up',     name:'弯眉'}
+];
+const ACCS = [
+  {id:'none',      name:'无'},
+  {id:'flower',    name:'小花'},
+  {id:'starClip',  name:'星星夹'},
+  {id:'ribbon',    name:'蝴蝶结'},
+  {id:'catEars',   name:'猫耳'},
+  {id:'leafCrown', name:'叶冠'},
+  {id:'gem',       name:'额饰'},
+  {id:'horns',     name:'小角'},
+  {id:'headphones',name:'耳机'},
+  {id:'crescent',  name:'月牙'}
+];
+
+const PACKS = {
+  cute:{
+    label:'可爱系', icon:'🌸',
+    skins:['cream','peach','honey','rose','cocoa'],
+    hairs:['cocoa','ink','honey','sakura','sky','mint','violet','ember'],
+    eyes:['amber','rose','ocean','olive','orchid','teal'],
+    bgs:['sakura','mint','cream','sky','peach','lilac'],
+    accs:['none','flower','starClip','ribbon','catEars','headphones'],
+    styles:['bob','twin','bun','long','short','pony','curly'],
+    bangs:['full','part','side','hime'],
+    eyeStyles:['big','sparkle','wink','gentle','sleepy'],
+    elfEars:false
+  },
+  elf:{
+    label:'精灵系', icon:'🧝',
+    skins:['moon','lilac','moss','cream','rose'],
+    hairs:['silver','violet','forest','honey','sakura','sky','ink','mint'],
+    eyes:['teal','indigo','orchid','amber','ocean','copper'],
+    bgs:['moon','forest','bloom','frost','void','dawn','lilac'],
+    accs:['leafCrown','gem','crescent','flower','horns','none','starClip'],
+    styles:['long','pony','bob','curly','twin','bun'],
+    bangs:['part','side','hime','full'],
+    eyeStyles:['sparkle','big','gentle','wink'],
+    elfEars:true
+  }
+};
+
+/* =========================================================================
+   2. 工具
+   ========================================================================= */
+function mulberry32(a){
+  return function(){
+    a |= 0; a = a + 0x6D2B79F5 | 0;
+    let t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+function hexToRgb(h){h=h.replace('#','');return [parseInt(h.slice(0,2),16),parseInt(h.slice(2,4),16),parseInt(h.slice(4,6),16)];}
+function shade(hex, amt){
+  const [r,g,b] = hexToRgb(hex);
+  const f = v => Math.max(0,Math.min(255, Math.round(amt>0 ? v+(255-v)*amt : v*(1+amt))));
+  return `rgb(${f(r)},${f(g)},${f(b)})`;
+}
+function byId(list,id){ return list.find(x=>x.id===id) || list[0]; }
+const FACE_INK = '#3A2E40';
+function star4(x,y,r,color,op){
+  const k = r*0.24;
+  return `<path d="M${x},${y-r} Q${x+k},${y-k} ${x+r},${y} Q${x+k},${y+k} ${x},${y+r} Q${x-k},${y+k} ${x-r},${y} Q${x-k},${y-k} ${x},${y-r} Z" fill="${color}" opacity="${op}"/>`;
+}
+
+/* =========================================================================
+   3. 状态
+   ========================================================================= */
+const DEFAULT = {
+  pack:'cute', skin:'cream', hair:'cocoa', eye:'amber', bg:'sakura',
+  hairStyle:'bob', bangs:'full', eyeStyle:'big', mouth:'smile', brow:'soft',
+  acc:'flower', clothes:0, elfEars:false, blush:true, sparkle:true,
+  seed: 20261104
+};
+let state = {...DEFAULT};
+let miniSeeds = [];
+let selectedMini = -1;
+
+/* =========================================================================
+   4. 绘制
+   ========================================================================= */
+function buildAvatar(st, uid){
+  uid = uid || 'a';
+  const S = byId(SKINS, st.skin);
+  const H = byId(HAIRS, st.hair);
+  const E = byId(EYES, st.eye);
+  const B = byId(BGS, st.bg);
+  const cloth = CLOTHES[st.clothes % CLOTHES.length];
+  const rng = mulberry32(st.seed || 1);
+
+  const defs = `
+    <defs>
+      <linearGradient id="${uid}-bg" x1="0" y1="0" x2="0.35" y2="1">
+        <stop offset="0" stop-color="${B.c1}"/>
+        <stop offset="1" stop-color="${B.c2}"/>
+      </linearGradient>
+      <radialGradient id="${uid}-halo" cx="0.5" cy="0.5" r="0.5">
+        <stop offset="0" stop-color="#fff" stop-opacity=".55"/>
+        <stop offset=".55" stop-color="${B.ac}" stop-opacity=".16"/>
+        <stop offset="1" stop-color="${B.ac}" stop-opacity="0"/>
+      </radialGradient>
+      <linearGradient id="${uid}-skin" x1="0.25" y1="0" x2="0.7" y2="1">
+        <stop offset="0" stop-color="${shade(S.c,.10)}"/>
+        <stop offset=".62" stop-color="${S.c}"/>
+        <stop offset="1" stop-color="${shade(S.s,.06)}"/>
+      </linearGradient>
+      <linearGradient id="${uid}-hair" x1="0.2" y1="0" x2="0.55" y2="1">
+        <stop offset="0" stop-color="${H.l}"/>
+        <stop offset=".42" stop-color="${H.c}"/>
+        <stop offset="1" stop-color="${H.d}"/>
+      </linearGradient>
+      <linearGradient id="${uid}-hair2" x1="0.3" y1="0" x2="0.5" y2="1">
+        <stop offset="0" stop-color="${H.c}"/>
+        <stop offset="1" stop-color="${shade(H.d,-.12)}"/>
+      </linearGradient>
+      <linearGradient id="${uid}-iris" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stop-color="${shade(E.c,-.34)}"/>
+        <stop offset=".5" stop-color="${E.c}"/>
+        <stop offset="1" stop-color="${shade(E.c,.40)}"/>
+      </linearGradient>
+      <radialGradient id="${uid}-blush" cx="0.5" cy="0.5" r="0.5">
+        <stop offset="0" stop-color="${S.b}" stop-opacity=".72"/>
+        <stop offset="1" stop-color="${S.b}" stop-opacity="0"/>
+      </radialGradient>
+      <radialGradient id="${uid}-glow" cx="0.5" cy="0.5" r="0.5">
+        <stop offset="0" stop-color="#fff" stop-opacity=".95"/>
+        <stop offset="1" stop-color="#fff" stop-opacity="0"/>
+      </radialGradient>
+    </defs>`;
+
+  /* ---- 背景 ---- */
+  let bg = `<rect width="512" height="512" fill="url(#${uid}-bg)"/>`;
+  bg += decoLayer(B.deco, B.ac, rng);
+
+  /* ---- 光环（精灵） ---- */
+  if(st.elfEars || st.pack === 'elf'){
+    bg += `<circle cx="256" cy="232" r="168" fill="url(#${uid}-halo)"/>`;
+    bg += `<circle cx="256" cy="232" r="150" fill="none" stroke="${B.ac}" stroke-opacity=".28" stroke-width="1.6"/>`;
+  }
+
+  /* ---- 脖子（先画，压在肩膀下面） ---- */
+  const neck = `<path d="M228,320 L284,320 L284,372 C284,384 272,392 256,392 C240,392 228,384 228,372 Z" fill="${shade(S.s,-.05)}"/>
+    <path d="M228,340 C238,356 250,362 256,362 C262,362 274,356 284,340 L284,352 C274,368 262,374 256,374 C250,374 238,368 228,352 Z" fill="${shade(S.s,-.16)}" opacity=".55"/>`;
+
+  /* ---- 身体（Q 版：肩线紧贴下颌） ---- */
+  const body = `
+    <path d="M256,354 C302,354 338,370 360,392 C384,418 398,462 404,512 L108,512 C114,462 128,418 152,392 C174,370 210,354 256,354 Z" fill="${cloth}"/>
+    <path d="M256,376 C296,376 328,390 348,408 C332,430 296,442 256,442 C216,442 180,430 164,408 C184,390 216,376 256,376 Z" fill="${shade(cloth,-.09)}" opacity=".8"/>
+    <path d="M256,376 C270,376 282,382 288,392 C276,404 236,404 224,392 C230,382 242,376 256,376 Z" fill="${shade(S.s,.06)}"/>
+  `;
+
+  /* ---- 耳朵（仅精灵耳；压在后层头发上，像把头发别到耳后） ---- */
+  const ears = st.elfEars
+    ? `<g>${elfEar(S, uid)}</g><g transform="translate(512,0) scale(-1,1)">${elfEar(S, uid)}</g>`
+    : '';
+
+  /* ---- 头 ---- */
+  const head = `
+    <path d="M256,112 C313,112 358,158 358,224 C358,278 340,318 312,342 C296,356 277,364 256,364
+             C235,364 216,356 200,342 C172,318 154,278 154,224 C154,158 199,112 256,112 Z"
+          fill="url(#${uid}-skin)"/>
+    <ellipse cx="256" cy="180" rx="86" ry="58" fill="#fff" opacity=".10"/>`;
+
+  /* ---- 五官 ---- */
+  const face = faceLayer(st, S, E, H, uid);
+
+  /* ---- 头发 ---- */
+  const backHair = hairBack(st, H, uid);
+  const frontHair = hairFront(st, H, uid);
+
+  /* ---- 配饰 ---- */
+  const acc = accLayer(st, H, S, uid);
+
+  /* ---- 光点 ---- */
+  let fx = '';
+  if(st.sparkle){
+    const pts = [[112,196,9],[400,236,7],[132,352,6],[386,376,8],[96,300,5],[418,318,5]];
+    pts.forEach((p,i)=>{
+      const jx = p[0] + (rng()-.5)*10, jy = p[1] + (rng()-.5)*10;
+      fx += star4(jx, jy, p[2]*(0.8+rng()*.5), '#fff', (.55+rng()*.35).toFixed(2));
+    });
+  }
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+    ${defs}${bg}${neck}${body}${backHair}${ears}${head}${face}${frontHair}${acc}${fx}
+  </svg>`;
+}
+
+/* ---------- 背景装饰 ---------- */
+function decoLayer(kind, ac, rng){
+  let s = '';
+  if(kind === 'soft'){
+    s += `<circle cx="96" cy="120" r="120" fill="#fff" opacity=".38"/>`;
+    s += `<circle cx="430" cy="404" r="140" fill="#fff" opacity=".24"/>`;
+    s += `<circle cx="404" cy="90" r="52" fill="${ac}" opacity=".18"/>`;
+    // 小圆点弧
+    for(let i=0;i<7;i++){
+      const a = (-40 + i*16) * Math.PI/180;
+      s += `<circle cx="${256 + Math.cos(a)*196}" cy="${250 + Math.sin(a)*196}" r="3.2" fill="${ac}" opacity=".55"/>`;
+    }
+  }
+  if(kind === 'bokeh'){
+    const spots = [[70,90,46],[430,150,60],[120,420,54],[400,400,38],[300,60,26]];
+    spots.forEach(p=>{ s += `<circle cx="${p[0]}" cy="${p[1]}" r="${p[2]}" fill="#fff" opacity=".2"/>`; });
+    s += `<circle cx="452" cy="452" r="90" fill="${ac}" opacity=".14"/>`;
+  }
+  if(kind === 'dots'){
+    for(let y=0;y<9;y++) for(let x=0;x<9;x++){
+      s += `<circle cx="${34+x*56}" cy="${34+y*56}" r="2.6" fill="${ac}" opacity=".22"/>`;
+    }
+    s += `<circle cx="256" cy="256" r="200" fill="#fff" opacity=".22"/>`;
+  }
+  if(kind === 'cloud'){
+    s += `<ellipse cx="110" cy="96" rx="86" ry="42" fill="#fff" opacity=".5"/>`;
+    s += `<ellipse cx="166" cy="80" rx="52" ry="34" fill="#fff" opacity=".45"/>`;
+    s += `<ellipse cx="404" cy="420" rx="94" ry="46" fill="#fff" opacity=".4"/>`;
+    s += `<circle cx="430" cy="96" r="44" fill="${ac}" opacity=".2"/>`;
+  }
+  if(kind === 'stars'){
+    for(let i=0;i<16;i++){
+      const x = rng()*512, y = rng()*512, r = 2 + rng()*4;
+      s += `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${r.toFixed(1)}" fill="#fff" opacity="${(.25+rng()*.5).toFixed(2)}"/>`;
+    }
+    [[80,120,12],[420,180,10],[100,400,9],[400,420,11],[350,70,7]].forEach(p=>{
+      s += star4(p[0],p[1],p[2],'#fff',.75);
+    });
+    s += `<circle cx="256" cy="236" r="150" fill="${ac}" opacity=".10"/>`;
+  }
+  if(kind === 'fireflies'){
+    for(let i=0;i<14;i++){
+      const x = rng()*512, y = rng()*512, r = 3 + rng()*5;
+      s += `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${(r*2.6).toFixed(1)}" fill="${ac}" opacity=".10"/>`;
+      s += `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${r.toFixed(1)}" fill="${ac}" opacity=".55"/>`;
+    }
+    s += `<circle cx="256" cy="250" r="168" fill="${ac}" opacity=".08"/>`;
+  }
+  if(kind === 'petals'){
+    for(let i=0;i<12;i++){
+      const x = rng()*512, y = rng()*512, r = 5 + rng()*7, a = rng()*360;
+      s += `<ellipse cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" rx="${r.toFixed(1)}" ry="${(r*.55).toFixed(1)}"
+             fill="${ac}" opacity="${(.18+rng()*.3).toFixed(2)}" transform="rotate(${a.toFixed(0)} ${x.toFixed(1)} ${y.toFixed(1)})"/>`;
+    }
+    s += `<circle cx="256" cy="240" r="160" fill="${ac}" opacity=".07"/>`;
+  }
+  if(kind === 'ring'){
+    s += `<circle cx="256" cy="240" r="188" fill="none" stroke="${ac}" stroke-opacity=".35" stroke-width="1.6"/>`;
+    s += `<circle cx="256" cy="240" r="214" fill="none" stroke="${ac}" stroke-opacity=".16" stroke-width="1.2" stroke-dasharray="3 9"/>`;
+    s += `<circle cx="256" cy="240" r="150" fill="${ac}" opacity=".09"/>`;
+  }
+  return s;
+}
+
+/* ---------- 耳朵 ---------- */
+function elfEar(S, uid){
+  return `<path d="M168,208 C142,198 114,190 98,181 C89,177 92,165 102,170
+                   C131,183 158,201 176,223 C183,241 177,259 166,268
+                   C157,275 146,269 149,260 C156,245 161,230 161,222 Z"
+                 fill="url(#${uid}-skin)" stroke="${shade(S.s,-.14)}" stroke-width="1.2" stroke-opacity=".4"/>
+          <path d="M158,238 C142,226 122,210 112,194" fill="none" stroke="${S.s}" stroke-width="3"
+                stroke-linecap="round" opacity=".45"/>
+          <path d="M120,196 C132,208 144,222 152,236" fill="none" stroke="#fff" stroke-width="2.4"
+                stroke-linecap="round" opacity=".35"/>`;
+}
+
+/* ---------- 头发：后层 ---------- */
+function hairBack(st, H, uid){
+  const g = `url(#${uid}-hair)`;
+  const style = st.hairStyle;
+  if(style === 'bob'){
+    return `<path d="M256,92 C332,92 382,148 382,220 C382,284 374,332 364,358 C354,384 334,394 310,394
+             C286,394 272,376 256,376 C240,376 226,394 202,394 C178,394 158,384 148,358
+             C138,332 130,284 130,220 C130,148 180,92 256,92 Z" fill="${g}"/>`;
+  }
+  if(style === 'long'){
+    return `<path d="M256,94 C334,94 382,150 382,226 L382,404 C382,432 358,448 330,448 L182,448
+             C154,448 130,432 130,404 L130,226 C130,150 178,94 256,94 Z" fill="${g}"/>
+            <path d="M156,300 C150,360 152,410 158,438 L182,438 C176,404 174,352 180,300 Z" fill="${H.d}" opacity=".35"/>
+            <path d="M356,300 C362,360 360,410 354,438 L330,438 C336,404 338,352 332,300 Z" fill="${H.d}" opacity=".28"/>`;
+  }
+  if(style === 'twin'){
+    return `<path d="M256,92 C332,92 382,148 382,220 C382,284 374,332 364,358 C354,384 334,394 310,394
+             C286,394 272,376 256,376 C240,376 226,394 202,394 C178,394 158,384 148,358
+             C138,332 130,284 130,220 C130,148 180,92 256,92 Z" fill="${g}"/>
+            <path d="M146,256 C110,268 88,304 92,348 C95,384 116,404 140,398 C160,393 165,373 154,358
+                     C141,340 140,318 154,300 Z" fill="${g}"/>
+            <path d="M366,256 C402,268 424,304 420,348 C417,384 396,404 372,398 C352,393 347,373 358,358
+                     C371,340 372,318 358,300 Z" fill="${g}"/>
+            <ellipse cx="152" cy="262" rx="13" ry="9" fill="#FF8FB0" opacity=".9" transform="rotate(-20 152 262)"/>
+            <ellipse cx="360" cy="262" rx="13" ry="9" fill="#FF8FB0" opacity=".9" transform="rotate(20 360 262)"/>`;
+  }
+  if(style === 'bun'){
+    return `<circle cx="256" cy="76" r="44" fill="${g}"/>
+            <path d="M256,92 C332,92 382,148 382,220 C382,284 374,332 364,358 C354,384 334,394 310,394
+             C286,394 272,376 256,376 C240,376 226,394 202,394 C178,394 158,384 148,358
+             C138,332 130,284 130,220 C130,148 180,92 256,92 Z" fill="${g}"/>
+            <ellipse cx="256" cy="112" rx="34" ry="12" fill="${H.d}" opacity=".45"/>`;
+  }
+  if(style === 'pony'){
+    return `<path d="M256,92 C332,92 382,148 382,220 C382,284 374,332 364,358 C354,384 334,394 310,394
+             C286,394 272,376 256,376 C240,376 226,394 202,394 C178,394 158,384 148,358
+             C138,332 130,284 130,220 C130,148 180,92 256,92 Z" fill="${g}"/>
+            <path d="M368,246 C406,252 434,290 434,344 C434,392 412,424 384,420 C362,417 352,396 364,382
+                     C380,362 386,330 370,306 Z" fill="${g}"/>
+            <ellipse cx="372" cy="252" rx="14" ry="9" fill="#FF8FB0" opacity=".9" transform="rotate(18 372 252)"/>`;
+  }
+  if(style === 'curly'){
+    let curls = '';
+    const pts = [[138,250,34],[128,310,32],[146,362,30],[374,250,34],[384,310,32],[366,362,30],
+                 [172,120,30],[340,120,30],[256,86,42],[108,368,26],[404,368,26]];
+    pts.forEach(p=>{ curls += `<circle cx="${p[0]}" cy="${p[1]}" r="${p[2]}" fill="${g}"/>`; });
+    return curls + `<path d="M256,92 C332,92 382,148 382,220 C382,284 374,332 364,358 C354,384 334,394 310,394
+             C286,394 272,376 256,376 C240,376 226,394 202,394 C178,394 158,384 148,358
+             C138,332 130,284 130,220 C130,148 180,92 256,92 Z" fill="${g}"/>`;
+  }
+  // short
+  return `<path d="M256,96 C326,96 372,146 374,214 C375,246 368,272 358,288 C350,300 338,298 334,284
+           C328,262 318,246 304,240 C288,234 274,242 260,242 C242,242 228,232 212,236
+           C194,240 184,256 180,280 C176,296 162,296 156,282 C148,264 146,240 146,212
+           C148,146 188,96 256,96 Z" fill="${g}"/>`;
+}
+
+/* ---------- 头发：前层（刘海） ---------- */
+function hairFront(st, H, uid){
+  const g = `url(#${uid}-hair)`;
+  const b = st.bangs;
+  let out = '';
+  if(b === 'full'){
+    out = `<path d="M150,242 C146,156 196,98 256,98 C316,98 366,156 362,242
+             C352,212 336,196 318,198 C300,200 288,212 280,226
+             C272,206 264,196 256,196 C248,196 240,206 232,226
+             C224,212 212,200 194,198 C176,196 160,212 150,242 Z" fill="${g}"/>`;
+  }
+  if(b === 'part'){
+    out = `<path d="M150,240 C146,156 196,100 256,100 C247,148 234,192 214,224
+             C200,248 174,256 156,247 C153,245 151,242 150,240 Z" fill="${g}"/>
+           <g transform="translate(512,0) scale(-1,1)">
+             <path d="M150,240 C146,156 196,100 256,100 C247,148 234,192 214,224
+             C200,248 174,256 156,247 C153,245 151,242 150,240 Z" fill="${g}"/>
+           </g>`;
+  }
+  if(b === 'side'){
+    out = `<path d="M150,242 C144,156 194,100 256,100 C318,100 366,156 362,242
+             C352,204 332,184 306,186 C280,188 258,208 236,228
+             C212,250 176,252 158,240 Z" fill="${g}"/>
+           <path d="M196,214 C214,236 236,250 260,254" fill="none" stroke="${H.l}" stroke-width="5"
+                 stroke-linecap="round" opacity=".38"/>`;
+  }
+  if(b === 'hime'){
+    out = `<path d="M150,240 C146,156 196,100 256,100 C316,100 366,156 362,240
+             L360,216 C334,206 296,202 256,202 C216,202 178,206 152,216 Z" fill="${g}"/>
+           <path d="M154,236 C150,286 154,326 164,350 C172,368 186,366 188,348
+             C190,326 184,286 178,246 Z" fill="${g}"/>
+           <path d="M358,236 C362,286 358,326 348,350 C340,368 326,366 324,348
+             C322,326 328,286 334,246 Z" fill="${g}"/>`;
+  }
+  if(b === 'none'){
+    out = `<path d="M150,240 C146,156 196,100 256,100 C316,100 366,156 362,240
+             C354,206 338,184 316,176 C296,168 276,164 256,164
+             C236,164 216,168 196,176 C174,184 158,206 150,240 Z" fill="${g}"
+             opacity=".96"/>`;
+  }
+  // 高光
+  out += `<path d="M188,168 C206,140 236,124 268,124" fill="none" stroke="#fff" stroke-width="7"
+           stroke-linecap="round" opacity=".26"/>`;
+  return out;
+}
+
+/* ---------- 五官 ---------- */
+function faceLayer(st, S, E, H, uid){
+  const cy = 256, lx = 214, rx = 298;
+  let s = '';
+
+  /* 眉 */
+  const browY = 210;
+  const browPaths = {
+    soft: `M-20,2 C-12,-7 12,-7 20,-1`,
+    straight: `M-20,0 C-12,-4 12,-4 20,0`,
+    up: `M-20,4 C-12,-9 12,-11 20,0`
+  };
+  const bp = browPaths[st.brow] || browPaths.soft;
+  [lx, rx].forEach(x=>{
+    s += `<g transform="translate(${x},${browY})">
+            <path d="${bp}" fill="none" stroke="${H.d}" stroke-width="5" stroke-linecap="round" opacity=".8"/>
+          </g>`;
+  });
+
+  /* 眼 */
+  const closedRight = st.eyeStyle === 'wink';
+  const bothClosed = st.eyeStyle === 'sleepy';
+  s += eye(lx, cy, st.eyeStyle, E, uid, bothClosed);
+  s += eye(rx, cy, st.eyeStyle, E, uid, bothClosed || closedRight);
+
+  /* 腮红 */
+  if(st.blush){
+    s += `<ellipse cx="174" cy="300" rx="30" ry="18" fill="url(#${uid}-blush)"/>
+          <ellipse cx="338" cy="300" rx="30" ry="18" fill="url(#${uid}-blush)"/>`;
+  }
+
+  /* 精灵雀斑 */
+  if(st.elfEars){
+    const dots = [[196,290],[210,300],[184,306],[322,290],[310,300],[330,306]];
+    dots.forEach(d=>{ s += `<circle cx="${d[0]}" cy="${d[1]}" r="1.9" fill="${S.s}" opacity=".55"/>`; });
+  }
+
+  /* 鼻子 */
+  s += `<path d="M251,290 C254,294 258,294 261,290" fill="none" stroke="${shade(S.s,-.18)}"
+         stroke-width="3" stroke-linecap="round" opacity=".65"/>`;
+
+  /* 嘴 */
+  s += mouth(st.mouth);
+  return s;
+}
+
+function eye(cx, cy, style, E, uid, closed){
+  if(closed){
+    return `<g>
+      <path d="M${cx-24},${cy+2} C${cx-14},${cy+18} ${cx+14},${cy+18} ${cx+24},${cy+2}"
+            fill="none" stroke="${FACE_INK}" stroke-width="6.5" stroke-linecap="round"/>
+      <path d="M${cx-28},${cy-4} C${cx-20},${cy+6} ${cx-12},${cy+8} ${cx-6},${cy+6}"
+            fill="none" stroke="${FACE_INK}" stroke-width="4" stroke-linecap="round" opacity=".55"/>
+    </g>`;
+  }
+  const iris = `url(#${uid}-iris)`;
+  let g = `<ellipse cx="${cx}" cy="${cy}" rx="27" ry="29" fill="${iris}"
+            stroke="${FACE_INK}" stroke-width="3"/>`;
+  // 瞳孔
+  g += `<ellipse cx="${cx}" cy="${cy+2}" rx="11.5" ry="13.5" fill="#2A2130"/>`;
+  if(style === 'sparkle'){
+    g += `<path d="M${cx},${cy-11} L${cx+3.6},${cy-3.6} L${cx+11},${cy} L${cx+3.6},${cy+3.6}
+                  L${cx},${cy+11} L${cx-3.6},${cy+3.6} L${cx-11},${cy} L${cx-3.6},${cy-3.6} Z"
+            fill="#FFF6D8"/>`;
+    g += `<circle cx="${cx-10}" cy="${cy+9}" r="3.4" fill="#fff" opacity=".8"/>`;
+  } else {
+    g += `<circle cx="${cx-9}" cy="${cy-12}" r="8.6" fill="#fff" opacity=".95"/>`;
+    g += `<circle cx="${cx+10}" cy="${cy+11}" r="4.2" fill="#fff" opacity=".75"/>`;
+    g += `<circle cx="${cx-13}" cy="${cy+2}" r="2.4" fill="#fff" opacity=".55"/>`;
+  }
+  // 上睫毛
+  g += `<path d="M${cx-28},${cy-6} C${cx-24},${cy-34} ${cx+24},${cy-34} ${cx+28},${cy-6}"
+          fill="none" stroke="${FACE_INK}" stroke-width="7" stroke-linecap="round"/>`;
+  // 下眼睑
+  g += `<path d="M${cx-18},${cy+25} C${cx-8},${cy+31} ${cx+8},${cy+31} ${cx+18},${cy+25}"
+          fill="none" stroke="${FACE_INK}" stroke-width="2.6" stroke-linecap="round" opacity=".35"/>`;
+  return g;
+}
+
+function mouth(kind){
+  if(kind === 'smile'){
+    return `<path d="M243,314 C249,324 263,324 269,314" fill="none" stroke="#B24B57"
+             stroke-width="4.4" stroke-linecap="round"/>`;
+  }
+  if(kind === 'open'){
+    return `<path d="M238,310 C238,334 274,334 274,310 C262,306 250,306 238,310 Z" fill="#9C3F4E"/>
+            <path d="M243,317 C247,325 265,325 269,317 C260,313 252,313 243,317 Z" fill="#F0859B"/>`;
+  }
+  if(kind === 'cat'){
+    return `<path d="M242,312 C247,320 252,320 256,313 C260,320 265,320 270,312" fill="none"
+             stroke="#B24B57" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>`;
+  }
+  if(kind === 'small'){
+    return `<ellipse cx="256" cy="316" rx="7.5" ry="9" fill="#9C3F4E"/>
+            <ellipse cx="256" cy="319" rx="4" ry="4.4" fill="#F0859B" opacity=".9"/>`;
+  }
+  // tongue
+  return `<path d="M240,310 C240,330 272,330 272,310 Z" fill="#9C3F4E"/>
+          <path d="M250,320 C250,338 262,338 262,320 Z" fill="#F0859B"/>
+          <path d="M256,320 L256,332" stroke="#D26579" stroke-width="1.6"/>`;
+}
+
+/* ---------- 配饰 ---------- */
+function accLayer(st, H, S, uid){
+  const a = st.acc;
+  if(a === 'none') return '';
+  if(a === 'flower'){
+    const cx = 172, cy = 172, r = 13;
+    let petals = '';
+    for(let i=0;i<5;i++){
+      const ang = i*72*Math.PI/180;
+      petals += `<ellipse cx="${(cx+Math.cos(ang)*13).toFixed(1)}" cy="${(cy+Math.sin(ang)*13).toFixed(1)}"
+                  rx="10" ry="13" fill="#fff" opacity=".95"
+                  transform="rotate(${i*72} ${(cx+Math.cos(ang)*13).toFixed(1)} ${(cy+Math.sin(ang)*13).toFixed(1)})"/>`;
+    }
+    return `<g><circle cx="${cx}" cy="${cy}" r="${r+13}" fill="#fff" opacity=".18"/>${petals}
+             <circle cx="${cx}" cy="${cy}" r="7.5" fill="#FFC977"/>
+             <circle cx="${cx-2}" cy="${cy-2}" r="2.6" fill="#FFE3A8"/></g>`;
+  }
+  if(a === 'starClip'){
+    return `<g>${star4(186,164,22,'#FFD071',1)}${star4(186,164,11,'#FFF2C6',1)}
+             ${star4(206,186,8,'#FFF0BE',.85)}</g>`;
+  }
+  if(a === 'ribbon'){
+    return `<g transform="translate(322,158) rotate(12)">
+      <path d="M0,0 C-26,-16 -40,-4 -36,12 C-32,26 -12,24 0,8 Z" fill="#FF8FB0"/>
+      <path d="M0,0 C26,-16 40,-4 36,12 C32,26 12,24 0,8 Z" fill="#FFA3C0"/>
+      <circle cx="0" cy="6" r="8" fill="#FFD9E5"/>
+      <circle cx="0" cy="6" r="3.6" fill="#FF9DBB"/>
+    </g>`;
+  }
+  if(a === 'catEars'){
+    return `<g>
+      <path d="M186,150 C178,124 184,100 200,104 C212,107 224,126 230,148 Z" fill="url(#${uid}-hair)"
+              stroke="${H.d}" stroke-width="2" stroke-opacity=".35"/>
+      <path d="M198,142 C194,126 197,114 206,118 C213,121 219,132 221,144 Z" fill="#FFB4C8"/>
+      <path d="M326,150 C334,124 328,100 312,104 C300,107 288,126 282,148 Z" fill="url(#${uid}-hair)"
+              stroke="${H.d}" stroke-width="2" stroke-opacity=".35"/>
+      <path d="M314,142 C318,126 315,114 306,118 C299,121 293,132 291,144 Z" fill="#FFB4C8"/>
+    </g>`;
+  }
+  if(a === 'leafCrown'){
+    let leaves = '';
+    const pts = [[174,186,-52],[198,166,-34],[224,152,-16],[256,148,0],[288,152,16],[314,166,34],[338,186,52]];
+    pts.forEach((p,i)=>{
+      leaves += `<g transform="translate(${p[0]},${p[1]}) rotate(${p[2]})">
+                  <path d="M0,0 C-7,-12 0,-23 8,-23 C15,-23 17,-11 9,-2 Z" fill="${i%2?'#7FCBA2':'#63B78C'}"/>
+                  <path d="M0,0 C1,-8 5,-14 9,-17" stroke="#4E9B74" stroke-width="1.4" fill="none" opacity=".8"/>
+                </g>`;
+    });
+    return leaves;
+  }
+  if(a === 'gem'){
+    return `<g>
+      <circle cx="256" cy="168" r="20" fill="#fff" opacity=".28"/>
+      <path d="M256,150 L270,168 L256,188 L242,168 Z" fill="#8FE3FF"/>
+      <path d="M256,150 L270,168 L256,168 Z" fill="#D9F7FF"/>
+      <path d="M256,168 L270,168 L256,188 Z" fill="#5FC2E8"/>
+      <circle cx="251" cy="161" r="3" fill="#fff" opacity=".9"/>
+    </g>`;
+  }
+  if(a === 'horns'){
+    return `<g>
+      <path d="M198,126 C182,106 184,80 202,68 C204,86 210,104 220,118 Z" fill="#F3DFC0"
+              stroke="#D8BE99" stroke-width="1.6"/>
+      <path d="M314,126 C330,106 328,80 310,68 C308,86 302,104 292,118 Z" fill="#F3DFC0"
+              stroke="#D8BE99" stroke-width="1.6"/>
+    </g>`;
+  }
+  if(a === 'headphones'){
+    return `<g>
+      <path d="M146,232 C146,152 366,152 366,232" fill="none" stroke="#5B5470" stroke-width="13"
+              stroke-linecap="round"/>
+      <path d="M146,232 C146,152 366,152 366,232" fill="none" stroke="#8E86A6" stroke-width="5"
+              stroke-linecap="round" opacity=".8"/>
+      <rect x="128" y="220" width="42" height="56" rx="19" fill="#5B5470"/>
+      <rect x="134" y="226" width="30" height="44" rx="15" fill="#FF9DBB"/>
+      <rect x="342" y="220" width="42" height="56" rx="19" fill="#5B5470"/>
+      <rect x="348" y="226" width="30" height="44" rx="15" fill="#FF9DBB"/>
+    </g>`;
+  }
+  // crescent
+  return `<g>
+    <circle cx="330" cy="168" r="24" fill="#FFE1A8" opacity=".35"/>
+    <path d="M338,148 a22,22 0 1 0 0,40 a17,17 0 1 1 0,-40 Z" fill="#FFD071"/>
+    ${star4(306,150,9,'#FFF0BE',.9)}
+  </g>`;
+}
+
+/* =========================================================================
+   5. 渲染与交互
+   ========================================================================= */
+const stageEl = document.getElementById('stage');
+const panelEl = document.getElementById('panel');
+const gridEl  = document.getElementById('grid');
+const seedTxt = document.getElementById('seed-txt');
+
+function render(){
+  stageEl.innerHTML = buildAvatar(state, 'stage');
+  seedTxt.textContent = String(state.seed);
+  syncPanel();
+}
+
+function renderMinis(){
+  gridEl.innerHTML = miniSeeds.map((seed,i)=>{
+    const s = {...state, seed};
+    const rng = mulberry32(seed);
+    // 让每张也有变化：随机部件
+    const pack = state.pack;
+    const P = PACKS[pack];
+    s.skin = P.skins[Math.floor(rng()*P.skins.length)];
+    s.hair = P.hairs[Math.floor(rng()*P.hairs.length)];
+    s.eye  = P.eyes[Math.floor(rng()*P.eyes.length)];
+    s.bg   = P.bgs[Math.floor(rng()*P.bgs.length)];
+    s.clothes = Math.floor(rng()*CLOTHES.length);
+    s.acc  = P.accs[Math.floor(rng()*P.accs.length)];
+    s.hairStyle = P.styles[Math.floor(rng()*P.styles.length)];
+    s.bangs = P.bangs[Math.floor(rng()*P.bangs.length)];
+    s.eyeStyle = P.eyeStyles[Math.floor(rng()*P.eyeStyles.length)];
+    s.mouth = MOUTHS[Math.floor(rng()*MOUTHS.length)].id;
+    s.brow = BROWS[Math.floor(rng()*BROWS.length)].id;
+    s.elfEars = pack === 'elf' ? true : rng() > .72;
+    s.blush = rng() > .12;
+    s.sparkle = rng() > .3;
+    return `<button class="mini${selectedMini===i?' on':''}" data-i="${i}" title="采用这个">
+              ${buildAvatar(s, 'm'+i)}
+            </button>`;
+  }).join('');
+  gridEl.querySelectorAll('.mini').forEach(el=>{
+    el.onclick = ()=>{
+      const i = +el.dataset.i;
+      const seed = miniSeeds[i];
+      const rng = mulberry32(seed);
+      const P = PACKS[state.pack];
+      state = {
+        ...state, seed,
+        skin: P.skins[Math.floor(rng()*P.skins.length)],
+        hair: P.hairs[Math.floor(rng()*P.hairs.length)],
+        eye:  P.eyes[Math.floor(rng()*P.eyes.length)],
+        bg:   P.bgs[Math.floor(rng()*P.bgs.length)],
+        clothes: Math.floor(rng()*CLOTHES.length),
+        acc:  P.accs[Math.floor(rng()*P.accs.length)],
+        hairStyle: P.styles[Math.floor(rng()*P.styles.length)],
+        bangs: P.bangs[Math.floor(rng()*P.bangs.length)],
+        eyeStyle: P.eyeStyles[Math.floor(rng()*P.eyeStyles.length)],
+        mouth: MOUTHS[Math.floor(rng()*MOUTHS.length)].id,
+        brow: BROWS[Math.floor(rng()*BROWS.length)].id,
+        elfEars: state.pack === 'elf' ? true : rng() > .72
+      };
+      selectedMini = i;
+      render(); renderMinis();
+      toast('已采用第 ' + (i+1) + ' 个');
+    };
+  });
+}
+
+/* ---------- 控制面板 ---------- */
+function buildPanel(){
+  const P = PACKS[state.pack];
+  const skins = SKINS.filter(s=>P.skins.includes(s.id));
+  const hairs = HAIRS.filter(s=>P.hairs.includes(s.id));
+  const eyes  = EYES.filter(s=>P.eyes.includes(s.id));
+  const bgs   = BGS.filter(s=>P.bgs.includes(s.id));
+
+  const swatches = (list, key, colorFn, title) =>
+    `<div class="row"><div class="lb">${title}</div><div class="ct">
+      ${list.map(x=>`<button class="sw" data-k="${key}" data-v="${x.id}"
+        style="background:${colorFn(x)}" title="${x.name}"></button>`).join('')}
+    </div></div>`;
+
+  const chips = (list, key, title) =>
+    `<div class="row"><div class="lb">${title}</div><div class="ct">
+      ${list.map(x=>`<button class="chip" data-k="${key}" data-v="${x.id}">${x.name}</button>`).join('')}
+    </div></div>`;
+
+  panelEl.innerHTML = `
+    <div class="sect" style="padding-top:18px">
+      <div class="seg" id="packSeg">
+        <button data-pack="cute" class="${state.pack==='cute'?'on':''}"><span class="ic">🌸</span>可爱系</button>
+        <button data-pack="elf"  class="${state.pack==='elf'?'on':''}"><span class="ic">🧝</span>精灵系</button>
+      </div>
+    </div>
+
+    <div class="sect">
+      <div class="sect-head"><h3>五官</h3><div class="rule"></div></div>
+      ${swatches(skins,'skin',x=>`linear-gradient(145deg,${x.c},${x.s})`,'肤色')}
+      ${chips(EYE_STYLES,'eyeStyle','眼型')}
+      ${swatches(eyes,'eye',x=>x.c,'瞳色')}
+      ${chips(BROWS,'brow','眉形')}
+      ${chips(MOUTHS,'mouth','嘴型')}
+    </div>
+
+    <div class="sect">
+      <div class="sect-head"><h3>头发</h3><div class="rule"></div></div>
+      ${chips(HAIR_STYLES,'hairStyle','发型')}
+      ${chips(BANGS,'bangs','刘海')}
+      ${swatches(hairs,'hair',x=>`linear-gradient(145deg,${x.l},${x.d})`,'发色')}
+    </div>
+
+    <div class="sect">
+      <div class="sect-head"><h3>装饰</h3><div class="rule"></div></div>
+      ${chips(ACCS.filter(a=>P.accs.includes(a.id)),'acc','配饰')}
+      ${swatches(bgs,'bg',x=>`linear-gradient(145deg,${x.c1},${x.c2})`,'背景')}
+      <div class="row"><div class="lb">细节</div><div class="ct">
+        <div class="toggle" data-toggle="elfEars"><span class="dot"></span>精灵耳</div>
+        <div class="toggle" data-toggle="blush"><span class="dot"></span>腮红</div>
+        <div class="toggle" data-toggle="sparkle"><span class="dot"></span>光点</div>
+      </div></div>
+      <div class="row"><div class="lb">配色</div><div class="ct">
+        ${CLOTHES.map((c,i)=>`<button class="sw" data-k="clothes" data-v="${i}" style="background:${c};box-shadow:inset 0 0 0 1.5px #EFE6EE" title="第${i+1}套"></button>`).join('')}
+      </div></div>
+    </div>
+
+    <div class="sect">
+      <div class="sect-head"><h3>种子</h3><div class="rule"></div></div>
+      <div class="row"><div class="lb">复现</div><div class="ct" style="align-items:center;gap:8px">
+        <input id="seedInput" value="${state.seed}" style="flex:1;min-width:120px;font-family:ui-monospace,monospace;
+          font-size:13px;padding:9px 12px;border-radius:11px;border:1px solid #F0E7EE;background:#FFFBFD;color:#5B4F63;outline:none"/>
+        <button class="chip" id="btn-apply-seed">套用</button>
+      </div></div>
+    </div>
+  `;
+
+  // 交互
+  panelEl.querySelectorAll('[data-k]').forEach(el=>{
+    el.onclick = ()=>{
+      const k = el.dataset.k;
+      let v = el.dataset.v;
+      if(k === 'clothes') v = +v;
+      state[k] = v;
+      render();
+    };
+  });
+  panelEl.querySelectorAll('[data-toggle]').forEach(el=>{
+    el.onclick = ()=>{
+      const k = el.dataset.toggle;
+      state[k] = !state[k];
+      render();
+    };
+  });
+  panelEl.querySelectorAll('[data-pack]').forEach(el=>{
+    el.onclick = ()=>{
+      if(state.pack === el.dataset.pack) return;
+      state.pack = el.dataset.pack;
+      state.elfEars = PACKS[state.pack].elfEars;
+      const P = PACKS[state.pack];
+      if(!P.skins.includes(state.skin)) state.skin = P.skins[0];
+      if(!P.hairs.includes(state.hair)) state.hair = P.hairs[0];
+      if(!P.eyes.includes(state.eye))   state.eye  = P.eyes[0];
+      if(!P.bgs.includes(state.bg))     state.bg   = P.bgs[0];
+      if(!P.accs.includes(state.acc))   state.acc  = P.accs[0];
+      if(!P.bangs.includes(state.bangs)) state.bangs = P.bangs[0];
+      if(!P.styles.includes(state.hairStyle)) state.hairStyle = P.styles[0];
+      if(!P.eyeStyles.includes(state.eyeStyle)) state.eyeStyle = P.eyeStyles[0];
+      buildPanel(); render(); renderMinis();
+    };
+  });
+  const applySeed = ()=>{
+    const v = parseInt(document.getElementById('seedInput').value, 10);
+    if(!isNaN(v)){ state.seed = v; applySeedAll(); }
+  };
+  document.getElementById('btn-apply-seed').onclick = applySeed;
+  document.getElementById('seedInput').onkeydown = e=>{ if(e.key==='Enter') applySeed(); };
+
+  syncPanel();
+}
+
+function syncPanel(){
+  panelEl.querySelectorAll('[data-k]').forEach(el=>{
+    let cur = state[el.dataset.k];
+    el.classList.toggle('on', String(cur) === el.dataset.v);
+  });
+  panelEl.querySelectorAll('[data-toggle]').forEach(el=>{
+    el.classList.toggle('on', !!state[el.dataset.toggle]);
+  });
+}
+
+/* ---------- 随机 ---------- */
+function newSeed(){
+  return Math.floor(Math.random()*900000000) + 100000000;
+}
+function randomize(){
+  const P = PACKS[state.pack];
+  const rnd = ()=>Math.random();
+  const pk = a => a[Math.floor(rnd()*a.length)];
+  state.seed = newSeed();
+  state.skin = pk(P.skins);
+  state.hair = pk(P.hairs);
+  state.eye  = pk(P.eyes);
+  state.bg   = pk(P.bgs);
+  state.acc  = pk(P.accs);
+  state.hairStyle = pk(P.styles);
+  state.bangs = pk(P.bangs);
+  state.eyeStyle = pk(P.eyeStyles);
+  state.mouth = pk(MOUTHS).id;
+  state.brow = pk(BROWS).id;
+  state.clothes = Math.floor(rnd()*CLOTHES.length);
+  state.elfEars = state.pack === 'elf' ? (rnd() > .25) : rnd() > .78;
+  state.blush = rnd() > .1;
+  state.sparkle = rnd() > .25;
+  applySeedAll();
+}
+
+/* 由种子确定性生成整套状态（“套用种子”用） */
+function applySeedAll(){
+  const v = state.seed;
+  const rng = mulberry32(v);
+  const P = PACKS[state.pack];
+  state.skin = P.skins[Math.floor(rng()*P.skins.length)];
+  state.hair = P.hairs[Math.floor(rng()*P.hairs.length)];
+  state.eye  = P.eyes[Math.floor(rng()*P.eyes.length)];
+  state.bg   = P.bgs[Math.floor(rng()*P.bgs.length)];
+  state.acc  = P.accs[Math.floor(rng()*P.accs.length)];
+  state.hairStyle = P.styles[Math.floor(rng()*P.styles.length)];
+  state.bangs = P.bangs[Math.floor(rng()*P.bangs.length)];
+  state.eyeStyle = P.eyeStyles[Math.floor(rng()*P.eyeStyles.length)];
+  state.mouth = MOUTHS[Math.floor(rng()*MOUTHS.length)].id;
+  state.brow = BROWS[Math.floor(rng()*BROWS.length)].id;
+  state.clothes = Math.floor(rng()*CLOTHES.length);
+  state.elfEars = state.pack === 'elf' ? rng() > .2 : rng() > .75;
+  state.blush = rng() > .12;
+  state.sparkle = rng() > .3;
+  buildPanel(); render(); refreshMinis(); syncPanel();
+}
+
+function refreshMinis(){
+  miniSeeds = Array.from({length:12}, ()=> newSeed());
+  selectedMini = -1;
+  renderMinis();
+}
+
+/* ---------- 导出 ---------- */
+function download(name, url){
+  const a = document.createElement('a');
+  a.href = url; a.download = name; a.click();
+}
+function exportPNG(){
+  const raw = buildAvatar(state, 'export');
+  const blob = new Blob([raw], {type:'image/svg+xml;charset=utf-8'});
+  const url = URL.createObjectURL(blob);
+  const img = new Image();
+  img.onload = ()=>{
+    const size = 1024;
+    const c = document.createElement('canvas');
+    c.width = size; c.height = size;
+    const ctx = c.getContext('2d');
+    ctx.drawImage(img, 0, 0, size, size);
+    c.toBlob(b=>{
+      const u = URL.createObjectURL(b);
+      download(`avatar-${state.pack}-${state.seed}.png`, u);
+      setTimeout(()=>URL.revokeObjectURL(u), 4000);
+      toast('已保存 PNG（1024×1024）');
+    }, 'image/png');
+    URL.revokeObjectURL(url);
+  };
+  img.onerror = ()=>toast('导出失败，试试 SVG');
+  img.src = url;
+}
+function exportSVG(){
+  const blob = new Blob([buildAvatar(state,'export')], {type:'image/svg+xml;charset=utf-8'});
+  const u = URL.createObjectURL(blob);
+  download(`avatar-${state.pack}-${state.seed}.svg`, u);
+  setTimeout(()=>URL.revokeObjectURL(u), 4000);
+  toast('已保存 SVG 矢量文件');
+}
+
+/* ---------- toast ---------- */
+let toastTimer;
+function toast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(()=>t.classList.remove('show'), 1700);
+}
+
+/* ---------- 绑定 ---------- */
+document.getElementById('btn-random').onclick = ()=>{ randomize(); toast('换了个新的'); };
+document.getElementById('btn-png').onclick = exportPNG;
+document.getElementById('btn-svg').onclick = exportSVG;
+document.getElementById('btn-copy').onclick = ()=>{
+  navigator.clipboard?.writeText(String(state.seed)).then(()=>toast('种子已复制'), ()=>toast('复制失败'));
+};
+document.getElementById('btn-refresh-mini').onclick = ()=>{ refreshMinis(); };
+
+window.addEventListener('keydown', e=>{
+  if(e.code === 'Space' && e.target.tagName !== 'INPUT'){
+    e.preventDefault(); randomize(); toast('换了个新的');
+  }
+});
+
+/* ---------- 启动 ---------- */
+buildPanel();
+render();
+refreshMinis();
+</script>
+</body>
+</html>

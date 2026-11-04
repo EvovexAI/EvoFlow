@@ -861,6 +861,9 @@ import {
   resolveSessionAgentCodeForUi,
   getSessionCollabModeFromMeta,
   getThinkingLevelFromMeta,
+  getVisionPrefFromMeta,
+  setVisionPrefInMeta,
+  type SessionVisionPref,
 } from './utils/session-meta.js'
 import {
   comparableAssistantText,
@@ -1675,6 +1678,9 @@ export function useChatAppController() {
   /** 与 ws-client session context ``memory_enabled`` 对齐；默认开，仅显式 ``false`` 为关 */
   const [memoryEnabled, setMemoryEnabled] = useState(true)
   const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>(() => getThinkingLevelFromMeta(selectedSessionKey || ''))
+  const [visionPref, setVisionPref] = useState<SessionVisionPref>(() =>
+    getVisionPrefFromMeta(selectedSessionKey || ''),
+  )
   const [modeMenuOpen, setModeMenuOpen] = useState(false)
   /** 后端动态返回的模式列表（含 visible/scenario）；null 表示尚未加载 */
   const [dynamicModes, setDynamicModes] = useState<Array<{ value: string; label: string; visible: boolean; scenario: string | null }> | null>(null)
@@ -3113,9 +3119,10 @@ export function useChatAppController() {
     return runLoadEmployeeRoleDetailEffect({
       employeeSessionAgentCode,
       fallbackAgentCode: selectedSessionAgentId,
+      selectedSessionKey,
       setEmployeeRoleDetail,
     })
-  }, [employeeSessionAgentCode, selectedSessionAgentId, roleUiNonce])
+  }, [employeeSessionAgentCode, selectedSessionAgentId, selectedSessionKey, roleUiNonce])
 
   /** 进入员工会话时按 session_key 同步 workspace_kind，不再用底栏「只聊天/派任务」模式条 */
   useEffect(() => {
@@ -3568,6 +3575,7 @@ export function useChatAppController() {
     queueMicrotask(() => {
       setSessionMode(mode ?? getSessionModeFromMeta(sk))
       setThinkingLevel(getThinkingLevelFromMeta(selectedSessionKey || ''))
+      setVisionPref(getVisionPrefFromMeta(selectedSessionKey || ''))
     })
   }, [selectedSessionKey, sessions, setRestoredScenarioScene])
 
@@ -3961,6 +3969,40 @@ export function useChatAppController() {
     selectedSessionKey,
     sessionRef,
   })
+
+  /** 状态面板角色设定：思考三态 → 会话 thinking level */
+  const applySessionThinkingPref = useCallback(
+    async (pref: 'follow' | 'on' | 'off') => {
+      const sk = String(selectedSessionKey || '').trim()
+      if (!sk) return
+      const level = pref === 'follow' ? 'auto' : pref === 'off' ? 'off' : 'medium'
+      await applyThinkingLevel(sk, level)
+    },
+    [selectedSessionKey, applyThinkingLevel],
+  )
+
+  /** 状态面板角色设定：图片识别三态 → 会话 meta + context */
+  const applySessionVisionPref = useCallback(
+    async (pref: SessionVisionPref) => {
+      const sk = String(selectedSessionKey || '').trim()
+      if (!sk) return
+      setVisionPrefInMeta(sk, pref)
+      setVisionPref(pref)
+      const vision_enabled = pref === 'follow' ? null : pref === 'on'
+      wsClient.updateSessionContext(sk, { vision_enabled })
+      try {
+        const api = await getApi()
+        await api.chatUpdateContext(sk, { vision_enabled })
+      } catch {
+        /* local meta already updated */
+      }
+      toast(
+        pref === 'follow' ? '图片识别：默认（本会话）' : pref === 'on' ? '已开启图片识别（本会话）' : '已关闭图片识别（本会话）',
+        'success',
+      )
+    },
+    [selectedSessionKey],
+  )
 
   const scenarioSessionHandlers = useMemo(
     () =>
@@ -5138,9 +5180,14 @@ export function useChatAppController() {
     bumpSubtasksApiRefresh,
   ])
 
+  const sessionThinkingPref =
+    thinkingLevel === 'auto' ? 'follow' : thinkingLevel === 'off' ? 'off' : 'on'
+
   const renderChatSummaryPanel = (mode: 'panel' | 'capsule'): ReactNode =>
     renderChatSummaryPanelImpl(
       {
+        applySessionThinkingPref,
+        applySessionVisionPref,
         artifactFocusId,
         assetQuickBusy,
         capabilityPatchBusy,
@@ -5150,6 +5197,8 @@ export function useChatAppController() {
         currentRoleLabel,
         displayContextUsage,
         effectiveModelName,
+        effectiveModelSupportsThinking,
+        effectiveModelSupportsVision,
         employeeRoleDetail,
         employeeSessionAgentCode,
         getDisplayLabel,
@@ -5174,9 +5223,12 @@ export function useChatAppController() {
         selectedTurnBusy,
         sessionArtifacts,
         sessionPlatformEntries,
+        sessionThinkingPref,
+        sessionVisionPref: visionPref,
         sessions,
         setBottomRoleOpen,
         setChatPanelDisplayMode,
+        setRoleUiNonce,
         sharedCollabSubtasks,
         sidebarActiveView,
         turnArtifacts,

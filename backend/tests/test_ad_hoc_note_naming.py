@@ -82,3 +82,21 @@ def test_write_and_pending_injection(asset_home: Path) -> None:
     block = format_pending_inbox_notes_for_prompt(entity)
     assert "douyin-pipeline-image-post-fallback.md" in block
     assert "image post fallback" in block
+
+
+def test_pending_inbox_keeps_full_note_body_by_default(asset_home: Path) -> None:
+    entity = EntityRef("user", "u_trunc")
+    long = (
+        "[process] AIGC 反推师并入复刻师。"
+        "依据（可复用判断法）：项目侧自证：`aigc/aigc-prompt-reverser` 与 `aigc-remaker` "
+        "能力完全重叠，反推只是复刻 SOP 的第一步子步骤，因此删除反推师岗位。"
+        + ("补充说明。" * 40)
+    )
+    write_ad_hoc_note(entity, long, slug_hint="aigc-merge")
+    block = format_pending_inbox_notes_for_prompt(entity)
+    assert "aigc-merge.md" in block
+    assert "aigc/aigc-prompt-reverser" in block
+    assert "补充说明。" in block
+    # Explicit budget still truncates with a marker (opt-in only).
+    capped = format_pending_inbox_notes_for_prompt(entity, max_chars=120)
+    assert "pending inbox truncated" in capped

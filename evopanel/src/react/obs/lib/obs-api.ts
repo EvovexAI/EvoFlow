@@ -139,13 +139,63 @@ export async function fetchAgents(): Promise<{ id?: string; name?: string; displ
   return Array.isArray(list) ? list : []
 }
 
-export async function checkObsEnabled(): Promise<boolean> {
+export const OBS_ENABLED_CHANGED_EVENT = 'evoflow:obs-enabled-changed'
+
+export type ObsEnabledStatus = {
+  enabled: boolean
+  lockedByEnv: boolean
+  configEnabled?: boolean
+}
+
+export function notifyObsEnabledChanged(enabled: boolean): void {
   try {
-    const st = (await api.observabilityStatus()) as { enabled?: boolean }
-    // Strict: missing/failed status must not look "enabled" (debug tab / 小V 调试).
-    return st?.enabled === true
+    window.dispatchEvent(
+      new CustomEvent(OBS_ENABLED_CHANGED_EVENT, { detail: { enabled: !!enabled } }),
+    )
   } catch {
-    return false
+    /* ignore */
+  }
+}
+
+export async function fetchObsEnabledStatus(): Promise<ObsEnabledStatus> {
+  try {
+    const st = (await api.observabilityStatus()) as {
+      enabled?: boolean
+      locked_by_env?: boolean
+      config_enabled?: boolean
+    }
+    return {
+      enabled: st?.enabled === true,
+      lockedByEnv: st?.locked_by_env === true,
+      configEnabled: st?.config_enabled === true,
+    }
+  } catch {
+    return { enabled: false, lockedByEnv: false }
+  }
+}
+
+export async function checkObsEnabled(): Promise<boolean> {
+  // Strict: missing/failed status must not look "enabled" (debug tab / 小V 调试).
+  return (await fetchObsEnabledStatus()).enabled
+}
+
+export async function setObsEnabled(enabled: boolean): Promise<ObsEnabledStatus> {
+  const res = (await api.observabilitySetEnabled(!!enabled)) as {
+    enabled?: boolean
+    locked_by_env?: boolean
+    ok?: boolean
+  }
+  const next = res?.enabled === true
+  try {
+    const { resetObservabilityCache } = await import('../../../pages/agent-trace-obs-sqlite.js')
+    resetObservabilityCache()
+  } catch {
+    /* optional cache */
+  }
+  notifyObsEnabledChanged(next)
+  return {
+    enabled: next,
+    lockedByEnv: res?.locked_by_env === true,
   }
 }
 

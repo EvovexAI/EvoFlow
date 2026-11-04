@@ -477,21 +477,67 @@ async function loadRebindableAgents(currentCode) {
 export const DUTY_PROMPT_SECTION = '## 岗位职责'
 
 /**
+ * @param {string[]|string|null|undefined} responsibilities
+ * @returns {string[]}
+ */
+export function coerceDutyLines(responsibilities) {
+  if (Array.isArray(responsibilities)) {
+    return responsibilities.map((x) => String(x || '').trim()).filter(Boolean)
+  }
+  if (typeof responsibilities === 'string') {
+    return responsibilities
+      .split('\n')
+      .map((s) => s.trim())
+      .filter(Boolean)
+  }
+  return []
+}
+
+/**
+ * Split agent system_prompt into body + duty lines under ``## 岗位职责``.
+ * @param {string} systemPrompt
+ * @returns {{ body: string, duties: string[] }}
+ */
+export function splitDutyFromSystemPrompt(systemPrompt) {
+  const sp = String(systemPrompt || '')
+  const idx = sp.indexOf(DUTY_PROMPT_SECTION)
+  if (idx < 0) {
+    return { body: sp.trim(), duties: [] }
+  }
+  const before = sp.slice(0, idx).trimEnd()
+  const rest = sp.slice(idx + DUTY_PROMPT_SECTION.length)
+  const nextH2 = rest.search(/\n##\s/)
+  const dutyBlock = (nextH2 >= 0 ? rest.slice(0, nextH2) : rest).trim()
+  const after = nextH2 >= 0 ? rest.slice(nextH2).trim() : ''
+  const duties = dutyBlock
+    .split('\n')
+    .map((l) => l.replace(/^[-*•]\s*/, '').trim())
+    .filter(Boolean)
+  const body = [before, after].filter(Boolean).join('\n\n').trim()
+  return { body, duties }
+}
+
+/**
+ * Write duty lines back into system_prompt (replaces existing ``## 岗位职责`` block).
+ * @param {string} systemPrompt
+ * @param {string[]|string|null|undefined} responsibilities
+ */
+export function applyDutyToSystemPrompt(systemPrompt, responsibilities) {
+  const { body } = splitDutyFromSystemPrompt(systemPrompt)
+  const lines = coerceDutyLines(responsibilities)
+  if (!lines.length) return body
+  const block = `${DUTY_PROMPT_SECTION}\n${lines.map((l) => `- ${l}`).join('\n')}`
+  return body ? `${body}\n\n${block}` : block
+}
+
+/**
  * Merge legacy role responsibilities into agent system_prompt (idempotent).
  * @param {string} systemPrompt
  * @param {string[]|string|null|undefined} responsibilities
  */
 export function mergeDutyIntoSystemPrompt(systemPrompt, responsibilities) {
   const sp = String(systemPrompt || '').trim()
-  let lines = []
-  if (Array.isArray(responsibilities)) {
-    lines = responsibilities.map((x) => String(x || '').trim()).filter(Boolean)
-  } else if (typeof responsibilities === 'string') {
-    lines = responsibilities
-      .split('\n')
-      .map((s) => s.trim())
-      .filter(Boolean)
-  }
+  const lines = coerceDutyLines(responsibilities)
   if (!lines.length) return sp
   if (sp.includes(DUTY_PROMPT_SECTION)) return sp
   if (lines.every((line) => sp.includes(line))) return sp
@@ -871,6 +917,9 @@ export async function showEditRoleModal(role, {
     isXiaomiFrontDesk && (thinkingEnabledRaw === null || thinkingEnabledRaw === undefined)
       ? false
       : thinkingEnabledRaw
+  const visionEnabledRaw = cfg.vision_enabled
+  const visionEnabled =
+    visionEnabledRaw === true || visionEnabledRaw === false ? visionEnabledRaw : null
   const legacyDuties = Array.isArray(cfg.responsibilities)
     ? cfg.responsibilities.map((x) => String(x || '').trim()).filter(Boolean)
     : []
@@ -1048,7 +1097,7 @@ export async function showEditRoleModal(role, {
               <div class="hire-field">
                 <span>模型思考</span>
                 <div class="hire-chip-row" data-name="thinking_enabled" role="radiogroup">
-                  <button type="button" class="hire-chip${thinkingEnabled === null || thinkingEnabled === undefined ? ' is-on' : ''}" data-value="">跟随默认</button>
+                  <button type="button" class="hire-chip${thinkingEnabled === null || thinkingEnabled === undefined ? ' is-on' : ''}" data-value="">默认</button>
                   <button type="button" class="hire-chip${thinkingEnabled === true ? ' is-on' : ''}" data-value="true">启用思考</button>
                   <button type="button" class="hire-chip${thinkingEnabled === false ? ' is-on' : ''}" data-value="false">禁用思考</button>
                 </div>
@@ -1057,6 +1106,15 @@ export async function showEditRoleModal(role, {
                     ? '平台秘书默认关闭思考，保证接待/分诊快回；一般无需开启'
                     : '控制模型的推理/思考过程（如 CoT、extended thinking）'
                 }</p>
+              </div>
+              <div class="hire-field">
+                <span>图片识别</span>
+                <div class="hire-chip-row" data-name="vision_enabled" role="radiogroup">
+                  <button type="button" class="hire-chip${visionEnabled === null || visionEnabled === undefined ? ' is-on' : ''}" data-value="">默认</button>
+                  <button type="button" class="hire-chip${visionEnabled === true ? ' is-on' : ''}" data-value="true">启用识图</button>
+                  <button type="button" class="hire-chip${visionEnabled === false ? ' is-on' : ''}" data-value="false">关闭识图</button>
+                </div>
+                <p class="hire-chip-hint">关闭后该岗位聊天不能发图；默认则按当前模型是否支持视觉</p>
               </div>
               <div class="hire-field">
                 <span>记忆</span>
@@ -1212,6 +1270,10 @@ export async function showEditRoleModal(role, {
           ? false
           : null
         : thinking_enabled_raw === 'true'
+    const vision_enabled_raw =
+      overlay.querySelector('[data-name="vision_enabled"] .hire-chip.is-on')?.dataset.value || ''
+    const vision_enabled =
+      vision_enabled_raw === '' ? null : vision_enabled_raw === 'true'
     const model_name = readModelName(overlay)
     const nextDaily = Number(overlay.querySelector('[data-name="daily_budget_usd"]')?.value || 0) || 0
     const nextPerRun = Number(overlay.querySelector('[data-name="per_run_budget_usd"]')?.value || 0) || 0
@@ -1277,8 +1339,12 @@ export async function showEditRoleModal(role, {
     if (think_mode !== thinkMode) roleChanges.push(`工作方式：${THINK_MODE_LABELS[thinkMode] || thinkMode} → ${THINK_MODE_LABELS[think_mode] || think_mode}`)
     // thinking_enabled 变更检测
     if (thinking_enabled !== thinkingEnabled) {
-      const labels = { null: '跟随默认', true: '启用思考', false: '禁用思考' }
+      const labels = { null: '默认', true: '启用思考', false: '禁用思考' }
       roleChanges.push(`模型思考：${labels[thinkingEnabled]} → ${labels[thinking_enabled]}`)
+    }
+    if (vision_enabled !== visionEnabled) {
+      const labels = { null: '默认', true: '启用识图', false: '关闭识图' }
+      roleChanges.push(`图片识别：${labels[visionEnabled]} → ${labels[vision_enabled]}`)
     }
     const memory_enabled_raw =
       overlay.querySelector('[data-name="memory_enabled"] .hire-chip.is-on')?.dataset.value || 'true'
@@ -1453,6 +1519,7 @@ export async function showEditRoleModal(role, {
           heartbeat_schedule,
           think_mode,
           thinking_enabled,
+          vision_enabled,
           model_name,
           daily_budget_usd: nextDaily,
           per_run_budget_usd: nextPerRun,

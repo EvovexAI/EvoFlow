@@ -190,19 +190,22 @@ def observability_status() -> dict[str, Any]:
     try:
         from evoflow.config.app_config import get_app_config
         from evoflow.config.data_paths import resolve_observability_db_config_path
-        from evoflow.debug.trace_sink import observability_enabled
+        from evoflow.debug.trace_sink import observability_enabled, observability_env_override
 
         obs = get_app_config().observability
         enabled = observability_enabled()
+        env = observability_env_override()
         # Resolve path without opening/creating the SQLite file when disabled.
         path = str(resolve_observability_db_config_path((obs.sqlite_path or "").strip() or None))
         return {
             "enabled": enabled,
             "sqlite_path": path,
             "file_mirror": bool(obs.file_mirror),
+            "locked_by_env": env is not None,
+            "config_enabled": bool(obs.enabled),
         }
     except Exception as exc:
-        return {"enabled": False, "sqlite_path": "", "error": str(exc)}
+        return {"enabled": False, "sqlite_path": "", "locked_by_env": False, "error": str(exc)}
 
 
 def _percentile(values: list[float], p: float) -> float | None:

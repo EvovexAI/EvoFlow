@@ -1,4 +1,4 @@
-import { useCallback, useState, type ComponentType, type ReactNode } from 'react'
+import { useCallback, useEffect, useState, type ComponentType, type ReactNode } from 'react'
 import { Shell } from './components/Shell'
 import { ObsProvider } from './hooks/ObsContext'
 import { ThreadTitleProvider } from './hooks/useThreadTitles'
@@ -126,6 +126,19 @@ export default function ObsDashboardApp() {
     },
     [setActiveAndPersist],
   )
+
+  // 全屏观测页藏了主壳侧栏，Esc 作为「返回对话」快捷键，避免用户困在页面里。
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      const t = e.target as HTMLElement | null
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return
+      e.preventDefault()
+      window.location.hash = '/chat'
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
 
   return (
     <div className="obs-dashboard-root">

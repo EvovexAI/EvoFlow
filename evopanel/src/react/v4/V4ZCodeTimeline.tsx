@@ -339,16 +339,27 @@ export function createEvoflowPartialServices(
     }
     return "";
   };
+  const parseContentRangeTotal = (contentRange: string | null): number | null => {
+    if (!contentRange) return null;
+    const total = Number.parseInt(contentRange.split("/")[1] ?? "", 10);
+    return Number.isFinite(total) && total >= 0 ? total : null;
+  };
   const statFile = async (
     input: string | { path?: string },
   ): Promise<{ path: string; type: "file" | "directory"; size?: number }> => {
     const path = resolveStatPath(input);
     if (!path) throw new Error("file not found: (empty path)");
     const { resp, buf } = await readServeFileBuffer(path, { headers: { Range: "bytes=0-0" } });
-    const contentRange = resp.headers.get("content-range");
-    if (resp.status === 206 && contentRange) {
-      const total = Number.parseInt(contentRange.split("/")[1] ?? "", 10);
-      if (Number.isFinite(total)) return { path, type: "file", size: total };
+    const rangedTotal = parseContentRangeTotal(resp.headers.get("content-range"));
+    if (resp.status === 206 && rangedTotal != null) {
+      return { path, type: "file", size: rangedTotal };
+    }
+    // 206 but Content-Range invisible (historical CORS hole): body is only the
+    // probe slice (often 1 byte for bytes=0-0). Never treat that as file size —
+    // full refetch; after gateway expose_headers this path should be rare.
+    if (resp.status === 206) {
+      const { buf: full } = await readServeFileBuffer(path);
+      return { path, type: "file", size: full.byteLength };
     }
     return { path, type: "file", size: buf.byteLength };
   };

@@ -10,6 +10,8 @@ export type LoadEmployeeRoleDetailCtx = Record<string, any>
 function mapRoleDetail(role: any, fallbackCode: string) {
   const cfg = role.config && typeof role.config === 'object' ? role.config : {}
   const think = String(cfg.think_mode || '').trim()
+  const thinkingRaw = cfg.thinking_enabled
+  const visionRaw = cfg.vision_enabled
   return {
     agentCode: String(role.agent_code || fallbackCode).trim(),
     roleName: String(role.role_name || role.agent_code || fallbackCode).trim(),
@@ -22,6 +24,9 @@ function mapRoleDetail(role: any, fallbackCode: string) {
     modelName: String(cfg.model_name || '').trim(),
     autonomyLabel: String(cfg.autonomy_level || '').trim(),
     thinkModeLabel: think === 'prompt_only' ? '轻量工作' : think ? '深度工作' : '',
+    thinkingEnabled:
+      thinkingRaw === true || thinkingRaw === false ? thinkingRaw : null,
+    visionEnabled: visionRaw === true || visionRaw === false ? visionRaw : null,
     knowledgeVaultIds: Array.isArray(cfg.knowledge_vault_ids)
       ? cfg.knowledge_vault_ids.map((x: unknown) => String(x || '').trim()).filter(Boolean)
       : [],
@@ -68,9 +73,30 @@ export function runLoadEmployeeRoleDetailEffect(
       }
       return detail
     })
-    .then((detail: any) => {
+    .then(async (detail: any) => {
       if (cancelled) return
       ctx.setEmployeeRoleDetail(detail || null)
+      // 岗位偏好灌进当前员工会话，发图 / 思考门控与状态面板一致
+      const sk = String(ctx.selectedSessionKey || '').trim()
+      if (!sk || !detail) return
+      try {
+        const { wsClient } = await import('../../../lib/ws-client.js')
+        const { api } = await import('../../../lib/tauri-api.js')
+        const patch: Record<string, unknown> = {}
+        if (detail.thinkingEnabled === true || detail.thinkingEnabled === false) {
+          patch.thinking_enabled = detail.thinkingEnabled
+          patch.thinking_type = 'manual'
+          patch.reasoning_effort = detail.thinkingEnabled ? 'medium' : 'minimum'
+        }
+        if (detail.visionEnabled === true || detail.visionEnabled === false) {
+          patch.vision_enabled = detail.visionEnabled
+        }
+        if (!Object.keys(patch).length) return
+        wsClient.updateSessionContext(sk, patch)
+        await api.chatUpdateContext(sk, patch).catch(() => {})
+      } catch {
+        /* ignore */
+      }
     })
     .catch(() => {
       if (!cancelled) ctx.setEmployeeRoleDetail(null)

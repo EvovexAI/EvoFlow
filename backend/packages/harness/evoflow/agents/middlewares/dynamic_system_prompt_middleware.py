@@ -6,8 +6,9 @@
 - Tool list visible to the model is filtered per turn (``DeferredToolFilterMiddleware``); the tool catalog
   section in the system prompt should match ``request.tools``.
 - ``evf_dynamic_prompt_meta["custom_system_prompt"]`` is a snapshot from graph compile time; without a
-  disk fingerprint, edits to ``agents/<role>/config.yaml`` or ``SOUL.md`` would not refresh until scenario
-  or tool lists changed.
+  role fingerprint, edits to SOUL / system_prompt would stick on the per-thread cached system until
+  scenario or tool lists changed. Fingerprint covers asset file mtimes **and** SQLite
+  ``updated_at``/lengths so Panel saves take effect on the next user turn in the same session.
 
 **How**
 - Runs in ``wrap_model_call`` **after** ``DeferredToolFilterMiddleware`` (outer-first chain) and **before**
@@ -115,42 +116,53 @@ def _tool_names_sorted(tools: list[Any] | None) -> list[str]:
 
 
 def _agent_role_disk_signature(agent_name: str | None) -> str:
-    """Mtime signature for role config + SOUL so EvoPanel edits invalidate the prompt cache."""
+    """Signature for role SOUL + system_prompt so EvoPanel edits invalidate the prompt cache.
+
+    File mtimes are TTL-cached (stat was costly on Windows). SQLite revision is
+    always re-read so Gateway→LangGraph cross-process saves take effect on the
+    next wrap without waiting for the file TTL.
+    """
     code = (str(agent_name or "").strip() or "main").lower()
-    # Hot path: reuse for a short TTL — full stat every wrap was ~tens of ms on Windows.
     now = time.monotonic()
     cached = _ROLE_DISK_SIG_CACHE.get(code)
     if cached is not None and (now - cached[0]) < _ROLE_DISK_SIG_TTL_S:
-        return cached[1]
-    try:
-        from evoflow.config.agents_config import SOUL_FILENAME
-        from evoflow.config.paths import get_paths
-
-        d = get_paths().agent_dir(code)
-
-        def _mt(p: Path) -> str:
-            try:
-                return str(int(p.stat().st_mtime_ns)) if p.exists() else "0"
-            except OSError:
-                return "0"
-
-        legacy = f"{_mt(d / 'config.yaml')}:{_mt(d / SOUL_FILENAME)}"
+        file_sig = cached[1]
+    else:
         try:
-            from evoflow.assets.paths import EntityRef, profile_path
+            from evoflow.config.agents_config import SOUL_FILENAME
+            from evoflow.config.paths import get_paths
 
-            asset_soul = profile_path(EntityRef("agent", code), "SOUL.md")
-            asset_system = profile_path(EntityRef("agent", code), "system.md")
-            assets_sig = f"{_mt(asset_soul)}:{_mt(asset_system)}"
+            d = get_paths().agent_dir(code)
+
+            def _mt(p: Path) -> str:
+                try:
+                    return str(int(p.stat().st_mtime_ns)) if p.exists() else "0"
+                except OSError:
+                    return "0"
+
+            legacy = f"{_mt(d / 'config.yaml')}:{_mt(d / SOUL_FILENAME)}"
+            try:
+                from evoflow.assets.paths import EntityRef, profile_path
+
+                asset_soul = profile_path(EntityRef("agent", code), "SOUL.md")
+                asset_system = profile_path(EntityRef("agent", code), "system.md")
+                assets_sig = f"{_mt(asset_soul)}:{_mt(asset_system)}"
+            except Exception:
+                assets_sig = "0:0"
+            file_sig = f"{legacy}|{assets_sig}"
         except Exception:
-            assets_sig = "0:0"
-        sig = f"{legacy}|{assets_sig}"
+            file_sig = "0:0|0:0"
+        _ROLE_DISK_SIG_CACHE[code] = (now, file_sig)
+        if len(_ROLE_DISK_SIG_CACHE) > 64:
+            oldest = next(iter(_ROLE_DISK_SIG_CACHE))
+            _ROLE_DISK_SIG_CACHE.pop(oldest, None)
+    try:
+        from evoflow.persistence.config_repositories import get_agent_prompt_revision
+
+        db_rev = get_agent_prompt_revision(code)
     except Exception:
-        sig = "0:0|0:0"
-    _ROLE_DISK_SIG_CACHE[code] = (now, sig)
-    if len(_ROLE_DISK_SIG_CACHE) > 64:
-        oldest = next(iter(_ROLE_DISK_SIG_CACHE))
-        _ROLE_DISK_SIG_CACHE.pop(oldest, None)
-    return sig
+        db_rev = "0"
+    return f"{file_sig}|db:{db_rev}"
 
 
 def _latest_human_index(messages: list[Any]) -> int:
@@ -671,3 +683,16 @@ class DynamicSystemPromptOnScenarioMiddleware(AgentMiddleware[AgentState]):
 # Aliases for old class-level names (backwards compat for subclasses / external refs).
 _last_sig_by_thread = DynamicSystemPromptOnScenarioMiddleware._last_sig_by_thread
 _last_system_by_thread = DynamicSystemPromptOnScenarioMiddleware._last_system_by_thread
+
+
+def invalidate_dynamic_system_prompt_cache(*, agent_code: str | None = None) -> None:
+    """Drop per-thread assembled system + role fingerprint cache after SOUL/prompt edits.
+
+    Same-session next user turn must rebuild via ``apply_prompt_template``; otherwise
+    Panel edits look like they "didn't save". ``agent_code`` is reserved for future
+    thread→agent indexing; today we clear the whole process maps (small, bounded).
+    """
+    _ = agent_code
+    DynamicSystemPromptOnScenarioMiddleware._last_sig_by_thread.clear()
+    DynamicSystemPromptOnScenarioMiddleware._last_system_by_thread.clear()
+    _ROLE_DISK_SIG_CACHE.clear()

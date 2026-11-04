@@ -117,6 +117,7 @@ def pack_payload(
         return content
 
     body = content if content is not None else src.get("content")
+    body, thinking_from_blocks = split_thinking_from_content(body)
     payload: dict[str, Any] = {"content": body if body is not None else ""}
 
     tool_calls = src.get("tool_calls") or src.get("toolCalls")
@@ -124,6 +125,11 @@ def pack_payload(
         payload["tool_calls"] = tool_calls
 
     reasoning = _pick_reasoning(src)
+    if thinking_from_blocks:
+        if reasoning:
+            reasoning = f"{reasoning}\n{thinking_from_blocks}".strip()
+        else:
+            reasoning = thinking_from_blocks
     if reasoning:
         payload["reasoning"] = reasoning
 
@@ -134,29 +140,87 @@ def pack_payload(
     return payload
 
 
-def plain_text(payload: dict[str, Any]) -> str:
-    """Plain text for dedupe / search / model fallback."""
-    body = payload.get("content")
+_THINKING_CONTENT_TYPES = frozenset({"thinking", "reasoning", "reasoning_content"})
+
+
+def _visible_content_parts(body: Any) -> list[str]:
+    """Extract user-visible text from ``content`` only (never thinking / reasoning blocks)."""
     if isinstance(body, str):
         text = body.strip()
-        if text:
-            return text
-    if isinstance(body, list):
-        parts: list[str] = []
-        for item in body:
-            if isinstance(item, str):
+        return [text] if text else []
+    if not isinstance(body, list):
+        return []
+    parts: list[str] = []
+    for item in body:
+        if isinstance(item, str):
+            if item.strip():
                 parts.append(item)
-            elif isinstance(item, dict):
-                if item.get("type") == "text" and isinstance(item.get("text"), str):
-                    parts.append(item["text"])
-                elif isinstance(item.get("text"), str):
-                    parts.append(item["text"])
-        joined = "\n".join(p for p in parts if p).strip()
-        if joined:
-            return joined
+            continue
+        if not isinstance(item, dict):
+            continue
+        btype = str(item.get("type") or "").strip().lower()
+        if btype in _THINKING_CONTENT_TYPES:
+            continue
+        if btype and btype not in {"text", "output_text"}:
+            continue
+        text = item.get("text")
+        if isinstance(text, str) and text.strip():
+            parts.append(text)
+    return parts
+
+
+def split_thinking_from_content(content: Any) -> tuple[Any, str | None]:
+    """Move structured thinking blocks out of ``content`` into a reasoning string.
+
+    String ``content`` is left untouched (providers must map thinking into
+    ``reasoning`` / ``reasoning_content`` — we do not guess by language).
+    """
+    if not isinstance(content, list):
+        return content, None
+    visible: list[Any] = []
+    thoughts: list[str] = []
+    for part in content:
+        if isinstance(part, dict):
+            btype = str(part.get("type") or "").strip().lower()
+            if btype in _THINKING_CONTENT_TYPES:
+                chunk = part.get("thinking")
+                if not isinstance(chunk, str) or not chunk.strip():
+                    chunk = part.get("text") if isinstance(part.get("text"), str) else ""
+                if isinstance(chunk, str) and chunk.strip():
+                    thoughts.append(chunk.strip())
+                continue
+        visible.append(part)
+    reason = "\n".join(thoughts).strip() or None
+    if not thoughts:
+        return content, None
+    if len(visible) == 1 and isinstance(visible[0], dict) and visible[0].get("type") == "text":
+        only = visible[0].get("text")
+        return (only if isinstance(only, str) else visible), reason
+    return (visible if visible else ""), reason
+
+
+def plain_text(payload: dict[str, Any]) -> str:
+    """Plain text for dedupe / search / model fallback."""
+    visible = visible_body_text(payload)
+    if visible:
+        return visible
     reason = payload.get("reasoning")
     if isinstance(reason, str) and reason.strip():
         return reason.strip()
+    return ""
+
+
+def visible_body_text(payload: dict[str, Any]) -> str:
+    """User-visible assistant/user body for IM / UI — never falls back to ``reasoning``."""
+    if not isinstance(payload, dict):
+        return ""
+    parts = _visible_content_parts(payload.get("content"))
+    if parts:
+        # content blocks join without forced newlines (stream-friendly); multi-block uses newline
+        body = payload.get("content")
+        if isinstance(body, list):
+            return "\n".join(parts).strip()
+        return parts[0].strip()
     return ""
 
 

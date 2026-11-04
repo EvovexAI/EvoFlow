@@ -390,17 +390,19 @@ NON_CORE_TOOL_GROUPS: dict[str, dict[str, tuple[str, ...] | str]] = {
         "tools": ("plan", "supervisor", "subagent"),
     },
     "file_ops": {
-        "zh_description": "工作区写改：read+replace/write；删除与诊断走 Bash（rm / pyright），对齐 ZCode；多文件改写委派 subagent",
+        "zh_description": "工作区读写改查：replace/write + search_code_index/glob/grep；删除与诊断走 Bash（rm / pyright），对齐 ZCode；多文件改写委派 subagent",
         "tools": (
             "write",
             "replace",
             # "delete",  # retired — 删除走 Bash rm
             "search_code_index",
+            "glob",
+            "grep",
             # "read_lints",  # retired — 诊断走 Bash
         ),
     },
     "file_ops_read_present": {
-        "zh_description": "规划阶段只读检索：索引 search_code_index（大结果路径用 read；glob/grep 已注册为专用工具；rg 在 workspace_baseline）",
+        "zh_description": "规划阶段只读检索：索引 search_code_index + glob/grep（与 agent file_ops 对齐；Plan 模式已下线，日常走 agent）",
         "tools": ("search_code_index", "glob", "grep"),
     },
     "web_research": {
@@ -463,7 +465,7 @@ TASK_SCENARIO_PROFILES: dict[str, TaskScenarioProfile] = {
     ),
     "plan": TaskScenarioProfile(
         key="plan",
-        zh_description="**Plan**（已下线，仅内部协作保留）：勿 activate；日常用 agent + `plan` 工具写方案。",
+        zh_description="**Plan**（模式已下线；仅协作运行时内部注入，模型勿 activate）。",
         tool_groups=("plan_orchestration", "file_ops_read_present", "hosted_panel", "entity_assets"),
         extra_tool_names=(
             "read",
@@ -472,8 +474,8 @@ TASK_SCENARIO_PROFILES: dict[str, TaskScenarioProfile] = {
             "peer_read",
             "peer_reply",
         ),
-        signals="（已下线）勿主动 activate plan。",
-        boundaries="Plan 模式已下线；勿 mode_set/scenario activate plan。写方案用 agent 下的 `plan` 工具。",
+        signals="勿 activate。用户侧无 Plan 模式。",
+        boundaries="禁止 mode_set/scenario activate plan；工具门禁只认 agent。写方案用 agent + `plan` 工具。",
     ),
     "agent": TaskScenarioProfile(
         key="agent",
@@ -597,18 +599,20 @@ def resolve_tools_for_scenarios(scenarios: list[str]) -> list[str]:
     return sorted(out)
 
 
-# 与 TASK_SCENARIO_PROFILES 非 ask 键对齐（内部 collab 仍可注入 plan）；对外 mode_set 拒绝 activate plan
-ACTIVATABLE_SCENARIO_KEYS: tuple[str, ...] = ("plan", "agent")
-
-# 对外可 activate 的键（Plan 模式已下线）
+# Plan 模式已下线：对外可 activate / 工具授权门禁只认 agent。
+# ``plan`` 仍留在 TASK_SCENARIO_PROFILES + 下方 INTERNAL 集合，仅供协作运行时内部注入，
+# **不得**再出现在 ScenarioNotActivated / scenario(activate=…) 建议里。
 USER_ACTIVATABLE_SCENARIO_KEYS: tuple[str, ...] = ("agent",)
+
+# 含内部 collab 可注入的 plan（与 TASK_SCENARIO_PROFILES 非 ask 键对齐）
+ACTIVATABLE_SCENARIO_KEYS: tuple[str, ...] = ("plan", "agent")
 
 
 @functools.lru_cache(maxsize=1)
 def all_scenario_governed_tool_names() -> frozenset[str]:
-    """Non-core tool names that require at least one activatable scenario (union over profiles)."""
+    """Non-core tools gated by scenario activation — **agent grant only** (Plan UI offline)."""
     names: set[str] = set()
-    for key in ACTIVATABLE_SCENARIO_KEYS:
+    for key in USER_ACTIVATABLE_SCENARIO_KEYS:
         for t in resolve_tools_for_scenarios([key]):
             if t not in CORE_TOOL_NAMES and t not in DEFERRED_SYSTEM_TOOL_NAMES:
                 names.add(t)
@@ -616,37 +620,23 @@ def all_scenario_governed_tool_names() -> frozenset[str]:
 
 
 def scenarios_granting_tool(tool_name: str) -> list[str]:
-    """Mode keys whose tool union includes ``tool_name`` (profile order, excludes ask)."""
+    """User-facing mode keys that grant ``tool_name`` (never returns offline ``plan``)."""
     n = str(tool_name or "").strip()
     if not n:
         return []
     keys: list[str] = []
-    for key in ACTIVATABLE_SCENARIO_KEYS:
+    for key in USER_ACTIVATABLE_SCENARIO_KEYS:
         if n in resolve_tools_for_scenarios([key]):
             keys.append(key)
     return ordered_scenario_keys_for_display(keys)
 
 
-_WORKSPACE_FILE_TOOL_NAMES = frozenset(resolve_tools_for_scenarios(["agent"]) + resolve_tools_for_scenarios(["plan"]))
+_WORKSPACE_FILE_TOOL_NAMES = frozenset(resolve_tools_for_scenarios(["agent"]))
 _WEB_TOOL_NAMES = frozenset(NON_CORE_TOOL_GROUPS["web_research"]["tools"])  # type: ignore[arg-type]
 _PLAN_ORCHESTRATION_TOOL_NAMES = frozenset({"plan", "supervisor"})
 
 
-def recommended_scenario_for_tool(tool_name: str, candidate_scenarios: list[str] | None) -> str:
-    """Pick the scenario to suggest when a tool is not activated (may differ from profile declaration order).
-
-    Plan 模式已下线：一律建议 agent（含 plan/supervisor 工具）。
-    """
-    scenarios = ordered_scenario_keys_for_display(candidate_scenarios or [])
-    if not scenarios:
-        return "agent"
-    n = str(tool_name or "").strip().lower()
-    preference: tuple[str, ...]
-    if n in _PLAN_ORCHESTRATION_TOOL_NAMES or n in _WORKSPACE_FILE_TOOL_NAMES or n in _WEB_TOOL_NAMES:
-        preference = ("agent",)
-    else:
-        preference = tuple(k for k in scenarios if k != "plan") or ("agent",)
-    for key in preference:
-        if key in scenarios:
-            return key
-    return scenarios[0]
+def recommended_scenario_for_tool(tool_name: str, candidate_scenarios: list[str] | None = None) -> str:
+    """Always ``agent`` — Plan 模式已下线，禁止再建议 activate plan。"""
+    del tool_name, candidate_scenarios
+    return "agent"

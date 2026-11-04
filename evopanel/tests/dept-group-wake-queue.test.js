@@ -85,7 +85,7 @@ describe('DeptGroupWakeQueue', () => {
     q.dispose()
   })
 
-  it('skips duplicate nest chainKey', async () => {
+  it('skips duplicate nest chainKey within same turn', async () => {
     const runs = []
     const q = new DeptGroupWakeQueue({
       sleep: async () => {},
@@ -98,16 +98,53 @@ describe('DeptGroupWakeQueue', () => {
       roleName: 'B',
       goal: 'hi',
       depth: 1,
-      chainKey: 'a->b',
+      chainKey: 'user1|a->b',
     })
     await q.enqueue({
       agentCode: 'b',
       roleName: 'B',
       goal: 'hi again',
       depth: 1,
-      chainKey: 'a->b',
+      chainKey: 'user1|a->b',
     })
     expect(runs).toEqual(['b'])
+    q.dispose()
+  })
+
+  it('allows same nest chain again after a new depth-0 user turn', async () => {
+    const runs = []
+    const q = new DeptGroupWakeQueue({
+      sleep: async () => {},
+      run: async (input) => {
+        runs.push(`${input.depth}:${input.agentCode}:${input.goal}`)
+      },
+    })
+    await q.enqueue({
+      agentCode: 'tech-director',
+      roleName: '技术总监',
+      goal: 'first',
+      depth: 1,
+      chainKey: 'xiaomi->tech-director',
+    })
+    // 用户新一轮发言（depth=0）应清 nestSeen，允许小V 再次 @ 技术总监
+    await q.enqueue({
+      agentCode: 'xiaomi',
+      roleName: '小V',
+      goal: 'steward turn',
+      depth: 0,
+    })
+    await q.enqueue({
+      agentCode: 'tech-director',
+      roleName: '技术总监',
+      goal: 'second',
+      depth: 1,
+      chainKey: 'xiaomi->tech-director',
+    })
+    expect(runs).toEqual([
+      '1:tech-director:first',
+      '0:xiaomi:steward turn',
+      '1:tech-director:second',
+    ])
     q.dispose()
   })
 

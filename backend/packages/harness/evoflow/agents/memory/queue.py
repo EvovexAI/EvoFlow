@@ -308,24 +308,7 @@ class MemoryUpdateQueue:
                     except Exception:
                         pass
 
-                # Workspace-scoped project memory (structured facts only)
-                if context.workspace_path:
-                    try:
-                        from evoflow.agents.memory.workspace_memory import update_workspace_memory_from_conversation
-
-                        ws_ok = update_workspace_memory_from_conversation(
-                            messages=context.messages,
-                            workspace_path=context.workspace_path,
-                            thread_id=context.thread_id,
-                        )
-                        if ws_ok:
-                            logger.info(
-                                "[记忆] 工作区记忆写入 thread=%s path=%s",
-                                context.thread_id,
-                                context.workspace_path,
-                            )
-                    except Exception as e:
-                        logger.error("[记忆] 工作区记忆异常 thread=%s: %s", context.thread_id, e)
+                # Workspace-scoped project memory retired (employee/user assets only).
 
                 # Small delay between updates to avoid rate limiting
                 if len(contexts_to_process) > 1:

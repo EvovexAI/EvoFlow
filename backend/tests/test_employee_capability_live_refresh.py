@@ -60,10 +60,15 @@ def test_refresh_agent_runtime_invalidates_and_clears(monkeypatch):
         "evoflow.agents.lead_agent.graph_cache.clear_lead_agent_graph_cache",
         lambda: calls.append("graph_clear"),
     )
+    monkeypatch.setattr(
+        "evoflow.agents.middlewares.dynamic_system_prompt_middleware.invalidate_dynamic_system_prompt_cache",
+        lambda **kwargs: calls.append(f"prompt_cache:{kwargs.get('agent_code')}"),
+    )
     agents_admin.refresh_agent_runtime_after_capability_change("duty_clerk")
     assert "invalidate:duty_clerk" in calls
     assert "sessions:duty_clerk" in calls
     assert "graph_clear" in calls
+    assert "prompt_cache:duty_clerk" in calls
 
 
 def test_update_role_request_accepts_kb_injection():

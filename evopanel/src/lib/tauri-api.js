@@ -3689,6 +3689,9 @@ export const api = {
 
   /** SQLite 观测（Gateway /api/observability） */
   observabilityStatus: (options = null) => gatewayProxy('GET', '/observability/status', null, null, options),
+  /** Toggle SQLite observability sink (writes observability.enabled to config.yaml). */
+  observabilitySetEnabled: (enabled, options = null) =>
+    gatewayProxy('PUT', '/observability/enabled', { enabled: !!enabled }, null, options),
   observabilityOverview: (query = {}) => {
     const out = {}
     for (const [k, v] of Object.entries(query)) {

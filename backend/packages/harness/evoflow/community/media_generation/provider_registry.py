@@ -67,11 +67,22 @@ def channel_image_models() -> list[dict[str, Any]]:
     """Non-Plan image models exposed in media.catalog (provider-routed Keys)."""
     return [
         {
+            "id": "gpt-image-2.5",
+            "label": "GPT Image 2.5",
+            "provider": "openai",
+            "min_tier": None,
+            "use_when": (
+                "标准 ID；OpenAI 官方或第三方兼容网关（如 sakutime.cc 填 Base URL …/v1）。"
+                "同步返回 b64，平台自动解码落盘"
+            ),
+            "protocol": "openai_images_sync",
+        },
+        {
             "id": "gpt-image-2.5-sunburst",
             "label": "GPT Image 2.5 Sunburst",
             "provider": "openai",
             "min_tier": None,
-            "use_when": "画质优先；已配置 OpenAI 生图 Key",
+            "use_when": "画质优先；已配置 OpenAI 生图 Key / 网关支持该渠道路由",
             "protocol": "openai_images_sync",
         },
         {
@@ -80,6 +91,14 @@ def channel_image_models() -> list[dict[str, Any]]:
             "provider": "openai",
             "min_tier": None,
             "use_when": "更快的日常生图",
+            "protocol": "openai_images_sync",
+        },
+        {
+            "id": "gpt-image-2",
+            "label": "GPT Image 2",
+            "provider": "openai",
+            "min_tier": None,
+            "use_when": "上一代 GPT Image；第三方网关常见 ID，成本更低",
             "protocol": "openai_images_sync",
         },
         {

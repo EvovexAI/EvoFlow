@@ -6,7 +6,7 @@
  * 与专用 Right Stage 互斥。
  * 两区：
  * - 进程：terminal + 子智能体 + 协作子任务 聚合成一条有序列表
- * - 智能体 / 员工：普通会话为能力卡；员工会话用 EmployeePane（身份 + 职责合一）
+ * - 智能体 / 员工：普通会话为能力卡；员工会话用 EmployeePane（身份 + 提示词/SOUL/职责同框）
  * - 更多：折叠收纳产物 / 平台 / 调试 / 任务（保留旧侧栏能力，不丢功能）
  *
  * 不做「计划」区：计划确认条仍在输入区上方（PlanExecConfirm）。
@@ -28,6 +28,7 @@ import {
 } from 'lucide-react'
 import AgentAvatar from './AgentAvatar.js'
 import { AgentCapabilityTabs, type AgentCapabilityPatch } from './AgentCapabilityTabs.js'
+import { AgentRolePrefs, type ThinkingPref, type VisionPref } from './AgentRolePrefs.js'
 import { AssetQuickActions, partitionArtifacts } from './ChatWorkspaceInfoRail.js'
 import { PlatformRunTable } from './PlatformRunTable.js'
 import { SessionDebugPane } from './SessionDebugPane.js'
@@ -93,6 +94,13 @@ type Props = {
   capabilityBusy?: boolean
   onSwitchAgent?: () => void
   onEditAgent?: () => void
+  /** 普通会话：角色设定条（思考 / 识图 / 提示词） */
+  modelSupportsThinking?: boolean | null
+  modelSupportsVision?: boolean | null
+  sessionThinkingPref?: ThinkingPref
+  sessionVisionPref?: VisionPref
+  onApplySessionThinking?: (pref: ThinkingPref) => Promise<void>
+  onApplySessionVision?: (pref: VisionPref) => Promise<void>
   /** 资产沉淀：记录过程 / 沉淀经验 / 反思 */
   onAssetQuickAction?: (kind: 'episode' | 'craft' | 'journal') => void
   assetQuickBusy?: boolean
@@ -395,6 +403,12 @@ function ChatSummaryPanelInner({
   capabilityBusy = false,
   onSwitchAgent,
   onEditAgent,
+  modelSupportsThinking = null,
+  modelSupportsVision = null,
+  sessionThinkingPref = 'follow',
+  sessionVisionPref = 'follow',
+  onApplySessionThinking,
+  onApplySessionVision,
   onAssetQuickAction,
   assetQuickBusy = false,
   artifacts = [],
@@ -881,6 +895,21 @@ function ChatSummaryPanelInner({
                       {bio}
                     </p>
                   ) : null}
+                  <AgentRolePrefs
+                    agentCode={agentCode}
+                    sessionKey={sessionKey}
+                    isEmployee={false}
+                    thinkingEnabled={
+                      sessionThinkingPref === 'on' ? true : sessionThinkingPref === 'off' ? false : null
+                    }
+                    visionEnabled={
+                      sessionVisionPref === 'on' ? true : sessionVisionPref === 'off' ? false : null
+                    }
+                    modelSupportsThinking={modelSupportsThinking}
+                    modelSupportsVision={modelSupportsVision}
+                    onApplySessionThinking={onApplySessionThinking}
+                    onApplySessionVision={onApplySessionVision}
+                  />
                   <AgentCapabilityTabs
                     skillNames={skillNames}
                     toolNames={toolNames}

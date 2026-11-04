@@ -9,6 +9,7 @@ from collections.abc import Callable
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from pydantic import BaseModel, Field
 
 from evoflow.authz.http_guard import (
     require_org_admin,
@@ -280,6 +281,34 @@ async def get_status(request: Request) -> dict:
     if not bool(resolve_authz_from_request(request).get("is_admin")):
         payload = {k: v for k, v in payload.items() if k != "sqlite_path"}
     return payload
+
+
+class ObservabilityEnabledRequest(BaseModel):
+    enabled: bool = Field(..., description="Turn SQLite observability sink on/off")
+
+
+@router.put("/enabled")
+async def put_enabled(request: Request, body: ObservabilityEnabledRequest) -> dict:
+    """Toggle ``observability.enabled`` in bootstrap config.yaml (admin only).
+
+    Used by the panel help menu / resource manager 「开启调试模式」 switch so the
+    conversation summary can show the clickable 调试 tab without editing YAML.
+    """
+    require_org_admin(request)
+    from evoflow.debug.trace_sink import set_observability_enabled
+
+    result = await asyncio.to_thread(set_observability_enabled, bool(body.enabled))
+    if not result.get("ok"):
+        raise HTTPException(
+            status_code=409 if result.get("locked_by_env") else 500,
+            detail={
+                "error": "observability_toggle_failed",
+                "message": str(result.get("error") or "failed"),
+                "locked_by_env": bool(result.get("locked_by_env")),
+                "enabled": bool(result.get("enabled")),
+            },
+        )
+    return result
 
 
 @router.get("/mcp-status")

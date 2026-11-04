@@ -719,6 +719,8 @@ export function HomeDeptGroupChat({
         const q = wakeQueueRef.current
         if (!q || !nested.length) return {}
         const ctx = `【${person.role_name}】：${finalText.slice(0, 400)}`
+        // 防环键带上本轮根消息，避免「整次开会只许小V→总监叫醒一次」
+        const rootId = String(input.sourceMsgId || bubbleId || '').trim()
         await Promise.all(
           nested.map((item) =>
             q.enqueue({
@@ -728,8 +730,8 @@ export function HomeDeptGroupChat({
               depth: input.depth + 1,
               fromAgentName: person.role_name,
               contextSummary: ctx,
-              sourceMsgId: bubbleId,
-              chainKey: `${person.agent_code}->${item.person.agent_code}`,
+              sourceMsgId: rootId || bubbleId,
+              chainKey: `${rootId || bubbleId}|${person.agent_code}->${item.person.agent_code}`,
             }),
           ),
         )

@@ -885,6 +885,14 @@ def refresh_agent_runtime_after_capability_change(agent_code: str) -> None:
         clear_lead_agent_graph_cache()
     except Exception:
         logger.debug("clear_lead_agent_graph_cache failed after agent=%s edit", code, exc_info=True)
+    try:
+        from evoflow.agents.middlewares.dynamic_system_prompt_middleware import (
+            invalidate_dynamic_system_prompt_cache,
+        )
+
+        invalidate_dynamic_system_prompt_cache(agent_code=code)
+    except Exception:
+        logger.debug("invalidate_dynamic_system_prompt_cache failed after agent=%s edit", code, exc_info=True)
 
 
 def _update_main_agent(data: dict[str, Any]) -> dict[str, Any]:

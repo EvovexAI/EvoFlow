@@ -169,6 +169,14 @@
 }
 .nav-icon { width: 22px; display: inline-flex; justify-content: center; opacity: .95; }
 
+.obs-back-to-chat {
+  border-color: var(--border);
+  color: var(--text-secondary);
+}
+.obs-back-to-chat:hover {
+  color: var(--text-primary, inherit);
+}
+
 .team-card {
   margin-top: auto;
   padding: 12px;
@@ -178,6 +186,16 @@
   display: flex;
   gap: 10px;
   align-items: center;
+}
+button.team-card {
+  width: 100%;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+button.team-card:hover {
+  border-color: rgba(79, 70, 229, 0.35);
 }
 .team-avatar {
   width: 36px;

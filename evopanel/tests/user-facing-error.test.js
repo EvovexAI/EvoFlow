@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { toUserFacingError } from '../src/lib/user-facing-error.js'
+import { isConnectivityToastNoise, toUserFacingError } from '../src/lib/user-facing-error.js'
 
 describe('toUserFacingError', () => {
   it('keeps already friendly Chinese messages', () => {
@@ -46,5 +46,15 @@ describe('toUserFacingError', () => {
     expect(toUserFacingError('user interrupt')).toBe('')
     expect(toUserFacingError('UserInterrupt')).toBe('')
     expect(toUserFacingError('User interrupted the run')).toBe('')
+  })
+
+  it('marks gateway connectivity copy as toast noise', () => {
+    expect(isConnectivityToastNoise('服务连接异常，请确认服务已启动后重试')).toBe(true)
+    expect(isConnectivityToastNoise('服务连接异常：gateway warming')).toBe(true)
+    expect(isConnectivityToastNoise('服务未启动或暂时不可用，请检查服务状态')).toBe(true)
+    expect(isConnectivityToastNoise('无法连接本地服务，请确认 Gateway（8070）与前端已启动')).toBe(
+      true,
+    )
+    expect(isConnectivityToastNoise('上一条消息仍在处理中，请稍候')).toBe(false)
   })
 })

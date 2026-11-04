@@ -39192,6 +39192,44 @@ html[data-theme='dark'] .react-chat-stage-tab.is-active {
   margin: 4px 6px;
   background: var(--border, rgba(127, 127, 127, 0.28));
 }
+.react-chat-header-menu-item--toggle {
+  justify-content: flex-start;
+}
+.react-chat-header-menu-item--toggle:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.react-chat-header-menu-item--toggle .react-chat-header-menu-switch {
+  margin-left: auto;
+  flex-shrink: 0;
+  width: 32px;
+  height: 18px;
+  border-radius: 999px;
+  background: var(--border, #d1d5db);
+  position: relative;
+  transition: background-color 0.15s ease;
+}
+.react-chat-header-menu-item--toggle .react-chat-header-menu-switch::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.25);
+  transition: transform 0.15s ease;
+}
+.react-chat-header-menu-item--toggle .react-chat-header-menu-switch.is-on {
+  background: var(--accent, #4f46e5);
+}
+.react-chat-header-menu-item--toggle .react-chat-header-menu-switch.is-on::after {
+  transform: translateX(14px);
+}
+.react-chat-header-menu-item--toggle .react-chat-header-menu-switch.is-locked {
+  opacity: 0.7;
+}
 
 /* 窗控键：与动作键同尺寸的圆角方钮（ZCode 不做贴边长条） */
 .ep-window-controls-btn {

@@ -1039,20 +1039,15 @@ def _extract_response_text(result: dict | list) -> str:
             if isinstance(content, str) and content:
                 return content
 
-        # Regular AI message with text content
+        # Regular AI message with text content (never reasoning / thinking blocks)
         if msg_type == "ai":
-            content = msg.get("content", "")
-            if isinstance(content, str) and content:
-                return content
-            # content can be a list of content blocks
-            if isinstance(content, list):
-                parts = []
-                for block in content:
-                    if isinstance(block, dict) and block.get("type") == "text":
-                        parts.append(block.get("text", ""))
-                    elif isinstance(block, str):
-                        parts.append(block)
-                text = "".join(parts)
+            text = _extract_text_content(msg.get("content", ""))
+            if text:
+                return text
+            # Some adapters nest body under kwargs.content
+            kwargs_map = _to_mapping(msg.get("kwargs"))
+            if kwargs_map is not None:
+                text = _extract_text_content(kwargs_map.get("content"))
                 if text:
                     return text
 
@@ -1069,17 +1064,9 @@ def _extract_response_text(result: dict | list) -> str:
                 if role in ("human", "user", "tool", "function"):
                     break
                 if role in ("ai", "assistant", ""):
-                    content = msg.get("content", "")
-                    if isinstance(content, str) and content.strip():
-                        return content
-                    if isinstance(content, list):
-                        for block in content:
-                            if isinstance(block, dict) and block.get("type") == "text":
-                                text = block.get("text", "")
-                                if isinstance(text, str) and text.strip():
-                                    return text
-                            elif isinstance(block, str) and block.strip():
-                                return block
+                    text = _extract_text_content(msg.get("content", ""))
+                    if text.strip():
+                        return text
                     text = msg.get("text", "")
                     if isinstance(text, str) and text.strip():
                         return text
@@ -1087,8 +1074,15 @@ def _extract_response_text(result: dict | list) -> str:
     return ""
 
 
+_IM_THINKING_BLOCK_TYPES = frozenset({"thinking", "reasoning", "reasoning_content"})
+
+
 def _extract_text_content(content: Any) -> str:
-    """Extract text from a streaming payload content field."""
+    """Extract user-visible text from a streaming payload content field.
+
+    Skips structured thinking/reasoning blocks. Does **not** read
+    ``additional_kwargs.reasoning_content`` — that stays on the reasoning field.
+    """
     if isinstance(content, str):
         return content
     if isinstance(content, list):
@@ -1096,16 +1090,26 @@ def _extract_text_content(content: Any) -> str:
         for block in content:
             if isinstance(block, str):
                 parts.append(block)
-            elif isinstance(block, Mapping):
-                text = block.get("text")
-                if isinstance(text, str):
-                    parts.append(text)
-                else:
-                    nested = block.get("content")
-                    if isinstance(nested, str):
-                        parts.append(nested)
+                continue
+            if not isinstance(block, Mapping):
+                continue
+            btype = str(block.get("type") or "").strip().lower()
+            if btype in _IM_THINKING_BLOCK_TYPES:
+                continue
+            if btype and btype not in {"text", "output_text"}:
+                continue
+            text = block.get("text")
+            if isinstance(text, str):
+                parts.append(text)
+            else:
+                nested = block.get("content")
+                if isinstance(nested, str):
+                    parts.append(nested)
         return "".join(parts)
     if isinstance(content, Mapping):
+        btype = str(content.get("type") or "").strip().lower()
+        if btype in _IM_THINKING_BLOCK_TYPES:
+            return ""
         for key in ("text", "content"):
             value = content.get(key)
             if isinstance(value, str):
@@ -1135,20 +1139,12 @@ def _query_latest_ai_message_from_db(session_key: str, limit: int = 5) -> list[s
         texts: list[str] = []
         for row in rows:
             try:
-                import json
+                from evoflow.persistence.chat_message_content import loads_payload, visible_body_text
 
-                payload = json.loads(str(row[0] or "{}"))
-                # Extract text from various possible payload structures
-                content = payload if isinstance(payload, str) else payload.get("content", "")
-                if isinstance(content, list):
-                    for block in content:
-                        if isinstance(block, dict) and block.get("type") == "text":
-                            text = str(block.get("text") or "").strip()
-                            if text:
-                                texts.append(text)
-                                break
-                elif isinstance(content, str) and content.strip():
-                    texts.append(content.strip())
+                payload = loads_payload(str(row[0] or ""))
+                text = visible_body_text(payload)
+                if text:
+                    texts.append(text)
             except Exception:
                 pass
         return texts
@@ -3286,7 +3282,11 @@ class ChannelManager:
         else:
             # Rejected/failed run often leaves checkpoint on the *previous* turn —
             # never resend that AI text as the reply to the new user message.
-            response_text = (latest_text or "").strip()
+            # Use *latest* buffer only — never the live join of mid-tool scratchpads.
+            if msg.channel_name in IM_CHANNEL_NAMES and streamed_buffers:
+                response_text = _latest_im_stream_buffer(streamed_buffers)
+            else:
+                response_text = (latest_text or "").strip()
             artifacts = []
             logger.warning(
                 "[Manager] stream values out of sync with inbound (skip stale AI): thread_id=%s inbound_len=%d tail_human_len=%d error=%s",
@@ -3319,18 +3319,16 @@ class ChannelManager:
                 active_thread_id,
                 exc_info=True,
             )
-        # IM final bubble: prefer the *latest* assistant buffer only.
-        # Joining every mid-tool status line produced a progress-log dump on Feishu
-        # (download… / 抽帧… / 等视觉理解… glued onto the real answer).
+        # IM final: values-extracted AI text wins. Only fill from the *latest*
+        # stream buffer when values had no visible body — never "longer buffer
+        # wins" (that glued mid-turn tool scratchpads / thinking onto Feishu).
         if msg.channel_name in IM_CHANNEL_NAMES and streamed_buffers:
-            latest_buf = _latest_im_stream_buffer(streamed_buffers)
-            if latest_buf and (
-                not str(response_text or "").strip()
-                or len(latest_buf) >= len(str(response_text or "").strip())
-            ):
-                response_text = latest_buf
-                if not artifacts:
-                    artifacts = _extract_artifacts(result, response_text=response_text)
+            if not str(response_text or "").strip():
+                latest_buf = _latest_im_stream_buffer(streamed_buffers)
+                if latest_buf:
+                    response_text = latest_buf
+                    if not artifacts:
+                        artifacts = _extract_artifacts(result, response_text=response_text)
         response_text, attachments = _prepare_artifact_delivery(active_thread_id, response_text, artifacts)
 
         tracked_end = self._active_im_runs.pop(routing_key, None) or {}

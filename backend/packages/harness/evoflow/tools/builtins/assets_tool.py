@@ -58,17 +58,6 @@ def _agent_from_runtime(runtime: ToolRuntime[ContextT, dict] | None) -> str:
     return ""
 
 
-def _workspace_from_runtime(runtime: ToolRuntime[ContextT, dict] | None) -> str:
-    if runtime is None:
-        return ""
-    ctx = getattr(runtime, "context", None)
-    for key in ("workspace_path", "local_workspace_root", "cwd"):
-        v = _ctx_get(ctx, key)
-        if v:
-            return v
-    return ""
-
-
 def _principal_from_runtime(runtime: ToolRuntime[ContextT, dict] | None) -> str:
     """Current principal id from run context — anchors per-user asset buckets.
 
@@ -84,25 +73,6 @@ def _principal_from_runtime(runtime: ToolRuntime[ContextT, dict] | None) -> str:
         return ""
 
 
-def _assert_workspace_allowed(runtime: ToolRuntime[ContextT, dict] | None, wp: str) -> None:
-    """workspace 记忆只允许会话绑定的项目（或其子目录绑定的项目）。
-
-    没有 session 工作区、或请求的路径解析到别的项目 → 拒绝，防跨项目读写。
-    """
-    session_wp = _workspace_from_runtime(runtime)
-    if not session_wp:
-        raise PermissionError("workspace_entity_forbidden_without_session_workspace")
-    from evoflow.assets.paths import workspace_asset_root
-
-    try:
-        base = workspace_asset_root(session_wp)
-        target = workspace_asset_root(wp)
-    except ValueError as exc:
-        raise PermissionError(f"invalid_workspace_path:{exc}") from exc
-    if target != base and base not in target.parents:
-        raise PermissionError("workspace_entity_forbidden")
-
-
 def _resolve_entity(
     runtime: ToolRuntime[ContextT, dict] | None,
     *,
@@ -113,7 +83,7 @@ def _resolve_entity(
     path: str = "",
 ):
     from evoflow.assets.guidance import resolve_memory_entity, resolve_profile_entity
-    from evoflow.assets.paths import EntityRef, sanitize_user_asset_id, workspace_entity_ref
+    from evoflow.assets.paths import EntityRef, sanitize_user_asset_id
 
     et = str(entity_type or "").strip().lower()
     eid = str(entity_id or "").strip()
@@ -132,10 +102,9 @@ def _resolve_entity(
     if act == "profile":
         return _user_entity()
     if sc in ("workspace", "project", "ws") or et == "workspace":
-        wp = eid or _workspace_from_runtime(runtime)
-        if wp:
-            _assert_workspace_allowed(runtime, wp)
-            return workspace_entity_ref(wp)
+        raise PermissionError(
+            "workspace_memory_disabled: use employee/user assets instead of project workspace memory"
+        )
     if et and eid:
         ent = EntityRef(et, eid).normalized()
         if ent.entity_type == "user":
@@ -269,9 +238,9 @@ def assets_tool(
               (basic-info.md, preferences, persona, …).
         kinds: Comma-separated asset kinds for search (facts,episodic,journal,craft,standing,handbook,all).
         content: Note body for action=note; markdown snippet for action=profile.
-        entity_type: Optional user|agent|employee|workspace (default: session entity).
-        entity_id: Optional entity id / workspace path.
-        scope: Optional shortcut ``workspace`` to force project assets.
+        entity_type: Optional user|agent|employee (default: session entity). Workspace/project memory is disabled.
+        entity_id: Optional entity id.
+        scope: Optional entity shortcut (workspace/project disabled).
         max_results: Cap search hits (default 12).
     """
     _ = tool_call_id
@@ -397,29 +366,19 @@ def assets_tool(
         if not text:
             return json.dumps({"ok": False, "error": "content_required"}, ensure_ascii=False)
         note_entity = entity
+        # ``[project]`` no longer routes to workspace Asset Hub — project notes stay on
+        # the session entity (user/employee). Strip the tag so Phase2 still classifies.
         if re.match(r"^\[project\]", text, re.I):
-            wp = _workspace_from_runtime(runtime)
-            if wp:
-                _assert_workspace_allowed(runtime, wp)
-                from evoflow.assets.paths import workspace_entity_ref
-
-                note_entity = workspace_entity_ref(wp)
-                text = re.sub(r"^\[project\]\s*", "", text, count=1, flags=re.I).strip()
+            text = re.sub(r"^\[project\]\s*", "[process] ", text, count=1, flags=re.I).strip()
         if note_entity.normalized().entity_type == "workspace":
-            try:
-                from evoflow.assets.workspace_memory_policy import is_workspace_ephemeral_content
-
-                if is_workspace_ephemeral_content(text):
-                    return json.dumps(
-                        {
-                            "ok": False,
-                            "error": "workspace_ephemeral_content",
-                            "hint": "Workspace stores durable project facts (modules/logic/conventions), not tests or session noise.",
-                        },
-                        ensure_ascii=False,
-                    )
-            except Exception:
-                pass
+            return json.dumps(
+                {
+                    "ok": False,
+                    "error": "workspace_memory_disabled",
+                    "hint": "Workspace/project memory is disabled; write to employee or user assets instead.",
+                },
+                ensure_ascii=False,
+            )
         try:
             from evoflow.assets.ad_hoc_note import write_ad_hoc_note
 

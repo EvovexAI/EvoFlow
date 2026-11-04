@@ -134,6 +134,58 @@ def load_bundled_soul(agent_code: str) -> str | None:
         return None
 
 
+def _soul_looks_like_person_kernel_en(soul: str) -> bool:
+    """True when SOUL still uses English Person-Kernel section titles (bad for ZH UI)."""
+    text = str(soul or "")
+    if not text.strip():
+        return False
+    markers = (
+        "**Identity**",
+        "**Core Traits**",
+        "**Communication**",
+        "**Growth**",
+        "**Lessons Learned**",
+        "Lessons Learned",
+        "收工后由系统自动补充",
+        "主会话聊天不注入",
+    )
+    return any(m in text for m in markers)
+
+
+def _main_system_prompt_should_clear(sp: str, soul: str) -> bool:
+    """Clear stale main system_prompt: mirrored SOUL, PK English, or 编排/派岗 duty copy."""
+    text = str(sp or "").strip()
+    if not text:
+        return False
+    if _soul_looks_like_person_kernel_en(text):
+        return True
+    if "编排职责" in text or "任务编排伙伴" in text:
+        return True
+    if "拆事" in text and "派岗" in text:
+        return True
+    soul_now = str(soul or "").strip()
+    if soul_now and _prompt_bodies_equal(text, soul_now):
+        return True
+    plain = text.replace("**", "")
+    if "默认主智能体" in plain:
+        return True
+    return False
+
+
+def _prompt_bodies_equal(a: str, b: str) -> bool:
+    """Loose equality for soul vs system_prompt dedupe (ignore markdown noise)."""
+    import re
+
+    def _norm(s: str) -> str:
+        t = str(s or "").replace("\r\n", "\n").strip()
+        t = re.sub(r"^#+\s*", "", t, flags=re.MULTILINE)
+        t = t.replace("**", "").replace("__", "").replace("*", "")
+        return re.sub(r"\s+", " ", t).strip().casefold()
+
+    na, nb = _norm(a), _norm(b)
+    return bool(na) and na == nb
+
+
 # ---------------------------------------------------------------------------
 # KB injection config — stored in evoflow_agents.extra_json under "kb_injection"
 # ---------------------------------------------------------------------------
@@ -533,9 +585,10 @@ def save_agent_config(agent_code: str, config_data: dict) -> None:
     payload["agent_code"] = agent_code
     known_fields = set(AgentConfig.model_fields.keys())
     payload = {k: v for k, v in payload.items() if k in known_fields}
-    # 若本次只写了 soul 而未提供 system_prompt，自动用 soul 补齐 system_prompt，
-    # 避免出现「有灵魂但不可被工作流/任务调度」的 agent（调度器只看 system_prompt）。
-    if not str(payload.get("system_prompt") or "").strip():
+    # 非 main：若只写了 soul 而未提供 system_prompt，用 soul 补齐，避免调度器
+    # （只看 system_prompt）拿到空岗。main 例外——系统提示词留给用户按需自填，
+    # 勿用 SOUL 镜像，也勿塞「编排/派岗」职责（那是小V的事）。
+    if agent_code != "main" and not str(payload.get("system_prompt") or "").strip():
         soul = str(payload.get("soul") or "").strip() or (load_agent_soul(agent_code) or "").strip()
         if soul:
             payload["system_prompt"] = soul
@@ -553,6 +606,21 @@ def save_agent_config(agent_code: str, config_data: dict) -> None:
             payload["tags"] = inferred_tags
     cfg_repo.upsert_agent(agent_code, payload)
     invalidate_agent_config_cache(agent_code)
+    # Mirror system_prompt → profile/system.md so role fingerprint mtime flips;
+    # also bust per-thread DynamicSystemPrompt cache (same session next turn).
+    if "system_prompt" in payload:
+        try:
+            _write_agent_system_prompt_file(agent_code, str(payload.get("system_prompt") or ""))
+        except Exception:
+            logger.debug("write system.md skipped for %s", agent_code, exc_info=True)
+        try:
+            from evoflow.agents.middlewares.dynamic_system_prompt_middleware import (
+                invalidate_dynamic_system_prompt_cache,
+            )
+
+            invalidate_dynamic_system_prompt_cache(agent_code=agent_code)
+        except Exception:
+            logger.debug("invalidate dynamic system prompt cache skipped", exc_info=True)
 
 
 # 首次落盘「主会话 main + 通用子智能体 general-purpose」时写入 config.yaml 的技能 wishlist（与已安装且启用的技能求交）。
@@ -1126,7 +1194,7 @@ def ensure_builtin_agents_materialized() -> None:
             {
                 "agent_type": "custom",
                 "agent_name": "EvoFlow",
-                "description": "默认主智能体：问答、改代码、编排任务。",
+                "description": "默认主智能体：问答、改代码、直接办事。",
                 "skills": list(main_skill_bundle),
                 "avatar": _BUILTIN_AGENT_AVATARS.get("main"),
             },
@@ -1162,23 +1230,56 @@ def ensure_builtin_agents_materialized() -> None:
                 main_full["agent_name"] = "EvoFlow"
                 changed = True
             old_desc = str(main_cfg.description or "").strip()
-            if (not old_desc) or ("全局前台" in old_desc and "传讯" in old_desc):
-                main_full["description"] = "默认主智能体：问答、改代码、编排任务。"
+            if (
+                (not old_desc)
+                or ("全局前台" in old_desc and "传讯" in old_desc)
+                or "编排任务" in old_desc
+            ):
+                main_full["description"] = "默认主智能体：问答、改代码、直接办事。"
                 changed = True
             if not str(main_cfg.prompt_language or "").strip():
                 main_full["prompt_language"] = "zh"
                 changed = True
             if changed:
                 save_agent_config("main", main_full)
-            # Seed/refresh soul when missing, placeholder, or still the old front-desk text
-            # (legacy display name「小蜜」or「小V」mistakenly on main).
+            # Seed/refresh soul when missing, placeholder, old front-desk text,
+            # English Person-Kernel headings, or still restating identity —
+            # identity belongs in ``<role>`` only; SOUL is style only.
+            # main 的 system_prompt 默认留空（用户按需自填）；勿塞编排/派岗稿。
             try:
                 cur_soul = (load_agent_soul("main") or "").strip()
                 bundled = load_bundled_soul("main") or ""
-                if bundled and (
-                    not cur_soul or cur_soul.startswith("# main") or cur_soul.startswith("# 小蜜") or cur_soul.startswith("# 小V") or cur_soul.startswith("# 超级助手") or "全局前台助手" in cur_soul or "Built-in subagent" in cur_soul
-                ):
+                soul_plain = cur_soul.replace("**", "")
+                soul_restates_identity = "默认主智能体" in soul_plain and "你是用户的" in soul_plain
+                bundled_is_style_only = bool(bundled) and "默认主智能体" not in bundled.replace(
+                    "**", ""
+                )
+                soul_needs_refresh = bool(bundled) and (
+                    not cur_soul
+                    or cur_soul.startswith("# main")
+                    or cur_soul.startswith("# 小蜜")
+                    or cur_soul.startswith("# 小V")
+                    or cur_soul.startswith("# 超级助手")
+                    or "全局前台助手" in cur_soul
+                    or "Built-in subagent" in cur_soul
+                    or _soul_looks_like_person_kernel_en(cur_soul)
+                    or "能委派就委派" in cur_soul
+                    or "任务编排伙伴" in cur_soul
+                    or (soul_restates_identity and bundled_is_style_only)
+                )
+                if soul_needs_refresh:
                     save_agent_soul("main", bundled)
+                    cur_soul = bundled
+                try:
+                    sp = str(getattr(main_cfg, "system_prompt", None) or "").strip()
+                    soul_now = (load_agent_soul("main") or cur_soul or "").strip()
+                    if _main_system_prompt_should_clear(sp, soul_now):
+                        synced = main_cfg.model_dump(exclude_none=True)
+                        synced["system_prompt"] = ""
+                        # Bypass save_agent_config soul-mirror path (already skipped for main).
+                        save_agent_config("main", synced)
+                except Exception:
+                    logger.debug("main system_prompt clear skipped", exc_info=True)
             except Exception:
                 logger.debug("main soul backfill skipped", exc_info=True)
 
@@ -1532,6 +1633,14 @@ def save_agent_soul(agent_code: str, soul_md: str) -> None:
         schedule_soul_summary_consolidate(EntityRef("agent", code))
     except Exception:
         logger.debug("save_agent_soul: soul-summary schedule skipped", exc_info=True)
+    try:
+        from evoflow.agents.middlewares.dynamic_system_prompt_middleware import (
+            invalidate_dynamic_system_prompt_cache,
+        )
+
+        invalidate_dynamic_system_prompt_cache(agent_code=code)
+    except Exception:
+        logger.debug("save_agent_soul: dynamic prompt cache invalidate skipped", exc_info=True)
 
 
 def _agent_soul_file(agent_code: str) -> "Path":
@@ -1552,6 +1661,22 @@ def _write_agent_soul_file(agent_code: str, soul_md: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(soul_md or "", encoding="utf-8")
+    tmp.replace(path)
+
+
+def _write_agent_system_prompt_file(agent_code: str, system_prompt: str) -> None:
+    """Mirror ``system_prompt`` to profile/system.md for role fingerprint mtimes."""
+    from evoflow.assets.hub import ensure_entity_tree
+    from evoflow.assets.paths import EntityRef, profile_path
+
+    code = str(agent_code or "").strip().lower()
+    if not code:
+        return
+    ensure_entity_tree(EntityRef("agent", code))
+    path = profile_path(EntityRef("agent", code), "system.md")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(system_prompt or "", encoding="utf-8")
     tmp.replace(path)
 
 
