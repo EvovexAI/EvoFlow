@@ -1,12 +1,12 @@
 {
-  "version": "1.2.8",
-  "minAppVersion": "1.2.8",
+  "version": "1.2.9",
+  "minAppVersion": "1.2.9",
   "updateKind": "full",
   "assetKind": "installer",
   "hash": "",
-  "url": "https://ghfast.top/https://github.com/EvovexAI/EvoFlow/releases/download/v1.2.8/EvoFlow_1.2.8_x64-setup.exe",
-  "urlCnMirror": "https://ghfast.top/https://github.com/EvovexAI/EvoFlow/releases/download/v1.2.8/EvoFlow_1.2.8_x64-setup.exe",
-  "urlGithub": "https://github.com/EvovexAI/EvoFlow/releases/download/v1.2.8/EvoFlow_1.2.8_x64-setup.exe",
+  "url": "https://ghfast.top/https://github.com/EvovexAI/EvoFlow/releases/download/v1.2.9/EvoFlow_1.2.9_x64-setup.exe",
+  "urlCnMirror": "https://ghfast.top/https://github.com/EvovexAI/EvoFlow/releases/download/v1.2.9/EvoFlow_1.2.9_x64-setup.exe",
+  "urlGithub": "https://github.com/EvovexAI/EvoFlow/releases/download/v1.2.9/EvoFlow_1.2.9_x64-setup.exe",
   "size": 0,
-  "changelog": "EvoFlow 1.2.8（相对 1.2.7）：语音链路优化（SmartTurn、ASR 热词、打断归因、性能汇总）；提示词身份去重与 soul/职责拆分、缓存优化；新增员工角色设定条、聊天摘要面板重构与可观测性开关；小V 新增跳舞 / 讲解形象。覆盖安装即可。"
+  "changelog": "EvoFlow 1.2.9（相对 1.2.8）：修复读图工具「模型没收到图 / 图片被清空」；IM 渠道忙时可中途加塞；工具记录配对清洗减少 Volc 报错；资产注入标签更可读；部门群聊重挂不再丢流式正文；头像工坊新增精灵图与发型重构。覆盖安装即可。"
 }

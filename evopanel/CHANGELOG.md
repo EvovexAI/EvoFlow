@@ -6,6 +6,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.2.9] - 2026-11-04
+
+相对 **1.2.8**：修复读图工具「模型没收到图 / 图片被清空」两类故障；IM 渠道忙时支持中途加塞；工具调用配对清洗（Volc 11148）；资产注入标签更可读；部门群聊重挂回填；头像工坊与精灵素材更新。
+GitHub Release 正文见 `scripts/maintainer/windows/release-notes/PRODUCT-NOTES-1.2.9.md`；升级横幅见 `scripts/maintainer/update/latest.json`。
+
+### Added
+
+- **IM 渠道**：会话忙时后续消息走 `pending_inject`（同面板 ↑ 加塞），不新起 LangGraph run；新增 chat turn 认领 / 释放与 `message_id` 去重、遗留 inject 继续消费
+- **前端工具卡**：read / explore 支持多路径文件 chips（最多 3 个 + 隐藏计数，可点开预览）
+- **头像工坊**：精灵图生成、发型路径重构（长发 / 波波头 / 双马尾）与五官细节
+
+### Changed
+
+- **资产注入**：catalog 标签改为 description 优先（不再拼 name / 文件名），描述预算 24→160；L1 standing 全文注入；pending_inbox 收进 `<memory_assets>` 内
+- **部门群聊**：时间线只跟随 `dept.id`；唤醒队列由单一 effect 独占 dispose
+- **小V**：移除技能侧跳舞 / 讲解状态与贴图手引用（未接入主工程）
+
+### Fixed
+
+- **读图工具**：仅当像素真正投递后才标记 `native_viewed_image_refs`（修复 cached=true 但模型未收到图）；staged 为空不再注入「No images have been viewed」；上下文压缩保留最新 `view_image_inject`，proactive / employee 不再整体剥离图片
+- **工具配对**：orphan tool_result 丢弃、缺失结果补 stub（Volc Ark 11148）；pre_call_guardrail 改基于 `request.messages` 重跑
+- **部门群聊**：UI 重挂丢流时从员工 sticky 会话回填正文，流式增量继续写库，避免空占位 /「回复未完成」
+- **错误提示**：Volc「工具记录不完整」映射为「请新建对话后再试」
+
 ## [1.2.8] - 2026-11-04
 
 相对 **1.2.7**：语音链路（SmartTurn、ASR 热词、打断归因、性能汇总、报表分桶）与提示词体系（身份去重、soul/duty 拆分、workspace memory 退役、affect 块后置保缓存）双线打磨；新增员工角色设定条、聊天摘要面板重构、可观测性开关与小V 跳舞 / 讲解形象。
