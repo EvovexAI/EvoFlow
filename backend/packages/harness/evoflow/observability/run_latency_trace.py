@@ -222,6 +222,12 @@ def set_live_progress(thread_id: str, progress: str) -> None:
     if not tid:
         return
     p = str(progress).strip()
+    # Internal mw.* hook names are useful in latency traces but look like a hang
+    # in the chat activity chip (「正在执行 mw.Foo.abefore_model」). Keep the
+    # user-facing detail as 准备中… while still recording the raw phase below.
+    ui_detail = p
+    if p.startswith("正在执行 mw.") or p.startswith("正在执行 mw:"):
+        ui_detail = "准备中…"
     with _live_progress_lock:
         _live_progress[tid] = p
         _live_progress_ts[tid] = int(time.time() * 1000)
@@ -229,7 +235,14 @@ def set_live_progress(thread_id: str, progress: str) -> None:
         from evoflow.observability.agent_activity_stream import emit_agent_activity
 
         kind = _activity_kind_for_progress(p)
-        emit_agent_activity(tid, kind=kind, detail=p, force=kind in {"model", "tools", "middleware"})
+        # Force pre_model for mw hooks so UI does not flash a "middleware" chip.
+        emit_kind = "pre_model" if ui_detail == "准备中…" and kind == "middleware" else kind
+        emit_agent_activity(
+            tid,
+            kind=emit_kind,
+            detail=ui_detail,
+            force=emit_kind in {"model", "tools", "middleware", "pre_model"},
+        )
     except Exception:
         logger.debug("set_live_progress activity emit skipped thread=%s", tid, exc_info=True)
 

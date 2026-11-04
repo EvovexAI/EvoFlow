@@ -40,6 +40,21 @@ def _text_from_content(content: Any) -> str:
     return str(content or "").strip()
 
 
+def _looks_like_view_image_inject(msg: Any) -> bool:
+    """True for ViewImageMiddleware injects (by name or known header text)."""
+    name = str(getattr(msg, "name", None) or "").strip()
+    if name == "view_image_inject":
+        return True
+    text = _text_from_content(getattr(msg, "content", ""))
+    if not text:
+        return False
+    return (
+        "Here are the images you've viewed" in text
+        or "Here are the details of the images you've viewed" in text
+        or "Here are the latest screen captures" in text
+    )
+
+
 def is_real_user_message(msg: Any) -> bool:
     """True for genuine user turns; false for compaction / tool-history / hint injections."""
     if isinstance(msg, HumanMessage):
@@ -49,6 +64,8 @@ def is_real_user_message(msg: Any) -> bool:
             return False
         name = str(getattr(msg, "name", None) or "").strip()
         if name in _SYNTHETIC_USER_NAMES:
+            return False
+        if _looks_like_view_image_inject(msg):
             return False
         return bool(_text_from_content(getattr(msg, "content", "")))
     if isinstance(msg, dict):
