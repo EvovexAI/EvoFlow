@@ -92,15 +92,13 @@ LINES = {
     ],
 }
 
-MODES = ("idle", "thinking", "coding", "listening", "answering", "dancing", "teaching")
+MODES = ("idle", "thinking", "coding", "listening", "answering")
 MODE_LABELS = {
     "idle": "待机",
     "thinking": "思考中",
     "coding": "敲代码",
     "listening": "聆听中",
     "answering": "回答中",
-    "dancing": "跳舞",
-    "teaching": "讲解知识",
 }
 
 _FALLBACK_LINES = LINES["fox"]
@@ -733,7 +731,7 @@ def build_menu(pet: PetWindow):
         sub.addAction(act)
 
     sub_m = menu.addMenu("对话状态")
-    for key in ("thinking", "coding", "listening", "answering", "dancing", "teaching", "idle"):
+    for key in ("thinking", "coding", "listening", "answering", "idle"):
         act = QAction(MODE_LABELS[key], sub_m)
         act.setCheckable(True)
         act.setChecked(getattr(pet, "mode", "idle") == key)

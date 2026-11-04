@@ -26,8 +26,7 @@ Promise.all([
     'thinking',
     'answering',
     'coding',
-    'dancing',
-    'teaching',
+
   ]
   for (const m of modes) {
     const cv = document.createElement('canvas')
