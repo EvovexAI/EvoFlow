@@ -17,7 +17,9 @@ from evoflow.assets.injection_budget import (
 from evoflow.assets.paths import EntityRef, entity_root, resolve_entity_file
 
 _FRONTMATTER_RE = re.compile(r"\A---\s*\n(.*?)\n---\s*\n?", re.DOTALL)
-_CATALOG_DESC_CHARS = 24
+# One-line catalog label (filename shown separately). Was 24 — truncated Chinese
+# descriptions into useless "用 ff…" stubs; align with skill-desc budget.
+_CATALOG_DESC_CHARS = 160
 _KIND_TAG = {
     "standing": "summary",
     "fact": "fact",
@@ -251,7 +253,7 @@ def list_journal_catalog(entity: EntityRef, *, limit: int = TIER0_CATALOG_PER_KI
     return rows
 
 
-def read_standing_text(entity: EntityRef, *, max_chars: int = 400) -> str:
+def read_standing_text(entity: EntityRef, *, max_chars: int | None = None) -> str:
     try:
         path = resolve_entity_file(entity.normalized(), "memory/standing.md")
         if not path.is_file():
@@ -265,7 +267,8 @@ def read_standing_text(entity: EntityRef, *, max_chars: int = 400) -> str:
     if lines and lines[0].startswith("#"):
         lines = lines[1:]
     body = "\n".join(lines).strip()
-    return cap_text_chars(body, max_chars)
+    cap = TIER0_STANDING_CHARS if max_chars is None else int(max_chars)
+    return cap_text_chars(body, cap)
 
 
 def standing_is_placeholder(text: str) -> bool:
@@ -401,7 +404,11 @@ def format_entity_catalog_xml(
         kind_buckets.append(
             (
                 "craft",
-                [("craft", r["path"], _catalog_cell(r["name"])) for r in list_craft_catalog(entity)],
+                # Prefer description (human label); name/slug often duplicates basename.
+                [
+                    ("craft", r["path"], _catalog_cell(r.get("description") or r["name"]))
+                    for r in list_craft_catalog(entity)
+                ],
             )
         )
     if include_facts:
@@ -462,7 +469,13 @@ def format_entity_catalog_lines(
     lines: list[str] = ["- MEMORY.md · (search primary · 索引)"]
 
     craft_rows = (
-        [(_catalog_filename(r["path"]), _catalog_cell(r["name"])) for r in list_craft_catalog(entity)]
+        [
+            (
+                _catalog_filename(r["path"]),
+                _catalog_cell(r.get("description") or r["name"]),
+            )
+            for r in list_craft_catalog(entity)
+        ]
         if include_craft
         else []
     )

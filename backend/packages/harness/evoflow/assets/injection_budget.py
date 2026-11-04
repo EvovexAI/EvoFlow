@@ -1,9 +1,12 @@
 """Tier 0/1 prompt injection budgets for Entity Asset Hub.
 
 Layer model (see ``assets/prompts/memories/injection_layers.md``):
-  L0 job skeleton → L1 standing (capped) → L2 catalog (short titles, uncapped) →
+  L0 job skeleton → L1 standing (**full page**) → L2 catalog (short labels) →
   L3 bodies on-demand via ``assets`` → L4 pending inbox.
-Know-how SoT is the asset tree; ``system_prompt`` must stay a thin duty skeleton.
+Know-how SoT is the asset tree; ``system_prompt`` (L0) stays a thin duty skeleton —
+but L1 standing is already the compressed summary page: inject it whole, never
+scissors mid-sentence. Size discipline belongs to Phase2 when rewriting standing.md.
+``cap_text_chars(..., 0)`` = no truncate (same convention as catalog row caps).
 """
 
 from __future__ import annotations
@@ -13,9 +16,9 @@ import os
 # Tier 0 Pin (frozen standing) — asset-related slices
 TIER0_SOUL_SUMMARY_CHARS = 400
 TIER0_SYSTEM_CHARS = 500
-# standing = always-on index (prefs + "What's in Memory" pointers). Keep room for
-# several pointer lines; full experience/reflection bodies stay on-demand via assets.
-TIER0_STANDING_CHARS = 1200
+# standing.md = derived prefs + tips + What's in Memory. Inject **complete**.
+# 0 = uncapped (do not hard-cut the system prompt). Phase2 owns keeping the file sane.
+TIER0_STANDING_CHARS = 0
 TIER0_USER_PROFILE_CHARS = 400
 # Prompt catalog: basenames under kind headings (no dir prefix) — **no row cap for now**.
 # (Was TIER0_CATALOG_PER_KIND=10; short labels are cheap, let the model see the full index.)

@@ -1,4 +1,10 @@
-"""Agent middleware: sanitize messages before each LLM call (orphan tool pairs, etc.)."""
+"""Agent middleware: sanitize messages before each LLM call (orphan tool pairs, etc.).
+
+Operates on ``request.messages`` (LangChain BaseMessage), not OpenAI wire dicts.
+The older :class:`PreCallGuardrail` path expected ``role``/``tool_calls`` at the
+top level; ``messages_to_dict`` uses ``type``/``data``, so that path dropped or
+skipped repairs and Volc Ark could still 400 with ``11148`` tool-pair mismatch.
+"""
 
 from __future__ import annotations
 
@@ -9,32 +15,28 @@ from langchain.agents import AgentState
 from langchain.agents.middleware import AgentMiddleware
 from langchain.agents.middleware.types import ModelCallResult, ModelRequest
 
-from evoflow.agents.middlewares.pre_call_guardrail import PreCallGuardrail
+from evoflow.agents.middlewares.dangling_tool_call_middleware import sanitize_tool_call_pairs
 
 logger = logging.getLogger(__name__)
 
 
 class PreCallGuardrailAgentMiddleware(AgentMiddleware[AgentState]):
-    """Run :class:`PreCallGuardrail` on checkpoint messages before the model sees them."""
+    """Re-run tool-pair sanitize on ``request.messages`` closest to the model call."""
 
     def __init__(self, max_concurrent_calls: int = 5) -> None:
         super().__init__()
-        self._guardrail = PreCallGuardrail(max_concurrent_calls=max_concurrent_calls)
+        # Kept for API compatibility with previous constructor; pair sanitize is primary.
+        self.max_concurrent_calls = max_concurrent_calls
 
     def _patch_request(self, request: ModelRequest) -> ModelRequest:
-        state = request.state if isinstance(request.state, dict) else {}
-        messages = list(state.get("messages") or [])
+        messages = list(request.messages or [])
         if not messages:
             return request
         try:
-            from langchain_core.messages import messages_from_dict, messages_to_dict
-
-            wire = messages_to_dict(messages)
-            cleaned = self._guardrail.sanitize(wire)
-            if cleaned == wire:
+            patched = sanitize_tool_call_pairs(messages)
+            if patched is None:
                 return request
-            new_messages = messages_from_dict(cleaned)
-            return request.override(state={**state, "messages": new_messages})
+            return request.override(messages=patched)
         except Exception:
             logger.debug("PreCallGuardrailAgentMiddleware: sanitize skipped", exc_info=True)
             return request

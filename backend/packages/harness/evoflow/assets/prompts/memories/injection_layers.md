@@ -1,6 +1,6 @@
 # Asset injection layers (SoT)
 
-Runtime injects **indexes + short standing**, never experience bodies by default.
+Runtime injects **indexes + full standing page**, never experience bodies by default.
 Source of truth for durable know-how is the Asset Hub tree, **not** `agents.system_prompt`.
 
 ## Layers (employee / user entity)
@@ -8,7 +8,7 @@ Source of truth for durable know-how is the Asset Hub tree, **not** `agents.syst
 | Layer | What | When loaded | Owns |
 |-------|------|-------------|------|
 | **L0 job** | `<agent_system_prompt>` / soul | every turn | Duty skeleton only: role, I/O shape, hard gates, tool allow-hints |
-| **L1 standing** | `memory/standing.md` (capped) | every turn | Prefs, tips, **What's in Memory** routing pointers — **derived summary**, not a third content kind |
+| **L1 standing** | `memory/standing.md` (**full**, no runtime scissors) | every turn | Prefs, tips, **What's in Memory** routing pointers — **derived summary**, not a third content kind. Keep the file short via Phase2 rewrite, not prompt truncation. |
 | **L2 catalog** | filenames under craft/facts/episodic/journal headings + `MEMORY.md` | every turn | Discoverability — basename + one-line label (no dir prefix, no body) |
 | **L3 body** | full md under craft / MEMORY / facts / … | on demand | Details via `assets` `read` / `search` |
 | **L4 inbox** | `_inbox/notes` pending | until Phase2 | Fresh notes not yet consolidated |

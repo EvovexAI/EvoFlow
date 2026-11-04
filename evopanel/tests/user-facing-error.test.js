@@ -12,6 +12,18 @@ describe('toUserFacingError', () => {
     expect(toUserFacingError('无法获取会话 thread_id')).toBe('会话尚未就绪，请稍后重试')
   })
 
+  it('maps Volc Ark tool-pair mismatch (11148) away from raw JSON', () => {
+    const raw =
+      'upstream 400: {"code":11148,"msg":"tool calls and tool results do not match, please start a new conversation and retry","retry_policy":{"retry":false}}'
+    expect(toUserFacingError(raw)).toBe('对话里的工具调用记录不完整，请新建对话后再试')
+  })
+
+  it('maps zh Incomplete tool records displayMsg', () => {
+    expect(toUserFacingError('工具记录不完整，请新建任务')).toBe(
+      '对话里的工具调用记录不完整，请新建对话后再试',
+    )
+  })
+
   it('maps python TypeError from backend', () => {
     expect(
       toUserFacingError(

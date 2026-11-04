@@ -80,6 +80,8 @@ def test_write_and_pending_injection(asset_home: Path) -> None:
     assert "记录时间：" in text
 
     block = format_pending_inbox_notes_for_prompt(entity)
+    assert "<pending_inbox>" in block
+    assert "</pending_inbox>" in block
     assert "douyin-pipeline-image-post-fallback.md" in block
     assert "image post fallback" in block
 

@@ -276,7 +276,10 @@ def format_pending_inbox_notes_for_prompt(
         lines = scan_memory_entries(lines, source="pending_inbox_notes")
     except Exception:
         pass
+    # Paired XML like other prompt regions — not a bare HTML comment tail.
     return (
-        "<!-- pending inbox notes: injected until Phase2 consolidates -->\n"
+        "<pending_inbox>\n"
+        "<!-- injected until Phase2 consolidates -->\n"
         + "\n".join(lines)
+        + "\n</pending_inbox>"
     )

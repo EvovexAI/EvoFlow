@@ -114,6 +114,24 @@ def _media_deliverable_reply_hint(path: str | None = None) -> str:
     )
 
 
+def _is_inline_data_uri(value: str | None) -> bool:
+    return bool(value) and str(value).strip().lower().startswith("data:")
+
+
+def _public_media_url(url: str | None, absolute_path: str | None) -> str | None:
+    """Never echo inline base64 back to the caller — swap it for the saved local path.
+
+    GPT-Image style providers return ``b64_json``; carrying that multi-MB data URI into
+    the tool response floods the agent context (millions of tokens). Once the file is on
+    disk the local path is strictly more useful.
+    """
+    if not url:
+        return None
+    if _is_inline_data_uri(url):
+        return _path_for_display(absolute_path)
+    return url
+
+
 def _media_image_reply_hint(absolute_path: str | None = None) -> str:
     base = (
         "EvoPanel already shows the image inline in the tool result card (click to zoom). "
@@ -135,7 +153,10 @@ def _image_success_payload(
     message: str,
 ) -> str:
     ap = _path_for_display(absolute_path)
-    frame_url = url or (urls[0] if urls else None)
+    safe_url = _public_media_url(url, ap)
+    safe_urls = [_public_media_url(u, ap) for u in (urls or []) if u]
+    safe_urls = [u for u in safe_urls if u]
+    frame_url = safe_url or (safe_urls[0] if safe_urls else None)
     hint = _media_image_reply_hint(ap)
     if frame_url:
         hint += " For image2video pass first_frame_url from this response (`url` / `first_frame_url`); local absolute_path is accepted and auto-resolved."
@@ -143,8 +164,8 @@ def _image_success_payload(
         provider=provider,
         task_id=task_id,
         status=status,
-        url=url,
-        urls=urls,
+        url=safe_url,
+        urls=safe_urls,
         local_path=ap,
         absolute_path=ap,
         first_frame_url=frame_url,
@@ -648,12 +669,14 @@ def media_task_wait_tool(
         )
     )
     msg = f"Saved: {ap}" if ap else ("Task finished." if urls else f"Task status={status}; no download URL yet.")
+    safe_url = _public_media_url(urls[0] if urls else None, ap)
+    safe_urls = [u for u in (_public_media_url(x, ap) for x in (urls or []) if x) if u]
     return success_response(
         provider=provider,
         task_id=task_id,
         status=status,
-        url=urls[0] if urls else None,
-        urls=urls,
+        url=safe_url,
+        urls=safe_urls,
         local_path=ap,
         absolute_path=ap,
         message=msg,

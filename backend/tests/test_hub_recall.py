@@ -19,6 +19,9 @@ def test_hub_recall_enabled_default_on(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_format_hub_asset_recall_title_only(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("EVOFLOW_HOME", str(tmp_path))
+    from evoflow.config.paths import reset_paths_cache
+
+    reset_paths_cache()
     root = tmp_path / "assets" / "employees" / "demo-writer"
     craft = root / "craft"
     craft.mkdir(parents=True)
@@ -29,12 +32,13 @@ def test_format_hub_asset_recall_title_only(tmp_path: Path, monkeypatch: pytest.
     (root / "memory").mkdir(parents=True, exist_ok=True)
     (root / "memory" / "standing.md").write_text("v1\n\n## User Profile\ndemo\n", encoding="utf-8")
 
-    # Title/description hit
+    # Title/description hit — display is filename · one label (no name/slug echo)
     text = format_hub_asset_recall(EntityRef("employee", "demo-writer"), "五段式")
     assert "ASSET HUB RECALL" in text
     assert "five-block.md" in text
     assert "craft/five-block.md" not in text
-    assert "五段式" in text
+    assert "`five-block.md` · 五段式硬规则" in text
+    assert "five-block.md` · 五段式硬规则 ·" not in text
 
     # Body-only token must NOT match (title-only policy)
     assert format_hub_asset_recall(EntityRef("employee", "demo-writer"), "摄影机型号") == ""

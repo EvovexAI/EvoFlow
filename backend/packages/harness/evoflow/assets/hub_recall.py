@@ -75,10 +75,13 @@ def _catalog_title_rows(entity: EntityRef) -> list[tuple[str, str]]:
         logger.debug("hub recall: catalog import failed", exc_info=True)
         return rows
 
-    def _label(*parts: Any) -> str:
-        bits = [str(p or "").strip() for p in parts if str(p or "").strip()]
-        # Prefer human title; keep name/path stem in haystack via _title_haystack(path, …)
-        return " · ".join(dict.fromkeys(bits)) if bits else ""
+    def _one_label(*parts: Any) -> str:
+        """Single human label for display — do not join name/filename (shown separately)."""
+        for p in parts:
+            s = str(p or "").strip()
+            if s:
+                return s
+        return ""
 
     def _name(p: str) -> str:
         return p.replace("\\", "/").rsplit("/", 1)[-1] if p else p
@@ -86,23 +89,24 @@ def _catalog_title_rows(entity: EntityRef) -> list[tuple[str, str]]:
     try:
         for r in list_craft_catalog(entity):
             path = str(r.get("path") or "").strip()
-            # Label uses basename only — full dir stays off the prompt; haystack still has path.
-            title = _label(r.get("description"), r.get("name"), _name(path))
+            # Display: description only; filename is rendered separately as `name`.
+            # Match haystack still covers path/stem via _title_haystack.
+            title = _one_label(r.get("description"), r.get("name"), _name(path))
             if path:
                 rows.append((path, title or _name(path)))
         for r in list_fact_catalog(entity):
             path = str(r.get("path") or "").strip()
-            title = _label(r.get("title"), r.get("summary"), _name(path))
+            title = _one_label(r.get("title"), r.get("summary"), _name(path))
             if path:
                 rows.append((path, title or _name(path)))
         for r in list_episode_catalog(entity):
             path = str(r.get("path") or "").strip()
-            title = _label(r.get("title"), r.get("summary"), _name(path))
+            title = _one_label(r.get("title"), r.get("summary"), _name(path))
             if path:
                 rows.append((path, title or _name(path)))
         for r in list_journal_catalog(entity):
             path = str(r.get("path") or "").strip()
-            title = _label(r.get("title"), r.get("summary"), _name(path))
+            title = _one_label(r.get("title"), r.get("summary"), _name(path))
             if path:
                 rows.append((path, title or _name(path)))
     except Exception:

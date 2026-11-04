@@ -48,6 +48,7 @@ def test_strip_includes_memory_policy_and_entity_assets():
     text = (
         "<platform>x</platform>\n"
         "<memory_assets>unified policy and recall</memory_assets>\n"
+        "<pending_inbox>orphan note</pending_inbox>\n"
         "<memory_policy>secret</memory_policy>\n"
         "<entity_assets>paths</entity_assets>\n"
         "<memory>user mem</memory>\n"
@@ -56,6 +57,7 @@ def test_strip_includes_memory_policy_and_entity_assets():
     )
     cleaned = strip_memory_xml_blocks(text)
     assert "unified policy" not in cleaned
+    assert "orphan note" not in cleaned
     assert "secret" not in cleaned
     assert "paths" not in cleaned
     assert "user mem" not in cleaned

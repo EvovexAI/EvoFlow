@@ -134,7 +134,23 @@ function logRawUserFacingError(raw, facing) {
 export function toUserFacingError(raw, fallback = DEFAULT_FALLBACK) {
   const msg = String(raw ?? '').trim()
   if (!msg) return fallback
+
+  // Volc Ark / Doubao unpaired tool history — map before looksUserFriendly keeps short CJK.
+  if (
+    /tool calls and tool results do not match|incomplete tool records|11148|工具记录不完整/i.test(
+      msg,
+    )
+  ) {
+    const facing = '对话里的工具调用记录不完整，请新建对话后再试'
+    logRawUserFacingError(raw, facing)
+    return facing
+  }
+
   if (looksUserFriendly(msg)) return msg
+  if (looksLikeStackTrace(msg) && !hasCjk(msg)) {
+    logRawUserFacingError(raw, fallback)
+    return fallback
+  }
 
   const lower = msg.toLowerCase()
   const isDev =
