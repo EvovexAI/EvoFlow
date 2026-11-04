@@ -1,0 +1,127 @@
+import { describe, expect, it, vi } from 'vitest'
+import {
+  DeptGroupWakeQueue,
+  isWakeBusyError,
+  normalizeWakeGoal,
+} from '../src/react/lib/dept-group-wake-queue.ts'
+
+describe('dept-group-wake-queue helpers', () => {
+  it('detects busy errors', () => {
+    expect(isWakeBusyError(new Error('409 already running'))).toBe(true)
+    expect(isWakeBusyError(new Error('正在巡检'))).toBe(true)
+    expect(isWakeBusyError(new Error('network down'))).toBe(false)
+  })
+
+  it('normalizes goals for merge', () => {
+    expect(normalizeWakeGoal('  改  报告  ')).toBe('改 报告')
+  })
+})
+
+describe('DeptGroupWakeQueue', () => {
+  it('runs different agents in parallel, same agent serially', async () => {
+    const active = []
+    const maxActive = { n: 0 }
+    const order = []
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+
+    const q = new DeptGroupWakeQueue({
+      sleep: async () => {},
+      run: async (input) => {
+        active.push(input.agentCode)
+        maxActive.n = Math.max(maxActive.n, active.length)
+        order.push(`start:${input.agentCode}:${input.goal}`)
+        await sleep(30)
+        order.push(`end:${input.agentCode}:${input.goal}`)
+        active.splice(active.indexOf(input.agentCode), 1)
+      },
+    })
+
+    await Promise.all([
+      q.enqueue({ agentCode: 'a', roleName: 'A', goal: 'g1', depth: 0 }),
+      q.enqueue({ agentCode: 'a', roleName: 'A', goal: 'g2', depth: 0 }),
+      q.enqueue({ agentCode: 'b', roleName: 'B', goal: 'g3', depth: 0 }),
+    ])
+
+    expect(maxActive.n).toBeLessThanOrEqual(2)
+    const aStarts = order.filter((x) => x.startsWith('start:a:')).map((x) => x.slice(8))
+    expect(aStarts).toEqual(['g1', 'g2'])
+    const a1end = order.indexOf('end:a:g1')
+    const a2start = order.indexOf('start:a:g2')
+    expect(a1end).toBeGreaterThanOrEqual(0)
+    expect(a2start).toBeGreaterThan(a1end)
+    q.dispose()
+  })
+
+  it('retries busy then succeeds', async () => {
+    let n = 0
+    const q = new DeptGroupWakeQueue({
+      sleep: async () => {},
+      run: async () => {
+        n += 1
+        if (n < 3) return { busy: true, error: 'busy' }
+        return {}
+      },
+    })
+    await q.enqueue({ agentCode: 'x', roleName: 'X', goal: 'hello', depth: 0 })
+    expect(n).toBe(3)
+    const snap = q.snapshot().find((j) => j.agentCode === 'x')
+    expect(snap?.status).toBe('done')
+    q.dispose()
+  })
+
+  it('merges similar goals in short window', async () => {
+    const goals = []
+    const q = new DeptGroupWakeQueue({
+      sleep: async () => {},
+      run: async (input) => {
+        goals.push(input.goal)
+        await new Promise((r) => setTimeout(r, 20))
+      },
+    })
+    const p1 = q.enqueue({ agentCode: 'x', roleName: 'X', goal: '改报告', depth: 0 })
+    const p2 = q.enqueue({ agentCode: 'x', roleName: 'X', goal: '改报告', depth: 0 })
+    await Promise.all([p1, p2])
+    expect(goals).toEqual(['改报告'])
+    q.dispose()
+  })
+
+  it('skips duplicate nest chainKey', async () => {
+    const runs = []
+    const q = new DeptGroupWakeQueue({
+      sleep: async () => {},
+      run: async (input) => {
+        runs.push(input.agentCode)
+      },
+    })
+    await q.enqueue({
+      agentCode: 'b',
+      roleName: 'B',
+      goal: 'hi',
+      depth: 1,
+      chainKey: 'a->b',
+    })
+    await q.enqueue({
+      agentCode: 'b',
+      roleName: 'B',
+      goal: 'hi again',
+      depth: 1,
+      chainKey: 'a->b',
+    })
+    expect(runs).toEqual(['b'])
+    q.dispose()
+  })
+
+  it('fails after max busy attempts', async () => {
+    const q = new DeptGroupWakeQueue({
+      sleep: async () => {},
+      run: async () => ({ busy: true, error: 'busy' }),
+    })
+    await expect(
+      q.enqueue({ agentCode: 'x', roleName: 'X', goal: 'hi', depth: 0 }),
+    ).rejects.toThrow(/忙/)
+    const snap = q.snapshot().find((j) => j.agentCode === 'x')
+    expect(snap?.status).toBe('failed')
+    expect(snap?.attempts).toBe(4)
+    q.dispose()
+  })
+})

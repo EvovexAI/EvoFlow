@@ -34,8 +34,9 @@ const SKILLHUB_EXAMPLE_URL = 'https://www.skillhub.cn/skillspackage/media-script
 
 const VIEW_TABS = [
   { id: 'mine', label: '我的智能体' },
-  { id: 'deployed', label: '已部署' },
-  { id: 'market', label: '模板市场' },
+  // 产品收敛：已部署 / 模板市场暂不展示（逻辑保留，便于恢复）
+  // { id: 'deployed', label: '已部署' },
+  // { id: 'market', label: '模板市场' },
 ]
 
 /** 空间不足时优先收进「更多筛选」的顺序（先收右侧） */
@@ -439,14 +440,18 @@ export async function render() {
   page.className = 'page role-page role-page--agents-flat'
 
   page.innerHTML = `
-    <div class="role-subtabs" role="tablist" aria-label="智能体视图">
+    ${
+      VIEW_TABS.length > 1
+        ? `<div class="role-subtabs" role="tablist" aria-label="智能体视图">
       ${VIEW_TABS.map(
         (t) => `
         <button type="button" class="role-subtab${t.id === 'mine' ? ' role-subtab--active' : ''}" data-view="${t.id}" role="tab">
           ${escapeHtml(t.label)}
         </button>`,
       ).join('')}
-    </div>
+    </div>`
+        : ''
+    }
 
     <div class="role-toolbar role-toolbar--agents" id="roles-mine-toolbar">
       <div class="role-filters-row" id="roles-filters-row">

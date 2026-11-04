@@ -4,7 +4,12 @@
  */
 import type { ReactNode } from 'react'
 import { ChatSummaryPanel } from '../../components/ChatSummaryPanel.js'
-import { EmployeePane, TaskPane } from '../../components/ChatWorkspaceInfoRail.js'
+import {
+  DeptGroupPane,
+  EmployeePane,
+  TaskPane,
+} from '../../components/ChatWorkspaceInfoRail.js'
+import { isDeptChatSessionKey } from '../../lib/dept-chat-session.js'
 
 export type RenderChatSummaryPanelCtx = Record<string, any>
 
@@ -31,6 +36,7 @@ export function renderChatSummaryPanel(
     handleStopProcessItem,
     headerTokenTotals,
     isProactiveEmployeeSession,
+    isDeptChatSurface,
     liveProcessSnapshot,
     manualContextCompacting,
     modelPillLabel,
@@ -52,16 +58,21 @@ export function renderChatSummaryPanel(
     turnArtifacts,
     turnPlatformEntries,
   } = ctx
+  const sessionKey = String(selectedSessionKey || '')
+  const deptChat =
+    typeof isDeptChatSurface === 'boolean'
+      ? isDeptChatSurface
+      : isDeptChatSessionKey(sessionKey)
   return (
     <ChatSummaryPanel
-      key={String(selectedSessionKey || '')}
+      key={sessionKey}
       displayMode={mode}
       onDisplayModeChange={setChatPanelDisplayMode}
       isRunning={selectedTurnBusy}
-      sessionKey={String(selectedSessionKey || '')}
+      sessionKey={sessionKey}
       sessionTitle={getDisplayLabel(
         selectedSessionKey,
-        sessions.find((s) => String(s.sessionKey || '') === String(selectedSessionKey || ''))?.title,
+        sessions.find((s) => String(s.sessionKey || '') === sessionKey)?.title,
       )}
       terminalStreams={liveProcessSnapshot.terminalStreams}
       subagentTasks={liveProcessSnapshot.subagentTasks}
@@ -69,7 +80,7 @@ export function renderChatSummaryPanel(
       backgroundWorks={liveProcessSnapshot.backgroundWorks}
       onOpenProcessItem={handleOpenProcessItem}
       onStopProcessItem={handleStopProcessItem}
-      agentLabel={currentRoleLabel}
+      agentLabel={deptChat ? getDisplayLabel(selectedSessionKey, '') : currentRoleLabel}
       modelLabel={modelPillLabel}
       modelName={effectiveModelName}
       agentCode={
@@ -90,8 +101,14 @@ export function renderChatSummaryPanel(
       onPatchCapabilities={patchCurrentAgentCapabilities}
       capabilityBusy={capabilityPatchBusy}
       onSwitchAgent={undefined}
-      onEditAgent={currentRoleCodeForUi || employeeSessionAgentCode ? openCurrentAgentEditor : undefined}
-      onAssetQuickAction={handleAssetQuickAction}
+      onEditAgent={
+        deptChat
+          ? undefined
+          : currentRoleCodeForUi || employeeSessionAgentCode
+            ? openCurrentAgentEditor
+            : undefined
+      }
+      onAssetQuickAction={deptChat ? undefined : handleAssetQuickAction}
       assetQuickBusy={assetQuickBusy}
       artifacts={sessionArtifacts}
       recentArtifacts={turnArtifacts}
@@ -103,9 +120,11 @@ export function renderChatSummaryPanel(
       onRevealArtifact={revealSessionArtifact}
       obsEnabled={obsEnabled}
       threadId={selectedThreadId}
-      isEmployeeSession={isProactiveEmployeeSession}
+      isEmployeeSession={isProactiveEmployeeSession && !deptChat}
+      isDeptChatSession={deptChat}
+      deptPane={deptChat && sessionKey ? <DeptGroupPane sessionKey={sessionKey} /> : null}
       employeePane={
-        isProactiveEmployeeSession ? (
+        isProactiveEmployeeSession && !deptChat ? (
           <EmployeePane
             employeeInfo={employeeRoleDetail}
             sessionTitle={getDisplayLabel(selectedSessionKey, '')}
@@ -136,13 +155,13 @@ export function renderChatSummaryPanel(
         ) : null
       }
       taskPane={
-        isProactiveEmployeeSession ? (
+        isProactiveEmployeeSession && !deptChat ? (
           <TaskPane
             sessionTitle={getDisplayLabel(selectedSessionKey, '')}
             isRunning={selectedTurnBusy}
             tokenTotals={headerTokenTotals}
             agentCode={employeeSessionAgentCode || currentRoleCodeForUi}
-            sessionKey={String(selectedSessionKey || '')}
+            sessionKey={sessionKey}
             liveTask={sidebarActiveView?.task || null}
           />
         ) : null

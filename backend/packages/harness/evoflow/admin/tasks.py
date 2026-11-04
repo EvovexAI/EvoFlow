@@ -844,14 +844,51 @@ def assert_manager_handoff_handlers(
     )
 
 
+#: app_settings key — 「用户/小V 派单交接下游是否要人工点头」总开关。
+#: 默认 true（保持原行为）；设 false 后交接直接派发，不再逐单等人确认。
+HANDOFF_APPROVAL_KEY = "runtime.handoff_approval"
+
+
+def handoff_approval_enabled() -> bool:
+    """Whether user/小V-raised handoffs still require a human ack.
+
+    Reads ``evoflow_app_settings`` key ``runtime.handoff_approval`` —
+    missing/未配置 → True（沿用历史行为）；显式 false 才关闭。
+    """
+    try:
+        from evoflow.persistence.config_repositories import get_app_setting
+
+        raw = get_app_setting(HANDOFF_APPROVAL_KEY)
+    except Exception:
+        logger.debug("admin.tasks: handoff_approval_enabled read failed", exc_info=True)
+        return True
+    if raw is None:
+        return True
+    if isinstance(raw, dict):
+        raw = raw.get("enabled")
+        if raw is None:
+            return True
+    if isinstance(raw, bool):
+        return raw
+    text = str(raw).strip().casefold()
+    if text in {"0", "false", "off", "no", "disabled"}:
+        return False
+    if text in {"1", "true", "on", "yes", "enabled"}:
+        return True
+    return True
+
+
 def handoff_needs_approval(task: dict[str, Any]) -> bool:
     """Whether completing this task with handlers should wait for human approval.
 
     System gate (not prompt): user/小V 派来的单若带 handlers 继续下游，先等人确认再叫醒。
     员工提示词只写正常流转；不要靠文案「停下来等审核」。
+    总开关 ``runtime.handoff_approval=false`` 时整道门关闭（自动派发）。
     """
     handlers = task_handlers_of(task)
     if not handlers:
+        return False
+    if not handoff_approval_enabled():
         return False
     raised = str(task.get("raised_by") or "").strip().casefold()
     # User (or 小V acting for user) cascaded work → always ack before wake.

@@ -2,6 +2,20 @@
 
 export type ChatArtifactType = 'file' | 'image' | 'video' | 'url' | 'html' | 'text' | 'platform'
 
+/** 平台 CTA：须保留 openStage，否则 Info Rail「打开工作流」点了没反应。 */
+export type ChatArtifactPlatformAction = {
+  label: string
+  route?: string
+  external?: boolean
+  autoOpen?: boolean
+  openStage?: {
+    kind?: string
+    title?: string
+    layout?: string
+    data?: Record<string, unknown> | null
+  }
+}
+
 export type ChatArtifact = {
   id: string
   type: ChatArtifactType
@@ -20,8 +34,39 @@ export type ChatArtifact = {
   platformDomain?: string
   platformFeedbackKind?: 'success' | 'warning' | 'error'
   platformSubtitle?: string
+  platformEntityId?: string
+  platformEntityLabel?: string
   toolCallId?: string
-  platformActions?: Array<{ label: string; route?: string; external?: boolean }>
+  platformActions?: ChatArtifactPlatformAction[]
+}
+
+function normalizePlatformActionRow(row: Record<string, unknown>): ChatArtifactPlatformAction | null {
+  const label = String(row.label || '').trim()
+  if (!label) return null
+  const route = String(row.route || '').trim() || undefined
+  const out: ChatArtifactPlatformAction = {
+    label,
+    route,
+    external: row.external === true,
+  }
+  if (row.autoOpen === true) out.autoOpen = true
+  const openRaw = row.openStage
+  if (openRaw && typeof openRaw === 'object' && !Array.isArray(openRaw)) {
+    const o = openRaw as Record<string, unknown>
+    const kind = String(o.kind || '').trim()
+    if (kind) {
+      out.openStage = {
+        kind,
+        title: String(o.title || '').trim() || undefined,
+        layout: String(o.layout || '').trim() || undefined,
+        data:
+          o.data && typeof o.data === 'object' && !Array.isArray(o.data)
+            ? (o.data as Record<string, unknown>)
+            : null,
+      }
+    }
+  }
+  return out
 }
 
 const TYPES = new Set<ChatArtifactType>(['file', 'image', 'video', 'url', 'html', 'text', 'platform'])
@@ -82,10 +127,16 @@ export function normalizeChatArtifact(raw: unknown): ChatArtifact | null {
     const platformAction = String(o.platformAction || o.platform_action || '').trim()
     const platformDomain = String(o.platformDomain || o.platform_domain || '').trim()
     const platformSubtitle = String(o.platformSubtitle || o.platform_subtitle || o.subtitle || '').trim()
+    const platformEntityId = String(o.platformEntityId || o.platform_entity_id || '').trim()
+    const platformEntityLabel = String(
+      o.platformEntityLabel || o.platform_entity_label || '',
+    ).trim()
     const toolCallId = String(o.toolCallId || o.tool_call_id || '').trim()
     if (platformAction) out.platformAction = platformAction
     if (platformDomain) out.platformDomain = platformDomain
     if (platformSubtitle) out.platformSubtitle = platformSubtitle
+    if (platformEntityId) out.platformEntityId = platformEntityId
+    if (platformEntityLabel) out.platformEntityLabel = platformEntityLabel
     if (toolCallId) out.toolCallId = toolCallId
     const createdAt = String(o.createdAt || o.created_at || '').trim()
     const updatedAt = String(o.updatedAt || o.updated_at || '').trim()
@@ -95,12 +146,8 @@ export function normalizeChatArtifact(raw: unknown): ChatArtifact | null {
     if (Array.isArray(actionsRaw) && actionsRaw.length) {
       out.platformActions = actionsRaw
         .filter((row): row is Record<string, unknown> => !!row && typeof row === 'object')
-        .map((row) => ({
-          label: String(row.label || '').trim(),
-          route: String(row.route || '').trim() || undefined,
-          external: row.external === true,
-        }))
-        .filter((row) => row.label)
+        .map((row) => normalizePlatformActionRow(row))
+        .filter((row): row is ChatArtifactPlatformAction => Boolean(row))
     }
     return out
   }

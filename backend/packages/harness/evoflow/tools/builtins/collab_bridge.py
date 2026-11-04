@@ -91,8 +91,12 @@ async def delegate_via_task_tool(
     collab_task_id: str,
     collab_subtask_id: str,
     detach: bool,
+    workspace_root: str | None = None,
 ) -> str:
     """Invoke ``task_tool.coroutine`` via the bridge (no direct import).
+
+    ``workspace_root`` is forwarded verbatim to ``task_tool`` so the delegated
+    subagent starts in the workflow's pinned working directory.
 
     Raises:
         RuntimeError: If ``task_tool`` has not registered its delegate yet.
@@ -109,6 +113,7 @@ async def delegate_via_task_tool(
         collab_task_id=collab_task_id,
         collab_subtask_id=collab_subtask_id,
         detach=detach,
+        workspace_root=workspace_root,
     )
 
 

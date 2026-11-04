@@ -252,13 +252,16 @@ export function WorkProcessEventCard({
   const hint = String(ev.summary || '').trim()
   // 模型事件用首句当标题，避免整屏「模型回复」同质化；节拍用首行
   const title = isModel && hint ? hint : ev.title || ev.action
+  // 值班节拍：标题=首行、摘要=其余行，展开正文再贴整段会显示两次。
   const detailText = isModel
     ? ev.output
     : isErr
       ? ev.errorText || ev.output
-      : isInternal || isBeat
-        ? ev.input
-        : ''
+      : isBeat
+        ? ''
+        : isInternal
+          ? ev.input
+          : ''
   const canExpand = !compact && Boolean(detailText) && detailText !== title
   const showBody = canExpand && (open || (active && Boolean(query.trim())))
 

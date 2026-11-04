@@ -27,6 +27,9 @@ ANCHORS: dict[str, re.Pattern[str]] = {
     "be_turn_to_synth": re.compile(r"turn 判定→首句合成请求 (\d+) ms"),
     "be_wire_gap": re.compile(r"wire_gap=(\d+)ms"),
     "be_vad_to_bot": re.compile(r"(?:用户落静音→机器人开口约|用户落静音→机器人开口) (\d+) ms"),
+    # agent 往返（agent 内化收益评估的依据；仅语音发问路径打点）
+    "fe_send_prep_ms": re.compile(r"chatSend 准备 .*prep=\+(\d+)ms"),
+    "fe_send_total_ms": re.compile(r"chatSend 已提交 .*total=\+(\d+)ms"),
 }
 
 

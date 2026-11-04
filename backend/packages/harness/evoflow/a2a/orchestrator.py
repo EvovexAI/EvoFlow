@@ -396,6 +396,7 @@ class MeetingOrchestrator:
         context_summary: str = "",
         *,
         allow_tools: bool = False,
+        mode: str | None = None,
     ) -> dict[str, Any]:
         """User @mentions a specific participant during a meeting."""
         role = ProactiveRepository.get_role(agent_code)
@@ -410,6 +411,7 @@ class MeetingOrchestrator:
             from_agent="user",
             meeting_id=meeting_id,
             allow_tools=bool(allow_tools),
+            mode=mode,
         )
 
         if task_result.get("error") and not (task_result.get("task") or {}).get("result_text"):

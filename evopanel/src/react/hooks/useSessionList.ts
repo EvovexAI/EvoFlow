@@ -292,7 +292,8 @@ export function useSessionList(opts: UseSessionListOptions) {
 
   const selectedSessionKeyRef = useRef(selectedSessionKey)
 
-  useEffect(() => {
+  // layout：与 sessionRef 同帧对齐，避免 refresh await 回来时仍读到旧选中（部门群聊会被 first-selectable 冲掉）
+  useLayoutEffect(() => {
     selectedSessionKeyRef.current = selectedSessionKey
   }, [selectedSessionKey])
 

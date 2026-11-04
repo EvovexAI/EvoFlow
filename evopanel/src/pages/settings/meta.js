@@ -32,6 +32,10 @@ export const NAV_ICONS = {
     '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>',
   'mcp-server-management':
     '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16M4 12h16M4 17h10"/><circle cx="18" cy="17" r="2"/></svg>',
+  'mcp-connectors':
+    '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16M4 12h16M4 17h10"/><circle cx="18" cy="17" r="2"/></svg>',
+  'skill-management':
+    '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l3 7h7l-5.5 4.5L18 21l-6-4-6 4 1.5-7.5L2 9h7z"/></svg>',
   'plugin-management':
     '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v4M12 3l2 2h-4l2-2zM7 11a2 2 0 00-2 2v1h14v-1a2 2 0 00-2-2M9 11V9h6v2M5 14v5a2 2 0 002 2h10a2 2 0 002-2v-5"/></svg>',
 }
@@ -53,6 +57,8 @@ export const NAV_LABELS = {
   license: '授权',
   about: '关于',
   'mcp-server-management': 'MCP 服务',
+  'mcp-connectors': '连接器',
+  'skill-management': '技能',
   'plugin-management': '插件市场',
 }
 
@@ -79,6 +85,14 @@ export const TAB_META = {
     title: 'MCP 服务器管理',
     desc: '已装、可装、配置与运行状态 — 来自 EvoFlow MCP 设置组件。',
   },
+  'mcp-connectors': {
+    title: '连接器',
+    desc: '安装与管理 MCP 连接器（原智能体中心「连接器」）。给员工勾选请到员工编辑。',
+  },
+  'skill-management': {
+    title: '技能',
+    desc: '安装、启停与导入本地技能（原智能体中心「技能」）。给员工勾选请到员工编辑。',
+  },
   'plugin-management': {
     title: '插件市场',
     desc: 'EvoFlow 插件体系：市场源、安装、启停与组件详情 — 来自 EvoFlow 原版插件设置组件。',
@@ -89,7 +103,11 @@ export const TAB_META = {
 export const NAV_GROUPS = [
   { id: 'basic', title: '基础设置', tabs: ['general', 'models', 'search', 'shortcuts'] },
   { id: 'capability', title: '能力与集成', tabs: ['im', 'security', 'api', 'sso', 'users'] },
-  { id: 'data', title: '数据与资源', tabs: ['usage', 'resources', 'code-index', 'plugin-management'] },
+  {
+    id: 'data',
+    title: '数据与资源',
+    tabs: ['usage', 'resources', 'code-index', 'plugin-management', 'skill-management', 'mcp-connectors'],
+  },
   { id: 'about', title: '关于', tabs: ['about', 'license'] },
 ]
 
@@ -110,6 +128,9 @@ export function parseTabFromLocation() {
   if (tab === 'memory') return 'general'
   // 旧「我的资源 / 资源市场」双 Tab → 合一「资源中心」
   if (tab === 'my-resources' || tab === 'resource-market') return 'resources'
+  // 旧智能体中心深链 / 习惯别名
+  if (tab === 'skills' || tab === 'skill') return 'skill-management'
+  if (tab === 'mcp' || tab === 'tools' || tab === 'connectors') return 'mcp-connectors'
   const mapped = tab === 'plans' ? 'models' : tab
   if (mapped && ALLOWED_TABS.includes(mapped) && (LICENSE_GATE_ENABLED || mapped !== 'license')) {
     return mapped

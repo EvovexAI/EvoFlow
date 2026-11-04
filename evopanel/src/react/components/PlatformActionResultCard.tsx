@@ -77,7 +77,17 @@ export const PlatformActionResultCard = memo(function PlatformActionResultCard({
   const title = platformActionCardTitle(ui)
   const meta = platformActionCardMeta(ui)
   const showQr = hasBindQr(ui)
-  const primaryAction = Array.isArray(ui.actions) && ui.actions.length > 0 ? ui.actions[0] : null
+  // 与 Info Rail 一致：优先带 openStage 的 CTA（工作流右栏），勿落到 route=/apps
+  const primaryAction = (() => {
+    const actions = Array.isArray(ui.actions) ? ui.actions : []
+    if (!actions.length) return null
+    return (
+      actions.find((a) => a?.openStage && String(a.openStage.kind || '').trim()) ||
+      actions.find((a) => a?.route) ||
+      actions[0] ||
+      null
+    )
+  })()
   const actionLabel = primaryAction?.label || '查看详情'
   const channelLabel = CHANNEL_LABELS[String(ui.channel || '').toLowerCase()] || '渠道'
   const employeeName = String(ui.entityLabel || ui.agentCode || '本岗 AI 员工').trim()
@@ -87,7 +97,18 @@ export const PlatformActionResultCard = memo(function PlatformActionResultCard({
       window.open(String(ui.qrUrl), '_blank', 'noopener,noreferrer')
       return
     }
-    if (primaryAction && activatePlatformFeedbackAction(primaryAction)) return
+    if (
+      primaryAction &&
+      activatePlatformFeedbackAction(primaryAction, {
+        domain: ui.domain,
+        action: ui.action,
+        entityId: ui.entityId,
+        entityLabel: ui.entityLabel,
+        title: ui.title,
+      })
+    ) {
+      return
+    }
     requestOpenPlatformFeedbackFromTool(tool)
   }
 

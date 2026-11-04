@@ -21,12 +21,12 @@ html.evopanel-tauri-frameless #app-shell-aside.shell-aside-host {
   max-height: 100%;
 }
 
-/* 非 /chat 路由：主列顶部拖拽条（与左侧壳同色） */
+/* 非 /chat 路由：主列顶部拖拽条（与左侧壳同色、同高） */
 .tauri-main-chrome {
   display: flex;
   align-items: stretch;
   flex-shrink: 0;
-  height: 48px;
+  height: var(--shell-top-band, 48px);
   position: relative;
   z-index: 20;
   background: var(--chrome-bg, #e8edf2);

@@ -6,7 +6,10 @@ import { bootMark } from './lib/startup-trace.js'
 import { nextFrameSafe } from './lib/raf-safe.js'
 
 const routes = {}
+/** Cache key → module. Key is route *pattern* (e.g. `/apps/:id`), not raw path. */
 const _moduleCache = {}
+/** In-flight loads keyed same as `_moduleCache` — coalesce concurrent imports. */
+const _moduleInflight = {}
 let _contentEl = null
 let _chatHostEl = null
 let _loadId = 0
@@ -20,6 +23,88 @@ let _defaultRoute = '/chat'
 /** ChatApp 首包较大，冷启动/开发态动态 import 可能超过 15s */
 const MODULE_LOAD_TIMEOUT_MS = 45000
 const PAGE_RENDER_TIMEOUT_MS = 30000
+/** UI: only escalate “still loading” copy after this (was 1.5s — too noisy). */
+const SLOW_LOADER_HINT_MS = 2500
+/** Persist route timing when import or render exceeds this. */
+const ROUTE_TIMING_LOG_MS = 800
+
+/**
+ * Stabilize dynamic routes onto the registered pattern so `/apps/a` and `/apps/b`
+ * share one module cache entry (same chunk). Without this, every id looked “cold”
+ * and showed「首次加载页面模块」while only *render/data* was slow.
+ */
+export function routeModuleCacheKey(path) {
+  const p = String(path || '').split('?')[0]
+  if (!p) return p
+  if (routes[p]) return p
+  if (/^\/task\/[^/]+$/.test(p)) return '/task/:id'
+  if (/^\/share\/[^/]+$/.test(p)) return '/share/:id'
+  if (/^\/extensions\/[^/]+$/.test(p)) return '/extensions/:id'
+  if (/^\/project\/[^/]+$/.test(p)) return '/project/:id'
+  if (/^\/workflow\/[^/]+$/.test(p)) return '/workflow/:id'
+  if (/^\/knowledge\/owned\/[^/]+$/.test(p)) return '/knowledge/owned/:id'
+  if (/^\/knowledge\/vaults$/.test(p)) return '/knowledge/owned'
+  if (/^\/knowledge\/[^/]+$/.test(p) && p !== '/knowledge/owned') return '/knowledge/:id'
+  if (/^\/proactive\/[^/]+\/work\/[^/]+$/.test(p)) return '/proactive/:code/work/:taskId'
+  if (/^\/proactive\/[^/]+\/item\/[^/]+$/.test(p)) return '/proactive/:code/item/:itemId'
+  if (p === '/proactive/board') return '/proactive/board'
+  if (/^\/proactive\/[^/]+$/.test(p)) return '/proactive/:code'
+  if (/^\/apps\/[^/]+\/run$/.test(p)) return '/apps/:id/run'
+  if (/^\/apps\/[^/]+\/history$/.test(p)) return '/apps/:id/history'
+  if (/^\/apps\/[^/]+$/.test(p)) return '/apps/:id'
+  if (/^\/agents\/team\/[^/]+$/.test(p)) return '/agents/team/:code'
+  if (/^\/agents\/[^/]+$/.test(p)) return '/agents/:code'
+  if (/^\/runs\/[^/]+$/.test(p)) return '/runs/:runId'
+  return p
+}
+
+function persistRouterLog(level, message) {
+  const line = String(message || '').slice(0, 11_500)
+  if (!line) return
+  try {
+    if (typeof window === 'undefined') return
+    if (!(window.__TAURI__?.core?.invoke || window.__TAURI_INTERNALS__)) return
+    void import('@tauri-apps/api/core')
+      .then((m) => m.invoke('append_frontend_log', { level, message: line }))
+      .catch(() => {})
+  } catch {
+    /* best-effort */
+  }
+}
+
+function logRouteTiming(event, detail) {
+  const importMs = Number(detail?.importMs || 0)
+  const renderMs = Number(detail?.renderMs || 0)
+  const totalMs = Number(detail?.totalMs || importMs + renderMs)
+  const slow = totalMs >= ROUTE_TIMING_LOG_MS || importMs >= ROUTE_TIMING_LOG_MS || renderMs >= ROUTE_TIMING_LOG_MS
+  if (!slow && event !== 'error') return
+  const line =
+    `[router] ${event} path=${detail?.path || '-'} cacheKey=${detail?.cacheKey || '-'} ` +
+    `cached=${detail?.cached ? 1 : 0} import_ms=${importMs} render_ms=${renderMs} total_ms=${totalMs}` +
+    (detail?.error ? ` error=${detail.error}` : '')
+  if (event === 'error') {
+    console.error(line)
+    persistRouterLog('error', line)
+  } else if (totalMs >= 3000) {
+    console.warn(line)
+    persistRouterLog('warn', line)
+  } else {
+    console.info(line)
+    persistRouterLog('info', line)
+  }
+  try {
+    bootMark(`router ${event}`, {
+      path: detail?.path,
+      cacheKey: detail?.cacheKey,
+      cached: !!detail?.cached,
+      importMs,
+      renderMs,
+      totalMs,
+    })
+  } catch {
+    /* ignore */
+  }
+}
 
 /** index.html 全屏开场层；淡出后移除（可安全多次调用） */
 export function removeBootSplash() {
@@ -27,6 +112,8 @@ export function removeBootSplash() {
   if (!el || el.classList.contains('boot-splash--hide')) return
   bootMark('boot splash hide begin')
   el.classList.add('boot-splash--hide')
+  // 平台实况控制台随启动页停机（boot.js 监听，重复派发无副作用）
+  try { window.dispatchEvent(new CustomEvent('ef:console-stop')) } catch (_) {}
   const done = () => {
     try {
       el.remove()
@@ -248,7 +335,7 @@ function updateNavActive(routePath) {
     if (!active && r === '/agents' && routePath.startsWith('/agents/team/')) active = true
     if (!active && r === '/expert' && /^\/agents\/[^/]+$/.test(routePath) && !routePath.startsWith('/agents/team/')) active = true
     if (!active && r === '/proactive' && (routePath.startsWith('/proactive/') || routePath.startsWith('/runs/'))) active = true
-    if (!active && r === '/expert' && ['/agents','/skills','/tools','/tasks','/cron','/automation'].some(p => routePath === p || routePath.startsWith(p + '/'))) active = true
+    if (!active && r === '/expert' && (routePath === '/agents' || routePath.startsWith('/agents/'))) active = true
     if (!active && r === '/knowledge' && (routePath === '/knowledge' || routePath === '/knowledge/vaults' || routePath.startsWith('/knowledge/owned'))) active = true
     if (!active && r === '/extensions' && (routePath === '/extensions' || routePath.startsWith('/extensions/'))) active = true
     item.classList.toggle('active', active)
@@ -256,39 +343,72 @@ function updateNavActive(routePath) {
 }
 
 async function loadRouteModule(loader, path) {
-  let mod = _moduleCache[path]
-  if (!mod) {
-    mod = await retryLoad(loader, 3, 500)
-    _moduleCache[path] = mod
+  const cacheKey = routeModuleCacheKey(path)
+  let mod = _moduleCache[cacheKey]
+  if (mod) return { mod, cacheKey, cached: true, importMs: 0 }
+  if (_moduleInflight[cacheKey]) {
+    mod = await _moduleInflight[cacheKey]
+    return { mod, cacheKey, cached: true, importMs: 0 }
   }
-  return mod
+  const t0 = typeof performance !== 'undefined' ? performance.now() : Date.now()
+  const job = retryLoad(loader, 3, 500)
+    .then((loaded) => {
+      _moduleCache[cacheKey] = loaded
+      return loaded
+    })
+    .finally(() => {
+      delete _moduleInflight[cacheKey]
+    })
+  _moduleInflight[cacheKey] = job
+  mod = await job
+  const t1 = typeof performance !== 'undefined' ? performance.now() : Date.now()
+  return { mod, cacheKey, cached: false, importMs: Math.round(t1 - t0) }
 }
 
-/** 慢加载占位升级：>1.5s 未完成时把「转圈」换成真实等待原因。
- *  reload/自愈窗口里用户点菜单，之前只有静态「加载中...」，现在能看出是在等网关。 */
-function upgradeSlowLoaderText(spinnerEl, startedAt) {
+/**
+ * 慢加载占位升级：超过 SLOW_LOADER_HINT_MS 未完成时换成可理解的等待原因。
+ * phase on dataset: 'module' | 'render' — 避免把「渲染/拉数」误写成「加载模块」。
+ */
+function upgradeSlowLoaderText(spinnerEl, startedAt, phase = 'module') {
   if (!spinnerEl) return
   const textEl = spinnerEl.querySelector('.page-loader-text')
   if (!textEl) return
-  setTimeout(() => {
+  spinnerEl.dataset.loaderPhase = phase || 'module'
+  spinnerEl.dataset.loaderStartedAt = String(startedAt || Date.now())
+  if (spinnerEl.dataset.loaderTicking === '1') return
+  spinnerEl.dataset.loaderTicking = '1'
+  const tick = () => {
     if (!spinnerEl.isConnected) return
-    // 延迟取 tauri-api，避免给 router 增加静态依赖
     void import('./lib/tauri-api.js')
       .then((m) => {
         if (!spinnerEl.isConnected) return
         const warming = typeof m.isGatewayWarming === 'function' ? m.isGatewayWarming() : false
+        const started = Number(spinnerEl.dataset.loaderStartedAt || Date.now())
+        const waitSec = Math.max(1, Math.round((Date.now() - started) / 1000))
+        const curPhase = spinnerEl.dataset.loaderPhase || 'module'
         if (warming) {
-          textEl.textContent = '网关就绪中…（重载或自愈期间，约需数十秒）'
-          // 预热未结束就持续刷新秒数，让用户看到在动而不是卡死
-          setTimeout(() => upgradeSlowLoaderText(spinnerEl, startedAt), 3000)
+          textEl.textContent = `网关就绪中…（已等待 ${waitSec} 秒）`
+        } else if (curPhase === 'render') {
+          textEl.textContent = `页面准备中…（已等待 ${waitSec} 秒）`
         } else {
-          const waitSec = Math.round((Date.now() - startedAt) / 1000)
-          textEl.textContent = `首次加载页面模块…（已等待 ${waitSec} 秒）`
-          setTimeout(() => upgradeSlowLoaderText(spinnerEl, startedAt), 3000)
+          textEl.textContent = `加载页面…（已等待 ${waitSec} 秒）`
         }
+        setTimeout(tick, 2000)
       })
       .catch(() => {})
-  }, 1500)
+  }
+  setTimeout(tick, SLOW_LOADER_HINT_MS)
+}
+
+function setLoaderPhase(spinnerEl, phase, startedAt) {
+  if (!spinnerEl?.isConnected) return
+  const textEl = spinnerEl.querySelector('.page-loader-text')
+  if (!textEl) return
+  spinnerEl.dataset.loaderPhase = phase || 'module'
+  if (startedAt) spinnerEl.dataset.loaderStartedAt = String(startedAt)
+  if (phase === 'render') textEl.textContent = '页面准备中...'
+  else textEl.textContent = '加载中...'
+  upgradeSlowLoaderText(spinnerEl, startedAt || Date.now(), phase)
 }
 
 /**
@@ -298,10 +418,17 @@ function upgradeSlowLoaderText(spinnerEl, startedAt) {
 export function prefetchRoute(path) {
   const p = String(path || '').split('?')[0]
   if (!p) return Promise.resolve(null)
-  if (_moduleCache[p]) return Promise.resolve(_moduleCache[p])
+  const cacheKey = routeModuleCacheKey(p)
+  if (_moduleCache[cacheKey]) return Promise.resolve(_moduleCache[cacheKey])
   const loader = resolveLoader(p)
   if (!loader) return Promise.resolve(null)
-  return loadRouteModule(loader, p).catch(() => null)
+  return loadRouteModule(loader, p)
+    .then((r) => r.mod)
+    .catch(() => null)
+}
+
+export function isRouteModuleCached(path) {
+  return !!_moduleCache[routeModuleCacheKey(path)]
 }
 
 async function renderChatRoute(path, hash, thisLoad) {
@@ -323,22 +450,31 @@ async function renderChatRoute(path, hash, thisLoad) {
     return
   }
 
-  let mod
+  const cacheKey = routeModuleCacheKey(path)
+  const routeStarted = Date.now()
+  let spinnerEl = null
+  let loadInfo = { mod: null, cacheKey, cached: !!_moduleCache[cacheKey], importMs: 0 }
   try {
-    if (!_moduleCache[path] && !isChatAppMounted()) {
+    if (!_moduleCache[cacheKey] && !isChatAppMounted()) {
       _chatHostEl.innerHTML = ''
-      const spinnerEl = document.createElement('div')
+      spinnerEl = document.createElement('div')
       spinnerEl.className = 'page-loader'
       spinnerEl.innerHTML = `
       <div class="page-loader-spinner"></div>
       <div class="page-loader-text">加载中...</div>
     `
       _chatHostEl.appendChild(spinnerEl)
-      upgradeSlowLoaderText(spinnerEl, Date.now())
+      upgradeSlowLoaderText(spinnerEl, routeStarted, 'module')
     }
-    mod = await loadRouteModule(loader, path)
+    loadInfo = await loadRouteModule(loader, path)
   } catch (e) {
-    console.error('[router] 模块加载失败:', hash, e)
+    logRouteTiming('error', {
+      path,
+      cacheKey,
+      cached: false,
+      importMs: Date.now() - routeStarted,
+      error: String(e?.message || e),
+    })
     if (thisLoad === _loadId) showLoadError(_chatHostEl, hash, e)
     return
   }
@@ -346,15 +482,39 @@ async function renderChatRoute(path, hash, thisLoad) {
   if (thisLoad !== _loadId) return
 
   let page
+  const renderStarted = typeof performance !== 'undefined' ? performance.now() : Date.now()
   try {
+    if (spinnerEl?.isConnected) setLoaderPhase(spinnerEl, 'render', routeStarted)
+    const mod = loadInfo.mod
     const renderFn = mod.render || mod.default
     page = renderFn ? await withTimeout(renderFn(), PAGE_RENDER_TIMEOUT_MS, '页面渲染超时') : mod
   } catch (e) {
     console.error('[router] 页面渲染失败:', hash, e)
-    delete _moduleCache[path]
+    delete _moduleCache[cacheKey]
+    logRouteTiming('error', {
+      path,
+      cacheKey,
+      cached: loadInfo.cached,
+      importMs: loadInfo.importMs,
+      renderMs: Math.round(
+        (typeof performance !== 'undefined' ? performance.now() : Date.now()) - renderStarted,
+      ),
+      error: String(e?.message || e),
+    })
     if (thisLoad === _loadId) showLoadError(_chatHostEl, hash, e)
     return
   }
+  const renderMs = Math.round(
+    (typeof performance !== 'undefined' ? performance.now() : Date.now()) - renderStarted,
+  )
+  logRouteTiming('ok', {
+    path,
+    cacheKey,
+    cached: loadInfo.cached,
+    importMs: loadInfo.importMs,
+    renderMs,
+    totalMs: Date.now() - routeStarted,
+  })
   if (thisLoad !== _loadId) return
 
   if (typeof page === 'string') {
@@ -368,7 +528,8 @@ async function renderChatRoute(path, hash, thisLoad) {
     console.error('[router] chat render returned non-element', page)
   }
 
-  _currentCleanup = mod.cleanup || null
+  // mod 在上方 try 块内声明；这里只能用 loadInfo.mod
+  _currentCleanup = loadInfo.mod?.cleanup || null
   updateNavActive(path.split('?')[0])
   window.dispatchEvent(new CustomEvent('evopanel:chat-route-shown'))
   // 侧栏「工作台」从其他页面跳转：pending 标记本由 ChatApp 挂载时消费，
@@ -400,8 +561,11 @@ async function renderContentRoute(path, hash, thisLoad) {
 
   // 旧页面保留展示直至新页就绪，消除「内容瞬间消失 → 白屏转圈」的闪变；
   // 未缓存模块时叠一个不挡操作的居中加载指示（.page-loader--overlay）
+  const cacheKey = routeModuleCacheKey(path)
+  const routeStarted = Date.now()
+  const moduleCached = !!_moduleCache[cacheKey]
   let spinnerEl = null
-  if (!_moduleCache[path] && _contentEl.querySelector(':scope > .page')) {
+  if (!moduleCached && _contentEl.querySelector(':scope > .page')) {
     spinnerEl = document.createElement('div')
     spinnerEl.className = 'page-loader page-loader--overlay'
     spinnerEl.innerHTML = `
@@ -409,23 +573,29 @@ async function renderContentRoute(path, hash, thisLoad) {
       <div class="page-loader-text">加载中...</div>
     `
     _contentEl.appendChild(spinnerEl)
-    upgradeSlowLoaderText(spinnerEl, Date.now())
-  } else if (!_moduleCache[path]) {
-    const empty = document.createElement('div')
-    empty.className = 'page-loader'
-    empty.innerHTML = `
+    upgradeSlowLoaderText(spinnerEl, routeStarted, 'module')
+  } else if (!moduleCached) {
+    spinnerEl = document.createElement('div')
+    spinnerEl.className = 'page-loader'
+    spinnerEl.innerHTML = `
       <div class="page-loader-spinner"></div>
       <div class="page-loader-text">加载中...</div>
     `
-    _contentEl.appendChild(empty)
-    upgradeSlowLoaderText(empty, Date.now())
+    _contentEl.appendChild(spinnerEl)
+    upgradeSlowLoaderText(spinnerEl, routeStarted, 'module')
   }
 
-  let mod
+  let loadInfo = { mod: null, cacheKey, cached: moduleCached, importMs: 0 }
   try {
-    mod = await loadRouteModule(loader, path)
+    loadInfo = await loadRouteModule(loader, path)
   } catch (e) {
-    console.error('[router] 模块加载失败:', hash, e)
+    logRouteTiming('error', {
+      path,
+      cacheKey,
+      cached: false,
+      importMs: Date.now() - routeStarted,
+      error: String(e?.message || e),
+    })
     if (thisLoad === _loadId) showLoadError(_contentEl, hash, e)
     return
   }
@@ -433,16 +603,61 @@ async function renderContentRoute(path, hash, thisLoad) {
   if (thisLoad !== _loadId) return
 
   let page
+  const renderStarted = typeof performance !== 'undefined' ? performance.now() : Date.now()
   try {
+    if (spinnerEl?.isConnected) setLoaderPhase(spinnerEl, 'render', routeStarted)
+    else if (moduleCached) {
+      // Module warm but first paint of this path may still wait on API — light overlay.
+      const paintHintAt = Date.now()
+      const hintTimer = setTimeout(() => {
+        if (thisLoad !== _loadId || !_contentEl) return
+        if (_contentEl.querySelector(':scope > .page-loader')) return
+        spinnerEl = document.createElement('div')
+        spinnerEl.className = 'page-loader page-loader--overlay'
+        spinnerEl.innerHTML = `
+          <div class="page-loader-spinner"></div>
+          <div class="page-loader-text">页面准备中...</div>
+        `
+        _contentEl.appendChild(spinnerEl)
+        upgradeSlowLoaderText(spinnerEl, paintHintAt, 'render')
+      }, SLOW_LOADER_HINT_MS)
+      // Clear timer once we finish (below); stash on local
+      loadInfo._hintTimer = hintTimer
+    }
+    const mod = loadInfo.mod
     const renderFn = mod.render || mod.default
     page = renderFn ? await withTimeout(renderFn(), PAGE_RENDER_TIMEOUT_MS, '页面渲染超时') : mod
+    if (loadInfo._hintTimer) clearTimeout(loadInfo._hintTimer)
   } catch (e) {
+    if (loadInfo._hintTimer) clearTimeout(loadInfo._hintTimer)
     console.error('[router] 页面渲染失败:', hash, e)
-    delete _moduleCache[path]
+    delete _moduleCache[cacheKey]
+    logRouteTiming('error', {
+      path,
+      cacheKey,
+      cached: loadInfo.cached,
+      importMs: loadInfo.importMs,
+      renderMs: Math.round(
+        (typeof performance !== 'undefined' ? performance.now() : Date.now()) - renderStarted,
+      ),
+      error: String(e?.message || e),
+    })
     if (thisLoad === _loadId) showLoadError(_contentEl, hash, e)
     return
   }
   if (thisLoad !== _loadId) return
+
+  const renderMs = Math.round(
+    (typeof performance !== 'undefined' ? performance.now() : Date.now()) - renderStarted,
+  )
+  logRouteTiming('ok', {
+    path,
+    cacheKey,
+    cached: loadInfo.cached,
+    importMs: loadInfo.importMs,
+    renderMs,
+    totalMs: Date.now() - routeStarted,
+  })
 
   _contentEl.innerHTML = ''
   if (typeof page === 'string') {
@@ -451,7 +666,8 @@ async function renderContentRoute(path, hash, thisLoad) {
     _contentEl.appendChild(page)
   }
 
-  _currentCleanup = mod.cleanup || null
+  // mod 在上方 try 块内声明；这里只能用 loadInfo.mod
+  _currentCleanup = loadInfo.mod?.cleanup || null
   updateNavActive(path.split('?')[0])
   scheduleRemoveBootSplash()
   void import('./lib/page-help.js').then((m) => {

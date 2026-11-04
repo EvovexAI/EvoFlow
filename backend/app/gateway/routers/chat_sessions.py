@@ -151,6 +151,9 @@ class AppendMessageBody(BaseModel):
     runId: str | None = None
     threadId: str | None = None
     parentThreadId: str | None = None
+    """When true + messageId set: insert or overwrite that bubble (dept group streaming finalize)."""
+    upsertByMessageId: bool = False
+    turnState: str | None = None
 
 
 class AppendMessagesBatchBody(BaseModel):
@@ -1203,8 +1206,12 @@ def _validate_append_body(role: str, content: Any) -> None:
         raise HTTPException(status_code=413, detail=f"content too large (max {_MAX_APPEND_CONTENT_BYTES} bytes)")
 
 
-def _validate_client_http_append_role(role: str) -> None:
+def _validate_client_http_append_role(role: str, *, session_key: str = "") -> None:
     r = str(role or "").strip().lower()
+    sk = str(session_key or "").strip()
+    # 部门群时间线：前端直接落 user/assistant（多人气泡），不经 TranscriptMiddleware
+    if sk.startswith("dept:") and sk.endswith(":chat") and r in ("user", "assistant"):
+        return
     if r not in _CLIENT_HTTP_APPEND_ROLES:
         raise HTTPException(
             status_code=422,
@@ -1230,20 +1237,39 @@ async def append_session_message(request: Request, session_key: str, body: Appen
     key = _require_session_access(request, session_key)
     if sess_repo.is_session_deleted(key):
         raise HTTPException(status_code=404, detail="session not found")
-    _validate_client_http_append_role(body.role)
+    _validate_client_http_append_role(body.role, session_key=key)
     _validate_append_body(body.role, body.content)
     uid = _request_principal_id(request)
     try:
-        result = chat_svc.append_message_and_touch_session(
-            key,
-            role=body.role,
-            content=body.content,
-            run_id=body.runId,
-            thread_id=body.threadId,
-            parent_thread_id=body.parentThreadId,
-            principal_id=uid,
-            **_flat_append_kwargs(body),
-        )
+        if body.upsertByMessageId and str(body.messageId or "").strip():
+            flat = _flat_append_kwargs(body)
+            # message_id is a dedicated kwarg — must not also land in **flat
+            flat.pop("message_id", None)
+            flat.pop("messageId", None)
+            if body.contentJson is not None:
+                flat["content_json"] = body.contentJson
+            result = chat_svc.upsert_message_and_touch_session(
+                key,
+                role=body.role,
+                message_id=str(body.messageId).strip(),
+                content=body.content,
+                run_id=body.runId,
+                thread_id=body.threadId,
+                turn_state=body.turnState,
+                principal_id=uid,
+                **flat,
+            )
+        else:
+            result = chat_svc.append_message_and_touch_session(
+                key,
+                role=body.role,
+                content=body.content,
+                run_id=body.runId,
+                thread_id=body.threadId,
+                parent_thread_id=body.parentThreadId,
+                principal_id=uid,
+                **_flat_append_kwargs(body),
+            )
     except sqlite3.OperationalError as e:
         busy = _transcript_db_busy_http(e)
         if busy:
@@ -1265,7 +1291,7 @@ async def append_session_messages_batch(request: Request, session_key: str, body
     for item in body.messages:
         if isinstance(item, dict):
             role = str(item.get("role", ""))
-            _validate_client_http_append_role(role)
+            _validate_client_http_append_role(role, session_key=key)
             _validate_append_body(role, item.get("content"))
     try:
         result = chat_svc.append_messages_batch_and_touch_session(

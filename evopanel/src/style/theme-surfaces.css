@@ -424,10 +424,10 @@ html[data-theme='dark']:not([data-translucent-ui='1']) #app.evopanel-app-studio-
   background: var(--bg-primary);
 }
 
-/* ── Tauri 顶栏：暗色实底兜底（液态规则在 liquid-glass.css） ── */
+/* ── Tauri 顶栏：与左侧壳同用 --chrome-bg（勿用 bg-secondary，否则顶条色差断层） ── */
 html[data-theme='dark'] #main-col > .tauri-main-chrome:not(.tauri-main-chrome--hidden) {
-  background: var(--bg-secondary) !important;
-  /* 去掉深色下的 1px 底边框：顶栏与内容同底色即可，边框线在深色/科技风下显得很丑 */
+  background: var(--chrome-bg, #1c1c1c) !important;
+  /* 去掉深色下的 1px 底边框：顶栏与侧栏同底，边框线在深色下显得很丑 */
   border-bottom: none !important;
 }
 
@@ -3350,17 +3350,34 @@ html[data-translucent-ui='1'] .extensions-page .uiext-app-more.is-open {
   color: var(--text-primary) !important;
 }
 
-/* 卡片⋯菜单：浮在卡片外，不能跟卡片一起透明，否则后半段菜单字会飘在空白上 */
+/* 卡片⋯菜单：浮在卡片外，不能跟卡片一起透明，否则后半段菜单字会飘在空白上。
+ * 用实色而非 token：半透明主题下 --bg-elevated 仍可能被玻璃化，看起来像「下半截透明」。 */
+html[data-theme='dark'] .extensions-page .uiext-app:has(.uiext-app-more.is-open),
+html[data-translucent-ui='1'] .extensions-page .uiext-app:has(.uiext-app-more.is-open),
+html[data-theme='dark'] .extensions-page .uiext-app:has(.uiext-app-menu:not([hidden])),
+html[data-translucent-ui='1'] .extensions-page .uiext-app:has(.uiext-app-menu:not([hidden])),
+html[data-theme='dark'] .apps-page .app-card:has(.app-card-more.is-open),
+html[data-translucent-ui='1'] .apps-page .app-card:has(.app-card-more.is-open) {
+  z-index: 40 !important;
+}
+
 html[data-theme='dark'] .extensions-page .uiext-app-menu,
 html[data-translucent-ui='1'] .extensions-page .uiext-app-menu,
 html[data-theme='dark'] .apps-page .app-card-menu,
 html[data-translucent-ui='1'] .apps-page .app-card-menu {
-  background: var(--bg-elevated, var(--bg-secondary, #fff)) !important;
+  background: #ffffff !important;
   border-color: var(--border-primary) !important;
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18), 0 2px 6px rgba(0, 0, 0, 0.06) !important;
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
   color: var(--text-primary) !important;
+}
+
+html[data-theme='dark'] .extensions-page .uiext-app-menu,
+html[data-theme='dark'] .apps-page .app-card-menu {
+  background: #303030 !important;
+  border-color: rgba(255, 255, 255, 0.12) !important;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45), 0 2px 6px rgba(0, 0, 0, 0.2) !important;
 }
 
 html[data-theme='dark'] .extensions-page .uiext-app-menu-item:hover,

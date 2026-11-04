@@ -145,6 +145,11 @@ class VolcengineAsrSession:
                 "result_type": "full",
             },
         }
+        # 热词表（火山控制台建表后填 ID 到媒体设置 volcengineAsrBoostingTableId）：
+        # 专有名词识别错 = 整轮白问；未配置不传该字段，行为不变。
+        _boosting = _volc_asr_boosting_table_id()
+        if _boosting:
+            full_payload["request"]["corpus"] = {"boosting_table_id": _boosting}
 
         try:
             async with websockets.connect(
@@ -226,3 +231,13 @@ class VolcengineAsrSession:
                     await self._on_error(str(e))
                 except Exception:
                     pass
+
+
+def _volc_asr_boosting_table_id() -> str:
+    """热词表 ID（媒体设置 volcengineAsrBoostingTableId；未配置返回空 = 不启热词）。"""
+    try:
+        from evoflow.persistence.media_settings import get_media_credentials
+
+        return str((get_media_credentials() or {}).get("volcengineAsrBoostingTableId") or "").strip()
+    except Exception:
+        return ""

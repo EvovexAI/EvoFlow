@@ -911,6 +911,50 @@ export function enrichShellPageOpenStages(ui: PlatformUiFeedback): PlatformUiFee
     touched = true
   }
 
+  // workflow.run：旧 CTA route=/apps 升成右栏本次运行（勿整窗跳工作流菜单）
+  if (domain === 'workflow' || action.startsWith('workflow.')) {
+    const progressSibling = actions.find((a) => isProgressOpenStageKind(a.openStage?.kind))
+    const siblingTid = asString(progressSibling?.openStage?.data?.mainTaskId)
+    const tid = siblingTid || entityId
+    for (const a of actions) {
+      if (a.openStage?.kind) continue
+      const route = asString(a.route)
+      const isAppsList = route === '/apps' || route === '/apps/'
+      const isAppsRun = /^\/apps\/[^/?#]+\/run(?:\?|$)/.test(route)
+      if (!isAppsList && !isAppsRun) continue
+      if (!tid) {
+        // 没有 task id：去掉假菜单链，避免点了跳 /apps
+        a.route = undefined
+        touched = true
+        continue
+      }
+      a.label = a.label || '打开工作流'
+      a.autoOpen = a.autoOpen === true || action === 'workflow.run'
+      a.openStage = {
+        kind: 'collab-workflow',
+        data: { mainTaskId: tid },
+      }
+      // 保留深链仅作挂载失败回落；列表菜单不再回落
+      if (isAppsList) a.route = undefined
+      touched = true
+    }
+    if (
+      tid &&
+      (action === 'workflow.run' ||
+        action === 'workflow.resume' ||
+        action === 'workflow.recover' ||
+        action === 'workflow.run_status') &&
+      !actions.some((a) => isProgressOpenStageKind(a.openStage?.kind))
+    ) {
+      actions.unshift({
+        label: '打开工作流',
+        autoOpen: true,
+        openStage: { kind: 'collab-workflow', data: { mainTaskId: tid } },
+      })
+      touched = true
+    }
+  }
+
   if (!touched) return ui
   return { ...ui, actions }
 }
@@ -997,10 +1041,10 @@ function buildActions(action: string, domain: string, entityId: string): Platfor
     return [{ label: '查看智能体', route: '/agents' }]
   }
   if (domain === 'skills') {
-    return [{ label: '打开技能', route: '/skills' }]
+    return [{ label: '打开技能', route: '/settings?tab=skill-management' }]
   }
   if (domain === 'mcp') {
-    return [{ label: '打开 MCP', route: '/tools' }]
+    return [{ label: '打开 MCP', route: '/settings?tab=mcp-connectors' }]
   }
   if (domain === 'automation') {
     return [{ label: '打开自动化', route: '/automation' }]
@@ -1162,24 +1206,43 @@ export function navigatePlatformFeedbackRoute(route: string): void {
 }
 
 /** 平台反馈 CTA：优先 openStage（右栏），失败再跳 route。 */
-export function activatePlatformFeedbackAction(action: PlatformFeedbackAction | null | undefined): boolean {
+export function activatePlatformFeedbackAction(
+  action: PlatformFeedbackAction | null | undefined,
+  ctx?: {
+    domain?: string
+    action?: string
+    entityId?: string | null
+    entityLabel?: string
+    title?: string
+  },
+): boolean {
   if (!action) return false
-  // 点「查看员工/任务」时：只有 route 也升成 shell-page，避免整窗跳转
-  let openStage = action.openStage
-  if (!openStage?.kind && action.route) {
-    const enriched = enrichShellPageOpenStages({
-      kind: 'success',
-      title: action.label || '查看',
-      actions: [{ ...action }],
-    })
-    openStage = enriched.actions?.[0]?.openStage
-  }
+  // 一律走 enrich：旧 /apps 升成 collab-workflow；仅有 entityId 时也能补 openStage
+  const enriched = enrichShellPageOpenStages({
+    kind: 'success',
+    title: ctx?.title || action.label || '查看',
+    domain: ctx?.domain,
+    action: ctx?.action,
+    entityId: ctx?.entityId,
+    entityLabel: ctx?.entityLabel,
+    actions: [{ ...action }],
+  })
+  const resolved = enriched.actions?.[0] || action
+  const openStage = resolved.openStage
   if (openStage) {
     const tabId = openProgressFromPanelSet(openStage)
     if (tabId) return true
   }
-  if (action.route) {
-    navigatePlatformFeedbackRoute(action.route)
+  const route = asString(resolved.route || action.route)
+  if (route) {
+    // 工作流列表菜单：右栏打不开时也不整窗跳 /apps（用户要的是本次运行）
+    if (
+      (route === '/apps' || route === '/apps/') &&
+      (asString(ctx?.domain) === 'workflow' || asString(ctx?.action).startsWith('workflow.'))
+    ) {
+      return false
+    }
+    navigatePlatformFeedbackRoute(route)
     return true
   }
   return false
@@ -1365,6 +1428,8 @@ type PlatformArtifactWire = {
   platformDomain?: string
   platformFeedbackKind?: string
   platformSubtitle?: string
+  platformEntityId?: string
+  platformEntityLabel?: string
   toolCallId?: string
   platformActions?: unknown
   actions?: unknown
@@ -1388,13 +1453,31 @@ export function platformRunEntryFromChatArtifact(raw: PlatformArtifactWire): Pla
   const id =
     asString(raw.id) ||
     (toolCallId ? `platform:${toolCallId}` : `platform:${asString(raw.platformAction) || title}:${appliedAt}`)
+  const entityId = asString(raw.platformEntityId) || null
+  const entityLabel = asString(raw.platformEntityLabel) || undefined
+  const domain = asString(raw.platformDomain) || undefined
+  const actionName = asString(raw.platformAction) || undefined
+  // 产物归一化若曾剥掉 openStage，用 entityId 再升成右栏 CTA
+  if (domain || actionName || entityId) {
+    actions = enrichShellPageOpenStages({
+      kind,
+      title,
+      domain,
+      action: actionName,
+      entityId,
+      entityLabel,
+      actions,
+    }).actions || actions
+  }
   return {
     id,
     kind,
     title,
     subtitle: asString(raw.platformSubtitle) || undefined,
-    domain: asString(raw.platformDomain) || undefined,
-    action: asString(raw.platformAction) || undefined,
+    domain,
+    action: actionName,
+    entityId,
+    entityLabel,
     toolCallId: toolCallId || undefined,
     actions: actions.length ? actions : undefined,
     appliedAt,

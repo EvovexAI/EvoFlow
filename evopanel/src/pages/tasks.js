@@ -2889,17 +2889,7 @@ function showCreateInboxDialog(page, state, onSuccess) {
           type: 'select',
           value: '',
           options: roleSelectOptions(state),
-          hint: '对应表中的「责任人」；可稍后派发。',
-        },
-        {
-          name: 'dispatch_now',
-          label: '立刻派发责任人',
-          type: 'select',
-          value: '0',
-          options: [
-            { value: '0', label: '否 — 只登记进表，等下次值班' },
-            { value: '1', label: '是 — 马上叫醒员工推进' },
-          ],
+          hint: '选人即开工；只想备忘可先不选。说明可稍后在详情里补。',
         },
       ],
       onConfirm: async (result) => {
@@ -2925,8 +2915,8 @@ function showCreateInboxDialog(page, state, onSuccess) {
         try {
           const created = await api.createInboxTodo(name, desc, extras)
           const taskId = String(created?.id || created?.task_id || '').trim()
-          const wantsNow = String(result.dispatch_now || '') === '1'
-          if (assignee && wantsNow && taskId) {
+          // 选了责任人 = 直接安排去做，不再二次确认「要不要叫醒」
+          if (assignee && taskId) {
             try {
               await api.proactiveDispatchTask(assignee, {
                 goal: name,
@@ -2935,7 +2925,7 @@ function showCreateInboxDialog(page, state, onSuccess) {
                 source: 'task_center_inbox',
                 priority: 'normal',
               })
-              toast('事项已登记并立刻派发', 'success')
+              toast('事项已登记并派给员工', 'success')
             } catch (dispatchErr) {
               toast(`事项已登记，派发失败：${dispatchErr}`, 'warning')
             }
@@ -2976,16 +2966,7 @@ async function assignInboxTask(page, state, taskId) {
         type: 'select',
         value: String(task.assigned_to || opts[0]?.value || ''),
         options: opts,
-      },
-      {
-        name: 'dispatch_now',
-        label: '处理时机',
-        type: 'select',
-        value: '0',
-        options: [
-          { value: '0', label: '下次值班再处理' },
-          { value: '1', label: '立刻派发（马上叫醒）' },
-        ],
+        hint: '选定后立刻开工；补充说明可稍后在任务详情里改。',
       },
     ],
     onConfirm: async (result) => {
@@ -3002,19 +2983,15 @@ async function assignInboxTask(page, state, taskId) {
           assigned_role: roleName || undefined,
           source: 'role',
         })
-        const wantsNow = String(result.dispatch_now || '') === '1'
-        if (wantsNow) {
-          await api.proactiveDispatchTask(assignee, {
-            goal: String(task.name || '').trim() || '处理待办',
-            description: String(task.description || '').trim(),
-            related_task_id: taskId,
-            source: 'task_center_inbox',
-            priority: 'normal',
-          })
-          toast('已派发，员工开始处理', 'success')
-        } else {
-          toast('已分配，将在下次值班时处理', 'success')
-        }
+        // 派给某人 = 直接安排去做，去掉「先登记、再叫醒」的二次选择
+        await api.proactiveDispatchTask(assignee, {
+          goal: String(task.name || '').trim() || '处理待办',
+          description: String(task.description || '').trim(),
+          related_task_id: taskId,
+          source: 'task_center_inbox',
+          priority: 'normal',
+        })
+        toast('已派发，员工开始处理', 'success')
         await loadTasks(page, state)
       } catch (e) {
         toast('分配失败：' + e, 'error')

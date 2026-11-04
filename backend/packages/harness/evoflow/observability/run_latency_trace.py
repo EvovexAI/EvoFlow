@@ -25,6 +25,15 @@ def _shared_trace_log_path() -> Path:
     global _SHARED_TRACE_PATH
     if _SHARED_TRACE_PATH is not None:
         return _SHARED_TRACE_PATH
+    # 桌面 sidecar 的 cwd 不在仓库（cwd 回退会写进不可知目录 → 时序日志找不到）。
+    # 权威解析 = 产品日志根（desktop 注入 EVOFLOW_LOGS_DIR）；cwd 回退仅兜底 dev。
+    try:
+        from evoflow.runtime.log_policy import resolve_product_logs_dir
+
+        _SHARED_TRACE_PATH = resolve_product_logs_dir() / "stream-trace.log"
+        return _SHARED_TRACE_PATH
+    except Exception:
+        pass
     # Try repo root logs/ dir (works for both Gateway and LangGraph dev processes).
     for base in [Path.cwd(), Path.cwd().parent]:
         candidate = base / "logs"

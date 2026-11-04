@@ -23,6 +23,7 @@ import {
   Search,
   Star,
   Users,
+  Building2,
   X,
   Hash,
 } from 'lucide-react'
@@ -75,6 +76,17 @@ export function ShellEmployeesIcon({
   className?: string
 }) {
   return <ShellIcon icon={Users} size={size} className={className} />
+}
+
+/** 部门群聊 */
+export function ShellDeptsIcon({
+  size = 15,
+  className,
+}: {
+  size?: number
+  className?: string
+}) {
+  return <ShellIcon icon={Building2} size={size} className={className} />
 }
 
 /** 普通目录 */

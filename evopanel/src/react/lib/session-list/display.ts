@@ -1,5 +1,10 @@
 import type { ChatSessionRow } from '../../chat-types.js'
 import { parseTurnTimestampMs } from '../turn-timing.js'
+import {
+  deptChatDisplayTitle,
+  isDeptChatSessionKey,
+  isWeakDeptChatTitle,
+} from '../dept-chat-session.js'
 import { STORAGE_SESSION_NAMES_KEY, STORAGE_SESSION_NAMES_CHARSET_PURGE_KEY } from './constants.js'
 
 const IM_CHANNEL_LABELS: Record<string, string> = {
@@ -67,6 +72,9 @@ export function stripProactiveEmployeeTitlePrefix(title: string | null | undefin
 
 export function parseSessionLabel(key: string): string {
   const k = key || ''
+  if (isDeptChatSessionKey(k)) {
+    return deptChatDisplayTitle(k) || '部门群聊'
+  }
   if (k.startsWith('proactive:')) {
     // Prefer title from DB when available; fallback parses workspace key.
     const rest = k.slice('proactive:'.length).trim()
@@ -173,11 +181,26 @@ export function isPlaceholderSessionTitle(title: string | null | undefined): boo
 
 /** 侧栏标题：以 DB title 为准；无标题 / 内部 id / 弱 IM 标题时用可读文案 */
 export function getDisplayLabel(key: string, dbTitle?: string | null): string {
+  // 部门常驻群：顶栏直接用「部门名 N 人」，忽略残留的 chat 主题标题
+  if (isDeptChatSessionKey(key)) {
+    const deptTitle = deptChatDisplayTitle(key)
+    if (deptTitle) return deptTitle
+    const fromKey = parseSessionLabel(key)
+    if (fromKey && !isWeakDeptChatTitle(fromKey)) return fromKey
+    return '部门群聊'
+  }
   const isProactive = String(key || '').startsWith('proactive:')
   const fromDbRaw = String(dbTitle || '').trim()
   const fromDb = isProactive ? stripProactiveEmployeeTitlePrefix(fromDbRaw) : fromDbRaw
   const fromKey = parseSessionLabel(key)
-  if (fromDb && !isPlaceholderSessionTitle(fromDb) && !isWeakImSessionTitle(fromDb)) return fromDb
+  if (
+    fromDb &&
+    !isPlaceholderSessionTitle(fromDb) &&
+    !isWeakImSessionTitle(fromDb) &&
+    !isWeakDeptChatTitle(fromDb)
+  ) {
+    return fromDb
+  }
   if (fromDb && isWeakImSessionTitle(fromDb) && fromKey && fromKey !== fromDb && !isPlaceholderSessionTitle(fromKey)) {
     return fromKey
   }
@@ -186,13 +209,18 @@ export function getDisplayLabel(key: string, dbTitle?: string | null): string {
     const fromLocal = isProactive
       ? stripProactiveEmployeeTitlePrefix(fromLocalRaw)
       : fromLocalRaw
-    if (fromLocal && !isPlaceholderSessionTitle(fromLocal) && !looksLikeAutoFallbackTitle(fromLocal)) {
+    if (
+      fromLocal &&
+      !isPlaceholderSessionTitle(fromLocal) &&
+      !looksLikeAutoFallbackTitle(fromLocal) &&
+      !isWeakDeptChatTitle(fromLocal)
+    ) {
       if (!isWeakImSessionTitle(fromLocal)) return fromLocal
     }
   } catch {
     /* ignore */
   }
-  if (!fromKey || isPlaceholderSessionTitle(fromKey)) return '新对话'
+  if (!fromKey || isPlaceholderSessionTitle(fromKey) || isWeakDeptChatTitle(fromKey)) return '新对话'
   return fromKey
 }
 

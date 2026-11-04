@@ -58,6 +58,14 @@ export function buildConversationFlowItems(options: {
 
   for (const row of options.orderedRows) {
     if (isUserInputRow(row)) {
+      // Live mirror + transcript 偶发同文连写两条；折叠头两侧会看起来像「开场说了两遍」。
+      const prev = items.at(-1);
+      if (
+        prev?.kind === "userInput" &&
+        String(prev.row.text || "").trim() === String(row.text || "").trim()
+      ) {
+        continue;
+      }
       items.push({ kind: "userInput", row });
       continue;
     }

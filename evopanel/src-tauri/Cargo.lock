@@ -1153,7 +1153,7 @@ dependencies = [
 
 [[package]]
 name = "evopanel"
-version = "1.2.6"
+version = "1.2.7"
 dependencies = [
  "arboard",
  "base64 0.22.1",
@@ -1162,6 +1162,7 @@ dependencies = [
  "ed25519-dalek",
  "futures-util",
  "image",
+ "libc",
  "rand 0.8.5",
  "regex",
  "reqwest 0.12.28",

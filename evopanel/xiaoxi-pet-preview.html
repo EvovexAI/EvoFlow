@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>小V立绘 canvas 预览</title>
+    <style>
+      body { margin: 0; background: #eef3fa; font: 13px/1.4 system-ui, sans-serif; }
+      .row { display: flex; }
+      .cell { position: relative; }
+      .cell span { position: absolute; left: 8px; top: 6px; color: #6b7c96; }
+      #dark { background: #12161f; }
+      #dark .cell span { color: #8ea2bd; }
+    </style>
+  </head>
+  <body>
+    <div class="row" id="light"></div>
+    <div class="row" id="dark"></div>
+    <script type="module" src="/src/dev-preview/xiaoxi-pet-preview.ts"></script>
+  </body>
+</html>

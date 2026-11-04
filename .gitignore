@@ -175,6 +175,17 @@ _nodecheck.txt
 evopanel/src-tauri/find_fns.ps1
 evopanel/src-tauri/splice.ps1
 
+# Local debug/preview screenshots (never commit)
+/evopanel/shot_*.png
+/evopanel/zoom_*.png
+/evopanel/coding_*.png
+
+# Local wallpaper dev source (duplicates skills/public/dynamic-wallpaper/demo)
+/wallpaper/
+
+# Local requirement/design drafts (never commit)
+/backend/docs/需求方案*.md
+
 # Rust build artifacts
 target/
 

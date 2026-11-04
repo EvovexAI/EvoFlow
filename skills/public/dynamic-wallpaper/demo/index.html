@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#03010a">
+<title>CyberNeon · 赛博动态壁纸</title>
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%2303010a'/><rect x='8' y='8' width='16' height='16' rx='3' fill='none' stroke='%2300eaff' stroke-width='2' transform='rotate(45 16 16)'/><circle cx='16' cy='16' r='3' fill='%23ff2d78'/></svg>">
+</head>
+<body>
+
+<canvas id="stage"></canvas>
+
+<!-- 控制面板 -->
+<div id="panel">
+  <div class="panel-head">
+    <div class="logo-mark"></div>
+    <div class="head-txt">
+      <div class="head-title">CYBERNEON</div>
+      <div class="head-sub">WALLPAPER ENGINE v1.0</div>
+    </div>
+    <div class="head-led"></div>
+  </div>
+
+  <div class="scene-list" id="sceneList"></div>
+
+  <div class="divider" data-label="PARAMS"></div>
+
+  <div class="slider-row">
+    <span class="slider-label">密度</span>
+    <input type="range" min="0.3" max="1.8" step="0.05" data-bind="density">
+    <span class="slider-val">100%</span>
+  </div>
+  <div class="slider-row">
+    <span class="slider-label">辉光</span>
+    <input type="range" min="0" max="1.8" step="0.05" data-bind="glow">
+    <span class="slider-val">100%</span>
+  </div>
+  <div class="slider-row">
+    <span class="slider-label">速度</span>
+    <input type="range" min="0.2" max="2.2" step="0.05" data-bind="speed">
+    <span class="slider-val">100%</span>
+  </div>
+
+  <div class="divider" data-label="SYSTEM"></div>
+
+  <div class="panel-foot">
+    <label class="switch-row">
+      <input type="checkbox" class="switch" data-bind="autoRotate">
+      <span>自动轮播</span>
+    </label>
+    <button class="icon-btn" id="btnPause" title="暂停 / 播放 (空格)">❚❚</button>
+    <button class="icon-btn" id="btnFull" title="全屏 (F)">⛶</button>
+    <button class="icon-btn" id="btnHide" title="隐藏界面 (H)">◠</button>
+  </div>
+</div>
+
+<!-- 右下角场景标识 -->
+<div id="hud">
+  <div id="hudScene"></div>
+  <div id="hudFps">60 FPS</div>
+</div>
+
+<!-- 隐藏 UI 时的恢复热区 -->
+<div id="hotzone"></div>
+
+<!-- 首次提示 -->
+<div id="toast">
+  <b>移动</b> 探索视差 · <b>点击</b> 触发脉冲 · <b>1 / 2 / 3</b> 切换场景 · <b>H</b> 隐藏界面
+</div>
+
+<script src="js/core/utils.js"></script>
+<script src="js/core/engine.js"></script>
+<script src="js/scenes/outdoor.js"></script>
+<script src="js/scenes/indoor.js"></script>
+<script src="js/scenes/tunnel.js"></script>
+<script src="js/ui/panel.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>

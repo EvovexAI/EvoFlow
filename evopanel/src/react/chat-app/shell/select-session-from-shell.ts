@@ -16,6 +16,8 @@ export type SelectSessionFromShellCtx = {
   setMobileChatPane: (pane: 'list' | 'thread') => void
   /** 离开工作台仪表盘意图（点历史会话） */
   setPreferHomeDashboard?: (v: boolean) => void
+  /** 与 preferHomeDashboard 同步；须在 flushSync 前写，避免 refresh 仍当首页把选中冲掉 */
+  preferHomeDashboardRef?: MutableRefObject<boolean>
 }
 
 export function selectSessionFromShell(
@@ -45,6 +47,8 @@ export function selectSessionFromShell(
   } catch {
     /* ignore */
   }
+  // 同步离开工作台意图，再落 sessionKey（部门群聊不在 sessions 列表里，靠这个防 refresh 回填）
+  if (ctx.preferHomeDashboardRef) ctx.preferHomeDashboardRef.current = false
   ctx.sessionRef.current = k
   flushSync(() => {
     ctx.setPreferHomeDashboard?.(false)

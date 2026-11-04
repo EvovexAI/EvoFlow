@@ -22,6 +22,7 @@ __all__ = [
     # Unified write entries
     "persist_user_message",
     "append_message_and_touch_session",
+    "upsert_message_and_touch_session",
     "append_messages_batch_and_touch_session",
     # Session lifecycle
     "create_new_session",
@@ -1457,6 +1458,88 @@ def append_message_and_touch_session(
         if append_result is None:
             return None
         return {**append_result, "messageCount": count}
+
+    return run_db_with_retry(_write)
+
+
+def upsert_message_and_touch_session(
+    session_key: str,
+    *,
+    role: str,
+    message_id: str,
+    content: Any = None,
+    content_json: dict[str, Any] | str | None = None,
+    run_id: str | None = None,
+    thread_id: str | None = None,
+    turn_state: str | None = None,
+    principal_id: str | None = None,
+    **flat_fields: Any,
+) -> dict[str, Any] | None:
+    """Insert-or-update transcript row by message_id, then touch session index."""
+    sk = str(session_key or "").strip()
+    mid = str(message_id or "").strip()
+    if not sk or not mid:
+        raise ValueError("session_key and message_id required")
+
+    def _write() -> dict[str, Any]:
+        conn = get_db()
+        existing_row = conn.execute(
+            "SELECT thread_id, title, created_at, context_json FROM evoflow_chat_sessions WHERE session_key = ? AND is_deleted = 0",
+            (sk,),
+        ).fetchone()
+        existing: dict[str, Any] = {}
+        if existing_row:
+            existing = {
+                "threadId": str(existing_row[0] or "").strip() or None,
+                "title": str(existing_row[1] or ""),
+                "createdAt": existing_row[2],
+                "context": {},
+            }
+        if principal_id:
+            try:
+                from evoflow.authz.principals import get_principal
+                from evoflow.authz.session_ownership import stamp_session_ownership
+
+                owner = get_principal(principal_id)
+                if owner:
+                    stamp_session_ownership(sk, owner, force=False)
+            except Exception:
+                logger.debug("stamp_session_ownership on upsert failed sk=%s", sk, exc_info=True)
+        if content_json is not None:
+            flat_fields["content_json"] = content_json
+        # Dedicated kwargs — strip duplicates that HTTP flat-kwargs may reintroduce
+        flat_fields.pop("message_id", None)
+        flat_fields.pop("messageId", None)
+        upsert_result = msg_repo.upsert_message_by_message_id(
+            sk,
+            role=role,
+            message_id=mid,
+            content=content,
+            run_id=run_id,
+            thread_id=thread_id,
+            turn_state=turn_state,
+            conn=conn,
+            **flat_fields,
+        )
+        count = msg_repo.count_messages(sk)
+        now = _now_ms()
+        session_row_tid = msg_repo.session_binding_thread_id(
+            thread_id,
+            str(existing.get("threadId") or "").strip() or None,
+        )
+        sess_repo.upsert_session_row(
+            sk,
+            thread_id=session_row_tid,
+            created_at_ms=_session_created_at_ms(existing, now=now),
+            updated_at_ms=now,
+            message_count=count,
+            context=existing.get("context") if isinstance(existing.get("context"), dict) else {},
+            title=str(existing.get("title") or ""),
+            session_status=sess_repo.SESSION_STATUS_ACTIVE,
+            conn=conn,
+        )
+        conn.commit()
+        return {**(upsert_result or {}), "messageCount": count}
 
     return run_db_with_retry(_write)
 

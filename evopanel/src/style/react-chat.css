@@ -128,7 +128,7 @@
   width: var(--shell-aside-width);
   min-width: var(--shell-aside-width);
   max-width: var(--shell-aside-width);
-  border-right: 1px solid color-mix(in srgb, var(--shell-border, #e6e8ec) 60%, transparent);
+  border-right: none;
   background: var(--shell-bg);
   display: flex;
   flex-direction: column;
@@ -1058,6 +1058,1115 @@ html.dark .shell-view-tab.is-active {
 
 .shell-view-tab svg {
   flex-shrink: 0;
+}
+
+/* 侧栏 · 部门群聊行 */
+/* 与 .react-chat-history-item 同高（38px），避免部门行把列表撑开 */
+.shell-dept-row {
+  appearance: none;
+  width: 100%;
+  height: 38px;
+  min-height: 38px;
+  max-height: 38px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px 0 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.shell-dept-row:hover {
+  background: var(--shell-hover, #f0f2f7);
+}
+
+.shell-dept-row.active {
+  background: color-mix(in srgb, var(--accent, #6366f1) 12%, transparent);
+}
+
+.shell-dept-row__avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.shell-dept-row__avatar--empty {
+  font-size: 11px;
+  font-weight: 700;
+  color: #fff;
+  background: linear-gradient(145deg, #94a3b8, #475569);
+  user-select: none;
+}
+
+.shell-dept-row__body {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: row;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.shell-dept-row__title {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--shell-text, #171a2b);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shell-dept-row__meta {
+  flex-shrink: 0;
+  max-width: 42%;
+  font-size: 11px;
+  color: var(--text-secondary, #64748b);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* V4 主区部门群聊：普通 IM 布局，不要指挥台卡片壳 */
+.dept-chat-main {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+  box-sizing: border-box;
+}
+
+.dept-chat-main__empty {
+  padding: 24px 16px;
+  color: var(--text-secondary, #64748b);
+  font-size: 13px;
+}
+
+.evo-home-cmd__gc-wrap.evo-home-cmd__gc-wrap--main {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+  width: 100%;
+  gap: 0;
+  /* 相对左侧壳层再灰一档，浅色才分得清内容面 */
+  background: color-mix(in srgb, var(--text-primary, #0f172a) 7%, var(--bg-primary, #fff));
+}
+
+html[data-theme='dark'] .evo-home-cmd__gc-wrap.evo-home-cmd__gc-wrap--main,
+html.dark .evo-home-cmd__gc-wrap.evo-home-cmd__gc-wrap--main {
+  background: color-mix(in srgb, #94a3b8 7%, var(--shell-bg, var(--chrome-bg, #0a0e15)));
+}
+
+.evo-home-cmd__gc-wrap--main.has-thread .dept-im__rail {
+  width: min(280px, 32%);
+}
+
+.dept-im {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  padding: 0;
+}
+
+.dept-im__head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 10px 16px 8px;
+  border-bottom: 1px solid var(--border-primary, rgba(15, 23, 42, 0.08));
+  flex-shrink: 0;
+}
+
+.dept-im__titles {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.dept-im__title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dept-im__title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary, #0f172a);
+}
+
+.dept-im__sub {
+  margin: 0;
+  font-size: 11px;
+  color: var(--text-secondary, #64748b);
+}
+
+.dept-im__duty {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--text-secondary, #64748b);
+}
+
+.dept-im__rail {
+  width: 168px;
+  min-width: 152px;
+  flex-shrink: 0;
+  border-left: 1px solid var(--border-primary, rgba(15, 23, 42, 0.08));
+  background: var(--bg-primary, #fff);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  box-sizing: border-box;
+}
+
+.dept-im__rail-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 10px 6px;
+  flex-shrink: 0;
+}
+
+.dept-im__rail-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary, #0f172a);
+}
+
+.dept-im__rail-hint {
+  margin-left: auto;
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--text-secondary, #94a3b8);
+}
+
+.dept-im__rail-count {
+  font-size: 11px;
+  font-weight: 650;
+  color: var(--text-secondary, #64748b);
+  background: var(--bg-secondary, #f1f5f9);
+  border-radius: 999px;
+  padding: 1px 7px;
+}
+
+.dept-im__roster {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 2px 6px 8px;
+  overflow: auto;
+  flex: 1;
+  min-height: 0;
+}
+
+.dept-im__rail:has(.dept-im__rail-detail) .dept-im__roster {
+  flex: 0 1 auto;
+  max-height: 40%;
+}
+
+.dept-im__roster-row {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  padding: 6px;
+  border-radius: 8px;
+  cursor: pointer;
+  color: inherit;
+}
+
+.dept-im__roster-row:hover,
+.dept-im__roster-row.is-active {
+  background: var(--bg-secondary, #f8fafc);
+}
+
+.dept-im__roster-row.is-answering {
+  background: color-mix(in srgb, var(--accent, #6366f1) 8%, transparent);
+}
+
+.dept-im__roster-meta {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.dept-im__roster-name {
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--text-primary, #0f172a);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dept-im__roster-state {
+  font-size: 11px;
+  color: var(--text-secondary, #64748b);
+}
+
+.dept-im__roster-row.is-answering .dept-im__roster-state {
+  color: var(--text-secondary, #64748b);
+  font-weight: 650;
+}
+
+.dept-im__avatar-wrap {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+  border-radius: 12px;
+  cursor: pointer;
+}
+
+.dept-im__avatar-wrap:hover {
+  filter: brightness(1.04);
+}
+
+.dept-im__avatar-btn {
+  appearance: none;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+  border-radius: 6px;
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  overflow: hidden;
+  line-height: 0;
+}
+
+.dept-im__avatar-btn:hover {
+  filter: brightness(1.04);
+}
+
+.dept-im__avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 6px;
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: #fff;
+  user-select: none;
+}
+
+.dept-im__avatar--you {
+  background: linear-gradient(145deg, #818cf8, #4f46e5);
+}
+
+.dept-im__avatar-dot {
+  position: absolute;
+  right: -1px;
+  bottom: -1px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #cbd5e1;
+  border: 2px solid #fff;
+  box-sizing: border-box;
+  z-index: 1;
+}
+
+.dept-im__avatar-dot.is-on {
+  background: #22c55e;
+}
+
+.dept-im__avatar-dot.is-answering {
+  background: var(--accent, #6366f1);
+}
+
+.dept-im .evo-home-cmd__gc-timeline {
+  flex: 1;
+  min-height: 0;
+  border: 0;
+  background: transparent;
+  padding: 12px 20px 8px;
+  gap: 14px;
+  max-width: 920px;
+  width: 100%;
+  margin: 0 auto;
+  box-sizing: border-box;
+}
+
+/* 消息不足一屏时贴底（微信式）；溢出时 auto margin 归零，正常顶部滚动 */
+.dept-im .evo-home-cmd__gc-timeline > :first-child {
+  margin-top: auto;
+}
+
+.dept-im__row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  max-width: 100%;
+}
+
+.dept-im__row--user {
+  justify-content: flex-end;
+}
+
+.dept-im__row--agent {
+  justify-content: flex-start;
+}
+
+.dept-im__bubble {
+  appearance: none;
+  border: 0;
+  margin: 0;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: default;
+  width: fit-content;
+  max-width: min(92%, 720px);
+  border-radius: 8px;
+  padding: 9px 12px 10px;
+  box-shadow: none;
+}
+
+.dept-im__bubble.is-clickable {
+  cursor: pointer;
+}
+
+.dept-im__bubble.is-clickable:hover {
+  filter: brightness(0.98);
+}
+
+.dept-im__bubble--user {
+  background: color-mix(in srgb, var(--accent, #6366f1) 18%, #fff);
+  border-bottom-right-radius: 4px;
+  color: #0f172a;
+}
+
+.dept-im__bubble--agent {
+  background: #f1f5f9;
+  border-bottom-left-radius: 4px;
+  color: #0f172a;
+}
+
+.dept-im__bubble--system {
+  background: color-mix(in srgb, #64748b 8%, #fff);
+  border: 1px dashed rgba(15, 23, 42, 0.18);
+  color: #475569;
+}
+
+.dept-im__row.is-error .dept-im__bubble {
+  background: color-mix(in srgb, #ef4444 12%, #fff);
+  border: 1px solid color-mix(in srgb, #ef4444 28%, transparent);
+}
+
+.dept-im__bubble-meta {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+
+.dept-im__bubble-who {
+  font-size: 11px;
+  font-weight: 650;
+  color: var(--text-secondary, #64748b);
+}
+
+.dept-im__bubble--user .dept-im__bubble-who {
+  color: var(--accent, #6366f1);
+}
+
+.dept-im__bubble-time {
+  font-size: 10px;
+  color: var(--text-secondary, #94a3b8);
+}
+
+.dept-im__bubble-text {
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: inherit;
+}
+
+.dept-im__bubble--user .dept-im__bubble-text,
+.dept-im__bubble--agent .dept-im__bubble-text {
+  color: #0f172a;
+}
+
+.dept-im__stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  min-width: 0;
+  max-width: min(88%, 720px);
+  flex: 1 1 auto;
+}
+
+.dept-im__row--user .dept-im__stack {
+  align-items: flex-end;
+  margin-left: auto;
+  flex: 0 1 auto;
+}
+
+.dept-im__stack .dept-im__bubble {
+  max-width: 100%;
+}
+
+/* 长文阅读跨度控制：agent 泡 640px 封顶 */
+.dept-im__row--agent .dept-im__bubble {
+  max-width: min(100%, 640px);
+}
+
+/* 微信：头像右侧一行「名字 · 时间」，再接气泡 */
+.dept-im__head-line {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  max-width: 100%;
+  padding: 0 2px;
+  line-height: 1.2;
+}
+
+.dept-im__row--user .dept-im__head-line {
+  flex-direction: row-reverse;
+}
+
+.dept-im__head-name {
+  font-size: 12px;
+  font-weight: 500;
+  color: #475569;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dept-im__head-time {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: #a0a7b4;
+  font-variant-numeric: tabular-nums;
+}
+
+.dept-im__head-state {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: #8b9bb0;
+}
+
+html[data-theme='dark'] .dept-im__head-name,
+html.dark .dept-im__head-name {
+  color: #9aa3b2;
+}
+
+html[data-theme='dark'] .dept-im__head-time,
+html[data-theme='dark'] .dept-im__head-state,
+html.dark .dept-im__head-time,
+html.dark .dept-im__head-state {
+  color: #7a8494;
+}
+
+/* 暗色：浅色微信泡 + 浅字会糊成白块；气泡底抬到深面，正文强制可读 */
+html[data-theme='dark'] .dept-im__bubble--user,
+html.dark .dept-im__bubble--user {
+  background: color-mix(in srgb, var(--accent, #818cf8) 28%, #1e2433);
+  color: #e8ecf4;
+}
+
+html[data-theme='dark'] .dept-im__bubble--agent,
+html.dark .dept-im__bubble--agent {
+  background: #232a38;
+  color: #e8ecf4;
+}
+
+html[data-theme='dark'] .dept-im__bubble--system,
+html.dark .dept-im__bubble--system {
+  background: color-mix(in srgb, #64748b 18%, #1a2030);
+  border-color: rgba(255, 255, 255, 0.14);
+  color: #b0b8c8;
+}
+
+html[data-theme='dark'] .dept-im__bubble--user .dept-im__bubble-text,
+html[data-theme='dark'] .dept-im__bubble--agent .dept-im__bubble-text,
+html.dark .dept-im__bubble--user .dept-im__bubble-text,
+html.dark .dept-im__bubble--agent .dept-im__bubble-text {
+  color: #e8ecf4;
+}
+
+html[data-theme='dark'] .dept-im__row.is-error .dept-im__bubble,
+html.dark .dept-im__row.is-error .dept-im__bubble {
+  background: color-mix(in srgb, #ef4444 22%, #1e2433);
+  color: #fecaca;
+}
+
+html[data-theme='dark'] .dept-im__bubble-text,
+html.dark .dept-im__bubble-text {
+  color: #e8ecf4;
+}
+
+html[data-theme='dark'] .dept-im__row.is-error .dept-im__bubble-text,
+html.dark .dept-im__row.is-error .dept-im__bubble-text {
+  color: #fecaca;
+}
+
+html[data-theme='dark'] .dept-im__bubble--user .dept-im__bubble-who,
+html.dark .dept-im__bubble--user .dept-im__bubble-who {
+  color: color-mix(in srgb, var(--accent, #a5b4fc) 70%, #e8ecf4);
+}
+
+html[data-theme='dark'] .dept-im__bubble.is-clickable:hover,
+html.dark .dept-im__bubble.is-clickable:hover {
+  filter: brightness(1.08);
+}
+
+html[data-theme='dark'] .dept-im__bubble .evo-home-cmd__gc-thinking,
+html.dark .dept-im__bubble .evo-home-cmd__gc-thinking {
+  color: #9aa3b2;
+}
+
+/* 微信式 @：浅灰蓝字 + @后小头像，不用重蓝/加粗 */
+.dept-im__mention,
+.evo-home-cmd__gc-mention {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  vertical-align: baseline;
+  color: #6b7c93;
+  font-weight: 500;
+  background: transparent;
+}
+
+.dept-im__mention-at {
+  color: #6b7c93;
+  font-weight: 500;
+}
+
+.dept-im__mention-name {
+  color: #6b7c93;
+  font-weight: 500;
+}
+
+.dept-im__mention-avatar {
+  display: inline-flex !important;
+  width: 14px !important;
+  height: 14px !important;
+  border-radius: 50%;
+  flex-shrink: 0;
+  vertical-align: middle;
+  overflow: hidden;
+}
+
+.dept-im__mention-avatar img,
+.dept-im__mention-avatar canvas {
+  width: 14px !important;
+  height: 14px !important;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+html[data-theme='dark'] .dept-im__mention,
+html[data-theme='dark'] .evo-home-cmd__gc-mention,
+html[data-theme='dark'] .dept-im__mention-at,
+html[data-theme='dark'] .dept-im__mention-name,
+html.dark .dept-im__mention,
+html.dark .evo-home-cmd__gc-mention,
+html.dark .dept-im__mention-at,
+html.dark .dept-im__mention-name {
+  color: #8b9bb0;
+}
+
+/* 多人 @ 派工摘要：气泡下轻条，不抢正文 */
+.dept-im__dispatch {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  max-width: 100%;
+  padding: 0 2px;
+}
+
+.dept-im__dispatch-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: color-mix(in srgb, #6b7c93 8%, transparent);
+  color: #6b7c93;
+  font-size: 11px;
+  line-height: 1.35;
+  overflow: hidden;
+}
+
+.dept-im__dispatch-arrow {
+  flex-shrink: 0;
+  opacity: 0.7;
+}
+
+.dept-im__dispatch-who {
+  flex-shrink: 0;
+  font-weight: 500;
+}
+
+.dept-im__dispatch-goal {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: 0.78;
+}
+
+.dept-im__dispatch-status {
+  flex-shrink: 0;
+  font-size: 10px;
+  padding: 0 4px;
+  border-radius: 4px;
+  background: color-mix(in srgb, #6b7c93 14%, transparent);
+  opacity: 0.95;
+}
+
+.dept-im__dispatch-chip.is-queued .dept-im__dispatch-status {
+  color: #8a6d3b;
+  background: color-mix(in srgb, #c9a227 16%, transparent);
+}
+
+.dept-im__dispatch-chip.is-running .dept-im__dispatch-status {
+  color: #2f6f9f;
+  background: color-mix(in srgb, #3b82c4 16%, transparent);
+}
+
+.dept-im__dispatch-chip.is-done .dept-im__dispatch-status {
+  color: #3d7a52;
+  background: color-mix(in srgb, #3d9a5f 14%, transparent);
+}
+
+.dept-im__dispatch-chip.is-failed .dept-im__dispatch-status {
+  color: #a04545;
+  background: color-mix(in srgb, #c45c5c 14%, transparent);
+}
+
+html[data-theme='dark'] .dept-im__dispatch-chip,
+html.dark .dept-im__dispatch-chip {
+  background: color-mix(in srgb, #8b9bb0 12%, transparent);
+  color: #8b9bb0;
+}
+
+.dept-im__composer {
+  position: relative;
+  flex-shrink: 0;
+  max-width: 920px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 6px 20px 12px;
+  box-sizing: border-box;
+}
+
+/* 单层输入：边框只画在壳上；textarea 强制无边框，避免全局/scifi textarea 规则再套一层 */
+.dept-im__composer-box {
+  position: relative;
+  display: block;
+  border-radius: 14px;
+  background: #fff;
+  border: 1px solid rgba(15, 23, 42, 0.16);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+html[data-theme='dark'] .dept-im__composer-box,
+html.dark .dept-im__composer-box {
+  background: var(--bg-secondary, #1a2030);
+  border-color: var(--border-primary, rgba(255, 255, 255, 0.12));
+  box-shadow: none;
+}
+
+.dept-im__composer-box:focus-within {
+  border-color: color-mix(in srgb, var(--accent, #6366f1) 45%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent, #6366f1) 12%, transparent);
+}
+
+.dept-im__composer-box .dept-im__composer-input,
+.dept-im__composer-input {
+  display: block;
+  width: 100% !important;
+  min-width: 0;
+  min-height: 48px;
+  max-height: 160px;
+  resize: none;
+  box-sizing: border-box !important;
+  border: 0 !important;
+  outline: none !important;
+  border-radius: 14px !important;
+  background: transparent !important;
+  background-image: none !important;
+  box-shadow: none !important;
+  padding: 13px 48px 13px 16px !important;
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text-primary, #0f172a) !important;
+  caret-color: var(--text-primary, #0f172a);
+}
+
+.dept-im__composer-box .dept-im__composer-input:focus,
+.dept-im__composer-input:focus {
+  border: 0 !important;
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+.dept-im__composer-send {
+  appearance: none;
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 34px;
+  height: 34px;
+  border: 0;
+  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  background: transparent;
+  color: var(--text-secondary, #64748b);
+  z-index: 1;
+}
+
+.dept-im__composer-send:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent, #6366f1) 10%, transparent);
+  color: var(--accent, #6366f1);
+}
+
+.dept-im__composer-send:not(:disabled) {
+  color: var(--accent, #6366f1);
+}
+
+.dept-im__composer-send:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.dept-im__composer .evo-home-cmd__gc-mention-list {
+  bottom: calc(100% + 6px);
+  left: 20px;
+  right: 20px;
+  width: auto;
+  /* dept-im 不在 .evo-home-cmd 下，--cmd-* 未定义会整卡透明 */
+  border-color: var(--border-primary, rgba(15, 23, 42, 0.12));
+  background: var(--bg-elevated, var(--bg-primary, #ffffff));
+  color: var(--text-primary, #0f172a);
+  box-shadow:
+    0 0 0 1px rgba(15, 23, 42, 0.04),
+    0 12px 28px rgba(15, 23, 42, 0.14);
+  z-index: 40;
+}
+
+html[data-theme='dark'] .dept-im__composer .evo-home-cmd__gc-mention-list,
+html.dark .dept-im__composer .evo-home-cmd__gc-mention-list,
+html.theme-dark .dept-im__composer .evo-home-cmd__gc-mention-list {
+  border-color: var(--border-primary, rgba(255, 255, 255, 0.12));
+  background: var(--bg-elevated, var(--bg-secondary, #1e2430));
+  color: var(--text-primary, #f1f5f9);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.06),
+    0 12px 28px rgba(0, 0, 0, 0.45);
+}
+
+.dept-im .evo-home-cmd__gc-empty {
+  text-align: center;
+  padding: 48px 16px;
+  color: #64748b;
+  font-size: 13px;
+}
+
+/* ── 成员资料卡：点头像/名字弹身份信息 ── */
+.dept-im__head-name.is-clickable {
+  cursor: pointer;
+}
+
+.dept-im__head-name.is-clickable:hover {
+  color: var(--accent, #6366f1);
+}
+
+.dept-im__profile-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  background: transparent;
+}
+
+.dept-im__profile {
+  position: fixed;
+  width: 280px;
+  box-sizing: border-box;
+  padding: 14px 14px 12px;
+  border-radius: 14px;
+  background: #fff;
+  border: 1px solid rgba(15, 23, 42, 0.1);
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.16);
+}
+
+html[data-theme='dark'] .dept-im__profile,
+html.dark .dept-im__profile {
+  background: var(--bg-secondary, #1a2030);
+  border-color: var(--border-primary, rgba(255, 255, 255, 0.12));
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+}
+
+.dept-im__profile-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.dept-im__profile-titles {
+  min-width: 0;
+}
+
+.dept-im__profile-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  font-weight: 650;
+  color: #0f172a;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+html[data-theme='dark'] .dept-im__profile-name,
+html.dark .dept-im__profile-name {
+  color: #e8ecf4;
+}
+
+.dept-im__profile-badge {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 999px;
+  color: var(--accent, #6366f1);
+  background: color-mix(in srgb, var(--accent, #6366f1) 12%, transparent);
+}
+
+.dept-im__profile-state {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 3px;
+  font-size: 11px;
+  color: var(--text-secondary, #64748b);
+}
+
+.dept-im__profile-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #22c55e;
+  flex-shrink: 0;
+}
+
+.dept-im__profile-dot.is-busy {
+  background: var(--accent, #6366f1);
+}
+
+.dept-im__profile-dept {
+  margin-left: 2px;
+  padding-left: 7px;
+  border-left: 1px solid rgba(15, 23, 42, 0.12);
+  color: #94a3b8;
+}
+
+.dept-im__profile-summary {
+  margin: 10px 0 0;
+  font-size: 12px;
+  line-height: 1.55;
+  color: #475569;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+html[data-theme='dark'] .dept-im__profile-summary,
+html.dark .dept-im__profile-summary {
+  color: #b0b8c8;
+}
+
+.dept-im__profile-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.dept-im__profile-btn {
+  flex: 1;
+  appearance: none;
+  border: 1px solid rgba(15, 23, 42, 0.14);
+  border-radius: 9px;
+  background: transparent;
+  padding: 6px 0;
+  font-size: 12px;
+  color: #334155;
+  cursor: pointer;
+}
+
+.dept-im__profile-btn:hover {
+  background: color-mix(in srgb, var(--accent, #6366f1) 10%, transparent);
+  border-color: color-mix(in srgb, var(--accent, #6366f1) 35%, transparent);
+  color: var(--accent, #6366f1);
+}
+
+html[data-theme='dark'] .dept-im__profile-btn,
+html.dark .dept-im__profile-btn {
+  border-color: var(--border-primary, rgba(255, 255, 255, 0.14));
+  color: #cbd5e1;
+}
+
+/* chip 内头像单独可点（点 chip 本体仍是 @ 插入） */
+.evo-home-cmd__gc-chip-avatar {
+  display: inline-flex;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.dept-im__composer-input::placeholder {
+  color: #94a3b8 !important;
+  opacity: 1;
+}
+
+html[data-theme='dark'] .dept-im__composer-input::placeholder,
+html.dark .dept-im__composer-input::placeholder {
+  color: #7a8494 !important;
+}
+
+.dept-im .evo-home-cmd__gc-mention-list button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-primary, #0f172a);
+}
+
+.dept-im .evo-home-cmd__gc-mention-list button:hover,
+.dept-im .evo-home-cmd__gc-mention-list button.is-hi {
+  background: color-mix(in srgb, var(--accent, #6366f1) 16%, var(--bg-secondary, #f1f5f9));
+}
+
+html[data-theme='dark'] .dept-im .evo-home-cmd__gc-mention-list button,
+html.dark .dept-im .evo-home-cmd__gc-mention-list button,
+html.theme-dark .dept-im .evo-home-cmd__gc-mention-list button {
+  color: var(--text-primary, #f1f5f9);
+}
+
+html[data-theme='dark'] .dept-im .evo-home-cmd__gc-mention-list button:hover,
+html[data-theme='dark'] .dept-im .evo-home-cmd__gc-mention-list button.is-hi,
+html.dark .dept-im .evo-home-cmd__gc-mention-list button:hover,
+html.dark .dept-im .evo-home-cmd__gc-mention-list button.is-hi,
+html.theme-dark .dept-im .evo-home-cmd__gc-mention-list button:hover,
+html.theme-dark .dept-im .evo-home-cmd__gc-mention-list button.is-hi {
+  background: color-mix(in srgb, var(--accent, #818cf8) 22%, transparent);
+}
+
+.dept-im .evo-home-cmd__gc-mention-duty {
+  color: var(--text-secondary, #64748b);
+}
+
+.dept-im__rail-detail {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--border-primary, rgba(15, 23, 42, 0.08));
+  padding: 10px 12px 12px;
+  box-sizing: border-box;
+}
+
+.dept-im__rail-detail-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary, #0f172a);
+}
+
+.dept-im__thread-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.dept-im__close {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary, #64748b);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 8px;
+}
+
+.dept-im__thread-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.dept-im__thread-line {
+  border-radius: 10px;
+  padding: 8px 10px;
+  background: var(--bg-secondary, #f8fafc);
+}
+
+.dept-im__link-btn {
+  appearance: none;
+  margin-top: 8px;
+  border: 0;
+  background: color-mix(in srgb, var(--accent, #6366f1) 12%, transparent);
+  color: var(--accent, #6366f1);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 650;
+  cursor: pointer;
 }
 
 /* 半透明 / 壁纸：与 aside-segment 同一套玻璃分段控件 */
@@ -3459,15 +4568,16 @@ body.react-chat-session-row-dragging .react-chat-history-item {
   overflow: hidden;
 }
 
-/* 右侧面板打开时：加圆角和边框，视觉上"浮"在 chrome 上 */
+/* 右侧面板打开时：只圆右侧，左侧直角贴齐侧栏，避免交接处弯角 */
 .react-chat-conversation-frame.is-rounded {
-  border-radius: var(--radius-xl, 12px);
+  border-radius: 0 var(--radius-xl, 12px) var(--radius-xl, 12px) 0;
   border: 1px solid var(--color-border);
+  border-left: none;
   background: var(--color-panel);
 }
 
-/* 右侧面板关闭时：顶栏底边框显现（由 frame border 承接已移除） */
-.react-chat-conversation-frame:not(.is-rounded) .react-chat-header {
+/* 顶栏底部分隔：区分 chrome 与内容区 */
+.react-chat-conversation-frame .react-chat-header {
   border-bottom: 1px solid var(--color-border);
 }
 
@@ -5367,7 +6477,7 @@ html.evopanel-macos-titlebar .react-chat-header {
   padding: 0 0 0 8px;
   /* 与 .react-chat-header 同走 chrome region，避免盖掉色卡 --chrome-bg */
   background: var(--region-chrome-bg, var(--chrome-bg, var(--bg-primary, #f6f7fb)));
-  border-bottom: none;
+  border-bottom: 1px solid color-mix(in srgb, var(--text-primary, #0f172a) 8%, transparent);
   box-shadow: none;
 }
 
@@ -8539,6 +9649,145 @@ html[data-theme='dark'] .react-chat-conversation-col .msg-turn-assistant-meta .m
   gap: 16px;
 }
 
+/* 部门群聊摘要：成员名单（右上角状态卡「群聊」tab） */
+.react-chat-dept-pane {
+  gap: 10px;
+}
+
+.react-chat-dept-pane-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.react-chat-dept-pane-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-primary, #0f172a);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.react-chat-dept-pane-count {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 650;
+  color: var(--text-secondary, #64748b);
+  background: var(--bg-secondary, #f1f5f9);
+  border-radius: 999px;
+  padding: 1px 7px;
+}
+
+.react-chat-dept-pane-hint {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-secondary, #64748b);
+}
+
+.react-chat-dept-pane-roster {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.react-chat-dept-pane-row {
+  appearance: none;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px;
+  border-radius: 8px;
+  cursor: pointer;
+  text-align: left;
+  color: inherit;
+  font: inherit;
+}
+
+.react-chat-dept-pane-row:hover {
+  background: var(--bg-secondary, #f8fafc);
+}
+
+.react-chat-dept-pane-avatar {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+}
+
+.react-chat-dept-pane-dot {
+  position: absolute;
+  right: -1px;
+  bottom: -1px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-tertiary, #94a3b8);
+  border: 1.5px solid var(--bg-primary, #fff);
+  box-sizing: border-box;
+}
+
+.react-chat-dept-pane-dot.is-on {
+  background: #22c55e;
+}
+
+.react-chat-dept-pane-dot.is-busy {
+  background: var(--accent, #6366f1);
+}
+
+.react-chat-dept-pane-meta {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.react-chat-dept-pane-name {
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--text-primary, #0f172a);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.react-chat-dept-pane-head-tag {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--accent, #6366f1);
+  background: color-mix(in srgb, var(--accent, #6366f1) 12%, transparent);
+  border-radius: 4px;
+  padding: 0 4px;
+  line-height: 1.5;
+}
+
+.react-chat-dept-pane-state {
+  font-size: 11px;
+  color: var(--text-secondary, #64748b);
+}
+
+.react-chat-dept-pane-empty {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--text-secondary, #64748b);
+}
+
+html[data-theme='dark'] .react-chat-dept-pane-row:hover,
+html.dark .react-chat-dept-pane-row:hover,
+html.theme-dark .react-chat-dept-pane-row:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
 .react-chat-agent-profile {
   display: flex;
   flex-direction: column;
@@ -10995,7 +12244,9 @@ html.evopanel-tauri .react-chat-main-col .msg-ai-ask-inline-md {
   padding: 0;
 }
 
-/* Composer: 圆角边框包 textarea + 工具栏 (v4-style 双层布局) */
+/* Composer: 圆角边框包 textarea + 工具栏 (v4-style 双层布局)
+ * 注意：员工执行过程右栏等场景不在 .react-chat-bottom-dock 内，
+ * 不能依赖 dock 透明覆盖；shell 本身必须跟主题走。 */
 .react-chat-composer-shell {
   position: relative;
   display: flex;
@@ -11005,7 +12256,7 @@ html.evopanel-tauri .react-chat-main-col .msg-ai-ask-inline-md {
   padding: 8px 12px 8px;
   border-radius: 18px;
   border: 1px solid var(--input-border, rgba(148, 163, 184, 0.28));
-  background: var(--input-bg, rgba(248, 250, 252, 0.85));
+  background: var(--input-bg, var(--bg-secondary, #f4f6f8));
   box-sizing: border-box;
   overflow: visible;
   max-height: 100%;
@@ -11020,7 +12271,24 @@ html.evopanel-tauri .react-chat-main-col .msg-ai-ask-inline-md {
 
 .react-chat-composer-shell:focus-within {
   border-color: var(--input-border-focused, rgba(59, 130, 246, 0.7));
-  background: var(--input-bg-focused, rgba(255, 255, 255, 0.95));
+  background: var(--input-bg-focused, var(--bg-elevated, #ffffff));
+}
+
+html[data-theme='dark'] .react-chat-composer-shell,
+html.dark .react-chat-composer-shell {
+  border-color: rgba(255, 255, 255, 0.12);
+  background: var(--input-bg, var(--bg-secondary, #242424));
+}
+
+html[data-theme='dark'] .react-chat-composer-shell:hover,
+html.dark .react-chat-composer-shell:hover {
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+html[data-theme='dark'] .react-chat-composer-shell:focus-within,
+html.dark .react-chat-composer-shell:focus-within {
+  border-color: color-mix(in srgb, var(--accent, #7b74ff) 55%, transparent);
+  background: var(--input-bg-focused, var(--bg-elevated, #303030));
 }
 
 /* shell 内：input-wrap 占据剩余空间，让 textarea 撑满 */
@@ -22275,6 +23543,78 @@ html[data-custom-bg='1'] .react-chat-main-col--home {
   display: none;
 }
 
+/* 部门群聊：占满主列；成员名单在右上角摘要「群聊」tab */
+.react-chat-main-col--dept {
+  min-height: 0;
+}
+
+.react-chat-main-col--dept .react-chat-main-body {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.react-chat-main-col--dept .react-chat-conversation-col,
+.react-chat-main-col--dept .react-chat-messages-wrap,
+.react-chat-main-col--dept .react-chat-messages-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.react-chat-main-col--dept .react-chat-messages-body > .dept-chat-main {
+  flex: 1 1 auto;
+  min-height: 0;
+  align-self: stretch;
+  width: 100%;
+}
+
+.react-chat-main-col--dept .dept-chat-main,
+.react-chat-main-col--dept .evo-home-cmd__gc-wrap.evo-home-cmd__gc-wrap--main {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.react-chat-main-col--dept .evo-home-cmd__gc-wrap.evo-home-cmd__gc-wrap--main {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.react-chat-main-col--dept .dept-im {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  background: transparent;
+}
+
+/* 部门群主列：浅色内容面再灰一点，和侧栏/顶栏分开 */
+.react-chat-main-col--dept {
+  background: color-mix(in srgb, var(--text-primary, #0f172a) 6.5%, var(--bg-primary, #fff));
+}
+
+html[data-theme='dark'] .react-chat-main-col--dept,
+html.dark .react-chat-main-col--dept {
+  background: color-mix(in srgb, #94a3b8 7%, var(--shell-bg, var(--chrome-bg, #0a0e15)));
+}
+
+.react-chat-main-col--dept .dept-im__rail {
+  display: none;
+}
+
+.react-chat-main-col--dept .dept-im__composer {
+  margin-top: auto;
+}
+
+.react-chat-main-col--dept .react-chat-bottom-dock {
+  display: none;
+}
+
 /* 首页不弹出隐藏 composer 的 @ 提及菜单 */
 .react-chat-main-col--home .react-chat-mention-menu {
   display: none !important;
@@ -22319,6 +23659,30 @@ html[data-custom-bg='1'] .react-chat-main-col--home {
   margin-bottom: 10px;
 }
 
+.evo-home-header--compact {
+  align-items: center;
+  margin-bottom: 8px;
+  min-height: 0;
+}
+
+.evo-home-header__compact {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-wrap: wrap;
+}
+
+.evo-home-header__meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
 .evo-home-eyebrow {
   display: inline-flex;
   align-items: center;
@@ -22338,11 +23702,2548 @@ html[data-custom-bg='1'] .react-chat-main-col--home {
   color: var(--text-primary);
 }
 
+.evo-home-title--sm {
+  font-size: 16px;
+  font-weight: 750;
+  letter-spacing: -0.02em;
+}
+
 .evo-home-subtitle {
   margin: 4px 0 0;
   font-size: 13px;
   line-height: 1.4;
   color: var(--text-secondary);
+}
+
+.evo-home-header__actions {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+/* 与分段开关同高，避免顶栏再堆出第二行 */
+.evo-home-header__actions .evo-home-btn--outline {
+  padding: 4px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  box-shadow: none;
+  height: 28px;
+  box-sizing: border-box;
+}
+
+.evo-home-header__actions .evo-home-btn--outline .evo-home-ic {
+  width: 14px;
+  height: 14px;
+}
+
+.evo-home-tabseg {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 8px;
+  border: 1px solid var(--border-secondary, #e8eaf1);
+  background: var(--bg-tertiary, #f4f5f8);
+}
+
+.evo-home-tabseg__btn {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  line-height: 1.2;
+}
+
+.evo-home-tabseg__btn:hover {
+  color: var(--text-primary);
+}
+
+.evo-home-tabseg__btn.is-active {
+  background: var(--bg-primary, #fff);
+  color: var(--text-primary);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+}
+
+/* —— 工作台脉搏条：跟首页卡片同一套灰阶，不另起青/橙 —— */
+.evo-home-cmd-pulse {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 0 0 12px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border-primary, var(--border-secondary, #e8eaf1));
+  background: var(--bg-card, var(--surface-raised-bg, #fff));
+  color: var(--text-secondary);
+  box-shadow: none;
+}
+
+.evo-home-cmd-pulse__left {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.evo-home-cmd-pulse__left strong {
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
+.evo-home-cmd__pulse-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-tertiary, #94a3b8);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--text-tertiary, #94a3b8) 22%, transparent);
+  flex-shrink: 0;
+  animation: evo-home-cmd-status-breathe 2.2s ease-in-out infinite;
+}
+
+.evo-home-cmd__toolbar-sep {
+  color: var(--text-tertiary, #94a3b8);
+}
+
+.evo-home-cmd__toolbar-wait {
+  color: var(--text-secondary);
+  font-weight: 650;
+}
+
+.evo-home-cmd-pulse .evo-home-btn--chip {
+  height: 28px;
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 8px;
+}
+
+.evo-home-cmd {
+  /* 默认按浅色纸面指挥台；深色在下方 data-theme=dark 覆盖 */
+  --cmd-bg: #f3f6fb;
+  --cmd-panel: #ffffff;
+  --cmd-panel-soft: #f8fafc;
+  --cmd-border: rgba(15, 23, 42, 0.1);
+  --cmd-text: #0f172a;
+  --cmd-text-secondary: #475569;
+  --cmd-text-muted: #64748b;
+  --cmd-line: rgba(8, 145, 178, 0.45);
+  --cmd-cyan: #0891b2;
+  --cmd-cyan-soft: #0e7490;
+  --cmd-orange: #ea580c;
+  --cmd-orange-soft: #c2410c;
+  --cmd-green: #16a34a;
+  --cmd-glow-cyan: rgba(8, 145, 178, 0.16);
+  --cmd-glow-orange: rgba(234, 88, 12, 0.14);
+  --cmd-glow-green: rgba(22, 163, 74, 0.16);
+  /* 脉冲/流星：浅色用黑，深色用白 */
+  --cmd-pulse: #0f172a;
+  --cmd-pulse-soft: rgba(15, 23, 42, 0.28);
+  /* 两色霓虹：青 / 绿（浅色收光） */
+  --cmd-neon-cyan:
+    0 0 0 1px color-mix(in srgb, var(--cmd-cyan) 22%, transparent),
+    0 0 16px color-mix(in srgb, var(--cmd-cyan) 16%, transparent);
+  --cmd-neon-green:
+    0 0 0 1px color-mix(in srgb, var(--cmd-green) 22%, transparent),
+    0 0 16px color-mix(in srgb, var(--cmd-green) 16%, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  margin-top: 0;
+}
+
+html[data-theme='dark'] .evo-home-cmd,
+html.dark .evo-home-cmd,
+html.theme-dark .evo-home-cmd {
+  /* 高级黑：纯底、无青/绿雾 */
+  --cmd-bg: #0a0a0a;
+  --cmd-panel: #121212;
+  --cmd-panel-soft: #181818;
+  --cmd-border: rgba(255, 255, 255, 0.1);
+  --cmd-text: #f1f5f9;
+  --cmd-text-secondary: #a1a1aa;
+  --cmd-text-muted: #71717a;
+  --cmd-line: rgba(248, 250, 252, 0.35);
+  --cmd-cyan: #22d3ee;
+  --cmd-cyan-soft: #67e8f9;
+  --cmd-orange: #f97316;
+  --cmd-orange-soft: #fdba74;
+  --cmd-green: #39ff88;
+  --cmd-glow-cyan: transparent;
+  --cmd-glow-orange: rgba(249, 115, 22, 0.28);
+  --cmd-glow-green: rgba(57, 255, 136, 0.35);
+  --cmd-pulse: #f8fafc;
+  --cmd-pulse-soft: rgba(248, 250, 252, 0.28);
+  --cmd-neon-cyan:
+    0 0 0 1px rgba(103, 232, 249, 0.45),
+    0 0 12px rgba(34, 211, 238, 0.22);
+  /* 参考选中：更亮的绿霓虹边 */
+  --cmd-neon-green:
+    0 0 0 1px rgba(57, 255, 136, 0.7),
+    0 0 16px rgba(57, 255, 136, 0.45),
+    0 0 34px rgba(57, 255, 136, 0.22);
+}
+
+.evo-home-cmd__stage {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+  align-items: stretch;
+  position: relative;
+}
+
+/* 部门/员工信息：不挤布局，右侧悬浮覆盖画布 */
+.evo-home-cmd__stage.has-detail:not(.has-group-chat) {
+  grid-template-columns: 1fr;
+}
+
+.evo-home-cmd__stage.has-detail.has-group-chat {
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 360px);
+}
+
+.evo-home-cmd__stage.has-detail.has-group-chat:has(.evo-home-cmd__gc-thread) {
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 340px) minmax(260px, 320px);
+}
+
+/* 员工详情仍停在舞台右侧；部门详情改为贴在选中部门旁（见 --dock） */
+.evo-home-cmd__stage.has-detail:not(.has-group-chat) > .evo-home-cmd__detail--float:not(.evo-home-cmd__detail--dock) {
+  position: absolute;
+  right: 14px;
+  top: 14px;
+  bottom: 14px;
+  width: min(300px, 44%);
+  z-index: 24;
+  max-height: calc(100% - 28px);
+  overflow: auto;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.55);
+  border-color: color-mix(in srgb, var(--card-accent) 55%, rgba(255, 255, 255, 0.12));
+}
+
+/* 指挥台侧栏：contents 把子板提升到 stage；主区群聊必须保留 flex 盒，否则成员/输入塌成一团 */
+.evo-home-cmd__gc-wrap:not(.evo-home-cmd__gc-wrap--main) {
+  display: contents;
+}
+
+.evo-home-cmd__canvas {
+  position: relative;
+  border-radius: 14px;
+  border: 1px solid var(--cmd-border);
+  overflow: auto;
+  /* 实色底，不要青/绿径向渐变 */
+  background: var(--cmd-bg);
+  min-height: 0;
+  color: var(--cmd-text);
+}
+
+.evo-home-cmd__stage.has-detail .evo-home-cmd__canvas {
+  overflow: visible;
+}
+
+.evo-home-cmd__tree {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+  padding: 16px 14px 18px;
+}
+
+.evo-home-cmd__tier {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  position: relative;
+  z-index: 1;
+}
+
+/* 扇形 + 部门同宽容器，保证支路落点对齐卡顶中心 */
+.evo-home-cmd__org-lower {
+  width: 100%;
+  max-width: 1180px;
+  margin: 0 auto;
+  position: relative;
+  overflow: visible;
+}
+
+.evo-home-cmd__tree {
+  overflow: visible;
+}
+
+.evo-home-cmd__tier--depts {
+  display: grid;
+  grid-template-columns: repeat(var(--dept-cols, 3), minmax(0, 1fr));
+  gap: 14px;
+  width: 100%;
+  margin: 0;
+  align-items: start;
+  position: relative;
+  z-index: 1;
+}
+
+/* 展开的部门占满列高，其它部门保持父卡对齐 */
+.evo-home-cmd__dept-tree:not(.is-expanded) .evo-home-cmd__dept-node {
+  min-height: 96px;
+}
+
+.evo-home-cmd__empty {
+  margin: 20px auto;
+  padding: 16px 18px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--cmd-text-muted);
+  border: 1px dashed color-mix(in srgb, var(--cmd-border) 80%, transparent);
+  border-radius: 12px;
+  background: var(--cmd-panel-soft);
+  max-width: 420px;
+}
+
+/* 老板 ↔ 小V 双向流转 */
+.evo-home-cmd__flow {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 10px;
+  width: min(320px, 88%);
+  margin: 4px auto 8px;
+  align-items: stretch;
+  min-height: 48px;
+}
+
+.evo-home-cmd__flow-rail {
+  display: flex;
+  justify-content: center;
+  gap: 5px;
+  padding: 2px 0;
+}
+
+.evo-home-cmd__flow-line {
+  width: 2px;
+  border-radius: 2px;
+  flex: 1;
+}
+
+.evo-home-cmd__flow-line--down {
+  background: linear-gradient(180deg, rgba(249, 115, 22, 0.95), rgba(249, 115, 22, 0.15));
+  box-shadow: 0 0 10px rgba(249, 115, 22, 0.45);
+}
+
+.evo-home-cmd__flow-line--up {
+  background: linear-gradient(180deg, rgba(34, 211, 238, 0.15), rgba(34, 211, 238, 0.95));
+  box-shadow: 0 0 10px rgba(34, 211, 238, 0.45);
+}
+
+.evo-home-cmd__flow-tags {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 2px 0;
+}
+
+.evo-home-cmd__flow-tag {
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  line-height: 1.2;
+}
+
+.evo-home-cmd__flow-tag--down {
+  color: var(--cmd-orange-soft);
+  text-shadow: none;
+}
+
+.evo-home-cmd__flow-tag--up {
+  color: var(--cmd-cyan-soft);
+  text-shadow: none;
+}
+
+html[data-theme='dark'] .evo-home-cmd__flow-tag--down,
+html.dark .evo-home-cmd__flow-tag--down {
+  text-shadow: 0 0 12px rgba(249, 115, 22, 0.35);
+}
+
+html[data-theme='dark'] .evo-home-cmd__flow-tag--up,
+html.dark .evo-home-cmd__flow-tag--up {
+  text-shadow: 0 0 12px rgba(34, 211, 238, 0.35);
+}
+
+.evo-home-cmd__fan-wrap {
+  position: relative;
+  display: block;
+  width: 100%;
+  /* 不负 margin：避免线头扎进部门卡顶边 */
+  margin: 2px 0 0;
+  /* 线色：浅黑 / 深白，不跟青绿 */
+  color: var(--cmd-pulse);
+  transition: opacity 0.25s ease, filter 0.25s ease;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.evo-home-cmd__fan {
+  height: 72px;
+  width: 100%;
+  pointer-events: none;
+  position: relative;
+  overflow: hidden;
+}
+
+.evo-home-cmd__fan-svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.evo-home-cmd__fan-trunk,
+.evo-home-cmd__fan-path {
+  opacity: 0.32;
+  transition: opacity 0.25s ease;
+}
+
+.evo-home-cmd__fan-pulse {
+  opacity: 0;
+  stroke-linecap: round;
+  stroke-dashoffset: 100;
+  pointer-events: none;
+}
+
+/* 流星头：短、粗、亮 */
+.evo-home-cmd__fan-pulse--head {
+  stroke-dasharray: 5 95;
+  filter: url(#evo-cmd-fan-glow);
+}
+
+/* 流星尾：稍长、细、淡，略落后 */
+.evo-home-cmd__fan-pulse--tail {
+  stroke-dasharray: 14 86;
+  filter: none;
+}
+
+.evo-home-cmd__fan-wrap.is-live {
+  color: var(--cmd-pulse);
+  filter: none;
+}
+
+.evo-home-cmd__fan-wrap.is-live .evo-home-cmd__fan-trunk,
+.evo-home-cmd__fan-wrap.is-live .evo-home-cmd__fan-path {
+  opacity: 0.42;
+}
+
+.evo-home-cmd__fan-wrap.is-live .evo-home-cmd__fan-pulse {
+  stroke: var(--cmd-pulse);
+}
+
+/* 主干始终可脉冲；支路仅 active（或小V 全广播） */
+.evo-home-cmd__fan-wrap.is-live .evo-home-cmd__fan-pulse--trunk.evo-home-cmd__fan-pulse--head {
+  animation: evo-home-cmd-meteor-head 1.15s linear infinite;
+}
+
+.evo-home-cmd__fan-wrap.is-live .evo-home-cmd__fan-pulse--trunk.evo-home-cmd__fan-pulse--tail {
+  animation: evo-home-cmd-meteor-tail 1.15s linear infinite;
+}
+
+.evo-home-cmd__fan-wrap.is-live .evo-home-cmd__fan-branch:not(.is-active) .evo-home-cmd__fan-pulse {
+  opacity: 0;
+}
+
+.evo-home-cmd__fan-wrap.is-live .evo-home-cmd__fan-branch.is-active .evo-home-cmd__fan-path {
+  opacity: 0.72;
+}
+
+.evo-home-cmd__fan-wrap.is-live .evo-home-cmd__fan-branch.is-active .evo-home-cmd__fan-pulse--head {
+  animation: evo-home-cmd-meteor-head 1.45s linear infinite;
+}
+
+.evo-home-cmd__fan-wrap.is-live .evo-home-cmd__fan-branch.is-active .evo-home-cmd__fan-pulse--tail {
+  animation: evo-home-cmd-meteor-tail 1.45s linear infinite;
+}
+
+/* 点小V：全部分支一起脉冲 */
+.evo-home-cmd__fan-wrap.is-live.is-broadcast .evo-home-cmd__fan-branch .evo-home-cmd__fan-path {
+  opacity: 0.55;
+}
+
+.evo-home-cmd__fan-wrap.is-live.is-broadcast .evo-home-cmd__fan-branch .evo-home-cmd__fan-pulse--head {
+  animation: evo-home-cmd-meteor-head 1.45s linear infinite;
+}
+
+.evo-home-cmd__fan-wrap.is-live.is-broadcast .evo-home-cmd__fan-branch .evo-home-cmd__fan-pulse--tail {
+  animation: evo-home-cmd-meteor-tail 1.45s linear infinite;
+}
+
+.evo-home-cmd__fan-wrap.is-live .evo-home-cmd__fan-branch:nth-of-type(1) .evo-home-cmd__fan-pulse {
+  animation-delay: 0.04s;
+}
+.evo-home-cmd__fan-wrap.is-live .evo-home-cmd__fan-branch:nth-of-type(2) .evo-home-cmd__fan-pulse {
+  animation-delay: 0.1s;
+}
+.evo-home-cmd__fan-wrap.is-live .evo-home-cmd__fan-branch:nth-of-type(3) .evo-home-cmd__fan-pulse {
+  animation-delay: 0.16s;
+}
+.evo-home-cmd__fan-wrap.is-live .evo-home-cmd__fan-branch:nth-of-type(4) .evo-home-cmd__fan-pulse {
+  animation-delay: 0.22s;
+}
+.evo-home-cmd__fan-wrap.is-live .evo-home-cmd__fan-branch:nth-of-type(5) .evo-home-cmd__fan-pulse {
+  animation-delay: 0.28s;
+}
+.evo-home-cmd__fan-wrap.is-live .evo-home-cmd__fan-branch:nth-of-type(6) .evo-home-cmd__fan-pulse {
+  animation-delay: 0.34s;
+}
+
+@keyframes evo-home-cmd-meteor-head {
+  0% {
+    stroke-dashoffset: 100;
+    opacity: 0;
+  }
+  8% {
+    opacity: 1;
+  }
+  72% {
+    opacity: 0.95;
+  }
+  100% {
+    stroke-dashoffset: -100;
+    opacity: 0;
+  }
+}
+
+@keyframes evo-home-cmd-meteor-tail {
+  0% {
+    stroke-dashoffset: 106;
+    opacity: 0;
+  }
+  10% {
+    opacity: 0.32;
+  }
+  60% {
+    opacity: 0.18;
+  }
+  100% {
+    stroke-dashoffset: -94;
+    opacity: 0;
+  }
+}
+
+.evo-home-cmd__fan-side {
+  position: absolute;
+  top: 10px;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 10px;
+  font-weight: 650;
+  line-height: 1.25;
+  color: var(--cmd-text-muted);
+  opacity: 0.55;
+  transition: opacity 0.25s ease, color 0.25s ease, text-shadow 0.25s ease;
+  pointer-events: none;
+}
+
+.evo-home-cmd__fan-wrap.is-live .evo-home-cmd__fan-side {
+  opacity: 0.95;
+  text-shadow: 0 0 12px rgba(34, 211, 238, 0.35);
+}
+
+.evo-home-cmd__fan-side--l {
+  left: 0;
+  text-align: left;
+}
+
+.evo-home-cmd__fan-side--r {
+  right: 0;
+  text-align: right;
+}
+
+.evo-home-cmd__fan-wrap.is-live .evo-home-cmd__fan-side--l,
+.evo-home-cmd__fan-wrap.is-live .evo-home-cmd__fan-side--l span:first-child {
+  color: var(--cmd-cyan-soft);
+}
+
+.evo-home-cmd__fan-wrap.is-live .evo-home-cmd__fan-side--r {
+  color: var(--cmd-green);
+}
+
+/* 路径点亮：选中时细亮边；底仍实色 */
+.evo-home-cmd__steward.is-path,
+.evo-home-cmd__steward.is-selected {
+  border-color: var(--cmd-cyan-soft);
+  background: var(--cmd-panel);
+  box-shadow: var(--cmd-neon-cyan);
+}
+
+.evo-home-cmd__dept-tree.is-path {
+  overflow: visible;
+}
+
+/* 路径卡顶接头：压在部门父节点顶边中心 */
+.evo-home-cmd__dept-node.is-path::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: -4px;
+  width: 6px;
+  height: 6px;
+  margin-left: -3px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--cmd-text) 70%, transparent);
+  box-shadow:
+    0 0 0 2px var(--cmd-panel),
+    0 0 8px color-mix(in srgb, var(--cmd-text) 25%, transparent);
+  pointer-events: none;
+  z-index: 3;
+}
+
+.evo-home-cmd__you.is-path {
+  border-color: var(--cmd-orange);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--cmd-orange) 28%, transparent),
+    0 0 18px var(--cmd-glow-orange),
+    0 8px 22px var(--cmd-glow-orange);
+}
+
+/* 老板卡（橙描边圆角卡，非纯胶囊） */
+.evo-home-cmd__you {
+  appearance: none;
+  border: 1px solid color-mix(in srgb, var(--cmd-orange) 70%, transparent);
+  background:
+    linear-gradient(145deg, color-mix(in srgb, var(--cmd-orange) 14%, transparent), transparent 55%),
+    var(--cmd-panel);
+  color: var(--cmd-text);
+  border-radius: 14px;
+  padding: 10px 12px 10px 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  min-width: 280px;
+  max-width: 420px;
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--cmd-orange) 12%, transparent),
+    0 8px 20px var(--cmd-glow-orange);
+}
+
+.evo-home-cmd__you:hover {
+  border-color: var(--cmd-orange);
+}
+
+.evo-home-cmd__you-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 13px;
+  font-weight: 800;
+  color: #fff;
+  background: linear-gradient(145deg, #fb923c, #ea580c);
+  box-shadow: 0 0 14px var(--cmd-glow-orange);
+  flex-shrink: 0;
+}
+
+.evo-home-cmd__you-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+  text-align: left;
+}
+
+.evo-home-cmd__you-title {
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--cmd-text);
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+}
+
+.evo-home-cmd__you-name {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--cmd-orange-soft);
+  white-space: nowrap;
+}
+
+.evo-home-cmd__you-aside {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 3px;
+  flex-shrink: 0;
+}
+
+.evo-home-cmd__you-badge {
+  font-size: 11px;
+  font-weight: 750;
+  color: #fff7ed;
+  background: color-mix(in srgb, var(--cmd-orange) 88%, #9a3412);
+  border: 1px solid color-mix(in srgb, var(--cmd-orange) 70%, transparent);
+  border-radius: 999px;
+  padding: 4px 10px;
+  white-space: nowrap;
+  box-shadow: 0 4px 12px var(--cmd-glow-orange);
+}
+
+.evo-home-cmd__you-due {
+  font-size: 10px;
+  color: var(--cmd-orange-soft);
+  opacity: 0.95;
+}
+
+/* 小V：默认普通青描边；选中/路径上才霓虹 */
+.evo-home-cmd__steward {
+  appearance: none;
+  text-align: left;
+  border: 1px solid color-mix(in srgb, var(--cmd-cyan) 42%, transparent);
+  background: var(--cmd-panel);
+  border-radius: 14px;
+  padding: 12px 16px 11px;
+  cursor: pointer;
+  min-width: 300px;
+  max-width: 440px;
+  box-shadow: none;
+  color: var(--cmd-text);
+  transition:
+    border-color 0.18s ease,
+    box-shadow 0.18s ease,
+    background 0.18s ease;
+}
+
+.evo-home-cmd__steward:hover {
+  border-color: color-mix(in srgb, var(--cmd-cyan) 70%, transparent);
+}
+
+.evo-home-cmd__steward.is-busy:not(.is-path):not(.is-selected) {
+  border-color: color-mix(in srgb, var(--cmd-cyan) 62%, transparent);
+}
+
+.evo-home-cmd__steward-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.evo-home-cmd__steward-left {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.evo-home-cmd__steward-name {
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--cmd-text);
+}
+
+.evo-home-cmd__steward-duties {
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--cmd-cyan-soft);
+  white-space: nowrap;
+}
+
+.evo-home-cmd__steward-pill {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--cmd-cyan-soft);
+  border: 1px solid color-mix(in srgb, var(--cmd-cyan) 35%, transparent);
+  background: color-mix(in srgb, var(--cmd-cyan) 10%, transparent);
+  border-radius: 999px;
+  padding: 2px 8px;
+  flex-shrink: 0;
+}
+
+.evo-home-cmd__steward-body {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--cmd-text-secondary);
+  line-height: 1.35;
+}
+
+.evo-home-cmd__steward-foot {
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--cmd-text-muted);
+}
+
+/* 在岗=浅灰呼吸点；不在岗=暗点。列表不再叠「在岗」文字 */
+.evo-home-cmd__status,
+.evo-home-cmd__status.is-off {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #0f172a;
+  flex-shrink: 0;
+  box-shadow: 0 0 0 2px rgba(15, 23, 42, 0.22);
+}
+
+.evo-home-cmd__status.is-on {
+  background: #94a3b8;
+  box-shadow: 0 0 0 2px rgba(148, 163, 184, 0.28);
+  animation: evo-home-cmd-status-breathe 2.2s ease-in-out infinite;
+}
+
+html[data-theme='dark'] .evo-home-cmd__status.is-on,
+html.dark .evo-home-cmd__status.is-on {
+  background: #cbd5e1;
+  box-shadow: 0 0 0 2px rgba(203, 213, 225, 0.28);
+}
+
+html[data-theme='dark'] .evo-home-cmd__status.is-off,
+html.dark .evo-home-cmd__status.is-off,
+html.theme-dark .evo-home-cmd__status.is-off,
+.evo-home-cmd .evo-home-cmd__status.is-off {
+  background: #0b1220;
+  box-shadow:
+    0 0 0 2px rgba(248, 250, 252, 0.45),
+    0 0 0 3px rgba(15, 23, 42, 0.35);
+  animation: none;
+}
+
+@keyframes evo-home-cmd-status-breathe {
+  0%,
+  100% {
+    opacity: 0.55;
+    transform: scale(0.92);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* 部门树：父节点卡 + 竖干/横支挂员工叶；选中时右侧贴悬浮卡 */
+.evo-home-cmd__dept-tree {
+  --card-accent: #94a3b8;
+  --card-neon: none;
+  --branch-line: color-mix(in srgb, var(--cmd-text) 28%, transparent);
+  --leaf-dot: #94a3b8;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  min-width: 0;
+  gap: 0;
+  position: relative;
+}
+
+.evo-home-cmd__dept-tree--cyan,
+.evo-home-cmd__dept-tree--green {
+  --card-accent: #94a3b8;
+}
+
+html[data-theme='dark'] .evo-home-cmd__dept-tree,
+html.dark .evo-home-cmd__dept-tree {
+  --branch-line: rgba(248, 250, 252, 0.28);
+}
+
+/* 参考：选中部门强制霓虹绿 */
+.evo-home-cmd__dept-tree.is-selected,
+.evo-home-cmd__dept-tree.is-expanded.is-path {
+  --card-accent: var(--cmd-green);
+  --card-neon: var(--cmd-neon-green);
+  --branch-line: color-mix(in srgb, var(--cmd-green) 78%, #fff);
+  z-index: 6;
+}
+
+/* 有选中链时，其它部门略收（影院黑底再低就看不见字） */
+.evo-home-cmd.is-path-live .evo-home-cmd__dept-tree:not(.is-path):not(.is-selected) {
+  opacity: 0.48;
+}
+
+html.evo-home-overview-cinema .evo-home-cmd.is-path-live .evo-home-cmd__dept-tree:not(.is-path):not(.is-selected) {
+  opacity: 0.72;
+}
+
+.evo-home-cmd__dept-node {
+  appearance: none;
+  width: 100%;
+  border: 1px solid var(--cmd-border);
+  border-radius: 14px;
+  /* 浅色：白卡片；深色在下方覆盖为黑卡 */
+  background: var(--cmd-panel, #fff);
+  box-shadow: none;
+  text-align: left;
+  cursor: pointer;
+  padding: 12px 12px 11px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  color: inherit;
+  transition:
+    border-color 0.18s ease,
+    box-shadow 0.18s ease,
+    background 0.18s ease;
+  position: relative;
+  z-index: 1;
+  min-height: 102px;
+}
+
+html[data-theme='dark'] .evo-home-cmd__dept-node,
+html.dark .evo-home-cmd__dept-node {
+  background: #111;
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.evo-home-cmd__dept-node.is-selected,
+.evo-home-cmd__dept-node.is-path {
+  border-color: color-mix(in srgb, var(--cmd-green) 55%, var(--cmd-border));
+  box-shadow: var(--cmd-neon-green);
+  background: color-mix(in srgb, var(--cmd-green) 6%, var(--cmd-panel, #fff));
+}
+
+html[data-theme='dark'] .evo-home-cmd__dept-node.is-selected,
+html[data-theme='dark'] .evo-home-cmd__dept-node.is-path,
+html.dark .evo-home-cmd__dept-node.is-selected,
+html.dark .evo-home-cmd__dept-node.is-path {
+  border-color: color-mix(in srgb, var(--cmd-green) 85%, #fff);
+  background: #0e0e0e;
+}
+
+.evo-home-cmd__dept-node-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.evo-home-cmd__dept-name {
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--cmd-text);
+  letter-spacing: -0.02em;
+}
+
+.evo-home-cmd__dept-kpi-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.evo-home-cmd__dept-tree.is-selected .evo-home-cmd__dept-node .evo-home-cmd__status.is-on,
+.evo-home-cmd__dept-tree.has-float .evo-home-cmd__detail .evo-home-cmd__status.is-on {
+  background: var(--cmd-green);
+  box-shadow: 0 0 0 2px rgba(57, 255, 136, 0.35);
+}
+
+.evo-home-cmd__dept-kpi {
+  font-size: 26px;
+  font-weight: 850;
+  letter-spacing: -0.03em;
+  color: var(--cmd-text, #0f172a);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.05;
+  text-shadow: none;
+}
+
+html[data-theme='dark'] .evo-home-cmd__dept-kpi,
+html.dark .evo-home-cmd__dept-kpi {
+  color: #f8fafc;
+}
+
+.evo-home-cmd__dept-tree.is-selected .evo-home-cmd__dept-kpi {
+  color: color-mix(in srgb, var(--cmd-green) 55%, var(--cmd-text, #0f172a));
+  text-shadow: none;
+}
+
+html[data-theme='dark'] .evo-home-cmd__dept-tree.is-selected .evo-home-cmd__dept-kpi,
+html.dark .evo-home-cmd__dept-tree.is-selected .evo-home-cmd__dept-kpi {
+  color: #ecfdf5;
+  text-shadow: 0 0 12px rgba(57, 255, 136, 0.35);
+}
+
+.evo-home-cmd__dept-kpi small {
+  margin-left: 4px;
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--cmd-text-muted);
+  text-shadow: none;
+}
+
+.evo-home-cmd__dept-tree.is-selected .evo-home-cmd__dept-kpi small {
+  color: color-mix(in srgb, var(--cmd-green) 70%, #fff);
+}
+
+.evo-home-cmd__dept-head-meta {
+  font-size: 11px;
+  color: var(--cmd-text-muted);
+}
+
+/* 竖干：从父卡底中偏左下探，横支挂叶子 */
+.evo-home-cmd__dept-branch {
+  position: relative;
+  margin: 0 0 0 16px;
+  padding: 0 0 0 18px;
+}
+
+.evo-home-cmd__dept-branch::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  /* 停在最后一片叶子垂直中线附近（叶卡约 48px 高），勿再往下空拖 */
+  bottom: 24px;
+  width: 2px;
+  background: var(--branch-line);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--card-accent) 40%, transparent);
+  border-radius: 2px;
+}
+
+.evo-home-cmd__dept-leaves {
+  list-style: none;
+  margin: 0;
+  padding: 10px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.evo-home-cmd__dept-leaves > li {
+  position: relative;
+}
+
+.evo-home-cmd__dept-leaves > li::before {
+  content: '';
+  position: absolute;
+  left: -18px;
+  top: 50%;
+  width: 18px;
+  height: 2px;
+  background: var(--branch-line);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--card-accent) 30%, transparent);
+  z-index: 1;
+}
+
+/* 旧做法用 cmd-bg 色块盖住竖干下半截；画布色一不对齐就会多出一截浅/深色条，已改为竖干 bottom 收口 */
+
+.evo-home-cmd__people-empty {
+  font-size: 11px;
+  color: var(--cmd-text-muted);
+  padding: 6px 4px;
+}
+
+.evo-home-cmd__people-more {
+  font-size: 10px;
+  color: var(--cmd-text-muted);
+  padding: 2px 8px 0;
+}
+
+.evo-home-cmd__leaf {
+  appearance: none;
+  width: 100%;
+  border: 1px solid var(--cmd-border);
+  background: var(--cmd-panel-soft, #f8fafc);
+  border-radius: 11px;
+  padding: 9px 10px;
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr) auto;
+  gap: 9px;
+  align-items: center;
+  cursor: pointer;
+  text-align: left;
+  color: inherit;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+html[data-theme='dark'] .evo-home-cmd__leaf,
+html.dark .evo-home-cmd__leaf {
+  border-color: rgba(255, 255, 255, 0.08);
+  background: #0c0c0c;
+}
+
+.evo-home-cmd__leaf-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--leaf-dot);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--leaf-dot) 25%, transparent);
+}
+
+.evo-home-cmd__leaf--tone1 {
+  --leaf-dot: #39ff88;
+}
+.evo-home-cmd__leaf--tone2 {
+  --leaf-dot: #38bdf8;
+}
+.evo-home-cmd__leaf--tone3 {
+  --leaf-dot: #f472b6;
+}
+.evo-home-cmd__leaf--tone4 {
+  --leaf-dot: #fb923c;
+}
+
+.evo-home-cmd__leaf:hover {
+  border-color: color-mix(in srgb, var(--card-accent) 45%, transparent);
+  background: color-mix(in srgb, var(--card-accent) 8%, var(--cmd-panel-soft, #f8fafc));
+}
+
+html[data-theme='dark'] .evo-home-cmd__leaf:hover,
+html.dark .evo-home-cmd__leaf:hover {
+  background: color-mix(in srgb, var(--card-accent) 7%, #0c0c0c);
+}
+
+.evo-home-cmd__leaf.is-selected {
+  border-color: color-mix(in srgb, var(--card-accent) 70%, #fff);
+  box-shadow: var(--card-neon);
+}
+
+.evo-home-cmd__leaf-body {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.evo-home-cmd__leaf-name {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--cmd-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.evo-home-cmd__leaf-kind {
+  font-size: 10px;
+  color: var(--cmd-text-muted);
+  line-height: 1.2;
+}
+
+.evo-home-cmd__leaf-meta {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--cmd-text-secondary, #475569);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+html[data-theme='dark'] .evo-home-cmd__leaf-meta,
+html.dark .evo-home-cmd__leaf-meta {
+  color: #cbd5e1;
+}
+
+.evo-home-cmd__dept-tree.is-selected .evo-home-cmd__leaf-meta {
+  color: color-mix(in srgb, var(--cmd-green) 55%, var(--cmd-text, #0f172a));
+}
+
+html[data-theme='dark'] .evo-home-cmd__dept-tree.is-selected .evo-home-cmd__leaf-meta,
+html.dark .evo-home-cmd__dept-tree.is-selected .evo-home-cmd__leaf-meta {
+  color: color-mix(in srgb, var(--cmd-green) 70%, #fff);
+}
+
+/* 悬浮详情贴在选中部门右侧（参考构图）；右缘不够时由 .is-dock-left 翻到左侧 */
+.evo-home-cmd__dept-tree.has-float {
+  z-index: 28;
+}
+
+.evo-home-cmd__dept-tree.has-float > .evo-home-cmd__detail--dock {
+  --card-accent: var(--cmd-green);
+  position: absolute;
+  left: calc(100% + 14px);
+  right: auto;
+  top: 0;
+  width: 276px;
+  min-height: 300px;
+  max-height: min(540px, 72vh);
+  overflow: auto;
+  z-index: 30;
+  border-color: color-mix(in srgb, var(--cmd-green) 70%, rgba(255, 255, 255, 0.12));
+  box-shadow:
+    0 18px 48px rgba(0, 0, 0, 0.6),
+    0 0 0 1px color-mix(in srgb, var(--cmd-green) 32%, transparent),
+    0 0 28px rgba(57, 255, 136, 0.16);
+}
+
+.evo-home-cmd__dept-tree.has-float.is-dock-left > .evo-home-cmd__detail--dock {
+  left: auto;
+  right: calc(100% + 14px);
+}
+
+/* 部门浮层伸出列外：放开首页横向裁剪，避免右列详情被砍半 */
+.react-chat-main-col--home:has(.evo-home-cmd__dept-tree.has-float) .react-chat-messages-wrap,
+.react-chat-main-col--home:has(.evo-home-cmd__dept-tree.has-float) .react-chat-messages-body,
+.react-chat-main-col--home:has(.evo-home-cmd__dept-tree.has-float) .chat-messages-inner--home {
+  overflow-x: visible;
+}
+
+.react-chat-main-col--home:has(.evo-home-cmd__dept-tree.has-float) .chat-messages-inner--home {
+  overflow-y: auto;
+}
+
+.evo-home-cmd__dept-tree.has-float > .evo-home-cmd__detail--dock .evo-home-cmd__detail-link {
+  color: var(--cmd-green);
+}
+
+.evo-home-cmd__dept-tree.has-float > .evo-home-cmd__detail--dock .evo-home-cmd__detail-chart-bars > span.is-now {
+  background: linear-gradient(180deg, #6ee7b7, color-mix(in srgb, var(--cmd-green) 40%, #052e16));
+  box-shadow: 0 0 10px rgba(57, 255, 136, 0.35);
+}
+
+.evo-home-cmd__detail-stats--phrase strong {
+  font-size: 13px;
+  letter-spacing: -0.01em;
+}
+
+.evo-home-cmd__detail-snap {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 11px;
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.evo-home-cmd__detail-snap > span {
+  font-size: 10px;
+  font-weight: 650;
+  color: var(--cmd-text-muted);
+}
+
+.evo-home-cmd__detail-snap > strong {
+  font-size: 13px;
+  font-weight: 750;
+  color: var(--cmd-text);
+  letter-spacing: -0.01em;
+}
+
+.evo-home-cmd__dept-kpi-side {
+  font-size: 15px;
+  font-weight: 750;
+  color: color-mix(in srgb, var(--card-accent, #64748b) 72%, var(--cmd-text, #0f172a));
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+html[data-theme='dark'] .evo-home-cmd__dept-kpi-side,
+html.dark .evo-home-cmd__dept-kpi-side {
+  color: color-mix(in srgb, var(--card-accent) 80%, #fff);
+}
+
+.evo-home-cmd__dept-kpi-side small {
+  margin-left: 2px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--cmd-text-muted);
+}
+
+.evo-home-cmd__person-name {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--cmd-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.evo-home-cmd__person-state {
+  font-size: 10px;
+  font-weight: 650;
+  color: #0f172a;
+}
+
+html[data-theme='dark'] .evo-home-cmd__person-state,
+html.dark .evo-home-cmd__person-state {
+  color: #e2e8f0;
+}
+
+.evo-home-cmd__person.is-on-duty .evo-home-cmd__person-state,
+.evo-home-cmd__person.is-busy .evo-home-cmd__person-state {
+  color: #16a34a;
+  font-weight: 700;
+}
+
+.evo-home-cmd__person.is-off-duty .evo-home-cmd__person-state {
+  color: #0f172a;
+  font-weight: 650;
+}
+
+html[data-theme='dark'] .evo-home-cmd__person.is-off-duty .evo-home-cmd__person-state,
+html.dark .evo-home-cmd__person.is-off-duty .evo-home-cmd__person-state {
+  color: #cbd5e1;
+}
+
+.evo-home-cmd__detail-person-btn small.is-on-duty {
+  color: #16a34a;
+  font-weight: 700;
+}
+
+.evo-home-cmd__detail-person-btn small.is-off-duty {
+  color: #0f172a;
+}
+
+html[data-theme='dark'] .evo-home-cmd__detail-person-btn small.is-off-duty,
+html.dark .evo-home-cmd__detail-person-btn small.is-off-duty {
+  color: #cbd5e1;
+}
+
+/* 右侧明细：与画布同系实色卡，无外圈霓虹 */
+.evo-home-cmd__detail {
+  --card-accent: var(--cmd-cyan);
+  border: 1px solid var(--cmd-border);
+  border-radius: 14px;
+  background: var(--cmd-panel);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 280px;
+  position: sticky;
+  top: 8px;
+  color: var(--cmd-text);
+  box-shadow: none;
+}
+
+html[data-theme='dark'] .evo-home-cmd__detail,
+html.dark .evo-home-cmd__detail {
+  background: #121212;
+  border-color: rgba(255, 255, 255, 0.1);
+  box-shadow: none;
+}
+
+.evo-home-cmd__detail--cyan {
+  --card-accent: var(--cmd-cyan);
+}
+
+.evo-home-cmd__detail--green {
+  --card-accent: var(--cmd-green);
+}
+
+.evo-home-cmd__detail-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.evo-home-cmd__dept-chip {
+  display: inline-flex;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 3px 7px;
+  border-radius: 999px;
+  color: var(--card-accent);
+  background: color-mix(in srgb, var(--card-accent) 16%, transparent);
+  border: 1px solid color-mix(in srgb, var(--card-accent) 35%, transparent);
+}
+
+.evo-home-cmd__detail-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.evo-home-cmd__detail-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--cmd-text);
+}
+
+.evo-home-cmd__detail-online {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--cmd-text-muted);
+  border: 1px solid var(--cmd-border);
+  background: var(--cmd-panel-soft);
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+
+.evo-home-cmd__detail-sub {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--cmd-text-secondary);
+}
+
+.evo-home-cmd__detail-close {
+  appearance: none;
+  border: 0;
+  background: var(--cmd-panel-soft);
+  color: var(--cmd-text-muted);
+  cursor: pointer;
+  padding: 6px;
+  border-radius: 8px;
+}
+
+.evo-home-cmd__detail-close:hover {
+  background: color-mix(in srgb, var(--cmd-text) 8%, transparent);
+  color: var(--cmd-text);
+}
+
+.evo-home-cmd__detail-chart {
+  margin-top: 2px;
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.12);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.evo-home-cmd__detail-chart-head {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  color: #64748b;
+  margin-bottom: 8px;
+}
+
+.evo-home-cmd__detail-chart-head .is-now {
+  color: color-mix(in srgb, var(--card-accent) 80%, #fff);
+  font-weight: 700;
+}
+
+.evo-home-cmd__detail-chart-bars {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  align-items: end;
+  gap: 5px;
+  height: 56px;
+}
+
+.evo-home-cmd__detail-chart-bars > span {
+  display: block;
+  border-radius: 3px 3px 1px 1px;
+  background: rgba(148, 163, 184, 0.35);
+  min-height: 4px;
+}
+
+.evo-home-cmd__detail-chart-bars > span.is-now {
+  background: linear-gradient(180deg, var(--card-accent), color-mix(in srgb, var(--card-accent) 35%, #0f172a));
+  box-shadow: 0 0 10px color-mix(in srgb, var(--card-accent) 30%, transparent);
+}
+
+.evo-home-cmd__detail-link {
+  appearance: none;
+  margin-top: auto;
+  border: 0;
+  background: transparent;
+  color: color-mix(in srgb, var(--card-accent) 85%, #fff);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 8px 0 2px;
+  text-align: left;
+}
+
+.evo-home-cmd__detail-link:hover {
+  color: #fff;
+}
+
+.evo-home-cmd__detail-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.evo-home-cmd__detail-stats > div {
+  border-radius: 8px;
+  border: 1px solid var(--cmd-border);
+  background: var(--cmd-panel-soft);
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.evo-home-cmd__detail-stats strong {
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--cmd-text);
+}
+
+.evo-home-cmd__detail-stats span {
+  font-size: 10px;
+  color: var(--cmd-text-muted);
+}
+
+.evo-home-cmd__detail-summary {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--cmd-text-secondary);
+}
+
+.evo-home-cmd__detail-section-label {
+  margin-top: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--cmd-text-muted);
+  letter-spacing: 0.04em;
+}
+
+.evo-home-cmd__detail-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.evo-home-cmd__detail-list li {
+  font-size: 12px;
+  color: var(--cmd-text);
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--cmd-panel-soft);
+  border: 1px solid var(--cmd-border);
+}
+
+.evo-home-cmd__detail-person-btn {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-align: left;
+  cursor: pointer;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+}
+
+.evo-home-cmd__detail-person-btn small {
+  color: #64748b;
+}
+
+.evo-home-cmd__detail-quick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+.evo-home-cmd__detail-chip {
+  appearance: none;
+  border: 1px solid var(--cmd-border);
+  background: var(--cmd-panel-soft);
+  color: var(--cmd-text-secondary);
+  border-radius: 999px;
+  padding: 4px 9px 4px 7px;
+  font-size: 11px;
+  font-weight: 650;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  max-width: 100%;
+}
+
+.evo-home-cmd__detail-chip:hover {
+  border-color: color-mix(in srgb, var(--cmd-text) 35%, transparent);
+  color: var(--cmd-text);
+}
+
+.evo-home-cmd__detail-btn {
+  appearance: none;
+  margin-top: 4px;
+  border: 1px solid color-mix(in srgb, var(--cmd-cyan) 35%, transparent);
+  background: color-mix(in srgb, var(--cmd-cyan) 10%, transparent);
+  color: var(--cmd-cyan-soft);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.evo-home-cmd__detail-btn:hover {
+  background: color-mix(in srgb, var(--cmd-cyan) 16%, transparent);
+}
+
+/* ── 部门群聊 ─────────────────────────────────────────── */
+.evo-home-cmd__gc {
+  min-height: 420px;
+  max-height: min(72vh, 640px);
+  padding: 12px;
+  gap: 8px;
+  /* 别裁切输入框上方的 @ 选人列表 */
+  overflow: visible;
+}
+
+.evo-home-cmd__gc-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  padding: 2px 8px;
+  border-radius: 999px;
+  color: var(--card-accent);
+  background: color-mix(in srgb, var(--card-accent) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--card-accent) 32%, transparent);
+}
+
+.evo-home-cmd__gc-members-block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.evo-home-cmd__gc-members-label {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--cmd-text-muted);
+  letter-spacing: 0.04em;
+}
+
+.evo-home-cmd__gc-members-hint {
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0;
+  color: var(--cmd-text-muted);
+  opacity: 0.85;
+}
+
+.evo-home-cmd__gc-members {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-height: 88px;
+  overflow: auto;
+}
+
+.evo-home-cmd__gc-chip {
+  appearance: none;
+  border: 1px solid var(--cmd-border);
+  background: var(--cmd-panel-soft);
+  color: var(--cmd-text);
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 650;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.evo-home-cmd__gc-chip .evo-home-cmd__status {
+  width: 9px;
+  height: 9px;
+}
+
+.evo-home-cmd__gc-chip-state {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--cmd-text-muted);
+}
+
+.evo-home-cmd__gc-chip.is-on-duty .evo-home-cmd__gc-chip-state {
+  color: var(--cmd-green);
+}
+
+.evo-home-cmd__gc-chip:hover,
+.evo-home-cmd__gc-chip.is-active {
+  border-color: color-mix(in srgb, var(--card-accent) 45%, transparent);
+  background: color-mix(in srgb, var(--card-accent) 12%, transparent);
+  color: var(--cmd-text);
+}
+
+.evo-home-cmd__gc-chip.is-busy {
+  border-color: color-mix(in srgb, var(--cmd-orange, #f59e0b) 40%, transparent);
+}
+
+.evo-home-cmd__gc-empty-hint,
+.evo-home-cmd__gc-empty {
+  font-size: 12px;
+  color: var(--cmd-text-muted);
+  line-height: 1.5;
+  padding: 10px 4px;
+}
+
+.evo-home-cmd__gc-timeline {
+  flex: 1;
+  min-height: 160px;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 4px 2px 8px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--cmd-bg) 55%, transparent);
+  border: 1px solid var(--cmd-border);
+}
+
+.evo-home-cmd__gc-msg {
+  appearance: none;
+  border: 0;
+  background: var(--cmd-panel);
+  text-align: left;
+  border-radius: 10px;
+  padding: 8px 10px;
+  margin: 0 6px;
+  color: inherit;
+  font: inherit;
+  border: 1px solid transparent;
+  cursor: default;
+}
+
+.evo-home-cmd__gc-msg.is-clickable {
+  cursor: pointer;
+}
+
+.evo-home-cmd__gc-msg.is-clickable:hover {
+  border-color: color-mix(in srgb, var(--card-accent) 35%, transparent);
+  background: color-mix(in srgb, var(--card-accent) 8%, var(--cmd-panel));
+}
+
+.evo-home-cmd__gc-msg--user {
+  align-self: flex-end;
+  max-width: 92%;
+  background: color-mix(in srgb, var(--cmd-cyan) 12%, var(--cmd-panel));
+  border-color: color-mix(in srgb, var(--cmd-cyan) 22%, transparent);
+}
+
+.evo-home-cmd__gc-msg--system {
+  align-self: stretch;
+  background: color-mix(in srgb, #64748b 8%, #fff);
+  border-style: dashed;
+  border-color: rgba(15, 23, 42, 0.2);
+  color: #475569;
+  font-size: 11px;
+}
+
+html[data-theme='dark'] .evo-home-cmd__gc-msg--system,
+html.dark .evo-home-cmd__gc-msg--system,
+html.theme-dark .evo-home-cmd__gc-msg--system {
+  background: color-mix(in srgb, #64748b 14%, transparent);
+  border-color: rgba(255, 255, 255, 0.16);
+  color: var(--cmd-text-secondary, #a1a1aa);
+}
+
+.evo-home-cmd__gc-msg--agent {
+  align-self: flex-start;
+  max-width: 94%;
+  border-color: color-mix(in srgb, var(--card-accent) 20%, transparent);
+}
+
+.evo-home-cmd__gc-msg.is-streaming {
+  border-color: color-mix(in srgb, var(--card-accent) 40%, transparent);
+  background: color-mix(in srgb, var(--card-accent) 8%, var(--cmd-panel));
+}
+
+.evo-home-cmd__gc-msg.is-error .evo-home-cmd__gc-msg-text {
+  color: color-mix(in srgb, #ef4444 75%, var(--cmd-text));
+}
+
+.evo-home-cmd__gc-thinking {
+  color: var(--cmd-text-muted);
+  font-style: italic;
+}
+
+.evo-home-cmd__gc-caret {
+  display: inline-block;
+  width: 2px;
+  height: 0.95em;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  background: var(--card-accent, var(--cmd-cyan));
+  animation: evo-home-cmd-gc-caret 0.85s step-end infinite;
+}
+
+@keyframes evo-home-cmd-gc-caret {
+  50% {
+    opacity: 0;
+  }
+}
+
+.evo-home-cmd__gc-msg-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--cmd-text-muted);
+}
+
+.evo-home-cmd__gc-msg-who {
+  color: var(--card-accent, var(--cmd-cyan));
+}
+
+.evo-home-cmd__gc-msg--user .evo-home-cmd__gc-msg-who {
+  color: var(--cmd-cyan);
+}
+
+.evo-home-cmd__gc-msg-text {
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--cmd-text);
+}
+
+.evo-home-cmd__gc-composer {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: auto;
+}
+
+.evo-home-cmd__gc-composer-box {
+  position: relative;
+  display: block;
+  border-radius: 10px;
+  border: 1px solid var(--cmd-border);
+  background: var(--cmd-panel-soft);
+}
+
+.evo-home-cmd__gc-composer-box:focus-within {
+  border-color: color-mix(in srgb, var(--card-accent) 45%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--card-accent) 18%, transparent);
+}
+
+.evo-home-cmd__gc-composer-box .evo-home-cmd__gc-input {
+  display: block;
+  width: 100% !important;
+  border: 0 !important;
+  background: transparent !important;
+  background-image: none !important;
+  box-shadow: none !important;
+  border-radius: 10px !important;
+  padding: 8px 72px 8px 10px !important;
+  outline: none !important;
+}
+
+.evo-home-cmd__gc-composer-box .evo-home-cmd__gc-input:focus {
+  border: 0 !important;
+  box-shadow: none !important;
+  outline: none !important;
+}
+
+.evo-home-cmd__gc-composer-box .evo-home-cmd__gc-send {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  margin-left: 0;
+  min-height: 28px;
+}
+
+.evo-home-cmd__gc-mention-list {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 4px);
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  max-height: 160px;
+  overflow: auto;
+  border-radius: 10px;
+  border: 1px solid var(--cmd-border, var(--border-primary, rgba(15, 23, 42, 0.12)));
+  /* fallback：aside 指挥台有 --cmd-panel；主区群聊没有 */
+  background: var(--cmd-panel, var(--bg-elevated, var(--bg-primary, #ffffff)));
+  color: var(--cmd-text, var(--text-primary, #0f172a));
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.12);
+  z-index: 40;
+}
+
+.evo-home-cmd__gc-mention-list button {
+  appearance: none;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--cmd-text, var(--text-primary, #0f172a));
+  text-align: left;
+}
+
+.evo-home-cmd__gc-mention-list button:hover,
+.evo-home-cmd__gc-mention-list button.is-hi {
+  background: color-mix(
+    in srgb,
+    var(--card-accent, var(--accent, #6366f1)) 16%,
+    var(--cmd-panel-soft, var(--bg-secondary, #f1f5f9))
+  );
+}
+
+.evo-home-cmd__gc-mention-name {
+  flex: 1;
+  min-width: 0;
+}
+
+.evo-home-cmd__gc-mention-duty {
+  margin-left: auto;
+  color: var(--cmd-text-muted, var(--text-secondary, #64748b));
+  font-size: 11px;
+  font-weight: 500;
+  opacity: 0.72;
+}
+
+.evo-home-cmd__gc-input {
+  width: 100%;
+  resize: none;
+  border-radius: 10px;
+  border: 1px solid var(--cmd-border);
+  background: var(--cmd-panel-soft);
+  color: var(--cmd-text);
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.45;
+  box-sizing: border-box;
+}
+
+.evo-home-cmd__gc-input:focus {
+  outline: none;
+  border-color: color-mix(in srgb, var(--card-accent) 45%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--card-accent) 18%, transparent);
+}
+
+.evo-home-cmd__gc-composer-bar {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.evo-home-cmd__gc-at-btn,
+.evo-home-cmd__gc-send {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.evo-home-cmd__gc-at-btn {
+  border: 1px solid var(--cmd-border);
+  background: var(--cmd-panel-soft);
+  color: var(--cmd-text-secondary);
+}
+
+.evo-home-cmd__gc-send {
+  margin-left: auto;
+  border: 1px solid color-mix(in srgb, var(--cmd-cyan) 35%, transparent);
+  background: color-mix(in srgb, var(--cmd-cyan) 14%, transparent);
+  color: var(--cmd-cyan-soft, var(--cmd-cyan));
+}
+
+.evo-home-cmd__gc-send:disabled,
+.evo-home-cmd__gc-at-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.evo-home-cmd__gc-spin {
+  animation: evo-home-cmd-gc-spin 0.8s linear infinite;
+}
+
+@keyframes evo-home-cmd-gc-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.evo-home-cmd__gc-thread {
+  min-height: 420px;
+  max-height: min(72vh, 640px);
+  display: flex;
+  flex-direction: column;
+}
+
+.evo-home-cmd__gc-thread-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 4px 0 8px;
+}
+
+.evo-home-cmd__gc-thread-line {
+  border-radius: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--cmd-border);
+  background: var(--cmd-panel-soft);
+}
+
+.evo-home-cmd__gc-thread-line--user,
+.evo-home-cmd__gc-thread-line--human {
+  border-color: color-mix(in srgb, var(--cmd-cyan) 22%, transparent);
+  background: color-mix(in srgb, var(--cmd-cyan) 10%, var(--cmd-panel-soft));
+}
+
+.evo-home-cmd__gc-thread-line--assistant {
+  border-color: color-mix(in srgb, var(--card-accent, var(--cmd-cyan)) 20%, transparent);
+}
+
+/* 总览：浅色跟工作台纸面，深色才进霓虹底 */
+.evo-home-dashboard--overview {
+  background: transparent;
+  border-radius: 12px;
+  margin: 0 -8px;
+  padding: 10px 8px 16px;
+}
+
+/* ── 总览影院：默认藏左侧壳 / 聊天顶栏 / 指挥台顶栏；贴边悬停浮出 ── */
+html.evo-home-overview-cinema #app-shell-aside.shell-aside-host {
+  width: 0 !important;
+  min-width: 0 !important;
+  max-width: 0 !important;
+  padding: 0 !important;
+  border-right-width: 0 !important;
+  opacity: 0;
+  overflow: hidden;
+  pointer-events: none;
+  transition:
+    width 0.22s var(--ease-out-soft, ease),
+    min-width 0.22s var(--ease-out-soft, ease),
+    max-width 0.22s var(--ease-out-soft, ease),
+    opacity 0.18s ease,
+    padding 0.22s ease;
+}
+
+/* 贴边展开：顶栏 + 左侧一起出；走文档流把主列往右推 */
+html.evo-home-overview-cinema.evo-cinema-peek #app-shell-aside.shell-aside-host {
+  position: relative;
+  left: auto;
+  top: auto;
+  bottom: auto;
+  z-index: 2;
+  width: var(--shell-aside-width, 240px) !important;
+  min-width: var(--shell-aside-width, 240px) !important;
+  max-width: var(--shell-aside-width, 240px) !important;
+  padding: 0 8px !important;
+  /* 与顶栏合成一层：去掉侧栏右边线 */
+  border-right: 0 !important;
+  opacity: 1;
+  overflow: hidden;
+  pointer-events: auto;
+  box-shadow: none;
+  background: var(--shell-bg, var(--chrome-bg, #0a0e15));
+}
+
+/* cinema 仅在总览挂上，直接收聊天顶栏 / 主列 chrome */
+html.evo-home-overview-cinema .react-chat-header,
+html.evo-home-overview-cinema #tauri-main-chrome:not(.tauri-main-chrome--hidden) {
+  max-height: 0 !important;
+  min-height: 0 !important;
+  height: 0 !important;
+  opacity: 0;
+  overflow: hidden !important;
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+  margin: 0 !important;
+  border: none !important;
+  pointer-events: none;
+  transition:
+    max-height 0.22s ease,
+    opacity 0.18s ease,
+    min-height 0.22s ease;
+}
+
+html.evo-home-overview-cinema.evo-cinema-peek .react-chat-header {
+  max-height: 64px !important;
+  min-height: var(--shell-top-band, 48px) !important;
+  height: auto !important;
+  opacity: 1;
+  overflow: visible !important;
+  pointer-events: auto;
+  position: relative;
+  z-index: 1100;
+  box-shadow: none;
+  border-bottom: 0 !important;
+  background: var(--shell-bg, var(--chrome-bg, #0a0e15));
+}
+
+html.evo-home-overview-cinema.evo-cinema-peek
+  #tauri-main-chrome:not(.tauri-main-chrome--hidden) {
+  max-height: 74px !important;
+  min-height: var(--shell-top-band, 48px) !important;
+  height: var(--shell-top-band, 48px) !important;
+  opacity: 1;
+  overflow: visible !important;
+  pointer-events: auto;
+  position: relative;
+  z-index: 1100;
+  box-shadow: none;
+  border-bottom: 0 !important;
+  background: var(--shell-bg, var(--chrome-bg, #0a0e15));
+}
+
+/* 影院 peek：顶栏 + 侧栏同一底，只在整块 chrome 底边留一条线 */
+html.evo-home-overview-cinema.evo-cinema-peek .react-chat-main-column,
+html.evo-home-overview-cinema.evo-cinema-peek .react-chat-layout {
+  background: var(--shell-bg, var(--chrome-bg, #0a0e15));
+}
+
+html.evo-home-overview-cinema .evo-home-dashboard--overview .evo-home-header {
+  max-height: 0;
+  opacity: 0;
+  overflow: hidden;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: none !important;
+  pointer-events: none;
+  transition:
+    max-height 0.22s ease,
+    opacity 0.18s ease,
+    margin 0.22s ease;
+}
+
+/* 全屏时指挥台自有顶栏不再叠一层，避免左上角多条线；控制交给右上角 fab */
+html.evo-home-overview-cinema.evo-cinema-peek
+  .evo-home-dashboard--overview
+  .evo-home-header {
+  max-height: 0;
+  opacity: 0;
+  overflow: hidden;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: none !important;
+  pointer-events: none;
+}
+
+.evo-home-cinema-fab {
+  position: fixed;
+  top: 14px;
+  right: 16px;
+  z-index: 1200;
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(18, 18, 18, 0.88);
+  color: #e2e8f0;
+  border-radius: 999px;
+  padding: 7px 12px;
+  font-size: 12px;
+  font-weight: 650;
+  cursor: pointer;
+  backdrop-filter: blur(8px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+/* 右栏打开时勿盖住标签条「收起」：FAB 挪到右栏左侧；标签条抬到 FAB 之上可点 */
+html.evo-home-overview-cinema:has(.react-chat-main-body.is-right-stage-open) .evo-home-cinema-fab {
+  right: calc(var(--chat-right-panel-width, 380px) + 20px);
+}
+
+html.evo-home-overview-cinema .react-chat-stage-chrome {
+  position: relative;
+  z-index: 1210;
+}
+
+.evo-home-cinema-fab:hover {
+  border-color: rgba(255, 255, 255, 0.28);
+  color: #fff;
+}
+
+/* 贴边感应条：即使顶栏高度为 0 也能碰到 */
+html.evo-home-overview-cinema .evo-home-cinema-hot-left,
+html.evo-home-overview-cinema .evo-home-cinema-hot-top {
+  position: fixed;
+  z-index: 1190;
+  pointer-events: auto;
+  background: transparent;
+}
+
+html.evo-home-overview-cinema .evo-home-cinema-hot-left {
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 14px;
+}
+
+html.evo-home-overview-cinema .evo-home-cinema-hot-top {
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 14px;
+}
+
+html.evo-home-overview-cinema.evo-cinema-peek .evo-home-cinema-hot-left,
+html.evo-home-overview-cinema.evo-cinema-peek .evo-home-cinema-hot-top {
+  pointer-events: none;
+}
+
+html.evo-home-overview-cinema .shell-aside-expand-btn {
+  display: none !important;
+}
+
+/*
+ * 全屏一底：主题里 html[data-theme] body .react-chat-main-body !important
+ * 会盖掉普通选择器，先改 --chat-canvas，再用更高优先级选择器硬刷。
+ *
+ * 影院态始终用深色指挥台色板——即使应用是浅色主题，也不能再留
+ * --cmd-panel:#fff，否则黑底上飘一排白卡。
+ *
+ * 注意：`.evo-home-cmd { --cmd-panel:#fff }` 会在元素自身重写变量，
+ * 只设在 html 上不够；必须再挂到 .evo-home-cmd 上，否则
+ * steward/leaf/detail 的 var(--cmd-panel) 仍解析成白。
+ * 非影院的浅色总览仍走 .evo-home-cmd 默认纸面 token（#f3f6fb / 白卡）。
+ */
+html.evo-home-overview-cinema {
+  --chat-canvas: #0a0a0a !important;
+  --page-canvas: #0a0a0a !important;
+  --bg-primary: #0a0a0a !important;
+}
+
+html.evo-home-overview-cinema .evo-home-cmd {
+  --cmd-bg: #0a0a0a;
+  --cmd-panel: #121212;
+  --cmd-panel-soft: #181818;
+  --cmd-border: rgba(255, 255, 255, 0.1);
+  --cmd-text: #f1f5f9;
+  --cmd-text-secondary: #a1a1aa;
+  --cmd-text-muted: #a1a1aa;
+  --cmd-line: rgba(248, 250, 252, 0.35);
+  --cmd-cyan: #22d3ee;
+  --cmd-cyan-soft: #67e8f9;
+  --cmd-orange: #f97316;
+  --cmd-orange-soft: #fdba74;
+  --cmd-green: #39ff88;
+  --cmd-glow-cyan: transparent;
+  --cmd-glow-orange: rgba(249, 115, 22, 0.28);
+  --cmd-glow-green: rgba(57, 255, 136, 0.35);
+  --cmd-pulse: #f8fafc;
+  --cmd-pulse-soft: rgba(248, 250, 252, 0.28);
+  --cmd-neon-cyan:
+    0 0 0 1px rgba(103, 232, 249, 0.45),
+    0 0 12px rgba(34, 211, 238, 0.22);
+  --cmd-neon-green:
+    0 0 0 1px rgba(57, 255, 136, 0.7),
+    0 0 16px rgba(57, 255, 136, 0.45),
+    0 0 34px rgba(57, 255, 136, 0.22);
+  color: var(--cmd-text);
+}
+
+/* 影院态：部门卡 / 小V / 叶子 / 详情 对齐深色，勿吃浅色 #fff 兜底 */
+html.evo-home-overview-cinema .evo-home-cmd__dept-node {
+  background: #111 !important;
+  border-color: rgba(255, 255, 255, 0.1) !important;
+  color: var(--cmd-text) !important;
+}
+
+html.evo-home-overview-cinema .evo-home-cmd__dept-node.is-selected,
+html.evo-home-overview-cinema .evo-home-cmd__dept-node.is-path {
+  background: #0e0e0e !important;
+  border-color: color-mix(in srgb, var(--cmd-green) 85%, #fff) !important;
+}
+
+html.evo-home-overview-cinema .evo-home-cmd__dept-name,
+html.evo-home-overview-cinema .evo-home-cmd__dept-kpi,
+html.evo-home-overview-cinema .evo-home-cmd__dept-kpi-side,
+html.evo-home-overview-cinema .evo-home-cmd__dept-head-meta {
+  color: inherit;
+}
+
+html.evo-home-overview-cinema .evo-home-cmd__dept-name {
+  color: #e2e8f0 !important;
+}
+
+html.evo-home-overview-cinema .evo-home-cmd__dept-kpi,
+html.evo-home-overview-cinema .evo-home-cmd__dept-kpi-side {
+  color: #cbd5e1 !important;
+}
+
+html.evo-home-overview-cinema .evo-home-cmd__dept-head-meta,
+html.evo-home-overview-cinema .evo-home-cmd__dept-kpi small,
+html.evo-home-overview-cinema .evo-home-cmd__dept-kpi-side small {
+  color: #94a3b8 !important;
+}
+
+html.evo-home-overview-cinema .evo-home-cmd__you {
+  background:
+    linear-gradient(145deg, color-mix(in srgb, var(--cmd-orange) 14%, transparent), transparent 55%),
+    #121212 !important;
+  color: var(--cmd-text) !important;
+}
+
+html.evo-home-overview-cinema .evo-home-cmd__steward {
+  background: #121212 !important;
+  color: var(--cmd-text) !important;
+  border-color: color-mix(in srgb, var(--cmd-cyan) 42%, transparent) !important;
+}
+
+html.evo-home-overview-cinema .evo-home-cmd__leaf {
+  background: #0c0c0c !important;
+  border-color: rgba(255, 255, 255, 0.08) !important;
+  color: var(--cmd-text) !important;
+}
+
+html.evo-home-overview-cinema .evo-home-cmd__leaf:hover {
+  background: color-mix(in srgb, var(--card-accent) 7%, #0c0c0c) !important;
+}
+
+html.evo-home-overview-cinema .evo-home-cmd__detail,
+html.evo-home-overview-cinema .evo-home-cmd__detail--dock {
+  background: #121212 !important;
+  border-color: rgba(255, 255, 255, 0.12) !important;
+  color: var(--cmd-text) !important;
+  box-shadow:
+    0 18px 48px rgba(0, 0, 0, 0.6),
+    0 0 0 1px color-mix(in srgb, var(--cmd-green) 32%, transparent),
+    0 0 28px rgba(57, 255, 136, 0.16) !important;
+}
+
+html.evo-home-overview-cinema .evo-home-cmd__detail-snap,
+html.evo-home-overview-cinema .evo-home-cmd__detail-stats > div,
+html.evo-home-overview-cinema .evo-home-cmd__detail-close {
+  background: #181818 !important;
+  border-color: rgba(255, 255, 255, 0.08) !important;
+  color: var(--cmd-text) !important;
+}
+
+html.evo-home-overview-cinema .evo-home-cmd__detail-title,
+html.evo-home-overview-cinema .evo-home-cmd__detail-stats strong,
+html.evo-home-overview-cinema .evo-home-cmd__detail-snap > strong {
+  color: #f1f5f9 !important;
+}
+
+html.evo-home-overview-cinema .evo-home-cmd__detail-sub,
+html.evo-home-overview-cinema .evo-home-cmd__detail-stats span,
+html.evo-home-overview-cinema .evo-home-cmd__detail-snap > span {
+  color: #94a3b8 !important;
+}
+
+html.evo-home-overview-cinema body .chat-react-full,
+html.evo-home-overview-cinema body .react-chat-main-col--home,
+html.evo-home-overview-cinema body .react-chat-main-body,
+html.evo-home-overview-cinema body .react-chat-messages-wrap,
+html.evo-home-overview-cinema body .react-chat-messages-body,
+html.evo-home-overview-cinema body .react-chat-messages,
+html.evo-home-overview-cinema body .react-chat-conversation-col,
+html.evo-home-overview-cinema body .react-chat-surface,
+html.evo-home-overview-cinema body .chat-react-outlet,
+html.evo-home-overview-cinema body .chat-messages-inner--home,
+html.evo-home-overview-cinema[data-theme='dark'] body .react-chat-main-body,
+html.evo-home-overview-cinema[data-theme='dark'] body .react-chat-messages-wrap,
+html.evo-home-overview-cinema[data-theme='dark'] body .react-chat-conversation-col,
+html.evo-home-overview-cinema[data-theme='dark'] body .chat-react-outlet,
+html.evo-home-overview-cinema[data-theme='dark']:not([data-translucent-ui='1']) body .react-chat-main-body,
+html.evo-home-overview-cinema[data-theme='dark']:not([data-translucent-ui='1']) body .react-chat-messages-wrap,
+html.evo-home-overview-cinema[data-theme='dark']:not([data-translucent-ui='1']) body .react-chat-conversation-col,
+html.evo-home-overview-cinema[data-theme='dark']:not([data-translucent-ui='1']) body .chat-react-outlet,
+html.evo-home-overview-cinema:not([data-translucent-ui='1']) body .react-chat-main-body,
+html.evo-home-overview-cinema:not([data-translucent-ui='1']) body .react-chat-messages-wrap {
+  background: #0a0a0a !important;
+  background-image: none !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  gap: 0 !important;
+}
+
+html.evo-home-overview-cinema body .react-chat-main-col--home,
+html.evo-home-overview-cinema body .react-chat-main-body,
+html.evo-home-overview-cinema body .react-chat-messages-wrap,
+html.evo-home-overview-cinema body .react-chat-conversation-col,
+html.evo-home-overview-cinema body .chat-messages-inner--home {
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  height: 100% !important;
+  max-height: none !important;
+}
+
+html.evo-home-overview-cinema .evo-home-dashboard,
+html.evo-home-overview-cinema .evo-home-dashboard--overview {
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: #0a0a0a !important;
+  min-height: 100% !important;
+  height: 100% !important;
+}
+
+html.evo-home-overview-cinema .evo-home-dashboard__inner {
+  max-width: none;
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  min-height: 100%;
+}
+
+html.evo-home-overview-cinema .evo-home-cmd,
+html.evo-home-overview-cinema .evo-home-cmd__stage {
+  min-height: 100%;
+  height: 100%;
+  gap: 0;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: #0a0a0a !important;
+  box-shadow: none !important;
+}
+
+html.evo-home-overview-cinema .evo-home-cmd__canvas {
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  outline: none !important;
+  background: #0a0a0a !important;
+  min-height: 100%;
+  height: 100%;
+  overflow: auto;
+}
+
+html.evo-home-overview-cinema .evo-home-cmd__tree {
+  padding-bottom: 28px;
+  min-height: 100%;
+  box-sizing: border-box;
+}
+
+html.evo-home-overview-cinema .evo-home-cmd__stage.has-detail .evo-home-cmd__canvas {
+  overflow: visible;
+}
+
+/* 压过 theme 里 main-col--home { background: transparent !important }，避免底下透出 #1e1e1e 一层 */
+html.evo-home-overview-cinema[data-theme='dark'] body .react-chat-main-col--home,
+html.evo-home-overview-cinema[data-theme='dark'] body .react-chat-main-col.react-chat-main-col--home,
+html.evo-home-overview-cinema[data-translucent-ui='1'] body .react-chat-main-col--home,
+html.evo-home-overview-cinema.dark body .react-chat-main-col--home,
+html.evo-home-overview-cinema body .chat-main.react-chat-main-col--home,
+html.evo-home-overview-cinema body #app,
+html.evo-home-overview-cinema body #root,
+html.evo-home-overview-cinema body {
+  background: #0a0a0a !important;
+  background-image: none !important;
+}
+
+.evo-home-dashboard--overview .evo-home-header--compact {
+  margin-bottom: 8px;
+}
+
+.evo-home-dashboard--overview .evo-home-title--sm {
+  color: var(--text-primary, #0f172a);
+}
+
+.evo-home-dashboard--overview .evo-home-header__meta {
+  color: var(--text-secondary, #64748b);
+}
+
+html[data-theme='dark'] .evo-home-dashboard--overview,
+html.dark .evo-home-dashboard--overview,
+html.theme-dark .evo-home-dashboard--overview {
+  background: #0a0a0a;
+}
+
+html[data-theme='dark'] .evo-home-dashboard--overview .evo-home-title--sm,
+html.dark .evo-home-dashboard--overview .evo-home-title--sm,
+html.theme-dark .evo-home-dashboard--overview .evo-home-title--sm {
+  color: #e2e8f0;
+}
+
+html[data-theme='dark'] .evo-home-dashboard--overview .evo-home-header__meta,
+html.dark .evo-home-dashboard--overview .evo-home-header__meta,
+html.theme-dark .evo-home-dashboard--overview .evo-home-header__meta {
+  color: #94a3b8;
+}
+
+html[data-theme='dark'] .evo-home-dashboard--overview .evo-home-tabseg,
+html.dark .evo-home-dashboard--overview .evo-home-tabseg,
+html.theme-dark .evo-home-dashboard--overview .evo-home-tabseg {
+  border-color: rgba(148, 163, 184, 0.2);
+  background: #121820;
+}
+
+html[data-theme='dark'] .evo-home-dashboard--overview .evo-home-tabseg__btn,
+html.dark .evo-home-dashboard--overview .evo-home-tabseg__btn,
+html.theme-dark .evo-home-dashboard--overview .evo-home-tabseg__btn {
+  color: #94a3b8;
+}
+
+html[data-theme='dark'] .evo-home-dashboard--overview .evo-home-tabseg__btn.is-active,
+html.dark .evo-home-dashboard--overview .evo-home-tabseg__btn.is-active,
+html.theme-dark .evo-home-dashboard--overview .evo-home-tabseg__btn.is-active {
+  background: rgba(34, 211, 238, 0.14);
+  color: #ecfeff;
+  box-shadow: none;
+}
+
+@container evo-home (max-width: 1100px) {
+  .evo-home-cmd__tier--depts {
+    grid-template-columns: repeat(min(var(--dept-cols, 3), 3), minmax(0, 1fr));
+  }
+}
+
+@container evo-home (max-width: 900px) {
+  .evo-home-cmd__stage.has-detail,
+  .evo-home-cmd__stage.has-detail.has-group-chat,
+  .evo-home-cmd__stage.has-detail.has-group-chat:has(.evo-home-cmd__gc-thread) {
+    grid-template-columns: 1fr;
+  }
+  .evo-home-cmd__stage.has-detail:not(.has-group-chat) > .evo-home-cmd__detail--float {
+    position: static;
+    width: auto;
+    max-height: none;
+    box-shadow: none;
+    margin-top: 4px;
+  }
+  .evo-home-cmd__dept-tree.has-float > .evo-home-cmd__detail--dock,
+  .evo-home-cmd__dept-tree.has-float.is-dock-left > .evo-home-cmd__detail--dock {
+    position: static;
+    left: auto;
+    right: auto;
+    width: auto;
+    max-height: none;
+    margin-top: 10px;
+  }
+  .evo-home-cmd__detail {
+    position: static;
+  }
+  .evo-home-cmd__gc,
+  .evo-home-cmd__gc-thread {
+    max-height: none;
+  }
+  .evo-home-cmd__tier--depts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@container evo-home (max-width: 560px) {
+  .evo-home-cmd__tier--depts {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* 输入区下方轻提示（不占主视觉） */
@@ -22868,6 +26769,10 @@ html[data-custom-bg='1'] .react-chat-main-col--home {
   padding: 12px 14px 6px;
 }
 
+.evo-home-card.is-collapsed .evo-home-card__head {
+  padding-bottom: 12px;
+}
+
 .evo-home-card__title {
   margin: 0;
   font-size: var(--ef-text-base) ;
@@ -22875,8 +26780,42 @@ html[data-custom-bg='1'] .react-chat-main-col--home {
   color: var(--text-primary);
 }
 
+.evo-home-card__title-btn {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  color: inherit;
+  min-width: 0;
+}
+
+.evo-home-card__title-btn:hover .evo-home-card__title {
+  color: var(--accent, #5b5fef);
+}
+
+.evo-home-card__chev {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  color: var(--text-tertiary, #94a3b8);
+  transition: transform 0.15s ease;
+}
+
+.evo-home-card__chev.is-collapsed {
+  transform: rotate(-90deg);
+}
+
 .evo-home-card__body {
   padding: 6px 14px 14px;
+}
+
+.evo-home-card--live.is-collapsed {
+  margin-bottom: 10px;
 }
 
 .evo-home-legend {
@@ -26957,10 +30896,11 @@ html.dark .react-chat-collab-exec-panel {
   color: var(--text-secondary, #6b7280);
 }
 
-/* 空白态：正文居中，不画标题栏底线和画布点阵 */
+/* 空白态：正文居中；标题栏仍保留关闭，避免用户关不掉右栏 */
 .react-chat-collab-exec-panel:has(.react-chat-collab-exec-panel-body > .collab-exec-dag-empty:only-child) > .react-chat-collab-exec-panel-header,
 .react-chat-knowledge-map-panel:has(.km-panel-body > .collab-exec-dag-empty:only-child) > .react-chat-collab-exec-panel-header {
-  display: none;
+  border-bottom: none;
+  background: transparent;
 }
 .react-chat-collab-exec-panel-body:has(> .collab-exec-dag-empty:only-child),
 .km-panel-body:has(> .collab-exec-dag-empty:only-child) {
@@ -29363,7 +33303,7 @@ html.dark .collab-wf-node {
   background: rgba(37, 99, 235, 0.08);
 }
 
-.collab-wf-node-agent-row {
+.collab-wf-node-title-row {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -29371,8 +33311,30 @@ html.dark .collab-wf-node {
   width: 100%;
 }
 
-.collab-wf-node-agent-row .react-chat-subtask-status-light {
+.collab-wf-node-title-row .react-chat-subtask-status-light {
   flex-shrink: 0;
+}
+
+.collab-wf-node-task-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: var(--ef-text-sm);
+  font-weight: 650;
+  color: var(--text-primary, #0f172a);
+  line-height: 1.3;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.collab-wf-node-agent-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  width: 100%;
+  margin-top: 1px;
 }
 
 .collab-wf-node-agent {
@@ -29392,9 +33354,9 @@ html.dark .collab-wf-node {
 .collab-wf-node-agent-row .collab-wf-node-agent-name {
   flex: 1 1 auto;
   min-width: 0;
-  font-size: var(--ef-text-sm);
-  font-weight: 600;
-  color: var(--text-primary, #0f172a);
+  font-size: var(--ef-text-xs);
+  font-weight: 500;
+  color: var(--text-secondary, #64748b);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -29511,9 +33473,14 @@ html.dark .collab-wf-node-hint.is-live {
   color: #93c5fd;
 }
 
+html[data-theme='dark'] .collab-wf-node-task-title,
+html.dark .collab-wf-node-task-title {
+  color: #f1f5f9;
+}
+
 html[data-theme='dark'] .collab-wf-node-agent-name,
 html.dark .collab-wf-node-agent-name {
-  color: #f1f5f9;
+  color: #94a3b8;
 }
 
 html[data-theme='dark'] .collab-wf-node-task-text,
@@ -31947,13 +35914,13 @@ html.dark .react-chat-main-col--home .react-chat-header-toolbar > .react-chat-to
  * 科技风模式下让位,sci-fi-theme.css 内有专属覆盖(深色玻璃 + 辉光)。 */
 .react-chat-header.react-chat-header--tauri-chrome {
   background: var(--bg-primary, #f6f7fb);
-  border-bottom: none;
+  border-bottom: 1px solid color-mix(in srgb, var(--text-primary, #0f172a) 8%, transparent);
 }
 
 html[data-theme='dark'] .react-chat-header,
 html.dark .react-chat-header {
   background: var(--bg-primary, #05070c);
-  border-bottom: none;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 /* 科技风模式下让位:sci-fi-theme.css 会用深色玻璃 + 呼吸辉光接管顶栏 */
@@ -31961,8 +35928,9 @@ html[data-scifi-ui='1'] .react-chat-header,
 html[data-scifi-ui='1'] .react-chat-header--tauri-chrome,
 html[data-scifi-ui='1'] .react-chat-header.react-chat-header--tauri-chrome,
 html[data-scifi-ui='1'][data-theme='dark'] .react-chat-header.react-chat-header--tauri-chrome {
-  background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 22%, rgba(10, 14, 13, 0.88)) 0%, rgba(8, 11, 10, 0.94) 60%, rgba(5, 7, 6, 0.96) 100%) !important;
-  border-bottom: 1px solid color-mix(in srgb, var(--accent) 50%, rgba(255, 255, 255, 0.12)) !important;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 22%, rgba(28, 36, 33, 0.9)) 0%, rgba(24, 32, 29, 0.94) 60%, rgba(20, 27, 24, 0.96) 100%) !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1) !important;
+  border-radius: 0 !important;
   box-shadow:
     inset 0 1px 0 color-mix(in srgb, var(--accent) 55%, rgba(255, 255, 255, 0.20)),
     inset 0 2px 14px color-mix(in srgb, var(--accent) 22%, transparent),
@@ -31973,32 +35941,16 @@ html[data-scifi-ui='1'][data-theme='dark'] .react-chat-header.react-chat-header-
   z-index: 5;
 }
 
+/* 关掉顶栏底部霓虹呼吸带，改用普通细分隔线 */
 html[data-scifi-ui='1'] .react-chat-header::after {
-  content: "";
-  position: absolute;
-  bottom: -1px;
-  left: 0;
-  right: 0;
-  height: 2px;
-  pointer-events: none;
-  background: linear-gradient(90deg,
-    transparent 0%,
-    color-mix(in srgb, var(--accent) 60%, transparent) 20%,
-    color-mix(in srgb, var(--accent) 95%, transparent) 50%,
-    color-mix(in srgb, var(--accent) 60%, transparent) 80%,
-    transparent 100%);
-  filter: blur(1px);
-  box-shadow:
-    0 0 8px 1px color-mix(in srgb, var(--accent) 65%, transparent),
-    0 2px 14px color-mix(in srgb, var(--accent) 30%, transparent);
-  animation: scifi-acrylic-breath 4s ease-in-out infinite alternate;
-  opacity: 0.95;
+  content: none !important;
+  display: none !important;
 }
 
 html[data-theme='dark'] .react-chat-header.react-chat-header--tauri-chrome,
 html.dark .react-chat-header.react-chat-header--tauri-chrome {
   background: var(--bg-primary, #05070c);
-  border-bottom: none;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 html[data-theme='dark'] .react-chat-header-product-actions,
@@ -33176,6 +37128,19 @@ html[data-theme='dark'] .react-chat-browser-panel .browser-panel-chrome {
   background: color-mix(in srgb, #0a0a0a 84%, #fff) !important;
   color: #fff !important;
   transform: none !important;
+}
+
+/* 深色：发送钮改为浅底深字，避免落在深色 shell 上几乎看不见 */
+html[data-theme='dark'] .react-chat-composer-toolbar .react-chat-icon-send-btn:not(:disabled),
+html.dark .react-chat-composer-toolbar .react-chat-icon-send-btn:not(:disabled) {
+  background: #ececec !important;
+  color: #0a0a0a !important;
+}
+
+html[data-theme='dark'] .react-chat-composer-toolbar .react-chat-icon-send-btn:hover:not(:disabled),
+html.dark .react-chat-composer-toolbar .react-chat-icon-send-btn:hover:not(:disabled) {
+  background: #fff !important;
+  color: #0a0a0a !important;
 }
 
 .react-chat-composer-toolbar .react-chat-icon-send-btn:disabled {
@@ -34668,6 +38633,46 @@ html.dark .react-chat-stage-popover {
 .react-chat-right-stage-body > .react-chat-screenshot-panel {
   height: 100%;
   min-height: 0;
+}
+
+/* 员工执行过程：底部「继续对话」composer 不在 bottom-dock 内，单独对齐深色表面 */
+.v4-employee-process-composer {
+  background: var(--bg-card, var(--bg-primary, #ffffff));
+  border-top-color: var(--border-primary, rgba(15, 23, 42, 0.1));
+}
+
+html[data-theme='dark'] .v4-employee-process-composer,
+html.dark .v4-employee-process-composer {
+  background: var(--bg-card, #2a2a2a);
+  border-top-color: rgba(255, 255, 255, 0.1);
+}
+
+.v4-employee-process-composer .react-chat-composer-shell {
+  background: var(--bg-secondary, #f4f6f8);
+  border-color: var(--border-primary, rgba(15, 23, 42, 0.1));
+}
+
+html[data-theme='dark'] .v4-employee-process-composer .react-chat-composer-shell,
+html.dark .v4-employee-process-composer .react-chat-composer-shell {
+  background: var(--bg-secondary, #242424) !important;
+  border-color: rgba(255, 255, 255, 0.12) !important;
+}
+
+html[data-theme='dark'] .v4-employee-process-composer .react-chat-composer-shell:focus-within,
+html.dark .v4-employee-process-composer .react-chat-composer-shell:focus-within {
+  background: var(--bg-elevated, #303030) !important;
+  border-color: color-mix(in srgb, var(--accent, #7b74ff) 55%, transparent) !important;
+}
+
+html[data-theme='dark'] .v4-employee-process-composer .react-chat-input,
+html.dark .v4-employee-process-composer .react-chat-input {
+  color: var(--text-primary, #ececec) !important;
+  caret-color: var(--text-primary, #ececec);
+}
+
+html[data-theme='dark'] .v4-employee-process-composer .react-chat-input::placeholder,
+html.dark .v4-employee-process-composer .react-chat-input::placeholder {
+  color: var(--text-tertiary, #8a8a8a) !important;
 }
 
 

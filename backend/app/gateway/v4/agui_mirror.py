@@ -72,6 +72,25 @@ def _is_hidden_tool_approval_user_text(text: object) -> bool:
         return True
     return False
 
+
+def _is_hidden_duty_brief_user_text(text: object) -> bool:
+    """Proactive duty full brief must not become a visible userInput bubble.
+
+    The human-facing opener is the separate ``proactive_duty_beat`` transcript row
+    (「本轮值班开始 · …」). Noting the long brief here caused a second / wrong
+    opener in the employee process pane after live mirror + hydrate.
+    """
+    head = str(text or "").lstrip()[:240]
+    if not head:
+        return False
+    if head.startswith("# 值班"):
+        return True
+    if "## 本轮行动" in head and ("对照职责" in head or "不要空建单" in head):
+        return True
+    if "<proactive_duty_brief" in head:
+        return True
+    return False
+
 # node_repl js 工具结果尾部的展示标记（见 plugins/node_repl_tool.py）。
 _CUA_DISPLAY_MARKER_PREFIX = "{evoflow-cua-display:"
 # ZCode appKey scheme → 面板 ApplicationIconLocator kind。
@@ -716,6 +735,9 @@ class V4Mirror:
         # 工具审批内部标记（批准/续流）在旧面板不展示；镜像也不落 userInput。
         if raw and _is_hidden_tool_approval_user_text(raw) and not atts:
             return
+        # 值班 full brief：可见开场靠 transcript 里的 proactive_duty_beat，勿双写。
+        if raw and _is_hidden_duty_brief_user_text(raw) and not atts:
+            return
         st = self._state(tid)
         st.user_text = raw
         st.user_attachments = atts[:16]
@@ -920,7 +942,12 @@ class V4Mirror:
             st.user_attachments = []
             st.user_message_id = ""
             if (user_text or user_atts) and not (
-                user_text and _is_hidden_tool_approval_user_text(user_text) and not user_atts
+                user_text
+                and not user_atts
+                and (
+                    _is_hidden_tool_approval_user_text(user_text)
+                    or _is_hidden_duty_brief_user_text(user_text)
+                )
             ):
                 reusable = self._find_reusable_user_input_row(
                     tid,

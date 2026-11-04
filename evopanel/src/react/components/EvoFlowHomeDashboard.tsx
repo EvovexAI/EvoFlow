@@ -4,11 +4,14 @@ import {
   AppWindow,
   Bot,
   CheckCircle2,
+  ChevronDown,
   ChevronRight,
   CircleDot,
   Clock3,
   Database,
+  Maximize2,
   MessageSquare,
+  Minimize2,
   Paperclip,
   PlayCircle,
   RefreshCw,
@@ -82,6 +85,11 @@ import { SkillPickerModal, type SkillPickerItem, type SkillSelection } from './S
 import { loadPluginCatalog, subscribePluginCatalog } from '../../lib/plugin-catalog.js'
 import { resolvePluginIconSource } from '../../zcode-ui/lib/pluginIconSource.js'
 import { PluginPillIcon } from './PluginPillIcon.js'
+import { HomeOrgCommandBoard, HomeOrgPulseStrip } from './HomeOrgCommandBoard.js'
+import {
+  getShellAsideCollapsed,
+  setShellAsideCollapsed,
+} from '../../components/shell-aside.js'
 
 type Props = {
   onPrompt?: (text: string) => void
@@ -92,6 +100,7 @@ type Props = {
 }
 
 type DrawerKind = 'settings' | null
+type HomeTab = 'workbench' | 'overview'
 
 const STORAGE_MODEL_KEY = 'evopanel-chat-selected-model'
 
@@ -196,20 +205,44 @@ function SectionCard({
   children,
   className = '',
   style,
+  collapsible = false,
+  collapsed = false,
+  onToggleCollapse,
 }: {
   title: string
   action?: ReactNode
   children: ReactNode
   className?: string
   style?: CSSProperties
+  collapsible?: boolean
+  collapsed?: boolean
+  onToggleCollapse?: () => void
 }) {
   return (
-    <section className={`evo-home-card ${className}`.trim()} style={style}>
+    <section
+      className={`evo-home-card ${collapsed ? 'is-collapsed' : ''} ${className}`.trim()}
+      style={style}
+    >
       <div className="evo-home-card__head">
-        <h2 className="evo-home-card__title">{title}</h2>
+        {collapsible ? (
+          <button
+            type="button"
+            className="evo-home-card__title-btn"
+            aria-expanded={!collapsed}
+            onClick={onToggleCollapse}
+          >
+            <ChevronDown
+              className={`evo-home-card__chev ${collapsed ? 'is-collapsed' : ''}`}
+              aria-hidden
+            />
+            <h2 className="evo-home-card__title">{title}</h2>
+          </button>
+        ) : (
+          <h2 className="evo-home-card__title">{title}</h2>
+        )}
         {action}
       </div>
-      <div className="evo-home-card__body">{children}</div>
+      {collapsed ? null : <div className="evo-home-card__body">{children}</div>}
     </section>
   )
 }
@@ -293,6 +326,11 @@ export function EvoFlowHomeDashboard({ onPrompt, workspaceLabel = '', workspaceP
   })
   const [chips, setChips] = useState<Array<{ id: string; label: string }>>([])
   const [drawer, setDrawer] = useState<DrawerKind>(null)
+  const [homeTab, setHomeTab] = useState<HomeTab>('workbench')
+  /** 总览影院全屏：右上角放大/缩小显式切换 */
+  const [overviewCinema, setOverviewCinema] = useState(true)
+  /** 进总览前侧栏折叠态；null=未接管 */
+  const asideBeforeOverviewRef = useRef<boolean | null>(null)
   const [skillOpen, setSkillOpen] = useState(false)
   const [skills, setSkills] = useState<SkillPickerItem[]>([])
   const [skillsLoading, setSkillsLoading] = useState(false)
@@ -314,6 +352,11 @@ export function EvoFlowHomeDashboard({ onPrompt, workspaceLabel = '', workspaceP
   const [memoryEnabled, setMemoryEnabled] = useState(true)
   const [goalActive, setGoalActive] = useState(false)
   const [trendTip, setTrendTip] = useState<HomeTrendPoint | null>(null)
+  /** 正在处理：有任务时可折叠；空闲默认收起，不占空态文案 */
+  const [liveCollapsed, setLiveCollapsed] = useState(true)
+  const liveCount = (data.liveNow || []).length
+  const liveHasItems = liveCount > 0
+  const prevLiveHasItemsRef = useRef(false)
   const [actionBusy, setActionBusy] = useState<string | null>(null)
   const [pendingFiles, setPendingFiles] = useState<File[]>([])
   const [imagePreviewIndex, setImagePreviewIndex] = useState<number | null>(null)
@@ -334,6 +377,88 @@ export function EvoFlowHomeDashboard({ onPrompt, workspaceLabel = '', workspaceP
       /* ignore */
     }
   }, [draft])
+
+  // 从空闲 → 有任务：自动展开；回到空闲：收起，避免「没有任务」空态占位
+  useEffect(() => {
+    const prev = prevLiveHasItemsRef.current
+    prevLiveHasItemsRef.current = liveHasItems
+    if (liveHasItems && !prev) setLiveCollapsed(false)
+    if (!liveHasItems && prev) setLiveCollapsed(true)
+  }, [liveHasItems])
+
+  // 总览全屏：藏左侧壳 + 顶栏。ChatApp 常驻——跳到任务中心等只会 hidden 宿主，
+  // 若不在此清掉 cinema class，其它页面左侧菜单会一直被 CSS 压成 0 宽（像卡死）。
+  useEffect(() => {
+    const root = document.documentElement
+    const clearCinema = () => {
+      root.classList.remove('evo-home-overview-cinema', 'evo-cinema-peek')
+    }
+
+    const restoreAside = () => {
+      if (asideBeforeOverviewRef.current === null) return
+      const prev = asideBeforeOverviewRef.current
+      asideBeforeOverviewRef.current = null
+      try {
+        setShellAsideCollapsed(prev)
+      } catch {
+        /* ignore */
+      }
+    }
+
+    const isChatHostVisible = () => {
+      try {
+        const host = document.getElementById('chat-persistent-host')
+        if (!host || host.hidden) return false
+        if (host.style.display === 'none') return false
+        return true
+      } catch {
+        return false
+      }
+    }
+
+    const syncCinema = () => {
+      const want = homeTab === 'overview' && overviewCinema && isChatHostVisible()
+      if (!want) {
+        clearCinema()
+        restoreAside()
+        return
+      }
+      if (asideBeforeOverviewRef.current === null) {
+        asideBeforeOverviewRef.current = getShellAsideCollapsed()
+      }
+      try {
+        setShellAsideCollapsed(false)
+      } catch {
+        /* ignore */
+      }
+      root.classList.add('evo-home-overview-cinema')
+      root.classList.remove('evo-cinema-peek')
+    }
+
+    syncCinema()
+
+    const onRouteOrHost = () => syncCinema()
+    window.addEventListener('hashchange', onRouteOrHost)
+    window.addEventListener('evopanel:chat-route-shown', onRouteOrHost)
+    let mo: MutationObserver | null = null
+    try {
+      const host = document.getElementById('chat-persistent-host')
+      if (host) {
+        mo = new MutationObserver(onRouteOrHost)
+        mo.observe(host, { attributes: true, attributeFilter: ['hidden', 'style'] })
+      }
+    } catch {
+      /* ignore */
+    }
+
+    return () => {
+      window.removeEventListener('hashchange', onRouteOrHost)
+      window.removeEventListener('evopanel:chat-route-shown', onRouteOrHost)
+      mo?.disconnect()
+      clearCinema()
+      restoreAside()
+    }
+  }, [homeTab, overviewCinema])
 
   const totalTasks = useMemo(
     () => data.sourceData.reduce((sum, item) => sum + item.value, 0),
@@ -585,8 +710,9 @@ export function EvoFlowHomeDashboard({ onPrompt, workspaceLabel = '', workspaceP
     () => data.recentRuns.slice(0, prefs.listLimit),
     [data.recentRuns, prefs.listLimit],
   )
-  const todosTotal = data.todos.length
-  const myTodosTotal = (data.myTodos || []).length
+  const todosTotal = data.attentionTotal ?? data.todos.length
+  const myTodosTotal = data.myTodosTotal ?? (data.myTodos || []).length
+  const waitForYou = data.waitForYou ?? todosTotal
   const todos = useMemo(() => data.todos.slice(0, HOME_TODO_LIMIT), [data.todos])
   const myTodos = useMemo(
     () => (data.myTodos || []).slice(0, HOME_TODO_LIMIT),
@@ -898,33 +1024,117 @@ export function EvoFlowHomeDashboard({ onPrompt, workspaceLabel = '', workspaceP
   }, [data.yesterdayDone])
 
   return (
-    <div className="evo-home-dashboard" data-loading={data.loading ? '1' : undefined}>
+    <div
+      className={`evo-home-dashboard${homeTab === 'overview' ? ' evo-home-dashboard--overview' : ''}`}
+      data-loading={data.loading ? '1' : undefined}
+    >
+      {homeTab === 'overview' && overviewCinema ? (
+        <button
+          type="button"
+          className="evo-home-cinema-fab"
+          aria-label="退出全屏"
+          title="缩小"
+          onClick={() => setOverviewCinema(false)}
+        >
+          <Minimize2 className="evo-home-ic" />
+          <span>缩小</span>
+        </button>
+      ) : null}
       <div className="evo-home-dashboard__inner">
-        <header className="evo-home-header">
-          <div className="evo-home-header__text">
-            <div className="evo-home-eyebrow">
-              <Sparkles className="evo-home-ic" />
-              工作台
+        <header
+          className={`evo-home-header evo-home-cinema-top${
+            homeTab === 'overview' ? ' evo-home-header--compact' : ''
+          }`}
+        >
+          {homeTab === 'overview' ? (
+            <div className="evo-home-header__compact">
+              <h1 className="evo-home-title evo-home-title--sm">组织指挥台</h1>
+              <span className="evo-home-header__meta" aria-live="polite">
+                <span className="evo-home-cmd__pulse-dot" aria-hidden />
+                {
+                  (data.roles || []).filter((r) => {
+                    const code = String(r?.agent_code || r?.code || '').trim()
+                    if (!code || code === 'main') return false
+                    const b = data.roleBusyByCode?.[code]
+                    return !!(b?.busy || b?.is_busy)
+                  }).length
+                }
+                /
+                {
+                  (data.roles || []).filter((r) => {
+                    const code = String(r?.agent_code || r?.code || '').trim()
+                    return code && code !== 'main' && !r?.is_bridge
+                  }).length
+                }{' '}
+                在岗 · 待你处理 {waitForYou}
+              </span>
             </div>
-            <h1 className="evo-home-title">{greeting}</h1>
-            <p className="evo-home-subtitle">
-              {data.yesterdayDone > 0
-                ? `昨天完成了 ${data.yesterdayDone} 个任务。描述今天想做的事，EvoFlow 将为你规划并高效推进。`
-                : '描述你的任务，EvoFlow 将为你规划并高效推进工作。'}
-            </p>
+          ) : (
+            <div className="evo-home-header__text">
+              <div className="evo-home-eyebrow">
+                <Sparkles className="evo-home-ic" />
+                工作台
+              </div>
+              <h1 className="evo-home-title">{greeting}</h1>
+              <p className="evo-home-subtitle">
+                {data.yesterdayDone > 0
+                  ? `昨天完成了 ${data.yesterdayDone} 个任务。描述今天想做的事，EvoFlow 将为你规划并高效推进。`
+                  : '描述你的任务，EvoFlow 将为你规划并高效推进工作。'}
+              </p>
+            </div>
+          )}
+          <div className="evo-home-header__actions">
+            <div className="evo-home-tabseg" role="tablist" aria-label="首页分段">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={homeTab === 'workbench'}
+                className={`evo-home-tabseg__btn${homeTab === 'workbench' ? ' is-active' : ''}`}
+                onClick={() => setHomeTab('workbench')}
+              >
+                工作台
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={homeTab === 'overview'}
+                className={`evo-home-tabseg__btn${homeTab === 'overview' ? ' is-active' : ''}`}
+                onClick={() => setHomeTab('overview')}
+              >
+                总览
+              </button>
+            </div>
+            {homeTab === 'workbench' ? (
+              <button
+                type="button"
+                className="evo-home-btn evo-home-btn--outline"
+                onClick={() => {
+                  setPrefsDraft(loadHomeWorkbenchPrefs())
+                  setDrawer('settings')
+                  toast('已打开工作台设置', 'info')
+                }}
+              >
+                工作台设置
+                <Settings2 className="evo-home-ic" />
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="evo-home-btn evo-home-btn--outline evo-home-btn--cinema"
+                aria-pressed={overviewCinema}
+                aria-label={overviewCinema ? '退出全屏' : '全屏总览'}
+                title={overviewCinema ? '缩小（显示侧栏与顶栏）' : '全屏（沉浸指挥台）'}
+                onClick={() => setOverviewCinema((v) => !v)}
+              >
+                {overviewCinema ? '缩小' : '全屏'}
+                {overviewCinema ? (
+                  <Minimize2 className="evo-home-ic" />
+                ) : (
+                  <Maximize2 className="evo-home-ic" />
+                )}
+              </button>
+            )}
           </div>
-          <button
-            type="button"
-            className="evo-home-btn evo-home-btn--outline"
-            onClick={() => {
-              setPrefsDraft(loadHomeWorkbenchPrefs())
-              setDrawer('settings')
-              toast('已打开工作台设置', 'info')
-            }}
-          >
-            工作台设置
-            <Settings2 className="evo-home-ic" />
-          </button>
         </header>
 
         {data.error ? (
@@ -936,7 +1146,33 @@ export function EvoFlowHomeDashboard({ onPrompt, workspaceLabel = '', workspaceP
           </div>
         ) : null}
 
-        {prefs.modules.composer ? (
+        {homeTab === 'overview' ? (
+          <HomeOrgCommandBoard
+            roles={data.roles || []}
+            roleBusyByCode={data.roleBusyByCode || {}}
+            waitForYou={waitForYou}
+            loading={data.loading}
+          />
+        ) : null}
+
+        {homeTab === 'workbench' ? (
+          <HomeOrgPulseStrip
+            busyCount={(data.roles || []).filter((r) => {
+              const code = String(r?.agent_code || r?.code || '').trim()
+              if (!code || code === 'main') return false
+              const b = data.roleBusyByCode?.[code]
+              return !!(b?.busy || b?.is_busy)
+            }).length}
+            totalCount={(data.roles || []).filter((r) => {
+              const code = String(r?.agent_code || r?.code || '').trim()
+              return code && code !== 'main' && !r?.is_bridge
+            }).length}
+            waitCount={waitForYou}
+            onOpenOverview={() => setHomeTab('overview')}
+          />
+        ) : null}
+
+        {homeTab === 'workbench' && prefs.modules.composer ? (
           <section
             className="evo-home-composer"
             onDragOver={handleDragOver}
@@ -1309,7 +1545,7 @@ export function EvoFlowHomeDashboard({ onPrompt, workspaceLabel = '', workspaceP
           </section>
         ) : null}
 
-        {prefs.modules.kpis ? (
+        {homeTab === 'workbench' && prefs.modules.kpis ? (
           <section className="evo-home-kpi-grid">
             {data.kpis.map((item) => {
               const Icon = KPI_ICONS[item.id] || CheckCircle2
@@ -1336,27 +1572,33 @@ export function EvoFlowHomeDashboard({ onPrompt, workspaceLabel = '', workspaceP
           </section>
         ) : null}
 
-        {prefs.modules.live !== false ? (
+        {homeTab === 'workbench' && prefs.modules.live !== false ? (
           <SectionCard
             title="正在处理"
             className="evo-home-card--live"
+            collapsible
+            collapsed={liveCollapsed}
+            onToggleCollapse={() => setLiveCollapsed((v) => !v)}
             action={
               <div className="evo-home-live__actions">
                 <span className="evo-home-live__count">
-                  {(data.liveNow || []).length > 0 ? `${(data.liveNow || []).length} 项` : '空闲'}
+                  {liveHasItems ? `${liveCount} 项` : '空闲'}
                 </span>
                 <button
                   type="button"
                   className="evo-home-btn evo-home-btn--chip"
                   title="刷新运行态"
-                  onClick={() => data.refresh()}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    data.refresh()
+                  }}
                 >
                   <RefreshCw className="evo-home-ic" />
                 </button>
               </div>
             }
           >
-            {(data.liveNow || []).length > 0 ? (
+            {liveHasItems ? (
               <div className="evo-home-list evo-home-list--live">
                 {(data.liveNow || []).slice(0, Math.min(Math.max(prefs.listLimit, 6), 10)).map((item) => {
                   const Icon = LIVE_KIND_ICON[item.kind] || PlayCircle
@@ -1390,6 +1632,8 @@ export function EvoFlowHomeDashboard({ onPrompt, workspaceLabel = '', workspaceP
           </SectionCard>
         ) : null}
 
+        {homeTab === 'workbench' ? (
+          <>
         <section className="evo-home-row evo-home-row--top">
           {prefs.modules.trend ? (
             <SectionCard
@@ -1823,6 +2067,8 @@ export function EvoFlowHomeDashboard({ onPrompt, workspaceLabel = '', workspaceP
             </SectionCard>
           ) : null}
         </section>
+          </>
+        ) : null}
       </div>
 
       <HomeDrawer open={drawer === 'settings'} title="工作台设置" onClose={() => setDrawer(null)} footer={

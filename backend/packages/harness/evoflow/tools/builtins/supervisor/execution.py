@@ -144,20 +144,11 @@ def _resolve_collab_followup_runtime(
 # This is done lazily below (after function definitions) to avoid forward-ref issues.
 
 
-def _is_acp_worker(subagent_type: str) -> bool:
-    # ACP retired: delegation via invoke_acp_agent is disabled.
-    # Always returns False so supervisor never routes subtasks to ACP workers;
-    # acp_config / acp_session_registry / acp_event_bus modules are kept but inert.
-    return False
-
-
 def _worker_delegation_error(subagent_type: str) -> str | None:
     """Return a user-visible error when the worker cannot run; None if delegation may proceed."""
     stype = str(subagent_type or "").strip()
     if not stype:
         return "No worker assigned to subtask (set assigned_to or worker_profile.base_subagent)."
-    if _is_acp_worker(stype):
-        return None
     from evoflow.subagents import get_available_subagent_names, get_subagent_config
 
     if get_subagent_config(stype) is not None:
@@ -221,282 +212,6 @@ def _runtime_thread_id(runtime: ToolRuntime[ContextT, dict] | None) -> str | Non
     except Exception:
         return None
     return None
-
-
-async def _delegate_via_acp_tool(
-    *,
-    storage: Any,
-    runtime: ToolRuntime[ContextT, dict] | None,
-    main_task_id: str,
-    subtask_id: str,
-    subtask_row: dict[str, Any],
-    prompt: str,
-    provider: str,
-    default_project_path: str | None = None,
-    wait_for_completion: bool = True,
-) -> dict[str, Any]:
-    """Run a subtask via invoke_acp_agent tool with reusable ACP session."""
-    from evoflow.collab.storage import find_main_task
-    from evoflow.config.acp_config import get_acp_agents
-    from evoflow.tools.builtins.invoke_acp_agent_tool import build_invoke_acp_agent_tool
-    from evoflow.tools.builtins.supervisor.acp_session_registry import find_reusable_for_task
-
-    writer = None
-    try:
-        writer = get_stream_writer()
-    except Exception:
-        writer = None
-    if writer is not None:
-        try:
-            writer(
-                {
-                    "type": "task_started",
-                    "task_id": subtask_id,
-                    "collab_subtask_id": subtask_id,
-                    "description": str(subtask_row.get("name") or subtask_id),
-                    "subagent_type": provider,
-                }
-            )
-        except Exception:
-            logger.debug("emit task_started for acp provider failed", exc_info=True)
-
-    existing_supervisor_sid = str(subtask_row.get("acp_supervisor_session_id") or "").strip()
-    project_path = str(subtask_row.get("project_path") or "").strip() or str(default_project_path or "").strip() or "./"
-    thread_id = _runtime_thread_id(runtime)
-    tool = build_invoke_acp_agent_tool(get_acp_agents())
-
-    async def _lease_heartbeat(stop_evt: asyncio.Event) -> None:
-        """Refresh subtask heartbeat lease to avoid watchdog timed_out while ACP is running."""
-        try:
-            import time as _time
-
-            from evoflow.collab.storage import patch_collab_subtask_in_project_storage
-
-            # Refresh faster than the 60s lease window used elsewhere.
-            while not stop_evt.is_set():
-                now_ts = float(_time.time())
-                try:
-                    patch_collab_subtask_in_project_storage(
-                        storage,
-                        main_task_id,
-                        subtask_id,
-                        {
-                            "last_heartbeat_ts": now_ts,
-                            "lease_until_ts": now_ts + 180.0,
-                            "updated_at": utc_now_iso_z(),
-                        },
-                    )
-                except Exception:
-                    # Best-effort; never fail ACP execution because heartbeat patch failed.
-                    pass
-                # Sleep in small increments so stop_evt can cut it quickly.
-                for _ in range(20):
-                    if stop_evt.is_set():
-                        break
-                    try:
-                        await asyncio.sleep(1)
-                    except asyncio.CancelledError:
-                        return
-        except asyncio.CancelledError:
-            return
-        except Exception:
-            return
-
-    # Default policy: one ACP session per main task/provider/thread.
-    if not existing_supervisor_sid:
-        reusable = find_reusable_for_task(provider=provider, thread_id=thread_id, task_id=main_task_id)
-        if reusable is not None:
-            existing_supervisor_sid = str(reusable.supervisor_session_id or "").strip()
-            if existing_supervisor_sid:
-                _persist_subtask_session_id(storage, main_task_id, subtask_id, existing_supervisor_sid)
-                from evoflow.collab.storage import find_main_task
-
-                row = find_main_task(storage, main_task_id)
-                if row:
-                    proj, task = row
-                    for st in task.get("subtasks") or []:
-                        if str(st.get("id") or "").strip() == subtask_id:
-                            st["acp_supervisor_session_id"] = existing_supervisor_sid
-                            st["assigned_to"] = provider
-                            # Share the same workspace path across the task by default.
-                            st["project_path"] = str(st.get("project_path") or "").strip() or project_path
-                            break
-                    storage.save_project(proj)
-
-    if not existing_supervisor_sid:
-        start_res = await tool.ainvoke(
-            {
-                "agent": provider,
-                "action": "start",
-                "task_id": main_task_id,
-                "subtask_id": subtask_id,
-                "project_path": project_path,
-            },
-            config={"configurable": {"thread_id": thread_id}} if thread_id else None,
-        )
-        try:
-            import json
-
-            start_obj = json.loads(start_res) if isinstance(start_res, str) else {}
-        except Exception:
-            start_obj = {}
-        if not bool(start_obj.get("ok")):
-            return {
-                "subtaskId": subtask_id,
-                "ok": False,
-                "error": str(start_obj.get("error") or start_res or "acp start failed"),
-            }
-        existing_supervisor_sid = str(start_obj.get("supervisor_session_id") or "").strip()
-        if existing_supervisor_sid:
-            _persist_subtask_session_id(storage, main_task_id, subtask_id, existing_supervisor_sid)
-            # keep dedicated field for ACP session id binding
-            from evoflow.collab.storage import find_main_task
-
-            row = find_main_task(storage, main_task_id)
-            if row:
-                proj, task = row
-                for st in task.get("subtasks") or []:
-                    if str(st.get("id") or "").strip() == subtask_id:
-                        st["acp_supervisor_session_id"] = existing_supervisor_sid
-                        st["assigned_to"] = provider
-                        st["project_path"] = project_path
-                        break
-                storage.save_project(proj)
-
-    async def _send_once() -> dict[str, Any]:
-        acp_timeout = max(60.0, float(os.getenv("EVOFLOW_ACP_SEND_TIMEOUT_SECONDS", "1800") or 1800))
-
-        async def _invoke_send() -> Any:
-            return await tool.ainvoke(
-                {
-                    "agent": provider,
-                    "action": "send",
-                    "prompt": prompt,
-                    "supervisor_session_id": existing_supervisor_sid,
-                    "task_id": main_task_id,
-                    "subtask_id": subtask_id,
-                },
-                config={"configurable": {"thread_id": thread_id}} if thread_id else None,
-            )
-
-        try:
-            send_res = await asyncio.wait_for(_invoke_send(), timeout=acp_timeout)
-        except TimeoutError:
-            return {
-                "subtaskId": subtask_id,
-                "ok": False,
-                "error": f"acp send timed out after {int(acp_timeout)}s",
-                "supervisor_session_id": existing_supervisor_sid,
-                "provider": provider,
-            }
-        try:
-            import json
-
-            send_obj = json.loads(send_res) if isinstance(send_res, str) else {}
-        except Exception:
-            send_obj = {}
-        ok = bool(send_obj.get("ok"))
-        result = str(send_obj.get("result") or send_res or "")
-        return {
-            "subtaskId": subtask_id,
-            "ok": ok,
-            "result": result if ok else None,
-            "error": None if ok else str(send_obj.get("error") or result or "acp send failed"),
-            "supervisor_session_id": existing_supervisor_sid,
-            "provider": provider,
-        }
-
-    if not bool(wait_for_completion):
-        # Mark subtask running immediately for collab sidebar snapshot visibility.
-        try:
-            row = find_main_task(storage, main_task_id)
-            if row:
-                proj, task = row
-                for st in task.get("subtasks") or []:
-                    if str(st.get("id") or "").strip() == subtask_id:
-                        st["status"] = "in_progress"
-                        st["updated_at"] = utc_now_iso_z()
-                        break
-                storage.save_project(proj)
-        except Exception:
-            logger.debug("ACP detached: mark in_progress failed task=%s subtask=%s", main_task_id, subtask_id, exc_info=True)
-
-        async def _bg_send() -> None:
-            stop_evt = asyncio.Event()
-            hb_task: asyncio.Task[None] | None = None
-            try:
-                try:
-                    hb_task = asyncio.create_task(_lease_heartbeat(stop_evt), name=f"acp-lease-hb-{subtask_id[:18]}")
-                except Exception:
-                    hb_task = None
-                # Stream deltas are emitted directly by invoke_acp_agent_tool.session_update.
-                # Here we only wait for terminal result and persist final state.
-                res = await _send_once()
-                try:
-                    row = find_main_task(storage, main_task_id)
-                    if row:
-                        proj, task = row
-                        for st in task.get("subtasks") or []:
-                            if str(st.get("id") or "").strip() == subtask_id:
-                                st["updated_at"] = utc_now_iso_z()
-                                draft = str(res.get("result") or "").strip()
-                                if bool(res.get("ok")):
-                                    # ACP 无 LangGraph 工具链：勿以 send 返回当作 completed
-                                    st["status"] = "in_progress"
-                                    st["progress"] = max(10, min(90, int(st.get("progress") or 0) or 50))
-                                    st["current_step"] = "ACP 回合已返回正文，待 Lead 验收或 done"
-                                else:
-                                    st["status"] = "failed"
-                                    st["error"] = str(res.get("error") or "acp send failed")
-                                    if draft:
-                                        st["result"] = draft
-                                break
-                        storage.save_project(proj)
-                except Exception:
-                    logger.debug("ACP detached: finalize subtask status failed", exc_info=True)
-            except Exception:
-                logger.debug("ACP detached send failed: subtask=%s provider=%s", subtask_id, provider, exc_info=True)
-            finally:
-                try:
-                    stop_evt.set()
-                except Exception:
-                    pass
-                if hb_task is not None:
-                    try:
-                        hb_task.cancel()
-                    except Exception:
-                        pass
-
-        asyncio.create_task(_bg_send())
-        return {
-            "subtaskId": subtask_id,
-            "ok": True,
-            "detached": True,
-            "result": "Task Detached. ACP session is running in background; stream events will be emitted.",
-            "error": None,
-            "supervisor_session_id": existing_supervisor_sid,
-            "provider": provider,
-        }
-
-    # Synchronous wait path: keep refreshing lease while ACP runs.
-    stop_evt2 = asyncio.Event()
-    hb_task2: asyncio.Task[None] | None = None
-    try:
-        try:
-            hb_task2 = asyncio.create_task(_lease_heartbeat(stop_evt2), name=f"acp-lease-hb-{subtask_id[:18]}")
-        except Exception:
-            hb_task2 = None
-        return await _send_once()
-    finally:
-        try:
-            stop_evt2.set()
-        except Exception:
-            pass
-        if hb_task2 is not None:
-            try:
-                hb_task2.cancel()
-            except Exception:
-                pass
 
 
 def _is_task_tool_preflight_error(text: str) -> bool:
@@ -744,23 +459,12 @@ async def delegate_collab_subtasks_for_start_execution(
             )
             await _mark_subtask_delegate_failed(storage, main_task_id, sid, worker_err)
             return {"subtaskId": sid, "ok": False, "error": worker_err}
-        if _is_acp_worker(subagent_type):
-            try:
-                return await _delegate_via_acp_tool(
-                    storage=storage,
-                    runtime=runtime,
-                    main_task_id=main_task_id,
-                    subtask_id=sid,
-                    subtask_row=st,
-                    prompt=prompt,
-                    provider=subagent_type,
-                    default_project_path=default_project_path,
-                    wait_for_completion=wait_for_completion,
-                )
-            except Exception as e:
-                logger.exception("delegate subtask %s via ACP failed", sid)
-                return {"subtaskId": sid, "ok": False, "error": str(e)}
         tcid = make_formatted_id("SupervisorExec")
+        # Pin the worker cwd to this run's project_path. task_tool understands
+        # ``workspace_root`` but delegate signatures do not, so the value has to be
+        # threaded explicitly; otherwise each worker inherits the host process cwd
+        # and relative paths (outputs/...) resolve to different directories per step.
+        worker_workspace_root = str(st.get("project_path") or "").strip() or str(default_project_path or "").strip() or None
         try:
             out = await delegate_via_task_tool(
                 runtime,
@@ -772,6 +476,7 @@ async def delegate_collab_subtasks_for_start_execution(
                 collab_task_id=main_task_id,
                 collab_subtask_id=sid,
                 detach=not wait_for_completion,
+                workspace_root=worker_workspace_root,
             )
             text = out if isinstance(out, str) else str(out)
             if _is_task_tool_preflight_error(text):

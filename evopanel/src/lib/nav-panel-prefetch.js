@@ -178,6 +178,8 @@ const PATH_WARMERS = {
   },
   '/apps': () => {
     warmModule('/apps')
+    // Same chunk for every /apps/:id — warm pattern once so detail opens skip cold import.
+    warmModule('/apps/__warm__')
     void warmAppsData()
   },
   '/tasks': () => {

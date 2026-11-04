@@ -60,7 +60,17 @@ import {
   ShellFilterIcon,
   ShellHashIcon,
   ShellFolderIcon,
+  ShellEmployeesIcon,
+  ShellDeptsIcon,
 } from './ShellSidebarIcons.js'
+import {
+  deptChatSessionKey,
+  deptIdFromSessionKey,
+  getDeptChatMeta,
+  isDeptChatSessionKey,
+  rememberDeptChatMeta,
+  type DeptChatMeta,
+} from '../lib/dept-chat-session.js'
 import {
   WorkspaceFolderContextMenuPortal,
   type WorkspaceFolderContextMenuState,
@@ -308,16 +318,23 @@ export function ShellSessionList({
   /** 点击「刷新会话列表」按钮后的刷新中状态（列表未变化时给可见反馈） */
   const [refreshing, setRefreshing] = useState(false)
   const [wsMenuOpen, setWsMenuOpen] = useState(false)
-  /** chats = 普通对话；employees = 智能体员工会话 */
-  const [listTab, setListTab] = useState<'chats' | 'employees'>(() =>
-    loadShellSidebarViewMode() === 'project' ? 'employees' : 'chats',
+  /** chats = 普通对话；employees = 智能体员工；depts = 部门群聊 */
+  const [listTab, setListTab] = useState<'chats' | 'employees' | 'depts'>(() => {
+    const m = loadShellSidebarViewMode()
+    if (m === 'project') return 'employees'
+    if (m === 'depts') return 'depts'
+    return 'chats'
+  })
+  /** 视图：grouped=任务；project=员工；depts=部门 */
+  const [viewMode, setViewMode] = useState<'grouped' | 'project' | 'depts'>(() =>
+    loadShellSidebarViewMode(),
   )
-  /** 视图切换：grouped = 分组视图（普通对话）；project = 项目视图（员工对话） */
-  const [viewMode, setViewMode] = useState<'grouped' | 'project'>(() => loadShellSidebarViewMode())
+  const [deptRows, setDeptRows] = useState<DeptChatMeta[]>([])
+  const [deptLoading, setDeptLoading] = useState(false)
 
   // viewMode 和 listTab 联动；持久化跨刷新对齐上次关闭态
   useEffect(() => {
-    setListTab(viewMode === 'grouped' ? 'chats' : 'employees')
+    setListTab(viewMode === 'project' ? 'employees' : viewMode === 'depts' ? 'depts' : 'chats')
     saveShellSidebarViewMode(viewMode)
   }, [viewMode])
   const [focusedWorkspaceKey, setFocusedWorkspaceKey] = useState<string | null>(null)
@@ -326,10 +343,13 @@ export function ShellSessionList({
     loadFocusedEmployeeCode(),
   )
   const [empMenuOpen, setEmpMenuOpen] = useState(false)
+  const [deptMenuOpen, setDeptMenuOpen] = useState(false)
   /** 工作空间下拉内的模糊搜索词（仅过滤下拉面板，不影响会话列表搜索） */
   const [wsMenuQuery, setWsMenuQuery] = useState('')
   /** 员工下拉内的模糊搜索词 */
   const [empMenuQuery, setEmpMenuQuery] = useState('')
+  /** 部门下拉内的模糊搜索词 */
+  const [deptMenuQuery, setDeptMenuQuery] = useState('')
   const [dutyFoldOpen, setDutyFoldOpen] = useState(false)
   const [pinnedWorkspaceKeys, setPinnedWorkspaceKeys] = useState<string[]>(() =>
     loadPinnedWorkspaceKeys(),
@@ -350,8 +370,10 @@ export function ShellSessionList({
   const filterInputRef = useRef<HTMLInputElement>(null)
   const wsMenuRef = useRef<HTMLDivElement>(null)
   const empMenuRef = useRef<HTMLDivElement>(null)
+  const deptMenuRef = useRef<HTMLDivElement>(null)
   const wsMenuSearchRef = useRef<HTMLInputElement>(null)
   const empMenuSearchRef = useRef<HTMLInputElement>(null)
+  const deptMenuSearchRef = useRef<HTMLInputElement>(null)
   const loadMoreLockRef = useRef<Record<string, boolean>>({})
   const autoTabForSessionRef = useRef('')
   const focusedEmployeeCodeRef = useRef(focusedEmployeeCode)
@@ -363,6 +385,77 @@ export function ShellSessionList({
   const displaySelectedKey = String(selectedSessionKey || '').trim()
   const isSearching = !!String(sessionFilter || '').trim()
   const isEmployeesTab = listTab === 'employees'
+  const isDeptsTab = listTab === 'depts'
+
+  /** 部门 Tab：拉部门 + 角色，组装群聊入口 */
+  useEffect(() => {
+    if (!isDeptsTab) return
+    let cancelled = false
+    setDeptLoading(true)
+    ;(async () => {
+      try {
+        const { api } = await import('../../lib/tauri-api.js')
+        const [deptRes, roleRes] = await Promise.all([
+          api.proactiveListDepartments(),
+          api.proactiveListRoles('active'),
+        ])
+        if (cancelled) return
+        const departments = Array.isArray(deptRes?.departments)
+          ? deptRes.departments
+          : Array.isArray(deptRes)
+            ? deptRes
+            : []
+        const roles = Array.isArray(roleRes?.roles)
+          ? roleRes.roles
+          : Array.isArray(roleRes)
+            ? roleRes
+            : []
+        const byDept = new Map<string, DeptChatMeta['members']>()
+        for (const r of roles) {
+          const code = String(r?.agent_code || r?.code || '').trim()
+          if (!code || code === 'main') continue
+          const deptName = String(r?.department || r?.config?.department || '').trim()
+          if (!deptName) continue
+          if (!byDept.has(deptName)) byDept.set(deptName, [])
+          byDept.get(deptName)!.push({
+            agent_code: code,
+            role_name: String(r?.role_name || r?.display_name || code).trim() || code,
+            department: deptName,
+            reports_to: String(r?.reports_to || r?.config?.reports_to || '').trim(),
+            status: String(r?.status || 'active').trim() || 'active',
+            busy: false,
+          })
+        }
+        const accents = ['lead', 'commerce', 'content', 'opensource', 'knowledge', 'assistant']
+        const rows: DeptChatMeta[] = []
+        let ai = 0
+        for (const d of departments) {
+          const id = String(d?.id || '').trim()
+          const name = String(d?.name || '').trim()
+          if (!id || !name) continue
+          const members = byDept.get(name) || []
+          if (!members.length) continue
+          rows.push({
+            id,
+            name,
+            head_agent_code: String(d?.head_agent_code || '').trim(),
+            head_role_name: String(d?.head_role_name || '').trim(),
+            accent: accents[ai % accents.length],
+            members,
+          })
+          ai += 1
+        }
+        setDeptRows(rows)
+      } catch {
+        if (!cancelled) setDeptRows([])
+      } finally {
+        if (!cancelled) setDeptLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [isDeptsTab])
 
   /** 父级花名册为空时（启动竞态），员工 Tab 自行补拉岗位名 */
   const [localEmployeeRoles, setLocalEmployeeRoles] = useState<
@@ -450,18 +543,20 @@ export function ShellSessionList({
   }, [isEmployeesTab, focusedEmployeeCode])
 
   /**
-   * 选中会话为员工会话时对齐到「员工」Tab（用 key 形态，不依赖 rows 是否已 hydrate）。
-   * 旧逻辑先写 ref 再等 row hit：冷启动时常因 rows 尚未到位就标记已处理，
-   * 导致永远停在「任务」Tab，员工会话被过滤掉（右侧已恢复会话、左侧像初始化）。
-   * 非员工会话不强制切回「任务」，以免覆盖用户上次停在员工列表的偏好。
-   * 只在 displaySelectedKey 变化时跑一次，不覆盖用户之后手动点 Tab。
+   * 选中会话时对齐 Tab（只在 sessionKey 变化时跑一次，不覆盖之后手动点 Tab）。
+   * 部门 / 员工会话分别落到对应 Tab；普通会话不强制切回「任务」。
    */
   useEffect(() => {
     if (!displaySelectedKey) return
     if (autoTabForSessionRef.current === displaySelectedKey) return
     autoTabForSessionRef.current = displaySelectedKey
-    if (!isProactiveSessionKey(displaySelectedKey)) return
-    setViewMode('project')
+    if (isDeptChatSessionKey(displaySelectedKey)) {
+      setViewMode('depts')
+      return
+    }
+    if (isProactiveSessionKey(displaySelectedKey)) {
+      setViewMode('project')
+    }
   }, [displaySelectedKey])
 
   /**
@@ -842,6 +937,30 @@ export function ShellSessionList({
     }
   }, [empMenuOpen])
 
+  useEffect(() => {
+    if (!deptMenuOpen) return
+    const onDoc = (e: MouseEvent) => {
+      const t = e.target as Node | null
+      if (t && deptMenuRef.current?.contains(t)) return
+      setDeptMenuOpen(false)
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setDeptMenuOpen(false)
+    }
+    document.addEventListener('mousedown', onDoc)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDoc)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [deptMenuOpen])
+
+  useEffect(() => {
+    if (!deptMenuOpen) return
+    const t = window.setTimeout(() => deptMenuSearchRef.current?.focus(), 0)
+    return () => window.clearTimeout(t)
+  }, [deptMenuOpen])
+
   const openNewEmployeeChat = useCallback(
     (agentCode: string) => {
       const code = String(agentCode || '').trim()
@@ -899,6 +1018,37 @@ export function ShellSessionList({
   }, [focusedEmployeeCode, employeeGroups])
 
   const employeeFilterLabel = focusedEmployeeGroup?.label || '全部员工'
+
+  const activeDeptId = useMemo(
+    () => deptIdFromSessionKey(displaySelectedKey),
+    [displaySelectedKey],
+  )
+  const activeDept = useMemo(() => {
+    if (!activeDeptId) return null
+    return deptRows.find((d) => d.id === activeDeptId) || getDeptChatMeta(activeDeptId)
+  }, [activeDeptId, deptRows])
+  const deptFilterLabel = activeDept?.name || '全部部门'
+
+  const deptMenuOptions = useMemo(() => {
+    const q = String(deptMenuQuery || '').trim().toLowerCase()
+    if (!q) return deptRows
+    return deptRows.filter(
+      (d) =>
+        d.name.toLowerCase().includes(q) ||
+        d.members.some((m) => m.role_name.toLowerCase().includes(q)),
+    )
+  }, [deptRows, deptMenuQuery])
+
+  const selectDeptFromMenu = useCallback(
+    (dept: DeptChatMeta | null) => {
+      setDeptMenuQuery('')
+      setDeptMenuOpen(false)
+      if (!dept) return
+      rememberDeptChatMeta(dept)
+      handleSelect(deptChatSessionKey(dept.id))
+    },
+    [handleSelect],
+  )
 
   /** 员工下拉：按岗位名 / agent_code / 花名册姓名过滤（「全部员工」固定项不受影响） */
   const employeeMenuOptions = useMemo(() => {
@@ -1233,6 +1383,16 @@ export function ShellSessionList({
               <ShellFolderIcon size={12} />
               <span>员工</span>
             </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={viewMode === 'depts'}
+              className={`shell-view-tab${viewMode === 'depts' ? ' is-active' : ''}`}
+              onClick={() => setViewMode('depts')}
+            >
+              <ShellEmployeesIcon size={12} />
+              <span>部门</span>
+            </button>
           </div>
 
           {/* 操作按钮 */}
@@ -1289,8 +1449,10 @@ export function ShellSessionList({
               type="search"
               className="react-chat-aside-history-search"
               id="shell-session-filter"
-              placeholder={isEmployeesTab ? '搜索员工…' : '搜索任务…'}
-              aria-label={isEmployeesTab ? '搜索员工' : '搜索任务'}
+              placeholder={
+                isDeptsTab ? '搜索部门…' : isEmployeesTab ? '搜索员工…' : '搜索任务…'
+              }
+              aria-label={isDeptsTab ? '搜索部门' : isEmployeesTab ? '搜索员工' : '搜索任务'}
               value={sessionFilter || ''}
               onChange={(e) => onSessionFilterChange(e.target.value)}
               onKeyDown={(e) => {
@@ -1303,7 +1465,106 @@ export function ShellSessionList({
           </div>
         </div>
 
-        {!isEmployeesTab ? (
+        {isDeptsTab ? (
+          <div className="react-chat-aside-ws-picker" ref={deptMenuRef}>
+            <button
+              type="button"
+              className={`react-chat-aside-ws-trigger${deptMenuOpen ? ' is-open' : ''}${
+                activeDeptId ? ' has-filter' : ''
+              }`}
+              aria-haspopup="listbox"
+              aria-expanded={deptMenuOpen}
+              title={activeDept?.name || deptFilterLabel}
+              onClick={() => setDeptMenuOpen((v) => !v)}
+            >
+              {activeDept ? (
+                <AssignedAgentAvatar
+                  agentCode={
+                    String(activeDept.head_agent_code || '').trim() ||
+                    String(activeDept.members[0]?.agent_code || '').trim() ||
+                    undefined
+                  }
+                  agents={agents}
+                  size={16}
+                  className="react-chat-aside-ws-trigger-ic"
+                />
+              ) : (
+                <ShellDeptsIcon size={14} className="react-chat-aside-ws-trigger-ic" />
+              )}
+              <span className="react-chat-aside-ws-trigger-label">{deptFilterLabel}</span>
+              <ShellChevronIcon
+                size={12}
+                className={`react-chat-aside-ws-trigger-chevron${deptMenuOpen ? ' is-open' : ''}`}
+              />
+            </button>
+            {deptMenuOpen ? (
+              <div className="react-chat-aside-ws-menu" role="listbox" aria-label="选择部门">
+                <div className="react-chat-aside-ws-menu-search">
+                  <input
+                    ref={deptMenuSearchRef}
+                    type="search"
+                    className="react-chat-aside-ws-menu-search-input"
+                    placeholder="搜索部门…"
+                    aria-label="搜索部门"
+                    value={deptMenuQuery}
+                    onChange={(e) => setDeptMenuQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Escape') {
+                        e.stopPropagation()
+                        setDeptMenuQuery('')
+                      }
+                    }}
+                  />
+                </div>
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={!activeDeptId}
+                  className={`react-chat-aside-ws-menu-item${!activeDeptId ? ' is-active' : ''}`}
+                  onClick={() => {
+                    setDeptMenuQuery('')
+                    setDeptMenuOpen(false)
+                  }}
+                >
+                  <span className="react-chat-aside-ws-menu-item-label">全部部门</span>
+                </button>
+                {deptMenuOptions.map((d) => {
+                  const active = activeDeptId === d.id
+                  const avatarCode =
+                    String(d.head_agent_code || '').trim() ||
+                    String(d.members[0]?.agent_code || '').trim()
+                  return (
+                    <button
+                      key={d.id}
+                      type="button"
+                      role="option"
+                      aria-selected={active}
+                      className={`react-chat-aside-ws-menu-item${active ? ' is-active' : ''}`}
+                      title={`${d.members.length} 人`}
+                      onClick={() => selectDeptFromMenu(d)}
+                    >
+                      {avatarCode ? (
+                        <AssignedAgentAvatar
+                          agentCode={avatarCode}
+                          agents={agents}
+                          size={16}
+                          className="react-chat-aside-ws-menu-item-avatar"
+                        />
+                      ) : (
+                        <ShellDeptsIcon size={14} className="react-chat-aside-ws-menu-item-avatar" />
+                      )}
+                      <span className="react-chat-aside-ws-menu-item-label">{d.name}</span>
+                      <span className="react-chat-aside-ws-menu-item-count">{d.members.length}</span>
+                    </button>
+                  )
+                })}
+                {String(deptMenuQuery || '').trim() && deptMenuOptions.length === 0 ? (
+                  <div className="react-chat-aside-ws-menu-empty">无匹配部门</div>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+        ) : !isEmployeesTab ? (
           <div className="react-chat-aside-ws-picker" ref={wsMenuRef}>
             <button
               type="button"
@@ -1493,13 +1754,92 @@ export function ShellSessionList({
         )}
 
         <ul ref={listRef} className="react-chat-session-list" id="shell-session-list">
-          {listLoading ? (
+          {isDeptsTab ? (
+            <>
+              {deptLoading ? (
+                <li className="react-chat-muted" style={{ padding: '10px 12px' }}>
+                  加载中…
+                </li>
+              ) : null}
+              {!deptLoading &&
+                (() => {
+                  const q = String(sessionFilter || '').trim().toLowerCase()
+                  const filtered = q
+                    ? deptRows.filter(
+                        (d) =>
+                          d.name.toLowerCase().includes(q) ||
+                          d.members.some((m) => m.role_name.toLowerCase().includes(q)),
+                      )
+                    : deptRows
+                  if (!filtered.length) {
+                    return (
+                      <li
+                        className="react-chat-muted react-chat-session-empty-state"
+                        style={{ padding: '10px 12px' }}
+                      >
+                        <span>{q ? '无匹配部门' : '暂无有成员的部门'}</span>
+                      </li>
+                    )
+                  }
+                  return filtered.map((d) => {
+                    const sk = deptChatSessionKey(d.id)
+                    const active = displaySelectedKey === sk
+                    const head =
+                      d.head_role_name ||
+                      d.members.find((m) => m.agent_code === d.head_agent_code)?.role_name ||
+                      ''
+                    const avatarCode =
+                      String(d.head_agent_code || '').trim() ||
+                      String(d.members[0]?.agent_code || '').trim()
+                    return (
+                      <li key={d.id} className="react-chat-session-item-wrap">
+                        <button
+                          type="button"
+                          className={`react-chat-session-item shell-dept-row${active ? ' active' : ''}`}
+                          onClick={() => {
+                            try {
+                              rememberDeptChatMeta(d)
+                            } catch {
+                              /* ignore */
+                            }
+                            handleSelect(sk)
+                          }}
+                        >
+                          {avatarCode ? (
+                            <AssignedAgentAvatar
+                              agentCode={avatarCode}
+                              agents={agents}
+                              size={20}
+                              className="shell-dept-row__avatar"
+                            />
+                          ) : (
+                            <span className="shell-dept-row__avatar shell-dept-row__avatar--empty" aria-hidden>
+                              {String(d.name || '部').trim().slice(0, 1) || '部'}
+                            </span>
+                          )}
+                          <span className="shell-dept-row__body">
+                            <span className="shell-dept-row__title">{d.name}</span>
+                            <span className="shell-dept-row__meta">
+                              {d.members.length}人
+                              {head ? ` · ${head}` : ''}
+                            </span>
+                          </span>
+                        </button>
+                      </li>
+                    )
+                  })
+                })()}
+            </>
+          ) : null}
+
+          {!isDeptsTab && listLoading ? (
             <li className="react-chat-muted" style={{ padding: '10px 12px' }}>
               加载中…
             </li>
           ) : null}
 
-          {!listLoading &&
+          {!isDeptsTab &&
+          !listLoading &&
           pinnedRows.length === 0 &&
           recentVisibleRows.length === 0 &&
           !showDutyFold &&
@@ -1534,7 +1874,7 @@ export function ShellSessionList({
             </li>
           ) : null}
 
-          {!listLoading && pinnedRows.length > 0 ? (
+          {!isDeptsTab && !listLoading && pinnedRows.length > 0 ? (
             <li className="react-chat-session-pinned-block" aria-label="固定会话">
               <ul className="react-chat-session-pinned-list">
                 {(pinnedExpanded
@@ -1556,7 +1896,8 @@ export function ShellSessionList({
             </li>
           ) : null}
 
-          {!listLoading &&
+          {!isDeptsTab &&
+          !listLoading &&
           (recentVisibleRows.length > 0 ||
             showDutyFold ||
             flatHasMore ||

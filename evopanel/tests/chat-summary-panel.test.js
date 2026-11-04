@@ -249,6 +249,25 @@ describe('状态面板可见 tab / 活动跳转', () => {
     expect(tabs.find((t) => t.id === 'platform')?.label).toBe('平台 3')
   })
 
+  it('部门群聊首 tab 为「群聊」，员工会话为「员工」', () => {
+    expect(
+      buildVisibleSummaryPanelTabs({
+        isDeptChatSession: true,
+        processCount: 0,
+        artifactCount: 0,
+        platformCount: 0,
+      }).find((t) => t.id === 'agent')?.label,
+    ).toBe('群聊')
+    expect(
+      buildVisibleSummaryPanelTabs({
+        isEmployeeSession: true,
+        processCount: 0,
+        artifactCount: 0,
+        platformCount: 0,
+      }).find((t) => t.id === 'agent')?.label,
+    ).toBe('员工')
+  })
+
   it('调试关闭 / 非员工任务 tab 回落到智能体', () => {
     expect(
       resolveEffectiveSummaryPanelTab('debug', ['agent', 'process', 'artifacts', 'platform', 'debug'], {

@@ -481,16 +481,14 @@ async function _probeAndNotifyHealth() {
 /** @type {'native-kws' | 'kws' | 'webspeech' | null} */
 let wakeWordBackend = null
 
-/** 原生 KWS 每次应用运行只提醒一次（静默降级是客诉之源） */
+/** 原生 KWS 降级只打一次日志，勿 toast 挡中间（用户难受） */
 let _kwsDownWarned = false
 function _warnNativeKwsDown() {
   if (_kwsDownWarned) return
   _kwsDownWarned = true
-  void import('../components/toast.js')
-    .then(({ toast }) =>
-      toast('唤醒词引擎未启动，已改用浏览器识别兜底（重启应用可重试）', 'warning'),
-    )
-    .catch(() => {})
+  console.warn(
+    '[background-voice] 唤醒词引擎未启动，已改用浏览器识别兜底（重启应用可重试）',
+  )
 }
 
 /**

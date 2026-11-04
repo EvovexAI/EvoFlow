@@ -813,6 +813,7 @@ function buildVolcengineTtsFieldsHtml(creds) {
     </button>
     <div class="media-advanced-group" data-media-advanced-group hidden>
       ${textFieldHtml('volcengineTtsResourceId', 'TTS 模型', 'seed-tts-2.0', creds)}
+      ${textFieldHtml('volcengineAsrBoostingTableId', 'ASR 热词表 ID（可选）', '在火山控制台建热词表后填 ID', creds)}
       <p class="form-hint">小V 语音全屏走 Frame 运行时（/api/speech/session）；切句与打断由后端编排。</p>
       ${voiceTuningFieldsHtml()}
     </div>`

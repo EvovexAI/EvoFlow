@@ -53,6 +53,8 @@ class MentionRequest(BaseModel):
     text: str = ""
     context_summary: str = ""
     allow_tools: bool = False
+    # chat=部门群聊正常问答；空=按话题自动分类
+    mode: str = ""
 
 
 class ConcludeRequest(BaseModel):
@@ -183,6 +185,7 @@ async def meeting_mention_endpoint(request: Request, meeting_id: str, req: Menti
         text=req.text,
         context_summary=str(req.context_summary or ""),
         allow_tools=bool(req.allow_tools),
+        mode=str(req.mode or "").strip() or None,
     )
 
     if result.get("error"):

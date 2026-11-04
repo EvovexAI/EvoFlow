@@ -89,16 +89,23 @@ def get_or_build_lead_agent_graph(
             logger.debug("lead_agent graph cache hit model=%s agent=%s", key.model_name, key.agent_name)
             return hit, True
 
+    import time as _time
+
+    _t0 = _time.perf_counter()
     graph = builder()
+    _build_ms = (_time.perf_counter() - _t0) * 1000.0
     with _CACHE_LOCK:
         _CACHE[cache_key] = graph
         _CACHE.move_to_end(cache_key)
         while len(_CACHE) > _max_entries():
             _CACHE.popitem(last=False)
+    # 语音轮强制关思考 → cache key 与文字轮不同；MCP 指纹变暖也会重建。
+    # build_ms 大 = 每 run 装配开销（首响 2.4s 之谜的头号嫌疑）。
     logger.info(
-        "lead_agent graph cache miss built model=%s agent=%s (entries=%d)",
+        "lead_agent graph cache miss built model=%s agent=%s build_ms=%.0f (entries=%d)",
         key.model_name,
         key.agent_name,
+        _build_ms,
         len(_CACHE),
     )
     return graph, False

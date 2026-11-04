@@ -106,13 +106,31 @@ fn profile_lock_path() -> PathBuf {
     runtime_dir().join("sidecar.lock")
 }
 
+/// True when `path` looks like an EvoFlow / EvoPanel desktop binary.
+fn path_looks_like_desktop_owner(path: &str) -> bool {
+    let p = path.to_ascii_lowercase();
+    // Windows packaged / cargo-run names
+    p.ends_with("\\evoflow.exe")
+        || p.ends_with("\\evopanel.exe")
+        || p.ends_with("/evoflow.exe")
+        || p.ends_with("/evopanel.exe")
+        // macOS .app Contents/MacOS/evoflow (+ Linux cargo-run / packaged)
+        || p.ends_with("/evoflow")
+        || p.ends_with("/evopanel")
+        || p.contains("/evoflow.app/")
+        || p.contains("/evopanel.app/")
+}
+
 /// True only when `pid` is a live **EvoFlow / EvoPanel desktop** process.
 ///
-/// Bare `OpenProcess` success is not enough: after install/`taskkill /F` the
-/// lock file often still points at a dead PID, and Windows may reuse that PID
-/// for an unrelated process — which would permanently block sidecar spawn
+/// Bare process-exists is not enough: after install/`taskkill /F`/crash/reboot
+/// the lock file often still points at a dead PID, and the OS may reuse that
+/// PID for an unrelated process — which would permanently block sidecar spawn
 /// (blank UI waiting on Gateway). Match on image name to reclaim safely.
 fn pid_is_live_desktop_owner(pid: u32) -> bool {
+    if pid == 0 {
+        return false;
+    }
     #[cfg(windows)]
     {
         use windows::Win32::Foundation::CloseHandle;
@@ -137,21 +155,64 @@ fn pid_is_live_desktop_owner(pid: u32) -> bool {
             if !ok || size == 0 {
                 return false;
             }
-            let path = String::from_utf16_lossy(&buf[..size as usize]).to_ascii_lowercase();
-            path.ends_with("\\evoflow.exe")
-                || path.ends_with("\\evopanel.exe")
-                || path.ends_with("/evoflow.exe")
-                || path.ends_with("/evopanel.exe")
+            let path = String::from_utf16_lossy(&buf[..size as usize]);
+            path_looks_like_desktop_owner(&path)
         }
     }
-    #[cfg(not(windows))]
+    #[cfg(unix)]
     {
-        // Conservative: on non-Windows we cannot cheaply probe without
-        // adding a new dep. If a stale lock is encountered, the user can
-        // `rm <profile>/sidecar.lock` to recover. The data isolation
-        // (per-profile SQLite + port) is the real safety net.
+        // kill(pid, 0): exists (and signalable) without delivering a signal.
+        // Previously this branch always returned true, so a stale sidecar.lock
+        // after macOS restart blocked every relaunch until the lock was rm'd.
+        unsafe {
+            if libc::kill(pid as libc::pid_t, 0) != 0 {
+                return false;
+            }
+        }
+        if let Some(path) = unix_process_image_path(pid) {
+            return path_looks_like_desktop_owner(&path);
+        }
+        // Alive but path unreadable (rare): do not treat as desktop owner —
+        // reclaim the lock. Per-profile SQLite/ports remain the real safety net.
+        false
+    }
+    #[cfg(not(any(windows, unix)))]
+    {
         let _ = pid;
         true
+    }
+}
+
+/// Best-effort absolute path of the process image on Unix (Linux `/proc`, macOS `proc_pidpath`).
+#[cfg(unix)]
+fn unix_process_image_path(pid: u32) -> Option<String> {
+    #[cfg(target_os = "linux")]
+    {
+        let link = std::fs::read_link(format!("/proc/{pid}/exe")).ok()?;
+        Some(link.to_string_lossy().into_owned())
+    }
+    #[cfg(target_os = "macos")]
+    {
+        // libproc: int proc_pidpath(int pid, void *buffer, uint32_t buffersize);
+        extern "C" {
+            fn proc_pidpath(
+                pid: libc::c_int,
+                buffer: *mut libc::c_char,
+                buffersize: u32,
+            ) -> libc::c_int;
+        }
+        let mut buf = [0i8; 4096];
+        let n = unsafe { proc_pidpath(pid as libc::c_int, buf.as_mut_ptr(), buf.len() as u32) };
+        if n <= 0 {
+            return None;
+        }
+        let cstr = unsafe { std::ffi::CStr::from_ptr(buf.as_ptr()) };
+        Some(cstr.to_string_lossy().into_owned())
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    {
+        let _ = pid;
+        None
     }
 }
 

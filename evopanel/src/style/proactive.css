@@ -5311,6 +5311,87 @@ html.evopanel-macos-titlebar .pro-employee-page--nav-in-chrome {
 .hire-edit-panel--duty {
   min-height: 320px;
 }
+.hire-cap-block {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  flex: 1;
+}
+.hire-cap-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.hire-cap-search {
+  flex: 1 1 160px;
+  min-width: 140px;
+}
+.hire-cap-count {
+  font-size: 12px;
+  color: var(--text-tertiary, #888);
+  white-space: nowrap;
+}
+.hire-cap-count em {
+  font-style: normal;
+  color: var(--text-secondary, #666);
+  font-weight: 600;
+}
+.hire-cap-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 0;
+  max-height: min(52vh, 420px);
+  overflow: auto;
+  padding-right: 2px;
+}
+.hire-cap-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-primary, rgba(0, 0, 0, 0.08));
+  border-radius: var(--radius-md, 8px);
+  background: var(--bg-secondary, #f7f7f8);
+  cursor: pointer;
+}
+.hire-cap-check input {
+  margin-top: 3px;
+  flex-shrink: 0;
+}
+.hire-cap-check__body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.hire-cap-check__body strong {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary, #222);
+}
+.hire-cap-check__body em {
+  font-style: normal;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-tertiary, #888);
+}
+.hire-cap-check--name {
+  align-items: center;
+  padding: 6px 10px;
+}
+.hire-cap-check--name input {
+  margin-top: 0;
+}
+.hire-cap-list--tools,
+.hire-cap-block[data-cap-block="tools"] .hire-cap-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 6px;
+  max-height: min(52vh, 420px);
+}
 .hire-field--grow {
   flex: 1;
   min-height: 0;

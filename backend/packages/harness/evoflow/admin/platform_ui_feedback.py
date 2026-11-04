@@ -707,6 +707,7 @@ def _progress_open_stage_action(
         }
 
     # 平台操作工作流运行：跑 / 恢复 / 续跑 → 右栏工作流图（并 autoOpen）
+    # 文案用「打开工作流」：与通知 CTA 一致，点开的是本次运行（collab-workflow），不是 /apps 菜单
     if domain == "workflow" and action in {
         "workflow.run",
         "workflow.resume",
@@ -715,7 +716,7 @@ def _progress_open_stage_action(
     }:
         if tid:
             return {
-                "label": "查看进度",
+                "label": "打开工作流",
                 "autoOpen": True,
                 "openStage": {"kind": "collab-workflow", "data": {"mainTaskId": tid}},
             }
@@ -910,12 +911,31 @@ def _build_actions(
         else:
             actions.append({"label": "打开知识库", "route": "/knowledge"})
     elif domain == "workflow":
-        if app_id and run_id:
+        # args 兜底：handler 偶发未 hoist app_id 时仍能给深链
+        if not app_id:
+            app_id = _first_str(args.get("appId"), args.get("app_id"), args.get("id"))
+        tid = _first_str(
+            result.get("task_id"),
+            result.get("taskId"),
+            _as_dict(result.get("run")).get("task_id"),
+            _as_dict(result.get("run")).get("taskId"),
+        )
+        if has_progress_stage:
+            # 进度 CTA 已是右栏本次运行；勿再塞 /apps 菜单（用户会点「打开工作流」跳错）
+            pass
+        elif tid:
+            actions.append(
+                {
+                    "label": "打开工作流",
+                    "autoOpen": True,
+                    "openStage": {"kind": "collab-workflow", "data": {"mainTaskId": tid}},
+                }
+            )
+        elif app_id and run_id:
             actions.append({"label": "查看运行", "route": f"/apps/{app_id}/run?runId={run_id}"})
         elif app_id:
             actions.append({"label": "编辑应用", "route": f"/apps/{app_id}"})
-        else:
-            actions.append({"label": "打开工作流", "route": "/apps"})
+        # 无 task / app：不挂假 CTA（避免整窗跳到工作流列表）
     elif domain == "settings":
         if "model" in action:
             actions.append({"label": "模型设置", "route": "/models"})

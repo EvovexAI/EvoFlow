@@ -1165,8 +1165,30 @@ export function createChatWsOnEventHandler(ctx: ChatWsOnEventCtx) {
               const merged = [...turnPlatformEntriesRef.current]
               for (const row of fromArtifacts) {
                 const i = merged.findIndex((x) => x.id === row.id)
-                if (i >= 0) merged[i] = row
-                else merged.push(row)
+                if (i >= 0) {
+                  const prev = merged[i]
+                  const prevHasStage = Array.isArray(prev.actions)
+                    ? prev.actions.some((a) => a?.openStage && String(a.openStage.kind || '').trim())
+                    : false
+                  const nextHasStage = Array.isArray(row.actions)
+                    ? row.actions.some((a) => a?.openStage && String(a.openStage.kind || '').trim())
+                    : false
+                  // 产物归一化若剥掉 openStage，勿覆盖热路径已有的右栏 CTA
+                  merged[i] =
+                    prevHasStage && !nextHasStage
+                      ? {
+                          ...row,
+                          actions: prev.actions,
+                          entityId: row.entityId || prev.entityId,
+                          entityLabel: row.entityLabel || prev.entityLabel,
+                        }
+                      : {
+                          ...prev,
+                          ...row,
+                          entityId: row.entityId || prev.entityId,
+                          entityLabel: row.entityLabel || prev.entityLabel,
+                        }
+                } else merged.push(row)
               }
               merged.sort((a, b) => b.appliedAt - a.appliedAt)
               for (const row of fromArtifacts) {
