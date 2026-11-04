@@ -1,11 +1,9 @@
-"""从生成的 2x2 手部 sprite sheet 抠出 4 个手贴图。
+"""从生成的 sprite sheet 抠出手/臂贴图。
 
-用法：python make_hands.py <sprite_sheet.png>
-输出：assets/hand_open.png   张开掌（掌心向前，指尖朝上）
-      assets/hand_wave.png   侧倾挥动掌
-      assets/hand_relax.png  放松微曲
-      assets/hand_point.png  食指朝上（讲解指物）
-每张都把腕口对齐到图片底边中央附近，方便绕腕旋转。
+用法：
+  python make_hands.py hands <sheet.png>   # 2x2 纯手（hand_open 等）
+  python make_hands.py arms  <sheet.png>   # 2x2 带袖整臂（arm_open 等）
+输出到 assets/。每张都把切边对齐到图片底边，方便绕腕/肘旋转。
 """
 from __future__ import annotations
 
@@ -15,24 +13,32 @@ import sys
 sys.path.insert(0, os.path.dirname(__file__))
 from key_magenta import key  # noqa: E402
 
-# 2x2 格子；右下格裁掉底部水印带（水印 y>=945）
+# 2x2 格子；含水印的格子先把底部水印带裁掉
 CELLS = {
-    "hand_open":  (0, 0, 512, 512),
-    "hand_wave":  (512, 0, 1024, 512),
-    "hand_relax": (0, 512, 512, 1024),
-    "hand_point": (512, 512, 1024, 942),
+    "hands": {
+        "hand_open":  (0, 0, 512, 512),
+        "hand_wave":  (512, 0, 1024, 512),
+        "hand_relax": (0, 512, 512, 1024),
+        "hand_point": (512, 512, 1024, 942),
+    },
+    "arms": {
+        "arm_open":  (0, 0, 512, 512),
+        "arm_wave":  (512, 0, 1024, 512),
+        "arm_point": (0, 512, 512, 1024),
+        "arm_relax": (512, 512, 1024, 935),
+    },
 }
 
 
-def main(sheet: str) -> None:
+def main(kind: str, sheet: str) -> None:
     out_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "assets")
     os.makedirs(out_dir, exist_ok=True)
-    for name, box in CELLS.items():
+    for name, box in CELLS[kind].items():
         key(sheet, os.path.join(out_dir, f"{name}.png"), list(box))
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 2:
+    if len(sys.argv) != 3 or sys.argv[1] not in CELLS:
         print(__doc__)
         sys.exit(1)
-    main(sys.argv[1])
+    main(sys.argv[1], sys.argv[2])

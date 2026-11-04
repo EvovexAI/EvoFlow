@@ -1893,30 +1893,42 @@ class GirlArt(Girl):
 
     def _dance_hands(self, p: QPainter, sx: float, sy: float,
                      left: float, top: float, t: float) -> None:
-        """dancing：双手举过头顶，跟着节拍左右挥——蹦迪应援同款。"""
-        p.setRenderHint(QPainter.Antialiasing, True)
+        """dancing：两条带袖整臂（贴图）从裙肩后举起来挥。
+
+        整臂 sprite 自带蓬蓬袖+手（和裙子同风格，无程序化接缝）；
+        肘部切边画在身体层之前、藏在裙子里。左右一高一低、向外斜。
+        """
+        p.setRenderHint(QPainter.SmoothPixmapTransform, True)
         beat = t * 3.3
-        for sgn in (-1.0, 1.0):
+        # 肘位藏在发后（画在身体层前），手臂加长让双手举出发际线之上
+        for sgn, dy in ((-1.0, 6.0), (1.0, -4.0)):
             phase = beat if sgn < 0 else beat + math.pi     # 两只手反相挥
-            sh_x = left + (420 + sgn * 290) * sx            # 臂根（藏进身体）
-            sh_y = top + 700 * sy
-            wr_x = left + (420 + sgn * 278) * sx            # 腕：举到头顶两侧
-            wr_y = top + (108 + 12 * math.sin(phase)) * sy
-            sleeve = QPainterPath(QPointF(sh_x, sh_y))
-            sleeve.quadTo(QPointF(left + (420 + sgn * 372) * sx, top + 430 * sy),
-                          QPointF(wr_x, wr_y))
-            sg = QLinearGradient(QPointF(sh_x, sh_y), QPointF(wr_x, wr_y))
-            sg.setColorAt(0.0, QColor("#CBDCE9"))
-            sg.setColorAt(1.0, QColor("#EDF3F9"))
-            # 袖子是设计空间里的实体手臂：粗笔画 + 浅色贴近裙子，弧线绕开头发
-            p.setPen(QPen(_rgba("#A9C0D2", 130), 8.0, Qt.SolidLine, Qt.RoundCap))
-            p.setBrush(QBrush(sg))
-            p.drawPath(sleeve)
-            # 贴图手：真手形绕腕挥（左镜像），比程序化椭圆自然得多
-            p.setRenderHint(QPainter.SmoothPixmapTransform, True)
-            _draw_hand(p, "hand_open", wr_x, wr_y,
-                       math.degrees(math.sin(phase) * 0.32 * sgn + sgn * 0.15),
-                       27.0, mirror=(sgn < 0))
+            ex = left + (420 + sgn * 250) * sx
+            ey = top + (560 + dy) * sy
+            # 肘为轴（sprite 底边），向外斜 + 随节拍摆；镜像把右臂变左臂
+            _draw_hand(p, "arm_open", ex, ey,
+                       math.degrees(0.24 + math.sin(phase) * 0.10),
+                       78.0, mirror=(sgn < 0), overlap=6.0)
+
+    def _taper_arm(self, p: QPainter, ax: float, ay: float, bx: float, by: float,
+                   wx: float, wy: float, w0: float, w1: float) -> None:
+        """锥形手臂：肩粗腕细，两条二次曲线沿法线夹出来，比等宽笔画像手臂得多。"""
+        dx, dy = wx - ax, wy - ay
+        L = math.hypot(dx, dy) or 1.0
+        nx, ny = -dy / L, dx / L
+        path = QPainterPath(QPointF(ax + nx * w0 / 2, ay + ny * w0 / 2))
+        path.quadTo(QPointF(bx + nx * w0 * 0.55, by + ny * w0 * 0.55),
+                    QPointF(wx + nx * w1 / 2, wy + ny * w1 / 2))
+        path.lineTo(QPointF(wx - nx * w1 / 2, wy - ny * w1 / 2))
+        path.quadTo(QPointF(bx - nx * w0 * 0.55, by - ny * w0 * 0.55),
+                    QPointF(ax - nx * w0 / 2, ay - ny * w0 / 2))
+        path.closeSubpath()
+        g = QLinearGradient(QPointF(ax, ay), QPointF(wx, wy))
+        g.setColorAt(0.0, QColor("#CBDCE9"))
+        g.setColorAt(1.0, QColor("#EDF3F9"))
+        p.setPen(QPen(_rgba("#A9C0D2", 120), 1.1))
+        p.setBrush(QBrush(g))
+        p.drawPath(path)
 
     def _notes(self, p: QPainter, t: float) -> None:
         """dancing：三个音符轮流从身侧飘上来。"""
@@ -1975,23 +1987,13 @@ class GirlArt(Girl):
 
     def _teach_arm(self, p: QPainter, sx: float, sy: float,
                    left: float, top: float, t: float) -> None:
-        """teaching：右臂抬向白板，张开的手掌随音节比划。"""
-        q0 = QPointF(left + 700 * sx, top + 690 * sy)   # 臂根（藏进身体轮廓）
-        q1 = QPointF(left + 738 * sx, top + 420 * sy)   # 腕：指向板面下缘
-        swing = math.sin(t * 6.3) * 0.10 * (0.35 + 0.65 * self._syllable(t * 0.9))
-        p.setRenderHint(QPainter.Antialiasing, True)
-        sleeve = QPainterPath(q0)
-        sleeve.quadTo(QPointF(left + 758 * sx, top + 560 * sy), q1)
-        sg = QLinearGradient(q0, q1)
-        sg.setColorAt(0.0, QColor("#AFC4D6"))
-        sg.setColorAt(1.0, QColor("#DCE8F2"))
-        p.setPen(QPen(_rgba("#8FA9C0", 150), 8.0, Qt.SolidLine, Qt.RoundCap))
-        p.setBrush(QBrush(sg))
-        p.drawPath(sleeve)
-        # 贴图手：食指朝上，指向板面，随音节轻摆
+        """teaching：右臂（带袖整臂贴图）抬向白板，食指指着板书。"""
         p.setRenderHint(QPainter.SmoothPixmapTransform, True)
-        _draw_hand(p, "hand_point", q1.x(), q1.y(),
-                   math.degrees(swing) - 26.0, 25.0)
+        swing = math.sin(t * 6.3) * 0.06                 # 随音节轻摆
+        ex = left + 690 * sx
+        ey = top + 740 * sy
+        _draw_hand(p, "arm_point", ex, ey,
+                   math.degrees(0.10 + swing), 56.0, overlap=8.0)
 
     # ------------------------------------------------------------------ #
     # 站姿场景
@@ -2025,6 +2027,12 @@ class GirlArt(Girl):
         if mode == "teaching":
             # 小白板画在身后：要点一条条亮出来，像在板书
             self._board(p, t)
+        if mode in ("dancing", "teaching"):
+            # 整臂贴图画在身体层之前：肘部切边藏进裙子里
+            if mode == "dancing":
+                self._dance_hands(p, sx, sy, left, top + bob * 0.55, t)
+            else:
+                self._teach_arm(p, sx, sy, left, top + bob * 0.55, t)
 
         if body is not None:
             by = top + (self.NECK_Y - self.OVERLAP) * sy + bob * 0.55
@@ -2085,12 +2093,7 @@ class GirlArt(Girl):
         elif mode == "answering":
             self._arcs(p, 126, 96, t, QColor("#A6DCFF"), 3, 6.4, 5.4, 54)
         if mode == "dancing":
-            # 双手举过头顶挥舞 + 飘上来的音符（画在头后，手在发梢前）
-            self._dance_hands(p, sx, sy, left, top + bob * 0.55, t)
-            self._notes(p, t)
-        elif mode == "teaching":
-            # 右臂抬向白板，随音节比划
-            self._teach_arm(p, sx, sy, left, top + bob * 0.55, t)
+            self._notes(p, t)          # 音符（手臂已在身体层前画过）
 
         self.draw_sparkles(p, st)
         p.restore()

@@ -16,11 +16,13 @@ export type PetMode = 'idle' | 'listening' | 'thinking' | 'answering' | 'coding'
 
 export const PET_IMG_URL = '/assets/xiaoxi/girl.webp'
 export const PET_DESK_IMG_URL = '/assets/xiaoxi/girl_desk.webp'
-/** 贴图手：ImageGen 按角色画风生成、tools/make_hands.py 抠图（与桌面端共用素材） */
+/** 贴图手/臂：ImageGen 按角色画风生成、tools/make_hands.py 抠图（与桌面端共用素材） */
 export const PET_HAND_URLS = {
   open: '/assets/xiaoxi/hand_open.png',
   relax: '/assets/xiaoxi/hand_relax.png',
   point: '/assets/xiaoxi/hand_point.png',
+  armOpen: '/assets/xiaoxi/arm_open.png',
+  armPoint: '/assets/xiaoxi/arm_point.png',
 } as const
 export type PetHandName = keyof typeof PET_HAND_URLS
 /** 调用方把加载好的手部贴图传进来；没加载完成时回退到程序化手掌 */
@@ -416,6 +418,7 @@ function drawHandSprite(
   rot: number,
   h: number,
   mirror = false,
+  overlap = 2,
 ): boolean {
   const sp = hands?.[name]
   if (!sp) return false
@@ -427,7 +430,7 @@ function drawHandSprite(
   ctx.translate(cx, cy)
   ctx.rotate(rot)
   if (mirror) ctx.scale(-1, 1)
-  ctx.drawImage(sp, -w / 2, -h + 2, w, h)
+  ctx.drawImage(sp, -w / 2, -h + overlap, w, h)
   ctx.restore()
   return true
 }
@@ -564,7 +567,7 @@ function drawOpenPalm(
   ctx.restore()
 }
 
-/** dancing：双手举过头顶，跟着节拍反相挥。 */
+/** dancing：两条带蓬蓬袖整臂（贴图）从裙肩后举起来挥，一高一低向外斜。 */
 function drawDanceHands(
   ctx: CanvasRenderingContext2D,
   sx: number,
@@ -576,30 +579,30 @@ function drawDanceHands(
 ): void {
   const P = (x: number, y: number): [number, number] => [left + x * sx, topY + y * sy]
   const beat = t * 3.3
-  for (const sgn of [-1, 1] as const) {
+  // 肘位藏在发后（本函数在身体层之前调用），手臂加长让手举出发际线
+  const sides: ReadonlyArray<readonly [number, number]> = [
+    [-1, 6],
+    [1, -4],
+  ]
+  for (const [sgn, dy] of sides) {
     const phase = sgn < 0 ? beat : beat + Math.PI
-    drawSleeveArm(
-      ctx,
-      sx,
-      sy,
-      P(420 + sgn * 290, 700),
-      P(420 + sgn * 372, 430),
-      P(420 + sgn * 278, 108 + 12 * Math.sin(phase)),
-    )
-    const [wx, wy] = P(420 + sgn * 278, 108 + 12 * Math.sin(phase))
-    // 贴图真手（左镜像）；没加载好时回退到程序化手掌
+    const [ex, ey] = P(420 + sgn * 250, 560 + dy)
     if (
       !drawHandSprite(
         ctx,
         hands,
-        'open',
-        wx,
-        wy,
-        Math.sin(phase) * 0.32 * sgn + sgn * 0.15,
-        27,
+        'armOpen',
+        ex,
+        ey,
+        0.24 + Math.sin(phase) * 0.1,
+        78,
         sgn < 0,
+        6,
       )
     ) {
+      // 回退：程序化袖臂+手掌
+      drawSleeveArm(ctx, sx, sy, P(420 + sgn * 250, 700), P(420 + sgn * 372, 430), P(420 + sgn * 278, 108))
+      const [wx, wy] = P(420 + sgn * 278, 108)
       drawOpenPalm(ctx, sx, sy, wx, wy, Math.sin(phase) * 0.32 * sgn + sgn * 0.15)
     }
   }
@@ -675,7 +678,7 @@ function drawBoard(ctx: CanvasRenderingContext2D, t: number): void {
   }
 }
 
-/** teaching：右臂抬向白板，食指手随音节比划。 */
+/** teaching：右臂（带袖整臂贴图）抬向白板，食指指着板书。 */
 function drawTeachArm(
   ctx: CanvasRenderingContext2D,
   sx: number,
@@ -686,10 +689,11 @@ function drawTeachArm(
   hands: PetHandImages | null,
 ): void {
   const P = (x: number, y: number): [number, number] => [left + x * sx, topY + y * sy]
-  const swing = Math.sin(t * 6.3) * 0.1 * (0.35 + 0.65 * syllable(t * 0.9))
-  drawSleeveArm(ctx, sx, sy, P(700, 690), P(758, 560), P(738, 420))
-  const [wx, wy] = P(738, 420)
-  if (!drawHandSprite(ctx, hands, 'point', wx, wy, swing - 0.45, 25)) {
+  const swing = Math.sin(t * 6.3) * 0.06
+  const [ex, ey] = P(690, 740)
+  if (!drawHandSprite(ctx, hands, 'armPoint', ex, ey, 0.1 + swing, 56, false, 8)) {
+    drawSleeveArm(ctx, sx, sy, P(700, 690), P(758, 560), P(738, 420))
+    const [wx, wy] = P(738, 420)
     drawOpenPalm(ctx, sx, sy, wx, wy, swing - 0.45)
   }
 }
@@ -987,6 +991,12 @@ export function drawPetFrame(
 
   // teaching：小白板画在身后（身体层之前），像立在她身侧
   if (mode === 'teaching') drawBoard(ctx, t)
+  // 整臂贴图：画在身体层之前，肘部切边藏进裙子/头发里
+  if (mode === 'dancing') {
+    drawDanceHands(ctx, sx, sy, left, topY + bob * 0.55, t, hands ?? null)
+  } else if (mode === 'teaching') {
+    drawTeachArm(ctx, sx, sy, left, topY + bob * 0.55, t, hands ?? null)
+  }
 
   // ── 身体层 ──
   const cut = NECK_Y - OVERLAP
@@ -1060,10 +1070,6 @@ export function drawPetFrame(
   else if (mode === 'listening') drawArcs(ctx, 150, 74, t, '#7FC8FF', 3, 8, 6.4, 72)
   else if (mode === 'answering') drawArcs(ctx, 137, 88, t, '#A6DCFF', 3, 6.4, 5.4, 54)
   if (mode === 'dancing') {
-    // 双手举过头顶挥舞 + 音符（画在头后，手在发梢前）
-    drawDanceHands(ctx, sx, sy, left, topY + bob * 0.55, t, hands ?? null)
-    drawNotes(ctx, t)
-  } else if (mode === 'teaching') {
-    drawTeachArm(ctx, sx, sy, left, topY + bob * 0.55, t, hands ?? null)
+    drawNotes(ctx, t) // 音符（手臂已在身体层前画过）
   }
 }
