@@ -3,7 +3,7 @@
  *
  * 渲染逻辑全在 xiaoxi-pet-render.ts（纯 canvas，可单独跑）；这里只负责：
  * 加载立绘（站姿 + 坐姿两张）、按舞台尺寸算位置（把「脚」落在 72% 高度，避开底部字幕区）、
- * 按帧循环、眨眼计时，以及活动区域内的踱步（思考/空闲时慢慢走两步，其余状态站定）。
+ * 按帧循环、眨眼计时，以及活动区域内的踱步（仅空闲时慢慢走两步，其余状态站定）。
  */
 import { useEffect, useRef } from 'react'
 import {
@@ -11,7 +11,9 @@ import {
   PET_DESIGN_SIZE,
   PET_DESK_IMG_URL,
   PET_FOOT_Y,
+  PET_HAND_URLS,
   PET_IMG_URL,
+  type PetHandImages,
   type PetMode,
 } from './xiaoxi-pet-render.js'
 import './xiaoxi-stage-pet.css'
@@ -21,8 +23,8 @@ export type { PetMode }
 /** 眨眼：闭合 0.15s，间隔 2.2~6.5s（与桌面宠物一致） */
 const BLINK_DUR = 0.15
 
-/** 会踱步的状态：思考时来回走两步、纯空闲时溜达；说话/聆听要稳，坐姿本来就固定 */
-const WANDER_MODES: ReadonlySet<PetMode> = new Set<PetMode>(['idle', 'thinking'])
+/** 会踱步的状态：纯空闲时溜达；思考/说话/聆听都要稳（思考站定，坐姿本来就固定） */
+const WANDER_MODES: ReadonlySet<PetMode> = new Set<PetMode>(['idle'])
 /** 活动区域：以舞台中心为原点，左右各占 canvas 宽度的比例 */
 const WANDER_RANGE = 0.42
 /** 踱步速度（canvas 像素/秒，按 canvas 实际宽度折算） */
@@ -68,6 +70,25 @@ export function XiaoxiStagePet({ mode }: { mode: PetMode }) {
     const deskImg = new Image()
     deskImg.decoding = 'async'
     deskImg.src = PET_DESK_IMG_URL
+    // 贴图手：三张一起加载，全好了才传给渲染器（没好就走程序化手掌回退）
+    const handImgs: Record<string, HTMLImageElement> = {}
+    for (const [name, url] of Object.entries(PET_HAND_URLS)) {
+      const h = new Image()
+      h.decoding = 'async'
+      h.src = url
+      handImgs[name] = h
+    }
+    const handsReady = (): PetHandImages | null => {
+      const out: PetHandImages = {}
+      let n = 0
+      for (const [name, h] of Object.entries(handImgs)) {
+        if (h.complete && h.naturalWidth > 0) {
+          out[name as keyof typeof PET_HAND_URLS] = h
+          n++
+        }
+      }
+      return n === Object.keys(handImgs).length ? out : null
+    }
 
     let t = 0
     let last = 0
@@ -145,6 +166,7 @@ export function XiaoxiStagePet({ mode }: { mode: PetMode }) {
         blink,
         img.naturalWidth / 840,
         deskImg.complete && deskImg.naturalWidth > 0 ? deskImg : null,
+        handsReady(),
       )
 
       // 位置/朝向：踱步偏移 + 翻面 + 走路时一点点摇摆，都走 transform，不碰布局

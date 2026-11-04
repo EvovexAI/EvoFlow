@@ -40,6 +40,42 @@ def _with_alpha(color, alpha: int = 255) -> QColor:
     return c
 
 
+# --------------------------------------------------------------------------- #
+# 贴图手：ImageGen 按角色画风生成的手部 sprite（tools/make_hands.py 抠图）
+# --------------------------------------------------------------------------- #
+_HAND_CACHE: dict[str, QPixmap] = {}
+
+
+def _hand_sprite(name: str) -> QPixmap:
+    pm = _HAND_CACHE.get(name)
+    if pm is None:
+        path = os.path.join(os.path.dirname(__file__), "..", "assets", f"{name}.png")
+        pm = QPixmap(path)
+        _HAND_CACHE[name] = pm
+    return pm
+
+
+def _draw_hand(p: QPainter, name: str, cx: float, cy: float, ang_deg: float,
+               h: float, mirror: bool = False, overlap: float = 2.0) -> None:
+    """把贴图手画在设计空间 (cx, cy)——腕口 pivot，绕腕旋转 ang_deg。
+
+    h 是目标高度（设计空间 px）；mirror 用于把右手贴图变成左手。
+    腕口向上收 overlap px，避免和袖子接缝处露缝。
+    """
+    pm = _hand_sprite(name)
+    if pm.isNull():
+        return
+    sc = h / float(pm.height())
+    w = pm.width() * sc
+    p.save()
+    p.translate(cx, cy)
+    p.rotate(ang_deg)
+    if mirror:
+        p.scale(-1.0, 1.0)
+    p.drawPixmap(QRectF(-w / 2.0, -h + overlap, w, h), pm, QRectF(pm.rect()))
+    p.restore()
+
+
 def _sparkle(p: QPainter, x: float, y: float, r: float, color: QColor, phase: float) -> None:
     """四角星闪光，phase 控制呼吸般的明暗与大小；外面套一层柔光，浅色桌面上也看得见。"""
     k = 0.5 + 0.5 * math.sin(phase)
@@ -1840,8 +1876,7 @@ class GirlArt(Girl):
         sg = QLinearGradient(q0, q1)
         sg.setColorAt(0.0, QColor("#C7D6E2"))
         sg.setColorAt(1.0, QColor("#F0F5FA"))
-        p.setPen(QPen(_rgba("#9FB4C6", 150), max(0.8, 2.4 * sx),
-                      Qt.SolidLine, Qt.RoundCap))
+        p.setPen(QPen(_rgba("#9FB4C6", 150), 7.0, Qt.SolidLine, Qt.RoundCap))
         p.setBrush(QBrush(sg))
         p.drawPath(sleeve)
 
@@ -1851,26 +1886,10 @@ class GirlArt(Girl):
         p.drawEllipse(QPointF(left + 652 * sx, top + 468 * sy),
                       26 * sx, 17 * sy)
 
-        # 手掌：竖长椭圆（指朝上）+ 掌根，绕腕微转
-        p.save()
-        p.translate(left + 645 * sx, top + 420 * sy)
-        p.rotate(math.degrees(ang))
-        pg = QLinearGradient(0, -55 * sy, 0, 40 * sy)
-        pg.setColorAt(0.0, self.SKIN_HI)
-        pg.setColorAt(1.0, self.SKIN_LO)
-        p.setPen(QPen(_rgba("#D9A8A6", 140), max(0.7, 2.0 * sx)))
-        p.setBrush(QBrush(pg))
-        p.drawEllipse(QPointF(0, 0), 27 * sx, 56 * sy)     # 掌 + 并拢的四指
-        p.drawEllipse(QPointF(-24 * sx, 30 * sy), 11 * sx, 14 * sy)  # 拇指根
-
-        # 指缝：三道短线
-        p.setPen(QPen(_rgba("#D9A8A6", 130), max(0.5, 1.3 * sx)))
-        p.setBrush(Qt.NoBrush)
-        for dx in (-13, 0, 13):
-            f = QPainterPath(QPointF(dx * sx, -46 * sy))
-            f.quadTo(QPointF((dx + 2) * sx, -22 * sy), QPointF(dx * sx, 0))
-            p.drawPath(f)
-        p.restore()
+        # 贴图手：放松微曲的手贴在头侧，绕腕微转
+        p.setRenderHint(QPainter.SmoothPixmapTransform, True)
+        _draw_hand(p, "hand_relax", left + 645 * sx, top + 425 * sy,
+                   math.degrees(ang), 26.0)
 
     def _dance_hands(self, p: QPainter, sx: float, sy: float,
                      left: float, top: float, t: float) -> None:
@@ -1881,40 +1900,23 @@ class GirlArt(Girl):
             phase = beat if sgn < 0 else beat + math.pi     # 两只手反相挥
             sh_x = left + (420 + sgn * 290) * sx            # 臂根（藏进身体）
             sh_y = top + 700 * sy
-            wr_x = left + (420 + sgn * 262) * sx            # 腕：举到头顶两侧
-            wr_y = top + (95 + 12 * math.sin(phase)) * sy
+            wr_x = left + (420 + sgn * 278) * sx            # 腕：举到头顶两侧
+            wr_y = top + (108 + 12 * math.sin(phase)) * sy
             sleeve = QPainterPath(QPointF(sh_x, sh_y))
-            sleeve.quadTo(QPointF(left + (420 + sgn * 330) * sx, top + 400 * sy),
+            sleeve.quadTo(QPointF(left + (420 + sgn * 372) * sx, top + 430 * sy),
                           QPointF(wr_x, wr_y))
             sg = QLinearGradient(QPointF(sh_x, sh_y), QPointF(wr_x, wr_y))
-            sg.setColorAt(0.0, QColor("#AFC4D6"))
-            sg.setColorAt(1.0, QColor("#DCE8F2"))
-            p.setPen(QPen(_rgba("#8FA9C0", 150), max(1.5, 3.6 * sx),
-                          Qt.SolidLine, Qt.RoundCap))
+            sg.setColorAt(0.0, QColor("#CBDCE9"))
+            sg.setColorAt(1.0, QColor("#EDF3F9"))
+            # 袖子是设计空间里的实体手臂：粗笔画 + 浅色贴近裙子，弧线绕开头发
+            p.setPen(QPen(_rgba("#A9C0D2", 130), 8.0, Qt.SolidLine, Qt.RoundCap))
             p.setBrush(QBrush(sg))
             p.drawPath(sleeve)
-            # 手掌：竖长椭圆绕腕挥，指缝拉长才像手而不是勺子
-            p.save()
-            p.translate(wr_x, wr_y)
-            p.rotate(math.degrees(math.sin(phase) * 0.32 * sgn + sgn * 0.15))
-            pg = QLinearGradient(0, -58 * sy, 0, 44 * sy)
-            pg.setColorAt(0.0, self.SKIN_HI)
-            pg.setColorAt(1.0, self.SKIN_LO)
-            p.setPen(QPen(_rgba("#D9A8A6", 150), max(0.8, 2.2 * sx)))
-            p.setBrush(QBrush(pg))
-            p.drawEllipse(QPointF(0, 0), 26 * sx, 60 * sy)
-            p.setPen(QPen(_rgba("#D9A8A6", 160), max(0.6, 1.4 * sx)))
-            p.setBrush(Qt.NoBrush)
-            for dx in (-15, -5, 5, 15):
-                f = QPainterPath(QPointF(dx * sx, -50 * sy))
-                f.quadTo(QPointF((dx + sgn * 2) * sx, -26 * sy),
-                         QPointF(dx * sx, 6 * sy))
-                p.drawPath(f)
-            # 拇指：画在手心内侧
-            p.setPen(QPen(_rgba("#D9A8A6", 150), max(0.8, 2.2 * sx)))
-            p.setBrush(QBrush(pg))
-            p.drawEllipse(QPointF(-sgn * 20 * sx, 14 * sy), 9 * sx, 16 * sy)
-            p.restore()
+            # 贴图手：真手形绕腕挥（左镜像），比程序化椭圆自然得多
+            p.setRenderHint(QPainter.SmoothPixmapTransform, True)
+            _draw_hand(p, "hand_open", wr_x, wr_y,
+                       math.degrees(math.sin(phase) * 0.32 * sgn + sgn * 0.15),
+                       27.0, mirror=(sgn < 0))
 
     def _notes(self, p: QPainter, t: float) -> None:
         """dancing：三个音符轮流从身侧飘上来。"""
@@ -1983,27 +1985,13 @@ class GirlArt(Girl):
         sg = QLinearGradient(q0, q1)
         sg.setColorAt(0.0, QColor("#AFC4D6"))
         sg.setColorAt(1.0, QColor("#DCE8F2"))
-        p.setPen(QPen(_rgba("#8FA9C0", 150), max(1.5, 3.6 * sx),
-                      Qt.SolidLine, Qt.RoundCap))
+        p.setPen(QPen(_rgba("#8FA9C0", 150), 8.0, Qt.SolidLine, Qt.RoundCap))
         p.setBrush(QBrush(sg))
         p.drawPath(sleeve)
-        p.save()
-        p.translate(q1)
-        p.rotate(math.degrees(swing) - 26.0)            # 手掌朝板面张开
-        pg = QLinearGradient(0, -66 * sy, 0, 34 * sy)
-        pg.setColorAt(0.0, self.SKIN_HI)
-        pg.setColorAt(1.0, self.SKIN_LO)
-        p.setPen(QPen(_rgba("#D9A8A6", 150), max(0.8, 2.2 * sx)))
-        p.setBrush(QBrush(pg))
-        p.drawEllipse(QPointF(0, -16 * sy), 28 * sx, 58 * sy)
-        p.drawEllipse(QPointF(23 * sx, 10 * sy), 11 * sx, 14 * sy)   # 拇指
-        p.setPen(QPen(_rgba("#D9A8A6", 135), max(0.6, 1.5 * sx)))
-        p.setBrush(Qt.NoBrush)
-        for dx in (-13, 0, 13):
-            f = QPainterPath(QPointF(dx * sx, -62 * sy))
-            f.quadTo(QPointF((dx + 2) * sx, -32 * sy), QPointF(dx * sx, -4 * sy))
-            p.drawPath(f)
-        p.restore()
+        # 贴图手：食指朝上，指向板面，随音节轻摆
+        p.setRenderHint(QPainter.SmoothPixmapTransform, True)
+        _draw_hand(p, "hand_point", q1.x(), q1.y(),
+                   math.degrees(swing) - 26.0, 25.0)
 
     # ------------------------------------------------------------------ #
     # 站姿场景

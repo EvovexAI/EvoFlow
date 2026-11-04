@@ -16,6 +16,15 @@ export type PetMode = 'idle' | 'listening' | 'thinking' | 'answering' | 'coding'
 
 export const PET_IMG_URL = '/assets/xiaoxi/girl.webp'
 export const PET_DESK_IMG_URL = '/assets/xiaoxi/girl_desk.webp'
+/** 贴图手：ImageGen 按角色画风生成、tools/make_hands.py 抠图（与桌面端共用素材） */
+export const PET_HAND_URLS = {
+  open: '/assets/xiaoxi/hand_open.png',
+  relax: '/assets/xiaoxi/hand_relax.png',
+  point: '/assets/xiaoxi/hand_point.png',
+} as const
+export type PetHandName = keyof typeof PET_HAND_URLS
+/** 调用方把加载好的手部贴图传进来；没加载完成时回退到程序化手掌 */
+export type PetHandImages = Partial<Record<PetHandName, CanvasImageSource & { width?: number; height?: number }>>
 export const PET_DESIGN_SIZE = 200
 /** 脚底在设计空间里的 y：定位时用它把人物「站」在指定高度 */
 export const PET_FOOT_Y = 188
@@ -393,6 +402,36 @@ function drawDots(ctx: CanvasRenderingContext2D, phase: number): void {
   }
 }
 
+/**
+ * 贴图手：把抠好的真手 sprite 画在 (cx,cy)——腕口 pivot，绕腕旋转。
+ * h 是目标高度（设计空间 px）；mirror 把右手变成左手。
+ * 返回 false 表示贴图没加载好，调用方走程序化手掌回退。
+ */
+function drawHandSprite(
+  ctx: CanvasRenderingContext2D,
+  hands: PetHandImages | null,
+  name: PetHandName,
+  cx: number,
+  cy: number,
+  rot: number,
+  h: number,
+  mirror = false,
+): boolean {
+  const sp = hands?.[name]
+  if (!sp) return false
+  const iw = sp.width ?? 0
+  const ih = sp.height ?? 0
+  if (!iw || !ih) return false
+  const w = h * (iw / ih)
+  ctx.save()
+  ctx.translate(cx, cy)
+  ctx.rotate(rot)
+  if (mirror) ctx.scale(-1, 1)
+  ctx.drawImage(sp, -w / 2, -h + 2, w, h)
+  ctx.restore()
+  return true
+}
+
 /** 聆听：一只手举起来扶着头侧——耳朵被长发盖着，掌心贴上去就是"扶耳"。 */
 function drawHandOnEar(
   ctx: CanvasRenderingContext2D,
@@ -400,6 +439,7 @@ function drawHandOnEar(
   sy: number,
   left: number,
   topY: number,
+  hands: PetHandImages | null,
 ): void {
   const P = (x: number, y: number): [number, number] => [left + x * sx, topY + y * sy]
   const [ax, ay] = P(706, 706) // 臂根（藏进身体轮廓）
@@ -431,8 +471,9 @@ function drawHandOnEar(
   ctx.fill()
   ctx.stroke()
 
-  // 手掌：竖长椭圆（指朝上）微转 + 拇指根 + 三道指缝
-  const [px, py] = P(645, 420)
+  // 手掌：贴图手（真手形）绕腕微转；没加载好时回退到程序化椭圆
+  const [px, py] = P(645, 425)
+  if (drawHandSprite(ctx, hands, 'relax', px, py, -0.24, 26)) return
   ctx.save()
   ctx.translate(px, py)
   ctx.rotate(-0.24)
@@ -461,7 +502,7 @@ function drawHandOnEar(
   ctx.restore()
 }
 
-/** 画一条"袖子手臂"：粗描边双层（描边层 + 亮层），读得出是一条手臂。 */
+/** 画一条"袖子手臂"：粗描边双层（描边层 + 亮层），浅色贴近裙子，读得出是一条手臂。 */
 function drawSleeveArm(
   ctx: CanvasRenderingContext2D,
   sx: number,
@@ -469,19 +510,20 @@ function drawSleeveArm(
   a: [number, number],
   b: [number, number],
   w: [number, number],
+  widthDesign = 8,
 ): void {
   ctx.lineCap = 'round'
   ctx.beginPath()
   ctx.moveTo(a[0], a[1])
   ctx.quadraticCurveTo(b[0], b[1], w[0], w[1])
-  ctx.strokeStyle = rgba('#8FA9C0', 150)
-  ctx.lineWidth = 50 * sx
+  ctx.strokeStyle = rgba('#A9C0D2', 130)
+  ctx.lineWidth = widthDesign + 1.4
   ctx.stroke()
   const sg = ctx.createLinearGradient(a[0], a[1], w[0], w[1])
-  sg.addColorStop(0, '#AFC4D6')
-  sg.addColorStop(1, '#DCE8F2')
+  sg.addColorStop(0, '#CBDCE9')
+  sg.addColorStop(1, '#EDF3F9')
   ctx.strokeStyle = sg
-  ctx.lineWidth = 44 * sx
+  ctx.lineWidth = widthDesign
   ctx.stroke()
 }
 
@@ -530,6 +572,7 @@ function drawDanceHands(
   left: number,
   topY: number,
   t: number,
+  hands: PetHandImages | null,
 ): void {
   const P = (x: number, y: number): [number, number] => [left + x * sx, topY + y * sy]
   const beat = t * 3.3
@@ -540,11 +583,25 @@ function drawDanceHands(
       sx,
       sy,
       P(420 + sgn * 290, 700),
-      P(420 + sgn * 330, 400),
-      P(420 + sgn * 262, 95 + 12 * Math.sin(phase)),
+      P(420 + sgn * 372, 430),
+      P(420 + sgn * 278, 108 + 12 * Math.sin(phase)),
     )
-    const [wx, wy] = P(420 + sgn * 262, 95 + 12 * Math.sin(phase))
-    drawOpenPalm(ctx, sx, sy, wx, wy, Math.sin(phase) * 0.32 * sgn + sgn * 0.15)
+    const [wx, wy] = P(420 + sgn * 278, 108 + 12 * Math.sin(phase))
+    // 贴图真手（左镜像）；没加载好时回退到程序化手掌
+    if (
+      !drawHandSprite(
+        ctx,
+        hands,
+        'open',
+        wx,
+        wy,
+        Math.sin(phase) * 0.32 * sgn + sgn * 0.15,
+        27,
+        sgn < 0,
+      )
+    ) {
+      drawOpenPalm(ctx, sx, sy, wx, wy, Math.sin(phase) * 0.32 * sgn + sgn * 0.15)
+    }
   }
 }
 
@@ -618,7 +675,7 @@ function drawBoard(ctx: CanvasRenderingContext2D, t: number): void {
   }
 }
 
-/** teaching：右臂抬向白板，张开的手掌随音节比划。 */
+/** teaching：右臂抬向白板，食指手随音节比划。 */
 function drawTeachArm(
   ctx: CanvasRenderingContext2D,
   sx: number,
@@ -626,12 +683,15 @@ function drawTeachArm(
   left: number,
   topY: number,
   t: number,
+  hands: PetHandImages | null,
 ): void {
   const P = (x: number, y: number): [number, number] => [left + x * sx, topY + y * sy]
   const swing = Math.sin(t * 6.3) * 0.1 * (0.35 + 0.65 * syllable(t * 0.9))
   drawSleeveArm(ctx, sx, sy, P(700, 690), P(758, 560), P(738, 420))
   const [wx, wy] = P(738, 420)
-  drawOpenPalm(ctx, sx, sy, wx, wy, swing - 0.45)
+  if (!drawHandSprite(ctx, hands, 'point', wx, wy, swing - 0.45, 25)) {
+    drawOpenPalm(ctx, sx, sy, wx, wy, swing - 0.45)
+  }
 }
 
 /** 两只手合成一个 0~1 的"正在敲"的强度，喂给键光和身体起伏。 */
@@ -899,6 +959,7 @@ export function drawPetFrame(
   blink: number,
   k: number,
   deskImg?: CanvasImageSource & { width?: number; naturalWidth?: number } | null,
+  hands?: PetHandImages | null,
 ): void {
   if (mode === 'coding' && deskImg) {
     drawDeskFrame(ctx, deskImg, t, blink)
@@ -991,7 +1052,7 @@ export function drawPetFrame(
   )
   if (mode === 'listening') {
     // 手扶着耳朵在听：画在五官之后，手掌盖在耳侧头发上
-    drawHandOnEar(ctx, sx, sy, left, hy)
+    drawHandOnEar(ctx, sx, sy, left, hy, hands ?? null)
   }
   ctx.restore()
 
@@ -1000,9 +1061,9 @@ export function drawPetFrame(
   else if (mode === 'answering') drawArcs(ctx, 137, 88, t, '#A6DCFF', 3, 6.4, 5.4, 54)
   if (mode === 'dancing') {
     // 双手举过头顶挥舞 + 音符（画在头后，手在发梢前）
-    drawDanceHands(ctx, sx, sy, left, topY + bob * 0.55, t)
+    drawDanceHands(ctx, sx, sy, left, topY + bob * 0.55, t, hands ?? null)
     drawNotes(ctx, t)
   } else if (mode === 'teaching') {
-    drawTeachArm(ctx, sx, sy, left, topY + bob * 0.55, t)
+    drawTeachArm(ctx, sx, sy, left, topY + bob * 0.55, t, hands ?? null)
   }
 }
