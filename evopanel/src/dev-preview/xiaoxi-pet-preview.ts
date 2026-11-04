@@ -20,7 +20,15 @@ Promise.all([
 ]).then(() => {
   const row = document.getElementById('light') as HTMLDivElement
   const k = img.naturalWidth / 840
-  const modes: PetMode[] = ['idle', 'listening', 'thinking', 'answering', 'coding']
+  const modes: PetMode[] = [
+    'idle',
+    'listening',
+    'thinking',
+    'answering',
+    'coding',
+    'dancing',
+    'teaching',
+  ]
   for (const m of modes) {
     const cv = document.createElement('canvas')
     cv.width = SIZE

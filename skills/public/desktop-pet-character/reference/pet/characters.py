@@ -1585,6 +1585,12 @@ class GirlArt(Girl):
             return 0.22, 0.05 + 0.04 * abs(math.sin(t * 1.4)), 0.10
         if mode == "coding_mumble":
             return 0.34, 0.62 * self._syllable(t * 0.55), 0.26
+        if mode == "dancing":
+            # 边跳边跟着哼：笑得最开、腮红最浓
+            return 0.95, 0.50 * self._syllable(t * 1.25), 0.60 + 0.15 * math.sin(t * 3.3)
+        if mode == "teaching":
+            # 讲课：一直在说，句读之间换气
+            return 0.55, 0.85 * self._syllable(t * 0.9), 0.32
         sm = 0.46 + 0.09 * math.sin(t * 0.62) + 0.05 * math.sin(t * 1.7)
         return sm, 0.0, 0.20 + 0.06 * math.sin(t * 0.62)
 
@@ -1627,7 +1633,7 @@ class GirlArt(Girl):
         # ---------------- 开口说话 ----------------
         oh = hh * (0.48 + 3.10 * opn)          # 开口高度（比原来大一倍多）
         # 宽度单独走一条包络：有的音节是"啊"（竖），有的是"咿"（横）
-        shape = 0.86 + 0.30 * abs(math.sin(t * 9.1 + 1.1)) if mode == "answering" else 1.0
+        shape = 0.86 + 0.30 * abs(math.sin(t * 9.1 + 1.1)) if mode in ("answering", "teaching") else 1.0
         w2 = hw * (1.14 + 0.30 * opn) * shape
         corner_x = w2 * 1.06
         vy = cy - oh * 0.22                    # 张大时视觉重心上移，别把下巴吃光
@@ -1866,6 +1872,139 @@ class GirlArt(Girl):
             p.drawPath(f)
         p.restore()
 
+    def _dance_hands(self, p: QPainter, sx: float, sy: float,
+                     left: float, top: float, t: float) -> None:
+        """dancing：双手举过头顶，跟着节拍左右挥——蹦迪应援同款。"""
+        p.setRenderHint(QPainter.Antialiasing, True)
+        beat = t * 3.3
+        for sgn in (-1.0, 1.0):
+            phase = beat if sgn < 0 else beat + math.pi     # 两只手反相挥
+            sh_x = left + (420 + sgn * 290) * sx            # 臂根（藏进身体）
+            sh_y = top + 700 * sy
+            wr_x = left + (420 + sgn * 262) * sx            # 腕：举到头顶两侧
+            wr_y = top + (95 + 12 * math.sin(phase)) * sy
+            sleeve = QPainterPath(QPointF(sh_x, sh_y))
+            sleeve.quadTo(QPointF(left + (420 + sgn * 330) * sx, top + 400 * sy),
+                          QPointF(wr_x, wr_y))
+            sg = QLinearGradient(QPointF(sh_x, sh_y), QPointF(wr_x, wr_y))
+            sg.setColorAt(0.0, QColor("#AFC4D6"))
+            sg.setColorAt(1.0, QColor("#DCE8F2"))
+            p.setPen(QPen(_rgba("#8FA9C0", 150), max(1.5, 3.6 * sx),
+                          Qt.SolidLine, Qt.RoundCap))
+            p.setBrush(QBrush(sg))
+            p.drawPath(sleeve)
+            # 手掌：竖长椭圆绕腕挥，指缝拉长才像手而不是勺子
+            p.save()
+            p.translate(wr_x, wr_y)
+            p.rotate(math.degrees(math.sin(phase) * 0.32 * sgn + sgn * 0.15))
+            pg = QLinearGradient(0, -58 * sy, 0, 44 * sy)
+            pg.setColorAt(0.0, self.SKIN_HI)
+            pg.setColorAt(1.0, self.SKIN_LO)
+            p.setPen(QPen(_rgba("#D9A8A6", 150), max(0.8, 2.2 * sx)))
+            p.setBrush(QBrush(pg))
+            p.drawEllipse(QPointF(0, 0), 26 * sx, 60 * sy)
+            p.setPen(QPen(_rgba("#D9A8A6", 160), max(0.6, 1.4 * sx)))
+            p.setBrush(Qt.NoBrush)
+            for dx in (-15, -5, 5, 15):
+                f = QPainterPath(QPointF(dx * sx, -50 * sy))
+                f.quadTo(QPointF((dx + sgn * 2) * sx, -26 * sy),
+                         QPointF(dx * sx, 6 * sy))
+                p.drawPath(f)
+            # 拇指：画在手心内侧
+            p.setPen(QPen(_rgba("#D9A8A6", 150), max(0.8, 2.2 * sx)))
+            p.setBrush(QBrush(pg))
+            p.drawEllipse(QPointF(-sgn * 20 * sx, 14 * sy), 9 * sx, 16 * sy)
+            p.restore()
+
+    def _notes(self, p: QPainter, t: float) -> None:
+        """dancing：三个音符轮流从身侧飘上来。"""
+        p.setRenderHint(QPainter.Antialiasing, True)
+        cols = ("#7FC8FF", "#F2A6C0", "#9EE6C8")
+        xs = (34.0, 166.0, 52.0)            # 别飘到脸上：只在身体两侧
+        for i in range(3):
+            ph = (t * 0.42 + i * 0.37) % 1.0
+            x = xs[i] + math.sin(ph * 5.0 + i * 2.0) * 4.0
+            y = 138 - ph * 80
+            a = int(235 * math.sin(ph * math.pi))
+            if a <= 8:
+                continue
+            col = cols[i]
+            s = 1.15 + 0.15 * math.sin(t * 6.0 + i)
+            p.setPen(Qt.NoPen)
+            p.setBrush(_with_alpha(col, a))
+            p.drawEllipse(QPointF(x - 2.9 * s, y + 3.6 * s), 3.7 * s, 2.9 * s)
+            p.setPen(QPen(_with_alpha(col, a), max(1.0, 1.3 * s),
+                          Qt.SolidLine, Qt.RoundCap))
+            p.setBrush(Qt.NoBrush)
+            stem = QPainterPath(QPointF(x + 0.6 * s, y + 3.0 * s))
+            stem.lineTo(QPointF(x + 0.6 * s, y - 6.5 * s))
+            stem.quadTo(QPointF(x + 5.5 * s, y - 5.0 * s),
+                        QPointF(x + 6.5 * s, y - 1.5 * s))
+            p.drawPath(stem)
+
+    def _board(self, p: QPainter, t: float) -> None:
+        """teaching：身旁的小白板，要点一条条"写"出来，像在板书。"""
+        p.setRenderHint(QPainter.Antialiasing, True)
+        x0, y0, bw, bh = 132.0, 34.0, 60.0, 74.0
+        p.setPen(Qt.NoPen)
+        p.setBrush(_with_alpha("#33425C", 40))
+        p.drawRoundedRect(QRectF(x0 + 2.5, y0 + 3.0, bw, bh), 6, 6)
+        p.setBrush(QColor("#F7FAFD"))
+        p.setPen(QPen(_rgba("#9FB4C6", 220), 1.6))
+        p.drawRoundedRect(QRectF(x0, y0, bw, bh), 6, 6)
+        # 标题条
+        p.setPen(Qt.NoPen)
+        p.setBrush(_rgba("#7FA8D9", 200))
+        p.drawRoundedRect(QRectF(x0 + 7, y0 + 8, bw * 0.52, 4.4), 2.2, 2.2)
+        # 要点：循环点亮，"写到哪条哪条亮"
+        cycle = (t * 0.45) % 1.0
+        for i in range(3):
+            yy = y0 + 22 + i * 14
+            frac = max(0.0, min(1.0, cycle * (3.0 + 0.8) - i))
+            p.setBrush(_with_alpha("#8FA9C4", 200))
+            p.drawEllipse(QPointF(x0 + 4.2, yy + 1.7), 1.5, 1.5)
+            if frac <= 0.02:
+                p.setBrush(_with_alpha("#C3D2E0", 130))
+                p.drawRoundedRect(QRectF(x0 + 8, yy, 6.0, 3.4), 1.7, 1.7)
+            else:
+                p.setBrush(_with_alpha("#5B7FA6", 235))
+                p.drawRoundedRect(QRectF(x0 + 8, yy, max(6.0, (bw - 16) * frac), 3.4),
+                                  1.7, 1.7)
+
+    def _teach_arm(self, p: QPainter, sx: float, sy: float,
+                   left: float, top: float, t: float) -> None:
+        """teaching：右臂抬向白板，张开的手掌随音节比划。"""
+        q0 = QPointF(left + 700 * sx, top + 690 * sy)   # 臂根（藏进身体轮廓）
+        q1 = QPointF(left + 738 * sx, top + 420 * sy)   # 腕：指向板面下缘
+        swing = math.sin(t * 6.3) * 0.10 * (0.35 + 0.65 * self._syllable(t * 0.9))
+        p.setRenderHint(QPainter.Antialiasing, True)
+        sleeve = QPainterPath(q0)
+        sleeve.quadTo(QPointF(left + 758 * sx, top + 560 * sy), q1)
+        sg = QLinearGradient(q0, q1)
+        sg.setColorAt(0.0, QColor("#AFC4D6"))
+        sg.setColorAt(1.0, QColor("#DCE8F2"))
+        p.setPen(QPen(_rgba("#8FA9C0", 150), max(1.5, 3.6 * sx),
+                      Qt.SolidLine, Qt.RoundCap))
+        p.setBrush(QBrush(sg))
+        p.drawPath(sleeve)
+        p.save()
+        p.translate(q1)
+        p.rotate(math.degrees(swing) - 26.0)            # 手掌朝板面张开
+        pg = QLinearGradient(0, -66 * sy, 0, 34 * sy)
+        pg.setColorAt(0.0, self.SKIN_HI)
+        pg.setColorAt(1.0, self.SKIN_LO)
+        p.setPen(QPen(_rgba("#D9A8A6", 150), max(0.8, 2.2 * sx)))
+        p.setBrush(QBrush(pg))
+        p.drawEllipse(QPointF(0, -16 * sy), 28 * sx, 58 * sy)
+        p.drawEllipse(QPointF(23 * sx, 10 * sy), 11 * sx, 14 * sy)   # 拇指
+        p.setPen(QPen(_rgba("#D9A8A6", 135), max(0.6, 1.5 * sx)))
+        p.setBrush(Qt.NoBrush)
+        for dx in (-13, 0, 13):
+            f = QPainterPath(QPointF(dx * sx, -62 * sy))
+            f.quadTo(QPointF((dx + 2) * sx, -32 * sy), QPointF(dx * sx, -4 * sy))
+            p.drawPath(f)
+        p.restore()
+
     # ------------------------------------------------------------------ #
     # 站姿场景
     # ------------------------------------------------------------------ #
@@ -1879,7 +2018,11 @@ class GirlArt(Girl):
         head, body = self._layers()
         sx, sy, w, left, top = self._geo()
         t = st.t
-        bob = math.sin(t * 1.55) * 2.1
+        beat = t * 3.3
+        if mode == "dancing":
+            bob = -abs(math.sin(beat)) * 4.6            # 跟着节拍弹跳
+        else:
+            bob = math.sin(t * 1.55) * 2.1
 
         p.save()
         p.setOpacity(alpha)
@@ -1891,18 +2034,32 @@ class GirlArt(Girl):
         p.setBrush(QBrush(shadow))
         p.drawEllipse(QPointF(100, 191), max(24.0, sw), 9.0)
 
+        if mode == "teaching":
+            # 小白板画在身后：要点一条条亮出来，像在板书
+            self._board(p, t)
+
         if body is not None:
             by = top + (self.NECK_Y - self.OVERLAP) * sy + bob * 0.55
             p.setRenderHint(QPainter.SmoothPixmapTransform, True)
             p.drawPixmap(QRectF(left, by, w, body.height() * sy), body, QRectF(body.rect()))
 
         base = {"thinking": -4.2, "listening": 5.2, "answering": -1.4}.get(mode, 0.0)
-        sway = math.sin(t * 0.9) * 1.7 if mode == "idle" else math.sin(t * 1.6) * 0.9
+        if mode == "dancing":
+            sway = math.sin(beat) * 2.6                  # 头跟着节拍摇
+        elif mode == "idle":
+            sway = math.sin(t * 0.9) * 1.7
+        else:
+            sway = math.sin(t * 1.6) * 0.9
         nod = 0.0
         if mode == "answering":
             nod = math.sin(t * 9.7) * 1.9 + math.sin(t * 3.4) * 1.1
         elif mode == "thinking":
             nod = -math.sin(t * 1.2) * 1.0
+        elif mode == "dancing":
+            nod = math.sin(beat * 0.5) * 1.6
+        elif mode == "teaching":
+            # 讲到重点时脑袋跟着音节一点一点
+            nod = math.sin(t * 1.55) * 0.9 + self._syllable(t * 0.9) * 1.2
         rot = base + sway + nod
 
         neck = top + self.NECK_Y * sy + bob
@@ -1939,6 +2096,13 @@ class GirlArt(Girl):
             self._arcs(p, 150, 74, t, QColor("#7FC8FF"), 3, 8.0, 6.4, 72)
         elif mode == "answering":
             self._arcs(p, 126, 96, t, QColor("#A6DCFF"), 3, 6.4, 5.4, 54)
+        if mode == "dancing":
+            # 双手举过头顶挥舞 + 飘上来的音符（画在头后，手在发梢前）
+            self._dance_hands(p, sx, sy, left, top + bob * 0.55, t)
+            self._notes(p, t)
+        elif mode == "teaching":
+            # 右臂抬向白板，随音节比划
+            self._teach_arm(p, sx, sy, left, top + bob * 0.55, t)
 
         self.draw_sparkles(p, st)
         p.restore()

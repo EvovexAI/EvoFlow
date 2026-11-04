@@ -12,7 +12,7 @@
  * 源坐标按 840x1333（站姿）/ 1024x852（坐姿）原始立绘量，运行时乘 K（实际图宽 / 原图宽）换算。
  */
 
-export type PetMode = 'idle' | 'listening' | 'thinking' | 'answering' | 'coding'
+export type PetMode = 'idle' | 'listening' | 'thinking' | 'answering' | 'coding' | 'dancing' | 'teaching'
 
 export const PET_IMG_URL = '/assets/xiaoxi/girl.webp'
 export const PET_DESK_IMG_URL = '/assets/xiaoxi/girl_desk.webp'
@@ -107,6 +107,14 @@ export function expression(mode: PetMode, t: number): [number, number, number] {
   if (mode === 'listening') return [0.82 + 0.07 * Math.sin(t * 2.1), 0.03, 0.3]
   if (mode === 'thinking') return [0.22, 0.05 + 0.04 * Math.abs(Math.sin(t * 1.4)), 0.1]
   if (mode === 'coding') return [0.34, 0.62 * syllable(t * 0.55), 0.26]
+  if (mode === 'dancing') {
+    // 边跳边跟着哼：笑得最开、腮红最浓
+    return [0.95, 0.5 * syllable(t * 1.25), 0.6 + 0.15 * Math.sin(t * 3.3)]
+  }
+  if (mode === 'teaching') {
+    // 讲课：一直在说，句读之间换气
+    return [0.55, 0.85 * syllable(t * 0.9), 0.32]
+  }
   return [
     0.46 + 0.09 * Math.sin(t * 0.62) + 0.05 * Math.sin(t * 1.7),
     0,
@@ -259,7 +267,8 @@ function drawMouth(
   // ── 开口说话 ──
   const oh = hh * (0.48 + 3.1 * opn)
   // 宽度单独走一条包络：有的音节是「啊」（竖），有的是「咿」（横）
-  const shape = mode === 'answering' ? 0.86 + 0.3 * Math.abs(Math.sin(t * 9.1 + 1.1)) : 1
+  const shape =
+    mode === 'answering' || mode === 'teaching' ? 0.86 + 0.3 * Math.abs(Math.sin(t * 9.1 + 1.1)) : 1
   w2 = hw * (1.14 + 0.3 * opn) * shape
   const cornerX = w2 * 1.06
   const vy = cy - oh * 0.22 // 张大时视觉重心上移，别把下巴吃光
@@ -450,6 +459,179 @@ function drawHandOnEar(
     ctx.stroke()
   }
   ctx.restore()
+}
+
+/** 画一条"袖子手臂"：粗描边双层（描边层 + 亮层），读得出是一条手臂。 */
+function drawSleeveArm(
+  ctx: CanvasRenderingContext2D,
+  sx: number,
+  sy: number,
+  a: [number, number],
+  b: [number, number],
+  w: [number, number],
+): void {
+  ctx.lineCap = 'round'
+  ctx.beginPath()
+  ctx.moveTo(a[0], a[1])
+  ctx.quadraticCurveTo(b[0], b[1], w[0], w[1])
+  ctx.strokeStyle = rgba('#8FA9C0', 150)
+  ctx.lineWidth = 50 * sx
+  ctx.stroke()
+  const sg = ctx.createLinearGradient(a[0], a[1], w[0], w[1])
+  sg.addColorStop(0, '#AFC4D6')
+  sg.addColorStop(1, '#DCE8F2')
+  ctx.strokeStyle = sg
+  ctx.lineWidth = 44 * sx
+  ctx.stroke()
+}
+
+/** 张开的竖长手掌（指缝 + 拇指），在 (x,y) 处绕腕旋转。 */
+function drawOpenPalm(
+  ctx: CanvasRenderingContext2D,
+  sx: number,
+  sy: number,
+  x: number,
+  y: number,
+  rot: number,
+): void {
+  ctx.save()
+  ctx.translate(x, y)
+  ctx.rotate(rot)
+  const pg = ctx.createLinearGradient(0, -58 * sy, 0, 44 * sy)
+  pg.addColorStop(0, SKIN_HI)
+  pg.addColorStop(1, SKIN_LO)
+  ctx.fillStyle = pg
+  ctx.strokeStyle = rgba('#D9A8A6', 150)
+  ctx.lineWidth = Math.max(0.8, 2.2 * sx)
+  ctx.beginPath()
+  ctx.ellipse(0, 0, 26 * sx, 60 * sy, 0, 0, Math.PI * 2)
+  ctx.fill()
+  ctx.stroke()
+  ctx.beginPath()
+  ctx.ellipse(-20 * sx, 14 * sy, 9 * sx, 16 * sy, 0, 0, Math.PI * 2)
+  ctx.fill()
+  ctx.stroke()
+  ctx.strokeStyle = rgba('#D9A8A6', 160)
+  ctx.lineWidth = Math.max(0.6, 1.4 * sx)
+  for (const dx of [-15, -5, 5, 15]) {
+    ctx.beginPath()
+    ctx.moveTo(dx * sx, -50 * sy)
+    ctx.quadraticCurveTo((dx + 2) * sx, -26 * sy, dx * sx, 6 * sy)
+    ctx.stroke()
+  }
+  ctx.restore()
+}
+
+/** dancing：双手举过头顶，跟着节拍反相挥。 */
+function drawDanceHands(
+  ctx: CanvasRenderingContext2D,
+  sx: number,
+  sy: number,
+  left: number,
+  topY: number,
+  t: number,
+): void {
+  const P = (x: number, y: number): [number, number] => [left + x * sx, topY + y * sy]
+  const beat = t * 3.3
+  for (const sgn of [-1, 1] as const) {
+    const phase = sgn < 0 ? beat : beat + Math.PI
+    drawSleeveArm(
+      ctx,
+      sx,
+      sy,
+      P(420 + sgn * 290, 700),
+      P(420 + sgn * 330, 400),
+      P(420 + sgn * 262, 95 + 12 * Math.sin(phase)),
+    )
+    const [wx, wy] = P(420 + sgn * 262, 95 + 12 * Math.sin(phase))
+    drawOpenPalm(ctx, sx, sy, wx, wy, Math.sin(phase) * 0.32 * sgn + sgn * 0.15)
+  }
+}
+
+/** dancing：音符从身体两侧飘上来（别飘到脸上）。 */
+function drawNotes(ctx: CanvasRenderingContext2D, t: number): void {
+  const cols = ['#7FC8FF', '#F2A6C0', '#9EE6C8']
+  const xs = [34, 166, 52]
+  for (let i = 0; i < 3; i++) {
+    const ph = (t * 0.42 + i * 0.37) % 1
+    const x = xs[i] + Math.sin(ph * 5 + i * 2) * 4
+    const y = 138 - ph * 80
+    const a = Math.round(235 * Math.sin(ph * Math.PI))
+    if (a <= 8) continue
+    const col = cols[i]
+    const s = 1.15 + 0.15 * Math.sin(t * 6 + i)
+    ctx.fillStyle = rgba(col, a)
+    ctx.beginPath()
+    ctx.ellipse(x - 2.9 * s, y + 3.6 * s, 3.7 * s, 2.9 * s, 0, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.strokeStyle = rgba(col, a)
+    ctx.lineWidth = Math.max(1, 1.3 * s)
+    ctx.lineCap = 'round'
+    ctx.beginPath()
+    ctx.moveTo(x + 0.6 * s, y + 3.6 * s)
+    ctx.lineTo(x + 0.6 * s, y - 6.5 * s)
+    ctx.quadraticCurveTo(x + 5.5 * s, y - 5 * s, x + 6.5 * s, y - 1.5 * s)
+    ctx.stroke()
+  }
+}
+
+/** teaching：身旁的小白板，要点一条条"写"出来。 */
+function drawBoard(ctx: CanvasRenderingContext2D, t: number): void {
+  const x0 = 132
+  const y0 = 34
+  const bw = 60
+  const bh = 74
+  ctx.fillStyle = rgba('#33425C', 40)
+  ctx.beginPath()
+  ctx.roundRect(x0 + 2.5, y0 + 3, bw, bh, 6)
+  ctx.fill()
+  ctx.fillStyle = '#F7FAFD'
+  ctx.strokeStyle = rgba('#9FB4C6', 220)
+  ctx.lineWidth = 1.6
+  ctx.beginPath()
+  ctx.roundRect(x0, y0, bw, bh, 6)
+  ctx.fill()
+  ctx.stroke()
+  ctx.fillStyle = rgba('#7FA8D9', 200)
+  ctx.beginPath()
+  ctx.roundRect(x0 + 7, y0 + 8, bw * 0.52, 4.4, 2.2)
+  ctx.fill()
+  const cycle = (t * 0.45) % 1
+  for (let i = 0; i < 3; i++) {
+    const yy = y0 + 22 + i * 14
+    const frac = Math.max(0, Math.min(1, cycle * 3.8 - i))
+    ctx.fillStyle = rgba('#8FA9C4', 200)
+    ctx.beginPath()
+    ctx.arc(x0 + 4.2, yy + 1.7, 1.5, 0, Math.PI * 2)
+    ctx.fill()
+    if (frac <= 0.02) {
+      ctx.fillStyle = rgba('#C3D2E0', 130)
+      ctx.beginPath()
+      ctx.roundRect(x0 + 8, yy, 6, 3.4, 1.7)
+      ctx.fill()
+    } else {
+      ctx.fillStyle = rgba('#5B7FA6', 235)
+      ctx.beginPath()
+      ctx.roundRect(x0 + 8, yy, Math.max(6, (bw - 16) * frac), 3.4, 1.7)
+      ctx.fill()
+    }
+  }
+}
+
+/** teaching：右臂抬向白板，张开的手掌随音节比划。 */
+function drawTeachArm(
+  ctx: CanvasRenderingContext2D,
+  sx: number,
+  sy: number,
+  left: number,
+  topY: number,
+  t: number,
+): void {
+  const P = (x: number, y: number): [number, number] => [left + x * sx, topY + y * sy]
+  const swing = Math.sin(t * 6.3) * 0.1 * (0.35 + 0.65 * syllable(t * 0.9))
+  drawSleeveArm(ctx, sx, sy, P(700, 690), P(758, 560), P(738, 420))
+  const [wx, wy] = P(738, 420)
+  drawOpenPalm(ctx, sx, sy, wx, wy, swing - 0.45)
 }
 
 /** 两只手合成一个 0~1 的"正在敲"的强度，喂给键光和身体起伏。 */
@@ -729,7 +911,8 @@ export function drawPetFrame(
   const w = IMG_W * sx
   const left = 100 - w / 2
   const topY = FOOT_Y - IMG_H * sy
-  const bob = Math.sin(t * 1.55) * 2.1
+  const beat = t * 3.3
+  const bob = mode === 'dancing' ? -Math.abs(Math.sin(beat)) * 4.6 : Math.sin(t * 1.55) * 2.1
 
   // 脚下淡影：没有它整个人像贴纸浮在光晕上
   const sw = Math.max(24, 40 - bob * 0.8)
@@ -741,6 +924,9 @@ export function drawPetFrame(
   ctx.ellipse(100, 191, sw, 9, 0, 0, Math.PI * 2)
   ctx.fill()
 
+  // teaching：小白板画在身后（身体层之前），像立在她身侧
+  if (mode === 'teaching') drawBoard(ctx, t)
+
   // ── 身体层 ──
   const cut = NECK_Y - OVERLAP
   const bodyTop = topY + cut * sy + bob * 0.55
@@ -749,10 +935,13 @@ export function drawPetFrame(
   // ── 头层：绕脖子转 ──
   const base =
     mode === 'thinking' ? -4.2 : mode === 'listening' ? 5.2 : mode === 'answering' ? -1.4 : 0
-  // 思考态保持歪头但不摇摆（用户要求：思考时不要来回动）；仅空闲缓慢摆动
-  const sway = mode === 'idle' ? Math.sin(t * 0.9) * 1.7 : 0
+  // 思考态保持歪头但不摇摆（用户要求：思考时不要来回动）；空闲缓慢摆动，跳舞跟节拍摇
+  const sway =
+    mode === 'dancing' ? Math.sin(beat) * 2.6 : mode === 'idle' ? Math.sin(t * 0.9) * 1.7 : 0
   let nod = 0
   if (mode === 'answering') nod = Math.sin(t * 9.7) * 1.9 + Math.sin(t * 3.4) * 1.1
+  else if (mode === 'dancing') nod = Math.sin(beat * 0.5) * 1.6
+  else if (mode === 'teaching') nod = Math.sin(t * 1.55) * 0.9 + syllable(t * 0.9) * 1.2
   const rot = base + sway + nod
 
   const neck = topY + NECK_Y * sy + bob
@@ -809,4 +998,11 @@ export function drawPetFrame(
   if (mode === 'thinking') drawDots(ctx, t)
   else if (mode === 'listening') drawArcs(ctx, 150, 74, t, '#7FC8FF', 3, 8, 6.4, 72)
   else if (mode === 'answering') drawArcs(ctx, 137, 88, t, '#A6DCFF', 3, 6.4, 5.4, 54)
+  if (mode === 'dancing') {
+    // 双手举过头顶挥舞 + 音符（画在头后，手在发梢前）
+    drawDanceHands(ctx, sx, sy, left, topY + bob * 0.55, t)
+    drawNotes(ctx, t)
+  } else if (mode === 'teaching') {
+    drawTeachArm(ctx, sx, sy, left, topY + bob * 0.55, t)
+  }
 }
