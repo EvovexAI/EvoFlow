@@ -3,10 +3,14 @@
   "minAppVersion": "1.2.9",
   "updateKind": "full",
   "assetKind": "installer",
-  "hash": "",
+  "hash": "sha256:ca4a083884de03aea6e3a8f40b4993304bd57f0e5acfcc8752e94ea5941c95d1",
   "url": "https://ghfast.top/https://github.com/EvovexAI/EvoFlow/releases/download/v1.2.9/EvoFlow_1.2.9_x64-setup.exe",
   "urlCnMirror": "https://ghfast.top/https://github.com/EvovexAI/EvoFlow/releases/download/v1.2.9/EvoFlow_1.2.9_x64-setup.exe",
+  "urlGitee": "https://gitee.com/evovexai/EvoFlow/releases/download/v1.2.9/EvoFlow_1.2.9_x64-setup.exe",
   "urlGithub": "https://github.com/EvovexAI/EvoFlow/releases/download/v1.2.9/EvoFlow_1.2.9_x64-setup.exe",
-  "size": 0,
-  "changelog": "EvoFlow 1.2.9（相对 1.2.8）：修复读图工具「模型没收到图 / 图片被清空」；IM 渠道忙时可中途加塞；工具记录配对清洗减少 Volc 报错；资产注入标签更可读；部门群聊重挂不再丢流式正文；头像工坊新增精灵图与发型重构。覆盖安装即可。"
+  "size": 409108714,
+  "changelog": "**EvoFlow v1.2.9 — 读图更可靠，IM 可中途加塞，部门群不再丢回复**",
+  "notes": "**EvoFlow v1.2.9 — 读图更可靠，IM 可中途加塞，部门群不再丢回复**",
+  "releasedAt": "2026-11-04T12:52:44Z",
+  "pub_date": "2026-11-04T12:52:44Z"
 }

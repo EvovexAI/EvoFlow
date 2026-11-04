@@ -214,6 +214,7 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
+          GITEE_REPO_TOKEN: ${{ secrets.GITEE_REPO_TOKEN }}
         run: |
           $ErrorActionPreference = 'Stop'
           $ver = "${{ steps.artifacts.outputs.version }}"

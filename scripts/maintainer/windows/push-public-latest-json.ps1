@@ -372,29 +372,53 @@ function Push-GithubLatestJson {
     $contentApi = "https://api.github.com/repos/$Owner/$Repo/contents/$contentPath"
     $bytes = [System.IO.File]::ReadAllBytes($JsonPath)
     $b64 = [Convert]::ToBase64String($bytes)
-    $bodyObj = @{
-        message = "chore: update latest.json for $TagName"
-        content = $b64
+    $message = "chore: update latest.json for $TagName"
+    $lastError = $null
+    $pushed = $false
+    # Contents API can return 409 when the sha changes between GET and PUT
+    # (concurrent run / another writer). Re-read sha and retry instead of
+    # degrading to a warning - a stale manifest silently breaks update checks.
+    for ($attempt = 1; $attempt -le 3; $attempt++) {
+        $bodyObj = @{
+            message = $message
+            content = $b64
+        }
+        try {
+            $existing = Invoke-RestMethod -Uri $contentApi -Headers $Headers -Method Get -ErrorAction Stop
+            if ($existing.sha) { $bodyObj.sha = $existing.sha }
+        }
+        catch {
+            $code = $null
+            if ($_.Exception.Response) { $code = [int]$_.Exception.Response.StatusCode }
+            if ($code -ne 404) {
+                $lastError = $_
+                Write-Warning "GitHub GET latest.json failed (attempt $attempt/3): $($_.Exception.Message)"
+                Start-Sleep -Seconds 2
+                continue
+            }
+        }
+        $putPath = Join-Path ([IO.Path]::GetTempPath()) ("evoflow-latest-put-" + [guid]::NewGuid().ToString("n") + ".json")
+        try {
+            $putAscii = @{ message = $bodyObj.message; content = $bodyObj.content }
+            if ($bodyObj.sha) { $putAscii.sha = $bodyObj.sha }
+            ($putAscii | ConvertTo-Json -Compress) | Set-Content -LiteralPath $putPath -Encoding ascii
+            $putBody = [System.IO.File]::ReadAllText($putPath, [System.Text.Encoding]::ASCII)
+            $null = Invoke-RestMethod -Uri $contentApi -Headers $Headers -Method Put -Body $putBody -ContentType "application/json; charset=utf-8"
+            $pushed = $true
+            $lastError = $null
+            break
+        }
+        catch {
+            $lastError = $_
+            Write-Warning "GitHub PUT latest.json failed (attempt $attempt/3): $($_.Exception.Message)"
+            if ($attempt -lt 3) { Start-Sleep -Seconds 2 }
+        }
+        finally {
+            Remove-Item -LiteralPath $putPath -Force -ErrorAction SilentlyContinue
+        }
     }
-    try {
-        $existing = Invoke-RestMethod -Uri $contentApi -Headers $Headers -Method Get -ErrorAction Stop
-        if ($existing.sha) { $bodyObj.sha = $existing.sha }
-    }
-    catch {
-        $code = $null
-        if ($_.Exception.Response) { $code = [int]$_.Exception.Response.StatusCode }
-        if ($code -ne 404) { throw }
-    }
-    $putPath = Join-Path ([IO.Path]::GetTempPath()) ("evoflow-latest-put-" + [guid]::NewGuid().ToString("n") + ".json")
-    try {
-        $putAscii = @{ message = $bodyObj.message; content = $bodyObj.content }
-        if ($bodyObj.sha) { $putAscii.sha = $bodyObj.sha }
-        ($putAscii | ConvertTo-Json -Compress) | Set-Content -LiteralPath $putPath -Encoding ascii
-        $putBody = [System.IO.File]::ReadAllText($putPath, [System.Text.Encoding]::ASCII)
-        $null = Invoke-RestMethod -Uri $contentApi -Headers $Headers -Method Put -Body $putBody -ContentType "application/json; charset=utf-8"
-    }
-    finally {
-        Remove-Item -LiteralPath $putPath -Force -ErrorAction SilentlyContinue
+    if (-not $pushed) {
+        throw "GitHub latest.json push failed after 3 attempts: $($lastError.Exception.Message)"
     }
     Write-Host "Pushed $contentPath to GitHub $Owner/$Repo" -ForegroundColor Green
     try {
@@ -490,12 +514,13 @@ function Push-GiteeLatestJson {
     }
 }
 
+$pushFailures = @()
+
 if (-not $SkipGithub) {
     try {
         Push-GithubLatestJson -JsonPath $draftPath -TagName $tagName -Headers $headers -Owner $owner -Repo $repo
     } catch {
-        Write-Warning "GitHub push failed: $($_.Exception.Message)"
-        if ($SkipGitee) { throw }
+        $pushFailures += "GitHub: $($_.Exception.Message)"
     }
 } else {
     Write-Host "Skip GitHub push (-SkipGithub)" -ForegroundColor DarkGray
@@ -505,12 +530,20 @@ if (-not $SkipGitee) {
     try {
         Push-GiteeLatestJson -JsonPath $draftPath -TagName $tagName -GiteeOwner $giteeOwner -GiteeRepo $giteeRepo
     } catch {
-        Write-Warning "Gitee push failed: $($_.Exception.Message)"
-        if ($SkipGithub) { throw }
+        $pushFailures += "Gitee: $($_.Exception.Message)"
     }
 } else {
     Write-Host "Skip Gitee push (-SkipGitee)" -ForegroundColor DarkGray
 }
+
+# A stale manifest looks like "no update available" on every client, and the
+# release job used to stay green while both pushes failed. Fail loudly instead.
+if ($pushFailures.Count -gt 0) {
+    Write-Host ("ERROR: latest.json was not refreshed on every public remote: " + ($pushFailures -join "; ")) -ForegroundColor Red
+    Write-Host "Clients would keep seeing the old version - fix credentials/conflicts and rerun." -ForegroundColor Red
+    exit 1
+}
+Write-Host "Public update channel refreshed: $semVer" -ForegroundColor Green
 
 Write-Host "Manifest (CN): https://gitee.com/$giteeOwner/$giteeRepo/raw/main/update/latest.json" -ForegroundColor DarkGray
 Write-Host "Manifest FO:   https://cdn.jsdelivr.net/gh/$owner/$repo@main/update/latest.json" -ForegroundColor DarkGray
