@@ -109,11 +109,13 @@ def test_view_image_batch_native_stages_all(tmp_path: Path):
     assert isinstance(out, Command)
     viewed = out.update["viewed_images"]
     assert set(viewed.keys()) == set(paths)
-    assert out.update["native_viewed_image_refs"] == paths
+    # Delivery marker is owned by ViewImageMiddleware after pixels inject.
+    assert "native_viewed_image_refs" not in out.update
     msg = out.update["messages"][0]
     assert isinstance(msg, ToolMessage)
     body = json.loads(msg.content)
     assert body["mode"] == "native"
+    assert body["pixels_status"] == "pending_inject"
     assert body["count"] == 2
     assert len(body["images"]) == 2
 
@@ -179,7 +181,8 @@ def test_view_image_single_string_still_works(tmp_path: Path):
     assert "count" not in body or body.get("count") == 1
 
 
-def test_view_image_hard_blocks_duplicate_native_read(tmp_path: Path):
+def test_view_image_restages_duplicate_native_read(tmp_path: Path):
+    """Previously hard-blocked; now re-stages so middleware can re-inject pixels."""
     p = tmp_path / "dup.png"
     p.write_bytes(_png_bytes())
     path = str(p.resolve())
@@ -194,6 +197,9 @@ def test_view_image_hard_blocks_duplicate_native_read(tmp_path: Path):
             tool_call_id="call-dup",
         )
 
-    assert isinstance(out, str)
-    assert out.startswith("OK: Image already in model context")
-    assert "do not call read" in out.lower()
+    assert isinstance(out, Command)
+    body = json.loads(out.update["messages"][0].content)
+    assert body["mode"] == "native"
+    assert body["cached"] is True
+    assert body["pixels_status"] == "pending_inject"
+    assert path in out.update["viewed_images"]

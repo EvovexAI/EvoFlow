@@ -517,19 +517,30 @@ def format_native_tool_result(
     image_size_bytes: int,
     cached: bool = False,
 ) -> str:
-    """Tool output persisted to obs/transcript — metadata only, never base64."""
+    """Tool output persisted to obs/transcript — metadata only, never base64.
+
+    ``pixels_status`` is always ``pending_inject`` here: staging alone does not
+    mean the model has pixels yet (ViewImageMiddleware delivers them). Callers
+    must not treat this JSON as proof of vision delivery.
+    """
     body: dict[str, Any] = {
         "mode": "native",
+        "ok": True,
+        "staged": True,
+        "pixels_status": "pending_inject",
+        "pixels_delivered": False,
         "image_ref": image_ref,
         "mime_type": mime_type,
         "image_size_bytes": image_size_bytes,
         "cached": cached,
         "message": (
-            "Image already attached in this thread (pixels are in model context). "
-            "Do NOT call read/view_image again on this path; reuse prior visual context and continue the task."
+            "Image re-staged for inject (prior staging was recorded, but pixels are "
+            "re-queued so the next model call can see them). Wait for the inject "
+            "HumanMessage with image blocks before judging visual content."
             if cached
-            else "Image staged for the main vision model; pixels inject before the next model call. "
-            "Do NOT call read/view_image again on this path after that inject."
+            else "Image staged for the main vision model; pixels_status=pending_inject. "
+            "Pixels are delivered only in the next inject HumanMessage (name=view_image_inject). "
+            "Do not assume you have seen the image from this tool JSON alone."
         ),
     }
     return json.dumps(body, ensure_ascii=False)
@@ -541,16 +552,20 @@ def format_native_batch_tool_result(*, images: list[dict[str, Any]]) -> str:
     all_cached = bool(images) and all(bool(item.get("cached")) for item in images)
     if all_cached:
         message = (
-            f"All {n} images already attached in this thread (pixels are in model context). "
-            "Do NOT call read/view_image again on these paths; reuse prior visual context and continue the task."
+            f"Re-staged all {n} images for inject (prior staging recorded). "
+            "Wait for the inject HumanMessage with image blocks before judging visual content."
         )
     else:
         message = (
-            f"Staged {n} images for the main vision model; pixels inject before the next model call. "
-            "Do NOT call read/view_image again on these paths after that inject."
+            f"Staged {n} images for the main vision model; pixels_status=pending_inject. "
+            "Pixels are delivered only in the next inject HumanMessage (name=view_image_inject)."
         )
     body: dict[str, Any] = {
         "mode": "native",
+        "ok": True,
+        "staged": True,
+        "pixels_status": "pending_inject",
+        "pixels_delivered": False,
         "count": n,
         "images": images,
         "cached": all_cached,

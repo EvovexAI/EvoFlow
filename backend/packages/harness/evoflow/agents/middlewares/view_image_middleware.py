@@ -123,14 +123,24 @@ class ViewImageMiddleware(AgentMiddleware[ViewImageMiddlewareState]):
         viewed_images = state.get("viewed_images", {}) or {}
         return any(self._is_auto(image_data) for image_data in viewed_images.values())
 
-    def _create_image_details_message(self, state: ViewImageMiddlewareState) -> list[str | dict]:
+    def _create_image_details_message(
+        self, state: ViewImageMiddlewareState
+    ) -> tuple[list[str | dict], list[str], list[str]]:
+        """Build multimodal blocks for staged images.
+
+        Returns ``(content_blocks, delivered_refs, failed_refs)``.
+        Never invents a "No images have been viewed" synthetic — callers must
+        skip inject when ``viewed_images`` is empty (Mode B fault).
+        """
         viewed_images = state.get("viewed_images", {}) or {}
         manual = {ref: data for ref, data in viewed_images.items() if not self._is_auto(data)}
         auto = {ref: data for ref, data in viewed_images.items() if self._is_auto(data)}
         if not viewed_images:
-            return [{"type": "text", "text": "No images have been viewed."}]
+            return [], [], []
 
         content_blocks: list[str | dict] = []
+        delivered_refs: list[str] = []
+        failed_refs: list[str] = []
         if manual:
             content_blocks.append({"type": "text", "text": "Here are the images you've viewed:"})
         elif auto:
@@ -158,6 +168,16 @@ class ViewImageMiddleware(AgentMiddleware[ViewImageMiddlewareState]):
 
                 loaded = self._load_staged_image_bytes(image_ref, image_data)
                 if not loaded:
+                    failed_refs.append(image_ref)
+                    content_blocks.append(
+                        {
+                            "type": "text",
+                            "text": (
+                                f"[pixels_delivered=false] Failed to load/resize image bytes for "
+                                f"{path_hint}. Re-call read/view_image on this path."
+                            ),
+                        }
+                    )
                     logger.warning(
                         "[ViewImageMiddleware] staged ref has no pixels (load/resize failed) ref=%r path=%r",
                         image_ref,
@@ -171,8 +191,9 @@ class ViewImageMiddleware(AgentMiddleware[ViewImageMiddlewareState]):
                         "image_url": {"url": bytes_to_data_url(img_bytes, out_mime)},
                     }
                 )
+                delivered_refs.append(image_ref)
 
-        return content_blocks
+        return content_blocks, delivered_refs, failed_refs
 
     def _should_inject_image_message(self, state: ViewImageMiddlewareState) -> tuple[bool, str]:
         messages = state.get("messages", [])
@@ -217,6 +238,12 @@ class ViewImageMiddleware(AgentMiddleware[ViewImageMiddlewareState]):
                 return {"viewed_images": {}}
             return None
 
+        # Hard-blocked re-reads used to leave viewed_images empty while the
+        # assistant still had a view_image/read tool call → inject ran and
+        # produced "No images have been viewed." (Mode B). Skip when nothing staged.
+        if not viewed_images:
+            return None
+
         should, reason = self._should_inject_image_message(state)
         if not should:
             if staged_n:
@@ -228,22 +255,23 @@ class ViewImageMiddleware(AgentMiddleware[ViewImageMiddlewareState]):
                 )
             return None
 
-        image_content = self._create_image_details_message(state)
-        pixel_n = sum(
-            1
-            for b in image_content
-            if isinstance(b, dict) and b.get("type") == "image_url"
-        )
-        human_msg = HumanMessage(content=image_content)
+        image_content, delivered_refs, failed_refs = self._create_image_details_message(state)
+        pixel_n = len(delivered_refs)
+        human_msg = HumanMessage(content=image_content, name="view_image_inject")
 
         logger.info(
-            "[ViewImageMiddleware] INJECT ok staged=%s pixels=%s refs=%s",
+            "[ViewImageMiddleware] INJECT ok staged=%s pixels=%s failed=%s refs=%s",
             staged_n,
             pixel_n,
+            len(failed_refs),
             list(viewed_images.keys())[:5],
         )
 
-        return {"messages": [human_msg], "viewed_images": {}}
+        update: dict = {"messages": [human_msg], "viewed_images": {}}
+        # Only mark refs whose pixels actually entered the inject message.
+        if delivered_refs:
+            update["native_viewed_image_refs"] = list(delivered_refs)
+        return update
 
     @override
     def before_model(self, state: ViewImageMiddlewareState, runtime: Runtime) -> dict | None:

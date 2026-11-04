@@ -1758,6 +1758,32 @@ def _is_vision_content_block(block: dict[str, Any]) -> bool:
     return False
 
 
+def _is_view_image_inject_message(msg: BaseMessage) -> bool:
+    """True for ephemeral HumanMessages produced by ``ViewImageMiddleware``."""
+    if str(getattr(msg, "name", None) or "").strip() == "view_image_inject":
+        return True
+    content = getattr(msg, "content", None)
+    if isinstance(content, list):
+        for block in content:
+            if not isinstance(block, dict):
+                continue
+            text = str(block.get("text") or "")
+            if (
+                "Here are the images you've viewed" in text
+                or "Here are the details of the images you've viewed" in text
+                or "Here are the latest screen captures" in text
+            ):
+                return True
+    elif isinstance(content, str):
+        if (
+            "Here are the images you've viewed" in content
+            or "Here are the details of the images you've viewed" in content
+            or "Here are the latest screen captures" in content
+        ):
+            return True
+    return False
+
+
 def strip_image_base64_from_messages(
     messages: list[BaseMessage],
     *,
@@ -1776,16 +1802,37 @@ def strip_image_base64_from_messages(
     Messages within the current active turn (latest user message onward) are
     preserved unchanged so the model can still see images from the current turn
     unless ``strip_all=True`` (emergency overflow after vendor image+text token errors).
+
+    Important: when there is **no** real user message (proactive / employee runs),
+    do **not** strip everything — that used to erase pixels from a just-injected
+    ``view_image_inject`` HumanMessage and leave only
+    ``[Image … base64 data omitted to save context]`` (fault report Mode A).
     """
     from evoflow.agents.message_analysis_utils import latest_real_user_index
 
     if not messages:
         return messages
 
-    # Only strip images from messages before the current active turn.
-    boundary = latest_real_user_index(list(messages))
-    if boundary < 0 or strip_all:
-        boundary = len(messages)  # no user message / emergency — strip all
+    if strip_all:
+        # Emergency path (vendor image+text token overflow): still keep the
+        # newest view-image inject so the model is not left with a silent blank.
+        boundary = len(messages)
+        for i in range(len(messages) - 1, -1, -1):
+            if _is_view_image_inject_message(messages[i]):
+                boundary = i
+                break
+    else:
+        boundary = latest_real_user_index(list(messages))
+        if boundary < 0:
+            # No real user anchor (proactive duty etc.): only strip *before* the
+            # latest view-image inject; if none, leave messages untouched.
+            boundary = 0
+            for i in range(len(messages) - 1, -1, -1):
+                if _is_view_image_inject_message(messages[i]):
+                    boundary = i
+                    break
+            else:
+                return messages
 
     result: list[BaseMessage] | None = None
     for i in range(min(boundary, len(messages))):

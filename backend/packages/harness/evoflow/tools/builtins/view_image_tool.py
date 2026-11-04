@@ -89,18 +89,6 @@ def _already_native_viewed(runtime: ToolRuntime[ContextT, ThreadState], ref: str
     return False
 
 
-def _duplicate_native_read_error(image_ref: str) -> str:
-    """Stop re-read loops without counting as a hard tool failure in observability.
-
-    Prefixed with OK so status stays success (obs noise was ToolReturnedError spam);
-    models still get an explicit do-not-retry instruction.
-    """
-    return (
-        "OK: Image already in model context — do not call read/view_image again on this path. "
-        f"path={image_ref}. Continue with your next non-read action "
-        "(e.g. media.generate_video with first_frame_url set to this path)."
-    )
-
 def _stage_native_image(
     *,
     tool_call_id: str,
@@ -109,6 +97,12 @@ def _stage_native_image(
     image_size_bytes: int,
     cached: bool = False,
 ) -> Command:
+    """Stage path for ViewImageMiddleware inject.
+
+    Does **not** write ``native_viewed_image_refs`` — that list is updated only
+    after middleware confirms pixels were delivered (avoids Mode B: cached=true
+    while the model never received image blocks).
+    """
     payload = format_native_tool_result(
         image_ref=image_ref,
         mime_type=staged["mime_type"],
@@ -116,13 +110,12 @@ def _stage_native_image(
         cached=cached,
     )
     message = ToolMessage(content=payload, tool_call_id=tool_call_id)
-    update: dict = {
-        "messages": [message],
-        "viewed_images": {image_ref: staged},
-    }
-    if not cached:
-        update["native_viewed_image_refs"] = [image_ref]
-    return Command(update=update)
+    return Command(
+        update={
+            "messages": [message],
+            "viewed_images": {image_ref: staged},
+        }
+    )
 
 
 def _stage_native_batch(
@@ -132,7 +125,6 @@ def _stage_native_batch(
 ) -> Command:
     """``items`` entries: image_ref, staged, image_size_bytes, cached."""
     viewed: dict[str, ViewedImageData] = {}
-    new_refs: list[str] = []
     meta_images: list[dict[str, Any]] = []
     for item in items:
         ref = str(item["image_ref"])
@@ -140,8 +132,6 @@ def _stage_native_batch(
         cached = bool(item.get("cached"))
         size = int(item.get("image_size_bytes") or 0)
         viewed[ref] = staged
-        if not cached:
-            new_refs.append(ref)
         meta_images.append(
             {
                 "image_ref": ref,
@@ -160,13 +150,12 @@ def _stage_native_batch(
             cached=bool(only.get("cached")),
         )
     payload = format_native_batch_tool_result(images=meta_images)
-    update: dict = {
-        "messages": [ToolMessage(content=payload, tool_call_id=tool_call_id)],
-        "viewed_images": viewed,
-    }
-    if new_refs:
-        update["native_viewed_image_refs"] = new_refs
-    return Command(update=update)
+    return Command(
+        update={
+            "messages": [ToolMessage(content=payload, tool_call_id=tool_call_id)],
+            "viewed_images": viewed,
+        }
+    )
 
 
 def _resolve_local_actual_path(
@@ -347,15 +336,16 @@ def _analyze_local_image(
             return err
         return format_vision_tool_result({"error": err}, image_ref=image_path)
     if prepared.get("kind") == "native":
+        # Re-stage even when previously delivered so middleware can re-inject
+        # pixels (Mode B: hard-block left the model with no image blocks).
         if prepared.get("cached"):
-            logger.info("[视觉识图:view_image] HARD-BLOCK 重复 native path=%r", image_path)
-            return _duplicate_native_read_error(str(prepared.get("image_ref") or image_path))
+            logger.info("[视觉识图:view_image] re-stage previously delivered native path=%r", image_path)
         return _stage_native_image(
             tool_call_id=tool_call_id,
             image_ref=prepared["image_ref"],
             staged=prepared["staged"],
             image_size_bytes=int(prepared.get("image_size_bytes") or 0),
-            cached=False,
+            cached=bool(prepared.get("cached")),
         )
     payload = analyze_image_bytes(
         prepared["img_bytes"],
@@ -386,14 +376,13 @@ def _analyze_remote_image(
         return format_vision_tool_result({"error": prepared["error"]}, image_ref=image_url)
     if prepared.get("kind") == "native":
         if prepared.get("cached"):
-            logger.info("[视觉识图:view_image] HARD-BLOCK 重复 native url=%r", image_url)
-            return _duplicate_native_read_error(str(prepared.get("image_ref") or image_url))
+            logger.info("[视觉识图:view_image] re-stage previously delivered native url=%r", image_url)
         return _stage_native_image(
             tool_call_id=tool_call_id,
             image_ref=prepared["image_ref"],
             staged=prepared["staged"],
             image_size_bytes=int(prepared.get("image_size_bytes") or 0),
-            cached=False,
+            cached=bool(prepared.get("cached")),
         )
     payload = analyze_image_bytes(
         prepared["img_bytes"],
@@ -449,19 +438,12 @@ def _view_images_batch(
 
     if route == "native":
         native_items = [p for p in prepared_list if p.get("kind") == "native"]
-        fresh = [p for p in native_items if not p.get("cached")]
-        cached_only = [p for p in native_items if p.get("cached")]
-        if cached_only and not fresh and not load_errors:
-            refs = [str(p.get("image_ref") or "") for p in cached_only]
-            logger.info("[视觉识图:view_image] HARD-BLOCK 批量重复 native refs=%r", refs)
-            if len(refs) == 1:
-                return _duplicate_native_read_error(refs[0])
-            return (
-                "Error: All listed images already in model context — do not call read/view_image again. "
-                f"paths={refs}. Continue with your next non-read action."
+        # Always re-stage (including previously delivered) so inject can run again.
+        if any(p.get("cached") for p in native_items):
+            logger.info(
+                "[视觉识图:view_image] batch re-stage includes previously delivered refs=%r",
+                [p.get("image_ref") for p in native_items if p.get("cached")],
             )
-        # Drop cached duplicates; only stage fresh refs.
-        native_items = fresh or native_items
         cmd = _stage_native_batch(tool_call_id=tool_call_id, items=native_items)
         if load_errors:
             # Annotate tool message with load errors while keeping staging.

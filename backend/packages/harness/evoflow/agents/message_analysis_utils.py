@@ -18,6 +18,8 @@ _SYNTHETIC_USER_NAMES = frozenset(
         "goal_controller",
         "hosted_autofollow",
         "task_autofollow",
+        # Ephemeral pixels from ViewImageMiddleware — not a genuine user turn.
+        "view_image_inject",
     }
 )
 
