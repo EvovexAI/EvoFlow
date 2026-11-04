@@ -22,26 +22,77 @@ export function deptMemberWorkSessionKey(deptId: string, agentCode: string): str
   return `proactive:${code}:chat:dept-${did}`
 }
 
+function extractContentField(content: unknown): string {
+  if (typeof content === 'string') return content.trim()
+  if (Array.isArray(content)) {
+    return content
+      .map((p) => {
+        if (typeof p === 'string') return p
+        if (p && typeof p === 'object') {
+          return String((p as { text?: string; content?: string }).text || (p as { content?: string }).content || '')
+        }
+        return ''
+      })
+      .filter(Boolean)
+      .join('')
+      .trim()
+  }
+  if (content && typeof content === 'object') {
+    return String((content as { text?: string; content?: string }).text || (content as { content?: string }).content || '').trim()
+  }
+  return ''
+}
+
 function extractAssistantText(payload: any): string {
   if (!payload || typeof payload !== 'object') return ''
   const msg = payload.message
   if (msg && typeof msg === 'object') {
-    const content = (msg as { content?: unknown }).content
-    if (typeof content === 'string') return content.trim()
-    if (Array.isArray(content)) {
-      return content
-        .map((p) => {
-          if (typeof p === 'string') return p
-          if (p && typeof p === 'object') return String((p as { text?: string }).text || '')
-          return ''
-        })
-        .filter(Boolean)
-        .join('')
-        .trim()
-    }
+    const fromMsg = extractContentField((msg as { content?: unknown }).content)
+    if (fromMsg) return fromMsg
   }
   const delta = String(payload.delta || payload.text || '').trim()
-  return delta
+  if (delta) return delta
+  return extractContentField(payload.content)
+}
+
+/** 从 chatHistory 行抽出助手正文（兼容 content / content_json） */
+export function extractHistoryAssistantText(row: any): string {
+  if (!row || typeof row !== 'object') return ''
+  const role = String(row.role || '').toLowerCase()
+  if (role && role !== 'assistant' && role !== 'ai') return ''
+  const direct = extractContentField(row.content)
+  if (direct) return direct
+  const payload =
+    row.content_json && typeof row.content_json === 'object'
+      ? row.content_json
+      : row.contentJson && typeof row.contentJson === 'object'
+        ? row.contentJson
+        : null
+  if (!payload) return ''
+  const fromPayload = extractContentField(payload.content)
+  if (fromPayload) return fromPayload
+  return String(payload.text || '').trim()
+}
+
+/** 群气泡丢了正文时，从员工 sticky 会话回读最近一条助手回复 */
+export async function loadLatestDeptMemberReply(workSessionKey: string): Promise<string> {
+  const sk = String(workSessionKey || '').trim()
+  if (!sk) return ''
+  try {
+    const hist = await api.chatHistory(sk, 40, { bypassCache: true })
+    const rows = Array.isArray(hist?.messages)
+      ? hist.messages
+      : Array.isArray(hist)
+        ? hist
+        : []
+    for (let i = rows.length - 1; i >= 0; i--) {
+      const t = extractHistoryAssistantText(rows[i])
+      if (t) return t
+    }
+  } catch {
+    /* ignore */
+  }
+  return ''
 }
 
 export type DeptMemberWorkTurnOpts = {
@@ -238,37 +289,7 @@ export async function runDeptMemberWorkTurn(
 
   let out = String(finalText || collected || '').trim()
   if (!out) {
-    try {
-      const hist = await api.chatHistory(sk, 30)
-      const rows = Array.isArray(hist?.messages)
-        ? hist.messages
-        : Array.isArray(hist)
-          ? hist
-          : []
-      for (let i = rows.length - 1; i >= 0; i--) {
-        const m = rows[i]
-        const role = String(m?.role || '').toLowerCase()
-        if (role !== 'assistant' && role !== 'ai') continue
-        const content = m?.content
-        if (typeof content === 'string' && content.trim()) {
-          out = content.trim()
-          break
-        }
-        if (Array.isArray(content)) {
-          const t = content
-            .map((p: any) => (typeof p === 'string' ? p : String(p?.text || '')))
-            .filter(Boolean)
-            .join('')
-            .trim()
-          if (t) {
-            out = t
-            break
-          }
-        }
-      }
-    } catch {
-      /* ignore */
-    }
+    out = await loadLatestDeptMemberReply(sk)
   }
   return { text: out, handoffs: [...handoffMap.values()] }
 }

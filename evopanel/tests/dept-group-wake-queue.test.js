@@ -161,4 +161,49 @@ describe('DeptGroupWakeQueue', () => {
     expect(snap?.attempts).toBe(4)
     q.dispose()
   })
+
+  it('dispose mid-run with salvaged reply resolves instead of 已取消', async () => {
+    let release
+    const gate = new Promise((r) => {
+      release = r
+    })
+    const q = new DeptGroupWakeQueue({
+      sleep: async () => {},
+      run: async () => {
+        await gate
+        return {}
+      },
+    })
+    const p = q.enqueue({ agentCode: 'x', roleName: 'X', goal: 'hi', depth: 0 })
+    await new Promise((r) => setTimeout(r, 10))
+    q.dispose()
+    release()
+    await expect(p).resolves.toBeUndefined()
+    const snap = q.snapshot().find((j) => j.agentCode === 'x')
+    expect(snap?.status).toBe('done')
+  })
+
+  it('dispose cancels only queued jobs, not the running salvage path', async () => {
+    let release
+    const gate = new Promise((r) => {
+      release = r
+    })
+    const started = []
+    const q = new DeptGroupWakeQueue({
+      sleep: async () => {},
+      run: async (input) => {
+        started.push(input.goal)
+        await gate
+        return {}
+      },
+    })
+    const p1 = q.enqueue({ agentCode: 'x', roleName: 'X', goal: 'first', depth: 0 })
+    const p2 = q.enqueue({ agentCode: 'x', roleName: 'X', goal: 'second', depth: 0 })
+    await new Promise((r) => setTimeout(r, 10))
+    expect(started).toEqual(['first'])
+    q.dispose()
+    await expect(p2).rejects.toThrow(/已取消/)
+    release()
+    await expect(p1).resolves.toBeUndefined()
+  })
 })

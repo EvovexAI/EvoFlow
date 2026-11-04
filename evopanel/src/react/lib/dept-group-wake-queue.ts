@@ -122,12 +122,15 @@ export class DeptGroupWakeQueue {
   dispose() {
     this.aborted = true
     for (const job of this.all.values()) {
-      if (job.status === 'queued' || job.status === 'running') {
+      if (job.status === 'queued') {
+        // 尚未开跑：直接取消
         job.status = 'failed'
         job.error = '已取消'
         job.updatedAt = this.now()
         job.reject(new Error('已取消'))
       }
+      // running：不在这里 reject。等 execute 收尾——
+      // run 已产出则 resolve（群气泡可落盘），否则再失败。
     }
     this.queues.clear()
     this.pumping.clear()
@@ -292,13 +295,23 @@ export class DeptGroupWakeQueue {
           sourceMsgId: job.sourceMsgId,
           signal,
         })
-        if (this.aborted || signal.aborted) {
+        // 跑完已有正文/定稿时，组件 dispose 不应再打成「已取消」
+        // （员工 sticky 会话常已产出，只是群 UI 被重挂）
+        if ((this.aborted || signal.aborted) && (result?.busy || result?.error)) {
           if (job.chainKey) this.nestSeen.delete(job.chainKey)
           job.status = 'failed'
-          job.error = '已取消'
+          job.error = result.error || '已取消'
           job.updatedAt = this.now()
           this.emit()
-          job.reject(new Error('已取消'))
+          job.reject(new Error(job.error))
+          this.drop(job)
+          return
+        }
+        if (this.aborted || signal.aborted) {
+          job.status = 'done'
+          job.updatedAt = this.now()
+          this.emit()
+          job.resolve()
           this.drop(job)
           return
         }

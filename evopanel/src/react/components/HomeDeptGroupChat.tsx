@@ -15,6 +15,7 @@ import { api } from '../../lib/tauri-api.js'
 import { toast } from '../../components/toast.js'
 import {
   deptMemberWorkSessionKey,
+  loadLatestDeptMemberReply,
   runDeptMemberWorkTurn,
 } from '../lib/dept-member-work-session.js'
 import { deptChatSessionKey } from '../lib/dept-chat-session.js'
@@ -341,7 +342,17 @@ export function HomeDeptGroupChat({
         })
         return
       }
-      if (state === 'streaming') return
+      if (state === 'streaming') {
+        // 重挂抢救路径：允许把已有流式正文写穿，避免只剩空占位
+        void upsertDeptGroupMessage(msg as DeptGroupTimelineMsg, {
+          deptId: dept.id,
+          deptName: dept.name,
+          streamState: 'streaming',
+        }).catch((err) => {
+          console.warn('[dept-group] persist streaming body failed', msg.id, err)
+        })
+        return
+      }
       void finalizeDeptGroupMessage(msg as DeptGroupTimelineMsg, {
         deptId: dept.id,
         deptName: dept.name,
@@ -351,6 +362,8 @@ export function HomeDeptGroupChat({
     },
     [dept.id, dept.name],
   )
+  const persistMsgRef = useRef(persistMsg)
+  persistMsgRef.current = persistMsg
 
   useEffect(() => {
     aliveRef.current = true
@@ -362,20 +375,38 @@ export function HomeDeptGroupChat({
     setThreadLines([])
     const deptId = dept.id
     const deptName = dept.name
+    let cancelled = false
     void migrateLocalDeptChatIfNeeded({ deptId, deptName })
-      .then((rows) => {
-        if (!aliveRef.current) return
-        setMsgs(rows as GroupChatMsg[])
+      .then(async (rows) => {
+        if (cancelled || !aliveRef.current) return
+        // 空 streaming / 「回复未完成」：从员工 sticky 会话回填正文（UI 重挂丢流时）
+        const recovered = await Promise.all(
+          (rows as GroupChatMsg[]).map(async (m) => {
+            const empty =
+              !String(m.text || '').trim() || m.text === '（回复未完成）'
+            if (!empty || m.kind !== 'agent' || !m.workSessionKey) return m
+            if (!(m.streaming || m.error)) return m
+            const reply = formatBodyText(await loadLatestDeptMemberReply(m.workSessionKey))
+            if (!reply) return m
+            const next = { ...m, text: reply, streaming: false, error: false }
+            persistMsgRef.current(next)
+            return next
+          }),
+        )
+        if (cancelled || !aliveRef.current) return
+        setMsgs(recovered)
       })
       .catch(() => {
         /* keep empty */
       })
     return () => {
+      cancelled = true
       aliveRef.current = false
-      wakeQueueRef.current?.dispose()
-      wakeQueueRef.current = null
+      // 叫醒队列由下方 effect 独占 dispose，这里勿再 dispose，
+      // 否则 dept.name / 父级重渲染会把进行中的点名打成「已取消」。
     }
-  }, [dept.id, dept.name])
+    // 只跟部门 id：name 刷新不得清空时间线 / 打断点名
+  }, [dept.id])
 
   useEffect(() => {
     const el = listRef.current
@@ -653,14 +684,56 @@ export function HomeDeptGroupChat({
             : undefined,
           signal: input.signal,
           onDelta: (t) => {
-            if (!aliveRef.current || input.signal.aborted) return
-            live = true
+            // 即使 UI 已 aborted，仍把增量写库，避免重挂后只剩空占位
             const body = formatBodyText(t)
-            if (body) patchMsg(bubbleId!, { text: body, streaming: true, error: false })
+            if (!body) return
+            live = true
+            if (aliveRef.current && !input.signal.aborted) {
+              patchMsg(bubbleId!, { text: body, streaming: true, error: false })
+            } else {
+              persistMsgRef.current(
+                {
+                  id: bubbleId!,
+                  kind: 'agent',
+                  agentCode: person.agent_code,
+                  agentName: person.role_name,
+                  text: body,
+                  ts: Date.now(),
+                  streaming: true,
+                  fromAgentName: input.fromAgentName,
+                  workSessionKey,
+                  wakeJobId: input.jobId,
+                },
+                'streaming',
+              )
+            }
           },
         })
-        if (!aliveRef.current || input.signal.aborted) return {}
-        const reply = formatBodyText(turn.text)
+        let reply = formatBodyText(turn.text)
+        if (!reply && workSessionKey) {
+          reply = formatBodyText(await loadLatestDeptMemberReply(workSessionKey))
+        }
+        // 组件重挂 / 队列 dispose：有正文就定稿落盘，不要吞成「已取消」
+        if (!aliveRef.current || input.signal.aborted) {
+          if (reply) {
+            persistMsgRef.current({
+              id: bubbleId!,
+              kind: 'agent',
+              agentCode: person.agent_code,
+              agentName: person.role_name,
+              text: reply,
+              ts: Date.now(),
+              streaming: false,
+              fromAgentName: input.fromAgentName,
+              workSessionKey,
+              wakeJobId: input.jobId,
+            })
+            if (aliveRef.current) {
+              patchMsg(bubbleId, { text: reply, streaming: false, error: false })
+            }
+          }
+          return {}
+        }
         if (!reply) {
           patchMsg(bubbleId, {
             text: '（对方没有返回正文）',
@@ -785,7 +858,7 @@ export function HomeDeptGroupChat({
               }
               return finalized
             })
-            if (finalized) persistMsg(finalized)
+            if (finalized) persistMsgRef.current(finalized)
             return next
           })
         }
@@ -796,7 +869,8 @@ export function HomeDeptGroupChat({
       q.dispose()
       if (wakeQueueRef.current === q) wakeQueueRef.current = null
     }
-  }, [dept.id, persistMsg])
+    // 只跟部门 id：persistMsg/name 变化不得重建队列，否则进行中点名会被 dispose→「已取消」
+  }, [dept.id])
 
   const enqueueWake = useCallback(
     (opts: {

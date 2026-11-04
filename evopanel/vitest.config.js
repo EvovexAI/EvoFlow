@@ -219,6 +219,7 @@ export default defineConfig({
       'tests/dept-group-wake-queue.test.js',
       'tests/dept-group-mentions.test.js',
       'tests/dept-group-transcript.test.js',
+      'tests/dept-member-work-session.test.js',
       'tests/close-removed-entity-stage.test.js',
       'tests/builtin-action-labels.test.js',
       'tests/permission-tier.test.js',
