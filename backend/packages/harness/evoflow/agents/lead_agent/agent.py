@@ -910,6 +910,16 @@ def _build_middlewares(config: RunnableConfig, model_name: str | None, agent_nam
     # tokens match the wire payload (active tools + final system prompt).
     if compaction_middleware is not None:
         middlewares.append(compaction_middleware)
+        # AFTER compaction fold (inner wrap): re-sanitize tool pairs. Early
+        # Dangling/PreCall in build_lead_runtime_middlewares run *before* fold and
+        # cannot see summary-Human gaps / dropped ToolMessages. Closest-to-model
+        # pass prevents "insufficient tool messages following tool_calls".
+        # Distinct class name required: create_agent rejects duplicate middleware.name.
+        from evoflow.agents.middlewares.pre_call_guardrail_agent_middleware import (
+            PostCompactionToolPairSanitizeMiddleware,
+        )
+
+        middlewares.append(PostCompactionToolPairSanitizeMiddleware())
     # AFTER compaction: before_model still injects; wrap_model_call reattaches
     # data-URIs if strip left "base64 data omitted" (Mode A). Later in the list
     # ⇒ inner wrap ⇒ runs after compaction's strip.

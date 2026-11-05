@@ -517,9 +517,9 @@ def append_standing_long_term(
 ) -> dict[str, Any]:
     """Append a bullet into ``memory/standing.md`` (长期记忆).
 
-    Dialogue ``[preference]`` notes land here. Updating outdated prefs is the
-    **model's** job: read standing, edit, then ``assets write`` / note with
-    ``path=memory/standing.md`` + ``query=replace`` — no heuristic replace here.
+    Dialogue ``kind=preference`` notes land here. Updating outdated prefs is the
+    **model's** job: read standing, then ``assets note`` with ``kind=preference``
+    + ``mode=replace`` (or ``write`` the path) — no heuristic replace here.
     """
     from evoflow.assets.ad_hoc_note import ensure_body_recorded_at
 

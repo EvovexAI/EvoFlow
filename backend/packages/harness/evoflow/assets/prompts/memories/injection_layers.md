@@ -17,7 +17,7 @@ Runtime injects **indexes + full standing page**; experience bodies stay on disk
 | Process recap | `assets note` `kind=process` → episodic |
 | Experience / reflection | `kind=experience` → craft；`kind=reflection` → journal |
 | User identity | `assets profile`（`mode=append\|replace`） |
-| Employee mood | `assets affect`（`mode=append\|replace`；主动写） |
+| Mood (main→user vault; employee→employee) | `assets affect`（`mode=append\|replace`；主动写） |
 | Job duty | short system_prompt only |
 
 Outdated / duplicate topics → **model decides**: `read` then `note`+`path=` or `write` to overwrite. Runtime never auto-merges by similarity.

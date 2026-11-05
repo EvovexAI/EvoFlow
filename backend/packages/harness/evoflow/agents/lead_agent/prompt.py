@@ -860,6 +860,7 @@ def _assemble_system_prompt(
     xiaomi_page_context: dict | None = None,
     im_channel: str = "",
     principal_id: str = "",
+    affect_agent_code: str = "",
 ) -> str:
     modules = _enabled_modules_for_scenario(scenario)
     pure_chat = _is_pure_chat_modules(modules)
@@ -904,7 +905,11 @@ def _assemble_system_prompt(
         if is_im and getattr(static, "IM_CHANNEL_REPLY_BLOCK", "").strip():
             blocks.append(static.IM_CHANNEL_REPLY_BLOCK.strip())
         # 易变块靠后：心境放最后（UI context footer 由 middleware 在其后追加）
-        affect_block = get_agent_affect_block(agent_name, principal_id=principal_id)
+        # Use vault code (main/employee id), not display name — "EvoFlow" is not a vault.
+        affect_block = get_agent_affect_block(
+            affect_agent_code or agent_name,
+            principal_id=principal_id,
+        )
         if affect_block:
             blocks.append(affect_block.strip())
         return "\n\n".join([b for b in blocks if b]).strip() + "\n"
@@ -1050,7 +1055,11 @@ def _assemble_system_prompt(
 
     # Final join with blank lines
     # 易变块靠后：心境放最后（UI context footer 由 middleware 在其后追加）
-    affect_block = get_agent_affect_block(agent_name, principal_id=principal_id)
+    # Use vault code (main/employee id), not display name — "EvoFlow" is not a vault.
+    affect_block = get_agent_affect_block(
+        affect_agent_code or agent_name,
+        principal_id=principal_id,
+    )
     if affect_block:
         blocks.append(affect_block.strip())
     return "\n\n".join([b for b in blocks if b]).strip() + "\n"
@@ -2369,6 +2378,8 @@ def apply_prompt_template(
             # Page UI → ephemeral HumanMessage (XiaomiUiContextLiveFooterMiddleware), not system.
             xiaomi_page_context=None,
             im_channel=im_ch,
+            principal_id=str(principal_id or "").strip(),
+            affect_agent_code=str(agent_name or "").strip() or "main",
         )
 
     if not use_virtual_paths:

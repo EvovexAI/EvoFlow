@@ -11,7 +11,7 @@
 | **长期记忆** | `memory/standing.md` | 本实体整体摘要（偏好 / Tips / 文件名索引）；每轮已注入 |
 | **过程** | `memory/episodic/` | 某次对话的结论与过程 |
 
-另可用：经验 `craft/`、反思 `journal/`、用户画像 `profile/`、员工情感 `profile/affect.md`。
+另可用：经验 `craft/`、反思 `journal/`、用户画像 `profile/`、情感 `profile/affect.md`（用户根=主智能体；员工根=该员工）。
 
 ### 怎么记
 
@@ -24,7 +24,7 @@
 | 可复用做法 | `kind="experience"` | `assets(action="note", kind="experience", content="…")` |
 | 反思教训 | `kind="reflection"` | `assets(action="note", kind="reflection", content="…")` |
 | 称呼 / 身份 | `action="profile"` | `assets(action="profile", content="…")`；整份替换 `mode="replace"` |
-| 员工心境 | `action="affect"` | `assets(action="affect", content="…")`；整份替换 `mode="replace"` |
+| 心境（主智能体→用户资产；员工→员工资产） | `action="affect"` | `assets(action="affect", content="…")`；整份替换 `mode="replace"` |
 
 默认可记，不必先问用户；闲聊与一次性噪音不写。写完可一句「已记下…」。心境须**主动**用 `affect` 改。
 

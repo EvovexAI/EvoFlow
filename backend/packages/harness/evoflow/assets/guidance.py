@@ -233,22 +233,21 @@ def build_read_path_entity_block(entity: EntityRef, *, standing: str | None = No
             include_journal=True,
         )
         if not catalog_lines:
-            catalog_lines = ["(尚无 asset 文件;按 inbox 路径写入新笔记即可)"]
+            catalog_lines = ["(尚无 asset 文件;用 assets note + kind 写入)"]
 
-        # 写入路径单独一行附在块尾(heading + base 已经在头部说过根,这里只补写入动词)。
-        # user/agent/employee: 相对路径 = base_dir + 实体根/memory/_inbox/notes。
-        # workspace: 绝对路径(因为 inbox 在 repo 内,而 base_dir 不在 workspace 内)。
+        # 写入提示单独一行附在块尾(heading + base 已经在头部说过根,这里只补写入动词)。
+        # workspace: 绝对路径(因为资产根在 repo 内,而 base_dir 不在 workspace 内)。
         if e.entity_type == "workspace":
             ws_path = resolve_workspace_path_for_entity_id(e.entity_id) or ""
             workspace_context_block = (
-                f"项目根 `{ws_path}` · 写入只用 `assets`（note/search/read；标签 `[project]`）"
+                f"项目根 `{ws_path}` · 写入只用 `assets`（note/search/read；kind=project）"
             )
             tail_block = ""
         else:
             workspace_context_block = ""
             tail_block = (
-                f"写入只用 `assets`（note/profile/search/read；根 `{base}`）· "
-                f"标签:`[experience]`/`[process]`/`[reflection]`/`[preference]`"
+                f"写入只用 `assets`（note/profile/affect/search/read；根 `{base}`）· "
+                f"kind=`preference`/`process`/`experience`/`reflection`；心境用 action=affect"
             )
 
         return render_memory_prompt(

@@ -681,6 +681,8 @@ class DynamicSystemPromptOnScenarioMiddleware(AgentMiddleware[AgentState]):
                 thinking_enabled=bool(ctx.get("thinking_enabled")),
                 # ChannelManager stamps ``channel`` on IM inbound only — Panel stays empty.
                 im_channel=str(ctx.get("channel") or "").strip() or None,
+                principal_id=str(ctx.get("principal_id") or ctx.get("created_by") or "").strip() or None,
+                owner_scope_id=str(ctx.get("owner_scope_id") or ctx.get("scope_id") or "").strip() or None,
             )
             record_phase(
                 "apply_prompt_template_ms",

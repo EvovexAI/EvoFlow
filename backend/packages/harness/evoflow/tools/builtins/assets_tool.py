@@ -228,7 +228,9 @@ def assets_tool(
         kind: Note type: preference | process | experience | reflection
         mode: append | replace (profile / affect / preference standing rewrite)
         content: Note / write / profile / affect markdown body (no type tag needed)
-        entity_type / entity_id / scope: Optional entity override
+        entity_type: Optional entity type override (user|employee|agent|…)
+        entity_id: Optional entity id override
+        scope: Optional scope shorthand (user|employee|…)
         max_results: Search hit cap (default 12)
     """
     _ = tool_call_id
@@ -525,27 +527,33 @@ def assets_tool(
             return json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False)
 
     if act == "affect":
-        # Route to the speaking employee/agent entity (not the user bucket).
+        # Lead/main → user vault affect；employee → employee vault.
         affect_entity = entity
-        if affect_entity.normalized().entity_type == "user":
-            agent_code = _agent_from_runtime(runtime)
-            if agent_code and agent_code not in {"main", "lead_agent", "user", "default"}:
-                try:
-                    from evoflow.assets.guidance import is_employee_agent_name
-                    from evoflow.assets.paths import EntityRef
+        agent_code = _agent_from_runtime(runtime)
+        code_l = str(agent_code or "").strip().lower()
+        try:
+            from evoflow.assets.guidance import is_employee_agent_name
+            from evoflow.assets.paths import EntityRef
 
-                    if is_employee_agent_name(agent_code):
-                        affect_entity = EntityRef("employee", agent_code).normalized()
-                    else:
-                        affect_entity = EntityRef("agent", agent_code).normalized()
-                except Exception as exc:
-                    return json.dumps({"ok": False, "error": f"bad_affect_entity:{exc}"}, ensure_ascii=False)
-        if affect_entity.normalized().entity_type not in ("employee", "agent"):
+            if code_l and code_l not in {"main", "lead_agent", "user", "default", ""} and is_employee_agent_name(
+                code_l
+            ):
+                affect_entity = EntityRef("employee", code_l).normalized()
+            elif affect_entity.normalized().entity_type != "user":
+                # Prefer the authenticated user bucket for main-agent 心境.
+                pid = _principal_from_runtime(runtime)
+                if pid:
+                    affect_entity = EntityRef("user", pid).normalized()
+                elif code_l and code_l not in {"main", "lead_agent", "user", "default", ""}:
+                    affect_entity = EntityRef("agent", code_l).normalized()
+        except Exception as exc:
+            return json.dumps({"ok": False, "error": f"bad_affect_entity:{exc}"}, ensure_ascii=False)
+        if affect_entity.normalized().entity_type not in ("employee", "agent", "user"):
             return json.dumps(
                 {
                     "ok": False,
-                    "error": "affect_only_for_employee_or_agent",
-                    "hint": "情感写在员工/agent 的 profile/affect.md；请在员工会话里调用。",
+                    "error": "affect_entity_unsupported",
+                    "hint": "情感写在用户（主智能体）或员工的 profile/affect.md。",
                 },
                 ensure_ascii=False,
             )
