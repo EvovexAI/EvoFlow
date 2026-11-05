@@ -218,13 +218,17 @@ def assets_tool(
       - search: substring search (kinds=facts,episodic,journal,craft,standing,handbook,all)
       - read: read one relative path
       - list: list directory (default memory/)
-      - note: ad-hoc write → memory/_inbox/notes/ (Phase2 merges to facts/episodic/journal/craft/standing)
+      - note: **one-step write by tag** (no inbox hop):
+          [preference] → memory/standing.md（长期记忆）
+          [process] / untagged → memory/episodic/（过程）
+          [experience] → craft/
+          [reflection] → memory/journal/
       - profile: update the single user profile doc (profile/USER.md).
         Default mode append (query=append). Use query=replace for full rewrite.
         When user shares stable identity/prefs/habits, update profile proactively.
         ``path`` is optional (legacy basic-info/preferences/persona aliases still accepted).
 
-    For action=note, start content with optional tags: [preference], [process], [experience], [reflection].
+    For action=note, start content with a tag: [preference], [process], [experience], [reflection].
 
     Citation: if memory files informed the reply, append one `<evo-asset-citation>` block last
     (`path:start-end|note=[brief]` per line under `citation_entries`).
@@ -397,15 +401,21 @@ def assets_tool(
                 invalidate_standing_memory(tid or None)
             except Exception:
                 logger.debug("assets note: standing invalidate skipped", exc_info=True)
+            kind = str(data.get("kind") or "")
+            dest = {
+                "standing": "长期记忆 memory/standing.md",
+                "episodic": "过程 memory/episodic/",
+                "craft": "经验 craft/",
+                "journal": "反思 memory/journal/",
+            }.get(kind, data.get("path") or "")
             return json.dumps(
                 {
                     "ok": True,
                     "action": "note",
                     "path": data.get("path"),
-                    "hint": (
-                        "已写入 memory/_inbox/notes/：下一轮起会以文件名列入 pending_inbox（正文需 assets read）；"
-                        "Phase2 空闲后合进正式条目/过程/经验。勿直改 standing/MEMORY。"
-                    ),
+                    "kind": kind,
+                    "tag": data.get("tag"),
+                    "hint": f"已直写{dest}（一步到位，无需再等 inbox/Phase2 合并）。",
                 },
                 ensure_ascii=False,
             )

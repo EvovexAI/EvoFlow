@@ -298,12 +298,37 @@ def ensure_user_profile_files(entity: EntityRef | None = None) -> None:
                 pass
 
 
+def read_user_profile_raw(
+    *,
+    entity: EntityRef | None = None,
+    max_chars: int | None = None,
+) -> str:
+    """Read ``profile/USER.md`` verbatim (ensure file exists; no placeholder strip)."""
+    ent = (entity or EntityRef("user", "user")).normalized()
+    ensure_user_profile_files(ent)
+    p = profile_path(ent, USER_PROFILE_FILENAME)
+    try:
+        raw = p.read_text(encoding="utf-8") if p.is_file() else ""
+    except OSError:
+        raw = ""
+    text = str(raw or "").strip()
+    if not text:
+        return ""
+    cap = int(max_chars if max_chars is not None else TIER0_USER_PROFILE_CHARS)
+    return cap_text_chars(text, cap) if cap > 0 else text
+
+
 def read_user_profile_dimensions(
     *,
     max_chars_per_dim: int | None = None,
     entity: EntityRef | None = None,
+    strip_placeholders: bool = False,
 ) -> dict[str, str]:
-    """Compat: returns ``{USER.md: filled_text}``."""
+    """Compat: returns ``{USER.md: text}``.
+
+    Default inject path keeps the **whole** document (scaffold + Agent 补充).
+    Pass ``strip_placeholders=True`` only for \"is this filled?\" UI/audit checks.
+    """
     ent = (entity or EntityRef("user", "user")).normalized()
     ensure_user_profile_files(ent)
     cap = int(max_chars_per_dim if max_chars_per_dim is not None else TIER0_USER_PROFILE_CHARS)
@@ -312,17 +337,23 @@ def read_user_profile_dimensions(
         raw = p.read_text(encoding="utf-8") if p.is_file() else ""
     except OSError:
         raw = ""
-    filled = _strip_placeholder_body(raw, filename=USER_PROFILE_FILENAME)
-    return {USER_PROFILE_FILENAME: cap_text_chars(filled, cap) if filled else ""}
+    text = (
+        _strip_placeholder_body(raw, filename=USER_PROFILE_FILENAME)
+        if strip_placeholders
+        else str(raw or "").strip()
+    )
+    if not text:
+        return {USER_PROFILE_FILENAME: ""}
+    return {USER_PROFILE_FILENAME: cap_text_chars(text, cap) if cap > 0 else text}
 
 
 def read_user_profile_combined(*, max_chars: int | None = None) -> str:
-    dims = read_user_profile_dimensions(max_chars_per_dim=max_chars or TIER0_USER_PROFILE_CHARS * 2)
-    return (dims.get(USER_PROFILE_FILENAME) or "").strip()
+    return read_user_profile_raw(max_chars=max_chars)
 
 
 def missing_profile_dimensions() -> list[str]:
-    dims = read_user_profile_dimensions(max_chars_per_dim=8000)
+    """True missing only when stripped body has no real facts (scaffold alone counts as missing for UI)."""
+    dims = read_user_profile_dimensions(max_chars_per_dim=8000, strip_placeholders=True)
     if (dims.get(USER_PROFILE_FILENAME) or "").strip():
         return []
     return [USER_PROFILE_FILENAME]
@@ -334,13 +365,18 @@ def build_user_profile_injection_block(
     scope: ProfileInjectionScope = "full",
     entity: EntityRef | None = None,
 ) -> str:
-    """Inject real user profile facts only (single ``USER.md``)."""
+    """Inject the full ``profile/USER.md`` document (verbatim, including scaffold).
+
+    Asset Center edits are the SoT — do not strip placeholders or skip empty-looking
+    templates; always load the whole markdown file when memory/profile injection is on.
+    """
     _ = prompt_language
     ent = (entity or EntityRef("user", "user")).normalized()
-    ensure_user_profile_files(ent)
-    text = (read_user_profile_dimensions(entity=ent).get(USER_PROFILE_FILENAME) or "").strip()
+    text = read_user_profile_raw(entity=ent).strip()
     if not text:
-        return ""
+        # ensure created an empty/unreadable file — still emit a minimal tag so the
+        # model knows the slot exists (path relative to user asset root).
+        text = default_user_profile_md().strip()
     # identity scope still injects the same single profile (global user facts).
     _ = scope
     root_tag = "user_profile" if scope == "full" else "user_identity"

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import secrets
 from datetime import UTC
 from pathlib import Path
@@ -514,6 +515,63 @@ def _unique_rel_name(entity: EntityRef, rel_dir: str, base: str, *, ext: str = "
     raise ValueError(f"file name collision under {rel_dir}")
 
 
+def append_standing_long_term(
+    entity: EntityRef,
+    content: str,
+    *,
+    section: str = "User preferences",
+) -> dict[str, Any]:
+    """Append a bullet into ``memory/standing.md`` (产品名「长期记忆」).
+
+    Dialogue ``[preference]`` notes land here in one step — no inbox hop.
+    """
+    from evoflow.assets.ad_hoc_note import ensure_body_recorded_at
+
+    raw = ensure_body_recorded_at(str(content or "").strip()).strip()
+    if not raw:
+        raise ValueError("content is required")
+    # Drop leading [preference] tag if still present.
+    lines = raw.splitlines()
+    if lines and re.match(r"^\[preference\]\s*", lines[0], re.I):
+        raw = "\n".join(lines[1:]).strip() or raw
+    bullet = raw if raw.lstrip().startswith(("- ", "* ", "+ ")) else f"- {raw}"
+    ensure_entity_tree(entity)
+    rel = "memory/standing.md"
+    path = resolve_entity_file(entity, rel)
+    try:
+        existing = path.read_text(encoding="utf-8") if path.is_file() else ""
+    except OSError:
+        existing = ""
+    body = str(existing or "").strip()
+    if not body:
+        body = "v1\n\n## User Profile\n\n## User preferences\n\n## General Tips\n\n## What's in Memory\n"
+    elif not body.startswith("v1"):
+        body = "v1\n\n" + body.lstrip()
+
+    heading = f"## {section.strip() or 'User preferences'}"
+    if heading in body:
+        # Insert after heading block: find next ## or EOF.
+        idx = body.find(heading)
+        after = idx + len(heading)
+        rest = body[after:]
+        next_h = re.search(r"\n##\s+", rest)
+        if next_h:
+            insert_at = after + next_h.start()
+            new_body = body[:insert_at].rstrip() + f"\n{bullet}\n" + body[insert_at:].lstrip("\n")
+        else:
+            new_body = body.rstrip() + f"\n{bullet}\n"
+    else:
+        # Prefer before What's in Memory if present.
+        marker = "## What's in Memory"
+        if marker in body:
+            new_body = body.replace(marker, f"{heading}\n{bullet}\n\n{marker}", 1)
+        else:
+            new_body = body.rstrip() + f"\n\n{heading}\n{bullet}\n"
+    if not new_body.endswith("\n"):
+        new_body += "\n"
+    return write_text_file(entity, rel, new_body)
+
+
 def record_fact(
     entity: EntityRef,
     content: str,
@@ -525,7 +583,8 @@ def record_fact(
 ) -> dict[str, Any]:
     """Write a fact note to ``memory/facts/{slug}.md`` with catalog frontmatter.
 
-    Product IA: 「条目」— durable prefs / short facts (detail lines, not the standing summary).
+    Legacy/internal: product IA no longer promotes 「条目」; dialogue prefs go to
+    standing via ``append_standing_long_term``. Gateway ``/record`` may still use this.
     Catalog uses ``title`` + ``summary`` (same model as craft/journal).
     """
     from evoflow.assets.ad_hoc_note import ensure_body_recorded_at
@@ -560,8 +619,8 @@ def write_episode(
 ) -> dict[str, Any]:
     """Write a conversation-process note to ``memory/episodic/{date}-{slug}.md``.
 
-    Product IA: 「过程」— what this dialogue did / concluded (human review later).
-    Not 「条目」facts and not 「记忆摘要」standing. Catalog uses ``title`` + ``summary`` (10–30 chars).
+    Product IA: 「过程」— what this dialogue did / concluded.
+    Not 「长期记忆」standing. Catalog uses ``title`` + ``summary`` (10–30 chars).
     """
     from evoflow.assets.ad_hoc_note import ensure_body_recorded_at
     from datetime import datetime

@@ -159,6 +159,30 @@ def _unique_note_rel(entity: EntityRef, filename: str) -> str:
     raise ValueError("ad_hoc note name collision")
 
 
+def parse_note_tag(content: str) -> tuple[str, str]:
+    """Return ``(tag, body)``. Untagged defaults to ``process`` (一步直达过程)."""
+    text = str(content or "").strip()
+    if not text:
+        return "process", ""
+    lines = text.splitlines()
+    m = _TAG_LINE_RE.match(lines[0].strip())
+    if not m:
+        return "process", text
+    tag = m.group(1).strip().lower()
+    if tag == "project":
+        tag = "process"
+    rest = "\n".join(lines[1:]).strip()
+    # Keep a title-ish first line when the tag line had trailing text.
+    trailing = _TAG_LINE_RE.sub("", lines[0].strip(), count=1).strip()
+    if trailing and rest:
+        body = f"{trailing}\n{rest}"
+    elif trailing:
+        body = trailing
+    else:
+        body = rest or text
+    return tag, body
+
+
 def write_ad_hoc_note(
     entity: EntityRef,
     content: str,
@@ -166,24 +190,45 @@ def write_ad_hoc_note(
     slug_hint: str = "",
     source: str = "assets.note",
 ) -> dict[str, Any]:
-    """Write one note under ``memory/_inbox/notes/`` (Phase2 merges later)."""
-    from evoflow.assets.hub import ensure_entity_tree, write_text_file
+    """Write one tagged note **directly** to its durable home (no inbox hop).
+
+    Tag → destination:
+      - ``[preference]`` → ``memory/standing.md`` (产品：长期记忆)
+      - ``[process]`` / untagged / ``[project]`` → ``memory/episodic/`` (过程)
+      - ``[experience]`` → ``craft/``
+      - ``[reflection]`` → ``memory/journal/``
+    """
+    from evoflow.assets.hub import (
+        append_standing_long_term,
+        save_craft_note,
+        write_episode,
+        write_journal,
+    )
 
     text = str(content or "").strip()
     if not text:
         raise ValueError("empty_content")
     if len(text) > 4000:
         text = text[:3999] + "…"
-    text = ensure_body_recorded_at(text).strip()
-    ensure_entity_tree(entity)
-    filename = build_ad_hoc_filename(slug_hint=slug_hint or text.splitlines()[0][:40])
-    err = validate_ad_hoc_filename(filename)
-    if err:
-        raise ValueError(err)
-    ts = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-    rel = _unique_note_rel(entity, filename)
-    body = f"---\nsource: {source}\ncreated: {ts}\n---\n\n{text}\n"
-    return write_text_file(entity, rel, body)
+    tag, body = parse_note_tag(text)
+    body = ensure_body_recorded_at(body if body else text).strip()
+    if not body:
+        raise ValueError("empty_content")
+
+    hint = str(slug_hint or "").strip() or body.splitlines()[0].lstrip("#[] ").strip()[:60]
+    if tag == "preference":
+        data = append_standing_long_term(entity, body)
+        data = {**data, "kind": "standing", "tag": tag, "source": source}
+        return data
+    if tag == "experience":
+        data = save_craft_note(entity, title=hint or "经验", content=body, description=hint[:30])
+        return {**data, "kind": "craft", "tag": tag, "source": source}
+    if tag == "reflection":
+        data = write_journal(entity, body, title=hint, append=True, summary=hint[:30])
+        return {**data, "kind": "journal", "tag": tag, "source": source}
+    # process (default)
+    data = write_episode(entity, body, title=hint, summary=hint[:30])
+    return {**data, "kind": "episodic", "tag": tag, "source": source}
 
 
 def format_live_pending_inbox_for_agent(

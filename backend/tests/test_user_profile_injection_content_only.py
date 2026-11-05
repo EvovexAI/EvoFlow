@@ -1,4 +1,4 @@
-"""User profile injection: real facts only; no scaffold / usage essays."""
+"""User profile injection: whole USER.md document, no scaffold strip on inject."""
 
 from __future__ import annotations
 
@@ -6,10 +6,12 @@ from evoflow.assets.user_profile_dims import (
     USER_PROFILE_FILENAME,
     _strip_placeholder_body,
     build_user_profile_injection_block,
+    default_user_profile_md,
 )
 
 
 def test_strip_drops_pending_fill_scaffold_and_frontmatter() -> None:
+    """Strip helper still used for UI \"is filled?\" — not for injection."""
     raw = """---
 last_used_at: 2026-10-20T09:20:29Z
 use_count: 3
@@ -36,38 +38,28 @@ def test_strip_keeps_real_name() -> None:
     assert "UTC+8" in filled
 
 
-def test_injection_empty_when_only_scaffold(monkeypatch) -> None:
+def test_injection_loads_full_document_including_scaffold(monkeypatch) -> None:
+    body = default_user_profile_md().rstrip() + "\n\n## Agent 补充\n- 银泰\n- 禁用 mini\n"
     monkeypatch.setattr(
-        "evoflow.assets.user_profile_dims.read_user_profile_dimensions",
-        lambda **_: {USER_PROFILE_FILENAME: ""},
-    )
-    monkeypatch.setattr(
-        "evoflow.assets.user_profile_dims.ensure_user_profile_files",
-        lambda *a, **k: None,
-    )
-    assert build_user_profile_injection_block(scope="identity") == ""
-    assert build_user_profile_injection_block(scope="full") == ""
-
-
-def test_injection_content_only_no_meta(monkeypatch) -> None:
-    monkeypatch.setattr(
-        "evoflow.assets.user_profile_dims.read_user_profile_dimensions",
-        lambda **_: {USER_PROFILE_FILENAME: "## 基本信息\n银泰"},
-    )
-    monkeypatch.setattr(
-        "evoflow.assets.user_profile_dims.ensure_user_profile_files",
-        lambda *a, **k: None,
+        "evoflow.assets.user_profile_dims.read_user_profile_raw",
+        lambda **_: body,
     )
     text = build_user_profile_injection_block(scope="full")
     assert "<user_profile>" in text
+    assert "填写后会注入" in text  # scaffold kept
     assert "银泰" in text
-    assert "<preferences>" not in text
-    assert "员工上下文" not in text
-    assert "profile_upkeep" not in text
-    assert "agent_behavior" not in text
-    assert "assets" not in text
-    assert "EMPTY" not in text
-    assert "待补" not in text
+    assert "禁用 mini" in text
+    assert text.count("<user_profile>") == 1
+
+
+def test_injection_emits_default_when_raw_empty(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "evoflow.assets.user_profile_dims.read_user_profile_raw",
+        lambda **_: "",
+    )
+    text = build_user_profile_injection_block(scope="full")
+    assert "<user_profile>" in text
+    assert "用户画像" in text
 
 
 def test_resolve_scope_is_global_full() -> None:

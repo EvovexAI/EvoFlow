@@ -1,17 +1,15 @@
-"""Ad-hoc inbox notes: slug filenames; pending notes injectable."""
+"""Ad-hoc notes: slug helpers + direct-write by tag (no inbox hop)."""
 
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 
 import pytest
 
-from datetime import datetime
-
 from evoflow.assets.ad_hoc_note import (
     build_ad_hoc_filename,
     ensure_body_recorded_at,
-    format_pending_inbox_notes_for_prompt,
     validate_ad_hoc_filename,
     write_ad_hoc_note,
 )
@@ -43,7 +41,6 @@ def test_ensure_body_recorded_at_fills_when_missing() -> None:
     )
     assert out.startswith("[experience] 登录失败·token 过期\n记录时间：2026-03-23 16:38\n")
     assert "先刷新 token" in out
-    # idempotent
     again = ensure_body_recorded_at(out, when=when)
     assert again.count("记录时间：") == 1
 
@@ -53,57 +50,32 @@ def test_ensure_body_recorded_at_skips_when_model_wrote_date() -> None:
     assert ensure_body_recorded_at(src) == src
 
 
-def test_live_pending_inbox_for_user_principal(asset_home: Path) -> None:
-    from evoflow.assets.ad_hoc_note import format_live_pending_inbox_for_agent
-
-    # Main-chat notes land in the user bucket; live helper must resolve via principal_id.
-    entity = EntityRef("user", "u_live_note")
-    write_ad_hoc_note(entity, "[process] mid-chat note\n\nbody that must not inject", slug_hint="mid-chat-note")
-    block = format_live_pending_inbox_for_agent(principal_id="u_live_note")
-    assert "mid-chat-note.md" in block
-    assert "mid-chat note" in block
-    assert "body that must not inject" not in block
-
-
-def test_write_and_pending_injection(asset_home: Path) -> None:
+def test_experience_writes_craft_directly(asset_home: Path) -> None:
     entity = EntityRef("employee", "douyin-analyst")
     data = write_ad_hoc_note(
         entity,
         "[experience]\nimage post fallback when API timed out",
         slug_hint="douyin-pipeline-image-post-fallback",
     )
-    rel = str(data.get("path") or "")
-    assert Path(rel).name == "douyin-pipeline-image-post-fallback.md"
-    path = entity_root(entity) / "memory" / "_inbox" / "notes" / "douyin-pipeline-image-post-fallback.md"
+    assert data.get("kind") == "craft"
+    rel = str(data.get("path") or "").replace("\\", "/")
+    assert rel.startswith("craft/")
+    path = entity_root(entity) / rel
     assert path.is_file()
     text = path.read_text(encoding="utf-8")
-    assert "created:" in text
-    assert "记录时间：" in text
-
-    block = format_pending_inbox_notes_for_prompt(entity)
-    assert "<pending_inbox>" in block
-    assert "</pending_inbox>" in block
-    assert "douyin-pipeline-image-post-fallback.md" in block
-    # Title hint from first line / tag — not a body dump.
-    assert "[experience]" in block or "image post fallback" in block
+    assert "image post fallback" in text or "记录时间" in text
+    inbox = entity_root(entity) / "memory" / "_inbox" / "notes"
+    assert not inbox.exists() or not any(inbox.glob("*.md"))
 
 
-def test_pending_inbox_injects_filename_not_full_body(asset_home: Path) -> None:
+def test_process_writes_episodic_directly(asset_home: Path) -> None:
     entity = EntityRef("user", "u_trunc")
-    long = (
-        "[process] AIGC 反推师并入复刻师。\n\n"
-        "依据（可复用判断法）：项目侧自证：`aigc/aigc-prompt-reverser` 与 `aigc-remaker` "
-        "能力完全重叠，反推只是复刻 SOP 的第一步子步骤，因此删除反推师岗位。"
-        + ("补充说明。" * 40)
+    data = write_ad_hoc_note(
+        entity,
+        "[process] AIGC 反推师并入复刻师。\n\n依据细节。",
+        slug_hint="aigc-merge",
     )
-    write_ad_hoc_note(entity, long, slug_hint="aigc-merge")
-    block = format_pending_inbox_notes_for_prompt(entity)
-    assert "aigc-merge.md" in block
-    assert "AIGC 反推师并入复刻师" in block
-    # Full body / evidence must stay on disk — titles only in the prompt.
-    assert "aigc/aigc-prompt-reverser" not in block
-    assert "补充说明。" not in block
-    # Second note forces budget overflow → truncation marker.
-    write_ad_hoc_note(entity, "[experience] another long title for budget", slug_hint="aigc-extra")
-    capped = format_pending_inbox_notes_for_prompt(entity, max_chars=90)
-    assert "pending inbox truncated" in capped
+    assert data.get("kind") == "episodic"
+    rel = str(data.get("path") or "").replace("\\", "/")
+    assert "memory/episodic/" in rel
+    assert (entity_root(entity) / rel).is_file()
