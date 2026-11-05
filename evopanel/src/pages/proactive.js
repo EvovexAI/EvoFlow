@@ -28,7 +28,9 @@ import {
   loadDepartmentCatalog,
   readKnowledgeVaultIds,
   renderKnowledgeVaultField,
+  bindHireDropdown as bindRoleEditHireDropdown,
   renderDepartmentSelectControl,
+  renderReportsToSelectControl,
 } from '../lib/proactive-role-edit.js'
 import {
   createSchedulePanel,
@@ -895,25 +897,28 @@ async function showHireModal(page) {
         </label>
 
         <div class="hire-field-row">
-          <label class="hire-field">
+          <div class="hire-field">
             <span>部门</span>
             ${renderDepartmentSelectControl('', departments)}
-          </label>
-          <label class="hire-field">
+          </div>
+          <div class="hire-field">
             <span>直属上级</span>
-            <select class="hire-input" data-name="reports_to">
-              <option value="">（无上级 · 顶层）</option>
-              ${(_rolesData || [])
+            ${renderReportsToSelectControl(
+              '',
+              (_rolesData || [])
                 .filter((r) => String(r.agent_code || '').trim())
                 .map((r) => {
                   const c = String(r.agent_code || '').trim()
                   const n = String(r.agent_name || r.role_name || c).trim()
                   const d = String(r.department || '').trim()
-                  return `<option value="${esc(c)}">${esc(n)}${d ? ` · ${esc(d)}` : ''}</option>`
-                })
-                .join('')}
-            </select>
-          </label>
+                  return {
+                    agent_code: c,
+                    agent_name: d ? `${n} · ${d}` : n,
+                    role_name: n,
+                  }
+                }),
+            )}
+          </div>
         </div>
 
         ${renderKnowledgeVaultField(knowledgeVaults, [])}
@@ -1013,6 +1018,8 @@ async function showHireModal(page) {
 
   bindHireChipRows(overlay)
   bindModelSelect(overlay)
+  bindRoleEditHireDropdown(overlay, { role: 'department-dd' })
+  bindRoleEditHireDropdown(overlay, { role: 'reports-to-dd' })
   bindWorkspaceSelect(overlay)
   hireScheduleCtrl.initEvents()
 

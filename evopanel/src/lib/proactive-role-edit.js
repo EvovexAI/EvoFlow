@@ -245,7 +245,7 @@ function renderHireDdOptions(items, selectedValue) {
     .join('')
 }
 
-function bindHireDropdown(overlay, { role, onPick, labelFor } = {}) {
+export function bindHireDropdown(overlay, { role, onPick, labelFor } = {}) {
   const dd = overlay.querySelector(`[data-role="${role}"]`)
   if (!dd) return
   const trigger = dd.querySelector('[data-act="dd-toggle"]')
@@ -423,22 +423,63 @@ export function resolveRoleDepartment(role, cfg = {}, departments = []) {
   return ''
 }
 
-/** `<select data-name="department">` filled from catalog (+ optional extras). */
+/**
+ * Department picker — custom hire-dd (native &lt;select&gt; often won't open inside
+ * Tauri / modal-overlay with overflow + backdrop-filter).
+ */
 export function renderDepartmentSelectControl(currentName, departments, extraNames = []) {
   const cur = String(currentName || '').trim()
   const names = departmentNamesFromCatalog(departments, cur, extraNames)
-  if (!names.length) {
-    // Catalog empty — keep free-text so save won't silently wipe, and user can type a label.
-    return `<input class="hire-input" data-name="department" value="${esc(cur)}" placeholder="输入部门名称；也可先在组织里创建部门">
-      <p class="hire-chip-hint">当前没有可选部门，先到「组织」创建，或在此直接填写名称。</p>`
+  const items = [
+    { value: '', name: '未分部门', sub: '暂不归属任何部门' },
+    ...names.map((n) => ({ value: n, name: n, sub: '' })),
+  ]
+  if (cur && !items.some((i) => i.value === cur)) {
+    items.splice(1, 0, { value: cur, name: cur, sub: '当前（目录中暂无）' })
   }
-  return `<div class="hire-select-wrap">
-      <select class="hire-input hire-select" data-name="department">
-        <option value="">未分部门</option>
-        ${names
-          .map((n) => `<option value="${esc(n)}"${n === cur ? ' selected' : ''}>${esc(n)}</option>`)
-          .join('')}
-      </select>
+  const picked = items.find((i) => i.value === cur) || items[0]
+  const emptyHint = !names.length
+    ? `<p class="hire-chip-hint">目录里还没有部门。可先在「组织」创建，或保存后到组织里把人加进部门。</p>`
+    : ''
+  return `
+    <div class="hire-dd" data-role="department-dd">
+      <button type="button" class="hire-dd-trigger" data-act="dd-toggle" aria-haspopup="listbox" aria-expanded="false">
+        <span class="hire-dd-label" data-role="dd-label">${esc(picked?.name || '未分部门')}</span>
+        <span class="hire-dd-chevron" aria-hidden="true"></span>
+      </button>
+      <ul class="hire-dd-menu" role="listbox" hidden>
+        ${renderHireDdOptions(items, cur)}
+      </ul>
+      <input type="hidden" data-name="department" value="${esc(cur)}">
+    </div>
+    ${emptyHint}`
+}
+
+/** Direct-manager picker — same hire-dd pattern as department (native select unreliable in sheet). */
+export function renderReportsToSelectControl(currentReportsTo, managerRows) {
+  const cur = String(currentReportsTo || '').trim()
+  const items = [
+    { value: '', name: '（无上级 · 顶层）', sub: '' },
+    ...(managerRows || []).map((r) => {
+      const c = String(r.agent_code || '').trim()
+      const n = String(r.agent_name || r.role_name || c).trim()
+      return { value: c, name: n, sub: c && c !== n ? c : '' }
+    }),
+  ]
+  if (cur && !items.some((i) => i.value === cur)) {
+    items.splice(1, 0, { value: cur, name: cur, sub: '当前上级' })
+  }
+  const picked = items.find((i) => i.value === cur) || items[0]
+  return `
+    <div class="hire-dd" data-role="reports-to-dd">
+      <button type="button" class="hire-dd-trigger" data-act="dd-toggle" aria-haspopup="listbox" aria-expanded="false">
+        <span class="hire-dd-label" data-role="dd-label">${esc(picked?.name || '（无上级 · 顶层）')}</span>
+        <span class="hire-dd-chevron" aria-hidden="true"></span>
+      </button>
+      <ul class="hire-dd-menu" role="listbox" hidden>
+        ${renderHireDdOptions(items, cur)}
+      </ul>
+      <input type="hidden" data-name="reports_to" value="${esc(cur)}">
     </div>`
 }
 
@@ -985,18 +1026,11 @@ export async function showEditRoleModal(role, {
     departments,
     peerDeptNames,
   )
-  const managerOptions = (peerRoles || [])
-    .filter((r) => {
-      const c = String(r?.agent_code || '').trim()
-      return c && c !== selfCode && String(r?.status || '') !== 'archived'
-    })
-    .map((r) => {
-      const c = String(r.agent_code || '').trim()
-      const n = String(r.agent_name || r.role_name || c).trim()
-      const sel = c === currentReportsTo ? ' selected' : ''
-      return `<option value="${esc(c)}"${sel}>${esc(n)} · ${esc(c)}</option>`
-    })
-    .join('')
+  const managerRows = (peerRoles || []).filter((r) => {
+    const c = String(r?.agent_code || '').trim()
+    return c && c !== selfCode && String(r?.status || '') !== 'archived'
+  })
+  const reportsToSelect = renderReportsToSelectControl(currentReportsTo, managerRows)
   let selected =
     available.find((a) => a.code === role.agent_code) ||
     (selfCode
@@ -1095,17 +1129,14 @@ export async function showEditRoleModal(role, {
           <div class="hire-edit-panels">
             <div class="hire-edit-panel hire-edit-panel--agent" data-section="agent">
               ${basicAgentBlock}
-              <label class="hire-field">
+              <div class="hire-field">
                 <span>部门</span>
                 ${departmentSelect}
-              </label>
-              <label class="hire-field">
+              </div>
+              <div class="hire-field">
                 <span>直属上级</span>
-                <select class="hire-input" data-name="reports_to">
-                  <option value="">（无上级 · 顶层）</option>
-                  ${managerOptions}
-                </select>
-              </label>
+                ${reportsToSelect}
+              </div>
               <div data-role="agent-native">
                 ${renderAgentNativePanel(boundAgent)}
               </div>
@@ -1308,6 +1339,8 @@ export async function showEditRoleModal(role, {
   overlay.querySelectorAll('[data-act="close"]').forEach((el) => el.addEventListener('click', close))
   bindHireChipRows(overlay)
   bindModelSelect(overlay)
+  bindHireDropdown(overlay, { role: 'department-dd' })
+  bindHireDropdown(overlay, { role: 'reports-to-dd' })
   bindWorkspaceSelect(overlay)
   bindKbInjectionChipRows(overlay)
   scheduleCtrl.initEvents()
