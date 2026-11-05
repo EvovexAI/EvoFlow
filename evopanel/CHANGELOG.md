@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-11-05
+
+相对 **1.3.0**：修复小V 侧栏会话的后台 WS 事件被当成主栏前台，导致工作台首页指挥台被「已工作」碎片顶掉。
+GitHub Release 正文见 `scripts/maintainer/windows/release-notes/PRODUCT-NOTES-1.3.1.md`；升级横幅见 `scripts/maintainer/update/latest.json`。
+
+### Fixed
+
+- **主栏串流**：新增 `isChatWsEventBackground` 统一判定；主栏未选中或 key 不匹配时只写 runtime，不 `setRows`
+- **工作台首页**：空选中时丢弃泄漏行并强制挂指挥台壳，指挥台不再被小V 流顶掉
+- **新建会话**：首轮 `sessionKey` 尚未落定时仍按前台处理，避免 final 只写 runtime
+
+### Tests
+
+- 新增 `tests/chat-ws-foreground.test.js`（5 例）
+
 ## [1.3.0] - 2026-11-05
 
 相对 **1.2.9**：用户画像合并为单一 USER.md；右栏新增文件预览与助手预览卡；员工能力变更实时生效；资产记忆 Phase2 索引更紧凑；LangGraph sidecar 启动预热降低首轮延迟；修复轮次追踪死锁与视觉注入伪消息。
