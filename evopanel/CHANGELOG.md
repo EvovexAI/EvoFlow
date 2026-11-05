@@ -6,6 +6,40 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-11-05
+
+相对 **1.2.9**：用户画像合并为单一 USER.md；右栏新增文件预览与助手预览卡；员工能力变更实时生效；资产记忆 Phase2 索引更紧凑；LangGraph sidecar 启动预热降低首轮延迟；修复轮次追踪死锁与视觉注入伪消息。
+GitHub Release 正文见 `scripts/maintainer/windows/release-notes/PRODUCT-NOTES-1.3.0.md`；升级横幅见 `scripts/maintainer/update/latest.json`。
+
+### Added
+
+- **右栏文件预览**：工作区文件可直接在右侧预览（文本缓存、缺失文件提示、PPTX 错误文案）
+- **助手预览卡**：assistant 回复中的文件卡支持校验与打开
+- **扩展管理**：扩展启用 / 禁用与打开文件命令补齐权限
+- **聊天右栏工作区信息栏**：工作区上下文与会话信息集中展示；聊天摘要面板重构
+- **员工值班预设**：值班时段支持常用 cron 预设
+- **资产中心**：仅 user 实体保留「画像」Tab，统一读取 USER.md
+
+### Changed
+
+- **用户画像**：`basic-info.md` / `preferences.md` / `persona.md` 自动合并为单个 `USER.md`
+- **资产记忆**：Phase2 输出的 What's in Memory 只列文件名索引，不再写 keywords / desc；注入预算与提示词同步收紧
+- **员工能力**：能力变更后实时失效动态系统提示缓存，下一轮即生效
+- **部门群**：花名册规范化、群近期上下文注入、重挂回填流式正文
+- **创建智能体**：省略默认值时不再强制写全参数
+
+### Fixed
+
+- **轮次追踪**：修复嵌套加锁导致的死锁
+- **视觉注入**：排除 `view_image_inject` 伪用户消息，避免身份提示词重复
+- **读图**：仅在像素真正投递后标记已查看；上下文压缩后重挂当前轮图片
+- **soul 摘要**：SOUL.md 更新后摘要过期自动回落实时正文
+- **工具记录配对**：孤儿结果丢弃、缺失结果补 stub（Volc 11148）
+
+### Performance
+
+- **启动**：LangGraph sidecar 图工厂后台预热，减少首轮语音装配等待
+
 ## [1.2.9] - 2026-11-04
 
 相对 **1.2.8**：修复读图工具「模型没收到图 / 图片被清空」两类故障；IM 渠道忙时支持中途加塞；工具调用配对清洗（Volc 11148）；资产注入标签更可读；部门群聊重挂回填；头像工坊与精灵素材更新。
