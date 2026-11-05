@@ -26,6 +26,7 @@ TIER0_USER_PROFILE_CHARS = 0
 # (Was TIER0_CATALOG_PER_KIND=10; short labels are cheap, let the model see the full index.)
 # 0 / None-like: list_* treats <=0 as unlimited.
 TIER0_CATALOG_PER_KIND = 0
+# 0 = uncapped skill catalog rows in <skill_system> (allowlist still applies).
 TIER0_SKILLS_MAX_ITEMS = 0
 TIER0_EPISODE_MAX_ITEMS = 0
 # Legacy alias kept for call sites that still import the name.

@@ -1763,12 +1763,13 @@ def _build_skills_prompt_section(
     if available_skills is not None and skills:
         skills = [skill for skill in skills if skill.name in available_skills]
 
-    # Tier 0 craft/skills catalog: hard cap item count (entity-asset-hub §8.2)
+    # Tier 0 skills catalog: <=0 means uncapped (same convention as standing/catalog).
     try:
         from evoflow.assets.injection_budget import TIER0_SKILLS_MAX_ITEMS
 
-        if len(skills) > TIER0_SKILLS_MAX_ITEMS:
-            skills = skills[:TIER0_SKILLS_MAX_ITEMS]
+        max_items = int(TIER0_SKILLS_MAX_ITEMS or 0)
+        if max_items > 0 and len(skills) > max_items:
+            skills = skills[:max_items]
     except Exception:
         pass
 
