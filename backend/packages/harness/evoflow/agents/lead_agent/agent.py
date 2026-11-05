@@ -1092,15 +1092,15 @@ def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None
     # This is a backend hard guard in case frontend/session context is stale.
     if session_mode == "flash":
         thinking_enabled = False
-        reasoning_effort = "minimum"
+        reasoning_effort = "minimal"
     # Voice turns: force non-thinking — long reasoning adds latency and TTS noise.
     if voice_mode:
         thinking_enabled = False
-        reasoning_effort = "minimum"
+        reasoning_effort = "minimal"
         thinking_type = "disabled"
         cfg["thinking_enabled"] = False
         cfg["thinking_type"] = "disabled"
-        cfg["reasoning_effort"] = "minimum"
+        cfg["reasoning_effort"] = "minimal"
         # Fast path (native-style backend executor): skip plan middleware unless mid-collab.
         _voice_phase = str(collab_phase or "").strip().lower()
         if _voice_phase in ("", "idle", "done"):
@@ -1109,11 +1109,11 @@ def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None
     # 小V 前台：接待/分诊要快回，永不开思考（含模型 default_mode=enabled）。
     if xiaomi_front_desk:
         thinking_enabled = False
-        reasoning_effort = "minimum"
+        reasoning_effort = "minimal"
         thinking_type = "disabled"
         cfg["thinking_enabled"] = False
         cfg["thinking_type"] = "disabled"
-        cfg["reasoning_effort"] = "minimum"
+        cfg["reasoning_effort"] = "minimal"
     auto_thinking_active = (
         session_mode != "flash"
         and not voice_mode

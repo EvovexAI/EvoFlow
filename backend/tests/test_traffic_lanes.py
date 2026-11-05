@@ -46,6 +46,14 @@ def test_browser_log_is_best_effort() -> None:
     assert classify_path("/api/speech/log", method="POST").lane == Lane.BEST_EFFORT
 
 
+def test_proactive_role_reads_are_best_effort() -> None:
+    assert classify_path("/api/proactive/roles", method="GET").lane == Lane.BEST_EFFORT
+    assert classify_path("/api/proactive/roles/xiaomi", method="GET").lane == Lane.BEST_EFFORT
+    assert classify_path("/api/proactive/roles/xiaomi/busy", method="GET").lane == Lane.BEST_EFFORT
+    # Mutations stay off best-effort (default DATA / control rules)
+    assert classify_path("/api/proactive/roles/xiaomi", method="PUT").lane == Lane.DATA
+
+
 def test_subagent_transcript_is_best_effort() -> None:
     assert (
         classify_path("/api/tasks/subagent/call_abc/transcript", method="GET").lane

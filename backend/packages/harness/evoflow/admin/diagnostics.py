@@ -119,6 +119,7 @@ LOG_SOURCES: tuple[LogSource, ...] = (
 _SOURCE_BY_ID = {s.id: s for s in LOG_SOURCES}
 
 # Match logging levels and common failure markers (keep precision over recall).
+# HTTP statuses only after ``HTTP/1.x"`` — bare ``\b504\b`` false-hits ``.504`` ms stamps.
 _ANOMALY_RE = re.compile(
     r"(?i)(?:"
     r"\b(?:ERROR|CRITICAL|FATAL|WARN(?:ING)?)\b|"
@@ -128,8 +129,32 @@ _ANOMALY_RE = re.compile(
     r"econnrefused|"
     r"\btimed?\s*out\b|"
     r"\bfailed\b|"
-    r"\b(?:401|403|500|502|503|504)\b"
+    r'HTTP/1\.[01]"\s+(?:401|403|500|502|503|504)\b'
     r")"
+)
+
+# Explicit logger level tokens (stdlib `` - INFO - `` / uvicorn ``INFO:`` / ``[ERROR]``).
+_LEVEL_TOKEN_RE = re.compile(
+    r"(?:"
+    r"(?:^|\s)-\s*(DEBUG|INFO|WARNING|WARN|ERROR|CRITICAL|FATAL)\s*-|"
+    r"\[(DEBUG|INFO|WARNING|WARN|ERROR|CRITICAL|FATAL)\]|"
+    r"^(DEBUG|INFO|WARNING|WARN|ERROR|CRITICAL|FATAL):\s"
+    r")",
+    re.IGNORECASE,
+)
+
+# Soft diagnostic lines that match ANOMALY_RE but are not actionable failures.
+_NOISE_LINE_RE = re.compile(
+    r"(?i)(?:"
+    r"\[ui_stream\]\s*run_end\s*正文为空|"
+    r"ASR近失|"
+    r"未匹配词表|"
+    r"['\"]error['\"]\s*:"  # event-count dumps: {'error': 0, ...}
+    r")"
+)
+
+_UVICORN_ACCESS_RE = re.compile(
+    r'(?i)^INFO:\s+\S+\s+-\s+"[A-Z]+\s+.+\s+HTTP/1\.[01]"\s+(\d{3})\b'
 )
 
 _TS_RE = re.compile(r"(?P<ts>\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:\.\d+)?)")
@@ -239,11 +264,74 @@ def _file_meta(path: Path) -> dict[str, Any]:
         return {"path": str(path), "name": path.name, "size": 0, "mtime": None}
 
 
+def _explicit_level(line: str) -> str | None:
+    m = _LEVEL_TOKEN_RE.search(line or "")
+    if not m:
+        return None
+    raw = next((g for g in m.groups() if g), None)
+    if not raw:
+        return None
+    u = str(raw).upper()
+    if u == "WARNING":
+        return "WARN"
+    if u == "FATAL":
+        return "CRITICAL"
+    return u
+
+
+def _hard_failure_marker(line: str) -> bool:
+    return bool(
+        re.search(
+            r"(?i)traceback|exception\b|\bpanic\b|econnrefused|\btimed?\s*out\b|\bfailed\b",
+            line or "",
+        )
+    )
+
+
+def _is_noise_anomaly(line: str) -> bool:
+    """Drop false positives that would otherwise flood the system-logs panel."""
+    s = str(line or "")
+    if not s.strip():
+        return True
+    if _NOISE_LINE_RE.search(s):
+        # Still keep if the same line also has a real traceback / panic etc.
+        return not _hard_failure_marker(s)
+
+    access = _UVICORN_ACCESS_RE.match(s.strip())
+    if access:
+        code = int(access.group(1))
+        # Overload shed / startup gate / client 4xx — not "fix this ERROR" noise.
+        if code in {401, 403, 404, 502, 503, 504}:
+            return True
+        # Bare access-log 500 stays (possible server bug), classified as WARN below.
+
+    explicit = _explicit_level(s)
+    if explicit in ("INFO", "DEBUG") and not _hard_failure_marker(s):
+        # e.g. INFO line that only matched because dict key ``error`` / word ERROR in prose
+        return True
+    return False
+
+
 def _guess_level(line: str) -> str:
-    u = line.upper()
+    explicit = _explicit_level(line)
+    if explicit in ("CRITICAL", "ERROR", "WARN"):
+        return explicit
+    if explicit in ("INFO", "DEBUG"):
+        access = _UVICORN_ACCESS_RE.match(str(line or "").strip())
+        if access and int(access.group(1)) >= 500:
+            return "WARN"
+        if _hard_failure_marker(line):
+            return "ERROR"
+        return "WARN"
+
+    u = (line or "").upper()
     if "CRITICAL" in u or "FATAL" in u:
         return "CRITICAL"
-    if "ERROR" in u or "TRACEBACK" in u or "EXCEPTION" in u:
+    if re.search(r"(?i)\bERROR\b", line or "") and not re.search(
+        r"(?i)['\"]error['\"]\s*:", line or ""
+    ):
+        return "ERROR"
+    if re.search(r"(?i)traceback|exception\b", line or ""):
         return "ERROR"
     if re.search(r"\bWARN(?:ING)?\b", u):
         return "WARN"
@@ -298,6 +386,8 @@ def _read_anomaly_lines(
         if not line.strip():
             continue
         if not _ANOMALY_RE.search(line):
+            continue
+        if _is_noise_anomaly(line):
             continue
         ts = _parse_ts(line, mtime if mtime >= cutoff else None)
         if ts is not None and ts < cutoff:

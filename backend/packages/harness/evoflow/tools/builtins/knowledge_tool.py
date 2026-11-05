@@ -180,6 +180,7 @@ _TOOL_DESCRIPTION = """**自研知识库**：在您有权限的知识库中搜�
 
 @tool("knowledge", description=_TOOL_DESCRIPTION, parse_docstring=False)
 async def knowledge_tool(
+    runtime: ToolRuntime[ContextT, dict],
     action: str = "search",
     *,
     query: str = "",
@@ -187,7 +188,6 @@ async def knowledge_tool(
     knowledge_base: str = "",
     mode: str = "hybrid",
     top_k: int = 8,
-    runtime: ToolRuntime[ContextT, dict] | None = None,
 ) -> str:
     """自研知识库 — 搜索 / 阅读 / 列出知识库（按员工绑定范围隔离）。
 

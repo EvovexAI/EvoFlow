@@ -202,14 +202,28 @@ def apply_vendor_thinking_request_payload(
         if not has_explicit:
             return payload
     kind = _host(base_url)
+    force_off = runtime_thinking is False and not _is_thinking_auto(model_instance)
     if kind == "volc":
-        return apply_volcengine_request_payload(payload, base_url=base_url)
+        return apply_volcengine_request_payload(
+            payload,
+            base_url=base_url,
+            force_thinking_off=force_off,
+        )
     if kind == "dashscope":
-        if not (_thinking_enabled(payload, model_instance) or _thinking_disabled(payload, model_instance, _runtime_effort(payload, model_instance))):
-            return _apply_openai_compat_thinking_payload(payload)
-        return _apply_dashscope_thinking_payload(payload, model_instance=model_instance)
+        if force_off or _thinking_enabled(payload, model_instance) or _thinking_disabled(
+            payload, model_instance, _runtime_effort(payload, model_instance)
+        ):
+            return _apply_dashscope_thinking_payload(payload, model_instance=model_instance)
+        return _apply_openai_compat_thinking_payload(payload)
     if kind == "zhipu":
-        if not (_thinking_enabled(payload, model_instance) or _thinking_disabled(payload, model_instance, _runtime_effort(payload, model_instance))):
-            return _apply_openai_compat_thinking_payload(payload)
-        return _apply_zhipu_thinking_payload(payload, model_instance=model_instance)
+        if force_off or _thinking_enabled(payload, model_instance) or _thinking_disabled(
+            payload, model_instance, _runtime_effort(payload, model_instance)
+        ):
+            return _apply_zhipu_thinking_payload(payload, model_instance=model_instance)
+        return _apply_openai_compat_thinking_payload(payload)
+    if force_off:
+        # 其它 OpenAI 兼容：显式写 disabled，避免空参落回厂商默认开思考
+        _merge_vendor_extra_body(payload, {"thinking": {"type": "disabled"}})
+        payload.pop("reasoning_effort", None)
+        return payload
     return _apply_openai_compat_thinking_payload(payload)

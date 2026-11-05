@@ -21,10 +21,15 @@ def _normalize_reasoning_effort(value: Any) -> str | None:
     if isinstance(value, dict):
         value = value.get("effort")
     s = str(value).strip().lower()
-    if not s or s in ("none",):
+    if not s:
         return None
+    # 前端 / 小V hard guard 常写 minimum；须与 factory 别名对齐，否则会被当成「开思考+effort」。
+    if s in ("minimum", "min"):
+        s = "minimal"
     if s == "x-high":
         s = "xhigh"
+    if s in ("none", "off", "disabled"):
+        return "none"
     return s
 
 
@@ -132,30 +137,42 @@ def _merge_vendor_extra_body(payload: dict[str, Any], fields: dict[str, Any]) ->
         payload.pop(key, None)
 
 
-def normalize_volcengine_modern_chat_request(payload: dict[str, Any], *, base_url: str | None) -> dict[str, Any]:
+def normalize_volcengine_modern_chat_request(
+    payload: dict[str, Any],
+    *,
+    base_url: str | None,
+    force_thinking_off: bool = False,
+) -> dict[str, Any]:
     """Rewrite LangChain payload to official Volc Chat API fields (via ``extra_body``).
 
     LangChain forwards unknown top-level keys to ``AsyncCompletions.create()`` and rejects
     ``thinking`` / ``reasoning``; the OpenAI SDK merges ``extra_body`` into the HTTP JSON.
+
+    ``force_thinking_off``：小V / 语音 / flash 等硬关思考。空 payload 时也必须写
+    ``thinking.type=disabled``，否则会落回厂商默认（常为开思考）。
     """
     if not _is_volcengine_base_url(base_url):
         return payload
 
     effort = _resolve_reasoning_effort(payload)
     thinking_raw = _resolve_thinking_dict(payload)
-    if thinking_raw is None and effort is None:
+    if thinking_raw is None and effort is None and not force_thinking_off:
         payload.pop("reasoning_effort", None)
         _merge_vendor_extra_body(payload, {})
         return payload
 
+    if force_thinking_off or effort in ("minimal", "none") or (
+        isinstance(thinking_raw, dict)
+        and str(thinking_raw.get("type") or "").strip().lower() in ("disabled", "off", "none")
+    ):
+        vendor: dict[str, Any] = {"thinking": {"type": "disabled"}}
+        _merge_vendor_extra_body(payload, vendor)
+        return payload
+
     thinking = _clean_thinking_type(thinking_raw or {"type": "enabled"})
-    vendor: dict[str, Any] = {}
-    if effort in ("minimal", "none") or thinking.get("type") == "disabled":
-        vendor["thinking"] = {"type": "disabled"}
-    else:
-        vendor["thinking"] = thinking
-        if effort and thinking.get("type") != "disabled":
-            vendor["reasoning"] = {"effort": effort}
+    vendor = {"thinking": thinking}
+    if effort and thinking.get("type") != "disabled":
+        vendor["reasoning"] = {"effort": effort}
     _merge_vendor_extra_body(payload, vendor)
     return payload
 
@@ -190,10 +207,19 @@ def apply_volcengine_thinking_output_limits(payload: dict[str, Any], *, base_url
     return payload
 
 
-def apply_volcengine_request_payload(payload: dict[str, Any], *, base_url: str | None) -> dict[str, Any]:
+def apply_volcengine_request_payload(
+    payload: dict[str, Any],
+    *,
+    base_url: str | None,
+    force_thinking_off: bool = False,
+) -> dict[str, Any]:
     """Apply Volc-specific request normalization before HTTP + observability logging."""
     if not _is_volcengine_base_url(base_url):
         return payload
-    if _should_use_volc_modern_chat_api(payload):
-        return normalize_volcengine_modern_chat_request(payload, base_url=base_url)
+    if force_thinking_off or _should_use_volc_modern_chat_api(payload):
+        return normalize_volcengine_modern_chat_request(
+            payload,
+            base_url=base_url,
+            force_thinking_off=force_thinking_off,
+        )
     return apply_volcengine_thinking_output_limits(payload, base_url=base_url)

@@ -101,8 +101,10 @@ _BEST_EFFORT_EXACT = frozenset(
 )
 
 _BEST_EFFORT_METHODS_PATHS: tuple[tuple[str, re.Pattern[str]], ...] = (
-    # Idle dashboard / role boards that can soft-fail
+    # Idle dashboard / role boards that can soft-fail under overload
     ("GET", re.compile(r"^/api/proactive/roles/?$")),
+    # Single-role detail (sidebar / voice fan-out); shed beats clogging DATA
+    ("GET", re.compile(r"^/api/proactive/roles/[^/]+/?$")),
     ("GET", re.compile(r"^/api/proactive/roles/[^/]+/busy/?$")),
 )
 
