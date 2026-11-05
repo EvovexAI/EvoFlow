@@ -24,8 +24,8 @@ def register_all() -> None:
         FirecrawlWebSearchProvider,
         SearXNGWebSearchProvider,
         BraveFreeWebSearchProvider,
-        KeenableWebSearchProvider,
         DDGSWebSearchProvider,
+        KeenableWebSearchProvider,
     ):
         register_provider(cls())
 
@@ -39,6 +39,6 @@ __all__ = [
     "FirecrawlWebSearchProvider",
     "SearXNGWebSearchProvider",
     "BraveFreeWebSearchProvider",
-    "KeenableWebSearchProvider",
     "DDGSWebSearchProvider",
+    "KeenableWebSearchProvider",
 ]

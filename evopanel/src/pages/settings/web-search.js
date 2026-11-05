@@ -197,16 +197,6 @@ function providerCardsHtml() {
           hint: '',
         },
         {
-          id: 'keenable',
-          label: 'Keenable',
-          secretField: 'keenableApiKey',
-          urlField: '',
-          defaultBaseUrl: '',
-          docsUrl: 'https://keenable.ai/',
-          signupUrl: 'https://keenable.ai/',
-          hint: '',
-        },
-        {
           id: 'searxng',
           label: 'SearXNG',
           secretField: '',
@@ -235,6 +225,16 @@ function providerCardsHtml() {
           docsUrl: 'https://docs.byteplus.com/en/docs/InfoQuest/What_is_Info_Quest',
           signupUrl: 'https://console.byteplus.com/infoquest',
           hint: '',
+        },
+        {
+          id: 'keenable',
+          label: 'Keenable',
+          secretField: 'keenableApiKey',
+          urlField: '',
+          defaultBaseUrl: '',
+          docsUrl: 'https://keenable.ai/',
+          signupUrl: 'https://keenable.ai/',
+          hint: '可选；不参与自动探测默认',
         },
         {
           id: 'ddgs',
@@ -368,6 +368,7 @@ function preferredOptionsHtml() {
     { id: 'searxng', label: 'SearXNG' },
     { id: 'firecrawl', label: 'Firecrawl' },
     { id: 'infoquest', label: 'InfoQuest' },
+    { id: 'keenable', label: 'Keenable（可选）' },
     { id: 'ddgs', label: 'DDGS（兜底）' },
   ]
   return opts

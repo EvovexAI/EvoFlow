@@ -30,10 +30,10 @@ RECOMMEND_QUALITY_ORDER: list[str] = [
     "bocha",
     "tavily",
     "brave-free",
-    "keenable",
     "searxng",
     "infoquest",
     "firecrawl",
+    "keenable",
     "ddgs",
 ]
 
@@ -145,16 +145,6 @@ PROVIDER_UI: list[dict[str, str]] = [
         "hint": "需 BRAVE_SEARCH_API_KEY。",
     },
     {
-        "id": "keenable",
-        "label": "Keenable",
-        "secretField": "keenableApiKey",
-        "urlField": "",
-        "defaultBaseUrl": "",
-        "docsUrl": "https://keenable.ai/",
-        "signupUrl": "https://keenable.ai/",
-        "hint": "面向 Agent 的搜索 API；无需密钥即可使用（公共端点），可选 KEENABLE_API_KEY 提高额度。",
-    },
-    {
         "id": "searxng",
         "label": "SearXNG",
         "secretField": "",
@@ -183,6 +173,16 @@ PROVIDER_UI: list[dict[str, str]] = [
         "docsUrl": "https://docs.byteplus.com/en/docs/InfoQuest/What_is_Info_Quest",
         "signupUrl": "https://console.byteplus.com/infoquest",
         "hint": "BytePlus InfoQuest，需 INFOQUEST_API_KEY。",
+    },
+    {
+        "id": "keenable",
+        "label": "Keenable",
+        "secretField": "keenableApiKey",
+        "urlField": "",
+        "defaultBaseUrl": "",
+        "docsUrl": "https://keenable.ai/",
+        "signupUrl": "https://keenable.ai/",
+        "hint": "可选第三方搜索；无需密钥可用公共端点，不参与自动探测默认。可选 KEENABLE_API_KEY 提高额度。",
     },
     {
         "id": "ddgs",
