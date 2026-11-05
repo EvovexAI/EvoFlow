@@ -982,9 +982,11 @@ html[data-theme='dark'] .react-chat-aside-brand-logo {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 6px 8px;
+  /* 单行：tabs 收缩、右侧筛选/刷新/+ 常显；wrap 会把操作钮整行挤下去 */
+  flex-wrap: nowrap;
+  gap: 6px;
   min-height: 32px;
+  min-width: 0;
   padding: 6px 8px;
   /* 筛选搜索框用 absolute + top:100%，必须相对本行定位；
      否则会爬到更高的定位祖先（整块 aside-history），输入框就出现在侧栏最底部。 */
@@ -1017,9 +1019,9 @@ html[data-theme='dark'] .react-chat-aside-brand-logo {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 4px;
+  gap: 3px;
   height: 22px;
-  padding: 0 8px;
+  padding: 0 6px;
   border: none;
   border-radius: 6px;
   background: transparent;
@@ -1031,6 +1033,12 @@ html[data-theme='dark'] .react-chat-aside-brand-logo {
   white-space: nowrap;
   flex: 1 1 0;
   min-width: 0;
+  overflow: hidden;
+}
+
+.shell-view-tab > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .shell-view-tab:hover {
@@ -2208,11 +2216,11 @@ html[data-translucent-ui='1'] .shell-view-tab.is-active {
   font-weight: 500;
 }
 
-/* 操作按钮：刷新 / 筛选 / 新建 —— 必须常显，不被 tabs 挤掉 */
+/* 操作按钮：筛选 / 刷新 / 新建 —— 固定在同行右侧，不被 tabs 挤换行 */
 .shell-view-actions {
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: 0;
   flex: 0 0 auto;
   margin-left: auto;
 }
@@ -2221,14 +2229,15 @@ html[data-translucent-ui='1'] .shell-view-tab.is-active {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: 26px;
+  height: 26px;
   padding: 0;
   border: none;
   border-radius: 6px;
   background: transparent;
   color: var(--shell-text-muted, #6b7080);
   cursor: pointer;
+  flex-shrink: 0;
   transition: background var(--dur-fast) var(--ease-out-soft), color var(--dur-fast) var(--ease-out-soft);
 }
 
