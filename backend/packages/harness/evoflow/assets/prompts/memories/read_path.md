@@ -23,7 +23,7 @@
 | 层 | 每轮 | 装什么 |
 |---|---|---|
 | **岗位** `system_prompt` | 常驻 | **只**职责骨架、输出格式、硬闸门——禁止塞经验全文 |
-| **standing**（记忆摘要） | 常驻总览 | 偏好 / Tips / **What's in Memory** 指针 |
+| **standing**（记忆摘要） | 常驻总览 | 偏好 / Tips / **What's in Memory** 文件名索引（只列自描述名字，不写 desc/learnings） |
 | **catalog** | 常驻短标题 | 按类（craft/facts/episodic/journal）列**文件名**（不拼完整相对路径；正文不灌） |
 | **正文** | 按需 | `assets` read/search 打开详情 |
 | **inbox** | 未合并预览 | Phase2 前的新笔记 |

@@ -588,129 +588,64 @@ For example, include (when known):
   often has to ask for repeatedly or avoid the kinds of overreach that trigger interruption.
 ## What's in Memory
 
-This is a compact index to help future agents quickly find details in `memory/MEMORY.md`,
-`craft/`, and `memory/episodic/`.
-Treat it as a dense routing/index layer, not a mini-handbook:
+This is a **name-only** file index. Future agents already get L2 catalog titles every turn;
+standing must not restate keywords, `desc:`, `learnings:`, or mini-handbooks.
 
-- tell future agents what to search first,
-- preserve enough specificity to route into the right `memory/MEMORY.md` block quickly.
-- keep topic descriptions brief; delete stale, duplicated, or low-signal topics even if they
-  existed in the previous summary.
-- **Required for reusable playbooks**: when a topic has a matching `craft/*.md`, the topic
-  `desc` (or learnings) MUST name that path (e.g. `craft/video-prompt-five-block.md`) so
-  Tier-0 standing can route without opening MEMORY first.
+Purpose:
+
+- list self-describing Asset Hub names the agent can pass straight to `assets read`
+- let the **filename / craft name itself** convey what the content is about
+- delete stale, duplicated, or low-signal names even if they existed in the previous summary
 - **Never** instruct future agents to copy consolidated know-how into `agents.system_prompt`
   / soul. Job prompt = duty skeleton only; Asset Hub is SoT for experience/process/craft.
   If inbox notes say 「已写入 system_prompt」, still consolidate into MEMORY/craft/standing
   and treat the system_prompt copy as legacy debt (do not deepen the dual-write).
 
-Topic selection and quality rules:
+Selection rules:
 
-- Organize the index first by cwd / project scope, then by topic.
-- Split the index into a recent high-utility window and older topics.
-- Do not target a fixed topic count. Include informative topics and omit low-signal noise.
-- Keep the index current. Feel free to restructure, rename, merge, or delete topics when the
-  current `memory/MEMORY.md` organization or evidence has changed.
-- Prefer grouping by task family / workflow intent, not by incidental tool overlap alone.
-- Order topics by utility, using `updated_at` recency as a strong default proxy unless there is
-  strong contrary evidence.
-- Each topic bullet must include: topic, keywords, and a clear description.
-- Keywords must be representative and directly searchable in `memory/MEMORY.md`.
-  Prefer exact strings that a future agent can grep for (repo/project names, user query phrases,
-  tool names, error strings, commands, file paths, APIs/contracts). Avoid vague synonyms.
-- When cwd context matters, include that handle in keywords or in the topic description so the
-  routing layer can distinguish otherwise-similar memories.
-- Prefer raw `cwd` when it is the clearest routing handle; otherwise use a short project scope
-  label that groups closely related working directories into one practical area.
-- Use source-faithful topic labels and descriptions:
-  - prefer labels built from the rollout/task wording over newly invented abstract categories;
-  - prefer exact phrases from `description:`, `task:`, and user wording when those phrases are
-    already discriminative;
-  - if a combined topic must cover multiple rollouts, preserve at least a few original strings
-    from the underlying tasks so the abstraction does not erase retrieval handles.
+- Prefer real paths/basenames: `craft/<name>.md`, then facts/episodic/journal basenames.
+- When a MEMORY `# Task Group` has a matching craft, **only list the craft path** (do not also
+  invent a long topic sentence).
+- When there is no durable file yet, use one short self-describing title string (filename-like;
+  no colon-keyword tail, no nested fields). Prefer creating/updating `craft/<name>.md` instead.
+- Organize lightly by cwd / project scope when that helps disambiguation; optional
+  `### Older Memory Topics` for lower-utility names. **No day subsections. No keyword lists.**
+- Order names by utility/recency. Do not target a fixed count; omit noise.
+- Coverage guardrail: every top-level `# Task Group` in `memory/MEMORY.md` maps to **one**
+  name bullet (usually its craft file). Deduplicate aggressively.
 
-Required subsection structure (in this order):
+**Forbidden** under `## What's in Memory`:
 
-After the top-level sections `## User Profile`, `## User preferences`, and `## General Tips`,
-structure `## What's in Memory` like this:
+- `desc:` / `learnings:` nested bullets
+- comma-separated keyword tails after a topic title
+- prose summaries of what is inside a file (open the file instead)
+- copying Tips / User preferences content into this section
+
+Required shape (after `## User Profile`, `## User preferences`, `## General Tips`):
+
+```md
+## What's in Memory
 
 ### <cwd / project scope>
 
-#### <most recent memory day within this scope: YYYY-MM-DD>
-
-Recent Active Memory Window behavior (scope-first, then day-ordered):
-
-- Define a "memory day" as a calendar date (derived from `updated_at`) that has at least one
-  represented memory/rollout in the current memory set.
-- Build the recent window from the most recent meaningful topics first, then group those topics
-  by their best cwd / project scope.
-- Within each scope, order day subsections by recency.
-- If a scope has only one meaningful recent day, include only that day for that scope.
-- For each recent-day subsection inside a scope, prioritize informative, likely-to-recur topics and make
-  those entries denser (better keywords, brief descriptions, and useful recent learnings);
-  do not spend much space on trivial tasks touched that day.
-- Preserve routing coverage for `memory/MEMORY.md` in the overall index. If a scope/day includes
-  less useful topics, include shorter/compact entries for routing rather than dropping them.
-- If a topic spans multiple recent days within one scope, list it under the most recent day it
-  appears; do not duplicate it under multiple day sections.
-- If a topic spans multiple scopes and retrieval would differ by scope, split it. Otherwise,
-  place it under the dominant scope and mention the secondary scope in the description.
-- Recent-day entries should be more informative than older-topic entries through stronger
-  keywords and concise recent learnings/change notes, not longer prose.
-- Group similar tasks/topics together when it improves routing clarity.
-- Do not over cluster topics together, especially when they contain distinct task intents.
-
-Recent-topic format:
-
-- <topic>: <keyword1>, <keyword2>, <keyword3>, ...
-  - desc: <brief description of what is inside this topic, when to search it first, and any cwd applicability needed for routing>
-  - learnings: <one dense line of topic-local takeaways / decision triggers / updates worth checking first; avoid overlap with `## User preferences` and `## General Tips`>
-
-### <cwd / project scope>
-
-#### <most recent memory day within this scope: YYYY-MM-DD>
-
-Use the same format and keep it informative.
-
-### <cwd / project scope>
-
-#### <most recent memory day within this scope: YYYY-MM-DD>
-
-Use the same format and keep it informative.
+- craft/<self-describing-name>.md
+- craft/<another>.md
+- <short-title-only-when-no-file-yet>
 
 ### Older Memory Topics
 
-All remaining high-signal topics not placed in the recent scope/day subsections.
-Avoid duplicating recent topics. Keep these compact and retrieval-oriented.
-Organize this section by cwd / project scope, then by durable task family.
-
-Older-topic format (compact):
-
 #### <cwd / project scope>
 
-- <topic>: <keyword1>, <keyword2>, <keyword3>, ...
-  - desc: <clear and specific description of what is inside this topic, when to use it, and explicit applicability text including `cwd=...` when checkout-sensitive>
+- craft/<older-but-still-useful>.md
+```
 
 Notes:
 
-- Do not include large snippets; push details into memory/MEMORY.md and rollout summaries.
-- Prefer topics/keywords that help a future agent search memory/MEMORY.md efficiently.
-- Prefer clear topic taxonomy over verbose drill-down pointers.
-- This section is primarily an index to `memory/MEMORY.md`; mention `craft/` / `memory/episodic/`
-  only when they materially improve routing.
-- Separation rule: recent-topic `learnings` should emphasize topic-local recent deltas,
-  caveats, and decision triggers; move cross-task, stable, broadly reusable user defaults to
-  `## User preferences`.
-- Coverage guardrail: ensure every top-level `# Task Group` in `memory/MEMORY.md` is represented by
-  at least one topic bullet in this index (either directly or via a clearly subsuming compact topic).
-- Keep descriptions explicit but short: enough for a future agent to choose the right
-  topic/keyword cluster, not enough to replace opening `memory/MEMORY.md`.
-- `memory/standing.md` should not sound like a second-order executive summary. Prefer concrete,
-  source-faithful wording over polished abstraction, especially in:
-  - `## User preferences`
-  - topic labels
-  - `desc:` lines when a raw-memory `description:` already says it well
-  - `learnings:` lines when there is a concise original phrase worth preserving
+- Push all detail into `craft/`, `memory/MEMORY.md`, facts/episodic/journal — not standing.
+- `## User preferences` / `## General Tips` remain the only standing places for behavioral defaults.
+- Prefer concrete, source-faithful **names** over polished abstractions.
+- If the previous standing still has the old topic/keywords/`desc`/`learnings` shape, rewrite
+  this section to name-only (do not preserve the dense format for continuity).
 
 # ============================================================ 3) `craft/` FORMAT (optional)
 
@@ -820,16 +755,17 @@ WORKFLOW
      - expanding terse old blocks when new summaries/raw memories make the task family clearer
      - doing light clustering and merging if needed
      - refreshing `memory/MEMORY.md` top-of-file ordering so recent high-utility task families stay easy to find
-     - rebuilding the `memory/standing.md` recent active window (last 3 memory days) from current `updated_at` coverage
+     - rewriting `## What's in Memory` as a **name-only** list of current craft/fact/episodic files
+       (collapse any leftover keywords/`desc`/`learnings`/day headings)
      - freely restructuring `memory/standing.md` so it reflects the current memory set without
-       stale topics, duplicated preference bullets, or obsolete routing labels
+       stale names, duplicated preference bullets, or obsolete file pointers
      - updating existing skills or adding new skills only when there is clear new reusable procedure
      - updating `memory/standing.md` last to reflect the final state of the memory folder
-   - Minimize churn in incremental mode: if an existing `memory/MEMORY.md` block or `## What's in Memory`
-     topic still reflects the current evidence and points to the same task family / retrieval
-     target, keep its wording, label, and relative order mostly stable. Rewrite/reorder/rename/
-     split/merge only when fixing a real problem (staleness, ambiguity, schema drift, wrong
-     boundaries) or when meaningful new evidence materially improves retrieval clarity/searchability.
+   - Minimize churn in incremental mode: if an existing `memory/MEMORY.md` block or a
+     `## What's in Memory` **file name** still points at the same durable target, keep that name
+     and relative order. Rewrite/reorder/rename/split/merge only when fixing a real problem
+     (staleness, ambiguity, schema drift, wrong boundaries) or when meaningful new evidence
+     adds a new durable file worth listing.
    - Spend most of your deep-dive budget on added/modified inputs and on mixed blocks touched by
      deleted inputs. Do not re-read unchanged older threads unless you need them for
      conflict resolution, clustering, or provenance repair.
@@ -866,7 +802,7 @@ WORKFLOW
    - remove duplication in memory_summary, craft/, and memory/MEMORY.md
    - verify `memory/standing.md` still begins with exactly `v1`
    - verify `memory/standing.md` is dense: brief high-level profile, compact actionable
-     preferences, compact general tips, and a routing index rather than a second handbook
+     preferences, compact general tips, and a **name-only** file index (not a second handbook)
    - remove stale or low-signal blocks that are less likely to be useful in the future
    - remove or rewrite blocks/task sections whose supporting rollout references point only to
      deleted inputs or missing rollout summary files
@@ -874,18 +810,18 @@ WORKFLOW
      entries / redundant repetition, while preserving intentional multi-task or multi-block
      reuse when it adds distinct task-local value
    - ensure any referenced craft/summaries actually exist
-   - ensure MEMORY blocks and "What's in Memory" use a consistent task-oriented taxonomy
-   - ensure recent important task families are easy to find (description + keywords + topic wording)
+   - ensure MEMORY blocks and "What's in Memory" names point at the same durable files
+   - ensure recent important task families are findable by **self-describing file names**
    - remove or downgrade memory that mainly preserves exploratory discussion, assistant-only
      recommendations, or one-off impressions unless there is clear evidence that they became
      stable and useful future guidance
-   - verify `memory/MEMORY.md` block order and `What's in Memory` section order reflect current
-     utility/recency priorities (especially the recent active memory window)
+   - verify `memory/MEMORY.md` block order and `What's in Memory` name order reflect current
+     utility/recency priorities
    - verify `## What's in Memory` quality checks:
-     - recent-day headings are correctly day-ordered
-     - no accidental duplicate topic bullets across recent-day sections and `### Older Memory Topics`
-     - topic coverage still represents all top-level `# Task Group` blocks in `memory/MEMORY.md`
-     - topic keywords are grep-friendly and likely searchable in `memory/MEMORY.md`
+     - every bullet is a single name/path line (prefer `craft/<name>.md`)
+     - no `desc:`, `learnings:`, keyword tails, or day (`#### YYYY-MM-DD`) subsections
+     - no duplicate names across the recent list and `### Older Memory Topics`
+     - name coverage still represents all top-level `# Task Group` blocks in `memory/MEMORY.md`
    - if there is no net-new or higher-quality signal to add, keep changes minimal (no
      churn for its own sake).
 

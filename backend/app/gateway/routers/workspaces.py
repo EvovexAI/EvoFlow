@@ -772,7 +772,10 @@ def _read_workspace_file_impl(
         raise HTTPException(status_code=400, detail="path is a directory")
     try:
         size = int(target.stat().st_size)
-        raw = target.read_bytes()[:_MAX_WORKSPACE_READ_BYTES]
+        # 只读前 N 字节（open+read），不要 read_bytes() 全量再切片：
+        # 大文件全量读盘拖慢预览首开，还白白占内存。
+        with target.open("rb") as fh:
+            raw = fh.read(_MAX_WORKSPACE_READ_BYTES)
     except OSError as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
     truncated = size > len(raw)

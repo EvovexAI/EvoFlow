@@ -16,7 +16,7 @@ import os
 # Tier 0 Pin (frozen standing) — asset-related slices
 TIER0_SOUL_SUMMARY_CHARS = 400
 TIER0_SYSTEM_CHARS = 500
-# standing.md = derived prefs + tips + What's in Memory. Inject **complete**.
+# standing.md = derived prefs + tips + name-only What's in Memory. Inject **complete**.
 # 0 = uncapped (do not hard-cut the system prompt). Phase2 owns keeping the file sane.
 TIER0_STANDING_CHARS = 0
 TIER0_USER_PROFILE_CHARS = 400

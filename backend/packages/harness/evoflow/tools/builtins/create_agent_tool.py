@@ -2,6 +2,7 @@
 
 import json
 import logging
+import re
 from typing import Annotated
 
 from langchain.tools import InjectedToolCallId, ToolRuntime, tool
@@ -20,7 +21,12 @@ logger = logging.getLogger(__name__)
 
 
 # UI metadata for tool discovery (attached to function, not tool object)
-create_agent_tool_ui_metadata = {"label": "创建智能体", "icon": "🤖", "group": "agent_management", "description": "创建新的自定义智能体，支持中文名、工具/技能配置"}
+create_agent_tool_ui_metadata = {
+    "label": "创建智能体",
+    "icon": "🤖",
+    "group": "agent_management",
+    "description": "创建新的自定义智能体，支持中文名、工具/技能配置",
+}
 
 
 @tool("create_agent")
@@ -46,11 +52,14 @@ async def create_agent_tool(
 
     Omit ``model`` — execution uses the session default chat model. Pass ``model`` only if the user explicitly asks to pin a different model for this agent.
 
+    Omit ``tools`` / ``mcp_servers`` / ``skills`` → **empty allowlists** (same as panel
+    create / employees.create). Do **not** inherit every tool or MCP. Pass an explicit
+    list when the user asks to bind capabilities; prefer a short allowlist.
+
     ``soul`` writes ``agents/<agent_code>/SOUL.md`` (persona / guardrails). Omit to leave SOUL unset until the user edits in EvoPanel or calls ``update_agent``.
 
     ``tags`` assigns optional tag labels for grouping/filtering (e.g. ["核心", "代码"]). Omit to infer tags automatically from the agent code/type.
     """
-    # Normalize agent code
     agent_code = agent_code.strip().lower()
 
     logger.info(
@@ -60,18 +69,20 @@ async def create_agent_tool(
         agent_type,
     )
 
-    # Validate agent code format
-    import re
-
     if not re.match(r"^[A-Za-z0-9-]+$", agent_code):
-        return json.dumps({"success": False, "error": f"Invalid agent code '{agent_code}'. Must contain only letters, numbers, and hyphens."}, ensure_ascii=False)
+        return json.dumps(
+            {
+                "success": False,
+                "error": f"Invalid agent code '{agent_code}'. Must contain only letters, numbers, and hyphens.",
+            },
+            ensure_ascii=False,
+        )
 
     tools = normalize_str_or_list_argument(tools)
     skills = normalize_str_or_list_argument(skills)
     mcp_servers = normalize_str_or_list_argument(mcp_servers)
     disallowed_tools = normalize_str_or_list_argument(disallowed_tools)
 
-    # Subagent: need behavioral spec as system_prompt and/or soul (SOUL.md)
     sp_ok = bool((system_prompt or "").strip())
     soul_ok = soul is not None and str(soul).strip()
     if agent_type == "subagent" and not sp_ok and not soul_ok:
@@ -83,13 +94,18 @@ async def create_agent_tool(
             ensure_ascii=False,
         )
 
-    # Check if agent already exists
     try:
         existing = load_agent_config(agent_code)
         if existing:
-            return json.dumps({"success": False, "error": f"Agent '{agent_code}' already exists. Use update_agent to modify it."}, ensure_ascii=False)
+            return json.dumps(
+                {
+                    "success": False,
+                    "error": f"Agent '{agent_code}' already exists. Use update_agent to modify it.",
+                },
+                ensure_ascii=False,
+            )
     except FileNotFoundError:
-        pass  # Expected - agent doesn't exist yet
+        pass
 
     mn = model_name_from_tool_runtime(runtime)
     if tools is not None:
@@ -126,7 +142,8 @@ async def create_agent_tool(
                 ensure_ascii=False,
             )
 
-    # Build agent config (omit tools/skills/disallowed_tools/model when unset so YAML matches AgentConfig defaults)
+    # Align with admin create_agent / employees.create:
+    # omit → empty allowlist ([]), never AgentConfig None (= inherit-all).
     agent_config: dict = {
         "agent_code": agent_code,
         "agent_name": agent_name,
@@ -135,26 +152,20 @@ async def create_agent_tool(
         "system_prompt": system_prompt,
         "max_turns": max_turns,
         "timeout_seconds": timeout_seconds,
+        "tools": tools if tools is not None else [],
+        "skills": skills if skills is not None else [],
+        "mcp_servers": mcp_servers if mcp_servers is not None else [],
     }
     if model is not None:
         agent_config["model"] = model
-    if tools is not None:
-        agent_config["tools"] = tools
-    if skills is not None:
-        agent_config["skills"] = skills
-    if mcp_servers is not None:
-        agent_config["mcp_servers"] = mcp_servers
     if disallowed_tools is not None:
         agent_config["disallowed_tools"] = disallowed_tools
 
-    # Tags: when supplied, normalize and persist; otherwise save_agent_config
-    # infers tags from the agent_code/agent_type via infer_tags_for_agent.
     if tags is not None:
         from evoflow.config.agent_tags import normalize_tags
 
         agent_config["tags"] = normalize_tags(tags)
 
-    # Default gallery cutout when the tool does not set an avatar.
     if not agent_config.get("avatar"):
         from evoflow.config.avatar_presets import pick_random_preset_avatar
 
@@ -162,24 +173,21 @@ async def create_agent_tool(
         if random_avatar:
             agent_config["avatar"] = random_avatar
 
-    # Save agent configuration
     try:
         save_agent_config(agent_code, agent_config)
         if soul is not None:
             cfg_repo.save_agent_soul(agent_code, str(soul))
-        logger.info(f"Created agent '{agent_code}' successfully")
+        logger.info("Created agent '%s' successfully", agent_code)
 
-        # Read back the persisted config so tags/bindings (possibly inferred) are accurate.
         created_tags = list(agent_config.get("tags") or [])
-        created_tools = list(agent_config.get("tools") or []) if agent_config.get("tools") is not None else None
-        created_skills = list(agent_config.get("skills") or []) if agent_config.get("skills") is not None else []
-        created_mcp = list(agent_config.get("mcp_servers") or []) if agent_config.get("mcp_servers") is not None else []
+        created_tools = list(agent_config.get("tools") or [])
+        created_skills = list(agent_config.get("skills") or [])
+        created_mcp = list(agent_config.get("mcp_servers") or [])
         try:
-            from evoflow.config.agents_config import load_agent_config as _load_created
-
-            created_cfg = _load_created(agent_code)
+            created_cfg = load_agent_config(agent_code)
             if created_cfg:
                 created_tags = list(getattr(created_cfg, "tags", []) or []) or created_tags
+                # Persist always writes lists now; None would mean inherit-all (legacy).
                 if getattr(created_cfg, "tools", None) is not None:
                     created_tools = list(created_cfg.tools or [])
                 else:
@@ -198,8 +206,14 @@ async def create_agent_tool(
         else:
             tools_mode = "empty"
             tools_desc = "none"
-        skills_desc = ",".join(created_skills[:8]) + ("…" if len(created_skills) > 8 else "") if created_skills else "none"
-        mcp_desc = ",".join(created_mcp[:8]) + ("…" if len(created_mcp) > 8 else "") if created_mcp else "none"
+        skills_desc = (
+            ",".join(created_skills[:8]) + ("…" if len(created_skills) > 8 else "")
+            if created_skills
+            else "none"
+        )
+        mcp_desc = (
+            ",".join(created_mcp[:8]) + ("…" if len(created_mcp) > 8 else "") if created_mcp else "none"
+        )
         bindings = {
             "tools_mode": tools_mode,
             "tools": created_tools,
@@ -228,5 +242,8 @@ async def create_agent_tool(
             ensure_ascii=False,
         )
     except Exception as e:
-        logger.error(f"Failed to create agent '{agent_code}': {str(e)}")
-        return json.dumps({"success": False, "error": f"Failed to create agent: {str(e)}"}, ensure_ascii=False)
+        logger.error("Failed to create agent '%s': %s", agent_code, e)
+        return json.dumps(
+            {"success": False, "error": f"Failed to create agent: {e}"},
+            ensure_ascii=False,
+        )
