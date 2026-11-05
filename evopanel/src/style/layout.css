@@ -544,6 +544,19 @@ html[data-theme='dark'] .sidebar-logo img {
   box-sizing: border-box;
 }
 
+/* 系统日志：#content overflow:hidden 时由本页 flex 子区滚动（顶栏/芯片固定） */
+#content > .page.syslog-page {
+  max-width: none;
+  width: 100%;
+  margin: 0;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+}
+
 .page {
   padding: var(--space-xl) var(--space-2xl);
   max-width: var(--content-max-width, 1320px);

@@ -23,11 +23,12 @@ import { normalizeAssistantSegmentTimelineOrder } from '../../lib/chat-normalize
 
 const LS_SESSION = 'evopanel_xiaomi_assistant_session_key'
 export const XIAOMI_AGENT = 'xiaomi'
-/** 小V 会话固定关闭思考（前端 context + 后端 hard guard）。 */
+/** 小V 会话固定关闭思考（前端 context + 后端 hard guard）。
+ * reasoning_effort 用 minimal（勿写 minimum）：Volc 归一化把非 minimal/none 当「开思考」。 */
 const XIAOMI_THINKING_OFF = Object.freeze({
   thinking_enabled: false,
   thinking_type: 'disabled',
-  reasoning_effort: 'minimum',
+  reasoning_effort: 'minimal',
 })
 export const XIAOMI_SESSION_TITLE = '小V · 全局助手'
 
@@ -1295,6 +1296,18 @@ export async function sendXiaomiChat(text, ctx = {}) {
     xiaomi_page_context: pageChanged ? pageSnap : null,
     xiaomi_page_context_fp: fp || null,
   }
+  // 先写本地 session map：chatSend 读 getSessionContext；仅走 api.chatUpdateContext
+  // 时本地 map 可能仍缺 agent/关思考，语音身份识别会漏、思考硬闸也会晚一拍。
+  try {
+    await wsClient.updateSessionContext(key, {
+      agent_name: XIAOMI_AGENT,
+      agent_id: XIAOMI_AGENT,
+      xiaomi_global_assistant: true,
+      ...XIAOMI_THINKING_OFF,
+    }, { localOnly: true })
+  } catch {
+    /* ignore */
+  }
   if (voiceHot) {
     void api.chatUpdateContext(key, ctxPayload).catch((e) => {
       console.warn('[xiaomi] page context sync failed (bg)', e)
@@ -1346,6 +1359,8 @@ export async function sendXiaomiChat(text, ctx = {}) {
     const attachments = Array.isArray(ctx.attachments) ? ctx.attachments : []
     await wsClient.chatSend(key, raw, attachments, [], {
       messageId: userMsgId,
+      // 不依赖 sessionContext 竞态：每条小V 发送都钉死前台身份 + 关思考
+      forceXiaomiFrontDesk: true,
       ...(voiceHot ? { voiceInitiated: true } : {}),
       ...(voiceReply ? { voiceReply: true } : {}),
     })

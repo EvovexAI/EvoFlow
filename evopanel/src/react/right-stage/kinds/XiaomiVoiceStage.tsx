@@ -49,7 +49,8 @@ type RecentPanelSize = 'open' | 'hidden'
 
 const STATE_LABEL: Record<StageState, string> = {
   listen: '聆听',
-  think: '思考',
+  // 勿写成「思考」：会和设置里「关思考」(模型推理) 撞名；本态只是等模型出字。
+  think: '处理中',
   speak: '播报',
 }
 

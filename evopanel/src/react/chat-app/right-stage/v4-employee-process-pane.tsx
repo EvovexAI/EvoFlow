@@ -89,6 +89,10 @@ const STATUS_LABEL: Record<string, string> = {
   in_progress: '执行中',
   queued: '排队中',
   pending: '等待中',
+  // 后端空闲态常回 idle；对用户显示「可对话」，别甩英文原词
+  idle: '可对话',
+  ready: '可对话',
+  none: '可对话',
 }
 
 export type V4EmployeeProcessPaneProps = {
@@ -974,7 +978,9 @@ export function V4EmployeeProcessPane(props: V4EmployeeProcessPaneProps) {
                         {s.title}
                       </span>
                       {s.runStatus ? (
-                        <span className="text-[11px] text-foreground-subtlest">{s.runStatus}</span>
+                        <span className="text-[11px] text-foreground-subtlest">
+                          {STATUS_LABEL[String(s.runStatus).toLowerCase()] || s.runStatus}
+                        </span>
                       ) : null}
                     </button>
                   )

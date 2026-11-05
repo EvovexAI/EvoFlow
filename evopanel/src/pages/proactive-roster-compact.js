@@ -148,6 +148,7 @@ function bindTiles(root) {
       mountId: 'employees.detail',
       title: name || '员工',
       entityLabel: name || undefined,
+      agentCode: c,
       layout: 'wide',
     })
   }

@@ -57,7 +57,7 @@ let _uiStateLabel = ''
  */
 let _modeGate = /** @type {'entered' | 'closing' | 'exited'} */ ('exited')
 
-/** tray / 舞台 state → 日志用中文（仅三态：聆听 / 思考 / 播报） */
+/** tray / 舞台 state → 日志用中文（仅三态：聆听 / 处理中 / 播报） */
 const UI_STATE_LABEL = {
   recording: '聆听',
   listen: '聆听',
@@ -65,10 +65,11 @@ const UI_STATE_LABEL = {
   '': '聆听',
   speaking: '播报',
   speak: '播报',
-  processing: '思考',
-  parse: '思考',
-  running: '思考',
-  think: '思考',
+  // 与舞台 STATE_LABEL 对齐；勿写「思考」（易与模型 reasoning 混淆）
+  processing: '处理中',
+  parse: '处理中',
+  running: '处理中',
+  think: '处理中',
 }
 
 function clip(s, n = 800) {

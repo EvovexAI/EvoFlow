@@ -5321,17 +5321,41 @@ html.evopanel-macos-titlebar .pro-employee-page--nav-in-chrome {
   line-height: 1.5;
 }
 
-/* ── Edit role sections ── */
-.hire-sheet.hire-sheet--edit { width: min(820px, 96vw); max-width: 96vw; }
+/* ── Edit role sections ──
+ * 固定弹窗高度：切「智能体 / 工具 / …」分区时不要整张 sheet 跟着跳。 */
+.hire-sheet.hire-sheet--edit {
+  width: min(820px, 96vw);
+  max-width: 96vw;
+  height: min(85vh, 720px);
+  max-height: min(85vh, 720px);
+  overflow: hidden;
+}
+.hire-sheet.hire-sheet--edit > .hire-sheet-head,
+.hire-sheet.hire-sheet--edit > .hire-sheet-foot {
+  flex-shrink: 0;
+}
+.hire-sheet.hire-sheet--edit > .hire-sheet-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  padding-top: 12px;
+}
+.hire-sheet.hire-sheet--edit .hire-edit-layout {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+}
 .hire-edit-layout {
   display: grid;
   grid-template-columns: 148px minmax(0, 1fr);
   gap: 16px;
-  min-height: 420px;
+  min-height: 0;
   align-items: stretch;
 }
 .hire-edit-panel--agent {
-  min-height: 360px;
+  min-height: 0;
 }
 .hire-textarea--agent-prompt,
 .hire-textarea--agent-soul {
@@ -5348,6 +5372,9 @@ html.evopanel-macos-titlebar .pro-employee-page--nav-in-chrome {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  min-height: 0;
+  overflow: auto;
+  align-self: stretch;
 }
 .hire-edit-nav-btn {
   border: 0;
@@ -5367,8 +5394,10 @@ html.evopanel-macos-titlebar .pro-employee-page--nav-in-chrome {
 .hire-edit-panel[hidden] { display: none !important; }
 .hire-edit-panels {
   min-height: 0;
+  height: 100%;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 .hire-edit-panel {
   display: flex;
@@ -5376,9 +5405,11 @@ html.evopanel-macos-titlebar .pro-employee-page--nav-in-chrome {
   gap: 14px;
   min-height: 0;
   flex: 1;
+  overflow: auto;
+  padding-right: 2px;
 }
 .hire-edit-panel--duty {
-  min-height: 320px;
+  min-height: 0;
 }
 .hire-cap-block {
   display: flex;
@@ -5412,8 +5443,9 @@ html.evopanel-macos-titlebar .pro-employee-page--nav-in-chrome {
   flex-direction: column;
   gap: 6px;
   min-height: 0;
-  max-height: min(52vh, 420px);
-  overflow: auto;
+  /* 弹窗高度已固定：由 .hire-edit-panel 统一滚动，列表不再另套 vh */
+  max-height: none;
+  overflow: visible;
   padding-right: 2px;
 }
 .hire-cap-check {

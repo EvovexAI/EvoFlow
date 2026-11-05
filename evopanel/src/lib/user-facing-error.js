@@ -146,6 +146,15 @@ export function toUserFacingError(raw, fallback = DEFAULT_FALLBACK) {
     return facing
   }
 
+  // Tool schema / pydantic — keep a specific tip; raw stays in __EVOFLOW_LAST_ERROR__.
+  if (/PydanticInvalidForJsonSchema|Cannot generate a JsonSchema|CallableSchema/i.test(msg)) {
+    const facing = /knowledge/i.test(msg)
+      ? '本轮生成失败：knowledge 工具 schema 异常（输入框上方可「详情/复制」反馈）'
+      : '本轮生成失败：工具参数 schema 异常（输入框上方可「详情/复制」反馈）'
+    logRawUserFacingError(raw, facing)
+    return facing
+  }
+
   if (looksUserFriendly(msg)) return msg
   if (looksLikeStackTrace(msg) && !hasCjk(msg)) {
     logRawUserFacingError(raw, fallback)

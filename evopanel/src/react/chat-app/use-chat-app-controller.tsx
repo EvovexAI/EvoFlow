@@ -5476,12 +5476,28 @@ export function useChatAppController() {
         },
         key,
       )
+      // 当前会话可见签已空：收起整栏（避免只关签却落回「打开标签」首页）
+      const remaining = filterRightStageTabsForSession(
+        rightStageStore.getSnapshot().tabs,
+        rightStageFilterSessionKey,
+      )
+      if (remaining.length === 0 && rightStageStore.isOpen) {
+        collapseRightStageShellImpl({
+          rightStageUserPinnedRef,
+          scheduleBumpRef,
+          collapseRightStage,
+          syncShellAsideForWorkspacePanel,
+        })
+      }
     },
     [
       closeWorkspacePanel,
       closeCollabExecPanel,
       closeKnowledgeMapPanel,
       closeRightStageTab,
+      rightStageFilterSessionKey,
+      collapseRightStage,
+      syncShellAsideForWorkspacePanel,
     ],
   )
 

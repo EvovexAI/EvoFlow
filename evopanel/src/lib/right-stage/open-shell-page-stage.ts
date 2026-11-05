@@ -10,6 +10,8 @@ export type ShellPageStagePayload = {
   mountId?: string
   entityLabel?: string
   focusId?: string
+  /** 员工详情签：页签旁显示智能体头像 */
+  agentCode?: string
   layout?: 'half' | 'wide' | 'narrow' | 'workspace-write'
 }
 
@@ -31,6 +33,18 @@ function normalizePath(raw: string): string {
   return p
 }
 
+/** `/proactive/:code` → agent_code（页签头像兜底） */
+export function agentCodeFromShellPagePath(path: string): string {
+  const p = normalizePath(path)
+  const m = p.match(/^\/proactive\/([^/]+)$/)
+  if (!m) return ''
+  try {
+    return decodeURIComponent(m[1]).trim()
+  } catch {
+    return String(m[1] || '').trim()
+  }
+}
+
 /** 打开（或激活）壳页面 tab。id 按 path 去重；标签用实体名，不用 path。 */
 export function openShellPageInRightStage(
   payload: ShellPageStagePayload,
@@ -50,6 +64,8 @@ export function openShellPageInRightStage(
     mountId,
   })
   const focusId = String(payload.focusId || '').trim()
+  const agentCode =
+    String(payload.agentCode || '').trim() || agentCodeFromShellPagePath(path)
   // 已挂同一 path：只激活/展开；若新标题更可读则回写（不因 path 覆盖好名字）
   const existing = rightStageStore.findTab(`shell-page:${id}`)
   if (existing && String(existing.data?.path || existing.data?.route || '').trim() === path) {
@@ -78,6 +94,9 @@ export function openShellPageInRightStage(
           payload.entityLabel || existing.data?.entityLabel || '',
         ).trim(),
         focusId: focusId || String(existing.data?.focusId || '').trim(),
+        agentCode:
+          agentCode ||
+          String(existing.data?.agentCode || existing.data?.agent_code || '').trim(),
       },
     })
     return id
@@ -95,6 +114,7 @@ export function openShellPageInRightStage(
       title,
       entityLabel: String(payload.entityLabel || '').trim(),
       focusId,
+      ...(agentCode ? { agentCode } : {}),
     },
   })
   return id

@@ -20,6 +20,16 @@ import {
   withDeptGroupSteward,
 } from '../lib/dept-group-steward.js'
 import {
+  deptMemberLiveLabel,
+  getDeptGroupLiveMap,
+  getDeptMemberLivePhase,
+  requestDeptGroupInsertMention,
+  subscribeDeptGroupLive,
+  type DeptGroupLiveMap,
+  type DeptMemberLivePhase,
+} from '../lib/dept-group-live.js'
+import { openShellPageInRightStage } from '../../lib/right-stage/open-shell-page-stage.js'
+import {
   ArtifactContextMenuPortal,
   type ArtifactContextMenuState,
 } from './ArtifactContextMenuPortal.js'
@@ -1646,14 +1656,18 @@ function deptMemberDutyLabel(p: { status?: string; busy?: boolean }): string {
 }
 
 /**
- * 部门群聊摘要：「群聊」Tab 内容 = 部门名 + 成员名单（点开右侧员工过程）。
- * 与员工会话 EmployeePane / 普通对话能力卡并列，不另开主区成员轨。
+ * 部门群聊摘要：「群聊」Tab = 部门名 + 成员名单。
+ * 单击 → 成员信息卡；「实时过程」/双击/点「回复中」→ 右栏过程。
  */
 export function DeptGroupPane({ sessionKey }: { sessionKey: string }) {
   const deptId = useMemo(() => deptIdFromSessionKey(sessionKey), [sessionKey])
   const [meta, setMeta] = useState<DeptChatMeta | null>(() =>
     deptId ? getDeptChatMeta(deptId) : null,
   )
+  const [liveMap, setLiveMap] = useState<DeptGroupLiveMap>(() =>
+    deptId ? getDeptGroupLiveMap(deptId) : {},
+  )
+  const [selectedCode, setSelectedCode] = useState('')
 
   useEffect(() => {
     if (!deptId) {
@@ -1666,10 +1680,24 @@ export function DeptGroupPane({ sessionKey }: { sessionKey: string }) {
     })
   }, [deptId])
 
+  useEffect(() => {
+    if (!deptId) {
+      setLiveMap({})
+      return
+    }
+    setLiveMap(getDeptGroupLiveMap(deptId))
+    return subscribeDeptGroupLive(() => {
+      setLiveMap(getDeptGroupLiveMap(deptId))
+    })
+  }, [deptId])
+
+  useEffect(() => {
+    setSelectedCode('')
+  }, [deptId])
+
   const members = meta?.members || []
   const deptName = String(meta?.name || '').trim() || '部门群聊'
   const headCode = String(meta?.head_agent_code || '').trim()
-  // 小V 是群管家，不在部门员工表里；名单置顶，否则过程面板点不进去
   const roster = useMemo(
     () =>
       withDeptGroupSteward(
@@ -1686,7 +1714,15 @@ export function DeptGroupPane({ sessionKey }: { sessionKey: string }) {
     [members, deptName],
   )
 
-  const openMember = (code: string, roleName: string) => {
+  const selected = useMemo(
+    () => roster.find((m) => m.agent_code === selectedCode) || null,
+    [roster, selectedCode],
+  )
+  const selectedPhase: DeptMemberLivePhase = selectedCode
+    ? liveMap[selectedCode] || getDeptMemberLivePhase(deptId, selectedCode)
+    : 'idle'
+
+  const openProcess = (code: string, roleName: string, busy = false) => {
     const agentCode = String(code || '').trim()
     if (!agentCode) return
     const name = String(roleName || '').trim() || agentCode
@@ -1699,7 +1735,7 @@ export function DeptGroupPane({ sessionKey }: { sessionKey: string }) {
           agentCode,
           roleName: name,
           title: name,
-          busy: false,
+          busy,
           employeeSessionKey: employeeSk || undefined,
         },
         {
@@ -1710,6 +1746,18 @@ export function DeptGroupPane({ sessionKey }: { sessionKey: string }) {
     })
   }
 
+  const memberStateLabel = (
+    code: string,
+    opts: { isSteward: boolean; onDuty: boolean; metaBusy?: boolean },
+  ) => {
+    const phase = liveMap[code] || 'idle'
+    const live = deptMemberLiveLabel(phase)
+    if (live) return live
+    if (opts.metaBusy) return '忙碌'
+    if (opts.isSteward) return '群管家'
+    return opts.onDuty ? '在岗' : '不在岗'
+  }
+
   return (
     <div className="react-chat-agent-pane react-chat-dept-pane">
       <header className="react-chat-dept-pane-head">
@@ -1718,7 +1766,9 @@ export function DeptGroupPane({ sessionKey }: { sessionKey: string }) {
         </h2>
         <span className="react-chat-dept-pane-count">{roster.length} 人</span>
       </header>
-      <p className="react-chat-dept-pane-hint">点成员打开右侧过程；群里用 @ 点名派活</p>
+      <p className="react-chat-dept-pane-hint">
+        单击看信息；双击或「实时过程」看对话；群里 @ 点名派活
+      </p>
       <ul className="react-chat-dept-pane-roster" role="list" aria-label="群成员">
         {roster.map((m) => {
           const code = String(m.agent_code || '').trim()
@@ -1726,22 +1776,39 @@ export function DeptGroupPane({ sessionKey }: { sessionKey: string }) {
           const name = String(m.role_name || '').trim() || code
           const isSteward = isDeptGroupStewardCode(code)
           const onDuty = isSteward ? true : deptMemberOnDuty(m)
-          const state = m.busy ? '忙碌' : isSteward ? '群管家' : deptMemberDutyLabel(m)
+          const phase = liveMap[code] || 'idle'
+          const liveBusy = phase === 'running' || phase === 'queued'
+          const state = memberStateLabel(code, {
+            isSteward,
+            onDuty,
+            metaBusy: !!m.busy,
+          })
           const isHead = !isSteward && headCode && headCode === code
+          const selectedRow = selectedCode === code
           return (
             <li key={code}>
               <button
                 type="button"
-                className={`react-chat-dept-pane-row${m.busy ? ' is-busy' : ''}${
+                className={`react-chat-dept-pane-row${liveBusy || m.busy ? ' is-busy' : ''}${
                   onDuty ? ' is-on-duty' : ' is-off-duty'
-                }${isSteward ? ' is-steward' : ''}`}
-                onClick={() => openMember(code, name)}
-                title={`${name} · ${state} · 打开右侧对话`}
+                }${isSteward ? ' is-steward' : ''}${selectedRow ? ' is-selected' : ''}${
+                  phase === 'running' ? ' is-live-running' : ''
+                }`}
+                onClick={() => setSelectedCode(code)}
+                onDoubleClick={() => openProcess(code, name, liveBusy)}
+                title={`${name} · ${state}`}
               >
                 <span className="react-chat-dept-pane-avatar" aria-hidden>
-                  <EmployeeStageAvatar agentCode={code} title={name} size={28} busy={!!m.busy} />
+                  <EmployeeStageAvatar
+                    agentCode={code}
+                    title={name}
+                    size={28}
+                    busy={liveBusy || !!m.busy}
+                  />
                   <span
-                    className={`react-chat-dept-pane-dot${m.busy ? ' is-busy' : onDuty ? ' is-on' : ''}`}
+                    className={`react-chat-dept-pane-dot${
+                      liveBusy || m.busy ? ' is-busy' : onDuty ? ' is-on' : ''
+                    }${phase === 'running' ? ' is-running' : ''}`}
                   />
                 </span>
                 <span className="react-chat-dept-pane-meta">
@@ -1753,7 +1820,12 @@ export function DeptGroupPane({ sessionKey }: { sessionKey: string }) {
                       <span className="react-chat-dept-pane-head-tag">负责人</span>
                     ) : null}
                   </span>
-                  <span className="react-chat-dept-pane-state">{state}</span>
+                  <span
+                    className={`react-chat-dept-pane-state${liveBusy ? ' is-live' : ''}`}
+                    title={liveBusy ? '双击成员或下方「实时过程」查看对话' : undefined}
+                  >
+                    {state}
+                  </span>
                 </span>
               </button>
             </li>
@@ -1762,6 +1834,104 @@ export function DeptGroupPane({ sessionKey }: { sessionKey: string }) {
       </ul>
       {!roster.length ? (
         <p className="react-chat-dept-pane-empty">暂无成员</p>
+      ) : null}
+
+      {selected ? (
+        <div className="react-chat-dept-pane-card" aria-label={`${selected.role_name} 信息`}>
+          <div className="react-chat-dept-pane-card-head">
+            <EmployeeStageAvatar
+              agentCode={selected.agent_code}
+              title={selected.role_name}
+              size={40}
+              busy={selectedPhase === 'running' || selectedPhase === 'queued' || !!selected.busy}
+            />
+            <div className="react-chat-dept-pane-card-titles">
+              <div className="react-chat-dept-pane-card-name">
+                {selected.role_name}
+                {isDeptGroupStewardCode(selected.agent_code) ? (
+                  <span className="react-chat-dept-pane-head-tag">群管家</span>
+                ) : headCode && headCode === selected.agent_code ? (
+                  <span className="react-chat-dept-pane-head-tag">负责人</span>
+                ) : null}
+              </div>
+              <div
+                className={`react-chat-dept-pane-card-state${
+                  selectedPhase !== 'idle' ? ' is-live' : ''
+                }`}
+              >
+                {memberStateLabel(selected.agent_code, {
+                  isSteward: isDeptGroupStewardCode(selected.agent_code),
+                  onDuty: isDeptGroupStewardCode(selected.agent_code)
+                    ? true
+                    : deptMemberOnDuty(selected),
+                  metaBusy: !!selected.busy,
+                })}
+                {selected.department ? (
+                  <span className="react-chat-dept-pane-card-dept">{selected.department}</span>
+                ) : null}
+              </div>
+            </div>
+          </div>
+          {selected.reports_to ? (
+            <p className="react-chat-dept-pane-card-line">汇报：{selected.reports_to}</p>
+          ) : null}
+          <div className="react-chat-dept-pane-card-actions">
+            <button
+              type="button"
+              className="react-chat-dept-pane-card-btn"
+              onClick={() =>
+                openProcess(
+                  selected.agent_code,
+                  selected.role_name,
+                  selectedPhase !== 'idle',
+                )
+              }
+            >
+              {selectedPhase === 'running' || selectedPhase === 'queued'
+                ? '查看实时过程'
+                : '实时过程'}
+            </button>
+            <button
+              type="button"
+              className="react-chat-dept-pane-card-btn"
+              onClick={() =>
+                requestDeptGroupInsertMention({
+                  deptId,
+                  agentCode: selected.agent_code,
+                  roleName: selected.role_name,
+                })
+              }
+            >
+              @点名
+            </button>
+            {!isDeptGroupStewardCode(selected.agent_code) ? (
+              <button
+                type="button"
+                className="react-chat-dept-pane-card-btn"
+                onClick={() => {
+                  const code = String(selected.agent_code || '').trim()
+                  if (!code) return
+                  const name = String(selected.role_name || '').trim() || code
+                  const ownerSk =
+                    String(sessionKey || '').trim() || deptChatSessionKey(deptId)
+                  openShellPageInRightStage(
+                    {
+                      path: `/proactive/${encodeURIComponent(code)}`,
+                      mountId: 'employees.detail',
+                      title: name,
+                      entityLabel: name,
+                      agentCode: code,
+                      layout: 'wide',
+                    },
+                    { sessionKey: ownerSk || undefined, layout: 'wide' },
+                  )
+                }}
+              >
+                查看资料
+              </button>
+            ) : null}
+          </div>
+        </div>
       ) : null}
     </div>
   )

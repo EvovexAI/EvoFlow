@@ -3747,7 +3747,8 @@ export function createChatWsOnEventHandler(ctx: ChatWsOnEventCtx) {
           hasEndMarker: false,
           detail: {
             errMsg: errMsg.slice(0, 200),
-            rawErr: rawErr.slice(0, 200),
+            // Keep enough raw text for feedback; banner 「复制」走 V4 lastError.detail。
+            rawErr: rawErr.slice(0, 1200),
             hasVisibleContent: streamTurnHasVisibleContent(S.turn),
             turnPhase: rt.turnPhase,
             isBackground,

@@ -97,7 +97,7 @@ export function KindTabIcon({
 }: {
   kind: string
   faviconUrl?: string | null
-  /** employeeProcess 页签：显示该员工头像 */
+  /** employeeProcess / 员工资料 shell-page：显示该员工头像 */
   agentCode?: string | null
   agentTitle?: string | null
 }) {
@@ -115,7 +115,7 @@ export function KindTabIcon({
       </span>
     )
   }
-  if (k === 'employeeProcess' && empCode) {
+  if ((k === 'employeeProcess' || k === 'shell-page') && empCode) {
     return (
       <span className="react-chat-stage-tab-icon react-chat-stage-tab-icon--avatar" aria-hidden="true">
         <EmployeeStageAvatar
