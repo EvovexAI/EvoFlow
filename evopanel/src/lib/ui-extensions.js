@@ -225,6 +225,29 @@ export async function setUiExtensionEnabled(id, enabled) {
   return hit
 }
 
+/** 改展示名（manifest.name + nav.title）；扩展 id 不变。 */
+export async function renameUiExtension(id, name) {
+  const next = String(name || '').trim()
+  if (!next) throw new Error('名称不能为空')
+  if (next.length > 80) throw new Error('名称过长（最多 80 字）')
+  if (isTauri()) {
+    const row = await invoke('ui_extension_rename', { id, name: next })
+    notifyExtensionsChanged()
+    return row
+  }
+  const rows = readLocal()
+  const hit = rows.find((r) => r.id === id)
+  if (!hit) throw new Error('扩展不存在')
+  const manifest = hit.manifest && typeof hit.manifest === 'object' ? { ...hit.manifest } : {}
+  manifest.name = next
+  const nav = manifest.nav && typeof manifest.nav === 'object' ? { ...manifest.nav } : {}
+  nav.title = next
+  manifest.nav = nav
+  hit.manifest = manifest
+  writeLocal(rows)
+  return hit
+}
+
 export async function uninstallUiExtension(id) {
   if (isTauri()) {
     await invoke('ui_extension_uninstall', { id })

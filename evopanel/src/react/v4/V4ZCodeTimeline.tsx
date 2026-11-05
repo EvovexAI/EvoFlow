@@ -37,7 +37,13 @@ import {
   useHostResolvedTheme,
 } from "@zcode/ui/useTheme.js";
 import { V4DraftEmptyState } from "./V4DraftEmptyState.js";
+import {
+  previewTextCacheKey,
+  readPreviewTextCache,
+  writePreviewTextCache,
+} from "../../lib/right-stage/preview-text-cache.js";
 import { hasOlderRows } from "@zcode/ui/v4/conversationProjectionStore.js";
+import { FILE_VIEWER_MAX_TEXT_BYTES } from "@zcode/ui/lib/codeViewer.js";
 import {
   advanceAssistantPreviewPptxAutoOpenGate,
   createAssistantPreviewPptxAutoOpenGateState,
@@ -207,6 +213,103 @@ async function readLocalAbsFileBuffer(path: string): Promise<ArrayBuffer | null>
   }
 }
 
+function base64ToUint8Array(b64: string): Uint8Array {
+  const bin = atob(String(b64 || ""));
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i += 1) bytes[i] = bin.charCodeAt(i);
+  return bytes;
+}
+
+interface PreviewLocalRangeResult {
+  bytes: Uint8Array;
+  total: number;
+  mtimeMs: number;
+}
+
+/**
+ * 进程内 Range 读（Rust preview_read_file_range，二进制安全、带 total/mtime）。
+ * 失败 / 越界 / 非 Tauri 宿主一律返回 null，调用方回落 HTTP serve-file（网关侧含 heal）。
+ */
+async function previewLocalReadRange(
+  path: string,
+  offset: number,
+  length: number | null,
+): Promise<PreviewLocalRangeResult | null> {
+  if (!isAbsHostFsPath(path)) return null;
+  try {
+    const { invoke } = await import("@tauri-apps/api/core");
+    const res = await invoke<{ total: number; mtime_ms: number; data_base64: string }>(
+      "preview_read_file_range",
+      { path, offset, length: length == null ? null : length },
+    );
+    if (!res || typeof res.total !== "number" || typeof res.data_base64 !== "string") return null;
+    return {
+      bytes: base64ToUint8Array(res.data_base64),
+      total: res.total,
+      mtimeMs: Number(res.mtime_ms) || 0,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** 进程内 stat（Rust preview_stat_file）：预取缓存命中后的 mtime 陈旧校验用。 */
+async function previewLocalStat(
+  path: string,
+): Promise<{ total: number; mtimeMs: number } | null> {
+  if (!isAbsHostFsPath(path)) return null;
+  try {
+    const { invoke } = await import("@tauri-apps/api/core");
+    const res = await invoke<{ total: number; mtime_ms: number }>("preview_stat_file", { path });
+    if (!res || typeof res.total !== "number") return null;
+    return { total: res.total, mtimeMs: Number(res.mtime_ms) || 0 };
+  } catch {
+    return null;
+  }
+}
+
+const FILE_CHANGE_PREFETCH_EXTENSIONS = new Set([
+  "md", "html", "htm", "txt", "json", "csv", "ts", "tsx", "js", "jsx",
+  "py", "css", "yaml", "yml", "xml", "svg", "toml", "sh",
+]);
+
+/**
+ * 轮尾文件卡空闲预取：items 的路径刚被服务端解析确认，文本类产物按
+ * PreviewPane 同参（offset=0 + FILE_VIEWER_MAX_TEXT_BYTES）预热预取缓存，
+ * 点击文件卡时桌面端 0 网络往返。失败静默——预取只是加速，不改变语义。
+ */
+function prefetchFileChangeTexts(
+  services: {
+    fileService: {
+      readTextFile: (params: { path: string; offset: number; length: number }) => Promise<unknown>;
+    };
+  },
+  result: { state?: string; items?: ReadonlyArray<{ path: string }> },
+): void {
+  if (String(result?.state || "") === "reverted") return;
+  const targets = (result?.items || [])
+    .map((item) => String(item?.path || "").trim())
+    .filter((path) => {
+      const leaf = path.replace(/\\/g, "/").split("/").pop() || "";
+      const dot = leaf.lastIndexOf(".");
+      const ext = dot >= 0 ? leaf.slice(dot + 1).toLowerCase() : "";
+      return FILE_CHANGE_PREFETCH_EXTENSIONS.has(ext);
+    })
+    .slice(0, 4);
+  if (!targets.length) return;
+  const idle = (cb: () => void) => {
+    if (typeof requestIdleCallback === "function") requestIdleCallback(() => cb());
+    else setTimeout(cb, 800);
+  };
+  idle(() => {
+    for (const path of targets) {
+      void services.fileService
+        .readTextFile({ path, offset: 0, length: FILE_VIEWER_MAX_TEXT_BYTES })
+        .catch(() => undefined);
+    }
+  });
+}
+
 export function createEvoflowPartialServices(
   sessionId: string,
   workspaceRoot?: string,
@@ -296,6 +399,50 @@ export function createEvoflowPartialServices(
       };
     };
 
+    // 本地优先（对齐 ZCode 进程内 fileService）：桌面端本机绝对路径直接 Rust 读，
+    // 0 网络往返；失败 / 越上限 / 非 Tauri 回落 HTTP serve-file（网关侧自带 heal）。
+    if (isTauriHost) {
+      try {
+        const rangeHeader = String(
+          (init?.headers &&
+            (init.headers instanceof Headers
+              ? init.headers.get("Range")
+              : (init.headers as Record<string, string>).Range ||
+                (init.headers as Record<string, string>).range)) ||
+            "",
+        );
+        const rangeMatch = /bytes=(\d+)-(\d*)/i.exec(rangeHeader);
+        const offset = rangeMatch ? Number.parseInt(rangeMatch[1] || "0", 10) || 0 : 0;
+        const length = rangeMatch
+          ? rangeMatch[2] === "" || rangeMatch[2] == null
+            ? null
+            : Math.max(1, (Number.parseInt(rangeMatch[2], 10) || 0) - offset + 1)
+          : null;
+        const localRange = await previewLocalReadRange(p, offset, length);
+        if (localRange) {
+          const end = offset + localRange.bytes.byteLength - 1;
+          const body = localRange.bytes.buffer.slice(
+            localRange.bytes.byteOffset,
+            localRange.bytes.byteOffset + localRange.bytes.byteLength,
+          ) as ArrayBuffer;
+          return {
+            resp: new Response(body, {
+              status: rangeMatch ? 206 : 200,
+              headers: {
+                "content-type": "application/octet-stream",
+                "content-range": `bytes ${offset}-${end}/${localRange.total}`,
+                // 本地读带出 mtime，供 readTextFile 填预取缓存（HTTP 响应没有该头）
+                "x-preview-mtime-ms": String(localRange.mtimeMs),
+              },
+            }),
+            buf: body,
+          };
+        }
+      } catch {
+        /* 本地读任何异常都回落 HTTP */
+      }
+    }
+
     try {
       const resp = await fetch(await serveFileUrl(path), init);
       if (resp.status === 404) throw new Error(`file not found: ${path}`);
@@ -364,17 +511,41 @@ export function createEvoflowPartialServices(
     return { path, type: "file", size: buf.byteLength };
   };
   // Range 读块；200（无 Range 支持）时整档读回后切片。
-  const readFileRange = async (params: { path: string; offset: number; length: number }): Promise<Uint8Array> => {
+  // WithTotal 变体把 206 content-range 的文件 total 和本地读的 mtime 一并带出，
+  // readTextFile 用它免掉第二次 statFile 探测并填预取缓存。
+  const readFileRangeWithTotal = async (
+    params: { path: string; offset: number; length: number },
+  ): Promise<{ bytes: Uint8Array; total: number | null; mtimeMs: number | null }> => {
     const { path, offset, length } = params;
     const end = Math.max(offset, offset + Math.max(length, 1) - 1);
     const { resp, buf } = await readServeFileBuffer(path, {
       headers: { Range: `bytes=${offset}-${end}` },
     });
+    const parseMtime = (): number | null => {
+      const raw = resp.headers.get("x-preview-mtime-ms");
+      return raw != null && /^\d+$/.test(raw) ? Number(raw) : null;
+    };
     // 416：offset 已越界（文件被截断/竞态），按空块返回交给上层判完整性。
-    if (resp.status === 416) return new Uint8Array(0);
-    if (resp.status === 206) return new Uint8Array(buf);
+    if (resp.status === 416) {
+      return {
+        bytes: new Uint8Array(0),
+        total: parseContentRangeTotal(resp.headers.get("content-range")),
+        mtimeMs: null,
+      };
+    }
+    if (resp.status === 206) {
+      return {
+        bytes: new Uint8Array(buf),
+        total: parseContentRangeTotal(resp.headers.get("content-range")),
+        mtimeMs: parseMtime(),
+      };
+    }
     const whole = new Uint8Array(buf);
-    return whole.slice(offset, offset + length);
+    return { bytes: whole.slice(offset, offset + length), total: whole.byteLength, mtimeMs: parseMtime() };
+  };
+  // IFileService 契约保持返回纯字节（PDF requestRange 等消费方依赖）。
+  const readFileRange = async (params: { path: string; offset: number; length: number }): Promise<Uint8Array> => {
+    return (await readFileRangeWithTotal(params)).bytes;
   };
   const blobToBase64 = async (blob: Blob): Promise<string> => {
     const dataUrl = await new Promise<string>((resolve, reject) => {
@@ -586,7 +757,37 @@ export function createEvoflowPartialServices(
       readMediaPreview,
       readBinaryPreview,
       async readTextFile(params: { path: string; offset: number; length: number }) {
-        const bytes = await readFileRange(params);
+        const resolvedPath = resolveServePath(params.path);
+        const cacheKey = previewTextCacheKey({
+          resolvedPath,
+          offset: params.offset,
+          length: params.length,
+        });
+        // 预取/重复打开秒开：命中后进程内 stat 校验 mtime，不匹配回源重读。
+        // Web 端没有本地 stat，跳过缓存直接读（校验本身要花一次 HTTP，得不偿失）。
+        if (isTauriHost) {
+          const cached = readPreviewTextCache(cacheKey);
+          if (cached) {
+            const localStat = await previewLocalStat(resolvedPath);
+            if (
+              localStat &&
+              localStat.total === cached.total &&
+              localStat.mtimeMs === cached.mtimeMs
+            ) {
+              return {
+                path: params.path,
+                content: cached.content,
+                offset: cached.offset,
+                bytesRead: cached.bytesRead,
+                totalBytes: cached.totalBytes,
+                truncated: cached.truncated,
+                isBinary: cached.isBinary,
+              };
+            }
+          }
+        }
+        // 单往返：206 content-range 已带文件 total，不再补发 statFile 探测
+        const { bytes, total, mtimeMs } = await readFileRangeWithTotal(params);
         // NUL 字节启发式判二进制（UTF-8 合法文本不会含 NUL）。
         let isBinary = false;
         for (let i = 0; i < bytes.length; i += 1) {
@@ -596,8 +797,20 @@ export function createEvoflowPartialServices(
           }
         }
         const content = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
-        const stat = await statFile({ path: params.path });
-        const totalBytes = stat.size ?? params.offset + bytes.length;
+        const totalBytes = total ?? params.offset + bytes.length;
+        if (mtimeMs != null && total != null) {
+          // 本地读带出 mtime → 填预取缓存；HTTP 读没有该头，不缓存（无校验手段）
+          writePreviewTextCache(cacheKey, {
+            content,
+            offset: params.offset,
+            bytesRead: bytes.length,
+            totalBytes,
+            truncated: params.offset + bytes.length < totalBytes,
+            isBinary,
+            total,
+            mtimeMs,
+          });
+        }
         return {
           path: params.path,
           content,
@@ -1284,14 +1497,17 @@ export function V4ZCodeTimeline(props: {
       if (!sessionId) throw new Error("v4 session not ready");
       const snap = snapshotRef.current;
       if (!snap) throw new Error("v4 snapshot not ready");
-      return await getEvoflowV4Transport().fileChanges({
+      const result = await getEvoflowV4Transport().fileChanges({
         sessionId,
         target,
         baseRevision: snap.seq,
         baseLogEpoch: snap.logEpoch,
       });
+      // 轮尾文件卡路径刚被服务端解析确认，顺手空闲预取文本产物（对齐预览卡预取）
+      prefetchFileChangeTexts(partialServices, result);
+      return result;
     },
-    [sessionId],
+    [sessionId, partialServices],
   );
 
   // 队列面板：bottomDock 内 composer 之上（对齐 SessionPane 布局）。

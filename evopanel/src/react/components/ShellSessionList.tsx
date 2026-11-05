@@ -506,8 +506,13 @@ export function ShellSessionList({
     }
   }, [isEmployeesTab, employeeRoles])
 
+  const onRefreshSessionListRef = useRef(onRefreshSessionList)
+  onRefreshSessionListRef.current = onRefreshSessionList
+
   useEffect(() => {
     const onEmployeesUpdated = () => {
+      // 加人/删人后：会话列表 + 花名册一起刷新（父级 useProactiveRoles 也会听同事件）
+      void Promise.resolve(onRefreshSessionListRef.current?.()).catch(() => {})
       if (!isEmployeesTab) return
       if (Array.isArray(employeeRoles) && employeeRoles.length > 0) return
       void import('../../lib/tauri-api.js')

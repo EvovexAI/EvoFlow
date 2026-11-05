@@ -19589,7 +19589,9 @@ html[data-custom-bg='1'] .task-detail-page .task-obs-panel {
 .uiext-app-menu {
   position: absolute;
   right: 12px;
-  bottom: 40px;
+  top: 52px;
+  bottom: auto;
+  height: auto;
   z-index: 20;
   min-width: 132px;
   padding: 4px;

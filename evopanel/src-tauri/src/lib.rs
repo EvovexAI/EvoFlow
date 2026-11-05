@@ -369,6 +369,7 @@ pub fn run() {
             ui_extensions::ui_extension_install_suite,
             ui_extensions::ui_extension_install_content_creator,
             ui_extensions::ui_extension_set_enabled,
+            ui_extensions::ui_extension_rename,
             ui_extensions::ui_extension_uninstall,
             ui_extensions::ui_extension_reveal,
             ui_extensions::ui_extension_service_status,
@@ -378,6 +379,8 @@ pub fn run() {
             // AI 助手工具
             assistant::assistant_exec,
             assistant::assistant_read_file,
+            assistant::preview_stat_file,
+            assistant::preview_read_file_range,
             assistant::assistant_write_file,
             assistant::assistant_list_dir,
             assistant::assistant_system_info,

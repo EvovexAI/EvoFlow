@@ -3371,6 +3371,8 @@ html[data-translucent-ui='1'] .apps-page .app-card-menu {
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
   color: var(--text-primary) !important;
+  bottom: auto !important;
+  height: auto !important;
 }
 
 html[data-theme='dark'] .extensions-page .uiext-app-menu,

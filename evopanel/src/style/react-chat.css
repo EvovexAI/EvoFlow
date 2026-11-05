@@ -982,7 +982,8 @@ html[data-theme='dark'] .react-chat-aside-brand-logo {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: 6px 8px;
   min-height: 32px;
   padding: 6px 8px;
   /* 筛选搜索框用 absolute + top:100%，必须相对本行定位；
@@ -1006,6 +1007,10 @@ html[data-theme='dark'] .react-chat-aside-brand-logo {
   border-radius: 8px;
   background: var(--shell-tab-bg);
   border: 1px solid color-mix(in srgb, var(--shell-text, var(--text-primary)) 6%, transparent);
+  /* 窄侧栏：tabs 可收缩，勿把右侧刷新/+ 挤出 overflow:hidden 外 */
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .shell-view-tab {
@@ -1014,7 +1019,7 @@ html[data-theme='dark'] .react-chat-aside-brand-logo {
   justify-content: center;
   gap: 4px;
   height: 22px;
-  padding: 0 10px;
+  padding: 0 8px;
   border: none;
   border-radius: 6px;
   background: transparent;
@@ -1024,6 +1029,8 @@ html[data-theme='dark'] .react-chat-aside-brand-logo {
   cursor: pointer;
   transition: background var(--dur-fast) var(--ease-out-soft), color var(--dur-fast) var(--ease-out-soft), box-shadow var(--dur-fast) var(--ease-out-soft);
   white-space: nowrap;
+  flex: 1 1 0;
+  min-width: 0;
 }
 
 .shell-view-tab:hover {
@@ -1059,6 +1066,12 @@ html.dark .shell-view-tab.is-active {
 
 .shell-view-tab svg {
   flex-shrink: 0;
+}
+
+.shell-view-tab span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
 }
 
 /* 侧栏 · 部门群聊行 */
@@ -2195,11 +2208,13 @@ html[data-translucent-ui='1'] .shell-view-tab.is-active {
   font-weight: 500;
 }
 
-/* 操作按钮 */
+/* 操作按钮：刷新 / 筛选 / 新建 —— 必须常显，不被 tabs 挤掉 */
 .shell-view-actions {
   display: flex;
   align-items: center;
   gap: 2px;
+  flex: 0 0 auto;
+  margin-left: auto;
 }
 
 .shell-view-action-btn {

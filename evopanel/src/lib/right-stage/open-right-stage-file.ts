@@ -104,10 +104,13 @@ export function resolveFileLinkOpenPath(
   const rel = String(target.relativePath || '')
     .replace(/\\/g, '/')
     .trim()
-  const cite =
-    root && looksLikeWorkspaceRelativeCite(rel)
-      ? rel.replace(/^\.\//, '')
-      : rawPath
+  // path 永远优先，relativePath 只在 path 缺失时兜底：
+  // relativePath 的来源不可靠——zcode-ui 渲染层在 workspacePath 缺失时会把展示
+  // label 填进来（buildMessageFileLinkTarget），getWorkspaceFileRelativePath 对
+  // workspace 外路径又只回裸文件名；采信它们会拼出 root/<label>、root/<leaf>
+  // 这类错误路径（对话里点文件「找不到」的来源之一）。
+  // 「记录的绝对路径已过期」交给读文件层的 heal 重试兜底，不在打开层猜。
+  const cite = rawPath || (root && looksLikeWorkspaceRelativeCite(rel) ? rel : '')
   const resolved = normalizePathId(
     resolveWorkspaceRelativeHostPath(cite || rawPath, root || ''),
   )
@@ -179,14 +182,42 @@ export function buildRightStageMediaSource(
   }
 }
 
+/** 对齐 ZCode getCodeViewerTabSourceKey：31 进制内容指纹。 */
+function hashCodeViewerContent(content: string): string {
+  let hash = 0
+  const s = String(content || '')
+  for (let i = 0; i < s.length; i += 1) {
+    hash = (hash * 31 + s.charCodeAt(i)) | 0
+  }
+  return Math.abs(hash).toString(36)
+}
+
+/** patch / multi-file-diff 的内容指纹；其余类型返回空（保持 path 复用语义）。 */
+function patchContentSignature(source: RightStageCodeViewerSourceInput): string {
+  if (source.type === 'patch') {
+    return hashCodeViewerContent(String((source as { patch?: string }).patch || ''))
+  }
+  if (source.type === 'multi-file-diff') {
+    const s = source as { beforeContent?: string; afterContent?: string }
+    return hashCodeViewerContent(
+      `${String(s.beforeContent || '')}\u0000${String(s.afterContent || '')}`,
+    )
+  }
+  return ''
+}
+
 /** ZCode CodeViewerSource → 右栏 codeViewer 标签。 */
 export function showRightStageCodeViewer(
   source: RightStageCodeViewerSourceInput,
   opts?: OpenRightStageCodeViewerOpts,
 ): string {
   const pathOrTitle = String(source.path || source.title || 'diff').trim()
-  // id 不含 kind 前缀：tabKey = `${kind}:${id}` = `codeViewer:<path>`
-  const id = normalizePathId(pathOrTitle) || 'diff'
+  const sig = patchContentSignature(source)
+  // id 不含 kind 前缀：tabKey = `${kind}:${id}` = `codeViewer:<path>`；
+  // patch/multi-file-diff 追加内容指纹——之前同路径新 diff 直接覆盖旧 tab，
+  // 看起来像「diff 面板只能打开一个 tab」（ZCode workspaceSidePane.ts 同款修复：
+  // file diff 之前只按 path 复用 tab，不同轮次的不同 patch 会互相覆盖）。
+  const id = `${normalizePathId(pathOrTitle) || 'diff'}${sig ? `@${sig}` : ''}`
   const key = `codeViewer:${id}`
   const workspaceRoot =
     String(source.workspacePath || '').trim() ||

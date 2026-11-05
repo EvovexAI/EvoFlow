@@ -4,7 +4,7 @@
  */
 import '../style/ext-apps.css'
 import { toast } from '../components/toast.js'
-import { showConfirm } from '../components/modal.js'
+import { showConfirm, showModal } from '../components/modal.js'
 import { navigate } from '../router.js'
 import { showPageHelpPanel } from '../lib/page-help.js'
 import { manifestHasSensitivePermissions } from '../lib/ui-extension-manifest.js'
@@ -16,6 +16,7 @@ import {
   onUiExtensionsChanged,
   resolveUiExtensionIconSrc,
   revealUiExtensionDir,
+  renameUiExtension,
   setUiExtensionEnabled,
   uiExtensionServiceLogs,
   uiExtensionServiceStart,
@@ -347,6 +348,39 @@ function bindEvents(page) {
         navigate(`/extensions/${encodeURIComponent(id)}`)
         return
       }
+      if (act === 'rename' && id) {
+        closeAllMenus(page)
+        const cur = String(btn.dataset.title || '').trim()
+        showModal({
+          title: '重命名应用',
+          width: 400,
+          fields: [
+            {
+              name: 'name',
+              label: '显示名称',
+              value: cur,
+              placeholder: '例如：抖音博主分析',
+              hint: '只改卡片上的名字，应用 id 不变',
+            },
+          ],
+          onConfirm: async (result) => {
+            const name = String(result?.name || '').trim()
+            if (!name) {
+              toast('请输入名称', 'warning')
+              return
+            }
+            if (name === cur) return
+            try {
+              await renameUiExtension(id, name)
+              toast('已重命名', 'success')
+              await refreshList(page)
+            } catch (err) {
+              toast(String(err?.message || err), 'error')
+            }
+          },
+        })
+        return
+      }
       if (act === 'toggle' && id) {
         const enabling = btn.dataset.enabled !== '1'
         if (enabling) {
@@ -597,6 +631,7 @@ function paint(statusMap) {
         ${openable ? `<span class="uiext-app-open" aria-hidden="true">${ICONS.arrow}</span>` : ''}
       </div>
       <div class="uiext-app-menu" hidden data-menu-for="${esc(row.id)}" role="menu">
+        <button type="button" class="uiext-app-menu-item" data-act="rename" data-id="${esc(row.id)}" data-title="${esc(title)}">重命名</button>
         <button type="button" class="uiext-app-menu-item" data-act="toggle" data-id="${esc(row.id)}" data-enabled="${enabled ? '1' : '0'}">${enabled ? '禁用应用' : '启用应用'}</button>
         <button type="button" class="uiext-app-menu-item" data-act="start" data-id="${esc(row.id)}">启动服务</button>
         <button type="button" class="uiext-app-menu-item" data-act="stop" data-id="${esc(row.id)}">停止服务</button>

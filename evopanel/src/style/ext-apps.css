@@ -649,6 +649,10 @@
   position: absolute;
   right: 10px;
   top: 52px;
+  /* pages.css 旧规则写了 bottom:40px；top+bottom 会把菜单高度卡在卡片内，
+     背景只盖住上半截，下半项看起来「半透明飘在空白上」 */
+  bottom: auto;
+  height: auto;
   z-index: 20;
   min-width: 138px;
   padding: 4px;

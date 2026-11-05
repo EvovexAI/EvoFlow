@@ -82,7 +82,7 @@ const FORCE_MOUNT_KINDS = new Set([
   'browser',
   'file',
   'terminal',
-  'summary',
+  // summary：chat 渲染面里恒返回 null（死载荷），失活不值得常驻——2026-11-05 收敛移除
   'write',
   'workspace-browse',
   'collab-workflow',
