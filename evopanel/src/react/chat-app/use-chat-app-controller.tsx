@@ -1303,6 +1303,12 @@ export function useChatAppController() {
   }, [selectedSessionKey])
   useEffect(() => {
     if (Array.isArray(rows) && rows.length > 0) {
+      // 工作台空选中时不应有主栏行；若小V/后台误灌，丢掉泄漏行并保住指挥台。
+      if (preferHomeDashboardRef.current && !String(selectedSessionKey || '').trim()) {
+        setRows([])
+        rowsRef.current = []
+        return
+      }
       setSessionHadContent(true)
       setPreferHomeDashboard(false)
       try {
