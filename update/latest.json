@@ -3,14 +3,14 @@
   "minAppVersion": "1.3.0",
   "updateKind": "full",
   "assetKind": "installer",
-  "hash": "sha256:3b40d462fe03359cb0eac77752d9e9711139d1f07641bde0765a357a83879e0d",
+  "hash": "sha256:8e8a46060fadb89c3e7c670324411d2c80f78b0fb7be5216efcfd60ae1bcba65",
   "url": "https://ghfast.top/https://github.com/EvovexAI/EvoFlow/releases/download/v1.3.0/EvoFlow_1.3.0_x64-setup.exe",
   "urlCnMirror": "https://ghfast.top/https://github.com/EvovexAI/EvoFlow/releases/download/v1.3.0/EvoFlow_1.3.0_x64-setup.exe",
   "urlGitee": "https://gitee.com/evovexai/EvoFlow/releases/download/v1.3.0/EvoFlow_1.3.0_x64-setup.exe",
   "urlGithub": "https://github.com/EvovexAI/EvoFlow/releases/download/v1.3.0/EvoFlow_1.3.0_x64-setup.exe",
-  "size": 408988472,
+  "size": 408985198,
   "changelog": "**EvoFlow v1.3.0 — 画像更统一，右栏能看文件，员工能力即时生效**",
   "notes": "**EvoFlow v1.3.0 — 画像更统一，右栏能看文件，员工能力即时生效**",
-  "releasedAt": "2026-11-05T07:00:00Z",
-  "pub_date": "2026-11-05T07:00:00Z"
+  "releasedAt": "2026-11-05T07:56:12Z",
+  "pub_date": "2026-11-05T07:56:12Z"
 }
