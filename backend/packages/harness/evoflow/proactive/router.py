@@ -108,8 +108,8 @@ class CreateRoleRequest(BaseModel):
         description="Legacy RRULE; prefer heartbeat_schedule (5-field cron)",
     )
     heartbeat_schedule: str = Field(
-        "0 9,15 * * *",
-        description="5-field cron — default twice daily (09:00 & 15:00)",
+        "off",
+        description="5-field cron, or 'off' = 关闭巡检（新建默认；有活再开频率）",
     )
     soul_md: str = Field("")
     think_mode: str = Field("agent_loop", description="agent_loop|prompt_only")
@@ -494,7 +494,7 @@ class CreateEmployeeRequest(BaseModel):
     workspace_path: str = Field("")
     knowledge_vault_ids: list[str] = Field(default_factory=list)
     autonomy_level: str = Field("approval_for_all")
-    heartbeat_schedule: str = Field("0 9,15 * * *")
+    heartbeat_schedule: str = Field("off", description="新建默认关闭巡检；或 5-field cron")
     think_mode: str = Field("agent_loop")
     model_name: str = Field("")
     reports_to: str = Field("")
@@ -2567,8 +2567,8 @@ def _feishu_binding_for_role(role: ProactiveRole) -> dict[str, Any]:
 def _role_to_dict(role: ProactiveRole) -> dict[str, Any]:
     from evoflow.proactive.schedule import (
         resolve_next_duty_display,
-        resolve_role_cron,
         schedule_summary_for_role,
+        wire_role_schedule,
     )
 
     next_duty = resolve_next_duty_display(role)
@@ -2659,7 +2659,7 @@ def _role_to_dict(role: ProactiveRole) -> dict[str, Any]:
         "wecom_secret": getattr(role.config, "wecom_secret", "") or "",
         "wecom_bound_at": getattr(role.config, "wecom_bound_at", "") or "",
         "heartbeat_rrule": role.heartbeat_rrule,
-        "heartbeat_schedule": resolve_role_cron(role),
+        "heartbeat_schedule": wire_role_schedule(role),
         "schedule_summary": schedule_summary_for_role(role),
         "status": role.status,
         "auto_patrol_suspended": bool(getattr(role.config, "auto_patrol_suspended", False)),

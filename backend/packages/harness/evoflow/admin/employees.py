@@ -359,8 +359,8 @@ def _role_detail(role: ProactiveRole) -> dict[str, Any]:
     cfg = role.config
     from evoflow.proactive.schedule import (
         resolve_next_duty_display,
-        resolve_role_cron,
         schedule_summary_for_role,
+        wire_role_schedule,
     )
 
     reports_to = str(getattr(cfg, "reports_to", "") or "").strip()
@@ -448,7 +448,7 @@ def _role_detail(role: ProactiveRole) -> dict[str, Any]:
             "inject_soul": getattr(cfg, "inject_soul", None),
         },
         "heartbeat_rrule": role.heartbeat_rrule,
-        "heartbeat_schedule": resolve_role_cron(role),
+        "heartbeat_schedule": wire_role_schedule(role),
         "schedule_summary": schedule_summary_for_role(role),
         "status": role.status,
         "last_heartbeat_at": role.last_heartbeat_at,
@@ -889,10 +889,11 @@ def _hire_existing_agent(
 
     role_name = str(data.get("role_name") or "").strip() or str(agent_row.get("agent_name") or agent_code)
     position_code = str(data.get("position_code") or "").strip()
-    from evoflow.proactive.schedule import DEFAULT_HEARTBEAT_CRON
+    from evoflow.proactive.schedule import SCHEDULE_OFF
 
+    # 新建默认关闭巡检：可在岗聊天/派活，有明确节奏再开频率。
     heartbeat = str(
-        data.get("heartbeat_schedule") or data.get("heartbeat_rrule") or DEFAULT_HEARTBEAT_CRON
+        data.get("heartbeat_schedule") or data.get("heartbeat_rrule") or SCHEDULE_OFF
     ).strip()
     from evoflow.proactive.prompt import validate_agent_knowledge_ids
 
@@ -985,8 +986,8 @@ def _hire_existing_agent(
 
     apply_schedule_input(
         role,
-        heartbeat_schedule=str(data.get("heartbeat_schedule") or "").strip() or None,
-        heartbeat_rrule=heartbeat or None,
+        heartbeat_schedule=heartbeat,
+        heartbeat_rrule=str(data.get("heartbeat_rrule") or "").strip() or None,
     )
     if initial_status == "active":
         role.next_heartbeat_at = compute_next_duty_iso(role)

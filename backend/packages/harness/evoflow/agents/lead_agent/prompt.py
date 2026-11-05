@@ -859,6 +859,7 @@ def _assemble_system_prompt(
     xiaomi_mode: bool = False,
     xiaomi_page_context: dict | None = None,
     im_channel: str = "",
+    principal_id: str = "",
 ) -> str:
     modules = _enabled_modules_for_scenario(scenario)
     pure_chat = _is_pure_chat_modules(modules)
@@ -903,7 +904,7 @@ def _assemble_system_prompt(
         if is_im and getattr(static, "IM_CHANNEL_REPLY_BLOCK", "").strip():
             blocks.append(static.IM_CHANNEL_REPLY_BLOCK.strip())
         # 易变块靠后：心境放最后（UI context footer 由 middleware 在其后追加）
-        affect_block = get_agent_affect_block(agent_name)
+        affect_block = get_agent_affect_block(agent_name, principal_id=principal_id)
         if affect_block:
             blocks.append(affect_block.strip())
         return "\n\n".join([b for b in blocks if b]).strip() + "\n"
@@ -1049,7 +1050,7 @@ def _assemble_system_prompt(
 
     # Final join with blank lines
     # 易变块靠后：心境放最后（UI context footer 由 middleware 在其后追加）
-    affect_block = get_agent_affect_block(agent_name)
+    affect_block = get_agent_affect_block(agent_name, principal_id=principal_id)
     if affect_block:
         blocks.append(affect_block.strip())
     return "\n\n".join([b for b in blocks if b]).strip() + "\n"
@@ -1966,22 +1967,19 @@ def get_agent_soul(agent_name: str | None, *, include_employee_posting: bool = F
     return "".join(parts)
 
 
-def get_agent_affect_block(agent_name: str | None) -> str:
+def get_agent_affect_block(agent_name: str | None, *, principal_id: str = "") -> str:
     """心境（<affect>）块——供 _assemble_system_prompt 追加到提示词最末尾。
 
-    为什么放最后：心境 brief 每轮都可能微变，放提示词中段（旧：紧跟 soul）会让
-    厂商前缀缓存从 soul 位置开始整体失效（TTFT 与成本双输）。易变内容全部靠后，
-    前缀（role/communication/soul/duties/tools）保持逐字节稳定。
+    主智能体读用户资产 ``profile/affect.md``；员工读自己的 affect.md。
+    易变块靠后，避免打碎厂商前缀缓存。
     """
     try:
-        code = str(agent_name or "").strip().lower()
-        if code and code not in {"main", "lead_agent", "user", "default"}:
-            from evoflow.person_affect import AFFECT_DISCIPLINE_PROMPT
-            from evoflow.person_kernel import format_affect_brief
+        from evoflow.person_affect import AFFECT_DISCIPLINE_PROMPT
+        from evoflow.person_kernel import format_affect_brief
 
-            brief = format_affect_brief(code)
-            if brief:
-                return f"\n<affect>\n{brief}\\n{AFFECT_DISCIPLINE_PROMPT.strip()}\n</affect>\n"
+        brief = format_affect_brief(agent_name, principal_id=principal_id)
+        if brief:
+            return f"\n<affect>\n{brief}\n{AFFECT_DISCIPLINE_PROMPT.strip()}\n</affect>\n"
     except Exception:
         logger.debug("get_agent_affect_block: inject skipped", exc_info=True)
     return ""

@@ -1,9 +1,8 @@
-"""Unified Asset Hub tool — search / read / list / note across memory families.
+"""Unified Asset Hub tool — search / read / list / note / profile.
 
-Facts · episodic · journal · craft share the same Markdown + frontmatter shape.
-This tool reuses ``evoflow.assets.search`` (file substring) and hub read/write —
-not a second DB index. Prefer this over legacy ``experience_*`` / raw vault dumps
-when looking up **entity assets** (user / agent / employee / workspace).
+Standing · episodic · journal · craft share Markdown + frontmatter.
+``assets note`` writes by tag straight to the destination; prefer this over
+legacy ``experience_*`` / raw vault dumps for entity assets.
 """
 
 from __future__ import annotations
@@ -22,7 +21,7 @@ assets_tool_ui_metadata = {
     "label": "实体资产",
     "icon": "🗂️",
     "group": "memory",
-    "description": "统一读写实体资产：记忆、过程、反思、经验(craft)、用户画像 — search/read/list/note/profile。",
+    "description": "统一读写实体资产：记忆、过程、反思、经验(craft)、用户画像、员工情感 — search/read/list/note/write/profile/affect。",
 }
 
 _SLUG_RE = re.compile(r"[^a-zA-Z0-9\u4e00-\u9fff_-]+")
@@ -168,6 +167,17 @@ def _slug(text: str, *, fallback: str = "note") -> str:
     return s or fallback
 
 
+def _resolve_write_mode(mode: str = "", query: str = "") -> str:
+    """Prefer explicit ``mode``; legacy ``query=append|replace`` still accepted."""
+    m = str(mode or "").strip().lower()
+    if m in ("append", "replace"):
+        return m
+    q = str(query or "").strip().lower()
+    if q in ("append", "replace"):
+        return q
+    return "append"
+
+
 @tool("assets", parse_docstring=True)
 def assets_tool(
     action: str,
@@ -176,77 +186,50 @@ def assets_tool(
     query: str = "",
     path: str = "",
     kinds: str = "",
+    kind: str = "",
+    mode: str = "",
     content: str = "",
     entity_type: str = "",
     entity_id: str = "",
     scope: str = "",
     max_results: int = 12,
 ) -> str:
-    """Search, read, list, note, or update profile Entity Asset Hub files.
+    """Search, read, list, note, write, or update Entity Asset Hub files.
 
-    **One tool for all durable knowledge families** — same Markdown + frontmatter.
+    Families:
+      - 长期记忆 ``memory/standing.md`` — ``note`` + ``kind=preference``
+      - 过程 ``memory/episodic/`` — ``kind=process``
+      - 经验 ``craft/`` — ``kind=experience``；反思 ``memory/journal/`` — ``kind=reflection``
+      - 画像 ``profile/USER.md`` — ``action=profile``
+      - 情感 ``profile/affect.md`` — ``action=affect``
 
-    Content kinds (product IA — two memory bodies + peers):
-    - memory/facts/ — 条目：one-line durable prefs & short facts (detail list)
-    - memory/episodic/ — 过程：dialogue / rollout recaps
-    - memory/journal/ — 反思；craft/<name>.md — 经验 / procedures
-    - profile/* — user identity (Tier-0)
-    - memory/standing.md — 记忆摘要（overall derived page；every-turn L1；read-only in dialogue；Phase2 rewrites）
-    - memory/MEMORY.md — handbook / registry（read-only in dialogue）
+    WHEN: stable prefs / hard constraints / high-signal process → note same turn
+          (optional "已记下…"); chitchat → skip. No secrets / huge dumps.
+    LOAD: standing + catalog already in prompt; details via read/search.
 
-    Prefer this over legacy ``experience_*``, ``memory_remember``, or direct file edits.
-
-    Decision table (dialogue):
-      WHEN (prefer write without waiting for consent — users dislike extra replies):
-            stable pref/habit/fact → note same turn;
-            solved-problem takeaways, routine procedures, high-signal process/experience
-            → note same turn; optional one-line "已记下…" (do not block on reply);
-            chitchat / one-off noise / unverified guesses → skip;
-            ask first ONLY if sensitive/ambiguous (privacy, rejected brainstorm, unclear boundary).
-      WHAT: evidence that changes future behavior (prefs, constraints, conclusions,
-            reusable steps, failure shields). No secrets / huge tool dumps / generic advice.
-      WRITE: only ``assets note`` → memory/_inbox/notes/ with tag
-            [preference]|[process]|[experience]|[reflection]. Never write facts/,
-            episodic/, craft/, standing.md, MEMORY.md directly.
-      UPDATE formal files: Phase2 only (inbox → facts/episodic/craft/journal + standing).
-            Use ``profile`` for identity dims.
-      LOAD: standing (L1) + catalog (L2) every turn; pending _inbox notes injected live
-            next turn after note (no wait for Phase2 / new session); body via read/search
-            (L3, search includes inbox); Hub Recall matches formal + pending titles.
+    UPDATE (model decides — runtime does not guess "similar" topics):
+      1. See catalog / standing; if outdated, ``read`` it.
+      2. Overwrite with ``note`` + ``path=<existing file>`` (or ``write``).
+      3. Standing full rewrite: ``note`` kind=preference + ``mode=replace``.
 
     Actions:
-      - search: substring search (kinds=facts,episodic,journal,craft,standing,handbook,all)
-      - read: read one relative path
-      - list: list directory (default memory/)
-      - note: **one-step write by tag** (no inbox hop):
-          [preference] → memory/standing.md（长期记忆）
-          [process] / untagged → memory/episodic/（过程）
-          [experience] → craft/
-          [reflection] → memory/journal/
-      - profile: update the single user profile doc (profile/USER.md).
-        Default mode append (query=append). Use query=replace for full rewrite.
-        When user shares stable identity/prefs/habits, update profile proactively.
-        ``path`` is optional (legacy basic-info/preferences/persona aliases still accepted).
+      - search / read / list
+      - note: requires ``kind`` (preference|process|experience|reflection)
+      - write: overwrite ``path`` with ``content``
+      - profile / affect: ``mode=append`` (default) or ``mode=replace``
 
-    For action=note, start content with a tag: [preference], [process], [experience], [reflection].
-
-    Citation: if memory files informed the reply, append one `<evo-asset-citation>` block last
-    (`path:start-end|note=[brief]` per line under `citation_entries`).
-    Paths must be entity-relative asset files (e.g. memory/…); never bare kb_ ids or loose
-    `citation_entries:` prose — always wrap in the XML tags.
+    If memory files informed the reply, end with ``<evo-asset-citation>``.
 
     Args:
-        action: search | read | list | note | profile
-        query: Search keywords (comma-separated ok). Required for search.
-               When action=profile, use append (default) or replace.
-        path: Filename or entity-relative path for read/list (basename is enough), or optional for action=profile
-              (defaults to USER.md; legacy basic-info/preferences/persona aliases ok).
-        kinds: Comma-separated asset kinds for search (facts,episodic,journal,craft,standing,handbook,all).
-        content: Note body for action=note; markdown snippet for action=profile.
-        entity_type: Optional user|agent|employee (default: session entity). Workspace/project memory is disabled.
-        entity_id: Optional entity id.
-        scope: Optional entity shortcut (workspace/project disabled).
-        max_results: Cap search hits (default 12).
+        action: search | read | list | note | write | profile | affect
+        query: Search keywords only (not write mode)
+        path: Basename or relative path; for note = update target when set
+        kinds: Search filter: standing,episodic,journal,craft,handbook,all
+        kind: Note type: preference | process | experience | reflection
+        mode: append | replace (profile / affect / preference standing rewrite)
+        content: Note / write / profile / affect markdown body (no type tag needed)
+        entity_type / entity_id / scope: Optional entity override
+        max_results: Search hit cap (default 12)
     """
     _ = tool_call_id
     act = str(action or "").strip().lower()
@@ -276,8 +259,6 @@ def assets_tool(
         try:
             from evoflow.assets.search import search_entity_assets
 
-            # Dialogue search includes pending _inbox notes so a note written
-            # this turn is findable before Phase2 consolidation.
             res = search_entity_assets(
                 entity,
                 q,
@@ -285,7 +266,7 @@ def assets_tool(
                 kinds=str(kinds or "").strip() or None,
                 max_results=max(1, min(int(max_results or 12), 50)),
                 context_lines=1,
-                include_inbox=True,
+                include_inbox=False,
             )
             # Compact for model: drop huge snippets slightly
             matches = []
@@ -367,14 +348,13 @@ def assets_tool(
             return json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False)
 
     if act == "note":
-        text = str(content or query or "").strip()
+        text = str(content or "").strip()
+        # Search-box misuse: only fall back to query when it is not a write mode word.
+        if not text and str(query or "").strip().lower() not in ("append", "replace", ""):
+            text = str(query or "").strip()
         if not text:
             return json.dumps({"ok": False, "error": "content_required"}, ensure_ascii=False)
         note_entity = entity
-        # ``[project]`` no longer routes to workspace Asset Hub — project notes stay on
-        # the session entity (user/employee). Strip the tag so Phase2 still classifies.
-        if re.match(r"^\[project\]", text, re.I):
-            text = re.sub(r"^\[project\]\s*", "[process] ", text, count=1, flags=re.I).strip()
         if note_entity.normalized().entity_type == "workspace":
             return json.dumps(
                 {
@@ -385,10 +365,44 @@ def assets_tool(
                 ensure_ascii=False,
             )
         try:
-            from evoflow.assets.ad_hoc_note import write_ad_hoc_note
+            from evoflow.assets.ad_hoc_note import normalize_note_kind, write_ad_hoc_note
 
-            data = write_ad_hoc_note(note_entity, text, slug_hint=str(path or "").strip())
-            # Next turn must see pending inbox + refreshed standing/catalog when freeze lifts.
+            note_kind = normalize_note_kind(kind)
+            write_mode = _resolve_write_mode(mode, query)
+            raw_path = str(path or "").strip().replace("\\", "/").lstrip("/")
+            update_path = ""
+            slug_hint = ""
+            if raw_path and (
+                raw_path.startswith(("craft/", "memory/episodic/", "memory/journal/"))
+                or raw_path in ("memory/standing.md", "standing.md")
+            ):
+                update_path = "memory/standing.md" if raw_path == "standing.md" else raw_path
+                if update_path == "memory/standing.md" and write_mode != "replace":
+                    # Prefer append into standing unless model explicitly mode=replace.
+                    update_path = ""
+            else:
+                slug_hint = raw_path
+
+            if not note_kind and not re.match(
+                r"^\[(preference|process|experience|reflection|project)\]", text, re.I
+            ):
+                return json.dumps(
+                    {
+                        "ok": False,
+                        "error": "kind_required",
+                        "hint": "Set kind=preference|process|experience|reflection",
+                    },
+                    ensure_ascii=False,
+                )
+
+            data = write_ad_hoc_note(
+                note_entity,
+                text,
+                kind=note_kind,
+                mode=write_mode,
+                slug_hint=slug_hint,
+                update_path=update_path,
+            )
             try:
                 from evoflow.agents.memory.standing_freeze import invalidate_standing_memory
 
@@ -408,6 +422,7 @@ def assets_tool(
                 "craft": "经验 craft/",
                 "journal": "反思 memory/journal/",
             }.get(kind, data.get("path") or "")
+            verb = "已更新" if data.get("updated") else "已写入"
             return json.dumps(
                 {
                     "ok": True,
@@ -415,7 +430,58 @@ def assets_tool(
                     "path": data.get("path"),
                     "kind": kind,
                     "tag": data.get("tag"),
-                    "hint": f"已直写{dest}（一步到位，无需再等 inbox/Phase2 合并）。",
+                    "updated": bool(data.get("updated")),
+                    "hint": f"{verb}{dest}。",
+                },
+                ensure_ascii=False,
+            )
+        except Exception as exc:
+            return json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False)
+
+    if act == "write":
+        rel = _normalize_asset_rel(path, entity)
+        text = str(content or "").strip()
+        if not rel:
+            return json.dumps({"ok": False, "error": "path_required"}, ensure_ascii=False)
+        if not text:
+            return json.dumps({"ok": False, "error": "content_required"}, ensure_ascii=False)
+        allowed = rel.startswith(("craft/", "memory/episodic/", "memory/journal/", "memory/standing")) or rel in (
+            "memory/standing.md",
+            "memory/MEMORY.md",
+            "profile/affect.md",
+        )
+        if not allowed:
+            return json.dumps(
+                {
+                    "ok": False,
+                    "error": "write_path_not_allowed",
+                    "hint": "write only craft / episodic / journal / standing / MEMORY.md / profile/affect.md",
+                },
+                ensure_ascii=False,
+            )
+        try:
+            from evoflow.assets.hub import write_text_file
+
+            data = write_text_file(entity, rel, text if text.endswith("\n") else text + "\n")
+            try:
+                from evoflow.agents.memory.standing_freeze import invalidate_standing_memory
+
+                tid = _ctx_get(getattr(runtime, "context", None), "thread_id")
+                if not tid:
+                    cfg = getattr(runtime, "config", None) or {}
+                    if isinstance(cfg, dict):
+                        conf = cfg.get("configurable") if isinstance(cfg.get("configurable"), dict) else {}
+                        tid = str(conf.get("thread_id") or "").strip()
+                invalidate_standing_memory(tid or None)
+            except Exception:
+                logger.debug("assets write: standing invalidate skipped", exc_info=True)
+            return json.dumps(
+                {
+                    "ok": True,
+                    "action": "write",
+                    "path": data.get("path") or rel,
+                    "updated": True,
+                    "hint": f"已覆盖写入 {rel}。",
                 },
                 ensure_ascii=False,
             )
@@ -429,17 +495,16 @@ def assets_tool(
                 {"ok": False, "error": "profile_only_for_user_entity"},
                 ensure_ascii=False,
             )
-        qraw = str(query or "").strip().lower()
-        mode = qraw if qraw in ("append", "replace") else "append"
+        write_mode = _resolve_write_mode(mode, query)
         text = str(content or "").strip()
-        if not text and qraw not in ("append", "replace"):
+        if not text and str(query or "").strip().lower() not in ("append", "replace", ""):
             text = str(query or "").strip()
         if not text:
             return json.dumps({"ok": False, "error": "content_required"}, ensure_ascii=False)
         try:
             from evoflow.assets.user_profile_dims import update_profile_dimension
 
-            data = update_profile_dimension(dimension=dim, content=text, mode=mode, entity=entity)
+            data = update_profile_dimension(dimension=dim, content=text, mode=write_mode, entity=entity)
             rel = f"profile/{data['filename']}"
             return json.dumps(
                 {
@@ -459,11 +524,64 @@ def assets_tool(
             logger.exception("assets profile failed")
             return json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False)
 
+    if act == "affect":
+        # Route to the speaking employee/agent entity (not the user bucket).
+        affect_entity = entity
+        if affect_entity.normalized().entity_type == "user":
+            agent_code = _agent_from_runtime(runtime)
+            if agent_code and agent_code not in {"main", "lead_agent", "user", "default"}:
+                try:
+                    from evoflow.assets.guidance import is_employee_agent_name
+                    from evoflow.assets.paths import EntityRef
+
+                    if is_employee_agent_name(agent_code):
+                        affect_entity = EntityRef("employee", agent_code).normalized()
+                    else:
+                        affect_entity = EntityRef("agent", agent_code).normalized()
+                except Exception as exc:
+                    return json.dumps({"ok": False, "error": f"bad_affect_entity:{exc}"}, ensure_ascii=False)
+        if affect_entity.normalized().entity_type not in ("employee", "agent"):
+            return json.dumps(
+                {
+                    "ok": False,
+                    "error": "affect_only_for_employee_or_agent",
+                    "hint": "情感写在员工/agent 的 profile/affect.md；请在员工会话里调用。",
+                },
+                ensure_ascii=False,
+            )
+        write_mode = _resolve_write_mode(mode, query)
+        text = str(content or "").strip()
+        if not text and str(query or "").strip().lower() not in ("append", "replace", ""):
+            text = str(query or "").strip()
+        if not text:
+            return json.dumps({"ok": False, "error": "content_required"}, ensure_ascii=False)
+        try:
+            from evoflow.assets.affect_mirror import write_affect_md
+
+            data = write_affect_md(affect_entity, text, mode=write_mode)
+            return json.dumps(
+                {
+                    "ok": True,
+                    "action": "affect",
+                    "path": data.get("path") or "profile/affect.md",
+                    "mode": data.get("mode"),
+                    "entityType": affect_entity.entity_type,
+                    "entityId": affect_entity.entity_id,
+                    "hint": "已更新情感 profile/affect.md；下一轮注入会读到。",
+                },
+                ensure_ascii=False,
+            )
+        except ValueError as exc:
+            return json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False)
+        except Exception as exc:
+            logger.exception("assets affect failed")
+            return json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False)
+
     return json.dumps(
         {
             "ok": False,
             "error": "unknown_action",
-            "hint": "Use action=search|read|list|note|profile",
+            "hint": "Use action=search|read|list|note|write|profile|affect",
         },
         ensure_ascii=False,
     )

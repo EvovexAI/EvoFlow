@@ -2562,6 +2562,16 @@ class UiStreamNormalizer:
         tid = str(self.thread_id or "").strip()
         if not tid:
             return
+        # 未锚定且无正文的空 run_end 常见于 live SSE 早封；
+        # 此时 middle-layer 上游往往还在跑（cancel_on_disconnect=false）。
+        # 若这里 force_end → 前端以为 idle 并弹「本轮未产生」，过一会儿 V4 又刷出正文。
+        # 前端续看走 V4 + history-watch，不要指望再开 stream-resume SSE 来「补救」。
+        if not self.anchored and not str(self.final_text or "").strip():
+            logger.info(
+                "[ui_stream] skip force_end on empty unanchored run_end thread=%s",
+                tid,
+            )
+            return
         try:
             from evoflow.session_execution import force_end_session_turn
 

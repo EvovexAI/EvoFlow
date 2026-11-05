@@ -160,7 +160,7 @@ def _unique_note_rel(entity: EntityRef, filename: str) -> str:
 
 
 def parse_note_tag(content: str) -> tuple[str, str]:
-    """Return ``(tag, body)``. Untagged defaults to ``process`` (一步直达过程)."""
+    """Return ``(tag, body)``. Untagged defaults to ``process`` (legacy tag-in-body)."""
     text = str(content or "").strip()
     if not text:
         return "process", ""
@@ -172,7 +172,6 @@ def parse_note_tag(content: str) -> tuple[str, str]:
     if tag == "project":
         tag = "process"
     rest = "\n".join(lines[1:]).strip()
-    # Keep a title-ish first line when the tag line had trailing text.
     trailing = _TAG_LINE_RE.sub("", lines[0].strip(), count=1).strip()
     if trailing and rest:
         body = f"{trailing}\n{rest}"
@@ -183,26 +182,49 @@ def parse_note_tag(content: str) -> tuple[str, str]:
     return tag, body
 
 
+def normalize_note_kind(kind: str) -> str:
+    """Map tool ``kind`` aliases → preference|process|experience|reflection."""
+    k = str(kind or "").strip().lower()
+    aliases = {
+        "preference": "preference",
+        "pref": "preference",
+        "standing": "preference",
+        "long_term": "preference",
+        "process": "process",
+        "episodic": "process",
+        "project": "process",
+        "experience": "experience",
+        "craft": "experience",
+        "reflection": "reflection",
+        "journal": "reflection",
+    }
+    return aliases.get(k, "")
+
+
 def write_ad_hoc_note(
     entity: EntityRef,
     content: str,
     *,
+    kind: str = "",
+    mode: str = "",
     slug_hint: str = "",
+    update_path: str = "",
     source: str = "assets.note",
 ) -> dict[str, Any]:
-    """Write one tagged note **directly** to its durable home (no inbox hop).
+    """Write one note **directly** to its durable home (no inbox hop).
 
-    Tag → destination:
-      - ``[preference]`` → ``memory/standing.md`` (产品：长期记忆)
-      - ``[process]`` / untagged / ``[project]`` → ``memory/episodic/`` (过程)
-      - ``[experience]`` → ``craft/``
-      - ``[reflection]`` → ``memory/journal/``
+    Prefer explicit ``kind`` (preference|process|experience|reflection).
+    Legacy first-line ``[tag]`` still works when ``kind`` is omitted.
+
+    ``mode=replace`` + standing path → overwrite ``memory/standing.md``.
+    Otherwise preference appends. Create unless ``update_path`` is set.
     """
     from evoflow.assets.hub import (
         append_standing_long_term,
         save_craft_note,
         write_episode,
         write_journal,
+        write_text_file,
     )
 
     text = str(content or "").strip()
@@ -210,24 +232,61 @@ def write_ad_hoc_note(
         raise ValueError("empty_content")
     if len(text) > 4000:
         text = text[:3999] + "…"
-    tag, body = parse_note_tag(text)
+
+    explicit = normalize_note_kind(kind)
+    if explicit:
+        tag = explicit
+        first = (text.splitlines() or [""])[0].strip()
+        # Drop redundant leading [tag] if model still pasted one.
+        if _TAG_LINE_RE.match(first):
+            _, body = parse_note_tag(text)
+        else:
+            body = text
+    else:
+        tag, body = parse_note_tag(text)
+
     body = ensure_body_recorded_at(body if body else text).strip()
     if not body:
         raise ValueError("empty_content")
 
     hint = str(slug_hint or "").strip() or body.splitlines()[0].lstrip("#[] ").strip()[:60]
+    upd = str(update_path or "").replace("\\", "/").lstrip("/")
+    mode_l = str(mode or "").strip().lower()
+
     if tag == "preference":
+        if mode_l == "replace":
+            data = write_text_file(
+                entity, "memory/standing.md", body if body.endswith("\n") else body + "\n"
+            )
+            return {**data, "kind": "standing", "tag": tag, "source": source, "updated": True}
         data = append_standing_long_term(entity, body)
-        data = {**data, "kind": "standing", "tag": tag, "source": source}
-        return data
+        return {**data, "kind": "standing", "tag": tag, "source": source, "updated": False}
     if tag == "experience":
-        data = save_craft_note(entity, title=hint or "经验", content=body, description=hint[:30])
+        data = save_craft_note(
+            entity,
+            title=hint or "经验",
+            content=body,
+            description=hint[:30],
+            update_path=upd if upd.startswith("craft/") else "",
+        )
         return {**data, "kind": "craft", "tag": tag, "source": source}
     if tag == "reflection":
-        data = write_journal(entity, body, title=hint, append=True, summary=hint[:30])
+        data = write_journal(
+            entity,
+            body,
+            title=hint,
+            append=not bool(upd),
+            summary=hint[:30],
+            update_path=upd if upd.startswith("memory/journal/") else "",
+        )
         return {**data, "kind": "journal", "tag": tag, "source": source}
-    # process (default)
-    data = write_episode(entity, body, title=hint, summary=hint[:30])
+    data = write_episode(
+        entity,
+        body,
+        title=hint,
+        summary=hint[:30],
+        update_path=upd if upd.startswith("memory/episodic/") else "",
+    )
     return {**data, "kind": "episodic", "tag": tag, "source": source}
 
 

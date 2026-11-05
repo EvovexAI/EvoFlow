@@ -1,37 +1,19 @@
-"""Mirror person_affect DB state into ``profile/affect.md`` for Asset Center."""
+"""Affect as ``profile/affect.md`` (model-owned Markdown SoT).
+
+- **User vault**: main / lead agent 心境（「我 → 情感」）
+- **Employee / agent vault**: that person's 心境
+"""
 
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 logger = logging.getLogger(__name__)
 
-
-def maybe_mirror_affect_file(agent_code: str, affect: dict[str, Any] | None = None) -> str | None:
-    """Write ``profile/affect.md`` under agent or employee entity. Best-effort."""
-    code = str(agent_code or "").strip().lower()
-    if not code or code in {"user", "system", "main", "default"}:
-        return None
-    try:
-        from evoflow.assets.guidance import is_employee_agent_name
-        from evoflow.assets.hub import ensure_entity_tree, write_text_file
-        from evoflow.assets.paths import EntityRef
-        from evoflow.persistence import person_relations_repositories as rel_repo
-        from evoflow.person_affect import mirror_affect_markdown
-
-        aff = affect if isinstance(affect, dict) else rel_repo.get_affect(code)
-        body = mirror_affect_markdown(aff)
-        if is_employee_agent_name(code):
-            ent = EntityRef("employee", code).normalized()
-        else:
-            ent = EntityRef("agent", code).normalized()
-        ensure_entity_tree(ent)
-        write_text_file(ent, "profile/affect.md", body)
-        return "profile/affect.md"
-    except Exception:
-        logger.debug("affect mirror skipped for %s", code, exc_info=True)
-        return None
+_FM_RE = re.compile(r"^---\s*\n.*?\n---\s*\n?", re.DOTALL)
+_LEAD_CODES = frozenset({"", "main", "lead_agent", "user", "default", "system"})
 
 
 def ensure_default_affect_md(entity) -> None:
@@ -45,7 +27,7 @@ def ensure_default_affect_md(entity) -> None:
         from evoflow.person_affect import default_affect_md
 
         e = entity.normalized() if hasattr(entity, "normalized") else entity
-        if getattr(e, "entity_type", "") not in ("agent", "employee"):
+        if getattr(e, "entity_type", "") not in ("agent", "employee", "user"):
             return
         path = profile_path(e, "affect.md")
         if path.is_file():
@@ -54,3 +36,106 @@ def ensure_default_affect_md(entity) -> None:
         path.write_text(default_affect_md(), encoding="utf-8")
     except Exception:
         logger.debug("ensure_default_affect_md skipped", exc_info=True)
+
+
+def _user_entity(principal_id: str = ""):
+    from evoflow.assets.paths import EntityRef, sanitize_user_asset_id
+
+    pid = sanitize_user_asset_id(str(principal_id or "").strip() or "user")
+    return EntityRef("user", pid).normalized()
+
+
+def _entity_for_agent_code(agent_code: str, *, principal_id: str = ""):
+    """Resolve which vault owns affect for this speaker."""
+    from evoflow.assets.guidance import is_employee_agent_name
+    from evoflow.assets.paths import EntityRef, entity_root
+
+    code = str(agent_code or "").strip().lower()
+    if code in _LEAD_CODES:
+        return _user_entity(principal_id)
+
+    emp = EntityRef("employee", code).normalized()
+    ag = EntityRef("agent", code).normalized()
+    emp_affect = entity_root(emp) / "profile" / "affect.md"
+    ag_affect = entity_root(ag) / "profile" / "affect.md"
+    if emp_affect.is_file() or (entity_root(emp).is_dir() and is_employee_agent_name(code)):
+        return emp
+    if is_employee_agent_name(code):
+        return emp
+    if ag_affect.is_file():
+        return ag
+    return emp if emp_affect.parent.is_dir() else ag
+
+
+def read_affect_md(agent_code: str = "", *, principal_id: str = "") -> str:
+    """Return full ``profile/affect.md`` text (may be empty)."""
+    code = str(agent_code or "").strip().lower()
+    try:
+        from evoflow.assets.hub import ensure_entity_tree
+        from evoflow.assets.paths import profile_path
+
+        ent = _entity_for_agent_code(code, principal_id=principal_id)
+        ensure_entity_tree(ent)
+        path = profile_path(ent, "affect.md")
+        if not path.is_file():
+            return ""
+        return path.read_text(encoding="utf-8", errors="replace")
+    except Exception:
+        logger.debug("read_affect_md skipped for %s", code or "lead", exc_info=True)
+        return ""
+
+
+def affect_brief_from_md(raw: str, *, max_chars: int = 600) -> str:
+    """Strip frontmatter; keep a short prose block for prompt inject."""
+    text = _FM_RE.sub("", str(raw or ""), count=1).strip()
+    if not text:
+        return ""
+    parts = re.split(r"\n##\s+", text, maxsplit=1)
+    head = parts[0].strip()
+    if len(head) > max_chars:
+        head = head[: max_chars - 1].rstrip() + "…"
+    return head
+
+
+def format_affect_brief_from_file(agent_code: str = "", *, principal_id: str = "") -> str:
+    """Prompt inject from disk SoT."""
+    return affect_brief_from_md(read_affect_md(agent_code, principal_id=principal_id))
+
+
+def write_affect_md(
+    entity,
+    content: str,
+    *,
+    mode: str = "replace",
+) -> dict[str, Any]:
+    """Model/UI write to ``profile/affect.md``. ``append`` or ``replace``."""
+    from evoflow.assets.hub import ensure_entity_tree, write_text_file
+    from evoflow.assets.paths import profile_path
+
+    e = entity.normalized() if hasattr(entity, "normalized") else entity
+    if getattr(e, "entity_type", "") not in ("agent", "employee", "user"):
+        raise ValueError("affect_only_for_user_agent_or_employee")
+    text = str(content or "").strip()
+    if not text:
+        raise ValueError("content is required")
+    ensure_entity_tree(e)
+    rel = "profile/affect.md"
+    path = profile_path(e, "affect.md")
+    mode_l = str(mode or "replace").strip().lower()
+    if mode_l == "append" and path.is_file():
+        try:
+            existing = path.read_text(encoding="utf-8")
+        except OSError:
+            existing = ""
+        merged = (existing.rstrip() + "\n\n" + text).strip() + "\n"
+        data = write_text_file(e, rel, merged)
+    else:
+        body = text if text.endswith("\n") else text + "\n"
+        data = write_text_file(e, rel, body)
+    return {**data, "mode": "append" if mode_l == "append" else "replace", "path": rel}
+
+
+def maybe_mirror_affect_file(agent_code: str, affect: dict[str, Any] | None = None) -> str | None:
+    """Deprecated no-op — affect.md is model-owned; do not overwrite from DB."""
+    _ = (agent_code, affect)
+    return None

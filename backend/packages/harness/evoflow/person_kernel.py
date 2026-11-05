@@ -930,25 +930,12 @@ _AFFECT_EVENTS: dict[str, dict[str, float]] = {
 
 
 def update_affect_from_event(agent_code: str, event: str) -> dict[str, Any]:
-    """Apply small affect deltas on the unified hormone substrate."""
-    from evoflow.persistence import person_relations_repositories as rel_repo
+    """No-op: affect is model-owned via ``assets affect`` / ``profile/affect.md``.
 
-    code = str(agent_code or "").strip().lower()
-    if not code or code in {"user", "system"}:
-        return {"ok": False, "skipped": True}
-    cur = rel_repo.get_affect(code)
-    deltas = _AFFECT_EVENTS.get(str(event or "").strip(), {})
-    if not deltas:
-        return {"ok": True, "skipped": True, "affect": cur}
-    out = rel_repo.apply_affect_deltas(
-        code,
-        deltas,
-        significant=False,
-        source=str(event or "event"),
-        clamp_each=0.12,
-    )
-    out["event"] = event
-    return out
+    Background hormone events must not rewrite the asset file or invent mood.
+    """
+    _ = (agent_code, event)
+    return {"ok": True, "skipped": True, "reason": "affect_model_owned"}
 
 
 def on_handoff_dispatched(
@@ -1076,25 +1063,20 @@ def on_peer_wake(*, from_agent: str, to_agent: str, source: str = "") -> dict[st
     return {"ok": True}
 
 
-def format_affect_brief(agent_code: str | None) -> str:
-    """Natural-language affect inject (no hormone floats for the model to recite)."""
-    from evoflow.persistence import person_relations_repositories as rel_repo
-    from evoflow.person_affect import format_affect_prose
+def format_affect_brief(agent_code: str | None, *, principal_id: str = "") -> str:
+    """Natural-language affect inject from ``profile/affect.md`` (model-owned SoT).
 
-    code = str(agent_code or "").strip().lower()
-    if not code:
+    Lead/main → user vault affect; employee → employee vault.
+    """
+    try:
+        from evoflow.assets.affect_mirror import format_affect_brief_from_file
+
+        return format_affect_brief_from_file(
+            str(agent_code or "").strip().lower(),
+            principal_id=str(principal_id or "").strip(),
+        )
+    except Exception:
         return ""
-    try:
-        aff = rel_repo.ensure_affect_row(code)
-    except Exception:
-        aff = rel_repo.get_affect(code)
-    try:
-        from evoflow.assets.affect_mirror import maybe_mirror_affect_file
-
-        maybe_mirror_affect_file(code, aff)
-    except Exception:
-        pass
-    return format_affect_prose(aff)
 
 
 def format_affect_and_commitments_block(agent_code: str | None) -> str:
