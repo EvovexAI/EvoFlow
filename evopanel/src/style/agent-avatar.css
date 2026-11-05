@@ -252,3 +252,26 @@
   flex-shrink: 0;
 }
 
+/* 同步生图进行中：彩色流动底（对齐常见生图产品「出图中」占位） */
+.platform-media-gen-mesh {
+  background:
+    radial-gradient(120% 80% at 10% 20%, rgba(167, 139, 250, 0.95), transparent 55%),
+    radial-gradient(100% 90% at 90% 10%, rgba(244, 114, 182, 0.9), transparent 50%),
+    radial-gradient(90% 100% at 70% 90%, rgba(251, 191, 36, 0.85), transparent 55%),
+    radial-gradient(80% 70% at 15% 85%, rgba(56, 189, 248, 0.8), transparent 50%),
+    linear-gradient(135deg, #312e81, #7c3aed 40%, #db2777 75%, #f59e0b);
+  background-size: 160% 160%;
+  animation: platform-media-gen-mesh-shift 4.5s ease-in-out infinite alternate;
+}
+
+@keyframes platform-media-gen-mesh-shift {
+  0% {
+    background-position: 0% 40%;
+    filter: saturate(1.05) brightness(1);
+  }
+  100% {
+    background-position: 100% 60%;
+    filter: saturate(1.2) brightness(1.08);
+  }
+}
+
