@@ -78,6 +78,16 @@ _NON_USER_HUMAN_NAMES = frozenset(
         "evf_plugin_injection",
         "external_memory_prefetch",
         "todo_reminder",
+        # Turn-tail footers — must not become the KB placement anchor (otherwise KB
+        # lands after tools at list end and steals attention on every tool hop).
+        "session_intent",
+        "session_memory_recall",
+        "session_collab_live",
+        "session_mission_state",
+        "session_context_refs",
+        "session_runtime_clock",
+        "session_mind_map",
+        "xiaomi_ui_context",
     }
 )
 # Approximate chars-to-tokens ratio for mixed Chinese/English text

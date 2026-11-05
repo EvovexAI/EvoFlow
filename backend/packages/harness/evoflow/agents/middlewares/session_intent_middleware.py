@@ -19,7 +19,7 @@ from langchain.agents.middleware.types import ModelCallResult, ModelRequest
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage, ToolMessage
 
 from evoflow.agents.automation_runtime import is_unattended_automation
-from evoflow.agents.message_analysis_utils import is_real_user_message
+from evoflow.agents.message_analysis_utils import is_real_user_message, should_inject_turn_tail
 from evoflow.config.session_intent_config import get_session_intent_config
 
 logger = logging.getLogger(__name__)
@@ -265,6 +265,11 @@ class SessionIntentMiddleware(AgentMiddleware[AgentState]):
                 return request.override(messages=messages)
             return request
 
+        # Tool-loop continuations: keep intent stripped — do not re-append at list end
+        # (would look like a new user turn and trigger repeated acknowledgments).
+        if not should_inject_turn_tail(messages):
+            return request.override(messages=messages)
+
         hint = HumanMessage(content=block.strip(), name=_SESSION_INTENT_MESSAGE_NAME)
         return request.override(messages=[*messages, hint])
 
@@ -276,8 +281,12 @@ class SessionIntentMiddleware(AgentMiddleware[AgentState]):
     ) -> ModelCallResult:
         if is_unattended_automation(getattr(request, "runtime", None)):
             return handler(request)
+        state_msgs = list((request.state or {}).get("messages") or [])
+        # Tool hops: strip only — skip LLM rollup (was re-appended at list end every hop).
+        if not should_inject_turn_tail(state_msgs):
+            return handler(self._apply_block(request, ""))
         block = _build_intent_block(
-            list((request.state or {}).get("messages") or []),
+            state_msgs,
             thread_id=self._thread_id(request),
             model_name=self._model_name(request),
         )
@@ -291,8 +300,11 @@ class SessionIntentMiddleware(AgentMiddleware[AgentState]):
     ) -> ModelCallResult:
         if is_unattended_automation(getattr(request, "runtime", None)):
             return await handler(request)
+        state_msgs = list((request.state or {}).get("messages") or [])
+        if not should_inject_turn_tail(state_msgs):
+            return await handler(self._apply_block(request, ""))
         block = await _build_intent_block_async(
-            list((request.state or {}).get("messages") or []),
+            state_msgs,
             thread_id=self._thread_id(request),
             model_name=self._model_name(request),
         )

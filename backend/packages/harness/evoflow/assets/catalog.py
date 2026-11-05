@@ -299,11 +299,6 @@ def catalog_has_content(entity: EntityRef) -> bool:
     return len(standing.strip()) >= 12
 
 
-def _catalog_cell(text: str) -> str:
-    """Escape newlines for compact catalog lines."""
-    return str(text or "").replace("\n", " ").strip()
-
-
 _TASK_GROUP_RE = re.compile(r"^\s*#\s*Task\s+Group:\s*(.+?)\s*$", re.MULTILINE)
 _TASK_REGISTRY_RE = re.compile(r"^\s*##\s*Task\s+\d+:\s*(.+?)\s*$", re.MULTILINE)
 
@@ -357,13 +352,13 @@ def _catalog_filename(rel_path: str) -> str:
 def _format_kind_section_lines(
     *,
     heading: str,
-    rows: list[tuple[str, str]],
+    rows: list[str],
 ) -> list[str]:
-    """Render one kind block: heading + filename rows (no dir prefix, no row cap)."""
+    """Render one kind block: heading + **filename-only** bullets (no desc)."""
     if not rows:
         return []
     out = [f"{heading}:"]
-    out.extend(f"- {name} · {lbl}".rstrip() for name, lbl in rows)
+    out.extend(f"- {name}" for name in rows if str(name or "").strip())
     return out
 
 
@@ -377,11 +372,11 @@ def format_entity_catalog_xml(
     include_journal: bool = True,
     tag: str = "catalog",
 ) -> str:
-    """Build a compact catalog block — one line per entity asset.
+    """Build a compact catalog block — one **filename** per entity asset.
 
-    Line format: ``<kind> <filename> — <label>``
+    Line format: ``<kind> <filename>`` (no description / title dump).
 
-    Filenames/short titles only (dir lives in the kind tag); **no per-kind row cap**
+    Kind tag carries the directory; **no per-kind row cap**
     (``TIER0_CATALOG_PER_KIND<=0``). MEMORY.md is pinned. Full bodies stay on-demand
     via ``assets`` read/search (basename is enough — tool resolves under the entity).
     """
@@ -395,53 +390,37 @@ def format_entity_catalog_xml(
                 "========= MEMORY_SUMMARY ENDS ========="
             )
 
-    body_lines: list[str] = []
-    label, _n, _names = _read_memory_index_label(entity)
-    body_lines.append(f"summary MEMORY.md — {label}")
+    body_lines: list[str] = ["summary MEMORY.md"]
 
-    kind_buckets: list[tuple[str, list[tuple[str, str, str]]]] = []
+    kind_buckets: list[tuple[str, list[str]]] = []
     if include_craft:
         kind_buckets.append(
-            (
-                "craft",
-                # Prefer description (human label); name/slug often duplicates basename.
-                [
-                    ("craft", r["path"], _catalog_cell(r.get("description") or r["name"]))
-                    for r in list_craft_catalog(entity)
-                ],
-            )
+            ("craft", [_catalog_filename(r["path"]) for r in list_craft_catalog(entity)])
         )
     if include_facts:
         kind_buckets.append(
-            (
-                "fact",
-                [("fact", r["path"], _catalog_cell(r["title"])) for r in list_fact_catalog(entity)],
-            )
+            ("fact", [_catalog_filename(r["path"]) for r in list_fact_catalog(entity)])
         )
     if include_episodes:
         kind_buckets.append(
             (
                 "episode",
-                [
-                    ("episode", r["path"], _catalog_cell(r["title"]))
-                    for r in list_episode_catalog(entity)
-                ],
+                [_catalog_filename(r["path"]) for r in list_episode_catalog(entity)],
             )
         )
     if include_journal:
         kind_buckets.append(
             (
                 "journal",
-                [
-                    ("journal", r["path"], _catalog_cell(r["title"]))
-                    for r in list_journal_catalog(entity)
-                ],
+                [_catalog_filename(r["path"]) for r in list_journal_catalog(entity)],
             )
         )
 
-    for _kind, rows in kind_buckets:
-        for k, p, lbl in rows:
-            body_lines.append(f"{_KIND_TAG.get(k, k)} {_catalog_filename(p)} — {lbl}".rstrip())
+    for kind, names in kind_buckets:
+        tag_k = _KIND_TAG.get(kind, kind)
+        for name in names:
+            if name:
+                body_lines.append(f"{tag_k} {name}")
 
     if body_lines:
         body = "\n".join(body_lines)
@@ -460,37 +439,26 @@ def format_entity_catalog_lines(
     include_craft: bool = True,
     include_journal: bool = True,
 ) -> list[str]:
-    """Catalog lines for system-prompt: filenames under kind headings (no dir prefix).
+    """Catalog lines for system-prompt: **filenames only** under kind headings.
 
-    ``MEMORY.md`` 置顶。craft / facts / episodic / journal 只列文件名；分类靠上方
-    标题，不必每行再拼 ``memory/facts/`` 等完整相对路径。正文仍不注入——需要细节
-    再用 ``assets`` read/search（工具按文件名解析）。
+    ``MEMORY.md`` 置顶。craft / facts / episodic / journal 只列文件名（自描述名字
+    即索引）；分类靠上方标题。正文不注入——需要细节再用 ``assets`` read/search。
     """
-    lines: list[str] = ["- MEMORY.md · (search primary · 索引)"]
+    lines: list[str] = ["- MEMORY.md"]
 
     craft_rows = (
-        [
-            (
-                _catalog_filename(r["path"]),
-                _catalog_cell(r.get("description") or r["name"]),
-            )
-            for r in list_craft_catalog(entity)
-        ]
-        if include_craft
-        else []
+        [_catalog_filename(r["path"]) for r in list_craft_catalog(entity)] if include_craft else []
     )
     facts_rows = (
-        [(_catalog_filename(r["path"]), _catalog_cell(r["title"])) for r in list_fact_catalog(entity)]
-        if include_facts
-        else []
+        [_catalog_filename(r["path"]) for r in list_fact_catalog(entity)] if include_facts else []
     )
     episode_rows = (
-        [(_catalog_filename(r["path"]), _catalog_cell(r["title"])) for r in list_episode_catalog(entity)]
+        [_catalog_filename(r["path"]) for r in list_episode_catalog(entity)]
         if include_episodes
         else []
     )
     journal_rows = (
-        [(_catalog_filename(r["path"]), _catalog_cell(r["title"])) for r in list_journal_catalog(entity)]
+        [_catalog_filename(r["path"]) for r in list_journal_catalog(entity)]
         if include_journal
         else []
     )

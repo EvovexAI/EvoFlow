@@ -1,4 +1,4 @@
-"""L2 catalog injects basenames under kind headings; assets read resolves them."""
+"""L2 catalog injects basenames only (no description dump); assets read resolves them."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from evoflow.assets.catalog import format_entity_catalog_lines, format_entity_ca
 from evoflow.assets.paths import EntityRef, resolve_asset_rel
 
 
-def test_catalog_lines_use_basename_not_dir_prefix(tmp_path: Path, monkeypatch) -> None:
+def test_catalog_lines_filename_only_no_desc(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("EVOFLOW_HOME", str(tmp_path))
     from evoflow.config.paths import reset_paths_cache
 
@@ -21,7 +21,7 @@ def test_catalog_lines_use_basename_not_dir_prefix(tmp_path: Path, monkeypatch) 
     (root / "memory").mkdir(parents=True, exist_ok=True)
     (root / "memory" / "MEMORY.md").write_text("# Task Group: demo\n", encoding="utf-8")
     (craft / "five-block.md").write_text(
-        "---\nname: five-block\ndescription: 五段式\n---\n\nbody\n",
+        "---\nname: five-block\ndescription: 五段式超长说明不要注入\n---\n\nbody\n",
         encoding="utf-8",
     )
     (facts / "pref-lang.md").write_text(
@@ -31,19 +31,20 @@ def test_catalog_lines_use_basename_not_dir_prefix(tmp_path: Path, monkeypatch) 
 
     lines = format_entity_catalog_lines(EntityRef("employee", "demo"))
     text = "\n".join(lines)
-    assert "- MEMORY.md ·" in text
+    assert "- MEMORY.md" in text
     assert "craft · 经验/做法:" in text
-    assert "- five-block.md · 五段式" in text
-    assert "- five-block.md · five-block" not in text
+    assert "- five-block.md" in text
+    assert "五段式" not in text
     assert "facts · 事实:" in text
-    assert "- pref-lang.md ·" in text
+    assert "- pref-lang.md" in text
+    assert "语言偏好" not in text
     assert "craft/five-block.md" not in text
     assert "memory/facts/pref-lang.md" not in text
-    assert "memory/MEMORY.md" not in text
 
     xml = format_entity_catalog_xml(EntityRef("employee", "demo"), include_standing=False)
-    assert "craft five-block.md — 五段式" in xml
-    assert "fact pref-lang.md —" in xml
+    assert "craft five-block.md" in xml
+    assert "fact pref-lang.md" in xml
+    assert "五段式" not in xml
     assert "craft/five-block.md" not in xml
     assert "memory/facts/" not in xml
 

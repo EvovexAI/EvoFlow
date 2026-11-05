@@ -403,7 +403,7 @@ def assets_tool(
                     "action": "note",
                     "path": data.get("path"),
                     "hint": (
-                        "已写入 memory/_inbox/notes/：下一轮起会自动带上（待整合预览）；"
+                        "已写入 memory/_inbox/notes/：下一轮起会以文件名列入 pending_inbox（正文需 assets read）；"
                         "Phase2 空闲后合进正式条目/过程/经验。勿直改 standing/MEMORY。"
                     ),
                 },

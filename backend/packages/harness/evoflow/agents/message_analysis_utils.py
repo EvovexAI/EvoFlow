@@ -69,6 +69,38 @@ def _looks_like_view_image_inject(msg: Any) -> bool:
     )
 
 
+def is_synthetic_user_message(msg: Any) -> bool:
+    """True for ephemeral HumanMessage footers / injections (not a real user turn)."""
+    if isinstance(msg, HumanMessage):
+        name = str(getattr(msg, "name", None) or "").strip()
+        if name in _SYNTHETIC_USER_NAMES:
+            return True
+        if _looks_like_view_image_inject(msg):
+            return True
+        return False
+    if isinstance(msg, dict):
+        name = str(msg.get("name") or "").strip()
+        return name in _SYNTHETIC_USER_NAMES
+    name = str(getattr(msg, "name", None) or "").strip()
+    return name in _SYNTHETIC_USER_NAMES
+
+
+def should_inject_turn_tail(messages: list[Any] | None) -> bool:
+    """Whether ephemeral turn-tail HumanMessages should be appended this model call.
+
+    Only on the first model call of a user turn (latest non-synthetic message is a
+    real user HumanMessage). During tool-loop continuations the last message is an
+    AIMessage / ToolMessage — appending ``session_intent`` / KB / memory recall at
+    the list end makes the model treat them as fresh user speech and re-answer
+    (often repeating the previous acknowledgment).
+    """
+    for msg in reversed(list(messages or [])):
+        if is_synthetic_user_message(msg):
+            continue
+        return is_real_user_message(msg)
+    return False
+
+
 def is_real_user_message(msg: Any) -> bool:
     """True for genuine user turns; false for compaction / tool-history / hint injections."""
     if isinstance(msg, HumanMessage):

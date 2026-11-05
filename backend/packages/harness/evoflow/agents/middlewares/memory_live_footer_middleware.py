@@ -23,6 +23,7 @@ from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage, To
 
 from evoflow.agents.memory.runtime_overrides import effective_memory_injection_enabled, strip_memory_xml_blocks
 from evoflow.agents.memory.standing_freeze import get_frozen_standing_memory
+from evoflow.agents.message_analysis_utils import should_inject_turn_tail
 
 logger = logging.getLogger(__name__)
 
@@ -252,7 +253,9 @@ class MemoryLiveFooterMiddleware(AgentMiddleware[AgentState]):
                 pass
 
         recall = "\n\n".join(p for p in (hub_block, legacy_block) if str(p or "").strip()).strip()
-        if recall and messages:
+        # Only on the user-turn model call. Re-appending after ToolMessage makes the
+        # model re-read ASSET HUB / recall as fresh user speech mid tool loop.
+        if recall and messages and should_inject_turn_tail(messages):
             hint = HumanMessage(content=recall, name=_MEMORY_RECALL_MESSAGE_NAME)
             return request.override(messages=[*messages, hint])
 
