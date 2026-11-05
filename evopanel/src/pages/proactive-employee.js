@@ -2371,7 +2371,6 @@ function renderEmployeeShell(
     )
   }
   moreItems.push(
-    `<button type="button" class="pro-role-more-item" role="menuitem" data-act="edit">编辑岗位</button>`,
     `<button type="button" class="pro-role-more-item" role="menuitem" data-act="bind-im">扫码绑定 IM${imBindingCount(role) ? `（${imBindingCount(role)}/${IM_CHANNELS.length}）` : ''}</button>`,
     ...IM_CHANNELS.filter((ch) => imBindingOf(role, ch).bound).map(
       (ch) =>
@@ -2400,6 +2399,7 @@ function renderEmployeeShell(
     <div class="pro-page-nav">
       <button type="button" class="btn btn-ghost btn-sm" data-act="back">← 返回员工名册</button>
       <div class="pro-page-nav-actions">
+        <button type="button" class="btn btn-sm btn-outline" data-act="edit" title="编辑岗位设置">编辑岗位</button>
         ${
           (role.status === 'active' || role.status === 'paused' || busy) && !isSystemFrontDesk
             ? `<button type="button" class="btn btn-sm pro-dispatch-btn" data-act="dispatch" title="给这位员工派发任务">📨 派发任务</button>

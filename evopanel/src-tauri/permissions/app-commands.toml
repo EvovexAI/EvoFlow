@@ -47,6 +47,7 @@ commands.allow = [
   "ui_extension_install_suite",
   "ui_extension_install_content_creator",
   "ui_extension_set_enabled",
+  "ui_extension_rename",
   "ui_extension_uninstall",
   "ui_extension_reveal",
   "ui_extension_service_status",

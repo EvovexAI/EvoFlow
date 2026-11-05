@@ -43,6 +43,8 @@ describe('right stage force-mount whitelist', () => {
     expect(kinds).not.toContain('news-dashboard')
     // platform-feedback: 纯展示，重建零成本。
     expect(kinds).not.toContain('platform-feedback')
+    // summary: chat 渲染面里恒返回 null（死载荷），常驻纯属浪费（2026-11-05 收敛）。
+    expect(kinds).not.toContain('summary')
   })
 
   it('stays within a sane size budget', () => {

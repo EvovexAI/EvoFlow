@@ -171,6 +171,38 @@ describe('open-right-stage-file (side pane, not fullscreen modal)', () => {
     expect(snap.collapsed).toBe(false)
   })
 
+  it('patch tabs with different content coexist; same content reuses the tab', () => {
+    // 对齐 ZCode：patch sourceKey 含内容指纹。之前同路径新 diff 直接覆盖旧 tab，
+    // 看起来像「diff 面板只能打开一个」。
+    const keyA = showRightStageCodeViewer(
+      { type: 'patch', path: 'src/app.ts', title: 'app.ts', patch: 'line1\nline2' },
+      { sessionKey: 'patch-sess' },
+    )
+    const keyB = showRightStageCodeViewer(
+      { type: 'patch', path: 'src/app.ts', title: 'app.ts', patch: 'line1\nCHANGED' },
+      { sessionKey: 'patch-sess' },
+    )
+    expect(keyB).not.toBe(keyA)
+    const keyA2 = showRightStageCodeViewer(
+      { type: 'patch', path: 'src/app.ts', title: 'app.ts', patch: 'line1\nline2' },
+      { sessionKey: 'patch-sess' },
+    )
+    expect(keyA2).toBe(keyA)
+    // file 类型保持 path 复用语义（内容更新刷新到最新 source），不受指纹影响
+    const keyFile1 = showRightStageCodeViewer(
+      { type: 'file', path: 'a.md', title: 'a.md' },
+      { sessionKey: 'patch-sess' },
+    )
+    const keyFile2 = showRightStageCodeViewer(
+      { type: 'file', path: 'a.md', title: 'a.md' },
+      { sessionKey: 'patch-sess' },
+    )
+    expect(keyFile2).toBe(keyFile1)
+    rightStageStore.closeTab(keyA)
+    rightStageStore.closeTab(keyB)
+    rightStageStore.closeTab(keyFile1)
+  })
+
   it('markdown file link maps to file preview tab', () => {
     showRightStageFromFileLink(
       { path: 'D:/proj/readme.md', label: 'readme.md', workspacePath: 'D:/proj' },
@@ -195,8 +227,12 @@ describe('open-right-stage-file (side pane, not fullscreen modal)', () => {
     expect(opened.path.replace(/\\/g, '/')).toBe('D:/ws/outputs/clip.mp4')
   })
 
-  it('relativePath wins over stale absolute path when re-basing', () => {
-    const opened = resolveFileLinkOpenPath(
+  it('absolute path wins; relativePath is only a fallback when path is missing', () => {
+    // path 优先：relativePath 可能是展示 label（zcode-ui 渲染层在 workspacePath
+    // 缺失时会把 label 填进来）或 workspace 外路径的裸 leaf，采信它会拼出
+    // root/<label>、root/<leaf> 这类错误路径。旧 root 的过期绝对路径改由
+    // WorkspaceFilePreviewPanel 读文件失败时的 heal 重试纠偏。
+    const kept = resolveFileLinkOpenPath(
       {
         path: 'D:/old-root/outputs/clip.mp4',
         relativePath: 'outputs/clip.mp4',
@@ -204,7 +240,13 @@ describe('open-right-stage-file (side pane, not fullscreen modal)', () => {
       },
       'D:/new-root',
     )
-    expect(opened.path.replace(/\\/g, '/')).toBe('D:/new-root/outputs/clip.mp4')
+    expect(kept.path.replace(/\\/g, '/')).toBe('D:/old-root/outputs/clip.mp4')
+
+    const rebased = resolveFileLinkOpenPath(
+      { relativePath: 'outputs/clip.mp4', workspacePath: 'D:/new-root' },
+      'D:/new-root',
+    )
+    expect(rebased.path.replace(/\\/g, '/')).toBe('D:/new-root/outputs/clip.mp4')
   })
 
   it('markdown relative cite opens under session workspace root', () => {

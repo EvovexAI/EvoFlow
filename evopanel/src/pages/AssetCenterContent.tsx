@@ -230,8 +230,8 @@ function entityLabel(ent: Entity | undefined): string {
 /** Merge Chinese display names from agents / proactive roles (same SoT as chat UI). */
 function enrichEntityLabels(
   list: Entity[],
-  agents: Array<{ agent_code?: string; agent_name?: string; name?: string }> | null | undefined,
-  roles: Array<{ agent_code?: string; role_name?: string; agent_name?: string }> | null | undefined,
+  agents: Array<{ agent_code?: string | null; agent_name?: string | null; name?: string | null }> | null | undefined,
+  roles: Array<{ agent_code?: string | null; role_name?: string | null; agent_name?: string | null }> | null | undefined,
 ): Entity[] {
   const hasCjk = (s: string) => /[\u4e00-\u9fff]/.test(s);
   const agentNames = new Map<string, string>();
@@ -1030,6 +1030,27 @@ export default function AssetCenterContent() {
     if (tab === "memory") setMemoryKind("facts");
   }
 
+  // 页面内切换实体 / Tab 时同步 hash：否则刷新、重新进入或从别处跳回时仍读旧实体，
+  // 会落到「我」并显示错误的头像与描述。用 replaceState 避免新增历史记录、也不触发 hashchange。
+  useEffect(() => {
+    const raw = String(window.location.hash || "");
+    if (!raw.startsWith("#/assets")) return;
+    const et = String(entityType || "").trim();
+    const eid = String(entityId || "").trim();
+    if (!et || !eid) return;
+    const q = parseHashQuery();
+    if (q.entityType === et && q.entityId === eid && String(q.tab || "") === activeTab) return;
+    const params = new URLSearchParams();
+    for (const [k, v] of Object.entries(q)) {
+      if (k === "entity" || k === "entityType" || k === "entityId" || k === "tab") continue;
+      params.set(k, v);
+    }
+    params.set("entityType", et);
+    params.set("entityId", eid);
+    params.set("tab", activeTab);
+    window.history.replaceState(null, "", `#/assets?${params.toString()}`);
+  }, [entityType, entityId, activeTab]);
+
   const openPath = useCallback(
     (relPath: string) => {
       const rel = normalizeDeepLinkPath(relPath);
@@ -1223,7 +1244,7 @@ export default function AssetCenterContent() {
                 entityType={entityType}
                 entityId={entityId}
                 entityName={entityLabel(
-                  entities.find((e) => e.entityType === entityType && e.entityId === entityId) || {
+                  entities.find((e) => sameEntity(e, { entityType, entityId })) || {
                     entityType,
                     entityId,
                   },
@@ -1238,9 +1259,10 @@ export default function AssetCenterContent() {
                       ) || {
                         agent_code: entityId,
                         agent_name: entityLabel(
-                          entities.find(
-                            (e) => e.entityType === entityType && e.entityId === entityId,
-                          ) || { entityType, entityId },
+                          entities.find((e) => sameEntity(e, { entityType, entityId })) || {
+                            entityType,
+                            entityId,
+                          },
                         ),
                       }
                 }
@@ -1390,7 +1412,7 @@ export default function AssetCenterContent() {
                 <div className="ac-affect-banner px-4 py-2 text-[12px] leading-snug opacity-70">
                   用户画像合并为一份文档（profile/USER.md），写入后下一轮对话自动注入。
                 </div>
-                <EditorPane
+                <EditorPanel
                   pathLabel="用户画像 · profile/USER.md"
                   content={profileContent}
                   readonly={false}
@@ -1515,7 +1537,7 @@ export default function AssetCenterContent() {
         <QuickFactModal
           entityType={entityType}
           entityId={entityId}
-          entityName={entityLabel(entities.find((e) => e.entityType === entityType && e.entityId === entityId))}
+          entityName={entityLabel(entities.find((e) => sameEntity(e, { entityType, entityId })))}
           onClose={() => setFactOpen(false)}
           onSaved={afterFactSaved}
         />
@@ -1575,7 +1597,7 @@ function AssetHeader({
   const userItem = groupedEntities.find((g) => g.key === "user")?.items?.[0];
   const employees = groupedEntities.find((g) => g.key === "employee")?.items ?? [];
   const hasEntity = groupedEntities.some((g) =>
-    g.items.some((e) => e.entityType === entityType && e.entityId === entityId),
+    g.items.some((e) => sameEntity(e, { entityType, entityId })),
   );
   const showHits = searchOpen && search.trim().length >= 2;
 

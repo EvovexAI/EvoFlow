@@ -515,11 +515,14 @@ function Push-GiteeLatestJson {
 }
 
 $pushFailures = @()
+$githubFailed = $false
+$giteeFailed = $false
 
 if (-not $SkipGithub) {
     try {
         Push-GithubLatestJson -JsonPath $draftPath -TagName $tagName -Headers $headers -Owner $owner -Repo $repo
     } catch {
+        $githubFailed = $true
         $pushFailures += "GitHub: $($_.Exception.Message)"
     }
 } else {
@@ -530,18 +533,23 @@ if (-not $SkipGitee) {
     try {
         Push-GiteeLatestJson -JsonPath $draftPath -TagName $tagName -GiteeOwner $giteeOwner -GiteeRepo $giteeRepo
     } catch {
+        $giteeFailed = $true
         $pushFailures += "Gitee: $($_.Exception.Message)"
     }
 } else {
     Write-Host "Skip Gitee push (-SkipGitee)" -ForegroundColor DarkGray
 }
 
-# A stale manifest looks like "no update available" on every client, and the
-# release job used to stay green while both pushes failed. Fail loudly instead.
-if ($pushFailures.Count -gt 0) {
-    Write-Host ("ERROR: latest.json was not refreshed on every public remote: " + ($pushFailures -join "; ")) -ForegroundColor Red
-    Write-Host "Clients would keep seeing the old version - fix credentials/conflicts and rerun." -ForegroundColor Red
+# GitHub is the build-owner manifest: a stale one means every client sees
+# "no update available", so fail hard. Gitee needs a token that CI does not
+# have; keep the job green but make the missing refresh impossible to miss.
+if ($githubFailed) {
+    Write-Host ("ERROR: GitHub latest.json was not refreshed: " + ($pushFailures -join "; ")) -ForegroundColor Red
     exit 1
+}
+if ($giteeFailed) {
+    Write-Host ("WARNING: Gitee latest.json was NOT refreshed (no Gitee credentials in CI). " + ($pushFailures -join "; ")) -ForegroundColor Yellow
+    Write-Host "Run this script locally with Gitee credentials before announcing the release." -ForegroundColor Yellow
 }
 Write-Host "Public update channel refreshed: $semVer" -ForegroundColor Green
 

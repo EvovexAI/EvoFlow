@@ -897,8 +897,21 @@ def evf_payload_to_agui_events(
         out.append({"type": RUN_ERROR, "message": msg, "code": "USER_INTERRUPT"})
         return out
     if t == "error":
-        msg = str(payload.get("error") or payload.get("reason") or t)
-        out.append({"type": RUN_ERROR, "message": msg, "code": "ERROR"})
+        # LangGraph SSE often sends ``error`` as a dict
+        # ``{error, message}`` — stringify the whole dict used to hide the
+        # real cause behind a Python repr and a generic UI toast.
+        err = payload.get("error")
+        code = "ERROR"
+        if isinstance(err, dict):
+            code = str(err.get("error") or err.get("code") or "ERROR").strip() or "ERROR"
+            msg = str(
+                err.get("message") or err.get("detail") or err.get("error") or err
+            ).strip()
+        else:
+            msg = str(err or payload.get("reason") or t).strip()
+        if not msg:
+            msg = code if code != "ERROR" else "run_error"
+        out.append({"type": RUN_ERROR, "message": msg, "code": code})
         return out
 
     if t == "run_end":

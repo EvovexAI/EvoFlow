@@ -514,11 +514,13 @@ def translate_agui_events(
                 )
             )
             # state.updated: control terminal; canStop=false
-            last_error = (
-                {"code": "run_error", "message": str(ev.get("message") or ""), "recoverable": False, "at": now_ms, "source": "runtime"}
-                if et == "RUN_ERROR"
-                else None
-            )
+            # Keep detail so composer ChatErrorBanner can copy/feedback the raw cause.
+            if et == "RUN_ERROR":
+                from app.gateway.v4.agui_mirror import _run_error_info
+
+                last_error = _run_error_info(ev, now_ms=now_ms)
+            else:
+                last_error = None
             out.append(
                 writer.emit_state_patch(
                     subscription_id,

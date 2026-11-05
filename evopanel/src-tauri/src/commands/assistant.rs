@@ -309,6 +309,107 @@ pub async fn assistant_read_file(path: String) -> Result<String, String> {
     }
 }
 
+#[derive(serde::Serialize)]
+pub struct PreviewFileStat {
+    pub total: i64,
+    pub mtime_ms: i64,
+    pub is_file: bool,
+}
+
+#[derive(serde::Serialize)]
+pub struct PreviewReadRange {
+    pub total: i64,
+    pub mtime_ms: i64,
+    pub data_base64: String,
+}
+
+/// 右栏预览本地读上限：超过即拒绝，由前端回落 HTTP serve-file 流式通道。
+const PREVIEW_LOCAL_READ_MAX_BYTES: i64 = 32 * 1024 * 1024;
+
+fn preview_mtime_ms(meta: &std::fs::Metadata) -> i64 {
+    meta.modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
+}
+
+/// 右栏预览专用 stat：进程内取大小 + mtime（预取缓存的陈旧校验用）。
+#[tauri::command]
+pub async fn preview_stat_file(path: String) -> Result<PreviewFileStat, String> {
+    audit_log("STAT", &path);
+    let meta = tokio::fs::metadata(&path)
+        .await
+        .map_err(|e| format!("stat 失败 {path}: {e}"))?;
+    Ok(PreviewFileStat {
+        total: meta.len() as i64,
+        mtime_ms: preview_mtime_ms(&meta),
+        is_file: meta.is_file(),
+    })
+}
+
+/// 右栏预览专用按 Range 读字节（base64 返回，二进制安全）。
+/// 对齐 ZCode 的进程内 fileService 通道：桌面端本地文件不过 HTTP；
+/// 失败/越上限一律 Err，由前端回落 serve-file。
+#[tauri::command]
+pub async fn preview_read_file_range(
+    path: String,
+    offset: Option<i64>,
+    length: Option<i64>,
+) -> Result<PreviewReadRange, String> {
+    audit_log("READ", &path);
+    use tokio::io::{AsyncReadExt, AsyncSeekExt};
+    let mut file = tokio::fs::File::open(&path)
+        .await
+        .map_err(|e| format!("读取文件失败 {path}: {e}"))?;
+    let meta = file
+        .metadata()
+        .await
+        .map_err(|e| format!("stat 失败 {path}: {e}"))?;
+    if !meta.is_file() {
+        return Err(format!("不是普通文件: {path}"));
+    }
+    let total = meta.len() as i64;
+    let mtime_ms = preview_mtime_ms(&meta);
+    let offset = offset.unwrap_or(0).max(0);
+    if offset > total {
+        return Err(format!("offset 越界 {path}: {offset} > {total}"));
+    }
+    // length 缺省 = 读到文件尾；无论哪种取法都不超过本地读上限，
+    // 整档超限直接拒绝，避免把 serve-file 的流式语义吞成一次性大读。
+    let remaining = total - offset;
+    let want = match length {
+        Some(n) if n >= 0 => n.min(PREVIEW_LOCAL_READ_MAX_BYTES),
+        _ => {
+            if remaining > PREVIEW_LOCAL_READ_MAX_BYTES {
+                return Err(format!("文件超过本地读取上限: {path}"));
+            }
+            remaining
+        }
+    };
+    file.seek(std::io::SeekFrom::Start(offset as u64))
+        .await
+        .map_err(|e| format!("seek 失败 {path}: {e}"))?;
+    let mut buf = vec![0u8; want as usize];
+    let mut read_total = 0usize;
+    while read_total < buf.len() {
+        let n = file
+            .read(&mut buf[read_total..])
+            .await
+            .map_err(|e| format!("读取失败 {path}: {e}"))?;
+        if n == 0 {
+            break;
+        }
+        read_total += n;
+    }
+    buf.truncate(read_total);
+    Ok(PreviewReadRange {
+        total,
+        mtime_ms,
+        data_base64: general_purpose::STANDARD.encode(&buf),
+    })
+}
+
 /// 写入文件
 #[tauri::command]
 pub async fn assistant_write_file(path: String, content: String) -> Result<String, String> {

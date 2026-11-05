@@ -23,8 +23,21 @@ const SOURCE_META = [
   { id: 'voice-backend', title: 'Voice backend', when: '语音播报后端' },
 ]
 
+// Keep in sync with backend admin/diagnostics.py — no bare \b504\b (hits ``.504`` ms stamps).
 const ANOMALY_RE =
-  /\b(?:ERROR|CRITICAL|FATAL|WARN(?:ING)?)\b|traceback|exception|\bpanic\b|econnrefused|\btimed?\s*out\b|\bfailed\b|\b(?:401|403|500|502|503|504)\b/i
+  /\b(?:ERROR|CRITICAL|FATAL|WARN(?:ING)?)\b|traceback|exception|\bpanic\b|econnrefused|\btimed?\s*out\b|\bfailed\b|HTTP\/1\.[01]"\s+(?:401|403|500|502|503|504)\b/i
+
+const LEVEL_TOKEN_RE =
+  /(?:^|\s)-\s*(DEBUG|INFO|WARNING|WARN|ERROR|CRITICAL|FATAL)\s*-|\[(DEBUG|INFO|WARNING|WARN|ERROR|CRITICAL|FATAL)\]|^(DEBUG|INFO|WARNING|WARN|ERROR|CRITICAL|FATAL):\s/i
+
+const NOISE_LINE_RE =
+  /\[ui_stream\]\s*run_end\s*正文为空|ASR近失|未匹配词表|['"]error['"]\s*:/i
+
+const UVICORN_ACCESS_RE =
+  /^INFO:\s+\S+\s+-\s+"[A-Z]+\s+.+\s+HTTP\/1\.[01]"\s+(\d{3})\b/i
+
+const HARD_FAILURE_RE =
+  /traceback|exception\b|\bpanic\b|econnrefused|\btimed?\s*out\b|\bfailed\b/i
 
 const esc = (s) =>
   !s
@@ -52,10 +65,44 @@ function q(sel) {
   return _pageEl ? _pageEl.querySelector(sel) : null
 }
 
+function explicitLevel(line) {
+  const m = String(line || '').match(LEVEL_TOKEN_RE)
+  if (!m) return null
+  const raw = String(m[1] || m[2] || m[3] || '').toUpperCase()
+  if (raw === 'WARNING') return 'WARN'
+  if (raw === 'FATAL') return 'CRITICAL'
+  return raw || null
+}
+
+function isNoiseAnomaly(line) {
+  const s = String(line || '')
+  if (!s.trim()) return true
+  if (NOISE_LINE_RE.test(s) && !HARD_FAILURE_RE.test(s)) return true
+  const access = s.trim().match(UVICORN_ACCESS_RE)
+  if (access) {
+    const code = Number(access[1])
+    if ([401, 403, 404, 502, 503, 504].includes(code)) return true
+  }
+  const lvl = explicitLevel(s)
+  if ((lvl === 'INFO' || lvl === 'DEBUG') && !HARD_FAILURE_RE.test(s)) return true
+  return false
+}
+
 function guessLevel(line) {
+  const explicit = explicitLevel(line)
+  if (explicit === 'CRITICAL' || explicit === 'ERROR' || explicit === 'WARN') return explicit
+  if (explicit === 'INFO' || explicit === 'DEBUG') {
+    const access = String(line || '')
+      .trim()
+      .match(UVICORN_ACCESS_RE)
+    if (access && Number(access[1]) >= 500) return 'WARN'
+    if (HARD_FAILURE_RE.test(line || '')) return 'ERROR'
+    return 'WARN'
+  }
   const u = String(line || '').toUpperCase()
   if (u.includes('CRITICAL') || u.includes('FATAL')) return 'CRITICAL'
-  if (u.includes('ERROR') || u.includes('TRACEBACK') || u.includes('EXCEPTION')) return 'ERROR'
+  if (/\bERROR\b/.test(u) && !/['"]error['"]\s*:/i.test(line || '')) return 'ERROR'
+  if (/traceback|exception\b/i.test(line || '')) return 'ERROR'
   if (/\bWARN(?:ING)?\b/.test(u)) return 'WARN'
   return 'ERROR'
 }
@@ -123,7 +170,9 @@ async function loadViaTauriFallback() {
     const hits = []
     for (const line of lines) {
       if (!ANOMALY_RE.test(line)) continue
+      if (isNoiseAnomaly(line)) continue
       const level = guessLevel(line)
+      if (level === 'INFO' || level === 'DEBUG') continue
       const summary = line.length > 180 ? `${line.slice(0, 177)}…` : line
       hits.push({
         ts: parseTs(line),

@@ -41,7 +41,8 @@ def test_build_dept_group_im_block_mentions_at_rule():
     assert "<dept_group_im" in block
     assert "研发部" in block
     assert "@角色名" in block
-    assert "叫醒" in block
+    assert "何时不要 @" in block or "不要再 @ 同事" in block
+    assert "打招呼" in block
     assert "纯文本" in block or "普通文字" in block
     assert "Markdown" in block
     # 提示词自身也不要用 Markdown 标题井号
@@ -60,6 +61,8 @@ def test_build_dept_group_im_steward_block():
     assert "研发部" in block
     assert "分流" in block or "接住" in block or "默认" in block
     assert "@角色名" in block
+    assert "何时 @" in block
+    assert "打招呼" in block
     assert "Markdown" in block
     assert "本群可点名：技术总监、测试工程师、全栈工程师" in block
     assert "【群近期】" in block

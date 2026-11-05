@@ -56,6 +56,7 @@ import { KindTabIcon } from './RightStageTabIcon.js'
 import { XiaomiStageAvatar } from './XiaomiStageAvatar.js'
 import { EmployeeStageAvatar } from './EmployeeStageAvatar.js'
 import { RightStageTabOverview } from './RightStageTabOverview.js'
+import { agentCodeFromShellPagePath } from '../../lib/right-stage/open-shell-page-stage.js'
 import {
   resolveStageTabsOverflow,
   resolveStageTabsOverflowEdges,
@@ -82,7 +83,7 @@ const FORCE_MOUNT_KINDS = new Set([
   'browser',
   'file',
   'terminal',
-  'summary',
+  // summary：chat 渲染面里恒返回 null（死载荷），失活不值得常驻——2026-11-05 收敛移除
   'write',
   'workspace-browse',
   'collab-workflow',
@@ -181,10 +182,21 @@ function StageTabChip({
   const empCode =
     kind === 'employeeProcess'
       ? String(tab.data?.agentCode || tab.data?.agent_code || '').trim()
-      : ''
+      : kind === 'shell-page'
+        ? String(tab.data?.agentCode || tab.data?.agent_code || '').trim() ||
+          agentCodeFromShellPagePath(
+            String(tab.data?.path || tab.data?.route || ''),
+          )
+        : ''
   const empTitle =
-    kind === 'employeeProcess'
-      ? String(tab.data?.roleName || tab.data?.title || title || '').trim()
+    kind === 'employeeProcess' || (kind === 'shell-page' && empCode)
+      ? String(
+          tab.data?.roleName ||
+            tab.data?.entityLabel ||
+            tab.data?.title ||
+            title ||
+            '',
+        ).trim()
       : ''
   const wasDraggingRef = useRef(false)
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
@@ -780,25 +792,45 @@ export const RightStagePanel = memo(function RightStagePanel({
                             ? String(draggingTab.data?.faviconUrl || '')
                             : ''
                         }
-                        agentCode={
-                          normalizeRightStageKind(draggingTab.kind) === 'employeeProcess'
-                            ? String(
+                        agentCode={(() => {
+                          const dk = normalizeRightStageKind(draggingTab.kind)
+                          if (dk === 'employeeProcess') {
+                            return (
+                              String(
                                 draggingTab.data?.agentCode ||
                                   draggingTab.data?.agent_code ||
                                   '',
                               ).trim() || undefined
-                            : undefined
-                        }
-                        agentTitle={
-                          normalizeRightStageKind(draggingTab.kind) === 'employeeProcess'
-                            ? String(
-                                draggingTab.data?.roleName ||
-                                  draggingTab.data?.title ||
-                                  tabTitleOf(draggingTab) ||
+                            )
+                          }
+                          if (dk === 'shell-page') {
+                            return (
+                              String(
+                                draggingTab.data?.agentCode ||
+                                  draggingTab.data?.agent_code ||
                                   '',
-                              ).trim() || undefined
-                            : undefined
-                        }
+                              ).trim() ||
+                              agentCodeFromShellPagePath(
+                                String(draggingTab.data?.path || draggingTab.data?.route || ''),
+                              ) ||
+                              undefined
+                            )
+                          }
+                          return undefined
+                        })()}
+                        agentTitle={(() => {
+                          const dk = normalizeRightStageKind(draggingTab.kind)
+                          if (dk !== 'employeeProcess' && dk !== 'shell-page') return undefined
+                          return (
+                            String(
+                              draggingTab.data?.roleName ||
+                                draggingTab.data?.entityLabel ||
+                                draggingTab.data?.title ||
+                                tabTitleOf(draggingTab) ||
+                                '',
+                            ).trim() || undefined
+                          )
+                        })()}
                       />
                     </span>
                     <span

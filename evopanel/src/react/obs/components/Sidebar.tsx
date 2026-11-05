@@ -5,6 +5,7 @@ const items: Array<{ key: NavKey; label: string; icon: string }> = [
   { key: 'requests', label: '调用记录', icon: '☷' },
   { key: 'channel-messages', label: '渠道消息', icon: '✉' },
   { key: 'channel-bindings', label: '渠道绑定', icon: '☍' },
+  { key: 'dept-group-chat', label: '部门群聊', icon: '☰' },
   { key: 'media-generation', label: '生图生视频', icon: '▤' },
   { key: 'agents', label: 'Agent', icon: '♙' },
   { key: 'models', label: '模型与厂商', icon: '◇' },

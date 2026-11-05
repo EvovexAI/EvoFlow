@@ -1049,7 +1049,21 @@ async function pollFeishuScan(page, configForm) {
       }
     }
   } catch (e) {
-    // Poll error — keep trying
+    // Gateway restart drops in-memory registration sessions → stop polling.
+    const msg = String(e?.message || e || '')
+    const status = Number(e?.status || 0)
+    const gone =
+      status === 404 ||
+      /session[_\s-]?not[_\s-]?found/i.test(msg) ||
+      /Session .+ not found/i.test(msg)
+    if (!gone) return
+    cancelFeishuScan()
+    const statusEl = document.getElementById('feishu-scan-status')
+    if (statusEl) {
+      statusEl.removeAttribute('hidden')
+      statusEl.textContent = '扫码会话已失效，请关闭后重新扫码'
+      statusEl.className = 'im-scan-status im-scan-status--error'
+    }
   }
 }
 

@@ -2245,27 +2245,30 @@ def apply_prompt_template(
         from evoflow.proactive.employee_prompting import assemble_employee_system_prompt
 
         skills_blob = "\n\n".join(p for p in (str(skills_section or "").strip(), str(mcp_skill_section or "").strip()) if p)
-        # Employee chat: global user profile once in <session> when it has real facts.
+        # Employee chat: same global user profile as main (profile/USER.md), same memory gate.
         # 锚定当前 principal 的个人桶（users/<pid>），与主会话/资产中心一致；
         # 不传会读到共享 user 桶（多用户部署下是别人的画像）。
+        # Memory off / inject_user_profile=false → no profile (matches MemoryLiveFooter).
         emp_user_profile = ""
-        try:
-            from evoflow.assets.paths import EntityRef, sanitize_user_asset_id
-            from evoflow.assets.profile_injection import build_user_profile_injection_block
+        _emp_profile_on = include_memory is not False and inject_user_profile is not False
+        if _emp_profile_on:
+            try:
+                from evoflow.assets.paths import EntityRef, sanitize_user_asset_id
+                from evoflow.assets.profile_injection import build_user_profile_injection_block
 
-            _emp_pid = str(principal_id or "").strip()
-            _emp_profile_ent = (
-                EntityRef("user", sanitize_user_asset_id(_emp_pid)).normalized()
-                if _emp_pid
-                else EntityRef("user", "user").normalized()
-            )
-            emp_user_profile = build_user_profile_injection_block(
-                prompt_language=lang,
-                scope="full",
-                entity=_emp_profile_ent,
-            ).strip()
-        except Exception:
-            emp_user_profile = ""
+                _emp_pid = str(principal_id or "").strip()
+                _emp_profile_ent = (
+                    EntityRef("user", sanitize_user_asset_id(_emp_pid)).normalized()
+                    if _emp_pid
+                    else EntityRef("user", "user").normalized()
+                )
+                emp_user_profile = build_user_profile_injection_block(
+                    prompt_language=lang,
+                    scope="full",
+                    entity=_emp_profile_ent,
+                ).strip()
+            except Exception:
+                emp_user_profile = ""
         emp_person_memory = person_memory_context
         if include_memory is not False and not str(emp_person_memory or "").strip():
             try:

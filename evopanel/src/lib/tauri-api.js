@@ -3241,7 +3241,11 @@ export const api = {
 
   // 飞书扫码注册（免填 App ID / App Secret）
   beginFeishuRegistration: async () => gatewayProxy('POST', '/channels/feishu/registration/begin'),
-  pollFeishuRegistration: async (sessionId) => gatewayProxy('GET', `/channels/feishu/registration/${sessionId}/poll`),
+  pollFeishuRegistration: async (sessionId) =>
+    gatewayProxy('GET', `/channels/feishu/registration/${sessionId}/poll`, null, null, {
+      silent: true,
+      skipRetry: true,
+    }),
   applyFeishuRegistration: async (sessionId, enabled = true) => gatewayProxy('POST', `/channels/feishu/registration/${sessionId}/apply`, { enabled }),
 
   // 智能体员工 · 飞书 PersonalAgent 绑定（复用 begin/poll，apply 写入岗位）
@@ -3268,13 +3272,25 @@ export const api = {
 
   // 微信 iLink 扫码绑定（与飞书注册流程一致：begin → poll → apply）
   beginWeixinRegistration: async () => gatewayProxy('POST', '/channels/weixin/registration/begin'),
-  pollWeixinRegistration: async (sessionId) => gatewayProxy('GET', `/channels/weixin/registration/${sessionId}/poll`),
+  pollWeixinRegistration: async (sessionId) =>
+    gatewayProxy('GET', `/channels/weixin/registration/${sessionId}/poll`, null, null, {
+      silent: true,
+      skipRetry: true,
+    }),
   applyWeixinRegistration: async (sessionId, enabled = true) => gatewayProxy('POST', `/channels/weixin/registration/${sessionId}/apply`, { enabled }),
   beginWecomRegistration: async () => gatewayProxy('POST', '/channels/wecom/registration/begin'),
-  pollWecomRegistration: async (sessionId) => gatewayProxy('GET', `/channels/wecom/registration/${sessionId}/poll`),
+  pollWecomRegistration: async (sessionId) =>
+    gatewayProxy('GET', `/channels/wecom/registration/${sessionId}/poll`, null, null, {
+      silent: true,
+      skipRetry: true,
+    }),
   applyWecomRegistration: async (sessionId, enabled = true) => gatewayProxy('POST', `/channels/wecom/registration/${sessionId}/apply`, { enabled }),
   beginDingtalkRegistration: async () => gatewayProxy('POST', '/channels/dingtalk/registration/begin'),
-  pollDingtalkRegistration: async (sessionId) => gatewayProxy('GET', `/channels/dingtalk/registration/${sessionId}/poll`),
+  pollDingtalkRegistration: async (sessionId) =>
+    gatewayProxy('GET', `/channels/dingtalk/registration/${sessionId}/poll`, null, null, {
+      silent: true,
+      skipRetry: true,
+    }),
   applyDingtalkRegistration: async (sessionId, enabled = true) => gatewayProxy('POST', `/channels/dingtalk/registration/${sessionId}/apply`, { enabled }),
 
   // 传统技能接口（保持兼容）

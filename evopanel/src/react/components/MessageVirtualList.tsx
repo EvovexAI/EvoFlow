@@ -2408,7 +2408,10 @@ export const MessageVirtualList = memo(function MessageVirtualList({
     return attachScrollbarReveal(el, 'react-vlist-scroller--sb-show')
   }, [hasContent, historyLoading, viewReady])
 
-  if (!hasContent) {
+  // 工作台首页：即使 rows 被误灌，也优先挂指挥台（无 sessionKey 的首页壳）。
+  // 小V 侧栏对话曾把主栏 rows 填满，把仪表盘挤成「已工作」碎片。
+  const forceHomeShell = showHomeDashboard && !String(sessionKey || '').trim()
+  if (!hasContent || forceHomeShell) {
     // 工作台意图优先于 historyLoading skeleton，否则「打开工作台」会先闪空白/骨架再出仪表盘
     if (showHomeDashboard) {
       return (

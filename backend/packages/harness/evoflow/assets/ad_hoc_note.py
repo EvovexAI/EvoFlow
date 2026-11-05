@@ -214,22 +214,35 @@ def format_live_pending_inbox_for_agent(
     )
 
 
+def _inbox_note_title_label(filename: str, body: str) -> str:
+    """Short label from leading tag line / first sentence — never the full body."""
+    for ln in str(body or "").splitlines():
+        s = ln.strip()
+        if not s:
+            continue
+        # Prefer ``[process] …`` / ``[experience] …`` first line as the human title.
+        if len(s) > 120:
+            s = s[:119].rstrip() + "…"
+        return s
+    stem = str(filename or "").removesuffix(".md").removesuffix(".markdown")
+    return stem.replace("-", " ")
+
+
 def format_pending_inbox_notes_for_prompt(
     entity: EntityRef,
     *,
     limit: int = 6,
     max_chars: int = 0,
 ) -> str:
-    """Inject pending ``_inbox/notes`` until Phase2 consolidates them into standing/craft.
+    """Inject pending ``_inbox/notes`` as **filename + short title only**.
+
+    Bodies stay on disk; the model must ``assets read`` a filename for detail.
+    (Same contract as Asset Hub turn-tail recall — titles remind, files hold truth.)
 
     Must be applied **live each turn** (not frozen with standing): otherwise a note
     written mid-chat stays invisible until freeze invalidation / new session.
 
-    Default ``max_chars=0`` keeps each note body intact (ops/debug + model see the
-    full draft). Pass a positive ``max_chars`` only when a caller needs a hard budget.
-
-    每条 note 单独过 prompt-injection 扫描器：note 正文是不可信内容（对话里
-    可以种），一条中毒只屏蔽那一条，不拖累整块。
+    ``max_chars`` caps the whole block when > 0; default is generous for title rows.
     """
     from evoflow.assets.catalog import parse_frontmatter
     from evoflow.assets.paths import entity_root
@@ -247,7 +260,7 @@ def format_pending_inbox_notes_for_prompt(
 
     lines: list[str] = []
     used = 0
-    budget = int(max_chars or 0)
+    budget = int(max_chars or 0) or 1200
     for path in files:
         try:
             raw = path.read_text(encoding="utf-8", errors="replace")
@@ -255,14 +268,12 @@ def format_pending_inbox_notes_for_prompt(
             continue
         meta, body = parse_frontmatter(raw)
         created = str(meta.get("created") or "").strip() or "?"
-        body = str(body or "").strip()
-        # Keep full note body (whitespace-collapsed to one line for the catalog row).
-        preview_lines = [ln.strip() for ln in body.splitlines() if ln.strip()]
-        preview = " ".join(preview_lines)
-        if not preview:
+        title = _inbox_note_title_label(path.name, str(body or ""))
+        if not title:
             continue
-        line = f"- [{created}|{path.name}] {preview}"
-        if budget > 0 and used + len(line) > budget:
+        # Filename is the durable handle; title is a one-line hint (not the note body).
+        line = f"- `{path.name}` · [{created}] {title}"
+        if used + len(line) > budget and lines:
             lines.append("- …(pending inbox truncated)")
             break
         lines.append(line)
@@ -270,16 +281,15 @@ def format_pending_inbox_notes_for_prompt(
     if not lines:
         return ""
     try:
-        # note 正文不可信：逐条扫描（整块扫描会被单条中毒笔记整块屏蔽）。
+        # Titles are still model-visible; scan per row (one poison line ≠ whole block).
         from evoflow.agents.content_scanner import scan_memory_entries
 
         lines = scan_memory_entries(lines, source="pending_inbox_notes")
     except Exception:
         pass
-    # Paired XML like other prompt regions — not a bare HTML comment tail.
     return (
         "<pending_inbox>\n"
-        "<!-- injected until Phase2 consolidates -->\n"
+        "<!-- filenames only until Phase2; details → assets read -->\n"
         + "\n".join(lines)
         + "\n</pending_inbox>"
     )

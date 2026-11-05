@@ -31,6 +31,10 @@ import {
   logChatTurnFirstResponse,
   logChatTurnRunStarted,
 } from '../../lib/chat-turn-timing-log.js'
+import {
+  isChatWsEventBackground,
+  readXiaomiAssistantSessionKey,
+} from '../../lib/chat-ws-foreground.js'
 
 export type ChatWsOnEventCtx = Record<string, any>
 
@@ -728,9 +732,14 @@ export function createChatWsOnEventHandler(ctx: ChatWsOnEventCtx) {
       const uiSk = String(sessionRef.current || selectedSessionKey || '').trim()
       const { state } = payload
       const runId = payload.runId
-      // 仅当「当前 UI 会话」已确定且与 eventSk 不同时视为后台；activeSk 为空时不误判为后台，
-      // 否则新建会话首轮流式 final 只写 rt.rows 不 setRows，清 stream 后气泡变空。
-      const isBackground = !!(eventSk && uiSk && eventSk !== uiSk)
+      // 主栏已选中且 key 不同 → 后台；小V 会话在主栏未选中时也强制后台
+      // （工作台空选中时旧逻辑会把小V 流当前台灌 rows，指挥台被「已工作」顶掉）。
+      // 新建会话首轮：uiSk 仍空且 eventSk 不是小V → 仍当前台，避免 final 只写 rt 不 setRows。
+      const isBackground = isChatWsEventBackground({
+        eventSk,
+        uiSk,
+        xiaomiSk: readXiaomiAssistantSessionKey(),
+      })
       if (isBackground) {
         if (state === 'final' || state === 'error' || state === 'aborted') {
           void syncSessionRowRef.current?.(eventSk)
@@ -3738,7 +3747,8 @@ export function createChatWsOnEventHandler(ctx: ChatWsOnEventCtx) {
           hasEndMarker: false,
           detail: {
             errMsg: errMsg.slice(0, 200),
-            rawErr: rawErr.slice(0, 200),
+            // Keep enough raw text for feedback; banner 「复制」走 V4 lastError.detail。
+            rawErr: rawErr.slice(0, 1200),
             hasVisibleContent: streamTurnHasVisibleContent(S.turn),
             turnPhase: rt.turnPhase,
             isBackground,

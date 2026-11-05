@@ -438,6 +438,10 @@ export class RightStageStore {
     if (wasActive) {
       this.activeKey = this.tabs.length ? this.tabKeyOf(this.tabs[this.tabs.length - 1]) : null
     }
+    // 关到最后一个标签：整栏收起，不要落回「打开标签」启动页
+    if (!this.tabs.length && !this.collapsed) {
+      this.collapsed = true
+    }
     this.bump()
   }
 

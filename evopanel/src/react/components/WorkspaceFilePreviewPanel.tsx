@@ -69,7 +69,18 @@ export function WorkspaceFilePreviewPanel({
 }: WorkspaceFilePreviewPanelProps) {
   const root = String(workspaceRoot || '').trim()
   const tid = String(threadId || '').trim()
-  const path = normalizeWorkspaceReadPath(resolveWritePreviewPath(rawPath) || rawPath, root)
+  const normalizedPath = normalizeWorkspaceReadPath(
+    resolveWritePreviewPath(rawPath) || rawPath,
+    root,
+  )
+  // 读文件 404 后 heal 纠偏到磁盘真实路径时改写本 state，触发整表按新路径重读
+  const [healedPath, setHealedPath] = useState<string | null>(null)
+  const healAttemptedRef = useRef(false)
+  useEffect(() => {
+    setHealedPath(null)
+    healAttemptedRef.current = false
+  }, [normalizedPath, root, tid])
+  const path = healedPath || normalizedPath
   const name = displayName || basename(path)
   // 父组件常内联传 workspaceScopeOpts；用原始字段做依赖，避免会话轮询重渲染时反复 read-file
   const configuredRoot = workspaceScopeOpts?.configuredRoot
@@ -203,6 +214,27 @@ export function WorkspaceFilePreviewPanel({
       } catch (e) {
         if (ticketRef.current !== ticket) return
         const msg = String((e as Error)?.message || e || '无法读取文件')
+        // 对话里的半路径（漏掉 projects/<ep>/outputs/ 等）首次读取必失败：
+        // 先按 leaf 名把路径纠到磁盘真实位置再重读一次，仍失败才落错误文案。
+        if (!healAttemptedRef.current && /file not found/i.test(msg) && root) {
+          healAttemptedRef.current = true
+          try {
+            const { healWorkspaceOpenPath } = await import(
+              '../../lib/right-stage/heal-workspace-open-path.js'
+            )
+            const healed = await healWorkspaceOpenPath(path, {
+              workspaceRoot: root,
+              threadId: tid || undefined,
+            })
+            const healedNorm = String(healed || '').replace(/\\/g, '/').trim()
+            if (healedNorm && healedNorm !== path) {
+              setHealedPath(healedNorm)
+              return
+            }
+          } catch {
+            /* heal 失败按原错误展示 */
+          }
+        }
         const errText = formatWorkspaceReadError(msg, path)
         const prev = previewRef.current
         const unchanged = !!(silent && prev.error === errText && prev.path === path)

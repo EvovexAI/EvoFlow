@@ -55,9 +55,31 @@ function buildMentionLabels(members: DeptMentionMember[]): LabelHit[] {
   return out
 }
 
+/** @ 与角色名之间允许空格/换行（微信常见「@ 全栈」或 @ 后换行） */
+function matchMentionAt(
+  raw: string,
+  atIndex: number,
+  labels: LabelHit[],
+  skipCodes?: Set<string>,
+): { hit: LabelHit; consumed: number } | null {
+  if (raw[atIndex] !== '@') return null
+  const afterAt = raw.slice(atIndex + 1)
+  const ws = afterAt.match(/^[\s\u00a0]*/)?.[0] || ''
+  const rest = afterAt.slice(ws.length)
+  if (!rest) return null
+  for (const row of labels) {
+    if (skipCodes?.has(row.person.agent_code)) continue
+    if (rest.toLowerCase().startsWith(row.label.toLowerCase())) {
+      // 1(@) + 空白 + 角色名
+      return { hit: row, consumed: 1 + ws.length + row.label.length }
+    }
+  }
+  return null
+}
+
 /**
  * 扫描正文里所有 @：对每个 @ 取花名册/别名中能匹配的最长前缀。
- * 不要求 @名 后必须有空格（中文常见「@全栈工程师先看下」）。
+ * 允许「@名」「@ 名」、@ 后换行；不要求名后必须有空格。
  */
 export function parseMentions<T extends DeptMentionMember>(text: string, members: T[]): T[] {
   const raw = String(text || '')
@@ -68,21 +90,13 @@ export function parseMentions<T extends DeptMentionMember>(text: string, members
 
   for (let i = 0; i < raw.length; i++) {
     if (raw[i] !== '@') continue
-    const rest = raw.slice(i + 1)
-    let best: LabelHit | null = null
-    for (const row of labels) {
-      if (seen.has(row.person.agent_code)) continue
-      if (rest.toLowerCase().startsWith(row.label.toLowerCase())) {
-        best = row
-        break // labels 已按长度降序
-      }
-    }
-    if (!best) continue
-    const person = members.find((m) => m.agent_code === best!.person.agent_code)
+    const matched = matchMentionAt(raw, i, labels, seen)
+    if (!matched) continue
+    const person = members.find((m) => m.agent_code === matched.hit.person.agent_code)
     if (!person) continue
     hits.push(person)
     seen.add(person.agent_code)
-    i += best.label.length // for 循环还会 +1，跳过已匹配名
+    i += matched.consumed - 1 // for 还会 +1
   }
   return hits
 }
@@ -90,15 +104,18 @@ export function parseMentions<T extends DeptMentionMember>(text: string, members
 /** 正文里是否像有 @点名，但花名册一个都没解析到（改名后常见） */
 export function hasUnresolvedAtMentions(text: string, members: DeptMentionMember[]): boolean {
   const raw = String(text || '')
-  if (!/@[\u4e00-\u9fffA-Za-z]/.test(raw)) return false
+  if (!/@\s*[\u4e00-\u9fffA-Za-z]/.test(raw)) return false
   return parseMentions(raw, members).length === 0
 }
 
 export function extractMentionGoal(text: string, person: DeptMentionMember): string {
   const labels = buildMentionLabels([person]).map((x) => x.label)
-  // 也试角色名/code 本身
+  // 也试角色名/code 本身；@ 后允许空白
   for (const p of [...labels, person.role_name, person.agent_code].filter(Boolean)) {
-    const re = new RegExp(`@${escapeReg(String(p))}\\s*([\\s\\S]*?)(?=@[\\u4e00-\\u9fffA-Za-z]|$)`, 'i')
+    const re = new RegExp(
+      `@\\s*${escapeReg(String(p))}\\s*([\\s\\S]*?)(?=@\\s*[\\u4e00-\\u9fffA-Za-z]|$)`,
+      'i',
+    )
     const m = String(text || '').match(re)
     const chunk = String(m?.[1] || '').trim()
     if (chunk) return chunk
@@ -113,7 +130,7 @@ export function stripLeadingMentions(text: string, members: DeptMentionMember[])
   while (guard++ < 12) {
     let hit = false
     for (const { label } of labels) {
-      const re = new RegExp(`^\\s*@${escapeReg(label)}\\s*`, 'i')
+      const re = new RegExp(`^\\s*@\\s*${escapeReg(label)}\\s*`, 'i')
       if (re.test(out)) {
         out = out.replace(re, '')
         hit = true
@@ -139,21 +156,14 @@ export function findMentionSpans(
   for (let i = 0; i < raw.length; i++) {
     if (raw[i] !== '@') continue
     if (seenAt.has(i)) continue
-    const rest = raw.slice(i + 1)
-    let best: LabelHit | null = null
-    for (const row of labels) {
-      if (rest.toLowerCase().startsWith(row.label.toLowerCase())) {
-        best = row
-        break
-      }
-    }
-    if (!best) continue
-    const end = i + 1 + best.label.length
+    const matched = matchMentionAt(raw, i, labels)
+    if (!matched) continue
+    const end = i + matched.consumed
     spans.push({
       start: i,
       end,
       token: raw.slice(i, end),
-      person: best.person,
+      person: matched.hit.person,
     })
     seenAt.add(i)
     i = end - 1

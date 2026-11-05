@@ -2,14 +2,21 @@
 
 Replaces the old Obsidian vault MCP ``knowledge`` tool. Provides a consistent interface
 (search / read / list) against ``owned_service``.
+
+Access control (agent-facing)::
+
+    - ``main`` / 小V (``xiaomi``): platform admins — may list / search / read all KBs.
+    - Ordinary employees: only ``knowledge_vault_ids`` bound to that agent.
+      Empty binding → empty list / denied search / denied read.
+    - Missing agent context fails closed (no full-catalog access).
 """
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
-from langchain.tools import tool
+from langchain.tools import ToolRuntime, tool
+from langgraph.typing import ContextT
 
 from evoflow.knowledge.owned import service as owned_service
 
@@ -53,31 +60,127 @@ def _format_doc(doc: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _agent_code_from_runtime(runtime: ToolRuntime[ContextT, dict] | None) -> str:
+    if runtime is None:
+        return ""
+    ctx = getattr(runtime, "context", None) or {}
+    if isinstance(ctx, dict):
+        for key in ("agent_name", "agent_id", "proactive_agent_code", "agent_code"):
+            v = str(ctx.get(key) or "").strip()
+            if v:
+                return v
+    cfg = getattr(runtime, "config", None) or {}
+    if isinstance(cfg, dict):
+        conf = cfg.get("configurable") if isinstance(cfg.get("configurable"), dict) else {}
+        for key in ("agent_name", "agent_id", "proactive_agent_code", "agent_code"):
+            v = str(conf.get(key) or "").strip()
+            if v:
+                return v
+    return ""
+
+
+def _is_platform_kb_admin(agent_code: str | None) -> bool:
+    """主智能体 / 小V — only these may see the full KB catalog via the tool."""
+    code = str(agent_code or "").strip()
+    if not code:
+        return False
+    low = code.lower()
+    if low in {"main", "lead_agent"}:
+        return True
+    try:
+        from evoflow.agents.xiaomi.identity import is_xiaomi_agent
+
+        return bool(is_xiaomi_agent(code))
+    except Exception:
+        return low in {"xiaomi", "小v", "小蜜", "xiaov"}
+
+
+def _resolve_bound_kb_id(vault_or_kb_id: str) -> str | None:
+    """Map a bound vault alias / KB id to a concrete ``kb_bases.id``."""
+    vid = str(vault_or_kb_id or "").strip()
+    if not vid:
+        return None
+    try:
+        base = owned_service.get_base(vid)
+        if base is not None and base.get("id"):
+            return str(base["id"])
+    except Exception:
+        pass
+    try:
+        from evoflow.knowledge.owned.db import db as _own_db
+
+        with _own_db() as conn:
+            row = conn.execute(
+                "SELECT id FROM kb_bases WHERE sync_vault_id=? AND deleted_at IS NULL LIMIT 1",
+                (vid,),
+            ).fetchone()
+            if row and row["id"]:
+                return str(row["id"])
+    except Exception:
+        pass
+    return None
+
+
+def resolve_knowledge_tool_scope(agent_code: str | None) -> tuple[bool, list[str]]:
+    """Return ``(is_admin, allowed_kb_ids)``.
+
+    ``is_admin=True`` → unrestricted (main / 小V).
+    Otherwise ``allowed_kb_ids`` is the concrete owned-KB id allowlist (may be empty).
+    """
+    if _is_platform_kb_admin(agent_code):
+        return True, []
+    from evoflow.config.agents_config import get_agent_kb_vault_ids
+
+    seen: set[str] = set()
+    out: list[str] = []
+    for vid in get_agent_kb_vault_ids(agent_code):
+        kid = _resolve_bound_kb_id(vid)
+        if kid and kid not in seen:
+            seen.add(kid)
+            out.append(kid)
+    return False, out
+
+
+def _kb_allowed(kb_id: str, *, is_admin: bool, allowed: list[str]) -> bool:
+    if is_admin:
+        return True
+    kid = str(kb_id or "").strip()
+    if not kid:
+        return False
+    if kid in allowed:
+        return True
+    # Caller may pass a sync_vault_id alias — resolve then re-check.
+    resolved = _resolve_bound_kb_id(kid)
+    return bool(resolved and resolved in allowed)
+
+
 # ---------------------------------------------------------------------------
 # Tool
 # ---------------------------------------------------------------------------
 
-_TOOL_DESCRIPTION = """**自研知识库**：在您的个人/团队知识库中搜索、阅读与列出文档。
+_TOOL_DESCRIPTION = """**自研知识库**：在您有权限的知识库中搜索、阅读与列出文档。
 
 **action=search** — 检索知识库（推荐默认操作）
 - 搜索已索引的文档（关键词 + 向量混合检索）
-- 知识库：留空自动搜索所有可见知识库；也可指定具体 KB ID
+- 知识库：留空仅搜索本岗绑定的知识库；也可指定具体 KB ID（须在权限范围内）
 - 模式：hybrid（默认，兼顾关键词与语义）/ keyword / semantic
 - topK：返回条数，默认 8
 
 **action=read** — 读取文档正文
 - docId 必填
-- 返回正文、标签、摘要等信息
+- 仅可读取权限范围内知识库的文档
 
 **action=list** — 列出可用的知识库
-- 返回所有可见知识库名称与描述，便于后续指定 KB 检索
+- 普通员工：仅本岗绑定的知识库
+- 主智能体 / 小V：可见全部知识库
 
 **注意**：写入/导入需在面板「知识库」页面操作，不在此工具范围内。
 """
 
 
-@tool("knowledge", args_schema=None, parse_docstring=False)
+@tool("knowledge", description=_TOOL_DESCRIPTION, parse_docstring=False)
 async def knowledge_tool(
+    runtime: ToolRuntime[ContextT, dict],
     action: str = "search",
     *,
     query: str = "",
@@ -86,17 +189,19 @@ async def knowledge_tool(
     mode: str = "hybrid",
     top_k: int = 8,
 ) -> str:
-    """自研知识库 — 搜索 / 阅读 / 列出知识库。
+    """自研知识库 — 搜索 / 阅读 / 列出知识库（按员工绑定范围隔离）。
 
 Args:
     action: 操作类型。search（默认）| read | list
     query: 搜索关键词（search 模式必填）
     doc_id: 文档 ID（read 模式必填）
-    knowledge_base: 知识库 ID，留空自动搜索所有（search 模式）
+    knowledge_base: 知识库 ID，留空仅搜本岗绑定库（search 模式）
     mode: 检索模式。hybrid（默认）| keyword | semantic | title
     top_k: 返回条数，默认 8，上限 20
 """
     action = (action or "search").strip().lower()
+    agent_code = _agent_code_from_runtime(runtime)
+    is_admin, allowed = resolve_knowledge_tool_scope(agent_code)
 
     # ── list ──────────────────────────────────────────────────────────────
     if action == "list":
@@ -105,10 +210,19 @@ Args:
         except Exception as exc:
             return f"列出知识库失败: {exc}"
 
-        if not bases:
-            return "当前没有可用的知识库。请在「知识库」页面创建一个知识库并导入文档。"
+        if not is_admin:
+            allow_set = set(allowed)
+            bases = [b for b in bases if str(b.get("id") or "") in allow_set]
 
-        lines = [f"共 {len(bases)} 个知识库：\n"]
+        if not bases:
+            if is_admin:
+                return "当前没有可用的知识库。请在「知识库」页面创建一个知识库并导入文档。"
+            return (
+                "当前岗位未绑定任何知识库，无法列出。"
+                "请管理员在员工能力里绑定 knowledge_vault_ids，或改用主智能体 / 小V。"
+            )
+
+        lines = [f"共 {len(bases)} 个知识库（{'平台全量' if is_admin else '本岗已绑定'}）：\n"]
         for b in bases:
             lines.append(
                 f"  • [{b['id']}] {b.get('name') or '未命名'}"
@@ -127,6 +241,12 @@ Args:
         if not q:
             return "action=search 需要提供 query 参数（搜索关键词）。"
 
+        if not is_admin and not allowed:
+            return (
+                "当前岗位未绑定知识库，无法检索。"
+                "请管理员绑定 knowledge_vault_ids，或改用主智能体 / 小V。"
+            )
+
         top_k = max(1, min(int(top_k or 8), 20))
         mode = (mode or "hybrid").lower()
         if mode not in {"hybrid", "keyword", "semantic", "title"}:
@@ -136,21 +256,25 @@ Args:
 
         try:
             if kb_id:
+                if not _kb_allowed(kb_id, is_admin=is_admin, allowed=allowed):
+                    return f"无权访问知识库 `{kb_id}`（不在本岗绑定范围内）。"
+                resolved = _resolve_bound_kb_id(kb_id) or kb_id
                 result = await owned_service.search(
-                    kb_id,
+                    resolved,
                     q,
                     mode=mode,
                     top_k=top_k,
                 )
-                base = owned_service.get_base(kb_id)
-                scope_label = f"知识库「{base.get('name') or kb_id}」"
+                base = owned_service.get_base(resolved)
+                scope_label = f"知识库「{(base or {}).get('name') or resolved}」"
             else:
                 result = await owned_service.search_all(
                     q,
                     mode=mode,
                     top_k=top_k,
+                    kb_ids=None if is_admin else allowed,
                 )
-                scope_label = "所有知识库"
+                scope_label = "平台全部知识库" if is_admin else f"本岗绑定的 {len(allowed)} 个知识库"
         except ValueError as exc:
             return f"搜索失败: {exc}"
         except Exception as exc:
@@ -162,7 +286,7 @@ Args:
         if not items:
             hints = [
                 "没有找到相关结果。",
-                f"提示: 知识库可能尚未完成索引（向量模型未就绪时自动降级为关键词检索）。",
+                "提示: 知识库可能尚未完成索引（向量模型未就绪时自动降级为关键词检索）。",
                 "可在知识库详情页检查文档状态；PDF/Office 文档需先解析完成才能被检索。",
             ]
             if degraded:
@@ -182,13 +306,29 @@ Args:
         if not did:
             return "action=read 需要提供 doc_id 参数（文档 ID）。"
 
+        if not is_admin and not allowed:
+            return (
+                "当前岗位未绑定知识库，无法读取文档。"
+                "请管理员绑定 knowledge_vault_ids，或改用主智能体 / 小V。"
+            )
+
         try:
+            owner_kb = owned_service._kb_id_for_doc(did)  # noqa: SLF001 — shared registry lookup
+            if owner_kb and not _kb_allowed(owner_kb, is_admin=is_admin, allowed=allowed):
+                return f"无权读取文档 doc_id={did}（所属知识库不在本岗绑定范围内）。"
             content = owned_service.get_document_content(did)
         except Exception as exc:
             return f"读取文档失败: {exc}"
 
         if not content:
             return f"未找到文档 doc_id={did}，或文档已被删除。"
+
+        # Defense in depth: content may surface kb id under several keys.
+        content_kb = str(
+            content.get("kbId") or content.get("kb_id") or content.get("datasetId") or owner_kb or ""
+        ).strip()
+        if content_kb and not _kb_allowed(content_kb, is_admin=is_admin, allowed=allowed):
+            return f"无权读取文档 doc_id={did}（所属知识库不在本岗绑定范围内）。"
 
         title = content.get("title") or content.get("fileName") or did
         lines = [

@@ -54,10 +54,8 @@ import { AssignedAgentAvatar } from './AssignedAgentAvatar.js'
 import {
   ShellChevronIcon,
   ShellFolderPlusIcon,
-  ShellPlusIcon,
   ShellRefreshIcon,
   ShellWorkspaceIcon,
-  ShellFilterIcon,
   ShellHashIcon,
   ShellFolderIcon,
   ShellEmployeesIcon,
@@ -314,7 +312,6 @@ export function ShellSessionList({
   const onRefreshEmployeeRolesRef = useRef(onRefreshEmployeeRoles)
   onRefreshEmployeeRolesRef.current = onRefreshEmployeeRoles
   const [titleEditKey, setTitleEditKey] = useState('')
-  const [filterOpen, setFilterOpen] = useState(false)
   /** 点击「刷新会话列表」按钮后的刷新中状态（列表未变化时给可见反馈） */
   const [refreshing, setRefreshing] = useState(false)
   const [wsMenuOpen, setWsMenuOpen] = useState(false)
@@ -367,7 +364,6 @@ export function ShellSessionList({
     loadExpandedWorkspaceKeys(),
   )
   const listRef = useRef<HTMLUListElement>(null)
-  const filterInputRef = useRef<HTMLInputElement>(null)
   const wsMenuRef = useRef<HTMLDivElement>(null)
   const empMenuRef = useRef<HTMLDivElement>(null)
   const deptMenuRef = useRef<HTMLDivElement>(null)
@@ -506,8 +502,13 @@ export function ShellSessionList({
     }
   }, [isEmployeesTab, employeeRoles])
 
+  const onRefreshSessionListRef = useRef(onRefreshSessionList)
+  onRefreshSessionListRef.current = onRefreshSessionList
+
   useEffect(() => {
     const onEmployeesUpdated = () => {
+      // 加人/删人后：会话列表 + 花名册一起刷新（父级 useProactiveRoles 也会听同事件）
+      void Promise.resolve(onRefreshSessionListRef.current?.()).catch(() => {})
       if (!isEmployeesTab) return
       if (Array.isArray(employeeRoles) && employeeRoles.length > 0) return
       void import('../../lib/tauri-api.js')
@@ -851,16 +852,6 @@ export function ShellSessionList({
     },
     [rows],
   )
-
-  useEffect(() => {
-    if (!filterOpen) return
-    const t = window.setTimeout(() => filterInputRef.current?.focus(), 0)
-    return () => window.clearTimeout(t)
-  }, [filterOpen])
-
-  useEffect(() => {
-    if (sessionFilter) setFilterOpen(true)
-  }, [sessionFilter])
 
   const triggerLoadMore = useCallback(
     (workspaceKey: string) => {
@@ -1346,16 +1337,6 @@ export function ShellSessionList({
     registeredWorkspacePaths,
   ])
 
-  const newSessionHint = isEmployeesTab
-    ? focusedEmployeeCode
-      ? `在「${employeeFilterLabel}」下新开对话`
-      : '先选择员工，再新开对话'
-    : focusedGroup
-      ? focusedGroup.workspaceKey === WORKSPACE_GROUP_UNBOUND
-        ? '在「默认」工作空间新建对话'
-        : `在「${focusedGroup.label}」工作空间新建对话`
-      : '新建对话（当前未筛选空间，将跟随现有上下文）'
-
   return (
     <>
       <div className="react-chat-aside-history">
@@ -1395,24 +1376,8 @@ export function ShellSessionList({
             </button>
           </div>
 
-          {/* 操作按钮 */}
+          {/* 操作按钮：顶栏筛选/+ 暂隐，只留刷新，避免 tabs 挤成一团 */}
           <div className="shell-view-actions">
-            <button
-              type="button"
-              className={`shell-view-action-btn${filterOpen ? ' is-active' : ''}`}
-              title="筛选和排序"
-              aria-label="筛选和排序"
-              aria-pressed={filterOpen}
-              onClick={() => {
-                setFilterOpen((v) => {
-                  const next = !v
-                  if (!next) onSessionFilterChange('')
-                  return next
-                })
-              }}
-            >
-              <ShellFilterIcon size={14} />
-            </button>
             <button
               type="button"
               className={`shell-view-action-btn${refreshing ? ' is-refreshing' : ''}`}
@@ -1421,7 +1386,6 @@ export function ShellSessionList({
               disabled={refreshing}
               onClick={() => {
                 setRefreshing(true)
-                setFilterOpen(false)
                 void Promise.resolve(onRefreshSessionList())
                   .catch(() => {})
                   .finally(() => {
@@ -1431,37 +1395,6 @@ export function ShellSessionList({
             >
               <ShellRefreshIcon size={15} />
             </button>
-            <button
-              type="button"
-              className="shell-view-action-btn"
-              title={newSessionHint}
-              aria-label={newSessionHint}
-              onClick={handleNewSessionClick}
-            >
-              <ShellPlusIcon size={15} />
-            </button>
-          </div>
-
-          {/* 搜索框 */}
-          <div className="react-chat-aside-history-search-wrap" hidden={!filterOpen}>
-            <input
-              ref={filterInputRef}
-              type="search"
-              className="react-chat-aside-history-search"
-              id="shell-session-filter"
-              placeholder={
-                isDeptsTab ? '搜索部门…' : isEmployeesTab ? '搜索员工…' : '搜索任务…'
-              }
-              aria-label={isDeptsTab ? '搜索部门' : isEmployeesTab ? '搜索员工' : '搜索任务'}
-              value={sessionFilter || ''}
-              onChange={(e) => onSessionFilterChange(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Escape') {
-                  setFilterOpen(false)
-                  onSessionFilterChange('')
-                }
-              }}
-            />
           </div>
         </div>
 

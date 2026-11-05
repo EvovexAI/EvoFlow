@@ -19589,7 +19589,9 @@ html[data-custom-bg='1'] .task-detail-page .task-obs-panel {
 .uiext-app-menu {
   position: absolute;
   right: 12px;
-  bottom: 40px;
+  top: 52px;
+  bottom: auto;
+  height: auto;
   z-index: 20;
   min-width: 132px;
   padding: 4px;
@@ -19972,8 +19974,8 @@ html[data-custom-bg='1'] .task-detail-page .task-obs-panel {
 }
 .syslog-raw-pre {
   margin: 0;
-  max-height: min(70vh, 720px);
-  overflow: auto;
+  /* 全文跟异常表一样，交给 .syslog-events 滚，避免 max-height 裁切且外层不能滚 */
+  overflow: visible;
   padding: 12px 14px;
   border: 1px solid var(--border);
   border-radius: var(--radius-md, 8px);
@@ -19985,8 +19987,22 @@ html[data-custom-bg='1'] .task-detail-page .task-obs-panel {
   white-space: pre-wrap;
   word-break: break-word;
 }
-.syslog-table-wrap {
+.syslog-page .syslog-header,
+.syslog-page .syslog-toolbar,
+.syslog-page .syslog-chips {
+  flex: 0 0 auto;
+}
+
+.syslog-page .syslog-events {
+  flex: 1 1 auto;
+  min-height: 0;
   overflow: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.syslog-table-wrap {
+  /* 由 .syslog-events 承担纵向滚动，避免双层 overflow 把滚轮吞掉 */
+  overflow-x: auto;
   border: 1px solid var(--border);
   border-radius: var(--radius-md, 8px);
   background: var(--bg-secondary);

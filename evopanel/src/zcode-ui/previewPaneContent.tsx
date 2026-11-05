@@ -92,7 +92,10 @@ function getPreviewPaneErrorTextClass(
   error: string | null,
   fileMissingMessage: string,
 ): "text-destructive" | "text-foreground-subtlest" {
-  return error === fileMissingMessage ? "text-foreground-subtlest" : "text-destructive";
+  // fileMissing 文案在 PreviewPane 里会追加换行 path，用前缀匹配而不是全等
+  return error === fileMissingMessage || error?.startsWith(`${fileMissingMessage}\n`)
+    ? "text-foreground-subtlest"
+    : "text-destructive";
 }
 
 export function PreviewPaneContent({
@@ -264,7 +267,7 @@ export function PreviewPaneContent({
       const errorMessage = error ?? intl.formatMessage({ id: "codeViewer.imageUnavailable" });
       return (
         <div
-          className={`p-3 text-ui-base ${
+          className={`p-3 text-ui-base whitespace-pre-line break-all ${
             error ? getPreviewPaneErrorTextClass(error, fileMissingMessage) : "text-destructive"
           }`}
         >
@@ -313,7 +316,7 @@ export function PreviewPaneContent({
       const errorMessage = error ?? intl.formatMessage({ id: "codeViewer.pdfUnavailable" });
       return (
         <div
-          className={`p-3 text-ui-base ${
+          className={`p-3 text-ui-base whitespace-pre-line break-all ${
             error ? getPreviewPaneErrorTextClass(error, fileMissingMessage) : "text-destructive"
           }`}
         >
@@ -352,7 +355,7 @@ export function PreviewPaneContent({
       const errorMessage = error ?? intl.formatMessage({ id: "codeViewer.pptxUnavailable" });
       return (
         <div
-          className={`p-3 text-ui-base ${
+          className={`p-3 text-ui-base whitespace-pre-line break-all ${
             error ? getPreviewPaneErrorTextClass(error, fileMissingMessage) : "text-destructive"
           }`}
         >
@@ -385,7 +388,7 @@ export function PreviewPaneContent({
   if (error && !filePreview) {
     return (
       <div
-        className={`p-3 text-ui-base ${getPreviewPaneErrorTextClass(error, fileMissingMessage)}`}
+        className={`p-3 text-ui-base whitespace-pre-line break-all ${getPreviewPaneErrorTextClass(error, fileMissingMessage)}`}
       >
         {error}
       </div>

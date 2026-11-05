@@ -2688,23 +2688,31 @@ async def search_all(
     top_k: int = 8,
     tags: list[str] | None = None,
     record_activity: bool = False,
+    kb_ids: list[str] | None = None,
 ) -> dict[str, Any]:
-    """Search every visible KB and fuse the per-KB rankings with RRF.
+    """Search visible KBs and fuse the per-KB rankings with RRF.
 
     KBs live in separate index DBs, so results are merged in memory: each KB
     contributes its own ranked list and RRF combines them without letting a
     single large KB dominate.
+
+    When ``kb_ids`` is provided (including ``[]``), only those KB ids are
+    searched — used by the agent ``knowledge`` tool to enforce per-employee
+    vault bindings. ``None`` keeps the historical "all bases" behaviour.
     """
     q = (query or "").strip()
     if not q:
         return {"items": [], "total": 0, "mode": mode, "degraded": False, "tags": []}
 
+    allow = {str(x).strip() for x in (kb_ids or []) if str(x or "").strip()} if kb_ids is not None else None
     bases = list_bases()
     per_kb: list[list[dict[str, Any]]] = []
     degraded = False
     for b in bases:
         kid = str(b.get("id") or "").strip()
         if not kid:
+            continue
+        if allow is not None and kid not in allow:
             continue
         try:
             res = await search(

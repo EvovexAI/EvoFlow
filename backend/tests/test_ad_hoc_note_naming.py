@@ -58,10 +58,11 @@ def test_live_pending_inbox_for_user_principal(asset_home: Path) -> None:
 
     # Main-chat notes land in the user bucket; live helper must resolve via principal_id.
     entity = EntityRef("user", "u_live_note")
-    write_ad_hoc_note(entity, "[process] mid-chat note\n\nbody", slug_hint="mid-chat-note")
+    write_ad_hoc_note(entity, "[process] mid-chat note\n\nbody that must not inject", slug_hint="mid-chat-note")
     block = format_live_pending_inbox_for_agent(principal_id="u_live_note")
     assert "mid-chat-note.md" in block
-    assert "mid-chat note" in block or "body" in block
+    assert "mid-chat note" in block
+    assert "body that must not inject" not in block
 
 
 def test_write_and_pending_injection(asset_home: Path) -> None:
@@ -83,13 +84,14 @@ def test_write_and_pending_injection(asset_home: Path) -> None:
     assert "<pending_inbox>" in block
     assert "</pending_inbox>" in block
     assert "douyin-pipeline-image-post-fallback.md" in block
-    assert "image post fallback" in block
+    # Title hint from first line / tag — not a body dump.
+    assert "[experience]" in block or "image post fallback" in block
 
 
-def test_pending_inbox_keeps_full_note_body_by_default(asset_home: Path) -> None:
+def test_pending_inbox_injects_filename_not_full_body(asset_home: Path) -> None:
     entity = EntityRef("user", "u_trunc")
     long = (
-        "[process] AIGC 反推师并入复刻师。"
+        "[process] AIGC 反推师并入复刻师。\n\n"
         "依据（可复用判断法）：项目侧自证：`aigc/aigc-prompt-reverser` 与 `aigc-remaker` "
         "能力完全重叠，反推只是复刻 SOP 的第一步子步骤，因此删除反推师岗位。"
         + ("补充说明。" * 40)
@@ -97,8 +99,11 @@ def test_pending_inbox_keeps_full_note_body_by_default(asset_home: Path) -> None
     write_ad_hoc_note(entity, long, slug_hint="aigc-merge")
     block = format_pending_inbox_notes_for_prompt(entity)
     assert "aigc-merge.md" in block
-    assert "aigc/aigc-prompt-reverser" in block
-    assert "补充说明。" in block
-    # Explicit budget still truncates with a marker (opt-in only).
-    capped = format_pending_inbox_notes_for_prompt(entity, max_chars=120)
+    assert "AIGC 反推师并入复刻师" in block
+    # Full body / evidence must stay on disk — titles only in the prompt.
+    assert "aigc/aigc-prompt-reverser" not in block
+    assert "补充说明。" not in block
+    # Second note forces budget overflow → truncation marker.
+    write_ad_hoc_note(entity, "[experience] another long title for budget", slug_hint="aigc-extra")
+    capped = format_pending_inbox_notes_for_prompt(entity, max_chars=90)
     assert "pending inbox truncated" in capped

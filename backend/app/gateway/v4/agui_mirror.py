@@ -542,6 +542,41 @@ def _cua_display_block(payload: dict[str, Any], body_text: str) -> dict[str, Any
     return block
 
 
+def _run_error_info(ev: dict[str, Any], *, now_ms: int) -> dict[str, Any]:
+    """Build V4 ``control.lastError`` from a RUN_ERROR event.
+
+    ``message`` is short Chinese for the banner; ``detail`` keeps the raw cause
+    so users can copy / feedback without opening system logs.
+    """
+    code = str(ev.get("code") or "run_error").strip() or "run_error"
+    raw = str(ev.get("message") or ev.get("error") or "").strip()
+    if not raw:
+        raw = code
+    # Keep detail bounded for wire size but long enough for Pydantic / vendor text.
+    detail = raw[:4000]
+    low = raw.lower()
+    if "pydanticinvalidforjsonschema" in low or "cannot generate a jsonschema" in low:
+        facing = "本轮生成失败：工具参数 schema 异常（可点「详情/复制」反馈）"
+        if "knowledge" in low:
+            facing = "本轮生成失败：knowledge 工具 schema 异常（可点「详情/复制」反馈）"
+    elif "rate limit" in low or "429" in low:
+        facing = "本轮生成失败：模型限流，请稍后重试"
+    elif "timeout" in low or "timed out" in low:
+        facing = "本轮生成失败：请求超时，请稍后重试"
+    elif len(raw) <= 160 and any("\u4e00" <= ch <= "\u9fff" for ch in raw):
+        facing = raw
+    else:
+        facing = "本轮生成失败（可点「详情/复制」把原文发给协助排查的人）"
+    return {
+        "code": code[:120],
+        "message": facing[:500],
+        "detail": detail,
+        "recoverable": False,
+        "at": now_ms,
+        "source": "runtime",
+    }
+
+
 @dataclass
 class _MirrorState:
     """Per-thread translator state（AG-UI 稳定 id → v4 rowId + 文本累计）。"""
@@ -569,6 +604,9 @@ class _MirrorState:
     last_turn_id: str = ""
     """最近一个开过的 turnId（RUN_STARTED 时记录，轮尾不清）。task_* 事件晚到时
     subagent 行仍能挂回宿主轮，配对（parentToolCallId + turnId）不因轮已结算而断。"""
+    sticky_run_error: dict[str, Any] | None = None
+    """最近一次 RUN_ERROR 的 lastError。空流 auto-retry 的 RUN_FINISHED 不得清掉，
+    否则输入框上方错误横幅一闪而过，用户无法复制详情反馈。"""
     subagent_rows: dict[str, int] = field(default_factory=dict)
     """task_id → subagent rowId（task_started 分配；终态 upsert 后保留，
     防乱序迟到帧重建出重复行）。跨轮保留——task 终态可能晚于 RUN_FINISHED。"""
@@ -742,6 +780,8 @@ class V4Mirror:
         st.user_text = raw
         st.user_attachments = atts[:16]
         st.user_message_id = str(message_id or "").strip()
+        # 用户新发一条 → 上一轮 sticky 报错退场（新横幅由本轮 RUN_ERROR 再写）。
+        st.sticky_run_error = None
 
     def feed_wire(self, thread_id: str, frames: list[bytes] | list[str]) -> int:
         """解析 AG-UI SSE wire 帧 → feed_events。返回消费的事件数。"""
@@ -984,7 +1024,11 @@ class V4Mirror:
                     if user_atts:
                         user_row["attachments"] = user_atts
                     self._hub.author_append_row(tid, user_row)
-            self._patch_control(tid, _running_control(now_ms=now_ms))
+            # 空流 auto-retry 再开 RUN 时保留 sticky lastError，横幅别被清掉。
+            self._patch_control(
+                tid,
+                _running_control(now_ms=now_ms, last_error=st.sticky_run_error),
+            )
             return
 
         if et == "ACTIVITY_SNAPSHOT":
@@ -995,7 +1039,8 @@ class V4Mirror:
             mid = str(ev.get("messageId") or "").strip()
             if not mid or mid in st.text_row_ids:
                 return
-            # Successful model output starting → clear retry banner.
+            # Successful model output starting → clear retry banner + sticky error.
+            st.sticky_run_error = None
             self._clear_api_retry(tid, st, now_ms=now_ms)
             rid = self._next_row_id(tid)
             st.text_row_ids[mid] = rid
@@ -1297,20 +1342,33 @@ class V4Mirror:
                     **({"fileChanges": file_changes} if file_changes else {}),
                 },
             )
-            last_error = (
-                {
-                    "code": "run_error",
-                    "message": str(ev.get("message") or ""),
-                    "recoverable": False,
-                    "at": now_ms,
-                    "source": "runtime",
-                }
-                if et == "RUN_ERROR"
-                else None
-            )
+            produced_text = any(str(t or "").strip() for t in st.text_acc.values())
+            if et == "RUN_ERROR":
+                last_error = _run_error_info(ev, now_ms=now_ms)
+                st.sticky_run_error = dict(last_error)
+                # 无正文时把详情落到助手气泡，用户不必翻系统日志也能看见/复制。
+                detail = str(last_error.get("detail") or "").strip()
+                if detail and not produced_text:
+                    banner = str(last_error.get("message") or "本轮生成失败").strip()
+                    self._upsert_error_assistant_text(
+                        tid,
+                        st,
+                        f"{banner}\n\n详情（可复制反馈）：\n{detail}",
+                        now_ms=now_ms,
+                    )
+            elif produced_text:
+                # 真正产出正文的成功收尾 → 清 sticky。
+                st.sticky_run_error = None
+                last_error = None
+            else:
+                # 空流 FINISHED（常见于 auto-retry 夹缝）：保留上次 RUN_ERROR，横幅别丢。
+                last_error = dict(st.sticky_run_error) if st.sticky_run_error else None
             from app.gateway.v4.conversation import _minimal_control
 
-            ctrl = _minimal_control("completedSuccess" if et == "RUN_FINISHED" else "error")
+            phase = "error" if (et == "RUN_ERROR" or last_error) else "completedSuccess"
+            if et == "RUN_FINISHED" and produced_text:
+                phase = "completedSuccess"
+            ctrl = _minimal_control(phase)
             ctrl["sessionEnded"] = True
             ctrl["canStop"] = False
             ctrl["stopState"] = "idle"
@@ -1318,7 +1376,7 @@ class V4Mirror:
             ctrl["lastError"] = last_error
             ctrl["apiRetry"] = None
             self._patch_control(tid, ctrl)
-            # 关键：允许下一轮 RUN_STARTED 再开 running turnHeader。
+            # 重置：允许下一轮 RUN_STARTED 再开 running turnHeader。
             self._reset_turn_ephemeral(st)
             return
 

@@ -269,6 +269,9 @@ def test_include_memory_false_skips_memory_assets_and_person_blocks() -> None:
     assert "<person_memory>" not in text
     assert "<person_craft>" not in text
     assert "不该出现的用户记忆" not in text
+    # Same as main chat: memory off → no global user profile either.
+    assert "<user_profile>" not in text
+    assert "<user_identity>" not in text
     assert "<platform>" not in text
     assert "<duty_workflow>" in text
 
@@ -287,6 +290,19 @@ def test_role_memory_enabled_false_defaults_off() -> None:
     )
     assert "<memory_assets>" not in text
     assert "关掉了" not in text
+    assert "<user_profile>" not in text
+
+
+def test_include_memory_true_keeps_user_profile() -> None:
+    text = assemble_employee_system_prompt(
+        mode="chat",
+        identity=_identity(),
+        custom_system_prompt="job",
+        user_profile_block="<user_profile>银泰老板</user_profile>",
+        include_memory=True,
+    )
+    assert "<user_profile>银泰老板</user_profile>" in text
+    assert text.index("<session>") < text.index("<user_profile>")
 
 
 def test_org_lists_manager_and_peers() -> None:

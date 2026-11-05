@@ -634,6 +634,65 @@ pub fn ui_extension_set_enabled(id: String, enabled: bool) -> Result<Value, Stri
     Ok(out)
 }
 
+/// 改显示名：写 registry 里的 ``manifest.name`` / ``manifest.nav.title``；
+/// 若安装目录有 ``evoflow.extension.json`` 也一并同步（folder-link / 复制安装）。
+#[tauri::command]
+pub fn ui_extension_rename(id: String, name: String) -> Result<Value, String> {
+    let id = id.trim().to_string();
+    let name = name.trim().to_string();
+    if id.is_empty() {
+        return Err("扩展 id 缺失".into());
+    }
+    if name.is_empty() {
+        return Err("名称不能为空".into());
+    }
+    if name.chars().count() > 80 {
+        return Err("名称过长（最多 80 字）".into());
+    }
+    let mut rows = read_registry()?;
+    let row = find_row_mut(&mut rows, &id).ok_or_else(|| "扩展不存在".to_string())?;
+    let install_path = row
+        .get("install_path")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    if let Some(obj) = row.as_object_mut() {
+        let manifest = obj
+            .entry("manifest")
+            .or_insert_with(|| json!({}));
+        if let Some(m) = manifest.as_object_mut() {
+            m.insert("name".into(), Value::String(name.clone()));
+            let nav = m.entry("nav").or_insert_with(|| json!({}));
+            if let Some(n) = nav.as_object_mut() {
+                n.insert("title".into(), Value::String(name.clone()));
+            }
+        }
+    }
+    let out = row.clone();
+    write_registry(&rows)?;
+
+    if !install_path.is_empty() {
+        let manifest_path = PathBuf::from(&install_path).join("evoflow.extension.json");
+        if manifest_path.is_file() {
+            if let Ok(text) = fs::read_to_string(&manifest_path) {
+                if let Ok(mut v) = serde_json::from_str::<Value>(strip_utf8_bom(&text)) {
+                    if let Some(m) = v.as_object_mut() {
+                        m.insert("name".into(), Value::String(name.clone()));
+                        let nav = m.entry("nav").or_insert_with(|| json!({}));
+                        if let Some(n) = nav.as_object_mut() {
+                            n.insert("title".into(), Value::String(name.clone()));
+                        }
+                        if let Ok(pretty) = serde_json::to_string_pretty(&v) {
+                            let _ = fs::write(&manifest_path, pretty);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    Ok(out)
+}
+
 #[tauri::command]
 pub fn ui_extension_uninstall(id: String) -> Result<(), String> {
     let id = id.trim().to_string();

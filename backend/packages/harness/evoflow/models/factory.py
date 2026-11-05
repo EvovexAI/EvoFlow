@@ -932,12 +932,15 @@ def create_chat_model(
                 # OpenAI-compatible gateways: nest under extra_body to avoid the
                 # "thinking is not default parameter" warning and ensure it reaches the API.
                 _merge_extra_body_thinking(kwargs, model_settings_from_config, {"type": "disabled"})
-        elif _is_volcengine_like_host(model_config) or _is_dashscope_like_host(model_config):
-            # Fallback: model has no explicit thinking config (e.g. supports_thinking=False
-            # but the API host may still default to thinking-on). Force-disable to prevent
-            # the API from using its default behavior.
-            if _is_dashscope_like_host(model_config):
-                kwargs.update({"extra_body": {"enable_thinking": False}})
+            kwargs.update({"reasoning_effort": "minimal"})
+        elif _is_dashscope_like_host(model_config):
+            kwargs.update({"extra_body": {"enable_thinking": False}})
+            kwargs.update({"reasoning_effort": "minimal"})
+        else:
+            # Volc / 其它 OpenAI 兼容：即使模型行没配 when_thinking_enabled，也必须显式关，
+            # 否则 HTTP 空参会落回厂商默认开思考（小V / 语音关思考会失效）。
+            if _is_anthropic_native(model_class):
+                kwargs.update({"thinking": {"type": "disabled"}})
             else:
                 _merge_extra_body_thinking(kwargs, model_settings_from_config, {"type": "disabled"})
             kwargs.update({"reasoning_effort": "minimal"})

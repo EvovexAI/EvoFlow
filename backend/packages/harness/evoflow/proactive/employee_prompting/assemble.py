@@ -138,7 +138,8 @@ def assemble_employee_system_prompt(
     No system ``<platform>`` shell (identity/tone/contract) — job text owns who you are.
     Builders in ``platform.py`` remain for callers/tests that want them explicitly.
 
-    ``include_memory``: when False, skip ``<memory_assets>`` and duty person memory/craft.
+    ``include_memory``: when False, skip ``<memory_assets>``, duty person memory/craft,
+    **and** the global user profile (``profile/USER.md``) — same gate as main chat.
     When None, use role ``config.memory_enabled`` (default on). Session/runtime override
     is applied later by DynamicSystemPrompt / strip_memory_xml_blocks.
     """
@@ -229,8 +230,10 @@ def assemble_employee_system_prompt(
             runtime_shell=runtime_shell,
             runtime_host_hint=runtime_host_hint,
             runtime_now=runtime_now,
-            user_profile_block=user_profile_block,
+            # Same document as main chat; only when memory is on (no orphan profile).
+            user_profile_block=user_profile_block if mem_on else "",
             prompt_language=prompt_language,
+            include_user_profile=mem_on,
         )
     )
     if mem_on:

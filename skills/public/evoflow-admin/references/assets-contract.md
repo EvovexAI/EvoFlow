@@ -45,7 +45,7 @@
 | 层 | 每轮注入 | 真源 / 用途 |
 |----|----------|-------------|
 | **L0 岗位** | `system_prompt` / soul | **只**职责骨架、输出格式、硬闸门 |
-| **L1 standing** | `memory/standing.md` 摘要（**整页注入**，运行时不截断） | 偏好、Tips、**What's in Memory** 指针（产品名「记忆摘要」——总览派生页，非第三种正文；篇幅由 Phase2 写文件时控制） |
+| **L1 standing** | `memory/standing.md` 摘要（**整页注入**，运行时不截断） | 偏好、Tips、**What's in Memory** 文件名索引（只列自描述 `craft/…` 等名字，不写 keywords/desc/learnings；产品名「记忆摘要」——总览派生页，非第三种正文；篇幅由 Phase2 写文件时控制） |
 | **L2 catalog** | craft / facts / episodic / journal **短标题全量** + `MEMORY.md` | 发现用；不灌正文 |
 | **L3 正文** | 不默认注入 | `assets` read/search 按需打开 |
 | **L4 inbox** | 未合并 notes 预览 | Phase2 前可见 |

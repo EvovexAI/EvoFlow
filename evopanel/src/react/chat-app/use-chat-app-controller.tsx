@@ -1303,6 +1303,12 @@ export function useChatAppController() {
   }, [selectedSessionKey])
   useEffect(() => {
     if (Array.isArray(rows) && rows.length > 0) {
+      // 工作台空选中时不应有主栏行；若小V/后台误灌，丢掉泄漏行并保住指挥台。
+      if (preferHomeDashboardRef.current && !String(selectedSessionKey || '').trim()) {
+        setRows([])
+        rowsRef.current = []
+        return
+      }
       setSessionHadContent(true)
       setPreferHomeDashboard(false)
       try {
@@ -5470,12 +5476,28 @@ export function useChatAppController() {
         },
         key,
       )
+      // 当前会话可见签已空：收起整栏（避免只关签却落回「打开标签」首页）
+      const remaining = filterRightStageTabsForSession(
+        rightStageStore.getSnapshot().tabs,
+        rightStageFilterSessionKey,
+      )
+      if (remaining.length === 0 && rightStageStore.isOpen) {
+        collapseRightStageShellImpl({
+          rightStageUserPinnedRef,
+          scheduleBumpRef,
+          collapseRightStage,
+          syncShellAsideForWorkspacePanel,
+        })
+      }
     },
     [
       closeWorkspacePanel,
       closeCollabExecPanel,
       closeKnowledgeMapPanel,
       closeRightStageTab,
+      rightStageFilterSessionKey,
+      collapseRightStage,
+      syncShellAsideForWorkspacePanel,
     ],
   )
 

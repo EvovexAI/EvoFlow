@@ -17,12 +17,46 @@ import {
   resolveValidatedAssistantPreviewCards,
 } from "@/lib/assistantPreviewCardValidation.js";
 import type { CodeViewerSource } from "@/lib/codeViewer.js";
+import { FILE_VIEWER_MAX_TEXT_BYTES } from "@/lib/codeViewer.js";
 import { FileDisplayIcon, resolveFileDisplayDescriptor } from "@/lib/fileDisplay.js";
 import { OpenSplitButton } from "@/OpenSplitButton.js";
 
 interface AssistantPreviewCardValidationResult {
   visibleCards: AssistantPreviewCard[];
   settled: boolean;
+}
+
+const PREFETCH_CARD_KINDS = new Set(["markdown", "html"]);
+const PREFETCH_MAX_CARDS = 4;
+
+/**
+ * 轮末空闲预取：校验通过的 md/html 产物卡按真实读取参数（offset=0 +
+ * FILE_VIEWER_MAX_TEXT_BYTES）预热 fileService 内的预取缓存，点击时桌面端
+ * 0 网络往返。失败静默——预取只是加速，不改变任何语义。
+ */
+function prefetchValidatedCardText(
+  fileService: {
+    readTextFile: (params: { path: string; offset: number; length: number }) => Promise<unknown>;
+  },
+  cards: readonly AssistantPreviewCard[],
+): void {
+  const targets = cards
+    .filter((card) => card.type !== "website" && PREFETCH_CARD_KINDS.has(card.kind))
+    .map(getAssistantPreviewCardFilePath)
+    .filter((path): path is string => Boolean(path))
+    .slice(0, PREFETCH_MAX_CARDS);
+  if (!targets.length) return;
+  const idle = (cb: () => void) => {
+    if (typeof requestIdleCallback === "function") requestIdleCallback(() => cb());
+    else setTimeout(cb, 800);
+  };
+  idle(() => {
+    for (const path of targets) {
+      void fileService
+        .readTextFile({ path, offset: 0, length: FILE_VIEWER_MAX_TEXT_BYTES })
+        .catch(() => undefined);
+    }
+  });
 }
 
 function buildAssistantPreviewCardFileSource(
@@ -151,6 +185,8 @@ function useAssistantPreviewCardValidation(
           signature: cardsSignature,
           visibleCards,
         });
+        // 卡片路径刚过完 stat 门（verified），顺手预热文本缓存
+        prefetchValidatedCardText(fileService, visibleCards);
       },
       () => {
         if (disposed) return;

@@ -13,6 +13,7 @@ import {
   type DeptChatMeta,
 } from '../lib/dept-chat-session.js'
 import { api } from '../../lib/tauri-api.js'
+import { openShellPageInRightStage } from '../../lib/right-stage/open-shell-page-stage.js'
 
 function metaToDept(meta: DeptChatMeta): HomeCmdDept {
   const members: HomeCmdPerson[] = (meta.members || []).map((m) => ({
@@ -143,7 +144,21 @@ export function DeptGroupChatMain({ sessionKey, onClose }: DeptGroupChatMainProp
         shellSessionKey={sessionKey}
         onClose={() => onClose?.()}
         onOpenEmployeePage={(code) => {
-          window.location.hash = `#/proactive/${encodeURIComponent(code)}`
+          const agentCode = String(code || '').trim()
+          if (!agentCode) return
+          const member = dept.members.find((m) => m.agent_code === agentCode)
+          const name = String(member?.role_name || '').trim() || agentCode
+          openShellPageInRightStage(
+            {
+              path: `/proactive/${encodeURIComponent(agentCode)}`,
+              mountId: 'employees.detail',
+              title: name,
+              entityLabel: name,
+              agentCode,
+              layout: 'wide',
+            },
+            { sessionKey, layout: 'wide' },
+          )
         }}
       />
     </div>

@@ -464,8 +464,22 @@ async function _pollIMChannelScan({ agentCode, channel, onBound, offerNext, role
         statusEl.className = 'im-scan-status'
       }
     }
-  } catch (_) {
-    // keep polling
+  } catch (e) {
+    // Gateway restart / expired in-memory session → stop (do not ERROR-spam forever).
+    const msg = String(e?.message || e || '')
+    const status = Number(e?.status || 0)
+    const gone =
+      status === 404 ||
+      /session[_\s-]?not[_\s-]?found/i.test(msg) ||
+      /Session .+ not found/i.test(msg)
+    if (!gone) return
+    cancelPoll()
+    const statusEl = document.getElementById('pro-im-scan-status')
+    if (statusEl) {
+      statusEl.removeAttribute('hidden')
+      statusEl.textContent = '扫码会话已失效，请关闭后重新扫码'
+      statusEl.className = 'im-scan-status im-scan-status--error'
+    }
   }
 }
 

@@ -188,6 +188,12 @@ export async function runDeptMemberWorkTurn(
   if (opts.fromAgentName) {
     parts.push(`（「${opts.fromAgentName}」在群里 @ 了你，请直接回群）`)
   }
+  if (!stewardMode) {
+    parts.push(
+      '（群聊提示：把该你说的说完即可。打招呼/报到不要再 @ 同事或小V；'
+        + '只有确实要别人接新活时才 @，且不要重复点名已经出过面的人。）',
+    )
+  }
   const groupCtx = String(opts.groupContext || '').trim()
   if (groupCtx) {
     parts.push(`【群近期】\n${groupCtx.slice(0, 2400)}`)

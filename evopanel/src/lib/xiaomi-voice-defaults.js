@@ -154,7 +154,7 @@ async function ensureXiaomiVoiceThinkingOff() {
       xiaomi_global_assistant: true,
       thinking_enabled: false,
       thinking_type: 'disabled',
-      reasoning_effort: 'minimum',
+      reasoning_effort: 'minimal',
     })
     xiaomiVoiceLog('ensure: thinking_enabled=false（语音快回）')
   } catch (e) {

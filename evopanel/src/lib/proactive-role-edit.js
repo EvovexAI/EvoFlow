@@ -5,7 +5,7 @@ import { api, getGatewayBaseUrl } from './tauri-api.js'
 import { toast } from '../components/toast.js'
 import { showConfirm } from '../components/modal.js'
 import { filterChatModels } from './model-classification.js'
-import { mountAgentAvatar } from './mount-agent-ui.js'
+import { mountAgentAvatarPicker, unmountAgentUi } from './mount-agent-ui.js'
 import {
   loadWorkspacePaths,
   renderWorkspaceField,
@@ -355,32 +355,6 @@ function bindHireChipRows(overlay) {
   })
 }
 
-function mountEditAvatars(root, size = 48, agentByCode = null) {
-  if (!root) return
-  void getGatewayBaseUrl()
-    .then((baseUrl) => {
-      root.querySelectorAll('[data-avatar-agent]').forEach((el) => {
-        const code = String(el.getAttribute('data-avatar-agent') || '').trim()
-        if (!code) return
-        const agent = agentByCode?.get?.(code.toLowerCase()) || { agent_code: code }
-        mountAgentAvatar(el, {
-          agent,
-          agentCode: code,
-          size,
-          baseUrl: baseUrl || '',
-        })
-      })
-    })
-    .catch(() => {
-      root.querySelectorAll('[data-avatar-agent]').forEach((el) => {
-        const code = String(el.getAttribute('data-avatar-agent') || '').trim()
-        if (!code) return
-        const agent = agentByCode?.get?.(code.toLowerCase()) || { agent_code: code }
-        mountAgentAvatar(el, { agent, agentCode: code, size })
-      })
-    })
-}
-
 function renderAgentPickField(available, selectedCode) {
   const cur = available.find((a) => a.code === selectedCode) || available[0]
   const value = cur?.code || ''
@@ -572,6 +546,9 @@ async function loadAgentDetailForEdit(code) {
     description: '',
     system_prompt: '',
     soul: '',
+    avatar: null,
+    avatar_meta: null,
+    has_avatar_file: false,
     tools: null,
     mcp_servers: null,
     skills: null,
@@ -588,6 +565,9 @@ async function loadAgentDetailForEdit(code) {
       description: String(a?.description || '').trim(),
       system_prompt: String(a?.system_prompt || ''),
       soul: String(a?.soul || ''),
+      avatar: a?.avatar || null,
+      avatar_meta: a?.avatar_meta || null,
+      has_avatar_file: !!a?.has_avatar_file,
       tools: Array.isArray(a?.tools) ? a.tools.map(String) : null,
       mcp_servers: Array.isArray(a?.mcp_servers) ? a.mcp_servers.map(String) : null,
       skills: Array.isArray(a?.skills) ? a.skills.map(String) : null,
@@ -1000,7 +980,7 @@ export async function showEditRoleModal(role, {
 
   const renderAgentCard = () => `
       <div class="hire-agent-card" data-role="agent-card">
-        <div class="hire-agent-avatar" data-avatar-agent="${esc(selected.code)}" aria-hidden="true"></div>
+        <div class="hire-agent-avatar hire-agent-avatar--editable" data-role="agent-avatar-picker" title="更换头像"></div>
         <div class="hire-agent-meta">
           <div class="hire-agent-name">${esc(selected.name || selected.code)}</div>
           <div class="hire-agent-code">${esc(selected.code)}</div>
@@ -1009,10 +989,10 @@ export async function showEditRoleModal(role, {
       </div>`
 
   const basicAgentBlock = allowAgentRebind
-    ? `<p class="hire-chip-hint">可改绑智能体；改绑后下方名称与提示词会换成新智能体的配置。工具 / MCP / 技能用左侧对应分区。</p>
+    ? `<p class="hire-chip-hint">可改绑智能体；点击头像可更换。改绑后下方名称与提示词会换成新智能体的配置。工具 / MCP / 技能用左侧对应分区。</p>
               ${renderAgentPickField(available, selected.code)}
               ${renderAgentCard()}`
-    : `<p class="hire-chip-hint">当前绑定智能体。工具 / MCP / 技能用左侧对应分区。</p>
+    : `<p class="hire-chip-hint">当前绑定智能体；点击头像可更换。工具 / MCP / 技能用左侧对应分区。</p>
               ${renderAgentCard()}
               <input type="hidden" data-name="agent_code" value="${esc(selected.code)}">`
 
@@ -1186,10 +1166,79 @@ export async function showEditRoleModal(role, {
     </div>
   `
   document.body.appendChild(overlay)
-  mountEditAvatars(overlay, 48, agentByCode)
   fillCapabilityPanels(overlay, boundAgent, capabilityCatalog)
 
-  const close = () => overlay.remove()
+  const seedAvatar = (src) => ({
+    avatar: src?.avatar ?? null,
+    avatar_meta: src?.avatar_meta ?? null,
+    previewUrl: null,
+  })
+  const avatarPickerState = seedAvatar({
+    avatar: selected?.avatar ?? boundAgent?.avatar ?? null,
+    avatar_meta: selected?.avatar_meta ?? boundAgent?.avatar_meta ?? null,
+  })
+  let avatarBaseline = {
+    avatar: avatarPickerState.avatar,
+    avatar_meta: avatarPickerState.avatar_meta,
+  }
+
+  const mountBoundAvatarPicker = () => {
+    const el = overlay.querySelector('[data-role="agent-avatar-picker"]')
+    if (!el) return
+    const code = selected?.code || role.agent_code
+    const name = selected?.name || boundAgent?.agent_name || code
+    void getGatewayBaseUrl()
+      .then((baseUrl) => {
+        mountAgentAvatarPicker(el, {
+          agentCode: code,
+          agentName: name,
+          baseUrl: baseUrl || '',
+          value: avatarPickerState,
+          onChange: (next) => {
+            avatarPickerState.avatar = next.avatar
+            avatarPickerState.avatar_meta = next.avatar_meta
+            avatarPickerState.previewUrl = next.previewUrl
+          },
+          onUpload: async (blob, meta) => {
+            await api.uploadAgentAvatar(code, blob)
+            await api.updateAgent(code, { avatar: 'image', avatar_meta: meta })
+            avatarPickerState.avatar = 'image'
+            avatarPickerState.avatar_meta = meta
+            const row = agentByCode.get(String(code).toLowerCase())
+            if (row) {
+              row.avatar = 'image'
+              row.avatar_meta = meta
+              row.has_avatar_file = true
+            }
+          },
+        })
+      })
+      .catch(() => {
+        mountAgentAvatarPicker(el, {
+          agentCode: code,
+          agentName: name,
+          value: avatarPickerState,
+          onChange: (next) => {
+            avatarPickerState.avatar = next.avatar
+            avatarPickerState.avatar_meta = next.avatar_meta
+            avatarPickerState.previewUrl = next.previewUrl
+          },
+          onUpload: async (blob, meta) => {
+            await api.uploadAgentAvatar(code, blob)
+            await api.updateAgent(code, { avatar: 'image', avatar_meta: meta })
+            avatarPickerState.avatar = 'image'
+            avatarPickerState.avatar_meta = meta
+          },
+        })
+      })
+  }
+  mountBoundAvatarPicker()
+
+  const close = () => {
+    const pickerEl = overlay.querySelector('[data-role="agent-avatar-picker"]')
+    if (pickerEl) unmountAgentUi(pickerEl)
+    overlay.remove()
+  }
   overlay.addEventListener('click', (e) => {
     if (e.target === overlay) close()
   })
@@ -1215,10 +1264,12 @@ export async function showEditRoleModal(role, {
   const syncAgentCard = () => {
     const card = overlay.querySelector('[data-role="agent-card"]')
     if (!card) return
+    const prevPicker = card.querySelector('[data-role="agent-avatar-picker"]')
+    if (prevPicker) unmountAgentUi(prevPicker)
     const wrap = document.createElement('div')
     wrap.innerHTML = renderAgentCard().trim()
     card.replaceWith(wrap.firstElementChild)
-    mountEditAvatars(overlay, 48, agentByCode)
+    mountBoundAvatarPicker()
   }
 
   if (allowAgentRebind) {
@@ -1228,10 +1279,21 @@ export async function showEditRoleModal(role, {
         const next = available.find((a) => a.code === code)
         if (!next) return
         selected = next
-        syncAgentCard()
         const detail = await loadAgentDetailForEdit(code)
         boundAgent = detail
         agentBaseline = { ...detail }
+        Object.assign(
+          avatarPickerState,
+          seedAvatar({
+            avatar: detail?.avatar ?? next?.avatar ?? null,
+            avatar_meta: detail?.avatar_meta ?? next?.avatar_meta ?? null,
+          }),
+        )
+        avatarBaseline = {
+          avatar: avatarPickerState.avatar,
+          avatar_meta: avatarPickerState.avatar_meta,
+        }
+        syncAgentCard()
         fillAgentNativePanel(overlay, detail, capabilityCatalog)
       },
     })
@@ -1282,6 +1344,10 @@ export async function showEditRoleModal(role, {
     const agentPromptChanged =
       String(agentFields.system_prompt || '') !== String(agentBaseline.system_prompt || '')
     const agentSoulChanged = String(agentFields.soul || '') !== String(agentBaseline.soul || '')
+    const avatarChanged =
+      avatarPickerState.avatar !== avatarBaseline.avatar ||
+      JSON.stringify(avatarPickerState.avatar_meta ?? null) !==
+        JSON.stringify(avatarBaseline.avatar_meta ?? null)
     const capLocked = !!(boundAgent?.requires_external_cli || boundAgent?.front_desk)
     const toolValues = (capabilityCatalog?.tools || []).map((t) => t.value)
     const mcpValues = (capabilityCatalog?.mcp || []).map((t) => t.value)
@@ -1312,6 +1378,7 @@ export async function showEditRoleModal(role, {
       agentPromptChanged ||
       agentSoulChanged ||
       agentCapabilityChanged ||
+      avatarChanged ||
       needsDutyMerge
     const roleNameOutOfSync =
       role_name !== String(role.role_name || '').trim() &&
@@ -1381,6 +1448,7 @@ export async function showEditRoleModal(role, {
       agentChanges.push(needsDutyMerge && !agentPromptChanged ? '岗位职责已合并进系统提示词' : '系统提示词已修改')
     }
     if (agentSoulChanged) agentChanges.push('人格 SOUL 已修改')
+    if (avatarChanged) agentChanges.push('头像已修改')
     if (toolsChanged) agentChanges.push('内置工具已修改')
     if (mcpChanged) agentChanges.push('MCP 勾选已修改')
     if (skillsChanged) agentChanges.push('技能勾选已修改')
@@ -1479,6 +1547,10 @@ export async function showEditRoleModal(role, {
           agent_name: agentFields.agent_name || null,
           system_prompt: agentFields.system_prompt,
           soul: String(agentFields.soul ?? ''),
+        }
+        if (avatarChanged) {
+          agentPatch.avatar = avatarPickerState.avatar
+          agentPatch.avatar_meta = avatarPickerState.avatar_meta ?? null
         }
         if (capLocked && boundAgent?.front_desk) {
           agentPatch.tools = []

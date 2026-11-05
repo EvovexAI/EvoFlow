@@ -18,11 +18,14 @@ def build_employee_session_block(
     runtime_now: str = "",
     user_profile_block: str = "",
     prompt_language: str | None = None,
+    include_user_profile: bool = True,
 ) -> str:
-    """This-turn context: skills, workspace, and global user profile when it has real facts.
+    """This-turn context: skills, workspace, and global user profile when memory is on.
 
-    One global user profile SoT — empty/scaffold dims omitted by the profile builder.
-    Profile lives here only — not again inside ``<memory_assets>``.
+    One global user profile SoT (``profile/USER.md``) — same document as main chat.
+    ``include_user_profile`` follows the memory gate (same as main): off → no profile,
+    and do not auto-fetch a fallback. Profile lives here only — not again in
+    ``<memory_assets>``.
     """
     parts: list[str] = []
     skills = str(skills_section or "").strip()
@@ -45,20 +48,21 @@ def build_employee_session_block(
     ws_lines.append("</workspace>")
     parts.append("\n".join(ws_lines))
 
-    profile = str(user_profile_block or "").strip()
-    if not profile:
-        try:
-            from evoflow.assets.profile_injection import build_user_profile_injection_block
+    if include_user_profile:
+        profile = str(user_profile_block or "").strip()
+        if not profile:
+            try:
+                from evoflow.assets.profile_injection import build_user_profile_injection_block
 
-            # Global user profile; content-only (no empty dims / usage essays).
-            profile = build_user_profile_injection_block(
-                prompt_language=prompt_language,
-                scope="full",
-            ).strip()
-        except Exception:
-            profile = ""
-    profile = scan_prompt_piece(profile, source="user_profile")
-    if profile:
-        parts.append(profile)
+                # Global user profile; content-only (no empty dims / usage essays).
+                profile = build_user_profile_injection_block(
+                    prompt_language=prompt_language,
+                    scope="full",
+                ).strip()
+            except Exception:
+                profile = ""
+        profile = scan_prompt_piece(profile, source="user_profile")
+        if profile:
+            parts.append(profile)
     inner = "\n\n".join(parts)
     return f"<session>\n{inner}\n</session>"

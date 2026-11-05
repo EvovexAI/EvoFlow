@@ -6508,7 +6508,7 @@ export class WsClient {
               channel: 'voice',
               thinking_enabled: false,
               thinking_type: 'disabled',
-              reasoning_effort: 'minimum',
+              reasoning_effort: 'minimal',
             }
           : {}),
       },
@@ -6541,12 +6541,22 @@ export class WsClient {
       typeof opts === 'object' &&
       (opts.voiceInitiated || opts.voiceReply)
     )
+    // sendXiaomiChat 显式钉死：避免本地 session map 尚未带上 agent / 关思考
+    if (opts && typeof opts === 'object' && opts.forceXiaomiFrontDesk) {
+      runContext.agent_name = 'xiaomi'
+      runContext.agent_id = 'xiaomi'
+      runContext.xiaomi_global_assistant = true
+      runContext.thinking_enabled = false
+      runContext.thinking_type = 'disabled'
+      runContext.reasoning_effort = 'minimal'
+    }
     const agentIdLc = String(
       runContext.agent_id || runContext.agent_name || sessionContext.agent_id || sessionContext.agent_name || '',
     )
       .trim()
       .toLowerCase()
     const xiaomiTurn =
+      !!(opts && typeof opts === 'object' && opts.forceXiaomiFrontDesk) ||
       agentIdLc === 'xiaomi' ||
       agentIdLc === '小v' ||
       agentIdLc === '小蜜' ||
@@ -6558,10 +6568,13 @@ export class WsClient {
       // 小V 前台：永不开思考（与后端 agent.py hard guard 对齐）
       runContext.thinking_enabled = false
       runContext.thinking_type = 'disabled'
-      runContext.reasoning_effort = 'minimum'
+      runContext.reasoning_effort = 'minimal'
+      runContext.agent_name = runContext.agent_name || 'xiaomi'
+      runContext.agent_id = runContext.agent_id || 'xiaomi'
+      runContext.xiaomi_global_assistant = true
     } else if (mode === 'flash' || voiceTurn) {
       runContext.thinking_enabled = false
-      runContext.reasoning_effort = 'minimum'
+      runContext.reasoning_effort = 'minimal'
       if (voiceTurn) {
         runContext.thinking_type = 'disabled'
         runContext.is_voice_channel = true

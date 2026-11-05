@@ -12,6 +12,7 @@ import {
 } from 'react'
 import { X } from 'lucide-react'
 import { api } from '../../lib/tauri-api.js'
+import { openShellPageInRightStage } from '../../lib/right-stage/open-shell-page-stage.js'
 import { HomeDeptGroupChat } from './HomeDeptGroupChat.js'
 import {
   deptChatSessionKey,
@@ -625,7 +626,17 @@ export function HomeOrgCommandBoard({
             person={selectedPerson}
             onClose={() => setSelectedKey(null)}
             onOpenEmployee={() => {
-              window.location.hash = `#/proactive/${encodeURIComponent(selectedPerson.agent_code)}`
+              const code = String(selectedPerson.agent_code || '').trim()
+              if (!code) return
+              const name = String(selectedPerson.role_name || '').trim() || code
+              openShellPageInRightStage({
+                path: `/proactive/${encodeURIComponent(code)}`,
+                mountId: 'employees.detail',
+                title: name,
+                entityLabel: name,
+                agentCode: code,
+                layout: 'wide',
+              })
             }}
           />
         ) : selectedDept && deptPanel === 'chat' ? (
@@ -633,7 +644,18 @@ export function HomeOrgCommandBoard({
             dept={selectedDept}
             onClose={() => setDeptPanel('info')}
             onOpenEmployeePage={(code) => {
-              window.location.hash = `#/proactive/${encodeURIComponent(code)}`
+              const agentCode = String(code || '').trim()
+              if (!agentCode) return
+              const member = selectedDept.members.find((m) => m.agent_code === agentCode)
+              const name = String(member?.role_name || '').trim() || agentCode
+              openShellPageInRightStage({
+                path: `/proactive/${encodeURIComponent(agentCode)}`,
+                mountId: 'employees.detail',
+                title: name,
+                entityLabel: name,
+                agentCode,
+                layout: 'wide',
+              })
             }}
           />
         ) : null}
