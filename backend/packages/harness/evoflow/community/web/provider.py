@@ -49,6 +49,7 @@ def get_provider_env(name: str) -> str:
             "TAVILY_API_KEY": "tavilyApiKey",
             "TAVILY_BASE_URL": "tavilyBaseUrl",
             "BRAVE_SEARCH_API_KEY": "braveApiKey",
+            "KEENABLE_API_KEY": "keenableApiKey",
             "FIRECRAWL_API_KEY": "firecrawlApiKey",
             "FIRECRAWL_API_URL": "firecrawlApiUrl",
             "INFOQUEST_API_KEY": "infoquestApiKey",

@@ -197,6 +197,16 @@ function providerCardsHtml() {
           hint: '',
         },
         {
+          id: 'keenable',
+          label: 'Keenable',
+          secretField: 'keenableApiKey',
+          urlField: '',
+          defaultBaseUrl: '',
+          docsUrl: 'https://keenable.ai/',
+          signupUrl: 'https://keenable.ai/',
+          hint: '',
+        },
+        {
           id: 'searxng',
           label: 'SearXNG',
           secretField: '',
