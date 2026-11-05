@@ -9,6 +9,7 @@
 ```
 profile/
   USER.md             # 用户画像真源（单文件）
+  affect.md           # 主智能体心境（「我 → 情感」）
 
 memory/
   standing.md         # 长期记忆（每轮注入）
@@ -71,7 +72,7 @@ memory/standing.md
 | 写什么 | 路径 | 工具 |
 |--------|------|------|
 | 用户画像 | `profile/USER.md` | `assets profile` |
-| 长期记忆 | `memory/standing.md` | `[preference]` note |
+| 长期记忆 | `memory/standing.md` | `note` `kind=preference` |
 | 过程 | `memory/episodic/<slug>.md` | `[process]` note |
 | 反思 | `memory/journal/<topic>.md` | `[reflection]` note |
 | 经验 | `craft/<name>.md` | `[experience]` note |

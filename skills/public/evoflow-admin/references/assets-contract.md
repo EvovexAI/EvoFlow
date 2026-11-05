@@ -12,7 +12,7 @@
 
 | 主体 | 根 | 用途 |
 |------|-----|------|
-| 登录用户 | `assets/users/<id>/` | 用户记忆、画像 |
+| 登录用户 | `assets/users/<id>/` | 用户记忆、画像、主智能体情感 |
 | 本地共享用户 | `assets/user/` | 单机默认 |
 | employee | `assets/employees/<code>/` | 员工长期记忆 / 过程 / 经验 / 反思 / 情感 |
 | lead/main agent | `assets/agents/main/profile/` | SOUL 等；**无独立记忆树** |
@@ -35,7 +35,7 @@
 | 路径 | 用途 | 写入 |
 |------|------|------|
 | `profile/USER.md` | 用户画像 | `action=profile` + `mode=append\|replace` |
-| `profile/affect.md` | 员工情感 | `action=affect` + `mode=append\|replace` |
+| `profile/affect.md` | 情感（用户侧=主智能体；员工侧=该员工） | `action=affect` + `mode=append\|replace` |
 | `memory/standing.md` | **长期记忆** | `note` `kind=preference` |
 | `memory/episodic/` | **过程** | `note` `kind=process` |
 | `craft/<name>.md` | 经验 | `note` `kind=experience` |
@@ -73,7 +73,7 @@ assets(action="affect", mode="append|replace", content="…")
 | 本轮结论 / 过程 | `kind=process` |
 | 可复用做法 | `kind=experience` |
 | 短反思 | `kind=reflection` |
-| 员工心境变化 | `affect` |
+| 心境变化（主智能体或员工） | `affect` |
 | 用户说「记住」 | 立刻写 |
 
 默认同轮写。同主题 / 过时：先 `read`，再 `note`+`path` 或 `write`；是否更新由模型判断。
@@ -89,10 +89,10 @@ assets(action="affect", mode="append|replace", content="…")
 
 ---
 
-## 6. 用户画像 / 员工情感
+## 6. 用户画像 / 情感
 
-- 画像真源：`profile/USER.md` — `assets profile`
-- 情感真源：`profile/affect.md` — `assets affect`（模型主动写，无后台改）
+- 画像真源：`profile/USER.md` — `assets profile`（用户根）
+- 情感真源：`profile/affect.md` — `assets affect`（用户根=主智能体；员工根=该员工；模型主动写，无后台改）
 - `mode=append` 默认；`mode=replace` 整份重写
 
 ---
