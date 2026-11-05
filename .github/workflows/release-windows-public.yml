@@ -210,18 +210,12 @@ jobs:
           }
 
       # Clients poll raw.githubusercontent.com/.../main/update/latest.json — never leave this 404 after a ship.
-      - name: Publish public update/latest.json
+      # Do NOT push the manifest from CI: GitHub Contents API conflicts (409) and the
+      # missing Gitee credentials made every release job fail and forked main.
+      # Refresh it from a maintainer machine after the run finishes.
+      - name: Remind to publish update/latest.json
         shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GITEE_REPO_TOKEN: ${{ secrets.GITEE_REPO_TOKEN }}
         run: |
-          $ErrorActionPreference = 'Stop'
-          $ver = "${{ steps.artifacts.outputs.version }}"
           $tag = "${{ steps.artifacts.outputs.tag }}"
-          $nsis = "evopanel/src-tauri/target/release/bundle/nsis"
-          $script = "scripts/maintainer/windows/push-public-latest-json.ps1"
-          if (-not (Test-Path -LiteralPath $script)) { throw "Missing $script" }
-          & powershell -NoProfile -ExecutionPolicy Bypass -File $script -Tag $tag -NsisDir $nsis
-          if ($LASTEXITCODE -ne 0) { throw "push-public-latest-json.ps1 failed for $tag" }
-          Write-Host "Public update channel refreshed for $ver"
+          Write-Host "Release $tag is published."
+          Write-Host "Refresh the manifest locally: scripts/maintainer/windows/push-public-latest-json.ps1 -Tag $tag"
