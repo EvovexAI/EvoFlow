@@ -47,9 +47,25 @@ def _tool_binding_snapshot(
     }
 
 
+def _is_synthetic_human(msg: Any) -> bool:
+    """Skip inject / summary / prefetch humans when resolving the user turn key."""
+    name = str(getattr(msg, "name", None) or "").strip()
+    if name in {
+        "view_image_inject",
+        "conversation_summary",
+        "tool_history",
+        "external_memory_prefetch",
+        "todo_reminder",
+    }:
+        return True
+    return False
+
+
 def _extract_latest_user_text(messages: list[Any]) -> str:
     for m in reversed(messages):
         if getattr(m, "type", None) != "human":
+            continue
+        if _is_synthetic_human(m):
             continue
         content = getattr(m, "content", "")
         if isinstance(content, str):
@@ -72,10 +88,12 @@ def _extract_latest_user_key(messages: list[Any]) -> str:
     for m in reversed(messages):
         if getattr(m, "type", None) != "human":
             continue
+        if _is_synthetic_human(m):
+            continue
         mid = str(getattr(m, "id", "") or "").strip()
         if mid:
             return f"id:{mid}"
-        text = _extract_latest_user_text(messages)
+        text = _extract_latest_user_text([m])
         if text:
             return f"text:{text}"
         break
@@ -89,7 +107,10 @@ class RoundTraceMiddleware(AgentMiddleware[AgentState]):
     (adapted from the legacy voice module turn-trace.js).
     """
 
-    _lock = threading.Lock()
+    # RLock: ``_log_once_per_user_turn`` holds the lock then calls
+    # ``_end_turn_if_active``, which also needs it. A plain Lock deadlocks the
+    # event-loop worker on the first new-user-turn (UI stuck at 「准备中…」).
+    _lock = threading.RLock()
     _last_logged_key_by_thread: dict[str, str] = {}
     _last_prefix_sig_by_thread: dict[str, str] = {}
 
@@ -190,14 +211,19 @@ class RoundTraceMiddleware(AgentMiddleware[AgentState]):
         if not user_key:
             return
         dedupe_key = f"{thread_id}::{user_key}"
+        should_finalize_prev = False
         with self._lock:
             prev = self._last_logged_key_by_thread.get(thread_id)
             if prev == dedupe_key:
                 return
-
-            # New user message → finalize previous turn
-            self._end_turn_if_active(thread_id)
+            # Mark first, finalize outside the critical section so end_turn I/O
+            # cannot nest awkwardly with other lock holders.
             self._last_logged_key_by_thread[thread_id] = dedupe_key
+            should_finalize_prev = True
+
+        if should_finalize_prev:
+            # New user message → finalize previous turn (may take the lock again).
+            self._end_turn_if_active(thread_id)
 
         payload = {
             "event": "turn_snapshot",

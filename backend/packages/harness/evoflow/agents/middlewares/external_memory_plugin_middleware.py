@@ -55,9 +55,13 @@ class ExternalMemoryPluginMiddleware(AgentMiddleware[ExternalMemoryPluginMiddlew
         last = messages[-1]
         if getattr(last, "type", None) != "human":
             return None
-        if getattr(last, "name", None) in (
+        last_name = getattr(last, "name", None)
+        if last_name in (
             "external_memory_prefetch",
             "todo_reminder",
+            # Ephemeral vision inject — must not become a memory prefetch query
+            # (would pull base64 / path dumps into the plugin and can stall pre_model).
+            "view_image_inject",
         ):
             return None
 

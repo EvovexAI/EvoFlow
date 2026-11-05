@@ -707,6 +707,32 @@ def _is_xiaomi_lead_run(agent_name: str | None) -> bool:
         return str(agent_name or "").strip().lower() in {"xiaomi", "小v", "小蜜", "xiaov"}
 
 
+def _strip_outer_identity_xml(text: str) -> str:
+    """Strip a single outer ``<soul>`` / ``<agent_system_prompt>`` wrapper if present."""
+    t = str(text or "").strip()
+    for tag in ("soul", "agent_system_prompt"):
+        open_t, close_t = f"<{tag}>", f"</{tag}>"
+        if t.startswith(open_t) and t.endswith(close_t):
+            return t[len(open_t) : -len(close_t)].strip()
+    return t
+
+
+def _normalize_prompt_body_for_dedupe(text: str) -> str:
+    """Normalize soul / system_prompt bodies so near-duplicates collapse.
+
+    Production often stores the same duty text twice with tiny diffs
+    (``# EvoFlow`` vs ``EvoFlow``, bold markers, blank lines). Exact-string
+    equality then injects both ``<soul>`` and ``<agent_system_prompt>`` —
+    the model hears the same identity three times with ``<role>``.
+    """
+    t = _strip_outer_identity_xml(text)
+    # Drop markdown headings / bold / italic noise; collapse whitespace.
+    t = re.sub(r"^#+\s*", "", t, flags=re.MULTILINE)
+    t = t.replace("**", "").replace("__", "").replace("*", "")
+    t = re.sub(r"\s+", " ", t).strip().casefold()
+    return t
+
+
 def _inject_identity_layers(
     blocks: list[str],
     *,
@@ -719,20 +745,20 @@ def _inject_identity_layers(
 
     Identity layering rules (kept in code so it stays in sync with the runtime behaviour):
 
-      - ``<soul>`` is the behavioral habit reference. The caller already wraps it
-        (e.g. ``get_agent_soul``), so we only sanitize here; never re-wrap.
-      - ``<agent_system_prompt>`` is the override layer that sits *above* role blocks
-        in the assembled prompt. It is the only place ``config.yaml system_prompt``
-        surfaces.
-      - These two layers coexist with the L1 ``<decision_chain>`` rule: on conflict,
-        ``<agent_system_prompt>`` outranks ``<soul>``, which outranks the base role block.
+      - ``<role>`` (assembled earlier) is the sole identity anchor — who the agent is.
+      - ``<soul>`` is the behavioral habit / tone reference. Do not restate identity here.
+      - ``<agent_system_prompt>`` is the duty/constraint override from ``config.yaml
+        system_prompt``. Skipped when it normalizes equal to soul (scheduler often
+        mirrors soul into that field).
+      - On conflict: latest user message > ``<agent_system_prompt>`` > ``<soul>`` > ``<role>``.
 
-    ``override_first=True`` (xiaomi) puts the duty/constraint override before the
-    style soul — duties first, persona style layered underneath.
+    Default order is duty first, soul below (``override_first`` keeps that;
+    ``override_first=False`` only flips for rare callers that want style-first).
 
     Centralizing this avoids drift between the xiaomi-mode and the default-assemble
     branches (they previously inlined this logic with subtle wording differences).
     """
+    _ = dyn
 
     def _append_soul() -> None:
         if soul.strip():
@@ -741,8 +767,7 @@ def _inject_identity_layers(
             # (e.g. via `get_agent_soul()` which XML-wraps for the employee chat path).
             # We re-wrap here ourselves, so strip any outer tag first to avoid stacking
             # two `<soul>` / `<agent_system_prompt>` blocks for the same content.
-            if safe_soul.startswith("<soul>") and safe_soul.endswith("</soul>"):
-                safe_soul = safe_soul[len("<soul>") : -len("</soul>")].strip()
+            safe_soul = _strip_outer_identity_xml(safe_soul)
             if safe_soul.strip():
                 blocks.append(f"<soul>\n{safe_soul}\n</soul>")
 
@@ -753,12 +778,15 @@ def _inject_identity_layers(
         # ``save_agent_config`` 把 soul 复制到 ``system_prompt`` 字段(调度器只看 system_prompt)。
         # 这里不要把同一份 SOUL 文本在 ``<soul>`` 和 ``<agent_system_prompt>`` 两个标签里重复显示——
         # 已是 soul 内容的 custom_system_prompt 由 ``<soul>`` 段承载,这里跳过注入。
-        bare_soul = soul.strip()
-        if bare_soul.startswith("<soul>") and bare_soul.endswith("</soul>"):
-            bare_soul = bare_soul[len("<soul>") : -len("</soul>")].strip()
-        if extra == bare_soul:
+        bare_soul = _strip_outer_identity_xml(soul)
+        bare_extra = _strip_outer_identity_xml(extra)
+        if bare_extra == bare_soul or (
+            bare_soul
+            and _normalize_prompt_body_for_dedupe(bare_extra)
+            == _normalize_prompt_body_for_dedupe(bare_soul)
+        ):
             return
-        safe_extra = scan_content(extra, source="custom_system_prompt")
+        safe_extra = scan_content(bare_extra, source="custom_system_prompt")
         # Strip stray "Lessons Learned" section + normalize legacy "Lessons" writes
         # (the legacy term is no longer a valid deposit target; the inbox flow owns writes).
         try:
@@ -785,12 +813,11 @@ def _inject_identity_layers(
             f"<agent_system_prompt>\n{safe_extra}\n</agent_system_prompt>"
         )
 
-    if override_first:
-        _append_override()
-        _append_soul()
-    else:
-        _append_soul()
-        _append_override()
+    # Duty (system_prompt) above; soul style below. ``override_first`` retained for
+    # call-site compat but no longer flips order — product wants system_prompt first.
+    _ = override_first
+    _append_override()
+    _append_soul()
 
 
 def _assemble_system_prompt(
@@ -875,6 +902,10 @@ def _assemble_system_prompt(
             blocks.append(static.VOICE_MODE_BLOCK.strip())
         if is_im and getattr(static, "IM_CHANNEL_REPLY_BLOCK", "").strip():
             blocks.append(static.IM_CHANNEL_REPLY_BLOCK.strip())
+        # 易变块靠后：心境放最后（UI context footer 由 middleware 在其后追加）
+        affect_block = get_agent_affect_block(agent_name)
+        if affect_block:
+            blocks.append(affect_block.strip())
         return "\n\n".join([b for b in blocks if b]).strip() + "\n"
 
     # 统一裁决链：静态块（role/communication/entity_assets）是基础，
@@ -1017,6 +1048,10 @@ def _assemble_system_prompt(
         blocks.append(static.IM_CHANNEL_REPLY_BLOCK.strip())
 
     # Final join with blank lines
+    # 易变块靠后：心境放最后（UI context footer 由 middleware 在其后追加）
+    affect_block = get_agent_affect_block(agent_name)
+    if affect_block:
+        blocks.append(affect_block.strip())
     return "\n\n".join([b for b in blocks if b]).strip() + "\n"
 
 
@@ -1431,23 +1466,8 @@ def build_memory_injection_sections(
         except Exception:
             logger.debug("asset memory injection skipped", exc_info=True)
 
-    # Bound workspace: inject project catalog (compact asset-hub style).
-    # No procedure / no discipline block — already covered by user memory's read_path.md.
-    lw = str(local_workspace_root or "").strip()
-    if lw:
-        try:
-            from evoflow.agents.memory.workspace_memory import format_workspace_memory_context
-
-            ws_block = format_workspace_memory_context(
-                lw,
-                injection_profile=injection_profile,
-            ).strip()
-            if ws_block:
-                safe_ws = scan_content(ws_block, source="workspace_memory").strip()
-                if safe_ws:
-                    body_parts.append(safe_ws)
-        except Exception:
-            logger.debug("workspace memory injection skipped", exc_info=True)
+    # Workspace/project memory injection removed: employee/user Asset Hub is enough.
+    # Existing ``<workspace>/.evoflow/memory`` on disk is left untouched (no archive/cleanup).
 
     if body_parts:
         sections.extend(body_parts)
@@ -1938,7 +1958,21 @@ def get_agent_soul(agent_name: str | None, *, include_employee_posting: bool = F
             )
     if soul_block:
         parts.append(soul_block)
-    # Unified affect brief (all coded agents: xiaomi + employees + named agents).
+    # 心境（<affect>）不再内联在这里——它每轮微变，紧跟 soul 会把厂商前缀缓存从
+    # soul 位置整体击穿。统一由 _assemble_system_prompt 追加到提示词最末尾
+    # （get_agent_affect_block）。
+    # ``<person_presence>`` / 站立摘要是智能体员工值班话术（班次、本轮、收工）。
+    # 主会话 Agent 对话不要注入；值班路径在 proactive/prompt.py 里 ``for_duty=True`` 单独加。
+    return "".join(parts)
+
+
+def get_agent_affect_block(agent_name: str | None) -> str:
+    """心境（<affect>）块——供 _assemble_system_prompt 追加到提示词最末尾。
+
+    为什么放最后：心境 brief 每轮都可能微变，放提示词中段（旧：紧跟 soul）会让
+    厂商前缀缓存从 soul 位置开始整体失效（TTFT 与成本双输）。易变内容全部靠后，
+    前缀（role/communication/soul/duties/tools）保持逐字节稳定。
+    """
     try:
         code = str(agent_name or "").strip().lower()
         if code and code not in {"main", "lead_agent", "user", "default"}:
@@ -1947,15 +1981,10 @@ def get_agent_soul(agent_name: str | None, *, include_employee_posting: bool = F
 
             brief = format_affect_brief(code)
             if brief:
-                parts.append(
-                    f"\n<affect>\n{brief}\n\n{AFFECT_DISCIPLINE_PROMPT.strip()}\n</affect>\n"
-                )
+                return f"\n<affect>\n{brief}\\n{AFFECT_DISCIPLINE_PROMPT.strip()}\n</affect>\n"
     except Exception:
-        logger.debug("get_agent_soul: affect inject skipped", exc_info=True)
-    # ``<person_presence>`` / 站立摘要是智能体员工值班话术（班次、本轮、收工）。
-    # 主会话 Agent 对话不要注入；值班路径在 proactive/prompt.py 里 ``for_duty=True`` 单独加。
-    return "".join(parts)
-
+        logger.debug("get_agent_affect_block: inject skipped", exc_info=True)
+    return ""
 
 def _is_lead_agent_code(agent_name: str | None) -> bool:
     code = str(agent_name or "").strip().lower()
@@ -2250,11 +2279,13 @@ def apply_prompt_template(
                 )
             except Exception:
                 emp_person_memory = ""
+        # inject_soul: None/True = load SOUL; False = 岗位显式关闭
+        emp_soul = "" if inject_soul is False else _load_agent_soul_text(agent_name)
         prompt = assemble_employee_system_prompt(
             mode="chat",
             identity=emp_identity,
             agent_code=str(emp_identity.get("code") or agent_name or ""),
-            soul=_load_agent_soul_text(agent_name),
+            soul=emp_soul,
             skills_section=skills_blob,
             workspace_root_hint=_resolve_workspace_root(local_workspace_root) or str(emp_identity.get("workspace_path") or ""),
             runtime_os=runtime_os,
@@ -2278,12 +2309,14 @@ def apply_prompt_template(
                 resolve_dept_group_im_from_session,
             )
 
-            _dg_on, _dg_name, _dg_steward = resolve_dept_group_im_from_session(
+            _dg_on, _dg_name, _dg_steward, _dg_roster = resolve_dept_group_im_from_session(
                 prompt_session_key or session_key
             )
             if _dg_on:
                 _dg_block = build_dept_group_im_block(
-                    dept_name=_dg_name, steward=_dg_steward
+                    dept_name=_dg_name,
+                    steward=_dg_steward,
+                    roster=_dg_roster,
                 ).strip()
                 if _dg_block:
                     prompt = f"{prompt.rstrip()}\n\n{_dg_block}\n"
@@ -2297,7 +2330,7 @@ def apply_prompt_template(
         prompt = _assemble_system_prompt(
             scenario=intent,
             agent_name=display_name,
-            soul=get_agent_soul(agent_name),
+            soul="" if inject_soul is False else get_agent_soul(agent_name),
             custom_system_prompt=(custom_system_prompt or "").strip(),
             memory_context=memory_context,
             workspace_memory_context=workspace_memory_context,

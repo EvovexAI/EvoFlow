@@ -700,9 +700,7 @@ def delete_text_file(entity: EntityRef, rel_path: str) -> dict[str, Any]:
         raise ValueError("path is required")
     # Protect core profile files from casual delete
     protected = {
-        "profile/basic-info.md",
-        "profile/preferences.md",
-        "profile/persona.md",
+        "profile/USER.md",
         "profile/SOUL.md",
         "profile/identity.md",
         "profile/system.md",

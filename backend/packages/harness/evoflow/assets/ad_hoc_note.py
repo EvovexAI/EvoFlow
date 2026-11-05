@@ -191,7 +191,7 @@ def format_live_pending_inbox_for_agent(
     agent_name: str | None = None,
     principal_id: str = "",
     limit: int = 6,
-    max_chars: int = 900,
+    max_chars: int = 0,
 ) -> str:
     """Resolve the dialogue memory entity and return pending-inbox preview text.
 
@@ -218,12 +218,15 @@ def format_pending_inbox_notes_for_prompt(
     entity: EntityRef,
     *,
     limit: int = 6,
-    max_chars: int = 900,
+    max_chars: int = 0,
 ) -> str:
     """Inject pending ``_inbox/notes`` until Phase2 consolidates them into standing/craft.
 
     Must be applied **live each turn** (not frozen with standing): otherwise a note
     written mid-chat stays invisible until freeze invalidation / new session.
+
+    Default ``max_chars=0`` keeps each note body intact (ops/debug + model see the
+    full draft). Pass a positive ``max_chars`` only when a caller needs a hard budget.
 
     每条 note 单独过 prompt-injection 扫描器：note 正文是不可信内容（对话里
     可以种），一条中毒只屏蔽那一条，不拖累整块。
@@ -244,6 +247,7 @@ def format_pending_inbox_notes_for_prompt(
 
     lines: list[str] = []
     used = 0
+    budget = int(max_chars or 0)
     for path in files:
         try:
             raw = path.read_text(encoding="utf-8", errors="replace")
@@ -252,13 +256,14 @@ def format_pending_inbox_notes_for_prompt(
         meta, body = parse_frontmatter(raw)
         created = str(meta.get("created") or "").strip() or "?"
         body = str(body or "").strip()
-        # Drop first-line tag noise for a one-line preview.
+        # Keep full note body (whitespace-collapsed to one line for the catalog row).
         preview_lines = [ln.strip() for ln in body.splitlines() if ln.strip()]
-        preview = " ".join(preview_lines)[:180]
+        preview = " ".join(preview_lines)
         if not preview:
             continue
         line = f"- [{created}|{path.name}] {preview}"
-        if used + len(line) > max_chars:
+        if budget > 0 and used + len(line) > budget:
+            lines.append("- …(pending inbox truncated)")
             break
         lines.append(line)
         used += len(line) + 1
@@ -271,7 +276,10 @@ def format_pending_inbox_notes_for_prompt(
         lines = scan_memory_entries(lines, source="pending_inbox_notes")
     except Exception:
         pass
+    # Paired XML like other prompt regions — not a bare HTML comment tail.
     return (
-        "<!-- pending inbox notes: injected until Phase2 consolidates -->\n"
+        "<pending_inbox>\n"
+        "<!-- injected until Phase2 consolidates -->\n"
         + "\n".join(lines)
+        + "\n</pending_inbox>"
     )

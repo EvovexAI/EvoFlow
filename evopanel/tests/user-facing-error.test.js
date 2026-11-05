@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { toUserFacingError } from '../src/lib/user-facing-error.js'
+import { isConnectivityToastNoise, toUserFacingError } from '../src/lib/user-facing-error.js'
 
 describe('toUserFacingError', () => {
   it('keeps already friendly Chinese messages', () => {
@@ -10,6 +10,18 @@ describe('toUserFacingError', () => {
 
   it('maps thread_id jargon', () => {
     expect(toUserFacingError('无法获取会话 thread_id')).toBe('会话尚未就绪，请稍后重试')
+  })
+
+  it('maps Volc Ark tool-pair mismatch (11148) away from raw JSON', () => {
+    const raw =
+      'upstream 400: {"code":11148,"msg":"tool calls and tool results do not match, please start a new conversation and retry","retry_policy":{"retry":false}}'
+    expect(toUserFacingError(raw)).toBe('对话里的工具调用记录不完整，请新建对话后再试')
+  })
+
+  it('maps zh Incomplete tool records displayMsg', () => {
+    expect(toUserFacingError('工具记录不完整，请新建任务')).toBe(
+      '对话里的工具调用记录不完整，请新建对话后再试',
+    )
   })
 
   it('maps python TypeError from backend', () => {
@@ -46,5 +58,15 @@ describe('toUserFacingError', () => {
     expect(toUserFacingError('user interrupt')).toBe('')
     expect(toUserFacingError('UserInterrupt')).toBe('')
     expect(toUserFacingError('User interrupted the run')).toBe('')
+  })
+
+  it('marks gateway connectivity copy as toast noise', () => {
+    expect(isConnectivityToastNoise('服务连接异常，请确认服务已启动后重试')).toBe(true)
+    expect(isConnectivityToastNoise('服务连接异常：gateway warming')).toBe(true)
+    expect(isConnectivityToastNoise('服务未启动或暂时不可用，请检查服务状态')).toBe(true)
+    expect(isConnectivityToastNoise('无法连接本地服务，请确认 Gateway（8070）与前端已启动')).toBe(
+      true,
+    )
+    expect(isConnectivityToastNoise('上一条消息仍在处理中，请稍候')).toBe(false)
   })
 })

@@ -166,6 +166,16 @@ export function cronToPlainZh(expr) {
 /** 新建员工默认上班节奏：每天 2 次（09:00、15:00）。过频的「每 2 小时」改为用户主动选。 */
 export const DEFAULT_DUTY_CRON = '0 9,15 * * *'
 
+/** 员工摘要 / 排班面板共用的常用上班频率预设 */
+export const DUTY_SCHEDULE_PRESETS = Object.freeze([
+  { label: '每天 2 次', cron: DEFAULT_DUTY_CRON },
+  { label: '每天 9:00', cron: '0 9 * * *' },
+  { label: '工作日 9:00', cron: '0 9 * * 1-5' },
+  { label: '每 2 小时', cron: '0 9-19/2 * * *' },
+  { label: '每小时', cron: '0 9-19 * * *' },
+  { label: '每 3 小时', cron: '0 9-19/3 * * *' },
+])
+
 /**
  * @param {{ schedule?: string, scheduledAt?: string, idPrefix?: string, compact?: boolean, tone?: 'duty'|'task' }} initial
  * tone=duty（默认）：智能体员工「自动上班」文案
@@ -201,14 +211,7 @@ export function createSchedulePanel(initial = {}) {
         fallbackSummary: '按计划自动上班',
       }
 
-  const PRESETS = [
-    { label: '每天 2 次', cron: DEFAULT_DUTY_CRON },
-    { label: '每天 9:00', cron: '0 9 * * *' },
-    { label: '工作日 9:00', cron: '0 9 * * 1-5' },
-    { label: '每 2 小时', cron: '0 9-19/2 * * *' },
-    { label: '每小时', cron: '0 9-19 * * *' },
-    { label: '每 3 小时', cron: '0 9-19/3 * * *' },
-  ]
+  const PRESETS = DUTY_SCHEDULE_PRESETS
 
   function plainSummary(text, fallbackExpr) {
     const raw = String(text || '').trim()

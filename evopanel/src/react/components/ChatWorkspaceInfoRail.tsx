@@ -1,5 +1,7 @@
-import { memo, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { memo, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Pencil } from 'lucide-react'
+import { toast } from '../../components/toast.js'
+import { toUserFacingError } from '../../lib/user-facing-error.js'
 import type { ContextUsageSnapshot } from '../lib/context-usage.js'
 import type { CollabTaskSnapshot, TokenTotals } from '../chat-types.js'
 import AgentAvatar from './AgentAvatar.js'
@@ -27,7 +29,6 @@ import {
 } from '../lib/chat-artifact.js'
 import {
   artifactTimestampMs,
-  formatCompactCount,
   formatDutyRoundClock,
   formatInfoRailTime,
   inferEmployeeTaskKind,
@@ -40,6 +41,7 @@ import {
   AgentCapabilityTabs,
   type AgentCapabilityPatch,
 } from './AgentCapabilityTabs.js'
+import { AgentRolePrefs } from './AgentRolePrefs.js'
 import { PlatformRunTable } from './PlatformRunTable.js'
 import { SessionDebugPane } from './SessionDebugPane.js'
 import {
@@ -50,12 +52,19 @@ import { parseProactiveSessionKey } from '../lib/session-list/workspace-groups.j
 import { resolveEmployeeDisplayName } from '../lib/employee-display.js'
 import {
   boardTaskId,
+  groupBoardTasksByLane,
   listSessionBoardTasks,
   pickBoardTask,
   resolveOverlayLiveTask,
   taskSourceLabel,
   type EmployeeBoardTask,
 } from '../lib/employee-current-task.js'
+import {
+  cronToPlainZh,
+  DUTY_SCHEDULE_PRESETS,
+  roleScheduleExpr,
+  roleScheduleSummary,
+} from '../../lib/schedule-panel.js'
 
 /** 普通对话：Agent / 产物 / 调试 / 平台；员工对话：员工 / 任务 / 产物 / 运行 / 调试 / 平台 */
 export type InfoRailTab = 'artifacts' | 'context' | 'agent' | 'task' | 'run' | 'employee' | 'platform' | 'debug'
@@ -70,7 +79,19 @@ export type EmployeeRailInfo = {
   modelName?: string
   autonomyLabel?: string
   thinkModeLabel?: string
+  /** null = 跟随默认 */
+  thinkingEnabled?: boolean | null
+  /** null = 跟随模型 */
+  visionEnabled?: boolean | null
+  /** 记忆总闸；默认开，显式 false 为关 */
+  memoryEnabled?: boolean | null
   knowledgeVaultIds?: string[]
+  /** 5 字段 cron 或遗留 RRULE */
+  heartbeatSchedule?: string
+  scheduleSummary?: string
+  nextHeartbeatAt?: string
+  lastHeartbeatAt?: string
+  autoPatrolSuspended?: boolean
 }
 
 /** @deprecated prefer ChatArtifact */
@@ -151,14 +172,38 @@ function EmptyHint({ children }: { children: ReactNode }) {
   return <div className="react-chat-info-rail-empty">{children}</div>
 }
 
+/** 打开资产中心时落到指定实体（员工会话必须带 entity，否则会落到「我」）。 */
+export function assetsCenterHref(opts?: {
+  entityType?: string | null
+  entityId?: string | null
+}): string {
+  const et = String(opts?.entityType || '').trim()
+  const eid = String(opts?.entityId || '').trim()
+  if (!et || !eid) return '#/assets'
+  const params = new URLSearchParams()
+  params.set('entityType', et)
+  params.set('entityId', eid)
+  return `#/assets?${params.toString()}`
+}
+
 /** 资产沉淀（记录过程 / 沉淀经验 / 反思 / 查看资产中心）—— 状态面板智能体区复用 */
 export function AssetQuickActions({
   onAction,
   busy = false,
+  entityType = null,
+  entityId = null,
 }: {
   onAction: (kind: 'episode' | 'craft' | 'journal') => void
   busy?: boolean
+  /** 员工会话：employee + agent_code；普通会话可省略（落到「我」） */
+  entityType?: string | null
+  entityId?: string | null
 }) {
+  const href = assetsCenterHref({ entityType, entityId })
+  const linkTitle =
+    entityType === 'employee' && entityId
+      ? `打开「${entityId}」的资产中心`
+      : '打开资产中心'
   return (
     <section className="react-chat-asset-quick" aria-label="资产沉淀">
       <div className="react-chat-asset-quick-label">资产沉淀</div>
@@ -191,7 +236,7 @@ export function AssetQuickActions({
           反思
         </button>
       </div>
-      <a className="react-chat-asset-quick-link" href="#/assets" title="打开资产中心">
+      <a className="react-chat-asset-quick-link" href={href} title={linkTitle}>
         查看资产中心 →
       </a>
     </section>
@@ -612,11 +657,108 @@ function roleStatusLabel(
   return '空闲'
 }
 
+/** 下次上班相对时间（过去/将来）；解析失败返回空串。 */
+function formatRelativeHeartbeat(iso: string | undefined | null): string {
+  const raw = String(iso || '').trim()
+  if (!raw) return ''
+  const t = Date.parse(raw)
+  if (!Number.isFinite(t)) return ''
+  const diffMs = t - Date.now()
+  const abs = Math.abs(diffMs)
+  const mins = Math.round(abs / 60_000)
+  const hours = Math.round(abs / 3_600_000)
+  const days = Math.round(abs / 86_400_000)
+  let unit = ''
+  if (mins < 1) unit = '不到 1 分钟'
+  else if (mins < 60) unit = `${mins} 分钟`
+  else if (hours < 48) unit = `${hours} 小时`
+  else unit = `${days} 天`
+  return diffMs >= 0 ? `${unit}后` : `${unit}前`
+}
+
+function TaskLaneList({
+  title,
+  items,
+  focusedId,
+  onSelect,
+  collapsed = false,
+  previewLimit = 4,
+}: {
+  title: string
+  items: EmployeeBoardTask[]
+  focusedId: string
+  onSelect: (id: string) => void
+  /** 默认收起（已处理） */
+  collapsed?: boolean
+  previewLimit?: number
+}) {
+  const [open, setOpen] = useState(!collapsed)
+  if (!items.length) return null
+  const visible = open ? items.slice(0, previewLimit) : []
+  const more = Math.max(0, items.length - previewLimit)
+  const body = (
+    <>
+      <ul className="react-chat-session-task-list-body">
+        {visible.map((t, idx) => {
+          const id = boardTaskId(t)
+          const name = String(t.name || '').trim() || '未命名'
+          const st = taskStatusLabel(t.status)
+          const active = Boolean(id && id === focusedId)
+          return (
+            <li key={id || `lane-task-${idx}`}>
+              <button
+                type="button"
+                className={`react-chat-session-task-item${active ? ' is-active' : ''}`}
+                title={id || name}
+                aria-current={active ? 'true' : undefined}
+                onClick={() => {
+                  if (id) onSelect(id)
+                }}
+              >
+                <span className="react-chat-session-task-item-name">{name}</span>
+                <span className="react-chat-session-task-item-status">{st}</span>
+              </button>
+            </li>
+          )
+        })}
+      </ul>
+      {open && more > 0 ? (
+        <div className="react-chat-session-task-more">还有 {more} 项…</div>
+      ) : null}
+    </>
+  )
+  if (collapsed) {
+    return (
+      <details
+        className="react-chat-session-task-list is-fold"
+        aria-label={title}
+        open={open}
+        onToggle={(e) => setOpen((e.target as HTMLDetailsElement).open)}
+      >
+        <summary className="react-chat-session-task-list-head">
+          {title}
+          <span className="react-chat-session-task-list-count">{items.length}</span>
+        </summary>
+        {body}
+      </details>
+    )
+  }
+  return (
+    <div className="react-chat-session-task-list" aria-label={title}>
+      <div className="react-chat-session-task-list-head">
+        {title}
+        <span className="react-chat-session-task-list-count">{items.length}</span>
+      </div>
+      {body}
+    </div>
+  )
+}
+
 /** 员工对话「当前任务」Pane —— 由状态面板「更多」区复用 */
 export function TaskPane({
   sessionTitle,
   isRunning,
-  tokenTotals,
+  tokenTotals: _tokenTotals,
   agentCode,
   sessionKey,
   liveTask = null,
@@ -644,7 +786,6 @@ export function TaskPane({
   const [boardTasks, setBoardTasks] = useState<EmployeeBoardTask[]>([])
   const [boardTask, setBoardTask] = useState<EmployeeBoardTask | null>(null)
   const [pendingApprovals, setPendingApprovals] = useState(0)
-  const [boardCount, setBoardCount] = useState(0)
   const [showTechDetails, setShowTechDetails] = useState(false)
   const [showTaskDetail, setShowTaskDetail] = useState(false)
   const [showMoreInfo, setShowMoreInfo] = useState(false)
@@ -653,11 +794,17 @@ export function TaskPane({
   const [roleBusy, setRoleBusy] = useState(false)
   const [busySessionKey, setBusySessionKey] = useState('')
   const [busyRoundId, setBusyRoundId] = useState('')
+  const [noteDraft, setNoteDraft] = useState('')
+  const [noteDirty, setNoteDirty] = useState(false)
+  const [noteSaving, setNoteSaving] = useState(false)
+  const [boardReloadNonce, setBoardReloadNonce] = useState(0)
 
   useEffect(() => {
     setFocusTaskId('')
     setShowTaskDetail(false)
     setShowMoreInfo(false)
+    setNoteDraft('')
+    setNoteDirty(false)
   }, [sessionKey])
 
   useEffect(() => {
@@ -692,7 +839,6 @@ export function TaskPane({
       setBusySessionKey('')
       setBusyRoundId('')
       setPendingApprovals(0)
-      setBoardCount(0)
       return
     }
     let cancelled = false
@@ -717,7 +863,6 @@ export function TaskPane({
         ? (boardRes.tasks as EmployeeBoardTask[])
         : []
       setBoardTasks(tasks)
-      setBoardCount(tasks.filter((t) => t && !t.is_subtask && !t.subtask_id).length)
       setPendingApprovals(
         Array.isArray(boardRes?.pending_approvals)
           ? boardRes.pending_approvals.length
@@ -730,9 +875,9 @@ export function TaskPane({
         [hintTaskId, focusTaskId, liveHint].filter(Boolean),
         10,
       )
-      // 新对话/无关联任务时置空：当前任务卡片显示空态，不把岗位其他任务顶上来
+      // 新对话无关联：默认空态；用户点选列表任务（focusTaskId）后仍可聚焦
       setBoardTask(
-        listed.scoped
+        listed.scoped || String(focusTaskId || '').trim()
           ? pickBoardTask(
               listed.items,
               hintTaskId,
@@ -852,7 +997,7 @@ export function TaskPane({
         document.removeEventListener('visibilitychange', onVisibility)
       }
     }
-  }, [code, hintTaskId, focusTaskId, isRunning, sessionKey, liveTask?.taskId, roleMissing])
+  }, [code, hintTaskId, focusTaskId, isRunning, sessionKey, liveTask?.taskId, roleMissing, boardReloadNonce])
 
   const focusedId = boardTaskId(boardTask)
   const title =
@@ -887,8 +1032,6 @@ export function TaskPane({
   const taskId = String(focusedId || preferredTaskId || pinnedLive?.taskId || '').trim()
   const working = isRunning || (!taskDone && tone === 'progress')
   const roleStatus = roleStatusLabel(roleBusy, isRunning, busyOnOtherSession)
-  const tokenTotal = Number(tokenTotals?.total || 0)
-  const hasStats = boardCount > 0 || pendingApprovals > 0 || tokenTotal > 0
   const hasTechDetails = Boolean(taskId || busyRoundId)
   const sourceLabel =
     String(boardTask?.source_zh || '').trim() ||
@@ -901,8 +1044,8 @@ export function TaskPane({
   const completedLabel = formatInfoRailTime(boardTask?.completed_at)
   const risk = String(boardTask?.risk_level || '').trim()
   const relatedTasks = sessionTaskList.items
-  const showRelatedList = relatedTasks.length > 1
   const relatedHead = sessionTaskList.scoped ? '本会话任务' : '岗位任务'
+  const taskLanes = useMemo(() => groupBoardTasksByLane(relatedTasks), [relatedTasks])
   const pct =
     progress != null ? progress : taskDone ? 100 : working ? 8 : 0
   const buffering = working && !taskDone && pct < 100
@@ -927,12 +1070,62 @@ export function TaskPane({
           ? '…'
           : '—'
 
-  // 会话无关联任务（新对话）：显示空态，不把岗位其他任务顶上来
+  // 备注草稿：切任务或远端 description 变化时回填（脏编辑中不覆盖）
+  useEffect(() => {
+    if (noteDirty) return
+    setNoteDraft(String(boardTask?.description || '').trim())
+  }, [focusedId, boardTask?.description, noteDirty])
+
+  const saveNote = useCallback(async () => {
+    const id = String(taskId || '').trim()
+    if (!id || noteSaving) return
+    setNoteSaving(true)
+    try {
+      const { api } = await import('../../lib/tauri-api.js')
+      await api.updateTask(id, { description: noteDraft })
+      setNoteDirty(false)
+      setBoardTask((prev) =>
+        prev && boardTaskId(prev) === id ? { ...prev, description: noteDraft } : prev,
+      )
+      setBoardTasks((prev) =>
+        prev.map((t) => (boardTaskId(t) === id ? { ...t, description: noteDraft } : t)),
+      )
+      setBoardReloadNonce((n) => n + 1)
+      toast('备注已保存', 'success')
+    } catch (e) {
+      toast(toUserFacingError((e as Error)?.message || e), 'error')
+    } finally {
+      setNoteSaving(false)
+    }
+  }, [taskId, noteDraft, noteSaving])
+
+  // 会话无关联任务（新对话）：空态卡 + 仍可看岗位任务分组列表
   const noAssociatedTask = !boardTask && !pinnedLive && !busyRoundId && !isRunning
+
+  const laneBlock =
+    relatedTasks.length > 0 ? (
+      <section className="react-chat-task-lanes" aria-label={relatedHead}>
+        <TaskLaneList
+          title="待处理"
+          items={taskLanes.open}
+          focusedId={focusedId}
+          onSelect={setFocusTaskId}
+          previewLimit={3}
+        />
+        <TaskLaneList
+          title="已处理"
+          items={taskLanes.done}
+          focusedId={focusedId}
+          onSelect={setFocusTaskId}
+          collapsed
+          previewLimit={3}
+        />
+      </section>
+    ) : null
 
   if (noAssociatedTask) {
     return (
-      <div className="react-chat-current-task-pane">
+      <div className="react-chat-current-task-pane is-compact">
         <section className="react-chat-current-task-card react-chat-current-task-card--empty" aria-label="当前任务">
           <div className="react-chat-current-task-kicker">
             <span>{taskKind}</span>
@@ -945,20 +1138,17 @@ export function TaskPane({
             {loading ? '加载中…' : '暂无关联任务'}
           </p>
         </section>
+        {laneBlock}
       </div>
     )
   }
 
-  // 核心元数据：4 个字段两列展示
-  const coreMetaItems = [
+  // 元数据一律收进「更多」——摘要主区只留标题 / 进度 / 备注 / 列表
+  const extraMetaItems = [
     { label: '任务状态', value: statusZh },
     ...(roleName ? [{ label: '指派岗位', value: roleName }] : []),
     ...(updatedLabel ? [{ label: '最近更新', value: updatedLabel }] : []),
     ...(sourceLabel ? [{ label: '来源', value: sourceLabel }] : []),
-  ]
-
-  // 扩展元数据：收进「更多详情」
-  const extraMetaItems = [
     { label: '岗位状态', value: roleStatus },
     ...(startedLabel ? [{ label: '开始时间', value: startedLabel }] : []),
     ...(completedLabel ? [{ label: '完成时间', value: completedLabel }] : []),
@@ -968,14 +1158,10 @@ export function TaskPane({
     ...(roundClock && !busyHint ? [{ label: '值班时间', value: roundClock }] : []),
   ]
   const hasExtraMeta = extraMetaItems.length > 0
-
-  // 相关任务：最多展示 3 条，超出折叠
-  const visibleRelated = showMoreInfo ? relatedTasks : relatedTasks.slice(0, 3)
-  const hiddenRelatedCount = relatedTasks.length - 3
+  const showProgress = working || (progress != null && progress > 0 && progress < 100)
 
   return (
-    <div className="react-chat-current-task-pane">
-      {/* 当前任务卡 */}
+    <div className="react-chat-current-task-pane is-compact">
       <section
         className={`react-chat-current-task-card${working ? ' is-working' : ''}`}
         aria-label="当前任务"
@@ -993,6 +1179,7 @@ export function TaskPane({
           {title}
         </h2>
 
+        {showProgress ? (
         <div className="react-chat-current-task-progress-block">
           <div
             className={progBarClass}
@@ -1011,73 +1198,71 @@ export function TaskPane({
             <span className="tl-progbar__pct">{pctLabel}</span>
           </div>
         </div>
+        ) : null}
 
-        {(desc && desc !== title) || (summary && summary !== desc && summary !== title) ? (
-          <div className={`react-chat-current-task-body${showTaskDetail ? ' is-expanded' : ''}`}>
-            {desc && desc !== title ? (
-              <p className="react-chat-current-task-desc" title={desc}>
-                {desc}
-              </p>
-            ) : null}
-            {summary && summary !== desc && summary !== title ? (
-              <p className="react-chat-current-task-summary" title={summary}>
-                {summary}
-              </p>
-            ) : null}
+        {taskId ? (
+          <div className="react-chat-current-task-note">
+            <input
+              id={`task-note-${taskId}`}
+              className="react-chat-current-task-note-input"
+              type="text"
+              value={noteDraft}
+              placeholder="备注…"
+              disabled={noteSaving}
+              aria-label="任务备注"
+              onChange={(e) => {
+                setNoteDraft(e.target.value)
+                setNoteDirty(true)
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && noteDirty && !noteSaving) {
+                  e.preventDefault()
+                  void saveNote()
+                }
+              }}
+            />
+            <button
+              type="button"
+              className="react-chat-current-task-note-save"
+              disabled={!noteDirty || noteSaving}
+              onClick={() => void saveNote()}
+            >
+              {noteSaving ? '…' : '存'}
+            </button>
           </div>
         ) : null}
 
-        {(desc !== title && desc) || (summary && summary !== desc && summary !== title) ? (
+        {summary && summary !== desc && summary !== title ? (
+          <div className={`react-chat-current-task-body${showTaskDetail ? ' is-expanded' : ''}`}>
+            <p className="react-chat-current-task-summary" title={summary}>
+              {summary}
+            </p>
+          </div>
+        ) : null}
+
+        {summary && summary !== desc && summary !== title ? (
           <button
             type="button"
             className="react-chat-current-task-expand"
             onClick={() => setShowTaskDetail((v) => !v)}
           >
-            {showTaskDetail ? '收起详情' : '查看详情'}
+            {showTaskDetail ? '收起结果' : '查看结果'}
           </button>
         ) : null}
       </section>
 
-      {/* 快捷统计 —— 胶囊标签 */}
-      {hasStats ? (
+      {pendingApprovals > 0 ? (
         <div className="react-chat-task-stats-row" aria-label="工作概览">
-          {boardCount > 0 ? (
-            <span className="react-chat-task-stat-chip">
-              <strong>{boardCount}</strong>
-              <em>工作项</em>
-            </span>
-          ) : null}
-          {pendingApprovals > 0 ? (
-            <span className="react-chat-task-stat-chip is-warn">
-              <strong>{pendingApprovals}</strong>
-              <em>待审批</em>
-            </span>
-          ) : null}
-          {tokenTotal > 0 ? (
-            <span className="react-chat-task-stat-chip">
-              <strong>{formatCompactCount(tokenTotal)}</strong>
-              <em>Token</em>
-            </span>
-          ) : null}
+          <span className="react-chat-task-stat-chip is-warn">
+            <strong>{pendingApprovals}</strong>
+            <em>待审批</em>
+          </span>
         </div>
       ) : null}
 
-      {/* 核心元数据 —— 两列网格 */}
-      {coreMetaItems.length > 0 ? (
-        <section className="react-chat-task-meta-grid" aria-label="任务信息">
-          {coreMetaItems.map((item) => (
-            <div key={item.label} className="react-chat-task-meta-item">
-              <span className="react-chat-task-meta-label">{item.label}</span>
-              <span className="react-chat-task-meta-value" title={item.value}>
-                {item.value}
-              </span>
-            </div>
-          ))}
-        </section>
-      ) : null}
+      {laneBlock}
 
-      {/* 更多详情（展开式） */}
-      {hasExtraMeta || showRelatedList ? (
+      {hasExtraMeta ? (
         <div className="react-chat-task-detail-fold">
           <button
             type="button"
@@ -1091,64 +1276,21 @@ export function TaskPane({
 
           {showMoreInfo ? (
             <div className="react-chat-task-detail-body">
-              {/* 扩展元数据 */}
-              {hasExtraMeta ? (
-                <div className="react-chat-task-meta-grid is-dense">
-                  {extraMetaItems.map((item) => (
-                    <div key={item.label} className="react-chat-task-meta-item">
-                      <span className="react-chat-task-meta-label">{item.label}</span>
-                      <span className="react-chat-task-meta-value" title={item.value}>
-                        {item.value}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              ) : null}
-
-              {/* 相关任务列表 */}
-              {showRelatedList ? (
-                <div className="react-chat-session-task-list" aria-label={relatedHead}>
-                  <div className="react-chat-session-task-list-head">
-                    {relatedHead}
-                    <span className="react-chat-session-task-list-count">{relatedTasks.length}</span>
+              <div className="react-chat-task-meta-grid is-dense">
+                {extraMetaItems.map((item) => (
+                  <div key={item.label} className="react-chat-task-meta-item">
+                    <span className="react-chat-task-meta-label">{item.label}</span>
+                    <span className="react-chat-task-meta-value" title={item.value}>
+                      {item.value}
+                    </span>
                   </div>
-                  <ul className="react-chat-session-task-list-body">
-                    {visibleRelated.map((t, idx) => {
-                      const id = boardTaskId(t)
-                      const name = String(t.name || '').trim() || '未命名'
-                      const st = taskStatusLabel(t.status)
-                      const active = Boolean(id && id === focusedId)
-                      return (
-                        <li key={id || `session-task-${idx}`}>
-                          <button
-                            type="button"
-                            className={`react-chat-session-task-item${active ? ' is-active' : ''}`}
-                            title={id || name}
-                            aria-current={active ? 'true' : undefined}
-                            onClick={() => {
-                              if (id) setFocusTaskId(id)
-                            }}
-                          >
-                            <span className="react-chat-session-task-item-name">{name}</span>
-                            <span className="react-chat-session-task-item-status">{st}</span>
-                          </button>
-                        </li>
-                      )
-                    })}
-                  </ul>
-                  {!showMoreInfo && hiddenRelatedCount > 0 ? (
-                    <div className="react-chat-session-task-more">
-                      还有 {hiddenRelatedCount} 项…
-                    </div>
-                  ) : null}
-                </div>
-              ) : null}
+                ))}
+              </div>
             </div>
           ) : null}
         </div>
       ) : null}
 
-      {/* 忙碌提示 */}
       {busyHint ? (
         <div className="react-chat-current-task-notice" role="status">
           {busyHint}
@@ -1156,7 +1298,6 @@ export function TaskPane({
         </div>
       ) : null}
 
-      {/* 技术信息（最底部） */}
       {hasTechDetails ? (
         <div className="react-chat-current-task-tech">
           <button
@@ -1183,13 +1324,124 @@ export function TaskPane({
   )
 }
 
-const AUTONOMY_ZH: Record<string, string> = {
-  full_auto: '无需审核',
-  approval_for_risky: '有风险才审',
-  approval_for_all: '需要审核',
+/** 员工摘要：自动上班频率查看 / 预设调整 */
+function EmployeeScheduleCard({
+  employeeInfo,
+  agentCode,
+  onSaved,
+}: {
+  employeeInfo?: EmployeeRailInfo | null
+  agentCode: string
+  onSaved?: () => void
+}) {
+  const code = String(employeeInfo?.agentCode || agentCode || '').trim()
+  const [adjustOpen, setAdjustOpen] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const status = String(employeeInfo?.status || '').trim().toLowerCase()
+  const paused = status === 'paused' || status === 'draft'
+  const suspended = Boolean(employeeInfo?.autoPatrolSuspended)
+  const scheduleRole = {
+    heartbeat_schedule: employeeInfo?.heartbeatSchedule || '',
+    schedule_summary: employeeInfo?.scheduleSummary || '',
+  }
+  const freqLabel =
+    String(employeeInfo?.scheduleSummary || '').trim() ||
+    roleScheduleSummary(scheduleRole) ||
+    cronToPlainZh(roleScheduleExpr(scheduleRole)) ||
+    '未设周期'
+  const currentCron = roleScheduleExpr(scheduleRole)
+  const nextIso = String(employeeInfo?.nextHeartbeatAt || '').trim()
+  const nextAbs = formatInfoRailTime(nextIso)
+  const nextRel = formatRelativeHeartbeat(nextIso)
+  const warnText = paused
+    ? status === 'draft'
+      ? '草稿未确认，不会自动巡检'
+      : '请假中，不会自动巡检'
+    : suspended
+      ? '自动巡检已关；恢复后才会按计划上班'
+      : ''
+
+  const applyCron = useCallback(
+    async (cron: string) => {
+      if (!code || saving) return
+      const next = String(cron || '').trim()
+      if (!next || next === currentCron) {
+        setAdjustOpen(false)
+        return
+      }
+      setSaving(true)
+      try {
+        const { api } = await import('../../lib/tauri-api.js')
+        await api.proactiveUpdateRole(code, { heartbeat_schedule: next })
+        toast('自动上班时间已更新', 'success')
+        setAdjustOpen(false)
+        onSaved?.()
+      } catch (e) {
+        toast(toUserFacingError((e as Error)?.message || e), 'error')
+      } finally {
+        setSaving(false)
+      }
+    },
+    [code, saving, currentCron, onSaved],
+  )
+
+  if (!code) return null
+
+  const lineTitle = [freqLabel, nextRel || nextAbs || '', warnText].filter(Boolean).join(' · ')
+
+  return (
+    <section
+      className={`react-chat-employee-schedule${warnText ? ' is-warn' : ''}`}
+      aria-label="自动上班时间"
+    >
+      <div className="react-chat-employee-schedule-head">
+        <div className="react-chat-employee-schedule-main" title={lineTitle}>
+          <span className="react-chat-employee-schedule-kicker">上班</span>
+          <span className="react-chat-employee-schedule-freq">{freqLabel}</span>
+          {(nextRel || nextAbs) ? (
+            <span className="react-chat-employee-schedule-next">
+              · {nextRel || nextAbs}
+            </span>
+          ) : null}
+          {warnText ? (
+            <span className="react-chat-employee-schedule-warn" role="status">
+              · {warnText}
+            </span>
+          ) : null}
+        </div>
+        <button
+          type="button"
+          className="react-chat-employee-schedule-adjust"
+          aria-expanded={adjustOpen}
+          disabled={saving}
+          onClick={() => setAdjustOpen((v) => !v)}
+        >
+          {adjustOpen ? '收起' : '改'}
+        </button>
+      </div>
+      {adjustOpen ? (
+        <div className="react-chat-employee-schedule-presets" role="group" aria-label="常用频率">
+          {DUTY_SCHEDULE_PRESETS.map((p) => {
+            const on = p.cron === currentCron
+            return (
+              <button
+                key={p.cron}
+                type="button"
+                className={`react-chat-employee-schedule-chip${on ? ' is-on' : ''}`}
+                disabled={saving}
+                onClick={() => void applyCron(p.cron)}
+              >
+                {p.label}
+              </button>
+            )
+          })}
+        </div>
+      ) : null}
+    </section>
+  )
 }
 
-/** 员工对话身份卡（含职责/审批）—— 状态面板「员工」Tab 复用 */
+/** 员工对话身份卡 —— 状态面板「员工」Tab 复用（职责已并入系统提示词，不再单独展示） */
 export function EmployeePane({
   employeeInfo,
   sessionTitle: _sessionTitle,
@@ -1213,6 +1465,10 @@ export function EmployeePane({
   onEditAgent,
   onAssetQuickAction,
   assetQuickBusy = false,
+  modelSupportsThinking = null,
+  onRolePrefsSaved,
+  onMemoryEnabledChange,
+  sessionKey = '',
 }: {
   employeeInfo?: EmployeeRailInfo | null
   sessionTitle: string
@@ -1236,8 +1492,11 @@ export function EmployeePane({
   onEditAgent?: () => void
   onAssetQuickAction?: (kind: 'episode' | 'craft' | 'journal') => void
   assetQuickBusy?: boolean
+  modelSupportsThinking?: boolean | null
+  onRolePrefsSaved?: () => void
+  onMemoryEnabledChange?: (on: boolean) => void
+  sessionKey?: string
 }) {
-  const [dutyExpanded, setDutyExpanded] = useState(false)
   const code = String(employeeInfo?.agentCode || agentCode || '').trim()
   // 详见 evopanel/src/react/lib/employee-display.ts —— 优先 role_name,降级 agent_name,
   // 绝不显示「未命名岗位」字面量;空时让 UI 自己决定用 code 或「智能体员工」。
@@ -1255,22 +1514,12 @@ export function EmployeePane({
   const employeeName = String(agentLabel || '').trim() || code || '智能体员工'
   const department = String(employeeInfo?.department || '').trim()
   const bio = String(agentDescription || '').trim()
-  const responsibilities = (employeeInfo?.responsibilities || [])
-    .map((s) => String(s || '').trim())
-    .filter(Boolean)
-  const workspacePath = String(employeeInfo?.workspacePath || '').trim()
   const roleModel = String(employeeInfo?.modelName || '').trim()
-  const thinkLabel = String(employeeInfo?.thinkModeLabel || '').trim()
-  const autonomyRaw = String(employeeInfo?.autonomyLabel || '').trim()
-  const autonomy = AUTONOMY_ZH[autonomyRaw] || autonomyRaw
+  // 岗位专属模型优先；未配则显示当前会话/智能体默认模型
+  const modelText = String(roleModel || modelLabel || modelName || '').trim()
   const kbIds = Array.isArray(employeeInfo?.knowledgeVaultIds)
     ? employeeInfo!.knowledgeVaultIds!
     : knowledgeVaultIds || []
-  const briefDuties = responsibilities.slice(0, 2)
-  const hasMoreDuties = responsibilities.length > 2
-  const hasExtraMeta = Boolean(autonomy || thinkLabel || workspacePath)
-  const anyTruncated = briefDuties.some((r) => r.length > 48)
-  const showDutyToggle = hasMoreDuties || hasExtraMeta || anyTruncated
 
   return (
     <div className="react-chat-agent-pane react-chat-employee-pane">
@@ -1330,6 +1579,11 @@ export function EmployeePane({
               {department ? `${department} · ` : ''}
               {roleName}
             </div>
+            {modelText ? (
+              <div className="react-chat-agent-profile-meta" title={modelText}>
+                {modelText}
+              </div>
+            ) : null}
           </div>
         </div>
         {bio ? (
@@ -1339,43 +1593,23 @@ export function EmployeePane({
         ) : null}
       </header>
 
-      {(responsibilities.length || hasExtraMeta) ? (
-        <section className="react-chat-employee-meta" aria-label="岗位职责">
-          {responsibilities.length ? (
-            <div className="react-chat-employee-responsibilities">
-              <div className="react-chat-info-rail-row-label">职责</div>
-              <ul>
-                {(dutyExpanded ? responsibilities : briefDuties).map((r) => (
-                  <li key={r} title={r}>
-                    {dutyExpanded || r.length <= 48 ? r : `${r.slice(0, 48)}…`}
-                  </li>
-                ))}
-              </ul>
-              {!dutyExpanded && hasMoreDuties ? (
-                <div className="react-chat-employee-duty-more">
-                  另有 {responsibilities.length - briefDuties.length} 项…
-                </div>
-              ) : null}
-            </div>
-          ) : null}
-          {dutyExpanded && hasExtraMeta ? (
-            <div className="react-chat-employee-extra-meta">
-              {autonomy ? <Row label="交工审核" value={autonomy} /> : null}
-              {thinkLabel ? <Row label="工作方式" value={thinkLabel} /> : null}
-              {workspacePath ? <Row label="工作空间" value={workspacePath} /> : null}
-            </div>
-          ) : null}
-          {showDutyToggle ? (
-            <button
-              type="button"
-              className="react-chat-info-rail-action react-chat-employee-duty-toggle"
-              onClick={() => setDutyExpanded((v) => !v)}
-            >
-              {dutyExpanded ? '收起详情' : '查看详情'}
-            </button>
-          ) : null}
-        </section>
-      ) : null}
+      <EmployeeScheduleCard
+        employeeInfo={employeeInfo}
+        agentCode={code}
+        onSaved={onRolePrefsSaved}
+      />
+
+      <AgentRolePrefs
+        agentCode={code}
+        roleCode={code}
+        sessionKey={sessionKey}
+        isEmployee
+        thinkingEnabled={employeeInfo?.thinkingEnabled}
+        memoryEnabled={employeeInfo?.memoryEnabled}
+        modelSupportsThinking={modelSupportsThinking}
+        onMemoryEnabledChange={onMemoryEnabledChange}
+        onRolePrefsSaved={onRolePrefsSaved}
+      />
 
       <AgentCapabilityTabs
         skillNames={skillNames}
@@ -1389,7 +1623,12 @@ export function EmployeePane({
       />
 
       {onAssetQuickAction ? (
-        <AssetQuickActions onAction={onAssetQuickAction} busy={assetQuickBusy} />
+        <AssetQuickActions
+          onAction={onAssetQuickAction}
+          busy={assetQuickBusy}
+          entityType={code ? 'employee' : null}
+          entityId={code || null}
+        />
       ) : null}
     </div>
   )

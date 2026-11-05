@@ -59,6 +59,7 @@ export default defineConfig({
       'tests/node-repl-cua-display.test.js',
       'tests/clarify-preview-resolve.test.js',
       'tests/tool-display.test.js',
+      'tests/read-tool-multi-path.test.ts',
       'tests/subagent-stream-merge.test.js',
       'tests/terminal-stream-merge.test.js',
       'tests/subagent-type-policy.test.js',
@@ -218,6 +219,7 @@ export default defineConfig({
       'tests/dept-group-wake-queue.test.js',
       'tests/dept-group-mentions.test.js',
       'tests/dept-group-transcript.test.js',
+      'tests/dept-member-work-session.test.js',
       'tests/close-removed-entity-stage.test.js',
       'tests/builtin-action-labels.test.js',
       'tests/permission-tier.test.js',
@@ -233,6 +235,8 @@ export default defineConfig({
       // 注：turn-start-ms-lock.test.ts / right-stage-hide-all.test.ts 曾被列入但
       // 未提交即被并行会话的 git clean 清掉，内容未恢复，暂移出 include。
       'tests/proactive-nav-chrome-macos.test.js',
+      'tests/proactive-role-card-meta.test.js',
+      'tests/user-facing-error.test.js',
       'tests/settings-modal-tauri-drag.test.js',
       'tests/task-duration.test.js',
       'tests/replay-real-run-133609527d1f.test.js',

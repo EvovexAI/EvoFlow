@@ -44,7 +44,7 @@ export const PLATFORM_ACTION_ZH = {
   'approvals.list': '列出审批（默认 pending；传 status=all 看全部）',
   'approvals.reject': '驳回审批',
   'assets.export': '导出实体资产为 .evoflow-pack',
-  'assets.get_profile': '查看用户画像（资产中心：basic-info / preferences / persona）',
+  'assets.get_profile': '查看用户画像（资产中心：profile/USER.md）',
   'assets.import': '导入 .evoflow-pack 到指定实体',
   'assets.init': '初始化 Asset Hub 目录树与内置 vault',
   'assets.migrate': '把遗留 SQLite 记忆/经验迁移到资产文件',

@@ -23,7 +23,7 @@ EntityType = Literal["user", "agent", "employee", "workspace"]
 # Project-local SoT for workspace entity trees (same layout as Asset Hub memory/craft).
 WORKSPACE_ASSET_REL = Path(".evoflow")
 
-_USER_PROFILE_FILES = ("basic-info.md", "preferences.md", "persona.md", "README.md")
+_USER_PROFILE_FILES = ("USER.md", "README.md")
 _AGENT_PROFILE_FILES = ("identity.md", "SOUL.md", "system.md", "soul-summary.md", "affect.md")
 
 _SAFE_SEGMENT = re.compile(r"^[a-z0-9][a-z0-9_-]*$", re.I)

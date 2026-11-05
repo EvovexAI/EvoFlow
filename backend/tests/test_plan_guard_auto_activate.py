@@ -43,3 +43,35 @@ def test_gate_allows_bash_after_auto_activate() -> None:
         assert "agent" in get_activated_scenarios()
     finally:
         reset_activated_scenario()
+
+
+def test_agent_grants_grep_glob_not_plan_only() -> None:
+    """Regression: grep/glob were plan-only → ScenarioNotActivated(plan) while
+    prompt says「勿 activate plan」→ model falls back to Bash rg/sed for half hour.
+    """
+    from evoflow.agents.lead_agent.intent_tool_profile import (
+        recommended_scenario_for_tool,
+        resolve_tools_for_scenarios,
+        scenarios_granting_tool,
+    )
+
+    agent_tools = set(resolve_tools_for_scenarios(["agent"]))
+    assert "grep" in agent_tools
+    assert "glob" in agent_tools
+    assert "search_code_index" in agent_tools
+    # Plan mode offline: grant / recommend surfaces must never mention plan.
+    assert scenarios_granting_tool("grep") == ["agent"]
+    assert scenarios_granting_tool("glob") == ["agent"]
+    assert "plan" not in scenarios_granting_tool("grep")
+    assert recommended_scenario_for_tool("grep", ["plan"]) == "agent"
+    assert recommended_scenario_for_tool("anything", None) == "agent"
+
+
+def test_gate_allows_grep_after_auto_activate() -> None:
+    reset_activated_scenario()
+    try:
+        blocked = _gate_tool_without_required_scenario(_request("grep"))
+        assert blocked is None, getattr(blocked, "content", blocked)
+        assert "agent" in get_activated_scenarios()
+    finally:
+        reset_activated_scenario()

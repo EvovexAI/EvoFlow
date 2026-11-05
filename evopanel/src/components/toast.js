@@ -1,6 +1,8 @@
 /**
  * Toast 通知组件
  */
+import { isConnectivityToastNoise } from '../lib/user-facing-error.js'
+
 /** @type {HTMLElement | null} */
 let _container = null
 /** @type {HTMLElement | null} */
@@ -12,6 +14,23 @@ const SETTINGS_MODAL_ID = 'evopanel-settings-modal-overlay'
 const SETTINGS_ERROR_ATTR = 'data-settings-modal-error'
 /** Above `.react-chat-modal-overlay` (1000001) so toasts remain visible in Settings. */
 const TOAST_ABOVE_MODAL_Z = '1000010'
+
+function logConnectivityToastNoise(message, type) {
+  const line = `[toast-suppressed:${type || 'info'}] ${message}`
+  try {
+    console.warn(line)
+  } catch {
+    /* ignore */
+  }
+  try {
+    // 动态 import：避免 toast ↔ tauri-api 启动环；失败则只留 console
+    void import('../lib/tauri-api.js')
+      .then((m) => m.appendFrontendLog?.('warn', line))
+      .catch(() => {})
+  } catch {
+    /* ignore */
+  }
+}
 
 /** @param {'top-center' | 'top-right'} [position] */
 function ensureContainer(position = 'top-center') {
@@ -119,11 +138,22 @@ function scheduleToastRemove(el, duration, key) {
 /**
  * @param {string} message
  * @param {'info'|'success'|'warning'|'error'} [type]
- * @param {{ duration?: number, action?: HTMLElement, key?: string, position?: 'top-center'|'top-right' }} [options]
+ * @param {{ duration?: number, action?: HTMLElement, key?: string, position?: 'top-center'|'top-right', force?: boolean }} [options]
  *   key: 相同 key 只保留一条（更新文案并重置计时），避免写入过程刷屏
  *   position: 默认 top-center；唤醒等旁路提示用 top-right，避免挡屏幕正中
+ *   force: 强制弹出（默认会吞掉「服务连接异常」类连通性噪声，只写日志）
  */
 export function toast(message, type = 'info', options = {}) {
+  const text = String(message ?? '').trim()
+  if (!text) return
+
+  // 服务连不上 / 启动中一类文案：用户看着难受，且 boot banner 已覆盖冷启动；
+  // 默认只写 frontend 日志 + DevTools，不弹顶部通知。需要显示时传 force: true。
+  if (!options.force && isConnectivityToastNoise(text)) {
+    logConnectivityToastNoise(text, type)
+    return
+  }
+
   const duration = options.duration || 3000
   const action = options.action // 可选的操作按钮（DOM 元素）
   const key = typeof options.key === 'string' && options.key ? options.key : ''
@@ -135,7 +165,7 @@ export function toast(message, type = 'info', options = {}) {
   syncToastLayer()
 
   if ((type === 'error' || type === 'warning') && isSettingsModalOpen()) {
-    showSettingsErrorBanner(message)
+    showSettingsErrorBanner(text)
   }
 
   if (key) {
@@ -143,8 +173,8 @@ export function toast(message, type = 'info', options = {}) {
     if (existing && existing.isConnected) {
       existing.className = `toast ${type}`
       const textSpan = existing.querySelector('span')
-      if (textSpan) textSpan.textContent = message
-      else existing.textContent = message
+      if (textSpan) textSpan.textContent = text
+      else existing.textContent = text
       scheduleToastRemove(existing, duration, key)
       return
     }
@@ -158,7 +188,7 @@ export function toast(message, type = 'info', options = {}) {
   }
 
   const textSpan = document.createElement('span')
-  textSpan.textContent = message
+  textSpan.textContent = text
   el.appendChild(textSpan)
 
   // 如果有操作按钮，添加到 toast 中

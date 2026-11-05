@@ -89,5 +89,6 @@ class ThreadState(AgentState):
     todos: NotRequired[list | None]
     uploaded_files: NotRequired[list[dict] | None]
     viewed_images: Annotated[dict[str, ViewedImageData], merge_viewed_images]  # image_ref -> {path, mime_type}
-    native_viewed_image_refs: Annotated[list[str], merge_artifacts]  # dedup: paths already staged this thread
+    # Refs whose pixels were actually injected (ViewImageMiddleware), not merely staged.
+    native_viewed_image_refs: Annotated[list[str], merge_artifacts]
     loaded_deferred_tools: Annotated[list[str], merge_loaded_deferred_tools]

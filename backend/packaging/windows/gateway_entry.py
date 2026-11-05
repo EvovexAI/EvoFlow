@@ -316,6 +316,15 @@ def _run_langgraph(port: int) -> None:
     kwargs = run_server_kwargs()
     kwargs["port"] = port
     logging.info("Starting EvoFlow LangGraph server on port %s", port)
+    # 启动预热：后台等 /ok 就绪后触发图工厂（挂 MCP 工具/插件扫描/提示词装配），
+    # 不调模型零 token 成本。消灭「应用启动后首轮语音 10-20s 装配」。
+    try:
+        from evoflow.agents.lead_agent.warm import warm_when_port_ready
+
+        if os.environ.get("EVOFLOW_LEAD_AGENT_WARM", "1").strip().lower() not in {"0", "false", "off"}:
+            warm_when_port_ready(port)
+    except Exception:
+        logging.warning("lead_agent warm spawn failed", exc_info=True)
     run_server(**kwargs)
 
 

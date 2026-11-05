@@ -489,6 +489,15 @@ async def run_background_startup(app: FastAPI, st_log: StLogFn, _st: Any) -> Non
         if _lg_selftest_enabled():
             await _run_langgraph_selftest(app)
 
+        # 图工厂后台预热（同 sidecar）：首轮对话不再付 10-20s 装配
+        try:
+            from evoflow.agents.lead_agent.warm import warm_lead_agent_graph_once
+
+            if os.environ.get("EVOFLOW_LEAD_AGENT_WARM", "1").strip().lower() not in {"0", "false", "off"}:
+                warm_lead_agent_graph_once(source="inprocess", delay_s=3.0)
+        except Exception:
+            logger.warning("lead_agent warm spawn failed", exc_info=True)
+
         # NOTE: MCP tools are lazily initialized by LangGraph when first needed (in-process).
 
         # ---- Manually run LangGraph lifespan init (mounted app lifespan is NOT executed) ----

@@ -2,10 +2,11 @@
 /**
  * Chat header icon buttons / workspace folder group. Extracted from ChatApp.tsx (P91).
  */
-import { useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import {
   Activity,
   BookOpen,
+  Bug,
   ChevronDown,
   CircleHelp,
   Download,
@@ -18,6 +19,10 @@ import {
   RefreshCw,
   ScrollText,
 } from 'lucide-react'
+import {
+  fetchObsEnabledStatus,
+  setObsEnabled,
+} from '../../obs/lib/obs-api.js'
 
 export function renderBrowserToggleButton(ctx: {
   browserStageActive: boolean
@@ -156,11 +161,34 @@ async function toastMsg(message: string, type: 'success' | 'error' | 'info' = 'i
   }
 }
 
-/** 主对话顶栏问号：文档 / 系统日志 / 导出日志 / 资源管理器 / 更新 / 关于。 */
+/** 主对话顶栏问号：文档 / 系统日志 / 导出日志 / 资源管理器 / 调试模式 / 运维观测 / 更新 / 关于。 */
 export function ChatHeaderHelpMenu(): ReactNode {
   const [open, setOpen] = useState(false)
+  const [debugOn, setDebugOn] = useState(false)
+  const [debugLocked, setDebugLocked] = useState(false)
+  const [debugBusy, setDebugBusy] = useState(false)
 
   const close = () => setOpen(false)
+
+  useEffect(() => {
+    if (!open) return
+    let cancelled = false
+    void fetchObsEnabledStatus()
+      .then((st) => {
+        if (cancelled) return
+        setDebugOn(st.enabled)
+        setDebugLocked(st.lockedByEnv)
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setDebugOn(false)
+          setDebugLocked(false)
+        }
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [open])
 
   const openDocs = () => {
     close()
@@ -204,6 +232,45 @@ export function ChatHeaderHelpMenu(): ReactNode {
         console.error('[resource-manager]', e)
         void toastMsg(`无法打开资源管理器：${e?.message || e}`, 'error')
       })
+  }
+
+  const toggleDebugMode = () => {
+    if (debugBusy || debugLocked) {
+      if (debugLocked) {
+        void toastMsg('调试模式被环境变量 EVOFLOW_OBSERVABILITY 锁定，无法在界面切换', 'error')
+      }
+      return
+    }
+    const next = !debugOn
+    setDebugBusy(true)
+    void setObsEnabled(next)
+      .then((st) => {
+        setDebugOn(st.enabled)
+        setDebugLocked(st.lockedByEnv)
+        void toastMsg(
+          st.enabled
+            ? '调试模式已开启：对话摘要会出现可点击的「调试」'
+            : '调试模式已关闭',
+          'success',
+        )
+      })
+      .catch((e) => {
+        const msg = String(e?.message || e || '')
+        if (/org_admin|403|forbidden/i.test(msg)) {
+          void toastMsg('需要管理员权限才能开启调试模式', 'error')
+        } else if (/locked_by_env|EVOFLOW_OBSERVABILITY/i.test(msg)) {
+          setDebugLocked(true)
+          void toastMsg('调试模式被环境变量锁定，无法在界面切换', 'error')
+        } else {
+          void toastMsg(`切换调试模式失败：${msg || 'unknown'}`, 'error')
+        }
+      })
+      .finally(() => setDebugBusy(false))
+  }
+
+  const openOpsObservability = () => {
+    close()
+    window.location.hash = '/observability'
   }
 
   const checkUpdates = () => {
@@ -284,6 +351,39 @@ export function ChatHeaderHelpMenu(): ReactNode {
               <Activity className="react-chat-header-icon" aria-hidden />
               <span>资源管理器</span>
             </button>
+            <div className="react-chat-header-menu-sep" aria-hidden="true" />
+            <button
+              type="button"
+              role="menuitemcheckbox"
+              className="react-chat-header-menu-item react-chat-header-menu-item--toggle"
+              aria-checked={debugOn}
+              disabled={debugBusy || debugLocked}
+              title={
+                debugLocked
+                  ? '被环境变量 EVOFLOW_OBSERVABILITY 锁定'
+                  : '开启后对话摘要显示可点击的调试信息'
+              }
+              onClick={toggleDebugMode}
+            >
+              <Bug className="react-chat-header-icon" aria-hidden />
+              <span>开启调试模式</span>
+              <span
+                className={`react-chat-header-menu-switch${debugOn ? ' is-on' : ''}${
+                  debugLocked ? ' is-locked' : ''
+                }`}
+                aria-hidden="true"
+              />
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              className="react-chat-header-menu-item"
+              onClick={openOpsObservability}
+            >
+              <Activity className="react-chat-header-icon" aria-hidden />
+              <span>运维观测</span>
+            </button>
+            <div className="react-chat-header-menu-sep" aria-hidden="true" />
             <button
               type="button"
               role="menuitem"

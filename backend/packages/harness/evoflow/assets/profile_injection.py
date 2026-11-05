@@ -1,4 +1,4 @@
-"""Tier-0 multi-dimension user profile injection."""
+"""Tier-0 user profile injection (single ``profile/USER.md``)."""
 
 from __future__ import annotations
 

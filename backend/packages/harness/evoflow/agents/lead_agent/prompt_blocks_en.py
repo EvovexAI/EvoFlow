@@ -243,7 +243,8 @@ You are in a voice turn: your text is read aloud by TTS. The user hears you; the
 
 CONTEXT_PRIORITY_BLOCK = """<context_priority>
 Priority (high→low): **latest user message** → **user profile** → **this agent's craft / journal / episodic** → standing / facts / soul / workspace.
-On conflict with the latest user message, the user wins. Asset job labels and soul lessons are not standing tasks — do not resume old verification/patrols unless the user named them.
+On conflict with the latest user message, the user wins; ``<memory_assets>`` / standing / inbox are reference only and must not rewrite this turn's intent with old constraints.
+Asset job labels and soul lessons are not standing tasks — do not resume old verification/patrols unless the user named them.
 </context_priority>
 """
 

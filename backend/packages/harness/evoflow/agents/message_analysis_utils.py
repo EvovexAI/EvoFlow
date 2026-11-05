@@ -18,6 +18,22 @@ _SYNTHETIC_USER_NAMES = frozenset(
         "goal_controller",
         "hosted_autofollow",
         "task_autofollow",
+        # Ephemeral pixels from ViewImageMiddleware — not a genuine user turn.
+        "view_image_inject",
+        # Live footers / injections appended *after* ViewImage inject in before_model.
+        # If these count as "real user", strip_image_base64 treats the inject as
+        # "old history" and replaces pixels with "base64 data omitted" (Mode A).
+        "session_collab_live",
+        "session_mission_state",
+        "session_memory_recall",
+        "session_context_refs",
+        "session_runtime_clock",
+        "session_mind_map",
+        "session_intent",
+        "xiaomi_ui_context",
+        "evf_kb_injection",
+        "evf_skill_injection",
+        "evf_plugin_injection",
     }
 )
 
@@ -38,6 +54,21 @@ def _text_from_content(content: Any) -> str:
     return str(content or "").strip()
 
 
+def _looks_like_view_image_inject(msg: Any) -> bool:
+    """True for ViewImageMiddleware injects (by name or known header text)."""
+    name = str(getattr(msg, "name", None) or "").strip()
+    if name == "view_image_inject":
+        return True
+    text = _text_from_content(getattr(msg, "content", ""))
+    if not text:
+        return False
+    return (
+        "Here are the images you've viewed" in text
+        or "Here are the details of the images you've viewed" in text
+        or "Here are the latest screen captures" in text
+    )
+
+
 def is_real_user_message(msg: Any) -> bool:
     """True for genuine user turns; false for compaction / tool-history / hint injections."""
     if isinstance(msg, HumanMessage):
@@ -47,6 +78,8 @@ def is_real_user_message(msg: Any) -> bool:
             return False
         name = str(getattr(msg, "name", None) or "").strip()
         if name in _SYNTHETIC_USER_NAMES:
+            return False
+        if _looks_like_view_image_inject(msg):
             return False
         return bool(_text_from_content(getattr(msg, "content", "")))
     if isinstance(msg, dict):

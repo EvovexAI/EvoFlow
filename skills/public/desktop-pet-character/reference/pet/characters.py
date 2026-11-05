@@ -40,6 +40,42 @@ def _with_alpha(color, alpha: int = 255) -> QColor:
     return c
 
 
+# --------------------------------------------------------------------------- #
+# 贴图手：ImageGen 按角色画风生成的手部 sprite（tools/make_hands.py 抠图）
+# --------------------------------------------------------------------------- #
+_HAND_CACHE: dict[str, QPixmap] = {}
+
+
+def _hand_sprite(name: str) -> QPixmap:
+    pm = _HAND_CACHE.get(name)
+    if pm is None:
+        path = os.path.join(os.path.dirname(__file__), "..", "assets", f"{name}.png")
+        pm = QPixmap(path)
+        _HAND_CACHE[name] = pm
+    return pm
+
+
+def _draw_hand(p: QPainter, name: str, cx: float, cy: float, ang_deg: float,
+               h: float, mirror: bool = False, overlap: float = 2.0) -> None:
+    """把贴图手画在设计空间 (cx, cy)——腕口 pivot，绕腕旋转 ang_deg。
+
+    h 是目标高度（设计空间 px）；mirror 用于把右手贴图变成左手。
+    腕口向上收 overlap px，避免和袖子接缝处露缝。
+    """
+    pm = _hand_sprite(name)
+    if pm.isNull():
+        return
+    sc = h / float(pm.height())
+    w = pm.width() * sc
+    p.save()
+    p.translate(cx, cy)
+    p.rotate(ang_deg)
+    if mirror:
+        p.scale(-1.0, 1.0)
+    p.drawPixmap(QRectF(-w / 2.0, -h + overlap, w, h), pm, QRectF(pm.rect()))
+    p.restore()
+
+
 def _sparkle(p: QPainter, x: float, y: float, r: float, color: QColor, phase: float) -> None:
     """四角星闪光，phase 控制呼吸般的明暗与大小；外面套一层柔光，浅色桌面上也看得见。"""
     k = 0.5 + 0.5 * math.sin(phase)
@@ -1585,6 +1621,7 @@ class GirlArt(Girl):
             return 0.22, 0.05 + 0.04 * abs(math.sin(t * 1.4)), 0.10
         if mode == "coding_mumble":
             return 0.34, 0.62 * self._syllable(t * 0.55), 0.26
+
         sm = 0.46 + 0.09 * math.sin(t * 0.62) + 0.05 * math.sin(t * 1.7)
         return sm, 0.0, 0.20 + 0.06 * math.sin(t * 0.62)
 
@@ -1834,8 +1871,7 @@ class GirlArt(Girl):
         sg = QLinearGradient(q0, q1)
         sg.setColorAt(0.0, QColor("#C7D6E2"))
         sg.setColorAt(1.0, QColor("#F0F5FA"))
-        p.setPen(QPen(_rgba("#9FB4C6", 150), max(0.8, 2.4 * sx),
-                      Qt.SolidLine, Qt.RoundCap))
+        p.setPen(QPen(_rgba("#9FB4C6", 150), 7.0, Qt.SolidLine, Qt.RoundCap))
         p.setBrush(QBrush(sg))
         p.drawPath(sleeve)
 
@@ -1845,26 +1881,12 @@ class GirlArt(Girl):
         p.drawEllipse(QPointF(left + 652 * sx, top + 468 * sy),
                       26 * sx, 17 * sy)
 
-        # 手掌：竖长椭圆（指朝上）+ 掌根，绕腕微转
-        p.save()
-        p.translate(left + 645 * sx, top + 420 * sy)
-        p.rotate(math.degrees(ang))
-        pg = QLinearGradient(0, -55 * sy, 0, 40 * sy)
-        pg.setColorAt(0.0, self.SKIN_HI)
-        pg.setColorAt(1.0, self.SKIN_LO)
-        p.setPen(QPen(_rgba("#D9A8A6", 140), max(0.7, 2.0 * sx)))
-        p.setBrush(QBrush(pg))
-        p.drawEllipse(QPointF(0, 0), 27 * sx, 56 * sy)     # 掌 + 并拢的四指
-        p.drawEllipse(QPointF(-24 * sx, 30 * sy), 11 * sx, 14 * sy)  # 拇指根
+        # 贴图手：放松微曲的手贴在头侧，绕腕微转
+        p.setRenderHint(QPainter.SmoothPixmapTransform, True)
+        _draw_hand(p, "hand_relax", left + 645 * sx, top + 425 * sy,
+                   math.degrees(ang), 26.0)
 
-        # 指缝：三道短线
-        p.setPen(QPen(_rgba("#D9A8A6", 130), max(0.5, 1.3 * sx)))
-        p.setBrush(Qt.NoBrush)
-        for dx in (-13, 0, 13):
-            f = QPainterPath(QPointF(dx * sx, -46 * sy))
-            f.quadTo(QPointF((dx + 2) * sx, -22 * sy), QPointF(dx * sx, 0))
-            p.drawPath(f)
-        p.restore()
+    
 
     # ------------------------------------------------------------------ #
     # 站姿场景
@@ -1891,18 +1913,24 @@ class GirlArt(Girl):
         p.setBrush(QBrush(shadow))
         p.drawEllipse(QPointF(100, 191), max(24.0, sw), 9.0)
 
+        
+
         if body is not None:
             by = top + (self.NECK_Y - self.OVERLAP) * sy + bob * 0.55
             p.setRenderHint(QPainter.SmoothPixmapTransform, True)
             p.drawPixmap(QRectF(left, by, w, body.height() * sy), body, QRectF(body.rect()))
 
         base = {"thinking": -4.2, "listening": 5.2, "answering": -1.4}.get(mode, 0.0)
-        sway = math.sin(t * 0.9) * 1.7 if mode == "idle" else math.sin(t * 1.6) * 0.9
+        if mode == "idle":
+            sway = math.sin(t * 0.9) * 1.7
+        else:
+            sway = math.sin(t * 1.6) * 0.9
         nod = 0.0
         if mode == "answering":
             nod = math.sin(t * 9.7) * 1.9 + math.sin(t * 3.4) * 1.1
         elif mode == "thinking":
             nod = -math.sin(t * 1.2) * 1.0
+
         rot = base + sway + nod
 
         neck = top + self.NECK_Y * sy + bob

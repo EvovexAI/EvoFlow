@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import logging
 import re
 import time
@@ -29,8 +30,26 @@ def _is_safe_url(url: str) -> bool:
         return False
 
 
+def _decode_data_uri(url: str) -> bytes | None:
+    """Decode ``data:<mime>;base64,...`` payloads (GPT-Image style b64 responses)."""
+    if not url.lower().startswith("data:"):
+        return None
+    header, _, payload = url.partition(",")
+    if ";base64" not in header.lower():
+        return None
+    try:
+        return base64.b64decode(payload, validate=False)
+    except Exception:
+        return None
+
+
 def download_url_to_file(url: str, dest: Path, timeout: int = 120) -> None:
     dest.parent.mkdir(parents=True, exist_ok=True)
+    # Inline base64 (OpenAI images b64_json → data URI): decode instead of fetching.
+    inline = _decode_data_uri(url)
+    if inline is not None:
+        dest.write_bytes(inline)
+        return
     # Local path from authenticated gateway content download (MiniMax OpenAI-Videos).
     local = Path(url)
     if local.is_file():

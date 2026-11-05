@@ -151,23 +151,15 @@ class MemoryMiddleware(AgentMiddleware[MemoryMiddlewareState]):
         source = "会话存档" if messages is not runtime_messages and len(messages) != len(runtime_messages) else "runtime"
         shape = describe_memory_message_shape(messages)
         workspace_path = resolve_workspace_path_for_memory(runtime=runtime, thread_id=thread_id)
-        if workspace_path:
-            try:
-                from evoflow.agents.memory.workspace_memory import schedule_workspace_memory_bootstrap_if_needed
-
-                schedule_workspace_memory_bootstrap_if_needed(workspace_path)
-            except Exception:
-                logger.debug("workspace bootstrap schedule skipped", exc_info=True)
-        ws_label = "是" if workspace_path else "否（仅更新用户记忆）"
+        # Workspace memory bootstrap/write retired — only user/employee Asset Hub updates.
 
         logger.info(
-            "[记忆] after_model 入队：thread=%s agent=%s 来源=%s 本轮 user_chars=%d ai_chars=%d 工作区记忆=%s%s（%s）",
+            "[记忆] after_model 入队：thread=%s agent=%s 来源=%s 本轮 user_chars=%d ai_chars=%d 工作区记忆=否（已停用）%s（%s）",
             thread_id,
             scope,
             source,
             len(pair[0]),
             len(pair[1]),
-            ws_label,
             f" path={workspace_path}" if workspace_path else "",
             shape,
         )

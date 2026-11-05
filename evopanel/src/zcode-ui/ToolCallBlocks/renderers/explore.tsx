@@ -5,7 +5,11 @@ import { ToolCallBlock } from "@/ToolCallBlocks.js";
 import { ToolSnapshotFieldNotice } from "@/ToolCallBlocks/ToolSnapshotFieldNotice.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { getExecuteSecondaryText } from "@/ToolCallBlocks/renderers/execute.js";
-import { buildReadSummary, ReadFileChip } from "@/ToolCallBlocks/renderers/read.js";
+import {
+  buildReadSummaries,
+  ReadFileChip,
+  type ReadSummary,
+} from "@/ToolCallBlocks/renderers/read.js";
 import { getSearchPrimaryText } from "@/ToolCallBlocks/renderers/search.js";
 import { renderFilePath } from "@/ToolCallBlocks/shared.js";
 import { resolveToolCallIdentity } from "@/lib/toolIdentity.js";
@@ -302,31 +306,43 @@ function getLatestExploreChildSummary(
   }
 
   if (childIdentity.family === "file-read") {
-    const readSummary = buildReadSummary(childToolCall);
-    if (!readSummary) {
+    const readSummaries = buildReadSummaries(childToolCall);
+    if (readSummaries.length === 0) {
       return null;
     }
-    const canOpenPreview = readSummary.entryType === "file" && Boolean(context.onOpenCodeViewer);
-    const openFilePreview = () => {
-      if (readSummary.entryType !== "file") {
+    const openFilePreview = (summary: ReadSummary) => {
+      if (summary.entryType !== "file") {
         return;
       }
 
       context.onOpenCodeViewer?.({
         type: "file",
-        title: readSummary.fileName,
-        path: readSummary.path,
+        title: summary.fileName,
+        path: summary.path,
       });
     };
+    const visibleSummaries = readSummaries.slice(0, 3);
+    const hiddenCount = readSummaries.length - visibleSummaries.length;
+    const chipList = (
+      <span className="inline-flex min-w-0 max-w-full items-center gap-1.5 overflow-hidden">
+        {visibleSummaries.map((summary) => (
+          <ReadFileChip
+            key={summary.path}
+            summary={summary}
+            clickable={summary.entryType === "file" && Boolean(context.onOpenCodeViewer)}
+            onClick={() => openFilePreview(summary)}
+          />
+        ))}
+        {hiddenCount > 0 ? <span className="shrink-0">+{hiddenCount}</span> : null}
+      </span>
+    );
 
     return {
-      animationKey: `read:${childToolCall.toolId}:${actionKindLabel ?? "plain"}:${readSummary.path}`,
-      primaryText: renderChildActionKindPrefix(
-        actionKindLabel,
-        <ReadFileChip summary={readSummary} clickable={canOpenPreview} onClick={openFilePreview} />,
-      ),
-      secondaryText: renderFilePath(readSummary.filePath),
-      title: readSummary.path,
+      animationKey: `read:${childToolCall.toolId}:${actionKindLabel ?? "plain"}:${readSummaries.map((summary) => summary.path).join("|")}`,
+      primaryText: renderChildActionKindPrefix(actionKindLabel, chipList),
+      secondaryText:
+        readSummaries.length === 1 ? renderFilePath(readSummaries[0]?.filePath ?? null) : undefined,
+      title: readSummaries.map((summary) => summary.path).join("\n"),
     };
   }
 

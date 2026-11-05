@@ -30,11 +30,20 @@ ANCHORS: dict[str, re.Pattern[str]] = {
     # agent 往返（agent 内化收益评估的依据；仅语音发问路径打点）
     "fe_send_prep_ms": re.compile(r"chatSend 准备 .*prep=\+(\d+)ms"),
     "fe_send_total_ms": re.compile(r"chatSend 已提交 .*total=\+(\d+)ms"),
+    # 录入→回复全链（FE 时效汇总行）
+    "fe_commit_delay_ms": re.compile(r"录入→提交 (\d+) ms"),
+    "fe_first_delta_ms": re.compile(r"提交→首个正文 (\d+) ms"),
+    "fe_reply_gen_ms": re.compile(r"正文生成耗时 (\d+) ms"),
+    "fe_play_total_ms": re.compile(r"本轮播报总时长 (\d+) ms"),
+    "fe_barge_after_ms": re.compile(r"打断汇总 .*播报进行 (\d+) ms"),
+    # 用户回合时长（判停误切率观察，后端）
+    "be_turn_speech_ms": re.compile(r"用户回合时长 (\d+) ms"),
 }
 
 
 def parse_files(log_dir: Path, days: int | None) -> dict[str, list[int]]:
     samples: dict[str, list[int]] = {name: [] for name in ANCHORS}
+    samples["be_wire_gap_cross_turn"] = []
     files = sorted(log_dir.glob("voice-*.log"))
     if days:
         # 文件名 voice-frontend-YYYY-MM-DD.log；粗过滤最近 N 天
@@ -56,7 +65,12 @@ def parse_files(log_dir: Path, days: int | None) -> dict[str, list[int]]:
             for name, pat in ANCHORS.items():
                 m = pat.search(line)
                 if m:
-                    samples[name].append(int(m.group(1)))
+                    v = int(m.group(1))
+                    # wire_gap >5s 是跨轮空闲（handoff 锚点跨回合），单独计不进句间分布
+                    if name == "be_wire_gap" and v > 5000:
+                        samples["be_wire_gap_cross_turn"].append(v)
+                    else:
+                        samples[name].append(v)
     return samples
 
 

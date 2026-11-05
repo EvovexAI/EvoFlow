@@ -3,6 +3,10 @@
  * 顶栏问号 / 设置 / 托盘共用 openResourceManagerOverlay()。
  */
 import { api } from './tauri-api.js'
+import {
+  fetchObsEnabledStatus,
+  setObsEnabled,
+} from '../react/obs/lib/obs-api.js'
 
 let _host = null
 let _timer = null
@@ -205,6 +209,17 @@ function renderSnapshot(body, snapshot, error, metric) {
   `
 }
 
+function applyDebugSwitch(host, { enabled, lockedByEnv, busy }) {
+  const btn = host?.querySelector?.('[data-rm-debug-toggle]')
+  if (!btn) return
+  btn.classList.toggle('is-on', !!enabled)
+  btn.setAttribute('aria-pressed', enabled ? 'true' : 'false')
+  btn.disabled = !!(busy || lockedByEnv)
+  btn.title = lockedByEnv
+    ? '被环境变量 EVOFLOW_OBSERVABILITY 锁定'
+    : '开启后对话摘要显示可点击的调试信息'
+}
+
 function escapeHtml(s) {
   return String(s || '')
     .replace(/&/g, '&amp;')
@@ -294,6 +309,28 @@ export async function openResourceManagerOverlay() {
         background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;border-radius:10px;padding:12px 14px;
       }
       #evoflow-resource-manager-overlay .ef-rm-loading{color:#6b7280;padding:24px;text-align:center}
+      #evoflow-resource-manager-overlay .ef-rm-debug{
+        margin:0 16px 16px;background:#fff;border:1px solid #e6e8ef;border-radius:12px;padding:12px 14px;flex:0 0 auto;
+      }
+      #evoflow-resource-manager-overlay .ef-rm-debug-row{
+        display:flex;align-items:center;justify-content:space-between;gap:12px;
+      }
+      #evoflow-resource-manager-overlay .ef-rm-debug-title{font-weight:650;font-size:13px}
+      #evoflow-resource-manager-overlay .ef-rm-debug-hint{margin-top:2px;font-size:12px;color:#6b7280}
+      #evoflow-resource-manager-overlay .ef-rm-switch{
+        width:40px;height:22px;border:none;border-radius:999px;background:#d1d5db;cursor:pointer;padding:0;position:relative;flex-shrink:0;
+      }
+      #evoflow-resource-manager-overlay .ef-rm-switch > i{
+        position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;background:#fff;
+        box-shadow:0 1px 2px rgba(15,23,42,.25);transition:transform .15s ease;
+      }
+      #evoflow-resource-manager-overlay .ef-rm-switch.is-on{background:#4f46e5}
+      #evoflow-resource-manager-overlay .ef-rm-switch.is-on > i{transform:translateX(18px)}
+      #evoflow-resource-manager-overlay .ef-rm-switch:disabled{opacity:.55;cursor:not-allowed}
+      #evoflow-resource-manager-overlay .ef-rm-ops-link{
+        margin-top:10px;border:none;background:transparent;color:#4f46e5;font-size:13px;cursor:pointer;padding:0;
+      }
+      #evoflow-resource-manager-overlay .ef-rm-ops-link:hover{text-decoration:underline}
     </style>
     <div class="ef-rm-panel" role="dialog" aria-modal="true" aria-label="资源管理器">
       <div class="ef-rm-top">
@@ -308,15 +345,32 @@ export async function openResourceManagerOverlay() {
         <button type="button" class="ef-rm-close" data-rm-close>关闭</button>
       </div>
       <div class="ef-rm-body" data-rm-body></div>
+      <div class="ef-rm-debug" data-rm-debug>
+        <div class="ef-rm-debug-row">
+          <div class="ef-rm-debug-copy">
+            <div class="ef-rm-debug-title">开启调试模式</div>
+            <div class="ef-rm-debug-hint">开启后对话摘要会出现可点击的「调试」信息</div>
+          </div>
+          <button type="button" class="ef-rm-switch" data-rm-debug-toggle aria-pressed="false" title="开启调试模式">
+            <i></i>
+          </button>
+        </div>
+        <button type="button" class="ef-rm-ops-link" data-rm-ops>进入运维观测 →</button>
+      </div>
     </div>
   `
   document.body.appendChild(host)
   _host = host
 
   let metric = 'cpu'
+  let debugOn = false
+  let debugLocked = false
+  let debugBusy = false
   const body = host.querySelector('[data-rm-body]')
   const sub = host.querySelector('[data-rm-sub]')
   const tabs = [...host.querySelectorAll('[data-rm-tab]')]
+
+  const syncDebugUi = () => applyDebugSwitch(host, { enabled: debugOn, lockedByEnv: debugLocked, busy: debugBusy })
 
   const onKey = (e) => {
     if (e.key === 'Escape') {
@@ -343,6 +397,65 @@ export async function openResourceManagerOverlay() {
       void refresh()
     })
   })
+
+  host.querySelector('[data-rm-ops]')?.addEventListener('click', () => {
+    window.removeEventListener('keydown', onKey)
+    closeResourceManagerOverlay()
+    window.location.hash = '/observability'
+  })
+
+  host.querySelector('[data-rm-debug-toggle]')?.addEventListener('click', () => {
+    if (debugBusy || debugLocked) return
+    const next = !debugOn
+    debugBusy = true
+    syncDebugUi()
+    void import('../react/obs/lib/obs-api.js')
+      .then(async (m) => {
+        const st = await m.setObsEnabled(next)
+        debugOn = !!st.enabled
+        debugLocked = !!st.lockedByEnv
+        try {
+          const { toast } = await import('../components/toast.js')
+          toast(
+            st.enabled
+              ? '调试模式已开启：对话摘要会出现可点击的「调试」'
+              : '调试模式已关闭',
+            'success',
+          )
+        } catch {
+          /* ignore */
+        }
+      })
+      .catch(async (e) => {
+        const msg = String(e?.message || e || '')
+        try {
+          const { toast } = await import('../components/toast.js')
+          if (/org_admin|403|forbidden/i.test(msg)) {
+            toast('需要管理员权限才能开启调试模式', 'error')
+          } else if (/locked_by_env|EVOFLOW_OBSERVABILITY/i.test(msg)) {
+            debugLocked = true
+            toast('调试模式被环境变量锁定，无法在界面切换', 'error')
+          } else {
+            toast(`切换调试模式失败：${msg || 'unknown'}`, 'error')
+          }
+        } catch {
+          /* ignore */
+        }
+      })
+      .finally(() => {
+        debugBusy = false
+        syncDebugUi()
+      })
+  })
+
+  void import('../react/obs/lib/obs-api.js')
+    .then((m) => m.fetchObsEnabledStatus())
+    .then((st) => {
+      debugOn = !!st.enabled
+      debugLocked = !!st.lockedByEnv
+      syncDebugUi()
+    })
+    .catch(() => syncDebugUi())
 
   let lastSnapshot = null
   async function refresh() {

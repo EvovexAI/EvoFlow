@@ -34,7 +34,10 @@ from evoflow.proactive.employee_prompting.dept_group_im import (
     build_dept_group_im_block,
     is_dept_group_im_context,
     is_dept_group_steward_context,
+    normalize_dept_group_roster,
+    refresh_dept_group_im_in_prompt,
     resolve_dept_group_im_from_session,
+    strip_dept_group_im_from_prompt,
 )
 from evoflow.proactive.employee_prompting.identity import (
     is_employee_chat_session,
@@ -87,7 +90,10 @@ __all__ = [
     "build_employee_communication_block",
     "is_dept_group_im_context",
     "is_dept_group_steward_context",
+    "normalize_dept_group_roster",
+    "refresh_dept_group_im_in_prompt",
     "resolve_dept_group_im_from_session",
+    "strip_dept_group_im_from_prompt",
     "build_employee_contract_block",
     "build_employee_habits_block",
     "build_employee_identity_block",

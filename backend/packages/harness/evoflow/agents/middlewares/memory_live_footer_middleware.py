@@ -53,6 +53,25 @@ def _messages_from_request(request: ModelRequest) -> list[BaseMessage]:
     return messages_from_model_request(request)
 
 
+_MEMORY_ASSETS_CLOSE = "</memory_assets>"
+
+
+def _splice_before_memory_assets_close(standing: str, live: str) -> str:
+    """Insert ``live`` before ``</memory_assets>``; fall back to append if no wrapper."""
+    body = str(standing or "").rstrip()
+    extra = str(live or "").strip()
+    if not extra:
+        return body
+    if not body:
+        return extra
+    lower = body.lower()
+    close = _MEMORY_ASSETS_CLOSE
+    idx = lower.rfind(close)
+    if idx >= 0:
+        return f"{body[:idx].rstrip()}\n\n{extra}\n{body[idx:]}".strip()
+    return f"{body}\n\n{extra}".strip()
+
+
 def _latest_user_query(messages: list[Any]) -> str:
     for msg in reversed(messages):
         role = ""
@@ -168,7 +187,9 @@ class MemoryLiveFooterMiddleware(AgentMiddleware[AgentState]):
         live_bits = [b for b in (profile_footer, pending_footer) if b]
         if live_bits:
             live = "\n\n".join(live_bits)
-            standing = f"{standing}\n\n{live}".strip() if standing else live
+            # Keep live bits inside ``<memory_assets>…</memory_assets>`` so the
+            # region still ends with a proper closing tag (not an orphaned tail).
+            standing = _splice_before_memory_assets_close(standing, live)
         base = strip_memory_xml_blocks(str(getattr(sm, "content", "") or "")).rstrip()
         if standing:
             merged = f"{base}\n\n{standing}".strip() if base else standing

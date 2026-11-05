@@ -134,7 +134,23 @@ function logRawUserFacingError(raw, facing) {
 export function toUserFacingError(raw, fallback = DEFAULT_FALLBACK) {
   const msg = String(raw ?? '').trim()
   if (!msg) return fallback
+
+  // Volc Ark / Doubao unpaired tool history — map before looksUserFriendly keeps short CJK.
+  if (
+    /tool calls and tool results do not match|incomplete tool records|11148|工具记录不完整/i.test(
+      msg,
+    )
+  ) {
+    const facing = '对话里的工具调用记录不完整，请新建对话后再试'
+    logRawUserFacingError(raw, facing)
+    return facing
+  }
+
   if (looksUserFriendly(msg)) return msg
+  if (looksLikeStackTrace(msg) && !hasCjk(msg)) {
+    logRawUserFacingError(raw, fallback)
+    return fallback
+  }
 
   const lower = msg.toLowerCase()
   const isDev =
@@ -187,6 +203,24 @@ export function toUserFacingError(raw, fallback = DEFAULT_FALLBACK) {
 
   if (facing) logRawUserFacingError(raw, facing)
   return facing
+}
+
+/**
+ * Connectivity / gateway-warming copy that should not pop as toast.
+ * Still returned by {@link toUserFacingError} for banners / inline error text,
+ * but ``toast()`` logs them to frontend log only.
+ */
+const CONNECTIVITY_TOAST_NOISE =
+  /^(服务连接异常|服务未启动或暂时不可用|无法连接本地服务|网络连接异常|服务暂时不可用|服务正在启动|无法连接定时调度服务)/
+
+/**
+ * @param {unknown} message
+ * @returns {boolean}
+ */
+export function isConnectivityToastNoise(message) {
+  const text = String(message ?? '').trim()
+  if (!text) return false
+  return CONNECTIVITY_TOAST_NOISE.test(text)
 }
 
 export { DEFAULT_FALLBACK as USER_FACING_ERROR_FALLBACK }

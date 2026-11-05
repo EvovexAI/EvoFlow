@@ -122,12 +122,15 @@ export class DeptGroupWakeQueue {
   dispose() {
     this.aborted = true
     for (const job of this.all.values()) {
-      if (job.status === 'queued' || job.status === 'running') {
+      if (job.status === 'queued') {
+        // 尚未开跑：直接取消
         job.status = 'failed'
         job.error = '已取消'
         job.updatedAt = this.now()
         job.reject(new Error('已取消'))
       }
+      // running：不在这里 reject。等 execute 收尾——
+      // run 已产出则 resolve（群气泡可落盘），否则再失败。
     }
     this.queues.clear()
     this.pumping.clear()
@@ -170,8 +173,14 @@ export class DeptGroupWakeQueue {
     const goal = String(input.goal || '').trim()
     if (!goal) return Promise.reject(new Error('缺少任务'))
 
+    // 新一轮用户点名（depth=0）：清掉上一轮的嵌套防环，允许小V再次 @ 同一人
+    // （旧逻辑成功后 nestSeen 永不释放 → 正式包里第二次 @技术总监 完全没气泡）
+    if (Number(input.depth) === 0) {
+      this.nestSeen.clear()
+    }
+
     if (input.chainKey && this.nestSeen.has(input.chainKey)) {
-      // 同链已成功叫醒过 → 跳过；失败会从 nestSeen 剔除，允许再试
+      // 同轮内同链已叫醒过 → 跳过；失败会从 nestSeen 剔除，允许再试
       return Promise.resolve()
     }
 
@@ -286,13 +295,23 @@ export class DeptGroupWakeQueue {
           sourceMsgId: job.sourceMsgId,
           signal,
         })
-        if (this.aborted || signal.aborted) {
+        // 跑完已有正文/定稿时，组件 dispose 不应再打成「已取消」
+        // （员工 sticky 会话常已产出，只是群 UI 被重挂）
+        if ((this.aborted || signal.aborted) && (result?.busy || result?.error)) {
           if (job.chainKey) this.nestSeen.delete(job.chainKey)
           job.status = 'failed'
-          job.error = '已取消'
+          job.error = result.error || '已取消'
           job.updatedAt = this.now()
           this.emit()
-          job.reject(new Error('已取消'))
+          job.reject(new Error(job.error))
+          this.drop(job)
+          return
+        }
+        if (this.aborted || signal.aborted) {
+          job.status = 'done'
+          job.updatedAt = this.now()
+          this.emit()
+          job.resolve()
           this.drop(job)
           return
         }

@@ -648,6 +648,15 @@ def setup_middleware(app: FastAPI) -> None:
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
+        # Browser CORS only exposes a small safelist; without these, JS cannot read
+        # Content-Range from serve-file 206 responses (tauri.localhost → gateway).
+        # That made PreviewPane.stat treat a bytes=0-0 probe body (1 byte) as the
+        # whole file size → PPTX/ZIP "Corrupted zip" / data length = 1.
+        expose_headers=[
+            "Accept-Ranges",
+            "Content-Range",
+            "Content-Length",
+        ],
     )
 
     app.add_middleware(GatewayRequestLoggingMiddleware)

@@ -316,6 +316,16 @@ export async function handleSend(
       )
       return
     }
+    try {
+      const ctxVision = (wsClient.getSessionContext(sessionKey) as { vision_enabled?: boolean | null } | undefined)
+        ?.vision_enabled
+      if (imageAttachments.length > 0 && ctxVision === false) {
+        toast('当前角色已关闭图片识别。请在右侧「角色设定」开启，或去掉图片后再发送。', 'warning')
+        return
+      }
+    } catch {
+      /* ignore */
+    }
     const contextFilesSentSnapshot =
       filesForSend.length > 0
         ? filesForSend.map((f) => ({

@@ -493,6 +493,42 @@
   color: var(--text-tertiary);
 }
 
+.pro-roles-dept-filter {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  min-width: 0;
+}
+
+.pro-roles-dept-filter[hidden] {
+  display: none !important;
+}
+
+.pro-roles-dept-filter-select {
+  box-sizing: border-box;
+  height: 36px;
+  max-width: 168px;
+  padding: 0 26px 0 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border-primary, var(--pro-slate-line, #e2e8f0));
+  background-color: var(--bg-secondary, #fff);
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-position: right 9px center;
+  background-size: 10px 10px;
+  background-repeat: no-repeat;
+  color: var(--text-primary);
+  font-size: 13px;
+  outline: none;
+  appearance: none;
+  cursor: pointer;
+}
+
+.pro-roles-dept-filter-select:focus {
+  border-color: color-mix(in srgb, var(--pro-teal, #0f766e) 55%, var(--border-primary, #e2e8f0));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--pro-teal, #0f766e) 18%, transparent);
+}
+
 .pro-tab {
   display: inline-flex;
   align-items: center;
@@ -1048,6 +1084,20 @@ body > .pro-role-more-menu .pro-role-more-item--danger:hover,
   color: var(--text-primary);
 }
 
+/* 名册卡第二行：部门 chip + 一句话简介（chip 在前，简介占剩余宽度并省略） */
+.pro-role-meta-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  margin-top: 3px;
+}
+.pro-role-meta-line > .pro-role-duty {
+  margin: 0;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
 .pro-role-sub {
   display: flex;
   align-items: center;
@@ -1060,6 +1110,25 @@ body > .pro-role-more-menu .pro-role-more-item--danger:hover,
 .pro-role-dept {
   color: var(--text-secondary);
   font-weight: 500;
+}
+
+/* 名册卡：部门 chip（无部门时不渲染，不占位） */
+.pro-role-dept-chip {
+  display: inline-block;
+  flex: 0 0 auto;
+  max-width: 7.5em;
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--pro-slate-line);
+  background: color-mix(in srgb, var(--text-tertiary) 8%, transparent);
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 14px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
 }
 
 .pro-role-schedule-badge {

@@ -26,7 +26,7 @@ def _role(
             responsibilities=["实现功能", "写测试"],
             workspace_path=workspace,
             reports_to=reports_to,
-            soul_md="短人设不要出现在 job 里",
+            soul_md="短人设",
             extra_context={"override_capabilities": True},
         ),
     )
@@ -59,7 +59,8 @@ def test_chat_skeleton_order_and_org_compact() -> None:
         memory_context="记一点",
     )
     assert text.count(job) == 1
-    assert "短人设" not in text
+    assert "短人设" in text
+    assert "<soul>" in text
     assert "<agent_system_prompt>" in text
     assert "<platform>" not in text
     assert "<employee_org" in text
@@ -67,7 +68,8 @@ def test_chat_skeleton_order_and_org_compact() -> None:
     assert "<session>" in text
     assert "<memory_assets>" in text
     assert "<duty_workflow>" not in text
-    assert text.index("<agent_system_prompt>") < text.index("<employee_org")
+    assert text.index("<agent_system_prompt>") < text.index("<soul>")
+    assert text.index("<soul>") < text.index("<employee_org")
     assert text.index("<employee_org") < text.index("<employee_collab")
     assert text.index("<employee_collab") < text.index("<session>")
 
@@ -101,13 +103,15 @@ def test_duty_shares_skeleton_job_once_and_workflow() -> None:
     )
     assert DUTY_CONTRACT_MARKER in text
     assert text.count("值班作业正文") == 1
-    assert "不应重复的 soul" not in text
+    assert "不应重复的 soul" in text
+    assert "<soul>" in text
     assert "<platform>" not in text
     assert "<employee_org" in text
     assert "<employee_collab" in text
     assert "<duty_workflow>" in text
     assert "handlers" in text
-    assert text.index("<agent_system_prompt>") < text.index("<employee_org")
+    assert text.index("<agent_system_prompt>") < text.index("<soul>")
+    assert text.index("<soul>") < text.index("<employee_org")
     assert text.index("<employee_org") < text.index("<employee_collab")
     assert text.index("<employee_collab") < text.index("<duty_workflow>")
 

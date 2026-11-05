@@ -1,12 +1,16 @@
 {
-  "version": "1.2.7",
-  "minAppVersion": "1.2.7",
+  "version": "1.2.9",
+  "minAppVersion": "1.2.9",
   "updateKind": "full",
   "assetKind": "installer",
-  "hash": "",
-  "url": "https://ghfast.top/https://github.com/EvovexAI/EvoFlow/releases/download/v1.2.7/EvoFlow_1.2.7_x64-setup.exe",
-  "urlCnMirror": "https://ghfast.top/https://github.com/EvovexAI/EvoFlow/releases/download/v1.2.7/EvoFlow_1.2.7_x64-setup.exe",
-  "urlGithub": "https://github.com/EvovexAI/EvoFlow/releases/download/v1.2.7/EvoFlow_1.2.7_x64-setup.exe",
-  "size": 0,
-  "changelog": "EvoFlow 1.2.7（相对 1.2.6）：新增部门群聊协作（群管家小V、@ 点名唤醒与接力、消息落库）；首页新增组织指挥台与总览全屏影院；启动页更简洁；技能 / 连接器并入「设置」，能力配置统一到员工编辑；值班开场去重；小V 形象与桌宠 Skill 更新。覆盖安装即可。"
+  "hash": "sha256:ca4a083884de03aea6e3a8f40b4993304bd57f0e5acfcc8752e94ea5941c95d1",
+  "url": "https://ghfast.top/https://github.com/EvovexAI/EvoFlow/releases/download/v1.2.9/EvoFlow_1.2.9_x64-setup.exe",
+  "urlCnMirror": "https://ghfast.top/https://github.com/EvovexAI/EvoFlow/releases/download/v1.2.9/EvoFlow_1.2.9_x64-setup.exe",
+  "urlGitee": "https://gitee.com/evovexai/EvoFlow/releases/download/v1.2.9/EvoFlow_1.2.9_x64-setup.exe",
+  "urlGithub": "https://github.com/EvovexAI/EvoFlow/releases/download/v1.2.9/EvoFlow_1.2.9_x64-setup.exe",
+  "size": 409108714,
+  "changelog": "**EvoFlow v1.2.9 — 读图更可靠，IM 可中途加塞，部门群不再丢回复**",
+  "notes": "**EvoFlow v1.2.9 — 读图更可靠，IM 可中途加塞，部门群不再丢回复**",
+  "releasedAt": "2026-11-04T12:52:44Z",
+  "pub_date": "2026-11-04T12:52:44Z"
 }

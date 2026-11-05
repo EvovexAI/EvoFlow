@@ -477,21 +477,67 @@ async function loadRebindableAgents(currentCode) {
 export const DUTY_PROMPT_SECTION = '## 岗位职责'
 
 /**
+ * @param {string[]|string|null|undefined} responsibilities
+ * @returns {string[]}
+ */
+export function coerceDutyLines(responsibilities) {
+  if (Array.isArray(responsibilities)) {
+    return responsibilities.map((x) => String(x || '').trim()).filter(Boolean)
+  }
+  if (typeof responsibilities === 'string') {
+    return responsibilities
+      .split('\n')
+      .map((s) => s.trim())
+      .filter(Boolean)
+  }
+  return []
+}
+
+/**
+ * Split agent system_prompt into body + duty lines under ``## 岗位职责``.
+ * @param {string} systemPrompt
+ * @returns {{ body: string, duties: string[] }}
+ */
+export function splitDutyFromSystemPrompt(systemPrompt) {
+  const sp = String(systemPrompt || '')
+  const idx = sp.indexOf(DUTY_PROMPT_SECTION)
+  if (idx < 0) {
+    return { body: sp.trim(), duties: [] }
+  }
+  const before = sp.slice(0, idx).trimEnd()
+  const rest = sp.slice(idx + DUTY_PROMPT_SECTION.length)
+  const nextH2 = rest.search(/\n##\s/)
+  const dutyBlock = (nextH2 >= 0 ? rest.slice(0, nextH2) : rest).trim()
+  const after = nextH2 >= 0 ? rest.slice(nextH2).trim() : ''
+  const duties = dutyBlock
+    .split('\n')
+    .map((l) => l.replace(/^[-*•]\s*/, '').trim())
+    .filter(Boolean)
+  const body = [before, after].filter(Boolean).join('\n\n').trim()
+  return { body, duties }
+}
+
+/**
+ * Write duty lines back into system_prompt (replaces existing ``## 岗位职责`` block).
+ * @param {string} systemPrompt
+ * @param {string[]|string|null|undefined} responsibilities
+ */
+export function applyDutyToSystemPrompt(systemPrompt, responsibilities) {
+  const { body } = splitDutyFromSystemPrompt(systemPrompt)
+  const lines = coerceDutyLines(responsibilities)
+  if (!lines.length) return body
+  const block = `${DUTY_PROMPT_SECTION}\n${lines.map((l) => `- ${l}`).join('\n')}`
+  return body ? `${body}\n\n${block}` : block
+}
+
+/**
  * Merge legacy role responsibilities into agent system_prompt (idempotent).
  * @param {string} systemPrompt
  * @param {string[]|string|null|undefined} responsibilities
  */
 export function mergeDutyIntoSystemPrompt(systemPrompt, responsibilities) {
   const sp = String(systemPrompt || '').trim()
-  let lines = []
-  if (Array.isArray(responsibilities)) {
-    lines = responsibilities.map((x) => String(x || '').trim()).filter(Boolean)
-  } else if (typeof responsibilities === 'string') {
-    lines = responsibilities
-      .split('\n')
-      .map((s) => s.trim())
-      .filter(Boolean)
-  }
+  const lines = coerceDutyLines(responsibilities)
   if (!lines.length) return sp
   if (sp.includes(DUTY_PROMPT_SECTION)) return sp
   if (lines.every((line) => sp.includes(line))) return sp
@@ -701,7 +747,6 @@ function renderAgentNativePanel(detail) {
   const d = detail || {
     code: '',
     agent_name: '',
-    description: '',
     system_prompt: '',
     soul: '',
   }
@@ -711,10 +756,6 @@ function renderAgentNativePanel(detail) {
       <span>名称</span>
       <input class="hire-input" data-name="agent_display_name" value="${esc(d.agent_name)}" placeholder="例如：创意广告负责人、AIGC 编剧">
     </label>
-    <label class="hire-field">
-      <span>简介</span>
-      <textarea class="hire-input hire-textarea" data-name="agent_description" rows="2" placeholder="一句话说明这个智能体会什么">${esc(d.description)}</textarea>
-    </label>
     <label class="hire-field hire-field--grow">
       <span>系统提示词</span>
       <p class="hire-chip-hint">核心指令、行为规范与要主动推进的事，都写这里。</p>
@@ -722,7 +763,7 @@ function renderAgentNativePanel(detail) {
     </label>
     <label class="hire-field hire-field--grow">
       <span>人格 SOUL</span>
-      <p class="hire-chip-hint">个性、行为边界、输出风格。是否注入见「能力与工作」里的 SOUL 开关（勾选=强制；未勾=跟随默认）。</p>
+      <p class="hire-chip-hint">个性、行为边界、输出风格。是否注入见「工作设置」里的 SOUL 开关（勾选=强制；未勾=跟随默认）。</p>
       <textarea class="hire-input hire-textarea hire-textarea--agent-soul" data-name="agent_soul" rows="8" placeholder="例：语气干脆；不确定时先问；不编造事实">${esc(d.soul)}</textarea>
     </label>`
 }
@@ -730,7 +771,6 @@ function renderAgentNativePanel(detail) {
 function readAgentNativeFields(overlay) {
   return {
     agent_name: (overlay.querySelector('[data-name="agent_display_name"]')?.value || '').trim(),
-    description: (overlay.querySelector('[data-name="agent_description"]')?.value || '').trim(),
     system_prompt: overlay.querySelector('[data-name="agent_system_prompt"]')?.value ?? '',
     soul: overlay.querySelector('[data-name="agent_soul"]')?.value ?? '',
   }
@@ -836,9 +876,11 @@ function fillCapabilityPanels(overlay, detail, catalog) {
 }
 
 function fillAgentNativePanel(overlay, detail, catalog) {
-  const panel = overlay.querySelector('.hire-edit-panel[data-section="agent"]')
-  if (!panel) return
-  panel.innerHTML = renderAgentNativePanel(detail)
+  const host =
+    overlay.querySelector('[data-role="agent-native"]') ||
+    overlay.querySelector('.hire-edit-panel[data-section="agent"]')
+  if (!host) return
+  host.innerHTML = renderAgentNativePanel(detail)
   if (catalog) fillCapabilityPanels(overlay, detail, catalog)
 }
 
@@ -871,6 +913,9 @@ export async function showEditRoleModal(role, {
     isXiaomiFrontDesk && (thinkingEnabledRaw === null || thinkingEnabledRaw === undefined)
       ? false
       : thinkingEnabledRaw
+  const visionEnabledRaw = cfg.vision_enabled
+  const visionEnabled =
+    visionEnabledRaw === true || visionEnabledRaw === false ? visionEnabledRaw : null
   const legacyDuties = Array.isArray(cfg.responsibilities)
     ? cfg.responsibilities.map((x) => String(x || '').trim()).filter(Boolean)
     : []
@@ -964,21 +1009,20 @@ export async function showEditRoleModal(role, {
       </div>`
 
   const basicAgentBlock = allowAgentRebind
-    ? `<p class="hire-chip-hint">可改绑智能体。名称、提示词、工具 / MCP / 技能均在左侧分区统一编辑。</p>
+    ? `<p class="hire-chip-hint">可改绑智能体；改绑后下方名称与提示词会换成新智能体的配置。工具 / MCP / 技能用左侧对应分区。</p>
               ${renderAgentPickField(available, selected.code)}
               ${renderAgentCard()}`
-    : `<p class="hire-chip-hint">当前绑定智能体。名称、提示词、工具 / MCP / 技能均在左侧分区统一编辑。</p>
+    : `<p class="hire-chip-hint">当前绑定智能体。工具 / MCP / 技能用左侧对应分区。</p>
               ${renderAgentCard()}
               <input type="hidden" data-name="agent_code" value="${esc(selected.code)}">`
 
   const sections = [
     { key: 'agent', label: '智能体' },
+    { key: 'capability', label: '工作设置' },
     { key: 'tools', label: '内置工具' },
     { key: 'mcp', label: 'MCP' },
     { key: 'skills', label: '技能' },
-    { key: 'basic', label: '组织编制' },
     { key: 'knowledge', label: '知识库' },
-    { key: 'capability', label: '能力与工作' },
     { key: 'strategy', label: '工作策略' },
     { key: 'schedule', label: '成本预算' },
   ]
@@ -1007,13 +1051,6 @@ export async function showEditRoleModal(role, {
           </nav>
           <div class="hire-edit-panels">
             <div class="hire-edit-panel hire-edit-panel--agent" data-section="agent">
-              ${renderAgentNativePanel(boundAgent)}
-            </div>
-            <div class="hire-edit-panel" data-section="tools" hidden></div>
-            <div class="hire-edit-panel" data-section="mcp" hidden></div>
-            <div class="hire-edit-panel" data-section="skills" hidden></div>
-
-            <div class="hire-edit-panel" data-section="basic" hidden>
               ${basicAgentBlock}
               <label class="hire-field">
                 <span>部门</span>
@@ -1026,7 +1063,13 @@ export async function showEditRoleModal(role, {
                   ${managerOptions}
                 </select>
               </label>
+              <div data-role="agent-native">
+                ${renderAgentNativePanel(boundAgent)}
+              </div>
             </div>
+            <div class="hire-edit-panel" data-section="tools" hidden></div>
+            <div class="hire-edit-panel" data-section="mcp" hidden></div>
+            <div class="hire-edit-panel" data-section="skills" hidden></div>
 
             <div class="hire-edit-panel" data-section="knowledge" hidden>
               <p class="hire-chip-hint">两步：先勾库，再选怎么用。其余检索细节用系统默认即可。</p>
@@ -1048,7 +1091,7 @@ export async function showEditRoleModal(role, {
               <div class="hire-field">
                 <span>模型思考</span>
                 <div class="hire-chip-row" data-name="thinking_enabled" role="radiogroup">
-                  <button type="button" class="hire-chip${thinkingEnabled === null || thinkingEnabled === undefined ? ' is-on' : ''}" data-value="">跟随默认</button>
+                  <button type="button" class="hire-chip${thinkingEnabled === null || thinkingEnabled === undefined ? ' is-on' : ''}" data-value="">默认</button>
                   <button type="button" class="hire-chip${thinkingEnabled === true ? ' is-on' : ''}" data-value="true">启用思考</button>
                   <button type="button" class="hire-chip${thinkingEnabled === false ? ' is-on' : ''}" data-value="false">禁用思考</button>
                 </div>
@@ -1057,6 +1100,15 @@ export async function showEditRoleModal(role, {
                     ? '平台秘书默认关闭思考，保证接待/分诊快回；一般无需开启'
                     : '控制模型的推理/思考过程（如 CoT、extended thinking）'
                 }</p>
+              </div>
+              <div class="hire-field">
+                <span>图片识别</span>
+                <div class="hire-chip-row" data-name="vision_enabled" role="radiogroup">
+                  <button type="button" class="hire-chip${visionEnabled === null || visionEnabled === undefined ? ' is-on' : ''}" data-value="">默认</button>
+                  <button type="button" class="hire-chip${visionEnabled === true ? ' is-on' : ''}" data-value="true">启用识图</button>
+                  <button type="button" class="hire-chip${visionEnabled === false ? ' is-on' : ''}" data-value="false">关闭识图</button>
+                </div>
+                <p class="hire-chip-hint">关闭后该岗位聊天不能发图；默认则按当前模型是否支持视觉</p>
               </div>
               <div class="hire-field">
                 <span>记忆</span>
@@ -1212,6 +1264,10 @@ export async function showEditRoleModal(role, {
           ? false
           : null
         : thinking_enabled_raw === 'true'
+    const vision_enabled_raw =
+      overlay.querySelector('[data-name="vision_enabled"] .hire-chip.is-on')?.dataset.value || ''
+    const vision_enabled =
+      vision_enabled_raw === '' ? null : vision_enabled_raw === 'true'
     const model_name = readModelName(overlay)
     const nextDaily = Number(overlay.querySelector('[data-name="daily_budget_usd"]')?.value || 0) || 0
     const nextPerRun = Number(overlay.querySelector('[data-name="per_run_budget_usd"]')?.value || 0) || 0
@@ -1223,7 +1279,6 @@ export async function showEditRoleModal(role, {
     const kb_injection = readKbInjectionConfig(overlay, existingKbInjection)
     const agentTargetCode = nextAgent || role.agent_code
     const agentNameChanged = agentFields.agent_name !== String(agentBaseline.agent_name || '')
-    const agentDescChanged = agentFields.description !== String(agentBaseline.description || '')
     const agentPromptChanged =
       String(agentFields.system_prompt || '') !== String(agentBaseline.system_prompt || '')
     const agentSoulChanged = String(agentFields.soul || '') !== String(agentBaseline.soul || '')
@@ -1254,7 +1309,6 @@ export async function showEditRoleModal(role, {
     const agentCapabilityChanged = toolsChanged || mcpChanged || skillsChanged
     const agentNativeChanged =
       agentNameChanged ||
-      agentDescChanged ||
       agentPromptChanged ||
       agentSoulChanged ||
       agentCapabilityChanged ||
@@ -1277,8 +1331,12 @@ export async function showEditRoleModal(role, {
     if (think_mode !== thinkMode) roleChanges.push(`工作方式：${THINK_MODE_LABELS[thinkMode] || thinkMode} → ${THINK_MODE_LABELS[think_mode] || think_mode}`)
     // thinking_enabled 变更检测
     if (thinking_enabled !== thinkingEnabled) {
-      const labels = { null: '跟随默认', true: '启用思考', false: '禁用思考' }
+      const labels = { null: '默认', true: '启用思考', false: '禁用思考' }
       roleChanges.push(`模型思考：${labels[thinkingEnabled]} → ${labels[thinking_enabled]}`)
+    }
+    if (vision_enabled !== visionEnabled) {
+      const labels = { null: '默认', true: '启用识图', false: '关闭识图' }
+      roleChanges.push(`图片识别：${labels[visionEnabled]} → ${labels[vision_enabled]}`)
     }
     const memory_enabled_raw =
       overlay.querySelector('[data-name="memory_enabled"] .hire-chip.is-on')?.dataset.value || 'true'
@@ -1319,7 +1377,6 @@ export async function showEditRoleModal(role, {
 
     const agentChanges = []
     if (agentNameChanged) agentChanges.push('名称已修改')
-    if (agentDescChanged) agentChanges.push('简介已修改')
     if (agentPromptChanged || needsDutyMerge) {
       agentChanges.push(needsDutyMerge && !agentPromptChanged ? '岗位职责已合并进系统提示词' : '系统提示词已修改')
     }
@@ -1420,7 +1477,6 @@ export async function showEditRoleModal(role, {
         /** @type {Record<string, unknown>} */
         const agentPatch = {
           agent_name: agentFields.agent_name || null,
-          description: agentFields.description,
           system_prompt: agentFields.system_prompt,
           soul: String(agentFields.soul ?? ''),
         }
@@ -1453,6 +1509,7 @@ export async function showEditRoleModal(role, {
           heartbeat_schedule,
           think_mode,
           thinking_enabled,
+          vision_enabled,
           model_name,
           daily_budget_usd: nextDaily,
           per_run_budget_usd: nextPerRun,

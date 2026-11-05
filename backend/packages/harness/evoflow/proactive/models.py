@@ -121,6 +121,8 @@ class ProactiveRoleConfig:
     think_mode: str = "agent_loop"  # "agent_loop" | "prompt_only"
     # Model thinking/reasoning toggle: None=跟随模型默认, True=启用思考, False=禁用思考
     thinking_enabled: bool | None = None
+    # Vision / image understanding: None=跟随模型能力, True=启用识图, False=关闭识图
+    vision_enabled: bool | None = None
     # Override model for this role's patrol / execute (empty = agent default / app primary)
     model_name: str = ""
     max_turns: int = 10

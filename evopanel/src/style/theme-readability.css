@@ -481,18 +481,11 @@ html[data-theme='dark'] .react-chat-header-panel-btn.is-active {
   color: var(--accent) !important;
 }
 
-/* 智能体简单描述 / 员工职责 */
+/* 智能体简单描述 */
 html[data-theme='dark'] .react-chat-agent-profile-bio,
 html[data-theme='dark'] .react-chat-agent-profile-meta,
-html[data-theme='dark'] .react-chat-employee-responsibilities,
-html[data-theme='dark'] .react-chat-employee-responsibilities ul,
-html[data-theme='dark'] .react-chat-employee-responsibilities li,
-html[data-theme='dark'] .react-chat-employee-duty-more,
-html[data-theme='dark'] .react-chat-employee-extra-meta,
-html[data-theme='dark'] .react-chat-employee-duty-toggle,
 html[data-translucent-ui='1'] .react-chat-agent-profile-bio,
-html[data-translucent-ui='1'] .react-chat-agent-profile-meta,
-html[data-translucent-ui='1'] .react-chat-employee-responsibilities ul {
+html[data-translucent-ui='1'] .react-chat-agent-profile-meta {
   color: var(--text-primary) !important;
 }
 

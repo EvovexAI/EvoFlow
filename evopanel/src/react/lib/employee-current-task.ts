@@ -145,6 +145,22 @@ export function listSessionBoardTasks(
   return { items: items.slice(0, Math.max(0, limit)), scoped }
 }
 
+/** 摘要任务 Tab：待处理 / 已处理分组（非终态一律算待处理）。 */
+export function groupBoardTasksByLane(tasks: EmployeeBoardTask[]): {
+  open: EmployeeBoardTask[]
+  done: EmployeeBoardTask[]
+} {
+  const open: EmployeeBoardTask[] = []
+  const done: EmployeeBoardTask[] = []
+  for (const t of Array.isArray(tasks) ? tasks : []) {
+    if (isTerminalTaskStatus(t.status)) done.push(t)
+    else open.push(t)
+  }
+  open.sort(sortByActivityDesc)
+  done.sort(sortByActivityDesc)
+  return { open, done }
+}
+
 /**
  * Pick 「当前」任务：手动 focus > 最近活跃 > soft preferred / busy hint > 最近任意。
  * 一会话多任务时，新建/推进的任务因 updated_at 更新会成为当前。

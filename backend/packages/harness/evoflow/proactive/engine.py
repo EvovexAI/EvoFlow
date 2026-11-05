@@ -713,6 +713,11 @@ class ProactiveEngine:
             run_context["reasoning_effort"] = "minimum"
         elif thinking_enabled is not None:
             run_context["thinking_enabled"] = bool(thinking_enabled)
+        vision_enabled = getattr(role.config, "vision_enabled", None)
+        if vision_enabled is False:
+            run_context["vision_enabled"] = False
+        elif vision_enabled is not None:
+            run_context["vision_enabled"] = bool(vision_enabled)
         # Unified memory gate + remaining prompt injection toggles
         from evoflow.agents.memory.runtime_overrides import role_memory_enabled_from_config
 

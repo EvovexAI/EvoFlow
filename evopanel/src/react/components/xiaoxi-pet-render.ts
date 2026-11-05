@@ -5,7 +5,6 @@
  * - 立绘按脖子切成「头层 / 身体层」两个 srcRect，头绕脖子轴旋转，接缝被 OVERLAP 挡住
  * - 眨眼 = 取眼睛区域纵向压缩，先铺一层肤色再贴，压缩边缘不会露眼眶
  * - 说话 = 先铺肤色盖掉立绘自带的抿嘴，再按音节包络画「上宽下窄 + 嘴角上翘」的笑口
- * - listening = 手扶着耳朵在听：袖子从身侧弯上来，竖掌贴在头侧
  * - coding = 坐姿立绘（第二张图）敲键盘：键光连闪、双手点按、脑袋一顿一顿
  *
  * 所有绘制都在 200x200 的设计空间里完成，调用方负责设置 transform。
@@ -384,74 +383,6 @@ function drawDots(ctx: CanvasRenderingContext2D, phase: number): void {
   }
 }
 
-/** 聆听：一只手举起来扶着头侧——耳朵被长发盖着，掌心贴上去就是"扶耳"。 */
-function drawHandOnEar(
-  ctx: CanvasRenderingContext2D,
-  sx: number,
-  sy: number,
-  left: number,
-  topY: number,
-): void {
-  const P = (x: number, y: number): [number, number] => [left + x * sx, topY + y * sy]
-  const [ax, ay] = P(706, 706) // 臂根（藏进身体轮廓）
-  const [bx, by] = P(716, 560)
-  const [wx, wy] = P(655, 470) // 手腕
-
-  ctx.lineCap = 'round'
-  // 小臂袖子：先描边层再亮层，读得出是一条手臂
-  ctx.beginPath()
-  ctx.moveTo(ax, ay)
-  ctx.quadraticCurveTo(bx, by, wx, wy)
-  ctx.strokeStyle = rgba('#9FB4C6', 150)
-  ctx.lineWidth = 48 * sx
-  ctx.stroke()
-  const sg = ctx.createLinearGradient(ax, ay, wx, wy)
-  sg.addColorStop(0, '#C7D6E2')
-  sg.addColorStop(1, '#F0F5FA')
-  ctx.strokeStyle = sg
-  ctx.lineWidth = 43 * sx
-  ctx.stroke()
-
-  // 腕口
-  const [cx, cy] = P(652, 468)
-  ctx.fillStyle = '#EDF3F8'
-  ctx.strokeStyle = rgba('#9FB4C6', 120)
-  ctx.lineWidth = Math.max(0.6, 1.8 * sx)
-  ctx.beginPath()
-  ctx.ellipse(cx, cy, 26 * sx, 17 * sy, 0, 0, Math.PI * 2)
-  ctx.fill()
-  ctx.stroke()
-
-  // 手掌：竖长椭圆（指朝上）微转 + 拇指根 + 三道指缝
-  const [px, py] = P(645, 420)
-  ctx.save()
-  ctx.translate(px, py)
-  ctx.rotate(-0.24)
-  const pg = ctx.createLinearGradient(0, -55 * sy, 0, 40 * sy)
-  pg.addColorStop(0, SKIN_HI)
-  pg.addColorStop(1, SKIN_LO)
-  ctx.fillStyle = pg
-  ctx.strokeStyle = rgba('#D9A8A6', 140)
-  ctx.lineWidth = Math.max(0.7, 2.0 * sx)
-  ctx.beginPath()
-  ctx.ellipse(0, 0, 27 * sx, 56 * sy, 0, 0, Math.PI * 2)
-  ctx.fill()
-  ctx.stroke()
-  ctx.beginPath()
-  ctx.ellipse(-24 * sx, 30 * sy, 11 * sx, 14 * sy, 0, 0, Math.PI * 2)
-  ctx.fill()
-  ctx.stroke()
-  ctx.strokeStyle = rgba('#D9A8A6', 130)
-  ctx.lineWidth = Math.max(0.5, 1.3 * sx)
-  for (const dx of [-13, 0, 13]) {
-    ctx.beginPath()
-    ctx.moveTo(dx * sx, -46 * sy)
-    ctx.quadraticCurveTo((dx + 2) * sx, -22 * sy, dx * sx, 0)
-    ctx.stroke()
-  }
-  ctx.restore()
-}
-
 /** 两只手合成一个 0~1 的"正在敲"的强度，喂给键光和身体起伏。 */
 export function tapEnergy(t: number): number {
   let e = 0
@@ -749,7 +680,7 @@ export function drawPetFrame(
   // ── 头层：绕脖子转 ──
   const base =
     mode === 'thinking' ? -4.2 : mode === 'listening' ? 5.2 : mode === 'answering' ? -1.4 : 0
-  // 思考态保持歪头但不摇摆（用户要求：思考时不要来回动）；仅空闲缓慢摆动
+  // 思考态保持歪头但不摇摆（用户要求：思考时不要来回动）；空闲缓慢摆动
   const sway = mode === 'idle' ? Math.sin(t * 0.9) * 1.7 : 0
   let nod = 0
   if (mode === 'answering') nod = Math.sin(t * 9.7) * 1.9 + Math.sin(t * 3.4) * 1.1
@@ -800,10 +731,6 @@ export function drawPetFrame(
     mode,
     t,
   )
-  if (mode === 'listening') {
-    // 手扶着耳朵在听：画在五官之后，手掌盖在耳侧头发上
-    drawHandOnEar(ctx, sx, sy, left, hy)
-  }
   ctx.restore()
 
   if (mode === 'thinking') drawDots(ctx, t)

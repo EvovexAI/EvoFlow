@@ -171,9 +171,6 @@ def prepare_vendor_request_for_observability(payload: dict[str, Any]) -> dict[st
     return _redact_secrets(copy.deepcopy(payload))
 
 
-_OBS_USER_PREVIEW_MAX_CHARS = 8000
-
-
 def build_observability_request_record(vendor_payload: dict[str, Any]) -> dict[str, Any]:
     """Compact record for SQLite: prompts/users first; tool names without full schemas.
 
@@ -219,10 +216,8 @@ def build_observability_request_record(vendor_payload: dict[str, Any]) -> dict[s
             record["latest_user_stats"] = text_content_stats(latest, model=model_hint)
         else:
             record["latest_user_stats"] = {"chars": len(latest), "tokens": -1}
-        if len(latest) > _OBS_USER_PREVIEW_MAX_CHARS:
-            record["latest_user_preview"] = latest[:_OBS_USER_PREVIEW_MAX_CHARS] + f"...<truncated:{len(latest)}>"
-        else:
-            record["latest_user_preview"] = latest
+        # Keep full latest-user text for ops/debug (messages[] also has the turn).
+        record["latest_user_preview"] = latest
 
     tool_names = tool_names_from_vendor_payload(vendor)
     if token_stats_ok:
@@ -288,14 +283,19 @@ def serialize_vendor_request_json(payload: dict[str, Any] | None) -> str | None:
 
 
 def _obs_stored_json_budget() -> int:
-    """Match sqlite_store ``_STORED_MODEL_JSON_LIMIT`` (512 KiB) with a small margin."""
-    raw = (os.environ.get("EVOFLOW_OBS_REQUEST_JSON_BUDGET") or "").strip()
-    if raw:
-        try:
-            return max(8_192, int(raw))
-        except ValueError:
-            pass
-    return 500_000  # under 512 KiB store cap
+    """Byte budget for Obs ``request_json`` before shrinking ``messages``.
+
+    Default **0 = unlimited** — ops/debug must keep the full vendor transcript
+    (system prompt + every turn). Set ``EVOFLOW_OBS_REQUEST_JSON_BUDGET`` to a
+    positive byte count only when disk pressure forces a shrink.
+    """
+    raw = (os.environ.get("EVOFLOW_OBS_REQUEST_JSON_BUDGET") or "").strip().lower()
+    if raw in ("", "0", "unlimited", "none", "off"):
+        return 0
+    try:
+        return max(8_192, int(raw))
+    except ValueError:
+        return 0
 
 
 def _is_system_role_message(msg: Any) -> bool:
@@ -327,7 +327,11 @@ def _tail_messages_preserve_system(messages: list[Any], keep: int) -> list[Any]:
 
 
 def _serialize_obs_request_record(record: dict[str, Any]) -> str:
-    """Dump record to JSON; if over budget, keep message_count and shrink messages."""
+    """Dump record to JSON. Default: keep full messages (ops/debug needs the whole transcript).
+
+    Only when ``EVOFLOW_OBS_REQUEST_JSON_BUDGET`` is a positive byte count do we
+    shrink ``messages`` (system preserved + tail) to fit the budget.
+    """
     budget = _obs_stored_json_budget()
     msgs = record.get("messages")
     full_n = 0
@@ -353,10 +357,11 @@ def _serialize_obs_request_record(record: dict[str, Any]) -> str:
         return json.dumps(ordered, ensure_ascii=False, default=str)
 
     raw = _dump(record)
-    if len(raw) <= budget:
+    if budget <= 0 or len(raw) <= budget:
+        # Unlimited (default) or under budget — still apply hard field safety cap.
         return _cap_json_str(raw)
 
-    # Prefer accurate count over storing every message body in Obs SQLite.
+    # Opt-in shrink path when an explicit budget is set.
     if isinstance(msgs, list) and msgs:
         for keep in (40, 20, 10, 5, 2, 1, 0):
             slim = dict(record)

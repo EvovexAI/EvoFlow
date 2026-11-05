@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 _timer_lock = threading.Lock()
 _timers: dict[str, threading.Timer] = {}
-_DEBOUNCE_SEC = 30.0
+_DEBOUNCE_SEC = 2.0
 
 _LESSONS_RE = re.compile(
     r"(?im)^#{1,3}\s*lessons?\s*learned\b[\s\S]*?(?=^#{1,3}\s|\Z)"
@@ -81,7 +81,15 @@ def consolidate_soul_summary_for_entity(entity: EntityRef, soul_md: str | None =
 
 
 def schedule_soul_summary_consolidate(entity: EntityRef, *, delay_s: float = _DEBOUNCE_SEC) -> None:
-    """Debounced consolidate after SOUL.md edits."""
+    """Debounced consolidate after SOUL.md edits.
+
+    Prompt load already falls back to a live extract when summary is older than
+    SOUL.md; this timer refreshes the on-disk pin for the next cold path.
+
+    ``delay_s <= 0`` runs consolidate immediately **after** releasing
+    ``_timer_lock`` — never call ``_run`` while holding the lock (non-reentrant;
+    ``_run``'s finally also needs the lock).
+    """
     e = entity.normalized()
     if e.entity_type not in ("agent", "employee"):
         return
@@ -92,25 +100,57 @@ def schedule_soul_summary_consolidate(entity: EntityRef, *, delay_s: float = _DE
             consolidate_soul_summary_for_entity(e)
         except Exception:
             logger.debug("soul-summary consolidate failed for %s", key, exc_info=True)
+        finally:
+            with _timer_lock:
+                _timers.pop(key, None)
 
+    run_now = False
     with _timer_lock:
         old = _timers.pop(key, None)
         if old is not None:
             old.cancel()
-        t = threading.Timer(max(1.0, float(delay_s)), _run)
-        t.daemon = True
-        _timers[key] = t
-        t.start()
+        if float(delay_s) <= 0:
+            # Mark in-flight so a concurrent schedule cancels cleanly; run outside lock.
+            _timers[key] = None  # type: ignore[assignment]
+            run_now = True
+        else:
+            wait = max(0.5, float(delay_s))
+            t = threading.Timer(wait, _run)
+            t.daemon = True
+            _timers[key] = t
+            t.start()
+    if run_now:
+        _run()
+
+
+def _mtime_ns(path) -> int:
+    try:
+        return int(path.stat().st_mtime_ns) if path.is_file() else 0
+    except OSError:
+        return 0
+
+
+def _summary_fresher_than_soul(summary_path, soul_path) -> bool:
+    """False when SOUL.md is newer than soul-summary (debounce lag) — caller must re-extract."""
+    sm = _mtime_ns(summary_path)
+    if sm <= 0:
+        return False
+    soul_m = _mtime_ns(soul_path)
+    if soul_m <= 0:
+        return True
+    return sm >= soul_m
 
 
 def load_soul_summary_text(agent_code: str | None) -> str:
-    """Read soul-summary.md for prompt Tier 0 (empty if missing)."""
+    """Read soul-summary.md for prompt Tier 0 (empty if missing or stale vs SOUL.md)."""
     code = str(agent_code or "").strip().lower()
     if not code:
         return ""
     try:
-        path = profile_path(EntityRef("agent", code), "soul-summary.md")
-        if path.is_file():
+        ent = EntityRef("agent", code)
+        path = profile_path(ent, "soul-summary.md")
+        soul_path = profile_path(ent, "SOUL.md")
+        if path.is_file() and _summary_fresher_than_soul(path, soul_path):
             raw = path.read_text(encoding="utf-8")
             body = raw.split("<!-- auto-generated", 1)[-1]
             body = body.split("-->", 1)[-1] if "-->" in body else body
@@ -118,8 +158,10 @@ def load_soul_summary_text(agent_code: str | None) -> str:
     except OSError:
         pass
     try:
-        path = profile_path(EntityRef("employee", code), "soul-summary.md")
-        if path.is_file():
+        ent = EntityRef("employee", code)
+        path = profile_path(ent, "soul-summary.md")
+        soul_path = profile_path(ent, "SOUL.md")
+        if path.is_file() and _summary_fresher_than_soul(path, soul_path):
             return cap_text_chars(path.read_text(encoding="utf-8").strip(), TIER0_SOUL_SUMMARY_CHARS)
     except OSError:
         pass

@@ -1,4 +1,4 @@
-"""User profile admin — asset-center dimensions (basic-info / preferences / persona)."""
+"""User profile admin — single asset-center doc ``profile/USER.md``."""
 
 from __future__ import annotations
 
@@ -22,14 +22,14 @@ def _user_entity(principal_id: str = "") -> EntityRef:
 
 
 def get_user_profile(*, principal_id: str = "") -> dict[str, Any]:
-    """Return user profile dimension files (asset center SoT)."""
+    """Return user profile ``USER.md`` (asset center SoT)."""
     entity = _user_entity(principal_id)
     ensure_user_profile_files(entity)
     dims = read_user_profile_dimensions(max_chars_per_dim=8000, entity=entity)
     return {
         "dimensions": dims,
         "fields": read_profile(entity).get("fields") or {},
-        "hint": "对话写入用 `write`/`replace` profile 文件；UI 智能体 Tab 可手动维护",
+        "hint": "对话写入用 assets profile；资产中心「画像」Tab 可手动维护 profile/USER.md",
     }
 
 
@@ -40,7 +40,7 @@ def update_user_profile_dimension(
     mode: str = "append",
     principal_id: str = "",
 ) -> dict[str, Any]:
-    """Append or replace one profile dimension (new asset-center API)."""
+    """Append or replace the single user profile doc (legacy dim names accepted)."""
     entity = _user_entity(principal_id)
     result = update_profile_dimension(
         dimension=dimension,

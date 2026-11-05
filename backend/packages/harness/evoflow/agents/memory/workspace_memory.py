@@ -1,9 +1,9 @@
-"""Workspace-scoped project memory — Asset Hub Markdown (same form as user assets).
+"""Workspace-scoped project memory — retired for runtime inject/write.
 
-SoT: ``<workspace>/.evoflow/`` with standing / facts / episodic / craft
-(same tree shape as ``~/.evoflow/assets/{user,employees}/``).
-Injection: catalog only (title + 10–30字 summary); full text via read tools.
-Legacy JSON memory-storage structure is no longer written or injected.
+Historical SoT lived under ``<workspace>/.evoflow/`` (standing / facts / episodic /
+craft). Runtime no longer injects or auto-writes this tree; employee/user Asset Hub
+is the memory path. On-disk data is left in place (no archive/cleanup). Admin/CLI
+helpers still read for inspection; bootstrap/seed/update are no-ops.
 """
 
 from __future__ import annotations
@@ -246,43 +246,15 @@ def prune_workspace_memory(workspace_path: str, *, dry_run: bool = False) -> dic
 
 
 def seed_workspace_memory(workspace_path: str, *, force: bool = False) -> dict[str, Any]:
-    """Write curated project knowledge without LLM (known repo layouts only)."""
-    from evoflow.agents.memory.workspace_seeds import resolve_workspace_seed
-
+    """Retired: workspace memory seed is disabled."""
+    _ = force
     normalized = normalize_workspace_path(workspace_path)
-    if not normalized:
-        raise ValueError("workspace_path is required")
-    root = Path(normalized).resolve()
-    if not root.is_dir():
-        raise ValueError(f"Workspace path is not a directory: {root}")
-
-    seed = resolve_workspace_seed(str(root))
-    if not seed:
-        raise ValueError(f"No curated seed for {root}; use `workspace memory bootstrap` for LLM scan")
-
-    get_or_create_workspace(str(root))
-    ref = workspace_ref(str(root))
-    ensure_entity_tree(ref)
-
-    if not force and _workspace_memory_has_content(str(root)):
-        return {
-            "status": "skipped",
-            "reason": "workspace assets already have content (use --force to replace)",
-            "scope_id": ref.entity_id,
-            "workspace_path": str(root),
-            "memory": get_workspace_memory_data(str(root)),
-        }
-
-    if force:
-        clear_workspace_memory(str(root))
-
-    written = _apply_workspace_asset_updates(ref, seed, source="seed")
     return {
-        "status": "ok",
-        "scope_id": ref.entity_id,
-        "workspace_path": str(root),
-        "written": written,
-        "memory": get_workspace_memory_data(str(root)),
+        "status": "disabled",
+        "reason": "workspace_memory_retired",
+        "scope_id": workspace_scope_id(normalized) if normalized else "",
+        "workspace_path": normalized,
+        "memory": get_workspace_memory_data(normalized) if normalized else {},
     }
 
 
@@ -324,39 +296,8 @@ def format_workspace_memory_context(
     injection_profile: str = "full",
     include_procedure: bool = True,
 ) -> str:
-    """Build ``<workspace_memory>`` block.
-
-    Two modes:
-
-    - **asset-hub** (default): inject compact catalog (standing summary + facts/episodic/craft
-      titles + MEMORY.md registry pointer) + a one-line prompt to read by path. Skip
-      the shared procedure/layout block — ``read_path.md`` already emitted it for user memory.
-      Conventional Asset-Hub pattern: tell the model what is here; let it open files on demand.
-    - **legacy**: same as before (procedure + catalog) for compatibility.
-
-    ``include_procedure`` kept for legacy callers; asset-hub mode ignores it.
-    """
-    config = get_memory_config()
-    if not config.enabled or not config.injection_enabled:
-        return ""
-
-    normalized = normalize_workspace_path(workspace_path or "")
-    if not normalized:
-        return ""
-
-    try:
-        ref = workspace_ref(normalized)
-        ensure_entity_tree(ref)
-        from evoflow.assets.memory_injection import asset_hub_memory_injection
-
-        if asset_hub_memory_injection():
-            return _build_workspace_asset_hub_block(ref).strip()
-        # Legacy: full procedure + catalog
-        return _build_workspace_legacy_block(ref, include_procedure=include_procedure).strip()
-    except Exception as exc:
-        logger.debug("workspace catalog inject skipped: %s", exc)
-        return ""
-
+    """Retired: never inject ``<workspace_memory>`` into system prompts."""
+    _ = (workspace_path, injection_profile, include_procedure)
     return ""
 
 
@@ -413,48 +354,9 @@ _BOOTSTRAP_LOCK = threading.Lock()
 
 
 def schedule_workspace_memory_bootstrap_if_needed(workspace_path: str) -> bool:
-    """Background-bootstrap empty workspace asset tree when a session binds a project root."""
-    config = get_memory_config()
-    if not config.enabled:
-        return False
-
-    normalized = normalize_workspace_path(workspace_path)
-    if not normalized:
-        return False
-    root = Path(normalized).resolve()
-    if not root.is_dir():
-        logger.info("[记忆] 工作区 bootstrap 跳过：路径不是目录 path=%s", root)
-        return False
-
-    with _BOOTSTRAP_LOCK:
-        key = str(root)
-        if key in _BOOTSTRAP_IN_FLIGHT:
-            return False
-        _BOOTSTRAP_IN_FLIGHT.add(key)
-
-    def _run() -> None:
-        try:
-            if _workspace_memory_has_content(str(root)):
-                return
-            result = bootstrap_workspace_memory(str(root))
-            logger.info(
-                "[记忆] 工作区 bootstrap 完成 path=%s status=%s",
-                root,
-                result.get("status"),
-            )
-        except Exception as exc:
-            logger.warning("[记忆] 工作区 bootstrap 失败 path=%s: %s", root, exc)
-        finally:
-            with _BOOTSTRAP_LOCK:
-                _BOOTSTRAP_IN_FLIGHT.discard(str(root))
-
-    threading.Thread(
-        target=_run,
-        daemon=True,
-        name=f"ws-mem-bootstrap-{hashlib.sha256(str(root).encode()).hexdigest()[:8]}",
-    ).start()
-    logger.info("[记忆] 工作区 bootstrap 已调度（后台）path=%s", root)
-    return True
+    """Retired: workspace memory bootstrap is disabled."""
+    _ = workspace_path
+    return False
 
 
 def resolve_workspace_path_for_memory(*, runtime: Any = None, thread_id: str | None = None) -> str | None:
@@ -484,57 +386,16 @@ def bootstrap_workspace_memory(
     model_name: str | None = None,
     force: bool = False,
 ) -> dict[str, Any]:
-    """Scan repository and write Asset Hub MD (standing + facts + optional craft)."""
-    config = get_memory_config()
-    if not config.enabled:
-        raise RuntimeError("Memory is disabled in config (memory.enabled=false)")
-
+    """Retired: workspace memory bootstrap is disabled."""
+    _ = model_name
+    _ = force
     normalized = normalize_workspace_path(workspace_path)
-    if not normalized:
-        raise ValueError("workspace_path is required")
-    root = Path(normalized).resolve()
-    if not root.is_dir():
-        raise ValueError(f"Workspace path is not a directory: {root}")
-
-    get_or_create_workspace(str(root))
-    ref = workspace_ref(str(root))
-    ensure_entity_tree(ref)
-
-    if not force and _workspace_memory_has_content(str(root)):
-        return {
-            "status": "skipped",
-            "reason": "workspace assets already have content (use --force to rebuild)",
-            "scope_id": ref.entity_id,
-            "workspace_path": str(root),
-            "memory": get_workspace_memory_data(str(root)),
-        }
-
-    if force:
-        clear_workspace_memory(str(root))
-
-    repo_context = collect_repository_context(str(root))
-    if not repo_context.strip():
-        raise ValueError(f"No bootstrap context collected from {root}")
-
-    prompt = WORKSPACE_BOOTSTRAP_PROMPT.format(repository_context=repo_context)
-    model_name_resolved = config.model_name or model_name
-    model = create_chat_model(name=model_name_resolved, thinking_enabled=False, invocation_kind="memory")
-    response = model.invoke(prompt)
-    response_text = _extract_text(response.content).strip()
-
-    if response_text.startswith("```"):
-        lines = response_text.split("\n")
-        response_text = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
-
-    update_data = json.loads(response_text)
-    written = _apply_workspace_asset_updates(ref, update_data, source="bootstrap")
-
     return {
-        "status": "ok",
-        "scope_id": ref.entity_id,
-        "workspace_path": str(root),
-        "written": written,
-        "memory": get_workspace_memory_data(str(root)),
+        "status": "disabled",
+        "reason": "workspace_memory_retired",
+        "scope_id": workspace_scope_id(normalized) if normalized else "",
+        "workspace_path": normalized,
+        "memory": get_workspace_memory_data(normalized) if normalized else {},
     }
 
 
@@ -712,4 +573,6 @@ def update_workspace_memory_from_conversation(
     workspace_path: str,
     thread_id: str | None = None,
 ) -> bool:
-    return WorkspaceMemoryUpdater().update_memory(messages, workspace_path, thread_id=thread_id)
+    """Retired: conversation no longer writes workspace/project memory."""
+    _ = (messages, workspace_path, thread_id)
+    return False

@@ -103,3 +103,19 @@ export function setThinkingLevelInMeta(sessionKey: string, level: ThinkingLevel)
   map[sessionKey] = { ...(map[sessionKey] || {}), thinkingLevel: level }
   safeWriteSessionMetaMap(map)
 }
+
+/** 本会话图片识别偏好：follow | on | off */
+export type SessionVisionPref = 'follow' | 'on' | 'off'
+
+export function getVisionPrefFromMeta(sessionKey: string): SessionVisionPref {
+  const v = safeReadSessionMetaMap()[sessionKey]?.visionPref
+  if (v === 'on' || v === 'off' || v === 'follow') return v
+  return 'follow'
+}
+
+export function setVisionPrefInMeta(sessionKey: string, pref: SessionVisionPref) {
+  if (!sessionKey) return
+  const map = safeReadSessionMetaMap()
+  map[sessionKey] = { ...(map[sessionKey] || {}), visionPref: pref }
+  safeWriteSessionMetaMap(map)
+}

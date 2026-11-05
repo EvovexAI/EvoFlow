@@ -235,18 +235,21 @@ html[data-translucent-ui='1'] #content > .assets-center-outlet {
   flex-shrink: 0;
 }
 
-/* Entity picker */
+/* Entity picker — 与搜索同高同边，去掉阴影避免「鼓出来」 */
 .assets-center-root .ac-entity-picker {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
+  box-sizing: border-box;
   height: var(--ac-ctrl-h);
+  max-height: var(--ac-ctrl-h);
   padding: 0 10px;
   border-radius: var(--ac-radius-ctrl);
   border: 1px solid var(--ac-border);
   background: var(--ac-surface);
-  box-shadow: var(--ac-shadow-xs);
-  transition: border-color var(--ac-ease), box-shadow var(--ac-ease);
+  box-shadow: none;
+  overflow: hidden;
+  transition: border-color var(--ac-ease);
 }
 
 .assets-center-root .ac-entity-picker:hover {
@@ -255,42 +258,66 @@ html[data-translucent-ui='1'] #content > .assets-center-outlet {
 
 .assets-center-root .ac-entity-picker:focus-within {
   border-color: color-mix(in srgb, var(--ac-primary) 45%, var(--ac-border));
-  box-shadow: 0 0 0 3px var(--ac-primary-ring);
+  box-shadow: none;
+  outline: 2px solid var(--ac-primary-ring);
+  outline-offset: 0;
 }
 
+.assets-center-root .ac-entity-picker > svg {
+  flex-shrink: 0;
+  color: var(--ac-text-muted);
+}
+
+/* 压掉 reset / scifi 全局 select 的边框背景，避免「套两层线」 */
 .assets-center-root .ac-entity-select {
-  max-width: 200px;
-  border: none;
-  outline: none;
-  background: transparent;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2398a2b3' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right center;
-  padding-right: 18px;
-  appearance: none;
-  font-size: 13px;
-  font-weight: 550;
-  color: var(--ac-text);
+  box-sizing: border-box !important;
+  width: auto !important;
+  max-width: 168px;
+  height: 100% !important;
+  margin: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  outline: none !important;
+  box-shadow: none !important;
+  background-color: transparent !important;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2398a2b3' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E") !important;
+  background-repeat: no-repeat !important;
+  background-position: right center !important;
+  background-size: 12px 12px !important;
+  padding: 0 18px 0 0 !important;
+  appearance: none !important;
+  -webkit-appearance: none !important;
+  font-size: 13px !important;
+  font-weight: 500;
+  line-height: 1;
+  color: var(--ac-text) !important;
   cursor: pointer;
   text-overflow: ellipsis;
 }
 
-/* Search */
+.assets-center-root .ac-entity-select:focus {
+  border: 0 !important;
+  box-shadow: none !important;
+  outline: none !important;
+}
+
+/* Search — 与 entity picker 同为扁平控件 */
 .assets-center-root .ac-search {
   position: relative;
   display: flex;
   align-items: center;
+  box-sizing: border-box;
   width: min(320px, 34vw);
   height: var(--ac-ctrl-h);
+  max-height: var(--ac-ctrl-h);
   gap: 8px;
   padding: 0 10px;
   border-radius: var(--ac-radius-ctrl);
   border: 1px solid var(--ac-border);
   background: var(--ac-surface);
-  box-shadow: var(--ac-shadow-xs);
+  box-shadow: none;
   transition:
     border-color var(--ac-ease),
-    box-shadow var(--ac-ease),
     width var(--ac-ease);
 }
 
@@ -300,7 +327,9 @@ html[data-translucent-ui='1'] #content > .assets-center-outlet {
 
 .assets-center-root .ac-search:focus-within {
   border-color: color-mix(in srgb, var(--ac-primary) 45%, var(--ac-border));
-  box-shadow: 0 0 0 3px var(--ac-primary-ring);
+  box-shadow: none;
+  outline: 2px solid var(--ac-primary-ring);
+  outline-offset: 0;
 }
 
 .assets-center-root .ac-search-clear {
@@ -1016,8 +1045,51 @@ html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .assets-center-root .
   );
 }
 
+.assets-center-root .ac-hero-main {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: flex-start;
+  gap: 18px;
+  max-width: 640px;
+  min-width: 0;
+}
+
+.assets-center-root .ac-hero-avatar-wrap {
+  flex-shrink: 0;
+  width: 56px;
+  height: 56px;
+  border-radius: 16px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--ac-primary) 18%, var(--ac-border));
+  background: color-mix(in srgb, var(--ac-primary) 8%, var(--ac-surface));
+  box-shadow: 0 1px 0 color-mix(in srgb, #fff 55%, transparent) inset;
+}
+
+.assets-center-root .ac-hero-avatar-img,
+.assets-center-root .ac-hero-avatar-fallback,
+.assets-center-root .ac-hero-avatar-wrap .agent-avatar,
+.assets-center-root .ac-hero-avatar-wrap .ac-hero-agent-avatar {
+  display: flex !important;
+  width: 100% !important;
+  height: 100% !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+
+.assets-center-root .ac-hero-avatar-img {
+  object-fit: cover;
+}
+
+.assets-center-root .ac-hero-avatar-fallback {
+  align-items: center;
+  justify-content: center;
+  color: var(--ac-primary);
+}
+
 .assets-center-root .ac-hero-body {
   position: relative;
+  min-width: 0;
   max-width: 560px;
 }
 
@@ -1032,7 +1104,7 @@ html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .assets-center-root .
   color: var(--ac-primary);
   font-size: 11px;
   font-weight: 600;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.02em;
 }
 
 .assets-center-root .ac-hero-title {

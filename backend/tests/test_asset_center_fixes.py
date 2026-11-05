@@ -110,19 +110,17 @@ def test_cross_employee_read_rejected(asset_home: Path) -> None:
         _resolve_entity(_runtime(), entity_type="employee", entity_id="emp-b", action="note")
 
 
-def test_workspace_entity_requires_session_binding(asset_home: Path, tmp_path: Path) -> None:
+def test_workspace_entity_scope_is_disabled(asset_home: Path, tmp_path: Path) -> None:
     proj_a = tmp_path / "proj-a"
     proj_b = tmp_path / "proj-b"
     proj_a.mkdir()
     proj_b.mkdir()
-    # 会话绑定 proj-a：自己的项目放行
-    own = _resolve_entity(_runtime(workspace=str(proj_a)), scope="workspace", entity_id=str(proj_a))
-    assert own.entity_type == "workspace"
-    # 其他项目拒绝
-    with pytest.raises(PermissionError):
+    # Workspace/project memory retired — all workspace scope resolves fail closed.
+    with pytest.raises(PermissionError, match="workspace_memory_disabled"):
+        _resolve_entity(_runtime(workspace=str(proj_a)), scope="workspace", entity_id=str(proj_a))
+    with pytest.raises(PermissionError, match="workspace_memory_disabled"):
         _resolve_entity(_runtime(workspace=str(proj_a)), scope="workspace", entity_id=str(proj_b))
-    # 会话没有绑定工作区时不允许指定
-    with pytest.raises(PermissionError):
+    with pytest.raises(PermissionError, match="workspace_memory_disabled"):
         _resolve_entity(_runtime(), scope="workspace", entity_id=str(proj_b))
 
 

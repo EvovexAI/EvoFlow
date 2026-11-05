@@ -34,6 +34,8 @@ ASSETS_TOOL_NAME = "assets"
 
 _MEMORY_BLOCK_RE = re.compile(r"<memory>\s*[\s\S]*?</memory>\s*", re.IGNORECASE)
 _MEMORY_ASSETS_BLOCK_RE = re.compile(r"<memory_assets>\s*[\s\S]*?</memory_assets>\s*", re.IGNORECASE)
+# Safety: orphaned live inbox (should live inside memory_assets; strip if left outside).
+_PENDING_INBOX_BLOCK_RE = re.compile(r"<pending_inbox>\s*[\s\S]*?</pending_inbox>\s*", re.IGNORECASE)
 _MEMORY_POLICY_BLOCK_RE = re.compile(r"<memory_policy>\s*[\s\S]*?</memory_policy>\s*", re.IGNORECASE)
 _ENTITY_ASSETS_BLOCK_RE = re.compile(r"<entity_assets>\s*[\s\S]*?</entity_assets>\s*", re.IGNORECASE)
 _WORKSPACE_MEMORY_BLOCK_RE = re.compile(r"<workspace_memory>\s*[\s\S]*?</workspace_memory>\s*", re.IGNORECASE)
@@ -236,6 +238,7 @@ def strip_memory_xml_blocks(text: str) -> str:
     cleaned = _PERSON_MEMORY_COMMENT_BLOCK_RE.sub("", cleaned)
     cleaned = _PERSON_CRAFT_COMMENT_BLOCK_RE.sub("", cleaned)
     cleaned = _MEMORY_ASSETS_BLOCK_RE.sub("", cleaned)
+    cleaned = _PENDING_INBOX_BLOCK_RE.sub("", cleaned)
     cleaned = _MEMORY_POLICY_BLOCK_RE.sub("", cleaned)
     cleaned = _ENTITY_ASSETS_BLOCK_RE.sub("", cleaned)
     cleaned = _MEMORY_BLOCK_RE.sub("", cleaned)

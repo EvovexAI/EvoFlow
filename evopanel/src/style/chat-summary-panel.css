@@ -72,9 +72,9 @@ html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .chat-summary-float {
   flex: 0 0 auto;
   width: var(--chat-summary-card-width);
   min-width: 0;
-  /* 内容多高就多高；太长再封顶内滚 */
+  /* 内容多高就多高；只受视口限制，避免固定 560 把摘要卡撑/裁死 */
   height: auto;
-  max-height: min(560px, calc(100vh - 120px));
+  max-height: calc(100dvh - 88px);
   min-height: 0;
   overflow: hidden;
   color: var(--text-primary);
@@ -110,7 +110,8 @@ html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .chat-summary-float .
 }
 
 .chat-summary-float .chat-summary-panel-scroll {
-  flex: 1 1 auto;
+  /* 0 1 auto：短内容时卡片贴内容高度，不硬撑满 max-height */
+  flex: 0 1 auto;
   min-height: 0;
 }
 
@@ -181,7 +182,7 @@ html[data-translucent-ui='1'] .chat-summary-panel-icon-btn:hover {
 /* ── 滚动主体 ───────────────────────────────────────── */
 .chat-summary-panel-scroll {
   display: flex;
-  flex: 1 1 auto;
+  flex: 0 1 auto;
   flex-direction: column;
   /* 分区间距只由下面 .chat-summary-section 的 margin 负责，
      这里给 0，避免和 margin/padding 叠成 24px 把卡片撑散。 */
@@ -624,6 +625,288 @@ html.dark .chat-summary-panel-scroll::-webkit-scrollbar-thumb:active {
   overflow: hidden;
 }
 
+/* ── 角色设定：思考/视觉芯片 + 提示词三 Tab 框 ─────────────── */
+.chat-summary-role-prefs,
+.react-chat-employee-pane .chat-summary-role-prefs,
+.react-chat-agent-pane .chat-summary-role-prefs {
+  margin: 0 8px 8px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.chat-summary-role-pref-toggles {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  margin-bottom: 8px;
+  min-width: 0;
+}
+
+.chat-summary-role-pref-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.chat-summary-role-pref-toggle-label {
+  color: var(--text-secondary);
+  font-size: var(--ef-text-xs);
+  font-weight: 500;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.chat-summary-role-pref-switch {
+  position: relative;
+  flex: 0 0 auto;
+  width: 32px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text-primary) 14%, transparent);
+  cursor: pointer;
+  transition: background 160ms var(--ease-out-soft, ease);
+}
+
+.chat-summary-role-pref-switch.is-on {
+  background: var(--accent, #635bff);
+}
+
+.chat-summary-role-pref-switch:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--text-primary) 22%, transparent);
+}
+
+.chat-summary-role-pref-switch.is-on:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent, #635bff) 88%, #000);
+}
+
+.chat-summary-role-pref-switch:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent, #635bff) 45%, transparent);
+  outline-offset: 2px;
+}
+
+.chat-summary-role-pref-switch:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.chat-summary-role-pref-switch-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px color-mix(in srgb, #000 22%, transparent);
+  transition: transform 160ms var(--ease-out-soft, ease);
+}
+
+.chat-summary-role-pref-switch.is-on .chat-summary-role-pref-switch-knob {
+  transform: translateX(14px);
+}
+
+.chat-summary-role-pref-hint {
+  color: var(--text-tertiary);
+  font-size: var(--ef-text-xs);
+  line-height: 1.35;
+}
+
+.chat-summary-role-pref-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+.chat-summary-role-pref-link {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent, #635bff);
+  font: inherit;
+  font-size: var(--ef-text-xs);
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.chat-summary-role-pref-link:hover:not(:disabled) {
+  text-decoration: underline;
+}
+
+.chat-summary-role-pref-link:disabled {
+  opacity: 0.45;
+  cursor: default;
+  text-decoration: none;
+}
+
+/* 单层框：tabs + 正文同一边框，textarea 不再内套一层 */
+.chat-summary-role-pref-box {
+  margin-top: 4px;
+  border: 1px solid color-mix(in srgb, var(--text-primary) 10%, transparent);
+  border-radius: 10px;
+  background: var(--chat-summary-bg, transparent);
+  overflow: hidden;
+}
+
+.chat-summary-role-pref-box-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px 4px;
+  min-width: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--text-primary) 8%, transparent);
+}
+
+.chat-summary-role-pref-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  min-width: 0;
+}
+
+.chat-summary-role-pref-tab {
+  min-height: 24px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--ef-text-xs);
+  font-weight: 500;
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out-soft),
+    color var(--dur-fast) var(--ease-out-soft);
+}
+
+.chat-summary-role-pref-tab:hover:not(:disabled) {
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--text-primary) 6%, transparent);
+}
+
+.chat-summary-role-pref-tab.is-on {
+  color: var(--accent, #635bff);
+  background: color-mix(in srgb, var(--accent, #635bff) 12%, transparent);
+  font-weight: 600;
+}
+
+.chat-summary-role-pref-tab:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.chat-summary-role-pref-box-body {
+  padding: 0;
+}
+
+.chat-summary-role-pref-textarea {
+  width: 100%;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-primary);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--ef-text-xs);
+  line-height: 1.45;
+  resize: vertical;
+  /* 跟文案长短走，摘要卡高度随之伸缩；太长再封顶由外层 scroll */
+  min-height: 2.75rem;
+  max-height: 14rem;
+  field-sizing: content;
+}
+
+.chat-summary-role-pref-textarea[hidden] {
+  display: none !important;
+}
+
+.chat-summary-role-pref-textarea:focus {
+  outline: none;
+  box-shadow: none;
+}
+
+.chat-summary-role-pref-box:focus-within {
+  border-color: color-mix(in srgb, var(--accent, #635bff) 45%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent, #635bff) 16%, transparent);
+}
+
+
+/* 能力区：一行四格，缩小体积 */
+.chat-summary-agent-body .react-chat-agent-cap-overview,
+.chat-summary-employee-body .react-chat-agent-cap-overview,
+.react-chat-employee-pane .react-chat-agent-cap-overview {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+
+.chat-summary-agent-body .react-chat-agent-cap-overview-item,
+.chat-summary-employee-body .react-chat-agent-cap-overview-item,
+.react-chat-employee-pane .react-chat-agent-cap-overview-item {
+  flex: 1 1 0;
+  min-width: 0;
+  flex-direction: row;
+  align-items: baseline;
+  justify-content: center;
+  gap: 3px;
+  padding: 4px 2px;
+  border-radius: 6px;
+}
+
+.chat-summary-agent-body .react-chat-agent-cap-overview-value,
+.chat-summary-employee-body .react-chat-agent-cap-overview-value,
+.react-chat-employee-pane .react-chat-agent-cap-overview-value {
+  font-size: var(--ef-text-sm);
+  font-weight: 650;
+  order: 0;
+}
+
+.chat-summary-agent-body .react-chat-agent-cap-overview-label,
+.chat-summary-employee-body .react-chat-agent-cap-overview-label,
+.react-chat-employee-pane .react-chat-agent-cap-overview-label {
+  font-size: 10px;
+  order: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-summary-agent-body .react-chat-agent-cap-panel,
+.chat-summary-employee-body .react-chat-agent-cap-panel,
+.react-chat-employee-pane .react-chat-agent-cap-panel {
+  /* 跟清单内容走，不留空高 */
+  min-height: 0;
+}
+
+.chat-summary-agent-body .react-chat-agent-cap-toolbar,
+.chat-summary-employee-body .react-chat-agent-cap-toolbar,
+.react-chat-employee-pane .react-chat-agent-cap-toolbar {
+  margin-top: 0;
+  padding-top: 2px;
+}
+
+.chat-summary-agent-body .react-chat-agent-cap-list,
+.chat-summary-agent-body .react-chat-agent-cap-list.is-expanded,
+.chat-summary-employee-body .react-chat-agent-cap-list,
+.chat-summary-employee-body .react-chat-agent-cap-list.is-expanded,
+.react-chat-employee-pane .react-chat-agent-cap-list,
+.react-chat-employee-pane .react-chat-agent-cap-list.is-expanded {
+  /* 摘要卡外层已滚动：清单不再套一层限高 */
+  max-height: none;
+  overflow: visible;
+}
+
 /* ── 面板级 tab 条：配方对齐 shell-view-tabs / aside-segment ─────── */
 .chat-summary-panel-head .chat-summary-more-tabs {
   display: flex;
@@ -723,11 +1006,10 @@ html[data-translucent-ui='1'] .chat-summary-panel-head .chat-summary-more-tab.is
 
 .chat-summary-section[data-summary-section='agent'] .react-chat-agent-cap-panel,
 .chat-summary-agent-body .react-chat-agent-cap-panel {
-  min-height: 96px;
+  min-height: 0;
 }
 
-/* 能力清单展开态保持组件自身的 180px 内滚（已带 overscroll-behavior: contain），
-   不在这里改 max-height —— 拆掉它会让长清单把整个面板撑得过长。 */
+/* 能力清单：摘要面板内不套 180px 内滚，高度自适应，超长由外层 panel-scroll 承接。 */
 
 /* 资产沉淀复用旧侧栏的 .react-chat-asset-quick-*，这里只调边距与按钮尺寸
  * DOM：新面板在 .chat-summary-agent-body 下，旧折叠段仍可能挂 data-summary-section=agent */

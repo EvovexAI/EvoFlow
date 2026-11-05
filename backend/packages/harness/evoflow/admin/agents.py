@@ -861,10 +861,12 @@ def _refresh_sessions_tool_state_for_agent(agent_code: str) -> int:
 
 
 def refresh_agent_runtime_after_capability_change(agent_code: str) -> None:
-    """Invalidate caches + refresh live session tool snapshots after tools/KB edits.
+    """Invalidate caches + refresh live session snapshots after capability edits.
 
-    Call after agent or employee capability changes so the next turn picks up
-    new tools / vaults without restarting the gateway.
+    Covers tools / MCP / skills / knowledge vaults / kb_injection. Call after
+    agent or employee capability changes so the next turn picks them up without
+    restarting the gateway (LangGraph worker still probes SQLite via
+    ``refresh_agent_config_if_stale``).
     """
     code = str(agent_code or "").strip()
     if not code:
@@ -885,6 +887,20 @@ def refresh_agent_runtime_after_capability_change(agent_code: str) -> None:
         clear_lead_agent_graph_cache()
     except Exception:
         logger.debug("clear_lead_agent_graph_cache failed after agent=%s edit", code, exc_info=True)
+    try:
+        from evoflow.agents.middlewares.dynamic_system_prompt_middleware import (
+            invalidate_dynamic_system_prompt_cache,
+        )
+
+        invalidate_dynamic_system_prompt_cache(agent_code=code)
+    except Exception:
+        logger.debug("invalidate_dynamic_system_prompt_cache failed after agent=%s edit", code, exc_info=True)
+    try:
+        from evoflow.skills.loader import clear_skills_cache
+
+        clear_skills_cache()
+    except Exception:
+        logger.debug("clear_skills_cache failed after agent=%s edit", code, exc_info=True)
 
 
 def _update_main_agent(data: dict[str, Any]) -> dict[str, Any]:

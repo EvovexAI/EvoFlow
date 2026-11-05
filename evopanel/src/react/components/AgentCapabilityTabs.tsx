@@ -458,9 +458,9 @@ export function AgentCapabilityTabs({
       <div className="react-chat-agent-cap-overview" role="tablist" aria-label="能力概览">
         {(
           [
-            { id: 'skills' as CapTab, label: 'Skills', value: overviewCounts.skills },
-            { id: 'tools' as CapTab, label: 'Tools', value: overviewCounts.tools },
-            { id: 'knowledge' as CapTab, label: 'Knowledge', value: overviewCounts.knowledge },
+            { id: 'skills' as CapTab, label: '技能', value: overviewCounts.skills },
+            { id: 'tools' as CapTab, label: '工具', value: overviewCounts.tools },
+            { id: 'knowledge' as CapTab, label: '知识', value: overviewCounts.knowledge },
             { id: 'mcp' as CapTab, label: 'MCP', value: overviewCounts.mcp },
           ] as const
         ).map((item) => (

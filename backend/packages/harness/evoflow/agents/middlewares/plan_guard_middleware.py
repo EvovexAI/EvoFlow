@@ -582,9 +582,19 @@ def _build_scenario_not_activated_tool_message(
     from evoflow.agents.lead_agent.intent_tool_profile import recommended_scenario_for_tool
     from evoflow.agents.tool_response_envelope import tool_result_json_error
 
-    scenarios = [str(s or "").strip() for s in (candidate_scenarios or []) if str(s or "").strip()]
+    # Plan UI offline — never list ``plan`` as an activation option.
+    scenarios = [
+        str(s or "").strip()
+        for s in (candidate_scenarios or [])
+        if str(s or "").strip() and str(s or "").strip().lower() != "plan"
+    ]
     primary = recommended_scenario_for_tool(tool_name, scenarios)
+    if primary == "plan":
+        primary = "agent"
     ordered = [primary] + [s for s in scenarios if s != primary]
+    if not ordered:
+        ordered = ["agent"]
+        primary = "agent"
     if len(ordered) > 1:
         opts = ", ".join(repr(s) for s in ordered)
         activate_hint = f"请先 scenario(action=activate, scenario_key=…, reason=…) 激活其中任一场景（可选: {opts}；推荐 {primary!r}）"

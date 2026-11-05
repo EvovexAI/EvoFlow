@@ -10,6 +10,9 @@ from evoflow.assets.paths import EntityRef, resolve_asset_rel
 
 def test_catalog_lines_use_basename_not_dir_prefix(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("EVOFLOW_HOME", str(tmp_path))
+    from evoflow.config.paths import reset_paths_cache
+
+    reset_paths_cache()
     root = tmp_path / "assets" / "employees" / "demo"
     craft = root / "craft"
     facts = root / "memory" / "facts"
@@ -30,7 +33,8 @@ def test_catalog_lines_use_basename_not_dir_prefix(tmp_path: Path, monkeypatch) 
     text = "\n".join(lines)
     assert "- MEMORY.md ·" in text
     assert "craft · 经验/做法:" in text
-    assert "- five-block.md ·" in text
+    assert "- five-block.md · 五段式" in text
+    assert "- five-block.md · five-block" not in text
     assert "facts · 事实:" in text
     assert "- pref-lang.md ·" in text
     assert "craft/five-block.md" not in text
@@ -38,7 +42,7 @@ def test_catalog_lines_use_basename_not_dir_prefix(tmp_path: Path, monkeypatch) 
     assert "memory/MEMORY.md" not in text
 
     xml = format_entity_catalog_xml(EntityRef("employee", "demo"), include_standing=False)
-    assert "craft five-block.md —" in xml
+    assert "craft five-block.md — 五段式" in xml
     assert "fact pref-lang.md —" in xml
     assert "craft/five-block.md" not in xml
     assert "memory/facts/" not in xml
@@ -46,6 +50,9 @@ def test_catalog_lines_use_basename_not_dir_prefix(tmp_path: Path, monkeypatch) 
 
 def test_resolve_asset_rel_basename(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("EVOFLOW_HOME", str(tmp_path))
+    from evoflow.config.paths import reset_paths_cache
+
+    reset_paths_cache()
     root = tmp_path / "assets" / "employees" / "demo"
     craft = root / "craft"
     craft.mkdir(parents=True)

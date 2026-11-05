@@ -74,23 +74,6 @@ def should_persist_workspace_asset(
 
 
 def workspace_write_discipline_block(*, lang: str = "zh") -> str:
-    if lang == "en":
-        return """<workspace_memory_policy>
-Project knowledge lives under **`<workspace>/.evoflow/memory/`** (same standing / facts / craft layout as user assets).
-
-Write ONLY durable repo facts. Use a single `[project]` tag — no category subdivision.
-Phase 2 merges into `.evoflow/memory/facts/`.
-
-Do NOT store: one-off tests, session changelogs, UI tweak outcomes, greetings, or trivial snippets.
-Use `assets` `note` with `[project]` as the first-line tag (do not bare-write inbox paths).
-User prefs / identity → user memory or profile, NOT workspace.
-</workspace_memory_policy>"""
-    return """<workspace_memory_policy>
-**项目知识**写在绑定工作区下的 **`<workspace>/.evoflow/memory/`**（与用户资产同构：standing / facts / craft）。
-
-只记**可复用的项目事实**。用单一 `[project]` 标签，不区分 category；Phase 2 合并进 `.evoflow/memory/facts/`。
-
-**不要写入**：一次性测试、会话改动流水、UI 微调结果、问候语、无结构碎片。
-项目事实用 `assets` `note`（首行 `[project]`；勿裸写 inbox 路径）。
-用户偏好/身份 → 写 user 记忆或 profile，不要写 workspace。
-</workspace_memory_policy>"""
+    """Retired: workspace/project memory is no longer injected or written."""
+    _ = lang
+    return ""

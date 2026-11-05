@@ -1,25 +1,26 @@
-"""Middleware to fix dangling tool calls in message history.
+"""Middleware to fix mismatched tool_call / tool_result pairs before the LLM call.
 
-A dangling tool call occurs when an AIMessage contains tool_calls but there are
-no corresponding ToolMessages in the history (e.g., due to user interruption or
-request cancellation). This causes LLM errors due to incomplete message format.
+Vendors (e.g. Volc Ark ``11148``) reject histories where:
 
-This middleware intercepts the model call to detect and patch such gaps by
-inserting synthetic ToolMessages with an error indicator immediately after the
-AIMessage that made the tool calls, ensuring correct message ordering.
+- an AIMessage ``tool_calls`` entry has no matching ToolMessage, or
+- a ToolMessage ``tool_call_id`` has no matching AIMessage tool_call
 
-Note: Uses wrap_model_call instead of before_model to ensure patches are inserted
-at the correct positions (immediately after each dangling AIMessage), not appended
-to the end of the message list as before_model + add_messages reducer would do.
+Common causes: user interrupt, cancelled runs, compaction dropping the AIMessage
+while leaving results, or transcript hydration gaps.
+
+This middleware patches ``request.messages`` (not only state) via
+``wrap_model_call`` so stubs land immediately after each dangling AIMessage.
 """
+
+from __future__ import annotations
 
 import logging
 from collections.abc import Awaitable, Callable
 
 try:
     from typing import override
-except ImportError:
-    from typing import override
+except ImportError:  # pragma: no cover
+    from typing import override  # type: ignore
 
 from langchain.agents import AgentState
 from langchain.agents.middleware import AgentMiddleware
@@ -28,68 +29,95 @@ from langchain_core.messages import ToolMessage
 
 logger = logging.getLogger(__name__)
 
+_INTERRUPTED_STUB = "[Tool call was interrupted and did not return a result.]"
+
+
+def _tool_call_id(tc: object) -> str:
+    if isinstance(tc, dict):
+        return str(tc.get("id") or "").strip()
+    return str(getattr(tc, "id", "") or "").strip()
+
+
+def _tool_call_name(tc: object) -> str:
+    if isinstance(tc, dict):
+        return str(tc.get("name") or "unknown")
+    return str(getattr(tc, "name", "") or "unknown")
+
+
+def sanitize_tool_call_pairs(messages: list) -> list | None:
+    """Return a patched message list, or None when already well-formed.
+
+    - Drops ToolMessages whose tool_call_id is not referenced by any AIMessage
+    - Inserts stub ToolMessages for AIMessage tool_calls missing a result
+    """
+    surviving_call_ids: set[str] = set()
+    for msg in messages:
+        if getattr(msg, "type", None) != "ai":
+            continue
+        for tc in getattr(msg, "tool_calls", None) or []:
+            tc_id = _tool_call_id(tc)
+            if tc_id:
+                surviving_call_ids.add(tc_id)
+
+    result_call_ids: set[str] = set()
+    for msg in messages:
+        if isinstance(msg, ToolMessage):
+            cid = str(getattr(msg, "tool_call_id", "") or "").strip()
+            if cid:
+                result_call_ids.add(cid)
+
+    orphaned = result_call_ids - surviving_call_ids
+    missing = surviving_call_ids - result_call_ids
+    if not orphaned and not missing:
+        return None
+
+    without_orphans = [
+        msg
+        for msg in messages
+        if not (
+            isinstance(msg, ToolMessage)
+            and str(getattr(msg, "tool_call_id", "") or "").strip() in orphaned
+        )
+    ]
+
+    if not missing:
+        logger.warning("Dropped %d orphan ToolMessage(s) with no matching tool_call", len(orphaned))
+        return without_orphans
+
+    patched: list = []
+    patched_ids: set[str] = set()
+    stub_count = 0
+    for msg in without_orphans:
+        patched.append(msg)
+        if getattr(msg, "type", None) != "ai":
+            continue
+        for tc in getattr(msg, "tool_calls", None) or []:
+            tc_id = _tool_call_id(tc)
+            if tc_id and tc_id in missing and tc_id not in patched_ids:
+                patched.append(
+                    ToolMessage(
+                        content=_INTERRUPTED_STUB,
+                        tool_call_id=tc_id,
+                        name=_tool_call_name(tc),
+                        status="error",
+                    )
+                )
+                patched_ids.add(tc_id)
+                stub_count += 1
+
+    logger.warning(
+        "Tool-pair sanitize: dropped_orphans=%d stubbed_missing=%d",
+        len(orphaned),
+        stub_count,
+    )
+    return patched
+
 
 class DanglingToolCallMiddleware(AgentMiddleware[AgentState]):
-    """Inserts placeholder ToolMessages for dangling tool calls before model invocation.
-
-    Scans the message history for AIMessages whose tool_calls lack corresponding
-    ToolMessages, and injects synthetic error responses immediately after the
-    offending AIMessage so the LLM receives a well-formed conversation.
-    """
+    """Sanitize tool_call / tool_result pairs on ``request.messages`` before the model."""
 
     def _build_patched_messages(self, messages: list) -> list | None:
-        """Return a new message list with patches inserted at the correct positions.
-
-        For each AIMessage with dangling tool_calls (no corresponding ToolMessage),
-        a synthetic ToolMessage is inserted immediately after that AIMessage.
-        Returns None if no patches are needed.
-        """
-        # Collect IDs of all existing ToolMessages
-        existing_tool_msg_ids: set[str] = set()
-        for msg in messages:
-            if isinstance(msg, ToolMessage):
-                existing_tool_msg_ids.add(msg.tool_call_id)
-
-        # Check if any patching is needed
-        needs_patch = False
-        for msg in messages:
-            if getattr(msg, "type", None) != "ai":
-                continue
-            for tc in getattr(msg, "tool_calls", None) or []:
-                tc_id = tc.get("id")
-                if tc_id and tc_id not in existing_tool_msg_ids:
-                    needs_patch = True
-                    break
-            if needs_patch:
-                break
-
-        if not needs_patch:
-            return None
-
-        # Build new list with patches inserted right after each dangling AIMessage
-        patched: list = []
-        patched_ids: set[str] = set()
-        patch_count = 0
-        for msg in messages:
-            patched.append(msg)
-            if getattr(msg, "type", None) != "ai":
-                continue
-            for tc in getattr(msg, "tool_calls", None) or []:
-                tc_id = tc.get("id")
-                if tc_id and tc_id not in existing_tool_msg_ids and tc_id not in patched_ids:
-                    patched.append(
-                        ToolMessage(
-                            content="[Tool call was interrupted and did not return a result.]",
-                            tool_call_id=tc_id,
-                            name=tc.get("name", "unknown"),
-                            status="error",
-                        )
-                    )
-                    patched_ids.add(tc_id)
-                    patch_count += 1
-
-        logger.warning(f"Injecting {patch_count} placeholder ToolMessage(s) for dangling tool calls")
-        return patched
+        return sanitize_tool_call_pairs(messages)
 
     @override
     def wrap_model_call(

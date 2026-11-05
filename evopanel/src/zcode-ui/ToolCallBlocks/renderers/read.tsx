@@ -12,6 +12,20 @@ import type { ToolCallBlockRenderContext } from "../shared.js";
 
 const READ_TOOL_ICON = <SearchIcon className="size-4 shrink-0 text-foreground-subtle" />;
 
+/** 摘要行最多展示几枚文件 chip，其余折叠成 +N。 */
+const READ_CHIP_VISIBLE_LIMIT = 3;
+
+const READ_PATH_FIELD_KEYS = [
+  "path",
+  "image_path",
+  "imagePath",
+  "filePath",
+  "file_path",
+  "filename",
+] as const;
+
+const READ_PATH_LIST_FIELD_KEYS = ["paths", "files", "filePaths", "file_paths"] as const;
+
 export type ReadSummary = {
   path: string;
   fileName: string;
@@ -53,18 +67,93 @@ function normalizeReadEntryType(value: string | undefined): "file" | "directory"
   return "file";
 }
 
+function dedupePaths(paths: readonly string[]): string[] {
+  return [...new Set(paths.map((path) => path.trim()).filter((path) => path.length > 0))];
+}
+
+/**
+ * 把 read / view_image 的 path 入参展开成路径列表。
+ * 对齐后端 ``normalize_image_path_args``：支持 string、string[]、JSON 数组字符串；
+ * 流式半截 JSON 数组用引号内字面量兜底，避免 basename 变成 ``cliff_heroine.png"]``。
+ */
+export function coerceReadPathList(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return dedupePaths(value.map((item) => (typeof item === "string" ? item : String(item ?? ""))));
+  }
+
+  if (typeof value !== "string") {
+    return [];
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return [];
+  }
+
+  if (!trimmed.startsWith("[")) {
+    return [trimmed];
+  }
+
+  try {
+    const parsed: unknown = JSON.parse(trimmed);
+    if (Array.isArray(parsed)) {
+      return dedupePaths(
+        parsed.map((item) => (typeof item === "string" ? item : String(item ?? ""))),
+      );
+    }
+    return [trimmed];
+  } catch {
+    // 流式 ARGS 常停在未闭合数组；抽取已出现的引号串，不要把整段 blob 当单路径。
+    const quoted = [...trimmed.matchAll(/"((?:\\.|[^"\\])*)"/g)]
+      .map((match) => {
+        try {
+          return JSON.parse(`"${match[1]}"`) as string;
+        } catch {
+          return match[1]?.replace(/\\"/g, '"') ?? "";
+        }
+      })
+      .filter((path) => path.trim().length > 0);
+    return dedupePaths(quoted);
+  }
+}
+
+function collectPathsFromRecord(value: Record<string, unknown>): string[] {
+  const paths: string[] = [];
+
+  for (const key of READ_PATH_FIELD_KEYS) {
+    if (!(key in value)) {
+      continue;
+    }
+    paths.push(...coerceReadPathList(value[key]));
+  }
+
+  for (const key of READ_PATH_LIST_FIELD_KEYS) {
+    const candidate = value[key];
+    if (!Array.isArray(candidate)) {
+      continue;
+    }
+    for (const item of candidate) {
+      if (typeof item === "string") {
+        paths.push(...coerceReadPathList(item));
+      } else if (isPlainRecord(item)) {
+        paths.push(...collectPathsFromRecord(item));
+      }
+    }
+  }
+
+  return dedupePaths(paths);
+}
+
 function readReadMetadataFromRaw(raw: unknown): {
-  path?: string;
+  paths: string[];
   entryType: "file" | "directory";
 } {
   if (!isPlainRecord(raw)) {
-    return { entryType: "file" };
+    return { paths: [], entryType: "file" };
   }
 
   const rawInput = isPlainRecord(raw.rawInput) ? raw.rawInput : null;
-  const directPath = rawInput
-    ? readStringField(rawInput, ["filePath", "file_path", "path", "filename"])
-    : undefined;
+  const directPaths = rawInput ? collectPathsFromRecord(rawInput) : [];
   const directType = rawInput
     ? readStringField(rawInput, ["type", "fileType", "entryType"])
     : undefined;
@@ -77,7 +166,7 @@ function readReadMetadataFromRaw(raw: unknown): {
   const taggedOutputType = outputText ? extractTaggedValue(outputText, "type") : undefined;
   if (taggedOutputPath) {
     return {
-      path: taggedOutputPath ?? directPath,
+      paths: coerceReadPathList(taggedOutputPath),
       entryType: normalizeReadEntryType(taggedOutputType),
     };
   }
@@ -96,35 +185,35 @@ function readReadMetadataFromRaw(raw: unknown): {
     const taggedType = text ? extractTaggedValue(text, "type") : undefined;
     if (taggedPath) {
       return {
-        path: taggedPath ?? directPath,
+        paths: coerceReadPathList(taggedPath),
         entryType: normalizeReadEntryType(taggedType),
       };
     }
   }
 
-  if (directPath) {
+  if (directPaths.length > 0) {
     // 有些模型只在 rawInput 里给 filePath，但会在 rawOutput/content 里补充目录类型。
     // 之前这里一旦先读到 rawInput.filePath 就会提前返回成 file，导致目录卡片图标错误。
     // 现在改成“类型优先看显式输出，路径再回退 rawInput”，只在确实没有输出标签时才用 input 兜底。
     return {
-      path: directPath,
+      paths: directPaths,
       entryType: normalizeReadEntryType(directType),
     };
   }
 
-  return { entryType: "file" };
+  return { paths: [], entryType: "file" };
 }
 
 function readReadMetadataFromValue(value: unknown): {
-  path?: string;
+  paths: string[];
   entryType: "file" | "directory";
 } {
   if (!isPlainRecord(value)) {
-    return { entryType: "file" };
+    return { paths: [], entryType: "file" };
   }
 
   return {
-    path: readStringField(value, ["filePath", "file_path", "path", "filename"]),
+    paths: collectPathsFromRecord(value),
     entryType: normalizeReadEntryType(readStringField(value, ["type", "fileType", "entryType"])),
   };
 }
@@ -148,9 +237,9 @@ function createReadSummary(
   };
 }
 
-export function buildReadSummary(
+export function buildReadSummaries(
   toolCall: ToolCallBlockRenderContext["toolCallNode"]["toolCall"],
-): ReadSummary | null {
+): ReadSummary[] {
   const input = toolCall.input;
   if (isPlainRecord(input) && Array.isArray(input.parsed_cmd)) {
     const cwd =
@@ -158,6 +247,7 @@ export function buildReadSummary(
         ? input.cwd.trim().replace(/\/+$/, "")
         : null;
 
+    const summaries: ReadSummary[] = [];
     for (const item of input.parsed_cmd) {
       if (!isPlainRecord(item) || item.type !== "read") {
         continue;
@@ -181,32 +271,42 @@ export function buildReadSummary(
           ? `${cwd}/${relativePath}`
           : (relativePath ?? fileName ?? "read");
 
-      // read 卡片之前只兼容 parsed_cmd 结构。
-      // 其他模型常把路径放在 rawInput/filePath 或 rawOutput 的 <path> 标签里，
-      // 导致 UI 只能退回 kind/title。这里保留结构化优先，再补原始输出兜底。
-      return createReadSummary(absolutePath, {
-        fileName,
-        entryType: "file",
-      });
+      summaries.push(
+        createReadSummary(absolutePath, {
+          fileName,
+          entryType: "file",
+        }),
+      );
+    }
+    if (summaries.length > 0) {
+      return summaries;
     }
   }
 
   const directInputMetadata = readReadMetadataFromValue(input);
-  if (directInputMetadata.path) {
+  if (directInputMetadata.paths.length > 0) {
     // 一些 provider 的 read/update 事件直接把文件路径放在 input.file_path，
     // 不会补 parsed_cmd，也不一定把相同字段镜像到 raw.rawInput.filePath。
-    // 之前 summary 构建会直接漏掉这类 read 卡片，导致 primary/secondary 都退回标题。
-    return createReadSummary(directInputMetadata.path, {
-      entryType: directInputMetadata.entryType,
-    });
+    // 多图 batch 时 path / image_path 可能是 string[] 或 JSON 数组字符串。
+    return directInputMetadata.paths.map((path) =>
+      createReadSummary(path, {
+        entryType: directInputMetadata.entryType,
+      }),
+    );
   }
 
   const rawMetadata = readReadMetadataFromRaw(toolCall.raw);
-  return rawMetadata.path
-    ? createReadSummary(rawMetadata.path, {
-        entryType: rawMetadata.entryType,
-      })
-    : null;
+  return rawMetadata.paths.map((path) =>
+    createReadSummary(path, {
+      entryType: rawMetadata.entryType,
+    }),
+  );
+}
+
+export function buildReadSummary(
+  toolCall: ToolCallBlockRenderContext["toolCallNode"]["toolCall"],
+): ReadSummary | null {
+  return buildReadSummaries(toolCall)[0] ?? null;
 }
 
 export function ReadFileChip({
@@ -251,31 +351,85 @@ export function ReadFileChip({
   );
 }
 
+function ReadFileChipList({
+  summaries,
+  canOpenPreview,
+  onOpenPreview,
+}: {
+  summaries: readonly ReadSummary[];
+  canOpenPreview: boolean;
+  onOpenPreview: (summary: ReadSummary) => void;
+}) {
+  if (summaries.length === 0) {
+    return null;
+  }
+
+  if (summaries.length === 1) {
+    const summary = summaries[0]!;
+    return (
+      <ReadFileChip
+        summary={summary}
+        clickable={canOpenPreview && summary.entryType === "file"}
+        onClick={() => onOpenPreview(summary)}
+      />
+    );
+  }
+
+  const visible = summaries.slice(0, READ_CHIP_VISIBLE_LIMIT);
+  const hiddenCount = summaries.length - visible.length;
+  const allPaths = summaries.map((summary) => summary.path).join("\n");
+
+  return (
+    <span
+      className="inline-flex min-w-0 max-w-full flex-1 items-center gap-1.5 overflow-hidden"
+      title={allPaths}
+    >
+      {visible.map((summary) => (
+        <span key={summary.path} className="inline-flex min-w-0 shrink-0">
+          <ReadFileChip
+            summary={summary}
+            clickable={canOpenPreview && summary.entryType === "file"}
+            onClick={() => onOpenPreview(summary)}
+          />
+        </span>
+      ))}
+      {hiddenCount > 0 ? <span className="shrink-0 text-foreground-subtle">+{hiddenCount}</span> : null}
+    </span>
+  );
+}
+
 export function ReadToolCallBlock(context: ToolCallBlockRenderContext) {
   const { intl } = useZCodeIntl();
   const { toolCallNode, isRunning, statusLabel, errorText, onOpenCodeViewer } = context;
   const { toolCall } = toolCallNode;
-  const summary = buildReadSummary(toolCall);
-  const canOpenPreview = summary?.entryType === "file" && Boolean(onOpenCodeViewer);
-  const openFilePreview = useCallback(() => {
-    if (!summary || summary.entryType !== "file" || !onOpenCodeViewer) {
-      return;
-    }
+  const summaries = useMemo(() => buildReadSummaries(toolCall), [toolCall]);
+  const canOpenPreview = Boolean(onOpenCodeViewer);
+  const openFilePreview = useCallback(
+    (summary: ReadSummary) => {
+      if (summary.entryType !== "file" || !onOpenCodeViewer) {
+        return;
+      }
 
-    onOpenCodeViewer({
-      type: "file",
-      title: summary.fileName,
-      path: summary.path,
-    });
-  }, [onOpenCodeViewer, summary]);
+      onOpenCodeViewer({
+        type: "file",
+        title: summary.fileName,
+        path: summary.path,
+      });
+    },
+    [onOpenCodeViewer],
+  );
   const primaryText = useMemo(
     () =>
-      summary ? (
-        <ReadFileChip summary={summary} clickable={canOpenPreview} onClick={openFilePreview} />
+      summaries.length > 0 ? (
+        <ReadFileChipList
+          summaries={summaries}
+          canOpenPreview={canOpenPreview}
+          onOpenPreview={openFilePreview}
+        />
       ) : (
         (toolCall.title ?? toolCall.kind ?? intl.formatMessage({ id: "chat.toolCall.read.read" }))
       ),
-    [canOpenPreview, intl, openFilePreview, summary, toolCall.kind, toolCall.title],
+    [canOpenPreview, intl, openFilePreview, summaries, toolCall.kind, toolCall.title],
   );
 
   return (

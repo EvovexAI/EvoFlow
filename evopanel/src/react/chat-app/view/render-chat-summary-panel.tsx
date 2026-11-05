@@ -18,6 +18,10 @@ export function renderChatSummaryPanel(
   mode: 'panel' | 'capsule',
 ): ReactNode {
   const {
+    applySessionThinkingPref,
+    applySessionMemoryPref,
+    memoryEnabled,
+    setMemoryEnabled,
     artifactFocusId,
     assetQuickBusy,
     capabilityPatchBusy,
@@ -27,6 +31,7 @@ export function renderChatSummaryPanel(
     currentRoleLabel,
     displayContextUsage,
     effectiveModelName,
+    effectiveModelSupportsThinking,
     employeeRoleDetail,
     employeeSessionAgentCode,
     getDisplayLabel,
@@ -51,8 +56,10 @@ export function renderChatSummaryPanel(
     selectedTurnBusy,
     sessionArtifacts,
     sessionPlatformEntries,
+    sessionThinkingPref,
     sessions,
     setChatPanelDisplayMode,
+    setRoleUiNonce,
     sharedCollabSubtasks,
     sidebarActiveView,
     turnArtifacts,
@@ -63,6 +70,9 @@ export function renderChatSummaryPanel(
     typeof isDeptChatSurface === 'boolean'
       ? isDeptChatSurface
       : isDeptChatSessionKey(sessionKey)
+  const refreshRolePrefs = () => {
+    if (typeof setRoleUiNonce === 'function') setRoleUiNonce((n) => n + 1)
+  }
   return (
     <ChatSummaryPanel
       key={sessionKey}
@@ -108,6 +118,12 @@ export function renderChatSummaryPanel(
             ? openCurrentAgentEditor
             : undefined
       }
+      modelSupportsThinking={effectiveModelSupportsThinking}
+      sessionThinkingPref={sessionThinkingPref || 'follow'}
+      sessionMemoryEnabled={memoryEnabled !== false}
+      onApplySessionThinking={applySessionThinkingPref}
+      onApplySessionMemory={applySessionMemoryPref}
+      onMemoryEnabledChange={setMemoryEnabled}
       onAssetQuickAction={deptChat ? undefined : handleAssetQuickAction}
       assetQuickBusy={assetQuickBusy}
       artifacts={sessionArtifacts}
@@ -151,6 +167,10 @@ export function renderChatSummaryPanel(
             onEditAgent={openCurrentAgentEditor}
             onAssetQuickAction={handleAssetQuickAction}
             assetQuickBusy={assetQuickBusy}
+            modelSupportsThinking={effectiveModelSupportsThinking}
+            onRolePrefsSaved={refreshRolePrefs}
+            onMemoryEnabledChange={setMemoryEnabled}
+            sessionKey={sessionKey}
           />
         ) : null
       }

@@ -363,7 +363,6 @@ import { syncPlanPanelImmediateFromTools as syncPlanPanelImmediateFromToolsImpl 
 import { collectPlanToolsForDetection as collectPlanToolsForDetectionImpl } from './plan-dock/collect-plan-tools.js'
 import { reconcileLastAssistantFromDb as reconcileLastAssistantFromDbImpl } from './utils/reconcile-last-assistant-from-db.js'
 import { openUiExtensionInStage as openUiExtensionInStageImpl } from './right-stage/open-ui-extension-in-stage.js'
-import { openEmployeeMcpWorkbenchInRightStage } from '../../lib/mcp-workbench-link.js'
 import { handleDispatchEmployee as handleDispatchEmployeeImpl } from './dispatch/handle-dispatch-employee.js'
 import { syncRemoteStageSet as syncRemoteStageSetImpl } from './right-stage/sync-remote-stage-set.js'
 import { handleEnhancePrompt as handleEnhancePromptImpl } from './composer/handle-enhance-prompt.js'
@@ -3060,28 +3059,6 @@ export function useChatAppController() {
     [selectedSessionKey],
   )
 
-  /** 跟员工聊时：按绑定 MCP 自动在右侧打开对应工作台（陪练面板 / 无限画布等） */
-  const employeeMcpWorkbenchKey = useMemo(() => {
-    if (!isProactiveEmployeeSession) return ''
-    const mcps = currentAgentCapabilities?.mcpServers
-    if (!Array.isArray(mcps) || !mcps.length) return ''
-    return `${String(selectedSessionKey || '').trim()}::${mcps.join(',')}`
-  }, [isProactiveEmployeeSession, selectedSessionKey, currentAgentCapabilities?.mcpServers])
-  const lastEmployeeMcpWorkbenchKeyRef = useRef('')
-  useEffect(() => {
-    if (!employeeMcpWorkbenchKey) return
-    if (lastEmployeeMcpWorkbenchKeyRef.current === employeeMcpWorkbenchKey) return
-    lastEmployeeMcpWorkbenchKeyRef.current = employeeMcpWorkbenchKey
-    const mcps = currentAgentCapabilities?.mcpServers
-    void openEmployeeMcpWorkbenchInRightStage({
-      mcpServers: mcps,
-      sessionKey: selectedSessionKey,
-      threadId: selectedThreadId || null,
-    }).catch(() => {
-      /* 扩展未装或服务未起时静默；用户仍可手动开 Agent应用 */
-    })
-  }, [employeeMcpWorkbenchKey, currentAgentCapabilities?.mcpServers, selectedSessionKey, selectedThreadId])
-
   useEffect(() => {
     if (!obsEnabled && infoRailTab === 'debug') {
       setInfoRailTab(isProactiveEmployeeSession ? 'task' : 'agent')
@@ -3113,9 +3090,11 @@ export function useChatAppController() {
     return runLoadEmployeeRoleDetailEffect({
       employeeSessionAgentCode,
       fallbackAgentCode: selectedSessionAgentId,
+      selectedSessionKey,
       setEmployeeRoleDetail,
+      setMemoryEnabled,
     })
-  }, [employeeSessionAgentCode, selectedSessionAgentId, roleUiNonce])
+  }, [employeeSessionAgentCode, selectedSessionAgentId, selectedSessionKey, roleUiNonce])
 
   /** 进入员工会话时按 session_key 同步 workspace_kind，不再用底栏「只聊天/派任务」模式条 */
   useEffect(() => {
@@ -3961,6 +3940,36 @@ export function useChatAppController() {
     selectedSessionKey,
     sessionRef,
   })
+
+  /** 状态面板角色设定：思考三态 → 会话 thinking level */
+  const applySessionThinkingPref = useCallback(
+    async (pref: 'follow' | 'on' | 'off') => {
+      const sk = String(selectedSessionKey || '').trim()
+      if (!sk) return
+      const level = pref === 'follow' ? 'auto' : pref === 'off' ? 'off' : 'medium'
+      await applyThinkingLevel(sk, level)
+    },
+    [selectedSessionKey, applyThinkingLevel],
+  )
+
+  /** 状态面板角色设定：记忆总闸 → 会话 context（注入 + assets 工具） */
+  const applySessionMemoryPref = useCallback(
+    async (pref: 'follow' | 'on' | 'off') => {
+      const sk = String(selectedSessionKey || '').trim()
+      if (!sk) return
+      const memory_enabled = pref === 'off' ? false : true
+      setMemoryEnabled(memory_enabled)
+      wsClient.updateSessionContext(sk, { memory_enabled })
+      try {
+        const api = await getApi()
+        await api.chatUpdateContext(sk, { memory_enabled })
+      } catch {
+        /* local state already updated */
+      }
+      toast(memory_enabled ? '已开启记忆（本会话）' : '已关闭记忆（本会话）', 'success')
+    },
+    [selectedSessionKey],
+  )
 
   const scenarioSessionHandlers = useMemo(
     () =>
@@ -5138,9 +5147,16 @@ export function useChatAppController() {
     bumpSubtasksApiRefresh,
   ])
 
+  const sessionThinkingPref =
+    thinkingLevel === 'auto' ? 'follow' : thinkingLevel === 'off' ? 'off' : 'on'
+
   const renderChatSummaryPanel = (mode: 'panel' | 'capsule'): ReactNode =>
     renderChatSummaryPanelImpl(
       {
+        applySessionThinkingPref,
+        applySessionMemoryPref,
+        memoryEnabled,
+        setMemoryEnabled,
         artifactFocusId,
         assetQuickBusy,
         capabilityPatchBusy,
@@ -5150,6 +5166,7 @@ export function useChatAppController() {
         currentRoleLabel,
         displayContextUsage,
         effectiveModelName,
+        effectiveModelSupportsThinking,
         employeeRoleDetail,
         employeeSessionAgentCode,
         getDisplayLabel,
@@ -5174,9 +5191,11 @@ export function useChatAppController() {
         selectedTurnBusy,
         sessionArtifacts,
         sessionPlatformEntries,
+        sessionThinkingPref,
         sessions,
         setBottomRoleOpen,
         setChatPanelDisplayMode,
+        setRoleUiNonce,
         sharedCollabSubtasks,
         sidebarActiveView,
         turnArtifacts,

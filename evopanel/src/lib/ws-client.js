@@ -7883,6 +7883,15 @@ export class WsClient {
         structuredDispatch = (eventName, data) => {
           streamLastEventTs = Date.now()
           sseFrameCount += 1
+          // Structured pipe has no SSE byte stream; approximate payload size so
+          // empty-stream diagnostics / retry gates don't treat frames as "no SSE".
+          try {
+            if (typeof data === 'string') sseBytesReceived += data.length
+            else if (data != null) sseBytesReceived += JSON.stringify(data).length
+            else sseBytesReceived += 1
+          } catch {
+            sseBytesReceived += 1
+          }
           if (streamSilentWarned) streamSilentWarned = false
           try {
             dispatchParsedStreamEvent(eventName, data, typeof data === 'string' ? data : '')
@@ -7938,6 +7947,8 @@ export class WsClient {
         if (streamSilentWarned) {
           streamSilentWarned = false
         }
+        // Keep empty-stream / auto-retry gates honest: bytes were declared but never tallied.
+        sseBytesReceived += value?.byteLength || value?.length || 0
         buffer += decoder.decode(value, { stream: true })
         const { frames, rest } = takeCompleteSseFrames(buffer)
         buffer = rest
@@ -8026,8 +8037,10 @@ export class WsClient {
         (Array.isArray(evfLane.authoritativeReasoningSegments) &&
           evfLane.authoritativeReasoningSegments.length > 0)
       if (!streamHadOutput) {
+        // Wire connected if we saw frames and/or payload bytes (HTTP SSE or structured pipe).
+        const streamHadWire = sseBytesReceived > 0 || sseFrameCount > 0
         let runErr = String(evfLane.lastError || '').trim()
-        if (!runErr && sseBytesReceived === 0) {
+        if (!runErr && !streamHadWire) {
           runErr =
             '流式响应为空（未收到任何 SSE 数据）。请确认 LangGraph 已启动，并重启 Gateway 后再试。'
         } else if (!runErr && sseFrameCount === 0 && sseBytesReceived > 0) {
@@ -8040,10 +8053,12 @@ export class WsClient {
           runId: String(runId),
           threadId,
           uiStreamMode,
+          useStructuredPipe,
           evfRunEndSeen: !!evfLane.evfRunEndSeen,
           deltaCount: evfLane.deltaCount || 0,
           sseBytesReceived,
           sseFrameCount,
+          streamHadWire,
           upstreamEventCounts: evfLane.upstreamEventCounts || null,
           runError: runErr || null,
           emptyRetry: !!opts?.__emptyStreamRetry,
@@ -8051,12 +8066,12 @@ export class WsClient {
          
         console.warn('[evoflow] chat stream ended with no assistant output', diag)
         // 仅在「已连上 SSE、有帧但无正文」时自动重试一次（误杀/空 final）。
-        // sseBytes=0 / Failed to fetch：LangGraph 或链路未通，重试只会再 POST 一轮 →
+        // 无任何 wire：LangGraph 或链路未通，重试只会再 POST 一轮 →
         // 双 userInput、双计费风险，且用户日志里每次失败都叠一次。
         const emptyRetryEligible =
           !opts?.__emptyStreamRetry &&
           !_userStopSessionKeys.has(key) &&
-          sseBytesReceived > 0 &&
+          streamHadWire &&
           (sseFrameCount > 0 || (evfLane.deltaCount || 0) > 0 || !!evfLane.evfRunEndSeen)
         if (emptyRetryEligible) {
           try {
@@ -8077,8 +8092,8 @@ export class WsClient {
             skipTranscriptAppend: true,
           })
         }
-        if (!opts?.__emptyStreamRetry && sseBytesReceived === 0) {
-          console.warn('[evoflow] empty stream — skip auto-retry (no SSE bytes)', {
+        if (!opts?.__emptyStreamRetry && !streamHadWire) {
+          console.warn('[evoflow] empty stream — skip auto-retry (no SSE wire)', {
             sessionKey: key,
             runId,
           })
@@ -8101,14 +8116,15 @@ export class WsClient {
         isUserInterruptStreamError('', evfLane.lastError)
       ) {
         // 用户点停止：正常 aborted。非用户 interrupt 且无正文：视为误杀，自动重试一次。
-        // 仍要求本轮收过 SSE，避免「根本没连上」时再打一枪扣费/叠气泡。
+        // 仍要求本轮收过 SSE/wire，避免「根本没连上」时再打一枪扣费/叠气泡。
         const userStop = _userStopSessionKeys.has(key)
+        const streamHadWire = sseBytesReceived > 0 || sseFrameCount > 0
         if (
           !userStop &&
           !finalTextTrim &&
           (evfLane.deltaCount || 0) === 0 &&
           !opts?.__emptyStreamRetry &&
-          sseBytesReceived > 0
+          streamHadWire
         ) {
           try {
             cancelPrepAbort.abort()

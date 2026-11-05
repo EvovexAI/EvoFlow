@@ -1039,20 +1039,15 @@ def _extract_response_text(result: dict | list) -> str:
             if isinstance(content, str) and content:
                 return content
 
-        # Regular AI message with text content
+        # Regular AI message with text content (never reasoning / thinking blocks)
         if msg_type == "ai":
-            content = msg.get("content", "")
-            if isinstance(content, str) and content:
-                return content
-            # content can be a list of content blocks
-            if isinstance(content, list):
-                parts = []
-                for block in content:
-                    if isinstance(block, dict) and block.get("type") == "text":
-                        parts.append(block.get("text", ""))
-                    elif isinstance(block, str):
-                        parts.append(block)
-                text = "".join(parts)
+            text = _extract_text_content(msg.get("content", ""))
+            if text:
+                return text
+            # Some adapters nest body under kwargs.content
+            kwargs_map = _to_mapping(msg.get("kwargs"))
+            if kwargs_map is not None:
+                text = _extract_text_content(kwargs_map.get("content"))
                 if text:
                     return text
 
@@ -1069,17 +1064,9 @@ def _extract_response_text(result: dict | list) -> str:
                 if role in ("human", "user", "tool", "function"):
                     break
                 if role in ("ai", "assistant", ""):
-                    content = msg.get("content", "")
-                    if isinstance(content, str) and content.strip():
-                        return content
-                    if isinstance(content, list):
-                        for block in content:
-                            if isinstance(block, dict) and block.get("type") == "text":
-                                text = block.get("text", "")
-                                if isinstance(text, str) and text.strip():
-                                    return text
-                            elif isinstance(block, str) and block.strip():
-                                return block
+                    text = _extract_text_content(msg.get("content", ""))
+                    if text.strip():
+                        return text
                     text = msg.get("text", "")
                     if isinstance(text, str) and text.strip():
                         return text
@@ -1087,8 +1074,15 @@ def _extract_response_text(result: dict | list) -> str:
     return ""
 
 
+_IM_THINKING_BLOCK_TYPES = frozenset({"thinking", "reasoning", "reasoning_content"})
+
+
 def _extract_text_content(content: Any) -> str:
-    """Extract text from a streaming payload content field."""
+    """Extract user-visible text from a streaming payload content field.
+
+    Skips structured thinking/reasoning blocks. Does **not** read
+    ``additional_kwargs.reasoning_content`` — that stays on the reasoning field.
+    """
     if isinstance(content, str):
         return content
     if isinstance(content, list):
@@ -1096,16 +1090,26 @@ def _extract_text_content(content: Any) -> str:
         for block in content:
             if isinstance(block, str):
                 parts.append(block)
-            elif isinstance(block, Mapping):
-                text = block.get("text")
-                if isinstance(text, str):
-                    parts.append(text)
-                else:
-                    nested = block.get("content")
-                    if isinstance(nested, str):
-                        parts.append(nested)
+                continue
+            if not isinstance(block, Mapping):
+                continue
+            btype = str(block.get("type") or "").strip().lower()
+            if btype in _IM_THINKING_BLOCK_TYPES:
+                continue
+            if btype and btype not in {"text", "output_text"}:
+                continue
+            text = block.get("text")
+            if isinstance(text, str):
+                parts.append(text)
+            else:
+                nested = block.get("content")
+                if isinstance(nested, str):
+                    parts.append(nested)
         return "".join(parts)
     if isinstance(content, Mapping):
+        btype = str(content.get("type") or "").strip().lower()
+        if btype in _IM_THINKING_BLOCK_TYPES:
+            return ""
         for key in ("text", "content"):
             value = content.get(key)
             if isinstance(value, str):
@@ -1135,20 +1139,12 @@ def _query_latest_ai_message_from_db(session_key: str, limit: int = 5) -> list[s
         texts: list[str] = []
         for row in rows:
             try:
-                import json
+                from evoflow.persistence.chat_message_content import loads_payload, visible_body_text
 
-                payload = json.loads(str(row[0] or "{}"))
-                # Extract text from various possible payload structures
-                content = payload if isinstance(payload, str) else payload.get("content", "")
-                if isinstance(content, list):
-                    for block in content:
-                        if isinstance(block, dict) and block.get("type") == "text":
-                            text = str(block.get("text") or "").strip()
-                            if text:
-                                texts.append(text)
-                                break
-                elif isinstance(content, str) and content.strip():
-                    texts.append(content.strip())
+                payload = loads_payload(str(row[0] or ""))
+                text = visible_body_text(payload)
+                if text:
+                    texts.append(text)
             except Exception:
                 pass
         return texts
@@ -1908,6 +1904,9 @@ class ChannelManager:
         self._running = False
         self._task: asyncio.Task | None = None
         self._chat_locks: dict[str, asyncio.Lock] = {}
+        # routing_key → task that currently owns the IM turn (sync claim; no await).
+        # Busy follow-ups steer via pending_inject instead of waiting on chat_lock.
+        self._chat_turn_owners: dict[str, asyncio.Task] = {}
         # routing_key → latest in-flight IM run preview / thread
         self._active_im_runs: dict[str, dict[str, Any]] = {}
 
@@ -2015,10 +2014,39 @@ class ChannelManager:
 
     @staticmethod
     def _chat_lock_key(msg: InboundMessage) -> str:
-        parts = [str(msg.channel_name), str(msg.chat_id)]
-        if msg.topic_id:
-            parts.append(str(msg.topic_id))
-        return ":".join(parts)
+        # Same key space as ``_active_im_runs`` / turn owners (per-bot Feishu isolation).
+        return ChannelManager._im_routing_key(msg)
+
+    def _try_claim_chat_turn(self, key: str) -> bool:
+        """Atomically claim an IM turn for the current task (no await → no interleave)."""
+        k = str(key or "").strip()
+        if not k:
+            return False
+        current = asyncio.current_task()
+        if current is None:
+            return False
+        owner = self._chat_turn_owners.get(k)
+        if owner is not None and not owner.done() and owner is not current:
+            return False
+        self._chat_turn_owners[k] = current
+        return True
+
+    def _release_chat_turn(self, key: str) -> None:
+        k = str(key or "").strip()
+        if not k:
+            return
+        current = asyncio.current_task()
+        owner = self._chat_turn_owners.get(k)
+        if owner is current or (owner is not None and owner.done()):
+            self._chat_turn_owners.pop(k, None)
+
+    def _im_turn_is_busy(self, msg: InboundMessage) -> bool:
+        key = self._im_routing_key(msg)
+        owner = self._chat_turn_owners.get(key)
+        if owner is not None and not owner.done() and owner is not asyncio.current_task():
+            return True
+        tracked = self._active_im_runs.get(key)
+        return bool(tracked) and not bool(tracked.get("cancelled"))
 
     @staticmethod
     def _channel_supports_streaming(channel_name: str) -> bool:
@@ -2113,7 +2141,6 @@ class ChannelManager:
         parts = [str(msg.channel_name), str(msg.chat_id)]
         account_id = ChannelManager._inbound_account_id(msg)
         if account_id:
-            parts.append(f"acct:{account_id}")
             parts.append(f"acct:{account_id}")
         if msg.topic_id:
             parts.append(str(msg.topic_id))
@@ -2492,68 +2519,215 @@ class ChannelManager:
             lines.extend(["", f"（调试）`{type(exc).__name__}: {exc}`"[:600]])
         return "\n".join(lines)
 
-    async def _handle_message(self, msg: InboundMessage) -> None:
-        chat_lock = self._chat_locks.setdefault(self._chat_lock_key(msg), asyncio.Lock())
-        async with chat_lock:
-            try:
-                async with self._semaphore:
-                    if msg.channel_name == "feishu" and str(msg.chat_id or "").strip():
-                        try:
-                            from app.channels.feishu_automation_learned_chat import remember_feishu_automation_chat_from_inbound
+    def _inbound_message_id(self, msg: InboundMessage) -> str:
+        meta = msg.metadata if isinstance(msg.metadata, dict) else {}
+        mid = str(meta.get("message_id") or "").strip()
+        if mid:
+            return mid
+        ids = meta.get("message_ids")
+        if isinstance(ids, list):
+            for item in ids:
+                s = str(item or "").strip()
+                if s:
+                    return s
+        # Stable fallback so pending-inject dedupe still works within a process.
+        return f"im-{msg.channel_name}-{msg.chat_id}-{uuid.uuid4().hex[:12]}"
 
-                            meta = msg.metadata if isinstance(msg.metadata, dict) else {}
-                            remember_feishu_automation_chat_from_inbound(
-                                msg.chat_id,
-                                str(meta.get("account_id") or "").strip(),
-                            )
-                        except Exception:
-                            logger.debug("[Manager] feishu automation learn chat_id skipped", exc_info=True)
-                    try:
-                        if msg.msg_type == InboundMessageType.COMMAND:
-                            await self._handle_command(msg)
-                        else:
-                            await self._handle_chat(msg)
-                    except InvalidChannelSessionConfigError as exc:
-                        logger.warning(
-                            "Invalid channel session config for %s (chat=%s): %s",
-                            msg.channel_name,
-                            msg.chat_id,
-                            exc,
-                        )
-                        vis = str(exc)
-                        self._record_im_channel_failure(msg, message=vis, user_visible=vis)
-                        if msg.channel_name in IM_CHANNEL_NAMES:
-                            await self._send_error(msg, self._im_rich_error_body(msg, fallback=vis))
-                        else:
-                            await self._send_error(msg, vis)
-                    except Exception as exc:
-                        logger.exception(
-                            "Error handling message from %s (chat=%s) thread_id=%s",
-                            msg.channel_name,
-                            msg.chat_id,
-                            self._resolve_stored_thread_id(msg) or "(none)",
-                        )
-                        self._record_im_channel_failure(
-                            msg,
-                            exc=exc,
-                            user_visible=self._im_rich_error_body(msg, exc=exc) if msg.channel_name in IM_CHANNEL_NAMES else str(exc),
-                        )
-                        if msg.channel_name in IM_CHANNEL_NAMES:
-                            await self._send_error(msg, self._im_rich_error_body(msg, exc=exc))
-                        else:
-                            hint = "若刚发送过 **/claude** 切换 Claude Code：请确认 LangGraph Server 已部署 ``claude_code_chat`` 图，且运行该图的 Python 环境已安装 ``claude-agent-sdk``；并查看服务端日志中本条上方的异常栈。"
-                            detail = ""
-                            if (os.getenv("EVOFLOW_IM_ERROR_DETAIL") or "").strip().lower() in ("1", "true", "yes", "on"):
-                                detail = "\n（调试：" + f"{type(exc).__name__}: {exc}"[:400] + "）"
-                            await self._send_error(msg, "处理失败，请稍后重试。\n" + hint + detail)
-            finally:
-                # Channel-owned temp files (WeCom caches inbound media so the
-                # multimodal LLM can read it).  Releasing in ``finally`` keeps
-                # cleanup deterministic even on the error paths above.
+    async def _enqueue_im_mid_turn_inject(self, msg: InboundMessage) -> bool:
+        """Steer a busy IM chat via pending_inject (panel ↑ 加塞), no new LangGraph run.
+
+        Returns True when the inbound was accepted into the mid-turn queue (caller
+        must not start another turn / publish a second final card).
+        """
+        if msg.channel_name not in IM_CHANNEL_NAMES:
+            return False
+        if msg.msg_type != InboundMessageType.CHAT:
+            return False
+        body = str(msg.text or "").strip()
+        ctx_files = _context_files_from_inbound(list(msg.files or []))
+        if not body and not ctx_files:
+            return False
+
+        routing_key = self._im_routing_key(msg)
+        tracked = self._active_im_runs.get(routing_key) or {}
+        # Require an in-flight run marker — claim alone is not enough (tiny window
+        # after stream finally pops active but before turn-owner release).
+        if not tracked or tracked.get("cancelled"):
+            return False
+        thread_id = str(tracked.get("thread_id") or "").strip() or self._lookup_bound_thread_id(msg)
+        if not thread_id:
+            logger.info(
+                "[Manager] mid-turn inject skipped (no thread yet): channel=%s chat=%s",
+                msg.channel_name,
+                msg.chat_id,
+            )
+            return False
+
+        session_key = str(tracked.get("session_key") or "").strip() or self._channel_thread_session_key(msg)
+        if not session_key:
+            return False
+
+        message_id = self._inbound_message_id(msg)
+        content_json: dict[str, Any] = {"content": body}
+        if ctx_files:
+            content_json["contextFiles"] = ctx_files
+        run_id = str(tracked.get("run_id") or "").strip() or None
+
+        try:
+            from evoflow.persistence.pending_inject_repository import enqueue_pending_inject
+
+            item = enqueue_pending_inject(
+                session_key,
+                message_id=message_id,
+                content=body,
+                content_json=content_json,
+                role="user",
+                run_id=run_id,
+                thread_id=thread_id,
+            )
+        except Exception:
+            logger.exception(
+                "[Manager] mid-turn inject enqueue failed session_key=%s thread_id=%s",
+                session_key,
+                thread_id,
+            )
+            return False
+
+        if item is None:
+            logger.info(
+                "[Manager] mid-turn inject deduped session_key=%s message_id=%s",
+                session_key,
+                message_id,
+            )
+            return True
+
+        logger.info(
+            "[Manager] mid-turn inject queued session_key=%s thread_id=%s message_id=%s text_len=%d files=%d\n--- steer ---\n%s\n---",
+            session_key,
+            thread_id,
+            message_id,
+            len(body),
+            len(ctx_files),
+            body or "(media)",
+        )
+        _mgr_diag(
+            "im_mid_turn_inject",
+            channel=msg.channel_name,
+            chat_id=msg.chat_id,
+            session_key=session_key,
+            thread_id=thread_id,
+            message_id=message_id,
+            text_len=len(body),
+            files=len(ctx_files),
+        )
+        if msg.channel_name == "feishu":
+            with contextlib.suppress(Exception):
+                from app.channels.feishu_inbound_trace_log import log_feishu_inbound_trace
+
+                log_feishu_inbound_trace(
+                    "忙轮加塞",
+                    account_id=self._inbound_account_id(msg),
+                    chat_id=str(msg.chat_id or ""),
+                    msg_id=message_id,
+                    session_key=session_key[:120],
+                    thread_id=thread_id,
+                    text_preview=body[:120],
+                    files=len(ctx_files),
+                )
+        # No outbound card: OK reaction already acked on Feishu; model picks this
+        # up on the next before_model (after the current tool round).
+        return True
+
+    async def _handle_message(self, msg: InboundMessage) -> None:
+        routing_key = self._chat_lock_key(msg)
+        chat_lock = self._chat_locks.setdefault(routing_key, asyncio.Lock())
+        is_im_chat = msg.channel_name in IM_CHANNEL_NAMES and msg.msg_type == InboundMessageType.CHAT
+        claimed = False
+
+        # Busy IM chat → mid-turn pending_inject (same as panel ↑ 加塞). Do not
+        # wait on chat_lock for the whole in-flight turn — that produced N full
+        # replies and ignored the user's latest wording until the prior run ended.
+        if is_im_chat and not self._try_claim_chat_turn(routing_key):
+            if await self._enqueue_im_mid_turn_inject(msg):
                 try:
                     _release_channel_owned_paths(msg)
                 except Exception:
                     logger.debug("[Manager] _release_channel_owned_paths failed", exc_info=True)
+                return
+            # Rare: turn is busy but thread/session not ready yet — fall through
+            # and serialize behind chat_lock (legacy full-turn behavior).
+        else:
+            claimed = is_im_chat and self._chat_turn_owners.get(routing_key) is asyncio.current_task()
+
+        try:
+            async with chat_lock:
+                if is_im_chat and not claimed:
+                    if not self._try_claim_chat_turn(routing_key):
+                        if await self._enqueue_im_mid_turn_inject(msg):
+                            return
+                    claimed = True
+                try:
+                    async with self._semaphore:
+                        if msg.channel_name == "feishu" and str(msg.chat_id or "").strip():
+                            try:
+                                from app.channels.feishu_automation_learned_chat import remember_feishu_automation_chat_from_inbound
+
+                                meta = msg.metadata if isinstance(msg.metadata, dict) else {}
+                                remember_feishu_automation_chat_from_inbound(
+                                    msg.chat_id,
+                                    str(meta.get("account_id") or "").strip(),
+                                )
+                            except Exception:
+                                logger.debug("[Manager] feishu automation learn chat_id skipped", exc_info=True)
+                        try:
+                            if msg.msg_type == InboundMessageType.COMMAND:
+                                await self._handle_command(msg)
+                            else:
+                                await self._handle_chat(msg)
+                        except InvalidChannelSessionConfigError as exc:
+                            logger.warning(
+                                "Invalid channel session config for %s (chat=%s): %s",
+                                msg.channel_name,
+                                msg.chat_id,
+                                exc,
+                            )
+                            vis = str(exc)
+                            self._record_im_channel_failure(msg, message=vis, user_visible=vis)
+                            if msg.channel_name in IM_CHANNEL_NAMES:
+                                await self._send_error(msg, self._im_rich_error_body(msg, fallback=vis))
+                            else:
+                                await self._send_error(msg, vis)
+                        except Exception as exc:
+                            logger.exception(
+                                "Error handling message from %s (chat=%s) thread_id=%s",
+                                msg.channel_name,
+                                msg.chat_id,
+                                self._resolve_stored_thread_id(msg) or "(none)",
+                            )
+                            self._record_im_channel_failure(
+                                msg,
+                                exc=exc,
+                                user_visible=self._im_rich_error_body(msg, exc=exc) if msg.channel_name in IM_CHANNEL_NAMES else str(exc),
+                            )
+                            if msg.channel_name in IM_CHANNEL_NAMES:
+                                await self._send_error(msg, self._im_rich_error_body(msg, exc=exc))
+                            else:
+                                hint = "若刚发送过 **/claude** 切换 Claude Code：请确认 LangGraph Server 已部署 ``claude_code_chat`` 图，且运行该图的 Python 环境已安装 ``claude-agent-sdk``；并查看服务端日志中本条上方的异常栈。"
+                                detail = ""
+                                if (os.getenv("EVOFLOW_IM_ERROR_DETAIL") or "").strip().lower() in ("1", "true", "yes", "on"):
+                                    detail = "\n（调试：" + f"{type(exc).__name__}: {exc}"[:400] + "）"
+                                await self._send_error(msg, "处理失败，请稍后重试。\n" + hint + detail)
+                finally:
+                    # Channel-owned temp files (WeCom caches inbound media so the
+                    # multimodal LLM can read it).  Releasing in ``finally`` keeps
+                    # cleanup deterministic even on the error paths above.
+                    try:
+                        _release_channel_owned_paths(msg)
+                    except Exception:
+                        logger.debug("[Manager] _release_channel_owned_paths failed", exc_info=True)
+        finally:
+            if claimed:
+                self._release_chat_turn(routing_key)
 
     # -- chat handling -----------------------------------------------------
 
@@ -2698,25 +2872,190 @@ class ChannelManager:
             files=list(msg.files or []),
         )
         _enrich_channel_run_context(run_context, session_key, msg, channel_run_id)
+        # Publish busy marker before stream/wait so concurrent IM inbound can
+        # mid-turn inject against this session (panel ↑ 加塞 semantics).
+        routing_key = self._im_routing_key(msg)
+        prev_tracked = self._active_im_runs.get(routing_key) or {}
+        self._active_im_runs[routing_key] = {
+            "thread_id": thread_id,
+            "preview": str(prev_tracked.get("preview") or ""),
+            "cancelled": bool(prev_tracked.get("cancelled")),
+            "session_key": session_key,
+            "run_id": channel_run_id,
+        }
         send_shortcut_hint = msg.channel_name in IM_CHANNEL_NAMES and not self._im_shortcut_hint_sent(msg) and not _im_should_omit_shortcut_hint(run_context, msg)
-        if self._channel_supports_streaming(msg.channel_name):
-            await self._handle_streaming_chat(
-                client,
-                msg,
-                thread_id,
-                assistant_id,
-                run_config,
-                run_context,
-                send_shortcut_hint=send_shortcut_hint,
-                session_key=session_key,
+        try:
+            if self._channel_supports_streaming(msg.channel_name):
+                await self._handle_streaming_chat(
+                    client,
+                    msg,
+                    thread_id,
+                    assistant_id,
+                    run_config,
+                    run_context,
+                    send_shortcut_hint=send_shortcut_hint,
+                    session_key=session_key,
+                )
+            else:
+                logger.info(
+                    "[Manager] invoking runs.wait(thread_id=%s)\n--- user ---\n%s\n---",
+                    thread_id,
+                    (msg.text or "").strip() or "(empty)",
+                )
+                await self._handle_wait_chat_body(
+                    client,
+                    msg,
+                    thread_id,
+                    assistant_id,
+                    run_config,
+                    run_context,
+                    session_key=session_key,
+                    send_shortcut_hint=send_shortcut_hint,
+                    extra_context=extra_context,
+                )
+            # Panel skipAppend: steers that arrived after the last before_model
+            # would otherwise sit until the next inbound. Kick continue runs.
+            if msg.channel_name in IM_CHANNEL_NAMES:
+                await self._continue_im_pending_injects_if_needed(
+                    client,
+                    msg,
+                    thread_id,
+                    assistant_id,
+                    run_config,
+                    run_context,
+                    session_key=session_key,
+                    routing_key=routing_key,
+                )
+        finally:
+            self._active_im_runs.pop(routing_key, None)
+
+    async def _continue_im_pending_injects_if_needed(
+        self,
+        client,
+        msg: InboundMessage,
+        thread_id: str,
+        assistant_id: str,
+        run_config: dict[str, Any],
+        run_context: dict[str, Any],
+        *,
+        session_key: str,
+        routing_key: str,
+        max_continues: int = 3,
+    ) -> None:
+        """After a turn ends, continue if unconsumed mid-turn steers remain.
+
+        Mirrors panel ``skipTranscriptAppend`` + ``alreadyInjected``: do not write
+        another user transcript row (hydration drains pending_inject), but kick a
+        new LangGraph run so ``before_model`` consumes the queue.
+        """
+        sk = str(session_key or "").strip()
+        tid = str(thread_id or "").strip()
+        if not sk or not tid:
+            return
+        try:
+            from evoflow.persistence.pending_inject_repository import (
+                count_unconsumed_pending_injects,
+                list_unconsumed_pending_injects,
             )
+        except Exception:
             return
 
-        logger.info(
-            "[Manager] invoking runs.wait(thread_id=%s)\n--- user ---\n%s\n---",
-            thread_id,
-            (msg.text or "").strip() or "(empty)",
-        )
+        for i in range(max(0, int(max_continues))):
+            tracked = self._active_im_runs.get(routing_key) or {}
+            if tracked.get("cancelled"):
+                return
+            try:
+                n = count_unconsumed_pending_injects(sk)
+            except Exception:
+                return
+            if n <= 0:
+                return
+
+            items = list_unconsumed_pending_injects(sk)
+            head = items[0] if items else {}
+            steer_text = str(head.get("text") or "").strip()
+            if not steer_text:
+                # Media-only inject: still kick so before_model drains contextFiles.
+                steer_text = "（用户补充了附件，请结合最新消息继续）"
+            message_id = str(head.get("message_id") or "").strip() or f"im-continue-{uuid.uuid4().hex[:10]}"
+
+            logger.info(
+                "[Manager] continuing IM turn for %d pending inject(s): session_key=%s attempt=%d message_id=%s",
+                n,
+                sk,
+                i + 1,
+                message_id,
+            )
+            continue_run_id = str(uuid.uuid4())
+            continue_context = dict(run_context or {})
+            with contextlib.suppress(Exception):
+                from evoflow.session_execution.lifecycle import start_session_turn
+
+                start_session_turn(
+                    session_key=sk,
+                    thread_id=tid,
+                    run_id=continue_run_id,
+                    source="channel_inject_continue",
+                )
+            _enrich_channel_run_context(continue_context, sk, msg, continue_run_id)
+            cfg, continue_context = _langgraph_merge_configurable_into_context(run_config, continue_context)
+
+            prev = self._active_im_runs.get(routing_key) or {}
+            self._active_im_runs[routing_key] = {
+                "thread_id": tid,
+                "preview": str(prev.get("preview") or ""),
+                "cancelled": bool(prev.get("cancelled")),
+                "session_key": sk,
+                "run_id": continue_run_id,
+            }
+
+            # Synthetic inbound for kick — transcript comes from pending_inject drain.
+            from dataclasses import replace as _dc_replace
+
+            continue_msg = _dc_replace(msg, text=steer_text, files=[])
+            continue_msg.metadata = {
+                **(msg.metadata if isinstance(msg.metadata, dict) else {}),
+                "message_id": message_id,
+                "im_pending_inject_continue": True,
+            }
+
+            if self._channel_supports_streaming(msg.channel_name):
+                await self._handle_streaming_chat(
+                    client,
+                    continue_msg,
+                    tid,
+                    assistant_id,
+                    cfg,
+                    continue_context,
+                    send_shortcut_hint=False,
+                    session_key=sk,
+                )
+            else:
+                await self._handle_wait_chat_body(
+                    client,
+                    continue_msg,
+                    tid,
+                    assistant_id,
+                    cfg,
+                    continue_context,
+                    session_key=sk,
+                    send_shortcut_hint=False,
+                    extra_context=None,
+                )
+
+    async def _handle_wait_chat_body(
+        self,
+        client,
+        msg: InboundMessage,
+        thread_id: str,
+        assistant_id: str,
+        run_config: dict[str, Any],
+        run_context: dict[str, Any],
+        *,
+        session_key: str,
+        send_shortcut_hint: bool,
+        extra_context: dict[str, Any] | None,
+    ) -> None:
         result: dict[str, Any] | list | None = None
         human_input = _build_human_input(msg, run_context, run_config)
         for attempt in range(3):
@@ -2964,10 +3303,18 @@ class ChannelManager:
         active_thread_id = thread_id
         sk = str(session_key or "").strip()
         routing_key = self._im_routing_key(msg)
+        tracked0 = self._active_im_runs.get(routing_key) or {}
         self._active_im_runs[routing_key] = {
             "thread_id": active_thread_id,
-            "preview": "",
-            "cancelled": False,
+            "preview": str(tracked0.get("preview") or ""),
+            "cancelled": bool(tracked0.get("cancelled")),
+            "session_key": sk or str(tracked0.get("session_key") or ""),
+            "run_id": str(
+                run_context.get("evf_channel_run_id")
+                or run_context.get("run_id")
+                or tracked0.get("run_id")
+                or ""
+            ).strip(),
         }
         logger.info(
             "[Manager] invoking runs.stream(thread_id=%s)\n--- user ---\n%s\n---",
@@ -3286,7 +3633,11 @@ class ChannelManager:
         else:
             # Rejected/failed run often leaves checkpoint on the *previous* turn —
             # never resend that AI text as the reply to the new user message.
-            response_text = (latest_text or "").strip()
+            # Use *latest* buffer only — never the live join of mid-tool scratchpads.
+            if msg.channel_name in IM_CHANNEL_NAMES and streamed_buffers:
+                response_text = _latest_im_stream_buffer(streamed_buffers)
+            else:
+                response_text = (latest_text or "").strip()
             artifacts = []
             logger.warning(
                 "[Manager] stream values out of sync with inbound (skip stale AI): thread_id=%s inbound_len=%d tail_human_len=%d error=%s",
@@ -3319,21 +3670,20 @@ class ChannelManager:
                 active_thread_id,
                 exc_info=True,
             )
-        # IM final bubble: prefer the *latest* assistant buffer only.
-        # Joining every mid-tool status line produced a progress-log dump on Feishu
-        # (download… / 抽帧… / 等视觉理解… glued onto the real answer).
+        # IM final: values-extracted AI text wins. Only fill from the *latest*
+        # stream buffer when values had no visible body — never "longer buffer
+        # wins" (that glued mid-turn tool scratchpads / thinking onto Feishu).
         if msg.channel_name in IM_CHANNEL_NAMES and streamed_buffers:
-            latest_buf = _latest_im_stream_buffer(streamed_buffers)
-            if latest_buf and (
-                not str(response_text or "").strip()
-                or len(latest_buf) >= len(str(response_text or "").strip())
-            ):
-                response_text = latest_buf
-                if not artifacts:
-                    artifacts = _extract_artifacts(result, response_text=response_text)
+            if not str(response_text or "").strip():
+                latest_buf = _latest_im_stream_buffer(streamed_buffers)
+                if latest_buf:
+                    response_text = latest_buf
+                    if not artifacts:
+                        artifacts = _extract_artifacts(result, response_text=response_text)
         response_text, attachments = _prepare_artifact_delivery(active_thread_id, response_text, artifacts)
 
-        tracked_end = self._active_im_runs.pop(routing_key, None) or {}
+        # Pop happens in ``_handle_chat`` finally so wait-path / errors also clear busy.
+        tracked_end = dict(self._active_im_runs.get(routing_key) or {})
         was_cancelled = bool(tracked_end.get("cancelled"))
 
         if was_cancelled:
