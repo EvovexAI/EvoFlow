@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-11-05
+
+相对 **1.3.0**：模型请求体统一清洗；OpenAI 图片支持参考图生成（image2image）；图片缩略图与内联图渲染修复；工具表面锁与 V4 镜像对齐。
+GitHub Release 正文见 `scripts/maintainer/windows/release-notes/PRODUCT-NOTES-1.3.1.md`；升级横幅见 `scripts/maintainer/update/latest.json`。
+
+### Added
+
+- **参考图生成**：`openai_images` provider 支持 image2image，可携带参考图保持人物 / 风格
+- **媒体生成占位**：平台工具调用时展示生成中占位卡片
+
+### Changed
+
+- **模型请求体**：新增 `create_payload_sanitize` 统一清洗，`factory` / `patched_deepseek` / `patched_minimax` / `patched_openai` 接入
+- **工具表面锁**：`tool_surface_lock_middleware` 与 `agents_config` / `admin/agents` 联动
+- **V4 镜像**：`agui_mirror` 与 `row_mappers` 对齐
+
+### Fixed
+
+- **图片渲染**：缩略图与 Markdown 内联图的尺寸、加载与点击预览
+- **平台工具卡片**：媒体生成结果展示与失败提示
+
 ## [1.3.0] - 2026-11-05
 
 相对 **1.2.9**：用户画像合并为单一 USER.md；右栏新增文件预览与助手预览卡；员工能力变更实时生效；资产记忆 Phase2 索引更紧凑；LangGraph sidecar 启动预热降低首轮延迟；修复轮次追踪死锁与视觉注入伪消息。
