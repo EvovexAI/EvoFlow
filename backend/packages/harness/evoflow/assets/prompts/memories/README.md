@@ -5,7 +5,7 @@ Provenance: upstream memory-template patterns, path-mapped to EvoFlow
 
 | File | Role | When used |
 |------|------|-----------|
-| `injection_layers.md` | L0–L4 SoT + anti dual-write; 条目/过程 vs 记忆摘要 IA | Docs / admin; rules mirrored in `read_path.md` |
+| `injection_layers.md` | L0–L3 SoT + anti dual-write; 长期记忆/过程 IA；note 按标签直写 | Docs / admin; rules mirrored in `read_path.md` |
 | `read_path.md` | Shared Entity-assets procedure + **when/what/write/update/load** decision table | Tier 0; composed with entity blocks |
 | `read_path_entity.md` | Per-root catalog + standing summary | Tier 0; one block per user/employee/… |
 | `stage_one_system.md` | Phase 1 extract system | Background worker after idle session |

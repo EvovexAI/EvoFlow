@@ -211,9 +211,16 @@ class CraftSaveBody(BaseModel):
     description: str = ""
 
 
+class StandingAppendBody(BaseModel):
+    entityType: Literal["user", "agent", "employee", "workspace"] = "user"
+    entityId: str = Field(default="user", min_length=1, max_length=128)
+    content: str = Field(..., min_length=1)
+    section: str = "User preferences"
+
+
 @router.post("/record")
 async def record_fact(request: Request, body: RecordFactBody):
-    """Direct-write a short fact to ``memory/facts/*.md`` (title + summary catalog)."""
+    """Legacy: write ``memory/facts/*.md``. Prefer ``/standing-append`` for 长期记忆."""
     from evoflow.assets.hub import record_fact as hub_record_fact
 
     entity = _entity(request, body.entityType, body.entityId)
@@ -228,6 +235,21 @@ async def record_fact(request: Request, body: RecordFactBody):
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         logger.error("assets record failed", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post("/standing-append")
+async def standing_append(request: Request, body: StandingAppendBody):
+    """Append a preference bullet into ``memory/standing.md``（长期记忆）."""
+    from evoflow.assets.hub import append_standing_long_term
+
+    entity = _entity(request, body.entityType, body.entityId)
+    try:
+        return append_standing_long_term(entity, body.content, section=body.section)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.error("assets standing-append failed", exc_info=True)
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 

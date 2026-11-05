@@ -1546,6 +1546,7 @@ export default function AssetCenterContent() {
           entityType={entityType}
           entityId={entityId}
           entityName={entityLabel(entities.find((e) => sameEntity(e, { entityType, entityId })))}
+          mode={memoryKind === "episodic" ? "episodic" : "standing"}
           onClose={() => setFactOpen(false)}
           onSaved={afterFactSaved}
         />
@@ -3048,12 +3049,14 @@ function QuickFactModal({
   entityType,
   entityId,
   entityName,
+  mode = "standing",
   onClose,
   onSaved,
 }: {
   entityType: string;
   entityId: string;
   entityName: string;
+  mode?: "standing" | "episodic";
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -3061,6 +3064,7 @@ function QuickFactModal({
   const [title, setTitle] = useState("");
   const [saving, setSaving] = useState(false);
   const areaRef = useRef<HTMLTextAreaElement>(null);
+  const isProcess = mode === "episodic";
 
   useEffect(() => {
     areaRef.current?.focus();
@@ -3069,18 +3073,27 @@ function QuickFactModal({
   const submit = async () => {
     const text = content.trim();
     if (!text) {
-      toast.error("请输入要记住的内容");
+      toast.error(isProcess ? "请输入过程内容" : "请输入要记住的内容");
       return;
     }
     setSaving(true);
     try {
-      await api.assetsRecord({
-        entityType,
-        entityId,
-        content: text,
-        title: title.trim(),
-        summary: "",
-      });
+      if (isProcess) {
+        await api.assetsEpisode({
+          entityType,
+          entityId,
+          content: text,
+          title: title.trim(),
+          summary: "",
+        });
+      } else {
+        const body = title.trim() ? `${title.trim()}：${text}` : text;
+        await api.assetsStandingAppend({
+          entityType,
+          entityId,
+          content: body,
+        });
+      }
       toast.success("已记下");
       onSaved();
       onClose();
@@ -3093,8 +3106,12 @@ function QuickFactModal({
 
   return (
     <ModalShell
-      title="记一条"
-      desc={`这条会记进「${entityName}」的条目明细里，以后聊天我会自动参考；随时可以打开改掉。`}
+      title={isProcess ? "记过程" : "记偏好"}
+      desc={
+        isProcess
+          ? `这条会记进「${entityName}」的过程目录，一步到位。`
+          : `这条会追加进「${entityName}」的长期记忆（standing），以后聊天整页注入。`
+      }
       onClose={onClose}
       footer={
         <>
@@ -3115,7 +3132,11 @@ function QuickFactModal({
           value={content}
           onChange={(e) => setContent(e.target.value)}
           rows={4}
-          placeholder="例如：我习惯用 Python 写脚本，包管理用 uv。"
+          placeholder={
+            isProcess
+              ? "例如：本轮完成样片验收，确认禁用 mini。"
+              : "例如：永远禁用 mini 档模型；汇报先给结论。"
+          }
           className="ac-field__input"
         />
       </label>
@@ -3125,7 +3146,7 @@ function QuickFactModal({
           type="text"
           value={title}
           onChange={(e) => setTitle(e.target.value)}
-          placeholder="例如：开发环境偏好"
+          placeholder={isProcess ? "例如：样片验收" : "例如：视频型号硬约束"}
           className="ac-field__input"
         />
       </label>
