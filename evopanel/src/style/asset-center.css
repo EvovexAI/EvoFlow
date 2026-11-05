@@ -1557,9 +1557,7 @@ html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .assets-center-root .
 }
 
 .assets-center-root .ac-manage-section {
-  max-width: 880px;
   width: 100%;
-  margin: 0 auto;
   padding: 18px 20px;
   border-radius: var(--ac-radius-card);
   border: 1px solid var(--ac-border);

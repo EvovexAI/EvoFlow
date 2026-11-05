@@ -1030,6 +1030,9 @@ export async function showEditRoleModal(role, {
   const agentByCode = new Map(available.map((a) => [a.code.toLowerCase(), a]))
   const scheduleCtrl = createSchedulePanel({
     schedule: roleScheduleExpr(role),
+    autoPatrolSuspended: !!(
+      role?.auto_patrol_suspended || role?.config?.auto_patrol_suspended
+    ),
     idPrefix: 'proSched',
   })
 

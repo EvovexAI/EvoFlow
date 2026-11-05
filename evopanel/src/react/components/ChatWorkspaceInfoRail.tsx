@@ -1354,28 +1354,39 @@ function EmployeeScheduleCard({
     heartbeat_schedule: employeeInfo?.heartbeatSchedule || '',
     schedule_summary: employeeInfo?.scheduleSummary || '',
   }
-  const freqLabel =
-    String(employeeInfo?.scheduleSummary || '').trim() ||
-    roleScheduleSummary(scheduleRole) ||
-    cronToPlainZh(roleScheduleExpr(scheduleRole)) ||
-    '未设周期'
-  const currentCron = roleScheduleExpr(scheduleRole)
-  const nextIso = String(employeeInfo?.nextHeartbeatAt || '').trim()
+  const currentCron = roleScheduleExpr({
+    ...scheduleRole,
+    auto_patrol_suspended: suspended,
+  })
+  const scheduleOff = currentCron === 'off' || suspended
+  const freqLabel = scheduleOff
+    ? '关闭巡检'
+    : String(employeeInfo?.scheduleSummary || '').trim() ||
+      roleScheduleSummary(scheduleRole) ||
+      cronToPlainZh(currentCron) ||
+      '未设周期'
+  const nextIso = scheduleOff ? '' : String(employeeInfo?.nextHeartbeatAt || '').trim()
   const nextAbs = formatInfoRailTime(nextIso)
   const nextRel = formatRelativeHeartbeat(nextIso)
   const warnText = paused
     ? status === 'draft'
       ? '草稿未确认，不会自动巡检'
       : '请假中，不会自动巡检'
-    : suspended
-      ? '自动巡检已关；恢复后才会按计划上班'
+    : scheduleOff
+      ? '可在线对话 / 派活，不定时巡检'
       : ''
 
   const applyCron = useCallback(
     async (cron: string) => {
       if (!code || saving) return
       const next = String(cron || '').trim()
-      if (!next || next === currentCron) {
+      if (!next) {
+        setAdjustOpen(false)
+        return
+      }
+      const nextOff = next === 'off'
+      const curOff = currentCron === 'off' || suspended
+      if (nextOff === curOff && (nextOff || next === currentCron)) {
         setAdjustOpen(false)
         return
       }
@@ -1383,7 +1394,7 @@ function EmployeeScheduleCard({
       try {
         const { api } = await import('../../lib/tauri-api.js')
         await api.proactiveUpdateRole(code, { heartbeat_schedule: next })
-        toast('自动上班时间已更新', 'success')
+        toast(nextOff ? '已关闭定时巡检' : '自动上班时间已更新', 'success')
         setAdjustOpen(false)
         onSaved?.()
       } catch (e) {
@@ -1392,7 +1403,7 @@ function EmployeeScheduleCard({
         setSaving(false)
       }
     },
-    [code, saving, currentCron, onSaved],
+    [code, saving, currentCron, suspended, onSaved],
   )
 
   if (!code) return null
@@ -1432,10 +1443,11 @@ function EmployeeScheduleCard({
       {adjustOpen ? (
         <div className="react-chat-employee-schedule-presets" role="group" aria-label="常用频率">
           {DUTY_SCHEDULE_PRESETS.map((p) => {
-            const on = p.cron === currentCron
+            const on =
+              p.cron === 'off' ? scheduleOff : !scheduleOff && p.cron === currentCron
             return (
               <button
-                key={p.cron}
+                key={p.cron || p.label}
                 type="button"
                 className={`react-chat-employee-schedule-chip${on ? ' is-on' : ''}`}
                 disabled={saving}

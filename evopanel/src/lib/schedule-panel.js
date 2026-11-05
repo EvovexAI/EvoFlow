@@ -17,9 +17,17 @@ const esc = (s) =>
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;')
 
+/** Sentinel: 在岗可聊 / 可派活，但不跑定时巡检 */
+export const DUTY_SCHEDULE_OFF = 'off'
+
+export function isDutyScheduleOff(value) {
+  const t = String(value || '').trim().toLowerCase()
+  return t === 'off' || t === 'never' || t === 'disabled' || t === 'none' || t === '@never' || t === '@off'
+}
+
 export function looksLikeCron(s) {
   const t = String(s || '').trim()
-  if (!t || t.startsWith('@') || /FREQ=/i.test(t)) return false
+  if (!t || isDutyScheduleOff(t) || t.startsWith('@') || /FREQ=/i.test(t)) return false
   return t.split(/\s+/).length >= 5
 }
 
@@ -87,6 +95,7 @@ export function formatPreviewRelative(iso, now = new Date()) {
 /** Plain Chinese — never return raw cron / RRULE. */
 export function cronToPlainZh(expr) {
   const raw = String(expr || '').trim()
+  if (isDutyScheduleOff(raw)) return '关闭巡检'
   if (!raw) return '未设周期'
   if (!looksLikeCron(raw)) {
     if (/FREQ=/i.test(raw)) {
@@ -163,11 +172,15 @@ export function cronToPlainZh(expr) {
   return '按计划自动上班'
 }
 
-/** 新建员工默认上班节奏：每天 2 次（09:00、15:00）。过频的「每 2 小时」改为用户主动选。 */
+/** 「每天 2 次」预设 cron（09:00、15:00）；过频的「每 2 小时」需用户主动选。 */
 export const DEFAULT_DUTY_CRON = '0 9,15 * * *'
+
+/** 新建员工默认：关闭巡检（先在岗可聊，有活再开频率）。 */
+export const DEFAULT_NEW_DUTY_SCHEDULE = DUTY_SCHEDULE_OFF
 
 /** 员工摘要 / 排班面板共用的常用上班频率预设 */
 export const DUTY_SCHEDULE_PRESETS = Object.freeze([
+  { label: '关闭巡检', cron: DUTY_SCHEDULE_OFF },
   { label: '每天 2 次', cron: DEFAULT_DUTY_CRON },
   { label: '每天 9:00', cron: '0 9 * * *' },
   { label: '工作日 9:00', cron: '0 9 * * 1-5' },
@@ -187,7 +200,10 @@ export function createSchedulePanel(initial = {}) {
   let lastPreview = null
   const initSchedule = String(initial.schedule || '').trim()
   const initOnce = String(initial.scheduledAt || '').trim()
-  const initExpr = initOnce || initSchedule || DEFAULT_DUTY_CRON
+  const initOff =
+    !!initial.scheduleOff || isDutyScheduleOff(initSchedule) || !!initial.autoPatrolSuspended
+  const initExpr =
+    initOnce || (initOff ? DUTY_SCHEDULE_OFF : initSchedule || DEFAULT_NEW_DUTY_SCHEDULE)
   const isTask = initial.tone === 'task'
   const copy = isTask
     ? {
@@ -199,16 +215,18 @@ export function createSchedulePanel(initial = {}) {
         nextTitle: '即将执行',
         emptyPick: '请先选择或描述执行频率',
         fallbackSummary: '按计划执行',
+        offSummary: '不自动执行',
       }
     : {
         aiLabel: '用自然语言描述何时上班',
-        aiPlaceholder: '例：每天 2 次 / 每天上午 9 点 / 每 2 小时',
-        aiHint: '说人话即可，我们会自动安排上班节奏',
+        aiPlaceholder: '例：关闭巡检 / 每天 2 次 / 每天上午 9 点',
+        aiHint: '说人话即可；也可选「关闭巡检」— 人在岗可聊，但不定时找活',
         aiEmpty: '请先输入想何时上班的描述',
         aiOkToast: '已生成上班安排',
         nextTitle: '即将自动上班',
         emptyPick: '请先选择或描述上班频率',
         fallbackSummary: '按计划自动上班',
+        offSummary: '关闭巡检：可在线对话 / 派活，不定时巡检',
       }
 
   const PRESETS = DUTY_SCHEDULE_PRESETS
@@ -316,6 +334,18 @@ export function createSchedulePanel(initial = {}) {
       lastPreview = null
       if (summaryEl) summaryEl.textContent = copy.emptyPick
       renderNextRuns([])
+      return
+    }
+    if (isDutyScheduleOff(raw)) {
+      lastPreview = { ok: true, cron: DUTY_SCHEDULE_OFF, summary: copy.offSummary, next_runs: [] }
+      if (summaryEl) summaryEl.innerHTML = '<span class="ss-icon">⏸</span> ' + esc(copy.offSummary)
+      const nextEl = document.getElementById(id('NextRuns'))
+      if (nextEl) {
+        nextEl.innerHTML =
+          `<div class="sched-next-runs-title">${esc(copy.nextTitle)}</div>` +
+          '<div class="sched-next-runs-empty">不定时巡检 · 可随时手动派活或聊天</div>'
+      }
+      syncPresetActive(DUTY_SCHEDULE_OFF)
       return
     }
     const looksOnce = /^\d{4}-\d{2}-\d{2}/.test(raw) && raw.split(/\s+/).length < 5
@@ -435,7 +465,13 @@ export function createSchedulePanel(initial = {}) {
         (document.getElementById(id('Expr')) && document.getElementById(id('Expr')).value) ||
         ''
       ).trim()
+      if (isDutyScheduleOff(raw)) {
+        return { freq: 'off', cronExpr: DUTY_SCHEDULE_OFF, rrule: '', scheduledAt: '' }
+      }
       const pv = lastPreview && lastPreview.ok ? lastPreview : null
+      if (pv && isDutyScheduleOff(pv.cron)) {
+        return { freq: 'off', cronExpr: DUTY_SCHEDULE_OFF, rrule: '', scheduledAt: '' }
+      }
       if (pv && pv.schedule_type === 'once') {
         return {
           freq: 'once',
@@ -468,8 +504,16 @@ export function createSchedulePanel(initial = {}) {
 /** Resolve internal schedule expr from role row (not for UI display). */
 export function roleScheduleExpr(role) {
   const sched = String(role?.heartbeat_schedule || '').trim()
+  if (isDutyScheduleOff(sched)) return DUTY_SCHEDULE_OFF
+  const suspended = !!(
+    role?.auto_patrol_suspended ||
+    role?.config?.auto_patrol_suspended ||
+    role?.autoPatrolSuspended
+  )
+  if (suspended && !looksLikeCron(sched)) return DUTY_SCHEDULE_OFF
   if (looksLikeCron(sched)) return sched
   const rr = String(role?.heartbeat_rrule || '').trim()
+  if (isDutyScheduleOff(rr)) return DUTY_SCHEDULE_OFF
   if (looksLikeCron(rr)) return rr
   if (/FREQ=/i.test(sched) || /FREQ=/i.test(rr)) {
     if (/INTERVAL=1(?!\d)/i.test(sched || rr) && /HOURLY/i.test(sched || rr)) {
@@ -479,11 +523,14 @@ export function roleScheduleExpr(role) {
       return '0 9-19/2 * * *'
     }
   }
+  if (suspended) return DUTY_SCHEDULE_OFF
   return sched || rr || DEFAULT_DUTY_CRON
 }
 
 export function roleScheduleSummary(role) {
   const fromApi = String(role?.schedule_summary || '').trim()
-  if (fromApi && !looksLikeCron(fromApi) && !/FREQ=/i.test(fromApi)) return fromApi
+  if (fromApi && !looksLikeCron(fromApi) && !/FREQ=/i.test(fromApi) && !isDutyScheduleOff(fromApi)) {
+    return fromApi
+  }
   return cronToPlainZh(roleScheduleExpr(role))
 }

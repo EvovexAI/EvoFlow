@@ -237,11 +237,9 @@ export function assetsHrefForPath(
   else if (rel.startsWith('profile/')) params.set('tab', 'profile')
   else params.set('tab', 'memory')
   if (rel.startsWith('memory/episodic/')) params.set('memoryKind', 'episodic')
-  else if (rel.startsWith('memory/_inbox')) params.set('memoryKind', 'inbox')
-  else if (rel.startsWith('memory/facts/') || rel === 'memory/MEMORY.md') params.set('memoryKind', 'facts')
+  else if (rel.startsWith('memory/facts/') || rel === 'memory/MEMORY.md') params.set('memoryKind', 'standing')
   else if (/(^|\/)standing(\.md)?$/i.test(rel) || rel.includes('/standing.'))
     params.set('memoryKind', 'standing')
-  // memory/_inbox/… and other non-kind roots: omit memoryKind so the center can open the parent dir.
   if (opts?.entityType) params.set('entityType', opts.entityType)
   if (opts?.entityId) params.set('entityId', opts.entityId)
   if (rel) params.set('path', rel)

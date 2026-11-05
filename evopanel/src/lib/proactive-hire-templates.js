@@ -26,7 +26,8 @@ export const HIRE_TEMPLATES = [
       '下班前写简短工作汇报：扫了哪、发现什么、建议人处理什么',
     ].join('\n'),
     autonomy_level: 'approval_for_all',
-    heartbeat_schedule: '0 9,15 * * *',
+    // 模板只预填职责；巡检默认关，入职后再按需开频率。
+    heartbeat_schedule: 'off',
   },
   {
     id: 'ops-oncall',
@@ -39,7 +40,7 @@ export const HIRE_TEMPLATES = [
       '每轮/下班写值班报告到工作区，任务总结写清结论与报告路径',
     ].join('\n'),
     autonomy_level: 'approval_for_all',
-    heartbeat_schedule: '*/30 9-19 * * *',
+    heartbeat_schedule: 'off',
   },
   {
     id: 'study-coach',
@@ -52,7 +53,7 @@ export const HIRE_TEMPLATES = [
       '晚上写简短工作汇报：今日进度与明日建议复习点',
     ].join('\n'),
     autonomy_level: 'approval_for_all',
-    heartbeat_schedule: '0 9-19 * * *',
+    heartbeat_schedule: 'off',
   },
   {
     id: 'content-planner',
@@ -65,7 +66,7 @@ export const HIRE_TEMPLATES = [
       '汇报里写清：还差什么、建议你拍哪一条、相关文件路径',
     ].join('\n'),
     autonomy_level: 'approval_for_all',
-    heartbeat_schedule: '0 9-19/3 * * *',
+    heartbeat_schedule: 'off',
   },
   {
     id: 'docs-admin',
@@ -78,7 +79,7 @@ export const HIRE_TEMPLATES = [
       '汇报里写清：扫了哪几处、优先修哪三条',
     ].join('\n'),
     autonomy_level: 'approval_for_all',
-    heartbeat_schedule: '0 10 * * *',
+    heartbeat_schedule: 'off',
   },
 ]
 

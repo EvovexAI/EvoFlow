@@ -5938,6 +5938,50 @@ export class WsClient {
       return { threadId, run: null, runId: null, status: 'idle', executing: false, recently_completed: false, recently_completed_run_id: null, recently_completed_status: null }
     }
   }
+
+  /**
+   * Live POST SSE 早空封后的续看。
+   *
+   * **现行权威路径**：V4 frames（`refreshEvoflowV4Session`）+ history-watch
+   * （`reattachRunningSessionIfNeeded` → 轮询 messages / execution-state）。
+   *
+   * **禁止**在此调用 `resumeChatStream` / `GET .../stream-resume`：
+   * 刷新续流已弃用该 SSE（见 `session-reattach.ts`）；再开会双通道抢状态，
+   * 且曾被误当成「空流自动重试」导致「本轮未产生」假报错。
+   */
+  async _recoverAfterEmptyLiveSse(sessionKey, { runId, threadId, reason } = {}) {
+    const key = String(sessionKey || '').trim()
+    const rid = String(runId || '').trim()
+    const tid = String(threadId || this.getSessionThreadId(key) || '').trim()
+    if (!key) return
+    try {
+      const { isEvoflowChatV4Enabled } = await import('../react/v4/v4Gate.js')
+      if (isEvoflowChatV4Enabled() && tid) {
+        const { refreshEvoflowV4Session } = await import('../react/v4/V4StreamRowsBridge.js')
+        refreshEvoflowV4Session(tid)
+      }
+    } catch (err) {
+      console.warn('[evoflow] empty-stream V4 refresh failed', err)
+    }
+    try {
+      const { reattachRunningSessionIfNeeded } = await import('../react/lib/session-reattach.js')
+      await reattachRunningSessionIfNeeded({
+        sessionKey: key,
+        wsClient: this,
+        sessionRow: {
+          sessionKey: key,
+          threadId: tid || null,
+          currentRunId: rid || null,
+          runStatus: 'running',
+        },
+        resumeReason: reason || 'empty_stream_handoff',
+        skipIfAlreadyAttached: true,
+      })
+    } catch (err) {
+      console.warn('[evoflow] empty-stream history-watch reattach failed', err)
+    }
+  }
+
   async _markSessionRunIdleBestEffort(sessionKey) {
     const sk = String(sessionKey || '').trim()
     if (!sk) return
@@ -5997,7 +6041,14 @@ export class WsClient {
     })
   }
 
-  /** Resume chat via Gateway history-poll stream-resume (DB snapshots until run ends). */
+  /**
+   * LEGACY：`GET /api/chat/sessions/.../stream-resume` SSE。
+   *
+   * 刷新 / 空流续看 / 后台标签回前台 **不要再走这里**。
+   * 现行：`reattachRunningSessionIfNeeded`（history-watch）+ V4 frames。
+   * 本方法仅保留给少数仍显式传入的旧调用面；新逻辑请用 `_recoverAfterEmptyLiveSse`
+   * 或 `session-reattach.ts`，切勿在 chatSend 空流分支里「顺手」resumeChatStream。
+   */
   async resumeChatStream(sessionKey, { runId, threadId, controller, transcriptAnchor, resumeReason, onHistorySnapshot } = {}) {
     const key = sessionKey || MAIN_SESSION_KEY
     const rid = String(runId || '').trim()
@@ -8074,42 +8125,60 @@ export class WsClient {
           streamHadWire,
           upstreamEventCounts: evfLane.upstreamEventCounts || null,
           runError: runErr || null,
-          emptyRetry: !!opts?.__emptyStreamRetry,
+          emptyStreamHandoff: !!opts?.__emptyStreamHandoff,
         }
-         
+
         console.warn('[evoflow] chat stream ended with no assistant output', diag)
-        // 仅在「已连上 SSE、有帧但无正文」时自动重试一次（误杀/空 final）。
-        // 无任何 wire：LangGraph 或链路未通，重试只会再 POST 一轮 →
-        // 双 userInput、双计费风险，且用户日志里每次失败都叠一次。
-        const emptyRetryEligible =
-          !opts?.__emptyStreamRetry &&
+        // 空 SSE（常见：未锚定就 RUN_FINISHED，或 cancel_on_disconnect=false 下客户端先断）
+        // 禁止两件事（踩过坑，勿再「顺手」加回来）：
+        // 1) chatSend 重 POST —— multitask_strategy=interrupt 打断真跑，先弹「本轮未产生」再出字；
+        // 2) resumeChatStream / stream-resume SSE —— 续流主路径已是 V4 + history-watch
+        //    （见 _recoverAfterEmptyLiveSse / session-reattach.ts）。
+        if (
+          !opts?.__emptyStreamHandoff &&
           !_userStopSessionKeys.has(key) &&
           streamHadWire &&
           (sseFrameCount > 0 || (evfLane.deltaCount || 0) > 0 || !!evfLane.evfRunEndSeen)
-        if (emptyRetryEligible) {
+        ) {
+          let status = null
           try {
-            cancelPrepAbort.abort()
+            status = await this.getSessionRunStatus(key)
           } catch {
-            /* ignore */
+            status = null
           }
-          this._abortByRunId.delete(runId)
-          console.warn('[evoflow] empty stream — auto-retry send once', {
-            sessionKey: key,
-            runId,
-            sseBytesReceived,
-            sseFrameCount,
-          })
-          return this.chatSend(sessionKey, message, attachments, contextFiles, {
-            ...opts,
-            __emptyStreamRetry: true,
-            skipTranscriptAppend: true,
-          })
-        }
-        if (!opts?.__emptyStreamRetry && !streamHadWire) {
-          console.warn('[evoflow] empty stream — skip auto-retry (no SSE wire)', {
-            sessionKey: key,
-            runId,
-          })
+          const handoffRid = String(
+            status?.runId || evfLane.aguiChatRunId || runId || '',
+          ).trim()
+          const stillGoing = !!(
+            status?.executing ||
+            status?.status === 'running' ||
+            status?.status === 'pending'
+          )
+          const streamMs = Math.max(0, nowTs() - started)
+          // 未锚定 / 极短空封：多半是 live SSE 早断，后台仍在出字（见用户反馈日志）。
+          const prematureEmpty = !streamAnchorOk || streamMs < 2500
+          if (handoffRid && (stillGoing || prematureEmpty)) {
+            this._abortByRunId.delete(runId)
+            markSessionStreamWireSource(key, null)
+            console.warn('[evoflow] empty stream — suppress false empty; V4/history-watch (no re-POST, no stream-resume)', {
+              sessionKey: key,
+              runId,
+              handoffRid,
+              status: status?.status || null,
+              stillGoing,
+              prematureEmpty,
+              streamMs,
+              streamAnchorOk: !!streamAnchorOk,
+              sseBytesReceived,
+              sseFrameCount,
+            })
+            void this._recoverAfterEmptyLiveSse(key, {
+              runId: handoffRid,
+              threadId,
+              reason: 'empty_stream_handoff',
+            })
+            return { ok: true, runId: handoffRid, awaitingV4: true }
+          }
         }
         this._emitEvent('chat', {
           sessionKey: key,
@@ -8128,33 +8197,41 @@ export class WsClient {
         _userStopSessionKeys.has(key) ||
         isUserInterruptStreamError('', evfLane.lastError)
       ) {
-        // 用户点停止：正常 aborted。非用户 interrupt 且无正文：视为误杀，自动重试一次。
-        // 仍要求本轮收过 SSE/wire，避免「根本没连上」时再打一枪扣费/叠气泡。
+        // 用户点停止：正常 aborted。非用户 interrupt 且无正文：勿再 POST（会 interrupt 真跑）。
         const userStop = _userStopSessionKeys.has(key)
         const streamHadWire = sseBytesReceived > 0 || sseFrameCount > 0
         if (
           !userStop &&
           !finalTextTrim &&
           (evfLane.deltaCount || 0) === 0 &&
-          !opts?.__emptyStreamRetry &&
+          !opts?.__emptyStreamHandoff &&
           streamHadWire
         ) {
+          let status = null
           try {
-            cancelPrepAbort.abort()
+            status = await this.getSessionRunStatus(key)
           } catch {
-            /* ignore */
+            status = null
           }
-          this._abortByRunId.delete(runId)
-          console.warn('[evoflow] spurious interrupt with no output — auto-retry send once', {
-            sessionKey: key,
-            runId,
-            sseBytesReceived,
-          })
-          return this.chatSend(sessionKey, message, attachments, contextFiles, {
-            ...opts,
-            __emptyStreamRetry: true,
-            skipTranscriptAppend: true,
-          })
+          const handoffRid = String(
+            status?.runId || evfLane.aguiChatRunId || runId || '',
+          ).trim()
+          const stillGoing = !!(status?.executing || status?.status === 'running' || status?.status === 'pending')
+          if (handoffRid && stillGoing) {
+            this._abortByRunId.delete(runId)
+            markSessionStreamWireSource(key, null)
+            console.warn('[evoflow] spurious interrupt — suppress abort; V4/history-watch', {
+              sessionKey: key,
+              runId,
+              handoffRid,
+            })
+            void this._recoverAfterEmptyLiveSse(key, {
+              runId: handoffRid,
+              threadId,
+              reason: 'spurious_interrupt_handoff',
+            })
+            return { ok: true, runId: handoffRid, awaitingV4: true }
+          }
         }
         emitStreamUserInterruptAbort(this, key, runId, evfLane, { finalText: finalTextTrim })
         return { ok: true, aborted: true, runId }

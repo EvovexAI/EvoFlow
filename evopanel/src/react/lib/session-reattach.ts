@@ -3,6 +3,9 @@
  *
  * 刷新后默认只轮询 messages / execution-state（history watch），不再依赖 stream-resume SSE。
  * stream-resume 接口本身也只是服务端历史轮询包装，与前端拉 messages 等价，且易被路由吞成 404。
+ *
+ * 空 live SSE / 「本轮未产生」假报错的续看也走这里（`ws-client._recoverAfterEmptyLiveSse`），
+ * **不要**再接到 `wsClient.resumeChatStream`。
  */
 import { bindActiveRun } from './run-turn-gate.js'
 import {

@@ -41,7 +41,10 @@ import {
   bindWorkspaceSelect,
   readWorkspacePath,
 } from '../lib/workspace-field-ui.js'
-import { createSchedulePanel, DEFAULT_DUTY_CRON } from '../lib/schedule-panel.js'
+import {
+  createSchedulePanel,
+  DEFAULT_NEW_DUTY_SCHEDULE,
+} from '../lib/schedule-panel.js'
 import {
   AUTONOMY_FIELD_DESC,
   AUTONOMY_FIELD_LABEL,
@@ -1197,7 +1200,7 @@ async function showHireAsEmployeeDialog(page, state, agentCode) {
   ])
   const workspaceField = renderWorkspaceFieldOnly(workspacePaths, '')
   const hireScheduleCtrl = createSchedulePanel({
-    schedule: DEFAULT_DUTY_CRON,
+    schedule: DEFAULT_NEW_DUTY_SCHEDULE,
     idPrefix: 'agentHireSched',
     compact: true,
   })
@@ -1311,7 +1314,7 @@ async function showHireAsEmployeeDialog(page, state, agentCode) {
       overlay.querySelector('[data-name="autonomy_level"] .hire-chip.is-on')?.dataset.value ||
       'approval_for_all'
     const heartbeat_schedule =
-      hireScheduleCtrl.getSchedule().cronExpr || DEFAULT_DUTY_CRON
+      hireScheduleCtrl.getSchedule().cronExpr || DEFAULT_NEW_DUTY_SCHEDULE
 
     const btn = overlay.querySelector('[data-act="confirm"]')
     if (btn) {
