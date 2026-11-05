@@ -92,7 +92,8 @@ assets(action="affect", mode="append|replace", content="…")
 ## 6. 用户画像 / 情感
 
 - 画像真源：`profile/USER.md` — `assets profile`（用户根）
-- 情感真源：`profile/affect.md` — `assets affect`（用户根=主智能体；员工根=该员工；模型主动写，无后台改）
+- 情感真源：`profile/affect.md` — `assets affect`（用户根=主智能体；员工/小微=各自根；模型主动写，无后台改）
+- 注入：`memory_enabled` / 资产开关开 → 系统提示追加 `<affect>`；关则不注入（主智能体 / 员工 / 小微同一套）
 - `mode=append` 默认；`mode=replace` 整份重写
 
 ---
