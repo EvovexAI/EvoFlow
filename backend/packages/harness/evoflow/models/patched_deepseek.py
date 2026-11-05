@@ -65,6 +65,10 @@ class PatchedChatDeepSeek(VendorRoundtripChatMixin, ChatDeepSeek):
                 if reasoning_content is not None:
                     payload_messages[idx]["reasoning_content"] = reasoning_content
 
+        from evoflow.models.create_payload_sanitize import strip_non_vendor_create_keys
+
+        strip_non_vendor_create_keys(payload)
+
         log_model_request_payload(
             provider="patched_deepseek",
             model=getattr(self, "model_name", None) or getattr(self, "model", None),

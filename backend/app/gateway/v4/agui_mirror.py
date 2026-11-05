@@ -542,11 +542,31 @@ def _cua_display_block(payload: dict[str, Any], body_text: str) -> dict[str, Any
     return block
 
 
+def _is_user_interrupt_event(ev: dict[str, Any] | None) -> bool:
+    """True when RUN_ERROR is user stop (AG-UI maps EVF ``aborted`` → USER_INTERRUPT)."""
+    if not isinstance(ev, dict):
+        return False
+    code = str(ev.get("code") or "").strip().lower().replace("-", "_")
+    msg = str(ev.get("message") or ev.get("error") or "").strip().lower()
+    if code in {"user_interrupt", "userinterrupt", "aborted", "cancelled", "canceled"}:
+        return True
+    if "user_interrupt" in code or code.replace("_", "") == "userinterrupt":
+        return True
+    if "user_interrupt" in msg or "userinterrupt" in msg.replace("_", "").replace(" ", "").replace("-", ""):
+        return True
+    # "User interrupted" / "user interrupt"
+    compact = "".join(ch for ch in msg if ch.isalnum())
+    return compact.startswith("userinterrupt") or "userinterrupted" in compact
+
+
 def _run_error_info(ev: dict[str, Any], *, now_ms: int) -> dict[str, Any]:
     """Build V4 ``control.lastError`` from a RUN_ERROR event.
 
     ``message`` is short Chinese for the banner; ``detail`` keeps the raw cause
     so users can copy / feedback without opening system logs.
+
+    User stops are not errors — callers must skip this helper via
+    :func:`_is_user_interrupt_event` and project ``completedInterrupted`` instead.
     """
     code = str(ev.get("code") or "run_error").strip() or "run_error"
     raw = str(ev.get("message") or ev.get("error") or "").strip()
@@ -691,6 +711,26 @@ class V4Mirror:
                 "entityId": mid,
             },
         )
+
+    def _mark_assistant_text_interrupted(self, tid: str, st: _MirrorState, *, now_ms: int) -> None:
+        """Seal in-flight assistantText rows as interrupted after user stop."""
+        if not st.text_row_ids:
+            return
+        for mid, rid in list(st.text_row_ids.items()):
+            self._hub.author_upsert_row(
+                tid,
+                {
+                    "rowId": rid,
+                    "turnId": st.turn_id,
+                    "kind": "assistantText",
+                    "text": str(st.text_acc.get(mid) or ""),
+                    "state": "interrupted",
+                    "createdAt": st.turn_started_at_ms or now_ms,
+                    "createdAtSeq": self._seq_now(tid),
+                    "entityId": mid,
+                    "endedAt": now_ms,
+                },
+            )
 
     def _on_activity_snapshot(self, tid: str, st: _MirrorState, ev: dict[str, Any], *, now_ms: int) -> None:
         """Project ACTIVITY_SNAPSHOT retrying/model_error into V4 control + optional text."""
@@ -1316,7 +1356,14 @@ class V4Mirror:
         if et in ("RUN_FINISHED", "RUN_ERROR"):
             if not st.run_started or st.turn_header_row_id == 0:
                 return
-            v4_state = "completedSuccess" if et == "RUN_FINISHED" else "failed"
+            user_stopped = et == "RUN_ERROR" and _is_user_interrupt_event(ev)
+            if et == "RUN_FINISHED":
+                v4_state = "completedSuccess"
+            elif user_stopped:
+                # 用户点停止：轮次 interrupted，不是 failed；UI 显示「用户停止/已停止」。
+                v4_state = "completedInterrupted"
+            else:
+                v4_state = "failed"
             # 轮尾文件变更摘要（ZCode「N 个文件已更改 +A/-D」卡片 = turnHeader.fileChanges）。
             file_changes: dict[str, Any] | None = None
             if st.turn_file_changes:
@@ -1344,18 +1391,24 @@ class V4Mirror:
             )
             produced_text = any(str(t or "").strip() for t in st.text_acc.values())
             if et == "RUN_ERROR":
-                last_error = _run_error_info(ev, now_ms=now_ms)
-                st.sticky_run_error = dict(last_error)
-                # 无正文时把详情落到助手气泡，用户不必翻系统日志也能看见/复制。
-                detail = str(last_error.get("detail") or "").strip()
-                if detail and not produced_text:
-                    banner = str(last_error.get("message") or "本轮生成失败").strip()
-                    self._upsert_error_assistant_text(
-                        tid,
-                        st,
-                        f"{banner}\n\n详情（可复制反馈）：\n{detail}",
-                        now_ms=now_ms,
-                    )
+                if user_stopped:
+                    # 停止 ≠ 报错：清 sticky / lastError，勿写「详情（可复制反馈）」气泡。
+                    last_error = None
+                    st.sticky_run_error = None
+                    self._mark_assistant_text_interrupted(tid, st, now_ms=now_ms)
+                else:
+                    last_error = _run_error_info(ev, now_ms=now_ms)
+                    st.sticky_run_error = dict(last_error)
+                    # 无正文时把详情落到助手气泡，用户不必翻系统日志也能看见/复制。
+                    detail = str(last_error.get("detail") or "").strip()
+                    if detail and not produced_text:
+                        banner = str(last_error.get("message") or "本轮生成失败").strip()
+                        self._upsert_error_assistant_text(
+                            tid,
+                            st,
+                            f"{banner}\n\n详情（可复制反馈）：\n{detail}",
+                            now_ms=now_ms,
+                        )
             elif produced_text:
                 # 真正产出正文的成功收尾 → 清 sticky。
                 st.sticky_run_error = None
@@ -1365,7 +1418,12 @@ class V4Mirror:
                 last_error = dict(st.sticky_run_error) if st.sticky_run_error else None
             from app.gateway.v4.conversation import _minimal_control
 
-            phase = "error" if (et == "RUN_ERROR" or last_error) else "completedSuccess"
+            if user_stopped:
+                phase = "completedInterrupted"
+            elif et == "RUN_ERROR" or last_error:
+                phase = "error"
+            else:
+                phase = "completedSuccess"
             if et == "RUN_FINISHED" and produced_text:
                 phase = "completedSuccess"
             ctrl = _minimal_control(phase)

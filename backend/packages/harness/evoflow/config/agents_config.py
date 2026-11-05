@@ -162,6 +162,14 @@ def refresh_agent_config_if_stale(agent_code: str | None) -> str:
             clear_skills_cache()
         except Exception:
             logger.debug("skills cache clear after capability change skipped", exc_info=True)
+        try:
+            # LangGraph worker process: drop per-thread tool freezes so the next
+            # model call uses the new whitelist (Gateway already cleared its own).
+            from evoflow.agents.middlewares.tool_surface_lock_middleware import clear_tool_surface_lock
+
+            clear_tool_surface_lock()
+        except Exception:
+            logger.debug("tool surface lock clear after capability change skipped", exc_info=True)
     _agent_capability_rev[code] = rev
     return rev
 

@@ -168,8 +168,48 @@ def test_refresh_agent_runtime_also_clears_skills(monkeypatch):
         "evoflow.skills.loader.clear_skills_cache",
         lambda: calls.append("skills_clear"),
     )
+    monkeypatch.setattr(
+        "evoflow.agents.middlewares.tool_surface_lock_middleware.clear_tool_surface_locks_for_threads",
+        lambda tids: calls.append(f"tool_lock_threads:{len(tids or [])}") or 0,
+    )
+    monkeypatch.setattr(
+        "evoflow.agents.middlewares.tool_surface_lock_middleware.clear_tool_surface_lock",
+        lambda tid=None: calls.append("tool_lock_clear"),
+    )
     agents_admin.refresh_agent_runtime_after_capability_change("duty_clerk")
     assert "skills_clear" in calls
+    assert any(c.startswith("tool_lock_") for c in calls)
+
+
+def test_tool_surface_lock_expands_when_new_tools_appear():
+    from types import SimpleNamespace
+
+    from evoflow.agents.middlewares.tool_surface_lock_middleware import (
+        ToolSurfaceLockMiddleware,
+        clear_tool_surface_lock,
+    )
+
+    clear_tool_surface_lock()
+    mw = ToolSurfaceLockMiddleware()
+    tid = "proactive:duty_clerk:chat:t1"
+
+    def _req(names: list[str]):
+        tools = [SimpleNamespace(name=n) for n in names]
+        return SimpleNamespace(
+            tools=tools,
+            runtime=SimpleNamespace(context={"thread_id": tid}),
+            override=lambda **kw: SimpleNamespace(tools=kw.get("tools"), runtime=SimpleNamespace(context={"thread_id": tid})),
+        )
+
+    # Patch _merged_runtime_context path by putting thread_id on runtime.context only
+    first = mw._patch_request(_req(["bash", "read_file"]))
+    assert {t.name for t in first.tools} == {"bash", "read_file"}
+
+    # New tool granted mid-session — must expand, not stay frozen on the old pair.
+    second = mw._patch_request(_req(["bash", "read_file", "web_search"]))
+    assert {t.name for t in second.tools} == {"bash", "read_file", "web_search"}
+
+    clear_tool_surface_lock()
 
 
 def test_lead_agent_graph_cache_key_includes_capability_fp():

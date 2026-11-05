@@ -11,6 +11,10 @@ from evoflow.config import get_app_config, get_tracing_config, is_tracing_enable
 from evoflow.config.app_config import AppConfig
 from evoflow.config.credential_pool import build_pool_from_config
 from evoflow.config.models_yaml import infer_vendor_from_connection
+from evoflow.models.create_payload_sanitize import (
+    NON_VENDOR_CREATE_KEYS,
+    scrub_chat_model_runtime_kwargs,
+)
 from evoflow.models.credential_sanitize import (
     patch_chat_model_instance_credentials,
     resolve_and_sanitize_api_key,
@@ -41,6 +45,8 @@ _VOLC_COMPLETION_RESERVE_DEFAULT = 16384
 _OPENAI_COMPAT_MAX_OUTPUT_TOKENS = 65536
 
 # EvoFlow-only config keys that must not reach LangChain / OpenAI SDK constructors.
+# Also includes LangGraph runtime keys that can leak into model ``extra_json`` (extra="allow")
+# and then into ChatOpenAI.model_kwargs → AsyncCompletions.create().
 _PROVIDER_INTERNAL_KEYS = frozenset(
     {
         "credentials",
@@ -60,6 +66,7 @@ _PROVIDER_INTERNAL_KEYS = frozenset(
         # Agent Plan metadata (v124) — EvoFlow-only, not vendor HTTP params
         "plan_type",
         "plan_config",
+        *NON_VENDOR_CREATE_KEYS,
     }
 )
 
@@ -881,6 +888,8 @@ def create_chat_model(
             "plan_config",
             # Reserved Pydantic class-config key; may leak via extra="allow".
             "model_config",
+            # LangGraph / session runtime — never constructor kwargs (see create_payload_sanitize).
+            *NON_VENDOR_CREATE_KEYS,
         },
     )
     model_settings_from_config = _strip_provider_internal_keys(dumped)
@@ -1050,6 +1059,7 @@ def create_chat_model(
             # ChatOpenAI requires a non-empty api_key; Ollama / local OpenAI-compat ignore it.
             merged_kwargs["api_key"] = "ollama"
     model_instance = model_class(**merged_kwargs)
+    scrub_chat_model_runtime_kwargs(model_instance)
     patch_chat_model_instance_credentials(model_instance)
     if pool is not None:
         try:

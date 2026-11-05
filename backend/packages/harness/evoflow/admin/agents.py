@@ -901,6 +901,52 @@ def refresh_agent_runtime_after_capability_change(agent_code: str) -> None:
         clear_skills_cache()
     except Exception:
         logger.debug("clear_skills_cache failed after agent=%s edit", code, exc_info=True)
+    # Same process may still freeze ModelRequest.tools per thread_id; drop those
+    # locks so the next turn (same chat) binds the new whitelist / MCP set.
+    try:
+        from evoflow.agents.middlewares.tool_surface_lock_middleware import (
+            clear_tool_surface_lock,
+            clear_tool_surface_locks_for_threads,
+        )
+        from evoflow.persistence.db import get_db
+
+        rows = get_db().execute(
+            """
+            SELECT session_key FROM evoflow_chat_sessions
+            WHERE is_deleted = 0
+              AND (
+                agent_id = ?
+                OR session_key LIKE ?
+                OR session_key LIKE ?
+                OR session_key = ?
+              )
+            """,
+            (
+                code,
+                f"agent:{code}:%",
+                f"proactive:{code}%",
+                f"proactive:{code}",
+            ),
+        ).fetchall()
+        tids = [str(r[0] or "").strip() for r in rows if r and str(r[0] or "").strip()]
+        cleared = clear_tool_surface_locks_for_threads(tids)
+        # Also wipe any lock keyed by thread_id that equals session_key variants.
+        if not cleared:
+            clear_tool_surface_lock()
+        else:
+            logger.info(
+                "cleared tool-surface locks for %d session(s) after agent=%s capability change",
+                cleared,
+                code,
+            )
+    except Exception:
+        logger.debug("clear_tool_surface_lock failed after agent=%s edit", code, exc_info=True)
+        try:
+            from evoflow.agents.middlewares.tool_surface_lock_middleware import clear_tool_surface_lock
+
+            clear_tool_surface_lock()
+        except Exception:
+            pass
 
 
 def _update_main_agent(data: dict[str, Any]) -> dict[str, Any]:

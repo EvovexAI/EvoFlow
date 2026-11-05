@@ -117,6 +117,9 @@ class PatchedChatMiniMax(VendorRoundtripChatMixin, ChatOpenAI):
             }
         else:
             payload["extra_body"] = {"reasoning_split": True}
+        from evoflow.models.create_payload_sanitize import strip_non_vendor_create_keys
+
+        strip_non_vendor_create_keys(payload)
         log_model_request_payload(
             provider="patched_minimax",
             model=getattr(self, "model_name", None) or getattr(self, "model", None),

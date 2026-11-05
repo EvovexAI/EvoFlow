@@ -2,7 +2,11 @@
 
 After Deferred/PlanGuard/Proactive have decided the visible set, freeze that name
 set for the thread and always emit tools in alphabetical order. Mid-session
-add/remove/reorder of tool schemas busts Anthropic/DeepSeek prefix cache.
+reorder of the same set would otherwise bust Anthropic/DeepSeek prefix cache.
+
+When upstream **grants new tools** (capability edit / deferred load), expand the
+lock so they reach the model. Capability edits also call
+``clear_tool_surface_lock`` so a shrink (unbind) is not stuck on the old freeze.
 """
 
 from __future__ import annotations
@@ -27,12 +31,25 @@ _locked_names_by_thread: dict[str, tuple[str, ...]] = {}
 
 
 def clear_tool_surface_lock(thread_id: str | None = None) -> None:
+    """Drop frozen tool names (one thread, or all when ``thread_id`` is empty)."""
     tid = str(thread_id or "").strip()
     with _lock:
         if not tid:
             _locked_names_by_thread.clear()
             return
         _locked_names_by_thread.pop(tid, None)
+
+
+def clear_tool_surface_locks_for_threads(thread_ids: list[str] | None) -> int:
+    """Clear locks for known session/thread ids. Returns how many were removed."""
+    removed = 0
+    with _lock:
+        for raw in thread_ids or []:
+            tid = str(raw or "").strip()
+            if tid and tid in _locked_names_by_thread:
+                _locked_names_by_thread.pop(tid, None)
+                removed += 1
+    return removed
 
 
 def _tool_name(tool: Any) -> str:
@@ -75,20 +92,33 @@ class ToolSurfaceLockMiddleware(AgentMiddleware[AgentState]):
             if n and n.lower() not in by_name:
                 by_name[n.lower()] = t
 
+        current = tuple(sorted(by_name.keys()))
         with _lock:
             locked = _locked_names_by_thread.get(tid)
             if locked is None:
-                ordered = tuple(sorted(by_name.keys()))
-                _locked_names_by_thread[tid] = ordered
-                locked = ordered
+                _locked_names_by_thread[tid] = current
+                locked = current
                 logger.debug(
                     "ToolSurfaceLock: freeze thread=%s tools=%d",
                     tid,
                     len(locked),
                 )
+            else:
+                locked_set = set(locked)
+                current_set = set(current)
+                added = current_set - locked_set
+                if added:
+                    # Capability grant or deferred load — surface new tools; cache already busts.
+                    locked = tuple(sorted(locked_set | current_set))
+                    _locked_names_by_thread[tid] = locked
+                    logger.info(
+                        "ToolSurfaceLock: expand thread=%s +%d (now=%d)",
+                        tid,
+                        len(added),
+                        len(locked),
+                    )
 
-        # Intersection: keep only tools that still exist in the request AND were locked.
-        # If proactive/plan temporarily hides tools, still emit locked subset that remain available.
+        # Intersection: keep locked names that still exist (phase may temporarily hide some).
         kept: list[Any] = []
         for name in locked:
             tool = by_name.get(name)

@@ -139,6 +139,10 @@ class PatchedChatOpenAI(VendorRoundtripChatMixin, ChatOpenAI):
         if thinking_disable_unsupported(self):
             strip_thinking_params(payload)
 
+        from evoflow.models.create_payload_sanitize import strip_non_vendor_create_keys
+
+        strip_non_vendor_create_keys(payload)
+
         log_model_request_payload(
             provider="patched_openai",
             model=getattr(self, "model_name", None) or getattr(self, "model", None),
