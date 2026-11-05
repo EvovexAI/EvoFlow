@@ -45,15 +45,14 @@
 | 层 | 每轮注入 | 真源 / 用途 |
 |----|----------|-------------|
 | **L0 岗位** | `system_prompt` / soul | **只**职责骨架、输出格式、硬闸门 |
-| **L1 standing** | `memory/standing.md` 摘要（**整页注入**，运行时不截断） | 偏好、Tips、**What's in Memory** 文件名索引（只列自描述 `craft/…` 等名字，不写 keywords/desc/learnings；产品名「记忆摘要」——总览派生页，非第三种正文；篇幅由 Phase2 写文件时控制） |
-| **L2 catalog** | craft / facts / episodic / journal **短标题全量** + `MEMORY.md` | 发现用；不灌正文 |
+| **L1 standing（长期记忆）** | `memory/standing.md`（**整页注入**，运行时不截断） | 偏好、Tips、**What's in Memory** 文件名索引（产品名「长期记忆」——实体整体记忆） |
+| **L2 catalog** | craft / episodic / journal **短标题全量** + `MEMORY.md` | 发现用；不灌正文 |
 | **L3 正文** | 不默认注入 | `assets` read/search 按需打开 |
-| **L4 inbox** | 未合并 notes 预览 | Phase2 前可见 |
 
-产品 IA：**记忆摘要** standing＝总览；正文两类——**条目** `facts/`（明细）、**过程** `episodic/`。对话 when/what/write/update/load 决策表见 `read_path.md`。
+产品 IA：**长期记忆** standing＝整体记忆；**过程** `episodic/`。不再使用产品概念「条目 / facts」。对话决策表见 `read_path.md`。
 
-**禁止双写**：制度 / 踩坑 / 可复用做法 → `assets` note → Phase2 → craft/MEMORY/standing。  
-**禁止**再 `agents.update` 把经验全文塞进 `system_prompt`（与资产漂移）。岗位说明书里最多一行指针：「详见 craft/…」。
+**一步写入**：`assets note` 按标签直写正式路径（`[preference]`→standing，`[process]`→episodic，`[experience]`→craft，`[reflection]`→journal），**不经** `_inbox/notes`。  
+**禁止**再 `agents.update` 把经验全文塞进 `system_prompt`。岗位说明书里最多一行指针：「详见 craft/…」。
 
 改员工配置：职责骨架用 `agents.update` 的 `system_prompt`；经验沉淀只用 `assets`。
 
@@ -66,12 +65,12 @@
 | 路径 | 用途 | 写入规则 |
 |------|------|---------|
 | `profile/` | 身份、偏好、人设 | `assets(action="profile")`；默认 append，`query=replace` 全量重写 |
-| `memory/standing.md` | 记忆摘要 / 启动总览（≥2 字符） | Phase2 自动生成，**禁止直接写** |
+| `memory/standing.md` | **长期记忆**（整体摘要，≥2 字符） | 对话 `[preference]` **直写**；也可资产中心手改 |
 | `memory/MEMORY.md` | 索引（指针 + 标签 + 日期） | Phase2 维护；对话**禁止**手改 |
-| `memory/facts/` | 条目：稳定事实、偏好、命名约定（明细） | Phase2 合并；对话用 `[preference]` note |
-| `memory/episodic/` | 过程：某次对话/任务复盘 | Phase2 合并后；对话 inbox 标签 `[process]` |
-| `memory/journal/` | 反思、教训、错误回顾 | Phase2 / hub；对话 inbox 标签 `[reflection]`；正式文件 `memory/journal/<topic-slug>.md`（**文件名不要年月日**，日期只写 frontmatter） |
-| `memory/_inbox/notes/` | **写入入口**（4 类标签） | 一律 `assets note` 先入 inbox，**Phase 2 合并** |
+| `memory/facts/` | 遗留目录（产品不再主推「条目」） | 旧数据只读浏览；新偏好写 standing |
+| `memory/episodic/` | **过程**：某次对话/任务复盘 | 对话 `[process]` **直写** |
+| `memory/journal/` | 反思、教训、错误回顾 | 对话 `[reflection]` **直写**；正式文件 `memory/journal/<topic-slug>.md` |
+| `memory/_inbox/notes/` | 历史草稿区 | 新对话笔记不再写入；仅兼容旧草稿 |
 | `memory/_inbox/_done/` | Phase2 合并后归档（从未销毁） | Phase2 自动写入，**不要手动编辑** |
 | `memory/_inbox/phase2_workspace_diff.md` | Phase2 diff 清单（运行时生成） | Phase2 自动生成，**不要手动编辑** |
 | `memory/_inbox/raw_memories.md` | Phase2 合并前的原始材料合集 | Phase2 运行时机械合并，**不要手动编辑** |

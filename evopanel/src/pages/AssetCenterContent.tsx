@@ -141,40 +141,43 @@ const ASSET_TABS: { id: AssetTab; label: string; icon: React.ReactNode }[] = [
   { id: "manage", label: "管理", icon: <Settings2 size={16} strokeWidth={1.6} /> },
 ];
 
-/** 记忆 Tab 主分类：两类正文。standing / inbox 是派生或草稿，不当主分段。 */
-const MEMORY_CONTENT_KINDS: { id: "facts" | "episodic"; label: string; hint: string; desc: string }[] = [
+/** 记忆 Tab 主分类：长期记忆 + 过程。 */
+const MEMORY_CONTENT_KINDS: { id: "standing" | "episodic"; label: string; hint: string; desc: string }[] = [
   {
-    id: "facts",
-    label: "条目",
-    hint: "memory/facts/",
-    desc: "一条一条的明细：偏好、约束、短事实；说「记住…」或点「记一条」。",
+    id: "standing",
+    label: "长期记忆",
+    hint: "memory/standing.md",
+    desc: "本实体的整体记忆（偏好 / Tips / 文件名索引）；每次聊天整页注入。对话里用 [preference] 一步写入。",
   },
   {
     id: "episodic",
     label: "过程",
     hint: "memory/episodic/",
-    desc: "某次对话做了什么、结论是什么；空闲后系统自动写，也可侧栏「记录过程」。",
+    desc: "某次对话做了什么、结论是什么；对话里用 [process] 一步写入。",
   },
 ];
 
 const STANDING_META = {
   id: "standing" as const,
-  label: "记忆摘要",
+  label: "长期记忆",
   hint: "memory/standing.md",
-  desc: "从条目与过程等压出的总览一页；每次聊天先看，一般不用手改。",
+  desc: "本实体的整体记忆（偏好 / Tips / 文件名索引）；每次聊天整页注入。",
 };
 
 const INBOX_META = {
   id: "inbox" as const,
   label: "待整合",
   hint: "memory/_inbox/notes/",
-  desc: "对话刚写下的草稿，磁盘上立刻有；下一轮 AI 已能用。空闲后系统会合进条目/过程/经验。",
+  desc: "历史草稿区；新笔记已按标签直写长期记忆/过程/经验/反思，一般不必再走这里。",
 };
 
 function memoryKindMeta(kind: MemoryKind) {
-  if (kind === "standing") return STANDING_META;
   if (kind === "inbox") return INBOX_META;
-  return MEMORY_CONTENT_KINDS.find((k) => k.id === kind) || MEMORY_CONTENT_KINDS[0];
+  if (kind === "facts") {
+    // Legacy deep-link: facts UI retired → surface as 长期记忆.
+    return STANDING_META;
+  }
+  return MEMORY_CONTENT_KINDS.find((k) => k.id === kind) || STANDING_META;
 }
 
 const ENTITY_GROUPS: { key: string; label: string; types: string[] }[] = [
@@ -360,7 +363,8 @@ function assetsHrefForPath(
   else params.set("tab", "memory");
   if (rel.startsWith("memory/episodic/")) params.set("memoryKind", "episodic");
   else if (rel.startsWith("memory/_inbox")) params.set("memoryKind", "inbox");
-  else if (rel.startsWith("memory/facts/") || rel === "memory/MEMORY.md") params.set("memoryKind", "facts");
+  else if (rel.startsWith("memory/facts/") || rel === "memory/MEMORY.md")
+    params.set("memoryKind", "standing");
   else if (/(^|\/)standing(\.md)?$/i.test(rel) || rel.includes("/standing."))
     params.set("memoryKind", "standing");
   if (opts?.entityType) params.set("entityType", opts.entityType);
@@ -453,15 +457,15 @@ function hashSpecifiesEntity(): boolean {
 function initialMemoryKind(): MemoryKind {
   const q = parseHashQuery();
   const k = String(q.memoryKind || q.kind || "").trim().toLowerCase();
-  // legacy deep-link memoryKind=graph → facts (asset-hub memory graph UI removed)
-  if (k === "graph") return "facts";
-  if (k === "standing" || k === "facts" || k === "episodic" || k === "inbox") return k;
+  // legacy deep-link memoryKind=graph|facts → standing（长期记忆）
+  if (k === "graph" || k === "facts") return "standing";
+  if (k === "standing" || k === "episodic" || k === "inbox") return k;
   const path = normalizeDeepLinkPath(String(q.path || ""));
   if (path.startsWith("memory/episodic/")) return "episodic";
   if (/(^|\/)standing(\.md)?$/i.test(path) || path.includes("/standing.")) return "standing";
   if (path.startsWith("memory/_inbox")) return "inbox";
-  if (path.startsWith("memory/facts/") || path === "memory/MEMORY.md") return "facts";
-  return "facts";
+  if (path.startsWith("memory/facts/") || path === "memory/MEMORY.md") return "standing";
+  return "standing";
 }
 
 function initialOpenPath(): string {
@@ -676,7 +680,13 @@ export default function AssetCenterContent() {
       } else if (kind === "inbox") {
         await loadTree("memory/_inbox/notes");
       } else if (kind === "facts") {
-        await loadTree("memory/facts");
+        // Legacy：条目已并入长期记忆
+        await loadTree("memory");
+        try {
+          await loadFile("memory/standing.md");
+        } catch {
+          /* ignore */
+        }
       } else {
         await loadTree("memory/episodic");
       }
@@ -1027,7 +1037,7 @@ export default function AssetCenterContent() {
   function changeTab(tab: AssetTab) {
     setActiveTab(tab);
     setFileSearch("");
-    if (tab === "memory") setMemoryKind("facts");
+    if (tab === "memory") setMemoryKind("standing");
   }
 
   // 页面内切换实体 / Tab 时同步 hash：否则刷新、重新进入或从别处跳回时仍读旧实体，
@@ -1067,8 +1077,8 @@ export default function AssetCenterContent() {
         else if (/(^|\/)standing(\.md)?$/i.test(rel) || rel.includes("/standing."))
           nextKind = "standing";
         else if (rel.startsWith("memory/_inbox")) nextKind = "inbox";
-        else if (rel.startsWith("memory/facts/") || rel === "memory/MEMORY.md") nextKind = "facts";
-        else nextKind = "facts";
+        else if (rel.startsWith("memory/facts/") || rel === "memory/MEMORY.md") nextKind = "standing";
+        else nextKind = "standing";
       } else return;
       if (tab === activeTab) {
         if (tab === "memory") {
@@ -1078,11 +1088,9 @@ export default function AssetCenterContent() {
           const standardKindRoot =
             kind === "episodic"
               ? "memory/episodic"
-              : kind === "standing"
-                ? "memory"
-                : kind === "inbox"
-                  ? "memory/_inbox/notes"
-                  : "memory/facts";
+              : kind === "inbox"
+                ? "memory/_inbox/notes"
+                : "memory";
           const browseParent =
             !!parent &&
             parent !== standardKindRoot &&
@@ -1129,8 +1137,8 @@ export default function AssetCenterContent() {
   }, [activeTab, currentEntity, loadTree, loadFile]);
 
   const afterFactSaved = useCallback(() => {
-    if (activeTab === "memory" && memoryKind === "facts") {
-      void loadTree("memory/facts");
+    if (activeTab === "memory" && memoryKind === "standing") {
+      void loadTree("memory");
     }
     if (activeTab === "overview" || activeTab === "manage") {
       void loadUsageStats();
@@ -2511,22 +2519,17 @@ function TreeWorkspace({
       memoryKind === "episodic"
         ? {
             title: "还没有过程记录",
-            desc: "对话结束空闲后，系统会自动写一篇过程摘要；也可在聊天侧栏点「记录过程」。",
+            desc: "在对话里用 assets note 写 `[process] …`，会一步写入过程目录。",
           }
-        : memoryKind === "standing"
+        : memoryKind === "inbox"
           ? {
-              title: "还没有记忆摘要",
-              desc: "系统整理记忆时会自动生成这一页总览；一般不用手改，需要时也可直接编辑。",
+              title: "没有待整合草稿",
+              desc: "新笔记已按标签直写正式目录；这里只留历史草稿。",
             }
-          : memoryKind === "inbox"
-            ? {
-                title: "没有待整合草稿",
-                desc: "对话里 assets note 写下的草稿会出现在这里；下一轮 AI 已能用，空闲后会合进正式目录。",
-              }
-            : {
-                title: "还没有条目",
-                desc: "在聊天里说「记住…」，或点右上角「记一条」；以后聊天我会自动参考。",
-              },
+          : {
+              title: "还没有长期记忆",
+              desc: "在对话里用 `[preference] …` 一步写入，或直接编辑 memory/standing.md。",
+            },
     experience: {
       title: "还没有经验",
       desc: "经验（craft）来自对话中的沉淀与 Skills 市场安装，安装后可在此查看与修改。",
@@ -2542,7 +2545,7 @@ function TreeWorkspace({
     tab === "memory" ? (
       <button type="button" className="ac-btn-ghost" onClick={onQuickFact}>
         <Plus size={13} strokeWidth={1.8} />
-        记一条
+        {memoryKind === "episodic" ? "记过程" : "记偏好"}
       </button>
     ) : tab === "journal" ? (
       <button type="button" className="ac-btn-ghost" onClick={onNewJournal}>
@@ -2580,34 +2583,23 @@ function TreeWorkspace({
           </div>
           <p className="ac-seg-desc" data-testid="memory-kind-desc">
             {activeKind.desc}{" "}
-            {memoryKind === "standing" || memoryKind === "inbox" ? (
+            {memoryKind !== "inbox" ? (
+              <button
+                type="button"
+                className="ac-seg-secondary"
+                title={INBOX_META.hint}
+                onClick={() => onMemoryKindChange("inbox")}
+              >
+                待整合
+              </button>
+            ) : (
               <button
                 type="button"
                 className="ac-seg-secondary is-active"
-                onClick={() => onMemoryKindChange("facts")}
+                onClick={() => onMemoryKindChange("standing")}
               >
-                回条目
+                回长期记忆
               </button>
-            ) : (
-              <>
-                <button
-                  type="button"
-                  className="ac-seg-secondary"
-                  title={STANDING_META.hint}
-                  onClick={() => onMemoryKindChange("standing")}
-                >
-                  记忆摘要
-                </button>
-                {" · "}
-                <button
-                  type="button"
-                  className="ac-seg-secondary"
-                  title={INBOX_META.hint}
-                  onClick={() => onMemoryKindChange("inbox")}
-                >
-                  待整合
-                </button>
-              </>
             )}
           </p>
           <div className="ac-toolbar-right">{toolbarRight}</div>

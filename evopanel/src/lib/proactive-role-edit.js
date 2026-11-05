@@ -384,14 +384,20 @@ function renderAgentPickField(available, selectedCode) {
 /** Load department catalog for hire / edit selects. */
 export async function loadDepartmentCatalog() {
   const res = await api.proactiveListDepartments().catch(() => null)
-  return Array.isArray(res?.departments) ? res.departments : []
+  if (Array.isArray(res?.departments)) return res.departments
+  if (Array.isArray(res)) return res
+  return []
 }
 
-/** Sorted unique department names; keeps current value if not in catalog yet. */
-export function departmentNamesFromCatalog(departments, currentName = '') {
+/** Sorted unique department names; keeps current + extras (e.g. peer role labels). */
+export function departmentNamesFromCatalog(departments, currentName = '', extraNames = []) {
   const names = new Set()
   for (const d of departments || []) {
     const n = String(d?.name || '').trim()
+    if (n) names.add(n)
+  }
+  for (const x of extraNames || []) {
+    const n = String(x || '').trim()
     if (n) names.add(n)
   }
   const cur = String(currentName || '').trim()
@@ -399,16 +405,41 @@ export function departmentNamesFromCatalog(departments, currentName = '') {
   return [...names].sort((a, b) => a.localeCompare(b, 'zh-CN'))
 }
 
-/** `<select data-name="department">` filled from the department catalog. */
-export function renderDepartmentSelectControl(currentName, departments) {
+/**
+ * Prefer role.department; if empty, recover from catalog membership
+ * (dept.members includes this agent_code).
+ */
+export function resolveRoleDepartment(role, cfg = {}, departments = []) {
+  const fromRole = String(role?.department || cfg?.department || '').trim()
+  if (fromRole) return fromRole
+  const code = String(role?.agent_code || '').trim().toLowerCase()
+  if (!code) return ''
+  for (const d of departments || []) {
+    const members = Array.isArray(d?.members) ? d.members : []
+    if (members.some((m) => String(m?.agent_code || '').trim().toLowerCase() === code)) {
+      return String(d?.name || '').trim()
+    }
+  }
+  return ''
+}
+
+/** `<select data-name="department">` filled from catalog (+ optional extras). */
+export function renderDepartmentSelectControl(currentName, departments, extraNames = []) {
   const cur = String(currentName || '').trim()
-  const names = departmentNamesFromCatalog(departments, cur)
-  return `<select class="hire-input" data-name="department">
-      <option value="">未分部门</option>
-      ${names
-        .map((n) => `<option value="${esc(n)}"${n === cur ? ' selected' : ''}>${esc(n)}</option>`)
-        .join('')}
-    </select>`
+  const names = departmentNamesFromCatalog(departments, cur, extraNames)
+  if (!names.length) {
+    // Catalog empty — keep free-text so save won't silently wipe, and user can type a label.
+    return `<input class="hire-input" data-name="department" value="${esc(cur)}" placeholder="输入部门名称；也可先在组织里创建部门">
+      <p class="hire-chip-hint">当前没有可选部门，先到「组织」创建，或在此直接填写名称。</p>`
+  }
+  return `<div class="hire-select-wrap">
+      <select class="hire-input hire-select" data-name="department">
+        <option value="">未分部门</option>
+        ${names
+          .map((n) => `<option value="${esc(n)}"${n === cur ? ' selected' : ''}>${esc(n)}</option>`)
+          .join('')}
+      </select>
+    </div>`
 }
 
 async function loadRebindableAgents(currentCode) {
@@ -879,7 +910,8 @@ export async function showEditRoleModal(role, {
   sheetTitle = '编辑岗位',
   sheetKicker = '智能体员工',
   confirmLabel = '保存岗位',
-  allowAgentRebind = true,
+  /** Employee identity = agent; rebind UI is opt-in only (legacy). */
+  allowAgentRebind = false,
 } = {}) {
   if (!role) return
   const cfg = role.config || {}
@@ -929,7 +961,7 @@ export async function showEditRoleModal(role, {
   ] = await Promise.all([
       loadWorkspacePaths(),
       loadChatModels(),
-      loadRebindableAgents(role.agent_code),
+      allowAgentRebind ? loadRebindableAgents(role.agent_code) : Promise.resolve([]),
       api
         .proactiveListRoles()
         .then((res) => (Array.isArray(res) ? res : res?.roles || []))
@@ -939,13 +971,20 @@ export async function showEditRoleModal(role, {
       loadAgentDetailForEdit(role.agent_code),
       loadAgentCapabilityCatalog(),
     ])
-  if (!available.length) {
+  const selfCode = String(role.agent_code || '').trim()
+  if (allowAgentRebind && !available.length) {
     toast('没有可绑定的智能体', 'warning')
     return
   }
-  const selfCode = String(role.agent_code || '').trim()
-  const currentDepartment = String(role.department || cfg.department || '').trim()
-  const departmentSelect = renderDepartmentSelectControl(currentDepartment, departments)
+  const currentDepartment = resolveRoleDepartment(role, cfg, departments)
+  const peerDeptNames = (peerRoles || [])
+    .map((r) => String(r?.department || '').trim())
+    .filter(Boolean)
+  const departmentSelect = renderDepartmentSelectControl(
+    currentDepartment,
+    departments,
+    peerDeptNames,
+  )
   const managerOptions = (peerRoles || [])
     .filter((r) => {
       const c = String(r?.agent_code || '').trim()
@@ -958,7 +997,23 @@ export async function showEditRoleModal(role, {
       return `<option value="${esc(c)}"${sel}>${esc(n)} · ${esc(c)}</option>`
     })
     .join('')
-  let selected = available.find((a) => a.code === role.agent_code) || available[0]
+  let selected =
+    available.find((a) => a.code === role.agent_code) ||
+    (selfCode
+      ? {
+          code: selfCode,
+          name: String(
+            agentDetail?.agent_name || role.agent_name || role.role_name || selfCode,
+          ).trim(),
+          avatar: agentDetail?.avatar ?? null,
+          avatar_meta: agentDetail?.avatar_meta ?? null,
+          has_avatar_file: !!agentDetail?.has_avatar_file,
+        }
+      : null)
+  if (!selected) {
+    toast('无法加载当前智能体', 'warning')
+    return
+  }
   /** Raw agent prompt before duty merge (for change detection). */
   const rawAgentPrompt = String(agentDetail.system_prompt || '')
   /** @type {Awaited<ReturnType<typeof loadAgentDetailForEdit>>} */
@@ -985,14 +1040,19 @@ export async function showEditRoleModal(role, {
           <div class="hire-agent-name">${esc(selected.name || selected.code)}</div>
           <div class="hire-agent-code">${esc(selected.code)}</div>
         </div>
-        <span class="hire-agent-pill">${selected.code === role.agent_code ? '当前绑定' : '将改绑'}</span>
+        ${
+          allowAgentRebind
+            ? `<span class="hire-agent-pill">${selected.code === role.agent_code ? '当前绑定' : '将改绑'}</span>`
+            : ''
+        }
       </div>`
 
+  // Employee = this agent; no rebind picker by default.
   const basicAgentBlock = allowAgentRebind
     ? `<p class="hire-chip-hint">可改绑智能体；点击头像可更换。改绑后下方名称与提示词会换成新智能体的配置。工具 / MCP / 技能用左侧对应分区。</p>
               ${renderAgentPickField(available, selected.code)}
               ${renderAgentCard()}`
-    : `<p class="hire-chip-hint">当前绑定智能体；点击头像可更换。工具 / MCP / 技能用左侧对应分区。</p>
+    : `<p class="hire-chip-hint">点击头像可更换形象。工具 / MCP / 技能用左侧对应分区。</p>
               ${renderAgentCard()}
               <input type="hidden" data-name="agent_code" value="${esc(selected.code)}">`
 
