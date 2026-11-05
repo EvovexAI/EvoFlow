@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import logging
 import re
+import shutil
 import time
 import urllib.request
 from collections.abc import Callable
@@ -12,6 +13,9 @@ from urllib.parse import urlparse
 logger = logging.getLogger(__name__)
 
 _POLL_INTERVAL = 5.0
+# Streamed download chunk size — keeps peak memory flat for large videos/images
+# (whole-body reads on a memory-pressured machine cause hard page-fault storms).
+_DOWNLOAD_CHUNK_BYTES = 1 << 20
 _TERMINAL = frozenset({"succeeded", "success", "completed", "done", "failed", "error", "cancelled"})
 
 
@@ -53,14 +57,13 @@ def download_url_to_file(url: str, dest: Path, timeout: int = 120) -> None:
     # Local path from authenticated gateway content download (MiniMax OpenAI-Videos).
     local = Path(url)
     if local.is_file():
-        dest.write_bytes(local.read_bytes())
+        shutil.copyfile(local, dest)
         return
     if not _is_safe_url(url):
         raise ValueError(f"URL blocked for security: {url}")
     req = urllib.request.Request(url, headers={"User-Agent": "EvoFlow-Media/1.0"})
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        data = resp.read()
-    dest.write_bytes(data)
+    with urllib.request.urlopen(req, timeout=timeout) as resp, dest.open("wb") as out:
+        shutil.copyfileobj(resp, out, length=_DOWNLOAD_CHUNK_BYTES)
 
 
 def poll_until_done(
