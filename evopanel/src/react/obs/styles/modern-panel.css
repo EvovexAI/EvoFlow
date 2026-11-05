@@ -1417,6 +1417,17 @@ html[data-theme='dark'] .ios-group-card {
   font-weight: 600;
 }
 
+.obs-muted {
+  color: var(--text-muted, #8b93a7);
+  font-size: 12px;
+}
+
+.obs-mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  word-break: break-all;
+}
+
 /* ── 横幅 / 空状态 ── */
 .obs-banner {
   margin-bottom: 12px;

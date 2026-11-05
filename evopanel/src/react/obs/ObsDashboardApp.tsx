@@ -7,6 +7,7 @@ import { Agents } from './pages/Agents'
 import { ChannelBindings } from './pages/ChannelBindings'
 import { ChannelMessages } from './pages/ChannelMessages'
 import { CodeIndex } from './pages/CodeIndex'
+import { DeptGroupChat } from './pages/DeptGroupChat'
 import { Dashboard } from './pages/Dashboard'
 import { Gateway } from './pages/Gateway'
 import { McpServers } from './pages/McpServers'
@@ -28,6 +29,7 @@ const VALID_NAV_KEYS: NavKey[] = [
   'requests',
   'channel-messages',
   'channel-bindings',
+  'dept-group-chat',
   'media-generation',
   'agents',
   'models',
@@ -60,6 +62,7 @@ const PAGE_COMPONENTS: Record<NavKey, ComponentType<PageProps>> = {
   requests: Requests,
   'channel-messages': ChannelMessages,
   'channel-bindings': ChannelBindings,
+  'dept-group-chat': DeptGroupChat,
   'media-generation': MediaGeneration,
   agents: Agents,
   models: Models,

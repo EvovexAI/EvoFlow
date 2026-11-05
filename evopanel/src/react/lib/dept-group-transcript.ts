@@ -92,6 +92,14 @@ export function mapApiRowToDeptGroupMsg(row: any): DeptGroupTimelineMsg | null {
   const mid = String(row.message_id || row.messageId || row.id || '').trim()
   if (!mid && !text) return null
   const toolName = String(row.tool_name || row.toolName || row.name || '').trim()
+  // wake 审计行由 dept-group-audit 单独解析，不进群气泡时间线
+  if (
+    toolName === 'dept_group_wake' ||
+    mid.startsWith('wake-evt-') ||
+    String(dg.event_type || dg.eventType || '') === 'wake_status'
+  ) {
+    return null
+  }
   const kindRaw = String(dg.msg_kind || dg.msgKind || '').trim()
   let kind: DeptGroupMsgKind = 'user'
   if (kindRaw === 'agent' || kindRaw === 'system' || kindRaw === 'user') {

@@ -1246,6 +1246,22 @@ html[data-liquid-glass-webgl='1'] .role-filter-select {
   overflow: hidden;
   background: transparent;
 }
+.hire-agent-avatar--editable {
+  width: auto;
+  height: auto;
+  overflow: visible;
+}
+/* Card keeps a compact clickable face; “更换头像” text lives in the picker sheet. */
+.hire-agent-card .agent-avatar-picker-summary-actions {
+  display: none;
+}
+.hire-agent-card .agent-avatar-picker-trigger {
+  border-radius: 12px;
+  transition: box-shadow 0.15s ease;
+}
+.hire-agent-card .agent-avatar-picker-trigger:hover {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--hire-accent, #6366f1) 45%, transparent);
+}
 .hire-agent-meta { min-width: 0; flex: 1; }
 .hire-agent-name {
   font-size: var(--ef-text-base) ;

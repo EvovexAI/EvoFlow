@@ -9,6 +9,7 @@ export type NavKey =
   | 'tool-calls'
   | 'channel-messages'
   | 'channel-bindings'
+  | 'dept-group-chat'
   | 'media-generation'
   | 'mcp'
   | 'gateway'

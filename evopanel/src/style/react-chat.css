@@ -1458,6 +1458,60 @@ html.dark .dept-im__avatar--self {
   background: var(--accent, #6366f1);
 }
 
+/* 本轮叫醒队列：谁该回、排队还是回复中 */
+.dept-im__wake-rail {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  max-width: var(--chat-composer-max, 840px);
+  width: 100%;
+  margin: 0 auto 8px;
+  padding: 0 4px;
+  box-sizing: border-box;
+}
+
+.dept-im__wake-rail-label {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: #8b93a7;
+  font-weight: 500;
+}
+
+.dept-im__wake-rail-chip {
+  appearance: none;
+  border: 1px solid color-mix(in srgb, #94a3b8 28%, transparent);
+  background: #f8fafc;
+  border-radius: 999px;
+  padding: 3px 10px 3px 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  font: inherit;
+  color: #334155;
+}
+
+.dept-im__wake-rail-chip.is-running {
+  border-color: color-mix(in srgb, #22c55e 40%, transparent);
+  background: color-mix(in srgb, #22c55e 10%, #fff);
+}
+
+.dept-im__wake-rail-chip.is-queued {
+  border-color: color-mix(in srgb, #f59e0b 40%, transparent);
+  background: color-mix(in srgb, #f59e0b 10%, #fff);
+}
+
+.dept-im__wake-rail-who {
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.dept-im__wake-rail-st {
+  font-size: 11px;
+  color: #64748b;
+}
+
 .dept-im .evo-home-cmd__gc-timeline {
   flex: 1;
   min-height: 0;
@@ -1879,6 +1933,11 @@ html.dark .dept-im__mention-name {
 .dept-im__dispatch-chip.is-done .dept-im__dispatch-status {
   color: #3d7a52;
   background: color-mix(in srgb, #3d9a5f 14%, transparent);
+}
+
+.dept-im__dispatch-status.is-miss {
+  color: #c2410c;
+  background: color-mix(in srgb, #f97316 14%, #fff);
 }
 
 .dept-im__dispatch-chip.is-failed .dept-im__dispatch-status {
@@ -9734,6 +9793,48 @@ html[data-theme='dark'] .react-chat-conversation-col .msg-turn-assistant-meta .m
   font-size: 11px;
   line-height: 1.4;
   color: var(--text-secondary, #64748b);
+}
+
+.react-chat-dept-pane-livebar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 8px;
+  padding: 8px;
+  border-radius: 10px;
+  background: color-mix(in srgb, #f59e0b 8%, var(--bg-secondary, #f8fafc));
+  border: 1px solid color-mix(in srgb, #f59e0b 22%, transparent);
+}
+
+.react-chat-dept-pane-livebar-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #92400e;
+}
+
+.react-chat-dept-pane-livechip {
+  appearance: none;
+  border: 0;
+  border-radius: 999px;
+  padding: 3px 8px;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: #fff;
+  color: #334155;
+}
+
+.react-chat-dept-pane-livechip em {
+  font-style: normal;
+  color: #b45309;
+}
+
+.react-chat-dept-pane-livechip.is-running em {
+  color: #15803d;
 }
 
 .react-chat-dept-pane-roster {

@@ -98,14 +98,15 @@ describe('DeptGroupWakeQueue', () => {
       roleName: 'B',
       goal: 'hi',
       depth: 1,
-      chainKey: 'user1|a->b',
+      chainKey: 'user1|->b',
     })
+    // 另一人再 @ 同一目标：同 root|->code 应跳过
     await q.enqueue({
       agentCode: 'b',
       roleName: 'B',
       goal: 'hi again',
       depth: 1,
-      chainKey: 'user1|a->b',
+      chainKey: 'user1|->b',
     })
     expect(runs).toEqual(['b'])
     q.dispose()
@@ -124,9 +125,9 @@ describe('DeptGroupWakeQueue', () => {
       roleName: '技术总监',
       goal: 'first',
       depth: 1,
-      chainKey: 'xiaomi->tech-director',
+      chainKey: 'user1|->tech-director',
     })
-    // 用户新一轮发言（depth=0）应清 nestSeen，允许小V 再次 @ 技术总监
+    // 用户新一轮发言（depth=0）应清 nestSeen，允许再次 @ 技术总监
     await q.enqueue({
       agentCode: 'xiaomi',
       roleName: '小V',
@@ -138,7 +139,7 @@ describe('DeptGroupWakeQueue', () => {
       roleName: '技术总监',
       goal: 'second',
       depth: 1,
-      chainKey: 'xiaomi->tech-director',
+      chainKey: 'user1|->tech-director',
     })
     expect(runs).toEqual([
       '1:tech-director:first',

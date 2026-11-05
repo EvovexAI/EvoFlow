@@ -42,6 +42,14 @@ import {
   type WakeJobSnapshot,
 } from '../lib/dept-group-wake-queue.js'
 import {
+  diffWakeJobTransitions,
+  persistDeptGroupWakeEvent,
+} from '../lib/dept-group-audit.js'
+import {
+  deptGroupWakeChainKey,
+  shouldAutoNestWake,
+} from '../lib/dept-group-nest-policy.js'
+import {
   clearDeptGroupLiveMap,
   DEPT_GROUP_INSERT_MENTION_EVENT,
   deptMemberLiveLabel,
@@ -250,7 +258,7 @@ function wakeStatusLabel(status: WakeJobSnapshot['status'] | undefined): string 
   return ''
 }
 
-/** 一条消息里点了 ≥2 人时，气泡下挂轻量派工条（任务摘要 + 叫醒状态） */
+/** 气泡下挂派工条：谁被 @、队列态（排队/回答中/已回） */
 function MentionDispatchStrip({
   text,
   members,
@@ -263,7 +271,7 @@ function MentionDispatchStrip({
   sourceMsgId?: string
 }) {
   const hits = parseMentions(text, members)
-  if (hits.length < 2) return null
+  if (!hits.length) return null
   return (
     <div className="dept-im__dispatch" aria-label="已点名成员">
       {hits.map((h) => {
@@ -283,14 +291,16 @@ function MentionDispatchStrip({
           <span
             key={h.agent_code}
             className={`dept-im__dispatch-chip${st ? ` is-${st}` : ''}`}
-            title={job?.error || undefined}
+            title={job?.error || preview || undefined}
           >
             <span className="dept-im__dispatch-arrow" aria-hidden>
               →
             </span>
             <EmployeeStageAvatar agentCode={h.agent_code} title={h.role_name} size={14} />
             <span className="dept-im__dispatch-who">@{h.role_name}</span>
-            {stLabel ? <span className="dept-im__dispatch-status">{stLabel}</span> : null}
+            {stLabel ? <span className="dept-im__dispatch-status">{stLabel}</span> : (
+              <span className="dept-im__dispatch-status is-miss">未入队</span>
+            )}
             {preview ? <span className="dept-im__dispatch-goal">{preview}</span> : null}
           </span>
         )
@@ -370,6 +380,7 @@ export function HomeDeptGroupChat({
   const mentionListRef = useRef<HTMLUListElement>(null)
   const membersRef = useRef(members)
   const rosterRef = useRef(roster)
+  const deptNameRef = useRef(dept.name)
   const msgsRef = useRef<GroupChatMsg[]>([])
   const aliveRef = useRef(true)
   const wakeQueueRef = useRef<DeptGroupWakeQueue | null>(null)
@@ -388,6 +399,7 @@ export function HomeDeptGroupChat({
 
   membersRef.current = members
   rosterRef.current = roster
+  deptNameRef.current = dept.name
   msgsRef.current = msgs
 
   useEffect(() => {
@@ -850,15 +862,17 @@ export function HomeDeptGroupChat({
         const nestedFromAt = parseMentions(finalText, nestRoster).filter(
           (x) => x.agent_code !== person.agent_code && !isDeptGroupStewardCode(x.agent_code),
         )
-        const woken = new Set(nestedFromAt.map((x) => x.agent_code))
-        const nested: Array<{ person: HomeCmdPerson; goal: string }> = nestedFromAt.map(
-          (next) => ({
-            person: next,
-            goal:
-              extractMentionGoal(finalText, next) ||
-              `「${person.role_name}」在群里 @ 了你，请直接在群里回复。`,
-          }),
-        )
+        const woken = new Set<string>()
+        const nested: Array<{ person: HomeCmdPerson; goal: string }> = []
+        for (const next of nestedFromAt) {
+          const goal =
+            extractMentionGoal(finalText, next) ||
+            `「${person.role_name}」在群里 @ 了你，请直接在群里回复。`
+          // 成员互相「你也打个招呼」不再自动叫醒；管家首轮分流 (depth=0) 仍可 @ 多人
+          if (!shouldAutoNestWake({ fromDepth: input.depth, goal })) continue
+          woken.add(next.agent_code)
+          nested.push({ person: next, goal })
+        }
         for (const h of turn.handoffs || []) {
           if (!h.agentCode || h.agentCode === person.agent_code || woken.has(h.agentCode)) {
             continue
@@ -866,13 +880,12 @@ export function HomeDeptGroupChat({
           if (isDeptGroupStewardCode(h.agentCode)) continue
           const next = nestRoster.find((m) => m.agent_code === h.agentCode)
           if (!next) continue
+          const goal =
+            String(h.content || '').trim() ||
+            `「${person.role_name}」经任务流转派给你，请在群里接手并回复。`
+          if (!shouldAutoNestWake({ fromDepth: input.depth, goal })) continue
           woken.add(h.agentCode)
-          nested.push({
-            person: next,
-            goal:
-              String(h.content || '').trim() ||
-              `「${person.role_name}」经任务流转派给你，请在群里接手并回复。`,
-          })
+          nested.push({ person: next, goal })
           if (!new RegExp(`@${escapeReg(next.role_name)}`, 'i').test(finalText)) {
             appendMsg({
               id: `sys-handoff-${next.agent_code}-${Date.now()}`,
@@ -888,7 +901,7 @@ export function HomeDeptGroupChat({
         const q = wakeQueueRef.current
         if (!q || !nested.length) return {}
         const ctx = `【${person.role_name}】：${finalText.slice(0, 400)}`
-        // 防环键带上本轮根消息，避免「整次开会只许小V→总监叫醒一次」
+        // 同一轮用户消息下，每人最多叫醒一次（root|->code），防相互 @ 死循环
         const rootId = String(input.sourceMsgId || bubbleId || '').trim()
         // 只入队、不 await：否则父任务会一直 running，名单上「回复中」卡到所有下级说完
         for (const item of nested) {
@@ -901,7 +914,10 @@ export function HomeDeptGroupChat({
               fromAgentName: person.role_name,
               contextSummary: ctx,
               sourceMsgId: rootId || bubbleId,
-              chainKey: `${rootId || bubbleId}|${person.agent_code}->${item.person.agent_code}`,
+              chainKey: deptGroupWakeChainKey(rootId || bubbleId, item.person.agent_code, {
+                fromAgentCode: person.agent_code,
+                goal: item.goal,
+              }),
             })
             .catch(() => {
               /* 队列/防环失败时下级自己有气泡错误态 */
@@ -935,11 +951,31 @@ export function HomeDeptGroupChat({
   runWakeJobRef.current = runWakeJob
 
   useEffect(() => {
+    const wakeSigByJob = new Map<string, string>()
     const q = new DeptGroupWakeQueue({
       run: (input) => runWakeJobRef.current(input),
       onChange: (jobs) => {
         if (!aliveRef.current) return
         setWakeJobs(jobs)
+        // 审计：queued/running/done/failed 变迁落盘（运维「群聊」页可读）
+        const changed = diffWakeJobTransitions(wakeSigByJob, jobs)
+        for (const j of changed) {
+          void persistDeptGroupWakeEvent({
+            deptId: dept.id,
+            deptName: deptNameRef.current,
+            jobId: j.id,
+            agentCode: j.agentCode,
+            roleName: j.roleName,
+            status: j.status,
+            attempts: j.attempts,
+            goal: j.goal,
+            error: j.error,
+            sourceMsgId: j.sourceMsgId,
+            ts: j.updatedAt || Date.now(),
+          }).catch((err) => {
+            console.warn('[dept-group] persist wake event failed', j.id, err)
+          })
+        }
         for (const j of jobs) {
           if (j.status !== 'failed') continue
           const bid = bubbleByJobRef.current.get(j.id)
@@ -1152,6 +1188,8 @@ export function HomeDeptGroupChat({
             depth: 0,
             stewardMode: viaSteward,
             sourceMsgId: userMsgId,
+            // 首轮也占坑：后面成员再 @ 同一人会被 nestSeen 丢掉
+            chainKey: deptGroupWakeChainKey(userMsgId, person.agent_code),
           }),
         ),
       )
@@ -1302,6 +1340,41 @@ export function HomeDeptGroupChat({
             </div>
           </>
         )}
+
+        {isMain && wakeJobs.some((j) => j.status === 'queued' || j.status === 'running') ? (
+          <div className="dept-im__wake-rail" aria-label="本轮待回复">
+            <span className="dept-im__wake-rail-label">本轮待回复</span>
+            {wakeJobs
+              .filter((j) => j.status === 'queued' || j.status === 'running')
+              .map((j) => (
+                <button
+                  key={j.id}
+                  type="button"
+                  className={`dept-im__wake-rail-chip is-${j.status}`}
+                  title={j.goal || j.roleName}
+                  onClick={() => {
+                    if (j.agentCode) {
+                      openEmployeeProcess({
+                        agent_code: j.agentCode,
+                        role_name: j.roleName || j.agentCode,
+                      })
+                    }
+                  }}
+                >
+                  <EmployeeStageAvatar
+                    agentCode={j.agentCode}
+                    title={j.roleName}
+                    size={16}
+                    busy={j.status === 'running'}
+                  />
+                  <span className="dept-im__wake-rail-who">{j.roleName || j.agentCode}</span>
+                  <span className="dept-im__wake-rail-st">
+                    {j.status === 'running' ? '回复中' : '排队中'}
+                  </span>
+                </button>
+              ))}
+          </div>
+        ) : null}
 
         <div className="evo-home-cmd__gc-timeline" ref={listRef} role="log" aria-live="polite">
           {!msgs.length ? (

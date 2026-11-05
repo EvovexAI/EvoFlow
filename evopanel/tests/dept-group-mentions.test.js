@@ -18,6 +18,16 @@ describe('dept-group-mentions', () => {
     expect(hits.map((h) => h.agent_code)).toEqual(['dev-fullstack', 'dev-qa'])
   })
 
+  it('matches @ with space or newline before role name', () => {
+    const spaced = parseMentions('@ 全栈工程师 按这七条返工', roster)
+    expect(spaced.map((h) => h.agent_code)).toEqual(['dev-fullstack'])
+    const nl = parseMentions('@\n\n全栈工程师\n现在按这七条返工', roster)
+    expect(nl.map((h) => h.agent_code)).toEqual(['dev-fullstack'])
+    expect(extractMentionGoal('@\n\n全栈工程师\n现在按这七条返工', roster[1])).toContain(
+      '七条',
+    )
+  })
+
   it('resolves legacy aliases 测试 / 后端开发 / 全站工程师', () => {
     const hits = parseMentions('@测试 改报告\n@后端开发 回一句\n@全站工程师 补页面', roster)
     expect(hits.map((h) => h.agent_code).sort()).toEqual(

@@ -1767,8 +1767,36 @@ export function DeptGroupPane({ sessionKey }: { sessionKey: string }) {
         <span className="react-chat-dept-pane-count">{roster.length} 人</span>
       </header>
       <p className="react-chat-dept-pane-hint">
-        单击看信息；双击或「实时过程」看对话；群里 @ 点名派活
+        单击看信息；双击或「实时过程」看对话；群里 @ 点名派活。摘要里「回复中/排队中」= 本轮该他说话。
       </p>
+      {(() => {
+        const live = roster.filter((m) => {
+          const code = String(m.agent_code || '').trim()
+          const phase = liveMap[code] || 'idle'
+          return phase === 'running' || phase === 'queued'
+        })
+        if (!live.length) return null
+        return (
+          <div className="react-chat-dept-pane-livebar" aria-label="本轮待回复">
+            <span className="react-chat-dept-pane-livebar-label">本轮待回复</span>
+            {live.map((m) => {
+              const code = String(m.agent_code || '').trim()
+              const phase = liveMap[code] || 'idle'
+              return (
+                <button
+                  key={code}
+                  type="button"
+                  className={`react-chat-dept-pane-livechip is-${phase}`}
+                  onClick={() => openProcess(code, m.role_name, true)}
+                >
+                  {m.role_name}
+                  <em>{phase === 'running' ? '回复中' : '排队中'}</em>
+                </button>
+              )
+            })}
+          </div>
+        )
+      })()}
       <ul className="react-chat-dept-pane-roster" role="list" aria-label="群成员">
         {roster.map((m) => {
           const code = String(m.agent_code || '').trim()
