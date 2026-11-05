@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import re
+from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
@@ -75,8 +76,8 @@ HOT_MCP_SERVERS: list[dict[str, Any]] = [
     {
         "slug": "fetch",
         "name": "Web Fetch",
-        "description": "抓取网页内容，获取互联网上的任意 URL 数据",
-        "install_cmd": "npx -y @modelcontextprotocol/server-fetch",
+        "description": "抓取网页内容，获取互联网上的任意 URL 数据（官方 fetch server 为 Python 包，经 uvx 运行）",
+        "install_cmd": "uvx mcp-server-fetch",
         "stars": 8700,
         **_hot_meta(),
     },
@@ -132,17 +133,18 @@ HOT_MCP_SERVERS: list[dict[str, Any]] = [
         "slug": "sequential-thinking",
         "name": "Sequential Thinking",
         "description": "逐步推理思维链，增强复杂问题解决能力",
-        "install_cmd": "npx -y @modelcontextprotocol/server-sequentialthinking",
+        "install_cmd": "npx -y @modelcontextprotocol/server-sequential-thinking",
         "stars": 4900,
         **_hot_meta(),
     },
     {
         "slug": "notion",
         "name": "Notion",
-        "description": "Notion 页面、数据库和块级内容读写管理",
-        "install_cmd": "npx -y @mcp/notion-server",
+        "description": "Notion 页面、数据库和块级内容读写管理（官方远程 MCP，需 OAuth 授权）",
+        "install_cmd": "",  # npm 包 @mcp/notion-server 已 404；由 _hot_install_config 提供远程配置
+        "notion_remote_url": "https://mcp.notion.com/mcp",
         "stars": 4300,
-        **_hot_meta(author="community", auth="Token", verified=False),
+        **_hot_meta(author="notion", auth="OAuth", verified=True),
     },
 ]
 
@@ -298,6 +300,31 @@ def _install_cmd_to_config(cmd: str, *, description: str = "") -> dict[str, Any]
         cfg["command"] = parts[0]
         cfg["args"] = parts[1:]
     return cfg
+
+
+def _hot_install_config(hot: dict[str, Any]) -> dict[str, Any]:
+    """Build installable config from a curated HOT entry, with per-server defaults."""
+    slug = (hot.get("slug") or "").strip().lower()
+    if slug == "notion":
+        # @mcp/notion-server 已从 npm 下架；Notion 官方只提供远程 MCP（OAuth）。
+        return {
+            "type": "http",
+            "url": str(hot.get("notion_remote_url") or "https://mcp.notion.com/mcp"),
+            "headers": {},
+            "env": {},
+            "enabled": True,
+            "description": hot.get("description") or "",
+        }
+    config = _install_cmd_to_config(hot.get("install_cmd") or "", description=hot.get("description") or "")
+    if slug == "filesystem" and config.get("type") == "stdio":
+        # 官方 server-filesystem 要求 argv 里至少一个允许目录，否则启动即退出。
+        # 市场一键安装没有让用户填目录的入口，这里默认授权用户主目录，
+        # 装完可在 MCP 管理里改成目标目录。
+        args = [str(a) for a in (config.get("args") or [])]
+        non_flag = [a for a in args if not a.startswith("-")]
+        if len(non_flag) <= 1:  # 只有包名，还没有目录参数
+            config["args"] = [*args, str(Path.home())]
+    return config
 
 
 def _glama_item(raw: dict[str, Any]) -> dict[str, Any]:
@@ -664,7 +691,7 @@ async def resolve_mcp_install_config(
     if config is None and slug and not glama_namespace and not glama_slug:
         hot = _hot_by_slug(slug)
         if hot:
-            config = _install_cmd_to_config(hot.get("install_cmd") or "", description=hot.get("description") or "")
+            config = _hot_install_config(hot)
             name_hint = hot.get("name") or slug
 
     if config is None and (glama_slug or slug):
@@ -682,7 +709,7 @@ async def resolve_mcp_install_config(
     if config is None and slug:
         hot = _hot_by_slug(slug)
         if hot:
-            config = _install_cmd_to_config(hot.get("install_cmd") or "", description=hot.get("description") or "")
+            config = _hot_install_config(hot)
             name_hint = hot.get("name") or slug
 
     if config is None and (glama_namespace or glama_slug):
