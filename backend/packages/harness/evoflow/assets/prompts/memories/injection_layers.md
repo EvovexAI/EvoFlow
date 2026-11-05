@@ -5,9 +5,12 @@ Runtime injects **indexes + full standing page**; experience bodies stay on disk
 | Layer | What | When | Owns |
 |-------|------|------|------|
 | **L0 job** | system_prompt / soul | every turn | Duty skeleton only |
-| **L1 standing（长期记忆）** | `memory/standing.md` full page | every turn | Prefs, tips, What's in Memory name index |
-| **L2 catalog** | craft / episodic / journal filenames + `MEMORY.md` | every turn | Discoverability |
+| **L1 standing（长期记忆）** | `memory/standing.md` full page | every turn (memory on) | Prefs, tips, What's in Memory name index |
+| **L1b affect（心境）** | `profile/affect.md` → `<affect>` | every turn (memory on) | Main→user vault; employee/小微→own vault |
+| **L2 catalog** | craft / episodic / journal filenames + `MEMORY.md` | every turn (memory on) | Discoverability |
 | **L3 body** | craft / episodic / … | on demand | `assets` read / search |
+
+`memory_enabled` / 资产工具开关关 → standing、catalog、`<affect>` 全不注入（主智能体 / 员工 / 小微同一套）。
 
 ## Write (agent)
 

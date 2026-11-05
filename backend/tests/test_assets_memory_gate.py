@@ -54,6 +54,7 @@ def test_strip_includes_memory_policy_and_entity_assets():
         "<memory>user mem</memory>\n"
         "<person_memory>bio</person_memory>\n"
         "<person_craft>craft</person_craft>\n"
+        "<affect>mood secret</affect>\n"
     )
     cleaned = strip_memory_xml_blocks(text)
     assert "unified policy" not in cleaned
@@ -63,6 +64,7 @@ def test_strip_includes_memory_policy_and_entity_assets():
     assert "user mem" not in cleaned
     assert "bio" not in cleaned
     assert "craft" not in cleaned
+    assert "mood secret" not in cleaned
     assert "<platform>x</platform>" in cleaned
 
 

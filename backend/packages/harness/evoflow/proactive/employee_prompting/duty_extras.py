@@ -305,12 +305,14 @@ def build_duty_resources_block(
 
     q = str(query or "").strip()
     if include_memory:
+        # Mood itself is injected as ``<affect>`` by assemble (memory/assets gate).
+        # Here only keep open-commitment reminders (no duplicate affect prose).
         try:
-            from evoflow.person_kernel import format_affect_and_commitments_block
+            from evoflow.person_kernel import format_open_commitments_block
 
-            affect = format_affect_and_commitments_block(role.agent_code)
-            if str(affect or "").strip():
-                parts.append(str(affect).strip())
+            commits = format_open_commitments_block(role.agent_code)
+            if str(commits or "").strip():
+                parts.append(str(commits).strip())
         except Exception:
             pass
 

@@ -15,9 +15,9 @@ Also honors optional fine-grained:
 - ``memory_injection_enabled``: override injection only (when master on).
 - ``memory_updates_enabled``: override async write queue (when master on).
 
-Architecture: Entity Asset Hub (``assets`` tool + inbox notes + experience/craft) **is** the
-memory write surface. The same ``memory_enabled`` gate controls ``<memory_assets>`` injection
-and tool mounting — main chat and employee chat.
+Architecture: Entity Asset Hub (``assets`` tool + notes + experience/craft + affect) **is** the
+memory write surface. The same ``memory_enabled`` gate controls ``<memory_assets>`` /
+``<affect>`` injection and tool mounting — main / 小微 / employee share one switch.
 """
 
 from __future__ import annotations
@@ -41,7 +41,7 @@ _ENTITY_ASSETS_BLOCK_RE = re.compile(r"<entity_assets>\s*[\s\S]*?</entity_assets
 _WORKSPACE_MEMORY_BLOCK_RE = re.compile(r"<workspace_memory>\s*[\s\S]*?</workspace_memory>\s*", re.IGNORECASE)
 _PERSON_MEMORY_BLOCK_RE = re.compile(r"<person_memory>\s*[\s\S]*?</person_memory>\s*", re.IGNORECASE)
 _PERSON_CRAFT_BLOCK_RE = re.compile(r"<person_craft>\s*[\s\S]*?</person_craft>\s*", re.IGNORECASE)
-_PERSON_CRAFT_BLOCK_RE = re.compile(r"<person_craft>\s*[\s\S]*?</person_craft>\s*", re.IGNORECASE)
+_AFFECT_BLOCK_RE = re.compile(r"<affect>\s*[\s\S]*?</affect>\s*", re.IGNORECASE)
 _MEMORY_COMMENT_BLOCK_RE = re.compile(
     r"(?:<!--\s*█\s*MEMORY CONTENT[\s\S]*?<!--\s*█\s*END MEMORY CONTENT\s*█\s*-->|<!--\s*(?:memory:\s*reference only|ref memory)\s*-->\s*)",
     re.IGNORECASE,
@@ -230,7 +230,7 @@ def effective_memory_updates_enabled(runtime: Runtime | None) -> bool:
 
 
 def strip_memory_xml_blocks(text: str) -> str:
-    """Remove ``<memory_assets>`` (and legacy memory / policy / entity_assets) from a system prompt."""
+    """Remove ``<memory_assets>`` / ``<affect>`` (and legacy memory blocks) from a system prompt."""
     if not text:
         return text
     cleaned = _WORKSPACE_MEMORY_COMMENT_BLOCK_RE.sub("", text)
@@ -244,4 +244,5 @@ def strip_memory_xml_blocks(text: str) -> str:
     cleaned = _MEMORY_BLOCK_RE.sub("", cleaned)
     cleaned = _WORKSPACE_MEMORY_BLOCK_RE.sub("", cleaned)
     cleaned = _PERSON_MEMORY_BLOCK_RE.sub("", cleaned)
-    return _PERSON_CRAFT_BLOCK_RE.sub("", cleaned)
+    cleaned = _PERSON_CRAFT_BLOCK_RE.sub("", cleaned)
+    return _AFFECT_BLOCK_RE.sub("", cleaned)

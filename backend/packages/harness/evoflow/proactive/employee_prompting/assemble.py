@@ -139,7 +139,8 @@ def assemble_employee_system_prompt(
     Builders in ``platform.py`` remain for callers/tests that want them explicitly.
 
     ``include_memory``: when False, skip ``<memory_assets>``, duty person memory/craft,
-    **and** the global user profile (``profile/USER.md``) — same gate as main chat.
+    the global user profile (``profile/USER.md``), **and** ``<affect>`` — same
+    memory/assets gate as main chat / 小微.
     When None, use role ``config.memory_enabled`` (default on). Session/runtime override
     is applied later by DynamicSystemPrompt / strip_memory_xml_blocks.
     """
@@ -152,7 +153,18 @@ def assemble_employee_system_prompt(
             from evoflow.agents.xiaomi.identity import is_xiaomi_agent
 
             if is_xiaomi_agent(role.agent_code):
-                return build_xiaomi_duty_system_prompt(role)
+                text = build_xiaomi_duty_system_prompt(role)
+                # Same memory/assets gate as main/employee: inject <affect> when on.
+                if _resolve_include_memory(include_memory, role):
+                    try:
+                        from evoflow.agents.lead_agent.prompt import get_agent_affect_block
+
+                        blk = get_agent_affect_block(str(role.agent_code or "").strip())
+                        if blk and blk.strip():
+                            text = f"{str(text or '').rstrip()}\n\n{blk.strip()}\n"
+                    except Exception:
+                        pass
+                return text
         except Exception:
             pass
 
@@ -254,6 +266,18 @@ def assemble_employee_system_prompt(
                 include_memory=mem_on,
             )
         )
+
+    # <affect> rides the memory/assets switch (main / 小微 / employee share this).
+    if mem_on:
+        try:
+            from evoflow.agents.lead_agent.prompt import get_agent_affect_block
+
+            code = str(info.get("code") or agent_code or "").strip()
+            affect_blk = get_agent_affect_block(code) if code else ""
+            if affect_blk and affect_blk.strip():
+                parts.append(affect_blk.strip())
+        except Exception:
+            pass
 
     if EMPLOYEE_V2_CLOSE:
         parts.append(EMPLOYEE_V2_CLOSE)

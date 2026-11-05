@@ -861,6 +861,7 @@ def _assemble_system_prompt(
     im_channel: str = "",
     principal_id: str = "",
     affect_agent_code: str = "",
+    include_affect: bool = True,
 ) -> str:
     modules = _enabled_modules_for_scenario(scenario)
     pure_chat = _is_pure_chat_modules(modules)
@@ -904,14 +905,14 @@ def _assemble_system_prompt(
             blocks.append(static.VOICE_MODE_BLOCK.strip())
         if is_im and getattr(static, "IM_CHANNEL_REPLY_BLOCK", "").strip():
             blocks.append(static.IM_CHANNEL_REPLY_BLOCK.strip())
-        # 易变块靠后：心境放最后（UI context footer 由 middleware 在其后追加）
-        # Use vault code (main/employee id), not display name — "EvoFlow" is not a vault.
-        affect_block = get_agent_affect_block(
-            affect_agent_code or agent_name,
-            principal_id=principal_id,
-        )
-        if affect_block:
-            blocks.append(affect_block.strip())
+        # 易变块靠后：心境放最后（与 memory/assets 同开关）
+        if include_affect:
+            affect_block = get_agent_affect_block(
+                affect_agent_code or agent_name,
+                principal_id=principal_id,
+            )
+            if affect_block:
+                blocks.append(affect_block.strip())
         return "\n\n".join([b for b in blocks if b]).strip() + "\n"
 
     # 统一裁决链：静态块（role/communication/entity_assets）是基础，
@@ -1054,14 +1055,14 @@ def _assemble_system_prompt(
         blocks.append(static.IM_CHANNEL_REPLY_BLOCK.strip())
 
     # Final join with blank lines
-    # 易变块靠后：心境放最后（UI context footer 由 middleware 在其后追加）
-    # Use vault code (main/employee id), not display name — "EvoFlow" is not a vault.
-    affect_block = get_agent_affect_block(
-        affect_agent_code or agent_name,
-        principal_id=principal_id,
-    )
-    if affect_block:
-        blocks.append(affect_block.strip())
+    # 易变块靠后：心境放最后（与 memory/assets 同开关）
+    if include_affect:
+        affect_block = get_agent_affect_block(
+            affect_agent_code or agent_name,
+            principal_id=principal_id,
+        )
+        if affect_block:
+            blocks.append(affect_block.strip())
     return "\n\n".join([b for b in blocks if b]).strip() + "\n"
 
 
@@ -2179,8 +2180,10 @@ def apply_prompt_template(
     # Lead/main interactive sessions use compact user memory so Work/role narratives
     # (e.g.「验证岗」) don't outweigh the latest user ask. Specialized agents keep full.
     mem_profile = "chat_compact" if (pure_chat or _is_lead_agent_code(agent_name)) else "full"
+    # Memory / assets master switch — same gate for standing/catalog AND <affect>.
+    mem_on = include_memory is not False and inject_memory is not False
     # inject_memory: None=注入, False=禁用
-    if include_memory is False or inject_memory is False:
+    if not mem_on:
         memory_context = ""
         workspace_memory_context = ""
         person_memory_context = ""
@@ -2257,7 +2260,7 @@ def apply_prompt_template(
         # 不传会读到共享 user 桶（多用户部署下是别人的画像）。
         # Memory off / inject_user_profile=false → no profile (matches MemoryLiveFooter).
         emp_user_profile = ""
-        _emp_profile_on = include_memory is not False and inject_user_profile is not False
+        _emp_profile_on = mem_on and inject_user_profile is not False
         if _emp_profile_on:
             try:
                 from evoflow.assets.paths import EntityRef, sanitize_user_asset_id
@@ -2277,7 +2280,7 @@ def apply_prompt_template(
             except Exception:
                 emp_user_profile = ""
         emp_person_memory = person_memory_context
-        if include_memory is not False and not str(emp_person_memory or "").strip():
+        if mem_on and not str(emp_person_memory or "").strip():
             try:
                 from evoflow.assets.injection_budget import TIER1_PERSON_MEMORY_CHARS
                 from evoflow.person_kernel import format_person_memory_context
@@ -2302,14 +2305,15 @@ def apply_prompt_template(
             runtime_shell=runtime_shell,
             runtime_host_hint=runtime_host_hint,
             runtime_now=runtime_now,
-            memory_context=memory_context if include_memory is not False else "",
-            person_memory_context=emp_person_memory if include_memory is not False else "",
+            memory_context=memory_context if mem_on else "",
+            person_memory_context=emp_person_memory if mem_on else "",
             user_profile_block=emp_user_profile,
             custom_system_prompt=(custom_system_prompt or "").strip(),
             prompt_language=lang,
             # Pass through runtime-resolved gate (session override → role default).
             # Do not remap True→None or session「开」会被岗位默认盖掉。
-            include_memory=include_memory,
+            # Affect rides the same gate inside assemble (memory/assets switch).
+            include_memory=include_memory if include_memory is not None else mem_on,
             loaded_tool_names=loaded_tool_names,
         )
         # 部门群聊：系统提示强制「正文 @ 才叫醒」——与前端群编排对齐
@@ -2380,6 +2384,7 @@ def apply_prompt_template(
             im_channel=im_ch,
             principal_id=str(principal_id or "").strip(),
             affect_agent_code=str(agent_name or "").strip() or "main",
+            include_affect=mem_on,
         )
 
     if not use_virtual_paths:
