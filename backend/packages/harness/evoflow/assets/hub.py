@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import secrets
 from datetime import UTC
 from pathlib import Path
@@ -61,8 +62,8 @@ def ensure_entity_tree(entity: EntityRef) -> Path:
     if e.entity_type != "workspace":
         profile_dir(e).mkdir(parents=True, exist_ok=True)
 
-    # Unified affect mirror for agent + employee (profile/affect.md).
-    if e.entity_type in ("agent", "employee"):
+    # Affect SoT: user (= main agent 心境) + employee/agent.
+    if e.entity_type in ("agent", "employee", "user"):
         try:
             from evoflow.assets.affect_mirror import ensure_default_affect_md
 
@@ -76,7 +77,7 @@ def ensure_entity_tree(entity: EntityRef) -> Path:
 
     for sub in ("memory", "craft"):
         (ent_root / sub).mkdir(parents=True, exist_ok=True)
-    for mem_sub in ("facts", "episodic", "journal", "_inbox", "_inbox/notes"):
+    for mem_sub in ("episodic", "journal"):
         (ent_root / "memory" / mem_sub).mkdir(parents=True, exist_ok=True)
     standing = ent_root / "memory" / "standing.md"
     if not standing.is_file():
@@ -93,13 +94,7 @@ def ensure_entity_tree(entity: EntityRef) -> Path:
     memory_md = ent_root / "memory" / "MEMORY.md"
     if not memory_md.is_file():
         memory_md.write_text(
-            "# MEMORY\n\n（手册层：按 Task Group 聚合的可检索记忆；由 Phase2 整合写入）\n",
-            encoding="utf-8",
-        )
-    inbox_readme = ent_root / "memory" / "_inbox" / "README.md"
-    if not inbox_readme.is_file():
-        inbox_readme.write_text(
-            "# _inbox\n\nPhase1 草稿与 ad-hoc notes。对话 Agent **只许**写 `notes/`；不要直接改 `standing.md` / `MEMORY.md`。\n\nPhase2 整合后，已处理的 `raw_*` / notes 会移到 `_done/`。\n",
+            "# MEMORY\n\n（手册层索引；对话用 assets note 直写 standing / episodic / craft / journal）\n",
             encoding="utf-8",
         )
     _migrate_craft_dirs_to_files(ent_root)
@@ -514,6 +509,74 @@ def _unique_rel_name(entity: EntityRef, rel_dir: str, base: str, *, ext: str = "
     raise ValueError(f"file name collision under {rel_dir}")
 
 
+def append_standing_long_term(
+    entity: EntityRef,
+    content: str,
+    *,
+    section: str = "User preferences",
+) -> dict[str, Any]:
+    """Append a bullet into ``memory/standing.md`` (长期记忆).
+
+    Dialogue ``[preference]`` notes land here. Updating outdated prefs is the
+    **model's** job: read standing, edit, then ``assets write`` / note with
+    ``path=memory/standing.md`` + ``query=replace`` — no heuristic replace here.
+    """
+    from evoflow.assets.ad_hoc_note import ensure_body_recorded_at
+
+    raw = ensure_body_recorded_at(str(content or "").strip()).strip()
+    if not raw:
+        raise ValueError("content is required")
+    lines = raw.splitlines()
+    if lines and re.match(r"^\[preference\]\s*", lines[0], re.I):
+        raw = "\n".join(lines[1:]).strip() or raw
+    stamp = ""
+    stamp_m = re.match(r"^记录时间[:：]\s*(.+?)\s*(?:\n+|$)", raw)
+    if stamp_m:
+        stamp = stamp_m.group(1).strip()
+        raw = raw[stamp_m.end() :].strip()
+    if not raw:
+        raise ValueError("content is required")
+    if raw.lstrip().startswith(("- ", "* ", "+ ")):
+        bullet = raw
+    else:
+        bullet = f"- {raw}"
+    if stamp and "记录时间" not in bullet:
+        bullet = bullet.rstrip() + f"\n  记录时间：{stamp}"
+    ensure_entity_tree(entity)
+    rel = "memory/standing.md"
+    path = resolve_entity_file(entity, rel)
+    try:
+        existing = path.read_text(encoding="utf-8") if path.is_file() else ""
+    except OSError:
+        existing = ""
+    body = str(existing or "").strip()
+    if not body:
+        body = "v1\n\n## User Profile\n\n## User preferences\n\n## General Tips\n\n## What's in Memory\n"
+    elif not body.startswith("v1"):
+        body = "v1\n\n" + body.lstrip()
+
+    heading = f"## {section.strip() or 'User preferences'}"
+    if heading in body:
+        idx = body.find(heading)
+        after = idx + len(heading)
+        rest = body[after:]
+        next_h = re.search(r"\n##\s+", rest)
+        if next_h:
+            insert_at = after + next_h.start()
+            new_body = body[:insert_at].rstrip() + f"\n{bullet}\n" + body[insert_at:].lstrip("\n")
+        else:
+            new_body = body.rstrip() + f"\n{bullet}\n"
+    else:
+        marker = "## What's in Memory"
+        if marker in body:
+            new_body = body.replace(marker, f"{heading}\n{bullet}\n\n{marker}", 1)
+        else:
+            new_body = body.rstrip() + f"\n\n{heading}\n{bullet}\n"
+    if not new_body.endswith("\n"):
+        new_body += "\n"
+    return write_text_file(entity, rel, new_body)
+
+
 def record_fact(
     entity: EntityRef,
     content: str,
@@ -525,7 +588,8 @@ def record_fact(
 ) -> dict[str, Any]:
     """Write a fact note to ``memory/facts/{slug}.md`` with catalog frontmatter.
 
-    Product IA: 「条目」— durable prefs / short facts (detail lines, not the standing summary).
+    Legacy/internal: product IA no longer promotes 「条目」; dialogue prefs go to
+    standing via ``append_standing_long_term``. Gateway ``/record`` may still use this.
     Catalog uses ``title`` + ``summary`` (same model as craft/journal).
     """
     from evoflow.assets.ad_hoc_note import ensure_body_recorded_at
@@ -557,11 +621,11 @@ def write_episode(
     *,
     title: str = "",
     summary: str = "",
+    update_path: str = "",
 ) -> dict[str, Any]:
-    """Write a conversation-process note to ``memory/episodic/{date}-{slug}.md``.
+    """Write a process note under ``memory/episodic/``.
 
-    Product IA: 「过程」— what this dialogue did / concluded (human review later).
-    Not 「条目」facts and not 「记忆摘要」standing. Catalog uses ``title`` + ``summary`` (10–30 chars).
+    Pass ``update_path`` (model-chosen) to overwrite that file; otherwise create new.
     """
     from evoflow.assets.ad_hoc_note import ensure_body_recorded_at
     from datetime import datetime
@@ -576,11 +640,18 @@ def write_episode(
     slug = _slug_cjk(heading, fallback="episode")
     now = datetime.now(UTC).astimezone()
     day = now.date().isoformat()
-    rel = _unique_rel_name(entity, "memory/episodic", slug)
+    upd = str(update_path or "").replace("\\", "/").lstrip("/")
+    updated = False
+    if upd.startswith("memory/episodic/") and upd.endswith(".md"):
+        rel = upd
+        updated = resolve_entity_file(entity, rel).is_file()
+    else:
+        rel = _unique_rel_name(entity, "memory/episodic", slug)
     created = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     e = entity.normalized()
     md = f"---\ntitle: {heading}\nsummary: {one_liner}\ndate: {day}\nentity: {e.entity_type}\nentity_id: {e.entity_id}\ncreated_at: {created}\n---\n\n# {heading}\n\n{body}\n"
-    return write_text_file(entity, rel, md)
+    data = write_text_file(entity, rel, md)
+    return {**data, "updated": updated}
 
 
 def write_journal(
@@ -591,11 +662,11 @@ def write_journal(
     date: str = "",
     append: bool = True,
     summary: str = "",
+    update_path: str = "",
 ) -> dict[str, Any]:
-    """Create or append ``memory/journal/{slug}.md`` with catalog frontmatter.
+    """Create / append / overwrite ``memory/journal/{slug}.md``.
 
-    Filename is the reflection **topic slug** (no YYYY/MM/DD in the name).
-    ``date`` only goes into YAML frontmatter. Summary stays short for Tier0/1 catalog.
+    ``update_path`` (model-chosen) forces overwrite of that file.
     """
     from evoflow.assets.ad_hoc_note import ensure_body_recorded_at
     from datetime import date as date_cls
@@ -620,10 +691,15 @@ def write_journal(
     slug = _slug_cjk(heading, fallback="reflection")
 
     ensure_entity_tree(entity)
-    rel = f"memory/journal/{slug}.md"
+    upd = str(update_path or "").replace("\\", "/").lstrip("/")
+    if upd.startswith("memory/journal/") and upd.endswith(".md"):
+        rel = upd
+        append = False
+    else:
+        rel = f"memory/journal/{slug}.md"
     e = entity.normalized()
     target = resolve_entity_file(e, rel)
-    # 读-改-写全程持锁：并发追加（员工写反思 + UI 编辑）不再互相丢内容
+    updated = False
     with lock_for(target):
         existing = ""
         if target.is_file():
@@ -633,7 +709,6 @@ def write_journal(
                 existing = ""
 
         def _with_frontmatter(body_md: str) -> str:
-            # strip old frontmatter if present
             raw = body_md
             if raw.startswith("---"):
                 parts = raw.split("---", 2)
@@ -646,7 +721,6 @@ def write_journal(
 
         if existing and append:
             stamp = datetime.now(UTC).astimezone().strftime("%H:%M")
-            # drop old fm, append section, rewrite fm with latest summary
             raw = existing
             if raw.startswith("---"):
                 parts = raw.split("---", 2)
@@ -654,12 +728,15 @@ def write_journal(
                     raw = parts[2].lstrip("\n")
             merged = raw.rstrip() + f"\n\n## {stamp}\n\n{body}\n"
             text = _with_frontmatter(merged)
-        elif existing and not append:
+            updated = True
+        elif existing:
             text = _with_frontmatter(body if body.lstrip().startswith("#") else f"# {heading}\n\n{body}\n")
+            updated = True
         else:
             text = _with_frontmatter(f"# {heading}\n\n{body}\n")
         atomic_write_text(target, text)
-    return read_text_file(e, rel)
+    data = read_text_file(e, rel)
+    return {**data, "updated": updated}
 
 
 def save_craft_note(
@@ -668,8 +745,9 @@ def save_craft_note(
     title: str,
     content: str = "",
     description: str = "",
+    update_path: str = "",
 ) -> dict[str, Any]:
-    """Write ``craft/{slug}.md`` directly (no experience DB)."""
+    """Write ``craft/{slug}.md``. Pass ``update_path`` to overwrite a model-chosen file."""
     from evoflow.assets.craft import save_craft_from_experience
 
     t = str(title or "").strip()
@@ -678,7 +756,18 @@ def save_craft_note(
     body = str(content or "").strip()
     e = entity.normalized()
     desc = (str(description or "").strip() or t)[:30]
-    return save_craft_from_experience(
+    upd = str(update_path or "").replace("\\", "/").lstrip("/")
+    if upd.startswith("craft/") and upd.endswith(".md"):
+        skill_name = Path(upd).stem
+        updated = resolve_entity_file(entity, upd).is_file()
+        rel = upd
+    else:
+        # New craft: unique name if slug taken (do not silently clobber another craft).
+        slug = _slug_cjk(t, fallback="craft")
+        rel = _unique_rel_name(entity, "craft", slug)
+        skill_name = Path(rel).stem
+        updated = False
+    data = save_craft_from_experience(
         {
             "title": t,
             "description": desc,
@@ -687,8 +776,10 @@ def save_craft_note(
             "entity_type": e.entity_type,
             "entity_id": e.entity_id,
             "category": "general",
+            "skill_name": skill_name,
         }
     )
+    return {**data, "updated": updated, "path": rel}
 
 
 def delete_text_file(entity: EntityRef, rel_path: str) -> dict[str, Any]:

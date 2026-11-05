@@ -19,7 +19,9 @@ TIER0_SYSTEM_CHARS = 500
 # standing.md = derived prefs + tips + name-only What's in Memory. Inject **complete**.
 # 0 = uncapped (do not hard-cut the system prompt). Phase2 owns keeping the file sane.
 TIER0_STANDING_CHARS = 0
-TIER0_USER_PROFILE_CHARS = 400
+# 0 = inject full profile/USER.md (no hard cut). Placeholder stripping is no longer
+# applied on inject — the whole document is the SoT the user edited in Asset Center.
+TIER0_USER_PROFILE_CHARS = 0
 # Prompt catalog: basenames under kind headings (no dir prefix) — **no row cap for now**.
 # (Was TIER0_CATALOG_PER_KIND=10; short labels are cheap, let the model see the full index.)
 # 0 / None-like: list_* treats <=0 as unlimited.

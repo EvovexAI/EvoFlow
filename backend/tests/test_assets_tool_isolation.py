@@ -78,18 +78,18 @@ def test_employee_note_lands_under_employee_tree(asset_home: Path):
     rt = _runtime(agent="douyin-analyst", principal="yin-tai")
     out = _call_note(rt, content="[experience]\npipeline cookie refresh", path="pipeline-cookie")
     assert out.get("ok") is True, out
-    assert out.get("path", "").replace("\\", "/").endswith(
-        "memory/_inbox/notes/pipeline-cookie.md"
-    ) or "pipeline-cookie" in str(out.get("path"))
+    rel = str(out.get("path") or "").replace("\\", "/")
+    assert rel.startswith("craft/"), rel
+    assert out.get("kind") == "craft"
 
-    notes = asset_home / "assets" / "employees" / "douyin-analyst" / "memory" / "_inbox" / "notes"
-    assert notes.is_dir(), notes
-    assert any(p.name.startswith("pipeline-cookie") for p in notes.glob("*.md")), list(notes.glob("*"))
+    craft = asset_home / "assets" / "employees" / "douyin-analyst" / "craft"
+    assert craft.is_dir(), craft
+    assert any(craft.glob("*.md")), list(craft.glob("*"))
 
-    user_notes = asset_home / "assets" / "users" / "yin-tai" / "memory" / "_inbox" / "notes"
-    shared = asset_home / "assets" / "user" / "memory" / "_inbox" / "notes"
-    assert not list(user_notes.glob("pipeline-cookie*.md")) if user_notes.exists() else True
-    assert not list(shared.glob("pipeline-cookie*.md")) if shared.exists() else True
+    user_craft = asset_home / "assets" / "users" / "yin-tai" / "craft"
+    shared = asset_home / "assets" / "user" / "craft"
+    assert not list(user_craft.glob("*.md")) if user_craft.exists() else True
+    assert not list(shared.glob("*.md")) if shared.exists() else True
 
 
 def test_two_employees_do_not_cross_write(asset_home: Path):
@@ -98,14 +98,16 @@ def test_two_employees_do_not_cross_write(asset_home: Path):
     assert _call_note(a, content="[experience]\nA only", path="note-a")["ok"]
     assert _call_note(b, content="[experience]\nB only", path="note-b")["ok"]
 
-    root_a = asset_home / "assets" / "employees" / "douyin-analyst" / "memory" / "_inbox" / "notes"
-    root_b = asset_home / "assets" / "employees" / "ops-bot" / "memory" / "_inbox" / "notes"
-    names_a = {p.name for p in root_a.glob("*.md")}
-    names_b = {p.name for p in root_b.glob("*.md")}
-    assert any(n.startswith("note-a") for n in names_a)
-    assert any(n.startswith("note-b") for n in names_b)
-    assert not any(n.startswith("note-b") for n in names_a)
-    assert not any(n.startswith("note-a") for n in names_b)
+    root_a = asset_home / "assets" / "employees" / "douyin-analyst" / "craft"
+    root_b = asset_home / "assets" / "employees" / "ops-bot" / "craft"
+    files_a = list(root_a.glob("*.md")) if root_a.exists() else []
+    files_b = list(root_b.glob("*.md")) if root_b.exists() else []
+    assert files_a, root_a
+    assert files_b, root_b
+    assert any("A only" in p.read_text(encoding="utf-8") for p in files_a)
+    assert any("B only" in p.read_text(encoding="utf-8") for p in files_b)
+    assert not any("B only" in p.read_text(encoding="utf-8") for p in files_a)
+    assert not any("A only" in p.read_text(encoding="utf-8") for p in files_b)
 
 
 def test_employee_cannot_spoof_other_employee_on_note(asset_home: Path):
@@ -118,21 +120,23 @@ def test_employee_cannot_spoof_other_employee_on_note(asset_home: Path):
         entity_id="ops-bot",
     )
     assert out.get("ok") is True, out
-    root_ops = asset_home / "assets" / "employees" / "ops-bot" / "memory" / "_inbox" / "notes"
-    root_dy = asset_home / "assets" / "employees" / "douyin-analyst" / "memory" / "_inbox" / "notes"
-    assert not (root_ops.exists() and any(root_ops.glob("spoof*.md")))
-    assert root_dy.exists() and any(root_dy.glob("spoof*.md"))
+    root_ops = asset_home / "assets" / "employees" / "ops-bot" / "craft"
+    root_dy = asset_home / "assets" / "employees" / "douyin-analyst" / "craft"
+    assert not (root_ops.exists() and any(root_ops.glob("*.md")))
+    assert root_dy.exists() and any(root_dy.glob("*.md"))
 
 
 def test_main_chat_note_goes_to_user_bucket(asset_home: Path):
     rt = _runtime(agent="main", principal="yin-tai")
     out = _call_note(rt, content="[preference]\nprefer short answers", path="pref-short")
     assert out.get("ok") is True, out
-    user_notes = asset_home / "assets" / "users" / "yin-tai" / "memory" / "_inbox" / "notes"
-    assert user_notes.exists() and any(user_notes.glob("pref-short*.md"))
+    assert out.get("kind") == "standing"
+    standing = asset_home / "assets" / "users" / "yin-tai" / "memory" / "standing.md"
+    assert standing.is_file()
+    assert "prefer short answers" in standing.read_text(encoding="utf-8")
     emp = asset_home / "assets" / "employees"
     if emp.exists():
-        leaked = list(emp.rglob("pref-short*.md"))
+        leaked = [p for p in emp.rglob("standing.md") if "prefer short answers" in p.read_text(encoding="utf-8")]
         assert not leaked, leaked
 
 
@@ -177,16 +181,15 @@ def test_employee_note_then_read_same_bucket(asset_home: Path):
         path="experience-漫剧编剧岗-本机资料路径与知识库噪声-2026-10",
     )
     assert written.get("ok") is True, written
-    rel = str(written.get("path") or "")
-    assert rel.startswith("memory/_inbox/notes/"), rel
+    rel = str(written.get("path") or "").replace("\\", "/")
+    assert rel.startswith("craft/"), rel
 
     read_full = _call(rt, action="read", path=rel)
     assert read_full.get("ok") is True, read_full
     assert "漫剧编剧岗" in str(read_full.get("content") or "")
 
-    # LLM often omits the memory/ prefix — tool should still resolve.
-    short = rel.removeprefix("memory/")
-    read_short = _call(rt, action="read", path=short)
+    # Basename-only read should still resolve under employee craft.
+    read_short = _call(rt, action="read", path=Path(rel).name)
     assert read_short.get("ok") is True, read_short
 
     # Must land under employee tree, not users/<pid>.

@@ -8,15 +8,20 @@ from pydantic import BaseModel, Field
 
 
 class MemoryAssetsConfig(BaseModel):
-    """Mirrors runtime ``MemoriesConfig`` knobs for Phase1/2 + forgetting."""
+    """Knobs for the *optional* Phase1/2 async pipeline.
+
+    Default **off**: dialogue agents write 长期记忆 (standing) + 过程 (episodic)
+    directly via ``assets note``. Phase1/2 remain available only when explicitly
+    re-enabled in config / env.
+    """
 
     generate_memories: bool = Field(
-        default=True,
-        description="Master switch for Phase1/2 asset memory pipeline.",
+        default=False,
+        description="Master switch for Phase1/2 async asset memory pipeline (default off).",
     )
-    phase1_enabled: bool = Field(default=True, description="Session-idle rollout extract.")
-    phase2_enabled: bool = Field(default=True, description="Inbox → standing / MEMORY / craft.")
-    startup_phase2_scan: bool = Field(default=True, description="Gateway startup inbox sweep.")
+    phase1_enabled: bool = Field(default=False, description="Session-idle rollout extract.")
+    phase2_enabled: bool = Field(default=False, description="Inbox → standing / MEMORY / craft.")
+    startup_phase2_scan: bool = Field(default=False, description="Gateway startup inbox sweep.")
     legacy_updater_enabled: bool = Field(
         default=False,
         description="SQLite MemoryUpdater (mem_*) on debounce; off by default in asset-hub memory mode.",
@@ -49,21 +54,26 @@ def asset_phase1_enabled() -> bool:
     cfg = get_assets_config()
     if not cfg.generate_memories or not cfg.phase1_enabled:
         return False
-    return _env_bool("EVOFLOW_ASSET_PHASE1", True)
+    return _env_bool("EVOFLOW_ASSET_PHASE1", False)
 
 
 def asset_phase2_enabled() -> bool:
     cfg = get_assets_config()
     if not cfg.generate_memories or not cfg.phase2_enabled:
         return False
-    return _env_bool("EVOFLOW_ASSET_PHASE2", True)
+    return _env_bool("EVOFLOW_ASSET_PHASE2", False)
 
 
 def asset_startup_phase2_enabled() -> bool:
     cfg = get_assets_config()
     if not cfg.generate_memories or not cfg.startup_phase2_scan:
         return False
-    return _env_bool("EVOFLOW_ASSET_STARTUP_PHASE2", True)
+    return _env_bool("EVOFLOW_ASSET_STARTUP_PHASE2", False)
+
+
+def asset_async_memory_pipeline_enabled() -> bool:
+    """True only when Phase1 or Phase2 async pipeline is actually on."""
+    return asset_phase1_enabled() or asset_phase2_enabled()
 
 
 def max_unused_days() -> int:

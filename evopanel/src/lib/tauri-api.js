@@ -2710,6 +2710,14 @@ export const api = {
     summary = '',
   } = {}) =>
     gatewayProxy('POST', '/assets/record', { entityType, entityId, content, title, summary }),
+  /** 追加偏好到长期记忆 memory/standing.md */
+  assetsStandingAppend: async ({
+    entityType = 'user',
+    entityId = 'user',
+    content,
+    section = 'User preferences',
+  } = {}) =>
+    gatewayProxy('POST', '/assets/standing-append', { entityType, entityId, content, section }),
   /** 记录当前对话过程 → memory/episodic/*.md（给人回顾） */
   assetsEpisode: async ({
     entityType = 'user',

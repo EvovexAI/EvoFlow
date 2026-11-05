@@ -1,48 +1,30 @@
 # Asset injection layers (SoT)
 
-Runtime injects **indexes + full standing page**, never experience bodies by default.
-Source of truth for durable know-how is the Asset Hub tree, **not** `agents.system_prompt`.
+Runtime injects **indexes + full standing page**; experience bodies stay on disk until `assets read`.
 
-## Layers (employee / user entity)
+| Layer | What | When | Owns |
+|-------|------|------|------|
+| **L0 job** | system_prompt / soul | every turn | Duty skeleton only |
+| **L1 standing（长期记忆）** | `memory/standing.md` full page | every turn | Prefs, tips, What's in Memory name index |
+| **L2 catalog** | craft / episodic / journal filenames + `MEMORY.md` | every turn | Discoverability |
+| **L3 body** | craft / episodic / … | on demand | `assets` read / search |
 
-| Layer | What | When loaded | Owns |
-|-------|------|-------------|------|
-| **L0 job** | `<agent_system_prompt>` / soul | every turn | Duty skeleton only: role, I/O shape, hard gates, tool allow-hints |
-| **L1 standing** | `memory/standing.md` (**full**, no runtime scissors) | every turn | Prefs, tips, **What's in Memory** name-only file index — **derived summary**, not a third content kind. Keep the file short via Phase2 rewrite, not prompt truncation. |
-| **L2 catalog** | filenames under craft/facts/episodic/journal headings + `MEMORY.md` | every turn | Discoverability — basename + one-line label (no dir prefix, no body) |
-| **L3 body** | full md under craft / MEMORY / facts / … | on demand | Details via `assets` `read` / `search` |
-| **L4 inbox** | `_inbox/notes` pending | until Phase2 | Fresh notes not yet consolidated |
+## Write (agent)
 
-**Product IA:** `facts/` = 条目 (detail lines: prefs/facts); `episodic/` = 过程 (dialogue recaps); `standing.md` = 记忆摘要 (overall derived page, not a third content kind). Dialogue write/load policy SoT: `read_path.md` decision table.
+| Content | Tool |
+|---------|------|
+| Prefs / hard constraints | `assets note` `kind=preference` → standing |
+| Process recap | `assets note` `kind=process` → episodic |
+| Experience / reflection | `kind=experience` → craft；`kind=reflection` → journal |
+| User identity | `assets profile`（`mode=append\|replace`） |
+| Employee mood | `assets affect`（`mode=append\|replace`；主动写） |
+| Job duty | short system_prompt only |
 
-## Write rules (anti dual-write)
+Outdated / duplicate topics → **model decides**: `read` then `note`+`path=` or `write` to overwrite. Runtime never auto-merges by similarity.
 
-| Content | Write to | Never write to |
-|---------|----------|----------------|
-| Stable prefs / habits | `assets note` `[preference]` → Phase2 → facts (+ standing rewrite) or `profile` | `system_prompt`; direct `standing.md` |
-| Process recap | `assets note` `[process]` → Phase2 → episodic | `system_prompt` / soul |
-| Experience / reflection | `assets note` `[experience]` / `[reflection]` → Phase2 → craft / journal | `system_prompt` / soul |
-| Reusable playbook | `craft/*.md` (via Phase2) | paste into job prompt |
-| Job duty / output contract | `system_prompt` (short) | duplicate into every craft file |
+Assets win for details over job prompt; job prompt may keep a one-line pointer.
 
-If the same rule exists in both job prompt and assets, **assets win for details**; slim the job prompt to a one-line pointer (“详见 craft/… / MEMORY …”).
+## Catalog & recall
 
-## Catalog policy
-
-- Kind heading + **basename only** (no `craft/` / `memory/facts/` prefix on every row — filenames are unique enough within an entity; `assets read` resolves basename).
-- Short titles/labels; **no row cap** for now (labels are cheap).
-- Bodies stay on disk; model opens by filename when the turn needs them.
-- Overflow / missing detail → `assets` search/read, not “stuff into system_prompt”.
-
-## Turn-tail Hub Recall (why assets “feel empty” otherwise)
-
-Writing to Hub does **not** paste the body into the next system prompt. Without a
-pull, models often ignore catalog. Runtime therefore:
-
-1. Inject L1 standing + L2 catalog every turn.
-2. **Default-on** title/path recall against craft/facts/episodic/journal catalog
-   labels (`EVOFLOW_HUB_RECALL`, default on) → path·title lines on the HumanMessage
-   tail (**no body search** — less noise).
-3. Model `assets read` for full playbooks when a title matches.
-
-Legacy SQLite / person-kernel recall stays behind `EVOFLOW_QUERY_RECALL` (default off).
+- Catalog: basename only under kind headings.
+- Hub Recall (`EVOFLOW_HUB_RECALL`, default on): path·title lines on the turn tail; model `assets read` for bodies.

@@ -1,313 +1,118 @@
 # 资产库契约
 
-> 本文件是 **evoflow-admin** 技能的资产库章节（原独立技能 `evoflow-assets` 已合并至此）。
-> 长期记忆 / 经验 / 反思 / craft / profile / 工作区项目知识：细则读本文；布局树见 [assets-layout.md](assets-layout.md)。
-> description / 本节摘要够用时勿整篇加载。
+> evoflow-admin 资产库章节。细则读本文；布局见 [assets-layout.md](assets-layout.md)。
 
+对话统一用工具 **`assets`**（`search` / `read` / `list` / `note` / `write` / `profile` / `affect`）。
 
-你是 **EvoFlow**，对话里读写资产库统一用工具 **`assets`**（`search` / `read` / `list` / `note` / `profile`）。
-本文件是资产库的**结构契约**：路径、布局、写盘规则、沉淀邀约、profile 维护、workspace 项目知识。
-
-> 运行时上下文(注入到每次对话的 entity block,**绝对路径**已列出):
-> - `base_dir` = `$EVOFLOW_HOME` 解析的绝对路径(默认 `~/.evoflow`,运行时由 `get_paths().base_dir` 提供)
-> - `entity_root_abs` = 本回合实体根的绝对路径(用户/agent/employee:`<base_dir>/assets/...`;workspace:`<local_workspace>/.evoflow/`)
-> - `inbox_path_abs` = 写入入口的绝对路径(`<entity_root_abs>/memory/_inbox/notes/`)
-> - `local_workspace`(workspace 实体专用) = 当前 session 绑定的项目根
->
-> **不要凭训练记忆拼路径**——`assets note` 写入 inbox；`assets read/search` 用文件名或相对 entity 根的路径即可。
-
-模型在注入 `<entity_assets>` 指针后，**所有路径与写盘规则以本文为准**；不要凭记忆猜测目录。
+运行时注入里已有 `entity_root` / catalog / 长期记忆 standing。`assets note` 用显式 **`kind`** 落盘；检索词只用 **`query`**；追加/覆盖用 **`mode`**。
 
 ---
 
-## 1. 资产根（按调用方身份定位）
+## 1. 资产根
 
-先确认自己属于哪个根，再决定写哪个目录。
+| 主体 | 根 | 用途 |
+|------|-----|------|
+| 登录用户 | `assets/users/<id>/` | 用户记忆、画像 |
+| 本地共享用户 | `assets/user/` | 单机默认 |
+| employee | `assets/employees/<code>/` | 员工长期记忆 / 过程 / 经验 / 反思 / 情感 |
+| lead/main agent | `assets/agents/main/profile/` | SOUL 等；**无独立记忆树** |
 
-| 主体 | 资产根 | 用途 |
-|------|--------|------|
-| **当前登录用户** | `assets/users/<id>/` | 用户对话记忆、偏好、人设（id 通常是用户名/工号，必要时 sha256 兜底） |
-| **共享用户（未登录/本地）** | `assets/user/` | 单机本地默认；多数情况下与登录用户根等价 |
-| **agent 自身（lead/main）** | `assets/agents/main/profile/` | SOUL / system / **affect**；agent 自己**没有独立记忆树** |
-| **employee（员工 agent）** | `assets/employees/<code>/` | 记忆 / 经验 / 反思 + **独立 affect**；**不**拥有用户画像（共享 `user` 画像） |
-| **绑定工作区（项目）** | `<workspace>/.evoflow/` | **项目知识**；与用户记忆隔离 |
+用户偏好写用户根；员工会话写员工根。同一事实只存一处。
 
-**判断方法**：系统提示中 `principal_id` 字段表示当前用户；`agent_name` 表示员工/agent 角色。
+### 1.1 注入分层
 
-**知识归一原则**：用户偏好只写用户根；项目约定只写工作区根；同一份事实只在一处保存。
-
----
-
-## 1.1 运行时注入分层（员工 / 用户 Asset Hub）
-
-> 实现细节：`backend/.../assets/prompts/memories/injection_layers.md`
-
-| 层 | 每轮注入 | 真源 / 用途 |
-|----|----------|-------------|
-| **L0 岗位** | `system_prompt` / soul | **只**职责骨架、输出格式、硬闸门 |
-| **L1 standing** | `memory/standing.md` 摘要（**整页注入**，运行时不截断） | 偏好、Tips、**What's in Memory** 文件名索引（只列自描述 `craft/…` 等名字，不写 keywords/desc/learnings；产品名「记忆摘要」——总览派生页，非第三种正文；篇幅由 Phase2 写文件时控制） |
-| **L2 catalog** | craft / facts / episodic / journal **短标题全量** + `MEMORY.md` | 发现用；不灌正文 |
-| **L3 正文** | 不默认注入 | `assets` read/search 按需打开 |
-| **L4 inbox** | 未合并 notes 预览 | Phase2 前可见 |
-
-产品 IA：**记忆摘要** standing＝总览；正文两类——**条目** `facts/`（明细）、**过程** `episodic/`。对话 when/what/write/update/load 决策表见 `read_path.md`。
-
-**禁止双写**：制度 / 踩坑 / 可复用做法 → `assets` note → Phase2 → craft/MEMORY/standing。  
-**禁止**再 `agents.update` 把经验全文塞进 `system_prompt`（与资产漂移）。岗位说明书里最多一行指针：「详见 craft/…」。
-
-改员工配置：职责骨架用 `agents.update` 的 `system_prompt`；经验沉淀只用 `assets`。
-
-**为何「写了资产却像没进上下文」**：L3 正文默认不灌 system；靠 (1) catalog 标题 (2) 回合尾 **Hub Recall**（只匹配标题/文件名，不搜正文；`EVOFLOW_HUB_RECALL` 默认开）(3) 模型 `assets read`。关掉 Hub Recall 或模型不读，资产就会「起不了作用」。
+| 层 | 每轮 | 内容 |
+|----|------|------|
+| L0 岗位 | 是 | system_prompt / soul 职责骨架 |
+| L1 长期记忆 | 是 | `memory/standing.md` 整页 |
+| L2 catalog | 是 | craft / episodic / journal 文件名 |
+| L3 正文 | 按需 | `assets` read / search |
 
 ---
 
-## 2. 四类资产布局（每个根下都长这样）
+## 2. 布局与写入
 
-| 路径 | 用途 | 写入规则 |
-|------|------|---------|
-| `profile/` | 身份、偏好、人设 | `assets(action="profile")`；默认 append，`query=replace` 全量重写 |
-| `memory/standing.md` | 记忆摘要 / 启动总览（≥2 字符） | Phase2 自动生成，**禁止直接写** |
-| `memory/MEMORY.md` | 索引（指针 + 标签 + 日期） | Phase2 维护；对话**禁止**手改 |
-| `memory/facts/` | 条目：稳定事实、偏好、命名约定（明细） | Phase2 合并；对话用 `[preference]` note |
-| `memory/episodic/` | 过程：某次对话/任务复盘 | Phase2 合并后；对话 inbox 标签 `[process]` |
-| `memory/journal/` | 反思、教训、错误回顾 | Phase2 / hub；对话 inbox 标签 `[reflection]`；正式文件 `memory/journal/<topic-slug>.md`（**文件名不要年月日**，日期只写 frontmatter） |
-| `memory/_inbox/notes/` | **写入入口**（4 类标签） | 一律 `assets note` 先入 inbox，**Phase 2 合并** |
-| `memory/_inbox/_done/` | Phase2 合并后归档（从未销毁） | Phase2 自动写入，**不要手动编辑** |
-| `memory/_inbox/phase2_workspace_diff.md` | Phase2 diff 清单（运行时生成） | Phase2 自动生成，**不要手动编辑** |
-| `memory/_inbox/raw_memories.md` | Phase2 合并前的原始材料合集 | Phase2 运行时机械合并，**不要手动编辑** |
-| `memory/archive/completed-goals/` | 目标归档（goals 相关） | agent goal 系统写入 |
-| `craft/<name>.md` | 可复用做法（扁平文件） | Phase2 合并后；对话 inbox 标签 `[experience]`；成熟后可 promote 成技能包 |
+| 路径 | 用途 | 写入 |
+|------|------|------|
+| `profile/USER.md` | 用户画像 | `action=profile` + `mode=append\|replace` |
+| `profile/affect.md` | 员工情感 | `action=affect` + `mode=append\|replace` |
+| `memory/standing.md` | **长期记忆** | `note` `kind=preference` |
+| `memory/episodic/` | **过程** | `note` `kind=process` |
+| `craft/<name>.md` | 经验 | `note` `kind=experience` |
+| `memory/journal/<topic>.md` | 反思 | `note` `kind=reflection` |
+| `memory/MEMORY.md` | 手册索引 | 对话勿手改 |
 
 ---
 
-## 3. 写盘协议（强制）
+## 3. 写盘
 
-**所有新写一律先入 inbox**，然后 Phase 2 后台合并到 `facts/` / `journal/` / `craft/` / `episodic/`。
-
-| step | 工具 | 路径 | 首行 tag |
-|------|------|------|---------|
-| 1. 选 type | —— | —— | `experience` / `process` / `reflection` / `preference` |
-| 2. 高信号直接写 | —— | —— | 解法 / 常规流程 / 偏好默认**不问**（见 §4）；仅敏感/边界不清才问 |
-| 3. 写 inbox | `assets` `action=note` | 实体根 `memory/_inbox/notes/<slug>.md` | `[type]` |
-| 4. 索引 / standing | —— | Phase2 自动更新 `MEMORY.md` / `standing.md` | **禁止**对话里手改 |
-
-**Phase1 写入格式**（agent 对话中产生的新材料）：
-- 调用：`assets(action="note", content="[experience|process|reflection|preference] 短标题\n\n正文…")`
-- 文件名：工具生成 `<slug>.md`（只用主题 slug；**不要**把时间戳放进文件名）
-- 时间：工具写入 frontmatter `created: YYYY-MM-DDTHH:MM:SSZ`
-- 首行标签：`[experience]` / `[process]` / `[reflection]` / `[preference]`
-- slug 取自标题：转小写、`-` 替代非字母数字、不超过 80 字符（也可含中文）
-- 员工会话默认写入 `assets/employees/<code>/…`；用户偏好写用户桶，勿混写
-
-**Phase1 原始记忆格式**（会话结束时自动写入）：
-- 文件名：`raw_<thread_token>.md`（thread_token = UUID，agent 调用 phase1 系统时产生）
-- 内容：原始会话摘要 + raw_memory
-
-**Phase2 合并后**：
-- Phase2 消耗 inbox 里的 `raw_*.md` + `notes/*.md`，合并写入 `memory/standing.md`、`memory/MEMORY.md`、`craft/*.md`、`memory/facts/`（以及 episodic / journal 等）
-- 原始材料自动移入 `memory/_inbox/_done/<UTC时间戳>-<原文件名>`
-- `memory/_inbox/phase2_workspace_diff.md` 和 `memory/_inbox/raw_memories.md` 由 Phase2 运行时生成，不要手动编辑
-
-**inbox 文件模板**（`content` 参数正文；frontmatter 由工具补）：
-
-```markdown
-[experience] 短标题
-
-正文 Markdown……
-
-- 适用场景：…
-- 关键步骤：…
-- 反例 / 避坑：…
+```text
+assets(action="note", kind="preference|process|experience|reflection", content="标题\n\n正文…")
+assets(action="profile", mode="append|replace", content="…")
+assets(action="affect", mode="append|replace", content="…")
 ```
 
-| 用户说法 / 侧栏按钮 | 标签 | Phase2 大致归入 |
-|---------------------|------|-----------------|
-| 记录过程 | `[process]` | `memory/episodic/` |
-| 沉淀经验 | `[experience]` | `craft/<name>.md` |
-| 反思 | `[reflection]` | `memory/journal/<topic-slug>.md`（主题名，无日期） |
-| 记住偏好 | `[preference]` 或 `assets profile` | `memory/facts/` / `profile/` |
+| kind / action | 落点 |
+|---------------|------|
+| `kind=preference` | `memory/standing.md`（`mode=replace` 整页覆盖） |
+| `kind=process` | `memory/episodic/` |
+| `kind=experience` | `craft/` |
+| `kind=reflection` | `memory/journal/` |
+| `profile` | `profile/USER.md` |
+| `affect` | `profile/affect.md` |
+
+`query` **只用于 search**。不要用 `query=replace`。
 
 ---
 
-## 4. 何时记（默认直写，少打扰）
+## 4. 何时记
 
-用户往往不想多回复确认。**高信号内容默认同轮直写**，写完可用一句话告知「已记下…」，**不要卡着等用户点头**。
+| 触发 | 写法 |
+|------|------|
+| 稳定偏好 / 硬约束 | `kind=preference` 或 `profile` |
+| 本轮结论 / 过程 | `kind=process` |
+| 可复用做法 | `kind=experience` |
+| 短反思 | `kind=reflection` |
+| 员工心境变化 | `affect` |
+| 用户说「记住」 | 立刻写 |
 
-| 触发场景 | 推荐类型 | 是否先问 |
-|---------|---------|---------|
-| 用户稳定偏好（语言/风格/工具栈） | `[preference]` 或 `assets profile` | **不问**，同轮写 |
-| 本轮已跑通的解法、踩坑→修复、可复用常规流程 | `[experience]` / `[process]` | **不问**，同轮写 |
-| 本轮高信号过程摘要（结论/约定） | `[process]` | **不问**，同轮写 |
-| 有复用价值的短反思 | `[reflection]` | **不问**；若偏隐私/评判用户本人则先问 |
-| 敏感边界、未采纳脑暴、用户刚否定过的内容 | 视情况 | **先问一句** |
-| 用户说「记住 / 记下来」或点了侧栏沉淀按钮 | 对应标签 | **不问**，立刻写 |
-
-**禁止沉淀**：
-
-- 一次性测试输出、调试流水
-- 会话碎片（"刚才我说的那句…"）
-- UI 微调结果、空泛闲聊
-- 未经证据的猜测或推论
-
-**写法**：高信号时**立刻** `assets(action="note", content="[experience] …")`，回复里可带一句「已记下…」；**不要**长篇解释写盘机制，也**不要**为常规解法/流程专门开一轮确认问答。
+默认同轮写。同主题 / 过时：先 `read`，再 `note`+`path` 或 `write`；是否更新由模型判断。
 
 ---
 
 ## 5. 读法
 
-1. 先看本轮注入的 catalog / standing；需要索引时再 `assets(action="read", path="MEMORY.md")`。
-2. 按指针或 catalog 标题，用 `assets(action="read", path="文件名.md")` 打开 `facts/` / `journal/` / `craft/<name>.md`（也可用完整相对路径）。
-3. **不要**整目录盲读 `episodic/` 或 `journal/`——按文件名定位；检索用 `assets(action="search", query="…", kinds="…")`。
-4. 内容已过期或矛盾 → 先与用户确认再改；正式目录改动交给 Phase2 / 资产中心，对话侧继续用 note。
-5. `read` 返回截断 / summary 提示时，按返回路径再读全文。
+1. 先看已注入的长期记忆 + catalog。
+2. `assets(action="read", path="文件名.md")` 或 `search`（关键词放 `query`）。
+3. 不要整目录盲读。
+4. 过期/矛盾：`read` 后用 `note`+`path` 或 `write` 覆盖。
 
 ---
 
-## 6. profile 文件
+## 6. 用户画像 / 员工情感
 
-### 用户画像（仅 `assets/user` / `assets/users/<id>`；资产中心「我 → 画像」）
-
-| 文件 | 用途 | 何时写 |
-|------|------|--------|
-| `profile/basic-info.md` | 称呼、职业、语言、时区 | 用户透露身份信息时**必须**写 |
-| `profile/preferences.md` | 沟通风格、技术偏好、工具栈 | 用户表达稳定偏好时 |
-| `profile/persona.md` | 沟通习惯画像（结论先行 / 先诊后改） | 多轮对话总结出稳定行为模式时 |
-
-员工**不**拥有用户画像 Tab；运行时共享上述用户画像。
-
-### 员工情感（`assets/employees/<code>/profile/affect.md`；资产中心「员工 → 情感」）
-
-| 文件 | 用途 | 何时写 |
-|------|------|--------|
-| `profile/affect.md` | 每人独立情感镜像；真源 `evoflow_person_affect` | 显著触动 / wrap-up / 衰减后自动镜像；勿每轮手改 |
-
-**画像缺口策略**（强制）：
-
-- 系统提示 `<profile>` 块中某维度为空 → 本回合或下回合**主动、简短（≤2 句）问一句**。
-- 用户回答后 → 立刻 `assets(action="profile", path="basic-info|preferences|persona", content="…")`（默认 append），**并用一句话确认**。
-- 用户透露稳定信息后 **禁止**只口头记下而不写文件。
-- **每轮最多 1～2 个缺口问题**，不要一次问一堆。
-
-**replace 风险**：需要整段重写时用 `query="replace"`；覆盖前确认是否与旧内容冲突，冲突时先与用户对齐。
+- 画像真源：`profile/USER.md` — `assets profile`
+- 情感真源：`profile/affect.md` — `assets affect`（模型主动写，无后台改）
+- `mode=append` 默认；`mode=replace` 整份重写
 
 ---
 
-## 7. 工作区项目知识（与用户记忆隔离）
-
-绑定工作区 `<workspace>/.evoflow/memory/` 存**项目层**事实，与用户资产同构（standing / facts / craft）。**用单一 `[project]` 标签**，不区分 category；Phase 2 合并进 `.evoflow/memory/facts/`。
-
-**写盘**：
-```
-用 assets action=note 写入 memory/_inbox/notes/<slug>.md（时间在 frontmatter created）
-首行：[project] <短标题>
-例：[project] gateway 依赖 PyYAML >= 4.2b1
-```
-
-**不存**：
-- 用户偏好或身份（走 `assets/users/<id>/`）
-- 一次性会话改动、调试输出、UI 微调结果、问候语
-- 敏感凭据（API Key / SSH Key / token）—— 永远走配置中心，不要落资产库
-
-**与 user 4 标签对照**：
-
-| user 4 标签 | workspace |
-|------------|-----------|
-| `[experience]` / `[process]` / `[reflection]` | `[project]`（项目事实统一用 project） |
-| `[preference]` → profile | 不进 workspace |
-
-**不存**：
-
-- 用户偏好或身份（走 `assets/users/<id>/`）
-- 一次性会话改动、调试输出
-- 敏感凭据（API Key / SSH Key / token）—— 永远走配置中心，不要落资产库
-
----
-
-## 8. 一次典型操作示例
+## 7. 示例
 
 ```
-场景：用户说「我习惯结论先行，先诊断再改方案，常用工具栈是 Python + LangChain」
-
-1. 识别：稳定偏好 → assets(action="profile", path="preferences", content="…")
-2. 简答确认：「已写入画像 preferences」
+用户：我习惯结论先行，常用 Python + LangChain
+→ assets(action="profile", content="- 结论先行；工具栈 Python + LangChain")
 ```
 
 ```
-场景：用户问「为什么这两次登录都失败」→ 你排查出是因为 token 过期
-
-1. 识别：已跑通的解法 / 可复用避坑 → [experience]（不问用户）
-2. 同轮 assets(action="note", content="[experience] 登录失败·token 过期\n\n…")
-3. 回复里一句「已记下这条避坑」即可（Phase2 合并；不要手改 MEMORY.md）
+排查完登录失败是 token 过期
+→ assets(action="note", kind="experience", content="登录失败·token 过期\n\n…")
 ```
 
 ---
 
-## 9. 体系自审（数据说话）
+## 8. 边界
 
-| 触发方式 | 工具 / 命令 | 产物 |
-|---------|------------|------|
-| 用户说「审计一下我的资产体系 / 看看闭环哪里有问题」 | 本契约 + 自动触发 `audit` 端点 | `memory/audit/<UTC>-audit.md` |
-| 用户访问「资产中心 → 审计」面板 | 后端 `POST /api/assets/audit` | 同上 + summary JSON |
-| 命令行 | `python -m evoflow.assets.audit webui_1` | 同上 + 控制台打印分数 |
-
-**审计的三维评分**：
-
-| 维度 | 检查什么 | 高分条件 |
-|------|---------|---------|
-| **闭环度** | MEMORY.md 引用是否指向磁盘真实文件 | 0 条断裂、0 个孤立资产 |
-| **沉淀密度** | profile/facts/craft/episodic/journal 五维度是否都厚 | 每维度都 ≥1 个文件、profile 三件套齐全 |
-| **时效性** | inbox / Phase2 / journal 是否近期活跃 | 近 7 天 Phase2 合并 ≥1 次、journal/episodic ≥0.15 |
-
-**审计产物示例**（`memory/audit/2026-09-23-...-audit.md`）：
-
-```markdown
-## 评分
-| 维度 | 分数 |
-|------|------|
-| **综合** | **90 / 100 (A)** |
-| 闭环度 | 70 |
-| 沉淀密度 | 100 |
-| 时效性 | 100 |
-
-## 体系的优势（数据说话）
-- 复盘资产丰富：8 个 episodic 文件
-- Phase2 活跃：近 7 天合并 4 条
-- 可复用做法库成型：5 个 craft
-
-## 体系的问题（数据说话）
-- 孤立资产（13 个）：磁盘上有但 MEMORY.md 未索引
-
-## 下一步建议（可执行）
-1. 修复索引断裂 — replace MEMORY.md
-2. 为孤立资产补指针 — 追加 `- <path>` 指针行
-```
-
-**AI 收到审计报告后的行为**（强制）：
-
-1. **看一眼分数**：综合 ≥85（A）不主动重整；60-84（B）补顶部 1-2 条建议；<60（C/D）建议用户跑一次清理。
-2. **修断裂索引**：审计提到 broken refs → 直接 `replace("memory/MEMORY.md", old_ref, new_ref)`。
-3. **修孤立资产**（推荐用 auto-repair）：
-
-   ```
-   CLI:    python -m evoflow.assets.audit <user_id> --repair
-   API:    POST /api/assets/audit?entityType=user&entityId=webui_1&repair=true
-   ```
-
-   自动在 `memory/MEMORY.md` 末尾追加 `## Audit-Trail` 段，逐行追加 `- <path>` 指针；
-   幂等：已存在的指针跳过；README.md 按设计豁免不入索引。
-4. **补 profile 缺口**：提到缺口 → 本回合主动问用户 1 句，下回合立刻写盘。
-5. **写一条 reflection**：审计本身是一次反思 → `assets(action="note", content="[reflection] 从审计看到的体系变化\n\n…")`，Phase2 并入 journal。
-
-**`Audit-Trail` 段的语义**：指针进了 MEMORY.md 后，下次会话能被 catalog / recall 发现；但**它们没归到任何 Task**——AI 看到这种文件应：
-
-- 读 frontmatter（title/keywords）猜测属于哪个 Task；
-- 若 5 轮内仍无明确归属 → 留在 Audit-Trail（已是安全兜底）。
-
-## 10. 边界与不变量
-
-- **永远不要**直接写 `memory/standing.md` / `memory/MEMORY.md`（Phase2 维护）。
-- 沉淀前**必须**问用户；除非用户已经明确说「以后就这样 / 记住」或点了侧栏沉淀按钮。
-- `craft/<name>.md` 引用路径必须用真实路径；不要在 craft 里写「在工作区搜…」。旧布局 `craft/<name>/SKILL.md` 已扁平化为 `craft/<name>.md`。
-- 用户的隐私边界：个人偏好写 `preferences.md`；敏感凭据 / API Key 永远走配置中心，**不要落资产库**。
-- 不要用 `knowledge` write 或旧 `experience_*` 工具——已废弃；对话侧只用 **`assets`**（`note` / `read` / `search` / `list` / `profile`）。
-- 用了资产在回复末尾加 `<evo-asset-citation>` 引用（路径列表），便于用户审计。
+- 用 `assets note` / `profile` / `affect` 更新；勿把经验全文塞进 `system_prompt`。
+- 敏感凭据走配置中心。
+- 引用资产时加 `<evo-asset-citation>`。

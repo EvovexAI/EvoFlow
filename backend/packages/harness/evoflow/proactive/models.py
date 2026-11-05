@@ -338,6 +338,7 @@ class ProactiveRole:
     heartbeat_rrule: str = ""  # legacy; prefer heartbeat_schedule
     # Authoritative 5-field cron (same semantics as automation tasks).
     # Empty → resolve_role_cron falls back to DEFAULT_HEARTBEAT_CRON (twice daily).
+    # Explicit ``off`` → no timed patrol (role may stay active for chat / dispatch).
     heartbeat_schedule: str = ""
     status: str = "active"  # active / paused / draft
     last_heartbeat_at: str | None = None

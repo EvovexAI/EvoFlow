@@ -122,6 +122,16 @@ class MemoryMiddleware(AgentMiddleware[MemoryMiddlewareState]):
         if not config.enabled:
             return
 
+        # Default product path: agents write standing/episodic via ``assets note``.
+        # Skip debounce Phase1/2 queue unless async pipeline is explicitly re-enabled.
+        try:
+            from evoflow.assets.pipeline_config import asset_async_memory_pipeline_enabled
+
+            if not asset_async_memory_pipeline_enabled():
+                return
+        except Exception:
+            return
+
         if not effective_memory_updates_enabled(runtime):
             return
 
@@ -195,63 +205,13 @@ class MemoryMiddleware(AgentMiddleware[MemoryMiddlewareState]):
             principal_id=pid,
         )
 
-    def _maybe_capture_affect(self, state: MemoryMiddlewareState, runtime: Runtime) -> None:
-        """Parse trailing ``[AFFECT: …]`` from the latest AI reply into the hormone store."""
-        agent = str(self._agent_name or "").strip().lower()
-        if not agent or agent in {"main", "lead_agent", "user", "default"}:
-            return
-        messages = state.get("messages") or []
-        if not messages:
-            return
-        last = messages[-1]
-        role = getattr(last, "type", None) or getattr(last, "role", None) or ""
-        if str(role).lower() not in {"ai", "assistant"}:
-            # LangChain AIMessage often uses type="ai"
-            cls = type(last).__name__
-            if "AI" not in cls and "Assistant" not in cls:
-                return
-        content = getattr(last, "content", None)
-        if isinstance(content, list):
-            parts = []
-            for block in content:
-                if isinstance(block, dict) and block.get("type") == "text":
-                    parts.append(str(block.get("text") or ""))
-                elif isinstance(block, str):
-                    parts.append(block)
-            text = "\n".join(parts)
-        else:
-            text = str(content or "")
-        try:
-            from evoflow.person_affect import parse_affect_tag
-            from evoflow.persistence import person_relations_repositories as rel_repo
-
-            deltas = parse_affect_tag(text)
-            if not deltas:
-                return
-            rel_repo.apply_affect_deltas(
-                agent,
-                deltas,
-                significant=True,
-                source="dialogue",
-                clamp_each=0.12,
-            )
-            try:
-                from evoflow.assets.affect_mirror import maybe_mirror_affect_file
-
-                maybe_mirror_affect_file(agent)
-            except Exception:
-                pass
-        except Exception:
-            logger.debug("affect capture skipped agent=%s", agent, exc_info=True)
-
     @override
     def after_model(self, state: MemoryMiddlewareState, runtime: Runtime) -> dict | None:
-        self._maybe_capture_affect(state, runtime)
+        # Affect updates are active ``assets(action="affect")`` only — no reply-tag scrape.
         self._maybe_queue_memory_update(state, runtime)
         return None
 
     @override
     async def aafter_model(self, state: MemoryMiddlewareState, runtime: Runtime) -> dict | None:
-        self._maybe_capture_affect(state, runtime)
         self._maybe_queue_memory_update(state, runtime)
         return None

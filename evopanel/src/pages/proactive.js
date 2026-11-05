@@ -32,7 +32,7 @@ import {
 } from '../lib/proactive-role-edit.js'
 import {
   createSchedulePanel,
-  DEFAULT_DUTY_CRON,
+  DEFAULT_NEW_DUTY_SCHEDULE,
   roleScheduleSummary,
 } from '../lib/schedule-panel.js'
 import {
@@ -844,7 +844,7 @@ async function showHireModal(page) {
   }
 
   const hireScheduleCtrl = createSchedulePanel({
-    schedule: DEFAULT_DUTY_CRON,
+    schedule: DEFAULT_NEW_DUTY_SCHEDULE,
     idPrefix: 'hireSched',
     compact: true,
   })
@@ -978,7 +978,7 @@ async function showHireModal(page) {
     if (hint) hint.textContent = autonomyHint(normalized)
   }
   const setHireSchedule = (cronExpr) => {
-    hireScheduleCtrl.setSchedule(cronExpr || DEFAULT_DUTY_CRON)
+    hireScheduleCtrl.setSchedule(cronExpr || DEFAULT_NEW_DUTY_SCHEDULE)
   }
 
   const applyHireTemplate = (id) => {
@@ -999,7 +999,7 @@ async function showHireModal(page) {
       promptEl.value = (tpl.system_prompt || (tpl.responsibilities || []).join('\n') || '').trim()
     }
     setAutonomyChip(tpl.autonomy_level || 'approval_for_all')
-    setHireSchedule(tpl.heartbeat_schedule || tpl.heartbeat_rrule || DEFAULT_DUTY_CRON)
+    setHireSchedule(tpl.heartbeat_schedule || tpl.heartbeat_rrule || DEFAULT_NEW_DUTY_SCHEDULE)
     const adv = overlay.querySelector('details.hire-advanced')
     if (adv) adv.open = true
     if (templateHint) templateHint.textContent = `已套用「${tpl.label}」：${tpl.blurb}`
@@ -1050,7 +1050,7 @@ async function showHireModal(page) {
       overlay.querySelector('[data-name="autonomy_level"] .hire-chip.is-on')?.dataset.value ||
       'approval_for_all'
     const heartbeat_schedule =
-      hireScheduleCtrl.getSchedule().cronExpr || DEFAULT_DUTY_CRON
+      hireScheduleCtrl.getSchedule().cronExpr || DEFAULT_NEW_DUTY_SCHEDULE
 
     const confirmBtn = overlay.querySelector('[data-act="confirm"]')
     const draftBtn = overlay.querySelector('[data-act="draft"]')

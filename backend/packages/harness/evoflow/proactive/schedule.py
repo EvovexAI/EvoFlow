@@ -19,11 +19,21 @@ from evoflow.timeutil import BEIJING_TZ
 # Default: twice a day (09:00 & 15:00). Every-2h was too frequent for new hires.
 DEFAULT_HEARTBEAT_CRON = "0 9,15 * * *"
 
+# Explicit "no timed patrol" sentinel stored in ``heartbeat_schedule``.
+# Role can stay active (chat / manual dispatch) without scheduler ticks.
+SCHEDULE_OFF = "off"
+_SCHEDULE_OFF_TOKENS = frozenset({"off", "never", "disabled", "none", "@never", "@off"})
+
 # Common legacy → cron examples (with default work window 09–20):
 #   FREQ=HOURLY;INTERVAL=1  →  0 9-19 * * *
 #   FREQ=HOURLY;INTERVAL=2  →  0 9-19/2 * * *  (legacy; new default is twice daily)
 #   FREQ=MINUTELY;INTERVAL=30 → */30 9-19 * * *
 # Without work window: INTERVAL=1 → 0 * * * * ; INTERVAL=2 → 0 */2 * * *
+
+
+def is_schedule_off(value: str | None) -> bool:
+    """True when schedule means「关闭巡检 / 不开启定时巡检」."""
+    return str(value or "").strip().lower() in _SCHEDULE_OFF_TOKENS
 
 
 def _parse_rrule_parts(rrule: str) -> dict[str, str]:
@@ -113,14 +123,21 @@ def migrate_stored_schedule(rrule: str, config_json: str) -> str:
 
 
 def resolve_role_cron(role: ProactiveRole) -> str:
-    """Authoritative cron: prefer heartbeat_schedule; else migrate legacy RRULE."""
+    """Authoritative cron: prefer heartbeat_schedule; else migrate legacy RRULE.
+
+    Returns empty string when schedule is explicitly off (no timed patrol).
+    """
     sched = str(getattr(role, "heartbeat_schedule", "") or "").strip()
+    if is_schedule_off(sched):
+        return ""
     if is_five_field_cron_or_keyword(sched):
         return sched
     # Some installs stuffed RRULE into heartbeat_schedule before the column existed as cron.
     if looks_like_legacy_rrule(sched):
         return legacy_rrule_to_cron(sched, role.config)
     rrule = str(role.heartbeat_rrule or "").strip()
+    if is_schedule_off(rrule):
+        return ""
     if is_five_field_cron_or_keyword(rrule):
         return rrule
     if looks_like_legacy_rrule(rrule):
@@ -131,11 +148,33 @@ def resolve_role_cron(role: ProactiveRole) -> str:
 def sync_role_schedule_fields(role: ProactiveRole, cron_expr: str) -> None:
     """Persist authoritative cron on role and derive legacy RRULE for compat."""
     cron = str(cron_expr or "").strip()
+    if is_schedule_off(cron):
+        role.heartbeat_schedule = SCHEDULE_OFF
+        role.heartbeat_rrule = ""
+        role.next_heartbeat_at = None
+        try:
+            role.config.auto_patrol_suspended = True
+        except Exception:
+            pass
+        return
     if not is_five_field_cron_or_keyword(cron):
         cron = DEFAULT_HEARTBEAT_CRON
     role.heartbeat_schedule = cron
     derived = cron_to_rrule(cron)
     role.heartbeat_rrule = str(derived.get("rrule") or cron)
+    try:
+        # Re-enabling a real cron clears the "关闭巡检" suspend latch.
+        role.config.auto_patrol_suspended = False
+    except Exception:
+        pass
+
+
+def wire_role_schedule(role: ProactiveRole) -> str:
+    """Value for API / UI: cron string, or ``off`` when timed patrol is disabled."""
+    stored = str(getattr(role, "heartbeat_schedule", "") or "").strip()
+    if is_schedule_off(stored):
+        return SCHEDULE_OFF
+    return resolve_role_cron(role)
 
 
 def ensure_role_schedule_fields(role: ProactiveRole) -> bool:
@@ -146,7 +185,10 @@ def ensure_role_schedule_fields(role: ProactiveRole) -> bool:
     """
     before_s = str(getattr(role, "heartbeat_schedule", "") or "").strip()
     before_r = str(role.heartbeat_rrule or "").strip()
-    sync_role_schedule_fields(role, resolve_role_cron(role))
+    if is_schedule_off(before_s) or is_schedule_off(before_r):
+        sync_role_schedule_fields(role, SCHEDULE_OFF)
+    else:
+        sync_role_schedule_fields(role, resolve_role_cron(role))
     after_s = str(role.heartbeat_schedule or "").strip()
     after_r = str(role.heartbeat_rrule or "").strip()
     return after_s != before_s or after_r != before_r
@@ -162,18 +204,25 @@ def apply_schedule_input(
     sched_in = str(heartbeat_schedule or "").strip()
     rrule_in = str(heartbeat_rrule or "").strip()
     prev = resolve_role_cron(role)
+    prev_off = is_schedule_off(str(getattr(role, "heartbeat_schedule", "") or ""))
 
-    if sched_in:
+    if is_schedule_off(sched_in):
+        sync_role_schedule_fields(role, SCHEDULE_OFF)
+    elif sched_in:
         if looks_like_legacy_rrule(sched_in):
             sync_role_schedule_fields(role, legacy_rrule_to_cron(sched_in, role.config))
         else:
             sync_role_schedule_fields(role, sched_in)
     elif rrule_in:
-        sync_role_schedule_fields(role, legacy_rrule_to_cron(rrule_in, role.config))
+        if is_schedule_off(rrule_in):
+            sync_role_schedule_fields(role, SCHEDULE_OFF)
+        else:
+            sync_role_schedule_fields(role, legacy_rrule_to_cron(rrule_in, role.config))
     else:
         return False
 
-    return resolve_role_cron(role) != prev
+    now_off = is_schedule_off(str(getattr(role, "heartbeat_schedule", "") or ""))
+    return resolve_role_cron(role) != prev or now_off != prev_off
 
 
 def _now_beijing(now: datetime | None = None) -> datetime:
@@ -196,9 +245,13 @@ def compute_next_duty_iso(role: ProactiveRole, *, now: Any | None = None) -> str
     Always returns a time strictly after ``now`` when cron yields runs. If cron
     parsing fails (empty runs), fall back to +2h — never ``now``, or the runner
     would treat every role as immediately due on the next tick.
+
+    Schedule-off roles return empty string (no next tick).
     """
-    now_dt = _now_beijing(now if isinstance(now, datetime) else None)
     cron = resolve_role_cron(role)
+    if not cron:
+        return ""
+    now_dt = _now_beijing(now if isinstance(now, datetime) else None)
     runs = next_cron_runs(cron, count=1, from_dt=_naive_local(now_dt))
     if runs:
         next_dt = runs[0].replace(tzinfo=BEIJING_TZ)
@@ -215,8 +268,10 @@ def compute_backoff_duty_iso(
     now: Any | None = None,
 ) -> str:
     """Skip ahead in the cron series when consecutive no-ops trigger backoff."""
-    now_dt = _now_beijing(now if isinstance(now, datetime) else None)
     cron = resolve_role_cron(role)
+    if not cron:
+        return ""
+    now_dt = _now_beijing(now if isinstance(now, datetime) else None)
     count = max(1, int(scale or 1))
     runs = next_cron_runs(cron, count=count, from_dt=_naive_local(now_dt))
     if not runs:
@@ -227,6 +282,8 @@ def compute_backoff_duty_iso(
 
 def resolve_next_duty_display(role: ProactiveRole, *, now: Any | None = None) -> str:
     """Authoritative next-duty ISO for API: stored future value or fresh compute."""
+    if not resolve_role_cron(role):
+        return ""
     now_dt = _now_beijing(now if isinstance(now, datetime) else None)
     stored_raw = str(role.next_heartbeat_at or "").strip()
     if stored_raw:
@@ -244,8 +301,14 @@ def resolve_next_duty_display(role: ProactiveRole, *, now: Any | None = None) ->
 
 
 def schedule_summary_for_role(role: ProactiveRole) -> str:
-    return cron_human_summary(resolve_role_cron(role))
+    cron = resolve_role_cron(role)
+    if not cron:
+        return "关闭巡检"
+    return cron_human_summary(cron)
 
 
 def cron_matches_role_now(role: ProactiveRole, when: datetime | None = None) -> bool:
-    return cron_matches_at(resolve_role_cron(role), _naive_local(_now_beijing(when)))
+    cron = resolve_role_cron(role)
+    if not cron:
+        return False
+    return cron_matches_at(cron, _naive_local(_now_beijing(when)))

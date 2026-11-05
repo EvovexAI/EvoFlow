@@ -441,16 +441,15 @@ def format_entity_catalog_lines(
 ) -> list[str]:
     """Catalog lines for system-prompt: **filenames only** under kind headings.
 
-    ``MEMORY.md`` 置顶。craft / facts / episodic / journal 只列文件名（自描述名字
-    即索引）；分类靠上方标题。正文不注入——需要细节再用 ``assets`` read/search。
+    ``MEMORY.md`` 置顶。craft / episodic / journal 只列文件名（自描述名字即索引）；
+    长期记忆 standing 整页走 L1，不进 catalog。正文不注入——需要细节再用
+    ``assets`` read/search。``include_facts`` 保留兼容参数，默认不再列出（产品已去掉「条目」）。
     """
+    _ = include_facts  # legacy; product IA no longer surfaces facts as a primary kind
     lines: list[str] = ["- MEMORY.md"]
 
     craft_rows = (
         [_catalog_filename(r["path"]) for r in list_craft_catalog(entity)] if include_craft else []
-    )
-    facts_rows = (
-        [_catalog_filename(r["path"]) for r in list_fact_catalog(entity)] if include_facts else []
     )
     episode_rows = (
         [_catalog_filename(r["path"]) for r in list_episode_catalog(entity)]
@@ -465,8 +464,7 @@ def format_entity_catalog_lines(
 
     for heading, rows in (
         ("craft · 经验/做法", craft_rows),
-        ("facts · 事实", facts_rows),
-        ("episodic · 过程复盘", episode_rows),
+        ("episodic · 过程", episode_rows),
         ("journal · 反思", journal_rows),
     ):
         lines.extend(_format_kind_section_lines(heading=heading, rows=rows))

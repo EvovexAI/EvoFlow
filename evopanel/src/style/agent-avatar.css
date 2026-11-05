@@ -64,7 +64,8 @@
 }
 
 .agent-avatar-picker-overlay {
-  z-index: 12000;
+  /* Above .modal-overlay / .hire-overlay (1000020) so picker opens on top of 编辑岗位 */
+  z-index: 1000030;
   display: flex;
   align-items: center;
   justify-content: center;

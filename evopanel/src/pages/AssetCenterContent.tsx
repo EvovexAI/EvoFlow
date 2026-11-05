@@ -15,9 +15,7 @@ import {
   Maximize2,
   ArrowRightLeft,
   Activity,
-  Inbox,
   Clock,
-  ScanSearch,
   Quote,
   Folder,
   FileText,
@@ -63,7 +61,7 @@ type AssetTab =
 
 type TreeTab = "memory" | "experience" | "journal";
 
-type MemoryKind = "standing" | "facts" | "episodic" | "inbox";
+type MemoryKind = "standing" | "facts" | "episodic";
 
 type Entity = { entityType: string; entityId: string; label?: string; workspacePath?: string };
 
@@ -106,29 +104,9 @@ type UsageStatsPayload = {
     totalUses?: number;
     totalCites?: number;
     stale?: number;
-    inboxPending?: number;
   };
   hot?: UsageStatsRow[];
   stale?: UsageStatsRow[];
-};
-
-type MemoryRunRow = {
-  id?: string;
-  createdAt?: string;
-  finishedAt?: string;
-  phase?: string;
-  trigger?: string;
-  threadId?: string;
-  agentName?: string;
-  /** 操作人 = 运行时身份 principal_id */
-  principalId?: string;
-  operatorId?: string;
-  entityType?: string;
-  entityId?: string;
-  status?: string;
-  skipReason?: string;
-  errorMessage?: string;
-  paths?: string[];
 };
 
 const ASSET_TABS: { id: AssetTab; label: string; icon: React.ReactNode }[] = [
@@ -141,40 +119,35 @@ const ASSET_TABS: { id: AssetTab; label: string; icon: React.ReactNode }[] = [
   { id: "manage", label: "管理", icon: <Settings2 size={16} strokeWidth={1.6} /> },
 ];
 
-/** 记忆 Tab 主分类：两类正文。standing / inbox 是派生或草稿，不当主分段。 */
-const MEMORY_CONTENT_KINDS: { id: "facts" | "episodic"; label: string; hint: string; desc: string }[] = [
+/** 记忆 Tab 主分类：长期记忆 + 过程。 */
+const MEMORY_CONTENT_KINDS: { id: "standing" | "episodic"; label: string; hint: string; desc: string }[] = [
   {
-    id: "facts",
-    label: "条目",
-    hint: "memory/facts/",
-    desc: "一条一条的明细：偏好、约束、短事实；说「记住…」或点「记一条」。",
+    id: "standing",
+    label: "长期记忆",
+    hint: "memory/standing.md",
+    desc: "本实体的整体记忆（偏好 / Tips / 文件名索引）；每次聊天整页注入。对话里 assets note kind=preference。",
   },
   {
     id: "episodic",
     label: "过程",
     hint: "memory/episodic/",
-    desc: "某次对话做了什么、结论是什么；空闲后系统自动写，也可侧栏「记录过程」。",
+    desc: "某次对话做了什么、结论是什么；对话里 assets note kind=process。",
   },
 ];
 
 const STANDING_META = {
   id: "standing" as const,
-  label: "记忆摘要",
+  label: "长期记忆",
   hint: "memory/standing.md",
-  desc: "从条目与过程等压出的总览一页；每次聊天先看，一般不用手改。",
-};
-
-const INBOX_META = {
-  id: "inbox" as const,
-  label: "待整合",
-  hint: "memory/_inbox/notes/",
-  desc: "对话刚写下的草稿，磁盘上立刻有；下一轮 AI 已能用。空闲后系统会合进条目/过程/经验。",
+  desc: "本实体的整体记忆（偏好 / Tips / 文件名索引）；每次聊天整页注入。",
 };
 
 function memoryKindMeta(kind: MemoryKind) {
-  if (kind === "standing") return STANDING_META;
-  if (kind === "inbox") return INBOX_META;
-  return MEMORY_CONTENT_KINDS.find((k) => k.id === kind) || MEMORY_CONTENT_KINDS[0];
+  if (kind === "facts") {
+    // Legacy deep-link: facts UI retired → surface as 长期记忆.
+    return STANDING_META;
+  }
+  return MEMORY_CONTENT_KINDS.find((k) => k.id === kind) || STANDING_META;
 }
 
 const ENTITY_GROUPS: { key: string; label: string; types: string[] }[] = [
@@ -185,7 +158,7 @@ const ENTITY_GROUPS: { key: string; label: string; types: string[] }[] = [
 /**
  * Tab IA:
  * - 画像：仅「我」(user)。员工共享用户画像，不设画像 Tab。
- * - 情感：仅员工（每人独立 affect.md / person_affect）。
+ * - 情感：仅员工 / agent（每人独立 profile/affect.md；模型用 assets affect 主动改）。
  */
 function assetTabsForEntity(entityType: string): typeof ASSET_TABS {
   const et = String(entityType || "").trim().toLowerCase();
@@ -193,7 +166,11 @@ function assetTabsForEntity(entityType: string): typeof ASSET_TABS {
     return ASSET_TABS.filter((t) => t.id !== "affect");
   }
   if (et === "employee") {
-    return ASSET_TABS.filter((t) => t.id !== "profile");
+    // Keep 情感 near the front so it is not lost in a long tab strip.
+    const tabs = ASSET_TABS.filter((t) => t.id !== "profile");
+    const affect = tabs.find((t) => t.id === "affect");
+    const rest = tabs.filter((t) => t.id !== "affect");
+    return affect ? [rest[0], affect, ...rest.slice(1)] : tabs;
   }
   // Workspaces are memory vaults.
   if (et === "workspace") {
@@ -359,8 +336,8 @@ function assetsHrefForPath(
   else if (rel.startsWith("profile/")) params.set("tab", "profile");
   else params.set("tab", "memory");
   if (rel.startsWith("memory/episodic/")) params.set("memoryKind", "episodic");
-  else if (rel.startsWith("memory/_inbox")) params.set("memoryKind", "inbox");
-  else if (rel.startsWith("memory/facts/") || rel === "memory/MEMORY.md") params.set("memoryKind", "facts");
+  else if (rel.startsWith("memory/facts/") || rel === "memory/MEMORY.md")
+    params.set("memoryKind", "standing");
   else if (/(^|\/)standing(\.md)?$/i.test(rel) || rel.includes("/standing."))
     params.set("memoryKind", "standing");
   if (opts?.entityType) params.set("entityType", opts.entityType);
@@ -453,15 +430,14 @@ function hashSpecifiesEntity(): boolean {
 function initialMemoryKind(): MemoryKind {
   const q = parseHashQuery();
   const k = String(q.memoryKind || q.kind || "").trim().toLowerCase();
-  // legacy deep-link memoryKind=graph → facts (asset-hub memory graph UI removed)
-  if (k === "graph") return "facts";
-  if (k === "standing" || k === "facts" || k === "episodic" || k === "inbox") return k;
+  // legacy deep-link memoryKind=graph|facts|inbox → standing（长期记忆）
+  if (k === "graph" || k === "facts" || k === "inbox") return "standing";
+  if (k === "standing" || k === "episodic") return k;
   const path = normalizeDeepLinkPath(String(q.path || ""));
   if (path.startsWith("memory/episodic/")) return "episodic";
   if (/(^|\/)standing(\.md)?$/i.test(path) || path.includes("/standing.")) return "standing";
-  if (path.startsWith("memory/_inbox")) return "inbox";
-  if (path.startsWith("memory/facts/") || path === "memory/MEMORY.md") return "facts";
-  return "facts";
+  if (path.startsWith("memory/facts/") || path === "memory/MEMORY.md") return "standing";
+  return "standing";
 }
 
 function initialOpenPath(): string {
@@ -521,7 +497,6 @@ export default function AssetCenterContent() {
   const [exportHint, setExportHint] = useState("");
   const [memoryKind, setMemoryKind] = useState<MemoryKind>(initialMemoryKind);
   const [usageStats, setUsageStats] = useState<UsageStatsPayload | null>(null);
-  const [memoryRuns, setMemoryRuns] = useState<MemoryRunRow[]>([]);
   const [statsBusy, setStatsBusy] = useState(false);
   const pendingOpenPath = useRef(initialOpenPath());
   /** Blocks auto-select-first-file while a deep-link browse+open is in flight. */
@@ -573,6 +548,7 @@ export default function AssetCenterContent() {
       const nextPath = String(data?.path || rel || "");
       let entries: TreeEntry[] = Array.isArray(data?.entries) ? data.entries : [];
       if (activeTab === "memory" && nextPath === "memory") {
+        entries = entries.filter((e) => e.name !== "_inbox" && e.name !== "facts");
         if (memoryKind === "standing") {
           entries = entries.filter((e) => e.name === "standing.md");
         } else {
@@ -673,10 +649,14 @@ export default function AssetCenterContent() {
         } catch {
           /* standing may not exist yet */
         }
-      } else if (kind === "inbox") {
-        await loadTree("memory/_inbox/notes");
       } else if (kind === "facts") {
-        await loadTree("memory/facts");
+        // Legacy：条目已并入长期记忆
+        await loadTree("memory");
+        try {
+          await loadFile("memory/standing.md");
+        } catch {
+          /* ignore */
+        }
       } else {
         await loadTree("memory/episodic");
       }
@@ -689,16 +669,8 @@ export default function AssetCenterContent() {
     try {
       const data = await api.assetsUsageStats({ ...currentEntity, topN: 12 });
       setUsageStats((data as UsageStatsPayload) || null);
-      try {
-        const runsOut = await api.assetsMemoryRuns({ ...currentEntity, limit: 20 });
-        const rows = Array.isArray(runsOut?.runs) ? runsOut.runs : [];
-        setMemoryRuns(rows as MemoryRunRow[]);
-      } catch {
-        setMemoryRuns([]);
-      }
     } catch (e: unknown) {
       setUsageStats(null);
-      setMemoryRuns([]);
       toast.error(String((e as { message?: string })?.message || e));
     } finally {
       setStatsBusy(false);
@@ -912,7 +884,7 @@ export default function AssetCenterContent() {
       const rel = normalizeDeepLinkPath(pending);
       const parent = parentAssetDir(rel);
       const root = treeRootForTab(activeTab) || "";
-      // Deep-link：先切到文件所在目录（_inbox / craft 子路径），再打开文件；避免停在 facts 根却读别处。
+      // Deep-link：先切到文件所在目录（craft 子路径等），再打开文件。
       const parentUnderRoot =
         !!parent &&
         (!root || parent === root || parent.startsWith(`${root}/`));
@@ -1027,7 +999,7 @@ export default function AssetCenterContent() {
   function changeTab(tab: AssetTab) {
     setActiveTab(tab);
     setFileSearch("");
-    if (tab === "memory") setMemoryKind("facts");
+    if (tab === "memory") setMemoryKind("standing");
   }
 
   // 页面内切换实体 / Tab 时同步 hash：否则刷新、重新进入或从别处跳回时仍读旧实体，
@@ -1066,23 +1038,15 @@ export default function AssetCenterContent() {
         if (rel.startsWith("memory/episodic/")) nextKind = "episodic";
         else if (/(^|\/)standing(\.md)?$/i.test(rel) || rel.includes("/standing."))
           nextKind = "standing";
-        else if (rel.startsWith("memory/_inbox")) nextKind = "inbox";
-        else if (rel.startsWith("memory/facts/") || rel === "memory/MEMORY.md") nextKind = "facts";
-        else nextKind = "facts";
+        else if (rel.startsWith("memory/facts/") || rel === "memory/MEMORY.md") nextKind = "standing";
+        else nextKind = "standing";
       } else return;
       if (tab === activeTab) {
         if (tab === "memory") {
           const kind = nextKind || memoryKind;
           if (kind !== memoryKind) setMemoryKind(kind);
           const parent = parentAssetDir(rel);
-          const standardKindRoot =
-            kind === "episodic"
-              ? "memory/episodic"
-              : kind === "standing"
-                ? "memory"
-                : kind === "inbox"
-                  ? "memory/_inbox/notes"
-                  : "memory/facts";
+          const standardKindRoot = kind === "episodic" ? "memory/episodic" : "memory";
           const browseParent =
             !!parent &&
             parent !== standardKindRoot &&
@@ -1129,8 +1093,8 @@ export default function AssetCenterContent() {
   }, [activeTab, currentEntity, loadTree, loadFile]);
 
   const afterFactSaved = useCallback(() => {
-    if (activeTab === "memory" && memoryKind === "facts") {
-      void loadTree("memory/facts");
+    if (activeTab === "memory" && memoryKind === "standing") {
+      void loadTree("memory");
     }
     if (activeTab === "overview" || activeTab === "manage") {
       void loadUsageStats();
@@ -1279,20 +1243,6 @@ export default function AssetCenterContent() {
                 onNewJournal={() => void createTodayJournal()}
                 onOpenTab={changeTab}
                 onOpenPath={openPath}
-                onConsolidate={async () => {
-                  try {
-                    setStatsBusy(true);
-                    const out = await api.assetsPhase2Consolidate(currentEntity);
-                    const skipped = out?.skipped;
-                    if (skipped) toast.info(`Phase2 跳过：${skipped}`);
-                    else toast.success("Phase2 整合完成");
-                    await loadUsageStats();
-                  } catch (e: unknown) {
-                    toast.error(String((e as { message?: string })?.message || e));
-                  } finally {
-                    setStatsBusy(false);
-                  }
-                }}
               />
             ) : activeTab === "manage" ? (
               <ManageWorkspace
@@ -1307,7 +1257,6 @@ export default function AssetCenterContent() {
                 exportHint={exportHint}
                 busy={statsBusy}
                 stats={usageStats}
-                memoryRuns={memoryRuns}
                 onRefreshStats={() => void loadUsageStats()}
                 onQuickFact={() => setFactOpen(true)}
                 onImportPack={() => setImportOpen(true)}
@@ -1329,39 +1278,6 @@ export default function AssetCenterContent() {
                       toast.success(
                         `迁移完成：经验 ${res?.experiences?.migrated ?? 0}，记忆 ${res?.memory?.mirrored ?? 0}`,
                       );
-                    await loadUsageStats();
-                  } catch (e: unknown) {
-                    toast.error(String((e as { message?: string })?.message || e));
-                  } finally {
-                    setStatsBusy(false);
-                  }
-                }}
-                onScanAll={async () => {
-                  try {
-                    setStatsBusy(true);
-                    const out = await api.assetsPhase2Scan({ maxEntities: 24 });
-                    const skipped = out?.skipped;
-                    if (skipped) {
-                      toast.info(`全库扫描跳过：${skipped}`);
-                      return;
-                    }
-                    const ran = Number(out?.ran ?? 0);
-                    const scanned = Number(out?.scanned ?? 0);
-                    toast.success(`全库扫描完成：${ran}/${scanned} 个实体已整合`);
-                    await loadUsageStats();
-                  } catch (e: unknown) {
-                    toast.error(String((e as { message?: string })?.message || e));
-                  } finally {
-                    setStatsBusy(false);
-                  }
-                }}
-                onConsolidate={async () => {
-                  try {
-                    setStatsBusy(true);
-                    const out = await api.assetsPhase2Consolidate(currentEntity);
-                    const skipped = out?.skipped;
-                    if (skipped) toast.info(`Phase2 跳过：${skipped}`);
-                    else toast.success("Phase2 整合完成");
                     await loadUsageStats();
                   } catch (e: unknown) {
                     toast.error(String((e as { message?: string })?.message || e));
@@ -1440,7 +1356,8 @@ export default function AssetCenterContent() {
             ) : activeTab === "affect" ? (
               <div className="ac-affect-pane flex min-h-0 flex-1 flex-col">
                 <div className="ac-affect-banner px-4 py-2 text-[12px] leading-snug opacity-70">
-                  每位员工独立的心境镜像（真源在运行时情感库）。用户画像在「我 → 画像」，员工不设画像。
+                  员工独立心境（真源 profile/affect.md）。对话里由模型用 assets affect
+                  主动改写；不会后台自动改。用户画像在「我 → 画像」。
                 </div>
                 <EditorPanel
                   pathLabel="情感 · profile/affect.md"
@@ -1538,6 +1455,7 @@ export default function AssetCenterContent() {
           entityType={entityType}
           entityId={entityId}
           entityName={entityLabel(entities.find((e) => sameEntity(e, { entityType, entityId })))}
+          mode={memoryKind === "episodic" ? "episodic" : "standing"}
           onClose={() => setFactOpen(false)}
           onSaved={afterFactSaved}
         />
@@ -1749,7 +1667,6 @@ function OverviewPanel({
   onNewJournal,
   onOpenTab,
   onOpenPath,
-  onConsolidate,
 }: {
   entityType: string;
   entityId: string;
@@ -1764,13 +1681,11 @@ function OverviewPanel({
   onNewJournal: () => void;
   onOpenTab: (tab: AssetTab) => void;
   onOpenPath: (path: string) => void;
-  onConsolidate: () => void | Promise<void>;
 }) {
   const totals = stats?.totals || {};
   const maxDays = stats?.maxUnusedDays ?? 90;
   const hot = Array.isArray(stats?.hot) ? stats!.hot! : [];
   const staleRows = Array.isArray(stats?.stale) ? stats!.stale! : [];
-  const inbox = Number(totals.inboxPending || 0);
   const stale = Number(totals.stale || 0);
   const isMe = String(entityType || "").toLowerCase() === "user";
   const owner =
@@ -1794,11 +1709,13 @@ function OverviewPanel({
     tab: AssetTab;
     accent: string;
   }[] = [
+    ...(!isMe
+      ? [{ key: "affect", label: "情感", value: 1, icon: <Heart size={16} />, tab: "affect" as AssetTab, accent: "rose" }]
+      : []),
     { key: "memory", label: "记忆文件", value: Number(totals.memoryFiles ?? 0), icon: <BrainCircuit size={16} />, tab: "memory", accent: "violet" },
     { key: "craft", label: "经验 / 技能", value: Number(totals.craftFiles ?? 0), icon: <Sparkles size={16} />, tab: "experience", accent: "amber" },
     { key: "uses", label: "工具引用", value: Number(totals.totalUses ?? 0), icon: <Activity size={16} />, tab: "manage", accent: "sky" },
     { key: "cites", label: "回复引用", value: Number(totals.totalCites ?? 0), icon: <Quote size={16} />, tab: "manage", accent: "emerald" },
-    { key: "inbox", label: "待整合", value: inbox, icon: <Inbox size={16} />, tab: "manage", accent: "orange" },
     { key: "stale", label: "冷资产", value: stale, icon: <Clock size={16} />, tab: "manage", accent: "slate" },
   ];
 
@@ -1857,7 +1774,7 @@ function OverviewPanel({
             <div className="ac-hero-actions">
               <button type="button" className="ac-cta" onClick={onQuickFact}>
                 <Plus size={15} strokeWidth={2} />
-                记一条
+                记偏好
               </button>
               <button type="button" className="ac-hero-btn" onClick={onImport}>
                 <Download size={15} strokeWidth={1.8} />
@@ -1941,23 +1858,9 @@ function OverviewPanel({
             <h3>需要关注</h3>
             <span className="ac-panel-hint">遗忘窗口 {maxDays} 天</span>
           </div>
-          {inbox > 0 ? (
-            <div className="ac-attention">
-              <div className="ac-attention__row">
-                <Inbox size={15} strokeWidth={1.7} className="ac-attention__icon" />
-                <div className="min-w-0 flex-1">
-                  <b>{inbox} 条待整合</b>
-                  <p>_inbox 草稿 / 笔记等待 Phase2 整合进正式记忆</p>
-                </div>
-                <button type="button" className="ac-btn-secondary" disabled={busy} onClick={() => void onConsolidate()}>
-                  立即整合
-                </button>
-              </div>
-            </div>
-          ) : null}
           {staleRows.length ? (
             <ul className="ac-hot-list">
-              {staleRows.slice(0, inbox > 0 ? 3 : 6).map((row) => (
+              {staleRows.slice(0, 6).map((row) => (
                 <li key={`stale-${row.path}`}>
                   <button
                     type="button"
@@ -1973,11 +1876,11 @@ function OverviewPanel({
                 </li>
               ))}
             </ul>
-          ) : inbox > 0 ? null : (
+          ) : (
             <div className="ac-panel-empty">
               <CheckCircle2 size={18} strokeWidth={1.6} className="ac-panel-empty__ok" />
               <p>一切正常</p>
-              <p className="ac-panel-empty__sub">没有待整合的草稿，也没有超过 {maxDays} 天未使用的冷资产。</p>
+              <p className="ac-panel-empty__sub">没有超过 {maxDays} 天未使用的冷资产。</p>
             </div>
           )}
         </div>
@@ -2022,14 +1925,11 @@ function ManageWorkspace({
   exportHint,
   busy,
   stats,
-  memoryRuns,
   onRefreshStats,
   onQuickFact,
   onImportPack,
   onPack,
   onMigrate,
-  onScanAll,
-  onConsolidate,
   onApply,
 }: {
   vaultRoot: string;
@@ -2045,14 +1945,11 @@ function ManageWorkspace({
   exportHint: string;
   busy: boolean;
   stats: UsageStatsPayload | null;
-  memoryRuns: MemoryRunRow[];
   onRefreshStats: () => void;
   onQuickFact: () => void;
   onImportPack: () => void;
   onPack: () => void | Promise<void>;
   onMigrate: (scope: string) => void | Promise<void>;
-  onScanAll: () => void | Promise<void>;
-  onConsolidate: () => void | Promise<void>;
   onApply: () => void | Promise<void>;
 }) {
   const root = vaultRoot || "~/.evoflow/assets/";
@@ -2106,19 +2003,8 @@ function ManageWorkspace({
             <RefreshCw size={14} strokeWidth={1.6} />
             刷新
           </button>
-          <button type="button" className="ac-btn-secondary" disabled={busy} onClick={() => void onScanAll()}>
-            <ScanSearch size={14} strokeWidth={1.6} />
-            全库扫描
-          </button>
         </ManageSectionHead>
-        <StatsBody
-          stats={stats}
-          memoryRuns={memoryRuns}
-          busy={busy}
-          entityType={entityType}
-          entityId={entityId}
-          onConsolidate={onConsolidate}
-        />
+        <StatsBody stats={stats} entityType={entityType} entityId={entityId} />
       </div>
 
       {/* 导入 */}
@@ -2260,45 +2146,21 @@ function ManageSectionHead({
   );
 }
 
-function memoryRunStatusLabel(status: string): string {
-  const s = String(status || "").toLowerCase();
-  if (s === "ok") return "成功";
-  if (s === "skipped") return "跳过";
-  if (s === "error") return "失败";
-  return s || "—";
-}
-
-function memoryRunTriggerLabel(trigger: string): string {
-  const t = String(trigger || "").toLowerCase();
-  if (t === "queue") return "对话队列";
-  if (t === "startup_scan") return "启动扫描";
-  if (t === "manual") return "手动整合";
-  return t || "—";
-}
-
 function StatsBody({
-  busy,
   stats,
-  memoryRuns = [],
   entityType,
   entityId,
-  onConsolidate,
 }: {
-  busy: boolean;
   stats: UsageStatsPayload | null;
-  memoryRuns?: MemoryRunRow[];
   entityType: string;
   entityId: string;
-  onConsolidate: () => void | Promise<void>;
 }) {
   const totals = stats?.totals || {};
   const maxDays = stats?.maxUnusedDays ?? 90;
   const hot = Array.isArray(stats?.hot) ? stats!.hot! : [];
   const staleRows = Array.isArray(stats?.stale) ? stats!.stale! : [];
-  const inbox = Number(totals.inboxPending || 0);
   const totalUses = Number(totals.totalUses ?? 0);
   const totalCites = Number(totals.totalCites ?? 0);
-  const runs = Array.isArray(memoryRuns) ? memoryRuns : [];
 
   return (
     <div className="ac-stats-wrap">
@@ -2308,7 +2170,7 @@ function StatsBody({
           <div>
             <span className="ac-stat-card__label">记忆文件</span>
             <strong className="ac-stat-card__value">{totals.memoryFiles ?? 0}</strong>
-            <span className="ac-stat-card__hint">facts / episodic / journal / MEMORY</span>
+            <span className="ac-stat-card__hint">standing / episodic / journal</span>
           </div>
         </div>
         <div className="ac-stat-card">
@@ -2325,14 +2187,6 @@ function StatsBody({
             <span className="ac-stat-card__label">回复引用</span>
             <strong className="ac-stat-card__value">{totalCites}</strong>
             <span className="ac-stat-card__hint">evo-asset-citation · cite_count</span>
-          </div>
-        </div>
-        <div className="ac-stat-card">
-          <span className="ac-stat-card__icon"><Inbox size={18} /></span>
-          <div>
-            <span className="ac-stat-card__label">待整合</span>
-            <strong className="ac-stat-card__value">{inbox}</strong>
-            <span className="ac-stat-card__hint">_inbox 草稿 / notes</span>
           </div>
         </div>
         <div className="ac-stat-card">
@@ -2397,59 +2251,6 @@ function StatsBody({
         </div>
       </div>
 
-      {inbox > 0 ? (
-        <div className="ac-consolidate-bar">
-          <Inbox size={15} strokeWidth={1.7} />
-          <span>
-            有 <b>{inbox}</b> 条待整合的草稿 / 笔记
-          </span>
-          <button type="button" className="ac-btn-primary" disabled={busy} onClick={() => void onConsolidate()}>
-            立即整合
-          </button>
-        </div>
-      ) : null}
-
-      <div className="ac-stats-block ac-memory-runs">
-        <h3 className="ac-stats-block__title">最近处理记录</h3>
-        <p className="ac-stats-empty ac-memory-runs__hint">
-          Phase1 抽取 / Phase2 整合的落库记录（对话队列、启动扫描、手动）。用来确认员工记忆是否真正跑过。
-        </p>
-        {runs.length ? (
-          <ul className="ac-memory-runs__list">
-            {runs.map((row) => {
-              const status = String(row.status || "");
-              const detail =
-                status === "skipped"
-                  ? row.skipReason || ""
-                  : status === "error"
-                    ? row.errorMessage || ""
-                    : Array.isArray(row.paths) && row.paths.length
-                      ? row.paths.slice(0, 3).join(", ")
-                      : "";
-              return (
-                <li key={row.id || `${row.createdAt}-${row.phase}-${row.status}`} className="ac-memory-runs__row">
-                  <div className="ac-memory-runs__main">
-                    <span className={`ac-memory-runs__status is-${status}`}>{memoryRunStatusLabel(status)}</span>
-                    <span className="ac-memory-runs__phase">{row.phase === "phase1" ? "Phase1" : "Phase2"}</span>
-                    <span className="ac-memory-runs__trigger">{memoryRunTriggerLabel(String(row.trigger || ""))}</span>
-                    <span className="ac-memory-runs__time">{formatRelativeTime(row.createdAt || "")}</span>
-                  </div>
-                  <div className="ac-memory-runs__meta">
-                    {(() => {
-                      const op = String(row.operatorId || row.principalId || "").trim();
-                      return op ? <span title={op}>操作人 · {op.length > 24 ? `${op.slice(0, 22)}…` : op}</span> : null;
-                    })()}
-                    {row.threadId ? <span title={row.threadId}>thread · {row.threadId.slice(0, 10)}…</span> : null}
-                    {detail ? <span className="ac-memory-runs__detail" title={detail}>{detail}</span> : null}
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
-        ) : (
-          <p className="ac-stats-empty">暂无处理记录。与该实体对话并等待防抖后，或点「立即整合 / 全库扫描」会出现在此。</p>
-        )}
-      </div>
     </div>
   );
 }
@@ -2511,22 +2312,12 @@ function TreeWorkspace({
       memoryKind === "episodic"
         ? {
             title: "还没有过程记录",
-            desc: "对话结束空闲后，系统会自动写一篇过程摘要；也可在聊天侧栏点「记录过程」。",
+            desc: "在对话里 assets(action=\"note\", kind=\"process\", content=\"…\") 一步写入。",
           }
-        : memoryKind === "standing"
-          ? {
-              title: "还没有记忆摘要",
-              desc: "系统整理记忆时会自动生成这一页总览；一般不用手改，需要时也可直接编辑。",
-            }
-          : memoryKind === "inbox"
-            ? {
-                title: "没有待整合草稿",
-                desc: "对话里 assets note 写下的草稿会出现在这里；下一轮 AI 已能用，空闲后会合进正式目录。",
-              }
-            : {
-                title: "还没有条目",
-                desc: "在聊天里说「记住…」，或点右上角「记一条」；以后聊天我会自动参考。",
-              },
+        : {
+              title: "还没有长期记忆",
+              desc: "在对话里 assets note kind=preference，或直接编辑 memory/standing.md。",
+            },
     experience: {
       title: "还没有经验",
       desc: "经验（craft）来自对话中的沉淀与 Skills 市场安装，安装后可在此查看与修改。",
@@ -2542,7 +2333,7 @@ function TreeWorkspace({
     tab === "memory" ? (
       <button type="button" className="ac-btn-ghost" onClick={onQuickFact}>
         <Plus size={13} strokeWidth={1.8} />
-        记一条
+        {memoryKind === "episodic" ? "记过程" : "记偏好"}
       </button>
     ) : tab === "journal" ? (
       <button type="button" className="ac-btn-ghost" onClick={onNewJournal}>
@@ -2579,36 +2370,7 @@ function TreeWorkspace({
             })}
           </div>
           <p className="ac-seg-desc" data-testid="memory-kind-desc">
-            {activeKind.desc}{" "}
-            {memoryKind === "standing" || memoryKind === "inbox" ? (
-              <button
-                type="button"
-                className="ac-seg-secondary is-active"
-                onClick={() => onMemoryKindChange("facts")}
-              >
-                回条目
-              </button>
-            ) : (
-              <>
-                <button
-                  type="button"
-                  className="ac-seg-secondary"
-                  title={STANDING_META.hint}
-                  onClick={() => onMemoryKindChange("standing")}
-                >
-                  记忆摘要
-                </button>
-                {" · "}
-                <button
-                  type="button"
-                  className="ac-seg-secondary"
-                  title={INBOX_META.hint}
-                  onClick={() => onMemoryKindChange("inbox")}
-                >
-                  待整合
-                </button>
-              </>
-            )}
+            {activeKind.desc}
           </p>
           <div className="ac-toolbar-right">{toolbarRight}</div>
         </div>
@@ -2647,7 +2409,7 @@ function TreeWorkspace({
                 tab === "memory" ? (
                   <button type="button" className="ac-cta" onClick={onQuickFact}>
                     <Plus size={15} strokeWidth={2} />
-                    记一条
+                    {memoryKind === "episodic" ? "记过程" : "记偏好"}
                   </button>
                 ) : tab === "journal" ? (
                   <button type="button" className="ac-cta" onClick={onNewJournal}>
@@ -3056,12 +2818,14 @@ function QuickFactModal({
   entityType,
   entityId,
   entityName,
+  mode = "standing",
   onClose,
   onSaved,
 }: {
   entityType: string;
   entityId: string;
   entityName: string;
+  mode?: "standing" | "episodic";
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -3069,6 +2833,7 @@ function QuickFactModal({
   const [title, setTitle] = useState("");
   const [saving, setSaving] = useState(false);
   const areaRef = useRef<HTMLTextAreaElement>(null);
+  const isProcess = mode === "episodic";
 
   useEffect(() => {
     areaRef.current?.focus();
@@ -3077,18 +2842,27 @@ function QuickFactModal({
   const submit = async () => {
     const text = content.trim();
     if (!text) {
-      toast.error("请输入要记住的内容");
+      toast.error(isProcess ? "请输入过程内容" : "请输入要记住的内容");
       return;
     }
     setSaving(true);
     try {
-      await api.assetsRecord({
-        entityType,
-        entityId,
-        content: text,
-        title: title.trim(),
-        summary: "",
-      });
+      if (isProcess) {
+        await api.assetsEpisode({
+          entityType,
+          entityId,
+          content: text,
+          title: title.trim(),
+          summary: "",
+        });
+      } else {
+        const body = title.trim() ? `${title.trim()}：${text}` : text;
+        await api.assetsStandingAppend({
+          entityType,
+          entityId,
+          content: body,
+        });
+      }
       toast.success("已记下");
       onSaved();
       onClose();
@@ -3101,8 +2875,12 @@ function QuickFactModal({
 
   return (
     <ModalShell
-      title="记一条"
-      desc={`这条会记进「${entityName}」的条目明细里，以后聊天我会自动参考；随时可以打开改掉。`}
+      title={isProcess ? "记过程" : "记偏好"}
+      desc={
+        isProcess
+          ? `这条会记进「${entityName}」的过程目录，一步到位。`
+          : `这条会追加进「${entityName}」的长期记忆（standing），以后聊天整页注入。`
+      }
       onClose={onClose}
       footer={
         <>
@@ -3123,7 +2901,11 @@ function QuickFactModal({
           value={content}
           onChange={(e) => setContent(e.target.value)}
           rows={4}
-          placeholder="例如：我习惯用 Python 写脚本，包管理用 uv。"
+          placeholder={
+            isProcess
+              ? "例如：本轮完成样片验收，确认禁用 mini。"
+              : "例如：永远禁用 mini 档模型；汇报先给结论。"
+          }
           className="ac-field__input"
         />
       </label>
@@ -3133,7 +2915,7 @@ function QuickFactModal({
           type="text"
           value={title}
           onChange={(e) => setTitle(e.target.value)}
-          placeholder="例如：开发环境偏好"
+          placeholder={isProcess ? "例如：样片验收" : "例如：视频型号硬约束"}
           className="ac-field__input"
         />
       </label>

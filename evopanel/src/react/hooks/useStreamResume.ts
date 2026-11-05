@@ -1,6 +1,9 @@
 ﻿/**
  * Stream resume — manual refresh (F5 / sidebar) and Feishu/IM observer history-watch.
  * Uses messages history-watch (no stream-resume SSE); V4 also refreshEvoflowV4Session each tick.
+ *
+ * 名字里有 Resume，但 **不要** 再接到 `wsClient.resumeChatStream` / `/stream-resume`。
+ * 空 live SSE 续看同路径：见 `ws-client._recoverAfterEmptyLiveSse`。
  */
 import { useEffect, useRef, useState, type MutableRefObject, type RefObject } from 'react'
 import type { ChatSessionRow } from '../chat-types.js'

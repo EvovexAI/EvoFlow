@@ -79,6 +79,11 @@ def _role_wants_scheduled_patrol(role: Any) -> bool:
     cfg = getattr(role, "config", None)
     if cfg is not None and bool(getattr(cfg, "auto_patrol_suspended", False)):
         return False
+    from evoflow.proactive.schedule import is_schedule_off, resolve_role_cron
+
+    stored = str(getattr(role, "heartbeat_schedule", "") or "").strip()
+    if is_schedule_off(stored) or not resolve_role_cron(role):
+        return False
     return True
 
 
@@ -89,7 +94,7 @@ def build_employee_automation_doc(role: Any) -> dict[str, Any]:
     code = str(getattr(role, "agent_code", "") or "").strip()
     name = str(getattr(role, "role_name", "") or "").strip() or code
     cron = resolve_role_cron(role)
-    active = _role_wants_scheduled_patrol(role)
+    active = _role_wants_scheduled_patrol(role) and bool(cron)
     now = utc_now_iso_z()
     return {
         "name": f"员工上班 · {name}",

@@ -756,11 +756,21 @@ class ProactiveRepository:
                 continue
             if getattr(role.config, "auto_patrol_suspended", False):
                 continue
+            try:
+                from evoflow.proactive.schedule import is_schedule_off
+
+                if is_schedule_off(getattr(role, "heartbeat_schedule", None)):
+                    continue
+            except Exception:
+                pass
             nh = str(role.next_heartbeat_at or "").strip()
             if not nh:
                 # Schedule forward; do not fire on this tick.
                 try:
                     nxt = compute_next_duty_iso(role)
+                    if not nxt:
+                        # Schedule off / no cron — leave next empty, never due.
+                        continue
                     ProactiveRepository.update_heartbeat(
                         code,
                         last_heartbeat_at=role.last_heartbeat_at or now_iso,

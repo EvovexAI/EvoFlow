@@ -1251,13 +1251,30 @@ html[data-liquid-glass-webgl='1'] .role-filter-select {
   height: auto;
   overflow: visible;
 }
-/* Card keeps a compact clickable face; “更换头像” text lives in the picker sheet. */
+/* Compact face + short「更换」hint so avatar edit is discoverable in 编辑岗位. */
+.hire-agent-card .agent-avatar-picker-summary {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
 .hire-agent-card .agent-avatar-picker-summary-actions {
+  display: flex;
+  gap: 4px;
+}
+.hire-agent-card .agent-avatar-picker-summary-actions .btn {
+  padding: 2px 8px;
+  font-size: 11px;
+  line-height: 1.3;
+  min-height: 0;
+}
+.hire-agent-card .agent-avatar-picker-summary-actions .agent-avatar-picker-reset {
   display: none;
 }
 .hire-agent-card .agent-avatar-picker-trigger {
   border-radius: 12px;
   transition: box-shadow 0.15s ease;
+  cursor: pointer;
 }
 .hire-agent-card .agent-avatar-picker-trigger:hover {
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--hire-accent, #6366f1) 45%, transparent);
