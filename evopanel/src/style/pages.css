@@ -3517,6 +3517,61 @@ html.dark .config-section-title {
   border: 1px solid color-mix(in srgb, var(--td-mode-accent, #2563eb) 28%, transparent);
 }
 
+/* Hero 区 inline badges（替代 meta-line / status-line） */
+.task-detail-page .td-hero-inline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  min-width: 0;
+}
+
+.task-detail-page .td-hero-badge {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border: 1px solid;
+}
+
+.task-detail-page .td-hero-badge--transfer {
+  background: #fef3c7;
+  color: #92400e;
+  border-color: #fcd34d;
+}
+
+.task-detail-page .td-hero-badge--handler {
+  background: #e0e7ff;
+  color: #3730a3;
+  border-color: #c7d2fe;
+}
+
+.task-detail-page .td-hero-badge--progress {
+  background: #d1fae5;
+  color: #065f46;
+  border-color: #a7f3d0;
+}
+
+.task-detail-page .td-hero-badge--app {
+  background: #f3e8ff;
+  color: #6b21a8;
+  border-color: #e9d5ff;
+}
+
+.task-detail-page .td-hero-badge--risk {
+  background: #fee2e2;
+  color: #7f1d1d;
+  border-color: #fca5a5;
+}
+
 /* ???????????????????????????????????????? */
 .task-detail-page.td-tab--logs .td-shell {
   max-width: none;
@@ -4333,6 +4388,54 @@ html.dark .config-section-title {
 
 .task-detail-page .td-card--result {
   border-color: color-mix(in srgb, #22c55e 28%, #e5e7eb);
+}
+
+/* 工作流「运行结果」紧凑卡：标题+结论同行，统计一行小标签，减少纵向占位 */
+.task-detail-page .td-card--result-compact {
+  padding: 12px 16px;
+}
+
+.task-detail-page .td-result-head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+}
+
+.task-detail-page .td-result-head .td-card-title {
+  margin: 0;
+  flex: none;
+}
+
+.task-detail-page .td-result-headline {
+  font-size: var(--ef-text-sm);
+  color: color-mix(in srgb, var(--td-ink) 82%, #6b7280);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.task-detail-page .td-result-bits {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.task-detail-page .td-result-bits li {
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--td-muted);
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--td-bg);
+  border: 1px solid var(--td-border);
+  white-space: nowrap;
+}
+
+.task-detail-page .td-card--result-compact .td-card-actions {
+  margin-top: 10px;
 }
 
 .task-detail-page .td-findings,
