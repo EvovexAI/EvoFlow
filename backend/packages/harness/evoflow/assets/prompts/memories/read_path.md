@@ -8,10 +8,10 @@
 
 | 我要做的 | 怎么做 | 落点 |
 |---|---|---|
-| 记跨领域都该遵守的（称呼、硬禁令、协作方式）| `assets note kind=preference` | `memory/standing.md` |
-| 记这次的经过与结论 | `assets note kind=process` | `memory/episodic/` |
-| 记同类事照着做的步骤/配方/话术 | `assets note kind=experience` | `craft/` |
-| 记短教训、下次别再犯 | `assets note kind=reflection` | `memory/journal/` |
+| 记跨领域都该遵守的（称呼、硬禁令、协作方式）| `assets note` | `memory/standing.md` |
+| 记这次的经过与结论 | `assets note` | `memory/episodic/` |
+| 记同类事照着做的步骤/配方/话术 | `assets note` | `craft/` |
+| 记短教训、下次别再犯 | `assets note` | `memory/journal/` |
 | 记称呼、身份画像 | `assets profile` | `profile/` |
 | 记自己的心境 | `assets affect` | `profile/affect.md` |
 | 找记忆 | `assets search <关键词>` / `list` / `read` | — |

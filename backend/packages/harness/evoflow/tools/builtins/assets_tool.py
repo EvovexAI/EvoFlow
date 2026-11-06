@@ -198,10 +198,6 @@ def assets_tool(
 
     落点、何时写、何时更新：以系统提示 ``## Entity assets``（read_path）为准，此处不重复。
 
-    Paths (kind → file): preference→standing.md；process→episodic/；
-    experience→craft/；reflection→journal/；profile→USER.md；affect→affect.md.
-    note 新建时文件名取正文第一行标题（须短且自描述，见系统提示 Entity assets）。
-
     Actions: search | read | list | note | write | delete | rename | profile | affect.
     note 必须带 kind；write 默认**追加**（mode=replace 才整份覆盖）；
     delete 删一个文件（不可撤销，先 read 确认过时）；rename 改文件名（content 传新名，只在同目录内）。
