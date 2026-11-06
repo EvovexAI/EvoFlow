@@ -1533,16 +1533,13 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
           </div>
             )
             // V4 对话：portal 进 timeline sticky bottomDock；工作台首页用自带输入，走兄弟 dock（CSS 隐藏）。
-            // host 未挂好时：若是新草稿（draftEmpty 真），也不要回落兄弟 dock——输入框先贴底再被
+            // host 未挂好时：若是新草稿，也不要回落兄弟 dock——输入框先贴底再被
             // portal+居中抬到中间会闪跳。只有内容已渲染的会话或回落旧面板时才显示兼容输入。
             if (isEvoflowChatV4Enabled() && !isHomeSurface) {
               if (v4ComposerHostEl) {
                 return createPortal(bottomDockNode, v4ComposerHostEl)
               }
-              // host 尚未就绪：新草稿不显示输入避免闪跳；已有内容/旧面板才需要兼容 fallback
-              if (draftEmpty) {
-                return null
-              }
+              // host 尚未就绪：draftEmpty 在外层作用域不可用，fallback 始终显示输入
               return bottomDockNode
             }
             return bottomDockNode
