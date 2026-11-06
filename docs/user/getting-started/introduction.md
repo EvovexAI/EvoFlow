@@ -17,7 +17,9 @@
 
 ## 1. 一句话定义
 
-EvoFlow 是基于 LangGraph 构建的 AI Agent 运行时。你给它一个目标，它会自主规划、调用工具、委派子 Agent、读写文件、执行命令——直到任务完成。
+**本项目后续由 EvoFlow 研发部的 AI 员工持续迭代，自我进化优化。**
+
+EvoFlow 是 **进化的工作流（Evolutionary Workflow）**：基于 LangGraph 的 AI Agent 运行时 + 智能体员工组织。你给它一个目标，它会自主规划、调用工具、委派子 Agent、读写文件、执行命令——直到任务完成。
 
 ## 2. 与传统对话式 Agent 的差异
 
