@@ -24,11 +24,22 @@ const kindIcon: Record<string, string> = {
 }
 
 /**
- * 状态枚举 → 中文 + 语义色。
- * outcome 存的是终态原始值（completed / failed / stopped / cancelled / running …），
- * 直接显示英文对中文界面对用户不友好，这里统一转中文并配状态色。
+ * 状态 → 中文短标签 + 语义色。
+ * outcome 的真实取值有两类：英文枚举（completed / failed / stopped …，如 workflow_finished）
+ * 和中文自由文本（「任务完成」「执行过程中发生错误」「已手动停止」「（未知）」，
+ * 见 useGoalMode / pushGoalClosureNotification）。徽标只有 17px 高，长句必须归一成短标签，
+ * 原文交给 title 悬浮提示，不再塞进徽标。
  */
 type OutcomeTone = 'success' | 'danger' | 'warning' | 'muted'
+
+type OutcomeView = { label: string; tone: OutcomeTone; raw: string }
+
+const OUTCOME_LABEL: Record<OutcomeTone, string> = {
+  success: '已完成',
+  danger: '失败',
+  warning: '已停止',
+  muted: '',
+}
 
 const OUTCOME_MAP: Record<string, { label: string; tone: OutcomeTone }> = {
   completed: { label: '已完成', tone: 'success' },
@@ -37,12 +48,14 @@ const OUTCOME_MAP: Record<string, { label: string; tone: OutcomeTone }> = {
   succeeded: { label: '已完成', tone: 'success' },
   finished: { label: '已完成', tone: 'success' },
   done: { label: '已完成', tone: 'success' },
+  ok: { label: '已完成', tone: 'success' },
   failed: { label: '失败', tone: 'danger' },
   fail: { label: '失败', tone: 'danger' },
   error: { label: '失败', tone: 'danger' },
   errored: { label: '失败', tone: 'danger' },
   stopped: { label: '已停止', tone: 'warning' },
   stop: { label: '已停止', tone: 'warning' },
+  paused: { label: '已暂停', tone: 'warning' },
   cancelled: { label: '已取消', tone: 'warning' },
   canceled: { label: '已取消', tone: 'warning' },
   aborted: { label: '已中止', tone: 'warning' },
@@ -52,16 +65,47 @@ const OUTCOME_MAP: Record<string, { label: string; tone: OutcomeTone }> = {
   queued: { label: '排队中', tone: 'muted' },
 }
 
-/** 把任意终态文案归一成「中文标签 + 色调」；认不出的原样显示为中性色。 */
-function resolveOutcome(raw: string): { label: string; tone: OutcomeTone } | null {
+// 中文 / 混合文本判定，口径与 session-notifications.ts 保持一致（/异常|错误|error/i → 异常，
+// /停止|stop/i → 停止），再补中文成功态与取消/超时，顺序有意义：错误 > 停止 > 取消/超时 > 完成。
+const RE_DANGER = /异常|错误|出错|失败|报错|超时|error|fail/i
+const RE_WARNING = /停止|中止|取消|终止|暂停|stop|cancel|abort|pause/i
+const RE_SUCCESS = /完成|成功|结束|已解决|done|success|complete/i
+
+function matchTone(text: string): OutcomeTone | null {
+  if (RE_DANGER.test(text)) return 'danger'
+  if (RE_WARNING.test(text)) return 'warning'
+  // 「未完成 / 未成功 / 没有完成」是失败态，别被 RE_SUCCESS 的「完成」误判
+  if (/未(能)?(完成|成功)|没有(完成|成功)/.test(text)) return 'danger'
+  if (RE_SUCCESS.test(text)) return 'success'
+  return null
+}
+
+/** 把任意终态文案归一成「中文短标签 + 色调 + 原文」；认不出的保留原文、中性色。 */
+function resolveOutcome(raw: string): OutcomeView | null {
   const text = String(raw || '').trim()
   if (!text) return null
+  // 后端兜底占位值，不当作状态展示
+  if (/^[（(]?\s*(未知|unknown|null|undefined|none)\s*[）)]?$/i.test(text)) return null
+
   const key = text.toLowerCase()
-  if (OUTCOME_MAP[key]) return OUTCOME_MAP[key]
-  // 形如 "completed (3/5)" / "failed: xxx" 带后缀的情况，取首个词判定
+  const exact = OUTCOME_MAP[key]
+  if (exact) return { ...exact, raw: text }
+
+  // 形如 "completed (3/5)" / "failed: xxx" 的英文带后缀情况，取首个词判定
   const head = key.split(/[\s:：(（,，;；]/)[0]
-  if (head && OUTCOME_MAP[head]) return OUTCOME_MAP[head]
-  return { label: text, tone: 'muted' }
+  if (head && OUTCOME_MAP[head]) return { ...OUTCOME_MAP[head], raw: text }
+
+  // 中文自由文本（真实数据源的主要形态）：判定色调，标签统一用短中文
+  const tone = matchTone(text)
+  if (tone === 'success' || tone === 'danger' || tone === 'warning') {
+    return { label: OUTCOME_LABEL[tone], tone, raw: text }
+  }
+  return { label: text, tone: 'muted', raw: text }
+}
+
+/** 徽标显示的是归一后的短标签时，把原文放 title；未归一时原文就是徽标本身，长文本靠 CSS 截断则始终给 title。 */
+function outcomeTooltip(view: OutcomeView): string | undefined {
+  return view.raw
 }
 
 function formatTime(ts: number | string | undefined): string {
@@ -96,12 +140,17 @@ function NotificationItem({
   }, [n.id, n.read, onRead])
 
   const outcome = resolveOutcome(n.outcome)
-  // body 常与 outcome 重复（如 "[Run_xxx] failed"），归一后重复就不再占一行
+  const rawOutcome = String(n.outcome || '').trim()
   const bodyText = String(n.body || '').trim()
-  const showBody =
-    !!bodyText &&
-    bodyText !== String(n.outcome || '').trim() &&
-    !(outcome && bodyText.toLowerCase() === outcome.label.toLowerCase())
+  // body 常见形态是 "[Run_xxx] failed"：剥掉 run 前缀后若只剩状态本身，就没有信息量，不再占一行
+  const bodyPayload = bodyText.replace(/^\s*[[［][^\]］]*[\]］]\s*/, '').trim()
+  const bodyIsEcho =
+    !bodyPayload ||
+    bodyPayload === rawOutcome ||
+    bodyPayload === outcome?.raw ||
+    bodyPayload.toLowerCase() === outcome?.label.toLowerCase()
+  // 判定用剥前缀后的内容，展示仍保留原文（含 run id，便于追溯）
+  const showBody = !!bodyText && !bodyIsEcho
 
   return (
     <div
@@ -109,6 +158,7 @@ function NotificationItem({
       onClick={handleClick}
       role="button"
       tabIndex={0}
+      title={outcome ? outcomeTooltip(outcome) : undefined}
     >
       <span className="session-notify-item-icon" aria-hidden="true">
         {kindIcon[n.kind] || '🔔'}
@@ -120,7 +170,12 @@ function NotificationItem({
         </div>
         <div className="session-notify-item-meta-row">
           {outcome ? (
-            <span className={`session-notify-item-badge is-${outcome.tone}`}>{outcome.label}</span>
+            <span
+              className={`session-notify-item-badge is-${outcome.tone}`}
+              title={outcomeTooltip(outcome)}
+            >
+              {outcome.label}
+            </span>
           ) : null}
           {n.sessionTitle ? (
             <span className="session-notify-item-session">{n.sessionTitle}</span>

@@ -34602,7 +34602,6 @@ html.dark .session-notify-panel-action-btn:hover {
   cursor: pointer;
   transition: background var(--dur-fast);
   border-bottom: 1px solid var(--border-color-soft, rgba(0, 0, 0, 0.04));
-  position: relative;
 }
 
 .session-notify-item:hover {
@@ -34619,7 +34618,10 @@ html.dark .session-notify-item {
   border-bottom-color: var(--border-color-soft, rgba(255, 255, 255, 0.06));
 }
 
-.session-notify-item.is-read {
+/* 已读只淡化内容区，保留失败/停止条目左侧色条的实色辨识度 */
+.session-notify-item.is-read > .session-notify-item-icon,
+.session-notify-item.is-read > .session-notify-item-body,
+.session-notify-item.is-read > .session-notify-item-dot {
   opacity: 0.6;
 }
 
@@ -34655,6 +34657,7 @@ html.dark .session-notify-item {
   flex-shrink: 0;
   display: inline-flex;
   align-items: center;
+  max-width: 120px;
   height: 17px;
   padding: 0 6px;
   border-radius: 4px;
@@ -34663,6 +34666,8 @@ html.dark .session-notify-item {
   line-height: 1;
   letter-spacing: 0.2px;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .session-notify-item-badge.is-success {
