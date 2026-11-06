@@ -304,7 +304,7 @@ def build_user_prompt(
         [
             "## 长期记忆",
             "对照上方 Entity assets 目录检索相关细节：",
-            "  - `assets read MEMORY.md` — 用户长期记忆（推荐先读）",
+            "  - `assets read standing.md` — 用户长期记忆（推荐先读）",
             "  - `assets search <关键词>` — 按关键词搜索记忆",
             "  - `assets list craft` — 查看心得/做法列表",
             "",
