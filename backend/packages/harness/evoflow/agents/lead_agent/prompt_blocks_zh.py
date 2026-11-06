@@ -241,8 +241,12 @@ CONTEXT_PRIORITY_BLOCK = """<context_priority>
 </context_priority>
 """
 
-# Legacy empty — policy+recall live in ``<memory_assets>`` (see memory_assets_prompt).
-ENTITY_ASSETS_BLOCK = ""
+# 资产中心与长期记忆
+ENTITY_ASSETS_BLOCK = """<asset_usage>
+资产（standing.md 长期记忆等）按需加载，不默认注入。遇到陌生问题或用户提到"之前说过"时用 `assets search` 查询；遇到新坑、用户纠正、重大经验时用 `assets write` 更新。判断依据：对后续任务有参考价值？用户强调过？包含具体数字和代码位置？是 → 记；一次性任务 → 不记。
+</asset_usage>
+"""
+
 ENTITY_ASSETS_COMPACT_BLOCK = ""
 
 
