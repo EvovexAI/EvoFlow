@@ -268,99 +268,23 @@ def _parse_phase2_json(raw: str) -> dict[str, Any]:
     return data
 
 
-_CRAFT_PATH_RE = re.compile(r"(craft/[A-Za-z0-9_./\-]+\.md)")
-_DAY_HEADING_RE = re.compile(r"^#{2,4}\s+\d{4}-\d{2}-\d{2}\s*$")
-_DESC_OR_LEARNINGS_RE = re.compile(r"^\s*-\s*(desc|learnings)\s*:", re.IGNORECASE)
+def _normalize_standing(text: str) -> str:
+    from evoflow.assets.standing_format import normalize_standing_document
+
+    return normalize_standing_document(text)
 
 
+# Compat aliases for tests / callers that still import private names.
 def _whats_in_memory_bullet_name(line: str) -> str | None:
-    """Collapse a dense topic bullet into a single self-describing name."""
-    raw = str(line or "").rstrip()
-    if not raw.lstrip().startswith("-"):
-        return None
-    if _DESC_OR_LEARNINGS_RE.match(raw):
-        return None
-    body = raw.lstrip()[1:].strip()
-    if not body:
-        return None
-    craft = _CRAFT_PATH_RE.search(body)
-    if craft:
-        return craft.group(1)
-    # Drop legacy "Title: kw1, kw2, ..." tails — keep the self-describing title only.
-    title = body.split(":", 1)[0].strip()
-    return title or None
+    from evoflow.assets.standing_format import whats_in_memory_bullet_name
+
+    return whats_in_memory_bullet_name(line)
 
 
 def _collapse_whats_in_memory_to_names(text: str) -> str:
-    """Rewrite ``## What's in Memory`` to name-only bullets when legacy dense form appears."""
-    lines = str(text or "").splitlines()
-    out: list[str] = []
-    i = 0
-    while i < len(lines):
-        line = lines[i]
-        if line.strip() != "## What's in Memory":
-            out.append(line)
-            i += 1
-            continue
+    from evoflow.assets.standing_format import collapse_whats_in_memory_to_names
 
-        out.append("## What's in Memory")
-        i += 1
-        section: list[str] = []
-        while i < len(lines) and not (
-            lines[i].startswith("## ") and lines[i].strip() != "## What's in Memory"
-        ):
-            section.append(lines[i])
-            i += 1
-
-        dense = any(
-            _DESC_OR_LEARNINGS_RE.match(s)
-            or (s.lstrip().startswith("- ") and ":" in s and _CRAFT_PATH_RE.search(s) is None and len(s) > 80)
-            or _DAY_HEADING_RE.match(s.strip())
-            for s in section
-        )
-        if not dense:
-            out.extend(section)
-            continue
-
-        seen: set[str] = set()
-        for s in section:
-            stripped = s.strip()
-            if not stripped:
-                if section and out and out[-1] != "":
-                    # keep a single blank between scope headings after we emit them
-                    pass
-                continue
-            if stripped.startswith("### ") or stripped.startswith("#### "):
-                if _DAY_HEADING_RE.match(stripped):
-                    continue
-                # Keep scope / Older headings; drop empty #### leftovers already filtered.
-                if out and out[-1] != "":
-                    out.append("")
-                out.append(stripped if stripped.startswith("### ") else "### " + stripped.lstrip("#").strip())
-                continue
-            name = _whats_in_memory_bullet_name(s)
-            if not name or name in seen:
-                continue
-            seen.add(name)
-            out.append(f"- {name}")
-        if out and out[-1] == "":
-            out.pop()
-
-    return "\n".join(out)
-
-
-def _normalize_standing(text: str) -> str:
-    body = str(text or "").strip()
-    if not body:
-        return "v1\n\n# 站立摘要\n\n（暂无高密度摘要）\n"
-    if not body.startswith("v1"):
-        body = "v1\n\n" + body.lstrip()
-    lines = body.splitlines()
-    if lines[0].strip() != "v1":
-        lines[0] = "v1"
-        body = "\n".join(lines)
-    body = _collapse_whats_in_memory_to_names(body)
-    return body if body.endswith("\n") else body + "\n"
+    return collapse_whats_in_memory_to_names(text)
 
 
 def _slug(name: str) -> str:

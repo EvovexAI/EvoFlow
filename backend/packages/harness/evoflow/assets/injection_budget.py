@@ -1,11 +1,11 @@
 """Tier 0/1 prompt injection budgets for Entity Asset Hub.
 
 Layer model (see ``assets/prompts/memories/injection_layers.md``):
-  L0 job skeleton → L1 standing (**full page**) → L2 catalog (short labels) →
+  L0 job skeleton → L1 standing (prefs/tips + short name index) → L2 catalog →
   L3 bodies on-demand via ``assets`` → L4 pending inbox.
-Know-how SoT is the asset tree; ``system_prompt`` (L0) stays a thin duty skeleton —
-but L1 standing is already the compressed summary page: inject it whole, never
-scissors mid-sentence. Size discipline belongs to Phase2 when rewriting standing.md.
+Know-how SoT is the asset tree; ``system_prompt`` (L0) stays a thin duty skeleton.
+L1 inject shapes standing: keep preferences/tips, collapse ``What's in Memory`` to
+names, soft-cap core size — details stay on disk for ``assets read``.
 ``cap_text_chars(..., 0)`` = no truncate (same convention as catalog row caps).
 """
 
@@ -16,9 +16,13 @@ import os
 # Tier 0 Pin (frozen standing) — asset-related slices
 TIER0_SOUL_SUMMARY_CHARS = 400
 TIER0_SYSTEM_CHARS = 500
-# standing.md = derived prefs + tips + name-only What's in Memory. Inject **complete**.
-# 0 = uncapped (do not hard-cut the system prompt). Phase2 owns keeping the file sane.
+# Final hard cut after format_standing_for_inject. 0 = no extra hard cut.
 TIER0_STANDING_CHARS = 0
+# Soft budget for Profile + User preferences + General Tips (prefs first).
+# What's in Memory is omitted from inject — L2 catalog lists files.
+TIER0_STANDING_CORE_CHARS = 2000
+# Kept for Phase2/disk helpers that still collapse name indexes; inject ignores it.
+TIER0_STANDING_INDEX_MAX_NAMES = 24
 # 0 = inject full profile/USER.md (no hard cut). Placeholder stripping is no longer
 # applied on inject — the whole document is the SoT the user edited in Asset Center.
 TIER0_USER_PROFILE_CHARS = 0

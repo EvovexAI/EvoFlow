@@ -194,31 +194,17 @@ def assets_tool(
     scope: str = "",
     max_results: int = 12,
 ) -> str:
-    """Search, read, list, note, write, or update Entity Asset Hub files.
+    """Search / read / list / note / write / profile / affect on Entity Asset Hub.
 
-    Families:
-      - 长期记忆 ``memory/standing.md`` — ``note`` + ``kind=preference``
-      - 过程 ``memory/episodic/`` — ``kind=process``
-      - 经验 ``craft/`` — ``kind=experience``；反思 ``memory/journal/`` — ``kind=reflection``
-      - 画像 ``profile/USER.md`` — ``action=profile``
-      - 情感 ``profile/affect.md`` — ``action=affect``
+    落点、何时写、何时更新：以系统提示 ``## Entity assets``（read_path）为准，此处不重复。
 
-    WHEN: stable prefs / hard constraints / high-signal process → note same turn
-          (optional "已记下…"); chitchat → skip. No secrets / huge dumps.
-    LOAD: standing + catalog already in prompt; details via read/search.
+    Paths (kind → file): preference→standing.md；process→episodic/；
+    experience→craft/；reflection→journal/；profile→USER.md；affect→affect.md.
+    note 新建时文件名取正文第一行标题（须短且自描述，见系统提示 Entity assets）。
 
-    UPDATE (model decides — runtime does not guess "similar" topics):
-      1. See catalog / standing; if outdated, ``read`` it.
-      2. Overwrite with ``note`` + ``path=<existing file>`` (or ``write``).
-      3. Standing full rewrite: ``note`` kind=preference + ``mode=replace``.
-
-    Actions:
-      - search / read / list
-      - note: requires ``kind`` (preference|process|experience|reflection)
-      - write: overwrite ``path`` with ``content``
-      - profile / affect: ``mode=append`` (default) or ``mode=replace``
-
-    If memory files informed the reply, end with ``<evo-asset-citation>``.
+    Actions: search | read | list | note | write | profile | affect.
+    note 必须带 kind；write 覆盖 path；profile/affect 用 mode=append|replace。
+    query 仅 search。引用资产时回复可附 ``<evo-asset-citation>``。
 
     Args:
         action: search | read | list | note | write | profile | affect

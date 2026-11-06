@@ -4,7 +4,7 @@
 catalog（L2 按类列文件名；正文 = L3 按需 `assets` read/search 文件名）:
 {{ catalog_lines }}
 
-长期记忆 standing（L1 已加载 · 含偏好 + What's in Memory 文件名索引；非经验全文）:
+长期记忆 standing（L1 已加载 · 仅偏好/Tips；文件名见上方 catalog；细节 `assets read`）:
 ```md
 {{ memory_summary }}
 ```

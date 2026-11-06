@@ -240,15 +240,13 @@ def build_read_path_entity_block(entity: EntityRef, *, standing: str | None = No
         if e.entity_type == "workspace":
             ws_path = resolve_workspace_path_for_entity_id(e.entity_id) or ""
             workspace_context_block = (
-                f"项目根 `{ws_path}` · 写入只用 `assets`（note/search/read；kind=project）"
+                f"项目根 `{ws_path}` · 写入只用 `assets`（落点见上方 Entity assets）"
             )
             tail_block = ""
         else:
             workspace_context_block = ""
-            tail_block = (
-                f"写入只用 `assets`（note/profile/affect/search/read；根 `{base}`）· "
-                f"kind=`preference`/`process`/`experience`/`reflection`；心境用 action=affect"
-            )
+            # 落点/更新规则在 read_path（Entity assets）；此处只钉实体根，避免复述。
+            tail_block = f"写入根 `{base}` · 落点规则见上方 Entity assets"
 
         return render_memory_prompt(
             "read_path_entity",
