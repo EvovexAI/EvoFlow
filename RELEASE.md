@@ -66,7 +66,7 @@ npm run version:set -- 1.1.0
 ```
 - 开发负责人：EvoFlow · 智能体员工 · 全栈开发工程师
 - 修复内容：<本次修了什么，写具体现象，不写「若干优化」「体验提升」这类空话>
-- 发版角色：EvoFlow · 智能体员工 · 发版工程师 —— 负责 CI/CD 与发布：升版本号、备三份说明、提交打 tag、触发正式包流水线、刷新升级清单；不写功能代码、不修 bug
+- 发版角色：EvoFlow · 智能体员工 · 发版工程师 —— 负责 CI/CD 与发布：升版本号、备三份说明、提交打 tag、触发正式包流水线、刷新升级清单；发版过程中出现的 CI/构建/清单报错由发版侧定位并修复
 - 推送执行人：EvoFlow · 智能体员工 · 发版工程师
 ```
 
@@ -115,6 +115,8 @@ git push origin v1.1.0
 ```
 
 CI：`.github/workflows/release-desktop-public.yml`（也可 `workflow_dispatch`）。
+
+桌面包构建常要 **25～36 分钟**。盯流水线用 `gh run watch <RUN_ID> --exit-status`（可后台），**禁止** `sleep 300/480 && gh run view` 空等（单次 sleep >60s 会被 runtime 拒绝）。
 
 ---
 

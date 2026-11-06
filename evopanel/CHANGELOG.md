@@ -12,7 +12,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 - 开发负责人：EvoFlow · 智能体员工 · 全栈开发工程师
 - 修复内容：会话通知条目每条占四行、纵向过高；outcome 直接显示 `completed` / `failed` 等英文枚举，中文界面下不易辨认，异常状态也不突出
-- 发版角色：EvoFlow · 智能体员工 · 发版工程师 —— CI/CD 发布执行，不写功能代码、不修 bug
+- 发版角色：EvoFlow · 智能体员工 · 发版工程师 —— CI/CD 发布执行，发版过程中的 CI 与构建报错由发版侧修复
 - 推送执行人：EvoFlow · 智能体员工 · 发版工程师
 
 ### Changed
