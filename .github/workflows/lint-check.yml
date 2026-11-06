@@ -24,6 +24,16 @@ jobs:
       - name: Check kernel → app imports (R1)
         run: python backend/scripts/arch_ban_app_imports.py
 
+  # Prompt-stack drift guard: retired tool names + dead path promises in the
+  # Agent prompt stack / governance docs. Pure stdlib — no dependency install.
+  prompt-drift-guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Check prompt stack drift (retired tools / dead paths)
+        run: python backend/scripts/prompt_drift_guard.py
+
   lint:
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest

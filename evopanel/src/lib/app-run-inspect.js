@@ -329,22 +329,37 @@ export function createAppRunInspectController(opts) {
       logEl.innerHTML = `<div data-role="log-portal" class="wf-debug-chat-portal"></div>`
     }
     const portal = logEl.querySelector('[data-role="log-portal"]')
+    const stepStatus = String(
+      fromApi?.status || resolveWorkflowSubtaskStatus(runStatus?.subtask_status, ref, bridge) || 'pending',
+    )
     try {
+      // 对齐员工/协作节点对话：可续聊 + V4 齿轮；旁观靠面板内 meta/catchup。
+      console.info('[wf-step-transcript] inspect.open', {
+        t: new Date().toISOString(),
+        runId,
+        ref: canonicalRef || ref,
+        title,
+        status: stepStatus,
+        mainTaskId,
+        subtaskId,
+        subtaskThreadId,
+        startedAt: fromApi?.started_at || null,
+        completedAt: fromApi?.completed_at || null,
+        runStatus: runStatus?.status || null,
+      })
       transcript?.open({
         mainTaskId,
         subtaskId,
         leadThreadId,
         title,
-        status: String(
-          fromApi?.status || resolveWorkflowSubtaskStatus(runStatus?.subtask_status, ref, bridge) || 'pending',
-        ),
+        status: stepStatus,
         assignedAgent: String(fromApi?.assigned_agent || planStep?.assigned_agent || ''),
         description: String(fromApi?.description || planStep?.goal || planStep?.description || ''),
         subtaskThreadId,
         mode: 'drawer',
         portalTarget: portal,
-        readOnly: true,
-        refreshKey: `${runId}:${ref}:${fromApi?.status || ''}`,
+        readOnly: false,
+        refreshKey: `${runId}:${ref}:${stepStatus}:${subtaskThreadId}:${fromApi?.completed_at || ''}`,
       })
     } catch (e) {
       logEl.innerHTML = `

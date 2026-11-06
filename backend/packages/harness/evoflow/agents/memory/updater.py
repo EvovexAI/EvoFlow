@@ -35,19 +35,41 @@ def get_memory_data(agent_name: str | None = None) -> dict[str, Any]:
 
 
 def list_memory_agent_slots() -> list[dict[str, Any]]:
-    """List memory scopes for UI: global + each SQLite agent (+ orphan memory keys).
-
-    ``has_memory_file`` means the agent has non-empty chat memory in
-    ``evoflow_memory`` (facts or section summaries), not a legacy disk JSON.
+    """List memory scopes for UI: global + each Agent/Workspace with memory.md files.
+    
+    ``has_memory_file`` means the agent has non-empty memory files in asset center
+    (standing.md, MEMORY.md, etc.), stored under ~/.evoflow/assets/.
     """
     from evoflow.config.agents_config import AGENT_NAME_PATTERN, list_all_agents, load_agent_config
-    from evoflow.persistence.memory_repositories import agent_keys_with_memory_content
 
+    # Scan asset center for agents with memory/standing.md
+    content_keys: set[str] = set()
     try:
-        content_keys = agent_keys_with_memory_content()
+        from evoflow.assets.paths import assets_root
+        
+        assets_dir = assets_root()
+        
+        # Check agents
+        agents_dir = assets_dir / "agents"
+        if agents_dir.exists():
+            for agent_dir in agents_dir.iterdir():
+                if agent_dir.is_dir():
+                    standing = agent_dir / "memory" / "standing.md"
+                    if standing.exists():
+                        content_keys.add(agent_dir.name)
+        
+        # Check users
+        users_dir = assets_dir / "users"
+        if users_dir.exists():
+            for user_dir in users_dir.iterdir():
+                if user_dir.is_dir():
+                    standing = user_dir / "memory" / "standing.md"
+                    if standing.exists():
+                        # Legacy "user" or per-user key
+                        key = "" if user_dir.name == "user" else user_dir.name
+                        content_keys.add(key)
     except Exception:
-        logger.debug("list_memory_agent_slots: content keys failed", exc_info=True)
-        content_keys = set()
+        logger.debug("list_memory_agent_slots: asset scan failed", exc_info=True)
 
     rows: list[dict[str, Any]] = [
         {

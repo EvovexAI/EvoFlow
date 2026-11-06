@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-# Anti-pattern guards (see .codebasewiki/meta/agent-prompt-architecture.md §4):
+# Anti-pattern guards (rule ids: see PATTERNS in scripts/prompt-audit/prompt_audit.py):
 #   - P-002 multi-identity: ``<role>`` here is the identity anchor; do NOT add a second
 #     "I am X" declaration in any other block.
 #   - P-004 decision chain: deprecated. Authority is now handled implicitly by the
@@ -10,7 +10,7 @@ from __future__ import annotations
 #     no longer declares it.
 #   - P-005 undeclared references: when introducing a new block that references
 #     ``<…>``, ensure the target block exists in the current injection order.
-# Audit before changing: python .claude/skills/prompt-audit/scripts/prompt_audit.py <file>
+# Audit before changing: python scripts/prompt-audit/prompt_audit.py <file>
 
 SAFETY_BLOCK = """<safety_guidelines>
 ## Safety
@@ -90,17 +90,6 @@ Honor brief vs detailed replies and format requests. Optional one actionable nex
 """
 
 
-SESSION_MODE_POLICY_BLOCK = """<session_mode_policy>
-Active mode: {active_modes}
-
-- **Preflight**: Non-core tools must appear in request `tools` / `activated_tools`; otherwise `tool_search` first.
-- **Tool routing**: code read/write/commands/web_search/glob/grep→use directly (agent); write a plan doc→`plan` tool; delegate→subagent; platform admin→`platform` (see `<platform_tool>`).
-- **No Plan mode**: Do not call mode_set/scenario; never activate plan. There is no Plan mode to switch into.
-</session_mode_policy>
-"""
-
-# Backward-compatible alias (prefer SESSION_MODE_POLICY_BLOCK).
-SCENARIO_ACTIVATION_BLOCK = SESSION_MODE_POLICY_BLOCK
 
 # Lead + Xiao V share this contract. Do not name the tag ``<platform>`` (employee identity shell).
 PLATFORM_TOOL_BLOCK = """<platform_tool>
@@ -256,6 +245,5 @@ ENTITY_ASSETS_COMPACT_BLOCK = ""
 # by the system-prompt injection layer (C<builder> + L1 context priority); no longer declared.
 # The <decision_chain> tag is kept as an empty string for backward-compat with prompt.py imports.
 DECISION_CHAIN_BLOCK = ""
-# Legacy (deprecated): spec .codebasewiki/meta/agent-prompt-architecture.md §3 template + §4 anti-patterns.
 
 CONTEXT_PRIORITY_MIND_MAP_LINE = ", and **mind map** (knowledge/logic graph) content"

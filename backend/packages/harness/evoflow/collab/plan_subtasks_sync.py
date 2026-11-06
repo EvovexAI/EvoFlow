@@ -695,6 +695,7 @@ def sync_subtasks_from_plan_steps(
     *,
     storage: Any | None = None,
     goal: str | None = None,
+    project_path: str | None = None,
 ) -> dict[str, Any]:
     """Create or update subtasks from structured or parsed plan steps (1:1 with ``create_subtasks`` fields)."""
     tid = str(task_id or "").strip()
@@ -734,8 +735,12 @@ def sync_subtasks_from_plan_steps(
         result["success"] = True
         return result
 
+    # Explicit argument wins over the persisted row: ``evoflow_collab_tasks``
+    # has no ``project_path`` column, so the run's working directory is dropped
+    # on the DB round-trip and every step row came back NULL (workers then each
+    # picked their own base). Pass it straight from the run instead.
     run_project_path = str(
-        task.get("project_path") or project.get("project_path") or ""
+        project_path or task.get("project_path") or project.get("project_path") or ""
     ).strip()
 
     goal_text = str(goal or "").strip()

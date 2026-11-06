@@ -1152,6 +1152,31 @@ export async function render() {
         if (debugSession?.runId === runId) debugSession.status = status
         if (status.task_id && debugSession?.runId === runId) debugSession.taskId = status.task_id
 
+        try {
+          const steps = Array.isArray(status.steps) ? status.steps : []
+          const nodeMap = steps.map((s) => ({
+            ref: s?.ref,
+            name: s?.name,
+            status: s?.status,
+            started_at: s?.started_at || null,
+            completed_at: s?.completed_at || null,
+            subtask_id: s?.subtask_id || null,
+            thread: s?.subtask_thread_id || null,
+          }))
+          console.info('[wf-step-transcript] run.poll', {
+            t: new Date().toISOString(),
+            runId,
+            app: appData?.name || appData?.id || null,
+            overall: status.status || null,
+            progress: status.progress ?? null,
+            taskId: status.task_id || null,
+            nodes: nodeMap,
+            subtask_status: status.subtask_status || {},
+          })
+        } catch {
+          /* ignore log errors */
+        }
+
         const { overall } = updateHero(status)
 
         workflowCanvas?.setExecStatus?.(

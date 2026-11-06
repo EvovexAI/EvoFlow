@@ -33,7 +33,7 @@ TOOL_CATALOG_RULE_ACTIVATION_POINTER = "Load deferred tools with `tool_search` b
 TOOL_CATALOG_DEFERRED_HINT = (
     "Deferred tools (`<available-deferred-tools>`) require "
     '`tool_search(query="select:name")` before calling. '
-    'Edits: `query="select:write,replace"`; long jobs: `query="select:process"`; '
+    'Edits: `query="select:write,replace"`; long jobs: `query="select:bash"` (with `run_in_background=true` + `taskoutput`/`taskstop`); '
     'web: `query="select:web_search,fetch_url"`; research subtasks: `query="select:subagent"`.'
 )
 
@@ -41,7 +41,7 @@ PLAN_RUNTIME_NOTE = "note: Task JSON follows supervisor returns; phase is a stat
 
 PHASE_GUARD_PLANNING = """<phase_execution_guard>
 Collaboration phase is planning-like (planning/plan_ready/awaiting_exec).
-- **Lead role (orchestrator)**: No heavy hands-on repo digging, long reads. **``platform action=agents.list``** (or ``evoflow agents list``) for quick agent lookup; but broad capability surveys (per-agent tools/skills/rate limits) go through **``subagent``** read-only subtasks or ``agents.get``. You still: **``ask_clarification``** with the user; **``plan(goal, steps[])``** after the three gates; then ask the user to click「开始执行」—do not ``supervisor(start_execution)`` to nudge. Do not call retired ``list_agents`` / ``create_agent``.
+- **Lead role (orchestrator)**: No heavy hands-on repo digging, long reads. **``platform action=agents.list``** (or ``evoflow agents list``) for quick agent lookup; but broad capability surveys (per-agent tools/skills/rate limits) go through **``subagent``** read-only subtasks. You still: **``ask_clarification``** with the user; **``plan(goal, steps[])``** after the three gates; then ask the user to click「开始执行」—do not ``supervisor(start_execution)`` to nudge.
 - **Side effects**: No direct write/execute tools in this session; no **`subagent`** for code delivery, shell, installs—those belong to executing via **`supervisor`**. **`subagent`** here is research-only; **no** **`subagent_type=bash`**.
 - **`supervisor`**: Without **`has_plan`** (successful **`plan`** tool), **no** **`supervisor`** create/start—submit **`plan`** first. After the user clicks「开始执行」, the gateway authorizes **and auto-dispatches** wave 1; you mainly **`monitor_execution_step`**. Call **`start_execution`** only as fallback if nothing was dispatched. Do not re-ask whether to start.
 - **`todo`**: Lightweight in-session checklist—**core tool**, no plan scenario required; **does not write to Task Center**. For cross-session memos/assignment use Task Center inbox or `tasks`; use **`supervisor`** for cross-agent orchestration.
@@ -60,8 +60,8 @@ Collaboration phase is executing.
 
 PHASE_GUARD_VERIFYING = """<phase_execution_guard>
 Collaboration phase: verifying.
-- Run tests/checks (terminal) and read-only inspection against the Plan.
-- Do **not** use terminal commands (sed/cat/rm etc.) or any mutating workspace operations.
+- Run tests/checks (read-only inspection) against the Plan.
+- Do **not** use destructive commands or any mutating workspace operations.
 - After compaction, use `refs:` in `[tool:summary]` / `[tool:history]` and `read` for full persisted output.
 </phase_execution_guard>"""
 
@@ -82,7 +82,7 @@ SKILL_PROGRESSIVE_HEADER = "**Progressive loading:**"
 SKILL_RULE_1 = (
     '``<location>`` is ``skill:<name>`` (preferred) or a sandbox virtual path; ``read("<location>")`` only when executing skill steps or metadata is insufficient. '
     '**When a task matches a skill\'s description/``<when_to_use>``, read its SKILL.md first and follow it—do not assume skill contents from training data.** '
-    '**Files only**: ``read("skill:<name>")`` for SKILL.md; **directories** via ``bash`` (e.g. ls / dir)—never ``read("skill:<name>/scripts")``. '
+    '**Files only**: ``read("skill:<name>")`` for SKILL.md; **directories** via ``bash`` (e.g. dir)—never ``read("skill:<name>/scripts")``. '
     "Other files in the same skill: ``skill:<name>/relative/path`` (forward slashes, must be a real file). "
     "For product self-intro / capability overview (evoflow-admin) when ``<available_skills>`` already has name+description, **do not read the full SKILL.md**—answer from description; read ``references/product-intro.md`` only for detail. "
 )
@@ -91,7 +91,6 @@ SKILL_RULE_2 = (
     "Run skill scripts with ``bash``: put ``skill:<name>/scripts/...`` or relative ``scripts/...`` in the command "
     "(the host rewrites them to the skill install dir). "
     "Long jobs: ``run_in_background=true``, then ``taskoutput`` / ``taskstop``. "
-    "Do not use deprecated ``terminal`` / ``process`` / ``execute_command``."
 )
 SKILL_RULE_3 = "Follow skill steps; conversation mode is UI-driven—do not call mode_set/scenario."
 SKILL_RULE_COMPACT = (
@@ -121,7 +120,7 @@ SUBAGENT_MODEL_NOTE = ""
 SUBAGENT_GP_LABEL = "(general analysis / retrieval / code exploration)"
 SUBAGENT_CODE_LABEL = "(code read/write specialist: search-locate + precise edit + syntax check)"
 SUBAGENT_BASH_LABEL = "(command execution)"
-SUBAGENT_MEDIA_CREW_TITLE = "**Media crew (quick gen: platform media.*; full film: skill + terminal · pipeline order)**"
+SUBAGENT_MEDIA_CREW_TITLE = "**Media crew (quick gen: platform media.*; full film: skill + bash · pipeline order)**"
 SUBAGENT_MEDIA_CREW_RULE = "Single image/clip: platform → media.catalog → media.generate_* (confirm=true; then media.task_wait for video). Full narrated film: screenwriter → visual-planner → artist → video-director → post; verify outputs/. Image scripts: byted-ark-seedream-skill; video: media-production; Wan: wan-media-generation (wan2.7 default)."
 SUBAGENT_MEDIA_WHEN_BULLETS = ""
 

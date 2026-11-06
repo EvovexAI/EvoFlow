@@ -15,7 +15,6 @@ import logging
 import os
 import re
 import uuid
-
 from pathlib import Path
 from typing import Any
 
@@ -1075,7 +1074,13 @@ def run_app_workflow(
     save_task_bundle(task_id, project_data)
 
     # 7. Sync subtasks from plan steps (reads task from DB)
-    sync_result = sync_subtasks_from_plan_steps(task_id, plan_input["steps"], storage=storage, goal=plan_input["goal"])
+    sync_result = sync_subtasks_from_plan_steps(
+        task_id,
+        plan_input["steps"],
+        storage=storage,
+        goal=plan_input["goal"],
+        project_path=run_project_path,
+    )
 
     # 7.5 Auto rollup: append virtual rollup subtask when mode=auto and multi-step.
     # Must happen after sync_subtasks and before auto_authorize so the rollup

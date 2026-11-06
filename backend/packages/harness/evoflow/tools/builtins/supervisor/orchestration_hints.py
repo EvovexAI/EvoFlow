@@ -53,7 +53,7 @@ def compute_suggested_next(phase: str, *, task: dict[str, Any] | None = None) ->
         ]
     if phase == "all_subtasks_completed_main_open":
         return [
-            "Run Plan-level validation (read_file / terminal or process per Plan) before declaring overall success.",
+            "Run Plan-level validation (read / bash read-only checks per Plan) before declaring overall success.",
             "Main task progress is auto-synced up to 99% (subtasks may still be 100% completed); Lead must close the main task: update_progress(progress=100, status=completed) or set_task_state(status=completed).",
             "Use suggestedMainProgressPercent from monitor/get_status as a baseline; set 100% only after Plan validation passes.",
         ]

@@ -33,7 +33,7 @@ TOOL_CATALOG_RULE_ACTIVATION_POINTER = "未绑定工具先 `tool_search` 再调�
 TOOL_CATALOG_DEFERRED_HINT = (
     "延迟工具（`<available-deferred-tools>`）须 "
     '`tool_search(query="select:工具名")` 后再调用。'
-    '改代码 `query="select:write,replace"`；长任务 `query="select:process"`；'
+    '改代码 `query="select:write,replace"`；长任务 `query="select:bash"`（配合 `run_in_background=true` + `taskoutput`/`taskstop`）；'
     '联网 `query="select:web_search,fetch_url"`；子任务调研 `query="select:subagent"`。'
 )
 
@@ -41,7 +41,7 @@ PLAN_RUNTIME_NOTE = "note: 任务 JSON 以 supervisor 返回为准；phase 仅�
 
 PHASE_GUARD_PLANNING = """<phase_execution_guard>
 当前协作阶段为 planning-like（planning/plan_ready/awaiting_exec）。
-- **主会话定位（总编排 / Orchestrator）**：你不亲自做一线脏活——不大范围手搓翻仓库、不长篇精读文件。**轻量查智能体列表用 `platform action=agents.list`（或 `evoflow agents list`）**，但**大范围能力摸底**（逐 agent 查工具/skill/限流等）仍用 **`subagent`** 委派只读子任务或 `agents.get`；你只下发任务说明与验收口径，并综合子任务回报。**你本人仍负责**：对用户 `ask_clarification`；三项成立后用 **`plan(goal=…, steps=[…])`** 落库（勿只塞 markdown）；落库后请用户点「开始执行」，勿自己 `supervisor(start_execution)` 催开始。勿调用已退役的 `list_agents` / `create_agent`。
+- **主会话定位（总编排 / Orchestrator）**：你不亲自做一线脏活——不大范围手搓翻仓库、不长篇精读文件。**轻量查智能体列表用 `platform action=agents.list`（或 `evoflow agents list`）**，但**大范围能力摸底**（逐 agent 查工具/skill/限流等）仍用 **`subagent`** 委派只读子任务；你只下发任务说明与验收口径，并综合子任务回报。**你本人仍负责**：对用户 `ask_clarification`；三项成立后用 **`plan(goal=…, steps=[…])`** 落库（勿只塞 markdown）；落库后请用户点「开始执行」，勿自己 `supervisor(start_execution)` 催开始。
 - **副作用**：禁止在本会话直接调用写文件、执行命令等会产生工作区变更的工具；也 **禁止**用 `subagent` 委派「改代码、写交付物、跑 shell、安装依赖」等执行类工作——这类留给 executing 阶段经 `supervisor`。planning-like 下 **`subagent` 仅用于调研型子任务**；且 **禁止**委派 **`subagent_type=bash`**（命令执行不在本阶段）。
 - **`supervisor`**：在 planning/plan_ready 且尚无 `has_plan`（须 **`plan` 工具**成功返回）时 **禁止**调用 `supervisor` 建任务/启动——须先 `plan(goal, steps[])`。用户点「开始执行」后网关会授权并**自动派发首波**；你本阶段/下一轮以 `monitor_execution_step` 为主。仅当未派出时再补 `start_execution`。已授权后勿重复询问是否开始。
 - **`todo`**：会话内轻量 checklist，**核心常驻**，无需激活 plan 场景；**不进任务中心**。用户跨会话备忘/派活用任务中心 inbox 或 `tasks`；跨代理编排仍用 `supervisor`。
@@ -54,7 +54,7 @@ PHASE_GUARD_EXECUTING = """<phase_execution_guard>
 - 允许进入执行闭环（supervisor 委派、监控、验证、收敛）。
 - 执行同时若需并行摸底、对照或只读核查，仍可用 subagent 分担，勿在主会话堆过长工具链。
 - **子任务全部完成后（orchestrationPhase=all_subtasks_completed_main_open 或 recommendation.action=finalize_main）**：
-  ① 立即按 Plan 的 validation 项执行验收（`read` / terminal 只读检查），勿等待用户指令；
+  ① 立即按 Plan 的 validation 项执行验收（`read` / `bash` 只读检查），勿等待用户指令；
   ② 验收通过后调用 supervisor(update_progress, progress=100, status=completed) 或 supervisor(set_task_state, status=completed) 关闭主任务；
   ③ 主任务关闭后协作阶段自动推进到 verifying→reflecting→done，无需手动 scenario(deactivate, plan)。
   ④ 验收不通过时用 continue_subtask_session / retry_subtask 修正后重新验收，勿直接宣告完成。
@@ -64,7 +64,7 @@ PHASE_GUARD_EXECUTING = """<phase_execution_guard>
 
 PHASE_GUARD_VERIFYING = """<phase_execution_guard>
 当前协作阶段为 verifying（验证）。
-- 优先运行测试/检查（terminal 等），用只读工具对照 Plan 验收。
+- 优先运行测试/检查（`bash` 等），用只读工具对照 Plan 验收。
 - **验收通过后**：调用 supervisor(set_task_state, task_id=..., status=completed) 关闭主任务，协作阶段将自动推进到 reflecting→done。
 - **验收不通过**：用 supervisor(continue_subtask_session, ...) 修正问题后重新验收。
 - 禁止通过终端命令（sed/cat/rm 等）修改工作区的文件。
@@ -88,7 +88,7 @@ SKILL_PROGRESSIVE_HEADER = "**渐进式加载：**"
 SKILL_RULE_1 = (
     '``<location>`` 为 ``skill:<技能名>``（推荐）或沙箱虚拟路径；要执行技能内具体步骤、或 metadata 不足以完成任务时再 ``read("<location>")``。'
     '**任务与某技能的描述/``<when_to_use>`` 匹配时，先 ``read`` 其 SKILL.md 加载再执行，勿凭训练数据假设技能内容；**'
-    '**只读文件**：``read("skill:<名>")`` 打开 SKILL.md；**目录**用 ``bash``（如 ``ls`` / ``dir``），禁止 ``read("skill:<名>/scripts")`` 等目录路径。'
+    '**只读文件**：``read("skill:<名>")`` 打开 SKILL.md；**目录**用 ``bash``（如 ``dir``），禁止 ``read("skill:<名>/scripts")`` 等目录路径。'
     "同技能下其它文件用 ``skill:<技能名>/相对路径``（正斜杠，须为真实文件）。"
     "若用户只是产品自介绍/能力概览（evoflow-admin），且 ``<available_skills>`` 已有 name+description，**勿 read 整篇 SKILL.md**，直接按 description 作答；细则才读 ``references/product-intro.md``。"
 )
@@ -96,7 +96,6 @@ SKILL_RULE_2 = (
     "按需读资源；遵守技能内步骤与边界。"
     "执行技能内脚本用 ``bash``：命令里写 ``skill:<名>/scripts/...`` 或相对 ``scripts/...``（宿主会解析到技能安装目录）；"
     "长任务设 ``run_in_background=true``，再用 ``taskoutput`` / ``taskstop`` 查看或停止。"
-    "勿再调用已废弃的 ``terminal`` / ``process`` / ``execute_command``。"
 )
 SKILL_RULE_3 = "使用技能按技能步骤调用工具；当前模式由界面决定，勿调用 mode_set/scenario。"
 SKILL_RULE_COMPACT = (
@@ -124,8 +123,8 @@ SUBAGENT_MODEL_NOTE = ""
 SUBAGENT_GP_LABEL = "（通用分析/检索/代码探索）"
 SUBAGENT_CODE_LABEL = "（代码读写专精：搜索定位+精确修改+语法检查）"
 SUBAGENT_BASH_LABEL = "（命令执行）"
-SUBAGENT_MEDIA_CREW_TITLE = "**创意媒体工种（单张/单段 platform media.*；完整短片 skill + terminal · 按序委派）**"
-SUBAGENT_MEDIA_CREW_RULE = "单张/单段：platform → media.catalog → media.generate_*（confirm=true；视频再 media.task_wait）。完整短片流水线：screenwriter → visual-planner → artist → video-director → post；每步读 outputs/。生图 byted-ark-seedream-skill；生视频 media-production scripts → terminal；万相 wan-media-generation（默认 wan2.7）。"
+SUBAGENT_MEDIA_CREW_TITLE = "**创意媒体工种（单张/单段 platform media.*；完整短片 skill + bash · 按序委派）**"
+SUBAGENT_MEDIA_CREW_RULE = "单张/单段：platform → media.catalog → media.generate_*（confirm=true；视频再 media.task_wait）。完整短片流水线：screenwriter → visual-planner → artist → video-director → post；每步读 outputs/。生图 byted-ark-seedream-skill；生视频 media-production scripts → bash；万相 wan-media-generation（默认 wan2.7）。"
 SUBAGENT_MEDIA_WHEN_BULLETS = ""
 
 

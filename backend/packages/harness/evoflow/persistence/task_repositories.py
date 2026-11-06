@@ -410,7 +410,20 @@ def save_task_bundle(main_task_id: str, document: dict[str, Any], *, loaded_upda
     run_db_with_retry(_do_save)
 
 
-_HOT_PATCH_COLUMNS = frozenset({"status", "progress", "error_text", "error", "updated_at"})
+_HOT_PATCH_COLUMNS = frozenset(
+    {
+        "status",
+        "progress",
+        "error_text",
+        "error",
+        "updated_at",
+        # Lease heartbeat fields: routed through the hot path so a heartbeat
+        # does not force a whole-bundle rewrite. They are folded into
+        # ``extra_json`` by ``patch_subtask_hot_fields``.
+        "lease_until_ts",
+        "last_heartbeat_ts",
+    }
+)
 
 
 def get_subtask_row_status(main_task_id: str, subtask_id: str) -> str | None:
@@ -471,16 +484,55 @@ def patch_subtask_hot_fields(main_task_id: str, subtask_id: str, updates: dict[s
                 prog_i = max(0, min(100, int(prog)))
             except (TypeError, ValueError):
                 prog_i = None
+        # Lease heartbeat: persist ``lease_until_ts`` inside ``extra_json`` so a
+        # reader (admin list/detail, CLI) can tell "worker still holds a lease"
+        # apart from "no process behind this row". Without it every long step
+        # read as 「已中断」after the 20s startup grace — the health probe has
+        # no other durable signal because the lease only lived in the in-process
+        # bundle cache.
+        extra_json: str | None = None
+        lease_until = updates.get("lease_until_ts")
+        if lease_until is not None:
+            import json as _json
+
+            merged: dict[str, Any] = {}
+            try:
+                row = conn.execute(
+                    "SELECT extra_json FROM evoflow_collab_subtasks"
+                    " WHERE main_task_id = ? AND subtask_id = ? LIMIT 1",
+                    (mid, sid),
+                ).fetchone()
+                if row is not None and row[0]:
+                    parsed = _json.loads(row[0])
+                    if isinstance(parsed, dict):
+                        merged = parsed
+            except Exception:
+                merged = {}
+            try:
+                merged["lease_until_ts"] = float(lease_until)
+            except (TypeError, ValueError):
+                merged["lease_until_ts"] = None
+            heartbeat = updates.get("last_heartbeat_ts")
+            if heartbeat is not None:
+                try:
+                    merged["last_heartbeat_ts"] = float(heartbeat)
+                except (TypeError, ValueError):
+                    pass
+            try:
+                extra_json = _json.dumps(merged, ensure_ascii=False)
+            except Exception:
+                extra_json = None
         cur = conn.execute(
             """
             UPDATE evoflow_collab_subtasks
             SET status = COALESCE(?, status),
                 progress = COALESCE(?, progress),
                 error_text = COALESCE(?, error_text),
+                extra_json = COALESCE(?, extra_json),
                 updated_at = ?
             WHERE main_task_id = ? AND subtask_id = ?
             """,
-            (status or None, prog_i, err, now, mid, sid),
+            (status or None, prog_i, err, extra_json, now, mid, sid),
         )
         conn.commit()
         return int(cur.rowcount or 0)

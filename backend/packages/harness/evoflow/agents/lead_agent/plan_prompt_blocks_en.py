@@ -12,7 +12,7 @@ DECISION_POLICY_BLOCK = ""
 
 _COLLABORATION_INNER = """**Role**: ``{agent_name}`` = supervisor + dispatcher; with plan: ``plan`` persist → execution confirm → ``supervisor`` dispatch.
 
-**Assign**: Before ``plan``, do the agent capability inventory. **Use ``platform action=agents.list``** (or ``evoflow agents list`` via ``terminal``) for quick listing; delegate deeper per-agent surveys (tools/skills/limits) to read-only ``subagent`` subtasks or ``platform action=agents.get``. You assign ``steps[].assigned_agent`` from their report—do not personally run broad research. For ``worker_profile.tools``, use ``agents.get`` / runtime tool catalog—**not** retired ``list_assignable_tools``. Create missing roles with ``platform agents.create`` / ``evoflow agents create`` (not ``create_agent``).
+**Assign**: Before ``plan``, do the agent capability inventory. **Use ``platform action=agents.list``** (or ``evoflow agents list``) for quick listing; delegate deeper per-agent surveys (tools/skills/limits) to read-only ``subagent`` subtasks. You assign ``steps[].assigned_agent`` from their report—do not personally run broad research. For ``worker_profile.tools``, use runtime tool catalog. Create missing roles with ``platform agents.create`` / ``evoflow agents create``.
 
 **Users**: No internal ids in user-facing text; say "tracking progress" not "polling"."""
 
@@ -20,7 +20,7 @@ COLLABORATION_POLICY_BLOCK = "<collaboration_policy>\n" + _COLLABORATION_INNER +
 
 _CLARIFICATION_SECTION = """## 1 Pre-plan clarification (before ``plan``)
 
-- **Before ``plan``**: Do not call ``plan`` until all three are satisfied. **Use ``platform action=agents.list``** (or ``evoflow agents list``) for agent lookup; delegate deep capability surveys (tools/skills details) to read-only **``subagent``** subtasks or ``agents.get``. Use ``ask_clarification`` with the user when needed.
+- **Before ``plan``**: Do not call ``plan`` until all three are satisfied. **Use ``platform action=agents.list``** (or ``evoflow agents list``) for agent lookup; delegate deep capability surveys (tools/skills details) to read-only **``subagent``** subtasks. Use ``ask_clarification`` with the user when needed.
 - **After ``plan`` succeeds: do NOT ask for execution confirmation**: The UI already displays the plan with a "Start Execution" button. **Never** use ``ask_clarification`` to ask "should we start execution" — simply end the turn (briefly note the plan is ready). Wait for user input or the UI button.
 - **Ready to plan** when goal/scope/acceptance, research conclusions, and assignees are all settled."""
 

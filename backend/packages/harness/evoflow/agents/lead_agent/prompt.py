@@ -2125,14 +2125,14 @@ def _build_acp_section(*, use_virtual_paths: bool = False) -> str:
             "\n**ACP Agent Tasks (invoke_acp_agent):**\n"
             "- ACP agents run in their own independent workspace (与当前工作空间隔离)\n"
             "- When writing prompts for ACP agents, describe the task only — do NOT reference current workspace paths\n"
-            "- ACP agent results are accessible in ACP workspace (read-only) — use `ls`, `read_file`, or `bash cp` to retrieve output files\n"
+            "- ACP agent results are accessible in ACP workspace (read-only) — list the directory with `bash`, then open files with `read`\n"
             "- To deliver ACP output to the user: copy into current workspace, then surface it to the right-side artifacts panel"
         )
     return (
         "\n**ACP Agent Tasks (invoke_acp_agent):**\n"
         "- ACP agents run in their own independent local workspace (not the user's upload/work directory).\n"
         "- When writing prompts for ACP agents, describe the task only — do NOT reference sandbox virtual paths.\n"
-            "- ACP agent results are accessible in the local ACP workspace (read-only) — use `ls` / `read_file` to retrieve output files.\n"
+            "- ACP agent results are accessible in the local ACP workspace (read-only) — list the directory with `bash`, then open files with `read`.\n"
             "- To deliver ACP output to the user: copy into the local workspace, then surface it to the right-side artifacts panel."
     )
 

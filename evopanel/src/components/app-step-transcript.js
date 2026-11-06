@@ -63,6 +63,7 @@ export function mountAppStepTranscript(container) {
         portalTarget: next.portalTarget || null,
         readOnly: !!next.readOnly,
         refreshKey: next.refreshKey,
+        sessionKey: next.sessionKey,
       }
       render()
     },

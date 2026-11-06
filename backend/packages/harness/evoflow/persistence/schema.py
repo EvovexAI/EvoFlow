@@ -913,31 +913,6 @@ CREATE TABLE IF NOT EXISTS evoflow_meetings (
                 updated_at   TEXT NOT NULL DEFAULT ''
             , conclusion_json TEXT NOT NULL DEFAULT '', topic TEXT NOT NULL DEFAULT '');
 
-CREATE TABLE IF NOT EXISTS "evoflow_memory" (
-            agent_key TEXT PRIMARY KEY,
-            version TEXT NOT NULL DEFAULT '1.0',
-            last_updated TEXT NOT NULL DEFAULT '',
-            updated_at TEXT NOT NULL
-        );
-
-CREATE TABLE IF NOT EXISTS evoflow_memory_facts (
-    agent_key TEXT NOT NULL,
-    fact_id TEXT NOT NULL,
-    content TEXT NOT NULL DEFAULT '',
-    category TEXT NOT NULL DEFAULT 'general',
-    extra_json TEXT NOT NULL DEFAULT '{}',
-    sort_order INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL DEFAULT '',
-    PRIMARY KEY (agent_key, fact_id)
-);
-
-CREATE TABLE IF NOT EXISTS evoflow_memory_sections (
-    agent_key TEXT NOT NULL,
-    section_group TEXT NOT NULL,
-    section_kind TEXT NOT NULL,
-    summary TEXT NOT NULL DEFAULT '',
-    section_updated_at TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT '',
-    PRIMARY KEY (agent_key, section_group, section_kind)
-);
 
 CREATE TABLE IF NOT EXISTS "evoflow_mission_nodes" (
             id INTEGER PRIMARY KEY AUTOINCREMENT,

@@ -178,7 +178,7 @@ def build_file_worker_prompt(spec: WorkerTaskSpec, *, skip_lint: bool = False) -
     if skip_lint:
         lines.append("Constraints: only modify the path above; do not touch other files. Read the file first, apply the action, then summarize. Do NOT run lint yourself — a unified lint will run after all same-file edits complete.")
     else:
-        lines.append("Constraints: only modify the path above; do not touch other files. Read the file first, apply the action, optionally run a lint via terminal (pyright / ruff), then summarize.")
+        lines.append("Constraints: only modify the path above; do not touch other files. Read the file first, apply the action, optionally run a lint via bash (pyright / ruff), then summarize.")
     return "\n".join(lines)
 
 
@@ -198,9 +198,9 @@ def build_search_worker_prompt(spec: WorkerTaskSpec) -> str:
     lines.append("")
     lines.append(
         "Constraints: read-only — call search_code_index **once** with the read_limit above (no second search in this task). "
-        "Use read_file only for extra catalog paths. "
+        "Use read only for extra catalog paths. "
         "Query tips: use `path:dir/subdir Symbol|alias` to scope a folder; use `|` for synonyms (not regex). "
-        "Do not use natural-language sentences or bare filenames — use locate/find_file for filenames. "
+        "Do not use natural-language sentences or bare filenames — use locate (bash find) for filenames. "
         "Do not write, delete, or run shell commands. Summarize findings in 3–6 sentences."
     )
     return "\n".join(lines)
@@ -217,7 +217,7 @@ def build_locate_worker_prompt(spec: WorkerTaskSpec) -> str:
     if spec.instruction:
         lines.append(f"instruction: {spec.instruction}")
     lines.append("")
-    lines.append("Constraints: call find_file once with pattern and root; then read_file on the top 1-2 hits. Do not run unbounded shell find/Get-ChildItem -Recurse. Summarize paths in 3–6 sentences.")
+    lines.append("Constraints: locate files by pattern once with root; then read the top 1-2 hits. Do not run unbounded shell find/Get-ChildItem -Recurse. Summarize paths in 3–6 sentences.")
     return "\n".join(lines)
 
 
@@ -361,7 +361,7 @@ def _read_summary_path_key(block: str) -> str | None:
 
 
 def _dedupe_read_file_summaries(text: str, seen_paths: set[str]) -> str:
-    """Drop duplicate ``read_file`` summary blocks (same path) keeping the first."""
+    """Drop duplicate ``read`` summary blocks (same path) keeping the first."""
     body = str(text or "")
     parts = _READ_FILE_SUMMARY_SPLIT_RE.split(body)
     if len(parts) <= 1:
@@ -1400,7 +1400,7 @@ async def worker_tool(
 
     Use this tool when:
     - You need to **search code** by symbol/keyword (action=search) — prefer over `search_code_index` on main thread
-    - You need to **locate files** by glob pattern (action=locate) — prefer over `find` on main thread
+    - You need to **locate files** by glob pattern (action=locate) — prefer over a shell filename sweep on the main thread
     - You need to **write/replace/delete/edit** one or more files (action=write|replace|delete|edit)
     - You have **2+ independent file operations** that can run in parallel
     - You want to keep exploration/implementation separate from the main conversation context
@@ -1409,7 +1409,7 @@ async def worker_tool(
     When NOT to use this tool:
     - Reading a single known path → use `read` directly (faster, no subagent overhead)
     - A single precise one-line patch when you already have the full content in context → use `replace` directly
-    - Running git/npm/tests/builds → use `terminal` (workers are for file ops and search, not shell commands)
+    - Running git/npm/tests/builds → use `bash` (workers are for file ops and search, not shell commands)
     - Complex multi-step reasoning that needs back-and-forth exploration → use `subagent` instead
     - Tasks requiring user interaction or clarification → use `ask_clarification` in main thread first
 

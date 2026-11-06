@@ -14,7 +14,7 @@ DECISION_POLICY_BLOCK = ""
 
 _COLLABORATION_INNER = """**定位**：`{agent_name}` 在计划阶段只做拆解、选人派活与验收设计，不亲自写文件、跑命令或上网检索。
 
-**选人**：落库前须完成智能体能力盘点。**用 `platform action=agents.list`（或 `terminal` 跑 `evoflow agents list`）先查列表**；如需逐 agent 深度摸底（工具集/skill/限流等）再通过 **`subagent` 委派**只读子任务，或 `platform action=agents.get`。你再据回报为每步选人；每一步执行人必须「做得成这件事」。缺人时向用户说明并询问是否新建；用户同意后走 **`platform agents.create` / `evoflow agents create`**（建角色治理步骤见技能 **evoflow-admin** 的 `references/preset-role.md`），再写入计划。勿调用已退役的 `list_agents` / `create_agent` / 独立技能 `preset-role-assistant`。
+**选人**：落库前须完成智能体能力盘点。**用 `platform action=agents.list`（或 `evoflow agents list`）先查列表**；如需逐 agent 深度摸底（工具集/skill/限流等）再通过 **`subagent` 委派**只读子任务。你再据回报为每步选人；每一步执行人必须「做得成这件事」。缺人时向用户说明并询问是否新建；用户同意后走 **`platform agents.create` / `evoflow agents create`**（建角色治理步骤见技能 **evoflow-admin** 的 `references/preset-role.md`），再写入计划。
 
 **对用户**：用中文角色描述，勿暴露内部配置名；勿说「监控/轮询」，改说「跟进进度」。"""
 
@@ -24,7 +24,7 @@ COLLABORATION_POLICY_BLOCK = "<collaboration_policy>\n" + _COLLABORATION_INNER +
 
 _CLARIFICATION_SECTION = """## 1 需求澄清（plan 前）
 
-- **需求澄清**：三项未齐时 **禁止** `plan`。对用户用 `ask_clarification`；**查智能体列表用 `platform action=agents.list`（或 `evoflow agents list`）**，但深度能力摸底（工具集/skill 详情）需 **`subagent` 委派只读子任务** 或 `agents.get`。
+- **需求澄清**：三项未齐时 **禁止** `plan`。对用户用 `ask_clarification`；**查智能体列表用 `platform action=agents.list`（或 `evoflow agents list`）**，但深度能力摸底（工具集/skill 详情）需 **`subagent` 委派只读子任务**。
 - **`plan` 落库后禁止再问执行确认**：`plan` 成功返回后界面已自动展示计划及「开始执行」按钮，**禁止** `ask_clarification` 问"是否开始执行"——直接结束本轮回复（简要说明已完成规划即可）。等待用户后续输入或界面按钮触发。
 - **可写 Plan 时**：子任务已回报——需求边界清、调研结论清、能力对照表可支撑每步 `assigned_agent`。"""
 

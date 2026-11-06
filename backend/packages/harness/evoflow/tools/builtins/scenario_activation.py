@@ -666,7 +666,7 @@ def mode_set(action: str, mode: str, reason: str = "") -> str:
                     "all_active_scenarios": get_activated_scenarios(),
                     "message": (
                         "Plan 模式已下线，不能 activate plan。"
-                        "请保持 agent：文件搜索用 glob/grep，写方案用 plan 工具，勿切模式。"
+                        "请保持 agent：代码改查用 read/write/replace，写方案用 plan 工具，勿切模式。"
                     ),
                 },
                 ensure_ascii=False,
@@ -750,7 +750,7 @@ def mode_set(action: str, mode: str, reason: str = "") -> str:
                 "场景已激活。`activated_tools` 为本回合已绑定 schema、可直接调用的工具；"
                 '`deferred_tools` 为已授权但尚未绑 schema 的工具，须先 `tool_search(query="select:工具名")` 再调用。'
                 '示例：改代码 `query="select:replace"` 或 `query="select:write"`；'
-                '长任务 `query="select:process"`；联网 `query="select:web_search,fetch_url"`；'
+                '长任务 `query="select:bash"`（配合 `run_in_background=true` + `taskoutput`/`taskstop`）；联网 `query="select:web_search,fetch_url"`；'
                 '子任务调研 `query="select:subagent"`。'
             ),
             "previous_scenarios": previous or ["none"],

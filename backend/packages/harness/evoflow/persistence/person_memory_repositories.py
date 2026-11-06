@@ -110,10 +110,8 @@ def insert_person_memory(
 
     try:
         from evoflow.memory.facade import remember
-        from evoflow.memory.migrate_legacy import ensure_legacy_migrated
         from evoflow.memory.namespaces import person_ns
 
-        ensure_legacy_migrated()
         mem_layer = {
             "journal": "episodic",
             "episodic": "episodic",
@@ -199,11 +197,9 @@ def list_person_memory(
         return []
     lim = max(1, min(int(limit or 20), 200))
     try:
-        from evoflow.memory.migrate_legacy import ensure_legacy_migrated
         from evoflow.memory.namespaces import person_ns
         from evoflow.memory.store import list_namespace_atoms
 
-        ensure_legacy_migrated()
         layer_filter = None
         if layer:
             layer_s = str(layer).strip().lower()
