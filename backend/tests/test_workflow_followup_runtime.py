@@ -48,9 +48,10 @@ def test_older_runtime_gc_does_not_drop_newer_registered_runtime():
     registry entry each time. The replaced weakref object can outlive its
     runtime (anything holding a reference to it keeps it alive). When that
     older runtime is finally collected, its callback fires — and without the
-    identity guard it popped the *current* runtime's strong ref, leaving a
-    live, registered runtime invisible to ``resolve_followup_runtime``
-    (``source=none``).
+    identity guard it popped the *current* runtime's strong ref.
+
+    Assert on the strong map directly: ``peek_lead_runtime`` falls back to
+    the weak map, which would mask the eviction.
     """
     _clear_registry()
     try:
@@ -69,6 +70,7 @@ def test_older_runtime_gc_does_not_drop_newer_registered_runtime():
         del older
         gc.collect()
 
+        assert kernel._collab_lead_runtime_strong.get("m1") is newer
         assert kernel.peek_lead_runtime("m1") is newer
         assert kernel.resolve_followup_runtime(None, "m1") is newer
     finally:
@@ -123,6 +125,33 @@ def test_has_pending_subtasks_detects_queued_wave():
     assert _has_pending_subtasks([{"status": "planned"}]) is True
     assert _has_pending_subtasks([{"status": "executing"}]) is True
     assert _has_pending_subtasks([]) is False
+
+
+def test_monitor_keeps_lead_runtime_while_a_wave_is_queued(monkeypatch: pytest.MonkeyPatch):
+    """The monitor must not release the lead runtime while work is queued.
+
+    A workflow DAG can reach a terminal-looking main state while later waves
+    are still queued (the summary node finishes first). Releasing the runtime
+    there left the next wave with ``source=none`` → it was silently skipped.
+    """
+    from evoflow.tools.builtins.supervisor import monitor as mon
+
+    released: list[str] = []
+
+    monkeypatch.setattr(
+        "evoflow.tools.builtins.supervisor.execution.unregister_collab_lead_runtime",
+        lambda key: released.append(key),
+    )
+
+    # A queued wave keeps the runtime registered.
+    assert mon._release_lead_runtime_if_drained("wf1", [{"status": "pending"}]) is False
+    assert mon._release_lead_runtime_if_drained("wf1", [{"status": "planned"}]) is False
+    assert mon._release_lead_runtime_if_drained("wf1", [{"status": "executing"}]) is False
+    assert released == []
+
+    # Everything terminal → the runtime may go.
+    assert mon._release_lead_runtime_if_drained("wf1", [{"status": "completed"}]) is True
+    assert released == ["wf1"]
 
 
 # --------------------------------------------------------------------------

@@ -760,17 +760,9 @@ def _ensure_background_task_monitor(
                     if tid:
                         try:
                             from evoflow.collab.thread_collab import finalize_collab_phase_on_main_terminal
-                            from evoflow.tools.builtins.supervisor.execution import unregister_collab_lead_runtime
 
                             outcome = finalize_collab_phase_on_main_terminal(paths, key, runtime_thread_id=tid)
-                            # Keep the lead runtime registered while any subtask
-                            # is still pending / runnable. A workflow DAG can
-                            # reach a terminal-looking main state while later
-                            # waves are queued (summary node finishes first);
-                            # dropping the runtime there left the next wave
-                            # with ``source=none`` and it was silently skipped.
-                            if not _has_pending_subtasks(subtasks):
-                                unregister_collab_lead_runtime(key)
+                            _release_lead_runtime_if_drained(key, subtasks)
                         except Exception:
                             logger.warning("background monitor: finalize collab phase failed task_id=%s", key, exc_info=True)
                     _cleanup_monitor_state_for_task(key, tid)
@@ -951,6 +943,34 @@ def _compute_monitor_recommendation(
         "noChangeCount": no_change_count,
         "suggestedPollSeconds": suggested_poll,
     }
+
+
+def _release_lead_runtime_if_drained(task_id: str, subtasks: list[dict[str, Any]]) -> bool:
+    """Release the lead runtime once no wave is queued any more.
+
+    Returns True when the runtime was released.
+
+    A workflow DAG can reach a terminal-looking main state while later waves
+    are still queued (the summary node finishes first). Releasing the runtime
+    there left the next wave with ``source=none`` → it was silently skipped
+    (prod: DAG log showed ``followup_runtime ... source=none`` right before
+    the task stalled). The runtime is therefore kept while any subtask is
+    still pending / planned / running.
+    """
+    if _has_pending_subtasks(subtasks):
+        return False
+    try:
+        from evoflow.tools.builtins.supervisor.execution import unregister_collab_lead_runtime
+
+        unregister_collab_lead_runtime(task_id)
+        return True
+    except Exception:
+        logger.warning(
+            "background monitor: release lead runtime failed task_id=%s",
+            task_id,
+            exc_info=True,
+        )
+        return False
 
 
 async def _monitor_main_task_until_terminal(
