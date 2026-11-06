@@ -28,6 +28,31 @@
 - **改名**：`assets rename path=<文件>` + `content=新文件名`（同目录内改名；跨目录搬动 = delete + write）。文件在就别乱改名，改了等于另起一份。
 - **同一事实只存一处**——重复散落会让以后搜不全、读不全。引用资产时附 `<evo-asset-citation>`。
 
+### 引用资产时路径必须带类型前缀
+
+在回复里提到某个资产文件时，**路径一律写 vault 相对路径并带类型前缀**，否则前端会当成工作区文件、打不开：
+
+| 资产类型 | 路径写法 | 例 |
+|---------|---------|---|
+| 长期记忆 | `memory/standing.md` | `memory/standing.md` |
+| 过程 | `memory/episodic/<文件名>.md` | `memory/episodic/2026-11-06-抖音拆解.md` |
+| 反思 | `memory/journal/<文件名>.md` | `memory/journal/2026-11-06.md` |
+| 经验 | `craft/<文件名>.md` | `craft/evoflow-workflow-cost-attribution.md` |
+| 画像 | `profile/USER.md` | `profile/USER.md` |
+
+引用格式：
+
+```
+<evo-asset-citation>
+memory/standing.md | note=[记了用户的长期偏好]
+craft/evoflow-workflow-cost-attribution.md | note=[工作流成本归因的排查方法]
+</evo-asset-citation>
+```
+
+- **别只写文件名**（`standing.md` / `抖音拆解.md`）——丢了前缀前端认不出是资产，会去工作区找，自然打不开。
+- 引用时**顺手把用到的关键点写进 `note=[…]`**，让用户一眼知道为什么引它。
+- 工作区产物（outputs/…、报告、代码）照常按普通文件路径给，别加资产前缀。
+
 ### 什么时候读 / 什么时候写长期记忆
 
 资产**按需加载，不默认注入**——需要时才用 `assets list` / `assets search` / `assets read` 去取。

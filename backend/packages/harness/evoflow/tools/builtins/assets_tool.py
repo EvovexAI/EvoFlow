@@ -206,7 +206,9 @@ def assets_tool(
     note 必须带 kind；write 默认**追加**（mode=replace 才整份覆盖）；
     delete 删一个文件（不可撤销，先 read 确认过时）；rename 改文件名（content 传新名，只在同目录内）。
     profile/affect 用 mode=append|replace。
-    query 仅 search。引用资产时回复可附 ``<evo-asset-citation>``。
+    query 仅 search。引用资产时回复可附 ``<evo-asset-citation>``，路径必须带类型前缀
+    （memory/standing.md、memory/episodic/…、memory/journal/…、craft/…、profile/…），
+    否则前端会当成工作区文件打不开。
 
     Args:
         action: search | read | list | note | write | delete | rename | profile | affect

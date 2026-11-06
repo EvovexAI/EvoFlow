@@ -133,4 +133,32 @@ describe('evo-asset-citation', () => {
     expect(inbox).not.toContain('memoryKind=')
     expect(inbox).toContain('path=memory%2F_inbox%2Fnotes%2Ffoo.md')
   })
+
+  it('accepts CJK asset filenames (backend \w is UNICODE, JS \w is not)', () => {
+    // Regression: JS `\w` is ASCII-only, so Chinese asset paths were dropped
+    // by isSafeAssetRelPath — the citation chip never rendered.
+    const cjk = 'craft/智能客服员工搭建-知识库切块与-kb-注入镜像两个坑.md'
+    expect(isDisplayableAssetCitationPath(cjk)).toBe(true)
+
+    const parsed = extractEvoAssetCitations(
+      [
+        '<evo-asset-citation>',
+        '<citation_entries>',
+        `${cjk} | note=[知识库切块的坑]`,
+        'memory/episodic/抖音拆解流水线与资源包交付.md|note=[过程记录]',
+        '</citation_entries>',
+        '</evo-asset-citation>',
+      ].join('\n'),
+    )
+    expect(parsed.entries.map((e) => e.path)).toEqual([
+      cjk,
+      'memory/episodic/抖音拆解流水线与资源包交付.md',
+    ])
+    expect(parsed.entries[0]?.note).toBe('知识库切块的坑')
+  })
+
+  it('still rejects unsafe paths with CJK text', () => {
+    expect(isDisplayableAssetCitationPath('note=[说明]')).toBe(false)
+    expect(isDisplayableAssetCitationPath('kb_abc123')).toBe(false)
+  })
 })
