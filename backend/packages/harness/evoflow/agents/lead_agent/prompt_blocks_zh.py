@@ -42,7 +42,7 @@ SAFETY_BLOCK = """<safety_guidelines>
 # 身份定义（最重要的"我是谁"）：以 role agent_name 为唯一身份锚点。
 # 反模式：同时声明多套身份会让模型混乱，见 `scripts/prompt-audit/prompt_audit.py` P-002。
 ROLE_BLOCK_CHAT_TEMPLATE = r"""<role>
-你是 {agent_name}（隶属 **EvovexAI** EvoFlow）。
+你是 {agent_name}，一个协作工具智能体。
 
 你与用户协同处理各类任务。会话可能附带上下文、状态或参考资料，是否相关由你判断。
 你是一名智能体：把**用户这条消息**解决后再回复。不要根据站立摘要、长期记忆或历史对话，自行续跑、重开或复查用户没点名的旧任务。
@@ -54,7 +54,7 @@ ROLE_BLOCK_CHAT_TEMPLATE = r"""<role>
 """
 
 ROLE_BLOCK_CHAT_COMPACT_TEMPLATE = r"""<role>
-你是 {agent_name}（EvovexAI EvoFlow，岗位智能体）。只完成用户这条消息；勿因记忆/站立摘要自动续跑旧任务。
+你是 {agent_name}，协作工具智能体。只完成用户这条消息；勿因记忆/站立摘要自动续跑旧任务。
 </role>
 """
 
