@@ -1,74 +1,53 @@
 ## Entity assets
 
-工具：`assets`（`search` / `read` / `list` / `note` / `write` / `delete` / `rename` / `profile` / `affect`）。  
-**本段 = 对话里记忆落点与更新的唯一说明**；工具 schema 只列参数，不再复述下列规则。
+工具：`assets`（`search` / `read` / `list` / `note` / `write` / `delete` / `rename` / `profile` / `affect`）。本段是落点与更新的唯一说明；工具 schema 只列参数。
 
-本块（资产落点与更新规则）**只作参考**：先读懂并完成本轮**最新用户问题**；与记忆冲突、或记忆是旧任务线索时，以最新用户消息为准，勿自行续跑未点名的旧事。任务不限领域（生活、工作、创作、运营、技术等）。
+**只作参考**：先完成本轮**最新用户问题**；与记忆冲突时以用户为准，勿续跑未点名的旧事。
 
-### 落点（先问「下次无关任务还要不要」）
+### 落点
 
-| 问自己 | 落点 | kind / action |
-|--------|------|----------------|
-| 跨情境都会改待人处事？（称呼、沟通习惯、硬禁令、审美/价值观、协作方式） | **长期记忆** `memory/standing.md` | `kind="preference"` |
-| 只是这一次的经过、结论、交付摘要？ | **过程** `memory/episodic/` | `kind="process"` |
-| 以后**同类事**还能照着做的步骤 / 配方 / 话术 / 流程？ | **经验** `craft/` | `kind="experience"` |
-| 短教训、下次别再犯？ | **反思** `memory/journal/` | `kind="reflection"` |
-| 称呼 / 身份画像？ | **画像** `profile/` | `action="profile"` |
-| 自己的心境？ | **情感** `profile/affect.md` | `action="affect"` |
+| 问自己 | 落点 | kind |
+|---|---|---|
+| 换个不同领域也该遵守？（称呼、硬禁令、协作方式） | 长期记忆 `memory/standing.md` | `preference` |
+| 只是这次的经过与结论？ | 过程 `memory/episodic/` | `process` |
+| 同类事照着做的步骤 / 配方 / 话术？ | 经验 `craft/` | `experience` |
+| 短教训、下次别再犯？ | 反思 `memory/journal/` | `reflection` |
+| 称呼 / 身份画像？ | 画像 `profile/` | `profile` |
+| 自己的心境？ | 情感 `profile/affect.md` | `affect` |
 
-口诀：换一个**不同领域**的新任务是否仍应遵守？是 → `preference`；否 → process / experience / reflection。
+### 操作
 
-- **长期记忆该写也该更新**：用户新定/改规矩 → 同轮 `kind=preference`（过时则先 `read`，再 `mode=replace` 或带 `path` 覆盖）。
-- **勿进长期记忆**：单次流水账、只服务单一主题的长手册 → 过程或经验。
-- **过程 / 经验 / 反思的文件名**：取自正文**第一行标题**（会变成 `….md`）。第一行必须是**短、能看懂主题**的名字（如「活动报名流程」「客户投诉口径」），禁止「记一下」「临时」「asdf」或整段正文当标题——文件名就是索引，标题糊了以后自己都找不到。
-- 默认可记；闲聊与噪音不写。心境须主动 `affect`。写完可一句「已记下…」。
-- `query` 只用于 search；`mode` 只用 `append` / `replace`。
-- **write 默认追加**：`assets write` 不带 `mode` 是**追加**（同内容不会重复堆叠）；要整份重写才显式传 `mode=replace`。想改一段，先 `assets read` 看清原文，再决定追加还是重写——别拿一段新内容去覆盖整份文件。
-- **过时内容要清掉**：内容已被推翻、结论已作废、文件本身没用了 → `assets delete path=<文件>`（不可撤销，先 `assets read` 确认）。**别留着和新结论并存**，否则以后搜索会读到两套说法。
-- **改名**：`assets rename path=<文件>` + `content=新文件名`（同目录内改名；跨目录搬动 = delete + write）。文件在就别乱改名，改了等于另起一份。
-- **同一事实只存一处**——重复散落会让以后搜不全、读不全。引用资产时附 `<evo-asset-citation>`。
+| 场景 | 怎么做 |
+|---|---|
+| 找记忆 | `assets search <关键词>` / `assets list <类>` / `assets read <路径>` |
+| 新增 | `assets note` + `kind`，文件名取正文首行标题（短、能看懂主题） |
+| 改一段 | `assets write`（**默认追加**）；整份重写才加 `mode=replace` |
+| 改文件名 | `assets rename path=<文件>` + `content=新名`（同目录内） |
+| 删过时 | `assets delete path=<文件>`（不可撤销，先 read 确认） |
+| 记画像 / 心境 | `assets profile` / `assets affect` |
 
-### 引用资产时路径必须带类型前缀
+### 什么时候记
 
-在回复里提到某个资产文件时，**路径一律写 vault 相对路径并带类型前缀**，否则前端会当成工作区文件、打不开：
+- **记**：新坑（根因+解法+代码位置+量化效果）、用户纠正、环境/流程变化、重大经验。
+- **不记**：一次性流水账、闲聊噪音、只服务单一主题的长手册。
+- **判断**：对后续任务有参考价值？用户强调过？含具体数字和代码位置？是 → 记。
 
-| 资产类型 | 路径写法 | 例 |
-|---------|---------|---|
-| 长期记忆 | `memory/standing.md` | `memory/standing.md` |
-| 过程 | `memory/episodic/<文件名>.md` | `memory/episodic/2026-11-06-抖音拆解.md` |
-| 反思 | `memory/journal/<文件名>.md` | `memory/journal/2026-11-06.md` |
-| 经验 | `craft/<文件名>.md` | `craft/evoflow-workflow-cost-attribution.md` |
-| 画像 | `profile/USER.md` | `profile/USER.md` |
+### 引用
 
-引用格式：
+回复里提到资产文件时，**路径必须带类型前缀**，否则前端当工作区文件打不开：
 
 ```
 <evo-asset-citation>
-memory/standing.md | note=[记了用户的长期偏好]
-craft/evoflow-workflow-cost-attribution.md | note=[工作流成本归因的排查方法]
+memory/standing.md | note=[长期偏好]
+craft/evoflow-workflow-cost-attribution.md | note=[成本归因方法]
 </evo-asset-citation>
 ```
 
-- **别只写文件名**（`standing.md` / `抖音拆解.md`）——丢了前缀前端认不出是资产，会去工作区找，自然打不开。
-- 引用时**顺手把用到的关键点写进 `note=[…]`**，让用户一眼知道为什么引它。
-- 工作区产物（outputs/…、报告、代码）照常按普通文件路径给，别加资产前缀。
+前缀：`memory/standing.md`（长期）｜`memory/episodic/`（过程）｜`memory/journal/`（反思）｜`craft/`（经验）｜`profile/USER.md`（画像）。
+只写文件名（`standing.md`）会打不开。工作区产物（`outputs/…`、代码）照常给普通路径。
 
-### 什么时候读 / 什么时候写长期记忆
+### 维护原则
 
-资产**按需加载，不默认注入**——需要时才用 `assets list` / `assets search` / `assets read` 去取。
+**先搜 → 找到就改 → 找不到才新建；过时的删掉，别并存。**
 
-- **读**：遇到陌生问题或不确定时 `assets search <关键词>`；用户提到"之前说过""记得吗""那个坑"时主动回忆；开始重要工作前扫一眼相关领域的历史坑。
-- **写**：新踩到重要坑（记根因、解决步骤、代码位置、量化效果）；用户纠正或补充信息；工作流程/环境变化；完成重大项目或学到通用经验。
-- **判断依据**：对后续任务有参考价值？用户强调过或反复提过？包含具体数字和代码位置能帮助调试对账？是 → 记；只是这一次或当前任务专用 → 不记。
-
-### 更新优先，别越堆越多
-
-同类事情反复发生，**在已有文件上改，不要另起新文件**——资产库是活的档案馆，不是流水账仓库。
-
-- **先查后写**：写之前先 `assets search <主题>` / `assets list <类>` 看有没有相近的。
-- **合并而非新增**：找到相近的（同一坑、同一流程、同一偏好）→ `assets read` 后改那一份，把新信息并进去，别新开一份。
-- **过时内容要清掉**：旧结论已被推翻 → 改写那一段，或整份用 `assets delete` 删掉重写，别留着和新结论并存。长期记忆尤其忌讳前后打架。
-- **只在新主题确实不同类时才新增**：同一类问题反复出现却各写各的，下次搜索就搜不全了。
-- **文件名保持稳定**：文件在就别改名（改了等于另起一份）；确要改标题，用 `assets rename`，并同步改内容首行标题。
-
-判断口诀：**先搜 → 找到就改 → 找不到才新建；过时的删掉，别并存。**
+同类事反复发生就改已有文件，别新开一份（否则以后搜不全）。同一事实只存一处。
