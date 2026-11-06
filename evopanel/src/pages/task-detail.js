@@ -463,6 +463,10 @@ export function createTaskDetailView(taskId, opts = {}) {
       clearInterval(state.outputRefreshInterval)
       state.outputRefreshInterval = null
     }
+    if (state._lazyObserver) {
+      state._lazyObserver.disconnect()
+      state._lazyObserver = null
+    }
     if (state.eventSubscription) {
       state.eventSubscription.close()
       state.eventSubscription = null
@@ -1558,10 +1562,30 @@ async function loadTaskDetail(page, state) {
     renderTaskObsSubtasks(page, state)
     renderTaskOutcomePanel(page, state)
     renderTaskDecisionPanel(page, state)
-    // 延迟渲染说明和执行链，降低首屏渲染时间
+    
+    // 延迟渲染说明，降低首屏渲染时间
     requestAnimationFrame(() => {
       renderTaskDescription(page, state.task)
     })
+    
+    // 添加 lazy loading observer for non-critical blocks
+    const lazyObserver = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        if (entry.isIntersecting) {
+          const el = entry.target
+          const act = el.dataset.lazyAct
+          if (act === 'render-obs-timeline') {
+            // Obs timeline 进视区时再完全渲染
+            el.dataset.lazyAct = ''
+          }
+          lazyObserver.unobserve(el)
+        }
+      })
+    }, { rootMargin: '100px' })
+    
+    // 观察需要lazy load的块
+    page.querySelectorAll('[data-lazy-act]').forEach((el) => lazyObserver.observe(el))
+    state._lazyObserver = lazyObserver
     state.rightStageHost?.update?.({
       taskId: state.taskId,
       threadId: String(task?.thread_id || state.currentThreadId || '').trim(),
@@ -2597,7 +2621,7 @@ function renderTaskObservabilityMeta(el, obs) {
     return
   }
   el.hidden = false
-  el.innerHTML = `<h3 class="td-aside-title">运行观测</h3><div class="td-aside-chips">${chips.join('')}</div>`
+  el.innerHTML = `<details><summary>观测指标</summary><div class="td-aside-chips">${chips.join('')}</div></details>`
 }
 
 /**
