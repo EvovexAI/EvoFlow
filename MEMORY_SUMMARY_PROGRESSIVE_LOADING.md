@@ -146,42 +146,28 @@ mem_summary = cap_text_chars(mem_summary, 200)
 - ✅ 0 代码复杂度
 - ❌ 牺牲信息量
 
-### Phase 2: 记忆工具（完整方案）
+### Phase 2: 资产工具按需加载（完整方案）
 
-**新增文件**：`backend/packages/harness/evoflow/tools/builtins/memory_retrieve_tool.py`
+**使用现有**：`assets` 工具已支持全部操作
+
+模型需要完整记忆时，直接调用资产工具：
 
 ```python
-from evoflow.tools.schema import EvovexToolSpec
+# 模型需要详细心得时
+assets(action="read", path="agent:xxx/memory/craft")
 
-class MemoryRetrieveTool:
-    """Retrieve detailed personal/craft memory on demand."""
-    
-    spec = EvovexToolSpec(
-        name="memory_retrieve",
-        description="查询长期记忆详情（craft、preferences、episodic）",
-        parameters={
-            "type": "object",
-            "properties": {
-                "query": {
-                    "type": "string",
-                    "description": "可选：搜索词（e.g. 『用户偏好』、『API设计』）"
-                },
-                "category": {
-                    "type": "string",
-                    "enum": ["all", "craft", "episodic", "preferences"],
-                    "description": "记忆类别"
-                }
-            }
-        }
-    )
-    
-    async def invoke(self, query: str = "", category: str = "all") -> str:
-        # 加载完整记忆
-        # 按 category 过滤
-        # 返回格式化结果
+# 模型需要搜索相关记忆
+assets(action="search", query="用户偏好", limit=5)
+
+# 模型需要列出可用资产
+assets(action="list", path="agent:xxx/memory")
 ```
 
-**注册到工具栈**：在 lead_agent/prompt.py 中添加
+**无需新建工具** ✅
+- 资产工具已支持 read/search/list 操作
+- 模型可按需调用
+- Token 动态分配
+- 完整信息始终可得
 
 ### Phase 3: 智能判断（可选）
 

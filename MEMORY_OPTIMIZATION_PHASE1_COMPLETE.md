@@ -59,24 +59,26 @@ emp_person_memory = cap_text_chars(_raw_memory, 200)
 
 ## 🚀 后续改进路线
 
-### Phase 2（待实施）- 工具化按需加载
+### Phase 2（待实施）- 通过资产工具按需加载
 
-**新增工具**：`memory_retrieve`
+**现有工具**：`assets(action=read|search|list)`
+
+模型可直接使用现有的资产工具来检索完整记忆：
 
 ```python
-@tool
-def memory_retrieve(query: str = "", category: str = "all") -> str:
-    """
-    按需检索长期记忆详情。
-    
-    当系统提示中的摘要不够时，员工可主动调用此工具获取：
-    - craft: 完整心得与最佳实践
-    - episodic: 过往成功案例与失败教训
-    - preferences: 用户偏好与禁忌
-    """
+# 模型需要详细记忆时，调用：
+assets(action="read", path="agent:xxx/memory/craft")
+# 或
+assets(action="search", query="用户偏好")
 ```
 
+**无需新建工具**，资产工具已支持：
+- `assets read` - 读取完整记忆/心得/反思
+- `assets search` - 按关键词搜索记忆
+- `assets list` - 列出可用资产类别
+
 **优势**：
+- 复用现有基础设施
 - 模型自判断是否需要详细信息
 - Token 动态分配
 - 完整信息始终可得
