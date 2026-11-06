@@ -3494,6 +3494,47 @@ html.dark .config-section-title {
   --td-mode-soft: color-mix(in srgb, #2563eb 10%, transparent);
 }
 
+/* 工作流模式：关注节点执行信息 */
+.task-detail-page.td-mode--workflow .task-decision-panel {
+  display: none !important;
+}
+
+.task-detail-page.td-mode--workflow .td-result {
+  order: -1;
+}
+
+/* 员工模式：关注审核决策 */
+.task-detail-page.td-mode--employee .task-obs-panel {
+  order: 1;
+}
+
+.task-detail-page.td-mode--employee .td-result {
+  order: 2;
+}
+
+.task-detail-page.td-mode--employee .task-decision-panel {
+  order: 0;
+}
+
+/* 侧栏模式差异 */
+.task-detail-page.td-mode--workflow .td-aside-card:first-of-type .td-aside-k {
+  color: var(--td-mode-accent, #2563eb);
+}
+
+.task-detail-page.td-mode--employee .td-aside-card:first-of-type .td-aside-k {
+  color: var(--td-mode-accent, #0d9488);
+}
+
+/* 工作流模式：隐藏员工特定字段（风险、动作等） */
+.task-detail-page.td-mode--workflow .td-aside-more,
+.task-detail-page.td-mode--workflow .td-aside-fold {
+  display: none !important;
+}
+
+/* 员工模式：保持所有信息展示 */
+
+
+
 .task-detail-page .td-title-row {
   display: flex;
   align-items: center;
