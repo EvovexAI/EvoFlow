@@ -107,14 +107,75 @@ def build_system_prompt(
     *,
     roster: list[ProactiveRole] | None = None,
     query: str = "",
+    principal_id: str = "",
 ) -> str:
-    """Duty system prompt — shared employee skeleton (mode=duty)."""
+    """Duty system prompt — shared employee skeleton (mode=duty).
+    
+    Args:
+        role: ProactiveRole for this duty session
+        roster: List of peer roles (optional)
+        query: Environment context / duty query
+        principal_id: User ID to optionally inject user profile (scope=full)
+            - If empty or role.memory_enabled is False, no user profile injected
+            - User profile helps employee understand WHO the user is (preferences/style)
+    """
+    # Build user profile if needed (memory gate)
+    user_profile = ""
+    if principal_id and _should_inject_user_profile_for_duty(role):
+        user_profile = _build_user_profile_for_duty(principal_id)
+    
     return assemble_employee_system_prompt(
         mode="duty",
         role=role,
         roster=roster,
         query=query,
+        user_profile_block=user_profile,
     )
+
+
+def _should_inject_user_profile_for_duty(role: ProactiveRole) -> bool:
+    """Determine whether user profile should be injected based on role memory config.
+    
+    Same gate as Chat mode: memory_enabled → inject_user_profile.
+    """
+    try:
+        cfg = getattr(role, "config", None)
+        if cfg is None:
+            return True  # Default: inject
+        # Explicit False = no profile; missing/True = inject
+        memory_enabled = getattr(cfg, "memory_enabled", True)
+        return bool(memory_enabled)
+    except Exception:
+        return True
+
+
+def _build_user_profile_for_duty(principal_id: str) -> str:
+    """Build user profile injection block for duty mode.
+    
+    Mirrors logic from lead_agent/prompt.py:2330-2340 (Chat mode).
+    Injects profile/USER.md so employee knows WHO the user is (preferences/style).
+    Does NOT inject user memory/standing (employee has own memory system).
+    """
+    try:
+        from evoflow.assets.paths import EntityRef, sanitize_user_asset_id
+        from evoflow.assets.profile_injection import build_user_profile_injection_block
+        
+        _pid = str(principal_id or "").strip()
+        if not _pid:
+            return ""
+        
+        _profile_ent = (
+            EntityRef("user", sanitize_user_asset_id(_pid)).normalized()
+        )
+        
+        return build_user_profile_injection_block(
+            prompt_language="zh",  # Default; can be parameterized if needed
+            scope="full",
+            entity=_profile_ent,
+        ).strip()
+    except Exception:
+        return ""
+
 
 
 def wrap_proactive_duty_system_section(duty_prompt: str) -> str:
