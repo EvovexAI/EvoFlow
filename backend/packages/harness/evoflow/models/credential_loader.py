@@ -49,10 +49,11 @@ class ClaudeCodeCredential:
 
 @dataclass
 class runtimeCliCredential:
-    """runtime CLI credential."""
+    """runtime CLI / ChatGPT Codex subscription credential."""
 
     access_token: str
     account_id: str = ""
+    refresh_token: str = ""
     source: str = ""
 
 
@@ -196,7 +197,27 @@ def load_claude_code_credential() -> ClaudeCodeCredential | None:
 
 
 def load_codex_cli_credential() -> runtimeCliCredential | None:
-    """Load ChatGPT CLI auth from ``~/.codex/auth.json`` (or ``$CODEX_AUTH_PATH``)."""
+    """Load ChatGPT/Codex subscription auth.
+
+    Prefer EvoFlow-owned store (``codex_oauth`` / device-code login), then fall
+    back to Codex CLI ``~/.codex/auth.json`` (or ``$CODEX_AUTH_PATH``).
+    """
+    try:
+        from evoflow.models.codex_oauth import resolve_runtime_tokens
+
+        creds = resolve_runtime_tokens(force_refresh=False, refresh_if_expiring=True, allow_cli_fallback=True)
+        access = str(creds.get("access_token") or "").strip()
+        if access:
+            logger.info("Loaded Codex credential (source=%s)", creds.get("source"))
+            return runtimeCliCredential(
+                access_token=access,
+                account_id=str(creds.get("account_id") or ""),
+                refresh_token=str(creds.get("refresh_token") or ""),
+                source=str(creds.get("source") or "codex"),
+            )
+    except Exception as exc:
+        logger.debug("Codex OAuth resolve failed, trying CLI file only: %s", exc)
+
     cred_path = _resolve_credential_path("CODEX_AUTH_PATH", ".codex/auth.json")
     data = _load_json_file(cred_path, "runtime CLI credentials")
     if data is None:
@@ -207,6 +228,7 @@ def load_codex_cli_credential() -> runtimeCliCredential | None:
 
     access_token = data.get("access_token") or data.get("token") or tokens.get("access_token", "")
     account_id = data.get("account_id") or tokens.get("account_id", "")
+    refresh_token = data.get("refresh_token") or tokens.get("refresh_token", "")
     if not access_token:
         logger.debug("runtime CLI credentials file exists but no token found")
         return None
@@ -215,5 +237,6 @@ def load_codex_cli_credential() -> runtimeCliCredential | None:
     return runtimeCliCredential(
         access_token=access_token,
         account_id=account_id,
+        refresh_token=str(refresh_token or ""),
         source="codex-cli",
     )

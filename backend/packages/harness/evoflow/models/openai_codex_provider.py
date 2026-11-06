@@ -36,7 +36,7 @@ class runtimeChatModel(BaseChatModel):
 
     Config example:
         - name: gpt-5.4
-          use: evoflow.models.openai_codex_provider:CodexChatModel
+          use: evoflow.models.openai_codex_provider:runtimeChatModel
           model: gpt-5.4
           reasoning_effort: medium
     """
@@ -58,22 +58,38 @@ class runtimeChatModel(BaseChatModel):
             raise ValueError("retry_max_attempts must be >= 1")
 
     def model_post_init(self, __context: Any) -> None:
-        """Auto-load runtime CLI credentials."""
+        """Auto-load Codex subscription / CLI credentials (with refresh)."""
         self._validate_retry_config()
 
         cred = self._load_codex_auth()
         if cred:
             self._access_token = cred.access_token
             self._account_id = cred.account_id
-            logger.info(f"Using runtime CLI credential (account: {self._account_id[:8]}...)")
+            hint = (self._account_id[:8] + "...") if self._account_id else cred.source or "unknown"
+            logger.info("Using Codex credential (account: %s, source: %s)", hint, cred.source)
         else:
-            raise ValueError("runtime CLI credential not found. Expected ~/.codex/auth.json or CODEX_AUTH_PATH.")
+            raise ValueError(
+                "Codex subscription credential not found. "
+                "Sign in via Settings → 模型 → OpenAI → ChatGPT/Codex 账号登录, "
+                "or provide ~/.codex/auth.json / CODEX_AUTH_PATH."
+            )
 
         super().model_post_init(__context)
 
     def _load_codex_auth(self) -> runtimeCliCredential | None:
-        """Load access_token and account_id from runtime CLI auth."""
+        """Load access_token and account_id (EvoFlow store or Codex CLI)."""
         return load_codex_cli_credential()
+
+    def _reload_codex_auth(self) -> None:
+        """Force-refresh credentials before a retry after 401."""
+        try:
+            from evoflow.models.codex_oauth import resolve_runtime_tokens
+
+            creds = resolve_runtime_tokens(force_refresh=True, refresh_if_expiring=True)
+            self._access_token = str(creds.get("access_token") or "")
+            self._account_id = str(creds.get("account_id") or "")
+        except Exception as exc:
+            logger.warning("Codex credential refresh failed: %s", exc)
 
     @classmethod
     def _normalize_content(cls, content: Any) -> str:
@@ -195,28 +211,38 @@ class runtimeChatModel(BaseChatModel):
             model_instance=self,
         )
 
-        headers = {
-            "Authorization": f"Bearer {self._access_token}",
-            "ChatGPT-Account-ID": self._account_id,
-            "Content-Type": "application/json",
-            "Accept": "text/event-stream",
-            "originator": "codex_cli_rs",
-        }
-
         last_error = None
         for attempt in range(1, self.retry_max_attempts + 1):
+            headers = {
+                "Authorization": f"Bearer {self._access_token}",
+                "ChatGPT-Account-ID": self._account_id,
+                "Content-Type": "application/json",
+                "Accept": "text/event-stream",
+                "originator": "codex_cli_rs",
+            }
             try:
                 return self._stream_response(headers, payload)
             except httpx.HTTPStatusError as e:
                 last_error = e
-                if e.response.status_code in (429, 500, 529):
+                status = e.response.status_code
+                if status == 401 and attempt < self.retry_max_attempts:
+                    logger.warning("Codex API 401; refreshing credentials and retrying")
+                    self._reload_codex_auth()
+                    continue
+                if status in (429, 500, 529):
                     if attempt >= self.retry_max_attempts:
                         raise
                     wait_ms = 2000 * (1 << (attempt - 1))
-                    logger.warning(f"runtime API error {e.response.status_code}, retrying {attempt}/{self.retry_max_attempts} after {wait_ms}ms")
+                    logger.warning(
+                        "runtime API error %s, retrying %s/%s after %sms",
+                        status,
+                        attempt,
+                        self.retry_max_attempts,
+                        wait_ms,
+                    )
                     time.sleep(wait_ms / 1000)
-                else:
-                    raise
+                    continue
+                raise
             except Exception:
                 raise
 
@@ -417,3 +443,8 @@ class runtimeChatModel(BaseChatModel):
                     formatted_tools.append(tool)
 
         return RunnableBinding(bound=self, kwargs={"tools": formatted_tools}, **kwargs)
+
+
+# Back-compat alias for configs / docs that still say CodexChatModel.
+CodexChatModel = runtimeChatModel
+
