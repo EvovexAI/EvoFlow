@@ -2344,18 +2344,13 @@ def apply_prompt_template(
         emp_person_memory = person_memory_context
         if mem_on and not str(emp_person_memory or "").strip():
             try:
-                from evoflow.assets.injection_budget import TIER1_PERSON_MEMORY_CHARS
                 from evoflow.person_kernel import format_person_memory_context
-                from evoflow.assets.injection_budget import cap_text_chars
 
-                _raw_memory = format_person_memory_context(
+                emp_person_memory = format_person_memory_context(
                     agent_name,
                     query="",
                     max_chars=TIER1_PERSON_MEMORY_CHARS,
                 )
-                # Cap at 200 chars for progressive loading (Phase 1).
-                # Employees can retrieve full memory via tool if needed (Phase 2, TBD).
-                emp_person_memory = cap_text_chars(_raw_memory, 200)
             except Exception:
                 emp_person_memory = ""
         # inject_soul: None/True = load SOUL; False = 岗位显式关闭

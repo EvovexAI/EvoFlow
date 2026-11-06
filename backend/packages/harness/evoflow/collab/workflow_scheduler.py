@@ -54,6 +54,47 @@ def _push_app_run(task_id: str, *, reason: str) -> None:
         logger.debug("workflow_scheduler: push_app_run failed task_id=%s", task_id, exc_info=True)
 
 
+def _workflow_execution_runtime(task_id: str) -> Any | None:
+    """Build a self-contained execution runtime for a workflow DAG wave.
+
+    A workflow run owns its own execution context: it never shares the Lead
+    chat thread, so its waves must not depend on the Lead runtime registry
+    (``execution_kernel._collab_lead_runtime_*``). That registry is
+    process-local and deliberately short-lived — it is dropped when the main
+    task first reaches a terminal state and it dies with the process.
+
+    Consequence without this helper: a workflow whose summary node completed
+    while later waves were still queued resolved its follow-up runtime to
+    ``source=none`` and silently skipped the remaining wave.
+
+    The runtime is rebuilt from the task's own ``current_execution_thread_id``
+    (or no thread at all) so the delegated workers behave exactly like
+    wave-1 workers of the same run.
+    """
+    tid = str(task_id or "").strip()
+    if not tid:
+        return None
+    try:
+        from evoflow.collab.dispatch_authorized_execution import gateway_tool_runtime
+        from evoflow.collab.storage import find_main_task, get_project_storage
+
+        row = find_main_task(get_project_storage(), tid)
+        task = row[1] if row else None
+        thread_id = ""
+        if isinstance(task, dict):
+            thread_id = str(
+                task.get("current_execution_thread_id") or task.get("thread_id") or ""
+            ).strip()
+        return gateway_tool_runtime(thread_id or None, main_task_id=tid)
+    except Exception:
+        logger.warning(
+            "workflow_scheduler: self-provision runtime failed task_id=%s",
+            tid,
+            exc_info=True,
+        )
+        return None
+
+
 async def advance_dag(
     task_id: str,
     *,
@@ -104,18 +145,37 @@ async def advance_dag(
         storage = get_project_storage()
         rt = resolve_followup_runtime(runtime, tid)
         if rt is None:
-            logger.warning(
-                "workflow_scheduler: followup skip task_id=%s reason=no_runtime",
-                tid,
-            )
-            _push_app_run(tid, reason=f"dag_{reason}_no_runtime")
-            return {
-                "ok": False,
-                "taskId": tid,
-                "reason": reason,
-                "action": "followup_wave",
-                "error": "no_runtime",
-            }
+            # A workflow DAG does not need a Lead runtime: the workflow path
+            # owns its own execution context and never runs under a chat
+            # thread. Build one from the task's own execution thread so the
+            # wave can still be delegated.
+            #
+            # Why this fallback exists: the Lead runtime registry is
+            # process-local and short-lived. It is dropped when the main task
+            # first reaches a terminal state (background monitor /
+            # supervisor_tool), and it dies with the process. A workflow run
+            # whose *summary node* completes while other waves are still
+            # queued then resolved to ``source=none`` and silently skipped the
+            # remaining wave (prod: DAG log showed
+            # ``followup_runtime ... source=none`` right before the task
+            # stalled). Self-provisioning removes that dependency entirely.
+            rt = _workflow_execution_runtime(tid)
+            if rt is None:
+                logger.warning(
+                    "workflow_scheduler: followup skip task_id=%s reason=no_runtime",
+                    tid,
+                )
+                _push_app_run(tid, reason=f"dag_{reason}_no_runtime")
+                return {
+                    "ok": False,
+                    "taskId": tid,
+                    "reason": reason,
+                    "action": "followup_wave",
+                    "error": "no_runtime",
+                }
+            from evoflow.collab.dag_trace import dag_info
+
+            dag_info("followup_runtime main=%s source=workflow_self_provisioned", tid)
 
         async with followup_lock_for_task(tid):
             verify_upstream_artifacts_before_followup(storage, tid)

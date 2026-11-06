@@ -52,7 +52,16 @@ def followup_lock_for_task(main_task_id: str) -> asyncio.Lock:
 
 
 def store_lead_runtime(main_task_id: str, runtime: Any) -> None:
-    """Record the lead runtime (strong + weak) for later follow-up resolution."""
+    """Record the lead runtime (strong + weak) for later follow-up resolution.
+
+    The weakref callback only clears the strong ref when it still points at
+    *the same runtime that died*. Without that guard, registering a newer
+    runtime for the same task left the previous weakref's callback alive;
+    when that older runtime was garbage-collected the callback popped the
+    strong ref of the *current* runtime, and every later follow-up wave
+    resolved to ``source=none`` even though a live runtime was registered
+    (prod: workflow DAG stalled right after ``followup_runtime source=none``).
+    """
     tid = str(main_task_id or "").strip()
     if not tid or runtime is None:
         return
@@ -60,11 +69,17 @@ def store_lead_runtime(main_task_id: str, runtime: Any) -> None:
     try:
         _collab_lead_runtime_by_task[tid] = weakref.ref(
             runtime,
-            lambda _r, task_id=tid: _collab_lead_runtime_strong.pop(task_id, None),
+            lambda _r, task_id=tid, dead=runtime: _drop_if_current(task_id, dead),
         )
     except TypeError:
         # Gateway/minimal runtimes must not abort delegation (follow-up may lack lead runtime).
         logger.debug("collab lead runtime not weakref-able for task %s type=%s", tid, type(runtime).__name__)
+
+
+def _drop_if_current(task_id: str, runtime: Any) -> None:
+    """Clear the strong ref only when it still holds ``runtime``."""
+    if _collab_lead_runtime_strong.get(task_id) is runtime:
+        _collab_lead_runtime_strong.pop(task_id, None)
 
 
 def drop_lead_runtime(main_task_id: str) -> None:

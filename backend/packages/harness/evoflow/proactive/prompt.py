@@ -269,14 +269,6 @@ def build_user_prompt(
     board = str(task_board or "").strip()
     empty_log = (not log) or ("暂无历史" in log and "首次上岗" in log)
     empty_board = (not board) or ("暂无未结" in board)
-    
-    # Progressive loading: cap memory summary to 200 chars instead of full injection.
-    # Employees can retrieve full memory via memory_retrieve tool if needed.
-    # This reduces token bloat while keeping core context available.
-    from evoflow.assets.injection_budget import cap_text_chars
-    _mem_raw = _memory_brief_without_work_log_echo(memory.summary(max_items=3), log)
-    mem_summary = cap_text_chars(_mem_raw, 200)  # Hard cap at 200 chars
-    empty_mem = (not mem_summary) or ("暂无" in mem_summary)
 
     parts: list[str] = [f"# 值班 · 「{role.role_name}」", ""]
 
@@ -300,16 +292,12 @@ def build_user_prompt(
             parts.extend(["", board])
         if not empty_log:
             parts.extend(["", "## 近况", log])
-        if not empty_mem:
-            parts.extend(["", "## 记忆摘要", mem_summary])
         return "\n".join(parts).strip() + "\n"
 
     if not empty_board:
         parts.extend([board, ""])
     if not empty_log:
         parts.extend(["## 近况", log, ""])
-    if not empty_mem:
-        parts.extend(["## 记忆摘要", mem_summary, ""])
     if env:
         parts.extend(["## 环境信号", env, ""])
     parts.extend(

@@ -1744,6 +1744,60 @@ class ProactiveRunner:
             except Exception:
                 logger.debug("proactive.runner: budget check failed (non-fatal)", exc_info=True)
 
+        # 上班时间闸门（P0）：定时巡检只允许在 [work_start_hour, work_end_hour) 内开工。
+        # 显式 5 段 cron（例如 "0 * * * *"）不受旧 RRULE→cron 转换里的工时钳制，
+        # 导致「上班时间」配置形同虚设。这里按角色配置硬性拦截。
+        # 人工派发（scheduled=False）不受限制 —— 用户显式指令优先。
+        if scheduled:
+            try:
+                from evoflow.proactive.schedule import (
+                    within_work_window,
+                    work_window_label_zh,
+                )
+
+                if not within_work_window(role):
+                    now = utc_now_iso_z()
+                    next_hb = compute_next_duty_iso(role)
+                    try:
+                        ProactiveRepository.update_heartbeat(
+                            role.agent_code,
+                            last_heartbeat_at=now,
+                            next_heartbeat_at=next_hb,
+                        )
+                    except Exception:
+                        logger.debug(
+                            "proactive.runner: reschedule after work-window skip failed code=%s",
+                            code,
+                            exc_info=True,
+                        )
+                    label = work_window_label_zh(role)
+                    logger.info(
+                        "【值班跳过】原因=不在上班时间内 | 谁=%s(%s) | %s | 改约下次=%s",
+                        str(role.role_name or "").strip() or code,
+                        code,
+                        label,
+                        next_hb or "—",
+                    )
+                    _finish_duty_run(
+                        duty_run_id,
+                        status="skipped",
+                        skip_reason="outside_work_window",
+                        round_id=duty_round_id,
+                    )
+                    await self._end_role(code, only_if_task=asyncio.current_task())
+                    return {
+                        "ok": True,
+                        "skipped": True,
+                        "agent_code": code,
+                        "reason": "outside_work_window",
+                        "work_window": label,
+                        "next_heartbeat_at": next_hb,
+                        "round_id": duty_round_id,
+                        "duty_run_id": duty_run_id,
+                    }
+            except Exception:
+                logger.debug("proactive.runner: work-window gate failed (non-fatal)", exc_info=True)
+
         # Scheduled 小V: empty board → do not open a duty session / LLM round.
         if scheduled and not str(extra_env_context or "").strip() and not str(prepend_env_context or "").strip() and _should_skip_xiaomi_idle_heartbeat(role):
             now = utc_now_iso_z()
@@ -2280,8 +2334,15 @@ class ProactiveRunner:
         if target.status != InitiativeStatus.PROPOSED:
             return
 
-        # Check if it needs approval
-        if needs_approval(target.risk_level, role.config.autonomy_level):
+        # Check if it needs approval (autonomy level + optional role risk floor).
+        if needs_approval(
+            target.risk_level,
+            role.config.autonomy_level,
+            getattr(role.config, "risk_threshold", None),
+            risk_threshold_enabled=bool(
+                getattr(role.config, "risk_threshold_enabled", False)
+            ),
+        ):
             await self._gate.request_approval(role, target)
             return
 

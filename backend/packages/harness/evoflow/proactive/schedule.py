@@ -312,3 +312,54 @@ def cron_matches_role_now(role: ProactiveRole, when: datetime | None = None) -> 
     if not cron:
         return False
     return cron_matches_at(cron, _naive_local(_now_beijing(when)))
+
+
+def resolve_work_window(role: ProactiveRole) -> tuple[int, int] | None:
+    """Return the ``(start_hour, end_hour)`` work window, or ``None`` when unlimited.
+
+    ``work_schedule_enabled=False`` means「不受上班时间限制」. A window whose
+    ``start >= end`` is treated as **overnight** (e.g. 22 → 6 = night shift) and
+    is returned as-is so the caller can compare against the wrapped hour.
+    """
+    cfg = getattr(role, "config", None)
+    if cfg is None:
+        return None
+    if not bool(getattr(cfg, "work_schedule_enabled", True)):
+        return None
+    start = int(getattr(cfg, "work_start_hour", 9) or 0)
+    end = int(getattr(cfg, "work_end_hour", 20) or 0)
+    start = max(0, min(23, start))
+    end = max(0, min(23, end))
+    if start == end:
+        # Zero-length window → no hour is inside it; treat as unlimited so a
+        # mis-typed value never silently freezes the employee.
+        return None
+    return (start, end)
+
+
+def within_work_window(role: ProactiveRole, when: datetime | None = None) -> bool:
+    """True when ``when`` (local clock) falls inside the role's work window.
+
+    Mirrors the cron clock semantics used elsewhere: Beijing time projected onto
+    the machine's local wall clock, hour granularity (``[start, end)``).
+    """
+    window = resolve_work_window(role)
+    if window is None:
+        return True
+    start, end = window
+    hour = _naive_local(_now_beijing(when)).hour
+    if start < end:
+        return start <= hour < end
+    # Overnight window (start > end): e.g. 22–6 covers 22:00–05:59.
+    return hour >= start or hour < end
+
+
+def work_window_label_zh(role: ProactiveRole) -> str:
+    """Human label for the role's work window (for skip reasons / UI)."""
+    window = resolve_work_window(role)
+    if window is None:
+        return "不限上班时间"
+    start, end = window
+    if start < end:
+        return f"上班时间 {start:02d}:00–{end:02d}:00"
+    return f"上班时间 {start:02d}:00–次日{end:02d}:00"

@@ -52,6 +52,21 @@ def _all_sub_rows_strictly_completed(sub_rows: list[dict[str, Any]]) -> bool:
     return True
 
 
+def _has_pending_subtasks(subtasks: list[dict[str, Any]]) -> bool:
+    """True when at least one subtask is not yet in a terminal state.
+
+    Used to decide whether the lead runtime may be released: as long as a
+    wave is still queued, the next follow-up wave needs that runtime.
+    """
+    for st in subtasks or []:
+        if not isinstance(st, dict):
+            continue
+        status = str(st.get("status") or "").strip().lower()
+        if status not in {"completed", "done", "success", "failed", "cancelled", "canceled", "timed_out", "skipped"}:
+            return True
+    return False
+
+
 _RUNNING_SUBTASK_STATUSES = {"executing", "running", "in_progress"}
 _DECISION_EMIT_GUARD: dict[str, dict[str, Any]] = {}
 _LEAD_FOLLOW_GUARD: dict[str, dict[str, Any]] = {}
@@ -748,7 +763,14 @@ def _ensure_background_task_monitor(
                             from evoflow.tools.builtins.supervisor.execution import unregister_collab_lead_runtime
 
                             outcome = finalize_collab_phase_on_main_terminal(paths, key, runtime_thread_id=tid)
-                            unregister_collab_lead_runtime(key)
+                            # Keep the lead runtime registered while any subtask
+                            # is still pending / runnable. A workflow DAG can
+                            # reach a terminal-looking main state while later
+                            # waves are queued (summary node finishes first);
+                            # dropping the runtime there left the next wave
+                            # with ``source=none`` and it was silently skipped.
+                            if not _has_pending_subtasks(subtasks):
+                                unregister_collab_lead_runtime(key)
                         except Exception:
                             logger.warning("background monitor: finalize collab phase failed task_id=%s", key, exc_info=True)
                     _cleanup_monitor_state_for_task(key, tid)

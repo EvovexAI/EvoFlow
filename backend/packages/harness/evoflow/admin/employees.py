@@ -123,6 +123,7 @@ _HIRE_KEYS = frozenset(
         "autonomy_level",
         "max_initiatives_per_cycle",
         "risk_threshold",
+        "risk_threshold_enabled",
         "approval_channels",
         "approval_timeout_minutes",
         "heartbeat_rrule",
@@ -423,6 +424,7 @@ def _role_detail(role: ProactiveRole) -> dict[str, Any]:
             "autonomy_level": cfg.autonomy_level.value,
             "max_initiatives_per_cycle": cfg.max_initiatives_per_cycle,
             "risk_threshold": cfg.risk_threshold.value,
+            "risk_threshold_enabled": bool(getattr(cfg, "risk_threshold_enabled", False)),
             "approval_channels": list(cfg.approval_channels or []),
             "approval_timeout_minutes": cfg.approval_timeout_minutes,
             "soul_md": soul_md,
@@ -968,6 +970,7 @@ def _hire_existing_agent(
         autonomy_level=_parse_autonomy(data.get("autonomy_level")),
         max_initiatives_per_cycle=int(data.get("max_initiatives_per_cycle") or 3),
         risk_threshold=_parse_risk(data.get("risk_threshold")),
+        risk_threshold_enabled=bool(data.get("risk_threshold_enabled", False)),
         approval_channels=list(data.get("approval_channels") or ["desktop"]),
         approval_timeout_minutes=int(data.get("approval_timeout_minutes") or 30),
         soul_md=soul_md_value,
@@ -1200,6 +1203,8 @@ def update_role(agent_code: str, data: dict[str, Any]) -> dict[str, Any]:
         cfg.max_initiatives_per_cycle = int(data["max_initiatives_per_cycle"])
     if data.get("risk_threshold") is not None:
         cfg.risk_threshold = _parse_risk(data.get("risk_threshold"))
+    if data.get("risk_threshold_enabled") is not None:
+        cfg.risk_threshold_enabled = bool(data.get("risk_threshold_enabled"))
     if data.get("approval_channels") is not None:
         cfg.approval_channels = list(data.get("approval_channels") or [])
     if data.get("approval_timeout_minutes") is not None:

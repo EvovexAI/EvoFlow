@@ -255,6 +255,7 @@ def skip_reason_label_zh(skip_reason: str) -> str:
     skip = str(skip_reason or "").strip()
     labels = {
         "xiaomi_idle_board": "到点触发 · 空板未开工",
+        "outside_work_window": "到点触发 · 不在上班时间内，本轮未开跑",
         "daily_budget_exceeded": "到点触发 · 日预算已满，跳过",
         "langgraph_unreachable": "到点触发 · 引擎不可达，已改约",
         "role_busy": "到点触发 · 员工忙碌中，本轮未开跑",

@@ -134,6 +134,73 @@ def _protect_terminal_subtask_rows(conn: Any, mid: str, parts: dict[str, Any]) -
         )
 
 
+def _protect_missing_subtask_rows(conn: Any, mid: str, parts: dict[str, Any]) -> None:
+    """Hard layer: a stale whole-bundle rewrite must not DELETE finished subtasks.
+
+    ``save_task_bundle`` persists a bundle as delete-all + reinsert. A writer
+    holding an older snapshot of the task therefore erases subtask rows that
+    have since been created, completed, or written with their outputs. The
+    classic symptom (prod): a workflow run finished, its artifacts were on
+    disk, but ``evoflow_collab_subtasks`` came back empty and the main task
+    fell back to its initial state.
+
+    Guard: when the DB root row already reached a terminal status but the
+    incoming copy is not terminal, the incoming snapshot is *older*. Every DB
+    subtask row that the incoming bundle omits is preserved and re-appended.
+
+    Legitimate removals (plan edits dropping a not-yet-started step) happen
+    while the task is still ``planned`` / ``executing`` — never after the root
+    row is terminal — so they are unaffected.
+    """
+    import logging
+
+    logger = logging.getLogger(__name__)
+
+    subtask_rows = parts.get("subtasks")
+    if subtask_rows is None:
+        subtask_rows = []
+        parts["subtasks"] = subtask_rows
+    try:
+        root = conn.execute(
+            "SELECT status FROM evoflow_collab_tasks WHERE main_task_id = ? AND task_id = main_task_id LIMIT 1",
+            (mid,),
+        ).fetchone()
+    except Exception:
+        logger.debug("missing-row protection: root scan failed main=%s", mid, exc_info=True)
+        return
+    if root is None:
+        return
+    db_root_status = str(root[0] or "").strip().lower()
+    if db_root_status not in _TERMINAL_PROTECT_STATUSES:
+        return  # DB root is not terminal — the incoming copy is authoritative
+
+    incoming_ids = {str(sr.get("subtask_id") or "") for sr in subtask_rows}
+    try:
+        db_rows = conn.execute(
+            "SELECT * FROM evoflow_collab_subtasks WHERE main_task_id = ? ORDER BY sort_order",
+            (mid,),
+        ).fetchall()
+    except Exception:
+        logger.debug("missing-row protection: subtask scan failed main=%s", mid, exc_info=True)
+        return
+
+    restored = 0
+    for db_row in db_rows:
+        sid = str(db_row["subtask_id"] or "")
+        if not sid or sid in incoming_ids:
+            continue
+        subtask_rows.append({k: db_row[k] for k in db_row.keys()})
+        restored += 1
+    if restored:
+        logger.warning(
+            "task_bundle.missing_subtasks_restored main=%s restored=%d db_root_status=%s "
+            "(stale rewrite would have deleted finished subtask rows; DB rows kept)",
+            mid,
+            restored,
+            db_root_status,
+        )
+
+
 def save_task_bundle(main_task_id: str, document: dict[str, Any], *, loaded_updated_at: str | None = None) -> None:
     """Persist a whole task bundle (delete children + reinsert).
 
@@ -206,6 +273,7 @@ def save_task_bundle(main_task_id: str, document: dict[str, Any], *, loaded_upda
         bundle["updated_at"] = now
         parts["tasks"] = m.apply_bundle_header_to_task_rows(main_task_id, bundle, parts["tasks"])
         _protect_terminal_subtask_rows(conn, mid, parts)
+        _protect_missing_subtask_rows(conn, mid, parts)
         delete_task_bundle_children(conn, main_task_id)
         for tr in parts["tasks"]:
             _is_app = bool(tr.get("extra_json") and '"app_definition_snapshot"' in str(tr.get("extra_json")))
@@ -859,6 +927,63 @@ def list_root_task_summaries(
         return out
 
     return run_db_read(_query)
+
+
+def count_root_tasks_by_round_refs(
+    *,
+    refs: list[str],
+    agent_code: str = "",
+    role_name: str = "",
+) -> int:
+    """COUNT root tasks raised by an employee inside the given duty round(s).
+
+    Used by the per-round initiative cap (``max_initiatives_per_cycle``) so the
+    check never hydrates the whole task board. ``refs`` are raw round stamps or
+    duty session keys; they are matched against ``round_id`` / ``source_ref``
+    (both live in ``extra_json``).
+
+    Only **root** tasks are counted (``task_id = main_task_id``) — subtasks are
+    steps of one work item and must not consume the employee's initiative budget.
+    """
+    from evoflow.persistence.db import run_db_read
+
+    stamps = [str(r or "").strip() for r in (refs or []) if str(r or "").strip()]
+    if not stamps:
+        return 0
+    code = str(agent_code or "").strip()
+    rname = str(role_name or "").strip()
+
+    def _query(conn: Any) -> int:
+        clauses = ["task_id = main_task_id"]
+        params: list[Any] = []
+        ors: list[str] = []
+        for stamp in stamps:
+            ors.append("TRIM(COALESCE(json_extract(extra_json, '$.round_id'), '')) = ?")
+            params.append(stamp)
+            ors.append("TRIM(COALESCE(json_extract(extra_json, '$.source_ref'), '')) = ?")
+            params.append(stamp)
+        clauses.append("(" + " OR ".join(ors) + ")")
+        owner_ors: list[str] = []
+        if rname:
+            owner_ors.append("TRIM(COALESCE(json_extract(extra_json, '$.assigned_role'), '')) = ?")
+            params.append(rname)
+        if code:
+            owner_ors.append("TRIM(COALESCE(assigned_to, '')) = ?")
+            params.append(code)
+            owner_ors.append("TRIM(COALESCE(json_extract(extra_json, '$.raised_by'), '')) = ?")
+            params.append(code)
+        if owner_ors:
+            clauses.append("(" + " OR ".join(owner_ors) + ")")
+        row = conn.execute(
+            f"SELECT COUNT(*) FROM evoflow_collab_tasks WHERE {' AND '.join(clauses)}",
+            tuple(params),
+        ).fetchone()
+        return int(row[0] or 0) if row else 0
+
+    try:
+        return int(run_db_read(_query))
+    except Exception:
+        return 0
 
 
 def count_root_task_summaries(
