@@ -34594,10 +34594,11 @@ html.dark .session-notify-panel-action-btn:hover {
 }
 
 .session-notify-item {
+  position: relative;
   display: flex;
   align-items: flex-start;
-  gap: 10px;
-  padding: 12px 16px;
+  gap: 8px;
+  padding: 9px 14px 9px 12px;
   cursor: pointer;
   transition: background var(--dur-fast);
   border-bottom: 1px solid var(--border-color-soft, rgba(0, 0, 0, 0.04));
@@ -34623,9 +34624,10 @@ html.dark .session-notify-item {
 }
 
 .session-notify-item-icon {
-  font-size: 18px;
-  line-height: 1.4;
+  font-size: 15px;
+  line-height: 20px;
   flex-shrink: 0;
+  opacity: 0.9;
 }
 
 .session-notify-item-body {
@@ -34635,15 +34637,106 @@ html.dark .session-notify-item {
 
 .session-notify-item-title-row {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   justify-content: space-between;
   gap: 8px;
+}
+
+/* 第二行：状态徽标 + 会话名，同一行排布，避免每条占四行 */
+.session-notify-item-meta-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 3px;
+  min-width: 0;
+}
+
+.session-notify-item-badge {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  height: 17px;
+  padding: 0 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.2px;
+  white-space: nowrap;
+}
+
+.session-notify-item-badge.is-success {
+  color: #0f7b46;
+  background: rgba(16, 185, 129, 0.12);
+  border: 1px solid rgba(16, 185, 129, 0.26);
+}
+
+.session-notify-item-badge.is-danger {
+  color: #b42318;
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.26);
+}
+
+.session-notify-item-badge.is-warning {
+  color: #a15c07;
+  background: rgba(245, 158, 11, 0.14);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.session-notify-item-badge.is-muted {
+  color: var(--text-secondary, #6b7280);
+  background: var(--bg-hover, rgba(0, 0, 0, 0.05));
+  border: 1px solid var(--border-color, #e5e7eb);
+}
+
+html[data-theme='dark'] .session-notify-item-badge.is-success,
+html.dark .session-notify-item-badge.is-success {
+  color: #6ee7b7;
+  background: rgba(16, 185, 129, 0.16);
+  border-color: rgba(16, 185, 129, 0.34);
+}
+
+html[data-theme='dark'] .session-notify-item-badge.is-danger,
+html.dark .session-notify-item-badge.is-danger {
+  color: #fca5a5;
+  background: rgba(239, 68, 68, 0.16);
+  border-color: rgba(239, 68, 68, 0.34);
+}
+
+html[data-theme='dark'] .session-notify-item-badge.is-warning,
+html.dark .session-notify-item-badge.is-warning {
+  color: #fcd34d;
+  background: rgba(245, 158, 11, 0.16);
+  border-color: rgba(245, 158, 11, 0.34);
+}
+
+/* 失败条目左侧加一道色条，扫一眼就能挑出异常 */
+.session-notify-item.is-danger::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 7px;
+  bottom: 7px;
+  width: 2px;
+  border-radius: 2px;
+  background: #ef4444;
+}
+
+.session-notify-item.is-warning::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 7px;
+  bottom: 7px;
+  width: 2px;
+  border-radius: 2px;
+  background: #f59e0b;
 }
 
 .session-notify-item-session {
   font-size: var(--ef-text-sm);
   color: var(--text-secondary, #6b7280);
-  margin-top: 1px;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -34683,12 +34776,13 @@ html.dark .session-notify-item-outcome {
 .session-notify-item-text {
   font-size: var(--ef-text-sm);
   color: var(--text-secondary, #6b7280);
-  margin-top: 4px;
-  line-height: 1.5;
+  margin-top: 3px;
+  line-height: 1.45;
   display: -webkit-box;
-  -webkit-line-clamp: 4;
+  -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+  word-break: break-word;
 }
 
 html[data-theme='dark'] .session-notify-item-text,

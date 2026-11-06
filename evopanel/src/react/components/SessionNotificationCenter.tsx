@@ -23,6 +23,47 @@ const kindIcon: Record<string, string> = {
   workflow_finished: '⚙️',
 }
 
+/**
+ * 状态枚举 → 中文 + 语义色。
+ * outcome 存的是终态原始值（completed / failed / stopped / cancelled / running …），
+ * 直接显示英文对中文界面对用户不友好，这里统一转中文并配状态色。
+ */
+type OutcomeTone = 'success' | 'danger' | 'warning' | 'muted'
+
+const OUTCOME_MAP: Record<string, { label: string; tone: OutcomeTone }> = {
+  completed: { label: '已完成', tone: 'success' },
+  complete: { label: '已完成', tone: 'success' },
+  success: { label: '已完成', tone: 'success' },
+  succeeded: { label: '已完成', tone: 'success' },
+  finished: { label: '已完成', tone: 'success' },
+  done: { label: '已完成', tone: 'success' },
+  failed: { label: '失败', tone: 'danger' },
+  fail: { label: '失败', tone: 'danger' },
+  error: { label: '失败', tone: 'danger' },
+  errored: { label: '失败', tone: 'danger' },
+  stopped: { label: '已停止', tone: 'warning' },
+  stop: { label: '已停止', tone: 'warning' },
+  cancelled: { label: '已取消', tone: 'warning' },
+  canceled: { label: '已取消', tone: 'warning' },
+  aborted: { label: '已中止', tone: 'warning' },
+  timeout: { label: '超时', tone: 'warning' },
+  running: { label: '进行中', tone: 'muted' },
+  pending: { label: '等待中', tone: 'muted' },
+  queued: { label: '排队中', tone: 'muted' },
+}
+
+/** 把任意终态文案归一成「中文标签 + 色调」；认不出的原样显示为中性色。 */
+function resolveOutcome(raw: string): { label: string; tone: OutcomeTone } | null {
+  const text = String(raw || '').trim()
+  if (!text) return null
+  const key = text.toLowerCase()
+  if (OUTCOME_MAP[key]) return OUTCOME_MAP[key]
+  // 形如 "completed (3/5)" / "failed: xxx" 带后缀的情况，取首个词判定
+  const head = key.split(/[\s:：(（,，;；]/)[0]
+  if (head && OUTCOME_MAP[head]) return OUTCOME_MAP[head]
+  return { label: text, tone: 'muted' }
+}
+
 function formatTime(ts: number | string | undefined): string {
   let ms: number
   if (typeof ts === 'string') {
@@ -54,9 +95,17 @@ function NotificationItem({
     if (!n.read) onRead(n.id)
   }, [n.id, n.read, onRead])
 
+  const outcome = resolveOutcome(n.outcome)
+  // body 常与 outcome 重复（如 "[Run_xxx] failed"），归一后重复就不再占一行
+  const bodyText = String(n.body || '').trim()
+  const showBody =
+    !!bodyText &&
+    bodyText !== String(n.outcome || '').trim() &&
+    !(outcome && bodyText.toLowerCase() === outcome.label.toLowerCase())
+
   return (
     <div
-      className={`session-notify-item${n.read ? ' is-read' : ''}`}
+      className={`session-notify-item${n.read ? ' is-read' : ''}${outcome ? ` is-${outcome.tone}` : ''}`}
       onClick={handleClick}
       role="button"
       tabIndex={0}
@@ -69,11 +118,15 @@ function NotificationItem({
           <span className="session-notify-item-title">{n.title}</span>
           <span className="session-notify-item-time">{formatTime(n.ts)}</span>
         </div>
-        {n.sessionTitle ? (
-          <div className="session-notify-item-session">{n.sessionTitle}</div>
-        ) : null}
-        <div className="session-notify-item-outcome">{n.outcome}</div>
-        {n.body ? <div className="session-notify-item-text">{n.body}</div> : null}
+        <div className="session-notify-item-meta-row">
+          {outcome ? (
+            <span className={`session-notify-item-badge is-${outcome.tone}`}>{outcome.label}</span>
+          ) : null}
+          {n.sessionTitle ? (
+            <span className="session-notify-item-session">{n.sessionTitle}</span>
+          ) : null}
+        </div>
+        {showBody ? <div className="session-notify-item-text">{bodyText}</div> : null}
       </div>
       {!n.read ? <span className="session-notify-item-dot" aria-hidden="true" /> : null}
     </div>

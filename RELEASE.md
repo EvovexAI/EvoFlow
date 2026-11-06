@@ -59,6 +59,37 @@ npm run version:set -- 1.1.0
 
 写作约定见 [`evopanel/docs/changelog-guidelines.md`](evopanel/docs/changelog-guidelines.md)。
 
+### 2.1 每版必须写清的四个字段（缺一不可）
+
+除了变更内容，条目头部必须交代清楚**谁做的、做的什么、谁放的**。写法示例：
+
+```
+- 开发负责人：EvoFlow · 智能体员工 · 全栈开发工程师
+- 修复内容：<本次修了什么，写具体现象，不写「若干优化」「体验提升」这类空话>
+- 发版角色：EvoFlow · 智能体员工 · 发版工程师 —— 负责 CI/CD 与发布：升版本号、备三份说明、提交打 tag、触发正式包流水线、刷新升级清单；不写功能代码、不修 bug
+- 推送执行人：EvoFlow · 智能体员工 · 发版工程师
+```
+
+**署名格式固定为：`EvoFlow · 智能体员工 · <岗位名>`**（中间用全角间隔号 `·` 分隔）。前三段缺一不可——身份（智能体员工）、岗位、所属产品线，这样任何人在 changelog、Release 正文、git 记录里都能一眼看清是谁、什么身份、属于哪个产品。
+
+| # | 字段 | 填什么 | 落在哪 |
+|---|------|--------|--------|
+| 1 | 开发负责人 | 提需求并实现的人，默认 **EvoFlow · 智能体员工 · 全栈开发工程师**；若由外部工程师处理，写 `EvoFlow · 智能体员工 · <岗位名>` 或实际人名 | `CHANGELOG.md` 本版条目 + `PRODUCT-NOTES-x.y.z.md` 头部 |
+| 2 | 修复内容 | 本次实际修的问题（有现象、有模块） | 三份说明均需覆盖 |
+| 3 | 发版角色 | 固定写 **EvoFlow · 智能体员工 · 发版工程师** + 一句职责说明（CI/CD 发布执行，非开发） | `PRODUCT-NOTES-x.y.z.md` 头部 + 发版记录 |
+| 4 | 推送执行人 | 实际敲 `git push` / 打 tag 的人，同样用 `EvoFlow · 智能体员工 · <岗位名>`；默认发版工程师，若由用户本人代推，写实际执行者 | `CHANGELOG.md` 本版条目 + `PRODUCT-NOTES-x.y.z.md` 头部 |
+
+要点：**开发负责人 ≠ 推送执行人**，两者分开写，责任不混。任一项缺失视为发版材料不全，不得提交打 tag。
+
+commit 署名同样遵守该格式，便于 `git log` 直接追溯：
+
+```bash
+git commit -m "chore(release): x.y.z" \
+  -m "开发负责人：EvoFlow · 智能体员工 · 全栈开发工程师" \
+  -m "发版角色：EvoFlow · 智能体员工 · 发版工程师" \
+  -m "推送执行人：EvoFlow · 智能体员工 · 发版工程师"
+```
+
 有用户可感知的新模块时，再补用户文档（指南 / `page-help`），见该文件说明。
 
 ---
@@ -116,6 +147,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/maintainer/windows/p
 - [ ] `evopanel/VERSION` == 目标版本（不是只改了 package.json）
 - [ ] 跑过 `npm run version:set -- x.y.z`（或确认 sync 后各处一致）
 - [ ] `CHANGELOG.md` 有本版完整条目
+- [ ] 四字段齐备（见 2.1）：开发负责人 / 修复内容 / 发版角色 / 推送执行人
 - [ ] 存在 `PRODUCT-NOTES-x.y.z.md`（否则 Release 正文几乎只有页脚）
 - [ ] `latest.json` 的 `version` / `url` / `changelog` 都是本版
 - [ ] 已推送提交；将打的 `vX.Y.Z` tag 指向含上述文件的 commit

@@ -6,6 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.3.3] - 2026-11-06
+
+相对 **1.3.2**：会话通知面板改为紧凑布局，状态由英文枚举改为中文彩色徽标。
+
+- 开发负责人：EvoFlow · 智能体员工 · 全栈开发工程师
+- 修复内容：会话通知条目每条占四行、纵向过高；outcome 直接显示 `completed` / `failed` 等英文枚举，中文界面下不易辨认，异常状态也不突出
+- 发版角色：EvoFlow · 智能体员工 · 发版工程师 —— CI/CD 发布执行，不写功能代码、不修 bug
+- 推送执行人：EvoFlow · 智能体员工 · 发版工程师
+
+### Changed
+
+- **会话通知面板**：状态枚举中文化并配语义色（已完成 / 失败 / 已停止 / 已取消 / 进行中等），失败与停止条目左侧加 2px 状态色条，异常一眼可辨
+- **会话通知面板**：会话名与状态徽标合并到同一行，正文与状态重复时不再重复展示；条目间距 12px→9px，正文最多 2 行；单条高度约 100px → 64px（压缩约 36%）
+
+### Fixed
+
+- **会话通知面板**：`body` 与 `outcome` 内容重复（如 `[Run_xxx] failed`）时不再多占一行
+
+GitHub Release 正文见 `scripts/maintainer/windows/release-notes/PRODUCT-NOTES-1.3.3.md`；升级横幅见 `scripts/maintainer/update/latest.json`。
+
 ## [1.3.2] - 2026-11-06
 
 相对 **1.3.1**：新增员工平台能力清单（platform scope）与资产 standing 注入折叠；部门群新增派工条状态；run 心跳改 upsert；知识库分块与后台保活修复；媒体下载改流式落盘。
