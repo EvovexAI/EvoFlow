@@ -4,12 +4,12 @@
 >
 > - 在飞书群里发：`@机器人 帮我查一下今天 AI 圈有什么新闻`——AI 直接回复
 > - 发：`@机器人 /goal 每小时检查一次服务器健康，跑 7 天`——启动后台任务
-> - 发：`@机器人 /agent python-analyst 帮我分析这个数据`——切换角色干活
+> 
 >
 > 飞书支持流式卡片更新，任务进度、自动化推送都能在飞书里看到。配置方式详见「IM 消息渠道配置」。
 
 ## 功能概述
-飞书渠道集成支持将 EvoFlow 的所有能力直接在飞书对话中使用，无需打开桌面端，支持群聊和单聊两种模式，包含所有核心功能：普通对话、智能体切换、目标任务、自动化、Claude Code 模式等。
+飞书渠道集成支持将 EvoFlow 的所有能力直接在飞书对话中使用，无需打开桌面端，支持群聊和单聊两种模式，包含核心功能：普通对话、目标任务（`/goal`）、Claude Code 模式（`/claude` / `/lead`）、会话与模型查询等。
 
 ---
 
@@ -62,16 +62,14 @@
 | `/new` | 新建独立会话线程 |
 | `/claude` | 开启 Claude Code 模式 |
 | `/lead` 或 `/main` | 关闭 Claude Code，切回主智能体 |
-| `/agent [名称]` | 切换到指定智能体 |
-| `/goal [任务目标]` | 创建后台目标任务 |
-| `/task [任务描述]` | 创建编排任务 |
-| `/status` | 查看任务状态和进度 |
-| `/stop` | 终止当前运行中的任务 |
+| `/goal [任务目标]`（别名 `/hd`、`/hosted`） | 创建后台目标任务 |
+| `/status` | 查看当前模式、线程与目标状态 |
 | `/help` | 查看所有可用指令 |
 | `/models` | 查看可用模型列表 |
-| `/agents` | 查看所有可用智能体列表 |
 | `/memory` | 查看当前会话的记忆内容 |
-| `/automation [操作]` | 自动化管理（别名 `/cron`、`/schedule`） |
+| `/bootstrap [提示]` | 初始化工作区（首次配置） |
+
+> 已下线的旧指令（如 `/agent`、`/task`、`/stop`、`/automation` 系列）不再处理；发送未知指令会提示 `Unknown command`。完整可用指令见 [快捷指令](../chat/shortcut-commands.md)。
 
 ---
 
@@ -87,27 +85,7 @@
 
 ## 5. 自动化操作
 
-通过 `/automation` 指令可以直接在飞书中管理自动化：
-
-```
-# 创建自动化
-/automation create 每天早上9点生成昨日业务数据报表
-
-# 查看所有自动化
-/automation list
-
-# 暂停自动化
-/automation pause 任务ID
-
-# 恢复自动化
-/automation resume 任务ID
-
-# 删除自动化
-/automation delete 任务ID
-
-# 查看执行历史
-/automation history 任务ID
-```
+飞书端目前没有 `/automation` 管理指令；自动化的创建、启停与历史请在桌面端 **自动化** 页操作（推送结果仍可发到飞书，见 [自动化指南](../tasks/scheduled-tasks.md)）。
 
 ---
 

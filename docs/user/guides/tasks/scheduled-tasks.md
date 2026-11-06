@@ -1,6 +1,6 @@
 # 自动化操作指南
 
-> **新手可跳过**：这是进阶功能。等你需要「每天 9 点自动出日报」这类到点重复执行的任务时再来；日常一次性的事，用聊天或先计划 Plan 就够。
+> **新手可跳过**：这是进阶功能。等你需要「每天 9 点自动出日报」这类到点重复执行的任务时再来；日常一次性的事，用聊天就够。
 
 > **产品定位（自动化中心）**：两种到点模式——**自动化任务**（提示词 + 所选 Agent / 在编员工）与 **定时自动化**（已发布工作流按计划触发）。  
 > 概念、与员工值班的边界、全景图四块重点见 [自动化中心概念](../../explanation/automation-center.md)。  
@@ -27,7 +27,7 @@
 | 复杂多角色、要看板观测的一次性工程 | [任务中心](task-center.md) [[guides/tasks/task-center|任务中心]] |
 | 流程已固定、人手点「填参再跑」 | [工作流](../configuration/app-center.md) [[guides/configuration/app-center|工作流]]（旧名「应用中心」） |
 | 岗位按点上班、主动巡检、审批与工作汇报 | [智能体员工](../configuration/smart-employees.md) [[guides/configuration/smart-employees|智能体员工]]（**不属于**自动化中心） |
-| 单会话边聊边拆步 | [Plan 模式](../chat/plan-mode.md) [[guides/chat/plan-mode|先计划 Plan]]（聊天输入框底部的模式药丸） |
+| 单会话边聊边拆步 | [Plan 流程](../chat/plan-mode.md) [[guides/chat/plan-mode|Plan 流程]]（聊天里让 AI 先出方案、你确认后执行） |
 | 开放长任务、聊天里自驱多轮 | [目标 Agent](../chat/goal-agent.md) [[guides/chat/goal-agent|目标 Agent]]（**实时聊天 Goal 模式**，不是任务中心，也不是本页） |
 
 自动化特征：**频率固定、内容相对稳定、不需要人盯**。

@@ -9,7 +9,7 @@
 | `guides/` | 按场景的操作指南（对话、任务、配置、安全等） |
 | `cases/` | 最佳实践与用法案例 |
 | `explanation/` | 概念说明（为何这样设计、Agent/技能/记忆等） |
-| `meta/` | 术语表 |
+| `meta/` | 术语表、飞书落地页文稿 |
 
 **推荐阅读顺序**：[产品总览](getting-started/product-overview.md) [[getting-started/product-overview|产品总览]]（给谁用 · 解决什么 · 功能怎么串）→ 安装上手 → 重要模块可先看 [雇佣第一个智能体员工](tutorials/hire-first-smart-employee.md) [[tutorials/hire-first-smart-employee|雇佣第一个智能体员工]] → 按需打开 `guides/`。脚本 / CLI 操作员工、知识库、工作流、任务中心见 [接口与 CLI](guides/integration/api-cli-employees-knowledge-workflow-tasks.md)。
 

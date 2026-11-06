@@ -231,7 +231,7 @@ Plan 模式可配合 TodoList 中间件做会话内勾选；**持久化协作计
 
 使用前请：
 
-1. 输入框底部模式选 **Plan**（Ask / Agent / Plan）
+1. 保持默认 **Agent** 模式即可（Plan 独立档位已下线，提示词里的「请使用 Plan 模式」会让主控自动走 plan 流程）
 2. 绑定 **工作区**（本地空目录或新建子目录，例如 `~/projects/todo-lite-ts`）
 3. 在侧栏 **智能体 → 技能** 中启用相关 `superpowers-*` 技能（简易示例可不强制全开）
 
@@ -291,7 +291,7 @@ Plan 模式可配合 TodoList 中间件做会话内勾选；**持久化协作计
 
   ## Plan 要求
 
-  1. 用 `list_agents(team=project)` 看可用角色；本任务 **4 步**（前后端 **必须拆成 2 个 implementer Step**）：
+  1. 用 `list_agents`（可按标签筛选「项目」）看可用角色；本任务 **4 步**（前后端 **必须拆成 2 个 implementer Step**）：
 
     | Step | assigned_agent | 目标 | depends_on | 交付物 |
     |------|----------------|------|------------|--------|
@@ -388,7 +388,7 @@ Todo Lite TS 后端 npm test 失败或前端无法调通 API，请先对照 docs
 ## 协作要求（强制）
 
 1. 先快速确认工作区是否为空目录；若非空，用 subagent 只读调研现有文件，避免覆盖用户数据。
-2. 用 `list_agents(team=project)` 确认 6 个角色可用。
+2. 用 `list_agents`（可按标签筛选「项目」）确认 6 个角色可用。
 3. 写 `plan` 时，`steps[]` **必须**覆盖以下 agent（implementer 按实现计划拆多步，debugger 作为「测试/构建失败时」的明确 Step 或带 failure 说明的 Step）：
 
    | 顺序 | assigned_agent | 交付物 |
@@ -428,8 +428,8 @@ architect → planner → implementer（多步串行）→ reviewer → qa
 |------|--------|------|
 | project crew 子智能体墙钟 | 4h | `PROJECT_CREW_TIMEOUT_SECONDS` ← `long_run_limits` |
 | Gateway → LangGraph `runs/stream` HTTP 读超时 | 4h | `langgraph_proxy` / `background_worker` |
-| 主对话 `recursion_limit` | 2500 | EvoFlow `ws-client`、Channel、Plan 授权执行 |
-| 子智能体 `recursion_limit` 上限 | 3000 | `max_turns×8` 推导，封顶 `EVOFLOW_SUBAGENT_RECURSION_LIMIT_MAX` |
+| 主对话 `recursion_limit` | 100000 | EvoFlow `ws-client`、Channel、Plan 授权执行（可用 `EVOFLOW_LONG_RUN_RECURSION_LIMIT` 调低） |
+| 子智能体 `recursion_limit` 上限 | 9000 | 由 `max_turns` 推导，封顶 `EVOFLOW_SUBAGENT_RECURSION_LIMIT_MAX` |
 | EvoFlow Guardian Plan 保护 | 4h | 执行中 defer 自动 `reload_gateway` |
 | 自动化 LangGraph `runs.wait` 上限 | 4h | `EVOFLOW_AUTOMATION_LANGGRAPH_TIMEOUT` 默认同墙钟 |
 
@@ -437,7 +437,7 @@ architect → planner → implementer（多步串行）→ reviewer → qa
 
 ---
 
-*文档版本：与内置项目团队（`project-architect` … `project-qa`）及 schema v36 团队划分一致。*
+*文档版本：与内置项目团队（`project-architect` … `project-qa`）一致；团队分组现以角色标签（tags）形式呈现。*
 
 ---
 

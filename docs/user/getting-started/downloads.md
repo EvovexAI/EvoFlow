@@ -17,9 +17,9 @@
 
 | 系统 | 文件名示例 | 说明 |
 |------|-----------|------|
-| **Windows** | `EvoFlow_Setup_x.x.x_x64.exe` | 安装程序，双击运行 |
-| **macOS** | `EvoFlow_x.x.x_x64.dmg` | 磁盘映像，安装后拖到 Applications 文件夹 |
-| **Linux** | `EvoFlow_x.x.x_x64.AppImage` | 下载后 `chmod +x` 即可运行 |
+| **Windows** | `EvoFlow_x.x.x_x64-setup.exe` | 安装程序，双击运行 |
+| **macOS** | `EvoFlow_x.x.x_x64.dmg`（Intel）/ `EvoFlow_x.x.x_aarch64.dmg`（Apple 芯片） | 磁盘映像，安装后拖到 Applications 文件夹 |
+| **Linux** | `EvoFlow_x.x.x_amd64.AppImage` | 下载后 `chmod +x` 即可运行 |
 
 > 如果系统提示"无法验证开发者"，macOS 用户去「系统设置 → 隐私与安全性」中允许运行；Windows 用户点击"更多信息"后再点"仍要运行"即可。
 

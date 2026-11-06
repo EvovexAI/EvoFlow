@@ -322,7 +322,7 @@ task-detail-page
 | 变量 | 默认 | 说明 |
 |------|------|------|
 | `EVOFLOW_TASK_QUEUE_ENABLED` | `1` | `0` 关闭队列，任务易停在 pending |
-| `EVOFLOW_TASK_QUEUE_INTERVAL_SECONDS` | `15` | 队列 tick |
+| `EVOFLOW_TASK_QUEUE_TICK_SECONDS` | `60` | 队列 tick |
 | `EVOFLOW_TASK_QUEUE_MAX_CONCURRENT` | `3` | 同时活跃上限 |
 | `EVOFLOW_TASK_QUEUE_RETRY_MAX` | `3` | 失败自动重试次数 |
 

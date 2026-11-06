@@ -24,7 +24,7 @@
   Agent                      Agent
     │                          │
     ▼                          ▼
-  bash ──▶ 立即执行          bash ──▶ GuardrailMiddleware
+  terminal ──▶ 立即执行       terminal ──▶ GuardrailMiddleware
   rm -rf /                            │
                                       ▼
                                 Provider 评估
@@ -47,7 +47,7 @@ guardrails:
   provider:
     use: evoflow.guardrails.builtin:AllowlistProvider
     config:
-      denied_tools: ["bash", "write_file"]
+      denied_tools: ["terminal", "write"]
 ```
 
 ## 三种 Provider 选项
@@ -63,7 +63,7 @@ guardrails:
   provider:
     use: evoflow.guardrails.builtin:AllowlistProvider
     config:
-      denied_tools: ["bash", "write_file"]
+      denied_tools: ["terminal", "write"]
 ```
 
 **白名单模式**（仅允许指定工具）：
@@ -73,7 +73,7 @@ guardrails:
   provider:
     use: evoflow.guardrails.builtin:AllowlistProvider
     config:
-      allowed_tools: ["web_search", "read_file", "ls"]
+      allowed_tools: ["web_search", "read"]
 ```
 
 ### 选项二：OAP 策略 Provider（基于策略）
@@ -119,7 +119,7 @@ class MyGuardrailProvider:
     def evaluate(self, request):
         from evoflow.guardrails.provider import GuardrailDecision, GuardrailReason
 
-        if request.tool_name == "bash" and "delete" in str(request.tool_input):
+        if request.tool_name == "terminal" and "rm -rf" in str(request.tool_input):
             return GuardrailDecision(
                 allow=False,
                 reasons=[GuardrailReason(code="custom.blocked", message="delete not allowed")],
@@ -142,7 +142,7 @@ guardrails:
 
 1. Provider 返回 `deny` 决策
 2. `GuardrailMiddleware` 构造 `ToolMessage(status="error")`
-3. Agent 看到错误信息（如 `"Guardrail denied: tool 'bash' was blocked (oap.tool_not_allowed)"`）
+3. Agent 看到错误信息（如 `"Guardrail denied: tool 'terminal' was blocked (oap.tool_not_allowed)"`）
 4. Agent 可自行调整策略或向用户报告
 
 ## Provider 接口
@@ -164,27 +164,27 @@ Provider 的 `request.tool_name` 会收到以下值：
 
 | 工具名 | 功能 |
 |--------|------|
-| `bash` | Shell 命令执行 |
-| `write_file` | 创建/覆盖文件 |
-| `str_replace` | 编辑文件 |
-| `read_file` | 读取文件 |
-| `ls` | 列出目录 |
+| `terminal` | Shell 命令执行（旧名 `execute_command` / `bash`） |
+| `write` | 创建/覆盖文件 |
+| `replace` | 编辑文件 |
+| `read` | 读取文件 |
+| `delete` | 删除文件 |
+| `rg` / `find` / `search_code_index` | 检索 |
 | `web_search` | 网络搜索 |
-| `web_fetch` | 获取 URL 内容 |
-| `image_search` | 图片搜索 |
-| `task` | 委派子代理 |
+| `fetch_url` | 获取 URL 内容 |
+| `worker` | 并行子任务 |
 | `mcp__*` | MCP 工具（动态） |
 
 ## 验证是否生效
 
 1. 配置 guardrails 并重启
-2. 让 Agent 执行被拒绝的操作（如 `bash rm -rf /`）
+2. 让 Agent 执行被拒绝的操作（如 `terminal` 跑 `rm -rf /tmp/x`）
 3. Agent 应返回拒绝信息而非执行命令
 
 ## 常见问题
 
-**Q: `execute_command` 被自动从 denied_tools 中移除了？**
-这是开发时的便利行为，方便子代理执行 shell 辅助命令。若需保留，设置环境变量 `EVOFLOW_GUARDRAILS_DENY_EXECUTE_COMMAND=1`。
+**Q: `terminal`（或旧名 `execute_command`）被自动从 denied_tools 中移除了？**
+这是开发时的便利行为，方便子代理执行 shell 辅助命令。若需保留拒绝项，设置环境变量 `EVOFLOW_GUARDRAILS_DENY_EXECUTE_COMMAND=1`。
 
 **Q: Provider 报错时会怎样？**
 取决于 `fail_closed` 配置。`true`（默认）时阻断调用；`false` 时放行。

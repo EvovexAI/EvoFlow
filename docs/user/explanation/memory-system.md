@@ -34,7 +34,7 @@
 ### UpdateQueue（更新队列）
 
 - 按线程去重，同一线程的多次更新合并
-- 防抖等待（默认 30 秒），避免频繁触发
+- 防抖等待（默认 120 秒，可配置 1–600 秒），避免频繁触发
 - 后台线程处理，不阻塞主对话
 
 ### MemoryUpdater（更新器）
@@ -44,7 +44,7 @@ Updater 是记忆系统的核心处理逻辑：
 1. 接收队列中的对话批次
 2. 调用 LLM 提取上下文更新和离散事实
 3. 事实去重：修剪首尾空白后比较内容
-4. 原子写入：临时文件 + rename 保证一致性
+4. 原子写入：临时文件 + rename（文件存储）或 SQLite 事务（默认存储后端）保证一致性
 5. 缓存失效：更新后通知 Gateway 重新加载
 
 ### 记忆数据结构
@@ -81,7 +81,9 @@ Updater 是记忆系统的核心处理逻辑：
 
 ## 记忆注入
 
-在系统提示中，记忆通过 `<memory>` 标签注入：
+注入风格由 `injection_mode` 控制，**默认 `asset` 模式**：系统提示里只注入「记忆读取路径 + 长期稳定偏好（standing notes）」，完整记忆档案由 Agent 在需要时通过资产工具按需搜索 / 读取（Tier-0 按需检索），避免把大段记忆塞进每轮对话。
+
+旧的 `legacy` 模式（配置里写 `injection_mode: "legacy"`）会把完整档案打包成 `<memory>` 标签注入系统提示：
 
 ```xml
 <memory>
@@ -99,9 +101,8 @@ topOfMind: 正在优化 Agent 系统...
 </memory>
 ```
 
-注入策略：
-- 最多注入 15 条最近的事实
-- 总 token 数不超过 `max_injection_tokens`（默认 2000）
+两种模式的共同约束：
+- 完整档案注入的 token 总量不超过 `max_injection_tokens`（默认 2000）；`chat_compact` 精简档为 `chat_compact_max_tokens`（默认 480）
 - 如果记忆被禁用（`injection_enabled: false`），不注入任何内容
 
 ## 外部记忆插件
@@ -122,9 +123,9 @@ EvoFlow 支持可选的外部记忆插件（`external_provider`），扩展记�
 
 ## 为什么选择原子写入？
 
-记忆文件可能被 Gateway 和 LangGraph 同时读取。直接覆写可能导致读取到不完整的数据。使用临时文件 + rename 保证：
+记忆数据可能被 Gateway 和 LangGraph 同时读取。直接覆写可能导致读取到不完整的数据。使用临时文件 + rename（或 SQLite 事务）保证：
 - 写入过程中读者看到的是旧数据
-- rename 后读者看到的是完整的新数据
+- 提交后读者看到的是完整的新数据
 - 不会出现半写入的中间状态
 
 ## 配置参数
@@ -133,12 +134,16 @@ EvoFlow 支持可选的外部记忆插件（`external_provider`），扩展记�
 |------|--------|------|
 | `enabled` | `true` | 总开关 |
 | `injection_enabled` | `true` | 是否注入到系统提示 |
-| `storage_path` | `memory.json` | 存储路径 |
-| `debounce_seconds` | `30` | 防抖等待时间 |
-| `model_name` | `null` | 提取记忆用的模型 |
+| `injection_mode` | `asset` | 注入风格：`asset`（按需检索，默认）/ `legacy`（`<memory>` 块全量注入） |
+| `storage_path` | 空（默认 `{base_dir}/memory.json`） | 存储路径 |
+| `storage_class` | `SqliteMemoryStorage` | 存储后端（默认 SQLite） |
+| `debounce_seconds` | `120` | 防抖等待时间（1–600 秒） |
+| `model_name` | `null` | 提取记忆用的模型（空 = 默认模型） |
 | `max_facts` | `100` | 最大事实数量 |
 | `fact_confidence_threshold` | `0.7` | 最小置信度 |
 | `max_injection_tokens` | `2000` | 注入上限 |
+
+> 除上述参数外，还有 `consolidate`（记忆整合 / 衰减 / 回收任务：合并相似条目、衰减陈旧记忆、GC 低置信条目）与 `external_provider`（外部记忆插件，如 `echo`）相关配置。
 
 ## 延伸阅读
 
