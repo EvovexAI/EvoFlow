@@ -6,6 +6,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.3.5] - 2026-11-06
+
+相对 **1.3.4**：旧库启动自动补齐 post-baseline 表/列；空 standing 仍注入资产目录；子任务旁观可轮询与手动刷新。
+
+### 参与本次发版
+
+- 全栈开发工程师：旧库 post-baseline 补列/补表、空 standing 仍注入资产目录、子任务旁观轮询与刷新、资产快捷入口计数
+- 发版工程师：CI/CD 正式包发布
+
+### Changed
+
+- **子任务对话旁观**：执行中定时 meta + V4 catchup，结束后 settle 再拉一帧；支持手动刷新；嵌入侧栏顶栏紧凑化并贯通 `sessionBusy` 齿轮
+- **资产快捷入口**：侧栏显示经历 / 经验 / 反思文件数，任务结束后刷新计数
+- **记忆注入**：placeholder / 空 standing 不再压制实体块；catalog（L2）照常注入；read_path 提示改为「记忆仅参考，以最新用户问题为准」
+- **standing 折叠**：仅剩 `v1` 壳时按空串返回，避免挡住 catalog
+
+### Fixed
+
+- **旧库缺列 / 缺表**：已 stamp `APP_SCHEMA_VERSION` 的库启动时补 `evoflow_apps.project_path`、`evoflow_chat_messages.turn_*`，以及 `evoflow_bot_bindings` / `evoflow_departments` / `evoflow_role_push_bindings` 等 post-baseline 表
+- **空 standing 整块记忆消失**：asset-hub 下 placeholder 不再让 craft/episodic/journal 索引从注入里消失
+
+GitHub Release 正文见 `scripts/maintainer/windows/release-notes/PRODUCT-NOTES-1.3.5.md`；升级横幅见 `scripts/maintainer/update/latest.json`。
+
 ## [1.3.4] - 2026-11-06
 
 相对 **1.3.3**：工作流编排改为按节点配能力（技能/工具/MCP/知识库/模型/思考），画布与编辑面板重做；应用详情与子任务对话打开更快；任务状态不再被「进程失联」盖掉。

@@ -227,4 +227,8 @@ def format_standing_for_inject(
             block_body = _cap_section_body(block_body, 400)
         parts.append(f"{heading}\n{block_body}".strip() if block_body else heading)
 
-    return "\n\n".join(p for p in parts if p).strip()
+    out = "\n\n".join(p for p in parts if p).strip()
+    # Drop schema-only residue so callers treat it as empty (catalog still injects).
+    if out in {"v1", "v1\n"}:
+        return ""
+    return out

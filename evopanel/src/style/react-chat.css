@@ -10230,6 +10230,9 @@ html.theme-dark .react-chat-dept-pane-card-btn {
 
 .react-chat-asset-quick-btn {
   appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   height: 32px;
   padding: 0 12px;
   border-radius: 8px;
@@ -10240,6 +10243,18 @@ html.theme-dark .react-chat-dept-pane-card-btn {
   font-weight: 500;
   cursor: pointer;
   transition: background var(--dur-fast) ease-out, border-color var(--dur-fast) ease-out, color var(--dur-fast) ease-out;
+}
+
+.react-chat-asset-quick-count {
+  min-width: 1.1em;
+  padding: 0 5px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 16px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-tertiary, #94a3b8);
+  background: color-mix(in srgb, var(--text-primary, #1c2430) 8%, transparent);
 }
 
 .react-chat-asset-quick-btn:hover:not(:disabled) {
@@ -36776,6 +36791,13 @@ html.dark .react-chat-asset-quick-btn,
   background: var(--bg-tertiary);
   border-color: var(--border-primary);
   color: var(--text-primary);
+}
+
+html[data-theme='dark'] .react-chat-asset-quick-count,
+html.dark .react-chat-asset-quick-count,
+[data-theme='dark'] .react-chat-asset-quick-count {
+  color: var(--text-secondary);
+  background: color-mix(in srgb, var(--text-primary) 14%, transparent);
 }
 
 html[data-theme='dark'] .react-chat-asset-quick-btn:hover:not(:disabled),

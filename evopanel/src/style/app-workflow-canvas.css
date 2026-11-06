@@ -5810,7 +5810,24 @@ body:has(.app-wf-canvas-host) .react-chat-skill-modal-list {
   background: var(--bg-card) !important;
 }
 
-.wf-debug-chat-portal .react-chat-subtask-modal-header { display: none; }
+/* 调试坞内嵌：保留紧凑顶栏（状态灯 + 刷新），完整弹层头藏掉 */
+.wf-debug-chat-portal .react-chat-subtask-modal-header:not(.react-chat-subtask-modal-header--compact) {
+  display: none;
+}
+.wf-debug-chat-portal .react-chat-subtask-modal-header--compact {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border-primary);
+  background: var(--bg-card);
+}
+.wf-debug-chat-portal .react-chat-subtask-modal-header-status {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
 .wf-debug-chat-portal .react-chat-subtask-modal-body { min-height: 0; padding-top: 4px; }
 .wf-debug-chat-portal .msg-list { padding: 0 10px 12px; }
 

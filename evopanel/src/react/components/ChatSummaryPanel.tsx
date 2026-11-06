@@ -924,7 +924,10 @@ function ChatSummaryPanelInner({
                     onPatch={onPatchCapabilities}
                   />
                   {onAssetQuickAction ? (
-                    <AssetQuickActions onAction={onAssetQuickAction} busy={assetQuickBusy} />
+                    <AssetQuickActions
+                      onAction={onAssetQuickAction}
+                      busy={assetQuickBusy}
+                    />
                   ) : null}
                 </div>
               )

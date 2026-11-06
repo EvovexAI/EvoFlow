@@ -69,3 +69,10 @@ def test_normalize_standing_document_still_collapses_disk_index() -> None:
     assert "## What's in Memory" in out
     assert "desc:" not in out
     assert "craft/evopanel-page-redesign.md" in out
+
+
+def test_inject_index_only_standing_becomes_empty() -> None:
+    out = format_standing_for_inject(
+        "v1\n\n## What's in Memory\n\n- craft/a.md\n- craft/b.md\n"
+    )
+    assert out == ""

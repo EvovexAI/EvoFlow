@@ -80,6 +80,9 @@ export type SubtaskExecutionDrawerProps = {
   showDetailButton?: boolean
   /** 每条消息左侧显示独立时间（智能体员工工作轨迹） */
   rowTimeLeft?: boolean
+  /** 手动刷新轨迹（旁观 SubThread 无 SSE 时用） */
+  onRefresh?: () => void
+  refreshing?: boolean
   onClose: () => void
   onOpenDetail?: () => void
   onComposeTextChange: (text: string) => void
@@ -232,11 +235,17 @@ function DrawerBody({
   ) : null
 
   // Preferred path: same V4 timeline as main chat (no SubtaskModalMessageRow).
+  // sessionBusy 与主聊/员工侧栏同源：驱动末轮「工作中」齿轮（ChatLoading）。
   if (v4Tid) {
     return (
       <div className="react-chat-modal-body react-chat-subtask-modal-body flex min-h-0 flex-col">
         <div className="min-h-0 flex-1 overflow-hidden">
-          <V4SessionPaneBridge sessionId={v4Tid} sessionKey={sessionKey || undefined} embedded />
+          <V4SessionPaneBridge
+            sessionId={v4Tid}
+            sessionKey={sessionKey || undefined}
+            embedded
+            sessionBusy={Boolean(sending || streamActive)}
+          />
         </div>
         {composeFooter}
       </div>
@@ -377,6 +386,8 @@ export function SubtaskExecutionDrawer(props: SubtaskExecutionDrawerProps) {
     copyPlainText,
     showDetailButton = true,
     rowTimeLeft = false,
+    onRefresh,
+    refreshing = false,
     onClose,
     onOpenDetail,
     onComposeTextChange,
@@ -390,9 +401,15 @@ export function SubtaskExecutionDrawer(props: SubtaskExecutionDrawerProps) {
   if (!open) return null
 
   const hideClose = mode === 'panel' || (mode === 'drawer' && !!portalTarget)
+  const embeddedInPortal = mode === 'drawer' && !!portalTarget
 
   const header = (
-    <div className="react-chat-modal-header react-chat-subtask-modal-header">
+    <div
+      className={
+        'react-chat-modal-header react-chat-subtask-modal-header' +
+        (embeddedInPortal ? ' react-chat-subtask-modal-header--compact' : '')
+      }
+    >
       <div className="react-chat-subtask-modal-header-main">
         <div className="react-chat-subtask-modal-header-agent-row">
           <span
@@ -408,10 +425,26 @@ export function SubtaskExecutionDrawer(props: SubtaskExecutionDrawerProps) {
               {summaryAgent}
             </span>
           ) : null}
+          {embeddedInPortal ? (
+            <span className="react-chat-subtask-modal-header-status">{statusLabel}</span>
+          ) : null}
         </div>
-        <div className="react-chat-subtask-modal-title">{shortTitle}</div>
+        {embeddedInPortal ? null : (
+          <div className="react-chat-subtask-modal-title">{shortTitle}</div>
+        )}
       </div>
       <div className="react-chat-subtask-modal-header-actions">
+        {onRefresh ? (
+          <button
+            type="button"
+            className="react-chat-modal-btn react-chat-modal-btn--ghost"
+            onClick={onRefresh}
+            disabled={refreshing}
+            title="刷新执行记录"
+          >
+            {refreshing ? '刷新中…' : '刷新'}
+          </button>
+        ) : null}
         {showDetailButton && onOpenDetail ? (
           <button
             type="button"
@@ -421,13 +454,15 @@ export function SubtaskExecutionDrawer(props: SubtaskExecutionDrawerProps) {
             查看详情
           </button>
         ) : null}
-        <button
-          type="button"
-          className="react-chat-modal-btn react-chat-modal-btn--ghost"
-          onClick={() => copyToClipboard(copyPlainText)}
-        >
-          复制
-        </button>
+        {!embeddedInPortal ? (
+          <button
+            type="button"
+            className="react-chat-modal-btn react-chat-modal-btn--ghost"
+            onClick={() => copyToClipboard(copyPlainText)}
+          >
+            复制
+          </button>
+        ) : null}
         {mode === 'modal' ? (
           <button type="button" className="react-chat-modal-close" onClick={requestClose}>
             ×

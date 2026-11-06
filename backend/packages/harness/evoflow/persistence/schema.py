@@ -2201,6 +2201,101 @@ def _ensure_media_assets_schema(conn: sqlite3.Connection) -> None:
         logger.debug("schema: media_assets result_url backfill failed", exc_info=True)
 
 
+def _ensure_post_baseline_columns(conn: sqlite3.Connection) -> None:
+    """Add columns shipped *after* the baseline epoch on an already-current DB.
+
+    ``_backfill_legacy_columns`` only runs from ``_apply_baseline`` /
+    ``_snap_legacy_user_version``; databases already stamped with
+    ``APP_SCHEMA_VERSION`` never reach those paths, so a column added to the
+    baseline DDL later (e.g. ``evoflow_apps.project_path``) would stay missing
+    and every write would fail with ``no such column``. Keep this list in sync
+    with new baseline columns; every entry must be ALTER-safe (has a DEFAULT).
+    """
+    specs: dict[str, tuple[tuple[str, str], ...]] = {
+        "evoflow_apps": (
+            ("project_path", "TEXT NOT NULL DEFAULT ''"),
+        ),
+        # Chat turn timing/state: only ``_backfill_legacy_columns`` added these,
+        # so a public-1.x DB created before they landed in the baseline keeps
+        # failing on ``chat_message_repositories._SELECT_COLS``
+        # (``no such column: turn_started_at``) until they are added here.
+        "evoflow_chat_messages": (
+            ("turn_started_at", "TEXT"),
+            ("turn_duration_ms", "INTEGER"),
+            ("turn_state", "TEXT"),
+        ),
+    }
+    added: list[tuple[str, str]] = []
+    for table, columns in specs.items():
+        if not _table_exists(conn, table):
+            continue
+        existing = _existing_columns(conn, table)
+        for col_name, col_def in columns:
+            if col_name in existing:
+                continue
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {col_name} {col_def}")
+            added.append((table, col_name))
+    if added:
+        conn.commit()
+        logger.info(
+            "schema: added %d post-baseline column(s): %s",
+            len(added),
+            ", ".join(f"{t}.{c}" for t, c in added),
+        )
+
+
+# Tables whose CREATE statement must be replayed on an already-current DB.
+# Keep in sync with tables added to ``_BASELINE_DDL`` after the public epoch:
+# ``CREATE TABLE IF NOT EXISTS`` in the baseline never runs for a DB that is
+# already stamped, so a table added later stays absent and every read fails
+# with ``no such table``.
+_POST_BASELINE_TABLES: tuple[str, ...] = (
+    "evoflow_bot_bindings",
+    "evoflow_departments",
+    "evoflow_role_push_bindings",
+)
+
+
+def _baseline_table_ddl(table: str) -> str | None:
+    """Extract ``CREATE TABLE IF NOT EXISTS <table> (...);`` from the baseline.
+
+    Replaying the exact baseline statement (instead of hand-copying columns)
+    keeps the backfill in lockstep with the canonical schema.
+    """
+    for marker in (
+        f'CREATE TABLE IF NOT EXISTS "{table}"',
+        f"CREATE TABLE IF NOT EXISTS {table} ",
+    ):
+        start = _BASELINE_DDL.find(marker)
+        if start < 0:
+            continue
+        end = _BASELINE_DDL.find(";", start)
+        if end >= 0:
+            return _BASELINE_DDL[start : end + 1]
+    return None
+
+
+def _ensure_post_baseline_tables(conn: sqlite3.Connection) -> None:
+    """Create tables added after the baseline epoch on an already-current DB."""
+    created: list[str] = []
+    for table in _POST_BASELINE_TABLES:
+        if _table_exists(conn, table):
+            continue
+        stmt = _baseline_table_ddl(table)
+        if not stmt:
+            logger.warning("schema: baseline DDL missing table %s; cannot backfill", table)
+            continue
+        conn.execute(stmt)
+        created.append(table)
+    if created:
+        conn.commit()
+        logger.info(
+            "schema: created %d post-baseline table(s): %s",
+            len(created),
+            ", ".join(created),
+        )
+
+
 def _ensure_timing_schema(conn: sqlite3.Connection) -> None:
     """Add timing columns + indexes + backfill on an already-current DB.
 
@@ -2582,6 +2677,8 @@ def ensure_app_schema(conn: sqlite3.Connection) -> None:
             _ensure_duty_runs_table(conn)
             _ensure_asset_memory_runs_table(conn)
             _ensure_person_affect_hormones(conn)
+            _ensure_post_baseline_tables(conn)
+            _ensure_post_baseline_columns(conn)
             _ensure_timing_schema(conn)
             _ensure_media_assets_schema(conn)
             return
@@ -2589,6 +2686,8 @@ def ensure_app_schema(conn: sqlite3.Connection) -> None:
         _ensure_duty_runs_table(conn)
         _ensure_asset_memory_runs_table(conn)
         _ensure_person_affect_hormones(conn)
+        _ensure_post_baseline_tables(conn)
+        _ensure_post_baseline_columns(conn)
         _ensure_timing_schema(conn)
         _ensure_media_assets_schema(conn)
         return
@@ -2597,6 +2696,10 @@ def ensure_app_schema(conn: sqlite3.Connection) -> None:
     _ensure_asset_memory_runs_table(conn)
     _ensure_person_affect_hormones(conn)
     _ensure_automation_slot_claims(conn)
+    # Columns shipped after the baseline epoch, so a DB already stamped with
+    # APP_SCHEMA_VERSION still needs them (e.g. evoflow_apps.project_path).
+    _ensure_post_baseline_tables(conn)
+    _ensure_post_baseline_columns(conn)
     # Timing columns shipped after the baseline epoch, so a DB already stamped
     # with APP_SCHEMA_VERSION still needs them. Idempotent and cheap (a
     # PRAGMA table_info per table).
