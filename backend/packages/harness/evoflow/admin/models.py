@@ -79,7 +79,13 @@ def create_model(data: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(data, dict):
         raise ValidationError("Model payload must be a JSON object")
     try:
-        model_config = add_model_to_config({k: v for k, v in data.items() if v is not None})
+        payload = {k: v for k, v in data.items() if v is not None}
+        # Platform gate flags (confirm / dry_run …) are not model settings — drop
+        # them so they never become a ModelConfig extra (see create_payload_sanitize).
+        from evoflow.models.create_payload_sanitize import strip_platform_control_keys
+
+        strip_platform_control_keys(payload)
+        model_config = add_model_to_config(payload)
         reload_models_from_db()
         return _model_row(model_config)
     except ValueError as e:
@@ -91,6 +97,9 @@ def update_model(model_name: str, data: dict[str, Any]) -> dict[str, Any]:
         raise ValidationError("Model payload must be a JSON object")
     try:
         payload = {k: v for k, v in data.items() if v is not None}
+        from evoflow.models.create_payload_sanitize import strip_platform_control_keys
+
+        strip_platform_control_keys(payload)
         model_config = update_model_in_config(model_name, payload)
         reload_models_from_db()
         return _model_row(model_config)
