@@ -4,20 +4,25 @@
 
 **只作参考**：先完成本轮**最新用户问题**；与记忆冲突时以用户为准，勿续跑未点名的旧事。
 
-### 落点与操作
+### 落点
 
-| 我要做的 | 怎么做 | 落点 |
-|---|---|---|
-| 记跨领域都该遵守的（称呼、硬禁令、协作方式）| `assets note` | `memory/standing.md` |
-| 记这次的经过与结论 | `assets note` | `memory/episodic/` |
-| 记同类事照着做的步骤/配方/话术 | `assets note` | `craft/` |
-| 记短教训、下次别再犯 | `assets note` | `memory/journal/` |
-| 记称呼、身份画像 | `assets profile` | `profile/` |
-| 记自己的心境 | `assets affect` | `profile/affect.md` |
-| 找记忆 | `assets search <关键词>` / `list` / `read` | — |
-| 改一段 | `assets write`（默认追加）；整份重写才 `mode=replace` | — |
-| 改文件名 | `assets rename path=<文件>` `content=新名` | 同目录内 |
-| 删过时内容 | `assets delete path=<文件>`（不可撤销，先 read） | — |
+| 记什么 | 落到哪 |
+|---|---|
+| 跨领域都该遵守的（称呼、硬禁令、协作方式）| `memory/standing.md` |
+| 这次的经过与结论 | `memory/episodic/` |
+| 同类事照着做的步骤/配方/话术 | `craft/` |
+| 短教训、下次别再犯 | `memory/journal/` |
+| 称呼、身份画像 | `profile/` |
+| 自己的心境 | `profile/affect.md` |
+
+### 操作
+
+| 场景 | 怎么做 |
+|---|---|
+| 找记忆 | `assets search <关键词>` / `list` / `read` |
+| 改一段 | `assets write`（默认追加）；整份重写才 `mode=replace` |
+| 改文件名 | `assets rename path=<文件>` `content=新名`（同目录内） |
+| 删过时内容 | `assets delete path=<文件>`（不可撤销，先 read） |
 
 新增文件时文件名取正文**首行标题**（短、能看懂主题）。
 
