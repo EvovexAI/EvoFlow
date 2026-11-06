@@ -122,12 +122,12 @@ def test_create_agent_pack_plus_tools_extra() -> None:
                 "agent_code": code,
                 "agent_name": "Research Extra",
                 "capability_pack": "research",
-                "tools_extra": ["todo"],
+                "tools_extra": ["todo_write"],
             }
         )
         tools = row.get("tools") or []
         assert "web_search" in tools
-        assert "todo" in tools
+        assert "todo_write" in tools
     finally:
         try:
             delete_agent(code, keep_employee=True)
@@ -167,3 +167,45 @@ def test_create_agent_forbid_inherit_all_for_employees() -> None:
             },
             forbid_inherit_all=True,
         )
+
+
+def test_capability_pack_tools_all_assignable() -> None:
+    """每个能力包引用的工具名必须都在可分配目录内。
+
+    根因背景：``todo`` 改名 ``todo_write`` 后这里漏改；``subagent`` 只在
+    ``subagent_enabled=True`` 时装载，若校验用 False 装载就会把整包打成
+    ``unknown tool(s)`` —— 表现是「工程编码」包建不出员工，而不是报某个名字。
+    """
+    from evoflow.config.agent_resource_validation import assignable_tool_names
+
+    assignable = assignable_tool_names()
+    offenders = {
+        pack.id: [t for t in pack.tools if t not in assignable]
+        for pack in CAPABILITY_PACKS.values()
+        if pack.tools
+    }
+    offenders = {k: v for k, v in offenders.items() if v}
+    assert not offenders, f"capability packs reference non-assignable tools: {offenders}"
+
+
+@pytest.mark.parametrize("pack_id", ["coding", "duty", "research", "writer"])
+def test_create_agent_with_each_shipped_pack(pack_id: str) -> None:
+    """出厂能力包必须能直接建出员工（回归：coding 包曾整体不可用）。"""
+    code = f"bind-pack-{pack_id}-{uuid.uuid4().hex[:8]}"
+    try:
+        row = create_agent(
+            {
+                "agent_code": code,
+                "agent_name": f"Pack {pack_id}",
+                "capability_pack": pack_id,
+            }
+        )
+        tools = row.get("tools") or []
+        assert tools, f"pack {pack_id} produced empty allowlist"
+        expected = CAPABILITY_PACKS[pack_id].tools
+        assert set(expected) <= set(tools)
+    finally:
+        try:
+            delete_agent(code, keep_employee=True)
+        except Exception:
+            pass

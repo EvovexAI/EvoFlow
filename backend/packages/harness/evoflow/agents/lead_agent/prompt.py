@@ -707,14 +707,45 @@ def _is_xiaomi_lead_run(agent_name: str | None) -> bool:
         return str(agent_name or "").strip().lower() in {"xiaomi", "小v", "小蜜", "xiaov"}
 
 
-def _strip_outer_identity_xml(text: str) -> str:
-    """Strip a single outer ``<soul>`` / ``<agent_system_prompt>`` wrapper if present."""
+_RE_IDENTITY_BLOCK = re.compile(
+    r"<identity\b[^>]*>.*?</identity>", re.DOTALL | re.IGNORECASE
+)
+_RE_SOUL_INNER = re.compile(
+    r"<soul\b[^>]*>(.*?)</soul>", re.DOTALL | re.IGNORECASE
+)
+
+
+def _peel_identity_blocks(text: str) -> tuple[list[str], str]:
+    """Split leading/embedded ``<identity>`` blocks from the rest (keep tags intact)."""
+    t = str(text or "")
+    blocks = [m.group(0).strip() for m in _RE_IDENTITY_BLOCK.finditer(t) if m.group(0).strip()]
+    rest = _RE_IDENTITY_BLOCK.sub("", t).strip()
+    return blocks, rest
+
+
+def _bare_soul_body(text: str) -> str:
+    """Unwrap any ``<soul>`` / ``<agent_system_prompt>`` shells to bare body text.
+
+    ``get_agent_soul`` already returns ``<soul>…</soul>`` (often after ``<identity>``).
+    Inject re-wraps once; without peeling we stack tags and the prompt ends with
+    ``</soul></soul>``.
+    """
     t = str(text or "").strip()
+    inners = _RE_SOUL_INNER.findall(t)
+    if inners:
+        t = "\n\n".join(s.strip() for s in inners if str(s).strip())
     for tag in ("soul", "agent_system_prompt"):
         open_t, close_t = f"<{tag}>", f"</{tag}>"
-        if t.startswith(open_t) and t.endswith(close_t):
-            return t[len(open_t) : -len(close_t)].strip()
-    return t
+        while t.startswith(open_t) and t.endswith(close_t):
+            t = t[len(open_t) : -len(close_t)].strip()
+    t = re.sub(r"</?soul\b[^>]*>", "", t, flags=re.IGNORECASE)
+    t = re.sub(r"</?agent_system_prompt\b[^>]*>", "", t, flags=re.IGNORECASE)
+    return t.strip()
+
+
+def _strip_outer_identity_xml(text: str) -> str:
+    """Strip outer ``<soul>`` / ``<agent_system_prompt>`` wrappers (possibly nested)."""
+    return _bare_soul_body(text)
 
 
 def _normalize_prompt_body_for_dedupe(text: str) -> str:
@@ -761,15 +792,19 @@ def _inject_identity_layers(
     _ = dyn
 
     def _append_soul() -> None:
-        if soul.strip():
-            safe_soul = scan_content(soul.strip(), source="soul")
-            # Defensive: callers may pass already-wrapped `<soul>...</soul>` text
-            # (e.g. via `get_agent_soul()` which XML-wraps for the employee chat path).
-            # We re-wrap here ourselves, so strip any outer tag first to avoid stacking
-            # two `<soul>` / `<agent_system_prompt>` blocks for the same content.
-            safe_soul = _strip_outer_identity_xml(safe_soul)
-            if safe_soul.strip():
-                blocks.append(f"<soul>\n{safe_soul}\n</soul>")
+        if not soul.strip():
+            return
+        # ``get_agent_soul()`` returns ``<identity>…</identity><soul>…</soul>``.
+        # Peel identity out (keep as its own block); unwrap soul before re-wrapping once.
+        id_blocks, rest = _peel_identity_blocks(soul.strip())
+        for ib in id_blocks:
+            blocks.append(ib)
+        bare = _bare_soul_body(rest)
+        if not bare:
+            return
+        safe_soul = _bare_soul_body(scan_content(bare, source="soul"))
+        if safe_soul.strip():
+            blocks.append(f"<soul>\n{safe_soul}\n</soul>")
 
     def _append_override() -> None:
         extra = (custom_system_prompt or "").strip()
@@ -778,8 +813,8 @@ def _inject_identity_layers(
         # ``save_agent_config`` 把 soul 复制到 ``system_prompt`` 字段(调度器只看 system_prompt)。
         # 这里不要把同一份 SOUL 文本在 ``<soul>`` 和 ``<agent_system_prompt>`` 两个标签里重复显示——
         # 已是 soul 内容的 custom_system_prompt 由 ``<soul>`` 段承载,这里跳过注入。
-        bare_soul = _strip_outer_identity_xml(soul)
-        bare_extra = _strip_outer_identity_xml(extra)
+        bare_soul = _bare_soul_body(_peel_identity_blocks(soul)[1])
+        bare_extra = _bare_soul_body(extra)
         if bare_extra == bare_soul or (
             bare_soul
             and _normalize_prompt_body_for_dedupe(bare_extra)
@@ -2043,6 +2078,32 @@ def get_loaded_tools_prompt_section(tool_names: list[str] | None) -> str:
     return ""
 
 
+def _build_capability_profile_section(
+    agent_name: str | None,
+    *,
+    loaded_tool_names: list[str] | None = None,
+    prompt_language: str = "zh",
+) -> str:
+    """员工平台能力清单段（``<capability_profile>``）。
+
+    与「提示词不重复列已绑定工具」的既有决策不冲突：platform 的 function schema
+    只有一个，不列范围模型无从知晓边界 —— 这里列的是**能力范围与负向边界**。
+    短路条件（platform 未挂载 / scope 未配置）见
+    ``evoflow.admin.platform_scope_prompt.build_capability_profile_section``。
+    """
+    try:
+        from evoflow.admin.platform_scope_prompt import build_capability_profile_section
+
+        return build_capability_profile_section(
+            agent_name,
+            loaded_tool_names=loaded_tool_names,
+            prompt_language=prompt_language,
+        )
+    except Exception:
+        logger.debug("capability profile section skipped agent=%s", agent_name, exc_info=True)
+        return ""
+
+
 def get_available_subagents_prompt_section(subagent_names: list[str] | None) -> str:
     """(Deprecated) Kept for backward-compatibility; not used in current template."""
     return ""
@@ -2387,6 +2448,16 @@ def apply_prompt_template(
             affect_agent_code=str(agent_name or "").strip() or "main",
             include_affect=mem_on,
         )
+
+    # 平台能力清单（<capability_profile>）：员工 scope 变更经动态提示词指纹重渲染；
+    # main / 未配置 scope 时为空串（存量行为零变化）。
+    capability_section = _build_capability_profile_section(
+        agent_name=agent_name,
+        loaded_tool_names=loaded_tool_names,
+        prompt_language=lang,
+    )
+    if capability_section:
+        prompt = f"{prompt.rstrip()}\n\n{capability_section}\n"
 
     if not use_virtual_paths:
         lw = (local_workspace_root or "").strip()

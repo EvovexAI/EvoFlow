@@ -630,6 +630,17 @@ def create_employee(data: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(data, dict):
         raise ValidationError("Create-employee payload must be a JSON object")
 
+    # Nested ``config`` (same as update_role): flatten so kb_injection /
+    # knowledge_vault_ids under config are not silently dropped on hire.
+    data = dict(data)
+    nested = data.pop("config", None)
+    if isinstance(nested, dict):
+        for k, v in nested.items():
+            if k not in data:
+                data[k] = v
+    elif nested is not None:
+        raise ValidationError("config must be an object when provided")
+
     role_name = str(data.get("role_name") or data.get("agent_name") or "").strip()
     if not role_name:
         raise ValidationError("role_name is required")
@@ -765,36 +776,56 @@ def create_employee(data: dict[str, Any]) -> dict[str, Any]:
 def _safe_kb_injection(raw: Any) -> dict[str, Any]:
     """Validate kb_injection payload through KbInjectionConfig.from_dict.
 
-    Returns an empty dict when input is missing/invalid (caller falls back to defaults).
+    Returns an empty dict when input is missing. Invalid payloads raise
+    ``ValidationError`` — silent ``{}`` used to make hire look successful while
+    the live middleware kept defaults (auto / top_k=24).
     """
     if not raw:
         return {}
+    if not isinstance(raw, dict):
+        raise ValidationError("kb_injection must be an object")
     try:
         from evoflow.config.agents_config import KbInjectionConfig
 
-        return KbInjectionConfig.from_dict(raw if isinstance(raw, dict) else {}).to_dict()
-    except Exception:
-        return {}
+        return KbInjectionConfig.from_dict(raw).to_dict()
+    except ValidationError:
+        raise
+    except Exception as exc:
+        raise ValidationError(f"kb_injection invalid: {exc}") from exc
 
 
 def _persist_agent_kb_injection(agent_code: str, kb_injection: dict[str, Any]) -> None:
     """Mirror the kb_injection block into ``evoflow_agents.extra_json``.
 
     Read by ``KbInjectionMiddleware`` via ``KbInjectionConfig.from_dict``.
+    Raises ``ValidationError`` on failure so hire/update cannot silently leave
+    the agent mirror on defaults while the role config looks updated.
     """
     code = str(agent_code or "").strip().lower()
     if not code:
-        return
-    try:
-        from evoflow.config.agents_config import KbInjectionConfig
-        from evoflow.persistence import config_repositories as cfg_repo
+        raise ValidationError("kb_injection mirror requires agent_code")
+    from evoflow.config.agents_config import KbInjectionConfig, get_agent_kb_injection_config
+    from evoflow.persistence import config_repositories as cfg_repo
 
-        existing = cfg_repo.get_agent_extra_json(code) or {}
-        merged = dict(existing)
-        merged["kb_injection"] = KbInjectionConfig.from_dict(kb_injection or {}).to_dict()
-        cfg_repo.upsert_agent_extra_json(code, merged)
-    except Exception:
-        logger.warning("persist agent kb_injection failed code=%s", code, exc_info=True)
+    wanted = KbInjectionConfig.from_dict(kb_injection or {}).to_dict()
+    existing = cfg_repo.get_agent_extra_json(code) or {}
+    merged = dict(existing)
+    merged["kb_injection"] = wanted
+    ok = cfg_repo.upsert_agent_extra_json(code, merged)
+    if not ok:
+        raise ValidationError(
+            f"kb_injection 写入 agent「{code}」失败（evoflow_agents 无此行或 UPDATE 未生效）；"
+            "请确认 agent 已创建后再 hire。"
+        )
+    # Read-after-write: middleware reads this path — refuse silent defaults.
+    got = get_agent_kb_injection_config(code).to_dict()
+    if got.get("mode") != wanted.get("mode") or int(got.get("top_k") or 0) != int(
+        wanted.get("top_k") or 0
+    ):
+        raise ValidationError(
+            f"kb_injection 镜像校验失败 agent={code}：期望 mode={wanted.get('mode')} "
+            f"top_k={wanted.get('top_k')}，读回 mode={got.get('mode')} top_k={got.get('top_k')}"
+        )
 
 
 def _persist_agent_kb_vault_ids(agent_code: str, vault_ids: list[str]) -> None:

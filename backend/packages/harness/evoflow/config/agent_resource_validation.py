@@ -24,10 +24,20 @@ def model_name_from_tool_runtime(runtime: Any) -> str | None:
 
 
 def assignable_tool_names(*, model_name: str | None = None) -> set[str]:
-    """Tool names returned by the same loader used for subagent allowlists."""
+    """Tool names a role whitelist / capability pack may reference.
+
+    Two sources:
+
+    - runtime catalog (``subagent_enabled=True``): ``task_tool`` is registered as
+      ``subagent`` and only listed when subagent mode is on, so loading with
+      ``subagent_enabled=False`` silently rejected ``subagent`` — the ``coding``
+      capability pack became uncreatable (``unknown tool(s): subagent``) even
+      though the lead agent happily mounts it.
+    - middleware-injected tools (``todo_write``) which live outside the registry.
+    """
     from evoflow.tools import get_available_tools
 
-    tools = get_available_tools(model_name=model_name, subagent_enabled=False)
+    tools = get_available_tools(model_name=model_name, subagent_enabled=True)
     names = {str(getattr(t, "name", "") or "") for t in tools if getattr(t, "name", None)}
     # Middleware-injected tools (todo_write) are mounted outside the registry but
     # are legitimately referenceable from role whitelists / capability packs.

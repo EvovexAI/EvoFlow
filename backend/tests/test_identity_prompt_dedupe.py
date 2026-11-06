@@ -58,6 +58,20 @@ def test_near_duplicate_soul_and_system_prompt_inject_soul_once():
     assert "默认主智能体" in prompt
 
 
+def test_get_agent_soul_shaped_payload_does_not_double_wrap():
+    """``get_agent_soul`` returns ``<identity>`` + already-wrapped ``<soul>``; inject once."""
+    payload = (
+        "<identity>\n**Identity**\n超级助手\n</identity>\n"
+        "<soul>\nEvoFlow\n\n气质与习惯：务实。\n</soul>\n"
+    )
+    prompt = _assemble_system_prompt(**_base_kwargs(soul=payload))
+    assert prompt.count("<soul>") == 1
+    assert prompt.count("</soul>") == 1
+    assert prompt.count("<identity>") == 1
+    assert "气质与习惯：务实" in prompt
+    assert "</soul>\n</soul>" not in prompt
+
+
 def test_distinct_system_prompt_still_injected():
     prompt = _assemble_system_prompt(
         **_base_kwargs(

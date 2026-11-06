@@ -33,6 +33,16 @@ import {
   tagMetaForLabel,
 } from './agents-shared.js'
 import { mountAgentAvatar, mountAgentAvatarPicker } from '../lib/mount-agent-ui.js'
+import {
+  bindPlatformScopePanel,
+  inferTriStateMode,
+  mapPlatformDomains,
+  platformScopeSummaryText,
+  readPlatformScopeFromEditor,
+  renderPlatformScopePanel,
+  resolveTriStatePayload,
+  setPlatformScopeState,
+} from '../lib/platform-scope-ui.js'
 import { getGatewayBaseUrl } from '../lib/tauri-api.js'
 import { filterChatModels } from '../lib/model-classification.js'
 import {
@@ -492,9 +502,214 @@ function renderToolsDetailGrid(tools, activeValues, isAll) {
     .join('')
 }
 
-/**
- * 获取工具/MCP/技能元数据（带缓存）
- */
+// ---------------------------------------------------------------------------
+// tools/MCP 能力模式显式化（三态）：
+//   inherit → 提交 null（挂载全部）
+//   custom  → 提交勾选列表（空列表 = 禁用）
+//   none    → 提交 []（明确禁用）
+// ---------------------------------------------------------------------------
+
+function readScopeMode(overlay, name, fallback = 'custom') {
+  return overlay.querySelector(`input[name=${name}]:checked`)?.value || fallback
+}
+
+function renderScopeModeRadios(radioName, mode, labels = {}) {
+  const m = mode === 'inherit' || mode === 'none' ? mode : 'custom'
+  const inheritLabel = labels.inheritLabel || '全部继承'
+  const customLabel = labels.customLabel || '仅勾选'
+  const noneLabel = labels.noneLabel || '全部禁用'
+  return `<div class="re-scope-mode" data-scope-mode="${escapeAttr(radioName)}">
+    <label class="re-ps-mode"><input type="radio" name="${escapeAttr(radioName)}" value="inherit" ${m === 'inherit' ? 'checked' : ''}> ${escapeHtml(inheritLabel)}</label>
+    <label class="re-ps-mode"><input type="radio" name="${escapeAttr(radioName)}" value="custom" ${m === 'custom' ? 'checked' : ''}> ${escapeHtml(customLabel)}</label>
+    <label class="re-ps-mode"><input type="radio" name="${escapeAttr(radioName)}" value="none" ${m === 'none' ? 'checked' : ''}> ${escapeHtml(noneLabel)}</label>
+  </div>`
+}
+
+function bindScopeModeToggle(overlay, radioName, listSelector) {
+  const sync = () => {
+    const mode = readScopeMode(overlay, radioName)
+    const inherit = mode === 'inherit'
+    const none = mode === 'none'
+    const box = overlay.querySelector(`[data-scope-mode="${radioName}"]`)
+    box?.classList.toggle('re-scope-mode--inherit', inherit)
+    box?.classList.toggle('re-scope-mode--none', none)
+    overlay.querySelectorAll(`${listSelector} input[type=checkbox]`).forEach((cb) => {
+      cb.disabled = inherit || none
+      if (none) cb.checked = false
+      if (inherit) cb.checked = true
+    })
+    // 触发 platform 子面板显隐（工具列表里勾选 platform 会联动）
+    const platformCb = overlay.querySelector(`${listSelector} input[value="platform"]`)
+    platformCb?.dispatchEvent(new Event('change'))
+    const field = radioName === 'tools_mode' ? 'tools' : radioName === 'mcp_mode' ? 'mcp_servers' : null
+    if (field) updateCount(overlay, field)
+  }
+  overlay.querySelectorAll(`input[name=${radioName}]`).forEach((r) => r.addEventListener('change', sync))
+  sync()
+}
+
+/** 读三态：inherit→null，none→[]，custom→勾选值列表 */
+function readTriStateList(overlay, radioName, listSelector) {
+  const mode = readScopeMode(overlay, radioName)
+  const checked = [...overlay.querySelectorAll(`${listSelector} input:checked`)].map((el) => el.value)
+  return resolveTriStatePayload(mode, checked)
+}
+
+// ---------------------------------------------------------------------------
+// 知识库绑定（创建/编辑弹窗基础页签；数据源与员工编制编辑器一致）
+// ---------------------------------------------------------------------------
+
+async function loadRoleEditorVaults() {
+  try {
+    const res = await api.listOwnedKnowledgeBases()
+    const items = Array.isArray(res?.items) ? res.items : Array.isArray(res) ? res : []
+    return items
+      .map((b) => ({
+        id: String(b.id || '').trim(),
+        name: String(b.name || b.title || b.id || '').trim(),
+        enabled: b.enabled !== false,
+      }))
+      .filter((v) => v.id)
+  } catch {
+    return []
+  }
+}
+
+function readKnowledgeVaultIdsFromEditor(overlay) {
+  return [...overlay.querySelectorAll('input[name=knowledge_vault_ids]:checked')].map((el) => el.value).filter(Boolean)
+}
+
+function renderKnowledgeVaultField(vaults, selectedIds) {
+  const selected = new Set((selectedIds || []).map((x) => String(x || '').trim()).filter(Boolean))
+  const rows = vaults
+    .map(
+      (v) => `<label class="re-check" data-search="${escapeAttr(`${v.name} ${v.id}`.toLowerCase())}">
+      <input type="checkbox" name="knowledge_vault_ids" value="${escapeAttr(v.id)}" ${selected.has(v.id) ? 'checked' : ''}>
+      <span class="re-ci-icon">📚</span>
+      <span class="re-ci-text"><strong>${escapeHtml(v.name || v.id)}</strong>${v.enabled ? '' : '<small>（已停用）</small>'}</span>
+    </label>`,
+    )
+    .join('')
+  const count = selected.size
+  return `<details class="re-vault-details"${count ? ' open' : ''}>
+    <summary class="re-vault-summary">知识库绑定（可选）<span class="re-vault-count">${count ? `已选 ${count}` : ''}</span></summary>
+    <div class="re-vault-hint">勾选后该员工对话/值班可检索这些库；不勾 = 不绑定。创建后也可在员工编制里改。</div>
+    <div class="re-grid editor-vault-list">${rows || '<div class="re-empty">还没有知识库，先去侧栏「知识库」创建</div>'}</div>
+  </details>`
+}
+
+function bindKnowledgeVaultField(overlay) {
+  const details = overlay.querySelector('.re-vault-details')
+  if (!details) return
+  const sync = () => {
+    const n = overlay.querySelectorAll('input[name=knowledge_vault_ids]:checked').length
+    const el = details.querySelector('.re-vault-count')
+    if (el) el.textContent = n ? `已选 ${n}` : ''
+  }
+  overlay.querySelectorAll('input[name=knowledge_vault_ids]').forEach((cb) => cb.addEventListener('change', sync))
+  sync()
+}
+
+// ---------------------------------------------------------------------------
+// 岗位模板（创建弹窗一键预填；平台能力预设为主，填后可改）
+// ---------------------------------------------------------------------------
+
+const ROLE_TEMPLATES = [
+  {
+    id: 'general',
+    name: '通用助理',
+    desc: '工具全继承 · 平台全部动作（不设限）· MCP 全继承',
+    tools: 'inherit',
+    mcp: 'inherit',
+    platform_scope: null,
+  },
+  {
+    id: 'ops',
+    name: '运营/知识岗',
+    desc: '平台限知识库 + 事项 + 员工通知，上限可写；MCP 禁用',
+    tools: 'inherit',
+    mcp: 'none',
+    platform_scope: { mode: 'custom', domains: ['knowledge', 'items', 'employees'], actions: [], max_risk: 'write' },
+  },
+  {
+    id: 'media',
+    name: '媒体创作',
+    desc: '平台限媒体 + 知识库，上限可写；MCP 禁用',
+    tools: 'inherit',
+    mcp: 'none',
+    platform_scope: { mode: 'custom', domains: ['media', 'knowledge'], actions: [], max_risk: 'write' },
+  },
+  {
+    id: 'observer',
+    name: '只读观察员',
+    desc: '平台全域只读（不可写）；MCP 禁用',
+    tools: 'inherit',
+    mcp: 'none',
+    platform_scope: { mode: 'all', domains: [], actions: [], max_risk: 'read' },
+  },
+]
+
+const BLANK_ROLE_TEMPLATE = {
+  id: '__blank',
+  name: '空白开始',
+  desc: '工具按勾选、平台不设限、MCP 禁用——自行细调',
+  tools: 'custom',
+  mcp: 'none',
+  platform_scope: null,
+}
+
+function renderRoleTemplateRow() {
+  const chips = ROLE_TEMPLATES.map(
+    (tpl) => `<button type="button" class="re-tpl-chip" data-tpl-id="${escapeAttr(tpl.id)}" title="${escapeAttr(tpl.desc)}">${escapeHtml(tpl.name)}</button>`,
+  ).join('')
+  return `<div class="form-group re-tpl-row">
+    <label class="form-label">岗位模板（可选：一键预填能力，填后可改）</label>
+    <div class="re-tpl-chips">${chips}<button type="button" class="re-tpl-chip re-tpl-chip--blank" data-tpl-id="__blank" title="${escapeAttr(BLANK_ROLE_TEMPLATE.desc)}">空白开始</button></div>
+    <div class="form-hint re-tpl-desc"></div>
+  </div>`
+}
+
+function applyRoleTemplate(overlay, tpl) {
+  const setMode = (radioName, value) => {
+    overlay.querySelectorAll(`input[name=${radioName}]`).forEach((r) => {
+      r.checked = r.value === value
+    })
+    // 手动触发一次，走 bindScopeModeToggle 的 sync
+    const checked = overlay.querySelector(`input[name=${radioName}]:checked`)
+    checked?.dispatchEvent(new Event('change'))
+  }
+  setMode('tools_mode', tpl.tools === 'inherit' ? 'inherit' : tpl.tools === 'none' ? 'none' : 'custom')
+  setMode('mcp_mode', tpl.mcp === 'inherit' ? 'inherit' : tpl.mcp === 'none' ? 'none' : 'custom')
+  // 需要平台能力时确保勾选 platform（custom 模式下）
+  if (tpl.platform_scope !== undefined) {
+    const toolsMode = readScopeMode(overlay, 'tools_mode')
+    if (toolsMode === 'custom') {
+      const platformCb = overlay.querySelector('.editor-tool-list input[value="platform"]')
+      if (platformCb && !platformCb.checked) {
+        platformCb.checked = true
+        platformCb.dispatchEvent(new Event('change'))
+      }
+    }
+    setPlatformScopeState(overlay, tpl.platform_scope ?? null)
+  }
+  updateCount(overlay, 'tools')
+  updateCount(overlay, 'mcp_servers')
+}
+
+function bindRoleTemplates(overlay) {
+  overlay.querySelectorAll('.re-tpl-chip').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const id = btn.dataset.tplId
+      const tpl =
+        id === '__blank' ? BLANK_ROLE_TEMPLATE : ROLE_TEMPLATES.find((x) => x.id === id) || ROLE_TEMPLATES[0]
+      overlay.querySelectorAll('.re-tpl-chip').forEach((b) => b.classList.toggle('is-on', b === btn))
+      applyRoleTemplate(overlay, tpl)
+      const descEl = overlay.querySelector('.re-tpl-desc')
+      if (descEl) descEl.textContent = `${tpl.name}：${tpl.desc}`
+    })
+  })
+}
+
 async function getToolsMetadata() {
   if (_toolsMetadata) return _toolsMetadata
   try {
@@ -1450,6 +1665,7 @@ async function showRoleDetailDialog(id, page, state) {
 
     // 获取元数据用于展示工具/MCP/技能的图标和标签（外部 CLI / 系统前台不展示这些，跳过请求）
     let metaTools = [], metaMcpServers = [], metaSkills = []
+    let metaPlatformDomains = []
     if (!extCli && !frontDesk) {
       try {
         const mcpConfig = await api.getMCPConfig()
@@ -1468,6 +1684,7 @@ async function showRoleDetailDialog(id, page, state) {
       try {
         const meta = await getToolsMetadata()
         metaTools = filterRoleEditorTools((meta.tools || []).map(mapApiToolMeta))
+        metaPlatformDomains = mapPlatformDomains(meta.platform_domains)
         if (!metaSkills.length && meta.skills?.length) {
           metaSkills = meta.skills.map(s => ({ value: s.name, label: s.label || s.name, icon: s.icon || getSkillIcon(s.name), desc: s.description || '' }))
         }
@@ -1498,6 +1715,14 @@ async function showRoleDetailDialog(id, page, state) {
                 <div class="re-bar">
                   <span class="re-count">${isAllTools ? '<em style="color:#10b981">全部可用 (' + metaTools.length + ')</em>' : `<em class="re-num">${activeTools.length}</em> 个工具`}</span>
                 </div>
+                ${(() => {
+                  const hasPlatform = activeTools.some((t) => String(t).toLowerCase() === 'platform')
+                  if (!hasPlatform) return ''
+                  const scope = agent.platform_scope || null
+                  const scopeText = platformScopeSummaryText(metaPlatformDomains, scope)
+                  const domList = scope?.mode === 'custom' ? (scope.domains || []).join('、') : ''
+                  return `<p class="re-hint">平台能力：${escapeHtml(scopeText)}${domList ? ` —— ${escapeHtml(domList)}` : ''}</p>`
+                })()}
                 <div class="re-grid detail-list">
                   ${renderToolsDetailGrid(metaTools, activeTools, isAllTools)}
                 </div>
@@ -1575,6 +1800,19 @@ async function showRoleDetailDialog(id, page, state) {
         label: isAllSkills ? `技能 全部 ${metaSkills.length}` : `技能 ${activeSkills.length}`,
         tip: '技能模块',
       })
+      const vaultCount = Array.isArray(agent.knowledge_vault_ids) ? agent.knowledge_vault_ids.filter(Boolean).length : 0
+      if (vaultCount) {
+        overviewStats.push({ label: `知识库 ${vaultCount}`, tip: '绑定知识库' })
+      }
+      const hasPlatform = activeTools.some((t) => String(t).toLowerCase() === 'platform')
+      if (hasPlatform) {
+        overviewStats.push({
+          label: agent.platform_scope?.mode === 'custom'
+            ? `平台 ${platformScopeSummaryText(metaPlatformDomains, agent.platform_scope)}`
+            : '平台 全部动作',
+          tip: '平台能力清单（模型系统提示同步可见）',
+        })
+      }
     } else {
       overviewStats.push({ label: '外部 CLI', tip: '能力由本机运行时提供' })
     }
@@ -1751,6 +1989,7 @@ export async function showCreateRoleDialog(page, state) {
   let metaTools = []
   let metaMcpServers = []
   let metaSkills = []
+  let metaPlatformDomains = []
   try {
     const meta = await getToolsMetadata()
     metaTools = filterRoleEditorTools((meta.tools || []).map(mapApiToolMeta))
@@ -1760,6 +1999,7 @@ export async function showCreateRoleDialog(page, state) {
       icon: s.icon || getSkillIcon(s.name),
       desc: s.description || '',
     }))
+    metaPlatformDomains = mapPlatformDomains(meta.platform_domains)
   } catch {
     /* ignore */
   }
@@ -1796,6 +2036,7 @@ export async function showCreateRoleDialog(page, state) {
   metaSkills = dedupeSkillMetaRows(metaSkills)
 
   const { models: modelOptions, primary: primaryModel } = await loadAgentDefaultModelOptions()
+  const roleVaults = await loadRoleEditorVaults()
 
   const createState = {
     pendingUpload: null,
@@ -1832,6 +2073,7 @@ export async function showCreateRoleDialog(page, state) {
           </div>
           <div class="re-panels">
             <section class="re-panel" data-panel="basic">
+              ${renderRoleTemplateRow()}
               <div class="form-group">
                 <label class="form-label">角色头像</label>
                 <div id="role-avatar-picker-mount" data-agent-id="new-agent"></div>
@@ -1855,9 +2097,11 @@ export async function showCreateRoleDialog(page, state) {
                 <label class="form-label">系统提示词</label>
                 <textarea class="form-input re-field-system-prompt" placeholder="定义该角色的核心指令和行为规范" rows="8" style="font-family:var(--font-mono);font-size:13px;line-height:1.6;resize:vertical;"></textarea>
               </div>
+              ${renderKnowledgeVaultField(roleVaults, [])}
             </section>
 
             <section class="re-panel" data-panel="tools" hidden>
+              ${renderScopeModeRadios('tools_mode', 'inherit', { inheritLabel: '全部继承', customLabel: '仅勾选', noneLabel: '全部禁用' })}
               <input class="re-search" placeholder="搜索内置工具..." data-filter="tools">
               <div class="re-bar">
                 <span class="re-count"><em class="re-num tools-count">${defaultTools.length}</em> / ${metaTools.length}</span>
@@ -1869,9 +2113,11 @@ export async function showCreateRoleDialog(page, state) {
               <div class="re-grid editor-tool-list">
                 ${renderToolsEditorGrid(metaTools, defaultTools)}
               </div>
+              ${renderPlatformScopePanel(metaPlatformDomains, null)}
             </section>
 
             <section class="re-panel" data-panel="mcp" hidden>
+              ${renderScopeModeRadios('mcp_mode', 'inherit', { inheritLabel: '全部继承', customLabel: '仅勾选', noneLabel: '全部禁用' })}
               <input class="re-search" placeholder="搜索 MCP 服务器..." data-filter="mcp_servers">
               <div class="re-bar">
                 <span class="re-count"><em class="re-num mcp-count">${defaultMcp.length}</em> / ${metaMcpServers.length}</span>
@@ -2017,6 +2263,11 @@ export async function showCreateRoleDialog(page, state) {
   overlay.querySelectorAll('.editor-tool-list input').forEach((cb) => cb.addEventListener('change', () => updateCount(overlay, 'tools')))
   overlay.querySelectorAll('.editor-mcp-list input').forEach((cb) => cb.addEventListener('change', () => updateCount(overlay, 'mcp_servers')))
   overlay.querySelectorAll('.editor-skill-list input').forEach((cb) => cb.addEventListener('change', () => updateCount(overlay, 'skills')))
+  bindPlatformScopePanel(overlay, metaPlatformDomains)
+  bindScopeModeToggle(overlay, 'tools_mode', '.editor-tool-list')
+  bindScopeModeToggle(overlay, 'mcp_mode', '.editor-mcp-list')
+  bindKnowledgeVaultField(overlay)
+  bindRoleTemplates(overlay)
 
   const idInput = overlay.querySelector('.re-field-id')
   const idHint = overlay.querySelector('.re-field-id-hint')
@@ -2036,8 +2287,6 @@ export async function showCreateRoleDialog(page, state) {
     const modelRaw = readAgentDefaultModel(overlay)
     const model = modelRaw === undefined ? null : modelRaw || null
     const tags = readTagsFromEditor(overlay)
-    const tools = [...overlay.querySelectorAll('.editor-tool-list input:checked')].map((el) => el.value)
-    const mcp_servers = [...overlay.querySelectorAll('.editor-mcp-list input:checked')].map((el) => el.value)
     const skills = [...overlay.querySelectorAll('.editor-skill-list input:checked')].map((el) => el.value)
 
     if (!/^[a-z0-9-]+$/i.test(agent_code)) {
@@ -2075,14 +2324,16 @@ export async function showCreateRoleDialog(page, state) {
         agent_name,
         description,
         model,
-        tools: tools.length === metaTools.length ? null : tools,
-        mcp_servers: mcp_servers.length === metaMcpServers.length ? null : mcp_servers,
+        tools: readTriStateList(overlay, 'tools_mode', '.editor-tool-list'),
+        mcp_servers: readTriStateList(overlay, 'mcp_mode', '.editor-mcp-list'),
         skills,
+        knowledge_vault_ids: readKnowledgeVaultIdsFromEditor(overlay),
         soul,
         system_prompt,
         tags,
         avatar,
         avatar_meta,
+        platform_scope: readPlatformScopeFromEditor(overlay),
       })
       if (willUpload) {
         await api.uploadAgentAvatar(agent_code, createState.pendingUpload.blob)
@@ -2139,11 +2390,13 @@ export async function showEditRoleDialog(page, state, id) {
   let metaTools = []
   let metaMcpServers = []
   let metaSkills = []
+  let metaPlatformDomains = []
   if (!extCli && !frontDesk) {
     try {
       const meta = await getToolsMetadata()
       metaTools = filterRoleEditorTools((meta.tools || []).map(mapApiToolMeta))
       metaSkills = (meta.skills || []).map(s => ({ value: s.name, label: s.label || s.name, icon: s.icon || getSkillIcon(s.name), desc: s.description || '' }))
+      metaPlatformDomains = mapPlatformDomains(meta.platform_domains)
     } catch { /* ignore */ }
 
     try {
@@ -2172,6 +2425,10 @@ export async function showEditRoleDialog(page, state, id) {
 
   const { models: modelOptions, primary: primaryModel } = await loadAgentDefaultModelOptions()
   const hideModelField = extCli || frontDesk
+  const roleVaults = (extCli || frontDesk) ? [] : await loadRoleEditorVaults()
+  const editVaultIds = Array.isArray(agent.knowledge_vault_ids) ? agent.knowledge_vault_ids : []
+  const editToolsMode = inferTriStateMode(agent.tools)
+  const editMcpMode = inferTriStateMode(agent.mcp_servers)
 
   // editState 初始化：
   //   tools/mcp：未配置时默认全选（与后端 None=全量一致）；skills 未配置时默认不选任何技能
@@ -2196,6 +2453,7 @@ export async function showEditRoleDialog(page, state, id) {
   const editorToolsMcpSkillsHtml = (extCli || frontDesk) ? '' : `
             <!-- 工具面板 -->
             <section class="re-panel" data-panel="tools" hidden>
+              ${renderScopeModeRadios('tools_mode', editToolsMode, { inheritLabel: '全部继承', customLabel: '仅勾选', noneLabel: '全部禁用' })}
               <input class="re-search" placeholder="搜索内置工具..." data-filter="tools">
               <div class="re-bar">
                 <span class="re-count"><em class="re-num tools-count">${editState.tools.length}</em> / ${metaTools.length}</span>
@@ -2207,10 +2465,12 @@ export async function showEditRoleDialog(page, state, id) {
               <div class="re-grid editor-tool-list">
                 ${renderToolsEditorGrid(metaTools, editState.tools)}
               </div>
+              ${renderPlatformScopePanel(metaPlatformDomains, agent.platform_scope || null)}
             </section>
 
             <!-- MCP 面板 -->
             <section class="re-panel" data-panel="mcp" hidden>
+              ${renderScopeModeRadios('mcp_mode', editMcpMode, { inheritLabel: '全部继承', customLabel: '仅勾选', noneLabel: '全部禁用' })}
               <input class="re-search" placeholder="搜索 MCP 服务器..." data-filter="mcp_servers">
               <div class="re-bar">
                 <span class="re-count"><em class="re-num mcp-count">${editState.mcp_servers.length}</em> / ${metaMcpServers.length}</span>
@@ -2320,6 +2580,7 @@ export async function showEditRoleDialog(page, state, id) {
                 <label class="form-label">系统提示词</label>
                 <textarea class="form-input re-field-system-prompt" placeholder="定义该角色的核心指令和行为规范&#10;&#10;示例：&#10;- 你是专业的在线搜索助手&#10;- 擅长查找最新资讯和信息&#10;- 回答要简洁准确" rows="8" style="font-family:var(--font-mono);font-size:13px;line-height:1.6;resize:vertical;">${escapeHtml(editState.system_prompt)}</textarea>
               </div>
+              ${(extCli || frontDesk) ? '' : renderKnowledgeVaultField(roleVaults, editVaultIds)}
               ${extCli ? `<div class="form-group"><p class="form-hint" style="margin:0;line-height:1.55;color:var(--text-secondary)">外部 CLI 角色：可编辑本页与「人格 SOUL」。内置工具、MCP 与技能由本机运行时提供；保存时不会修改这些配置。</p></div>` : ''}
             </section>
 
@@ -2426,6 +2687,10 @@ export async function showEditRoleDialog(page, state, id) {
   overlay.querySelectorAll('.editor-tool-list input').forEach(cb => cb.addEventListener('change', () => updateCount(overlay, 'tools')))
   overlay.querySelectorAll('.editor-mcp-list input').forEach(cb => cb.addEventListener('change', () => updateCount(overlay, 'mcp_servers')))
   overlay.querySelectorAll('.editor-skill-list input').forEach(cb => cb.addEventListener('change', () => updateCount(overlay, 'skills')))
+  bindPlatformScopePanel(overlay, metaPlatformDomains)
+  bindScopeModeToggle(overlay, 'tools_mode', '.editor-tool-list')
+  bindScopeModeToggle(overlay, 'mcp_mode', '.editor-mcp-list')
+  bindKnowledgeVaultField(overlay)
 
   // 保存
   overlay.querySelector('[data-action=save]')?.addEventListener('click', async () => {
@@ -2435,8 +2700,6 @@ export async function showEditRoleDialog(page, state, id) {
     const system_prompt = overlay.querySelector('.re-field-system-prompt')?.value?.trim() || null
     const modelRaw = readAgentDefaultModel(overlay)
     const tags = id === 'main' ? [] : readTagsFromEditor(overlay)
-    const tools = [...overlay.querySelectorAll('.editor-tool-list input:checked')].map(el => el.value)
-    const mcp_servers = [...overlay.querySelectorAll('.editor-mcp-list input:checked')].map(el => el.value)
     const skills = [...overlay.querySelectorAll('.editor-skill-list input:checked')].map(el => el.value)
 
     try {
@@ -2471,22 +2734,24 @@ export async function showEditRoleDialog(page, state, id) {
         if (avatarPickerState.avatar === 'image') agent.has_avatar_file = true
         else if (avatarPickerState.avatar !== 'image') agent.has_avatar_file = false
       } else {
-        const isAllTools = tools.length === metaTools.length &&
-                           tools.every(v => metaTools.some(t => t.value === v))
-        const isAllMcp = mcp_servers.length === metaMcpServers.length &&
-                         mcp_servers.every(v => metaMcpServers.some(t => t.value === v))
+        const newTools = readTriStateList(overlay, 'tools_mode', '.editor-tool-list')
+        const newMcp = readTriStateList(overlay, 'mcp_mode', '.editor-mcp-list')
         const model = modelRaw === undefined ? undefined : modelRaw || null
+        const platformScope = readPlatformScopeFromEditor(overlay)
         const requestData = {
           agent_name,
           description,
-          tools: isAllTools ? null : tools,
-          mcp_servers: isAllMcp ? null : mcp_servers,
+          tools: newTools,
+          mcp_servers: newMcp,
           skills,
+          knowledge_vault_ids: readKnowledgeVaultIdsFromEditor(overlay),
           soul: soul || null,
           system_prompt,
           tags,
           avatar: avatarPickerState.avatar,
           avatar_meta: avatarPickerState.avatar_meta,
+          // 显式带上（含 null）：null = 清除能力清单，回到「全部动作」存量语义
+          platform_scope: platformScope,
         }
         if (model !== undefined) {
           requestData.model = model
@@ -2496,9 +2761,11 @@ export async function showEditRoleDialog(page, state, id) {
         agent.agent_name = agent_name
         agent.description = description
         if (model !== undefined) agent.model = model
-        agent.tools = isAllTools ? null : tools
-        agent.mcp_servers = isAllMcp ? null : mcp_servers
+        agent.tools = newTools
+        agent.mcp_servers = newMcp
         agent.skills = skills
+        agent.knowledge_vault_ids = requestData.knowledge_vault_ids
+        agent.platform_scope = platformScope
         agent.soul = soul || null
         agent.system_prompt = system_prompt
         agent.tags = tags
