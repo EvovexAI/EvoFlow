@@ -947,10 +947,8 @@ function renderTaskHero(page, state) {
     }
     if (riskZh) inlineBits.push({ text: riskZh, kind: 'risk' })
   } else {
-    // 工作流模式：应用名 + 节点进度 + 来源角色
+    // 工作流模式：应用名 + 来源角色（节点进度在运行结果卡中展示，避免重复）
     if (appName) inlineBits.push({ text: appName, kind: 'app' })
-    const { completedCount, subtaskCount } = taskProgressMeta(task, state.subtasks)
-    if (subtaskCount > 0) inlineBits.push({ text: `${completedCount}/${subtaskCount} 节点`, kind: 'progress' })
     if (fromRole) inlineBits.push({ text: fromRole, kind: 'handler' })
   }
   
