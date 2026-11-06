@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.3.6] - 2026-11-06
+
+相对 **1.3.5**：修复员工派活时 LLM 调用崩溃问题——平台控制参数（confirm 等）不再泄露进 OpenAI/Anthropic SDK 调用。
+
+### 参与本次发版
+
+- 后端工程师：平台控制参数防护层完善，模型配置多层消毒
+- 发版工程师：CI/CD 正式包发布
+
+### Fixed
+
+- **员工派活 wrap-up 必崩**：平台网关的 `confirm` 等控制标记不再存入模型配置 extra，不再经由 model_kwargs 泄露进 OpenAI/Anthropic 的 AsyncCompletions.create()；覆盖入口/存储/持久化/工厂/模型执行全链路防护
+
 ## [1.3.5] - 2026-11-06
 
 相对 **1.3.4**：旧库启动自动补齐 post-baseline 表/列；空 standing 仍注入资产目录；子任务旁观可轮询与手动刷新。
