@@ -6,6 +6,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.3.2] - 2026-11-06
+
+相对 **1.3.1**：新增员工平台能力清单（platform scope）与资产 standing 注入折叠；部门群新增派工条状态；run 心跳改 upsert；知识库分块与后台保活修复；媒体下载改流式落盘。
+GitHub Release 正文见 `scripts/maintainer/windows/release-notes/PRODUCT-NOTES-1.3.2.md`；升级横幅见 `scripts/maintainer/update/latest.json`。
+
+### Added
+
+- **员工平台能力清单**：`AgentConfig.platform_scope` 支持不设限 / 全量受风险上限 / 全拒 / 自定义域与动作；三层同源（动作闸门、资产 catalog 过滤、系统提示 `<capability_profile>` 事前告知）；角色编辑新增能力面板
+- **部门群派工条**：合并叫醒队列 / 审计回灌 / 气泡已回，展示「排队中 / 回答中 / 已回 / 失败」
+- **资产记忆**：新增 standing 注入折叠（What's in Memory 折叠为 name-only、prefs / tips 软上限），降低每轮注入体积
+
+### Changed
+
+- **媒体**：下载改为流式落盘，慢日志移出事件循环
+- **资产契约**：assets_tool 说明收敛到系统提示「Entity assets」，补 kind → 文件映射
+- **记忆注入文档**：injection_layers / read_path / consolidation 同步
+
+### Fixed
+
+- **run**：live_run 心跳改 upsert，避免并发插入冲突；run 状态对账补齐
+- **知识库**：owned chunking / service 分块边界与参数修正
+- **后台任务**：background 等待期间保活 run，避免被当作空闲回收
+- **部门群**：嵌套策略与审计回灌细化，重挂后派工条可回填
+
 ## [1.3.1] - 2026-11-05
 
 相对 **1.3.0**：模型请求体统一清洗；OpenAI 图片支持参考图生成（image2image）；图片缩略图与内联图渲染修复；工具表面锁与 V4 镜像对齐。
