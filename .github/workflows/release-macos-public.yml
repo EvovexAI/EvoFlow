@@ -15,7 +15,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - runner: macos-14
+          # macos-14 在 2026-11-06 的 v1.3.3 运行中被解析成
+          # "macos-14-arm64-us-default" 并报 "configuration is not supported"，
+          # 未分配 runner 即 cancelled。改用 macos-15（公开仓库默认 arm64），
+          # 与 x64 的 macos-15-intel 配对，避免跨大版本镜像差异。
+          - runner: macos-15
             tauri_target: aarch64-apple-darwin
             arch_label: aarch64
           - runner: macos-15-intel
