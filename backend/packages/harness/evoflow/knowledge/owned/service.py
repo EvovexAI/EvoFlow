@@ -65,10 +65,11 @@ _CHUNK_SIZE_MIN = 64
 _CHUNK_SIZE_MAX = 8192
 _CHUNK_OVERLAP_MIN = 0
 _CHUNK_OVERLAP_MAX = 4096
-# Character budget defaults (not tokens). Prefer larger chunks; docs ≤~5k
-# chars stay whole in owned.chunking.split_text regardless of this size.
-_CHUNK_SIZE_DEFAULT = 4096
-_CHUNK_OVERLAP_DEFAULT = 512
+# Character budget defaults (not tokens). Must match CreateBaseBody /
+# gateway defaults — oversized defaults + old no-split ceiling used to
+# collapse multi-FAQ docs into a single retrieval vector.
+_CHUNK_SIZE_DEFAULT = 2048
+_CHUNK_OVERLAP_DEFAULT = 256
 
 
 def _parse_int_field(raw: Any, *, field: str) -> int:

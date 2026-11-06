@@ -446,6 +446,10 @@ def format_soul_prompt_block(
         from evoflow.assets.injection_budget import cap_text_chars
 
         text = cap_text_chars(text, max_chars) + "\n<!-- soul truncated; details in archival -->"
+    # Avoid stacking if caller already stored a wrapped SOUL.md / DB value.
+    raw = text.strip()
+    if raw.startswith("<soul>") and raw.endswith("</soul>"):
+        text = raw[len("<soul>") : -len("</soul>")].strip()
     return f"<soul>\n{text}\n</soul>\n"
 
 

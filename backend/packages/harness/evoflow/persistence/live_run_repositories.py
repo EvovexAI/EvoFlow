@@ -112,11 +112,19 @@ def delete_live_run_snapshot(session_key: str, *, conn: Any | None = None) -> bo
     return run_db_transaction(_tx)
 
 
-def update_live_run_heartbeat(session_key: str) -> int:
-    """R2-1: Update last_event_at to current time for frontend heartbeat.
+def update_live_run_heartbeat(
+    session_key: str,
+    *,
+    thread_id: str | None = None,
+    run_id: str | None = None,
+) -> int:
+    """Keep live-run + session activity fresh (frontend or TaskOutput wait pulse).
 
-    Returns last_event_at as milliseconds timestamp for frontend use.
-    Silently returns 0 if no live run exists for the session.
+    Returns last_event_at as milliseconds. If no live-run row exists yet (common
+    during long silent tool waits when the UI stopped PUTting snapshots), upsert
+    a minimal ``running`` row and bump ``evoflow_chat_sessions.updated_at`` so
+    Gateway reconcile does not false-cancel an active LangGraph run as
+    ``updatedAt timeout, no live snapshot``.
     """
     sk = str(session_key or "").strip()
     if not sk:
@@ -126,13 +134,56 @@ def update_live_run_heartbeat(session_key: str) -> int:
 
     def _tx(db: Any) -> int:
         current_time = now_iso_z()
-        db.execute(
+        cur = db.execute(
             """
             UPDATE evoflow_chat_live_runs
             SET last_event_at = ?, updated_at = ?
             WHERE session_key = ?
             """,
             (current_time, current_time, sk),
+        )
+        if int(cur.rowcount or 0) <= 0:
+            # Seed from session row when callers omit ids (TaskOutput pulse).
+            tid = str(thread_id or "").strip()
+            rid = str(run_id or "").strip()
+            if not tid or not rid:
+                row = db.execute(
+                    """
+                    SELECT thread_id, current_run_id
+                    FROM evoflow_chat_sessions
+                    WHERE session_key = ?
+                    LIMIT 1
+                    """,
+                    (sk,),
+                ).fetchone()
+                if row:
+                    tid = tid or str(row["thread_id"] or "").strip()
+                    rid = rid or str(row["current_run_id"] or "").strip()
+            if rid:
+                db.execute(
+                    """
+                    INSERT INTO evoflow_chat_live_runs (
+                        session_key, thread_id, run_id, status,
+                        partial_text, partial_tools_json, display_segments_json,
+                        last_event_at, updated_at
+                    ) VALUES (?, ?, ?, 'running', '', '[]', '[]', ?, ?)
+                    ON CONFLICT(session_key) DO UPDATE SET
+                        last_event_at = excluded.last_event_at,
+                        updated_at = excluded.updated_at,
+                        status = 'running',
+                        run_id = COALESCE(NULLIF(excluded.run_id, ''), evoflow_chat_live_runs.run_id),
+                        thread_id = COALESCE(NULLIF(excluded.thread_id, ''), evoflow_chat_live_runs.thread_id)
+                    """,
+                    (sk, tid or None, rid, current_time, current_time),
+                )
+        # Session updatedAt is the reconcile fallback when no snapshot existed.
+        db.execute(
+            """
+            UPDATE evoflow_chat_sessions
+            SET updated_at = ?
+            WHERE session_key = ?
+            """,
+            (current_time, sk),
         )
         return iso_z_to_ms(current_time)
 
