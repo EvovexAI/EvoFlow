@@ -347,6 +347,12 @@ flowchart LR
 
 ---
 
+## 接口与 CLI
+
+协作任务用 `tasks.*` / `evoflow tasks …`；我的事项用 `items.*` / `evoflow items …`（**tasks ≠ items**）。接口示例、入参出参见 [员工 · 知识库 · 工作流 · 任务中心：接口与 CLI](../integration/api-cli-employees-knowledge-workflow-tasks.md#tasks-items)。
+
+---
+
 ## 相关阅读
 
 - [任务中心概念](../../explanation/task-center.md) — 小V、用户待办、员工协作派发、三视角与出图原则
@@ -356,3 +362,4 @@ flowchart LR
 - [资产中心](../../explanation/asset-center.md) — 员工协作 ≠ 共享长期记忆
 - [自动化](scheduled-tasks.md) — 定时触发
 - [EvoPanel 指南](../configuration/evopanel-guide.md) — 侧栏地图
+- [接口与 CLI](../integration/api-cli-employees-knowledge-workflow-tasks.md) — tasks / items / employees / workflow / knowledge

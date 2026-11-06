@@ -512,7 +512,6 @@ export function createAppRunInspectController(opts) {
           runOutEl.innerHTML = `
             <div class="apps-history-outputs-block">
               <div class="apps-history-outputs-title">综合产物（最终交付）</div>
-              <p class="td-card-sub" style="margin:0 0 8px">优先看带「最终交付」标记的文件；每条会标注来自哪个节点。</p>
               ${renderOutputItemCardsHtml(runItems, escHtml, { enablePreview: true })}
             </div>`
           bindPreview(runOutEl, { assigned_agent: '' })

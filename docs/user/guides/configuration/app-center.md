@@ -161,9 +161,16 @@
 
 ---
 
+## 接口与 CLI
+
+运行：`evoflow workflow run` / platform `workflow.run` / `POST /api/apps/{id}/run`。创建与发布无完整 CLI，用 platform `workflow.*` 或 `/api/apps`。接口示例、入参出参见 [员工 · 知识库 · 工作流 · 任务中心：接口与 CLI](../integration/api-cli-employees-knowledge-workflow-tasks.md#workflow)。
+
+---
+
 ## 相关阅读
 
 - [[guides/tasks/task-center|任务中心]] — 跑次验收与 `#/workflow/:id`
 - [[guides/configuration/smart-employees|员工]] — 值班岗位 vs 可复用流程
 - [[guides/chat/plan-mode|Plan 模式]] — 跑通后再沉淀
 - [[guides/configuration/agent-management|智能体管理]] — 给步骤选能力
+- [[guides/integration/api-cli-employees-knowledge-workflow-tasks|接口与 CLI]] — workflow / tasks / employees / knowledge

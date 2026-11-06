@@ -157,21 +157,28 @@
   display: none;
 }
 
-/* 顶栏 58px 三组 */
+/* 顶栏紧凑：勿再锁 58px，给画布多留纵向空间 */
 .wf-studio-toolbar {
-  height: 58px !important;
-  padding: 0 16px 0 10px !important;
+  height: 36px !important;
+  min-height: 36px !important;
+  max-height: 36px !important;
+  padding: 0 8px 0 6px !important;
   background: var(--bg-secondary) !important;
   border-bottom: 1px solid var(--wf-node-border) !important;
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
-  gap: 16px !important;
+  gap: 8px !important;
+  box-sizing: border-box !important;
+  /* 勿 overflow:hidden：会裁掉窗控悬停高亮 */
+  overflow: visible;
 }
 
-/* macOS 原生标题栏：工作流工作室顶栏为交通灯让位（左侧留出交通灯宽度，其它平台不变） */
+/* macOS 原生标题栏：为交通灯让位，仍保持单行紧凑高度 */
 html.evopanel-macos-titlebar .wf-studio-toolbar {
-  height: 74px !important;
-  padding: 26px 16px 0 84px !important;
+  height: 52px !important;
+  min-height: 52px !important;
+  max-height: 52px !important;
+  padding: 16px 8px 0 76px !important;
 }
 
 .wf-studio-toolbar-left,
@@ -207,9 +214,16 @@ html.evopanel-macos-titlebar .wf-studio-toolbar {
 }
 
 .wf-studio-toolbar--tauri-chrome .wf-studio-toolbar-left,
-.wf-studio-toolbar--tauri-chrome .wf-studio-toolbar-center,
+.wf-studio-toolbar--tauri-chrome .wf-studio-toolbar-center {
+  flex: 0 0 auto;
+}
+
+/* 右侧整列拉满顶栏高度，窗控才能 height:100% 铺满（否则悬停只剩一条） */
 .wf-studio-toolbar--tauri-chrome .wf-studio-toolbar-right {
   flex: 0 0 auto;
+  align-self: stretch;
+  height: 100%;
+  align-items: center;
 }
 
 .wf-studio-toolbar-tauri-drag-gap {
@@ -237,11 +251,18 @@ html.dark .wf-studio-toolbar-win-sep {
 .wf-studio-toolbar--tauri-chrome .ep-window-controls {
   align-self: stretch;
   height: 100%;
+  max-height: none;
+  display: flex;
+  align-items: stretch;
 }
 
 .wf-studio-toolbar--tauri-chrome .ep-window-controls-btn {
-  width: 40px;
-  min-width: 36px;
+  width: 40px !important;
+  min-width: 36px !important;
+  height: 100% !important;
+  min-height: 0 !important;
+  align-self: stretch !important;
+  border-radius: 0 !important;
 }
 
 .wf-toolbar-tools {
@@ -263,10 +284,10 @@ html.dark .wf-studio-toolbar-win-sep {
 .wf-toolbar-status-badge {
   display: inline-flex;
   align-items: center;
-  height: 22px;
-  padding: 0 8px;
-  border-radius: 999px;
-  font-size: 11px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 4px;
+  font-size: 10px;
   font-weight: 650;
   flex-shrink: 0;
   border: 1px solid transparent;
@@ -303,8 +324,8 @@ html.dark .wf-studio-toolbar-win-sep {
 .wf-toolbar-actions {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding-left: 12px;
+  gap: 3px;
+  padding-left: 8px;
   border-left: 1px solid var(--wf-node-border);
 }
 
@@ -312,12 +333,12 @@ html.dark .wf-studio-toolbar-win-sep {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 5px;
-  height: 28px;
-  padding: 0 10px;
-  border-radius: 8px !important;
+  gap: 3px;
+  height: 22px;
+  padding: 0 7px;
+  border-radius: 5px !important;
   border: 1px solid transparent;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
   letter-spacing: -0.01em;
   line-height: 1;
@@ -338,13 +359,30 @@ html.dark .wf-studio-toolbar-win-sep {
 
 .wf-toolbar-action svg {
   flex-shrink: 0;
+  width: 11px;
+  height: 11px;
+}
+
+/* 工具栏左侧工作流图标：旧选择器写错成 .app-icon-tile，实际是 .app-ico-tile */
+.wf-toolbar-brand .app-ico-tile,
+.wf-toolbar-brand .app-ico-tile--sm {
+  width: 16px !important;
+  height: 16px !important;
+  min-width: 16px !important;
+  border-radius: 4px !important;
+}
+
+.wf-toolbar-brand .app-ico-tile .app-ico,
+.wf-toolbar-brand .app-ico-tile svg {
+  width: 12px !important;
+  height: 12px !important;
 }
 
 /* 保存：安静文字按钮 */
 .wf-toolbar-action--ghost {
   position: relative;
-  height: 34px;
-  padding: 0 10px;
+  height: 22px;
+  padding: 0 6px;
   background: transparent !important;
   border: 1px solid transparent !important;
   color: #5b6172 !important;
@@ -387,7 +425,8 @@ html.dark .wf-studio-toolbar-win-sep {
 
 /* 调试：唯一实心主按钮 */
 .wf-toolbar-action--run {
-  min-width: 84px;
+  min-width: 0;
+  padding: 0 9px;
   background: var(--wf-select) !important;
   border: 1px solid var(--wf-select) !important;
   color: #fff !important;

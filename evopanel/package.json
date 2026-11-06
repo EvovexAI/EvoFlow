@@ -1,6 +1,6 @@
 {
   "name": "evopanel",
-  "version": "1.4.0",
+  "version": "1.3.3",
   "private": true,
   "description": "EvoFlow — 进化的工作流：智能体员工与原生 Agent Runtime（桌面端）",
   "type": "module",

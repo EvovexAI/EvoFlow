@@ -15376,6 +15376,53 @@ html[data-app-occluded='1'] * {
   box-shadow: 0 18px 60px rgba(0, 0, 0, 0.12);
 }
 
+.ef-dropdown-select__menu--searchable {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0;
+}
+
+.ef-dropdown-select__search {
+  flex-shrink: 0;
+  padding: 8px 8px 6px;
+  border-bottom: 1px solid var(--border-secondary, rgba(15, 23, 42, 0.08));
+}
+
+.ef-dropdown-select__search-input {
+  box-sizing: border-box;
+  width: 100%;
+  height: 32px;
+  margin: 0;
+  padding: 0 10px;
+  border: 1px solid var(--border-primary, rgba(15, 23, 42, 0.12));
+  border-radius: 8px;
+  background: var(--bg-secondary, #f8fafc);
+  color: var(--text-primary, #111827);
+  font: inherit;
+  font-size: 13px;
+  outline: none;
+}
+
+.ef-dropdown-select__search-input:focus {
+  border-color: color-mix(in srgb, var(--accent, #2563eb) 45%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent, #2563eb) 16%, transparent);
+}
+
+.ef-dropdown-select__menu-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 6px 0;
+}
+
+.ef-dropdown-select__menu:not(.ef-dropdown-select__menu--searchable) .ef-dropdown-select__menu-scroll {
+  overflow: visible;
+  padding: 0;
+}
+
 .ef-dropdown-select__menu--down {
   position: absolute;
   top: calc(100% + 6px);

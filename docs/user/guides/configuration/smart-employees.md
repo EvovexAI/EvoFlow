@@ -333,6 +333,12 @@ docs/roles/<agent_code>/<YYYYMMDD-HH>/…
 
 ---
 
+## 接口与 CLI
+
+脚本 / 外部 Agent / 终端操作岗位名册、派活、启停时，用 platform `employees.*` 或 `evoflow employees …`。接口示例、入参出参见 [员工 · 知识库 · 工作流 · 任务中心：接口与 CLI](../integration/api-cli-employees-knowledge-workflow-tasks.md#employees)。
+
+---
+
 ## 相关阅读
 
 - [智能体管理](agent-management.md) — 人设、工具、连接器
@@ -341,3 +347,4 @@ docs/roles/<agent_code>/<YYYYMMDD-HH>/…
 - [任务中心](../tasks/task-center.md) — 验收与同意派发
 - [知识库](knowledge-base.md) — 绑定资料
 - [飞书集成](../integration/feishu-integration.md) — IM 绑定
+- [接口与 CLI](../integration/api-cli-employees-knowledge-workflow-tasks.md) — employees / knowledge / workflow / tasks

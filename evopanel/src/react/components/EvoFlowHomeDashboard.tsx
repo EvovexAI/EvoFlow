@@ -1466,6 +1466,8 @@ export function EvoFlowHomeDashboard({ onPrompt, workspaceLabel = '', workspaceP
                   pillLabel={modelPillLabel}
                   loading={modelsLoading}
                   placement="down"
+                  // 与主对话/工作流抽屉一致：挂 body + fixed，避免首页滚动容器裁切下拉
+                  portalFixed
                   className="evo-home-model-menu-root"
                   onSelect={applySelectedModel}
                 />

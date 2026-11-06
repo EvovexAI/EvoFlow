@@ -55,6 +55,7 @@
 |------|------|
 | 飞书集成 | [feishu-integration.md](integration/feishu-integration.md) [[guides/integration/feishu-integration|飞书集成]] |
 | IM 渠道总览 | [im-channels.md](integration/im-channels.md) [[guides/integration/im-channels|IM 渠道]] |
+| **员工 / 知识库 / 工作流 / 任务中心 · 接口与 CLI** | [api-cli-employees-knowledge-workflow-tasks.md](integration/api-cli-employees-knowledge-workflow-tasks.md) [[guides/integration/api-cli-employees-knowledge-workflow-tasks|接口与 CLI]] |
 
 ## 安全（security/）
 

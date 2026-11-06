@@ -695,7 +695,7 @@ export const RightStagePanel = memo(function RightStagePanel({
                 </button>
                 <h2 className="react-chat-stage-open-tab-title">选择工作流</h2>
                 <p className="react-chat-stage-open-tab-desc">
-                  查看正在运行或最近的任务图；当前会话任务会排在最前。
+                  用下拉框选 App，再选一次运行；可输入名称搜索。
                 </p>
               </div>
               {workflowPickList}
@@ -974,7 +974,7 @@ export const RightStagePanel = memo(function RightStagePanel({
                   </button>
                   <h2 className="react-chat-stage-open-tab-title">选择工作流</h2>
                   <p className="react-chat-stage-open-tab-desc">
-                    查看正在运行或最近的任务图；当前会话任务会排在最前。
+                    用下拉框选 App，再选一次运行；可输入名称搜索。
                   </p>
                 </div>
                 {workflowPickList}
@@ -1084,7 +1084,7 @@ export function buildDefaultRightStageLauncherItems(handlers: {
     {
       id: 'workflow',
       label: '工作流',
-      description: '选任务看运行图',
+      description: '下拉选 App / 运行',
       icon: WorkflowIcon,
       onOpen: handlers.onOpenWorkflow,
     },

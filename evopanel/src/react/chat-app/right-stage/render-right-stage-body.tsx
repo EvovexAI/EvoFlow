@@ -88,7 +88,7 @@ function CollabWorkflowStageBody({
                 <div className="react-chat-stage-open-tab-copy">
                   <h2 className="react-chat-stage-open-tab-title">选择工作流</h2>
                   <p className="react-chat-stage-open-tab-desc">
-                    当前会话还没有绑定任务。可从正在运行或最近的任务里选一个查看。
+                    当前会话还没有绑定任务。用下拉框选 App，再选一次运行。
                   </p>
                 </div>
                 <RightStageWorkflowPickList

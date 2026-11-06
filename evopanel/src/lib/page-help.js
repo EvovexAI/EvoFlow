@@ -16,6 +16,9 @@
  *   steps?: [                // 操作步骤（可选 → 显示「操作」Tab）
  *     { title: string, desc: string, tip?: string }
  *   ],
+ *   api?: [                  // 接口 / CLI（可选 → 显示「接口」Tab，排在操作之后）
+ *     { title: string, example: string, desc: string, search?: string }
+ *   ],
  *   faq?: [                  // 常见问题（可选 → 显示「FAQ」Tab）
  *     { q: string, a: string }
  *   ],
@@ -156,9 +159,26 @@ const GUIDE = {
       { q: '只想看要我处理的？', a: '看「需要你处理」（转交待审批）；验收进详情。也可用状态条「待处理 / 异常」。' },
       { q: '不会点界面？', a: '对小V说：「记一条待办」「把XX派给某某员工」「有哪些待确认」。' },
     ],
+    api: [
+      {
+        title: '协作任务 · 列表 / 结案',
+        example:
+          '```bash\nevoflow tasks list --status executing --limit 20\nevoflow tasks state <task_id> --status completed --summary "已核对无误"\n```\n```bash\ncurl -s http://127.0.0.1:8001/api/platform \\\n  -H "Content-Type: application/json" \\\n  -d \'{"action":"tasks.list","args":{"status":"executing","limit":20}}\'\n```',
+        desc: '**怎么调**：platform `tasks.*` 或 CLI `evoflow tasks …`；细粒度也可用 `GET /api/tasks`。\n\n**入参（list）**：`status?`、`assignee?`/`role?`、`source?`、`limit?`（默认 50）。\n\n**入参（set_state / state）**：`task_id`、`state`（pending/executing/completed…）；结案常需 `summary`。写操作 HTTP 需 `confirm:true`。\n\n**出参**：任务台账 / 更新后状态；非法流转时错误含 `next_states`。',
+        search: '任务中心 tasks items 接口 CLI',
+      },
+      {
+        title: '我的事项 · 登记 / 派发',
+        example:
+          '```bash\nevoflow items create --file item.json   # title 必填\nevoflow items dispatch <item_id> --agent <agent_code>\n```\n```bash\ncurl -s http://127.0.0.1:8001/api/platform \\\n  -H "Content-Type: application/json" \\\n  -d \'{"action":"items.create","args":{"title":"周五交报告"},"confirm":true}\'\n```',
+        desc: '**怎么调**：platform `items.*` 或 CLI `evoflow items …`。\n\n**易混**：**tasks ≠ items**——备忘用 items；正式台账结案用 tasks。`items.create` 只记事，不自动开跑；要员工干再 `items.dispatch`。\n\n**入参（create）**：`title` 必填；`notes?`、`priority?`、`due_at?`、`tags?`。\n\n**入参（dispatch）**：`item_id`、`agent_code`；`wake_now?`。\n\n**出参**：`item_id` / 派生的可执行 Task。',
+        search: 'items.create items.dispatch 我的事项',
+      },
+    ],
     docs: [
       { label: '任务中心', type: 'doc', search: '任务中心 事项 协作' },
       { label: '员工验收', type: 'doc', search: '智能体员工 验收 待确认' },
+      { label: '接口与 CLI（任务中心）', type: 'doc', search: '任务中心 tasks items 接口 CLI' },
     ],
     onboarding: {
       trigger: 'first-visit',
@@ -215,10 +235,27 @@ const GUIDE = {
       { q: '必须先建智能体吗？', a: '不必。默认自动创建；更多设置才可沿用未入职能力。' },
       { q: '工作项 Tab 去哪了？', a: '还在：点「工作项」会打开全员看板 #/proactive/board。' },
     ],
-    related: [
+    api: [
+      {
+        title: '名册 / 详情',
+        example:
+          '```bash\nevoflow employees list --status active\nevoflow employees get <agent_code>\n```\n```bash\ncurl -s http://127.0.0.1:8001/api/platform \\\n  -H "Content-Type: application/json" \\\n  -d \'{"action":"employees.list","args":{"status":"active"}}\'\n```',
+        desc: '**怎么调**：platform `employees.list|get` 或 CLI `evoflow employees list|get`。\n\n**入参**：`status?`（list）；`agent_code`、`recent_limit?`（get）。\n\n**出参**：岗位列表 / 详情；有 Gateway 时 list 含 `busy`。',
+        search: 'employees.list employees.dispatch 接口 CLI',
+      },
+      {
+        title: '派活 / 唤醒',
+        example:
+          '```bash\nevoflow employees dispatch <agent_code> --goal "核对 lint"\nevoflow employees wake <agent_code> --goal "协助验收"\n```\n```bash\ncurl -s http://127.0.0.1:8001/api/platform \\\n  -H "Content-Type: application/json" \\\n  -d \'{"action":"employees.dispatch","args":{"agent_code":"code-reviewer","goal":"核对 lint"},"confirm":true}\'\n```',
+        desc: '**怎么调**：`employees.dispatch` / `employees.wake`（需 Gateway）。写操作 HTTP 必须 `confirm:true`。\n\n**入参（dispatch）**：`agent_code` 或 `role_name`，`goal`；`description?`、`priority?`、`source?`。\n\n**出参**：值班轮 / 关联任务信息。一次创建岗位用 `employees.create`；把已有智能体雇成岗用 `employees.hire`。',
+        search: 'employees.dispatch employees.wake hire create',
+      },
+    ],
+    docs: [
       { label: '加人', type: 'tutorial', search: '加人 员工 新手' },
       { label: '任务中心', type: 'doc', search: '任务中心 事项 协作' },
       { label: '组织 / 部门', type: 'doc', search: '组织 部门 汇报' },
+      { label: '接口与 CLI（员工）', type: 'doc', search: 'employees.list employees.dispatch 接口 CLI' },
     ],
     onboarding: {
       trigger: 'first-visit',
@@ -248,9 +285,26 @@ const GUIDE = {
       { q: '跑完在哪看？', a: '画布「历史」，或任务中心按来源「工作流」。填参页运行中可暂停 / 继续 / 取消。' },
       { q: '能定时跑吗？', a: '先发布，再到「自动化」选这条工作流并设时间。' },
     ],
+    api: [
+      {
+        title: '运行工作流',
+        example:
+          '```bash\nevoflow workflow list\nevoflow workflow run <App_id> --file params.json\nevoflow workflow status <runId>\n```\n```bash\ncurl -s -X POST http://127.0.0.1:8001/api/apps/App_xxx/run \\\n  -H "Content-Type: application/json" \\\n  -d \'{"parameters":{}}\'\n```',
+        desc: '**怎么调**：CLI `evoflow workflow run|status|stop`、platform `workflow.run`，或 REST `POST /api/apps/{id}/run`。\n\n**入参（run）**：`appId`，`parameters?`（对象）。须已发布才能列表 ▶ 运行。\n\n**出参**：`runId` / 关联协作任务；进度进任务中心。',
+        search: 'workflow.run evoflow workflow 接口 CLI',
+      },
+      {
+        title: '创建 / 发布（无完整 CLI）',
+        example:
+          '```bash\ncurl -s http://127.0.0.1:8001/api/platform \\\n  -H "Content-Type: application/json" \\\n  -d \'{"action":"workflow.create","args":{"name":"日报","goal":"汇总昨日进展","steps":["收集","总结"]},"confirm":true}\'\n```\n```bash\ncurl -s http://127.0.0.1:8001/api/platform \\\n  -H "Content-Type: application/json" \\\n  -d \'{"action":"workflow.publish","args":{"appId":"App_xxx"},"confirm":true}\'\n```',
+        desc: '**怎么调**：platform `workflow.create|publish` 或 REST `POST /api/apps`、`POST /api/apps/{id}/publish`。CLI **没有** create/publish 子命令。\n\n**入参（create）**：`name`；`goal?`、`steps?`、`parameters?`。\n\n**出参**：草稿 `appId`；发布后可运行 / 建 API Key。',
+        search: 'workflow.create workflow.publish /api/apps',
+      },
+    ],
     docs: [
       { label: '工作流指南', type: 'doc', search: '工作流 画布 发布 填参运行' },
       { label: '任务中心', type: 'doc', search: '任务中心 工作流 来源' },
+      { label: '接口与 CLI（工作流）', type: 'doc', search: 'workflow.run evoflow workflow 接口 CLI' },
     ],
     onboarding: {
       trigger: 'first-visit',
@@ -346,9 +400,26 @@ const GUIDE = {
       { q: '内置库能删吗？', a: '不能删、不能改名。用「停用（隐藏）」，列表上再点「显示已停用」可以恢复。' },
       { q: '怎么让员工用我的文档？', a: '编辑岗位里绑定该库，检索保持「自动注入」。系统提示词注入里的「知识库检索」不要关掉。' },
     ],
+    api: [
+      {
+        title: '建库 / 检索',
+        example:
+          '```bash\nevoflow knowledge create --name "英语单词库"\nevoflow knowledge recall "怎么配置 MCP" --mode hybrid\n```\n```bash\ncurl -s http://127.0.0.1:8001/api/platform \\\n  -H "Content-Type: application/json" \\\n  -d \'{"action":"knowledge.search","args":{"query":"怎么配置 MCP","top_k":5,"mode":"hybrid"}}\'\n```',
+        desc: '**怎么调**：platform `knowledge.*` 或 CLI `evoflow knowledge …`。面板上传 / 问 AI 走 REST `/api/knowledge/owned`（勿用旧 `/api/knowledge` dataset）。\n\n**入参（create）**：`name`；`description?`、`embeddingModelRef?`（需已配向量模型）。\n\n**入参（search / recall）**：`query`；`kbId?`、`top_k?`、`mode?=hybrid|semantic|keyword`。\n\n**出参**：新建 `kb_…` / 命中片段列表。',
+        search: 'knowledge.search knowledge.create 接口 CLI',
+      },
+      {
+        title: '写入笔记',
+        example:
+          '```bash\nevoflow knowledge remember --file note.json   # title + knowledge|content\n```\n```bash\ncurl -s http://127.0.0.1:8001/api/platform \\\n  -H "Content-Type: application/json" \\\n  -d \'{"action":"knowledge.ingest","args":{"title":"备忘","content":"…","kbId":"kb_xxx"},"confirm":true}\'\n```',
+        desc: '**怎么调**：platform `knowledge.ingest` ≈ CLI `knowledge remember`。\n\n**入参**：`title`、`content`/`knowledge`；`kbId?`/`vaultId?`、`tags?`。写操作需 `confirm:true`。\n\n**出参**：笔记路径 / 索引排队状态。大文件上传仍用面板或 `/api/knowledge/owned/bases/{id}/documents`。',
+        search: 'knowledge.ingest remember 知识库 笔记',
+      },
+    ],
     docs: [
       { label: '知识库完整指南', type: 'doc', search: '知识库 上传 检索 问 AI' },
       { label: '员工绑定知识库', type: 'doc', search: '员工 绑定知识库 检索配置' },
+      { label: '接口与 CLI（知识库）', type: 'doc', search: 'knowledge.search knowledge.create 接口 CLI' },
     ],
     onboarding: {
       trigger: 'first-visit',
@@ -1224,7 +1295,13 @@ const GUIDE = {
 function normalizeGuide(raw) {
   if (!raw) return null
   // 已是 v2 结构（有 overview）
-  if (raw.overview) return raw
+  if (raw.overview) {
+    // 旧字段 related → docs（员工页曾只用 related）
+    if ((!raw.docs || !raw.docs.length) && raw.related?.length) {
+      return { ...raw, docs: raw.related }
+    }
+    return raw
+  }
   // 旧版 v1 结构（直接有 what/when/how）
   return {
     title: raw.title || '',
@@ -1403,9 +1480,10 @@ export function showPageHelpPanel(route, initialTab) {
   panel.setAttribute('aria-label', guide.title + '使用指南')
 
   const hasSteps = guide.steps && guide.steps.length > 0
+  const hasApi = guide.api && guide.api.length > 0
   const hasFaq = guide.faq && guide.faq.length > 0
   const hasDocs = guide.docs && guide.docs.length > 0
-  const hasTabs = hasSteps || hasFaq || hasDocs
+  const hasTabs = hasSteps || hasApi || hasFaq || hasDocs
 
   const tabsHtml = hasTabs ? `
     <div class="guide-tabs" role="tablist">
@@ -1417,6 +1495,12 @@ export function showPageHelpPanel(route, initialTab) {
         <button class="guide-tab ${_currentTab === 'steps' ? 'is-active' : ''}" data-tab="steps" role="tab" aria-selected="${_currentTab === 'steps'}">
           <span class="guide-tab-icon">👣</span>
           <span>操作</span>
+        </button>
+      ` : ''}
+      ${hasApi ? `
+        <button class="guide-tab ${_currentTab === 'api' ? 'is-active' : ''}" data-tab="api" role="tab" aria-selected="${_currentTab === 'api'}">
+          <span class="guide-tab-icon">🔌</span>
+          <span>接口</span>
         </button>
       ` : ''}
       ${hasFaq ? `
@@ -1474,6 +1558,9 @@ export function showPageHelpPanel(route, initialTab) {
 
   // FAQ 折叠
   _bindFaqAccordion(panel)
+
+  // 接口 Tab 里的「完整说明」链接
+  _bindApiLinks(panel, guide)
 
   // 文档链接
   _bindDocLinks(panel, guide)
@@ -1560,6 +1647,34 @@ function _renderTabContent(guide, tab) {
     `
   }
 
+  if (tab === 'api' && guide.api) {
+    return `
+      <div class="guide-tab-panel" role="tabpanel">
+        <p class="guide-api-intro">脚本、curl 或 <code>evoflow</code> CLI 怎么调；写操作 HTTP 需 <code>confirm:true</code>。Gateway 地址以本机实际端口为准（示例 <code>8001</code>）。</p>
+        <div class="guide-api-list">
+          ${guide.api.map((item, i) => `
+            <article class="guide-api-card" data-api-index="${i}">
+              <h3 class="guide-api-title">${_esc(item.title)}</h3>
+              <section class="guide-api-section" aria-label="接口示例">
+                <div class="guide-api-label">接口示例</div>
+                <div class="guide-api-body help-section-text">${_renderText(item.example || '')}</div>
+              </section>
+              <section class="guide-api-section" aria-label="接口说明">
+                <div class="guide-api-label">接口说明</div>
+                <div class="guide-api-body help-section-text">${_renderText(item.desc || '')}</div>
+              </section>
+              ${item.search ? `
+                <button type="button" class="guide-api-more" data-api-search="${_esc(item.search)}" data-api-label="${_esc(item.title)}">
+                  📄 打开完整说明
+                </button>
+              ` : ''}
+            </article>
+          `).join('')}
+        </div>
+      </div>
+    `
+  }
+
   if (tab === 'faq' && guide.faq) {
     return `
       <div class="guide-tab-panel" role="tabpanel">
@@ -1637,8 +1752,22 @@ function _switchTab(guide, tab) {
     body.innerHTML = _renderTabContent(guide, tab)
     // 重新绑定交互
     if (tab === 'faq') _bindFaqAccordion(_currentPanel)
+    if (tab === 'api') _bindApiLinks(_currentPanel, guide)
     if (tab === 'docs') _bindDocLinks(_currentPanel, guide)
   }
+}
+
+/** 接口 Tab：打开用户指南里的完整接口文档 */
+function _bindApiLinks(root, guide) {
+  if (!guide?.api?.length) return
+  root.querySelectorAll('.guide-api-more').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const search = btn.getAttribute('data-api-search') || ''
+      const label = btn.getAttribute('data-api-label') || '接口说明'
+      if (!search) return
+      void _openGuideDocBySearch(search, label)
+    })
+  })
 }
 
 // FAQ 折叠交互
