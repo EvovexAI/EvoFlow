@@ -203,7 +203,7 @@ def assets_tool(
     note 新建时文件名取正文第一行标题（须短且自描述，见系统提示 Entity assets）。
 
     Actions: search | read | list | note | write | profile | affect.
-    note 必须带 kind；write 覆盖 path；profile/affect 用 mode=append|replace。
+    note 必须带 kind；write 默认**追加**（mode=replace 才整份覆盖）；profile/affect 用 mode=append|replace。
     query 仅 search。引用资产时回复可附 ``<evo-asset-citation>``。
 
     Args:
@@ -212,7 +212,7 @@ def assets_tool(
         path: Basename or relative path; for note = update target when set
         kinds: Search filter: standing,episodic,journal,craft,handbook,all
         kind: Note type: preference | process | experience | reflection
-        mode: append | replace (profile / affect / preference standing rewrite)
+        mode: append (default) | replace — write/profile/affect
         content: Note / write / profile / affect markdown body (no type tag needed)
         entity_type: Optional entity type override (user|employee|agent|…)
         entity_id: Optional entity id override
@@ -448,9 +448,29 @@ def assets_tool(
                 ensure_ascii=False,
             )
         try:
-            from evoflow.assets.hub import write_text_file
+            from evoflow.assets.hub import read_text_file, write_text_file
 
-            data = write_text_file(entity, rel, text if text.endswith("\n") else text + "\n")
+            # Write is append-by-default: a full overwrite must be explicit
+            # (``mode=replace``). Without this, "tweak one paragraph" silently
+            # wiped the whole file — the model rarely sends the full body.
+            write_mode = _resolve_write_mode(mode, query)
+            body = text if text.endswith("\n") else text + "\n"
+            if write_mode == "replace":
+                data = write_text_file(entity, rel, body)
+            else:
+                try:
+                    existing = read_text_file(entity, rel).get("content") or ""
+                except Exception:
+                    existing = ""
+                merged = existing
+                if merged and not merged.endswith("\n"):
+                    merged += "\n"
+                # Idempotent append: re-sending the same paragraph must not stack.
+                if body.strip() and body.strip() in merged:
+                    data = write_text_file(entity, rel, merged)
+                else:
+                    merged += body
+                    data = write_text_file(entity, rel, merged)
             try:
                 from evoflow.agents.memory.standing_freeze import invalidate_standing_memory
 
@@ -469,7 +489,12 @@ def assets_tool(
                     "action": "write",
                     "path": data.get("path") or rel,
                     "updated": True,
-                    "hint": f"已覆盖写入 {rel}。",
+                    "mode": write_mode,
+                    "hint": (
+                        f"已覆盖写入 {rel}。"
+                        if write_mode == "replace"
+                        else f"已追加到 {rel}（追加模式）。要整份覆盖请显式传 mode=replace。"
+                    ),
                 },
                 ensure_ascii=False,
             )
