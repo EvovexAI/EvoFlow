@@ -615,6 +615,21 @@ export function getToolCallCodeContentPreview(
     }
   }
 
+  // assets(action="read") → 提取 output JSON 中的 content 和 path
+  const isAssetsTool = String(toolCall.toolName || "").trim().toLowerCase() === "assets";
+  if (isAssetsTool && isRecord(toolCall.output) && String(toolCall.output.ok || "").toLowerCase() === "true") {
+    const rawOutput = toolCall.output;
+    const action = String(rawOutput.action || "").trim().toLowerCase();
+    if (action === "read") {
+      const content = String(rawOutput.content || "").trim();
+      const path = String(rawOutput.path || "").trim();
+      if (content && path) {
+        const title = `${normalizeToolLabel(toolCall.title ?? toolCall.kind)} · ${path}`;
+        return buildTextPreview(title, path, content);
+      }
+    }
+  }
+
   const preferredContent = isReadTool
     ? (extractContentText(toolCall.output) ?? extractContentText(toolCall.input))
     : isWriteTool
