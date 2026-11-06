@@ -6,10 +6,8 @@ import logging
 import os
 
 from evoflow.assets.catalog import (
-    format_entity_catalog_lines,
     format_entity_catalog_xml,
     read_standing_text,
-    standing_is_placeholder,
 )
 from evoflow.assets.injection_budget import TIER0_ASSET_TOTAL_CHARS, TIER0_STANDING_CHARS, cap_text_chars
 from evoflow.assets.memory_injection import asset_hub_memory_injection
@@ -210,25 +208,11 @@ def build_read_path_entity_block(entity: EntityRef, *, standing: str | None = No
     from evoflow.assets.paths import entity_prompt_root, resolve_workspace_path_for_entity_id
 
     base = entity_prompt_root(e)
-    summary = standing if standing is not None else read_standing_text(e, max_chars=TIER0_STANDING_CHARS)
-    if standing_is_placeholder(summary) or not str(summary or "").strip():
-        summary = "（尚无偏好/Tips 摘要）"
+    _ = standing  # legacy param: standing body is no longer injected
     try:
         from evoflow.config.paths import get_paths
 
         base_dir_str = str(get_paths().base_dir)
-
-        # 资产索引:扫 frontmatter 列出已存在的事实/过程/反思/专长文件。
-        # 不含 standing (memory_summary 单独输出);不含 profile (USER_PROFILE block 单独处理)。
-        catalog_lines = format_entity_catalog_lines(
-            e,
-            include_facts=True,
-            include_episodes=True,
-            include_craft=True,
-            include_journal=True,
-        )
-        if not catalog_lines:
-            catalog_lines = ["(尚无 asset 文件;用 assets note + kind 写入)"]
 
         if e.entity_type == "workspace":
             ws_path = resolve_workspace_path_for_entity_id(e.entity_id) or ""
@@ -246,8 +230,6 @@ def build_read_path_entity_block(entity: EntityRef, *, standing: str | None = No
             entity_root=base,
             base_dir=base_dir_str,
             workspace_context_block=workspace_context_block,
-            catalog_lines="\n".join(catalog_lines),
-            memory_summary=summary,
             tail_block=tail_block,
         ).strip()
     except Exception:
