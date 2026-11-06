@@ -302,6 +302,12 @@ def build_user_prompt(
         parts.extend(["## 环境信号", env, ""])
     parts.extend(
         [
+            "## 长期记忆",
+            "对照上方 Entity assets 目录检索相关细节：",
+            "  - `assets read MEMORY.md` — 用户长期记忆（推荐先读）",
+            "  - `assets search <关键词>` — 按关键词搜索记忆",
+            "  - `assets list craft` — 查看心得/做法列表",
+            "",
             "## 本轮行动",
             "对照职责与上方看板：有具体待办就推进；没有则结束本轮，不要空建单，也不要硬写「巡检完成」报告。",
             "干完直接结案；中间 progress 可选。需要直属下级继续则结案时填 handlers（禁止对下级 create+wake 同一次交接）。",
