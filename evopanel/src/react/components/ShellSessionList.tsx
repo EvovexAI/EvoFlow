@@ -383,17 +383,38 @@ export function ShellSessionList({
   const isEmployeesTab = listTab === 'employees'
   const isDeptsTab = listTab === 'depts'
 
-  /** 部门 Tab：拉部门 + 角色，组装群聊入口 */
+  const employeeRolesRef = useRef(employeeRoles)
+  employeeRolesRef.current = employeeRoles
+
+  /** 部门 Tab：拉部门 + 角色，组装群聊入口（可复用已有花名册，失败重试，不清空旧数据） */
   useEffect(() => {
     if (!isDeptsTab) return
     let cancelled = false
     setDeptLoading(true)
     ;(async () => {
+      const { api } = await import('../../lib/tauri-api.js')
+      const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+      const fetchWithRetry = async <T,>(fn: () => Promise<T>, tries = 3): Promise<T> => {
+        let last: unknown
+        for (let i = 0; i < tries; i++) {
+          try {
+            return await fn()
+          } catch (e) {
+            last = e
+            // roles 在 Gateway Best-effort 车道，platform 忙时会 503 shed
+            if (i < tries - 1) await sleep(350 * (i + 1))
+          }
+        }
+        throw last
+      }
       try {
-        const { api } = await import('../../lib/tauri-api.js')
+        const cachedRoles = employeeRolesRef.current
+        const hasCached = Array.isArray(cachedRoles) && cachedRoles.length > 0
         const [deptRes, roleRes] = await Promise.all([
-          api.proactiveListDepartments(),
-          api.proactiveListRoles('active'),
+          fetchWithRetry(() => api.proactiveListDepartments()),
+          hasCached
+            ? Promise.resolve({ roles: cachedRoles })
+            : fetchWithRetry(() => api.proactiveListRoles('active')),
         ])
         if (cancelled) return
         const departments = Array.isArray(deptRes?.departments)
@@ -442,8 +463,9 @@ export function ShellSessionList({
           ai += 1
         }
         setDeptRows(rows)
-      } catch {
-        if (!cancelled) setDeptRows([])
+      } catch (e) {
+        console.warn('[shell] dept tab load failed', e)
+        // 保留上一轮 rows，避免 503 时把列表刷成「暂无」
       } finally {
         if (!cancelled) setDeptLoading(false)
       }
@@ -1369,6 +1391,17 @@ export function ShellSessionList({
               role="tab"
               aria-selected={viewMode === 'depts'}
               className={`shell-view-tab${viewMode === 'depts' ? ' is-active' : ''}`}
+              onPointerEnter={() => {
+                // 悬停预热：departments 很快；roles 常被 Best-effort 503，提前拉降低点进空转
+                void import('../../lib/tauri-api.js')
+                  .then(({ api }) =>
+                    Promise.all([
+                      api.proactiveListDepartments().catch(() => null),
+                      api.proactiveListRoles('active').catch(() => null),
+                    ]),
+                  )
+                  .catch(() => {})
+              }}
               onClick={() => setViewMode('depts')}
             >
               <ShellEmployeesIcon size={12} />

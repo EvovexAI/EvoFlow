@@ -68,9 +68,8 @@ function isFileReadRow(row: Extract<AssistantWorkRow, { kind: "toolCall" }>): bo
 function ensureVoiceRightStageExpanded(): void {
   allowXwVoiceSummary();
   try {
-    if (rightStageStore.getSnapshot().collapsed) {
-      rightStageStore.expand();
-    }
+    // 用户点过收起则尊重；避免读文件自动开栏把收起钮打成「没反应」。
+    rightStageStore.expandUnlessUserCollapsed();
   } catch {
     /* ignore */
   }

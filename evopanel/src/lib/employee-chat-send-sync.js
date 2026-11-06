@@ -6,6 +6,7 @@
  * 先 ensureThread 再发，右栏才能立刻订到正确 thread。
  */
 import { openEmployeeProcessInRightStage } from './right-stage/open-employee-process-stage.js'
+import { getCurrentRightStageSessionKey } from './right-stage/right-stage-scope.js'
 import {
   isProactiveSessionKey,
   parseProactiveSessionKey,
@@ -118,6 +119,9 @@ export async function syncEmployeeChatSendFromToolResult(raw, opts = {}) {
     /* optional */
   }
 
+  // 标签归属钉在「当前 UI 会话」（主聊 / 部门群），不要空着靠 freeze——
+  // 空归属在草稿/切会话时会被滤掉，表现为「右栏有内容但上面没标签、点不回去」。
+  const ownerSk = String(getCurrentRightStageSessionKey() || '').trim() || undefined
   const tabId = openEmployeeProcessInRightStage(
     {
       taskId: taskId || '',
@@ -128,12 +132,13 @@ export async function syncEmployeeChatSendFromToolResult(raw, opts = {}) {
       employeeSessionKey: sessionKey,
       pendingSendMessage: message,
     },
-    { layout: 'wide' },
+    { layout: 'wide', sessionKey: ownerSk },
   )
   logRightStageTrigger('employee_chat_send.open done', {
     tabId: tabId || null,
     agentCode,
     sessionKey,
+    ownerSessionKey: ownerSk || null,
     roleName: roleName || null,
     pendingSendLen: message.length,
     ms: Date.now() - t0,

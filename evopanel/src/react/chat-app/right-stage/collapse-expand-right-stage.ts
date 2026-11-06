@@ -30,6 +30,7 @@ export type ExpandRightStageCtx = {
 }
 
 function finishCollapseRightStage(ctx: CollapseRightStageCtx): void {
+  // store.collapse 会钉 userCollapsed，挡住随后的同签 show/autoOpen 强行撑开。
   ctx.collapseRightStage()
   clearAllRightStageOverlayDefer()
   ctx.syncShellAsideForWorkspacePanel(false)

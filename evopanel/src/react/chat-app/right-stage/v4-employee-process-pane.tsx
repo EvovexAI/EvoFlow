@@ -887,7 +887,7 @@ export function V4EmployeeProcessPane(props: V4EmployeeProcessPaneProps) {
   if (!code) return null
 
   return (
-    <div className="v4-employee-process relative flex h-full min-h-0 flex-col bg-card">
+    <div className="v4-employee-process v4-employee-process-panel relative flex h-full min-h-0 flex-col bg-card">
       <div className="flex h-10 shrink-0 items-center gap-2 border-b border-border px-3">
         <EmployeeStageAvatar
           agentCode={code}

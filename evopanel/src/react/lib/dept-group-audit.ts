@@ -320,7 +320,8 @@ export async function loadDeptGroupAuditTrail(
 ): Promise<DeptGroupAuditTrail> {
   const id = String(deptId || '').trim()
   const sk = deptChatSessionKey(id)
-  const limit = opts?.limit ?? 400
+  // Gateway ``/messages`` Query le=200 — 400 会 422，正式包里表现为部门会话「一直转圈/空白」.
+  const limit = Math.min(200, Math.max(1, Number(opts?.limit) || 200))
   const messages = (await loadDeptGroupMessages(id, {
     limit,
     deptName: opts?.deptName,

@@ -77,8 +77,9 @@ def _is_hidden_duty_brief_user_text(text: object) -> bool:
     """Proactive duty full brief must not become a visible userInput bubble.
 
     The human-facing opener is the separate ``proactive_duty_beat`` transcript row
-    (「本轮值班开始 · …」). Noting the long brief here caused a second / wrong
-    opener in the employee process pane after live mirror + hydrate.
+    (dispatch/patrol one-liner, or「开始执行 · …」). Noting the long brief here
+    caused a second / wrong opener in the employee process pane after live
+    mirror + hydrate.
     """
     head = str(text or "").lstrip()[:240]
     if not head:

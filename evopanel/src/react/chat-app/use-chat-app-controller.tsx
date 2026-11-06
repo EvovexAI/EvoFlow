@@ -5375,6 +5375,7 @@ export function useChatAppController() {
 
   /** 折叠侧栏：保留 tabs 缓存，对齐 ZCode collapse（不是 hideAll）。 */
   const handleCollapseRightStage = useCallback(() => {
+    userClosedInfoRailRef.current = true
     collapseRightStageShellImpl({
       rightStageUserPinnedRef,
       scheduleBumpRef,
@@ -5384,6 +5385,7 @@ export function useChatAppController() {
   }, [collapseRightStage, syncShellAsideForWorkspacePanel])
 
   const handleExpandRightStage = useCallback(() => {
+    userClosedInfoRailRef.current = false
     expandRightStageShellImpl({
       chatPanelMode,
       scheduleBumpRef,
@@ -5401,11 +5403,12 @@ export function useChatAppController() {
   const toggleInfoRail = useCallback(() => {
     if (rightStageOpen) {
       handleCollapseRightStage()
-      userClosedInfoRailRef.current = false
+      // 用户主动收起：钉住意图，避免会话/平台回调立刻再打开。
+      userClosedInfoRailRef.current = true
       return
     }
     handleExpandRightStage()
-    userClosedInfoRailRef.current = true
+    userClosedInfoRailRef.current = false
   }, [rightStageOpen, handleCollapseRightStage, handleExpandRightStage])
 
   /**

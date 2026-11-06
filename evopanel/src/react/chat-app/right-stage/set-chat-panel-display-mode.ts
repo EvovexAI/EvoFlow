@@ -38,14 +38,15 @@ export function setChatPanelDisplayMode(
   ctx.saveChatSummaryDisplayMode(mode)
   if (mode === 'panel') {
     if (shouldKeepRightStageOpenWithPanel()) {
-      // 进度签已在：状态卡可并存；若此前被误 fold，这里再展开。
+      // 进度签已在：状态卡可并存；若此前被误 fold，且用户没锁收起，再展开。
       try {
-        rightStageStore.expand?.()
+        rightStageStore.expandUnlessUserCollapsed?.()
       } catch {
         /* ignore */
       }
-      logRightStage('setChatPanelDisplayMode:panel KEEP+expand right-stage (progress/browser)', {
+      logRightStage('setChatPanelDisplayMode:panel KEEP right-stage (progress/browser)', {
         mode,
+        userCollapsed: rightStageStore.isUserCollapsed,
       }, { store: rightStageStore })
       return
     }

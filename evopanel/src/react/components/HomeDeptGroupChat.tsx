@@ -536,7 +536,7 @@ export function HomeDeptGroupChat({
       .catch(() => {
         /* keep empty */
       })
-    void loadDeptGroupAuditTrail(deptId, { limit: 400, deptName })
+    void loadDeptGroupAuditTrail(deptId, { limit: 200, deptName })
       .then((trail) => {
         if (cancelled || !aliveRef.current) return
         setAuditWakeJobs(wakeEventsToJobSnapshots(trail.wakeEvents || []))

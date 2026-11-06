@@ -9,6 +9,7 @@ import {
   logRightStagePlatform,
   logRightStageTrigger,
 } from './panel-set-debug-log.js'
+import { getCurrentRightStageSessionKey } from './right-stage-scope.js'
 import { rightStageStore } from './right-stage-store.js'
 import { normalizeRightStageKind, type RightStageSurface } from './right-stage-types.js'
 
@@ -366,7 +367,11 @@ export function tryAutoOpenPlatformProgress(
     action: base.action,
     domain: base.domain,
   })
-  const tabId = openProgressFromPanelSet(hit.openStage)
+  // 显式钉当前 UI 会话，避免 employeeProcess 等会话级签空归属后被过滤掉
+  const ownerSk = String(getCurrentRightStageSessionKey() || '').trim()
+  const tabId = openProgressFromPanelSet(hit.openStage, {
+    sessionKey: ownerSk || undefined,
+  })
   if (!tabId) {
     logRightStageTrigger('maybeAutoOpenPlatformProgress failed', {
       reason: 'openProgress-failed',
@@ -375,12 +380,13 @@ export function tryAutoOpenPlatformProgress(
     })
     return { opened: false, reason: 'openProgress-failed', tabId: '', ...base }
   }
-  if (rightStageStore.getSnapshot().collapsed) rightStageStore.expand()
+  // 用户刚点收起时不要强行撑开（否则收起钮像失灵）。
+  rightStageStore.expandUnlessUserCollapsed()
   void import('../xw-voice-mode.js')
     .then((m) => {
       if (!m.isXwVoiceMode?.()) return
       m.allowXwVoiceSummary?.()
-      if (rightStageStore.getSnapshot().collapsed) rightStageStore.expand()
+      rightStageStore.expandUnlessUserCollapsed()
     })
     .catch(() => {})
   logRightStageTrigger(
