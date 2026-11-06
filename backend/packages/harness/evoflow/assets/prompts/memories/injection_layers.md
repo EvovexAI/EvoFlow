@@ -6,11 +6,12 @@
 | Layer | What | When | Owns |
 |-------|------|------|------|
 | **L0 job** | system_prompt / soul | every turn | Duty skeleton only |
-| **L1 standing** | `standing.md` → prefs/Tips（软顶；不含 What's in Memory） | memory on | Hard constraints only |
 | **L1b affect** | `profile/affect.md` → `<affect>` | memory on | Main→user vault；employee/小微→own |
-| **L2 catalog** | craft / episodic / journal 文件名 | memory on | Discoverability |
-| **L3 body** | 正文 | on demand | `assets` read / search |
+| **L2 standing** | `standing.md` 正文 | **on demand** | 用户长期记忆（像人脑回忆） |
+| **L3 body** | craft / episodic / journal 正文 + 文件名 | **on demand** | `assets` read / search / list |
 
-`memory_enabled` 关 → standing、catalog、`<affect>`、assets 工具全关。
+**standing 与 catalog 不再每轮注入**——按需用 `assets list/search/read` 取，保持上下文干净。
+
+`memory_enabled` 关 → `<affect>`、assets 工具全关。
 
 kind → 路径映射：admin `skills/public/evoflow-admin/references/assets-contract.md` 布局表；行为规则仍以 `read_path.md` 为准。
