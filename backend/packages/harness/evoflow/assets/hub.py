@@ -820,3 +820,66 @@ def delete_text_file(entity: EntityRef, rel_path: str) -> dict[str, Any]:
         "path": rel,
         "deleted": True,
     }
+
+
+# Profile core files that must not be renamed away (identity anchors).
+_RENAME_PROTECTED = frozenset(
+    {
+        "profile/USER.md",
+        "profile/SOUL.md",
+        "profile/identity.md",
+        "profile/system.md",
+        "profile/soul-summary.md",
+        "profile/affect.md",
+    }
+)
+
+
+def rename_text_file(entity: EntityRef, rel_path: str, new_name: str) -> dict[str, Any]:
+    """Rename a text asset inside the same directory (basename only).
+
+    ``new_name`` may carry a ``.md`` suffix or not; it must stay inside the
+    asset's own directory — moving between kinds is a delete + write.
+    """
+    ensure_entity_tree(entity)
+    e = entity.normalized()
+    rel = str(rel_path or "").replace("\\", "/").lstrip("/")
+    if not rel:
+        raise ValueError("path is required")
+    if rel in _RENAME_PROTECTED:
+        raise ValueError(f"protected profile file cannot be renamed: {rel}")
+    target = resolve_entity_file(e, rel)
+    if not target.is_file():
+        raise FileNotFoundError(rel)
+    if target.suffix.lower() not in _TEXT_SUFFIXES:
+        raise ValueError("only text assets can be renamed via API")
+
+    raw_new = str(new_name or "").strip().replace("\\", "/").lstrip("/")
+    if not raw_new:
+        raise ValueError("new_name is required")
+    if "/" in raw_new:
+        raise ValueError("new_name must be a basename (same directory); move = delete + write")
+    if not raw_new.lower().endswith(".md"):
+        raw_new += ".md"
+    if raw_new.lower() == target.name.lower():
+        return {
+            "ok": True,
+            "entityType": e.entity_type,
+            "entityId": e.entity_id,
+            "path": rel,
+            "renamed": False,
+        }
+
+    dest = target.with_name(raw_new)
+    if dest.exists():
+        raise FileExistsError(f"target already exists: {dest.name}")
+    with lock_for(target):
+        target.rename(dest)
+    return {
+        "ok": True,
+        "entityType": e.entity_type,
+        "entityId": e.entity_id,
+        "path": rel,
+        "newPath": dest.relative_to(entity_root(e)).as_posix(),
+        "renamed": True,
+    }
