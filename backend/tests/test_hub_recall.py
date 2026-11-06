@@ -10,8 +10,10 @@ from evoflow.assets.hub_recall import format_hub_asset_recall, hub_recall_enable
 from evoflow.assets.paths import EntityRef
 
 
-def test_hub_recall_enabled_default_on(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_hub_recall_enabled_default_off(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("EVOFLOW_HUB_RECALL", raising=False)
+    assert hub_recall_enabled() is False
+    monkeypatch.setenv("EVOFLOW_HUB_RECALL", "1")
     assert hub_recall_enabled() is True
     monkeypatch.setenv("EVOFLOW_HUB_RECALL", "0")
     assert hub_recall_enabled() is False

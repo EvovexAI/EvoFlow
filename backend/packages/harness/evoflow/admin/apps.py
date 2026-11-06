@@ -45,6 +45,8 @@ def _normalize_plan_for_storage(document: dict[str, Any]) -> dict[str, Any]:
             doc["canvas"] = plan["canvas"]
         if "answer_from_ref" in plan:
             doc["answer_from_ref"] = plan.get("answer_from_ref")
+        if "project_path" in plan:
+            doc["project_path"] = str(plan.get("project_path") or "").strip()
     return doc
 
 

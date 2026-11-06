@@ -715,11 +715,27 @@ def _progress_open_stage_action(
         "workflow.run_status",
     }:
         if tid:
-            return {
+            app_id = _first_str(
+                result.get("appId"),
+                result.get("app_id"),
+                args.get("appId"),
+                args.get("app_id"),
+            )
+            run_id = _first_str(
+                result.get("runId"),
+                result.get("run_id"),
+                _as_dict(result.get("run")).get("run_id"),
+                _as_dict(result.get("run")).get("id"),
+            )
+            out: dict[str, Any] = {
                 "label": "打开工作流",
                 "autoOpen": True,
                 "openStage": {"kind": "collab-workflow", "data": {"mainTaskId": tid}},
             }
+            # 右栏挂载失败时回落深链（勿用 /apps 列表）
+            if app_id and run_id:
+                out["route"] = f"/apps/{app_id}/run?runId={run_id}"
+            return out
         return None
 
     return None

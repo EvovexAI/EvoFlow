@@ -358,13 +358,9 @@ export function WorkflowNodeInspector({
                 <span className="wf-inspector-meta-chip wf-inspector-meta-chip--muted">
                   <Braces size={11} /> 模板变换 · 不消耗 LLM
                 </span>
-              ) : selectedStep.assigned_agent ? (
-                <span className="wf-inspector-meta-chip wf-inspector-meta-chip--agent">
-                  <Bot size={11} /> {selectedStep.assigned_agent}
-                </span>
               ) : (
-                <span className="wf-inspector-meta-chip wf-inspector-meta-chip--muted">
-                  <Bot size={11} /> 未选择执行者
+                <span className="wf-inspector-meta-chip wf-inspector-meta-chip--agent">
+                  <Bot size={11} /> {selectedStep.assigned_agent || 'agent'}
                 </span>
               )}
               {selectedStep.model ? (
@@ -407,13 +403,13 @@ export function WorkflowNodeInspector({
 
         {(isStart || !selectedId) && (
           <section className="wf-inspector-block">
-            <h4 className="wf-inspector-block-title">工作流目标</h4>
+            <h4 className="wf-inspector-block-title">描述</h4>
             <textarea
               id="wf-inspector-goal"
               className="wf-inspector-control wf-inspector-control--area"
               rows={3}
               value={workflowGoal}
-              placeholder="描述此工作流要达成的总体目标…"
+              placeholder="这个工作流是做什么的…"
               onChange={(e) => onWorkflowGoalChange(e.target.value)}
             />
             {onOpenAppSettings ? (

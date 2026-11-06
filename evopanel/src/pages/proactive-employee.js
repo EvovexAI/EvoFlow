@@ -1383,25 +1383,30 @@ function heroDesc(role, initiatives) {
   return parts.join(' · ')
 }
 
-/** Detail badge — only 3: 工作中 / 在岗 / 已停 */
+/** Detail badge — only 3: 工作中 / 在岗 / 已停
+ * 在岗 = 可对话/派活（status=active）；关巡检 ≠ 已停。
+ * 已停 = 请假 / 草稿。
+ */
 function roleStatusBadge(role, busy = false) {
   if (busy) return { label: '工作中', cls: 'pro-badge--run', tip: '正在执行本轮任务' }
   const st = String(role?.status || '')
   const suspended = !!(role?.auto_patrol_suspended || role?.config?.auto_patrol_suspended)
-  const stopped =
-    st === 'paused' ||
-    st === 'draft' ||
-    (st === 'active' && suspended)
 
-  if (stopped) {
-    let tip = '不会自动巡检'
-    if (st === 'draft') tip = '草稿未确认，确认后才会排班'
-    else if (st === 'paused') tip = '请假中，不会自动巡检'
-    else if (suspended) tip = '该员工自动巡检已关；点「上班」可恢复'
-    return { label: '已停', cls: 'pro-badge--muted', tip }
+  if (st === 'draft') {
+    return { label: '已停', cls: 'pro-badge--muted', tip: '草稿未确认，确认后才会排班' }
+  }
+  if (st === 'paused') {
+    return { label: '已停', cls: 'pro-badge--muted', tip: '请假中，不会自动巡检' }
   }
 
   if (st === 'active') {
+    if (suspended) {
+      return {
+        label: '在岗',
+        cls: 'pro-badge--ok',
+        tip: '可在线对话 / 派活，不定时巡检',
+      }
+    }
     const tipNext = role?.next_heartbeat_at
       ? `下次自动巡检 ${fmtTime(role.next_heartbeat_at)}`
       : '按计划自动巡检'

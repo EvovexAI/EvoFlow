@@ -1006,10 +1006,13 @@ async def task_tool(
     if effective_subagent_type == "bash" and not is_host_bash_allowed():
         return f"Error: {LOCAL_BASH_SUBAGENT_DISABLED_MESSAGE}"
 
-    # Extract parent context from runtime
+    # Extract parent context from runtime.
+    # Keep ``parent_model`` from resolve_session_model_name_from_runtime above —
+    # resetting it to None forced get_available_tools onto a separate LRU key
+    # that often lacked MCP tools even after gateway warmup (workflow workers
+    # then remounted 0 mcp__* from an empty catalog).
     sandbox_state = None
     thread_data = None
-    parent_model = None
     trace_id = None
     project_workspace_path = None
     parent_local_workspace_root: str | None = None
@@ -1055,9 +1058,12 @@ async def task_tool(
         session_tool_context_from_runtime,
     )
     from evoflow.tools import get_available_tools
+    from evoflow.tools.tools import merge_cached_mcp_tools_into_catalog
 
     tools = get_available_tools(model_name=parent_model, subagent_enabled=False)
     tools = [t for t in tools if str(getattr(t, "name", "") or "").strip().lower() not in _SUBAGENT_FORBIDDEN_TOOLS]
+    # Heal empty-MCP catalog (stale LRU / cold sync get) before worker remount.
+    tools = merge_cached_mcp_tools_into_catalog(tools)
     allowed_tool_names: set[str] = set()
     for t in tools:
         if isinstance(t, str):
@@ -1074,6 +1080,12 @@ async def task_tool(
     if profile_tools is not None and not profile_tools:
         return f"Error: worker_profile.tools is empty after parsing. Provide valid tool names from: {sorted(allowed_tool_names)!r}"
 
+    profile_mcp_override = profile_model is not None and profile_model.mcp_servers is not None
+    profile_mcp_servers = (
+        [str(s).strip() for s in (profile_model.mcp_servers or []) if str(s).strip()]
+        if profile_mcp_override
+        else None
+    )
     final_tools = resolve_worker_tool_allowlist(
         profile_tools=profile_tools,
         assignee_agent_code=assignee_for_tools,
@@ -1082,6 +1094,8 @@ async def task_tool(
         catalog_names=allowed_tool_names,
         session_key=parent_session_key,
         session_mode=parent_session_mode,
+        profile_mcp_servers=profile_mcp_servers,
+        profile_mcp_override=profile_mcp_override,
     )
     if profile_tools is not None and not final_tools:
         return f"Error: worker_profile.tools has no valid tool names after validation. Requested: {profile_tools!r}; available: {sorted(allowed_tool_names)!r}"
@@ -1225,6 +1239,15 @@ async def task_tool(
     if parent_tid_for_subagent:
         subagent_extra_context = dict(subagent_extra_context or {})
         subagent_extra_context["parent_thread_id"] = parent_tid_for_subagent
+    if profile_model is not None:
+        if profile_model.knowledge_vault_ids is not None:
+            subagent_extra_context = dict(subagent_extra_context or {})
+            subagent_extra_context["knowledge_vault_ids"] = [
+                str(x).strip() for x in profile_model.knowledge_vault_ids if str(x).strip()
+            ]
+        if profile_model.thinking_enabled is True or profile_model.thinking_enabled is False:
+            subagent_extra_context = dict(subagent_extra_context or {})
+            subagent_extra_context["thinking_enabled"] = bool(profile_model.thinking_enabled)
     if resolved_collab and resolved_subtask:
         subagent_extra_context = dict(subagent_extra_context or {})
         subagent_extra_context.update(

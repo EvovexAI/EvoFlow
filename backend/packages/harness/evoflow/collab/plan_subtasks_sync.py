@@ -85,7 +85,8 @@ def build_worker_profile_from_step(
     if depends_refs:
         wp_data["depends_on"] = [str(x).strip() for x in depends_refs if str(x).strip()]
 
-    instr = str(step.get("instruction") or "").strip()
+    # Single prompt path: explicit instruction, else the step goal ("做什么").
+    instr = str(step.get("instruction") or "").strip() or str(step.get("goal") or "").strip()
     if instr:
         wp_data["instruction"] = instr
     model = str(step.get("model") or "").strip()
@@ -100,6 +101,15 @@ def build_worker_profile_from_step(
     skills = _coerce_str_list(step.get("skills"))
     if skills:
         wp_data["skills"] = skills
+    mcp = _coerce_str_list(step.get("mcp_servers"))
+    if mcp:
+        wp_data["mcp_servers"] = mcp
+    vaults = _coerce_str_list(step.get("knowledge_vault_ids"))
+    if vaults:
+        wp_data["knowledge_vault_ids"] = vaults
+    thinking = step.get("thinking_enabled")
+    if thinking is True or thinking is False:
+        wp_data["thinking_enabled"] = bool(thinking)
 
     expected = _coerce_str_list(step.get("expected_outputs"))
     if not expected:

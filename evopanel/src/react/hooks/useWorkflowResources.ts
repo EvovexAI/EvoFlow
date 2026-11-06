@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { api } from '../../lib/tauri-api.js'
 import { loadSkillCatalog, subscribeSkillCatalog } from '../../lib/skill-catalog.js'
 import type { AgentPickerRow } from '../lib/agent-tags.ts'
@@ -49,7 +49,6 @@ function normalizeAgentList(raw: unknown): AgentPickerRow[] {
     const obj = raw as { agents?: AgentPickerRow[]; data?: { agents?: AgentPickerRow[] } }
     list = obj.agents || obj.data?.agents || []
   }
-  // Keep description / skills / tools from GET /agents (already on AgentResponse).
   return list.map((a) => ({
     ...a,
     agent_code: String(a?.agent_code || '').trim(),
@@ -60,143 +59,129 @@ function normalizeAgentList(raw: unknown): AgentPickerRow[] {
   }))
 }
 
-type RoleRow = {
-  agent_code?: string
-  role_name?: string
-  department?: string
-  status?: string
+/** 工作流只用通用 Agent 列表；员工岗位留给值班/自动化任务，不混进编排。 */
+function tagGenericAgents(agents: AgentPickerRow[]): AgentPickerRow[] {
+  return agents.map((a) => ({
+    ...a,
+    tags: Array.from(new Set([...(Array.isArray(a.tags) ? a.tags.map(String) : []), '通用'])),
+  }))
 }
 
-/**
- * 员工优先、通用兜底：有在编员工则排在前面并标「员工」；
- * 未被雇佣的通用 Agent 仍保留在列表（标「通用」），按步可选。
- */
-function mergeEmployeesIntoAgents(
-  agents: AgentPickerRow[],
-  rolesRaw: unknown,
-): AgentPickerRow[] {
-  let roles: RoleRow[] = []
-  if (Array.isArray(rolesRaw)) roles = rolesRaw as RoleRow[]
-  else if (rolesRaw && typeof rolesRaw === 'object') {
-    const obj = rolesRaw as { roles?: RoleRow[]; data?: { roles?: RoleRow[] } }
-    roles = obj.roles || obj.data?.roles || []
+async function waitGatewayIfNeeded() {
+  const { isGatewayWarming, waitForBackendReady } = await import('../../lib/tauri-api.js')
+  if (typeof isGatewayWarming === 'function' && isGatewayWarming()) {
+    await waitForBackendReady?.(90_000).catch(() => {})
   }
-  const hired = roles.filter((r) => {
-    const st = String(r?.status || '').trim()
-    return st !== 'archived' && String(r?.agent_code || '').trim()
-  })
-  if (!hired.length) {
-    return agents.map((a) => ({
-      ...a,
-      tags: Array.from(
-        new Set([...(Array.isArray(a.tags) ? a.tags.map(String) : []), '通用']),
-      ),
-    }))
-  }
-
-  const byCode = new Map(agents.map((a) => [String(a.agent_code || '').trim(), a]))
-  const employeeRows: AgentPickerRow[] = hired.map((r) => {
-    const code = String(r.agent_code || '').trim()
-    const base = byCode.get(code) || ({ agent_code: code } as AgentPickerRow)
-    const roleName = String(r.role_name || '').trim()
-    const dept = String(r.department || '').trim()
-    const descBits = [dept ? `部门：${dept}` : '', String(base.description || '').trim()].filter(
-      Boolean,
-    )
-    return {
-      ...base,
-      agent_code: code,
-      agent_name: roleName || base.agent_name || code,
-      description: descBits.join(' · '),
-      tags: Array.from(
-        new Set([
-          ...(Array.isArray(base.tags) ? base.tags.map(String) : []),
-          '员工',
-          ...(dept ? [dept] : []),
-        ]),
-      ),
-    }
-  })
-  const hiredCodes = new Set(employeeRows.map((r) => String(r.agent_code || '').trim()))
-  const genericRows = agents
-    .filter((a) => !hiredCodes.has(String(a.agent_code || '').trim()))
-    .map((a) => ({
-      ...a,
-      tags: Array.from(
-        new Set([...(Array.isArray(a.tags) ? a.tags.map(String) : []), '通用']),
-      ),
-    }))
-  return [...employeeRows, ...genericRows]
 }
 
-export function useWorkflowResources(_open: boolean) {
+export function useWorkflowResources(enabled: boolean) {
   const [agents, setAgents] = useState<AgentPickerRow[]>([])
   const [skills, setSkills] = useState<SkillPickerItem[]>([])
   const [tools, setTools] = useState<WorkflowToolItem[]>([])
   const [mcpServers, setMcpServers] = useState<WorkflowMcpItem[]>([])
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(Boolean(enabled))
   const [error, setError] = useState<string | null>(null)
 
-  // Load immediately (not gated by `open`) so resources are ready when the
-  // drawer / picker first opens — avoids the blank-first-render flash.
+  const loadAll = useCallback(async () => {
+    try {
+      setLoading(true)
+      await waitGatewayIfNeeded()
+      const [agentRes, meta] = await Promise.all([
+        api.listAgents(),
+        api.getToolsMetadata().catch((err) => {
+          console.warn('[useWorkflowResources] getToolsMetadata failed:', err)
+          return null
+        }),
+      ])
+      setAgents(tagGenericAgents(normalizeAgentList(agentRes)))
+      const rawTools = (meta?.tools || meta?.data?.tools || []) as Record<string, unknown>[]
+      setTools(rawTools.map(mapTool).filter((t) => t.value))
+
+      let mcpList: WorkflowMcpItem[] = []
+      const fromMeta = meta?.mcp_servers || meta?.data?.mcp_servers
+      if (fromMeta && typeof fromMeta === 'object') {
+        mcpList = Object.entries(
+          fromMeta as Record<string, { enabled?: boolean; description?: string }>,
+        ).map(([name, cfg]) => ({
+          name,
+          description: String(cfg?.description || ''),
+          enabled: cfg?.enabled !== false,
+        }))
+      } else {
+        const mcpCfg = await api.getMCPConfig().catch((err) => {
+          console.warn('[useWorkflowResources] getMCPConfig failed:', err)
+          return null
+        })
+        const servers = mcpCfg?.mcp_servers || {}
+        mcpList = Object.entries(servers).map(([name, cfg]) => ({
+          name,
+          description: String((cfg as { description?: string })?.description || ''),
+          enabled: (cfg as { enabled?: boolean })?.enabled !== false,
+        }))
+      }
+      setMcpServers(mcpList.filter((s) => s.enabled))
+      setError(null)
+      return true
+    } catch (err) {
+      console.warn('[useWorkflowResources] load failed:', err)
+      setError(err instanceof Error ? err.message : String(err))
+      return false
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  const reloadAgents = useCallback(async () => {
+    if (!enabled) return
+    try {
+      await waitGatewayIfNeeded()
+      const agentRes = await api.listAgents()
+      setAgents(tagGenericAgents(normalizeAgentList(agentRes)))
+    } catch (err) {
+      console.warn('[useWorkflowResources] reloadAgents failed:', err)
+    }
+  }, [enabled])
+
   useEffect(() => {
+    if (!enabled) {
+      setLoading(false)
+      return
+    }
     let cancelled = false
     ;(async () => {
-      try {
-        const [agentRes, rolesRes, meta] = await Promise.all([
-          api.listAgents(),
-          api.proactiveListRoles().catch((err: unknown) => {
-            console.warn('[useWorkflowResources] proactiveListRoles failed:', err)
-            return null
-          }),
-          api.getToolsMetadata().catch((err) => {
-            console.warn('[useWorkflowResources] getToolsMetadata failed:', err)
-            return null
-          }),
-        ])
-        if (cancelled) return
-        const agentsList = normalizeAgentList(agentRes)
-        setAgents(mergeEmployeesIntoAgents(agentsList, rolesRes))
-        const rawTools = (meta?.tools || meta?.data?.tools || []) as Record<string, unknown>[]
-        setTools(rawTools.map(mapTool).filter((t) => t.value))
-
-        let mcpList: WorkflowMcpItem[] = []
-        const fromMeta = meta?.mcp_servers || meta?.data?.mcp_servers
-        if (fromMeta && typeof fromMeta === 'object') {
-          mcpList = Object.entries(fromMeta as Record<string, { enabled?: boolean; description?: string }>).map(
-            ([name, cfg]) => ({
-              name,
-              description: String(cfg?.description || ''),
-              enabled: cfg?.enabled !== false,
-            }),
-          )
-        } else {
-          const mcpCfg = await api.getMCPConfig().catch((err) => {
-            console.warn('[useWorkflowResources] getMCPConfig failed:', err)
-            return null
-          })
-          const servers = mcpCfg?.mcp_servers || {}
-          mcpList = Object.entries(servers).map(([name, cfg]) => ({
-            name,
-            description: String((cfg as { description?: string })?.description || ''),
-            enabled: (cfg as { enabled?: boolean })?.enabled !== false,
-          }))
-        }
-        setMcpServers(mcpList.filter((s) => s.enabled))
-        setError(null)
-      } catch (err) {
-        console.warn('[useWorkflowResources] load failed:', err)
-        setError(err instanceof Error ? err.message : String(err))
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
+      if (cancelled) return
+      await loadAll()
     })()
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [enabled, loadAll])
+
+  // 冷启动第一次可能撞 warming timeout；网关就绪后补拉（对齐 useProactiveRoles）
+  useEffect(() => {
+    if (!enabled) return
+    let cancelled = false
+    let unsub: (() => void) | undefined
+    void import('../../lib/tauri-api.js').then((mod) => {
+      if (cancelled) return
+      if (typeof mod.onBackendReadyChange === 'function') {
+        unsub = mod.onBackendReadyChange((ready: boolean) => {
+          if (ready) void loadAll()
+        })
+      }
+    })
+    return () => {
+      cancelled = true
+      try {
+        unsub?.()
+      } catch {
+        /* ignore */
+      }
+    }
+  }, [enabled, loadAll])
 
   useEffect(() => {
+    if (!enabled) return
     let cancelled = false
     loadSkillCatalog({ enabledOnly: true }).then((list) => {
       if (!cancelled) {
@@ -211,23 +196,33 @@ export function useWorkflowResources(_open: boolean) {
         )
       }
     })
-    const unsub = subscribeSkillCatalog((list: Array<{ name: string; label?: string; description?: string; icon?: string; enabled?: boolean }>) => {
-      if (cancelled) return
-      setSkills(
-        (list || []).map((s) => ({
-          name: s.name,
-          label: s.label || s.name,
-          description: s.description || '',
-          icon: s.icon || '🧩',
-          enabled: s.enabled !== false,
-        })),
-      )
-    })
+    const unsub = subscribeSkillCatalog(
+      (
+        list: Array<{
+          name: string
+          label?: string
+          description?: string
+          icon?: string
+          enabled?: boolean
+        }>,
+      ) => {
+        if (cancelled) return
+        setSkills(
+          (list || []).map((s) => ({
+            name: s.name,
+            label: s.label || s.name,
+            description: s.description || '',
+            icon: s.icon || '🧩',
+            enabled: s.enabled !== false,
+          })),
+        )
+      },
+    )
     return () => {
       cancelled = true
       unsub?.()
     }
-  }, [])
+  }, [enabled])
 
-  return { agents, skills, tools, mcpServers, loading, error }
+  return { agents, skills, tools, mcpServers, loading, error, reloadAgents }
 }

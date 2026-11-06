@@ -135,29 +135,133 @@ def _mcp_tool_names_for_agent(agent_code: str | None, catalog_names: set[str]) -
     return out
 
 
+def _agent_mcp_servers_binding(agent_code: str | None) -> list[str] | None:
+    """Return bound MCP server names, ``None`` = all enabled, ``[]`` = explicitly none."""
+    code = str(agent_code or "").strip()
+    if not code:
+        return []
+    try:
+        from evoflow.config.agents_config import load_agent_config
+
+        cfg = load_agent_config(code)
+    except Exception:
+        return []
+    if cfg is None:
+        return []
+    servers = cfg.mcp_servers
+    if servers is None:
+        return None
+    return [str(s).strip() for s in servers if str(s).strip()]
+
+
+def _mcp_tool_names_for_servers(
+    mcp_servers: list[str] | None,
+    catalog_names: set[str],
+) -> list[str]:
+    """Filter catalog MCP tools by server whitelist. ``None`` = all; ``[]`` = none."""
+    if mcp_servers is not None and not list(mcp_servers):
+        return []
+    try:
+        from evoflow.mcp.binding import mcp_server_from_tool_name
+    except Exception:
+        return []
+    allowed_servers = None if mcp_servers is None else {str(s).strip() for s in mcp_servers if str(s).strip()}
+    out: list[str] = []
+    for name in catalog_names:
+        n = str(name or "").strip()
+        server = mcp_server_from_tool_name(n)
+        if not server:
+            continue
+        if allowed_servers is None or server in allowed_servers:
+            out.append(n)
+    return out
+
+
 def _with_agent_mcp_tools(
     tools: list[str],
     *,
     agent_code: str | None,
     catalog_names: set[str],
+    profile_mcp_servers: list[str] | None = None,
+    profile_mcp_override: bool = False,
 ) -> list[str]:
-    """Append bound MCP tools onto an explicit worker allowlist (deduped, stable order)."""
+    """Append bound MCP tools onto an explicit worker allowlist (deduped, stable order).
+
+    When ``profile_mcp_override`` is True, ``profile_mcp_servers`` replaces AgentConfig
+    binding (``None`` = all enabled MCP; ``[]`` = none; list = whitelist).
+    """
     base = [str(t).strip() for t in (tools or []) if str(t or "").strip()]
     seen = {t.lower() for t in base}
-    extra = _mcp_tool_names_for_agent(agent_code, catalog_names)
-    added = 0
-    for name in extra:
-        key = name.lower()
-        if key in seen:
-            continue
-        base.append(name)
-        seen.add(key)
-        added += 1
+    catalog = set(catalog_names)
+
+    def _append(names: list[str]) -> int:
+        n_added = 0
+        for name in names:
+            key = name.lower()
+            if key in seen:
+                continue
+            base.append(name)
+            seen.add(key)
+            catalog.add(name)
+            n_added += 1
+        return n_added
+
+    if profile_mcp_override:
+        extra = _mcp_tool_names_for_servers(profile_mcp_servers, catalog)
+        binding = None if profile_mcp_servers is None else list(profile_mcp_servers)
+        source = "worker_profile.mcp_servers"
+    else:
+        extra = _mcp_tool_names_for_agent(agent_code, catalog)
+        binding = _agent_mcp_servers_binding(agent_code)
+        source = f"AgentConfig({agent_code}).mcp_servers"
+
+    added = _append(extra)
+
+    # Catalog missed MCP (stale LRU / cold sync get) but process cache is warm —
+    # heal names from peek so remount matches lead-agent mcp_servers semantics.
+    expects_mcp = binding is None or bool(binding)
+    if expects_mcp and added == 0:
+        try:
+            from evoflow.mcp.binding import mcp_server_from_tool_name
+            from evoflow.mcp.cache import peek_cached_mcp_tools
+
+            peeked_names = [
+                str(getattr(t, "name", "") or "").strip()
+                for t in (peek_cached_mcp_tools() or [])
+                if str(getattr(t, "name", "") or "").strip()
+            ]
+            if peeked_names:
+                allowed_servers = None if binding is None else set(binding)
+                heal = [
+                    n
+                    for n in peeked_names
+                    if (server := mcp_server_from_tool_name(n))
+                    and (allowed_servers is None or server in allowed_servers)
+                ]
+                healed = _append(heal)
+                if healed:
+                    added += healed
+                    logger.warning(
+                        "worker tools: healed %d MCP tool(s) from warm peek for AgentConfig(%s) "
+                        "(catalog had 0 mcp__* — likely stale get_available_tools LRU)",
+                        healed,
+                        agent_code,
+                    )
+        except Exception:
+            logger.debug("worker MCP peek heal skipped", exc_info=True)
+
     if added:
         logger.info(
-            "worker tools: mounted %d MCP tool(s) from AgentConfig(%s).mcp_servers",
+            "worker tools: mounted %d MCP tool(s) from %s",
             added,
+            source,
+        )
+    elif expects_mcp:
+        logger.error(
+            "worker tools: mcp_unavailable agent=%s mcp_servers=%s catalog_mcp=0 — "
+            "bound MCP will not be visible; worker may fall back to HTTP/bash",
             agent_code,
+            "all" if binding is None else binding,
         )
     return base
 
@@ -171,6 +275,8 @@ def resolve_worker_tool_allowlist(
     catalog_names: set[str],
     session_key: str | None = None,
     session_mode: str | None = None,
+    profile_mcp_servers: list[str] | None = None,
+    profile_mcp_override: bool = False,
 ) -> list[str]:
     """Return an explicit tool allowlist for a worker (never the raw global catalog).
 
@@ -181,14 +287,20 @@ def resolve_worker_tool_allowlist(
     4. ``base_subagent`` AgentConfig.tools
     5. Parent session agent ∩ worker execution mode (bound∪deferred)
 
-    After the above, MCP tools from the assignee/base agent's ``mcp_servers`` are
-    mounted (same semantics as lead ``mount_agent_mcp_tools``).
+    After the above, MCP tools from ``worker_profile.mcp_servers`` (when set) or the
+    assignee/base agent's ``mcp_servers`` are mounted (lead ``mount_agent_mcp_tools`` parity).
     """
     allowed = {str(n).strip() for n in catalog_names if str(n or "").strip()}
     mcp_agent = str(assignee_agent_code or "").strip() or str(base_subagent or "").strip()
 
     def _finish(out: list[str], *, source: str) -> list[str]:
-        mounted = _with_agent_mcp_tools(out, agent_code=mcp_agent, catalog_names=allowed)
+        mounted = _with_agent_mcp_tools(
+            out,
+            agent_code=mcp_agent,
+            catalog_names=allowed,
+            profile_mcp_servers=profile_mcp_servers,
+            profile_mcp_override=profile_mcp_override,
+        )
         logger.info("worker tools resolved (%s): %d tool(s)", source, len(mounted))
         return mounted
 

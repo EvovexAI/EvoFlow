@@ -13,6 +13,8 @@ export type CollabWorkflowStagePayload = {
 export type OpenCollabWorkflowStageOpts = {
   sessionKey?: string | null
   layout?: 'half' | 'wide' | 'narrow' | 'workspace-write'
+  /** 用户点 CTA / 运行后要立刻看见进度时传 true，否则会被「收起锁」挡在折叠态 */
+  forceExpand?: boolean
 }
 
 export function collabWorkflowStageTabId(mainTaskId: string, sessionKey?: string | null): string {
@@ -38,6 +40,7 @@ export function openCollabWorkflowInRightStage(
     title,
     layout: opts?.layout || 'half',
     sessionKey: sk,
+    forceExpand: opts?.forceExpand === true,
     data: {
       mainTaskId: mid,
       leadThreadId: String(payload.leadThreadId || '').trim(),

@@ -318,6 +318,24 @@ def workflow_run(args: dict[str, Any]) -> dict[str, Any]:
     if task_id:
         out["task_id"] = task_id
         out["taskId"] = task_id
+    # 通知标题用应用名，勿回落到 task/run id
+    app_blob = data.get("app") if isinstance(data.get("app"), dict) else {}
+    app_name = str(
+        run.get("app_name") or data.get("app_name") or app_blob.get("name") or ""
+    ).strip()
+    if not app_name:
+        try:
+            from evoflow.persistence import app_repositories
+
+            loaded = app_repositories.load_app(app_id)
+            if isinstance(loaded, dict):
+                nested = loaded.get("app") if isinstance(loaded.get("app"), dict) else {}
+                app_name = str(loaded.get("name") or nested.get("name") or "").strip()
+        except Exception:
+            app_name = ""
+    if app_name:
+        out["name"] = app_name
+        out["app"] = {"id": app_id, "name": app_name}
     return out
 
 

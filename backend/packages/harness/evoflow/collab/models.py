@@ -95,6 +95,18 @@ class WorkerProfile(BaseModel):
         description="Override tools; if None, resolve from assignee AgentConfig / SubagentConfig / parent session agent (not the global catalog).",
     )
     skills: list[str] | None = Field(default=None, description="Override default skills (load from AgentConfig if None)")
+    mcp_servers: list[str] | None = Field(
+        default=None,
+        description="Override MCP server whitelist; None inherits assignee AgentConfig.",
+    )
+    knowledge_vault_ids: list[str] | None = Field(
+        default=None,
+        description="Knowledge vault / owned KB ids bound for this worker step.",
+    )
+    thinking_enabled: bool | None = Field(
+        default=None,
+        description="Per-step thinking toggle; None follows session/agent default.",
+    )
     depends_on: list[str] = Field(
         default_factory=list,
         description="Upstream subtask ids that must be status completed before this subtask may run (enforced by supervisor start_execution).",

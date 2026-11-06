@@ -62,21 +62,26 @@ export function AppStepTranscriptHost({ request, onClose }: Props) {
     const mid = String(request.mainTaskId || '').trim()
     const sid = String(request.subtaskId || '').trim()
     const lead = String(request.leadThreadId || '').trim()
+    const storedThread = String(request.subtaskThreadId || '').trim()
     const title = String(request.title || sid).trim() || sid
     const status = String(request.status || 'pending').trim() || 'pending'
     let cancelled = false
+
+    // 已有 executor thread：立刻挂 V4，不再等 conversation-history（旧路径会先卡「加载中」）。
     queueMicrotask(() => {
-      setLoading(true)
       setPayload({
         subtaskId: sid,
         mainTaskId: mid,
         leadThreadId: lead,
+        subtaskThreadId: storedThread || undefined,
         title,
         status,
         rows: [],
-        emptyConversation: true,
+        emptyConversation: !storedThread,
       })
+      setLoading(!storedThread)
     })
+
     const snapshot = {
       subtaskId: sid,
       name: title,
@@ -84,42 +89,43 @@ export function AppStepTranscriptHost({ request, onClose }: Props) {
       status,
       assignedAgent: String(request.assignedAgent || ''),
       parentTaskId: mid,
-      subtask_thread_id: String(request.subtaskThreadId || ''),
-      subtaskThreadId: String(request.subtaskThreadId || ''),
+      subtask_thread_id: storedThread,
+      subtaskThreadId: storedThread,
     }
     void fetchSubtaskTranscriptMeta({
       mainTaskId: mid,
       subtaskId: sid,
       leadThreadId: lead,
-      storedSubtaskThreadId: String(request.subtaskThreadId || ''),
+      storedSubtaskThreadId: storedThread,
       subtaskSnapshot: snapshot,
     })
       .then((resp) => {
         if (cancelled) return
-        const threadId = String(resp?.thread_id || request.subtaskThreadId || '').trim()
-        setPayload({
+        const threadId = String(resp?.thread_id || storedThread || '').trim()
+        setPayload((prev) => ({
           subtaskId: sid,
           mainTaskId: mid,
           leadThreadId: lead,
           subtaskThreadId: threadId || undefined,
           title,
-          status,
-          rows: [],
+          status: String(resp?.status || status).trim() || status,
+          rows: prev?.rows || [],
           emptyConversation: !threadId,
           outcome: resp.outcome,
-        })
+        }))
       })
       .catch(() => {
         if (cancelled) return
+        if (storedThread) return
         setPayload({
           subtaskId: sid,
           mainTaskId: mid,
           leadThreadId: lead,
-          subtaskThreadId: String(request.subtaskThreadId || '').trim() || undefined,
+          subtaskThreadId: undefined,
           title,
           status,
           rows: [],
-          emptyConversation: !String(request.subtaskThreadId || '').trim(),
+          emptyConversation: true,
         })
       })
       .finally(() => {
@@ -130,7 +136,7 @@ export function AppStepTranscriptHost({ request, onClose }: Props) {
     }
     // only reopen when target ids change or refreshKey bumps
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [request?.mainTaskId, request?.subtaskId, request?.leadThreadId, request?.refreshKey])
+  }, [request?.mainTaskId, request?.subtaskId, request?.leadThreadId, request?.subtaskThreadId, request?.refreshKey])
 
   const handlePayloadChange = useCallback(
     (next: SubtaskTranscriptModalPayload | null) => {
@@ -156,6 +162,8 @@ export function AppStepTranscriptHost({ request, onClose }: Props) {
   const mode = request.mode === 'drawer' ? 'drawer' : 'modal'
   const portalTarget = mode === 'drawer' ? request.portalTarget || null : null
   const readOnly = !!request.readOnly
+  const knownThread =
+    transcript.v4SessionId || request?.subtaskThreadId || payload.subtaskThreadId || ''
 
   return (
     <>
@@ -164,18 +172,12 @@ export function AppStepTranscriptHost({ request, onClose }: Props) {
         mode={mode}
         portalTarget={portalTarget}
         subtaskId={payload.subtaskId}
-        v4SessionId={
-          transcript.v4SessionId || String(request?.subtaskThreadId || payload.subtaskThreadId || '')
-        }
+        v4SessionId={String(knownThread)}
         statusClass={transcript.statusClass}
-        statusLabel={loading ? '加载中' : transcript.statusLabel}
+        statusLabel={loading && !knownThread ? '加载中' : transcript.statusLabel}
         summaryAgent={readOnly ? '' : transcript.modalSummaryAgent}
         shortTitle={readOnly ? '执行记录' : transcript.modalShortTitle}
-        rows={
-          transcript.v4SessionId || request?.subtaskThreadId || payload.subtaskThreadId
-            ? []
-            : transcript.modalRowsForDisplay
-        }
+        rows={knownThread ? [] : transcript.modalRowsForDisplay}
         streamActive={transcript.modalIsStreaming}
         sending={transcript.sending}
         canCompose={transcript.modalCanCompose}

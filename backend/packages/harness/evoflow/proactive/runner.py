@@ -69,8 +69,8 @@ def _role_ui_badge_zh(
 ) -> tuple[str, str]:
     """与 Panel 名册/详情徽章对齐，只三种：工作中 / 在岗 / 已停。
 
-    见 ``proactive.js`` ``roleDutyBadge``：关闭总开关、请假、草稿、
-    停止工作（auto_patrol_suspended）均显示「已停」。
+    在岗 = status=active（可对话/派活）；关巡检 / 总开关关只改 tip，不改成已停。
+    已停 = 请假 / 草稿。
     """
     if busy:
         return "工作中", "正在执行本轮任务"
@@ -78,22 +78,18 @@ def _role_ui_badge_zh(
     suspended = bool(getattr(getattr(role, "config", None), "auto_patrol_suspended", False))
     if engine_on is None:
         engine_on = _engine_pref_enabled_for_log()
-    stopped = st in {"paused", "draft"} or (st == "active" and ((not engine_on) or suspended))
-    if stopped:
-        if st == "draft":
-            tip = "草稿未确认，确认后才会排班"
-        elif st == "paused":
-            tip = "请假中，不会自动巡检"
-        elif suspended:
-            tip = "该员工自动巡检已关；菜单「上班」可恢复"
-        elif not engine_on:
-            tip = "总开关已关闭，到期也不会跑"
-        else:
-            tip = "不会自动巡检"
-        return "已停", tip
+    if st == "draft":
+        return "已停", "草稿未确认，确认后才会排班"
+    if st == "paused":
+        return "已停", "请假中，不会自动巡检"
     if st == "active":
-        nxt = str(getattr(role, "next_heartbeat_at", "") or "").strip()
-        tip = f"下次自动巡检 {nxt}" if nxt else "按计划自动巡检"
+        if suspended:
+            tip = "可在线对话 / 派活，不定时巡检"
+        elif not engine_on:
+            tip = "可对话/派活；总开关已关，到期不会自动跑"
+        else:
+            nxt = str(getattr(role, "next_heartbeat_at", "") or "").strip()
+            tip = f"下次自动巡检 {nxt}" if nxt else "按计划自动巡检"
         return "在岗", tip
     return "已停", st or "—"
 

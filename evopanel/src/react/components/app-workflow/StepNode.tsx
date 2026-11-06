@@ -1,29 +1,20 @@
 import { memo, useMemo } from 'react'
-import { Braces } from 'lucide-react'
+import { Bot, Braces } from 'lucide-react'
 import { type NodeProps } from '@xyflow/react'
 import NodeCardShell from './NodeCardShell.tsx'
-import { WorkflowStepAgentHead, resolveWorkflowAgent } from './WorkflowStepAgentHead.tsx'
 import { isMissingStepTaskName, type StepNodeData } from '../../lib/app-workflow-plan.ts'
 import { parseCsvField } from '../../lib/workflow-step-csv.ts'
 import { useWorkflowStudioOptional } from './WorkflowStudioContext.tsx'
 
 function StepNode({ id, data, selected }: NodeProps & { data: StepNodeData }) {
   const studio = useWorkflowStudioOptional()
-  const agents = studio?.agents ?? []
   const isTemplate = data.executor === 'template'
-  const { label: agentLabel, hasAgent } = resolveWorkflowAgent(agents, data.assigned_agent)
 
-  const stepOverrideTotal = useMemo(() => {
-    return (
-      parseCsvField(data.skills).length +
-      parseCsvField(data.tools).length +
-      parseCsvField(data.mcp_servers).length
-    )
-  }, [data.skills, data.tools, data.mcp_servers])
+  const toolNames = useMemo(() => parseCsvField(data.tools), [data.tools])
+  const skillNames = useMemo(() => parseCsvField(data.skills), [data.skills])
+  const mcpNames = useMemo(() => parseCsvField(data.mcp_servers), [data.mcp_servers])
+  const capTotal = toolNames.length + skillNames.length + mcpNames.length
 
-  const openAgentPicker = studio?.openAgentPicker
-    ? () => studio.openAgentPicker?.(id)
-    : undefined
   const execStatus = data.ref ? studio?.execByRef?.[String(data.ref)] : undefined
 
   const missingName = isMissingStepTaskName(data.name)
@@ -32,31 +23,35 @@ function StepNode({ id, data, selected }: NodeProps & { data: StepNodeData }) {
   const title = missingName ? (isTemplate ? '填写模板名称' : '填写任务名称') : taskName
   const titleMuted = missingName
 
-  // 模板步：副行显示模板预览，无执行者概念
   let subtitle: string
   if (isTemplate) {
     const tplPreview = (data.template || '').split(/\r?\n/)[0] || '点击填写模板内容'
     subtitle = goalPreview ? `模板 · ${goalPreview}` : `模板 · ${tplPreview}`
   } else {
-    subtitle = hasAgent ? agentLabel : '点击选择执行者'
-    if (hasAgent && goalPreview) {
-      subtitle = `${agentLabel} · ${goalPreview}`
-    }
-    if (hasAgent && stepOverrideTotal > 0 && selected) {
-      subtitle = `${subtitle} · 另挂 ${stepOverrideTotal}`
+    // 有工具时直接点名，避免「能力 N」看不出绑了啥
+    const toolsHint =
+      toolNames.length > 0
+        ? `工具 ${toolNames.slice(0, 3).join('/')}${toolNames.length > 3 ? '…' : ''}`
+        : ''
+    if (goalPreview) {
+      subtitle = toolsHint && selected ? `${goalPreview} · ${toolsHint}` : goalPreview
+      if (!toolsHint && capTotal > 0 && selected) subtitle = `${subtitle} · 能力 ${capTotal}`
+    } else if (toolsHint) {
+      subtitle = toolsHint
+    } else if (capTotal > 0) {
+      subtitle = selected ? `通用智能体 · 能力 ${capTotal}` : `能力 ${capTotal}`
+    } else {
+      subtitle = '通用智能体'
     }
   }
 
-  // 主标题 = 任务短名；执行者 / 说明缩在副行。技能工具仍在右侧面板。
-  // 未分配：整行可点选；已分配：点头像更换，避免误触任务名编辑区。
+  // 主标题 = 任务短名；副行 = 目标预览。不再在节点上选员工。
   return isTemplate ? (
     <NodeCardShell
       selected={selected}
       kind="tool"
       typeLabel="模板变换"
-      icon={
-        <Braces size={15} strokeWidth={2.2} />
-      }
+      icon={<Braces size={15} strokeWidth={2.2} />}
       title={title}
       titleMuted={titleMuted}
       subtitle={subtitle}
@@ -67,22 +62,13 @@ function StepNode({ id, data, selected }: NodeProps & { data: StepNodeData }) {
     <NodeCardShell
       selected={selected}
       kind="agent"
-      typeLabel={stepOverrideTotal > 0 ? `智能体 · 另挂 ${stepOverrideTotal}` : '智能体'}
+      typeLabel={capTotal > 0 ? `智能体 · 能力 ${capTotal}` : '智能体'}
       iconVariant="agent"
-      icon={
-        <WorkflowStepAgentHead
-          agentCode={data.assigned_agent}
-          agents={agents}
-          size={28}
-          showLabel={false}
-        />
-      }
+      icon={<Bot size={15} strokeWidth={2.2} />}
       title={title}
       titleMuted={titleMuted}
       subtitle={subtitle}
       onClose={studio?.deleteNode ? () => studio.deleteNode(id) : undefined}
-      onAgentPick={execStatus ? undefined : openAgentPicker}
-      agentPickMode={hasAgent ? 'avatar' : 'row'}
       execStatus={execStatus}
     />
   )

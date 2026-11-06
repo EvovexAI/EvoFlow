@@ -319,6 +319,7 @@ def test_workflow_run_open_stage_auto_open():
     result = {
         "ok": True,
         "action": "workflow.run",
+        "appId": "App_x",
         "runId": "run-1",
         "task_id": "mt-app-run",
         "run": {"run_id": "run-1", "task_id": "mt-app-run"},
@@ -329,7 +330,8 @@ def test_workflow_run_open_stage_auto_open():
     assert progress["autoOpen"] is True
     assert progress["openStage"]["kind"] == "collab-workflow"
     assert progress["openStage"]["data"]["mainTaskId"] == "mt-app-run"
-    # 有进度 CTA 时不得再挂 /apps 菜单（Info Rail 曾优先点 route 跳错）
+    # 右栏失败时的深链回落；不得是 /apps 列表
+    assert progress.get("route") == "/apps/App_x/run?runId=run-1"
     assert not any(str(a.get("route") or "").rstrip("/") == "/apps" for a in ui["actions"])
 
 

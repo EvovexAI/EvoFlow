@@ -284,7 +284,21 @@ export async function render() {
     }
 
     listEl.querySelectorAll('.app-card').forEach(card => {
-      const open = () => navigate(`/apps/${card.dataset.appId}`)
+      const warmDetail = () => {
+        const id = String(card.dataset.appId || '').trim()
+        if (!id) return
+        void import('../lib/nav-panel-prefetch.js').then((m) => {
+          m.warmNavKey?.(`apps:detail:${id}`, () => api.getApp(id))
+        })
+        void import('../components/app-workflow-canvas.js').then((m) => {
+          m.preloadAppWorkflowCanvas?.()
+        })
+      }
+      const open = () => {
+        warmDetail()
+        navigate(`/apps/${card.dataset.appId}`)
+      }
+      card.addEventListener('pointerenter', warmDetail)
       card.addEventListener('click', (e) => {
         if (e.target.closest('.app-card-more') || e.target.closest('.app-card-menu')) return
         closeAllMenus()
@@ -369,17 +383,6 @@ export async function render() {
           placeholder: '简要描述这个工作流的用途',
           rows: 3,
         },
-        {
-          name: 'execution_mode',
-          label: '执行方式',
-          type: 'select',
-          value: app.execution_mode || 'workflow',
-          options: [
-            { value: 'workflow', label: '按步骤自动跑完（推荐）' },
-            { value: 'lead_supervised', label: '先生成计划再确认（监督模式）' },
-          ],
-          hint: '一般选「自动跑完」；需要人工确认计划时再选监督模式。',
-        },
       ],
       onConfirm: async (result) => {
         const name = (result.name || '').trim()
@@ -391,7 +394,7 @@ export async function render() {
           await api.updateApp(app.id, {
             name,
             description: (result.description || '').trim(),
-            execution_mode: result.execution_mode || 'workflow',
+            execution_mode: 'workflow',
           })
           toast.success('已更新')
           await loadApps()

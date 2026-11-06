@@ -62,7 +62,6 @@ from evoflow.agents.middlewares.run_latency_timing_middleware import (
 )
 from evoflow.agents.middlewares.scenario_activation_sync_middleware import ScenarioActivationSyncMiddleware
 from evoflow.agents.middlewares.scenario_runtime_hint_middleware import ScenarioRuntimeHintMiddleware
-from evoflow.agents.middlewares.session_intent_middleware import SessionIntentMiddleware
 from evoflow.agents.middlewares.session_transcript_hydration_middleware import (
     SessionTranscriptHydrationMiddleware,
 )
@@ -718,7 +717,8 @@ def _build_middlewares(config: RunnableConfig, model_name: str | None, agent_nam
     middlewares.append(ToolBindingSyncMiddleware())
     # Strip ``<memory>...</memory>`` when runtime.context disables injection (before other wrap_model_call patches)
     middlewares.append(MemoryRuntimeControlMiddleware())
-    middlewares.append(SessionIntentMiddleware())
+    # SessionIntentMiddleware retired: history already has prior user turns;
+    # the synthetic session_intent tail duplicated goals and confused the model.
     middlewares.append(TurnContextMiddleware())
 
     # Context compaction (Hermes-style) when summarization.enabled in config.

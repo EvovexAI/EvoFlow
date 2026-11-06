@@ -1962,7 +1962,8 @@ html[data-liquid-glass-webgl='1'] .role-filter-select {
 
 /* Overlay */
 .role-editor-overlay {
-  z-index: 10000;
+  /* Above react-chat-modal-overlay(1000001); keep below avatar picker(1000030+) */
+  z-index: 1000025;
   align-items: center;
   justify-content: center;
   backdrop-filter: blur(var(--blur-sm));

@@ -1648,36 +1648,34 @@ async function loadTabData(page) {
   }
 }
 
-/** Roster badge — only 3: 工作中 / 在岗 / 已停 */
+/** Roster badge — only 3: 工作中 / 在岗 / 已停
+ * 「在岗」= 可对话/派活（status=active）；关巡检 / 总开关关 ≠ 已停岗。
+ * 「已停」仅请假(paused) / 草稿(draft)。
+ */
 function roleDutyBadge(role, busy = false) {
   if (busy) return { label: '工作中', cls: 'pro-badge--run', tip: '正在执行本轮任务' }
   const st = String(role?.status || '')
   const suspended = !!(role?.auto_patrol_suspended || role?.config?.auto_patrol_suspended)
-  const stopped =
-    st === 'paused' ||
-    st === 'draft' ||
-    (st === 'active' && (_engineRunning === false || suspended))
 
-  if (stopped) {
-    let tip = '不会自动巡检'
-    if (st === 'draft') tip = '草稿未确认，确认后才会排班'
-    else if (st === 'paused') tip = '请假中，不会自动巡检'
-    else if (suspended) tip = '该员工自动巡检已关；菜单「上班」可恢复'
-    else if (_engineRunning === false) tip = '总开关已关闭，到期也不会跑'
-    return { label: '已停', cls: 'pro-badge--muted', tip }
+  if (st === 'draft') {
+    return { label: '已停', cls: 'pro-badge--muted', tip: '草稿未确认，确认后才会排班' }
+  }
+  if (st === 'paused') {
+    return { label: '已停', cls: 'pro-badge--muted', tip: '请假中，不会自动巡检' }
   }
 
   if (st === 'active') {
-    const tipNext = role?.next_heartbeat_at
-      ? `下次自动巡检 ${fmtTime(role.next_heartbeat_at)}`
-      : '按计划自动巡检'
+    let tip = '按计划自动巡检'
+    if (suspended) tip = '可在线对话 / 派活，不定时巡检'
+    else if (_engineRunning === false) tip = '可对话/派活；总开关已关，到期不会自动跑'
+    else if (role?.next_heartbeat_at) tip = `下次自动巡检 ${fmtTime(role.next_heartbeat_at)}`
     const dash = roleDash(role?.agent_code)
     const noopN = Number(dash?.consecutive_noop_count || 0)
     const idle =
       !!dash?.idle_suspected ||
       noopN >= 3 ||
       Number(dash?.no_op_pct || 0) >= 40
-    return { label: '在岗', cls: 'pro-badge--ok', tip: tipNext, idle }
+    return { label: '在岗', cls: 'pro-badge--ok', tip, idle }
   }
   return { label: '已停', cls: 'pro-badge--muted', tip: st || '—' }
 }
@@ -3228,8 +3226,8 @@ function renderRoles(roles) {
     let oneLiner = '暂无近况'
     if (isDraft) oneLiner = '草稿未确认 · 确认后才开始自动上班'
     else if (isPaused) oneLiner = '请假中 · 不会自动巡检'
-    else if (isSuspended) oneLiner = '自动巡检已关 · 菜单「上班」可恢复'
-    else if (_engineRunning === false) oneLiner = '总开关已关 · 到期不会自动跑'
+    else if (isSuspended) oneLiner = '在岗待命 · 不定时巡检（可对话/派活）'
+    else if (_engineRunning === false) oneLiner = '在岗待命 · 总开关已关（到期不自动跑）'
     else if (pendingN) oneLiner = `${pendingN} 项待你拍板`
     else if (isBusy) oneLiner = '工作中 · 正在干活…'
     else if (isIdle) {

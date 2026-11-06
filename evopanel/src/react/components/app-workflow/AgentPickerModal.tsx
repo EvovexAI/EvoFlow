@@ -22,7 +22,10 @@ type Props = {
   skills?: SkillPickerItem[]
   loading: boolean
   selected?: string | null
-  onConfirm: (agentCode: string) => void
+  /** select：挑选确认；detail：查看自带能力并可编辑员工/智能体 */
+  mode?: 'select' | 'detail'
+  onConfirm?: (agentCode: string) => void
+  onEdit?: (agentCode: string) => void
 }
 
 export function AgentPickerModal({
@@ -33,8 +36,11 @@ export function AgentPickerModal({
   skills = [],
   loading,
   selected,
+  mode = 'select',
   onConfirm,
+  onEdit,
 }: Props) {
+  const isDetail = mode === 'detail'
   const [query, setQuery] = useState('')
   const [tagFilter, setTagFilter] = useState<string | null>(null)
   const [draft, setDraft] = useState<string>(selected || '')
@@ -117,7 +123,7 @@ export function AgentPickerModal({
 
   const confirm = (code: string) => {
     const next = code.trim()
-    if (!next) return
+    if (!next || !onConfirm) return
     onConfirm(next)
     onClose()
   }
@@ -129,7 +135,7 @@ export function AgentPickerModal({
       className="react-chat-modal-overlay"
       role="dialog"
       aria-modal="true"
-      aria-label="选择执行者"
+      aria-label={isDetail ? '执行者详情' : '选择执行者'}
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose()
       }}
@@ -140,9 +146,13 @@ export function AgentPickerModal({
       >
         <div className="react-chat-modal-header">
           <div>
-            <span className="react-chat-modal-title">选择执行者</span>
+            <span className="react-chat-modal-title">
+              {isDetail ? '执行者详情' : '选择执行者'}
+            </span>
             <p className="react-chat-modal-desc" style={{ margin: '4px 0 0' }}>
-              优先复用在编员工；没有合适的可用通用 Agent · 双击可直接确认
+              {isDetail
+                ? '查看自带技能与工具；可打开编辑员工 / 智能体资料'
+                : '优先复用在编员工；没有合适的可用通用 Agent · 双击可直接确认'}
             </p>
           </div>
           <button type="button" className="react-chat-modal-close" onClick={onClose} aria-label="关闭">
@@ -268,7 +278,9 @@ export function AgentPickerModal({
                   type="button"
                   className={`wf-agent-picker-item${active ? ' is-active' : ''}`}
                   onClick={() => setDraft(code)}
-                  onDoubleClick={() => confirm(code)}
+                  onDoubleClick={() => {
+                    if (!isDetail) confirm(code)
+                  }}
                 >
                   <AssignedAgentAvatar agentCode={code} agents={agents} size={32} />
                   <span className="wf-agent-picker-main">
@@ -325,19 +337,34 @@ export function AgentPickerModal({
 
         <div className="react-chat-modal-actions react-chat-skill-modal-actions">
           <span className="react-chat-skill-modal-footer-count">
-            {draft ? `已选：${draftLabel}` : '未选择'}
+            {draft ? `${isDetail ? '当前' : '已选'}：${draftLabel}` : '未选择'}
           </span>
           <button type="button" className="react-chat-modal-btn react-chat-modal-btn--ghost" onClick={onClose}>
-            取消
+            {isDetail ? '关闭' : '取消'}
           </button>
-          <button
-            type="button"
-            className="react-chat-modal-btn react-chat-modal-btn--primary"
-            disabled={!draft}
-            onClick={() => confirm(draft)}
-          >
-            确定
-          </button>
+          {isDetail ? (
+            <button
+              type="button"
+              className="react-chat-modal-btn react-chat-modal-btn--primary"
+              disabled={!draft || !onEdit}
+              onClick={() => {
+                const code = draft.trim()
+                if (!code || !onEdit) return
+                onEdit(code)
+              }}
+            >
+              编辑资料
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="react-chat-modal-btn react-chat-modal-btn--primary"
+              disabled={!draft}
+              onClick={() => confirm(draft)}
+            >
+              确定
+            </button>
+          )}
         </div>
       </div>
     </div>,

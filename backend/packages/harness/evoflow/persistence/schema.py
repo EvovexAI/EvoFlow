@@ -248,7 +248,7 @@ CREATE TABLE IF NOT EXISTS evoflow_apps (
     updated_at TEXT NOT NULL DEFAULT '',
     usage_count INTEGER NOT NULL DEFAULT 0,
     last_used_at TEXT
-, canvas_json TEXT NOT NULL DEFAULT '{}', answer_from_ref TEXT NOT NULL DEFAULT '', final_rollup TEXT NOT NULL DEFAULT 'auto', final_rollup_agent TEXT NOT NULL DEFAULT '', final_rollup_instruction TEXT NOT NULL DEFAULT '', org_id TEXT, owner_scope_id TEXT, created_by TEXT);
+, canvas_json TEXT NOT NULL DEFAULT '{}', answer_from_ref TEXT NOT NULL DEFAULT '', final_rollup TEXT NOT NULL DEFAULT 'auto', final_rollup_agent TEXT NOT NULL DEFAULT '', final_rollup_instruction TEXT NOT NULL DEFAULT '', project_path TEXT NOT NULL DEFAULT '', org_id TEXT, owner_scope_id TEXT, created_by TEXT);
 
 CREATE TABLE IF NOT EXISTS evoflow_artifacts (
     session_key TEXT NOT NULL,
@@ -2114,6 +2114,9 @@ _LEGACY_COLUMN_BACKFILL: dict[str, tuple[tuple[str, str], ...]] = {
         ("turn_started_at", "TEXT"),
         ("turn_duration_ms", "INTEGER"),
         ("turn_state", "TEXT"),
+    ),
+    "evoflow_apps": (
+        ("project_path", "TEXT NOT NULL DEFAULT ''"),
     ),
     "evoflow_app_runs": (
         ("queue_ms", "INTEGER"),

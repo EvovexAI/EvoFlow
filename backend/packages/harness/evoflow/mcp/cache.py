@@ -181,6 +181,16 @@ async def initialize_mcp_tools() -> list[BaseTool]:
         except Exception:
             logger.debug("Could not clear _cached_resolve_tools LRU cache", exc_info=True)
 
+        # Session/agent tool-name LRU also snapshots MCP before remount; clear it
+        # so role mcp_servers bindings see the warm catalog.
+        try:
+            from evoflow.session_tool_binding.agent_tools import invalidate_agent_tool_names_cache
+
+            invalidate_agent_tool_names_cache()
+            logger.info("Cleared agent tool-names cache after MCP init (%d tools)", len(_mcp_tools_cache or []))
+        except Exception:
+            logger.debug("Could not clear agent tool-names cache after MCP init", exc_info=True)
+
         # Also clear the lead-agent graph cache: graphs built before MCP warmup
         # completed may have been compiled without MCP tools, and the graph cache
         # key does not distinguish "has MCP tools" vs "MCP tools not yet loaded".
@@ -306,6 +316,12 @@ def reset_mcp_tools_cache() -> None:
         logger.info("Cleared _cached_resolve_tools LRU cache on MCP reset")
     except Exception:
         logger.debug("Could not clear _cached_resolve_tools LRU cache on reset", exc_info=True)
+    try:
+        from evoflow.session_tool_binding.agent_tools import invalidate_agent_tool_names_cache
+
+        invalidate_agent_tool_names_cache()
+    except Exception:
+        logger.debug("Could not clear agent tool-names cache on MCP reset", exc_info=True)
     try:
         from evoflow.agents.lead_agent.graph_cache import clear_lead_agent_graph_cache
 

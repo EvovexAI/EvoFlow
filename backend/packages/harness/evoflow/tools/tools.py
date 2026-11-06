@@ -75,6 +75,7 @@ REMOVED_LEGACY_TOOL_NAMES: frozenset[str] = frozenset(
         "find_file",
         "rg",
         "find",
+        "glob",
         "terminal",
         "process",
         # Right panel folded into platform ui.show|hide|update
@@ -379,19 +380,14 @@ def _cached_resolve_tools(
     reset_deferred_registry()
     if include_mcp:
         try:
-            from evoflow.config.extensions_config import ExtensionsConfig
-            from evoflow.mcp.cache import get_cached_mcp_tools
+            mcp_tools = _resolve_mcp_tools_for_catalog()
+            if mcp_tools and ts_enabled:
+                from evoflow.tools.builtins.tool_search import DeferredToolRegistry, set_deferred_registry
 
-            extensions_config = ExtensionsConfig.from_file()
-            if extensions_config.get_enabled_mcp_servers():
-                mcp_tools = get_cached_mcp_tools()
-                if mcp_tools and ts_enabled:
-                    from evoflow.tools.builtins.tool_search import DeferredToolRegistry, set_deferred_registry
-
-                    registry = DeferredToolRegistry()
-                    for t in mcp_tools:
-                        registry.register(t)
-                    set_deferred_registry(registry)
+                registry = DeferredToolRegistry()
+                for t in mcp_tools:
+                    registry.register(t)
+                set_deferred_registry(registry)
         except ImportError:
             pass
         except Exception as e:
@@ -423,6 +419,75 @@ def _cached_resolve_tools(
 def invalidate_available_tools_cache() -> None:
     """Clear tool catalog LRU — call when Knowledge Vault config changes."""
     _cached_resolve_tools.cache_clear()
+
+
+def _resolve_mcp_tools_for_catalog() -> list[BaseTool]:
+    """Load MCP tools for the runtime catalog, healing empty sync gets from a warm peek.
+
+    ``get_cached_mcp_tools`` may return ``[]`` on the asyncio loop while cold, or when
+    ExtensionsConfig briefly looks empty, even though gateway warmup already filled
+    the process cache. Prefer the warm peek so workers can remount ``mcp__*``.
+    """
+    from evoflow.config.extensions_config import ExtensionsConfig
+    from evoflow.mcp.cache import get_cached_mcp_tools, mcp_cache_initialized, peek_cached_mcp_tools
+
+    enabled = False
+    try:
+        enabled = bool(ExtensionsConfig.from_file().get_enabled_mcp_servers())
+    except Exception:
+        logger.debug("MCP extensions config read failed while resolving catalog", exc_info=True)
+
+    mcp_tools: list[BaseTool] = []
+    if enabled:
+        try:
+            mcp_tools = list(get_cached_mcp_tools() or [])
+        except Exception as e:
+            logger.error("Failed to get cached MCP tools: %s", e)
+
+    if not mcp_tools:
+        peeked = list(peek_cached_mcp_tools() or [])
+        if peeked:
+            mcp_tools = peeked
+            logger.warning(
+                "MCP catalog healed from warm peek (%d tool(s); sync get empty, cache_initialized=%s)",
+                len(peeked),
+                mcp_cache_initialized(),
+            )
+        elif enabled:
+            logger.warning(
+                "MCP servers enabled but catalog has 0 tools (cache cold/empty) — "
+                "workers with mcp_servers binding will miss mcp__* until warmup completes"
+            )
+    return mcp_tools
+
+
+def merge_cached_mcp_tools_into_catalog(tools: list[BaseTool]) -> list[BaseTool]:
+    """Append warm-cache MCP tools missing from *tools* (worker allowlist safety net)."""
+    from evoflow.mcp.binding import is_mcp_tool_name
+
+    existing = {str(getattr(t, "name", "") or "").strip() for t in tools}
+    if any(is_mcp_tool_name(n) for n in existing):
+        return tools
+    extra = _resolve_mcp_tools_for_catalog()
+    if not extra:
+        return tools
+    merged = list(tools)
+    added = 0
+    for t in extra:
+        name = str(getattr(t, "name", "") or "").strip()
+        if not name or name in existing:
+            continue
+        existing.add(name)
+        merged.append(t)
+        added += 1
+    if added:
+        logger.info("Merged %d cached MCP tool(s) into worker catalog (was missing mcp__*)", added)
+        # Drop the stale no-MCP LRU entry so subsequent resolves stay healthy.
+        try:
+            _cached_resolve_tools.cache_clear()
+        except Exception:
+            pass
+    return merged
 
 
 def _knowledge_vault_tools_for_catalog() -> list[BaseTool]:
@@ -511,18 +576,13 @@ def _load_host_direct_tools(
     reset_deferred_registry()
     if include_mcp:
         try:
-            from evoflow.config.extensions_config import ExtensionsConfig
-            from evoflow.mcp.cache import get_cached_mcp_tools
-
-            extensions_config = ExtensionsConfig.from_file()
-            if extensions_config.get_enabled_mcp_servers():
-                mcp_tools = get_cached_mcp_tools()
-                if mcp_tools:
-                    logger.info(f"HostDirect mode: Using {len(mcp_tools)} cached MCP tool(s)")
+            mcp_tools = _resolve_mcp_tools_for_catalog()
+            if mcp_tools:
+                logger.info("HostDirect mode: Using %d cached MCP tool(s)", len(mcp_tools))
         except ImportError:
             logger.warning("MCP module not available.")
         except Exception as e:
-            logger.error(f"Failed to get cached MCP tools in HostDirect mode: {e}")
+            logger.error("Failed to get cached MCP tools in HostDirect mode: %s", e)
 
     existing_names = {str(getattr(t, "name", "") or "").strip() for t in tools}
     supplemental_tools = _load_supplemental_config_tools(config, existing_names)

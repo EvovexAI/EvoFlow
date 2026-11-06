@@ -104,24 +104,39 @@ def _exec_lock_for(thread_key: str) -> threading.Lock:
 _PURE_WAIT_SLEEP_RE = re.compile(r"(?i)\bsleep\s+([0-9]+(?:\.[0-9]+)?)")
 _PURE_WAIT_FILLER_RE = re.compile(r"(?i)\b(?:echo\s+(?:\"[^\"]*\"|'[^']*'|[^;&|]+)|true)\b")
 _PURE_WAIT_MAX_SECONDS = 10.0
+# Hard cap: agents disguise CI waits as ``sleep 480 && gh run view`` (2026-11-06
+# release-engineer burned ~2h on 7–10min sleeps). Even with trailing work, a
+# single sleep >60s is banned — use ``gh run watch`` / background TaskOutput.
+_MAX_SINGLE_SLEEP_SECONDS = 60.0
 
 
 def _pure_wait_guard(command: str) -> str | None:
-    """Reject pure-wait commands (total sleep >10s with no other effect).
+    """Reject pure-wait / long-sleep disguised waits.
 
     Returns a rejection message, or ``None`` when the command should execute.
-    A command that does real work besides sleeping (e.g. polling loops with
-    actual commands) is allowed through.
+    - Total sleep >10s with no real work → reject
+    - Any single ``sleep N`` with N>60 → reject even if followed by real work
     """
     cmd = str(command or "").strip()
     if not cmd or "sleep" not in cmd.lower():
         return None
     total = 0.0
+    max_one = 0.0
     for m in _PURE_WAIT_SLEEP_RE.finditer(cmd):
         try:
-            total += float(m.group(1))
+            sec = float(m.group(1))
         except ValueError:
             return None
+        total += sec
+        if sec > max_one:
+            max_one = sec
+    if max_one > _MAX_SINGLE_SLEEP_SECONDS:
+        return (
+            "status: rejected\ninterrupted: false\n"
+            f"该命令含过长 sleep（单次 {max_one:.0f}s > {_MAX_SINGLE_SLEEP_SECONDS:.0f}s），已拒绝执行。"
+            "盯 CI / Actions 请用 `gh run watch <RUN_ID> --exit-status`（可 run_in_background），"
+            "或短间隔轮询（单次 sleep ≤60s）；禁止 `sleep 300/480/540 && gh …` 空等。"
+        )
     if total <= _PURE_WAIT_MAX_SECONDS:
         return None
     residue = _PURE_WAIT_SLEEP_RE.sub(" ", cmd)

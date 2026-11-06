@@ -977,7 +977,14 @@ def run_app_workflow(
     # burned tool calls re-verifying a file that did exist. A non-empty
     # project_path is also what lets upstream artifact verification run at all
     # (verification short-circuits to a warning when it is blank).
-    run_project_path = _resolve_workflow_project_path()
+    #
+    # Prefer the app's saved default workspace; fall back to env / repo root.
+    plan_blob = app.get("plan") if isinstance(app.get("plan"), dict) else {}
+    run_project_path = (
+        str(app.get("project_path") or "").strip()
+        or str(plan_blob.get("project_path") or "").strip()
+        or _resolve_workflow_project_path()
+    )
     if run_project_path:
         task_data["project_path"] = run_project_path
         project_data["project_path"] = run_project_path

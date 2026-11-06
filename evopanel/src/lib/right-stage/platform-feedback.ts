@@ -369,8 +369,17 @@ export function tryAutoOpenPlatformProgress(
   })
   // 显式钉当前 UI 会话，避免 employeeProcess 等会话级签空归属后被过滤掉
   const ownerSk = String(getCurrentRightStageSessionKey() || '').trim()
+  const progressKind = normalizeRightStageKind(hit.openStage.kind)
+  // 工作流运行类：产品预期是立刻看见实时图；其它 autoOpen 仍尊重用户收起锁
+  const forceWorkflowLive =
+    progressKind === 'collab-workflow' &&
+    (base.action === 'workflow.run' ||
+      base.action === 'workflow.resume' ||
+      base.action === 'workflow.recover' ||
+      base.action === 'workflow.run_status')
   const tabId = openProgressFromPanelSet(hit.openStage, {
     sessionKey: ownerSk || undefined,
+    forceExpand: forceWorkflowLive,
   })
   if (!tabId) {
     logRightStageTrigger('maybeAutoOpenPlatformProgress failed', {
@@ -380,18 +389,23 @@ export function tryAutoOpenPlatformProgress(
     })
     return { opened: false, reason: 'openProgress-failed', tabId: '', ...base }
   }
-  // 用户刚点收起时不要强行撑开（否则收起钮像失灵）。
-  rightStageStore.expandUnlessUserCollapsed()
+  if (forceWorkflowLive) {
+    rightStageStore.expand()
+  } else {
+    // 用户刚点收起时不要强行撑开（否则收起钮像失灵）。
+    rightStageStore.expandUnlessUserCollapsed()
+  }
   void import('../xw-voice-mode.js')
     .then((m) => {
       if (!m.isXwVoiceMode?.()) return
       m.allowXwVoiceSummary?.()
-      rightStageStore.expandUnlessUserCollapsed()
+      if (forceWorkflowLive) rightStageStore.expand()
+      else rightStageStore.expandUnlessUserCollapsed()
     })
     .catch(() => {})
   logRightStageTrigger(
     'maybeAutoOpenPlatformProgress opened',
-    { tabId, kind: hit.openStage?.kind, label: hit.label, ...base },
+    { tabId, kind: hit.openStage?.kind, label: hit.label, forceWorkflowLive, ...base },
     { store: rightStageStore },
   )
   return { opened: true, reason: 'opened', tabId, ...base }
@@ -920,10 +934,29 @@ export function enrichShellPageOpenStages(ui: PlatformUiFeedback): PlatformUiFee
   // workflow.run：旧 CTA route=/apps 升成右栏本次运行（勿整窗跳工作流菜单）
   if (domain === 'workflow' || action.startsWith('workflow.')) {
     const progressSibling = actions.find((a) => isProgressOpenStageKind(a.openStage?.kind))
-    const siblingTid = asString(progressSibling?.openStage?.data?.mainTaskId)
+    const siblingTid =
+      asString(progressSibling?.openStage?.data?.mainTaskId) ||
+      asString(progressSibling?.openStage?.data?.main_task_id) ||
+      asString(progressSibling?.openStage?.data?.taskId) ||
+      asString(progressSibling?.openStage?.data?.task_id)
     const tid = siblingTid || entityId
     for (const a of actions) {
-      if (a.openStage?.kind) continue
+      // 已有 collab-workflow 但丢了 mainTaskId：用 entityId 补上（否则点 CTA 没反应）
+      if (isProgressOpenStageKind(a.openStage?.kind)) {
+        const existing =
+          asString(a.openStage?.data?.mainTaskId) ||
+          asString(a.openStage?.data?.main_task_id) ||
+          asString(a.openStage?.data?.taskId) ||
+          asString(a.openStage?.data?.task_id)
+        if (!existing && tid && a.openStage) {
+          a.openStage = {
+            ...a.openStage,
+            data: { ...(a.openStage.data || {}), mainTaskId: tid },
+          }
+          touched = true
+        }
+        continue
+      }
       const route = asString(a.route)
       const isAppsList = route === '/apps' || route === '/apps/'
       const isAppsRun = /^\/apps\/[^/?#]+\/run(?:\?|$)/.test(route)
@@ -1236,7 +1269,12 @@ export function activatePlatformFeedbackAction(
   const resolved = enriched.actions?.[0] || action
   const openStage = resolved.openStage
   if (openStage) {
-    const tabId = openProgressFromPanelSet(openStage)
+    // 用户点 CTA：必须 forceExpand，否则收起锁会让「打开工作流」像没反应
+    const ownerSk = String(getCurrentRightStageSessionKey() || '').trim()
+    const tabId = openProgressFromPanelSet(openStage, {
+      sessionKey: ownerSk || undefined,
+      forceExpand: true,
+    })
     if (tabId) return true
   }
   const route = asString(resolved.route || action.route)

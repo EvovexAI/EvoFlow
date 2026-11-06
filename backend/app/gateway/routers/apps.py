@@ -106,6 +106,7 @@ class UpdateAppRequest(BaseModel):
     tags: list[str] | None = None
     canvas: dict | None = None
     plan: dict | None = None
+    project_path: str | None = None
 
 
 class RunAppRequest(BaseModel):
@@ -162,6 +163,8 @@ def _normalize_plan_for_storage(document: dict[str, Any]) -> dict[str, Any]:
             document["canvas"] = plan["canvas"]
         if "answer_from_ref" in plan:
             document["answer_from_ref"] = plan.get("answer_from_ref")
+        if "project_path" in plan:
+            document["project_path"] = str(plan.get("project_path") or "").strip()
     return document
 
 
@@ -176,9 +179,11 @@ def _decorate_app_response(app: dict[str, Any], *, total_runs_override: int | No
     canvas = app.get("canvas") if isinstance(app.get("canvas"), dict) else {}
     steps = app.get("steps") if isinstance(app.get("steps"), list) else []
     parameters = app.get("parameters") if isinstance(app.get("parameters"), list) else []
+    project_path = str(app.get("project_path") or "").strip()
     app["canvas"] = canvas
     app["steps"] = steps
     app["parameters"] = parameters
+    app["project_path"] = project_path
     app["step_count"] = len(steps)
     app["parameter_count"] = len(parameters)
     app.setdefault("plan", {})
@@ -186,6 +191,7 @@ def _decorate_app_response(app: dict[str, Any], *, total_runs_override: int | No
     app["plan"]["steps"] = steps
     app["plan"]["canvas"] = canvas
     app["plan"]["answer_from_ref"] = app.get("answer_from_ref") or ""
+    app["plan"]["project_path"] = project_path
     # total_runs — cheap query, only when we have a valid app_id
     if total_runs_override is not None:
         app["total_runs"] = int(total_runs_override or 0)
@@ -290,7 +296,14 @@ def get_app_endpoint(request: Request, app_id: str) -> dict[str, Any]:
     app = app_repositories.load_app(app_id)
     if app is None:
         raise HTTPException(status_code=404, detail=f"Application not found: {app_id}")
-    return _decorate_app_response(app)
+    # Editor first paint does not need a live COUNT(*) — usage_count is enough;
+    # list endpoint still uses count_runs_batch for the grid.
+    usage = app.get("usage_count")
+    try:
+        runs_override = int(usage or 0)
+    except (TypeError, ValueError):
+        runs_override = 0
+    return _decorate_app_response(app, total_runs_override=runs_override)
 
 
 @router.post("")
@@ -400,6 +413,7 @@ def update_app_endpoint(http_request: Request, app_id: str, request: UpdateAppRe
             "execution_mode",
             "validation_template",
             "flowchart_mermaid",
+            "project_path",
         }
     )
     has_structural_change = any(key in update_data and update_data[key] != existing.get(key) for key in _STRUCTURAL_FIELDS)

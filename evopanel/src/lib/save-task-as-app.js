@@ -40,16 +40,6 @@ export function promptSaveTaskAsApp(opts) {
         placeholder: '一句话说明这个工作流做什么',
       },
       {
-        name: 'execution_mode',
-        label: '默认执行模式',
-        type: 'select',
-        value: 'workflow',
-        options: [
-          { value: 'workflow', label: '按步骤自动跑完（推荐）' },
-          { value: 'lead_supervised', label: '先生成计划再确认' },
-        ],
-      },
-      {
         name: 'auto_extract',
         label: '自动抽取参数（{{…}}）',
         type: 'checkbox',
@@ -62,7 +52,7 @@ export function promptSaveTaskAsApp(opts) {
         const created = await api.saveTaskAsApp(taskId, {
           name: String(result.name || '').trim() || undefined,
           description: String(result.description || '').trim() || undefined,
-          execution_mode: result.execution_mode || 'workflow',
+          execution_mode: 'workflow',
           auto_extract: !!result.auto_extract,
           max_params: 5,
         })

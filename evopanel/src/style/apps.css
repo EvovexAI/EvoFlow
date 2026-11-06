@@ -1754,6 +1754,29 @@ textarea.app-run-prompt-input {
   text-align: right;
 }
 
+.app-settings-ws-row {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.app-settings-ws-row .app-settings-input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.app-settings-ws-row .btn {
+  flex-shrink: 0;
+  align-self: stretch;
+}
+
+.app-settings-hint {
+  margin: 4px 0 0;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--app-studio-fg-weak, var(--text-tertiary));
+}
+
 .app-settings-fold-toggle {
   display: inline-flex;
   align-items: center;
@@ -1804,6 +1827,36 @@ textarea.app-run-prompt-input {
   padding: 0 8px;
   font-size: 11px;
   border-radius: 5px;
+}
+
+.app-settings-mode-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.app-settings-mode-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 6px 8px;
+  border: 1px solid #e5e7eb;
+  border-radius: 7px;
+  background: var(--app-studio-surface);
+  font-size: 12px;
+  color: var(--app-studio-fg);
+  cursor: pointer;
+}
+
+.app-settings-mode-row:has(input:checked) {
+  border-color: var(--app-studio-link);
+  background: var(--app-studio-surface-2);
+}
+
+.app-settings-mode-row input {
+  margin: 0;
+  flex-shrink: 0;
 }
 
 .app-settings-mode-grid {

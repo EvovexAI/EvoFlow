@@ -12,7 +12,7 @@ import { useWorkflowStudioOptional } from './WorkflowStudioContext.tsx'
 const EDGE_IDLE = '#B8BDCA'
 const EDGE_ACTIVE = '#5B5FEF'
 
-/** 带中点删除按钮的折线连线（开始节点引出的边不显示 ×，避免删了又被自动补回） */
+/** 带中点操作的折线：选中后可拖两端改接；双击选下游节点；× 删线 */
 function DeletableSmoothStepEdge({
   id,
   source,
@@ -38,8 +38,8 @@ function DeletableSmoothStepEdge({
     borderRadius: 8,
   })
   const canDelete = source !== START_NODE_ID
-  const showClose = canDelete && (selected || hovered)
   const active = !!(selected || hovered)
+  const showChrome = active
   const stroke = active ? EDGE_ACTIVE : EDGE_IDLE
   const strokeWidth = active ? 2.25 : 2
   const mergedStyle = {
@@ -53,37 +53,46 @@ function DeletableSmoothStepEdge({
   return (
     <>
       <BaseEdge id={id} path={path} style={mergedStyle} markerEnd={resolvedMarker} />
-      {canDelete ? (
-        <path
-          d={path}
-          fill="none"
-          stroke="transparent"
-          strokeWidth={24}
-          className="react-flow__edge-interaction"
-          onMouseEnter={() => setHovered(true)}
-          onMouseLeave={() => setHovered(false)}
-        />
-      ) : null}
-      {canDelete ? (
+      <path
+        d={path}
+        fill="none"
+        stroke="transparent"
+        strokeWidth={28}
+        className="react-flow__edge-interaction"
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+      />
+      {showChrome ? (
         <EdgeLabelRenderer>
-          <button
-            type="button"
-            className={`wf-edge-close nodrag nopan${showClose ? ' is-visible' : ''}`}
+          <div
+            className={`wf-edge-chrome nodrag nopan${selected ? ' is-selected' : ''}`}
             style={{
               transform: `translate(-50%, -50%) translate(${labelX}px,${labelY}px)`,
             }}
-            title="删除连线"
-            aria-label="删除连线"
-            onClick={(e) => {
-              e.stopPropagation()
-              studio?.deleteEdge?.(id)
-            }}
-            onPointerDown={(e) => e.stopPropagation()}
             onMouseEnter={() => setHovered(true)}
             onMouseLeave={() => setHovered(false)}
           >
-            <X size={12} strokeWidth={2.5} />
-          </button>
+            {selected ? (
+              <span className="wf-edge-hint" title="拖线两端圆点改接到其他节点；双击选中下游节点以便拖走">
+                拖两端改接 · 双击选节点
+              </span>
+            ) : null}
+            {canDelete ? (
+              <button
+                type="button"
+                className="wf-edge-close is-visible"
+                title="删除连线"
+                aria-label="删除连线"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  studio?.deleteEdge?.(id)
+                }}
+                onPointerDown={(e) => e.stopPropagation()}
+              >
+                <X size={12} strokeWidth={2.5} />
+              </button>
+            ) : null}
+          </div>
         </EdgeLabelRenderer>
       ) : null}
     </>

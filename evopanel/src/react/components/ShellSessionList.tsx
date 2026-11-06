@@ -1327,28 +1327,29 @@ export function ShellSessionList({
   )
 
   const handleNewSessionClick = useCallback(() => {
-    setFilterOpen(false)
+    // 曾误写 setFilterOpen(false)（状态不存在）→ 点击抛 ReferenceError，空态 CTA「完全没反应」
     onSessionFilterChange('')
+    document.getElementById('app-shell-aside')?.classList.remove('shell-aside-open')
+    document.getElementById('shell-aside-overlay')?.classList.remove('visible')
     if (isEmployeesTab) {
       const code = String(focusedEmployeeCode || '').trim()
       if (!code) {
         setEmpMenuOpen(true)
         return
       }
+      if (!isChatHashRoute()) navigate('/chat')
       openNewEmployeeChat(code)
       return
     }
     // 一律走新建会话（即时切空白草稿），不要点侧栏「新建对话」——那会走 open-home，
     // 已在空工作台时只滚动不反馈，感觉像「点了没反应」。
-    if (focusedGroup) {
-      const path =
-        focusedGroup.workspaceKey === WORKSPACE_GROUP_UNBOUND
-          ? null
-          : resolveShellGroupWorkspacePath(focusedGroup, registeredWorkspacePaths)
-      onNewSessionInWorkspace?.(path)
-      return
-    }
-    onNewSessionInWorkspace?.(null)
+    const path = focusedGroup
+      ? focusedGroup.workspaceKey === WORKSPACE_GROUP_UNBOUND
+        ? null
+        : resolveShellGroupWorkspacePath(focusedGroup, registeredWorkspacePaths)
+      : null
+    if (!isChatHashRoute()) navigate('/chat')
+    onNewSessionInWorkspace?.(path)
   }, [
     focusedGroup,
     focusedEmployeeCode,
@@ -1919,9 +1920,14 @@ export function ShellSessionList({
                                     return
                                   }
                                   const grp = groups.find((g) => g.workspaceKey === section.key)
-                                  const wsPath = grp && grp.workspaceKey !== '__unbound__'
-                                    ? grp.path || null
-                                    : null
+                                  const wsPath =
+                                    grp && grp.workspaceKey !== WORKSPACE_GROUP_UNBOUND
+                                      ? resolveShellGroupWorkspacePath(
+                                          grp,
+                                          registeredWorkspacePaths,
+                                        )
+                                      : null
+                                  if (!isChatHashRoute()) navigate('/chat')
                                   onNewSessionInWorkspace?.(wsPath)
                                 }}
                               >

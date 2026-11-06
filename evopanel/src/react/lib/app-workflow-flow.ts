@@ -22,6 +22,7 @@ function stepEdge(source: string, target: string): Edge {
     targetHandle: 'in',
     type: 'wfEdge',
     style: STEP_EDGE_STYLE,
+    reconnectable: true,
   }
 }
 
@@ -35,6 +36,8 @@ function startEdge(target: string): Edge {
     type: 'wfEdge',
     animated: true,
     style: START_EDGE_STYLE,
+    // 起点固定在「开始」，只允许拖终点改接到其他步骤
+    reconnectable: 'target',
   }
 }
 

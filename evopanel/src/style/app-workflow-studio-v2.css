@@ -79,14 +79,13 @@
   box-shadow: none;
 }
 
+/* 配置面板改悬浮卡：宽度由 .wf-config-float 控制，这里不再锁死侧栏块 */
 .wf-drawer.wf-drawer--config.is-open,
 .wf-drawer.wf-drawer--config.is-open.is-config {
-  width: 336px !important;
-  max-width: 336px;
+  /* 非悬浮兜底（旧布局）；悬浮场景由 .wf-config-float 覆盖 */
+  width: min(400px, 46vw) !important;
+  max-width: min(400px, 46vw);
   border-right: none;
-  border-left: 1px solid var(--wf-node-border);
-  background: var(--bg-secondary);
-  box-shadow: none;
 }
 
 .wf-drawer-panel-heading {
@@ -313,12 +312,12 @@ html.dark .wf-studio-toolbar-win-sep {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  height: 34px;
-  padding: 0 14px;
-  border-radius: 9px !important;
+  gap: 5px;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 8px !important;
   border: 1px solid transparent;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   letter-spacing: -0.01em;
   line-height: 1;
@@ -611,10 +610,10 @@ html[data-theme='dark'] .wf-studio-toolbar {
   border-bottom-color: var(--border-primary) !important;
 }
 
-html[data-theme='dark'] .wf-drawer.wf-drawer--config.is-open,
-html[data-theme='dark'] .wf-drawer.wf-drawer--config.is-open.is-config {
-  background: var(--bg-secondary) !important;
-  border-left-color: var(--border-primary) !important;
+html[data-theme='dark'] .wf-studio-float-panel,
+html[data-theme='dark'] .wf-studio-float-bubble {
+  background: var(--surface-overlay-bg, var(--bg-elevated, var(--bg-secondary))) !important;
+  border-color: var(--surface-overlay-border, var(--border-primary)) !important;
 }
 
 html[data-theme='dark'] .wf-node-card {

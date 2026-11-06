@@ -1,17 +1,43 @@
 /**
  * 应用中心工作流画布 — React Flow（与 FastGPT 同款 @xyflow/react）
+ *
+ * AppWorkflowCanvas / @xyflow 体积大：动态 import，避免 apps-detail 冷开时
+ * 必须先解析整包才开始 getApp（「加载工作流…」被模块下载拖死）。
  */
 import { createElement, createRef } from 'react'
 import { createRoot } from 'react-dom/client'
-import { AppWorkflowCanvas } from '../react/components/AppWorkflowCanvas.tsx'
 
 const roots = new WeakMap()
+
+/** @type {Promise<typeof import('../react/components/AppWorkflowCanvas.tsx').AppWorkflowCanvas> | null} */
+let _canvasLoad = null
+/** @type {typeof import('../react/components/AppWorkflowCanvas.tsx').AppWorkflowCanvas | null} */
+let _AppWorkflowCanvas = null
+
+/** 预热画布 chunk（列表 hover / 进详情时可并行于 getApp）。 */
+export function preloadAppWorkflowCanvas() {
+  if (_AppWorkflowCanvas) return Promise.resolve(_AppWorkflowCanvas)
+  if (!_canvasLoad) {
+    _canvasLoad = import('../react/components/AppWorkflowCanvas.tsx')
+      .then((m) => {
+        _AppWorkflowCanvas = m.AppWorkflowCanvas
+        return _AppWorkflowCanvas
+      })
+      .catch((err) => {
+        _canvasLoad = null
+        throw err
+      })
+  }
+  return _canvasLoad
+}
 
 /**
  * @param {HTMLElement} container
  * @param {{ goal?: string, steps?: object[], canvas?: object, variant?: string, onSave?: Function, onPublish?: Function }} options
  */
-export function mountAppWorkflowCanvas(container, options = {}) {
+export async function mountAppWorkflowCanvas(container, options = {}) {
+  const AppWorkflowCanvas = await preloadAppWorkflowCanvas()
+
   container.innerHTML = ''
   container.classList.add('app-wf-mounted')
 
@@ -35,12 +61,12 @@ export function mountAppWorkflowCanvas(container, options = {}) {
         goal: props.goal || '',
         steps: props.steps || [],
         canvas: props.canvas || null,
+        projectPath: props.projectPath || props.project_path || '',
         onSave: props.onSave || (async () => {}),
         onPublish: props.onPublish || (async () => {}),
         onOpenAppSettings: props.onOpenAppSettings,
         onOpenHistory: props.onOpenHistory,
         onOpenVersions: props.onOpenVersions,
-        onOpenHowToUse: props.onOpenHowToUse || props.onOpenApiAccess,
         onOpenHowToUse: props.onOpenHowToUse || props.onOpenApiAccess,
         onOpenApiAccess: props.onOpenApiAccess,
         appName: props.appName || '',
@@ -93,12 +119,19 @@ export function mountAppWorkflowCanvas(container, options = {}) {
     setGoal(goal) {
       api()?.setGoal?.(goal)
     },
+    getProjectPath() {
+      return api()?.getProjectPath?.() || props.projectPath || props.project_path || ''
+    },
+    setProjectPath(path) {
+      api()?.setProjectPath?.(path)
+    },
     setPlan(plan = {}) {
       props = {
         ...props,
         goal: plan.goal || '',
         steps: plan.steps || [],
         canvas: plan.canvas || null,
+        projectPath: plan.project_path || plan.projectPath || '',
       }
       planKey += 1
       render()

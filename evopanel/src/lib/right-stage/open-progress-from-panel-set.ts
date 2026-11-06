@@ -45,7 +45,7 @@ function firstStr(...vals: unknown[]): string {
  */
 export function openProgressFromPanelSet(
   surface: ProgressStageSurface | null | undefined,
-  opts?: { sessionKey?: string | null },
+  opts?: { sessionKey?: string | null; forceExpand?: boolean },
 ): string {
   if (!surface || typeof surface !== 'object') {
     logRightStage('openProgress:skip empty surface')
@@ -55,6 +55,7 @@ export function openProgressFromPanelSet(
   const data = surface.data && typeof surface.data === 'object' ? surface.data : {}
   const title = firstStr(surface.title, data.title)
   const sk = firstStr(opts?.sessionKey, surface.sessionKey) || undefined
+  const forceExpand = opts?.forceExpand === true
 
   if (kind === 'collab-workflow') {
     const mainTaskId = firstStr(data.mainTaskId, data.main_task_id, data.taskId, data.task_id)
@@ -68,9 +69,9 @@ export function openProgressFromPanelSet(
         leadThreadId: firstStr(data.leadThreadId, data.lead_thread_id, data.threadId, data.thread_id),
         title: title || '工作流',
       },
-      { sessionKey: sk, layout: (surface.layout as 'half') || 'half' },
+      { sessionKey: sk, layout: (surface.layout as 'half') || 'half', forceExpand },
     )
-    logRightStage('openProgress:collab-workflow', { tabId, mainTaskId, title }, { store: rightStageStore })
+    logRightStage('openProgress:collab-workflow', { tabId, mainTaskId, title, forceExpand }, { store: rightStageStore })
     return tabId
   }
 

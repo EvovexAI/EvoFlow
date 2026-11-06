@@ -23,6 +23,12 @@ export type InputSchemaDef = {
   fields: OutputSchemaField[]
 }
 
+/**
+ * 工作流步骤默认执行壳（可派发的通用 Agent；非员工、非 main/lead）。
+ * 能力（技能/工具/MCP/指令）在步骤上配置；与 AI 员工值班选人解耦。
+ */
+export const DEFAULT_WORKFLOW_AGENT = 'agent'
+
 export type AppWorkflowStep = {
   ref: string
   name: string
@@ -36,6 +42,10 @@ export type AppWorkflowStep = {
   tools?: string
   skills?: string
   mcp_servers?: string
+  /** 本步绑定的知识库 id（CSV）；空 = 不额外绑库 */
+  knowledge_vault_ids?: string
+  /** 本步思考开关；undefined = 跟随默认 */
+  thinking_enabled?: boolean | null
   model?: string
   project_path?: string
   assigned_agent?: string
@@ -56,6 +66,13 @@ export type AppWorkflowStep = {
   canvas?: { x: number; y: number }
 }
 
+/** 空执行者 → 通用 agent；模板步不改。 */
+export function ensureWorkflowStepAgent(step: AppWorkflowStep): AppWorkflowStep {
+  if (String(step.executor || '').trim().toLowerCase() === 'template') return step
+  if (String(step.assigned_agent || '').trim()) return step
+  return { ...step, assigned_agent: DEFAULT_WORKFLOW_AGENT }
+}
+
 export type StepFieldDef = {
   key: keyof AppWorkflowStep
   label: string
@@ -67,8 +84,12 @@ export type StepFieldDef = {
 export const STEP_INSPECTOR_FIELDS: StepFieldDef[] = [
   { key: 'name', label: '任务名称', placeholder: '本步要完成的事，如「收集竞品资料」' },
   { key: 'description', label: '描述', multiline: true, placeholder: '补充备注' },
-  { key: 'goal', label: '步骤说明', multiline: true, placeholder: '这一步要完成什么' },
-  { key: 'assigned_agent', label: '执行者', placeholder: '员工或通用 Agent 编码' },
+  { key: 'goal', label: '提示词', multiline: true, placeholder: '可空；需要时再写' },
+  {
+    key: 'assigned_agent',
+    label: '执行壳',
+    placeholder: '默认 agent；能力以本步技能/工具为准',
+  },
   {
     key: 'inputs',
     label: '输入说明（给本步 Agent）',
@@ -92,6 +113,7 @@ export const STEP_INSPECTOR_FIELDS: StepFieldDef[] = [
   { key: 'instruction', label: '补充指令', multiline: true },
   { key: 'tools', label: '工具', placeholder: '逗号分隔，如 read_file,write_file' },
   { key: 'skills', label: '技能', placeholder: '逗号分隔' },
+  { key: 'knowledge_vault_ids', label: '知识库', placeholder: '逗号分隔知识库 id' },
   { key: 'model', label: '模型', placeholder: '可选模型覆盖' },
   { key: 'project_path', label: '工作目录', placeholder: '可选项目路径' },
 ]
@@ -106,7 +128,7 @@ export const STEP_INSPECTOR_GROUPS: StepInspectorGroup[] = [
   {
     id: 'basic',
     label: '基础配置',
-    keys: ['name', 'description', 'goal', 'assigned_agent'],
+    keys: ['name', 'description', 'goal'],
   },
   {
     id: 'io',
@@ -116,7 +138,7 @@ export const STEP_INSPECTOR_GROUPS: StepInspectorGroup[] = [
   {
     id: 'exec',
     label: '执行配置',
-    keys: ['instruction', 'tools', 'skills', 'model', 'project_path'],
+    keys: ['instruction', 'tools', 'skills', 'model', 'project_path', 'assigned_agent'],
   },
 ]
 
@@ -132,6 +154,18 @@ export type AppWorkflowPlan = {
   canvas?: AppCanvasJson
   /** Step ref whose result is the public OpenAPI / 运行页 answer (answer node). */
   answer_from_ref?: string
+  /** 工作流默认工作空间；单步 project_path 可覆盖。 */
+  project_path?: string
+}
+
+/** 路径末段，用于状态栏 / 摘要展示 */
+export function workspaceDisplayName(path?: string | null): string {
+  const p = String(path || '')
+    .trim()
+    .replace(/[\\/]+$/g, '')
+  if (!p) return ''
+  const parts = p.split(/[\\/]/)
+  return parts[parts.length - 1] || p
 }
 
 const NODE_W = 300
@@ -315,6 +349,13 @@ function stepFromRaw(step: Record<string, unknown>, i: number): AppWorkflowStep 
     tools: fieldToUiCsv(step.tools),
     skills: fieldToUiCsv(step.skills),
     mcp_servers: fieldToUiCsv(step.mcp_servers),
+    knowledge_vault_ids: fieldToUiCsv(step.knowledge_vault_ids),
+    thinking_enabled:
+      step.thinking_enabled === true || step.thinking_enabled === false
+        ? Boolean(step.thinking_enabled)
+        : step.thinking_enabled === 'true' || step.thinking_enabled === 'false'
+          ? step.thinking_enabled === 'true'
+          : null,
     model: pickStr(step.model) || undefined,
     project_path: pickStr(step.project_path ?? step.projectPath) || undefined,
     assigned_agent: pickStr(step.assigned_agent) || undefined,
@@ -394,9 +435,11 @@ export function stepsToExport(
   goal: string,
   steps: AppWorkflowStep[],
   canvas?: AppCanvasJson,
+  projectPath?: string,
 ): AppWorkflowPlan {
   const orderMap = stepOrderFromDependsOn(steps)
-  const payload = steps.map((s) => {
+  const payload = steps.map((raw) => {
+    const s = ensureWorkflowStepAgent(raw)
     const orderIndex = orderMap.get(s.ref) ?? 0
     const row: Record<string, unknown> = {
       ref: s.ref,
@@ -419,13 +462,24 @@ export function stepsToExport(
       // 空字符串也写入，表示用户显式清空了该字段（区别于"未设置"）
       if (typeof v === 'string') row[key] = v
     }
+    // 非模板步：未指定执行壳时默认通用 agent（编排能力在本步 skills/tools）
+    const isTemplate = String(s.executor || '').trim().toLowerCase() === 'template'
+    if (!isTemplate) {
+      const code = String(row.assigned_agent || '').trim()
+      row.assigned_agent = code || DEFAULT_WORKFLOW_AGENT
+    }
     // Persist as string[] (backend contract); UI still edits CSV on the step model
     const tools = parseCsvField(s.tools)
     const skills = parseCsvField(s.skills)
     const mcp = parseCsvField(s.mcp_servers)
+    const vaults = parseCsvField(s.knowledge_vault_ids)
     if (tools.length) row.tools = tools
     if (skills.length) row.skills = skills
     if (mcp.length) row.mcp_servers = mcp
+    if (vaults.length) row.knowledge_vault_ids = vaults
+    if (s.thinking_enabled === true || s.thinking_enabled === false) {
+      row.thinking_enabled = s.thinking_enabled
+    }
     // Serialize input_bindings (UI form -> backend contract)
     if (s.input_bindings && Object.keys(s.input_bindings).length) {
       row.input_bindings = { ...s.input_bindings }
@@ -472,6 +526,8 @@ export function stepsToExport(
     steps: payload as AppWorkflowStep[],
     flowchart_mermaid: flowchartMermaidFromSteps(payload),
   }
+  const ws = String(projectPath || '').trim()
+  if (ws) plan.project_path = ws
   if (canvas) {
     plan.canvas = canvas
     const edge = (canvas.edges || []).find((e) => e.target === ANSWER_NODE_ID)

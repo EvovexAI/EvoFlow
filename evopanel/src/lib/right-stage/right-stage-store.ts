@@ -315,12 +315,20 @@ export class RightStageStore {
     layout?: RightStageSurface['layout']
     data?: Record<string, unknown>
     sessionKey?: string
+    /**
+     * 用户显式打开（点文件 pill / 编辑卡 / 文件树）时为 true：
+     * 清掉收起锁并展开。自动开栏（平台工具、小V）不要传，以免顶掉用户「收起」。
+     * 关到最后一个签会钉 userCollapsed；若这里不强制，再点文件会只写签不撑开。
+     */
+    forceExpand?: boolean
   }) {
     const kind = normalizeRightStageKind(String(input.kind || '').trim())
     if (!kind) {
       logPanelSet('④ store.show：kind 为空，忽略')
       return
     }
+    const forceExpand = Boolean(input.forceExpand)
+    if (forceExpand) this.userCollapsed = false
     // 产物改由侧栏 Info Rail 呈报，禁止占用 Right Stage
     if (kind === 'artifacts') {
       logPanelSet('④ store.show：拒绝挂 artifacts 标签（设计如此，应走文件预览/状态卡）')
@@ -365,9 +373,9 @@ export class RightStageStore {
         prev.sessionKey === next.sessionKey &&
         JSON.stringify(prev.data) === JSON.stringify(next.data)
       if (same) {
-        // 仅激活；用户收起锁定时不偷偷展开
+        // 仅激活；用户收起锁定时不偷偷展开（forceExpand 除外）
         const needActivate = this.activeKey !== key
-        const needExpand = this.collapsed && !this.userCollapsed
+        const needExpand = this.collapsed && (forceExpand || !this.userCollapsed)
         if (needActivate) this.activeKey = key
         if (needExpand) this.collapsed = false
         if (needActivate || needExpand) this.bump()
@@ -378,8 +386,8 @@ export class RightStageStore {
       this.tabs = [...this.tabs, next]
     }
     this.activeKey = key
-    // 打开/激活标签：用户未锁收起时才展开；锁住时签仍写入缓存，顶栏可再开。
-    if (!this.userCollapsed) this.collapsed = false
+    // 打开/激活标签：用户未锁收起时才展开；显式打开（forceExpand）始终撑开。
+    if (forceExpand || !this.userCollapsed) this.collapsed = false
     logPanelSet('④ store.show 已写入', {
       key,
       kind,
@@ -388,6 +396,7 @@ export class RightStageStore {
       tabCount: this.tabs.length,
       collapsed: this.collapsed,
       userCollapsed: this.userCollapsed,
+      forceExpand,
     })
     this.bump()
   }

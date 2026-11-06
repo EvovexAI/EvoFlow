@@ -11123,6 +11123,29 @@ html.dark .react-chat-current-task-expand,
   margin-bottom: 6px;
 }
 
+.react-chat-agent-cap-bound-hint {
+  display: block;
+  width: 100%;
+  margin: 0 0 6px;
+  padding: 5px 8px;
+  border: 1px dashed color-mix(in srgb, var(--accent, #635bff) 35%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--accent, #635bff) 6%, transparent);
+  color: var(--text-secondary, #5b6170);
+  font-size: 11.5px;
+  font-weight: 550;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.react-chat-agent-cap-bound-hint:hover {
+  color: var(--text-primary, #25283a);
+  border-color: color-mix(in srgb, var(--accent, #635bff) 55%, transparent);
+}
+
 .react-chat-agent-cap-add {
   flex-shrink: 0;
   padding: 2px 8px;
@@ -11301,6 +11324,23 @@ html.dark .react-chat-current-task-expand,
   background: var(--agent-soft);
   font-size: var(--ef-text-sm);
   color: var(--agent-mute);
+}
+
+/* 工作流步骤：空配置 = 运行时继承默认能力 */
+.react-chat-agent-cap-inherit-hint {
+  margin: 0 0 8px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent, #635bff) 8%, transparent);
+  color: var(--text-secondary, var(--agent-mute));
+  font-size: var(--ef-text-xs);
+  line-height: 1.45;
+}
+
+.react-chat-agent-cap-overview-item.is-inherit .react-chat-agent-cap-overview-value {
+  font-size: var(--ef-text-sm);
+  font-weight: 600;
+  color: var(--accent, #635bff);
 }
 
 .react-chat-agent-cap-more {

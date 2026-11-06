@@ -16,7 +16,6 @@ export type WorkflowStudioContextValue = {
   drawerOpen: boolean
   setDrawerOpen: (open: boolean) => void
   onOpenConfig?: () => void
-  openAgentPicker?: (nodeId: string) => void
   agents: AgentPickerRow[]
   /** App run parameters (global vars, FastGPT-style) */
   appParameters?: Array<{ name?: string; label?: string; type?: string; required?: boolean }>

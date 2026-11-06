@@ -23,8 +23,10 @@ import {
 import {
   asActiveSessionList,
   buildActiveSessionIndex,
+  formatTaskLedgerActivityZh,
   formatTaskStatusWithRuntime,
   resolveTaskRuntimeHealth,
+  runtimeHealthExplainZh,
   runtimeHealthStatusSuffix,
 } from '../lib/task-runtime-health.js'
 import { formatCompactNum, formatDurationMs, formatSubtaskObsLine } from '../lib/task-observability-format.js'
@@ -2386,7 +2388,6 @@ function renderTaskStatusLine(page, state) {
     const parts = []
     if (kindZh) parts.push(kindZh)
     parts.push(statusZh)
-    // statusZh already says 已中断 / 执行中·在跑 — only append suffix when still raw lifecycle
     if (health === 'live' && !String(statusZh).includes('在跑')) {
       const runtimeSuffix = runtimeHealthStatusSuffix(health)
       if (runtimeSuffix) parts.push(runtimeSuffix)
@@ -2400,6 +2401,12 @@ function renderTaskStatusLine(page, state) {
     }
     if (dur) parts.push(live ? `已运行 ${dur}` : `耗时 ${dur}`)
     if (updated && live) parts.push(`最近更新 ${updated}`)
+    // 进程失联：把账本时间与原因写进状态行，避免只剩一个莫名其妙的「已中断」
+    if (health === 'interrupted') {
+      const ledgerAt = formatTaskLedgerActivityZh(task) || updated
+      if (ledgerAt) parts.push(`账本更新 ${ledgerAt}`)
+      parts.push('未检测到活跃会话/租约')
+    }
     if (subtaskCount > 0) {
       const ok = u === 'completed'
       parts.push(ok
@@ -2407,6 +2414,7 @@ function renderTaskStatusLine(page, state) {
         : nodeProgressLabel(completedCount, subtaskCount))
     }
     el.textContent = parts.join(' · ')
+    el.title = health === 'interrupted' ? runtimeHealthExplainZh(task, health) : ''
     el.dataset.group = toTaskStatusGroup(task.status)
     el.dataset.runtime = health
     return
@@ -2418,11 +2426,15 @@ function renderTaskStatusLine(page, state) {
   const parts = [`${icon} ${statusZh}`]
   if (live && updated) parts.push(`最近更新 ${updated}`)
   if (live && dur) parts.push(`已运行 ${dur}`)
-  else if (health === 'interrupted' && dur) parts.push(`曾运行 ${dur}`)
-  else if (finished) parts.push(finished)
+  else if (health === 'interrupted') {
+    const ledgerAt = formatTaskLedgerActivityZh(task) || updated
+    if (ledgerAt) parts.push(`账本更新 ${ledgerAt}`)
+    if (dur) parts.push(`曾运行 ${dur}`)
+    parts.push('未检测到活跃会话/租约')
+  } else if (finished) parts.push(finished)
   else if (dur) parts.push(`耗时 ${dur}`)
-  // 取消原因已在顶部 Banner 展示，状态行保持短句
   el.textContent = parts.join(' · ')
+  el.title = health === 'interrupted' ? runtimeHealthExplainZh(task, health) : ''
   el.dataset.group = toTaskStatusGroup(task.status)
   el.dataset.runtime = health
 }

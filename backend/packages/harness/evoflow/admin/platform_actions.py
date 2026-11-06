@@ -58,7 +58,11 @@ DOMAIN_GUIDES: dict[str, dict[str, str]] = {
     },
     "workflow": {
         "title": "工作流/应用",
-        "when": "创建/改/发/删应用，从目标生成流程，复制、查版本、运行/暂停/恢复/查状态",
+        "when": (
+            "创建/改/发/删应用，从目标生成流程，复制、查版本、运行/暂停/恢复/查状态；"
+            "建流前先查 agents.bindings / skills.list / knowledge.list / mcp.list，"
+            "再按节点显式挂 skills/tools/mcp/knowledge（勿滞空再靠默认能力）"
+        ),
         "not": "不是定时自动化（用 automation）；不是岗位 Task 板；不是侧栏 Agent应用网页（用 extensions）",
     },
     "settings": {

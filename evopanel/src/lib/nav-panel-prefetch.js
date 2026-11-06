@@ -23,6 +23,26 @@ export function takeNavWarm(key) {
   return hit.data
 }
 
+/**
+ * Prefer cached warm; else await in-flight hover/click prefetch; else null.
+ * @param {string} key
+ * @returns {Promise<unknown | null>}
+ */
+export async function takeNavWarmOrInflight(key) {
+  const k = String(key || '')
+  const hit = takeNavWarm(k)
+  if (hit != null) return hit
+  const job = _inflight.get(k)
+  if (!job) return null
+  try {
+    const data = await job
+    // warmKey already putNavWarm on success; consume one-shot for this open
+    return takeNavWarm(k) ?? data ?? null
+  } catch {
+    return null
+  }
+}
+
 /** Peek without consuming (for warmKey dedup). */
 export function hasNavWarm(key) {
   const k = String(key || '')

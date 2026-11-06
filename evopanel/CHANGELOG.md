@@ -6,6 +6,44 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-11-06
+
+相对 **1.3.3**：工作流编排改为按节点配能力（技能/工具/MCP/知识库/模型/思考），画布与编辑面板重做；应用详情与子任务对话打开更快；任务状态不再被「进程失联」盖掉。
+
+### 参与本次发版
+
+- 全栈开发工程师：工作流节点级能力编排、画布与编辑面板重做、应用详情与子任务打开提速、任务状态口径修正、侧栏新建会话与右栏自动打开修复
+- 发版工程师：CI/CD 正式包发布
+
+### Added
+
+- **工作流节点级能力**：每步可单独指定 `skills` / `tools` / `mcp_servers` / `knowledge_vault_ids` / `model` / `thinking_enabled`；执行者降级为「执行壳」（默认通用 agent），能力以本步配置为准
+- **工作流工作目录**：应用新增 `project_path`，写入 `evoflow_apps` 表（启动自动补列）并随运行带入；画布、详情页、平台 schema 三处贯通
+- **悬浮式工作流面板**：节点库与节点配置合并为右上悬浮卡（`WorkflowStudioFloat`），支持收起气泡、选中节点自动切配置、顶栏「节点库」强制展开
+- **员工下拉直选**：节点执行者改用 `AgentPickerDropdown` 内联下拉；「编辑执行者」复用员工编辑 sheet，网关预热未完成时先等就绪，避免 `proactiveGetRole` 超时
+
+### Changed
+
+- **应用详情页加载**：画布代码动态 `import` 并与 `getApp` 并行；列表 hover 预热；命中预热时后台静默刷新定义且不覆盖未保存改动
+- **子任务对话**：`conversation-history` 新增 `meta_only` 参数，打开步骤记录只解析 thread/outcome，不再跑 `get_task` 的 workflow 汇总修复；主任务改用轻量 `load_task_bundle` / `find_main_task`
+- **右栏自动展开**：工作流运行类（run/resume/recover/run_status）强制展开，其它 `autoOpen` 仍尊重用户收起锁；用户点 CTA 一律 `forceExpand`
+- **任务状态口径**：主状态只跟账本 lifecycle，`runtime_health=interrupted` 降级为「进程失联」附注芯片；详情页补账本更新时间与失联含义
+- **排队消息按会话分桶**：`usePendingSendQueue` 切会话不再清空，切回仍可见
+- **员工在岗判定**：关巡检 / 总开关关仍判「在岗」（只改提示），「已停」仅请假与草稿；前后端两处口径统一
+- **工具目录**：撤除 `glob`（按名查找走 Bash），旧配置 `glob` / `find` / `find_file` 映射到 `bash`；MCP 目录增 `peek` 热身兜底与 agent tool-names 缓存失效
+- **token 优化**：资产逐轮标题匹配召回默认关闭（目录已完整注入，`EVOFLOW_HUB_RECALL=1` 可开）；`session_intent` 默认关闭
+
+### Fixed
+
+- **侧栏新建会话无响应**：`handleNewSessionClick` 误用不存在的 `setFilterOpen` 导致 `ReferenceError`；同时补上切回对话页与关闭侧栏抽屉
+- **工作流运行通知标题回落到 id**：`workflow.run` 结果补应用名，不再显示 `Run_xxx`
+- **右栏工作流 CTA 静默失败**：反馈缺 `mainTaskId` 时用 `entityId` 补；挂载失败回落 `/apps/{id}/run?runId=`
+- **工作流 worker 挂不上 MCP**：`parent_model` 不再被重置为 `None`，`task_tool` 合并热身缓存 MCP 工具进目录；`profile.mcp_servers` 覆盖生效，避免 `mcp__*` 挂载为 0
+- **CLI 侧 MCP 工具被拒**：工具名校验对 extensions 里已配置的 MCP 服务器放行 `mcp__<server>__*`
+- **工作流 schema 引导**：建流前先查 `agents.bindings` / `skills.list` / `knowledge.list` / `mcp.list`，节点显式挂能力，不再写「用 Agent 默认能力」
+
+GitHub Release 正文见 `scripts/maintainer/windows/release-notes/PRODUCT-NOTES-1.4.0.md`；升级横幅见 `scripts/maintainer/update/latest.json`。
+
 ## [1.3.3] - 2026-11-06
 
 相对 **1.3.2**：会话通知面板改为紧凑布局，状态由英文枚举改为中文彩色徽标。

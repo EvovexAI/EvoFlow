@@ -87,6 +87,29 @@ def normalize_str_or_list_argument(val: Any) -> list[str] | None:
     return [sx] if sx else None
 
 
+def _mcp_tool_allowed_by_server_config(name: str) -> bool:
+    """Accept ``mcp__<server>__*`` when *server* exists in extensions MCP config.
+
+    CLI / ``evoflow agents update`` often run outside the gateway process, where
+    ``get_cached_mcp_tools()`` returns ``[]`` (no init loop). Rejecting every
+    ``mcp__*`` as unknown then blocks legitimate role tool bindings.
+    """
+    try:
+        from evoflow.mcp.binding import is_mcp_tool_name, mcp_server_from_tool_name
+
+        if not is_mcp_tool_name(name):
+            return False
+        server = mcp_server_from_tool_name(name)
+        if not server:
+            return False
+        from evoflow.config.extensions_config import get_extensions_config
+
+        known = set(get_extensions_config().mcp_servers.keys())
+        return server in known
+    except Exception:
+        return False
+
+
 def partition_tool_names(names: list[str] | None, *, model_name: str | None = None) -> tuple[list[str], list[str]]:
     """Return (known, unknown) preserving input order for known."""
     if not names:
@@ -100,7 +123,7 @@ def partition_tool_names(names: list[str] | None, *, model_name: str | None = No
         if not n or n in seen:
             continue
         seen.add(n)
-        if n in allowed:
+        if n in allowed or _mcp_tool_allowed_by_server_config(n):
             known.append(n)
         else:
             unknown.append(n)

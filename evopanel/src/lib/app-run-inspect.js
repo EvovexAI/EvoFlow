@@ -295,7 +295,11 @@ export function createAppRunInspectController(opts) {
     ).trim()
     let leadThreadId = String(runStatus?.thread_id || '').trim()
     const mainTaskId = String(runStatus?.task_id || '').trim()
-    if (!leadThreadId && mainTaskId) {
+    // Prefer persisted executor thread; else canonical SubThread_{subtaskId} so V4
+    // can hydrate immediately without waiting getTask / conversation-history.
+    let subtaskThreadId = String(fromApi?.subtask_thread_id || '').trim()
+    if (!subtaskThreadId && subtaskId) subtaskThreadId = `SubThread_${subtaskId}`
+    if (!leadThreadId && mainTaskId && !subtaskThreadId) {
       try {
         const task = await api.getTask(mainTaskId)
         leadThreadId = String(task?.thread_id || '').trim()
@@ -336,7 +340,7 @@ export function createAppRunInspectController(opts) {
         ),
         assignedAgent: String(fromApi?.assigned_agent || planStep?.assigned_agent || ''),
         description: String(fromApi?.description || planStep?.goal || planStep?.description || ''),
-        subtaskThreadId: String(fromApi?.subtask_thread_id || ''),
+        subtaskThreadId,
         mode: 'drawer',
         portalTarget: portal,
         readOnly: true,

@@ -64,6 +64,7 @@ def _snapshot_from_document(document: dict[str, Any]) -> dict[str, Any]:
         "final_rollup": document.get("final_rollup", "auto"),
         "final_rollup_agent": document.get("final_rollup_agent", ""),
         "final_rollup_instruction": document.get("final_rollup_instruction", ""),
+        "project_path": str(document.get("project_path") or "").strip(),
     }
 
 
@@ -174,6 +175,7 @@ _RESTORE_SNAPSHOT_KEYS = (
     "final_rollup",
     "final_rollup_agent",
     "final_rollup_instruction",
+    "project_path",
 )
 
 
@@ -248,8 +250,8 @@ INSERT OR REPLACE INTO evoflow_apps (
     parameters_json, steps_json, goal_template, validation_template_json, flowchart_mermaid,
     execution_mode, auto_run, source, source_task_id, version,
     status, tags_json, created_at, updated_at, usage_count, last_used_at, canvas_json,
-    answer_from_ref, final_rollup, final_rollup_agent, final_rollup_instruction
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    answer_from_ref, final_rollup, final_rollup_agent, final_rollup_instruction, project_path
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 """,
             (
                 app_id,
@@ -278,6 +280,7 @@ INSERT OR REPLACE INTO evoflow_apps (
                 document_n.get("final_rollup", "off"),
                 document_n.get("final_rollup_agent", ""),
                 document_n.get("final_rollup_instruction", ""),
+                str(document_n.get("project_path") or "").strip(),
             ),
         )
         if prev_owner and "owner_scope_id" in cols:
@@ -427,6 +430,16 @@ def app_visible_to_principal(
         personal_scope=personal_scope,
         org_scope=org_scope,
     )
+
+
+def app_exists(app_id: str) -> bool:
+    """Cheap existence check — avoid full ``load_app`` (JSON + normalize) in authz guards."""
+    aid = str(app_id or "").strip()
+    if not aid:
+        return False
+    conn = get_db()
+    row = conn.execute("SELECT 1 FROM evoflow_apps WHERE id = ? LIMIT 1", (aid,)).fetchone()
+    return row is not None
 
 
 def load_app(app_id: str) -> dict[str, Any] | None:

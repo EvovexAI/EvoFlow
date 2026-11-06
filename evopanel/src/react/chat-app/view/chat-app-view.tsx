@@ -1597,6 +1597,24 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
                     )
                   })
                 }}
+                sessionWorkflowTaskId={String(sidebarActiveTaskId || '').trim()}
+                onPickWorkflow={(opt) => {
+                  const tid = String(opt?.taskId || '').trim()
+                  if (!tid) return
+                  void import('../../../lib/right-stage/open-collab-workflow-stage.js').then((m) => {
+                    m.openCollabWorkflowInRightStage(
+                      {
+                        mainTaskId: tid,
+                        leadThreadId: String(opt.leadThreadId || chatThreadIdForSidebar || '').trim(),
+                        title: String(opt.title || '工作流').trim() || '工作流',
+                      },
+                      {
+                        sessionKey: String(selectedSessionKey || '').trim() || undefined,
+                        forceExpand: true,
+                      },
+                    )
+                  })
+                }}
                 renderContent={renderRightStageBody}
               />
             ) : null}

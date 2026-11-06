@@ -225,8 +225,8 @@ class MemoryLiveFooterMiddleware(AgentMiddleware[AgentState]):
         if len(preview) > 400:
             preview = preview[:400] + "…"
 
-        # Asset Hub recall: default ON — written craft/facts must reach the turn
-        # without relying on the model to voluntarily ``assets read``.
+        # Asset Hub title-match recall: default OFF — L2 catalog is already fully
+        # injected; per-turn matching duplicates it. Opt in: EVOFLOW_HUB_RECALL=1.
         hub_block = ""
         try:
             from evoflow.assets.guidance import resolve_memory_entity

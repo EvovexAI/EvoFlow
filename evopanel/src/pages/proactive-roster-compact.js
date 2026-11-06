@@ -35,13 +35,10 @@ function statusOf(role, busySet) {
   const code = String(role?.agent_code || '')
   if (busySet.has(code)) return { label: '工作中', tone: 'run' }
   const st = String(role?.status || '')
+  // 关巡检仍可对话/派活 → 在岗；只有请假/草稿才算停岗
   if (st === 'draft') return { label: '草稿', tone: 'warn' }
   if (st === 'paused') return { label: '请假', tone: 'muted' }
-  if (st === 'active') {
-    const suspended = !!(role?.auto_patrol_suspended || role?.config?.auto_patrol_suspended)
-    if (suspended) return { label: '已停', tone: 'muted' }
-    return { label: '在岗', tone: 'ok' }
-  }
+  if (st === 'active') return { label: '在岗', tone: 'ok' }
   return { label: '已停', tone: 'muted' }
 }
 

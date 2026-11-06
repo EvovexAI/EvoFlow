@@ -9,12 +9,14 @@ from evoflow.tools.host_direct.search_code_index import search_code_index_hd
 from evoflow.tools.host_direct.str_replace import str_replace_hd
 from evoflow.tools.host_direct.write_file import write_file_hd
 from evoflow.tools.zcode_port import zcode_shell_tools
-from evoflow.tools.zcode_port.glob_grep import glob_tool, grep_tool
+from evoflow.tools.zcode_port.glob_grep import grep_tool
 
-# find / rg / terminal 已由 ZCode Bash（embedded search）取代，实现文件保留但不注册。
+# find / rg / terminal / glob 已撤除：按名查找走 Bash（find / Get-ChildItem / rg --files），
+# 实现文件保留但不注册。
 # from evoflow.tools.host_direct.find_file import find_file_hd
 # from evoflow.tools.host_direct.rg import rg_hd
 # from evoflow.tools.host_direct.terminal_tool import terminal_tool
+# from evoflow.tools.zcode_port.glob_grep import glob_tool
 # delete 已撤除（对齐 ZCode）：删除走 Bash `rm`，由 terminal 审批策略兜底
 # （_DESTRUCTIVE_CMD_RE 挡 allow_prefix 绕过 + 每次调用确认）；实现文件保留。
 # from evoflow.tools.host_direct.delete_file import delete_file_hd
@@ -27,7 +29,7 @@ HOST_DIRECT_TOOLS = [
     # delete_file_hd,
     # find_file_hd,
     # rg_hd,
-    glob_tool,
+    # glob_tool,  # retired — 文件名查找走 Bash
     grep_tool,
     search_code_index_hd,
     # terminal_tool,

@@ -466,15 +466,15 @@ code_index:
 # Session intent rollup (recent user goals in system prompt)
 # ============================================================================
 session_intent:
-  enabled: true
+  enabled: false  # retired: SessionIntentMiddleware unmounted; history already has prior user turns
   max_turns: 5
-  llm_rollup_enabled: false   # MVP: use mission_state primary_objective instead of a second LLM rollup
+  llm_rollup_enabled: false
   llm_rollup_model_name: null
   llm_rollup_max_input_chars: 6000
   llm_rollup_min_chars: 120
-  # Auto 模式（面板 session_mode=auto）：每条用户消息自动判定是否开启思考，无需改此项；结果写入 evoflow_chat_sessions.thinking_enabled
+  # Auto 模式（面板 session_mode=auto）：每条用户消息自动判定是否开启思考
   # auto_thinking_decision_enabled 已忽略，仅保留兼容旧配置
-  auto_thinking_model_name: null   # 可选：指定判定模型；null 用默认/rollup 模型
+  auto_thinking_model_name: null
 
 # ============================================================================
 # Summarization Configuration

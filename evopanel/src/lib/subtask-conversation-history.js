@@ -107,12 +107,17 @@ export async function fetchTranscriptMessagesByThread(threadId, limit = 2000) {
 /**
  * Resolver: taskId+subtaskId → messages + thread_id + outcome (not a second chat protocol).
  */
-async function fetchViaTaskConversationHistory(mainTaskId, subtaskId, limit) {
+async function fetchViaTaskConversationHistory(mainTaskId, subtaskId, limit, { metaOnly = false } = {}) {
   const mid = String(mainTaskId || '').trim()
   const sid = String(subtaskId || '').trim()
   if (!mid || !sid) return null
   const qs = new URLSearchParams()
-  qs.set('limit', String(Math.max(1, Math.min(Number(limit) || 600, 5000))))
+  if (metaOnly) {
+    qs.set('meta_only', '1')
+    qs.set('limit', '1')
+  } else {
+    qs.set('limit', String(Math.max(1, Math.min(Number(limit) || 600, 5000))))
+  }
   const path = `/api/tasks/${encodeURIComponent(mid)}/subtasks/${encodeURIComponent(sid)}/conversation-history?${qs}`
   const res = await fetch(path, { credentials: 'same-origin' })
   if (!res.ok) {
@@ -143,7 +148,9 @@ export async function fetchSubtaskTranscriptMeta(params) {
 
   if (mainTaskId && subtaskId) {
     try {
-      const data = await fetchViaTaskConversationHistory(mainTaskId, subtaskId, 1)
+      const data = await fetchViaTaskConversationHistory(mainTaskId, subtaskId, 1, {
+        metaOnly: true,
+      })
       const resolved = String(data?.thread_id || '').trim()
       if (resolved) threadId = resolved
       outcome = outcomeFromApi(data?.outcome, params?.subtaskSnapshot)
