@@ -798,6 +798,31 @@ def _inherit_connection_api_key(model_data: dict[str, Any]) -> dict[str, Any]:
     return data
 
 
+def _strip_platform_control_flags(data: dict[str, Any]) -> dict[str, Any]:
+    """Drop platform control-plane flags (``confirm`` / ``dry_run`` …) from config data.
+
+    The capability gate accepts a ``confirm`` flag inside ``args_json``. Model /
+    agent / tool config writers persist their args verbatim, so the flag used to
+    survive as a Pydantic extra (``ModelConfig`` is ``extra="allow"``) and was later
+    replayed as a constructor kwarg on every ``create_chat_model()`` call — reaching
+    ``AsyncCompletions.create()`` and raising
+    ``TypeError: … unexpected keyword argument 'confirm'``.
+    """
+    if not isinstance(data, dict):
+        return data
+    try:
+        from evoflow.models.create_payload_sanitize import PLATFORM_CONTROL_KEYS
+    except Exception:
+        return dict(data)
+    out = {k: v for k, v in data.items() if k not in PLATFORM_CONTROL_KEYS}
+    if len(out) != len(data):
+        logger.warning(
+            "Dropped platform control flags from config payload: %s",
+            ", ".join(sorted(set(data) - set(out))),
+        )
+    return out
+
+
 def add_model_to_config(model_data: dict) -> "ModelConfig":
     """Add a new model to the config.
 
@@ -820,6 +845,9 @@ def add_model_to_config(model_data: dict) -> "ModelConfig":
         raise ValueError(f"Model '{model_data['name']}' already exists")
 
     model_data = _inherit_connection_api_key(_apply_default_thinking_payload(model_data))
+    # Platform control-plane flags (confirm / dry_run …) are gate plumbing, never
+    # model settings — persisting them would replay them as vendor create() kwargs.
+    model_data = _strip_platform_control_flags(model_data)
 
     # Create new model config
     new_model = ModelConfig.model_validate(model_data)
@@ -881,6 +909,10 @@ def update_model_in_config(model_name: str, model_data: dict) -> "ModelConfig":
     merged = {**existing_dump, **normalized}
     merged["name"] = model_name
     merged = _apply_default_thinking_payload(merged)
+    # Platform control-plane flags (confirm / dry_run …) are gate plumbing, never
+    # model settings — strip them from both the incoming patch and any stale extra
+    # carried over by ``existing_dump``.
+    merged = _strip_platform_control_flags(merged)
 
     updated_model = ModelConfig.model_validate(merged)
     config.models[model_index] = updated_model

@@ -10,7 +10,10 @@ from evoflow.config.model_config import (
     resolve_model_max_retries,
     resolve_model_request_timeout,
 )
-from evoflow.models.create_payload_sanitize import NON_VENDOR_CREATE_KEYS
+from evoflow.models.create_payload_sanitize import (
+    ALL_NON_VENDOR_CREATE_KEYS,
+    NON_VENDOR_CREATE_KEYS,
+)
 from evoflow.persistence.timestamps import iso_z_to_ms, ms_to_iso_z
 
 
@@ -108,6 +111,10 @@ def model_doc_to_row(doc: dict[str, Any]) -> dict[str, Any]:
     # LangGraph / session runtime — never persist into model extra_json (leaks to create()).
     for key in NON_VENDOR_CREATE_KEYS:
         extra.pop(key, None)
+    # Platform control-plane flags (confirm / dry_run …) — the capability gate consumed
+    # them; persisting them would replay them as vendor create() kwargs.
+    for key in ALL_NON_VENDOR_CREATE_KEYS:
+        extra.pop(key, None)
     status_raw = doc.get("availability_status")
     availability_status = str(status_raw or "").strip().lower() or "available"
     if availability_status not in ("available", "unavailable"):
@@ -187,6 +194,10 @@ def model_row_to_doc(r: dict[str, Any]) -> dict[str, Any]:
         out.pop(key, None)
     # Stale session/runtime keys in extra_json must not become ModelConfig extras.
     for key in NON_VENDOR_CREATE_KEYS:
+        out.pop(key, None)
+    # Stale platform control-plane flags (confirm / dry_run …) must not become
+    # ModelConfig extras either — they would be replayed as vendor create() kwargs.
+    for key in ALL_NON_VENDOR_CREATE_KEYS:
         out.pop(key, None)
     status = str(r.get("availability_status") or "").strip().lower() or "available"
     if status not in ("available", "unavailable"):

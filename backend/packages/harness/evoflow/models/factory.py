@@ -12,7 +12,9 @@ from evoflow.config.app_config import AppConfig
 from evoflow.config.credential_pool import build_pool_from_config
 from evoflow.config.models_yaml import infer_vendor_from_connection
 from evoflow.models.create_payload_sanitize import (
+    ALL_NON_VENDOR_CREATE_KEYS,
     NON_VENDOR_CREATE_KEYS,
+    PLATFORM_CONTROL_KEYS,
     scrub_chat_model_runtime_kwargs,
 )
 from evoflow.models.credential_sanitize import (
@@ -67,6 +69,9 @@ _PROVIDER_INTERNAL_KEYS = frozenset(
         "plan_type",
         "plan_config",
         *NON_VENDOR_CREATE_KEYS,
+        # Platform control-plane flags (confirm / dry_run …) — the capability gate
+        # consumed them; they are not vendor HTTP params.
+        *PLATFORM_CONTROL_KEYS,
     }
 )
 

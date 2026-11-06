@@ -663,6 +663,34 @@ def complete_vendor_roundtrip(
 class VendorRoundtripChatMixin:
     """Wrap sync/async generate and stream paths to flush vendor roundtrip logs."""
 
+    @staticmethod
+    def _strip_control_kwargs(kwargs: dict[str, Any]) -> dict[str, Any]:
+        """Drop platform control-plane / runtime kwargs before they reach the SDK.
+
+        LangChain forwards unknown kwargs straight into ``AsyncCompletions.create()``,
+        which rejects them with ``TypeError: … unexpected keyword argument 'confirm'``.
+        The offending keys (platform gate flags such as ``confirm``, and LangGraph
+        runtime keys such as ``session_key``) are platform plumbing, never vendor
+        request parameters, so they are removed here — the last point before the
+        provider SDK is invoked.
+        """
+        if not kwargs:
+            return kwargs
+        try:
+            from evoflow.models.create_payload_sanitize import ALL_NON_VENDOR_CREATE_KEYS
+        except Exception:
+            return kwargs
+        leaked = [k for k in kwargs if k in ALL_NON_VENDOR_CREATE_KEYS]
+        if not leaked:
+            return kwargs
+        for key in leaked:
+            kwargs.pop(key, None)
+        logger.warning(
+            "Stripped non-vendor kwargs before vendor create(): %s",
+            ", ".join(sorted(leaked)),
+        )
+        return kwargs
+
     def _retry_once_stripping_thinking(self, e: Exception) -> bool:
         """thinking.type=disabled 被厂商 400 拒绝 → 置位实例记忆，请求方重试一次。
 
@@ -697,6 +725,7 @@ class VendorRoundtripChatMixin:
         **kwargs: Any,
     ) -> ChatResult:
         t0 = time.perf_counter()
+        self._strip_control_kwargs(kwargs)
         try:
             res = _ensure_chat_result(
                 super()._generate(messages, stop=stop, run_manager=run_manager, **kwargs)  # type: ignore[misc]
@@ -726,6 +755,7 @@ class VendorRoundtripChatMixin:
         **kwargs: Any,
     ) -> ChatResult:
         t0 = time.perf_counter()
+        self._strip_control_kwargs(kwargs)
         try:
             res = await super()._agenerate(messages, stop=stop, run_manager=run_manager, **kwargs)  # type: ignore[misc]
             complete_vendor_roundtrip(chat_result=res, latency_ms=(time.perf_counter() - t0) * 1000.0, error=None)
@@ -767,6 +797,7 @@ class VendorRoundtripChatMixin:
 
     def _stream(self, messages: list[Any], stop: list[str] | None = None, run_manager: Any = None, **kwargs: Any):  # type: ignore[override]
         attempts = _stream_retry_attempts()
+        self._strip_control_kwargs(kwargs)
         for attempt in range(attempts):
             t0 = time.perf_counter()
             ttft: float | None = None
@@ -832,6 +863,7 @@ class VendorRoundtripChatMixin:
 
     async def _astream(self, messages: list[Any], stop: list[str] | None = None, run_manager: Any = None, **kwargs: Any):  # type: ignore[override]
         attempts = _stream_retry_attempts()
+        self._strip_control_kwargs(kwargs)
         for attempt in range(attempts):
             try:
                 async for chunk in self._astream_once(messages, stop=stop, run_manager=run_manager, **kwargs):
