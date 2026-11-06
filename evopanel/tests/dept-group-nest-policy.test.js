@@ -30,6 +30,8 @@ describe('dept-group-nest-policy', () => {
     expect(isTrivialGroupNestGoal('你也出来说句话打个招呼')).toBe(true)
     expect(isTrivialGroupNestGoal('收到')).toBe(true)
     expect(isTrivialGroupNestGoal('在呢在呢')).toBe(true)
+    expect(isTrivialGroupNestGoal('老板找你，出来回一声。')).toBe(true)
+    expect(isTrivialGroupNestGoal('出来跟老板打个招呼，一句话就行')).toBe(true)
   })
 
   it('allows real handoff goals', () => {

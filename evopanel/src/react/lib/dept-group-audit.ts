@@ -259,6 +259,29 @@ function parseWakeEventFromRow(row: any): DeptGroupWakeEvent | null {
   }
 }
 
+/** 审计事件 → 派工条可用的最新 job 快照（同 jobId 取终态优先的最新一条） */
+export function wakeEventsToJobSnapshots(events: DeptGroupWakeEvent[]): WakeJobSnapshot[] {
+  const byJob = new Map<string, WakeJobSnapshot>()
+  const sorted = [...events].sort((a, b) => a.ts - b.ts)
+  for (const ev of sorted) {
+    const jobId = String(ev.jobId || '').trim()
+    const code = String(ev.agentCode || '').trim()
+    if (!jobId || !code) continue
+    byJob.set(jobId, {
+      id: jobId,
+      agentCode: code,
+      roleName: String(ev.roleName || '').trim() || code,
+      goal: String(ev.goal || '').trim(),
+      status: ev.status,
+      attempts: Math.max(0, Number(ev.attempts) || 0),
+      error: ev.error,
+      sourceMsgId: ev.sourceMsgId,
+      updatedAt: Number(ev.ts) || Date.now(),
+    })
+  }
+  return [...byJob.values()].sort((a, b) => a.updatedAt - b.updatedAt)
+}
+
 export function deriveMemberStatusFromWakeEvents(
   events: DeptGroupWakeEvent[],
 ): DeptMemberAuditStatus[] {

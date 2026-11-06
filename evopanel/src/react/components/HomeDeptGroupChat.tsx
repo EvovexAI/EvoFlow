@@ -43,12 +43,19 @@ import {
 } from '../lib/dept-group-wake-queue.js'
 import {
   diffWakeJobTransitions,
+  loadDeptGroupAuditTrail,
   persistDeptGroupWakeEvent,
+  wakeEventsToJobSnapshots,
 } from '../lib/dept-group-audit.js'
 import {
   deptGroupWakeChainKey,
+  isTrivialGroupNestGoal,
   shouldAutoNestWake,
 } from '../lib/dept-group-nest-policy.js'
+import {
+  mergeWakeJobSnapshots,
+  resolveMentionDispatchStatus,
+} from '../lib/dept-group-dispatch-status.js'
 import {
   clearDeptGroupLiveMap,
   DEPT_GROUP_INSERT_MENTION_EVENT,
@@ -250,12 +257,27 @@ function renderTextWithMentions(
   return nodes.length ? nodes : raw
 }
 
-function wakeStatusLabel(status: WakeJobSnapshot['status'] | undefined): string {
-  if (status === 'queued') return '排队中'
-  if (status === 'running') return '回答中'
-  if (status === 'done') return '已回'
-  if (status === 'failed') return '失败'
-  return ''
+/** 该 @ 消息之后，时间线上是否已有此人定稿回复（重挂无队列时兜底「已回」） */
+function hasLaterAgentReply(
+  msgs: GroupChatMsg[],
+  sourceMsgId: string | undefined,
+  agentCode: string,
+): boolean {
+  const code = String(agentCode || '').trim()
+  const sid = String(sourceMsgId || '').trim()
+  if (!code || !sid || !msgs?.length) return false
+  const idx = msgs.findIndex((m) => m.id === sid)
+  if (idx < 0) return false
+  for (let i = idx + 1; i < msgs.length; i++) {
+    const m = msgs[i]
+    if (m.kind !== 'agent') continue
+    if (String(m.agentCode || '').trim() !== code) continue
+    if (m.streaming) continue
+    const body = String(m.text || '').trim()
+    if (!body || /排队|正忙|重试|正在回复|未能回复/.test(body)) continue
+    return true
+  }
+  return false
 }
 
 /** 气泡下挂派工条：谁被 @、队列态（排队/回答中/已回） */
@@ -264,11 +286,13 @@ function MentionDispatchStrip({
   members,
   wakeJobs,
   sourceMsgId,
+  msgs,
 }: {
   text: string
   members: HomeCmdPerson[]
   wakeJobs: WakeJobSnapshot[]
   sourceMsgId?: string
+  msgs: GroupChatMsg[]
 }) {
   const hits = parseMentions(text, members)
   if (!hits.length) return null
@@ -277,30 +301,29 @@ function MentionDispatchStrip({
       {hits.map((h) => {
         const goal = extractMentionGoal(text, h).replace(/\s+/g, ' ').trim()
         const preview = goal.length > 36 ? `${goal.slice(0, 36)}…` : goal
-        const job =
-          [...wakeJobs]
-            .reverse()
-            .find(
-              (j) =>
-                j.agentCode === h.agent_code &&
-                (!sourceMsgId || !j.sourceMsgId || j.sourceMsgId === sourceMsgId),
-            ) || null
-        const st = job?.status
-        const stLabel = wakeStatusLabel(st)
+        const resolved = resolveMentionDispatchStatus({
+          wakeJobs,
+          agentCode: h.agent_code,
+          sourceMsgId,
+          hasLaterReply: hasLaterAgentReply(msgs, sourceMsgId, h.agent_code),
+        })
+        const st = resolved.status
         return (
           <span
             key={h.agent_code}
-            className={`dept-im__dispatch-chip${st ? ` is-${st}` : ''}`}
-            title={job?.error || preview || undefined}
+            className={`dept-im__dispatch-chip${st ? ` is-${st}` : resolved.miss ? ' is-miss' : ''}`}
+            title={preview || undefined}
           >
             <span className="dept-im__dispatch-arrow" aria-hidden>
               →
             </span>
             <EmployeeStageAvatar agentCode={h.agent_code} title={h.role_name} size={14} />
             <span className="dept-im__dispatch-who">@{h.role_name}</span>
-            {stLabel ? <span className="dept-im__dispatch-status">{stLabel}</span> : (
-              <span className="dept-im__dispatch-status is-miss">未入队</span>
-            )}
+            <span
+              className={`dept-im__dispatch-status${resolved.miss ? ' is-miss' : ''}`}
+            >
+              {resolved.label}
+            </span>
             {preview ? <span className="dept-im__dispatch-goal">{preview}</span> : null}
           </span>
         )
@@ -386,6 +409,12 @@ export function HomeDeptGroupChat({
   const wakeQueueRef = useRef<DeptGroupWakeQueue | null>(null)
   const bubbleByJobRef = useRef(new Map<string, string>())
   const [wakeJobs, setWakeJobs] = useState<WakeJobSnapshot[]>([])
+  /** 重挂后从审计事件回灌，避免历史 @ 全显示「未入队」 */
+  const [auditWakeJobs, setAuditWakeJobs] = useState<WakeJobSnapshot[]>([])
+  const stripWakeJobs = useMemo(
+    () => mergeWakeJobSnapshots(wakeJobs, auditWakeJobs),
+    [wakeJobs, auditWakeJobs],
+  )
   /** 成员资料卡：点头像弹身份信息（过程/对话/编辑收进卡内动作） */
   const [profile, setProfile] = useState<{ person: HomeCmdPerson; x: number; y: number } | null>(null)
   /** 与左下角账号芯片同源：displayName / 头像 */
@@ -469,6 +498,7 @@ export function HomeDeptGroupChat({
     aliveRef.current = true
     bubbleByJobRef.current = new Map()
     setWakeJobs([])
+    setAuditWakeJobs([])
     setMsgs([])
     setDraft('')
     setThreadCode(null)
@@ -505,6 +535,14 @@ export function HomeDeptGroupChat({
       })
       .catch(() => {
         /* keep empty */
+      })
+    void loadDeptGroupAuditTrail(deptId, { limit: 400, deptName })
+      .then((trail) => {
+        if (cancelled || !aliveRef.current) return
+        setAuditWakeJobs(wakeEventsToJobSnapshots(trail.wakeEvents || []))
+      })
+      .catch(() => {
+        /* 无审计也不挡聊天 */
       })
     return () => {
       cancelled = true
@@ -855,6 +893,8 @@ export function HomeDeptGroupChat({
           : await streamBodyIntoBubble(bubbleId, reply)
 
         if (input.depth >= MAX_NEST_DEPTH) return {}
+        // 本轮只是打招呼/回一声：即便模型硬 @ 派活，也不自动接力（防总监借报到开单）
+        if (input.depth >= 1 && isTrivialGroupNestGoal(input.goal)) return {}
         // 嵌套接力只叫醒部门员工，避免 @小V 自循环
         const nestRoster = membersRef.current.filter(
           (m) => !isDeptGroupStewardCode(m.agent_code),
@@ -902,7 +942,9 @@ export function HomeDeptGroupChat({
         if (!q || !nested.length) return {}
         const ctx = `【${person.role_name}】：${finalText.slice(0, 400)}`
         // 同一轮用户消息下，每人最多叫醒一次（root|->code），防相互 @ 死循环
+        // chain 用本轮用户根消息防环；sourceMsgId 用当前气泡——派工条挂在谁说的 @ 上就对谁
         const rootId = String(input.sourceMsgId || bubbleId || '').trim()
+        const mentionMsgId = String(bubbleId || rootId).trim()
         // 只入队、不 await：否则父任务会一直 running，名单上「回复中」卡到所有下级说完
         for (const item of nested) {
           void q
@@ -913,7 +955,7 @@ export function HomeDeptGroupChat({
               depth: input.depth + 1,
               fromAgentName: person.role_name,
               contextSummary: ctx,
-              sourceMsgId: rootId || bubbleId,
+              sourceMsgId: mentionMsgId,
               chainKey: deptGroupWakeChainKey(rootId || bubbleId, item.person.agent_code, {
                 fromAgentCode: person.agent_code,
                 goal: item.goal,
@@ -1506,8 +1548,9 @@ export function HomeDeptGroupChat({
                           <MentionDispatchStrip
                             text={msg.text}
                             members={roster}
-                            wakeJobs={wakeJobs}
+                            wakeJobs={stripWakeJobs}
                             sourceMsgId={msg.id}
+                            msgs={msgs}
                           />
                         ) : null}
                       </div>
@@ -1554,8 +1597,9 @@ export function HomeDeptGroupChat({
                       <MentionDispatchStrip
                         text={msg.text}
                         members={roster}
-                        wakeJobs={wakeJobs}
+                        wakeJobs={stripWakeJobs}
                         sourceMsgId={msg.id}
+                        msgs={msgs}
                       />
                     ) : null}
                   </button>

@@ -10,6 +10,7 @@ import {
   extractDeptGroupHandoffs,
   type DeptGroupHandoff,
 } from './dept-group-handoff.js'
+import { isTrivialGroupNestGoal } from './dept-group-nest-policy.js'
 
 export function deptMemberWorkSessionKey(deptId: string, agentCode: string): string {
   const code = String(agentCode || '').trim()
@@ -188,15 +189,29 @@ export async function runDeptMemberWorkTurn(
   if (opts.fromAgentName) {
     parts.push(`（「${opts.fromAgentName}」在群里 @ 了你，请直接回群）`)
   }
+  // 寒暄/报到类：强约束——只回一声，禁止展开旧单、禁止嵌套派活
+  const trivialGoal = isTrivialGroupNestGoal(goal)
   if (!stewardMode) {
-    parts.push(
-      '（群聊提示：把该你说的说完即可。打招呼/报到不要再 @ 同事或小V；'
-        + '只有确实要别人接新活时才 @，且不要重复点名已经出过面的人。）',
-    )
+    if (trivialGoal) {
+      parts.push(
+        '（群聊提示：本条只是打招呼/报到/回一声。用一两句说清你是谁、平时干什么即可；'
+          + '禁止汇报进度、禁止展开记忆/站立摘要/群近期里的旧任务、'
+          + '禁止 @ 同事派活。用户可见正文只用岗位名，不要写内部编码。）',
+      )
+    } else {
+      parts.push(
+        '（群聊提示：把该你说的说完即可。打招呼/报到不要再 @ 同事或小V；'
+          + '只有本轮明确要推进的新活才 @，且不要重复点名已经出过面的人。'
+          + '对用户说话用岗位名，不要写 agent_code / 内部编码。）',
+      )
+    }
   }
   const groupCtx = String(opts.groupContext || '').trim()
-  if (groupCtx) {
+  // 寒暄轮次不塞长群近期，避免模型被旧单带跑
+  if (groupCtx && !trivialGoal) {
     parts.push(`【群近期】\n${groupCtx.slice(0, 2400)}`)
+  } else if (groupCtx && trivialGoal) {
+    parts.push(`【群近期·摘要】\n${groupCtx.slice(0, 400)}`)
   }
   parts.push(stewardMode ? `【用户对群说（未点名，请你接住）】\n${goal}` : `【本条消息】\n${goal}`)
   const userText = parts.join('\n\n')

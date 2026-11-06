@@ -45,10 +45,25 @@ export function isTrivialGroupNestGoal(goal: string): boolean {
     return false
   }
 
-  if (t.length <= 36 && /^(收到|好的|嗯|在的|在呢|OK|ok|明白了?)[!！。.~]*$/i.test(t)) {
+  if (
+    t.length <= 36 &&
+    /^(收到|好的|嗯|明白了?|OK|ok)[!！。.~]*$/i.test(t)
+  ) {
     return true
   }
-  if (/打个招呼|打声招呼|回个话|出来说句话|报个到|说句你好|跟大家问个好/.test(t)) {
+  // 「在」「在呢」「在的」可叠说（在呢在呢）
+  if (t.length <= 24 && /^(在的?|在呢?)+[!！。.~]*$/.test(t)) {
+    return true
+  }
+  if (
+    /打个招呼|打声招呼|回个话|回一声|出来回|出来说句话|报个到|说句你好|跟大家问个好|跟老板打个招呼|简单打个招呼/.test(
+      t,
+    )
+  ) {
+    return true
+  }
+  // 「老板找你 / 在这儿吗」类点名报到，且无明显派活
+  if (/老板找你|在这儿吗|在吗|露个面/.test(t) && t.length < 80) {
     return true
   }
   // 「在群里回个话」且无明显派活
