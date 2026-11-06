@@ -576,27 +576,37 @@ async def _finalize_collab_subtask_terminal(
             _schedule_collab_followup_wave(runtime, resolved_collab)
             return "completed", f"Task Succeeded (auto). Result: {summary[:4000]}"
 
+        # Executor already said ``completed``, so the work is done. Treat a
+        # missing ``done`` as a *reporting* miss, not a failure: killing a
+        # finished step here marked it ``failed`` ~50s after dispatch, the
+        # watchdog then requeued it, and the whole wave re-ran for nothing
+        # (task 2611061932_f598: step 4 failed at 19:34:54 with no error text,
+        # re-dispatched at 19:34:55, completed again at 19:35:05).
+        fallback_summary = draft or body or "子智能体回合结束（未调用 done，已按执行器结论记为完成）"
         await apply_subtask_system_outcome(
             main_task_id=resolved_collab,
             subtask_id=resolved_subtask,
-            outcome="failed",
-            summary=draft or "子智能体回合结束",
-            error="未调用 done；模型返回结束不能视为子任务完成。",
+            outcome="completed",
+            summary=fallback_summary[:8000],
         )
         if writer:
             writer(
                 ws(
                     {
-                        "type": "task_failed",
+                        "type": "task_completed",
                         "task_id": stream_task_id,
                         "collab_subtask_id": resolved_subtask,
-                        "error": "未调用 done",
+                        "result": fallback_summary[:12000],
+                        "note": "completed_without_done",
                     }
                 )
             )
+        # Same follow-up scheduling as the auto path: the step is complete, so
+        # dependents must be released (missing this stranded the rest of the DAG).
+        _schedule_collab_followup_wave(runtime, resolved_collab)
         return (
-            "failed",
-            "Task failed. Subagent finished its turn without calling done. You must call done(outcome=completed|failed, summary=...) before ending.",
+            "completed",
+            f"Task Succeeded (executor=completed, done not called). Result: {fallback_summary[:4000]}",
         )
 
     sys_outcome = ex if ex in {"failed", "timed_out", "cancelled", "blocked"} else "failed"
