@@ -6,7 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.3.4] - 2026-11-06
+
 相对 **1.3.3**：工作流编排改为按节点配能力（技能/工具/MCP/知识库/模型/思考），画布与编辑面板重做；应用详情与子任务对话打开更快；任务状态不再被「进程失联」盖掉。
+
+### 参与本次发版
+
+- 全栈开发工程师：工作流节点级能力编排、画布与编辑面板重做、应用详情与子任务打开提速、任务状态口径修正、侧栏新建会话与右栏自动打开修复
+- 发版工程师：CI/CD 正式包发布
 
 ### Added
 
@@ -34,6 +41,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - **工作流 worker 挂不上 MCP**：`parent_model` 不再被重置为 `None`，`task_tool` 合并热身缓存 MCP 工具进目录；`profile.mcp_servers` 覆盖生效，避免 `mcp__*` 挂载为 0
 - **CLI 侧 MCP 工具被拒**：工具名校验对 extensions 里已配置的 MCP 服务器放行 `mcp__<server>__*`
 - **工作流 schema 引导**：建流前先查 `agents.bindings` / `skills.list` / `knowledge.list` / `mcp.list`，节点显式挂能力，不再写「用 Agent 默认能力」
+
+GitHub Release 正文见 `scripts/maintainer/windows/release-notes/PRODUCT-NOTES-1.3.4.md`；升级横幅见 `scripts/maintainer/update/latest.json`。
 
 ## [1.3.3] - 2026-11-06
 
