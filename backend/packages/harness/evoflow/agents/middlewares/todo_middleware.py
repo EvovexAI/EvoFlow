@@ -68,13 +68,18 @@ def _build_todo_write_tool(description: str) -> Any:
       渲染器（readPlanCollection 识别 todos 集合）与模型后续轮次解析。
     - old_todos 通过 InjectedState 注入当前 PlanningState.todos，不出现在
       模型可见的参数 schema 里（已验证 tool_call_schema 仅暴露 todos）。
+    - old_todos 必须带默认值 ``None``：langgraph 的 ToolNode 只在「注入字段
+      不是必填」时才允许 state 缺该 key（``_optional_state_args``）。首轮
+      todo_write 时 state 里根本没有 ``todos`` 键，必填注入会抛
+      ``KeyError: 'todos'``（#102，100% 复现）。带默认值后缺键直接跳过注入，
+      工具用默认 None 继续跑。
     """
 
     @langchain_tool(description=description)
     def todo_write(
         todos: list[Todo],
-        old_todos: Annotated[list[Todo] | None, InjectedState("todos")],
         tool_call_id: Annotated[str, InjectedToolCallId],
+        old_todos: Annotated[list[Todo] | None, InjectedState("todos")] = None,
     ) -> Command:
         """Replace the session todo list with a new one (full-list replace semantics)."""
         old = [dict(t) for t in (old_todos or [])]
