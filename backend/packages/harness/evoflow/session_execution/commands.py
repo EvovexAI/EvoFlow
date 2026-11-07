@@ -137,6 +137,7 @@ async def _post_stop_reconcile(session_key: str, thread_id: str, run_ids: list[s
     from evoflow.session_execution.langgraph_cancel import (
         cancel_langgraph_run_ids,
         list_active_langgraph_run_ids,
+        list_run_statuses_by_ids,
     )
 
     delay_s = max(1.0, _POST_STOP_RECONCILE_DELAY_S)
@@ -154,6 +155,18 @@ async def _post_stop_reconcile(session_key: str, thread_id: str, run_ids: list[s
                         session_key,
                         thread_id,
                         round_no,
+                    )
+                    return
+                statuses = await list_run_statuses_by_ids(client, thread_id, leaked)
+                if statuses and all(s == "interrupted" for s in statuses.values()):
+                    # cancel 已被服务端接受，run 卡在 interrupted 只是 worker 任务尚未收尾
+                    #（典型：上游模型调用零字节挂住）。再 cancel 无意义，等任务自行结束。
+                    logger.warning(
+                        "[STOP-TRACE] 8.reconcile-interrupted-pending session=%s thread=%s runs=%s "
+                        "(cancel 已接受；run 任务仍在收尾，通常为上游无首帧卡住，看门狗/超时会让其结束)",
+                        session_key,
+                        thread_id,
+                        leaked,
                     )
                     return
                 logger.warning(

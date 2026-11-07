@@ -65,6 +65,32 @@ def _stream_retry_backoff_seconds(attempt: int) -> float:
     return min(2.0 * (2 ** max(0, attempt)), 8.0)
 
 
+def _first_token_timeout_seconds() -> float:
+    """TTFT 看门狗：上游连上但零字节时的止损预算（秒），0 关闭。
+
+    典型事故形态是"连接已建立、一个 chunk 都不吐"（上游网关排队/半开连接）：
+    总时长看门狗（EVOFLOW_STREAM_TOTAL_TIMEOUT_S，默认 300s）与客户端读超时
+    （默认 120s）都远慢于体感。首帧前用短预算（默认 60s）断开重试；看门狗只在
+    零 chunk 时触发，重试不存在重复输出风险。取自一次生产事故：run 起来后
+    104s 零首帧，用户手动停止时距 120s 客户端超时仅差 16s。
+    """
+    raw = (os.environ.get("EVOFLOW_STREAM_FIRST_TOKEN_TIMEOUT_S") or "").strip()
+    if not raw:
+        return 60.0
+    try:
+        return max(0.0, min(300.0, float(raw)))
+    except ValueError:
+        return 60.0
+
+
+def _reschedule_watchdog(scope: Any, when: float) -> None:
+    """asyncio.timeout 已到期后再 reschedule 会抛 RuntimeError；此时保留原取消。"""
+    try:
+        scope.reschedule(when)
+    except RuntimeError:
+        pass
+
+
 def _is_retriable_stream_error(exc: BaseException) -> bool:
     if isinstance(exc, (TimeoutError, asyncio.TimeoutError)):
         return True
@@ -962,13 +988,26 @@ class VendorRoundtripChatMixin:
         # streaming thinking tokens indefinitely when the upstream API is stuck.
         # Default 300s is generous enough for long reasoning, but catches true hangs.
         stream_total_timeout = float(os.environ.get("EVOFLOW_STREAM_TOTAL_TIMEOUT_S", "300"))
+        first_token_timeout = _first_token_timeout_seconds()
+        # 两段式看门狗：首帧前按 TTFT 短预算计时；拿到首帧后重置为整段总预算。
+        arm_ttft_budget = 0 < first_token_timeout < stream_total_timeout
 
         try:
-            async with asyncio.timeout(stream_total_timeout):
+            async with asyncio.timeout(stream_total_timeout) as _watchdog:
+                if arm_ttft_budget:
+                    _reschedule_watchdog(
+                        _watchdog, asyncio.get_running_loop().time() + first_token_timeout
+                    )
                 async for gen_chunk in super()._astream(messages, stop=stop, run_manager=run_manager, **kwargs):  # type: ignore[misc]
                     chunk_count += 1
                     if ttft is None:
                         ttft = (time.perf_counter() - t0) * 1000.0
+                        if arm_ttft_budget:
+                            arm_ttft_budget = False
+                            _reschedule_watchdog(
+                                _watchdog,
+                                asyncio.get_running_loop().time() + stream_total_timeout,
+                            )
                     # Log chunk content for debugging empty responses
                     if chunk_count <= 5:  # Only log first 5 chunks to avoid spam
                         logger.info(
@@ -1028,6 +1067,14 @@ class VendorRoundtripChatMixin:
             raise
         except Exception as e:
             _attach_model_to_exception(e, self)
+            if ttft is None and isinstance(e, TimeoutError):
+                logger.warning(
+                    "vendor _astream first-token watchdog fired: no chunk within %.0fs "
+                    "(model=%s provider=%s) — aborting for stream retry",
+                    first_token_timeout,
+                    getattr(self, "model", None) or getattr(self, "model_name", "") or type(self).__name__,
+                    getattr(self, "profile_name", "") or "",
+                )
             logger.warning(
                 "vendor _astream raised exception: %s: %s chunk_count=%d latency_ms=%.0f",
                 type(e).__name__,
