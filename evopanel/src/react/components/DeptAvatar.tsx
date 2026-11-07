@@ -8,13 +8,17 @@
 import { useEffect, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { useGatewayBaseUrl } from '../hooks/useGatewayBaseUrl'
-import { deptAvatarPresetUrl } from '../lib/agent-avatar-meta'
+import { deptAvatarPresetUrl, deptAvatarUploadUrl } from '../lib/agent-avatar-meta'
 
 export type DeptAvatarProps = {
-  /** ``evoflow_departments.avatar``（裸预设 id，可空） */
+  /** ``evoflow_departments.avatar``（预设 id / ``"image"`` 上传 / 可空） */
   avatar?: string | null
   /** 部门名，用于兜底首字 */
   name?: string | null
+  /** 部门 id —— ``avatar="image"`` 时拼上传头像 URL 需要 */
+  deptId?: string | null
+  /** 上传头像的版本号（``avatar_rev``），用于缓存刷新 */
+  avatarRev?: string | null
   size?: number
   className?: string
   title?: string
@@ -29,9 +33,16 @@ export function normalizeDeptAvatarId(raw?: string | null): string {
   return PRESET_ID_RE.test(id) ? id : ''
 }
 
+/** ``avatar="image"``：使用上传的自定义头像文件。 */
+export function isDeptImageAvatar(raw?: string | null): boolean {
+  return String(raw || '').trim().toLowerCase() === 'image'
+}
+
 export function DeptAvatar({
   avatar,
   name,
+  deptId,
+  avatarRev,
   size = 28,
   className = '',
   title,
@@ -39,8 +50,16 @@ export function DeptAvatar({
 }: DeptAvatarProps) {
   const { baseUrl, ready } = useGatewayBaseUrl(baseUrlProp)
   const [imageFailed, setImageFailed] = useState(false)
+  const isUpload = isDeptImageAvatar(avatar)
   const presetId = normalizeDeptAvatarId(avatar)
-  const src = presetId ? deptAvatarPresetUrl(baseUrl, presetId) : ''
+  const uploadId = String(deptId || '').trim()
+  const src = isUpload
+    ? uploadId
+      ? deptAvatarUploadUrl(baseUrl, uploadId, avatarRev ?? undefined)
+      : ''
+    : presetId
+      ? deptAvatarPresetUrl(baseUrl, presetId)
+      : ''
 
   useEffect(() => {
     setImageFailed(false)

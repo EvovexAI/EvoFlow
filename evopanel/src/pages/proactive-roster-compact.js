@@ -140,14 +140,17 @@ function bindTiles(root) {
   const open = (code, name) => {
     const c = String(code || '').trim()
     if (!c) return
-    openShellPageInRightStage({
-      path: `/proactive/${encodeURIComponent(c)}`,
-      mountId: 'employees.detail',
-      title: name || '员工',
-      entityLabel: name || undefined,
-      agentCode: c,
-      layout: 'wide',
-    })
+    openShellPageInRightStage(
+      {
+        path: `/proactive/${encodeURIComponent(c)}`,
+        mountId: 'employees.detail',
+        title: name || '员工',
+        entityLabel: name || undefined,
+        agentCode: c,
+        layout: 'wide',
+      },
+      { forceExpand: true },
+    )
   }
   root.querySelectorAll('.shell-roster-tile[data-code]').forEach((tile) => {
     tile.addEventListener('click', () => {

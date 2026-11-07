@@ -18,6 +18,11 @@ export type ShellPageStagePayload = {
 export type OpenShellPageStageOpts = {
   sessionKey?: string | null
   layout?: 'half' | 'wide' | 'narrow' | 'workspace-write'
+  /**
+   * 用户显式打开（点按钮/卡片）时传 true：清掉收起锁并展开右栏。
+   * 不传 = 沿用 store 语义（用户收起锁定时只写签不撑开）——自动开栏勿传。
+   */
+  forceExpand?: boolean
 }
 
 function normalizePath(raw: string): string {
@@ -64,6 +69,7 @@ export function openShellPageInRightStage(
     mountId,
   })
   const focusId = String(payload.focusId || '').trim()
+  const forceExpand = opts?.forceExpand === true
   const agentCode =
     String(payload.agentCode || '').trim() || agentCodeFromShellPagePath(path)
   // 已挂同一 path：只激活/展开；若新标题更可读则回写（不因 path 覆盖好名字）
@@ -98,6 +104,7 @@ export function openShellPageInRightStage(
           agentCode ||
           String(existing.data?.agentCode || existing.data?.agent_code || '').trim(),
       },
+      forceExpand,
     })
     return id
   }
@@ -116,6 +123,7 @@ export function openShellPageInRightStage(
       focusId,
       ...(agentCode ? { agentCode } : {}),
     },
+    forceExpand,
   })
   return id
 }

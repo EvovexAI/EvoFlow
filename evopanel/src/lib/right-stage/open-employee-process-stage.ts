@@ -27,6 +27,11 @@ export type EmployeeProcessStagePayload = {
 export type OpenEmployeeProcessStageOpts = {
   sessionKey?: string | null
   layout?: 'half' | 'wide' | 'narrow' | 'workspace-write'
+  /**
+   * 用户显式打开（点成员卡/员工页按钮）时传 true：清掉收起锁并展开右栏。
+   * 不传 = 沿用 store 语义（用户收起锁定时只写签不撑开）——自动开栏（唤醒/chat_send 同步）勿传。
+   */
+  forceExpand?: boolean
 }
 
 function looksLikePathOrGeneric(title: string): boolean {
@@ -155,6 +160,7 @@ export function openEmployeeProcessInRightStage(
     title: keepTitle,
     layout: opts?.layout || 'wide',
     sessionKey: sk,
+    forceExpand: opts?.forceExpand === true,
     data: {
       // 跟岗占位不写入 data.taskId，避免拼出假的 proactive:…:task:live-…
       taskId: realTaskId,

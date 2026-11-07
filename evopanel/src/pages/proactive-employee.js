@@ -2179,8 +2179,8 @@ function renderOnboardingCard(role) {
     </div>`
 }
 
-/** 派发任务弹窗（员工页版，简化版） */
-function showDispatchModalEmployee(role) {
+/** 派发任务弹窗（员工页版，简化版）。agent：完整智能体行（含头像字段），缺省时退回首字母占位。 */
+function showDispatchModalEmployee(role, agent) {
   return new Promise((resolve) => {
     const name = role.role_name || role.agent_name || role.agent_code
     const overlay = document.createElement('div')
@@ -2258,15 +2258,23 @@ function showDispatchModalEmployee(role) {
     `
     document.body.appendChild(overlay)
 
-    // Mount avatar
+    // Mount avatar（用完整智能体行，否则 resolveAgentAvatar 拿不到 avatar 字段只会画首字母）
     const avatarHost = overlay.querySelector('[data-avatar-agent]')
     if (avatarHost) {
+      const agentRow = agent || { agent_code: role.agent_code, agent_name: name }
       void import('../lib/mount-agent-ui.js').then((m) => {
-        m.mountAgentAvatar(avatarHost, {
-          agent: { agent_code: role.agent_code, agent_name: name },
-          agentCode: role.agent_code,
-          size: 40,
-        })
+        return getGatewayBaseUrl()
+          .then((baseUrl) => {
+            m.mountAgentAvatar(avatarHost, {
+              agent: agentRow,
+              agentCode: role.agent_code,
+              size: 40,
+              baseUrl: baseUrl || '',
+            })
+          })
+          .catch(() => {
+            m.mountAgentAvatar(avatarHost, { agent: agentRow, agentCode: role.agent_code, size: 40 })
+          })
       }).catch(() => {})
     }
 
@@ -4310,7 +4318,7 @@ function bindEmployeePage(page, role, initiatives) {
   page.querySelector('[data-act="dispatch"]')?.addEventListener('click', () => {
     closeMore()
     void (async () => {
-      const result = await showDispatchModalEmployee(role)
+      const result = await showDispatchModalEmployee(role, page._dutyProfileCtx?.agent)
       if (!result) return
       stopPageWatch(page)
       try {

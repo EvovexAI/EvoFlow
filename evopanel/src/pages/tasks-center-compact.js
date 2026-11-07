@@ -149,13 +149,16 @@ export async function mountTasksCenterCompact(container, { mode = 'tasks', focus
         const id = String(row.dataset.taskId || '').trim()
         if (!id) return
         const name = row.querySelector('.shell-tasks-row-title')?.textContent?.trim() || id
-        openShellPageInRightStage({
-          path: `/task/${id}`,
-          mountId: 'tasks.detail',
-          title: name,
-          entityLabel: name,
-          layout: 'wide',
-        })
+        openShellPageInRightStage(
+          {
+            path: `/task/${id}`,
+            mountId: 'tasks.detail',
+            title: name,
+            entityLabel: name,
+            layout: 'wide',
+          },
+          { forceExpand: true },
+        )
       })
     })
     body.querySelectorAll('.shell-tasks-row[data-item-id]').forEach((row) => {

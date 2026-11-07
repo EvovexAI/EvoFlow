@@ -59,6 +59,16 @@ export function deptAvatarPresetUrl(baseUrl: string, presetId: string, version?:
   return `${baseUrl.replace(/\/$/, '')}${path}`
 }
 
+/** Department uploaded avatar: ``GET /api/proactive/departments/{id}/avatar``. */
+export function deptAvatarUploadUrl(baseUrl: string, deptId: string, version?: string | number): string {
+  const id = String(deptId || '').trim()
+  if (!id) return ''
+  const v = version != null && String(version) !== '' ? `?v=${encodeURIComponent(String(version))}` : ''
+  const path = `/api/proactive/departments/${encodeURIComponent(id)}/avatar${v}`
+  if (!baseUrl) return path
+  return `${baseUrl.replace(/\/$/, '')}${path}`
+}
+
 export function bustCropStyle(
   headBox: { x: number; y: number; w: number; h: number },
   aspect: number,

@@ -3092,6 +3092,23 @@ export const api = {
     gatewayProxy('POST', '/proactive/departments', payload || {}),
   proactiveUpdateDepartment: async (id, payload) =>
     gatewayProxy('PUT', `/proactive/departments/${encodeURIComponent(String(id || ''))}`, payload || {}),
+  /** 上传部门自定义头像（WebP/PNG），后端把 avatar 置为 `image` */
+  uploadDeptAvatar: async (id, blob, filename = 'avatar.png') => {
+    const base = await getGatewayBaseUrl()
+    const form = new FormData()
+    form.append('file', blob, filename)
+    const res = await fetch(
+      `${base}/api/proactive/departments/${encodeURIComponent(String(id || ''))}/avatar`,
+      { method: 'POST', body: form },
+    )
+    const text = await res.text()
+    let result
+    try { result = JSON.parse(text) } catch { result = text }
+    if (!res.ok) throw new Error(result?.detail || `Upload failed: ${res.status}`)
+    return result
+  },
+  deleteDeptAvatarFile: async (id) =>
+    gatewayProxy('DELETE', `/proactive/departments/${encodeURIComponent(String(id || ''))}/avatar`),
   proactiveDeleteDepartment: async (id) =>
     gatewayProxy('DELETE', `/proactive/departments/${encodeURIComponent(String(id || ''))}`),
   proactiveSetDepartmentMembers: async (id, agentCodes) =>
