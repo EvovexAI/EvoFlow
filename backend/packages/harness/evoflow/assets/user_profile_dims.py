@@ -88,17 +88,27 @@ def _append_profile_content(existing: str, addition: str) -> str:
     add = str(addition or "").strip()
     if not add:
         return existing
-    if add.startswith(("- ", "* ", "+ ")):
-        bullet = add
-    else:
-        bullet = f"- {add}"
+    from evoflow.assets.ad_hoc_note import as_bullet_block
+
+    bullet = as_bullet_block(add)
+    if not bullet:
+        return existing
     base = str(existing or "").strip() or default_user_profile_md().strip()
     if add in base or bullet in base:
         return base + "\n"
     section = "## Agent 补充"
-    if section in base:
-        return base.rstrip() + f"\n{bullet}\n"
-    return base.rstrip() + f"\n\n{section}\n{bullet}\n"
+    if section not in base:
+        return base.rstrip() + f"\n\n{section}\n{bullet}\n"
+    # Insert **at the end of that section**, not at end-of-file: the section is
+    # usually followed by more headings, and appending to the document put the
+    # bullet under whatever heading happened to be last (and a multi-line note
+    # there silently promoted its own lines into real sections).
+    idx = base.find(section)
+    rest = base[idx + len(section) :]
+    nxt = re.search(r"\n#{1,3}\s", rest)
+    insert_at = idx + len(section) + (nxt.start() if nxt else len(rest))
+    head = base[:insert_at].rstrip()
+    return f"{head}\n{bullet}\n{base[insert_at:].lstrip()}" if nxt else f"{head}\n{bullet}\n"
 
 
 def update_profile_dimension(

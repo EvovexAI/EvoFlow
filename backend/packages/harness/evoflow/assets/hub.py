@@ -484,10 +484,15 @@ def _slug_cjk(text: str, *, max_len: int = 48, fallback: str = "note") -> str:
     """
     import re
 
+    from evoflow.assets.ad_hoc_note import strip_md_ext
+
     global _SLUG_CJK_RE
     if _SLUG_CJK_RE is None:
         _SLUG_CJK_RE = re.compile(r"[^a-zA-Z0-9\u4e00-\u9fff_-]+")
-    s = _SLUG_CJK_RE.sub("-", str(text or "").strip()).strip("-_")
+    # A title that already carries the extension ("runbook.md") must not become
+    # "runbook-md.md": the dot folds into a separator below.
+    s = strip_md_ext(text)
+    s = _SLUG_CJK_RE.sub("-", str(s or "").strip()).strip("-_")
     if not s:
         s = fallback
     return s[:max_len].strip("-_") or fallback
@@ -536,10 +541,11 @@ def append_standing_long_term(
         raw = raw[stamp_m.end() :].strip()
     if not raw:
         raise ValueError("content is required")
-    if raw.lstrip().startswith(("- ", "* ", "+ ")):
-        bullet = raw
-    else:
-        bullet = f"- {raw}"
+    # as_bullet_block: first line stays the bullet, the rest must indent —
+    # otherwise a "## xyz" inside the note becomes a real section of standing.md.
+    from evoflow.assets.ad_hoc_note import as_bullet_block
+
+    bullet = as_bullet_block(raw)
     if stamp and "记录时间" not in bullet:
         bullet = bullet.rstrip() + f"\n  记录时间：{stamp}"
     ensure_entity_tree(entity)
@@ -592,7 +598,7 @@ def record_fact(
     standing via ``append_standing_long_term``. Gateway ``/record`` may still use this.
     Catalog uses ``title`` + ``summary`` (same model as craft/journal).
     """
-    from evoflow.assets.ad_hoc_note import ensure_body_recorded_at
+    from evoflow.assets.ad_hoc_note import ensure_body_recorded_at, title_from_body
     from datetime import datetime
 
     body = ensure_body_recorded_at(str(content or "").strip()).strip()
@@ -600,7 +606,7 @@ def record_fact(
         raise ValueError("content is required")
     ensure_entity_tree(entity)
 
-    heading = str(title or "").strip() or body.split("\n", 1)[0].lstrip("# ").strip()[:60]
+    heading = str(title or "").strip() or title_from_body(body)
     one_liner = (str(summary or "").strip() or heading)[:30]
     slug = _slug_cjk(str(slug_hint or "").strip() or heading, fallback="fact")
     rel = _unique_rel_name(entity, "memory/facts", slug)
@@ -627,7 +633,7 @@ def write_episode(
 
     Pass ``update_path`` (model-chosen) to overwrite that file; otherwise create new.
     """
-    from evoflow.assets.ad_hoc_note import ensure_body_recorded_at
+    from evoflow.assets.ad_hoc_note import ensure_body_recorded_at, title_from_body
     from datetime import datetime
 
     body = ensure_body_recorded_at(str(content or "").strip()).strip()
@@ -635,7 +641,7 @@ def write_episode(
         raise ValueError("content is required")
     ensure_entity_tree(entity)
 
-    heading = str(title or "").strip() or body.split("\n", 1)[0].lstrip("# ").strip()[:60]
+    heading = str(title or "").strip() or title_from_body(body)
     one_liner = (str(summary or "").strip() or heading)[:30]
     slug = _slug_cjk(heading, fallback="episode")
     now = datetime.now(UTC).astimezone()
@@ -668,7 +674,7 @@ def write_journal(
 
     ``update_path`` (model-chosen) forces overwrite of that file.
     """
-    from evoflow.assets.ad_hoc_note import ensure_body_recorded_at
+    from evoflow.assets.ad_hoc_note import ensure_body_recorded_at, title_from_body
     from datetime import date as date_cls
     from datetime import datetime
 
@@ -685,7 +691,7 @@ def write_journal(
     heading = (
         str(title or "").strip()
         or str(summary or "").strip()
-        or body.split("\n", 1)[0].lstrip("# ").strip()[:60]
+        or title_from_body(body)
     )
     one_liner = (str(summary or "").strip() or heading)[:30]
     slug = _slug_cjk(heading, fallback="reflection")
@@ -875,11 +881,53 @@ def rename_text_file(entity: EntityRef, rel_path: str, new_name: str) -> dict[st
         raise FileExistsError(f"target already exists: {dest.name}")
     with lock_for(target):
         target.rename(dest)
-    return {
+    synced = _sync_frontmatter_name(dest)
+    new_rel = dest.relative_to(entity_root(e)).as_posix()
+    result = {
         "ok": True,
         "entityType": e.entity_type,
         "entityId": e.entity_id,
         "path": rel,
-        "newPath": dest.relative_to(entity_root(e)).as_posix(),
+        "newPath": new_rel,
         "renamed": True,
+        "frontmatterSynced": synced,
     }
+    if synced:
+        result["hint"] = f"已重命名为 {new_rel}，frontmatter 的 name 已同步为新文件名。"
+    return result
+
+
+def _sync_frontmatter_name(path: Path) -> bool:
+    """Keep ``name:`` (and a filename-derived ``description:``) aligned after a rename.
+
+    Craft/skill files carry ``name: <slug>`` that mirrors the filename; a rename
+    that left it stale made the catalog show the old label under the new file.
+    ``description`` is only rewritten when it *was* the old stem — prose
+    descriptions are the author's and must survive a rename untouched.
+    Returns whether anything was rewritten.
+    """
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return False
+    if not text.startswith("---"):
+        return False
+    parts = text.split("---", 2)
+    if len(parts) < 3:
+        return False
+    head, body = parts[1], parts[2]
+    name_m = re.search(r"(?m)^name\s*:\s*(.+?)\s*$", head)
+    old_stem = name_m.group(1).strip().strip("'\"") if name_m else ""
+    new_head = re.sub(r"(?m)^name\s*:.*$", f"name: {path.stem}", head, count=1)
+    if old_stem and old_stem != path.stem:
+        new_head = re.sub(
+            rf'(?m)^description\s*:\s*["\']?{re.escape(old_stem)}["\']?\s*$',
+            f"description: {path.stem}",
+            new_head,
+            count=1,
+        )
+    if new_head == head:
+        return False
+    with lock_for(path):
+        atomic_write_text(path, f"---{new_head}---{body}")
+    return True

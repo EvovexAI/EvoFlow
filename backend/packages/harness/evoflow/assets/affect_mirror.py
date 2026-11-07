@@ -104,13 +104,58 @@ def format_affect_brief_from_file(agent_code: str = "", *, principal_id: str = "
     return affect_brief_from_md(read_affect_md(agent_code, principal_id=principal_id))
 
 
+def split_frontmatter(text: str) -> tuple[str, str]:
+    """Return ``(frontmatter_block, body)``; block is "" when absent."""
+    raw = str(text or "")
+    m = _FM_RE.match(raw)
+    if not m:
+        return "", raw.lstrip("\n")
+    return m.group(0).rstrip("\n"), raw[m.end() :].lstrip("\n")
+
+
+def refresh_frontmatter(old_block: str, mood_hint: str = "") -> str:
+    """Re-emit an existing frontmatter block with a fresh ``updated`` stamp.
+
+    ``mode=replace`` used to write the body verbatim, which silently dropped the
+    ``source/mood/updated`` header — the mirror then read as an unlabelled doc and
+    any structured consumer lost the mood anchor.
+    """
+    from evoflow.timeutil import utc_now_iso_z
+
+    lines: list[str] = []
+    seen: set[str] = set()
+    for line in old_block.splitlines():
+        if line.strip() in ("---", ""):
+            continue
+        key, sep, _val = line.partition(":")
+        if not sep:
+            continue
+        k = key.strip()
+        seen.add(k.lower())
+        if k.lower() == "updated":
+            lines.append(f"updated: {utc_now_iso_z()}")
+        else:
+            lines.append(line.rstrip())
+    if "source" not in {s.lower() for s in seen}:
+        lines.insert(0, "source: person_affect")
+    if mood_hint and "mood" not in {s.lower() for s in seen}:
+        lines.append(f"mood: {mood_hint}")
+    if not any(s.lower() == "updated" for s in seen):
+        lines.append(f"updated: {utc_now_iso_z()}")
+    return "---\n" + "\n".join(lines) + "\n---"
+
+
 def write_affect_md(
     entity,
     content: str,
     *,
     mode: str = "replace",
 ) -> dict[str, Any]:
-    """Model/UI write to ``profile/affect.md``. ``append`` or ``replace``."""
+    """Model/UI write to ``profile/affect.md``. ``append`` or ``replace``.
+
+    ``replace`` swaps the prose body only and keeps (refreshing) the frontmatter,
+    unless the caller's own text carries a frontmatter block — then it wins.
+    """
     from evoflow.assets.hub import ensure_entity_tree, write_text_file
     from evoflow.assets.paths import profile_path
 
@@ -124,16 +169,22 @@ def write_affect_md(
     rel = "profile/affect.md"
     path = profile_path(e, "affect.md")
     mode_l = str(mode or "replace").strip().lower()
-    if mode_l == "append" and path.is_file():
+    existing = ""
+    if path.is_file():
         try:
             existing = path.read_text(encoding="utf-8")
         except OSError:
             existing = ""
+    if mode_l == "append" and existing:
         merged = (existing.rstrip() + "\n\n" + text).strip() + "\n"
-        data = write_text_file(e, rel, merged)
     else:
-        body = text if text.endswith("\n") else text + "\n"
-        data = write_text_file(e, rel, body)
+        old_block, _old_body = split_frontmatter(existing)
+        new_block, new_body = split_frontmatter(text)
+        block = new_block or (old_block and refresh_frontmatter(old_block))
+        body = new_body or text
+        body = body if body.endswith("\n") else body + "\n"
+        merged = f"{block}\n\n{body.lstrip()}" if block else body
+    data = write_text_file(e, rel, merged)
     return {**data, "mode": "append" if mode_l == "append" else "replace", "path": rel}
 
 
