@@ -181,6 +181,22 @@ class Paths:
         return self.base_dir / "agents"
 
     @property
+    def dept_avatars_dir(self) -> Path:
+        """Uploaded custom department avatars: `{base_dir}/dept_avatars/`.
+
+        One file per department: ``{dept_id}.webp`` / ``.png``. Preset avatars
+        live in the package assets and are not copied here.
+        """
+        return self.base_dir / "dept_avatars"
+
+    def dept_avatar_dir(self, dept_id: str) -> Path:
+        """Directory holding one department's uploaded avatar."""
+        did = str(dept_id or "").strip()
+        if not _SAFE_THREAD_ID_RE.match(did):
+            raise ValueError(f"Invalid dept_id {dept_id!r}")
+        return self.dept_avatars_dir / did
+
+    @property
     def tasks_dir(self) -> Path:
         """Canonical task aggregate storage dir: `{base_dir}/tasks/`."""
         return self.base_dir / "tasks"

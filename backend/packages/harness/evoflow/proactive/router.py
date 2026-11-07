@@ -11,7 +11,7 @@ import json
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Body, HTTPException, Query, Request
+from fastapi import APIRouter, Body, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, field_validator
 
@@ -377,7 +377,7 @@ class DepartmentUpdateRequest(BaseModel):
     )
     avatar: str | None = Field(
         None,
-        description="部门头像预设 id；空字符串清除（回落文字/图标）",
+        description="部门头像：预设 id（见 /departments/avatar-presets）、`image`（已上传的自定义图），或空字符串清除",
     )
     align_unmanaged: bool = Field(
         False,
@@ -444,6 +444,68 @@ async def get_department_avatar_preset(preset_id: str):
     if not path:
         raise HTTPException(status_code=404, detail=f"Department avatar preset '{preset_id}' not found")
     return FileResponse(path, media_type=content_type_for_preset(path))
+
+
+@router.get(
+    "/departments/{dept_id}/avatar",
+    summary="Get Department Custom Avatar",
+    description="Serve the uploaded department avatar image (404 when none).",
+    responses={404: {"description": "No uploaded avatar file"}},
+)
+async def get_department_avatar(dept_id: str):
+    from evoflow.config.dept_avatars import avatar_path_for, avatar_revision_for, content_type_for
+
+    path = avatar_path_for(dept_id)
+    if not path:
+        raise HTTPException(status_code=404, detail="Department avatar not found")
+    rev = avatar_revision_for(dept_id) or "0"
+    return FileResponse(
+        path,
+        media_type=content_type_for(path),
+        headers={
+            "Cache-Control": "private, max-age=0, must-revalidate",
+            "ETag": f'"{rev}"',
+        },
+    )
+
+
+@router.post(
+    "/departments/{dept_id}/avatar",
+    summary="Upload Department Custom Avatar",
+    description="Upload a WebP/PNG cutout; sets the department avatar to 'image'.",
+)
+async def upload_department_avatar(
+    request: Request,
+    dept_id: str,
+    file: UploadFile = File(...),
+):
+    require_org_admin(request)
+    from evoflow.config.dept_avatars import delete_avatar_file, save_avatar_bytes
+    from evoflow.proactive.departments import DepartmentRepository
+
+    if not DepartmentRepository.get(dept_id):
+        raise HTTPException(status_code=404, detail="部门不存在")
+    data = await file.read()
+    try:
+        save_avatar_bytes(dept_id, data)
+        row = DepartmentRepository.set_avatar(dept_id, avatar="image")
+    except ValueError as e:
+        delete_avatar_file(dept_id)
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return {"ok": True, "department": row}
+
+
+@router.delete(
+    "/departments/{dept_id}/avatar",
+    summary="Remove Department Custom Avatar File",
+    description="Delete the uploaded file (does not change the avatar field).",
+)
+async def delete_department_avatar_file(request: Request, dept_id: str):
+    require_org_admin(request)
+    from evoflow.config.dept_avatars import delete_avatar_file
+
+    delete_avatar_file(dept_id)
+    return {"ok": True}
 
 
 @router.put("/departments/{dept_id}")

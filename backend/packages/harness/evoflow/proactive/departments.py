@@ -60,6 +60,15 @@ def _row_dict(row: Any) -> dict[str, Any]:
         d["head_agent_code"] = str(d.get("head_agent_code") or "").strip()
     # Legacy rows / pre-migration DBs have no avatar column → empty string (UI falls back).
     d["avatar"] = str(d.get("avatar") or "").strip()
+    # Cache-bust token so an uploaded picture refreshes without a full reload.
+    try:
+        from evoflow.config.dept_avatars import avatar_revision_for, has_local_avatar_file
+
+        d["has_avatar_file"] = has_local_avatar_file(str(d.get("id") or ""))
+        d["avatar_rev"] = avatar_revision_for(str(d.get("id") or ""))
+    except Exception:
+        d["has_avatar_file"] = False
+        d["avatar_rev"] = None
     return d
 
 
@@ -361,18 +370,28 @@ class DepartmentRepository:
 
     @staticmethod
     def set_avatar(dept_id: str, *, avatar: str) -> dict[str, Any]:
-        """Set/clear a department avatar. Only shipped preset ids are accepted."""
+        """Set/clear a department avatar.
+
+        Accepts a shipped preset id, the ``image`` sentinel (user upload), or an
+        empty string to clear. Switching away from ``image`` deletes the uploaded
+        file so the board cannot show a stale picture.
+        """
         did = str(dept_id or "").strip()
         existing = DepartmentRepository.get(did)
         if not existing:
             raise ValueError("部门不存在")
         raw = str(avatar or "").strip()
         if raw:
-            from evoflow.config.dept_avatar_presets import parse_dept_avatar
+            from evoflow.config.dept_avatars import is_image_avatar
 
-            av = parse_dept_avatar(raw) or ""
-            if not av:
-                raise ValueError(f"未知的部门头像预设「{avatar}」")
+            if is_image_avatar(raw):
+                av = "image"
+            else:
+                from evoflow.config.dept_avatar_presets import parse_dept_avatar
+
+                av = parse_dept_avatar(raw) or ""
+                if not av:
+                    raise ValueError(f"未知的部门头像预设「{avatar}」")
         else:
             av = ""
         now = utc_now_iso_z()
@@ -388,6 +407,10 @@ class DepartmentRepository:
             )
 
         run_db_transaction(_work)
+        if av != "image":
+            from evoflow.config.dept_avatars import delete_avatar_file
+
+            delete_avatar_file(did)
         row = DepartmentRepository.get(did)
         assert row is not None
         return row

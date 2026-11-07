@@ -233,6 +233,77 @@ class DeptAvatarTest(unittest.TestCase):
         rows = client.get("/api/proactive/departments").json()["departments"]
         self.assertEqual({d["id"]: d["avatar"] for d in rows}[dept["id"]], "support")
 
+    def test_upload_custom_avatar_roundtrip(self) -> None:
+        """自定义上传：POST 文件 → avatar 变 image → GET 能取回 → 换预设删文件。"""
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+
+        from evoflow.config import dept_avatars
+        from evoflow.proactive.router import router as proactive_router
+
+        app = FastAPI()
+        app.include_router(proactive_router)
+        client = TestClient(app)
+
+        created = client.post(
+            "/api/proactive/departments", json={"name": "自定义头像部", "avatar": "studio"}
+        )
+        dept = created.json()["department"]
+        did = dept["id"]
+
+        png = _tiny_png()
+        up = client.post(
+            f"/api/proactive/departments/{did}/avatar",
+            files={"file": ("custom.png", png, "image/png")},
+        )
+        self.assertEqual(up.status_code, 200, up.text)
+        self.assertEqual(up.json()["department"]["avatar"], "image")
+        self.assertTrue(up.json()["department"]["has_avatar_file"])
+
+        served = client.get(f"/api/proactive/departments/{did}/avatar")
+        self.assertEqual(served.status_code, 200)
+        # PIL 可用时会被压成方形 WebP，缺失时原样存 PNG
+        self.assertIn(served.headers.get("content-type"), {"image/png", "image/webp"})
+        self.assertGreater(len(served.content), 0)
+
+        # 换成内置预设 → 上传文件应被清掉，GET 回到 404
+        switched = client.put(f"/api/proactive/departments/{did}", json={"avatar": "support"})
+        self.assertEqual(switched.status_code, 200)
+        self.assertEqual(switched.json()["department"]["avatar"], "support")
+        self.assertFalse(dept_avatars.has_local_avatar_file(did))
+        self.assertEqual(client.get(f"/api/proactive/departments/{did}/avatar").status_code, 404)
+
+        # 非图片字节 → 400
+        bad = client.post(
+            f"/api/proactive/departments/{did}/avatar",
+            files={"file": ("x.png", b"not an image", "image/png")},
+        )
+        self.assertEqual(bad.status_code, 400)
+        self.assertFalse(dept_avatars.has_local_avatar_file(did))
+
+
+def _tiny_png() -> bytes:
+    """最小合法 PNG（1×1 透明），够过 magic + IHDR 校验。"""
+    import zlib
+    import struct
+
+    def chunk(tag: bytes, data: bytes) -> bytes:
+        return (
+            struct.pack(">I", len(data))
+            + tag
+            + data
+            + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF)
+        )
+
+    ihdr = struct.pack(">IIBBBBB", 1, 1, 8, 6, 0, 0, 0)
+    raw = zlib.compress(b"\x00\x00\x00\x00\x00")
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", ihdr)
+        + chunk(b"IDAT", raw)
+        + chunk(b"IEND", b"")
+    )
+
 
 def _presets() -> list[dict]:
     from evoflow.config import dept_avatar_presets as presets
