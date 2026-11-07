@@ -286,6 +286,37 @@ def test_standing_note_does_not_create_new_sections(asset_home: Path, employee_r
     assert all("版本号" not in h for h in headings), standing
 
 
+def test_rename_syncs_machine_generated_title(asset_home: Path) -> None:
+    """Journal/episodic notes carry ``title:`` (not ``name:``) and the catalog
+    prefers it over the body H1 — renaming left the OLD label under the new file."""
+    rt = _runtime()
+    created = _call(rt, action="note", kind="reflection", content="# 旧标题机器生成\n\n正文。")
+    rel = str(created.get("path") or "").replace("\\", "/")
+    out = _call(rt, action="rename", path=rel, content="新标题机器生成")
+    assert out.get("ok") is True, out
+    assert out.get("frontmatterSynced") is True, out
+    text = _call(rt, action="read", path=str(out.get("newPath") or ""))["content"]
+    fm = text.split("---")[1]
+    assert "title: 新标题机器生成" in fm, fm
+    assert "旧标题机器生成" not in fm, fm
+    # Body H1 is prose the author wrote — rename deliberately leaves it alone.
+
+
+def test_rename_keeps_author_written_title(asset_home: Path) -> None:
+    """A title that was never the filename is the author's — rename must not touch it."""
+    rt = _runtime()
+    root = entity_root(EntityRef("user", "yin-tai").normalized())
+    (root / "memory" / "journal").mkdir(parents=True, exist_ok=True)
+    (root / "memory" / "journal" / "短文件名.md").write_text(
+        "---\ntitle: 这是作者手写的长标题\n---\n\n正文。\n", encoding="utf-8"
+    )
+    out = _call(rt, action="rename", path="memory/journal/短文件名.md", content="改过的文件名")
+    assert out.get("ok") is True, out
+    assert out.get("frontmatterSynced") is False, out
+    text = _call(rt, action="read", path=str(out.get("newPath") or ""))["content"]
+    assert "title: 这是作者手写的长标题" in text, text
+
+
 def test_titles_with_md_ext_do_not_double_suffix(asset_home: Path, employee_rt) -> None:
     rt = employee_rt
     out = _call(rt, action="note", kind="experience", content="# 发版一页纸 runbook.md\n\n步骤。")

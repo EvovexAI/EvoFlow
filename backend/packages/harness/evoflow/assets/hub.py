@@ -879,9 +879,10 @@ def rename_text_file(entity: EntityRef, rel_path: str, new_name: str) -> dict[st
     dest = target.with_name(raw_new)
     if dest.exists():
         raise FileExistsError(f"target already exists: {dest.name}")
+    old_stem = target.stem
     with lock_for(target):
         target.rename(dest)
-    synced = _sync_frontmatter_name(dest)
+    synced = _sync_frontmatter_name(dest, old_stem)
     new_rel = dest.relative_to(entity_root(e)).as_posix()
     result = {
         "ok": True,
@@ -897,13 +898,19 @@ def rename_text_file(entity: EntityRef, rel_path: str, new_name: str) -> dict[st
     return result
 
 
-def _sync_frontmatter_name(path: Path) -> bool:
-    """Keep ``name:`` (and a filename-derived ``description:``) aligned after a rename.
+def _sync_frontmatter_name(path: Path, old_stem: str = "") -> bool:
+    """Keep the file's frontmatter identity aligned with its new filename.
 
-    Craft/skill files carry ``name: <slug>`` that mirrors the filename; a rename
-    that left it stale made the catalog show the old label under the new file.
-    ``description`` is only rewritten when it *was* the old stem — prose
-    descriptions are the author's and must survive a rename untouched.
+    Two shapes exist and both were broken by a rename:
+    - craft/skill files: ``name: <slug>`` mirrors the filename.
+    - memory notes (episodic/journal/facts): ``title:`` — and the catalog prefers
+      ``title`` over the body H1, so a stale title keeps showing the OLD label
+      under the new file.
+
+    Prose stays untouched: ``description``/``summary`` are only rewritten when
+    their value *was* the old stem. ``title`` only when it slug-matches the old
+    stem (i.e. machine-generated from it) — a hand-written Chinese title is the
+    author's and must survive a rename.
     Returns whether anything was rewritten.
     """
     try:
@@ -916,16 +923,25 @@ def _sync_frontmatter_name(path: Path) -> bool:
     if len(parts) < 3:
         return False
     head, body = parts[1], parts[2]
-    name_m = re.search(r"(?m)^name\s*:\s*(.+?)\s*$", head)
-    old_stem = name_m.group(1).strip().strip("'\"") if name_m else ""
-    new_head = re.sub(r"(?m)^name\s*:.*$", f"name: {path.stem}", head, count=1)
+    new_head = head
+    if re.search(r"(?m)^name\s*:", new_head):
+        new_head = re.sub(r"(?m)^name\s*:.*$", f"name: {path.stem}", new_head, count=1)
+    title_m = re.search(r"(?m)^title\s*:\s*(.+?)\s*$", new_head)
+    if title_m:
+        old_title = title_m.group(1).strip().strip("'\"")
+        comparable = (old_stem or "").lower()
+        # ``title`` reaches here as prose ("资产自检 TESTONLY") while the stem is its
+        # slug, so compare on the slug form and ignore case.
+        if old_title and comparable and _slug_cjk(old_title).lower() == comparable:
+            new_head = re.sub(r"(?m)^title\s*:.*$", f"title: {path.stem}", new_head, count=1)
     if old_stem and old_stem != path.stem:
-        new_head = re.sub(
-            rf'(?m)^description\s*:\s*["\']?{re.escape(old_stem)}["\']?\s*$',
-            f"description: {path.stem}",
-            new_head,
-            count=1,
-        )
+        for key in ("description", "summary"):
+            new_head = re.sub(
+                rf'(?m)^{key}\s*:\s*["\']?{re.escape(old_stem)}["\']?\s*$',
+                f"{key}: {path.stem}",
+                new_head,
+                count=1,
+            )
     if new_head == head:
         return False
     with lock_for(path):
