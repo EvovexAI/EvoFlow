@@ -53,8 +53,11 @@ jobs:
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           toolchain: stable
-          # 同上：该 action 默认 RUSTFLAGS="-D warnings"，会把未使用代码当成硬错误
+          # 同上：该 action 的 rustflags 默认 "-D warnings"，会把未使用代码当成硬错误
           rustflags: ""
+          # 新版 action 增加 build-warnings（默认 deny），是同一套升级逻辑；
+          # 固定为 warn，避免 v1 标签前移后再次悄悄打断发版
+          build-warnings: "warn"
 
       - name: Set up Python
         uses: actions/setup-python@v6
