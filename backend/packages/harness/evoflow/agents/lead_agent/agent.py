@@ -14,9 +14,7 @@ from evoflow.agents.goal.goal_auto_continue_middleware import GoalAutoContinueMi
 from evoflow.agents.goal.goal_prompt_assembler import GoalContinuationAssemblerMiddleware
 
 # goal_report tool retired — completion detection handled solely by judge model
-# (goal_reply_interpreter). GoalToolMiddleware import kept for backward compat.
-from evoflow.agents.goal.goal_tool_middleware import GoalToolMiddleware  # noqa: F401
-
+# (goal_reply_interpreter).
 # Lazy-imported to avoid circular import:
 #   scenario_activation → intent_tool_profile → lead_agent/__init__ → agent → scenario_activation
 # from evoflow.tools.builtins.scenario_activation import get_scenario_with_fallback, restore_activated_scenarios

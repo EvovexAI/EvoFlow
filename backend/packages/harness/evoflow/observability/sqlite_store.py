@@ -15,7 +15,7 @@ from evoflow.observability.tables import ObservabilityTable
 logger = logging.getLogger(__name__)
 
 # Single migration script — bump ``PRAGMA user_version`` when changing schema.
-_SCHEMA_VERSION = 10
+_SCHEMA_VERSION = 11
 # Default 0 = store full request/response JSON (ops/debug). Positive byte cap via
 # ``EVOFLOW_OBS_STORED_MODEL_JSON_LIMIT`` only when disk pressure requires it.
 _STORED_MODEL_JSON_LIMIT = 0
@@ -232,6 +232,7 @@ CREATE TABLE IF NOT EXISTS {ObservabilityTable.TOOL_INVOCATIONS} (
     started_at TEXT NOT NULL,
     ended_at TEXT NOT NULL,
     duration_ms REAL NOT NULL,
+    queue_wait_ms REAL,
     status TEXT NOT NULL,
     input_json TEXT,
     output_text TEXT,
@@ -351,6 +352,12 @@ def _upgrade_obs_schema(conn: sqlite3.Connection) -> None:
             conn.execute(
                 f"ALTER TABLE {ObservabilityTable.MODEL_INVOCATIONS} ADD COLUMN response_summary_json TEXT"
             )
+    if ver < 11:
+        # Queue wait vs execution split: duration_ms includes bash exec-lock /
+        # semaphore wait, which made queued calls look like minutes-long runs.
+        cols = {str(r[1]) for r in conn.execute(f"PRAGMA table_info({ObservabilityTable.TOOL_INVOCATIONS})")}
+        if "queue_wait_ms" not in cols:
+            conn.execute(f"ALTER TABLE {ObservabilityTable.TOOL_INVOCATIONS} ADD COLUMN queue_wait_ms REAL")
     conn.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
     conn.commit()
 
@@ -569,6 +576,7 @@ class ObservabilitySqliteStore:
         error_detail: dict[str, Any] | None = None,
         agent_code: str | None = None,
         position_code: str | None = None,
+        queue_wait_ms: float | None = None,
     ) -> None:
         tid = (thread_id or "").strip()
         if not tid:
@@ -593,8 +601,8 @@ class ObservabilitySqliteStore:
                     started_at, ended_at, duration_ms, status,
                     input_json, output_text, collab_phase, invocation_source,
                     error_type, error_message, error_detail_json,
-                    agent_code, position_code
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    agent_code, position_code, queue_wait_ms
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     row_id,
@@ -615,6 +623,7 @@ class ObservabilitySqliteStore:
                     err_json,
                     (agent_code or "").strip() or None,
                     (position_code or "").strip() or None,
+                    float(queue_wait_ms) if queue_wait_ms is not None else None,
                 ),
             )
             conn.commit()

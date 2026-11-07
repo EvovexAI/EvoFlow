@@ -40,8 +40,41 @@ def test_effective_timeout_soft_caps_probes_when_implicit() -> None:
 
 def test_blocking_budget_backgrounds_implicit_long_commands() -> None:
     assert bt._blocking_budget_ms(120_000, explicit=False) == bt.ASSISTANT_BLOCKING_BUDGET_MS
-    assert bt._blocking_budget_ms(120_000, explicit=True) == 120_000
     assert bt._blocking_budget_ms(5_000, explicit=False) == 5_000
+
+
+def test_blocking_budget_caps_explicit_foreground_and_keeps_lo_full() -> None:
+    """显式 timeout 只买到封顶内的前台时间，超出转后台（2026-11-07 生产数据回归：
+    显式 timeout=600s 的 pnpm install 前台占住线程通道，并行批次排队 237s）。"""
+    assert bt._blocking_budget_ms(600_000, explicit=True) == bt.FOREGROUND_BLOCKING_CEILING_MS
+    assert bt._blocking_budget_ms(90_000, explicit=True) == bt.FOREGROUND_BLOCKING_CEILING_MS
+    # 封顶以内的显式 timeout 照常生效（到点强杀语义不变）
+    assert bt._blocking_budget_ms(30_000, explicit=True) == 30_000
+    # LibreOffice 风险命令不可安全后台化 → 保留完整显式超时
+    assert bt._blocking_budget_ms(600_000, explicit=True, promotable=False) == 600_000
+    # 非显式不受 promotable 影响（15s 助手预算不变）
+    assert bt._blocking_budget_ms(600_000, explicit=False, promotable=False) == bt.ASSISTANT_BLOCKING_BUDGET_MS
+
+
+def test_bash_max_concurrent_default_and_env_override(monkeypatch) -> None:
+    monkeypatch.delenv("EVOFLOW_BASH_MAX_CONCURRENT", raising=False)
+    assert bt._bash_max_concurrent() == 4
+    monkeypatch.setenv("EVOFLOW_BASH_MAX_CONCURRENT", "2")
+    assert bt._bash_max_concurrent() == 2
+    monkeypatch.setenv("EVOFLOW_BASH_MAX_CONCURRENT", "bogus")
+    assert bt._bash_max_concurrent() == 4
+
+
+def test_queue_wait_registry_roundtrip() -> None:
+    from evoflow.observability.tool_timing import note_tool_queue_wait, pop_tool_queue_wait
+
+    note_tool_queue_wait("call-q1", 123.4)
+    assert pop_tool_queue_wait("call-q1") == pytest.approx(123.4)
+    assert pop_tool_queue_wait("call-q1") is None  # consumed once
+    note_tool_queue_wait("", 50.0)  # no tool_call_id → ignored
+    note_tool_queue_wait("call-q2", 0.0)  # non-positive → ignored
+    assert pop_tool_queue_wait("call-q2") is None
+    assert pop_tool_queue_wait("") is None
 
 
 def test_large_stdout_is_persisted_with_short_preview(tmp_path, monkeypatch) -> None:

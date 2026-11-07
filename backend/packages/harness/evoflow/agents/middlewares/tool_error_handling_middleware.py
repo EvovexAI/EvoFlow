@@ -295,6 +295,16 @@ def _log_tool_call_io(
         error_message: 失败时异常消息摘要
         error_detail: 可选结构化补充（JSON，如 truncated traceback 元数据）
     """
+    # 排队耗时由工具自己上报（如 bash 的执行通道锁/信号量等待），keyed by tool_call_id；
+    # duration_ms 仍是 handler 全程墙钟（排队+执行），queue_wait_ms 只是拆出来供分析。
+    queue_wait_ms: float | None = None
+    if tool_call_id:
+        try:
+            from evoflow.observability.tool_timing import pop_tool_queue_wait
+
+            queue_wait_ms = pop_tool_queue_wait(tool_call_id)
+        except Exception:
+            queue_wait_ms = None
     try:
         tid_raw = _thread_id_from_tool_request(request) if request is not None else _current_thread_id_for_log()
         tid = str(tid_raw or "").strip() or None
@@ -312,6 +322,8 @@ def _log_tool_call_io(
         }
         if duration_ms is not None:
             log_entry["duration_ms"] = round(duration_ms, 2)
+        if queue_wait_ms is not None:
+            log_entry["queue_wait_ms"] = round(queue_wait_ms, 2)
         if error_type:
             log_entry["error_type"] = error_type
         if error_message:
@@ -360,6 +372,7 @@ def _log_tool_call_io(
                     error_detail=error_detail,
                     agent_code=agent_code,
                     position_code=position_code,
+                    queue_wait_ms=queue_wait_ms,
                 )
             except Exception:
                 pass

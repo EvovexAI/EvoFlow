@@ -12,6 +12,7 @@ import shutil
 import subprocess
 import sys
 import threading
+import time
 import uuid
 from pathlib import Path
 from typing import Annotated
@@ -35,6 +36,14 @@ MAX_INLINE_BYTES = 30_000
 MODEL_PREVIEW_CHARS = 2_000
 # ZCode bash-model-content.ts: assistant turns must not block on a foreground shell.
 ASSISTANT_BLOCKING_BUDGET_MS = 15_000
+# EvoFlow multi-agent reality (2026-11-07 prod data): an explicit timeout let
+# builds (`pnpm install`, `npm run build`) park the thread channel in the
+# foreground for up to 10 minutes — parallel tool calls of the same turn queued
+# behind it, and 42% of >10s bash rows in observability were pure queue wait.
+# An explicit timeout therefore only buys foreground time up to this ceiling;
+# beyond it the command is promoted to background and the turn continues on the
+# completion notification.
+FOREGROUND_BLOCKING_CEILING_MS = int(os.getenv("EVOFLOW_BASH_FOREGROUND_CEILING_MS", "60000"))
 # ZCode bash.ts metadata.concurrentSafe = false
 #
 # Execution channels are PER-THREAD + a process-wide concurrency cap.
@@ -52,11 +61,15 @@ _EXEC_LOCKS_MAX = 1024
 
 
 def _bash_max_concurrent() -> int:
-    raw = (os.getenv("EVOFLOW_BASH_MAX_CONCURRENT") or "8").strip()
+    # 4, not 8: prod data (2026-11-07) showed 5+ concurrent builds/install
+    # saturating the desktop (git status 0.07s idle → 28s under load, Defender
+    # + node_modules IO amplification). Builds beyond the cap queue briefly
+    # instead of degrading every other agent's shell.
+    raw = (os.getenv("EVOFLOW_BASH_MAX_CONCURRENT") or "4").strip()
     try:
         return max(1, int(raw))
     except ValueError:
-        return 8
+        return 4
 
 
 _BASH_CONCURRENCY = threading.Semaphore(_bash_max_concurrent())
@@ -212,11 +225,22 @@ def _effective_timeout_ms(command: str, timeout_ms: int, *, explicit: bool) -> i
     return timeout_ms
 
 
-def _blocking_budget_ms(timeout_ms: int, *, explicit: bool) -> int:
-    """Honor an explicit timeout. Otherwise stop blocking the turn at 15s."""
-    if explicit:
+def _blocking_budget_ms(timeout_ms: int, *, explicit: bool, promotable: bool = True) -> int:
+    """Foreground blocking budget before the command is backgrounded.
+
+    - Implicit timeout: ZCode assistant budget (15s).
+    - Explicit timeout: honored, but foreground time is capped at
+      ``FOREGROUND_BLOCKING_CEILING_MS`` — longer commands keep running in the
+      background instead of parking the thread channel.
+    - Not promotable (LibreOffice risk): keep the full explicit timeout —
+      backgrounding leaves orphan soffice holding file locks. The implicit
+      15s budget still applies (it previously soft-landed as timeout+kill).
+    """
+    if not explicit:
+        return min(timeout_ms, ASSISTANT_BLOCKING_BUDGET_MS)
+    if not promotable:
         return timeout_ms
-    return min(timeout_ms, ASSISTANT_BLOCKING_BUDGET_MS)
+    return min(timeout_ms, FOREGROUND_BLOCKING_CEILING_MS)
 
 
 # ZCode bash-read-file-state.ts: only surface stale reads after a mutating command.
@@ -796,6 +820,7 @@ def _promote_to_background(
     session_key: str,
     partial_stdout: str,
     partial_stderr: str,
+    blocking_ms: int,
 ) -> str:
     """Keep a still-running foreground command alive and return immediately."""
     del cwd
@@ -858,7 +883,7 @@ def _promote_to_background(
         _emit_task_notification(task)
 
     threading.Thread(target=_pump, name=f"bash-bg-{task_id}", daemon=True).start()
-    seconds = ASSISTANT_BLOCKING_BUDGET_MS // 1000
+    seconds = max(1, int(blocking_ms) // 1000)
     return (
         f"status: backgrounded\ninterrupted: false\nbackgroundTaskId: {task_id}\n"
         f"persistedOutputPath: {output_path}\n"
@@ -881,7 +906,10 @@ def _run_foreground(
 ) -> str:
     argv, _dialect = _script(command, cwd=cwd)
     invocation = tool_call_id or uuid.uuid4().hex
-    blocking_ms = _blocking_budget_ms(timeout_ms, explicit=explicit)
+    # LibreOffice detaches from the process tree — it must not be backgrounded
+    # (orphan soffice holds the .xlsx lock), so its explicit timeout stays full.
+    lo_risk = _is_libreoffice_risk_command(command)
+    blocking_ms = _blocking_budget_ms(timeout_ms, explicit=explicit, promotable=not lo_risk)
     # CreateProcess requires a Windows path. Git Bash accepts that cwd and converts it.
     _emit("start", invocation_id=invocation, tool_call_id=tool_call_id, command=command)
     try:
@@ -893,7 +921,6 @@ def _run_foreground(
     timed_out = False
     stdout = ""
     stderr = ""
-    lo_risk = _is_libreoffice_risk_command(command)
     _register_active_bash(invocation, proc, command)
     try:
         try:
@@ -914,6 +941,7 @@ def _run_foreground(
                     session_key=session_key,
                     partial_stdout=exc.stdout if isinstance(exc.stdout, str) else "",
                     partial_stderr=exc.stderr if isinstance(exc.stderr, str) else "",
+                    blocking_ms=blocking_ms,
                 )
             timed_out = True
             _kill_process_tree(int(proc.pid or 0), also_libreoffice=lo_risk)
@@ -1144,8 +1172,18 @@ def bash_tool(
     # workflow workers and subagents must not serialize behind each other's
     # long commands (a main-chat `sleep 50` used to block every worker's
     # `ls`). A process-wide concurrency cap keeps resource use bounded.
+    # Lock + semaphore wait is reported per tool_call_id so observability can
+    # separate queue time from real execution time (handler wall time alone
+    # made a queued `git show` look like 237s).
+    queue_t0 = time.perf_counter()
     with _exec_lock_for(tid or sk):
         with _bash_concurrency_slot():
+            try:
+                from evoflow.observability.tool_timing import note_tool_queue_wait
+
+                note_tool_queue_wait(tool_call_id, (time.perf_counter() - queue_t0) * 1000.0)
+            except Exception:
+                pass
             if _semantic_bool(run_in_background):
                 return _run_background(command, cwd, tool_call_id, desc, thread_id=tid, session_key=sk)
             result = _run_foreground(
