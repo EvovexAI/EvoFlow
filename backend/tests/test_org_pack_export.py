@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from evoflow.admin.errors import ValidationError
 from evoflow.organizations import export as org_export
 
 
@@ -177,3 +178,50 @@ def test_export_extension_missing_from_registry(isolated_env: Path, tmp_path: Pa
         assert "extensions" not in manifest["primitives"]
     finally:
         monkeypatch.undo()
+
+
+def test_employee_export_autonomy_uses_enum_value(isolated_env: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """导出的 autonomy_level 必须是值形式（approval_for_all），不能是枚举 repr。"""
+    from types import SimpleNamespace
+
+    from evoflow.proactive import repositories as proactive_repositories
+    from evoflow.proactive.models import ProactiveAutonomyLevel
+
+    role = SimpleNamespace(
+        config=SimpleNamespace(
+            autonomy_level=ProactiveAutonomyLevel.APPROVAL_FOR_ALL,
+            reports_to="",
+            knowledge_vault_ids=[],
+            skills=[],
+            responsibilities=[],
+            max_turns=10,
+            timeout_seconds=0,
+            daily_budget_usd=0.0,
+        ),
+        role_name="员工",
+        position_code="",
+        department="",
+        heartbeat_rrule="",
+    )
+    monkeypatch.setattr(
+        proactive_repositories.ProactiveRepository,
+        "get_role",
+        staticmethod(lambda code: role),
+    )
+    out = org_export._employee_to_json("worker")
+    assert out["config"]["autonomy_level"] == "approval_for_all"
+
+
+def test_parse_autonomy_accepts_enum_repr(isolated_env: Path) -> None:
+    """导入侧兼容历史导出包里的枚举 repr（ProactiveAutonomyLevel.APPROVAL_FOR_ALL）。"""
+    from evoflow.admin.employees import _parse_autonomy
+    from evoflow.proactive.models import ProactiveAutonomyLevel
+
+    assert _parse_autonomy("approval_for_all") is ProactiveAutonomyLevel.APPROVAL_FOR_ALL
+    assert _parse_autonomy("full_auto") is ProactiveAutonomyLevel.FULL_AUTO
+    assert (
+        _parse_autonomy("ProactiveAutonomyLevel.APPROVAL_FOR_ALL")
+        is ProactiveAutonomyLevel.APPROVAL_FOR_ALL
+    )
+    with pytest.raises(ValidationError):
+        _parse_autonomy("nonsense_level")

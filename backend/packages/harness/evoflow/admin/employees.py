@@ -465,7 +465,12 @@ def _parse_autonomy(raw: Any) -> ProactiveAutonomyLevel:
     try:
         return ProactiveAutonomyLevel(s)
     except ValueError as e:
-        raise ValidationError(f"Invalid autonomy_level: {s}") from e
+        # 兼容历史导出包：str-Enum 被序列化成 repr 形式（ProactiveAutonomyLevel.APPROVAL_FOR_ALL）。
+        name = s.rsplit(".", 1)[-1]
+        try:
+            return ProactiveAutonomyLevel[name]
+        except (KeyError, ValueError):
+            raise ValidationError(f"Invalid autonomy_level: {s}") from e
 
 
 def _parse_risk(raw: Any) -> InitiativeRiskLevel:
