@@ -303,10 +303,15 @@ const GATEWAY_RETRY_DELAYS_MS = [300, 500, 800, 1200, 2000]
 /** loading_extended storms previously opened hundreds of sockets and crashed
  *  Windows SelectorEventLoop (select FD_SETSIZE≈512). Back off harder. */
 const GATEWAY_LOADING_EXTENDED_DELAYS_MS = [2000, 3000, 4000, 5000, 8000]
+/** 工作流编辑器（/api/apps）走短轮询：apps 路由在扩展批次里较早挂载，
+ *  冷启动等待通常 <1s；用通用 2~8s 退避会让「加载工作流…」白等好几秒。 */
+const GATEWAY_APPS_FAST_DELAYS_MS = [200, 300, 400, 600, 800]
 const GATEWAY_RETRY_MAX = 60
 const GATEWAY_RETRY_BUDGET_MS = 90_000
 const GATEWAY_LOADING_EXTENDED_RETRY_MAX = 20
 const GATEWAY_LOADING_EXTENDED_BUDGET_MS = 60_000
+const GATEWAY_APPS_FAST_RETRY_MAX = 40
+const GATEWAY_APPS_FAST_BUDGET_MS = 20_000
 /** Soft cap on concurrent gatewayProxy calls (all callers share one pool). */
 const GATEWAY_MAX_CONCURRENT = 24
 const _gatewayInflight = new Map()
@@ -328,6 +333,18 @@ function gatewayLoadingExtendedDelayMs(attempt, serverRetryAfterMs) {
     Math.min(attempt, GATEWAY_LOADING_EXTENDED_DELAYS_MS.length - 1)
   ]
   return Math.max(fromTable, Number.isFinite(fromServer) && fromServer > 0 ? fromServer : 0)
+}
+
+/** 工作流相关接口（列表 / 详情 / 运行状态）——冷启动时用短轮询快速拿到数据。 */
+function _isAppsFastPath(apiPath) {
+  const p = String(apiPath || '')
+  return p === '/api/apps' || p.startsWith('/api/apps/')
+}
+
+function gatewayAppsFastDelayMs(attempt) {
+  return GATEWAY_APPS_FAST_DELAYS_MS[
+    Math.min(attempt, GATEWAY_APPS_FAST_DELAYS_MS.length - 1)
+  ]
 }
 
 function noteLoadingExtendedCooldown(retryAfterMs) {
@@ -712,13 +729,15 @@ async function gatewayProxyWithRetry(method, path, body = null, query = null, op
     ? String(path)
     : `/api${String(path || '').startsWith('/') ? path : `/${path || ''}`}`
   const needsExtended = _pathNeedsExtendedRouters(apiPath)
+  // 工作流接口用短轮询：apps 路由在扩展批次里较早挂载，等 2~8s 通用退避太慢。
+  const isAppsFastPath = _isAppsFastPath(apiPath)
   // Soft-wait for extended routers before burning the first attempt on 503.
   if (!skipRetry && needsExtended && _extendedReady !== true) {
     await waitForExtendedReady(Math.min(15_000, budgetMs)).catch(() => {})
   }
   for (let attempt = 0; attempt <= maxAttempts; attempt += 1) {
     if (Date.now() - startedAt > budgetMs) break
-    if (needsExtended) {
+    if (needsExtended && !isAppsFastPath) {
       await waitSharedLoadingExtendedCooldown()
     }
     try {
@@ -732,6 +751,11 @@ async function gatewayProxyWithRetry(method, path, body = null, query = null, op
         // Tighten budget once we know the gate is still closed — avoids FD storms.
         maxAttempts = Math.min(maxAttempts, GATEWAY_LOADING_EXTENDED_RETRY_MAX)
         budgetMs = Math.min(budgetMs, GATEWAY_LOADING_EXTENDED_BUDGET_MS)
+        if (isAppsFastPath) {
+          // 工作流面板自己用短间隔重试，不吃通用长退避。
+          maxAttempts = Math.min(maxAttempts, GATEWAY_APPS_FAST_RETRY_MAX)
+          budgetMs = Math.min(budgetMs, GATEWAY_APPS_FAST_BUDGET_MS)
+        }
       }
       const retryable = !skipRetry && (
         err?.retryable
@@ -740,7 +764,9 @@ async function gatewayProxyWithRetry(method, path, body = null, query = null, op
       )
       if (!retryable || attempt >= maxAttempts) break
       const delay = isLoadingExtended
-        ? gatewayLoadingExtendedDelayMs(attempt, err?.gatewayResult?.retry_after_ms)
+        ? (isAppsFastPath
+            ? gatewayAppsFastDelayMs(attempt)
+            : gatewayLoadingExtendedDelayMs(attempt, err?.gatewayResult?.retry_after_ms))
         : (Number(err?.gatewayResult?.retry_after_ms) || gatewayRetryDelayMs(attempt))
       await new Promise((r) => setTimeout(r, delay))
       if (isTauri && attempt % 3 === 2) {

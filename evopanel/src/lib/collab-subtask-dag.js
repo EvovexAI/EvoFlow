@@ -115,7 +115,9 @@ export function buildSubtaskDagIndex(subtasks) {
 }
 
 const DEFAULT_NODE_W = 212
-const DEFAULT_NODE_H = 136
+// 节点保持紧凑：标题(含头像/spinner) + 进度 + 最新一条活动，纵向就三行。
+// 之前的 248×184 太大，画布稀疏且一眼看不到全貌。
+const DEFAULT_NODE_H = 96
 const DEFAULT_GAP_X = 40
 const DEFAULT_GAP_Y = 80
 const DEFAULT_PADDING = 28

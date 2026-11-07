@@ -31346,6 +31346,55 @@ html.dark .react-chat-collab-exec-panel {
   white-space: nowrap;
 }
 
+/* 顶栏：运行中徽标 + 节点计数（原来只有一个百分比，看不出跑到哪） */
+.react-chat-collab-exec-panel-running-chip {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(59, 130, 246, 0.28);
+  background: rgba(59, 130, 246, 0.1);
+  color: #2563eb;
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+
+/* 顶栏用小转圈，和节点上的齿轮位一致（不用呼吸点） */
+.react-chat-collab-exec-panel-running-dot {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: 1.5px solid currentColor;
+  border-top-color: transparent;
+  animation: collab-wf-node-spin 0.7s linear infinite;
+}
+
+.react-chat-collab-exec-panel-step-chip {
+  flex-shrink: 0;
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--border-subtle, rgba(148, 163, 184, 0.3));
+  background: var(--bg-secondary, #f1f5f9);
+  color: var(--text-secondary, #64748b);
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1.55;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+html[data-theme='dark'] .react-chat-collab-exec-panel-running-chip,
+html.dark .react-chat-collab-exec-panel-running-chip {
+  color: #93c5fd;
+  border-color: rgba(96, 165, 250, 0.32);
+  background: rgba(59, 130, 246, 0.18);
+}
+
 .react-chat-collab-exec-panel-progress-row {
   display: flex;
   align-items: center;
@@ -33886,9 +33935,9 @@ html.dark .collab-wf-edge--active {
   display: flex;
   flex-direction: column;
   gap: 3px;
-  padding: 8px 10px 9px;
+  padding: 6px 9px 7px;
   border: 1.5px solid var(--border, #cbd5e1);
-  border-radius: 10px;
+  border-radius: 9px;
   background: var(--bg-primary, #fff);
   box-shadow: 0 2px 8px rgba(15, 23, 42, 0.06);
   text-align: left;
@@ -33967,10 +34016,28 @@ html.dark .collab-wf-edge--active {
 .collab-wf-node.is-running {
   border-color: #3b82f6;
   box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
+  /* 运行中：轻微呼吸感，让「哪个节点在跑」一眼可见（不依赖颜色单独承载信息） */
+  animation: collab-wf-node-breathe 2.4s ease-in-out infinite;
+}
+
+@keyframes collab-wf-node-breathe {
+  0%,
+  100% {
+    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.12);
+  }
+  50% {
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.22);
+  }
 }
 
 .collab-wf-node.is-done {
-  border-color: #22c55e;
+  /* 完成的节点用黑色边框，不再用绿色（绿色在深色主题里过于刺眼） */
+  border-color: var(--text-primary, #0f172a);
+}
+
+html[data-theme='dark'] .collab-wf-node.is-done,
+html.dark .collab-wf-node.is-done {
+  border-color: var(--text-primary, #f1f5f9);
 }
 
 html[data-theme='dark'] .collab-wf-node,
@@ -34042,6 +34109,18 @@ html.dark .collab-wf-node {
   flex-shrink: 0;
 }
 
+/* 工作流节点里的「已完成」状态灯：绿点 → 黑点（跟黑色边框一致） */
+.collab-wf-node-title-row .react-chat-subtask-status-light.task-status-completed {
+  background: rgba(15, 23, 42, 0.85);
+  box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.1);
+}
+
+html[data-theme='dark'] .collab-wf-node-title-row .react-chat-subtask-status-light.task-status-completed,
+html.dark .collab-wf-node-title-row .react-chat-subtask-status-light.task-status-completed {
+  background: rgba(241, 245, 249, 0.85);
+  box-shadow: 0 0 0 1px rgba(241, 245, 249, 0.1);
+}
+
 .collab-wf-node-task-title {
   flex: 1 1 auto;
   min-width: 0;
@@ -34062,6 +34141,11 @@ html.dark .collab-wf-node {
   min-width: 0;
   width: 100%;
   margin-top: 1px;
+}
+
+/* 头像现在与标题同排（紧凑三行布局） */
+.collab-wf-node-title-row .collab-wf-node-agent-ico {
+  flex-shrink: 0;
 }
 
 .collab-wf-node-agent {
@@ -34175,6 +34259,108 @@ html.dark .collab-wf-node {
 
 .collab-wf-node-live.is-live {
   border-top-color: rgba(59, 130, 246, 0.2);
+}
+
+/* ── 运行中徽标（齿轮位）：标题右侧的小 spinner ─────────────────── */
+.collab-wf-node-running-badge {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  border: 1px solid rgba(59, 130, 246, 0.28);
+  background: rgba(59, 130, 246, 0.09);
+  color: #2563eb;
+}
+
+.collab-wf-node-spinner {
+  flex-shrink: 0;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  border: 1.5px solid currentColor;
+  border-top-color: transparent;
+  opacity: 0.85;
+  animation: collab-wf-node-spin 0.7s linear infinite;
+}
+
+@keyframes collab-wf-node-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+html[data-theme='dark'] .collab-wf-node-running-badge,
+html.dark .collab-wf-node-running-badge {
+  color: #93c5fd;
+  border-color: rgba(96, 165, 250, 0.32);
+  background: rgba(59, 130, 246, 0.16);
+}
+
+/* ── 最新一条活动：正在跑的工具 / 最新正文，就一行 ─────────────── */
+.collab-wf-node-activity {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  min-width: 0;
+  margin-top: 2px;
+  padding-top: 4px;
+  border-top: 1px solid var(--border-subtle, rgba(148, 163, 184, 0.2));
+  font-size: var(--ef-text-xs);
+  line-height: 1.35;
+  color: var(--text-secondary, #64748b);
+}
+
+.collab-wf-node-activity.is-running {
+  color: #2563eb;
+  border-top-color: rgba(59, 130, 246, 0.2);
+}
+
+.collab-wf-node-activity.is-failed {
+  color: #dc2626;
+  border-top-color: rgba(239, 68, 68, 0.2);
+}
+
+.collab-wf-node-activity-dot {
+  flex-shrink: 0;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: collab-wf-node-pulse 1.1s ease-in-out infinite;
+}
+
+@keyframes collab-wf-node-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.25;
+  }
+}
+
+.collab-wf-node-activity-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+html[data-theme='dark'] .collab-wf-node-activity.is-running,
+html.dark .collab-wf-node-activity.is-running {
+  color: #93c5fd;
+  border-top-color: rgba(96, 165, 250, 0.24);
+}
+
+html[data-theme='dark'] .collab-wf-node-activity.is-failed,
+html.dark .collab-wf-node-activity.is-failed {
+  color: #fca5a5;
+  border-top-color: rgba(248, 113, 113, 0.24);
 }
 
 .collab-wf-node-ticker {

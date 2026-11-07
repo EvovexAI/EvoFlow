@@ -34,6 +34,7 @@ import {
   type ThinkingPref,
 } from './AgentRolePrefs.js'
 import { AssetQuickActions, partitionArtifacts } from './ChatWorkspaceInfoRail.js'
+import { SubagentTaskDetailPortal } from './SubagentLiveDock.js'
 import { PlatformRunTable } from './PlatformRunTable.js'
 import { SessionDebugPane } from './SessionDebugPane.js'
 import { chatArtifactDisplayLabel, type ChatArtifact } from '../lib/chat-artifact.js'
@@ -326,10 +327,13 @@ function ProcessList({
   summary,
   onOpenItem,
   onStopItem,
+  onOpenAgentDetail,
 }: {
   summary: ProcessSummary
   onOpenItem?: (item: ProcessItem) => void
   onStopItem?: (item: ProcessItem) => void
+  /** 子智能体行 → 打开实时流浮层（输出已并入主消息区，旧「切智能体 tab」行为无效） */
+  onOpenAgentDetail?: (taskId: string) => void
 }) {
   const [now, setNow] = useState(() => Date.now())
   const hasRunning = summary.items.some((it) => it.state === 'running')
@@ -353,7 +357,16 @@ function ProcessList({
               type="button"
               className={`chat-summary-process-item is-${it.state}`}
               title={`${it.label} · ${PROCESS_STATE_LABEL[it.state]}`}
-              onClick={() => onOpenItem?.(it)}
+              onClick={() => {
+                if (it.kind === 'agent' && onOpenAgentDetail) {
+                  const taskId = String((it.source as { taskId?: string } | null)?.taskId || '')
+                  if (taskId) {
+                    onOpenAgentDetail(taskId)
+                    return
+                  }
+                }
+                onOpenItem?.(it)
+              }}
             >
               <StateIcon className="chat-summary-process-icon" data-state={it.state} aria-hidden />
               <span className="chat-summary-process-main">
@@ -435,6 +448,8 @@ function ChatSummaryPanelInner({
   const [policy, setPolicy] = useState<ChatSummaryExpandPolicy>('auto-expand')
   const [policyOpen, setPolicyOpen] = useState(false)
   const [panelTab, setPanelTab] = useState<PanelTab>('agent')
+  /** 进程行点开的子智能体实时流浮层（taskId） */
+  const [agentDetailTaskId, setAgentDetailTaskId] = useState<string | null>(null)
   const policyRef = useRef<HTMLDivElement | null>(null)
   const hydrated = useRef(false)
   const activityPrevRef = useRef<SummaryActivityPrev>({
@@ -939,6 +954,11 @@ function ChatSummaryPanelInner({
                   summary={summary}
                   onOpenItem={onOpenProcessItem}
                   onStopItem={onStopProcessItem}
+                  onOpenAgentDetail={(taskId) => {
+                    setAgentDetailTaskId(taskId)
+                    // 胶囊态也要撑开，否则浮层盖在气泡上看不到入口
+                    goPanel()
+                  }}
                 />
               </div>
             ) : null}
@@ -963,6 +983,14 @@ function ChatSummaryPanelInner({
           </div>
         </div>
       )}
+      {agentDetailTaskId ? (
+        <SubagentTaskDetailPortal
+          task={
+            (agentDetailTaskId && subagentTasks && subagentTasks[agentDetailTaskId]) || null
+          }
+          onClose={() => setAgentDetailTaskId(null)}
+        />
+      ) : null}
     </aside>
   )
 }

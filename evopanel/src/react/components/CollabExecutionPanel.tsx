@@ -159,6 +159,23 @@ function CollabExecutionPanelInner({
 
   const isBuffering = isRunning && panelProgress != null && panelProgress < 100
 
+  /** 节点统计：总数 / 运行中 / 已完成 —— 让顶栏一眼看出「跑到哪了」 */
+  const stepStats = useMemo(() => {
+    let total = 0
+    let running = 0
+    let done = 0
+    for (const s of subtasks) {
+      total += 1
+      const st = normalizeTaskStatus(s.status)
+      if (st === 'in_progress' || st === 'running' || st === 'executing' || st === 'active') {
+        running += 1
+      } else if (st === 'completed' || st === 'done') {
+        done += 1
+      }
+    }
+    return { total, running, done }
+  }, [subtasks])
+
   if (!isOpen) return null
 
   const statusLabel = formatPlanTaskStatusLabel(persistedMainTask)
@@ -184,6 +201,20 @@ function CollabExecutionPanelInner({
               <span className="react-chat-collab-exec-panel-title" title={taskTitle}>
                 {taskTitle}
               </span>
+              {isRunning ? (
+                <span className="react-chat-collab-exec-panel-running-chip" title="任务正在运行">
+                  <span className="react-chat-collab-exec-panel-running-dot" aria-hidden />
+                  运行中
+                </span>
+              ) : null}
+              {stepStats.total > 0 ? (
+                <span
+                  className="react-chat-collab-exec-panel-step-chip"
+                  title={`共 ${stepStats.total} 个节点：运行中 ${stepStats.running}，已完成 ${stepStats.done}`}
+                >
+                  {stepStats.done}/{stepStats.total}
+                </span>
+              ) : null}
             </div>
             {panelProgress != null ? (
               <div className="react-chat-collab-exec-panel-progress-row">
