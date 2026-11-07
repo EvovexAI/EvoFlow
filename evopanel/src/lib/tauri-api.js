@@ -393,6 +393,17 @@ function isRetryableGatewayResponse(status, result, method) {
   return false
 }
 
+/**
+ * 扫码注册会话（/channels/*/registration/*）在网关侧是内存态：网关重启或
+ * TTL 清理后 /poll 返回 404 session_not_found。轮询方据此停止轮询并提示
+ * 重新扫码，而不是当作瞬时错误永远轮询下去（UI 卡死在「等待扫码…」）。
+ */
+export function isRegistrationSessionGone(err) {
+  if (Number(err?.status || 0) === 404) return true
+  const msg = String(err?.message || err || '')
+  return /session[_\s-]?not[_\s-]?found/i.test(msg) || /Session .+ not found/i.test(msg)
+}
+
 /** Kick GET /models (+ primary) early so the composer model label is not empty for ~15–30s. */
 export function prefetchModelCatalog(reason = 'engineReady') {
   if (!isTauri) return _modelCatalogPrefetch
@@ -3073,6 +3084,10 @@ export const api = {
   proactiveOrgTree: async (status = null) =>
     gatewayProxy('GET', '/proactive/org-tree', null, status ? { status } : null),
   proactiveListDepartments: async () => gatewayProxy('GET', '/proactive/departments'),
+  proactiveListDeptAvatarPresets: async () => {
+    const data = await gatewayProxy('GET', '/proactive/departments/avatar-presets')
+    return Array.isArray(data?.presets) ? data.presets : []
+  },
   proactiveCreateDepartment: async (payload) =>
     gatewayProxy('POST', '/proactive/departments', payload || {}),
   proactiveUpdateDepartment: async (id, payload) =>

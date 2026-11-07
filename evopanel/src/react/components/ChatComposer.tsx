@@ -217,6 +217,7 @@ export const ChatComposer = memo(function ChatComposer({
   onCancelPendingSend,
   onEditPendingSend,
   onInterruptAndSendSteers,
+  onInterruptAndFlushQueue,
   onEnhancePrompt,
   placeholder = '输入消息…',
   renderBottomControls,
@@ -267,7 +268,7 @@ export const ChatComposer = memo(function ChatComposer({
   onSteerWhileBusy?: (text: string) => void
   /** 流式中 Enter/Tab：排队，回合结束后再发 */
   onQueueWhileBusy?: (text: string) => void
-  /** ↑ / 空 Enter：把排队消息提升为下次工具前纠偏（不打断整轮） */
+  /** ↑ / 队列条 ↑ 按钮：把排队消息提升为下次工具前纠偏（注入，不打断整轮） */
   onFlushPendingSend?: (id: string) => void
   /** 取消某条等待发送 */
   onCancelPendingSend?: (id: string) => void
@@ -275,6 +276,8 @@ export const ChatComposer = memo(function ChatComposer({
   onEditPendingSend?: (id: string, text: string) => void
   /** Esc：打断当前回合并立即发送全部 pending steers（runtime Esc 路径） */
   onInterruptAndSendSteers?: () => void
+  /** 空 Enter / 队首插队：打断当前回合并立即发送排队消息 */
+  onInterruptAndFlushQueue?: (id?: string) => void | Promise<void>
   /** When set, shows microphone for voice input (requires Gateway speech config). */
   speechEnabled?: boolean
   onVoiceTranscribed?: (text: string) => void | Promise<void>
@@ -709,14 +712,14 @@ export const ChatComposer = memo(function ChatComposer({
     }
     const t = live.trim()
     if (!t && !pendingFiles.length && contextAttachCount <= 0) {
-      // 忙时、输入框空、已有排队：再次 Enter → 提升为下次工具前纠偏
+      // 忙时、输入框空、已有排队：再次 Enter → 打断当前回复，队首立即发送（插队）
       if (
         (streaming || sending) &&
         pendingSendQueue[0] &&
-        onFlushPendingSend &&
+        onInterruptAndFlushQueue &&
         !pendingFiles.length
       ) {
-        onFlushPendingSend(pendingSendQueue[0].id)
+        void onInterruptAndFlushQueue(pendingSendQueue[0].id)
       }
       return
     }
@@ -1340,7 +1343,7 @@ export const ChatComposer = memo(function ChatComposer({
             <span className="react-chat-pending-steers__title">
               回合结束后发送{pendingSendQueue.length > 1 ? `（${pendingSendQueue.length}）` : ''}
             </span>
-            <span className="react-chat-pending-steers__hint">Enter 排队 · ↑ / 空 Enter 立即纠偏</span>
+            <span className="react-chat-pending-steers__hint">Enter 排队 · 空 Enter 打断并立即发送 · ↑ 注入不打断</span>
           </div>
           {pendingSendQueue.map((item, index) => (
             <div key={item.id} className="react-chat-pending-send__row">
@@ -1416,7 +1419,7 @@ export const ChatComposer = memo(function ChatComposer({
                   ? 'Agent 引擎加载中，就绪后即可发送…'
                   : streaming || sending
                     ? pendingSendQueue.length
-                      ? '已排队 · ↑ 或空 Enter 立即纠偏，有内容再 Enter 继续排队…'
+                      ? '已排队 · 空 Enter 打断并立即发送队首 · 有内容再 Enter 继续排队…'
                       : 'Enter 排队，回合结束后自动发送…'
                     : placeholder
             }

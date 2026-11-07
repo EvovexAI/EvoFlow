@@ -1586,7 +1586,9 @@ function renderRoleProfile(
   const autonomyHint =
     AUTONOMY_HINT[cfg.autonomy_level] || AUTONOMY_HINT.approval_for_risky
   const resp = Array.isArray(cfg.responsibilities) ? cfg.responsibilities.filter(Boolean) : []
-  // 岗位页展示岗位职责，不用智能体 description（那是「智能体」页人设摘要）
+  // 岗位页展示岗位职责，不用智能体 description（那是「智能体」页人设摘要）。
+  // 职责已合并进智能体 system_prompt（## 岗位职责），这里只剩旧数据回显；
+  // 没有旧数据就不渲染占位文案（「暂未配置」是误导——职责其实写在提示词里）。
   const heroDutyHtml = resp.length
     ? `<ul class="pro-resp-list pro-resp-list--hero">${resp
         .slice(0, 4)
@@ -1594,7 +1596,7 @@ function renderRoleProfile(
         .join('')}${
         resp.length > 4 ? `<li class="pro-resp-list-more">另有 ${resp.length - 4} 项…</li>` : ''
       }</ul>`
-    : `<p class="pro-duty-sheet-desc pro-duty-sheet-desc--muted">暂未配置岗位职责</p>`
+    : ''
 
   // Hero 能力标签 + 工作量；频率只在「自动上班时间」折叠里出现一次
   const sheetStats = [

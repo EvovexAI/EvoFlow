@@ -148,6 +148,7 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
     handleFlushPendingSend,
     handleForkFromMessage,
     handleHistoryViewReady,
+    handleInterruptAndFlushQueue,
     handleInterruptAndSendSteers,
     handleManualContextCompact,
     handleOpenWorkspaceFolder,
@@ -1204,6 +1205,7 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
               onCancelPendingSend={handleCancelPendingSend}
               onEditPendingSend={handleEditPendingSend}
               onInterruptAndSendSteers={handleInterruptAndSendSteers}
+              onInterruptAndFlushQueue={handleInterruptAndFlushQueue}
               onEnhancePrompt={handleEnhancePrompt}
               speechEnabled={false}
               onVoiceTranscribed={undefined}

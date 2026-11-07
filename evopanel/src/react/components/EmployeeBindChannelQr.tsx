@@ -2,7 +2,7 @@ import { memo, useEffect, useRef, useState } from 'react'
 import QRCode from 'qrcode'
 import type { PlatformUiFeedback } from '../../lib/right-stage/platform-feedback.js'
 import { navigatePlatformFeedbackRoute } from '../../lib/right-stage/platform-feedback.js'
-import { api } from '../../lib/tauri-api.js'
+import { api, isRegistrationSessionGone } from '../../lib/tauri-api.js'
 import { toast } from '../../components/toast.js'
 
 const CHANNEL_LABELS: Record<string, string> = {
@@ -151,8 +151,13 @@ export const EmployeeBindChannelQr = memo(function EmployeeBindChannelQr({
         } finally {
           applyingRef.current = false
         }
-      } catch {
-        /* transient poll errors */
+      } catch (e) {
+        // 扫码会话在网关侧重启 / TTL 清理后消失（404 session_not_found）：
+        // 停轮询并落到 expired 终态，否则永远停在「等待扫码…」。
+        if (!isRegistrationSessionGone(e)) return
+        stopPoll()
+        setStatus('expired')
+        setStatusText('二维码已过期，请重新发起绑定')
       }
     }
 

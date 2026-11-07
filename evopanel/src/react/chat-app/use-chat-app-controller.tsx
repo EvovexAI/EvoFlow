@@ -2272,6 +2272,7 @@ export function useChatAppController() {
     handleFlushPendingSend,
     handleCancelPendingSteer,
     handleInterruptAndSendSteers,
+    handleInterruptAndFlushQueue,
   } = usePendingSendQueue({
     selectedSessionKey,
     selectedTurnBusy,
@@ -6481,6 +6482,7 @@ export function useChatAppController() {
     handleFlushPendingSend,
     handleForkFromMessage,
     handleHistoryViewReady,
+    handleInterruptAndFlushQueue,
     handleInterruptAndSendSteers,
     handleManualContextCompact,
     handleOpenWorkspaceFolder,
