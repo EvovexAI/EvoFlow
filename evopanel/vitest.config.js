@@ -208,6 +208,7 @@ export default defineConfig({
       'tests/subtask-conversation-history.test.js',
       'tests/right-stage-tab-layout.test.ts',
       'tests/right-stage-store-tabs.test.ts',
+      'tests/right-stage-force-expand.test.js',
       'tests/right-stage-scope.test.ts',
       'tests/right-stage-artifacts-session-stamp.test.ts',
       'tests/bridge-theme-dark.test.ts',
