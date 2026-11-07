@@ -227,6 +227,7 @@ def save_task_bundle(main_task_id: str, document: dict[str, Any], *, loaded_upda
         _ensure_plan_columns_compat(conn)
         now = utc_now_iso_z()
         mid = str(main_task_id or "").strip()
+        pre_main_status = ""
         try:
             row_ts = conn.execute(
                 "SELECT updated_at FROM evoflow_collab_tasks WHERE main_task_id = ? AND task_id = main_task_id LIMIT 1",
@@ -251,6 +252,15 @@ def save_task_bundle(main_task_id: str, document: dict[str, Any], *, loaded_upda
             raise StaleBundleWriteError(
                 f"bundle {mid} changed since load (db={db_ts} loaded={seen_ts})"
             )
+        # 回执差分用 pre 状态（独立 best-effort probe，不掺和 stale 门）
+        try:
+            row_ext = conn.execute(
+                "SELECT status FROM evoflow_collab_tasks WHERE main_task_id = ? AND task_id = main_task_id LIMIT 1",
+                (mid,),
+            ).fetchone()
+            pre_main_status = str(row_ext[0] or "").strip().lower() if row_ext else ""
+        except Exception:
+            pre_main_status = ""
         # Preserve ACL across REPLACE (delete+insert clears columns).
         prev_owner: tuple[str | None, str | None, str | None] = (None, None, None)
         try:
@@ -474,6 +484,31 @@ def save_task_bundle(main_task_id: str, document: dict[str, Any], *, loaded_upda
         except Exception:
             pass
         conn.commit()
+        # 部门群自动回执（协作任务）：仅主任务真实转入终态时投递。
+        # app/workflow 源的任务在 push 内部跳过——它们已由 run 终态回执覆盖，避免双报。
+        post_main_status = ""
+        post_main_name = ""
+        post_main_error = ""
+        for tr in parts["tasks"]:
+            if str(tr.get("task_id") or "").strip() == mid:
+                post_main_status = str(tr.get("status") or "").strip().lower()
+                post_main_name = str(tr.get("name") or "").strip()
+                post_main_error = str(tr.get("error_text") or "").strip()
+                break
+        if post_main_status and pre_main_status != post_main_status:
+            try:
+                from evoflow.proactive.dept_group_receipt import (
+                    maybe_push_dept_group_task_receipt_async,
+                )
+
+                maybe_push_dept_group_task_receipt_async(
+                    mid,
+                    post_main_status,
+                    name=post_main_name,
+                    error_text=post_main_error,
+                )
+            except Exception:
+                logger.debug("dept group task receipt hook skipped main=%s", mid, exc_info=True)
 
     run_db_with_retry(_do_save)
 

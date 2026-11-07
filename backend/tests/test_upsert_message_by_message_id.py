@@ -202,6 +202,43 @@ class UpsertMessageByMessageIdTest(unittest.TestCase):
         self.assertEqual(int(result.get("messageCount") or 0), 1)
         self.assertEqual(msg_repo.count_messages(sk), 1)
 
+    def test_late_streaming_write_cannot_downgrade_final(self) -> None:
+        """乱序到达的流式 upsert 不得把已 final 的气泡拖回 partial（2026-11 单调性守卫）。"""
+        from evoflow.persistence import chat_message_repositories as msg_repo
+        from evoflow.persistence.db import get_db
+        from evoflow.persistence.session_repositories import upsert_session_row
+
+        sk = "dept:rd:chat"
+        mid = "agent-dev-a-1"
+        upsert_session_row(sk, title="研发群", context={})
+        msg_repo.upsert_message_by_message_id(
+            sk,
+            role="assistant",
+            message_id=mid,
+            content="",
+            content_json={"content": "完整正文", "dept_group": {"msg_kind": "agent", "stream_state": "final"}},
+            turn_state="final",
+        )
+        stale = msg_repo.upsert_message_by_message_id(
+            sk,
+            role="assistant",
+            message_id=mid,
+            content="",
+            content_json={"content": "半截正文", "dept_group": {"msg_kind": "agent", "stream_state": "streaming"}},
+            turn_state="streaming",
+        )
+        self.assertIsNotNone(stale)
+        self.assertFalse(stale.get("updated"))
+        self.assertTrue(stale.get("staleSkipped"))
+        row = get_db().execute(
+            "SELECT turn_state, content_json FROM evoflow_chat_messages WHERE session_key = ? AND message_id = ?",
+            (sk, mid),
+        ).fetchone()
+        self.assertIsNotNone(row)
+        self.assertEqual(str(row[0]), "final")
+        self.assertIn("完整正文", str(row[1] or ""))
+        self.assertNotIn("半截正文", str(row[1] or ""))
+
 
 if __name__ == "__main__":
     unittest.main()

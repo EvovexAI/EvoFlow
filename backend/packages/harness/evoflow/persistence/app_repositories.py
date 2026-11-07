@@ -798,7 +798,7 @@ def update_run_status(run_id: str, status: str, **fields: Any) -> None:
     # Read-back the effective timestamps so the derived durations match the row.
     try:
         cur = conn.execute(
-            "SELECT created_at, started_at, completed_at FROM evoflow_app_runs WHERE id = ?",
+            "SELECT created_at, started_at, completed_at, status FROM evoflow_app_runs WHERE id = ?",
             (run_id,),
         )
         existing = cur.fetchone()
@@ -822,6 +822,31 @@ def update_run_status(run_id: str, status: str, **fields: Any) -> None:
     params.append(run_id)
     conn.execute(f"UPDATE evoflow_app_runs SET {', '.join(set_clauses)} WHERE id = ?", params)
     conn.commit()
+    # 部门群自动回执：仅在真实转入终态时投递（幂等 message_id，reconciler
+    # 重复 heal 同一终态不会重复刷群）。任何失败都不能影响状态写本身。
+    status_norm = str(status or "").strip().lower()
+    if status_norm in ("completed", "failed", "cancelled"):
+        pre_status = ""
+        try:
+            pre_status = str(existing[3] or "").strip().lower() if existing else ""
+        except Exception:
+            pre_status = ""
+        if pre_status != status_norm:
+            try:
+                from evoflow.proactive.dept_group_receipt import (
+                    maybe_push_dept_group_run_receipt_async,
+                )
+
+                maybe_push_dept_group_run_receipt_async(
+                    str(run_id),
+                    status_norm,
+                    result_summary=str(fields.get("result_summary") or "")[:200],
+                    error=str(fields.get("error") or "")[:200],
+                )
+            except Exception:
+                logging.getLogger("evoflow.app_repositories").debug(
+                    "dept group receipt hook skipped run=%s", run_id, exc_info=True
+                )
 
 
 def count_runs(app_id: str) -> int:
