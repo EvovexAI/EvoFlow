@@ -662,6 +662,12 @@ export function V4StreamRowsBridge(props: {
         if (!st?.snapshot) {
           if (st?.subscriptionId) {
             store?.recoverFromStaleAuthority();
+          } else if (st && String(st.status) === "connecting") {
+            // connecting 但无 subscription 且已 5s：connect 从未发出或被 recycle
+            // timer 的代际检查静默吞掉（2026-11-08 正式版实锤：空白 47.9s，
+            // subscribe POST 直到旧回合 sse_final 才放行）。retry() 清 recycle
+            // 计数并强制重连——connect() 自身有 connectInFlight 幂等，不怕重复。
+            void store?.retry();
           } else if (sessionId) {
             // store=error 且无 subscription：re-acquire 走 keep-warm 再试一次
             // （用户正在看的会话，绕过预热限流）

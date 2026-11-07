@@ -588,7 +588,20 @@ export class ConversationProjectionStore {
     this.setState({ status: "connecting" });
     this.runtimeRecycleRetryTimer = setTimeout(() => {
       this.runtimeRecycleRetryTimer = null;
-      if (this.closed || generation !== this.generation) return;
+      if (this.closed) return;
+      if (generation !== this.generation) {
+        // 代际已被其他路径 bump 且无人接手重连 → 旧 timer 静默 return 会把 store
+        // 永久留在 connecting、无订阅（2026-11-08 正式版现场：空白 47.9s，直到
+        // 旧回合 sse_final 才被间接救活）。补一刀重连；connect 自身幂等（inflight 计数）。
+        if (
+          this.connectInFlight === 0 &&
+          this.state.status === "connecting" &&
+          !this.state.subscriptionId
+        ) {
+          void this.connect();
+        }
+        return;
+      }
       void this.connect();
     }, delayMs);
     return true;
