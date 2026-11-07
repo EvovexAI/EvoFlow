@@ -51,7 +51,9 @@ const MERGE_WINDOW_MS = 8000
 
 export function isWakeBusyError(err: unknown): boolean {
   const msg = String((err as { message?: string })?.message || err || '')
-  return /already running|正在巡检|正在工作|busy|执行任务|409/i.test(msg)
+  // 「busy / 执行任务 / 409」这类裸子串会把无关报错（端口 4090、无权执行任务…）
+  // 误判成对方忙并白等四轮退避，所以只认明确的忙碌语义。
+  return /already running|正在巡检|正在工作|正在执行|\bbusy\b|\b409\b/i.test(msg)
 }
 
 export function normalizeWakeGoal(goal: string): string {
@@ -83,11 +85,22 @@ export type DeptGroupWakeQueueOpts = {
 
 function defaultSleep(ms: number, signal: { aborted: boolean }): Promise<void> {
   return new Promise((resolve) => {
-    const t = setTimeout(resolve, ms)
     if (signal.aborted) {
-      clearTimeout(t)
       resolve()
+      return
     }
+    const t = setTimeout(() => {
+      clearInterval(poll)
+      resolve()
+    }, ms)
+    // dispose/abort 期间提前醒来，别睡满退避再退出
+    const poll = setInterval(() => {
+      if (signal.aborted) {
+        clearTimeout(t)
+        clearInterval(poll)
+        resolve()
+      }
+    }, 250)
   })
 }
 
@@ -187,16 +200,22 @@ export class DeptGroupWakeQueue {
     const norm = normalizeWakeGoal(goal)
     const now = this.now()
     const q = this.queues.get(agentCode) || []
-    // 合并：同人、近似目标、仍在排队/执行中且落在合并窗口
+    // 合并：同人、近似目标、仍在排队/执行中且落在合并窗口。
+    // 执行中的一轮（LLM 回合）常态远超 8s，期间重复 @ 必须并入本轮，
+    // 否则前一 job 一完成就会再完整跑一轮（重复回复、重复计费）。
     const mergeHit = q.find((j) => {
       if (j.status !== 'queued' && j.status !== 'running') return false
       if (normalizeWakeGoal(j.goal) !== norm) return false
+      if (j.status === 'running') return true
       return now - j.enqueuedAt <= MERGE_WINDOW_MS
     })
     if (mergeHit) {
-      // 保留更长目标（仅排队中可改；执行中已发出）
-      if (mergeHit.status === 'queued' && goal.length > mergeHit.goal.length) {
-        mergeHit.goal = goal
+      // 保留更长目标（仅排队中可改；执行中已发出），并刷新合并窗口起点
+      if (mergeHit.status === 'queued') {
+        if (goal.length > mergeHit.goal.length) {
+          mergeHit.goal = goal
+        }
+        mergeHit.enqueuedAt = now
       }
       mergeHit.updatedAt = now
       this.emit()
@@ -261,7 +280,14 @@ export class DeptGroupWakeQueue {
   }
 
   private async execute(job: InternalJob) {
-    const signal = { aborted: this.aborted }
+    // 活视图：aborted 每次读取都取当前值。快照对象会在 execute 开始时定格，
+    // run 回调里的「重挂/切部门即停」分支将永远不触发。
+    const queue = this
+    const signal: { aborted: boolean } = {
+      get aborted() {
+        return queue.aborted
+      },
+    }
     // 开始执行时占坑，防止并行重复叫醒；失败再释放
     if (job.chainKey) {
       if (this.nestSeen.has(job.chainKey)) {

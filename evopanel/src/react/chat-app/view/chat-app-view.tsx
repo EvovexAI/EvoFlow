@@ -634,7 +634,12 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
             ) : null}
             <div className="react-chat-messages-body">
               {isDeptChatSurface ? (
-                <DeptGroupChatMain sessionKey={String(selectedSessionKey || '')} />
+                /* key 强制按部门 remount：sessionKey 切换时旧队列 dispose、状态全新，
+                   避免 A 部门进行中的点名把回复打到 B 的时间线 */
+                <DeptGroupChatMain
+                  key={String(selectedSessionKey || '')}
+                  sessionKey={String(selectedSessionKey || '')}
+                />
               ) : null}
               {/* V4：对话恒用 ConversationTimeline。ChatMessageStreamPane 仅工作台首页壳。 */}
               {!isDeptChatSurface ? (
