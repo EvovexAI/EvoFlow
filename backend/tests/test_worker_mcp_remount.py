@@ -77,7 +77,7 @@ def test_partition_tool_names_allows_mcp_by_server_config(monkeypatch: pytest.Mo
     monkeypatch.setattr(
         arv,
         "_mcp_tool_allowed_by_server_config",
-        lambda name: name.startswith("mcp__ecommerce-shangce__"),
+        lambda name, extra_allowed_servers=None: name.startswith("mcp__ecommerce-shangce__"),
     )
 
     known, unknown = arv.partition_tool_names(
