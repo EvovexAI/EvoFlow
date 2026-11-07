@@ -176,14 +176,14 @@ def _validate_mcp_servers_list(servers: Any) -> list[str]:
     return names
 
 
-def _validate_tools_list(tools: Any) -> list[str]:
+def _validate_tools_list(tools: Any, *, extra_allowed_servers: set[str] | None = None) -> list[str]:
     names = _dedupe_str_list(tools, field="tools")
     if not names:
         return []
     try:
         from evoflow.config.agent_resource_validation import partition_tool_names
 
-        known, unknown = partition_tool_names(names)
+        known, unknown = partition_tool_names(names, extra_allowed_servers=extra_allowed_servers)
     except Exception as exc:  # noqa: BLE001
         # Catalog unavailable — still persist de-duplicated names rather than crash.
         logger.warning("unable to validate tools against catalog: %s", exc)
@@ -650,7 +650,14 @@ def create_agent(data: dict[str, Any], *, forbid_inherit_all: bool = False) -> d
             config_data["tools"] = None
             tools_mode = "inherit_all"
         else:
-            config_data["tools"] = _validate_tools_list(data["tools"])
+            # 同一 payload 里的 mcp_servers 为 mcp__server__tool 名称背书（CLI 冷进程无运行时缓存）
+            payload_servers = None
+            if data.get("mcp_servers") is not None:
+                try:
+                    payload_servers = set(_validate_mcp_servers_list(data["mcp_servers"]))
+                except ValidationError:
+                    payload_servers = None
+            config_data["tools"] = _validate_tools_list(data["tools"], extra_allowed_servers=payload_servers)
             tools_mode = "allowlist" if config_data["tools"] else "empty"
     else:
         # Omit → empty allowlist (must pick from agents.bindings).
@@ -764,7 +771,19 @@ def update_agent(name: str, data: dict[str, Any]) -> dict[str, Any]:
         else:
             config_data["model"] = _validate_model_name(data["model"])
     if "tools" in data and data["tools"] is not None:
-        config_data["tools"] = _validate_tools_list(data["tools"])
+        # mcp__server__tool 背书来源（优先级）：同一 payload mcp_servers → 既有配置绑定。
+        # CLI 冷进程没有运行时工具缓存，这两处是唯一可靠的 server 存在性依据。
+        update_servers: set[str] | None = None
+        if data.get("mcp_servers") is not None:
+            try:
+                update_servers = set(_validate_mcp_servers_list(data["mcp_servers"]))
+            except ValidationError:
+                update_servers = None
+        if update_servers is None:
+            existing_servers = config_data.get("mcp_servers")
+            if isinstance(existing_servers, list):
+                update_servers = {str(s).strip() for s in existing_servers if str(s).strip()} or None
+        config_data["tools"] = _validate_tools_list(data["tools"], extra_allowed_servers=update_servers)
     if "mcp_servers" in data and data["mcp_servers"] is not None:
         config_data["mcp_servers"] = _validate_mcp_servers_list(data["mcp_servers"])
     if "system_prompt" in data and data["system_prompt"] is not None:
@@ -878,6 +897,12 @@ def refresh_agent_runtime_after_capability_change(agent_code: str) -> None:
     except Exception:
         logger.debug("invalidate_agent_config_cache failed for %s", code, exc_info=True)
     try:
+        from evoflow.session_tool_binding.agent_tools import invalidate_agent_tool_names_cache
+
+        invalidate_agent_tool_names_cache()
+    except Exception:
+        logger.debug("invalidate_agent_tool_names_cache failed for %s", code, exc_info=True)
+    try:
         _refresh_sessions_tool_state_for_agent(code)
     except Exception:
         logger.exception("failed to refresh session tool snapshots for agent=%s", code)
@@ -975,7 +1000,16 @@ def _update_main_agent(data: dict[str, Any]) -> dict[str, Any]:
             del existing[key]
         elif val is not None:
             if key == "tools":
-                existing[key] = _validate_tools_list(val)
+                # main agent：payload mcp_servers 与既有绑定都为 mcp__ 背书
+                main_servers: set[str] | None = None
+                if data.get("mcp_servers") is not None:
+                    try:
+                        main_servers = set(_validate_mcp_servers_list(data["mcp_servers"]))
+                    except ValidationError:
+                        main_servers = None
+                if main_servers is None and isinstance(existing.get("mcp_servers"), list):
+                    main_servers = {str(s).strip() for s in existing["mcp_servers"] if str(s).strip()} or None
+                existing[key] = _validate_tools_list(val, extra_allowed_servers=main_servers)
             elif key == "mcp_servers":
                 existing[key] = _validate_mcp_servers_list(val)
             else:

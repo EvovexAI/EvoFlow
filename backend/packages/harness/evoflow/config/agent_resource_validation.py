@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from typing import Any
 
@@ -87,31 +88,63 @@ def normalize_str_or_list_argument(val: Any) -> list[str] | None:
     return [sx] if sx else None
 
 
-def _mcp_tool_allowed_by_server_config(name: str) -> bool:
-    """Accept ``mcp__<server>__*`` when *server* exists in extensions MCP config.
+def _mcp_tool_allowed_by_server_config(
+    name: str,
+    extra_allowed_servers: set[str] | None = None,
+) -> bool:
+    """Accept ``mcp__<server>__*`` when *server* is known without any runtime cache.
 
-    CLI / ``evoflow agents update`` often run outside the gateway process, where
-    ``get_cached_mcp_tools()`` returns ``[]`` (no init loop). Rejecting every
-    ``mcp__*`` as unknown then blocks legitimate role tool bindings.
+    CLI / ``evoflow agents update`` run outside the gateway process where
+    ``get_cached_mcp_tools()`` returns ``[]`` (no init loop) — tool-existence checks
+    against the process cache can never work there. Accept the tool when:
+
+    - ``<server>`` is in *extra_allowed_servers* (the same update payload's or the
+      agent's existing ``mcp_servers``), or
+    - ``<server>`` exists in the SQLite ``evoflow_mcp_servers`` registry
+      (enabled or not — tool presence is a runtime concern, not a config-edit one).
+
+    Any other failure to reach the registry is *not* silently swallowed: it is
+    logged, and the name falls through to the unknown bucket with a reason.
     """
-    try:
-        from evoflow.mcp.binding import is_mcp_tool_name, mcp_server_from_tool_name
+    from evoflow.mcp.binding import is_mcp_tool_name, mcp_server_from_tool_name
 
-        if not is_mcp_tool_name(name):
-            return False
-        server = mcp_server_from_tool_name(name)
-        if not server:
-            return False
+    if not is_mcp_tool_name(name):
+        return False
+    server = mcp_server_from_tool_name(name)
+    if not server:
+        return False
+    if extra_allowed_servers and server in {str(s).strip() for s in extra_allowed_servers if str(s).strip()}:
+        return True
+    try:
         from evoflow.config.extensions_config import get_extensions_config
 
         known = set(get_extensions_config().mcp_servers.keys())
-        return server in known
-    except Exception:
+        if server in known:
+            return True
+        return False
+    except Exception as exc:  # noqa: BLE001
+        logging.getLogger(__name__).warning(
+            "mcp tool %r: server %r not validated against registry (registry read failed: %s)",
+            name,
+            server,
+            exc,
+        )
         return False
 
 
-def partition_tool_names(names: list[str] | None, *, model_name: str | None = None) -> tuple[list[str], list[str]]:
-    """Return (known, unknown) preserving input order for known."""
+def partition_tool_names(
+    names: list[str] | None,
+    *,
+    model_name: str | None = None,
+    extra_allowed_servers: set[str] | None = None,
+) -> tuple[list[str], list[str]]:
+    """Return (known, unknown) preserving input order for known.
+
+    ``extra_allowed_servers``: MCP server names the caller already vouches for —
+    the ``mcp_servers`` field of the same update payload, or the agent's existing
+    binding. Keeps ``mcp__<server>__tool`` validation independent of any in-process
+    runtime cache (CLI processes are always cold).
+    """
     if not names:
         return [], []
     allowed = assignable_tool_names(model_name=model_name)
@@ -123,7 +156,7 @@ def partition_tool_names(names: list[str] | None, *, model_name: str | None = No
         if not n or n in seen:
             continue
         seen.add(n)
-        if n in allowed or _mcp_tool_allowed_by_server_config(n):
+        if n in allowed or _mcp_tool_allowed_by_server_config(n, extra_allowed_servers):
             known.append(n)
         else:
             unknown.append(n)

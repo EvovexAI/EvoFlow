@@ -85,15 +85,33 @@ def _session_agent_mode_catalog(session_key: str, session_mode: str | None) -> l
     return _agent_mode_catalog_for_agent(resolve_session_agent_id(sk), session_mode)
 
 
-def _intersect_catalog(names: list[str], catalog_names: set[str]) -> list[str]:
+def _intersect_catalog(
+    names: list[str],
+    catalog_names: set[str],
+    *,
+    augment: bool = True,
+) -> list[str]:
+    """Resolve allowlist names against the catalog.
+
+    ``augment=True``（继承路径）：补齐 file-IO/进程兄弟工具（声明 read 顺带 bash 等）。
+    ``augment=False``（step 显式 tools 声明）：**执行白名单**——只保留声明过的工具。
+    未声明工具不可调用（模型根本看不到 schema）；自动扩族会把「只给 read 的 step」
+    静默放大成 bash/write 全家桶（实测某 step 声明 read+mcp__，却跑了 58 次 bash）。
+    """
     from evoflow.collab.collab_tool_names import canonicalize_tool_names
-    from evoflow.tools.tool_aliases import augment_worker_tool_allowlist, resolve_tools_against_catalog
+    from evoflow.tools.tool_aliases import (
+        augment_worker_tool_allowlist,
+        normalize_worker_tool_names,
+        resolve_tools_against_catalog,
+    )
 
     # Old agent YAML may still list subtask_outcome_report / collab_peer_* — rewrite first.
     names = canonicalize_tool_names(names)
     matched, unknown = resolve_tools_against_catalog(names, catalog_names)
     if unknown:
         logger.warning("worker tool allowlist names not in catalog (dropped): %s", unknown)
+    if not augment:
+        return normalize_worker_tool_names(matched)
     return augment_worker_tool_allowlist(matched, catalog_names)
 
 
@@ -305,7 +323,9 @@ def resolve_worker_tool_allowlist(
         return mounted
 
     if profile_tools is not None:
-        out = _intersect_catalog(list(profile_tools), allowed)
+        # step/worker_profile 显式 tools = 执行白名单：不自动扩族（read 不得带出 bash）。
+        # MCP 仍按 mcp_servers 绑定在 _finish 里挂载（与声明 tools 求并集，属显式授权）。
+        out = _intersect_catalog(list(profile_tools), allowed, augment=False)
         if out:
             return _finish(out, source=f"profile+mcp:{mcp_agent}")
         logger.warning("worker_profile.tools empty after catalog filter; falling back to agent inheritance")
