@@ -36,6 +36,21 @@ logger = logging.getLogger(__name__)
 _IMAGE_READ_EXTENSIONS = (".jpg", ".jpeg", ".png", ".webp")
 _VIEW_IMAGE_SOURCES_KEY = "view_image_sources"
 _OMITTED_MARKER = "base64 data omitted to save context"
+# platform 生图成片的 stage label（tools/builtins/platform_tool.py）——
+# auto 注入文案按 label 区分「生图成片」与「屏幕截图」，避免误导模型。
+_GENERATED_IMAGE_LABEL = "generated image"
+
+
+def _auto_group_headers(auto_entries: object) -> tuple[str, str]:
+    """``(lead_header, section_header)`` for the auto group, by staged labels."""
+    entries = auto_entries.values() if isinstance(auto_entries, dict) else (auto_entries or [])
+    labels = {str(e.get("label") or "").strip().lower() for e in entries if isinstance(e, dict)}
+    if labels and labels <= {_GENERATED_IMAGE_LABEL}:
+        return "Here are the images you just generated:", "\nLatest generated images:"
+    return (
+        "Here are the latest screen captures from your computer control actions:",
+        "\nLatest screen captures:",
+    )
 
 
 def _read_args_reference_image(args: object) -> bool:
@@ -224,14 +239,10 @@ class ViewImageMiddleware(AgentMiddleware[ViewImageMiddlewareState]):
         if manual:
             content_blocks.append({"type": "text", "text": "Here are the images you've viewed:"})
         elif auto:
-            content_blocks.append(
-                {
-                    "type": "text",
-                    "text": "Here are the latest screen captures from your computer control actions:",
-                }
-            )
+            auto_lead, _auto_sub = _auto_group_headers(auto)
+            content_blocks.append({"type": "text", "text": auto_lead})
 
-        for group, header in ((manual, None), (auto, "\nLatest screen captures:")):
+        for group, header in ((manual, None), (auto, _auto_group_headers(auto)[1] if auto else None)):
             if header is not None:
                 content_blocks.append({"type": "text", "text": header})
             for image_ref, image_data in group.items():
@@ -387,17 +398,13 @@ class ViewImageMiddleware(AgentMiddleware[ViewImageMiddlewareState]):
         if manual:
             content_blocks.append({"type": "text", "text": "Here are the images you've viewed:"})
         elif auto:
-            content_blocks.append(
-                {
-                    "type": "text",
-                    "text": "Here are the latest screen captures from your computer control actions:",
-                }
-            )
+            auto_lead, _auto_sub = _auto_group_headers(auto)
+            content_blocks.append({"type": "text", "text": auto_lead})
         else:
             return None
 
         delivered = 0
-        for group, header in ((manual, None), (auto, "\nLatest screen captures:")):
+        for group, header in ((manual, None), (auto, _auto_group_headers(auto)[1] if auto else None)):
             if header is not None and group:
                 content_blocks.append({"type": "text", "text": header})
             for source in group:

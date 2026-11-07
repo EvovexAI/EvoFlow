@@ -20,12 +20,15 @@ _FRONTMATTER_RE = re.compile(r"\A---\s*\n(.*?)\n---\s*\n?", re.DOTALL)
 # One-line catalog label (filename shown separately). Was 24 — truncated Chinese
 # descriptions into useless "用 ff…" stubs; align with skill-desc budget.
 _CATALOG_DESC_CHARS = 160
-_KIND_TAG = {
-    "standing": "summary",
-    "fact": "fact",
-    "episode": "episode",
-    "craft": "craft",
-    "journal": "journal",
+# Grouped catalog heading per kind — same wording as ``format_entity_catalog_lines``.
+# One heading per kind; bare filename bullets under it. Per-line ``<kind> `` prefixes
+# were redundant: rows are already grouped by kind, so the tag repeated ~N times
+# per group was pure token waste.
+_KIND_HEADING = {
+    "fact": "fact · 事实",
+    "episode": "episodic · 过程",
+    "craft": "craft · 经验/做法",
+    "journal": "journal · 反思",
 }
 _CLOSURE_SOURCES = frozenset({"goal_complete", "task_complete"})
 _CLOSURE_TITLE_MARKERS = ("Goal「", "任务「", "已完成")
@@ -390,11 +393,10 @@ def format_entity_catalog_xml(
     include_journal: bool = True,
     tag: str = "catalog",
 ) -> str:
-    """Build a compact catalog block — one **filename** per entity asset.
+    """Build a compact catalog block — grouped by kind, **filename** per row.
 
-    Line format: ``<kind> <filename>`` (no description / title dump).
-
-    Kind tag carries the directory; **no per-kind row cap**
+    Format: one ``<kind> · <label>:`` heading per kind, bare filename bullets under
+    it (same style as ``format_entity_catalog_lines``). **No per-kind row cap**
     (``TIER0_CATALOG_PER_KIND<=0``). MEMORY.md is pinned. Full bodies stay on-demand
     via ``assets`` read/search (basename is enough — tool resolves under the entity).
     """
@@ -408,7 +410,7 @@ def format_entity_catalog_xml(
                 "========= MEMORY_SUMMARY ENDS ========="
             )
 
-    body_lines: list[str] = ["summary MEMORY.md"]
+    body_lines: list[str] = ["summary MEMORY.md", ""]
 
     kind_buckets: list[tuple[str, list[str]]] = []
     if include_craft:
@@ -435,10 +437,16 @@ def format_entity_catalog_xml(
         )
 
     for kind, names in kind_buckets:
-        tag_k = _KIND_TAG.get(kind, kind)
-        for name in names:
-            if name:
-                body_lines.append(f"{tag_k} {name}")
+        rows = [name for name in names if name]
+        if not rows:
+            continue
+        body_lines.extend(
+            _format_kind_section_lines(heading=_KIND_HEADING.get(kind, kind), rows=rows)
+        )
+        body_lines.append("")
+
+    while body_lines and not body_lines[-1]:
+        body_lines.pop()
 
     if body_lines:
         body = "\n".join(body_lines)

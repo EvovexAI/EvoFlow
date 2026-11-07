@@ -44,7 +44,7 @@ export function PlatformMediaGeneratingPlaceholder({
 
   return (
     <div
-      className="mt-2 w-full max-w-md"
+      className="mt-2 w-full max-w-[10rem]"
       data-platform-media-generating=""
       data-testid="platform-media-generating"
       role="status"

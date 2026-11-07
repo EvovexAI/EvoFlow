@@ -199,10 +199,10 @@ def _entity_label(entity: EntityRef) -> str:
 
 
 def build_read_path_entity_block(entity: EntityRef, *, standing: str | None = None) -> str:
-    """Per-entity block: 锚点(heading) + 资产索引(catalog) + 可选 standing 摘要。
+    """Per-entity block: 锚点(heading) + 写入根提示 — template-only, no catalog/standing.
 
-    Catalog is L2 and must inject even when standing is empty/placeholder —
-    otherwise craft/episodic/journal vanish and only ``<user_profile>`` remains.
+    The L2 filename catalog is injected separately by ``build_entity_memory_injection``;
+    the standing body stays on disk (on-demand read).
     """
     e = entity.normalized()
     from evoflow.assets.paths import entity_prompt_root, resolve_workspace_path_for_entity_id
@@ -264,17 +264,18 @@ def build_entity_memory_injection(
     include_procedure: bool = True,
     include_catalog: bool | None = None,
 ) -> str:
-    """Tier-0 block: 共享 procedure + entity block(含资产索引和 standing)。
+    """Tier-0 block: 共享 procedure + entity block + ``<catalog>`` 文件名索引。
 
-    asset-hub 模式下 entity block 内部已经渲染了资产索引,所以顶层 ``include_catalog``
-    默认 off(避免双发);legacy 模式仍默认 on,行为不变。
+    Catalog (L2, filenames only) injects in both modes — without it the model never
+    learns which craft/fact/episode files exist and only ``<user_profile>`` remains.
+    Standing body stays on-demand: ``include_standing=False`` keeps it on disk.
 
     Standing placeholder must NOT suppress catalog — L2 index is independent of L1 prefs.
     """
     e = entity.normalized()
     asset_mode = asset_hub_memory_injection()
     if include_catalog is None:
-        include_catalog = not asset_mode
+        include_catalog = True
     parts: list[str] = []
     standing = read_standing_text(e, max_chars=TIER0_STANDING_CHARS)
     if include_read_guidance:

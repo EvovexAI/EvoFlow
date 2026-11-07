@@ -35,16 +35,19 @@ def test_catalog_lines_filename_only_no_desc(tmp_path: Path, monkeypatch) -> Non
     assert "craft · 经验/做法:" in text
     assert "- five-block.md" in text
     assert "五段式" not in text
-    assert "facts · 事实:" in text
-    assert "- pref-lang.md" in text
+    # facts retired from the lines listing (product IA no longer surfaces them)
     assert "语言偏好" not in text
     assert "craft/five-block.md" not in text
     assert "memory/facts/pref-lang.md" not in text
 
     xml = format_entity_catalog_xml(EntityRef("employee", "demo"), include_standing=False)
-    assert "craft five-block.md" in xml
-    assert "fact pref-lang.md" in xml
+    assert "summary MEMORY.md" in xml
+    assert "craft · 经验/做法:" in xml
+    assert "- five-block.md" in xml
+    assert "fact · 事实:" in xml
+    assert "- pref-lang.md" in xml
     assert "五段式" not in xml
+    assert "语言偏好" not in xml
     assert "craft/five-block.md" not in xml
     assert "memory/facts/" not in xml
 
