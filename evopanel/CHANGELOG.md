@@ -6,6 +6,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.3.9] - 2026-11-07
+
+相对 **1.3.8**：部门与员工新增头像图库；实体记忆 catalog 按类别分组、减少注入 token；流式首帧超时保护；V4 连接失败可手动重连；修复 macOS 安装包构建（v1.3.6–1.3.8 mac 构建失败）。
+GitHub Release 正文见 `scripts/maintainer/windows/release-notes/PRODUCT-NOTES-1.3.9.md`；升级横幅见 `scripts/maintainer/update/latest.json`。
+
+### Added
+
+- **部门头像预设**：新增 `dept_avatars` 图库（10 个部门）与 19 张员工头像预设；`evoflow_departments.avatar` 持久化，指挥台 / 部门群 / 部门详情统一展示，缺图回落部门名首字
+- **模型渠道探活脚本**：`scripts/maintainer/model_channel_probe.py`（`--list` / `--probe` / `--call`）
+
+### Changed
+
+- **实体记忆 catalog**：按 kind 分组、行内只保留文件名（去掉重复前缀），减少 token；L2 文件 catalog 在两种模式都注入；standing 正文改为按需读取
+- **平台生图注入**：文案按 label 区分「刚生成的图」与「屏幕截图」
+- **待发队列**：支持 ↑ 加塞（下一次工具前纠偏）与空 Enter 打断并立即发送；扫码会话失效时停止轮询并提示重新扫码
+
+### Fixed
+
+- **流式首帧看门狗**：连接建立但零首帧时按短预算（默认 60s）断开重试
+- **V4 连接**：订阅瞬态失败有界退避（保持 connecting）；失败态新增「重新连接」按钮
+- **macOS 发版构建**：关闭 setup-rust-toolchain 默认 `-D warnings` 并锁定 `build-warnings=warn`，修复 v1.3.6–v1.3.8 macOS 构建失败
+- **todo_write**：首轮注入缺 `todos` 键导致的 KeyError
+
 ## [1.3.8] - 2026-11-07
 
 相对 **1.3.7**：长命令不再堵住工具通道。bash 前台执行封顶 60 秒，超出自动转后台；工具并发上限从 8 降到 4。
