@@ -90,10 +90,10 @@ function appendInline(current: string | undefined, insert: string): string {
   return `${cur}${/\s$/.test(cur) ? '' : ' '}${piece}`
 }
 
-function DrawerPanel({ title, children }: { title: string; children: ReactNode }) {
+function DrawerPanel({ title, children }: { title?: string; children: ReactNode }) {
   return (
     <section className="wf-drawer-section-block">
-      <h4 className="wf-drawer-section-block-title">{title}</h4>
+      {title ? <h4 className="wf-drawer-section-block-title">{title}</h4> : null}
       <div className="wf-drawer-section-block-body">{children}</div>
     </section>
   )
@@ -543,7 +543,7 @@ export function WorkflowDrawer({
                   </div>
                 </DrawerPanel>
 
-                <DrawerPanel title="本步能力">
+                <DrawerPanel>
                   <div className="wf-drawer-field wf-drawer-model-row">
                     <div className="wf-drawer-model-label-row">
                       <span className="wf-drawer-label">模型</span>

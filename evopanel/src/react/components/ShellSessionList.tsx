@@ -1427,7 +1427,7 @@ export function ShellSessionList({
                   })
               }}
             >
-              <ShellRefreshIcon size={15} />
+              <ShellRefreshIcon size={13} />
             </button>
           </div>
         </div>
@@ -1881,12 +1881,12 @@ export function ShellSessionList({
                       return (
                         <li key={`ws-${section.key}`} className="react-chat-session-ws-group">
                           <div
-                            className="group/ws flex h-8 min-w-0 cursor-pointer items-center gap-2 rounded-lg pl-2.5 pr-1 transition-colors hover:bg-surface-hover"
+                            className="group/ws flex h-6 min-w-0 cursor-pointer items-center gap-2 rounded-lg pl-2 pr-1 transition-colors hover:bg-surface-hover"
                             data-ws-group-head={section.key}
                             onClick={() => toggleGroupCollapsed(section.key)}
                             onPointerDown={(e) => handleWorkspaceGroupHeadPointerDown(section.key, e)}
                           >
-                            <span className="relative flex size-4 shrink-0 items-center justify-center">
+                            <span className="relative flex size-3.5 shrink-0 items-center justify-center">
                               {isEmployeesTab && section.avatarAgentCode ? (
                                 <AssignedAgentAvatar
                                   agentCode={section.avatarAgentCode}
@@ -1894,9 +1894,9 @@ export function ShellSessionList({
                                   size={14}
                                 />
                               ) : collapsed ? (
-                                <FolderIcon className='size-4 text-foreground-subtle' />
+                                <FolderIcon className='size-3.5 text-foreground-subtle' />
                               ) : (
-                                <FolderOpenIcon className='size-4 text-foreground-subtle' />
+                                <FolderOpenIcon className='size-3.5 text-foreground-subtle' />
                               )}
                             </span>
                             <span className='react-chat-session-ws-group-label min-w-0 flex-1 truncate'>
@@ -1905,7 +1905,7 @@ export function ShellSessionList({
                             <span className='hidden shrink-0 items-center gap-1 group-hover/ws:flex'>
                               <button
                                 type='button'
-                                className='flex h-6 w-6 shrink-0 items-center justify-center rounded-md border-transparent bg-transparent text-foreground-subtle transition-colors hover:bg-surface-hover hover:text-foreground'
+                                className='flex h-5 w-5 shrink-0 items-center justify-center rounded-md border-transparent bg-transparent text-foreground-subtle transition-colors hover:bg-surface-hover hover:text-foreground'
                                 title={isEmployeesTab ? '新开员工对话' : '新建任务'}
                                 onMouseDown={(e) => e.stopPropagation()}
                                 onClick={(e) => {
@@ -1935,7 +1935,7 @@ export function ShellSessionList({
                               </button>
                               <button
                                 type='button'
-                                className='flex h-6 w-6 shrink-0 items-center justify-center rounded-md border-transparent bg-transparent text-foreground-subtle transition-colors hover:bg-surface-hover hover:text-foreground'
+                                className='flex h-5 w-5 shrink-0 items-center justify-center rounded-md border-transparent bg-transparent text-foreground-subtle transition-colors hover:bg-surface-hover hover:text-foreground'
                                 title='更多'
                                 onMouseDown={(e) => e.stopPropagation()}
                                 onClick={(e) => {

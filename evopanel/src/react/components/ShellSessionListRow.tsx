@@ -416,7 +416,7 @@ function ShellSessionListRowInner({
             title="已置顶，按住行拖动可调整顺序"
             aria-hidden="true"
           >
-            <ShellPinIcon size={12} />
+            <ShellPinIcon size={11} />
           </span>
         ) : null}
 
@@ -426,16 +426,16 @@ function ShellSessionListRowInner({
             aria-hidden="true"
           >
             {row.executing ? (
-              <ShellLoaderIcon size={16} className="react-chat-session-spinner-ic animate-spin" />
+              <ShellLoaderIcon size={13} className="react-chat-session-spinner-ic animate-spin" />
             ) : useEmployeeTitle && proactiveAgentCode ? (
               <AssignedAgentAvatar
                 agentCode={proactiveAgentCode}
                 agents={agents}
-                size={20}
+                size={16}
                 className="react-chat-session-agent-avatar"
               />
             ) : (
-              <ShellSessionIcon size={14} />
+              <ShellSessionIcon size={12} />
             )}
           </span>
         ) : null}

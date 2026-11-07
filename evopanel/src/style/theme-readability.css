@@ -1012,36 +1012,36 @@ html:not([data-translucent-ui='1']) body .react-chat-aside-nav-item,
 html:not([data-translucent-ui='1']) body .shell-aside-nav-item,
 html:not([data-translucent-ui='1']) body .shell-aside-new-chat-btn {
   border-radius: 8px !important;
-  font-size: var(--ef-text-base) !important;
+  font-size: var(--ef-text-sm) !important;
   font-weight: 400 !important;
   letter-spacing: -0.01em !important;
-  height: 32px !important;
-  gap: 8px !important;
+  height: 28px !important;
+  gap: 7px !important;
   padding: 0 8px !important;
 }
 
 html:not([data-translucent-ui='1']) body .react-chat-aside-toolbar-title {
-  font-size: var(--ef-text-base) !important;
+  font-size: var(--ef-text-sm) !important;
   font-weight: 400 !important;
   letter-spacing: -0.015em !important;
 }
 
 /* 图标回到 16px：ZCode 导航图标是 size-4，比原先 15px 更稳，行高 32px 也不挤 */
 html:not([data-translucent-ui='1']) body .react-chat-aside-nav-ic {
-  width: 16px !important;
-  height: 16px !important;
+  width: 14px !important;
+  height: 14px !important;
   opacity: 0.82;
 }
 
 html:not([data-translucent-ui='1']) body .react-chat-aside-nav-ic svg {
-  width: 16px !important;
-  height: 16px !important;
+  width: 14px !important;
+  height: 14px !important;
   stroke-width: 1.5 !important;
 }
 
 /* 会话标题同样回到 13px，否则导航 13px / 会话 11px 层级断裂 */
 html:not([data-translucent-ui='1']) body .react-chat-history-item-title {
-  font-size: var(--ef-text-base) !important;
+  font-size: var(--ef-text-sm) !important;
   font-weight: 400 !important;
   letter-spacing: -0.01em !important;
   overflow: hidden !important;
@@ -1070,13 +1070,13 @@ html[data-theme='dark']:not([data-translucent-ui='1']) body .react-chat-history-
 /* 会话行：ZCode 侧栏行高 32px（h-8），配合 13px 标题不挤。
    文字色对齐 ZCode text-foreground：#4a4f5a 偏灰，ZCode 用近黑的 #202124。 */
 html:not([data-translucent-ui='1']) body .react-chat-history-item {
-  height: 32px !important;
-  min-height: 32px !important;
-  max-height: 32px !important;
+  height: 28px !important;
+  min-height: 28px !important;
+  max-height: 28px !important;
   border-radius: 8px !important;
-  font-size: var(--ef-text-base) !important;
+  font-size: var(--ef-text-sm) !important;
   color: var(--text-primary) !important;
-  gap: 6px !important;
+  gap: 5px !important;
   padding: 0 6px !important;
 }
 
@@ -1099,7 +1099,7 @@ html:not([data-translucent-ui='1']) body .react-chat-history-item-primary-row .r
 
 html:not([data-translucent-ui='1']) body .react-chat-history-item-meta,
 html:not([data-translucent-ui='1']) body .react-chat-history-item-time {
-  font-size: var(--ef-text-xs) !important;
+  font-size: var(--ef-text-2xs) !important;
 }
 
 html:not([data-translucent-ui='1']) body .react-chat-aside-nav-item:hover,

@@ -462,8 +462,8 @@ html.dark .chat-summary-panel-scroll::-webkit-scrollbar-thumb:active {
 .chat-summary-process-label {
   min-width: 0;
   color: var(--text-primary);
-  font-size: var(--ef-text-base);
-  line-height: 1.25rem;
+  font-size: var(--ef-text-sm);
+  line-height: 1.1rem;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   line-clamp: 2;

@@ -725,14 +725,14 @@ html[data-theme='dark'] .react-chat-aside-brand-logo {
   align-items: center;
   gap: var(--shell-item-gap, 8px);
   width: 100%;
-  height: var(--shell-item-h, 30px);
+  height: 26px;
   padding: 0 var(--shell-item-pad-x, 8px);
   border: none;
   border-radius: var(--shell-item-radius, 6px);
   background: transparent;
   color: var(--shell-text-body, #4a4f5a);
   font-family: inherit;
-  font-size: var(--shell-font-size, 13px);
+  font-size: 12px;
   font-weight: var(--shell-item-fw, 400);
   font-feature-settings: "tnum", "cv11"; /* 让中文 + 数字看起来更整齐 */
   letter-spacing: -0.005em;
@@ -1020,13 +1020,13 @@ html[data-theme='dark'] .react-chat-aside-brand-logo {
   align-items: center;
   justify-content: center;
   gap: 4px;
-  height: 22px;
-  padding: 0 8px;
+  height: 20px;
+  padding: 0 7px;
   border: none;
   border-radius: 6px;
   background: transparent;
   color: var(--shell-text-muted, var(--text-secondary, #6b7080));
-  font-size: var(--font-size-xs, 11px);
+  font-size: 10.5px;
   font-weight: 500;
   cursor: pointer;
   transition: background var(--dur-fast) var(--ease-out-soft), color var(--dur-fast) var(--ease-out-soft), box-shadow var(--dur-fast) var(--ease-out-soft);
@@ -2311,8 +2311,8 @@ html[data-translucent-ui='1'] .shell-view-tab.is-active {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 26px;
-  height: 26px;
+  width: 22px;
+  height: 22px;
   padding: 0;
   border: none;
   border-radius: 6px;
@@ -2471,16 +2471,16 @@ html.dark .react-chat-aside-segment-btn.is-active {
 .react-chat-aside-ws-trigger {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   width: 100%;
-  height: var(--shell-item-h, 30px);
-  padding: 0 8px 0 10px;
+  height: 26px;
+  padding: 0 7px 0 9px;
   border: 1px solid var(--shell-border, #e8eaf1);
   border-radius: 8px;
   background: transparent;
   color: var(--shell-text-body, #42475a);
   font-family: inherit;
-  font-size: var(--shell-font-size, 13px);
+  font-size: 12px;
   font-weight: var(--shell-item-fw, 400);
   letter-spacing: -0.005em;
   line-height: 1.25;
@@ -2591,16 +2591,16 @@ html.dark .react-chat-aside-ws-menu {
 .react-chat-aside-ws-menu-item {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 7px;
   width: 100%;
-  min-height: 28px;
-  padding: 5px 8px;
+  min-height: 24px;
+  padding: 4px 8px;
   border: none;
   border-radius: 7px;
   background: transparent;
   color: var(--shell-text-body, #42475a);
   font-family: inherit;
-  font-size: var(--shell-font-size, 13px);
+  font-size: 12px;
   font-weight: var(--shell-item-fw, 400);
   letter-spacing: -0.005em;
   line-height: 1.25;
@@ -3551,15 +3551,15 @@ html.dark .shell-account-menu {
 .react-chat-session-duty-fold-btn {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   width: 100%;
   margin: 0;
-  padding: 6px 8px;
+  padding: 5px 8px;
   border: 0;
   border-radius: 8px;
   background: transparent;
   color: var(--shell-text-muted, #73798d);
-  font-size: var(--ef-text-sm);
+  font-size: 11.5px;
   line-height: 1.3;
   cursor: pointer;
   text-align: left;
@@ -3819,11 +3819,11 @@ html.dark .shell-account-menu {
 
 .react-chat-history-item {
   width: 100%;
-  height: 38px;
-  min-height: 38px;
-  max-height: 38px;
+  height: 32px;
+  min-height: 32px;
+  max-height: 32px;
   text-align: left;
-  padding: 0 8px 0 10px;
+  padding: 0 6px 0 8px;
   border-radius: 8px;
   background: transparent;
   color: var(--shell-text-body, #656b73);
@@ -3832,7 +3832,7 @@ html.dark .shell-account-menu {
   display: flex;
   flex-direction: row;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   position: relative;
   overflow: hidden;
   z-index: 1;
@@ -3843,22 +3843,22 @@ html.dark .shell-account-menu {
 }
 
 .react-chat-history-item--chat {
-  height: 38px;
-  min-height: 38px;
-  max-height: 38px;
+  height: 32px;
+  min-height: 32px;
+  max-height: 32px;
 }
 
 .react-chat-history-item--employee {
-  height: 38px;
-  min-height: 38px;
-  max-height: 38px;
+  height: 32px;
+  min-height: 32px;
+  max-height: 32px;
   align-items: center;
 }
 
 .react-chat-history-item:has(.react-chat-history-item-ws-badge) {
-  height: 38px;
-  min-height: 38px;
-  max-height: 38px;
+  height: 32px;
+  min-height: 32px;
+  max-height: 32px;
 }
 
 .react-chat-history-item:hover {
@@ -3884,16 +3884,16 @@ html.dark .shell-account-menu {
 }
 
 .react-chat-session-type-ic--avatar {
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
   color: inherit;
 }
 
 .react-chat-session-type-ic--avatar .react-chat-session-agent-avatar,
 .react-chat-session-type-ic--avatar .agent-avatar {
-  width: 18px !important;
-  height: 18px !important;
-  border-radius: 6px !important;
+  width: 16px !important;
+  height: 16px !important;
+  border-radius: 5px !important;
 }
 
 /* 仅执行中 / 失败 / 等待时显示状态图标 */
@@ -4041,7 +4041,7 @@ html[data-theme='dark'] .react-chat-history-item.active {
   display: block;
   min-width: 0;
   max-width: 100%;
-  font-size: var(--font-size-xs, 10px);
+  font-size: 10px;
   font-weight: 500;
   line-height: 1.25;
   color: inherit;
@@ -4098,7 +4098,7 @@ html[data-theme='dark'] .react-chat-history-item.active {
   min-width: 0;
   max-width: 72px;
   margin: 0;
-  font-size: calc(var(--font-size-xs, 10px) - 1px);
+  font-size: 9px;
   line-height: 1.15;
   font-weight: 400;
   color: var(--text-secondary);
@@ -4281,12 +4281,12 @@ body.react-chat-session-row-dragging .react-chat-history-item {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  padding: 5px 12px;
+  padding: 4px 10px;
   border: 1px solid var(--border, rgba(0, 0, 0, 0.12));
   border-radius: 8px;
   background: transparent;
   color: var(--foreground, #1f2328);
-  font-size: 12.5px;
+  font-size: 11.5px;
   cursor: pointer;
   transition: background-color var(--dur-fast) var(--ease-out-soft), border-color var(--dur-fast) var(--ease-out-soft);
 }
@@ -4561,18 +4561,18 @@ body.react-chat-session-row-dragging .react-chat-history-item {
 }
 
 .react-chat-session-more-btn {
-  width: 30px;
-  height: 30px;
+  width: 22px;
+  height: 22px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   border: 1px solid transparent;
   background: transparent;
   color: var(--text-tertiary, #9ca3af);
-  border-radius: 8px;
+  border-radius: 6px;
   cursor: pointer;
   transition: background var(--dur-fast) var(--ease-out-soft), border-color var(--dur-fast) var(--ease-out-soft), color var(--dur-fast) var(--ease-out-soft);
-  font-size: var(--font-size-lg);
+  font-size: 12px;
   font-weight: 900;
   user-select: none;
 }
@@ -4593,15 +4593,15 @@ body.react-chat-session-row-dragging .react-chat-history-item {
   top: calc(100% + 4px);
   right: 0;
   z-index: 400;
-  min-width: 140px;
+  min-width: 124px;
   border: 1px solid var(--border, #e5e7eb);
   background: var(--bg-secondary, #fff);
-  border-radius: 10px;
+  border-radius: 9px;
   box-shadow: 0 10px 28px rgba(0, 0, 0, 0.12);
-  padding: 6px;
+  padding: 4px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 2px;
 }
 
 .react-chat-session-more-menu--portal {
@@ -4616,10 +4616,10 @@ body.react-chat-session-row-dragging .react-chat-history-item {
   background: transparent;
   cursor: pointer;
   text-align: left;
-  padding: 8px 10px;
-  border-radius: 8px;
+  padding: 6px 9px;
+  border-radius: 7px;
   color: var(--text-primary, #111827);
-  font-size: var(--font-size-sm);
+  font-size: 11.5px;
 }
 
 .react-chat-session-more-item:hover {
@@ -5933,7 +5933,7 @@ html.evopanel-macos-titlebar .react-chat-header {
 }
 
 .react-chat-header-session-title {
-  font-size: 12.5px;
+  font-size: 11.5px;
   font-weight: 400;
   color: var(--text-primary, #111827);
   overflow: hidden;
@@ -13768,7 +13768,7 @@ html.dark .react-chat-icon-stop-btn:hover {
 }
 
 .react-chat-bottom-pill-text {
-  font-size: 11px;
+  font-size: 10.5px;
   font-weight: 400;
   line-height: 18px;
   color: var(--text-secondary, #6b7280);
@@ -13879,13 +13879,13 @@ html.dark .react-chat-icon-stop-btn:hover {
 .react-chat-model-vendor-header {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   width: 100%;
-  padding: 7px 12px;
+  padding: 6px 11px;
   border: none;
   background: transparent;
   cursor: pointer;
-  font-size: 13px;
+  font-size: 12px;
   color: inherit;
   text-align: left;
   transition: background var(--dur-fast);
@@ -13944,13 +13944,13 @@ html.dark .react-chat-icon-stop-btn:hover {
 .react-chat-more-submenu-header {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 7px;
   width: 100%;
-  padding: 7px 12px;
+  padding: 6px 11px;
   border: none;
   background: transparent;
   cursor: pointer;
-  font-size: 13px;
+  font-size: 12px;
   color: inherit;
   text-align: left;
   transition: background var(--dur-fast);
@@ -13964,9 +13964,9 @@ html.dark .react-chat-icon-stop-btn:hover {
   font-weight: 500;
 }
 .react-chat-more-submenu-badge {
-  font-size: 11px;
+  font-size: 10px;
   opacity: 0.6;
-  padding: 1px 6px;
+  padding: 1px 5px;
   border-radius: 8px;
   background: var(--badge-bg, rgba(0, 0, 0, 0.06));
   max-width: 160px;
@@ -14050,9 +14050,9 @@ html.dark .react-chat-icon-stop-btn:hover {
 .react-chat-model-item-badge {
   flex-shrink: 0;
   margin-left: 0;
-  font-size: 11px;
+  font-size: 10px;
   line-height: 1.2;
-  padding: 1px 6px;
+  padding: 1px 5px;
   border-radius: 4px;
   background: var(--error-muted, #fee2e2);
   color: var(--error, #dc2626);
@@ -14070,8 +14070,8 @@ html.dark .react-chat-icon-stop-btn:hover {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 6px 10px;
-  font-size: var(--ef-text-sm);
+  padding: 5px 9px;
+  font-size: 11.5px;
 }
 
 .react-chat-model-vendor-item .react-chat-model-item-label {
@@ -14522,8 +14522,8 @@ html.dark .react-chat-icon-stop-btn:hover {
   text-align: left;
   background: transparent;
   border: none;
-  padding: 10px 12px;
-  font-size: 13px;
+  padding: 8px 11px;
+  font-size: 12px;
   cursor: pointer;
   color: var(--text-primary, #111827);
 }
@@ -14542,9 +14542,9 @@ html.dark .react-chat-icon-stop-btn:hover {
   /* v4 视觉基线：与工具栏 leading 区其它圆角元素统一；底色跟 surface/control，别锁死灰 */
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  height: 30px;
-  padding: 0 12px;
+  gap: 4px;
+  height: 26px;
+  padding: 0 10px;
   border-radius: 999px;
   border: 1px solid color-mix(in srgb, var(--text-primary) 8%, transparent);
   background: color-mix(
@@ -14553,7 +14553,7 @@ html.dark .react-chat-icon-stop-btn:hover {
     var(--surface-control-bg, var(--bg-tertiary, #f3f4f6))
   );
   color: var(--text-secondary, #64748b);
-  font-size: var(--ef-text-sm);
+  font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.01em;
   cursor: pointer;
@@ -16009,15 +16009,15 @@ html[data-app-occluded='1'] * {
 .react-chat-thread-activity {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   flex-wrap: wrap;
-  font-size: var(--ef-text-sm);
+  font-size: 11.5px;
   color: var(--text-secondary, #6b7280);
 }
 
 .react-chat-thread-activity-icon {
-  width: 20px;
-  height: 20px;
+  width: 17px;
+  height: 17px;
   border-radius: 999px;
   background: rgba(37, 99, 235, 0.08);
   border: 1px solid rgba(37, 99, 235, 0.2);
@@ -16025,13 +16025,13 @@ html[data-app-occluded='1'] * {
   align-items: center;
   justify-content: center;
   color: var(--accent, #2563eb);
-  font-size: 11px;
+  font-size: 10px;
 }
 
 .react-chat-thread-activity-kind {
   border-radius: 999px;
-  padding: 1px 8px;
-  font-size: 11px;
+  padding: 1px 7px;
+  font-size: 10px;
   border: 1px solid var(--border, #e5e7eb);
   background: var(--bg-tertiary, #f3f4f6);
   color: var(--text-secondary, #6b7280);
@@ -16062,8 +16062,8 @@ html[data-app-occluded='1'] * {
 
 .react-chat-thread-activity-call-chip {
   border-radius: 999px;
-  padding: 1px 8px;
-  font-size: 11px;
+  padding: 1px 7px;
+  font-size: 10px;
   border: 1px solid rgba(59, 130, 246, 0.3);
   background: rgba(59, 130, 246, 0.08);
   color: #1d4ed8;
@@ -29302,8 +29302,8 @@ html[data-translucent-ui='1'] .react-chat-workspace-tree .kv-tree-expand {
   text-align: left;
   border: none;
   background: transparent;
-  padding: 8px 10px;
-  font-size: var(--ef-text-sm);
+  padding: 6px 9px;
+  font-size: 11.5px;
   border-radius: 6px;
   cursor: pointer;
   color: var(--text-primary, #111827);
@@ -29338,8 +29338,8 @@ html[data-translucent-ui='1'] .react-chat-workspace-tree .kv-tree-expand {
   text-align: left;
   border: none;
   background: transparent;
-  padding: 7px 10px;
-  font-size: var(--ef-text-sm);
+  padding: 5px 9px;
+  font-size: 11.5px;
   border-radius: 6px;
   cursor: pointer;
   color: var(--text-primary, #111827);
@@ -39461,7 +39461,7 @@ html.dark .react-chat-terminal-stage {
 .react-chat-stage-tab-context-menu {
   position: fixed;
   z-index: 80;
-  min-width: 160px;
+  min-width: 140px;
   padding: 4px;
   border-radius: 8px;
   border: 1px solid var(--border, #e5e7eb);
@@ -39477,9 +39477,9 @@ html.dark .react-chat-terminal-stage {
   border: 0;
   background: transparent;
   text-align: left;
-  padding: 7px 10px;
+  padding: 6px 9px;
   border-radius: 6px;
-  font-size: 12.5px;
+  font-size: 11.5px;
   color: var(--text-primary, #111827);
   cursor: pointer;
 }
@@ -39994,13 +39994,13 @@ html[data-theme='dark'] .react-chat-stage-tab.is-active {
   align-items: center;
   gap: 6px;
   width: 100%;
-  padding: 5px 8px 5px 6px;
+  padding: 4px 8px 4px 6px;
   border: none;
   border-radius: 8px;
   background: transparent;
   color: var(--shell-text-muted, #6b7280);
   font-family: inherit;
-  font-size: var(--shell-font-size, 13px);
+  font-size: 12px;
   font-weight: var(--shell-item-fw, 400);
   letter-spacing: -0.005em;
   line-height: 1.25;
@@ -40013,7 +40013,7 @@ html[data-theme='dark'] .react-chat-stage-tab.is-active {
 /* 工作区/文件夹组头标题：与侧栏 nav 同一套 shell 字号/字重 */
 .react-chat-session-ws-group-label {
   font-family: inherit;
-  font-size: var(--shell-font-size, 13px);
+  font-size: 12px;
   font-weight: var(--shell-item-fw, 400);
   letter-spacing: -0.005em;
   line-height: 1.25;
