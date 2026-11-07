@@ -140,6 +140,31 @@ export type RefreshEvoflowV4Opts = {
 };
 
 /**
+ * 手动重连入口（v4-failed 终态「重新连接」按钮落点）：重燃该会话 store 的
+ * 订阅退避循环（store.retry() 复位计数并立即重订阅）。store 未建立过时是
+ * no-op——正常打开流程自身会订阅。
+ */
+export function retryEvoflowV4Session(sessionId: string): void {
+  const id = String(sessionId || "").trim();
+  if (!id) return;
+  try {
+    const layer = getSharedLayer();
+    if (!layer.has(id)) return;
+    const lease = layer.acquire(id);
+    queueMicrotask(() => {
+      try {
+        lease.release();
+      } catch {
+        /* ignore */
+      }
+    });
+    void lease.store.retry();
+  } catch {
+    /* best effort */
+  }
+}
+
+/**
  * 员工执行过程等只读面板：主动拉一次最新投影（非流式）。
  *
  * - 面板已 ready 且有行：默认跳过（靠 SSE / channel mirror 增量）；每 ~20s soft 一次
