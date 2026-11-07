@@ -991,6 +991,8 @@ export function V4ZCodeTimeline(props: {
   connecting?: boolean;
   /** 投影 store 已 error 且无快照：留在 V4 显示失败态，不回落老面板。 */
   connectionFailed?: boolean;
+  /** 失败态的「重新连接」落点（store.retry()）；未提供则不渲染按钮。 */
+  onRetryConnection?: () => void;
   /** EvoFlow 会话 key：stream-compare 落盘目录名（与 sse/v4-recv 同轮对账）。 */
   evoflowSessionKey?: string | null;
   /**
@@ -1081,6 +1083,7 @@ export function V4ZCodeTimeline(props: {
     payload,
     connecting,
     connectionFailed = false,
+    onRetryConnection,
     bottomDock,
     evoflowSessionKey,
     embedded = false,
@@ -1732,7 +1735,17 @@ export function V4ZCodeTimeline(props: {
                     role="alert"
                   >
                     <span>对话连接失败</span>
-                    <span className="text-ui-sm">正在自动重试，也可切换会话后重开</span>
+                    <span className="text-ui-sm">自动重试未恢复；可重新连接或切换会话后重开</span>
+                    {onRetryConnection ? (
+                      <button
+                        type="button"
+                        data-testid="v4-connection-retry"
+                        className="mt-1 rounded-lg border border-border bg-surface px-3 py-1.5 text-ui-sm text-foreground hover:bg-hover"
+                        onClick={onRetryConnection}
+                      >
+                        重新连接
+                      </button>
+                    ) : null}
                   </div>
                 ) : connecting ? (
                   // 有历史会话也会先 connecting：用安静加载态占位，避免整片空白，
