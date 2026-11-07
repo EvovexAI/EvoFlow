@@ -525,17 +525,32 @@ async def _finalize_collab_subtask_terminal(
                 )
             # Follow-up already scheduled when done succeeded; do not wait for post-report chat.
             return "completed", f"Task Succeeded (done). Result: {body[:4000]}"
-        if status == "timed_out":
+        if status in {"failed", "timed_out", "cancelled", "blocked"}:
+            # worker 已自报失败：同样要级联阻断下游 + 排波，否则下游 waiting_dispatch 卡死。
+            try:
+                from evoflow.collab.subtask_outcome import cascade_failure_to_dependents
+
+                await cascade_failure_to_dependents(
+                    resolved_collab,
+                    resolved_subtask,
+                    outcome=status,
+                    summary=body or err,
+                    error=err or None,
+                )
+            except Exception:
+                logger.exception("cascade (reported failure) failed main=%s sub=%s", resolved_collab, resolved_subtask)
+            _schedule_collab_followup_wave(runtime, resolved_collab)
+            if status == "timed_out":
+                if writer:
+                    writer(ws({"type": "task_timed_out", "task_id": stream_task_id, "error": err or body}))
+                return "timed_out", f"Task timed out. {err or body}"
+            if status == "cancelled":
+                if writer:
+                    writer(ws({"type": "task_cancelled", "task_id": stream_task_id, "error": err or body}))
+                return "cancelled", f"Task cancelled. {err or body}"
             if writer:
-                writer(ws({"type": "task_timed_out", "task_id": stream_task_id, "error": err or body}))
-            return "timed_out", f"Task timed out. {err or body}"
-        if status == "cancelled":
-            if writer:
-                writer(ws({"type": "task_cancelled", "task_id": stream_task_id, "error": err or body}))
-            return "cancelled", f"Task cancelled. {err or body}"
-        if writer:
-            writer(ws({"type": "task_failed", "task_id": stream_task_id, "error": err or body}))
-        return "failed", f"Task failed. {err or body}"
+                writer(ws({"type": "task_failed", "task_id": stream_task_id, "error": err or body}))
+            return "failed", f"Task failed. {err or body}"
 
     ex = str(executor_outcome or "").strip().lower()
     draft = str(result.result or "").strip()
@@ -624,6 +639,21 @@ async def _finalize_collab_subtask_terminal(
         summary=draft or err or fallback_summary,
         error=err or None,
     )
+    # 失败/超时/取消必须传播：级联阻断（传递）下游 + 排下一波，否则下游永久
+    # waiting_dispatch、run 卡 executing（workflow-audit R6）。
+    try:
+        from evoflow.collab.subtask_outcome import cascade_failure_to_dependents
+
+        await cascade_failure_to_dependents(
+            resolved_collab,
+            resolved_subtask,
+            outcome=sys_outcome,
+            summary=draft or err or fallback_summary,
+            error=err or None,
+        )
+    except Exception:
+        logger.exception("cascade failure to dependents failed main=%s sub=%s", resolved_collab, resolved_subtask)
+    _schedule_collab_followup_wave(runtime, resolved_collab)
     if sys_outcome == "timed_out":
         if writer:
             writer(ws({"type": "task_timed_out", "task_id": stream_task_id, "error": err}))
@@ -1069,6 +1099,21 @@ async def task_tool(
     )
     from evoflow.tools import get_available_tools
     from evoflow.tools.tools import merge_cached_mcp_tools_into_catalog
+
+    # Worker isolated loop 上 catalog 可能因 MCP 缓存冷而拿不到 mcp__*：在本 loop
+    # 上等待初始化完成（pool marshal 工具跨 loop 安全）。失败只留痕不阻断。
+    try:
+        from evoflow.mcp.cache import ensure_mcp_tools_ready, mcp_unavailable_reason
+
+        mcp_ready = await ensure_mcp_tools_ready()
+        if not mcp_ready:
+            logger.warning(
+                "task_tool: ensure_mcp_tools_ready returned 0 tools "
+                "(reason=%s); workers may miss mcp__* this turn",
+                mcp_unavailable_reason(),
+            )
+    except Exception:
+        logger.debug("task_tool: ensure_mcp_tools_ready skipped", exc_info=True)
 
     tools = get_available_tools(model_name=parent_model, subagent_enabled=False)
     tools = [t for t in tools if str(getattr(t, "name", "") or "").strip().lower() not in _SUBAGENT_FORBIDDEN_TOOLS]

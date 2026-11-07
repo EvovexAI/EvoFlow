@@ -592,6 +592,118 @@ async def apply_subtask_system_outcome(
     return bool(res.get("ok"))
 
 
+async def cascade_failure_to_dependents(
+    main_task_id: str,
+    failed_subtask_id: str,
+    *,
+    outcome: str,
+    summary: str = "",
+    error: str | None = None,
+    storage: Any | None = None,
+) -> list[str]:
+    """上游步骤失败/超时/取消时，把它的（传递）下游一次性阻断为终态。
+
+    不做级联的后果：下游永远停在 ``waiting_dispatch``（依赖不满足且永不满足），
+    run 卡在 executing 直到手动 workflow.stop。对每个非终态下游子任务落
+    ``failed``（system 上报，worker 未自行汇报过才生效），返回被阻断的子任务 id。
+    """
+    mid = str(main_task_id or "").strip()
+    sid = str(failed_subtask_id or "").strip()
+    if not mid or not sid:
+        return []
+    # 只有失败族终态才阻断下游；completed 的下游应被正常调度
+    if str(outcome or "").strip().lower() not in _FAIL:
+        return []
+    store = storage if storage is not None else get_project_storage()
+    try:
+        from evoflow.tools.builtins.supervisor.dependency import (
+            _build_ref_to_id_index,
+            _build_subtask_name_index,
+            _resolve_dep_ref_to_id,
+            _subtask_dep_ids,
+        )
+    except Exception:
+        logger.debug("cascade_failure_to_dependents: dep helpers unavailable", exc_info=True)
+        return []
+
+    from evoflow.collab.storage import find_main_task
+
+    row = find_main_task(store, mid)
+    if not row:
+        return []
+    _proj, task = row
+    subtasks = [x for x in (task.get("subtasks") or []) if isinstance(x, dict)]
+    by_id: dict[str, dict[str, Any]] = {}
+    for st in subtasks:
+        s = str(st.get("id") or "").strip()
+        if s:
+            by_id[s] = st
+    if sid not in by_id:
+        return []
+    name_index = _build_subtask_name_index(by_id)
+    ref_index = _build_ref_to_id_index(by_id)
+
+    # 依赖反查表：dep_id -> 直接下游
+    dependents: dict[str, list[str]] = {}
+    for cur_sid, st in by_id.items():
+        for dep_ref in _subtask_dep_ids(st):
+            dep = _resolve_dep_ref_to_id(
+                dep_ref,
+                current_sid=cur_sid,
+                by_id=by_id,
+                name_index=name_index,
+                ref_index=ref_index,
+            )
+            if dep:
+                dependents.setdefault(dep, []).append(cur_sid)
+
+    # BFS 传递下游；仅阻断非终态且未被 worker 上报过的
+    blocked: list[str] = []
+    seen: set[str] = {sid}
+    queue = [sid]
+    label = f"「{(by_id.get(sid) or {}).get('name') or sid}」"
+    reason = str(error or summary or "").strip()[:200]
+    while queue:
+        cur = queue.pop(0)
+        for nxt in dependents.get(cur, []):
+            if nxt in seen:
+                continue
+            seen.add(nxt)
+            st = by_id.get(nxt) or {}
+            status = str(st.get("status") or "").strip().lower()
+            if status in _TERMINAL:
+                # 已终态下游：只有失败终态才可能仍有悬挂下游需要继续传播；
+                # completed 的下游会被正常调度，不阻断。
+                if status in _FAIL:
+                    queue.append(nxt)
+                continue
+            ok = await apply_subtask_outcome_report(
+                main_task_id=mid,
+                subtask_id=nxt,
+                outcome="failed",
+                summary=(
+                    f"上游步骤{label}已终止（{outcome}）"
+                    + (f"：{reason}" if reason else "")
+                    + "，本步骤被系统阻断，不再执行。"
+                ),
+                error=error,
+                reported_by="system",
+                storage=store,
+            )
+            if ok:
+                blocked.append(nxt)
+                queue.append(nxt)
+    if blocked:
+        logger.warning(
+            "cascade_failure_to_dependents main=%s src=%s outcome=%s blocked=%s",
+            mid,
+            sid,
+            outcome,
+            blocked,
+        )
+    return blocked
+
+
 __all__ = [
     "TerminalOutcome",
     "is_subtask_outcome_reported",
@@ -603,4 +715,5 @@ __all__ = [
     "format_subtask_outcome_mandate_block",
     "apply_subtask_outcome_report",
     "apply_subtask_system_outcome",
+    "cascade_failure_to_dependents",
 ]
