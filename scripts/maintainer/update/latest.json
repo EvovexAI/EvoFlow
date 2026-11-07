@@ -3,14 +3,14 @@
   "minAppVersion": "1.3.9",
   "updateKind": "full",
   "assetKind": "installer",
-  "hash": "",
+  "hash": "sha256:5271b4159ca24a7f97a1a963205b6d9eb78b1220023b6e90c5f34f73337c4216",
   "url": "https://ghfast.top/https://github.com/EvovexAI/EvoFlow/releases/download/v1.3.9/EvoFlow_1.3.9_x64-setup.exe",
   "urlCnMirror": "https://ghfast.top/https://github.com/EvovexAI/EvoFlow/releases/download/v1.3.9/EvoFlow_1.3.9_x64-setup.exe",
   "urlGitee": "https://gitee.com/evovexai/EvoFlow/releases/download/v1.3.9/EvoFlow_1.3.9_x64-setup.exe",
   "urlGithub": "https://github.com/EvovexAI/EvoFlow/releases/download/v1.3.9/EvoFlow_1.3.9_x64-setup.exe",
-  "size": 0,
-  "changelog": "**EvoFlow v1.3.9 — 部门头像、记忆更省 token、连接更稳**\n\n部门与员工新增头像图库，指挥台和群聊一眼认人；长期记忆目录按类别分组、只列文件名，明显减少上下文占用；模型流式响应新增首帧超时保护，V4 连接失败可手动「重新连接」；修复 macOS 安装包构建（v1.3.6–1.3.8）。覆盖安装即可。",
-  "notes": "**EvoFlow v1.3.9 — 部门头像、记忆更省 token、连接更稳**\n\n部门与员工新增头像图库，指挥台和群聊一眼认人；长期记忆目录按类别分组、只列文件名，明显减少上下文占用；模型流式响应新增首帧超时保护，V4 连接失败可手动「重新连接」；修复 macOS 安装包构建（v1.3.6–1.3.8）。覆盖安装即可。",
-  "releasedAt": "",
-  "pub_date": ""
+  "size": 439982083,
+  "changelog": "**EvoFlow v1.3.9 — 部门头像、记忆更省 token、连接更稳**",
+  "notes": "**EvoFlow v1.3.9 — 部门头像、记忆更省 token、连接更稳**",
+  "releasedAt": "2026-11-07T11:29:01Z",
+  "pub_date": "2026-11-07T11:29:01Z"
 }
