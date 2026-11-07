@@ -240,6 +240,68 @@ function _paintDeptAvatar(el, baseUrl) {
   img.src = src
 }
 
+/** 部门头像预设目录（模块级缓存，部门管理 / 组织架构详情共用） */
+let _deptAvatarPresets = []
+let _deptAvatarPresetsLoading = null
+
+function loadDeptAvatarPresets() {
+  if (_deptAvatarPresets.length) return Promise.resolve(_deptAvatarPresets)
+  if (_deptAvatarPresetsLoading) return _deptAvatarPresetsLoading
+  _deptAvatarPresetsLoading = api
+    .proactiveListDeptAvatarPresets()
+    .then((rows) => {
+      _deptAvatarPresets = Array.isArray(rows) ? rows : []
+      return _deptAvatarPresets
+    })
+    .catch(() => [])
+    .finally(() => {
+      _deptAvatarPresetsLoading = null
+    })
+  return _deptAvatarPresetsLoading
+}
+
+/**
+ * 部门头像编辑器（部门管理 / 组织架构部门详情共用）。
+ * 只有真实部门（有数据库 id）才可改；`__none__` / `name:` 伪节点返回空串。
+ */
+function renderDeptAvatarEditor(dept) {
+  const id = String(dept?.id || '').trim()
+  const realId =
+    id && id !== '__none__' && !id.startsWith('name:') ? id : String(dept?.dept_id || '').trim()
+  if (!realId || realId === '__none__' || realId.startsWith('name:')) return ''
+  const cur = String(dept?.avatar || '').trim()
+  const open = _orgUi.deptAvatarPickerOpen === realId
+  const cards = _deptAvatarPresets
+    .map((p) => {
+      const pid = String(p?.id || '').trim()
+      if (!pid) return ''
+      const active = pid === cur
+      return `
+        <button type="button" class="dd-dept-avatar-opt${active ? ' is-active' : ''}" data-act="dept-avatar-pick" data-id="${esc(realId)}" data-preset="${esc(pid)}" role="option" aria-selected="${active ? 'true' : 'false'}" title="${esc(p.label || pid)}">
+          <span class="dd-org-avatar dd-dept-avatar-opt-img" data-dept-avatar="${esc(pid)}" data-dept-name="${esc(p.label || pid)}" data-dept-size="32" aria-hidden="true"></span>
+          <span class="dd-dept-avatar-opt-label">${esc(p.label || pid)}</span>
+        </button>`
+    })
+    .join('')
+  return `
+    <div class="dd-dept-avatar-editor">
+      <button type="button" class="btn btn-sm btn-outline" data-act="dept-avatar-toggle" data-id="${esc(realId)}" aria-expanded="${open ? 'true' : 'false'}">
+        ${open ? '收起头像选择' : '更换部门头像'}
+      </button>
+      ${_orgUi.deptAvatarErr ? `<span class="dd-dept-avatar-err">${esc(_orgUi.deptAvatarErr)}</span>` : ''}
+      ${
+        open
+          ? `<div class="dd-dept-avatar-grid" role="listbox" aria-label="选择部门头像">
+              ${
+                cards ||
+                `<span class="dd-dept-empty-members">${_deptAvatarPresetsLoading ? '加载中…' : '暂无头像预设'}</span>`
+              }
+            </div>`
+          : ''
+      }
+    </div>`
+}
+
 function mountProactiveDeptAvatars(root) {
   if (!root) return
   const els = root.querySelectorAll('[data-dept-avatar]')
@@ -300,6 +362,10 @@ let _orgUi = {
   departments: [],
   deptSelected: '',
   deptPickerQuery: '',
+  /** 部门头像选择器展开的部门 id（'' = 收起） */
+  deptAvatarPickerOpen: '',
+  /** 部门头像保存失败提示 */
+  deptAvatarErr: '',
   /** @type {Set<string>} */
   expanded: new Set(['__root__']),
 }
@@ -2091,6 +2157,14 @@ function renderOrgDeptDetail(deptNode, flatRoles) {
       </div>
       ${
         deptNode.dept_id && deptNode.dept_id !== '__none__' && !String(deptNode.dept_id).startsWith('name:')
+          ? `<div class="dd-org-section dd-org-section--dept-avatar">
+              <h4>部门头像</h4>
+              ${renderDeptAvatarEditor({ id: deptNode.dept_id, avatar: deptNode.avatar, name })}
+            </div>`
+          : ''
+      }
+      ${
+        deptNode.dept_id && deptNode.dept_id !== '__none__' && !String(deptNode.dept_id).startsWith('name:')
           ? `<div class="dd-org-detail-actions">
               <button type="button" class="btn btn-sm btn-outline" data-act="org-goto-dept-mgmt" data-dept-id="${esc(deptNode.dept_id)}">在部门管理中编辑</button>
             </div>`
@@ -2409,6 +2483,10 @@ function renderDepartmentsPanel(departments, roles) {
               </div>
             </div>
             <div class="dd-dept-block">
+              <h4 class="dd-dept-block-title">部门头像</h4>
+              ${renderDeptAvatarEditor(selected)}
+            </div>
+            <div class="dd-dept-block">
               <h4 class="dd-dept-block-title">部门负责人</h4>
               <label class="hire-field dd-dept-head-field">
                 <select class="hire-input" data-act="dept-head-select" data-id="${esc(selected.id)}">
@@ -2672,6 +2750,7 @@ async function loadAndRenderOrg(page, { keepSelection = true } = {}) {
     await refreshAgentsAvatarIndex()
     mountProactiveAvatars(container)
     mountProactiveDeptAvatars(container)
+    void loadDeptAvatarPresets()
     bindOrgPanel(page, container)
   } catch (e) {
     if (_currentTab === 'org' && container) {
@@ -2689,6 +2768,7 @@ function _rerenderOrg(page) {
       : renderOrgTree(_orgUi.forest, _orgUi.flat)
   void refreshAgentsAvatarIndex().then(() => mountProactiveAvatars(container))
   mountProactiveDeptAvatars(container)
+  void loadDeptAvatarPresets()
   bindOrgPanel(page, container)
 }
 
@@ -2818,6 +2898,36 @@ function bindOrgPanel(page, container) {
         toast(String(err?.message || err || '新建失败'), 'error')
       }
     })()
+  })
+  container.querySelector('[data-act="dept-avatar-toggle"]')?.addEventListener('click', (e) => {
+    const id = String(e.currentTarget?.getAttribute('data-id') || '').trim()
+    _orgUi.deptAvatarErr = ''
+    _orgUi.deptAvatarPickerOpen = _orgUi.deptAvatarPickerOpen === id ? '' : id
+    if (_orgUi.deptAvatarPickerOpen) {
+      void loadDeptAvatarPresets().then(() => {
+        if (_currentTab === 'org') _rerenderOrg(page)
+      })
+    }
+    _rerenderOrg(page)
+  })
+  container.querySelectorAll('[data-act="dept-avatar-pick"]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const id = String(btn.getAttribute('data-id') || '').trim()
+      const preset = String(btn.getAttribute('data-preset') || '').trim()
+      if (!id || !preset) return
+      void (async () => {
+        try {
+          await api.proactiveUpdateDepartment(id, { avatar: preset })
+          _orgUi.deptAvatarErr = ''
+          _orgUi.deptAvatarPickerOpen = ''
+          toast('部门头像已更新', 'success')
+          await loadAndRenderOrg(page)
+        } catch (err) {
+          _orgUi.deptAvatarErr = String(err?.message || err || '换头像失败')
+          _rerenderOrg(page)
+        }
+      })()
+    })
   })
   container.querySelector('[data-act="dept-rename"]')?.addEventListener('click', () => {
     const id = String(container.querySelector('[data-act="dept-rename"]')?.getAttribute('data-id') || '').trim()

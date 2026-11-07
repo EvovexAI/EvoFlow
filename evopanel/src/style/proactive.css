@@ -4505,6 +4505,54 @@ html.evopanel-macos-titlebar .pro-employee-page--nav-in-chrome {
   font-weight: 700;
   color: var(--text-secondary);
 }
+/* 部门头像选择器（部门管理 / 组织架构部门详情共用） */
+.dd-dept-avatar-editor {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+}
+.dd-dept-avatar-err {
+  font-size: 12px;
+  color: var(--danger, #dc2626);
+}
+.dd-dept-avatar-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(76px, 1fr));
+  gap: 8px;
+  width: 100%;
+}
+.dd-dept-avatar-opt {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 4px;
+  border-radius: 10px;
+  border: 1px solid var(--border-subtle, rgba(127, 127, 127, 0.25));
+  background: var(--bg-elevated, transparent);
+  color: var(--text-secondary);
+  font-size: 11px;
+  cursor: pointer;
+  min-width: 0;
+}
+.dd-dept-avatar-opt:hover {
+  border-color: var(--pro-teal, #14b8a6);
+}
+.dd-dept-avatar-opt.is-active {
+  border-color: var(--pro-teal, #14b8a6);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--pro-teal, #14b8a6) 25%, transparent);
+}
+.dd-dept-avatar-opt-label {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dd-dept-avatar-opt-img {
+  flex: none;
+}
 .dd-dept-member-grid {
   list-style: none;
   margin: 0;
