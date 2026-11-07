@@ -25332,6 +25332,25 @@ html.dark .evo-home-cmd__dept-node.is-path {
   background: color-mix(in srgb, var(--cmd-green, #22c55e) 8%, transparent);
 }
 
+/* 「上传图片」卡：虚线边框，表明可自定义 */
+.evo-home-cmd__dept-avatar-opt--upload {
+  border-style: dashed;
+}
+
+.evo-home-cmd__dept-avatar-upload-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  border: 1px dashed var(--cmd-border, rgba(15, 23, 42, 0.3));
+  background: var(--bg-secondary, rgba(15, 23, 42, 0.04));
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1;
+}
+
 .evo-home-cmd__dept-name {
   font-size: 14px;
   font-weight: 800;

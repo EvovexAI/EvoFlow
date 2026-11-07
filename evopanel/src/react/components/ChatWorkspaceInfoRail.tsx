@@ -1872,6 +1872,8 @@ export function DeptGroupPane({ sessionKey }: { sessionKey: string }) {
         {
           sessionKey: ownerSk || undefined,
           layout: 'wide',
+          // 用户点按钮：清收起锁，否则新会话默认折叠时签被无声创建、面板不展开
+          forceExpand: true,
         },
       )
     })
@@ -2082,7 +2084,7 @@ export function DeptGroupPane({ sessionKey }: { sessionKey: string }) {
                       agentCode: code,
                       layout: 'wide',
                     },
-                    { sessionKey: ownerSk || undefined, layout: 'wide' },
+                    { sessionKey: ownerSk || undefined, layout: 'wide', forceExpand: true },
                   )
                 }}
               >

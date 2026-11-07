@@ -4575,6 +4575,31 @@ html.evopanel-macos-titlebar .pro-employee-page--nav-in-chrome {
   border-radius: 7px;
   overflow: hidden;
 }
+/* 「上传图片」卡：与预设卡同尺寸，虚线边框表示可自定义 */
+.dd-dept-avatar-opt--upload {
+  border-style: dashed;
+}
+.dd-dept-avatar-editor .dd-dept-avatar-upload-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 28px;
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  min-height: 28px;
+  border-radius: 7px;
+  border: 1px dashed var(--border-subtle, rgba(127, 127, 127, 0.4));
+  background: var(--bg-muted, rgba(127, 127, 127, 0.08));
+  color: var(--text-secondary, #64748b);
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1;
+}
+.dd-dept-avatar-opt--upload:hover .dd-dept-avatar-upload-icon {
+  border-color: var(--pro-teal, #14b8a6);
+  color: var(--pro-teal, #14b8a6);
+}
 .dd-dept-member-grid {
   list-style: none;
   margin: 0;

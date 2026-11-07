@@ -680,6 +680,8 @@ export function HomeDeptGroupChat({
           {
             sessionKey: ownerSk || undefined,
             layout: 'wide',
+            // 用户点按钮：清收起锁，否则新会话默认折叠时签被无声创建、面板不展开
+            forceExpand: true,
           },
         )
       })
@@ -1360,7 +1362,7 @@ export function HomeDeptGroupChat({
       >
         {isMain ? (
           <header className="dept-im__head dept-im__head--dept">
-            <DeptAvatar avatar={dept.avatar} name={dept.name} size={36} title={dept.name} />
+            <DeptAvatar avatar={dept.avatar} deptId={dept.id} avatarRev={dept.avatar_rev} name={dept.name} size={36} title={dept.name} />
             <div className="dept-im__titles">
               <div className="dept-im__title-row">
                 <h3 className="dept-im__title">{dept.name}</h3>
@@ -1380,6 +1382,8 @@ export function HomeDeptGroupChat({
                 <div className="evo-home-cmd__detail-title-row">
                   <DeptAvatar
                     avatar={dept.avatar}
+                    deptId={dept.id}
+                    avatarRev={dept.avatar_rev}
                     name={dept.name}
                     size={36}
                     title={dept.name}

@@ -160,7 +160,7 @@ export function DeptGroupChatMain({ sessionKey, onClose }: DeptGroupChatMainProp
               agentCode,
               layout: 'wide',
             },
-            { sessionKey, layout: 'wide' },
+            { sessionKey, layout: 'wide', forceExpand: true },
           )
         }}
       />

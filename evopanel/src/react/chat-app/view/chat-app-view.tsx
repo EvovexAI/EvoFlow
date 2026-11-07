@@ -1608,6 +1608,8 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
                       {
                         sessionKey: String(selectedSessionKey || '').trim() || undefined,
                         layout: 'wide',
+                        // 用户从启动器点名：清收起锁，避免折叠态只写签不撑开
+                        forceExpand: true,
                       },
                     )
                   })
