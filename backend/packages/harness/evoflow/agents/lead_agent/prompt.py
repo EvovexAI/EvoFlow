@@ -2020,12 +2020,11 @@ def get_agent_affect_block(agent_name: str | None, *, principal_id: str = "") ->
     易变块靠后，避免打碎厂商前缀缓存。
     """
     try:
-        from evoflow.person_affect import AFFECT_DISCIPLINE_PROMPT
         from evoflow.person_kernel import format_affect_brief
 
         brief = format_affect_brief(agent_name, principal_id=principal_id)
         if brief:
-            return f"\n<affect>\n{brief}\n{AFFECT_DISCIPLINE_PROMPT.strip()}\n</affect>\n"
+            return f"\n<affect>\n{brief}\n</affect>\n"
     except Exception:
         logger.debug("get_agent_affect_block: inject skipped", exc_info=True)
     return ""

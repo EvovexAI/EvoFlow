@@ -15,7 +15,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-DEPT_GROUP_IM_OPEN = '<dept_group_im version="1">'
+DEPT_GROUP_IM_OPEN = '<dept_group_im version="2">'
 DEPT_GROUP_IM_CLOSE = "</dept_group_im>"
 
 _RE_DEPT_GROUP_IM = re.compile(
@@ -102,6 +102,9 @@ def build_dept_group_im_block(
                 "5. 【纯文本】群聊像微信：只输出普通文字。"
                 "禁止 Markdown（不要用 # 标题、* / ** 加粗斜体、` 代码、``` 代码块、| 表格、"
                 "- / 1. 清单符号装饰）。需要列举时用中文逗号或换行即可。",
+                "6. 回合结束前必须交代结果：活已在手边完成的，正文给出结果；"
+                "起了后台任务/工作流一时回不来的，正文报任务名并说明完成后系统会自动回执到群，"
+                "不要无声结束回合。",
                 DEPT_GROUP_IM_CLOSE,
             ]
         )
@@ -132,6 +135,9 @@ def build_dept_group_im_block(
         "5. 【纯文本】群聊像微信：只输出普通文字。"
         "禁止 Markdown（不要用 # 标题、* / ** 加粗斜体、` 代码、``` 代码块、| 表格、"
         "- / 1. 清单符号装饰）。需要列举时用中文逗号或换行即可。",
+        "6. 回合结束前必须交代结果：活已在手边完成的，正文给出结果；"
+        "起了后台任务/工作流一时回不来的，正文报任务名并说明完成后系统会自动回执到群，"
+        "不要无声结束回合。",
         DEPT_GROUP_IM_CLOSE,
     ]
     return "\n".join(lines)
