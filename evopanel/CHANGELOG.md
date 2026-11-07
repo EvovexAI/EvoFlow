@@ -6,6 +6,40 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.3.10] - 2026-11-08
+
+相对 **1.3.9**：会话目标模式（ZCode 式）指令与停止语义落地，模型失败（429 配额 / `model_error` / 合成 `RUN_ERROR`）不再被误判为运行成功；工作流新增发布前校验（未知依赖不再被静默清空、条件节点完整性检查）；部门与员工头像支持预设宫格与自定义上传；知识库 `search` 命中的 docId 可直接 `read`。
+GitHub Release 正文见 `scripts/maintainer/windows/release-notes/PRODUCT-NOTES-1.3.10.md`；升级横幅见 `scripts/maintainer/update/latest.json`。
+
+### 参与本次发版
+
+- 全栈开发工程师：目标模式收口与失败判定、工作流发布校验与条件节点检查、部门头像预设宫格、知识库 docId 归一化、员工资产读写一致性、会话切换诊断日志
+- 发版工程师：CI/CD 正式包发布
+
+### Added
+
+- **V4 目标模式**：goal engine 收口 + 前端「目标」指令与停止语义（补充指令、随时终止）
+- **工作流节点实时活动**：节点运行状态实时展示 + 子智能体详情浮层
+- **头像预设宫格**：部门 / 员工头像点击展开预设选择，支持上传自定义头像
+- **图片附件**：实时流提取用户图片附件，hydration 通道附件一致化
+
+### Changed
+
+- **apps 冷启动**：改短轮询，减少白屏等待
+- **记忆开关**：下沉到单个员工，管道调参收敛
+- **会话诊断日志**：切会话遮罩持有时长 / 时间线尾部行序 / 渲染层绑定状态（签名去重，流式不刷屏）
+- **知识检索**：docId 归一化后可直接 read；关键词库不再误报 degraded
+
+### Fixed
+
+- **目标模式失败判定**：`post_stream_ui_normalize` 扫描产出帧识别 `RUN_ERROR` 与 `model_error`，先标记失败再置位 run_end，goal engine 不再把模型失败当成功跳过校验
+- **工作流发布门禁**：`_sync_depends_on_from_canvas` 保留未知 `depends_on`（原被清空 → 节点变即刻可跑入口）；新增 Check 2b 条件节点完整性校验（缺 expression / 缺分支目标 / 分支指向不存在节点一律拒绝发布）
+- **工作流运行**：run 状态返回体去重、参数按声明传值、读路径走只读连接池
+- **员工资产**：消除读写分叉，修多词检索空结果与静默丢元数据；`rename` 同步 memory 笔记 title/summary
+- **右栏折叠**：点名员工 / 打开 shell 时强制展开，不被折叠锁拦住
+- **会话切换**：stale thread 重建提示 + inert 处理
+- **组织导入导出**：`autonomy_level` 枚举值序列化，导入兼容历史 repr 形式
+
 ## [1.3.9] - 2026-11-07
 
 相对 **1.3.8**：部门与员工新增头像图库；实体记忆 catalog 按类别分组、减少注入 token；流式首帧超时保护；V4 连接失败可手动重连；修复 macOS 安装包构建（v1.3.6–1.3.8 mac 构建失败）。
