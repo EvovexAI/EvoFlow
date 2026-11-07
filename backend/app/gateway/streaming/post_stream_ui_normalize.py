@@ -17,6 +17,7 @@ from app.gateway.routers.langgraph_proxy import (
     UI_SSE_ENABLED,
     _extract_evf_prior_assistant_from_stream_body,
     _extract_use_claude_code_from_stream_body,
+    _extract_user_attachments_from_stream_body,
     _extract_user_message_id_from_stream_body,
     _extract_user_text_from_stream_body,
 )
@@ -309,12 +310,14 @@ class PostStreamUiTransform:
             self.normalizer = AgUiStreamNormalizer(**norm_kwargs, run_id=self.run_id)
         if self.thread_id and self.stream_format == "agui":
             # v4 镜像：记录本轮用户输入，RUN_STARTED 时随 turnHeader 落 userInput 行。
+            # 图片附件（image_url 块）一并提取，用户气泡才能显示已发送的图。
             try:
                 from app.gateway.v4.agui_mirror import mirror_note_user_input
 
                 mirror_note_user_input(
                     self.thread_id,
                     str(norm_kwargs.get("user_input") or ""),
+                    attachments=_extract_user_attachments_from_stream_body(body),
                     message_id=_extract_user_message_id_from_stream_body(body) or None,
                 )
             except Exception:

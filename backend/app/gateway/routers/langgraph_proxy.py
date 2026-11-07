@@ -378,6 +378,71 @@ def _extract_user_message_id_from_stream_body(body: bytes) -> str:
     return ""
 
 
+# data: URL 附件单张封顶（≈2MB 二进制）：桌面 chatSend 把图片编码成 data: URL 块，
+# 正常压缩图 base64 后 ≈1.2MB；未压缩 GIF 等超大图跳过（与旧行为一致：不显示）。
+# 与 app/gateway/v4/hydration.py 的同名封顶保持一致——那里管回放，这里管实时。
+_USER_ATTACHMENT_DATA_URL_MAX_CHARS = 2_800_000
+# 每轮 data: 附件总预算（< logicalFrameAssemblyMaxBytes 16MB，留余量给其余行）。
+_USER_ATTACHMENT_DATA_URL_TOTAL_CHARS = 8_000_000
+
+
+def _attachment_ref_from_image_block(block: dict) -> dict | None:
+    """``image_url`` content block → V4 AttachmentRef。
+
+    ref 允许持久路径或 data: URL——前端 readAttachment 对 data:/http(s) ref
+    直接当 URL 用（本地路径走 convertFileSrc / serve-file）。
+    """
+    image = block.get("image_url")
+    url = ""
+    if isinstance(image, dict):
+        url = str(image.get("url") or "").strip()
+    elif isinstance(image, str):
+        url = image.strip()
+    if not url:
+        return None
+    if url.lower().startswith("data:"):
+        if len(url) > _USER_ATTACHMENT_DATA_URL_MAX_CHARS:
+            return None
+        header, _, _ = url.partition(",")
+        mime = header[5:].split(";", 1)[0].strip().lower()
+        if not mime.startswith("image/"):
+            mime = "image/png"
+        return {"ref": url, "fileName": "image", "mime": mime, "bytes": 0}
+    return {"ref": url, "fileName": "", "mime": "image/jpeg", "bytes": 0}
+
+
+def _extract_user_attachments_from_stream_body(body: bytes) -> list[dict]:
+    """最新一条 human 消息的 ``image_url`` 块 → V4 AttachmentRef 列表。
+
+    只看最新一条 human（与 _extract_user_text_from_stream_body 同语义），
+    防止把历史轮次的图重复挂到新 turn。data: URL 有单张 + 总量封顶。
+    """
+    out: list[dict] = []
+    seen: set[str] = set()
+    data_budget = _USER_ATTACHMENT_DATA_URL_TOTAL_CHARS
+    for m in reversed(_extract_messages_for_mission_bootstrap(body)):
+        role = str(m.get("role") or m.get("type") or "").strip().lower()
+        if role not in {"user", "human"}:
+            continue
+        content = m.get("content")
+        for block in content if isinstance(content, list) else []:
+            if not isinstance(block, dict):
+                continue
+            if str(block.get("type") or "").strip() != "image_url":
+                continue
+            ref = _attachment_ref_from_image_block(block)
+            if not ref or ref.get("ref") in seen:
+                continue
+            if str(ref.get("ref") or "").lower().startswith("data:"):
+                if len(ref["ref"]) > data_budget:
+                    continue
+                data_budget -= len(ref["ref"])
+            seen.add(ref["ref"])
+            out.append(ref)
+        break
+    return out[:16]
+
+
 def _extract_evf_prior_assistant_from_stream_body(body: bytes) -> tuple[str, str]:
     """UI 封存的上轮 assistant（停后继续），用于 Gateway 按 message_id 剥离重放。"""
     try:

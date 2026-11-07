@@ -158,8 +158,20 @@ def _attachments_from_user_payload(payload: Any) -> list[dict[str, Any]]:
             url = str(image.get("url") or "").strip()
         elif isinstance(image, str):
             url = image.strip()
-        # Only durable / serve-able local paths — skip data: URLs (too large for ref).
-        if url and not url.lower().startswith("data:"):
+        # data: URL（桌面 chatSend 的图片编码）：前端 readAttachment 对 data: ref
+        # 直接当 URL 用，因此不再跳过；仅尺寸封顶，防止未压缩大图撑爆 V4 帧。
+        # 封顶值与 app/gateway/routers/langgraph_proxy.py 的提取器保持一致。
+        if url and url.lower().startswith("data:"):
+            if len(url) <= 2_800_000:
+                header, _, _ = url.partition(",")
+                mime = header[5:].split(";", 1)[0].strip().lower()
+                _push(
+                    ref=url,
+                    file_name="image",
+                    mime=mime if mime.startswith("image/") else "image/png",
+                )
+            continue
+        if url:
             _push(ref=url, mime="image/jpeg")
 
     return out[:16]
