@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from evoflow.assets.pipeline_config import asset_startup_phase2_enabled
+from evoflow.assets.pipeline_config import entity_memory_enabled
 
 logger = logging.getLogger(__name__)
 
@@ -22,21 +22,18 @@ def scan_and_run_phase2_on_startup(
 ) -> dict[str, Any]:
     """Run Phase2 for every entity that has pending inbox files.
 
-    Safe to call from a background thread. Skips when Phase2 or this hook is off.
+    Safe to call from a background thread. Per-individual memory switch governs
+    each entity (``entity_memory_enabled``); the ``config.memory.enabled``
+    platform master is honored inside ``run_phase2_consolidate``.
 
     ``principal_id``: optional 操作人 (runtime identity). Empty for boot scan;
     Asset Center 「全库扫描」应传入当前登录用户.
     """
-    if not asset_startup_phase2_enabled():
-        return {"ok": False, "skipped": "disabled"}
     operator = str(principal_id or "").strip()
 
     from evoflow.assets.hub import list_entities
     from evoflow.assets.paths import EntityRef
-    from evoflow.assets.phase2 import asset_phase2_enabled, list_inbox_pending, run_phase2_consolidate
-
-    if not asset_phase2_enabled():
-        return {"ok": False, "skipped": "phase2_disabled"}
+    from evoflow.assets.phase2 import list_inbox_pending, run_phase2_consolidate
 
     try:
         payload = list_entities()
@@ -72,6 +69,11 @@ def scan_and_run_phase2_on_startup(
             ent = EntityRef(entity_type=et, entity_id=eid).normalized()
         except ValueError:
             continue
+        try:
+            if not entity_memory_enabled(ent):
+                continue
+        except Exception:
+            pass
         try:
             pending = list_inbox_pending(ent)
         except Exception:

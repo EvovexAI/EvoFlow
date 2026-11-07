@@ -466,6 +466,16 @@ def apply_proactive_submit_work(
     lesson_result: dict[str, Any] | None = None
     person_memory_result: dict[str, Any] | None = None
     craft_result: dict[str, Any] | None = None
+    # Per-individual memory switch: role off → no wrap-up reflection writes.
+    wrap_up_on = True
+    try:
+        from evoflow.agents.memory.runtime_overrides import role_memory_enabled_from_config
+
+        _wrap_up_role = ProactiveRepository.get_role(code)
+        if _wrap_up_role is not None:
+            wrap_up_on = role_memory_enabled_from_config(_wrap_up_role.config)
+    except Exception:
+        wrap_up_on = True
     if phase_s == "wrap_up":
         try:
             from evoflow.person_wrap_up_reflect import run_person_wrap_up_llm
@@ -481,7 +491,10 @@ def apply_proactive_submit_work(
                 statements.append(f"观察：{str(o)[:200]}")
             if incomplete:
                 statements.append("标记：本轮未完整收口（incomplete）")
-            if statements:
+            if statements and not wrap_up_on:
+                person_memory_result = {"ok": True, "skipped": True, "reason": "memory_disabled"}
+                craft_result = {"ok": True, "skipped": True, "reason": "memory_disabled"}
+            elif statements:
                 pk = run_person_wrap_up_llm(
                     code,
                     statements=statements,

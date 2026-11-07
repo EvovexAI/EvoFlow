@@ -174,18 +174,16 @@ class MemoryLiveFooterMiddleware(AgentMiddleware[AgentState]):
             )
         except Exception:
             profile_footer = ""
-        # Legacy pending_inbox only when async Phase1/2 pipeline is re-enabled.
+        # Per-individual pending inbox: the run-level memory gate above already
+        # resolved this agent's switch; inbox belongs to the same individual.
         pending_footer = ""
         try:
-            from evoflow.assets.pipeline_config import asset_async_memory_pipeline_enabled
+            from evoflow.assets.ad_hoc_note import format_live_pending_inbox_for_agent
 
-            if asset_async_memory_pipeline_enabled():
-                from evoflow.assets.ad_hoc_note import format_live_pending_inbox_for_agent
-
-                pending_footer = format_live_pending_inbox_for_agent(
-                    agent_name=agent_name,
-                    principal_id=principal_id,
-                ).strip()
+            pending_footer = format_live_pending_inbox_for_agent(
+                agent_name=agent_name,
+                principal_id=principal_id,
+            ).strip()
         except Exception:
             logger.debug("MemoryLiveFooter: pending inbox skipped", exc_info=True)
         live_bits = [b for b in (profile_footer, pending_footer) if b]

@@ -122,16 +122,8 @@ class MemoryMiddleware(AgentMiddleware[MemoryMiddlewareState]):
         if not config.enabled:
             return
 
-        # Default product path: agents write standing/episodic via ``assets note``.
-        # Skip debounce Phase1/2 queue unless async pipeline is explicitly re-enabled.
-        try:
-            from evoflow.assets.pipeline_config import asset_async_memory_pipeline_enabled
-
-            if not asset_async_memory_pipeline_enabled():
-                return
-        except Exception:
-            return
-
+        # Per-individual gate: queue Phase1/2 only when this run's memory is on
+        # (session pin → employee role switch → default True; no global asset switch).
         if not effective_memory_updates_enabled(runtime):
             return
 
