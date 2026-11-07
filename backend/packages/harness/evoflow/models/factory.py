@@ -282,6 +282,18 @@ def _is_anthropic_native(model_class: type) -> bool:
         return False
 
 
+def _model_supports_thinking(model_config) -> bool:
+    """``supports_thinking`` 声明的唯一解释权在这里。
+
+    声明为 false 的模型（尤其是走 OpenAI 兼容代理的 Claude / 非 thinking 模型）
+    对 ``thinking`` 参数是严格模式：厂商可能回 400
+    ``requires adaptive thinking or thinking.type=between_tools``，或
+    ``thinking.type 'disabled' is not supported by this model``。
+    这类模型一律 **omit** thinking 参数，让厂商默认策略生效。
+    """
+    return bool(getattr(model_config, "supports_thinking", False))
+
+
 def _effective_when_thinking_enabled(model_config) -> dict:
     effective_wte: dict = dict(model_config.when_thinking_enabled) if model_config.when_thinking_enabled else {}
     vendor_thinking = _thinking_vendor_kwargs(getattr(model_config, "thinking", None))
@@ -929,7 +941,14 @@ def create_chat_model(
     # Explicit off only when user/manual disabled — not for Auto (omit).
     # ``None`` = unspecified: omit thinking kwargs and let the vendor default apply,
     # so always-thinking models (e.g. GLM-5.3, which rejects explicit off) still work.
-    if thinking_enabled is False and thinking_type_norm != "auto":
+    # ``supports_thinking=false`` models: always omit. Hard-injecting
+    # ``thinking.type=disabled`` here is what 400'd Claude behind OpenAI-compatible
+    # proxies (``requires adaptive thinking or thinking.type=between_tools``):
+    # these models have no thinking knob to turn, so we send nothing at all.
+    omit_thinking_for_unsupported = not _model_supports_thinking(model_config)
+    if omit_thinking_for_unsupported and thinking_type_norm != "auto":
+        _omit_vendor_thinking_kwargs(model_settings_from_config, kwargs)
+    elif thinking_enabled is False and thinking_type_norm != "auto":
         if effective_wte.get("extra_body", {}).get("thinking", {}).get("type"):
             # OpenAI-compatible gateway: thinking is nested under extra_body
             kwargs.update({"extra_body": {"thinking": {"type": "disabled"}}})
@@ -1031,6 +1050,10 @@ def create_chat_model(
     _nest_openai_compat_thinking_kwargs(model_class, merged_kwargs)
     _sanitize_openai_compat_reasoning_effort(model_class, model_config, merged_kwargs)
     _clamp_openai_compat_max_tokens(model_class, model_config, merged_kwargs)
+    if omit_thinking_for_unsupported:
+        # 最后一道闸：前面各 vendor 规整函数可能又补回 thinking / reasoning，
+        # 对 supports_thinking=false 的模型必须一个都不留（见 _model_supports_thinking）。
+        _omit_vendor_thinking_kwargs(merged_kwargs, {})
     sanitize_model_connection_settings(merged_kwargs)
     stress_vendor_base = os.environ.get("EVOFLOW_STRESS_VENDOR_BASE_URL", "").strip()
     if stress_vendor_base and issubclass(model_class, ChatOpenAI):
@@ -1084,6 +1107,7 @@ def create_chat_model(
         setattr(model_instance, "_evoflow_vendor", vendor)
         setattr(model_instance, "_evoflow_invocation_kind", ik)
         setattr(model_instance, "_evoflow_thinking_enabled", evoflow_thinking_enabled)
+        setattr(model_instance, "_evoflow_supports_thinking", _model_supports_thinking(model_config))
         setattr(model_instance, "_evoflow_reasoning_effort", evoflow_reasoning_effort)
         setattr(model_instance, "_evoflow_thinking_type", evoflow_thinking_type)
         if evoflow_session_mode:

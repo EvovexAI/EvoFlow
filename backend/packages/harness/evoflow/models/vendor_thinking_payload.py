@@ -182,6 +182,16 @@ def _apply_openai_compat_thinking_payload(payload: dict[str, Any]) -> dict[str, 
     return payload
 
 
+def _runtime_supports_thinking(model_instance: Any | None) -> bool:
+    """``supports_thinking=false`` 的模型不得收到任何 thinking 参数（omit）。
+
+    未标注该属性的老实例按「支持」处理，避免误杀历来靠显式禁用生效的厂商。
+    """
+    if model_instance is None:
+        return True
+    return bool(getattr(model_instance, "_evoflow_supports_thinking", True))
+
+
 def apply_vendor_thinking_request_payload(
     payload: dict[str, Any],
     *,
@@ -189,6 +199,25 @@ def apply_vendor_thinking_request_payload(
     model_instance: Any | None = None,
 ) -> dict[str, Any]:
     """Apply vendor-native thinking parameters to the outgoing chat payload."""
+    # 模型自身声明不支持 thinking → 一个 thinking 参数都不发。
+    # 走 OpenAI 兼容代理的 Claude 等严格模式厂商会直接 400 拒绝
+    # ``thinking.type=disabled``（它只认 adaptive / between_tools / omit）。
+    if not _runtime_supports_thinking(model_instance):
+        payload.pop("thinking", None)
+        payload.pop("reasoning", None)
+        payload.pop("reasoning_effort", None)
+        extra = payload.get("extra_body")
+        if isinstance(extra, dict):
+            extra = {
+                k: v
+                for k, v in extra.items()
+                if k not in ("thinking", "reasoning", "reasoning_effort", "enable_thinking", "thinking_budget", "thinkingBudget")
+            }
+            if extra:
+                payload["extra_body"] = extra
+            else:
+                payload.pop("extra_body", None)
+        return payload
     runtime_thinking = getattr(model_instance, "_evoflow_thinking_enabled", None) if model_instance is not None else None
     if runtime_thinking is None:
         # Unspecified runtime thinking: leave the payload untouched so the vendor
