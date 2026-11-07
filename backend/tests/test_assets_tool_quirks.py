@@ -286,6 +286,31 @@ def test_standing_note_does_not_create_new_sections(asset_home: Path, employee_r
     assert all("版本号" not in h for h in headings), standing
 
 
+def test_note_body_with_own_h1_is_not_printed_twice(asset_home: Path) -> None:
+    """write_episode/write_journal prepended ``# {heading}`` even though the
+    heading was derived from that very line — every note got its title twice."""
+    rt = _runtime()
+    for kind in ("process", "reflection"):
+        out = _call(rt, action="note", kind=kind, content="# 只该出现一次的标题\n\n正文。")
+        assert out.get("ok") is True, out
+        text = _call(rt, action="read", path=str(out.get("path") or ""))["content"]
+        h1 = [ln for ln in text.splitlines() if ln.startswith("# ")]
+        assert len(h1) == 1, (kind, out.get("path"), h1)
+
+
+def test_rename_reports_which_frontmatter_keys_moved(asset_home: Path) -> None:
+    """Journal notes have no ``name:`` — claiming "name 已同步" made a correct
+    result look wrong. Report the keys that actually changed."""
+    rt = _runtime()
+    created = _call(rt, action="note", kind="reflection", content="# 键名回报验证\n\n正文。")
+    rel = str(created.get("path") or "").replace("\\", "/")
+    out = _call(rt, action="rename", path=rel, content="键名回报改名后")
+    assert out.get("ok") is True, out
+    assert "title" in (out.get("syncedKeys") or []), out
+    assert "name" not in (out.get("syncedKeys") or []), out
+    assert "frontmatter 的 title" in out["hint"], out["hint"]
+
+
 def test_rename_syncs_machine_generated_title(asset_home: Path) -> None:
     """Journal/episodic notes carry ``title:`` (not ``name:``) and the catalog
     prefers it over the body H1 — renaming left the OLD label under the new file."""

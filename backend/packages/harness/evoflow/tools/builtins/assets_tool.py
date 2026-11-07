@@ -608,6 +608,7 @@ def assets_tool(
             except Exception:
                 logger.debug("assets rename: standing invalidate skipped", exc_info=True)
             synced = bool(data.get("frontmatterSynced"))
+            keys = data.get("syncedKeys") or (["name"] if synced else [])
             return json.dumps(
                 {
                     "ok": True,
@@ -616,9 +617,10 @@ def assets_tool(
                     "newPath": data.get("newPath"),
                     "renamed": bool(data.get("renamed")),
                     "frontmatterSynced": synced,
+                    "syncedKeys": keys,
                     "hint": (
                         (
-                            f"已重命名为 {data.get('newPath')}，frontmatter name 已同步。"
+                            f"已重命名为 {data.get('newPath')}，frontmatter 的 {'/'.join(keys)} 已同步。"
                             if synced
                             else f"已重命名为 {data.get('newPath')}。"
                         )

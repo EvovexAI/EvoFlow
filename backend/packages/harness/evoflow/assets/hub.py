@@ -655,7 +655,10 @@ def write_episode(
         rel = _unique_rel_name(entity, "memory/episodic", slug)
     created = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     e = entity.normalized()
-    md = f"---\ntitle: {heading}\nsummary: {one_liner}\ndate: {day}\nentity: {e.entity_type}\nentity_id: {e.entity_id}\ncreated_at: {created}\n---\n\n# {heading}\n\n{body}\n"
+    # Models routinely write their own ``# 标题`` first line, and ``heading`` was
+    # derived from it — prepending the template H1 printed the title twice.
+    content = body if body.lstrip().startswith("#") else f"# {heading}\n\n{body}"
+    md = f"---\ntitle: {heading}\nsummary: {one_liner}\ndate: {day}\nentity: {e.entity_type}\nentity_id: {e.entity_id}\ncreated_at: {created}\n---\n\n{content}\n"
     data = write_text_file(entity, rel, md)
     return {**data, "updated": updated}
 
@@ -735,11 +738,12 @@ def write_journal(
             merged = raw.rstrip() + f"\n\n## {stamp}\n\n{body}\n"
             text = _with_frontmatter(merged)
             updated = True
-        elif existing:
-            text = _with_frontmatter(body if body.lstrip().startswith("#") else f"# {heading}\n\n{body}\n")
-            updated = True
         else:
-            text = _with_frontmatter(f"# {heading}\n\n{body}\n")
+            # Same double-H1 trap as write_episode: ``heading`` is usually taken
+            # from the body's own first line, so prepending it printed the title
+            # twice. _with_frontmatter already adds one only when missing.
+            text = _with_frontmatter(body)
+            updated = bool(existing)
         atomic_write_text(target, text)
     data = read_text_file(e, rel)
     return {**data, "updated": updated}
@@ -882,7 +886,7 @@ def rename_text_file(entity: EntityRef, rel_path: str, new_name: str) -> dict[st
     old_stem = target.stem
     with lock_for(target):
         target.rename(dest)
-    synced = _sync_frontmatter_name(dest, old_stem)
+    synced, synced_keys = _sync_frontmatter_name(dest, old_stem)
     new_rel = dest.relative_to(entity_root(e)).as_posix()
     result = {
         "ok": True,
@@ -892,9 +896,12 @@ def rename_text_file(entity: EntityRef, rel_path: str, new_name: str) -> dict[st
         "newPath": new_rel,
         "renamed": True,
         "frontmatterSynced": synced,
+        "syncedKeys": list(synced_keys),
     }
     if synced:
-        result["hint"] = f"已重命名为 {new_rel}，frontmatter 的 name 已同步为新文件名。"
+        result["hint"] = (
+            f"已重命名为 {new_rel}，frontmatter 的 {'/'.join(synced_keys)} 已同步为新文件名。"
+        )
     return result
 
 
@@ -911,21 +918,25 @@ def _sync_frontmatter_name(path: Path, old_stem: str = "") -> bool:
     their value *was* the old stem. ``title`` only when it slug-matches the old
     stem (i.e. machine-generated from it) — a hand-written Chinese title is the
     author's and must survive a rename.
-    Returns whether anything was rewritten.
+    Returns ``(changed, synced_keys)`` — the keys are reported back so the hint
+    can name what actually moved (saying "name 已同步" on a journal note, which
+    has no ``name:`` at all, made the result look wrong even when it was right).
     """
     try:
         text = path.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError):
-        return False
+        return False, ()
     if not text.startswith("---"):
-        return False
+        return False, ()
     parts = text.split("---", 2)
     if len(parts) < 3:
-        return False
+        return False, ()
     head, body = parts[1], parts[2]
     new_head = head
+    synced: list[str] = []
     if re.search(r"(?m)^name\s*:", new_head):
         new_head = re.sub(r"(?m)^name\s*:.*$", f"name: {path.stem}", new_head, count=1)
+        synced.append("name")
     title_m = re.search(r"(?m)^title\s*:\s*(.+?)\s*$", new_head)
     if title_m:
         old_title = title_m.group(1).strip().strip("'\"")
@@ -934,16 +945,20 @@ def _sync_frontmatter_name(path: Path, old_stem: str = "") -> bool:
         # slug, so compare on the slug form and ignore case.
         if old_title and comparable and _slug_cjk(old_title).lower() == comparable:
             new_head = re.sub(r"(?m)^title\s*:.*$", f"title: {path.stem}", new_head, count=1)
+            synced.append("title")
     if old_stem and old_stem != path.stem:
         for key in ("description", "summary"):
-            new_head = re.sub(
+            replaced = re.sub(
                 rf'(?m)^{key}\s*:\s*["\']?{re.escape(old_stem)}["\']?\s*$',
                 f"{key}: {path.stem}",
                 new_head,
                 count=1,
             )
+            if replaced != new_head:
+                new_head = replaced
+                synced.append(key)
     if new_head == head:
-        return False
+        return False, ()
     with lock_for(path):
         atomic_write_text(path, f"---{new_head}---{body}")
-    return True
+    return True, tuple(synced)
