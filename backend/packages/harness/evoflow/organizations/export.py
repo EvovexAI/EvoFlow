@@ -84,7 +84,13 @@ def _employee_to_json(code: str) -> dict[str, Any]:
             "workspace_path": getattr(cfg, "workspace_path", "") or "${ORG_WORKSPACE}",
             "knowledge_vault_ids": list(getattr(cfg, "knowledge_vault_ids", None) or []),
             "skills": list(getattr(cfg, "skills", None) or []),
-            "autonomy_level": str(getattr(cfg, "autonomy_level", "") or "approval_for_risky"),
+            # str-Enum 必须取 .value —— 直接 str() 会得到 "ProactiveAutonomyLevel.APPROVAL_FOR_ALL"
+            # 这类 repr 形式，导入侧 _parse_autonomy 会拒绝。
+            "autonomy_level": str(
+                getattr(getattr(cfg, "autonomy_level", None), "value", None)
+                or getattr(cfg, "autonomy_level", None)
+                or "approval_for_risky"
+            ),
             "responsibilities": list(getattr(cfg, "responsibilities", None) or []),
             "max_turns": int(getattr(cfg, "max_turns", 10) or 10),
             "timeout_seconds": int(getattr(cfg, "timeout_seconds", 0) or 0),
